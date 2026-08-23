@@ -517,6 +517,73 @@ son INTERACTION avec un effet déjà en vol. Un banc de 4a ne pouvait pas le voi
 > mesure sans agir n'est pas un progrès partiel : c'est une source de données
 > fausses qui se présentent comme vraies.
 
+#### 2 tritrigies bis — L'autre forme du demi-câblage : le SETTER que personne n'appelle
+
+Le premier demi-câblage livrait une moitié qui MENTAIT. Celui-ci en livrait une
+qui ne faisait RIEN, et c'est plus difficile à voir.
+
+`HiveNodeClient.setOutilsConstates()` avait tout ce qu'un câblage demande : un
+champ de protocole (`RegisterMsg.outils`), un validateur qui le reconstruit
+champ par champ, dix bancs sur ce validateur, et sa propre méthode publique.
+Une seule chose manquait : **personne ne l'appelait**. `grep -rn
+"setOutilsConstates" src/ tests/` rendait exactement une ligne — sa définition.
+
+Le nœud savait donc constater ses outils, le message savait les porter, le
+protocole savait les refuser mal formés — et le tableau de bord affichait une
+ruche sans outils sur des machines qui en portaient quatre.
+
+Ce qui rend cette forme-là traître, c'est que **toutes les moitiés sont vertes**.
+Le banc du validateur passe : il lui donne des constats à la main. Le banc du
+client passe : il appelle le setter lui-même. Chacun prouve sa moitié, et la
+somme des deux ne prouve pas le fil.
+
+> **Règle** — un point d'entrée public sans appelant est un point d'entrée MORT.
+> Avant de clore un lot qui en ajoute un, faire le `grep` : s'il ne rend que sa
+> définition, le lot n'est pas fini, quel que soit le vert de ses bancs.
+>
+> **Règle** — un banc de bout en bout qui APPELLE lui-même le geste qu'il
+> prétend vérifier ne vérifie que la moitié aval. Celui de ce lot monte un vrai
+> hub et un vrai nœud, et resterait vert si `main.ts` cessait d'appeler le
+> setter. Il lui faut donc un compagnon qui regarde l'APPELANT — ici une
+> sentinelle de source, qui tient que l'appel existe et qu'il précède
+> `client.start()` (le register part à la première connexion : posé après, il
+> serait arrivé au deuxième essai, c'est-à-dire jamais).
+>
+> Lire la source est un aveu, pas une élégance : c'est ce qu'on fait quand
+> lancer le vrai chemin est hors de portée du banc — ici `main.ts` refuse de
+> démarrer sans agent de production sur le poste. Le dire dans le fichier vaut
+> mieux que laisser croire à une preuve.
+
+### 2 quattuortrigies bis — Un banc qui rougit contre du code JUSTE, parce que la langue s'est résolue avant lui
+
+Sept assertions françaises rouges sur un écran parfaitement correct :
+
+```
+expected '· outil-de-demain — ready · the hive knows nothing about this tool'
+  to contain 'ne sait rien de cet outil'
+```
+
+`dashboard/src/i18n.ts` résout la langue **à l'import du module** :
+
+```ts
+let current: UiLang = detectInitial(); // localStorage, sinon navigator.language
+```
+
+Le banc vidait bien `localStorage` dans son `beforeEach` — mais le module était
+importé depuis longtemps, et happy-dom annonce un navigateur anglophone. La
+préférence n'était donc jamais relue.
+
+Le piège n'est pas le rouge : c'est ce qu'on est tenté d'en faire. Un rouge qui
+accuse le code alors qu'il accuse le banc pousse à « corriger » du code juste,
+et c'est ainsi qu'une chaîne bilingue se retrouve figée dans une langue.
+
+> **Règle** — un banc de rendu qui affirme une chaîne TRADUITE doit ÉPINGLER la
+> langue (`setLang('fr')`), jamais l'hériter. Et tant qu'à l'épingler : la
+> basculer aussi dans l'autre sens dans un banc jumeau. Un composant qui passe
+> la langue à deux fonctions distinctes — ici l'état de la machine et le niveau
+> de la ruche — peut parfaitement n'en traduire qu'une, et aucun banc
+> francophone ne verrait la demi-ligne restée en anglais.
+
 ### 2 duotrigies — Restreindre une liste EN AMONT d'un départage ne se teste que si le départage a de quoi trancher AUTREMENT
 
 En câblant l'Aiguillage dans l'ordonnanceur, j'ai restreint les candidats au

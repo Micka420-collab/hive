@@ -8100,6 +8100,13 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
               // Déjà validée par le protocole (isModeleList) — liste bornée, noms
               // non vides ; mal formée, tout le register a été refusé en amont.
               ...(msg.modeles !== undefined ? { modeles: msg.modeles } : {}),
+              // Les constats d'outils, même régime : `estOutilsConstates` les a
+              // déjà bornés et RECONSTRUITS champ par champ, donc rien d'autre
+              // que `agent`/`binaire`/`cle` n'arrive ici. Le hub les RANGE ; il
+              // n'en tire aucune conclusion — croiser un constat avec ce que la
+              // ruche sait faire est le travail de `outils-du-noeud.ts`, à
+              // l'affichage.
+              ...(msg.outils !== undefined ? { outils: msg.outils } : {}),
             });
             nodeId = node.id;
             const previous = nodeSockets.get(node.id);

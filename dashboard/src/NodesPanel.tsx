@@ -20,6 +20,8 @@ import { fetchChambre, fetchWaggle } from './api';
 import type { NodeNectar } from './api';
 import { useLang, useT } from './i18n';
 import { libelleAgent } from '../../src/shared/agent-libelle';
+import { direNiveau } from '../../src/shared/catalogue-outils';
+import { combienPilotables, direOutil, outilsDuNoeud } from '../../src/shared/outils-du-noeud';
 import { activateProps, ProgressBar, STATUS_ICON, useDialog, Voile } from './ui';
 import { useBaptemes } from './useBaptemes';
 
@@ -159,6 +161,62 @@ function FicheOuvriere({
               </span>
             )}
           </p>
+        )}
+
+        {/* ─── SES OUTILS IA ────────────────────────────────────────────
+         *
+         * Le nœud a CONSTATÉ ce que porte sa machine ; le catalogue dit
+         * jusqu'où la ruche va avec chacun. On affiche les DEUX, parce que
+         * l'un sans l'autre ment :
+         *
+         *   · « Windsurf ✓ » seul laisse croire qu'il travaille pour la ruche ;
+         *   · « Windsurf : détecté seulement » seul laisse croire qu'il n'est
+         *     pas installé.
+         *
+         * `outils` ABSENT n'est pas une liste vide : c'est un nœud d'avant
+         * cette version, qui n'a jamais rien déclaré. On le DIT, au lieu de
+         * dessiner une machine nue qui ne l'est pas.
+         */}
+        <h3 className="fo-sous-titre">
+          {t('Ses outils IA', 'Their AI tools')}{' '}
+          {noeud.outils !== undefined && (
+            <span className="panel-count" data-testid="fo-outils-compte">
+              {combienPilotables(outilsDuNoeud(noeud.outils))}{' '}
+              {t('pilotable(s) par la ruche', 'drivable by the hive')}
+            </span>
+          )}
+        </h3>
+        {noeud.outils === undefined ? (
+          <p className="muted-text" data-testid="fo-outils-inconnus">
+            {t(
+              'Ce nœud n’a rien déclaré — il tourne une version antérieure. La ruche ne sait donc pas ce que sa machine porte.',
+              'This node declared nothing — it runs an older version. The hive therefore does not know what its machine carries.',
+            )}
+          </p>
+        ) : (
+          <ul className="queue fo-outils" data-testid="fo-outils">
+            {outilsDuNoeud(noeud.outils).map((o) => (
+              <li
+                key={o.id}
+                className={o.pilotable ? 'fo-outil fo-outil-pilotable' : 'fo-outil'}
+                data-testid={`fo-outil-${o.id}`}
+              >
+                <span aria-hidden="true">{o.pilotable ? '✦' : '·'}</span> {o.nom}
+                <span className="fo-outil-etat">
+                  {' '}
+                  — {direOutil(o, lang === 'en' ? 'en' : 'fr')}
+                </span>
+                <span className="fo-outil-niveau muted-text">
+                  {' · '}
+                  {t('la ruche', 'the hive')}{' '}
+                  {o.niveau === null
+                    ? t('ne sait rien de cet outil', 'knows nothing about this tool')
+                    : direNiveau(o.niveau, lang === 'en' ? 'en' : 'fr')}
+                </span>
+                {o.limite !== null && <span className="fo-outil-limite"> ({o.limite})</span>}
+              </li>
+            ))}
+          </ul>
         )}
 
         <h3 className="fo-sous-titre">

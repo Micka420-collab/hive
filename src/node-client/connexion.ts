@@ -27,6 +27,7 @@ import {
 import { estAgentSimule } from '../shared/agent-production.js';
 import { juger, type EtatAgent, type EtatCle } from '../shared/connexion-agent.js';
 import { libelleAgent } from '../shared/agent-libelle.js';
+import type { OutilConstate } from '../shared/protocol.js';
 
 /** Les agents qu'on interroge. `shell` et `custom` n'ont ni binaire à installer
  *  ni clé à porter : les inclure ne produirait que du bruit. */
@@ -128,4 +129,21 @@ export function conseilDemarrage(
 /** Un agent réel est-il utilisable MAINTENANT sur ce poste ? */
 export function unAgentEstPret(etats: readonly EtatAgent[]): boolean {
   return etats.some((e) => e.verdict === 'pret' && !estAgentSimule(e.agent));
+}
+
+/**
+ * Les constats à envoyer au hub à l'inscription.
+ *
+ * On ne transmet que ce que le nœud a CONSTATÉ : le binaire est-il là, la clé
+ * est-elle lisible. Ni le verdict, ni la commande d'installation, ni le
+ * `poseAutomatique` ne partent — ce sont des CONCLUSIONS, et une conclusion
+ * transportée est une conclusion qui dérive : le jour où la règle change d'un
+ * côté, l'autre continue d'afficher l'ancienne.
+ *
+ * Le hub rejuge donc à partir des mêmes constats, avec la MÊME fonction
+ * (`juger`, dans le module pur partagé). C'est aussi ce que le validateur du
+ * protocole impose : il reconstruit ces trois champs et refuse le reste.
+ */
+export function constatsPourLeHub(etats: readonly EtatAgent[]): OutilConstate[] {
+  return etats.map((e) => ({ agent: e.agent, binaire: e.binaire, cle: e.cle }));
 }

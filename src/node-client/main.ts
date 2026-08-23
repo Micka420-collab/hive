@@ -10,7 +10,7 @@ import type { AgentType } from './agent-detect.js';
 import { resoudreAgentAuDemarrage } from './choisir-agent.js';
 import { libelleAgent } from '../shared/agent-libelle.js';
 import { demarrageNoeudAutorise, messageRefusShellProduction } from '../shared/agent-production.js';
-import { conseilDemarrage, diagnostiquerAgents } from './connexion.js';
+import { conseilDemarrage, constatsPourLeHub, diagnostiquerAgents } from './connexion.js';
 import { HiveNodeClient } from './client.js';
 import { optionBac, preparerBac } from './bac.js';
 import { parseModeles } from './modeles.js';
@@ -93,6 +93,12 @@ const detecte = await resoudreAgentAuDemarrage({
 const agentType: AgentType = detecte.agent;
 const tousAgents = await detectAllAgents();
 
+// Le diagnostic croisé, fait UNE fois : il sonde le PATH et l'environnement,
+// et deux sondages successifs coûteraient deux fois pour la même réponse. Il
+// sert ensuite à deux choses très différentes — le conseil au refus juste en
+// dessous, et le constat envoyé au hub à l'inscription.
+const etatsOutils = await diagnostiquerAgents();
+
 if (!demarrageNoeudAutorise(agentType)) {
   console.error(`✘ ${messageRefusShellProduction('fr')}\n`);
   // Le message ci-dessus est le même pour tout le monde. Or les postes ne sont
@@ -105,7 +111,7 @@ if (!demarrageNoeudAutorise(agentType)) {
   // conseil — installer une ligne de commande sans identifiants donne un agent
   // qui refuse de travailler, et l'utilisateur aurait suivi le conseil pour
   // rien.
-  const conseil = conseilDemarrage(await diagnostiquerAgents());
+  const conseil = conseilDemarrage(etatsOutils);
   if (conseil) console.error(`${conseil}\n`);
   process.exit(2);
 }
@@ -149,6 +155,19 @@ const client = new HiveNodeClient({
   ...(modelesDeclares ? { modeles: modelesDeclares } : {}),
   ...optionBac(bac, variables),
 });
+
+// ─── CE QUE LE NŒUD A VU, LE HUB DOIT L'APPRENDRE ───────────────────────────
+//
+// `setOutilsConstates` existait déjà, avec son champ de protocole, son
+// validateur et ses bancs — et PERSONNE ne l'appelait. Un demi-câblage : le
+// message savait porter les constats, le nœud n'en mettait jamais dedans, et
+// le tableau de bord affichait donc une ruche sans outils sur des machines qui
+// en portaient quatre.
+//
+// L'appel se fait AVANT `start()` : le register part à la première connexion,
+// et des constats posés après seraient arrivés au deuxième essai — c'est-à-dire
+// jamais, sur un réseau qui marche.
+client.setOutilsConstates(constatsPourLeHub(etatsOutils));
 
 client.start();
 console.log('🐝 Nœud Hive démarré — Ctrl+C pour quitter la ruche.');
