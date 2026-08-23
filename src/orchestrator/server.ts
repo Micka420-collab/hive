@@ -21,7 +21,6 @@ import {
   verifyJwt,
   isValidEmail,
   secretJwtDepuisEnv,
-  LONGUEUR_MIN_SECRET_JWT,
 } from './auth.js';
 import { shellForce } from '../shared/agent-production.js';
 import { calibrer, estimerDuree, resteEstime } from '../shared/horloge-chantier.js';
@@ -94,7 +93,8 @@ import {
 } from '../shared/partage.js';
 import { isValidRepoUrl, LIMITS, octetsDe, parseClientMessage } from '../shared/protocol.js';
 import type { ChantierResultMsg, MergeResultMsg, ServerMessage } from '../shared/protocol.js';
-import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from '../shared/types.js';
+import { direManques, manquesDeDemarrage } from '../shared/amorce.js';
+import { DEFAULT_TOKEN } from '../shared/types.js';
 import type { HiveEvent, Project, Task } from '../shared/types.js';
 import { CORPUS_BALANCE, estimerCout, peserLaRuche, VERSION_BALANCE } from './balance.js';
 import type { CompteTache, Devis, Pesee } from './balance.js';
@@ -688,32 +688,22 @@ export interface HiveServer {
 
 export async function createServer(config: ServerConfig): Promise<HiveServer> {
   // ─── Garde-fous de sécurité, avant toute écoute réseau ─────────────────────
-  if (
-    !config.simulation &&
-    (config.token === DEFAULT_TOKEN || config.token.length < MIN_TOKEN_LENGTH)
-  ) {
-    throw new Error(
-      `HIVE_TOKEN trivial refusé : définissez un token d'au moins ${MIN_TOKEN_LENGTH} caractères, ` +
-        'ou activez HIVE_SIMULATION=1 pour une démo strictement locale.',
-    );
-  }
-  if (config.corsOrigins.length === 0 || config.corsOrigins.includes('*')) {
-    throw new Error(
-      'HIVE_CORS_ORIGIN doit lister explicitement les origines autorisées (jamais "*").',
-    );
-  }
-  // Le secret des sessions. Sans lui, les jetons seraient signés avec une clé
-  // que tout le monde peut lire, et se forger la session de l'administrateur
-  // deviendrait un exercice de cinq lignes. Voir auth.ts pour l'histoire.
-  if (!config.simulation && secretJwtDepuisEnv() === '') {
-    throw new Error(
-      `HIVE_JWT_SECRET manquant, trop court (${LONGUEUR_MIN_SECRET_JWT} caractères minimum) ou laissé ` +
-        'à l’ancienne valeur publiée : donnez à votre ruche un secret de session qui n’appartienne qu’à elle — ' +
-        "node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\" — " +
-        'ou activez HIVE_SIMULATION=1 pour une démo strictement locale. ' +
-        '« npm run install:hive » le pose pour vous.',
-    );
-  }
+  //
+  // TOUS EN UNE PASSE. Ces trois gardes levaient l'une après l'autre : l'hôte
+  // corrigeait, relançait, découvrait la suivante, corrigeait, relançait. Trois
+  // démarrages là où un seul suffit — et quelqu'un qui installe pendant que son
+  // collègue attend abandonne au deuxième aller-retour. Mesuré en jouant le
+  // parcours, pas supposé.
+  //
+  // Le tri et la rédaction vivent dans `amorce.ts`, pur : on peut donc éprouver
+  // « qu'est-ce qui manque » sans démarrer un serveur.
+  const manques = manquesDeDemarrage({
+    simulation: config.simulation,
+    token: config.token,
+    corsOrigins: config.corsOrigins,
+    secretJwt: secretJwtDepuisEnv(),
+  });
+  if (manques.length > 0) throw new Error(`\n${direManques(manques)}\n`);
 
   const edition = config.edition ?? 'community';
   const secretWebhookDemarrage = process.env.HIVE_WEBHOOK_SECRET ?? '';
