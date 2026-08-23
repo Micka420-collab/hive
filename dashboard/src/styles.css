@@ -2761,3 +2761,8 @@ button.mc-cell:focus-visible {
   background: color-mix(in srgb, var(--amber, #9a6b16) 10%, var(--panel));
   border: 1px solid color-mix(in srgb, var(--amber, #9a6b16) 40%, var(--border));
 }
+
+/* La note de l'horloge tient en un mot quand elle n'a pas de pourcentage. */
+.tile-value-mot {
+  font-variant-numeric: tabular-nums;
+}

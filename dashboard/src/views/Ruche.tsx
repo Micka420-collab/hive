@@ -1,12 +1,13 @@
 // Vue Ruche (vue d'ensemble) : le cockpit — KPIs, Swarm View 2D/3D, rayon de
 // miel du projet courant, file d'attente et journal condensé.
 
-import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { AutonomiePulse } from '../AutonomiePulse';
 import { useT } from '../i18n';
 import { Journal } from '../Journal';
 import { NodesPanel } from '../NodesPanel';
 import { StatTiles } from '../StatTiles';
+import { calibrationDepuisEvenements } from '../horloge-vue';
 import { SwarmView } from '../SwarmView';
 import { activateProps, StatusBadge } from '../ui';
 import { Honeycomb } from './shared';
@@ -33,6 +34,10 @@ export default function Ruche({
     setMode(m);
     localStorage.setItem('hive.view', m);
   };
+
+  // La note que l'horloge s'est donnée, repliée du journal déjà reçu — comme le
+  // reste de l'horloge, elle vient du flux et non d'une route.
+  const note = useMemo(() => calibrationDepuisEvenements(events), [events]);
 
   // Débit : tâches terminées dans les 60 dernières secondes (depuis le journal).
   const doneTimes = useRef<number[]>([]);
@@ -84,7 +89,7 @@ export default function Ruche({
       {!vide && (
         <>
           <div className="mc-ruche-stats card">
-            <StatTiles snapshot={snapshot} throughput={throughput} />
+            <StatTiles snapshot={snapshot} throughput={throughput} calibration={note} />
           </div>
 
           <AutonomiePulse

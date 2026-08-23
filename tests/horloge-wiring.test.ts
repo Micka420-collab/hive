@@ -115,3 +115,48 @@ describe('la borne de la table neuve est câblée, pas seulement écrite', () =>
     expect(SERVEUR).toMatch(/const ANNONCES_RETENTION_MS = /);
   });
 });
+
+describe('l’horloge SE NOTE — la troisième promesse, câblée', () => {
+  // ─── SANS ELLE, TOUT LE RESTE EST UN CHIFFRE À CROIRE SUR PAROLE ───────────
+  //
+  // `calibrer()` existait, éprouvé, et personne ne l'appelait. C'est exactement
+  // la surface du lot 46 (« trois bornes écrites, jamais appelées ») : le module
+  // juge, les bancs passent, et la ruche ne se note pas.
+
+  it('`calibrer` est APPELÉE, et sur le registre — pas sur autre chose', () => {
+    expect(SERVEUR).toContain('calibrer(store.annoncesJugees())');
+  });
+
+  it('elle a une PÉRIODE nommée : pas à chaque battement', () => {
+    // Une requête de cinq cents lignes toutes les quelques secondes serait
+    // payée pour rien — une dérive de calibration se mesure en jours.
+    expect(SERVEUR).toMatch(/const CALIBRATION_PERIODE_MS = /);
+    expect(SERVEUR).toContain('maintenant - calibrationVueA >= CALIBRATION_PERIODE_MS');
+  });
+
+  it('elle n’émet QUE sur changement — ou au rappel', () => {
+    // ─── LES DEUX MOITIÉS, ET AUCUNE NE SUFFIT SEULE ────────────────────────
+    //
+    // Sans le changement : un verdict identique toutes les cinq minutes noierait
+    // la Chronique, et un signal répété cesse d'être un signal.
+    //
+    // Sans le rappel : le journal est ÉLAGUÉ. Un verdict stable une semaine
+    // sortirait de la fenêtre et n'y reviendrait jamais — l'écran afficherait
+    // « rien » sur une horloge parfaitement notée, et « rien » se lit
+    // « personne ne surveille ».
+    expect(SERVEUR).toContain('const change = note.verdict !== calibrationDite;');
+    expect(SERVEUR).toMatch(
+      /const rappel = maintenant - calibrationDiteA >= CALIBRATION_RAPPEL_MS/,
+    );
+    expect(SERVEUR).toContain('if (change || rappel)');
+    expect(SERVEUR).toMatch(/const CALIBRATION_RAPPEL_MS = /);
+  });
+
+  it('et l’événement porte le `n` — un verdict sans son socle ne se juge pas', () => {
+    const i = SERVEUR.indexOf("emitEvent('horloge_calibration'");
+    expect(i, 'l’événement n’est pas émis').toBeGreaterThan(-1);
+    const bloc = SERVEUR.slice(i, i + 400);
+    expect(bloc).toContain('verdict: note.verdict');
+    expect(bloc).toContain('n: note.n');
+  });
+});

@@ -48,6 +48,90 @@ function menerATerme(
   return t.id;
 }
 
+describe('la note ne compte QUE ce que la ruche a vraiment annoncé', () => {
+  // ─── LE DÉFAUT MESURÉ, PAS SUPPOSÉ ─────────────────────────────────────────
+  //
+  // Sur socle « aucun », l'annonce enregistrée porte `p80Ms = 0` : la ruche a
+  // dit « je ne sais pas encore ». Ces lignes entraient dans `annoncesJugees`
+  // comme les autres, et `calibrer` compare `reelMs <= p80Ms` — donc AUCUNE ne
+  // tenait jamais.
+  //
+  // Sonde sur cinq tâches, toutes annoncées « aucun », toutes réussies :
+  //
+  //     { n: 5, partTenue: 0, ecart: -0.8, verdict: 'optimiste' }
+  //
+  // La PIRE note du barème, sur une ruche qui n'a fait aucune prédiction. Et
+  // c'est le cas du DÉMARRAGE : une ruche neuve n'a pas d'historique, donc ses
+  // premières annonces sont toutes « aucun ». L'horloge se serait déclarée
+  // menteuse dès le premier jour, en punition d'avoir été honnête.
+  //
+  // Même piège que celui fermé à l'affichage (`verdictAnnonce`), deuxième site :
+  // comparer un réel à un plafond qui n'a jamais été promis.
+
+  it('les annonces sur socle « aucun » sont HORS de la note', () => {
+    const { store, projet } = ruche();
+    for (let i = 0; i < 3; i++) {
+      const t = store.createTask({ projectId: projet.id, title: 'T', prompt: 'p', dependsOn: [] });
+      store.enregistrerAnnonce(
+        t.id,
+        'noeud-1',
+        'nourrice',
+        { socle: 'aucun', n: i, p50Ms: 0, p80Ms: 0 },
+        1000 + i,
+      );
+      store.insertResult({
+        taskId: t.id,
+        nodeId: 'noeud-1',
+        diff: '',
+        logs: '',
+        success: true,
+        durationMs: min(10),
+        subAgents: [],
+      });
+    }
+    expect(store.annoncesJugees(), 'un refus de chiffrer n’est pas un pari perdu').toEqual([]);
+  });
+
+  it('LES AUTRES SOCLES RESTENT DANS LA NOTE — la garde ne vide pas le registre', () => {
+    // La moitié qui tue « exclure tout ». Un filtre trop large rendrait
+    // `calibrer` muet pour toujours : `trop_peu`, quoi qu'il arrive.
+    const { store, projet } = ruche();
+    menerATerme(store, projet.id, { p80Ms: min(10), reelMs: min(6) });
+    expect(store.annoncesJugees()).toHaveLength(1);
+  });
+
+  it('MÊLÉES : seules les chiffrées comptent, et la note change avec elles', () => {
+    const { store, projet } = ruche();
+    // Cinq vraies annonces, quatre tenues sur cinq — soit 0,8 pile : honnête.
+    for (const reel of [min(4), min(5), min(6), min(7), min(30)]) {
+      menerATerme(store, projet.id, { p80Ms: min(10), reelMs: reel });
+    }
+    // Et trois « aucun » qui, comptées, feraient tomber la part à 4 sur 8.
+    for (let i = 0; i < 3; i++) {
+      const t = store.createTask({ projectId: projet.id, title: 'T', prompt: 'p', dependsOn: [] });
+      store.enregistrerAnnonce(t.id, 'noeud-1', 'nourrice', {
+        socle: 'aucun',
+        n: 0,
+        p50Ms: 0,
+        p80Ms: 0,
+      });
+      store.insertResult({
+        taskId: t.id,
+        nodeId: 'noeud-1',
+        diff: '',
+        logs: '',
+        success: true,
+        durationMs: min(10),
+        subAgents: [],
+      });
+    }
+    const note = calibrer(store.annoncesJugees());
+    expect(note.n, 'les huit tâches, mais cinq annonces').toBe(5);
+    expect(note.partTenue).toBeCloseTo(0.8, 10);
+    expect(note.verdict).toBe('honnete');
+  });
+});
+
 describe('le registre garde ce qu’on a ANNONCÉ, pas seulement ce qui est arrivé', () => {
   it('une annonce suivie d’un résultat devient jugeable', () => {
     const { store, projet } = ruche();

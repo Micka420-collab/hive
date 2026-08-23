@@ -86,7 +86,7 @@ function familyOf(type: string): Family {
   if (type.startsWith('memory')) return 'memoire';
   if (type.startsWith('task')) return 'taches';
   if (type.startsWith('node')) return 'noeuds';
-  if (type.startsWith('duree')) return 'horloge';
+  if (type.startsWith('duree') || type.startsWith('horloge')) return 'horloge';
   return 'autres';
 }
 

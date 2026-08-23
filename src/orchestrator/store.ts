@@ -2146,13 +2146,38 @@ export class HiveStore {
    * infirmé l'annonce, elle l'a rendue sans objet. La compter comme un
    * dépassement salirait la calibration avec des cas qui ne la concernent pas.
    */
+  /**
+   * Les annonces que le réel a jugées.
+   *
+   * ─── LE SOCLE « AUCUN » EN EST EXCLU, ET C'EST TOUTE LA JUSTESSE DE LA NOTE ─
+   *
+   * Sur ce socle, l'annonce enregistrée porte « p80Ms = 0 » : la ruche n'a rien
+   * promis, elle a dit « je ne sais pas encore ». Or « calibrer » compte une
+   * annonce tenue quand « reelMs <= p80Ms » — donc aucune de ces lignes ne
+   * tient jamais, et chacune fait chuter la part.
+   *
+   * MESURÉ avant d'être corrigé : cinq tâches toutes annoncées « aucun », toutes
+   * réussies, rendaient « partTenue 0, ecart -0,8, verdict optimiste » — la pire
+   * note du barème. Et c'est le cas du DÉMARRAGE : une ruche neuve n'a pas
+   * d'historique, donc ses premières annonces sont TOUTES « aucun ». L'horloge
+   * se serait déclarée menteuse dès le premier jour, en punition d'avoir été
+   * honnête.
+   *
+   * Le filtre est ici, dans la requête, et pas dans « calibrer » : ce dernier ne
+   * reçoit que des couples (promesse, réel) et ne connaît pas les socles. Lui
+   * passer de quoi trier reviendrait à lui faire porter une règle de stockage.
+   *
+   * C'est le même piège que celui fermé côté écran dans « verdictAnnonce » —
+   * comparer un réel à un plafond que personne n'a promis —, rencontré une
+   * seconde fois, à l'autre bout de la chaîne.
+   */
   annoncesJugees(limite = 500): Array<{ p80Ms: number; reelMs: number }> {
     const cap = Math.max(1, Math.min(limite, 5000));
     return this.db
       .prepare(
         'SELECT a.p80Ms AS p80Ms, r.durationMs AS reelMs ' +
           'FROM annonces_duree a JOIN results r ON r.taskId = a.taskId ' +
-          'WHERE r.success = 1 ORDER BY a.faiteA DESC LIMIT ?',
+          "WHERE r.success = 1 AND a.socle <> 'aucun' ORDER BY a.faiteA DESC LIMIT ?",
       )
       .all(cap) as Array<{ p80Ms: number; reelMs: number }>;
   }

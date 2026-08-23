@@ -197,11 +197,52 @@ Les deux événements tombent sous la puce **Horloge**, pas sous « Autres ».
 qu'on ne peut pas isoler ne se surveille pas, et une horloge qu'on ne surveille
 pas redevient un chiffre auquel on croit sur parole.
 
+## L'horloge se note, et la note est à l'écran
+
+C'est la troisième promesse du module, et la dernière à avoir été câblée.
+`calibrer()` existait, éprouvé, et **personne ne l'appelait** — exactement la
+surface du lot 46 (« trois bornes écrites, jamais appelées »).
+
+Le tick la recalcule toutes les **cinq minutes** (une dérive se mesure en jours,
+pas en secondes) et n'émet `horloge_calibration` que sur **changement de
+verdict**, ou au **rappel de six heures**. Les deux moitiés sont nécessaires :
+
+- sans le changement, un verdict identique toutes les cinq minutes noierait la
+  Chronique — un signal répété cesse d'être un signal ;
+- sans le rappel, un verdict stable une semaine sortirait de la fenêtre du
+  journal et n'y reviendrait jamais. L'écran afficherait « rien » sur une
+  horloge parfaitement notée, et « rien » se lit « personne ne surveille ».
+
+La tuile **Horloge tenue** de la vue Ruche montre la part tenue, la visée de
+80 % et le socle. `optimiste` est le **seul** verdict peint en alerte, et
+l'asymétrie est voulue : l'horloge promet alors plus court que la réalité, et
+tout ce qui se planifie dessus déborde. `pessimiste` coûte de l'attente ;
+`optimiste` coûte des promesses tenues par personne.
+
+### Le défaut que ce lot a trouvé — mesuré, pas supposé
+
+`annoncesJugees` ne filtrait pas le socle. Or `aucun` est enregistré avec
+`p80Ms = 0` : la ruche n'a rien promis, elle a dit « je ne sais pas encore ».
+Comme `calibrer` compte une annonce tenue quand `reelMs <= p80Ms`, **aucune** de
+ces lignes ne tenait jamais.
+
+Sonde sur cinq tâches toutes annoncées `aucun`, toutes réussies :
+
+```
+{ n: 5, partTenue: 0, ecart: -0.8, verdict: 'optimiste' }
+```
+
+La pire note du barème, sur une ruche qui n'a fait aucune prédiction. Et c'est
+le cas du **démarrage** : une ruche neuve n'a pas d'historique, donc ses
+premières annonces sont toutes `aucun`. L'horloge se serait déclarée menteuse
+dès son premier jour, **en punition d'avoir été honnête**.
+
+C'est le même piège que celui fermé à l'affichage (`verdictAnnonce`), rencontré
+une seconde fois à l'autre bout de la chaîne : comparer un réel à un plafond que
+personne n'a promis.
+
 ## Ce qui reste à brancher
 
-- **surveiller** le verdict de calibration dans le temps — une horloge qui
-  glisse vers `optimiste` signale que les tâches changent de nature. Le verdict
-  par tâche est là ; l'agrégat dans la durée ne l'est pas encore ;
 - **Plein Essaim** — l'annonce sur les tâches en vol, pour n'avoir pas à ouvrir
   chaque tiroir.
 

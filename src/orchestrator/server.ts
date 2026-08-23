@@ -24,7 +24,8 @@ import {
   LONGUEUR_MIN_SECRET_JWT,
 } from './auth.js';
 import { shellForce } from '../shared/agent-production.js';
-import { estimerDuree, resteEstime } from '../shared/horloge-chantier.js';
+import { calibrer, estimerDuree, resteEstime } from '../shared/horloge-chantier.js';
+import type { Calibration } from '../shared/horloge-chantier.js';
 import { encodeInvite, isWsUrl } from '../shared/invite.js';
 import { inviteInjoignable } from '../shared/joignable.js';
 import { portDepuisEnv } from '../shared/port.js';
@@ -316,6 +317,32 @@ export const HORIZON_RETENTION_MS = 90 * 24 * 60 * 60_000;
  * de la ruche, assez court pour que la table ne devienne pas un journal.
  */
 const ANNONCES_RETENTION_MS = 180 * 24 * 60 * 60_000;
+
+/**
+ * À quel rythme l'horloge SE NOTE.
+ *
+ * Pas à chaque battement : la note ne bouge qu'aux atterrissages, et une
+ * requête de cinq cents lignes toutes les quelques secondes serait payée pour
+ * rien. Cinq minutes suffisent — une dérive de calibration se mesure en jours,
+ * pas en secondes.
+ */
+const CALIBRATION_PERIODE_MS = 5 * 60_000;
+
+/**
+ * Le rappel : même verdict inchangé, on le redit au bout de six heures.
+ *
+ * ─── POURQUOI « à chaque changement » NE SUFFIT PAS ──────────────────────────
+ *
+ * N'émettre que sur changement est la bonne règle pour un journal — un signal
+ * répété cesse d'être un signal. Mais le journal est ÉLAGUÉ : un verdict stable
+ * pendant une semaine sortirait de la fenêtre et n'y reviendrait jamais. L'écran
+ * afficherait alors « rien » sur une horloge parfaitement notée, et « rien » se
+ * lit « personne ne surveille ».
+ *
+ * Six heures : assez rare pour ne rien noyer, assez fréquent pour qu'une
+ * fenêtre de journal en contienne toujours un.
+ */
+const CALIBRATION_RAPPEL_MS = 6 * 60 * 60_000;
 
 /**
  * Nombre de livraisons conservées. BORNE D'ÉLAGAGE de la table `livraisons`
@@ -8162,6 +8189,19 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   const horsDomaineDits = new Set<string>();
 
   /**
+   * La note de l'horloge : quand elle a été recalculée, et ce qu'elle a dit.
+   *
+   * `null` tant que rien n'a été émis — distinct de `'trop_peu'`, qui est un
+   * verdict à part entière et mérite d'être inscrit une fois : savoir que la
+   * ruche n'avait PAS ENCORE de quoi se noter fait partie de son histoire.
+   *
+   * Deux scalaires, jamais une collection : rien à élaguer ici.
+   */
+  let calibrationVueA = 0;
+  let calibrationDite: Calibration['verdict'] | null = null;
+  let calibrationDiteA = 0;
+
+  /**
    * Quand chaque tâche muette a été re-servie pour la dernière fois.
    *
    * ─── LE DÉFAUT QUE CETTE CARTE FERME ───────────────────────────────────────
@@ -8305,6 +8345,40 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         if (horsDomaineDits.size > 0) {
           const encore = new Set(store.tachesEnVolAnnoncees().map((t) => t.taskId));
           for (const id of horsDomaineDits) if (!encore.has(id)) horsDomaineDits.delete(id);
+        }
+      }
+
+      // ─── L'HORLOGE SE NOTE ELLE-MÊME ──────────────────────────────────────
+      //
+      // C'est la pièce qui rend tout le reste utilisable. Sans elle, un
+      // intervalle n'est qu'un chiffre plus large — donc plus difficile à
+      // prendre en défaut, ce qui n'est PAS la même chose qu'être juste.
+      //
+      // On n'émet QUE sur changement de verdict, ou au rappel : un verdict
+      // répété toutes les cinq minutes noierait la Chronique, et un verdict
+      // jamais redit sortirait de la fenêtre du journal pour n'y plus revenir.
+      //
+      // La note ne compte que les annonces CHIFFRÉES — `annoncesJugees` écarte
+      // le socle « aucun », dont le `p80Ms` vaut 0. Sans cet écart, une ruche
+      // neuve, qui n'annonce rien parce qu'elle n'a pas d'historique, se
+      // déclarerait menteuse dès son premier jour.
+      if (maintenant - calibrationVueA >= CALIBRATION_PERIODE_MS) {
+        calibrationVueA = maintenant;
+        const note = calibrer(store.annoncesJugees());
+        const change = note.verdict !== calibrationDite;
+        const rappel = maintenant - calibrationDiteA >= CALIBRATION_RAPPEL_MS;
+        if (change || rappel) {
+          calibrationDite = note.verdict;
+          calibrationDiteA = maintenant;
+          emitEvent('horloge_calibration', {
+            verdict: note.verdict,
+            n: note.n,
+            // Trois décimales : au-delà, on afficherait une précision que
+            // quarante observations ne portent pas.
+            partTenue: Math.round(note.partTenue * 1000) / 1000,
+            ecart: Math.round(note.ecart * 1000) / 1000,
+            change,
+          });
         }
       }
 

@@ -23,7 +23,7 @@
 // temps pour perdre leur annonce, et les seules pour qui l'alerte compte.
 
 import type { HiveEvent } from '../../src/shared/types.js';
-import type { Socle } from '../../src/shared/horloge-chantier.js';
+import type { Calibration, Socle } from '../../src/shared/horloge-chantier.js';
 
 /** L'annonce telle qu'elle a été posée, avec la taille de son socle. */
 export interface AnnonceVue {
@@ -128,4 +128,74 @@ export function verdictAnnonce(annonce: AnnonceVue | undefined, reelMs: number):
   if (annonce === undefined || annonce.socle === 'aucun') return 'sans_objet';
   if (!Number.isFinite(reelMs) || reelMs < 0) return 'sans_objet';
   return reelMs <= annonce.p80Ms ? 'tenue' : 'debordee';
+}
+
+/** La note de l'horloge, telle que le tick l'a inscrite. */
+export interface NoteVue {
+  readonly verdict: Calibration['verdict'];
+  readonly n: number;
+  readonly partTenue: number;
+  readonly ecart: number;
+}
+
+const VERDICTS: readonly Calibration['verdict'][] = [
+  'honnete',
+  'optimiste',
+  'pessimiste',
+  'trop_peu',
+];
+
+/**
+ * La DERNIÈRE note inscrite dans la fenêtre du journal.
+ *
+ * ─── LA DERNIÈRE, ET RIEN QUE LA DERNIÈRE ────────────────────────────────────
+ *
+ * Une note n'est pas un événement qui s'accumule : c'est un ÉTAT. Les
+ * précédentes sont de l'histoire, lisible dans la Chronique — l'écran, lui, ne
+ * doit montrer que celle qui vaut maintenant. Afficher une note périmée à côté
+ * d'une plus fraîche serait pire que ne rien afficher.
+ *
+ * Rien dans la fenêtre ⇒ rien à l'écran. C'est le même refus que pour l'annonce
+ * absente : « le journal ne s'en souvient plus » ne se dit pas « la ruche ne
+ * s'est pas notée ».
+ */
+export function calibrationDepuisEvenements(events: readonly HiveEvent[]): NoteVue | undefined {
+  let vue: NoteVue | undefined;
+  for (const ev of events) {
+    if (ev.type !== 'horloge_calibration') continue;
+    const brut = texte(ev.payload.verdict);
+    const verdict = VERDICTS.find((v) => v === brut);
+    const n = nombre(ev.payload.n);
+    const partTenue = nombre(ev.payload.partTenue);
+    const ecart = nombre(ev.payload.ecart);
+    if (verdict === undefined || n === null || partTenue === null || ecart === null) continue;
+    vue = { verdict, n, partTenue, ecart };
+  }
+  return vue;
+}
+
+/** La note, dite comme un humain la lit. */
+export function direNote(note: NoteVue, lang: 'fr' | 'en' = 'fr'): string {
+  if (note.verdict === 'trop_peu') {
+    return lang === 'en'
+      ? `not enough judged announcements (${note.n})`
+      : `pas assez d’annonces jugées (${note.n})`;
+  }
+  const part = `${Math.round(note.partTenue * 100)} %`;
+  if (lang === 'en') {
+    const mot =
+      note.verdict === 'honnete'
+        ? 'honest'
+        : note.verdict === 'optimiste'
+          ? 'optimistic'
+          : 'pessimistic';
+    return `${mot} — ${part} held, aim 80 % (${note.n} obs.)`;
+  }
+  const mot =
+    note.verdict === 'honnete'
+      ? 'honnête'
+      : note.verdict === 'optimiste'
+        ? 'optimiste'
+        : 'pessimiste';
+  return `${mot} — ${part} tenues, visée 80 % (${note.n} obs.)`;
 }

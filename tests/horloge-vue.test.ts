@@ -6,7 +6,12 @@
 
 import { describe, expect, it } from 'vitest';
 import type { HiveEvent } from '../src/shared/types.js';
-import { annoncesDepuisEvenements, verdictAnnonce } from '../dashboard/src/horloge-vue.js';
+import {
+  annoncesDepuisEvenements,
+  calibrationDepuisEvenements,
+  direNote,
+  verdictAnnonce,
+} from '../dashboard/src/horloge-vue.js';
 
 let suivant = 1;
 function ev(type: string, payload: Record<string, unknown>): HiveEvent {
@@ -192,5 +197,96 @@ describe('le verdict — l’annonce confrontée au réel', () => {
     // La borne d'à côté : `< 0` et non `<= 0`. Une tâche instantanée a bien
     // tenu son annonce — la refuser perdrait un verdict légitime.
     expect(verdictAnnonce(A, 0)).toBe('tenue');
+  });
+});
+
+describe('la note de l’horloge, repliée du journal', () => {
+  const note = (sur: Record<string, unknown> = {}) =>
+    ev('horloge_calibration', {
+      verdict: 'honnete',
+      n: 42,
+      partTenue: 0.81,
+      ecart: 0.01,
+      change: true,
+      ...sur,
+    });
+
+  it('rend la note inscrite', () => {
+    expect(calibrationDepuisEvenements([note()])).toEqual({
+      verdict: 'honnete',
+      n: 42,
+      partTenue: 0.81,
+      ecart: 0.01,
+    });
+  });
+
+  it('LA DERNIÈRE GAGNE — une note est un état, pas une accumulation', () => {
+    // La moitié qui tue « la première gagne ». Une note périmée affichée à côté
+    // d'une plus fraîche est pire que pas de note du tout : elle a l'air d'être
+    // la vérité du moment.
+    const vue = calibrationDepuisEvenements([
+      note({ verdict: 'optimiste', n: 10, partTenue: 0.4, ecart: -0.4 }),
+      note({ verdict: 'honnete', n: 60, partTenue: 0.79, ecart: -0.01 }),
+    ]);
+    expect(vue?.verdict).toBe('honnete');
+    expect(vue?.n).toBe(60);
+  });
+
+  it('AUCUNE note dans la fenêtre ⇒ rien, et pas une note inventée', () => {
+    expect(calibrationDepuisEvenements([ev('task_done', {})])).toBeUndefined();
+    expect(calibrationDepuisEvenements([])).toBeUndefined();
+  });
+
+  it('UN VERDICT INCONNU EST REFUSÉ — et n’écrase pas le précédent', () => {
+    // Muté en « on garde quand même », l'écran afficherait un mot que personne
+    // ne sait peindre, et la vraie note aurait disparu au passage.
+    const vue = calibrationDepuisEvenements([note(), note({ verdict: 'excellent' })]);
+    expect(vue?.verdict).toBe('honnete');
+  });
+
+  it('UN CHAMP MANQUANT EST REFUSÉ', () => {
+    const vue = calibrationDepuisEvenements([ev('horloge_calibration', { verdict: 'honnete' })]);
+    expect(vue).toBeUndefined();
+  });
+});
+
+describe('direNote — la note dite comme on la lit', () => {
+  it('porte le POURCENTAGE, la visée et le socle', () => {
+    const dit = direNote({ verdict: 'honnete', n: 42, partTenue: 0.81, ecart: 0.01 });
+    expect(dit).toContain('honnête');
+    expect(dit).toContain('81 %');
+    // La visée est dans la phrase : « 81 % tenues » ne veut rien dire sans le
+    // 80 % qu'on cherchait — un lecteur pourrait le lire comme « 19 % de rates ».
+    expect(dit).toContain('80 %');
+    expect(dit).toContain('42 obs.');
+  });
+
+  it('« TROP PEU » ne se déguise pas en note', () => {
+    // Rendre « 0 % tenues » ici ferait passer un manque de données pour un
+    // échec — la même faute que noter un refus de chiffrer.
+    const dit = direNote({ verdict: 'trop_peu', n: 3, partTenue: 0, ecart: 0 });
+    expect(dit).toContain('pas assez');
+    expect(dit).toContain('3');
+    expect(dit).not.toContain('%');
+  });
+
+  it('EN ANGLAIS, aucun mot français ne passe', () => {
+    const en = direNote({ verdict: 'optimiste', n: 20, partTenue: 0.5, ecart: -0.3 }, 'en');
+    expect(en).toContain('optimistic');
+    expect(en).not.toContain('optimiste —');
+    expect(en).toContain('held');
+    expect(en).not.toContain('tenues');
+    const enPeu = direNote({ verdict: 'trop_peu', n: 2, partTenue: 0, ecart: 0 }, 'en');
+    expect(enPeu).toContain('not enough');
+    expect(enPeu).not.toContain('pas assez');
+  });
+
+  it('PESSIMISTE se distingue d’OPTIMISTE — les deux mots existent', () => {
+    // Sans ce cas, un ternaire qui rendrait le même mot pour les deux passerait.
+    const opt = direNote({ verdict: 'optimiste', n: 20, partTenue: 0.5, ecart: -0.3 });
+    const pes = direNote({ verdict: 'pessimiste', n: 20, partTenue: 0.99, ecart: 0.19 });
+    expect(opt).toContain('optimiste');
+    expect(pes).toContain('pessimiste');
+    expect(pes).not.toContain('optimiste');
   });
 });

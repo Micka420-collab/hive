@@ -209,10 +209,15 @@ describe('la Chronique — les deux vides, et la survivante du balayage', () => 
     // La ligne éprouvée est `type.startsWith('duree')`. Elle est posée APRÈS
     // celles de `task` et `node` — aucun de ces préfixes ne la précède, mais
     // c'est l'ordre qu'il faut garder si un `duree_*` de tâche apparaissait.
+    //
+    // La note de calibration (`horloge_calibration`) rejoint la même puce SANS
+    // partager le préfixe `duree` : c'est la seconde moitié du `||`, et sans ce
+    // troisième événement elle ne serait jamais exercée.
     const dom = await monterChronique([
       evenement(1, 'duree_annoncee'),
       evenement(2, 'duree_hors_domaine'),
       evenement(3, 'task_done'),
+      evenement(4, 'horloge_calibration'),
     ]);
     const compte = (nom: string): string => {
       const puce = [...dom.querySelectorAll('.filters .chip')].find((c) =>
@@ -221,7 +226,7 @@ describe('la Chronique — les deux vides, et la survivante du balayage', () => 
       if (!puce) throw new Error(`la puce « ${nom} » est introuvable`);
       return puce.querySelector('.chip-count')?.textContent?.trim() ?? '';
     };
-    expect(compte('Horloge'), 'les deux événements d’horloge').toBe('2');
+    expect(compte('Horloge'), 'les trois événements d’horloge').toBe('3');
     expect(compte('Autres'), 'et rien ne fuit dans « Autres »').toBe('0');
     expect(compte('Tâches'), 'la tâche reste chez elle').toBe('1');
   });
