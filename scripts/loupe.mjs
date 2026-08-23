@@ -775,6 +775,35 @@ export function mutationsDeLigne(ligne) {
 }
 
 /** Les mutations candidates, une par (fichier, ligne, échange). */
+/**
+ * Que dire quand aucune candidate n'a été trouvée. PUR, donc éprouvable.
+ *
+ * ─── UN PÉRIMÈTRE QUI NE DÉSIGNE RIEN N'EST PAS UN PÉRIMÈTRE VIDE ────────────
+ *
+ * `git diff -- <chemin inexistant>` rend le vide, exactement comme un diff sans
+ * ligne mutable. Les deux verdicts sont INDISTINGUABLES en sortie, et le second
+ * se lit comme « rien à faire ».
+ *
+ * C'est le retour du défaut consigné plus haut — l'angle mort sur `scripts/`,
+ * où la loupe annonçait « aucune ligne mutable » sur un diff qui en ajoutait
+ * deux cents — sous une forme neuve. Là, c'était la portée PAR DÉFAUT qui était
+ * trop étroite ; ici, c'est la portée DEMANDÉE qui ne correspond à rien.
+ *
+ * Le piège le plus courant, et celui qui a fait naître cette fonction :
+ * `LOUPE_CHEMINS` se découpe sur des VIRGULES. « a.ts b.ts » est donc UN
+ * chemin, pas deux — un chemin qui n'existe pas, un diff vide, et un verdict
+ * rassurant sur un terrain que personne n'a regardé.
+ *
+ * Le code de sortie DIFFÈRE (2 au lieu de 0) : un périmètre fautif est une
+ * erreur d'invocation, pas un résultat. Un harnais qui enchaîne doit s'arrêter.
+ */
+export function diagnosticSansCandidate(nbFichiersSuivis, demandes) {
+  if (nbFichiersSuivis === 0) {
+    return { code: 2, motif: 'perimetre_vide', demandes };
+  }
+  return { code: 0, motif: 'rien_a_muter', demandes };
+}
+
 function candidates() {
   const out = [];
   for (const [fichier, lignes] of lignesAjoutees()) {
@@ -1215,9 +1244,32 @@ function principal() {
 
   const toutes = candidates();
   if (toutes.length === 0) {
+    // Avant de conclure, savoir si le périmètre désignait seulement quelque
+    // chose. Voir `diagnosticSansCandidate`.
+    const demandes = cheminsDuBalayage(process.env.LOUPE_CHEMINS).filter(
+      (c) => !c.startsWith(':(exclude)'),
+    );
+    const suivis = execFileSync('git', ['ls-files', '--', ...demandes], {
+      cwd: RACINE,
+      shell: false,
+      encoding: 'utf8',
+      maxBuffer: 16 * 1024 * 1024,
+    })
+      .split('\n')
+      .filter((l) => l.trim() !== '');
+    const d = diagnosticSansCandidate(suivis.length, demandes);
+    if (d.motif === 'perimetre_vide') {
+      console.log('LOUPE : le périmètre demandé ne désigne AUCUN fichier suivi.');
+      console.log('        RIEN n’a été mesuré — ce n’est pas « rien à muter ».');
+      console.log(
+        `        LOUPE_CHEMINS se découpe sur des VIRGULES ; reçu ${demandes.length} chemin(s) :`,
+      );
+      for (const c of demandes) console.log(`          · ${c}`);
+      process.exit(d.code);
+    }
     console.log('LOUPE : aucune ligne mutable ajoutée par cette branche.');
     console.log('        (rien à conclure — ce n’est PAS un feu vert.)');
-    process.exit(0);
+    process.exit(d.code);
   }
 
   // Échantillon RÉGULIER plutôt qu'aléatoire : deux passages sur le même diff

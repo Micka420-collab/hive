@@ -14087,3 +14087,77 @@ qui rapporte autre chose que ce qu'il a mesuré**.
 La différence ici : l'outil était celui qui sert précisément à ne pas se
 tromper. Un juge qui se trompe sur ses propres conclusions ne dégrade pas la
 mesure — il la retourne, parce qu'on lui fait confiance par construction.
+
+## 9 septemseptuagicenties. Un banc qui n'affirme que le PARTAGÉ ne peut pas voir quelle branche a été prise
+
+La loupe a rendu nue une ligne que je venais d'écrire, et que je croyais
+défendue par un banc que je venais d'écrire aussi :
+
+```ts
+return lang === 'en' ? en : fr;
+```
+
+Mon banc bouclait sur les deux langues :
+
+```ts
+for (const lang of ['fr', 'en'] as const) {
+  const m = messageRefusShellProduction(lang);
+  expect(m).toContain('HIVE_SIMULATION=1');
+  expect(m).toContain('HIVE_AGENT=shell');
+}
+```
+
+Il a l'air de tout couvrir. Il ne couvre rien du sélecteur.
+
+### Pourquoi
+
+`HIVE_SIMULATION=1` et `HIVE_AGENT=shell` sont des noms de VARIABLES
+D'ENVIRONNEMENT : ils s'écrivent à l'identique dans les deux textes. Les deux
+assertions portent donc sur ce que les deux branches **ont en commun** — et une
+propriété commune aux deux branches est, par construction, aveugle à celle qui
+a été prise.
+
+Mué en `!==`, un francophone lit l'anglais et un anglophone lit le français, sur
+le message qu'on lit précisément quand plus rien ne marche. Pas une assertion ne
+bouge.
+
+### La règle
+
+> Pour éprouver un choix, il faut ancrer ce qui **distingue** les branches,
+> jamais ce qui les réunit.
+
+En pratique, sur un ternaire ou un `if/else` qui rend du texte : asserter le
+fragment PROPRE à chaque branche, **et** son absence dans l'autre.
+
+```ts
+expect(fr).toContain('Aucun agent de codage détecté');
+expect(en).not.toContain('Aucun agent de codage détecté');
+```
+
+Le `not.toContain` fait la moitié du travail : sans lui, un sélecteur qui
+rendrait la CONCATÉNATION des deux textes passerait encore.
+
+### Le piège de famille : l'assertion perdue à la copie
+
+Le même balayage a rendu nue une seconde ligne, dans `horizon.ts`, et le
+mécanisme est cousin. `doitNoterFaitDeriveASurveiller` a été écrite en copiant
+sa jumelle `doitNoterFaitDeriveDegradee` — et le banc a été copié aussi, **en
+perdant une assertion en route** : le cas de l'entrée VIEILLE, seul à éprouver
+que la fenêtre anti-spam est une fenêtre.
+
+Dans les deux cas, le banc portait le bon nom, appelait la bonne fonction, et
+passait au vert. Aucune relecture n'attrape ça. Seule la mutation dit ce qu'un
+banc ne mesure pas.
+
+### Corollaire pour le juge lui-même
+
+Ce balayage a failli ne jamais avoir lieu : lancé avec `LOUPE_CHEMINS` séparé
+par des ESPACES là où la loupe découpe sur des VIRGULES, il a rendu « aucune
+ligne mutable ajoutée par cette branche » — le même verdict que pour un diff
+réellement sans candidate. Deux situations que tout sépare — « j'ai regardé, il
+n'y a rien » et « je n'ai rien regardé » — rendues indistinguables en sortie.
+
+La loupe distingue désormais les deux et **sort en code 2** sur un périmètre qui
+ne désigne aucun fichier suivi : une invocation fautive est une erreur, pas un
+résultat. Même principe que § 9 sexseptuagicenties — un instrument doit échouer
+FERMÉ.

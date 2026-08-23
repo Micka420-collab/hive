@@ -53,6 +53,30 @@ describe('les deux trappes que le message promet', () => {
     }
   });
 
+  // ─── CE BANC-CI EXISTE PARCE QUE LE PRÉCÉDENT NE SUFFISAIT PAS ─────────────
+  //
+  // `HIVE_SIMULATION=1` et `HIVE_AGENT=shell` sont des noms de VARIABLES
+  // D'ENVIRONNEMENT : ils s'écrivent pareil dans les deux langues. La boucle
+  // ci-dessus affirme donc uniquement ce que les deux branches ONT EN COMMUN —
+  // et le sélecteur `lang === 'en' ? en : fr` lui est invisible.
+  //
+  // La loupe l'a montré : mué en `!==`, les deux langues s'échangent, et pas
+  // une assertion ne bouge. Un francophone lirait l'anglais, un anglophone le
+  // français, sur le message qu'on lit précisément quand plus rien ne marche.
+  //
+  // Un banc qui n'affirme que le PARTAGÉ ne peut pas voir quelle branche a été
+  // prise. Il faut ancrer ce qui DISTINGUE.
+  it('chaque langue rend SA version — le sélecteur est éprouvé', () => {
+    const fr = messageRefusShellProduction('fr');
+    const en = messageRefusShellProduction('en');
+    expect(fr).toContain('Aucun agent de codage détecté');
+    expect(en).toContain('No coding agent detected');
+    expect(fr).not.toContain('No coding agent detected');
+    expect(en).not.toContain('Aucun agent de codage détecté');
+    // Et le défaut est le français : un appel sans langue ne doit pas basculer.
+    expect(messageRefusShellProduction()).toBe(fr);
+  });
+
   it('la porte du NŒUD honore chacune des deux', () => {
     expect(message).toContain('HIVE_SIMULATION=1');
     expect(demarrageNoeudAutorise('shell', { HIVE_SIMULATION: '1' })).toBe(true);

@@ -12937,3 +12937,60 @@ Rien de nu que je sache. Les 30 occurrences sont réparties : 5 fermées en #353
 lots précédents. Cette phrase est une mesure, pas une impression — et son
 dénominateur est `grep -rn "typeof [A-Za-z_.]* !== 'object'" src dashboard/src
 scripts site`.
+
+## Balayage du terrain fusionné dans la nuit — 7 candidates, 7 examinées, 2 nues
+
+Base épinglée `768b24e` (avant les cinq fusions), périmètre resserré sur les
+quatre modules que ces fusions ont apportés. **206 insertions**, pas les 521 que
+j'avais annoncées : j'avais compté la TAILLE des fichiers au lieu du DIFF, et
+`motifs.ts` que j'y comptais n'est même pas dans `main` — il vient de #348, non
+fusionnée. Le dénominateur se mesure, lui aussi.
+
+`LOUPE_MAX=80` très au-dessus des 7 candidates : un plafond sous le compte
+échantillonne en silence et rend un « complet » qui n'en est pas un.
+
+### Les deux nues, fermées
+
+**`horizon.ts` — l'anti-spam de la dérive.** Mué `&&` → `||`,
+`A && B && C && D` devient `(A && B && C) || D` : le refus ne dépend plus que de
+la FRAÎCHEUR. N'importe quelle entrée récente — un autre niveau de dérive, une
+hypothèse, une autre source — fait croire au garde-fou qu'un fait a déjà été
+noté. La ruche cesse alors SILENCIEUSEMENT d'inscrire les faits « dérive à
+surveiller », c'est-à-dire le signal qui sert à décider avant que la dérive ne
+dégrade.
+
+Le banc existait. Il avait été copié de la jumelle « dégradée » en perdant
+l'assertion de l'entrée VIEILLE — la seule qui éprouve que la fenêtre est une
+fenêtre. Et aucun des deux ne couvrait l'entrée récente SANS RAPPORT. Les deux
+manques sont fermés, pour les DEUX fonctions.
+
+**`agent-production.ts` — le sélecteur de langue.** Voir § 9
+septemseptuagicenties : mon banc n'affirmait que ce que les deux langues ont en
+commun (des noms de variables d'environnement), donc le sélecteur lui était
+invisible.
+
+Rejeu : **TENUS 2 sur 2**.
+
+### Les cinq défendues
+
+Les quatre bornes de `agent-production.ts` et la ligne des deux trappes
+(`modeSimulationOrchestrateur(env) || shellForce(env)`) sont tenues par
+`tests/trappes-simulation-contrat.test.ts`.
+
+### La loupe elle-même, durcie
+
+Ce balayage a failli ne pas avoir lieu : `LOUPE_CHEMINS` se découpe sur des
+VIRGULES, je l'avais passé avec des ESPACES, et un chemin inexistant rend un
+diff vide — donc le même message que « rien à muter ». La loupe distingue
+maintenant les deux cas et sort en **code 2** sur un périmètre qui ne désigne
+aucun fichier suivi. Banc : `tests/loupe-perimetre.test.mjs`, qui verrouille
+aussi les deux gardes déjà documentées (vide ou virgules seules ⇒ portée par
+défaut ; le juge reste hors de sa propre lame).
+
+### Ce que le carnet annonçait, et qui n'existe plus
+
+Trois items de balayage y traînaient encore — Balance (`arme && cible !== null`),
+Cerveau (`serviIlYaJours === null`), server.ts (`find taskId && nodeId`).
+Mesuré : aucun n'existe sous cette forme. Les quatre gardes réelles de
+`cerveau-graphe.ts` (L182, L255) sont TENUES 4 sur 4. Retirés du carnet plutôt
+que laissés à faire croire à du travail en attente.
