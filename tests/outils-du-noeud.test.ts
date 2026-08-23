@@ -7,7 +7,12 @@
 
 import { describe, expect, it } from 'vitest';
 import { OUTILS, type Niveau, rangNiveau } from '../src/shared/catalogue-outils.js';
-import { combienPilotables, direOutil, outilsDuNoeud } from '../src/shared/outils-du-noeud.js';
+import {
+  combienPilotables,
+  commandeAAfficher,
+  direOutil,
+  outilsDuNoeud,
+} from '../src/shared/outils-du-noeud.js';
 import { juger } from '../src/shared/connexion-agent.js';
 import type { OutilConstate } from '../src/shared/protocol.js';
 
@@ -143,6 +148,53 @@ describe('les outils d’un nœud, croisés avec le catalogue', () => {
     ]);
     expect(combienPilotables(vus)).toBe(2);
     expect(combienPilotables([])).toBe(0);
+  });
+
+  it('LA COMMANDE N’EST PROPOSÉE QUE SI LA SUIVRE RÈGLE TOUT EN UN GESTE', () => {
+    // Claude Code, clé DÉJÀ posée, binaire absent : une commande suffit.
+    const [pret] = outilsDuNoeud([pose('claude-code', false, 'presente')]);
+    expect(pret!.verdict).toBe('binaire_manquant');
+    expect(commandeAAfficher(pret!)).toBe('npm install -g @anthropic-ai/claude-code');
+  });
+
+  it('…ET PAS QUAND IL MANQUE AUSSI LA CLÉ — le conseil serait suivi pour rien', () => {
+    // La règle vient de `juger` (`poseAutomatique`) et le côté nœud la tient
+    // depuis `conseilDemarrage` : installer une ligne de commande sans
+    // identifiants donne un agent qui refuse de travailler. Proposer la
+    // commande ici enverrait quelqu'un installer un paquet pour rien, puis
+    // chercher pourquoi « ça ne marche toujours pas ».
+    const [rien] = outilsDuNoeud([pose('claude-code', false, 'absente')]);
+    expect(rien!.verdict).toBe('rien');
+    expect(commandeAAfficher(rien!)).toBeNull();
+  });
+
+  it('…NI QUAND LE BINAIRE EST DÉJÀ LÀ', () => {
+    // Rien à installer : c'est la clé qui manque, et aucune commande npm ne la
+    // pose. Afficher une commande ici serait un faux remède.
+    const [aveugle] = outilsDuNoeud([pose('claude-code', true, 'absente')]);
+    expect(aveugle!.verdict).toBe('cle_manquante');
+    expect(commandeAAfficher(aveugle!)).toBeNull();
+  });
+
+  it('…NI POUR UN OUTIL QUE LA RUCHE REFUSE DE DEVINER', () => {
+    // Cline : le paquet `cline` existe, mais son nom est SANS PORTÉE npm, et le
+    // dépôt refuse d'installer globalement un nom nu (typosquat). Le catalogue
+    // porte donc `installation: null`, et la fiche ne propose rien.
+    const [cline] = outilsDuNoeud([pose('cline', false, 'presente')]);
+    expect(cline!.installation).toBeNull();
+    expect(commandeAAfficher(cline!)).toBeNull();
+  });
+
+  it('LA SENTINELLE : la commande affichée EST celle du catalogue, au mot près', () => {
+    // Une chaîne recomposée à l'affichage dériverait du catalogue sans que rien
+    // ne rougisse — et c'est une commande que quelqu'un va COLLER dans son
+    // terminal. On compare donc à la source, pour tout le catalogue.
+    for (const fiche of OUTILS) {
+      const [vu] = outilsDuNoeud([pose(fiche.id, false, 'presente')]);
+      expect(vu!.installation, fiche.id).toEqual(fiche.installation);
+      const attendue = fiche.installation === null ? null : fiche.installation.join(' ');
+      expect(commandeAAfficher(vu!), fiche.id).toBe(attendue);
+    }
   });
 
   it('une liste vide rend une liste vide — pas une invention', () => {

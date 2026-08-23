@@ -245,6 +245,20 @@ describe('SauvegardesTimeline', () => {
       configurable: true,
       value: { writeText },
     });
+    // Le CONTEXTE, épinglé — et ce n'est pas un détail de banc.
+    //
+    // La copie passe désormais par `dashboard/src/copier.ts`, partagé avec
+    // `InvitePanel` et la fiche des outils. Ce module n'appelle
+    // `navigator.clipboard` QUE si `window.isSecureContext` : en http (le
+    // déploiement LAN, mode principal du projet) il retombe sur une zone de
+    // texte, parce que l'API n'y fonctionne pas — c'est précisément le défaut
+    // que cet écran avait et que le partage a fermé.
+    //
+    // Sans cette ligne, happy-dom n'annonce pas de contexte sécurisé, le repli
+    // prend le relais, et `writeText` n'est jamais appelée. L'assertion qui
+    // suit vise la moitié « le texte ENTIER part » — on épingle donc le chemin
+    // sur lequel elle est lisible, plutôt que de l'affaiblir.
+    Object.defineProperty(window, 'isSecureContext', { configurable: true, value: true });
     const dom = await monter();
     await act(async () => {
       dom.querySelector('.ry-sg-voir')!.dispatchEvent(new MouseEvent('click', { bubbles: true }));

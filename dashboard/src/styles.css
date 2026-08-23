@@ -2874,3 +2874,25 @@ button.mc-cell:focus-visible {
 .fo-outil-niveau {
   font-size: 12px;
 }
+
+/* La commande d'installation d'un outil : à LIRE, puis à coller soi-même. */
+.fo-outil-pose {
+  display: block;
+  padding-left: 1.4em;
+  margin-top: 3px;
+}
+
+.fo-outil-commande {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  user-select: all; /* un clic sélectionne tout : le repli du repli. */
+}
+
+.fo-outil-rate {
+  font-size: 12px;
+  color: var(--amber);
+}
