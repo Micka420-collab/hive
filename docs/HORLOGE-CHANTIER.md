@@ -93,15 +93,49 @@ Le socle s'élargit par paliers — `exact` (même caste, même genre) → `cast
 montré pourquoi : testés seulement à 10 et à 4, les trois seuils pouvaient
 monter d'un cran sans qu'une assertion bouge.
 
+## Ce qui est branché
+
+**L'annonce est enregistrée** à chaque assignation, dans `envoyerTache` — la
+porte **unique** vers les ouvrières. C'est la règle que cette fonction porte
+déjà pour le cadre du polyéthisme et le contexte du Cerveau : _deux portes,
+c'est une porte qu'on oublie de garder_. Un banc vérifie qu'il n'existe qu'un
+seul site d'appel.
+
+La caste y est **figée**, jamais relue plus tard. Le socle `aucun` est
+enregistré comme les autres : savoir que la ruche n'avait rien à dire ce
+jour-là fait partie de son histoire, et c'est ce qui permettra de dater le
+moment où elle a commencé à savoir.
+
+**L'historique se lit** depuis `results`, en `LEFT JOIN` sur les annonces : les
+tâches d'avant l'horloge comptent encore, sans caste, et nourrissent le socle
+`global`. Un `INNER JOIN` aurait jeté tout le passé de la ruche le jour de la
+mise en service.
+
+**La table est bornée** — `pruneAnnonces`, câblée dans le tick, comme la
+doctrine l'exige pour toute table qui grossit sous la machine.
+
+`tests/horloge-wiring.test.ts` défend le défaut que ce dépôt a déjà commis :
+« trois bornes écrites, jamais appelées » (lot 46). Il lit la source **sans ses
+commentaires** — un appel commenté n'appelle rien, et une garde qui lit le texte
+brut rassure précisément quand quelqu'un vient de désactiver l'appel à la main.
+Rejeu : commenter l'appel fait rougir.
+
 ## Ce qui reste à brancher
 
-Le module **juge** ; rien ne l'appelle encore. Chacun de ces points est un lot :
+- **l'afficher** dans la Chronique et Plein Essaim, avec son `n` — l'événement
+  `duree_annoncee` est déjà émis, il n'attend qu'un écran ;
+- **alerter** sur `hors_domaine` plutôt que le rendre en silence : c'est le
+  signal qu'une tâche est sortie du domaine connu ;
+- **surveiller** le verdict de calibration dans le temps — une horloge qui
+  glisse vers `optimiste` signale que les tâches changent de nature.
 
-- lire l'historique depuis `results` (la donnée existe déjà) et l'étiqueter par
-  caste et par genre de tâche ;
-- **enregistrer chaque annonce** à côté du réel — sans ça, `calibrer()` n'a rien
-  à mesurer, et l'horloge perd ce qui fait sa valeur ;
-- l'afficher dans la Chronique et Plein Essaim, avec son `n` ;
-- alerter sur `hors_domaine` plutôt que le rendre en silence ;
-- surveiller le verdict de calibration dans le temps : une horloge qui glisse
-  vers `optimiste` signale que les tâches changent de nature.
+### Et ce que je n'inventerai pas
+
+Le socle `exact` demande un **genre** de tâche. Cette donnée n'existe pas dans
+la ruche. L'inventer — par mots-clés du titre, par exemple — donnerait un
+étiquetage plausible et faux, et l'horloge se spécialiserait sur des catégories
+qui ne veulent rien dire.
+
+Le socle `exact` restera donc inatteignable tant que le genre n'aura pas une
+définition que la ruche **mesure**. C'est écrit ici plutôt que contourné par une
+heuristique : l'horloge parle sur socle `caste` ou `global`, et elle le dit.
