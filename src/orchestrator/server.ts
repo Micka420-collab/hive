@@ -23,6 +23,9 @@ import {
   secretJwtDepuisEnv,
   LONGUEUR_MIN_SECRET_JWT,
 } from './auth.js';
+import { shellForce } from '../shared/agent-production.js';
+import { calibrer, estimerDuree, resteEstime } from '../shared/horloge-chantier.js';
+import type { Calibration } from '../shared/horloge-chantier.js';
 import { encodeInvite, isWsUrl } from '../shared/invite.js';
 import { inviteInjoignable } from '../shared/joignable.js';
 import { portDepuisEnv } from '../shared/port.js';
@@ -189,6 +192,17 @@ import {
 } from './essaim.js';
 import type { Decision, EtatEssaim, NiveauAutonomie, NoeudObserve } from './essaim.js';
 import { FENETRE, compterLignes, mesurerDerive } from './derive.js';
+import { marquerFabriquesMergeesApresFusion } from './fabrique.js';
+import {
+  doitNoterFaitDeriveASurveiller,
+  doitNoterFaitDeriveDegradee,
+  SOURCE_HORIZON_DERIVE,
+  texteFaitDeriveASurveiller,
+  texteFaitDeriveDegradee,
+} from './horizon.js';
+import { expliquerRefusBapteme } from './bapteme.js';
+import { METIERS, expliquerRefusMetier } from './metier.js';
+import { expliquerRefusRequisition } from './requisition.js';
 import {
   CORPUS_GARDIENNES,
   cheminsPromis,
@@ -265,6 +279,71 @@ const MEMORY_RETENTION = 2_000;
 export const RESULT_RETENTION = 5_000;
 /** Timeline de code : autant que les résultats — une étape par production typique. */
 export const SAUVEGARDES_RETENTION = 5_000;
+
+/**
+ * Présences Rayon (ADR 0010) : fichiers ouverts constatés. Une présence qui
+ * traîne plus d'une heure (outil jamais refermé, nœud disparu) est élaguée —
+ * l'écran ne doit pas montrer un fichier « encore ouvert » inventé.
+ */
+export const PRESENCES_RETENTION_MS = 60 * 60_000;
+
+/**
+ * Réquisitions closes (ADR 0010) : on garde l'historique récent, on élague
+ * le reste. Les ouvertes ne sont JAMAIS élaguées — un besoin sans réponse
+ * doit rester visible.
+ */
+export const REQUISITIONS_RETENTION_MS = 30 * 24 * 60 * 60_000;
+
+/** Horizon ledger — faits/hypothèses datés ; élagage comme le journal. */
+export const HORIZON_RETENTION_MS = 90 * 24 * 60 * 60_000;
+
+/**
+ * Registre des annonces de durée (l'horloge du chantier). BORNE D'ÉLAGAGE de la
+ * table `annonces_duree` (doctrine, règle 3), câblée dans le tick.
+ *
+ * ─── POURQUOI UNE UNITÉ DIFFÉRENTE DE `RESULT_RETENTION`, ET PAS UN ORDRE ────
+ *
+ * `RESULT_RETENTION` est un NOMBRE DE LIGNES, pas une durée : au-delà, seules
+ * les colonnes lourdes (`diff`, `logs`) sont vidées — la LIGNE survit, donc
+ * `durationMs` aussi, indéfiniment. Comparer les deux bornes n'a donc pas de
+ * sens : elles ne mesurent pas la même chose.
+ *
+ * Ce qui compte pour l'horloge est ailleurs : l'annonce est la moitié
+ * PÉRISSABLE du couple. Le réel ne disparaît jamais ; la promesse, si. Une
+ * annonce élaguée fait donc silencieusement sortir une tâche de la calibration
+ * — sans erreur, sans trou visible, juste une note calculée sur moins de cas
+ * qu'on ne croit.
+ *
+ * Six mois : assez pour que la fenêtre de calibration couvre plusieurs saisons
+ * de la ruche, assez court pour que la table ne devienne pas un journal.
+ */
+const ANNONCES_RETENTION_MS = 180 * 24 * 60 * 60_000;
+
+/**
+ * À quel rythme l'horloge SE NOTE.
+ *
+ * Pas à chaque battement : la note ne bouge qu'aux atterrissages, et une
+ * requête de cinq cents lignes toutes les quelques secondes serait payée pour
+ * rien. Cinq minutes suffisent — une dérive de calibration se mesure en jours,
+ * pas en secondes.
+ */
+const CALIBRATION_PERIODE_MS = 5 * 60_000;
+
+/**
+ * Le rappel : même verdict inchangé, on le redit au bout de six heures.
+ *
+ * ─── POURQUOI « à chaque changement » NE SUFFIT PAS ──────────────────────────
+ *
+ * N'émettre que sur changement est la bonne règle pour un journal — un signal
+ * répété cesse d'être un signal. Mais le journal est ÉLAGUÉ : un verdict stable
+ * pendant une semaine sortirait de la fenêtre et n'y reviendrait jamais. L'écran
+ * afficherait alors « rien » sur une horloge parfaitement notée, et « rien » se
+ * lit « personne ne surveille ».
+ *
+ * Six heures : assez rare pour ne rien noyer, assez fréquent pour qu'une
+ * fenêtre de journal en contienne toujours un.
+ */
+const CALIBRATION_RAPPEL_MS = 6 * 60 * 60_000;
 
 /**
  * Nombre de livraisons conservées. BORNE D'ÉLAGAGE de la table `livraisons`
@@ -1242,10 +1321,53 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         // son adaptateur. Absent ⇒ le nœud emploie son modèle par défaut.
         ...(modele ? { modele } : {}),
       });
+
+      // ─── L'HORLOGE DU CHANTIER : ce qu'on ANNONCE, écrit au moment où on
+      //     l'annonce ────────────────────────────────────────────────────────
+      //
+      // Ici et nulle part ailleurs, pour la raison qui gouverne déjà cette
+      // fonction : une seule porte vers les ouvrières. Une annonce posée à un
+      // second endroit serait une annonce qu'on oublie de mettre à jour.
+      //
+      // La caste est FIGÉE maintenant. Elle est vive — recalculée à chaque
+      // interrogation —, et la relire dans trois semaines pour expliquer cette
+      // durée-ci rendrait un historique faux.
+      //
+      // Le socle `aucun` est enregistré comme les autres : savoir que la ruche
+      // n'avait RIEN à dire ce jour-là fait partie de son histoire, et c'est ce
+      // qui permettra plus tard de dater le moment où elle a commencé à savoir.
+      const annonce = estimerDuree(store.historiqueDurees(), { caste: casteDe(nodeId) });
+      store.enregistrerAnnonce(task.id, nodeId, casteDe(nodeId), annonce);
+      emitEvent('duree_annoncee', {
+        taskId: task.id,
+        nodeId,
+        socle: annonce.socle,
+        n: annonce.n,
+        p50Ms: annonce.p50Ms,
+        p80Ms: annonce.p80Ms,
+      });
     }
   };
 
   const scheduler = new Scheduler(store, {
+    // ─── DEUX QUESTIONS QU'IL NE FAUT PAS CONFONDRE ──────────────────────────
+    //
+    // `config.simulation` (HIVE_SIMULATION=1) relâche TROIS GARDES DE SÉCURITÉ
+    // plus haut dans cette fonction : jeton trivial toléré, secret de session
+    // absent toléré, secret de webhook absent toléré. Ce drapeau ne doit
+    // JAMAIS s'élargir — `HIVE_AGENT=shell` ouvrirait ces trois portes-là à
+    // qui pose une variable d'environnement.
+    //
+    // « ce nœud peut-il recevoir du travail de démonstration » est une
+    // question DIFFÉRENTE, et elle ne relâche aucune sécurité. Le message de
+    // `messageRefusShellProduction` promet DEUX trappes — « HIVE_SIMULATION=1
+    // ou HIVE_AGENT=shell » — et `demarrageNoeudAutorise` les honore toutes
+    // les deux. L'ordonnanceur n'en honorait qu'une : un nœud démarré sur la
+    // foi du message restait éligible à rien, et sa tâche courait sans fin.
+    //
+    // Un message qui annonce un contrat que le code n'honore pas est un
+    // mensonge lent. Ici les deux portes disent enfin la même chose.
+    simulation: config.simulation || shellForce(process.env),
     // Balance : le grand livre suit la table `results` et n'influence RIEN.
     balance: { mode: config.balance ?? 'observation' },
     factureHorlogeHote: edition === 'cloud',
@@ -1586,7 +1708,14 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   const authorized = (req: FastifyRequest): boolean =>
     tokenMatches(req.headers['x-hive-token'], config.token);
 
-  const reject = (reply: FastifyReply) => reply.code(401).send({ error: 'token invalide' });
+  const reject = (reply: FastifyReply) =>
+    reply.code(401).send({
+      error: 'token invalide',
+      detail:
+        'Le jeton du tableau de bord (champ « Jeton » en haut à droite) doit être ' +
+        'exactement la valeur de HIVE_TOKEN dans le fichier .env de l’orchestrateur. ' +
+        'Ce n’est pas le jeton GitHub (HIVE_GITHUB_TOKEN).',
+    });
 
   /** Requête authentifiée par JWT utilisateur. */
   interface AuthRequest extends FastifyRequest {
@@ -1740,6 +1869,547 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     if (!out.ok) return reply.code(502).send({ error: out.stderr || 'arrêt échoué' });
     return { ok: true };
   });
+
+  /**
+   * Chambre (ADR 0010) — lecture du poste d'UNE ouvrière.
+   *
+   * Jeton de ruche UNIQUEMENT. Un lien de partage ne doit JAMAIS voir les
+   * identités qui travaillent (baptême, métier, présence, tâches du nœud).
+   * Champs absents ⇒ null / [] : l'écran n'invente rien.
+   */
+  app.get<{ Params: { nodeId: string } }>(
+    '/api/chambre/:nodeId',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['nodeId'],
+          properties: { nodeId: { type: 'string', minLength: 1, maxLength: 64 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const node = store.getNode(req.params.nodeId);
+      if (!node) return reply.code(404).send({ error: 'ouvrière inconnue' });
+      const bapteme = store.lireBapteme(node.id);
+      const metier = store.lireMetier(node.id);
+      const presences = store.lirePresences(node.id);
+      const tasks = store
+        .listTasks()
+        .filter((t) => t.assignedNodeId === node.id || t.result?.nodeId === node.id)
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+        .slice(0, 80);
+      // Projet dominant = dernière tâche touchée — pour horizon / fabrique à l'écran.
+      const projectId = tasks[0]?.projectId ?? null;
+      let horizon: { faits: unknown[]; hypotheses: unknown[] } | null = null;
+      let fabriques: unknown[] = [];
+      if (projectId) {
+        const { resumeHorizon } = await import('./horizon.js');
+        horizon = resumeHorizon(store.listerHorizon(projectId));
+        fabriques = store.listerFabriques(projectId).slice(0, 24);
+      }
+      return {
+        nodeId: node.id,
+        bapteme,
+        metier,
+        caste: casteDe(node.id),
+        projectId,
+        node: {
+          id: node.id,
+          status: node.status,
+          plateforme: node.plateforme ?? null,
+          agentType: node.agentType,
+          ownerName: node.ownerName,
+          running: node.running,
+          maxConcurrency: node.maxConcurrency,
+          lastSeen: node.lastSeen,
+          /** Libellé technique d'inscription — PAS l'identité baptisée. */
+          nameTechnique: node.name,
+        },
+        presences,
+        tasks,
+        requisitions: store.listerRequisitions({ nodeId: node.id, statut: 'ouverte' }),
+        horizon,
+        fabriques,
+        atelier: await etatAtelier({ env: process.env }),
+      };
+    },
+  );
+
+  /**
+   * Curseurs Rayon (ADR 0010 lot 6) — toutes les présences ouvertes + baptême.
+   * Jeton de ruche UNIQUEMENT. Partage → 401 (pas d'identités actives).
+   */
+  app.get('/api/presences', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    const rows = store.listerPresences();
+    return {
+      presences: rows.map((p) => {
+        const b = store.lireBapteme(p.nodeId);
+        return {
+          nodeId: p.nodeId,
+          /** Null si pas baptisée — le Rayon n'invente pas de prénom. */
+          bapteme: b?.nom ?? null,
+          chemin: p.chemin,
+          outil: p.outil,
+          toolUseId: p.toolUseId,
+          taskId: p.taskId,
+          constateA: p.constateA,
+        };
+      }),
+    };
+  });
+
+  /**
+   * Baptêmes (ADR 0010) — liste constatée pour les cartes nœud.
+   * Jeton de ruche UNIQUEMENT. Partage → 401 (pas d'identités).
+   */
+  app.get('/api/baptemes', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    return {
+      baptemes: store.listerBaptemes().map((b) => ({
+        nodeId: b.nodeId,
+        nom: b.nom,
+        baptiseA: b.baptiseA,
+      })),
+    };
+  });
+
+  /** La Reine baptise — geste humain, jeton de ruche uniquement. */
+  app.post<{ Body: { nodeId: string; nom: string } }>(
+    '/api/baptemes',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['nodeId', 'nom'],
+          additionalProperties: false,
+          properties: {
+            nodeId: { type: 'string', minLength: 1, maxLength: 64 },
+            nom: { type: 'string', minLength: 1, maxLength: 40 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const verdict = store.baptiser(req.body.nodeId, req.body.nom);
+      if (!verdict.ok) {
+        return reply.code(400).send({ error: expliquerRefusBapteme(verdict.motif) });
+      }
+      emitEvent('bapteme_pose', { nodeId: req.body.nodeId, nom: verdict.nom });
+      return { ok: true, nodeId: req.body.nodeId, nom: verdict.nom };
+    },
+  );
+
+  app.delete<{ Params: { nodeId: string } }>('/api/baptemes/:nodeId', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    if (!store.getNode(req.params.nodeId)) {
+      return reply.code(404).send({ error: 'ouvrière inconnue' });
+    }
+    const ok = store.debaptiser(req.params.nodeId);
+    if (!ok) return reply.code(404).send({ error: 'aucun baptême à retirer' });
+    emitEvent('bapteme_retire', { nodeId: req.params.nodeId });
+    return { ok: true };
+  });
+
+  /** Métiers de cycle assignés — lecture constatée. */
+  app.get('/api/metiers', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    return {
+      metiers: store.listerMetiers(),
+      catalogue: METIERS,
+    };
+  });
+
+  /** La Reine assigne un métier de cycle — liste fermée. */
+  app.post<{ Body: { nodeId: string; metier: string } }>(
+    '/api/metiers',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['nodeId', 'metier'],
+          additionalProperties: false,
+          properties: {
+            nodeId: { type: 'string', minLength: 1, maxLength: 64 },
+            metier: { type: 'string', minLength: 1, maxLength: 20 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const verdict = store.assignerMetier(req.body.nodeId, req.body.metier);
+      if (!verdict.ok) {
+        return reply.code(400).send({ error: expliquerRefusMetier(verdict.motif) });
+      }
+      emitEvent('metier_assigne', {
+        nodeId: req.body.nodeId,
+        metier: verdict.metier,
+      });
+      return { ok: true, nodeId: req.body.nodeId, metier: verdict.metier };
+    },
+  );
+
+  /**
+   * Réquisitions (ADR 0010 lot 7) — besoins ouverts / historiques récents.
+   * Jeton de ruche uniquement. Aucun secret dans le corps.
+   */
+  app.get('/api/requisitions', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    const q = req.query as { statut?: string; nodeId?: string };
+    const statut =
+      q.statut === 'ouverte' || q.statut === 'accordee' || q.statut === 'refusee'
+        ? q.statut
+        : undefined;
+    const rows = store.listerRequisitions({
+      ...(typeof q.nodeId === 'string' ? { nodeId: q.nodeId } : {}),
+      ...(statut ? { statut } : {}),
+    });
+    return {
+      requisitions: rows.map((r) => ({
+        ...r,
+        bapteme: store.lireBapteme(r.nodeId)?.nom ?? null,
+      })),
+    };
+  });
+
+  app.post<{
+    Body: { nodeId: string; genre: string; libelle: string; detail?: string };
+  }>(
+    '/api/requisitions',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['nodeId', 'genre', 'libelle'],
+          additionalProperties: false,
+          properties: {
+            nodeId: { type: 'string', minLength: 1, maxLength: 64 },
+            genre: { type: 'string', minLength: 1, maxLength: 40 },
+            libelle: { type: 'string', minLength: 1, maxLength: 200 },
+            detail: { type: 'string', maxLength: 2000 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const v = store.ouvrirRequisition(
+        req.body.nodeId,
+        req.body.genre,
+        req.body.libelle,
+        req.body.detail ?? null,
+      );
+      if (!v.ok) {
+        return reply.code(400).send({ error: v.motif });
+      }
+      emitEvent('requisition_ouverte', {
+        id: v.id,
+        nodeId: req.body.nodeId,
+        genre: v.genre,
+        libelle: v.libelle,
+      });
+      return { ok: true, id: v.id, genre: v.genre, libelle: v.libelle };
+    },
+  );
+
+  app.post<{ Params: { id: string }; Body: { decision: 'accordee' | 'refusee' } }>(
+    '/api/requisitions/:id/repondre',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: { id: { type: 'string', minLength: 1, maxLength: 64 } },
+        },
+        body: {
+          type: 'object',
+          required: ['decision'],
+          additionalProperties: false,
+          properties: {
+            decision: { type: 'string', enum: ['accordee', 'refusee'] },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const cur = store.lireRequisition(req.params.id);
+      if (!cur) return reply.code(404).send({ error: 'inconnue' });
+      const v = store.repondreRequisition(req.params.id, req.body.decision);
+      if (!v.ok) {
+        const code = v.motif === 'inconnue' ? 404 : 409;
+        return reply.code(code).send({ error: v.motif });
+      }
+      // La clé reste chez la Queen / Intendance — on constate la décision, pas le secret.
+      emitEvent('requisition_reponse', {
+        id: req.params.id,
+        statut: v.statut,
+      });
+      const ws = nodeSockets.get(cur.nodeId);
+      if (ws) {
+        send(ws, {
+          type: 'requisition_result',
+          id: req.params.id,
+          statut: v.statut,
+        });
+      }
+      return { ok: true, statut: v.statut };
+    },
+  );
+
+  // ─── Fabrique / Horizon / Motifs (ADR 0010 lots 8–10) ───────────────────────
+
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/fabriques',
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      return { fabriques: store.listerFabriques(req.params.projectId) };
+    },
+  );
+
+  app.post<{
+    Params: { projectId: string };
+    Body: {
+      genre: string;
+      libelle: string;
+      nomScript?: string;
+      nodeId?: string;
+      creerTache?: boolean;
+    };
+  }>(
+    '/api/projects/:projectId/fabriques',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['genre', 'libelle'],
+          additionalProperties: false,
+          properties: {
+            genre: { type: 'string', minLength: 1, maxLength: 40 },
+            libelle: { type: 'string', minLength: 1, maxLength: 200 },
+            nomScript: { type: 'string', maxLength: 80 },
+            nodeId: { type: 'string', maxLength: 64 },
+            creerTache: { type: 'boolean' },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const projectId = req.params.projectId;
+      if (!store.getProject(projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const { promptFabrique, validerGenreFabrique } = await import('./fabrique.js');
+      const g = validerGenreFabrique(req.body.genre);
+      if (!g.ok) return reply.code(400).send({ error: g.motif });
+      let taskId: string | undefined;
+      if (req.body.creerTache !== false) {
+        const prompt = promptFabrique({
+          genre: g.genre,
+          libelle: req.body.libelle,
+          nomScript: req.body.nomScript,
+        });
+        const task = store.createTask({
+          projectId,
+          title: `Fabrique : ${req.body.libelle}`.slice(0, 120),
+          prompt,
+        });
+        store.patchTask(task.id, { status: 'ready' });
+        taskId = task.id;
+      }
+      const v = store.ouvrirFabrique(projectId, req.body.genre, req.body.libelle, {
+        nodeId: req.body.nodeId,
+        nomScript: req.body.nomScript,
+        taskId,
+      });
+      if (!v.ok) return reply.code(400).send({ error: v.motif });
+      return { ok: true, id: v.id, taskId: taskId ?? null };
+    },
+  );
+
+  app.post<{
+    Params: { projectId: string; id: string };
+    Body: { statut: 'en_revue' | 'mergee' | 'refusee' };
+  }>(
+    '/api/projects/:projectId/fabriques/:id/statut',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['statut'],
+          additionalProperties: false,
+          properties: {
+            statut: { type: 'string', enum: ['en_revue', 'mergee', 'refusee'] },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const v = store.poserStatutFabrique(req.params.id, req.body.statut);
+      if (!v.ok) {
+        const code = v.motif === 'inconnue' ? 404 : 409;
+        return reply.code(code).send({ error: v.motif });
+      }
+      return { ok: true, statut: req.body.statut };
+    },
+  );
+
+  app.post<{
+    Params: { projectId: string };
+    Body: { nomScript: string; scriptsMiroir: Record<string, string>; mergeLanded: boolean };
+  }>(
+    '/api/projects/:projectId/fabriques/juger-chantier',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['nomScript', 'scriptsMiroir', 'mergeLanded'],
+          additionalProperties: false,
+          properties: {
+            nomScript: { type: 'string', minLength: 1, maxLength: 80 },
+            scriptsMiroir: { type: 'object' },
+            mergeLanded: { type: 'boolean' },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const { jugerFabriqueAvantChantier } = await import('./fabrique.js');
+      const scripts = req.body.scriptsMiroir ?? {};
+      const clean: Record<string, string> = {};
+      for (const [k, v] of Object.entries(scripts)) {
+        if (typeof k === 'string' && typeof v === 'string') clean[k] = v;
+      }
+      return jugerFabriqueAvantChantier({
+        nomScript: req.body.nomScript,
+        scriptsMiroir: clean,
+        mergeLanded: req.body.mergeLanded === true,
+      });
+    },
+  );
+
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/horizon',
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const { resumeHorizon } = await import('./horizon.js');
+      const entrees = store.listerHorizon(req.params.projectId);
+      return { ...resumeHorizon(entrees), entrees };
+    },
+  );
+
+  app.post<{
+    Params: { projectId: string };
+    Body: { kind: string; texte: string; source?: string };
+  }>(
+    '/api/projects/:projectId/horizon',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['kind', 'texte'],
+          additionalProperties: false,
+          properties: {
+            kind: { type: 'string', minLength: 1, maxLength: 20 },
+            texte: { type: 'string', minLength: 1, maxLength: 500 },
+            source: { type: 'string', maxLength: 80 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const v = store.ajouterHorizon(
+        req.params.projectId,
+        req.body.kind,
+        req.body.texte,
+        req.body.source ?? 'reine',
+      );
+      if (!v.ok) {
+        const code = v.motif === 'projet_inconnu' ? 404 : 400;
+        return reply.code(code).send({ error: v.motif });
+      }
+      return { ok: true, entree: v.entree };
+    },
+  );
+
+  app.get('/api/motifs', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    const { MOTIFS } = await import('./motifs.js');
+    return {
+      motifs: MOTIFS.map((m) => ({
+        id: m.id,
+        domaine: m.domaine,
+        libelleFr: m.libelleFr,
+        libelleEn: m.libelleEn,
+        etapes: m.etapes.map((e) => ({ id: e.id, titreFr: e.titreFr, titreEn: e.titreEn })),
+      })),
+    };
+  });
+
+  app.post<{
+    Params: { projectId: string; motifId: string };
+    Body: { lang?: string; corps?: string };
+  }>(
+    '/api/projects/:projectId/motifs/:motifId/appliquer',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            lang: { type: 'string', enum: ['fr', 'en'] },
+            corps: { type: 'string', maxLength: 50_000 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const { appliquerMotif } = await import('./motifs.js');
+      const lang = req.body?.lang === 'en' ? 'en' : 'fr';
+      const v = appliquerMotif(req.params.motifId, lang, req.body?.corps);
+      if (!v.ok) {
+        const code = v.motif === 'diff_interdit' ? 400 : 404;
+        return reply.code(code).send({ error: v.motif });
+      }
+      const taskIds: string[] = [];
+      let prevId: string | undefined;
+      for (const titre of v.titres) {
+        const task = store.createTask({
+          projectId: req.params.projectId,
+          title: titre.slice(0, 120),
+          prompt:
+            `Motif « ${v.motif.id} » — étape ordonnée.\n\n${titre}\n\n` +
+            `Ne collez pas le diff d'un autre dépôt. Procédure uniquement.`,
+          dependsOn: prevId ? [prevId] : [],
+        });
+        store.patchTask(task.id, { status: prevId ? 'pending' : 'ready' });
+        taskIds.push(task.id);
+        prevId = task.id;
+      }
+      return { ok: true, motifId: v.motif.id, taskIds, titres: v.titres };
+    },
+  );
 
   app.get('/api/state', async (req, reply) => {
     if (!authorized(req)) return reject(reply);
@@ -2182,6 +2852,21 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     });
   }
 
+  /** Sonde : le jeton GitHub est-il posé ? Ne révèle jamais sa valeur. */
+  app.get('/api/github/status', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    if (!jetonGithub) {
+      return {
+        configure: false,
+        detail:
+          'Définissez HIVE_GITHUB_TOKEN dans l’environnement de l’orchestrateur, puis relancez-le. ' +
+          'Créez un jeton sur https://github.com/settings/tokens avec la portée « repo » pour voir vos dépôts privés. ' +
+          'Le jeton n’est jamais écrit en base — il vit en mémoire, le temps du processus.',
+      };
+    }
+    return { configure: true };
+  });
+
   /** Traduit une erreur GitHub en réponse actionnable, sans jamais fuiter le jeton. */
   function repondreErreurGithub(reply: FastifyReply, err: unknown): FastifyReply {
     if (err instanceof ErreurGithub) {
@@ -2501,6 +3186,11 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
               branche: l.branche,
               etat: r.fusionnee ? 'fusionnee' : l.etat,
             });
+            // ADR 0010 lot 8 : même règle que la voie autonome — merge landé
+            // → fabriques liées passent « mergee » (Chantiers peut juger).
+            if (r.fusionnee) {
+              marquerFabriquesMergeesApresFusion(store, req.body.projectId, l.taskId);
+            }
           }
         }
         emitEvent('delivery_merged', {
@@ -2720,7 +3410,35 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         dernierApportHumain: store.dernierApportHumain(),
         now: Date.now(),
       }),
+      horizonEntrees: store.compterHorizon(projectId),
     };
+    // ADR 0010 lot 9 : stall / dérive → FAIT dans le carnet (pas hypothèse).
+    // Anti-spam : au plus une fois par fenêtre et par niveau.
+    const now = Date.now();
+    const horizonProjet = store.listerHorizon(projectId);
+    if (etat.derive.etat === 'degradee') {
+      if (doitNoterFaitDeriveDegradee(horizonProjet, now)) {
+        store.ajouterHorizon(
+          projectId,
+          'fait',
+          texteFaitDeriveDegradee(etat.derive.motif || 'la ruche se dégrade'),
+          SOURCE_HORIZON_DERIVE,
+          now,
+        );
+        etat.horizonEntrees = store.compterHorizon(projectId);
+      }
+    } else if (etat.derive.etat === 'a_surveiller') {
+      if (doitNoterFaitDeriveASurveiller(horizonProjet, now)) {
+        store.ajouterHorizon(
+          projectId,
+          'fait',
+          texteFaitDeriveASurveiller(etat.derive.motif || 'signaux à surveiller'),
+          SOURCE_HORIZON_DERIVE,
+          now,
+        );
+        etat.horizonEntrees = store.compterHorizon(projectId);
+      }
+    }
     return { ...etat, decision: deciderPas(etat) };
   };
 
@@ -2733,7 +3451,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       }
       const e = etatEssaim(req.params.projectId);
       const suivi = cadencier.suivi(req.params.projectId);
-      return {
+      const body: Record<string, unknown> = {
         niveau: e.niveau,
         decision: e.decision,
         gouvernantes: gouvernantes(e.noeuds).map((g) => ({ nodeId: g.nodeId, nom: g.nom })),
@@ -2757,6 +3475,57 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           dernierTourA: suivi.dernierTourA,
         },
       };
+      // Horizon (faits ≠ hypothèses) : jeton de ruche seulement — pas le partage.
+      if (authorized(req)) {
+        const { resumeHorizon } = await import('./horizon.js');
+        body.horizon = resumeHorizon(store.listerHorizon(req.params.projectId));
+      }
+      const nodes = store.listNodes();
+      const enLigne = nodes.filter((n) => n.status === 'online').length;
+      const agentsReels = nodes.some((n) => n.agentType !== 'shell' && n.agentType !== 'sim');
+      const projet = store.getProject(req.params.projectId);
+      const veutFusion = e.niveau === 'plein';
+      const gouv = gouvernantes(e.noeuds);
+      body.pret = {
+        runner: modeRunner === 'on',
+        gouvernantes: gouv.length >= GOUVERNANTES_MIN,
+        noeudsEnLigne: enLigne >= 1,
+        agentsReels,
+        depot: !veutFusion || e.depotInscrit,
+        derive: e.derive.etat !== 'degradee',
+        plafond: e.plafond !== 'bloque',
+        repo: !veutFusion || depotDepuisUrl(projet?.repoUrl ?? null) !== null,
+      };
+      return body;
+    },
+  );
+
+  /** Derniers cycles du runner pour ce projet — journal essaim_cycle. */
+  app.get<{ Params: { projectId: string }; Querystring: { limit?: string } }>(
+    '/api/projects/:projectId/essaim/cycles',
+    async (req, reply) => {
+      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const lim = Math.min(40, Math.max(1, Number(req.query.limit) || 12));
+      const pid = req.params.projectId;
+      const cycles = store
+        .listEvents(0, 800)
+        .filter(
+          (ev) =>
+            ev.type === 'essaim_cycle' &&
+            typeof ev.payload === 'object' &&
+            ev.payload !== null &&
+            (ev.payload as { projectId?: string }).projectId === pid,
+        )
+        .slice(-lim)
+        .reverse()
+        .map((ev) => ({
+          ts: ev.ts,
+          ...(ev.payload as Record<string, unknown>),
+        }));
+      return { cycles };
     },
   );
 
@@ -3159,6 +3928,11 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
             pr: ouverte.pr,
             fusionnee: r.fusionnee,
           });
+          // ADR 0010 lot 8 : merge landé → les fabriques liées passent « mergee »
+          // (Chantiers pourra enfin juger le script déclaré).
+          if (r.fusionnee) {
+            marquerFabriquesMergeesApresFusion(store, projectId, ouverte.taskId);
+          }
           return r.fusionnee ? `pull request #${ouverte.pr} fusionnée` : 'fusion refusée';
         } catch (e) {
           // Un refus de GitHub (405 : conflit, CI rouge, revue exigée) n'est
@@ -5016,10 +5790,18 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     try {
       const fichier = await rayons.lire(project.id, 'package.json');
       const brut: unknown = JSON.parse(fichier.contenu);
+      // loupe : équivalent — && → ||. Le `catch` de ce bloc et le
+      // `if (typeof bloc !== 'object' …)` juste dessous mènent TOUS DEUX à
+      // `{}`. Mué en `||`, un `package.json` valant `null` fait lever
+      // l'indexation — et le `catch` rend `{}`, exactement comme la garde
+      // l'aurait fait. Aucun banc ne peut distinguer les deux mondes.
       const bloc =
         typeof brut === 'object' && brut !== null
           ? (brut as Record<string, unknown>).scripts
           : null;
+      // loupe : équivalent — || → &&. Même raison que la ligne marquée au-dessus :
+      // mué, `Object.entries(null)` lève, et le `catch` de ce bloc rend `{}` —
+      // exactement ce que la garde aurait rendu.
       if (typeof bloc !== 'object' || bloc === null) return {};
       const scripts: Record<string, string> = {};
       for (const [k, v] of Object.entries(bloc)) {
@@ -5092,8 +5874,25 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       if (!(await assurerMiroir(project, reply))) return reply;
 
       // LE DÉPÔT DÉCIDE. `intentionHumaine` n'est volontairement pas passée.
-      const verdict = jugerChantier(await scriptsDuMiroir(project), req.params.nom);
+      const scripts = await scriptsDuMiroir(project);
+      const verdict = jugerChantier(scripts, req.params.nom);
       if (!verdict.ok) return reply.code(400).send({ error: verdict.motif });
+
+      // ADR 0010 lot 8 : une fabrique encore ouverte pour CE script bloque.
+      const { fabriqueBloqueChantier, jugerFabriqueAvantChantier, expliquerRefusFabrique } =
+        await import('./fabrique.js');
+      const gate = fabriqueBloqueChantier(store.listerFabriques(project.id), req.params.nom);
+      if (!gate.ok) {
+        return reply.code(400).send({ error: expliquerRefusFabrique(gate.motif) });
+      }
+      const avant = jugerFabriqueAvantChantier({
+        nomScript: req.params.nom,
+        scriptsMiroir: scripts,
+        mergeLanded: gate.mergeLanded,
+      });
+      if (!avant.ok) {
+        return reply.code(400).send({ error: expliquerRefusFabrique(avant.motif) });
+      }
 
       const node = store
         .listNodes()
@@ -6911,6 +7710,11 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
 
   await app.listen({ port: config.port, host: config.host });
   const address = app.server.address();
+  // loupe : équivalent — && → ||. Le repli `config.port` est INATTEIGNABLE
+  // ici : `listen({ port, host })` rend toujours un `AddressInfo`, jamais une
+  // chaîne (ce serait une socket Unix, que ce code ne demande jamais) ni
+  // `null` (le `await` vient de réussir). La garde reste, parce que le type
+  // l'exige ; la branche qu'elle protège n'est pas jouable.
   const port = typeof address === 'object' && address !== null ? address.port : config.port;
 
   // ─── WebSocket temps réel ──────────────────────────────────────────────────
@@ -7126,7 +7930,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
             if (msg.onShift !== undefined) nodeOnShift.set(nodeId, msg.onShift);
             break;
           case 'task_update':
-            scheduler.handleTaskUpdate(nodeId, msg.taskId, msg.subAgents, msg.log);
+            scheduler.handleTaskUpdate(nodeId, msg.taskId, msg.subAgents, msg.log, msg.presences);
             break;
           case 'task_result': {
             // ─── LE HUB SAVAIT DIRE NON, ET NE LE DISAIT JAMAIS ──────────────
@@ -7202,6 +8006,30 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
               msg.retryAfterMs,
             );
             break;
+          case 'requisition_open': {
+            const v = store.ouvrirRequisition(nodeId, msg.genre, msg.libelle, msg.detail ?? null);
+            if (!v.ok) {
+              send(ws, {
+                type: 'error',
+                message: expliquerRefusRequisition(v.motif),
+              });
+              break;
+            }
+            emitEvent('requisition_ouverte', {
+              id: v.id,
+              nodeId,
+              genre: v.genre,
+              libelle: v.libelle,
+            });
+            send(ws, {
+              type: 'requisition_ack',
+              id: v.id,
+              genre: v.genre,
+              libelle: v.libelle,
+            });
+            stateDirty = true;
+            break;
+          }
           case 'merge_result': {
             // Honeycomb Merge : range le résultat pour le projet demandeur.
             // Un REFUS du nœud (Night Shift…) est un échec explicite — jamais
@@ -7348,6 +8176,31 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
    * passe) : sur dix ans, la mémoire ne dérive pas.
    */
   const contextesRelivres = new Map<string, string>();
+  /**
+   * Les tâches dont on a DÉJÀ dit qu'elles sortaient du domaine connu.
+   *
+   * Le tick repasse toutes les quelques secondes. Sans cette mémoire, la même
+   * tâche déclencherait le même avertissement des centaines de fois, et la
+   * Chronique se remplirait d'une seule nouvelle jusqu'à noyer tout le reste.
+   * Un signal répété cesse d'être un signal.
+   *
+   * Bornée par les tâches encore en vol (purge dans le tick) : sinon elle
+   * grandirait sans fin dans un processus qui tourne des mois.
+   */
+  const horsDomaineDits = new Set<string>();
+
+  /**
+   * La note de l'horloge : quand elle a été recalculée, et ce qu'elle a dit.
+   *
+   * `null` tant que rien n'a été émis — distinct de `'trop_peu'`, qui est un
+   * verdict à part entière et mérite d'être inscrit une fois : savoir que la
+   * ruche n'avait PAS ENCORE de quoi se noter fait partie de son histoire.
+   *
+   * Deux scalaires, jamais une collection : rien à élaguer ici.
+   */
+  let calibrationVueA = 0;
+  let calibrationDite: Calibration['verdict'] | null = null;
+  let calibrationDiteA = 0;
 
   /**
    * Quand chaque tâche muette a été re-servie pour la dernière fois.
@@ -7460,12 +8313,91 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // Borne la croissance du journal, de la mémoire Hive Mind, des résultats
       // et des verdicts de garde (doctrine, règle 3 : une table nouvelle arrive
       // avec sa borne d'élagage, et la borne est CÂBLÉE, pas seulement écrite).
+      // ─── L'HORLOGE ALERTE : cette tâche est SORTIE du domaine connu ──────
+      //
+      // Elle court depuis plus longtemps que TOUT ce que la ruche a observé.
+      // Ce n'est pas « presque fini » — c'est qu'il n'existe plus une seule
+      // observation comparable, donc plus rien à estimer. L'instant précis où
+      // un humain a besoin d'être prévenu, et celui où un compte à rebours
+      // afficherait « bientôt » avec aplomb.
+      //
+      // UNE SEULE FOIS PAR TÂCHE. Le tick repasse toutes les quelques
+      // secondes ; sans mémoire, la Chronique se remplirait du même
+      // avertissement jusqu'à noyer tout le reste — un signal répété cesse
+      // d'être un signal.
+      {
+        const histoire = store.historiqueDurees();
+        for (const enVol of store.tachesEnVolAnnoncees()) {
+          if (horsDomaineDits.has(enVol.taskId)) continue;
+          const reste = resteEstime(histoire, maintenant - enVol.faiteA, { caste: enVol.caste });
+          if (reste.connu || reste.motif !== 'hors_domaine') continue;
+          horsDomaineDits.add(enVol.taskId);
+          emitEvent('duree_hors_domaine', {
+            taskId: enVol.taskId,
+            nodeId: enVol.nodeId,
+            ecouleMs: maintenant - enVol.faiteA,
+            recordMs: reste.recordMs,
+          });
+        }
+        // Bornée par les tâches ENCORE en vol : une tâche qui atterrit oublie
+        // son avertissement, et le redonnerait donc si elle repartait. Sans
+        // cette purge, la carte grandirait sans fin dans un processus qui
+        // tourne des mois — la même borne que `contextesRelivres` au-dessus.
+        if (horsDomaineDits.size > 0) {
+          const encore = new Set(store.tachesEnVolAnnoncees().map((t) => t.taskId));
+          for (const id of horsDomaineDits) if (!encore.has(id)) horsDomaineDits.delete(id);
+        }
+      }
+
+      // ─── L'HORLOGE SE NOTE ELLE-MÊME ──────────────────────────────────────
+      //
+      // C'est la pièce qui rend tout le reste utilisable. Sans elle, un
+      // intervalle n'est qu'un chiffre plus large — donc plus difficile à
+      // prendre en défaut, ce qui n'est PAS la même chose qu'être juste.
+      //
+      // On n'émet QUE sur changement de verdict, ou au rappel : un verdict
+      // répété toutes les cinq minutes noierait la Chronique, et un verdict
+      // jamais redit sortirait de la fenêtre du journal pour n'y plus revenir.
+      //
+      // La note ne compte que les annonces CHIFFRÉES — `annoncesJugees` écarte
+      // le socle « aucun », dont le `p80Ms` vaut 0. Sans cet écart, une ruche
+      // neuve, qui n'annonce rien parce qu'elle n'a pas d'historique, se
+      // déclarerait menteuse dès son premier jour.
+      if (maintenant - calibrationVueA >= CALIBRATION_PERIODE_MS) {
+        calibrationVueA = maintenant;
+        const note = calibrer(store.annoncesJugees());
+        const change = note.verdict !== calibrationDite;
+        const rappel = maintenant - calibrationDiteA >= CALIBRATION_RAPPEL_MS;
+        if (change || rappel) {
+          calibrationDite = note.verdict;
+          calibrationDiteA = maintenant;
+          emitEvent('horloge_calibration', {
+            verdict: note.verdict,
+            n: note.n,
+            // Trois décimales : au-delà, on afficherait une précision que
+            // quarante observations ne portent pas.
+            partTenue: Math.round(note.partTenue * 1000) / 1000,
+            ecart: Math.round(note.ecart * 1000) / 1000,
+            change,
+          });
+        }
+      }
+
       store.pruneEvents(EVENT_RETENTION);
       store.pruneMemories(MEMORY_RETENTION);
       store.pruneResults(RESULT_RETENTION);
       store.pruneSauvegardes(SAUVEGARDES_RETENTION);
       store.pruneGardiennes(GARDIENNES_RETENTION);
       store.pruneLivraisons(LIVRAISONS_RETENTION);
+      // Présences Rayon orphelines (outil jamais refermé / nœud parti).
+      store.prunePresences(PRESENCES_RETENTION_MS);
+      // Réquisitions closes trop vieilles (les ouvertes restent).
+      store.pruneRequisitions(REQUISITIONS_RETENTION_MS);
+      store.pruneFabriques(REQUISITIONS_RETENTION_MS);
+      store.pruneHorizon(HORIZON_RETENTION_MS);
+      // L'annonce est la moitié PÉRISSABLE du couple : `pruneResults` vide des
+      // colonnes mais ne supprime pas de ligne, donc `durationMs` survit.
+      store.pruneAnnonces(ANNONCES_RETENTION_MS);
       // ─── LA BORNE QUI MANQUAIT, ET QUI REND LES DEUX SUIVANTES VRAIES ──────
       //
       // `tasks` était la SEULE table du dépôt sans élagueur. Les deux bornes

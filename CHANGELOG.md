@@ -9,6 +9,63 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **Mode production agents.** `agent-production.ts` : le nœud refuse de démarrer
+  en shell sans `HIVE_SIMULATION=1` ou `HIVE_AGENT=shell` ; le scheduler n'assigne
+  pas aux agents simulés hors mode démo. Protocole réquisition nœud (cherry-pick #347).
+  Réquisition proactive à l'enregistrement si credentials agent absents (`requisitionSiCredentialsManquantes`).
+- **Polish autonomie.** API baptême/métier (`POST /api/baptemes`, `/api/metiers`) ;
+  checklist « prêt pour l’autonomie » + timeline cycles dans Plein Essaim ;
+  baptême et métier depuis la Chambre ; filtre Chronique « Essaim » ;
+  avertissement nœuds shell ; veille techno légère dans le planner (`queen-veille.ts`) ;
+  délibération prioritaire quand la dérive signale `a_surveiller`.
+- **Queen — Intelligence Core.** Spec canonique (`docs/QUEEN-INTELLIGENCE-CORE.md`) :
+  identité stratégique de la Reine (diagnostic, veille techno, catégories A/B/C/D,
+  boucle d'intelligence). Fragments injectés dans le chat Reine (`concierge.ts`),
+  le planner (`planner.ts`) et Queen Bee (`queen-bee.ts`). Skill agent
+  `.agents/skills/queen-intelligence-core/SKILL.md`.
+
+### Changed
+
+- **ADR 0010 lots 7 & 9 — suite.** Protocole nœud : `requisition_open` →
+  `requisition_ack` ; décision humaine relayée par `requisition_result` (sans
+  secret). Horizon : fait auto aussi quand la dérive passe en `a_surveiller`
+  (anti-spam 6 h, distinct de « dégradée »).
+
+### Changed
+
+- **ADR 0010 accepté.** Lots 7–10 consolidés : fabrique bloque les Chantiers
+  tant que le merge n’a pas atterri ; fusion PR (humaine **et** autonome) →
+  statut fabrique `mergee` ; dérive dégradée → fait auto dans l’horizon
+  (anti-spam) ; essaim halte si le carnet dépasse le budget d’instantané ;
+  motifs `jeu-3d` + `cli-outil` (fabrique avant livraison) ; réquisition
+  ouverte émet `requisition_ouverte` ; exemple Seedance (`cle_api` sans secret).
+- **Chambre polish.** Feedback d’erreur HITL / motifs / horizon / atelier ;
+  libellés fabrique & caste ; pastilles de statut ; « Ouvrir la Chambre »
+  unifié ; focus-visible miel étendu ; Rayon respecte `prefers-reduced-motion`.
+
+### Added
+
+- **Chambre UI fidèle à la maquette produit.** Crème `#FDF8F0` / miel `#F2B441`,
+  bandeau **À trancher**, **Journal** (pastilles EDIT/READ), **Missions**
+  filtrées, **Ordinateur** noVNC (Plein écran). Baptême display — données
+  constatées seulement. Curseur Rayon → ouvre la Chambre ; bandeau
+  **En train de…** si le miroir du dépôt est vide. Fiche nœud : titre =
+  baptême (sinon silence). Cartes nœud (Ruche + Essaim) : baptême via
+  `GET /api/baptemes` (jeton ruche ; partage → 401) — sinon « Pas encore
+  baptisée » ; échec API → nom technique (pas de mensonge). Clic Essaim →
+  Chambre. Échap → Ruche (pas pendant saisie / dialogue) ; chemins → focus
+  fichier Rayon (déplie les dossiers parents) ; **Voir le Rayon** pose le focus
+  sur la présence la plus récente (sinon navigation seule) ; sans projet lié →
+  silence du lien ; clic chemin du bandeau **En train de…** → ouvre dans l’arbre.
+  Pastille **EDIT** / point de statut Fiche alignés sur le constaté. Journal :
+  lignes READ/EDIT/WRITE → même `CheminConstate`. Maquette :
+  `docs/maquettes/chambre/`. Capture + démo :
+  `docs/images/dashboard-chambre.png`, `docs/media/chambre-presentation-demo.mp4`.
+
+- **Chambre (ADR 0010, lots 0–11 + UI).** Poste ouvrière : baptême, métier, présence,
+  vue 4 zones + Atelier, curseurs Rayon, réquisitions, **fabrique**, **horizon**,
+  **motifs**. Écran : bandeau HITL, flux outils, onglets
+  Fiche/Travail/Intégrations/Suivi. Partage : jamais d’identités. ADR **proposé**.
 - **🎤 Reine vocale + documents.** Vue 👑 : micro (Web Speech), lecture à voix
   haute des réponses, joindre PDF / Word `.docx` / texte / code (extraction
   navigateur via `pdfjs` + `mammoth`, bundlés dashboard — 0 dep runtime nœud).

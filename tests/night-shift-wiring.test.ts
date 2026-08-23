@@ -49,7 +49,7 @@ describe('Night Shift câblé dans le nœud', () => {
       token: TOKEN,
       corsOrigins: ['http://localhost:5173'],
       dbPath: path.join(dir, 'hive.db'),
-      simulation: false,
+      simulation: true,
       tickMs: 100,
     });
     base = `http://127.0.0.1:${server.port}`;

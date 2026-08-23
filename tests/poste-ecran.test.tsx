@@ -19,9 +19,32 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   fetchWaggle: vi.fn(() =>
     Promise.resolve({ nodes: [], totalTasksDone: 0, totalTasksFailed: 0, topNodeId: null }),
   ),
+  fetchChambre: vi.fn(() =>
+    Promise.resolve({
+      nodeId: 'x',
+      bapteme: null,
+      metier: null,
+      caste: 'nourrice',
+      node: {
+        id: 'x',
+        status: 'online',
+        plateforme: null,
+        agentType: 'shell',
+        ownerName: 't',
+        running: 0,
+        maxConcurrency: 1,
+        lastSeen: 1,
+        nameTechnique: 'x',
+      },
+      presences: [],
+      tasks: [],
+      atelier: { mode: 'off', actif: false, ecran: '', cdp: '', outil: '' },
+    }),
+  ),
+  fetchBaptemes: vi.fn(() => Promise.resolve({ baptemes: [] })),
 }));
 
-import { fetchWaggle } from '../dashboard/src/api';
+import { fetchBaptemes, fetchChambre, fetchWaggle } from '../dashboard/src/api';
 import { NodesPanel } from '../dashboard/src/NodesPanel';
 import { setLang } from '../dashboard/src/i18n';
 
@@ -40,6 +63,29 @@ beforeEach(() => {
       totalTasksFailed: 0,
       topNodeId: null,
     } as never);
+  vi.mocked(fetchChambre)
+    .mockReset()
+    .mockImplementation(async (nodeId: string) => ({
+      nodeId,
+      bapteme: null,
+      metier: null,
+      caste: 'nourrice',
+      node: {
+        id: nodeId,
+        status: 'online',
+        plateforme: null,
+        agentType: 'shell',
+        ownerName: 't',
+        running: 0,
+        maxConcurrency: 1,
+        lastSeen: 1,
+        nameTechnique: nodeId.replace(/^n-/, ''),
+      },
+      presences: [],
+      tasks: [],
+      atelier: { mode: 'off', actif: false, ecran: '', cdp: '', outil: '' },
+    }));
+  vi.mocked(fetchBaptemes).mockReset().mockResolvedValue({ baptemes: [] });
 });
 afterEach(() => {
   act(() => racine?.unmount());
@@ -67,6 +113,7 @@ async function monter(nodes: HiveNode[]): Promise<HTMLElement> {
   document.body.appendChild(conteneur);
   racine = createRoot(conteneur);
   await act(async () => racine?.render(<NodesPanel nodes={nodes} />));
+  await act(async () => {});
   // Le corps entier, pas le seul conteneur : une modale se monte par PORTAIL à
   // la racine du document (voir `Voile`), donc hors de cet arbre-ci.
   return document.body;
@@ -96,13 +143,22 @@ async function monterAvecFiche(
   nodes: HiveNode[],
   tasks: Task[],
   onOpenTask: (id: string) => void,
+  onOuvrirPoste?: (nodeId: string) => void,
 ): Promise<HTMLElement> {
   conteneur = document.createElement('div');
   document.body.appendChild(conteneur);
   racine = createRoot(conteneur);
   await act(async () =>
-    racine?.render(<NodesPanel nodes={nodes} tasks={tasks} onOpenTask={onOpenTask} />),
+    racine?.render(
+      <NodesPanel
+        nodes={nodes}
+        tasks={tasks}
+        onOpenTask={onOpenTask}
+        onOuvrirPoste={onOuvrirPoste}
+      />,
+    ),
   );
+  await act(async () => {});
   // Le corps entier, pas le seul conteneur : une modale se monte par PORTAIL à
   // la racine du document (voir `Voile`), donc hors de cet arbre-ci.
   return document.body;
@@ -114,7 +170,47 @@ function cliquer(el: Element): void {
   });
 }
 
+/** Clic + flush des effets (fetchChambre / fetchWaggle / baptêmes). */
+async function cliquerEtAttendre(el: Element): Promise<void> {
+  cliquer(el);
+  await act(async () => {});
+}
+
 describe('le panneau des nœuds — la machine se lit sur la carte', () => {
+  it('LA CARTE AFFICHE LE BAPTÊME CONSTATÉ quand l’API le fournit', async () => {
+    vi.mocked(fetchBaptemes).mockResolvedValue({
+      baptemes: [{ nodeId: 'n-ruche-fenetre', nom: 'Capucine', baptiseA: 1 }],
+    });
+    const dom = await monter([ouvriere('ruche-fenetre', 'windows')]);
+    const carte = [...dom.querySelectorAll('.node-card')].find((c) =>
+      (c.textContent ?? '').includes('Capucine'),
+    );
+    expect(carte).toBeTruthy();
+    expect(carte?.textContent).toContain('Technique');
+    expect(carte?.textContent).toContain('ruche-fenetre');
+  });
+
+  it('SI L’API BAPTÊMES ÉCHOUE : nom technique, pas « Pas encore baptisée »', async () => {
+    vi.mocked(fetchBaptemes).mockRejectedValue(new Error('401'));
+    const dom = await monter([ouvriere('ruche-fenetre', 'windows')]);
+    const carte = [...dom.querySelectorAll('.node-card')].find((c) =>
+      (c.textContent ?? '').includes('ruche-fenetre'),
+    );
+    expect(carte).toBeTruthy();
+    expect(carte?.textContent).not.toContain('Pas encore baptisée');
+    expect(carte?.textContent).not.toContain('Technique');
+  });
+
+  it('LISTE VIDE CONSTATÉE : « Pas encore baptisée », pas un prénom inventé', async () => {
+    vi.mocked(fetchBaptemes).mockResolvedValue({ baptemes: [] });
+    const dom = await monter([ouvriere('ruche-fenetre', 'windows')]);
+    const carte = [...dom.querySelectorAll('.node-card')][0];
+    expect(carte?.textContent).toContain('Pas encore baptisée');
+    expect(carte?.textContent).toContain('Technique');
+    expect(carte?.textContent).toContain('ruche-fenetre');
+    expect(carte?.textContent).not.toMatch(/Adrien|Capucine/);
+  });
+
   it('L’OUVRIÈRE WINDOWS PORTE SA PUCE 🪟 — c’était la question d’origine', async () => {
     const dom = await monter([
       ouvriere('ruche-fenetre', 'windows'),
@@ -155,7 +251,7 @@ describe('la fiche coéquipière — l’ouvrière se présente, missions compri
     const carte = [...dom.querySelectorAll('.node-card')].find((c) =>
       (c.textContent ?? '').includes('ruche-fenetre'),
     );
-    cliquer(carte as Element);
+    await cliquerEtAttendre(carte as Element);
     const fiche = dom.querySelector('[role="dialog"]');
     expect(fiche, 'la fiche s’ouvre').toBeTruthy();
     expect(fiche?.textContent).toContain('ruche-fenetre');
@@ -169,6 +265,88 @@ describe('la fiche coéquipière — l’ouvrière se présente, missions compri
     ).not.toContain('La mission du manchot');
     // Le compte dit le vrai : une butinée, une échouée.
     expect(fiche?.textContent).toContain('✔ 1 · ✘ 1');
+  });
+
+  it('LA FICHE TITRE AU BAPTÊME CONSTATÉ — le name technique reste secondaire', async () => {
+    vi.mocked(fetchChambre).mockImplementation(async (nodeId: string) => ({
+      nodeId,
+      bapteme: { nom: 'Capucine', baptiseA: 1 },
+      metier: null,
+      caste: 'nourrice',
+      node: {
+        id: nodeId,
+        status: 'online',
+        plateforme: 'windows',
+        agentType: 'shell',
+        ownerName: 't',
+        running: 0,
+        maxConcurrency: 1,
+        lastSeen: 1,
+        nameTechnique: 'ruche-fenetre',
+      },
+      presences: [],
+      tasks: [],
+      atelier: { mode: 'off', actif: false, ecran: '', cdp: '', outil: '' },
+    }));
+    const dom = await monterAvecFiche(NOEUDS, MISSIONS, () => {});
+    const carte = [...dom.querySelectorAll('.node-card')].find((c) =>
+      (c.textContent ?? '').includes('ruche-fenetre'),
+    );
+    await cliquerEtAttendre(carte as Element);
+    const fiche = dom.querySelector('[role="dialog"]');
+    expect(fiche?.textContent).toContain('Capucine');
+    expect(fiche?.textContent).toContain('Technique');
+    expect(fiche?.textContent).toContain('ruche-fenetre');
+    expect(fiche?.querySelector('#fiche-ouvriere-titre')?.textContent).toContain('Capucine');
+    expect(fiche?.querySelector('#fiche-ouvriere-titre')?.textContent).not.toContain(
+      'ruche-fenetre',
+    );
+  });
+
+  it('Ouvrir la Chambre nomme le baptême constaté et navigue', async () => {
+    vi.mocked(fetchChambre).mockImplementation(async (nodeId: string) => ({
+      nodeId,
+      bapteme: { nom: 'Capucine', baptiseA: 1 },
+      metier: null,
+      caste: 'nourrice',
+      node: {
+        id: nodeId,
+        status: 'online',
+        plateforme: 'windows',
+        agentType: 'shell',
+        ownerName: 't',
+        running: 0,
+        maxConcurrency: 1,
+        lastSeen: 1,
+        nameTechnique: 'ruche-fenetre',
+      },
+      presences: [],
+      tasks: [],
+      atelier: { mode: 'off', actif: false, ecran: '', cdp: '', outil: '' },
+    }));
+    const onPoste = vi.fn();
+    const dom = await monterAvecFiche(NOEUDS, MISSIONS, () => {}, onPoste);
+    const carte = [...dom.querySelectorAll('.node-card')].find((c) =>
+      (c.textContent ?? '').includes('ruche-fenetre'),
+    );
+    await cliquerEtAttendre(carte as Element);
+    const btn = dom.querySelector('[data-testid="fiche-ouvrir-chambre"]') as HTMLButtonElement;
+    expect(btn?.textContent).toMatch(/Ouvrir la Chambre · Capucine/);
+    await cliquerEtAttendre(btn);
+    expect(onPoste).toHaveBeenCalledWith('n-ruche-fenetre');
+    expect(dom.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it('SI fetchChambre ÉCHOUE SUR LA FICHE : nom technique, pas « Pas encore baptisée »', async () => {
+    vi.mocked(fetchChambre).mockRejectedValue(new Error('503'));
+    const dom = await monterAvecFiche(NOEUDS, MISSIONS, () => {});
+    const carte = [...dom.querySelectorAll('.node-card')].find((c) =>
+      (c.textContent ?? '').includes('ruche-fenetre'),
+    );
+    await cliquerEtAttendre(carte as Element);
+    const titre = dom.querySelector('#fiche-ouvriere-titre')?.textContent ?? '';
+    expect(titre).toContain('ruche-fenetre');
+    expect(titre).not.toContain('Pas encore baptisée');
   });
 
   it('LA FICHE DIT L’ÉTAT DE LA MACHINE — « en ligne » pour la vive, « hors ligne » pour la muette', async () => {
@@ -185,13 +363,13 @@ describe('la fiche coéquipière — l’ouvrière se présente, missions compri
         (c.textContent ?? '').includes(nom),
       ) as Element;
 
-    cliquer(carte('ruche-vive'));
+    await cliquerEtAttendre(carte('ruche-vive'));
     const ficheVive = dom.querySelector('[role="dialog"]')?.textContent ?? '';
     expect(ficheVive, 'la machine en ligne s’annonce en ligne').toContain('en ligne');
     expect(ficheVive, 'et jamais hors ligne').not.toContain('hors ligne');
     cliquer(dom.querySelector('.modal-close') as Element);
 
-    cliquer(carte('ruche-muette'));
+    await cliquerEtAttendre(carte('ruche-muette'));
     const ficheMuette = dom.querySelector('[role="dialog"]')?.textContent ?? '';
     expect(ficheMuette, 'la machine hors ligne s’annonce hors ligne').toContain('hors ligne');
     expect(ficheMuette, 'et jamais en ligne').not.toContain('en ligne');
@@ -200,7 +378,7 @@ describe('la fiche coéquipière — l’ouvrière se présente, missions compri
   it('CLIQUER UNE MISSION OUVRE LE TIROIR — et referme la fiche', async () => {
     const ouvrir = vi.fn();
     const dom = await monterAvecFiche(NOEUDS, MISSIONS, ouvrir);
-    cliquer(
+    await cliquerEtAttendre(
       [...dom.querySelectorAll('.node-card')].find((c) =>
         (c.textContent ?? '').includes('ruche-fenetre'),
       ) as Element,
@@ -218,7 +396,7 @@ describe('la fiche coéquipière — l’ouvrière se présente, missions compri
 
   it('SANS MISSIONS : la fiche le dit, sans inventer de liste', async () => {
     const dom = await monterAvecFiche(NOEUDS, [], () => {});
-    cliquer(
+    await cliquerEtAttendre(
       [...dom.querySelectorAll('.node-card')].find((c) =>
         (c.textContent ?? '').includes('ruche-manchot'),
       ) as Element,
@@ -254,12 +432,11 @@ describe('la fiche coéquipière — l’ouvrière se présente, missions compri
       topNodeId: 'n-ruche-manchot',
     } as never);
     const dom = await monterAvecFiche(NOEUDS, MISSIONS, () => {});
-    cliquer(
+    await cliquerEtAttendre(
       [...dom.querySelectorAll('.node-card')].find((c) =>
         (c.textContent ?? '').includes('ruche-fenetre'),
       ) as Element,
     );
-    await act(async () => {});
     const nectar = dom.querySelector('.fo-nectar');
     expect(nectar, 'la ligne de nectar se montre').toBeTruthy();
     expect(nectar?.textContent).toContain('24 nectar');
@@ -294,8 +471,7 @@ describe('la fiche coéquipière — l’ouvrière se présente, missions compri
         (c.textContent ?? '').includes(nom),
       ) as Element;
 
-    cliquer(carte('ruche-fenetre'));
-    await act(async () => {});
+    await cliquerEtAttendre(carte('ruche-fenetre'));
     expect(dom.querySelector('.fo-nectar')?.textContent).toContain('8 nectar');
     expect(
       dom.querySelector('.fo-nectar')?.textContent,
@@ -304,8 +480,7 @@ describe('la fiche coéquipière — l’ouvrière se présente, missions compri
 
     // Ferme, puis ouvre la voisine — absente du classement : le nectar se tait.
     cliquer(dom.querySelector('.modal-close') as Element);
-    cliquer(carte('ruche-manchot'));
-    await act(async () => {});
+    await cliquerEtAttendre(carte('ruche-manchot'));
     expect(dom.querySelector('[role="dialog"]')?.textContent).toContain('ruche-manchot');
     expect(
       dom.querySelector('.fo-nectar'),

@@ -159,6 +159,35 @@ the session). Mode chips link Chat → Plan (Projects / Queen Bee) → Autonomy
 a checkpoint, the Queen offers a **Restore…** chip that opens the Comb
 timeline.
 
+## 🪑 Chambre — worker station (ADR 0010)
+
+From a **node sheet** (Hive view) → **Open workstation** (`#/chambre/<nodeId>`):
+baptismal name, cycle role, caste, **observed** open files (Read/Edit/Write),
+that worker’s **Journal** and **Missions**, and **Computer** = Atelier noVNC (or “off” —
+no fake desktop). On **node cards**, the observed baptism (`GET /api/baptemes`,
+hive token) is the title — otherwise “Not baptised yet”. From the node sheet,
+**Open workstation** is labelled with the baptism when observed. On the **Comb**,
+cursors show who is on which path
+(baptismal name, otherwise silence) — a click opens that worker’s **Chambre**;
+the **Working on…** strip lists presence even when the repo mirror is empty —
+a click on the **path** opens the file in the tree.
+On **Swarm**, worker cards (and the Waggle board) show the observed baptism;
+a click opens the **Chambre** too.
+**Requisitions** (API key, MCP, binary,
+studio, software) are granted or denied from the Chambre — secrets stay on the
+Queen. A share link **never** sees these identities.
+
+**Forge** proposes a tool (npm script, bridge, MCP) as a task → review → merge;
+Chantiers may run it only **after** merge and declaration in `package.json`.
+**Horizon** keeps a facts ≠ hypotheses ledger (without bloating the snapshot).
+Cross-project **motifs** (e.g. 3D game: forge before assets) create ordered
+tasks — never another repo’s diff.
+
+On screen: **Needs a decision** banner (requisitions), **Journal** with live
+**tool stream** (READ/EDIT/WRITE badges), filtered **Missions**, Sheet / Work /
+Integrations / Horizon tabs (ledger + forge). **Open Rayon** focuses the latest
+observed path (otherwise navigation only). Escape → Hive, except while typing /
+in a dialog / in the Atelier iframe. Mockup: `docs/maquettes/chambre/`.
 In the dashboard 👑 Queen view: **mic** (browser Web Speech dictation),
 **voice** (read replies aloud), and **attach** documents (PDF, Word `.docx`,
 text, code…). The browser **extracts text** before send — video and audio are

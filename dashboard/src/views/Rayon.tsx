@@ -30,13 +30,26 @@
 //    faire.
 
 import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
-import { fetchApercu, fetchFichierRayon, fetchRayon, getPartage, proposerRetouche } from '../api';
-import type { ApercuProjet, EntreeRayon, FichierRayon } from '../api';
+import {
+  fetchApercu,
+  fetchFichierRayon,
+  fetchPresences,
+  fetchRayon,
+  getPartage,
+  proposerRetouche,
+} from '../api';
+import type { ApercuProjet, EntreeRayon, FichierRayon, PresenceCurseur } from '../api';
 import { SauvegardesTimeline } from '../SauvegardesTimeline';
-import { consommerFocus, FOCUS_SAUVEGARDES } from '../focus-vue';
+import {
+  cheminDepuisFocus,
+  consommerFocus,
+  FOCUS_SAUVEGARDES,
+  parentsDuChemin,
+} from '../focus-vue';
 import { icone, taille } from './rayon-affichage';
 import type { ViewProps } from './shared';
 import { sansIdentifiants } from '../../../src/shared/projet-public';
+import { presenceCorrespondAuRayon } from '../../../src/shared/presence.js';
 import { useT } from '../i18n';
 import './rayon.css';
 
@@ -74,6 +87,39 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
   const [apercu, setApercu] = useState<ApercuProjet | null>(null);
   const [apercuErreur, setApercuErreur] = useState<string | null>(null);
   const [attirerSg, setAttirerSg] = useState(false);
+  /** Curseurs — absents en partage ; [] = silence. */
+  const [curseurs, setCurseurs] = useState<PresenceCurseur[]>([]);
+
+  useEffect(() => {
+    if (parPartage) {
+      setCurseurs([]);
+      return;
+    }
+    let vivant = true;
+    const charger = () => {
+      void fetchPresences()
+        .then((r) => {
+          if (vivant) setCurseurs(r.presences);
+        })
+        .catch(() => {
+          if (vivant) setCurseurs([]);
+        });
+    };
+    charger();
+    const id = window.setInterval(charger, 4_000);
+    return () => {
+      vivant = false;
+      window.clearInterval(id);
+    };
+  }, [parPartage, refreshTick]);
+
+  const curseursPour = (cheminRayon: string): PresenceCurseur[] => {
+    const out: PresenceCurseur[] = [];
+    for (const c of curseurs) {
+      if (presenceCorrespondAuRayon(c.chemin, cheminRayon)) out.push(c);
+    }
+    return out;
+  };
 
   const voirApercu = async () => {
     if (!projet) return;
@@ -134,23 +180,6 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
     void charger(projet.id, '').finally(() => setChargement(false));
   }, [projet?.id, charger]);
 
-  // Reine → mode Sauvegardes / puce Restaurer… : scroller + pulse la timeline.
-  useEffect(() => {
-    if (consommerFocus() !== FOCUS_SAUVEGARDES) return;
-    setAttirerSg(true);
-    const id = window.requestAnimationFrame(() => {
-      document.getElementById('ry-sauvegardes')?.scrollIntoView({
-        behavior: 'smooth',
-        block: 'start',
-      });
-    });
-    const fin = window.setTimeout(() => setAttirerSg(false), 1800);
-    return () => {
-      window.cancelAnimationFrame(id);
-      window.clearTimeout(fin);
-    };
-  }, [projet?.id, refreshTick]);
-
   const basculer = (chemin: string) => {
     const connu = dossiers[chemin];
     if (connu) {
@@ -177,6 +206,59 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
     }
   };
 
+  /** Déplie les dossiers parents (lazy), puis ouvre le fichier constaté. */
+  const revelerEtOuvrir = async (projectId: string, chemin: string) => {
+    await charger(projectId, '');
+    for (const parent of parentsDuChemin(chemin)) {
+      await charger(projectId, parent);
+    }
+    await ouvrir(chemin);
+  };
+
+  // Après ouverture (focus Chambre ou clic), amener l’entrée active dans le
+  // viewport de l’arbre — sinon un chemin profond reste hors écran.
+  useEffect(() => {
+    if (!ouvert) return;
+    const reduced =
+      typeof window !== 'undefined' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const id = window.requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>('.ry-entree.active')?.scrollIntoView({
+        block: 'nearest',
+        behavior: reduced ? 'auto' : 'smooth',
+      });
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [ouvert]);
+
+  // Reine → Sauvegardes, ou Chambre → chemin constaté (déplie les parents).
+  useEffect(() => {
+    const focus = consommerFocus();
+    if (!focus) return;
+    if (focus === FOCUS_SAUVEGARDES) {
+      setAttirerSg(true);
+      const reduced =
+        typeof window !== 'undefined' &&
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const id = window.requestAnimationFrame(() => {
+        document.getElementById('ry-sauvegardes')?.scrollIntoView({
+          behavior: reduced ? 'auto' : 'smooth',
+          block: 'start',
+        });
+      });
+      const fin = window.setTimeout(() => setAttirerSg(false), 1800);
+      return () => {
+        window.cancelAnimationFrame(id);
+        window.clearTimeout(fin);
+      };
+    }
+    const chemin = cheminDepuisFocus(focus);
+    if (chemin && projet) {
+      void revelerEtOuvrir(projet.id, chemin);
+    }
+    // Intentionnellement borné à projet + tick (focus one-shot).
+  }, [projet?.id, refreshTick, charger]);
+
   /** Rend un dossier et, s'il est déplié, ses enfants — récursivement. */
   const rendre = (chemin: string, profondeur: number): React.ReactNode => {
     const noeud = dossiers[chemin];
@@ -184,13 +266,17 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
     return noeud.entrees.map((e) => {
       const estDossier = e.type === 'dossier';
       const deplie = dossiers[e.chemin]?.ouvert ?? false;
+      const qui = estDossier ? [] : curseursPour(e.chemin);
       return (
-        <div key={e.chemin}>
+        <div key={e.chemin} className="ry-ligne">
           <button
+            type="button"
             className={`ry-entree${ouvert === e.chemin ? ' active' : ''}`}
             style={{ paddingLeft: `${8 + profondeur * 14}px` }}
             onClick={() => (estDossier ? basculer(e.chemin) : void ouvrir(e.chemin))}
             title={e.chemin}
+            aria-expanded={estDossier ? deplie : undefined}
+            aria-current={!estDossier && ouvert === e.chemin ? 'true' : undefined}
           >
             <span className="ry-icone" aria-hidden="true">
               {icone(e, deplie)}
@@ -198,6 +284,36 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
             <span className="ry-nom">{e.nom}</span>
             {!estDossier && <span className="ry-taille">{taille(e.taille, t)}</span>}
           </button>
+          {qui.length > 0 && (
+            <span
+              className="ry-curseurs"
+              title={qui
+                .map((q) => (q.bapteme ? `${q.bapteme} · ${q.outil}` : q.outil))
+                .join(' · ')}
+            >
+              {qui.map((q) => {
+                const ouvrir = q.bapteme
+                  ? t(
+                      `${q.bapteme} · ${q.outil} — ouvrir le poste`,
+                      `${q.bapteme} · ${q.outil} — open workstation`,
+                    )
+                  : t(`${q.outil} — ouvrir le poste`, `${q.outil} — open workstation`);
+                return (
+                  <button
+                    key={q.toolUseId}
+                    type="button"
+                    className={`ry-curseur ry-curseur-${q.outil.toLowerCase()}${q.bapteme ? '' : ' ry-curseur-muet'}`}
+                    title={ouvrir}
+                    aria-label={ouvrir}
+                    data-testid="ry-curseur-poste"
+                    onClick={() => onNavigate('chambre', q.nodeId)}
+                  >
+                    {q.bapteme ?? q.outil}
+                  </button>
+                );
+              })}
+            </span>
+          )}
           {estDossier && rendre(e.chemin, profondeur + 1)}
         </div>
       );
@@ -244,6 +360,11 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
         {projet?.repoUrl && (
           <code className="ry-depot">{sansIdentifiants(projet.repoUrl) ?? '—'}</code>
         )}
+        {parPartage ? (
+          <span className="ry-partage-note" data-testid="ry-partage-identites">
+            {t('Identités absentes · lecture seule', 'Identities hidden · read-only')}
+          </span>
+        ) : null}
         <button className="btn ghost ry-apercu-btn" onClick={() => void voirApercu()}>
           {t('Aperçu', 'Preview')}
         </button>
@@ -291,6 +412,56 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
             srcDoc={apercu.html}
           />
         </section>
+      )}
+
+      {!parPartage && curseurs.length > 0 && (
+        <aside
+          className="ry-presences-live"
+          aria-label={t('Présences constatées', 'Observed presence')}
+          data-testid="ry-presences-live"
+        >
+          <span className="ry-presences-live-titre">{t('En train de…', 'Working on…')}</span>
+          <ul>
+            {curseurs.map((c) => {
+              const ouvrir = c.bapteme
+                ? t(
+                    `${c.bapteme} · ${c.outil} — ouvrir le poste`,
+                    `${c.bapteme} · ${c.outil} — open workstation`,
+                  )
+                : t(`${c.outil} — ouvrir le poste`, `${c.outil} — open workstation`);
+              return (
+                <li key={c.toolUseId}>
+                  <button
+                    type="button"
+                    className={`ry-curseur ry-curseur-${c.outil.toLowerCase()}${c.bapteme ? '' : ' ry-curseur-muet'}`}
+                    data-testid="ry-curseur-poste"
+                    title={ouvrir}
+                    aria-label={ouvrir}
+                    onClick={() => onNavigate('chambre', c.nodeId)}
+                  >
+                    {c.bapteme ?? c.outil}
+                  </button>
+                  <span className="ry-presences-outil">{c.outil}</span>
+                  <button
+                    type="button"
+                    className="ry-presences-chemin"
+                    data-testid="ry-presences-chemin"
+                    title={t('Ouvrir dans l’arbre', 'Open in the tree')}
+                    aria-label={t(
+                      `${c.chemin} — ouvrir dans l’arbre`,
+                      `${c.chemin} — open in the tree`,
+                    )}
+                    onClick={() => {
+                      if (projet) void revelerEtOuvrir(projet.id, c.chemin);
+                    }}
+                  >
+                    {c.chemin}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </aside>
       )}
 
       <div className="ry-corps">
@@ -361,18 +532,33 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
                 <div className="ry-retouche">
                   <input
                     className="ry-note"
+                    type="text"
                     placeholder={t(
                       'Pourquoi ce changement ? (facultatif, mais ça aide l’ouvrière)',
                       'Why this change? (optional, but it helps the worker)',
+                    )}
+                    aria-label={t(
+                      'Note pour l’ouvrière (facultatif)',
+                      'Note for the worker (optional)',
                     )}
                     value={retouche.note}
                     onChange={(e) => setRetouche((r) => (r ? { ...r, note: e.target.value } : r))}
                     maxLength={400}
                   />
-                  <button className="btn" disabled={envoi} onClick={() => void envoyer()}>
+                  <button
+                    type="button"
+                    className="btn"
+                    disabled={envoi}
+                    onClick={() => void envoyer()}
+                  >
                     {envoi ? '…' : t('Envoyer à l’essaim', 'Send to the swarm')}
                   </button>
-                  <button className="btn ghost" disabled={envoi} onClick={() => setRetouche(null)}>
+                  <button
+                    type="button"
+                    className="btn ghost"
+                    disabled={envoi}
+                    onClick={() => setRetouche(null)}
+                  >
                     {t('Abandonner', 'Discard')}
                   </button>
                 </div>

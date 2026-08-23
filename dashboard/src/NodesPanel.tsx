@@ -16,11 +16,12 @@
 import { useEffect, useState } from 'react';
 import { PICTO_PLATEFORME } from '../../src/shared/machine';
 import type { HiveNode, Task } from '../../src/shared/types';
-import { fetchWaggle } from './api';
+import { fetchChambre, fetchWaggle } from './api';
 import type { NodeNectar } from './api';
 import { useLang, useT } from './i18n';
 import { libelleAgent } from '../../src/shared/agent-libelle';
 import { activateProps, ProgressBar, STATUS_ICON, useDialog, Voile } from './ui';
+import { useBaptemes } from './useBaptemes';
 
 const AGENT_ICON: Record<string, string> = {
   shell: '○',
@@ -52,11 +53,13 @@ function FicheOuvriere({
   noeud,
   tasks,
   onOpenTask,
+  onOuvrirPoste,
   onClose,
 }: {
   noeud: HiveNode;
   tasks: Task[];
   onOpenTask: (id: string) => void;
+  onOuvrirPoste?: (nodeId: string) => void;
   onClose: () => void;
 }) {
   const t = useT();
@@ -81,6 +84,8 @@ function FicheOuvriere({
   // entre à l'ouverture, et il RETOURNE à la carte qu'on a cliquée en sortant.
   const dialogRef = useDialog<HTMLDivElement>(onClose);
   const [nectar, setNectar] = useState<NodeNectar | null>(null);
+  /** Baptême constaté — null = silence (pas le name technique inventé en titre). */
+  const [bapteme, setBapteme] = useState<string | null | undefined>(undefined);
   useEffect(() => {
     let vivant = true;
     fetchWaggle()
@@ -90,10 +95,20 @@ function FicheOuvriere({
       .catch(() => {
         /* classement injoignable : la fiche vit sans lui */
       });
+    fetchChambre(noeud.id)
+      .then((p) => {
+        if (vivant) setBapteme(p.bapteme?.nom ?? null);
+      })
+      .catch(() => {
+        /* Panne API ≠ « Pas encore baptisée » — garder le nom technique. */
+      });
     return () => {
       vivant = false;
     };
   }, [noeud.id]);
+
+  const titreAffiche =
+    bapteme === undefined ? noeud.name : (bapteme ?? t('Pas encore baptisée', 'Not baptised yet'));
 
   return (
     <Voile onClose={onClose}>
@@ -107,7 +122,8 @@ function FicheOuvriere({
       >
         <header className="modal-head">
           <h2 id="fiche-ouvriere-titre">
-            {AGENT_ICON[noeud.agentType] ?? '•'} {noeud.name}
+            {AGENT_ICON[noeud.agentType] ?? '•'}{' '}
+            <span className={bapteme ? undefined : 'muted-text'}>{titreAffiche}</span>
           </h2>
           <button className="modal-close" onClick={onClose} aria-label={t('Fermer', 'Close')}>
             ×
@@ -126,6 +142,11 @@ function FicheOuvriere({
           {noeud.status === 'online' ? t('en ligne', 'online') : t('hors ligne', 'offline')} ·{' '}
           {noeud.running}/{noeud.maxConcurrency} {t('en vol', 'in flight')}
         </p>
+        {bapteme !== undefined && (
+          <p className="fo-technique muted-text">
+            {t('Technique', 'Technical')} · {noeud.name}
+          </p>
+        )}
 
         {nectar && (
           <p className="fo-nectar">
@@ -162,6 +183,25 @@ function FicheOuvriere({
             ))}
           </ul>
         )}
+
+        {onOuvrirPoste && (
+          <footer className="fo-actions" style={{ marginTop: 14 }}>
+            <button
+              type="button"
+              className="btn primary"
+              data-testid="fiche-ouvrir-chambre"
+              onClick={() => {
+                const id = noeud.id;
+                onClose();
+                onOuvrirPoste(id);
+              }}
+            >
+              {bapteme
+                ? t(`Ouvrir la Chambre · ${bapteme}`, `Open the Chambre · ${bapteme}`)
+                : t('Ouvrir la Chambre', 'Open the Chambre')}
+            </button>
+          </footer>
+        )}
       </div>
     </Voile>
   );
@@ -171,11 +211,14 @@ export function NodesPanel({
   nodes,
   tasks,
   onOpenTask,
+  onOuvrirPoste,
 }: {
   nodes: HiveNode[];
   /** Fournies : les cartes deviennent cliquables et ouvrent la fiche. */
   tasks?: Task[];
   onOpenTask?: (id: string) => void;
+  /** Chambre (ADR 0010) — ouvre `#/chambre/<nodeId>`. */
+  onOuvrirPoste?: (nodeId: string) => void;
 }) {
   const t = useT();
   const lang = useLang();
@@ -183,6 +226,9 @@ export function NodesPanel({
   const [ouverte, setOuverte] = useState<string | null>(null);
   const fiche =
     tasks && onOpenTask && ouverte ? (nodes.find((n) => n.id === ouverte) ?? null) : null;
+  const nodeIdsKey = nodes.map((n) => n.id).join(',');
+  const baptemes = useBaptemes(nodeIdsKey);
+  const shellNodes = nodes.filter((n) => n.agentType === 'shell' || n.agentType === 'sim');
 
   return (
     <section className="card panel">
@@ -192,42 +238,66 @@ export function NodesPanel({
           {online}/{nodes.length} {t('en ligne', 'online')}
         </span>
       </header>
+      {shellNodes.length > 0 && (
+        <p className="node-shell-avert">
+          {t(
+            `${shellNodes.length} nœud(s) en mode shell/simulation — les diffs ne viennent pas d’un agent de codage réel. Installez Claude Code, Codex ou un agent compatible pour une autonomie crédible.`,
+            `${shellNodes.length} node(s) in shell/simulation mode — diffs do not come from a real coding agent. Install Claude Code, Codex, or a compatible agent for credible autonomy.`,
+          )}
+        </p>
+      )}
       <ul className="node-list">
-        {nodes.map((n) => (
-          <li
-            key={n.id}
-            className={`node-card ${n.status}`}
-            {...(tasks && onOpenTask ? activateProps(() => setOuverte(n.id)) : {})}
-          >
-            <div className="node-avatar" title={libelleAgent(n.agentType, lang === 'en')}>
-              {initials(n.name)}
-              <span className="node-agent">{AGENT_ICON[n.agentType] ?? '•'}</span>
-            </div>
-            <div className="node-body">
-              <div className="nc-name">
-                {n.name}
-                <span className={`dot ${n.status}`} title={n.status} />
+        {nodes.map((n) => {
+          const bapt = baptemes ? (baptemes[n.id] ?? null) : undefined;
+          const label = bapt || n.name;
+          return (
+            <li
+              key={n.id}
+              className={`node-card ${n.status}`}
+              aria-label={t(`Fiche · ${label}`, `Sheet · ${label}`)}
+              {...(tasks && onOpenTask ? activateProps(() => setOuverte(n.id)) : {})}
+            >
+              <div className="node-avatar" title={libelleAgent(n.agentType, lang === 'en')}>
+                {initials(label)}
+                <span className="node-agent">{AGENT_ICON[n.agentType] ?? '•'}</span>
               </div>
-              <div className="node-meta">
-                {n.ownerName} · {libelleAgent(n.agentType, lang === 'en')}
-                {/* La machine derrière l'ouvrière — « quelles ouvrières
-                    tournent sous Windows ? » se lit ici, pas dans un log.
-                    Absente (nœud d'une version antérieure) : rien, plutôt
-                    qu'une plateforme inventée. */}
-                {n.plateforme && (
-                  <span className="node-plateforme" title={n.plateforme}>
-                    {' '}
-                    · {PICTO_PLATEFORME[n.plateforme]} {n.plateforme}
+              <div className="node-body">
+                <div className="nc-name">
+                  <span className={bapt ? undefined : bapt === null ? 'muted-text' : undefined}>
+                    {bapt === null ? t('Pas encore baptisée', 'Not baptised yet') : label}
                   </span>
-                )}
+                  <span
+                    className={`dot ${n.status}`}
+                    title={
+                      n.status === 'online' ? t('en ligne', 'online') : t('hors ligne', 'offline')
+                    }
+                  />
+                </div>
+                <div className="node-meta">
+                  {(bapt || bapt === null) && (
+                    <>
+                      <span className="muted-text">
+                        {t('Technique', 'Technical')} · {n.name}
+                      </span>
+                      {' · '}
+                    </>
+                  )}
+                  {n.ownerName} · {libelleAgent(n.agentType, lang === 'en')}
+                  {n.plateforme && (
+                    <span className="node-plateforme" title={n.plateforme}>
+                      {' '}
+                      · {PICTO_PLATEFORME[n.plateforme]} {n.plateforme}
+                    </span>
+                  )}
+                </div>
+                <ProgressBar value={n.running} max={Math.max(n.maxConcurrency, 1)} />
               </div>
-              <ProgressBar value={n.running} max={Math.max(n.maxConcurrency, 1)} />
-            </div>
-            <div className="node-load">
-              {n.running}/{n.maxConcurrency}
-            </div>
-          </li>
-        ))}
+              <div className="node-load">
+                {n.running}/{n.maxConcurrency}
+              </div>
+            </li>
+          );
+        })}
         {nodes.length === 0 && (
           <li className="empty">
             {t(
@@ -248,6 +318,7 @@ export function NodesPanel({
             setOuverte(null);
             onOpenTask(id);
           }}
+          onOuvrirPoste={onOuvrirPoste}
           onClose={() => setOuverte(null)}
         />
       )}

@@ -275,6 +275,24 @@ describe('livrer, puis fusionner', () => {
     expect(server.store.getLivraison(tache.id)?.etat).toBe('fusionnee');
   });
 
+  it('LA FUSION HUMAINE PASSE LES FABRIQUES LIÉES EN mergee', async () => {
+    // ADR 0010 lot 8 : la voie manuelle doit faire comme l'essaim — sinon
+    // Chantiers resterait bloqué après un merge que l'humain a conclu.
+    const { tache, pr } = await livrer('fabrique après fusion');
+    const o = server.store.ouvrirFabrique(projet, 'script_npm', 'Outil', {
+      nomScript: 'outil:x',
+      taskId: tache.id,
+    });
+    expect(o.ok).toBe(true);
+    if (!o.ok) return;
+    await fetch(`${base}/api/livraison/fusion`, {
+      method: 'POST',
+      headers: hive(),
+      body: JSON.stringify({ projectId: projet, pr }),
+    });
+    expect(server.store.listerFabriques(projet).find((f) => f.id === o.id)?.statut).toBe('mergee');
+  });
+
   it('LE JETON GITHUB NE SORT DANS AUCUNE DES DEUX RÉPONSES', async () => {
     // Il est à l'hôte, et rien de ce qu'on renvoie n'a besoin de lui — pas
     // même un message d'erreur.

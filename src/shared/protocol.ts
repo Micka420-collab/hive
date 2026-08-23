@@ -4,6 +4,7 @@
 import { nomDeChantierValide } from './chantier.js';
 import { estPlateforme } from './machine.js';
 import type { PlateformeNoeud } from './machine.js';
+import type { PresenceFichier } from './presence.js';
 import type { HiveEvent, StateSnapshot, SubAgent, Task } from './types.js';
 
 // ─── Limites de taille (validation d'entrée) ─────────────────────────────────
@@ -33,11 +34,17 @@ export const LIMITS = {
   log: 512 * 1024,
   diff: 1024 * 1024,
   subAgents: 32,
+  /** Fichiers ouverts constatés (présence Rayon) dans un task_update. */
+  presences: 16,
   maxConcurrency: 16,
   /** Nombre max de modèles qu'un nœud peut déclarer savoir faire tourner. */
   modeles: 16,
   /** Contexte Hive Mind joint à une assignation (borné : injecté dans le prompt). */
   hiveContext: 8_000,
+  /** Genre / libellé / détail d'une réquisition ouverte par le nœud (ADR 0010). */
+  requisitionGenre: 40,
+  requisitionLibelle: 200,
+  requisitionDetail: 2_000,
   /** Nombre max de diffs joints à un merge. */
   mergeDiffs: 200,
   /** Nombre max d'arguments d'une commande de test, et longueur de chaque. */
@@ -94,6 +101,11 @@ export interface TaskUpdateMsg {
   taskId: string;
   status: 'running';
   subAgents?: SubAgent[];
+  /**
+   * Snapshot des fichiers ouverts constatés (Read/Edit/Write) — ADR 0010.
+   * Absent ou `[]` = rien d'ouvert (ne pas inventer à l'écran).
+   */
+  presences?: PresenceFichier[];
   log?: string;
 }
 
@@ -133,6 +145,19 @@ export interface TaskRejectMsg {
 export interface SubscribeMsg {
   type: 'subscribe';
   token: string;
+}
+
+/**
+ * Réquisition ouverte par une ouvrière connectée (ADR 0010 lot 7).
+ *
+ * Le `nodeId` vient de la connexion authentifiée — jamais du message. Aucun
+ * secret ne transite : seulement genre + libellé + détail optionnel.
+ */
+export interface RequisitionOpenMsg {
+  type: 'requisition_open';
+  genre: string;
+  libelle: string;
+  detail?: string;
 }
 
 /** Conflit signalé lors d'un merge (un diff qui ne s'applique pas proprement). */
@@ -197,6 +222,7 @@ export type ClientMessage =
   | TaskResultMsg
   | TaskRejectMsg
   | SubscribeMsg
+  | RequisitionOpenMsg
   | MergeResultMsg
   | ChantierResultMsg;
 
@@ -240,6 +266,23 @@ export interface EventMsg {
 export interface ErrorMsg {
   type: 'error';
   message: string;
+}
+
+/** Accusé de réception d'une réquisition ouverte via le protocole nœud. */
+export interface RequisitionAckMsg {
+  type: 'requisition_ack';
+  id: string;
+  genre: string;
+  libelle: string;
+}
+
+/**
+ * Décision humaine relayée au nœud — jamais le secret (clé chez la Queen).
+ */
+export interface RequisitionResultMsg {
+  type: 'requisition_result';
+  id: string;
+  statut: 'accordee' | 'refusee';
 }
 
 /** Un diff de tâche à intégrer lors d'un merge. */
@@ -307,6 +350,8 @@ export type ServerMessage =
   | StateMsg
   | EventMsg
   | ErrorMsg
+  | RequisitionAckMsg
+  | RequisitionResultMsg
   | AssignMergeMsg
   | AssignChantierMsg;
 
@@ -317,6 +362,8 @@ const SERVER_MESSAGE_TYPES = new Set([
   'state',
   'event',
   'error',
+  'requisition_ack',
+  'requisition_result',
   'assign_merge',
   'assign_chantier',
 ]);
@@ -347,6 +394,24 @@ function isSubAgents(v: unknown): v is SubAgent[] {
       isId(sa.id) &&
       isStr(sa.name, LIMITS.name) &&
       (sa.status === 'running' || sa.status === 'done' || sa.status === 'failed')
+    );
+  });
+}
+
+/** Snapshot présence Rayon — toolUseId Claude peut dépasser ID_PATTERN. */
+function isPresences(v: unknown): v is PresenceFichier[] {
+  if (!Array.isArray(v) || v.length > LIMITS.presences) return false;
+  return v.every((p) => {
+    if (typeof p !== 'object' || p === null) return false;
+    const r = p as Record<string, unknown>;
+    return (
+      typeof r.toolUseId === 'string' &&
+      r.toolUseId.length >= 1 &&
+      r.toolUseId.length <= 128 &&
+      typeof r.chemin === 'string' &&
+      r.chemin.length >= 1 &&
+      r.chemin.length <= 500 &&
+      (r.outil === 'Read' || r.outil === 'Edit' || r.outil === 'Write')
     );
   });
 }
@@ -498,10 +563,12 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
         isId(m.taskId) &&
         m.status === 'running' &&
         (m.subAgents === undefined || isSubAgents(m.subAgents)) &&
+        (m.presences === undefined || isPresences(m.presences)) &&
         (m.log === undefined || isStrAllowEmpty(m.log, LIMITS.log))
       ) {
         const msg: TaskUpdateMsg = { type: 'task_update', taskId: m.taskId, status: 'running' };
         if (m.subAgents !== undefined) msg.subAgents = m.subAgents as SubAgent[];
+        if (m.presences !== undefined) msg.presences = m.presences as PresenceFichier[];
         if (m.log !== undefined) msg.log = m.log as string;
         return msg;
       }
@@ -544,6 +611,22 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
     }
     case 'subscribe': {
       if (isStr(m.token, LIMITS.token)) return { type: 'subscribe', token: m.token };
+      return null;
+    }
+    case 'requisition_open': {
+      if (
+        isStr(m.genre, LIMITS.requisitionGenre) &&
+        isStr(m.libelle, LIMITS.requisitionLibelle) &&
+        (m.detail === undefined || isStrAllowEmpty(m.detail, LIMITS.requisitionDetail))
+      ) {
+        const msg: RequisitionOpenMsg = {
+          type: 'requisition_open',
+          genre: m.genre,
+          libelle: m.libelle,
+        };
+        if (m.detail !== undefined) msg.detail = m.detail as string;
+        return msg;
+      }
       return null;
     }
     case 'merge_result': {
@@ -647,6 +730,21 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
     case 'cancel_task':
       return isId(m.taskId) && isStrAllowEmpty(m.reason, LIMITS.name)
         ? { type: 'cancel_task', taskId: m.taskId, reason: m.reason }
+        : null;
+    case 'requisition_ack':
+      return isId(m.id) &&
+        isStr(m.genre, LIMITS.requisitionGenre) &&
+        isStr(m.libelle, LIMITS.requisitionLibelle)
+        ? {
+            type: 'requisition_ack',
+            id: m.id,
+            genre: m.genre,
+            libelle: m.libelle,
+          }
+        : null;
+    case 'requisition_result':
+      return isId(m.id) && (m.statut === 'accordee' || m.statut === 'refusee')
+        ? { type: 'requisition_result', id: m.id, statut: m.statut }
         : null;
     case 'assign_merge': {
       // Sensible côté nœud : déclenche un clone + application de patches + tests.

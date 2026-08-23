@@ -24,6 +24,7 @@ import { InvitePanel } from './InvitePanel';
 import { NewProjectModal } from './NewProjectModal';
 import { TaskDrawer } from './TaskDrawer';
 import { transitionDifferees } from './differees';
+import { annoncesDepuisEvenements } from './horloge-vue';
 import {
   compteAffiche,
   doitSonder,
@@ -59,6 +60,7 @@ const Rayon = lazy(() => import('./views/Rayon'));
 const Intendance = lazy(() => import('./views/Intendance'));
 const Cerveau = lazy(() => import('./views/Cerveau'));
 const Chantiers = lazy(() => import('./views/Chantiers'));
+const Chambre = lazy(() => import('./views/Chambre'));
 
 const EMPTY: StateSnapshot = { projects: [], nodes: [], tasks: [], tasksTotal: 0 };
 
@@ -215,8 +217,11 @@ function NavGlyph({ id }: { id: ViewId }) {
  * un administrateur qui ouvre son signet arrive AVANT que `/api/auth/me` ait
  * répondu, et le renvoyer sur la Ruche à cet instant-là serait un bug qu'on
  * ne saurait pas reproduire.
+ *
+ * `chambre` n'a volontairement PAS de case nav (ADR 0010) : entrée depuis la
+ * fiche nœud uniquement (`#/chambre/<nodeId>`).
  */
-const VIEW_IDS = new Set<string>(NAV.map((n) => n.id));
+const VIEW_IDS = new Set<string>([...NAV.map((n) => n.id), 'chambre']);
 
 /** #/vue/id → { view, selectedId } (fallback ruche sur hash inconnu). */
 function parseHash(): { view: ViewId; selectedId: string | null } {
@@ -261,6 +266,7 @@ export function App() {
   const [agentsByTask, setAgentsByTask] = useState<Record<string, SubAgent[]>>({});
   const [deferred, setDeferred] = useState<Set<string>>(() => new Set());
   const [connected, setConnected] = useState(false);
+  const [tokenAuthError, setTokenAuthError] = useState(false);
   const [token, setTokenState] = useState(getToken());
   const [feedKey, setFeedKey] = useState(0);
   const [route, setRoute] = useState(parseHash);
@@ -339,8 +345,10 @@ export function App() {
         // quand rien ne change est le contrat : même référence, pas de rendu.
         setDeferred((prev) => transitionDifferees(prev, ev.type, taskId) as Set<string>);
       },
-      onStatus: (up) => {
+      onStatus: (up, meta) => {
         setConnected(up);
+        if (up) setTokenAuthError(false);
+        else if (meta?.authError) setTokenAuthError(true);
         // À CHAQUE (re)connexion : ré-hydrater les revues — les task_reviewed
         // émis pendant une coupure ne sont jamais rejoués par le serveur.
         if (up) {
@@ -457,6 +465,7 @@ export function App() {
     // gratuite perd les événements émis pendant la fenêtre de coupure.
     if (token === getToken()) return;
     saveToken(token);
+    setTokenAuthError(false);
     setFeedKey((k) => k + 1);
   };
 
@@ -491,6 +500,11 @@ export function App() {
   };
 
   const openTask = openTaskId ? (snapshot.tasks.find((t) => t.id === openTaskId) ?? null) : null;
+
+  // L'horloge du chantier, repliée depuis le journal déjà reçu. Calculée ici et
+  // non dans le tiroir : le repli parcourt tout le flux, et le refaire à chaque
+  // ouverture du tiroir le referait à chaque événement pendant qu'il est ouvert.
+  const annonces = useMemo(() => annoncesDepuisEvenements(events), [events]);
   const current = NAV.find((n) => n.id === route.view) ?? NAV[0]!;
 
   return (
@@ -588,6 +602,7 @@ export function App() {
             )}
             <button
               className="btn ghost mc-lang"
+              data-testid="mc-lang"
               onClick={() => setLang(lang === 'fr' ? 'en' : 'fr')}
               title={t('Basculer l’interface en anglais', 'Switch interface to French')}
             >
@@ -597,13 +612,14 @@ export function App() {
             <InvitePanel />
             <input
               type="password"
-              className="token-input"
+              className={`token-input${tokenAuthError ? ' token-input-err' : ''}`}
               placeholder={t('Jeton', 'Token')}
               title={t('Token de la ruche (x-hive-token)', 'Hive token (x-hive-token)')}
               value={token}
               onChange={(e) => setTokenState(e.target.value)}
               onBlur={applyToken}
               onKeyDown={(e) => e.key === 'Enter' && applyToken()}
+              aria-invalid={tokenAuthError || undefined}
             />
             {unsyncedReviews > 0 && (
               <span
@@ -623,6 +639,17 @@ export function App() {
           </div>
         </header>
 
+        {tokenAuthError && (
+          <div className="mc-token-banner" role="alert">
+            <p>
+              {t(
+                'Jeton de ruche refusé — collez dans le champ « Jeton » (en haut à droite) la valeur exacte de HIVE_TOKEN depuis le fichier .env de l’orchestrateur. Ce n’est pas le jeton GitHub.',
+                'Hive token rejected — paste the exact HIVE_TOKEN from the orchestrator’s .env into the Token field (top right). This is not the GitHub token.',
+              )}
+            </p>
+          </div>
+        )}
+
         <Suspense
           fallback={
             <div className="mc-view-loading">{t('Chargement de la vue…', 'Loading view…')}</div>
@@ -641,11 +668,17 @@ export function App() {
           {route.view === 'intendance' && <Intendance {...viewProps} />}
           {route.view === 'cerveau' && <Cerveau {...viewProps} />}
           {route.view === 'chantiers' && <Chantiers {...viewProps} />}
+          {route.view === 'chambre' && <Chambre {...viewProps} />}
         </Suspense>
       </div>
 
       {openTask && (
-        <TaskDrawer task={openTask} nodes={snapshot.nodes} onClose={() => setOpenTaskId(null)} />
+        <TaskDrawer
+          task={openTask}
+          nodes={snapshot.nodes}
+          horloge={annonces.get(openTask.id)}
+          onClose={() => setOpenTaskId(null)}
+        />
       )}
       {showNewProject && <NewProjectModal onClose={() => setShowNewProject(false)} />}
     </div>

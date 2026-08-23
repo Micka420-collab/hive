@@ -66,6 +66,26 @@
   min-width: 0;
 }
 
+.es-node-ouvre {
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.es-node-ouvre:hover,
+.es-node-ouvre:focus-visible {
+  border-color: color-mix(in srgb, #f2b441 70%, #9d5605);
+  box-shadow: 0 0 0 1px color-mix(in srgb, #f2b441 40%, transparent);
+  outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .es-node-ouvre {
+    transition: none;
+  }
+}
+
 .es-node.offline {
   opacity: 0.6;
 }
@@ -159,6 +179,11 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.es-node-tech {
+  font-size: 12px;
+  margin-top: -2px;
 }
 
 .es-node-meta {
