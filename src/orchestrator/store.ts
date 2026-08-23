@@ -910,6 +910,31 @@ CREATE TABLE IF NOT EXISTS horizon_ledger (
   creeA     INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_horizon_projet ON horizon_ledger(projectId, creeA DESC);
+
+-- L'HORLOGE DU CHANTIER : le registre des annonces de durée.
+--
+-- POURQUOI LA CASTE EST ÉCRITE ICI, ET PAS RELUE PLUS TARD.
+-- La caste est VIVE : elle se calcule à l'instant où on la demande, à partir de
+-- l'expérience du nœud. Relire aujourd'hui la caste d'un nœud pour expliquer
+-- une durée d'il y a trois semaines rendrait un historique faux — le même
+-- mensonge que celui déjà consigné plus haut pour « exigeContreVisite ».
+-- L'annonce fige donc la caste telle qu'elle était AU MOMENT DE L'ANNONCE.
+--
+-- POURQUOI CETTE TABLE EXISTE DU TOUT.
+-- Sans elle, « calibrer » n'a rien à comparer : on saurait combien de temps les
+-- tâches ont pris, jamais ce qu'on avait ANNONCÉ. Une horloge qui ne peut pas
+-- se noter est une horloge qu'il faut croire sur parole.
+CREATE TABLE IF NOT EXISTS annonces_duree (
+  taskId  TEXT PRIMARY KEY REFERENCES tasks(id),
+  nodeId  TEXT NOT NULL,
+  caste   TEXT NOT NULL,
+  socle   TEXT NOT NULL,
+  n       INTEGER NOT NULL,
+  p50Ms   INTEGER NOT NULL,
+  p80Ms   INTEGER NOT NULL,
+  faiteA  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_annonces_faite ON annonces_duree(faiteA DESC);
 `;
 
 interface ProjectRow {
@@ -2041,6 +2066,73 @@ export class HiveStore {
 
   // ─── Horizon (ADR 0010 lot 9) ──────────────────────────────────────────────
 
+  /**
+   * Consigne ce qu'on a ANNONCÉ à l'ouvrière, avant qu'elle ne commence.
+   *
+   * `INSERT OR REPLACE` : une tâche ré-assignée après échec reçoit une annonce
+   * neuve, et c'est la dernière qui compte — c'est elle que l'humain a lue.
+   * Garder les deux ferait compter deux fois la même tâche dans la calibration.
+   */
+  enregistrerAnnonce(
+    taskId: string,
+    nodeId: string,
+    caste: string,
+    annonce: { socle: string; n: number; p50Ms: number; p80Ms: number },
+    now = Date.now(),
+  ): void {
+    this.db
+      .prepare(
+        'INSERT OR REPLACE INTO annonces_duree (taskId, nodeId, caste, socle, n, p50Ms, p80Ms, faiteA) ' +
+          'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      )
+      .run(taskId, nodeId, caste, annonce.socle, annonce.n, annonce.p50Ms, annonce.p80Ms, now);
+  }
+
+  /**
+   * L'historique dont l'horloge se sert pour prédire.
+   *
+   * `LEFT JOIN` délibéré : une tâche terminée AVANT que l'horloge n'existe n'a
+   * pas d'annonce, donc pas de caste figée. On la garde quand même, sans caste
+   * — elle nourrit le socle `global`. Un `INNER JOIN` jetterait tout le passé
+   * de la ruche le jour de la mise en service, et l'horloge repartirait muette
+   * alors que la donnée est là.
+   *
+   * `LIMIT` toujours : cette table grossit à chaque tâche.
+   */
+  historiqueDurees(limite = 500): Array<{ dureeMs: number; caste?: string; reussie: boolean }> {
+    const cap = Math.max(1, Math.min(limite, 5000));
+    const rows = this.db
+      .prepare(
+        'SELECT r.durationMs AS dureeMs, r.success AS success, a.caste AS caste ' +
+          'FROM results r LEFT JOIN annonces_duree a ON a.taskId = r.taskId ' +
+          'ORDER BY r.createdAt DESC, r.id DESC LIMIT ?',
+      )
+      .all(cap) as Array<{ dureeMs: number; success: number; caste: string | null }>;
+    return rows.map((r) => ({
+      dureeMs: r.dureeMs,
+      ...(r.caste === null ? {} : { caste: r.caste }),
+      reussie: r.success === 1,
+    }));
+  }
+
+  /**
+   * Les annonces qui ont trouvé leur réel — de quoi noter l'horloge.
+   *
+   * On ne retient que les tâches RÉUSSIES : une tâche abandonnée n'a pas
+   * infirmé l'annonce, elle l'a rendue sans objet. La compter comme un
+   * dépassement salirait la calibration avec des cas qui ne la concernent pas.
+   */
+  annoncesJugees(limite = 500): Array<{ p80Ms: number; reelMs: number }> {
+    const cap = Math.max(1, Math.min(limite, 5000));
+    return this.db
+      .prepare(
+        'SELECT a.p80Ms AS p80Ms, r.durationMs AS reelMs ' +
+          'FROM annonces_duree a JOIN results r ON r.taskId = a.taskId ' +
+          'WHERE r.success = 1 ORDER BY a.faiteA DESC LIMIT ?',
+      )
+      .all(cap) as Array<{ p80Ms: number; reelMs: number }>;
+  }
+
   ajouterHorizon(
     projectId: string,
     kindBrut: string,
@@ -2119,6 +2211,24 @@ export class HiveStore {
         .prepare('SELECT COUNT(*) AS n FROM horizon_ledger WHERE projectId = ?')
         .get(projectId) as { n: number }
     ).n;
+  }
+
+  /**
+   * Élague le registre des annonces.
+   *
+   * Cette table grossit SOUS LA MACHINE — une ligne par tâche assignée —, donc
+   * elle a sa borne, comme la doctrine l'exige. Elle s'élague par le TEMPS, là
+   * où `pruneResults` s'élague par le NOMBRE — et les deux ne se comparent pas.
+   *
+   * Ce qui compte : `pruneResults` ne SUPPRIME pas les lignes, il vide leurs
+   * colonnes lourdes. `durationMs` survit donc indéfiniment, et l'annonce est
+   * la moitié PÉRISSABLE du couple. Une annonce élaguée fait sortir sa tâche de
+   * la calibration sans erreur ni trou visible — juste une note calculée sur
+   * moins de cas qu'on ne croit.
+   */
+  pruneAnnonces(retentionMs: number, now = Date.now()): number {
+    const cutoff = now - retentionMs;
+    return this.db.prepare('DELETE FROM annonces_duree WHERE faiteA < ?').run(cutoff).changes;
   }
 
   pruneHorizon(retentionMs: number, now = Date.now()): number {

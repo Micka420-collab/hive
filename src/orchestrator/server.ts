@@ -295,6 +295,28 @@ export const REQUISITIONS_RETENTION_MS = 30 * 24 * 60 * 60_000;
 export const HORIZON_RETENTION_MS = 90 * 24 * 60 * 60_000;
 
 /**
+ * Registre des annonces de durée (l'horloge du chantier). BORNE D'ÉLAGAGE de la
+ * table `annonces_duree` (doctrine, règle 3), câblée dans le tick.
+ *
+ * ─── POURQUOI UNE UNITÉ DIFFÉRENTE DE `RESULT_RETENTION`, ET PAS UN ORDRE ────
+ *
+ * `RESULT_RETENTION` est un NOMBRE DE LIGNES, pas une durée : au-delà, seules
+ * les colonnes lourdes (`diff`, `logs`) sont vidées — la LIGNE survit, donc
+ * `durationMs` aussi, indéfiniment. Comparer les deux bornes n'a donc pas de
+ * sens : elles ne mesurent pas la même chose.
+ *
+ * Ce qui compte pour l'horloge est ailleurs : l'annonce est la moitié
+ * PÉRISSABLE du couple. Le réel ne disparaît jamais ; la promesse, si. Une
+ * annonce élaguée fait donc silencieusement sortir une tâche de la calibration
+ * — sans erreur, sans trou visible, juste une note calculée sur moins de cas
+ * qu'on ne croit.
+ *
+ * Six mois : assez pour que la fenêtre de calibration couvre plusieurs saisons
+ * de la ruche, assez court pour que la table ne devienne pas un journal.
+ */
+const ANNONCES_RETENTION_MS = 180 * 24 * 60 * 60_000;
+
+/**
  * Nombre de livraisons conservées. BORNE D'ÉLAGAGE de la table `livraisons`
  * (doctrine, règle 3), câblée dans le tick.
  *
@@ -8224,6 +8246,9 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       store.pruneRequisitions(REQUISITIONS_RETENTION_MS);
       store.pruneFabriques(REQUISITIONS_RETENTION_MS);
       store.pruneHorizon(HORIZON_RETENTION_MS);
+      // L'annonce est la moitié PÉRISSABLE du couple : `pruneResults` vide des
+      // colonnes mais ne supprime pas de ligne, donc `durationMs` survit.
+      store.pruneAnnonces(ANNONCES_RETENTION_MS);
       // ─── LA BORNE QUI MANQUAIT, ET QUI REND LES DEUX SUIVANTES VRAIES ──────
       //
       // `tasks` était la SEULE table du dépôt sans élagueur. Les deux bornes
