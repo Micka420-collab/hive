@@ -9,6 +9,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { direVerdict, juger, PAQUETS, type EtatAgent } from '../src/shared/connexion-agent.js';
+import { PAQUETS_AGENTS } from '../src/shared/agent-windows.js';
 
 describe('les quatre verdicts', () => {
   it('binaire ET clé : prête, rien à faire', () => {
@@ -69,6 +70,40 @@ describe('le geste automatique', () => {
       for (const a of argv) {
         expect(a).not.toMatch(/key|token|secret|sk-/i);
       }
+    }
+  });
+});
+
+describe('l’accord avec l’autre catalogue', () => {
+  it('le nom du paquet de Claude Code est le MÊME des deux côtés', () => {
+    // Deux catalogues coexistent, et répondent à deux questions distinctes :
+    //
+    //   `PAQUETS_AGENTS` (agent-windows.ts) : OÙ trouver un agent déjà
+    //      installé, quand son shim n'est pas lançable sous Windows ;
+    //   `PAQUETS` (ici)                     : COMMENT l'installer.
+    //
+    // Les fusionner serait une erreur — ils ne servent pas au même moment et
+    // n'ont pas la même forme. Mais ils partagent une donnée : le nom npm. S'il
+    // dérive d'un côté, la ruche installerait un paquet et en chercherait un
+    // autre, sans que rien ne le dise.
+    // `toContain` NE SUFFIT PAS, et le contre-rejeu l'a montré : dérivé en
+    // `@anthropic-ai/claude-codex`, le nom CONTIENT toujours l'ancien, et la
+    // sentinelle restait verte. Une dérive par suffixe est exactement celle
+    // qu'une faute de frappe produit. On compare donc le dernier argument —
+    // le nom du paquet — À L'ÉGALITÉ.
+    const installe = PAQUETS['claude-code']!;
+    const nomInstalle = installe[installe.length - 1];
+    expect(nomInstalle).toBe(PAQUETS_AGENTS['claude']!.paquet);
+  });
+
+  it('tout paquet que la ruche INSTALLE porte une portée npm explicite', () => {
+    // `@anthropic-ai/claude-code`, pas `claude-code`. Un nom sans portée est
+    // exposé au typosquat du registre public : installer globalement un paquet
+    // dont on ne contrôle pas le nom est le genre d'erreur qu'on ne fait qu'une
+    // fois.
+    for (const argv of Object.values(PAQUETS)) {
+      const nom = argv[argv.length - 1]!;
+      expect(nom, `« ${nom} » n’a pas de portée npm`).toMatch(/^@[^/]+\/[^/]+$/);
     }
   });
 });
