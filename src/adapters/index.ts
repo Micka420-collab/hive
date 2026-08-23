@@ -5,6 +5,7 @@
 import type { PresenceFichier } from '../shared/presence.js';
 import type { SubAgent, Task } from '../shared/types.js';
 import { createClaudeCodeAdapter } from './claude-code.js';
+import { createClineAdapter } from './cline.js';
 import { createCodexAdapter } from './codex.js';
 import { createCursorAdapter } from './cursor.js';
 import { createCustomAdapter } from './custom.js';
@@ -83,6 +84,8 @@ export function getAdapter(name: string): AgentAdapter {
       return createClaudeCodeAdapter();
     case 'cursor':
       return createCursorAdapter();
+    case 'cline':
+      return createClineAdapter();
     case 'codex':
       return createCodexAdapter();
     case 'custom':
@@ -93,7 +96,7 @@ export function getAdapter(name: string): AgentAdapter {
       return createHermesAgentAdapter();
     default:
       throw new Error(
-        `Adaptateur inconnu : ${name} (disponibles : shell, claude-code, cursor, codex, grok, custom, hermes-agent)`,
+        `Adaptateur inconnu : ${name} (disponibles : shell, claude-code, cursor, cline, codex, grok, custom, hermes-agent)`,
       );
   }
 }

@@ -21,7 +21,15 @@ import { argvAgent } from '../shared/agent-windows.js';
  * D'où `estAgentType` juste dessous : un nom d'agent qui vient de
  * `HIVE_AGENT` est une donnée d'entrée, pas une valeur de ce type.
  */
-export const AGENT_TYPES = ['claude-code', 'cursor', 'codex', 'grok', 'custom', 'shell'] as const;
+export const AGENT_TYPES = [
+  'claude-code',
+  'cursor',
+  'cline',
+  'codex',
+  'grok',
+  'custom',
+  'shell',
+] as const;
 
 export type AgentType = (typeof AGENT_TYPES)[number];
 
@@ -57,6 +65,8 @@ const PROBES: AgentProbe[] = [
     label: 'Cursor',
     signature: 'cursor',
   },
+  // Cline : CLI sans interface (`cline --json`), installé par `npm i -g cline`.
+  { agent: 'cline', bins: ['cline'], label: 'Cline' },
   { agent: 'codex', bins: ['codex'], label: 'Codex' },
   // `grok-build` : binaire Rust natif, donc aucun shim `.cmd` à contourner.
   { agent: 'grok', bins: ['grok'], label: 'Grok Build' },
@@ -440,6 +450,31 @@ export function agentCredentialEnv(agent: AgentType): string[] {
   }
   return configDirs;
 }
+
+/**
+ * Les agents dont `requisitionSiCredentialsManquantes` sait VRAIMENT juger les
+ * identifiants — c'est-à-dire ceux qui ont une branche à eux ci-dessous.
+ *
+ * ─── POURQUOI CETTE LISTE EXISTE ────────────────────────────────────────────
+ *
+ * La fonction rend `null` pour tout agent qu'elle ne connaît pas, et `null`
+ * signifie « rien ne manque ». Pour un appelant, c'est indiscernable de « la
+ * clé est là » — alors que la vérité est « je ne sais pas regarder ».
+ *
+ * Cline, par exemple, lit sa PROPRE configuration de fournisseur : Hive ne sait
+ * pas où chercher, et prétendre le contraire ferait proposer une installation
+ * automatique sur la foi d'une clé jamais vue.
+ *
+ * `tests/connexion-noeud.test.ts` garde l'accord entre cette liste et les
+ * branches réelles de la fonction : en ajouter une sans l'inscrire ici, ou
+ * l'inverse, fait rougir la suite.
+ */
+export const AGENTS_A_IDENTIFIANTS_CONNUS: readonly AgentType[] = Object.freeze([
+  'claude-code',
+  'cursor',
+  'codex',
+  'grok',
+]);
 
 /** Réquisition à ouvrir quand l'agent réel n'a pas d'identifiants locaux. */
 export type RequisitionCredential = {

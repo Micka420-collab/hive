@@ -3,6 +3,7 @@
 // agent = ouvrière, tâche = butinage, crédits de compute = Nectar (palier 4).
 
 import type { PlateformeNoeud } from './machine.js';
+import type { OutilConstate } from './protocol.js';
 
 /** Cycle de vie : pending → ready (dépendances done) → assigned → running → done | failed. */
 export type TaskStatus = 'pending' | 'ready' | 'assigned' | 'running' | 'done' | 'failed';
@@ -43,6 +44,17 @@ export interface HiveNode {
    * agent à modèle unique — la ruche retombe sur son ordonnancement d'avant.
    */
   modeles?: string[];
+  /**
+   * Les outils IA que ce nœud a CONSTATÉS sur sa machine à l'inscription :
+   * binaire trouvé sur le PATH, clé lisible dans l'environnement. C'est un
+   * constat de PRÉSENCE, jamais une capacité — jusqu'où la ruche va avec
+   * chacun est dit par le catalogue, et les deux ne se croisent qu'à
+   * l'affichage (`outils-du-noeud.ts`).
+   *
+   * Absent : nœud d'avant cette version. L'écran montre alors qu'il ne sait
+   * pas, plutôt qu'une liste vide qui se lirait « aucun outil ».
+   */
+  outils?: OutilConstate[];
 }
 
 /** Sous-agent lancé par un agent sur un nœud (visualisé en pulsation sur le Swarm View). */

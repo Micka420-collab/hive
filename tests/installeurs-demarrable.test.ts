@@ -40,7 +40,16 @@ const RACINE = fileURLToPath(new URL('..', import.meta.url));
 const lire = (f: string): string => readFileSync(path.join(RACINE, f), 'utf8');
 
 /** Les scripts qui installent ou déploient — donc qui promettent une ruche qui démarre. */
-const SCRIPTS = ['install.sh', 'install.ps1', 'examples/deploiement-sans-ecran.sh'] as const;
+const SCRIPTS = [
+  'install.sh',
+  'install.ps1',
+  'examples/deploiement-sans-ecran.sh',
+  // Arrivé le 23 août pour monter la ruche sur un serveur. La garde de
+  // complétude ci-dessous l'a exigé ICI avant qu'il n'entre — c'est
+  // exactement ce qu'elle promettait de faire pour « un quatrième script né
+  // demain », et la première fois qu'elle le fait pour de vrai.
+  'scripts/poser-la-ruche.sh',
+] as const;
 
 /**
  * La source SANS ses commentaires — la prose ne doit rien prouver (§ 2.3).

@@ -7,6 +7,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { PlateformeNoeud } from '../shared/machine.js';
 import { LIMITS } from '../shared/protocol.js';
+import type { OutilConstate } from '../shared/protocol.js';
 import { LIMITE_TACHES_INSTANTANE } from '../shared/types.js';
 import type { Partage } from '../shared/partage.js';
 import type { GenreSauvegarde, Sauvegarde, SauvegardeResume } from '../shared/sauvegardes.js';
@@ -834,6 +835,21 @@ CREATE TABLE IF NOT EXISTS modeles_noeuds (
   majA    INTEGER NOT NULL
 );
 
+-- BORNE STRUCTURELLE (regle 3), troisieme jumelle : une ligne par noeud, la
+-- clef primaire EST la borne, la re-inscription ECRASE. Les OUTILS IA que le
+-- noeud a CONSTATES sur sa machine (binaire sur le PATH, cle dans
+-- l'environnement), ranges en JSON.
+--
+-- C'est un CONSTAT, pas une capacite : ce que la ruche sait FAIRE de chaque
+-- outil vit dans le catalogue (src/shared/catalogue-outils.ts), et les deux ne
+-- se croisent qu'a l'affichage. Un noeud qui ne declare rien n'a pas de ligne,
+-- et l'ecran n'invente rien a sa place.
+CREATE TABLE IF NOT EXISTS outils_noeuds (
+  nodeId TEXT PRIMARY KEY REFERENCES nodes(id),
+  outils TEXT NOT NULL,
+  majA   INTEGER NOT NULL
+);
+
 -- Baptême Reine (ADR 0010) : le nom affiché d'une ouvrière. TABLE LATÉRALE —
 -- on n'ALTÈRE pas « nodes.name » (règle 2). Le nœud ne pose PAS ce nom via le
 -- protocole ; seule la Reine (API / CLI) écrit ici. UNIQUE insensible à la
@@ -1180,6 +1196,12 @@ export interface NodeProfile {
   plateforme?: PlateformeNoeud;
   /** Les modèles déclarés par le nœud. Absents : on n'écrase pas ce qu'on sait. */
   modeles?: string[];
+  /**
+   * Les outils IA CONSTATÉS sur la machine du nœud. Absents : on n'écrase pas
+   * ce qu'on sait — un client d'avant cette version ne doit pas effacer les
+   * constats qu'une version récente avait appris.
+   */
+  outils?: OutilConstate[];
 }
 
 export interface TaskPatch {
@@ -1232,19 +1254,21 @@ function rowToTask(row: TaskRow): Task {
 
 /** `running` est calculé à la volée depuis les tâches actives — jamais stocké. */
 const NODE_SELECT = `
-  SELECT n.*, m.plateforme AS plateforme, md.modeles AS modeles, (
+  SELECT n.*, m.plateforme AS plateforme, md.modeles AS modeles, o.outils AS outils, (
     SELECT COUNT(*) FROM tasks t
     WHERE t.assignedNodeId = n.id AND t.status IN ('assigned', 'running')
   ) AS running
   FROM nodes n
   LEFT JOIN machines_noeuds m ON m.nodeId = n.id
   LEFT JOIN modeles_noeuds md ON md.nodeId = n.id
+  LEFT JOIN outils_noeuds o ON o.nodeId = n.id
 `;
 
 /** La ligne brute d'un nœud telle que `NODE_SELECT` la rend, avant relecture. */
 interface NodeRowBrut extends NodeRow {
   plateforme: PlateformeNoeud | null;
   modeles: string | null;
+  outils: string | null;
 }
 
 /**
@@ -1262,16 +1286,48 @@ function lireModeles(brut: string): string[] {
 }
 
 /**
- * De la ligne brute au `HiveNode` : la seule transformation est de replier la
- * colonne `modeles` (JSON) en tableau. `plateforme` et `running` passent tels
- * quels. Une liste vide (ou absente) laisse `modeles` ABSENT — un nœud sans
- * modèle déclaré n'a pas de `modeles: []` inventé.
+ * Relit les constats d'outils. Tolérante comme `lireModeles`, et EXIGEANTE sur
+ * la forme : une entrée dont un champ manque ou ment est écartée, pas
+ * réparée. Un constat à moitié lu vaudrait un constat inventé.
+ *
+ * Le tri-état de la clé est reconstruit ici plutôt que recopié : `presente`,
+ * `absente`, `inconnue` — tout le reste vaut `inconnue`, parce que « on ne
+ * sait pas lire » est la seule réponse honnête à une valeur qu'on ne connaît
+ * pas, et jamais « pas de clé ».
+ */
+function lireOutils(brut: string): OutilConstate[] {
+  try {
+    const lus: unknown = JSON.parse(brut);
+    if (!Array.isArray(lus)) return [];
+    const gardes: OutilConstate[] = [];
+    for (const x of lus) {
+      if (typeof x !== 'object' || x === null) continue;
+      const o = x as Record<string, unknown>;
+      if (typeof o.agent !== 'string' || o.agent.length === 0) continue;
+      if (typeof o.binaire !== 'boolean') continue;
+      const cle =
+        o.cle === 'presente' || o.cle === 'absente' ? (o.cle as OutilConstate['cle']) : 'inconnue';
+      gardes.push({ agent: o.agent, binaire: o.binaire, cle });
+    }
+    return gardes;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * De la ligne brute au `HiveNode` : replier les colonnes JSON (`modeles`,
+ * `outils`) en tableaux. `plateforme` et `running` passent tels quels. Une
+ * liste vide (ou absente) laisse le champ ABSENT — un nœud sans modèle déclaré
+ * n'a pas de `modeles: []` inventé, et un nœud sans constat pas d'`outils: []`.
  */
 function rowToNode(row: NodeRowBrut): HiveNode {
-  const { modeles, ...reste } = row;
+  const { modeles, outils, ...reste } = row;
   const node = reste as unknown as HiveNode;
   const liste = typeof modeles === 'string' ? lireModeles(modeles) : [];
   if (liste.length > 0) node.modeles = liste;
+  const constats = typeof outils === 'string' ? lireOutils(outils) : [];
+  if (constats.length > 0) node.outils = constats;
   return node;
 }
 
@@ -1524,6 +1580,18 @@ export class HiveStore {
             'ON CONFLICT(nodeId) DO UPDATE SET modeles = excluded.modeles, majA = excluded.majA',
         )
         .run(id, JSON.stringify(profile.modeles), now);
+    }
+    // Les constats d'outils, même règle que les deux tables au-dessus :
+    // ABSENTS, on ne touche à rien ; présents, la dernière inscription gagne.
+    // Un nœud qui a désinstallé Cursor le dit en le rangeant `binaire: false`
+    // — il n'omet pas la ligne, sans quoi le hub garderait l'ancien constat.
+    if (profile.outils !== undefined) {
+      this.db
+        .prepare(
+          'INSERT INTO outils_noeuds (nodeId, outils, majA) VALUES (?, ?, ?) ' +
+            'ON CONFLICT(nodeId) DO UPDATE SET outils = excluded.outils, majA = excluded.majA',
+        )
+        .run(id, JSON.stringify(profile.outils), now);
     }
     return this.getNode(id) as HiveNode;
   }

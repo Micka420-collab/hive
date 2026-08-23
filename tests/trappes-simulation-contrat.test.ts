@@ -29,8 +29,8 @@
 // Le troisième banc ci-dessous est le plus important du fichier : il ne
 // défend pas la correction, il défend contre SA version paresseuse.
 
-import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { describe, expect, it } from 'vitest';
 import {
   demarrageNoeudAutorise,
   messageRefusShellProduction,
@@ -110,10 +110,23 @@ describe('mais la trappe `HIVE_AGENT=shell` n’ouvre RIEN d’autre', () => {
     expect(SERVEUR).not.toContain("simulation: env.HIVE_SIMULATION === '1' || shellForce");
   });
 
-  it('les trois gardes de sécurité regardent bien `config.simulation`', () => {
-    const gardes = [...SERVEUR.matchAll(/!config\.simulation/g)];
-    expect(gardes.length, 'les gardes de sécurité ont disparu ou changé de forme').toBeGreaterThan(
-      1,
+  it('les gardes de sécurité regardent bien `config.simulation`', () => {
+    // ─── CETTE GARDE AUSSI A DÛ SUIVRE LE CODE ──────────────────────────────
+    //
+    // Elle comptait les `!config.simulation` dans `server.ts`. Les trois gardes
+    // ont été réunies en une seule passe dans `shared/amorce.ts`, où la
+    // simulation se lit une fois — en tête, parce qu'elle rend toutes les
+    // autres questions sans objet. Compter des occurrences dans l'ancien
+    // fichier serait devenu un compte à zéro sur un code parfaitement sûr.
+    //
+    // Ce qu'il faut affirmer n'a pas changé : la simulation, et elle seule,
+    // relâche les gardes — et elle est TRANSMISE, pas redevinée.
+    expect(SERVEUR, 'le serveur ne transmet plus la simulation à l’amorce').toContain(
+      'simulation: config.simulation',
+    );
+    const amorce = readFileSync(new URL('../src/shared/amorce.ts', import.meta.url), 'utf8');
+    expect(amorce, 'la simulation ne relâche plus rien').toContain(
+      'if (etat.simulation) return []',
     );
   });
 

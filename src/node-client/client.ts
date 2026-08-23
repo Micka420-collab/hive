@@ -23,12 +23,18 @@ import { isOnShift, minutesUntilOpen, nightShiftFromEnv } from '../shared/night-
 import type { NightShiftPolicy } from '../shared/night-shift.js';
 import { plateformeDepuis } from '../shared/machine.js';
 import { ID_PATTERN, LIMITS, parseServerMessage } from '../shared/protocol.js';
-import type { AssignChantierMsg, AssignMergeMsg, ClientMessage } from '../shared/protocol.js';
+import type {
+  AssignChantierMsg,
+  AssignMergeMsg,
+  ClientMessage,
+  OutilConstate,
+} from '../shared/protocol.js';
 import { HEARTBEAT_INTERVAL_MS } from '../shared/types.js';
 import type { Task } from '../shared/types.js';
 import { runMerge, runProc } from './merge-runner.js';
 import { buildSandboxEnv, cloneRepo, prepareWorkspace } from './workspace.js';
 import { requisitionDepuisEchecInfra } from '../shared/requisition-infra.js';
+import { motifRefusPresence, refuseParPresence } from '../shared/presence-noeud.js';
 import type { Fournisseur } from './isolement.js';
 import type { Workspace } from './workspace.js';
 
@@ -59,6 +65,17 @@ export interface NodeClientOptions {
   /** Coupe les logs console (tests). */
   quiet?: boolean;
   /**
+   * « Présence sans production » : ce poste rejoint la ruche pour SE MONTRER,
+   * pas pour travailler. Aucun agent de codage réel n'a été trouvé dessus.
+   *
+   * C'est la SECONDE garde, et elle est délibérément redondante avec celle du
+   * hub (`assignationProductionAutorisee`). Un hub d'une version plus ancienne,
+   * ou une voie d'assignation qu'on aura oublié de filtrer, ne connaîtra pas la
+   * règle. Le nœud, lui, la connaît toujours : c'est lui qui a constaté sa
+   * propre machine.
+   */
+  presenceSeule?: boolean;
+  /**
    * Bac à sable résolu par l'appelant (main.ts), ou absent.
    *
    * INJECTÉ plutôt que sondé ici : la sonde lance un binaire, et un test de
@@ -85,6 +102,21 @@ export function composeAgentPrompt(hiveContext: string | undefined, prompt: stri
 export class HiveNodeClient {
   private ws: WebSocket | null = null;
   private nodeId: string | null = null;
+  /**
+   * Les constats d'outils à joindre à l'inscription — posés par l'appelant,
+   * jamais calculés ici.
+   *
+   * `null` tant que rien n'a été constaté, et c'est volontaire : un tableau
+   * vide se lirait comme « aucun outil sur cette machine », alors que la vérité
+   * serait « personne n'a regardé ». Deux silences différents, deux valeurs.
+   */
+  private outilsConstates: OutilConstate[] | null = null;
+
+  /** Pose ce que le diagnostic a vu. Rejouable : une reconnexion le renvoie. */
+  setOutilsConstates(outils: readonly OutilConstate[]): void {
+    this.outilsConstates = [...outils];
+  }
+
   private readonly active = new Map<string, AbortController>();
   /** Merges en cours (par mergeId) — anti-doublon si le hub réémet le même id. */
   private readonly activeMerges = new Set<string>();
@@ -213,6 +245,11 @@ export class HiveNodeClient {
         ...(this.opts.modeles && this.opts.modeles.length > 0
           ? { modeles: this.opts.modeles }
           : {}),
+        // Ce que ce poste porte réellement — des CONSTATS, pas un verdict. Le
+        // hub en tire sa conclusion avec son catalogue ; ici on ne fait que
+        // rapporter ce qu'on a vu. Absent tant que le diagnostic n'a pas
+        // tourné : un tableau vide se lirait comme « rien d'installé ».
+        ...(this.outilsConstates ? { outils: this.outilsConstates } : {}),
       });
     });
 
@@ -390,6 +427,16 @@ export class HiveNodeClient {
         durationMs: 0,
         subAgents: [],
       });
+      return;
+    }
+    // « Présence sans production » : ce nœud s'est inscrit sans agent réel. Il
+    // REFUSE poliment plutôt que de lancer son adaptateur simulé — un diff
+    // inventé remonté comme du travail serait bien pire que le silence d'avant.
+    //
+    // `task_reject` et non `task_result` en échec : le refus ne brûle aucune
+    // tentative, et le hub peut servir un autre nœud dans la seconde.
+    if (refuseParPresence(this.opts.presenceSeule === true ? 'presence' : 'production')) {
+      this.send({ type: 'task_reject', taskId: task.id, reason: motifRefusPresence() });
       return;
     }
     if (this.active.has(task.id)) return; // assignation dupliquée : déjà en cours

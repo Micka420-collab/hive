@@ -83,6 +83,8 @@ import {
   urlTelechargement,
 } from './node-client/cloudflare.js';
 
+import { estInjoignable, expliquerRucheInjoignable } from './shared/amorce.js';
+
 const BASE = process.env.HIVE_HTTP ?? 'http://localhost:7777';
 const TOKEN = process.env.HIVE_TOKEN ?? 'change-me';
 
@@ -1834,6 +1836,14 @@ try {
     process.exitCode = 1;
   }
 } catch (err) {
-  console.error(`Erreur : ${err instanceof Error ? err.message : String(err)}`);
+  // « Erreur : fetch failed » était le message le plus fréquent de cette CLI et
+  // le moins utile : ni l'adresse visée, ni la cause, ni la variable qui la
+  // décide. Mesuré en jouant le parcours d'un hôte — c'est le premier mur.
+  //
+  // On ne remplace QUE les pannes de transport : un refus applicatif porte un
+  // message que la ruche a écrit, et le noyer sous un conseil de dépannage
+  // réseau ferait chercher au mauvais endroit.
+  if (estInjoignable(err)) console.error(expliquerRucheInjoignable(err, BASE, 'HIVE_HTTP'));
+  else console.error(`Erreur : ${err instanceof Error ? err.message : String(err)}`);
   process.exitCode = 1;
 }

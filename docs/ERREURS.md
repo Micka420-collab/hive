@@ -517,6 +517,191 @@ son INTERACTION avec un effet déjà en vol. Un banc de 4a ne pouvait pas le voi
 > mesure sans agir n'est pas un progrès partiel : c'est une source de données
 > fausses qui se présentent comme vraies.
 
+#### 2 tritrigies bis — L'autre forme du demi-câblage : le SETTER que personne n'appelle
+
+Le premier demi-câblage livrait une moitié qui MENTAIT. Celui-ci en livrait une
+qui ne faisait RIEN, et c'est plus difficile à voir.
+
+`HiveNodeClient.setOutilsConstates()` avait tout ce qu'un câblage demande : un
+champ de protocole (`RegisterMsg.outils`), un validateur qui le reconstruit
+champ par champ, dix bancs sur ce validateur, et sa propre méthode publique.
+Une seule chose manquait : **personne ne l'appelait**. `grep -rn
+"setOutilsConstates" src/ tests/` rendait exactement une ligne — sa définition.
+
+Le nœud savait donc constater ses outils, le message savait les porter, le
+protocole savait les refuser mal formés — et le tableau de bord affichait une
+ruche sans outils sur des machines qui en portaient quatre.
+
+Ce qui rend cette forme-là traître, c'est que **toutes les moitiés sont vertes**.
+Le banc du validateur passe : il lui donne des constats à la main. Le banc du
+client passe : il appelle le setter lui-même. Chacun prouve sa moitié, et la
+somme des deux ne prouve pas le fil.
+
+> **Règle** — un point d'entrée public sans appelant est un point d'entrée MORT.
+> Avant de clore un lot qui en ajoute un, faire le `grep` : s'il ne rend que sa
+> définition, le lot n'est pas fini, quel que soit le vert de ses bancs.
+>
+> **Règle** — un banc de bout en bout qui APPELLE lui-même le geste qu'il
+> prétend vérifier ne vérifie que la moitié aval. Celui de ce lot monte un vrai
+> hub et un vrai nœud, et resterait vert si `main.ts` cessait d'appeler le
+> setter. Il lui faut donc un compagnon qui regarde l'APPELANT — ici une
+> sentinelle de source, qui tient que l'appel existe et qu'il précède
+> `client.start()` (le register part à la première connexion : posé après, il
+> serait arrivé au deuxième essai, c'est-à-dire jamais).
+>
+> Lire la source est un aveu, pas une élégance : c'est ce qu'on fait quand
+> lancer le vrai chemin est hors de portée du banc — ici `main.ts` refuse de
+> démarrer sans agent de production sur le poste. Le dire dans le fichier vaut
+> mieux que laisser croire à une preuve.
+
+### 2 quattuortrigies bis — Un banc qui rougit contre du code JUSTE, parce que la langue s'est résolue avant lui
+
+Sept assertions françaises rouges sur un écran parfaitement correct :
+
+```
+expected '· outil-de-demain — ready · the hive knows nothing about this tool'
+  to contain 'ne sait rien de cet outil'
+```
+
+`dashboard/src/i18n.ts` résout la langue **à l'import du module** :
+
+```ts
+let current: UiLang = detectInitial(); // localStorage, sinon navigator.language
+```
+
+Le banc vidait bien `localStorage` dans son `beforeEach` — mais le module était
+importé depuis longtemps, et happy-dom annonce un navigateur anglophone. La
+préférence n'était donc jamais relue.
+
+Le piège n'est pas le rouge : c'est ce qu'on est tenté d'en faire. Un rouge qui
+accuse le code alors qu'il accuse le banc pousse à « corriger » du code juste,
+et c'est ainsi qu'une chaîne bilingue se retrouve figée dans une langue.
+
+> **Règle** — un banc de rendu qui affirme une chaîne TRADUITE doit ÉPINGLER la
+> langue (`setLang('fr')`), jamais l'hériter. Et tant qu'à l'épingler : la
+> basculer aussi dans l'autre sens dans un banc jumeau. Un composant qui passe
+> la langue à deux fonctions distinctes — ici l'état de la machine et le niveau
+> de la ruche — peut parfaitement n'en traduire qu'une, et aucun banc
+> francophone ne verrait la demi-ligne restée en anglais.
+
+#### 2.12 bis — Un appel HTTP dont on ne lit pas le statut rend TOUT le banc creux
+
+Le banc devait prouver qu'un nœud « présence » ne lance jamais son adaptateur,
+même quand le hub lui assigne une tâche. Il montait un vrai hub, un vrai nœud,
+comptait les lancements, et affirmait zéro. Vert du premier coup.
+
+La contre-épreuve l'a démasqué en une commande : j'ai ôté la garde qu'il
+prétendait défendre — **toujours vert**. Puis j'ai ôté l'autre garde —
+**toujours vert**. Un banc que deux mutations opposées ne font pas bouger ne
+mesure rien.
+
+La sonde a donné la raison en une ligne :
+
+```
+tache HTTP 404
+tache {"error":"introuvable"}
+```
+
+`POST /api/tasks` n'existe pas — la route est
+`POST /api/projects/:projectId/tasks`, et son corps est `{ tasks: [...] }`. Le
+`fetch` réussissait (une 404 n'est pas une exception), la tâche n'était jamais
+créée, et « aucun lancement » était vrai pour une raison qui n'avait rien à
+voir avec la garde.
+
+C'est le § 2.12 — « ça ne part pas » est vert quand RIEN ne part — mais par une
+porte nouvelle : ce n'est pas la logique du banc qui était fausse, c'est un
+appel réseau silencieusement raté au milieu de sa mise en place.
+
+> **Règle** — dans un banc de bout en bout, tout appel HTTP de MISE EN PLACE
+> s'assortit de son statut attendu (`expect(r.status).toBe(201)`). `fetch` ne
+> lève pas sur 4xx/5xx : une route renommée, un corps refusé, un jeton périmé
+> passent en silence et vident le banc de son sujet sans jamais le faire rougir.
+>
+> **Règle** — et quand le banc affirme une ABSENCE (« rien ne s'est lancé »,
+> « aucune écriture »), la mise en place doit prouver que la CONDITION était
+> réunie : ici, que la tâche a bien été assignée au nœud. Sans cette moitié,
+> l'absence constatée peut venir de n'importe où.
+>
+> **Le geste qui a tout révélé** est le moins coûteux de tous : ôter la garde et
+> relancer. Un banc neuf qui ne rougit pas sous cette mutation-là n'est pas
+> terminé — quel que soit le temps qu'on a passé à l'écrire.
+
+#### 2.6 bis — Vérifier À LA SOURCE ne sert à rien si on vérifie la MAUVAISE chose
+
+En écrivant le catalogue des outils, j'ai inscrit pour Cline :
+
+```ts
+installation: Object.freeze(['npm', 'install', '-g', 'cline']),
+```
+
+Relisant plus tard, j'ai douté de ce nom de paquet — le reste du catalogue
+porte `installation: null` avec la mention « la ruche refuse de deviner ». Bon
+réflexe. J'ai donc interrogé le registre npm, et il a répondu :
+
+```
+cline : HTTP 200
+  description : Autonomous coding agent CLI …
+  bin         : {"cline":"bin/cline"}
+```
+
+Le paquet existe, il fait ce qu'on croit, son binaire porte le nom que la ruche
+cherche. J'ai conclu « vérifié » et je suis passé à la suite.
+
+C'est le banc du dépôt qui a dit non :
+
+```
+« cline » n'a pas de portée npm
+```
+
+`connexion-agent.test.ts` tient depuis longtemps que **tout paquet installé
+globalement porte une portée** (`@anthropic-ai/claude-code`, pas `claude-code`),
+parce qu'un nom sans portée sur le registre public est exposé au typosquat — et
+qu'un `npm install -g` est exactement l'endroit où l'on ne fait cette erreur
+qu'une fois.
+
+Ma vérification était vraie, sérieuse, faite à la source primaire… et sans
+rapport avec la question posée. « Ce paquet existe-t-il ? » et « ce nom
+est-il sûr à installer ? » sont deux questions différentes, et la seconde était
+déjà écrite dans le dépôt.
+
+Détail qui achève le dossier : `@cline/cli` EST porté — mais son binaire
+s'appelle `clite`, que `bins: ['cline']` ne cherche pas. La ruche installerait
+un paquet qu'elle ne saurait pas détecter ensuite. Deux mauvaises réponses ;
+`null` est la bonne, et `null` ne dit pas « impossible à installer », il dit
+« la ruche ne le fait pas à votre place ».
+
+> **Règle** — avant de conclure « vérifié », relire la GARDE qui existe déjà sur
+> ce terrain et vérifier ce QU'ELLE demande. Une source primaire consultée sur
+> la mauvaise question donne une confiance parfaitement injustifiée, et plus
+> solide que si l'on n'avait rien vérifié du tout.
+>
+> **Règle** — quand une garde en aval rougit sur une donnée écrite en amont,
+> DOUBLER la garde à la source. Ici elle vivait sur `PAQUETS` ; quelqu'un qui
+> ajoute un outil édite le CATALOGUE, et un rouge nommant `PAQUETS` l'enverrait
+> chercher au mauvais endroit.
+
+#### 2.6 ter — Deux tables qui répondent à la MÊME question dérivent toujours
+
+Le même lot a montré pourquoi ce nom de paquet vivait à deux endroits.
+
+`PAQUETS` (connexion-agent.ts) et `OUTILS[].installation` (catalogue-outils.ts)
+répondaient tous deux à « comment installe-t-on cet agent ? ». Le catalogue,
+écrit plus tard, connaissait Cline ; `PAQUETS` l'ignorait. La dérive était déjà
+là, silencieuse, et personne ne l'aurait vue avant qu'un utilisateur ne suive un
+conseil que la ruche ne donnait pas.
+
+`PAQUETS` en est maintenant DÉRIVÉ — une ligne, pas une copie.
+
+Le contraste avec `PAQUETS_AGENTS` (agent-windows.ts) est instructif : lui aussi
+porte un nom npm, et il ne doit PAS fusionner. Il répond à une autre question —
+où retrouver un agent DÉJÀ installé quand son shim n'est pas lançable sous
+Windows. Le dépôt garde donc leur donnée commune par un banc, sans les unir.
+
+> **Règle** — le critère n'est pas « ces deux tables se ressemblent-elles ? »
+> mais « répondent-elles à la MÊME question ? ». Même question ⇒ une seule
+> source, l'autre en dérive. Questions différentes ⇒ deux tables, et une garde
+> sur ce qu'elles partagent.
+
 ### 2 duotrigies — Restreindre une liste EN AMONT d'un départage ne se teste que si le départage a de quoi trancher AUTREMENT
 
 En câblant l'Aiguillage dans l'ordonnanceur, j'ai restreint les candidats au
@@ -1887,6 +2072,54 @@ qu'il imprime — sur les trois systèmes de la CI.
 > **Règle** — un lanceur se teste en le LANÇANT. Relire son texte ne distingue
 > pas les deux formes ci-dessus, et sur deux systèmes sur trois elles se
 > comportent à l'identique.
+
+#### 6.1 quater — La cinquième fois, et la fin des avertissements en prose
+
+`tests/connexion-noeud.test.ts`, fichier NEUF, lisait la source d'un module
+pour en extraire ses branches :
+
+```js
+new URL('../src/node-client/agent-detect.js', import.meta.url).pathname.replace(/\.js$/, '.ts');
+```
+
+```
+ENOENT: no such file or directory,
+open 'D:\D:\a\hive\hive\src\node-client\agent-detect.ts'
+```
+
+Le même défaut, la même lettre doublée, la même jambe CI. Ce qui rend cette
+récurrence-là utile, ce n'est pas qu'elle soit arrivée — c'est **l'état du
+dépôt au moment où elle est arrivée** : la règle était écrite ici, en trois
+paragraphes, et RECOPIÉE en tête de six fichiers (`loupe.mjs`, `lancer.mjs`,
+`ruche.mjs`, `empreinte.test.ts`, `fusionner.test.ts`,
+`essai-installation.test.ts`).
+
+Six avertissements. Tous dans des fichiers **déjà corrigés**. Aucun sur le
+chemin du fichier neuf, qui ne les a jamais croisés.
+
+Le balayage qui a suivi a d'ailleurs trouvé une **mine dormante** que personne
+ne cherchait : `tests/installeurs.test.ts` passait
+`new URL('.', RACINE).pathname` en `cwd` d'un `execFileSync`. Elle n'avait
+jamais mordu parce que l'appelant ne part que sous `runIf(shellPosix)`, faux
+sous Windows. Amorcée, mais jamais atteinte — donc invisible à la CI.
+
+> **Règle** — au bout de la troisième récurrence d'un même défaut, la prose
+> n'est plus le remède ; c'est le symptôme. Un avertissement écrit dans les
+> fichiers déjà corrigés ne protège que ceux-là, et le prochain fichier ne sait
+> pas qu'il existe. Seule une garde qui **balaie l'arbre** protège le code pas
+> encore écrit.
+>
+> `tests/chemin-de-fichier-windows.test.ts` le fait : il parcourt `src/`,
+> `tests/`, `scripts/` et `dashboard/src/`, et rougit sur tout `.pathname` pris
+> sur une URL de **fichier** — bâtie depuis `import.meta.url` directement, ou
+> par une constante du fichier. Le `url.pathname` d'un routage HTTP n'est pas
+> visé et ne l'a jamais été.
+>
+> **Règle** — une garde qui s'EXCLUT elle-même doit borner son exclusion.
+> Celle-ci contient les formes fautives dans ses fixtures : c'est ainsi qu'on a
+> vu son détecteur mordre. Elle affirme donc que l'exclusion vaut **un** fichier
+> et que ce fichier existe — sinon un nom mal orthographié dans la liste
+> n'exclurait rien, ou l'exclusion s'élargirait sans que rien ne rougisse.
 
 ### 6.1 bis — Un handle ouvert ne se voit PAS sous Linux
 

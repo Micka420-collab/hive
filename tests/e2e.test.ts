@@ -209,7 +209,7 @@ describe('garde-fous de sécurité au démarrage', () => {
         dbPath: ':memory:',
         simulation: false,
       }),
-    ).rejects.toThrow(/trivial/);
+    ).rejects.toThrow(/HIVE_TOKEN/);
   });
 
   it('refuse un CORS wildcard', async () => {
@@ -222,6 +222,6 @@ describe('garde-fous de sécurité au démarrage', () => {
         dbPath: ':memory:',
         simulation: false,
       }),
-    ).rejects.toThrow(/origines/);
+    ).rejects.toThrow(/HIVE_CORS_ORIGIN/);
   });
 });
