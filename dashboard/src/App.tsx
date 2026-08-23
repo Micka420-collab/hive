@@ -5,6 +5,7 @@
 
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { HiveEvent, StateSnapshot, SubAgent } from '../../src/shared/types';
+import { agentsConnectes, etatBandeau } from '../../src/shared/agents-connectes';
 import {
   authMe,
   clearJwt,
@@ -632,6 +633,48 @@ export function App() {
                 {unsyncedReviews} {t('revue(s) non synchronisée(s)', 'unsynced review(s)')}
               </span>
             )}
+            {/* Le voyant d'à côté dit si le NAVIGATEUR parle au hub. Il était
+                vert pendant que « 0 nœud(s) actif(s) » travaillait sur rien :
+                deux questions distinctes, donc deux voyants distincts. */}
+            {(() => {
+              const agents = agentsConnectes(snapshot.nodes);
+              const etat = etatBandeau(agents);
+              const reels = agents.filter((a) => a.enLigne > 0 && !a.simule);
+              const titre =
+                etat === 'reelle'
+                  ? t(
+                      'Les IA qui codent réellement en ce moment',
+                      'The AIs actually coding right now',
+                    )
+                  : etat === 'simulee'
+                    ? t(
+                        'Seul un agent SIMULÉ répond : les diffs produits ne viennent d’aucune IA',
+                        'Only a SIMULATED agent answers: the diffs produced come from no AI',
+                      )
+                    : etat === 'aucune_ia'
+                      ? t(
+                          'Des ouvrières sont inscrites, aucune ne répond',
+                          'Workers are registered, none answers',
+                        )
+                      : t(
+                          'Aucune ouvrière inscrite — lancez « npm run node » sur votre poste',
+                          'No worker registered — run « npm run node » on your machine',
+                        );
+              return (
+                <span className={`mc-ia mc-ia-${etat}`} data-testid="mc-ia" title={titre}>
+                  <span className="conn-dot" />
+                  <span data-testid="mc-ia-mot">
+                    {etat === 'reelle'
+                      ? reels.map((a) => a.libelle).join(' · ')
+                      : etat === 'simulee'
+                        ? t('simulé — aucune IA', 'simulated — no AI')
+                        : etat === 'aucune_ia'
+                          ? t('aucune ouvrière en ligne', 'no worker online')
+                          : t('aucune ouvrière', 'no worker')}
+                  </span>
+                </span>
+              );
+            })()}
             <span className={connected ? 'conn online' : 'conn offline'}>
               <span className="conn-dot" />
               {connected ? t('connecté', 'connected') : t('hors ligne', 'offline')}

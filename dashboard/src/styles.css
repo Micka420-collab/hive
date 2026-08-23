@@ -447,6 +447,64 @@ h3 {
   background: var(--red);
 }
 
+/* ─── Sur quelle IA la ruche est branchée ─────────────────────────────────
+   Même forme que le voyant de connexion, à dessein : ce sont deux voyants de
+   même nature, posés côte à côte, qui répondent à deux questions qu'on
+   confondait — « le navigateur parle-t-il au hub ? » et « une IA code-t-elle
+   vraiment ? ». Le second manquait, et son absence a coûté une session
+   entière à regarder une ruche verte qui ne faisait rien. */
+.mc-ia {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  background: transparent;
+  max-width: 16rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mc-ia-reelle {
+  color: var(--green);
+  border-color: color-mix(in srgb, var(--green) 22%, var(--border));
+  background: color-mix(in srgb, var(--green) 5%, var(--panel));
+}
+
+.mc-ia-reelle .conn-dot {
+  background: var(--green);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 18%, transparent);
+}
+
+/* Simulé et « inscrite mais muette » se ressemblent parce qu'ils se valent :
+   dans les deux cas la ruche RÉPOND et ne produit rien de réel. */
+.mc-ia-simulee,
+.mc-ia-aucune_ia {
+  color: var(--amber);
+  border-color: color-mix(in srgb, var(--amber) 28%, var(--border));
+  background: color-mix(in srgb, var(--amber) 7%, var(--panel));
+}
+
+.mc-ia-simulee .conn-dot,
+.mc-ia-aucune_ia .conn-dot {
+  background: var(--amber);
+}
+
+.mc-ia-aucun_noeud {
+  color: var(--red);
+  border-color: color-mix(in srgb, var(--red) 28%, var(--border));
+  background: color-mix(in srgb, var(--red) 6%, var(--panel));
+}
+
+.mc-ia-aucun_noeud .conn-dot {
+  background: var(--red);
+}
+
 /* ─── Disposition ─────────────────────────────────────────────────────── */
 .layout {
   display: grid;
