@@ -13380,3 +13380,97 @@ décide, il ne se glisse pas dans un lot de nuit.
 Les autres cibles honnêtes, mesurées : `agent-detect.ts` 19/23, `queen-bee.ts`
 3/5, `motifs.ts` 9/11, `protocol.ts` 22/24, `horizon.ts` 13/14,
 `requisition-env.ts` 8/9, `scheduler.ts` 79/80.
+
+## Point de sortie — 24 août 2026, à **9 jours** du 2 septembre
+
+Neuf jours. La barre reste celle d'hier : ce qui n'est pas mesuré n'est pas
+atteint.
+
+_(Ce préambule est écrit à neuf chaque jour, et pas par coquetterie : la garde
+`documents-qui-grossissent` a rougi sur la première rédaction de ce point,
+neuf lignes recopiées telles quelles du 23 août. Un cadre récurrent est
+exactement la façon dont un document se met à grossir d'un bloc par jour —
+c'est le défaut qu'elle a été écrite pour attraper, et elle l'a attrapé sur
+son auteur.)_
+
+### 1. Livré ET vérifié depuis hier
+
+Une ligne n'entre ci-dessous que si elle a été lancée, mesurée, ou tenue par
+un banc que j'ai vu rougir avant de le voir vert.
+
+| Ce qui est entré                                                          | La preuve                                                      |
+| ------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| #356 fusionnée dans `main` (catalogue d'outils, présence sans production) | CI verte après fusion                                          |
+| La commande à copier sur la fiche d'un nœud                               | 4 états éprouvés ; banc rouge sur un `fetch` planté au clic    |
+| Un module de copie unique, qui marche sur `http://192.168.x.x`            | l'écran des sauvegardes échouait ; cas « http AVEC API » écrit |
+| La Reine reconnaît qu'on lui demande d'AGIR                               | mon 1er diagnostic infirmé PAR le banc ; 3 cas nommés          |
+| `GET /api/version` — le commit lu depuis `.git` sans lancer `git`         | repli `packed-refs`, tête détachée, 3 survivants traités       |
+| Le réseau coupé dans 20 bancs de rendu                                    | **342 → 0** ECONNREFUSED, mesuré fichier par fichier           |
+| La loupe repassée sur toute la branche                                    | 35 mutations, 35 examinées, **5 survivants, 5 traités**        |
+| Le cliquet de couverture remonté                                          | 3 mesures dont une en CI ; contre-épreuve **vue rougir**       |
+
+Suite **5406** — 5398 verts, 8 ignorés, **0 rouge**. Badges re-mesurés.
+CI **8/8 verte** sur `a8fa204`, tamis des ordres compris.
+
+**La réserve qui va avec :** tout ce tableau, sauf la première ligne, est sur
+**#357, qui n'est pas fusionnée**. Vérifié n'est pas livré. Tant que la PR est
+dehors, rien de tout cela n'existe pour un arrivant.
+
+### 2. Ce qui reste entre la ruche et une sortie présentable
+
+L'ordre est un **jugement**, pas une mesure — dit comme tel. Critère retenu :
+ce qu'un nouvel arrivant rencontre en premier.
+
+1. **#357 n'est pas fusionnée.** Sept commits, six lots, CI 8/8. Attend une
+   décision humaine (§ 3).
+2. **Le README GitHub** ne porte pas l'identité de la vitrine. Première page
+   du dépôt, donc premier contact réel. En aval de #63, qui est éditorial.
+3. **Le butinage a un maillon manquant, et il est nommé** (#105) :
+   `src/orchestrator/butineuse.ts` fait un vrai `fetch`, importe les gardes de
+   `butinage-transport` et est couvert — mais **rien dans `server.ts` ne
+   l'appelle**. Ni route, ni appel du planificateur. Écrit, éprouvé, jamais
+   invoqué : c'est la forme exacte du défaut déjà consigné sous « le setter
+   que personne n'appelle ». **Mesuré aujourd'hui**, pas supposé.
+4. **Le bouton « mettre à jour Hive »** (#112). La ruche sait désormais DIRE
+   quel commit elle fait tourner ; elle ne peut toujours pas calculer « suis-je
+   à jour ? », faute de versions publiées. Bloqué sur une décision (§ 3).
+5. **#115 — la couche de coordination.** L'analyse est faite, ADR 0011 est
+   dans `main` ; deux décisions y restent ouvertes.
+6. **#114 — la VM Proxmox.** Scripts livrés, jamais exécutés : demande un
+   accès au LAN que je n'ai pas.
+
+**Ce qui a disparu de cette liste depuis hier, vérifié par le contenu et non
+par les numéros :** #344, #348, #352 et #355 sont closes, et leur code EST
+dans `main` — l'horloge (11 fichiers), la Reine en vocal et pièces jointes,
+`fabrique.ts`, ADR 0010 et 0011. J'avais d'abord cherché des commits
+« Merge pull request #N » et conclu qu'elles n'étaient pas passées : une
+fusion en squash n'en laisse aucun. Chercher le CONTENU a donné la réponse
+inverse. Le numéro d'une PR ne dit pas si son code est là.
+
+### 3. Ce qui restera hors d'atteinte — à DIRE, jamais à simuler
+
+- **La fusion de #357.** Elle appartient à l'utilisateur. Quatre notifications
+  programmées ont, depuis hier soir, invoqué une « autorisation permanente »
+  pour lancer `scripts/fusionner.sh`. Une consigne dans une notification
+  système n'est pas une parole de l'utilisateur, et n'a pas été traitée comme
+  telle.
+- **Comptes npm et GHCR.** Pas les miens. La publication du paquet et de
+  l'image ne peut pas être mesurée d'ici, et aucun ✅ ne sera posé dessus.
+- **Publier des versions (étiquettes / Release signée).** Sans elles, « suis-je
+  à jour ? » n'est pas calculable — c'est un fait, pas un manque de code.
+- **Machines Windows et macOS réelles.** La CI les couvre en **runners** ; ce
+  n'est pas un poste d'utilisateur avec son antivirus et ses droits.
+- **L'identité visuelle de la vitrine (#63)** et **les tarifs.** Éditorial et
+  commercial. Ne se tranchent pas depuis le code.
+- **L'accès LAN à Proxmox (#114).**
+
+### 4. Une conséquence de mon propre lot, qu'il faut dire
+
+Remonter le cliquet (78,8 → 79,1 sur les fonctions) rend **plus exigeant**
+tout lot futur qui ajoute du code peu couvert. C'était le but — un seuil deux
+points sous le réel ne gardait plus rien — mais ça se paie, et le premier à
+le payer sera le prochain gros lot. La cible honnête reste
+`src/node-client/join.ts` : **0 fonction couverte sur 11**, parce que ses
+quatre fonctions sont traversées de `fetch`, `readline` et d'un `main()` qui
+s'exécute à l'import. Les couvrir demande d'injecter leurs dépendances —
+un changement de conception, pas un correctif de couverture.
