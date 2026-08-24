@@ -295,6 +295,29 @@ export function importerDepotGithub(fullName: string): Promise<{ projet: Project
   });
 }
 
+/**
+ * Demande à un nœud de POSER un outil sur sa machine.
+ *
+ * ─── LA REQUÊTE NE PORTE PAS DE COMMANDE ────────────────────────────────────
+ *
+ * Deux identifiants dans le chemin, un corps vide. C'est délibéré, et c'est ce
+ * qui borne la fonctionnalité : le navigateur ne choisit pas ce qui s'exécute,
+ * il désigne un outil du catalogue. Ajouter ici un champ « commande » — même
+ * par commodité — transformerait ce bouton en exécution de code à distance.
+ *
+ * Rend `202` : la ruche a TRANSMIS la demande. Ce que le nœud en fait arrive
+ * ensuite, par le journal (`outil_pose_rendue`).
+ */
+export function poserOutilSurNoeud(
+  nodeId: string,
+  outilId: string,
+): Promise<{ poseId: string; nodeId: string; outilId: string }> {
+  return api<{ poseId: string; nodeId: string; outilId: string }>(
+    `/api/nodes/${encodeURIComponent(nodeId)}/outils/${encodeURIComponent(outilId)}/poser`,
+    { method: 'POST' },
+  );
+}
+
 /** Ajoute un lot de tâches (DAG) à un projet. */
 export function addTasks(projectId: string, tasks: NewTaskInput[]): Promise<Task[]> {
   return api<Task[]>(`/api/projects/${projectId}/tasks`, {

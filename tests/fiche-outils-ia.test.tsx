@@ -261,16 +261,18 @@ describe('la fiche d’une ouvrière montre ses outils IA — et leur niveau', (
     expect(dom.querySelector('[data-testid="fo-outil-copier"]')?.textContent).toContain('copié');
   });
 
-  it('LA RUCHE MONTRE LA COMMANDE, ELLE NE LA LANCE PAS', async () => {
-    // La promesse qui rend ce bouton acceptable. Un tableau de bord qui lance
-    // `npm install -g` à distance sur le poste d'un membre est une surface
-    // d'attaque : il suffirait d'un accès à cet écran pour faire installer un
-    // paquet arbitraire sur toutes les machines de l'essaim.
+  it('« COPIER » RESTE INERTE — c’est un autre bouton qui lance', async () => {
+    // ─── CE BANC A CHANGÉ DE SENS, PAS D'ASSERTION ──────────────────────────
     //
-    // Le banc le tient par ce qu'il PEUT tenir : le clic ne parle qu'au
-    // presse-papiers, et rien d'autre n'est appelé. `fetch` est compté ici
-    // parce que c'est le seul chemin par lequel cet écran pourrait demander
-    // quoi que ce soit au hub.
+    // Il portait la promesse « la ruche ne lance jamais », qui rendait alors
+    // l'écran acceptable. Le propriétaire a tranché autrement : un bouton
+    // « poser » lance désormais, et ses propres bancs le tiennent plus bas.
+    //
+    // L'assertion, elle, reste vraie et vaut d'être gardée — mais elle défend
+    // maintenant autre chose : que les deux gestes restent SÉPARÉS. Copier ne
+    // doit rien déclencher, pour que lire avant de lancer reste possible sur
+    // une machine qu'on ne connaît pas. Si un jour « copier » se met à poser,
+    // ce banc rougit, et c'est exactement ce qu'on veut de lui.
     const avant = appelsFetch;
     const dom = await ouvrirLaFiche(
       ouvriere([{ agent: 'claude-code', binaire: false, cle: 'presente' }]),
@@ -281,7 +283,54 @@ describe('la fiche d’une ouvrière montre ses outils IA — et leur niveau', (
         ?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
     });
     await act(async () => {});
-    expect(appelsFetch, 'le clic ne doit RIEN demander au hub').toBe(avant);
+    expect(appelsFetch, '« copier » ne doit RIEN demander au hub').toBe(avant);
+  });
+
+  it('« POSER » APPELLE LA RUCHE, ET N’ENVOIE AUCUNE COMMANDE', async () => {
+    // Le pendant du banc précédent : ici on veut que ça parte, ET on veut
+    // savoir CE QUI part. La borne du lot est que la requête désigne un outil
+    // — deux identifiants dans le chemin — et ne porte aucune commande. Si
+    // quelqu'un ajoutait un corps « par commodité », ce banc le verrait.
+    const dom = await ouvrirLaFiche(
+      ouvriere([{ agent: 'claude-code', binaire: false, cle: 'presente' }]),
+    );
+    const avant = appelsFetch;
+    act(() => {
+      dom
+        .querySelector('[data-testid="fo-outil-poser"]')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await act(async () => {});
+
+    expect(appelsFetch, '« poser » n’a rien demandé au hub').toBe(avant + 1);
+    const appel = (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.at(
+      -1,
+    )!;
+    const url = String(appel[0]);
+    expect(url).toContain('/outils/claude-code/poser');
+    const init = appel[1] as RequestInit | undefined;
+    expect(init?.method).toBe('POST');
+    expect(
+      init?.body ?? null,
+      'la requête porte un corps — donc peut-être une commande',
+    ).toBeNull();
+  });
+
+  it('« POSER » QUI ÉCHOUE LE DIT, au lieu de laisser croire que c’est parti', async () => {
+    // `fetch` rejette dans ce banc (voir `beforeEach`) : le bouton doit donc
+    // afficher un refus. Sans ça, l'écran annoncerait « demandé » pour une
+    // requête qui n'est jamais arrivée.
+    const dom = await ouvrirLaFiche(
+      ouvriere([{ agent: 'claude-code', binaire: false, cle: 'presente' }]),
+    );
+    act(() => {
+      dom
+        .querySelector('[data-testid="fo-outil-poser"]')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await act(async () => {});
+    expect(dom.querySelector('[data-testid="fo-outil-pose-refusee"]')).toBeTruthy();
+    expect(dom.querySelector('[data-testid="fo-outil-transmise"]')).toBeNull();
   });
 
   it('UNE COPIE QUI ÉCHOUE LE DIT — au lieu de faire croire au succès', async () => {
