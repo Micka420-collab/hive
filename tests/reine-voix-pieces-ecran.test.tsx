@@ -69,6 +69,7 @@ vi.mock('../dashboard/src/reine-extraire', () => ({
 }));
 
 import Reine from '../dashboard/src/views/Reine';
+import { couperLeReseau } from './aide/sans-reseau';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -83,6 +84,9 @@ const INSTANTANE = {
 } as unknown as StateSnapshot;
 
 beforeEach(() => {
+  // Coupe le réseau : ce banc ouvrait de VRAIES connexions vers
+  // 127.0.0.1:3000 (voir tests/aide/sans-reseau.ts).
+  couperLeReseau();
   setLang('fr');
   localStorage.clear();
   ecouteDispo = true;

@@ -14549,7 +14549,7 @@ plan sous un outil qui a une expiration**. Il vit détaché, sa sortie va dans u
 fichier, et on va la lire. Le journal de reprise `.loupe-en-cours` a fait
 exactement son travail : sans lui, la mutation partait au commit suivant.
 
-## Un banc qui touche au tableau de bord est un `.tsx`, même s'il ne rend rien
+## 9 novemseptuagicenties. Un banc qui touche au tableau de bord est un `.tsx`, même s'il ne rend rien
 
 J'ai écrit `tests/api-queen-fabrique.test.ts` — onze cas sur huit fonctions de
 `dashboard/src/api.ts`. Aucun rendu React, aucun JSX : `.ts` semblait le bon
@@ -14597,3 +14597,82 @@ déjà la leçon « chaque jambe séparément, jamais dans un tube » — pour l
 qu'un tube masque le code de sortie. J'ai respecté la lettre (pas de tube) et
 manqué le fond : **une jambe qu'on ne lance pas ne rend aucun verdict, et son
 silence ressemble à du vert.**
+
+## 9 octogicenties. Un banc VERT peut ouvrir de vraies connexions — et le rouge tombe chez le voisin
+
+Vingt bancs de rendu du tableau de bord montaient des composants React qui,
+au montage, appellent l'API. Aucun bouchon. Les appels partaient pour de bon,
+vers un port 7777 où rien n'écoute, et la suite crachait leurs refus :
+
+    Error: connect ECONNREFUSED 127.0.0.1:7777
+
+Mesuré fichier par fichier — `npx vitest run <f> 2>&1 | grep -c ECONNREFUSED` —
+le total faisait **342 connexions réelles par suite**, dont **134 pour le seul
+`coulee-du-miel.test.tsx`**. Les vingt bancs étaient VERTS. Ils l'étaient
+depuis toujours.
+
+### Pourquoi un banc peut faire ça sans jamais rougir
+
+`fetch` ne lance rien de synchrone. Il rend une promesse, et le composant la
+laisse partir : `useEffect(() => { charger(); }, [])` n'attend personne. Quand
+le refus arrive, le banc qui l'a déclenché est terminé depuis longtemps —
+`cleanup()` est passé, la fenêtre de vitest s'est refermée. Le rejet non
+capturé atterrit donc dans la fenêtre **du banc suivant**, qui n'a rien
+demandé.
+
+C'est le mécanisme exact du « vert emprunté au voisin » que `tamis-ordres.mjs`
+cite déjà, pris par l'autre bout : ici c'est un **rouge prêté**. Un banc
+innocent porte la faute d'un banc terminé, et le nom qui s'affiche dans le
+journal de CI n'est pas celui du fautif. Ça explique aussi pourquoi une jambe
+d'ordre (graine 23757) est restée inexpliquée : le nom du banc en cause était
+en tête d'un journal que l'API ne sert que par la queue, et les 342 lignes de
+bruit l'en avaient chassé.
+
+### Ce qui remplace le socket
+
+`tests/aide/sans-reseau.ts` — `couperLeReseau()` installe un `fetch` qui
+**enregistre l'URL puis rejette**. Le choix du rejet n'est pas un détail : il
+préserve à la lettre la sémantique d'aujourd'hui (les composants voient
+toujours un échec réseau, leurs chemins d'erreur restent exercés) et n'ôte
+que le socket. Un bouchon qui aurait rendu `200 {}` aurait changé le
+comportement de vingt bancs d'un coup, sous couvert de nettoyage.
+
+    { appels, rendre } = couperLeReseau()
+
+`appels` rend la mesure disponible au banc ; `rendre()` remet le `fetch`
+d'origine.
+
+**La règle :** un banc qui monte un composant sans couper le réseau ne teste
+pas ce qu'il croit — il teste le comportement du composant **quand l'API est
+injoignable**, et il le fait en salissant la fenêtre de son voisin. La preuve
+qu'un banc est propre n'est pas sa couleur ; c'est le nombre de connexions
+qu'il ouvre, et ce nombre se compte.
+
+## 9 unoctogicenties. Une garde qui reconnaît l'IMPORT ne certifie rien : c'est l'APPEL qui agit
+
+`tests/sans-vraie-connexion.test.ts` balaie les bancs de rendu et exige de
+chacun un filet : `couperLeReseau`, un `vi.mock` de l'API, ou un
+`globalThis.fetch =`. Écrite, verte, elle avait l'air de tenir.
+
+La contre-épreuve l'a défaite en une ligne. J'ai ôté l'appel d'un banc —
+`couperLeReseau();` — en laissant sa ligne d'`import` intacte, exactement ce
+qu'un nettoyage d'imports automatique produit à l'envers. La garde est restée
+**verte**. Le banc, lui, était nu : il rouvrait ses connexions.
+
+Le motif disait `couperLeReseau`, sans plus. Or un import ne fait rien : il
+déclare une disponibilité. Ce qui coupe le réseau, c'est la paire de
+parenthèses.
+
+    !/couperLeReseau\(\)/.test(b.source) &&
+
+Après quoi la mutation mord, et le verdict nomme le banc :
+
+    banc(s) de rendu sans filet réseau:
+      expected [ 'stat-tiles.test.tsx' ] to deeply equal []
+
+**La règle, plus large que ce cas :** quand une garde cherche une preuve
+d'action dans du texte, son motif doit viser **ce qui agit**, pas ce qui
+mentionne. Un import, une déclaration, un commentaire, un nom dans une liste
+d'exclusions — tous contiennent le mot et ne font rien. Et la seule façon de
+savoir de quel côté tombe le motif est de retirer l'action en laissant la
+mention, puis de regarder si la garde rougit.

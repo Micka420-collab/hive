@@ -27,6 +27,7 @@ import { StatTiles } from '../dashboard/src/StatTiles';
 import { setLang } from '../dashboard/src/i18n';
 import type { HiveNode, StateSnapshot, Task } from '../src/shared/types';
 import type { NoteVue } from '../dashboard/src/horloge-vue';
+import { couperLeReseau } from './aide/sans-reseau';
 
 // ─── POURQUOI UN RENDU CLIENT, ET PAS `renderToStaticMarkup` ─────────────────
 //
@@ -64,6 +65,9 @@ const NOEUDS: HiveNode[] = [];
 // rétablissement, le premier test qui bascule en anglais fait mentir les
 // suivants — et le rapport accuse le composant.
 beforeEach(() => {
+  // Coupe le réseau : ce banc ouvrait de VRAIES connexions vers
+  // 127.0.0.1:3000 (voir tests/aide/sans-reseau.ts).
+  couperLeReseau();
   setLang('fr');
 });
 

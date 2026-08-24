@@ -62,6 +62,7 @@ import Ruche from '../dashboard/src/views/Ruche';
 import { setLang } from '../dashboard/src/i18n';
 import type { ViewProps } from '../dashboard/src/views/shared';
 import type { HiveEvent, StateSnapshot, Task } from '../src/shared/types';
+import { couperLeReseau } from './aide/sans-reseau';
 
 // AutonomiePulse sonde `/api/projects/:id/essaim` au montage dès qu'il y a un
 // projet. Sans bouchon, happy-dom tape :3000 (ECONNREFUSED) — mesuré sous le
@@ -88,6 +89,9 @@ let conteneur: HTMLElement;
 let racine: Root | null = null;
 
 beforeEach(() => {
+  // Coupe le réseau : ce banc ouvrait de VRAIES connexions vers
+  // 127.0.0.1:3000 (voir tests/aide/sans-reseau.ts).
+  couperLeReseau();
   localStorage.clear();
   setLang('fr');
 });
