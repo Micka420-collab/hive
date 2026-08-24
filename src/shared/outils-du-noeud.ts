@@ -56,6 +56,22 @@ export interface OutilDuNoeud {
   readonly pilotable: boolean;
   /** Ce qui borne cet outil, dit à l'humain plutôt que caché. */
   readonly limite: string | null;
+  /**
+   * La commande d'installation, EN ARGUMENTS SÉPARÉS — ou `null` quand la ruche
+   * refuse de deviner un nom de paquet. Vient du catalogue, jamais d'ici.
+   */
+  readonly installation: readonly string[] | null;
+  /**
+   * Faut-il PROPOSER cette commande à l'humain ?
+   *
+   * Pas « la commande existe-t-elle » : « la suivre règle-t-elle le problème
+   * EN UN GESTE ». La règle vient de `juger`, et elle exige que la clé soit
+   * DÉJÀ posée — installer une ligne de commande sans identifiants donne un
+   * agent qui refuse de travailler, et l'humain aurait suivi le conseil pour
+   * rien. Le côté nœud tient la même règle depuis `conseilDemarrage` ; ici on
+   * la RÉUTILISE, on ne la réécrit pas.
+   */
+  readonly poseProposable: boolean;
 }
 
 /**
@@ -72,7 +88,11 @@ export interface OutilDuNoeud {
 export function outilsDuNoeud(constats: readonly OutilConstate[]): OutilDuNoeud[] {
   const vus = constats.map((c): OutilDuNoeud => {
     const fiche = outilDuCatalogue(c.agent);
-    const { verdict } = juger({ agent: c.agent, binaire: c.binaire, cle: c.cle });
+    const { verdict, installation, poseAutomatique } = juger({
+      agent: c.agent,
+      binaire: c.binaire,
+      cle: c.cle,
+    });
     return {
       id: c.agent,
       nom: fiche?.nom ?? c.agent,
@@ -89,6 +109,8 @@ export function outilsDuNoeud(constats: readonly OutilConstate[]): OutilDuNoeud[
       pilotable:
         fiche !== undefined && rangNiveau(fiche.niveau) >= RANG_EXECUTE && verdict === 'pret',
       limite: fiche?.limite ?? null,
+      installation,
+      poseProposable: poseAutomatique,
     };
   });
 
@@ -117,6 +139,18 @@ export function outilsDuNoeud(constats: readonly OutilConstate[]): OutilDuNoeud[
     if (ra !== rb) return rb - ra;
     return a.nom.localeCompare(b.nom, 'fr');
   });
+}
+
+/**
+ * La commande à AFFICHER pour un outil, en une ligne prête à coller.
+ *
+ * `null` quand il n'y a rien d'honnête à proposer. Les arguments sont joints
+ * par une espace pour l'ŒIL seulement : rien ici ne lance quoi que ce soit, et
+ * la ruche ne pousse aucune installation sur la machine de quelqu'un. C'est
+ * l'humain qui colle, dans SON terminal, après avoir lu.
+ */
+export function commandeAAfficher(o: OutilDuNoeud): string | null {
+  return o.poseProposable && o.installation !== null ? o.installation.join(' ') : null;
 }
 
 /** Combien d'outils ce nœud peut réellement faire travailler pour la ruche. */

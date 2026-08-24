@@ -7,25 +7,7 @@ import { fetchInvite } from './api';
 import type { InviteResponse } from './api';
 import { useT } from './i18n';
 import { Voile } from './ui';
-
-/** Repli de copie pour les contextes non sécurisés (http LAN) via une zone de texte hors écran. */
-function fallbackCopy(text: string): boolean {
-  const ta = document.createElement('textarea');
-  ta.value = text;
-  ta.style.position = 'fixed';
-  ta.style.left = '-9999px';
-  document.body.appendChild(ta);
-  ta.focus();
-  ta.select();
-  let ok: boolean;
-  try {
-    ok = document.execCommand('copy');
-  } catch {
-    ok = false;
-  }
-  document.body.removeChild(ta);
-  return ok;
-}
+import { copierTexte } from './copier';
 
 export function InvitePanel() {
   const t = useT();
@@ -76,27 +58,20 @@ export function InvitePanel() {
 
   const copy = async () => {
     if (commande === null) return;
-    const text = commande;
-    // navigator.clipboard n'existe QUE dans un contexte sécurisé (https ou
-    // localhost). Hive étant LAN-first (http://192.168.x.x), on prévoit un repli
-    // via une zone de texte + execCommand, sinon la copie échouerait toujours.
-    try {
-      if (window.isSecureContext && navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text);
-      } else if (!fallbackCopy(text)) {
-        throw new Error('execCommand a échoué');
-      }
+    // Le repli pour les contextes non sécurisés (http LAN) vit dans `copier.ts`
+    // — il servait ici en premier, et deux autres écrans en avaient besoin.
+    if (await copierTexte(commande)) {
       setError(null);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
-    } catch {
-      setError(
-        t(
-          'copie automatique impossible — sélectionnez la commande et copiez-la à la main.',
-          'automatic copy failed — select the command and copy it by hand.',
-        ),
-      );
+      return;
     }
+    setError(
+      t(
+        'copie automatique impossible — sélectionnez la commande et copiez-la à la main.',
+        'automatic copy failed — select the command and copy it by hand.',
+      ),
+    );
   };
 
   return (

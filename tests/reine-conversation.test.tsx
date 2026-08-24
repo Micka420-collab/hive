@@ -53,6 +53,7 @@ import Reine from '../dashboard/src/views/Reine';
 import { setLang } from '../dashboard/src/i18n';
 import type { ViewProps } from '../dashboard/src/views/shared';
 import type { StateSnapshot } from '../src/shared/types';
+import { couperLeReseau } from './aide/sans-reseau';
 
 let racine: Root | null = null;
 let conteneur: HTMLElement | null = null;
@@ -60,6 +61,9 @@ let conteneur: HTMLElement | null = null;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 beforeEach(() => {
+  // Coupe le réseau : ce banc ouvrait de VRAIES connexions vers
+  // 127.0.0.1:3000 (voir tests/aide/sans-reseau.ts).
+  couperLeReseau();
   setLang('fr');
   sessionStorage.clear();
   // Sans stub, `AtelierRecette` part en vrai vers :3000 (ECONNREFUSED) dès le

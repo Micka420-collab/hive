@@ -12,6 +12,7 @@
 // injecté au modèle est exactement ce que le mode live sait déjà.
 
 import type { Ghost } from './ghost.js';
+import { actionPrioritaire, detecterAction, direAction } from '../shared/action-demandee.js';
 import type { Memory } from './hive-mind.js';
 import type { LlmFn, LlmStreamFn } from './planner.js';
 import { lireLlm } from './planner.js';
@@ -183,7 +184,16 @@ export function detectLanguage(text: string): Lang {
 // ─── Détection d'intention (accents ignorés, mots-clés fr + en) ──────────────
 
 export type Intent =
-  'progress' | 'recent' | 'nodes' | 'races' | 'health' | 'memory' | 'review' | 'brief' | 'help';
+  | 'progress'
+  | 'recent'
+  | 'nodes'
+  | 'races'
+  | 'health'
+  | 'memory'
+  | 'review'
+  | 'brief'
+  | 'action'
+  | 'help';
 
 function normalize(text: string): string {
   return text
@@ -329,9 +339,31 @@ export function detectIntent(question: string): Intent {
   const q = ` ${normalize(question)
     .replace(/\bof courses?\b/g, ' ')
     .replace(/race conditions?/g, ' ')} `;
+  // ─── LES VERBES QUI NE POSENT JAMAIS UNE QUESTION PASSENT DEVANT ──────────
+  //
+  // Mesuré : c'est le NOM qui emportait la phrase, pas le verbe. « supprime le
+  // projet Rucher » matchait `progress` sur le mot « projet », et rendait le
+  // bilan d'activité que l'utilisateur a montré en capture.
+  //
+  // Cinq verbes (supprimer, arrêter, fusionner, renommer, inviter) ne servent
+  // jamais à interroger la ruche : ils passent donc avant. `creer` et `lancer`,
+  // eux, restent en QUEUE — ils appartiennent au vocabulaire de consultation
+  // (« aide-moi à créer un brief », « comment lancer une course ? »).
+  if (actionPrioritaire(question) !== null) return 'action';
   for (const [intent, words] of INTENT_KEYWORDS) {
     if (words.some((w) => q.includes(w))) return intent;
   }
+  // ─── EN DERNIER, ET C'EST TOUT LE SUJET ────────────────────────────────────
+  //
+  // Une demande d'ACTION ne ressemble à aucune question de consultation : elle
+  // tombait donc dans le filet `help`, qui affiche un bilan d'activité. D'où la
+  // scène rapportée par l'utilisateur — il demande de supprimer un projet, et
+  // reçoit « 0 nœud(s) actif(s) ». Pas un refus : un hors-sujet.
+  //
+  // La reconnaissance vient APRÈS toutes les autres, jamais avant. « Comment
+  // démarrer une course ? » doit rester une question de courses, pas devenir
+  // une demande de lancement — et c'est l'ordre, ici, qui le garantit.
+  if (detecterAction(question) !== null) return 'action';
   return 'help';
 }
 
@@ -493,6 +525,13 @@ const SUGGESTIONS: Record<Lang, Record<Intent, string[]>> = {
     memory: ['Où en est le projet ?', 'Aide-moi à écrire un bon brief'],
     review: ['Où en est le projet ?', 'Quel nœud travaille le mieux ?'],
     brief: ['Quelles bonnes pratiques pour une API ?', 'Où en est le projet ?'],
+    // Après un « je ne le fais pas d'ici », on ne laisse pas l'humain en plan :
+    // les puces proposent ce que le fil de discussion SAIT faire.
+    action: [
+      'Où en est le projet ?',
+      'Quelles ouvrières sont en ligne ?',
+      'La ruche est-elle en bonne santé ?',
+    ],
     help: [
       'Où en est le projet ?',
       'Aide-moi à écrire un bon brief',
@@ -507,6 +546,7 @@ const SUGGESTIONS: Record<Lang, Record<Intent, string[]>> = {
     races: ['Which node works best?', 'How is the project going?'],
     memory: ['How is the project going?', 'Help me write a good brief'],
     review: ['How is the project going?', 'Which node works best?'],
+    action: ['How is the project going?', 'Which workers are online?', 'Is the hive healthy?'],
     brief: ['Best practices for an API?', 'How is the project going?'],
     help: ['How is the project going?', 'Help me write a good brief', 'What happened tonight?'],
   },
@@ -840,7 +880,12 @@ export function answerLive(question: string, ctx: ConciergeContext): ConciergeAn
                   ? reviewReply(ctx, lang)
                   : intent === 'brief'
                     ? briefReply(question, ctx, lang)
-                    : helpReply(ctx, lang);
+                    : intent === 'action'
+                      ? // La règle et les mots vivent dans le module pur : ce fil
+                        // de discussion LIT la ruche, il ne la modifie jamais, et
+                        // aucun geste n'est branché derrière cette réponse.
+                        direAction(detecterAction(question)!, lang)
+                      : helpReply(ctx, lang);
 
   const suggestions = [...SUGGESTIONS[lang][intent]];
   const echecs = ctx.finishedTasks.filter((t) => t.status === 'failed').length;

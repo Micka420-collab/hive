@@ -71,13 +71,19 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
 
 import { admettreMembre } from '../dashboard/src/api';
 import Projets from '../dashboard/src/views/Projets';
+import { couperLeReseau } from './aide/sans-reseau';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 let racine: Root | null = null;
 let conteneur: HTMLElement | null = null;
 
-beforeEach(() => setLang('fr'));
+beforeEach(() => {
+  // 20 vraies connexions vers 127.0.0.1:3000 par lancement, mesurées.
+  // Voir `tests/aide/sans-reseau.ts`.
+  couperLeReseau();
+  setLang('fr');
+});
 
 afterEach(() => {
   act(() => racine?.unmount());

@@ -21,7 +21,13 @@ import type { NodeNectar } from './api';
 import { useLang, useT } from './i18n';
 import { libelleAgent } from '../../src/shared/agent-libelle';
 import { direNiveau } from '../../src/shared/catalogue-outils';
-import { combienPilotables, direOutil, outilsDuNoeud } from '../../src/shared/outils-du-noeud';
+import {
+  combienPilotables,
+  commandeAAfficher,
+  direOutil,
+  outilsDuNoeud,
+} from '../../src/shared/outils-du-noeud';
+import { copierTexte } from './copier';
 import { activateProps, ProgressBar, STATUS_ICON, useDialog, Voile } from './ui';
 import { useBaptemes } from './useBaptemes';
 
@@ -30,6 +36,56 @@ const AGENT_ICON: Record<string, string> = {
   'claude-code': '✦',
   codex: '⌗',
 };
+
+/**
+ * La commande d'installation d'un outil, à COPIER — jamais à lancer.
+ *
+ * ─── CE QUE CE BOUTON NE FAIT PAS, ET POURQUOI ──────────────────────────────
+ *
+ * Il ne déclenche RIEN sur la machine du membre. Un tableau de bord qui lance
+ * `npm install -g` à distance sur le poste de quelqu'un est une surface
+ * d'attaque, pas une commodité : il suffit d'un accès à l'écran d'admin pour
+ * faire installer un paquet arbitraire sur toutes les machines de l'essaim.
+ *
+ * La ruche montre donc la commande, et c'est l'humain qui la colle dans SON
+ * terminal, après l'avoir lue. La différence tient en un geste, et ce geste
+ * est le consentement.
+ */
+function CommandeACopier({ commande }: { commande: string }) {
+  const t = useT();
+  const [copie, setCopie] = useState(false);
+  const [rate, setRate] = useState(false);
+  return (
+    <span className="fo-outil-pose">
+      <code className="fo-outil-commande" data-testid="fo-outil-commande">
+        {commande}
+      </code>{' '}
+      <button
+        type="button"
+        className="copy-btn"
+        data-testid="fo-outil-copier"
+        onClick={() => {
+          void copierTexte(commande).then((ok) => {
+            setCopie(ok);
+            setRate(!ok);
+            if (ok) setTimeout(() => setCopie(false), 1500);
+          });
+        }}
+      >
+        {copie ? t('copié', 'copied') : t('copier', 'copy')}
+      </button>
+      {rate && (
+        <span className="fo-outil-rate" data-testid="fo-outil-copie-ratee">
+          {' '}
+          {t(
+            'copie impossible — sélectionnez la commande à la main.',
+            'copy failed — select the command by hand.',
+          )}
+        </span>
+      )}
+    </span>
+  );
+}
 
 function initials(name: string): string {
   return name
@@ -214,6 +270,11 @@ function FicheOuvriere({
                     : direNiveau(o.niveau, lang === 'en' ? 'en' : 'fr')}
                 </span>
                 {o.limite !== null && <span className="fo-outil-limite"> ({o.limite})</span>}
+                {/* La commande n'apparaît QUE si la suivre règle tout en un
+                    geste — la règle vit dans le module pur, pas ici. */}
+                {commandeAAfficher(o) !== null && (
+                  <CommandeACopier commande={commandeAAfficher(o)!} />
+                )}
               </li>
             ))}
           </ul>

@@ -702,6 +702,62 @@ Windows. Le dépôt garde donc leur donnée commune par un banc, sans les unir.
 > source, l'autre en dérive. Questions différentes ⇒ deux tables, et une garde
 > sur ce qu'elles partagent.
 
+#### 2.14 bis — Un `fetch` non bouchonné dans un banc de rendu accuse un INNOCENT
+
+La jambe « la suite tient dans plusieurs ordres » a rougi sur la graine 23757.
+Rejouée sur l'arbre EXACT, avec la commande EXACTE que le tamis imprime :
+verte. Deux fois.
+
+Premier enseignement, avant même la cause : **une graine de mélange ne vaut que
+pour un ENSEMBLE DE BANCS DONNÉ**. J'ai d'abord rejoué 23757 sur un arbre qui
+comptait deux bancs de plus — la graine y produit un ordre entièrement
+différent, et son vert ne disait rien du rouge d'origine.
+
+La cause s'est trouvée ailleurs : mon banc de rendu neuf ne bouchonnait qu'UNE
+des trois fonctions réseau que le composant appelle.
+
+```
+$ npx vitest run tests/fiche-outils-ia.test.tsx 2>&1 | grep -c ECONNREFUSED
+32
+```
+
+`FicheOuvriere` tire `fetchWaggle` (bouchonnée), `fetchChambre` (oubliée), et —
+par le hook `useBaptemes`, donc **invisible dans le JSX** — `fetchBaptemes`
+(oubliée aussi). Trente-deux vraies connexions vers `127.0.0.1:3000` par
+lancement.
+
+Ce n'est pas qu'une nuisance de journal, et c'est là qu'est la leçon. Le rejet
+arrive de façon ASYNCHRONE, parfois après la fin du test qui l'a déclenché.
+Sous `--sequence.shuffle`, il retombe dans la fenêtre d'un banc voisin — qui
+rougit pour une faute qui n'est pas la sienne. C'est la forme la plus coûteuse
+de dépendance d'ordre : elle envoie chercher le défaut chez un innocent, et le
+coupable reste vert.
+
+Effet de bord aggravant : ces milliers de piles d'appels NOIENT le journal de
+CI. Le détail du banc rouge — la seule chose dont on ait besoin — se retrouve
+hors de la fenêtre que l'API des journaux accepte de rendre. Le bruit a
+littéralement effacé la preuve.
+
+Le compte, après chaque bouchon : **32 → 16 → 0**.
+
+> **Règle** — un banc de rendu qui monte un composant réseau bouchonne TOUTES
+> ses fonctions d'API, y compris celles qu'appellent ses HOOKS. La liste ne se
+> lit pas dans le JSX ; elle se MESURE :
+> `npx vitest run <banc> 2>&1 | grep -c ECONNREFUSED` doit rendre **0**.
+>
+> **Règle** — corriger la moitié d'une fuite se lit comme l'avoir fermée. Le
+> compte est passé de 32 à 16, et j'aurais pu m'arrêter là en croyant avoir
+> fini. Relire le compte APRÈS chaque bouchon, jusqu'à zéro.
+>
+> **Règle** — rejouer une graine de mélange n'a de sens que sur l'arbre où elle
+> a rougi, au banc près. Un banc ajouté entre-temps change l'ordre que la graine
+> produit, et le vert obtenu ne réfute rien.
+>
+> **Ce qui reste à faire** — cinq fichiers du dépôt portent déjà un commentaire
+> sur ce piège, chacun écrit après s'y être fait prendre. C'est le signe qu'il
+> faut une garde, pas un sixième commentaire : un jeu de bouchons PARTAGÉ que
+> les bancs de rendu importent au lieu de le recopier à moitié.
+
 ### 2 duotrigies — Restreindre une liste EN AMONT d'un départage ne se teste que si le départage a de quoi trancher AUTREMENT
 
 En câblant l'Aiguillage dans l'ordonnanceur, j'ai restreint les candidats au
@@ -14493,7 +14549,7 @@ plan sous un outil qui a une expiration**. Il vit détaché, sa sortie va dans u
 fichier, et on va la lire. Le journal de reprise `.loupe-en-cours` a fait
 exactement son travail : sans lui, la mutation partait au commit suivant.
 
-## Un banc qui touche au tableau de bord est un `.tsx`, même s'il ne rend rien
+## 9 novemseptuagicenties. Un banc qui touche au tableau de bord est un `.tsx`, même s'il ne rend rien
 
 J'ai écrit `tests/api-queen-fabrique.test.ts` — onze cas sur huit fonctions de
 `dashboard/src/api.ts`. Aucun rendu React, aucun JSX : `.ts` semblait le bon
@@ -14541,3 +14597,229 @@ déjà la leçon « chaque jambe séparément, jamais dans un tube » — pour l
 qu'un tube masque le code de sortie. J'ai respecté la lettre (pas de tube) et
 manqué le fond : **une jambe qu'on ne lance pas ne rend aucun verdict, et son
 silence ressemble à du vert.**
+
+## 9 octogicenties. Un banc VERT peut ouvrir de vraies connexions — et le rouge tombe chez le voisin
+
+Vingt bancs de rendu du tableau de bord montaient des composants React qui,
+au montage, appellent l'API. Aucun bouchon. Les appels partaient pour de bon,
+vers un port 7777 où rien n'écoute, et la suite crachait leurs refus :
+
+    Error: connect ECONNREFUSED 127.0.0.1:7777
+
+Mesuré fichier par fichier — `npx vitest run <f> 2>&1 | grep -c ECONNREFUSED` —
+le total faisait **342 connexions réelles par suite**, dont **134 pour le seul
+`coulee-du-miel.test.tsx`**. Les vingt bancs étaient VERTS. Ils l'étaient
+depuis toujours.
+
+### Pourquoi un banc peut faire ça sans jamais rougir
+
+`fetch` ne lance rien de synchrone. Il rend une promesse, et le composant la
+laisse partir : `useEffect(() => { charger(); }, [])` n'attend personne. Quand
+le refus arrive, le banc qui l'a déclenché est terminé depuis longtemps —
+`cleanup()` est passé, la fenêtre de vitest s'est refermée. Le rejet non
+capturé atterrit donc dans la fenêtre **du banc suivant**, qui n'a rien
+demandé.
+
+C'est le mécanisme exact du « vert emprunté au voisin » que `tamis-ordres.mjs`
+cite déjà, pris par l'autre bout : ici c'est un **rouge prêté**. Un banc
+innocent porte la faute d'un banc terminé, et le nom qui s'affiche dans le
+journal de CI n'est pas celui du fautif. Ça explique aussi pourquoi une jambe
+d'ordre (graine 23757) est restée inexpliquée : le nom du banc en cause était
+en tête d'un journal que l'API ne sert que par la queue, et les 342 lignes de
+bruit l'en avaient chassé.
+
+### Ce qui remplace le socket
+
+`tests/aide/sans-reseau.ts` — `couperLeReseau()` installe un `fetch` qui
+**enregistre l'URL puis rejette**. Le choix du rejet n'est pas un détail : il
+préserve à la lettre la sémantique d'aujourd'hui (les composants voient
+toujours un échec réseau, leurs chemins d'erreur restent exercés) et n'ôte
+que le socket. Un bouchon qui aurait rendu `200 {}` aurait changé le
+comportement de vingt bancs d'un coup, sous couvert de nettoyage.
+
+    { appels, rendre } = couperLeReseau()
+
+`appels` rend la mesure disponible au banc ; `rendre()` remet le `fetch`
+d'origine.
+
+**La règle :** un banc qui monte un composant sans couper le réseau ne teste
+pas ce qu'il croit — il teste le comportement du composant **quand l'API est
+injoignable**, et il le fait en salissant la fenêtre de son voisin. La preuve
+qu'un banc est propre n'est pas sa couleur ; c'est le nombre de connexions
+qu'il ouvre, et ce nombre se compte.
+
+## 9 unoctogicenties. Une garde qui reconnaît l'IMPORT ne certifie rien : c'est l'APPEL qui agit
+
+`tests/sans-vraie-connexion.test.ts` balaie les bancs de rendu et exige de
+chacun un filet : `couperLeReseau`, un `vi.mock` de l'API, ou un
+`globalThis.fetch =`. Écrite, verte, elle avait l'air de tenir.
+
+La contre-épreuve l'a défaite en une ligne. J'ai ôté l'appel d'un banc —
+`couperLeReseau();` — en laissant sa ligne d'`import` intacte, exactement ce
+qu'un nettoyage d'imports automatique produit à l'envers. La garde est restée
+**verte**. Le banc, lui, était nu : il rouvrait ses connexions.
+
+Le motif disait `couperLeReseau`, sans plus. Or un import ne fait rien : il
+déclare une disponibilité. Ce qui coupe le réseau, c'est la paire de
+parenthèses.
+
+    !/couperLeReseau\(\)/.test(b.source) &&
+
+Après quoi la mutation mord, et le verdict nomme le banc :
+
+    banc(s) de rendu sans filet réseau:
+      expected [ 'stat-tiles.test.tsx' ] to deeply equal []
+
+**La règle, plus large que ce cas :** quand une garde cherche une preuve
+d'action dans du texte, son motif doit viser **ce qui agit**, pas ce qui
+mentionne. Un import, une déclaration, un commentaire, un nom dans une liste
+d'exclusions — tous contiennent le mot et ne font rien. Et la seule façon de
+savoir de quel côté tombe le motif est de retirer l'action en laissant la
+mention, puis de regarder si la garde rougit.
+
+## 9 duooctogicenties. Du code soudé à une lecture de disque n'est pas éprouvable — et trois mutants l'ont dit d'affilée
+
+La loupe a rendu cinq survivants sur 35 mutations. Trois venaient de la même
+expression de `server.ts`, exécutée à l'import :
+
+    const VERSION_DECLAREE: string = (() => {
+      try {
+        const brut = readFileSync(path.join(RACINE_RUCHE, 'package.json'), 'utf8');
+        const paquet: unknown = JSON.parse(brut);
+        if (typeof paquet === 'object' && paquet !== null) {      ← && → ||   survit
+          const v = (paquet as Record<string, unknown>).version;
+          if (typeof v === 'string' && v.length > 0) return v;    ← && → ||   survit
+        }                                                        ← >  → >=   survit
+      } catch { /* … */ }
+      return 'inconnue';
+    })();
+
+Aucun des trois n'était ÉQUIVALENT. Le dernier, `>= 0`, faisait rendre la
+chaîne vide au lieu d'« inconnue » : la ruche aurait annoncé « version
+déclarée », un trou à la place du numéro. Le premier faisait passer `null`
+dans une lecture de propriété.
+
+**Trois vrais défauts, et pourtant aucun banc ne pouvait les atteindre.**
+L'entrée de cette décision n'était pas un argument : c'était un fichier du
+dépôt. Il n'y en a qu'un, il est bien formé, et rien ne permet d'en présenter
+un autre. Écrire les bancs manquants était impossible — non par paresse, mais
+parce que la forme du code interdisait l'expérience.
+
+### Ce qui distingue ce cas d'un mutant équivalent
+
+Un mutant ÉQUIVALENT est indistinguable pour toute entrée : le consigner par
+écrit est la bonne réponse, il n'y a rien à tester. Ici, les entrées qui
+distinguent existent — `null`, `{ version: '' }`, `{ version: ['1.0.0'] }` —
+elles ne peuvent simplement pas ARRIVER JUSQU'À la décision.
+
+La différence est décisive, et se pose en une question : _si je pouvais
+choisir l'entrée, verrais-je une différence ?_ Oui ⇒ ce n'est pas un mutant
+équivalent, c'est une décision enfermée. La réponse n'est pas un paragraphe de
+justification, c'est un déplacement.
+
+### Le déplacement
+
+`versionDeclaree(paquet: unknown): string` vit désormais dans
+`src/shared/version-ruche.ts`, pure et totale ; `server.ts` ne garde que la
+lecture :
+
+    return versionDeclaree(JSON.parse(brut));
+
+Cinq bancs, six lignes, et les trois mutants meurent — vérifié en les rejouant
+un par un : `TypeError` sur `null`, `expected '' to be 'inconnue'` deux fois.
+
+**La règle :** quand la loupe rend plusieurs survivants d'affilée dans un même
+bloc, ne pas chercher trois bancs — chercher ce qui rend le bloc inatteignable.
+Un amas de survivants voisins ne signale presque jamais trois oublis ; il
+signale une décision soudée à son entrée. Le remède est de séparer ce qui LIT
+de ce qui JUGE, après quoi les bancs deviennent évidents.
+
+## 9 teroctogicenties. `indexOf` rend −1 OU 0, et une garde qui n'en couvre qu'un laisse la bonne ligne derrière
+
+Quatrième survivant du même balayage, dans le repli `packed-refs` de
+`version-lue.ts` :
+
+    const espace = ligne.indexOf(' ');
+    if (espace < 0) continue;                       ← < → <=  survit
+    if (ligne.slice(espace + 1).trim() === ref) return sha(ligne.slice(0, espace));
+
+`< 0` écarte les lignes SANS espace. Il ne dit rien de celles qui COMMENCENT
+par un espace, où `indexOf` rend `0`. Une telle ligne se découpe en une gauche
+VIDE et une droite qui ressemble à la référence cherchée : la boucle croit
+l'avoir trouvée, rend `sha('')` — donc `null` — et **s'arrête là**, sur un
+`return`. La bonne ligne, deux lignes plus bas, n'est jamais lue.
+
+Le résultat était le pire des deux : une ruche parfaitement saine répondant
+« je ne sais pas quel commit je fais tourner », pour un catalogue à peine de
+travers. C'est exactement la panne que ce repli existe pour éviter — il avait
+été écrit pour qu'un `git gc` ne rende pas la ruche muette, et il la rendait
+muette pour un espace.
+
+Le banc est allé au ROUGE avant le correctif, verdict affiché :
+
+    expect(lireVersionRuche(racine, '0.2.0').commit).toBe(SHA)
+    → null
+
+**Ce que ça vaut au-delà du cas :** le survivant désignait ici du code JUSTE
+en apparence et FAUX sur une entrée réelle. La tentation était de le classer
+« entrée malformée, cas d'école ». Or la garde voisine, quelques lignes plus
+haut, avait connu l'issue inverse — un filtre `^` mort, qu'il fallait couper
+plutôt que défendre. Les deux se ressemblent et se tranchent à l'opposé ; ce
+qui les sépare est une seule question, à poser à chaque fois : **l'entrée qui
+distingue les deux versions peut-elle exister ?** Pour `^`, non. Pour l'espace
+en tête, oui — un fichier édité à la main suffit.
+
+## 9 quateroctogicenties. Un cliquet se remonte, sinon il devient un plancher — et un plancher ne garde rien
+
+Le cliquet de couverture était à 76,5 / 72,1 / 78,8 / 77,9 ; l'arbre mesurait
+77,89 / 74,10 / 79,49 / 79,27. Les branches étaient **2,0 points au-dessus du
+seuil**.
+
+Un seuil à deux points sous le réel ne peut plus rougir. Il faudrait perdre
+deux points de couverture d'un coup pour le réveiller — c'est-à-dire livrer
+plusieurs centaines de lignes que rien n'éprouve. En dessous de ça, tout
+passe. Le fichier portait déjà ce constat, écrit le 22 août sous le titre
+« REMONTÉ PARCE QU'IL NE MORDAIT PLUS », et l'écart s'était **reformé en deux
+jours** — parce que le dépôt grossit et que le seuil, lui, ne bouge pas tout
+seul.
+
+**Ce qui se passe quand on ne le remonte pas :** le cliquet reste vert, on le
+lit comme « la couverture tient », et il ne dit plus rien du tout. C'est la
+même famille de panne qu'une garde qu'aucun test ne peut tuer — sauf qu'ici
+la garde s'est désarmée toute seule, par simple croissance du dénominateur.
+
+### Trois mesures, parce qu'une seule est un chiffre et non une mesure
+
+La règle écrite dans `vitest.config.ts` demande plusieurs mesures du MÊME
+arbre, dont une en CI, et une marge d'environ 5× l'écart observé. Suivie à la
+lettre sur `a8fa204` :
+
+                     ici #1   en CI    ici #2   plus bas  écart  seuil
+        statements   77.89    77.89    77.89    77.89     0.00   77.7
+        branches     74.12    74.10    74.12    74.10     0.02   73.9
+        functions    79.49    79.49    79.55    79.49     0.06   79.1
+        lines        79.30    79.29    79.27    79.27     0.03   79.1
+
+Les dénominateurs sont identiques aux trois passages — même code. Ce sont les
+COUVERTS qui bougent, de une à trois unités.
+
+**Le détail qui vaut la peine :** la mesure la plus basse n'a pas la même
+origine selon la dimension. La CI est la plus basse sur les branches, la
+seconde locale sur les lignes. Si j'avais pris « la CI est plus basse » comme
+règle — ce que la première rédaction de ce fichier supposait — j'aurais posé
+le seuil des lignes au-dessus d'une valeur réellement observée, et fabriqué un
+rouge intermittent. Un tremblement n'a pas de direction ; on prend le minimum
+de toutes les mesures, jamais celle d'une origine réputée pessimiste.
+
+### La contre-épreuve, parce qu'un seuil qu'on ne voit pas mordre est du décor
+
+Poser des chiffres et voir la suite verte ne prouve rien : elle serait verte
+aussi avec les anciens. J'ai donc monté `statements` à 77,95, juste au-dessus
+de la plus basse des trois mesures, et relancé :
+
+    ERROR: Coverage for statements (77.89%) does not meet global threshold (77.95%)
+    code = 1
+
+Le cliquet est bien câblé, il rougit, et il nomme la dimension. Remis à 77,7
+ensuite. C'est la même discipline que pour un test — muter avant de croire —
+appliquée à un seuil plutôt qu'à une ligne de code.

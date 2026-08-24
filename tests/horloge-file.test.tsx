@@ -22,6 +22,7 @@ import Ruche from '../dashboard/src/views/Ruche';
 import { setLang } from '../dashboard/src/i18n';
 import type { ViewProps } from '../dashboard/src/views/shared';
 import type { HiveEvent, StateSnapshot, Task } from '../src/shared/types';
+import { couperLeReseau } from './aide/sans-reseau';
 
 vi.mock('../dashboard/src/api', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
@@ -45,6 +46,9 @@ let conteneur: HTMLElement;
 let racine: Root | null = null;
 
 beforeEach(() => {
+  // Coupe le réseau : ce banc ouvrait de VRAIES connexions vers
+  // 127.0.0.1:3000 (voir tests/aide/sans-reseau.ts).
+  couperLeReseau();
   localStorage.clear();
   setLang('fr');
 });

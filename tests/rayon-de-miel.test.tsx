@@ -36,6 +36,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { setLang } from '../dashboard/src/i18n';
 import { Honeycomb } from '../dashboard/src/views/shared';
 import type { Task } from '../src/shared/types';
+import { couperLeReseau } from './aide/sans-reseau';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -43,6 +44,9 @@ let racine: Root | null = null;
 let conteneur: HTMLElement | null = null;
 
 beforeEach(() => {
+  // Coupe le réseau : ce banc ouvrait de VRAIES connexions vers
+  // 127.0.0.1:3000 (voir tests/aide/sans-reseau.ts).
+  couperLeReseau();
   setLang('fr');
   localStorage.clear();
 });

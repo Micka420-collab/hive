@@ -75,6 +75,7 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
 
 import { fetchMergePlan, fetchMergeResult, runMerge } from '../dashboard/src/api';
 import Projets from '../dashboard/src/views/Projets';
+import { couperLeReseau } from './aide/sans-reseau';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -86,6 +87,11 @@ let racine: Root | null = null;
 let conteneur: HTMLElement | null = null;
 
 beforeEach(() => {
+  // 134 vraies connexions vers 127.0.0.1:3000 par lancement, mesurées. Voir
+  // `tests/aide/sans-reseau.ts` pour le pourquoi — et pourquoi on REJETTE
+  // plutôt que de répondre : la sémantique reste celle d'aujourd'hui, seule la
+  // socket disparaît.
+  couperLeReseau();
   setLang('fr');
   vi.useFakeTimers();
   vi.mocked(fetchMergePlan).mockResolvedValue({

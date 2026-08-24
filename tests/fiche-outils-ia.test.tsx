@@ -26,11 +26,52 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { HiveNode } from '../src/shared/types';
 import type { OutilConstate } from '../src/shared/protocol';
 
+// LES DEUX FONCTIONS RÉSEAU, PAS UNE.
+//
+// `FicheOuvriere` en appelle deux à l'ouverture : `fetchWaggle` (le nectar) et
+// `fetchChambre` (le baptême). Je n'avais bouchonné que la première — la
+// seconde partait EN VRAI vers `127.0.0.1:3000`, et ce banc crachait
+// 32 `ECONNREFUSED` par lancement, mesurés.
+//
+// Ce n'est pas qu'une nuisance de journal. Le rejet arrive de façon
+// asynchrone, parfois APRÈS la fin du test qui l'a déclenché : sous
+// `--sequence.shuffle`, il retombe dans la fenêtre d'un banc voisin, qui rougit
+// pour une faute qui n'est pas la sienne. C'est la forme la plus coûteuse de
+// dépendance d'ordre, parce qu'elle accuse un innocent.
+//
+// Le banc voisin (`poste-ecran.test.tsx`) bouchonne les deux depuis toujours.
 vi.mock('../dashboard/src/api', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   fetchWaggle: vi.fn(() =>
     Promise.resolve({ nodes: [], totalTasksDone: 0, totalTasksFailed: 0, topNodeId: null }),
   ),
+  fetchChambre: vi.fn(() =>
+    Promise.resolve({
+      nodeId: 'n-maya',
+      bapteme: null,
+      metier: null,
+      caste: 'nourrice',
+      node: {
+        id: 'n-maya',
+        status: 'online',
+        plateforme: null,
+        agentType: 'shell',
+        ownerName: 'test',
+        running: 0,
+        maxConcurrency: 1,
+        lastSeen: 1,
+        nameTechnique: 'Maya',
+      },
+      presences: [],
+      tasks: [],
+    }),
+  ),
+  // TROISIÈME, et c'est la leçon : le compte est passé de 32 à 16, pas à 0.
+  // `useBaptemes` — un hook, pas un appel visible dans le JSX — tire
+  // `fetchBaptemes`. Corriger la moitié d'une fuite laisse croire qu'on l'a
+  // fermée ; seul le COMPTE mesuré dit la vérité, et il fallait le relire
+  // après chaque bouchon.
+  fetchBaptemes: vi.fn(() => Promise.resolve({ baptemes: [] })),
 }));
 
 import { NodesPanel } from '../dashboard/src/NodesPanel';
@@ -38,8 +79,31 @@ import { setLang } from '../dashboard/src/i18n';
 
 let conteneur: HTMLDivElement | null = null;
 let racine: Root | null = null;
+/** Ce qui est parti au presse-papiers, dans l'ordre. */
+let copies: string[] = [];
+/** Faire échouer la copie, pour éprouver le chemin d'échec. */
+let copiePossible = true;
+/** Combien de `fetch` sont partis — la promesse « ça ne lance rien » se compte. */
+let appelsFetch = 0;
+
+vi.mock('../dashboard/src/copier', () => ({
+  copierTexte: vi.fn((texte: string) => {
+    if (!copiePossible) return Promise.resolve(false);
+    copies.push(texte);
+    return Promise.resolve(true);
+  }),
+}));
 
 beforeEach(() => {
+  copies = [];
+  copiePossible = true;
+  appelsFetch = 0;
+  // Compter les `fetch` plutôt que les interdire : le banc affirme une ABSENCE,
+  // et une absence ne vaut que si la mise en place pouvait la démentir.
+  globalThis.fetch = vi.fn(() => {
+    appelsFetch += 1;
+    return Promise.reject(new Error('aucun réseau dans ce banc'));
+  }) as unknown as typeof fetch;
   window.localStorage.clear();
   // La langue se RÉSOUT à l'import du module i18n, avant que ce banc n'existe :
   // vider `localStorage` ne la ramène pas au français, et happy-dom annonce un
@@ -175,6 +239,84 @@ describe('la fiche d’une ouvrière montre ses outils IA — et leur niveau', (
     expect(ligne?.textContent).toContain('detected only'); // la ruche
     expect(ligne?.textContent).not.toContain('absent de cette machine');
     expect(ligne?.textContent).not.toContain('détecté seulement');
+  });
+
+  it('LA COMMANDE S’AFFICHE QUAND LA SUIVRE RÈGLE TOUT — ET SE COPIE', async () => {
+    // Claude Code : la clé est là, le binaire manque. Une commande suffit, et
+    // c'est le seul cas où la ruche la propose.
+    const dom = await ouvrirLaFiche(
+      ouvriere([{ agent: 'claude-code', binaire: false, cle: 'presente' }]),
+    );
+    const commande = dom.querySelector('[data-testid="fo-outil-commande"]');
+    expect(commande?.textContent).toBe('npm install -g @anthropic-ai/claude-code');
+
+    const bouton = dom.querySelector('[data-testid="fo-outil-copier"]');
+    expect(bouton?.textContent).toContain('copier');
+    act(() => {
+      bouton?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await act(async () => {});
+    // Le texte EXACT est parti au presse-papiers — pas une chaîne recomposée.
+    expect(copies).toEqual(['npm install -g @anthropic-ai/claude-code']);
+    expect(dom.querySelector('[data-testid="fo-outil-copier"]')?.textContent).toContain('copié');
+  });
+
+  it('LA RUCHE MONTRE LA COMMANDE, ELLE NE LA LANCE PAS', async () => {
+    // La promesse qui rend ce bouton acceptable. Un tableau de bord qui lance
+    // `npm install -g` à distance sur le poste d'un membre est une surface
+    // d'attaque : il suffirait d'un accès à cet écran pour faire installer un
+    // paquet arbitraire sur toutes les machines de l'essaim.
+    //
+    // Le banc le tient par ce qu'il PEUT tenir : le clic ne parle qu'au
+    // presse-papiers, et rien d'autre n'est appelé. `fetch` est compté ici
+    // parce que c'est le seul chemin par lequel cet écran pourrait demander
+    // quoi que ce soit au hub.
+    const avant = appelsFetch;
+    const dom = await ouvrirLaFiche(
+      ouvriere([{ agent: 'claude-code', binaire: false, cle: 'presente' }]),
+    );
+    act(() => {
+      dom
+        .querySelector('[data-testid="fo-outil-copier"]')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await act(async () => {});
+    expect(appelsFetch, 'le clic ne doit RIEN demander au hub').toBe(avant);
+  });
+
+  it('UNE COPIE QUI ÉCHOUE LE DIT — au lieu de faire croire au succès', async () => {
+    copiePossible = false;
+    const dom = await ouvrirLaFiche(
+      ouvriere([{ agent: 'claude-code', binaire: false, cle: 'presente' }]),
+    );
+    act(() => {
+      dom
+        .querySelector('[data-testid="fo-outil-copier"]')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    });
+    await act(async () => {});
+    expect(dom.querySelector('[data-testid="fo-outil-copie-ratee"]')).toBeTruthy();
+    expect(dom.querySelector('[data-testid="fo-outil-copier"]')?.textContent).toContain('copier');
+  });
+
+  it('AUCUNE COMMANDE QUAND LA SUIVRE NE RÉGLERAIT RIEN', async () => {
+    // Clé absente aussi : installer le binaire donnerait un agent qui refuse de
+    // travailler, et l'humain aurait suivi le conseil pour rien.
+    const sansCle = await ouvrirLaFiche(
+      ouvriere([{ agent: 'claude-code', binaire: false, cle: 'absente' }]),
+    );
+    expect(sansCle.querySelector('[data-testid="fo-outil-commande"]')).toBeNull();
+  });
+
+  it('AUCUNE COMMANDE POUR UN OUTIL QUE LA RUCHE REFUSE DE DEVINER', async () => {
+    // Cline : le paquet existe, mais son nom npm est SANS PORTÉE — le dépôt
+    // refuse d'installer globalement un nom nu. Le catalogue porte donc
+    // `installation: null`, et l'écran ne propose rien plutôt qu'un nom risqué.
+    const dom = await ouvrirLaFiche(
+      ouvriere([{ agent: 'cline', binaire: false, cle: 'presente' }]),
+    );
+    expect(dom.querySelector('[data-testid="fo-outil-cline"]')).toBeTruthy();
+    expect(dom.querySelector('[data-testid="fo-outil-commande"]')).toBeNull();
   });
 
   it('UN OUTIL INCONNU DU CATALOGUE S’AFFICHE SANS NIVEAU INVENTÉ', async () => {

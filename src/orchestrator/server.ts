@@ -7,7 +7,7 @@ import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
 import Fastify from 'fastify';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
@@ -272,6 +272,41 @@ import { HiveStore } from './store.js';
 import type { SessionRangee } from './store.js';
 import { lireTemperature, FENETRE_MS as FENETRE_THERMO_MS, TYPES_THERMO } from './thermo.js';
 import { buildWaggleBoard } from './waggle.js';
+import { lireVersionRuche } from './version-lue.js';
+import { marcheASuivre, poseDepuis, versionDeclaree } from '../shared/version-ruche.js';
+
+/**
+ * La racine du dépôt, vue depuis le code COMPILÉ (`dist/orchestrator/`).
+ *
+ * `fileURLToPath`, jamais `.pathname` : sous Windows ce dernier rend
+ * « /D:/… » et doublerait la lettre de lecteur (§ 6.1 du journal).
+ */
+const RACINE_RUCHE = fileURLToPath(new URL('../..', import.meta.url));
+
+/**
+ * La version déclarée, lue une fois au démarrage.
+ *
+ * Informative seulement : elle ne bouge pas d'un `git pull` à l'autre. C'est
+ * le COMMIT qui dit ce qui tourne, et c'est pour ça qu'on lit les deux.
+ */
+const VERSION_DECLAREE: string = (() => {
+  try {
+    // DEPUIS `RACINE_RUCHE`, pas par un second `new URL('../..')`. J'avais
+    // écrit les deux : deux calculs de la même racine, qui auraient dérivé au
+    // premier déplacement de fichier — et la contre-épreuve l'a montré, en
+    // déplaçant l'une sans que rien ne rougisse.
+    const brut = readFileSync(path.join(RACINE_RUCHE, 'package.json'), 'utf8');
+    // La DÉCISION est dans `version-ruche`, éprouvée par ses propres bancs.
+    // Ici il ne reste que la lecture : ce qui touche au disque d'un côté, ce
+    // qui se juge sur une valeur de l'autre. Trois mutants avaient survécu
+    // tant que les deux étaient soudés — aucun banc ne pouvait présenter un
+    // autre `package.json` que celui du dépôt.
+    return versionDeclaree(JSON.parse(brut));
+  } catch {
+    // Un paquet illisible n'empêche pas la ruche de tourner : on le DIT.
+  }
+  return 'inconnue';
+})();
 
 /** Plafond de messages WS traités par socket et par seconde (anti-DoS). */
 const WS_MSG_PER_SEC = 100;
@@ -1865,6 +1900,29 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     verdict === 'anonyme' ? reject(reply) : reply.code(404).send({ error: 'projet inconnu' });
 
   app.get('/api/health', async () => ({ ok: true }));
+
+  // ─── QUELLE VERSION CETTE RUCHE FAIT-ELLE TOURNER ? ────────────────────────
+  //
+  // Le fait qui manquait sous « mettre à jour Hive » : personne ne savait ce
+  // qui tournait. `package.json` annonce `0.2.0` et ne bouge jamais ; le dépôt
+  // n'a ni étiquette ni version publiée.
+  //
+  // La route est en LECTURE SEULE et ne lance pas `git` : elle lit deux
+  // fichiers texte sous `.git`. Elle rend aussi la marche à suivre — à LIRE
+  // puis à coller soi-même. La ruche ne se met pas à jour toute seule, et ce
+  // n'est pas une timidité : ce dépôt sait exactement comment une mise à jour
+  // automatique casse une installation qui marchait (`better-sqlite3`,
+  // dépendance optionnelle que npm écarte en silence). La sonde est dans la
+  // marche à suivre pour cette raison.
+  //
+  // Derrière le jeton, comme le reste : le commit qu'on fait tourner dit quels
+  // correctifs de sécurité on n'a PAS.
+  app.get('/api/version', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    const version = lireVersionRuche(RACINE_RUCHE, VERSION_DECLAREE);
+    const pose = poseDepuis(version);
+    return { version, pose, marche: marcheASuivre(pose) };
+  });
   app.get('/api/edition', async () => ({
     edition,
     factureHorlogeHote: edition === 'cloud',

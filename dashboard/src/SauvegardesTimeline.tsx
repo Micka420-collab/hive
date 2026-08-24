@@ -4,6 +4,7 @@
 // Pas de rewrite silencieux du dépôt (le serveur crée une tâche).
 
 import { useCallback, useEffect, useState } from 'react';
+import { copierTexte } from './copier';
 import {
   creerSauvegardeManuelle,
   fetchSauvegarde,
@@ -127,12 +128,15 @@ export function SauvegardesTimeline({
 
   const copierPatch = async () => {
     if (!patchTexte) return;
-    try {
-      await navigator.clipboard.writeText(patchTexte);
+    // `navigator.clipboard` SEUL, c'était : cet écran échouait sur toute ruche
+    // servie en http — c'est-à-dire sur le déploiement LAN, qui est le mode
+    // principal du projet. Le repli existait à dix mètres de là, dans
+    // `InvitePanel`, et ne servait qu'à lui.
+    if (await copierTexte(patchTexte)) {
       setCopieOk(true);
-    } catch {
-      setErreur(t('Impossible de copier le patch.', 'Could not copy the patch.'));
+      return;
     }
+    setErreur(t('Impossible de copier le patch.', 'Could not copy the patch.'));
   };
 
   const restaurer = async (id: string, nom: string) => {
