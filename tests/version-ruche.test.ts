@@ -16,6 +16,7 @@ import {
   direVersion,
   marcheASuivre,
   poseDepuis,
+  versionDeclaree,
   type VersionRuche,
 } from '../src/shared/version-ruche.js';
 
@@ -45,6 +46,45 @@ describe('le commit raccourci', () => {
 
   it('les espaces autour ne trompent pas', () => {
     expect(commitCourt('  82f045c9e1a4  \n')).toBe('82f045c');
+  });
+});
+
+describe('la version que le paquet DÉCLARE', () => {
+  // Ces trois lignes vivaient dans `server.ts`, soudées à un `readFileSync` du
+  // `package.json` du dépôt. La loupe y a trouvé trois survivants d'affilée —
+  // non par manque de bancs, mais parce qu'aucun banc ne POUVAIT présenter un
+  // autre paquet. Sorties de la lecture, elles s'éprouvent en six lignes.
+
+  it('un paquet ordinaire rend sa version', () => {
+    expect(versionDeclaree({ version: '0.2.0' })).toBe('0.2.0');
+  });
+
+  it('`null` ne fait pas tomber la ruche — `typeof null === "object"`', () => {
+    // Le piège classique, et ici le mutant `&&` → `||` : `typeof null` vaut
+    // « object », donc la garde de type SEULE laisse passer `null`, et la
+    // lecture de `.version` jette. Le second membre est ce qui l'arrête.
+    expect(versionDeclaree(null)).toBe('inconnue');
+  });
+
+  it('UNE VERSION VIDE EST UNE VERSION ABSENTE', () => {
+    // Mutant `> 0` → `>= 0` : il rendait la chaîne vide, et la ruche
+    // annonçait « version déclarée  » — un trou là où on attend un numéro.
+    // Dire « inconnue » est un aveu ; afficher du vide est une panne muette.
+    expect(versionDeclaree({ version: '' })).toBe('inconnue');
+  });
+
+  it('une version qui n’est PAS une chaîne ne passe pas pour telle', () => {
+    // Mutant `&&` → `||` sur la garde interne : un tableau a une `length`
+    // non nulle sans être une chaîne, et serait rendu tel quel — la ruche
+    // annoncerait « version déclarée 1.0.0 » pour un `["1.0.0"]`.
+    expect(versionDeclaree({ version: ['1.0.0'] })).toBe('inconnue');
+    expect(versionDeclaree({ version: 42 })).toBe('inconnue');
+  });
+
+  it('un paquet sans version, ou pas un objet du tout', () => {
+    expect(versionDeclaree({})).toBe('inconnue');
+    expect(versionDeclaree('0.2.0')).toBe('inconnue');
+    expect(versionDeclaree(undefined)).toBe('inconnue');
   });
 });
 
@@ -79,6 +119,25 @@ describe('ce que la ruche RÉPOND sur elle-même', () => {
     const en = direVersion(SANS, 'en');
     expect(en).toContain('does not know');
     expect(en).not.toBe(fr);
+  });
+
+  it('LE SUFFIXE DE BRANCHE SUIT LA LANGUE, dans les deux sens', () => {
+    // Trouvé par la loupe : le `lang === 'en'` du suffixe de branche
+    // survivait à son inversion. Les bancs voisins ne pouvaient pas le voir —
+    // l'un cherche « main » (présent des deux côtés), l'autre travaille sans
+    // branche du tout. Inversé, le français annonçait « on main » et l'anglais
+    // « sur main » : les deux réponses restaient lisibles, et toutes deux
+    // fausses.
+    //
+    // D'où les deux sens : affirmer la forme attendue ne suffit pas si l'on
+    // n'affirme pas aussi l'ABSENCE de celle de l'autre langue.
+    const fr = direVersion(GIT);
+    expect(fr).toContain(' sur main');
+    expect(fr).not.toContain(' on main');
+
+    const en = direVersion(GIT, 'en');
+    expect(en).toContain(' on main');
+    expect(en).not.toContain(' sur main');
   });
 
   it('sans branche lisible, elle n’en invente pas', () => {

@@ -273,7 +273,7 @@ import type { SessionRangee } from './store.js';
 import { lireTemperature, FENETRE_MS as FENETRE_THERMO_MS, TYPES_THERMO } from './thermo.js';
 import { buildWaggleBoard } from './waggle.js';
 import { lireVersionRuche } from './version-lue.js';
-import { marcheASuivre, poseDepuis } from '../shared/version-ruche.js';
+import { marcheASuivre, poseDepuis, versionDeclaree } from '../shared/version-ruche.js';
 
 /**
  * La racine du dépôt, vue depuis le code COMPILÉ (`dist/orchestrator/`).
@@ -296,11 +296,12 @@ const VERSION_DECLAREE: string = (() => {
     // premier déplacement de fichier — et la contre-épreuve l'a montré, en
     // déplaçant l'une sans que rien ne rougisse.
     const brut = readFileSync(path.join(RACINE_RUCHE, 'package.json'), 'utf8');
-    const paquet: unknown = JSON.parse(brut);
-    if (typeof paquet === 'object' && paquet !== null) {
-      const v = (paquet as Record<string, unknown>).version;
-      if (typeof v === 'string' && v.length > 0) return v;
-    }
+    // La DÉCISION est dans `version-ruche`, éprouvée par ses propres bancs.
+    // Ici il ne reste que la lecture : ce qui touche au disque d'un côté, ce
+    // qui se juge sur une valeur de l'autre. Trois mutants avaient survécu
+    // tant que les deux étaient soudés — aucun banc ne pouvait présenter un
+    // autre `package.json` que celui du dépôt.
+    return versionDeclaree(JSON.parse(brut));
   } catch {
     // Un paquet illisible n'empêche pas la ruche de tourner : on le DIT.
   }

@@ -91,6 +91,24 @@ describe('après un `git gc` — la référence part dans `packed-refs`', () => 
     expect(lireVersionRuche(racine, '0.2.0').commit).toBe(SHA);
   });
 
+  it('UNE LIGNE MALFORMÉE NE PRÉEMPTE PAS LA BONNE', () => {
+    // Trouvé par la loupe : `espace < 0` laissait passer `espace === 0`.
+    //
+    // Une ligne qui COMMENCE par un espace n'a pas de sha devant : découpée à
+    // l'index 0, sa partie gauche est vide et sa partie droite ressemble à la
+    // référence cherchée. La boucle croyait donc l'avoir trouvée, rendait
+    // `sha('')` — c'est-à-dire `null` — et s'ARRÊTAIT LÀ. La bonne ligne, deux
+    // lignes plus bas, n'était jamais lue.
+    //
+    // Le résultat était le pire des deux : une ruche parfaitement saine
+    // répondant « je ne sais pas quel commit je fais tourner », pour un
+    // catalogue à peine de travers. C'est exactement la panne que ce repli
+    // existe pour éviter.
+    git('HEAD', 'ref: refs/heads/main\n');
+    git('packed-refs', ` refs/heads/main\n${SHA} refs/heads/main\n`);
+    expect(lireVersionRuche(racine, '0.2.0').commit).toBe(SHA);
+  });
+
   it('une référence ABSENTE du catalogue ne rend rien d’inventé', () => {
     git('HEAD', 'ref: refs/heads/absente\n');
     git('packed-refs', `${SHA} refs/heads/main\n`);

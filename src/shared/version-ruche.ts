@@ -42,6 +42,36 @@ export interface VersionRuche {
  */
 export type Pose = 'git' | 'inconnue';
 
+/**
+ * La version que le `package.json` DÉCLARE, ou « inconnue ».
+ *
+ * ─── POURQUOI CETTE FONCTION EXISTE SÉPARÉMENT DE SA LECTURE ────────────────
+ *
+ * Ces trois lignes vivaient dans `server.ts`, à l'intérieur d'une expression
+ * exécutée à l'import qui lisait `package.json` sur le disque. La loupe y a
+ * trouvé TROIS mutants survivants d'affilée — `&&` → `||` deux fois, `> 0` →
+ * `>= 0` une — et aucun n'était équivalent : le dernier, par exemple, faisait
+ * annoncer une version VIDE au lieu d'« inconnue ».
+ *
+ * Ils survivaient parce qu'aucun banc ne pouvait les atteindre. L'entrée de
+ * cette décision n'était pas un argument, c'était un fichier du dépôt : il n'y
+ * a qu'un `package.json`, il est bien formé, et rien ne permet d'en présenter
+ * un autre. Du code soudé à une lecture de disque n'est pas éprouvable — ce
+ * n'est pas un manque de bancs, c'est une conséquence de sa forme.
+ *
+ * La décision est donc ici, PURE, et `server.ts` ne garde que la lecture.
+ */
+export function versionDeclaree(paquet: unknown): string {
+  if (typeof paquet === 'object' && paquet !== null) {
+    const v = (paquet as Record<string, unknown>).version;
+    // `length > 0`, pas `>= 0` : un `"version": ""` est une déclaration
+    // ABSENTE, pas une version vide. La rendre telle quelle afficherait
+    // « version déclarée  » avec un trou à la place du numéro.
+    if (typeof v === 'string' && v.length > 0) return v;
+  }
+  return 'inconnue';
+}
+
 export function poseDepuis(v: VersionRuche): Pose {
   return v.commit !== null ? 'git' : 'inconnue';
 }

@@ -14676,3 +14676,95 @@ mentionne. Un import, une déclaration, un commentaire, un nom dans une liste
 d'exclusions — tous contiennent le mot et ne font rien. Et la seule façon de
 savoir de quel côté tombe le motif est de retirer l'action en laissant la
 mention, puis de regarder si la garde rougit.
+
+## 9 duooctogicenties. Du code soudé à une lecture de disque n'est pas éprouvable — et trois mutants l'ont dit d'affilée
+
+La loupe a rendu cinq survivants sur 35 mutations. Trois venaient de la même
+expression de `server.ts`, exécutée à l'import :
+
+    const VERSION_DECLAREE: string = (() => {
+      try {
+        const brut = readFileSync(path.join(RACINE_RUCHE, 'package.json'), 'utf8');
+        const paquet: unknown = JSON.parse(brut);
+        if (typeof paquet === 'object' && paquet !== null) {      ← && → ||   survit
+          const v = (paquet as Record<string, unknown>).version;
+          if (typeof v === 'string' && v.length > 0) return v;    ← && → ||   survit
+        }                                                        ← >  → >=   survit
+      } catch { /* … */ }
+      return 'inconnue';
+    })();
+
+Aucun des trois n'était ÉQUIVALENT. Le dernier, `>= 0`, faisait rendre la
+chaîne vide au lieu d'« inconnue » : la ruche aurait annoncé « version
+déclarée », un trou à la place du numéro. Le premier faisait passer `null`
+dans une lecture de propriété.
+
+**Trois vrais défauts, et pourtant aucun banc ne pouvait les atteindre.**
+L'entrée de cette décision n'était pas un argument : c'était un fichier du
+dépôt. Il n'y en a qu'un, il est bien formé, et rien ne permet d'en présenter
+un autre. Écrire les bancs manquants était impossible — non par paresse, mais
+parce que la forme du code interdisait l'expérience.
+
+### Ce qui distingue ce cas d'un mutant équivalent
+
+Un mutant ÉQUIVALENT est indistinguable pour toute entrée : le consigner par
+écrit est la bonne réponse, il n'y a rien à tester. Ici, les entrées qui
+distinguent existent — `null`, `{ version: '' }`, `{ version: ['1.0.0'] }` —
+elles ne peuvent simplement pas ARRIVER JUSQU'À la décision.
+
+La différence est décisive, et se pose en une question : _si je pouvais
+choisir l'entrée, verrais-je une différence ?_ Oui ⇒ ce n'est pas un mutant
+équivalent, c'est une décision enfermée. La réponse n'est pas un paragraphe de
+justification, c'est un déplacement.
+
+### Le déplacement
+
+`versionDeclaree(paquet: unknown): string` vit désormais dans
+`src/shared/version-ruche.ts`, pure et totale ; `server.ts` ne garde que la
+lecture :
+
+    return versionDeclaree(JSON.parse(brut));
+
+Cinq bancs, six lignes, et les trois mutants meurent — vérifié en les rejouant
+un par un : `TypeError` sur `null`, `expected '' to be 'inconnue'` deux fois.
+
+**La règle :** quand la loupe rend plusieurs survivants d'affilée dans un même
+bloc, ne pas chercher trois bancs — chercher ce qui rend le bloc inatteignable.
+Un amas de survivants voisins ne signale presque jamais trois oublis ; il
+signale une décision soudée à son entrée. Le remède est de séparer ce qui LIT
+de ce qui JUGE, après quoi les bancs deviennent évidents.
+
+## 9 teroctogicenties. `indexOf` rend −1 OU 0, et une garde qui n'en couvre qu'un laisse la bonne ligne derrière
+
+Quatrième survivant du même balayage, dans le repli `packed-refs` de
+`version-lue.ts` :
+
+    const espace = ligne.indexOf(' ');
+    if (espace < 0) continue;                       ← < → <=  survit
+    if (ligne.slice(espace + 1).trim() === ref) return sha(ligne.slice(0, espace));
+
+`< 0` écarte les lignes SANS espace. Il ne dit rien de celles qui COMMENCENT
+par un espace, où `indexOf` rend `0`. Une telle ligne se découpe en une gauche
+VIDE et une droite qui ressemble à la référence cherchée : la boucle croit
+l'avoir trouvée, rend `sha('')` — donc `null` — et **s'arrête là**, sur un
+`return`. La bonne ligne, deux lignes plus bas, n'est jamais lue.
+
+Le résultat était le pire des deux : une ruche parfaitement saine répondant
+« je ne sais pas quel commit je fais tourner », pour un catalogue à peine de
+travers. C'est exactement la panne que ce repli existe pour éviter — il avait
+été écrit pour qu'un `git gc` ne rende pas la ruche muette, et il la rendait
+muette pour un espace.
+
+Le banc est allé au ROUGE avant le correctif, verdict affiché :
+
+    expect(lireVersionRuche(racine, '0.2.0').commit).toBe(SHA)
+    → null
+
+**Ce que ça vaut au-delà du cas :** le survivant désignait ici du code JUSTE
+en apparence et FAUX sur une entrée réelle. La tentation était de le classer
+« entrée malformée, cas d'école ». Or la garde voisine, quelques lignes plus
+haut, avait connu l'issue inverse — un filtre `^` mort, qu'il fallait couper
+plutôt que défendre. Les deux se ressemblent et se tranchent à l'opposé ; ce
+qui les sépare est une seule question, à poser à chaque fois : **l'entrée qui
+distingue les deux versions peut-elle exister ?** Pour `^`, non. Pour l'espace
+en tête, oui — un fichier édité à la main suffit.

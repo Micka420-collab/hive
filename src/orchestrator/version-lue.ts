@@ -57,7 +57,14 @@ function depuisPackedRefs(dossierGit: string, ref: string): string | null {
     // peut atteindre ce test-là. La règle du dépôt sur un survivant est de
     // TRANCHER, pas de le défendre par un banc qui passerait de toute façon.
     const espace = ligne.indexOf(' ');
-    if (espace < 0) continue;
+    // `<= 0`, pas `< 0` : une ligne qui COMMENCE par un espace n'a pas de sha
+    // devant. Découpée à l'index 0, sa gauche est vide et sa droite ressemble
+    // à la référence cherchée — la boucle croyait l'avoir trouvée, rendait
+    // `sha('')` (donc `null`) et S'ARRÊTAIT, sans jamais lire la bonne ligne
+    // en dessous. Une ruche saine annonçait « je ne sais pas » pour un
+    // catalogue à peine de travers. Trouvé par la loupe, `< 0` → `<= 0`
+    // ayant survécu.
+    if (espace <= 0) continue;
     if (ligne.slice(espace + 1).trim() === ref) return sha(ligne.slice(0, espace));
   }
   return null;
