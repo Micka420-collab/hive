@@ -14823,3 +14823,59 @@ de la plus basse des trois mesures, et relancé :
 Le cliquet est bien câblé, il rougit, et il nomme la dimension. Remis à 77,7
 ensuite. C'est la même discipline que pour un test — muter avant de croire —
 appliquée à un seuil plutôt qu'à une ligne de code.
+
+## 9 quinoctogicenties. Une garde qui RECOPIE la valeur qu'elle surveille s'édite à chaque livraison — donc se désarme
+
+Premier changement de version depuis des mois : `package.json` passe de `0.2.0`
+à `0.3.0`. **Trois** bancs ont rougi, l'un après l'autre, et aucun ne signalait
+un vrai défaut.
+
+    1. site-fraicheur : « l'en-tête annonce v0.2.0, le paquet est en 0.3.0 »
+       → vrai défaut : la vitrine était désynchronisée. Corrigé.
+
+    2. site.test : « la version n'apparaît qu'une fois »
+       → vrai défaut aussi : le pied de page était resté en v0.2.0.
+
+    3. site.test : « la version a disparu du pied de page »
+       → FAUX. Le pied était juste. La garde cherchait /v0\.2\.0/, en dur.
+
+Les deux dernières gardes portaient le numéro **écrit dans leur propre motif**.
+Leur commentaire disait pourtant, mot pour mot, qu'elles défendaient une
+propriété — « au moins deux endroits », « sous une forme ou une autre » — et
+non un numéro. L'intention était juste ; l'implémentation citait une valeur qui
+périme.
+
+### Pourquoi c'est plus grave qu'un banc à rééditer
+
+Une garde qui rougit sans qu'il y ait de défaut apprend un geste : **ouvrir le
+banc et changer la constante**. Répété à chaque livraison, ce geste devient
+réflexe — et le jour où la garde rougit pour une VRAIE raison, la main part
+toute seule vers la constante. La garde ne meurt pas d'un coup, elle s'use.
+
+C'est la même famille que le rouge intermittent consigné plus haut : ce qui est
+dangereux n'est pas le faux positif, c'est ce qu'il enseigne.
+
+### La correction, et sa contre-épreuve
+
+Les deux gardes LISENT maintenant `package.json` :
+
+    const paquet = JSON.parse(readFileSync(`${RACINE}package.json`, 'utf8'))
+    const motif = new RegExp(`v${paquet.version.replace(/\./g, '\\.')}`, 'g')
+
+Une garde réécrite doit prouver qu'elle mord encore, sinon on l'a désarmée en
+croyant la réparer. Les deux désynchronisations rejouées, verdicts affichés :
+
+    pied laissé en v0.2.0    → « la version n'apparaît qu'une fois »   (tué)
+    en-tête laissé en v0.2.0 → « l'en-tête annonce v0.2.0 »            (tué)
+
+**La règle :** quand une garde surveille une valeur qui vit ailleurs dans le
+dépôt, elle va la CHERCHER là où elle vit. Recopier revient à créer une
+deuxième source de vérité dont personne ne se souvient — et c'est le banc,
+pas le code, qui devient le mensonge.
+
+**Ce qui reste littéral, et pourquoi.** Les `v0.2.0` de
+`tests/fraicheur-version.test.ts` restent écrits en dur : ce ne sont pas « la
+version courante », ce sont des DÉCORS de comparaison — « une version plus
+ancienne que v0.3.0 ». Ils ne périment pas, parce qu'ils ne désignent rien
+d'extérieur au banc. La règle vise la valeur qu'on surveille, pas toute
+constante qui lui ressemble.

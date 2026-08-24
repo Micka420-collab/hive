@@ -1122,7 +1122,20 @@ describe('site vitrine — ce qu’on masque doit exister ailleurs', () => {
     // n'existait NULLE PART ailleurs : la masquer l'aurait perdue tout court.
     // La garde ne défend pas le pied de page, elle défend la propriété — « au
     // moins deux endroits » — pour que le masquage reste sans conséquence.
-    const occurrences = (vitrine.match(/v0\.2\.0/g) ?? []).length;
+    //
+    // ─── LE NUMÉRO SE LIT, IL NE SE RECOPIE PAS ─────────────────────────────
+    //
+    // Ce motif portait « v0.2.0 » en dur. Au premier changement de version il
+    // a rougi — non parce que la propriété était rompue, mais parce que la
+    // garde citait un numéro périmé. Une garde qui recopie la valeur qu'elle
+    // surveille apprend à ÉDITER LA GARDE à chaque livraison, c'est-à-dire à
+    // la désarmer par habitude. Elle lit donc le paquet, comme la vitrine est
+    // censée le refléter.
+    const paquet = JSON.parse(readFileSync(`${RACINE}package.json`, 'utf8')) as {
+      version: string;
+    };
+    const motif = new RegExp(`v${paquet.version.replace(/\./g, '\\.')}`, 'g');
+    const occurrences = (vitrine.match(motif) ?? []).length;
     expect(
       occurrences,
       'la version n’apparaît qu’une fois : la masquer sur petit écran la perd',
@@ -1328,7 +1341,15 @@ describe('site vitrine — le plan du pied de page', () => {
   it('LA VERSION EST TOUJOURS DANS LE PIED, sous une forme ou une autre', () => {
     // L'en-tête la masque sous 360 px. Cette garde existait déjà ; la refonte
     // du pied de page a déplacé la chaîne, elle doit continuer de la trouver.
-    expect(pied, 'la version a disparu du pied de page').toMatch(/v0\.2\.0/);
+    //
+    // Le numéro est LU dans `package.json`, jamais recopié ici : la version
+    // codée en dur a fait rougir cette garde au premier bump, pour un pied de
+    // page parfaitement correct. Une garde qui recopie ce qu'elle surveille
+    // s'édite à chaque livraison, et s'édite sans réfléchir.
+    const paquet = JSON.parse(readFileSync(`${RACINE}package.json`, 'utf8')) as {
+      version: string;
+    };
+    expect(pied, 'la version a disparu du pied de page').toContain(`v${paquet.version}`);
   });
 });
 
