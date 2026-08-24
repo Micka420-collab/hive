@@ -14768,3 +14768,58 @@ plutôt que défendre. Les deux se ressemblent et se tranchent à l'opposé ; ce
 qui les sépare est une seule question, à poser à chaque fois : **l'entrée qui
 distingue les deux versions peut-elle exister ?** Pour `^`, non. Pour l'espace
 en tête, oui — un fichier édité à la main suffit.
+
+## 9 quateroctogicenties. Un cliquet se remonte, sinon il devient un plancher — et un plancher ne garde rien
+
+Le cliquet de couverture était à 76,5 / 72,1 / 78,8 / 77,9 ; l'arbre mesurait
+77,89 / 74,10 / 79,49 / 79,27. Les branches étaient **2,0 points au-dessus du
+seuil**.
+
+Un seuil à deux points sous le réel ne peut plus rougir. Il faudrait perdre
+deux points de couverture d'un coup pour le réveiller — c'est-à-dire livrer
+plusieurs centaines de lignes que rien n'éprouve. En dessous de ça, tout
+passe. Le fichier portait déjà ce constat, écrit le 22 août sous le titre
+« REMONTÉ PARCE QU'IL NE MORDAIT PLUS », et l'écart s'était **reformé en deux
+jours** — parce que le dépôt grossit et que le seuil, lui, ne bouge pas tout
+seul.
+
+**Ce qui se passe quand on ne le remonte pas :** le cliquet reste vert, on le
+lit comme « la couverture tient », et il ne dit plus rien du tout. C'est la
+même famille de panne qu'une garde qu'aucun test ne peut tuer — sauf qu'ici
+la garde s'est désarmée toute seule, par simple croissance du dénominateur.
+
+### Trois mesures, parce qu'une seule est un chiffre et non une mesure
+
+La règle écrite dans `vitest.config.ts` demande plusieurs mesures du MÊME
+arbre, dont une en CI, et une marge d'environ 5× l'écart observé. Suivie à la
+lettre sur `a8fa204` :
+
+                     ici #1   en CI    ici #2   plus bas  écart  seuil
+        statements   77.89    77.89    77.89    77.89     0.00   77.7
+        branches     74.12    74.10    74.12    74.10     0.02   73.9
+        functions    79.49    79.49    79.55    79.49     0.06   79.1
+        lines        79.30    79.29    79.27    79.27     0.03   79.1
+
+Les dénominateurs sont identiques aux trois passages — même code. Ce sont les
+COUVERTS qui bougent, de une à trois unités.
+
+**Le détail qui vaut la peine :** la mesure la plus basse n'a pas la même
+origine selon la dimension. La CI est la plus basse sur les branches, la
+seconde locale sur les lignes. Si j'avais pris « la CI est plus basse » comme
+règle — ce que la première rédaction de ce fichier supposait — j'aurais posé
+le seuil des lignes au-dessus d'une valeur réellement observée, et fabriqué un
+rouge intermittent. Un tremblement n'a pas de direction ; on prend le minimum
+de toutes les mesures, jamais celle d'une origine réputée pessimiste.
+
+### La contre-épreuve, parce qu'un seuil qu'on ne voit pas mordre est du décor
+
+Poser des chiffres et voir la suite verte ne prouve rien : elle serait verte
+aussi avec les anciens. J'ai donc monté `statements` à 77,95, juste au-dessus
+de la plus basse des trois mesures, et relancé :
+
+    ERROR: Coverage for statements (77.89%) does not meet global threshold (77.95%)
+    code = 1
+
+Le cliquet est bien câblé, il rougit, et il nomme la dimension. Remis à 77,7
+ensuite. C'est la même discipline que pour un test — muter avant de croire —
+appliquée à un seuil plutôt qu'à une ligne de code.
