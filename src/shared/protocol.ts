@@ -278,6 +278,21 @@ export interface MergeResultMsg {
   refused?: string;
 }
 
+/** Ce que le nœud a fait de la demande de pose. */
+export interface PoseResultMsg {
+  type: 'pose_result';
+  poseId: string;
+  outilId: string;
+  /** Code de sortie. `null` si le processus n'a jamais démarré. */
+  code: number | null;
+  /** Sortie standard et d'erreur, bornée. C'est une DONNÉE, pas du code. */
+  sortie: string;
+  /** Vrai seulement si la pose a tourné ET rendu 0. */
+  ok: boolean;
+  /** Non vide quand le nœud a REFUSÉ — outil inconnu, sans commande, déjà là. */
+  refuse?: string;
+}
+
 export type ClientMessage =
   | RegisterMsg
   | HeartbeatMsg
@@ -287,7 +302,8 @@ export type ClientMessage =
   | SubscribeMsg
   | RequisitionOpenMsg
   | MergeResultMsg
-  | ChantierResultMsg;
+  | ChantierResultMsg
+  | PoseResultMsg;
 
 // ─── Messages orchestrateur → client ─────────────────────────────────────────
 export interface RegisteredMsg {
@@ -406,6 +422,29 @@ export interface AssignChantierMsg {
   prepareCommand?: string[];
 }
 
+/**
+ * Le hub demande à un nœud de POSER un outil sur sa machine.
+ *
+ * ─── LE MESSAGE PORTE UN IDENTIFIANT, JAMAIS UNE COMMANDE ────────────────────
+ *
+ * Même règle que `assign_chantier`, et pour la même raison : ce message
+ * déclenche une exécution sur la machine d'un membre. S'il portait la commande,
+ * un hub compromis — ou une requête bricolée depuis un navigateur — ferait
+ * exécuter n'importe quoi. Portant `outilId`, il ne peut déclencher que ce que
+ * le CATALOGUE DU NŒUD contient déjà.
+ *
+ * `outilId` n'est validé ici que dans sa FORME. Savoir si l'outil existe et
+ * s'installe demande le catalogue, et c'est le nœud qui pose cette question —
+ * lui seul sait ce que SA version connaît.
+ */
+export interface PoserOutilMsg {
+  type: 'poser_outil';
+  /** Pour que le hub relie la réponse à la demande. */
+  poseId: string;
+  /** L'identifiant catalogue de l'outil. Jamais une commande. */
+  outilId: string;
+}
+
 export type ServerMessage =
   | RegisteredMsg
   | AssignTaskMsg
@@ -416,7 +455,8 @@ export type ServerMessage =
   | RequisitionAckMsg
   | RequisitionResultMsg
   | AssignMergeMsg
-  | AssignChantierMsg;
+  | AssignChantierMsg
+  | PoserOutilMsg;
 
 const SERVER_MESSAGE_TYPES = new Set([
   'registered',
@@ -429,6 +469,7 @@ const SERVER_MESSAGE_TYPES = new Set([
   'requisition_result',
   'assign_merge',
   'assign_chantier',
+  'poser_outil',
 ]);
 
 // ─── Validation ──────────────────────────────────────────────────────────────
@@ -768,6 +809,28 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
       }
       return null;
     }
+    case 'pose_result': {
+      if (
+        isId(m.poseId) &&
+        isId(m.outilId) &&
+        (m.code === null || (typeof m.code === 'number' && Number.isSafeInteger(m.code))) &&
+        isStrAllowEmpty(m.sortie, LIMITS.log) &&
+        typeof m.ok === 'boolean' &&
+        (m.refuse === undefined || isStr(m.refuse, LIMITS.name))
+      ) {
+        const msg: PoseResultMsg = {
+          type: 'pose_result',
+          poseId: m.poseId,
+          outilId: m.outilId,
+          code: m.code as number | null,
+          sortie: m.sortie,
+          ok: m.ok,
+        };
+        if (typeof m.refuse === 'string') msg.refuse = m.refuse;
+        return msg;
+      }
+      return null;
+    }
     default:
       return null;
   }
@@ -875,6 +938,20 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
           nom: m.nom,
         };
         if (m.prepareCommand !== undefined) msg.prepareCommand = m.prepareCommand as string[];
+        return msg;
+      }
+      return null;
+    }
+    case 'poser_outil': {
+      // Aussi sensible qu'un chantier : déclenche une installation sur la
+      // machine d'un membre. Deux identifiants, rien d'autre — et surtout
+      // AUCUNE commande, qui viendrait d'ailleurs que du catalogue du nœud.
+      if (isId(m.poseId) && isId(m.outilId)) {
+        const msg: PoserOutilMsg = {
+          type: 'poser_outil',
+          poseId: m.poseId,
+          outilId: m.outilId,
+        };
         return msg;
       }
       return null;

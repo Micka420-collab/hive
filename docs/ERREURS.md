@@ -14879,3 +14879,60 @@ version courante », ce sont des DÉCORS de comparaison — « une version plus
 ancienne que v0.3.0 ». Ils ne périment pas, parce qu'ils ne désignent rien
 d'extérieur au banc. La règle vise la valeur qu'on surveille, pas toute
 constante qui lui ressemble.
+
+## 9 sexoctogicenties. Une dérogation qui ne ressemble pas aux précédentes n'est pas une dérogation de routine
+
+En ajoutant `pose-runner.ts` — le fichier qui installe un outil sur la machine
+d'un membre — la suite a rougi sur une garde que je ne connaissais pas :
+
+    node-client/pose-runner.ts lance un processus sans passer par envelopper().
+    Si c'est volontaire, inscrivez-le dans DEROGATIONS avec la raison — et
+    relisez d'abord l'en-tête de ce fichier, parce que c'est exactement
+    l'oubli qui s'y raconte.
+
+Le réflexe est d'ajouter une ligne à la liste et de repartir. L'en-tête, lu
+comme il le demande, l'interdit — il porte la règle qui sépare les deux listes :
+
+> est-ce que le binaire lancé, ou ce qu'il exécute, peut être choisi par
+> quelqu'un d'autre que le membre ?
+
+### Ce que l'application honnête de la règle a donné
+
+Les quatre dérogations existantes partagent un trait qu'aucune ne nomme, parce
+qu'il leur était commun : **c'est le membre qui déclenche, sur sa machine, à sa
+propre demande** — sonder ses agents, choisir son bac à sable, lancer son
+tunnel, vérifier un binaire depuis sa CLI.
+
+La cinquième ne le partage pas. La pose est déclenchée **depuis le tableau de
+bord, par quelqu'un d'autre**. Le binaire et le paquet viennent bien du
+catalogue du dépôt — c'est la borne du lot — mais la décision de lancer, elle,
+est distante.
+
+Et elle ne peut pas s'envelopper : une installation GLOBALE doit atteindre
+l'hôte. L'isoler poserait l'outil dans un bac qui disparaît, c'est-à-dire
+produirait un bouton qui ment.
+
+La dérogation est donc légitime, et elle n'est pas de routine. Elle est écrite
+en disant les trois choses : pourquoi elle ne s'enveloppe pas, ce qui reste
+borné (catalogue, jamais la requête), et ce qui reste ouvert — `npm install`
+exécute les scripts `postinstall` du paquet, donc du code du registre, sur la
+machine du membre.
+
+**La règle :** une liste de dérogations se relit avant qu'on s'y ajoute. Ce qui
+compte n'est pas « ai-je le droit d'y être » mais « est-ce que ma raison
+ressemble aux leurs ». Quand elle n'y ressemble pas, la différence est
+exactement ce qu'il faut écrire — sinon la liste s'homogénéise dans la tête du
+prochain lecteur, et la cinquième entrée sert de précédent à une sixième qui
+n'aurait rien à y faire.
+
+### Et un défaut que j'ai attrapé avant elle, par le même geste
+
+`jugerPose` distingue « outil inconnu » de « outil connu mais sans
+installation ». Ma première rédaction demandait à `PAQUETS` s'il connaissait
+l'identifiant — or `PAQUETS` est DÉRIVÉ du catalogue en ne gardant que les
+outils installables : **2 entrées sur 9**. La condition venait déjà d'échouer
+deux lignes plus haut ; `sans-commande` était strictement inatteignable, et les
+sept outils qui s'installent à la main auraient été annoncés « inconnus ».
+
+Ce n'est pas la loupe qui l'a trouvé, c'est d'avoir compté : `OUTILS` fait 9,
+`PAQUETS` fait 2. Le chiffre a rendu visible ce que la relecture ne voyait pas.

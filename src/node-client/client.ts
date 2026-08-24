@@ -28,10 +28,12 @@ import type {
   AssignMergeMsg,
   ClientMessage,
   OutilConstate,
+  PoserOutilMsg,
 } from '../shared/protocol.js';
 import { HEARTBEAT_INTERVAL_MS } from '../shared/types.js';
 import type { Task } from '../shared/types.js';
 import { runMerge, runProc } from './merge-runner.js';
+import { lancerVraiment, poserOutil } from './pose-runner.js';
 import { buildSandboxEnv, cloneRepo, prepareWorkspace } from './workspace.js';
 import { requisitionDepuisEchecInfra } from '../shared/requisition-infra.js';
 import { motifRefusPresence, refuseParPresence } from '../shared/presence-noeud.js';
@@ -113,6 +115,33 @@ export class HiveNodeClient {
   private outilsConstates: OutilConstate[] | null = null;
 
   /** Pose ce que le diagnostic a vu. Rejouable : une reconnexion le renvoie. */
+  /**
+   * Poser un outil parce que le hub l'a demandé.
+   *
+   * `dejaPose` vient du CONSTAT de ce nœud — ce qu'il a vu sur sa machine au
+   * dernier recensement — et non d'une supposition du hub. Un constat absent
+   * vaut « pas posé » : au pire on relance une installation idempotente, alors
+   * que supposer l'inverse refuserait une pose légitime sans rien dire.
+   *
+   * Après une pose réussie, le constat local est rafraîchi pour que la fiche
+   * cesse d'annoncer l'outil comme absent sans attendre le prochain
+   * recensement.
+   */
+  private async runPoseOutil(msg: PoserOutilMsg): Promise<void> {
+    const constat = this.outilsConstates?.find((o) => o.agent === msg.outilId);
+    const resultat = await poserOutil(msg, {
+      dejaPose: constat?.binaire === true,
+      lancer: lancerVraiment,
+    });
+    if (resultat.ok && constat) constat.binaire = true;
+    this.log(
+      resultat.ok
+        ? `outil posé : ${msg.outilId}`
+        : `pose refusée (${msg.outilId}) : ${resultat.refuse ?? `code ${String(resultat.code)}`}`,
+    );
+    this.send(resultat);
+  }
+
   setOutilsConstates(outils: readonly OutilConstate[]): void {
     this.outilsConstates = [...outils];
   }
@@ -295,6 +324,9 @@ export class HiveNodeClient {
         break;
       case 'assign_chantier':
         void this.runChantierJob(msg);
+        break;
+      case 'poser_outil':
+        void this.runPoseOutil(msg);
         break;
       case 'cancel_task':
         this.active.get(msg.taskId)?.abort();

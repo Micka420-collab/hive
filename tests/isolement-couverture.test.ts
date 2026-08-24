@@ -46,6 +46,26 @@ const DEROGATIONS: Readonly<Record<string, string>> = {
   'cli.ts':
     'vérifie la présence de cloudflared depuis la CLI de l’hôte, sur sa propre ' +
     'machine et à sa propre demande',
+  // ─── CELLE-CI N'EST PAS COMME LES QUATRE AUTRES, ET IL FAUT LE DIRE ────────
+  //
+  // Les quatre ci-dessus partagent un trait : c'est le MEMBRE qui déclenche,
+  // sur SA machine, à sa propre demande. Celle-ci non — la pose est déclenchée
+  // depuis le tableau de bord, par quelqu'un d'autre. C'est la contrepartie
+  // que le propriétaire a explicitement acceptée en choisissant que le bouton
+  // LANCE au lieu d'afficher.
+  //
+  // Pourquoi elle ne s'enveloppe pas quand même : une installation GLOBALE
+  // doit atteindre l'hôte. L'isoler produirait un outil posé dans un bac qui
+  // disparaît à la fin — c'est-à-dire un bouton qui ment.
+  //
+  // Ce qui reste vrai, et qui borne : le binaire (`npm`) et le paquet viennent
+  // du CATALOGUE du dépôt, jamais de la requête. Ce qui reste ouvert, et qui
+  // n'est pas caché : `npm install` exécute les scripts `postinstall` du
+  // paquet, donc du code du registre, sur la machine du membre.
+  'node-client/pose-runner.ts':
+    'pose un outil du catalogue sur la machine du membre — une installation ' +
+    'globale doit atteindre l’hôte, l’envelopper la rendrait sans effet ; le ' +
+    'binaire et le paquet viennent du catalogue, jamais de la requête',
 };
 
 /**
