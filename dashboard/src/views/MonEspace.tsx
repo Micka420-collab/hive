@@ -143,7 +143,7 @@ function phrase(a: Alerte, t: Translate): string {
   }
 }
 
-export default function MonEspace({ user, refreshTick, onNavigate }: ViewProps) {
+export default function MonEspace({ user, refreshTick, onNavigate, onNewProject }: ViewProps) {
   const t = useT();
 
   if (!user) {
@@ -167,7 +167,14 @@ export default function MonEspace({ user, refreshTick, onNavigate }: ViewProps) 
     );
   }
 
-  return <Espace nom={user.displayName} refreshTick={refreshTick} onNavigate={onNavigate} />;
+  return (
+    <Espace
+      nom={user.displayName}
+      refreshTick={refreshTick}
+      onNavigate={onNavigate}
+      onNewProject={onNewProject}
+    />
+  );
 }
 
 /**
@@ -181,10 +188,12 @@ function Espace({
   nom,
   refreshTick,
   onNavigate,
+  onNewProject,
 }: {
   nom: string;
   refreshTick: number;
   onNavigate: ViewProps['onNavigate'];
+  onNewProject: ViewProps['onNewProject'];
 }) {
   const t = useT();
   const poll = useApiPoll(fetchMonTableau, 30_000, refreshTick);
@@ -263,12 +272,17 @@ function Espace({
           <h2>⬡ {t('Mes projets', 'My projects')}</h2>
         </header>
         {d.projets.length === 0 ? (
-          <p className="muted-text me-vide">
-            {t(
-              'Aucun projet pour l’instant. Le bouton « + Projet » en haut à droite en crée un : il vous appartiendra, et il apparaîtra ici.',
-              'No project yet. The “+ Project” button at the top right creates one: it will belong to you, and it will show up here.',
-            )}
-          </p>
+          <div className="me-vide">
+            <p className="muted-text">
+              {t(
+                'Aucun projet pour l’instant. Créez-en un ici : il vous appartiendra et apparaîtra dans cet espace.',
+                'No project yet. Create one here: it will belong to you and appear in this space.',
+              )}
+            </p>
+            <button type="button" className="btn primary" onClick={onNewProject}>
+              {t('Créer un projet', 'Create a project')}
+            </button>
+          </div>
         ) : (
           <div className="me-grille">
             {d.projets.map((p) => (

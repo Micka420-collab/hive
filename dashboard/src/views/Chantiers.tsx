@@ -38,6 +38,7 @@ import {
 } from '../api';
 import type { Chantier, RunWorkflow, VerdictChantier, Workflow } from '../api';
 import { useT } from '../i18n';
+import { FriendlyEmptyState } from '../ui';
 import type { ViewProps } from './shared';
 import './chantiers.css';
 
@@ -56,7 +57,7 @@ const TONS: Record<string, Ton> = {
   inconnue: 'neutre',
 };
 
-export default function Chantiers({ snapshot, selectedId, onNavigate }: ViewProps) {
+export default function Chantiers({ snapshot, selectedId, onNavigate, onNewProject }: ViewProps) {
   const t = useT();
   const projets = snapshot.projects;
   const projectId = selectedId ?? projets[0]?.id ?? null;
@@ -143,18 +144,21 @@ export default function Chantiers({ snapshot, selectedId, onNavigate }: ViewProp
   if (!projet) {
     return (
       <div className="mc-chantiers">
-        <div className="ch-vide">
-          <span className="marque" aria-hidden="true" />
-          <p>
-            {t(
-              'Les chantiers apparaissent avec un projet.',
-              'Works appear once you have a project.',
-            )}
-          </p>
-          <button className="btn primary" type="button" onClick={() => onNavigate('projets')}>
-            {t('Aller aux projets', 'Go to projects')}
-          </button>
-        </div>
+        <FriendlyEmptyState
+          title={t('Automatisez votre premier projet', 'Automate your first project')}
+          description={t(
+            'Les scripts déclarés par le dépôt et les workflows GitHub apparaîtront ici, avec leur commande exacte.',
+            'Repository scripts and GitHub workflows will appear here with their exact command.',
+          )}
+          primary={{
+            label: t('Créer un projet', 'Create a project'),
+            onClick: onNewProject,
+          }}
+          secondary={{
+            label: t('Voir les projets', 'View projects'),
+            onClick: () => onNavigate('projets'),
+          }}
+        />
       </div>
     );
   }

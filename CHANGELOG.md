@@ -43,6 +43,11 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   et libère toute la largeur. La topbar réunit compte, invitation, langue et
   jeton dans un menu unique ; hors ligne, un bandeau guide explicitement la
   connexion. Ajout d'un lien d'évitement et d'un landmark principal.
+- **🌱 Premier projet sans jargon.** La modale demande d'abord un nom et une
+  mission en langage naturel ; modèles et graphe JSON vivent sous « Options
+  avancées ». Le bouton dit « Créer le projet ». Les vides du Rayon, de la
+  Miellerie, des Chantiers et de Mon espace proposent directement le prochain
+  geste au lieu d'imposer un détour.
 
 - **🖥 Mission Control plus pro, façon Craft / Apple.** Même ruche (miel unique
   accent, hexagone marque) : papier plus clair, barre charbon brossée, logo SVG

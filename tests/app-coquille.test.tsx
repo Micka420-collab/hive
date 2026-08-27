@@ -169,7 +169,7 @@ describe('la coquille de l’App — les deux dernières survivantes du balayage
     expect(
       accueil.textContent,
       'la vue d’accueil ne porte pas le Rayon d’un autre écran',
-    ).not.toContain('Le rayon s’ouvre avec un projet');
+    ).not.toContain('Votre code apparaîtra ici');
 
     act(() => racine?.unmount());
     location.hash = '#/rayon';
@@ -177,14 +177,31 @@ describe('la coquille de l’App — les deux dernières survivantes du balayage
     // Le chunk paresseux traverse un vrai import dynamique : on scrute sa
     // pose, borné à une seconde — « Chargement de la vue… » n'est pas un état
     // final acceptable.
-    for (let i = 0; i < 50 && !rayon.textContent?.includes('Le rayon s’ouvre'); i++) {
+    for (let i = 0; i < 50 && !rayon.textContent?.includes('Votre code apparaîtra'); i++) {
       await act(async () => {
         await new Promise((r) => setTimeout(r, 20));
       });
     }
     expect(rayon.textContent, 'la route du Rayon affiche le Rayon').toContain(
-      'Le rayon s’ouvre avec un projet',
+      'Votre code apparaîtra ici',
     );
+  });
+
+  it('UN ÉTAT VIDE PEUT CRÉER LE PROJET SANS DÉTOUR PAR UNE AUTRE VUE', async () => {
+    location.hash = '#/rayon';
+    const dom = await monter();
+    for (let i = 0; i < 50 && !dom.textContent?.includes('Votre code apparaîtra'); i++) {
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 20));
+      });
+    }
+    const creer = [...dom.querySelectorAll<HTMLButtonElement>('button')].find(
+      (b) => b.textContent?.trim() === 'Créer un projet',
+    );
+    expect(creer, 'le Rayon vide oblige encore à passer par Projets').toBeTruthy();
+
+    await act(async () => creer!.click());
+    expect(document.querySelector('#np-title')?.textContent).toContain('Nouveau projet');
   });
 
   it('LE CERVEAU NE S’AFFICHE QUE SUR SA ROUTE — et sa route l’affiche', async () => {
@@ -331,20 +348,24 @@ describe('la coquille de l’App — les survivantes du balayage du soir', () =>
     expect(
       accueil.textContent,
       'la vue d’accueil ne porte pas la file de revue d’un autre écran',
-    ).not.toContain('Le nectar arrive');
+    ).not.toContain('Rien à valider pour le moment');
 
     act(() => racine?.unmount());
     location.hash = '#/miellerie';
     const miellerie = await monter();
     // Chunk paresseux : vrai import dynamique, scruté borné à une seconde.
     // « Chargement de la vue… » n'est pas un état final acceptable.
-    for (let i = 0; i < 50 && !miellerie.textContent?.includes('Le nectar arrive'); i++) {
+    for (
+      let i = 0;
+      i < 50 && !miellerie.textContent?.includes('Rien à valider pour le moment');
+      i++
+    ) {
       await act(async () => {
         await new Promise((r) => setTimeout(r, 20));
       });
     }
     expect(miellerie.textContent, 'la route de la Miellerie affiche la Miellerie').toContain(
-      'Le nectar arrive — aucune production à revoir.',
+      'Rien à valider pour le moment',
     );
   });
 });

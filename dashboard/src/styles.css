@@ -927,6 +927,59 @@ h3 {
   padding: 18px 12px;
 }
 
+.friendly-empty {
+  width: min(100%, 560px);
+  margin: clamp(24px, 7vh, 72px) auto;
+  padding: clamp(24px, 5vw, 38px);
+  display: grid;
+  justify-items: start;
+  gap: 18px;
+  border: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
+  border-radius: var(--r-xl);
+  background:
+    radial-gradient(
+      90% 85% at 0% 0%,
+      color-mix(in srgb, var(--miel) 12%, transparent),
+      transparent 66%
+    ),
+    var(--panel);
+  box-shadow: 0 22px 54px -38px rgba(20, 18, 16, 0.42);
+}
+
+.friendly-empty-mark {
+  width: 22px;
+  height: 24px;
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  background: var(--miel);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--miel-2) 38%, transparent);
+}
+
+.friendly-empty-copy {
+  display: grid;
+  gap: 7px;
+}
+
+.friendly-empty h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: clamp(22px, 3vw, 28px);
+  line-height: 1.12;
+}
+
+.friendly-empty p {
+  max-width: 48ch;
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.friendly-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 /* ─── Tiroir de détail ────────────────────────────────────────────────── */
 .drawer-backdrop {
   position: fixed;
@@ -1160,6 +1213,48 @@ h3 {
   border-bottom: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
 }
 
+.np-intro {
+  margin: 0 0 18px;
+  padding: 13px 14px;
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  border: 1px solid color-mix(in srgb, var(--miel) 24%, var(--border));
+  border-radius: var(--r-lg);
+  background: color-mix(in srgb, var(--miel) 7%, var(--panel));
+}
+
+.np-intro-step {
+  width: 26px;
+  height: 26px;
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--miel);
+  color: var(--encre);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.np-intro div {
+  display: grid;
+  gap: 2px;
+}
+
+.np-intro strong {
+  font-size: 13px;
+}
+
+.np-intro p,
+.np-advanced-content > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .np-modal .field {
   margin-bottom: 16px;
 }
@@ -1224,6 +1319,51 @@ h3 {
   font-size: 12px;
   font-style: normal;
   line-height: 1.45;
+}
+
+.np-advanced {
+  margin-top: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  background: color-mix(in srgb, var(--panel-2) 62%, transparent);
+}
+
+.np-advanced-toggle {
+  width: 100%;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: 600 12.5px var(--texte);
+  cursor: pointer;
+}
+
+.np-advanced-toggle:hover {
+  background: color-mix(in srgb, var(--miel) 6%, transparent);
+}
+
+.np-advanced-toggle:focus-visible {
+  outline: 2px solid var(--honey);
+  outline-offset: -3px;
+}
+
+.np-advanced-content {
+  padding: 0 14px 14px;
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.np-advanced-content > p {
+  padding-top: 12px;
+}
+
+.np-advanced-content .field {
+  margin-bottom: 0;
 }
 
 .np-modal .modal-actions {

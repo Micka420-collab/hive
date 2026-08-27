@@ -15,7 +15,7 @@ import {
 import type { Conflict, MergePlan, MergeRunResult, Verdict } from '../api';
 import { t as tNow, useT } from '../i18n';
 import type { Translate } from '../i18n';
-import { activateProps, formatMs, modalOpen, StatusBadge } from '../ui';
+import { activateProps, formatMs, FriendlyEmptyState, modalOpen, StatusBadge } from '../ui';
 import { getReview, Honeycomb, setReview, useApiPoll, useReviewTick } from './shared';
 import type { ReviewState, ViewProps } from './shared';
 import './miellerie.css';
@@ -434,6 +434,7 @@ type MergePhase =
 export default function Miellerie({
   snapshot,
   onOpenTask,
+  onNewProject,
   onNavigate,
   selectedId,
   refreshTick,
@@ -751,23 +752,31 @@ export default function Miellerie({
 
   // ─── État vide accueillant ──────────────────────────────────────────────────
   if (!activeTask) {
+    const sansProjet = snapshot.projects.length === 0;
     return (
       <div className="mc-view mi-view">
-        <div className="mi-empty">
-          <span className="mi-empty-icon marque" aria-hidden="true" />
-          <p className="mi-empty-lead">
-            {t(
-              'Le nectar arrive — aucune production à revoir.',
-              'The nectar is coming — no production to review.',
-            )}
-          </p>
-          <p className="muted-text">
-            {t(
-              'Les tâches terminées ou échouées apparaîtront ici pour la revue humaine.',
-              'Finished or failed tasks will appear here for human review.',
-            )}
-          </p>
-        </div>
+        <FriendlyEmptyState
+          title={t('Rien à valider pour le moment', 'Nothing to review right now')}
+          description={t(
+            sansProjet
+              ? 'Créez un projet : chaque production terminée reviendra ici pour votre validation avant fusion.'
+              : 'Les productions terminées ou échouées apparaîtront ici. Vous gardez toujours le dernier mot avant fusion.',
+            sansProjet
+              ? 'Create a project: every completed output will return here for your approval before merge.'
+              : 'Completed or failed outputs will appear here. You always keep the final say before merge.',
+          )}
+          primary={
+            sansProjet
+              ? {
+                  label: t('Créer un projet', 'Create a project'),
+                  onClick: onNewProject,
+                }
+              : {
+                  label: t('Suivre l’activité', 'Watch activity'),
+                  onClick: () => onNavigate('ruche'),
+                }
+          }
+        />
       </div>
     );
   }

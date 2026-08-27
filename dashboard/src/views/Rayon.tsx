@@ -34,6 +34,7 @@ import { fetchApercu, fetchFichierRayon, fetchRayon, getPartage, proposerRetouch
 import type { ApercuProjet, EntreeRayon, FichierRayon } from '../api';
 import { SauvegardesTimeline } from '../SauvegardesTimeline';
 import { consommerFocus, FOCUS_SAUVEGARDES } from '../focus-vue';
+import { FriendlyEmptyState } from '../ui';
 import { icone, taille } from './rayon-affichage';
 import type { ViewProps } from './shared';
 import { sansIdentifiants } from '../../../src/shared/projet-public';
@@ -49,7 +50,13 @@ interface Noeud {
   ouvert: boolean;
 }
 
-export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }: ViewProps) {
+export default function Rayon({
+  snapshot,
+  selectedId,
+  onNavigate,
+  onNewProject,
+  refreshTick,
+}: ViewProps) {
   const t = useT();
   // Lecture par lien de partage : c'est la MÊME source que celle qui décide de
   // l'en-tête HTTP, donc les deux ne peuvent pas se contredire.
@@ -219,16 +226,21 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
   if (projets.length === 0) {
     return (
       <div className="ry-vide">
-        <span className="marque" aria-hidden="true" />
-        <p>
-          {t(
-            'Le rayon s’ouvre avec un projet. Démarrez-en un, puis revenez ici.',
-            'The comb opens with a project. Start one, then come back here.',
+        <FriendlyEmptyState
+          title={t('Votre code apparaîtra ici', 'Your code will appear here')}
+          description={t(
+            'Créez un premier projet pour parcourir ses fichiers, proposer une retouche et restaurer une sauvegarde.',
+            'Create your first project to browse files, propose an edit, and restore a backup.',
           )}
-        </p>
-        <button className="btn primary" onClick={() => onNavigate('projets')}>
-          {t('Aller aux projets', 'Go to projects')}
-        </button>
+          primary={{
+            label: t('Créer un projet', 'Create a project'),
+            onClick: onNewProject,
+          }}
+          secondary={{
+            label: t('Voir les projets', 'View projects'),
+            onClick: () => onNavigate('projets'),
+          }}
+        />
       </div>
     );
   }
