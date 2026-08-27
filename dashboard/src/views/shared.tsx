@@ -273,16 +273,32 @@ function enqueuePost(taskId: string, state: ReviewState | null, base: ReviewStat
       },
       (err: unknown) => {
         // Échec DÉFINITIF (tâche disparue, requête invalide) : inutile de
-        // rejouer à chaque reconnexion — l'entrée est purgée, le verdict reste
-        // dans le repli local. Échec transitoire (réseau, 5xx, 401/403/409) :
-        // l'entrée reste, re-postée à la prochaine hydratation.
-        if (err instanceof ApiError && [400, 404, 422].includes(err.status)) {
-          const m = readUnsynced();
+        // rejouer à chaque reconnexion. On ANNULE alors l'optimisme et restaure
+        // la base serveur : garder le verdict local afficherait « enregistré »
+        // alors que la ruche vient de le refuser. Échec transitoire (réseau,
+        // 5xx, 401/403/409) : l'entrée reste, re-postée à la prochaine
+        // hydratation.
+        const definitive = err instanceof ApiError && [400, 404, 422].includes(err.status);
+        const m = readUnsynced();
+        const courant = taskId in m && m[taskId]?.state === state;
+        if (definitive && courant) {
           delete m[taskId];
           writeUnsynced(m);
+          applyDelta(taskId, base);
+          const local = readLocalReviews();
+          if (base === null) delete local[taskId];
+          else local[taskId] = base;
+          localStorage.setItem(REVIEW_KEY, JSON.stringify(local));
         }
         window.dispatchEvent(
-          new CustomEvent('hive:review-sync-error', { detail: { taskId, state } }),
+          new CustomEvent('hive:review-sync-error', {
+            detail: {
+              taskId,
+              state,
+              definitive,
+              message: err instanceof Error ? err.message : String(err),
+            },
+          }),
         );
         notifyReviewChange();
       },

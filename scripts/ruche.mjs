@@ -160,16 +160,26 @@ function brancher(flux, etiquette, vers) {
 }
 
 for (const p of liste) {
+  // Au premier lancement, l'ouvrière peut demander « quelle application IA,
+  // quel modèle ? ». Une entrée condamnée à `ignore` rendait ce choix
+  // impossible via la commande recommandée `npm run ruche`. En vrai terminal,
+  // elle hérite donc de la console ; en CI/service, tout reste tuyaute et
+  // non-interactif comme avant.
+  const ouvriereInteractive =
+    p.nom === 'ouvrière' && Boolean(process.stdin.isTTY && process.stdout.isTTY);
   const enfant = spawn(p.bin, [...p.argv], {
     cwd: RACINE,
     shell: false,
     windowsHide: true,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: process.env,
+    stdio: ouvriereInteractive ? ['inherit', 'inherit', 'inherit'] : ['ignore', 'pipe', 'pipe'],
+    env: {
+      ...process.env,
+      ...(ouvriereInteractive ? { HIVE_TTY_ASSISTE: '1' } : {}),
+    },
   });
   const etiquette = prefixe(p.nom, largeur);
-  brancher(enfant.stdout, etiquette, process.stdout);
-  brancher(enfant.stderr, etiquette, process.stderr);
+  if (enfant.stdout) brancher(enfant.stdout, etiquette, process.stdout);
+  if (enfant.stderr) brancher(enfant.stderr, etiquette, process.stderr);
 
   enfant.on('error', (e) => {
     console.error(`${etiquette}✘ ${e.message}`);

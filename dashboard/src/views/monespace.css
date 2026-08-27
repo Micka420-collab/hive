@@ -180,9 +180,16 @@
 /* ─── Les cartes de projet ────────────────────────────────────────────── */
 
 .me-vide {
-  padding: 0 16px 18px;
+  padding: 2px 16px 18px;
+  display: grid;
+  justify-items: start;
+  gap: 12px;
   max-width: 640px;
   line-height: 1.55;
+}
+
+.me-vide p {
+  margin: 0;
 }
 
 .me-grille {

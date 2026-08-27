@@ -79,6 +79,29 @@ Hive ne modifiera jamais votre stratégie d'exécution à votre place — c'est 
 réglage de sécurité de votre système, pas le nôtre. L'écran de fin de
 l'installeur donne désormais ces deux lignes telles quelles.
 
+### Choisir l’application IA et le modèle
+
+Au premier lancement d’une ouvrière (`npm run node`, ou via `npm run ruche`),
+Hive détecte Claude Code, Cursor, Cline, Codex et Grok présents sur **ce poste**.
+S’il y en a plusieurs, un menu numéroté demande lequel utiliser. Il lit ensuite,
+sans réseau, les noms de modèles trouvés dans les configurations locales et
+propose :
+
+1. automatique — l’application choisit ;
+2. un modèle précis ;
+3. tous les modèles listés — l’Aiguillage choisit selon la tâche.
+
+Une configuration locale ne prouve pas que l’abonnement autorise encore un
+modèle : Hive le dit et ne le déclare qu’après votre confirmation. Le choix est
+mémorisé dans `.hive-work/…/ia.json`, local à la machine. Pour le changer :
+
+```sh
+npm run configurer:ia
+```
+
+Pour un service sans terminal, `HIVE_AGENT` et `HIVE_MODELES` dans `.env`
+gardent la priorité et aucune question n’est posée.
+
 ---
 
 ## Lisez-le avant de l'exécuter

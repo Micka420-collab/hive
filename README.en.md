@@ -177,14 +177,25 @@ Any coding AI plugs in through the `AgentAdapter` interface:
 | `claude-code`  | `claude -p "<prompt>"` in the isolated workspace.                                                               |
 | `cursor`       | `cursor-agent -p --force --output-format stream-json -- "<prompt>"` — binary overridable via `HIVE_CURSOR_BIN`. |
 | `cline`        | `cline --json --auto-approve true "<prompt>"` — binary overridable via `HIVE_CLINE_BIN`.                        |
-| `codex`        | `codex exec "<prompt>"`                                                                                         |
-| `grok`         | `grok -p "<prompt>"` — xAI’s CLI agent, Apache 2.0.                                                             |
+| `codex`        | `codex exec [--model <model>] -- "<prompt>"`                                                                    |
+| `grok`         | `grok -p --yolo [--model <model>] -- "<prompt>"` — xAI’s CLI, Apache 2.0.                                       |
 | `hermes-agent` | `hermes agent run --prompt "<prompt>"`                                                                          |
 | `custom`       | Yours, via `HIVE_AGENT_CMD`.                                                                                    |
 | `shell`        | **Simulated** — no process spawned, the diffs are fake.                                                         |
 
 The node **detects what is installed** and uses it. It falls back to `shell`
-only when it finds no agent — and it says so. `HIVE_AGENT` forces the choice.
+only when it finds no agent — and it says so. On the first `npm run node`,
+multiple apps produce a simple menu; Hive then shows models found in local
+configuration without calling providers. The choice is saved on this machine.
+To change it:
+
+```bash
+npm run configurer:ia
+```
+
+`HIVE_AGENT` and `HIVE_MODELES` take precedence for automation. Local
+configuration does not prove account entitlement: Hive asks for confirmation
+before declaring a model routable.
 Your Claude subscription is enough, no API key:
 **[docs/WINDOWS-CLAUDE.md](docs/WINDOWS-CLAUDE.md)** (FR).
 
@@ -210,6 +221,7 @@ refuse to work in the open.
 | `npm run demo`              | Full demo (orchestrator + 2 nodes + project)                         |
 | `npm run dev`               | Orchestrator only                                                    |
 | `npm run node`              | A member node                                                        |
+| `npm run configurer:ia`     | Rechoose the local AI application and its models                     |
 | `npm run cli -- doctor`     | **The doctor** — 13 failure causes, each with the fixing command     |
 | `npm run cli -- sauvegarde` | SQLite backup via `VACUUM INTO`                                      |
 | `npm run cli -- service`    | Install the hive as a service (systemd · launchd · scheduled task)   |

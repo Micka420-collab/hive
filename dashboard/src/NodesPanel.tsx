@@ -34,7 +34,10 @@ import { useBaptemes } from './useBaptemes';
 const AGENT_ICON: Record<string, string> = {
   shell: '○',
   'claude-code': '✦',
+  cursor: '⌁',
+  cline: '◇',
   codex: '⌗',
+  grok: '×',
 };
 
 /**
@@ -205,6 +208,20 @@ function FicheOuvriere({
             {t('Technique', 'Technical')} · {noeud.name}
           </p>
         )}
+        <div className="fo-modeles">
+          <span>{t('Modèles confirmés', 'Confirmed models')}</span>
+          {noeud.modeles && noeud.modeles.length > 0 ? (
+            <span className="fo-modeles-liste">
+              {noeud.modeles.map((modele) => (
+                <code key={modele}>{modele}</code>
+              ))}
+            </span>
+          ) : (
+            <span className="muted-text">
+              {t('Automatique — l’application choisit', 'Automatic — the application chooses')}
+            </span>
+          )}
+        </div>
 
         {nectar && (
           <p className="fo-nectar">
@@ -408,6 +425,15 @@ export function NodesPanel({
                       · {PICTO_PLATEFORME[n.plateforme]} {n.plateforme}
                     </span>
                   )}
+                  {' · '}
+                  <span title={n.modeles?.join(', ')}>
+                    {n.modeles && n.modeles.length > 0
+                      ? t(
+                          `${n.modeles.length} modèle(s) confirmé(s)`,
+                          `${n.modeles.length} confirmed model(s)`,
+                        )
+                      : t('modèle automatique', 'automatic model')}
+                  </span>
                 </div>
                 <ProgressBar value={n.running} max={Math.max(n.maxConcurrency, 1)} />
               </div>

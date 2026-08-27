@@ -7502,6 +7502,17 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
 
   app.get<{ Params: { projectId: string }; Querystring: { limit?: number } }>(
     '/api/projects/:projectId/sauvegardes',
+    {
+      schema: {
+        querystring: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            limit: { type: 'integer', minimum: 1, maximum: 200 },
+          },
+        },
+      },
+    },
     async (req, reply) => {
       const project = projetLisible(req, reply);
       if (!project) return reply;

@@ -76,22 +76,29 @@ describe('HiveStore — sauvegardes d’étape', () => {
     store.close();
   });
 
-  it('pruneSauvegardes ne garde que les N plus récentes (tous projets)', () => {
+  it('pruneSauvegardes garde les N plus récentes de CHAQUE projet', () => {
     const store = new HiveStore(':memory:');
     const a = store.createProject({ name: 'A' });
     const b = store.createProject({ name: 'B' });
     for (let i = 0; i < 5; i++) {
       store.creerSauvegarde({
-        projectId: i % 2 === 0 ? a.id : b.id,
-        label: `m${i}`,
+        projectId: a.id,
+        label: `a${i}`,
         kind: 'manuel',
-        patch: `diff --git a/x b/x\n+${i}`,
+        patch: `diff --git a/a b/a\n+${i}`,
         createdAt: 1_000 + i,
       });
+      store.creerSauvegarde({
+        projectId: b.id,
+        label: `b${i}`,
+        kind: 'manuel',
+        patch: `diff --git a/b b/b\n+${i}`,
+        createdAt: 2_000 + i,
+      });
     }
-    expect(store.listSauvegardes(a.id).length + store.listSauvegardes(b.id).length).toBe(5);
-    expect(store.pruneSauvegardes(2)).toBe(3);
-    expect(store.listSauvegardes(a.id).length + store.listSauvegardes(b.id).length).toBe(2);
+    expect(store.pruneSauvegardes(2)).toBe(6);
+    expect(store.listSauvegardes(a.id).map((s) => s.label)).toEqual(['a4', 'a3']);
+    expect(store.listSauvegardes(b.id).map((s) => s.label)).toEqual(['b4', 'b3']);
     expect(store.pruneSauvegardes(2)).toBe(0);
     store.close();
 
@@ -208,5 +215,29 @@ describe('API /api/projects/:id/sauvegardes', () => {
       { method: 'POST', headers: auth(), body: '{}' },
     );
     expect(resto.status).toBe(409);
+  });
+
+  it('honore ?limit= et refuse les bornes invalides', async () => {
+    const pid = projetFrais('Projet SG limite');
+    for (let i = 0; i < 60; i++) {
+      server.store.creerSauvegarde({
+        projectId: pid,
+        label: `Point ${i}`,
+        kind: 'manuel',
+        patch: `diff --git a/x b/x\n+${i}`,
+        createdAt: 1_000 + i,
+      });
+    }
+
+    const large = await fetch(`${base}/api/projects/${pid}/sauvegardes?limit=200`, {
+      headers: auth(),
+    });
+    expect(large.status).toBe(200);
+    expect(((await large.json()) as { sauvegardes: unknown[] }).sauvegardes).toHaveLength(60);
+
+    const invalide = await fetch(`${base}/api/projects/${pid}/sauvegardes?limit=0`, {
+      headers: auth(),
+    });
+    expect(invalide.status).toBe(400);
   });
 });

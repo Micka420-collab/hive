@@ -2921,15 +2921,23 @@ export class HiveStore {
   }
 
   /**
-   * Ne conserve que les `maxKeep` sauvegardes les plus récentes (toutes
-   * projets confondus). Les étapes auto naissent à chaque diff réussi : sans
-   * cette borne, la table grandirait avec l'histoire de la ruche.
+   * Ne conserve que les `maxKeep` sauvegardes les plus récentes PAR PROJET.
+   * Une borne globale laisserait un projet actif effacer tous les points de
+   * restauration d'un projet calme — perte de données entre espaces pourtant
+   * indépendants. Les étapes auto naissent à chaque diff réussi : sans cette
+   * borne, la table grandirait avec l'histoire de la ruche.
    */
   pruneSauvegardes(maxKeep: number): number {
     const keep = Math.max(0, maxKeep);
     const info = this.db
       .prepare(
-        'DELETE FROM sauvegardes WHERE id NOT IN (SELECT id FROM sauvegardes ORDER BY createdAt DESC, id DESC LIMIT ?)',
+        'DELETE FROM sauvegardes WHERE id IN (' +
+          'SELECT id FROM (' +
+          'SELECT id, ROW_NUMBER() OVER (' +
+          'PARTITION BY projectId ORDER BY createdAt DESC, id DESC' +
+          ') AS rang FROM sauvegardes' +
+          ') WHERE rang > ?' +
+          ')',
       )
       .run(keep);
     return info.changes;

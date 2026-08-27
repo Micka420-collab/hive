@@ -51,6 +51,11 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `CURSOR_API_KEY` / `~/.cursor`. Quand plusieurs agents réels sont détectés
   (Claude Code, Cursor, Codex…) et qu'un terminal est disponible, le nœud
   **demande lequel utiliser** (`choisir-agent.ts`) ; `HIVE_AGENT` force toujours.
+- **Premier lancement IA : application puis modèle.** Hive inventorie sans
+  réseau les modèles nommés dans les configurations locales Claude, Cursor,
+  Codex et Grok, distingue configuration et simple suggestion, puis demande un
+  choix court. Application + modèles confirmés sont mémorisés sur ce poste ;
+  `npm run configurer:ia` les rouvre.
 - **OpenAlex runtime.** `openalex-veille.ts` : extrait littérature dans planner LLM ;
   veille dans Queen Bee, Reine/concierge, tâches et planner heuristique.
 - **Wizard onboarding Essaim.** `OnboardingEssaim.tsx` : checklist interactive jusqu’au
@@ -73,6 +78,12 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **Aiguillage modèle réellement exécuté.** Codex et Grok reçoivent désormais
+  `--model` comme Claude Code et Cursor. Un nœud refuse avant exécution tout
+  modèle que ce poste n'a pas confirmé, et les noms ressemblant à des options
+  ou contenant des contrôles sont écartés.
+- **Modèles visibles par machine.** La fiche d'une ouvrière affiche ses modèles
+  confirmés, ou dit explicitement que l'application choisit automatiquement.
 - **Mode production agents.** `agent-production.ts` : le nœud refuse de démarrer
   en shell sans `HIVE_SIMULATION=1` ou `HIVE_AGENT=shell` ; le scheduler n'assigne
   pas aux agents simulés hors mode démo. Protocole réquisition nœud (cherry-pick #347).
@@ -190,6 +201,18 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **🧭 Mission Control plus simple à parcourir.** Les treize vues sont groupées
+  par intention (Piloter, Produire, Observer, Votre espace, Administration),
+  avec une courte description. Sur mobile, la sidebar devient un vrai tiroir
+  et libère toute la largeur. La topbar réunit compte, invitation, langue et
+  jeton dans un menu unique ; hors ligne, un bandeau guide explicitement la
+  connexion. Ajout d'un lien d'évitement et d'un landmark principal.
+- **🌱 Premier projet sans jargon.** La modale demande d'abord un nom et une
+  mission en langage naturel ; modèles et graphe JSON vivent sous « Options
+  avancées ». Le bouton dit « Créer le projet ». Les vides du Rayon, de la
+  Miellerie, des Chantiers et de Mon espace proposent directement le prochain
+  geste au lieu d'imposer un détour.
+
 - **🖥 Mission Control plus pro, façon Craft / Apple.** Même ruche (miel unique
   accent, hexagone marque) : papier plus clair, barre charbon brossée, logo SVG
   à la place de l'emoji, **glyphes SVG de navigation** (plus de lettres), topbar
@@ -207,6 +230,21 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   (plus de ⚠ décoratif).
 
 ### Fixed
+
+- **💾 Sauvegardes isolées par projet.** La rétention garde désormais les N
+  étapes de **chaque** projet : l'activité d'un dépôt ne peut plus effacer les
+  points de restauration d'un autre. `GET …/sauvegardes?limit=` est validé et
+  réellement appliqué (1–200).
+- **📂 Rayon sans contenu croisé.** Quand deux fichiers sont ouverts rapidement,
+  une réponse réseau lente de l'ancien fichier ne peut plus remplacer le
+  contenu du dernier fichier sélectionné.
+- **✓ Revue sans faux succès.** Un verdict rejeté définitivement par l'API
+  restaure maintenant la décision serveur au lieu de rester affiché comme
+  enregistré. Mission Control l'annonce immédiatement ; une panne transitoire
+  garde le verdict dans la file de synchronisation.
+- **🧪 Porte d'installeur sans flake.** Le banc du point d'entrée `hive` utilise
+  un port libre fourni par l'OS ; il ne concurrence plus les tests qui occupent
+  volontairement 7777.
 
 - **👑 Les bancs de la Reine ne confondent plus l'Atelier avec le chat.**
   `AtelierRecette` sonde `/api/atelier` au montage de la vue Reine. Les tests

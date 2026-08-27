@@ -13,6 +13,7 @@ import path from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { agentCredentialEnv, detectAllAgents } from './agent-detect.js';
 import { resoudreAgentAuDemarrage } from './choisir-agent.js';
+import { resoudreModelesAuDemarrage } from './choisir-modele.js';
 import { optionBac, preparerBac } from './bac.js';
 import { CODE } from '../codes-sortie.js';
 import { libelleAgent } from '../shared/agent-libelle.js';
@@ -23,6 +24,8 @@ import type { Billet } from '../shared/acces.js';
 import { LIMITS } from '../shared/protocol.js';
 import { bornerConcurrence, identiteStable, lireCle, rangerCle } from './identite-noeud.js';
 import { annonceAgent, avertissementTransport } from './annonces-join.js';
+import { inventorierModelesLocaux } from './modeles-locaux.js';
+import { ecrirePreferencesIA, lirePreferencesIA } from './preferences-ia.js';
 
 try {
   process.loadEnvFile('.env');
@@ -134,8 +137,17 @@ async function askInviteInteractif(): Promise<string> {
 }
 
 async function main(): Promise<void> {
+  const workRoot = process.env.HIVE_WORKDIR ?? path.join('.hive-work', 'join');
+  const reconfigurerIA = process.argv.includes('--configurer-ia');
+  const preferencesIA = lirePreferencesIA(workRoot);
   const raw =
-    process.argv.slice(2).join(' ').trim() || process.env.HIVE_INVITE || (await askInvite());
+    process.argv
+      .slice(2)
+      .filter((arg) => arg !== '--configurer-ia')
+      .join(' ')
+      .trim() ||
+    process.env.HIVE_INVITE ||
+    (await askInvite());
 
   // Deux formats, deux modèles de sécurité :
   //   • `hive2_` — un BILLET. Éphémère et révocable, échangé contre une clé
@@ -160,7 +172,8 @@ async function main(): Promise<void> {
   // ne met PAS le token dans l'environnement avant, sinon un binaire homonyme
   // malveillant (claude.cmd déposé en tête de PATH) l'hériterait. Le token n'est
   // exposé qu'ensuite, pour le seul adaptateur choisi.
-  const demanderAgent =
+  const interactif = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+  const demanderChoix =
     process.stdin.isTTY && process.stdout.isTTY
       ? async (question: string): Promise<string> => {
           const rl = createInterface({ input: process.stdin, output: process.stdout });
@@ -171,15 +184,45 @@ async function main(): Promise<void> {
           }
         }
       : undefined;
-  const detected = await resoudreAgentAuDemarrage({
-    stdinEstTty: Boolean(process.stdin.isTTY && process.stdout.isTTY),
-    demander: demanderAgent,
-  });
   const allAgents = await detectAllAgents();
+  const preferenceAgentApplicable = Boolean(
+    !reconfigurerIA && preferencesIA && allAgents.includes(preferencesIA.agent),
+  );
+  const detected = await resoudreAgentAuDemarrage({
+    agentsDetectes: allAgents,
+    ...(preferencesIA ? { preferenceAgent: preferencesIA.agent } : {}),
+    reconfigurer: reconfigurerIA,
+    stdinEstTty: interactif,
+    demander: demanderChoix,
+  });
+  const modelesDeclares = await resoudreModelesAuDemarrage({
+    agent: detected.agent,
+    candidats: inventorierModelesLocaux(detected.agent),
+    stdinEstTty: interactif,
+    demander: demanderChoix,
+    reconfigurer: reconfigurerIA,
+    ...(preferencesIA?.agent === detected.agent ? { preference: preferencesIA.modeles } : {}),
+  });
 
-  const workRoot = process.env.HIVE_WORKDIR ?? path.join('.hive-work', 'join');
   const maxConcurrency = bornerConcurrence(process.env.HIVE_MAX_CONCURRENCY);
   const nodeId = identiteStable(workRoot);
+
+  if (
+    interactif &&
+    detected.agent !== 'shell' &&
+    !(process.env.HIVE_AGENT ?? '').trim() &&
+    !(process.env.HIVE_MODELES ?? '').trim() &&
+    (reconfigurerIA || !preferenceAgentApplicable)
+  ) {
+    const fichier = ecrirePreferencesIA(workRoot, {
+      version: 1,
+      agent: detected.agent,
+      modeles: modelesDeclares ?? null,
+    });
+    console.log(
+      `   ✓ Choix IA mémorisé dans ${fichier}. Reconfigurer : npm run join -- --configurer-ia <invitation>\n`,
+    );
+  }
 
   // Toujours afficher l'URL RÉELLE de connexion, jamais masquée par le libellé :
   // c'est là que part le token, l'utilisateur doit pouvoir la vérifier.
@@ -191,6 +234,9 @@ async function main(): Promise<void> {
   if (avertissement) console.log(avertissement);
   console.log(`   Agents détectés : ${allAgents.map((a) => libelleAgent(a)).join(', ')}`);
   console.log(`   Agent utilisé   : ${detected.label}`);
+  console.log(
+    `   Modèle(s)       : ${modelesDeclares?.join(', ') ?? 'automatique (choix de l’application)'}`,
+  );
   const motAgent = annonceAgent(detected.agent, allAgents);
   if (motAgent) console.log(motAgent);
 
@@ -272,6 +318,7 @@ async function main(): Promise<void> {
     workRoot,
     nodeId,
     keepEnv,
+    ...(modelesDeclares ? { modeles: modelesDeclares } : {}),
     ...optionBac(bac, keepEnv),
   });
 

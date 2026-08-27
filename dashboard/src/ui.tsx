@@ -81,6 +81,53 @@ export function Voile({ onClose, children }: { onClose: () => void; children: Re
   );
 }
 
+interface EmptyAction {
+  label: string;
+  onClick: () => void;
+}
+
+/**
+ * État vide partagé : une explication courte et un prochain geste concret.
+ * Les anciens vides mélangeaient prose poétique, bouton ou aucune issue selon
+ * la vue ; ici, l'utilisateur sait toujours pourquoi l'écran est vide et quoi
+ * faire ensuite.
+ */
+export function FriendlyEmptyState({
+  title,
+  description,
+  primary,
+  secondary,
+}: {
+  title: string;
+  description: string;
+  primary?: EmptyAction;
+  secondary?: EmptyAction;
+}) {
+  return (
+    <section className="friendly-empty">
+      <span className="friendly-empty-mark" aria-hidden="true" />
+      <div className="friendly-empty-copy">
+        <h2>{title}</h2>
+        <p>{description}</p>
+      </div>
+      {(primary || secondary) && (
+        <div className="friendly-empty-actions">
+          {primary && (
+            <button type="button" className="btn primary" onClick={primary.onClick}>
+              {primary.label}
+            </button>
+          )}
+          {secondary && (
+            <button type="button" className="btn ghost" onClick={secondary.onClick}>
+              {secondary.label}
+            </button>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
 /** Un dialogue modal (tiroir, modale) est-il ouvert ? Neutralise les raccourcis globaux. */
 export function modalOpen(): boolean {
   return document.querySelector('[role="dialog"][aria-modal="true"]') !== null;

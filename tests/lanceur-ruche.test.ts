@@ -24,7 +24,7 @@
 // notre coup de grâce, pas l'arrêt du lanceur (même raison que
 // `reine-demarrage.test.ts`).
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createServer, type Server } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -127,6 +127,15 @@ function envRuche(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
 }
 
 describe('le lanceur de la ruche — vie et mort', () => {
+  it('UN TERMINAL RÉEL RESTE ACCESSIBLE À L’OUVRIÈRE POUR LE PREMIER CHOIX IA', () => {
+    const source = readFileSync(LANCEUR, 'utf8');
+    expect(source).toContain("p.nom === 'ouvrière'");
+    expect(source).toMatch(
+      /stdio:\s*ouvriereInteractive\s*\?\s*\['inherit',\s*'inherit',\s*'inherit'\]/,
+    );
+    expect(source).toContain("HIVE_TTY_ASSISTE: '1'");
+  });
+
   it.runIf(POSIX)(
     '^C ARRÊTE TOUT — bannière, Reine en ligne, arrêt dit, code 0',
     async () => {

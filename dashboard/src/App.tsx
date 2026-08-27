@@ -23,16 +23,11 @@ import { AccountPanel } from './AccountPanel';
 import { setLang, useLang, useT } from './i18n';
 import { InvitePanel } from './InvitePanel';
 import { NewProjectModal } from './NewProjectModal';
+import { ShellNavigation, type NavItem } from './ShellNavigation';
 import { TaskDrawer } from './TaskDrawer';
 import { transitionDifferees } from './differees';
 import { annoncesDepuisEvenements } from './horloge-vue';
-import {
-  compteAffiche,
-  doitSonder,
-  pastilleDesAlertes,
-  phraseAlertes,
-  porteLaPastille,
-} from './views/pastille-alertes';
+import { doitSonder, pastilleDesAlertes } from './views/pastille-alertes';
 import { modalOpen } from './ui';
 import Ruche from './views/Ruche';
 import {
@@ -41,7 +36,6 @@ import {
   countPendingReviews,
   countUnsyncedReviews,
   hydrateReviews,
-  Sparkline,
   useApiPoll,
   useReviewTick,
 } from './views/shared';
@@ -65,151 +59,127 @@ const Chambre = lazy(() => import('./views/Chambre'));
 
 const EMPTY: StateSnapshot = { projects: [], nodes: [], tasks: [], tasksTotal: 0 };
 
-interface NavItem {
-  id: ViewId;
-  label: string;
-  labelEn: string;
-  key: string;
-  /** Vue d'administration : la case n'est montrée qu'aux admins. */
-  admin?: true;
-}
-
 const NAV: NavItem[] = [
-  { id: 'ruche', label: 'Ruche', labelEn: 'Hive', key: '1' },
-  { id: 'reine', label: 'Reine', labelEn: 'Queen', key: '2' },
-  { id: 'miellerie', label: 'Miellerie', labelEn: 'Honey House', key: '3' },
-  { id: 'projets', label: 'Projets', labelEn: 'Projects', key: '4' },
-  { id: 'essaim', label: 'Essaim', labelEn: 'Swarm', key: '5' },
-  { id: 'sante', label: 'Santé', labelEn: 'Health', key: '6' },
-  { id: 'chronique', label: 'Chronique', labelEn: 'Chronicle', key: '7' },
-  { id: 'memoire', label: 'Mémoire', labelEn: 'Memory', key: '8' },
-  { id: 'rayon', label: 'Rayon', labelEn: 'Comb', key: '9' },
-  { id: 'monespace', label: 'Mon espace', labelEn: 'My space', key: '0' },
-  { id: 'chantiers', label: 'Chantiers', labelEn: 'Works', key: 'h' },
+  {
+    id: 'ruche',
+    label: 'Ruche',
+    labelEn: 'Hive',
+    description: 'Vue d’ensemble',
+    descriptionEn: 'Overview',
+    key: '1',
+    section: 'piloter',
+  },
+  {
+    id: 'reine',
+    label: 'Reine',
+    labelEn: 'Queen',
+    description: 'Assistant & décisions',
+    descriptionEn: 'Assistant & decisions',
+    key: '2',
+    section: 'piloter',
+  },
+  {
+    id: 'projets',
+    label: 'Projets',
+    labelEn: 'Projects',
+    description: 'Créer & organiser',
+    descriptionEn: 'Create & organize',
+    key: '4',
+    section: 'produire',
+  },
+  {
+    id: 'miellerie',
+    label: 'Miellerie',
+    labelEn: 'Honey House',
+    description: 'Revoir & fusionner',
+    descriptionEn: 'Review & merge',
+    key: '3',
+    section: 'produire',
+  },
+  {
+    id: 'rayon',
+    label: 'Rayon',
+    labelEn: 'Comb',
+    description: 'Code & sauvegardes',
+    descriptionEn: 'Code & backups',
+    key: '9',
+    section: 'produire',
+  },
+  {
+    id: 'chantiers',
+    label: 'Chantiers',
+    labelEn: 'Works',
+    description: 'Scripts & automatisations',
+    descriptionEn: 'Scripts & automation',
+    key: 'h',
+    section: 'produire',
+  },
+  {
+    id: 'essaim',
+    label: 'Essaim',
+    labelEn: 'Swarm',
+    description: 'Agents & capacité',
+    descriptionEn: 'Agents & capacity',
+    key: '5',
+    section: 'observer',
+  },
+  {
+    id: 'sante',
+    label: 'Santé',
+    labelEn: 'Health',
+    description: 'État & alertes',
+    descriptionEn: 'Status & alerts',
+    key: '6',
+    section: 'observer',
+  },
+  {
+    id: 'chronique',
+    label: 'Chronique',
+    labelEn: 'Chronicle',
+    description: 'Historique d’activité',
+    descriptionEn: 'Activity history',
+    key: '7',
+    section: 'observer',
+  },
+  {
+    id: 'memoire',
+    label: 'Mémoire',
+    labelEn: 'Memory',
+    description: 'Connaissances apprises',
+    descriptionEn: 'Learned knowledge',
+    key: '8',
+    section: 'observer',
+  },
+  {
+    id: 'monespace',
+    label: 'Mon espace',
+    labelEn: 'My space',
+    description: 'Compte & préférences',
+    descriptionEn: 'Account & preferences',
+    key: '0',
+    section: 'espace',
+  },
   {
     id: 'intendance',
     label: 'Intendance',
     labelEn: 'Stewardship',
+    description: 'Membres & machines',
+    descriptionEn: 'Members & machines',
     key: 'i',
+    section: 'admin',
     admin: true,
   },
   {
     id: 'cerveau',
     label: 'Cerveau',
     labelEn: 'Brain',
+    description: 'Graphe de connaissances',
+    descriptionEn: 'Knowledge graph',
     key: 'c',
+    section: 'admin',
     admin: true,
   },
 ];
-
-/** Traits fins façon produit : lisibles à 22 px, sans emoji. */
-function NavGlyph({ id }: { id: ViewId }) {
-  const common = {
-    viewBox: '0 0 24 24',
-    fill: 'none',
-    stroke: 'currentColor',
-    strokeWidth: 1.75,
-    strokeLinecap: 'round' as const,
-    strokeLinejoin: 'round' as const,
-    'aria-hidden': true as const,
-  };
-  switch (id) {
-    case 'ruche':
-      return (
-        <svg {...common}>
-          <path d="M12 3.2 19.5 7.5v9L12 20.8 4.5 16.5v-9L12 3.2Z" />
-        </svg>
-      );
-    case 'reine':
-      return (
-        <svg {...common}>
-          <path d="M5 18h14l-1.2-8.2L14 12l-2-5-2 5-3.8-2.2L5 18Z" />
-          <path d="M7 18h10v1.5H7V18Z" />
-        </svg>
-      );
-    case 'miellerie':
-      return (
-        <svg {...common}>
-          <path d="M4 10.5 12 4l8 6.5V20H4V10.5Z" />
-          <path d="M10 20v-6h4v6" />
-        </svg>
-      );
-    case 'projets':
-      return (
-        <svg {...common}>
-          <path d="M4 7.5h6l1.5 1.8H20V18a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18V7.5Z" />
-        </svg>
-      );
-    case 'essaim':
-      return (
-        <svg {...common}>
-          <circle cx="8" cy="9" r="2.2" />
-          <circle cx="16" cy="9" r="2.2" />
-          <circle cx="12" cy="16" r="2.2" />
-          <path d="M9.7 10.4 11 14.2M14.3 10.4 13 14.2" />
-        </svg>
-      );
-    case 'sante':
-      return (
-        <svg {...common}>
-          <path d="M4 12h3.2l1.6-3.5 2.4 7 2-4.2H20" />
-        </svg>
-      );
-    case 'chronique':
-      return (
-        <svg {...common}>
-          <path d="M7 5h12v14H7a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z" />
-          <path d="M9 9h7M9 12.5h7M9 16h4" />
-        </svg>
-      );
-    case 'memoire':
-      return (
-        <svg {...common}>
-          <path d="M6 5.5h9.5A2.5 2.5 0 0 1 18 8v11H8.5A2.5 2.5 0 0 1 6 16.5v-11Z" />
-          <path d="M6 16.5h9.5" />
-        </svg>
-      );
-    case 'rayon':
-      return (
-        <svg {...common}>
-          <path d="M8 4.5h8v5H8zM4.5 11h6.5v8.5H4.5zM13 11h6.5v8.5H13z" />
-        </svg>
-      );
-    case 'monespace':
-      return (
-        <svg {...common}>
-          <circle cx="12" cy="9" r="3.2" />
-          <path d="M5.5 19c1.6-3.2 4-4.8 6.5-4.8S16.9 15.8 18.5 19" />
-        </svg>
-      );
-    case 'chantiers':
-      return (
-        <svg {...common}>
-          <path d="M14.5 5.5 18.5 9.5 10 18H6v-4L14.5 5.5Z" />
-          <path d="M12.8 7.2 16.8 11.2" />
-        </svg>
-      );
-    case 'intendance':
-      return (
-        <svg {...common}>
-          <path d="M12 3.5 19 6.5v5.2c0 4.2-2.9 7.4-7 8.8-4.1-1.4-7-4.6-7-8.8V6.5L12 3.5Z" />
-        </svg>
-      );
-    case 'cerveau':
-      return (
-        <svg {...common}>
-          <path d="M9 7.2a3 3 0 0 1 6 0c1.6.4 2.7 1.8 2.7 3.5 0 1.4-.8 2.6-2 3.2v3.6H8.3v-3.6c-1.2-.6-2-1.8-2-3.2 0-1.7 1.1-3.1 2.7-3.5Z" />
-          <path d="M10 17.5h4" />
-        </svg>
-      );
-    default:
-      return (
-        <svg {...common}>
-          <circle cx="12" cy="12" r="6" />
-        </svg>
-      );
-  }
-}
 
 /**
  * TOUS les identifiants de vue, y compris ceux qui ne sont pas dans la barre.
@@ -273,6 +243,11 @@ export function App() {
   const [route, setRoute] = useState(parseHash);
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
   const [showNewProject, setShowNewProject] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [reviewSyncError, setReviewSyncError] = useState<{
+    definitive: boolean;
+    taskId: string;
+  } | null>(null);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
   const reviewTick = useReviewTick();
@@ -373,9 +348,40 @@ export function App() {
 
   // ─── Navigation par hash ────────────────────────────────────────────────────
   useEffect(() => {
-    const onHash = () => setRoute(parseHash());
+    const onHash = () => {
+      setRoute(parseHash());
+      setMobileNavOpen(false);
+    };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMobileNavOpen(false);
+    };
+    document.body.classList.add('mc-nav-open');
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.body.classList.remove('mc-nav-open');
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [mobileNavOpen]);
+
+  useEffect(() => {
+    const onError = (event: Event) => {
+      const detail = (event as CustomEvent<unknown>).detail;
+      if (!detail || typeof detail !== 'object') return;
+      const value = detail as { definitive?: unknown; taskId?: unknown };
+      if (typeof value.taskId !== 'string') return;
+      setReviewSyncError({
+        definitive: value.definitive === true,
+        taskId: value.taskId,
+      });
+    };
+    window.addEventListener('hive:review-sync-error', onError);
+    return () => window.removeEventListener('hive:review-sync-error', onError);
   }, []);
 
   const navigate = (view: ViewId, selectedId?: string, opts?: { replace?: boolean }) => {
@@ -506,88 +512,61 @@ export function App() {
   // non dans le tiroir : le repli parcourt tout le flux, et le refaire à chaque
   // ouverture du tiroir le referait à chaque événement pendant qu'il est ouvert.
   const annonces = useMemo(() => annoncesDepuisEvenements(events), [events]);
-  const current = NAV.find((n) => n.id === route.view) ?? NAV[0]!;
+  const current =
+    route.view === 'chambre'
+      ? {
+          id: 'chambre' as const,
+          label: 'Chambre',
+          labelEn: 'Workstation',
+          description: 'Poste de l’ouvrière',
+          descriptionEn: 'Worker workstation',
+          key: '',
+          section: 'observer' as const,
+        }
+      : (NAV.find((n) => n.id === route.view) ?? NAV[0]!);
 
   return (
     <div className="app mc-app">
-      <nav className="mc-sidebar" aria-label={t('Navigation principale', 'Main navigation')}>
-        <div className="mc-sidebar-brand" title="Hive — Mission Control">
-          <span className="brand-logo" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path
-                d="M12 2.2 20.2 7v10L12 21.8 3.8 17V7L12 2.2Z"
-                fill="#F6C445"
-                fillOpacity="0.92"
-              />
-              <path
-                d="M12 6.2 16.8 9v6L12 17.8 7.2 15V9L12 6.2Z"
-                fill="#141210"
-                fillOpacity="0.88"
-              />
-            </svg>
-          </span>
-          {/* Le nom écrit, et pas seulement la marque : sur la barre large du
-              design, le logo seul laissait un vide que rien n'expliquait. */}
-          <span className="mc-sidebar-brand">
-            <span className="mc-sidebar-word">Hive</span>
-            <span className="mc-sidebar-product">Mission Control</span>
-          </span>
-        </div>
-        <ul className="mc-nav">
-          {NAV.filter((item) => !item.admin || estAdmin(user)).map((item) => (
-            <li key={item.id}>
-              <button
-                className={`mc-nav-cell${route.view === item.id ? ' active' : ''}`}
-                onClick={() => navigate(item.id)}
-                title={`${lang === 'fr' ? item.label : item.labelEn} (${t('touche', 'key')} ${item.key})`}
-                aria-current={route.view === item.id ? 'page' : undefined}
-              >
-                <span className="mc-nav-icon" aria-hidden="true">
-                  <NavGlyph id={item.id} />
-                </span>
-                <span className="mc-nav-label">{lang === 'fr' ? item.label : item.labelEn}</span>
-                {porteLaPastille(item.id, pastille) && (
-                  <span
-                    className={`mc-nav-badge mc-nav-badge--${pastille.gravite}`}
-                    data-gravite={pastille.gravite}
-                    aria-label={phraseAlertes(pastille, lang)}
-                    title={phraseAlertes(pastille, lang)}
-                  >
-                    {compteAffiche(pastille.total)}
-                  </span>
-                )}
-                {item.id === 'miellerie' && pendingReviews > 0 && (
-                  <span
-                    className="mc-nav-badge"
-                    title={`${pendingReviews} ${t('production(s) à revoir', 'production(s) to review')}`}
-                  >
-                    {pendingReviews > 99 ? '99+' : pendingReviews}
-                  </span>
-                )}
-              </button>
-            </li>
-          ))}
-        </ul>
-        <div
-          className="mc-sidebar-pulse"
-          title={t('Pouls de la ruche (débit/h)', 'Hive pulse (throughput/h)')}
-        >
-          <Sparkline values={beatValues} width={64} height={22} beat />
-          <span className="mc-pulse-rate">
-            {pulse.data ? `${Math.round(pulse.data.successRate * 100)}%` : '—'}
-          </span>
-        </div>
-      </nav>
+      <a className="mc-skip-link" href="#main-content">
+        {t('Aller au contenu', 'Skip to content')}
+      </a>
+      <ShellNavigation
+        items={NAV.filter((item) => !item.admin || estAdmin(user))}
+        current={route.view}
+        lang={lang}
+        t={t}
+        onNavigate={navigate}
+        pendingReviews={pendingReviews}
+        pastille={pastille}
+        beatValues={beatValues}
+        successRate={pulse.data?.successRate ?? null}
+        mobileOpen={mobileNavOpen}
+        onMobileClose={() => setMobileNavOpen(false)}
+      />
 
       <div className="mc-body">
         <header className="topbar mc-topbar">
           <div className="brand">
+            <button
+              type="button"
+              className="mc-mobile-menu-btn"
+              aria-label={t('Ouvrir la navigation', 'Open navigation')}
+              aria-controls="mc-primary-navigation"
+              aria-expanded={mobileNavOpen}
+              onClick={() => setMobileNavOpen(true)}
+            >
+              <span aria-hidden="true" />
+              <span aria-hidden="true" />
+              <span aria-hidden="true" />
+            </button>
             <div>
               <h1>{lang === 'fr' ? current.label : current.labelEn}</h1>
               <span className="brand-sub">
-                {snapshot.projects.length === 0
-                  ? t('Prête — un projet, ce nœud', 'Ready — one project, this node')
-                  : `${snapshot.projects.length} ${t('projet(s)', 'project(s)')} · ${snapshot.nodes.length} ${t('nœud(s)', 'node(s)')}`}
+                {lang === 'fr' ? current.description : current.descriptionEn}
+                {' · '}
+                {snapshot.projects.length} {t('projet(s)', 'project(s)')}
+                {' · '}
+                {snapshot.nodes.length} {t('nœud(s)', 'node(s)')}
               </span>
             </div>
           </div>
@@ -601,27 +580,6 @@ export function App() {
                 {t('+ Projet', '+ Project')}
               </button>
             )}
-            <button
-              className="btn ghost mc-lang"
-              data-testid="mc-lang"
-              onClick={() => setLang(lang === 'fr' ? 'en' : 'fr')}
-              title={t('Basculer l’interface en anglais', 'Switch interface to French')}
-            >
-              {lang === 'fr' ? 'EN' : 'FR'}
-            </button>
-            <AccountPanel user={user} onUser={setUser} />
-            <InvitePanel />
-            <input
-              type="password"
-              className={`token-input${tokenAuthError ? ' token-input-err' : ''}`}
-              placeholder={t('Jeton', 'Token')}
-              title={t('Token de la ruche (x-hive-token)', 'Hive token (x-hive-token)')}
-              value={token}
-              onChange={(e) => setTokenState(e.target.value)}
-              onBlur={applyToken}
-              onKeyDown={(e) => e.key === 'Enter' && applyToken()}
-              aria-invalid={tokenAuthError || undefined}
-            />
             {unsyncedReviews > 0 && (
               <span
                 className="mc-unsynced"
@@ -633,9 +591,6 @@ export function App() {
                 {unsyncedReviews} {t('revue(s) non synchronisée(s)', 'unsynced review(s)')}
               </span>
             )}
-            {/* Le voyant d'à côté dit si le NAVIGATEUR parle au hub. Il était
-                vert pendant que « 0 nœud(s) actif(s) » travaillait sur rien :
-                deux questions distinctes, donc deux voyants distincts. */}
             {(() => {
               const agents = agentsConnectes(snapshot.nodes);
               const etat = etatBandeau(agents);
@@ -662,7 +617,7 @@ export function App() {
                         );
               return (
                 <span className={`mc-ia mc-ia-${etat}`} data-testid="mc-ia" title={titre}>
-                  <span className="conn-dot" />
+                  <span className="conn-dot" aria-hidden="true" />
                   <span data-testid="mc-ia-mot">
                     {etat === 'reelle'
                       ? reels.map((a) => a.libelle).join(' · ')
@@ -675,45 +630,172 @@ export function App() {
                 </span>
               );
             })()}
-            <span className={connected ? 'conn online' : 'conn offline'}>
-              <span className="conn-dot" />
-              {connected ? t('connecté', 'connected') : t('hors ligne', 'offline')}
-            </span>
+            <details className="mc-utility">
+              <summary
+                className={`mc-utility-trigger ${connected ? 'online' : 'offline'}`}
+                aria-label={t('Ouvrir les réglages et le compte', 'Open settings and account')}
+              >
+                <span className="conn-dot" aria-hidden="true" />
+                <span className="mc-utility-status">
+                  {connected ? t('Connecté', 'Connected') : t('Hors ligne', 'Offline')}
+                </span>
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M5 7h14M8 12h8M10 17h4" />
+                </svg>
+              </summary>
+              <div className="mc-utility-popover">
+                <div className="mc-utility-heading">
+                  <span className={`conn ${connected ? 'online' : 'offline'}`}>
+                    <span className="conn-dot" aria-hidden="true" />
+                    {connected
+                      ? t('Ruche connectée', 'Hive connected')
+                      : t('Ruche hors ligne', 'Hive offline')}
+                  </span>
+                  <p>
+                    {t(
+                      'Compte, invitation, langue et connexion au même endroit.',
+                      'Account, invitation, language and connection in one place.',
+                    )}
+                  </p>
+                </div>
+
+                {connected && (
+                  <label className="mc-token-field" htmlFor="hive-token-menu">
+                    <span>{t('Jeton de la ruche', 'Hive token')}</span>
+                    <input
+                      id="hive-token-menu"
+                      type="password"
+                      className={`token-input${tokenAuthError ? ' token-input-err' : ''}`}
+                      placeholder={t('Jeton', 'Token')}
+                      value={token}
+                      onChange={(e) => setTokenState(e.target.value)}
+                      onBlur={applyToken}
+                      onKeyDown={(e) => e.key === 'Enter' && applyToken()}
+                      aria-invalid={tokenAuthError || undefined}
+                      autoComplete="off"
+                    />
+                  </label>
+                )}
+
+                <div className="mc-utility-actions">
+                  <AccountPanel user={user} onUser={setUser} />
+                  <InvitePanel />
+                  <button
+                    type="button"
+                    className="btn ghost mc-lang"
+                    data-testid="mc-lang"
+                    onClick={() => setLang(lang === 'fr' ? 'en' : 'fr')}
+                  >
+                    {t('Interface en anglais', 'Interface in French')} ·{' '}
+                    <strong>{lang === 'fr' ? 'EN' : 'FR'}</strong>
+                  </button>
+                </div>
+              </div>
+            </details>
           </div>
         </header>
 
-        {tokenAuthError && (
-          <div className="mc-token-banner" role="alert">
-            <p>
-              {t(
-                'Jeton de ruche refusé — collez dans le champ « Jeton » (en haut à droite) la valeur exacte de HIVE_TOKEN depuis le fichier .env de l’orchestrateur. Ce n’est pas le jeton GitHub.',
-                'Hive token rejected — paste the exact HIVE_TOKEN from the orchestrator’s .env into the Token field (top right). This is not the GitHub token.',
-              )}
-            </p>
-          </div>
+        {!connected && (
+          <section className="mc-connection-guide" aria-labelledby="mc-connection-title">
+            <span className="mc-connection-mark" aria-hidden="true" />
+            <div className="mc-connection-copy">
+              <strong id="mc-connection-title">
+                {tokenAuthError
+                  ? t('Jeton de ruche refusé', 'Hive token rejected')
+                  : t(
+                      'Connectez Mission Control à votre ruche',
+                      'Connect Mission Control to your hive',
+                    )}
+              </strong>
+              <span>
+                {tokenAuthError
+                  ? t(
+                      'Collez la valeur exacte de HIVE_TOKEN depuis le .env de la Reine — pas le jeton GitHub.',
+                      'Paste the exact HIVE_TOKEN from the Queen .env — not the GitHub token.',
+                    )
+                  : t(
+                      'Collez HIVE_TOKEN depuis votre fichier .env. Il reste dans ce navigateur.',
+                      'Paste HIVE_TOKEN from your .env file. It stays in this browser.',
+                    )}
+              </span>
+            </div>
+            <label className="mc-connection-token" htmlFor="hive-token-guide">
+              <span className="sr-only">{t('Jeton de la ruche', 'Hive token')}</span>
+              <input
+                id="hive-token-guide"
+                type="password"
+                className={`token-input${tokenAuthError ? ' token-input-err' : ''}`}
+                placeholder={t('Votre jeton HIVE_TOKEN', 'Your HIVE_TOKEN')}
+                value={token}
+                onChange={(e) => setTokenState(e.target.value)}
+                onBlur={applyToken}
+                onKeyDown={(e) => e.key === 'Enter' && applyToken()}
+                aria-invalid={tokenAuthError || undefined}
+                autoComplete="off"
+              />
+            </label>
+            <button type="button" className="btn primary" onClick={applyToken}>
+              {t('Connecter', 'Connect')}
+            </button>
+          </section>
         )}
 
-        <Suspense
-          fallback={
-            <div className="mc-view-loading">{t('Chargement de la vue…', 'Loading view…')}</div>
-          }
-        >
-          {route.view === 'ruche' && <Ruche {...viewProps} />}
-          {route.view === 'miellerie' && <Miellerie {...viewProps} />}
-          {route.view === 'projets' && <Projets {...viewProps} />}
-          {route.view === 'essaim' && <Essaim {...viewProps} />}
-          {route.view === 'sante' && <Sante {...viewProps} />}
-          {route.view === 'chronique' && <Chronique {...viewProps} />}
-          {route.view === 'memoire' && <Memoire {...viewProps} />}
-          {route.view === 'reine' && <Reine {...viewProps} />}
-          {route.view === 'rayon' && <Rayon {...viewProps} />}
-          {route.view === 'monespace' && <MonEspace {...viewProps} />}
-          {route.view === 'intendance' && <Intendance {...viewProps} />}
-          {route.view === 'cerveau' && <Cerveau {...viewProps} />}
-          {route.view === 'chantiers' && <Chantiers {...viewProps} />}
-          {route.view === 'chambre' && <Chambre {...viewProps} />}
-        </Suspense>
+        <main id="main-content" className="mc-main" tabIndex={-1}>
+          <Suspense
+            fallback={
+              <div className="mc-view-loading">{t('Chargement de la vue…', 'Loading view…')}</div>
+            }
+          >
+            {route.view === 'ruche' && <Ruche {...viewProps} />}
+            {route.view === 'miellerie' && <Miellerie {...viewProps} />}
+            {route.view === 'projets' && <Projets {...viewProps} />}
+            {route.view === 'essaim' && <Essaim {...viewProps} />}
+            {route.view === 'sante' && <Sante {...viewProps} />}
+            {route.view === 'chronique' && <Chronique {...viewProps} />}
+            {route.view === 'memoire' && <Memoire {...viewProps} />}
+            {route.view === 'reine' && <Reine {...viewProps} />}
+            {route.view === 'rayon' && <Rayon {...viewProps} />}
+            {route.view === 'monespace' && <MonEspace {...viewProps} />}
+            {route.view === 'intendance' && <Intendance {...viewProps} />}
+            {route.view === 'cerveau' && <Cerveau {...viewProps} />}
+            {route.view === 'chantiers' && <Chantiers {...viewProps} />}
+            {route.view === 'chambre' && <Chambre {...viewProps} />}
+          </Suspense>
+        </main>
       </div>
+
+      {reviewSyncError && (
+        <aside className="mc-toast mc-toast-error" role="alert">
+          <span className="mc-toast-mark" aria-hidden="true">
+            !
+          </span>
+          <div>
+            <strong>
+              {reviewSyncError.definitive
+                ? t('Revue non enregistrée', 'Review not saved')
+                : t('Revue en attente de synchronisation', 'Review awaiting sync')}
+            </strong>
+            <p>
+              {reviewSyncError.definitive
+                ? t(
+                    'La ruche a refusé ce verdict ; la décision précédente a été restaurée.',
+                    'The hive rejected this verdict; the previous decision was restored.',
+                  )
+                : t(
+                    'La connexion a échoué. Votre verdict sera renvoyé automatiquement.',
+                    'Connection failed. Your verdict will be sent again automatically.',
+                  )}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setReviewSyncError(null)}
+            aria-label={t('Fermer le message', 'Dismiss message')}
+          >
+            ×
+          </button>
+        </aside>
+      )}
 
       {openTask && (
         <TaskDrawer

@@ -137,6 +137,34 @@ describe('la coquille de l’App — les deux dernières survivantes du balayage
     expect(celluleNav(dom, 'Hive').title).not.toContain('Ruche');
   });
 
+  it('LA NAVIGATION EST GROUPÉE ET CHAQUE DESTINATION EXPLIQUE SON USAGE', async () => {
+    const dom = await monter();
+    const sections = [...dom.querySelectorAll('.mc-nav-section-title')].map((e) => e.textContent);
+    expect(sections).toEqual(
+      expect.arrayContaining(['Piloter', 'Produire', 'Observer', 'Votre espace']),
+    );
+
+    expect(celluleNav(dom, 'Miellerie').getAttribute('aria-label')).toContain('Revoir & fusionner');
+    expect(celluleNav(dom, 'Rayon').getAttribute('aria-label')).toContain('Code & sauvegardes');
+  });
+
+  it('LE MENU MOBILE OUVRE ET FERME LE MÊME NAVIGATEUR', async () => {
+    const dom = await monter();
+    const ouvrir = dom.querySelector('.mc-mobile-menu-btn') as HTMLButtonElement;
+    const nav = dom.querySelector('#mc-primary-navigation') as HTMLElement;
+    expect(ouvrir).toBeTruthy();
+    expect(ouvrir.getAttribute('aria-expanded')).toBe('false');
+
+    await act(async () => ouvrir.click());
+    expect(nav.className).toContain('mobile-open');
+    expect(
+      (dom.querySelector('.mc-mobile-menu-btn') as HTMLButtonElement).getAttribute('aria-expanded'),
+    ).toBe('true');
+
+    await act(async () => (dom.querySelector('.mc-sidebar-close') as HTMLButtonElement).click());
+    expect(nav.className).not.toContain('mobile-open');
+  });
+
   it('LE RAYON NE S’AFFICHE QUE SUR SA ROUTE — et sa route l’affiche', async () => {
     // La survivante du routage : mutée, le Rayon vivrait sous TOUTES les
     // autres vues (chaque écran porterait un vide Rayon étranger) et
@@ -145,7 +173,7 @@ describe('la coquille de l’App — les deux dernières survivantes du balayage
     expect(
       accueil.textContent,
       'la vue d’accueil ne porte pas le Rayon d’un autre écran',
-    ).not.toContain('Le rayon s’ouvre avec un projet');
+    ).not.toContain('Votre code apparaîtra ici');
 
     act(() => racine?.unmount());
     location.hash = '#/rayon';
@@ -153,14 +181,31 @@ describe('la coquille de l’App — les deux dernières survivantes du balayage
     // Le chunk paresseux traverse un vrai import dynamique : on scrute sa
     // pose, borné à une seconde — « Chargement de la vue… » n'est pas un état
     // final acceptable.
-    for (let i = 0; i < 50 && !rayon.textContent?.includes('Le rayon s’ouvre'); i++) {
+    for (let i = 0; i < 50 && !rayon.textContent?.includes('Votre code apparaîtra'); i++) {
       await act(async () => {
         await new Promise((r) => setTimeout(r, 20));
       });
     }
     expect(rayon.textContent, 'la route du Rayon affiche le Rayon').toContain(
-      'Le rayon s’ouvre avec un projet',
+      'Votre code apparaîtra ici',
     );
+  });
+
+  it('UN ÉTAT VIDE PEUT CRÉER LE PROJET SANS DÉTOUR PAR UNE AUTRE VUE', async () => {
+    location.hash = '#/rayon';
+    const dom = await monter();
+    for (let i = 0; i < 50 && !dom.textContent?.includes('Votre code apparaîtra'); i++) {
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 20));
+      });
+    }
+    const creer = [...dom.querySelectorAll<HTMLButtonElement>('button')].find(
+      (b) => b.textContent?.trim() === 'Créer un projet',
+    );
+    expect(creer, 'le Rayon vide oblige encore à passer par Projets').toBeTruthy();
+
+    await act(async () => creer!.click());
+    expect(document.querySelector('#np-title')?.textContent).toContain('Nouveau projet');
   });
 
   it('LE CERVEAU NE S’AFFICHE QUE SUR SA ROUTE — et sa route l’affiche', async () => {
@@ -211,6 +256,40 @@ describe('la coquille de l’App — les deux dernières survivantes du balayage
 });
 
 describe('la coquille de l’App — les survivantes du balayage du soir', () => {
+  it('HORS LIGNE, LE JETON EST GUIDÉ ; CONNECTÉ, LE BANDEAU DISPARAÎT', async () => {
+    let poignees: FeedHandlers | null = null;
+    vi.mocked(connectFeed).mockImplementation((h: FeedHandlers) => {
+      poignees = h;
+      return { close: () => {} };
+    });
+    const dom = await monter();
+    expect(dom.querySelector('.mc-connection-guide')?.textContent).toContain(
+      'Connectez Mission Control',
+    );
+    expect(dom.querySelector('#hive-token-guide')).toBeTruthy();
+
+    await act(async () => {
+      (poignees as unknown as FeedHandlers).onStatus(true);
+    });
+    expect(dom.querySelector('.mc-connection-guide')).toBeNull();
+    expect(dom.querySelector('#hive-token-menu')).toBeTruthy();
+  });
+
+  it('UNE REVUE REFUSÉE PAR LE SERVEUR EST DITE À L’UTILISATEUR', async () => {
+    const dom = await monter();
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent('hive:review-sync-error', {
+          detail: { taskId: 't-disparue', definitive: true },
+        }),
+      );
+    });
+
+    const alerte = dom.querySelector('[role="alert"]');
+    expect(alerte?.textContent).toContain('Revue non enregistrée');
+    expect(alerte?.textContent).toContain('décision précédente a été restaurée');
+  });
+
   it('SEUL L’ÉVÉNEMENT task_reviewed SYNCHRONISE LES REVUES — les autres n’y touchent pas', async () => {
     // `if (ev.type === 'task_reviewed')` mutée en `!==` : le verdict posé par
     // un autre opérateur ne se synchroniserait JAMAIS, et chaque autre
@@ -288,20 +367,24 @@ describe('la coquille de l’App — les survivantes du balayage du soir', () =>
     expect(
       accueil.textContent,
       'la vue d’accueil ne porte pas la file de revue d’un autre écran',
-    ).not.toContain('Le nectar arrive');
+    ).not.toContain('Rien à valider pour le moment');
 
     act(() => racine?.unmount());
     location.hash = '#/miellerie';
     const miellerie = await monter();
     // Chunk paresseux : vrai import dynamique, scruté borné à une seconde.
     // « Chargement de la vue… » n'est pas un état final acceptable.
-    for (let i = 0; i < 50 && !miellerie.textContent?.includes('Le nectar arrive'); i++) {
+    for (
+      let i = 0;
+      i < 50 && !miellerie.textContent?.includes('Rien à valider pour le moment');
+      i++
+    ) {
       await act(async () => {
         await new Promise((r) => setTimeout(r, 20));
       });
     }
     expect(miellerie.textContent, 'la route de la Miellerie affiche la Miellerie').toContain(
-      'Le nectar arrive — aucune production à revoir.',
+      'Rien à valider pour le moment',
     );
   });
 });

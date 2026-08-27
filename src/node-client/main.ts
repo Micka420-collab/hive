@@ -8,13 +8,15 @@ import { bornerConcurrence, identiteStable } from './identite-noeud.js';
 import { agentCredentialEnv, detectAllAgents, messageAgent } from './agent-detect.js';
 import type { AgentType } from './agent-detect.js';
 import { resoudreAgentAuDemarrage } from './choisir-agent.js';
+import { resoudreModelesAuDemarrage } from './choisir-modele.js';
 import { libelleAgent } from '../shared/agent-libelle.js';
 import { demarrageNoeudAutorise, messageRefusShellProduction } from '../shared/agent-production.js';
 import { conseilDemarrage, constatsPourLeHub, diagnostiquerAgents } from './connexion.js';
 import { entreeEnRuche } from '../shared/presence-noeud.js';
 import { HiveNodeClient } from './client.js';
 import { optionBac, preparerBac } from './bac.js';
-import { parseModeles } from './modeles.js';
+import { inventorierModelesLocaux } from './modeles-locaux.js';
+import { ecrirePreferencesIA, lirePreferencesIA } from './preferences-ia.js';
 import { createInterface } from 'node:readline/promises';
 
 try {
@@ -29,15 +31,18 @@ try {
 // sans qu'il ne se passe jamais rien. Cette porte-ci ne l'avait jamais reçue.
 const maxConcurrency = bornerConcurrence(process.env.HIVE_MAX_CONCURRENCY);
 
-// Les modèles déclarés par l'opérateur pour l'Aiguillage appris, sanitisés.
-const modelesDeclares = parseModeles(process.env.HIVE_MODELES);
-
 // L'agent réel doit retrouver sa config/clé API dans la sandbox ; on fusionne
 // avec un éventuel HIVE_KEEP_ENV explicite. Le shell simulé ne reçoit rien.
 const extraKeep = (process.env.HIVE_KEEP_ENV ?? '')
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean);
+
+const name = process.env.HIVE_NODE_NAME ?? os.hostname();
+const workRoot =
+  process.env.HIVE_WORKDIR ?? path.join('.hive-work', name.replace(/[^A-Za-z0-9_-]+/g, '_'));
+const reconfigurerIA = process.argv.includes('--configurer-ia');
+const preferencesIA = lirePreferencesIA(workRoot);
 
 // ─── L'isolement ───────────────────────────────────────────────────────────
 //
@@ -76,23 +81,65 @@ if (bac.refuse) {
 // `HIVE_AGENT` garde le dernier mot. S'il est absent et que PLUSIEURS agents
 // réels sont là (Claude, Cursor, Codex…), on DEMANDE lequel retenir — sauf
 // hors TTY, où l'ordre de préférence de `detectBestAgent` s'applique.
-const demanderAgent =
-  process.stdin.isTTY && process.stdout.isTTY
-    ? async (question: string): Promise<string> => {
-        const rl = createInterface({ input: process.stdin, output: process.stdout });
-        try {
-          return await rl.question(question);
-        } finally {
-          rl.close();
-        }
+const interactif = Boolean(
+  process.stdin.isTTY && (process.stdout.isTTY || process.env.HIVE_TTY_ASSISTE === '1'),
+);
+const demanderChoix = interactif
+  ? async (question: string): Promise<string> => {
+      const rl = createInterface({ input: process.stdin, output: process.stdout });
+      try {
+        return await rl.question(question);
+      } finally {
+        rl.close();
       }
-    : undefined;
+    }
+  : undefined;
+
+const tousAgents = await detectAllAgents();
+const preferenceAgentApplicable = Boolean(
+  !reconfigurerIA && preferencesIA && tousAgents.includes(preferencesIA.agent),
+);
+if (
+  preferencesIA &&
+  !tousAgents.includes(preferencesIA.agent) &&
+  !(process.env.HIVE_AGENT ?? '').trim()
+) {
+  console.log(
+    `   ⚠ Préférence ${libelleAgent(preferencesIA.agent)} ignorée : application absente de ce poste.`,
+  );
+}
 const detecte = await resoudreAgentAuDemarrage({
-  stdinEstTty: Boolean(process.stdin.isTTY && process.stdout.isTTY),
-  demander: demanderAgent,
+  agentsDetectes: tousAgents,
+  ...(preferencesIA ? { preferenceAgent: preferencesIA.agent } : {}),
+  reconfigurer: reconfigurerIA,
+  stdinEstTty: interactif,
+  demander: demanderChoix,
 });
 const agentType: AgentType = detecte.agent;
-const tousAgents = await detectAllAgents();
+const candidatsModeles = inventorierModelesLocaux(agentType);
+const modelesDeclares = await resoudreModelesAuDemarrage({
+  agent: agentType,
+  candidats: candidatsModeles,
+  stdinEstTty: interactif,
+  demander: demanderChoix,
+  reconfigurer: reconfigurerIA,
+  ...(preferencesIA?.agent === agentType ? { preference: preferencesIA.modeles } : {}),
+});
+
+if (
+  interactif &&
+  agentType !== 'shell' &&
+  !(process.env.HIVE_AGENT ?? '').trim() &&
+  !(process.env.HIVE_MODELES ?? '').trim() &&
+  (reconfigurerIA || !preferenceAgentApplicable)
+) {
+  const fichier = ecrirePreferencesIA(workRoot, {
+    version: 1,
+    agent: agentType,
+    modeles: modelesDeclares ?? null,
+  });
+  console.log(`   ✓ Choix mémorisé dans ${fichier}. Reconfigurer : npm run configurer:ia\n`);
+}
 
 // Le diagnostic croisé, fait UNE fois : il sonde le PATH et l'environnement,
 // et deux sondages successifs coûteraient deux fois pour la même réponse. Il
@@ -141,6 +188,9 @@ if (entree.mode === 'presence') {
 
 console.log(`   Agents détectés : ${tousAgents.map((a) => libelleAgent(a)).join(', ')}`);
 console.log(`   Agent utilisé   : ${detecte.label}`);
+console.log(
+  `   Modèle(s)       : ${modelesDeclares?.join(', ') ?? 'automatique (choix de l’application)'}`,
+);
 // Le dire ICI, et pas seulement dans `hive doctor` : personne ne lance le
 // docteur avant de voir sa ruche « travailler ». Un simulacre silencieux
 // coûte une soirée à qui croit que ça tourne.
@@ -151,12 +201,6 @@ const aDire = messageAgent(agentType, tousAgents);
 if (aDire) console.log(aDire);
 
 const variables = [...new Set([...agentCredentialEnv(agentType), ...extraKeep])];
-
-// Même défaut que `HiveNodeClient` (client.ts) : calculé ICI pour pouvoir
-// lire/écrire l'identité stable AVANT de construire le client.
-const name = process.env.HIVE_NODE_NAME ?? os.hostname();
-const workRoot =
-  process.env.HIVE_WORKDIR ?? path.join('.hive-work', name.replace(/[^A-Za-z0-9_-]+/g, '_'));
 
 // L'identité survit au redémarrage — même mécanisme que `join.ts`
 // (`identite-noeud.ts`). Sans elle, chaque lancement de `npm run node`

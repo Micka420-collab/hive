@@ -99,7 +99,8 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState('');
   const [repoUrl, setRepoUrl] = useState('');
   const [brief, setBrief] = useState('');
-  const [tasksJson, setTasksJson] = useState(() => j(makeTemplates(t)[1]!.tasks));
+  const [tasksJson, setTasksJson] = useState(() => j(makeTemplates(t)[0]!.tasks));
+  const [advanced, setAdvanced] = useState(false);
   const [busy, setBusy] = useState(false);
   const [planning, setPlanning] = useState(false);
   const [planNote, setPlanNote] = useState<string | null>(null);
@@ -121,6 +122,7 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
     try {
       const res = await planBrief(brief.trim());
       setTasksJson(j(res.tasks));
+      setAdvanced(true);
       setPlanNote(
         res.source === 'llm'
           ? t(
@@ -147,32 +149,47 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
       return;
     }
     let tasks: NewTaskInput[];
-    try {
-      const parsed: unknown = JSON.parse(tasksJson);
-      if (!Array.isArray(parsed) || parsed.length === 0) {
-        throw new Error(
+    if (!advanced) {
+      if (!brief.trim()) {
+        setError(
           t(
-            'le JSON doit être un tableau non vide de tâches',
-            'the JSON must be a non-empty array of tasks',
+            'Décrivez la première mission à confier à la ruche.',
+            'Describe the first mission to give the hive.',
           ),
         );
+        return;
       }
-      // Ne conserver que les champs connus : le serveur rejette tout champ
-      // superflu (additionalProperties:false), on nettoie donc en amont.
-      tasks = (parsed as Record<string, unknown>[]).map((t) => {
-        const clean: NewTaskInput = {
-          title: String(t.title ?? ''),
-          prompt: String(t.prompt ?? ''),
-        };
-        if (typeof t.id === 'string') clean.id = t.id;
-        if (Array.isArray(t.dependsOn)) clean.dependsOn = t.dependsOn.map(String);
-        return clean;
-      });
-    } catch (e) {
-      setError(
-        `${t('Tâches invalides :', 'Invalid tasks:')} ${e instanceof Error ? e.message : String(e)}`,
-      );
-      return;
+      tasks = [{ title: name.trim(), prompt: brief.trim() }];
+    } else {
+      try {
+        const parsed: unknown = JSON.parse(tasksJson);
+        if (!Array.isArray(parsed) || parsed.length === 0) {
+          throw new Error(
+            t(
+              'le JSON doit être un tableau non vide de tâches',
+              'the JSON must be a non-empty array of tasks',
+            ),
+          );
+        }
+        // Ne conserver que les champs connus : le serveur rejette tout champ
+        // superflu (additionalProperties:false), on nettoie donc en amont.
+        tasks = (parsed as Record<string, unknown>[]).map((task) => {
+          const clean: NewTaskInput = {
+            title: String(task.title ?? ''),
+            prompt: String(task.prompt ?? ''),
+          };
+          if (typeof task.id === 'string') clean.id = task.id;
+          if (Array.isArray(task.dependsOn)) clean.dependsOn = task.dependsOn.map(String);
+          return clean;
+        });
+      } catch (e) {
+        setError(
+          `${t('Tâches invalides :', 'Invalid tasks:')} ${
+            e instanceof Error ? e.message : String(e)
+          }`,
+        );
+        return;
+      }
     }
     setBusy(true);
     try {
@@ -220,6 +237,24 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
 
         {error && <p className="modal-error">{error}</p>}
 
+        <div className="np-intro">
+          <span className="np-intro-step">1</span>
+          <div>
+            <strong>
+              {t(
+                'Nommez le projet et sa première mission',
+                'Name the project and its first mission',
+              )}
+            </strong>
+            <p>
+              {t(
+                'Hive crée le projet, confie la mission à un agent, puis vous rend la production à valider.',
+                'Hive creates the project, assigns the mission to an agent, then returns the output for your approval.',
+              )}
+            </p>
+          </div>
+        </div>
+
         <label className="field">
           <span>{t('Nom du projet', 'Project name')}</span>
           <input
@@ -247,68 +282,81 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
         </label>
 
         <label className="field">
-          <span>
-            {t(
-              'Décrire en langage naturel — Queen Bee génère le DAG (Palier 2)',
-              'Describe in natural language — Queen Bee generates the DAG (Stage 2)',
-            )}
-          </span>
+          <span>{t('Première mission', 'First mission')}</span>
           <textarea
             className="code-input"
-            rows={2}
+            rows={4}
             value={brief}
             onChange={(e) => setBrief(e.target.value)}
             placeholder={t(
-              'Ex : un SaaS de facturation avec authentification, API REST, dashboard et déploiement',
-              'E.g. an invoicing SaaS with authentication, REST API, dashboard and deployment',
+              'Ex : crée une page d’accueil accessible, responsive et couverte par des tests.',
+              'E.g. build an accessible, responsive landing page covered by tests.',
             )}
             disabled={busy || planning}
           />
           <div className="template-row">
             <button
               type="button"
-              className="chip primary"
+              className="btn ghost"
               onClick={() => void generate()}
               disabled={busy || planning || !brief.trim()}
             >
               {planning
                 ? t('Génération…', 'Generating…')
-                : t('Générer les tâches', 'Generate the tasks')}
+                : t('Découper avec la Reine', 'Break down with the Queen')}
             </button>
             {planNote && <span className="plan-note">{planNote}</span>}
           </div>
         </label>
 
-        <label className="field">
-          <span>
-            {t(
-              'Tâches (JSON) — title, prompt, id et dependsOn optionnels',
-              'Tasks (JSON) — title, prompt, optional id and dependsOn',
-            )}
-          </span>
-          <div className="template-row np-templates">
-            <span className="template-label">{t('Modèles :', 'Templates:')}</span>
-            {templates.map((tpl) => (
-              <button
-                key={tpl.label}
-                type="button"
-                className="chip"
-                onClick={() => setTasksJson(j(tpl.tasks))}
-                disabled={busy || planning}
-              >
-                {tpl.label}
-              </button>
-            ))}
-          </div>
-          <textarea
-            className="code-input"
-            rows={10}
-            value={tasksJson}
-            onChange={(e) => setTasksJson(e.target.value)}
-            spellCheck={false}
+        <div className="np-advanced">
+          <button
+            type="button"
+            className="np-advanced-toggle"
+            aria-expanded={advanced}
+            aria-controls="np-advanced-content"
+            onClick={() => setAdvanced((v) => !v)}
             disabled={busy || planning}
-          />
-        </label>
+          >
+            <span>{t('Options avancées', 'Advanced options')}</span>
+            <span aria-hidden="true">{advanced ? '−' : '+'}</span>
+          </button>
+          {advanced && (
+            <div id="np-advanced-content" className="np-advanced-content">
+              <p>
+                {t(
+                  'Pour un travail complexe : choisissez un modèle ou éditez directement le graphe de tâches.',
+                  'For complex work: choose a template or directly edit the task graph.',
+                )}
+              </p>
+              <div className="template-row np-templates">
+                <span className="template-label">{t('Modèles :', 'Templates:')}</span>
+                {templates.map((tpl) => (
+                  <button
+                    key={tpl.label}
+                    type="button"
+                    className="chip"
+                    onClick={() => setTasksJson(j(tpl.tasks))}
+                    disabled={busy || planning}
+                  >
+                    {tpl.label}
+                  </button>
+                ))}
+              </div>
+              <label className="field">
+                <span>{t('Graphe de tâches (JSON)', 'Task graph (JSON)')}</span>
+                <textarea
+                  className="code-input"
+                  rows={10}
+                  value={tasksJson}
+                  onChange={(e) => setTasksJson(e.target.value)}
+                  spellCheck={false}
+                  disabled={busy || planning}
+                />
+              </label>
+            </div>
+          )}
+        </div>
 
         <div className="modal-actions">
           <button
@@ -325,7 +373,7 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
             onClick={() => void submit()}
             disabled={busy || planning}
           >
-            {busy ? t('Création…', 'Creating…') : t('Lancer le butinage', 'Start foraging')}
+            {busy ? t('Création…', 'Creating…') : t('Créer le projet', 'Create project')}
           </button>
         </div>
       </div>

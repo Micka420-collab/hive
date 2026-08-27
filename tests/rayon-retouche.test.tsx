@@ -293,6 +293,30 @@ describe('le Rayon : la lecture est le défaut, l’écriture n’en est pas une
     expect(bouton(dom, 'Proposer une retouche'), 'le geste de retouche est absent').toBeTruthy();
   });
 
+  it('LE DERNIER FICHIER CLIQUÉ GAGNE — une réponse lente ne remplace pas son contenu', async () => {
+    let resoudreMiel!: (f: FichierRayon) => void;
+    let resoudrePropolis!: (f: FichierRayon) => void;
+    vi.mocked(fetchFichierRayon).mockImplementation(
+      ((_p: string, chemin: string) =>
+        new Promise<FichierRayon>((resolve) => {
+          if (chemin === 'miel.txt') resoudreMiel = resolve;
+          else resoudrePropolis = resolve;
+        })) as never,
+    );
+    const dom = await monter();
+
+    await ouvrirFichier(dom, 'miel.txt');
+    await ouvrirFichier(dom, 'propolis.txt');
+    await act(async () => resoudrePropolis(fichier('propolis.txt')));
+    expect(valeur(dom), 'le dernier fichier cliqué ne s’affiche pas').toBe('la propolis d’origine');
+
+    await act(async () => resoudreMiel(fichier('miel.txt')));
+    expect(valeur(dom), 'la réponse lente de miel écrase le fichier propolis sélectionné').toBe(
+      'la propolis d’origine',
+    );
+    expect(dom.querySelector('.ry-entree.active')?.textContent).toContain('propolis.txt');
+  });
+
   it('LA RETOUCHE OUVRE L’ÉDITEUR, ET CE QU’ON TAPE S’AFFICHE', async () => {
     // Les deux moitiés du même geste, et deux mutants distincts.
     //

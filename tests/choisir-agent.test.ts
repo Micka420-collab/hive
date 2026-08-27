@@ -130,4 +130,34 @@ describe('resoudreAgentAuDemarrage', () => {
     expect(vu.agent).toBe('claude-code');
     expect(demander).not.toHaveBeenCalled();
   });
+
+  it('réutilise le choix local sans re-sonder ni redemander', async () => {
+    const demander = vi.fn(async () => '1');
+    const sonder = vi.fn(async () => false);
+    const vu = await resoudreAgentAuDemarrage({
+      env: {},
+      agentsDetectes: ['claude-code', 'cursor', 'shell'],
+      preferenceAgent: 'cursor',
+      stdinEstTty: true,
+      demander,
+      sonder,
+    });
+    expect(vu.agent).toBe('cursor');
+    expect(demander).not.toHaveBeenCalled();
+    expect(sonder).not.toHaveBeenCalled();
+  });
+
+  it('le mode reconfiguration rouvre le choix', async () => {
+    const demander = vi.fn(async () => '1');
+    const vu = await resoudreAgentAuDemarrage({
+      env: {},
+      agentsDetectes: ['claude-code', 'cursor', 'shell'],
+      preferenceAgent: 'cursor',
+      reconfigurer: true,
+      stdinEstTty: true,
+      demander,
+    });
+    expect(vu.agent).toBe('claude-code');
+    expect(demander).toHaveBeenCalledOnce();
+  });
 });

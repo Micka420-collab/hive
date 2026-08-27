@@ -119,7 +119,7 @@ afterEach(() => {
   conteneur = null;
 });
 
-function ouvriere(outils?: OutilConstate[]): HiveNode {
+function ouvriere(outils?: OutilConstate[], modeles?: string[]): HiveNode {
   return {
     id: 'n-maya',
     name: 'Maya',
@@ -130,6 +130,7 @@ function ouvriere(outils?: OutilConstate[]): HiveNode {
     status: 'online',
     lastSeen: 1,
     ...(outils !== undefined ? { outils } : {}),
+    ...(modeles !== undefined ? { modeles } : {}),
   };
 }
 
@@ -154,6 +155,23 @@ async function ouvrirLaFiche(noeud: HiveNode): Promise<HTMLElement> {
 }
 
 describe('la fiche d’une ouvrière montre ses outils IA — et leur niveau', () => {
+  it('MONTRE LES MODÈLES CONFIRMÉS, OU LE CHOIX AUTOMATIQUE', async () => {
+    const confirmes = await ouvrirLaFiche(
+      ouvriere([{ agent: 'cursor', binaire: true, cle: 'presente' }], ['composer-2', 'sonnet']),
+    );
+    expect(confirmes.querySelector('.fo-modeles')?.textContent).toContain('composer-2');
+    expect(confirmes.querySelector('.fo-modeles')?.textContent).toContain('sonnet');
+
+    act(() => racine?.unmount());
+    conteneur?.remove();
+    const automatique = await ouvrirLaFiche(
+      ouvriere([{ agent: 'cursor', binaire: true, cle: 'presente' }]),
+    );
+    expect(automatique.querySelector('.fo-modeles')?.textContent).toContain(
+      'l’application choisit',
+    );
+  });
+
   it('UN OUTIL INSTALLÉ QUE LA RUCHE NE SAIT QUE DÉTECTER N’EST PAS COMPTÉ PILOTABLE', async () => {
     // LA PROMESSE CENTRALE, à l'écran. Windsurf est là, sa clé aussi, et la
     // ligne doit malgré tout dire que la ruche n'en fera rien.

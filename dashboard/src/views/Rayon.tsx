@@ -29,7 +29,7 @@
 //    le correctif a disparu. C'est le pire mensonge qu'une interface puisse
 //    faire.
 
-import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import {
   fetchApercu,
   fetchFichierRayon,
@@ -46,6 +46,7 @@ import {
   FOCUS_SAUVEGARDES,
   parentsDuChemin,
 } from '../focus-vue';
+import { FriendlyEmptyState } from '../ui';
 import { icone, taille } from './rayon-affichage';
 import type { ViewProps } from './shared';
 import { sansIdentifiants } from '../../../src/shared/projet-public';
@@ -62,7 +63,13 @@ interface Noeud {
   ouvert: boolean;
 }
 
-export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }: ViewProps) {
+export default function Rayon({
+  snapshot,
+  selectedId,
+  onNavigate,
+  onNewProject,
+  refreshTick,
+}: ViewProps) {
   const t = useT();
   // Lecture par lien de partage : c'est la MÊME source que celle qui décide de
   // l'en-tête HTTP, donc les deux ne peuvent pas se contredire.
@@ -87,6 +94,12 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
   const [apercu, setApercu] = useState<ApercuProjet | null>(null);
   const [apercuErreur, setApercuErreur] = useState<string | null>(null);
   const [attirerSg, setAttirerSg] = useState(false);
+  // Un fichier lent ne doit jamais écraser celui cliqué ensuite. Le projet
+  // courant est aussi gardé pendant le rendu : cela invalide une réponse de
+  // l'ancien projet avant même que l'effet de remise à zéro ne s'exécute.
+  const sequenceOuverture = useRef(0);
+  const projetCourant = useRef<string | null>(projet?.id ?? null);
+  projetCourant.current = projet?.id ?? null;
   /** Curseurs — absents en partage ; [] = silence. */
   const [curseurs, setCurseurs] = useState<PresenceCurseur[]>([]);
 
@@ -167,6 +180,7 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
   // Changer de projet remet tout à zéro : garder l'arbre du précédent
   // afficherait les fichiers d'un dépôt sous le nom d'un autre.
   useEffect(() => {
+    sequenceOuverture.current++;
     setDossiers({});
     setFichier(null);
     setOuvert(null);
@@ -191,6 +205,8 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
 
   const ouvrir = async (chemin: string) => {
     if (!projet) return;
+    const projectId = projet.id;
+    const sequence = ++sequenceOuverture.current;
     setOuvert(chemin);
     setFichier(null);
     setErreur(null);
@@ -199,8 +215,11 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
     setRetouche(null);
     setPropose(null);
     try {
-      setFichier(await fetchFichierRayon(projet.id, chemin));
+      const lu = await fetchFichierRayon(projectId, chemin);
+      if (sequence !== sequenceOuverture.current || projetCourant.current !== projectId) return;
+      setFichier(lu);
     } catch (e) {
+      if (sequence !== sequenceOuverture.current || projetCourant.current !== projectId) return;
       // Le refus s'AFFICHE. Un clic sans réaction laisse croire à une panne.
       setErreur(e instanceof Error ? e.message : String(e));
     }
@@ -323,16 +342,21 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
   if (projets.length === 0) {
     return (
       <div className="ry-vide">
-        <span className="marque" aria-hidden="true" />
-        <p>
-          {t(
-            'Le rayon s’ouvre avec un projet. Démarrez-en un, puis revenez ici.',
-            'The comb opens with a project. Start one, then come back here.',
+        <FriendlyEmptyState
+          title={t('Votre code apparaîtra ici', 'Your code will appear here')}
+          description={t(
+            'Créez un premier projet pour parcourir ses fichiers, proposer une retouche et restaurer une sauvegarde.',
+            'Create your first project to browse files, propose an edit, and restore a backup.',
           )}
-        </p>
-        <button className="btn primary" onClick={() => onNavigate('projets')}>
-          {t('Aller aux projets', 'Go to projects')}
-        </button>
+          primary={{
+            label: t('Créer un projet', 'Create a project'),
+            onClick: onNewProject,
+          }}
+          secondary={{
+            label: t('Voir les projets', 'View projects'),
+            onClick: () => onNavigate('projets'),
+          }}
+        />
       </div>
     );
   }

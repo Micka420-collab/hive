@@ -32,6 +32,7 @@ import type {
 import { HEARTBEAT_INTERVAL_MS } from '../shared/types.js';
 import type { Task } from '../shared/types.js';
 import { runMerge, runProc } from './merge-runner.js';
+import { modeleAssigneAutorise } from './modeles.js';
 import { buildSandboxEnv, cloneRepo, prepareWorkspace } from './workspace.js';
 import { requisitionDepuisEchecInfra } from '../shared/requisition-infra.js';
 import { motifRefusPresence, refuseParPresence } from '../shared/presence-noeud.js';
@@ -437,6 +438,18 @@ export class HiveNodeClient {
     // tentative, et le hub peut servir un autre nœud dans la seconde.
     if (refuseParPresence(this.opts.presenceSeule === true ? 'presence' : 'production')) {
       this.send({ type: 'task_reject', taskId: task.id, reason: motifRefusPresence() });
+      return;
+    }
+    if (!modeleAssigneAutorise(modele, this.opts.modeles)) {
+      // La Reine ne peut pas imposer un modèle que ce poste n'a pas confirmé.
+      // Sans cette garde, une faute de config (ou un hub compromis) peut
+      // sélectionner un modèle indisponible ou plus coûteux que prévu.
+      this.send({
+        type: 'task_reject',
+        taskId: task.id,
+        reason: 'modele_non_declare_sur_ce_noeud',
+      });
+      this.log(`⇄ ${task.title} : modèle « ${modele} » non déclaré → refus`);
       return;
     }
     if (this.active.has(task.id)) return; // assignation dupliquée : déjà en cours

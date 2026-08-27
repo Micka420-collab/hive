@@ -22,6 +22,20 @@
 
 import { LIMITS } from '../shared/protocol.js';
 
+function contientControle(nom: string): boolean {
+  for (const caractere of nom) {
+    const code = caractere.codePointAt(0) ?? 0;
+    if (code <= 0x1f || code === 0x7f) return true;
+  }
+  return false;
+}
+
+export function modeleDeclareValide(nom: string): boolean {
+  return (
+    nom.length > 0 && nom.length <= LIMITS.name && !nom.startsWith('-') && !contientControle(nom)
+  );
+}
+
 /**
  * Lit une liste `HIVE_MODELES` séparée par des virgules en une liste PROPRE, ou
  * `undefined` si rien de valide n'en sort. Bornée exactement comme le protocole
@@ -34,10 +48,18 @@ export function parseModeles(brut: string | undefined): string[] | undefined {
   const propres: string[] = [];
   for (const brutNom of brut.split(',')) {
     const nom = brutNom.trim();
-    if (nom === '' || nom.length > LIMITS.name || vus.has(nom)) continue;
+    if (!modeleDeclareValide(nom) || vus.has(nom)) continue;
     vus.add(nom);
     propres.push(nom);
     if (propres.length >= LIMITS.modeles) break;
   }
   return propres.length > 0 ? propres : undefined;
+}
+
+/** Un hub ne peut sélectionner que ce que ce nœud a lui-même confirmé. */
+export function modeleAssigneAutorise(
+  modele: string | undefined,
+  declares: readonly string[] | undefined,
+): boolean {
+  return modele === undefined || declares?.includes(modele) === true;
 }
