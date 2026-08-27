@@ -3535,6 +3535,37 @@ button.mc-cell:focus-visible {
  * Seule la conjonction des deux mérite d'être mise en avant : un outil parfait
  * que la ruche ne sait que détecter reste gris, et c'est le message. La couleur
  * ne récompense donc pas la machine, elle récompense ce qui va travailler. */
+.fo-modeles {
+  margin: 10px 0 14px;
+  padding: 10px 12px;
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--panel-2);
+  font-size: 12px;
+}
+
+.fo-modeles > span:first-child {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.fo-modeles-liste {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.fo-modeles-liste code {
+  padding: 3px 7px;
+  border: 1px solid color-mix(in srgb, var(--miel) 30%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--miel) 8%, var(--panel));
+  color: var(--text);
+  font: 500 11px var(--mono);
+}
+
 .fo-outil {
   display: block;
   line-height: 1.5;

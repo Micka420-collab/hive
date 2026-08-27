@@ -82,6 +82,8 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `--model` comme Claude Code et Cursor. Un nœud refuse avant exécution tout
   modèle que ce poste n'a pas confirmé, et les noms ressemblant à des options
   ou contenant des contrôles sont écartés.
+- **Modèles visibles par machine.** La fiche d'une ouvrière affiche ses modèles
+  confirmés, ou dit explicitement que l'application choisit automatiquement.
 - **Mode production agents.** `agent-production.ts` : le nœud refuse de démarrer
   en shell sans `HIVE_SIMULATION=1` ou `HIVE_AGENT=shell` ; le scheduler n'assigne
   pas aux agents simulés hors mode démo. Protocole réquisition nœud (cherry-pick #347).
