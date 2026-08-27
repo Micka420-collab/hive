@@ -2708,6 +2708,65 @@ h3 {
   display: none;
 }
 
+.mc-toast {
+  position: fixed;
+  z-index: 80;
+  right: 18px;
+  bottom: 18px;
+  width: min(420px, calc(100vw - 28px));
+  padding: 13px 14px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: start;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--panel);
+  box-shadow: 0 20px 54px -24px rgba(20, 18, 16, 0.5);
+}
+
+.mc-toast-error {
+  border-color: color-mix(in srgb, var(--red) 36%, var(--border));
+}
+
+.mc-toast-mark {
+  width: 24px;
+  height: 24px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--red) 12%, var(--panel));
+  color: var(--red);
+  font-weight: 800;
+}
+
+.mc-toast div {
+  display: grid;
+  gap: 2px;
+}
+
+.mc-toast strong {
+  font-size: 13px;
+}
+
+.mc-toast p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
+.mc-toast > button {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: 20px/1 var(--texte);
+  cursor: pointer;
+}
+
 .mc-view {
   flex: 1;
   min-width: 0;

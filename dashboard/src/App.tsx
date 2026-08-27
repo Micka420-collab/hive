@@ -237,6 +237,10 @@ export function App() {
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
   const [showNewProject, setShowNewProject] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [reviewSyncError, setReviewSyncError] = useState<{
+    definitive: boolean;
+    taskId: string;
+  } | null>(null);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
   const reviewTick = useReviewTick();
@@ -355,6 +359,21 @@ export function App() {
       window.removeEventListener('keydown', onKey);
     };
   }, [mobileNavOpen]);
+
+  useEffect(() => {
+    const onError = (event: Event) => {
+      const detail = (event as CustomEvent<unknown>).detail;
+      if (!detail || typeof detail !== 'object') return;
+      const value = detail as { definitive?: unknown; taskId?: unknown };
+      if (typeof value.taskId !== 'string') return;
+      setReviewSyncError({
+        definitive: value.definitive === true,
+        taskId: value.taskId,
+      });
+    };
+    window.addEventListener('hive:review-sync-error', onError);
+    return () => window.removeEventListener('hive:review-sync-error', onError);
+  }, []);
 
   const navigate = (view: ViewId, selectedId?: string, opts?: { replace?: boolean }) => {
     const hash = selectedId ? `#/${view}/${encodeURIComponent(selectedId)}` : `#/${view}`;
@@ -668,6 +687,39 @@ export function App() {
           </Suspense>
         </main>
       </div>
+
+      {reviewSyncError && (
+        <aside className="mc-toast mc-toast-error" role="alert">
+          <span className="mc-toast-mark" aria-hidden="true">
+            !
+          </span>
+          <div>
+            <strong>
+              {reviewSyncError.definitive
+                ? t('Revue non enregistrée', 'Review not saved')
+                : t('Revue en attente de synchronisation', 'Review awaiting sync')}
+            </strong>
+            <p>
+              {reviewSyncError.definitive
+                ? t(
+                    'La ruche a refusé ce verdict ; la décision précédente a été restaurée.',
+                    'The hive rejected this verdict; the previous decision was restored.',
+                  )
+                : t(
+                    'La connexion a échoué. Votre verdict sera renvoyé automatiquement.',
+                    'Connection failed. Your verdict will be sent again automatically.',
+                  )}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setReviewSyncError(null)}
+            aria-label={t('Fermer le message', 'Dismiss message')}
+          >
+            ×
+          </button>
+        </aside>
+      )}
 
       {openTask && (
         <TaskDrawer task={openTask} nodes={snapshot.nodes} onClose={() => setOpenTaskId(null)} />

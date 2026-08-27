@@ -74,6 +74,10 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **📂 Rayon sans contenu croisé.** Quand deux fichiers sont ouverts rapidement,
   une réponse réseau lente de l'ancien fichier ne peut plus remplacer le
   contenu du dernier fichier sélectionné.
+- **✓ Revue sans faux succès.** Un verdict rejeté définitivement par l'API
+  restaure maintenant la décision serveur au lieu de rester affiché comme
+  enregistré. Mission Control l'annonce immédiatement ; une panne transitoire
+  garde le verdict dans la file de synchronisation.
 
 - **👑 Les bancs de la Reine ne confondent plus l'Atelier avec le chat.**
   `AtelierRecette` sonde `/api/atelier` au montage de la vue Reine. Les tests

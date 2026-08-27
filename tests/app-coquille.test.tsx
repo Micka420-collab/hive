@@ -271,6 +271,21 @@ describe('la coquille de l’App — les survivantes du balayage du soir', () =>
     expect(dom.querySelector('#hive-token-menu')).toBeTruthy();
   });
 
+  it('UNE REVUE REFUSÉE PAR LE SERVEUR EST DITE À L’UTILISATEUR', async () => {
+    const dom = await monter();
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent('hive:review-sync-error', {
+          detail: { taskId: 't-disparue', definitive: true },
+        }),
+      );
+    });
+
+    const alerte = dom.querySelector('[role="alert"]');
+    expect(alerte?.textContent).toContain('Revue non enregistrée');
+    expect(alerte?.textContent).toContain('décision précédente a été restaurée');
+  });
+
   it('SEUL L’ÉVÉNEMENT task_reviewed SYNCHRONISE LES REVUES — les autres n’y touchent pas', async () => {
     // `if (ev.type === 'task_reviewed')` mutée en `!==` : le verdict posé par
     // un autre opérateur ne se synchroniserait JAMAIS, et chaque autre
