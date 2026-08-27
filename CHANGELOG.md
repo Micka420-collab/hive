@@ -55,6 +55,11 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **💾 Sauvegardes isolées par projet.** La rétention garde désormais les N
+  étapes de **chaque** projet : l'activité d'un dépôt ne peut plus effacer les
+  points de restauration d'un autre. `GET …/sauvegardes?limit=` est validé et
+  réellement appliqué (1–200).
+
 - **👑 Les bancs de la Reine ne confondent plus l'Atelier avec le chat.**
   `AtelierRecette` sonde `/api/atelier` au montage de la vue Reine. Les tests
   `reine-clavier` et `reine-conversation` comptaient **tout** `fetch` comme un
