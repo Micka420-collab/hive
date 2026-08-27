@@ -10,13 +10,13 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   postReview: vi.fn(),
 }));
 
-import { ApiError, postReview } from '../dashboard/src/api';
+import { ApiError, postReview } from '../dashboard/src/api.js';
 import {
   countUnsyncedReviews,
   getReview,
   hydrateReviews,
   setReview,
-} from '../dashboard/src/views/shared';
+} from '../dashboard/src/views/shared.js';
 
 const erreurs: Array<{ taskId: string; definitive: boolean }> = [];
 
