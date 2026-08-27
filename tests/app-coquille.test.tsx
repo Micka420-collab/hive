@@ -133,6 +133,34 @@ describe('la coquille de l’App — les deux dernières survivantes du balayage
     expect(celluleNav(dom, 'Hive').title).not.toContain('Ruche');
   });
 
+  it('LA NAVIGATION EST GROUPÉE ET CHAQUE DESTINATION EXPLIQUE SON USAGE', async () => {
+    const dom = await monter();
+    const sections = [...dom.querySelectorAll('.mc-nav-section-title')].map((e) => e.textContent);
+    expect(sections).toEqual(
+      expect.arrayContaining(['Piloter', 'Produire', 'Observer', 'Votre espace']),
+    );
+
+    expect(celluleNav(dom, 'Miellerie').getAttribute('aria-label')).toContain('Revoir & fusionner');
+    expect(celluleNav(dom, 'Rayon').getAttribute('aria-label')).toContain('Code & sauvegardes');
+  });
+
+  it('LE MENU MOBILE OUVRE ET FERME LE MÊME NAVIGATEUR', async () => {
+    const dom = await monter();
+    const ouvrir = dom.querySelector('.mc-mobile-menu-btn') as HTMLButtonElement;
+    const nav = dom.querySelector('#mc-primary-navigation') as HTMLElement;
+    expect(ouvrir).toBeTruthy();
+    expect(ouvrir.getAttribute('aria-expanded')).toBe('false');
+
+    await act(async () => ouvrir.click());
+    expect(nav.className).toContain('mobile-open');
+    expect(
+      (dom.querySelector('.mc-mobile-menu-btn') as HTMLButtonElement).getAttribute('aria-expanded'),
+    ).toBe('true');
+
+    await act(async () => (dom.querySelector('.mc-sidebar-close') as HTMLButtonElement).click());
+    expect(nav.className).not.toContain('mobile-open');
+  });
+
   it('LE RAYON NE S’AFFICHE QUE SUR SA ROUTE — et sa route l’affiche', async () => {
     // La survivante du routage : mutée, le Rayon vivrait sous TOUTES les
     // autres vues (chaque écran porterait un vide Rayon étranger) et
@@ -207,6 +235,25 @@ describe('la coquille de l’App — les deux dernières survivantes du balayage
 });
 
 describe('la coquille de l’App — les survivantes du balayage du soir', () => {
+  it('HORS LIGNE, LE JETON EST GUIDÉ ; CONNECTÉ, LE BANDEAU DISPARAÎT', async () => {
+    let poignees: FeedHandlers | null = null;
+    vi.mocked(connectFeed).mockImplementation((h: FeedHandlers) => {
+      poignees = h;
+      return { close: () => {} };
+    });
+    const dom = await monter();
+    expect(dom.querySelector('.mc-connection-guide')?.textContent).toContain(
+      'Connectez Mission Control',
+    );
+    expect(dom.querySelector('#hive-token-guide')).toBeTruthy();
+
+    await act(async () => {
+      (poignees as unknown as FeedHandlers).onStatus(true);
+    });
+    expect(dom.querySelector('.mc-connection-guide')).toBeNull();
+    expect(dom.querySelector('#hive-token-menu')).toBeTruthy();
+  });
+
   it('SEUL L’ÉVÉNEMENT task_reviewed SYNCHRONISE LES REVUES — les autres n’y touchent pas', async () => {
     // `if (ev.type === 'task_reviewed')` mutée en `!==` : le verdict posé par
     // un autre opérateur ne se synchroniserait JAMAIS, et chaque autre

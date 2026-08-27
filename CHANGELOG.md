@@ -37,6 +37,13 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **🧭 Mission Control plus simple à parcourir.** Les treize vues sont groupées
+  par intention (Piloter, Produire, Observer, Votre espace, Administration),
+  avec une courte description. Sur mobile, la sidebar devient un vrai tiroir
+  et libère toute la largeur. La topbar réunit compte, invitation, langue et
+  jeton dans un menu unique ; hors ligne, un bandeau guide explicitement la
+  connexion. Ajout d'un lien d'évitement et d'un landmark principal.
+
 - **🖥 Mission Control plus pro, façon Craft / Apple.** Même ruche (miel unique
   accent, hexagone marque) : papier plus clair, barre charbon brossée, logo SVG
   à la place de l'emoji, **glyphes SVG de navigation** (plus de lettres), topbar
