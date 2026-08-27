@@ -8,6 +8,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import type { AgentType } from './agent-detect.js';
+import { modeleDeclareValide } from './modeles.js';
 import { LIMITS } from '../shared/protocol.js';
 
 export type SourceModeleLocal = 'environnement' | 'configuration' | 'suggestion';
@@ -18,13 +19,11 @@ export interface ModeleLocal {
 }
 
 const MAX_CONFIG_OCTETS = 256 * 1024;
-const CONTROLE = /[\u0000-\u001f\u007f\u001b]/;
 
 /** Un sélecteur peut devenir un argument `--model` sans devenir une option. */
 export function modeleLocalValide(v: unknown): v is string {
   if (typeof v !== 'string') return false;
-  const nom = v.trim();
-  return nom.length > 0 && nom.length <= LIMITS.name && !nom.startsWith('-') && !CONTROLE.test(nom);
+  return modeleDeclareValide(v.trim());
 }
 
 function chaines(v: unknown): string[] {

@@ -22,14 +22,17 @@
 
 import { LIMITS } from '../shared/protocol.js';
 
-const CONTROLE = /[\u0000-\u001f\u007f\u001b]/;
+function contientControle(nom: string): boolean {
+  for (const caractere of nom) {
+    const code = caractere.codePointAt(0) ?? 0;
+    if (code <= 0x1f || code === 0x7f) return true;
+  }
+  return false;
+}
 
 export function modeleDeclareValide(nom: string): boolean {
   return (
-    nom.length > 0 &&
-    nom.length <= LIMITS.name &&
-    !nom.startsWith('-') &&
-    !CONTROLE.test(nom)
+    nom.length > 0 && nom.length <= LIMITS.name && !nom.startsWith('-') && !contientControle(nom)
   );
 }
 
