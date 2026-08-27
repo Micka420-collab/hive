@@ -41,7 +41,7 @@ describe('e2e : orchestrateur + 2 nœuds simulés', () => {
       token: TOKEN,
       corsOrigins: ['http://localhost:5173'],
       dbPath: path.join(dir, 'hive.db'),
-      simulation: false,
+      simulation: true,
       tickMs: 100,
     });
   });
@@ -209,7 +209,7 @@ describe('garde-fous de sécurité au démarrage', () => {
         dbPath: ':memory:',
         simulation: false,
       }),
-    ).rejects.toThrow(/trivial/);
+    ).rejects.toThrow(/HIVE_TOKEN/);
   });
 
   it('refuse un CORS wildcard', async () => {
@@ -222,6 +222,6 @@ describe('garde-fous de sécurité au démarrage', () => {
         dbPath: ':memory:',
         simulation: false,
       }),
-    ).rejects.toThrow(/origines/);
+    ).rejects.toThrow(/HIVE_CORS_ORIGIN/);
   });
 });

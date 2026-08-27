@@ -208,16 +208,76 @@ export default defineConfig({
       // en silence pour faire passer un lot, c'est rendre l'anecdote à sa place
       // de critère.
       //
-      //                  ici      en CI    seuil
-      //     statements  75.81    75.81    75.7
-      //     branches    71.88    71.86    71.7
-      //     functions   76.43    76.43    76.3
-      //     lines       76.97    76.98    76.8
+      // ─── REMONTÉ LE 22 AOÛT, PARCE QU'IL NE MORDAIT PLUS ───────────────
+      //
+      // Les seuils dataient du 15 août, posés sur un arbre de 12 321 lignes.
+      // Le dépôt en portait 14 204 et couvrait 78,08 % : le cliquet était
+      // jusqu'à 2,9 points SOUS le réel. Il ne pouvait plus rougir — donc il
+      // ne gardait plus rien, et la marge entre les deux s'érodait en silence.
+      // Ce n'est pas un seuil qu'on baisse ici, c'est un seuil qu'on rattrape.
+      //
+      // La marge suit la règle écrite au-dessus — ~5× l'écart OBSERVÉ, jamais
+      // moins de 0,15 point — sur TROIS mesures du même arbre (679fde8) :
+      //
+      //                  ici #1   en CI    ici #2   plus bas  marge  seuil
+      //     statements  76.66    76.67    76.67    76.66     0.15   76.5
+      //     branches    72.76    72.65    72.77    72.65     0.55   72.1
+      //     functions   79.21    79.15    79.15    79.15     0.35   78.8
+      //     lines       78.08    78.11    78.11    78.08     0.15   77.9
+      //
+      // ─── ET UNE PHRASE DE CE FICHIER EST FAUSSE, MESURE À L'APPUI ────────
+      //
+      // Le bloc ci-dessus affirmait : « deux passages locaux successifs rendent
+      // des chiffres strictement identiques », et concluait que le tremblement
+      // était d'une MACHINE à l'autre. Les passages #1 et #2 sont locaux, sur
+      // le même arbre, et les fonctions y bougent de 0,06 point — 2 748 puis
+      // 2 746 couvertes sur 3 469. Le tremblement est AUSSI d'un passage à
+      // l'autre.
+      //
+      // La cause probable est un chemin qui dépend du temps (un rappel de
+      // minuteur tantôt joué, tantôt non). Elle n'est PAS caractérisée ici, et
+      // c'est dit plutôt que supposé.
+      //
+      // Ce que ça change : la marge ne se calcule pas sur un écart entre deux
+      // machines, mais sur le PLUS BAS de toutes les mesures qu'on a. Les
+      // branches restent les plus mobiles (0,12) et gardent la marge la plus
+      // large.
+      //
+      // ─── REMONTÉ LE 24 AOÛT, POUR LA MÊME RAISON QU'AU 22 ───────────────
+      //
+      // Les seuils du 22 août portaient sur un arbre de 12 321 puis 14 204
+      // lignes. Le dépôt en porte 15 858 et couvre 79,27 % : les branches
+      // étaient jusqu'à 2,0 points SOUS le réel. Le cliquet ne pouvait donc
+      // plus rougir — il ne gardait plus rien, et l'écart s'érodait en
+      // silence. Encore une fois : ce n'est pas un seuil qu'on baisse, c'est
+      // un seuil qu'on rattrape.
+      //
+      // TROIS mesures du même arbre (`a8fa204`), dont une en CI — c'est la
+      // règle écrite plus haut, et elle est suivie à la lettre :
+      //
+      //                  ici #1   en CI    ici #2   plus bas  écart  ×5    seuil
+      //     statements  77.89    77.89    77.89    77.89     0.00   0.00  77.7
+      //     branches    74.12    74.10    74.12    74.10     0.02   0.10  73.9
+      //     functions   79.49    79.49    79.55    79.49     0.06   0.30  79.1
+      //     lines       79.30    79.29    79.27    79.27     0.03   0.15  79.1
+      //
+      // Les DÉNOMINATEURS sont identiques aux trois passages (18 383, 14 480,
+      // 3 839, 15 858) : c'est bien le même code, et ce sont les COUVERTS qui
+      // bougent — de 1 à 3 unités. La mesure de CI est la plus basse sur les
+      // branches, la seconde locale sur les lignes : aucune des deux origines
+      // n'est systématiquement la plus basse, ce qui confirme un tremblement
+      // et non un biais de machine.
+      //
+      // La marge est ~5× l'écart observé, plancher 0,15 point — sauf pour les
+      // FONCTIONS, où l'écart de 0,06 donne 0,30 et l'emporte sur le plancher.
+      // C'est la dimension la plus mobile des quatre, et elle garde donc la
+      // marge la plus large : le rôle de la marge est d'absorber le
+      // tremblement mesuré, pas d'être uniforme.
       thresholds: {
-        statements: 75.7,
-        branches: 71.7,
-        functions: 76.3,
-        lines: 76.8,
+        statements: 77.7,
+        branches: 73.9,
+        functions: 79.1,
+        lines: 79.1,
       },
     },
     // Le MÊME plafond que ci-dessus : c'est le hook qui monte le serveur et

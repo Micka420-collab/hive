@@ -24,10 +24,32 @@ export class ApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    /** Marche à suivre renvoyée par le serveur (501 GitHub, 401 jeton…), jamais le secret. */
+    readonly detail?: string,
   ) {
     super(message);
     this.name = 'ApiError';
   }
+}
+
+/**
+ * Assemble le texte montré à l'humain : l'erreur courte, puis le détail s'il
+ * apporte autre chose. Sans ça, un 501 GitHub ne montrait que « GitHub non
+ * connecté » et cachait la marche à suivre (`detail`) déjà écrite côté serveur.
+ */
+export function messageApi(
+  body: {
+    error?: string;
+    message?: string;
+    detail?: string;
+  },
+  statut: number,
+): { message: string; detail?: string } {
+  const court = body.message ?? body.error ?? tNow(`Erreur ${statut}`, `Error ${statut}`);
+  const detail =
+    typeof body.detail === 'string' && body.detail.trim() ? body.detail.trim() : undefined;
+  if (!detail || detail === court) return detail ? { message: court, detail } : { message: court };
+  return { message: `${court} — ${detail}`, detail };
 }
 
 // ─── Le lien de partage, côté porteur ───────────────────────────────────────
@@ -80,16 +102,21 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     let message = tNow(`Erreur ${res.status}`, `Error ${res.status}`);
+    let detail: string | undefined;
     try {
       // Endpoints custom → { error } (déjà précis). Validation de schéma Fastify
       // → { message } détaillé + { error: "Bad Request" } générique : le message
       // est alors le plus utile, on le préfère quand il est présent.
-      const body = (await res.json()) as { error?: string; message?: string };
-      message = body.message ?? body.error ?? message;
+      // `detail` porte la marche à suivre (501 GitHub, 401 jeton de ruche) :
+      // l'omettre laissait l'écran muet sur ce qu'il fallait faire.
+      const body = (await res.json()) as { error?: string; message?: string; detail?: string };
+      const assemble = messageApi(body, res.status);
+      message = assemble.message;
+      detail = assemble.detail;
     } catch {
       /* corps non-JSON */
     }
-    throw new ApiError(message, res.status);
+    throw new ApiError(message, res.status, detail);
   }
   return (await res.json()) as T;
 }
@@ -214,6 +241,19 @@ export function fetchConseil(sessionId: string): Promise<SessionConseil> {
 // le tableau de bord demande « mes dépôts » et reçoit une liste, sans jamais
 // voir de quoi la fabriquer. Un écran qui collecterait le jeton en ferait une
 // valeur qui traverse le navigateur, l'historique et le presse-papiers.
+
+/** État de la connexion GitHub côté orchestrateur — jamais le secret lui-même. */
+export interface StatutGithub {
+  /** `true` si l'orchestrateur a un jeton GitHub en mémoire. */
+  configure: boolean;
+  /** Marche à suivre quand `configure` est faux (même texte que le 501). */
+  detail?: string;
+}
+
+/** Sonde légère : GitHub est-il branché sur l'orchestrateur ? */
+export function fetchStatutGithub(): Promise<StatutGithub> {
+  return api<StatutGithub>('/api/github/status');
+}
 
 export interface DepotGithub {
   fullName: string;
@@ -745,9 +785,31 @@ export interface RunnerUi {
   dernierTourA: number;
 }
 
+/** Checklist « prêt pour l'autonomie réelle » — calculée côté Queen. */
+export interface PretEssaimUi {
+  runner: boolean;
+  gouvernantes: boolean;
+  noeudsEnLigne: boolean;
+  agentsReels: boolean;
+  depot: boolean;
+  derive: boolean;
+  plafond: boolean;
+  repo: boolean;
+}
+
+export interface CycleEssaimUi {
+  ts: number;
+  projectId?: string;
+  pas?: string;
+  motif?: string;
+  issue?: string;
+  detail?: string;
+}
+
 export interface EtatEssaimUi {
   niveau: NiveauEssaim;
   runner?: RunnerUi;
+  pret?: PretEssaimUi;
   derive: DeriveUi;
   decision: { pas: PasEssaim; motif: string; gouvernantes: string[] };
   gouvernantes: Array<{ nodeId: string; nom: string }>;
@@ -760,6 +822,13 @@ export interface EtatEssaimUi {
 
 export function fetchEssaim(projectId: string): Promise<EtatEssaimUi> {
   return api<EtatEssaimUi>(`/api/projects/${projectId}/essaim`);
+}
+
+export function fetchEssaimCycles(
+  projectId: string,
+  limit = 12,
+): Promise<{ cycles: CycleEssaimUi[] }> {
+  return api(`/api/projects/${projectId}/essaim/cycles?limit=${limit}`);
 }
 
 /**
@@ -1513,7 +1582,12 @@ export function fetchMonTableau(): Promise<MonTableau> {
 export interface FeedHandlers {
   onState: (snapshot: StateSnapshot) => void;
   onEvent: (event: HiveEvent) => void;
-  onStatus: (connected: boolean) => void;
+  /**
+   * `connected` : le socket est ouvert **et** le hub a accepté le jeton.
+   * `meta.authError` : fermeture 4401 « token invalide » — le champ Jeton ne
+   * correspond pas à `HIVE_TOKEN` de l'orchestrateur.
+   */
+  onStatus: (connected: boolean, meta?: { authError?: boolean; reason?: string }) => void;
 }
 
 export interface HiveFeed {
@@ -1526,27 +1600,40 @@ export function connectFeed(handlers: FeedHandlers): HiveFeed {
   let closed = false;
   let retryMs = 1_000;
   let timer: number | undefined;
+  /** Tant que le hub n'a pas renvoyé d'`state`, on n'est pas vraiment connecté. */
+  let authentifie = false;
 
   const open = (): void => {
     if (closed) return;
+    authentifie = false;
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     ws = new WebSocket(`${proto}://${location.host}/ws`);
 
     ws.onopen = () => {
       retryMs = 1_000;
-      handlers.onStatus(true);
+      // Pas encore `onStatus(true)` : le hub peut fermer en 4401 juste après
+      // le `subscribe`. On attend le premier `state` (ou on signale l'échec).
       ws?.send(JSON.stringify({ type: 'subscribe', token: getToken() }));
     };
 
     ws.onmessage = (e: MessageEvent) => {
       const msg = parseServerMessage(typeof e.data === 'string' ? e.data : '');
       if (!msg) return;
-      if (msg.type === 'state') handlers.onState(msg.snapshot);
-      else if (msg.type === 'event') handlers.onEvent(msg.event);
+      if (msg.type === 'state') {
+        if (!authentifie) {
+          authentifie = true;
+          handlers.onStatus(true);
+        }
+        handlers.onState(msg.snapshot);
+      } else if (msg.type === 'event') handlers.onEvent(msg.event);
     };
 
-    ws.onclose = () => {
-      handlers.onStatus(false);
+    ws.onclose = (ev: CloseEvent) => {
+      const authError = ev.code === 4401 || /token invalide/i.test(ev.reason ?? '');
+      handlers.onStatus(false, {
+        authError,
+        ...(ev.reason ? { reason: ev.reason } : {}),
+      });
       if (!closed) {
         timer = window.setTimeout(open, retryMs);
         retryMs = Math.min(retryMs * 2, 15_000);
@@ -1714,4 +1801,268 @@ export function demarrerAtelier(): Promise<{ ok: boolean; plan?: string[] }> {
 
 export function arreterAtelier(): Promise<{ ok: boolean }> {
   return api('/api/atelier/arreter', { method: 'POST', body: '{}' });
+}
+
+/** Réponse de `GET /api/chambre/:nodeId` — absences = null / [] (pas de théâtre). */
+export interface ChambrePoste {
+  nodeId: string;
+  bapteme: { nom: string; baptiseA: number } | null;
+  metier: { metier: string; assigneA: number } | null;
+  caste: string;
+  /** Projet dominant (dernière tâche) — pour horizon / fabrique. */
+  projectId?: string | null;
+  node: {
+    id: string;
+    status: string;
+    plateforme: string | null;
+    agentType: string;
+    ownerName: string;
+    running: number;
+    maxConcurrency: number;
+    lastSeen: number | null;
+    nameTechnique: string;
+  };
+  presences: Array<{
+    toolUseId: string;
+    chemin: string;
+    outil: string;
+    taskId: string | null;
+    constateA: number;
+  }>;
+  tasks: Task[];
+  requisitions?: RequisitionPoste[];
+  horizon?: {
+    faits: Array<{ id: string; texte: string; source: string; creeA: number }>;
+    hypotheses: Array<{ id: string; texte: string; source: string; creeA: number }>;
+  } | null;
+  fabriques?: Array<{
+    id: string;
+    genre: string;
+    libelle: string;
+    nomScript: string | null;
+    statut: string;
+    creeA: number;
+  }>;
+  atelier: EtatAtelier;
+}
+
+export function fetchChambre(nodeId: string): Promise<ChambrePoste> {
+  return api<ChambrePoste>(`/api/chambre/${encodeURIComponent(nodeId)}`);
+}
+
+/** Curseur Rayon — présence + baptême (null = silence, pas de prénom inventé). */
+export interface PresenceCurseur {
+  nodeId: string;
+  bapteme: string | null;
+  chemin: string;
+  outil: string;
+  toolUseId: string;
+  taskId: string | null;
+  constateA: number;
+}
+
+/** Jeton de ruche seulement — pas via partage. */
+export function fetchPresences(): Promise<{ presences: PresenceCurseur[] }> {
+  return api<{ presences: PresenceCurseur[] }>('/api/presences');
+}
+
+/** Baptêmes constatés — jeton de ruche seulement (pas via partage). */
+export function fetchBaptemes(): Promise<{
+  baptemes: Array<{ nodeId: string; nom: string; baptiseA: number }>;
+}> {
+  return api('/api/baptemes');
+}
+
+export function baptiserOuvriere(
+  nodeId: string,
+  nom: string,
+): Promise<{ ok: boolean; nom: string }> {
+  return api('/api/baptemes', {
+    method: 'POST',
+    body: JSON.stringify({ nodeId, nom }),
+  });
+}
+
+export function debaptiserOuvriere(nodeId: string): Promise<{ ok: boolean }> {
+  return api(`/api/baptemes/${encodeURIComponent(nodeId)}`, { method: 'DELETE' });
+}
+
+export function assignerMetierOuvriere(
+  nodeId: string,
+  metier: string,
+): Promise<{ ok: boolean; metier: string }> {
+  return api('/api/metiers', {
+    method: 'POST',
+    body: JSON.stringify({ nodeId, metier }),
+  });
+}
+
+export interface RequisitionPoste {
+  id: string;
+  nodeId: string;
+  genre: string;
+  libelle: string;
+  detail: string | null;
+  statut: 'ouverte' | 'accordee' | 'refusee';
+  creeA: number;
+  closA: number | null;
+  bapteme?: string | null;
+}
+
+export function fetchRequisitions(opts?: {
+  nodeId?: string;
+  statut?: string;
+}): Promise<{ requisitions: RequisitionPoste[] }> {
+  const q = new URLSearchParams();
+  if (opts?.nodeId) q.set('nodeId', opts.nodeId);
+  if (opts?.statut) q.set('statut', opts.statut);
+  const s = q.toString();
+  return api(`/api/requisitions${s ? `?${s}` : ''}`);
+}
+
+export function repondreRequisition(
+  id: string,
+  decision: 'accordee' | 'refusee',
+  opts?: { secret?: string; envVar?: string },
+): Promise<{ ok: boolean; statut: string; envVar?: string }> {
+  return api(`/api/requisitions/${encodeURIComponent(id)}/repondre`, {
+    method: 'POST',
+    body: JSON.stringify({
+      decision,
+      ...(opts?.secret ? { secret: opts.secret } : {}),
+      ...(opts?.envVar ? { envVar: opts.envVar } : {}),
+    }),
+  });
+}
+
+export interface FournisseurCleApi {
+  id: string;
+  libelleFr: string;
+  libelleEn: string;
+  envVar: string;
+  hintFr: string;
+  hintEn: string;
+}
+
+export function fetchQueenCles(): Promise<{
+  fournisseurs: FournisseurCleApi[];
+  presence: Array<{ id: string; envVar: string; presente: boolean }>;
+}> {
+  return api('/api/queen/cles');
+}
+
+export function poserQueenCle(body: {
+  secret: string;
+  envVar: string;
+  libelle?: string;
+}): Promise<{ ok: boolean; envVar: string }> {
+  return api('/api/queen/cles', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export interface MotifCatalogue {
+  id: string;
+  domaine: string;
+  libelleFr: string;
+  libelleEn: string;
+  etapes: Array<{ id: string; titreFr: string; titreEn: string }>;
+}
+
+export function fetchMotifs(): Promise<{ motifs: MotifCatalogue[] }> {
+  return api('/api/motifs');
+}
+
+export function appliquerMotif(
+  projectId: string,
+  motifId: string,
+  opts?: { lang?: 'fr' | 'en' },
+): Promise<{ ok: boolean; motifId: string; taskIds: string[]; titres: string[] }> {
+  return api(
+    `/api/projects/${encodeURIComponent(projectId)}/motifs/${encodeURIComponent(motifId)}/appliquer`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ lang: opts?.lang ?? 'fr' }),
+    },
+  );
+}
+
+export interface MotifPerso {
+  id: string;
+  libelle: string;
+  etapes: string[];
+  creeA: number;
+}
+
+export function fetchMotifsPerso(projectId: string): Promise<{ motifs: MotifPerso[] }> {
+  return api(`/api/projects/${encodeURIComponent(projectId)}/motifs/perso`);
+}
+
+export function creerMotifPerso(
+  projectId: string,
+  body: { libelle: string; etapes: string[] },
+): Promise<{ ok: boolean; id: string; libelle: string; etapes: string[] }> {
+  return api(`/api/projects/${encodeURIComponent(projectId)}/motifs/perso`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function appliquerMotifPerso(
+  projectId: string,
+  motifId: string,
+): Promise<{ ok: boolean; motifId: string; taskIds: string[]; titres: string[] }> {
+  return api(
+    `/api/projects/${encodeURIComponent(projectId)}/motifs/perso/${encodeURIComponent(motifId)}/appliquer`,
+    { method: 'POST', body: '{}' },
+  );
+}
+
+export function ouvrirFabrique(
+  projectId: string,
+  body: {
+    genre: string;
+    libelle: string;
+    nomScript?: string;
+    nodeId?: string;
+    creerTache?: boolean;
+  },
+): Promise<{ ok: boolean; id: string; taskId?: string }> {
+  return api(`/api/projects/${encodeURIComponent(projectId)}/fabriques`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export function poserStatutFabrique(
+  projectId: string,
+  fabriqueId: string,
+  statut: 'en_revue' | 'mergee' | 'refusee',
+): Promise<{ ok: boolean; statut: string }> {
+  return api(
+    `/api/projects/${encodeURIComponent(projectId)}/fabriques/${encodeURIComponent(fabriqueId)}/statut`,
+    { method: 'POST', body: JSON.stringify({ statut }) },
+  );
+}
+
+export function jugerFabriqueChantier(
+  projectId: string,
+  nomScript: string,
+): Promise<{ ok: boolean; motif?: string }> {
+  return api(`/api/projects/${encodeURIComponent(projectId)}/fabriques/juger-chantier`, {
+    method: 'POST',
+    body: JSON.stringify({ nomScript }),
+  });
+}
+
+export function ajouterHorizon(
+  projectId: string,
+  kind: 'fait' | 'hypothese',
+  texte: string,
+): Promise<{ ok: boolean; entree: { id: string; kind: string; texte: string } }> {
+  return api(`/api/projects/${encodeURIComponent(projectId)}/horizon`, {
+    method: 'POST',
+    body: JSON.stringify({ kind, texte, source: 'chambre' }),
+  });
 }

@@ -41,11 +41,15 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Journal } from '../dashboard/src/Journal';
 import { setLang } from '../dashboard/src/i18n';
 import type { HiveEvent } from '../src/shared/types';
+import { couperLeReseau } from './aide/sans-reseau';
 
 let racine: Root | null = null;
 let conteneur: HTMLElement | null = null;
 
 beforeEach(() => {
+  // Coupe le réseau : ce banc ouvrait de VRAIES connexions vers
+  // 127.0.0.1:3000 (voir tests/aide/sans-reseau.ts).
+  couperLeReseau();
   setLang('fr');
 });
 

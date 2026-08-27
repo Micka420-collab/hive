@@ -1,12 +1,14 @@
 // Vue Ruche (vue d'ensemble) : le cockpit — KPIs, Swarm View 2D/3D, rayon de
 // miel du projet courant, file d'attente et journal condensé.
 
-import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { AutonomiePulse } from '../AutonomiePulse';
-import { useT } from '../i18n';
+import { useLang, useT } from '../i18n';
 import { Journal } from '../Journal';
 import { NodesPanel } from '../NodesPanel';
 import { StatTiles } from '../StatTiles';
+import { annoncesDepuisEvenements, calibrationDepuisEvenements } from '../horloge-vue';
+import { direDuree, direAnnonce } from '../../../src/shared/horloge-chantier';
 import { SwarmView } from '../SwarmView';
 import { activateProps, StatusBadge } from '../ui';
 import { Honeycomb } from './shared';
@@ -26,6 +28,7 @@ export default function Ruche({
   onNavigate,
 }: ViewProps) {
   const t = useT();
+  const lang = useLang();
   const [mode, setMode] = useState<SwarmMode>(
     () => (localStorage.getItem('hive.view') as SwarmMode) ?? '2d',
   );
@@ -33,6 +36,11 @@ export default function Ruche({
     setMode(m);
     localStorage.setItem('hive.view', m);
   };
+
+  // La note que l'horloge s'est donnée, repliée du journal déjà reçu — comme le
+  // reste de l'horloge, elle vient du flux et non d'une route.
+  const note = useMemo(() => calibrationDepuisEvenements(events), [events]);
+  const annonces = useMemo(() => annoncesDepuisEvenements(events), [events]);
 
   // Débit : tâches terminées dans les 60 dernières secondes (depuis le journal).
   const doneTimes = useRef<number[]>([]);
@@ -84,7 +92,7 @@ export default function Ruche({
       {!vide && (
         <>
           <div className="mc-ruche-stats card">
-            <StatTiles snapshot={snapshot} throughput={throughput} />
+            <StatTiles snapshot={snapshot} throughput={throughput} calibration={note} />
           </div>
 
           <AutonomiePulse
@@ -153,7 +161,12 @@ export default function Ruche({
             <aside className="col-side">
               {/* Les tâches et le geste d'ouverture : les cartes deviennent des
                   fiches coéquipières (mission « Le Poste », lot 2). */}
-              <NodesPanel nodes={snapshot.nodes} tasks={snapshot.tasks} onOpenTask={onOpenTask} />
+              <NodesPanel
+                nodes={snapshot.nodes}
+                tasks={snapshot.tasks}
+                onOpenTask={onOpenTask}
+                onOuvrirPoste={(id) => onNavigate('chambre', id)}
+              />
 
               <section className="card panel">
                 <header className="panel-head">
@@ -171,6 +184,42 @@ export default function Ruche({
                       >
                         <StatusBadge status={task.status} />
                         <span className="queue-title">{task.title}</span>
+                        {/*
+                          L'ANNONCE, LÀ OÙ ON REGARDE LA FILE.
+
+                          Un INTERVALLE et pas un plafond : « ≤ 25 min » se lit
+                          comme une borne dure alors que c'est un quantile à
+                          80 %. « 7–25 min » ne peut pas être lu comme une
+                          promesse — et c'est la seule forme qui tienne dans une
+                          ligne sans mentir. La phrase entière, avec son `n`,
+                          reste dans l'infobulle et dans le tiroir.
+
+                          Rien pour le socle « aucun » : deux zéros affichés
+                          « 0 s–0 s » seraient l'exact contraire de « je ne sais
+                          pas encore ».
+                        */}
+                        {(() => {
+                          const h = annonces.get(task.id);
+                          if (h?.horsDomaine !== undefined) {
+                            return (
+                              <span
+                                className="queue-annonce hors"
+                                title={t(
+                                  `Sortie du domaine connu — record observé ${direDuree(h.horsDomaine.recordMs, 'fr')}`,
+                                  `Out of the known domain — record observed ${direDuree(h.horsDomaine.recordMs, 'en')}`,
+                                )}
+                              >
+                                {t('hors domaine', 'out of domain')}
+                              </span>
+                            );
+                          }
+                          if (h?.annonce === undefined || h.annonce.socle === 'aucun') return null;
+                          return (
+                            <span className="queue-annonce" title={direAnnonce(h.annonce, lang)}>
+                              {direDuree(h.annonce.p50Ms, lang)}–{direDuree(h.annonce.p80Ms, lang)}
+                            </span>
+                          );
+                        })()}
                         {deferred.has(task.id) && task.status === 'ready' && (
                           <span
                             className="badge-conflict"

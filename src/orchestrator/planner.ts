@@ -12,6 +12,9 @@
 // quel via POST /api/projects/:id/tasks.
 
 import { LIMITS } from '../shared/protocol.js';
+import { conseilVeilleBrief } from './queen-veille.js';
+import { snippetOpenAlexPourBrief } from './openalex-veille.js';
+import { QUEEN_BEE_INTELLIGENCE_CORE } from './queen-intelligence-core.js';
 
 /** Tâche produite par le planner : la forme exacte attendue par l'API de tâches. */
 export interface PlannedTask {
@@ -203,11 +206,21 @@ export function heuristicPlan(brief: string): PlannedTask[] {
     tasks.push({ id, title, prompt, dependsOn });
   };
 
+  const veille = conseilVeilleBrief(b);
+  if (veille) {
+    add(
+      'veille',
+      'Veille techno et état de l’art',
+      `${ctx}, ${veille} Produire une synthèse courte : alternatives, risques, recommandation avant d’implémenter.`,
+      [],
+    );
+  }
+
   add(
     'socle',
     'Échafauder le projet',
     `${ctx}, mettre en place la structure du dépôt, l'outillage (lint, tests, build) et un squelette exécutable.`,
-    [],
+    veille ? ['veille'] : [],
   );
 
   if (wants.data) {
@@ -298,6 +311,7 @@ export function heuristicPlan(brief: string): PlannedTask[] {
 export function buildPlannerPrompt(brief: string): { system: string; user: string } {
   const system = [
     'Tu es « Queen Bee », la planificatrice de Hive.',
+    QUEEN_BEE_INTELLIGENCE_CORE,
     "On te donne le brief d'un projet logiciel. Découpe-le en un DAG minimal de tâches de codage, chacune réalisable indépendamment par une IA de codage.",
     'Contraintes :',
     '- 2 à 12 tâches, chacune atomique et confiable.',
@@ -307,7 +321,21 @@ export function buildPlannerPrompt(brief: string): { system: string; user: strin
     'Réponds UNIQUEMENT par un tableau JSON, sans texte ni balises Markdown autour.',
     'Exemple : [{"id":"socle","title":"Échafauder","prompt":"Créer la structure du dépôt.","dependsOn":[]}]',
   ].join('\n');
-  return { system, user: brief.trim() };
+  const veille = conseilVeilleBrief(brief);
+  const user = veille ? `${brief.trim()}\n\n${veille}` : brief.trim();
+  return { system, user };
+}
+
+/** Veille + extrait OpenAlex injectés dans le prompt planner (runtime). */
+export async function buildPlannerPromptAsync(
+  brief: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<{ system: string; user: string }> {
+  const base = buildPlannerPrompt(brief);
+  if (!conseilVeilleBrief(brief)) return base;
+  const snippet = await snippetOpenAlexPourBrief(brief, env);
+  if (!snippet) return base;
+  return { system: base.system, user: `${base.user}\n\n${snippet.texte}` };
 }
 
 /**
@@ -367,6 +395,119 @@ export function plannerModel(env: NodeJS.ProcessEnv = process.env): string {
 /** Le planner IA est-il activable ? (une clé API locale suffit). */
 export function llmPlannerAvailable(env: NodeJS.ProcessEnv = process.env): boolean {
   return Boolean(env.ANTHROPIC_API_KEY);
+}
+
+/** Morceau d’un flux Messages Anthropic (texte ou usage final). */
+export type LlmStreamChunk =
+  | { kind: 'text'; text: string }
+  | { kind: 'usage'; usage: { inputTokens: number; outputTokens: number } };
+
+export type LlmStreamFn = (args: {
+  system: string;
+  user: string;
+  model: string;
+  maxTokens: number;
+}) => AsyncGenerator<LlmStreamChunk>;
+
+/**
+ * Parse une trame SSE Anthropic (une ou plusieurs lignes `data: …`).
+ * Exposée pour les bancs — le producteur HTTP l’utilise ligne à ligne.
+ */
+export function parserTrameAnthropic(data: string): LlmStreamChunk | null {
+  const trimmed = data.trim();
+  if (!trimmed || trimmed === '[DONE]') return null;
+  let parsed: {
+    type?: string;
+    delta?: { type?: string; text?: string };
+    usage?: { input_tokens?: number; output_tokens?: number };
+    message?: { usage?: { input_tokens?: number; output_tokens?: number } };
+  };
+  try {
+    parsed = JSON.parse(trimmed) as typeof parsed;
+  } catch {
+    return null;
+  }
+  if (parsed.type === 'content_block_delta' && parsed.delta?.type === 'text_delta') {
+    const text = parsed.delta.text ?? '';
+    return text ? { kind: 'text', text } : null;
+  }
+  if (parsed.type === 'message_delta' || parsed.type === 'message_start') {
+    const u = parsed.usage ?? parsed.message?.usage;
+    const inputTokens = u?.input_tokens;
+    const outputTokens = u?.output_tokens;
+    if (
+      typeof inputTokens === 'number' &&
+      Number.isFinite(inputTokens) &&
+      typeof outputTokens === 'number' &&
+      Number.isFinite(outputTokens)
+    ) {
+      return { kind: 'usage', usage: { inputTokens, outputTokens } };
+    }
+  }
+  return null;
+}
+
+/**
+ * Variante streaming de `anthropicLlm` — même pile (fetch brut, pas de SDK).
+ * Anthropic `stream: true` → générateur de deltas texte + usage.
+ */
+export function anthropicLlmStream(env: NodeJS.ProcessEnv = process.env): LlmStreamFn {
+  const apiKey = env.ANTHROPIC_API_KEY;
+  const baseUrl = (env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com').replace(/\/+$/, '');
+  return async function* ({ system, user, model, maxTokens }) {
+    if (!apiKey) {
+      throw new Error(
+        "ANTHROPIC_API_KEY absente : le chat IA requiert une clé API (elle reste locale à l'orchestrateur).",
+      );
+    }
+    const res = await fetch(`${baseUrl}/v1/messages`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: maxTokens,
+        stream: true,
+        system,
+        messages: [{ role: 'user', content: user }],
+      }),
+    });
+    if (!res.ok) {
+      const errBody = (await res.json().catch(() => null)) as {
+        error?: { message?: string };
+      } | null;
+      throw new Error(
+        `appel API Claude (stream) échoué : ${errBody?.error?.message ?? `HTTP ${res.status}`}`,
+      );
+    }
+    if (!res.body) throw new Error('réponse stream sans corps.');
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop() ?? '';
+      for (const line of lines) {
+        const t = line.trimEnd();
+        if (!t.startsWith('data:')) continue;
+        const chunk = parserTrameAnthropic(t.slice(5).trimStart());
+        if (chunk) yield chunk;
+      }
+    }
+    if (buf.trim()) {
+      const t = buf.trim();
+      if (t.startsWith('data:')) {
+        const chunk = parserTrameAnthropic(t.slice(5).trimStart());
+        if (chunk) yield chunk;
+      }
+    }
+  };
 }
 
 /**
@@ -430,9 +571,9 @@ export function anthropicLlm(env: NodeJS.ProcessEnv = process.env): LlmFn {
 /** Planifie via l'IA (parse + nettoyage inclus). Lève si l'appel/parse échoue. */
 export async function llmPlan(
   brief: string,
-  opts: { llm: LlmFn; model: string },
+  opts: { llm: LlmFn; model: string; env?: NodeJS.ProcessEnv },
 ): Promise<PlannedTask[]> {
-  const { system, user } = buildPlannerPrompt(brief);
+  const { system, user } = await buildPlannerPromptAsync(brief, opts.env);
   const { text } = lireLlm(await opts.llm({ system, user, model: opts.model, maxTokens: 2048 }));
   const tasks = parsePlannerResponse(text);
   if (tasks.length === 0) throw new Error("le planner IA n'a produit aucune tâche.");
@@ -465,7 +606,7 @@ export async function planBrief(brief: string, opts: PlanOptions = {}): Promise<
   if (useLlm) {
     const llm = opts.llm ?? anthropicLlm(env);
     try {
-      return { tasks: await llmPlan(trimmed, { llm, model }), source: 'llm' };
+      return { tasks: await llmPlan(trimmed, { llm, model, env }), source: 'llm' };
     } catch (e) {
       if (opts.mode === 'llm') throw e instanceof Error ? e : new Error(String(e));
       // Mode auto : jamais bloquant, on sert un découpage déterministe.

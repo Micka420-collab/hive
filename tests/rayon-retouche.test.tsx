@@ -91,6 +91,7 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   fetchApercu: vi.fn(() => Promise.resolve(null)),
   proposerRetouche: vi.fn(),
   fetchSauvegardes: vi.fn(() => Promise.resolve({ sauvegardes: [] })),
+  fetchPresences: vi.fn(() => Promise.resolve({ presences: [] })),
 }));
 
 import {
@@ -135,6 +136,7 @@ const CONTENUS: Record<string, string> = {
   'miel.txt': 'le miel d’origine',
   'propolis.txt': 'la propolis d’origine',
   'cire.txt': 'la cire d’origine',
+  'alveoles/couvain.ts': 'le couvain d’origine',
 };
 
 const fichier = (chemin: string): FichierRayon => ({
@@ -391,6 +393,29 @@ describe('le Rayon : la lecture est le défaut, l’écriture n’en est pas une
       bouton(membre, 'Proposer une retouche'),
       'un membre perd le geste de retouche',
     ).toBeTruthy();
+  });
+
+  it('FOCUS FICHIER DÉPLIE LES PARENTS — puis ouvre le contenu constaté', async () => {
+    // Chambre → Rayon : un chemin imbriqué doit révéler l’arbre, pas seulement
+    // le panneau éditeur (sinon on croit le fichier « perdu » dans le dépôt).
+    const { demanderFocusFichier } = await import('../dashboard/src/focus-vue');
+    demanderFocusFichier('alveoles/couvain.ts');
+    const dom = await monter();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(valeur(dom), 'le fichier ciblé n’est pas ouvert').toBe('le couvain d’origine');
+    const active = dom.querySelector('.ry-entree.active');
+    expect(active?.textContent ?? '', 'l’entrée active n’est pas le fichier').toContain(
+      'couvain.ts',
+    );
+    expect(
+      [...dom.querySelectorAll('.ry-entree')].some((b) =>
+        (b.textContent ?? '').includes('couvain.ts'),
+      ),
+      'le parent alveoles n’a pas été déplié',
+    ).toBe(true);
   });
 
   it('CHANGER DE PROJET VIDE L’ARBRE — un SOUS-DOSSIER déplié ne survit pas au dépôt', async () => {

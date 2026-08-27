@@ -182,18 +182,40 @@ describe('invariants de sécurité (§5)', () => {
     }
   });
 
+  // ─── CES DEUX GARDES ONT DÛ SUIVRE LE CODE, ET C'EST LA LEÇON ─────────────
+  //
+  // Elles lisaient le TEXTE de `server.ts` pour prouver que les contrôles de
+  // sécurité y étaient. Le jour où ces contrôles ont déménagé dans
+  // `shared/amorce.ts` — un refactor parfaitement légitime —, elles se sont
+  // mises à chercher au mauvais endroit : elles auraient désormais passé sur un
+  // `server.ts` DÉPOURVU de toute sécurité.
+  //
+  // Une garde sur le texte source est donc couplée à l'EMPLACEMENT de ce
+  // qu'elle garde, et un déplacement la désarme en silence. On la répare en
+  // affirmant les DEUX moitiés : la règle existe là où elle vit maintenant, ET
+  // le serveur l'appelle vraiment. C'est plus fort qu'avant.
+
   it('§5 — CORS ne vaut jamais « * » ni true, et « * » est explicitement rejeté', () => {
     const server = fileEndingWith('orchestrator/server.ts');
     expect(server).not.toMatch(/origin\s*:\s*['"]\*['"]/); // pas d'origine joker
     expect(server).not.toMatch(/origin\s*:\s*true\b/); // pas de « toutes origines »
-    expect(server).toMatch(/corsOrigins\.includes\(\s*['"]\*['"]\s*\)/); // garde présent
+    // La règle, là où elle vit.
+    expect(fileEndingWith('shared/amorce.ts')).toMatch(/corsOrigins\.includes\(\s*['"]\*['"]\s*\)/);
+    // Et son CÂBLAGE : une règle que personne n'appelle ne garde rien.
+    expect(server).toContain('manquesDeDemarrage(');
+    expect(server).toContain('corsOrigins: config.corsOrigins');
   });
 
   it('§5 — comparaison de token en temps constant + rejet du token trivial', () => {
     const server = fileEndingWith('orchestrator/server.ts');
     expect(server).toContain('timingSafeEqual'); // pas de comparaison naïve ===
-    expect(server).toContain('MIN_TOKEN_LENGTH');
-    expect(server).toContain('DEFAULT_TOKEN');
+    // Le refus du jeton trivial vit dans `amorce.ts` ; le serveur l'invoque.
+    const amorce = fileEndingWith('shared/amorce.ts');
+    expect(amorce).toContain('TOKEN_LONGUEUR_MIN');
+    expect(amorce).toContain('TOKEN_PAR_DEFAUT');
+    expect(server).toContain('token: config.token');
+    // Et la levée : constater sans lever laisserait la ruche démarrer nue.
+    expect(server).toMatch(/if\s*\(manques\.length\s*>\s*0\)\s*throw/);
   });
 });
 

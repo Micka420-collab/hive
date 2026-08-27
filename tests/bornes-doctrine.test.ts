@@ -92,6 +92,12 @@ const BORNÉES_PAR_L_HUMAIN: Record<string, string> = {
   machines_noeuds: 'une ligne par machine provisionnée',
   modeles_noeuds:
     'une liste de modèles par machine — clé primaire nodeId, écrasée à la ré-inscription',
+  outils_noeuds:
+    'les outils IA constatés par une machine — clé primaire nodeId, écrasée à la ré-inscription ; le JSON est borné en amont par estOutilsConstates (32 entrées)',
+  baptemes:
+    'une ligne par ouvrière baptisée par la Reine (ADR 0010) — clé primaire nodeId ; collision de noms refusée',
+  metiers_cycle:
+    'une ligne par ouvrière à qui la Reine a assigné un métier de cycle (ADR 0010) — clé primaire nodeId',
   abonnements: 'une ligne par compte abonné',
   budgets: 'un plafond par projet',
   essaim: 'clé primaire `projectId` — une seule ligne par projet, par construction',
@@ -101,6 +107,8 @@ const BORNÉES_PAR_L_HUMAIN: Record<string, string> = {
     'cache reconstructible, une ligne par projet AYANT DÉPENSÉ ; sa perte se rattrape',
   horloge_soldes:
     'un solde clos par projet — 1:1 avec projects ; l’élaguer rendrait des heures au client',
+  motifs_projet:
+    'procédures perso créées depuis la Chambre — poignée par projet, jamais auto-générées',
 };
 
 /** Le corps de chaque méthode `prune*` du magasin, accolades suivies. */

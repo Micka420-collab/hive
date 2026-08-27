@@ -161,6 +161,9 @@ export function decoderPartage(brut: string): { id: string; secret: string } | n
   if (s.length === 0 || s.length > 4096) return null;
   try {
     const data: unknown = JSON.parse(Buffer.from(s, 'base64url').toString('utf8'));
+    // loupe : équivalent — || → &&. La garde vit DANS le `try` dont le `catch`
+    // rend `null`. Mué, un `null` traverse, `o.v` lève — et le `catch` rend
+    // `null`, exactement ce que la garde aurait rendu. Indistinguable.
     if (typeof data !== 'object' || data === null) return null;
     const o = data as Record<string, unknown>;
     if (o.v !== 3) return null;

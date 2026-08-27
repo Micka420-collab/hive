@@ -26,6 +26,8 @@ import type { Translate } from '../i18n';
 import { useApiPoll } from './shared';
 import type { ViewProps } from './shared';
 import './monespace.css';
+import { PourquoiHive } from '../PourquoiHive';
+import '../onboarding.css';
 
 const HEURE_MS = 3_600_000;
 
@@ -162,6 +164,7 @@ export default function MonEspace({ user, refreshTick, onNavigate, onNewProject 
           <p className="me-accueil-action">
             {t('Connectez-vous depuis la barre du haut.', 'Sign in from the top bar.')}
           </p>
+          <PourquoiHive />
         </section>
       </div>
     );
@@ -448,6 +451,7 @@ function CarteProjet({ p, onNavigate }: { p: ProjetRendu; onNavigate: ViewProps[
       )}
 
       {!p.actif && p.etatAbonnement !== 'aucun' && <p className="me-motif">{p.motifDroits}</p>}
+      <PourquoiHive compact />
     </article>
   );
 }

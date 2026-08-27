@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-4448%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-5406%20passing-F6C445?labelColor=17130C)
 ![Licence](https://img.shields.io/badge/licence-MIT-F6C445?labelColor=17130C)
 
 🇫🇷 Français · [🇬🇧 English](README.en.md) · [🌐 Site](https://micka420-collab.github.io/hive/) · [📚 Documentation](#-documentation)
@@ -56,6 +56,14 @@ Captures de l'écran réel (`npm run ruche`), pas de maquettes.
 <p align="center">
   <img src="docs/images/dashboard-reine.png" width="840" alt="Tableau de bord — vue Reine, atelier de recette et chat.">
 </p>
+<p align="center">
+  <img src="docs/images/dashboard-chambre.png" width="840" alt="Tableau de bord — Chambre, poste ouvrière baptisée Capucine, bandeau À trancher, abeille et fleur.">
+</p>
+<p align="center">
+  <a href="docs/media/chambre-presentation-demo.mp4">Vidéo — parcours Chambre (FR)</a>
+  ·
+  <a href="docs/media/README.md">médias</a>
+</p>
 
 ## 🔁 Comment ça marche
 
@@ -64,6 +72,10 @@ Captures de l'écran réel (`npm run ruche`), pas de maquettes.
 2. **Les IA travaillent en parallèle.** Chaque tâche part sur l'ordinateur d'un
    membre, dans un dossier isolé. L'avancement s'affiche en direct.
 3. **Vous validez, puis ça fusionne.** Rien ne passe sans votre accord.
+4. **Vous ouvrez le poste d'une ouvrière.** Ruche → fiche du nœud →
+   **Ouvrir la Chambre** : nom baptisé, fichiers **constatés**, Atelier
+   noVNC, réquisitions — sans inventer ce qui n'est pas là. Détail :
+   **[docs/FONCTIONNALITES.md](docs/FONCTIONNALITES.md)** (section Chambre).
 
 ## ⚡ Installation
 
@@ -78,12 +90,19 @@ curl -fsSL https://raw.githubusercontent.com/Micka420-collab/hive/main/install.s
 
 # Windows (PowerShell)
 irm https://raw.githubusercontent.com/Micka420-collab/hive/main/install.ps1 -OutFile "$env:TEMP\hive-install.ps1"; powershell -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\hive-install.ps1"
+
+# Variante prudente Windows (Pages sert aussi install.ps1 + le même manifeste) :
+#   télécharger https://micka420-collab.github.io/hive/install.ps1
+#   Get-FileHash hive-install.ps1 -Algorithm SHA256   # vs install.sha256 sur Pages
+#   powershell -NoProfile -ExecutionPolicy Bypass -File .\hive-install.ps1
 ```
 
 Le script vérifie Node (≥ 24), récupère Hive, installe les dépendances et pose
 **au plus trois questions**. Jamais de `sudo`, rien hors de son dossier —
 `--dry-run` montre tout sans rien créer. Lancé comme fichier, il affiche son
-empreinte SHA-256 (ADR 0002).
+empreinte SHA-256 (ADR 0002). Pages publie `install.sh`, `install.ps1` et
+`install.sha256` ; une **Release GitHub signée** reste hors d’atteinte (comptes
+humains) — l’empreinte Pages protège du pipe aveugle, pas d’un dépôt compromis.
 
 Déjà cloné : `npm run setup` puis `npm run ruche`. Conteneur et Cloud :
 **[docs/CLOUD.md](docs/CLOUD.md)**. Bureau de recette :
@@ -154,14 +173,16 @@ commutateur de l'hôte qui paie le temps-machine.
 
 Toute IA de codage se branche via l'interface `AgentAdapter` :
 
-| Adaptateur     | Ce qu'il lance                                           |
-| -------------- | -------------------------------------------------------- |
-| `claude-code`  | `claude -p "<prompt>"` dans l'espace isolé.              |
-| `codex`        | `codex exec "<prompt>"`                                  |
-| `grok`         | `grok -p "<prompt>"` — l’agent CLI de xAI, Apache 2.0.   |
-| `hermes-agent` | `hermes agent run --prompt "<prompt>"`                   |
-| `custom`       | Le vôtre, via `HIVE_AGENT_CMD`.                          |
-| `shell`        | **Simulé** — aucun processus lancé, les diffs sont faux. |
+| Adaptateur     | Ce qu'il lance                                                                                                |
+| -------------- | ------------------------------------------------------------------------------------------------------------- |
+| `claude-code`  | `claude -p "<prompt>"` dans l'espace isolé.                                                                   |
+| `cursor`       | `cursor-agent -p --force --output-format stream-json -- "<prompt>"` — binaire réglable par `HIVE_CURSOR_BIN`. |
+| `cline`        | `cline --json --auto-approve true "<prompt>"` — binaire réglable par `HIVE_CLINE_BIN`.                        |
+| `codex`        | `codex exec "<prompt>"`                                                                                       |
+| `grok`         | `grok -p "<prompt>"` — l’agent CLI de xAI, Apache 2.0.                                                        |
+| `hermes-agent` | `hermes agent run --prompt "<prompt>"`                                                                        |
+| `custom`       | Le vôtre, via `HIVE_AGENT_CMD`.                                                                               |
+| `shell`        | **Simulé** — aucun processus lancé, les diffs sont faux.                                                      |
 
 Le nœud **détecte ce qui est installé** et s'en sert. Il n'emploie `shell` que
 s'il ne trouve aucun agent — et il le dit. `HIVE_AGENT` force le choix.

@@ -10,6 +10,12 @@ import path from 'node:path';
 import WebSocket from 'ws';
 import { getAdapter } from '../adapters/index.js';
 import type { AgentAdapter } from '../adapters/index.js';
+import {
+  agentBinairePresent,
+  estAgentType,
+  requisitionSiCredentialsManquantes,
+} from './agent-detect.js';
+import type { AgentType } from './agent-detect.js';
 import { argvDe, jugerChantier } from '../shared/chantier.js';
 import { jugerCommandeTest } from '../shared/commande-test.js';
 import { jugerPreparation } from '../shared/preparation.js';
@@ -17,11 +23,18 @@ import { isOnShift, minutesUntilOpen, nightShiftFromEnv } from '../shared/night-
 import type { NightShiftPolicy } from '../shared/night-shift.js';
 import { plateformeDepuis } from '../shared/machine.js';
 import { ID_PATTERN, LIMITS, parseServerMessage } from '../shared/protocol.js';
-import type { AssignChantierMsg, AssignMergeMsg, ClientMessage } from '../shared/protocol.js';
+import type {
+  AssignChantierMsg,
+  AssignMergeMsg,
+  ClientMessage,
+  OutilConstate,
+} from '../shared/protocol.js';
 import { HEARTBEAT_INTERVAL_MS } from '../shared/types.js';
 import type { Task } from '../shared/types.js';
 import { runMerge, runProc } from './merge-runner.js';
 import { buildSandboxEnv, cloneRepo, prepareWorkspace } from './workspace.js';
+import { requisitionDepuisEchecInfra } from '../shared/requisition-infra.js';
+import { motifRefusPresence, refuseParPresence } from '../shared/presence-noeud.js';
 import type { Fournisseur } from './isolement.js';
 import type { Workspace } from './workspace.js';
 
@@ -52,6 +65,17 @@ export interface NodeClientOptions {
   /** Coupe les logs console (tests). */
   quiet?: boolean;
   /**
+   * « Présence sans production » : ce poste rejoint la ruche pour SE MONTRER,
+   * pas pour travailler. Aucun agent de codage réel n'a été trouvé dessus.
+   *
+   * C'est la SECONDE garde, et elle est délibérément redondante avec celle du
+   * hub (`assignationProductionAutorisee`). Un hub d'une version plus ancienne,
+   * ou une voie d'assignation qu'on aura oublié de filtrer, ne connaîtra pas la
+   * règle. Le nœud, lui, la connaît toujours : c'est lui qui a constaté sa
+   * propre machine.
+   */
+  presenceSeule?: boolean;
+  /**
    * Bac à sable résolu par l'appelant (main.ts), ou absent.
    *
    * INJECTÉ plutôt que sondé ici : la sonde lance un binaire, et un test de
@@ -59,6 +83,11 @@ export interface NodeClientOptions {
    * suite. C'est le même motif que `adapter`.
    */
   bac?: { fournisseur: Fournisseur; variables: readonly string[] };
+  /**
+   * Présence du binaire agent (tests / override). Défaut : sonde PATH réelle.
+   * Sert à la reprise après Accorder `binaire` sans relancer un ENOENT immédiat.
+   */
+  verifierBinaireAgent?: () => Promise<boolean>;
 }
 
 /**
@@ -73,11 +102,42 @@ export function composeAgentPrompt(hiveContext: string | undefined, prompt: stri
 export class HiveNodeClient {
   private ws: WebSocket | null = null;
   private nodeId: string | null = null;
+  /**
+   * Les constats d'outils à joindre à l'inscription — posés par l'appelant,
+   * jamais calculés ici.
+   *
+   * `null` tant que rien n'a été constaté, et c'est volontaire : un tableau
+   * vide se lirait comme « aucun outil sur cette machine », alors que la vérité
+   * serait « personne n'a regardé ». Deux silences différents, deux valeurs.
+   */
+  private outilsConstates: OutilConstate[] | null = null;
+
+  /** Pose ce que le diagnostic a vu. Rejouable : une reconnexion le renvoie. */
+  setOutilsConstates(outils: readonly OutilConstate[]): void {
+    this.outilsConstates = [...outils];
+  }
+
   private readonly active = new Map<string, AbortController>();
   /** Merges en cours (par mergeId) — anti-doublon si le hub réémet le même id. */
   private readonly activeMerges = new Set<string>();
   private readonly activeChantiers = new Set<string>();
   private heartbeatTimer: NodeJS.Timeout | null = null;
+  /** Évite de spammer la Chambre à chaque reconnexion WebSocket. */
+  private requisitionCredentialEnvoyee = false;
+  /** Tâche en pause le temps qu'un humain tranche une réquisition (boucle B/C/D). */
+  private attenteRequisition: {
+    task: Task;
+    repoUrl: string | null;
+    hiveContext?: string;
+    modele?: string;
+    workspace: Workspace;
+    started: number;
+    ctrl: AbortController;
+    /** Genre de la réquisition qui a mis en pause (cle_api | binaire | …). */
+    genre: string;
+    libelle: string;
+    detail?: string;
+  } | null = null;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private reconnectDelay = 1_000;
   private closed = false;
@@ -138,6 +198,24 @@ export class HiveNodeClient {
     return this.active.size;
   }
 
+  /**
+   * Ouvre une réquisition (clé API, MCP, binaire…) — ADR 0010 lot 7.
+   * Le secret ne transite jamais : l'humain accorde depuis la Chambre.
+   */
+  ouvrirRequisition(genre: string, libelle: string, detail?: string, taskId?: string): void {
+    if (!this.nodeId) {
+      this.log('réquisition ignorée : nœud non enregistré');
+      return;
+    }
+    this.send({
+      type: 'requisition_open',
+      genre,
+      libelle,
+      ...(detail ? { detail } : {}),
+      ...(taskId ? { taskId } : {}),
+    });
+  }
+
   // ─── Connexion ───────────────────────────────────────────────────────────
   private connect(): void {
     if (this.closed) return;
@@ -167,6 +245,11 @@ export class HiveNodeClient {
         ...(this.opts.modeles && this.opts.modeles.length > 0
           ? { modeles: this.opts.modeles }
           : {}),
+        // Ce que ce poste porte réellement — des CONSTATS, pas un verdict. Le
+        // hub en tire sa conclusion avec son catalogue ; ici on ne fait que
+        // rapporter ce qu'on a vu. Absent tant que le diagnostic n'a pas
+        // tourné : un tableau vide se lirait comme « rien d'installé ».
+        ...(this.outilsConstates ? { outils: this.outilsConstates } : {}),
       });
     });
 
@@ -202,6 +285,7 @@ export class HiveNodeClient {
         this.nodeId = msg.nodeId;
         this.startHeartbeat();
         this.log(`enregistré dans la ruche (nodeId=${msg.nodeId.slice(0, 8)}…)`);
+        this.proposerRequisitionCredentialsSiBesoin();
         break;
       case 'assign_task':
         void this.runTask(msg.task, msg.repoUrl ?? null, msg.hiveContext, msg.modele);
@@ -217,6 +301,16 @@ export class HiveNodeClient {
         break;
       case 'error':
         this.log(`erreur du hub : ${msg.message}`);
+        break;
+      case 'requisition_ack':
+        this.log(`réquisition ouverte (${msg.id.slice(0, 8)}…) — ${msg.genre} : ${msg.libelle}`);
+        break;
+      case 'requisition_result':
+        this.log(`réquisition ${msg.id.slice(0, 8)}… : ${msg.statut}`);
+        if (this.attenteRequisition) {
+          if (msg.statut === 'accordee') void this.reprendreApresRequisition();
+          else void this.abandonnerApresRequisition(msg.statut);
+        }
         break;
       default:
         break; // state/event : réservés au dashboard
@@ -245,6 +339,23 @@ export class HiveNodeClient {
   private stopHeartbeat(): void {
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     this.heartbeatTimer = null;
+  }
+
+  /** Réquisition proactive si l'agent réel n'a pas d'identifiants locaux (ADR 0010). */
+  private proposerRequisitionCredentialsSiBesoin(): void {
+    if (this.requisitionCredentialEnvoyee) return;
+    // `opts.agentType` est une CHAÎNE LIBRE : `getAdapter` en accepte d'autres
+    // que les cinq connus (`hermes-agent`), et `HIVE_AGENT` laisse l'humain en
+    // écrire n'importe laquelle. Un `as AgentType` compilerait en mentant sur
+    // la valeur ; la garde dit la vérité et ne change rien au comportement —
+    // `requisitionSiCredentialsManquantes` retombait déjà sur `null` pour un
+    // agent qu'elle ne connaît pas.
+    const agent = this.opts.agentType;
+    if (!estAgentType(agent)) return;
+    const req = requisitionSiCredentialsManquantes(agent);
+    if (!req) return;
+    this.requisitionCredentialEnvoyee = true;
+    this.ouvrirRequisition(req.genre, req.libelle, req.detail);
   }
 
   /**
@@ -318,6 +429,16 @@ export class HiveNodeClient {
       });
       return;
     }
+    // « Présence sans production » : ce nœud s'est inscrit sans agent réel. Il
+    // REFUSE poliment plutôt que de lancer son adaptateur simulé — un diff
+    // inventé remonté comme du travail serait bien pire que le silence d'avant.
+    //
+    // `task_reject` et non `task_result` en échec : le refus ne brûle aucune
+    // tentative, et le hub peut servir un autre nœud dans la seconde.
+    if (refuseParPresence(this.opts.presenceSeule === true ? 'presence' : 'production')) {
+      this.send({ type: 'task_reject', taskId: task.id, reason: motifRefusPresence() });
+      return;
+    }
     if (this.active.has(task.id)) return; // assignation dupliquée : déjà en cours
     if (this.active.size >= this.opts.maxConcurrency) {
       // Nœud saturé : on REFUSE l'assignation (task_reject) plutôt que de la
@@ -345,6 +466,7 @@ export class HiveNodeClient {
     this.log(`butinage : ${task.title} (tentative ${task.attempts + 1})`);
 
     let workspace: Workspace | null = null;
+    let conserverWorkspace = false;
     try {
       workspace = await prepareWorkspace(
         this.workRoot,
@@ -376,18 +498,45 @@ export class HiveNodeClient {
             taskId: task.id,
             status: 'running',
             ...(p.subAgents ? { subAgents: p.subAgents } : {}),
+            ...(p.presences ? { presences: p.presences } : {}),
             ...(p.log ? { log: p.log } : {}),
           });
         },
       });
-      // Échec d'INFRASTRUCTURE (agent injoignable/non authentifié, quota) : on ne
-      // brûle PAS une tentative — on demande une réaffectation (token-failover),
-      // pour qu'un autre nœud dont l'agent fonctionne reprenne la tâche.
+      // Échec d'INFRASTRUCTURE : réquisition mid-task si credentials, sinon failover.
       if (!result.success && result.infra) {
+        const req = requisitionDepuisEchecInfra(this.opts.agentType, result.logs, task.title);
+        if (req && workspace && !this.attenteRequisition) {
+          conserverWorkspace = true;
+          this.attenteRequisition = {
+            task,
+            repoUrl,
+            hiveContext,
+            modele,
+            workspace,
+            started,
+            ctrl,
+            genre: req.genre,
+            libelle: req.libelle,
+            detail: req.detail,
+          };
+          this.ouvrirRequisition(req.genre, req.libelle, req.detail, task.id);
+          this.send({
+            type: 'task_update',
+            taskId: task.id,
+            status: 'running',
+            log: '⏸ Réquisition ouverte — en attente de décision humaine (Chambre).',
+          });
+          this.log(`⏸ ${task.title} : réquisition ${req.genre} — pause`);
+          return;
+        }
         this.send({
           type: 'task_reject',
           taskId: task.id,
-          reason: 'agent indisponible (auth/quota)',
+          reason:
+            req?.genre === 'binaire'
+              ? 'agent indisponible (binaire absent)'
+              : 'agent indisponible (auth/quota)',
           infra: true,
         });
         this.log(`⇄ ${task.title} : agent indisponible → réaffectation`);
@@ -421,9 +570,144 @@ export class HiveNodeClient {
       });
       this.log(`✘ ${task.title} : ${message}`);
     } finally {
-      this.active.delete(task.id);
-      workspace?.cleanup();
+      if (!conserverWorkspace) {
+        this.active.delete(task.id);
+        workspace?.cleanup();
+      }
     }
+  }
+
+  /** Reprend une tâche après réquisition accordée — credentials / binaire prêts. */
+  private async reprendreApresRequisition(): Promise<void> {
+    const attente = this.attenteRequisition;
+    if (!attente) return;
+    const { task, hiveContext, modele, workspace, started, ctrl, genre, libelle, detail } = attente;
+
+    if (genre === 'binaire') {
+      const pret = this.opts.verifierBinaireAgent
+        ? await this.opts.verifierBinaireAgent()
+        : await agentBinairePresent(this.opts.agentType as AgentType);
+      if (!pret) {
+        // Garder la pause : Accorder ne veut pas dire « le CLI est là ».
+        // Relancer tout de suite brûlerait la pause en task_reject ENOENT.
+        this.log(`⏸ ${task.title} : binaire toujours absent après Accorder — nouvelle réquisition`);
+        this.send({
+          type: 'task_update',
+          taskId: task.id,
+          status: 'running',
+          log: '⏸ Binaire toujours absent — installez-le, puis Accordez à nouveau.',
+        });
+        this.ouvrirRequisition(genre, libelle, detail, task.id);
+        return;
+      }
+    }
+
+    this.attenteRequisition = null;
+    this.log(`↻ reprise de ${task.title} après réquisition accordée`);
+    try {
+      try {
+        process.loadEnvFile('.env');
+      } catch {
+        /* pas de .env local */
+      }
+      workspace.env = buildSandboxEnv(workspace.cwd, this.opts.keepEnv ?? []);
+      const taskForAgent = hiveContext
+        ? { ...task, prompt: composeAgentPrompt(hiveContext, task.prompt) }
+        : task;
+      const result = await this.adapter.run(taskForAgent, {
+        cwd: workspace.cwd,
+        env: workspace.env,
+        attempt: task.attempts + 1,
+        signal: ctrl.signal,
+        ...(modele ? { modele } : {}),
+        ...(this.opts.bac ? { bac: this.opts.bac } : {}),
+        onProgress: (p) => {
+          this.send({
+            type: 'task_update',
+            taskId: task.id,
+            status: 'running',
+            ...(p.subAgents ? { subAgents: p.subAgents } : {}),
+            ...(p.presences ? { presences: p.presences } : {}),
+            ...(p.log ? { log: p.log } : {}),
+          });
+        },
+      });
+      if (!result.success && result.infra) {
+        const encore = requisitionDepuisEchecInfra(this.opts.agentType, result.logs, task.title);
+        if (encore?.genre === 'binaire') {
+          this.attenteRequisition = {
+            ...attente,
+            genre: encore.genre,
+            libelle: encore.libelle,
+            detail: encore.detail,
+          };
+          this.ouvrirRequisition(encore.genre, encore.libelle, encore.detail, task.id);
+          this.send({
+            type: 'task_update',
+            taskId: task.id,
+            status: 'running',
+            log: '⏸ Binaire encore absent après reprise — nouvelle réquisition.',
+          });
+          this.log(`⏸ ${task.title} : ENOENT à la reprise — pause conservée`);
+          return;
+        }
+        this.send({
+          type: 'task_reject',
+          taskId: task.id,
+          reason: 'agent indisponible après réquisition',
+          infra: true,
+        });
+        return;
+      }
+      const diff = result.diff !== '' ? result.diff : await workspace.collectDiff();
+      this.send({
+        type: 'task_result',
+        taskId: task.id,
+        success: result.success,
+        diff: diff.slice(0, LIMITS.diff),
+        logs: result.logs.slice(0, LIMITS.log),
+        durationMs: Date.now() - started,
+        subAgents: result.subAgents.slice(0, LIMITS.subAgents),
+      });
+      this.log(`${result.success ? '✔' : '✘'} ${task.title} (reprise)`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.send({
+        type: 'task_result',
+        taskId: task.id,
+        success: false,
+        diff: '',
+        logs: `[nœud] reprise après réquisition : ${message}`,
+        durationMs: Date.now() - started,
+        subAgents: [],
+      });
+    } finally {
+      if (!this.attenteRequisition) {
+        this.active.delete(task.id);
+        workspace.cleanup();
+      }
+    }
+  }
+
+  /** Abandonne la tâche en pause quand la réquisition est refusée. */
+  private async abandonnerApresRequisition(statut: string): Promise<void> {
+    const attente = this.attenteRequisition;
+    if (!attente) return;
+    const { task, workspace, started, ctrl } = attente;
+    this.attenteRequisition = null;
+    ctrl.abort();
+    this.send({
+      type: 'task_result',
+      taskId: task.id,
+      success: false,
+      diff: '',
+      logs: `[nœud] réquisition ${statut} — tâche interrompue`,
+      durationMs: Date.now() - started,
+      subAgents: [],
+    });
+    this.log(`✘ ${task.title} : réquisition ${statut}`);
+    this.active.delete(task.id);
+    workspace.cleanup();
   }
 
   // ─── Merge (Honeycomb Merge, Palier 3) ───────────────────────────────────
@@ -611,10 +895,16 @@ export class HiveNodeClient {
       let scripts: Record<string, string> = {};
       try {
         const brut: unknown = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8'));
+        // loupe : équivalent — && → ||. Le `catch` de ce bloc rend
+        // `scripts = {}`, et la garde de la ligne suivante y mène aussi. Mué,
+        // un `package.json` valant `null` lève à l'indexation et retombe dans
+        // le même `{}`.
         const bloc =
           typeof brut === 'object' && brut !== null
             ? (brut as Record<string, unknown>).scripts
             : null;
+        // loupe : équivalent — && → ||. Même raison : `Object.entries(null)`
+        // lève, le `catch` rend `{}`, et c'est ce que la garde produisait.
         if (typeof bloc === 'object' && bloc !== null) {
           for (const [k, v] of Object.entries(bloc)) {
             if (typeof v === 'string') scripts[k] = v;

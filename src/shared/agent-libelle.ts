@@ -14,6 +14,7 @@
 /** Les noms de marque, identiques dans les deux langues. */
 const MARQUES: Readonly<Record<string, string>> = {
   'claude-code': 'Claude Code',
+  cursor: 'Cursor',
   codex: 'Codex',
   grok: 'Grok Build',
 };

@@ -9,6 +9,149 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **Les portes de ce lot passent sous banc.** Le cliquet de couverture refusait
+  la fusion — fonctions à 78,42 % sous un seuil de 78,8 — et il nommait juste :
+  trois blocs neufs arrivaient sans un cas.
+  `tests/api-queen-fabrique.test.ts` (11 cas) tient les huit portes ajoutées
+  ici : chemin, méthode, corps, jeton. Deux invariants y sont posés
+  explicitement — chaque segment variable passe par `encodeURIComponent` (un
+  identifiant portant `/` change sinon la route appelée), et le SECRET d'une
+  clé Reine voyage dans le CORPS, jamais dans l'URL (une URL se journalise, se
+  met en cache, part dans un `Referer`).
+  `tests/onboarding-essaim.test.tsx` (10 cas) tient les TROIS règles
+  d'effacement de la checklist du premier cycle, chacune un `return null`
+  isolé : une checklist qui reste affichée après coup se lit comme « il reste
+  du travail » alors qu'il n'en reste pas.
+  `tests/reine-voix-pieces-ecran.test.tsx` (14 cas) tient le câblage du micro
+  et des pièces jointes — les 211 lignes que la Reine vocale avait ajoutées
+  sans qu'aucun banc ne les touche. Les modules `reine-voix` et
+  `reine-extraire` y sont DOUBLÉS : ils ont leurs propres 53 cas, et un banc
+  d'écran qui rejouerait l'extraction d'un PDF mesurerait pdfjs, pas la vue.
+  Mesure après coup : fonctions 79,06 %, soit 0,26 point au-dessus du seuil —
+  quand le tremblement documenté d'une exécution à l'autre est de 0,06. Le
+  premier jet tombait à 78,80 % PILE : franchi, mais à cette hauteur la CI
+  rougit au hasard, et un cliquet intermittent est pire que pas de cliquet.
+
+- **Clés API proactives (OpenRouter & co).** Catalogue Chambre → Intégrations :
+  OpenRouter, Anthropic, OpenAI, xAI, Cursor, Seedance, ou variable libre ;
+  `GET/POST /api/queen/cles` écrit le `.env` Queen (jamais la valeur en base).
+- **Relecture Claude (#348) intégrée.** Horizon neutralisé (`champSurUneLigne`) ;
+  grant : validation puis transition puis écriture ; `envVar` = dérivé du libellé ;
+  motifs : `ordre` dans la donnée + `catalogueCoherent` ; étapes perso = une ligne.
+- **Boucle réquisition mid-task.** Échec infra auth → `cle_api` ; binaire
+  absent (ENOENT / « échec du lancement ») → `binaire` ; `requisition_open` +
+  `taskId` ; pause tâche ; reprise après `accordee` (boucle B/C/D ADR 0010).
+  Accorder `binaire` sans CLI encore présent : pause conservée + nouvelle
+  réquisition (plus de `task_reject` immédiat).
+- **Accorder hors cle_api.** `suiteAccordRequisition` : atelier → allumer ;
+  mcp/logiciel → fabrique ; binaire → hint install nommé (`messageAccordBinaire`).
+  Modal grant : `envVar` en lecture seule pour les réquisitions.
+- **Agent Cursor + choix interactif.** Détection du CLI Cursor (`agent` /
+  `cursor-agent`), adaptateur `cursor` (`agent -p --force`), credentials
+  `CURSOR_API_KEY` / `~/.cursor`. Quand plusieurs agents réels sont détectés
+  (Claude Code, Cursor, Codex…) et qu'un terminal est disponible, le nœud
+  **demande lequel utiliser** (`choisir-agent.ts`) ; `HIVE_AGENT` force toujours.
+- **OpenAlex runtime.** `openalex-veille.ts` : extrait littérature dans planner LLM ;
+  veille dans Queen Bee, Reine/concierge, tâches et planner heuristique.
+- **Wizard onboarding Essaim.** `OnboardingEssaim.tsx` : checklist interactive jusqu’au
+  premier cycle runner.
+- **Hive Mind hybride.** `rankMemoriesHybrid` : BM25 + trigrammes pour projets longs.
+- **Story produit.** `PourquoiHive` dans Mon espace et Chronique (vs Cursor/Devin).
+- **Queen — Intelligence Core.** Spec canonique (`docs/QUEEN-INTELLIGENCE-CORE.md`) :
+  identité stratégique de la Reine (diagnostic, veille techno, catégories A/B/C/D,
+  boucle d'intelligence). Fragments injectés dans le chat Reine (`concierge.ts`),
+  le planner (`planner.ts`) et Queen Bee (`queen-bee.ts`). Skill agent
+  `.agents/skills/queen-intelligence-core/SKILL.md`.
+- **Grant cle_api Chambre → `.env` Queen.** Modal HITL pour saisir variable et secret ;
+  `requisition-env.ts` écrit atomiquement sur l'hôte ; le nœud recharge `.env` à la reprise.
+  Mapping libellés agents (Codex/Claude/Grok/Seedance) → variables standard.
+- **Horizon dans le contexte ouvrière.** `texteHorizonPourContexte` injecté dans
+  `construireHiveContext` (budget tokens restant) et dans le contexte conseil.
+- **Fabrique UI Chambre.** Formulaire « Proposer », boutons Revue/Refuser, juger/lancer Chantiers.
+- **Motifs perso.** Procédures par projet (`motifs_projet`) : créer depuis la Chambre, appliquer en tâches ordonnées.
+- **Motifs catalogue — confirmation.** Aperçu des étapes (toggle) + dialogue avant appliquer.
+
+### Changed
+
+- **Mode production agents.** `agent-production.ts` : le nœud refuse de démarrer
+  en shell sans `HIVE_SIMULATION=1` ou `HIVE_AGENT=shell` ; le scheduler n'assigne
+  pas aux agents simulés hors mode démo. Protocole réquisition nœud (cherry-pick #347).
+  Réquisition proactive à l'enregistrement si credentials agent absents (`requisitionSiCredentialsManquantes`).
+- **Polish autonomie.** API baptême/métier (`POST /api/baptemes`, `/api/metiers`) ;
+  checklist « prêt pour l’autonomie » + timeline cycles dans Plein Essaim ;
+  baptême et métier depuis la Chambre ; filtre Chronique « Essaim » ;
+  avertissement nœuds shell ; veille techno légère dans le planner (`queen-veille.ts`) ;
+  délibération prioritaire quand la dérive signale `a_surveiller`.
+- **Queen — Intelligence Core.** Spec canonique (`docs/QUEEN-INTELLIGENCE-CORE.md`) :
+  identité stratégique de la Reine (diagnostic, veille techno, catégories A/B/C/D,
+  boucle d'intelligence). Fragments injectés dans le chat Reine (`concierge.ts`),
+  le planner (`planner.ts`) et Queen Bee (`queen-bee.ts`). Skill agent
+  `.agents/skills/queen-intelligence-core/SKILL.md`.
+
+### Changed
+
+- **Polish autonomie.** API baptême/métier ; checklist Essaim ; Chambre baptême/métier ;
+  veille planner ; délibération si `a_surveiller`.
+- **ADR 0010 lots 7 & 9 — suite.** Protocole nœud : `requisition_open` →
+  `requisition_ack` ; décision humaine relayée par `requisition_result` (sans
+  secret). Horizon : fait auto aussi quand la dérive passe en `a_surveiller`
+  (anti-spam 6 h, distinct de « dégradée »).
+
+### Changed
+
+- **ADR 0010 accepté.** Lots 7–10 consolidés : fabrique bloque les Chantiers
+  tant que le merge n’a pas atterri ; fusion PR (humaine **et** autonome) →
+  statut fabrique `mergee` ; dérive dégradée → fait auto dans l’horizon
+  (anti-spam) ; essaim halte si le carnet dépasse le budget d’instantané ;
+  motifs `jeu-3d` + `cli-outil` (fabrique avant livraison) ; réquisition
+  ouverte émet `requisition_ouverte` ; exemple Seedance (`cle_api` sans secret).
+- **Chambre polish.** Feedback d’erreur HITL / motifs / horizon / atelier ;
+  libellés fabrique & caste ; pastilles de statut ; « Ouvrir la Chambre »
+  unifié ; focus-visible miel étendu ; Rayon respecte `prefers-reduced-motion`.
+
+### Added
+
+- **Chambre UI fidèle à la maquette produit.** Crème `#FDF8F0` / miel `#F2B441`,
+  bandeau **À trancher**, **Journal** (pastilles EDIT/READ), **Missions**
+  filtrées, **Ordinateur** noVNC (Plein écran). Baptême display — données
+  constatées seulement. Curseur Rayon → ouvre la Chambre ; bandeau
+  **En train de…** si le miroir du dépôt est vide. Fiche nœud : titre =
+  baptême (sinon silence). Cartes nœud (Ruche + Essaim) : baptême via
+  `GET /api/baptemes` (jeton ruche ; partage → 401) — sinon « Pas encore
+  baptisée » ; échec API → nom technique (pas de mensonge). Clic Essaim →
+  Chambre. Échap → Ruche (pas pendant saisie / dialogue) ; chemins → focus
+  fichier Rayon (déplie les dossiers parents) ; **Voir le Rayon** pose le focus
+  sur la présence la plus récente (sinon navigation seule) ; sans projet lié →
+  silence du lien ; clic chemin du bandeau **En train de…** → ouvre dans l’arbre.
+  Pastille **EDIT** / point de statut Fiche alignés sur le constaté. Journal :
+  lignes READ/EDIT/WRITE → même `CheminConstate`. Maquette :
+  `docs/maquettes/chambre/`. Capture + démo :
+  `docs/images/dashboard-chambre.png`, `docs/media/chambre-presentation-demo.mp4`.
+
+- **Chambre (ADR 0010, lots 0–11 + UI).** Poste ouvrière : baptême, métier, présence,
+  vue 4 zones + Atelier, curseurs Rayon, réquisitions, **fabrique**, **horizon**,
+  **motifs**. Écran : bandeau HITL, flux outils, onglets
+  Fiche/Travail/Intégrations/Suivi. Partage : jamais d’identités. ADR **proposé**.
+- **🎤 Reine vocale + documents.** Vue 👑 : micro (Web Speech), lecture à voix
+  haute des réponses, joindre PDF / Word `.docx` / texte / code (extraction
+  navigateur via `pdfjs` + `mammoth`, bundlés dashboard — 0 dep runtime nœud).
+  Vidéo/audio : refus clair (pas de fausse transcription). Plafond chat porté
+  à 40 000 caractères. Module pur `reine-pieces` + bancs.
+  Les deux modules navigateur ont leurs bancs eux aussi : `reine-voix`
+  (28 cas — le décor Web Speech est posé à la main, happy-dom n'en fournit
+  pas) et `reine-extraire` (22 cas — `pdfjs` et `mammoth` doublés : le banc
+  juge ce que le module FAIT de ce qu'ils rendent, pas leur capacité à lire
+  un PDF). Ils arrivaient sans banc, et le cliquet de couverture le disait —
+  fonctions à 78,72 % sous un seuil de 78,8 %.
+  Les deux modules sont ensuite passés sous la loupe (base `727859b`) :
+  18 mutations possibles, 18 examinées, 15 défendues d'emblée. Les trois
+  nues sont fermées par des bancs, pas déclarées équivalentes — la garde de
+  TYPE sur `str` (un nombre entrait dans la page), la borne `size <= 0` (un
+  fichier vide était OUVERT sans que le refus change, seul un compteur
+  d'ouvertures pouvait le voir) et le parcours des résultats vocaux, où
+  `length` doit faire autorité sur ce que la liste porte au-delà.
+  Contre-rejeu : 3 mutants sur 3 font rougir la suite.
+
 - **innov. Trois filets produit.** (1) Retouche Rayon → sauvegarde
   `avant_retouche` (patch inverse). (2) Reine propose « Restaurer… » s’il y a
   des échecs + une étape (puce → Rayon). (3) Pouls Plein Essaim sur la Ruche
@@ -18,8 +161,9 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - **🔏 Installeurs sur Pages + empreinte affichée (lot 8, prep).** `pages.yml`
   copie `install.sh` / `install.ps1` vers `site/` et publie `install.sha256`.
-  Les scripts affichent leur SHA-256 avant d’agir (fichier) ; la doc montre la
-  variante télécharger → hasher → lire → exécuter (ADR 0002).
+  Les scripts affichent leur SHA-256 avant d’agir (fichier) ; la doc (README +
+  INSTALLATION) montre la variante télécharger → hasher → lire → exécuter
+  (Pages / `install.sha256`, ADR 0002) — sans promettre une Release signée.
 
 - **💾 Timeline de sauvegardes (code récupérable).** Chaque production réussie
   avec un diff devient une étape (`sauvegardes` latérale, survit à
@@ -30,10 +174,19 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   la timeline) ; après restauration, **Ouvrir dans la Miellerie**. Aperçu
   patch borné + **Copier**. Pouls Plein Essaim : relecture toutes les 30 s
   sans flash.
-- **🎛 Reine moderne : tokens + modes.** Le chat affiche le décompte Anthropic
-  (message + session). Modes Chat / Plan / Autonomie / Sauvegardes relient vers
-  Projets, Plein Essaim et Rayon. Atelier : copie « machine de la ruche » ;
-  Plein Essaim : autonomie sur plusieurs jours.
+- **🎙 Reine en flux (SSE) + multi-agents en lecture.** `/api/chat` accepte
+  `stream` / `Accept: text/event-stream` : deltas puis `done`. Contexte enrichi
+  (`enCours`, `sousAgents`, `essaim` Plein Essaim) — la Reine **cite** l’essaim,
+  elle ne change pas le niveau d’autonomie et ne réécrit jamais le dépôt.
+  UI Reine : bulle progressive. `hive ask` partage le même chemin SSE ; banc
+  CLI + FEATURES EN (table Comb) + README variante prudente Windows (Pages /
+  `install.sha256`, sans 2ᵉ `irm` qui casserait la garde d’annonce).
+
+- **DEFINITION §E : empreintes Pages** mesurées ; Release signée reste 🔒. Parser SSE Anthropic : bancs text_delta vide / message_start.
+
+- **Reine : abort du flux SSE** au démontage ou « Effacer » (AbortSignal), sans bulle d’erreur.
+- **`hive ask` : Ctrl+C** coupe le flux SSE (AbortSignal), message `(interrompu)`.
+- **Carnet lot 8** : empreintes Pages ✅ / Release signée 🔒 (ETAPES plus « à faire »).
 
 ### Changed
 

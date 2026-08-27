@@ -80,11 +80,25 @@ describe('Drone Wars — contrat HTTP races/victory', () => {
     projetId = ((await res.json()) as { id: string }).id;
     // 2 nœuds en ligne, sans passer par le WS : le scheduler est exposé par le
     // serveur (même approche que la démo).
-    for (const name of ['course-alpha', 'course-beta']) {
+    //
+    // AGENTS RÉELS, et ce n'est pas un détail de décor. Ce banc montait des
+    // nœuds `shell` sur un serveur `simulation: false` — une configuration que
+    // la ruche REFUSE désormais d'enrôler dans une course, comme elle la
+    // refusait déjà à l'assignation automatique. Ces nœuds n'exécutent rien ici
+    // (aucun client WS n'est branché) : leur type n'était qu'un remplissage, et
+    // il contredisait la politique du serveur qu'on leur donne.
+    //
+    // Le rendre cohérent, plutôt qu'assouplir la garde : ce fichier éprouve le
+    // CONTRAT HTTP des courses (routes, codes, formes), pas la politique
+    // d'agent — celle-ci a ses propres bancs dans `course-sans-simule`.
+    for (const [name, agentType] of [
+      ['course-alpha', 'claude-code'],
+      ['course-beta', 'codex'],
+    ] as const) {
       server.scheduler.registerNode({
         name,
         ownerName: 'test',
-        agentType: 'shell',
+        agentType,
         maxConcurrency: 2,
       });
     }

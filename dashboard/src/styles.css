@@ -435,6 +435,31 @@ h3 {
   box-shadow: 0 0 0 3px rgba(246, 196, 69, 0.18);
 }
 
+.token-input-err {
+  border-color: color-mix(in srgb, var(--danger, #c44) 70%, var(--border));
+  color: var(--text);
+}
+
+.token-input-err:focus {
+  border-color: var(--danger, #c44);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger, #c44) 22%, transparent);
+}
+
+.mc-token-banner {
+  margin: 0;
+  padding: 10px 18px;
+  background: color-mix(in srgb, var(--danger, #c44) 12%, var(--panel));
+  border-bottom: 1px solid color-mix(in srgb, var(--danger, #c44) 35%, var(--border));
+  color: var(--text);
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+
+.mc-token-banner p {
+  margin: 0;
+  max-width: 72rem;
+}
+
 .conn {
   display: inline-flex;
   align-items: center;
@@ -473,6 +498,64 @@ h3 {
 }
 
 .conn.offline .conn-dot {
+  background: var(--red);
+}
+
+/* ─── Sur quelle IA la ruche est branchée ─────────────────────────────────
+   Même forme que le voyant de connexion, à dessein : ce sont deux voyants de
+   même nature, posés côte à côte, qui répondent à deux questions qu'on
+   confondait — « le navigateur parle-t-il au hub ? » et « une IA code-t-elle
+   vraiment ? ». Le second manquait, et son absence a coûté une session
+   entière à regarder une ruche verte qui ne faisait rien. */
+.mc-ia {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  background: transparent;
+  max-width: 16rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mc-ia-reelle {
+  color: var(--green);
+  border-color: color-mix(in srgb, var(--green) 22%, var(--border));
+  background: color-mix(in srgb, var(--green) 5%, var(--panel));
+}
+
+.mc-ia-reelle .conn-dot {
+  background: var(--green);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 18%, transparent);
+}
+
+/* Simulé et « inscrite mais muette » se ressemblent parce qu'ils se valent :
+   dans les deux cas la ruche RÉPOND et ne produit rien de réel. */
+.mc-ia-simulee,
+.mc-ia-aucune_ia {
+  color: var(--amber);
+  border-color: color-mix(in srgb, var(--amber) 28%, var(--border));
+  background: color-mix(in srgb, var(--amber) 7%, var(--panel));
+}
+
+.mc-ia-simulee .conn-dot,
+.mc-ia-aucune_ia .conn-dot {
+  background: var(--amber);
+}
+
+.mc-ia-aucun_noeud {
+  color: var(--red);
+  border-color: color-mix(in srgb, var(--red) 28%, var(--border));
+  background: color-mix(in srgb, var(--red) 6%, var(--panel));
+}
+
+.mc-ia-aucun_noeud .conn-dot {
   background: var(--red);
 }
 
@@ -617,6 +700,16 @@ h3 {
 }
 
 /* ─── Cartes de nœuds ─────────────────────────────────────────────────── */
+.node-shell-avert {
+  margin: 0 10px 8px;
+  padding: 8px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--orange, #c4841a);
+  background: rgba(242, 180, 65, 0.12);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--gold, #8a4f05);
+}
 .node-list,
 .queue,
 .journal {
@@ -3372,4 +3465,120 @@ button.mc-cell:focus-visible {
 
 .btn.geste-irr-oui:hover:not(:disabled) {
   background: rgba(168, 64, 42, 0.1);
+}
+
+/* ─── L'horloge du chantier, dans le tiroir de tâche ────────────────────────
+   L'annonce se lit en gras discret ; le verdict, lui, se COLORE — c'est la
+   seule ligne de l'écran qui dise si le pari a tenu, et une ligne qui juge
+   doit se voir sans être cherchée. « Débordée » reste en ambre, jamais en
+   rouge : une annonce sur cinq est CENSÉE déborder, et la peindre comme une
+   panne pousserait à annoncer large pour ne plus jamais être pris en défaut. */
+.horloge-annonce {
+  font-variant-numeric: tabular-nums;
+}
+
+.horloge-verdict {
+  font-size: 12px;
+  margin: 4px 0;
+  padding: 6px 10px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.horloge-verdict.tenue {
+  color: var(--green, #2f6b3a);
+  border-color: color-mix(in srgb, var(--green, #2f6b3a) 35%, var(--border));
+}
+
+.horloge-verdict.debordee {
+  color: var(--amber, #9a6b16);
+  border-color: color-mix(in srgb, var(--amber, #9a6b16) 40%, var(--border));
+}
+
+.horloge-alerte {
+  font-size: 12px;
+  margin: 4px 0;
+  padding: 6px 10px;
+  border-radius: var(--r-sm);
+  color: var(--amber, #9a6b16);
+  background: color-mix(in srgb, var(--amber, #9a6b16) 10%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--amber, #9a6b16) 40%, var(--border));
+}
+
+/* La note de l'horloge tient en un mot quand elle n'a pas de pourcentage. */
+.tile-value-mot {
+  font-variant-numeric: tabular-nums;
+}
+
+/* L'annonce dans la file : discrète, tabulaire, et jamais plus large que le
+   titre qu'elle accompagne. « hors domaine » est le seul état qui se colore —
+   c'est le moment où l'historique cesse de dire quoi que ce soit. */
+.queue-annonce {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.queue-annonce.hors {
+  color: var(--amber, #94560c);
+}
+
+/* ─── LES OUTILS IA D'UNE OUVRIÈRE (fiche coéquipière) ──────────────────────
+ *
+ * Deux informations par ligne, et elles ne disent PAS la même chose :
+ *   · l'état de la MACHINE — le binaire est-il là, la clé est-elle lisible ;
+ *   · le niveau de la RUCHE — jusqu'où elle sait aller avec cet outil.
+ *
+ * Seule la conjonction des deux mérite d'être mise en avant : un outil parfait
+ * que la ruche ne sait que détecter reste gris, et c'est le message. La couleur
+ * ne récompense donc pas la machine, elle récompense ce qui va travailler. */
+.fo-outil {
+  display: block;
+  line-height: 1.5;
+}
+
+.fo-outil-pilotable {
+  color: var(--green);
+}
+
+.fo-outil-etat {
+  font-weight: 600;
+}
+
+/* La limite est une phrase entière ; elle passe à la ligne plutôt que de
+   pousser le reste hors de la fiche. */
+.fo-outil-limite {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  padding-left: 1.4em;
+}
+
+.fo-outil-niveau {
+  font-size: 12px;
+}
+
+/* La commande d'installation d'un outil : à LIRE, puis à coller soi-même. */
+.fo-outil-pose {
+  display: block;
+  padding-left: 1.4em;
+  margin-top: 3px;
+}
+
+.fo-outil-commande {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  user-select: all; /* un clic sélectionne tout : le repli du repli. */
+}
+
+.fo-outil-rate {
+  font-size: 12px;
+  color: var(--amber);
 }

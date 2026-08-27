@@ -88,10 +88,11 @@ describe('POST /api/chat — la Reine répond', () => {
       body: JSON.stringify({ message: '' }),
     });
     expect(empty.status).toBe(400);
+    const { CHAT_ENVOI_MAX } = await import('../src/shared/reine-pieces.js');
     const long = await fetch(`${base}/api/chat`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ message: 'x'.repeat(2001) }),
+      body: JSON.stringify({ message: 'x'.repeat(CHAT_ENVOI_MAX + 1) }),
     });
     expect(long.status).toBe(400);
   });
@@ -103,5 +104,29 @@ describe('POST /api/chat — la Reine répond', () => {
       body: JSON.stringify({ message: 'coucou' }),
     });
     expect(res.status).toBe(401);
+  });
+
+  it('SSE : Accept text/event-stream → done live sans LLM', async () => {
+    const res = await fetch(`${base}/api/chat`, {
+      method: 'POST',
+      headers: {
+        ...headers,
+        accept: 'text/event-stream',
+      },
+      body: JSON.stringify({ message: 'Ou en est le projet ? merci', stream: true }),
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type') ?? '').toContain('text/event-stream');
+    const texte = await res.text();
+    const lignes = texte
+      .split('\n')
+      .filter((l) => l.startsWith('data:'))
+      .map(
+        (l) => JSON.parse(l.slice(5).trim()) as { type: string; reply?: string; source?: string },
+      );
+    expect(lignes.length).toBeGreaterThanOrEqual(1);
+    const done = lignes.find((l) => l.type === 'done');
+    expect(done?.source).toBe('live');
+    expect(done?.reply ?? '').toContain('Projet Chat');
   });
 });

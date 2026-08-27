@@ -11,6 +11,8 @@ import { timeShort } from './shared';
 import type { ViewProps } from './shared';
 import type { TaskStatus } from '../../../src/shared/types';
 import './chronique.css';
+import { PourquoiHive } from '../PourquoiHive';
+import '../onboarding.css';
 
 // ─── Familles d'événements (chips de filtre) ────────────────────────────────
 
@@ -22,7 +24,9 @@ type Family =
   | 'conflits'
   | 'memoire'
   | 'instinct'
+  | 'essaim'
   | 'balance'
+  | 'horloge'
   | 'autres';
 
 // Double libellé fr/en (constante de module) — résolu via t au rendu.
@@ -34,7 +38,9 @@ const FAMILIES: { id: Family; fr: string; en: string }[] = [
   { id: 'conflits', fr: 'Conflits', en: 'Conflicts' },
   { id: 'memoire', fr: 'Mémoire', en: 'Memory' },
   { id: 'instinct', fr: 'Instinct', en: 'Instinct' },
+  { id: 'essaim', fr: 'Essaim', en: 'Swarm' },
   { id: 'balance', fr: 'Balance', en: 'Balance' },
+  { id: 'horloge', fr: 'Horloge', en: 'Clock' },
   { id: 'autres', fr: 'Autres', en: 'Other' },
 ];
 
@@ -54,8 +60,27 @@ const INSTINCT = new Set(['pheromone_route', 'thermo_shift', 'brood_context']);
  */
 const BALANCE = new Set(['balance_alert', 'balance_cap_reached', 'balance_cap_set']);
 
+const ESSAIM = new Set([
+  'essaim_cycle',
+  'swarm_level_set',
+  'swarm_task_created',
+  'bapteme_pose',
+  'bapteme_retire',
+  'metier_assigne',
+]);
+
+/**
+ * L'horloge du chantier : ce que la ruche a ANNONCÉ, et l'alerte quand une
+ * tâche sort du domaine où l'historique dit encore quelque chose.
+ *
+ * Famille à part, et pas « Autres » : « Autres » est la case qu'on décoche en
+ * premier quand le journal déborde. Une annonce qu'on ne peut pas isoler ne
+ * peut pas être surveillée, et une horloge qu'on ne surveille pas redevient un
+ * chiffre auquel on croit sur parole.
+ */
 function familyOf(type: string): Family {
   if (INSTINCT.has(type)) return 'instinct';
+  if (ESSAIM.has(type)) return 'essaim';
   if (BALANCE.has(type)) return 'balance';
   if (type === 'conflict_detected' || type === 'task_conflict_deferred') return 'conflits';
   if (type.startsWith('drone')) return 'courses';
@@ -63,6 +88,7 @@ function familyOf(type: string): Family {
   if (type.startsWith('memory')) return 'memoire';
   if (type.startsWith('task')) return 'taches';
   if (type.startsWith('node')) return 'noeuds';
+  if (type.startsWith('duree') || type.startsWith('horloge')) return 'horloge';
   return 'autres';
 }
 
@@ -75,6 +101,19 @@ const STATUSES: TaskStatus[] = ['pending', 'ready', 'assigned', 'running', 'done
  */
 function isTyping(): boolean {
   const el = document.activeElement;
+  // loupe : équivalent — instanceof HTMLElement → instanceof Object.
+  //
+  // Le mutant ne se distingue que sur un élément dont le `tagName` vaut
+  // exactement « INPUT » (ou l'un des autres) SANS être un HTMLElement. Seul
+  // `createElementNS` d'un espace de noms étranger le produit :
+  // `document.createElementNS('urn:x', 'INPUT')` rend bien `tagName === 'INPUT'`
+  // — la première version de cette note prétendait le contraire, et une sonde
+  // l'a démentie (§ 9 duosexagicenties : la PRÉMISSE aussi se mesure).
+  //
+  // Le verdict tient pour une autre raison, celle-là vérifiable : un tel
+  // élément n'a pas de méthode `focus()`, donc il ne peut jamais devenir
+  // `document.activeElement`. La branche est inatteignable, et un test qui ne
+  // peut pas rougir n'est pas de la couverture.
   if (!(el instanceof HTMLElement)) return false;
   const tag = el.tagName;
   return (
@@ -113,7 +152,9 @@ export default function Chronique({ events }: ViewProps) {
       conflits: 0,
       memoire: 0,
       instinct: 0,
+      essaim: 0,
       balance: 0,
+      horloge: 0,
       autres: 0,
     };
     for (const ev of events) c[familyOf(ev.type)] += 1;
@@ -392,6 +433,7 @@ export default function Chronique({ events }: ViewProps) {
             </li>
           )}
         </ul>
+        {events.length === 0 && <PourquoiHive compact />}
       </section>
     </div>
   );

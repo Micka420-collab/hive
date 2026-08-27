@@ -211,14 +211,16 @@ describe('LA MÊME RÈGLE, APPLIQUÉE AUX VUES', () => {
   });
 
   it('CHAQUE VUE A SA CASE DANS LA BARRE — sinon elle n’existe que pour qui connaît l’URL', () => {
-    // `Partage` est la seule exception LÉGITIME, et elle porte sa raison : elle
-    // s'ouvre par un lien de partage, pour quelqu'un qui n'a pas de compte et
-    // ne voit aucune barre.
+    // `Partage` est la seule exception historique : lien de partage, pas de barre.
+    // `Chambre` (ADR 0010) : entrée depuis la fiche nœud « Ouvrir la Chambre »,
+    // pas une 14ᵉ case nav — le poste d’une ouvrière n’est pas une destination
+    // de barre globale.
     const SANS_CASE = new Set([
       // Le porteur de lien n'a ni compte ni barre : cet écran s'ouvre par une
-      // URL de partage, et c'est tout son objet. C'est la SEULE exception, et
-      // elle porte sa raison.
+      // URL de partage, et c'est tout son objet.
       'Partage',
+      // Poste ouvrière : fiche nœud → `#/chambre/<nodeId>` (ADR 0010).
+      'Chambre',
     ]);
     const bloc = APP.slice(APP.indexOf('const NAV: NavItem[] = ['), APP.indexOf('\n];'));
     const manquantes = vues.filter(

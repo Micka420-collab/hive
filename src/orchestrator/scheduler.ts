@@ -5,6 +5,7 @@
 
 import { MAX_ATTEMPTS, NODE_TIMEOUT_MS } from '../shared/types.js';
 import type { HiveEvent, HiveNode, SubAgent, Task, TaskResult } from '../shared/types.js';
+import type { PresenceFichier } from '../shared/presence.js';
 // L'Aiguillage appris : parmi les nœuds éligibles à charge, restreindre à ceux
 // qui offrent le meilleur modèle pour le genre de la tâche. Module PUR — il ne
 // lit ni n'écrit rien ; le scheduler lui donne les antécédents et enregistre le
@@ -47,6 +48,7 @@ import { CacheDomaines, meilleurNoeud, replierTraces } from './pheromones.js';
 import type { Domaine, TraceePheromone } from './pheromones.js';
 import { analyzePair } from './sting-detector.js';
 import type { HiveStore, NodeProfile } from './store.js';
+import { assignationProductionAutorisee } from '../shared/agent-production.js';
 import { concurrenceEffective, lireTemperature, FENETRE_MS, TYPES_THERMO } from './thermo.js';
 import type { BandeThermo } from './thermo.js';
 
@@ -72,6 +74,8 @@ const TICKS_CONFIRMATION_THERMO = 2;
 export interface SchedulerOptions {
   maxAttempts?: number;
   nodeTimeoutMs?: number;
+  /** Mode démo : autorise l'assignation aux nœuds shell/simulation. */
+  simulation?: boolean;
   /** Appelé quand une tâche est assignée — le serveur pousse alors `assign_task` au nœud. */
   onAssign?: (nodeId: string, task: Task, modele?: string) => void;
   /** Appelé pour annuler le travail d'un nœud (drone perdant) — le serveur envoie `cancel_task`. */
@@ -679,7 +683,13 @@ export class Scheduler {
   }
 
   /** Le nœud confirme le démarrage effectif (assigned → running) et le progrès des sous-agents. */
-  handleTaskUpdate(nodeId: string, taskId: string, subAgents?: SubAgent[], log?: string): void {
+  handleTaskUpdate(
+    nodeId: string,
+    taskId: string,
+    subAgents?: SubAgent[],
+    log?: string,
+    presences?: PresenceFichier[],
+  ): void {
     const task = this.store.getTask(taskId);
     // Mise à jour pour une tâche inconnue ou réaffectée ailleurs : ignorée —
     // SAUF si le nœud est un drone enrôlé : son progrès est visible (télémétrie
@@ -688,13 +698,17 @@ export class Scheduler {
     if (task.assignedNodeId !== nodeId) {
       const race = this.races.get(taskId);
       if (race?.drones.some((d) => d.nodeId === nodeId && d.status === 'running')) {
-        const hasProgress = (subAgents !== undefined && subAgents.length > 0) || log !== undefined;
+        const hasProgress =
+          (subAgents !== undefined && subAgents.length > 0) ||
+          log !== undefined ||
+          presences !== undefined;
         if (hasProgress) {
           this.emit('task_progress', {
             taskId,
             nodeId,
             ...(subAgents && subAgents.length > 0 ? { subAgents } : {}),
             ...(log !== undefined ? { log: log.slice(0, 2000) } : {}),
+            ...(presences !== undefined ? { presences } : {}),
           });
         }
       }
@@ -707,16 +721,21 @@ export class Scheduler {
       // Un nœud exécute enfin la tâche : l'agent fonctionne, on oublie les refus infra.
       this.infraRejects.delete(taskId);
     }
+    // Snapshot présence Rayon — constaté, jamais inventé (ADR 0010).
+    if (presences !== undefined) {
+      this.store.remplacerPresences(nodeId, presences, taskId);
+    }
     // Émettre le progrès dès qu'il y a des sous-agents OU un log : les agents
     // réels (claude-code, codex) n'envoient qu'un log, sans sous-agents — sans
     // ce OR, le journal du dashboard resterait vide pendant leur exécution.
     const hasSubAgents = subAgents !== undefined && subAgents.length > 0;
-    if (hasSubAgents || log) {
+    if (hasSubAgents || log || presences !== undefined) {
       this.emit('task_progress', {
         taskId,
         nodeId,
         ...(hasSubAgents ? { subAgents } : {}),
         ...(log ? { log: log.slice(0, 2000) } : {}),
+        ...(presences !== undefined ? { presences } : {}),
       });
     }
   }
@@ -845,6 +864,10 @@ export class Scheduler {
     }
 
     this.store.fermerHorlogeHote(task.id, Date.now());
+
+    // Présence Rayon : la tâche est finie → plus aucun fichier « ouvert ».
+    this.store.effacerPresencesTache(task.id);
+    this.store.effacerPresencesNoeud(nodeId);
 
     // Un résultat (succès ou échec de tâche) est arrivé : l'agent a tourné, on
     // oublie l'historique de refus infra pour cette tâche.
@@ -1018,6 +1041,23 @@ export class Scheduler {
       .filter(
         (n) =>
           n.status === 'online' &&
+          // LA MÊME GARDE QUE `tick` — elle manquait ici, et « présence sans
+          // production » l'a rendue nécessaire.
+          //
+          // Tant qu'un poste sans agent réel mourait avant de s'inscrire, aucun
+          // nœud simulé n'existait en production : la faille dormait. Depuis
+          // que ces machines REJOIGNENT la ruche, une course lancée à la main
+          // les aurait enrôlées, leur adaptateur `shell` aurait rendu un diff
+          // SIMULÉ, et la course l'aurait départagé contre du code réel. Un
+          // faux gagnant, dans la fonctionnalité dont tout l'objet est de
+          // départager.
+          //
+          // La garde suit la CONFIG DU SERVEUR, pas une opinion sur `shell` :
+          // en simulation assumée, les nœuds simulés courent — c'est la
+          // démonstration qu'on a demandée.
+          assignationProductionAutorisee(n.agentType, {
+            simulation: this.opts.simulation,
+          }) &&
           // Thermorégulation : une course MULTIPLIE la charge sur une ruche qui
           // souffre déjà — elle respecte donc la concurrence effective, comme
           // l'assignation automatique. Décision assumée : le geste explicite
@@ -1509,6 +1549,9 @@ export class Scheduler {
         .filter(
           (n) =>
             n.status === 'online' &&
+            assignationProductionAutorisee(n.agentType, {
+              simulation: this.opts.simulation,
+            }) &&
             // Thermorégulation : sous ventilation, la capacité de chaque nœud
             // est réduite par le facteur en vigueur (plancher 1 — la ruche ne
             // s'arrête pas, elle ralentit).

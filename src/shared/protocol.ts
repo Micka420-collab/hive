@@ -4,6 +4,7 @@
 import { nomDeChantierValide } from './chantier.js';
 import { estPlateforme } from './machine.js';
 import type { PlateformeNoeud } from './machine.js';
+import type { PresenceFichier } from './presence.js';
 import type { HiveEvent, StateSnapshot, SubAgent, Task } from './types.js';
 
 // ─── Limites de taille (validation d'entrée) ─────────────────────────────────
@@ -33,11 +34,17 @@ export const LIMITS = {
   log: 512 * 1024,
   diff: 1024 * 1024,
   subAgents: 32,
+  /** Fichiers ouverts constatés (présence Rayon) dans un task_update. */
+  presences: 16,
   maxConcurrency: 16,
   /** Nombre max de modèles qu'un nœud peut déclarer savoir faire tourner. */
   modeles: 16,
   /** Contexte Hive Mind joint à une assignation (borné : injecté dans le prompt). */
   hiveContext: 8_000,
+  /** Genre / libellé / détail d'une réquisition ouverte par le nœud (ADR 0010). */
+  requisitionGenre: 40,
+  requisitionLibelle: 200,
+  requisitionDetail: 2_000,
   /** Nombre max de diffs joints à un merge. */
   mergeDiffs: 200,
   /** Nombre max d'arguments d'une commande de test, et longueur de chaque. */
@@ -76,6 +83,67 @@ export interface RegisterMsg {
    * n'est pas un secret.
    */
   modeles?: string[];
+  /**
+   * Ce que le nœud a CONSTATÉ des outils IA installés sur sa machine.
+   *
+   * ─── POURQUOI DES FAITS, ET PAS UN VERDICT ──────────────────────────────
+   *
+   * Le nœud rend deux constats bruts par outil — le binaire est-il là, la clé
+   * est-elle lisible — et RIEN d'autre. C'est le hub qui en tire un verdict,
+   * en croisant avec son catalogue.
+   *
+   * Ce partage n'est pas cosmétique. Si le nœud envoyait « prêt », un nœud
+   * menteur ou bogué imposerait sa conclusion. En n'envoyant que des faits, il
+   * ne peut au pire que se tromper sur ce qu'il voit — et le hub garde la
+   * décision, avec les mêmes règles pour tout le monde.
+   *
+   * ─── ET CE QUE ÇA N'AUTORISE PAS ────────────────────────────────────────
+   *
+   * Ce champ sert à l'AFFICHAGE et au conseil, jamais à l'assignation. Celle-ci
+   * passe par `agentType` et `assignationProductionAutorisee`, inchangés : un
+   * nœud qui prétendrait avoir Claude installé n'obtiendrait pas pour autant du
+   * travail réservé à Claude. La doctrine du polyéthisme tient — une capacité
+   * ne se déclare pas, elle se constate.
+   */
+  outils?: OutilConstate[];
+}
+
+/** Un constat brut sur un outil, tel que le nœud le voit. */
+export interface OutilConstate {
+  /** L'identifiant du catalogue (`claude-code`, `cline`…). */
+  agent: string;
+  /** Le binaire a été trouvé sur cette machine. */
+  binaire: boolean;
+  /**
+   * Ce que le nœud a pu dire des identifiants. `inconnue` n'est PAS un défaut :
+   * c'est le cas de Cline, dont Hive ne sait pas lire la configuration.
+   */
+  cle: 'presente' | 'absente' | 'inconnue';
+}
+
+const ETATS_CLE = new Set(['presente', 'absente', 'inconnue']);
+
+/**
+ * Le champ vient du RÉSEAU : mal formé, le message entier est refusé, jamais
+ * rafistolé. Même règle que `plateforme` et `modeles`.
+ *
+ * Le plafond n'est pas décoratif : sans lui, un client pourrait pousser une
+ * liste arbitrairement longue que le hub garderait en mémoire par nœud.
+ */
+export function estOutilsConstates(v: unknown): v is OutilConstate[] {
+  if (!Array.isArray(v) || v.length > 32) return false;
+  return v.every((e) => {
+    if (typeof e !== 'object' || e === null) return false;
+    const o = e as Record<string, unknown>;
+    return (
+      typeof o.agent === 'string' &&
+      o.agent.length > 0 &&
+      o.agent.length <= 64 &&
+      typeof o.binaire === 'boolean' &&
+      typeof o.cle === 'string' &&
+      ETATS_CLE.has(o.cle)
+    );
+  });
 }
 
 export interface HeartbeatMsg {
@@ -94,6 +162,11 @@ export interface TaskUpdateMsg {
   taskId: string;
   status: 'running';
   subAgents?: SubAgent[];
+  /**
+   * Snapshot des fichiers ouverts constatés (Read/Edit/Write) — ADR 0010.
+   * Absent ou `[]` = rien d'ouvert (ne pas inventer à l'écran).
+   */
+  presences?: PresenceFichier[];
   log?: string;
 }
 
@@ -133,6 +206,21 @@ export interface TaskRejectMsg {
 export interface SubscribeMsg {
   type: 'subscribe';
   token: string;
+}
+
+/**
+ * Réquisition ouverte par une ouvrière connectée (ADR 0010 lot 7).
+ *
+ * Le `nodeId` vient de la connexion authentifiée — jamais du message. Aucun
+ * secret ne transite : seulement genre + libellé + détail optionnel.
+ */
+export interface RequisitionOpenMsg {
+  type: 'requisition_open';
+  genre: string;
+  libelle: string;
+  detail?: string;
+  /** Tâche bloquée en attente de décision humaine (mid-task, ADR 0010). */
+  taskId?: string;
 }
 
 /** Conflit signalé lors d'un merge (un diff qui ne s'applique pas proprement). */
@@ -197,6 +285,7 @@ export type ClientMessage =
   | TaskResultMsg
   | TaskRejectMsg
   | SubscribeMsg
+  | RequisitionOpenMsg
   | MergeResultMsg
   | ChantierResultMsg;
 
@@ -240,6 +329,23 @@ export interface EventMsg {
 export interface ErrorMsg {
   type: 'error';
   message: string;
+}
+
+/** Accusé de réception d'une réquisition ouverte via le protocole nœud. */
+export interface RequisitionAckMsg {
+  type: 'requisition_ack';
+  id: string;
+  genre: string;
+  libelle: string;
+}
+
+/**
+ * Décision humaine relayée au nœud — jamais le secret (clé chez la Queen).
+ */
+export interface RequisitionResultMsg {
+  type: 'requisition_result';
+  id: string;
+  statut: 'accordee' | 'refusee';
 }
 
 /** Un diff de tâche à intégrer lors d'un merge. */
@@ -307,6 +413,8 @@ export type ServerMessage =
   | StateMsg
   | EventMsg
   | ErrorMsg
+  | RequisitionAckMsg
+  | RequisitionResultMsg
   | AssignMergeMsg
   | AssignChantierMsg;
 
@@ -317,6 +425,8 @@ const SERVER_MESSAGE_TYPES = new Set([
   'state',
   'event',
   'error',
+  'requisition_ack',
+  'requisition_result',
   'assign_merge',
   'assign_chantier',
 ]);
@@ -347,6 +457,24 @@ function isSubAgents(v: unknown): v is SubAgent[] {
       isId(sa.id) &&
       isStr(sa.name, LIMITS.name) &&
       (sa.status === 'running' || sa.status === 'done' || sa.status === 'failed')
+    );
+  });
+}
+
+/** Snapshot présence Rayon — toolUseId Claude peut dépasser ID_PATTERN. */
+function isPresences(v: unknown): v is PresenceFichier[] {
+  if (!Array.isArray(v) || v.length > LIMITS.presences) return false;
+  return v.every((p) => {
+    if (typeof p !== 'object' || p === null) return false;
+    const r = p as Record<string, unknown>;
+    return (
+      typeof r.toolUseId === 'string' &&
+      r.toolUseId.length >= 1 &&
+      r.toolUseId.length <= 128 &&
+      typeof r.chemin === 'string' &&
+      r.chemin.length >= 1 &&
+      r.chemin.length <= 500 &&
+      (r.outil === 'Read' || r.outil === 'Edit' || r.outil === 'Write')
     );
   });
 }
@@ -478,6 +606,28 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
           if (!isModeleList(m.modeles)) return null;
           msg.modeles = m.modeles;
         }
+        // Les constats d'outils : mêmes règles que les deux champs au-dessus.
+        // Une liste mal formée est un client qui ment ou qui bogue, et les deux
+        // se disent plutôt que de se corriger en douce.
+        if (m.outils !== undefined) {
+          if (!estOutilsConstates(m.outils)) return null;
+          // RECONSTRUIT champ par champ, jamais recopié tel quel.
+          //
+          // La validation dit que les trois champs attendus sont là et bien
+          // typés ; elle ne dit RIEN des autres. Recopier l'objet laisserait
+          // passer tout ce qu'un nœud y aurait glissé — un `verdict`, par
+          // exemple, que le hub rangerait et qu'un écran finirait par afficher
+          // comme s'il l'avait calculé.
+          //
+          // Mon propre banc l'a trouvé : `expect(outils[0].verdict).toBeUndefined()`
+          // rougissait. C'est la discipline du reste de ce parseur — il
+          // reconstruit `msg` champ par champ — appliquée ici aussi.
+          msg.outils = m.outils.map((o) => ({
+            agent: o.agent,
+            binaire: o.binaire,
+            cle: o.cle,
+          }));
+        }
         return msg;
       }
       return null;
@@ -498,10 +648,12 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
         isId(m.taskId) &&
         m.status === 'running' &&
         (m.subAgents === undefined || isSubAgents(m.subAgents)) &&
+        (m.presences === undefined || isPresences(m.presences)) &&
         (m.log === undefined || isStrAllowEmpty(m.log, LIMITS.log))
       ) {
         const msg: TaskUpdateMsg = { type: 'task_update', taskId: m.taskId, status: 'running' };
         if (m.subAgents !== undefined) msg.subAgents = m.subAgents as SubAgent[];
+        if (m.presences !== undefined) msg.presences = m.presences as PresenceFichier[];
         if (m.log !== undefined) msg.log = m.log as string;
         return msg;
       }
@@ -544,6 +696,24 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
     }
     case 'subscribe': {
       if (isStr(m.token, LIMITS.token)) return { type: 'subscribe', token: m.token };
+      return null;
+    }
+    case 'requisition_open': {
+      if (
+        isStr(m.genre, LIMITS.requisitionGenre) &&
+        isStr(m.libelle, LIMITS.requisitionLibelle) &&
+        (m.detail === undefined || isStrAllowEmpty(m.detail, LIMITS.requisitionDetail)) &&
+        (m.taskId === undefined || isId(m.taskId))
+      ) {
+        const msg: RequisitionOpenMsg = {
+          type: 'requisition_open',
+          genre: m.genre,
+          libelle: m.libelle,
+        };
+        if (m.detail !== undefined) msg.detail = m.detail as string;
+        if (m.taskId !== undefined) msg.taskId = m.taskId as string;
+        return msg;
+      }
       return null;
     }
     case 'merge_result': {
@@ -647,6 +817,21 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
     case 'cancel_task':
       return isId(m.taskId) && isStrAllowEmpty(m.reason, LIMITS.name)
         ? { type: 'cancel_task', taskId: m.taskId, reason: m.reason }
+        : null;
+    case 'requisition_ack':
+      return isId(m.id) &&
+        isStr(m.genre, LIMITS.requisitionGenre) &&
+        isStr(m.libelle, LIMITS.requisitionLibelle)
+        ? {
+            type: 'requisition_ack',
+            id: m.id,
+            genre: m.genre,
+            libelle: m.libelle,
+          }
+        : null;
+    case 'requisition_result':
+      return isId(m.id) && (m.statut === 'accordee' || m.statut === 'refusee')
+        ? { type: 'requisition_result', id: m.id, statut: m.statut }
         : null;
     case 'assign_merge': {
       // Sensible côté nœud : déclenche un clone + application de patches + tests.

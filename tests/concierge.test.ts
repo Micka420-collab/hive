@@ -218,6 +218,40 @@ describe('answerLive', () => {
     expect(a.suggestions[0]).toContain('What');
   });
 
+  it('progress cite le travail en cours et le Plein Essaim (lecture)', () => {
+    const a = answerLive(
+      'où en est le projet ?',
+      makeCtx({
+        enCours: [
+          {
+            taskId: 't1',
+            title: 'Landing page',
+            status: 'running',
+            nodeId: 'n1',
+            nodeName: 'ruche-alpha',
+          },
+        ],
+        sousAgents: [
+          {
+            taskId: 't1',
+            nodeId: 'n1',
+            agents: [{ name: 'Explore', status: 'running' }],
+          },
+        ],
+        essaim: {
+          niveau: 'propose',
+          pas: 'attendre',
+          motif: 'calme',
+          enPause: false,
+          derive: 'saine',
+        },
+      }),
+    );
+    expect(a.reply).toContain('Landing page');
+    expect(a.reply).toContain('Explore');
+    expect(a.reply).toContain('propose');
+  });
+
   it('classement en anglais', () => {
     const a = answerLive('which node works best?', makeCtx());
     expect(a.lang).toBe('en');

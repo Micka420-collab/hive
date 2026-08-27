@@ -57,9 +57,16 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   fetchRaces: vi.fn(() => Promise.resolve({ races: [] })),
   fetchPheromones: vi.fn(() => Promise.resolve(null)),
   fetchPolyethisme: vi.fn(() => Promise.resolve(null)),
+  fetchBaptemes: vi.fn(() => Promise.resolve({ baptemes: [] })),
 }));
 
-import { fetchPheromones, fetchPolyethisme, fetchRaces, fetchWaggle } from '../dashboard/src/api';
+import {
+  fetchBaptemes,
+  fetchPheromones,
+  fetchPolyethisme,
+  fetchRaces,
+  fetchWaggle,
+} from '../dashboard/src/api';
 import Essaim from '../dashboard/src/views/Essaim';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -79,6 +86,7 @@ beforeEach(() => {
     .mockReset()
     .mockResolvedValue(null as never);
   vi.mocked(fetchWaggle).mockReset();
+  vi.mocked(fetchBaptemes).mockReset().mockResolvedValue({ baptemes: [] });
 });
 
 afterEach(() => {
@@ -154,6 +162,17 @@ const rangees = (dom: HTMLElement): HTMLElement[] => [
 ];
 
 describe('le Waggle Board : la danse et son podium', () => {
+  it('LE BAPTÊME CONSTATÉ S’AFFICHE SUR LE PODIUM — pas seulement le nom technique', async () => {
+    vi.mocked(fetchBaptemes).mockResolvedValue({
+      baptemes: [{ nodeId: 'n-ruche-or', nom: 'Capucine', baptiseA: 1 }],
+    });
+    const dom = await monter(tableau([butineuse('ruche-or', 90), butineuse('ruche-argent', 60)]));
+    expect(dom.textContent).toContain('Capucine');
+    expect(nomDe(places(dom).find((p) => (p.textContent ?? '').includes('Capucine'))!)).toContain(
+      'Capucine',
+    );
+  });
+
   it('LE CLASSEMENT S’AFFICHE AVEC SES SCORES — sinon rien ici ne mesure rien', async () => {
     // ─── LE CAS NOMINAL, ÉCRIT EN PREMIER (§ 9 unvicicenties) ──────────────
     const dom = await monter(tableau([butineuse('ruche-or', 90), butineuse('ruche-argent', 60)]));

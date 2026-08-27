@@ -60,6 +60,7 @@ function etat(p: Partial<EtatEssaim> = {}): EtatEssaim {
     // Les fixtures de ce fichier testent la GOUVERNANCE : la dérive y est
     // saine, sauf là où un test la met explicitement en cause.
     derive: mesurerDerive({ productions: [], dernierApportHumain: NOW, now: NOW }),
+    horizonEntrees: 0,
     ...p,
   };
 }
@@ -160,6 +161,31 @@ describe('essaim — l’ordre des portes EST la politique', () => {
 
   it('sans rien en vol, la ruche délibère — c’est d’où naît une idée neuve', () => {
     expect(deciderPas(etat()).pas).toBe('deliberer');
+  });
+
+  it('indicateurs à surveiller sans travail en vol → délibérer (horizon)', () => {
+    const derive = {
+      ...mesurerDerive({ productions: [], dernierApportHumain: NOW, now: NOW }),
+      etat: 'a_surveiller' as const,
+      indicateurs: [
+        {
+          cle: 'qualite' as const,
+          etat: 'a_surveiller' as const,
+          valeur: 55,
+          unite: 'points' as const,
+          seuil: 70,
+          constat: 'qualité en baisse',
+        },
+        ...mesurerDerive({
+          productions: [],
+          dernierApportHumain: NOW,
+          now: NOW,
+        }).indicateurs.filter((i) => i.cle !== 'qualite'),
+      ],
+    };
+    const d = deciderPas(etat({ derive, tachesEnCours: 0, tachesPretes: 0 }));
+    expect(d.pas).toBe('deliberer');
+    expect(d.motif).toMatch(/surveiller/);
   });
 
   it('un conseil qui a conclu se transforme en plan', () => {
@@ -400,6 +426,13 @@ describe('essaim — la halte : la ruche s’arrête quand elle se dégrade', ()
     })),
     dernierApportHumain: NOW - JOUR,
     now: NOW,
+  });
+
+  it('un carnet d’horizon trop gros halte (ADR 0010 lot 9)', () => {
+    // Plafond instantané 2000 → budget horizon = min(400, 200) = 200.
+    const d = deciderPas(etat({ horizonEntrees: 201, tachesPretes: 5 }));
+    expect(d.pas).toBe('halte');
+    expect(d.motif).toMatch(/horizon/);
   });
 
   it('une dérive dégradée arrête tout, même avec du travail prêt', () => {

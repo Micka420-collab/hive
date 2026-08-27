@@ -66,7 +66,7 @@ describe('le Cerveau arrive jusqu’à l’ouvrière', () => {
       token: TOKEN,
       corsOrigins: ['http://localhost:5173'],
       dbPath: path.join(donnees, 'hive.db'),
-      simulation: false,
+      simulation: true,
       tickMs: 60,
     });
     return server;
@@ -387,7 +387,7 @@ describe('la contre-expertise est annoncée à chaque production', () => {
       token: TOKEN,
       corsOrigins: ['http://localhost:5173'],
       dbPath: path.join(dir, 'hive.db'),
-      simulation: false,
+      simulation: true,
       tickMs: 60,
     });
     return server;

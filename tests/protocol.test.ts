@@ -197,6 +197,32 @@ describe('parseClientMessage', () => {
       parseClientMessage(JSON.stringify({ ...register, activeTasks: ['../evil'] })),
     ).toBeNull();
   });
+
+  it('accepte requisition_open valide et rejette les invalides', () => {
+    const ok = parseClientMessage(
+      JSON.stringify({
+        type: 'requisition_open',
+        genre: 'cle_api',
+        libelle: 'Clé Seedance',
+        detail: 'pour vidéo',
+      }),
+    );
+    expect(ok).toEqual({
+      type: 'requisition_open',
+      genre: 'cle_api',
+      libelle: 'Clé Seedance',
+      detail: 'pour vidéo',
+    });
+    expect(
+      parseClientMessage(JSON.stringify({ type: 'requisition_open', genre: '', libelle: 'x' })),
+    ).toBeNull();
+    expect(
+      parseClientMessage(
+        JSON.stringify({ type: 'requisition_open', genre: 'mcp', libelle: 'x'.repeat(201) }),
+      ),
+    ).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ type: 'requisition_open', injecte: 1 }))).toBeNull();
+  });
 });
 
 describe('parseServerMessage — validation des messages du hub (anti-traversal/RCE)', () => {
@@ -290,6 +316,26 @@ describe('isValidTask', () => {
 describe('parseServerMessage', () => {
   it('accepte les types connus et rejette le reste', () => {
     expect(parseServerMessage(JSON.stringify({ type: 'registered', nodeId: 'n1' }))).not.toBeNull();
+    expect(
+      parseServerMessage(
+        JSON.stringify({
+          type: 'requisition_ack',
+          id: 'req-1',
+          genre: 'cle_api',
+          libelle: 'Clé Seedance',
+        }),
+      ),
+    ).toMatchObject({ type: 'requisition_ack', id: 'req-1' });
+    expect(
+      parseServerMessage(
+        JSON.stringify({ type: 'requisition_result', id: 'req-1', statut: 'accordee' }),
+      ),
+    ).toMatchObject({ statut: 'accordee' });
+    expect(
+      parseServerMessage(
+        JSON.stringify({ type: 'requisition_result', id: 'req-1', statut: 'peut-etre' }),
+      ),
+    ).toBeNull();
     expect(parseServerMessage(JSON.stringify({ type: 'intrus' }))).toBeNull();
     expect(parseServerMessage('')).toBeNull();
     expect(parseServerMessage('{}')).toBeNull();

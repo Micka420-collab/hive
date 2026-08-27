@@ -122,6 +122,15 @@ describe('installation — ne JAMAIS écraser', () => {
     expect(composerReglages(new Map()).find((x) => x.cle === 'HIVE_RUNNER')?.valeur).toBe('off');
   });
 
+  it('sans agent réel → HIVE_SIMULATION=1 (sinon le scheduler refuse le shell)', () => {
+    expect(composerReglages(new Map()).find((x) => x.cle === 'HIVE_SIMULATION')).toBeUndefined();
+    expect(
+      composerReglages(new Map(), undefined, undefined, { sansAgentReel: true }).find(
+        (x) => x.cle === 'HIVE_SIMULATION',
+      )?.valeur,
+    ).toBe('1');
+  });
+
   it('l’allumer est ANNONCÉ, pas glissé dans le fichier', () => {
     // Un installeur qui se tait sur une configuration coûteuse a échoué même
     // s'il s'est terminé sans erreur.

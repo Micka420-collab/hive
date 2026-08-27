@@ -83,6 +83,8 @@ import {
   urlTelechargement,
 } from './node-client/cloudflare.js';
 
+import { estInjoignable, expliquerRucheInjoignable } from './shared/amorce.js';
+
 const BASE = process.env.HIVE_HTTP ?? 'http://localhost:7777';
 const TOKEN = process.env.HIVE_TOKEN ?? 'change-me';
 
@@ -1638,16 +1640,120 @@ async function cmdBrief(projectId: string, brief: string): Promise<void> {
   printTasks(result.tasks);
 }
 
-/** Parler à la Reine : question en langage naturel, réponse depuis l'état réel. */
+/** Parler à la Reine : question en langage naturel ; flux SSE si le hub le sert. */
 async function cmdAsk(question: string, projectId?: string): Promise<void> {
-  const res = await api<{ reply: string; source: 'live' | 'llm'; suggestions: string[] }>(
-    '/api/chat',
-    {
+  const ac = new AbortController();
+  const onSigint = () => ac.abort();
+  process.once('SIGINT', onSigint);
+  try {
+    const res = await fetch(`${BASE}/api/chat`, {
       method: 'POST',
-      body: JSON.stringify({ message: question, ...(projectId ? { projectId } : {}) }),
-    },
-  );
-  for (const l of lignesReponseReine(res)) console.log(l);
+      headers: {
+        'content-type': 'application/json',
+        accept: 'text/event-stream',
+        'x-hive-token': TOKEN,
+      },
+      body: JSON.stringify({
+        message: question,
+        stream: true,
+        ...(projectId ? { projectId } : {}),
+      }),
+      signal: ac.signal,
+    });
+    if (!res.ok) {
+      throw new Error(`${res.status} ${res.statusText} — ${await res.text()}`);
+    }
+    const ctype = res.headers.get('content-type') ?? '';
+    if (!ctype.includes('text/event-stream') || !res.body) {
+      const json = (await res.json()) as {
+        reply: string;
+        source: 'live' | 'llm';
+        suggestions: string[];
+      };
+      for (const l of lignesReponseReine(json)) console.log(l);
+      return;
+    }
+
+    console.log('');
+    console.log('👑 La Reine :');
+    console.log('');
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    let assemble = '';
+    let final: { reply: string; source: 'live' | 'llm'; suggestions: string[] } | null = null;
+
+    const traiter = (raw: string) => {
+      const trimmed = raw.trim();
+      if (!trimmed) return;
+      let ev: {
+        type?: string;
+        text?: string;
+        reply?: string;
+        source?: 'live' | 'llm';
+        suggestions?: string[];
+      };
+      try {
+        ev = JSON.parse(trimmed) as typeof ev;
+      } catch {
+        return;
+      }
+      if (ev.type === 'delta' && typeof ev.text === 'string') {
+        assemble += ev.text;
+        process.stdout.write(ev.text);
+      } else if (ev.type === 'done' && typeof ev.reply === 'string') {
+        final = {
+          reply: ev.reply,
+          source: ev.source === 'llm' ? 'llm' : 'live',
+          suggestions: Array.isArray(ev.suggestions) ? ev.suggestions : [],
+        };
+      }
+    };
+
+    for (;;) {
+      if (ac.signal.aborted) {
+        await reader.cancel().catch(() => undefined);
+        process.stdout.write('\n');
+        console.log('  (interrompu)');
+        return;
+      }
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const parts = buf.split('\n');
+      buf = parts.pop() ?? '';
+      for (const line of parts) {
+        const t = line.trimEnd();
+        if (t.startsWith('data:')) traiter(t.slice(5).trimStart());
+      }
+    }
+    if (buf.trim().startsWith('data:')) traiter(buf.trim().slice(5).trimStart());
+
+    if (assemble.length > 0) process.stdout.write('\n');
+    const reponse: { reply: string; source: 'live' | 'llm'; suggestions: string[] } = final ?? {
+      reply: assemble,
+      source: 'live',
+      suggestions: [],
+    };
+    if (!assemble && reponse.reply) {
+      console.log(reponse.reply.replace(/^/gm, '  '));
+    }
+    const badge = reponse.source === 'llm' ? '✨ IA' : '📡 état réel';
+    console.log('');
+    console.log(`  (${badge})`);
+    if (reponse.suggestions.length > 0) {
+      console.log(`  💡 À demander ensuite : ${reponse.suggestions.join(' · ')}`);
+    }
+  } catch (e) {
+    if (e instanceof Error && e.name === 'AbortError') {
+      process.stdout.write('\n');
+      console.log('  (interrompu)');
+      return;
+    }
+    throw e;
+  } finally {
+    process.off('SIGINT', onSigint);
+  }
 }
 
 /** Drone Wars : lance une course compétitive sur une tâche prête. */
@@ -1730,6 +1836,14 @@ try {
     process.exitCode = 1;
   }
 } catch (err) {
-  console.error(`Erreur : ${err instanceof Error ? err.message : String(err)}`);
+  // « Erreur : fetch failed » était le message le plus fréquent de cette CLI et
+  // le moins utile : ni l'adresse visée, ni la cause, ni la variable qui la
+  // décide. Mesuré en jouant le parcours d'un hôte — c'est le premier mur.
+  //
+  // On ne remplace QUE les pannes de transport : un refus applicatif porte un
+  // message que la ruche a écrit, et le noyer sous un conseil de dépannage
+  // réseau ferait chercher au mauvais endroit.
+  if (estInjoignable(err)) console.error(expliquerRucheInjoignable(err, BASE, 'HIVE_HTTP'));
+  else console.error(`Erreur : ${err instanceof Error ? err.message : String(err)}`);
   process.exitCode = 1;
 }

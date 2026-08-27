@@ -53,6 +53,7 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   fetchProjectBalance: vi.fn(() => Promise.resolve(null)),
   setProjectPlafond: vi.fn(() => Promise.resolve({ definiPar: null, updatedAt: null })),
   fetchEssaim: vi.fn(() => Promise.resolve(null)),
+  fetchEssaimCycles: vi.fn(() => Promise.resolve({ cycles: [] })),
   fetchMemories: vi.fn(() => Promise.resolve({ total: 0, memories: [] })),
   fetchServeurs: vi.fn(() => Promise.resolve(null)),
   billetServeur: vi.fn(() =>
@@ -106,6 +107,7 @@ import Rayon from '../dashboard/src/views/Rayon';
 import Ruche from '../dashboard/src/views/Ruche';
 import Sante from '../dashboard/src/views/Sante';
 import { countPendingReviews } from '../dashboard/src/views/shared';
+import { couperLeReseau } from './aide/sans-reseau';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -113,6 +115,9 @@ let racine: Root | null = null;
 let conteneur: HTMLElement | null = null;
 
 beforeEach(() => {
+  // Coupe le réseau : ce banc ouvrait de VRAIES connexions vers
+  // 127.0.0.1:3000 (voir tests/aide/sans-reseau.ts).
+  couperLeReseau();
   setLang('fr');
   localStorage.clear();
   vi.mocked(fetchGhosts)

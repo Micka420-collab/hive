@@ -8,9 +8,24 @@ import { useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { getToken } from '../api';
 import { AtelierRecette } from '../AtelierRecette';
-import { t as tNow, useT } from '../i18n';
+import { extrairePiece } from '../reine-extraire';
+import {
+  couperParole,
+  demarrerEcoute,
+  parlerTexte,
+  voixEcouteDisponible,
+  voixParoleDisponible,
+  type EtatEcoute,
+  type SessionEcoute,
+} from '../reine-voix';
+import { t as tNow, useLang, useT } from '../i18n';
 import type { Translate } from '../i18n';
 import { demanderFocus, FOCUS_SAUVEGARDES } from '../focus-vue';
+import {
+  assemblerMessageReine,
+  expliquerAssemblage,
+  type PieceJointeTexte,
+} from '../../../src/shared/reine-pieces.js';
 import { timeShort } from './shared';
 import type { ViewProps } from './shared';
 
@@ -33,11 +48,25 @@ class ChatHttpError extends Error {
   }
 }
 
-async function askQueen(message: string, projectId?: string): Promise<ChatResponse> {
+async function askQueen(
+  message: string,
+  projectId: string | undefined,
+  onDelta?: (text: string) => void,
+  signal?: AbortSignal,
+): Promise<ChatResponse> {
   const res = await fetch('/api/chat', {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-hive-token': getToken() },
-    body: JSON.stringify(projectId ? { message, projectId } : { message }),
+    headers: {
+      'content-type': 'application/json',
+      accept: 'text/event-stream',
+      'x-hive-token': getToken(),
+    },
+    body: JSON.stringify({
+      message,
+      stream: true,
+      ...(projectId ? { projectId } : {}),
+    }),
+    signal,
   });
   if (!res.ok) {
     let msg = tNow(`Erreur ${res.status}`, `Error ${res.status}`);
@@ -49,7 +78,70 @@ async function askQueen(message: string, projectId?: string): Promise<ChatRespon
     }
     throw new ChatHttpError(msg, res.status);
   }
-  return (await res.json()) as ChatResponse;
+
+  const ctype = res.headers.get('content-type') ?? '';
+  // Hub ancien sans SSE : JSON classique.
+  if (!ctype.includes('text/event-stream') || !res.body) {
+    return (await res.json()) as ChatResponse;
+  }
+
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buf = '';
+  let assemble = '';
+  let final: ChatResponse | null = null;
+
+  const traiterData = (raw: string) => {
+    const trimmed = raw.trim();
+    if (!trimmed) return;
+    let ev: {
+      type?: string;
+      text?: string;
+      reply?: string;
+      source?: 'live' | 'llm';
+      suggestions?: string[];
+      usage?: ChatResponse['usage'];
+    };
+    try {
+      ev = JSON.parse(trimmed) as typeof ev;
+    } catch {
+      return;
+    }
+    if (ev.type === 'delta' && typeof ev.text === 'string') {
+      assemble += ev.text;
+      onDelta?.(ev.text);
+    } else if (ev.type === 'done' && typeof ev.reply === 'string') {
+      final = {
+        reply: ev.reply,
+        source: ev.source === 'llm' ? 'llm' : 'live',
+        suggestions: ev.suggestions,
+        usage: ev.usage,
+      };
+    }
+  };
+
+  for (;;) {
+    if (signal?.aborted) {
+      await reader.cancel().catch(() => undefined);
+      throw new DOMException('The operation was aborted.', 'AbortError');
+    }
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    const parts = buf.split('\n');
+    buf = parts.pop() ?? '';
+    for (const line of parts) {
+      const t = line.trimEnd();
+      if (t.startsWith('data:')) traiterData(t.slice(5).trimStart());
+    }
+  }
+  if (buf.trim().startsWith('data:')) traiterData(buf.trim().slice(5).trimStart());
+
+  if (final) return final;
+  if (assemble.trim()) {
+    return { reply: assemble, source: 'llm' };
+  }
+  throw new Error(tNow('Réponse stream vide.', 'Empty stream reply.'));
 }
 
 // ─── Modèle de conversation + persistance de session ─────────────────────────
@@ -122,6 +214,7 @@ function welcomeDegraded(t: Translate): string {
 
 export default function Reine({ snapshot, onNavigate }: ViewProps) {
   const t = useT();
+  const lang = useLang();
   const [messages, setMessages] = useState<ChatMessage[]>(() => readChat().messages);
   const [suggestions, setSuggestions] = useState<string[]>(() => readChat().suggestions);
   const [draft, setDraft] = useState('');
@@ -129,9 +222,21 @@ export default function Reine({ snapshot, onNavigate }: ViewProps) {
   const [projectId, setProjectId] = useState('');
   /** Session : total tokens IA consommés dans cet onglet (indicatif). */
   const [tokensSession, setTokensSession] = useState(0);
+  const [pieces, setPieces] = useState<PieceJointeTexte[]>([]);
+  const [pieceErreur, setPieceErreur] = useState<string | null>(null);
+  const [pieceBusy, setPieceBusy] = useState(false);
+  const [ecoute, setEcoute] = useState<EtatEcoute>(() =>
+    voixEcouteDisponible() ? 'inactif' : 'indisponible',
+  );
+  const [paroleOn, setParoleOn] = useState(false);
+  const [interim, setInterim] = useState('');
 
   const threadRef = useRef<HTMLDivElement>(null);
   const areaRef = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const sessionEcoute = useRef<SessionEcoute | null>(null);
+  /** Coupe le flux SSE au démontage ou à « Effacer » — pas de bulle d’erreur. */
+  const abortRef = useRef<AbortController | null>(null);
 
   // Suggestions affichées : celles de la Reine, sinon les défauts (langue courante).
   const shownSuggestions = suggestions.length > 0 ? suggestions : defaultSuggestions(t);
@@ -141,6 +246,14 @@ export default function Reine({ snapshot, onNavigate }: ViewProps) {
   useEffect(() => {
     sessionStorage.setItem(CHAT_KEY, JSON.stringify({ messages, suggestions }));
   }, [messages, suggestions]);
+
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+      sessionEcoute.current?.stop();
+      couperParole();
+    };
+  }, []);
 
   // Auto-scroll en bas du fil à chaque nouveau message ou pendant la réflexion.
   useEffect(() => {
@@ -174,29 +287,98 @@ export default function Reine({ snapshot, onNavigate }: ViewProps) {
     if (newSuggestions) setSuggestions(newSuggestions);
   };
 
-  const send = async (raw: string) => {
+  const send = async (raw: string, jointes: PieceJointeTexte[] = pieces) => {
     const text = raw.trim();
-    if (!text || pending) return;
-    appendPersist({ id: uid(), role: 'user', text, ts: Date.now() });
+    const assemble = assemblerMessageReine(text, jointes);
+    if (!assemble.ok) {
+      setPieceErreur(expliquerAssemblage(assemble.motif, lang === 'en' ? 'en' : 'fr'));
+      return;
+    }
+    if (pending) return;
+
+    const affiche =
+      jointes.length === 0
+        ? text
+        : [
+            text || t('(documents joints)', '(attached documents)'),
+            ...jointes.map((p) => `📎 ${p.nom}`),
+          ].join('\n');
+
+    appendPersist({ id: uid(), role: 'user', text: affiche, ts: Date.now() });
     setDraft('');
+    setPieces([]);
+    setPieceErreur(null);
+    setInterim('');
+    sessionEcoute.current?.stop();
     const ta = areaRef.current;
     if (ta) ta.style.height = 'auto';
     setPending(true);
+    const queenId = uid();
+    let streamed = false;
+    abortRef.current?.abort();
+    const ac = new AbortController();
+    abortRef.current = ac;
     try {
-      const res = await askQueen(text, projectId || undefined);
-      if (res.usage) setTokensSession((n) => n + res.usage!.totalTokens);
-      appendPersist(
-        {
-          id: uid(),
-          role: 'queen',
-          text: res.reply,
-          ts: Date.now(),
-          source: res.source,
-          usage: res.usage,
+      const res = await askQueen(
+        assemble.message,
+        projectId || undefined,
+        (delta) => {
+          if (!streamed) {
+            streamed = true;
+            appendPersist({
+              id: queenId,
+              role: 'queen',
+              text: delta,
+              ts: Date.now(),
+              source: 'llm',
+            });
+            setPending(false);
+            return;
+          }
+          setMessages((m) =>
+            m.map((msg) => (msg.id === queenId ? { ...msg, text: msg.text + delta } : msg)),
+          );
         },
-        res.suggestions && res.suggestions.length > 0 ? res.suggestions : undefined,
+        ac.signal,
       );
+      if (res.usage) setTokensSession((n) => n + res.usage!.totalTokens);
+      if (paroleOn && res.reply) {
+        parlerTexte(res.reply, lang === 'en' ? 'en-US' : 'fr-FR');
+      }
+      if (streamed) {
+        // Finalise le bulle déjà créée (source / usage / suggestions).
+        const stored = readChat();
+        const messages = stored.messages.map((msg) =>
+          msg.id === queenId
+            ? {
+                ...msg,
+                text: res.reply,
+                source: res.source,
+                usage: res.usage,
+              }
+            : msg,
+        );
+        const suggestions =
+          res.suggestions && res.suggestions.length > 0 ? res.suggestions : stored.suggestions;
+        sessionStorage.setItem(CHAT_KEY, JSON.stringify({ messages, suggestions }));
+        setMessages(messages);
+        if (res.suggestions && res.suggestions.length > 0) setSuggestions(res.suggestions);
+      } else {
+        appendPersist(
+          {
+            id: queenId,
+            role: 'queen',
+            text: res.reply,
+            ts: Date.now(),
+            source: res.source,
+            usage: res.usage,
+          },
+          res.suggestions && res.suggestions.length > 0 ? res.suggestions : undefined,
+        );
+      }
     } catch (e) {
+      if (e instanceof DOMException && e.name === 'AbortError') return;
+      if (e instanceof Error && e.name === 'AbortError') return;
       // 404/501 = endpoint pas encore déployé → accueil dégradé, sans badge.
       const absent = e instanceof ChatHttpError && (e.status === 404 || e.status === 501);
       const detail = e instanceof Error ? e.message : String(e);
@@ -206,10 +388,72 @@ export default function Reine({ snapshot, onNavigate }: ViewProps) {
             `La Reine n’a pas pu répondre : ${detail}. Réessayez dans un instant.`,
             `The Queen could not reply: ${detail}. Please try again in a moment.`,
           );
-      appendPersist({ id: uid(), role: 'queen', text: reply, ts: Date.now() });
+      if (streamed) {
+        setMessages((m) => m.map((msg) => (msg.id === queenId ? { ...msg, text: reply } : msg)));
+      } else {
+        appendPersist({ id: queenId, role: 'queen', text: reply, ts: Date.now() });
+      }
     } finally {
       setPending(false);
     }
+  };
+
+  const joindreFichiers = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setPieceBusy(true);
+    setPieceErreur(null);
+    const langue = lang === 'en' ? 'en' : 'fr';
+    try {
+      const ajoutees: PieceJointeTexte[] = [];
+      for (const f of Array.from(files)) {
+        ajoutees.push(await extrairePiece(f, langue));
+      }
+      setPieces((prev) => [...prev, ...ajoutees].slice(0, 6));
+    } catch {
+      setPieceErreur(t('Impossible de lire un des fichiers.', 'Could not read one of the files.'));
+    } finally {
+      setPieceBusy(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
+  const basculerMicro = () => {
+    if (ecoute === 'indisponible') {
+      setPieceErreur(
+        t(
+          'La dictée vocale n’est pas disponible dans ce navigateur (essayez Chrome ou Edge).',
+          'Speech-to-text is not available in this browser (try Chrome or Edge).',
+        ),
+      );
+      return;
+    }
+    if (ecoute === 'ecoute') {
+      sessionEcoute.current?.stop();
+      sessionEcoute.current = null;
+      setInterim('');
+      return;
+    }
+    setPieceErreur(null);
+    sessionEcoute.current = demarrerEcoute({
+      lang: lang === 'en' ? 'en-US' : 'fr-FR',
+      onEtat: setEcoute,
+      onErreur: () =>
+        setPieceErreur(
+          t(
+            'Micro refusé ou erreur d’écoute — vérifiez les permissions.',
+            'Microphone denied or listen error — check permissions.',
+          ),
+        ),
+      onTexte: (texte, final) => {
+        if (final) {
+          setDraft((d) => (d ? `${d.trim()} ${texte.trim()}` : texte.trim()));
+          setInterim('');
+          queueMicrotask(grow);
+        } else {
+          setInterim(texte);
+        }
+      },
+    });
   };
 
   /**
@@ -230,9 +474,15 @@ export default function Reine({ snapshot, onNavigate }: ViewProps) {
   };
 
   const clear = () => {
+    abortRef.current?.abort();
+    sessionEcoute.current?.stop();
+    couperParole();
     setMessages([]);
     setSuggestions([]);
     setTokensSession(0);
+    setPieces([]);
+    setPieceErreur(null);
+    setInterim('');
     sessionStorage.removeItem(CHAT_KEY);
   };
 
@@ -427,14 +677,97 @@ export default function Reine({ snapshot, onNavigate }: ViewProps) {
             </button>
           ))}
         </div>
+
+        {pieces.length > 0 && (
+          <ul className="rn-pieces" aria-label={t('Documents joints', 'Attached documents')}>
+            {pieces.map((p, i) => (
+              <li key={`${p.nom}-${i}`} className={p.texte ? 'rn-piece-ok' : 'rn-piece-warn'}>
+                <span className="rn-piece-nom">
+                  {p.nom}
+                  {!p.texte && p.refus ? ` — ${p.refus}` : ''}
+                </span>
+                <button
+                  type="button"
+                  className="btn ghost rn-piece-x"
+                  aria-label={t('Retirer', 'Remove')}
+                  onClick={() => setPieces((prev) => prev.filter((_, j) => j !== i))}
+                >
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {pieceErreur && <p className="rn-piece-err">{pieceErreur}</p>}
+        {interim && (
+          <p className="rn-interim" aria-live="polite">
+            {interim}
+          </p>
+        )}
+
         <div className="rn-inputrow">
+          <input
+            ref={fileRef}
+            type="file"
+            className="rn-file"
+            multiple
+            accept=".pdf,.docx,.txt,.md,.markdown,.csv,.json,.html,.htm,.xml,.yml,.yaml,.log,image/*,video/*,audio/*"
+            onChange={(e) => void joindreFichiers(e.target.files)}
+            aria-hidden="true"
+            tabIndex={-1}
+          />
+          <button
+            type="button"
+            className="btn ghost rn-attach"
+            disabled={pending || pieceBusy}
+            title={t(
+              'Joindre PDF, Word, texte, images… (la vidéo n’est pas transcrite)',
+              'Attach PDF, Word, text, images… (video is not transcribed)',
+            )}
+            onClick={() => fileRef.current?.click()}
+          >
+            {pieceBusy ? '…' : t('Joindre', 'Attach')}
+          </button>
+          <button
+            type="button"
+            className={`btn ghost rn-mic${ecoute === 'ecoute' ? ' rn-mic-on' : ''}`}
+            disabled={pending}
+            aria-pressed={ecoute === 'ecoute'}
+            title={
+              ecoute === 'indisponible'
+                ? t('Dictée indisponible', 'Dictation unavailable')
+                : ecoute === 'ecoute'
+                  ? t('Arrêter l’écoute', 'Stop listening')
+                  : t('Parler à la Reine', 'Talk to the Queen')
+            }
+            onClick={basculerMicro}
+          >
+            {ecoute === 'ecoute' ? t('Écoute…', 'Listening…') : t('Micro', 'Mic')}
+          </button>
+          {voixParoleDisponible() && (
+            <button
+              type="button"
+              className={`btn ghost rn-tts${paroleOn ? ' rn-tts-on' : ''}`}
+              aria-pressed={paroleOn}
+              title={t(
+                'Lire à voix haute les réponses de la Reine',
+                'Read the Queen’s replies aloud',
+              )}
+              onClick={() => {
+                if (paroleOn) couperParole();
+                setParoleOn((v) => !v);
+              }}
+            >
+              {t('Voix', 'Voice')}
+            </button>
+          )}
           <textarea
             ref={areaRef}
             className="rn-input"
             rows={1}
             placeholder={t(
-              'Votre question à la Reine… (Entrée pour envoyer, Maj+Entrée : nouvelle ligne)',
-              'Your question for the Queen… (Enter to send, Shift+Enter: new line)',
+              'Parlez ou écrivez à la Reine… (Entrée pour envoyer)',
+              'Talk or type to the Queen… (Enter to send)',
             )}
             value={draft}
             onChange={(e) => {
@@ -446,7 +779,7 @@ export default function Reine({ snapshot, onNavigate }: ViewProps) {
           />
           <button
             className="btn primary rn-send"
-            disabled={pending || draft.trim() === ''}
+            disabled={pending || (draft.trim() === '' && pieces.length === 0)}
             onClick={() => void send(draft)}
           >
             {t('Envoyer', 'Send')}

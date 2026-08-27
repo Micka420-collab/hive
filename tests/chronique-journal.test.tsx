@@ -196,4 +196,77 @@ describe('la Chronique — les deux vides, et la survivante du balayage', () => 
     expect(dom.textContent).toContain('Tâches 2');
     expect(dom.textContent).toContain('Nœuds 1');
   });
+
+  it('LES DEUX ÉVÉNEMENTS D’HORLOGE TOMBENT DANS « Horloge », pas dans « Autres »', async () => {
+    // ─── POURQUOI CETTE FAMILLE MÉRITE SA PUCE ──────────────────────────────
+    //
+    // Sans elle, `duree_annoncee` et `duree_hors_domaine` tombent dans
+    // « Autres » — la case qu'on décoche en premier quand le journal déborde.
+    // Une annonce qu'on ne peut pas ISOLER ne peut pas être surveillée, et une
+    // horloge qu'on ne surveille pas redevient un chiffre qu'on croit sur
+    // parole : exactement ce que le module refuse de produire.
+    //
+    // La ligne éprouvée est `type.startsWith('duree')`. Elle est posée APRÈS
+    // celles de `task` et `node` — aucun de ces préfixes ne la précède, mais
+    // c'est l'ordre qu'il faut garder si un `duree_*` de tâche apparaissait.
+    //
+    // La note de calibration (`horloge_calibration`) rejoint la même puce SANS
+    // partager le préfixe `duree` : c'est la seconde moitié du `||`, et sans ce
+    // troisième événement elle ne serait jamais exercée.
+    const dom = await monterChronique([
+      evenement(1, 'duree_annoncee'),
+      evenement(2, 'duree_hors_domaine'),
+      evenement(3, 'task_done'),
+      evenement(4, 'horloge_calibration'),
+    ]);
+    const compte = (nom: string): string => {
+      const puce = [...dom.querySelectorAll('.filters .chip')].find((c) =>
+        (c.textContent ?? '').includes(nom),
+      );
+      if (!puce) throw new Error(`la puce « ${nom} » est introuvable`);
+      return puce.querySelector('.chip-count')?.textContent?.trim() ?? '';
+    };
+    expect(compte('Horloge'), 'les trois événements d’horloge').toBe('3');
+    expect(compte('Autres'), 'et rien ne fuit dans « Autres »').toBe('0');
+    expect(compte('Tâches'), 'la tâche reste chez elle').toBe('1');
+  });
+
+  it('LES DEUX TYPES DE CONFLIT TOMBENT DANS « Conflits », et nulle part ailleurs', async () => {
+    // ─── CE QUE LE CAS VOISIN NE POUVAIT PAS VOIR ──────────────────────────
+    //
+    // Le cas ci-dessus s'appelle « les compteurs disent le VRAI compte » et il
+    // est vert — avec `task_done`, `task_failed` et `node_connected`. Aucun
+    // événement de CONFLIT n'y entre, donc la ligne qui les reconnaît n'a
+    // jamais tourné :
+    //
+    //     if (type === 'conflict_detected' || type === 'task_conflict_deferred')
+    //
+    // Le balayage l'a rendue SANS TEST. Mutée en `&&`, aucun type ne vaut les
+    // deux à la fois : la famille est TOUJOURS VIDE. Le filtre 🛡️ — celui
+    // qu'on ouvre justement quand on cherche pourquoi une fusion coince —
+    // afficherait 0 pour l'éternité, pendant que les deux événements se
+    // cachent, l'un dans « Tâches » (il commence par `task`), l'autre dans
+    // « Autres ».
+    //
+    // Un compteur peut donc être éprouvé sans que la FAMILLE le soit : le test
+    // couvrait la ligne du total, pas la décision qui l'alimente.
+    const dom = await monterChronique([
+      evenement(1, 'conflict_detected'),
+      evenement(2, 'task_conflict_deferred'),
+      evenement(3, 'task_done'),
+    ]);
+
+    const compte = (nom: string): string => {
+      const puce = [...dom.querySelectorAll('.filters .chip')].find((c) =>
+        (c.textContent ?? '').includes(nom),
+      );
+      if (!puce) throw new Error(`la puce « ${nom} » est introuvable`);
+      return puce.querySelector('.chip-count')?.textContent?.trim() ?? '';
+    };
+
+    expect(compte('Conflits'), 'la famille des conflits est vide').toBe('2');
+    // …et la preuve qu'ils ne sont pas allés se ranger ailleurs :
+    expect(compte('Tâches'), 'un conflit a été compté comme tâche').toBe('1');
+    expect(compte('Autres'), 'un conflit a été compté comme « autres »').toBe('0');
+  });
 });

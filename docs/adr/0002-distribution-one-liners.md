@@ -73,11 +73,21 @@ Le `curl | sh` reste proposé parce que le refuser ne fait pas disparaître
 l'usage — il fait juste partir les gens. Mais il n'est jamais présenté seul, et
 le script lui-même **affiche son empreinte** avant d'agir.
 
+> **Amendement du 21 août 2026 — l’empreinte vit sur Pages avant la Release.**
+>
+> Le lot 8 n’a pas encore de Release GitHub signée (🔒 comptes humains). En
+> attendant, `pages.yml` publie `install.sha256` à côté des deux scripts sur
+> Pages. La variante prudente du README / d’`INSTALLATION.md` compare à cette
+> URL, pas à un tag. Ça garde du pipe aveugle ; ça ne remplace pas une Release
+> signée (un dépôt compromis servirait script et manifeste).
+
 ## Conséquences
 
 - `pages.yml` déploie déjà `site/**` : les scripts sont publiés sans nouveau
   workflow, mais le filtre `paths` les couvre déjà.
-- Le job de Release (lot 8) calcule et attache les deux empreintes.
+- Le job de Release (lot 8) calculera et attachera les deux empreintes **quand
+  un humain publiera un tag** ; jusqu’ici le manifeste Pages (`install.sha256`)
+  est la mesure disponible.
 - Le domaine propre reste possible plus tard : un `CNAME` dans `site/` suffit,
   et les anciennes URL continueraient de fonctionner par redirection. **Migrer
   vers A depuis B est facile ; l'inverse casse les liens publiés.** C'est

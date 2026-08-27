@@ -107,12 +107,18 @@ describe('hive — la porte unique du paquet npm', () => {
     // Sans réécriture, `cli.ts` recevrait `['cli', 'state']`, prendrait « cli »
     // pour la commande, ne la reconnaîtrait pas, et rendrait l'USAGE. Avec la
     // réécriture, il reçoit `['state']` et tente la requête — que le réseau
-    // condamné transforme en « Erreur : … ». Les deux issues sont disjointes :
-    // c'est le seul choix d'argument qui rend la réécriture observable.
+    // condamné transforme en « Ruche injoignable ». Les deux issues sont
+    // disjointes : c'est le seul choix d'argument qui rend la réécriture
+    // observable.
+    //
+    // L'ancre était « Erreur : » ; elle a bougé le jour où ce message est
+    // devenu un vrai diagnostic (adresse visée, variable, cause). Ce qu'on
+    // affirme n'a pas changé — cli a TENTÉ la requête au lieu d'imprimer
+    // l'usage —, seul le mot qui le prouve a changé.
     const r = await lancer('cli', 'state');
     expect(r.code).toBe(1);
     expect(r.sortie, 'cli n’a pas reçu « state » — la réécriture d’argv a bougé').toContain(
-      'Erreur :',
+      'Ruche injoignable',
     );
     expect(r.sortie, 'cli a pris « cli » pour la commande').not.toContain('Usage :');
   });

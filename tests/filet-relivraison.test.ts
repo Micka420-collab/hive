@@ -79,7 +79,7 @@ describe('le filet de re-livraison espace ses tentatives', () => {
       token: TOKEN,
       corsOrigins: ['http://localhost:5173'],
       dbPath: path.join(dir, 'data', 'hive.db'),
-      simulation: false,
+      simulation: true,
       tickMs: TICK_BANC,
       relivraisonMinMs: ESPACEMENT,
     });

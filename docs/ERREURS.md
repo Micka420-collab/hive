@@ -517,6 +517,247 @@ son INTERACTION avec un effet déjà en vol. Un banc de 4a ne pouvait pas le voi
 > mesure sans agir n'est pas un progrès partiel : c'est une source de données
 > fausses qui se présentent comme vraies.
 
+#### 2 tritrigies bis — L'autre forme du demi-câblage : le SETTER que personne n'appelle
+
+Le premier demi-câblage livrait une moitié qui MENTAIT. Celui-ci en livrait une
+qui ne faisait RIEN, et c'est plus difficile à voir.
+
+`HiveNodeClient.setOutilsConstates()` avait tout ce qu'un câblage demande : un
+champ de protocole (`RegisterMsg.outils`), un validateur qui le reconstruit
+champ par champ, dix bancs sur ce validateur, et sa propre méthode publique.
+Une seule chose manquait : **personne ne l'appelait**. `grep -rn
+"setOutilsConstates" src/ tests/` rendait exactement une ligne — sa définition.
+
+Le nœud savait donc constater ses outils, le message savait les porter, le
+protocole savait les refuser mal formés — et le tableau de bord affichait une
+ruche sans outils sur des machines qui en portaient quatre.
+
+Ce qui rend cette forme-là traître, c'est que **toutes les moitiés sont vertes**.
+Le banc du validateur passe : il lui donne des constats à la main. Le banc du
+client passe : il appelle le setter lui-même. Chacun prouve sa moitié, et la
+somme des deux ne prouve pas le fil.
+
+> **Règle** — un point d'entrée public sans appelant est un point d'entrée MORT.
+> Avant de clore un lot qui en ajoute un, faire le `grep` : s'il ne rend que sa
+> définition, le lot n'est pas fini, quel que soit le vert de ses bancs.
+>
+> **Règle** — un banc de bout en bout qui APPELLE lui-même le geste qu'il
+> prétend vérifier ne vérifie que la moitié aval. Celui de ce lot monte un vrai
+> hub et un vrai nœud, et resterait vert si `main.ts` cessait d'appeler le
+> setter. Il lui faut donc un compagnon qui regarde l'APPELANT — ici une
+> sentinelle de source, qui tient que l'appel existe et qu'il précède
+> `client.start()` (le register part à la première connexion : posé après, il
+> serait arrivé au deuxième essai, c'est-à-dire jamais).
+>
+> Lire la source est un aveu, pas une élégance : c'est ce qu'on fait quand
+> lancer le vrai chemin est hors de portée du banc — ici `main.ts` refuse de
+> démarrer sans agent de production sur le poste. Le dire dans le fichier vaut
+> mieux que laisser croire à une preuve.
+
+### 2 quattuortrigies bis — Un banc qui rougit contre du code JUSTE, parce que la langue s'est résolue avant lui
+
+Sept assertions françaises rouges sur un écran parfaitement correct :
+
+```
+expected '· outil-de-demain — ready · the hive knows nothing about this tool'
+  to contain 'ne sait rien de cet outil'
+```
+
+`dashboard/src/i18n.ts` résout la langue **à l'import du module** :
+
+```ts
+let current: UiLang = detectInitial(); // localStorage, sinon navigator.language
+```
+
+Le banc vidait bien `localStorage` dans son `beforeEach` — mais le module était
+importé depuis longtemps, et happy-dom annonce un navigateur anglophone. La
+préférence n'était donc jamais relue.
+
+Le piège n'est pas le rouge : c'est ce qu'on est tenté d'en faire. Un rouge qui
+accuse le code alors qu'il accuse le banc pousse à « corriger » du code juste,
+et c'est ainsi qu'une chaîne bilingue se retrouve figée dans une langue.
+
+> **Règle** — un banc de rendu qui affirme une chaîne TRADUITE doit ÉPINGLER la
+> langue (`setLang('fr')`), jamais l'hériter. Et tant qu'à l'épingler : la
+> basculer aussi dans l'autre sens dans un banc jumeau. Un composant qui passe
+> la langue à deux fonctions distinctes — ici l'état de la machine et le niveau
+> de la ruche — peut parfaitement n'en traduire qu'une, et aucun banc
+> francophone ne verrait la demi-ligne restée en anglais.
+
+#### 2.12 bis — Un appel HTTP dont on ne lit pas le statut rend TOUT le banc creux
+
+Le banc devait prouver qu'un nœud « présence » ne lance jamais son adaptateur,
+même quand le hub lui assigne une tâche. Il montait un vrai hub, un vrai nœud,
+comptait les lancements, et affirmait zéro. Vert du premier coup.
+
+La contre-épreuve l'a démasqué en une commande : j'ai ôté la garde qu'il
+prétendait défendre — **toujours vert**. Puis j'ai ôté l'autre garde —
+**toujours vert**. Un banc que deux mutations opposées ne font pas bouger ne
+mesure rien.
+
+La sonde a donné la raison en une ligne :
+
+```
+tache HTTP 404
+tache {"error":"introuvable"}
+```
+
+`POST /api/tasks` n'existe pas — la route est
+`POST /api/projects/:projectId/tasks`, et son corps est `{ tasks: [...] }`. Le
+`fetch` réussissait (une 404 n'est pas une exception), la tâche n'était jamais
+créée, et « aucun lancement » était vrai pour une raison qui n'avait rien à
+voir avec la garde.
+
+C'est le § 2.12 — « ça ne part pas » est vert quand RIEN ne part — mais par une
+porte nouvelle : ce n'est pas la logique du banc qui était fausse, c'est un
+appel réseau silencieusement raté au milieu de sa mise en place.
+
+> **Règle** — dans un banc de bout en bout, tout appel HTTP de MISE EN PLACE
+> s'assortit de son statut attendu (`expect(r.status).toBe(201)`). `fetch` ne
+> lève pas sur 4xx/5xx : une route renommée, un corps refusé, un jeton périmé
+> passent en silence et vident le banc de son sujet sans jamais le faire rougir.
+>
+> **Règle** — et quand le banc affirme une ABSENCE (« rien ne s'est lancé »,
+> « aucune écriture »), la mise en place doit prouver que la CONDITION était
+> réunie : ici, que la tâche a bien été assignée au nœud. Sans cette moitié,
+> l'absence constatée peut venir de n'importe où.
+>
+> **Le geste qui a tout révélé** est le moins coûteux de tous : ôter la garde et
+> relancer. Un banc neuf qui ne rougit pas sous cette mutation-là n'est pas
+> terminé — quel que soit le temps qu'on a passé à l'écrire.
+
+#### 2.6 bis — Vérifier À LA SOURCE ne sert à rien si on vérifie la MAUVAISE chose
+
+En écrivant le catalogue des outils, j'ai inscrit pour Cline :
+
+```ts
+installation: Object.freeze(['npm', 'install', '-g', 'cline']),
+```
+
+Relisant plus tard, j'ai douté de ce nom de paquet — le reste du catalogue
+porte `installation: null` avec la mention « la ruche refuse de deviner ». Bon
+réflexe. J'ai donc interrogé le registre npm, et il a répondu :
+
+```
+cline : HTTP 200
+  description : Autonomous coding agent CLI …
+  bin         : {"cline":"bin/cline"}
+```
+
+Le paquet existe, il fait ce qu'on croit, son binaire porte le nom que la ruche
+cherche. J'ai conclu « vérifié » et je suis passé à la suite.
+
+C'est le banc du dépôt qui a dit non :
+
+```
+« cline » n'a pas de portée npm
+```
+
+`connexion-agent.test.ts` tient depuis longtemps que **tout paquet installé
+globalement porte une portée** (`@anthropic-ai/claude-code`, pas `claude-code`),
+parce qu'un nom sans portée sur le registre public est exposé au typosquat — et
+qu'un `npm install -g` est exactement l'endroit où l'on ne fait cette erreur
+qu'une fois.
+
+Ma vérification était vraie, sérieuse, faite à la source primaire… et sans
+rapport avec la question posée. « Ce paquet existe-t-il ? » et « ce nom
+est-il sûr à installer ? » sont deux questions différentes, et la seconde était
+déjà écrite dans le dépôt.
+
+Détail qui achève le dossier : `@cline/cli` EST porté — mais son binaire
+s'appelle `clite`, que `bins: ['cline']` ne cherche pas. La ruche installerait
+un paquet qu'elle ne saurait pas détecter ensuite. Deux mauvaises réponses ;
+`null` est la bonne, et `null` ne dit pas « impossible à installer », il dit
+« la ruche ne le fait pas à votre place ».
+
+> **Règle** — avant de conclure « vérifié », relire la GARDE qui existe déjà sur
+> ce terrain et vérifier ce QU'ELLE demande. Une source primaire consultée sur
+> la mauvaise question donne une confiance parfaitement injustifiée, et plus
+> solide que si l'on n'avait rien vérifié du tout.
+>
+> **Règle** — quand une garde en aval rougit sur une donnée écrite en amont,
+> DOUBLER la garde à la source. Ici elle vivait sur `PAQUETS` ; quelqu'un qui
+> ajoute un outil édite le CATALOGUE, et un rouge nommant `PAQUETS` l'enverrait
+> chercher au mauvais endroit.
+
+#### 2.6 ter — Deux tables qui répondent à la MÊME question dérivent toujours
+
+Le même lot a montré pourquoi ce nom de paquet vivait à deux endroits.
+
+`PAQUETS` (connexion-agent.ts) et `OUTILS[].installation` (catalogue-outils.ts)
+répondaient tous deux à « comment installe-t-on cet agent ? ». Le catalogue,
+écrit plus tard, connaissait Cline ; `PAQUETS` l'ignorait. La dérive était déjà
+là, silencieuse, et personne ne l'aurait vue avant qu'un utilisateur ne suive un
+conseil que la ruche ne donnait pas.
+
+`PAQUETS` en est maintenant DÉRIVÉ — une ligne, pas une copie.
+
+Le contraste avec `PAQUETS_AGENTS` (agent-windows.ts) est instructif : lui aussi
+porte un nom npm, et il ne doit PAS fusionner. Il répond à une autre question —
+où retrouver un agent DÉJÀ installé quand son shim n'est pas lançable sous
+Windows. Le dépôt garde donc leur donnée commune par un banc, sans les unir.
+
+> **Règle** — le critère n'est pas « ces deux tables se ressemblent-elles ? »
+> mais « répondent-elles à la MÊME question ? ». Même question ⇒ une seule
+> source, l'autre en dérive. Questions différentes ⇒ deux tables, et une garde
+> sur ce qu'elles partagent.
+
+#### 2.14 bis — Un `fetch` non bouchonné dans un banc de rendu accuse un INNOCENT
+
+La jambe « la suite tient dans plusieurs ordres » a rougi sur la graine 23757.
+Rejouée sur l'arbre EXACT, avec la commande EXACTE que le tamis imprime :
+verte. Deux fois.
+
+Premier enseignement, avant même la cause : **une graine de mélange ne vaut que
+pour un ENSEMBLE DE BANCS DONNÉ**. J'ai d'abord rejoué 23757 sur un arbre qui
+comptait deux bancs de plus — la graine y produit un ordre entièrement
+différent, et son vert ne disait rien du rouge d'origine.
+
+La cause s'est trouvée ailleurs : mon banc de rendu neuf ne bouchonnait qu'UNE
+des trois fonctions réseau que le composant appelle.
+
+```
+$ npx vitest run tests/fiche-outils-ia.test.tsx 2>&1 | grep -c ECONNREFUSED
+32
+```
+
+`FicheOuvriere` tire `fetchWaggle` (bouchonnée), `fetchChambre` (oubliée), et —
+par le hook `useBaptemes`, donc **invisible dans le JSX** — `fetchBaptemes`
+(oubliée aussi). Trente-deux vraies connexions vers `127.0.0.1:3000` par
+lancement.
+
+Ce n'est pas qu'une nuisance de journal, et c'est là qu'est la leçon. Le rejet
+arrive de façon ASYNCHRONE, parfois après la fin du test qui l'a déclenché.
+Sous `--sequence.shuffle`, il retombe dans la fenêtre d'un banc voisin — qui
+rougit pour une faute qui n'est pas la sienne. C'est la forme la plus coûteuse
+de dépendance d'ordre : elle envoie chercher le défaut chez un innocent, et le
+coupable reste vert.
+
+Effet de bord aggravant : ces milliers de piles d'appels NOIENT le journal de
+CI. Le détail du banc rouge — la seule chose dont on ait besoin — se retrouve
+hors de la fenêtre que l'API des journaux accepte de rendre. Le bruit a
+littéralement effacé la preuve.
+
+Le compte, après chaque bouchon : **32 → 16 → 0**.
+
+> **Règle** — un banc de rendu qui monte un composant réseau bouchonne TOUTES
+> ses fonctions d'API, y compris celles qu'appellent ses HOOKS. La liste ne se
+> lit pas dans le JSX ; elle se MESURE :
+> `npx vitest run <banc> 2>&1 | grep -c ECONNREFUSED` doit rendre **0**.
+>
+> **Règle** — corriger la moitié d'une fuite se lit comme l'avoir fermée. Le
+> compte est passé de 32 à 16, et j'aurais pu m'arrêter là en croyant avoir
+> fini. Relire le compte APRÈS chaque bouchon, jusqu'à zéro.
+>
+> **Règle** — rejouer une graine de mélange n'a de sens que sur l'arbre où elle
+> a rougi, au banc près. Un banc ajouté entre-temps change l'ordre que la graine
+> produit, et le vert obtenu ne réfute rien.
+>
+> **Ce qui reste à faire** — cinq fichiers du dépôt portent déjà un commentaire
+> sur ce piège, chacun écrit après s'y être fait prendre. C'est le signe qu'il
+> faut une garde, pas un sixième commentaire : un jeu de bouchons PARTAGÉ que
+> les bancs de rendu importent au lieu de le recopier à moitié.
+
 ### 2 duotrigies — Restreindre une liste EN AMONT d'un départage ne se teste que si le départage a de quoi trancher AUTREMENT
 
 En câblant l'Aiguillage dans l'ordonnanceur, j'ai restreint les candidats au
@@ -1887,6 +2128,54 @@ qu'il imprime — sur les trois systèmes de la CI.
 > **Règle** — un lanceur se teste en le LANÇANT. Relire son texte ne distingue
 > pas les deux formes ci-dessus, et sur deux systèmes sur trois elles se
 > comportent à l'identique.
+
+#### 6.1 quater — La cinquième fois, et la fin des avertissements en prose
+
+`tests/connexion-noeud.test.ts`, fichier NEUF, lisait la source d'un module
+pour en extraire ses branches :
+
+```js
+new URL('../src/node-client/agent-detect.js', import.meta.url).pathname.replace(/\.js$/, '.ts');
+```
+
+```
+ENOENT: no such file or directory,
+open 'D:\D:\a\hive\hive\src\node-client\agent-detect.ts'
+```
+
+Le même défaut, la même lettre doublée, la même jambe CI. Ce qui rend cette
+récurrence-là utile, ce n'est pas qu'elle soit arrivée — c'est **l'état du
+dépôt au moment où elle est arrivée** : la règle était écrite ici, en trois
+paragraphes, et RECOPIÉE en tête de six fichiers (`loupe.mjs`, `lancer.mjs`,
+`ruche.mjs`, `empreinte.test.ts`, `fusionner.test.ts`,
+`essai-installation.test.ts`).
+
+Six avertissements. Tous dans des fichiers **déjà corrigés**. Aucun sur le
+chemin du fichier neuf, qui ne les a jamais croisés.
+
+Le balayage qui a suivi a d'ailleurs trouvé une **mine dormante** que personne
+ne cherchait : `tests/installeurs.test.ts` passait
+`new URL('.', RACINE).pathname` en `cwd` d'un `execFileSync`. Elle n'avait
+jamais mordu parce que l'appelant ne part que sous `runIf(shellPosix)`, faux
+sous Windows. Amorcée, mais jamais atteinte — donc invisible à la CI.
+
+> **Règle** — au bout de la troisième récurrence d'un même défaut, la prose
+> n'est plus le remède ; c'est le symptôme. Un avertissement écrit dans les
+> fichiers déjà corrigés ne protège que ceux-là, et le prochain fichier ne sait
+> pas qu'il existe. Seule une garde qui **balaie l'arbre** protège le code pas
+> encore écrit.
+>
+> `tests/chemin-de-fichier-windows.test.ts` le fait : il parcourt `src/`,
+> `tests/`, `scripts/` et `dashboard/src/`, et rougit sur tout `.pathname` pris
+> sur une URL de **fichier** — bâtie depuis `import.meta.url` directement, ou
+> par une constante du fichier. Le `url.pathname` d'un routage HTTP n'est pas
+> visé et ne l'a jamais été.
+>
+> **Règle** — une garde qui s'EXCLUT elle-même doit borner son exclusion.
+> Celle-ci contient les formes fautives dans ses fixtures : c'est ainsi qu'on a
+> vu son détecteur mordre. Elle affirme donc que l'exclusion vaut **un** fichier
+> et que ce fichier existe — sinon un nom mal orthographié dans la liste
+> n'exclurait rien, ou l'exclusion s'élargirait sans que rien ne rougisse.
 
 ### 6.1 bis — Un handle ouvert ne se voit PAS sous Linux
 
@@ -6569,6 +6858,27 @@ gratuit, et surtout : il apprend à pousser d'abord et à lire le rouge ensuite.
 > **La règle** — le compte se re-mesure APRÈS le dernier changement de la
 > branche, pas au moment où on y pense. Une correction automatique n'est pas
 > un acquis : c'est un instantané, et il périme au commit suivant.
+
+### Reprise : et il ne suffit pas de le savoir — il ne faut pas POUSSER entre-temps
+
+Le 23 août, la même règle a été enfreinte par l'autre bout. Le lot d'affichage
+de l'horloge ajoutait 28 bancs ; je l'ai commis et **poussé** en sachant que les
+six annonces étaient périmées, avec l'intention de les re-mesurer dans le commit
+suivant, une fois le balayage fini et le compte définitif.
+
+La CI ne l'a pas attendu. Elle tourne sur la **tête poussée**, pas sur
+l'intention : suite verte (4861 sur 4869), garde-badge rouge, jambes `ubuntu` et
+`windows` en échec. Le commit suivant a effectivement tout réparé — mais entre
+les deux, la PR a porté un rouge que personne ne pouvait distinguer d'un vrai.
+
+> **Le complément** — un commit poussé doit être **vert tout seul**. « Je le
+> réparerai au suivant » n'est pas un plan : c'est un rouge publié, et un rouge
+> publié coûte à quiconque le lit avant la réparation. Soit les badges entrent
+> dans le même commit que les bancs qui les déplacent, soit on ne pousse pas
+> encore.
+
+Et c'est exactement pour cela que le garde existe. Il n'a pas failli : il a
+attrapé la faute au seul endroit où elle pouvait encore se voir.
 
 ---
 
@@ -13082,3 +13392,1434 @@ C'est le versant PROCÉDURAL de § 9 quaterquinquagicenties : là, un total en p
 se prenait pour une mesure ; ici, c'est un seuil de méthode. Dans les deux cas la
 faute est la même — **un chiffre écrit sans sa provenance emprunte l'autorité de
 ceux qui en ont une.**
+
+## 9 novemquinquagicenties. Une base épinglée ne dit rien de l'ARBRE qu'elle mesure
+
+`LOUPE_BASE=e93b252`, vérifiée : 400 ajoutées / 0 retirée sur `Chronique.tsx`.
+Le chiffre était juste. Le balayage a tourné huit minutes avant que je regarde
+autre chose que lui.
+
+La branche avait **236 commits de retard** sur `origin/main`, et `Chronique.tsx`
+y avait changé — 24 lignes insérées, 26 retirées. Le fichier que je mutais
+n'existait plus. La première nue relevée (`|| → &&` dans `isTyping`) portait sur
+une ligne que `main` avait déjà réécrite.
+
+### Ce que la base épingle, et ce qu'elle n'épingle pas
+
+Un diff a DEUX extrémités. `LOUPE_BASE` en fixe une ; l'autre est `HEAD`, et
+`HEAD` se périme tout seul pendant qu'on travaille. Vérifier « 400 ajoutées /
+0 retirée » confirme que la base est bien AVANT la naissance du fichier — ça ne
+dit rien de la fraîcheur du fichier lui-même.
+
+L'arithmétique était exacte sur le mauvais fichier, et rien dans le verdict de la
+loupe ne pouvait le signaler : elle mesure ce qu'on lui donne.
+
+### La leçon
+
+**Avant d'épingler une base, épingler l'arbre.** `git fetch origin main` et
+`git rev-list --left-right --count HEAD...origin/main` coûtent deux secondes ;
+le balayage coûte une heure. Le geste bon marché passe en premier.
+
+Corollaire pour la relance d'une session : une PR fusionnée ne se prolonge pas.
+La branche repart de `main`, et TOUT relevé pris avant ce départ est à jeter —
+pas à réconcilier.
+
+---
+
+## 9 sexagicenties. « Le processus est arrêté » est une affirmation sur l'ENVELOPPE, pas sur le travail
+
+`TaskStop` a rendu `Successfully stopped task`. Le balayage a continué huit
+minutes de plus.
+
+L'outil avait tué `npm run loupe` — l'enveloppe. `node scripts/loupe.mjs` a
+survécu, réattaché à `init` (PPID 1), et il a continué à muter le fichier et à
+lancer des suites entières.
+
+### Deux lectures fausses en sont sorties, et toutes deux avaient l'air vraies
+
+**L'arbre propre.** `git status --porcelain` n'a rien rendu, j'en ai conclu que
+la restauration avait tenu. J'avais échantillonné l'instant ENTRE deux mutations.
+Un arbre lu une fois pendant qu'un muteur vit ne prouve rien — il donne l'état à
+un instant qu'on n'a pas choisi.
+
+**Le typecheck rouge.** Puis :
+
+```text
+dashboard/src/views/Chronique.tsx(84,5): error TS2367:
+  This comparison appears to be unintentional because
+  the types '"SELECT"' and '"BUTTON"' have no overlap.
+```
+
+Un fichier réel, une ligne réelle, un code d'erreur réel. C'était le résidu de
+l'orphelin — `tag !== 'SELECT'` — pas un défaut de `main`. Restauration faite,
+les deux typechecks passent. Sans la recherche de processus, je « corrigeais »
+un bug qui n'existait pas, sur la branche de quelqu'un d'autre.
+
+### La leçon
+
+**Un tueur se vérifie par `ps`, jamais par son propre compte rendu.** Et tant
+qu'un muteur peut vivre, aucune lecture de l'arbre n'est une mesure : ni
+`git status`, ni `tsc`, ni la suite.
+
+Le geste qui répare : lancer par `setsid`, tuer le GROUPE (`kill -KILL -PGID`),
+puis CONSTATER l'absence. Trois lignes, et la question ne se repose plus.
+
+---
+
+## 9 unsexagicenties. Un réplica qui CONFIGURE son original finit par le sous-mesurer
+
+Pour choisir la profondeur d'un balayage sans payer une suite, j'avais écrit un
+petit compteur qui rejoue la règle de candidature de la loupe. Il a rendu **33**.
+J'ai posé `LOUPE_MAX=33`. La loupe a répondu :
+
+```text
+LOUPE : 34 mutation(s) possible(s) sur le diff, 17 examinée(s).
+```
+
+Elle en voit **34**. Et son pas d'échantillonnage vaut `ceil(total / plafond)` :
+
+```js
+const pas = Math.max(1, Math.ceil(toutes.length / plafond)); // ceil(34/33) = 2
+const retenues = toutes.filter((_, i) => i % pas === 0).slice(0, plafond); // 17
+```
+
+Un plafond d'UNE UNITÉ sous le compte ne retire pas une mutation : **il en
+retire la moitié.**
+
+### Pourquoi c'est plus qu'un décalage d'un
+
+Le réplica n'était pas faux par accident : il APPROXIME une règle qui vit dans
+un autre fichier (lignes ambiguës, `??` restreint, gardes de point d'entrée). Un
+écart d'une unité était certain à terme. La faute est de l'avoir utilisé pour
+RÉGLER l'instrument qu'il imite — l'approximation est passée du côté de la
+mesure.
+
+Et le désaccord ne s'est pas annoncé comme une erreur : il s'est annoncé comme
+une mesure plus discrète. Sortie 0, verdict lisible, moitié du fichier vue.
+
+### Ce que ça aurait écrit
+
+§ 9 quinquinquagicenties a MESURÉ ce qu'un demi-balayage coûte : la moitié de la
+Ruche avait rendu deux nues sur sept. J'aurais écrit « Chronique balayée entière »
+en ayant vu dix-sept mutations sur trente-quatre — faux dans le sens rassurant,
+et durable, parce qu'une ligne de carnet ne se relit pas.
+
+### La leçon
+
+**On demande son compte à l'instrument, pas à son imitation.** Le réplica sert à
+DÉCIDER si l'on balaye ; il ne sert pas à régler le balayage. Et un plafond se
+pose AU-DESSUS du compte, jamais à l'égalité pile — la marge ne coûte rien,
+l'égalité approximative coûte la moitié.
+
+## 9 duosexagicenties. Une conclusion juste tirée d'une prémisse fausse n'est pas un savoir — et c'est la PRÉMISSE qu'on écrit
+
+Le balayage de la Chronique a laissé un survivant :
+
+```text
+🔴 SANS TEST · isTyping()  ·  el instanceof HTMLElement → instanceof Object
+```
+
+J'ai annoncé « probablement équivalent », avec sa raison :
+
+> « Un `SVGElement` passe `instanceof Object`, mais son `tagName` vaut `svg` en
+> minuscules, il ne correspond à aucune étiquette de la liste, et son
+> `isContentEditable` est `undefined`. Les deux versions rendent `false`. »
+
+**Le verdict était bon. La raison était fausse.** Une sonde qui compare les deux
+versions sur treize valeurs l'a séparé du premier coup :
+
+```text
+valeur                        instanceof     sain    muté
+                              HTMLElement
+<svg tabindex="0">            false          false   undefined
+createElementNS('urn:x','INPUT')  false      false   true      ◀ SÉPARE
+```
+
+Un élément d'un autre espace de noms NOMMÉ `INPUT` porte un `tagName` en
+MAJUSCULES : le muté entre dans la liste et rend un vrai `true`. Ma phrase
+« aucun `tagName` ne peut correspondre » était simplement inexacte.
+
+### Ce qui rend quand même le mutant équivalent
+
+La bonne raison est ailleurs, et elle est sur le CHEMIN D'APPEL :
+
+```text
+<svg tabindex="0">     peut être document.activeElement   → sain false, muté undefined
+createElementNS INPUT  n'a PAS de focus() — l'appeler jette → ne peut JAMAIS l'être
+```
+
+La seule valeur qui sépare vraiment ne peut pas atteindre la fonction : elle
+n'est pas focalisable, donc `document.activeElement` ne la portera jamais. Celle
+qui est atteignable rend `undefined` au lieu de `false` — falsy des deux côtés,
+donc `if (isTyping() || modalOpen())` ne bouge pas d'un cheveu.
+
+C'est § 9 duoquinquagicenties appliqué à une équivalence plutôt qu'à une
+couverture : **l'éprouvabilité se juge sur ce que l'appelant peut fournir.**
+
+### Pourquoi la prémisse comptait plus que le verdict
+
+Si je n'avais pas exécuté la sonde, j'aurais consigné :
+
+> « Équivalent : aucun `tagName` hors HTML ne peut correspondre aux étiquettes. »
+
+Une phrase FAUSSE, dans le carnet, sous une conclusion JUSTE — donc jamais
+relue, jamais contredite par un banc, et disponible pour justifier le prochain
+`instanceof` élargi « par le même raisonnement ». Le carnet ne garde pas des
+verdicts, il garde des RAISONS : c'est la raison qui sera recopiée.
+
+Deux fautes voisines, déjà payées, disent la même chose sous un autre angle :
+§ 9 quinquagicenties (nommer le mutant EXACT, pas son cousin) et
+§ 9 octoquinquagicenties (un nombre inventé emprunte l'autorité d'un nombre
+mesuré). Ici c'est un RAISONNEMENT qui emprunte l'autorité d'une mesure.
+
+### La leçon
+
+**Une équivalence annoncée se prouve comme un test : par exécution, y compris sa
+raison.** « Je pense qu'aucune entrée ne les sépare » est une hypothèse ; la
+sonde qui ÉNUMÈRE les entrées et affiche les deux sorties côte à côte est la
+mesure. Elles coûtent quelques minutes et ne se ressemblent pas.
+
+Et le signe qui aurait dû alerter plus tôt : j'ai écrit « je ne suis pas sûr du
+comportement de `isContentEditable` sous happy-dom » DANS la même phrase qui
+concluait à l'équivalence. Une incertitude nommée et non levée est une dette,
+pas une nuance.
+
+## 9 tersexagicenties. Un décor n'est pas neutre : à chaque champ, il choisit un bord
+
+`MonEspace.tsx` avait son banc. `mon-espace-lecture` éprouve le chiffre des
+heures et ses deux bornes, l'habit du projet arrêté, l'étiquette de plan, le
+grand livre en retard — le balayage confirme toutes ces gardes défendues.
+
+La vue a rendu **9 nues sur 18**. Le pire ratio depuis la Reine, qui elle
+n'avait aucun banc.
+
+### Les neuf tiennent à quatre champs qui ne bougent pas
+
+Le banc construit ses projets par une fabrique :
+
+```js
+const projet = (over = {}) => ({
+  role: 'member', // …donc la pastille « propriétaire » ne s'allume jamais
+  joursRestants: -1, // …donc le bloc « Période » ne s'ouvre jamais
+  serveurs: [], // …donc le bloc « Machines » ne s'ouvre jamais
+  partConsommee: null, // …donc la jauge n'est jamais rendue
+  ...over,
+});
+```
+
+Chaque valeur est raisonnable. Prises ensemble, elles décident que quatre
+régions de l'écran ne seront JAMAIS rendues — et neuf mutations y vivent.
+
+### Ce qui rend la faute difficile à voir
+
+Une ligne jamais exécutée se repère : la couverture la montre en rouge. Ces
+lignes-là sont exécutées à CHAQUE cas — la fabrique passe dessus, la condition
+est évaluée, le fichier compte dans la couverture. Ce qui manque n'est pas le
+passage, c'est le SECOND BORD. La couverture de ligne ne sait pas dire
+« franchie toujours dans le même sens ».
+
+C'est ce que la mutation, elle, dit tout de suite.
+
+### La leçon
+
+**Une fabrique de décor est une suite de décisions sur des bornes, pas un
+remplissage.** Un champ dont la valeur ne varie jamais entre les cas est une
+borne qu'on a choisie une fois pour toutes, et le banc qui s'en sert éprouve
+tout SAUF elle.
+
+Le geste : à l'écriture d'un banc, relire la fabrique en se demandant, champ par
+champ, _quelle garde de la vue lit ce champ, et est-ce que je lui donne les deux
+côtés ?_ Là où la réponse est non, c'est nu — sans avoir besoin de la loupe pour
+l'apprendre.
+
+### Le cas était NOMMÉ, et ce n'était pas suffisant
+
+Le carnet portait déjà :
+
+> « **MonEspace — « expire aujourd'hui » (0 jour).** Le sentinel voisin
+> éprouvait… »
+
+Le jour même de l'échéance avait été remarqué. Trois mutations du compte à
+rebours ont quand même survécu, dont exactement celle-là. **Une inquiétude
+écrite n'est pas une garde** — c'est le versant « décor » de § 9 sexvicicenties,
+où un commentaire qui explique se prenait pour un test. Ici c'est une note de
+carnet qui se prenait pour un cas.
+
+## 9 quatersexagicenties. L'état de MODULE survit à tout ce qu'un banc croit nettoyer
+
+Le banc de l'outbox des revues (`shared.tsx`) a rougi sur trois cas d'un coup,
+et pas là où il éprouvait : les assertions étaient justes, le décor était sale.
+
+```js
+beforeEach(() => {
+  localStorage.clear(); // ← nettoie le STOCKAGE
+  vi.mocked(postReview).mockReset();
+  hydrateReviews({}); // ← nettoie le CACHE
+});
+```
+
+Trois lignes de remise à zéro, et pourtant le deuxième cas voyait encore le
+premier. Ce qui restait n'était ni dans le stockage ni dans le cache :
+
+```js
+const postChains = new Map<string, Promise<void>>();   // au niveau MODULE
+const locallyPending = new Set<string>();              // au niveau MODULE
+```
+
+Un POST volontairement laissé EN VOL par le premier cas laisse sa chaîne dans
+`postChains`. Le cas suivant appelle `setReview` sur la même tâche, `enqueuePost`
+enchaîne derrière la promesse jamais dénouée — et le `.then` qui devait purger
+l'outbox n'arrive jamais. Le cas rougit en accusant la garde qu'il éprouvait.
+
+### Pourquoi c'est la faute du BANC et pas du module
+
+Sérialiser les POST par tâche est correct : c'est ce qui empêche deux verdicts
+de se doubler. Le module a raison de garder cet état entre deux appels — c'est
+sa fonction.
+
+Le banc, lui, avait supposé que « remettre à zéro » se limitait à ce qu'il
+pouvait NOMMER : le stockage, les mocks, le cache. L'état qu'on ne peut pas
+atteindre depuis l'extérieur n'apparaît dans aucun `clear()`, et c'est
+précisément celui qui traverse les cas.
+
+### La leçon
+
+**Un `beforeEach` ne nettoie que ce qu'il peut nommer.** Avant d'écrire un banc
+sur un module à état, lire ses variables de haut niveau et se demander, pour
+chacune : _qui la remet à zéro entre deux cas ?_ Là où la réponse est
+« personne », il faut soit une porte de remise à zéro, soit — plus simple et
+sans toucher au code de production — **une CLÉ DIFFÉRENTE par cas**. Ici, une
+tâche par cas (`t-change`, `t-transitoire`, `t-concurrent`…) : les chaînes ne se
+croisent plus, et le module garde son état légitime.
+
+C'est le pendant « état » de § 9 tersexagicenties : là, un décor figeait un
+CHAMP et une borne n'était jamais franchie ; ici, un décor néglige une MÉMOIRE
+et deux cas se contaminent. Dans les deux cas, ce qui trompe n'est pas
+l'assertion — c'est ce qu'on n'a pas pensé à faire varier, ou à effacer.
+
+## 9 quinsexagicenties. Une liste de « reste à faire » est une mesure, et c'est celle qui se périme le plus cher
+
+Deux consignes différentes réveillent cette session — un tour toutes les heures,
+un autre toutes les trois heures. Chacune porte sa liste de points ouverts.
+Vérifiées le 22 août, en mutant ou en lisant le code, jamais en croyant la note :
+
+| Point nommé « ouvert »             | État réel                                             |
+| ---------------------------------- | ----------------------------------------------------- |
+| Balance `arme && cible !== null`   | DÉFENDUE ×2 (`vues-sentinelles`)                      |
+| Cerveau `serviIlYaJours === null`  | DÉFENDUE ×3 (suite entière)                           |
+| `server.ts` `find` de la livraison | DÉFENDUE (`polyethisme-livraison`)                    |
+| `getSnapshot()` sans LIMIT         | BORNÉE (`LIMITE_TACHES_INSTANTANE`, `SELECT … LIMIT`) |
+| table `tasks` sans élagueur        | `pruneTasks` existe ET est appelée (`server.ts`)      |
+
+Cinq sur cinq. Zéro travail à faire, et l'inventaire a coûté vingt minutes là où
+suivre la liste en aurait coûté plusieurs heures de bancs écrits pour des gardes
+qui tenaient déjà.
+
+### Pourquoi celle-là coûte plus cher que les autres périmées
+
+Un tableau périmé dans un document se lit une fois de temps en temps. Une
+CONSIGNE périmée, elle, est le mécanisme qui dirige chaque session sans
+surveillance : elle ne dort pas, elle réveille et elle ORIENTE. Une session qui
+la suit sans vérifier écrit des bancs pour du code déjà défendu, les mesure
+verts, et conclut honnêtement qu'elle a bien travaillé.
+
+C'est le même défaut que § 9 quaterquadragicenties (« on ne répare pas une
+mesure datée, on la refuse ») déplacé de l'objet MESURÉ vers l'instrument qui
+DISTRIBUE le travail — et le carnet n'avait encore rien à cet endroit-là.
+
+### La leçon
+
+**Avant de prendre un point sur une liste de restes, vérifier qu'il est encore
+un reste.** Pour une garde, ça se mesure : on la mute et on relance. Pour une
+borne, ça se lit : on cherche l'appelant. Dans les deux cas c'est des minutes,
+et ça évite d'écrire un banc dont le seul effet serait de faire croire qu'on a
+fermé quelque chose.
+
+Et le corollaire, pour qui tient la liste : **une consigne qui nomme du travail
+se re-date comme un badge.** Celle-ci nomme, au 22 août, cinq points tous
+fermés ; elle continuera d'y envoyer des sessions tant qu'elle n'est pas
+réécrite. Ce n'est pas au dépôt de le corriger — la consigne vit ailleurs — mais
+c'est au carnet de le dire.
+
+## 9 sexsexagicenties. Un chiffre juste et un sujet qui glisse : « sur ce lot » n'est pas un référent
+
+Le tableau A de `docs/DEFINITION-DE-SORTIE.md` certifie le critère « rien de
+neuf n'est nu ». Sa case disait :
+
+```
+✅ 17 nus trouvés sur ce lot — tous fermés
+```
+
+Le chiffre était exact le jour où il a été écrit. Il l'est resté — mais quatre
+balayages plus tard, le terrain valait **95 examinés, 35 nues, 33 fermées, 1
+équivalente, 1 retirée**. La case certifiait un cinquième du travail qu'elle
+prétendait certifier, dans le sens rassurant, sur la ligne qui SERT de garantie.
+
+### Ce n'est pas une case oubliée
+
+Cette PR a touché ce fichier **trois fois** — le tableau de couverture, puis
+deux fois le compte de bancs — sans que la ligne d'à côté soit relue une seule
+fois. Ce n'est pas de la négligence de relecture : c'est que rien ne la
+DÉSIGNAIT comme périmée. Les quatre comptes de bancs sont gardés par
+`compte-tests.mjs`, qui les compare à la mesure et refuse le décalage. La case
+de la loupe n'est gardée par rien, et une case que rien ne garde ne signale
+jamais qu'elle a vieilli.
+
+### Le défaut est dans le SUJET, pas dans la fraîcheur
+
+C'est ce qui le sépare de § 9 quaterquadragicenties (une mesure datée se refuse)
+et de § 9 quinsexagicenties (une liste de restes se périme). Là, un chiffre
+cessait d'être vrai. Ici **le chiffre n'a jamais cessé d'être vrai** : 17 nus
+ont bien été trouvés, et ils ont bien tous été fermés. C'est « ce lot » qui a
+bougé sous lui.
+
+Un déictique n'a pas de valeur, il a une direction. « Ce lot », « le dernier
+balayage », « la version actuelle », « ici » : au moment de l'écriture chacun
+désigne une chose précise, et à chaque tour suivant il en désigne une autre sans
+que le texte change d'un octet. Une phrase fausse se corrige ; une phrase dont
+le sujet glisse reste littéralement vraie tout en devenant trompeuse, ce qui est
+la forme la plus tenace — elle survit à la relecture, parce qu'à la relecture
+elle est juste.
+
+### La leçon
+
+**Dans une mesure consignée, le sujet se nomme comme le chiffre se mesure.** Pas
+« sur ce lot » mais le terrain, le fichier, la base épinglée — quelque chose
+qu'un lecteur puisse aller rouvrir six mois plus tard et retrouver identique. Un
+renvoi au carnet vaut mieux qu'un adjectif démonstratif : le carnet, lui, date
+chaque balayage par son fichier et sa base.
+
+Et le corollaire opérationnel : **quand on touche un document de certification,
+on relit les lignes VOISINES de celle qu'on vient de changer.** Une case s'édite
+seule, mais elle se lit dans un tableau — et c'est le tableau entier qui est
+présenté comme la mesure.
+
+## 9 septensexagicenties. « Hors d'atteinte du banc » décrit une FORME de code, jamais une décision
+
+La consigne de nuit nomme le glisser au canevas du Cerveau et ajoute, en toutes
+lettres : « si happy-dom ne peut pas le jouer, le DOCUMENTER honnêtement plutôt
+que simuler ». L'intention est juste — mieux vaut une note vraie qu'un banc qui
+mime. Mais elle offre une porte de sortie AVANT d'avoir posé la seule question
+qui compte.
+
+### Les deux options offertes n'étaient pas les seules
+
+La consigne pose l'alternative ainsi :
+
+1. jouer la décision dans son environnement — impossible, `getContext` rend
+   `null` sous happy-dom, la boucle entière n'est jamais exécutée ;
+2. écrire honnêtement au carnet qu'elle est hors d'atteinte.
+
+Il en existait une troisième, et c'est celle que le dépôt avait déjà prise :
+**sortir la décision de l'environnement qui l'empêche.** La force ne dépend
+d'aucun contexte de dessin — elle prend des corps, des bornes, un pas de temps,
+et rend des corps déplacés. Hors du canevas, elle s'éprouve à la milliseconde.
+
+Mesuré ce 22 août, base épinglée `e01d5f5` : **21 mutations sur 21 défendues**,
+dont le `p.id === cadre.attrapeId` (« le doigt gagne ») que le balayage d'alors
+avait trouvé nu, et toute la surface du glisser — `priseAuDoigt`,
+`deplacementDuGlisse`, `estUnClic`. Aucune n'a eu besoin d'un canevas.
+
+### Ce que la porte de sortie coûte quand on la prend trop tôt
+
+Une note « hors d'atteinte du banc » a l'allure d'une reddition honnête, et
+c'est ce qui la rend dangereuse : elle se relit comme une preuve d'avoir
+cherché. Elle GÈLE l'écart. Le code reste tel quel, la garde reste nue, et la
+note devient la raison de ne plus y revenir — un angle mort avec un certificat.
+
+L'honnêteté n'est pas en cause. Ce qui manque, c'est l'ordre des questions.
+« Puis-je éprouver ce code ? » se répond par oui ou non sur la forme ACTUELLE.
+« Puis-je éprouver cette décision ? » se répond en demandant de quoi la décision
+dépend vraiment — et une décision qui ne dépend que de ses arguments est
+toujours éprouvable, quel que soit l'endroit où elle est écrite aujourd'hui.
+
+### La leçon
+
+**Avant d'écrire « intestable », séparer la DÉCISION de son DÉCOR.** Le décor —
+canevas, réseau, horloge, système de fichiers — est ce que le banc ne sait pas
+tenir. La décision, elle, est presque toujours une fonction de ses arguments.
+Quand les deux sont dans la même fonction, c'est la fonction qui est hors
+d'atteinte, pas la règle qu'elle applique.
+
+Le repli honnête reste le bon quand la décision elle-même EST le décor —
+« l'image s'affiche-t-elle correctement », « le fichier est-il verrouillé par un
+autre processus ». Il se prend alors en connaissance de cause, et il se date :
+c'est un constat sur un environnement, et les environnements changent.
+
+Corollaire pour qui rédige une consigne : **offrir la porte de sortie dans la
+même phrase que la tâche, c'est la faire choisir.** Une consigne qui dit « fais
+X, ou sinon documente pourquoi tu ne peux pas » a déjà rendu le second terme
+acceptable avant que le premier ait été essayé.
+
+## 9 octosexagicenties. `typeof null === 'object'` : le même piège dans deux modules sans rapport
+
+Le Concierge, le 22 août au matin :
+
+```js
+if (typeof e !== 'object' || e === null || …) continue;   // muté en &&
+```
+
+`livraison.ts`, le même jour l'après-midi :
+
+```js
+return typeof o === 'object' && o !== null ? (o as Record<string, unknown>)[cle] : undefined;
+```
+
+Deux fichiers écrits à des moments différents, par des chemins différents, pour
+des besoins différents. Une seule et même nue, et un seul et même mécanisme :
+
+**`typeof null` rend `'object'`.** Le test de forme dit donc OUI à `null`, et
+c'est la comparaison d'à côté qui le rattrape. Les deux ne sont pas deux
+vérifications indépendantes dont l'une renforcerait l'autre : la seconde EXISTE
+uniquement parce que la première ment sur ce cas précis. Les relier par le mauvais
+opérateur ne fait pas « une garde un peu plus faible » — ça retire entièrement la
+seule ligne qui protégeait, et le déréférencement LÈVE.
+
+### Pourquoi la relecture ne le voit pas
+
+Les deux lignes se lisent bien. « C'est un objet ET ce n'est pas nul » sonne comme
+une ceinture et des bretelles — deux précautions du même côté, dont on pourrait
+croire que perdre l'une laisse l'autre. C'est faux ici, et ça se voit seulement
+si l'on sait, au moment de lire, que `typeof null === 'object'`. Une relecture
+attentive qui l'ignore validera les deux formes.
+
+C'est pourquoi la loupe trouve ça et pas nous : elle ne relit pas, elle EXÉCUTE.
+
+### Ce que ça change pour la suite du balayage
+
+Une nue qui apparaît deux fois dans deux modules étrangers n'est pas une
+étourderie, c'est un MOTIF. Il en découle une consigne de balayage, pas seulement
+une correction :
+
+**Quand une nue se répète, chercher ses sœurs avant de la fermer.** Le motif
+`typeof x === 'object' && x !== null` se cherche en une commande sur tout le
+dépôt ; chaque occurrence est une nue potentielle, et chacune se mesure. Fermer
+la deuxième sans chercher la troisième, c'est traiter un symptôme deux fois.
+
+### Le recensement, fait plutôt que promis
+
+La consigne ci-dessus s'appliquerait mal à elle-même si elle restait un conseil.
+Le motif cherché sur tout le dépôt, le 22 août :
+
+```
+grep -rn "typeof [A-Za-z_.]* === 'object'" --include=*.ts --include=*.tsx \
+  src dashboard/src scripts
+```
+
+**Treize occurrences, dans neuf fichiers.** Deux sont désormais MESURÉES et
+défendues — `concierge.ts` et `livraison.ts`, les deux qui ont donné cette
+leçon. Les onze autres vivent dans `shared/issue.ts`, `orchestrator/nuage.ts`,
+`orchestrator/server.ts` (deux), `orchestrator/github.ts` (deux),
+`node-client/client.ts` (deux), `views/shared.tsx`, `views/sondage.ts` et
+`orchestrator/planner.ts` — **et aucune n'a été mutée à ce jour.**
+
+Cette phrase est le contraire d'un verdict. Elle ne dit pas que ces onze lignes
+sont nues : elle dit que personne ne le sait, et que le seul moyen de le savoir
+est de les muter une par une, chacune sur sa base épinglée. Le recensement a
+coûté une commande ; il transforme un angle mort en liste de travail nommée,
+ce qui est tout ce qu'on peut honnêtement en tirer sans balayer.
+
+### La leçon
+
+**Deux conditions côte à côte ne sont pas forcément deux gardes.** Quand la
+seconde n'est là que pour réparer un mensonge de la première, elles forment UNE
+garde en deux morceaux, et l'opérateur qui les relie porte toute la sûreté.
+Ces endroits-là se marquent — par un test qui passe `null`, pas par un
+commentaire — parce que le prochain lecteur, humain ou machine, verra une
+redondance là où il y a une dépendance.
+
+## 9 novemsexagicenties. Le commentaire garde une ligne ; il ne garde pas la SUIVANTE
+
+Dans `listerWorkflows`, deux lignes se suivent. La première porte un
+avertissement de huit lignes :
+
+```js
+// ⚠ CET ENDPOINT NE REND PAS UN TABLEAU. Il rend `{ total_count, workflows }`
+// … Traiter la réponse comme un tableau rendrait une liste VIDE sans erreur,
+// et « ce dépôt n'a aucun workflow » est un mensonge parfaitement crédible.
+const lot = typeof brut === 'object' && … ? … : null;
+```
+
+Cette ligne-là est **défendue** : le balayage l'a mutée, un banc a rougi.
+Quelques lignes plus bas, sans commentaire :
+
+```js
+if (lot.length < PAR_PAGE) break;
+```
+
+**Nue.** Mutée en `<=`, une page PLEINE arrête la pagination : au-delà de cent
+workflows, la ruche n'en montre que cent. Le résultat est le mensonge EXACT
+contre lequel le commentaire du dessus met en garde — une liste tronquée que
+rien ne signale — obtenu par l'autre bout de la même boucle.
+
+### Ce que ça dit du rôle d'un commentaire
+
+Le commentaire a fait son travail : la ligne qu'il protège a un banc. Il a même
+fait plus que son travail, puisqu'il nomme le mode de panne. Ce qu'il n'a pas
+pu faire, c'est s'étendre au reste de la fonction — parce qu'un commentaire ne
+sait pas de quoi il est le voisin.
+
+Le raisonnement qui manquait n'est pas « cette ligne est-elle risquée ? » mais
+**« quelles AUTRES lignes peuvent produire ce même mensonge ? »**. Ici, deux :
+la forme mal lue (protégée) et la pagination arrêtée trop tôt (nue). Un troisième
+chemin existe d'ailleurs — l'API qui rend une page pleine puis une erreur — et
+il est couvert par le `if (!rep.ok) throw`, lui aussi défendu.
+
+### Pourquoi la loupe le trouve et la relecture non
+
+Une relecture suit le fil du commentaire : elle vérifie ce qu'il annonce, le
+trouve correct, et poursuit rassurée. La présence d'un avertissement DÉTOURNE
+l'attention du voisinage, parce qu'elle donne le sentiment que l'endroit a
+déjà été pensé. C'est le contraire d'un défaut de vigilance : c'est de la
+vigilance dépensée là où quelqu'un l'a déjà dépensée.
+
+La loupe n'a pas cette faiblesse : elle ne lit pas les commentaires, et elle
+mute la ligne d'à côté avec la même indifférence.
+
+### La leçon
+
+**Un commentaire qui nomme un mode de panne est une invitation à chercher les
+AUTRES chemins vers cette même panne, pas une preuve que l'endroit est sûr.**
+Quand on en croise un — le sien ou celui d'un autre — la question utile n'est
+pas « la ligne commentée est-elle juste ? », mais « par où d'autre ce résultat
+faux peut-il sortir ? ». Chacun de ces chemins se mute ; ceux qui survivent
+sont nus, quel que soit le soin déjà visible autour d'eux.
+
+## 9 septuagicenties. Une garde qui protège la JUSTESSE peut rétrécir la COUVERTURE, en silence
+
+La table de mutations de la loupe porte ses opérateurs avec leurs deux espaces :
+
+```js
+[' && ', ' || '],
+[' >= ', ' > '],
+```
+
+La raison est bonne, et elle est écrite juste au-dessus dans le fichier : sans
+les espaces, `>=` contiendrait `>`, la loupe produirait `a >== b`, le
+fichier cesserait de s'analyser, la suite entière échouerait — et le mutant
+passerait pour tué. La garde empêche un mensonge dans le sens rassurant.
+
+Elle en a créé un autre. Un opérateur qui TERMINE la ligne n'a pas d'espace
+après lui, et c'est la forme que Prettier impose à toute condition longue.
+**168 lignes du dépôt** finissaient par `&&` ou `||` — jamais mutables, dans des
+fichiers déclarés « balayés entiers ».
+
+### Les deux mensonges ne se ressemblent pas
+
+Le premier — celui que la garde empêche — est BRUYANT quand il se produit : la
+suite devient rouge partout, on cherche, on trouve. Le second est SILENCIEUX :
+la loupe compte ses candidates, les examine toutes, et imprime « 32 sur 32 ».
+Le rapport est exact. Ce qu'il ne dit pas, c'est que le dénominateur a été
+fabriqué par la règle elle-même.
+
+C'est la différence entre « mesuré et faux » et « jamais regardé ». Le premier
+se corrige ; le second ne se signale pas.
+
+### Comment celui-ci a été trouvé, et pourquoi ce n'est pas de la chance
+
+Pas par relecture de la règle — elle se lit très bien, elle explique même sa
+propre précaution. Il a été trouvé en VÉRIFIANT UNE AFFIRMATION : le
+recensement du § 9 octosexagicenties annonçait onze occurrences non mesurées
+d'un motif, dont deux dans un fichier qui venait d'être balayé entier. Les deux
+faits ne pouvaient pas être vrais ensemble.
+
+C'est la seule méthode qui marche sur ce genre de défaut. Un angle mort ne se
+voit pas en regardant l'instrument ; il se voit quand deux comptes rendus se
+contredisent, et qu'on refuse d'en arrondir un.
+
+### La leçon
+
+**Toute garde qui restreint ce qu'un instrument accepte restreint aussi ce
+qu'il VOIT, et la seconde restriction n'est écrite nulle part.** Quand on
+resserre une règle pour empêcher un faux positif, la question à poser dans la
+même minute est : « qu'est-ce que ce resserrement rend désormais invisible ? »
+La réponse se mesure — ici, un `grep` de trois secondes aurait donné 168.
+
+Corollaire pour lire un rapport de couverture, quel qu'il soit : **« N sur N »
+ne dit rien tant qu'on ne sait pas d'où vient le N.** Un dénominateur produit
+par l'outil qu'on interroge n'est pas une mesure du terrain, c'est une mesure
+de l'outil.
+
+## 9 unseptuagicenties. Le RAYON D'ACTION d'un défaut se mesure ; il ne se déduit pas du défaut
+
+Trouver un angle mort dans un instrument donne envie de suspecter tout ce qu'il
+a mesuré avant. C'est le bon réflexe, et il a été mal appliqué.
+
+L'angle mort du § 9 septuagicenties — les opérateurs en fin de ligne — a été
+découvert dans `github.ts`. J'ai écrit dans la foulée, au carnet ET dans le
+corps de la PR :
+
+> `livraison.ts` n'est pas encore rebalayé ; son « 38 sur 38 » vaut ce que
+> valait l'ancien « 32 sur 32 ».
+
+Mesuré ensuite : **38 avant, 38 après, zéro nue.** `livraison.ts` n'écrit
+aucune condition sur plusieurs lignes — `grep -c "&&$\|||$"` y rend **0**. Le
+défaut ne pouvait pas l'atteindre. Son compte était déjà complet.
+
+### Une réserve n'est pas gratuite
+
+L'erreur ressemble à de la prudence, ce qui la rend facile à écrire et difficile
+à voir. Mais une réserve est une AFFIRMATION sur l'état du monde : elle dit
+« ce résultat est suspect ». Fausse, elle coûte deux fois —
+
+- elle salit un travail sain, et quiconque lit le carnet ou la PR repart avec
+  une inquiétude qui n'a pas d'objet ;
+- elle envoie une session refaire une heure de machine pour reconfirmer ce qui
+  était déjà mesuré.
+
+Le sens de l'erreur est inversé par rapport au reste de ce journal — ici on
+alarme au lieu de rassurer — mais c'est la même faute : **écrire un état du
+monde qu'on n'a pas constaté.**
+
+### Ce qu'il fallait faire, et ce que ça coûtait
+
+Le rayon d'action de CET angle mort se mesure par une commande :
+
+```
+grep -c "&&$\|||$" <fichier>
+```
+
+Trois secondes par fichier. La question juste n'est pas « quels résultats sont
+désormais suspects ? » mais **« par quel motif exact ce défaut se manifeste-t-il,
+et où ce motif est-il présent ? »** La première appelle une intuition, la
+seconde un `grep`.
+
+### La leçon
+
+**Quand un instrument est corrigé, la liste de ce qu'il faut refaire est une
+MESURE, pas une déduction.** Un défaut a une signature ; on la cherche, et on
+rebalaye les fichiers qui la portent. Suspecter tout le passé par principe n'est
+pas de la rigueur — c'est renoncer à mesurer, avec le ton de quelqu'un qui
+mesure.
+
+## 9 duoseptuagicenties. Un `catch` large rend les gardes qu'il entoure IMMUNES à la mutation
+
+Sonde ciblée du motif `typeof x === 'object' && x !== null` : dix occurrences
+restantes, **cinq survivantes**. En les lisant une par une, quatre des cinq
+partagent une même cause, et ce n'est pas celle qu'on attend.
+
+Trois vivent à l'intérieur d'un `try/catch` :
+
+```js
+try {
+  const brut = JSON.parse(readFileSync(…));
+  const bloc = typeof brut === 'object' && brut !== null ? brut.scripts : null;
+  if (typeof bloc === 'object' && bloc !== null) { … }
+} catch {
+  scripts = {};        // ← le même résultat que la garde produisait
+}
+```
+
+Mué en `||`, `null` traverse et l'indexation LÈVE. Mais le `catch` transforme
+cette levée en `{}` — exactement ce que la garde rendait. **Les deux mondes
+sortent la même valeur, donc aucun banc ne peut les distinguer.** Le mutant est
+équivalent, non parce que le code est indifférent, mais parce qu'un filet en
+aval absorbe la différence.
+
+### Ce que ça change dans la lecture d'un verdict
+
+Un balayage par mutation mesure ce qui est OBSERVABLE. Un `catch` large réduit
+l'observable : il replie plusieurs chemins d'exécution sur une seule sortie. À
+l'intérieur de son périmètre, la loupe est donc structurellement myope, et elle
+le sera toujours — ce n'est pas un défaut de l'instrument à corriger comme
+l'angle mort du § 9 septuagicenties, c'est une propriété du code mesuré.
+
+Conséquence pratique, et elle est inconfortable : **la correction de ces gardes
+ne peut pas être mesurée, elle doit être argumentée.** Elles restent utiles —
+les retirer ferait de l'exception un mécanisme de contrôle ordinaire, ce qui
+est pire à lire et plus lent — mais leur justesse repose sur une lecture, pas
+sur un banc.
+
+### Le corollaire qui compte pour le reste du dépôt
+
+Un `catch` sans discernement ne masque pas que des mutations : il masque aussi
+les VRAIES fautes du même bloc. `catch {}` ne distingue pas « pas de
+`package.json` » — le cas prévu, documenté — d'un `TypeError` introduit par une
+refonte. Le premier est une absence normale, le second un bug, et le filet les
+rend identiques.
+
+La règle qui en découle, pour les blocs à écrire : **attraper ce qu'on attend,
+laisser passer ce qu'on n'attend pas.** Un `catch` qui nomme son cas (fichier
+absent, JSON invalide) redonne à la mutation la visibilité qu'un `catch` nu lui
+retire — et rend au lecteur l'information qu'un filet trop large avale.
+
+### La cinquième, elle, était une vraie nue
+
+`nuage.ts` n'a AUCUN `try/catch`. Son `meta()` mué rend `null` ou `undefined`,
+et la ligne suivante lève sur une charge Stripe sans `metadata` — c'est-à-dire
+sur une entrée que la ruche ne choisit pas, puisqu'elle arrive par un webhook.
+Fermée par trois bancs, rejeu tenu.
+
+**La différence entre les quatre et la cinquième ne se voit pas sur la ligne.**
+Elle se voit à dix lignes de là, dans la présence ou l'absence d'un filet. Une
+garde ne se juge jamais seule.
+
+## 9 terseptuagicenties. Un comparateur à deux clés demande deux décors, et chacun asymétrique sur SA clé
+
+Balayage de `gardiennes.ts` : 16 mutations, une seule nue, et c'est le départage
+du classement des griefs.
+
+```js
+.sort((a, b) => b.occurrences - a.occurrences || a.code.localeCompare(b.code))
+```
+
+Mué en `&&`, l'expression rend `localeCompare` **dès que les occurrences
+diffèrent** — `x && y` vaut `y` quand `x` est vrai. Le classement par fréquence
+disparaît ; la liste devient alphabétique. Le grief le plus fréquent, celui
+qu'un humain doit lire en premier, se retrouve à la place que son nom lui donne.
+
+### Le banc existant ne pouvait pas le voir, et ce n'était pas une négligence
+
+Il donnait deux griefs, `empty_diff` et `logs_contradict`, **à occurrences
+égales**. Sur ce corpus :
+
+- le monde d'origine (`||`) départage par l'alphabet → `empty_diff` d'abord ;
+- le monde mué (`&&`) rend `0`, donc le tri stable garde l'ordre d'insertion →
+  `empty_diff` d'abord, puisqu'il a été rencontré en premier.
+
+**Les deux mondes rendent la même liste.** Le banc est vert dans les deux cas —
+mesuré, pas déduit : sous le mutant, il passe.
+
+La faute n'est pas d'avoir mal choisi les valeurs. C'est qu'un corpus où
+plusieurs ordres COÏNCIDENT ne peut départager aucun d'eux. Ici l'ordre
+alphabétique, l'ordre d'insertion et l'ordre de fréquence donnaient tous le même
+résultat : trois hypothèses différentes, une seule sortie.
+
+### Ce que ça impose comme méthode
+
+Un comparateur à deux clés a deux comportements, et il faut **deux décors**,
+chacun asymétrique sur une seule clé :
+
+| Ce qu'on veut tenir         | Le décor qui le tient                                      |
+| --------------------------- | ---------------------------------------------------------- |
+| la clé PRIMAIRE (fréquence) | fréquences différentes **et** ordre alphabétique CONTRAIRE |
+| le DÉPARTAGE (alphabet)     | fréquences égales **et** ordre d'insertion CONTRAIRE       |
+
+Un seul axe brisé par test. Deux axes brisés d'un coup rendraient le banc vert
+ou rouge sans qu'on sache lequel a parlé — c'est la même règle que la loupe
+s'applique en refusant de muter une ligne portant deux opérateurs identiques.
+
+### La leçon
+
+**Quand du code CLASSE, le décor doit rendre les ordres candidats
+incompatibles.** Trier trois éléments dont le nom, la date et le rang vont dans
+le même sens ne prouve rien : il faut que l'ordre attendu soit le seul que le
+corpus autorise. La question à se poser en écrivant le décor n'est pas « ces
+valeurs sont-elles réalistes ? » mais **« quel AUTRE tri rendrait exactement
+cette liste ? »** — et s'il en existe un, changer les valeurs jusqu'à ce qu'il
+n'en existe plus.
+
+## 9 quaterseptuagicenties. Un recensement est une MESURE, et son motif de recherche en est le dénominateur
+
+Une heure après avoir écrit § 9 septuagicenties — _« une garde qui protège la
+justesse rétrécit la couverture en silence »_ — j'ai commis la même faute, dans
+le geste même qui la documentait.
+
+Le recensement du motif `typeof null` cherchait ceci :
+
+```
+grep -rn "typeof [A-Za-z_.]* === 'object'"      →  13 occurrences
+```
+
+Treize trouvées, treize jugées, et l'annonce poussée dans le dépôt : **« motif
+entièrement mesuré »**. La forme NÉGATIVE de la même garde n'a jamais été
+cherchée :
+
+```
+grep -rn "typeof [A-Za-z_.]* !== 'object'"      →  28 occurrences
+```
+
+`typeof x !== 'object' || x === null` est le même garde-fou écrit à l'envers,
+avec la même faiblesse (`typeof null` rend `'object'`, donc c'est l'opérateur
+qui protège) et la même mutation. **Le recensement couvrait 13 sur 41.**
+
+### Ce qui rend cette faute difficile à voir
+
+Un recensement se présente comme un inventaire, et un inventaire a l'air complet
+par nature. Mais un `grep` ne rend pas « les occurrences du motif » : il rend
+« les lignes qui correspondent à CETTE EXPRESSION ». Ce sont deux choses
+différentes, et la seconde se fait passer pour la première dès qu'on écrit le
+compte sans écrire la requête à côté.
+
+Le mot « entièrement » est celui qui coûte. Sans lui, treize occurrences jugées
+restent treize occurrences jugées — un fait vrai et utile. Avec lui, le fait
+devient une couverture, et la couverture est fausse.
+
+### Ce qui l'a révélé, et ce n'était pas une relecture
+
+Le balayage de `polyethisme.ts` a rendu nue une ligne portant la forme négative.
+Deux comptes rendus se contredisaient : « motif entièrement mesuré » d'un côté,
+« voici une occurrence non mesurée » de l'autre. C'est la même méthode qu'au
+§ 9 septuagicenties — **un angle mort ne se voit pas dans l'instrument, il se
+voit quand deux affirmations ne peuvent pas être vraies ensemble.**
+
+### La leçon
+
+**Un compte d'occurrences ne vaut rien sans le motif qui l'a produit, écrit à
+côté de lui.** « 13 occurrences » est une opinion ; « 13 occurrences de
+`typeof x === 'object'` » est une mesure, et un lecteur peut immédiatement
+demander : et la forme négative ? et `!x || typeof x !== 'object'` ? et
+`x instanceof Object` ?
+
+Corollaire, pour tout ce qui se cherche par motif : **avant d'écrire
+« entièrement », chercher la forme CONTRAIRE de ce qu'on vient de chercher.**
+Une garde s'écrit presque toujours dans les deux sens, et le second sens est
+celui qu'on oublie — précisément parce qu'on a en tête celui qu'on vient de
+lire.
+
+## 9 quinquaseptuagicenties. Une garde ne se juge pas seule : sa nécessité est une propriété de tout ce qui l'entoure
+
+Treize gardes restaient à juger dans la forme négative du motif `typeof`/`null`.
+Pour un `grep`, elles sont **la même ligne** — au nom de la variable près :
+
+```
+if (typeof x !== 'object' || x === null) return null;
+```
+
+Sept étaient nues. **Six ne l'étaient pas**, et pour cinq raisons différentes.
+Aucune de ces raisons ne se lit sur la ligne.
+
+| Ligne               | Pourquoi le mutant survit                                              |
+| ------------------- | ---------------------------------------------------------------------- |
+| `partage.ts:164`    | la garde vit DANS un `try` dont le `catch` rend `null`                 |
+| `server.ts:5558`    | idem, un étage plus haut dans la même fonction                         |
+| `eclaireuse.ts:233` | le regex amont n'accepte qu'une charge `{…}` : `null` n'arrive jamais  |
+| `eclaireuse.ts:272` | idem, sa jumelle                                                       |
+| `nuage.ts:79`       | l'unique APPELANT a déjà écarté `null` vingt-six lignes plus bas       |
+| `nuage.ts:84`       | l'aval tolère la valeur non refusée, et la rejette pour un autre motif |
+
+### La seule qui m'a résisté
+
+`nuage.ts:84` mérite d'être racontée, parce que le raisonnement évident y est
+faux :
+
+> La garde écarte `null`. Si je la retire, `null` passe. Donc elle est nue.
+
+Les deux premières phrases sont vraies. La conclusion ne suit pas. Ce que le
+mutant laisse passer, c'est un `obj` que la fonction RENVOIE au lieu de refuser
+— et en aval, `meta(obj)` lit `.metadata` dessus. Sur une primitive, cette
+lecture rend `undefined` sans lever ; sur `null`, l'appelant l'arrête à son
+`if (!obj)`. Puis le `if (!projectId …)` qui suit rend `null` de toute façon.
+**Tous les chemins arrivent au même `null`.** Il faut descendre deux fonctions
+plus bas pour le voir.
+
+### Ce que ça généralise
+
+§ 9 duoseptuagicenties disait qu'un `catch` large rend immunes les gardes qu'il
+entoure : une immunité **par le haut**. Ce lot en montre les deux autres faces.
+
+- **Par le bas** : l'aval tolère ce que la garde refusait, et refuse plus loin
+  pour un autre motif. `nuage.ts:84`.
+- **Par le côté** : l'appelant a déjà fait le travail, et la garde est
+  inatteignable. `nuage.ts:79` — lire la fonction qui la contient ne suffit
+  pas, il faut lire qui l'appelle.
+
+D'où la règle, qui vaut pour tout balayage à venir : **le `grep` trouve la
+garde ; seul le graphe d'appels dit si elle est nue.**
+
+### Les deux façons de se tromper ne coûtent pas la même chose
+
+Classer une nue en équivalente laisse un vrai défaut ouvert AVEC un commentaire
+qui affirme qu'il n'en est pas un — pire que le silence, parce que le
+commentaire vaccine contre la prochaine relecture. Classer une équivalente en
+nue produit un banc qui ne peut pas rougir : du décor.
+
+### Ce qui a rendu ce lot sûr, et ce n'était pas le raisonnement
+
+Les six ont été **muées une à une contre la suite ENTIÈRE**, pas contre le banc
+du lot. Les six ont survécu — 4690 verts à chaque fois. Si une seule avait
+rougi, mon classement aurait été faux et le banc que j'avais décidé de ne pas
+écrire aurait été exactement celui qui manquait.
+
+Un raisonnement d'équivalence est une hypothèse. Il se vérifie en muant et en
+regardant, comme tout le reste.
+
+## 9 sexseptuagicenties. Un harnais de mesure doit ÉCHOUER FERMÉ — sinon il rend un verdict sur une expérience qui n'a pas eu lieu
+
+Rejeu d'un mutant sur `agent-detect.ts`. Le harnais a affiché :
+
+```
+  SURVIT ← décor
+```
+
+C'était faux. La mutation n'avait **jamais été appliquée**.
+
+### Les deux défauts, et c'est leur composition qui coûte
+
+Le script posait le mutant en Python, puis lançait le banc en shell :
+
+```bash
+python3 - <<'PY'
+...
+assert s.count(a) == 1          # ← 1er défaut : l'ancre existait DEUX fois
+...
+PY
+npx vitest run "$BANC" >/dev/null 2>&1 && echo "SURVIT" || echo "TENU"
+```
+
+1. **L'ancre était fragile.** `plateforme === 'win32' ? env.USERPROFILE : env.HOME`
+   apparaît à la ligne 104 **et** à la ligne 397. `count == 1` a échoué, et
+   l'`assert` a fait sortir Python en erreur.
+
+2. **Le harnais a continué quand même.** La ligne suivante ne regardait pas le
+   code de sortie du bloc précédent : elle a lancé le banc sur du code **sain**,
+   l'a vu vert, et a conclu « SURVIT ». Le verdict le plus grave qu'un rejeu
+   puisse rendre — « ce banc est du décor » — sorti d'une expérience qui ne
+   s'est pas déroulée.
+
+Aucun des deux, seul, n'aurait menti. Une ancre fragile aurait fait un message
+d'erreur ; un harnais qui continue aurait mesuré un vrai mutant. C'est leur
+composition qui produit une phrase fausse et confiante.
+
+### La règle
+
+> Un harnais de mesure doit **échouer fermé**. Quand l'étape de préparation
+> rate, le résultat est « pas de résultat » — jamais la valeur par défaut d'un
+> chemin qui n'a pas été pris.
+
+En pratique, trois gestes qui ne coûtent rien :
+
+- **vérifier que la mutation est DANS le fichier** avant de lancer le banc
+  (`grep` la forme mutée), pas seulement que l'outil de substitution a rendu 0 ;
+- **abandonner** sur échec de pose, avec un message qui dit « aucun verdict
+  rendu » plutôt qu'un verdict ;
+- **viser par numéro de ligne** quand l'ancre textuelle n'est pas unique — une
+  ancre qu'on croit unique et qui ne l'est pas est le cas normal, pas le cas rare.
+
+### Ce que ça dit de plus large
+
+C'est la même maladie que le reste de ce journal, appliquée à l'instrument
+lui-même : § 9 sexagicenties (un arbre sale pendant une mutation), § 9
+sexsexagicenties (un résumé daté lu comme un fait), § 9 quaterseptuagicenties
+(un recensement dont le motif est le dénominateur). À chaque fois, **un outil
+qui rapporte autre chose que ce qu'il a mesuré**.
+
+La différence ici : l'outil était celui qui sert précisément à ne pas se
+tromper. Un juge qui se trompe sur ses propres conclusions ne dégrade pas la
+mesure — il la retourne, parce qu'on lui fait confiance par construction.
+
+## 9 septemseptuagicenties. Un banc qui n'affirme que le PARTAGÉ ne peut pas voir quelle branche a été prise
+
+La loupe a rendu nue une ligne que je venais d'écrire, et que je croyais
+défendue par un banc que je venais d'écrire aussi :
+
+```ts
+return lang === 'en' ? en : fr;
+```
+
+Mon banc bouclait sur les deux langues :
+
+```ts
+for (const lang of ['fr', 'en'] as const) {
+  const m = messageRefusShellProduction(lang);
+  expect(m).toContain('HIVE_SIMULATION=1');
+  expect(m).toContain('HIVE_AGENT=shell');
+}
+```
+
+Il a l'air de tout couvrir. Il ne couvre rien du sélecteur.
+
+### Pourquoi
+
+`HIVE_SIMULATION=1` et `HIVE_AGENT=shell` sont des noms de VARIABLES
+D'ENVIRONNEMENT : ils s'écrivent à l'identique dans les deux textes. Les deux
+assertions portent donc sur ce que les deux branches **ont en commun** — et une
+propriété commune aux deux branches est, par construction, aveugle à celle qui
+a été prise.
+
+Mué en `!==`, un francophone lit l'anglais et un anglophone lit le français, sur
+le message qu'on lit précisément quand plus rien ne marche. Pas une assertion ne
+bouge.
+
+### La règle
+
+> Pour éprouver un choix, il faut ancrer ce qui **distingue** les branches,
+> jamais ce qui les réunit.
+
+En pratique, sur un ternaire ou un `if/else` qui rend du texte : asserter le
+fragment PROPRE à chaque branche, **et** son absence dans l'autre.
+
+```ts
+expect(fr).toContain('Aucun agent de codage détecté');
+expect(en).not.toContain('Aucun agent de codage détecté');
+```
+
+Le `not.toContain` fait la moitié du travail : sans lui, un sélecteur qui
+rendrait la CONCATÉNATION des deux textes passerait encore.
+
+### Le piège de famille : l'assertion perdue à la copie
+
+Le même balayage a rendu nue une seconde ligne, dans `horizon.ts`, et le
+mécanisme est cousin. `doitNoterFaitDeriveASurveiller` a été écrite en copiant
+sa jumelle `doitNoterFaitDeriveDegradee` — et le banc a été copié aussi, **en
+perdant une assertion en route** : le cas de l'entrée VIEILLE, seul à éprouver
+que la fenêtre anti-spam est une fenêtre.
+
+Dans les deux cas, le banc portait le bon nom, appelait la bonne fonction, et
+passait au vert. Aucune relecture n'attrape ça. Seule la mutation dit ce qu'un
+banc ne mesure pas.
+
+### Corollaire pour le juge lui-même
+
+Ce balayage a failli ne jamais avoir lieu : lancé avec `LOUPE_CHEMINS` séparé
+par des ESPACES là où la loupe découpe sur des VIRGULES, il a rendu « aucune
+ligne mutable ajoutée par cette branche » — le même verdict que pour un diff
+réellement sans candidate. Deux situations que tout sépare — « j'ai regardé, il
+n'y a rien » et « je n'ai rien regardé » — rendues indistinguables en sortie.
+
+La loupe distingue désormais les deux et **sort en code 2** sur un périmètre qui
+ne désigne aucun fichier suivi : une invocation fautive est une erreur, pas un
+résultat. Même principe que § 9 sexseptuagicenties — un instrument doit échouer
+FERMÉ.
+
+---
+
+## 9 octoseptuagicenties. La loupe lit `BASE...HEAD` : un arbre NON COMMIS lui est invisible, et son silence se lit comme un verdict
+
+### Ce qui s'est passé
+
+Lot d'affichage de l'horloge écrit, barrière verte, et le balayage lancé sur les
+cinq fichiers touchés — base épinglée au dernier commit. Réponse :
+
+```
+LOUPE : aucune ligne mutable ajoutée par cette branche.
+        (rien à conclure — ce n’est PAS un feu vert.)
+```
+
+Le terrain contenait pourtant `reelMs <= annonce.p80Ms`, `taskId === null ||
+taskId === ''`, `typeof v === 'number' && Number.isFinite(v)`,
+`type.startsWith('duree')` — des candidates par poignées.
+
+La cause est d'une ligne :
+
+```js
+['diff', '-U0', `${BASE}...HEAD`, '--', ...cheminsDuBalayage(…)]
+```
+
+**`BASE...HEAD`, pas l'arbre de travail.** Le lot n'était pas encore commis :
+`HEAD` valait exactement la base épinglée, le diff était vide, et la loupe a dit
+la vérité — sur rien.
+
+### La leçon, et pourquoi elle n'est pas la même que les deux précédentes
+
+C'est la **troisième** manière d'obtenir ce message sans avoir rien mesuré :
+
+| Situation                                  | Ce que la loupe rendait      | Traitée par                     |
+| ------------------------------------------ | ---------------------------- | ------------------------------- |
+| `LOUPE_CHEMINS` séparé par des espaces     | « aucune ligne mutable »     | § 9 sexseptuagicenties → code 2 |
+| Périmètre ne désignant aucun fichier suivi | « aucune ligne mutable »     | idem                            |
+| **Rien de commis : `HEAD` == `BASE`**      | **« aucune ligne mutable »** | **ici**                         |
+
+Les deux premières ont été fermées en durcissant l'INVOCATION. La troisième est
+d'une autre nature : l'invocation est parfaitement correcte, le périmètre
+désigne bien des fichiers suivis, et le diff est légitimement vide. Ce qui
+manque n'est pas une validation d'argument — c'est que **la question posée et la
+question répondue ne sont pas la même**. On demande « mon travail est-il
+défendu ? » ; l'instrument répond « l'historique commis n'ajoute rien ».
+
+Le dépôt connaît déjà cette forme : § 9 sexseptuagicenties dit qu'un harnais
+doit échouer FERMÉ. Le complément que ce cas ajoute est plus fin — **un
+instrument doit aussi refuser de répondre quand ce qu'on lui montre n'est pas ce
+qu'on croit lui montrer**. Un diff vide dont le périmètre porte des
+modifications NON COMMISES n'est pas un résultat : c'est un malentendu, et il
+faut le dire avec la phrase qui le lève (« commite d'abord »), pas avec celle
+qui rassure.
+
+### Ce qui a été fait
+
+La loupe distingue désormais le diff vide « rien à muter » du diff vide « rien
+n'est commis » : quand `HEAD` ne diffère pas de la base **et** que le périmètre
+porte des changements non commis, elle sort en **code 2** en nommant les
+fichiers concernés. Trois manières d'obtenir un silence, trois messages, aucun
+qui ressemble à un feu vert.
+
+### Le corollaire d'exploitation, payé au passage
+
+L'outil qui portait le balayage a expiré à dix minutes ; le shell est mort, pas
+le processus `node` — qui a continué à muter l'arbre avec sa sortie standard
+branchée sur un tube fermé. Un `SIGTERM` n'a rien donné : le gestionnaire ne
+peut pas s'exécuter tant qu'un `execFileSync` tient la boucle, et chaque
+mutation lance une suite de deux minutes.
+
+Bilan : un fichier laissé **muté** dans l'arbre, un verrou orphelin, et aucun
+verdict. Le dépôt avait déjà consigné la moitié de cette leçon en
+§ 9 octoquinquagies (« la loupe interrompue laisse l'arbre MUTÉ ») ; ce qui
+s'ajoute ici est la cause en amont — **un balayage ne se lance pas au premier
+plan sous un outil qui a une expiration**. Il vit détaché, sa sortie va dans un
+fichier, et on va la lire. Le journal de reprise `.loupe-en-cours` a fait
+exactement son travail : sans lui, la mutation partait au commit suivant.
+
+## 9 novemseptuagicenties. Un banc qui touche au tableau de bord est un `.tsx`, même s'il ne rend rien
+
+J'ai écrit `tests/api-queen-fabrique.test.ts` — onze cas sur huit fonctions de
+`dashboard/src/api.ts`. Aucun rendu React, aucun JSX : `.ts` semblait le bon
+choix, et il ne l'était pas. Trois jambes de CI ont rougi en moins d'une
+minute :
+
+    tests/api-queen-fabrique.test.ts(36,8): error TS2835:
+      Relative import paths need explicit file extensions … Did you mean
+      '../dashboard/src/api.js'?
+
+La réparation évidente — ajouter `.js` — a rendu la faute PLUS grave, et c'est
+ce qui l'a expliquée :
+
+    dashboard/src/api.ts(1553,55): error TS2835: … '../../src/orchestrator/tableau.js'?
+    dashboard/src/api.ts(1671,54): error TS2835: … '../../src/shared/projet-public.js'?
+
+En résolvant l'import, `tsc` a tiré `dashboard/src/api.ts` DANS le programme
+node — où ses propres imports sans extension, parfaitement légitimes chez Vite,
+sont refusés. Le fichier n'était pas fautif ; il était jugé par le mauvais
+compilateur.
+
+`tsconfig.json` le dit déjà, en toutes lettres, six lignes au-dessus de la
+règle qui m'a mordu :
+
+    // ─── LE TSX EST LA CHAÎNE DU DASHBOARD, PAS CELLE-CI ───────────────
+    // Un test qui rend un composant React relève de `dashboard/tsconfig.json`
+    "exclude": ["tests/**/*.tsx"]
+
+Le commentaire dit « qui REND un composant ». La règle, elle, est plus large :
+c'est **tout banc qui importe du code du tableau de bord**, rendu ou pas. Le
+banc voisin `api-message-detail.test.tsx` porte d'ailleurs l'extension `.tsx`
+sans contenir la moindre balise — ce que j'avais pris pour une coquetterie.
+
+**La règle :** un banc qui importe quoi que ce soit de `dashboard/src/` est un
+`.tsx`. L'extension ne décrit pas ce que le fichier contient, elle décide quel
+compilateur le juge.
+
+### Et la cause en amont, qui n'est pas typographique
+
+Après avoir écrit ces bancs, j'ai lancé `npm run lint`. Vert. J'ai poussé.
+
+Je n'ai pas lancé `npm run typecheck`. La barrière a quatre jambes, elles
+attrapent des choses différentes, et le lint ne compile rien. Le dépôt porte
+déjà la leçon « chaque jambe séparément, jamais dans un tube » — pour la raison
+qu'un tube masque le code de sortie. J'ai respecté la lettre (pas de tube) et
+manqué le fond : **une jambe qu'on ne lance pas ne rend aucun verdict, et son
+silence ressemble à du vert.**
+
+## 9 octogicenties. Un banc VERT peut ouvrir de vraies connexions — et le rouge tombe chez le voisin
+
+Vingt bancs de rendu du tableau de bord montaient des composants React qui,
+au montage, appellent l'API. Aucun bouchon. Les appels partaient pour de bon,
+vers un port 7777 où rien n'écoute, et la suite crachait leurs refus :
+
+    Error: connect ECONNREFUSED 127.0.0.1:7777
+
+Mesuré fichier par fichier — `npx vitest run <f> 2>&1 | grep -c ECONNREFUSED` —
+le total faisait **342 connexions réelles par suite**, dont **134 pour le seul
+`coulee-du-miel.test.tsx`**. Les vingt bancs étaient VERTS. Ils l'étaient
+depuis toujours.
+
+### Pourquoi un banc peut faire ça sans jamais rougir
+
+`fetch` ne lance rien de synchrone. Il rend une promesse, et le composant la
+laisse partir : `useEffect(() => { charger(); }, [])` n'attend personne. Quand
+le refus arrive, le banc qui l'a déclenché est terminé depuis longtemps —
+`cleanup()` est passé, la fenêtre de vitest s'est refermée. Le rejet non
+capturé atterrit donc dans la fenêtre **du banc suivant**, qui n'a rien
+demandé.
+
+C'est le mécanisme exact du « vert emprunté au voisin » que `tamis-ordres.mjs`
+cite déjà, pris par l'autre bout : ici c'est un **rouge prêté**. Un banc
+innocent porte la faute d'un banc terminé, et le nom qui s'affiche dans le
+journal de CI n'est pas celui du fautif. Ça explique aussi pourquoi une jambe
+d'ordre (graine 23757) est restée inexpliquée : le nom du banc en cause était
+en tête d'un journal que l'API ne sert que par la queue, et les 342 lignes de
+bruit l'en avaient chassé.
+
+### Ce qui remplace le socket
+
+`tests/aide/sans-reseau.ts` — `couperLeReseau()` installe un `fetch` qui
+**enregistre l'URL puis rejette**. Le choix du rejet n'est pas un détail : il
+préserve à la lettre la sémantique d'aujourd'hui (les composants voient
+toujours un échec réseau, leurs chemins d'erreur restent exercés) et n'ôte
+que le socket. Un bouchon qui aurait rendu `200 {}` aurait changé le
+comportement de vingt bancs d'un coup, sous couvert de nettoyage.
+
+    { appels, rendre } = couperLeReseau()
+
+`appels` rend la mesure disponible au banc ; `rendre()` remet le `fetch`
+d'origine.
+
+**La règle :** un banc qui monte un composant sans couper le réseau ne teste
+pas ce qu'il croit — il teste le comportement du composant **quand l'API est
+injoignable**, et il le fait en salissant la fenêtre de son voisin. La preuve
+qu'un banc est propre n'est pas sa couleur ; c'est le nombre de connexions
+qu'il ouvre, et ce nombre se compte.
+
+## 9 unoctogicenties. Une garde qui reconnaît l'IMPORT ne certifie rien : c'est l'APPEL qui agit
+
+`tests/sans-vraie-connexion.test.ts` balaie les bancs de rendu et exige de
+chacun un filet : `couperLeReseau`, un `vi.mock` de l'API, ou un
+`globalThis.fetch =`. Écrite, verte, elle avait l'air de tenir.
+
+La contre-épreuve l'a défaite en une ligne. J'ai ôté l'appel d'un banc —
+`couperLeReseau();` — en laissant sa ligne d'`import` intacte, exactement ce
+qu'un nettoyage d'imports automatique produit à l'envers. La garde est restée
+**verte**. Le banc, lui, était nu : il rouvrait ses connexions.
+
+Le motif disait `couperLeReseau`, sans plus. Or un import ne fait rien : il
+déclare une disponibilité. Ce qui coupe le réseau, c'est la paire de
+parenthèses.
+
+    !/couperLeReseau\(\)/.test(b.source) &&
+
+Après quoi la mutation mord, et le verdict nomme le banc :
+
+    banc(s) de rendu sans filet réseau:
+      expected [ 'stat-tiles.test.tsx' ] to deeply equal []
+
+**La règle, plus large que ce cas :** quand une garde cherche une preuve
+d'action dans du texte, son motif doit viser **ce qui agit**, pas ce qui
+mentionne. Un import, une déclaration, un commentaire, un nom dans une liste
+d'exclusions — tous contiennent le mot et ne font rien. Et la seule façon de
+savoir de quel côté tombe le motif est de retirer l'action en laissant la
+mention, puis de regarder si la garde rougit.
+
+## 9 duooctogicenties. Du code soudé à une lecture de disque n'est pas éprouvable — et trois mutants l'ont dit d'affilée
+
+La loupe a rendu cinq survivants sur 35 mutations. Trois venaient de la même
+expression de `server.ts`, exécutée à l'import :
+
+    const VERSION_DECLAREE: string = (() => {
+      try {
+        const brut = readFileSync(path.join(RACINE_RUCHE, 'package.json'), 'utf8');
+        const paquet: unknown = JSON.parse(brut);
+        if (typeof paquet === 'object' && paquet !== null) {      ← && → ||   survit
+          const v = (paquet as Record<string, unknown>).version;
+          if (typeof v === 'string' && v.length > 0) return v;    ← && → ||   survit
+        }                                                        ← >  → >=   survit
+      } catch { /* … */ }
+      return 'inconnue';
+    })();
+
+Aucun des trois n'était ÉQUIVALENT. Le dernier, `>= 0`, faisait rendre la
+chaîne vide au lieu d'« inconnue » : la ruche aurait annoncé « version
+déclarée », un trou à la place du numéro. Le premier faisait passer `null`
+dans une lecture de propriété.
+
+**Trois vrais défauts, et pourtant aucun banc ne pouvait les atteindre.**
+L'entrée de cette décision n'était pas un argument : c'était un fichier du
+dépôt. Il n'y en a qu'un, il est bien formé, et rien ne permet d'en présenter
+un autre. Écrire les bancs manquants était impossible — non par paresse, mais
+parce que la forme du code interdisait l'expérience.
+
+### Ce qui distingue ce cas d'un mutant équivalent
+
+Un mutant ÉQUIVALENT est indistinguable pour toute entrée : le consigner par
+écrit est la bonne réponse, il n'y a rien à tester. Ici, les entrées qui
+distinguent existent — `null`, `{ version: '' }`, `{ version: ['1.0.0'] }` —
+elles ne peuvent simplement pas ARRIVER JUSQU'À la décision.
+
+La différence est décisive, et se pose en une question : _si je pouvais
+choisir l'entrée, verrais-je une différence ?_ Oui ⇒ ce n'est pas un mutant
+équivalent, c'est une décision enfermée. La réponse n'est pas un paragraphe de
+justification, c'est un déplacement.
+
+### Le déplacement
+
+`versionDeclaree(paquet: unknown): string` vit désormais dans
+`src/shared/version-ruche.ts`, pure et totale ; `server.ts` ne garde que la
+lecture :
+
+    return versionDeclaree(JSON.parse(brut));
+
+Cinq bancs, six lignes, et les trois mutants meurent — vérifié en les rejouant
+un par un : `TypeError` sur `null`, `expected '' to be 'inconnue'` deux fois.
+
+**La règle :** quand la loupe rend plusieurs survivants d'affilée dans un même
+bloc, ne pas chercher trois bancs — chercher ce qui rend le bloc inatteignable.
+Un amas de survivants voisins ne signale presque jamais trois oublis ; il
+signale une décision soudée à son entrée. Le remède est de séparer ce qui LIT
+de ce qui JUGE, après quoi les bancs deviennent évidents.
+
+## 9 teroctogicenties. `indexOf` rend −1 OU 0, et une garde qui n'en couvre qu'un laisse la bonne ligne derrière
+
+Quatrième survivant du même balayage, dans le repli `packed-refs` de
+`version-lue.ts` :
+
+    const espace = ligne.indexOf(' ');
+    if (espace < 0) continue;                       ← < → <=  survit
+    if (ligne.slice(espace + 1).trim() === ref) return sha(ligne.slice(0, espace));
+
+`< 0` écarte les lignes SANS espace. Il ne dit rien de celles qui COMMENCENT
+par un espace, où `indexOf` rend `0`. Une telle ligne se découpe en une gauche
+VIDE et une droite qui ressemble à la référence cherchée : la boucle croit
+l'avoir trouvée, rend `sha('')` — donc `null` — et **s'arrête là**, sur un
+`return`. La bonne ligne, deux lignes plus bas, n'est jamais lue.
+
+Le résultat était le pire des deux : une ruche parfaitement saine répondant
+« je ne sais pas quel commit je fais tourner », pour un catalogue à peine de
+travers. C'est exactement la panne que ce repli existe pour éviter — il avait
+été écrit pour qu'un `git gc` ne rende pas la ruche muette, et il la rendait
+muette pour un espace.
+
+Le banc est allé au ROUGE avant le correctif, verdict affiché :
+
+    expect(lireVersionRuche(racine, '0.2.0').commit).toBe(SHA)
+    → null
+
+**Ce que ça vaut au-delà du cas :** le survivant désignait ici du code JUSTE
+en apparence et FAUX sur une entrée réelle. La tentation était de le classer
+« entrée malformée, cas d'école ». Or la garde voisine, quelques lignes plus
+haut, avait connu l'issue inverse — un filtre `^` mort, qu'il fallait couper
+plutôt que défendre. Les deux se ressemblent et se tranchent à l'opposé ; ce
+qui les sépare est une seule question, à poser à chaque fois : **l'entrée qui
+distingue les deux versions peut-elle exister ?** Pour `^`, non. Pour l'espace
+en tête, oui — un fichier édité à la main suffit.
+
+## 9 quateroctogicenties. Un cliquet se remonte, sinon il devient un plancher — et un plancher ne garde rien
+
+Le cliquet de couverture était à 76,5 / 72,1 / 78,8 / 77,9 ; l'arbre mesurait
+77,89 / 74,10 / 79,49 / 79,27. Les branches étaient **2,0 points au-dessus du
+seuil**.
+
+Un seuil à deux points sous le réel ne peut plus rougir. Il faudrait perdre
+deux points de couverture d'un coup pour le réveiller — c'est-à-dire livrer
+plusieurs centaines de lignes que rien n'éprouve. En dessous de ça, tout
+passe. Le fichier portait déjà ce constat, écrit le 22 août sous le titre
+« REMONTÉ PARCE QU'IL NE MORDAIT PLUS », et l'écart s'était **reformé en deux
+jours** — parce que le dépôt grossit et que le seuil, lui, ne bouge pas tout
+seul.
+
+**Ce qui se passe quand on ne le remonte pas :** le cliquet reste vert, on le
+lit comme « la couverture tient », et il ne dit plus rien du tout. C'est la
+même famille de panne qu'une garde qu'aucun test ne peut tuer — sauf qu'ici
+la garde s'est désarmée toute seule, par simple croissance du dénominateur.
+
+### Trois mesures, parce qu'une seule est un chiffre et non une mesure
+
+La règle écrite dans `vitest.config.ts` demande plusieurs mesures du MÊME
+arbre, dont une en CI, et une marge d'environ 5× l'écart observé. Suivie à la
+lettre sur `a8fa204` :
+
+                     ici #1   en CI    ici #2   plus bas  écart  seuil
+        statements   77.89    77.89    77.89    77.89     0.00   77.7
+        branches     74.12    74.10    74.12    74.10     0.02   73.9
+        functions    79.49    79.49    79.55    79.49     0.06   79.1
+        lines        79.30    79.29    79.27    79.27     0.03   79.1
+
+Les dénominateurs sont identiques aux trois passages — même code. Ce sont les
+COUVERTS qui bougent, de une à trois unités.
+
+**Le détail qui vaut la peine :** la mesure la plus basse n'a pas la même
+origine selon la dimension. La CI est la plus basse sur les branches, la
+seconde locale sur les lignes. Si j'avais pris « la CI est plus basse » comme
+règle — ce que la première rédaction de ce fichier supposait — j'aurais posé
+le seuil des lignes au-dessus d'une valeur réellement observée, et fabriqué un
+rouge intermittent. Un tremblement n'a pas de direction ; on prend le minimum
+de toutes les mesures, jamais celle d'une origine réputée pessimiste.
+
+### La contre-épreuve, parce qu'un seuil qu'on ne voit pas mordre est du décor
+
+Poser des chiffres et voir la suite verte ne prouve rien : elle serait verte
+aussi avec les anciens. J'ai donc monté `statements` à 77,95, juste au-dessus
+de la plus basse des trois mesures, et relancé :
+
+    ERROR: Coverage for statements (77.89%) does not meet global threshold (77.95%)
+    code = 1
+
+Le cliquet est bien câblé, il rougit, et il nomme la dimension. Remis à 77,7
+ensuite. C'est la même discipline que pour un test — muter avant de croire —
+appliquée à un seuil plutôt qu'à une ligne de code.

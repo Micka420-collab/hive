@@ -1,17 +1,28 @@
 // Rangée de KPI : l'état de la ruche en un coup d'œil.
 
 import type { StateSnapshot } from '../../src/shared/types';
-import { useT } from './i18n';
+import { useLang, useT } from './i18n';
 import { ProgressBar } from './ui';
+import { direNote } from './horloge-vue';
+import type { NoteVue } from './horloge-vue';
 
 interface Props {
   snapshot: StateSnapshot;
   /** Débit : tâches terminées dans la dernière minute (dérivé du journal). */
   throughput: number;
+  /**
+   * La note que l'horloge s'est donnée, si le journal en porte encore une.
+   *
+   * Optionnel, et il faut qu'il le reste : le journal est élagué. Absent, la
+   * tuile ne se rend PAS — une tuile vide se lirait « la ruche ne se note
+   * pas », alors que la vérité est « le journal ne s'en souvient plus ».
+   */
+  calibration?: NoteVue;
 }
 
-export function StatTiles({ snapshot, throughput }: Props) {
+export function StatTiles({ snapshot, throughput, calibration }: Props) {
   const t = useT();
+  const lang = useLang();
   const { nodes, tasks } = snapshot;
   // ─── LA FENÊTRE SE DIT, ELLE NE SE DEVINE PAS ──────────────────────────────
   //
@@ -83,6 +94,32 @@ export function StatTiles({ snapshot, throughput }: Props) {
         </div>
         <div className="tile-label">{t('Débit', 'Throughput')}</div>
       </div>
+
+      {/*
+        L'HORLOGE SE NOTE, ET LA NOTE EST À L'ÉCRAN.
+
+        Une horloge qui affiche sa propre erreur est utilisable ; une horloge
+        faussement précise ne l'est pas. Cette tuile est ce qui sépare les deux.
+
+        `optimiste` est le seul verdict peint en alerte, et c'est asymétrique
+        exprès : l'horloge promet alors PLUS COURT que la réalité, et tout ce
+        qui se planifie dessus déborde. `pessimiste` coûte de l'attente ;
+        `optimiste` coûte des promesses tenues par personne.
+      */}
+      {calibration && (
+        <div className={`tile${calibration.verdict === 'optimiste' ? ' danger' : ''}`}>
+          <div className="tile-value tile-value-mot">
+            {calibration.verdict === 'trop_peu'
+              ? t('—', '—')
+              : `${Math.round(calibration.partTenue * 100)}`}
+            {calibration.verdict !== 'trop_peu' && <span className="tile-unit"> %</span>}
+          </div>
+          <div className="tile-label">{t('Horloge tenue', 'Clock held')}</div>
+          <div className="tile-sub" title={direNote(calibration, lang)}>
+            {direNote(calibration, lang)}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

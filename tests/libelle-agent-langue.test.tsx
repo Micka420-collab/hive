@@ -52,6 +52,7 @@ import { SwarmView } from '../dashboard/src/SwarmView';
 import Essaim from '../dashboard/src/views/Essaim';
 import { setLang } from '../dashboard/src/i18n';
 import type { ViewProps } from '../dashboard/src/views/shared';
+import { couperLeReseau } from './aide/sans-reseau';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -63,6 +64,9 @@ let racine: Root | null = null;
 let conteneur: HTMLElement | null = null;
 
 beforeEach(() => {
+  // Coupe le réseau : ce banc ouvrait de VRAIES connexions vers
+  // 127.0.0.1:3000 (voir tests/aide/sans-reseau.ts).
+  couperLeReseau();
   // La langue est un état de MODULE : sans cette remise à zéro, un test qui
   // bascule en anglais laisserait le suivant démarrer en anglais. C'est la
   // dépendance d'ordre intra-fichier, et elle se coupe ici.

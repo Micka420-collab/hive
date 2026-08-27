@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-4448%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-5406%20passing-F6C445?labelColor=17130C)
 ![License](https://img.shields.io/badge/license-MIT-F6C445?labelColor=17130C)
 
 [🇫🇷 Français](README.md) · 🇬🇧 English · [🌐 Site](https://micka420-collab.github.io/hive/?lang=en) · [📚 Documentation](#-documentation)
@@ -55,6 +55,14 @@ Shots of the running app (`npm run ruche`), not mockups.
 <p align="center">
   <img src="docs/images/dashboard-reine.png" width="840" alt="Dashboard — Queen view, recette workshop and chat.">
 </p>
+<p align="center">
+  <img src="docs/images/dashboard-chambre.png" width="840" alt="Dashboard — Chambre worker station Capucine, Needs a decision banner, bee and flower.">
+</p>
+<p align="center">
+  <a href="docs/media/chambre-presentation-demo.mp4">Video — Chambre walkthrough (FR UI)</a>
+  ·
+  <a href="docs/media/README.md">media notes</a>
+</p>
 
 ## 🔁 How it works
 
@@ -63,6 +71,10 @@ Shots of the running app (`npm run ruche`), not mockups.
 2. **The AIs work in parallel.** Each task goes to a member's computer, in an
    isolated folder. You watch progress live.
 3. **You validate, then it merges.** Nothing passes without your say-so.
+4. **You open a worker’s station.** Hive view → node sheet → **Open workstation**
+   (Chambre): baptismal name, **observed** files, Atelier noVNC, requisitions —
+   never inventing what isn’t there. Detail:
+   **[docs/FEATURES.en.md](docs/FEATURES.en.md)** (Chambre section).
 
 ## ⚡ Install
 
@@ -77,12 +89,20 @@ curl -fsSL https://raw.githubusercontent.com/Micka420-collab/hive/main/install.s
 
 # Windows (PowerShell)
 irm https://raw.githubusercontent.com/Micka420-collab/hive/main/install.ps1 -OutFile "$env:TEMP\hive-install.ps1"; powershell -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\hive-install.ps1"
+
+# Cautious Windows path (Pages also serves install.ps1 + the same manifest):
+#   download https://micka420-collab.github.io/hive/install.ps1
+#   Get-FileHash hive-install.ps1 -Algorithm SHA256   # vs install.sha256 on Pages
+#   powershell -NoProfile -ExecutionPolicy Bypass -File .\hive-install.ps1
 ```
 
 The script checks Node (≥ 24), fetches Hive, installs dependencies and asks
 **at most three questions**. Never `sudo`, nothing written outside its folder —
 `--dry-run` shows all of it without creating anything. Run as a file and it
-prints its SHA-256 fingerprint (ADR 0002).
+prints its SHA-256 fingerprint (ADR 0002). Pages publishes `install.sh`,
+`install.ps1` and `install.sha256`; a **signed GitHub Release** remains out of
+reach (human accounts) — the Pages fingerprint guards against a blind pipe, not
+a compromised repository.
 
 Already cloned: `npm run setup` then `npm run ruche`. Containers and Cloud:
 **[docs/CLOUD.md](docs/CLOUD.md)**. Acceptance desktop:
@@ -152,14 +172,16 @@ the switch of the host paying for machine time.
 
 Any coding AI plugs in through the `AgentAdapter` interface:
 
-| Adapter        | What it runs                                            |
-| -------------- | ------------------------------------------------------- |
-| `claude-code`  | `claude -p "<prompt>"` in the isolated workspace.       |
-| `codex`        | `codex exec "<prompt>"`                                 |
-| `grok`         | `grok -p "<prompt>"` — xAI’s CLI agent, Apache 2.0.     |
-| `hermes-agent` | `hermes agent run --prompt "<prompt>"`                  |
-| `custom`       | Yours, via `HIVE_AGENT_CMD`.                            |
-| `shell`        | **Simulated** — no process spawned, the diffs are fake. |
+| Adapter        | What it runs                                                                                                    |
+| -------------- | --------------------------------------------------------------------------------------------------------------- |
+| `claude-code`  | `claude -p "<prompt>"` in the isolated workspace.                                                               |
+| `cursor`       | `cursor-agent -p --force --output-format stream-json -- "<prompt>"` — binary overridable via `HIVE_CURSOR_BIN`. |
+| `cline`        | `cline --json --auto-approve true "<prompt>"` — binary overridable via `HIVE_CLINE_BIN`.                        |
+| `codex`        | `codex exec "<prompt>"`                                                                                         |
+| `grok`         | `grok -p "<prompt>"` — xAI’s CLI agent, Apache 2.0.                                                             |
+| `hermes-agent` | `hermes agent run --prompt "<prompt>"`                                                                          |
+| `custom`       | Yours, via `HIVE_AGENT_CMD`.                                                                                    |
+| `shell`        | **Simulated** — no process spawned, the diffs are fake.                                                         |
 
 The node **detects what is installed** and uses it. It falls back to `shell`
 only when it finds no agent — and it says so. `HIVE_AGENT` forces the choice.

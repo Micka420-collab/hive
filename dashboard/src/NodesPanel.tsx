@@ -16,17 +16,76 @@
 import { useEffect, useState } from 'react';
 import { PICTO_PLATEFORME } from '../../src/shared/machine';
 import type { HiveNode, Task } from '../../src/shared/types';
-import { fetchWaggle } from './api';
+import { fetchChambre, fetchWaggle } from './api';
 import type { NodeNectar } from './api';
 import { useLang, useT } from './i18n';
 import { libelleAgent } from '../../src/shared/agent-libelle';
+import { direNiveau } from '../../src/shared/catalogue-outils';
+import {
+  combienPilotables,
+  commandeAAfficher,
+  direOutil,
+  outilsDuNoeud,
+} from '../../src/shared/outils-du-noeud';
+import { copierTexte } from './copier';
 import { activateProps, ProgressBar, STATUS_ICON, useDialog, Voile } from './ui';
+import { useBaptemes } from './useBaptemes';
 
 const AGENT_ICON: Record<string, string> = {
   shell: '○',
   'claude-code': '✦',
   codex: '⌗',
 };
+
+/**
+ * La commande d'installation d'un outil, à COPIER — jamais à lancer.
+ *
+ * ─── CE QUE CE BOUTON NE FAIT PAS, ET POURQUOI ──────────────────────────────
+ *
+ * Il ne déclenche RIEN sur la machine du membre. Un tableau de bord qui lance
+ * `npm install -g` à distance sur le poste de quelqu'un est une surface
+ * d'attaque, pas une commodité : il suffit d'un accès à l'écran d'admin pour
+ * faire installer un paquet arbitraire sur toutes les machines de l'essaim.
+ *
+ * La ruche montre donc la commande, et c'est l'humain qui la colle dans SON
+ * terminal, après l'avoir lue. La différence tient en un geste, et ce geste
+ * est le consentement.
+ */
+function CommandeACopier({ commande }: { commande: string }) {
+  const t = useT();
+  const [copie, setCopie] = useState(false);
+  const [rate, setRate] = useState(false);
+  return (
+    <span className="fo-outil-pose">
+      <code className="fo-outil-commande" data-testid="fo-outil-commande">
+        {commande}
+      </code>{' '}
+      <button
+        type="button"
+        className="copy-btn"
+        data-testid="fo-outil-copier"
+        onClick={() => {
+          void copierTexte(commande).then((ok) => {
+            setCopie(ok);
+            setRate(!ok);
+            if (ok) setTimeout(() => setCopie(false), 1500);
+          });
+        }}
+      >
+        {copie ? t('copié', 'copied') : t('copier', 'copy')}
+      </button>
+      {rate && (
+        <span className="fo-outil-rate" data-testid="fo-outil-copie-ratee">
+          {' '}
+          {t(
+            'copie impossible — sélectionnez la commande à la main.',
+            'copy failed — select the command by hand.',
+          )}
+        </span>
+      )}
+    </span>
+  );
+}
 
 function initials(name: string): string {
   return name
@@ -52,11 +111,13 @@ function FicheOuvriere({
   noeud,
   tasks,
   onOpenTask,
+  onOuvrirPoste,
   onClose,
 }: {
   noeud: HiveNode;
   tasks: Task[];
   onOpenTask: (id: string) => void;
+  onOuvrirPoste?: (nodeId: string) => void;
   onClose: () => void;
 }) {
   const t = useT();
@@ -81,6 +142,8 @@ function FicheOuvriere({
   // entre à l'ouverture, et il RETOURNE à la carte qu'on a cliquée en sortant.
   const dialogRef = useDialog<HTMLDivElement>(onClose);
   const [nectar, setNectar] = useState<NodeNectar | null>(null);
+  /** Baptême constaté — null = silence (pas le name technique inventé en titre). */
+  const [bapteme, setBapteme] = useState<string | null | undefined>(undefined);
   useEffect(() => {
     let vivant = true;
     fetchWaggle()
@@ -90,10 +153,20 @@ function FicheOuvriere({
       .catch(() => {
         /* classement injoignable : la fiche vit sans lui */
       });
+    fetchChambre(noeud.id)
+      .then((p) => {
+        if (vivant) setBapteme(p.bapteme?.nom ?? null);
+      })
+      .catch(() => {
+        /* Panne API ≠ « Pas encore baptisée » — garder le nom technique. */
+      });
     return () => {
       vivant = false;
     };
   }, [noeud.id]);
+
+  const titreAffiche =
+    bapteme === undefined ? noeud.name : (bapteme ?? t('Pas encore baptisée', 'Not baptised yet'));
 
   return (
     <Voile onClose={onClose}>
@@ -107,7 +180,8 @@ function FicheOuvriere({
       >
         <header className="modal-head">
           <h2 id="fiche-ouvriere-titre">
-            {AGENT_ICON[noeud.agentType] ?? '•'} {noeud.name}
+            {AGENT_ICON[noeud.agentType] ?? '•'}{' '}
+            <span className={bapteme ? undefined : 'muted-text'}>{titreAffiche}</span>
           </h2>
           <button className="modal-close" onClick={onClose} aria-label={t('Fermer', 'Close')}>
             ×
@@ -126,6 +200,11 @@ function FicheOuvriere({
           {noeud.status === 'online' ? t('en ligne', 'online') : t('hors ligne', 'offline')} ·{' '}
           {noeud.running}/{noeud.maxConcurrency} {t('en vol', 'in flight')}
         </p>
+        {bapteme !== undefined && (
+          <p className="fo-technique muted-text">
+            {t('Technique', 'Technical')} · {noeud.name}
+          </p>
+        )}
 
         {nectar && (
           <p className="fo-nectar">
@@ -138,6 +217,67 @@ function FicheOuvriere({
               </span>
             )}
           </p>
+        )}
+
+        {/* ─── SES OUTILS IA ────────────────────────────────────────────
+         *
+         * Le nœud a CONSTATÉ ce que porte sa machine ; le catalogue dit
+         * jusqu'où la ruche va avec chacun. On affiche les DEUX, parce que
+         * l'un sans l'autre ment :
+         *
+         *   · « Windsurf ✓ » seul laisse croire qu'il travaille pour la ruche ;
+         *   · « Windsurf : détecté seulement » seul laisse croire qu'il n'est
+         *     pas installé.
+         *
+         * `outils` ABSENT n'est pas une liste vide : c'est un nœud d'avant
+         * cette version, qui n'a jamais rien déclaré. On le DIT, au lieu de
+         * dessiner une machine nue qui ne l'est pas.
+         */}
+        <h3 className="fo-sous-titre">
+          {t('Ses outils IA', 'Their AI tools')}{' '}
+          {noeud.outils !== undefined && (
+            <span className="panel-count" data-testid="fo-outils-compte">
+              {combienPilotables(outilsDuNoeud(noeud.outils))}{' '}
+              {t('pilotable(s) par la ruche', 'drivable by the hive')}
+            </span>
+          )}
+        </h3>
+        {noeud.outils === undefined ? (
+          <p className="muted-text" data-testid="fo-outils-inconnus">
+            {t(
+              'Ce nœud n’a rien déclaré — il tourne une version antérieure. La ruche ne sait donc pas ce que sa machine porte.',
+              'This node declared nothing — it runs an older version. The hive therefore does not know what its machine carries.',
+            )}
+          </p>
+        ) : (
+          <ul className="queue fo-outils" data-testid="fo-outils">
+            {outilsDuNoeud(noeud.outils).map((o) => (
+              <li
+                key={o.id}
+                className={o.pilotable ? 'fo-outil fo-outil-pilotable' : 'fo-outil'}
+                data-testid={`fo-outil-${o.id}`}
+              >
+                <span aria-hidden="true">{o.pilotable ? '✦' : '·'}</span> {o.nom}
+                <span className="fo-outil-etat">
+                  {' '}
+                  — {direOutil(o, lang === 'en' ? 'en' : 'fr')}
+                </span>
+                <span className="fo-outil-niveau muted-text">
+                  {' · '}
+                  {t('la ruche', 'the hive')}{' '}
+                  {o.niveau === null
+                    ? t('ne sait rien de cet outil', 'knows nothing about this tool')
+                    : direNiveau(o.niveau, lang === 'en' ? 'en' : 'fr')}
+                </span>
+                {o.limite !== null && <span className="fo-outil-limite"> ({o.limite})</span>}
+                {/* La commande n'apparaît QUE si la suivre règle tout en un
+                    geste — la règle vit dans le module pur, pas ici. */}
+                {commandeAAfficher(o) !== null && (
+                  <CommandeACopier commande={commandeAAfficher(o)!} />
+                )}
+              </li>
+            ))}
+          </ul>
         )}
 
         <h3 className="fo-sous-titre">
@@ -162,6 +302,25 @@ function FicheOuvriere({
             ))}
           </ul>
         )}
+
+        {onOuvrirPoste && (
+          <footer className="fo-actions" style={{ marginTop: 14 }}>
+            <button
+              type="button"
+              className="btn primary"
+              data-testid="fiche-ouvrir-chambre"
+              onClick={() => {
+                const id = noeud.id;
+                onClose();
+                onOuvrirPoste(id);
+              }}
+            >
+              {bapteme
+                ? t(`Ouvrir la Chambre · ${bapteme}`, `Open the Chambre · ${bapteme}`)
+                : t('Ouvrir la Chambre', 'Open the Chambre')}
+            </button>
+          </footer>
+        )}
       </div>
     </Voile>
   );
@@ -171,11 +330,14 @@ export function NodesPanel({
   nodes,
   tasks,
   onOpenTask,
+  onOuvrirPoste,
 }: {
   nodes: HiveNode[];
   /** Fournies : les cartes deviennent cliquables et ouvrent la fiche. */
   tasks?: Task[];
   onOpenTask?: (id: string) => void;
+  /** Chambre (ADR 0010) — ouvre `#/chambre/<nodeId>`. */
+  onOuvrirPoste?: (nodeId: string) => void;
 }) {
   const t = useT();
   const lang = useLang();
@@ -183,6 +345,9 @@ export function NodesPanel({
   const [ouverte, setOuverte] = useState<string | null>(null);
   const fiche =
     tasks && onOpenTask && ouverte ? (nodes.find((n) => n.id === ouverte) ?? null) : null;
+  const nodeIdsKey = nodes.map((n) => n.id).join(',');
+  const baptemes = useBaptemes(nodeIdsKey);
+  const shellNodes = nodes.filter((n) => n.agentType === 'shell' || n.agentType === 'sim');
 
   return (
     <section className="card panel">
@@ -192,42 +357,66 @@ export function NodesPanel({
           {online}/{nodes.length} {t('en ligne', 'online')}
         </span>
       </header>
+      {shellNodes.length > 0 && (
+        <p className="node-shell-avert">
+          {t(
+            `${shellNodes.length} nœud(s) en mode shell/simulation — les diffs ne viennent pas d’un agent de codage réel. Installez Claude Code, Codex ou un agent compatible pour une autonomie crédible.`,
+            `${shellNodes.length} node(s) in shell/simulation mode — diffs do not come from a real coding agent. Install Claude Code, Codex, or a compatible agent for credible autonomy.`,
+          )}
+        </p>
+      )}
       <ul className="node-list">
-        {nodes.map((n) => (
-          <li
-            key={n.id}
-            className={`node-card ${n.status}`}
-            {...(tasks && onOpenTask ? activateProps(() => setOuverte(n.id)) : {})}
-          >
-            <div className="node-avatar" title={libelleAgent(n.agentType, lang === 'en')}>
-              {initials(n.name)}
-              <span className="node-agent">{AGENT_ICON[n.agentType] ?? '•'}</span>
-            </div>
-            <div className="node-body">
-              <div className="nc-name">
-                {n.name}
-                <span className={`dot ${n.status}`} title={n.status} />
+        {nodes.map((n) => {
+          const bapt = baptemes ? (baptemes[n.id] ?? null) : undefined;
+          const label = bapt || n.name;
+          return (
+            <li
+              key={n.id}
+              className={`node-card ${n.status}`}
+              aria-label={t(`Fiche · ${label}`, `Sheet · ${label}`)}
+              {...(tasks && onOpenTask ? activateProps(() => setOuverte(n.id)) : {})}
+            >
+              <div className="node-avatar" title={libelleAgent(n.agentType, lang === 'en')}>
+                {initials(label)}
+                <span className="node-agent">{AGENT_ICON[n.agentType] ?? '•'}</span>
               </div>
-              <div className="node-meta">
-                {n.ownerName} · {libelleAgent(n.agentType, lang === 'en')}
-                {/* La machine derrière l'ouvrière — « quelles ouvrières
-                    tournent sous Windows ? » se lit ici, pas dans un log.
-                    Absente (nœud d'une version antérieure) : rien, plutôt
-                    qu'une plateforme inventée. */}
-                {n.plateforme && (
-                  <span className="node-plateforme" title={n.plateforme}>
-                    {' '}
-                    · {PICTO_PLATEFORME[n.plateforme]} {n.plateforme}
+              <div className="node-body">
+                <div className="nc-name">
+                  <span className={bapt ? undefined : bapt === null ? 'muted-text' : undefined}>
+                    {bapt === null ? t('Pas encore baptisée', 'Not baptised yet') : label}
                   </span>
-                )}
+                  <span
+                    className={`dot ${n.status}`}
+                    title={
+                      n.status === 'online' ? t('en ligne', 'online') : t('hors ligne', 'offline')
+                    }
+                  />
+                </div>
+                <div className="node-meta">
+                  {(bapt || bapt === null) && (
+                    <>
+                      <span className="muted-text">
+                        {t('Technique', 'Technical')} · {n.name}
+                      </span>
+                      {' · '}
+                    </>
+                  )}
+                  {n.ownerName} · {libelleAgent(n.agentType, lang === 'en')}
+                  {n.plateforme && (
+                    <span className="node-plateforme" title={n.plateforme}>
+                      {' '}
+                      · {PICTO_PLATEFORME[n.plateforme]} {n.plateforme}
+                    </span>
+                  )}
+                </div>
+                <ProgressBar value={n.running} max={Math.max(n.maxConcurrency, 1)} />
               </div>
-              <ProgressBar value={n.running} max={Math.max(n.maxConcurrency, 1)} />
-            </div>
-            <div className="node-load">
-              {n.running}/{n.maxConcurrency}
-            </div>
-          </li>
-        ))}
+              <div className="node-load">
+                {n.running}/{n.maxConcurrency}
+              </div>
+            </li>
+          );
+        })}
         {nodes.length === 0 && (
           <li className="empty">
             {t(
@@ -248,6 +437,7 @@ export function NodesPanel({
             setOuverte(null);
             onOpenTask(id);
           }}
+          onOuvrirPoste={onOuvrirPoste}
           onClose={() => setOuverte(null)}
         />
       )}

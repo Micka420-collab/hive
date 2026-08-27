@@ -5,6 +5,7 @@
 
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { HiveEvent, StateSnapshot, SubAgent } from '../../src/shared/types';
+import { agentsConnectes, etatBandeau } from '../../src/shared/agents-connectes';
 import {
   authMe,
   clearJwt,
@@ -25,6 +26,7 @@ import { NewProjectModal } from './NewProjectModal';
 import { ShellNavigation, type NavItem } from './ShellNavigation';
 import { TaskDrawer } from './TaskDrawer';
 import { transitionDifferees } from './differees';
+import { annoncesDepuisEvenements } from './horloge-vue';
 import { doitSonder, pastilleDesAlertes } from './views/pastille-alertes';
 import { modalOpen } from './ui';
 import Ruche from './views/Ruche';
@@ -53,6 +55,7 @@ const Rayon = lazy(() => import('./views/Rayon'));
 const Intendance = lazy(() => import('./views/Intendance'));
 const Cerveau = lazy(() => import('./views/Cerveau'));
 const Chantiers = lazy(() => import('./views/Chantiers'));
+const Chambre = lazy(() => import('./views/Chambre'));
 
 const EMPTY: StateSnapshot = { projects: [], nodes: [], tasks: [], tasksTotal: 0 };
 
@@ -185,8 +188,11 @@ const NAV: NavItem[] = [
  * un administrateur qui ouvre son signet arrive AVANT que `/api/auth/me` ait
  * répondu, et le renvoyer sur la Ruche à cet instant-là serait un bug qu'on
  * ne saurait pas reproduire.
+ *
+ * `chambre` n'a volontairement PAS de case nav (ADR 0010) : entrée depuis la
+ * fiche nœud uniquement (`#/chambre/<nodeId>`).
  */
-const VIEW_IDS = new Set<string>(NAV.map((n) => n.id));
+const VIEW_IDS = new Set<string>([...NAV.map((n) => n.id), 'chambre']);
 
 /** #/vue/id → { view, selectedId } (fallback ruche sur hash inconnu). */
 function parseHash(): { view: ViewId; selectedId: string | null } {
@@ -231,6 +237,7 @@ export function App() {
   const [agentsByTask, setAgentsByTask] = useState<Record<string, SubAgent[]>>({});
   const [deferred, setDeferred] = useState<Set<string>>(() => new Set());
   const [connected, setConnected] = useState(false);
+  const [tokenAuthError, setTokenAuthError] = useState(false);
   const [token, setTokenState] = useState(getToken());
   const [feedKey, setFeedKey] = useState(0);
   const [route, setRoute] = useState(parseHash);
@@ -314,8 +321,10 @@ export function App() {
         // quand rien ne change est le contrat : même référence, pas de rendu.
         setDeferred((prev) => transitionDifferees(prev, ev.type, taskId) as Set<string>);
       },
-      onStatus: (up) => {
+      onStatus: (up, meta) => {
         setConnected(up);
+        if (up) setTokenAuthError(false);
+        else if (meta?.authError) setTokenAuthError(true);
         // À CHAQUE (re)connexion : ré-hydrater les revues — les task_reviewed
         // émis pendant une coupure ne sont jamais rejoués par le serveur.
         if (up) {
@@ -463,6 +472,7 @@ export function App() {
     // gratuite perd les événements émis pendant la fenêtre de coupure.
     if (token === getToken()) return;
     saveToken(token);
+    setTokenAuthError(false);
     setFeedKey((k) => k + 1);
   };
 
@@ -497,7 +507,23 @@ export function App() {
   };
 
   const openTask = openTaskId ? (snapshot.tasks.find((t) => t.id === openTaskId) ?? null) : null;
-  const current = NAV.find((n) => n.id === route.view) ?? NAV[0]!;
+
+  // L'horloge du chantier, repliée depuis le journal déjà reçu. Calculée ici et
+  // non dans le tiroir : le repli parcourt tout le flux, et le refaire à chaque
+  // ouverture du tiroir le referait à chaque événement pendant qu'il est ouvert.
+  const annonces = useMemo(() => annoncesDepuisEvenements(events), [events]);
+  const current =
+    route.view === 'chambre'
+      ? {
+          id: 'chambre' as const,
+          label: 'Chambre',
+          labelEn: 'Workstation',
+          description: 'Poste de l’ouvrière',
+          descriptionEn: 'Worker workstation',
+          key: '',
+          section: 'observer' as const,
+        }
+      : (NAV.find((n) => n.id === route.view) ?? NAV[0]!);
 
   return (
     <div className="app mc-app">
@@ -565,6 +591,45 @@ export function App() {
                 {unsyncedReviews} {t('revue(s) non synchronisée(s)', 'unsynced review(s)')}
               </span>
             )}
+            {(() => {
+              const agents = agentsConnectes(snapshot.nodes);
+              const etat = etatBandeau(agents);
+              const reels = agents.filter((a) => a.enLigne > 0 && !a.simule);
+              const titre =
+                etat === 'reelle'
+                  ? t(
+                      'Les IA qui codent réellement en ce moment',
+                      'The AIs actually coding right now',
+                    )
+                  : etat === 'simulee'
+                    ? t(
+                        'Seul un agent SIMULÉ répond : les diffs produits ne viennent d’aucune IA',
+                        'Only a SIMULATED agent answers: the diffs produced come from no AI',
+                      )
+                    : etat === 'aucune_ia'
+                      ? t(
+                          'Des ouvrières sont inscrites, aucune ne répond',
+                          'Workers are registered, none answers',
+                        )
+                      : t(
+                          'Aucune ouvrière inscrite — lancez « npm run node » sur votre poste',
+                          'No worker registered — run « npm run node » on your machine',
+                        );
+              return (
+                <span className={`mc-ia mc-ia-${etat}`} data-testid="mc-ia" title={titre}>
+                  <span className="conn-dot" aria-hidden="true" />
+                  <span data-testid="mc-ia-mot">
+                    {etat === 'reelle'
+                      ? reels.map((a) => a.libelle).join(' · ')
+                      : etat === 'simulee'
+                        ? t('simulé — aucune IA', 'simulated — no AI')
+                        : etat === 'aucune_ia'
+                          ? t('aucune ouvrière en ligne', 'no worker online')
+                          : t('aucune ouvrière', 'no worker')}
+                  </span>
+                </span>
+              );
+            })()}
             <details className="mc-utility">
               <summary
                 className={`mc-utility-trigger ${connected ? 'online' : 'offline'}`}
@@ -600,12 +665,13 @@ export function App() {
                     <input
                       id="hive-token-menu"
                       type="password"
-                      className="token-input"
+                      className={`token-input${tokenAuthError ? ' token-input-err' : ''}`}
                       placeholder={t('Jeton', 'Token')}
                       value={token}
                       onChange={(e) => setTokenState(e.target.value)}
                       onBlur={applyToken}
                       onKeyDown={(e) => e.key === 'Enter' && applyToken()}
+                      aria-invalid={tokenAuthError || undefined}
                       autoComplete="off"
                     />
                   </label>
@@ -617,6 +683,7 @@ export function App() {
                   <button
                     type="button"
                     className="btn ghost mc-lang"
+                    data-testid="mc-lang"
                     onClick={() => setLang(lang === 'fr' ? 'en' : 'fr')}
                   >
                     {t('Interface en anglais', 'Interface in French')} ·{' '}
@@ -633,16 +700,23 @@ export function App() {
             <span className="mc-connection-mark" aria-hidden="true" />
             <div className="mc-connection-copy">
               <strong id="mc-connection-title">
-                {t(
-                  'Connectez Mission Control à votre ruche',
-                  'Connect Mission Control to your hive',
-                )}
+                {tokenAuthError
+                  ? t('Jeton de ruche refusé', 'Hive token rejected')
+                  : t(
+                      'Connectez Mission Control à votre ruche',
+                      'Connect Mission Control to your hive',
+                    )}
               </strong>
               <span>
-                {t(
-                  'Collez HIVE_TOKEN depuis votre fichier .env. Il reste dans ce navigateur.',
-                  'Paste HIVE_TOKEN from your .env file. It stays in this browser.',
-                )}
+                {tokenAuthError
+                  ? t(
+                      'Collez la valeur exacte de HIVE_TOKEN depuis le .env de la Reine — pas le jeton GitHub.',
+                      'Paste the exact HIVE_TOKEN from the Queen .env — not the GitHub token.',
+                    )
+                  : t(
+                      'Collez HIVE_TOKEN depuis votre fichier .env. Il reste dans ce navigateur.',
+                      'Paste HIVE_TOKEN from your .env file. It stays in this browser.',
+                    )}
               </span>
             </div>
             <label className="mc-connection-token" htmlFor="hive-token-guide">
@@ -650,12 +724,13 @@ export function App() {
               <input
                 id="hive-token-guide"
                 type="password"
-                className="token-input"
+                className={`token-input${tokenAuthError ? ' token-input-err' : ''}`}
                 placeholder={t('Votre jeton HIVE_TOKEN', 'Your HIVE_TOKEN')}
                 value={token}
                 onChange={(e) => setTokenState(e.target.value)}
                 onBlur={applyToken}
                 onKeyDown={(e) => e.key === 'Enter' && applyToken()}
+                aria-invalid={tokenAuthError || undefined}
                 autoComplete="off"
               />
             </label>
@@ -684,6 +759,7 @@ export function App() {
             {route.view === 'intendance' && <Intendance {...viewProps} />}
             {route.view === 'cerveau' && <Cerveau {...viewProps} />}
             {route.view === 'chantiers' && <Chantiers {...viewProps} />}
+            {route.view === 'chambre' && <Chambre {...viewProps} />}
           </Suspense>
         </main>
       </div>
@@ -722,7 +798,12 @@ export function App() {
       )}
 
       {openTask && (
-        <TaskDrawer task={openTask} nodes={snapshot.nodes} onClose={() => setOpenTaskId(null)} />
+        <TaskDrawer
+          task={openTask}
+          nodes={snapshot.nodes}
+          horloge={annonces.get(openTask.id)}
+          onClose={() => setOpenTaskId(null)}
+        />
       )}
       {showNewProject && <NewProjectModal onClose={() => setShowNewProject(false)} />}
     </div>

@@ -2,9 +2,12 @@
 // ruche via l'interface AgentAdapter — l'orchestrateur n'a jamais besoin de
 // connaître l'outil qui exécute réellement la tâche (contrainte §5.4).
 
+import type { PresenceFichier } from '../shared/presence.js';
 import type { SubAgent, Task } from '../shared/types.js';
 import { createClaudeCodeAdapter } from './claude-code.js';
+import { createClineAdapter } from './cline.js';
 import { createCodexAdapter } from './codex.js';
+import { createCursorAdapter } from './cursor.js';
 import { createCustomAdapter } from './custom.js';
 import { createGrokAdapter } from './grok.js';
 import { createHermesAgentAdapter } from './hermes-agent.js';
@@ -12,6 +15,8 @@ import { createShellAdapter } from './shell.js';
 
 export interface AdapterProgress {
   subAgents?: SubAgent[];
+  /** Snapshot des fichiers ouverts constatés (ADR 0010). */
+  presences?: PresenceFichier[];
   log?: string;
 }
 
@@ -77,6 +82,10 @@ export function getAdapter(name: string): AgentAdapter {
       return createShellAdapter();
     case 'claude-code':
       return createClaudeCodeAdapter();
+    case 'cursor':
+      return createCursorAdapter();
+    case 'cline':
+      return createClineAdapter();
     case 'codex':
       return createCodexAdapter();
     case 'custom':
@@ -87,7 +96,7 @@ export function getAdapter(name: string): AgentAdapter {
       return createHermesAgentAdapter();
     default:
       throw new Error(
-        `Adaptateur inconnu : ${name} (disponibles : shell, claude-code, codex, grok, custom, hermes-agent)`,
+        `Adaptateur inconnu : ${name} (disponibles : shell, claude-code, cursor, cline, codex, grok, custom, hermes-agent)`,
       );
   }
 }

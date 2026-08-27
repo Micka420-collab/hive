@@ -76,11 +76,21 @@ function estTypeStripe(s: string): s is TypeStripe {
 }
 
 function objetStripe(brut: unknown): Record<string, unknown> | null {
+  // loupe : équivalent — || → &&. INATTEIGNABLE : `objetStripe` n'a qu'un
+  // appelant (`evenementDepuisStripe`), et il l'appelle APRÈS sa propre garde
+  // qui a déjà écarté `null` et les non-objets. `brut` est ici toujours un
+  // objet non nul : les deux formes rendent `false`.
   if (typeof brut !== 'object' || brut === null) return null;
   const o = brut as Record<string, unknown>;
   const data = o.data;
   if (typeof data !== 'object' || data === null) return null;
   const obj = (data as Record<string, unknown>).object;
+  // loupe : équivalent — || → &&, mais par une preuve qui descend en aval.
+  // Mué, un `obj` non-objet est RENDU au lieu d'être refusé. Or `meta()` lit
+  // `.metadata` dessus sans lever (une primitive rend `undefined`), et le
+  // `if (!projectId …)` qui suit rend `null` de toute façon. Un `obj` valant
+  // `null` est rendu tel quel, et le `if (!obj)` de l'appelant l'arrête.
+  // Tous les chemins mènent au même `null`.
   if (typeof obj !== 'object' || obj === null) return null;
   return obj as Record<string, unknown>;
 }

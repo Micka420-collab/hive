@@ -106,6 +106,7 @@ describe('Scheduler (ordonnancement)', () => {
     store = new HiveStore(':memory:');
     assigned = [];
     scheduler = new Scheduler(store, {
+      simulation: true,
       onAssign: (nodeId, task) => assigned.push({ nodeId, task }),
     });
   });
@@ -480,5 +481,18 @@ describe('Scheduler (ordonnancement)', () => {
     expect(store.getTask(t.id)?.status).toBe('ready');
     scheduler.tick();
     expect(store.getTask(t.id)?.status).toBe('ready');
+  });
+
+  it('en production, n assigne pas aux nœuds shell (simulation: false)', () => {
+    const prod = new Scheduler(store, {
+      simulation: false,
+      onAssign: (nodeId, task) => assigned.push({ nodeId, task }),
+    });
+    const p = store.createProject({ name: 'P' });
+    store.createTask({ projectId: p.id, title: 'T', prompt: 'p' });
+    prod.registerNode(profile('shell-only'));
+    prod.tick();
+    expect(assigned).toHaveLength(0);
+    expect(store.tasksByStatus('ready')).toHaveLength(1);
   });
 });

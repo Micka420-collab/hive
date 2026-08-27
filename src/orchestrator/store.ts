@@ -7,6 +7,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { PlateformeNoeud } from '../shared/machine.js';
 import { LIMITS } from '../shared/protocol.js';
+import type { OutilConstate } from '../shared/protocol.js';
 import { LIMITE_TACHES_INSTANTANE } from '../shared/types.js';
 import type { Partage } from '../shared/partage.js';
 import type { GenreSauvegarde, Sauvegarde, SauvegardeResume } from '../shared/sauvegardes.js';
@@ -20,7 +21,37 @@ import { depenseHote, fermerSession, ouvrirSession } from './horloge-hote.js';
 import type { SessionHote } from './horloge-hote.js';
 import { CORPUS_GARDIENNES, VERSION_GARDIENNES } from './gardiennes.js';
 import type { Grief, LigneGardienne, Verdict } from './gardiennes.js';
-import { rankMemories } from './hive-mind.js';
+import { jugerBapteme, normaliserNomBapteme, type VerdictBapteme } from './bapteme.js';
+import { validerMetier, type MetierCycle, type VerdictMetier } from './metier.js';
+import {
+  jugerCheminPresence,
+  validerOutilPresence,
+  type OutilPresence,
+  type PresenceFichier,
+} from '../shared/presence.js';
+import {
+  validerGenreRequisition,
+  validerLibelleRequisition,
+  type GenreRequisition,
+  type MotifRefusRequisition,
+  type StatutRequisition,
+} from './requisition.js';
+import {
+  validerGenreFabrique,
+  validerLibelleFabrique,
+  type GenreFabrique,
+  type MotifRefusFabrique,
+  type StatutFabrique,
+} from './fabrique.js';
+import {
+  HORIZON_LECTURE_MAX,
+  validerKindHorizon,
+  validerTexteHorizon,
+  type EntreeHorizon,
+  type MotifRefusHorizon,
+} from './horizon.js';
+import { validerMotifPerso, type MotifPersoRefus } from './motifs.js';
+import { rankMemoriesHybrid } from './hive-mind.js';
 import type { Memory, ScoredMemory } from './hive-mind.js';
 import type {
   HiveEvent,
@@ -803,6 +834,134 @@ CREATE TABLE IF NOT EXISTS modeles_noeuds (
   modeles TEXT NOT NULL,
   majA    INTEGER NOT NULL
 );
+
+-- BORNE STRUCTURELLE (regle 3), troisieme jumelle : une ligne par noeud, la
+-- clef primaire EST la borne, la re-inscription ECRASE. Les OUTILS IA que le
+-- noeud a CONSTATES sur sa machine (binaire sur le PATH, cle dans
+-- l'environnement), ranges en JSON.
+--
+-- C'est un CONSTAT, pas une capacite : ce que la ruche sait FAIRE de chaque
+-- outil vit dans le catalogue (src/shared/catalogue-outils.ts), et les deux ne
+-- se croisent qu'a l'affichage. Un noeud qui ne declare rien n'a pas de ligne,
+-- et l'ecran n'invente rien a sa place.
+CREATE TABLE IF NOT EXISTS outils_noeuds (
+  nodeId TEXT PRIMARY KEY REFERENCES nodes(id),
+  outils TEXT NOT NULL,
+  majA   INTEGER NOT NULL
+);
+
+-- Baptême Reine (ADR 0010) : le nom affiché d'une ouvrière. TABLE LATÉRALE —
+-- on n'ALTÈRE pas « nodes.name » (règle 2). Le nœud ne pose PAS ce nom via le
+-- protocole ; seule la Reine (API / CLI) écrit ici. UNIQUE insensible à la
+-- casse : une collision est refusée avant l'INSERT (bapteme.ts), et l'index
+-- double la garde.
+CREATE TABLE IF NOT EXISTS baptemes (
+  nodeId   TEXT PRIMARY KEY REFERENCES nodes(id),
+  nom      TEXT NOT NULL,
+  baptiseA INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_baptemes_nom ON baptemes(nom COLLATE NOCASE);
+
+-- Métier de cycle (ADR 0010) : orthogonal à la caste. TABLE LATÉRALE, une
+-- ligne par nœud. Assigné par la Reine / l'essaim — jamais déclaré par le
+-- protocole. Absent ⇒ l'écran ne montre pas de métier inventé.
+CREATE TABLE IF NOT EXISTS metiers_cycle (
+  nodeId   TEXT PRIMARY KEY REFERENCES nodes(id),
+  metier   TEXT NOT NULL,
+  assigneA INTEGER NOT NULL
+);
+
+-- Présence Rayon (ADR 0010) : fichiers OUVERTS constatés (Read/Edit/Write).
+-- TABLE LATÉRALE — une ligne par (nœud, toolUseId). Absent ⇒ l'écran ne
+-- montre PAS de fichier ouvert inventé. Élagage : prunePresences (rétention)
+-- + effacement à la fin de tâche.
+CREATE TABLE IF NOT EXISTS presences_rayon (
+  nodeId    TEXT NOT NULL REFERENCES nodes(id),
+  toolUseId TEXT NOT NULL,
+  chemin    TEXT NOT NULL,
+  outil     TEXT NOT NULL,
+  taskId    TEXT,
+  constateA INTEGER NOT NULL,
+  PRIMARY KEY (nodeId, toolUseId)
+);
+CREATE INDEX IF NOT EXISTS idx_presences_rayon_task ON presences_rayon(taskId);
+
+-- Réquisitions (ADR 0010) : besoins émis pour l'humain. TABLE LATÉRALE.
+-- Closées (accordée/refusée) → pruneRequisitions. Jamais de secret ici —
+-- seulement le genre + libellé. Clés chez la Queen / Intendance.
+CREATE TABLE IF NOT EXISTS requisitions (
+  id      TEXT PRIMARY KEY,
+  nodeId  TEXT NOT NULL REFERENCES nodes(id),
+  genre   TEXT NOT NULL,
+  libelle TEXT NOT NULL,
+  detail  TEXT,
+  taskId  TEXT,
+  statut  TEXT NOT NULL,
+  creeA   INTEGER NOT NULL,
+  closA   INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_requisitions_statut ON requisitions(statut);
+
+-- Fabrique (ADR 0010 lot 8) : propositions d'outil dans le dépôt.
+-- Chantier seulement après statut mergee + script déclaré.
+CREATE TABLE IF NOT EXISTS fabriques (
+  id         TEXT PRIMARY KEY,
+  projectId  TEXT NOT NULL REFERENCES projects(id),
+  nodeId     TEXT REFERENCES nodes(id),
+  genre      TEXT NOT NULL,
+  libelle    TEXT NOT NULL,
+  nomScript  TEXT,
+  taskId     TEXT,
+  statut     TEXT NOT NULL,
+  creeA      INTEGER NOT NULL,
+  closA      INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_fabriques_projet ON fabriques(projectId);
+
+-- Horizon (ADR 0010 lot 9) : faits ≠ hypothèses. Borné + pruneHorizon.
+CREATE TABLE IF NOT EXISTS horizon_ledger (
+  id        TEXT PRIMARY KEY,
+  projectId TEXT NOT NULL REFERENCES projects(id),
+  kind      TEXT NOT NULL,
+  texte     TEXT NOT NULL,
+  source    TEXT NOT NULL,
+  creeA     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_horizon_projet ON horizon_ledger(projectId, creeA DESC);
+
+-- L'HORLOGE DU CHANTIER : le registre des annonces de durée.
+--
+-- POURQUOI LA CASTE EST ÉCRITE ICI, ET PAS RELUE PLUS TARD.
+-- La caste est VIVE : elle se calcule à l'instant où on la demande, à partir de
+-- l'expérience du nœud. Relire aujourd'hui la caste d'un nœud pour expliquer
+-- une durée d'il y a trois semaines rendrait un historique faux — le même
+-- mensonge que celui déjà consigné plus haut pour « exigeContreVisite ».
+-- L'annonce fige donc la caste telle qu'elle était AU MOMENT DE L'ANNONCE.
+--
+-- POURQUOI CETTE TABLE EXISTE DU TOUT.
+-- Sans elle, « calibrer » n'a rien à comparer : on saurait combien de temps les
+-- tâches ont pris, jamais ce qu'on avait ANNONCÉ. Une horloge qui ne peut pas
+-- se noter est une horloge qu'il faut croire sur parole.
+CREATE TABLE IF NOT EXISTS annonces_duree (
+  taskId  TEXT PRIMARY KEY REFERENCES tasks(id),
+  nodeId  TEXT NOT NULL,
+  caste   TEXT NOT NULL,
+  socle   TEXT NOT NULL,
+  n       INTEGER NOT NULL,
+  p50Ms   INTEGER NOT NULL,
+  p80Ms   INTEGER NOT NULL,
+  faiteA  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_annonces_faite ON annonces_duree(faiteA DESC);
+-- Motifs perso (ADR 0010 lot 10) : procédures créées depuis la Chambre, par projet.
+CREATE TABLE IF NOT EXISTS motifs_projet (
+  id        TEXT PRIMARY KEY,
+  projectId TEXT NOT NULL REFERENCES projects(id),
+  libelle   TEXT NOT NULL,
+  etapes    TEXT NOT NULL,
+  creeA     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_motifs_projet ON motifs_projet(projectId, creeA DESC);
 `;
 
 interface ProjectRow {
@@ -1037,6 +1196,12 @@ export interface NodeProfile {
   plateforme?: PlateformeNoeud;
   /** Les modèles déclarés par le nœud. Absents : on n'écrase pas ce qu'on sait. */
   modeles?: string[];
+  /**
+   * Les outils IA CONSTATÉS sur la machine du nœud. Absents : on n'écrase pas
+   * ce qu'on sait — un client d'avant cette version ne doit pas effacer les
+   * constats qu'une version récente avait appris.
+   */
+  outils?: OutilConstate[];
 }
 
 export interface TaskPatch {
@@ -1089,19 +1254,21 @@ function rowToTask(row: TaskRow): Task {
 
 /** `running` est calculé à la volée depuis les tâches actives — jamais stocké. */
 const NODE_SELECT = `
-  SELECT n.*, m.plateforme AS plateforme, md.modeles AS modeles, (
+  SELECT n.*, m.plateforme AS plateforme, md.modeles AS modeles, o.outils AS outils, (
     SELECT COUNT(*) FROM tasks t
     WHERE t.assignedNodeId = n.id AND t.status IN ('assigned', 'running')
   ) AS running
   FROM nodes n
   LEFT JOIN machines_noeuds m ON m.nodeId = n.id
   LEFT JOIN modeles_noeuds md ON md.nodeId = n.id
+  LEFT JOIN outils_noeuds o ON o.nodeId = n.id
 `;
 
 /** La ligne brute d'un nœud telle que `NODE_SELECT` la rend, avant relecture. */
 interface NodeRowBrut extends NodeRow {
   plateforme: PlateformeNoeud | null;
   modeles: string | null;
+  outils: string | null;
 }
 
 /**
@@ -1119,16 +1286,48 @@ function lireModeles(brut: string): string[] {
 }
 
 /**
- * De la ligne brute au `HiveNode` : la seule transformation est de replier la
- * colonne `modeles` (JSON) en tableau. `plateforme` et `running` passent tels
- * quels. Une liste vide (ou absente) laisse `modeles` ABSENT — un nœud sans
- * modèle déclaré n'a pas de `modeles: []` inventé.
+ * Relit les constats d'outils. Tolérante comme `lireModeles`, et EXIGEANTE sur
+ * la forme : une entrée dont un champ manque ou ment est écartée, pas
+ * réparée. Un constat à moitié lu vaudrait un constat inventé.
+ *
+ * Le tri-état de la clé est reconstruit ici plutôt que recopié : `presente`,
+ * `absente`, `inconnue` — tout le reste vaut `inconnue`, parce que « on ne
+ * sait pas lire » est la seule réponse honnête à une valeur qu'on ne connaît
+ * pas, et jamais « pas de clé ».
+ */
+function lireOutils(brut: string): OutilConstate[] {
+  try {
+    const lus: unknown = JSON.parse(brut);
+    if (!Array.isArray(lus)) return [];
+    const gardes: OutilConstate[] = [];
+    for (const x of lus) {
+      if (typeof x !== 'object' || x === null) continue;
+      const o = x as Record<string, unknown>;
+      if (typeof o.agent !== 'string' || o.agent.length === 0) continue;
+      if (typeof o.binaire !== 'boolean') continue;
+      const cle =
+        o.cle === 'presente' || o.cle === 'absente' ? (o.cle as OutilConstate['cle']) : 'inconnue';
+      gardes.push({ agent: o.agent, binaire: o.binaire, cle });
+    }
+    return gardes;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * De la ligne brute au `HiveNode` : replier les colonnes JSON (`modeles`,
+ * `outils`) en tableaux. `plateforme` et `running` passent tels quels. Une
+ * liste vide (ou absente) laisse le champ ABSENT — un nœud sans modèle déclaré
+ * n'a pas de `modeles: []` inventé, et un nœud sans constat pas d'`outils: []`.
  */
 function rowToNode(row: NodeRowBrut): HiveNode {
-  const { modeles, ...reste } = row;
+  const { modeles, outils, ...reste } = row;
   const node = reste as unknown as HiveNode;
   const liste = typeof modeles === 'string' ? lireModeles(modeles) : [];
   if (liste.length > 0) node.modeles = liste;
+  const constats = typeof outils === 'string' ? lireOutils(outils) : [];
+  if (constats.length > 0) node.outils = constats;
   return node;
 }
 
@@ -1382,6 +1581,18 @@ export class HiveStore {
         )
         .run(id, JSON.stringify(profile.modeles), now);
     }
+    // Les constats d'outils, même règle que les deux tables au-dessus :
+    // ABSENTS, on ne touche à rien ; présents, la dernière inscription gagne.
+    // Un nœud qui a désinstallé Cursor le dit en le rangeant `binaire: false`
+    // — il n'omet pas la ligne, sans quoi le hub garderait l'ancien constat.
+    if (profile.outils !== undefined) {
+      this.db
+        .prepare(
+          'INSERT INTO outils_noeuds (nodeId, outils, majA) VALUES (?, ?, ?) ' +
+            'ON CONFLICT(nodeId) DO UPDATE SET outils = excluded.outils, majA = excluded.majA',
+        )
+        .run(id, JSON.stringify(profile.outils), now);
+    }
     return this.getNode(id) as HiveNode;
   }
 
@@ -1394,6 +1605,848 @@ export class HiveStore {
     return (this.db.prepare(`${NODE_SELECT} ORDER BY n.name`).all() as NodeRowBrut[]).map(
       rowToNode,
     );
+  }
+
+  // ─── Baptêmes (ADR 0010) ───────────────────────────────────────────────────
+  //
+  // Identité affichée POSÉE PAR LA REINE. Absent ⇒ l'écran ne montre pas de
+  // prénom inventé (règle d'or Chambre). `nodes.name` reste le libellé
+  // technique d'inscription ; il n'est plus la source d'identité humaine.
+
+  /** Le baptême d'un nœud, ou `null` s'il n'en a pas (jamais inventé). */
+  lireBapteme(nodeId: string): { nom: string; baptiseA: number } | null {
+    const row = this.db
+      .prepare('SELECT nom, baptiseA FROM baptemes WHERE nodeId = ?')
+      .get(nodeId) as { nom: string; baptiseA: number } | undefined;
+    return row ?? null;
+  }
+
+  /** Tous les baptêmes — pour lister les collisions et l'API Chambre. */
+  listerBaptemes(): { nodeId: string; nom: string; baptiseA: number }[] {
+    return this.db
+      .prepare('SELECT nodeId, nom, baptiseA FROM baptemes ORDER BY nom COLLATE NOCASE')
+      .all() as { nodeId: string; nom: string; baptiseA: number }[];
+  }
+
+  /**
+   * Baptise (ou rebaptise) une ouvrière.
+   *
+   * Le jugement pur vit dans `bapteme.ts` ; ici on vérifie l'existence du nœud
+   * et on persiste. Collision = autre `nodeId` portant déjà ce nom.
+   */
+  baptiser(
+    nodeId: string,
+    brut: string,
+    now = Date.now(),
+  ): VerdictBapteme | { ok: false; motif: 'noeud_inconnu' } {
+    if (!this.getNode(nodeId)) return { ok: false, motif: 'noeud_inconnu' };
+    const pris = this.listerBaptemes()
+      .filter((b) => b.nodeId !== nodeId)
+      .map((b) => b.nom);
+    const verdict = jugerBapteme(brut, pris);
+    if (!verdict.ok) return verdict;
+    this.db
+      .prepare(
+        'INSERT INTO baptemes (nodeId, nom, baptiseA) VALUES (?, ?, ?) ' +
+          'ON CONFLICT(nodeId) DO UPDATE SET nom = excluded.nom, baptiseA = excluded.baptiseA',
+      )
+      .run(nodeId, verdict.nom, now);
+    return verdict;
+  }
+
+  /**
+   * Retire le baptême. N'invente pas de nom de remplacement — l'ouvrière
+   * redevient sans nom baptisé.
+   */
+  debaptiser(nodeId: string): boolean {
+    const r = this.db.prepare('DELETE FROM baptemes WHERE nodeId = ?').run(nodeId);
+    return r.changes > 0;
+  }
+
+  /** Résout un nom baptisé → nodeId, ou `null`. */
+  nodeIdParBapteme(nom: string): string | null {
+    const cible = normaliserNomBapteme(nom);
+    if (!cible) return null;
+    const row = this.db
+      .prepare('SELECT nodeId FROM baptemes WHERE nom = ? COLLATE NOCASE')
+      .get(cible) as { nodeId: string } | undefined;
+    return row?.nodeId ?? null;
+  }
+
+  // ─── Métiers de cycle (ADR 0010) ───────────────────────────────────────────
+
+  /** Métier assigné, ou `null` — jamais inventé. */
+  lireMetier(nodeId: string): { metier: MetierCycle; assigneA: number } | null {
+    const row = this.db
+      .prepare('SELECT metier, assigneA FROM metiers_cycle WHERE nodeId = ?')
+      .get(nodeId) as { metier: string; assigneA: number } | undefined;
+    if (!row) return null;
+    const v = validerMetier(row.metier);
+    if (!v.ok) return null; // ligne corrompue ⇒ silence, pas de théâtre
+    return { metier: v.metier, assigneA: row.assigneA };
+  }
+
+  listerMetiers(): { nodeId: string; metier: MetierCycle; assigneA: number }[] {
+    const rows = this.db
+      .prepare('SELECT nodeId, metier, assigneA FROM metiers_cycle ORDER BY assigneA DESC')
+      .all() as { nodeId: string; metier: string; assigneA: number }[];
+    const out: { nodeId: string; metier: MetierCycle; assigneA: number }[] = [];
+    for (const r of rows) {
+      const v = validerMetier(r.metier);
+      if (v.ok) out.push({ nodeId: r.nodeId, metier: v.metier, assigneA: r.assigneA });
+    }
+    return out;
+  }
+
+  /**
+   * Assigne (ou réassigne) un métier de cycle. Le nœud ne peut pas s'appeler
+   * lui-même — cette méthode n'est branchée que côté Reine (API ultérieure).
+   */
+  assignerMetier(
+    nodeId: string,
+    brut: string,
+    now = Date.now(),
+  ): VerdictMetier | { ok: false; motif: 'noeud_inconnu' } {
+    if (!this.getNode(nodeId)) return { ok: false, motif: 'noeud_inconnu' };
+    const verdict = validerMetier(brut);
+    if (!verdict.ok) return verdict;
+    this.db
+      .prepare(
+        'INSERT INTO metiers_cycle (nodeId, metier, assigneA) VALUES (?, ?, ?) ' +
+          'ON CONFLICT(nodeId) DO UPDATE SET metier = excluded.metier, assigneA = excluded.assigneA',
+      )
+      .run(nodeId, verdict.metier, now);
+    return verdict;
+  }
+
+  /** Retire le métier — l'ouvrière n'a plus de cycle affiché. */
+  retirerMetier(nodeId: string): boolean {
+    const r = this.db.prepare('DELETE FROM metiers_cycle WHERE nodeId = ?').run(nodeId);
+    return r.changes > 0;
+  }
+
+  // ─── Présences Rayon (ADR 0010) ────────────────────────────────────────────
+  //
+  // Fichiers ouverts CONSTATÉS. `null` / liste vide = rien à montrer (pas de
+  // théâtre). Remplacées par le snapshot courant du nœud à chaque progrès.
+
+  /** Présences ouvertes d'une ouvrière — vide si aucune observation. */
+  lirePresences(
+    nodeId: string,
+  ): Array<PresenceFichier & { taskId: string | null; constateA: number }> {
+    const rows = this.db
+      .prepare(
+        'SELECT toolUseId, chemin, outil, taskId, constateA FROM presences_rayon ' +
+          'WHERE nodeId = ? ORDER BY constateA DESC',
+      )
+      .all(nodeId) as Array<{
+      toolUseId: string;
+      chemin: string;
+      outil: string;
+      taskId: string | null;
+      constateA: number;
+    }>;
+    const out: Array<PresenceFichier & { taskId: string | null; constateA: number }> = [];
+    for (const r of rows) {
+      const o = validerOutilPresence(r.outil);
+      const c = jugerCheminPresence(r.chemin);
+      if (!o.ok || !c.ok) continue;
+      out.push({
+        toolUseId: r.toolUseId,
+        chemin: c.chemin,
+        outil: o.outil,
+        taskId: r.taskId,
+        constateA: r.constateA,
+      });
+    }
+    return out;
+  }
+
+  listerPresences(): Array<{
+    nodeId: string;
+    toolUseId: string;
+    chemin: string;
+    outil: OutilPresence;
+    taskId: string | null;
+    constateA: number;
+  }> {
+    const rows = this.db
+      .prepare(
+        'SELECT nodeId, toolUseId, chemin, outil, taskId, constateA FROM presences_rayon ' +
+          'ORDER BY constateA DESC',
+      )
+      .all() as Array<{
+      nodeId: string;
+      toolUseId: string;
+      chemin: string;
+      outil: string;
+      taskId: string | null;
+      constateA: number;
+    }>;
+    const out: Array<{
+      nodeId: string;
+      toolUseId: string;
+      chemin: string;
+      outil: OutilPresence;
+      taskId: string | null;
+      constateA: number;
+    }> = [];
+    for (const r of rows) {
+      const o = validerOutilPresence(r.outil);
+      const c = jugerCheminPresence(r.chemin);
+      if (!o.ok || !c.ok) continue;
+      out.push({
+        nodeId: r.nodeId,
+        toolUseId: r.toolUseId,
+        chemin: c.chemin,
+        outil: o.outil,
+        taskId: r.taskId,
+        constateA: r.constateA,
+      });
+    }
+    return out;
+  }
+
+  /**
+   * Remplace les présences OUVERTES d'un nœud pour une tâche par le snapshot
+   * constaté. Snapshot vide ⇒ efface (plus rien d'ouvert). Nœud inconnu ⇒ refus.
+   */
+  remplacerPresences(
+    nodeId: string,
+    snapshot: PresenceFichier[],
+    taskId: string | null = null,
+    now = Date.now(),
+  ): { ok: true } | { ok: false; motif: 'noeud_inconnu' } {
+    if (!this.getNode(nodeId)) return { ok: false, motif: 'noeud_inconnu' };
+    const tx = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM presences_rayon WHERE nodeId = ?').run(nodeId);
+      const ins = this.db.prepare(
+        'INSERT INTO presences_rayon (nodeId, toolUseId, chemin, outil, taskId, constateA) ' +
+          'VALUES (?, ?, ?, ?, ?, ?)',
+      );
+      for (const p of snapshot) {
+        const o = validerOutilPresence(p.outil);
+        const c = jugerCheminPresence(p.chemin);
+        if (!o.ok || !c.ok) continue;
+        if (typeof p.toolUseId !== 'string' || p.toolUseId.length === 0) continue;
+        ins.run(nodeId, p.toolUseId, c.chemin, o.outil, taskId, now);
+      }
+    });
+    tx();
+    return { ok: true };
+  }
+
+  /** Efface toute présence d'un nœud (hors ligne, fin de tâche…). */
+  effacerPresencesNoeud(nodeId: string): number {
+    return this.db.prepare('DELETE FROM presences_rayon WHERE nodeId = ?').run(nodeId).changes;
+  }
+
+  /** Efface les présences liées à une tâche terminée. */
+  effacerPresencesTache(taskId: string): number {
+    return this.db.prepare('DELETE FROM presences_rayon WHERE taskId = ?').run(taskId).changes;
+  }
+
+  /**
+   * Borne d'élagage (règle 3) : les présences trop vieilles (outil jamais
+   * refermé, nœud disparu…) ne traînent pas.
+   */
+  prunePresences(retentionMs: number, now = Date.now()): number {
+    const cutoff = now - retentionMs;
+    return this.db.prepare('DELETE FROM presences_rayon WHERE constateA < ?').run(cutoff).changes;
+  }
+
+  // ─── Réquisitions (ADR 0010) ───────────────────────────────────────────────
+
+  ouvrirRequisition(
+    nodeId: string,
+    genreBrut: string,
+    libelleBrut: string,
+    detail: string | null = null,
+    taskId: string | null = null,
+    now = Date.now(),
+  ):
+    | { ok: true; id: string; genre: GenreRequisition; libelle: string }
+    | { ok: false; motif: MotifRefusRequisition } {
+    if (!this.getNode(nodeId)) return { ok: false, motif: 'noeud_inconnu' };
+    const g = validerGenreRequisition(genreBrut);
+    if (!g.ok) return g;
+    const l = validerLibelleRequisition(libelleBrut);
+    if (!l.ok) return l;
+    const detailClean =
+      typeof detail === 'string' && detail.trim() ? detail.trim().slice(0, 2_000) : null;
+    const taskClean = typeof taskId === 'string' && taskId.trim() ? taskId.trim() : null;
+    const id = randomUUID();
+    this.db
+      .prepare(
+        'INSERT INTO requisitions (id, nodeId, genre, libelle, detail, taskId, statut, creeA, closA) ' +
+          'VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)',
+      )
+      .run(id, nodeId, g.genre, l.libelle, detailClean, taskClean, 'ouverte', now);
+    return { ok: true, id, genre: g.genre, libelle: l.libelle };
+  }
+
+  lireRequisition(id: string): {
+    id: string;
+    nodeId: string;
+    genre: GenreRequisition;
+    libelle: string;
+    detail: string | null;
+    taskId: string | null;
+    statut: StatutRequisition;
+    creeA: number;
+    closA: number | null;
+  } | null {
+    const row = this.db
+      .prepare(
+        'SELECT id, nodeId, genre, libelle, detail, taskId, statut, creeA, closA FROM requisitions WHERE id = ?',
+      )
+      .get(id) as
+      | {
+          id: string;
+          nodeId: string;
+          genre: string;
+          libelle: string;
+          detail: string | null;
+          taskId: string | null;
+          statut: string;
+          creeA: number;
+          closA: number | null;
+        }
+      | undefined;
+    if (!row) return null;
+    const g = validerGenreRequisition(row.genre);
+    if (!g.ok) return null;
+    if (row.statut !== 'ouverte' && row.statut !== 'accordee' && row.statut !== 'refusee') {
+      return null;
+    }
+    return {
+      id: row.id,
+      nodeId: row.nodeId,
+      genre: g.genre,
+      libelle: row.libelle,
+      detail: row.detail,
+      taskId: row.taskId,
+      statut: row.statut,
+      creeA: row.creeA,
+      closA: row.closA,
+    };
+  }
+
+  listerRequisitions(opts?: { nodeId?: string; statut?: StatutRequisition }): Array<{
+    id: string;
+    nodeId: string;
+    genre: GenreRequisition;
+    libelle: string;
+    detail: string | null;
+    taskId: string | null;
+    statut: StatutRequisition;
+    creeA: number;
+    closA: number | null;
+  }> {
+    let sql =
+      'SELECT id, nodeId, genre, libelle, detail, taskId, statut, creeA, closA FROM requisitions WHERE 1=1';
+    const args: unknown[] = [];
+    if (opts?.nodeId) {
+      sql += ' AND nodeId = ?';
+      args.push(opts.nodeId);
+    }
+    if (opts?.statut) {
+      sql += ' AND statut = ?';
+      args.push(opts.statut);
+    }
+    sql += ' ORDER BY creeA DESC LIMIT 200';
+    const rows = this.db.prepare(sql).all(...args) as Array<{
+      id: string;
+      nodeId: string;
+      genre: string;
+      libelle: string;
+      detail: string | null;
+      taskId: string | null;
+      statut: string;
+      creeA: number;
+      closA: number | null;
+    }>;
+    const out: Array<{
+      id: string;
+      nodeId: string;
+      genre: GenreRequisition;
+      libelle: string;
+      detail: string | null;
+      taskId: string | null;
+      statut: StatutRequisition;
+      creeA: number;
+      closA: number | null;
+    }> = [];
+    for (const r of rows) {
+      const g = validerGenreRequisition(r.genre);
+      if (!g.ok) continue;
+      if (r.statut !== 'ouverte' && r.statut !== 'accordee' && r.statut !== 'refusee') continue;
+      out.push({
+        id: r.id,
+        nodeId: r.nodeId,
+        genre: g.genre,
+        libelle: r.libelle,
+        detail: r.detail,
+        taskId: r.taskId,
+        statut: r.statut,
+        creeA: r.creeA,
+        closA: r.closA,
+      });
+    }
+    return out;
+  }
+
+  repondreRequisition(
+    id: string,
+    decision: 'accordee' | 'refusee',
+    now = Date.now(),
+  ): { ok: true; statut: 'accordee' | 'refusee' } | { ok: false; motif: MotifRefusRequisition } {
+    const cur = this.lireRequisition(id);
+    if (!cur) return { ok: false, motif: 'inconnue' };
+    if (cur.statut !== 'ouverte') return { ok: false, motif: 'deja_close' };
+    this.db
+      .prepare('UPDATE requisitions SET statut = ?, closA = ? WHERE id = ?')
+      .run(decision, now, id);
+    return { ok: true, statut: decision };
+  }
+
+  /** Élage les réquisitions closes trop anciennes (les ouvertes restent). */
+  pruneRequisitions(retentionMs: number, now = Date.now()): number {
+    const cutoff = now - retentionMs;
+    return this.db
+      .prepare(
+        "DELETE FROM requisitions WHERE statut != 'ouverte' AND closA IS NOT NULL AND closA < ?",
+      )
+      .run(cutoff).changes;
+  }
+
+  // ─── Fabrique (ADR 0010 lot 8) ─────────────────────────────────────────────
+
+  ouvrirFabrique(
+    projectId: string,
+    genreBrut: string,
+    libelleBrut: string,
+    opts?: { nodeId?: string; nomScript?: string; taskId?: string },
+    now = Date.now(),
+  ):
+    | { ok: true; id: string; genre: GenreFabrique; libelle: string }
+    | { ok: false; motif: MotifRefusFabrique } {
+    if (!this.getProject(projectId)) return { ok: false, motif: 'projet_inconnu' };
+    const g = validerGenreFabrique(genreBrut);
+    if (!g.ok) return g;
+    const l = validerLibelleFabrique(libelleBrut);
+    if (!l.ok) return l;
+    if (opts?.nodeId && !this.getNode(opts.nodeId)) return { ok: false, motif: 'projet_inconnu' };
+    const id = randomUUID();
+    this.db
+      .prepare(
+        'INSERT INTO fabriques (id, projectId, nodeId, genre, libelle, nomScript, taskId, statut, creeA, closA) ' +
+          'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)',
+      )
+      .run(
+        id,
+        projectId,
+        opts?.nodeId ?? null,
+        g.genre,
+        l.libelle,
+        opts?.nomScript ?? null,
+        opts?.taskId ?? null,
+        'proposee',
+        now,
+      );
+    return { ok: true, id, genre: g.genre, libelle: l.libelle };
+  }
+
+  listerFabriques(projectId: string): Array<{
+    id: string;
+    projectId: string;
+    nodeId: string | null;
+    genre: GenreFabrique;
+    libelle: string;
+    nomScript: string | null;
+    taskId: string | null;
+    statut: StatutFabrique;
+    creeA: number;
+    closA: number | null;
+  }> {
+    const rows = this.db
+      .prepare(
+        'SELECT id, projectId, nodeId, genre, libelle, nomScript, taskId, statut, creeA, closA ' +
+          'FROM fabriques WHERE projectId = ? ORDER BY creeA DESC LIMIT 100',
+      )
+      .all(projectId) as Array<{
+      id: string;
+      projectId: string;
+      nodeId: string | null;
+      genre: string;
+      libelle: string;
+      nomScript: string | null;
+      taskId: string | null;
+      statut: string;
+      creeA: number;
+      closA: number | null;
+    }>;
+    const out: Array<{
+      id: string;
+      projectId: string;
+      nodeId: string | null;
+      genre: GenreFabrique;
+      libelle: string;
+      nomScript: string | null;
+      taskId: string | null;
+      statut: StatutFabrique;
+      creeA: number;
+      closA: number | null;
+    }> = [];
+    for (const r of rows) {
+      const g = validerGenreFabrique(r.genre);
+      if (!g.ok) continue;
+      if (
+        r.statut !== 'proposee' &&
+        r.statut !== 'en_revue' &&
+        r.statut !== 'mergee' &&
+        r.statut !== 'refusee'
+      ) {
+        continue;
+      }
+      out.push({
+        id: r.id,
+        projectId: r.projectId,
+        nodeId: r.nodeId,
+        genre: g.genre,
+        libelle: r.libelle,
+        nomScript: r.nomScript,
+        taskId: r.taskId,
+        statut: r.statut,
+        creeA: r.creeA,
+        closA: r.closA,
+      });
+    }
+    return out;
+  }
+
+  poserStatutFabrique(
+    id: string,
+    statut: StatutFabrique,
+    now = Date.now(),
+  ): { ok: true } | { ok: false; motif: MotifRefusFabrique } {
+    const row = this.db.prepare('SELECT id, statut FROM fabriques WHERE id = ?').get(id) as
+      { id: string; statut: string } | undefined;
+    if (!row) return { ok: false, motif: 'inconnue' };
+    if (row.statut === 'mergee' || row.statut === 'refusee') {
+      return { ok: false, motif: 'deja_close' };
+    }
+    const clos = statut === 'mergee' || statut === 'refusee' ? now : null;
+    this.db
+      .prepare('UPDATE fabriques SET statut = ?, closA = ? WHERE id = ?')
+      .run(statut, clos, id);
+    return { ok: true };
+  }
+
+  pruneFabriques(retentionMs: number, now = Date.now()): number {
+    const cutoff = now - retentionMs;
+    return this.db
+      .prepare(
+        "DELETE FROM fabriques WHERE statut IN ('mergee','refusee') AND closA IS NOT NULL AND closA < ?",
+      )
+      .run(cutoff).changes;
+  }
+
+  // ─── Horizon (ADR 0010 lot 9) ──────────────────────────────────────────────
+
+  /**
+   * Consigne ce qu'on a ANNONCÉ à l'ouvrière, avant qu'elle ne commence.
+   *
+   * `INSERT OR REPLACE` : une tâche ré-assignée après échec reçoit une annonce
+   * neuve, et c'est la dernière qui compte — c'est elle que l'humain a lue.
+   * Garder les deux ferait compter deux fois la même tâche dans la calibration.
+   */
+  enregistrerAnnonce(
+    taskId: string,
+    nodeId: string,
+    caste: string,
+    annonce: { socle: string; n: number; p50Ms: number; p80Ms: number },
+    now = Date.now(),
+  ): void {
+    this.db
+      .prepare(
+        'INSERT OR REPLACE INTO annonces_duree (taskId, nodeId, caste, socle, n, p50Ms, p80Ms, faiteA) ' +
+          'VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      )
+      .run(taskId, nodeId, caste, annonce.socle, annonce.n, annonce.p50Ms, annonce.p80Ms, now);
+  }
+
+  /**
+   * L'historique dont l'horloge se sert pour prédire.
+   *
+   * `LEFT JOIN` délibéré : une tâche terminée AVANT que l'horloge n'existe n'a
+   * pas d'annonce, donc pas de caste figée. On la garde quand même, sans caste
+   * — elle nourrit le socle `global`. Un `INNER JOIN` jetterait tout le passé
+   * de la ruche le jour de la mise en service, et l'horloge repartirait muette
+   * alors que la donnée est là.
+   *
+   * `LIMIT` toujours : cette table grossit à chaque tâche.
+   */
+  historiqueDurees(limite = 500): Array<{ dureeMs: number; caste?: string; reussie: boolean }> {
+    const cap = Math.max(1, Math.min(limite, 5000));
+    const rows = this.db
+      .prepare(
+        'SELECT r.durationMs AS dureeMs, r.success AS success, a.caste AS caste ' +
+          'FROM results r LEFT JOIN annonces_duree a ON a.taskId = r.taskId ' +
+          'ORDER BY r.createdAt DESC, r.id DESC LIMIT ?',
+      )
+      .all(cap) as Array<{ dureeMs: number; success: number; caste: string | null }>;
+    return rows.map((r) => ({
+      dureeMs: r.dureeMs,
+      ...(r.caste === null ? {} : { caste: r.caste }),
+      reussie: r.success === 1,
+    }));
+  }
+
+  /**
+   * Les tâches ENCORE en vol, avec l'instant où on les a annoncées.
+   *
+   * `faiteA` est l'instant exact de l'assignation — c'est `envoyerTache` qui
+   * l'écrit, dans le même geste que l'envoi. Plus juste qu'un `updatedAt`, qui
+   * bouge à chaque changement et confondrait « assignée il y a deux heures »
+   * avec « statut retouché il y a deux minutes ».
+   *
+   * Sert à repérer les tâches sorties du domaine connu : celles qui courent
+   * depuis plus longtemps que TOUT ce que la ruche a observé.
+   */
+  tachesEnVolAnnoncees(
+    limite = 200,
+  ): Array<{ taskId: string; nodeId: string; caste: string; faiteA: number }> {
+    const cap = Math.max(1, Math.min(limite, 2000));
+    return this.db
+      .prepare(
+        'SELECT a.taskId AS taskId, a.nodeId AS nodeId, a.caste AS caste, a.faiteA AS faiteA ' +
+          'FROM annonces_duree a JOIN tasks t ON t.id = a.taskId ' +
+          "WHERE t.status IN ('assigned', 'running') ORDER BY a.faiteA ASC LIMIT ?",
+      )
+      .all(cap) as Array<{ taskId: string; nodeId: string; caste: string; faiteA: number }>;
+  }
+
+  /**
+   * Les annonces qui ont trouvé leur réel — de quoi noter l'horloge.
+   *
+   * On ne retient que les tâches RÉUSSIES : une tâche abandonnée n'a pas
+   * infirmé l'annonce, elle l'a rendue sans objet. La compter comme un
+   * dépassement salirait la calibration avec des cas qui ne la concernent pas.
+   */
+  /**
+   * Les annonces que le réel a jugées.
+   *
+   * ─── LE SOCLE « AUCUN » EN EST EXCLU, ET C'EST TOUTE LA JUSTESSE DE LA NOTE ─
+   *
+   * Sur ce socle, l'annonce enregistrée porte « p80Ms = 0 » : la ruche n'a rien
+   * promis, elle a dit « je ne sais pas encore ». Or « calibrer » compte une
+   * annonce tenue quand « reelMs <= p80Ms » — donc aucune de ces lignes ne
+   * tient jamais, et chacune fait chuter la part.
+   *
+   * MESURÉ avant d'être corrigé : cinq tâches toutes annoncées « aucun », toutes
+   * réussies, rendaient « partTenue 0, ecart -0,8, verdict optimiste » — la pire
+   * note du barème. Et c'est le cas du DÉMARRAGE : une ruche neuve n'a pas
+   * d'historique, donc ses premières annonces sont TOUTES « aucun ». L'horloge
+   * se serait déclarée menteuse dès le premier jour, en punition d'avoir été
+   * honnête.
+   *
+   * Le filtre est ici, dans la requête, et pas dans « calibrer » : ce dernier ne
+   * reçoit que des couples (promesse, réel) et ne connaît pas les socles. Lui
+   * passer de quoi trier reviendrait à lui faire porter une règle de stockage.
+   *
+   * C'est le même piège que celui fermé côté écran dans « verdictAnnonce » —
+   * comparer un réel à un plafond que personne n'a promis —, rencontré une
+   * seconde fois, à l'autre bout de la chaîne.
+   */
+  annoncesJugees(limite = 500): Array<{ p80Ms: number; reelMs: number }> {
+    const cap = Math.max(1, Math.min(limite, 5000));
+    return this.db
+      .prepare(
+        'SELECT a.p80Ms AS p80Ms, r.durationMs AS reelMs ' +
+          'FROM annonces_duree a JOIN results r ON r.taskId = a.taskId ' +
+          "WHERE r.success = 1 AND a.socle <> 'aucun' ORDER BY a.faiteA DESC LIMIT ?",
+      )
+      .all(cap) as Array<{ p80Ms: number; reelMs: number }>;
+  }
+
+  ajouterHorizon(
+    projectId: string,
+    kindBrut: string,
+    texteBrut: string,
+    source = 'reine',
+    now = Date.now(),
+  ): { ok: true; entree: EntreeHorizon } | { ok: false; motif: MotifRefusHorizon } {
+    if (!this.getProject(projectId)) return { ok: false, motif: 'projet_inconnu' };
+    const k = validerKindHorizon(kindBrut);
+    if (!k.ok) return k;
+    const t = validerTexteHorizon(texteBrut);
+    if (!t.ok) return t;
+    const count = (
+      this.db
+        .prepare('SELECT COUNT(*) AS n FROM horizon_ledger WHERE projectId = ?')
+        .get(projectId) as {
+        n: number;
+      }
+    ).n;
+    if (count >= HORIZON_LECTURE_MAX * 5) return { ok: false, motif: 'trop_dentrees' };
+    const id = randomUUID();
+    const src = (source || 'reine').trim().slice(0, 80) || 'reine';
+    this.db
+      .prepare(
+        'INSERT INTO horizon_ledger (id, projectId, kind, texte, source, creeA) VALUES (?, ?, ?, ?, ?, ?)',
+      )
+      .run(id, projectId, k.kind, t.texte, src, now);
+    return {
+      ok: true,
+      entree: {
+        id,
+        projectId,
+        kind: k.kind,
+        texte: t.texte,
+        source: src,
+        creeA: now,
+      },
+    };
+  }
+
+  listerHorizon(projectId: string, limite = HORIZON_LECTURE_MAX): EntreeHorizon[] {
+    const cap = Math.max(1, Math.min(limite, HORIZON_LECTURE_MAX));
+    const rows = this.db
+      .prepare(
+        'SELECT id, projectId, kind, texte, source, creeA FROM horizon_ledger ' +
+          'WHERE projectId = ? ORDER BY creeA DESC LIMIT ?',
+      )
+      .all(projectId, cap) as Array<{
+      id: string;
+      projectId: string;
+      kind: string;
+      texte: string;
+      source: string;
+      creeA: number;
+    }>;
+    const out: EntreeHorizon[] = [];
+    for (const r of rows) {
+      const k = validerKindHorizon(r.kind);
+      if (!k.ok) continue;
+      out.push({
+        id: r.id,
+        projectId: r.projectId,
+        kind: k.kind,
+        texte: r.texte,
+        source: r.source,
+        creeA: r.creeA,
+      });
+    }
+    return out;
+  }
+
+  /** Compte brut du ledger (pour garde-fou essaim, pas pour l’écran). */
+  compterHorizon(projectId: string): number {
+    return (
+      this.db
+        .prepare('SELECT COUNT(*) AS n FROM horizon_ledger WHERE projectId = ?')
+        .get(projectId) as { n: number }
+    ).n;
+  }
+
+  /**
+   * Élague le registre des annonces.
+   *
+   * Cette table grossit SOUS LA MACHINE — une ligne par tâche assignée —, donc
+   * elle a sa borne, comme la doctrine l'exige. Elle s'élague par le TEMPS, là
+   * où `pruneResults` s'élague par le NOMBRE — et les deux ne se comparent pas.
+   *
+   * Ce qui compte : `pruneResults` ne SUPPRIME pas les lignes, il vide leurs
+   * colonnes lourdes. `durationMs` survit donc indéfiniment, et l'annonce est
+   * la moitié PÉRISSABLE du couple. Une annonce élaguée fait sortir sa tâche de
+   * la calibration sans erreur ni trou visible — juste une note calculée sur
+   * moins de cas qu'on ne croit.
+   */
+  pruneAnnonces(retentionMs: number, now = Date.now()): number {
+    const cutoff = now - retentionMs;
+    return this.db.prepare('DELETE FROM annonces_duree WHERE faiteA < ?').run(cutoff).changes;
+  }
+
+  pruneHorizon(retentionMs: number, now = Date.now()): number {
+    const cutoff = now - retentionMs;
+    return this.db.prepare('DELETE FROM horizon_ledger WHERE creeA < ?').run(cutoff).changes;
+  }
+
+  // ─── Motifs perso (ADR 0010 lot 10) ────────────────────────────────────────
+
+  creerMotifProjet(
+    projectId: string,
+    libelleBrut: string,
+    etapesBrutes: unknown,
+    now = Date.now(),
+  ):
+    | { ok: true; id: string; libelle: string; etapes: string[] }
+    | { ok: false; motif: MotifPersoRefus } {
+    if (!this.getProject(projectId)) return { ok: false, motif: 'vide' };
+    const v = validerMotifPerso(libelleBrut, etapesBrutes);
+    if (!v.ok) return v;
+    const id = randomUUID();
+    this.db
+      .prepare(
+        'INSERT INTO motifs_projet (id, projectId, libelle, etapes, creeA) VALUES (?, ?, ?, ?, ?)',
+      )
+      .run(id, projectId, v.libelle, JSON.stringify(v.etapes), now);
+    return { ok: true, id, libelle: v.libelle, etapes: v.etapes };
+  }
+
+  listerMotifsProjet(projectId: string): Array<{
+    id: string;
+    libelle: string;
+    etapes: string[];
+    creeA: number;
+  }> {
+    const rows = this.db
+      .prepare(
+        'SELECT id, libelle, etapes, creeA FROM motifs_projet WHERE projectId = ? ORDER BY creeA DESC LIMIT 32',
+      )
+      .all(projectId) as Array<{ id: string; libelle: string; etapes: string; creeA: number }>;
+    const out: Array<{ id: string; libelle: string; etapes: string[]; creeA: number }> = [];
+    for (const r of rows) {
+      try {
+        const parsed: unknown = JSON.parse(r.etapes);
+        if (!Array.isArray(parsed)) continue;
+        const v = validerMotifPerso(r.libelle, parsed);
+        if (!v.ok) continue;
+        out.push({ id: r.id, libelle: v.libelle, etapes: v.etapes, creeA: r.creeA });
+      } catch {
+        continue;
+      }
+    }
+    return out;
+  }
+
+  lireMotifProjet(id: string): {
+    id: string;
+    projectId: string;
+    libelle: string;
+    etapes: string[];
+    creeA: number;
+  } | null {
+    const row = this.db
+      .prepare('SELECT id, projectId, libelle, etapes, creeA FROM motifs_projet WHERE id = ?')
+      .get(id) as
+      { id: string; projectId: string; libelle: string; etapes: string; creeA: number } | undefined;
+    if (!row) return null;
+    try {
+      const parsed: unknown = JSON.parse(row.etapes);
+      const v = validerMotifPerso(row.libelle, parsed);
+      if (!v.ok) return null;
+      return {
+        id: row.id,
+        projectId: row.projectId,
+        libelle: v.libelle,
+        etapes: v.etapes,
+        creeA: row.creeA,
+      };
+    } catch {
+      return null;
+    }
   }
 
   setNodeStatus(id: string, status: NodeStatus): void {
@@ -3922,9 +4975,9 @@ export class HiveStore {
     return row.n;
   }
 
-  /** Récupère les souvenirs pertinents pour une requête (BM25 sur le corpus récent). */
+  /** Récupère les souvenirs pertinents (BM25 + trigrammes sur le corpus récent). */
   searchMemories(query: string, limit = 3): ScoredMemory[] {
-    return rankMemories(query, this.listMemories(500), limit);
+    return rankMemoriesHybrid(query, this.listMemories(500), limit);
   }
 
   /** Ne conserve que les `maxKeep` souvenirs les plus récents. Retourne le nombre supprimé. */
