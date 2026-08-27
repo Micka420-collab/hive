@@ -178,14 +178,25 @@ Toute IA de codage se branche via l'interface `AgentAdapter` :
 | `claude-code`  | `claude -p "<prompt>"` dans l'espace isolé.                                                                   |
 | `cursor`       | `cursor-agent -p --force --output-format stream-json -- "<prompt>"` — binaire réglable par `HIVE_CURSOR_BIN`. |
 | `cline`        | `cline --json --auto-approve true "<prompt>"` — binaire réglable par `HIVE_CLINE_BIN`.                        |
-| `codex`        | `codex exec "<prompt>"`                                                                                       |
-| `grok`         | `grok -p "<prompt>"` — l’agent CLI de xAI, Apache 2.0.                                                        |
+| `codex`        | `codex exec [--model <modèle>] -- "<prompt>"`                                                                 |
+| `grok`         | `grok -p --yolo [--model <modèle>] -- "<prompt>"` — CLI de xAI, Apache 2.0.                                   |
 | `hermes-agent` | `hermes agent run --prompt "<prompt>"`                                                                        |
 | `custom`       | Le vôtre, via `HIVE_AGENT_CMD`.                                                                               |
 | `shell`        | **Simulé** — aucun processus lancé, les diffs sont faux.                                                      |
 
 Le nœud **détecte ce qui est installé** et s'en sert. Il n'emploie `shell` que
-s'il ne trouve aucun agent — et il le dit. `HIVE_AGENT` force le choix.
+s'il ne trouve aucun agent — et il le dit. Au premier `npm run node`, plusieurs
+applications donnent un menu simple ; Hive montre ensuite les modèles trouvés
+dans les configurations locales, sans appeler les fournisseurs. Le choix est
+mémorisé sur ce poste. Pour le changer :
+
+```bash
+npm run configurer:ia
+```
+
+`HIVE_AGENT` et `HIVE_MODELES` gardent priorité pour l'automatisation. Une
+configuration locale ne prouve pas les droits du compte : Hive demande
+confirmation avant de déclarer un modèle routable.
 Votre abonnement Claude suffit, sans clé d'API :
 **[docs/WINDOWS-CLAUDE.md](docs/WINDOWS-CLAUDE.md)**.
 
@@ -211,6 +222,7 @@ refusera de travailler à découvert.
 | `npm run demo`              | Démo complète (orchestrateur + 2 nœuds + projet)                             |
 | `npm run dev`               | Orchestrateur seul                                                           |
 | `npm run node`              | Un nœud membre                                                               |
+| `npm run configurer:ia`     | Rechoisir simplement l’application IA et ses modèles                         |
 | `npm run cli -- doctor`     | **Le docteur** — 13 causes de panne, et la commande qui répare               |
 | `npm run cli -- sauvegarde` | Sauvegarde SQLite par `VACUUM INTO`                                          |
 | `npm run cli -- service`    | Installer la ruche en service (systemd · launchd · tâche planifiée)          |

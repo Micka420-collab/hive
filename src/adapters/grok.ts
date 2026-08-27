@@ -44,6 +44,15 @@ const GROK_TIMEOUT_MS = 15 * 60_000;
  */
 const DRAPEAUX_SANS_ECRAN = ['-p', '--yolo'] as const;
 
+export function argvGrok(prompt: string, modele?: string): string[] {
+  return [
+    ...DRAPEAUX_SANS_ECRAN,
+    ...(modele ? ['--model', modele] : []),
+    '--',
+    prompt,
+  ];
+}
+
 export function createGrokAdapter(token = process.env.HIVE_TOKEN ?? DEFAULT_TOKEN): AgentAdapter {
   assertRealExecutionAllowed("L'adaptateur grok", token);
   return {
@@ -58,7 +67,7 @@ export function createGrokAdapter(token = process.env.HIVE_TOKEN ?? DEFAULT_TOKE
       // façon dont TOUT analyseur d'arguments traite un tiret en tête.
       const result = await runCommand(
         'grok',
-        [...DRAPEAUX_SANS_ECRAN, '--', task.prompt],
+        argvGrok(task.prompt, ctx.modele),
         ctx,
         GROK_TIMEOUT_MS,
       );

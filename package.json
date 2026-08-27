@@ -20,6 +20,7 @@
   "scripts": {
     "dev": "tsx watch src/orchestrator/main.ts",
     "node": "node scripts/lancer.mjs src/node-client/main.ts",
+    "configurer:ia": "node scripts/lancer.mjs src/node-client/main.ts --configurer-ia",
     "join": "node scripts/lancer.mjs src/node-client/join.ts",
     "demo": "node scripts/lancer.mjs src/demo.ts",
     "cli": "node scripts/lancer.mjs src/cli.ts",

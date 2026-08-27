@@ -8,6 +8,10 @@ import type { AdapterContext, AdapterResult, AgentAdapter } from './index.js';
 
 const CODEX_TIMEOUT_MS = 15 * 60_000;
 
+export function argvCodex(prompt: string, modele?: string): string[] {
+  return ['exec', ...(modele ? ['--model', modele] : []), '--', prompt];
+}
+
 export function createCodexAdapter(token = process.env.HIVE_TOKEN ?? DEFAULT_TOKEN): AgentAdapter {
   assertRealExecutionAllowed("L'adaptateur codex", token);
   return {
@@ -17,7 +21,12 @@ export function createCodexAdapter(token = process.env.HIVE_TOKEN ?? DEFAULT_TOK
       // `--` avant le prompt : sans lui, un prompt commençant par un tiret est
       // lu comme une option de `codex exec` (cf. src/adapters/prompt-argv.ts,
       // où l'injection est démontrée sur le binaire claude).
-      const result = await runCommand('codex', ['exec', '--', task.prompt], ctx, CODEX_TIMEOUT_MS);
+      const result = await runCommand(
+        'codex',
+        argvCodex(task.prompt, ctx.modele),
+        ctx,
+        CODEX_TIMEOUT_MS,
+      );
       return { ...result, subAgents: [] };
     },
   };

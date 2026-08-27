@@ -121,7 +121,8 @@ export const OUTILS: readonly OutilIA[] = Object.freeze([
     bins: ['claude'],
     installation: Object.freeze(['npm', 'install', '-g', '@anthropic-ai/claude-code']),
     // Le seul adaptateur qui remonte de vrais sous-agents ET les fichiers
-    // ouverts : les autres rendent `subAgents: []` en dur.
+    // ouverts : les autres rendent `subAgents: []` en dur. Le choix de modèle,
+    // lui, est aussi câblé sur Cursor, Codex et Grok.
     capacites: executant({ sousAgents: true, presences: true, modeleChoisi: true }),
     niveau: 'contexte',
   },
@@ -170,7 +171,7 @@ export const OUTILS: readonly OutilIA[] = Object.freeze([
     nom: 'Codex',
     bins: ['codex'],
     installation: Object.freeze(['npm', 'install', '-g', '@openai/codex']),
-    capacites: executant(),
+    capacites: executant({ modeleChoisi: true }),
     niveau: 'execute',
   },
   {
@@ -178,7 +179,7 @@ export const OUTILS: readonly OutilIA[] = Object.freeze([
     nom: 'Grok Build',
     bins: ['grok'],
     installation: null,
-    capacites: executant(),
+    capacites: executant({ modeleChoisi: true }),
     niveau: 'execute',
   },
   {

@@ -14,7 +14,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { parseModeles } from '../src/node-client/modeles.js';
+import { modeleAssigneAutorise, parseModeles } from '../src/node-client/modeles.js';
 import { HiveNodeClient } from '../src/node-client/client.js';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
@@ -77,6 +77,17 @@ describe('parseModeles — la config lue en une liste propre, ou rien', () => {
     const lu = parseModeles(beaucoup);
     expect(lu?.length).toBe(LIMITS.modeles);
     expect(lu?.[0]).toBe('m0');
+  });
+
+  it('écarte contrôles et noms ressemblant à des options CLI', () => {
+    expect(parseModeles('sonnet,--danger,modele\ninjecte,opus')).toEqual(['sonnet', 'opus']);
+  });
+
+  it('n’autorise que les modèles confirmés par ce nœud', () => {
+    expect(modeleAssigneAutorise(undefined, undefined)).toBe(true);
+    expect(modeleAssigneAutorise('sonnet', ['sonnet', 'opus'])).toBe(true);
+    expect(modeleAssigneAutorise('inconnu', ['sonnet', 'opus'])).toBe(false);
+    expect(modeleAssigneAutorise('sonnet', undefined)).toBe(false);
   });
 });
 

@@ -51,6 +51,11 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `CURSOR_API_KEY` / `~/.cursor`. Quand plusieurs agents réels sont détectés
   (Claude Code, Cursor, Codex…) et qu'un terminal est disponible, le nœud
   **demande lequel utiliser** (`choisir-agent.ts`) ; `HIVE_AGENT` force toujours.
+- **Premier lancement IA : application puis modèle.** Hive inventorie sans
+  réseau les modèles nommés dans les configurations locales Claude, Cursor,
+  Codex et Grok, distingue configuration et simple suggestion, puis demande un
+  choix court. Application + modèles confirmés sont mémorisés sur ce poste ;
+  `npm run configurer:ia` les rouvre.
 - **OpenAlex runtime.** `openalex-veille.ts` : extrait littérature dans planner LLM ;
   veille dans Queen Bee, Reine/concierge, tâches et planner heuristique.
 - **Wizard onboarding Essaim.** `OnboardingEssaim.tsx` : checklist interactive jusqu’au
@@ -73,6 +78,10 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **Aiguillage modèle réellement exécuté.** Codex et Grok reçoivent désormais
+  `--model` comme Claude Code et Cursor. Un nœud refuse avant exécution tout
+  modèle que ce poste n'a pas confirmé, et les noms ressemblant à des options
+  ou contenant des contrôles sont écartés.
 - **Mode production agents.** `agent-production.ts` : le nœud refuse de démarrer
   en shell sans `HIVE_SIMULATION=1` ou `HIVE_AGENT=shell` ; le scheduler n'assigne
   pas aux agents simulés hors mode démo. Protocole réquisition nœud (cherry-pick #347).
