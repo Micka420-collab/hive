@@ -59,6 +59,9 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   étapes de **chaque** projet : l'activité d'un dépôt ne peut plus effacer les
   points de restauration d'un autre. `GET …/sauvegardes?limit=` est validé et
   réellement appliqué (1–200).
+- **📂 Rayon sans contenu croisé.** Quand deux fichiers sont ouverts rapidement,
+  une réponse réseau lente de l'ancien fichier ne peut plus remplacer le
+  contenu du dernier fichier sélectionné.
 
 - **👑 Les bancs de la Reine ne confondent plus l'Atelier avec le chat.**
   `AtelierRecette` sonde `/api/atelier` au montage de la vue Reine. Les tests

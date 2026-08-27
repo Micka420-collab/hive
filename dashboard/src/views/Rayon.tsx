@@ -29,7 +29,7 @@
 //    le correctif a disparu. C'est le pire mensonge qu'une interface puisse
 //    faire.
 
-import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import { fetchApercu, fetchFichierRayon, fetchRayon, getPartage, proposerRetouche } from '../api';
 import type { ApercuProjet, EntreeRayon, FichierRayon } from '../api';
 import { SauvegardesTimeline } from '../SauvegardesTimeline';
@@ -74,6 +74,12 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
   const [apercu, setApercu] = useState<ApercuProjet | null>(null);
   const [apercuErreur, setApercuErreur] = useState<string | null>(null);
   const [attirerSg, setAttirerSg] = useState(false);
+  // Un fichier lent ne doit jamais écraser celui cliqué ensuite. Le projet
+  // courant est aussi gardé pendant le rendu : cela invalide une réponse de
+  // l'ancien projet avant même que l'effet de remise à zéro ne s'exécute.
+  const sequenceOuverture = useRef(0);
+  const projetCourant = useRef<string | null>(projet?.id ?? null);
+  projetCourant.current = projet?.id ?? null;
 
   const voirApercu = async () => {
     if (!projet) return;
@@ -121,6 +127,7 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
   // Changer de projet remet tout à zéro : garder l'arbre du précédent
   // afficherait les fichiers d'un dépôt sous le nom d'un autre.
   useEffect(() => {
+    sequenceOuverture.current++;
     setDossiers({});
     setFichier(null);
     setOuvert(null);
@@ -162,6 +169,8 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
 
   const ouvrir = async (chemin: string) => {
     if (!projet) return;
+    const projectId = projet.id;
+    const sequence = ++sequenceOuverture.current;
     setOuvert(chemin);
     setFichier(null);
     setErreur(null);
@@ -170,8 +179,11 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
     setRetouche(null);
     setPropose(null);
     try {
-      setFichier(await fetchFichierRayon(projet.id, chemin));
+      const lu = await fetchFichierRayon(projectId, chemin);
+      if (sequence !== sequenceOuverture.current || projetCourant.current !== projectId) return;
+      setFichier(lu);
     } catch (e) {
+      if (sequence !== sequenceOuverture.current || projetCourant.current !== projectId) return;
       // Le refus s'AFFICHE. Un clic sans réaction laisse croire à une panne.
       setErreur(e instanceof Error ? e.message : String(e));
     }
