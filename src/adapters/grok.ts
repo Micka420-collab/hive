@@ -45,12 +45,7 @@ const GROK_TIMEOUT_MS = 15 * 60_000;
 const DRAPEAUX_SANS_ECRAN = ['-p', '--yolo'] as const;
 
 export function argvGrok(prompt: string, modele?: string): string[] {
-  return [
-    ...DRAPEAUX_SANS_ECRAN,
-    ...(modele ? ['--model', modele] : []),
-    '--',
-    prompt,
-  ];
+  return [...DRAPEAUX_SANS_ECRAN, ...(modele ? ['--model', modele] : []), '--', prompt];
 }
 
 export function createGrokAdapter(token = process.env.HIVE_TOKEN ?? DEFAULT_TOKEN): AgentAdapter {

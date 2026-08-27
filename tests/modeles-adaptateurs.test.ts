@@ -26,4 +26,3 @@ describe('modèle choisi transmis aux applications IA', () => {
     expect(argvGrok('prompt')).toEqual(['-p', '--yolo', '--', 'prompt']);
   });
 });
-
