@@ -78,6 +78,9 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   restaure maintenant la décision serveur au lieu de rester affiché comme
   enregistré. Mission Control l'annonce immédiatement ; une panne transitoire
   garde le verdict dans la file de synchronisation.
+- **🧪 Porte d'installeur sans flake.** Le banc du point d'entrée `hive` utilise
+  un port libre fourni par l'OS ; il ne concurrence plus les tests qui occupent
+  volontairement 7777.
 
 - **👑 Les bancs de la Reine ne confondent plus l'Atelier avec le chat.**
   `AtelierRecette` sonde `/api/atelier` au montage de la vue Reine. Les tests

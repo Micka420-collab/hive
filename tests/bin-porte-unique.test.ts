@@ -24,6 +24,7 @@ import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
 import { CODE } from '../src/codes-sortie.js';
 import { nodeSuffisant } from '../src/installer.js';
+import { portLibre } from './harnais-bouchon.js';
 
 const execFileAsync = promisify(execFile);
 const RACINE = fileURLToPath(new URL('..', import.meta.url));
@@ -49,6 +50,10 @@ async function lancer(...args: string[]): Promise<{ code: number; sortie: string
   env.HIVE_HTTP = 'http://127.0.0.1:1';
   env.HIVE_AGENT = 'shell';
   env.HIVE_ISOLEMENT = 'off';
+  // Ce banc vérifie le dispatch `hive` → installeur, pas la porte 7777.
+  // La laisser implicite le mettait en concurrence avec les tests qui
+  // occupent volontairement le port par défaut : vert seul, rouge en suite.
+  env.HIVE_PORT = String(await portLibre());
   try {
     const { stdout, stderr } = await execFileAsync(process.execPath, [TSX, BIN, ...args], {
       cwd: dossier(),
