@@ -17,6 +17,7 @@ import { useEffect, useState } from 'react';
 import { PICTO_PLATEFORME } from '../../src/shared/machine';
 import type { HiveNode, Task } from '../../src/shared/types';
 import { fetchChambre, fetchWaggle } from './api';
+import { poserOutilSurNoeud } from './api';
 import type { NodeNectar } from './api';
 import { useLang, useT } from './i18n';
 import { libelleAgent } from '../../src/shared/agent-libelle';
@@ -38,23 +39,43 @@ const AGENT_ICON: Record<string, string> = {
 };
 
 /**
- * La commande d'installation d'un outil, à COPIER — jamais à lancer.
+ * La commande d'installation d'un outil : à copier, OU à poser d'ici.
  *
- * ─── CE QUE CE BOUTON NE FAIT PAS, ET POURQUOI ──────────────────────────────
+ * ─── CE QUE CE BOUTON FAISAIT, ET CE QU'IL FAIT MAINTENANT ──────────────────
  *
- * Il ne déclenche RIEN sur la machine du membre. Un tableau de bord qui lance
- * `npm install -g` à distance sur le poste de quelqu'un est une surface
- * d'attaque, pas une commodité : il suffit d'un accès à l'écran d'admin pour
- * faire installer un paquet arbitraire sur toutes les machines de l'essaim.
+ * Il n'a longtemps rien déclenché, et ce commentaire expliquait pourquoi :
+ * qu'un tableau de bord lançant `npm install -g` à distance est une surface
+ * d'attaque, parce qu'un accès à cet écran suffit à faire installer quelque
+ * chose sur toutes les machines de l'essaim.
  *
- * La ruche montre donc la commande, et c'est l'humain qui la colle dans SON
- * terminal, après l'avoir lue. La différence tient en un geste, et ce geste
- * est le consentement.
+ * Le propriétaire a tranché autrement, en connaissance de cette contrepartie.
+ * Le commentaire est donc réécrit plutôt que laissé à mentir — un commentaire
+ * qui décrit l'ancien comportement est pire qu'aucun commentaire.
+ *
+ * ─── CE QUI BORNE ENCORE, ET QUI N'A PAS BOUGÉ ──────────────────────────────
+ *
+ * La requête porte DEUX IDENTIFIANTS et un corps vide. Le navigateur ne
+ * choisit pas ce qui s'exécute : il désigne un outil, et c'est le catalogue du
+ * NŒUD qui décide de la commande. Le pire qu'un écran compromis obtienne est
+ * donc l'installation d'un outil déjà au catalogue — pas une commande
+ * arbitraire.
+ *
+ * « Copier » reste, et reste le défaut visuel : sur une machine qu'on ne
+ * connaît pas, lire avant de lancer garde sa valeur.
  */
-function CommandeACopier({ commande }: { commande: string }) {
+function CommandeACopier({
+  commande,
+  nodeId,
+  outilId,
+}: {
+  commande: string;
+  nodeId: string;
+  outilId: string;
+}) {
   const t = useT();
   const [copie, setCopie] = useState(false);
   const [rate, setRate] = useState(false);
+  const [pose, setPose] = useState<'repos' | 'en-cours' | 'transmise' | 'refusee'>('repos');
   return (
     <span className="fo-outil-pose">
       <code className="fo-outil-commande" data-testid="fo-outil-commande">
@@ -73,7 +94,41 @@ function CommandeACopier({ commande }: { commande: string }) {
         }}
       >
         {copie ? t('copié', 'copied') : t('copier', 'copy')}
+      </button>{' '}
+      <button
+        type="button"
+        className="copy-btn fo-outil-poser"
+        data-testid="fo-outil-poser"
+        disabled={pose === 'en-cours' || pose === 'transmise'}
+        onClick={() => {
+          setPose('en-cours');
+          void poserOutilSurNoeud(nodeId, outilId).then(
+            () => setPose('transmise'),
+            () => setPose('refusee'),
+          );
+        }}
+      >
+        {pose === 'en-cours'
+          ? t('envoi…', 'sending…')
+          : pose === 'transmise'
+            ? t('demandé', 'requested')
+            : t('poser', 'install')}
       </button>
+      {pose === 'transmise' && (
+        <span className="fo-outil-transmise" data-testid="fo-outil-transmise">
+          {' '}
+          {t(
+            'demande transmise — la machine répondra dans le journal.',
+            'request sent — the machine will answer in the journal.',
+          )}
+        </span>
+      )}
+      {pose === 'refusee' && (
+        <span className="fo-outil-rate" data-testid="fo-outil-pose-refusee">
+          {' '}
+          {t('la ruche a refusé la pose.', 'the hive refused the install.')}
+        </span>
+      )}
       {rate && (
         <span className="fo-outil-rate" data-testid="fo-outil-copie-ratee">
           {' '}
@@ -273,7 +328,11 @@ function FicheOuvriere({
                 {/* La commande n'apparaît QUE si la suivre règle tout en un
                     geste — la règle vit dans le module pur, pas ici. */}
                 {commandeAAfficher(o) !== null && (
-                  <CommandeACopier commande={commandeAAfficher(o)!} />
+                  <CommandeACopier
+                    commande={commandeAAfficher(o)!}
+                    nodeId={noeud.id}
+                    outilId={o.id}
+                  />
                 )}
               </li>
             ))}

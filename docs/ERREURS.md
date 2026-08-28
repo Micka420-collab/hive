@@ -14823,3 +14823,116 @@ de la plus basse des trois mesures, et relancé :
 Le cliquet est bien câblé, il rougit, et il nomme la dimension. Remis à 77,7
 ensuite. C'est la même discipline que pour un test — muter avant de croire —
 appliquée à un seuil plutôt qu'à une ligne de code.
+
+## 9 quinoctogicenties. Une garde qui RECOPIE la valeur qu'elle surveille s'édite à chaque livraison — donc se désarme
+
+Premier changement de version depuis des mois : `package.json` passe de `0.2.0`
+à `0.3.0`. **Trois** bancs ont rougi, l'un après l'autre, et aucun ne signalait
+un vrai défaut.
+
+    1. site-fraicheur : « l'en-tête annonce v0.2.0, le paquet est en 0.3.0 »
+       → vrai défaut : la vitrine était désynchronisée. Corrigé.
+
+    2. site.test : « la version n'apparaît qu'une fois »
+       → vrai défaut aussi : le pied de page était resté en v0.2.0.
+
+    3. site.test : « la version a disparu du pied de page »
+       → FAUX. Le pied était juste. La garde cherchait /v0\.2\.0/, en dur.
+
+Les deux dernières gardes portaient le numéro **écrit dans leur propre motif**.
+Leur commentaire disait pourtant, mot pour mot, qu'elles défendaient une
+propriété — « au moins deux endroits », « sous une forme ou une autre » — et
+non un numéro. L'intention était juste ; l'implémentation citait une valeur qui
+périme.
+
+### Pourquoi c'est plus grave qu'un banc à rééditer
+
+Une garde qui rougit sans qu'il y ait de défaut apprend un geste : **ouvrir le
+banc et changer la constante**. Répété à chaque livraison, ce geste devient
+réflexe — et le jour où la garde rougit pour une VRAIE raison, la main part
+toute seule vers la constante. La garde ne meurt pas d'un coup, elle s'use.
+
+C'est la même famille que le rouge intermittent consigné plus haut : ce qui est
+dangereux n'est pas le faux positif, c'est ce qu'il enseigne.
+
+### La correction, et sa contre-épreuve
+
+Les deux gardes LISENT maintenant `package.json` :
+
+    const paquet = JSON.parse(readFileSync(`${RACINE}package.json`, 'utf8'))
+    const motif = new RegExp(`v${paquet.version.replace(/\./g, '\\.')}`, 'g')
+
+Une garde réécrite doit prouver qu'elle mord encore, sinon on l'a désarmée en
+croyant la réparer. Les deux désynchronisations rejouées, verdicts affichés :
+
+    pied laissé en v0.2.0    → « la version n'apparaît qu'une fois »   (tué)
+    en-tête laissé en v0.2.0 → « l'en-tête annonce v0.2.0 »            (tué)
+
+**La règle :** quand une garde surveille une valeur qui vit ailleurs dans le
+dépôt, elle va la CHERCHER là où elle vit. Recopier revient à créer une
+deuxième source de vérité dont personne ne se souvient — et c'est le banc,
+pas le code, qui devient le mensonge.
+
+**Ce qui reste littéral, et pourquoi.** Les `v0.2.0` de
+`tests/fraicheur-version.test.ts` restent écrits en dur : ce ne sont pas « la
+version courante », ce sont des DÉCORS de comparaison — « une version plus
+ancienne que v0.3.0 ». Ils ne périment pas, parce qu'ils ne désignent rien
+d'extérieur au banc. La règle vise la valeur qu'on surveille, pas toute
+constante qui lui ressemble.
+
+## 9 sexoctogicenties. Une dérogation qui ne ressemble pas aux précédentes n'est pas une dérogation de routine
+
+En ajoutant `pose-runner.ts` — le fichier qui installe un outil sur la machine
+d'un membre — la suite a rougi sur une garde que je ne connaissais pas :
+
+    node-client/pose-runner.ts lance un processus sans passer par envelopper().
+    Si c'est volontaire, inscrivez-le dans DEROGATIONS avec la raison — et
+    relisez d'abord l'en-tête de ce fichier, parce que c'est exactement
+    l'oubli qui s'y raconte.
+
+Le réflexe est d'ajouter une ligne à la liste et de repartir. L'en-tête, lu
+comme il le demande, l'interdit — il porte la règle qui sépare les deux listes :
+
+> est-ce que le binaire lancé, ou ce qu'il exécute, peut être choisi par
+> quelqu'un d'autre que le membre ?
+
+### Ce que l'application honnête de la règle a donné
+
+Les quatre dérogations existantes partagent un trait qu'aucune ne nomme, parce
+qu'il leur était commun : **c'est le membre qui déclenche, sur sa machine, à sa
+propre demande** — sonder ses agents, choisir son bac à sable, lancer son
+tunnel, vérifier un binaire depuis sa CLI.
+
+La cinquième ne le partage pas. La pose est déclenchée **depuis le tableau de
+bord, par quelqu'un d'autre**. Le binaire et le paquet viennent bien du
+catalogue du dépôt — c'est la borne du lot — mais la décision de lancer, elle,
+est distante.
+
+Et elle ne peut pas s'envelopper : une installation GLOBALE doit atteindre
+l'hôte. L'isoler poserait l'outil dans un bac qui disparaît, c'est-à-dire
+produirait un bouton qui ment.
+
+La dérogation est donc légitime, et elle n'est pas de routine. Elle est écrite
+en disant les trois choses : pourquoi elle ne s'enveloppe pas, ce qui reste
+borné (catalogue, jamais la requête), et ce qui reste ouvert — `npm install`
+exécute les scripts `postinstall` du paquet, donc du code du registre, sur la
+machine du membre.
+
+**La règle :** une liste de dérogations se relit avant qu'on s'y ajoute. Ce qui
+compte n'est pas « ai-je le droit d'y être » mais « est-ce que ma raison
+ressemble aux leurs ». Quand elle n'y ressemble pas, la différence est
+exactement ce qu'il faut écrire — sinon la liste s'homogénéise dans la tête du
+prochain lecteur, et la cinquième entrée sert de précédent à une sixième qui
+n'aurait rien à y faire.
+
+### Et un défaut que j'ai attrapé avant elle, par le même geste
+
+`jugerPose` distingue « outil inconnu » de « outil connu mais sans
+installation ». Ma première rédaction demandait à `PAQUETS` s'il connaissait
+l'identifiant — or `PAQUETS` est DÉRIVÉ du catalogue en ne gardant que les
+outils installables : **2 entrées sur 9**. La condition venait déjà d'échouer
+deux lignes plus haut ; `sans-commande` était strictement inatteignable, et les
+sept outils qui s'installent à la main auraient été annoncés « inconnus ».
+
+Ce n'est pas la loupe qui l'a trouvé, c'est d'avoir compté : `OUTILS` fait 9,
+`PAQUETS` fait 2. Le chiffre a rendu visible ce que la relecture ne voyait pas.

@@ -273,6 +273,7 @@ import type { SessionRangee } from './store.js';
 import { lireTemperature, FENETRE_MS as FENETRE_THERMO_MS, TYPES_THERMO } from './thermo.js';
 import { buildWaggleBoard } from './waggle.js';
 import { lireVersionRuche } from './version-lue.js';
+import { commandeDePose } from '../shared/pose-outil.js';
 import { marcheASuivre, poseDepuis, versionDeclaree } from '../shared/version-ruche.js';
 
 /**
@@ -816,6 +817,14 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   >();
   /** Le dernier chantier rendu, par projet — ce que l'écran relit. */
   const chantierResults = new Map<string, ChantierResultMsg>();
+  /**
+   * Les poses d'outils demandées et pas encore rendues.
+   *
+   * Sert à DEUX choses, et la seconde est une garde : relier la réponse à la
+   * demande, et vérifier qu'un nœud ne rend pas le résultat d'une pose qu'on
+   * ne lui a jamais demandée — même contrôle d'appartenance que les chantiers.
+   */
+  const pendingPoses = new Map<string, { nodeId: string; outilId: string; demandeeA: number }>();
   // Diffusion d'état "sale" : regroupée toutes les 250 ms pour éviter le spam.
   let stateDirty = false;
   // Phéromones : cache de domaines (borné) et mémoïsation à TTL court du repli
@@ -4994,6 +5003,54 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     },
   );
 
+  /**
+   * Poser un outil sur la machine d'un nœud.
+   *
+   * ─── CE QUE CETTE ROUTE PEUT ET NE PEUT PAS ────────────────────────────────
+   *
+   * L'utilisateur a tranché : le bouton LANCE, il n'affiche plus seulement la
+   * commande. La contrepartie est assumée — un accès à cet écran déclenche une
+   * installation chez un membre — et la borne qui l'empêche de s'élargir est
+   * ici : la requête porte un `outilId` de catalogue, le corps n'est pas lu, et
+   * AUCUNE commande ne traverse. Le nœud relira son propre catalogue.
+   *
+   * Le refus est prononcé ici aussi, et pas seulement chez le nœud : rendre
+   * 400 tout de suite épargne un aller-retour et dit au demandeur POURQUOI,
+   * plutôt que de le laisser attendre un résultat qui ne viendra pas.
+   */
+  app.post<{ Params: { nodeId: string; outilId: string } }>(
+    '/api/nodes/:nodeId/outils/:outilId/poser',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['nodeId', 'outilId'],
+          properties: {
+            nodeId: { type: 'string', minLength: 1, maxLength: LIMITS.id },
+            outilId: { type: 'string', minLength: 1, maxLength: LIMITS.id },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const { nodeId, outilId } = req.params;
+      if (commandeDePose(outilId) === null) {
+        return reply
+          .code(400)
+          .send({ error: `« ${outilId} » n'a pas d'installation automatique au catalogue` });
+      }
+      const socket = nodeSockets.get(nodeId);
+      if (!socket) return reply.code(409).send({ error: 'nœud hors ligne' });
+      const poseId = `pos-${randomUUID()}`.slice(0, LIMITS.id);
+      pendingPoses.set(poseId, { nodeId, outilId, demandeeA: Date.now() });
+      send(socket, { type: 'poser_outil', poseId, outilId });
+      // La trace est le prix de l'automatisme : qui a lancé quoi, où, quand.
+      emitEvent('outil_pose_demandee', { nodeId, outilId, poseId });
+      return reply.code(202).send({ poseId, nodeId, outilId });
+    },
+  );
+
   /** Révoquer un billet encore en circulation. */
   app.delete<{ Params: { id: string } }>(
     '/api/billets/:id',
@@ -8372,6 +8429,39 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
               applied: msg.applied.length,
               conflicts: msg.conflicts.length,
               testsPassed: msg.testsPassed,
+            });
+            break;
+          }
+          case 'pose_result': {
+            const attendue = pendingPoses.get(msg.poseId);
+            if (!attendue) {
+              // Même leçon que le chantier : une installation a peut-être eu
+              // lieu sur la machine d'un membre. Si le hub ne la reconnaît
+              // plus, il le DIT plutôt que de laisser le geste sans trace.
+              send(ws, {
+                type: 'error',
+                message: `pose ${msg.poseId} inconnue du hub — résultat ignoré`,
+              });
+              emitEvent('outil_pose_ignoree', { poseId: msg.poseId, nodeId });
+              break;
+            }
+            // Un nœud ne rend pas le résultat d'une pose demandée à un autre.
+            if (attendue.nodeId !== nodeId) {
+              send(ws, {
+                type: 'error',
+                message: `pose ${msg.poseId} non demandée à ce nœud — résultat ignoré`,
+              });
+              emitEvent('outil_pose_usurpee', { poseId: msg.poseId, nodeId });
+              break;
+            }
+            pendingPoses.delete(msg.poseId);
+            emitEvent('outil_pose_rendue', {
+              poseId: msg.poseId,
+              nodeId,
+              outilId: msg.outilId,
+              ok: msg.ok,
+              code: msg.code,
+              ...(msg.refuse === undefined ? {} : { refuse: msg.refuse }),
             });
             break;
           }
