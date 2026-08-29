@@ -76,7 +76,7 @@ describe('install.sh annonce son empreinte', () => {
   // la propriété qui compte : l'empreinte est annoncée AVANT tout verdict —
   // on sait ce qu'on s'apprête à exécuter avant que le script décide quoi que
   // ce soit. Et sur un Node trop vieux, le refus se dit ; il n'est pas muet.
-  const lancer = (): { sortie: string; code: number } => {
+  const lancerUneFois = (): { sortie: string; code: number } => {
     const r = spawnSync(
       'sh',
       [path.join(RACINE, 'install.sh'), '--dry-run', '--dir=/tmp/hive-empreinte-test-$$'],
@@ -89,6 +89,30 @@ describe('install.sh annonce son empreinte', () => {
     if (r.error) throw r.error;
     return { sortie: `${r.stdout ?? ''}${r.stderr ?? ''}`, code: r.status ?? -1 };
   };
+
+  // ─── UNE SEULE EXÉCUTION POUR LES DEUX CAS, ET CE N'EST PAS QUE L'ÉCONOMIE ──
+  //
+  // Les deux bancs ci-dessous lisent des PROPRIÉTÉS DIFFÉRENTES DU MÊME
+  // passage : ce que le script a dit, et par quel code il est sorti. Les faire
+  // lancer chacun le leur, c'était deux `sh` par suite au lieu d'un — et sous
+  // Node 24, où l'installeur ne s'arrête plus au contrôle de version, ce
+  // passage va bien plus loin (`git --version`, sondes de place et de port).
+  //
+  // Ça n'a pas coûté qu'un peu de temps. Le tamis des ordres est passé au ROUGE
+  // sur le commit qui a introduit ce second lancement, alors que ses 5 466
+  // bancs étaient verts : la seule erreur était un `EnvironmentTeardownError`
+  // de vitest — « Closing rpc while onUserConsoleLog was pending ». C'est une
+  // course au DÉMONTAGE d'un worker, que la charge concurrente rend visible.
+  // Rien ne prouve que ce second `sh` en soit la cause unique, et ce n'est pas
+  // écrit ici comme tel ; ce qui est sûr, c'est que c'était de la charge que
+  // J'AVAIS AJOUTÉE, et qu'aucun des deux bancs n'en avait besoin.
+  //
+  // La mémoïsation est sûre ici : vitest exécute les bancs d'un même fichier en
+  // séquence dans le même worker, et la commande est déterministe — même arbre,
+  // même environnement, aucun effet de bord (`--dry-run` n'écrit rien, § 18 du
+  // script).
+  let passage: { sortie: string; code: number } | null = null;
+  const lancer = (): { sortie: string; code: number } => (passage ??= lancerUneFois());
 
   /** Le plancher que l'installeur s'impose, LU dans le script — jamais recopié. */
   const nodeMin = Number(/^NODE_MIN=(\d+)$/m.exec(lire('install.sh'))?.[1]);
