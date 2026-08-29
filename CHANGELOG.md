@@ -9,6 +9,17 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **La porte d'origine du WebSocket est enfin gardée.** Le README promet
+  « origine des WebSockets vérifiée » ; `server.ts` la vérifie ; rien ne
+  l'éprouvait. Contre-épreuve : porte neutralisée, les 78 bancs WebSocket du
+  dépôt restaient verts. La cause n'est pas un oubli — aucun `new WebSocket(...)`
+  de la suite n'a de second argument, donc aucun ne pouvait porter d'en-tête
+  `Origin` : la ligne était hors d'atteinte de tous les bancs à la fois.
+  `tests/ws-origine.test.ts` tient les quatre cas — origine étrangère fermée en
+  4403, origine listée admise, origine du même hôte admise sans être listée, et
+  connexion SANS origine admise, ce dernier cas écrit pour dire tout haut la
+  limite de cette garde : elle filtre les pages, jamais les programmes.
+
 - **Une garde sur le code que personne n'appelle.** `tests/modules-sans-appelant.test.ts`
   balaie `src/` et exige que chaque module sans appelant de production soit
   rangé : **point d'entrée** (le système l'invoque, déduit de `package.json`, de

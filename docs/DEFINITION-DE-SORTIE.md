@@ -18,7 +18,7 @@
 > On ne coche rien de tête. Les chiffres de cette page sont ceux d'une mesure
 > datée ; quand la mesure vieillit, on la refait avant de s'y fier.
 
-## A. Le code tient — ✅ mesuré en CI (arbre `c69ba97` + le lot du code sans appelant, 29 août 2026, `ubuntu-latest` / Node 24)
+## A. Le code tient — ✅ mesuré en CI (arbre `441e04b` + la porte d'origine du WebSocket, 29 août 2026, `ubuntu-latest` / Node 24)
 
 > **L'ARBRE NOMMÉ EST TOUJOURS LE PRÉCÉDENT, ET C'EST NORMAL.** Un document ne
 > peut pas contenir son propre condensé : le stamper puis rectifier le commit
@@ -59,14 +59,18 @@
 > de la jambe `ubuntu-latest` / Node 24 — la seule où `compte-tests.mjs` tourne,
 > donc la seule qui fait foi pour ce tableau.
 >
-> **LA RÉPARTITION CI-DESSOUS EST DÉRIVÉE, ET ÇA SE DIT.** Le total (5480) est
-> mesuré ici. Les 5472 verts ne le sont pas : ils viennent des 5466 verts
-> mesurés en CI sur `c69ba97` (run 33226561800), plus les **six** bancs de ce
-> lot — qui ne sont conditionnés ni à une plateforme ni à une version de Node,
-> donc s'exécutent partout. C'est une inférence sur deux quantités mesurées, pas
-> un chiffre écrit de tête ; elle est écrite ici pour qu'on puisse la refuser.
-> Et elle EST refusable : si elle est fausse, `compte-tests.mjs` rougit sur la
-> jambe `ubuntu-latest` au prochain tour, et c'est très bien ainsi.
+> **LA RÉPARTITION CI-DESSOUS EST DÉRIVÉE, ET ÇA SE DIT.** Le total (5484) est
+> mesuré ici. Les 5476 verts ne le sont pas : ils viennent des **5472 verts
+> confirmés en CI** sur `441e04b` (run 33227681986), plus les **quatre** bancs
+> de `ws-origine` — qui ne sont conditionnés ni à une plateforme ni à une
+> version de Node, donc s'exécutent partout.
+>
+> C'est une inférence sur deux quantités mesurées, pas un chiffre écrit de tête,
+> et elle est écrite ici pour qu'on puisse la refuser. **Le procédé a déjà été
+> éprouvé une fois :** la dérivation précédente (5466 + 6 = 5472) a été posée de
+> la même façon et CONFIRMÉE par la jambe qui juge. Ça ne la rend pas vraie
+> d'avance — si celle-ci est fausse, `compte-tests.mjs` rougit sur
+> `ubuntu-latest` au prochain tour, et c'est très bien ainsi.
 >
 > **CE PARAGRAPHE EST NÉ D'UNE ERREUR, ET ELLE MÉRITE D'ÊTRE DITE.** Ces quatre
 > nombres ont d'abord été recopiés d'une mesure locale sous Node 22 : 5466 verts
@@ -81,7 +85,7 @@
 | ------------------------ | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Typage (hub + tableau)   | `npm run typecheck` && `npm run typecheck:dashboard`     | ✅ vert / vert                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | Qualité (style + format) | `npm run lint` (eslint + `prettier --check`)             | ✅ vert                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| Suite de bancs           | `npm test` (vitest run)                                  | ✅ **5480** (5472 verts, 8 ignorés, **0 rouge**)                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Suite de bancs           | `npm test` (vitest run)                                  | ✅ **5484** (5476 verts, 8 ignorés, **0 rouge**)                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | Trois OS × Node 24       | matrice CI `ubuntu` / `windows` / `macos`                | ✅ vertes (run `32369933266`, hors badge)                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | L'image démarre          | jambe CI « L'image se construit, et la ruche y démarre » | ✅ verte                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | Rien de neuf n'est nu    | `npm run loupe` (mutation sur le diff ajouté)            | ✅ six terrains, chacun sur base épinglée : horloge — affichage (`1b93c44`, 18 examinées → 2 nues), la note (`6379854`, 17 → 3 nues), la file (`6c6c52b`, 2 → **rien de nu**) ; **butinage** — le transport (`ba07327`, 19 → 4 nues), le déballage (`13bfda3`, 12 → **rien de nu**), la licence (`7530fa0`, 10 → 2 **équivalentes prouvées**). **9 nues, 9 fermées, contre-rejeu 9/9 ; 2 équivalences confirmées par contre-rejeu** (§ terrain, `docs/ETAPES.md`) |

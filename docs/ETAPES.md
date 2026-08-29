@@ -13485,18 +13485,19 @@ dite parce qu'elle change la lecture.)_
 
 ### 1. Livré ET vérifié depuis le 24 août
 
-| Ce qui est entré                                           | La preuve                                                    |
-| ---------------------------------------------------------- | ------------------------------------------------------------ |
-| **#357 et #358 fusionnées dans `main`**                    | leur code est dans `main` ; branche repartie de `9080648`    |
-| `0.3.0` + la comparaison de versions (`fraicheur-version`) | `cb3da0a` — la moitié qui se CALCULE, assumée comme moitié   |
-| Le bouton qui POSE un outil sur un nœud                    | `e6c6801` + `b13400c` ; le fil ne porte qu'un identifiant    |
-| Le compte du docteur, relié partout au lieu de deux fois   | 4 mutations, **4 rouges**, retour au vert                    |
-| Le verrou npm remis à la version du paquet                 | 2 mutations, **2 rouges**                                    |
-| Le banc de l'installeur ne mesure plus la machine          | 4 mutations, **4 rouges** (les deux côtés du plancher)       |
-| Le premier contact d'un arrivant, joué pour de vrai        | `hive doctor` sur ce clone nu : 13 lignes, code 2, 0 silence |
+| Ce qui est entré                                           | La preuve                                                               |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------- |
+| **#357 et #358 fusionnées dans `main`**                    | leur code est dans `main` ; branche repartie de `9080648`               |
+| `0.3.0` + la comparaison de versions (`fraicheur-version`) | `cb3da0a` — la moitié qui se CALCULE, assumée comme moitié              |
+| Le bouton qui POSE un outil sur un nœud                    | `e6c6801` + `b13400c` ; le fil ne porte qu'un identifiant               |
+| Le compte du docteur, relié partout au lieu de deux fois   | 4 mutations, **4 rouges**, retour au vert                               |
+| Le verrou npm remis à la version du paquet                 | 2 mutations, **2 rouges**                                               |
+| Le banc de l'installeur ne mesure plus la machine          | 4 mutations, **4 rouges** (les deux côtés du plancher)                  |
+| Le premier contact d'un arrivant, joué pour de vrai        | `hive doctor` sur ce clone nu : 13 lignes, code 2, 0 silence            |
+| La porte d'origine du WebSocket, promise et non gardée     | porte neutralisée → 78 bancs WS restaient VERTS ; 3 mutations, 3 rouges |
 
 **La barrière, mesurée aujourd'hui, code de sortie lu SANS tube :** `typecheck`
-vert, `typecheck:dashboard` vert, `lint` vert, `vitest run` → **5480 bancs, 0
+vert, `typecheck:dashboard` vert, `lint` vert, `vitest run` → **5484 bancs, 0
 rouge**, ici comme en CI.
 
 **Deux répartitions, et une seule qui juge.** Le total ne dépend pas de la
@@ -13504,12 +13505,12 @@ machine ; la répartition, si :
 
 | Où                          | Bancs | Verts    | Ignorés |
 | --------------------------- | ----- | -------- | ------- |
-| ici (Linux, **Node 22**)    | 5480  | 5467     | 13      |
-| CI `ubuntu-latest`, Node 24 | 5480  | **5472** | **8**   |
+| ici (Linux, **Node 22**)    | 5484  | 5471     | 13      |
+| CI `ubuntu-latest`, Node 24 | 5484  | **5476** | **8**   |
 
 Cinq bancs de `installeur-porte` ne s'exécutent qu'à partir de Node 24 ; huit
 autres sont réservés à Windows et à macOS. **Aucune machine n'exécute les
-5480** — pas même une jambe de CI.
+5484** — pas même une jambe de CI.
 
 **Et j'ai écrit les mauvais chiffres, la CI me l'a dit.** Le tableau A de
 `DEFINITION-DE-SORTIE.md` a d'abord reçu la mesure locale : elle était juste,

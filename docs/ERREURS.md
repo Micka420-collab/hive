@@ -3006,6 +3006,43 @@ a le plus besoin de trouver annoncé.
 > chez le développeur et le geste qui refuse est en CI. Un outil qui réparerait
 > tout seul en intégration continue cacherait le problème au lieu de le poser.
 
+### 9ter.0 sexies — Une ligne hors d'atteinte de TOUS les bancs à la fois
+
+La section « Sécurité » du README promet, en toutes lettres : « origine des
+WebSockets vérifiée ». Le code la vérifie bien — huit lignes dans `server.ts`
+qui ferment la socket en 4403. **Rien ne les éprouvait.**
+
+Contre-épreuve avant d'écrire quoi que ce soit : la porte neutralisée en
+`if (false && …)`, les 78 bancs de `acces-ws`, `ws-avant-auth`, `acces-projet`
+et `gardiennes` restaient VERTS.
+
+Et ce n'était pas un oubli qu'un balayage de plus aurait rattrapé. La porte ne
+se referme que sur une connexion PORTANT un en-tête `Origin` — or aucun
+`new WebSocket(...)` de la suite n'a de second argument, donc aucun ne peut
+porter d'en-tête. La ligne était hors d'atteinte de **tous** les bancs à la
+fois, par construction du décor de test, pas par distraction.
+
+C'est la différence avec la leçon voisine (« couvert ne veut pas dire
+appelé ») : là, le module était atteint par son propre banc. Ici, la ligne
+n'était atteignable par AUCUN, et aucun instrument ne le disait — la couverture
+la comptait simplement comme non couverte, au milieu de milliers d'autres.
+
+> **Règle** — quand une promesse de sécurité se déclenche sur une entrée que le
+> décor de test ne sait pas fabriquer (un en-tête, un certificat, une horloge),
+> la garde n'existe pas, quel que soit le soin du code. Le geste est d'apprendre
+> au décor à fabriquer cette entrée, une fois, plutôt que d'espérer qu'un banc
+> voisin passe par là.
+
+> **Règle** — une garde qui FILTRE se prouve dans les deux sens. Ce banc tient
+> le refus d'une origine étrangère ET le passage d'une origine légitime : sans
+> le second, un mutant qui fermerait tout resterait vert, et la garde serait
+> devenue un mur sans que personne le voie.
+
+> **Règle** — écrire noir sur blanc ce que la garde NE protège pas. Un client
+> sans `Origin` passe, parce qu'un nœud Hive n'est pas un navigateur ; le banc
+> le dit explicitement pour que personne ne lise cette porte comme une
+> authentification.
+
 ### 9ter.0 quinquies — Dix modules verts, et rien qui les appelle
 
 Le point de sortie du 29 août en nommait **deux** — `butineuse.ts` et
