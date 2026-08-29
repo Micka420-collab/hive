@@ -31,7 +31,7 @@
 // documents qui disent la même chose. Le reste demande un humain, et prétendre
 // le contraire donnerait une fausse assurance — ce qui est pire que rien.
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -90,6 +90,47 @@ function adaptateurs(source: string, titre: RegExp): string[] {
   const fin = suite.indexOf('\n## ', 1);
   const section = fin > 0 ? suite.slice(0, fin) : suite;
   return [...section.matchAll(/^\| `([a-z-]+)`/gm)].map((m) => m[1]!);
+}
+
+/**
+ * « N causes de panne » / « N failure causes » — la promesse chiffrée du docteur.
+ *
+ * Le nombre est capturé pour être CONFRONTÉ à `diagnostiquer()`, jamais lu.
+ */
+const COMPTE_ANNONCE = /(\d+)\s+(?:causes de panne|failure causes)/;
+
+/** Ce qui DÉCRIT la commande d'aujourd'hui : doit valoir le compte rendu. */
+const PROMESSES_DU_DOCTEUR = [
+  ['README.md', FR],
+  ['README.en.md', EN],
+  ['src/cli.ts', lire('src/cli.ts')],
+] as const;
+
+/** Un critère de recette écrit AVANT le code : le compte doit le tenir, pas l'égaler. */
+const PLANCHERS_DU_DOCTEUR = ['MISSION-ACCUEIL.md'];
+
+/**
+ * Des chiffres FAUX cités exprès — le journal d'une erreur et son constat.
+ *
+ * Les corriger effacerait la leçon : « les deux READMEs promettaient 12 causes »
+ * n'a de sens qu'avec le 12. Ils sont donc nommés, pas ignorés en silence.
+ */
+const TEMOINS_DU_DOCTEUR = ['tests/readme.test.ts', 'docs/ETAPES.md', 'docs/ERREURS.md'];
+
+/** Les dossiers qui ne sont pas le dépôt : dépendances, sorties de compilation. */
+const HORS_DEPOT = new Set(['node_modules', '.git', 'dist', 'coverage', '.vite']);
+
+/** Tout fichier de prose ou de source du dépôt, chemin relatif + contenu. */
+function balayer(dossier = RACINE, prefixe = ''): [string, string][] {
+  const sortie: [string, string][] = [];
+  for (const e of readdirSync(dossier, { withFileTypes: true })) {
+    if (HORS_DEPOT.has(e.name)) continue;
+    const rel = prefixe ? `${prefixe}/${e.name}` : e.name;
+    if (e.isDirectory()) sortie.push(...balayer(path.join(dossier, e.name), rel));
+    else if (/\.(md|ts|tsx|html|mjs|js|yml|sh|ps1)$/.test(e.name))
+      sortie.push([rel, readFileSync(path.join(dossier, e.name), 'utf8')]);
+  }
+  return sortie;
 }
 
 const ADAPTATEURS_FR = adaptateurs(FR, /## .*Agents et mod/);
@@ -324,16 +365,66 @@ describe('LES DEUX READMES DISENT LA MÊME CHOSE', () => {
       rendus,
       'la liste des diagnostics est vide : la garde tournerait à vide',
     ).toBeGreaterThan(5);
-    for (const [nom, source, motif] of [
-      ['README.md', FR, /\*\*Le docteur\*\* — (\d+) causes de panne/],
-      ['README.en.md', EN, /\*\*The doctor\*\* — (\d+) failure causes/],
-    ] as const) {
-      const annonce = motif.exec(source)?.[1];
+    for (const [nom, source] of PROMESSES_DU_DOCTEUR) {
+      const annonce = COMPTE_ANNONCE.exec(source)?.[1];
       expect(annonce, `${nom} : la ligne du docteur a changé de forme`).toBeDefined();
       expect(
         Number(annonce),
         `${nom} annonce ${annonce} diagnostics, le code en rend ${rendus}`,
       ).toBe(rendus);
     }
+  });
+
+  it('LE PLANCHER DE LA MISSION TIENT ENCORE', () => {
+    // ─── UN CRITÈRE DE RECETTE NE SE RETAILLE PAS SUR SON RÉSULTAT ─────────
+    //
+    // MISSION-ACCUEIL §8 exigeait, AVANT le code, que `hive doctor` couvre dix
+    // causes. Le docteur en rend treize : le critère est tenu. La tentation,
+    // en corrigeant les autres chiffres, était d'écrire 13 là aussi « pour
+    // qu'ils s'accordent » — ce serait réécrire la cible d'après le tir.
+    //
+    // Ce qui se vérifie ici n'est donc PAS l'égalité mais le PLANCHER : si un
+    // jour quelqu'un ampute le docteur, ce test rougit alors même que les
+    // READMEs, eux, se seraient sagement mis à jour sur la valeur amputée.
+    const rendus = diagnostiquer(RELEVE_QUELCONQUE).length;
+    const exige = COMPTE_ANNONCE.exec(lire('MISSION-ACCUEIL.md'))?.[1];
+    expect(exige, 'MISSION-ACCUEIL §8 : la ligne du docteur a changé de forme').toBeDefined();
+    expect(
+      rendus,
+      `le docteur rend ${rendus} diagnostics, la mission en exigeait ${exige}`,
+    ).toBeGreaterThanOrEqual(Number(exige));
+  });
+
+  it('AUCUN AUTRE FICHIER N’ANNONCE UN COMPTE DE PANNES SANS ÊTRE RANGÉ', () => {
+    // ─── LA GARDE PRÉCÉDENTE NE TENAIT QUE DEUX FICHIERS SUR QUATRE ────────
+    //
+    // La leçon « un chiffre annoncé doit être relié au code » a été écrite, et
+    // sa garde n'a couvert que les deux READMEs — la liste était en dur. Deux
+    // AUTRES endroits faisaient la même promesse et ont dérivé chacun de leur
+    // côté, sans que rien ne rougisse : l'en-tête de `src/cli.ts` annonçait
+    // ONZE causes, MISSION-ACCUEIL en annonçait DIX, le docteur en rendait
+    // treize. Trois nombres, une seule vérité.
+    //
+    // Une liste en dur ne protège que ce qu'on a pensé à y mettre. Celle-ci
+    // BALAIE le dépôt : tout fichier qui annonce un compte doit être rangé
+    // dans l'une des trois familles — promesse (elle doit valoir le compte
+    // rendu), plancher (le compte doit le tenir), témoin (un chiffre faux
+    // cité exprès dans un journal, que le corriger effacerait). Un cinquième
+    // endroit ne pourra plus apparaître en silence : il faudra dire lequel des
+    // trois il est.
+    const vus = balayer().filter(([, texte]) => COMPTE_ANNONCE.test(texte));
+    expect(
+      vus.map(([nom]) => nom),
+      'le balayage ne trouve plus rien : il tourne à vide',
+    ).not.toEqual([]);
+    const ranges = new Set([
+      ...PROMESSES_DU_DOCTEUR.map(([nom]) => nom),
+      ...PLANCHERS_DU_DOCTEUR,
+      ...TEMOINS_DU_DOCTEUR,
+    ]);
+    expect(
+      vus.map(([nom]) => nom).filter((nom) => !ranges.has(nom)),
+      'ces fichiers annoncent un compte de pannes sans être rangés : promesse, plancher ou témoin ?',
+    ).toEqual([]);
   });
 });

@@ -3006,6 +3006,93 @@ a le plus besoin de trouver annoncé.
 > chez le développeur et le geste qui refuse est en CI. Un outil qui réparerait
 > tout seul en intégration continue cacherait le problème au lieu de le poser.
 
+### 9ter.0 bis — La garde était juste, sa LISTE était courte
+
+L'entrée ci-dessus se termine sur une bonne règle : relier le chiffre à sa
+source. Elle a été appliquée, et elle a marché — sur **deux fichiers sur
+quatre**.
+
+`tests/readme.test.ts` appelait bien `diagnostiquer()`, mais la boucle qui s'en
+servait itérait sur une liste écrite à la main :
+
+```ts
+for (const [nom, source, motif] of [
+  ['README.md', FR, /…/],
+  ['README.en.md', EN, /…/],
+] as const) {
+```
+
+Deux AUTRES endroits du dépôt annonçaient le même compte, et personne ne les
+avait mis dans la liste. Mesuré en balayant le dépôt, pas supposé :
+
+| Endroit              | Annonçait | Le docteur rend |
+| -------------------- | --------- | --------------- |
+| `README.md`          | 13        | 13              |
+| `README.en.md`       | 13        | 13              |
+| `src/cli.ts` (§ 18)  | **11**    | 13              |
+| `MISSION-ACCUEIL.md` | **10**    | 13              |
+
+Trois nombres différents pour une seule vérité, dont deux sous une garde qui
+existait, qui était verte, et qui ne les regardait pas. La leçon d'origine
+disait « cherche la source » ; il y manquait sa moitié : **la source ne sert à
+rien si l'on n'énumère pas tous ceux qui la citent.**
+
+Et l'énumération elle-même est piégeuse, parce que les citations ne sont pas
+toutes de même nature — les mélanger aurait produit une garde fausse dans les
+deux sens :
+
+- **promesse** — `README.md`, `README.en.md`, l'en-tête de `src/cli.ts`
+  décrivent ce que la commande fait AUJOURD'HUI. Doivent valoir exactement le
+  compte rendu.
+- **plancher** — MISSION-ACCUEIL § 8 exigeait dix causes AVANT que le code
+  existe. Y écrire 13 « pour que tout s'accorde » serait retailler la cible
+  d'après le tir. Ce qui se vérifie est que le plancher TIENT ENCORE ; il rougit
+  le jour où quelqu'un ampute le docteur, même si les README, eux, se sont
+  sagement mis à jour sur la valeur amputée.
+- **témoin** — `docs/ERREURS.md` et `docs/ETAPES.md` citent « 12 causes de
+  panne », un chiffre faux gardé exprès. Le corriger effacerait la leçon.
+
+> **Règle** — une garde dont la liste de cibles est écrite à la main ne protège
+> que ce qu'on a pensé à y mettre, et son vert dit « les deux que je connais
+> vont bien », jamais « le dépôt va bien ». Quand la promesse peut se répéter
+> n'importe où, la garde BALAIE et exige que chaque occurrence trouvée soit
+> RANGÉE ; un cinquième endroit ne peut alors plus apparaître en silence — il
+> faut dire à quelle famille il appartient.
+
+> **Règle** — avant d'uniformiser des chiffres qui divergent, se demander si
+> l'un d'eux est un CRITÈRE et non une description. Un critère de recette se
+> vérifie par ≥, jamais par = : l'aligner sur le résultat supprime la seule
+> garde qui aurait su dire qu'on a reculé.
+
+### 9ter.0 ter — Le banc qui rougissait à cause de la machine, pas du dépôt
+
+`tests/site-installeurs.test.ts` lançait `install.sh --dry-run` avec
+`execFileSync`, qui **lève** dès que le code de sortie n'est pas nul.
+
+Sur un poste en Node 22, l'installeur refuse — c'est exactement son travail, il
+le dit à voix haute et sort en 2. Le banc, lui, perdait toute la sortie dans
+l'exception, et rougissait sans jamais montrer la ligne `Empreinte SHA-256`
+**qui était pourtant bien là**, imprimée avant tout verdict.
+
+Un banc qui dépend de la version de Node de son hôte ne mesure pas le dépôt : il
+mesure la machine. Et il ment dans les deux sens — rouge ici sans défaut, vert
+ailleurs sans avoir rien éprouvé du refus.
+
+La réécriture lit la sortie **dans les deux mondes** (`spawnSync`, qui rend un
+code au lieu de jeter), vérifie la propriété qui compte — l'empreinte est
+annoncée AVANT que le script décide quoi que ce soit, donc on sait ce qu'on
+s'apprête à exécuter — et couvre en prime un chemin que rien n'éprouvait : sur
+un Node trop vieux, le refus se dit et sort non nul. Le plancher (`NODE_MIN`)
+est LU dans le script, jamais recopié.
+
+> **Règle** — un banc qui exécute un outil du dépôt doit capturer son code de
+> sortie, pas se le faire jeter. `execFileSync` transforme « l'outil a refusé »
+> en « le banc a planté », et la différence est toute la valeur du banc.
+
+> **Règle** — quand un banc peut rougir à cause de l'environnement, il ne se
+> désarme pas : il se scinde en deux cas nommés, un par monde. La condition
+> devient une PROPRIÉTÉ éprouvée au lieu d'un aléa subi.
+
 ### 9ter.1 — La sonde qui confondait « absent » et « qui refuse »
 
 Première version de cette garde : appeler `getAdapter(nom)` et regarder s'il

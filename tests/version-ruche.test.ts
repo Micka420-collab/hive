@@ -9,6 +9,9 @@
 // Ces bancs tiennent la première moitié — celle dont TOUTES les formes du
 // bouton auront besoin, quelle que soit celle qu'on retiendra.
 
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   commitCourt,
@@ -197,5 +200,35 @@ describe('la marche à suivre', () => {
         expect(a, `« ${a} » ressemble à du shell`).not.toMatch(/[;&|><`$]/);
       }
     }
+  });
+});
+
+describe('LE DÉPÔT NE DÉCLARE QU’UNE SEULE VERSION', () => {
+  // ─── DEUX FICHIERS, UN SEUL NUMÉRO, ET RIEN QUI LES RELIAIT ────────────────
+  //
+  // `package.json` était passé à 0.3.0 ; `package-lock.json` annonçait ENCORE
+  // 0.2.0, dans ses deux entrées du paquet racine. Personne ne l'avait vu parce
+  // que personne ne lit un verrou : il fait dix mille lignes et on ne l'ouvre
+  // que pour le régénérer.
+  //
+  // Ça ne casse pas l'installation — mais c'est la version que `npm ci` inscrit
+  // dans l'arbre installé, donc celle qu'un utilisateur lira s'il va voir. Une
+  // ruche qui ne sait pas dire d'une seule voix quelle version elle est ne peut
+  // pas répondre « suis-je à jour ? ».
+  const RACINE = fileURLToPath(new URL('..', import.meta.url));
+  const lireJson = (
+    f: string,
+  ): { version?: unknown; packages?: Record<string, { version?: unknown }> } =>
+    JSON.parse(readFileSync(path.join(RACINE, f), 'utf8'));
+
+  it('le verrou porte la version du paquet, à ses DEUX entrées racine', () => {
+    const pkg = lireJson('package.json');
+    const verrou = lireJson('package-lock.json');
+    expect(typeof pkg.version, 'package.json sans version').toBe('string');
+    expect(verrou.version, 'l’en-tête du verrou a dérivé du package.json').toBe(pkg.version);
+    expect(
+      verrou.packages?.['']?.version,
+      'l’entrée racine du verrou a dérivé du package.json',
+    ).toBe(pkg.version);
   });
 });

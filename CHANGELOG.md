@@ -7,6 +7,34 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Fixed
+
+- **Trois chiffres pour une seule vérité — le compte du docteur.** `hive doctor`
+  rend **13** diagnostics. Les deux README l'annonçaient juste ; l'en-tête de
+  `src/cli.ts` annonçait **11**, MISSION-ACCUEIL § 8 **10**. La garde qui reliait
+  déjà le chiffre au code (`diagnostiquer()`) itérait sur une liste de cibles
+  écrite à la main : elle couvrait deux fichiers sur quatre, et son vert ne
+  disait que « les deux que je connais vont bien ». Elle BALAIE désormais le
+  dépôt et exige que chaque occurrence trouvée soit rangée en **promesse**
+  (doit valoir le compte rendu), **plancher** (le compte doit le tenir — un
+  critère de recette se vérifie par ≥, jamais par =, sinon on retaille la cible
+  d'après le tir) ou **témoin** (un chiffre faux cité exprès dans un journal).
+  Un cinquième endroit ne peut plus apparaître en silence.
+- **Le verrou npm déclarait encore 0.2.0.** `package.json` est passé à 0.3.0 ;
+  `package-lock.json` gardait `0.2.0` à ses deux entrées racine — donc la
+  version qu'un `npm ci` inscrit dans l'arbre installé. Corrigé, et tenu par un
+  banc : une ruche qui ne dit pas d'une seule voix quelle version elle est ne
+  peut pas répondre « suis-je à jour ? ».
+- **Un banc qui mesurait la machine, pas le dépôt.**
+  `tests/site-installeurs.test.ts` lançait `install.sh --dry-run` avec
+  `execFileSync`, qui lève dès que le code de sortie n'est pas nul. Sur un poste
+  en Node 22 l'installeur refuse — c'est son travail — et l'exception emportait
+  toute la sortie, y compris la ligne `Empreinte SHA-256` qui était bien là. Le
+  banc lit maintenant la sortie dans les deux mondes (`spawnSync`), tient la
+  propriété qui compte (l'empreinte est annoncée AVANT tout verdict) et couvre
+  en prime le refus lui-même : sur un Node trop vieux il se dit, et sort non
+  nul. Le plancher `NODE_MIN` est LU dans le script, jamais recopié.
+
 ### Added
 
 - **Les portes de ce lot passent sous banc.** Le cliquet de couverture refusait

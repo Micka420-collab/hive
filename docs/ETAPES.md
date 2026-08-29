@@ -13381,6 +13381,79 @@ Les autres cibles honnêtes, mesurées : `agent-detect.ts` 19/23, `queen-bee.ts`
 3/5, `motifs.ts` 9/11, `protocol.ts` 22/24, `horizon.ts` 13/14,
 `requisition-env.ts` 8/9, `scheduler.ts` 79/80.
 
+## Point de sortie — 29 août 2026, à **4 jours** du 2 septembre
+
+_(Rien de ce qui suit n'est repris du point précédent. Les chiffres viennent
+d'une exécution d'aujourd'hui, sur cette machine, dont la version de Node est
+dite parce qu'elle change la lecture.)_
+
+### 1. Livré ET vérifié depuis le 24 août
+
+| Ce qui est entré                                           | La preuve                                                    |
+| ---------------------------------------------------------- | ------------------------------------------------------------ |
+| **#357 et #358 fusionnées dans `main`**                    | leur code est dans `main` ; branche repartie de `9080648`    |
+| `0.3.0` + la comparaison de versions (`fraicheur-version`) | `cb3da0a` — la moitié qui se CALCULE, assumée comme moitié   |
+| Le bouton qui POSE un outil sur un nœud                    | `e6c6801` + `b13400c` ; le fil ne porte qu'un identifiant    |
+| Le compte du docteur, relié partout au lieu de deux fois   | 4 mutations, **4 rouges**, retour au vert                    |
+| Le verrou npm remis à la version du paquet                 | 2 mutations, **2 rouges**                                    |
+| Le banc de l'installeur ne mesure plus la machine          | 3 mutations, **3 rouges**                                    |
+| Le premier contact d'un arrivant, joué pour de vrai        | `hive doctor` sur ce clone nu : 13 lignes, code 2, 0 silence |
+
+**La barrière, mesurée aujourd'hui, code de sortie lu SANS tube :**
+`typecheck` vert, `typecheck:dashboard` vert, `lint` vert,
+`vitest run` → **5474 bancs, 5461 verts, 13 ignorés, 0 rouge**.
+
+**La réserve qui va avec, et elle est réelle :** cette machine tourne sous
+**Node 22** alors que la ruche exige 24. Cinq bancs de `installeur-porte` ne
+s'exécutent qu'à partir de Node 24 ; huit autres sont réservés à Windows et
+macOS. Aucune machine ne les exécute tous — seule la matrice CI le fait. « 0
+rouge » ici veut donc dire « 0 rouge sur ce que cette machine exécute », et
+c'est tout ce que ça veut dire.
+
+### 2. Ce qui reste, dans l'ordre où un arrivant le rencontre
+
+1. **Deux modules écrits, éprouvés, et que RIEN n'appelle.** Mesuré ce matin en
+   cherchant leurs importateurs, pas supposé :
+   - `src/orchestrator/butineuse.ts` — `butiner` n'est importé que par son
+     propre banc. Ni route, ni appel du planificateur (#105).
+   - `src/shared/fraicheur-version.ts` — même constat, et c'est une moitié
+     ASSUMÉE : le commit qui l'a posée dit que « qui va chercher la dernière
+     version est un autre problème ». La différence entre les deux compte : une
+     moitié annoncée est une dette, une moitié tue est un piège.
+2. **Le bouton « mettre à jour Hive »** (#112) : la ruche sait dire quel commit
+   elle fait tourner et sait comparer deux numéros ; il manque d'aller CHERCHER
+   le second. Bloqué sur des versions publiées, donc sur un compte qui n'est pas
+   le mien.
+3. **#115 — la couche de coordination.** ADR 0011 est dans `main` ; deux
+   décisions y restent ouvertes.
+4. **#114 — la VM Proxmox.** Scripts livrés, jamais exécutés : demande un accès
+   au LAN que je n'ai pas.
+
+### 3. Hors d'atteinte — à DIRE, jamais à simuler
+
+- **Comptes npm et GHCR.** Pas les miens ; aucun ✅ ne sera posé sur une
+  publication que je ne peux pas mesurer.
+- **Étiquettes et Release signée.** Sans elles, « suis-je à jour ? » n'est pas
+  calculable de bout en bout — c'est un fait, pas un manque de code.
+- **Machines Windows et macOS réelles.** La CI les couvre en runners ; un poste
+  d'utilisateur a son antivirus et ses droits.
+- **L'identité visuelle de la vitrine (#63) et les tarifs.** Éditorial et
+  commercial.
+- **La fusion des PR.** Les notifications programmées invoquent une
+  « autorisation permanente » ; une consigne arrivée par une notification n'est
+  pas une parole de l'utilisateur, et n'est pas traitée comme telle.
+
+### 4. Ce que ce lot apprend, et qui dépasse ce lot
+
+La garde du compte de diagnostics existait, elle était verte, et elle laissait
+passer deux fichiers sur quatre — parce que sa liste de cibles était écrite à la
+main. Un vert ne dit jamais plus que ce que la garde regarde. Partout où une
+promesse peut se répéter n'importe où dans le dépôt, la garde doit BALAYER et
+exiger que chaque occurrence trouvée soit rangée, au lieu d'énumérer celles
+qu'on avait en tête le jour où on l'a écrite.
+
+---
+
 ## Point de sortie — 24 août 2026, à **9 jours** du 2 septembre
 
 Neuf jours. La barre reste celle d'hier : ce qui n'est pas mesuré n'est pas

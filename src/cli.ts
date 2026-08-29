@@ -15,7 +15,7 @@
 //   npm run cli -- replay [sinceId]                   time-lapse (rejeu du journal)
 //   npm run cli -- waggle                             classement des contributeurs (nectar)
 //   npm run cli -- consensus <taskId>                 vote des agents sur le résultat
-//   npm run cli -- doctor [chemin] [--json]          diagnostic local : 11 causes de panne
+//   npm run cli -- doctor [chemin] [--json]          diagnostic local : 13 causes de panne
 //   npm run cli -- ghost                              anomalies (nœuds/tâches douteux)
 //   npm run cli -- shift                              disponibilité heures creuses (HIVE_SHIFT, local)
 //   npm run cli -- pulse                              signes vitaux de la ruche
@@ -23,6 +23,11 @@
 //   npm run cli -- ask "<question>" [projectId]       parler à la Reine (état réel de la ruche)
 //   npm run cli -- race <taskId> [facteur]            Drone Wars : course compétitive (2-5 nœuds)
 //   npm run cli -- races                              Drone Wars : courses en vol
+//
+// Cet en-tête ORIENTE, il n'inventorie pas : la moitié des commandes servies
+// n'y figure pas. La liste complète est celle que « npm run cli » rend sans
+// argument — la seule confrontée à la table d'aiguillage par une garde
+// (`tests/cli-dispatch.test.ts`), donc la seule qui ne peut pas dériver.
 //
 // Config : HIVE_HTTP (défaut http://localhost:7777) et HIVE_TOKEN (.env lu si présent).
 // Format du fichier de tâches : [{ "id"?, "title", "prompt", "dependsOn"?: [] }, …]
