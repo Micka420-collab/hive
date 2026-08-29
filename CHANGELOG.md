@@ -7,6 +7,21 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- **Une garde sur le code que personne n'appelle.** `tests/modules-sans-appelant.test.ts`
+  balaie `src/` et exige que chaque module sans appelant de production soit
+  rangé : **point d'entrée** (le système l'invoque, déduit de `package.json`, de
+  l'image et des installeurs) ou **moitié assumée**, avec sa raison écrite. Dix
+  modules le sont aujourd'hui — dont quatre qui forment une seule chaîne
+  inachevée, celle du butinage. La garde ne câble rien et ne le demande pas :
+  câbler dix modules serait dix fonctionnalités neuves décidées par un banc.
+  Elle empêche seulement un onzième d'apparaître en silence, et se nettoie dans
+  l'autre sens aussi — une moitié qui GAGNE un appelant la fait rougir.
+  Aucun instrument existant ne voyait cette classe : la couverture est parfaite
+  (le banc du module le couvre), la loupe est verte (ses mutants meurent, tués
+  par ce même banc), le typage passe.
+
 ### Fixed
 
 - **Trois chiffres pour une seule vérité — le compte du docteur.** `hive doctor`

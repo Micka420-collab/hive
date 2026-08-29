@@ -13496,7 +13496,7 @@ dite parce qu'elle change la lecture.)_
 | Le premier contact d'un arrivant, joué pour de vrai        | `hive doctor` sur ce clone nu : 13 lignes, code 2, 0 silence |
 
 **La barrière, mesurée aujourd'hui, code de sortie lu SANS tube :** `typecheck`
-vert, `typecheck:dashboard` vert, `lint` vert, `vitest run` → **5474 bancs, 0
+vert, `typecheck:dashboard` vert, `lint` vert, `vitest run` → **5480 bancs, 0
 rouge**, ici comme en CI.
 
 **Deux répartitions, et une seule qui juge.** Le total ne dépend pas de la
@@ -13504,12 +13504,12 @@ machine ; la répartition, si :
 
 | Où                          | Bancs | Verts    | Ignorés |
 | --------------------------- | ----- | -------- | ------- |
-| ici (Linux, **Node 22**)    | 5474  | 5461     | 13      |
-| CI `ubuntu-latest`, Node 24 | 5474  | **5466** | **8**   |
+| ici (Linux, **Node 22**)    | 5480  | 5467     | 13      |
+| CI `ubuntu-latest`, Node 24 | 5480  | **5472** | **8**   |
 
 Cinq bancs de `installeur-porte` ne s'exécutent qu'à partir de Node 24 ; huit
 autres sont réservés à Windows et à macOS. **Aucune machine n'exécute les
-5474** — pas même une jambe de CI.
+5480** — pas même une jambe de CI.
 
 **Et j'ai écrit les mauvais chiffres, la CI me l'a dit.** Le tableau A de
 `DEFINITION-DE-SORTIE.md` a d'abord reçu la mesure locale : elle était juste,
@@ -13521,14 +13521,34 @@ la raison est désormais dans le tableau lui-même plutôt que dans ma tête.
 
 ### 2. Ce qui reste, dans l'ordre où un arrivant le rencontre
 
-1. **Deux modules écrits, éprouvés, et que RIEN n'appelle.** Mesuré ce matin en
-   cherchant leurs importateurs, pas supposé :
-   - `src/orchestrator/butineuse.ts` — `butiner` n'est importé que par son
-     propre banc. Ni route, ni appel du planificateur (#105).
-   - `src/shared/fraicheur-version.ts` — même constat, et c'est une moitié
-     ASSUMÉE : le commit qui l'a posée dit que « qui va chercher la dernière
-     version est un autre problème ». La différence entre les deux compte : une
-     moitié annoncée est une dette, une moitié tue est un piège.
+1. **DIX modules écrits, éprouvés, et que RIEN n'appelle.** Ce point disait
+   « deux » ce matin — `butineuse` et `fraicheur-version`, trouvés en cherchant
+   leurs importateurs à la main. En écrivant la garde qui balaie `src/`, il en
+   est sorti **huit de plus**, et l'inventaire manuel qui en avait trouvé deux
+   était le mien, fait le même jour :
+
+   | Module                        | Ce qu'il attend                                |
+   | ----------------------------- | ---------------------------------------------- |
+   | `orchestrator/butineuse.ts`   | ni route ni planificateur ne l'appelle (#105)  |
+   | `shared/nectar-suspect.ts`    | en aval du même appel absent                   |
+   | `shared/deballage.ts`         | en aval du même appel absent                   |
+   | `shared/licence-butinee.ts`   | en aval du même appel absent                   |
+   | `shared/fraicheur-version.ts` | l'autre moitié suppose des étiquettes publiées |
+   | `shared/paliers.ts`           | la facturation n'est pas dans ce dépôt         |
+   | `shared/agents-connectes.ts`  | l'en-tête ne le lit pas                        |
+   | `shared/outils-du-noeud.ts`   | aucun écran ne l'affiche                       |
+   | `shared/demarrage.ts`         | `ruche.mjs` ne passe pas par lui               |
+   | `atelier/reveil.ts`           | rien ne les déclenche dans l'image             |
+
+   Les quatre premiers sont **une seule chaîne inachevée** — le butinage — et on
+   ne le voyait pas en les regardant un par un.
+
+   Ils sont désormais RANGÉS, pas câblés : `tests/modules-sans-appelant.test.ts`
+   exige que chacun soit un point d'entrée ou une moitié assumée avec sa raison,
+   et rougit sur un onzième comme sur une moitié qui gagne enfin un appelant.
+   Câbler dix modules à quatre jours de la sortie serait dix fonctionnalités
+   neuves décidées par un banc ; ce n'est pas à lui de le faire.
+
 2. **Le bouton « mettre à jour Hive »** (#112) : la ruche sait dire quel commit
    elle fait tourner et sait comparer deux numéros ; il manque d'aller CHERCHER
    le second. Bloqué sur des versions publiées, donc sur un compte qui n'est pas

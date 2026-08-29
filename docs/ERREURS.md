@@ -3006,6 +3006,53 @@ a le plus besoin de trouver annoncé.
 > chez le développeur et le geste qui refuse est en CI. Un outil qui réparerait
 > tout seul en intégration continue cacherait le problème au lieu de le poser.
 
+### 9ter.0 quinquies — Dix modules verts, et rien qui les appelle
+
+Le point de sortie du 29 août en nommait **deux** — `butineuse.ts` et
+`fraicheur-version.ts` — trouvés en cherchant leurs importateurs à la main. En
+écrivant la garde, le balayage en a trouvé **huit de plus** :
+
+| Module                        | Ce qu'il attend                                |
+| ----------------------------- | ---------------------------------------------- |
+| `orchestrator/butineuse.ts`   | ni route ni planificateur ne l'appelle (#105)  |
+| `shared/nectar-suspect.ts`    | en aval du même appel absent                   |
+| `shared/deballage.ts`         | en aval du même appel absent                   |
+| `shared/licence-butinee.ts`   | en aval du même appel absent                   |
+| `shared/fraicheur-version.ts` | l'autre moitié suppose des étiquettes publiées |
+| `shared/paliers.ts`           | la facturation n'est pas dans ce dépôt         |
+| `shared/agents-connectes.ts`  | l'en-tête ne le lit pas                        |
+| `shared/outils-du-noeud.ts`   | aucun écran ne l'affiche                       |
+| `shared/demarrage.ts`         | `ruche.mjs` ne passe pas par lui               |
+| `atelier/reveil.ts`           | rien ne les déclenche dans l'image             |
+
+Quatre d'entre eux forment **une seule chaîne inachevée** — le butinage — et on
+ne le voyait pas en les regardant un par un.
+
+**Ce qui rend ce défaut particulier, c'est qu'aucun instrument du dépôt ne le
+voit.** La couverture est parfaite : le banc du module le couvre. La loupe est
+verte : ses mutants meurent, tués par ce même banc. Le typage passe. Un module
+mort a exactement les mêmes signes extérieurs qu'un module livré — en-tête
+soigné, banc vert, nom juste — et c'est précisément pourquoi il survit.
+
+L'inventaire à la main ne pouvait pas suffire non plus : il en avait trouvé
+deux sur dix, et celui qui l'avait fait (moi, le matin même) en était sorti
+convaincu d'avoir fait le tour.
+
+> **Règle** — « couvert » ne veut pas dire « appelé ». Un banc qui importe le
+> module qu'il éprouve prouve que le module MARCHE, jamais qu'il SERT. La
+> question « qui l'appelle en production ? » est une mesure distincte, et elle
+> n'est répondue par aucun des instruments qui mesurent la qualité du code.
+
+> **Règle** — une dette de cette forme se range, elle ne se corrige pas dans le
+> même geste. Câbler dix modules, ce serait dix fonctionnalités neuves décidées
+> par un banc. La garde EXIGE seulement que chacun soit déclaré — point d'entrée
+> ou moitié assumée avec sa raison écrite — pour qu'un onzième ne puisse plus
+> apparaître en silence.
+
+> **Règle** — une liste de dettes doit se nettoyer dans les DEUX sens. Un module
+> déclaré « sans appelant » qui en gagne un fait rougir la garde, sinon la liste
+> survit à ce qu'elle décrit et redevient une affirmation que rien ne vérifie.
+
 ### 9ter.0 bis — La garde était juste, sa LISTE était courte
 
 L'entrée ci-dessus se termine sur une bonne règle : relier le chiffre à sa
