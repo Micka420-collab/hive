@@ -9,6 +9,64 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **La porte d'origine du WebSocket est enfin gardée.** Le README promet
+  « origine des WebSockets vérifiée » ; `server.ts` la vérifie ; rien ne
+  l'éprouvait. Contre-épreuve : porte neutralisée, les 78 bancs WebSocket du
+  dépôt restaient verts. La cause n'est pas un oubli — aucun `new WebSocket(...)`
+  de la suite n'a de second argument, donc aucun ne pouvait porter d'en-tête
+  `Origin` : la ligne était hors d'atteinte de tous les bancs à la fois.
+  `tests/ws-origine.test.ts` tient les quatre cas — origine étrangère fermée en
+  4403, origine listée admise, origine du même hôte admise sans être listée, et
+  connexion SANS origine admise, ce dernier cas écrit pour dire tout haut la
+  limite de cette garde : elle filtre les pages, jamais les programmes.
+
+- **Une garde sur le code que personne n'appelle.** `tests/modules-sans-appelant.test.ts`
+  balaie `src/` et exige que chaque module sans appelant de production soit
+  rangé : **point d'entrée** (le système l'invoque, déduit de `package.json`, de
+  l'image et des installeurs) ou **moitié assumée**, avec sa raison écrite. Dix
+  modules le sont aujourd'hui — dont quatre qui forment une seule chaîne
+  inachevée, celle du butinage. La garde ne câble rien et ne le demande pas :
+  câbler dix modules serait dix fonctionnalités neuves décidées par un banc.
+  Elle empêche seulement un onzième d'apparaître en silence, et se nettoie dans
+  l'autre sens aussi — une moitié qui GAGNE un appelant la fait rougir.
+  Aucun instrument existant ne voyait cette classe : la couverture est parfaite
+  (le banc du module le couvre), la loupe est verte (ses mutants meurent, tués
+  par ce même banc), le typage passe.
+
+### Fixed
+
+- **Trois chiffres pour une seule vérité — le compte du docteur.** `hive doctor`
+  rend **13** diagnostics. Les deux README l'annonçaient juste ; l'en-tête de
+  `src/cli.ts` annonçait **11**, MISSION-ACCUEIL § 8 **10**. La garde qui reliait
+  déjà le chiffre au code (`diagnostiquer()`) itérait sur une liste de cibles
+  écrite à la main : elle couvrait deux fichiers sur quatre, et son vert ne
+  disait que « les deux que je connais vont bien ». Elle BALAIE désormais le
+  dépôt et exige que chaque occurrence trouvée soit rangée en **promesse**
+  (doit valoir le compte rendu), **plancher** (le compte doit le tenir — un
+  critère de recette se vérifie par ≥, jamais par =, sinon on retaille la cible
+  d'après le tir) ou **témoin** (un chiffre faux cité exprès dans un journal).
+  Un cinquième endroit ne peut plus apparaître en silence.
+- **Le verrou npm déclarait encore 0.2.0.** `package.json` est passé à 0.3.0 ;
+  `package-lock.json` gardait `0.2.0` à ses deux entrées racine — donc la
+  version qu'un `npm ci` inscrit dans l'arbre installé. Corrigé, et tenu par un
+  banc : une ruche qui ne dit pas d'une seule voix quelle version elle est ne
+  peut pas répondre « suis-je à jour ? ».
+- **Un banc qui mesurait la machine, pas le dépôt.**
+  `tests/site-installeurs.test.ts` lançait `install.sh --dry-run` avec
+  `execFileSync`, qui lève dès que le code de sortie n'est pas nul. Sur un poste
+  en Node 22 l'installeur refuse — c'est son travail — et l'exception emportait
+  toute la sortie, y compris la ligne `Empreinte SHA-256` qui était bien là. Le
+  banc lit maintenant la sortie dans les deux mondes (`spawnSync`), tient la
+  propriété qui compte (l'empreinte est annoncée AVANT tout verdict) et couvre
+  en prime le refus lui-même : sur un Node trop vieux il se dit, et sort non
+  nul. Le plancher `NODE_MIN` est LU dans le script, jamais recopié.
+  Une affirmation avait failli tomber en silence dans l'échange : l'ancien banc
+  tenait « le dry-run réussit », mais par accident d'outil — `execFileSync`
+  levait. `spawnSync` ne lève plus ; l'affirmation est donc remise, explicite,
+  et des DEUX côtés du plancher (au-dessus : code 0 ; en dessous : refus).
+
+### Added
+
 - **Les portes de ce lot passent sous banc.** Le cliquet de couverture refusait
   la fusion — fonctions à 78,42 % sous un seuil de 78,8 — et il nommait juste :
   trois blocs neufs arrivaient sans un cas.

@@ -4,7 +4,7 @@
 
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -63,25 +63,102 @@ describe('Pages publie les installeurs (ADR 0002)', () => {
 });
 
 describe('install.sh annonce son empreinte', () => {
-  it('affiche le SHA-256 quand lancé comme fichier (--dry-run)', () => {
+  // ─── CE BANC MESURAIT LA MACHINE, PAS LE SCRIPT ────────────────────────────
+  //
+  // Il lançait `install.sh --dry-run` avec `execFileSync`, qui LÈVE dès que le
+  // code de sortie n'est pas nul. Sur un poste en Node 22, l'installeur refuse
+  // — c'est son travail — et l'exception emportait toute la sortie : le banc
+  // rougissait sans jamais dire pourquoi, et la ligne d'empreinte QUI ÉTAIT
+  // BIEN LÀ n'était même pas lue.
+  //
+  // Un banc qui rougit selon la version de Node de l'hôte ne mesure pas le
+  // dépôt. Celui-ci lit maintenant la sortie DANS LES DEUX MONDES, et vérifie
+  // la propriété qui compte : l'empreinte est annoncée AVANT tout verdict —
+  // on sait ce qu'on s'apprête à exécuter avant que le script décide quoi que
+  // ce soit. Et sur un Node trop vieux, le refus se dit ; il n'est pas muet.
+  const lancerUneFois = (): { sortie: string; code: number } => {
+    const r = spawnSync(
+      'sh',
+      [path.join(RACINE, 'install.sh'), '--dry-run', '--dir=/tmp/hive-empreinte-test-$$'],
+      {
+        encoding: 'utf8',
+        env: { ...process.env, NO_COLOR: '1', TERM: 'dumb', HIVE_DEPOT: RACINE },
+        timeout: 60_000,
+      },
+    );
+    if (r.error) throw r.error;
+    return { sortie: `${r.stdout ?? ''}${r.stderr ?? ''}`, code: r.status ?? -1 };
+  };
+
+  // ─── UNE SEULE EXÉCUTION POUR LES DEUX CAS, ET CE N'EST PAS QUE L'ÉCONOMIE ──
+  //
+  // Les deux bancs ci-dessous lisent des PROPRIÉTÉS DIFFÉRENTES DU MÊME
+  // passage : ce que le script a dit, et par quel code il est sorti. Les faire
+  // lancer chacun le leur, c'était deux `sh` par suite au lieu d'un — et sous
+  // Node 24, où l'installeur ne s'arrête plus au contrôle de version, ce
+  // passage va bien plus loin (`git --version`, sondes de place et de port).
+  //
+  // Ça n'a pas coûté qu'un peu de temps. Le tamis des ordres est passé au ROUGE
+  // sur le commit qui a introduit ce second lancement, alors que ses 5 466
+  // bancs étaient verts : la seule erreur était un `EnvironmentTeardownError`
+  // de vitest — « Closing rpc while onUserConsoleLog was pending ». C'est une
+  // course au DÉMONTAGE d'un worker, que la charge concurrente rend visible.
+  // Rien ne prouve que ce second `sh` en soit la cause unique, et ce n'est pas
+  // écrit ici comme tel ; ce qui est sûr, c'est que c'était de la charge que
+  // J'AVAIS AJOUTÉE, et qu'aucun des deux bancs n'en avait besoin.
+  //
+  // La mémoïsation est sûre ici : vitest exécute les bancs d'un même fichier en
+  // séquence dans le même worker, et la commande est déterministe — même arbre,
+  // même environnement, aucun effet de bord (`--dry-run` n'écrit rien, § 18 du
+  // script).
+  let passage: { sortie: string; code: number } | null = null;
+  const lancer = (): { sortie: string; code: number } => (passage ??= lancerUneFois());
+
+  /** Le plancher que l'installeur s'impose, LU dans le script — jamais recopié. */
+  const nodeMin = Number(/^NODE_MIN=(\d+)$/m.exec(lire('install.sh'))?.[1]);
+
+  it('le plancher de version est lisible dans le script', () => {
+    // Sans lui, les deux cas ci-dessous se choisiraient sur un nombre écrit de
+    // tête, et le banc mentirait le jour où le plancher bouge.
+    expect(nodeMin, 'NODE_MIN introuvable dans install.sh').toBeGreaterThan(0);
+  });
+
+  it('affiche le SHA-256 avant de juger quoi que ce soit (--dry-run)', () => {
     // Sous Windows, git peut convertir les fins de ligne : le hash Node ≠
     // sha256sum du fichier sur disque. On vérifie la présence de la ligne ;
     // l'égalité octet-à-octet reste la garde Linux/macOS.
-    const script = path.join(RACINE, 'install.sh');
-    const attendu = createHash('sha256').update(readFileSync(script)).digest('hex');
-    const out = execFileSync('sh', [script, '--dry-run', `--dir=/tmp/hive-empreinte-test-$$`], {
-      encoding: 'utf8',
-      env: {
-        ...process.env,
-        NO_COLOR: '1',
-        TERM: 'dumb',
-        HIVE_DEPOT: RACINE,
-      },
-      timeout: 60_000,
-    });
-    expect(out).toMatch(/Empreinte SHA-256 : [0-9a-f]{64}/);
+    const attendu = createHash('sha256')
+      .update(readFileSync(path.join(RACINE, 'install.sh')))
+      .digest('hex');
+    const { sortie } = lancer();
+    expect(sortie).toMatch(/Empreinte SHA-256 : [0-9a-f]{64}/);
     if (process.platform !== 'win32') {
-      expect(out).toContain(`Empreinte SHA-256 : ${attendu}`);
+      expect(sortie).toContain(`Empreinte SHA-256 : ${attendu}`);
     }
+  });
+
+  it('LE CODE DE SORTIE DIT LA VÉRITÉ, DANS LES DEUX MONDES', () => {
+    // ─── CE QUE LA RÉÉCRITURE AVAIT FAILLI PERDRE ───────────────────────────
+    //
+    // L'ancien banc n'affirmait rien du code de sortie — il n'en avait pas
+    // besoin : `execFileSync` LEVAIT dès qu'il n'était pas nul, donc « le
+    // dry-run réussit » était tenu, mais par accident d'outil et sans être
+    // écrit nulle part. En passant à `spawnSync`, qui ne lève plus, cette
+    // affirmation-là serait tombée en silence : un `--dry-run` qui se met à
+    // échouer sur un runner neuf n'aurait plus fait rougir personne.
+    //
+    // Elle est donc REMISE, explicite, et des deux côtés du plancher : au-dessus
+    // le dry-run doit réussir, en dessous il doit refuser. Le même banc ne
+    // mesure plus la machine — il mesure ce que le script promet À CETTE
+    // machine-là.
+    const majeur = Number(process.versions.node.split('.')[0]);
+    const { sortie, code } = lancer();
+    if (majeur >= nodeMin) {
+      expect(code, `--dry-run doit réussir sous Node ${majeur} (≥ ${nodeMin})`).toBe(0);
+      return;
+    }
+    expect(code, 'un refus qui sort 0 fait croire à une installation réussie').not.toBe(0);
+    expect(sortie, 'le refus ne nomme pas la version trouvée').toContain(`Node ${majeur}`);
+    expect(sortie, 'le refus ne nomme pas le plancher exigé').toContain(String(nodeMin));
   });
 });

@@ -3006,6 +3006,220 @@ a le plus besoin de trouver annoncé.
 > chez le développeur et le geste qui refuse est en CI. Un outil qui réparerait
 > tout seul en intégration continue cacherait le problème au lieu de le poser.
 
+### 9ter.0 sexies — Une ligne hors d'atteinte de TOUS les bancs à la fois
+
+La section « Sécurité » du README promet, en toutes lettres : « origine des
+WebSockets vérifiée ». Le code la vérifie bien — huit lignes dans `server.ts`
+qui ferment la socket en 4403. **Rien ne les éprouvait.**
+
+Contre-épreuve avant d'écrire quoi que ce soit : la porte neutralisée en
+`if (false && …)`, les 78 bancs de `acces-ws`, `ws-avant-auth`, `acces-projet`
+et `gardiennes` restaient VERTS.
+
+Et ce n'était pas un oubli qu'un balayage de plus aurait rattrapé. La porte ne
+se referme que sur une connexion PORTANT un en-tête `Origin` — or aucun
+`new WebSocket(...)` de la suite n'a de second argument, donc aucun ne peut
+porter d'en-tête. La ligne était hors d'atteinte de **tous** les bancs à la
+fois, par construction du décor de test, pas par distraction.
+
+C'est la différence avec la leçon voisine (« couvert ne veut pas dire
+appelé ») : là, le module était atteint par son propre banc. Ici, la ligne
+n'était atteignable par AUCUN, et aucun instrument ne le disait — la couverture
+la comptait simplement comme non couverte, au milieu de milliers d'autres.
+
+> **Règle** — quand une promesse de sécurité se déclenche sur une entrée que le
+> décor de test ne sait pas fabriquer (un en-tête, un certificat, une horloge),
+> la garde n'existe pas, quel que soit le soin du code. Le geste est d'apprendre
+> au décor à fabriquer cette entrée, une fois, plutôt que d'espérer qu'un banc
+> voisin passe par là.
+
+> **Règle** — une garde qui FILTRE se prouve dans les deux sens. Ce banc tient
+> le refus d'une origine étrangère ET le passage d'une origine légitime : sans
+> le second, un mutant qui fermerait tout resterait vert, et la garde serait
+> devenue un mur sans que personne le voie.
+
+> **Règle** — écrire noir sur blanc ce que la garde NE protège pas. Un client
+> sans `Origin` passe, parce qu'un nœud Hive n'est pas un navigateur ; le banc
+> le dit explicitement pour que personne ne lise cette porte comme une
+> authentification.
+
+### 9ter.0 quinquies — Dix modules verts, et rien qui les appelle
+
+Le point de sortie du 29 août en nommait **deux** — `butineuse.ts` et
+`fraicheur-version.ts` — trouvés en cherchant leurs importateurs à la main. En
+écrivant la garde, le balayage en a trouvé **huit de plus** :
+
+| Module                        | Ce qu'il attend                                |
+| ----------------------------- | ---------------------------------------------- |
+| `orchestrator/butineuse.ts`   | ni route ni planificateur ne l'appelle (#105)  |
+| `shared/nectar-suspect.ts`    | en aval du même appel absent                   |
+| `shared/deballage.ts`         | en aval du même appel absent                   |
+| `shared/licence-butinee.ts`   | en aval du même appel absent                   |
+| `shared/fraicheur-version.ts` | l'autre moitié suppose des étiquettes publiées |
+| `shared/paliers.ts`           | la facturation n'est pas dans ce dépôt         |
+| `shared/agents-connectes.ts`  | l'en-tête ne le lit pas                        |
+| `shared/outils-du-noeud.ts`   | aucun écran ne l'affiche                       |
+| `shared/demarrage.ts`         | `ruche.mjs` ne passe pas par lui               |
+| `atelier/reveil.ts`           | rien ne les déclenche dans l'image             |
+
+Quatre d'entre eux forment **une seule chaîne inachevée** — le butinage — et on
+ne le voyait pas en les regardant un par un.
+
+**Ce qui rend ce défaut particulier, c'est qu'aucun instrument du dépôt ne le
+voit.** La couverture est parfaite : le banc du module le couvre. La loupe est
+verte : ses mutants meurent, tués par ce même banc. Le typage passe. Un module
+mort a exactement les mêmes signes extérieurs qu'un module livré — en-tête
+soigné, banc vert, nom juste — et c'est précisément pourquoi il survit.
+
+L'inventaire à la main ne pouvait pas suffire non plus : il en avait trouvé
+deux sur dix, et celui qui l'avait fait (moi, le matin même) en était sorti
+convaincu d'avoir fait le tour.
+
+> **Règle** — « couvert » ne veut pas dire « appelé ». Un banc qui importe le
+> module qu'il éprouve prouve que le module MARCHE, jamais qu'il SERT. La
+> question « qui l'appelle en production ? » est une mesure distincte, et elle
+> n'est répondue par aucun des instruments qui mesurent la qualité du code.
+
+> **Règle** — une dette de cette forme se range, elle ne se corrige pas dans le
+> même geste. Câbler dix modules, ce serait dix fonctionnalités neuves décidées
+> par un banc. La garde EXIGE seulement que chacun soit déclaré — point d'entrée
+> ou moitié assumée avec sa raison écrite — pour qu'un onzième ne puisse plus
+> apparaître en silence.
+
+> **Règle** — une liste de dettes doit se nettoyer dans les DEUX sens. Un module
+> déclaré « sans appelant » qui en gagne un fait rougir la garde, sinon la liste
+> survit à ce qu'elle décrit et redevient une affirmation que rien ne vérifie.
+
+### 9ter.0 bis — La garde était juste, sa LISTE était courte
+
+L'entrée ci-dessus se termine sur une bonne règle : relier le chiffre à sa
+source. Elle a été appliquée, et elle a marché — sur **deux fichiers sur
+quatre**.
+
+`tests/readme.test.ts` appelait bien `diagnostiquer()`, mais la boucle qui s'en
+servait itérait sur une liste écrite à la main :
+
+```ts
+for (const [nom, source, motif] of [
+  ['README.md', FR, /…/],
+  ['README.en.md', EN, /…/],
+] as const) {
+```
+
+Deux AUTRES endroits du dépôt annonçaient le même compte, et personne ne les
+avait mis dans la liste. Mesuré en balayant le dépôt, pas supposé :
+
+| Endroit              | Annonçait | Le docteur rend |
+| -------------------- | --------- | --------------- |
+| `README.md`          | 13        | 13              |
+| `README.en.md`       | 13        | 13              |
+| `src/cli.ts` (§ 18)  | **11**    | 13              |
+| `MISSION-ACCUEIL.md` | **10**    | 13              |
+
+Trois nombres différents pour une seule vérité, dont deux sous une garde qui
+existait, qui était verte, et qui ne les regardait pas. La leçon d'origine
+disait « cherche la source » ; il y manquait sa moitié : **la source ne sert à
+rien si l'on n'énumère pas tous ceux qui la citent.**
+
+Et l'énumération elle-même est piégeuse, parce que les citations ne sont pas
+toutes de même nature — les mélanger aurait produit une garde fausse dans les
+deux sens :
+
+- **promesse** — `README.md`, `README.en.md`, l'en-tête de `src/cli.ts`
+  décrivent ce que la commande fait AUJOURD'HUI. Doivent valoir exactement le
+  compte rendu.
+- **plancher** — MISSION-ACCUEIL § 8 exigeait dix causes AVANT que le code
+  existe. Y écrire 13 « pour que tout s'accorde » serait retailler la cible
+  d'après le tir. Ce qui se vérifie est que le plancher TIENT ENCORE ; il rougit
+  le jour où quelqu'un ampute le docteur, même si les README, eux, se sont
+  sagement mis à jour sur la valeur amputée.
+- **témoin** — `docs/ERREURS.md` et `docs/ETAPES.md` citent « 12 causes de
+  panne », un chiffre faux gardé exprès. Le corriger effacerait la leçon.
+
+> **Règle** — une garde dont la liste de cibles est écrite à la main ne protège
+> que ce qu'on a pensé à y mettre, et son vert dit « les deux que je connais
+> vont bien », jamais « le dépôt va bien ». Quand la promesse peut se répéter
+> n'importe où, la garde BALAIE et exige que chaque occurrence trouvée soit
+> RANGÉE ; un cinquième endroit ne peut alors plus apparaître en silence — il
+> faut dire à quelle famille il appartient.
+
+> **Règle** — avant d'uniformiser des chiffres qui divergent, se demander si
+> l'un d'eux est un CRITÈRE et non une description. Un critère de recette se
+> vérifie par ≥, jamais par = : l'aligner sur le résultat supprime la seule
+> garde qui aurait su dire qu'on a reculé.
+
+### 9ter.0 quater — Une mesure honnête, prise au mauvais endroit
+
+Le tableau A de `docs/DEFINITION-DE-SORTIE.md` a été refait à la main comme sa
+règle l'exige : quatre nombres re-mesurés le jour même, titre re-daté, arbre
+nommé, et même la MACHINE ajoutée au titre — précaution qu'aucune version
+précédente n'avait prise.
+
+La CI l'a refusé quand même :
+
+```
+DEFINITION-DE-SORTIE.md (verts)   : annoncé 5461, mesuré 5466
+DEFINITION-DE-SORTIE.md (ignorés) : annoncé 13,   mesuré 8
+```
+
+Aucun de ces nombres n'était inventé. La mesure locale était vraie — sur une
+machine en Node 22, où cinq bancs de `installeur-porte` ne s'exécutent pas.
+Seulement `scripts/compte-tests.mjs` ne tourne que sur la jambe
+`ubuntu-latest` / Node 24 : **c'est elle qui fait foi pour ce tableau**, et une
+mesure prise ailleurs y est fausse quelle que soit sa sincérité.
+
+Le total, lui, ne bougeait pas — 5474 des deux côtés — ce qui est précisément
+ce qui rendait l'erreur invisible à la relecture : les six badges publics
+étaient justes, seule la RÉPARTITION divergeait. Dater et signer sa mesure ne
+suffit donc pas ; il faut encore que ce soit la mesure que le juge regarde.
+
+Corollaire trouvé en corrigeant : le commentaire du workflow justifiait le
+« sur `ubuntu-latest` seulement » par « le chiffre est le même partout ». Vrai
+du total, faux de la répartition — et si la justification avait été exacte,
+lancer l'outil sur les trois jambes aurait paru inoffensif, alors que c'est
+impossible : trois répartitions différentes ne peuvent pas satisfaire un seul
+jeu de nombres. Un commentaire dont la RAISON est fausse et la CONCLUSION juste
+survit longtemps, et prépare la mauvaise décision suivante.
+
+> **Règle** — avant d'écrire un chiffre mesuré dans un document gardé, se
+> demander OÙ TOURNE LA GARDE. Une mesure locale et une mesure de CI peuvent
+> être toutes deux honnêtes et ne pas être interchangeables ; celle qui compte
+> est celle que l'outil qui refuse va reproduire.
+
+> **Règle** — quand une valeur dépend de la machine, l'écrire à côté du chiffre
+> et non dans le commit qui l'accompagne. Le tableau porte désormais sa jambe de
+> référence dans son titre, et l'écart avec une mesure locale dans son corps :
+> le prochain qui mesurera chez lui verra pourquoi il trouve autre chose.
+
+### 9ter.0 ter — Le banc qui rougissait à cause de la machine, pas du dépôt
+
+`tests/site-installeurs.test.ts` lançait `install.sh --dry-run` avec
+`execFileSync`, qui **lève** dès que le code de sortie n'est pas nul.
+
+Sur un poste en Node 22, l'installeur refuse — c'est exactement son travail, il
+le dit à voix haute et sort en 2. Le banc, lui, perdait toute la sortie dans
+l'exception, et rougissait sans jamais montrer la ligne `Empreinte SHA-256`
+**qui était pourtant bien là**, imprimée avant tout verdict.
+
+Un banc qui dépend de la version de Node de son hôte ne mesure pas le dépôt : il
+mesure la machine. Et il ment dans les deux sens — rouge ici sans défaut, vert
+ailleurs sans avoir rien éprouvé du refus.
+
+La réécriture lit la sortie **dans les deux mondes** (`spawnSync`, qui rend un
+code au lieu de jeter), vérifie la propriété qui compte — l'empreinte est
+annoncée AVANT que le script décide quoi que ce soit, donc on sait ce qu'on
+s'apprête à exécuter — et couvre en prime un chemin que rien n'éprouvait : sur
+un Node trop vieux, le refus se dit et sort non nul. Le plancher (`NODE_MIN`)
+est LU dans le script, jamais recopié.
+
+> **Règle** — un banc qui exécute un outil du dépôt doit capturer son code de
+> sortie, pas se le faire jeter. `execFileSync` transforme « l'outil a refusé »
+> en « le banc a planté », et la différence est toute la valeur du banc.
+
+> **Règle** — quand un banc peut rougir à cause de l'environnement, il ne se
+> désarme pas : il se scinde en deux cas nommés, un par monde. La condition
+> devient une PROPRIÉTÉ éprouvée au lieu d'un aléa subi.
+
 ### 9ter.1 — La sonde qui confondait « absent » et « qui refuse »
 
 Première version de cette garde : appeler `getAdapter(nom)` et regarder s'il
