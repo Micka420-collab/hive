@@ -13602,6 +13602,28 @@ une liste de capacités manquantes pour une liste de défauts d'accueil.
 4. **#114 — la VM Proxmox.** Scripts livrés, jamais exécutés : demande un accès
    au LAN que je n'ai pas.
 
+### 2 bis. Un candidat ÉCARTÉ, avec sa mesure — le drapeau `act()`
+
+En diagnosticant le rouge du tamis, j'avais annoncé (en commentaire de la PR)
+que douze bancs `.tsx` sans `IS_REACT_ACT_ENVIRONMENT` inondaient le canal de
+console et faisaient pression sur la course de démontage. Mesuré depuis :
+
+| Ce que j'avais dit    | Ce que la mesure rend                           |
+| --------------------- | ----------------------------------------------- |
+| douze bancs concernés | **huit** — quatre ne rendent aucun React        |
+| ils inondent le canal | **zéro** avertissement sur les 5 484 bancs, ici |
+
+L'inondation est réelle — elle est dans le journal de CI — mais elle dépend de
+l'ordre tiré par le tamis, de Node 24, ou des deux, et je n'ai reproduit aucune
+des trois hypothèses : ni le fichier seul, ni cinq fichiers mêlant drapeau et
+absence de drapeau, ni la suite entière.
+
+**Le lot n'est donc PAS livré, et c'est la décision.** Poser le drapeau sur huit
+fichiers ACTIVE en retour l'avertissement « update not wrapped in act() » :
+on échangerait un bruit qu'on ne reproduit pas contre un bruit qu'on n'a pas
+mesuré, pendant un gel. Le candidat est décrit ici pour qu'il se décide sur des
+chiffres plutôt que sur une intuition tirée d'un journal.
+
 ### 3. Hors d'atteinte — à DIRE, jamais à simuler
 
 - **Comptes npm et GHCR.** Pas les miens ; aucun ✅ ne sera posé sur une

@@ -3006,6 +3006,52 @@ a le plus besoin de trouver annoncé.
 > chez le développeur et le geste qui refuse est en CI. Un outil qui réparerait
 > tout seul en intégration continue cacherait le problème au lieu de le poser.
 
+### 9ter.0 septies — Un défaut LU dans un journal n'est pas un défaut MESURÉ
+
+En diagnosticant le rouge du tamis des ordres, j'ai vu dans le journal de CI des
+centaines de lignes « The current testing environment is not configured to
+support act(...) », juste avant l'erreur de démontage. J'ai compté les bancs
+`.tsx` sans `IS_REACT_ACT_ENVIRONMENT` — douze sur soixante-neuf — et j'ai écrit
+publiquement, en commentaire de la PR, que ces douze inondaient le canal
+`onUserConsoleLog` et constituaient la pression derrière la course.
+
+**Deux moitiés de cette phrase étaient fausses, et je ne l'ai su qu'en mesurant
+après coup :**
+
+- **Quatre des douze ne rendent aucun React.** `api-message-detail`,
+  `api-queen-fabrique`, `copier` et `revues-hors-ligne` n'importent ni RTL ni
+  `render`. Le critère « n'a pas le drapeau » n'est pas le critère « émet
+  l'avertissement » ; j'avais compté le premier en croyant compter le second.
+- **La suite complète, ici, n'émet AUCUN de ces avertissements.** Mesuré :
+  5 484 bancs, Node 22, ordre par défaut — zéro occurrence. Ni le fichier seul,
+  ni cinq fichiers mêlant drapeau et absence de drapeau n'en produisent un.
+
+L'inondation est réelle : je l'ai vue dans le journal. Mais elle dépend de
+l'ORDRE tiré par le tamis, ou de Node 24, ou des deux — et je n'ai reproduit
+aucune des trois hypothèses. Ce qui restait vrai après mesure, c'est le
+comptage brut ; ce que j'en avais déduit ne l'était pas.
+
+La correction a été postée en commentaire sur la PR — déjà fusionnée. Une
+affirmation fausse laissée sous une PR fusionnée est un document qui ment, et
+c'est précisément la classe que ces lots ferment.
+
+> **Règle** — l'adjacence dans un journal n'est pas une causalité. Deux choses
+> imprimées l'une après l'autre par la CI peuvent n'avoir aucun rapport ; tant
+> qu'on n'a pas REPRODUIT l'effet, on a une hypothèse, et elle s'énonce comme
+> telle — surtout dans un commentaire public, où elle sera lue comme un fait.
+
+> **Règle** — compter selon le critère qu'on sait mesurer, puis vérifier que
+> c'est bien le critère qu'on voulait. « N'a pas le drapeau » se compte en une
+> ligne ; « émet l'avertissement » demande de savoir qui rend du React. Le
+> premier est un raccourci du second, et un raccourci non dit devient un chiffre
+> faux.
+
+> **Règle** — ne pas corriger ce qu'on ne sait pas reproduire, surtout pendant
+> un gel. Poser le drapeau sur huit fichiers ACTIVE en retour l'avertissement
+> « update not wrapped in act() » : on échangerait un bruit qu'on ne reproduit
+> pas contre un bruit qu'on n'a pas mesuré. Le candidat est décrit, la mesure
+> est écrite, la décision appartient à l'humain.
+
 ### 9ter.0 sexies — Une ligne hors d'atteinte de TOUS les bancs à la fois
 
 La section « Sécurité » du README promet, en toutes lettres : « origine des
