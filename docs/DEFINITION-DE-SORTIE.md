@@ -18,7 +18,7 @@
 > On ne coche rien de tête. Les chiffres de cette page sont ceux d'une mesure
 > datée ; quand la mesure vieillit, on la refait avant de s'y fier.
 
-## A. Le code tient — ✅ mesuré (arbre `9080648` + le lot des comptes annoncés, 29 août 2026, Linux / Node 22)
+## A. Le code tient — ✅ mesuré en CI (arbre `9080648` + le lot des comptes annoncés, 29 août 2026, `ubuntu-latest` / Node 24)
 
 > **L'ARBRE NOMMÉ EST TOUJOURS LE PRÉCÉDENT, ET C'EST NORMAL.** Un document ne
 > peut pas contenir son propre condensé : le stamper puis rectifier le commit
@@ -53,22 +53,26 @@
 > ensemble : on re-mesure, on réécrit les quatre nombres, **et on re-date ce
 > titre**. C'est ce que dit le refus, et c'est ce qui a été fait ici.
 
-> **LA MACHINE EST DANS LE TITRE, ET CE N'EST PAS UN DÉTAIL.** Le total (5474)
+> **LA MACHINE EST DANS LE TITRE, ET CE N'EST PAS UN DÉTAIL.** Le TOTAL (5474)
 > ne dépend pas de l'hôte : vitest compte un banc ignoré comme un banc. La
-> RÉPARTITION, elle, en dépend — 13 ignorés ici contre 8 à la mesure précédente,
-> et l'écart n'est pas une régression : cinq bancs de `installeur-porte` ne
-> s'exécutent qu'à partir de Node 24, et cette mesure-ci est prise sous Node 22.
-> Les huit autres sont réservés à Windows et à macOS. Autrement dit **aucune
-> machine ne les exécute tous** : seule la matrice CI (Linux + Windows + macOS,
-> Node 24) le fait, et c'est elle qui fait foi pour « 0 rouge » sur les trois
-> systèmes. Une mesure locale qui tairait sa machine ferait passer un chiffre
-> partiel pour un chiffre complet.
+> RÉPARTITION, elle, en dépend, et les quatre nombres de cette ligne sont ceux
+> de la jambe `ubuntu-latest` / Node 24 — la seule où `compte-tests.mjs` tourne,
+> donc la seule qui fait foi pour ce tableau.
+>
+> **CE PARAGRAPHE EST NÉ D'UNE ERREUR, ET ELLE MÉRITE D'ÊTRE DITE.** Ces quatre
+> nombres ont d'abord été recopiés d'une mesure locale sous Node 22 : 5466 verts
+> et 8 ignorés devenaient 5461 et 13. Rien de faux dans cette mesure-là — elle
+> était juste prise sur une machine qui n'est pas celle qui juge. Cinq bancs de
+> `installeur-porte` ne s'exécutent qu'à partir de Node 24 ; huit autres sont
+> réservés à Windows et à macOS. **Aucune machine n'exécute les 5474** — pas même
+> une jambe de CI. Une mesure locale honnête peut donc être le mauvais chiffre à
+> écrire ici, et c'est la CI qui l'a dit, pas une relecture.
 
 | Critère                  | Comment on le mesure                                     | Verdict                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | ------------------------ | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Typage (hub + tableau)   | `npm run typecheck` && `npm run typecheck:dashboard`     | ✅ vert / vert                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | Qualité (style + format) | `npm run lint` (eslint + `prettier --check`)             | ✅ vert                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| Suite de bancs           | `npm test` (vitest run)                                  | ✅ **5474** (5461 verts, 13 ignorés, **0 rouge**)                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Suite de bancs           | `npm test` (vitest run)                                  | ✅ **5474** (5466 verts, 8 ignorés, **0 rouge**)                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | Trois OS × Node 24       | matrice CI `ubuntu` / `windows` / `macos`                | ✅ vertes (run `32369933266`, hors badge)                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | L'image démarre          | jambe CI « L'image se construit, et la ruche y démarre » | ✅ verte                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | Rien de neuf n'est nu    | `npm run loupe` (mutation sur le diff ajouté)            | ✅ six terrains, chacun sur base épinglée : horloge — affichage (`1b93c44`, 18 examinées → 2 nues), la note (`6379854`, 17 → 3 nues), la file (`6c6c52b`, 2 → **rien de nu**) ; **butinage** — le transport (`ba07327`, 19 → 4 nues), le déballage (`13bfda3`, 12 → **rien de nu**), la licence (`7530fa0`, 10 → 2 **équivalentes prouvées**). **9 nues, 9 fermées, contre-rejeu 9/9 ; 2 équivalences confirmées par contre-rejeu** (§ terrain, `docs/ETAPES.md`) |

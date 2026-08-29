@@ -113,15 +113,26 @@ describe('install.sh annonce son empreinte', () => {
     }
   });
 
-  it('sur un Node trop vieux, refuse À VOIX HAUTE et sort non nul', () => {
+  it('LE CODE DE SORTIE DIT LA VÉRITÉ, DANS LES DEUX MONDES', () => {
+    // ─── CE QUE LA RÉÉCRITURE AVAIT FAILLI PERDRE ───────────────────────────
+    //
+    // L'ancien banc n'affirmait rien du code de sortie — il n'en avait pas
+    // besoin : `execFileSync` LEVAIT dès qu'il n'était pas nul, donc « le
+    // dry-run réussit » était tenu, mais par accident d'outil et sans être
+    // écrit nulle part. En passant à `spawnSync`, qui ne lève plus, cette
+    // affirmation-là serait tombée en silence : un `--dry-run` qui se met à
+    // échouer sur un runner neuf n'aurait plus fait rougir personne.
+    //
+    // Elle est donc REMISE, explicite, et des deux côtés du plancher : au-dessus
+    // le dry-run doit réussir, en dessous il doit refuser. Le même banc ne
+    // mesure plus la machine — il mesure ce que le script promet À CETTE
+    // machine-là.
     const majeur = Number(process.versions.node.split('.')[0]);
+    const { sortie, code } = lancer();
     if (majeur >= nodeMin) {
-      // Rien à mesurer ici sur cette machine — et le dire vaut mieux que
-      // laisser croire que le cas a été éprouvé.
-      expect(majeur).toBeGreaterThanOrEqual(nodeMin);
+      expect(code, `--dry-run doit réussir sous Node ${majeur} (≥ ${nodeMin})`).toBe(0);
       return;
     }
-    const { sortie, code } = lancer();
     expect(code, 'un refus qui sort 0 fait croire à une installation réussie').not.toBe(0);
     expect(sortie, 'le refus ne nomme pas la version trouvée').toContain(`Node ${majeur}`);
     expect(sortie, 'le refus ne nomme pas le plancher exigé').toContain(String(nodeMin));

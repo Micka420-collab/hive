@@ -227,8 +227,12 @@ jobs:
       # la suite ne peut le connaître. Celle-ci lit le rapport et refuse un
       # badge périmé — deux fois qu'il l'était, deux fois corrigé à la main.
       #
-      # Sur `ubuntu-latest` seulement : le chiffre est le même partout, et le
-      # vérifier trois fois ne le vérifie pas mieux.
+      # Sur `ubuntu-latest` seulement — et pas seulement par économie. Le TOTAL
+      # est le même partout, mais cet outil compare AUSSI les verts et les
+      # ignorés, et cette répartition-là dépend de la machine : les bancs
+      # réservés à Windows ou à macOS n'y sont pas ignorés. Le lancer sur les
+      # trois jambes exigerait donc du tableau A trois répartitions à la fois,
+      # ce qu'aucun jeu de nombres ne peut satisfaire. Une seule jambe fait foi.
       - name: Le badge annonce le vrai compte de tests
         if: matrix.os == 'ubuntu-latest'
         run: node scripts/compte-tests.mjs rapport-tests.json

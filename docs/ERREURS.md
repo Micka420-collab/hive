@@ -3064,6 +3064,49 @@ deux sens :
 > vérifie par ≥, jamais par = : l'aligner sur le résultat supprime la seule
 > garde qui aurait su dire qu'on a reculé.
 
+### 9ter.0 quater — Une mesure honnête, prise au mauvais endroit
+
+Le tableau A de `docs/DEFINITION-DE-SORTIE.md` a été refait à la main comme sa
+règle l'exige : quatre nombres re-mesurés le jour même, titre re-daté, arbre
+nommé, et même la MACHINE ajoutée au titre — précaution qu'aucune version
+précédente n'avait prise.
+
+La CI l'a refusé quand même :
+
+```
+DEFINITION-DE-SORTIE.md (verts)   : annoncé 5461, mesuré 5466
+DEFINITION-DE-SORTIE.md (ignorés) : annoncé 13,   mesuré 8
+```
+
+Aucun de ces nombres n'était inventé. La mesure locale était vraie — sur une
+machine en Node 22, où cinq bancs de `installeur-porte` ne s'exécutent pas.
+Seulement `scripts/compte-tests.mjs` ne tourne que sur la jambe
+`ubuntu-latest` / Node 24 : **c'est elle qui fait foi pour ce tableau**, et une
+mesure prise ailleurs y est fausse quelle que soit sa sincérité.
+
+Le total, lui, ne bougeait pas — 5474 des deux côtés — ce qui est précisément
+ce qui rendait l'erreur invisible à la relecture : les six badges publics
+étaient justes, seule la RÉPARTITION divergeait. Dater et signer sa mesure ne
+suffit donc pas ; il faut encore que ce soit la mesure que le juge regarde.
+
+Corollaire trouvé en corrigeant : le commentaire du workflow justifiait le
+« sur `ubuntu-latest` seulement » par « le chiffre est le même partout ». Vrai
+du total, faux de la répartition — et si la justification avait été exacte,
+lancer l'outil sur les trois jambes aurait paru inoffensif, alors que c'est
+impossible : trois répartitions différentes ne peuvent pas satisfaire un seul
+jeu de nombres. Un commentaire dont la RAISON est fausse et la CONCLUSION juste
+survit longtemps, et prépare la mauvaise décision suivante.
+
+> **Règle** — avant d'écrire un chiffre mesuré dans un document gardé, se
+> demander OÙ TOURNE LA GARDE. Une mesure locale et une mesure de CI peuvent
+> être toutes deux honnêtes et ne pas être interchangeables ; celle qui compte
+> est celle que l'outil qui refuse va reproduire.
+
+> **Règle** — quand une valeur dépend de la machine, l'écrire à côté du chiffre
+> et non dans le commit qui l'accompagne. Le tableau porte désormais sa jambe de
+> référence dans son titre, et l'écart avec une mesure locale dans son corps :
+> le prochain qui mesurera chez lui verra pourquoi il trouve autre chose.
+
 ### 9ter.0 ter — Le banc qui rougissait à cause de la machine, pas du dépôt
 
 `tests/site-installeurs.test.ts` lançait `install.sh --dry-run` avec

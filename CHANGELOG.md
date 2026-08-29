@@ -34,6 +34,10 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   propriété qui compte (l'empreinte est annoncée AVANT tout verdict) et couvre
   en prime le refus lui-même : sur un Node trop vieux il se dit, et sort non
   nul. Le plancher `NODE_MIN` est LU dans le script, jamais recopié.
+  Une affirmation avait failli tomber en silence dans l'échange : l'ancien banc
+  tenait « le dry-run réussit », mais par accident d'outil — `execFileSync`
+  levait. `spawnSync` ne lève plus ; l'affirmation est donc remise, explicite,
+  et des DEUX côtés du plancher (au-dessus : code 0 ; en dessous : refus).
 
 ### Added
 
