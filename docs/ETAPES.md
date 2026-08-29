@@ -13512,6 +13512,25 @@ Cinq bancs de `installeur-porte` ne s'exécutent qu'à partir de Node 24 ; huit
 autres sont réservés à Windows et à macOS. **Aucune machine n'exécute les
 5484** — pas même une jambe de CI.
 
+**FIN DE LA NUIT — ce que la CI a confirmé, et pourquoi ceci n'est pas un
+second point de sortie.** Le déclencheur du matin demande d'écrire le point du
+jour. Il est au-dessus, daté du 29, et il a été tenu à jour lot par lot pendant
+la nuit. En recopier le cadre quelques heures plus tard produirait exactement ce
+que la garde `documents-qui-grossissent` existe pour attraper : un document qui
+grossit d'un bloc par tour. Ce paragraphe complète donc le point, il ne le
+double pas.
+
+Ce qui a changé depuis la dernière ligne écrite : la CI a tourné sur `a1907c3`
+et ses **huit jambes sont vertes** — les trois systèmes, le tamis des ordres,
+l'image, et les trois installations de bout en bout.
+
+Les chiffres de CI ci-dessus étaient DÉRIVÉS quand ils ont été écrits ; ils sont
+maintenant CONFIRMÉS, et pas parce que j'ai relu un journal. `compte-tests.mjs`
+compare les quatre nombres du tableau A à la mesure de la jambe `ubuntu-latest`
+et sort en 1 sur le moindre écart — je l'ai vu le faire quand la répartition
+était fausse. La jambe est sortie en 0 : la mesure de CI EST 5484 / 5476 / 8 / 0.
+C'est la garde qui l'atteste, pas ma lecture.
+
 **Et j'ai écrit les mauvais chiffres, la CI me l'a dit.** Le tableau A de
 `DEFINITION-DE-SORTIE.md` a d'abord reçu la mesure locale : elle était juste,
 elle était datée, elle nommait sa machine — et elle était le mauvais chiffre,
@@ -13520,7 +13539,24 @@ cette jambe-là qui fait foi pour ce tableau. Une mesure honnête prise au
 mauvais endroit reste une mesure fausse à l'endroit où on l'écrit. Corrigé, et
 la raison est désormais dans le tableau lui-même plutôt que dans ma tête.
 
-### 2. Ce qui reste, dans l'ordre où un arrivant le rencontre
+### 2. Ce qui reste — et le titre de cette section était faux
+
+**Le critère demandé est « ce qui casse l'expérience d'un nouvel arrivant en
+premier ». Appliqué honnêtement, il ne classe RIEN de ce qui suit.** Un arrivant
+clone, installe, lance, et regarde : aucun des quatre points ci-dessous ne se
+trouve sur ce chemin. Il ne rencontrera jamais un module que personne n'appelle.
+
+Ce que l'arrivant rencontre VRAIMENT est mesuré, et c'est vert sur les trois
+systèmes : l'installation de bout en bout (`L'installation va jusqu'à une ruche
+qui répond`, ubuntu + windows + macos), l'image qui démarre, et `hive doctor`
+qui rend treize lignes avec leur commande de réparation et sort en 2 plutôt
+qu'en silence.
+
+La liste qui suit est donc classée par **ce que la ruche ne sait pas encore
+faire**, pas par la friction du premier contact — et la distinction change ce
+qui est urgent avant la sortie : rien ici ne bloque une sortie présentable, tout
+ici limite ce qu'on peut en promettre. Laisser l'ancien titre aurait fait passer
+une liste de capacités manquantes pour une liste de défauts d'accueil.
 
 1. **DIX modules écrits, éprouvés, et que RIEN n'appelle.** Ce point disait
    « deux » ce matin — `butineuse` et `fraicheur-version`, trouvés en cherchant
@@ -13549,6 +13585,13 @@ la raison est désormais dans le tableau lui-même plutôt que dans ma tête.
    et rougit sur un onzième comme sur une moitié qui gagne enfin un appelant.
    Câbler dix modules à quatre jours de la sortie serait dix fonctionnalités
    neuves décidées par un banc ; ce n'est pas à lui de le faire.
+
+   **Et c'est là que ce point s'arrête pour moi.** Le déclencheur du matin dit
+   « reprends le travail sur le premier point ». Le reprendre, ici, ce serait
+   CÂBLER — donc ajouter dix fonctionnalités pendant un gel qui les interdit,
+   sur une décision que personne n'a prise. Ce qui pouvait être fait sans
+   décision l'a été : la classe est mesurée, nommée, et une onzième occurrence
+   ne peut plus apparaître en silence. La suite appartient à l'utilisateur.
 
 2. **Le bouton « mettre à jour Hive »** (#112) : la ruche sait dire quel commit
    elle fait tourner et sait comparer deux numéros ; il manque d'aller CHERCHER
