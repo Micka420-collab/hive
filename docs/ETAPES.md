@@ -13646,3 +13646,68 @@ main. Un vert ne dit jamais plus que ce que la garde regarde. Partout où une
 promesse peut se répéter n'importe où dans le dépôt, la garde doit BALAYER et
 exiger que chaque occurrence trouvée soit rangée, au lieu d'énumérer celles
 qu'on avait en tête le jour où on l'a écrite.
+
+---
+
+## Point de sortie — 30 août 2026, à **3 jours** du 2 septembre
+
+_(Le point du 29 est au-dessus, complet. Celui-ci ne le recopie pas : il dit ce
+qui a changé depuis, et ce qui reste vaut par différence.)_
+
+### 1. Livré ET vérifié depuis hier
+
+Deux PR fusionnées dans `main` — c'est la première fois de la semaine que la
+branche finit une journée à zéro devant `main` :
+
+| Ce qui est entré                                              | La preuve                                                      |
+| ------------------------------------------------------------- | -------------------------------------------------------------- |
+| **#360** — cinq lots de gardes (`fc5801e`)                    | 8 jambes vertes ; 17 mutations, 17 rouges                      |
+| **#361** — la correction d'une affirmation fausse (`6f62e75`) | 8 jambes vertes ; lot documentaire, aucune ligne de production |
+
+**La barrière, mesurée ce matin sur l'arbre fusionné, code de sortie lu SANS
+tube :** `typecheck` vert, `typecheck:dashboard` vert, `lint` vert,
+`vitest run` → **400 fichiers, 5484 bancs, 5471 verts, 13 ignorés, 0 rouge**.
+
+### 2. Ce que la journée d'hier a appris, et qui vaut d'être relu
+
+Trois des cinq lots de #360 ont été trouvés en cherchant **ce qu'un vert ne dit
+pas** — pas en cherchant des défauts. Le rendement de cet angle a été
+inhabituel, et il tient en une phrase : _une garde ne dit jamais plus que ce
+qu'elle regarde._
+
+Mais le fait le plus utile de la journée est le **quatrième** : j'ai affirmé
+publiquement, sous une PR, une cause que je n'avais pas reproduite — douze bancs
+qui « inondaient » un canal. Mesuré ensuite : quatre d'entre eux ne rendent
+aucun React, et la suite entière n'émet aucun de ces avertissements ici. Le
+correctif n'a PAS été livré, et c'est la bonne issue : on ne corrige pas ce
+qu'on ne sait pas reproduire, surtout pendant un gel.
+
+### 3. Ce qui reste — inchangé depuis hier, et toujours pas classé par la friction
+
+Le point du 29 explique pourquoi ce classement-là n'existe pas : **rien de ce
+qui suit ne se trouve sur le chemin d'un arrivant.** Ce qu'il rencontre —
+cloner, installer, lancer, comprendre — est vert sur les trois systèmes.
+
+1. **Dix modules sans appelant**, rangés et non câblés. Les câbler serait dix
+   fonctionnalités neuves pendant le gel.
+2. **Le bouton « mettre à jour Hive »** (#112), bloqué sur des versions
+   publiées.
+3. **#115** — deux décisions ouvertes sous ADR 0011.
+4. **#114** — la VM Proxmox, sans accès LAN.
+5. **Le candidat `act()`** (§ 2 bis ci-dessus), écarté avec sa mesure.
+
+### 4. Hors d'atteinte — et la liste ne bouge pas non plus
+
+Comptes npm et GHCR, étiquettes et Release signée, machines Windows et macOS
+réelles, identité visuelle (#63) et tarifs, accès LAN (#114).
+
+**Ce qui a changé sur ce point :** la fusion des PR n'y figure plus. Les deux de
+cette semaine ont été fusionnées par l'utilisateur, pas par une « autorisation
+permanente » invoquée dans une notification programmée — la distinction a tenu,
+et elle valait d'être tenue.
+
+### 5. À trois jours, la phrase honnête
+
+Rien de mesuré ne casse le premier contact. Ce qui reste limite ce qu'on peut
+**promettre**, pas ce qu'on peut **livrer** — et chacun des cinq points ci-dessus
+attend une décision, aucune une journée de travail.
