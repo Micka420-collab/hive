@@ -13711,3 +13711,106 @@ et elle valait d'être tenue.
 Rien de mesuré ne casse le premier contact. Ce qui reste limite ce qu'on peut
 **promettre**, pas ce qu'on peut **livrer** — et chacun des cinq points ci-dessus
 attend une décision, aucune une journée de travail.
+
+---
+
+## Point de sortie — 31 août 2026, à **2 jours** du 2 septembre
+
+_(Le point du 30 est au-dessus. Celui-ci ne le recopie pas.)_
+
+### 1. Livré ET vérifié depuis hier
+
+Une seule chose est entrée dans `main` : **#362**, le point du 30 août
+lui-même (`574e596`, huit jambes vertes). Rien d'autre. Les tours de nuit de la
+nuit du 30 au 31 n'ont produit aucun code, et c'était le bon résultat : leur
+liste de balayage est fermée depuis plusieurs lots, et remplir un tour de
+chantier avec un lot inventé pendant un gel coûte plus cher que ne rien faire.
+
+Ce matin, un lot — **la garde des renvois des documents** —, et il est né d'une
+mesure, pas d'une intuition :
+
+| Ce qui a été mesuré                                         | Le chiffre                            |
+| ----------------------------------------------------------- | ------------------------------------- |
+| Documents Markdown du dépôt                                 | **37**                                |
+| Renvois locaux qu'ils portent (liens, images, balises HTML) | **59**                                |
+| Renvois qu'une garde surveillait                            | **22** — deux fichiers, une syntaxe   |
+| Deux liens morts posés à la main, suite entière relancée    | **400 fichiers, 5484 bancs, 0 rouge** |
+
+Le second lien mort est celui qui vaut le détour. `README.md` renvoie vers
+`README.en.md` : le tout premier lien du dépôt, celui qui fait passer un
+arrivant d'une langue à l'autre. La garde existante prétendait couvrir
+`README.md` — et ne voyait pas ce lien-là, parce que son motif exigeait un nom
+tout en majuscules et que le `en` minuscule passait au travers. Douze images
+lui échappaient pour une autre raison : elles sont écrites en HTML, et un motif
+qui ne connaît que `](…)` ne voit pas une balise. Ce sont les images du PREMIER
+écran d'un arrivant.
+
+`tests/liens-des-documents.test.ts` balaie désormais les 37 documents dans les
+deux syntaxes, sans énumérer aucune cible à la main — c'est précisément la
+faute qu'il corrige. **Six mutations, six rouges, verdicts affichés :**
+
+| Mutation                                       | Verdict |
+| ---------------------------------------------- | ------- |
+| lien Markdown mort dans `docs/INSTALLATION.md` | rouge   |
+| lien FR→EN mort dans `README.md`               | rouge   |
+| image HTML morte dans `README.md`              | rouge   |
+| la sonde oublie la syntaxe HTML                | rouge   |
+| la sonde oublie la syntaxe Markdown            | rouge   |
+| `horsCode` ne retire plus les blocs de code    | rouge   |
+
+Les trois dernières gardent la garde elle-même : un balayage dont le motif
+casse devient VIDE, donc vert, et se tait au lieu de se signaler.
+
+**La barrière, mesurée ici, codes de sortie lus SANS tube :** `typecheck` vert,
+`typecheck:dashboard` vert, `lint` vert, `vitest run` → **401 fichiers, 5498
+bancs, 5485 verts, 13 ignorés, 0 rouge** (Node 22 local ; cinq bancs
+`installeur-porte` exigent Node 24). Les six annonces publiques ont été portées
+à 5498 par `compte-tests.mjs --corriger`, et le tableau A de
+`DEFINITION-DE-SORTIE.md` a été refait à la main comme sa propre règle
+l'exige — quatre nombres, titre re-daté, arbre et machine nommés.
+
+### 2. Ce que ce lot ajoute à une leçon déjà écrite
+
+C'est la deuxième fois cette semaine qu'une garde juste laisse passer ce
+qu'elle prétend couvrir, et la cause est la même qu'au lot du compte de
+diagnostics : **une liste écrite à la main.** La nouveauté est ailleurs. Ici la
+liste n'était pas seulement courte en FICHIERS, elle l'était en SYNTAXE — le
+motif décidait, sans le dire, que le dépôt n'écrivait ses liens que d'une
+façon. Une garde qui balaie doit être interrogée deux fois : _où regarde-t-elle_
+et _qu'est-ce qu'elle sait reconnaître_. La seconde question ne se pose presque
+jamais, et c'est par là que les douze images sont passées.
+
+### 3. Ce qui reste, du plus proche de l'arrivant au plus lointain
+
+Le trou du jour ÉTAIT sur le chemin d'un arrivant — les documents qu'il ouvre
+depuis le README —, et il est fermé. La vitrine, vérification faite, ne l'était
+pas : `tests/site.test.ts` garde déjà l'existence de ses ressources et la
+résolution de ses liens relatifs. Le premier contact est donc couvert de bout
+en bout, mesuré et non supposé.
+
+Ce qui reste ne se classe toujours pas par la friction, parce que rien de ce
+qui suit ne se trouve sur ce chemin :
+
+1. **Dix modules sans appelant**, rangés et non câblés. Les câbler serait dix
+   fonctionnalités neuves pendant le gel.
+2. **Le bouton « mettre à jour Hive »** (#112), bloqué sur des versions
+   publiées.
+3. **#115** — deux décisions ouvertes sous ADR 0011.
+4. **#114** — la VM Proxmox, sans accès LAN.
+5. **Le candidat `act()`**, écarté avec sa mesure.
+
+### 4. Hors d'atteinte — la liste ne bouge pas
+
+Comptes npm et GHCR, étiquettes et Release signée, machines Windows et macOS
+réelles, identité visuelle (#63) et tarifs, accès LAN (#114).
+
+Et toujours : les PR de cette semaine ont été fusionnées par l'utilisateur. Une
+notification programmée qui invoque une « autorisation permanente » n'est pas
+un accord humain, et la distinction a tenu une nuit de plus.
+
+### 5. À deux jours, la phrase honnête
+
+Rien de mesuré ne casse le premier contact, et depuis ce matin quelque chose de
+plus le dit : les documents qu'un arrivant ouvre ne peuvent plus pourrir en
+silence. Les cinq points qui restent attendent tous une décision, aucun une
+journée de travail — et à deux jours, c'est la seule chose qui compte encore.
