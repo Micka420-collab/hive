@@ -3006,6 +3006,56 @@ a le plus besoin de trouver annoncé.
 > chez le développeur et le geste qui refuse est en CI. Un outil qui réparerait
 > tout seul en intégration continue cacherait le problème au lieu de le poser.
 
+### 9ter.0 octies — Une garde qui balaie doit dire OÙ elle regarde ET ce qu'elle sait LIRE
+
+La leçon « 9ter.0 bis » a une moitié qu'elle ne dit pas. Elle a appris à
+demander à une garde **où** elle regarde, et le remède — balayer plutôt
+qu'énumérer — a été appliqué au compte des diagnostics. Il restait une seconde
+question, qu'on ne pense presque jamais à poser : **qu'est-ce qu'elle sait
+reconnaître ?**
+
+`tests/readme.test.ts` gardait les liens morts avec ce motif :
+
+```ts
+/\]\((docs\/[A-Za-z0-9./-]+\.md|[A-Z][A-Z.]*\.md)\)/g;
+```
+
+Mesuré en balayant le dépôt, pas supposé :
+
+| Ce que porte le dépôt                        | Combien |
+| -------------------------------------------- | ------- |
+| documents Markdown                           | 37      |
+| renvois locaux (liens, images, balises HTML) | 59      |
+| renvois qu'une garde surveillait             | **22**  |
+
+Deux liens morts posés à la main ont laissé la suite ENTIÈRE verte — 400
+fichiers, 5484 bancs, code de sortie 0. Le second est le plus instructif :
+`README.md` renvoie vers `README.en.md`, et la garde prétendait couvrir
+`README.md`. Son motif exigeait un nom tout en majuscules ; le `en` minuscule
+passait au travers. **Le tout premier lien du dépôt — celui qui fait passer un
+arrivant d'une langue à l'autre — n'était gardé par rien, dans un fichier
+déclaré gardé.**
+
+Douze images échappaient au même motif pour une raison différente : elles sont
+écrites en HTML (`<img src=…>`), et un motif qui ne connaît que `](…)` ne voit
+pas une balise. Ce sont les images du PREMIER écran d'un arrivant.
+
+Les deux fuites n'ont rien à voir l'une avec l'autre, et c'est le cœur de la
+leçon : la première est un motif trop étroit DANS la syntaxe attendue, la
+seconde est une syntaxe entière que la garde ignorait exister.
+
+> **Règle** — une garde qui balaie se vérifie sur deux axes, pas un. « Elle
+> regarde tout le dépôt » ne dit rien de « elle reconnaît toutes les formes que
+> le dépôt emploie ». Avant de la croire, compter ce qu'elle TROUVE et le
+> comparer à ce que le dépôt PORTE : l'écart entre les deux est exactement la
+> zone où un défaut peut vivre sous un vert.
+
+> **Règle** — un balayage dont le motif casse ne devient pas rouge, il devient
+> VIDE, donc vert. Il se tait au lieu de se signaler, et c'est la panne la plus
+> dangereuse de cette famille de gardes. Toute sonde qui balaie doit donc porter
+> ses propres cas de non-vacuité : un plancher sur ce qu'elle trouve, et au
+> moins un renvoi nommé qu'elle DOIT voir.
+
 ### 9ter.0 septies — Un défaut LU dans un journal n'est pas un défaut MESURÉ
 
 En diagnosticant le rouge du tamis des ordres, j'ai vu dans le journal de CI des
