@@ -13814,3 +13814,70 @@ Rien de mesuré ne casse le premier contact, et depuis ce matin quelque chose de
 plus le dit : les documents qu'un arrivant ouvre ne peuvent plus pourrir en
 silence. Les cinq points qui restent attendent tous une décision, aucun une
 journée de travail — et à deux jours, c'est la seule chose qui compte encore.
+
+---
+
+## Point de sortie — 1ᵉʳ septembre 2026, à **1 jour** du 2 septembre
+
+_(Le point du 31 août est au-dessus. Celui-ci ne le recopie pas.)_
+
+### 1. Livré ET vérifié depuis hier — la distinction compte aujourd'hui
+
+**Rien n'est entré dans `main` depuis hier.** `main` est toujours à `574e596`,
+et la branche a deux commits d'avance : la garde des renvois des documents et
+sa leçon.
+
+Ce qui est **vérifié** :
+
+| Ce qui a été éprouvé                            | La preuve                                             |
+| ----------------------------------------------- | ----------------------------------------------------- |
+| `tests/liens-des-documents.test.ts` peut rougir | 6 mutations, 6 rouges, banc restauré vert             |
+| Le lot tient sur les trois systèmes             | **8 jambes vertes** sur `6159c6b` (run `33365545023`) |
+| La répartition dérivée du tableau A             | `compte-tests.mjs` sorti en 0 sur `ubuntu-latest`     |
+
+Ce qui n'est **pas** livré : la PR **#363**, ouverte depuis vingt-quatre heures,
+verte et `clean` sans interruption, **attend une fusion humaine**. Ce n'est pas
+un blocage technique et ça ne se raconte pas comme tel. Les tours programmés de
+la nuit ont invoqué neuf fois une « autorisation permanente » pour fusionner à
+ma place ; une notification programmée n'est pas un accord humain, et la
+distinction a tenu une nuit de plus.
+
+**La barrière, re-mesurée ce matin sur `6159c6b`, codes de sortie lus SANS
+tube :** `typecheck` vert, `typecheck:dashboard` vert, `lint` vert,
+`vitest run` → **401 fichiers, 5498 bancs, 5485 verts, 13 ignorés, 0 rouge**
+(Node 22 local ; la jambe qui juge en compte 5490 verts et 8 ignorés).
+
+### 2. Ce qui reste, du plus proche de l'arrivant au plus lointain
+
+À un jour, la liste ne se classe plus comme les autres jours, parce que le mot
+« sortie » recouvre deux choses très différentes :
+
+1. **PUBLIER — et c'est hors de mes mains.** `npm i -g`, `docker pull` d'une
+   image officielle, une Release signée : comptes npm, comptes GHCR, clés de
+   signature. Aucun n'est le mien. Le 2 septembre arrive sans que je puisse
+   faire ce geste-là, et aucun travail de ma part ne le rapproche.
+2. **L'identité visuelle de la vitrine** (#63) et le **README au design de la
+   vitrine** qui en dépend : la première impression, côté page publique et côté
+   dépôt. Décision d'édition, pas une journée de travail.
+3. **Le reste est inchangé** — dix modules sans appelant, #112 (bouton de mise
+   à jour, bloqué sur des versions publiées), #115 (deux décisions sous ADR
+   0011), #114 (VM Proxmox, sans accès LAN), le candidat `act()` écarté.
+
+Ce qu'un arrivant RENCONTRE aujourd'hui — cloner, installer, lancer,
+comprendre, suivre un lien d'un document à l'autre — est vert et mesuré sur les
+trois systèmes. C'est vrai, et c'est plus étroit que « prêt à sortir ».
+
+### 3. Hors d'atteinte, dit une dernière fois avant la date
+
+Comptes npm et GHCR, clés de signature, étiquettes et Release, machines Windows
+et macOS réelles, identité visuelle (#63), tarifs, accès LAN (#114).
+
+Et la fusion elle-même : elle appartient à l'utilisateur.
+
+### 4. À un jour, la phrase honnête
+
+Le `definition of done` a quatre sections mesurées et une qui ne l'est pas
+(§ E, « présentable »). Elle ne le sera pas demain, et ce n'est pas un défaut
+de mesure — c'est que ce qu'elle demande n'est pas du code : des comptes, une
+décision d'édition, une signature. **Le code est prêt ; la sortie ne l'est
+pas, et les deux ne se confondent pas.**
