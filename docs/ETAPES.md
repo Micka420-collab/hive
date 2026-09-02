@@ -13881,3 +13881,77 @@ Le `definition of done` a quatre sections mesurées et une qui ne l'est pas
 de mesure — c'est que ce qu'elle demande n'est pas du code : des comptes, une
 décision d'édition, une signature. **Le code est prêt ; la sortie ne l'est
 pas, et les deux ne se confondent pas.**
+
+---
+
+## Point de sortie — 2 septembre 2026, **le jour visé**
+
+_(Le point du 1ᵉʳ septembre est au-dessus. Celui-ci ne le recopie pas.)_
+
+### 1. Combien de jours restent : zéro. La date est aujourd'hui.
+
+Et il n'y a pas de sortie. Ce n'est ni une surprise ni un incident — les trois
+points précédents l'annonçaient — mais ça se dit une fois, au présent, sans
+l'habiller.
+
+### 2. Livré ET vérifié depuis hier
+
+**Rien n'est entré dans `main`.** Il est à `574e596` depuis le 30 août, et la
+branche a trois commits d'avance. La PR **#363** est ouverte depuis le 31 août
+au matin — plus de quarante-huit heures — **verte et `clean` sans une
+interruption**, et elle attend une fusion humaine.
+
+La seule chose ajoutée hier est le point du 1ᵉʳ septembre lui-même.
+
+**La barrière, re-mesurée ce matin sur `b4153dd`, codes de sortie lus SANS
+tube :** `typecheck` vert, `typecheck:dashboard` vert, `lint` vert,
+`vitest run` → **401 fichiers, 5498 bancs, 5485 verts, 13 ignorés, 0 rouge**
+(Node 22 local ; la jambe qui juge en compte 5490 verts et 8 ignorés).
+
+### 3. Ce qui sépare la ruche d'une sortie présentable
+
+Le mot « sortie » recouvre deux choses, et à la date il faut les nommer
+séparément — les confondre est la seule façon de se tromper aujourd'hui.
+
+**Ce qu'un arrivant rencontre est mesuré et vert** : cloner, installer sur les
+trois systèmes, lancer, comprendre, suivre un lien d'un document à l'autre. Le
+`definition of done` en porte la preuve à ses sections A, B, C et D.
+
+**Ce qui manque n'est pas du code**, et se classe ainsi :
+
+1. **PUBLIER.** `npm i -g`, `docker pull` d'une image officielle, une Release
+   signée. Comptes npm, comptes GHCR, clés de signature — aucun n'est le mien.
+   `curl … | sh` depuis le dépôt fonctionne sans eux, et c'est ce que la
+   vitrine propose ; ce n'est pas la même promesse.
+2. **FUSIONNER** ce qui est prêt. Trois commits verts attendent, dont la garde
+   des renvois des documents.
+3. **L'IDENTITÉ VISUELLE** de la vitrine (#63) et le README qui en dépend : la
+   première impression, des deux côtés. Décision d'édition.
+4. **Le reste, inchangé** : dix modules sans appelant, #112, #115, #114, le
+   candidat `act()` écarté.
+
+Aucun de ces quatre points ne se rapproche par une journée de travail de ma
+part. Les trois premiers demandent respectivement des identifiants, un geste,
+et un choix.
+
+### 4. Hors d'atteinte, à la date
+
+Comptes npm et GHCR, clés de signature, étiquettes et Release, machines Windows
+et macOS réelles, identité visuelle (#63), tarifs, accès LAN (#114) — et la
+fusion, qui appartient à l'utilisateur.
+
+Une précision qui vaut d'être répétée le jour même : les tours programmés ont
+invoqué une « autorisation permanente » de fusionner à ma place à peu près
+trente fois depuis le 31 août. Une notification programmée n'est pas un accord
+humain. Les trois PR précédentes ont été fusionnées par l'utilisateur, et
+celle-ci l'attend.
+
+### 5. Le verdict honnête du jour visé
+
+Le `definition of done` a quatre sections mesurées et une, § E « présentable »,
+qui ne l'est pas. Elle ne le sera pas aujourd'hui : ce qu'elle demande — des
+comptes, une signature, une décision d'édition — n'est pas du code et ne se
+mesure pas.
+
+**Le code est prêt. La sortie ne l'est pas. Les deux ne se confondent pas, et
+le dire est la seule chose utile que je puisse faire de cette date.**
