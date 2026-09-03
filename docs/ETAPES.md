@@ -13955,3 +13955,44 @@ mesure pas.
 
 **Le code est prêt. La sortie ne l'est pas. Les deux ne se confondent pas, et
 le dire est la seule chose utile que je puisse faire de cette date.**
+
+---
+
+## Point de sortie — 3 septembre 2026, **le lendemain**
+
+_(Court, parce qu'il n'y a pas de quoi être long.)_
+
+### 1. Jours restants : la date est derrière.
+
+### 2. Livré ET vérifié depuis hier : rien.
+
+`main` est à `574e596` depuis le 30 août. La branche a **quatre** commits
+d'avance et la PR **#363** entre dans son quatrième jour — ouverte le 31 août
+au matin, verte et `clean` sans une interruption, huit jambes à chaque tête.
+
+Barrière re-mesurée ce matin sur `ecbf4cd`, codes de sortie lus SANS tube :
+`typecheck`, `typecheck:dashboard`, `lint` verts ; `vitest run` → **401
+fichiers, 5498 bancs, 5485 verts, 13 ignorés, 0 rouge**.
+
+### 3. Ce qui reste : la même liste, et c'est l'information
+
+Publier (comptes npm et GHCR, clés de signature), fusionner ce qui est prêt,
+l'identité visuelle de la vitrine (#63) et le README qui en dépend, puis les
+quatre points anciens — dix modules sans appelant, #112, #115, #114.
+
+**Ce point est le quatrième d'affilée à dire la même chose, et c'est cela
+qu'il faut lire.** Ce n'est pas un chantier qui piétine : c'est une liste dont
+aucun élément ne se mesure en journées de travail. Tant qu'un humain ne
+tranche pas, les points suivants répéteront celui-ci — et une répétition qu'on
+continue d'écrire sans le dire deviendrait exactement ce que ce dépôt appelle
+du décor.
+
+### 4. Hors d'atteinte
+
+Inchangé : comptes, clés, étiquettes et Release, machines Windows et macOS
+réelles, identité (#63), tarifs, accès LAN (#114). Et la fusion.
+
+### 5. La phrase du lendemain
+
+Le code n'a pas bougé parce qu'il n'avait pas à bouger. Ce qui manque n'est pas
+écrit dans le dépôt, et aucun tour de chantier ne le fera apparaître.
