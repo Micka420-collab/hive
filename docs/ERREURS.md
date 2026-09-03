@@ -15246,3 +15246,49 @@ sept outils qui s'installent à la main auraient été annoncés « inconnus ».
 
 Ce n'est pas la loupe qui l'a trouvé, c'est d'avoir compté : `OUTILS` fait 9,
 `PAQUETS` fait 2. Le chiffre a rendu visible ce que la relecture ne voyait pas.
+
+## 9 septoctogicenties. Une porte qui interroge le MONDE peut rougir sur un arbre qui n'a pas bougé
+
+Le 3 septembre au matin, la jambe `ubuntu-latest` a rougi sur une tête qui ne
+touchait **que `docs/ETAPES.md`**. Aucune ligne de code, aucune dépendance,
+`package-lock.json` identique à celui de `main`.
+
+La porte fautive était `npm audit --audit-level=high`. Elle ne lit pas le
+dépôt : elle interroge une **base d'avis vivante**. Quatre avis HAUTS sur
+`fast-uri` 3.0.0–3.1.5 y étaient apparus pendant la nuit. Le verdict avait
+changé sans que rien du dépôt change.
+
+C'est une classe à part, et elle mérite son nom. Les gardes de ce dépôt sont
+des **fonctions de l'arbre** : mêmes fichiers, même verdict, aujourd'hui comme
+dans six mois. Une porte qui consulte le monde extérieur n'a pas cette
+propriété, et deux réflexes habituels deviennent faux devant elle :
+
+- « la CI est rouge, donc mon diff a cassé quelque chose » — non : commencer
+  par se demander si la porte regarde le dépôt ou l'extérieur ;
+- « c'est un vert d'hier, il vaut pour aujourd'hui » — non : le vert d'hier ne
+  dit rien de l'état d'aujourd'hui de la base consultée.
+
+> **Règle** — avant de chercher le défaut dans le diff, identifier ce que la
+> porte rouge LIT. Si sa source est extérieure au dépôt, la question n'est plus
+> « qu'ai-je cassé ? » mais « qu'est-ce qui a changé dehors ? », et la réponse
+> se vérifie en rejouant la même porte sur la base : si elle y rougit aussi,
+> le diff est hors de cause, et ça se dit avant de corriger.
+
+### Et le remède évident en faisait plus que ce qu'on lui demandait
+
+`npm update fast-uri --package-lock-only` produit bien le bon changement de
+version. Il en produit aussi un autre, silencieux : le `npm` de ce conteneur
+est plus ancien que celui qui a écrit le verrou, et il en a profité pour
+**supprimer les blocs `libc` de cinq binaires optionnels de rollup** —
+la métadonnée qui distingue glibc de musl. Rien à voir avec l'avis, et invisible
+si l'on ne lit que la ligne de version dans le diff.
+
+Le correctif a donc été porté à la main : trois lignes (version, `resolved`,
+`integrity`), et rien d'autre. `3 insertions, 3 deletions` au lieu de
+`3 insertions, 18 deletions`.
+
+> **Règle** — un fichier écrit par un outil est écrit par UNE VERSION de cet
+> outil. Le régénérer avec une autre version le réécrit à sa façon, et le
+> supplément arrive en même temps que le correctif demandé, sous le même
+> commit, avec la même apparence d'automatisme. Après toute commande qui
+> régénère un artefact, lire le diff ENTIER — pas la ligne qu'on attendait.
