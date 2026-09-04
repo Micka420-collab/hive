@@ -13996,3 +13996,47 @@ réelles, identité (#63), tarifs, accès LAN (#114). Et la fusion.
 
 Le code n'a pas bougé parce qu'il n'avait pas à bouger. Ce qui manque n'est pas
 écrit dans le dépôt, et aucun tour de chantier ne le fera apparaître.
+
+---
+
+## Point de sortie — 4 septembre 2026, **et le dernier de la série quotidienne**
+
+_(Très court. C'est le sujet.)_
+
+### 1. Jours restants : sans objet. Rien n'a changé depuis hier.
+
+`main` est toujours à `574e596`. La PR **#363** entre dans son cinquième jour :
+ouverte, `clean`, huit jambes vertes sur `1be4326` (exécution `33723791609`),
+aucun fil de revue.
+
+### 2. Livré ET vérifié depuis hier : rien — et la barrière n'a PAS été re-mesurée
+
+L'arbre n'a pas bougé d'une ligne depuis la dernière mesure (`1be4326`, hier
+matin : **401 fichiers, 5498 bancs, 5485 verts, 13 ignorés, 0 rouge**, codes
+lus sans tube). Relancer la suite sur un arbre identique ne mesure rien de
+neuf. Le dire vaut mieux que d'afficher un chiffre recopié comme s'il venait
+d'être obtenu — c'est exactement la faute que ce dépôt appelle « écrire un
+badge de tête ».
+
+### 3. Ce qui reste : identique au point du 3 septembre
+
+Publier, fusionner, l'identité visuelle (#63) et le README qui en dépend, puis
+les quatre points anciens — dix modules sans appelant, #112, #115, #114.
+
+### 4. Hors d'atteinte : identique au point du 3 septembre
+
+Comptes npm et GHCR, clés de signature, étiquettes et Release, machines
+Windows et macOS réelles, identité (#63), tarifs, accès LAN (#114). Et la
+fusion, qui appartient à l'utilisateur.
+
+### 5. Pourquoi ce point est le dernier de la série quotidienne
+
+Le point du 3 a écrit que les suivants répéteraient tant qu'un humain ne
+tranche pas, et qu'une répétition qu'on continue d'écrire sans le dire
+deviendrait du décor. En écrire un cinquième à l'identique, c'est précisément
+cela.
+
+**La série quotidienne s'arrête donc ici.** Le prochain point de sortie
+s'écrira quand un FAIT le justifiera — une fusion, une décision sur #63, un
+compte de publication, une CI qui rougit — et non parce qu'un jour de plus a
+passé. La veille de la PR, elle, continue : elle a quelque chose à surveiller.

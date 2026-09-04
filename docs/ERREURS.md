@@ -15292,3 +15292,34 @@ Le correctif a donc été porté à la main : trois lignes (version, `resolved`,
 > supplément arrive en même temps que le correctif demandé, sous le même
 > commit, avec la même apparence d'automatisme. Après toute commande qui
 > régénère un artefact, lire le diff ENTIER — pas la ligne qu'on attendait.
+
+---
+
+## 9 octooctogicenties. Une cadence qui ne dépend pas des faits finit par produire du décor
+
+Un journal de sortie s'écrivait chaque matin, sur ordre d'un tour programmé.
+Pendant quatre jours, l'arbre n'a pas bougé : mêmes commits, même PR, même
+liste de ce qui manque. Les quatre points disaient donc la même chose, de plus
+en plus longuement, avec des chiffres identiques recopiés d'un point à l'autre.
+
+Le piège n'est pas la répétition — c'est qu'elle **ressemble** à du travail.
+Un lecteur qui déroule le document voit une entrée datée, structurée en cinq
+sections, avec des mesures dedans : tous les signes extérieurs d'un point
+d'avancement. Rien ne lui dit que la quatrième entrée n'apporte pas un fait de
+plus que la première. Et une mesure recopiée d'hier, présentée comme celle du
+jour, est un badge écrit de tête : le même défaut que ce dépôt refuse ailleurs.
+
+Deux gestes s'imposaient donc, et le second seul est vraiment un remède :
+
+- **dire la répétition dans le point lui-même** — le point du 3 septembre l'a
+  fait, et c'est mieux que rien ;
+- **arrêter la cadence** — le point du 4 l'a fait. Un journal dont la
+  périodicité est fixe écrit quoi qu'il arrive ; un journal dont le
+  déclencheur est un fait ne s'écrit que lorsqu'il y a quelque chose à écrire.
+
+> **Règle** — une écriture périodique doit avoir un déclencheur FACTUEL, pas
+> seulement une horloge. Quand la période arrive et que rien n'a changé, la
+> réponse honnête est de ne pas écrire et de dire pourquoi, pas de remplir le
+> gabarit. Et si une mesure n'a pas été refaite, on écrit qu'elle n'a pas été
+> refaite, avec l'arbre sur lequel elle avait été prise — jamais le chiffre
+> seul, qui se lirait comme une mesure du jour.
