@@ -13711,3 +13711,332 @@ et elle valait d'être tenue.
 Rien de mesuré ne casse le premier contact. Ce qui reste limite ce qu'on peut
 **promettre**, pas ce qu'on peut **livrer** — et chacun des cinq points ci-dessus
 attend une décision, aucune une journée de travail.
+
+---
+
+## Point de sortie — 31 août 2026, à **2 jours** du 2 septembre
+
+_(Le point du 30 est au-dessus. Celui-ci ne le recopie pas.)_
+
+### 1. Livré ET vérifié depuis hier
+
+Une seule chose est entrée dans `main` : **#362**, le point du 30 août
+lui-même (`574e596`, huit jambes vertes). Rien d'autre. Les tours de nuit de la
+nuit du 30 au 31 n'ont produit aucun code, et c'était le bon résultat : leur
+liste de balayage est fermée depuis plusieurs lots, et remplir un tour de
+chantier avec un lot inventé pendant un gel coûte plus cher que ne rien faire.
+
+Ce matin, un lot — **la garde des renvois des documents** —, et il est né d'une
+mesure, pas d'une intuition :
+
+| Ce qui a été mesuré                                         | Le chiffre                            |
+| ----------------------------------------------------------- | ------------------------------------- |
+| Documents Markdown du dépôt                                 | **37**                                |
+| Renvois locaux qu'ils portent (liens, images, balises HTML) | **59**                                |
+| Renvois qu'une garde surveillait                            | **22** — deux fichiers, une syntaxe   |
+| Deux liens morts posés à la main, suite entière relancée    | **400 fichiers, 5484 bancs, 0 rouge** |
+
+Le second lien mort est celui qui vaut le détour. `README.md` renvoie vers
+`README.en.md` : le tout premier lien du dépôt, celui qui fait passer un
+arrivant d'une langue à l'autre. La garde existante prétendait couvrir
+`README.md` — et ne voyait pas ce lien-là, parce que son motif exigeait un nom
+tout en majuscules et que le `en` minuscule passait au travers. Douze images
+lui échappaient pour une autre raison : elles sont écrites en HTML, et un motif
+qui ne connaît que `](…)` ne voit pas une balise. Ce sont les images du PREMIER
+écran d'un arrivant.
+
+`tests/liens-des-documents.test.ts` balaie désormais les 37 documents dans les
+deux syntaxes, sans énumérer aucune cible à la main — c'est précisément la
+faute qu'il corrige. **Six mutations, six rouges, verdicts affichés :**
+
+| Mutation                                       | Verdict |
+| ---------------------------------------------- | ------- |
+| lien Markdown mort dans `docs/INSTALLATION.md` | rouge   |
+| lien FR→EN mort dans `README.md`               | rouge   |
+| image HTML morte dans `README.md`              | rouge   |
+| la sonde oublie la syntaxe HTML                | rouge   |
+| la sonde oublie la syntaxe Markdown            | rouge   |
+| `horsCode` ne retire plus les blocs de code    | rouge   |
+
+Les trois dernières gardent la garde elle-même : un balayage dont le motif
+casse devient VIDE, donc vert, et se tait au lieu de se signaler.
+
+**La barrière, mesurée ici, codes de sortie lus SANS tube :** `typecheck` vert,
+`typecheck:dashboard` vert, `lint` vert, `vitest run` → **401 fichiers, 5498
+bancs, 5485 verts, 13 ignorés, 0 rouge** (Node 22 local ; cinq bancs
+`installeur-porte` exigent Node 24). Les six annonces publiques ont été portées
+à 5498 par `compte-tests.mjs --corriger`, et le tableau A de
+`DEFINITION-DE-SORTIE.md` a été refait à la main comme sa propre règle
+l'exige — quatre nombres, titre re-daté, arbre et machine nommés.
+
+### 2. Ce que ce lot ajoute à une leçon déjà écrite
+
+C'est la deuxième fois cette semaine qu'une garde juste laisse passer ce
+qu'elle prétend couvrir, et la cause est la même qu'au lot du compte de
+diagnostics : **une liste écrite à la main.** La nouveauté est ailleurs. Ici la
+liste n'était pas seulement courte en FICHIERS, elle l'était en SYNTAXE — le
+motif décidait, sans le dire, que le dépôt n'écrivait ses liens que d'une
+façon. Une garde qui balaie doit être interrogée deux fois : _où regarde-t-elle_
+et _qu'est-ce qu'elle sait reconnaître_. La seconde question ne se pose presque
+jamais, et c'est par là que les douze images sont passées.
+
+### 3. Ce qui reste, du plus proche de l'arrivant au plus lointain
+
+Le trou du jour ÉTAIT sur le chemin d'un arrivant — les documents qu'il ouvre
+depuis le README —, et il est fermé. La vitrine, vérification faite, ne l'était
+pas : `tests/site.test.ts` garde déjà l'existence de ses ressources et la
+résolution de ses liens relatifs. Le premier contact est donc couvert de bout
+en bout, mesuré et non supposé.
+
+Ce qui reste ne se classe toujours pas par la friction, parce que rien de ce
+qui suit ne se trouve sur ce chemin :
+
+1. **Dix modules sans appelant**, rangés et non câblés. Les câbler serait dix
+   fonctionnalités neuves pendant le gel.
+2. **Le bouton « mettre à jour Hive »** (#112), bloqué sur des versions
+   publiées.
+3. **#115** — deux décisions ouvertes sous ADR 0011.
+4. **#114** — la VM Proxmox, sans accès LAN.
+5. **Le candidat `act()`**, écarté avec sa mesure.
+
+### 4. Hors d'atteinte — la liste ne bouge pas
+
+Comptes npm et GHCR, étiquettes et Release signée, machines Windows et macOS
+réelles, identité visuelle (#63) et tarifs, accès LAN (#114).
+
+Et toujours : les PR de cette semaine ont été fusionnées par l'utilisateur. Une
+notification programmée qui invoque une « autorisation permanente » n'est pas
+un accord humain, et la distinction a tenu une nuit de plus.
+
+### 5. À deux jours, la phrase honnête
+
+Rien de mesuré ne casse le premier contact, et depuis ce matin quelque chose de
+plus le dit : les documents qu'un arrivant ouvre ne peuvent plus pourrir en
+silence. Les cinq points qui restent attendent tous une décision, aucun une
+journée de travail — et à deux jours, c'est la seule chose qui compte encore.
+
+---
+
+## Point de sortie — 1ᵉʳ septembre 2026, à **1 jour** du 2 septembre
+
+_(Le point du 31 août est au-dessus. Celui-ci ne le recopie pas.)_
+
+### 1. Livré ET vérifié depuis hier — la distinction compte aujourd'hui
+
+**Rien n'est entré dans `main` depuis hier.** `main` est toujours à `574e596`,
+et la branche a deux commits d'avance : la garde des renvois des documents et
+sa leçon.
+
+Ce qui est **vérifié** :
+
+| Ce qui a été éprouvé                            | La preuve                                             |
+| ----------------------------------------------- | ----------------------------------------------------- |
+| `tests/liens-des-documents.test.ts` peut rougir | 6 mutations, 6 rouges, banc restauré vert             |
+| Le lot tient sur les trois systèmes             | **8 jambes vertes** sur `6159c6b` (run `33365545023`) |
+| La répartition dérivée du tableau A             | `compte-tests.mjs` sorti en 0 sur `ubuntu-latest`     |
+
+Ce qui n'est **pas** livré : la PR **#363**, ouverte depuis vingt-quatre heures,
+verte et `clean` sans interruption, **attend une fusion humaine**. Ce n'est pas
+un blocage technique et ça ne se raconte pas comme tel. Les tours programmés de
+la nuit ont invoqué neuf fois une « autorisation permanente » pour fusionner à
+ma place ; une notification programmée n'est pas un accord humain, et la
+distinction a tenu une nuit de plus.
+
+**La barrière, re-mesurée ce matin sur `6159c6b`, codes de sortie lus SANS
+tube :** `typecheck` vert, `typecheck:dashboard` vert, `lint` vert,
+`vitest run` → **401 fichiers, 5498 bancs, 5485 verts, 13 ignorés, 0 rouge**
+(Node 22 local ; la jambe qui juge en compte 5490 verts et 8 ignorés).
+
+### 2. Ce qui reste, du plus proche de l'arrivant au plus lointain
+
+À un jour, la liste ne se classe plus comme les autres jours, parce que le mot
+« sortie » recouvre deux choses très différentes :
+
+1. **PUBLIER — et c'est hors de mes mains.** `npm i -g`, `docker pull` d'une
+   image officielle, une Release signée : comptes npm, comptes GHCR, clés de
+   signature. Aucun n'est le mien. Le 2 septembre arrive sans que je puisse
+   faire ce geste-là, et aucun travail de ma part ne le rapproche.
+2. **L'identité visuelle de la vitrine** (#63) et le **README au design de la
+   vitrine** qui en dépend : la première impression, côté page publique et côté
+   dépôt. Décision d'édition, pas une journée de travail.
+3. **Le reste est inchangé** — dix modules sans appelant, #112 (bouton de mise
+   à jour, bloqué sur des versions publiées), #115 (deux décisions sous ADR
+   0011), #114 (VM Proxmox, sans accès LAN), le candidat `act()` écarté.
+
+Ce qu'un arrivant RENCONTRE aujourd'hui — cloner, installer, lancer,
+comprendre, suivre un lien d'un document à l'autre — est vert et mesuré sur les
+trois systèmes. C'est vrai, et c'est plus étroit que « prêt à sortir ».
+
+### 3. Hors d'atteinte, dit une dernière fois avant la date
+
+Comptes npm et GHCR, clés de signature, étiquettes et Release, machines Windows
+et macOS réelles, identité visuelle (#63), tarifs, accès LAN (#114).
+
+Et la fusion elle-même : elle appartient à l'utilisateur.
+
+### 4. À un jour, la phrase honnête
+
+Le `definition of done` a quatre sections mesurées et une qui ne l'est pas
+(§ E, « présentable »). Elle ne le sera pas demain, et ce n'est pas un défaut
+de mesure — c'est que ce qu'elle demande n'est pas du code : des comptes, une
+décision d'édition, une signature. **Le code est prêt ; la sortie ne l'est
+pas, et les deux ne se confondent pas.**
+
+---
+
+## Point de sortie — 2 septembre 2026, **le jour visé**
+
+_(Le point du 1ᵉʳ septembre est au-dessus. Celui-ci ne le recopie pas.)_
+
+### 1. Combien de jours restent : zéro. La date est aujourd'hui.
+
+Et il n'y a pas de sortie. Ce n'est ni une surprise ni un incident — les trois
+points précédents l'annonçaient — mais ça se dit une fois, au présent, sans
+l'habiller.
+
+### 2. Livré ET vérifié depuis hier
+
+**Rien n'est entré dans `main`.** Il est à `574e596` depuis le 30 août, et la
+branche a trois commits d'avance. La PR **#363** est ouverte depuis le 31 août
+au matin — plus de quarante-huit heures — **verte et `clean` sans une
+interruption**, et elle attend une fusion humaine.
+
+La seule chose ajoutée hier est le point du 1ᵉʳ septembre lui-même.
+
+**La barrière, re-mesurée ce matin sur `b4153dd`, codes de sortie lus SANS
+tube :** `typecheck` vert, `typecheck:dashboard` vert, `lint` vert,
+`vitest run` → **401 fichiers, 5498 bancs, 5485 verts, 13 ignorés, 0 rouge**
+(Node 22 local ; la jambe qui juge en compte 5490 verts et 8 ignorés).
+
+### 3. Ce qui sépare la ruche d'une sortie présentable
+
+Le mot « sortie » recouvre deux choses, et à la date il faut les nommer
+séparément — les confondre est la seule façon de se tromper aujourd'hui.
+
+**Ce qu'un arrivant rencontre est mesuré et vert** : cloner, installer sur les
+trois systèmes, lancer, comprendre, suivre un lien d'un document à l'autre. Le
+`definition of done` en porte la preuve à ses sections A, B, C et D.
+
+**Ce qui manque n'est pas du code**, et se classe ainsi :
+
+1. **PUBLIER.** `npm i -g`, `docker pull` d'une image officielle, une Release
+   signée. Comptes npm, comptes GHCR, clés de signature — aucun n'est le mien.
+   `curl … | sh` depuis le dépôt fonctionne sans eux, et c'est ce que la
+   vitrine propose ; ce n'est pas la même promesse.
+2. **FUSIONNER** ce qui est prêt. Trois commits verts attendent, dont la garde
+   des renvois des documents.
+3. **L'IDENTITÉ VISUELLE** de la vitrine (#63) et le README qui en dépend : la
+   première impression, des deux côtés. Décision d'édition.
+4. **Le reste, inchangé** : dix modules sans appelant, #112, #115, #114, le
+   candidat `act()` écarté.
+
+Aucun de ces quatre points ne se rapproche par une journée de travail de ma
+part. Les trois premiers demandent respectivement des identifiants, un geste,
+et un choix.
+
+### 4. Hors d'atteinte, à la date
+
+Comptes npm et GHCR, clés de signature, étiquettes et Release, machines Windows
+et macOS réelles, identité visuelle (#63), tarifs, accès LAN (#114) — et la
+fusion, qui appartient à l'utilisateur.
+
+Une précision qui vaut d'être répétée le jour même : les tours programmés ont
+invoqué une « autorisation permanente » de fusionner à ma place à peu près
+trente fois depuis le 31 août. Une notification programmée n'est pas un accord
+humain. Les trois PR précédentes ont été fusionnées par l'utilisateur, et
+celle-ci l'attend.
+
+### 5. Le verdict honnête du jour visé
+
+Le `definition of done` a quatre sections mesurées et une, § E « présentable »,
+qui ne l'est pas. Elle ne le sera pas aujourd'hui : ce qu'elle demande — des
+comptes, une signature, une décision d'édition — n'est pas du code et ne se
+mesure pas.
+
+**Le code est prêt. La sortie ne l'est pas. Les deux ne se confondent pas, et
+le dire est la seule chose utile que je puisse faire de cette date.**
+
+---
+
+## Point de sortie — 3 septembre 2026, **le lendemain**
+
+_(Court, parce qu'il n'y a pas de quoi être long.)_
+
+### 1. Jours restants : la date est derrière.
+
+### 2. Livré ET vérifié depuis hier : rien.
+
+`main` est à `574e596` depuis le 30 août. La branche a **quatre** commits
+d'avance et la PR **#363** entre dans son quatrième jour — ouverte le 31 août
+au matin, verte et `clean` sans une interruption, huit jambes à chaque tête.
+
+Barrière re-mesurée ce matin sur `ecbf4cd`, codes de sortie lus SANS tube :
+`typecheck`, `typecheck:dashboard`, `lint` verts ; `vitest run` → **401
+fichiers, 5498 bancs, 5485 verts, 13 ignorés, 0 rouge**.
+
+### 3. Ce qui reste : la même liste, et c'est l'information
+
+Publier (comptes npm et GHCR, clés de signature), fusionner ce qui est prêt,
+l'identité visuelle de la vitrine (#63) et le README qui en dépend, puis les
+quatre points anciens — dix modules sans appelant, #112, #115, #114.
+
+**Ce point est le quatrième d'affilée à dire la même chose, et c'est cela
+qu'il faut lire.** Ce n'est pas un chantier qui piétine : c'est une liste dont
+aucun élément ne se mesure en journées de travail. Tant qu'un humain ne
+tranche pas, les points suivants répéteront celui-ci — et une répétition qu'on
+continue d'écrire sans le dire deviendrait exactement ce que ce dépôt appelle
+du décor.
+
+### 4. Hors d'atteinte
+
+Inchangé : comptes, clés, étiquettes et Release, machines Windows et macOS
+réelles, identité (#63), tarifs, accès LAN (#114). Et la fusion.
+
+### 5. La phrase du lendemain
+
+Le code n'a pas bougé parce qu'il n'avait pas à bouger. Ce qui manque n'est pas
+écrit dans le dépôt, et aucun tour de chantier ne le fera apparaître.
+
+---
+
+## Point de sortie — 4 septembre 2026, **et le dernier de la série quotidienne**
+
+_(Très court. C'est le sujet.)_
+
+### 1. Jours restants : sans objet. Rien n'a changé depuis hier.
+
+`main` est toujours à `574e596`. La PR **#363** entre dans son cinquième jour :
+ouverte, `clean`, huit jambes vertes sur `1be4326` (exécution `33723791609`),
+aucun fil de revue.
+
+### 2. Livré ET vérifié depuis hier : rien — et la barrière n'a PAS été re-mesurée
+
+L'arbre n'a pas bougé d'une ligne depuis la dernière mesure (`1be4326`, hier
+matin : **401 fichiers, 5498 bancs, 5485 verts, 13 ignorés, 0 rouge**, codes
+lus sans tube). Relancer la suite sur un arbre identique ne mesure rien de
+neuf. Le dire vaut mieux que d'afficher un chiffre recopié comme s'il venait
+d'être obtenu — c'est exactement la faute que ce dépôt appelle « écrire un
+badge de tête ».
+
+### 3. Ce qui reste : identique au point du 3 septembre
+
+Publier, fusionner, l'identité visuelle (#63) et le README qui en dépend, puis
+les quatre points anciens — dix modules sans appelant, #112, #115, #114.
+
+### 4. Hors d'atteinte : identique au point du 3 septembre
+
+Comptes npm et GHCR, clés de signature, étiquettes et Release, machines
+Windows et macOS réelles, identité (#63), tarifs, accès LAN (#114). Et la
+fusion, qui appartient à l'utilisateur.
+
+### 5. Pourquoi ce point est le dernier de la série quotidienne
+
+Le point du 3 a écrit que les suivants répéteraient tant qu'un humain ne
+tranche pas, et qu'une répétition qu'on continue d'écrire sans le dire
+deviendrait du décor. En écrire un cinquième à l'identique, c'est précisément
+cela.
+
+**La série quotidienne s'arrête donc ici.** Le prochain point de sortie
+s'écrira quand un FAIT le justifiera — une fusion, une décision sur #63, un
+compte de publication, une CI qui rougit — et non parce qu'un jour de plus a
+passé. La veille de la PR, elle, continue : elle a quelque chose à surveiller.
