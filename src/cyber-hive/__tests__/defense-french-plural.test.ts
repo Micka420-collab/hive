@@ -1,8 +1,8 @@
 // Tests pour la détection des formes plurielles françaises dans le parsing SQLMap.
 // Vérifie que "injectables" et "vulnérables" (pluriels) sont correctement détectés.
 import { describe, it, expect } from 'vitest';
-import { creerAnalyseurDefense } from '../defense.ts';
-import type { SessionPentest } from '../types.ts';
+import { creerAnalyseurDefense } from '../defense.js';
+import type { SessionPentest } from '../types.js';
 
 function sessionSqlmap(stdout: string): SessionPentest {
   const session: SessionPentest = {
@@ -100,5 +100,28 @@ describe('AnalyseurDefense — SQLMap formes plurielles françaises', () => {
     const p = a.analyserSession(sessionSqlmap('scan terminé, aucun paramètre testé'));
     const sqli = p.recommandations.find((r) => r.titre === 'Injection SQL confirmée');
     expect(sqli).toBeUndefined();
+  });
+
+  it('détecte "sont vulnerable" sans accent (non-régression regex [eé])', () => {
+    // Le regex [eé] doit matcher "vulnerable" (sans accent) ET "vulnérable" (avec accent)
+    const a = creerAnalyseurDefense();
+    const p = a.analyserSession(sessionSqlmap('les paramètres sont vulnerable a injection SQL'));
+    const sqli = p.recommandations.find((r) => r.titre === 'Injection SQL confirmée');
+    expect(sqli).toBeDefined();
+    expect(sqli?.severite).toBe('critique');
+  });
+
+  it('détecte "are injectables" (EN pluriel)', () => {
+    const a = creerAnalyseurDefense();
+    const p = a.analyserSession(sessionSqlmap('the parameters are injectables'));
+    const sqli = p.recommandations.find((r) => r.titre === 'Injection SQL confirmée');
+    expect(sqli).toBeDefined();
+  });
+
+  it('détecte "are vulnerables" (EN pluriel sans accent)', () => {
+    const a = creerAnalyseurDefense();
+    const p = a.analyserSession(sessionSqlmap('the parameters are vulnerables'));
+    const sqli = p.recommandations.find((r) => r.titre === 'Injection SQL confirmée');
+    expect(sqli).toBeDefined();
   });
 });
