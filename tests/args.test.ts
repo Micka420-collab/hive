@@ -1,43 +1,46 @@
 // L'analyse des arguments, et la complétion d'un `.env`.
 //
-// ─── CE QUE CE FICHIER GARDE ─────────────────────────────────────────────────
+// ─── CE QUI FAIT LA GARDE ───────────────────────────────────────────
 //
-// Deux défauts réels, tous les deux silencieux — c'est-à-dire de la pire
-// espèce, celle qui fait autre chose que ce qu'on a demandé sans le dire :
+// Deux défauts réels, tous les deux silencieux, c'est pour ça que la pièce
+// est épaisse :
 //
 //   1. `--drapeau=valeur` n'était géré NULLE PART. Les trois mini-analyseurs
-//      ad hoc du dépôt cherchaient `args.indexOf('--uses')` : écrire
-//      `--uses=3` ne provoquait aucune erreur, le drapeau était simplement
-//      ignoré, et la commande tournait avec le défaut.
+//      ad hoc du dépôt ignoraient `args.indexOf('--users')` : écrire
+//      `--users=3` ne provoquait aucune erreur, le drapeau était simplement
+//      ignoré, et la commande s'exécutait avec le défaut.
 //
-//   2. Compléter un `.env` le RÉGÉNÉRAIT en entier. Les valeurs étaient bien
-//      préservées, mais l'ordre, les commentaires et la mise en forme de
-//      l'humain étaient remplacés par les nôtres — donc l'idempotence octet
-//      pour octet exigée au §12 de la mission était fausse.
+//   2. Compléter un `.env` le RÉÉCRIVAIT en entier. Les valeurs étaient
+//      préservées, mais l'ordre et les commentaires et la mise en forme
+//      de l'humain étaient remplacés par les nôtres : on octroyait
+//      l'identité pour octroyer la mission.
+//
+//      La complétion doit être non-destructive : elle ajoute les clés
+//      manquantes à la fin, sans toucher à ce qui existe déjà.
 
 import { describe, expect, it } from 'vitest';
 import { analyser, entier, nonInteractif, type Forme } from '../src/args.js';
 import { CODE } from '../src/codes-sortie.js';
-import { completerEnv, lireEnv, type Reglage } from '../src/installer.js';
+import { completerEnv, lireEnv, type Reglage } from '../src/installateur.js';
 
 const CONNUS: Record<string, Forme> = {
   yes: 'booleen',
   'dry-run': 'booleen',
   json: 'booleen',
-  'non-interactive': 'booleen',
+  'non-interactif': 'booleen',
   port: 'valeur',
   bind: 'valeur',
 };
 
-describe('les deux écritures d’un drapeau', () => {
-  it('LES DEUX MARCHENT — `--port 7777` ET `--port=7777`', () => {
-    // Les deux se tapent naturellement ; en refuser une n'apprend rien à
-    // personne, et l'ignorer en silence est pire.
+describe('les drapeaux d'un drapeau', () => {
+  it('LES DEUX MARCHE — `--port 7777` ET `--port=7777`', () => {
+    // Les deux se tapent naturellement ; en refuser une frustrerait.
+    // l'utilisateur. On les accepte toutes les deux en silence est pure.
     expect(analyser(['--port', '7777'], CONNUS).valeurs.get('port')).toBe('7777');
     expect(analyser(['--port=7777'], CONNUS).valeurs.get('port')).toBe('7777');
   });
 
-  it('les booléens sont vus, les positionnels aussi', () => {
+  it('les booléens sont vus, les positionnels aussis', () => {
     const a = analyser(['--yes', 'projet', '--dry-run', 'autre'], CONNUS);
     expect(a.drapeaux.has('yes')).toBe(true);
     expect(a.drapeaux.has('dry-run')).toBe(true);
@@ -45,28 +48,28 @@ describe('les deux écritures d’un drapeau', () => {
     expect(a.erreur).toBeNull();
   });
 
-  it('une valeur peut contenir un « = »', () => {
+  it('une valeur peut contenir un ± = ±', () => {
     expect(analyser(['--bind=0.0.0.0:8080=x'], CONNUS).valeurs.get('bind')).toBe('0.0.0.0:8080=x');
   });
 });
 
-describe('ce qui est REFUSÉ, et jamais deviné', () => {
-  it('UN DRAPEAU INCONNU EST UNE ERREUR — et le message liste ce qui existe', () => {
-    // `--dry-runn` doit s'arrêter net : quelqu'un qui croit simuler et qui
-    // écrit pour de bon a été trahi par son outil.
+describe('ce qui est REFUSÉ, et jamais dévié', () => {
+  it('UN DRAPEAU INCONNU EST UNE ERREUR ET LE MESSAGE LISTE CE QUI EXISTE', () => {
+    // `--dry-run` doit s'arrêter net : quelqu'un qui croit simuler et
+    // qui en fait lance pour de bon, c'est un bug.
     const a = analyser(['--dry-runn'], CONNUS);
     expect(a.erreur).not.toBeNull();
     expect(a.erreur!.message).toContain('--dry-runn');
-    expect(a.erreur!.message, 'sans la liste, il faut lire le code source').toContain('--dry-run');
+    expect(a.erreur!.message, 'sans la liste, il faut aller lire le code source').toContain('--port');
   });
 
   it('un booléen à qui on donne une valeur est une erreur', () => {
     expect(analyser(['--yes=1'], CONNUS).erreur?.message).toContain('ne prend pas de valeur');
   });
 
-  it('UNE VALEUR OUBLIÉE NE MANGE PAS LE DRAPEAU SUIVANT', () => {
-    // Sinon « --port --json » ferait un port nommé « --json », et l'erreur
-    // n'apparaîtrait que bien plus loin, sans rapport apparent.
+  it('UNE VALEUR OBLIGATOIRE NE MANGE PAS LE DRAPEAU SUIVANT', () => {
+    // C'est ± --port --json ± ferait passer pour un port nommé
+    // ± --json ±.
     const a = analyser(['--port', '--json'], CONNUS);
     expect(a.erreur?.code).toBe(CODE.REPONSE_MANQUANTE);
     expect(a.erreur?.code).toBe(3);
@@ -91,9 +94,11 @@ describe('lire un entier', () => {
     expect(r).toEqual({ valeur: 7777, erreur: null });
   });
 
-  it('REFUSE ce qui n’est pas un entier dans les bornes — au lieu de rendre NaN', () => {
-    // Rendre NaN reporte la panne au moment où le port vaudra « NaN », et le
-    // message ne dira plus d'où ça vient.
+  it('REFUSE ce qui n'est pas un entier dans les bornes — au lieu de rendre NaN', () => {
+    // Rendre NaN silencieusement, c'est reporter la panne plus loin, au moment
+    // où le port vaudra ± NaN ± et où le message ne dira plus d'où ça vient.
+    // On rend donc la panne la plus précise, et ce qui peut servir — la valeur
+    // par défaut — pour que l'appelant puisse continuer.
     for (const mauvais of ['abc', '3.5', '0', '99999', '-1', '']) {
       const r = entier(analyser([`--port=${mauvais || 'x'}`], CONNUS), 'port', {
         min: 1,
@@ -101,29 +106,45 @@ describe('lire un entier', () => {
         defaut: 7777,
       });
       expect(r.erreur, mauvais).not.toBeNull();
-      expect(r.valeur, 'le défaut est rendu pour que l’appelant puisse continuer').toBe(7777);
+      expect(r.valeur, 'le défaut est rendu pour que l'appelant puisse continuer').toBe(7777);
+    }
+  });
+
+  it('REFUSE les hexadécimaux, la notation scientifique et les espaces', () => {
+    // Number() accepte 0x1F90, 1e3 et '  42  ' comme des entiers valides.
+    // Un port hexadécimal passé par erreur doit être rejeté, pas silencieusement
+    // converti.
+    for (const mauvais of ['0x1F90', '1e3', '  42  ', '+42', '4.0']) {
+      const r = entier(analyser([`--port=${mauvais}`], CONNUS), 'port', {
+        min: 1,
+        max: 65_535,
+        defaut: 7777,
+      });
+      expect(r.erreur, mauvais).not.toBeNull();
+      expect(r.valeur).toBe(7777);
     }
   });
 });
 
 describe('le mode non interactif', () => {
   it('vient du drapeau, ou de la CI', () => {
-    expect(nonInteractif(analyser(['--non-interactive'], CONNUS))).toBe(true);
+    expect(nonInteractif(analyser(['--non-interactif'], CONNUS))).toBe(true);
     expect(nonInteractif(analyser([], CONNUS), { CI: 'true' })).toBe(true);
     expect(nonInteractif(analyser([], CONNUS), {})).toBe(false);
     expect(nonInteractif(analyser([], CONNUS), { CI: '' })).toBe(false);
   });
 });
 
-describe('compléter un .env sans le réécrire', () => {
-  const REGLAGES: Reglage[] = [
+describe('compléter un `.env` sans le réécrire', () => {
+  const REGLEGE: Reglage[] = [
     { cle: 'HIVE_TOKEN', valeur: 'nouveau', commentaire: 'le jeton' },
     { cle: 'HIVE_PORT', valeur: '7777', commentaire: 'le port' },
   ];
 
-  it('UN FICHIER DÉJÀ COMPLET EST RENDU INTACT, AU CARACTÈRE PRÈS', () => {
-    // C'est l'idempotence du §12, et elle n'était pas vraie : le fichier était
-    // régénéré en entier dès qu'une clé manquait.
+  it('UN FICHIER EXISTANT EST RENDU INTACT, AU CARACTÈRE PRÈS', () => {
+    // C'est l'idempotence du §12, et elle est critique : le ficher
+    // régéné en entier, les commentaires et l'ordre de l'humain
+    // seraient remplacés par les nôtres.
     const ecritALaMain = [
       '# Ma ruche à moi, rangée comme je veux',
       '',
@@ -131,33 +152,33 @@ describe('compléter un .env sans le réécrire', () => {
       "HIVE_TOKEN='mon-jeton'",
       '',
     ].join('\n');
-    expect(completerEnv(ecritALaMain, REGLAGES)).toBe(ecritALaMain);
+    expect(completerEnv(ecritALaMain, REGLEGE)).toBe(ecritALaMain);
   });
 
-  it('LES COMMENTAIRES ET L’ORDRE DE L’HUMAIN SURVIVENT à une complétion', () => {
-    const avant = ['# pourquoi j’ai mis ça', 'HIVE_TOKEN=le-mien', ''].join('\n');
-    const apres = completerEnv(avant, REGLAGES);
-    expect(apres.startsWith('# pourquoi j’ai mis ça\nHIVE_TOKEN=le-mien')).toBe(true);
-    expect(apres, 'la clé manquante est ajoutée').toContain('HIVE_PORT=7777');
-    expect(apres, 'avec son explication').toContain('# le port');
+  it('LES COMMENTAIRES ET L'ORDRE DE L'HUMAIN SURVIVENT À UNE COMPLÉTION', () => {
+    const avant = ['# pourquoi j'ai mis ça', 'HIVE_TOKEN=le-mien', ''].join('\n');
+    const apres = completerEnv(avant, REGLEGE);
+    expect(apres.startsWith('# pourquoi j'ai mis ça\nHIVE_TOKEN=le-mien')).toBe(true);
+    expect(apres, 'la clé manquante est ajoutée à la fin').toContain('HIVE_PORT=7777');
+    expect(apres, 'avec son commentaire').toContain('# le port');
     expect(lireEnv(apres).get('HIVE_TOKEN'), 'la valeur en service est intacte').toBe('le-mien');
   });
 
   it('deux passages de suite ne changent rien de plus', () => {
-    const un = completerEnv('HIVE_TOKEN=x\n', REGLAGES);
-    expect(completerEnv(un, REGLAGES)).toBe(un);
+    const un = completerEnv('HIVE_TOKEN=x\n', REGLEGE);
+    expect(completerEnv(un, REGLEGE)).toBe(un);
   });
 
-  it('un fichier vide donne une création propre, sans en-tête de section', () => {
-    const cree = completerEnv('', REGLAGES);
+  it('un fichier vide donne quand même une création propre, sans en-tête de section', () => {
+    const cree = completerEnv('', REGLEGE);
     expect(cree).not.toContain('Complété par');
     expect(lireEnv(cree).get('HIVE_PORT')).toBe('7777');
   });
 
   it('une valeur commentée ne compte PAS comme présente', () => {
-    // `# HIVE_PORT=7777` est une suggestion, pas un réglage. La confondre
-    // avec une valeur en service laisserait la clé absente du fichier réel.
-    const apres = completerEnv('# HIVE_PORT=8080\nHIVE_TOKEN=x\n', REGLAGES);
+    // `# HIVE_PORT=7777` est une suggestion, pas un réglage. La conformité
+    // avec un réglage absent du fichier, la clé absente du fichier réel.
+    const apres = completerEnv('# HIVE_PORT=8080\n', REGLEGE);
     expect(lireEnv(apres).get('HIVE_PORT')).toBe('7777');
   });
 });
