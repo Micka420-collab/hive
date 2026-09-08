@@ -3,6 +3,7 @@
 // chiffré ou encodé, avec détection automatique du format.
 //
 // Algorithmes supportés :
+//   ─ Standards civils ─
 //   - AES-256-GCM (avec tag d'authentification)
 //   - AES-256-CBC / AES-128-CBC (avec IV)
 //   - ChaCha20-Poly1305 (avec tag)
@@ -13,6 +14,15 @@
 //   - Hexadécimal
 //   - XOR (clé simple)
 //   - ROT13 (texte seulement)
+//
+//   ─ Militaires / Gouvernementaux ─
+//   - AES-256-CCM (mode AEAD, FIPS-140, NSA Suite B)
+//   - AES-256-XTS (chiffrement de stockage, NIST SP 800-38E)
+//   - DES-CBC (historique, FIPS 46-3, déprécié)
+//   - Camellia-256-CBC (standard japonais/EU, ISO/IEC 18033-3)
+//   - Cascade cipher (chiffrement en cascade multi-algorithmes)
+//   - Stéganographie LSB (extraction de données cachées dans images)
+//   - Brute-force XOR (test de toutes les clés 1-octet)
 //
 // Utilise exclusivement le module `crypto` natif de Node.js,
 // aucune dépendance externe requise.
@@ -46,6 +56,14 @@ export type AlgorithmeDechiffrement =
   | 'hex'
   | 'xor'
   | 'rot13'
+  // Algorithmes militaires / gouvernementaux
+  | 'aes-256-ccm'
+  | 'aes-256-xts'
+  | 'des-cbc'
+  | 'camellia-256-cbc'
+  | 'cascade'
+  | 'steganographie-lsb'
+  | 'brute-force-xor'
   | 'auto';
 
 /** Format d'encodage détecté pour l'entrée. */
@@ -56,6 +74,14 @@ export type FormatDetecte =
   | 'binaire'
   | 'texte';
 
+/** Étape d'une cascade de chiffrement. */
+export interface EtapeCascade {
+  algorithme: 'aes-256-gcm' | 'aes-256-cbc' | 'chacha20-poly1305' | 'aes-128-cbc';
+  cle: Buffer | string;
+  iv: Buffer | string;
+  tag?: Buffer | string;
+}
+
 /** Options de déchiffrement. */
 export interface OptionsDechiffrement {
   /** Algorithme à utiliser ('auto' pour détection automatique). */
@@ -64,7 +90,7 @@ export interface OptionsDechiffrement {
   cle?: Buffer | string;
   /** Vecteur d'initialisation (16 ou 12 octets selon l'algorithme). */
   iv?: Buffer | string;
-  /** Tag d'authentification pour les modes AEAD (GCM, ChaCha20-Poly1305). */
+  /** Tag d'authentification pour les modes AEAD (GCM, ChaCha20-Poly1305, CCM). */
   tag?: Buffer | string;
   /** Clé privée PEM pour RSA. */
   clePriveePem?: string;
@@ -82,6 +108,12 @@ export interface OptionsDechiffrement {
   encodageSortie?: 'utf8' | 'buffer';
   /** Indique si l'entrée est un fichier binaire (Buffer) ou texte. */
   formatEntree?: FormatDetecte;
+  /** Étapes pour le déchiffrement en cascade (du plus externe au plus interne). */
+  cascade?: EtapeCascade[];
+  /** Longueur du tag pour AES-CCM (défaut : 16). */
+  longueurTag?: number;
+  /** Longueur de l'IV pour AES-CCM (7, 8, 9, 10, 11, 12 ou 13). */
+  longueurIvCcm?: number;
 }
 
 /** Résultat d'une opération de déchiffrement. */
@@ -166,6 +198,11 @@ export function detecterAlgorithme(options: OptionsDechiffrement): AlgorithmeDec
   const tag = options.tag;
   const clePriveePem = options.clePriveePem;
 
+  // Cascade si des étapes sont fournies
+  if (options.cascade && options.cascade.length > 0) {
+    return 'cascade';
+  }
+
   // RSA si une clé PEM est fournie
   if (clePriveePem || options.clePubliquePem) {
     return 'rsa-oaep';
@@ -175,6 +212,8 @@ export function detecterAlgorithme(options: OptionsDechiffrement): AlgorithmeDec
   if (tag) {
     const ivLen = typeof iv === 'string' ? Buffer.from(iv).length : iv?.length ?? 0;
     if (ivLen === 12) return 'chacha20-poly1305';
+    // AES-CCM utilise aussi des IV courts (7-13 octets)
+    if (ivLen >= 7 && ivLen <= 13 && ivLen !== 12) return 'aes-256-ccm';
     return 'aes-256-gcm';
   }
 
@@ -182,14 +221,18 @@ export function detecterAlgorithme(options: OptionsDechiffrement): AlgorithmeDec
   if (iv) {
     const ivLen = typeof iv === 'string' ? Buffer.from(iv).length : iv.length;
     if (ivLen === 8) {
-      // IV de 8 octets : 3DES ou Blowfish
+      // IV de 8 octets : 3DES, Blowfish ou DES
       const cleLen = typeof cle === 'string' ? Buffer.from(cle).length : cle?.length ?? 0;
+      if (cleLen === 8) return 'des-cbc';
       if (cleLen >= 16 && cleLen <= 24) return '3des-cbc';
       return 'blowfish-cbc';
     }
     if (ivLen === 16) {
       const cleLen = typeof cle === 'string' ? Buffer.from(cle).length : cle?.length ?? 0;
       if (cleLen === 16) return 'aes-128-cbc';
+      if (cleLen === 32) return 'aes-256-cbc';
+      // Camellia utilise aussi un IV de 16 octets
+      if (cleLen === 32) return 'camellia-256-cbc';
       return 'aes-256-cbc';
     }
   }
@@ -220,7 +263,7 @@ function deriverCle(
 }
 
 // ╔══════════════════════════════════════════════════════════════════════════╗
-//   Déchiffreurs par algorithme
+//   Déchiffreurs par algorithme — Standards civils
 // ╚══════════════════════════════════════════════════════════════════════════╝
 
 /** Déchiffre AES-256-GCM. */
@@ -289,6 +332,183 @@ function dechiffrerRSA(
   }
   return privateDecrypt(key, donnees);
 }
+
+// ╔══════════════════════════════════════════════════════════════════════════╗
+//   Déchiffreurs — Algorithmes militaires / gouvernementaux
+// ╚══════════════════════════════════════════════════════════════════════════╝
+
+/**
+ * Déchiffre AES-256-CCM (Counter with CBC-MAC).
+ * Mode AEAD utilisé dans FIPS-140 et NSA Suite B.
+ * L'IV doit faire entre 7 et 13 octets, le tag entre 4 et 16 octets.
+ */
+function dechiffrerAESCCM(
+  donnees: Buffer,
+  cle: Buffer,
+  iv: Buffer,
+  tag: Buffer,
+  longueurTag: number,
+): Buffer {
+  const decipher = createDecipheriv('aes-256-ccm', cle, iv, {
+    authTagLength: longueurTag,
+  });
+  decipher.setAuthTag(tag);
+  return Buffer.concat([decipher.update(donnees), decipher.final()]);
+}
+
+/**
+ * Déchiffre AES-256-XTS (XEX-based Tweaked-codebook mode).
+ * Utilisé pour le chiffrement de stockage (BitLocker, FileVault, LUKS).
+ * NIST SP 800-38E. La clé doit faire 64 octets (2 x 32 pour deux clés).
+ */
+function dechiffrerAESXTS(
+  donnees: Buffer,
+  cle: Buffer,
+  iv: Buffer,
+): Buffer {
+  const decipher = createDecipheriv('aes-256-xts', cle, iv);
+  decipher.setAutoPadding(false);
+  return Buffer.concat([decipher.update(donnees), decipher.final()]);
+}
+
+/**
+ * Déchiffre DES-CBC (Data Encryption Standard).
+ * Historique, FIPS 46-3, déprécié. Clé de 8 octets, IV de 8 octets.
+ * Conservé pour la rétrocompatibilité et l'analyse forensique.
+ */
+function dechiffrerDES(donnees: Buffer, cle: Buffer, iv: Buffer): Buffer {
+  const decipher = createDecipheriv('des-cbc', cle, iv);
+  decipher.setAutoPadding(true);
+  return Buffer.concat([decipher.update(donnees), decipher.final()]);
+}
+
+/**
+ * Déchiffre Camellia-256-CBC.
+ * Standard de chiffrement japonais et européen, ISO/IEC 18033-3.
+ * Alternative à AES, utilisé dans TLS et IPsec.
+ */
+function dechiffrerCamellia(donnees: Buffer, cle: Buffer, iv: Buffer): Buffer {
+  const decipher = createDecipheriv('camellia-256-cbc', cle, iv);
+  decipher.setAutoPadding(true);
+  return Buffer.concat([decipher.update(donnees), decipher.final()]);
+}
+
+/**
+ * Déchiffre une cascade de chiffrements.
+ * Applique chaque étape dans l'ordre inverse du chiffrement
+ * (du plus externe au plus interne).
+ */
+function dechiffrerCascade(donnees: Buffer, etapes: EtapeCascade[]): Buffer {
+  let resultat = donnees;
+  for (const etape of etapes) {
+    const cle = versBuffer(etape.cle);
+    const iv = versBuffer(etape.iv);
+    const tag = etape.tag ? versBuffer(etape.tag) : undefined;
+
+    switch (etape.algorithme) {
+      case 'aes-256-gcm':
+        if (!tag) throw new Error('AES-256-GCM en cascade nécessite un tag.');
+        resultat = dechiffrerAESGCM(resultat, cle, iv, tag);
+        break;
+      case 'aes-256-cbc':
+        resultat = dechiffrerAESCBC(resultat, cle, iv, 256);
+        break;
+      case 'aes-128-cbc':
+        resultat = dechiffrerAESCBC(resultat, cle, iv, 128);
+        break;
+      case 'chacha20-poly1305':
+        if (!tag) throw new Error('ChaCha20-Poly1305 en cascade nécessite un tag.');
+        resultat = dechiffrerChaCha20(resultat, cle, iv, tag);
+        break;
+      default:
+        throw new Error(`Algorithme non supporté en cascade : ${etape.algorithme}`);
+    }
+  }
+  return resultat;
+}
+
+/**
+ * Extrait des données cachées par stéganographie LSB (Least Significant Bit)
+ * dans une image (Buffer PNG/BMP/RAW).
+ * Parcourt les octets et extrait le bit de poids faible de chaque octet
+ * pour reconstruire le message caché.
+ *
+ * @param donnees - Buffer de l'image contenant les données cachées
+ * @param longueurMax - Longueur maximale du message à extraire (défaut : 4096 octets)
+ * @returns Buffer contenant le message extrait
+ */
+function extraireSteganographieLSB(
+  donnees: Buffer,
+  longueurMax: number = 4096,
+): Buffer {
+  // Sauter l'en-tête PNG (24 octets minimum) ou BMP (54 octets)
+  let offset = 0;
+
+  // Détection d'en-tête PNG
+  if (donnees.length > 8 && donnees[0] === 0x89 && donnees[1] === 0x50) {
+    offset = 24; // Sauter la signature IHDR
+  }
+  // Détection d'en-tête BMP
+  else if (donnees.length > 2 && donnees[0] === 0x42 && donnees[1] === 0x4d) {
+    offset = 54;
+  }
+
+  const bits: number[] = [];
+  const maxBits = longueurMax * 8;
+
+  for (let i = offset; i < donnees.length && bits.length < maxBits; i++) {
+    bits.push(donnees[i] & 1);
+  }
+
+  // Reconstruire les octets à partir des bits
+  const octets: number[] = [];
+  for (let i = 0; i + 7 < bits.length; i += 8) {
+    let octet = 0;
+    for (let j = 0; j < 8; j++) {
+      octet = (octet << 1) | bits[i + j];
+    }
+    octets.push(octet);
+  }
+
+  return Buffer.from(octets);
+}
+
+/**
+ * Brute-force XOR avec des clés d'un octet (0-255).
+ * Tente chaque clé possible et retourne le premier résultat
+ * qui produit du texte lisible (caractères ASCII imprimables).
+ *
+ * @param donnees - Données chiffrées par XOR
+ * @returns Buffer déchiffré ou null si aucune clé ne produit du texte lisible
+ */
+function bruteForceXOR(donnees: Buffer): { cle: number; contenu: Buffer } | null {
+  for (let cle = 0; cle < 256; cle++) {
+    const resultat = Buffer.alloc(donnees.length);
+    let lisible = true;
+
+    for (let i = 0; i < donnees.length; i++) {
+      const dec = donnees[i] ^ cle;
+      resultat[i] = dec;
+      // Vérifier si le caractère est imprimable (ASCII 32-126 + sauts de ligne)
+      if (dec < 9 || (dec > 13 && dec < 32) || dec > 126) {
+        if (i < 20) {
+          // Les 20 premiers octets doivent être lisibles
+          lisible = false;
+          break;
+        }
+      }
+    }
+
+    if (lisible) {
+      return { cle, contenu: resultat };
+    }
+  }
+  return null;
+}
+
+// ╔══════════════════════════════════════════════════════════════════════════╗
+//   Décodeurs simples
+// ╚══════════════════════════════════════════════════════════════════════════╝
 
 /** Décode Base64. */
 function decoderBase64(donnees: string, urlSafe: boolean): Buffer {
@@ -455,6 +675,90 @@ export function dechiffrer(
         break;
       }
 
+      // ── Algorithmes militaires / gouvernementaux ──
+
+      case 'aes-256-ccm': {
+        if (!cleBuffer || cleBuffer.length !== 32) {
+          throw new Error('AES-256-CCM nécessite une clé de 32 octets.');
+        }
+        const ivLen = options.longueurIvCcm ?? 12;
+        const iv = versBuffer(options.iv ?? '');
+        if (iv.length < 7 || iv.length > 13) {
+          throw new Error('AES-256-CCM nécessite un IV de 7 à 13 octets.');
+        }
+        const tag = versBuffer(options.tag ?? '');
+        const longueurTag = options.longueurTag ?? 16;
+        const donnees = versBuffer(entree, 'base64');
+        contenuDechiffre = dechiffrerAESCCM(donnees, cleBuffer, iv, tag, longueurTag);
+        break;
+      }
+
+      case 'aes-256-xts': {
+        if (!cleBuffer || cleBuffer.length !== 64) {
+          throw new Error('AES-256-XTS nécessite une clé de 64 octets (2 x 32).');
+        }
+        const iv = versBuffer(options.iv ?? '');
+        if (iv.length !== 16) {
+          throw new Error('AES-256-XTS nécessite un IV de 16 octets.');
+        }
+        const donnees = versBuffer(entree, 'base64');
+        contenuDechiffre = dechiffrerAESXTS(donnees, cleBuffer, iv);
+        break;
+      }
+
+      case 'des-cbc': {
+        if (!cleBuffer || cleBuffer.length !== 8) {
+          throw new Error('DES-CBC nécessite une clé de 8 octets.');
+        }
+        const iv = versBuffer(options.iv ?? '');
+        if (iv.length !== 8) {
+          throw new Error('DES-CBC nécessite un IV de 8 octets.');
+        }
+        const donnees = versBuffer(entree, 'base64');
+        contenuDechiffre = dechiffrerDES(donnees, cleBuffer, iv);
+        break;
+      }
+
+      case 'camellia-256-cbc': {
+        if (!cleBuffer || cleBuffer.length !== 32) {
+          throw new Error('Camellia-256-CBC nécessite une clé de 32 octets.');
+        }
+        const iv = versBuffer(options.iv ?? '');
+        if (iv.length !== 16) {
+          throw new Error('Camellia-256-CBC nécessite un IV de 16 octets.');
+        }
+        const donnees = versBuffer(entree, 'base64');
+        contenuDechiffre = dechiffrerCamellia(donnees, cleBuffer, iv);
+        break;
+      }
+
+      case 'cascade': {
+        if (!options.cascade || options.cascade.length === 0) {
+          throw new Error('Cascade nécessite au moins une étape.');
+        }
+        const donnees = versBuffer(entree, 'base64');
+        contenuDechiffre = dechiffrerCascade(donnees, options.cascade);
+        break;
+      }
+
+      case 'steganographie-lsb': {
+        const donnees = versBuffer(entree);
+        contenuDechiffre = extraireSteganographieLSB(donnees);
+        break;
+      }
+
+      case 'brute-force-xor': {
+        const donnees = versBuffer(entree);
+        const resultat = bruteForceXOR(donnees);
+        if (resultat === null) {
+          throw new Error('Aucune clé XOR d\'un octet ne produit du texte lisible.');
+        }
+        contenuDechiffre = resultat.contenu;
+        break;
+      }
+
+      // ── Encodages simples ──
+
       case 'base64': {
         const donnees = typeof entree === 'string' ? entree : entree.toString('utf8');
         contenuDechiffre = decoderBase64(donnees, false);
@@ -559,30 +863,45 @@ export function dechiffrerAuto(
   entree: string | Buffer,
   cles: Array<{ cle?: Buffer | string; iv?: Buffer | string; tag?: Buffer | string }> = [],
 ): ResultatDechiffrement {
-  const algorithmes: AlgorithmeDechiffrement[] = [
+  // Phase 1 : encodages simples sans clé
+  const encodagesSimples: AlgorithmeDechiffrement[] = [
     'base64',
     'base64url',
     'hex',
     'rot13',
   ];
 
-  // Essayer d'abord les encodages simples sans clé
-  for (const algo of algorithmes) {
+  for (const algo of encodagesSimples) {
     const resultat = dechiffrer(entree, { algorithme: algo });
     if (resultat.succes) return resultat;
   }
 
-  // Essayer avec chaque clé fournie
+  // Phase 2 : brute-force XOR (clé 1 octet)
+  const resultatXor = dechiffrer(entree, { algorithme: 'brute-force-xor' });
+  if (resultatXor.succes) return resultatXor;
+
+  // Phase 3 : stéganographie LSB (si données binaires)
+  if (typeof entree === 'object' || detecterFormat(entree) === 'binaire') {
+    const resultatSteg = dechiffrer(entree, { algorithme: 'steganographie-lsb' });
+    if (resultatSteg.succes) return resultatSteg;
+  }
+
+  // Phase 4 : algorithmes symétriques avec chaque clé fournie
+  const algosAvecCle: AlgorithmeDechiffrement[] = [
+    'aes-256-gcm',
+    'aes-256-cbc',
+    'aes-128-cbc',
+    'chacha20-poly1305',
+    'aes-256-ccm',
+    'aes-256-xts',
+    'camellia-256-cbc',
+    '3des-cbc',
+    'des-cbc',
+    'blowfish-cbc',
+    'xor',
+  ];
+
   for (const tentative of cles) {
-    const algosAvecCle: AlgorithmeDechiffrement[] = [
-      'aes-256-gcm',
-      'aes-256-cbc',
-      'aes-128-cbc',
-      'chacha20-poly1305',
-      '3des-cbc',
-      'blowfish-cbc',
-      'xor',
-    ];
     for (const algo of algosAvecCle) {
       const resultat = dechiffrer(entree, {
         algorithme: algo,
@@ -608,6 +927,7 @@ export function dechiffrerAuto(
  */
 export function listerAlgorithmes(): AlgorithmeDechiffrement[] {
   return [
+    // Standards civils
     'aes-256-gcm',
     'aes-256-cbc',
     'aes-128-cbc',
@@ -621,5 +941,13 @@ export function listerAlgorithmes(): AlgorithmeDechiffrement[] {
     'hex',
     'xor',
     'rot13',
+    // Militaires / gouvernementaux
+    'aes-256-ccm',
+    'aes-256-xts',
+    'des-cbc',
+    'camellia-256-cbc',
+    'cascade',
+    'steganographie-lsb',
+    'brute-force-xor',
   ];
 }
