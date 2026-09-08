@@ -3006,6 +3006,56 @@ a le plus besoin de trouver annoncé.
 > chez le développeur et le geste qui refuse est en CI. Un outil qui réparerait
 > tout seul en intégration continue cacherait le problème au lieu de le poser.
 
+### 9ter.0 octies — Une garde qui balaie doit dire OÙ elle regarde ET ce qu'elle sait LIRE
+
+La leçon « 9ter.0 bis » a une moitié qu'elle ne dit pas. Elle a appris à
+demander à une garde **où** elle regarde, et le remède — balayer plutôt
+qu'énumérer — a été appliqué au compte des diagnostics. Il restait une seconde
+question, qu'on ne pense presque jamais à poser : **qu'est-ce qu'elle sait
+reconnaître ?**
+
+`tests/readme.test.ts` gardait les liens morts avec ce motif :
+
+```ts
+/\]\((docs\/[A-Za-z0-9./-]+\.md|[A-Z][A-Z.]*\.md)\)/g;
+```
+
+Mesuré en balayant le dépôt, pas supposé :
+
+| Ce que porte le dépôt                        | Combien |
+| -------------------------------------------- | ------- |
+| documents Markdown                           | 37      |
+| renvois locaux (liens, images, balises HTML) | 59      |
+| renvois qu'une garde surveillait             | **22**  |
+
+Deux liens morts posés à la main ont laissé la suite ENTIÈRE verte — 400
+fichiers, 5484 bancs, code de sortie 0. Le second est le plus instructif :
+`README.md` renvoie vers `README.en.md`, et la garde prétendait couvrir
+`README.md`. Son motif exigeait un nom tout en majuscules ; le `en` minuscule
+passait au travers. **Le tout premier lien du dépôt — celui qui fait passer un
+arrivant d'une langue à l'autre — n'était gardé par rien, dans un fichier
+déclaré gardé.**
+
+Douze images échappaient au même motif pour une raison différente : elles sont
+écrites en HTML (`<img src=…>`), et un motif qui ne connaît que `](…)` ne voit
+pas une balise. Ce sont les images du PREMIER écran d'un arrivant.
+
+Les deux fuites n'ont rien à voir l'une avec l'autre, et c'est le cœur de la
+leçon : la première est un motif trop étroit DANS la syntaxe attendue, la
+seconde est une syntaxe entière que la garde ignorait exister.
+
+> **Règle** — une garde qui balaie se vérifie sur deux axes, pas un. « Elle
+> regarde tout le dépôt » ne dit rien de « elle reconnaît toutes les formes que
+> le dépôt emploie ». Avant de la croire, compter ce qu'elle TROUVE et le
+> comparer à ce que le dépôt PORTE : l'écart entre les deux est exactement la
+> zone où un défaut peut vivre sous un vert.
+
+> **Règle** — un balayage dont le motif casse ne devient pas rouge, il devient
+> VIDE, donc vert. Il se tait au lieu de se signaler, et c'est la panne la plus
+> dangereuse de cette famille de gardes. Toute sonde qui balaie doit donc porter
+> ses propres cas de non-vacuité : un plancher sur ce qu'elle trouve, et au
+> moins un renvoi nommé qu'elle DOIT voir.
+
 ### 9ter.0 septies — Un défaut LU dans un journal n'est pas un défaut MESURÉ
 
 En diagnosticant le rouge du tamis des ordres, j'ai vu dans le journal de CI des
@@ -15196,3 +15246,80 @@ sept outils qui s'installent à la main auraient été annoncés « inconnus ».
 
 Ce n'est pas la loupe qui l'a trouvé, c'est d'avoir compté : `OUTILS` fait 9,
 `PAQUETS` fait 2. Le chiffre a rendu visible ce que la relecture ne voyait pas.
+
+## 9 septoctogicenties. Une porte qui interroge le MONDE peut rougir sur un arbre qui n'a pas bougé
+
+Le 3 septembre au matin, la jambe `ubuntu-latest` a rougi sur une tête qui ne
+touchait **que `docs/ETAPES.md`**. Aucune ligne de code, aucune dépendance,
+`package-lock.json` identique à celui de `main`.
+
+La porte fautive était `npm audit --audit-level=high`. Elle ne lit pas le
+dépôt : elle interroge une **base d'avis vivante**. Quatre avis HAUTS sur
+`fast-uri` 3.0.0–3.1.5 y étaient apparus pendant la nuit. Le verdict avait
+changé sans que rien du dépôt change.
+
+C'est une classe à part, et elle mérite son nom. Les gardes de ce dépôt sont
+des **fonctions de l'arbre** : mêmes fichiers, même verdict, aujourd'hui comme
+dans six mois. Une porte qui consulte le monde extérieur n'a pas cette
+propriété, et deux réflexes habituels deviennent faux devant elle :
+
+- « la CI est rouge, donc mon diff a cassé quelque chose » — non : commencer
+  par se demander si la porte regarde le dépôt ou l'extérieur ;
+- « c'est un vert d'hier, il vaut pour aujourd'hui » — non : le vert d'hier ne
+  dit rien de l'état d'aujourd'hui de la base consultée.
+
+> **Règle** — avant de chercher le défaut dans le diff, identifier ce que la
+> porte rouge LIT. Si sa source est extérieure au dépôt, la question n'est plus
+> « qu'ai-je cassé ? » mais « qu'est-ce qui a changé dehors ? », et la réponse
+> se vérifie en rejouant la même porte sur la base : si elle y rougit aussi,
+> le diff est hors de cause, et ça se dit avant de corriger.
+
+### Et le remède évident en faisait plus que ce qu'on lui demandait
+
+`npm update fast-uri --package-lock-only` produit bien le bon changement de
+version. Il en produit aussi un autre, silencieux : le `npm` de ce conteneur
+est plus ancien que celui qui a écrit le verrou, et il en a profité pour
+**supprimer les blocs `libc` de cinq binaires optionnels de rollup** —
+la métadonnée qui distingue glibc de musl. Rien à voir avec l'avis, et invisible
+si l'on ne lit que la ligne de version dans le diff.
+
+Le correctif a donc été porté à la main : trois lignes (version, `resolved`,
+`integrity`), et rien d'autre. `3 insertions, 3 deletions` au lieu de
+`3 insertions, 18 deletions`.
+
+> **Règle** — un fichier écrit par un outil est écrit par UNE VERSION de cet
+> outil. Le régénérer avec une autre version le réécrit à sa façon, et le
+> supplément arrive en même temps que le correctif demandé, sous le même
+> commit, avec la même apparence d'automatisme. Après toute commande qui
+> régénère un artefact, lire le diff ENTIER — pas la ligne qu'on attendait.
+
+---
+
+## 9 octooctogicenties. Une cadence qui ne dépend pas des faits finit par produire du décor
+
+Un journal de sortie s'écrivait chaque matin, sur ordre d'un tour programmé.
+Pendant quatre jours, l'arbre n'a pas bougé : mêmes commits, même PR, même
+liste de ce qui manque. Les quatre points disaient donc la même chose, de plus
+en plus longuement, avec des chiffres identiques recopiés d'un point à l'autre.
+
+Le piège n'est pas la répétition — c'est qu'elle **ressemble** à du travail.
+Un lecteur qui déroule le document voit une entrée datée, structurée en cinq
+sections, avec des mesures dedans : tous les signes extérieurs d'un point
+d'avancement. Rien ne lui dit que la quatrième entrée n'apporte pas un fait de
+plus que la première. Et une mesure recopiée d'hier, présentée comme celle du
+jour, est un badge écrit de tête : le même défaut que ce dépôt refuse ailleurs.
+
+Deux gestes s'imposaient donc, et le second seul est vraiment un remède :
+
+- **dire la répétition dans le point lui-même** — le point du 3 septembre l'a
+  fait, et c'est mieux que rien ;
+- **arrêter la cadence** — le point du 4 l'a fait. Un journal dont la
+  périodicité est fixe écrit quoi qu'il arrive ; un journal dont le
+  déclencheur est un fait ne s'écrit que lorsqu'il y a quelque chose à écrire.
+
+> **Règle** — une écriture périodique doit avoir un déclencheur FACTUEL, pas
+> seulement une horloge. Quand la période arrive et que rien n'a changé, la
+> réponse honnête est de ne pas écrire et de dire pourquoi, pas de remplir le
+> gabarit. Et si une mesure n'a pas été refaite, on écrit qu'elle n'a pas été
+> refaite, avec l'arbre sur lequel elle avait été prise — jamais le chiffre
+> seul, qui se lirait comme une mesure du jour.
