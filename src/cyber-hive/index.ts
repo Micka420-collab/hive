@@ -9,16 +9,22 @@ export * from './anti-trace.js';
 export * from './pentest-orchestrator.js';
 export * from './attack-visualizer.js';
 export * from './autonomous-agent.js';
+export * from './natural-language.js';
+export * from './defense.js';
+export * from './report-generator.js';
+export * from './anti-trace-v2.js';
+export * from './autonomous-agent-v2.js';
+export * from './dashboard.js';
 
 import { creerOrchestrateur } from './pentest-orchestrator.js';
 import { creerServeurMCP } from './mcp-server.js';
 import { creerVisualiseur } from './attack-visualizer.js';
-import { CONFIG_DEFAUT } from './types.js';
+import { CONFIG_DEFAULT } from './types.js';
 import type { ConfigCyberHive } from './types.js';
 
-// ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+// ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
 //  Initialisation de Cyber Hive
-// ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+// ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
 
 export interface CyberHive {
   orchestrateur: ReturnType<typeof creerOrchestrateur>;
@@ -29,7 +35,7 @@ export interface CyberHive {
 
 /** Initialise Cyber Hive avec la configuration donnée (ou par défaut). */
 export function initCyberHive(config?: Partial<ConfigCyberHive>): CyberHive {
-  const configFinale = { ...CONFIG_DEFAUT, ...config, mcp: { ...CONFIG_DEFAUT.mcp, ...config?.mcp } };
+  const configFinale = { ...CONFIG_DEFAULT, ...config, mcp: { ...CONFIG_DEFAULT.mcp, ...config?.mcp } };
 
   return {
     orchestrateur: creerOrchestrateur(configFinale),
