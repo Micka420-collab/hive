@@ -15,6 +15,7 @@ export * from './report-generator.js';
 export * from './anti-trace-v2.js';
 export * from './autonomous-agent-v2.js';
 export * from './dashboard.js';
+export * from './dechiffreur.js';
 
 import { creerOrchestrateur } from './pentest-orchestrator.js';
 import { creerServeurMCP } from './mcp-server.js';
@@ -22,9 +23,9 @@ import { creerVisualiseur } from './attack-visualizer.js';
 import { CONFIG_DEFAULT } from './types.js';
 import type { ConfigCyberHive } from './types.js';
 
-// ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
-//  Initialisation de Cyber Hive
-// ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+// ╔══════════════════════════════════════════════════════════════════════════╗
+//   Initialisation de Cyber Hive
+// ╚══════════════════════════════════════════════════════════════════════════╝
 
 export interface CyberHive {
   orchestrateur: ReturnType<typeof creerOrchestrateur>;
