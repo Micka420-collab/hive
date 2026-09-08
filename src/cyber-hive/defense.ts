@@ -1,12 +1,12 @@
 // Module de défense et durcissement pour Cyber Hive.
-// Analyse les vulnérabilités trouvées et propose des correctifs.
+// Analyse les vulnérabilités trouvées et propose des corrections.
 // Évalue la posture de sécurité de la cible après attaque.
 
-import type { EtapeAttaque, SessionPentest } from './types.js';
+import type { EtapeAttaque, SessionPentest } from './types.ts';
 
-// ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+// 🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻
 //  Types
-// ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+// 🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻
 
 export interface RecommandationDefense {
   severite: 'critique' | 'eleve' | 'moyenne' | 'faible';
@@ -26,9 +26,9 @@ export interface PostureSecurite {
   resume: string;
 }
 
-// ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+// 🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻
 //  Analyseur de défense
-// ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+// 🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻
 
 export class AnalyseurDefense {
   /** Analyse les étapes d'une session et produit la posture de sécurité. */
@@ -59,7 +59,7 @@ export class AnalyseurDefense {
     return { score, niveau, forces, faiblesses, recommandations, resume };
   }
 
-  /** Analyse une étape individuelle. */
+  /** Analyse une étape individuellement. */
   private analyserEtape(
     etape: EtapeAttaque,
     recos: RecommandationDefense[],
@@ -98,18 +98,27 @@ export class AnalyseurDefense {
     }
   }
 
+  /**
+   * Vérifie si un port spécifique est mentionné comme ouvert dans la sortie.
+   * Utilise une regex avec délimiteurs de mot pour éviter les faux positifs
+   * (ex: "port 23" ne doit pas matcher "port 230" ou "port 2300").
+   */
+  private portOuvert(stdout: string, port: number): boolean {
+    return new RegExp(`\\b${port}\\b`).test(stdout);
+  }
+
   private analyserNmap(stdout: string, recos: RecommandationDefense[], faiblesses: string[]): void {
     // Ports ouverts non sécurisés
-    if (stdout.includes('telnet') || stdout.includes('port 23')) {
+    if (stdout.includes('telnet') || this.portOuvert(stdout, 23)) {
       recos.push({
         severite: 'critique',
         titre: 'Telnet exposé',
         description: 'Le service Telnet est ouvert. Il transmet les credentials en clair.',
-        correctif: 'Désactiver Telnet et utiliser SSH (port 22) à la place. Si indispensable, restreindre par firewall.',
+        correctif: 'Désactiver Telnet et utiliser SSH (port 22) à la place. Si indispensable, restreindre par pare-feu.',
       });
       faiblesses.push('Telnet exposé (credentials en clair).');
     }
-    if (stdout.includes('ftp') && stdout.includes('port 21')) {
+    if (stdout.includes('ftp') && this.portOuvert(stdout, 21)) {
       recos.push({
         severite: 'eleve',
         titre: 'FTP non chiffré exposé',
@@ -118,21 +127,21 @@ export class AnalyseurDefense {
       });
       faiblesses.push('FTP non chiffré exposé.');
     }
-    if (stdout.includes('smb') || stdout.includes('port 445')) {
+    if (stdout.includes('smb') || this.portOuvert(stdout, 445)) {
       recos.push({
         severite: 'moyenne',
         titre: 'SMB exposé',
         description: 'Le service SMB est accessible. Risque de fuite d\'informations (Null Session, EternalBlue).',
-        correctif: 'Restreindre SMB aux réseaux internes. Appliquer les derniers correctifs Windows. Désactiver SMBv1.',
+        correctif: 'Restreindre SMB aux réseaux internes. Appliquer les correctifs Windows. Désactiver SMBv1.',
       });
       faiblesses.push('SMB exposé.');
     }
-    if (stdout.includes('rdp') || stdout.includes('port 3389')) {
+    if (stdout.includes('rdp') || this.portOuvert(stdout, 3389)) {
       recos.push({
         severite: 'eleve',
         titre: 'RDP exposé',
-        description: 'Le Bureau à distance est accessible depuis l\'extérieur.',
-        correctif: 'Utiliser un VPN pour accéder au RDP. Activer NLA. Restreindre par firewall. Changer le port par défaut.',
+        description: 'Le Bureau à distance est accessible de l\'extérieur.',
+        correctif: 'Utiliser un VPN pour accéder au RDP. Activer NLA. Restreindre par pare-feu. Changer le port par défaut.',
       });
       faiblesses.push('RDP exposé publiquement.');
     }
@@ -146,7 +155,6 @@ export class AnalyseurDefense {
         description: 'Absence de protection contre le clickjacking.',
         correctif: 'Ajouter l\'en-tête X-Frame-Options: DENY ou SAMEORIGIN dans la configuration du serveur web.',
       });
-      faiblesses.push('Clickjacking possible (X-Frame-Options manquant).');
     }
     if (stdout.includes('x-content-type-options')) {
       recos.push({
@@ -168,11 +176,11 @@ export class AnalyseurDefense {
     if (stdout.includes('directory indexing')) {
       recos.push({
         severite: 'moyenne',
-        titre: 'Directory listing activé',
-        description: 'Le listing des répertoires est activé, exposant la structure des fichiers.',
+        titre: 'Directory listing actif',
+        description: 'Le listing des répertoires est actif, exposant la structure des fichiers.',
         correctif: 'Désactiver autoindex (Apache) ou autoindex off (Nginx).',
       });
-      faiblesses.push('Directory listing activé.');
+      faiblesses.push('Directory listing actif.');
     }
   }
 
@@ -196,7 +204,6 @@ export class AnalyseurDefense {
           severite: 'eleve',
           titre: `Vulnérabilité Nuclei élevée : ${templateId}`,
           description: `Template Nuclei ${templateId} matché.`,
-          correctif: 'Appliquer le correctif et vérifier les logs d\'accès.',
         });
         faiblesses.push(`Vulnérabilité élevée : ${templateId}.`);
       }
@@ -209,7 +216,7 @@ export class AnalyseurDefense {
         severite: 'critique',
         titre: 'Credentials faibles découverts',
         description: 'Des credentials ont été trouvés par brute-force. Les mots de passe sont trop faibles.',
-        correctif: 'Imposer une politique de mots de passe complexes (12+ caractères, mix majuscules/minuscules/chiffres/symboles). Activer le verrouillage de compte après N tentatives. Activer 2FA.',
+        correctif: 'Imposer une politique de mots de passe complexes (12+ caractères, mix majuscules/minuscules/chiffres/symboles). Activer le verrouillage après N tentatives. Activer 2FA.',
       });
       faiblesses.push('Credentials faibles (brute-force réussi).');
     }
@@ -250,16 +257,16 @@ export class AnalyseurDefense {
   private genererResume(
     score: number,
     niveau: string,
-    recos: RecommandationDefense[],
+    recommandations: RecommandationDefense[],
     forces: string[],
     faiblesses: string[],
   ): string {
-    const nbCritique = recos.filter((r) => r.severite === 'critique').length;
-    const nbEleve = recos.filter((r) => r.severite === 'eleve').length;
+    const nbCritique = recommandations.filter((r) => r.severite === 'critique').length;
+    const nbEleve = recommandations.filter((r) => r.severite === 'eleve').length;
     const lignes: string[] = [];
 
     lignes.push(`Posture de sécurité : ${niveau} (${score}/100)`);
-    lignes.push(`${recos.length} recommandation(s) : ${nbCritique} critique(s), ${nbEleve} élevée(s).`);
+    lignes.push(`${recommandations.length} recommandation(s) : ${nbCritique} critique(s), ${nbEleve} élevée(s).`);
     if (forces.length > 0) lignes.push(`Points forts : ${forces.length}.`);
     if (faiblesses.length > 0) lignes.push(`Faiblesses : ${faiblesses.length}.`);
 
