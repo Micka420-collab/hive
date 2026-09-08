@@ -77,7 +77,7 @@ export class VisualiseurAttaques {
     const etapesParType: Record<string, number> = {};
 
     for (const etape of session.etapes) {
-      etapesParSeverite[etape.severite] = (etapeParSeverite[etape.severite] ?? 0) + 1;
+      etapesParSeverite[etape.severite] = (etapesParSeverite[etape.severite] ?? 0) + 1;
       etapesParType[etape.type] = (etapesParType[etape.type] ?? 0) + 1;
     }
 
