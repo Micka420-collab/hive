@@ -2,11 +2,11 @@
 // Analyse les vulnérabilités trouvées et propose des correctifs.
 // Évalue la posture de sécurité de la cible après attaque.
 
-import type { EtapeAttaque, SessionPentest } from './types.js';
+import type { EtapeAttaque, SessionPentest } from './types.ts';
 
-// █████████████████████████████████████████████████████████████████████████████████████████████████████████████
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  Types
-// █████████████████████████████████████████████████████████████████████████████████████████████████████████████
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 export interface RecommandationDefense {
   severite: 'critique' | 'eleve' | 'moyenne' | 'faible';
@@ -26,9 +26,9 @@ export interface PostureSecurite {
   resume: string;
 }
 
-// █████████████████████████████████████████████████████████████████████████████████████████████████████████████
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  Analyseur de défense
-// █████████████████████████████████████████████████████████████████████████████████████████████████████████████
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 export class AnalyseurDefense {
   /** Analyse les étapes d'une session et produit la posture de sécurité. */
@@ -140,7 +140,7 @@ export class AnalyseurDefense {
       recos.push({
         severite: 'eleve',
         titre: 'RDP exposé',
-        description: 'Le Bureau à distance est accessible depuis l'extérieur.',
+        description: 'Le Bureau à distance est accessible de l'extérieur.',
         correctif: 'Utiliser un VPN pour accéder au RDP. Activer NLA. Restreindre par pare-feu. Changer le port par défaut.',
       });
       faiblesses.push('RDP exposé publiquement.');
@@ -225,17 +225,17 @@ export class AnalyseurDefense {
   }
 
   private analyserSqlmap(stdout: string, recos: RecommandationDefense[], faiblesses: string[]): void {
-    // Patterns positifs uniquement : "is injectable" / "is vulnerable" (EN)
+    // Patterns positifs uniques : "is injectable" / "is vulnerable" (EN)
     // et "est injectable" / "est vulnérable" (FR).
     // Évite les faux positifs sur "do not appear to be injectable"
     // ou "not injectable" / "not vulnerable".
-    const patternInjection = /\b(?:is|are)\s+(?:injectable|vulnerable)\b|\b(?:est|sont)\s+(?:injectable|vuln[eé]rable)\b/;
+    const patternInjection = /\b(?:is|are)\s+(?:injectable|vulnerable)\b|\b(?:est|sont)\s+(?:injectable|vuln[ée]rables?)\b/;
     if (patternInjection.test(stdout)) {
       recos.push({
         severite: 'critique',
         titre: 'Injection SQL confirmée',
         description: 'Une injection SQL a été confirmée par SQLMap. La base de données est compromise.',
-        correctif: 'Utiliser des requêtes paramétrées (prepared statements) partout. Valider toutes les entrées utilisateur. Appliquer le principe du moindre privilège au compte DB. Mettre à jour le SGBD.',
+        correctif: 'Utiliser des requêtes paramétrées (prepared statements) partout. Valider toutes les entrées utilisateur. Appliquer le principe de moindre privilège au compte DB. Mettre à jour le SGBD.',
       });
       faiblesses.push('Injection SQL confirmée.');
     }
