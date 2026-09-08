@@ -1,6 +1,7 @@
 // Tests pour le module de déchiffrement universel.
 // Vérifie les encodages simples, les algorithmes symétriques,
-// la détection automatique et les cas d'erreur.
+// les algorithmes militaires/gouvernementaux, la détection automatique
+// et les cas d'erreur.
 import { describe, it, expect } from 'vitest';
 import {
   dechiffrer,
@@ -91,6 +92,30 @@ describe('dechiffreur — détection d\'algorithme', () => {
       iv: randomBytes(8),
     });
     expect(result).toBe('blowfish-cbc');
+  });
+
+  it('détecte DES-CBC quand IV 8 et clé 8', () => {
+    const result = detecterAlgorithme({
+      cle: randomBytes(8),
+      iv: randomBytes(8),
+    });
+    expect(result).toBe('des-cbc');
+  });
+
+  it('détecte AES-CCM quand tag présent et IV 7-13 (non 12)', () => {
+    const result = detecterAlgorithme({
+      cle: randomBytes(32),
+      iv: randomBytes(8),
+      tag: randomBytes(16),
+    });
+    expect(result).toBe('aes-256-ccm');
+  });
+
+  it('détecte cascade quand des étapes sont fournies', () => {
+    const result = detecterAlgorithme({
+      cascade: [{ algorithme: 'aes-256-cbc', cle: randomBytes(32), iv: randomBytes(16) }],
+    });
+    expect(result).toBe('cascade');
   });
 });
 
@@ -279,6 +304,186 @@ describe('dechiffreur — Blowfish-CBC', () => {
   });
 });
 
+// ╔══════════════════════════════════════════════════════════════════════════╗
+//   Tests algorithmes militaires / gouvernementaux
+// ╚══════════════════════════════════════════════════════════════════════════╝
+
+describe('dechiffreur — DES-CBC (historique militaire)', () => {
+  it('déchiffre DES-CBC avec clé 8 octets et IV 8', () => {
+    const cle = randomBytes(8);
+    const iv = randomBytes(8);
+    const plaintext = Buffer.from('DES hist');
+
+    const cipher = createCipheriv('des-cbc', cle, iv);
+    const encrypted = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+
+    const result = dechiffrer(encrypted.toString('base64'), {
+      algorithme: 'des-cbc',
+      cle,
+      iv,
+      encodageSortie: 'utf8',
+    });
+
+    expect(result.succes).toBe(true);
+    expect(result.contenu).toBe('DES hist');
+  });
+
+  it('échoue si la clé n\'est pas de 8 octets', () => {
+    const result = dechiffrer('dGVzdA==', {
+      algorithme: 'des-cbc',
+      cle: randomBytes(16),
+      iv: randomBytes(8),
+    });
+    expect(result.succes).toBe(false);
+    expect(result.erreur).toContain('8 octets');
+  });
+});
+
+describe('dechiffreur — AES-256-CCM (FIPS-140)', () => {
+  it('déchiffre AES-256-CCM avec clé, IV et tag', () => {
+    const cle = randomBytes(32);
+    const iv = randomBytes(12);
+    const plaintext = Buffer.from('CCM military data');
+
+    const cipher = createCipheriv('aes-256-ccm', cle, iv, { authTagLength: 16 });
+    const encrypted = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+    const tag = cipher.getAuthTag();
+
+    const result = dechiffrer(encrypted.toString('base64'), {
+      algorithme: 'aes-256-ccm',
+      cle,
+      iv,
+      tag,
+      longueurTag: 16,
+      encodageSortie: 'utf8',
+    });
+
+    expect(result.succes).toBe(true);
+    expect(result.contenu).toBe('CCM military data');
+  });
+});
+
+describe('dechiffreur — AES-256-XTS (stockage)', () => {
+  it('déchiffre AES-256-XTS avec clé 64 octets et IV 16', () => {
+    const cle = randomBytes(64);
+    const iv = randomBytes(16);
+    // XTS nécessite des données multiples de 16 octets
+    const plaintext = Buffer.from('XTS storage encryption test!!');
+
+    const cipher = createCipheriv('aes-256-xts', cle, iv);
+    const encrypted = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+
+    const result = dechiffrer(encrypted.toString('base64'), {
+      algorithme: 'aes-256-xts',
+      cle,
+      iv,
+      encodageSortie: 'utf8',
+    });
+
+    expect(result.succes).toBe(true);
+    expect(result.contenu).toBe('XTS storage encryption test!!');
+  });
+});
+
+describe('dechiffreur — Camellia-256-CBC', () => {
+  it('déchiffre Camellia-256-CBC avec clé 32 et IV 16', () => {
+    const cle = randomBytes(32);
+    const iv = randomBytes(16);
+    const plaintext = Buffer.from('Camellia test data');
+
+    const cipher = createCipheriv('camellia-256-cbc', cle, iv);
+    const encrypted = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+
+    const result = dechiffrer(encrypted.toString('base64'), {
+      algorithme: 'camellia-256-cbc',
+      cle,
+      iv,
+      encodageSortie: 'utf8',
+    });
+
+    expect(result.succes).toBe(true);
+    expect(result.contenu).toBe('Camellia test data');
+  });
+});
+
+describe('dechiffreur — Cascade cipher', () => {
+  it('déchiffre une cascade AES-256-CBC puis AES-256-GCM', () => {
+    // Chiffrement en cascade : d'abord AES-256-GCM, puis AES-256-CBC
+    const cleGcm = randomBytes(32);
+    const ivGcm = randomBytes(16);
+    const cleCbc = randomBytes(32);
+    const ivCbc = randomBytes(16);
+    const plaintext = Buffer.from('Cascade encrypted document');
+
+    // Étape 1 : AES-256-GCM
+    const cipher1 = createCipheriv('aes-256-gcm', cleGcm, ivGcm);
+    const enc1 = Buffer.concat([cipher1.update(plaintext), cipher1.final()]);
+    const tag1 = cipher1.getAuthTag();
+
+    // Étape 2 : AES-256-CBC
+    const cipher2 = createCipheriv('aes-256-cbc', cleCbc, ivCbc);
+    const enc2 = Buffer.concat([cipher2.update(enc1), cipher2.final()]);
+
+    // Déchiffrement en cascade : d'abord CBC (extérieur), puis GCM (intérieur)
+    const result = dechiffrer(enc2.toString('base64'), {
+      algorithme: 'cascade',
+      cascade: [
+        { algorithme: 'aes-256-cbc', cle: cleCbc, iv: ivCbc },
+        { algorithme: 'aes-256-gcm', cle: cleGcm, iv: ivGcm, tag: tag1 },
+      ],
+      encodageSortie: 'utf8',
+    });
+
+    expect(result.succes).toBe(true);
+    expect(result.contenu).toBe('Cascade encrypted document');
+  });
+});
+
+describe('dechiffreur — Stéganographie LSB', () => {
+  it('extrait des données cachées par LSB dans un buffer', () => {
+    // Créer un faux buffer d'image avec des données LSB
+    const message = 'HIDDEN';
+    const bits: number[] = [];
+    for (const char of message) {
+      const code = char.charCodeAt(0);
+      for (let j = 7; j >= 0; j--) {
+        bits.push((code >> j) & 1);
+      }
+    }
+    // Créer un buffer où chaque octet contient un bit LSB
+    const imageBuffer = Buffer.alloc(bits.length);
+    for (let i = 0; i < bits.length; i++) {
+      imageBuffer[i] = bits[i]; // LSB = bit
+    }
+
+    const result = dechiffrer(imageBuffer, { algorithme: 'steganographie-lsb' });
+    expect(result.succes).toBe(true);
+    // Le contenu extrait doit contenir le message
+    const extracted = Buffer.isBuffer(result.contenu) ? result.contenu.toString('utf8') : result.contenu;
+    expect(extracted).toContain('HIDDEN');
+  });
+});
+
+describe('dechiffreur — Brute-force XOR', () => {
+  it('trouve la clé XOR d\'un octet', () => {
+    const original = 'Brute force XOR test';
+    const key = 42; // clé arbitraire
+    const encrypted = Buffer.alloc(original.length);
+    for (let i = 0; i < original.length; i++) {
+      encrypted[i] = original.charCodeAt(i) ^ key;
+    }
+
+    const result = dechiffrer(encrypted, { algorithme: 'brute-force-xor' });
+    expect(result.succes).toBe(true);
+    const content = Buffer.isBuffer(result.contenu) ? result.contenu.toString('utf8') : result.contenu;
+    expect(content).toBe(original);
+  });
+});
+
+// ╔══════════════════════════════════════════════════════════════════════════╗
+//   Tests détection automatique
+// ╚══════════════════════════════════════════════════════════════════════════╝
+
 describe('dechiffreur — détection automatique (dechiffrerAuto)', () => {
   it('détecte automatiquement le Base64', () => {
     const original = 'Auto-detect me';
@@ -318,6 +523,7 @@ describe('dechiffreur — métadonnées', () => {
 describe('dechiffreur — listerAlgorithmes', () => {
   it('retourne la liste complète des algorithmes', () => {
     const algos = listerAlgorithmes();
+    // Standards civils
     expect(algos).toContain('aes-256-gcm');
     expect(algos).toContain('aes-256-cbc');
     expect(algos).toContain('chacha20-poly1305');
@@ -328,13 +534,21 @@ describe('dechiffreur — listerAlgorithmes', () => {
     expect(algos).toContain('hex');
     expect(algos).toContain('xor');
     expect(algos).toContain('rot13');
-    expect(algos.length).toBeGreaterThanOrEqual(13);
+    // Militaires / gouvernementaux
+    expect(algos).toContain('aes-256-ccm');
+    expect(algos).toContain('aes-256-xts');
+    expect(algos).toContain('des-cbc');
+    expect(algos).toContain('camellia-256-cbc');
+    expect(algos).toContain('cascade');
+    expect(algos).toContain('steganographie-lsb');
+    expect(algos).toContain('brute-force-xor');
+    expect(algos.length).toBeGreaterThanOrEqual(20);
   });
 });
 
 describe('dechiffreur — gestion d\'erreurs', () => {
-  it('retourne une erreur pour un algorithme inconnu explicite', () => {
-    const result = dechiffrer('test', { algorithme: 'aes-256-gcm' as any });
+  it('retourne une erreur pour un algorithme avec clé manquante', () => {
+    const result = dechiffrer('dGVzdA==', { algorithme: 'aes-256-gcm' });
     expect(result.succes).toBe(false);
     expect(result.erreur).toBeDefined();
   });
@@ -343,5 +557,34 @@ describe('dechiffreur — gestion d\'erreurs', () => {
     const result = dechiffrer('dGVzdA==', { algorithme: 'aes-256-gcm' });
     expect(result.succes).toBe(false);
     expect(result.erreur).toContain('clé');
+  });
+
+  it('retourne une erreur si la clé DES n\'est pas de 8 octets', () => {
+    const result = dechiffrer('dGVzdA==', {
+      algorithme: 'des-cbc',
+      cle: randomBytes(16),
+      iv: randomBytes(8),
+    });
+    expect(result.succes).toBe(false);
+    expect(result.erreur).toContain('8 octets');
+  });
+
+  it('retourne une erreur si la clé AES-XTS n\'est pas de 64 octets', () => {
+    const result = dechiffrer('dGVzdA==', {
+      algorithme: 'aes-256-xts',
+      cle: randomBytes(32),
+      iv: randomBytes(16),
+    });
+    expect(result.succes).toBe(false);
+    expect(result.erreur).toContain('64 octets');
+  });
+
+  it('retourne une erreur si la cascade est vide', () => {
+    const result = dechiffrer('dGVzdA==', {
+      algorithme: 'cascade',
+      cascade: [],
+    });
+    expect(result.succes).toBe(false);
+    expect(result.erreur).toContain('cascade');
   });
 });
