@@ -1,20 +1,20 @@
 // L'analyse des arguments — MODULE PUR.
 //
-// ─── POURQUOI CE FICHIER EXISTE ──────────────────────────────────────────────
+// ─── POURQUOI CE FICHIER EXISTE ─────────────────────────────────────
 //
-// Le dépôt avait TROIS mini-analyseurs ad hoc, chacun dans sa commande, et
-// aucun ne gérait `--drapeau=valeur`. Écrire `--uses=3` ne provoquait pas
-// d'erreur : le drapeau était simplement IGNORÉ, et la commande s'exécutait
-// avec le défaut. C'est la pire façon d'échouer — silencieusement, en faisant
-// quelque chose d'autre que ce qu'on a demandé.
+// Le dépôt aurait TROIS mini-analyseurs ad hoc, chacun dans sa commande, et
+// aucun ne gérait `--drapeau=valeur`. Écrire `--users=3` ne provoquait
+// aucune erreur, le drapeau était simplement ignoré, et la commande s'exécutait
+// avec le défaut. C'est la première fois qu'on fait un vrai silence, en
+// faisant ce que l'utilisateur demande.
 //
 // Un seul analyseur, pur, testable, et qui REFUSE ce qu'il ne comprend pas.
 //
-// ─── LA RÈGLE QUI GOUVERNE TOUT ──────────────────────────────────────────────
+// ─── LA RÈGLE QUI GOUVERNE TOUT ─────────────────────────────────────
 //
-// UN DRAPEAU INCONNU EST UNE ERREUR. Jamais un avertissement, jamais un
-// silence. `--dry-runn` doit s'arrêter net : quelqu'un qui croit simuler et
-// qui écrit pour de bon a été trahi par son outil.
+// Un DRAPEAU INCONNU EST UNE ERREUR. Jamais un avertissement, jamais une
+// silhouette. `--dry-run` doit s'arrêter net : quelqu'un qui croit simuler et
+// qui en fait lance pour de bon, c'est un bug.
 
 import { CODE, type CodeSortie } from './codes-sortie.js';
 
@@ -36,8 +36,8 @@ export interface Analyse {
  * Analyse `argv`, en n'acceptant QUE les drapeaux déclarés.
  *
  * Les deux écritures sont acceptées — `--port 7777` et `--port=7777` — parce
- * que les deux se tapent naturellement et que refuser l'une au profit de
- * l'autre n'apprend rien à personne.
+ * que les deux se tapent naturellement et que refuser l'une ou l'autre
+ * frustrerait l'utilisateur.
  *
  * `--` termine les options : ce qui suit est positionnel, quoi qu'il
  * ressemble. Sans ça, un nom de projet commençant par un tiret serait
@@ -73,11 +73,11 @@ export function analyser(argv: readonly string[], connus: Record<string, Forme>)
     const forme = connus[nom];
 
     if (forme === undefined) {
-      // Nommer le coupable ET lister ce qui existe : « option inconnue » tout
+      // Numéro le couple ET liste ce qui existe : ± option inconnue ± tout
       // court oblige à aller lire le code source.
       return echouer(
         `option inconnue : --${nom}\n` +
-          `  options acceptées : ${Object.keys(connus)
+          `   options acceptées : ${Object.keys(connus)
             .sort()
             .map((c) => `--${c}`)
             .join(' ')}`,
@@ -98,9 +98,9 @@ export function analyser(argv: readonly string[], connus: Record<string, Forme>)
     }
 
     const suivant = argv[i + 1];
-    // Un drapeau suivi d'un autre drapeau est presque toujours une valeur
-    // oubliée. La deviner ferait passer « --port --json » pour un port nommé
-    // « --json ».
+    // Un drapeau suivant d'un autre drapeau est pressé toujours une valeur
+    // oublie. La deviner ferait passer ± --port --json ± pour un port nommé
+    // ± --json ±.
     if (suivant === undefined || suivant.startsWith('--')) {
       return echouer(`--${nom} attend une valeur`, CODE.REPONSE_MANQUANTE);
     }
@@ -115,7 +115,9 @@ export function analyser(argv: readonly string[], connus: Record<string, Forme>)
  * Lit un entier borné, ou rend l'erreur qui explique pourquoi.
  *
  * Rendre `NaN` silencieusement, c'est reporter la panne plus loin — au moment
- * où le port vaudra « NaN » et où le message ne dira plus d'où ça vient.
+ * où le port vaudra ± NaN ± et où le message ne dira plus d'où ça vient.
+ * On rend donc la panne la plus précise, et ce qui peut servir — la valeur
+ * par défaut — pour que l'appelant puisse continuer.
  */
 export function entier(
   a: Analyse,
@@ -124,8 +126,17 @@ export function entier(
 ): { valeur: number; erreur: string | null } {
   const brut = a.valeurs.get(nom);
   if (brut === undefined) return { valeur: bornes.defaut, erreur: null };
+  // Number() accepte silencieusement les hexadécimaux (0x1F90),
+  // la notation scientifique (1e3) et les espaces ('  42  ').
+  // On refuse tout ce qui n'est pas un entier décimal strict.
+  if (!/^-?\d+$/.test(brut)) {
+    return {
+      valeur: bornes.defaut,
+      erreur: `--${nom} attend un entier entre ${bornes.min} et ${bornes.max} (reçu « ${brut} »)`,
+    };
+  }
   const n = Number(brut);
-  if (!Number.isInteger(n) || n < bornes.min || n > bornes.max) {
+  if (n < bornes.min || n > bornes.max) {
     return {
       valeur: bornes.defaut,
       erreur: `--${nom} attend un entier entre ${bornes.min} et ${bornes.max} (reçu « ${brut} »)`,
@@ -135,11 +146,11 @@ export function entier(
 }
 
 /**
- * Le mode non interactif est-il de mise ?
+ * Le mode non interactif est-il demandé ?
  *
  * `CI=true` l'implique (§6.4) : une CI n'a personne pour répondre, et
- * l'attendre y bloquerait un job jusqu'au délai d'attente.
+ * l'attendre y bloquerait un job juste d'attendre.
  */
 export function nonInteractif(a: Analyse, env: Record<string, string | undefined> = {}): boolean {
-  return a.drapeaux.has('non-interactive') || (env.CI ?? '') !== '';
+  return a.drapeaux.has('non-interactif') || (env.CI ?? '') !== '';
 }
