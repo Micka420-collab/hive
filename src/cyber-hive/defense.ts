@@ -1,12 +1,12 @@
 // Module de défense et durcissement pour Cyber Hive.
-// Analyse les vulnérabilités trouvées et propose des corrections.
+// Analyse les vulnérabilités trouvées et propose des correctifs.
 // Évalue la posture de sécurité de la cible après attaque.
 
-import type { EtapeAttaque, SessionPentest } from './types.ts';
+import type { EtapeAttaque, SessionPentest } from './types.js';
 
-// 🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻
+// █████████████████████████████████████████████████████████████████████████████████████████████████████████████
 //  Types
-// 🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻
+// █████████████████████████████████████████████████████████████████████████████████████████████████████████████
 
 export interface RecommandationDefense {
   severite: 'critique' | 'eleve' | 'moyenne' | 'faible';
@@ -26,9 +26,9 @@ export interface PostureSecurite {
   resume: string;
 }
 
-// 🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻
+// █████████████████████████████████████████████████████████████████████████████████████████████████████████████
 //  Analyseur de défense
-// 🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻🔻
+// █████████████████████████████████████████████████████████████████████████████████████████████████████████████
 
 export class AnalyseurDefense {
   /** Analyse les étapes d'une session et produit la posture de sécurité. */
@@ -123,7 +123,7 @@ export class AnalyseurDefense {
         severite: 'eleve',
         titre: 'FTP non chiffré exposé',
         description: 'Le service FTP est ouvert sans chiffrement.',
-        correctif: 'Remplacer FTP par SFTP ou FTPS. Restreindre l\'accès par IP.',
+        correctif: 'Remplacer FTP par SFTP ou FTPS. Restreindre l'accès par IP.',
       });
       faiblesses.push('FTP non chiffré exposé.');
     }
@@ -131,7 +131,7 @@ export class AnalyseurDefense {
       recos.push({
         severite: 'moyenne',
         titre: 'SMB exposé',
-        description: 'Le service SMB est accessible. Risque de fuite d\'informations (Null Session, EternalBlue).',
+        description: 'Le service SMB est accessible. Risque de fuite d'informations (Null Session, EternalBlue).',
         correctif: 'Restreindre SMB aux réseaux internes. Appliquer les correctifs Windows. Désactiver SMBv1.',
       });
       faiblesses.push('SMB exposé.');
@@ -140,7 +140,7 @@ export class AnalyseurDefense {
       recos.push({
         severite: 'eleve',
         titre: 'RDP exposé',
-        description: 'Le Bureau à distance est accessible de l\'extérieur.',
+        description: 'Le Bureau à distance est accessible depuis l'extérieur.',
         correctif: 'Utiliser un VPN pour accéder au RDP. Activer NLA. Restreindre par pare-feu. Changer le port par défaut.',
       });
       faiblesses.push('RDP exposé publiquement.');
@@ -153,8 +153,9 @@ export class AnalyseurDefense {
         severite: 'moyenne',
         titre: 'En-tête X-Frame-Options manquant',
         description: 'Absence de protection contre le clickjacking.',
-        correctif: 'Ajouter l\'en-tête X-Frame-Options: DENY ou SAMEORIGIN dans la configuration du serveur web.',
+        correctif: 'Ajouter l'en-tête X-Frame-Options: DENY ou SAMEORIGIN dans la configuration du serveur web.',
       });
+      faiblesses.push('Clickjacking possible (X-Frame-Options manquant).');
     }
     if (stdout.includes('x-content-type-options')) {
       recos.push({
@@ -194,7 +195,7 @@ export class AnalyseurDefense {
           severite: 'critique',
           titre: `Vulnérabilité Nuclei critique : ${templateId}`,
           description: `Template Nuclei ${templateId} matché. Vulnérabilité critique détectée.`,
-          correctif: 'Appliquer le correctif de l\'éditeur immédiatement. Restreindre l\'accès au service vulnérable.',
+          correctif: 'Appliquer le correctif de l'éditeur immédiatement. Restreindre l'accès au service vulnérable.',
         });
         faiblesses.push(`Vulnérabilité critique : ${templateId}.`);
       } else if (ligne.includes('high')) {
@@ -204,6 +205,7 @@ export class AnalyseurDefense {
           severite: 'eleve',
           titre: `Vulnérabilité Nuclei élevée : ${templateId}`,
           description: `Template Nuclei ${templateId} matché.`,
+          correctif: 'Appliquer le correctif et vérifier les logs d'accès.',
         });
         faiblesses.push(`Vulnérabilité élevée : ${templateId}.`);
       }
@@ -216,14 +218,19 @@ export class AnalyseurDefense {
         severite: 'critique',
         titre: 'Credentials faibles découverts',
         description: 'Des credentials ont été trouvés par brute-force. Les mots de passe sont trop faibles.',
-        correctif: 'Imposer une politique de mots de passe complexes (12+ caractères, mix majuscules/minuscules/chiffres/symboles). Activer le verrouillage après N tentatives. Activer 2FA.',
+        correctif: 'Imposer une politique de mots de passe complexes (12+ caractères, mix majuscules/minuscules/chiffres/symboles). Activer le verrouillage de comptes après N tentatives. Activer 2FA.',
       });
       faiblesses.push('Credentials faibles (brute-force réussi).');
     }
   }
 
   private analyserSqlmap(stdout: string, recos: RecommandationDefense[], faiblesses: string[]): void {
-    if (stdout.includes('injectable') || stdout.includes('vulnerable')) {
+    // Patterns positifs uniquement : "is injectable" / "is vulnerable" (EN)
+    // et "est injectable" / "est vulnérable" (FR).
+    // Évite les faux positifs sur "do not appear to be injectable"
+    // ou "not injectable" / "not vulnerable".
+    const patternInjection = /\b(?:is|are)\s+(?:injectable|vulnerable)\b|\b(?:est|sont)\s+(?:injectable|vuln[eé]rable)\b/;
+    if (patternInjection.test(stdout)) {
       recos.push({
         severite: 'critique',
         titre: 'Injection SQL confirmée',
@@ -238,11 +245,11 @@ export class AnalyseurDefense {
     if (stdout.includes('200') && stdout.includes('admin')) {
       recos.push({
         severite: 'eleve',
-        titre: 'Interface d\'administration exposée',
-        description: 'Une page d\'administration est accessible publiquement.',
-        correctif: 'Restreindre l\'accès à /admin par IP, VPN ou authentification forte. Ajouter un WAF.',
+        titre: 'Interface d'administration exposée',
+        description: 'Une page d'administration est accessible publiquement.',
+        correctif: 'Restreindre l'accès à /admin par IP, VPN ou authentification forte. Ajouter un WAF.',
       });
-      faiblesses.push('Interface d\'administration exposée.');
+      faiblesses.push('Interface d'administration exposée.');
     }
   }
 
@@ -257,16 +264,16 @@ export class AnalyseurDefense {
   private genererResume(
     score: number,
     niveau: string,
-    recommandations: RecommandationDefense[],
+    recos: RecommandationDefense[],
     forces: string[],
     faiblesses: string[],
   ): string {
-    const nbCritique = recommandations.filter((r) => r.severite === 'critique').length;
-    const nbEleve = recommandations.filter((r) => r.severite === 'eleve').length;
+    const nbCritique = recos.filter((r) => r.severite === 'critique').length;
+    const nbEleve = recos.filter((r) => r.severite === 'eleve').length;
     const lignes: string[] = [];
 
     lignes.push(`Posture de sécurité : ${niveau} (${score}/100)`);
-    lignes.push(`${recommandations.length} recommandation(s) : ${nbCritique} critique(s), ${nbEleve} élevée(s).`);
+    lignes.push(`${recos.length} recommandation(s) : ${nbCritique} critique(s), ${nbEleve} élevée(s).`);
     if (forces.length > 0) lignes.push(`Points forts : ${forces.length}.`);
     if (faiblesses.length > 0) lignes.push(`Faiblesses : ${faiblesses.length}.`);
 
