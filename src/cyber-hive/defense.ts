@@ -1,4 +1,4 @@
-// Module de défense et durcissement pour Cyber Hive.
+// Module de défense et de durcissement pour Cyber Hive.
 // Analyse les vulnérabilités trouvées et propose des correctifs.
 // Évalue la posture de sécurité de la cible après attaque.
 
@@ -229,7 +229,9 @@ export class AnalyseurDefense {
     // et "est injectable" / "est vulnérable" (FR).
     // Évite les faux positifs sur "do not appear to be injectable"
     // ou "not injectable" / "not vulnerable".
-    const patternInjection = /\b(?:is|are)\s+(?:injectable|vulnerable)\b|\b(?:est|sont)\s+(?:injectable|vuln[ée]rables?)\b/;
+    // Les formes plurielles ("injectables", "vulnérables") sont également
+    // couvertes car SQLMap peut scanner plusieurs paramètres simultanément.
+    const patternInjection = /\b(?:is|are)\s+(?:injectable|vulnerable)\b|\b(?:est|sont)\s+(?:injectables?|vuln[ée]rables?)\b/;
     if (patternInjection.test(stdout)) {
       recos.push({
         severite: 'critique',
