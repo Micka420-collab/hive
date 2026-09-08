@@ -197,7 +197,6 @@ Réponds en JSON avec: phase, action, outil, arguments, raisonnement, priorite.`
     }
 
     try {
-      // Parser la décision JSON
       const json = this.extraireJson(reponse.content);
       if (!json) return { erreur: 'Réponse IA non parsable' };
 
@@ -210,7 +209,6 @@ Réponds en JSON avec: phase, action, outil, arguments, raisonnement, priorite.`
         priorite: json.priorite ?? 'normale',
       };
 
-      // Changer de phase si nécessaire
       if (decision.phase !== this.contexte.phase) {
         this.contexte.phase = decision.phase;
         this.onPhaseChange?.(decision.phase);
@@ -235,7 +233,6 @@ Réponds en JSON avec: phase, action, outil, arguments, raisonnement, priorite.`
       return { decision, success: false, erreur: 'Pas de contexte', dureeMs: 0 };
     }
 
-    // Essayer d'appeler l'outil via MCP
     const result = await this.gestionnaireMcp.appelerOutilGlobal(
       decision.outil,
       decision.arguments,
@@ -252,7 +249,6 @@ Réponds en JSON avec: phase, action, outil, arguments, raisonnement, priorite.`
     this.contexte.resultats.push(resultat);
     this.onResultat?.(resultat);
 
-    // Mettre à jour le contexte avec les résultats
     this.mettreAJourContexte(resultat);
 
     return resultat;
@@ -281,9 +277,7 @@ Réponds en JSON avec: phase, action, outil, arguments, raisonnement, priorite.`
       const resultat = await this.executerDecision(decision);
       tousResultats.push(resultat);
 
-      // Si l'outil a échoué, on continue quand même
       if (!resultat.success && resultat.erreur?.includes('non trouvé')) {
-        // Outil MCP non disponible, essayer un outil interne
         continue;
       }
     }
@@ -336,14 +330,12 @@ Réponds en JSON avec: phase, action, outil, arguments, raisonnement, priorite.`
 
   /** Extrait le JSON d'une réponse IA (gère le markdown code blocks). */
   private extraireJson(text: string): Record<string, unknown> | null {
-    // Essayer de parser directement
     try {
       return JSON.parse(text);
     } catch {
       // Ignorer
     }
 
-    // Chercher un bloc ```json
     const match = text.match(/```(?:json)?\s*([\s\S]*?)```/);
     if (match) {
       try {
@@ -353,7 +345,6 @@ Réponds en JSON avec: phase, action, outil, arguments, raisonnement, priorite.`
       }
     }
 
-    // Chercher le premier { ... }
     const start = text.indexOf('{');
     const end = text.lastIndexOf('}');
     if (start >= 0 && end > start) {
@@ -373,7 +364,6 @@ Réponds en JSON avec: phase, action, outil, arguments, raisonnement, priorite.`
 
     const output = resultat.output as Record<string, unknown>;
 
-    // Détecter des ports
     if (Array.isArray(output.ports)) {
       this.contexte.donnees.ports ??= [];
       for (const p of output.ports as number[]) {
@@ -383,13 +373,11 @@ Réponds en JSON avec: phase, action, outil, arguments, raisonnement, priorite.`
       }
     }
 
-    // Détecter des services
     if (Array.isArray(output.services)) {
       this.contexte.donnees.services ??= [];
       this.contexte.donnees.services.push(...(output.services as typeof this.contexte.donnees.services));
     }
 
-    // Détecter des vulnérabilités
     if (Array.isArray(output.vulnerabilites)) {
       this.contexte.donnees.vulnerabilites ??= [];
       this.contexte.donnees.vulnerabilites.push(
@@ -397,7 +385,6 @@ Réponds en JSON avec: phase, action, outil, arguments, raisonnement, priorite.`
       );
     }
 
-    // Détecter des credentials
     if (Array.isArray(output.credentials)) {
       this.contexte.donnees.credentials ??= [];
       this.contexte.donnees.credentials.push(
@@ -405,7 +392,6 @@ Réponds en JSON avec: phase, action, outil, arguments, raisonnement, priorite.`
       );
     }
 
-    // Détecter des technologies
     if (Array.isArray(output.technologies)) {
       this.contexte.donnees.technologies ??= [];
       for (const t of output.technologies as string[]) {
@@ -421,7 +407,7 @@ Réponds en JSON avec: phase, action, outil, arguments, raisonnement, priorite.`
     this.etat = 'pause';
   }
 
-  **Reprend l'orchestrateur.*/
+  /** Reprend l'orchestrateur. */
   reprendre(): void {
     if (this.etat === 'pause') this.etat = 'actif';
   }
