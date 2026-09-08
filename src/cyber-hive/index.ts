@@ -8,6 +8,7 @@ export * from './container-manager.js';
 export * from './anti-trace.js';
 export * from './pentest-orchestrator.js';
 export * from './attack-visualizer.js';
+export * from './autonomous-agent.js';
 
 import { creerOrchestrateur } from './pentest-orchestrator.js';
 import { creerServeurMCP } from './mcp-server.js';
