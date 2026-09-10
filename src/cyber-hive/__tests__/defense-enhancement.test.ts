@@ -1,8 +1,8 @@
 // Tests pour les améliorations du module défense.
 // Couvre la détection étendue de ports, SSL/TLS, versions et CVSS.
 import { describe, it, expect } from 'vitest';
-import { creerAnalyseurDefense } from '../defense.ts';
-import type { SessionPentest } from '../types.ts';
+import { creerAnalyseurDefense } from '../defense.js';
+import type { SessionPentest } from '../types.js';
 
 /** Crée une session de test avec une étape Nmap. */
 function sessionNmap(stdout: string): SessionPentest {
