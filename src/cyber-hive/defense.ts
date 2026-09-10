@@ -1,8 +1,8 @@
-// Module de défense et durcissement pour Cyber Hive.
-// Analyse les vulnérabilités trouvées et propose des corrections.
+// Module de défense et de durcissement pour Cyber Hive.
+// Analyse les vulnérabilités trouvées et propose des correctifs.
 // Évalue la posture de sécurité de la cible après attaque.
 
-import type { EtapeAttaque, SessionPentest } from './types.ts';
+import type { EtapeAttaque, SessionPentest } from './types.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Types
@@ -516,7 +516,14 @@ export class AnalyseurDefense {
   }
 
   private analyserSqlmap(stdout: string, recos: RecommandationDefense[], faiblesses: string[]): void {
-    if (stdout.includes('injectable') || stdout.includes('vulnerable')) {
+    // Patterns positifs uniques : "is injectable" / "is vulnerable" (EN)
+    // et "est injectable" / "est vulnérable" (FR).
+    // Évite les faux positifs sur "do not appear to be injectable"
+    // ou "not injectable" / "not vulnerable".
+    // Les formes plurielles ("injectables", "vulnérables") sont également
+    // couvertes car SQLMap peut scanner plusieurs paramètres simultanément.
+    const patternInjection = /\b(?:is|are)\s+(?:injectables?|vulnerables?)\b|\b(?:est|sont)\s+(?:injectables?|vuln[eé]rables?)\b/;
+    if (patternInjection.test(stdout)) {
       recos.push({
         severite: 'critique',
         titre: 'Injection SQL confirmée',
