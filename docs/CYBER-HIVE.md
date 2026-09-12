@@ -23,16 +23,16 @@
 
 ## Vue d'ensemble
 
-Cyber Hive est un module de cybersécurité offensive et défensive intégré à Hive. Il permet d'orchestrer des tests de pénétration autonomes pilotés par IA, avec:
+Cyber Hive est un module de cybersécurité offensive et défensive intégré à Hive. Il permet d'orchestrer des tests de pénétration autonomes pilotés par IA, avec :
 
 - **Pentest autonome** : orchestrateur IA qui enchaîne reconnaissance, exploitation et post-exploitation
-- **Anti-traçage avancé** : nettoyage de logs, false flag, log poisoning, timestomping, memory wiping
+- **Anti-traçage avancé** : nettoyage de logs, faux flag, log poisoning, timestomping, memory wiping
 - **Connexion IA multi-providers** : OAuth 2.1+PKCE, clés API, MCP (17 providers, 8 serveurs MCP externes)
 - **Déchiffrement universel** : 20 algorithmes (AES, ChaCha20, RSA, 3DES, Blowfish, stéganographie, etc.)
 - **IA offensive** : jailbreak pour attaque de 10 types d'infrastructures (serveur, cloud, IoT, SCADA, etc.)
 - **Dashboard temps réel** : interface WebSocket avec timeline, données trouvées, posture de sécurité
 - **Défense et durcissement** : analyse des vulnérabilités, score de sécurité, recommandations
-- **Rapports complets** : Markdown, JSON, HTML autonome téléchargeable
+- **Rapports complets** : Markdown, JSON, HTML automatiquement téléchargeables
 
 Le code source se trouve dans `src/cyber-hive/`. Le point d'entrée public est `src/cyber-hive/index.ts`.
 
@@ -46,7 +46,7 @@ src/cyber-hive/
 ├── types.ts                    # Types partagés (Cible, ResultatPentest, etc.)
 ├── pentest-orchestrator.ts     # Orchestrateur principal du pentest
 ├── autonomous-agent.ts         # Agent autonome v1
-├── autonomous-agent-v2.ts      # Agent autonome v2 (chaînes profondes)
+├── autonomous-agent-v2.ts     # Agent autonome v2 (chaînes profondes)
 ├── anti-trace.ts               # Anti-traçage v1
 ├── anti-trace-v2.ts            # Anti-traçage v2 (renforcé, 3 niveaux)
 ├── attack-visualizer.ts        # Visualisation des attaques
@@ -55,9 +55,9 @@ src/cyber-hive/
 ├── mcp-server.ts               # Serveur MCP local
 ├── mcp-client.ts               # Client MCP (8 serveurs externes)
 ├── connection-types.ts         # Types du système de connexion IA
-├── connection-manager.ts        # Gestionnaire de connexions (OAuth, API, MCP)
+├── connection-manager.ts       # Gestionnaire de connexions (OAuth, API, MCP)
 ├── connection-panel.ts         # UI du panneau de connexion
-├── provider-registry.ts        # Registre des 17 providers IA
+├── provider-registry.ts       # Registre des 17 providers IA
 ├── ai-orchestrator.ts          # Orchestrateur IA unifié (LLMs + MCP)
 ├── dechiffreur.ts              # Déchiffreur universel (20 algorithmes)
 ├── jailbreak-attaques.ts       # IA offensive — jailbreak
@@ -124,7 +124,7 @@ L'orchestrateur coordonne les phases de pentest :
 
 1. **Reconnaissance** : nmap, masscan, whatweb, gobuster
 2. **Exploitation** : sqlmap, wpscan, hashcat
-3. **Post-exploitation** : collecte de données, escalation de privilèges
+3. **Post-exploitation** : collecte de données, escalade de privilèges
 
 ### Agent autonome v1 (`autonomous-agent.ts`)
 
@@ -205,7 +205,7 @@ Le module `jailbreak-attaques.ts` donne à l'IA de Cyber Hive des capacités off
 | `reseau` | Infrastructure réseau |
 
 Le module inclut :
-- Un prompt système jailbreak offensif pour l'orchestrateur IA
+- Un prompt système jailbreak offensif pour l'OrchestrateurIA
 - Un catalogue de stratégies d'attaque par type d'infrastructure
 - Un générateur de prompts d'attaque contextuels
 - Une détection automatique du type d'infrastructure depuis la cible
@@ -234,8 +234,8 @@ Le module `defense.ts` analyse les vulnérabilités trouvées pendant le pentest
 - Calcul d'un **score de sécurité** global
 - **Recommandations** de correctifs par vulnérabilité
 - Évaluation de la **posture globale** de la cible
-- Détection des ports ouverts avec word-boundary regex (évite les faux positifs)
-- Analyse SQLMap avec regex précise (distingue "is injectable" de "do not appear to be injectable")
+- Détection des ports ouverts avec word-boundary regex (évite les faux positifs port 230 vs 23)
+- Analyse SQLMap avec regex précise (distingue "is injectable" de "do not appear to be injectable", supporte les formes plurielles françaises et anglaises : injectables, vulnérables, vulnerable)
 
 ---
 
@@ -251,7 +251,7 @@ Le rapport contient :
 - Données trouvées (credentials, fichiers, bases de données)
 - Méthodologie utilisée
 - Timeline des actions
-- Traces anti-forensics appliquées
+- Traces anti-forensiques appliquées
 - Recommandations de défense
 - Conclusion et score de sécurité
 
@@ -281,17 +281,17 @@ Parseur de cible : accepte une IP, URL, domaine ou description libre et extrait 
 Les tests sont dans `src/cyber-hive/__tests__/` et couvrent :
 
 | Fichier | Couverture |
-|---------|------------|
+|---------|-----------|
 | `connection-system.test.ts` | Types, registre de providers, gestionnaire de connexions, client MCP, orchestrateur IA |
 | `dashboard.test.ts` | Dashboard WebSocket, streaming, rapports |
 | `dechiffreur.test.ts` | Détection de format, détection d'algorithme, déchiffrement (20 algorithmes), métadonnées, gestion d'erreurs |
 | `defense-port-matching.test.ts` | Word-boundary regex pour ports (évite faux positifs port 230 vs 23) |
-| `defense-sqlmap-false-positive.test.ts` | Regex SQLMap (distingue injectable de non-injectable, EN + FR) |
+| `defense-sqlmap-false-positive.test.ts` | Regex SQLMap (distingue injectable de non-injectable, EN + FR, formes plurielles) |
 | `jailbreak-attaques.test.ts` | Prompt système, génération de prompts, stratégies par type/phase, détection d'infrastructure, autorisation spéciale |
 
 ### CI/CD
 
-Le pipeline CI (`.github/workflows/ci.yml`) exécute :
+La pipeline CI (`.github/workflows/ci.yml`) exécute :
 - **Vitest** : suite complète de tests
 - **ESLint** : vérification du code
 - **TypeScript strict** : compilation sans erreur
@@ -308,6 +308,9 @@ npx vitest run src/cyber-hive/
 
 | PR | Description |
 |----|-------------|
+| #377 | Documentation complète du module Cyber Hive |
+| #376 | Fix SQLMap regex : formes plurielles françaises (injectables, vulnérables) |
+| #370 | Fix coquilles dans les libellés français des codes de sortie |
 | #375 | IA offensive jailbreak, attaques sur tous types d'infrastructures |
 | #374 | Déchiffreur universel, 20 algorithmes (standards + militaires) |
 | #373 | Fix SQLMap false positive sur paramètres non-injectables |
