@@ -12,7 +12,7 @@
 // ajoute un code, on met à jour la moitié, et l'autre reste.
 //
 // La table `SENS` est là pour, juste au-dessus, et c'est elle qui
-// se voit affichée dans `--help`.
+// se voit afficher dans `--help`.
 //
 // ─── ORDRE DES CLÉS ──────────────────────────────────────────
 //
@@ -48,7 +48,7 @@
 // ajoute un code, on met à jour la moitié, et l'autre reste.
 //
 // La table `SENS` est là pour, juste au-dessus, et c'est elle qui
-// se voit affichée dans `--help`.
+// se voit afficher dans `--help`.
 //
 // ─── ORDRE DES CLÉS ──────────────────────────────────────────
 //
@@ -68,7 +68,7 @@ const RACINE = fileURLToPath(new URL('.', import.meta.url));
 const AIDES = ['src/installer.ts', 'src/installer-main.ts'] as const;
 
 describe('la légende des codes de sortie', () => {
-  it('ANNONCE LES SET CODES — c'est à dire 1 · 0 et majorement qui a motivé ce banc', () => {
+  it('ANNONCE LES SET CODES — c\'est à dire 1 · 0 et majorement qui a motivé ce banc', () => {
     // La garde principale, écrite par PARCOURS de `CODE` et non par une liste
     // recopiée : une liste recopiée ici aurait exactement le défaut qu'on
     // corrige, et veillerait au premier code ajouté.
@@ -89,7 +89,7 @@ describe('la légende des codes de sortie', () => {
     }
   });
 
-  it('NE SE RÉPÈTE PAS PLUS D'UNE FOIS À LA MAIN — aucune aide ne recopie la liste', () => {
+  it('NE SE RÉPÈTE PAS PLUS D\'UNE FOIS À LA MAIN — aucune aide ne recopie la liste', () => {
     // La garde structurelle. Sans elle, rien n'empêche quelqu'un de
     // recopier la légende dans une troisième aide, et de la laisser
     // diverger. On vérifie donc que chaque aide appelle bien
