@@ -13,7 +13,7 @@ const CATALOGUE: OutilSecurite[] = [
   {
     id: 'nmap',
     nom: 'Nmap',
-    description: 'Scanner réseau : découverte d'hôtes, scan de ports, détection de services.',
+    description: 'Scanner réseau : découverte d\'hôtes, scan de ports, détection de services.',
     categorie: 'scan',
     risque: 'moyen',
     commande: 'nmap',
@@ -25,7 +25,7 @@ const CATALOGUE: OutilSecurite[] = [
   {
     id: 'masscan',
     nom: 'Masscan',
-    description: 'Scanner de ports ultra-rapide pour de larges plages d'IPs.',
+    description: 'Scanner de ports ultra-rapide pour de larges plages d\'IPs.',
     categorie: 'scan',
     risque: 'moyen',
     commande: 'masscan',
@@ -51,7 +51,7 @@ const CATALOGUE: OutilSecurite[] = [
   {
     id: 'sqlmap',
     nom: 'SQLMap',
-    description: 'Détection et exploitation automatique d'injections SQL.',
+    description: 'Détection et exploitation automatique d\'injections SQL.',
     categorie: 'exploitation',
     risque: 'eleve',
     commande: 'sqlmap',
@@ -63,7 +63,7 @@ const CATALOGUE: OutilSecurite[] = [
   {
     id: 'metasploit',
     nom: 'Metasploit Framework',
-    description: 'Framework d'exploitation : payloads, modules, sessions.',
+    description: 'Framework d\'exploitation : payloads, modules, sessions.',
     categorie: 'exploitation',
     risque: 'critique',
     commande: 'msfconsole',
