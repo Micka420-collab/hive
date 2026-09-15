@@ -1,6 +1,6 @@
 # Cyber Hive — Documentation technique
 
-> Module de pentest autonome orchestré par IA, intégré à Hive.
+> Module de penteste autonome d'orchestration par IA, intégré à Hive.
 > Ce document décrit l'architecture, les modules et l'utilisation de Cyber Hive.
 
 ---
@@ -10,7 +10,7 @@
 1. [Vue d'ensemble](#vue-densemble)
 2. [Architecture](#architecture)
 3. [Système de connexion IA](#système-de-connexion-ia)
-4. [Module de pentest autonome](#module-de-pentest-autonome)
+4. [Module de penteste autonome](#module-de-penteste-autonome)
 5. [Déchiffreur universel](#déchiffreur-universel)
 6. [IA offensive — Jailbreak](#ia-offensive--jailbreak)
 7. [Dashboard temps réel](#dashboard-temps-réel)
@@ -25,8 +25,8 @@
 
 Cyber Hive est un module de cybersécurité offensive et défensive intégré à Hive. Il permet d'orchestrer des tests de pénétration autonomes pilotés par IA, avec :
 
-- **Pentest autonome** : orchestrateur IA qui enchaîne reconnaissance, exploitation et post-exploitation
-- **Anti-traçage avancé** : nettoyage de logs, faux flag, log poisoning, timestomping, memory wiping
+- **Penteste autonome** : orchestrer une IA qui enchaine reconnaissance, exploitation et post-exploitation
+- **Anti-tracage avancé** : nettoyage de logs, faux flag, log poisoning, timestamping, memory wiping
 - **Connexion IA multi-providers** : OAuth 2.1+PKCE, clés API, MCP (17 providers, 8 serveurs MCP externes)
 - **Déchiffrement universel** : 20 algorithmes (AES, ChaCha20, RSA, 3DES, Blowfish, stéganographie, etc.)
 - **IA offensive** : jailbreak pour attaque de 10 types d'infrastructures (serveur, cloud, IoT, SCADA, etc.)
@@ -44,11 +44,11 @@ Le code source se trouve dans `src/cyber-hive/`. Le point d'entrée public est `
 src/cyber-hive/
 ├── index.ts                    # Point d'entrée, exports publics
 ├── types.ts                    # Types partagés (Cible, ResultatPentest, etc.)
-├── pentest-orchestrator.ts     # Orchestrateur principal du pentest
+├── pentest-orchestrator.ts     # Orchestrateur principal du penteste
 ├── autonomous-agent.ts         # Agent autonome v1
-├── autonomous-agent-v2.ts     # Agent autonome v2 (chaînes profondes)
-├── anti-trace.ts               # Anti-traçage v1
-├── anti-trace-v2.ts            # Anti-traçage v2 (renforcé, 3 niveaux)
+├── autonomous-agent-v2.ts      # Agent autonome v2 (chaînes profondes)
+├── anti-trace.ts               # Anti-tracage v1
+├── anti-trace-v2.ts            # Anti-tracage v2 (renforcé, 3 niveaux)
 ├── attack-visualizer.ts        # Visualisation des attaques
 ├── container-manager.ts        # Isolation Docker
 ├── tool-registry.ts            # Registre des outils (nmap, sqlmap, etc.)
@@ -56,8 +56,8 @@ src/cyber-hive/
 ├── mcp-client.ts               # Client MCP (8 serveurs externes)
 ├── connection-types.ts         # Types du système de connexion IA
 ├── connection-manager.ts       # Gestionnaire de connexions (OAuth, API, MCP)
-├── connection-panel.ts         # UI du panneau de connexion
-├── provider-registry.ts       # Registre des 17 providers IA
+├── connection-panel.ts         # UI du panneau de connexion IA
+├── provider-registry.ts        # Registre des 17 providers IA
 ├── ai-orchestrator.ts          # Orchestrateur IA unifié (LLMs + MCP)
 ├── dechiffreur.ts              # Déchiffreur universel (20 algorithmes)
 ├── jailbreak-attaques.ts       # IA offensive — jailbreak
@@ -84,14 +84,14 @@ Le système de connexion IA permet à Cyber Hive de se connecter à de multiples
 ### Providers supportés (17)
 
 | Catégorie | Providers |
-|-----------|-----------|
+|------------|-----------|
 | LLMs | Claude (Anthropic), GPT (OpenAI), Gemini (Google), Grok (xAI), Mistral, DeepSeek |
 | Agents de code | Claude Code, Cursor, Cline, Codex, Hermes Agent |
-| Serveurs MCP | AutoPentest, HexStrike, Shannon, Zen-AI-Pentest, Nemesis, LLM4Pentest |
+| Serveurs MCP | AutoPentest, HexStrike, Shannon, Zen-AIKPentest, Nemesis, LLM4Pentest |
 
 ### Méthodes de connexion
 
-- **OAuth 2.1 + PKCE** : flux d'autorisation sécurisé pour les providers qui le supportent
+- **OAuth 2.1 + PKCE** : flux d'autorisation sécurisés pour les providers qui le supportent
 - **Clés API** : authentification directe par clé API
 - **MCP (Model Context Protocol)** : connexion à des serveurs MCP externes pour étendre les capacités
 
@@ -112,15 +112,15 @@ await manager.connectApiKey('openai', 'sk-...');
 await manager.connectMCP('autopentest', 'ws://localhost:8080');
 ```
 
-L'orchestrateur IA unifié (`ai-orchestrator.ts`) combine les LLMs et les serveurs MCP pour orchestrer un pentest autonome.
+L'orchestrateur IA unifié (`ai-orchestrator.ts`) combine les LLMs et les serveurs MCP pour orchestrer un penteste autonome.
 
 ---
 
-## Module de pentest autonome
+## Module de penteste autonome
 
 ### Orchestrateur (`pentest-orchestrator.ts`)
 
-L'orchestrateur coordonne les phases de pentest :
+L'orchestrateur coordonne les phases de penteste :
 
 1. **Reconnaissance** : nmap, masscan, whatweb, gobuster
 2. **Exploitation** : sqlmap, wpscan, hashcat
@@ -137,25 +137,25 @@ Version enrichie avec :
 - Décision contextuelle renforcée (sous-domaines, technologies, escalade)
 - Gestion d'historique pour éviter les boucles
 
-### Anti-traçage v1 (`anti-trace.ts`)
+### Anti-tracage v1 (`anti-trace.ts`)
 
 Techniques de base :
 - Shredding de logs
-- Anti-forensics (journalctl, auditctl)
+- Anti-forensics (journalctl, auditd)
 - Spoofing (X-Forwarded-For, session ID)
 - DNS over TOR
 - Injection de faux historique
 - Nettoyage cache ARP, cache mémoire, temporaires, timestamps
 
-### Anti-traçage v2 (`anti-trace-v2.ts`)
+### Anti-tracage v2 (`anti-trace-v2.ts`)
 
 Version massivement renforcée avec 3 niveaux de paranoïa :
 - **Memory wiping** : nettoyage en mémoire
-- **False flag injection** : APT28, Lazarus, etc.
+- **False flag injection** : APTE28, Lazarus, etc.
 - **Log poisoning** : corruption de logs
-- **Timing obfuscation** : masquage temporel
+- **Timing obfuscation** : massacre temporel
 - **Faux positifs** : génération de bruit
-- **Timestomping avancé** : modification de timestamps
+- **Timestamping avancé** : modification de timestamps
 - **Nettoyage utmp/wtmp/lastlog** : effacement des traces de connexion
 - **Nettoyage Docker complet** : suppression des traces de conteneurs
 
@@ -229,13 +229,13 @@ Le dashboard écoute sur le port 7777 par défaut.
 
 ## Module de défense
 
-Le module `defense.ts` analyse les vulnérabilités trouvées pendant le pentest :
+Le module `defense.ts` analyse les vulnérabilités trouvées pendant le penteste :
 
 - Calcul d'un **score de sécurité** global
-- **Recommandations** de correctifs par vulnérabilité
+- **Recommandations** de corrections par vulnérabilité
 - Évaluation de la **posture globale** de la cible
 - Détection des ports ouverts avec word-boundary regex (évite les faux positifs port 230 vs 23)
-- Analyse SQLMap avec regex précise (distingue "is injectable" de "do not appear to be injectable", supporte les formes plurielles françaises et anglaises : injectables, vulnérables, vulnerable)
+- Analyse SQLMap avec regex précise (distingue "injectable" de "do not appear to be injectable", supporte les formes plurielles françaises et anglaises : injectables, vulnérables, vulnérable)
 
 ---
 
@@ -245,10 +245,10 @@ Le module `report-generator.ts` produit des rapports détaillés :
 
 - **Markdown** : format texte lisible
 - **JSON** : format structuré pour intégration
-- **HTML autonome** : page HTML téléchargeable avec styles intégrés
+- **HTML automatique** : page HTML téléchargeable avec styles intégrés
 
 Le rapport contient :
-- Données trouvées (credentials, fichiers, bases de données)
+- Données trouvées (crédentiels, fichiers, bases de données)
 - Méthodologie utilisée
 - Timeline des actions
 - Traces anti-forensiques appliquées
@@ -281,20 +281,20 @@ Parseur de cible : accepte une IP, URL, domaine ou description libre et extrait 
 Les tests sont dans `src/cyber-hive/__tests__/` et couvrent :
 
 | Fichier | Couverture |
-|---------|-----------|
+|---------|------------|
 | `connection-system.test.ts` | Types, registre de providers, gestionnaire de connexions, client MCP, orchestrateur IA |
 | `dashboard.test.ts` | Dashboard WebSocket, streaming, rapports |
 | `dechiffreur.test.ts` | Détection de format, détection d'algorithme, déchiffrement (20 algorithmes), métadonnées, gestion d'erreurs |
 | `defense-port-matching.test.ts` | Word-boundary regex pour ports (évite faux positifs port 230 vs 23) |
 | `defense-sqlmap-false-positive.test.ts` | Regex SQLMap (distingue injectable de non-injectable, EN + FR, formes plurielles) |
-| `jailbreak-attaques.test.ts` | Prompt système, génération de prompts, stratégies par type/phase, détection d'infrastructure, autorisation spéciale |
+| `jailbreak-attaques.test.ts` | Prompt système, génération de prompts, stratégies par type/phase, détection d'infrastructure, autorisation spatiale |
 
 ### CI/CD
 
 La pipeline CI (`.github/workflows/ci.yml`) exécute :
 - **Vitest** : suite complète de tests
 - **ESLint** : vérification du code
-- **TypeScript strict** : compilation sans erreur
+- **TypeScript strict** : compilation sans erreurs
 
 Lancer les tests localement :
 
@@ -307,15 +307,17 @@ npx vitest run src/cyber-hive/
 ## Évolutions récentes
 
 | PR | Description |
-|----|-------------|
+|-----|-------------|
+| #379 | Fix apostrophes non échappées dans chaînes single-quote (12 fichiers, reconstitution anti-trace-v2, 4793 tests) |
+| #378 | Mise à jour documentation CYBER-HIVE.md |
 | #377 | Documentation complète du module Cyber Hive |
 | #376 | Fix SQLMap regex : formes plurielles françaises (injectables, vulnérables) |
-| #370 | Fix coquilles dans les libellés français des codes de sortie |
+| #370 | Fix couilles dans les libellés français des codes de sortie |
 | #375 | IA offensive jailbreak, attaques sur tous types d'infrastructures |
-| #374 | Déchiffreur universel, 20 algorithmes (standards + militaires) |
+| #374 | Déchiffrement universel, 20 algorithmes (standards + militaires) |
 | #373 | Fix SQLMap false positive sur paramètres non-injectables |
-| #371 | Fix port matching avec word boundaries dans l'analyseur de défense |
+| #371 | Fix port matching avec word boundaries dans l'analyse de défense |
 | #368 | Système de connexion IA (OAuth 2.1, MCP, API) + 8 serveurs MCP externes |
-| #367 | Dashboard temps réel, attaque enrichie v2, anti-traçage v2, défense, rapport complet |
+| #367 | Dashboard temps réel, attaque enrichie v2, anti-tracage v2, défense, rapport complet |
 | #366 | Fix args : validation stricte des entiers décimaux |
-| #365 | Module de pentest autonome avec MCP (initial) |
+| #365 | Module de penteste autonome avec MCP (initial) |
