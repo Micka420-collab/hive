@@ -68,11 +68,11 @@ export type CodeSortie = (typeof CODE)[keyof typeof CODE];
 export const SENS: Record<CodeSortie, string> = {
   [CODE.SUCCES]: 'succès (y compris « rien à faire »)',
   [CODE.ERREUR]: 'erreur générique',
-  [CODE.PREREQUIS]: 'prérequis manquant (Node, disque d'écriture…)',
+  [CODE.PREREQUIS]: 'prérequis manquant (Node, disque d\'écriture…)',
   [CODE.REPONSE_MANQUANTE]: 'réponse requise absente en mode non interactif',
   [CODE.PORT_OCCUPE]: 'port occupé',
   [CODE.REFUS_SECURITE]: 'refus de sécurité (jeton faible, clé publique sans jeton fort)',
-  [CODE.INTERROMPU]: 'interruption par l'utilisateur',
+  [CODE.INTERROMPU]: 'interruption par l\'utilisateur',
 };
 
 /**
