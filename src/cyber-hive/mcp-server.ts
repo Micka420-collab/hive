@@ -92,7 +92,7 @@ export class ServeurMCP {
             },
             args: {
               type: 'array',
-              description: 'Arguments supplémentaires pour l'outil',
+              description: 'Arguments supplémentaires pour l\'outil',
               items: { type: 'string' },
             },
           },
