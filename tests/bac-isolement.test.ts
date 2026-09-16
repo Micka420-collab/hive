@@ -21,8 +21,16 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { annonce, codeDuBac, optionBac, preparerBac, type Bac } from '../src/node-client/bac.js';
-import { decider, type Fournisseur } from '../src/node-client/isolement.js';
+import {
+  annonce,
+  binaireDansBac,
+  codeDuBac,
+  deciderAvecPreflight,
+  optionBac,
+  preparerBac,
+  type Bac,
+} from '../src/node-client/bac.js';
+import { decider, IMAGE_DEFAUT, type Fournisseur } from '../src/node-client/isolement.js';
 import { CODE } from '../src/codes-sortie.js';
 
 const source = (chemin: string): string =>
@@ -41,6 +49,7 @@ function bacDe(mode: 'off' | 'auto' | 'exige', fournisseur: Fournisseur | null):
   return {
     decision,
     fournisseur,
+    image: IMAGE_DEFAUT,
     lignes: annonce(decision, fournisseur),
     refuse: decision.refuse,
     // La VRAIE règle, pas une copie : c'est tout l'objet de `codeDuBac`.
@@ -94,6 +103,32 @@ describe('l’annonce (fonction pure)', () => {
 });
 
 describe('le refus, et ce qui part au client', () => {
+  it('mappe le nom logique de chaque agent, sans réutiliser un chemin hôte', () => {
+    expect(binaireDansBac('claude-code')).toBe('claude');
+    expect(binaireDansBac('codex')).toBe('codex');
+    expect(binaireDansBac('shell')).toBeNull();
+    expect(binaireDansBac('custom', { HIVE_AGENT_CMD: 'outil --flag' })).toBe('outil');
+  });
+
+  it('« auto » se replie explicitement si l’agent manque dans l’image', () => {
+    const r = deciderAvecPreflight('auto', PODMAN, 'image:test', {
+      executable: false,
+      motif: 'agent absent',
+    });
+    expect(r.fournisseur).toBeNull();
+    expect(r.decision).toMatchObject({ refuse: false, niveau: 'processus', isole: false });
+    expect(r.decision.motif).toMatch(/repli explicite.*non isolée du disque/i);
+  });
+
+  it('« exige » refuse si le moteur existe mais pas l’agent dans l’image', () => {
+    const r = deciderAvecPreflight('exige', PODMAN, 'image:test', {
+      executable: false,
+      motif: 'agent absent',
+    });
+    expect(r.fournisseur).toBeNull();
+    expect(r.decision).toMatchObject({ refuse: true, niveau: 'aucun', isole: false });
+    expect(r.decision.motif).toContain('image:test');
+  });
   it('« EXIGE » SANS MOTEUR REFUSE DE DÉMARRER — sur les deux chemins', () => {
     const bac = bacDe('exige', null);
     expect(bac.refuse).toBe(true);
@@ -117,7 +152,7 @@ describe('le refus, et ce qui part au client', () => {
     // d'infrastructure et se diagnostique très mal.
     const variables = ['HOME', 'ANTHROPIC_API_KEY'];
     const option = optionBac(bacDe('auto', PODMAN), variables) as {
-      bac: { fournisseur: Fournisseur; variables: string[] };
+      bac: { fournisseur: Fournisseur; variables: string[]; image: string };
     };
     expect(option.bac.fournisseur.nom).toBe('podman');
     expect(option.bac.variables).toEqual(variables);
@@ -166,7 +201,7 @@ describe('le refus, et ce qui part au client', () => {
     // sans le dire, ce que le conteneur laisse entrer.
     const variables = ['HOME'];
     const option = optionBac(bacDe('auto', PODMAN), variables) as {
-      bac: { variables: string[] };
+      bac: { variables: string[]; image: string };
     };
     variables.push('SECRET_AJOUTE_APRES_COUP');
     expect(option.bac.variables).toEqual(['HOME']);

@@ -50,6 +50,8 @@ export interface AdapterContext {
    */
   bac?: {
     fournisseur: Fournisseur;
+    /** Image ayant passé le preflight agent-aware. */
+    image: string;
     /** Noms — jamais valeurs — des variables à transmettre dans le bac. */
     variables: readonly string[];
   };

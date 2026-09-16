@@ -72,6 +72,7 @@ export function runCommand(
         fournisseur: ctx.bac.fournisseur,
         cwdHote: ctx.cwd,
         variables: ctx.bac.variables,
+        image: ctx.bac.image,
       })
     : { bin: binReel, args: argsReels };
 
@@ -156,6 +157,7 @@ export function runCommandStreaming(
         fournisseur: ctx.bac.fournisseur,
         cwdHote: ctx.cwd,
         variables: ctx.bac.variables,
+        image: ctx.bac.image,
       })
     : { bin: binReel, args: argsReels };
 

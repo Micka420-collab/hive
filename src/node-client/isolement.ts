@@ -72,6 +72,11 @@ export const MONTAGE = '/hive/tache';
  */
 export const IMAGE_DEFAUT = 'docker.io/library/node:20-slim';
 
+/** Image réellement demandée par l'opérateur, sans valeur vide trompeuse. */
+export function imageDepuisEnv(env: NodeJS.ProcessEnv = process.env): string {
+  return env.HIVE_ISOLEMENT_IMAGE?.trim() || IMAGE_DEFAUT;
+}
+
 export interface Fournisseur {
   nom: string;
   bin: string;
@@ -387,6 +392,67 @@ export async function trouverFournisseur(): Promise<Fournisseur | null> {
     if (await sonder(f.bin)) return f;
   }
   return null;
+}
+
+export interface ResultatPreflightAgent {
+  executable: boolean;
+  motif: string;
+}
+
+/** Vérifie le nom logique de l'agent dans le bac qui exécutera les tâches. */
+export function sonderAgentDansBac(
+  fournisseur: Fournisseur,
+  binAgent: string,
+  image = IMAGE_DEFAUT,
+  cwdHote = process.cwd(),
+  timeoutMs = 30_000,
+): Promise<ResultatPreflightAgent> {
+  const lance = envelopper(binAgent, ['--version'], {
+    fournisseur,
+    cwdHote,
+    variables: [],
+    image,
+  });
+
+  return new Promise((resolve) => {
+    let fini = false;
+    const finir = (executable: boolean, motif: string): void => {
+      if (fini) return;
+      fini = true;
+      resolve({ executable, motif });
+    };
+    let enfant;
+    try {
+      enfant = spawn(lance.bin, lance.args, {
+        cwd: cwdHote,
+        shell: false,
+        windowsHide: true,
+        stdio: 'ignore',
+        env: envSonde(process.env),
+      });
+    } catch {
+      finir(false, `preflight impossible via ${fournisseur.nom}`);
+      return;
+    }
+    const minuteur = setTimeout(() => {
+      enfant.kill();
+      finir(false, `preflight de l'agent expiré via ${fournisseur.nom}`);
+    }, timeoutMs);
+    minuteur.unref?.();
+    enfant.on('error', () => {
+      clearTimeout(minuteur);
+      finir(false, `agent « ${binAgent} » non exécutable via ${fournisseur.nom}`);
+    });
+    enfant.on('close', (code) => {
+      clearTimeout(minuteur);
+      finir(
+        code === 0,
+        code === 0
+          ? `agent « ${binAgent} » exécutable dans le bac`
+          : `agent « ${binAgent} » absent ou non exécutable dans le bac`,
+      );
+    });
+  });
 }
 
 /**

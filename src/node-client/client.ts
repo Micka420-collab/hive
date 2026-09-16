@@ -84,7 +84,7 @@ export interface NodeClientOptions {
    * nœud n'a pas à découvrir podman sur la machine de qui fait tourner la
    * suite. C'est le même motif que `adapter`.
    */
-  bac?: { fournisseur: Fournisseur; variables: readonly string[] };
+  bac?: { fournisseur: Fournisseur; variables: readonly string[]; image: string };
   /**
    * Présence du binaire agent (tests / override). Défaut : sonde PATH réelle.
    * Sert à la reprise après Accorder `binaire` sans relancer un ENOENT immédiat.
