@@ -2803,9 +2803,19 @@ export class HiveStore {
               WHERE status IN ('done', 'failed') AND updatedAt < ?
              EXCEPT
              SELECT j.value FROM tasks t, json_each(t.dependsOn) j
-              WHERE NOT (t.status IN ('done', 'failed') AND t.updatedAt < ?)`,
+              WHERE NOT (t.status IN ('done', 'failed') AND t.updatedAt < ?)
+             EXCEPT
+             SELECT d.parentTaskId
+               FROM task_delegations d
+               JOIN tasks enfant ON enfant.id = d.childTaskId
+              WHERE NOT (enfant.status IN ('done', 'failed') AND enfant.updatedAt < ?)
+             EXCEPT
+             SELECT d.rootTaskId
+               FROM task_delegations d
+               JOIN tasks enfant ON enfant.id = d.childTaskId
+              WHERE NOT (enfant.status IN ('done', 'failed') AND enfant.updatedAt < ?)`,
           )
-          .all(limite, limite) as { id: string }[]
+          .all(limite, limite, limite, limite) as { id: string }[]
       ).map((r) => r.id);
       if (condamnees.length === 0) return 0;
       let partis = 0;
@@ -2831,6 +2841,7 @@ export class HiveStore {
         const lot = condamnees.slice(i, i + LOT);
         const trous = lot.map(() => '?').join(', ');
         this.db.prepare(`DELETE FROM reviews WHERE taskId IN (${trous})`).run(...lot);
+        this.db.prepare(`DELETE FROM task_delegations WHERE childTaskId IN (${trous})`).run(...lot);
         partis += this.db.prepare(`DELETE FROM tasks WHERE id IN (${trous})`).run(...lot).changes;
       }
       return partis;
