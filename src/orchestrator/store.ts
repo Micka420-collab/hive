@@ -53,6 +53,15 @@ import {
 import { validerMotifPerso, type MotifPersoRefus } from './motifs.js';
 import { rankMemoriesHybrid } from './hive-mind.js';
 import type { Memory, ScoredMemory } from './hive-mind.js';
+import {
+  jugerDelegation,
+  type DemandeDelegation,
+  type LimitesDelegation,
+  type NoeudDelegation,
+  type OrigineDelegation,
+  type PlanDelegation,
+  type VerdictDelegation,
+} from './delegation.js';
 import type {
   HiveEvent,
   HiveNode,
@@ -125,6 +134,28 @@ CREATE TABLE IF NOT EXISTS tasks (
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(projectId);
 CREATE INDEX IF NOT EXISTS idx_tasks_node ON tasks(assignedNodeId);
+
+-- Graphe de délégation latéral : les tâches historiques restent des racines
+-- implicites. Ajouter ces colonnes à la table tasks imposerait une migration et une
+-- seconde représentation du scheduler ; l'arête porte uniquement ce qui
+-- distingue un enfant orchestré de sa tâche parente.
+CREATE TABLE IF NOT EXISTS task_delegations (
+  childTaskId   TEXT PRIMARY KEY,
+  parentTaskId  TEXT NOT NULL,
+  rootTaskId    TEXT NOT NULL,
+  depth         INTEGER NOT NULL,
+  origin        TEXT NOT NULL CHECK(origin IN ('hive', 'native')),
+  durationMs    INTEGER NOT NULL,
+  costMicros    INTEGER NOT NULL,
+  resourceUnits INTEGER NOT NULL,
+  preferredAgent TEXT,
+  preferredModel TEXT,
+  createdAt     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_task_delegations_parent
+  ON task_delegations(parentTaskId, createdAt, childTaskId);
+CREATE INDEX IF NOT EXISTS idx_task_delegations_root
+  ON task_delegations(rootTaskId, depth, createdAt, childTaskId);
 
 CREATE TABLE IF NOT EXISTS results (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1000,6 +1031,20 @@ interface TaskRow {
   updatedAt: number;
 }
 
+interface DelegationRow {
+  childTaskId: string;
+  parentTaskId: string;
+  rootTaskId: string;
+  depth: number;
+  origin: OrigineDelegation;
+  durationMs: number;
+  costMicros: number;
+  resourceUnits: number;
+  preferredAgent: string | null;
+  preferredModel: string | null;
+  createdAt: number;
+}
+
 interface ResultRow {
   taskId: string;
   nodeId: string;
@@ -1186,6 +1231,14 @@ export interface NewTask {
   dependsOn?: string[];
 }
 
+export interface DelegationRangee extends PlanDelegation {
+  origine: OrigineDelegation;
+  createdAt: number;
+}
+
+export type CreationDeleguee =
+  { ok: true; task: Task; delegation: DelegationRangee } | Exclude<VerdictDelegation, { ok: true }>;
+
 export interface NodeProfile {
   nodeId?: string;
   name: string;
@@ -1249,6 +1302,24 @@ function rowToTask(row: TaskRow): Task {
     ...row,
     dependsOn: JSON.parse(row.dependsOn) as string[],
     result: row.result ? (JSON.parse(row.result) as TaskResultSummary) : null,
+  };
+}
+
+function rowToDelegation(row: DelegationRow): DelegationRangee {
+  return {
+    childTaskId: row.childTaskId,
+    parentTaskId: row.parentTaskId,
+    rootTaskId: row.rootTaskId,
+    depth: row.depth,
+    title: '',
+    prompt: '',
+    durationMs: row.durationMs,
+    costMicros: row.costMicros,
+    resourceUnits: row.resourceUnits,
+    ...(row.preferredAgent ? { preferredAgent: row.preferredAgent } : {}),
+    ...(row.preferredModel ? { preferredModel: row.preferredModel } : {}),
+    origine: row.origin,
+    createdAt: row.createdAt,
   };
 }
 
@@ -2489,6 +2560,124 @@ export class HiveStore {
     return this.getTask(id) as Task;
   }
 
+  /**
+   * Relit le graphe auquel appartient `taskId`.
+   *
+   * Une tâche sans arête est une racine implicite de profondeur zéro. Les
+   * statuts viennent toujours de `tasks`, seule source de vérité du scheduler.
+   */
+  listDelegationGraph(taskId: string): NoeudDelegation[] {
+    const task = this.getTask(taskId);
+    if (!task) return [];
+    const edge = this.db
+      .prepare('SELECT * FROM task_delegations WHERE childTaskId = ?')
+      .get(taskId) as DelegationRow | undefined;
+    const rootTaskId = edge?.rootTaskId ?? taskId;
+    const root = this.getTask(rootTaskId);
+    if (!root) return [];
+    const rows = this.db
+      .prepare(
+        `SELECT d.*, t.status AS taskStatus
+         FROM task_delegations d
+         JOIN tasks t ON t.id = d.childTaskId
+         WHERE d.rootTaskId = ?
+         ORDER BY d.depth, d.createdAt, d.childTaskId`,
+      )
+      .all(rootTaskId) as Array<DelegationRow & { taskStatus: TaskStatus }>;
+    return [
+      {
+        taskId: root.id,
+        rootTaskId,
+        parentTaskId: null,
+        depth: 0,
+        status: root.status,
+        origine: 'hive',
+      },
+      ...rows.map((row) => ({
+        taskId: row.childTaskId,
+        rootTaskId: row.rootTaskId,
+        parentTaskId: row.parentTaskId,
+        depth: row.depth,
+        status: row.taskStatus,
+        origine: row.origin,
+      })),
+    ];
+  }
+
+  getDelegation(taskId: string): DelegationRangee | null {
+    const row = this.db
+      .prepare('SELECT * FROM task_delegations WHERE childTaskId = ?')
+      .get(taskId) as DelegationRow | undefined;
+    if (!row) return null;
+    const task = this.getTask(taskId);
+    if (!task) return null;
+    return { ...rowToDelegation(row), title: task.title, prompt: task.prompt };
+  }
+
+  /**
+   * Valide, crée la tâche enfant et range son arête dans UNE transaction.
+   * Aucun enfant orphelin ne peut donc devenir visible au scheduler.
+   */
+  createDelegatedTask(
+    demande: DemandeDelegation,
+    limites?: Readonly<LimitesDelegation>,
+    now = Date.now(),
+  ): CreationDeleguee {
+    const tx = this.db.transaction((): CreationDeleguee => {
+      const parent = this.getTask(demande.parentTaskId);
+      const graphe = parent ? this.listDelegationGraph(parent.id) : [];
+      if (this.getTask(demande.childTaskId)) {
+        return { ok: false, code: 'task_id_duplique', motif: 'identifiant enfant déjà utilisé' };
+      }
+      const verdict = limites
+        ? jugerDelegation(demande, graphe, limites)
+        : jugerDelegation(demande, graphe);
+      if (!verdict.ok) return verdict;
+      if (!parent) {
+        // `jugerDelegation` couvre déjà ce cas. Cette garde maintient le
+        // narrowing local et évite toute création si sa politique évolue.
+        return { ok: false, code: 'parent_absent', motif: 'tâche parente introuvable' };
+      }
+      const plan = verdict.plan;
+      this.db
+        .prepare(
+          `INSERT INTO tasks
+             (id, projectId, title, prompt, status, dependsOn, attempts, createdAt, updatedAt)
+           VALUES (?, ?, ?, ?, 'pending', '[]', 0, ?, ?)`,
+        )
+        .run(plan.childTaskId, parent.projectId, plan.title, plan.prompt, now, now);
+      this.db
+        .prepare(
+          `INSERT INTO task_delegations
+             (childTaskId, parentTaskId, rootTaskId, depth, origin, durationMs,
+              costMicros, resourceUnits, preferredAgent, preferredModel, createdAt)
+           VALUES (?, ?, ?, ?, 'hive', ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          plan.childTaskId,
+          plan.parentTaskId,
+          plan.rootTaskId,
+          plan.depth,
+          plan.durationMs,
+          plan.costMicros,
+          plan.resourceUnits,
+          plan.preferredAgent ?? null,
+          plan.preferredModel ?? null,
+          now,
+        );
+      return {
+        ok: true,
+        task: this.getTask(plan.childTaskId) as Task,
+        delegation: {
+          ...plan,
+          origine: 'hive',
+          createdAt: now,
+        },
+      };
+    });
+    return tx();
+  }
+
   getTask(id: string): Task | undefined {
     const row = this.db.prepare('SELECT * FROM tasks WHERE id = ?').get(id) as TaskRow | undefined;
     return row ? rowToTask(row) : undefined;
@@ -2614,9 +2803,19 @@ export class HiveStore {
               WHERE status IN ('done', 'failed') AND updatedAt < ?
              EXCEPT
              SELECT j.value FROM tasks t, json_each(t.dependsOn) j
-              WHERE NOT (t.status IN ('done', 'failed') AND t.updatedAt < ?)`,
+              WHERE NOT (t.status IN ('done', 'failed') AND t.updatedAt < ?)
+             EXCEPT
+             SELECT d.parentTaskId
+               FROM task_delegations d
+               JOIN tasks enfant ON enfant.id = d.childTaskId
+              WHERE NOT (enfant.status IN ('done', 'failed') AND enfant.updatedAt < ?)
+             EXCEPT
+             SELECT d.rootTaskId
+               FROM task_delegations d
+               JOIN tasks enfant ON enfant.id = d.childTaskId
+              WHERE NOT (enfant.status IN ('done', 'failed') AND enfant.updatedAt < ?)`,
           )
-          .all(limite, limite) as { id: string }[]
+          .all(limite, limite, limite, limite) as { id: string }[]
       ).map((r) => r.id);
       if (condamnees.length === 0) return 0;
       let partis = 0;
@@ -2642,6 +2841,7 @@ export class HiveStore {
         const lot = condamnees.slice(i, i + LOT);
         const trous = lot.map(() => '?').join(', ');
         this.db.prepare(`DELETE FROM reviews WHERE taskId IN (${trous})`).run(...lot);
+        this.db.prepare(`DELETE FROM task_delegations WHERE childTaskId IN (${trous})`).run(...lot);
         partis += this.db.prepare(`DELETE FROM tasks WHERE id IN (${trous})`).run(...lot).changes;
       }
       return partis;
