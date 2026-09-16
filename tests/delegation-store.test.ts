@@ -94,4 +94,20 @@ describe('HiveStore — graphe de délégation', () => {
     expect(result).toMatchObject({ ok: false, code: 'parent_termine' });
     expect(store.listTasks()).toHaveLength(1);
   });
+
+  it('préserve les ancêtres tant qu’un descendant vit puis élague tout le graphe clos', () => {
+    expect(store.createDelegatedTask(demande(rootId, 'child'), undefined, 0).ok).toBe(true);
+    store.patchTask(rootId, { status: 'done' }, 0);
+    store.patchTask('child', { status: 'running' }, 1_000);
+
+    expect(store.pruneTasks(100, 1_000)).toBe(0);
+    expect(store.getTask(rootId)).toBeDefined();
+    expect(store.listDelegationGraph('child')).toHaveLength(2);
+
+    store.patchTask('child', { status: 'done' }, 0);
+    expect(store.pruneTasks(100, 1_000)).toBe(2);
+    expect(store.getTask(rootId)).toBeUndefined();
+    expect(store.getTask('child')).toBeUndefined();
+    expect(store.getDelegation('child')).toBeNull();
+  });
 });
