@@ -60,7 +60,7 @@ export interface MergeRunOptions {
    * empêchait bien un agent de sortir de son bac, pendant que la commande de
    * test d'un merge s'exécutait à côté, sur l'hôte nu.
    */
-  bac?: { fournisseur: Fournisseur; variables: readonly string[] };
+  bac?: { fournisseur: Fournisseur; variables: readonly string[]; image: string };
   /** Délai max de la commande de test (défaut 5 min). */
   timeoutMs?: number;
   /**
@@ -116,7 +116,7 @@ export function runProc(
   env: NodeJS.ProcessEnv,
   timeoutMs: number,
   signal?: AbortSignal,
-  bac?: { fournisseur: Fournisseur; variables: readonly string[] },
+  bac?: { fournisseur: Fournisseur; variables: readonly string[]; image: string },
 ): Promise<{ code: number | null; output: string }> {
   return new Promise((resolve) => {
     const [bin, ...args] = cmd;
@@ -139,6 +139,7 @@ export function runProc(
         fournisseur: bac.fournisseur,
         cwdHote: cwd,
         variables: bac.variables,
+        image: bac.image,
       });
     } else {
       try {

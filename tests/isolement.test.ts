@@ -317,7 +317,7 @@ describe('isolement — câblage : l’enveloppe atteint vraiment le spawn', () 
     attempt: 1,
     signal: new AbortController().signal,
     onProgress: () => {},
-    ...(bac ? { bac } : {}),
+    ...(bac ? { bac: { ...bac, image: IMAGE_DEFAUT } } : {}),
   });
 
   it('sans bac, la commande part telle quelle', async () => {

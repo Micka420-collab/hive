@@ -27,11 +27,14 @@
 import {
   constat,
   decider,
+  imageDepuisEnv,
   modeDepuisEnv,
+  sonderAgentDansBac,
   trouverFournisseur,
   type Fournisseur,
 } from './isolement.js';
 import { CODE, type CodeSortie } from '../codes-sortie.js';
+import type { AgentType } from './agent-detect.js';
 
 /** Ce que `decider` rend — nommé ici, faute de l'être à la source. */
 export type Decision = ReturnType<typeof decider>;
@@ -40,6 +43,7 @@ export type Decision = ReturnType<typeof decider>;
 export interface Bac {
   decision: Decision;
   fournisseur: Fournisseur | null;
+  image: string;
   /** Les lignes à afficher, déjà composées. */
   lignes: string[];
   /** Le nœud doit-il renoncer à démarrer ? */
@@ -108,14 +112,63 @@ export function codeDuBac(refuse: boolean): CodeSortie {
  * coûterait un `spawn` de plus par butinage, pour une réponse qui ne change
  * pas d'une tâche à l'autre.
  */
-export async function preparerBac(env: NodeJS.ProcessEnv = process.env): Promise<Bac> {
+export function binaireDansBac(
+  agent: AgentType,
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
+  if (agent === 'shell') return null;
+  if (agent === 'custom') return env.HIVE_AGENT_CMD?.trim().split(/\s+/)[0] || null;
+  return {
+    'claude-code': 'claude',
+    cursor: 'cursor-agent',
+    cline: 'cline',
+    codex: 'codex',
+    grok: 'grok',
+  }[agent];
+}
+
+export function deciderAvecPreflight(
+  mode: ReturnType<typeof modeDepuisEnv>,
+  fournisseur: Fournisseur,
+  image: string,
+  resultat: Awaited<ReturnType<typeof sonderAgentDansBac>>,
+): { decision: Decision; fournisseur: Fournisseur | null } {
+  if (resultat.executable) return { decision: decider(mode, fournisseur), fournisseur };
+  return {
+    fournisseur: null,
+    decision: {
+      ...decider(mode, null),
+      motif:
+        mode === 'exige'
+          ? `HIVE_ISOLEMENT=exige : ${resultat.motif} (image ${image}) — ce nœud refuse de travailler.`
+          : `${resultat.motif} (image ${image}) — repli explicite vers la sandbox de processus, non isolée du disque.`,
+    },
+  };
+}
+
+export async function preparerBac(
+  env: NodeJS.ProcessEnv = process.env,
+  agent?: AgentType,
+): Promise<Bac> {
   const mode = modeDepuisEnv(env);
-  const fournisseur = mode === 'off' ? null : await trouverFournisseur();
-  const decision = decider(mode, fournisseur);
+  const image = imageDepuisEnv(env);
+  let fournisseur = mode === 'off' ? null : await trouverFournisseur();
+  let decision = decider(mode, fournisseur);
+  let preflight: string | null = null;
+  const binAgent = agent ? binaireDansBac(agent, env) : null;
+
+  if (fournisseur && binAgent) {
+    const resultat = await sonderAgentDansBac(fournisseur, binAgent, image);
+    preflight = resultat.motif;
+    ({ decision, fournisseur } = deciderAvecPreflight(mode, fournisseur, image, resultat));
+  }
+  const lignes = annonce(decision, fournisseur);
+  if (preflight && fournisseur) lignes.splice(1, 0, `   Preflight : ${preflight} (image ${image})`);
   return {
     decision,
     fournisseur,
-    lignes: annonce(decision, fournisseur),
+    image,
+    lignes,
     // FERMÉ PAR DÉFAUT en « exige » : mieux vaut un nœud qui ne prend aucune
     // tâche qu'un nœud qui en prend une sans bac à sable en croyant le
     // contraire.
@@ -134,7 +187,9 @@ export async function preparerBac(env: NodeJS.ProcessEnv = process.env): Promise
 export function optionBac(
   bac: Bac,
   variables: readonly string[],
-): { bac: { fournisseur: Fournisseur; variables: string[] } } | Record<string, never> {
+):
+  | { bac: { fournisseur: Fournisseur; variables: string[]; image: string } }
+  | Record<string, never> {
   if (!bac.decision.isole || !bac.fournisseur) return {};
-  return { bac: { fournisseur: bac.fournisseur, variables: [...variables] } };
+  return { bac: { fournisseur: bac.fournisseur, variables: [...variables], image: bac.image } };
 }
