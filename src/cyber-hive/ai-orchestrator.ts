@@ -4,10 +4,10 @@
 // pentest autonome qui peut utiliser n'importe quel outil.
 // Inspiré de Zen-AI-Pentest (multi-agent state machine) et LLM4Pentest (scheduling).
 
-import type { MessageIA, RequeteIA, ReponseIA } from './connection-types';
-import { GestionnaireConnexions, creerGestionnaireConnexions } from './connection-manager';
-import { GestionnaireMcp, creerGestionnaireMcp, SERVEURS_MCP_PREDEFINIS } from './mcp-client';
-import type { OutilMcpExterne } from './connection-types';
+import type { RequeteIA } from './connection-types.js';
+import { GestionnaireConnexions, creerGestionnaireConnexions } from './connection-manager.js';
+import { GestionnaireMcp, creerGestionnaireMcp } from './mcp-client.js';
+import type { OutilMcpExterne } from './connection-types.js';
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  Types de l'orchestrateur
@@ -25,6 +25,32 @@ export type PhasePentest =
   | 'post-exploitation'
   | 'analyse'
   | 'rapport';
+
+function estRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function estPhasePentest(value: unknown): value is PhasePentest {
+  return (
+    typeof value === 'string' &&
+    [
+      'reconnaissance',
+      'scan',
+      'enumeration',
+      'exploitation',
+      'post-exploitation',
+      'analyse',
+      'rapport',
+    ].includes(value as PhasePentest)
+  );
+}
+
+function estPriorite(value: unknown): value is DecisionIA['priorite'] {
+  return (
+    typeof value === 'string' &&
+    ['basse', 'normale', 'haute', 'critique'].includes(value as DecisionIA['priorite'])
+  );
+}
 
 /** Décision prise par l'IA. */
 export interface DecisionIA {
@@ -201,12 +227,12 @@ Réponds en JSON avec: phase, action, outil, arguments, raisonnement, priorite.`
       if (!json) return { erreur: 'Réponse IA non parsable' };
 
       const decision: DecisionIA = {
-        phase: json.phase ?? this.contexte.phase,
-        action: json.action ?? 'unknown',
-        outil: json.outil ?? '',
-        arguments: json.arguments ?? {},
-        raisonnement: json.raisonnement ?? '',
-        priorite: json.priorite ?? 'normale',
+        phase: estPhasePentest(json.phase) ? json.phase : this.contexte.phase,
+        action: typeof json.action === 'string' ? json.action : 'unknown',
+        outil: typeof json.outil === 'string' ? json.outil : '',
+        arguments: estRecord(json.arguments) ? json.arguments : {},
+        raisonnement: typeof json.raisonnement === 'string' ? json.raisonnement : '',
+        priorite: estPriorite(json.priorite) ? json.priorite : 'normale',
       };
 
       if (decision.phase !== this.contexte.phase) {
@@ -337,9 +363,10 @@ Réponds en JSON avec: phase, action, outil, arguments, raisonnement, priorite.`
     }
 
     const match = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (match) {
+    const contenuBloc = match?.[1];
+    if (contenuBloc) {
       try {
-        return JSON.parse(match[1]);
+        return JSON.parse(contenuBloc);
       } catch {
         // Ignorer
       }
