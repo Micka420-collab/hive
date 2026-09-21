@@ -54,7 +54,9 @@ export class ClientMcp {
       } else if (this.config.transport === 'http') {
         return await this.connecterHttp();
       } else {
-        return { erreur: 'Transport stdio nécessite un processus local (non supporté en mode simulation)' };
+        return {
+          erreur: 'Transport stdio nécessite un processus local (non supporté en mode simulation)',
+        };
       }
     } catch (err) {
       this.config.statut = 'erreur';
@@ -365,7 +367,10 @@ export class GestionnaireMcp {
   ): Promise<{ success: boolean; result?: unknown; erreur?: string; serveur?: string }> {
     const trouve = this.chercherOutil(nom);
     if (!trouve) {
-      return { success: false, erreur: `Outil "${nom}" non trouvé dans les serveurs MCP connectés` };
+      return {
+        success: false,
+        erreur: `Outil "${nom}" non trouvé dans les serveurs MCP connectés`,
+      };
     }
     const result = await trouve.client.appelerOutil(nom, args);
     return { ...result, serveur: trouve.client['config']?.id };
