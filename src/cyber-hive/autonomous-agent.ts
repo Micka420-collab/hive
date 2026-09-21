@@ -2,13 +2,7 @@
 // L'agent décide lui-même quoi faire ensuite selon les résultats précédents.
 // C'est le cerveau du système : il analyse, planifie et agit en boucle.
 
-import type {
-  SessionPentest,
-  EtapeAttaque,
-  ResultatOutil,
-  CiblePentest,
-  TypeActionAttaque,
-} from './types.js';
+import type { SessionPentest, EtapeAttaque, ResultatOutil, TypeActionAttaque } from './types.js';
 import { obtenirOutil } from './tool-registry.js';
 import { execOutil } from './container-manager.js';
 import { delaiAleatoire, construireCommande } from './anti-trace.js';
@@ -100,10 +94,14 @@ export class MoteurAutonome {
 
       if (!decision) {
         // L'agent n'a plus rien à faire : il a exploré tout ce qu'il pouvait.
-        etapes.push(this.creerEtape('rapport', 'info',
-          'Exploration terminée',
-          `L'agent a exploré ${this.contexte.actionsEffectuees.size} actions. ${this.contexte.vulnerabilites.length} vulnérabilité(s) trouvée(s).`,
-        ));
+        etapes.push(
+          this.creerEtape(
+            'rapport',
+            'info',
+            'Exploration terminée',
+            `L'agent a exploré ${this.contexte.actionsEffectuees.size} actions. ${this.contexte.vulnerabilites.length} vulnérabilité(s) trouvée(s).`,
+          ),
+        );
         break;
       }
 
@@ -165,7 +163,8 @@ export class MoteurAutonome {
       if (!svc) {
         return null;
       }
-      const url = svc.port === 443 ? `https://${this.contexte.hote}` : `http://${this.contexte.hote}`;
+      const url =
+        svc.port === 443 ? `https://${this.contexte.hote}` : `http://${this.contexte.hote}`;
       return {
         action: 'scan',
         outilId: 'nikto',
@@ -203,7 +202,15 @@ export class MoteurAutonome {
         action: 'exploitation',
         outilId: 'hydra',
         cible: this.contexte.hote,
-        args: ['-s', String(svc.port), svc.service, '-L', '/usr/share/wordlists/usernames.txt', '-P', '/usr/share/wordlists/passwords.txt'],
+        args: [
+          '-s',
+          String(svc.port),
+          svc.service,
+          '-L',
+          '/usr/share/wordlists/usernames.txt',
+          '-P',
+          '/usr/share/wordlists/passwords.txt',
+        ],
         raison: `Service ${svc.service} sur le port ${svc.port}. Tentative de brute force avec Hydra.`,
       };
     }
@@ -215,13 +222,13 @@ export class MoteurAutonome {
     if (sqliVulns.length > 0) {
       const vuln = sqliVulns[0];
       if (vuln) {
-      return {
-        action: 'exploitation',
-        outilId: 'sqlmap',
-        cible: vuln.cible,
-        args: ['-u', vuln.cible, '--batch', '--dbs'],
-        raison: `Vulnérabilité SQLi détectée sur ${vuln.cible}. Exploitation avec SQLMap pour énumérer les bases.`,
-      };
+        return {
+          action: 'exploitation',
+          outilId: 'sqlmap',
+          cible: vuln.cible,
+          args: ['-u', vuln.cible, '--batch', '--dbs'],
+          raison: `Vulnérabilité SQLi détectée sur ${vuln.cible}. Exploitation avec SQLMap pour énumérer les bases.`,
+        };
       }
     }
 
@@ -247,7 +254,11 @@ export class MoteurAutonome {
         action: 'post-exploitation',
         outilId: 'metasploit',
         cible: this.contexte.hote,
-        args: ['-q', '-x', `use auxiliary/scanner/ssh/ssh_login; set RHOSTS ${this.contexte.hote}; run`],
+        args: [
+          '-q',
+          '-x',
+          `use auxiliary/scanner/ssh/ssh_login; set RHOSTS ${this.contexte.hote}; run`,
+        ],
         raison: 'Credentials trouvés. Tentative de connexion et post-exploitation via Metasploit.',
       };
     }
@@ -310,7 +321,12 @@ export class MoteurAutonome {
   private analyserNikto(stdout: string, cible: string): void {
     const lignes = stdout.split('\n');
     for (const ligne of lignes) {
-      if (ligne.includes('osvdb') || ligne.includes('vulnerability') || ligne.includes('xss') || ligne.includes('sql')) {
+      if (
+        ligne.includes('osvdb') ||
+        ligne.includes('vulnerability') ||
+        ligne.includes('xss') ||
+        ligne.includes('sql')
+      ) {
         this.contexte.vulnerabilites.push({
           id: `nikto-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
           type: ligne.includes('sql') ? 'sqli' : 'web',
@@ -333,7 +349,11 @@ export class MoteurAutonome {
         this.contexte.vulnerabilites.push({
           id: `nuclei-${templateId}-${Date.now()}`,
           type: templateId,
-          severite: ligne.includes('critical') ? 'critique' : ligne.includes('high') ? 'eleve' : 'moyen',
+          severite: ligne.includes('critical')
+            ? 'critique'
+            : ligne.includes('high')
+              ? 'eleve'
+              : 'moyen',
           cible,
           description: ligne.trim(),
         });
@@ -408,16 +428,26 @@ export class MoteurAutonome {
 
   private severitePourAction(action: TypeActionAttaque): EtapeAttaque['severite'] {
     switch (action) {
-      case 'reconnaissance': return 'info';
-      case 'scan': return 'info';
-      case 'enumeration': return 'remarque';
-      case 'exploitation': return 'avertissement';
-      case 'post-exploitation': return 'critique';
-      case 'escalade-privileges': return 'critique';
-      case 'exfiltration': return 'critique';
-      case 'anti-forensic': return 'info';
-      case 'rapport': return 'info';
-      default: return 'info';
+      case 'reconnaissance':
+        return 'info';
+      case 'scan':
+        return 'info';
+      case 'enumeration':
+        return 'remarque';
+      case 'exploitation':
+        return 'avertissement';
+      case 'post-exploitation':
+        return 'critique';
+      case 'escalade-privileges':
+        return 'critique';
+      case 'exfiltration':
+        return 'critique';
+      case 'anti-forensic':
+        return 'info';
+      case 'rapport':
+        return 'info';
+      default:
+        return 'info';
     }
   }
 
