@@ -3,7 +3,7 @@
 // via une interface JSON-RPC sur WebSocket.
 
 import type { ConfigMCP, OutilSecurite, ResultatOutil } from './types.js';
-import { listerOutils, obtenirOutil } from './tool-registry.js';
+import { listerOutils } from './tool-registry.js';
 import { execOutil } from './container-manager.js';
 
 // ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
@@ -92,7 +92,7 @@ export class ServeurMCP {
             },
             args: {
               type: 'array',
-              description: 'Arguments supplémentaires pour l\'outil',
+              description: "Arguments supplémentaires pour l'outil",
               items: { type: 'string' },
             },
           },
@@ -104,11 +104,7 @@ export class ServeurMCP {
   }
 
   /** Exécute un outil via MCP (méthode MCP `tools/call`). */
-  async executerOutil(
-    outilId: string,
-    cible: string,
-    args?: string[],
-  ): Promise<ResultatOutil> {
+  async executerOutil(outilId: string, cible: string, args?: string[]): Promise<ResultatOutil> {
     const outil = this.outils.get(outilId);
     if (!outil) {
       throw new Error(`Outil inconnu : ${outilId}`);
@@ -140,11 +136,7 @@ export class ServeurMCP {
             cible: string;
             args?: string[];
           };
-          const resultat = await this.executerOutil(
-            name,
-            arguments_.cible,
-            arguments_.args,
-          );
+          const resultat = await this.executerOutil(name, arguments_.cible, arguments_.args);
           return {
             jsonrpc: '2.0',
             id: req.id,
