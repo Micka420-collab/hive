@@ -9,7 +9,6 @@ import {
   necessiteAutorisationSpeciale,
   catalogueComplet,
   type TypeInfrastructure,
-  type PhaseAttaque,
   type ContexteAttaque,
 } from '../jailbreak-attaques.js';
 
@@ -298,7 +297,7 @@ describe('jailbreak-attaques', () => {
 
     it('chaque type a au moins une stratégie', () => {
       const cat = catalogueComplet();
-      for (const [type, strategies] of Object.entries(cat)) {
+      for (const strategies of Object.values(cat)) {
         expect(strategies.length).toBeGreaterThan(0);
       }
     });
