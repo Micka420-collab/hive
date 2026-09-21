@@ -1,10 +1,15 @@
 // Tests pour le système de connexion IA de Cyber Hive.
 import { describe, it, expect } from 'vitest';
-import { genererCodeVerifier, genererState } from '../connection-manager';
-import { creerGestionnaireConnexions } from '../connection-manager';
-import { listerProviders, obtenirProvider, providersParType, providersMcp } from '../provider-registry';
-import { creerGestionnaireMcp, SERVEURS_MCP_PREDEFINIS } from '../mcp-client';
-import { creerOrchestrateurIA } from '../ai-orchestrator';
+import { genererCodeVerifier, genererState } from '../connection-manager.js';
+import { creerGestionnaireConnexions } from '../connection-manager.js';
+import {
+  listerProviders,
+  obtenirProvider,
+  providersParType,
+  providersMcp,
+} from '../provider-registry.js';
+import { creerGestionnaireMcp, SERVEURS_MCP_PREDEFINIS } from '../mcp-client.js';
+import { creerOrchestrateurIA } from '../ai-orchestrator.js';
 
 describe('connection-types', () => {
   it('génère un code verifier PKCE valide', () => {
