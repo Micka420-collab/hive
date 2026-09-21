@@ -58,9 +58,10 @@ export class VisualiseurAttaques {
       };
 
       const liste = parAgent.get(etape.agentId) ?? [];
-      if (liste.length > 0) {
-        liste[liste.length - 1].enfants.push(noeud);
-        noeud.profondeur = liste[liste.length - 1].profondeur + 1;
+      const precedent = liste.at(-1);
+      if (precedent) {
+        precedent.enfants.push(noeud);
+        noeud.profondeur = precedent.profondeur + 1;
       } else {
         racines.push(noeud);
       }
