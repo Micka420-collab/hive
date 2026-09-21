@@ -78,7 +78,9 @@ export function parserCibleNaturelle(entree: string): ResultatParsing {
       const masqueCidr = matchCidr?.[2];
       if (adresseCidr && masqueCidr) {
         scopeAutorise.push(`${adresseCidr}/${masqueCidr}`);
-        suggestions.push(`Plage CIDR détectée : ${adresseCidr}/${masqueCidr}. Scan de sous-réseau.`);
+        suggestions.push(
+          `Plage CIDR détectée : ${adresseCidr}/${masqueCidr}. Scan de sous-réseau.`,
+        );
       }
     }
   }
