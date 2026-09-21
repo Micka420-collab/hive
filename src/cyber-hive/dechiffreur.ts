@@ -30,12 +30,11 @@
 import {
   createDecipheriv,
   createPrivateKey,
-  createPublicKey,
-  publicDecrypt,
   privateDecrypt,
   randomBytes,
-  timingSafeEqual,
+  pbkdf2Sync,
 } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 
 // ╔══════════════════════════════════════════════════════════════════════════╗
 //   Types
@@ -67,12 +66,7 @@ export type AlgorithmeDechiffrement =
   | 'auto';
 
 /** Format d'encodage détecté pour l'entrée. */
-export type FormatDetecte =
-  | 'base64'
-  | 'base64url'
-  | 'hex'
-  | 'binaire'
-  | 'texte';
+export type FormatDetecte = 'base64' | 'base64url' | 'hex' | 'binaire' | 'texte';
 
 /** Étape d'une cascade de chiffrement. */
 export interface EtapeCascade {
@@ -142,34 +136,30 @@ export interface ResultatDechiffrement {
 
 /**
  * Détecte le format d'encodage d'une chaîne d'entrée.
- * Ordre de détection : Base64URL > Base64 > Hex > Binaire > Texte.
+ * Les formes ambiguës sont résolues par leur ponctuation : `=`/`+`/`/` pour
+ * Base64 standard, `-`/`_` ou l'absence de padding pour Base64URL.
  */
 export function detecterFormat(entree: string | Buffer): FormatDetecte {
   const str = typeof entree === 'string' ? entree : entree.toString('utf8');
 
-  // Base64URL : caractères A-Za-z0-9-_ sans padding, longueur multiple de 4
-  if (/^[A-Za-z0-9_-]+={0,2}$/.test(str) && str.length % 4 === 0 && str.length >= 4) {
-    try {
-      Buffer.from(str, 'base64url');
-      return 'base64url';
-    } catch {
-      // ignore
-    }
-  }
-
-  // Base64 standard : caractères A-Za-z0-9+/ avec padding optionnel
-  if (/^[A-Za-z0-9+/]+={0,2}$/.test(str) && str.length % 4 === 0 && str.length >= 4) {
-    try {
-      Buffer.from(str, 'base64');
-      return 'base64';
-    } catch {
-      // ignore
-    }
-  }
-
-  // Hexadécimal : caractères 0-9a-fA-F, longueur paire
+  // Hex est un sous-ensemble de Base64 ; il doit donc être identifié avant.
   if (/^[0-9a-fA-F]+$/.test(str) && str.length % 2 === 0 && str.length >= 2) {
     return 'hex';
+  }
+
+  // Base64 standard : caractères A-Za-z0-9+/ avec padding optionnel.
+  if (
+    /^[A-Za-z0-9+/]+={0,2}$/.test(str) &&
+    str.length % 4 === 0 &&
+    str.length >= 4 &&
+    (str.includes('=') || str.includes('+') || str.includes('/'))
+  ) {
+    return 'base64';
+  }
+
+  // Base64URL ne requiert pas de padding et emploie `-` et `_` à la place.
+  if (/^[A-Za-z0-9_-]+$/.test(str) && str.length >= 4 && str.length % 4 !== 1) {
+    return 'base64url';
   }
 
   // Binaire : contient des caractères non-imprimables
@@ -210,7 +200,7 @@ export function detecterAlgorithme(options: OptionsDechiffrement): AlgorithmeDec
 
   // AEAD si un tag est présent
   if (tag) {
-    const ivLen = typeof iv === 'string' ? Buffer.from(iv).length : iv?.length ?? 0;
+    const ivLen = typeof iv === 'string' ? Buffer.from(iv).length : (iv?.length ?? 0);
     if (ivLen === 12) return 'chacha20-poly1305';
     // AES-CCM utilise aussi des IV courts (7-13 octets)
     if (ivLen >= 7 && ivLen <= 13 && ivLen !== 12) return 'aes-256-ccm';
@@ -222,13 +212,13 @@ export function detecterAlgorithme(options: OptionsDechiffrement): AlgorithmeDec
     const ivLen = typeof iv === 'string' ? Buffer.from(iv).length : iv.length;
     if (ivLen === 8) {
       // IV de 8 octets : 3DES, Blowfish ou DES
-      const cleLen = typeof cle === 'string' ? Buffer.from(cle).length : cle?.length ?? 0;
+      const cleLen = typeof cle === 'string' ? Buffer.from(cle).length : (cle?.length ?? 0);
       if (cleLen === 8) return 'des-cbc';
       if (cleLen >= 16 && cleLen <= 24) return '3des-cbc';
       return 'blowfish-cbc';
     }
     if (ivLen === 16) {
-      const cleLen = typeof cle === 'string' ? Buffer.from(cle).length : cle?.length ?? 0;
+      const cleLen = typeof cle === 'string' ? Buffer.from(cle).length : (cle?.length ?? 0);
       if (cleLen === 16) return 'aes-128-cbc';
       if (cleLen === 32) return 'aes-256-cbc';
       // Camellia utilise aussi un IV de 16 octets
@@ -252,13 +242,7 @@ function versBuffer(entree: Buffer | string, encodage?: BufferEncoding): Buffer 
 }
 
 /** Dérive une clé à partir d'un mot de passe via PBKDF2. */
-function deriverCle(
-  motDePasse: string,
-  sel: Buffer,
-  longueur: number,
-  iterations: number,
-): Buffer {
-  const { pbkdf2Sync } = require('node:crypto');
+function deriverCle(motDePasse: string, sel: Buffer, longueur: number, iterations: number): Buffer {
   return pbkdf2Sync(motDePasse, sel, iterations, longueur, 'sha256');
 }
 
@@ -267,24 +251,14 @@ function deriverCle(
 // ╚══════════════════════════════════════════════════════════════════════════╝
 
 /** Déchiffre AES-256-GCM. */
-function dechiffrerAESGCM(
-  donnees: Buffer,
-  cle: Buffer,
-  iv: Buffer,
-  tag: Buffer,
-): Buffer {
+function dechiffrerAESGCM(donnees: Buffer, cle: Buffer, iv: Buffer, tag: Buffer): Buffer {
   const decipher = createDecipheriv('aes-256-gcm', cle, iv);
   decipher.setAuthTag(tag);
   return Buffer.concat([decipher.update(donnees), decipher.final()]);
 }
 
 /** Déchiffre AES-CBC (128 ou 256). */
-function dechiffrerAESCBC(
-  donnees: Buffer,
-  cle: Buffer,
-  iv: Buffer,
-  tailleCle: 128 | 256,
-): Buffer {
+function dechiffrerAESCBC(donnees: Buffer, cle: Buffer, iv: Buffer, tailleCle: 128 | 256): Buffer {
   const algo = `aes-${tailleCle}-cbc`;
   const decipher = createDecipheriv(algo, cle, iv);
   decipher.setAutoPadding(true);
@@ -292,12 +266,7 @@ function dechiffrerAESCBC(
 }
 
 /** Déchiffre ChaCha20-Poly1305. */
-function dechiffrerChaCha20(
-  donnees: Buffer,
-  cle: Buffer,
-  iv: Buffer,
-  tag: Buffer,
-): Buffer {
+function dechiffrerChaCha20(donnees: Buffer, cle: Buffer, iv: Buffer, tag: Buffer): Buffer {
   const decipher = createDecipheriv('chacha20-poly1305', cle, iv);
   decipher.setAuthTag(tag);
   return Buffer.concat([decipher.update(donnees), decipher.final()]);
@@ -318,11 +287,7 @@ function dechiffrerBlowfish(donnees: Buffer, cle: Buffer, iv: Buffer): Buffer {
 }
 
 /** Déchiffre RSA (OAEP ou PKCS1). */
-function dechiffrerRSA(
-  donnees: Buffer,
-  clePem: string,
-  oaep: boolean,
-): Buffer {
+function dechiffrerRSA(donnees: Buffer, clePem: string, oaep: boolean): Buffer {
   const key = createPrivateKey(clePem);
   if (oaep) {
     return privateDecrypt(
@@ -361,11 +326,7 @@ function dechiffrerAESCCM(
  * Utilisé pour le chiffrement de stockage (BitLocker, FileVault, LUKS).
  * NIST SP 800-38E. La clé doit faire 64 octets (2 x 32 pour deux clés).
  */
-function dechiffrerAESXTS(
-  donnees: Buffer,
-  cle: Buffer,
-  iv: Buffer,
-): Buffer {
+function dechiffrerAESXTS(donnees: Buffer, cle: Buffer, iv: Buffer): Buffer {
   const decipher = createDecipheriv('aes-256-xts', cle, iv);
   decipher.setAutoPadding(false);
   return Buffer.concat([decipher.update(donnees), decipher.final()]);
@@ -437,10 +398,7 @@ function dechiffrerCascade(donnees: Buffer, etapes: EtapeCascade[]): Buffer {
  * @param longueurMax - Longueur maximale du message à extraire (défaut : 4096 octets)
  * @returns Buffer contenant le message extrait
  */
-function extraireSteganographieLSB(
-  donnees: Buffer,
-  longueurMax: number = 4096,
-): Buffer {
+function extraireSteganographieLSB(donnees: Buffer, longueurMax: number = 4096): Buffer {
   // Sauter l'en-tête PNG (24 octets minimum) ou BMP (54 octets)
   let offset = 0;
 
@@ -457,7 +415,8 @@ function extraireSteganographieLSB(
   const maxBits = longueurMax * 8;
 
   for (let i = offset; i < donnees.length && bits.length < maxBits; i++) {
-    bits.push(donnees[i] & 1);
+    const octet = donnees[i];
+    if (octet !== undefined) bits.push(octet & 1);
   }
 
   // Reconstruire les octets à partir des bits
@@ -465,7 +424,7 @@ function extraireSteganographieLSB(
   for (let i = 0; i + 7 < bits.length; i += 8) {
     let octet = 0;
     for (let j = 0; j < 8; j++) {
-      octet = (octet << 1) | bits[i + j];
+      octet = (octet << 1) | (bits[i + j] ?? 0);
     }
     octets.push(octet);
   }
@@ -482,28 +441,29 @@ function extraireSteganographieLSB(
  * @returns Buffer déchiffré ou null si aucune clé ne produit du texte lisible
  */
 function bruteForceXOR(donnees: Buffer): { cle: number; contenu: Buffer } | null {
+  let meilleure: { cle: number; contenu: Buffer; score: number } | null = null;
   for (let cle = 0; cle < 256; cle++) {
     const resultat = Buffer.alloc(donnees.length);
-    let lisible = true;
+    let score = 0;
 
     for (let i = 0; i < donnees.length; i++) {
-      const dec = donnees[i] ^ cle;
+      const dec = (donnees[i] ?? 0) ^ cle;
       resultat[i] = dec;
-      // Vérifier si le caractère est imprimable (ASCII 32-126 + sauts de ligne)
+      // Un candidat doit être entièrement lisible, puis ressembler à du texte.
       if (dec < 9 || (dec > 13 && dec < 32) || dec > 126) {
-        if (i < 20) {
-          // Les 20 premiers octets doivent être lisibles
-          lisible = false;
-          break;
-        }
+        score = Number.NEGATIVE_INFINITY;
+        break;
       }
+      if ((dec >= 65 && dec <= 90) || (dec >= 97 && dec <= 122) || dec === 32) score += 3;
+      else if ((dec >= 48 && dec <= 57) || dec === 9 || dec === 10 || dec === 13) score += 1;
     }
 
-    if (lisible) {
-      return { cle, contenu: resultat };
+    if (!meilleure || score > meilleure.score) {
+      meilleure = { cle, contenu: resultat, score };
     }
   }
-  return null;
+  if (!meilleure || meilleure.score < donnees.length * 1.5) return null;
+  return meilleure;
 }
 
 // ╔══════════════════════════════════════════════════════════════════════════╗
@@ -515,8 +475,14 @@ function decoderBase64(donnees: string, urlSafe: boolean): Buffer {
   if (urlSafe) {
     // Convertir URL-safe vers standard
     const standard = donnees.replace(/-/g, '+').replace(/_/g, '/');
+    if (!/^[A-Za-z0-9+/]+$/.test(standard) || standard.length % 4 === 1) {
+      throw new Error('Base64URL invalide.');
+    }
     const padding = standard.length % 4 === 0 ? '' : '='.repeat(4 - (standard.length % 4));
     return Buffer.from(standard + padding, 'base64');
+  }
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(donnees) || donnees.length % 4 !== 0) {
+    throw new Error('Base64 invalide.');
   }
   return Buffer.from(donnees, 'base64');
 }
@@ -528,9 +494,12 @@ function decoderHex(donnees: string): Buffer {
 
 /** Déchiffre XOR avec une clé simple. */
 function dechiffrerXOR(donnees: Buffer, cle: Buffer): Buffer {
+  if (cle.length === 0) {
+    throw new Error('La clé XOR ne peut pas être vide.');
+  }
   const resultat = Buffer.alloc(donnees.length);
   for (let i = 0; i < donnees.length; i++) {
-    resultat[i] = donnees[i] ^ cle[i % cle.length];
+    resultat[i] = (donnees[i] ?? 0) ^ (cle[i % cle.length] ?? 0);
   }
   return resultat;
 }
@@ -649,7 +618,7 @@ export function dechiffrer(
 
       case 'blowfish-cbc': {
         if (!cleBuffer || cleBuffer.length < 4) {
-          throw new Error('Blowfish-CBC nécessite une clé d\'au moins 4 octets.');
+          throw new Error("Blowfish-CBC nécessite une clé d'au moins 4 octets.");
         }
         const iv = versBuffer(options.iv ?? '');
         const donnees = versBuffer(entree, 'base64');
@@ -681,7 +650,6 @@ export function dechiffrer(
         if (!cleBuffer || cleBuffer.length !== 32) {
           throw new Error('AES-256-CCM nécessite une clé de 32 octets.');
         }
-        const ivLen = options.longueurIvCcm ?? 12;
         const iv = versBuffer(options.iv ?? '');
         if (iv.length < 7 || iv.length > 13) {
           throw new Error('AES-256-CCM nécessite un IV de 7 à 13 octets.');
@@ -751,7 +719,7 @@ export function dechiffrer(
         const donnees = versBuffer(entree);
         const resultat = bruteForceXOR(donnees);
         if (resultat === null) {
-          throw new Error('Aucune clé XOR d\'un octet ne produit du texte lisible.');
+          throw new Error("Aucune clé XOR d'un octet ne produit du texte lisible.");
         }
         contenuDechiffre = resultat.contenu;
         break;
@@ -846,7 +814,6 @@ export async function dechiffrerFichier(
   cheminFichier: string,
   options: OptionsDechiffrement = {},
 ): Promise<ResultatDechiffrement> {
-  const { readFile } = require('node:fs/promises');
   const donnees = await readFile(cheminFichier);
   return dechiffrer(donnees, options);
 }
@@ -864,15 +831,9 @@ export function dechiffrerAuto(
   cles: Array<{ cle?: Buffer | string; iv?: Buffer | string; tag?: Buffer | string }> = [],
 ): ResultatDechiffrement {
   // Phase 1 : encodages simples sans clé
-  const encodagesSimples: AlgorithmeDechiffrement[] = [
-    'base64',
-    'base64url',
-    'hex',
-    'rot13',
-  ];
-
-  for (const algo of encodagesSimples) {
-    const resultat = dechiffrer(entree, { algorithme: algo });
+  const format = detecterFormat(entree);
+  if (format === 'base64' || format === 'base64url' || format === 'hex') {
+    const resultat = dechiffrer(entree, { algorithme: format });
     if (resultat.succes) return resultat;
   }
 
@@ -880,8 +841,13 @@ export function dechiffrerAuto(
   const resultatXor = dechiffrer(entree, { algorithme: 'brute-force-xor' });
   if (resultatXor.succes) return resultatXor;
 
-  // Phase 3 : stéganographie LSB (si données binaires)
-  if (typeof entree === 'object' || detecterFormat(entree) === 'binaire') {
+  // Phase 3 : stéganographie LSB (uniquement pour une image reconnue).
+  // Toute donnée binaire a des bits de poids faible : les lire sans signature
+  // produirait artificiellement un « succès ».
+  const estImage =
+    Buffer.isBuffer(entree) &&
+    ((entree[0] === 0x89 && entree[1] === 0x50) || (entree[0] === 0x42 && entree[1] === 0x4d));
+  if (estImage) {
     const resultatSteg = dechiffrer(entree, { algorithme: 'steganographie-lsb' });
     if (resultatSteg.succes) return resultatSteg;
   }
@@ -918,7 +884,7 @@ export function dechiffrerAuto(
     contenu: '',
     algorithme: 'auto',
     formatEntree: detecterFormat(entree),
-    erreur: 'Aucun algorithme n\'a permis de déchiffrer les données.',
+    erreur: "Aucun algorithme n'a permis de déchiffrer les données.",
   };
 }
 

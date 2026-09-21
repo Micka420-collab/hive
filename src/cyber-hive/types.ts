@@ -68,9 +68,9 @@ export interface ResultatOutil {
 /** Rôle d'un agent de pentest dans l'essaim. */
 export type RoleAgentPentest =
   | 'reconnaissance' // Éclaireuse : scan initial, découverte
-  | 'exploitation'   // Butineuse : exploitation des vulnérabilités
+  | 'exploitation' // Butineuse : exploitation des vulnérabilités
   | 'post-exploitation' // Gardienne : maintien d'accès, escalade
-  | 'analyse'        // Concierge : analyse des résultats, synthèse
+  | 'analyse' // Concierge : analyse des résultats, synthèse
   | 'coordinatrice'; // Reine : orchestration globale
 
 /** État d'un agent de pentest. */
@@ -145,7 +145,14 @@ export interface EtapeAttaque {
 // ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
 
 /** État d'une session de pentest. */
-export type StatutSession = 'initialisation' | 'reconnaissance' | 'exploitation' | 'post-exploitation' | 'rapport' | 'termine' | 'echec';
+export type StatutSession =
+  | 'initialisation'
+  | 'reconnaissance'
+  | 'exploitation'
+  | 'post-exploitation'
+  | 'rapport'
+  | 'termine'
+  | 'echec';
 
 /** Cible d'une session de pentest. */
 export interface CiblePentest {
@@ -238,8 +245,15 @@ export const CONFIG_DEFAUT: ConfigCyberHive = {
   mcp: {
     port: 8765,
     outilsExposes: [
-      'nmap', 'sqlmap', 'nuclei', 'hydra', 'hashcat',
-      'metasploit', 'ffuf', 'masscan', 'nikto',
+      'nmap',
+      'sqlmap',
+      'nuclei',
+      'hydra',
+      'hashcat',
+      'metasploit',
+      'ffuf',
+      'masscan',
+      'nikto',
     ],
     agentsAutorises: ['claude-code', 'cursor', 'cline', 'codex', 'grok'],
     timeoutMs: 120_000,

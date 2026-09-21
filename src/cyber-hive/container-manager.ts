@@ -37,10 +37,7 @@ export class GestionnaireConteneurs {
   }
 
   /** Crée un conteneur pour exécuter un outil. */
-  async creerConteneur(
-    outil: OutilSecurite,
-    sessionId?: string,
-  ): Promise<Conteneur> {
+  async creerConteneur(outil: OutilSecurite, sessionId?: string): Promise<Conteneur> {
     const id = `ch-${++this.compteur}-${Date.now().toString(36)}`;
     const conteneur: Conteneur = {
       id,
@@ -84,9 +81,7 @@ export class GestionnaireConteneurs {
 
   /** Détruit tous les conteneurs d'une session. */
   async detruireSession(sessionId: string): Promise<void> {
-    const conteneurs = [...this.conteneurs.values()].filter(
-      (c) => c.sessionId === sessionId,
-    );
+    const conteneurs = [...this.conteneurs.values()].filter((c) => c.sessionId === sessionId);
     for (const c of conteneurs) {
       await this.detruire(c.id);
     }

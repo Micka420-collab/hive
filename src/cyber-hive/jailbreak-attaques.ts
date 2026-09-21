@@ -111,14 +111,20 @@ const STRATEGIES: Record<TypeInfrastructure, StrategieAttaque[]> = {
       phase: 'exploitation',
       outils: ['metasploit', 'nuclei', 'sqlmap'],
       danger: 'eleve',
-      description: 'Exploitation des vulnérabilités détectées sur les services exposés (SSH, RDP, SMB, HTTP, FTP, SMTP, DNS).',
+      description:
+        'Exploitation des vulnérabilités détectées sur les services exposés (SSH, RDP, SMB, HTTP, FTP, SMTP, DNS).',
       etapes: [
         'Rechercher des CVE connus pour les versions détectées',
         'nuclei -u <cible> — scan de vulnérabilités basé sur des templates',
-        'msfconsole + search/use du module d'exploitation approprié',
-        'sqlmap -u <url> --batch — test d'injections SQL si applicable',
+        "msfconsole + search/use du module d'exploitation approprié",
+        "sqlmap -u <url> --batch — test d'injections SQL si applicable",
       ],
-      contreMesures: ['Mises à jour de sécurité', 'Segmentation réseau', 'WAF', 'Désactivation des services inutiles'],
+      contreMesures: [
+        'Mises à jour de sécurité',
+        'Segmentation réseau',
+        'WAF',
+        'Désactivation des services inutiles',
+      ],
     },
     {
       nom: 'Brute force SSH/RDP/FTP',
@@ -126,13 +132,18 @@ const STRATEGIES: Record<TypeInfrastructure, StrategieAttaque[]> = {
       phase: 'exploitation',
       outils: ['hydra', 'hashcat'],
       danger: 'modere',
-      description: 'Attaque par force brute sur les protocoles d'authentification.',
+      description: "Attaque par force brute sur les protocoles d'authentification.",
       etapes: [
         'hydra -L users.txt -P pass.txt ssh://<cible>',
         'hydra -L users.txt -P pass.txt rdp://<cible>',
         'hashcat -m 1000 hash.txt wordlist.txt — crack NTLM',
       ],
-      contreMesures: ['Authentification multi-facteurs', 'Limitation de tentatives', 'Clés SSH uniquement', 'Fail2ban'],
+      contreMesures: [
+        'Authentification multi-facteurs',
+        'Limitation de tentatives',
+        'Clés SSH uniquement',
+        'Fail2ban',
+      ],
     },
   ],
 
@@ -150,7 +161,11 @@ const STRATEGIES: Record<TypeInfrastructure, StrategieAttaque[]> = {
         'ffuf -w subdomains.txt -u https://<domaine>/FUZZ — découverte de sous-domaines',
         'Vérifier les enregistrements DMARC, DKIM, SPF pour le spoofing',
       ],
-      contreMesures: ['Désactiver les zone transfers', 'DNSSEC', 'Cloudflare/CDN pour masquer l'origine'],
+      contreMesures: [
+        'Désactiver les zone transfers',
+        'DNSSEC',
+        "Cloudflare/CDN pour masquer l'origine",
+      ],
     },
     {
       nom: 'Attaque sur les enregistrements DNS',
@@ -184,7 +199,12 @@ const STRATEGIES: Record<TypeInfrastructure, StrategieAttaque[]> = {
         'Énumération des sous-domaines .gouv',
         'Vérification des certificats SSL/TLS (transparence des certificats)',
       ],
-      contreMesures: ['WAF gouvernemental', 'IDS/IPS de niveau étatique', 'Segmentation stricte', 'Audit de sécurité régulier'],
+      contreMesures: [
+        'WAF gouvernemental',
+        'IDS/IPS de niveau étatique',
+        'Segmentation stricte',
+        'Audit de sécurité régulier',
+      ],
     },
     {
       nom: 'Test des services web gouvernementaux',
@@ -194,28 +214,39 @@ const STRATEGIES: Record<TypeInfrastructure, StrategieAttaque[]> = {
       danger: 'critique',
       description: 'Exploitation des vulnérabilités web sur les portails gouvernementaux.',
       etapes: [
-        'sqlmap -u <url.gouv> --batch --level=5 — test d'injections SQL approfondi',
+        "sqlmap -u <url.gouv> --batch --level=5 — test d'injections SQL approfondi",
         'nuclei -t cves/ -u <cible.gouv> — scan de CVE récentes',
         'ffuf -w wordlist.txt -u <url.gouv>/FUZZ — énumération de chemins',
-        'Test des formulaires de contact et d'authentification (XSS, CSRF, injection)',
-        'Vérification des fuites de données via l'API',
+        "Test des formulaires de contact et d'authentification (XSS, CSRF, injection)",
+        "Vérification des fuites de données via l'API",
       ],
-      contreMesures: ['WAF strict', 'Audit OWASP Top 10 annuel', 'Bug bounty program', 'Chiffrement de bout en bout'],
+      contreMesures: [
+        'WAF strict',
+        'Audit OWASP Top 10 annuel',
+        'Bug bounty program',
+        'Chiffrement de bout en bout',
+      ],
     },
     {
-      nom: 'Énumération des services d'authentification gouvernementaux',
+      nom: "Énumération des services d'authentification gouvernementaux",
       typeCible: 'gouv',
       phase: 'enumeration',
       outils: ['hydra', 'nmap'],
       danger: 'critique',
-      description: 'Test des portails d'authentification gouvernementaux (FranceConnect, SSO, etc.).',
+      description:
+        "Test des portails d'authentification gouvernementaux (FranceConnect, SSO, etc.).",
       etapes: [
-        'Énumération des utilisateurs via les messages d'erreur',
-        'Test de l'authentification multi-facteurs',
-        'hydra sur les endpoints d'authentification (si autorisé)',
-        'Test de l'énumération d'utilisateurs via la réinitialisation de mot de passe',
+        "Énumération des utilisateurs via les messages d'erreur",
+        "Test de l'authentification multi-facteurs",
+        "hydra sur les endpoints d'authentification (si autorisé)",
+        "Test de l'énumération d'utilisateurs via la réinitialisation de mot de passe",
       ],
-      contreMesures: ['MFA obligatoire', 'Messages d'erreur génériques', 'Rate limiting strict', 'Captcha'],
+      contreMesures: [
+        'MFA obligatoire',
+        "Messages d'erreur génériques",
+        'Rate limiting strict',
+        'Captcha',
+      ],
     },
   ],
 
@@ -234,7 +265,12 @@ const STRATEGIES: Record<TypeInfrastructure, StrategieAttaque[]> = {
         'Vérification des IAM policies et permissions excessives',
         'Test des APIs non authentifiées',
       ],
-      contreMesures: ['IAM strict', 'Buckets privés par défaut', 'VPC endpoints', 'Cloud monitoring'],
+      contreMesures: [
+        'IAM strict',
+        'Buckets privés par défaut',
+        'VPC endpoints',
+        'Cloud monitoring',
+      ],
     },
     {
       nom: 'Exploitation des services cloud mal configurés',
@@ -249,7 +285,12 @@ const STRATEGIES: Record<TypeInfrastructure, StrategieAttaque[]> = {
         'Test des clés API exposées dans le code source',
         'Vérification des rôles IAM assumables',
       ],
-      contreMesures: ['IMDSv2', 'Buckets privés', 'Rotation des clés', 'Principle of least privilege'],
+      contreMesures: [
+        'IMDSv2',
+        'Buckets privés',
+        'Rotation des clés',
+        'Principle of least privilege',
+      ],
     },
   ],
 
@@ -260,7 +301,8 @@ const STRATEGIES: Record<TypeInfrastructure, StrategieAttaque[]> = {
       phase: 'reconnaissance',
       outils: ['nmap', 'masscan'],
       danger: 'modere',
-      description: 'Découverte des dispositifs IoT exposés (caméras, routeurs, capteurs, thermostats).',
+      description:
+        'Découverte des dispositifs IoT exposés (caméras, routeurs, capteurs, thermostats).',
       etapes: [
         'masscan <plage>/16 -p 23,80,443,554,1883,8883,5683 — ports IoT courants',
         'nmap -sV --script iot-enum <cible>',
@@ -268,7 +310,12 @@ const STRATEGIES: Record<TypeInfrastructure, StrategieAttaque[]> = {
         'Test du protocole MQTT (1883/8883) sans authentification',
         'Test du protocole CoAP (5683)',
       ],
-      contreMesures: ['Changer les mots de passe par défaut', 'Segmentation IoT', 'Firmware à jour', 'Désactiver UPnP'],
+      contreMesures: [
+        'Changer les mots de passe par défaut',
+        'Segmentation IoT',
+        'Firmware à jour',
+        'Désactiver UPnP',
+      ],
     },
     {
       nom: 'Exploitation IoT',
@@ -276,14 +323,20 @@ const STRATEGIES: Record<TypeInfrastructure, StrategieAttaque[]> = {
       phase: 'exploitation',
       outils: ['metasploit', 'hydra'],
       danger: 'eleve',
-      description: 'Exploitation des vulnérabilités IoT : firmware, protocoles non chiffrés, credentials par défaut.',
+      description:
+        'Exploitation des vulnérabilités IoT : firmware, protocoles non chiffrés, credentials par défaut.',
       etapes: [
         'hydra -l admin -P iot-passwords.txt telnet://<cible>',
         'Extraction et analyse du firmware (binwalk, firmware-mod-kit)',
-        'Test de l'injection de commandes sur l'interface web',
+        "Test de l'injection de commandes sur l'interface web",
         'Exploitation des protocoles non chiffrés (MQTT, CoAP, Telnet)',
       ],
-      contreMesures: ['Firmware signé', 'Chiffrement des communications', 'Authentification forte', 'Désactiver Telnet'],
+      contreMesures: [
+        'Firmware signé',
+        'Chiffrement des communications',
+        'Authentification forte',
+        'Désactiver Telnet',
+      ],
     },
   ],
 
@@ -294,7 +347,8 @@ const STRATEGIES: Record<TypeInfrastructure, StrategieAttaque[]> = {
       phase: 'reconnaissance',
       outils: ['nmap'],
       danger: 'eleve',
-      description: 'Découverte des systèmes SCADA/ICS industriels (Modbus, DNP3, S7comm, BACnet, EtherNet/IP).',
+      description:
+        'Découverte des systèmes SCADA/ICS industriels (Modbus, DNP3, S7comm, BACnet, EtherNet/IP).',
       etapes: [
         '⚠️ DANGER PHYSIQUE — les systèmes SCADA contrôlent des processus physiques',
         'nmap -p 502,102,4840,47808,20000 <cible> — ports SCADA courants',
@@ -305,19 +359,25 @@ const STRATEGIES: Record<TypeInfrastructure, StrategieAttaque[]> = {
       contreMesures: ['Air-gap', 'Firewall industriel', 'DMZ industrielle', 'Monitoring OT'],
     },
     {
-      nom: 'Test d'intégrité SCADA',
+      nom: "Test d'intégrité SCADA",
       typeCible: 'scada',
       phase: 'exploitation',
       outils: ['metasploit'],
       danger: 'critique',
-      description: 'Test des protocoles industriels sans authentification — danger physique potentiel.',
+      description:
+        'Test des protocoles industriels sans authentification — danger physique potentiel.',
       etapes: [
         '⚠️ DANGER PHYSIQUE CRITIQUE — risque pour la sécurité humaine',
         'Test de lecture des registres Modbus (lecture seule, jamais écriture)',
-        'Vérification de l'authentification sur les protocoles industriels',
-        'Test de l'interface web HMI',
+        "Vérification de l'authentification sur les protocoles industriels",
+        "Test de l'interface web HMI",
       ],
-      contreMesures: ['Authentification sur tous les protocoles', 'Air-gap strict', 'IDS industriel', 'Conduite en mode dégradé'],
+      contreMesures: [
+        'Authentification sur tous les protocoles',
+        'Air-gap strict',
+        'IDS industriel',
+        'Conduite en mode dégradé',
+      ],
     },
   ],
 
@@ -331,12 +391,17 @@ const STRATEGIES: Record<TypeInfrastructure, StrategieAttaque[]> = {
       description: 'Découverte des APIs Docker/Kubernetes exposées, registries, et conteneurs.',
       etapes: [
         'nmap -p 2375,2376,6443,10250,10251,10252,5000 <cible> — ports container',
-        'Test de l'API Docker non authentifiée (2375)',
-        'Test de l'API Kubernetes (6443, 10250)',
+        "Test de l'API Docker non authentifiée (2375)",
+        "Test de l'API Kubernetes (6443, 10250)",
         'nuclei -t kubernetes/ -u <cible>',
         'Vérification des registries privés exposés (5000)',
       ],
-      contreMesures: ['API Docker sur socket Unix uniquement', 'RBAC Kubernetes strict', 'Network policies', 'Scan d'images'],
+      contreMesures: [
+        'API Docker sur socket Unix uniquement',
+        'RBAC Kubernetes strict',
+        'Network policies',
+        "Scan d'images",
+      ],
     },
     {
       nom: 'Exploitation conteneurs',
@@ -346,12 +411,17 @@ const STRATEGIES: Record<TypeInfrastructure, StrategieAttaque[]> = {
       danger: 'eleve',
       description: 'Évasion de conteneur, exploitation des APIs, container breakout.',
       etapes: [
-        'Test de l'évasion de conteneur (privileged, capabilities, mounts)',
-        'Exploitation de l'API Kubernetes pour lister les secrets',
+        "Test de l'évasion de conteneur (privileged, capabilities, mounts)",
+        "Exploitation de l'API Kubernetes pour lister les secrets",
         'Test du SSRF vers les metadata endpoints cloud',
         'Vérification des Service Accounts Kubernetes',
       ],
-      contreMesures: ['Conteneurs non privilégiés', 'Seccomp/AppArmor', 'RBAC strict', 'Pod Security Policies'],
+      contreMesures: [
+        'Conteneurs non privilégiés',
+        'Seccomp/AppArmor',
+        'RBAC strict',
+        'Pod Security Policies',
+      ],
     },
   ],
 
@@ -364,10 +434,10 @@ const STRATEGIES: Record<TypeInfrastructure, StrategieAttaque[]> = {
       danger: 'faible',
       description: 'Découverte des APIs backend mobiles, endpoints, et authentification.',
       etapes: [
-        'ffuf -w api-endpoints.txt -u <url>/FUZZ — énumération d'endpoints',
-        'Test de l'authentification par token JWT',
+        "ffuf -w api-endpoints.txt -u <url>/FUZZ — énumération d'endpoints",
+        "Test de l'authentification par token JWT",
         'Vérification des certificats SSL/TLS',
-        'Test de l'API GraphQL (introspection)',
+        "Test de l'API GraphQL (introspection)",
       ],
       contreMesures: ['Rate limiting', 'Validation stricte des tokens', 'SSL pinning côté client'],
     },
@@ -379,12 +449,17 @@ const STRATEGIES: Record<TypeInfrastructure, StrategieAttaque[]> = {
       danger: 'eleve',
       description: 'Exploitation des vulnérabilités API : injection, IDOR, JWT, mass assignment.',
       etapes: [
-        'Test d'injection SQL sur les paramètres API',
-        'Test d'IDOR (Insecure Direct Object Reference)',
+        "Test d'injection SQL sur les paramètres API",
+        "Test d'IDOR (Insecure Direct Object Reference)",
         'Test de manipulation de JWT (alg=none, weak secret)',
         'Test de mass assignment sur les endpoints de mise à jour',
       ],
-      contreMesures: ['Validation des entrées', 'Autorisation par ressource', 'JWT avec secret fort', 'Allowlist des champs'],
+      contreMesures: [
+        'Validation des entrées',
+        'Autorisation par ressource',
+        'JWT avec secret fort',
+        'Allowlist des champs',
+      ],
     },
   ],
 
@@ -398,11 +473,15 @@ const STRATEGIES: Record<TypeInfrastructure, StrategieAttaque[]> = {
       description: 'Découverte des endpoints, méthodes, paramètres, et schémas.',
       etapes: [
         'ffuf -w api-paths.txt -u <url>/FUZZ -mc all',
-        'Test de l'OpenAPI/Swagger si exposé',
+        "Test de l'OpenAPI/Swagger si exposé",
         'GraphQL introspection: { __schema { types { name } } }',
         'Énumération des méthodes HTTP (GET, POST, PUT, DELETE, PATCH, OPTIONS)',
       ],
-      contreMesures: ['Désactiver l'introspection GraphQL', 'Rate limiting', 'Authentification sur tous les endpoints'],
+      contreMesures: [
+        "Désactiver l'introspection GraphQL",
+        'Rate limiting',
+        'Authentification sur tous les endpoints',
+      ],
     },
     {
       nom: 'Exploitation API (OWASP API Top 10)',
@@ -410,16 +489,21 @@ const STRATEGIES: Record<TypeInfrastructure, StrategieAttaque[]> = {
       phase: 'exploitation',
       outils: ['sqlmap', 'nuclei', 'ffuf'],
       danger: 'eleve',
-      description: 'Exploitation des vulnérabilités API selon l'OWASP API Security Top 10.',
+      description: "Exploitation des vulnérabilités API selon l'OWASP API Security Top 10.",
       etapes: [
-        'BOLA/IDOR : accès à des ressources d'autres utilisateurs',
+        "BOLA/IDOR : accès à des ressources d'autres utilisateurs",
         'Broken Authentication : JWT, OAuth, API keys',
         'Excessive Data Exposure : réponses API trop verbeuses',
         'Lack of Rate Limiting : brute force, énumération',
         'Injection : SQL, NoSQL, command injection',
-        'SSRF : accès aux services internes via l'API',
+        "SSRF : accès aux services internes via l'API",
       ],
-      contreMesures: ['OWASP API Top 10 audit', 'Rate limiting', 'Validation stricte', 'Autorisation par ressource'],
+      contreMesures: [
+        'OWASP API Top 10 audit',
+        'Rate limiting',
+        'Validation stricte',
+        'Autorisation par ressource',
+      ],
     },
   ],
 
@@ -433,7 +517,7 @@ const STRATEGIES: Record<TypeInfrastructure, StrategieAttaque[]> = {
       description: 'Cartographie du réseau : hôtes, ports, topologie, équipements.',
       etapes: [
         'masscan <plage>/24 --rate=10000 -p 1-65535 — scan ultra-rapide',
-        'nmap -sn <plage>/24 — découverte d'hôtes',
+        "nmap -sn <plage>/24 — découverte d'hôtes",
         'nmap --traceroute <cible> — topologie réseau',
         'Énumération des équipements réseau (routeurs, switches, firewalls)',
       ],
@@ -462,12 +546,17 @@ const STRATEGIES: Record<TypeInfrastructure, StrategieAttaque[]> = {
       danger: 'critique',
       description: 'Escalade via les équipements réseau : routeurs, switches, firewalls.',
       etapes: [
-        'Brute force des credentials d'équipements réseau (hydra)',
+        "Brute force des credentials d'équipements réseau (hydra)",
         'Exploitation des vulnérabilités Cisco/Juniper/Fortinet',
         'Test des SNMP community strings par défaut (public/private)',
         'Exploitation des protocoles de routage non authentifiés',
       ],
-      contreMesures: ['SNMPv3', 'Authentification des protocoles de routage', 'Mises à jour firmware', 'ACLs'],
+      contreMesures: [
+        'SNMPv3',
+        'Authentification des protocoles de routage',
+        'Mises à jour firmware',
+        'ACLs',
+      ],
     },
   ],
 };
@@ -622,10 +711,21 @@ export function detecterTypeInfrastructure(cible: string): TypeInfrastructure {
   if (lower.endsWith('.gouv') || lower.endsWith('.gov') || lower.endsWith('.mil')) {
     return 'gouv';
   }
-  if (lower.includes('aws') || lower.includes('azure') || lower.includes('gcp') || lower.includes('s3.') || lower.includes('blob.')) {
+  if (
+    lower.includes('aws') ||
+    lower.includes('azure') ||
+    lower.includes('gcp') ||
+    lower.includes('s3.') ||
+    lower.includes('blob.')
+  ) {
     return 'cloud';
   }
-  if (lower.includes('k8s') || lower.includes('kubernetes') || lower.includes('docker') || lower.includes('registry')) {
+  if (
+    lower.includes('k8s') ||
+    lower.includes('kubernetes') ||
+    lower.includes('docker') ||
+    lower.includes('registry')
+  ) {
     return 'container';
   }
   if (/^\d+\.\d+\.\d+\.\d+$/.test(lower)) {

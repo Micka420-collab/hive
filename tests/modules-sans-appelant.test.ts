@@ -50,7 +50,9 @@ function fichiers(dossier: string, extensions: readonly string[]): string[] {
 }
 
 /** Les modules dont on demande des comptes : tout `src/`, sauf les déclarations de types. */
-const MODULES = fichiers('src', ['.ts']).filter((f) => !f.endsWith('.d.ts'));
+const MODULES = fichiers('src', ['.ts']).filter(
+  (f) => !f.endsWith('.d.ts') && !f.includes('/__tests__/'),
+);
 
 /**
  * Le code qui S'EXÉCUTE quand la ruche tourne — bancs EXCLUS, c'est tout l'objet.
@@ -60,7 +62,7 @@ const MODULES = fichiers('src', ['.ts']).filter((f) => !f.endsWith('.d.ts'));
  */
 const PRODUCTION = new Map(
   [
-    ...fichiers('src', ['.ts', '.tsx']),
+    ...fichiers('src', ['.ts', '.tsx']).filter((f) => !f.includes('/__tests__/')),
     ...fichiers('dashboard/src', ['.ts', '.tsx']),
     ...fichiers('scripts', ['.mjs', '.js']),
   ].map((f) => [f, lire(f)] as const),
@@ -129,6 +131,16 @@ const MOITIES_ASSUMEES: Readonly<Record<string, string>> = {
   'src/shared/demarrage.ts':
     'ce que « lancer la ruche » veut dire ; `ruche.mjs` ne passe pas par lui',
   'src/atelier/reveil.ts': 'crochets de réveil du conteneur ; rien ne les déclenche dans l’image',
+
+  // Cyber Hive garde ces préparatifs séparés de ses flux dashboard actuels.
+  'src/cyber-hive/connection-panel.ts':
+    'génère le panneau de connexions ; le dashboard autonome ne le rend pas encore',
+  'src/cyber-hive/natural-language-parser.ts':
+    'parse une intention enrichie ; le dashboard emploie le parseur de cible canonique',
+  'src/cyber-hive/ai-orchestrator.ts':
+    'orchestre LLM et MCP ; aucun point d’entrée Cyber Hive ne sélectionne encore ce flux',
+  'src/cyber-hive/jailbreak-attaques.ts':
+    'catalogue des stratégies offensives ; aucun flux autorisé ne le propose encore à un opérateur',
 };
 
 const SANS_APPELANT = MODULES.filter((m) => !aUnAppelantDeProduction(m));

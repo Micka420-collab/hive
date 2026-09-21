@@ -9,26 +9,26 @@ import {
   outilsParCategorie,
   outilsParTag,
   outilExiste,
-} from '../tool-registry.js';
-import { creerServeurMCP } from '../mcp-server.js';
-import { CONFIG_DEFAUT, ANTI_TRACE_DEFAUT } from '../types.js';
-import { creerOrchestrateur } from '../pentest-orchestrator.js';
-import { creerVisualiseur } from '../attack-visualizer.js';
+} from '../../src/cyber-hive/tool-registry.js';
+import { creerServeurMCP } from '../../src/cyber-hive/mcp-server.js';
+import { CONFIG_DEFAUT, ANTI_TRACE_DEFAUT } from '../../src/cyber-hive/types.js';
+import { creerOrchestrateur } from '../../src/cyber-hive/pentest-orchestrator.js';
+import { creerVisualiseur } from '../../src/cyber-hive/attack-visualizer.js';
 import {
   genererMACAleatoire,
   userAgentAleatoire,
   nouvelleIdentite,
   construireCommande,
   prefixeProxychains,
-} from '../anti-trace.js';
-import { MoteurAutonome } from '../autonomous-agent.js';
-import type { SessionPentest, CiblePentest, ConfigAntiTrace } from '../types.js';
+} from '../../src/cyber-hive/anti-trace.js';
+import { MoteurAutonome } from '../../src/cyber-hive/autonomous-agent.js';
+import type { SessionPentest, CiblePentest, ConfigAntiTrace } from '../../src/cyber-hive/types.js';
 
 // ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
 //  Registre d'outils
 // ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
 
-describe('Registre d'outils', () => {
+describe("Registre d'outils", () => {
   it('liste au moins 9 outils', () => {
     const outils = listerOutils();
     expect(outils.length).toBeGreaterThanOrEqual(9);
@@ -73,8 +73,8 @@ describe('Serveur MCP', () => {
     const serveur = creerServeurMCP(CONFIG_DEFAUT.mcp);
     const defs = serveur.listerOutilsMCP();
     expect(defs.length).toBeGreaterThan(0);
-    expect(defs[0].name).toBeDefined();
-    expect(defs[0].inputSchema.required).toContain('cible');
+    expect(defs[0]!.name).toBeDefined();
+    expect(defs[0]!.inputSchema.required).toContain('cible');
   });
 
   it('répond au ping', async () => {
@@ -170,8 +170,8 @@ describe('Orchestrateur de pentest', () => {
     const session = orch.creerSession('Test', cible);
     const agents = orch.assignerAgents(session.id, ['reconnaissance', 'exploitation']);
     expect(agents.length).toBe(2);
-    expect(agents[0].role).toBe('reconnaissance');
-    expect(agents[1].role).toBe('exploitation');
+    expect(agents[0]!.role).toBe('reconnaissance');
+    expect(agents[1]!.role).toBe('exploitation');
   });
 
   it('lance la phase de reconnaissance', async () => {
@@ -185,7 +185,7 @@ describe('Orchestrateur de pentest', () => {
     orch.assignerAgents(session.id, ['reconnaissance']);
     const etapes = await orch.phaseReconnaissance(session.id);
     expect(etapes.length).toBeGreaterThan(0);
-    expect(etapes[0].type).toBe('reconnaissance');
+    expect(etapes[0]!.type).toBe('reconnaissance');
   });
 
   it('termine une session', async () => {
@@ -208,7 +208,7 @@ describe('Orchestrateur de pentest', () => {
 //  Visualiseur
 // ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
 
-describe('Visualiseur d'attaques', () => {
+describe("Visualiseur d'attaques", () => {
   it('génère un résumé de session', () => {
     const orch = creerOrchestrateur(CONFIG_DEFAUT);
     const vis = creerVisualiseur();
@@ -273,7 +273,7 @@ describe('Moteur autonome', () => {
     expect(moteur.getIterations()).toBeGreaterThan(0);
   });
 
-  it('s'arrête quand il n'y a plus rien à faire', async () => {
+  it("s'arrête quand il n'y a plus rien à faire", async () => {
     const cible: CiblePentest = {
       hote: '127.0.0.1',
       type: 'reseau',

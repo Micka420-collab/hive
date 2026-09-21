@@ -83,11 +83,11 @@ Le système de connexion IA permet à Cyber Hive de se connecter à de multiples
 
 ### Providers supportés (17)
 
-| Catégorie | Providers |
-|------------|-----------|
-| LLMs | Claude (Anthropic), GPT (OpenAI), Gemini (Google), Grok (xAI), Mistral, DeepSeek |
-| Agents de code | Claude Code, Cursor, Cline, Codex, Hermes Agent |
-| Serveurs MCP | AutoPentest, HexStrike, Shannon, Zen-AIKPentest, Nemesis, LLM4Pentest |
+| Catégorie      | Providers                                                                        |
+| -------------- | -------------------------------------------------------------------------------- |
+| LLMs           | Claude (Anthropic), GPT (OpenAI), Gemini (Google), Grok (xAI), Mistral, DeepSeek |
+| Agents de code | Claude Code, Cursor, Cline, Codex, Hermes Agent                                  |
+| Serveurs MCP   | AutoPentest, HexStrike, Shannon, Zen-AIKPentest, Nemesis, LLM4Pentest            |
 
 ### Méthodes de connexion
 
@@ -133,6 +133,7 @@ Agent de base qui enchaîne les outils en fonction des résultats précédents.
 ### Agent autonome v2 (`autonomous-agent-v2.ts`)
 
 Version enrichie avec :
+
 - Chaînes d'attaque plus profondes (Masscan, Whatweb, Gobuster, WPScan, Hashcat)
 - Décision contextuelle renforcée (sous-domaines, technologies, escalade)
 - Gestion d'historique pour éviter les boucles
@@ -140,6 +141,7 @@ Version enrichie avec :
 ### Anti-tracage v1 (`anti-trace.ts`)
 
 Techniques de base :
+
 - Shredding de logs
 - Anti-forensics (journalctl, auditd)
 - Spoofing (X-Forwarded-For, session ID)
@@ -150,6 +152,7 @@ Techniques de base :
 ### Anti-tracage v2 (`anti-trace-v2.ts`)
 
 Version massivement renforcée avec 3 niveaux de paranoïa :
+
 - **Memory wiping** : nettoyage en mémoire
 - **False flag injection** : APTE28, Lazarus, etc.
 - **Log poisoning** : corruption de logs
@@ -166,6 +169,7 @@ Version massivement renforcée avec 3 niveaux de paranoïa :
 Le module `dechiffreur.ts` permet de déchiffrer tout type de document avec 20 algorithmes :
 
 ### Algorithmes standards
+
 - AES-256-GCM, AES-256-CBC, AES-128-CBC
 - ChaCha20-Poly1305
 - 3DES, Blowfish
@@ -173,6 +177,7 @@ Le module `dechiffreur.ts` permet de déchiffrer tout type de document avec 20 a
 - Base64, Base64URL, Hex, XOR, ROT13
 
 ### Algorithmes militaires/gouvernementaux
+
 - AES-256-CCM (mode AEAD FIPS-140)
 - AES-256-XTS (chiffrement de stockage, NIST SP 800-38E)
 - DES-CBC (historique, FIPS 46-3)
@@ -191,20 +196,21 @@ Le module détecte automatiquement le format d'encodage (Base64, Base64URL, Hex,
 
 Le module `jailbreak-attaques.ts` donne à l'IA de Cyber Hive des capacités offensives sur 10 types d'infrastructures :
 
-| Type | Description |
-|------|-------------|
-| `serveur` | Services serveur (HTTP, SSH, FTP, etc.) |
-| `domaine` | Noms de domaine (DNS, whois, sous-domaines) |
-| `gouv` | Infrastructures gouvernementales (.gouv, .gov, .mil) |
-| `cloud` | AWS, Azure, GCP, K8s, Docker |
-| `iot` | Objets connectés |
-| `scada` | SCADA/ICS (systèmes industriels) |
-| `container` | Conteneurs (Docker, Kubernetes) |
-| `mobile` | Applications mobiles |
-| `api` | API REST/GraphQL |
-| `reseau` | Infrastructure réseau |
+| Type        | Description                                          |
+| ----------- | ---------------------------------------------------- |
+| `serveur`   | Services serveur (HTTP, SSH, FTP, etc.)              |
+| `domaine`   | Noms de domaine (DNS, whois, sous-domaines)          |
+| `gouv`      | Infrastructures gouvernementales (.gouv, .gov, .mil) |
+| `cloud`     | AWS, Azure, GCP, K8s, Docker                         |
+| `iot`       | Objets connectés                                     |
+| `scada`     | SCADA/ICS (systèmes industriels)                     |
+| `container` | Conteneurs (Docker, Kubernetes)                      |
+| `mobile`    | Applications mobiles                                 |
+| `api`       | API REST/GraphQL                                     |
+| `reseau`    | Infrastructure réseau                                |
 
 Le module inclut :
+
 - Un prompt système jailbreak offensif pour l'OrchestrateurIA
 - Un catalogue de stratégies d'attaque par type d'infrastructure
 - Un générateur de prompts d'attaque contextuels
@@ -248,6 +254,7 @@ Le module `report-generator.ts` produit des rapports détaillés :
 - **HTML automatique** : page HTML téléchargeable avec styles intégrés
 
 Le rapport contient :
+
 - Données trouvées (crédentiels, fichiers, bases de données)
 - Méthodologie utilisée
 - Timeline des actions
@@ -262,10 +269,13 @@ Le rapport contient :
 Deux modules de parsing en langage naturel :
 
 ### `natural-language.ts`
+
 Parseur d'input général : accepte une description libre en entrée et extrait les intentions.
 
 ### `natural-language-parser.ts`
+
 Parseur de cible : accepte une IP, URL, domaine ou description libre et extrait :
+
 - Hôte
 - Ports
 - Scope
@@ -280,18 +290,19 @@ Parseur de cible : accepte une IP, URL, domaine ou description libre et extrait 
 
 Les tests sont dans `src/cyber-hive/__tests__/` et couvrent :
 
-| Fichier | Couverture |
-|---------|------------|
-| `connection-system.test.ts` | Types, registre de providers, gestionnaire de connexions, client MCP, orchestrateur IA |
-| `dashboard.test.ts` | Dashboard WebSocket, streaming, rapports |
-| `dechiffreur.test.ts` | Détection de format, détection d'algorithme, déchiffrement (20 algorithmes), métadonnées, gestion d'erreurs |
-| `defense-port-matching.test.ts` | Word-boundary regex pour ports (évite faux positifs port 230 vs 23) |
-| `defense-sqlmap-false-positive.test.ts` | Regex SQLMap (distingue injectable de non-injectable, EN + FR, formes plurielles) |
-| `jailbreak-attaques.test.ts` | Prompt système, génération de prompts, stratégies par type/phase, détection d'infrastructure, autorisation spatiale |
+| Fichier                                 | Couverture                                                                                                          |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `connection-system.test.ts`             | Types, registre de providers, gestionnaire de connexions, client MCP, orchestrateur IA                              |
+| `dashboard.test.ts`                     | Dashboard WebSocket, streaming, rapports                                                                            |
+| `dechiffreur.test.ts`                   | Détection de format, détection d'algorithme, déchiffrement (20 algorithmes), métadonnées, gestion d'erreurs         |
+| `defense-port-matching.test.ts`         | Word-boundary regex pour ports (évite faux positifs port 230 vs 23)                                                 |
+| `defense-sqlmap-false-positive.test.ts` | Regex SQLMap (distingue injectable de non-injectable, EN + FR, formes plurielles)                                   |
+| `jailbreak-attaques.test.ts`            | Prompt système, génération de prompts, stratégies par type/phase, détection d'infrastructure, autorisation spatiale |
 
 ### CI/CD
 
 La pipeline CI (`.github/workflows/ci.yml`) exécute :
+
 - **Vitest** : suite complète de tests
 - **ESLint** : vérification du code
 - **TypeScript strict** : compilation sans erreurs
@@ -306,18 +317,18 @@ npx vitest run src/cyber-hive/
 
 ## Évolutions récentes
 
-| PR | Description |
-|-----|-------------|
+| PR   | Description                                                                                                     |
+| ---- | --------------------------------------------------------------------------------------------------------------- |
 | #379 | Fix apostrophes non échappées dans chaînes single-quote (12 fichiers, reconstitution anti-trace-v2, 4793 tests) |
-| #378 | Mise à jour documentation CYBER-HIVE.md |
-| #377 | Documentation complète du module Cyber Hive |
-| #376 | Fix SQLMap regex : formes plurielles françaises (injectables, vulnérables) |
-| #370 | Fix couilles dans les libellés français des codes de sortie |
-| #375 | IA offensive jailbreak, attaques sur tous types d'infrastructures |
-| #374 | Déchiffrement universel, 20 algorithmes (standards + militaires) |
-| #373 | Fix SQLMap false positive sur paramètres non-injectables |
-| #371 | Fix port matching avec word boundaries dans l'analyse de défense |
-| #368 | Système de connexion IA (OAuth 2.1, MCP, API) + 8 serveurs MCP externes |
-| #367 | Dashboard temps réel, attaque enrichie v2, anti-tracage v2, défense, rapport complet |
-| #366 | Fix args : validation stricte des entiers décimaux |
-| #365 | Module de penteste autonome avec MCP (initial) |
+| #378 | Mise à jour documentation CYBER-HIVE.md                                                                         |
+| #377 | Documentation complète du module Cyber Hive                                                                     |
+| #376 | Fix SQLMap regex : formes plurielles françaises (injectables, vulnérables)                                      |
+| #370 | Fix couilles dans les libellés français des codes de sortie                                                     |
+| #375 | IA offensive jailbreak, attaques sur tous types d'infrastructures                                               |
+| #374 | Déchiffrement universel, 20 algorithmes (standards + militaires)                                                |
+| #373 | Fix SQLMap false positive sur paramètres non-injectables                                                        |
+| #371 | Fix port matching avec word boundaries dans l'analyse de défense                                                |
+| #368 | Système de connexion IA (OAuth 2.1, MCP, API) + 8 serveurs MCP externes                                         |
+| #367 | Dashboard temps réel, attaque enrichie v2, anti-tracage v2, défense, rapport complet                            |
+| #366 | Fix args : validation stricte des entiers décimaux                                                              |
+| #365 | Module de penteste autonome avec MCP (initial)                                                                  |

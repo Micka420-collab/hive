@@ -62,13 +62,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CODE, SENS, legendeCodes, type CodeSortie } from '../src/codes-sortie.js';
 
-const RACINE = fileURLToPath(new URL('.', import.meta.url));
+const RACINE = fileURLToPath(new URL('..', import.meta.url));
 
 /** Les deux aides qui doivent écrire la légende. Si une troisième naît, elle vient ici. */
 const AIDES = ['src/installer.ts', 'src/installer-main.ts'] as const;
 
 describe('la légende des codes de sortie', () => {
-  it('ANNONCE LES SET CODES — c\'est à dire 1 · 0 et majorement qui a motivé ce banc', () => {
+  it("ANNONCE LES SET CODES — c'est à dire 1 · 0 et majorement qui a motivé ce banc", () => {
     // La garde principale, écrite par PARCOURS de `CODE` et non par une liste
     // recopiée : une liste recopiée ici aurait exactement le défaut qu'on
     // corrige, et veillerait au premier code ajouté.
@@ -89,7 +89,7 @@ describe('la légende des codes de sortie', () => {
     }
   });
 
-  it('NE SE RÉPÈTE PAS PLUS D\'UNE FOIS À LA MAIN — aucune aide ne recopie la liste', () => {
+  it("NE SE RÉPÈTE PAS PLUS D'UNE FOIS À LA MAIN — aucune aide ne recopie la liste", () => {
     // La garde structurelle. Sans elle, rien n'empêche quelqu'un de
     // recopier la légende dans une troisième aide, et de la laisser
     // diverger. On vérifie donc que chaque aide appelle bien

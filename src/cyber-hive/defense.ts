@@ -45,10 +45,18 @@ export class AnalyseurDefense {
     // Calcul du score
     for (const reco of recommandations) {
       switch (reco.severite) {
-        case 'critique': score -= 25; break;
-        case 'eleve': score -= 15; break;
-        case 'moyenne': score -= 8; break;
-        case 'faible': score -= 3; break;
+        case 'critique':
+          score -= 25;
+          break;
+        case 'eleve':
+          score -= 15;
+          break;
+        case 'moyenne':
+          score -= 8;
+          break;
+        case 'faible':
+          score -= 3;
+          break;
       }
     }
     score = Math.max(0, Math.min(100, score));
@@ -76,7 +84,7 @@ export class AnalyseurDefense {
 
     const stdout = etape.resultat.stdout.toLowerCase();
 
-    switch (etape.outilId ?? etape.type) {
+    switch (etape.resultat.outilId || etape.type) {
       case 'nmap':
         this.analyserNmap(stdout, recos, faiblesses);
         break;
@@ -114,7 +122,8 @@ export class AnalyseurDefense {
         severite: 'critique',
         titre: 'Telnet exposé',
         description: 'Le service Telnet est ouvert. Il transmet les credentials en clair.',
-        correctif: 'Désactiver Telnet et utiliser SSH (port 22) à la place. Si indispensable, restreindre par pare-feu.',
+        correctif:
+          'Désactiver Telnet et utiliser SSH (port 22) à la place. Si indispensable, restreindre par pare-feu.',
       });
       faiblesses.push('Telnet exposé (credentials en clair).');
     }
@@ -131,8 +140,10 @@ export class AnalyseurDefense {
       recos.push({
         severite: 'moyenne',
         titre: 'SMB exposé',
-        description: "Le service SMB est accessible. Risque de fuite d'informations (Null Session, EternalBlue).",
-        correctif: 'Restreindre SMB aux réseaux internes. Appliquer les correctifs Windows. Désactiver SMBv1.',
+        description:
+          "Le service SMB est accessible. Risque de fuite d'informations (Null Session, EternalBlue).",
+        correctif:
+          'Restreindre SMB aux réseaux internes. Appliquer les correctifs Windows. Désactiver SMBv1.',
       });
       faiblesses.push('SMB exposé.');
     }
@@ -141,19 +152,25 @@ export class AnalyseurDefense {
         severite: 'eleve',
         titre: 'RDP exposé',
         description: "Le Bureau à distance est accessible de l'extérieur.",
-        correctif: 'Utiliser un VPN pour accéder au RDP. Activer NLA. Restreindre par pare-feu. Changer le port par défaut.',
+        correctif:
+          'Utiliser un VPN pour accéder au RDP. Activer NLA. Restreindre par pare-feu. Changer le port par défaut.',
       });
       faiblesses.push('RDP exposé publiquement.');
     }
   }
 
-  private analyserNikto(stdout: string, recos: RecommandationDefense[], faiblesses: string[]): void {
+  private analyserNikto(
+    stdout: string,
+    recos: RecommandationDefense[],
+    faiblesses: string[],
+  ): void {
     if (stdout.includes('x-frame-options')) {
       recos.push({
         severite: 'moyenne',
         titre: 'En-tête X-Frame-Options manquant',
         description: 'Absence de protection contre le clickjacking.',
-        correctif: "Ajouter l'en-tête X-Frame-Options: DENY ou SAMEORIGIN dans la configuration du serveur web.",
+        correctif:
+          "Ajouter l'en-tête X-Frame-Options: DENY ou SAMEORIGIN dans la configuration du serveur web.",
       });
       faiblesses.push('Clickjacking possible (X-Frame-Options manquant).');
     }
@@ -169,8 +186,10 @@ export class AnalyseurDefense {
       recos.push({
         severite: 'eleve',
         titre: 'HSTS manquant',
-        description: 'Absence de Strict-Transport-Security. Vulnérable au downgrade HTTPS vers HTTP.',
-        correctif: 'Ajouter Strict-Transport-Security: max-age=31536000; includeSubDomains; preload.',
+        description:
+          'Absence de Strict-Transport-Security. Vulnérable au downgrade HTTPS vers HTTP.',
+        correctif:
+          'Ajouter Strict-Transport-Security: max-age=31536000; includeSubDomains; preload.',
       });
       faiblesses.push('Pas de HSTS (downgrade possible).');
     }
@@ -185,17 +204,22 @@ export class AnalyseurDefense {
     }
   }
 
-  private analyserNuclei(stdout: string, recos: RecommandationDefense[], faiblesses: string[]): void {
+  private analyserNuclei(
+    stdout: string,
+    recos: RecommandationDefense[],
+    faiblesses: string[],
+  ): void {
     const lignes = stdout.split('\n').filter((l) => l.includes('[') && l.includes(']'));
     for (const ligne of lignes) {
-      if (ligne.includes('critical') || ligne.includes('cvss') && ligne.match(/cvss.*[89]\./)) {
+      if (ligne.includes('critical') || (ligne.includes('cvss') && ligne.match(/cvss.*[89]\./))) {
         const match = ligne.match(/\[([^\]]+)\]/);
         const templateId = match?.[1] ?? 'unknown';
         recos.push({
           severite: 'critique',
           titre: `Vulnérabilité Nuclei critique : ${templateId}`,
           description: `Template Nuclei ${templateId} matché. Vulnérabilité critique détectée.`,
-          correctif: "Appliquer le correctif de l'éditeur immédiatement. Restreindre l'accès au service vulnérable.",
+          correctif:
+            "Appliquer le correctif de l'éditeur immédiatement. Restreindre l'accès au service vulnérable.",
         });
         faiblesses.push(`Vulnérabilité critique : ${templateId}.`);
       } else if (ligne.includes('high')) {
@@ -212,32 +236,45 @@ export class AnalyseurDefense {
     }
   }
 
-  private analyserHydra(stdout: string, recos: RecommandationDefense[], faiblesses: string[]): void {
+  private analyserHydra(
+    stdout: string,
+    recos: RecommandationDefense[],
+    faiblesses: string[],
+  ): void {
     if (stdout.includes('host: ') && stdout.includes('password:')) {
       recos.push({
         severite: 'critique',
         titre: 'Credentials faibles découverts',
-        description: 'Des credentials ont été trouvés par brute-force. Les mots de passe sont trop faibles.',
-        correctif: 'Imposer une politique de mots de passe complexes (12+ caractères, mix majuscules/minuscules/chiffres/symboles). Activer le verrouillage de comptes après N tentatives. Activer 2FA.',
+        description:
+          'Des credentials ont été trouvés par brute-force. Les mots de passe sont trop faibles.',
+        correctif:
+          'Imposer une politique de mots de passe complexes (12+ caractères, mix majuscules/minuscules/chiffres/symboles). Activer le verrouillage de comptes après N tentatives. Activer 2FA.',
       });
       faiblesses.push('Credentials faibles (brute-force réussi).');
     }
   }
 
-  private analyserSqlmap(stdout: string, recos: RecommandationDefense[], faiblesses: string[]): void {
+  private analyserSqlmap(
+    stdout: string,
+    recos: RecommandationDefense[],
+    faiblesses: string[],
+  ): void {
     // Patterns positifs uniques : "is injectable" / "is vulnerable" (EN)
     // et "est injectable" / "est vulnérable" (FR).
     // Évite les faux positifs sur "do not appear to be injectable"
     // ou "not injectable" / "not vulnerable".
     // Les formes plurielles ("injectables", "vulnérables") sont également
     // couvertes car SQLMap peut scanner plusieurs paramètres simultanément.
-    const patternInjection = /\b(?:is|are)\s+(?:injectables?|vulnerables?)\b|\b(?:est|sont)\s+(?:injectables?|vuln[eé]rables?)\b/;
+    const patternInjection =
+      /\b(?:is|are)\s+(?:injectables?|vulnerables?)\b|\b(?:est|sont)\s+(?:injectables?|vuln[eé]rables?)\b/;
     if (patternInjection.test(stdout)) {
       recos.push({
         severite: 'critique',
         titre: 'Injection SQL confirmée',
-        description: 'Une injection SQL a été confirmée par SQLMap. La base de données est compromise.',
-        correctif: 'Utiliser des requêtes paramétrées (prepared statements) partout. Valider toutes les entrées utilisateur. Appliquer le principe de moindre privilège au compte DB. Mettre à jour le SGBD.',
+        description:
+          'Une injection SQL a été confirmée par SQLMap. La base de données est compromise.',
+        correctif:
+          'Utiliser des requêtes paramétrées (prepared statements) partout. Valider toutes les entrées utilisateur. Appliquer le principe de moindre privilège au compte DB. Mettre à jour le SGBD.',
       });
       faiblesses.push('Injection SQL confirmée.');
     }
@@ -249,7 +286,8 @@ export class AnalyseurDefense {
         severite: 'eleve',
         titre: "Interface d'administration exposée",
         description: "Une page d'administration est accessible publiquement.",
-        correctif: "Restreindre l'accès à /admin par IP, VPN ou authentification forte. Ajouter un WAF.",
+        correctif:
+          "Restreindre l'accès à /admin par IP, VPN ou authentification forte. Ajouter un WAF.",
       });
       faiblesses.push("Interface d'administration exposée.");
     }
@@ -275,7 +313,9 @@ export class AnalyseurDefense {
     const lignes: string[] = [];
 
     lignes.push(`Posture de sécurité : ${niveau} (${score}/100)`);
-    lignes.push(`${recos.length} recommandation(s) : ${nbCritique} critique(s), ${nbEleve} élevée(s).`);
+    lignes.push(
+      `${recos.length} recommandation(s) : ${nbCritique} critique(s), ${nbEleve} élevée(s).`,
+    );
     if (forces.length > 0) lignes.push(`Points forts : ${forces.length}.`);
     if (faiblesses.length > 0) lignes.push(`Faiblesses : ${faiblesses.length}.`);
 

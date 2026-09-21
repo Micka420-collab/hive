@@ -1,10 +1,25 @@
 // Tests pour les nouveaux modules Cyber Hive v2.
 import { describe, it, expect } from 'vitest';
-import { parserCibleNaturelle, validerCible } from './natural-language.js';
-import { creerAnalyseurDefense } from './defense.js';
-import { creerGenerateurRapport } from './report-generator.js';
-import { creerGestionnaireAntiTraceV2 } from './anti-trace-v2.js';
-import type { SessionPentest } from './types.js';
+import { parserCibleNaturelle, validerCible } from '../natural-language.js';
+import { creerAnalyseurDefense } from '../defense.js';
+import { creerGenerateurRapport, type RapportComplet } from '../report-generator.js';
+import { creerGestionnaireAntiTraceV2 } from '../anti-trace-v2.js';
+import { ANTI_TRACE_DEFAUT, type SessionPentest } from '../types.js';
+
+function creerSession(nom = 'test', statut: SessionPentest['statut'] = 'termine'): SessionPentest {
+  return {
+    id: 'test',
+    nom,
+    cible: { hote: 'localhost', type: 'reseau', scopeAutorise: ['localhost'] },
+    statut,
+    agents: [],
+    etapes: [],
+    antiTrace: ANTI_TRACE_DEFAUT,
+    outilsDisponibles: [],
+    creeeAt: Date.now(),
+    termineeAt: statut === 'termine' ? Date.now() : null,
+  };
+}
 
 // ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
 //  Parseur langage naturel
@@ -56,12 +71,17 @@ describe('parserCibleNaturelle', () => {
 
 describe('validerCible', () => {
   it('valide une cible correcte', () => {
-    const r = validerCible({ hote: '192.168.1.1', type: 'reseau' });
+    const r = validerCible({ hote: '192.168.1.1', type: 'reseau', scopeAutorise: ['192.168.1.1'] });
     expect(r.valide).toBe(true);
   });
 
   it('rejette un port invalide', () => {
-    const r = validerCible({ hote: '192.168.1.1', type: 'reseau', ports: [99999] });
+    const r = validerCible({
+      hote: '192.168.1.1',
+      type: 'reseau',
+      ports: [99999],
+      scopeAutorise: ['192.168.1.1'],
+    });
     expect(r.valide).toBe(false);
   });
 });
@@ -73,10 +93,7 @@ describe('validerCible', () => {
 describe('AnalyseurDefense', () => {
   it('analyse une session vide', () => {
     const a = creerAnalyseurDefense();
-    const session: SessionPentest = {
-      id: 'test', nom: 'test', cible: { hote: 'localhost', type: 'reseau' },
-      statut: 'terminee', etapes: [], creeeAt: Date.now(), antiTrace: {} as any,
-    };
+    const session = creerSession();
     const p = a.analyserSession(session);
     expect(p.score).toBe(100);
     expect(p.niveau).toBe('A');
@@ -84,16 +101,27 @@ describe('AnalyseurDefense', () => {
 
   it('déduit des points pour des vulnérabilités', () => {
     const a = creerAnalyseurDefense();
-    const session: SessionPentest = {
-      id: 'test', nom: 'test', cible: { hote: 'localhost', type: 'reseau' },
-      statut: 'terminee', etapes: [], creeeAt: Date.now(), antiTrace: {} as any,
-    };
+    const session = creerSession();
     // Simuler une étape avec telnet détecté
     session.etapes.push({
-      id: 'e1', sessionId: 'test', agentId: 'a1', type: 'reconnaissance',
-      severite: 'info', description: 'Nmap scan', ts: Date.now(), dureeMs: 100,
-      outilId: 'nmap',
-      resultat: { succes: true, stdout: '23/tcp open telnet', stderr: '', codeRetour: 0, dureeMs: 100 },
+      id: 'e1',
+      sessionId: 'test',
+      agentId: 'a1',
+      type: 'reconnaissance',
+      severite: 'info',
+      description: 'Nmap scan',
+      explication: 'Détection des services exposés.',
+      ts: Date.now(),
+      dureeMs: 100,
+      resultat: {
+        outilId: 'nmap',
+        succes: true,
+        stdout: '23/tcp open telnet',
+        stderr: '',
+        codeSortie: 0,
+        dureeMs: 100,
+        ts: Date.now(),
+      },
     });
     const p = a.analyserSession(session);
     expect(p.score).toBeLessThan(100);
@@ -109,12 +137,16 @@ describe('AnalyseurDefense', () => {
 describe('GenerateurRapport', () => {
   it('génère un rapport Markdown', () => {
     const g = creerGenerateurRapport();
-    const rapport = {
-      session: {
-        id: 'test', nom: 'Test Pentest', cible: { hote: 'localhost', type: 'reseau' },
-        statut: 'terminee', etapes: [], creeeAt: Date.now(), antiTrace: {} as any,
+    const rapport: RapportComplet = {
+      session: creerSession('Test Pentest'),
+      posture: {
+        score: 75,
+        niveau: 'B' as const,
+        forces: [],
+        faiblesses: ['Test'],
+        recommandations: [],
+        resume: 'Test',
       },
-      posture: { score: 75, niveau: 'B' as const, forces: [], faiblesses: ['Test'], recommandations: [], resume: 'Test' },
       tracesAntiForensics: [],
       dateGeneration: Date.now(),
     };
@@ -126,12 +158,16 @@ describe('GenerateurRapport', () => {
 
   it('génère un rapport HTML', () => {
     const g = creerGenerateurRapport();
-    const rapport = {
-      session: {
-        id: 'test', nom: 'Test Pentest', cible: { hote: 'localhost', type: 'reseau' },
-        statut: 'terminee', etapes: [], creeeAt: Date.now(), antiTrace: {} as any,
+    const rapport: RapportComplet = {
+      session: creerSession('Test Pentest'),
+      posture: {
+        score: 50,
+        niveau: 'C' as const,
+        forces: [],
+        faiblesses: [],
+        recommandations: [],
+        resume: 'Test',
       },
-      posture: { score: 50, niveau: 'C' as const, forces: [], faiblesses: [], recommandations: [], resume: 'Test' },
       tracesAntiForensics: [],
       dateGeneration: Date.now(),
     };
@@ -143,12 +179,16 @@ describe('GenerateurRapport', () => {
 
   it('génère un rapport JSON', () => {
     const g = creerGenerateurRapport();
-    const rapport = {
-      session: {
-        id: 'test', nom: 'Test', cible: { hote: 'localhost', type: 'reseau' },
-        statut: 'terminee', etapes: [], creeeAt: Date.now(), antiTrace: {} as any,
+    const rapport: RapportComplet = {
+      session: creerSession('Test'),
+      posture: {
+        score: 100,
+        niveau: 'A' as const,
+        forces: [],
+        faiblesses: [],
+        recommandations: [],
+        resume: 'OK',
       },
-      posture: { score: 100, niveau: 'A' as const, forces: [], faiblesses: [], recommandations: [], resume: 'OK' },
       tracesAntiForensics: [],
       dateGeneration: Date.now(),
     };
@@ -161,35 +201,32 @@ describe('GenerateurRapport', () => {
 // ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
 //  Anti-trace v2
 // ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌�iche', () => {
+describe('GestionnaireAntiTraceV2', () => {
   it('exécute la séquence complète en mode simulation', async () => {
     const m = creerGestionnaireAntiTraceV2({ modeSimulation: true });
-    const session: SessionPentest = {
-      id: 'test', nom: 'test', cible: { hote: 'localhost', type: 'reseau' },
-      statut: 'en_cours', etapes: [], creeeAt: Date.now(), antiTrace: {} as any,
-    };
+    const session = creerSession('test', 'reconnaissance');
     const actions = await m.executerSequenceComplete(session);
     expect(actions.length).toBeGreaterThan(10);
-    expect(actions.every(a => a.statut === 'simule')).toBe(true);
+    expect(actions.every((a) => a.statut === 'simule')).toBe(true);
   });
 
   it('génère une identité spoofée', () => {
     const m = creerGestionnaireAntiTraceV2();
     const id = m.getIdentiteCourante();
     expect(id.userAgent).toBeTruthy();
-    expect(id.mac).toMatch(/^[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}$/);
+    expect(id.mac).toMatch(
+      /^[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}$/,
+    );
     expect(id.sessionId).toHaveLength(32);
   });
 
   it('injecte un faux drapeau', async () => {
     const m = creerGestionnaireAntiTraceV2({ modeSimulation: true, fauxDrapeau: true });
-    const session: SessionPentest = {
-      id: 'test', nom: 'test', cible: { hote: 'localhost', type: 'reseau' },
-      statut: 'en_cours', etapes: [], creeeAt: Date.now(), antiTrace: {} as any,
-    };
+    const session = creerSession('test', 'reconnaissance');
     await m.executerSequenceComplete(session);
     const actions = m.getActions();
-    const fauxDrapeau = actions.find(a => a.nom === 'faux-drapeau');
+    const fauxDrapeau = actions.find((a) => a.nom === 'faux-drapeau');
     expect(fauxDrapeau).toBeDefined();
-    expect(fauxDrapeau?.details).toContain('APT');
+    expect(fauxDrapeau?.details).toContain("fausser l'attribution");
   });
 });

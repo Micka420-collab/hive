@@ -6,7 +6,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { randomUUID } from 'node:crypto';
-import type { SessionPentest, EtapeAttaque } from './types.js';
+import type { SessionPentest } from './types.js';
 import type { ContexteCible } from './autonomous-agent-v2.js';
 import type { PostureSecurite } from './defense.js';
 import type { ActionAntiForensic } from './anti-trace-v2.js';
@@ -109,19 +109,28 @@ export class ServeurDashboard {
     }
 
     if (url === '/api/rapport/markdown' && this.etat.session) {
-      res.writeHead(200, { 'Content-Type': 'text/markdown', 'Content-Disposition': 'attachment; filename="rapport-pentest.md"' });
+      res.writeHead(200, {
+        'Content-Type': 'text/markdown',
+        'Content-Disposition': 'attachment; filename="rapport-pentest.md"',
+      });
       res.end(this.generateur.genererMarkdown(this.construireRapport()));
       return;
     }
 
     if (url === '/api/rapport/html' && this.etat.session) {
-      res.writeHead(200, { 'Content-Type': 'text/html', 'Content-Disposition': 'attachment; filename="rapport-pentest.html"' });
+      res.writeHead(200, {
+        'Content-Type': 'text/html',
+        'Content-Disposition': 'attachment; filename="rapport-pentest.html"',
+      });
       res.end(this.generateur.genererHTML(this.construireRapport()));
       return;
     }
 
     if (url === '/api/rapport/json' && this.etat.session) {
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Disposition': 'attachment; filename="rapport-pentest.json"' });
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Content-Disposition': 'attachment; filename="rapport-pentest.json"',
+      });
       res.end(this.generateur.genererJSON(this.construireRapport()));
       return;
     }
@@ -154,7 +163,7 @@ export class ServeurDashboard {
   //  Lancement d'attaque
   // ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
 
-  private async lancerAttaque(entree: string, ws: WebSocket): Promise<void> {
+  private async lancerAttaque(entree: string, _ws: WebSocket): Promise<void> {
     this.setStatut('parsing');
     this.broadcast({ type: 'statut', statut: 'parsing' });
 
@@ -168,17 +177,20 @@ export class ServeurDashboard {
       id: randomUUID(),
       nom: `Pentest ${resultat.cible.hote}`,
       cible: resultat.cible,
-      statut: 'en_cours',
+      statut: 'reconnaissance',
+      agents: [],
       etapes: [],
       creeeAt: Date.now(),
       antiTrace: {
-        modeSimulation: true,
         rotationIdentite: true,
         tor: true,
         proxychains: true,
         nettoyageLogs: true,
-        conteneursEphemeress: true,
+        conteneursEphemerers: true,
+        delaiAleatoireMs: 0,
       },
+      outilsDisponibles: [],
+      termineeAt: null,
     };
     this.etat.session = session;
     this.broadcast({ type: 'session', session });
@@ -186,14 +198,17 @@ export class ServeurDashboard {
     // Anti-trace pré-attaque
     this.setStatut('attacking');
     this.log('Démarrage anti-traçage pré-attaque...');
-    const antiTrace = creerGestionnaireAntiTraceV2({ modeSimulation: true, niveauParano: 'parano' });
+    const antiTrace = creerGestionnaireAntiTraceV2({
+      modeSimulation: true,
+      niveauParano: 'parano',
+    });
     await antiTrace.executerSequenceComplete(session);
     this.etat.actionsAntiTrace = antiTrace.getActions();
     this.broadcast({ type: 'anti-trace', actions: this.etat.actionsAntiTrace });
     this.log(`${this.etat.actionsAntiTrace.length} actions anti-forensics exécutées.`);
 
     // Lancer l'agent autonome
-    this.log('Démarrage du moteur d\'attaque autonome...');
+    this.log("Démarrage du moteur d'attaque autonome...");
     try {
       const { etapes, contexte } = await lancerAgentEnrichi(session, 'agent-dashboard', 25);
       this.etat.contexte = contexte;
@@ -211,7 +226,7 @@ export class ServeurDashboard {
       this.broadcast({ type: 'posture', posture: this.etat.posture });
 
       // Finaliser
-      session.statut = 'terminee';
+      session.statut = 'termine';
       session.termineeAt = Date.now();
       this.setStatut('done');
       this.log('Pentest terminé. Rapport disponible au téléchargement.');
@@ -240,7 +255,14 @@ export class ServeurDashboard {
   }
 
   private reset(): void {
-    this.etat = { session: null, contexte: null, posture: null, actionsAntiTrace: [], statut: 'idle', log: [] };
+    this.etat = {
+      session: null,
+      contexte: null,
+      posture: null,
+      actionsAntiTrace: [],
+      statut: 'idle',
+      log: [],
+    };
     this.broadcast({ type: 'reset' });
   }
 

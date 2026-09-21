@@ -21,7 +21,7 @@
 import { describe, expect, it } from 'vitest';
 import { analyser, entier, nonInteractif, type Forme } from '../src/args.js';
 import { CODE } from '../src/codes-sortie.js';
-import { completerEnv, lireEnv, type Reglage } from '../src/installateur.js';
+import { completerEnv, lireEnv, type Reglage } from '../src/installer.js';
 
 const CONNUS: Record<string, Forme> = {
   yes: 'booleen',
@@ -32,7 +32,7 @@ const CONNUS: Record<string, Forme> = {
   bind: 'valeur',
 };
 
-describe('les drapeaux d\'un drapeau', () => {
+describe("les drapeaux d'un drapeau", () => {
   it('LES DEUX MARCHE — `--port 7777` ET `--port=7777`', () => {
     // Les deux se tapent naturellement ; en refuser une frustrerait.
     // l'utilisateur. On les accepte toutes les deux en silence est pure.
@@ -60,7 +60,9 @@ describe('ce qui est REFUSÉ, et jamais dévié', () => {
     const a = analyser(['--dry-runn'], CONNUS);
     expect(a.erreur).not.toBeNull();
     expect(a.erreur!.message).toContain('--dry-runn');
-    expect(a.erreur!.message, 'sans la liste, il faut aller lire le code source').toContain('--port');
+    expect(a.erreur!.message, 'sans la liste, il faut aller lire le code source').toContain(
+      '--port',
+    );
   });
 
   it('un booléen à qui on donne une valeur est une erreur', () => {
@@ -94,7 +96,7 @@ describe('lire un entier', () => {
     expect(r).toEqual({ valeur: 7777, erreur: null });
   });
 
-  it('REFUSE ce qui n\'est pas un entier dans les bornes — au lieu de rendre NaN', () => {
+  it("REFUSE ce qui n'est pas un entier dans les bornes — au lieu de rendre NaN", () => {
     // Rendre NaN silencieusement, c'est reporter la panne plus loin, au moment
     // où le port vaudra ± NaN ± et où le message ne dira plus d'où ça vient.
     // On rend donc la panne la plus précise, et ce qui peut servir — la valeur
@@ -106,7 +108,7 @@ describe('lire un entier', () => {
         defaut: 7777,
       });
       expect(r.erreur, mauvais).not.toBeNull();
-      expect(r.valeur, 'le défaut est rendu pour que l\'appelant puisse continuer').toBe(7777);
+      expect(r.valeur, "le défaut est rendu pour que l'appelant puisse continuer").toBe(7777);
     }
   });
 
@@ -155,10 +157,10 @@ describe('compléter un `.env` sans le réécrire', () => {
     expect(completerEnv(ecritALaMain, REGLEGE)).toBe(ecritALaMain);
   });
 
-  it('LES COMMENTAIRES ET L\'ORDRE DE L\'HUMAIN SURVIVENT À UNE COMPLÉTION', () => {
-    const avant = ['# pourquoi j\'ai mis ça', 'HIVE_TOKEN=le-mien', ''].join('\n');
+  it("LES COMMENTAIRES ET L'ORDRE DE L'HUMAIN SURVIVENT À UNE COMPLÉTION", () => {
+    const avant = ["# pourquoi j'ai mis ça", 'HIVE_TOKEN=le-mien', ''].join('\n');
     const apres = completerEnv(avant, REGLEGE);
-    expect(apres.startsWith('# pourquoi j\'ai mis ça\nHIVE_TOKEN=le-mien')).toBe(true);
+    expect(apres.startsWith("# pourquoi j'ai mis ça\nHIVE_TOKEN=le-mien")).toBe(true);
     expect(apres, 'la clé manquante est ajoutée à la fin').toContain('HIVE_PORT=7777');
     expect(apres, 'avec son commentaire').toContain('# le port');
     expect(lireEnv(apres).get('HIVE_TOKEN'), 'la valeur en service est intacte').toBe('le-mien');

@@ -9,9 +9,8 @@ import {
   necessiteAutorisationSpeciale,
   catalogueComplet,
   type TypeInfrastructure,
-  type PhaseAttaque,
   type ContexteAttaque,
-} from '../jailbreak-attaques';
+} from '../jailbreak-attaques.js';
 
 describe('jailbreak-attaques', () => {
   describe('construirePromptSystemeJailbreak', () => {
@@ -26,7 +25,7 @@ describe('jailbreak-attaques', () => {
       expect(prompt).toContain('MODE OFFENSIF');
     });
 
-    it('liste tous les types d'infrastructure', () => {
+    it("liste tous les types d'infrastructure", () => {
       const prompt = construirePromptSystemeJailbreak();
       expect(prompt).toContain('serveur');
       expect(prompt).toContain('domaine');
@@ -55,7 +54,7 @@ describe('jailbreak-attaques', () => {
       expect(prompt).toContain('proxychains');
     });
 
-    it('liste toutes les phases d'attaque', () => {
+    it("liste toutes les phases d'attaque", () => {
       const prompt = construirePromptSystemeJailbreak();
       expect(prompt).toContain('reconnaissance');
       expect(prompt).toContain('scan');
@@ -104,7 +103,7 @@ describe('jailbreak-attaques', () => {
       expect(result.strategies.every((s) => s.phase === 'exploitation')).toBe(true);
     });
 
-    it('retombe sur toutes les stratégies si la phase n'a pas de match', () => {
+    it("retombe sur toutes les stratégies si la phase n'a pas de match", () => {
       const ctx: ContexteAttaque = {
         ...ctxBase,
         type: 'serveur',
@@ -135,7 +134,7 @@ describe('jailbreak-attaques', () => {
       expect(result.userPrompt).toContain('HTTP');
     });
 
-    it('inclut l'historique des actions', () => {
+    it("inclut l'historique des actions", () => {
       const ctx: ContexteAttaque = {
         ...ctxBase,
         historique: ['nmap scan effectué', 'port 22 ouvert détecté'],
@@ -145,7 +144,7 @@ describe('jailbreak-attaques', () => {
       expect(result.userPrompt).toContain('port 22 ouvert détecté');
     });
 
-    it('marque l'autorisation comme non confirmée', () => {
+    it("marque l'autorisation comme non confirmée", () => {
       const ctx: ContexteAttaque = {
         ...ctxBase,
         autorise: false,
@@ -154,7 +153,7 @@ describe('jailbreak-attaques', () => {
       expect(result.userPrompt).toContain('NON CONFIRMÉE');
     });
 
-    it('marque l'autorisation comme confirmée', () => {
+    it("marque l'autorisation comme confirmée", () => {
       const result = genererPromptAttaque(ctxBase);
       expect(result.userPrompt).toContain('OUI');
     });
@@ -298,7 +297,7 @@ describe('jailbreak-attaques', () => {
 
     it('chaque type a au moins une stratégie', () => {
       const cat = catalogueComplet();
-      for (const [type, strategies] of Object.entries(cat)) {
+      for (const strategies of Object.values(cat)) {
         expect(strategies.length).toBeGreaterThan(0);
       }
     });

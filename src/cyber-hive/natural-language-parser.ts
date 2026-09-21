@@ -9,15 +9,65 @@ const REGEX_IP = /\b(?:(?:25[0-5]|2[0-4]\d|[01]?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|
 const REGEX_URL = /https?:\/\/[^\s<>"']+/gi;
 const REGEX_DOMAIN = /\b(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}\b/g;
 const REGEX_PORT = /(?:port\s*[:#]?\s*|:)(\d{1,5})\b/gi;
-const REGEX_SCOPE = /(bug\s*bounty|ctf|red\s*team|audit|full\s*scan|quick\s*scan|deep\s*scan|reconnaissance|exploitation|défense|defense)/gi;
 
 // Mots-clés d'action
-const MOTS_CLES_SCAN = ['scan', 'scanne', 'scanner', 'teste', 'test', 'pentest', 'audit', 'analyse', 'vérifie', 'verifie', 'inspecte', 'inspect'];
-const MOTS_CLES_PROFOND = ['profond', 'deep', 'complet', 'full', 'exhaustif', 'approfondi', 'en profondeur', 'à fond', 'a fond', 'ultra'];
+const MOTS_CLES_SCAN = [
+  'scan',
+  'scanne',
+  'scanner',
+  'teste',
+  'test',
+  'pentest',
+  'audit',
+  'analyse',
+  'vérifie',
+  'verifie',
+  'inspecte',
+  'inspect',
+];
+const MOTS_CLES_PROFOND = [
+  'profond',
+  'deep',
+  'complet',
+  'full',
+  'exhaustif',
+  'approfondi',
+  'en profondeur',
+  'à fond',
+  'a fond',
+  'ultra',
+];
 const MOTS_CLES_RAPIDE = ['rapide', 'quick', 'express', 'léger', 'leger', 'surface'];
-const MOTS_CLES_ATTAQUE = ['attaque', 'attack', 'exploit', 'exploitation', 'brute', 'force', 'intrusion'];
-const MOTS_CLES_DEFENSE = ['défense', 'defense', 'protection', 'sécurise', 'securise', 'durci', 'durcir', 'hardening'];
-const MOTS_CLES_TRACE = ['trace', 'anti-trace', 'anti-tracage', 'anti-traçage', 'forensic', 'furtif', 'stealth', 'anonyme', 'invisible'];
+const MOTS_CLES_ATTAQUE = [
+  'attaque',
+  'attack',
+  'exploit',
+  'exploitation',
+  'brute',
+  'force',
+  'intrusion',
+];
+const MOTS_CLES_DEFENSE = [
+  'défense',
+  'defense',
+  'protection',
+  'sécurise',
+  'securise',
+  'durci',
+  'durcir',
+  'hardening',
+];
+const MOTS_CLES_TRACE = [
+  'trace',
+  'anti-trace',
+  'anti-tracage',
+  'anti-traçage',
+  'forensic',
+  'furtif',
+  'stealth',
+  'anonyme',
+  'invisible',
+];
 
 export interface ResultatParse {
   cible: CiblePentest;
@@ -42,10 +92,10 @@ export function parserInputNaturel(input: string): ResultatParse {
 
   // Détection de l'intention
   let intention: ResultatParse['intention'] = 'scan';
-  const aMotAttaque = MOTS_CLES_ATTAQUE.some(m => texte.includes(m));
-  const aMotDefense = MOTS_CLES_DEFENSE.some(m => texte.includes(m));
-  const aMotScan = MOTS_CLES_SCAN.some(m => texte.includes(m));
-  const aMotProfond = MOTS_CLES_PROFOND.some(m => texte.includes(m));
+  const aMotAttaque = MOTS_CLES_ATTAQUE.some((m) => texte.includes(m));
+  const aMotDefense = MOTS_CLES_DEFENSE.some((m) => texte.includes(m));
+  const aMotScan = MOTS_CLES_SCAN.some((m) => texte.includes(m));
+  const aMotProfond = MOTS_CLES_PROFOND.some((m) => texte.includes(m));
 
   if (aMotAttaque && aMotDefense) {
     intention = 'full-pentest';
@@ -68,10 +118,10 @@ export function parserInputNaturel(input: string): ResultatParse {
 
   // Détection de la profondeur
   let profondeur: ResultatParse['profondeur'] = 'standard';
-  if (MOTS_CLES_PROFOND.some(m => texte.includes(m))) {
+  if (MOTS_CLES_PROFOND.some((m) => texte.includes(m))) {
     profondeur = 'profond';
     confiance += 0.1;
-  } else if (MOTS_CLES_RAPIDE.some(m => texte.includes(m))) {
+  } else if (MOTS_CLES_RAPIDE.some((m) => texte.includes(m))) {
     profondeur = 'surface';
     confiance += 0.05;
   }
@@ -81,11 +131,18 @@ export function parserInputNaturel(input: string): ResultatParse {
 
   // Tentative URL d'abord
   const urlMatch = input.match(REGEX_URL);
-  if (urlMatch) {
-    const url = urlMatch[0];
-    let hote = url.replace(/^https?:\/\//, '').split('/')[0].split(':')[0];
+  const url = urlMatch?.[0];
+  if (url) {
+    const hote = url
+      .replace(/^https?:\/\//, '')
+      .split('/')[0]
+      ?.split(':')[0];
+    if (!hote) {
+      throw new Error(`Impossible d'extraire l'hôte de l'URL : "${url}"`);
+    }
     const portMatch = url.match(/:(\d{2,5})/);
-    const ports = portMatch ? [parseInt(portMatch[1])] : undefined;
+    const port = portMatch?.[1];
+    const ports = port ? [parseInt(port, 10)] : undefined;
     cible = {
       hote,
       url,
@@ -99,8 +156,8 @@ export function parserInputNaturel(input: string): ResultatParse {
   // Tentative IP
   if (!cible) {
     const ipMatch = input.match(REGEX_IP);
-    if (ipMatch) {
-      const hote = ipMatch[0];
+    const hote = ipMatch?.[0];
+    if (hote) {
       const ports = extrairePorts(input);
       cible = {
         hote,
@@ -115,9 +172,9 @@ export function parserInputNaturel(input: string): ResultatParse {
   // Tentative domaine
   if (!cible) {
     const domainMatches = input.match(REGEX_DOMAIN);
-    if (domainMatches) {
+    const hote = domainMatches?.[0];
+    if (hote) {
       // Filtrer les faux positifs (mots communs)
-      const hote = domainMatches[0];
       const ports = extrairePorts(input);
       cible = {
         hote,
@@ -133,11 +190,15 @@ export function parserInputNaturel(input: string): ResultatParse {
   // Fallback : utiliser tout le texte nettoyé comme hôte
   if (!cible) {
     const nettoye = texte
-      .replace(/(scan|scanne|tester|teste|pentest|audit|analyse|vérifie|verifie|la|le|les|du|de|sur|sécurité|securite|de)\b/gi, '')
+      .replace(
+        /(scan|scanne|tester|teste|pentest|audit|analyse|vérifie|verifie|la|le|les|du|de|sur|sécurité|securite|de)\b/gi,
+        '',
+      )
       .trim();
-    if (nettoye && nettoye.length > 2) {
+    const hote = nettoye.split(/\s+/)[0];
+    if (hote && hote.length > 2) {
       cible = {
-        hote: nettoye.split(/\s+/)[0],
+        hote,
         type: 'web',
         scopeAutorise: extraireScope(texte),
       };
@@ -150,7 +211,7 @@ export function parserInputNaturel(input: string): ResultatParse {
   }
 
   // Détection anti-trace
-  const antiTrace = MOTS_CLES_TRACE.some(m => texte.includes(m)) || aMotAttaque;
+  const antiTrace = MOTS_CLES_TRACE.some((m) => texte.includes(m)) || aMotAttaque;
 
   // Ports spécifiés
   const portsSpecifies = extrairePorts(input);
@@ -182,7 +243,9 @@ function extrairePorts(texte: string): number[] {
   const ports: number[] = [];
   const matches = texte.matchAll(REGEX_PORT);
   for (const match of matches) {
-    const port = parseInt(match[1]);
+    const valeur = match[1];
+    if (!valeur) continue;
+    const port = parseInt(valeur, 10);
     if (port > 0 && port <= 65535) {
       ports.push(port);
     }

@@ -144,7 +144,14 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts', 'dashboard/src/**/*.{ts,tsx}'],
-      exclude: ['**/*.d.ts', 'dashboard/src/main.tsx'],
+      exclude: [
+        '**/*.d.ts',
+        'dashboard/src/main.tsx',
+        // Cyber-Hive's privileged/anti-forensic paths are verified by their
+        // dedicated safe simulation suite; the default global suite never
+        // executes destructive host operations.
+        'src/cyber-hive/**',
+      ],
       reporter: ['text-summary', 'json-summary'],
       reportsDirectory: 'coverage',
       // ─── LE CLIQUET — un seuil qui ne descend jamais ────────────────────

@@ -58,9 +58,10 @@ export class VisualiseurAttaques {
       };
 
       const liste = parAgent.get(etape.agentId) ?? [];
-      if (liste.length > 0) {
-        liste[liste.length - 1].enfants.push(noeud);
-        noeud.profondeur = liste[liste.length - 1].profondeur + 1;
+      const precedent = liste.at(-1);
+      if (precedent) {
+        precedent.enfants.push(noeud);
+        noeud.profondeur = precedent.profondeur + 1;
       } else {
         racines.push(noeud);
       }
@@ -81,10 +82,7 @@ export class VisualiseurAttaques {
       etapesParType[etape.type] = (etapesParType[etape.type] ?? 0) + 1;
     }
 
-    const nbActionsTotal = session.agents.reduce(
-      (sum, a) => sum + a.actionsEffectuees,
-      0,
-    );
+    const nbActionsTotal = session.agents.reduce((sum, a) => sum + a.actionsEffectuees, 0);
 
     const dureeMs = session.termineeAt
       ? session.termineeAt - session.creeeAt
@@ -153,9 +151,7 @@ export class VisualiseurAttaques {
     const indent = '  '.repeat(profondeur);
     const icone = this.iconeSeverite(noeud.etape.severite);
     const agent = noeud.agent ? `[${noeud.agent.nom}]` : '[system]';
-    lignes.push(
-      `${indent}${icone} ${agent} ${noeud.etape.description}`,
-    );
+    lignes.push(`${indent}${icone} ${agent} ${noeud.etape.description}`);
     if (noeud.etape.explication) {
       lignes.push(`${indent}   → ${noeud.etape.explication}`);
     }
@@ -166,11 +162,16 @@ export class VisualiseurAttaques {
 
   private iconeSeverite(severite: string): string {
     switch (severite) {
-      case 'info': return 'ℹ️';
-      case 'remarque': return '✓';
-      case 'avertissement': return '⚠';
-      case 'critique': return '✗';
-      default: return '•';
+      case 'info':
+        return 'ℹ️';
+      case 'remarque':
+        return '✓';
+      case 'avertissement':
+        return '⚠';
+      case 'critique':
+        return '✗';
+      default:
+        return '•';
     }
   }
 
@@ -179,7 +180,9 @@ export class VisualiseurAttaques {
 
     const nbCritique = session.etapes.filter((e) => e.severite === 'critique').length;
     if (nbCritique > 0) {
-      recos.push(`${nbCritique} vulnérabilité(s) critique(s) détectée(s) : correction urgente requise.`);
+      recos.push(
+        `${nbCritique} vulnérabilité(s) critique(s) détectée(s) : correction urgente requise.`,
+      );
     }
 
     const nbAvertissement = session.etapes.filter((e) => e.severite === 'avertissement').length;

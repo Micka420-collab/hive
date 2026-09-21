@@ -4,18 +4,34 @@
 
 import type {
   AuthMethod,
-  CapacitesProvider,
   ConfigConnexionIA,
   ConnexionIA,
-  MessageIA,
-  OutilFunctionCall,
   ProviderIA,
   RequeteIA,
   ReponseIA,
   TokenOAuth,
-} from './connection-types';
-import { CONFIG_CONNEXION_DEFAUT } from './connection-types';
-import { obtenirProvider, listerProviders } from './provider-registry';
+} from './connection-types.js';
+import { CONFIG_CONNEXION_DEFAUT } from './connection-types.js';
+import { obtenirProvider } from './provider-registry.js';
+
+type ObjetJson = Record<string, unknown>;
+
+function lireObjetJson(valeur: unknown): ObjetJson | undefined {
+  if (typeof valeur !== 'object' || valeur === null || Array.isArray(valeur)) return undefined;
+  return valeur as ObjetJson;
+}
+
+function lireTexteJson(valeur: unknown): string | undefined {
+  return typeof valeur === 'string' ? valeur : undefined;
+}
+
+function lireNombreJson(valeur: unknown): number | undefined {
+  return typeof valeur === 'number' && Number.isFinite(valeur) ? valeur : undefined;
+}
+
+function lireTableauJson(valeur: unknown): unknown[] | undefined {
+  return Array.isArray(valeur) ? valeur : undefined;
+}
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  Utilitaires OAuth 2.1 + PKCE
@@ -106,10 +122,7 @@ export class GestionnaireConnexions {
   /**
    * Traite le callback OAuth : échange le code d'autorisation contre un token.
    */
-  async traiterCallback(
-    code: string,
-    state: string,
-  ): Promise<ConnexionIA | { erreur: string }> {
+  async traiterCallback(code: string, state: string): Promise<ConnexionIA | { erreur: string }> {
     const pkce = this.pkceStore.get(state);
     if (!pkce) return { erreur: 'State invalide ou expiré' };
     this.pkceStore.delete(state);
@@ -140,13 +153,16 @@ export class GestionnaireConnexions {
         return { erreur: `Token exchange failed (${resp.status}): ${text}` };
       }
 
-      const data = await resp.json();
+      const data = lireObjetJson(await resp.json());
+      const accessToken = lireTexteJson(data?.access_token);
+      if (!data || !accessToken)
+        return { erreur: 'Réponse OAuth invalide : access_token manquant' };
       const token: TokenOAuth = {
-        accessToken: data.access_token,
-        refreshToken: data.refresh_token,
+        accessToken,
+        refreshToken: lireTexteJson(data.refresh_token),
         tokenType: 'Bearer',
-        expireLe: Date.now() + (data.expires_in ?? 3600) * 1000,
-        scope: data.scope,
+        expireLe: Date.now() + (lireNombreJson(data.expires_in) ?? 3600) * 1000,
+        scope: lireTexteJson(data.scope),
       };
 
       return this.creerConnexion(pkce.providerId, 'oauth2', { token });
@@ -272,13 +288,15 @@ export class GestionnaireConnexions {
 
       if (!resp.ok) return false;
 
-      const data = await resp.json();
+      const data = lireObjetJson(await resp.json());
+      const accessToken = lireTexteJson(data?.access_token);
+      if (!data || !accessToken) return false;
       c.token = {
-        accessToken: data.access_token,
-        refreshToken: data.refresh_token ?? c.token.refreshToken,
+        accessToken,
+        refreshToken: lireTexteJson(data.refresh_token) ?? c.token.refreshToken,
         tokenType: 'Bearer',
-        expireLe: Date.now() + (data.expires_in ?? 3600) * 1000,
-        scope: data.scope,
+        expireLe: Date.now() + (lireNombreJson(data.expires_in) ?? 3600) * 1000,
+        scope: lireTexteJson(data.scope),
       };
       return true;
     } catch {
@@ -401,15 +419,21 @@ export class GestionnaireConnexions {
 
     if (!resp.ok) {
       const text = await resp.text();
-      return { providerId: req.providerId, content: '', erreur: `Anthropic ${resp.status}: ${text}` };
+      return {
+        providerId: req.providerId,
+        content: '',
+        erreur: `Anthropic ${resp.status}: ${text}`,
+      };
     }
 
-    const data = await resp.json();
+    const data = lireObjetJson(await resp.json());
+    const usage = lireObjetJson(data?.usage);
+    const contenu = lireTableauJson(data?.content) ?? [];
     return {
       providerId: req.providerId,
-      content: data.content?.map((b: { text?: string }) => b.text ?? '').join('') ?? '',
-      tokensInput: data.usage?.input_tokens,
-      tokensOutput: data.usage?.output_tokens,
+      content: contenu.map((bloc) => lireTexteJson(lireObjetJson(bloc)?.text) ?? '').join(''),
+      tokensInput: lireNombreJson(usage?.input_tokens),
+      tokensOutput: lireNombreJson(usage?.output_tokens),
       latenceMs: Date.now() - debut,
     };
   }
@@ -450,12 +474,15 @@ export class GestionnaireConnexions {
       return { providerId: req.providerId, content: '', erreur: `OpenAI ${resp.status}: ${text}` };
     }
 
-    const data = await resp.json();
+    const data = lireObjetJson(await resp.json());
+    const usage = lireObjetJson(data?.usage);
+    const choix = lireObjetJson(lireTableauJson(data?.choices)?.[0]);
+    const message = lireObjetJson(choix?.message);
     return {
       providerId: req.providerId,
-      content: data.choices?.[0]?.message?.content ?? '',
-      tokensInput: data.usage?.prompt_tokens,
-      tokensOutput: data.usage?.completion_tokens,
+      content: lireTexteJson(message?.content) ?? '',
+      tokensInput: lireNombreJson(usage?.prompt_tokens),
+      tokensOutput: lireNombreJson(usage?.completion_tokens),
       latenceMs: Date.now() - debut,
     };
   }
@@ -493,10 +520,13 @@ export class GestionnaireConnexions {
       return { providerId: req.providerId, content: '', erreur: `Gemini ${resp.status}: ${text}` };
     }
 
-    const data = await resp.json();
+    const data = lireObjetJson(await resp.json());
+    const candidat = lireObjetJson(lireTableauJson(data?.candidates)?.[0]);
+    const contenu = lireObjetJson(candidat?.content);
+    const parties = lireTableauJson(contenu?.parts) ?? [];
     return {
       providerId: req.providerId,
-      content: data.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text ?? '').join('') ?? '',
+      content: parties.map((partie) => lireTexteJson(lireObjetJson(partie)?.text) ?? '').join(''),
       latenceMs: Date.now() - debut,
     };
   }
@@ -529,15 +559,22 @@ export class GestionnaireConnexions {
 
     if (!resp.ok) {
       const text = await resp.text();
-      return { providerId: req.providerId, content: '', erreur: `DeepSeek ${resp.status}: ${text}` };
+      return {
+        providerId: req.providerId,
+        content: '',
+        erreur: `DeepSeek ${resp.status}: ${text}`,
+      };
     }
 
-    const data = await resp.json();
+    const data = lireObjetJson(await resp.json());
+    const usage = lireObjetJson(data?.usage);
+    const choix = lireObjetJson(lireTableauJson(data?.choices)?.[0]);
+    const message = lireObjetJson(choix?.message);
     return {
       providerId: req.providerId,
-      content: data.choices?.[0]?.message?.content ?? '',
-      tokensInput: data.usage?.prompt_tokens,
-      tokensOutput: data.usage?.completion_tokens,
+      content: lireTexteJson(message?.content) ?? '',
+      tokensInput: lireNombreJson(usage?.prompt_tokens),
+      tokensOutput: lireNombreJson(usage?.completion_tokens),
       latenceMs: Date.now() - debut,
     };
   }
@@ -573,10 +610,12 @@ export class GestionnaireConnexions {
       return { providerId: req.providerId, content: '', erreur: `Grok ${resp.status}: ${text}` };
     }
 
-    const data = await resp.json();
+    const data = lireObjetJson(await resp.json());
+    const choix = lireObjetJson(lireTableauJson(data?.choices)?.[0]);
+    const message = lireObjetJson(choix?.message);
     return {
       providerId: req.providerId,
-      content: data.choices?.[0]?.message?.content ?? '',
+      content: lireTexteJson(message?.content) ?? '',
       latenceMs: Date.now() - debut,
     };
   }
@@ -610,10 +649,11 @@ export class GestionnaireConnexions {
       return { providerId: req.providerId, content: '', erreur: `Ollama ${resp.status}: ${text}` };
     }
 
-    const data = await resp.json();
+    const data = lireObjetJson(await resp.json());
+    const message = lireObjetJson(data?.message);
     return {
       providerId: req.providerId,
-      content: data.message?.content ?? '',
+      content: lireTexteJson(message?.content) ?? '',
       latenceMs: Date.now() - debut,
     };
   }
