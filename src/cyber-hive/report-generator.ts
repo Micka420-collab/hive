@@ -2,7 +2,7 @@
 // Produit un rapport détaillé : données trouvées, méthodologie, traces, anti-forensics, recommandations.
 // Formats : Markdown, JSON, HTML téléchargeable.
 
-import type { SessionPentest, EtapeAttaque } from './types.js';
+import type { SessionPentest } from './types.js';
 import type { PostureSecurite } from './defense.js';
 import type { ContexteCible } from './autonomous-agent.js';
 
@@ -40,7 +40,9 @@ export class GenerateurRapport {
     lignes.push(`\n**Date** : ${new Date(dateGeneration).toLocaleString('fr-FR')}`);
     lignes.push(`**Cible** : ${session.cible.hote}`);
     lignes.push(`**Statut** : ${session.statut}`);
-    lignes.push(`**Durée** : ${posture.resume.includes('ms') ? '' : ''}${session.termineeAt ? session.termineeAt - session.creeeAt : Date.now() - session.creeeAt} ms`);
+    lignes.push(
+      `**Durée** : ${posture.resume.includes('ms') ? '' : ''}${session.termineeAt ? session.termineeAt - session.creeeAt : Date.now() - session.creeeAt} ms`,
+    );
     lignes.push('');
 
     // Score de sécurité
@@ -134,7 +136,9 @@ export class GenerateurRapport {
       lignes.push('\n| Action | Description | Statut | Timestamp |');
       lignes.push('|--------|-------------|--------|-----------|');
       for (const t of tracesAntiForensics) {
-        lignes.push(`| ${t.action} | ${t.description} | ${t.statut} | ${new Date(t.timestamp).toLocaleString('fr-FR')} |`);
+        lignes.push(
+          `| ${t.action} | ${t.description} | ${t.statut} | ${new Date(t.timestamp).toLocaleString('fr-FR')} |`,
+        );
       }
     }
     lignes.push('');
@@ -170,10 +174,17 @@ export class GenerateurRapport {
   genererHTML(rapport: RapportComplet): string {
     const { session, contexte, posture, tracesAntiForensics, dateGeneration } = rapport;
     const couleurNiveau: Record<string, string> = {
-      A: '#22c55e', B: '#84cc16', C: '#eab308', D: '#f97316', F: '#ef4444',
+      A: '#22c55e',
+      B: '#84cc16',
+      C: '#eab308',
+      D: '#f97316',
+      F: '#ef4444',
     };
     const couleurSeverite: Record<string, string> = {
-      critique: '#ef4444', eleve: '#f97316', moyenne: '#eab308', faible: '#84cc16',
+      critique: '#ef4444',
+      eleve: '#f97316',
+      moyenne: '#eab308',
+      faible: '#84cc16',
     };
 
     let html = `<!DOCTYPE html>
@@ -275,7 +286,8 @@ tr:hover { background: #1e293b; }
     if (tracesAntiForensics.length === 0) {
       html += '<p>Aucune action anti-forensic enregistrée.</p>';
     } else {
-      html += '<table><tr><th>Action</th><th>Description</th><th>Statut</th><th>Timestamp</th></tr>';
+      html +=
+        '<table><tr><th>Action</th><th>Description</th><th>Statut</th><th>Timestamp</th></tr>';
       for (const t of tracesAntiForensics) {
         html += `<tr><td>${this.escapeHtml(t.action)}</td><td>${this.escapeHtml(t.description)}</td><td>${t.statut}</td><td>${new Date(t.timestamp).toLocaleString('fr-FR')}</td></tr>`;
       }
@@ -307,11 +319,16 @@ tr:hover { background: #1e293b; }
 
   private iconeSeverite(severite: string): string {
     switch (severite) {
-      case 'info': return 'ℹ️';
-      case 'remarque': return '🔎';
-      case 'avertissement': return '⚠️';
-      case 'critique': return '🔴';
-      default: return '•';
+      case 'info':
+        return 'ℹ️';
+      case 'remarque':
+        return '🔎';
+      case 'avertissement':
+        return '⚠️';
+      case 'critique':
+        return '🔴';
+      default:
+        return '•';
     }
   }
 
@@ -322,10 +339,14 @@ tr:hover { background: #1e293b; }
       parts.push('Des vulnérabilités critiques nécessitent une action immédiate.');
     }
     if (contexte && contexte.credentialsTrouves.length > 0) {
-      parts.push(`${contexte.credentialsTrouves.length} credential(s) faible(s) découvert(s) : politique de mots de passe à renforcer.`);
+      parts.push(
+        `${contexte.credentialsTrouves.length} credential(s) faible(s) découvert(s) : politique de mots de passe à renforcer.`,
+      );
     }
     if (contexte && contexte.vulnerabilites.length > 0) {
-      parts.push(`${contexte.vulnerabilites.length} vulnérabilité(s) exploitée(s) : correctifs urgents requis.`);
+      parts.push(
+        `${contexte.vulnerabilites.length} vulnérabilité(s) exploitée(s) : correctifs urgents requis.`,
+      );
     }
     if (posture.score >= 75) {
       parts.push('La posture globale reste acceptable mais des améliorations sont possibles.');
