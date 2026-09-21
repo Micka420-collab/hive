@@ -11,6 +11,7 @@ function runtimeDisponible(): Fournisseur | null {
   for (const nom of ['podman', 'docker']) {
     try {
       execFileSync(nom, ['--version'], { stdio: 'ignore', timeout: 4_000 });
+      execFileSync(nom, ['info'], { stdio: 'ignore', timeout: 8_000 });
       return fournisseurParNom(nom);
     } catch {
       // Le test reste conditionnel : une CI sans runtime ne doit pas inventer
