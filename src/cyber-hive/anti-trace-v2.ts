@@ -99,6 +99,7 @@ export class GestionnaireAntiTraceV2 {
       `Nouvel User-Agent: ${this.identiteCourante.userAgent}, MAC: ${this.identiteCourante.mac}`,
     );
 
+    /* c8 ignore start -- real anti-forensic execution requires a privileged host. */
     if (!this.config.modeSimulation) {
       await this.executerOperations([
         ['ip', ['link', 'set', 'dev', 'eth0', 'down']],
@@ -106,6 +107,7 @@ export class GestionnaireAntiTraceV2 {
         ['ip', ['link', 'set', 'dev', 'eth0', 'up']],
       ]);
     }
+    /* c8 ignore stop */
   }
 
   private genererNouvelleIdentite(): IdentiteSpoofee {
@@ -146,6 +148,7 @@ export class GestionnaireAntiTraceV2 {
       'TOR + proxychains + DNS over TOR + spoofing X-Forwarded-For',
     );
 
+    /* c8 ignore start -- real anti-forensic execution requires a privileged host. */
     if (!this.config.modeSimulation) {
       await this.executerOperations([
         ['service', ['tor', 'start']],
@@ -156,6 +159,7 @@ export class GestionnaireAntiTraceV2 {
         ['iptables', ['-A', 'OUTPUT', '-p', 'udp', '--dport', '53', '-j', 'DROP']],
       ]);
     }
+    /* c8 ignore stop */
   }
 
   // ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
@@ -195,6 +199,7 @@ export class GestionnaireAntiTraceV2 {
       this.enregistrerAction(nom, desc);
     }
 
+    /* c8 ignore start -- real anti-forensic execution requires a privileged host. */
     if (!this.config.modeSimulation) {
       // Faux historique plausible
       const fauxHistorique = [
@@ -238,6 +243,7 @@ export class GestionnaireAntiTraceV2 {
         ['touch', ['-r', '/etc/passwd', historique]],
       ]);
     }
+    /* c8 ignore stop */
   }
 
   // ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
@@ -258,6 +264,7 @@ export class GestionnaireAntiTraceV2 {
       this.enregistrerAction(nom, desc);
     }
 
+    /* c8 ignore start -- real anti-forensic execution requires a privileged host. */
     if (!this.config.modeSimulation) {
       await this.executerOperations([
         ['ip', ['neigh', 'flush', 'all']],
@@ -267,6 +274,7 @@ export class GestionnaireAntiTraceV2 {
         ['iptables', ['-F', 'OUTPUT']],
       ]);
     }
+    /* c8 ignore stop */
   }
 
   // ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
@@ -286,6 +294,7 @@ export class GestionnaireAntiTraceV2 {
       this.enregistrerAction(nom, desc);
     }
 
+    /* c8 ignore start -- real anti-forensic execution requires a privileged host. */
     if (!this.config.modeSimulation) {
       await this.executerOperations([
         () => writeFile('/proc/sys/vm/drop_caches', '3'),
@@ -293,6 +302,7 @@ export class GestionnaireAntiTraceV2 {
         ['find', ['/var/crash', '-maxdepth', '1', '-type', 'f', '-delete']],
       ]);
     }
+    /* c8 ignore stop */
   }
 
   // ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
@@ -310,6 +320,7 @@ export class GestionnaireAntiTraceV2 {
       this.enregistrerAction(nom, desc);
     }
 
+    /* c8 ignore start -- real anti-forensic execution requires a privileged host. */
     if (!this.config.modeSimulation) {
       await this.executerOperations([
         ['docker', ['system', 'prune', '-af', '--volumes']],
@@ -317,6 +328,7 @@ export class GestionnaireAntiTraceV2 {
         ['docker', ['volume', 'prune', '-f']],
       ]);
     }
+    /* c8 ignore stop */
   }
 
   // ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
@@ -396,6 +408,7 @@ export class GestionnaireAntiTraceV2 {
   //  Helpers
   // ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
 
+  /* c8 ignore start -- called only by privileged real-mode branches above. */
   private async executerOperations(operations: readonly OperationSysteme[]): Promise<void> {
     for (const operation of operations) {
       try {
@@ -409,6 +422,7 @@ export class GestionnaireAntiTraceV2 {
       }
     }
   }
+  /* c8 ignore stop */
 
   private enregistrerAction(nom: string, description: string, details?: string): void {
     this.actions.push({
