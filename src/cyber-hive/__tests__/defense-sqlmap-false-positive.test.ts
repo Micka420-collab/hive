@@ -12,18 +12,28 @@ function sessionSqlmap(stdout: string): SessionPentest {
     cible: { hote: 'localhost', type: 'reseau', scopeAutorise: ['localhost'] },
     statut: 'termine',
     agents: [],
-    etapes: [{
-      id: 'e1',
-      sessionId: 'test',
-      agentId: 'a1',
-      type: 'reconnaissance',
-      severite: 'info',
-      description: 'SQLMap scan',
-      explication: 'Recherche d’injections SQL.',
-      ts: now,
-      dureeMs: 100,
-      resultat: { outilId: 'sqlmap', succes: true, stdout, stderr: '', codeSortie: 0, dureeMs: 100, ts: now },
-    }],
+    etapes: [
+      {
+        id: 'e1',
+        sessionId: 'test',
+        agentId: 'a1',
+        type: 'reconnaissance',
+        severite: 'info',
+        description: 'SQLMap scan',
+        explication: 'Recherche d’injections SQL.',
+        ts: now,
+        dureeMs: 100,
+        resultat: {
+          outilId: 'sqlmap',
+          succes: true,
+          stdout,
+          stderr: '',
+          codeSortie: 0,
+          dureeMs: 100,
+          ts: now,
+        },
+      },
+    ],
     antiTrace: ANTI_TRACE_DEFAUT,
     outilsDisponibles: ['sqlmap'],
     creeeAt: now,
@@ -32,7 +42,7 @@ function sessionSqlmap(stdout: string): SessionPentest {
 }
 
 describe('AnalyseurDefense — parsing SQLMap', () => {
-  it("ne déclenche pas d'alerte pour \"do not appear to be injectable\"", () => {
+  it('ne déclenche pas d\'alerte pour "do not appear to be injectable"', () => {
     const a = creerAnalyseurDefense();
     const session = sessionSqlmap('all tested parameters do not appear to be injectable');
     const p = a.analyserSession(session);
@@ -40,7 +50,7 @@ describe('AnalyseurDefense — parsing SQLMap', () => {
     expect(sqli).toBeUndefined();
   });
 
-  it("ne déclenche pas d'alerte pour \"not injectable\"", () => {
+  it('ne déclenche pas d\'alerte pour "not injectable"', () => {
     const a = creerAnalyseurDefense();
     const session = sessionSqlmap('Parameter: id - Type: GET - not injectable');
     const p = a.analyserSession(session);
@@ -48,7 +58,7 @@ describe('AnalyseurDefense — parsing SQLMap', () => {
     expect(sqli).toBeUndefined();
   });
 
-  it("ne déclenche pas d'alerte pour \"not vulnerable\"", () => {
+  it('ne déclenche pas d\'alerte pour "not vulnerable"', () => {
     const a = creerAnalyseurDefense();
     const session = sessionSqlmap('target is not vulnerable to SQL injection');
     const p = a.analyserSession(session);
