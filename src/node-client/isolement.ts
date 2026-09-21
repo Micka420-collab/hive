@@ -39,6 +39,9 @@
 // niveau) ; la seule impureté est la SONDE, qui lance `--version`.
 
 import { spawn } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { envSonde } from './agent-detect.js';
 
 /** Les trois positions de l'interrupteur. */
@@ -71,6 +74,11 @@ export const MONTAGE = '/hive/tache';
  * L'agent lui-même est monté depuis l'hôte, pas cuit dans l'image.
  */
 export const IMAGE_DEFAUT = 'docker.io/library/node:20-slim';
+
+/** Image réellement demandée par l'opérateur, sans valeur vide trompeuse. */
+export function imageDepuisEnv(env: NodeJS.ProcessEnv = process.env): string {
+  return env.HIVE_ISOLEMENT_IMAGE?.trim() || IMAGE_DEFAUT;
+}
 
 export interface Fournisseur {
   nom: string;
@@ -387,6 +395,82 @@ export async function trouverFournisseur(): Promise<Fournisseur | null> {
     if (await sonder(f.bin)) return f;
   }
   return null;
+}
+
+export interface ResultatPreflightAgent {
+  executable: boolean;
+  motif: string;
+}
+
+/** Vérifie le nom logique de l'agent dans le bac qui exécutera les tâches. */
+export function sonderAgentDansBac(
+  fournisseur: Fournisseur,
+  binAgent: string,
+  image = IMAGE_DEFAUT,
+  cwdHote?: string,
+  timeoutMs = 30_000,
+): Promise<ResultatPreflightAgent> {
+  // A preflight only proves image contents. Mounting the caller's workspace
+  // would expose `.env`, state, and source files to an agent probe that never
+  // needs them; use an empty disposable directory by default.
+  const probeCwd = cwdHote ?? mkdtempSync(join(tmpdir(), 'hive-agent-preflight-'));
+  const ownedCwd = cwdHote === undefined;
+  let lance: Enveloppe;
+  try {
+    lance = envelopper(binAgent, ['--version'], {
+      fournisseur,
+      cwdHote: probeCwd,
+      variables: [],
+      image,
+    });
+  } catch {
+    if (ownedCwd) rmSync(probeCwd, { recursive: true, force: true });
+    return Promise.resolve({
+      executable: false,
+      motif: `preflight impossible via ${fournisseur.nom}`,
+    });
+  }
+
+  return new Promise((resolve) => {
+    let fini = false;
+    const finir = (executable: boolean, motif: string): void => {
+      if (fini) return;
+      fini = true;
+      if (ownedCwd) rmSync(probeCwd, { recursive: true, force: true });
+      resolve({ executable, motif });
+    };
+    let enfant;
+    try {
+      enfant = spawn(lance.bin, lance.args, {
+        cwd: probeCwd,
+        shell: false,
+        windowsHide: true,
+        stdio: 'ignore',
+        env: envSonde(process.env),
+      });
+    } catch {
+      finir(false, `preflight impossible via ${fournisseur.nom}`);
+      return;
+    }
+    const minuteur = setTimeout(() => {
+      enfant.kill();
+      finir(false, `preflight de l'agent expiré via ${fournisseur.nom}`);
+    }, timeoutMs);
+    minuteur.unref?.();
+    enfant.on('error', () => {
+      clearTimeout(minuteur);
+      finir(false, `agent « ${binAgent} » non exécutable via ${fournisseur.nom}`);
+    });
+    enfant.on('close', (code) => {
+      clearTimeout(minuteur);
+      finir(
+        code === 0,
+        code === 0
+          ? `agent « ${binAgent} » exécutable dans le bac`
+          : `agent « ${binAgent} » absent ou non exécutable dans le bac`,
+      );
+    });
+  });
 }
 
 /**

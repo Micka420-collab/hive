@@ -252,7 +252,7 @@ async function main(): Promise<void> {
   // confiance à celui qui leur a envoyé le billet. La décision passe
   // maintenant par le même `bac.ts` que `main.ts` — un seul code, donc plus
   // de dérive possible entre les deux chemins de démarrage.
-  const bac = await preparerBac();
+  const bac = await preparerBac(process.env, detected.agent);
   for (const l of bac.lignes) console.log(l);
   if (bac.refuse) {
     console.error('✘ Ce nœud ne démarre pas.\n');

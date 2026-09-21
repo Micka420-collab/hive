@@ -323,6 +323,7 @@ describe('côté nœud : runMerge refuse, même si le hub a laissé passer', () 
             garanties: [],
           },
           variables: ['ANTHROPIC_API_KEY'],
+          image: 'image:test',
         },
       });
 
