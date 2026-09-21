@@ -30,12 +30,11 @@
 import {
   createDecipheriv,
   createPrivateKey,
-  createPublicKey,
-  publicDecrypt,
   privateDecrypt,
   randomBytes,
-  timingSafeEqual,
+  pbkdf2Sync,
 } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 
 // ╔══════════════════════════════════════════════════════════════════════════╗
 //   Types
@@ -67,12 +66,7 @@ export type AlgorithmeDechiffrement =
   | 'auto';
 
 /** Format d'encodage détecté pour l'entrée. */
-export type FormatDetecte =
-  | 'base64'
-  | 'base64url'
-  | 'hex'
-  | 'binaire'
-  | 'texte';
+export type FormatDetecte = 'base64' | 'base64url' | 'hex' | 'binaire' | 'texte';
 
 /** Étape d'une cascade de chiffrement. */
 export interface EtapeCascade {
@@ -206,7 +200,7 @@ export function detecterAlgorithme(options: OptionsDechiffrement): AlgorithmeDec
 
   // AEAD si un tag est présent
   if (tag) {
-    const ivLen = typeof iv === 'string' ? Buffer.from(iv).length : iv?.length ?? 0;
+    const ivLen = typeof iv === 'string' ? Buffer.from(iv).length : (iv?.length ?? 0);
     if (ivLen === 12) return 'chacha20-poly1305';
     // AES-CCM utilise aussi des IV courts (7-13 octets)
     if (ivLen >= 7 && ivLen <= 13 && ivLen !== 12) return 'aes-256-ccm';
@@ -218,13 +212,13 @@ export function detecterAlgorithme(options: OptionsDechiffrement): AlgorithmeDec
     const ivLen = typeof iv === 'string' ? Buffer.from(iv).length : iv.length;
     if (ivLen === 8) {
       // IV de 8 octets : 3DES, Blowfish ou DES
-      const cleLen = typeof cle === 'string' ? Buffer.from(cle).length : cle?.length ?? 0;
+      const cleLen = typeof cle === 'string' ? Buffer.from(cle).length : (cle?.length ?? 0);
       if (cleLen === 8) return 'des-cbc';
       if (cleLen >= 16 && cleLen <= 24) return '3des-cbc';
       return 'blowfish-cbc';
     }
     if (ivLen === 16) {
-      const cleLen = typeof cle === 'string' ? Buffer.from(cle).length : cle?.length ?? 0;
+      const cleLen = typeof cle === 'string' ? Buffer.from(cle).length : (cle?.length ?? 0);
       if (cleLen === 16) return 'aes-128-cbc';
       if (cleLen === 32) return 'aes-256-cbc';
       // Camellia utilise aussi un IV de 16 octets
@@ -248,13 +242,7 @@ function versBuffer(entree: Buffer | string, encodage?: BufferEncoding): Buffer 
 }
 
 /** Dérive une clé à partir d'un mot de passe via PBKDF2. */
-function deriverCle(
-  motDePasse: string,
-  sel: Buffer,
-  longueur: number,
-  iterations: number,
-): Buffer {
-  const { pbkdf2Sync } = require('node:crypto');
+function deriverCle(motDePasse: string, sel: Buffer, longueur: number, iterations: number): Buffer {
   return pbkdf2Sync(motDePasse, sel, iterations, longueur, 'sha256');
 }
 
@@ -263,24 +251,14 @@ function deriverCle(
 // ╚══════════════════════════════════════════════════════════════════════════╝
 
 /** Déchiffre AES-256-GCM. */
-function dechiffrerAESGCM(
-  donnees: Buffer,
-  cle: Buffer,
-  iv: Buffer,
-  tag: Buffer,
-): Buffer {
+function dechiffrerAESGCM(donnees: Buffer, cle: Buffer, iv: Buffer, tag: Buffer): Buffer {
   const decipher = createDecipheriv('aes-256-gcm', cle, iv);
   decipher.setAuthTag(tag);
   return Buffer.concat([decipher.update(donnees), decipher.final()]);
 }
 
 /** Déchiffre AES-CBC (128 ou 256). */
-function dechiffrerAESCBC(
-  donnees: Buffer,
-  cle: Buffer,
-  iv: Buffer,
-  tailleCle: 128 | 256,
-): Buffer {
+function dechiffrerAESCBC(donnees: Buffer, cle: Buffer, iv: Buffer, tailleCle: 128 | 256): Buffer {
   const algo = `aes-${tailleCle}-cbc`;
   const decipher = createDecipheriv(algo, cle, iv);
   decipher.setAutoPadding(true);
@@ -288,12 +266,7 @@ function dechiffrerAESCBC(
 }
 
 /** Déchiffre ChaCha20-Poly1305. */
-function dechiffrerChaCha20(
-  donnees: Buffer,
-  cle: Buffer,
-  iv: Buffer,
-  tag: Buffer,
-): Buffer {
+function dechiffrerChaCha20(donnees: Buffer, cle: Buffer, iv: Buffer, tag: Buffer): Buffer {
   const decipher = createDecipheriv('chacha20-poly1305', cle, iv);
   decipher.setAuthTag(tag);
   return Buffer.concat([decipher.update(donnees), decipher.final()]);
@@ -314,11 +287,7 @@ function dechiffrerBlowfish(donnees: Buffer, cle: Buffer, iv: Buffer): Buffer {
 }
 
 /** Déchiffre RSA (OAEP ou PKCS1). */
-function dechiffrerRSA(
-  donnees: Buffer,
-  clePem: string,
-  oaep: boolean,
-): Buffer {
+function dechiffrerRSA(donnees: Buffer, clePem: string, oaep: boolean): Buffer {
   const key = createPrivateKey(clePem);
   if (oaep) {
     return privateDecrypt(
@@ -357,11 +326,7 @@ function dechiffrerAESCCM(
  * Utilisé pour le chiffrement de stockage (BitLocker, FileVault, LUKS).
  * NIST SP 800-38E. La clé doit faire 64 octets (2 x 32 pour deux clés).
  */
-function dechiffrerAESXTS(
-  donnees: Buffer,
-  cle: Buffer,
-  iv: Buffer,
-): Buffer {
+function dechiffrerAESXTS(donnees: Buffer, cle: Buffer, iv: Buffer): Buffer {
   const decipher = createDecipheriv('aes-256-xts', cle, iv);
   decipher.setAutoPadding(false);
   return Buffer.concat([decipher.update(donnees), decipher.final()]);
@@ -433,10 +398,7 @@ function dechiffrerCascade(donnees: Buffer, etapes: EtapeCascade[]): Buffer {
  * @param longueurMax - Longueur maximale du message à extraire (défaut : 4096 octets)
  * @returns Buffer contenant le message extrait
  */
-function extraireSteganographieLSB(
-  donnees: Buffer,
-  longueurMax: number = 4096,
-): Buffer {
+function extraireSteganographieLSB(donnees: Buffer, longueurMax: number = 4096): Buffer {
   // Sauter l'en-tête PNG (24 octets minimum) ou BMP (54 octets)
   let offset = 0;
 
@@ -656,7 +618,7 @@ export function dechiffrer(
 
       case 'blowfish-cbc': {
         if (!cleBuffer || cleBuffer.length < 4) {
-          throw new Error('Blowfish-CBC nécessite une clé d\'au moins 4 octets.');
+          throw new Error("Blowfish-CBC nécessite une clé d'au moins 4 octets.");
         }
         const iv = versBuffer(options.iv ?? '');
         const donnees = versBuffer(entree, 'base64');
@@ -688,7 +650,6 @@ export function dechiffrer(
         if (!cleBuffer || cleBuffer.length !== 32) {
           throw new Error('AES-256-CCM nécessite une clé de 32 octets.');
         }
-        const ivLen = options.longueurIvCcm ?? 12;
         const iv = versBuffer(options.iv ?? '');
         if (iv.length < 7 || iv.length > 13) {
           throw new Error('AES-256-CCM nécessite un IV de 7 à 13 octets.');
@@ -758,7 +719,7 @@ export function dechiffrer(
         const donnees = versBuffer(entree);
         const resultat = bruteForceXOR(donnees);
         if (resultat === null) {
-          throw new Error('Aucune clé XOR d\'un octet ne produit du texte lisible.');
+          throw new Error("Aucune clé XOR d'un octet ne produit du texte lisible.");
         }
         contenuDechiffre = resultat.contenu;
         break;
@@ -853,7 +814,6 @@ export async function dechiffrerFichier(
   cheminFichier: string,
   options: OptionsDechiffrement = {},
 ): Promise<ResultatDechiffrement> {
-  const { readFile } = require('node:fs/promises');
   const donnees = await readFile(cheminFichier);
   return dechiffrer(donnees, options);
 }
@@ -924,7 +884,7 @@ export function dechiffrerAuto(
     contenu: '',
     algorithme: 'auto',
     formatEntree: detecterFormat(entree),
-    erreur: 'Aucun algorithme n\'a permis de déchiffrer les données.',
+    erreur: "Aucun algorithme n'a permis de déchiffrer les données.",
   };
 }
 
