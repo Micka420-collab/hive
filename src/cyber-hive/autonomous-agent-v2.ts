@@ -11,7 +11,7 @@ import type {
 } from './types.js';
 import { obtenirOutil } from './tool-registry.js';
 import { execOutil } from './container-manager.js';
-import { delaierAleatoire, construireCommande } from './anti-trace.js';
+import { delaiAleatoire, construireCommande } from './anti-trace.js';
 
 // ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
 //  Contexte de décision enrichi
@@ -118,7 +118,7 @@ export class MoteurAttaqueEnrichi {
       this.contexte.actionsEffectuees.add(cleAction);
 
       // Exécuter l'outil
-      await delaierAleatoire(this.session.antiTrace);
+      await delaiAleatoire(this.session.antiTrace);
       const outil = obtenirOutil(decision.outilId);
       if (!outil) continue;
 
@@ -175,6 +175,9 @@ export class MoteurAttaqueEnrichi {
     );
     if (servicesWeb.length > 0 && this.contexte.technologies.length === 0) {
       const svc = servicesWeb[0];
+      if (!svc) {
+        return null;
+      }
       const url = svc.port === 443 ? `https://${this.contexte.hote}` : `http://${this.contexte.hote}`;
       return {
         action: 'enumeration',
@@ -188,6 +191,9 @@ export class MoteurAttaqueEnrichi {
     // Phase 3 : Nuclei si URLs découvertes et pas encore de vulnérabilités
     if (this.contexte.urlsDecouvertes.length > 0 && this.contexte.vulnerabilites.length === 0) {
       const url = this.contexte.urlsDecouvertes[0];
+      if (!url) {
+        return null;
+      }
       return {
         action: 'exploitation',
         outilId: 'nuclei',
@@ -199,7 +205,11 @@ export class MoteurAttaqueEnrichi {
 
     // Phase 4 : Gobuster/FFUF pour découvrir des chemins cachés
     if (servicesWeb.length > 0 && this.contexte.urlsDecouvertes.length < 5) {
-      const url = servicesWeb[0].port === 443 ? `https://${this.contexte.hote}` : `http://${this.contexte.hote}`;
+      const svc = servicesWeb[0];
+      if (!svc) {
+        return null;
+      }
+      const url = svc.port === 443 ? `https://${this.contexte.hote}` : `http://${this.contexte.hote}`;
       return {
         action: 'enumeration',
         outilId: 'ffuf',
@@ -215,6 +225,9 @@ export class MoteurAttaqueEnrichi {
     );
     if (servicesAuth.length > 0 && this.contexte.credentialsTrouves.length === 0) {
       const svc = servicesAuth[0];
+      if (!svc) {
+        return null;
+      }
       return {
         action: 'exploitation',
         outilId: 'hydra',
@@ -230,6 +243,7 @@ export class MoteurAttaqueEnrichi {
     );
     if (sqliVulns.length > 0) {
       const vuln = sqliVulns[0];
+      if (vuln) {
       return {
         action: 'exploitation',
         outilId: 'sqlmap',
@@ -237,11 +251,13 @@ export class MoteurAttaqueEnrichi {
         args: ['-u', vuln.cible, '--batch', '--dbs', '--random-agent'],
         raison: `Injection SQL détectée sur ${vuln.cible}. Exploitation avec SQLMap pour extraire les bases de données.`,
       };
+      }
     }
 
     // Phase 7 : Metasploit si credentials trouvés
     if (this.contexte.credentialsTrouves.length > 0) {
       const cred = this.contexte.credentialsTrouves[0];
+      if (cred) {
       return {
         action: 'post-exploitation',
         outilId: 'metasploit',
@@ -249,6 +265,7 @@ export class MoteurAttaqueEnrichi {
         args: ['-q', '-x', `use auxiliary/scanner/ssh/ssh_login; set RHOSTS ${this.contexte.hote}; set USERNAME ${cred.utilisateur}; set PASSWORD ${cred.motDePasse}; run`],
         raison: `Credentials trouvés (${cred.utilisateur}). Post-exploitation via Metasploit pour confirmer l'accès.`,
       };
+      }
     }
 
     // Phase 8 : Hashcat si hashes trouvés
@@ -294,9 +311,11 @@ export class MoteurAttaqueEnrichi {
     for (const ligne of lignes) {
       const match = ligne.match(/(\d+)\/(tcp|udp)\s+(\w+)\s+(.+?)(?:\s+(\d+\.\d+(?:\.\d+)?))?\s*$/);
       if (match) {
-        const port = parseInt(match[1], 10);
+        const portTexte = match[1];
         const protocole = match[2];
         const etat = match[3];
+        if (!portTexte || !protocole || !etat) continue;
+        const port = parseInt(portTexte, 10);
         const service = match[4]?.trim() ?? 'unknown';
         const version = match[5] ?? '';
 
@@ -365,8 +384,8 @@ export class MoteurAttaqueEnrichi {
         const match = ligne.match(/login:\s*(\S+)\s+password:\s*(\S+)/);
         if (match) {
           this.contexte.credentialsTrouves.push({
-            utilisateur: match[1],
-            motDePasse: match[2],
+          utilisateur: match[1] ?? '',
+          motDePasse: match[2] ?? '',
             service: 'ssh',
           });
         }
@@ -387,7 +406,9 @@ export class MoteurAttaqueEnrichi {
     if (stdout.includes('available databases')) {
       const match = stdout.match(/available databases.*?\n([\s\S]*?)(?:\n\n|\n\[)/);
       if (match) {
-        const dbs = match[1].split('\n').map((l) => l.replace(/[*\[\]]/g, '').trim()).filter(Boolean);
+        const bases = match[1];
+        if (!bases) return;
+        const dbs = bases.split('\n').map((l) => l.replace(/[*\[\]]/g, '').trim()).filter(Boolean);
         for (const db of dbs) {
           this.contexte.urlsDecouvertes.push(`${cible}#db:${db}`);
         }
@@ -401,7 +422,7 @@ export class MoteurAttaqueEnrichi {
       if (ligne.includes('200') || ligne.includes('301') || ligne.includes('302') || ligne.includes('403')) {
         const match = ligne.match(/(\S+)\s+Status:\s+(\d+)/);
         if (match) {
-          const chemin = match[1].replace(/^FUZZ$/, '').replace(/^\//, '');
+          const chemin = match[1]?.replace(/^FUZZ$/, '').replace(/^\//, '');
           if (chemin && chemin !== '') {
             this.contexte.urlsDecouvertes.push(`${baseUrl}/${chemin}`);
           }
@@ -417,8 +438,8 @@ export class MoteurAttaqueEnrichi {
         const match = ligne.match(/([a-f0-9]+):(.+)/);
         if (match) {
           this.contexte.credentialsTrouves.push({
-            utilisateur: match[1],
-            motDePasse: match[2],
+          utilisateur: match[1] ?? '',
+          motDePasse: match[2] ?? '',
             service: 'hash',
           });
         }
@@ -458,7 +479,7 @@ export class MoteurAttaqueEnrichi {
       case 'post-exploitation': return 'critique';
       case 'escalade-privileges': return 'critique';
       case 'exfiltration': return 'critique';
-      case 'anti-forensics': return 'info';
+      case 'anti-forensic': return 'info';
       case 'rapport': return 'info';
       default: return 'info';
     }
