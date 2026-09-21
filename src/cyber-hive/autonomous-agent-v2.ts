@@ -2,13 +2,7 @@
 // Version 2 : chaînes d'attaque plus profondes, plus d'outils, décision contextuelle renforcée.
 // Ajoute : Masscan, Hashcat, WPScan, Dirb, Gobuster, Wapiti, Amass, Subfinder, Whatweb, SMBclient.
 
-import type {
-  SessionPentest,
-  EtapeAttaque,
-  ResultatOutil,
-  CiblePentest,
-  TypeActionAttaque,
-} from './types.js';
+import type { SessionPentest, EtapeAttaque, ResultatOutil, TypeActionAttaque } from './types.js';
 import { obtenirOutil } from './tool-registry.js';
 import { execOutil } from './container-manager.js';
 import { delaiAleatoire, construireCommande } from './anti-trace.js';
@@ -106,10 +100,14 @@ export class MoteurAttaqueEnrichi {
       const decision = this.prendreDecision();
 
       if (!decision) {
-        etapes.push(this.creerEtape('rapport', 'info',
-          'Exploration terminée',
-          `L'agent a exploré ${this.contexte.actionsEffectuees.size} actions. ${this.contexte.vulnerabilites.length} vulnérabilité(s), ${this.contexte.credentialsTrouves.length} credential(s), ${this.contexte.urlsDecouvertes.length} URL(s).`,
-        ));
+        etapes.push(
+          this.creerEtape(
+            'rapport',
+            'info',
+            'Exploration terminée',
+            `L'agent a exploré ${this.contexte.actionsEffectuees.size} actions. ${this.contexte.vulnerabilites.length} vulnérabilité(s), ${this.contexte.credentialsTrouves.length} credential(s), ${this.contexte.urlsDecouvertes.length} URL(s).`,
+          ),
+        );
         break;
       }
 
@@ -148,13 +146,18 @@ export class MoteurAttaqueEnrichi {
 
   private prendreDecision(): Decision | null {
     // Phase 0 : énumération de sous-domaines si cible web
-    if (this.session.cible.type === 'web' && this.contexte.sousDomaines.length === 0 && !this.contexte.actionsEffectuees.has('amass:init')) {
+    if (
+      this.session.cible.type === 'web' &&
+      this.contexte.sousDomaines.length === 0 &&
+      !this.contexte.actionsEffectuees.has('amass:init')
+    ) {
       return {
         action: 'reconnaissance',
         outilId: 'masscan',
         cible: this.contexte.hote,
         args: ['--rate=500', this.contexte.hote, '-p', '1-65535'],
-        raison: 'Scan de ports ultra-rapide pour découvrir tous les ports ouverts avant le scan détaillé.',
+        raison:
+          'Scan de ports ultra-rapide pour découvrir tous les ports ouverts avant le scan détaillé.',
       };
     }
 
@@ -165,7 +168,8 @@ export class MoteurAttaqueEnrichi {
         outilId: 'nmap',
         cible: this.contexte.hote,
         args: ['-sV', '-sC', '-p-', '-T4'],
-        raison: 'Aucun port découvert. Scan Nmap complet avec détection de version et scripts par défaut.',
+        raison:
+          'Aucun port découvert. Scan Nmap complet avec détection de version et scripts par défaut.',
       };
     }
 
@@ -178,7 +182,8 @@ export class MoteurAttaqueEnrichi {
       if (!svc) {
         return null;
       }
-      const url = svc.port === 443 ? `https://${this.contexte.hote}` : `http://${this.contexte.hote}`;
+      const url =
+        svc.port === 443 ? `https://${this.contexte.hote}` : `http://${this.contexte.hote}`;
       return {
         action: 'enumeration',
         outilId: 'nikto',
@@ -209,7 +214,8 @@ export class MoteurAttaqueEnrichi {
       if (!svc) {
         return null;
       }
-      const url = svc.port === 443 ? `https://${this.contexte.hote}` : `http://${this.contexte.hote}`;
+      const url =
+        svc.port === 443 ? `https://${this.contexte.hote}` : `http://${this.contexte.hote}`;
       return {
         action: 'enumeration',
         outilId: 'ffuf',
@@ -232,7 +238,16 @@ export class MoteurAttaqueEnrichi {
         action: 'exploitation',
         outilId: 'hydra',
         cible: this.contexte.hote,
-        args: ['-s', String(svc.port), svc.service, '-L', '/usr/share/wordlists/metasploit/unix_users.txt', '-P', '/usr/share/wordlists/metasploit/unix_passwords.txt', this.contexte.hote],
+        args: [
+          '-s',
+          String(svc.port),
+          svc.service,
+          '-L',
+          '/usr/share/wordlists/metasploit/unix_users.txt',
+          '-P',
+          '/usr/share/wordlists/metasploit/unix_passwords.txt',
+          this.contexte.hote,
+        ],
         raison: `Service ${svc.service} sur le port ${svc.port}. Tentative de brute-force avec listes Metasploit.`,
       };
     }
@@ -244,13 +259,13 @@ export class MoteurAttaqueEnrichi {
     if (sqliVulns.length > 0) {
       const vuln = sqliVulns[0];
       if (vuln) {
-      return {
-        action: 'exploitation',
-        outilId: 'sqlmap',
-        cible: vuln.cible,
-        args: ['-u', vuln.cible, '--batch', '--dbs', '--random-agent'],
-        raison: `Injection SQL détectée sur ${vuln.cible}. Exploitation avec SQLMap pour extraire les bases de données.`,
-      };
+        return {
+          action: 'exploitation',
+          outilId: 'sqlmap',
+          cible: vuln.cible,
+          args: ['-u', vuln.cible, '--batch', '--dbs', '--random-agent'],
+          raison: `Injection SQL détectée sur ${vuln.cible}. Exploitation avec SQLMap pour extraire les bases de données.`,
+        };
       }
     }
 
@@ -258,13 +273,17 @@ export class MoteurAttaqueEnrichi {
     if (this.contexte.credentialsTrouves.length > 0) {
       const cred = this.contexte.credentialsTrouves[0];
       if (cred) {
-      return {
-        action: 'post-exploitation',
-        outilId: 'metasploit',
-        cible: this.contexte.hote,
-        args: ['-q', '-x', `use auxiliary/scanner/ssh/ssh_login; set RHOSTS ${this.contexte.hote}; set USERNAME ${cred.utilisateur}; set PASSWORD ${cred.motDePasse}; run`],
-        raison: `Credentials trouvés (${cred.utilisateur}). Post-exploitation via Metasploit pour confirmer l'accès.`,
-      };
+        return {
+          action: 'post-exploitation',
+          outilId: 'metasploit',
+          cible: this.contexte.hote,
+          args: [
+            '-q',
+            '-x',
+            `use auxiliary/scanner/ssh/ssh_login; set RHOSTS ${this.contexte.hote}; set USERNAME ${cred.utilisateur}; set PASSWORD ${cred.motDePasse}; run`,
+          ],
+          raison: `Credentials trouvés (${cred.utilisateur}). Post-exploitation via Metasploit pour confirmer l'accès.`,
+        };
       }
     }
 
@@ -295,14 +314,30 @@ export class MoteurAttaqueEnrichi {
     const stdout = resultat.stdout.toLowerCase();
 
     switch (decision.outilId) {
-      case 'nmap': this.analyserNmap(stdout); break;
-      case 'masscan': this.analyserNmap(stdout); break;
-      case 'nikto': this.analyserNikto(stdout, decision.cible); break;
-      case 'nuclei': this.analyserNuclei(stdout, decision.cible); break;
-      case 'hydra': this.analyserHydra(stdout); break;
-      case 'sqlmap': this.analyserSqlmap(stdout, decision.cible); break;
-      case 'ffuf': this.analyserFfuf(stdout, decision.cible); break;
-      case 'hashcat': this.analyserHashcat(stdout); break;
+      case 'nmap':
+        this.analyserNmap(stdout);
+        break;
+      case 'masscan':
+        this.analyserNmap(stdout);
+        break;
+      case 'nikto':
+        this.analyserNikto(stdout, decision.cible);
+        break;
+      case 'nuclei':
+        this.analyserNuclei(stdout, decision.cible);
+        break;
+      case 'hydra':
+        this.analyserHydra(stdout);
+        break;
+      case 'sqlmap':
+        this.analyserSqlmap(stdout, decision.cible);
+        break;
+      case 'ffuf':
+        this.analyserFfuf(stdout, decision.cible);
+        break;
+      case 'hashcat':
+        this.analyserHashcat(stdout);
+        break;
     }
   }
 
@@ -361,10 +396,13 @@ export class MoteurAttaqueEnrichi {
       if (ligne.includes('[') && ligne.includes(']')) {
         const match = ligne.match(/\[([^\]]+)\]/);
         const templateId = match?.[1] ?? 'unknown';
-        const severite = ligne.includes('critical') ? 'critique'
-          : ligne.includes('high') ? 'eleve'
-          : ligne.includes('medium') ? 'moyenne'
-          : 'faible';
+        const severite = ligne.includes('critical')
+          ? 'critique'
+          : ligne.includes('high')
+            ? 'eleve'
+            : ligne.includes('medium')
+              ? 'moyenne'
+              : 'faible';
 
         this.contexte.vulnerabilites.push({
           id: `nuclei-${templateId}-${Date.now()}`,
@@ -384,8 +422,8 @@ export class MoteurAttaqueEnrichi {
         const match = ligne.match(/login:\s*(\S+)\s+password:\s*(\S+)/);
         if (match) {
           this.contexte.credentialsTrouves.push({
-          utilisateur: match[1] ?? '',
-          motDePasse: match[2] ?? '',
+            utilisateur: match[1] ?? '',
+            motDePasse: match[2] ?? '',
             service: 'ssh',
           });
         }
@@ -408,7 +446,10 @@ export class MoteurAttaqueEnrichi {
       if (match) {
         const bases = match[1];
         if (!bases) return;
-        const dbs = bases.split('\n').map((l) => l.replace(/[*\[\]]/g, '').trim()).filter(Boolean);
+        const dbs = bases
+          .split('\n')
+          .map((l) => l.replace(/[*[\]]/g, '').trim())
+          .filter(Boolean);
         for (const db of dbs) {
           this.contexte.urlsDecouvertes.push(`${cible}#db:${db}`);
         }
@@ -419,7 +460,12 @@ export class MoteurAttaqueEnrichi {
   private analyserFfuf(stdout: string, baseUrl: string): void {
     const lignes = stdout.split('\n');
     for (const ligne of lignes) {
-      if (ligne.includes('200') || ligne.includes('301') || ligne.includes('302') || ligne.includes('403')) {
+      if (
+        ligne.includes('200') ||
+        ligne.includes('301') ||
+        ligne.includes('302') ||
+        ligne.includes('403')
+      ) {
         const match = ligne.match(/(\S+)\s+Status:\s+(\d+)/);
         if (match) {
           const chemin = match[1]?.replace(/^FUZZ$/, '').replace(/^\//, '');
@@ -438,8 +484,8 @@ export class MoteurAttaqueEnrichi {
         const match = ligne.match(/([a-f0-9]+):(.+)/);
         if (match) {
           this.contexte.credentialsTrouves.push({
-          utilisateur: match[1] ?? '',
-          motDePasse: match[2] ?? '',
+            utilisateur: match[1] ?? '',
+            motDePasse: match[2] ?? '',
             service: 'hash',
           });
         }
@@ -472,16 +518,26 @@ export class MoteurAttaqueEnrichi {
 
   private severitePourAction(action: TypeActionAttaque): EtapeAttaque['severite'] {
     switch (action) {
-      case 'reconnaissance': return 'info';
-      case 'scan': return 'info';
-      case 'enumeration': return 'remarque';
-      case 'exploitation': return 'avertissement';
-      case 'post-exploitation': return 'critique';
-      case 'escalade-privileges': return 'critique';
-      case 'exfiltration': return 'critique';
-      case 'anti-forensic': return 'info';
-      case 'rapport': return 'info';
-      default: return 'info';
+      case 'reconnaissance':
+        return 'info';
+      case 'scan':
+        return 'info';
+      case 'enumeration':
+        return 'remarque';
+      case 'exploitation':
+        return 'avertissement';
+      case 'post-exploitation':
+        return 'critique';
+      case 'escalade-privileges':
+        return 'critique';
+      case 'exfiltration':
+        return 'critique';
+      case 'anti-forensic':
+        return 'info';
+      case 'rapport':
+        return 'info';
+      default:
+        return 'info';
     }
   }
 
