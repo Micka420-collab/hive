@@ -326,7 +326,9 @@ Réponds en JSON avec: phase, action, outil, arguments, raisonnement, priorite.`
       lignes.push(`  Ports: ${ctx.donnees.ports.join(', ')}`);
     }
     if (ctx.donnees.services?.length) {
-      lignes.push(`  Services: ${ctx.donnees.services.map((s) => `${s.port}/${s.service}`).join(', ')}`);
+      lignes.push(
+        `  Services: ${ctx.donnees.services.map((s) => `${s.port}/${s.service}`).join(', ')}`,
+      );
     }
     if (ctx.donnees.vulnerabilites?.length) {
       lignes.push(`  Vulnérabilités: ${ctx.donnees.vulnerabilites.length} trouvées`);
@@ -402,7 +404,9 @@ Réponds en JSON avec: phase, action, outil, arguments, raisonnement, priorite.`
 
     if (Array.isArray(output.services)) {
       this.contexte.donnees.services ??= [];
-      this.contexte.donnees.services.push(...(output.services as typeof this.contexte.donnees.services));
+      this.contexte.donnees.services.push(
+        ...(output.services as typeof this.contexte.donnees.services),
+      );
     }
 
     if (Array.isArray(output.vulnerabilites)) {
@@ -451,8 +455,6 @@ Réponds en JSON avec: phase, action, outil, arguments, raisonnement, priorite.`
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /** Crée un orchestrateur IA avec configuration par défaut. */
-export function creerOrchestrateurIA(opts?: {
-  providerLLM?: string;
-}): OrchestrateurIA {
+export function creerOrchestrateurIA(opts?: { providerLLM?: string }): OrchestrateurIA {
   return new OrchestrateurIA(opts);
 }
