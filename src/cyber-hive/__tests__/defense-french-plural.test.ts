@@ -18,9 +18,24 @@ function sessionSqlmap(stdout: string): SessionPentest {
     termineeAt: Date.now(),
   };
   session.etapes.push({
-    id: 'e1', sessionId: 'test', agentId: 'a1', type: 'reconnaissance',
-    severite: 'info', description: 'SQLMap scan', explication: 'Recherche d’injections SQL.', ts: Date.now(), dureeMs: 100,
-    resultat: { outilId: 'sqlmap', succes: true, stdout, stderr: '', codeSortie: 0, dureeMs: 100, ts: Date.now() },
+    id: 'e1',
+    sessionId: 'test',
+    agentId: 'a1',
+    type: 'reconnaissance',
+    severite: 'info',
+    description: 'SQLMap scan',
+    explication: 'Recherche d’injections SQL.',
+    ts: Date.now(),
+    dureeMs: 100,
+    resultat: {
+      outilId: 'sqlmap',
+      succes: true,
+      stdout,
+      stderr: '',
+      codeSortie: 0,
+      dureeMs: 100,
+      ts: Date.now(),
+    },
   });
   return session;
 }
@@ -36,7 +51,7 @@ describe('AnalyseurDefense — SQLMap formes plurielles françaises', () => {
 
   it('détecte "sont vulnérables" (pluriel FR)', () => {
     const a = creerAnalyseurDefense();
-    const p = a.analyserSession(sessionSqlmap('les paramètres sont vulnérables à l\'injection SQL'));
+    const p = a.analyserSession(sessionSqlmap("les paramètres sont vulnérables à l'injection SQL"));
     const sqli = p.recommandations.find((r) => r.titre === 'Injection SQL confirmée');
     expect(sqli).toBeDefined();
     expect(sqli?.severite).toBe('critique');
@@ -68,7 +83,7 @@ describe('AnalyseurDefense — SQLMap formes plurielles françaises', () => {
 
   it('détecte toujours "est vulnérable" (singulier FR, non-régression)', () => {
     const a = creerAnalyseurDefense();
-    const p = a.analyserSession(sessionSqlmap('la cible est vulnérable à l\'injection SQL'));
+    const p = a.analyserSession(sessionSqlmap("la cible est vulnérable à l'injection SQL"));
     const sqli = p.recommandations.find((r) => r.titre === 'Injection SQL confirmée');
     expect(sqli).toBeDefined();
     expect(sqli?.severite).toBe('critique');
@@ -90,7 +105,9 @@ describe('AnalyseurDefense — SQLMap formes plurielles françaises', () => {
 
   it('ne détecte pas "do not appear to be injectable" (négation EN)', () => {
     const a = creerAnalyseurDefense();
-    const p = a.analyserSession(sessionSqlmap('all tested parameters do not appear to be injectable'));
+    const p = a.analyserSession(
+      sessionSqlmap('all tested parameters do not appear to be injectable'),
+    );
     const sqli = p.recommandations.find((r) => r.titre === 'Injection SQL confirmée');
     expect(sqli).toBeUndefined();
   });
