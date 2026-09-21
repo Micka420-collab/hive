@@ -168,17 +168,20 @@ export class ServeurDashboard {
       id: randomUUID(),
       nom: `Pentest ${resultat.cible.hote}`,
       cible: resultat.cible,
-      statut: 'en_cours',
+      statut: 'reconnaissance',
+      agents: [],
       etapes: [],
       creeeAt: Date.now(),
       antiTrace: {
-        modeSimulation: true,
         rotationIdentite: true,
         tor: true,
         proxychains: true,
         nettoyageLogs: true,
-        conteneursEphemeress: true,
+        conteneursEphemerers: true,
+        delaiAleatoireMs: 0,
       },
+      outilsDisponibles: [],
+      termineeAt: null,
     };
     this.etat.session = session;
     this.broadcast({ type: 'session', session });
@@ -211,7 +214,7 @@ export class ServeurDashboard {
       this.broadcast({ type: 'posture', posture: this.etat.posture });
 
       // Finaliser
-      session.statut = 'terminee';
+      session.statut = 'termine';
       session.termineeAt = Date.now();
       this.setStatut('done');
       this.log('Pentest terminé. Rapport disponible au téléchargement.');
