@@ -2,7 +2,7 @@
 // Chaque provider peut être connecté via OAuth 2.1, clé API, ou MCP.
 // Inspiré de AutoPentest-MCP, Zen-AI-Pentest, HexStrike, Shannon.
 
-import type { ProviderIA } from './connection-types';
+import type { ProviderIA } from './connection-types.js';
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  Catalogue des providers
