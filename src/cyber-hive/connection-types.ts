@@ -13,11 +13,11 @@ export type StatutConnexion = 'deconnecte' | 'connexion' | 'connecte' | 'erreur'
 
 /** Type de provider IA. */
 export type TypeProvider =
-  | 'llm'           // Modèle de langage (Claude, GPT, Gemini, etc.)
-  | 'coding-agent'  // Agent de code (Cursor, Cline, Codex)
-  | 'mcp-server'    // Serveur MCP externe
+  | 'llm' // Modèle de langage (Claude, GPT, Gemini, etc.)
+  | 'coding-agent' // Agent de code (Cursor, Cline, Codex)
+  | 'mcp-server' // Serveur MCP externe
   | 'security-tool' // Outil de sécurité via MCP
-  | 'local';        // Modèle local (Ollama)
+  | 'local'; // Modèle local (Ollama)
 
 /** Capacités d'un provider IA. */
 export interface CapacitesProvider {
