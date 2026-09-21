@@ -81,11 +81,15 @@ export function parserInputNaturel(input: string): ResultatParse {
 
   // Tentative URL d'abord
   const urlMatch = input.match(REGEX_URL);
-  if (urlMatch) {
-    const url = urlMatch[0];
-    let hote = url.replace(/^https?:\/\//, '').split('/')[0].split(':')[0];
+  const url = urlMatch?.[0];
+  if (url) {
+    const hote = url.replace(/^https?:\/\//, '').split('/')[0]?.split(':')[0];
+    if (!hote) {
+      throw new Error(`Impossible d'extraire l'hôte de l'URL : "${url}"`);
+    }
     const portMatch = url.match(/:(\d{2,5})/);
-    const ports = portMatch ? [parseInt(portMatch[1])] : undefined;
+    const port = portMatch?.[1];
+    const ports = port ? [parseInt(port, 10)] : undefined;
     cible = {
       hote,
       url,
@@ -99,8 +103,8 @@ export function parserInputNaturel(input: string): ResultatParse {
   // Tentative IP
   if (!cible) {
     const ipMatch = input.match(REGEX_IP);
-    if (ipMatch) {
-      const hote = ipMatch[0];
+    const hote = ipMatch?.[0];
+    if (hote) {
       const ports = extrairePorts(input);
       cible = {
         hote,
@@ -115,9 +119,9 @@ export function parserInputNaturel(input: string): ResultatParse {
   // Tentative domaine
   if (!cible) {
     const domainMatches = input.match(REGEX_DOMAIN);
-    if (domainMatches) {
+    const hote = domainMatches?.[0];
+    if (hote) {
       // Filtrer les faux positifs (mots communs)
-      const hote = domainMatches[0];
       const ports = extrairePorts(input);
       cible = {
         hote,
@@ -135,9 +139,10 @@ export function parserInputNaturel(input: string): ResultatParse {
     const nettoye = texte
       .replace(/(scan|scanne|tester|teste|pentest|audit|analyse|vérifie|verifie|la|le|les|du|de|sur|sécurité|securite|de)\b/gi, '')
       .trim();
-    if (nettoye && nettoye.length > 2) {
+    const hote = nettoye.split(/\s+/)[0];
+    if (hote && hote.length > 2) {
       cible = {
-        hote: nettoye.split(/\s+/)[0],
+        hote,
         type: 'web',
         scopeAutorise: extraireScope(texte),
       };
@@ -161,7 +166,7 @@ export function parserInputNaturel(input: string): ResultatParse {
     profondeur,
     options: {
       antiTrace,
-      scopeAuth: cible.scopeAutorise,
+    scopeAuth: cible.scopeAutorise,
       portsSpecifies,
     },
     texteOriginal,
@@ -182,7 +187,9 @@ function extrairePorts(texte: string): number[] {
   const ports: number[] = [];
   const matches = texte.matchAll(REGEX_PORT);
   for (const match of matches) {
-    const port = parseInt(match[1]);
+    const valeur = match[1];
+    if (!valeur) continue;
+    const port = parseInt(valeur, 10);
     if (port > 0 && port <= 65535) {
       ports.push(port);
     }
