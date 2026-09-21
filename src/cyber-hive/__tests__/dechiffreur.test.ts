@@ -26,7 +26,7 @@ describe('dechiffreur — détection de format', () => {
     expect(detecterFormat(encoded)).toBe('base64url');
   });
 
-  it('détecte l\'hexadécimal', () => {
+  it("détecte l'hexadécimal", () => {
     const encoded = Buffer.from('test').toString('hex');
     expect(detecterFormat(encoded)).toBe('hex');
   });
@@ -41,7 +41,7 @@ describe('dechiffreur — détection de format', () => {
   });
 });
 
-describe('dechiffreur — détection d\'algorithme', () => {
+describe("dechiffreur — détection d'algorithme", () => {
   it('détecte RSA quand une clé PEM est fournie', () => {
     const result = detecterAlgorithme({ clePriveePem: '-----BEGIN PRIVATE KEY-----' });
     expect(result).toBe('rsa-oaep');
@@ -141,7 +141,7 @@ describe('dechiffreur — Base64', () => {
 });
 
 describe('dechiffreur — Hex', () => {
-  it('déchiffre l\'hexadécimal', () => {
+  it("déchiffre l'hexadécimal", () => {
     const original = 'test';
     const encoded = Buffer.from(original).toString('hex');
     const result = dechiffrer(encoded, { algorithme: 'hex', encodageSortie: 'utf8' });
@@ -331,7 +331,7 @@ describe('dechiffreur — DES-CBC (historique militaire)', () => {
     expect(result.contenu).toBe('DES hist');
   });
 
-  it('échoue si la clé n\'est pas de 8 octets', () => {
+  it("échoue si la clé n'est pas de 8 octets", () => {
     const result = dechiffrer('dGVzdA==', {
       algorithme: 'des-cbc',
       cle: randomBytes(16),
@@ -462,13 +462,15 @@ describe('dechiffreur — Stéganographie LSB', () => {
     const result = dechiffrer(imageBuffer, { algorithme: 'steganographie-lsb' });
     expect(result.succes).toBe(true);
     // Le contenu extrait doit contenir le message
-    const extracted = Buffer.isBuffer(result.contenu) ? result.contenu.toString('utf8') : result.contenu;
+    const extracted = Buffer.isBuffer(result.contenu)
+      ? result.contenu.toString('utf8')
+      : result.contenu;
     expect(extracted).toContain('HIDDEN');
   });
 });
 
 describe('dechiffreur — Brute-force XOR', () => {
-  it('trouve la clé XOR d\'un octet', () => {
+  it("trouve la clé XOR d'un octet", () => {
     const original = 'Brute force XOR test';
     const key = 42; // clé arbitraire
     const encrypted = Buffer.alloc(original.length);
@@ -478,7 +480,9 @@ describe('dechiffreur — Brute-force XOR', () => {
 
     const result = dechiffrer(encrypted, { algorithme: 'brute-force-xor' });
     expect(result.succes).toBe(true);
-    const content = Buffer.isBuffer(result.contenu) ? result.contenu.toString('utf8') : result.contenu;
+    const content = Buffer.isBuffer(result.contenu)
+      ? result.contenu.toString('utf8')
+      : result.contenu;
     expect(content).toBe(original);
   });
 });
@@ -496,7 +500,7 @@ describe('dechiffreur — détection automatique (dechiffrerAuto)', () => {
     expect(result.algorithme).toBe('base64');
   });
 
-  it('détecte automatiquement l\'hex', () => {
+  it("détecte automatiquement l'hex", () => {
     const original = 'hex auto';
     const encoded = Buffer.from(original).toString('hex');
     const result = dechiffrerAuto(encoded);
@@ -549,7 +553,7 @@ describe('dechiffreur — listerAlgorithmes', () => {
   });
 });
 
-describe('dechiffreur — gestion d\'erreurs', () => {
+describe("dechiffreur — gestion d'erreurs", () => {
   it('retourne une erreur pour un algorithme avec clé manquante', () => {
     const result = dechiffrer('dGVzdA==', { algorithme: 'aes-256-gcm' });
     expect(result.succes).toBe(false);
@@ -562,7 +566,7 @@ describe('dechiffreur — gestion d\'erreurs', () => {
     expect(result.erreur).toContain('clé');
   });
 
-  it('retourne une erreur si la clé DES n\'est pas de 8 octets', () => {
+  it("retourne une erreur si la clé DES n'est pas de 8 octets", () => {
     const result = dechiffrer('dGVzdA==', {
       algorithme: 'des-cbc',
       cle: randomBytes(16),
@@ -572,7 +576,7 @@ describe('dechiffreur — gestion d\'erreurs', () => {
     expect(result.erreur).toContain('8 octets');
   });
 
-  it('retourne une erreur si la clé AES-XTS n\'est pas de 64 octets', () => {
+  it("retourne une erreur si la clé AES-XTS n'est pas de 64 octets", () => {
     const result = dechiffrer('dGVzdA==', {
       algorithme: 'aes-256-xts',
       cle: randomBytes(32),
