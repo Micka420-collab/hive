@@ -122,10 +122,7 @@ export class GestionnaireConnexions {
   /**
    * Traite le callback OAuth : échange le code d'autorisation contre un token.
    */
-  async traiterCallback(
-    code: string,
-    state: string,
-  ): Promise<ConnexionIA | { erreur: string }> {
+  async traiterCallback(code: string, state: string): Promise<ConnexionIA | { erreur: string }> {
     const pkce = this.pkceStore.get(state);
     if (!pkce) return { erreur: 'State invalide ou expiré' };
     this.pkceStore.delete(state);
@@ -158,7 +155,8 @@ export class GestionnaireConnexions {
 
       const data = lireObjetJson(await resp.json());
       const accessToken = lireTexteJson(data?.access_token);
-      if (!data || !accessToken) return { erreur: 'Réponse OAuth invalide : access_token manquant' };
+      if (!data || !accessToken)
+        return { erreur: 'Réponse OAuth invalide : access_token manquant' };
       const token: TokenOAuth = {
         accessToken,
         refreshToken: lireTexteJson(data.refresh_token),
@@ -421,7 +419,11 @@ export class GestionnaireConnexions {
 
     if (!resp.ok) {
       const text = await resp.text();
-      return { providerId: req.providerId, content: '', erreur: `Anthropic ${resp.status}: ${text}` };
+      return {
+        providerId: req.providerId,
+        content: '',
+        erreur: `Anthropic ${resp.status}: ${text}`,
+      };
     }
 
     const data = lireObjetJson(await resp.json());
@@ -557,7 +559,11 @@ export class GestionnaireConnexions {
 
     if (!resp.ok) {
       const text = await resp.text();
-      return { providerId: req.providerId, content: '', erreur: `DeepSeek ${resp.status}: ${text}` };
+      return {
+        providerId: req.providerId,
+        content: '',
+        erreur: `DeepSeek ${resp.status}: ${text}`,
+      };
     }
 
     const data = lireObjetJson(await resp.json());
