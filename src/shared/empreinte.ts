@@ -118,6 +118,8 @@ export interface Contexte {
 
 /** Le préfixe des répertoires de patchs d'une fusion (`merge-runner.ts`). */
 export const PREFIXE_FUSION = 'hive-merge-';
+/** Préfixe des dossiers temporaires vides utilisés par le preflight agent. */
+export const PREFIXE_PREFLIGHT_AGENT = 'hive-agent-preflight-';
 
 /**
  * Le fichier de service, s'il peut y en avoir un sur cette plateforme.
@@ -284,6 +286,15 @@ export function empreinte(ctx: Contexte): Emplacement[] {
       consequence:
         'rien. Ces répertoires sont effacés à la fin de chaque fusion ; il n’en ' +
         'reste que si un processus a été tué au mauvais moment.',
+    },
+    {
+      cle: 'preflights',
+      chemin: ctx.tmpdir,
+      prefixe: PREFIXE_PREFLIGHT_AGENT,
+      quoi: 'des répertoires vides de preflight agent, normalement effacés immédiatement',
+      genre: 'transitoire',
+      retirable: true,
+      consequence: 'rien. Le preflight les recrée au prochain démarrage si nécessaire.',
     },
   ];
 }

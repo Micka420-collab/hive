@@ -488,13 +488,14 @@ Un outil d'installation n'est pas un outil de destruction —
 
 ### Où Hive écrit, exactement
 
-|                               |                                                   |
-| ----------------------------- | ------------------------------------------------- |
-| `<installation>/.env`         | jetons et secrets                                 |
-| `<installation>/data/hive.db` | la base, plus ses `-wal` et `-shm`                |
-| `<installation>/data/rayons/` | les miroirs des dépôts                            |
-| `<installation>/.hive-work/`  | espaces de travail, clé du nœud, `cloudflared`    |
-| `$TMPDIR/hive-merge-*`        | patchs d'une fusion — effacés à la fin de chacune |
+|                                  |                                                             |
+| -------------------------------- | ----------------------------------------------------------- |
+| `<installation>/.env`            | jetons et secrets                                           |
+| `<installation>/data/hive.db`    | la base, plus ses `-wal` et `-shm`                          |
+| `<installation>/data/rayons/`    | les miroirs des dépôts                                      |
+| `<installation>/.hive-work/`     | espaces de travail, clé du nœud, `cloudflared`              |
+| `$TMPDIR/hive-merge-*`           | patchs d'une fusion — effacés à la fin de chacune           |
+| `$TMPDIR/hive-agent-preflight-*` | répertoires vides de sonde — effacés après chaque preflight |
 
 Pas de service, pas d'entrée de registre, pas de fichier dans `/etc`, rien
 dans votre dossier personnel. Ce n'est pas une promesse en prose :
@@ -506,6 +507,9 @@ d'écriture réels de `src/` et **rougit** si l'un d'eux apparaît ailleurs.
 - `$TMPDIR/hive-merge-*` : ces répertoires sont effacés à la fin de chaque
   fusion ; il n'en reste que si un processus a été tué au mauvais moment.
   `desinstaller` les trouve.
+- `$TMPDIR/hive-agent-preflight-*` : le preflight utilise un répertoire vide
+  pour ne jamais monter votre workspace ; il est supprimé dès que la sonde
+  `--version` se termine.
 - **si vous avez demandé un service**, son fichier vit dans votre dossier
   personnel — `~/.config/systemd/user/` sous Linux, `~/Library/LaunchAgents/`
   sous macOS. C'est la seule chose que Hive écrit là, elle est **opt-in**, et

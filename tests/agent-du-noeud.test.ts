@@ -89,13 +89,13 @@ describe('LE NŒUD QU’ON LANCE CHEZ SOI (`npm run node`)', () => {
     expect(NU).toMatch(/messageAgent\(/);
   });
 
-  it('SONDE APRÈS le bac à sable, pas avant', () => {
-    // Un nœud que l'isolement refuse n'a pas à sonder quoi que ce soit — et
-    // l'humain doit lire d'abord ce qui l'arrête.
+  it('DÉTECTE avant le preflight agent-aware, avec une sonde sûre', () => {
+    // Le preflight doit connaître le nom logique du CLI à chercher dans
+    // l'image. Les sondes d'agent filtrent déjà les secrets via `envSonde`.
     const bac = NU.indexOf('bac.refuse');
     const sonde = NU.indexOf('await resoudreAgentAuDemarrage');
     expect(bac, 'le refus du bac doit être dans la source').toBeGreaterThan(-1);
-    expect(sonde, 'la détection doit venir après le refus du bac').toBeGreaterThan(bac);
+    expect(sonde, 'la détection doit précéder le preflight de l’agent').toBeLessThan(bac);
   });
 });
 

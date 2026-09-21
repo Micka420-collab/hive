@@ -59,8 +59,10 @@ const extraKeep = (process.env.HIVE_KEEP_ENV ?? '')
 // automatiquement depuis toujours. L'invité avait donc un vrai agent, et
 // l'hôte un simulacre. Exactement l'inverse de ce qu'on attend.
 //
-// La détection vient APRÈS le bac à sable : un nœud que l'isolement refuse
-// n'a pas à sonder quoi que ce soit, et l'humain lit d'abord ce qui l'arrête.
+// La détection est sûre avant le preflight agent-aware : `agent-detect.ts`
+// sonde avec un environnement nettoyé. Le nom logique est nécessaire pour
+// vérifier que le CLI existe dans l'image, tandis qu'un moteur absent refuse
+// toujours le nœud avant toute sonde d'agent.
 //
 // `HIVE_AGENT` garde le dernier mot. S'il est absent et que PLUSIEURS agents
 // réels sont là (Claude, Cursor, Codex…), on DEMANDE lequel retenir — sauf
