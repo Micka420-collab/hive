@@ -117,7 +117,7 @@ export class GestionnaireAntiTraceV2 {
 
     return {
       id: randomUUID(),
-      userAgent: userAgents[Math.floor(Math.random() * userAgents.length)],
+      userAgent: userAgents[Math.floor(Math.random() * userAgents.length)] ?? '',
       mac,
       sessionId: randomBytes(16).toString('hex'),
       xForwardedFor: `${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}`,
@@ -289,6 +289,9 @@ export class GestionnaireAntiTraceV2 {
   // ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
   //  Nettoyage Docker
   // ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌� logs'],
+  private async nettoyerTracesDocker(): Promise<void> {
+    const actions: [string, string][] = [
+      ['docker-container-prune', 'Nettoyage conteneurs Docker arrêtés et logs'],
       ['docker-network-prune', 'Nettoyage réseaux Docker'],
       ['docker-volume-prune', 'Nettoyage volumes Docker'],
       ['docker-image-prune', 'Nettoyage images Docker'],
