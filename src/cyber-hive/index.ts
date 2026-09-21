@@ -37,7 +37,11 @@ export interface CyberHive {
 
 /** Initialise Cyber Hive avec la configuration donnée (ou par défaut). */
 export function initCyberHive(config?: Partial<ConfigCyberHive>): CyberHive {
-  const configFinale = { ...CONFIG_DEFAUT, ...config, mcp: { ...CONFIG_DEFAUT.mcp, ...config?.mcp } };
+  const configFinale = {
+    ...CONFIG_DEFAUT,
+    ...config,
+    mcp: { ...CONFIG_DEFAUT.mcp, ...config?.mcp },
+  };
 
   return {
     orchestrateur: creerOrchestrateur(configFinale),
