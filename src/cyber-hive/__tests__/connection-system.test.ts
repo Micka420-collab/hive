@@ -158,7 +158,7 @@ describe('ai-orchestrator', () => {
     expect(orch.obtenirEtat()).toBe('actif');
   });
 
-  it('arrête l\'orchestrateur', async () => {
+  it("arrête l'orchestrateur", async () => {
     const orch = creerOrchestrateurIA();
     await orch.initialiser('example.com');
     orch.arreter();
