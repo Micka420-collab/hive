@@ -22,8 +22,14 @@ const USER_AGENTS = [
 
 /** Adresses IP pour le spoofing X-Forwarded-For. */
 const IP_SPOOF_POOL = [
-  '198.51.100.1', '203.0.113.5', '192.0.2.10', '198.51.100.42',
-  '203.0.113.99', '192.0.2.77', '198.51.100.150', '203.0.113.200',
+  '198.51.100.1',
+  '203.0.113.5',
+  '192.0.2.10',
+  '198.51.100.42',
+  '203.0.113.99',
+  '192.0.2.77',
+  '198.51.100.150',
+  '203.0.113.200',
 ];
 
 /** Génère une adresse MAC aléatoire. */
@@ -53,9 +59,7 @@ export function ipSpoofAleatoire(): string {
 
 /** Génère un session ID aléatoire (32 chars hex). */
 export function genererSessionId(): string {
-  return Array.from({ length: 32 }, () =>
-    Math.floor(Math.random() * 16).toString(16),
-  ).join('');
+  return Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
 }
 
 /** Identité pour la rotation. */
@@ -208,7 +212,7 @@ export async function nettoyageAntiForensic(
     actions.push('Journal systemd nettoyé');
 
     await nettoyerAudit(conteneurId);
-    actions.push('Système d\'audit nettoyé');
+    actions.push("Système d'audit nettoyé");
   }
 
   if (config.conteneursEphemerers) {
