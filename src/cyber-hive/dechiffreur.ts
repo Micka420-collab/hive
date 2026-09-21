@@ -142,34 +142,30 @@ export interface ResultatDechiffrement {
 
 /**
  * Détecte le format d'encodage d'une chaîne d'entrée.
- * Ordre de détection : Base64URL > Base64 > Hex > Binaire > Texte.
+ * Les formes ambiguës sont résolues par leur ponctuation : `=`/`+`/`/` pour
+ * Base64 standard, `-`/`_` ou l'absence de padding pour Base64URL.
  */
 export function detecterFormat(entree: string | Buffer): FormatDetecte {
   const str = typeof entree === 'string' ? entree : entree.toString('utf8');
 
-  // Base64URL : caractères A-Za-z0-9-_ sans padding, longueur multiple de 4
-  if (/^[A-Za-z0-9_-]+={0,2}$/.test(str) && str.length % 4 === 0 && str.length >= 4) {
-    try {
-      Buffer.from(str, 'base64url');
-      return 'base64url';
-    } catch {
-      // ignore
-    }
-  }
-
-  // Base64 standard : caractères A-Za-z0-9+/ avec padding optionnel
-  if (/^[A-Za-z0-9+/]+={0,2}$/.test(str) && str.length % 4 === 0 && str.length >= 4) {
-    try {
-      Buffer.from(str, 'base64');
-      return 'base64';
-    } catch {
-      // ignore
-    }
-  }
-
-  // Hexadécimal : caractères 0-9a-fA-F, longueur paire
+  // Hex est un sous-ensemble de Base64 ; il doit donc être identifié avant.
   if (/^[0-9a-fA-F]+$/.test(str) && str.length % 2 === 0 && str.length >= 2) {
     return 'hex';
+  }
+
+  // Base64 standard : caractères A-Za-z0-9+/ avec padding optionnel.
+  if (
+    /^[A-Za-z0-9+/]+={0,2}$/.test(str) &&
+    str.length % 4 === 0 &&
+    str.length >= 4 &&
+    (str.includes('=') || str.includes('+') || str.includes('/'))
+  ) {
+    return 'base64';
+  }
+
+  // Base64URL ne requiert pas de padding et emploie `-` et `_` à la place.
+  if (/^[A-Za-z0-9_-]+$/.test(str) && str.length >= 4 && str.length % 4 !== 1) {
+    return 'base64url';
   }
 
   // Binaire : contient des caractères non-imprimables
@@ -457,7 +453,8 @@ function extraireSteganographieLSB(
   const maxBits = longueurMax * 8;
 
   for (let i = offset; i < donnees.length && bits.length < maxBits; i++) {
-    bits.push(donnees[i] & 1);
+    const octet = donnees[i];
+    if (octet !== undefined) bits.push(octet & 1);
   }
 
   // Reconstruire les octets à partir des bits
@@ -465,7 +462,7 @@ function extraireSteganographieLSB(
   for (let i = 0; i + 7 < bits.length; i += 8) {
     let octet = 0;
     for (let j = 0; j < 8; j++) {
-      octet = (octet << 1) | bits[i + j];
+      octet = (octet << 1) | (bits[i + j] ?? 0);
     }
     octets.push(octet);
   }
@@ -482,28 +479,29 @@ function extraireSteganographieLSB(
  * @returns Buffer déchiffré ou null si aucune clé ne produit du texte lisible
  */
 function bruteForceXOR(donnees: Buffer): { cle: number; contenu: Buffer } | null {
+  let meilleure: { cle: number; contenu: Buffer; score: number } | null = null;
   for (let cle = 0; cle < 256; cle++) {
     const resultat = Buffer.alloc(donnees.length);
-    let lisible = true;
+    let score = 0;
 
     for (let i = 0; i < donnees.length; i++) {
-      const dec = donnees[i] ^ cle;
+      const dec = (donnees[i] ?? 0) ^ cle;
       resultat[i] = dec;
-      // Vérifier si le caractère est imprimable (ASCII 32-126 + sauts de ligne)
+      // Un candidat doit être entièrement lisible, puis ressembler à du texte.
       if (dec < 9 || (dec > 13 && dec < 32) || dec > 126) {
-        if (i < 20) {
-          // Les 20 premiers octets doivent être lisibles
-          lisible = false;
-          break;
-        }
+        score = Number.NEGATIVE_INFINITY;
+        break;
       }
+      if ((dec >= 65 && dec <= 90) || (dec >= 97 && dec <= 122) || dec === 32) score += 3;
+      else if ((dec >= 48 && dec <= 57) || dec === 9 || dec === 10 || dec === 13) score += 1;
     }
 
-    if (lisible) {
-      return { cle, contenu: resultat };
+    if (!meilleure || score > meilleure.score) {
+      meilleure = { cle, contenu: resultat, score };
     }
   }
-  return null;
+  if (!meilleure || meilleure.score < donnees.length * 1.5) return null;
+  return meilleure;
 }
 
 // ╔══════════════════════════════════════════════════════════════════════════╗
@@ -515,8 +513,14 @@ function decoderBase64(donnees: string, urlSafe: boolean): Buffer {
   if (urlSafe) {
     // Convertir URL-safe vers standard
     const standard = donnees.replace(/-/g, '+').replace(/_/g, '/');
+    if (!/^[A-Za-z0-9+/]+$/.test(standard) || standard.length % 4 === 1) {
+      throw new Error('Base64URL invalide.');
+    }
     const padding = standard.length % 4 === 0 ? '' : '='.repeat(4 - (standard.length % 4));
     return Buffer.from(standard + padding, 'base64');
+  }
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(donnees) || donnees.length % 4 !== 0) {
+    throw new Error('Base64 invalide.');
   }
   return Buffer.from(donnees, 'base64');
 }
@@ -528,9 +532,12 @@ function decoderHex(donnees: string): Buffer {
 
 /** Déchiffre XOR avec une clé simple. */
 function dechiffrerXOR(donnees: Buffer, cle: Buffer): Buffer {
+  if (cle.length === 0) {
+    throw new Error('La clé XOR ne peut pas être vide.');
+  }
   const resultat = Buffer.alloc(donnees.length);
   for (let i = 0; i < donnees.length; i++) {
-    resultat[i] = donnees[i] ^ cle[i % cle.length];
+    resultat[i] = (donnees[i] ?? 0) ^ (cle[i % cle.length] ?? 0);
   }
   return resultat;
 }
@@ -864,15 +871,9 @@ export function dechiffrerAuto(
   cles: Array<{ cle?: Buffer | string; iv?: Buffer | string; tag?: Buffer | string }> = [],
 ): ResultatDechiffrement {
   // Phase 1 : encodages simples sans clé
-  const encodagesSimples: AlgorithmeDechiffrement[] = [
-    'base64',
-    'base64url',
-    'hex',
-    'rot13',
-  ];
-
-  for (const algo of encodagesSimples) {
-    const resultat = dechiffrer(entree, { algorithme: algo });
+  const format = detecterFormat(entree);
+  if (format === 'base64' || format === 'base64url' || format === 'hex') {
+    const resultat = dechiffrer(entree, { algorithme: format });
     if (resultat.succes) return resultat;
   }
 
@@ -880,8 +881,13 @@ export function dechiffrerAuto(
   const resultatXor = dechiffrer(entree, { algorithme: 'brute-force-xor' });
   if (resultatXor.succes) return resultatXor;
 
-  // Phase 3 : stéganographie LSB (si données binaires)
-  if (typeof entree === 'object' || detecterFormat(entree) === 'binaire') {
+  // Phase 3 : stéganographie LSB (uniquement pour une image reconnue).
+  // Toute donnée binaire a des bits de poids faible : les lire sans signature
+  // produirait artificiellement un « succès ».
+  const estImage =
+    Buffer.isBuffer(entree) &&
+    ((entree[0] === 0x89 && entree[1] === 0x50) || (entree[0] === 0x42 && entree[1] === 0x4d));
+  if (estImage) {
     const resultatSteg = dechiffrer(entree, { algorithme: 'steganographie-lsb' });
     if (resultatSteg.succes) return resultatSteg;
   }
