@@ -35,13 +35,14 @@ export function parserCibleNaturelle(entree: string): ResultatParsing {
   let ports: number[] | undefined;
   let url: string | undefined;
   let type: CiblePentest['type'] = 'reseau';
-  let scopeAutorise: string[] = [];
+  const scopeAutorise: string[] = [];
   let confiance = 0.5;
 
   // 1. URL complète (http/https)
   const matchUrl = texte.match(REGEX_URL);
-  if (matchUrl) {
-    hote = matchUrl[1];
+  const hoteUrl = matchUrl?.[1];
+  if (hoteUrl) {
+    hote = hoteUrl;
     const port = matchUrl[2];
     if (port) ports = [parseInt(port, 10)];
     url = matchUrl[0];
@@ -53,9 +54,11 @@ export function parserCibleNaturelle(entree: string): ResultatParsing {
   // 2. IP avec port (192.168.1.1:8080)
   if (!hote) {
     const matchIpPort = texte.match(REGEX_IP_PORT);
-    if (matchIpPort) {
-      hote = matchIpPort[1];
-      ports = [parseInt(matchIpPort[2], 10)];
+    const hoteIp = matchIpPort?.[1];
+    const port = matchIpPort?.[2];
+    if (hoteIp && port) {
+      hote = hoteIp;
+      ports = [parseInt(port, 10)];
       type = 'reseau';
       confiance = 0.9;
     }
@@ -64,15 +67,18 @@ export function parserCibleNaturelle(entree: string): ResultatParsing {
   // 3. IP simple ou avec CIDR
   if (!hote) {
     const matchIp = texte.match(REGEX_IP);
-    if (matchIp) {
-      hote = matchIp[1];
+    const hoteIp = matchIp?.[1];
+    if (hoteIp) {
+      hote = hoteIp;
       type = 'reseau';
       confiance = 0.85;
       // Détecter CIDR
       const matchCidr = texte.match(/\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\/(\d+)\b/);
-      if (matchCidr) {
-        scopeAutorise.push(`${matchCidr[1]}/${matchCidr[2]}`);
-        suggestions.push(`Plage CIDR détectée : ${matchCidr[1]}/${matchCidr[2]}. Scan de sous-réseau.`);
+      const adresseCidr = matchCidr?.[1];
+      const masqueCidr = matchCidr?.[2];
+      if (adresseCidr && masqueCidr) {
+        scopeAutorise.push(`${adresseCidr}/${masqueCidr}`);
+        suggestions.push(`Plage CIDR détectée : ${adresseCidr}/${masqueCidr}. Scan de sous-réseau.`);
       }
     }
   }
@@ -80,8 +86,9 @@ export function parserCibleNaturelle(entree: string): ResultatParsing {
   // 4. Domaine simple
   if (!hote) {
     const matchDomain = texte.match(REGEX_DOMAIN);
-    if (matchDomain) {
-      hote = matchDomain[1];
+    const hoteDomaine = matchDomain?.[1];
+    if (hoteDomaine) {
+      hote = hoteDomaine;
       type = hote.startsWith('www.') || !hote.match(/^\d/) ? 'web' : 'reseau';
       confiance = 0.8;
       // Si pas d'URL explicite, construire
@@ -94,15 +101,18 @@ export function parserCibleNaturelle(entree: string): ResultatParsing {
 
   // 5. Ports explicites
   const matchPorts = texte.match(REGEX_PORT);
-  if (matchPorts && !ports) {
-    ports = matchPorts[1].split(',').map((p) => parseInt(p.trim(), 10));
+  const portsExplicites = matchPorts?.[1];
+  if (portsExplicites && !ports) {
+    ports = portsExplicites.split(',').map((p) => parseInt(p.trim(), 10));
   }
 
   // 6. Range de ports
   const matchRange = texte.match(REGEX_RANGE);
-  if (matchRange && !ports) {
-    const debut = parseInt(matchRange[1], 10);
-    const fin = parseInt(matchRange[2], 10);
+  const debutRange = matchRange?.[1];
+  const finRange = matchRange?.[2];
+  if (debutRange && finRange && !ports) {
+    const debut = parseInt(debutRange, 10);
+    const fin = parseInt(finRange, 10);
     ports = [];
     for (let p = debut; p <= fin && p <= 65535; p++) ports.push(p);
     if (ports.length > 100) {
@@ -127,7 +137,7 @@ export function parserCibleNaturelle(entree: string): ResultatParsing {
 
   // 8. Détection du scope d'autorisation
   if (texte.includes('bug bounty') || texte.includes('autorise')) {
-    scopeAutorise.push(hote);
+    if (hote) scopeAutorise.push(hote);
     suggestions.push('Scope bug bounty détecté. Respect strict du périmètre.');
   }
   if (texte.includes('tout') || texte.includes('profond') || texte.includes('deep')) {
@@ -159,7 +169,7 @@ export function parserCibleNaturelle(entree: string): ResultatParsing {
       ports,
       url,
       type,
-      scopeAutorise: scopeAutorise.length ? scopeAutorise : undefined,
+      scopeAutorise,
     },
     confiance,
     explication,
