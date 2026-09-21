@@ -239,6 +239,12 @@ function enveloppeConteneur(
   argsAgent: readonly string[],
   opts: OptionsEnveloppe,
 ): Enveloppe {
+  // Docker Desktop parses bind sources as POSIX-like paths even when its
+  // caller is Windows; a raw `C:\\…` source is otherwise split at the drive
+  // colon and the agent preflight fails before the container starts.
+  const volumeSource = /^[A-Za-z]:[\\/]/.test(opts.cwdHote)
+    ? opts.cwdHote.replaceAll('\\\\', '/')
+    : opts.cwdHote;
   const args = [
     'run',
     '--rm',
@@ -247,7 +253,7 @@ function enveloppeConteneur(
 
     // ── Ce qui est visible ─────────────────────────────────────────────────
     // LE SEUL montage. Pas de $HOME, pas de ~/.ssh, pas de socket de démon.
-    `--volume=${opts.cwdHote}:${MONTAGE}:rw`,
+    `--volume=${volumeSource}:${MONTAGE}:rw`,
     `--workdir=${MONTAGE}`,
     // Racine en lecture seule : un agent ne réécrit pas son propre système.
     '--read-only',
