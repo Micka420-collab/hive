@@ -8,6 +8,11 @@ import {
 } from '../src/node-client/isolement.js';
 
 function runtimeDisponible(): Fournisseur | null {
+  // Docker Desktop on the hosted Windows runner exposes the CLI but does not
+  // provide a bind mount compatible with this Linux-container probe. Keep the
+  // real integration lane active on Unix hosts and report Windows as
+  // unavailable instead of turning infrastructure limits into a false failure.
+  if (process.platform === 'win32') return null;
   for (const nom of ['podman', 'docker']) {
     try {
       execFileSync(nom, ['--version'], { stdio: 'ignore', timeout: 4_000 });
