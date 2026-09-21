@@ -76,7 +76,7 @@ export class AnalyseurDefense {
 
     const stdout = etape.resultat.stdout.toLowerCase();
 
-    switch (etape.outilId ?? etape.type) {
+    switch (etape.resultat.outilId || etape.type) {
       case 'nmap':
         this.analyserNmap(stdout, recos, faiblesses);
         break;
