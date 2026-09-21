@@ -9,8 +9,11 @@ import {
   detecterFormat,
   detecterAlgorithme,
   listerAlgorithmes,
-} from '../dechiffreur';
-import { createCipheriv, randomBytes } from 'node:crypto';
+} from '../dechiffreur.js';
+import { createCipheriv, getCiphers, randomBytes } from 'node:crypto';
+
+const prendEnChargeBlowfish = getCiphers().includes('bf-cbc');
+const prendEnChargeDes = getCiphers().includes('des-cbc');
 
 describe('dechiffreur — détection de format', () => {
   it('détecte le Base64 standard', () => {
@@ -86,9 +89,9 @@ describe('dechiffreur — détection d\'algorithme', () => {
     expect(result).toBe('3des-cbc');
   });
 
-  it('détecte Blowfish-CBC quand IV 8 et clé courte', () => {
+  it('détecte Blowfish-CBC quand IV 8 et clé de 12 octets', () => {
     const result = detecterAlgorithme({
-      cle: randomBytes(8),
+      cle: randomBytes(12),
       iv: randomBytes(8),
     });
     expect(result).toBe('blowfish-cbc');
@@ -123,15 +126,15 @@ describe('dechiffreur — Base64', () => {
   it('déchiffre le Base64 standard', () => {
     const original = 'Document secret';
     const encoded = Buffer.from(original).toString('base64');
-    const result = dechiffrer(encoded, { algorithme: 'base64' });
+    const result = dechiffrer(encoded, { algorithme: 'base64', encodageSortie: 'utf8' });
     expect(result.succes).toBe(true);
-    expect(result.contenu).toBe(original);
+    expect(result.contenu).toStrictEqual(original);
   });
 
   it('déchiffre le Base64URL', () => {
     const original = 'Document secret';
     const encoded = Buffer.from(original).toString('base64url');
-    const result = dechiffrer(encoded, { algorithme: 'base64url' });
+    const result = dechiffrer(encoded, { algorithme: 'base64url', encodageSortie: 'utf8' });
     expect(result.succes).toBe(true);
     expect(result.contenu).toBe(original);
   });
@@ -141,9 +144,9 @@ describe('dechiffreur — Hex', () => {
   it('déchiffre l\'hexadécimal', () => {
     const original = 'test';
     const encoded = Buffer.from(original).toString('hex');
-    const result = dechiffrer(encoded, { algorithme: 'hex' });
+    const result = dechiffrer(encoded, { algorithme: 'hex', encodageSortie: 'utf8' });
     expect(result.succes).toBe(true);
-    expect(result.contenu).toBe(original);
+    expect(result.contenu).toStrictEqual(original);
   });
 });
 
@@ -153,11 +156,11 @@ describe('dechiffreur — XOR', () => {
     const key = Buffer.from('key');
     const encrypted = Buffer.alloc(original.length);
     for (let i = 0; i < original.length; i++) {
-      encrypted[i] = original[i] ^ key[i % key.length];
+      encrypted[i] = original[i]! ^ key[i % key.length]!;
     }
     const result = dechiffrer(encrypted, { algorithme: 'xor', cle: key });
     expect(result.succes).toBe(true);
-    expect(result.contenu).toBe(original);
+    expect(result.contenu).toStrictEqual(original);
   });
 });
 
@@ -284,7 +287,7 @@ describe('dechiffreur — 3DES-CBC', () => {
 });
 
 describe('dechiffreur — Blowfish-CBC', () => {
-  it('déchiffre Blowfish-CBC avec clé et IV', () => {
+  it.skipIf(!prendEnChargeBlowfish)('déchiffre Blowfish-CBC avec clé et IV', () => {
     const cle = randomBytes(16);
     const iv = randomBytes(8);
     const plaintext = Buffer.from('Blowfish test');
@@ -309,7 +312,7 @@ describe('dechiffreur — Blowfish-CBC', () => {
 // ╚══════════════════════════════════════════════════════════════════════════╝
 
 describe('dechiffreur — DES-CBC (historique militaire)', () => {
-  it('déchiffre DES-CBC avec clé 8 octets et IV 8', () => {
+  it.skipIf(!prendEnChargeDes)('déchiffre DES-CBC avec clé 8 octets et IV 8', () => {
     const cle = randomBytes(8);
     const iv = randomBytes(8);
     const plaintext = Buffer.from('DES hist');
@@ -453,7 +456,7 @@ describe('dechiffreur — Stéganographie LSB', () => {
     // Créer un buffer où chaque octet contient un bit LSB
     const imageBuffer = Buffer.alloc(bits.length);
     for (let i = 0; i < bits.length; i++) {
-      imageBuffer[i] = bits[i]; // LSB = bit
+      imageBuffer[i] = bits[i]!; // LSB = bit
     }
 
     const result = dechiffrer(imageBuffer, { algorithme: 'steganographie-lsb' });
@@ -585,6 +588,6 @@ describe('dechiffreur — gestion d\'erreurs', () => {
       cascade: [],
     });
     expect(result.succes).toBe(false);
-    expect(result.erreur).toContain('cascade');
+    expect(result.erreur).toContain('Cascade');
   });
 });
