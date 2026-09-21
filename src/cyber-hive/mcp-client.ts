@@ -4,7 +4,7 @@
 // Supporte les transports: stdio, websocket, HTTP.
 // Inspiré de GitHub MCP Server, AutoPentest-MCP, et la spec MCP 2025.
 
-import type { ConfigMcpExterne, OutilMcpExterne } from './connection-types';
+import type { ConfigMcpExterne, OutilMcpExterne } from './connection-types.js';
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  Types MCP
