@@ -162,6 +162,9 @@ export class MoteurAutonome {
     );
     if (servicesWeb.length > 0 && !this.contexte.urlsDecouvertes.length) {
       const svc = servicesWeb[0];
+      if (!svc) {
+        return null;
+      }
       const url = svc.port === 443 ? `https://${this.contexte.hote}` : `http://${this.contexte.hote}`;
       return {
         action: 'scan',
@@ -175,6 +178,9 @@ export class MoteurAutonome {
     // Phase 3 : si on a des URLs découvertes, on lance Nuclei.
     if (this.contexte.urlsDecouvertes.length > 0 && this.contexte.vulnerabilites.length === 0) {
       const url = this.contexte.urlsDecouvertes[0];
+      if (!url) {
+        return null;
+      }
       return {
         action: 'exploitation',
         outilId: 'nuclei',
@@ -190,6 +196,9 @@ export class MoteurAutonome {
     );
     if (servicesAuth.length > 0 && this.contexte.credentialsTrouves.length === 0) {
       const svc = servicesAuth[0];
+      if (!svc) {
+        return null;
+      }
       return {
         action: 'exploitation',
         outilId: 'hydra',
@@ -205,6 +214,7 @@ export class MoteurAutonome {
     );
     if (sqliVulns.length > 0) {
       const vuln = sqliVulns[0];
+      if (vuln) {
       return {
         action: 'exploitation',
         outilId: 'sqlmap',
@@ -212,12 +222,16 @@ export class MoteurAutonome {
         args: ['-u', vuln.cible, '--batch', '--dbs'],
         raison: `Vulnérabilité SQLi détectée sur ${vuln.cible}. Exploitation avec SQLMap pour énumérer les bases.`,
       };
+      }
     }
 
     // Phase 6 : si on a des URLs mais pas encore fuzzé, on lance FFUF.
     if (this.contexte.urlsDecouvertes.length > 0 && this.contexte.vulnerabilites.length === 0) {
       const url = this.contexte.urlsDecouvertes[0];
-      const baseUrl = url.split('?')[0];
+      if (!url) {
+        return null;
+      }
+      const baseUrl = url.split('?')[0] ?? url;
       return {
         action: 'enumeration',
         outilId: 'ffuf',
@@ -276,9 +290,11 @@ export class MoteurAutonome {
       // Format : 80/tcp open http Apache 2.4.41
       const match = ligne.match(/(\d+)\/(tcp|udp)\s+(\w+)\s+(\S+)(?:\s+(.+))?/);
       if (match) {
-        const port = parseInt(match[1]);
+        const portTexte = match[1];
         const protocole = match[2];
         const etat = match[3];
+        if (!portTexte || !protocole || !etat) continue;
+        const port = parseInt(portTexte, 10);
         const service = match[4] ?? 'unknown';
         const version = match[5] ?? '';
 
@@ -333,8 +349,8 @@ export class MoteurAutonome {
       const match = ligne.match(/(\S+):\s+(\S+)/);
       if (match && ligne.includes('host:')) {
         this.contexte.credentialsTrouves.push({
-          utilisateur: match[1],
-          motDePasse: match[2],
+          utilisateur: match[1] ?? '',
+          motDePasse: match[2] ?? '',
           service: 'ssh',
         });
       }
