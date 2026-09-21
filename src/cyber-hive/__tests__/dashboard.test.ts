@@ -6,10 +6,7 @@ import { creerGenerateurRapport, type RapportComplet } from '../report-generator
 import { creerGestionnaireAntiTraceV2 } from '../anti-trace-v2.js';
 import { ANTI_TRACE_DEFAUT, type SessionPentest } from '../types.js';
 
-function creerSession(
-  nom = 'test',
-  statut: SessionPentest['statut'] = 'termine',
-): SessionPentest {
+function creerSession(nom = 'test', statut: SessionPentest['statut'] = 'termine'): SessionPentest {
   return {
     id: 'test',
     nom,
@@ -79,7 +76,12 @@ describe('validerCible', () => {
   });
 
   it('rejette un port invalide', () => {
-    const r = validerCible({ hote: '192.168.1.1', type: 'reseau', ports: [99999], scopeAutorise: ['192.168.1.1'] });
+    const r = validerCible({
+      hote: '192.168.1.1',
+      type: 'reseau',
+      ports: [99999],
+      scopeAutorise: ['192.168.1.1'],
+    });
     expect(r.valide).toBe(false);
   });
 });
@@ -102,9 +104,24 @@ describe('AnalyseurDefense', () => {
     const session = creerSession();
     // Simuler une étape avec telnet détecté
     session.etapes.push({
-      id: 'e1', sessionId: 'test', agentId: 'a1', type: 'reconnaissance',
-      severite: 'info', description: 'Nmap scan', explication: 'Détection des services exposés.', ts: Date.now(), dureeMs: 100,
-      resultat: { outilId: 'nmap', succes: true, stdout: '23/tcp open telnet', stderr: '', codeSortie: 0, dureeMs: 100, ts: Date.now() },
+      id: 'e1',
+      sessionId: 'test',
+      agentId: 'a1',
+      type: 'reconnaissance',
+      severite: 'info',
+      description: 'Nmap scan',
+      explication: 'Détection des services exposés.',
+      ts: Date.now(),
+      dureeMs: 100,
+      resultat: {
+        outilId: 'nmap',
+        succes: true,
+        stdout: '23/tcp open telnet',
+        stderr: '',
+        codeSortie: 0,
+        dureeMs: 100,
+        ts: Date.now(),
+      },
     });
     const p = a.analyserSession(session);
     expect(p.score).toBeLessThan(100);
@@ -122,7 +139,14 @@ describe('GenerateurRapport', () => {
     const g = creerGenerateurRapport();
     const rapport: RapportComplet = {
       session: creerSession('Test Pentest'),
-      posture: { score: 75, niveau: 'B' as const, forces: [], faiblesses: ['Test'], recommandations: [], resume: 'Test' },
+      posture: {
+        score: 75,
+        niveau: 'B' as const,
+        forces: [],
+        faiblesses: ['Test'],
+        recommandations: [],
+        resume: 'Test',
+      },
       tracesAntiForensics: [],
       dateGeneration: Date.now(),
     };
@@ -136,7 +160,14 @@ describe('GenerateurRapport', () => {
     const g = creerGenerateurRapport();
     const rapport: RapportComplet = {
       session: creerSession('Test Pentest'),
-      posture: { score: 50, niveau: 'C' as const, forces: [], faiblesses: [], recommandations: [], resume: 'Test' },
+      posture: {
+        score: 50,
+        niveau: 'C' as const,
+        forces: [],
+        faiblesses: [],
+        recommandations: [],
+        resume: 'Test',
+      },
       tracesAntiForensics: [],
       dateGeneration: Date.now(),
     };
@@ -150,7 +181,14 @@ describe('GenerateurRapport', () => {
     const g = creerGenerateurRapport();
     const rapport: RapportComplet = {
       session: creerSession('Test'),
-      posture: { score: 100, niveau: 'A' as const, forces: [], faiblesses: [], recommandations: [], resume: 'OK' },
+      posture: {
+        score: 100,
+        niveau: 'A' as const,
+        forces: [],
+        faiblesses: [],
+        recommandations: [],
+        resume: 'OK',
+      },
       tracesAntiForensics: [],
       dateGeneration: Date.now(),
     };
@@ -169,14 +207,16 @@ describe('GestionnaireAntiTraceV2', () => {
     const session = creerSession('test', 'reconnaissance');
     const actions = await m.executerSequenceComplete(session);
     expect(actions.length).toBeGreaterThan(10);
-    expect(actions.every(a => a.statut === 'simule')).toBe(true);
+    expect(actions.every((a) => a.statut === 'simule')).toBe(true);
   });
 
   it('génère une identité spoofée', () => {
     const m = creerGestionnaireAntiTraceV2();
     const id = m.getIdentiteCourante();
     expect(id.userAgent).toBeTruthy();
-    expect(id.mac).toMatch(/^[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}$/);
+    expect(id.mac).toMatch(
+      /^[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}:[0-9a-f]{2}$/,
+    );
     expect(id.sessionId).toHaveLength(32);
   });
 
@@ -185,7 +225,7 @@ describe('GestionnaireAntiTraceV2', () => {
     const session = creerSession('test', 'reconnaissance');
     await m.executerSequenceComplete(session);
     const actions = m.getActions();
-    const fauxDrapeau = actions.find(a => a.nom === 'faux-drapeau');
+    const fauxDrapeau = actions.find((a) => a.nom === 'faux-drapeau');
     expect(fauxDrapeau).toBeDefined();
     expect(fauxDrapeau?.details).toContain("fausser l'attribution");
   });
