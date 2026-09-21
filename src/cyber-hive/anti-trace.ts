@@ -34,18 +34,21 @@ export function genererMACAleatoire(): string {
       .padStart(2, '0'),
   );
   // Second bit du premier octet à 1 (locally administered).
-  octets[0] = (parseInt(octets[0], 16) | 0x02).toString(16).padStart(2, '0');
+  const premierOctet = octets[0];
+  if (premierOctet !== undefined) {
+    octets[0] = (parseInt(premierOctet, 16) | 0x02).toString(16).padStart(2, '0');
+  }
   return octets.join(':');
 }
 
 /** Retourne un User-Agent aléatoire. */
 export function userAgentAleatoire(): string {
-  return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+  return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)] ?? '';
 }
 
 /** Retourne une IP aléatoire pour le spoofing X-Forwarded-For. */
 export function ipSpoofAleatoire(): string {
-  return IP_SPOOF_POOL[Math.floor(Math.random() * IP_SPOOF_POOL.length)];
+  return IP_SPOOF_POOL[Math.floor(Math.random() * IP_SPOOF_POOL.length)] ?? '';
 }
 
 /** Génère un session ID aléatoire (32 chars hex). */
