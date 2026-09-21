@@ -44,17 +44,6 @@ const extraKeep = (process.env.HIVE_KEEP_ENV ?? '')
 // Décidé, annoncé et appliqué par `bac.ts`, qui sert AUSSI à `join.ts`. Le
 // code vivait ici seul, et `join.ts` — le chemin des amis — n'en avait aucune
 // copie : un nœud rejoint tournait toujours sans conteneur.
-const bac = await preparerBac();
-for (const l of bac.lignes) console.log(l);
-
-if (bac.refuse) {
-  console.error('✘ Ce nœud ne démarre pas.\n');
-  // `bac.codeSortie`, jamais un `1` écrit à la main : un refus de sécurité a
-  // son propre code, et c'est ce qui permet à un superviseur de s'arrêter au
-  // lieu de relancer sans fin une machine qui ne pourra jamais travailler.
-  process.exit(bac.codeSortie);
-}
-
 // ─── QUEL AGENT, ET POURQUOI CE N'EST PLUS « shell » PAR DÉFAUT ─────────────
 //
 // Cette ligne disait : `const agentType = process.env.HIVE_AGENT ?? 'shell'`.
@@ -70,8 +59,10 @@ if (bac.refuse) {
 // automatiquement depuis toujours. L'invité avait donc un vrai agent, et
 // l'hôte un simulacre. Exactement l'inverse de ce qu'on attend.
 //
-// La détection vient APRÈS le bac à sable : un nœud que l'isolement refuse
-// n'a pas à sonder quoi que ce soit, et l'humain lit d'abord ce qui l'arrête.
+// La détection est sûre avant le preflight agent-aware : `agent-detect.ts`
+// sonde avec un environnement nettoyé. Le nom logique est nécessaire pour
+// vérifier que le CLI existe dans l'image, tandis qu'un moteur absent refuse
+// toujours le nœud avant toute sonde d'agent.
 //
 // `HIVE_AGENT` garde le dernier mot. S'il est absent et que PLUSIEURS agents
 // réels sont là (Claude, Cursor, Codex…), on DEMANDE lequel retenir — sauf
@@ -93,6 +84,15 @@ const detecte = await resoudreAgentAuDemarrage({
 });
 const agentType: AgentType = detecte.agent;
 const tousAgents = await detectAllAgents();
+
+// Un moteur présent ne suffit pas : le CLI choisi doit réellement être
+// exécutable dans l'image. La décision arrive donc après le choix de l'agent.
+const bac = await preparerBac(process.env, agentType);
+for (const l of bac.lignes) console.log(l);
+if (bac.refuse) {
+  console.error('✘ Ce nœud ne démarre pas.\n');
+  process.exit(bac.codeSortie);
+}
 
 // Le diagnostic croisé, fait UNE fois : il sonde le PATH et l'environnement,
 // et deux sondages successifs coûteraient deux fois pour la même réponse. Il

@@ -36,6 +36,7 @@ import { describe, expect, it } from 'vitest';
 import {
   type Contexte,
   PREFIXE_FUSION,
+  PREFIXE_PREFLIGHT_AGENT,
   empreinte,
   horsDuDossier,
   trouvaillesDehors,
@@ -72,7 +73,7 @@ const ctxPosix: Contexte = {
 };
 
 describe('L’EMPREINTE — module pur', () => {
-  it('nomme les huit endroits où la ruche peut écrire', () => {
+  it('nomme les neuf endroits où la ruche peut écrire', () => {
     // Cette liste est un ENGAGEMENT, pas un reflet : elle rougit dès qu'un
     // emplacement s'ajoute, et c'est tout son intérêt. Le `cerveau` l'a fait
     // rougir en arrivant — donc son inscription a été un geste conscient, pas
@@ -87,6 +88,7 @@ describe('L’EMPREINTE — module pur', () => {
       'cerveau',
       'service',
       'fusions',
+      'preflights',
     ]);
   });
 
@@ -161,8 +163,9 @@ describe('L’EMPREINTE — module pur', () => {
     // le lot du service, et c'est ce test qui a exigé qu'on le dise : la
     // documentation annonçait « une seule écriture hors du dossier ».
     const dehors = horsDuDossier(ctxPosix);
-    expect(dehors.map((e) => e.cle)).toEqual(['service', 'fusions']);
+    expect(dehors.map((e) => e.cle)).toEqual(['service', 'fusions', 'preflights']);
     expect(dehors.find((e) => e.cle === 'fusions')!.prefixe).toBe(PREFIXE_FUSION);
+    expect(dehors.find((e) => e.cle === 'preflights')!.prefixe).toBe(PREFIXE_PREFLIGHT_AGENT);
     // Le fichier de service n'est jamais retiré à la main : `hive service
     // uninstall` désinscrit d'abord.
     expect(dehors.find((e) => e.cle === 'service')!.retirable).toBe(false);
@@ -182,6 +185,7 @@ describe('L’EMPREINTE — module pur', () => {
       'base',
       'cerveau',
       'fusions',
+      'preflights',
       'rayons',
       'sauvegardes',
       'service',
@@ -662,6 +666,8 @@ describe('LA GARDE : aucune écriture ne s’ajoute en douce hors de l’inventa
     // banc ne pouvait donc toucher (0 % de couverture), pour un module éprouvé.
     'src/node-client/identite-noeud.ts': '<workdir>/join — identifiant et clé du nœud',
     'src/node-client/merge-runner.ts': 'os.tmpdir()/hive-merge-* — effacé en finally',
+    'src/node-client/isolement.ts':
+      'os.tmpdir()/hive-agent-preflight-* — répertoire vide, effacé après la sonde',
     'src/node-client/workspace.ts': '<workdir>/<nom> et son .tmp voisin',
     'src/orchestrator/miroir.ts': '<données>/rayons — les miroirs git',
     'src/service-reel.ts':
@@ -781,11 +787,18 @@ describe('LA GARDE : aucune écriture ne s’ajoute en douce hors de l’inventa
     // dossier temporaire pour y chercher des restes — c'est son travail — mais
     // il n'y crée rien. Viser la lecture ferait rougir la bonne intention.
     const createurs = sources().filter((f) => /\bmkdtemp(Sync)?\s*\(/.test(nu(f.texte)));
-    expect(createurs.map((f) => f.chemin)).toEqual(['src/node-client/merge-runner.ts']);
+    expect(createurs.map((f) => f.chemin).sort()).toEqual([
+      'src/node-client/isolement.ts',
+      'src/node-client/merge-runner.ts',
+    ]);
     // Et le même fichier doit le nettoyer. Un `mkdtemp` sans `rmSync` remplit
     // le disque de quelqu'un, lentement, sans jamais rien dire.
-    expect(nu(createurs[0]!.texte)).toMatch(/rmSync/);
-    expect(createurs[0]!.texte).toMatch(/finally/);
+    expect(nu(createurs.find((f) => f.chemin === 'src/node-client/isolement.ts')!.texte)).toMatch(
+      /rmSync/,
+    );
+    expect(createurs.find((f) => f.chemin === 'src/node-client/merge-runner.ts')!.texte).toMatch(
+      /finally/,
+    );
   });
 
   it('aucun chemin ABSOLU de système n’est écrit', () => {
