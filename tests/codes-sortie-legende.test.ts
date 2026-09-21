@@ -62,7 +62,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CODE, SENS, legendeCodes, type CodeSortie } from '../src/codes-sortie.js';
 
-const RACINE = fileURLToPath(new URL('.', import.meta.url));
+const RACINE = fileURLToPath(new URL('..', import.meta.url));
 
 /** Les deux aides qui doivent écrire la légende. Si une troisième naît, elle vient ici. */
 const AIDES = ['src/installer.ts', 'src/installer-main.ts'] as const;
