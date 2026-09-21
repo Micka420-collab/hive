@@ -21,7 +21,7 @@
 import { describe, expect, it } from 'vitest';
 import { analyser, entier, nonInteractif, type Forme } from '../src/args.js';
 import { CODE } from '../src/codes-sortie.js';
-import { completerEnv, lireEnv, type Reglage } from '../src/installateur.js';
+import { completerEnv, lireEnv, type Reglage } from '../src/installer.js';
 
 const CONNUS: Record<string, Forme> = {
   yes: 'booleen',
