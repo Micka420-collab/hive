@@ -2,9 +2,9 @@
 // Interface moderne pour connecter, gérer et visualiser toutes les IA et serveurs MCP.
 // Affiche le statut de chaque connexion, permet d'ajouter des clés API, lancer OAuth, etc.
 
-import type { ConnexionIA, ProviderIA } from './connection-types';
-import { listerProviders, providersParType } from './provider-registry';
-import { SERVEURS_MCP_PREDEFINIS } from './mcp-client';
+import type { ConnexionIA, ProviderIA } from './connection-types.js';
+import { listerProviders, providersParType } from './provider-registry.js';
+import { SERVEURS_MCP_PREDEFINIS } from './mcp-client.js';
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  Génération du HTML du panneau de connexion
