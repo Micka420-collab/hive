@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-5849%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-5849%20d%C3%A9couverts-6B7280?labelColor=17130C)
 ![Licence](https://img.shields.io/badge/licence-MIT-F6C445?labelColor=17130C)
 
 🇫🇷 Français · [🇬🇧 English](README.en.md) · [🌐 Site](https://micka420-collab.github.io/hive/) · [📚 Documentation](#-documentation)
@@ -19,12 +19,30 @@
 
 ---
 
-**Faites travailler plusieurs IA sur votre projet, en même temps — sur vos machines.**
+**Orchestrer plusieurs agents IA pour livrer une mission de développement vérifiable.**
 
-Vous décrivez ce que vous voulez construire. Hive découpe le travail, le
-distribue aux ordinateurs de l'équipe, et s'arrête devant vous à chaque
-résultat. Rien n'est fusionné sans votre accord. **Le code et les clés restent
-chez vous.**
+Hive est une plateforme locale-first composée d’un orchestrateur, de nœuds
+Worker et d’une interface Mission Control. Vous décrivez une mission ; Hive la
+décompose, distribue les tâches aux agents disponibles, conserve les résultats
+et prépare une livraison Git que vous pouvez vérifier. Rien n’est fusionné sans
+votre accord et les secrets restent sur vos machines.
+
+> Le badge indique le nombre de tests découverts par la suite. Il ne remplace
+> pas une preuve de CI verte : l’état réel se trouve dans GitHub et dans la
+> [Roadmap & Audit Notion](https://app.notion.com/p/d8787e3f019a4e8786b585e47fc9f77c?v=3db94c8d5ab28173bcda000ca345fbfe).
+
+## La boucle produit
+
+```text
+Mission → analyse → Task Graph → Workers et modèles → exécution
+        → résultats → revue croisée → Evaluator → corrections
+        → tests / typecheck / build → branche, PR et livraison Git
+```
+
+Le projet possède déjà une Queen Fastify/WebSocket, SQLite, un ordonnanceur,
+la décomposition de tâches, le routage appris, des Workers, la délégation
+bornée et Mission Control. Les briques sont intégrées progressivement ; chaque
+carte Notion distingue le code présent de la preuve de bout en bout.
 
 ```
                           ┌──────────────────────────────┐
@@ -39,6 +57,23 @@ chez vous.**
                                   │  React · 2D/3D │
                                   └────────────────┘
 ```
+
+## État réel du projet
+
+Les fondations suivantes sont publiées sur `main` :
+
+- baseline de compilation, tests et CI restaurée dans [PR #384](https://github.com/Micka420-collab/hive/pull/384) ;
+- préflight des moteurs Docker, Podman et bubblewrap dans [PR #385](https://github.com/Micka420-collab/hive/pull/385) ;
+- graphe de délégation borné et persistant dans [PR #383](https://github.com/Micka420-collab/hive/pull/383).
+
+La [PR #386](https://github.com/Micka420-collab/hive/pull/386) corrige
+l’alignement entre le preflight et l’exécution des agents dans un bac, y compris
+pour Windows et Cline. Elle doit encore passer sa CI finale et sa revue avant
+fusion.
+
+Les images agent-aware et la preuve d’une mission réelle dans Docker/Podman
+restent à faire. `docker/atelier` est un bureau Chromium/VNC, pas une image
+d’agent. L’adaptateur `shell` est une simulation et ne produit pas de vrai diff.
 
 ## 🖥 L'interface
 
@@ -189,6 +224,11 @@ s'il ne trouve aucun agent — et il le dit. `HIVE_AGENT` force le choix.
 Votre abonnement Claude suffit, sans clé d'API :
 **[docs/WINDOWS-CLAUDE.md](docs/WINDOWS-CLAUDE.md)**.
 
+Pour un agent conteneurisé, le nom logique doit être exécutable dans l’image
+choisie. Un CLI installé sur l’hôte ou une session ouverte dans l’hôte ne prouve
+pas que l’agent est disponible dans le conteneur. Hive refuse ce niveau lorsque
+le preflight échoue.
+
 ## 🔒 Sécurité
 
 - **Zéro `shell: true`** — toute exécution passe par `spawn(bin, argv, { shell: false })`.
@@ -199,9 +239,10 @@ Votre abonnement Claude suffit, sans clé d'API :
 - **Jamais de fusion sans revue humaine.**
 
 Avec **podman**, **docker** ou **bubblewrap**, l'agent ne voit que le répertoire
-de sa tâche. **Le réseau reste ouvert** : un agent de codage doit joindre l'API
-de son modèle. Sans moteur de conteneurs, posez `HIVE_ISOLEMENT=exige` — le nœud
-refusera de travailler à découvert.
+de sa tâche lorsque le fournisseur et l’image ont passé le preflight. **Le
+réseau reste ouvert** : un agent de codage doit joindre l'API de son modèle.
+Sans moteur de conteneurs, posez `HIVE_ISOLEMENT=exige` — le nœud refusera de
+travailler à découvert.
 
 ## 🛠️ Commandes
 
