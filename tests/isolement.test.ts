@@ -16,6 +16,7 @@ import * as agentWindows from '../src/shared/agent-windows.js';
 import {
   CPU_MAX,
   FOURNISSEURS,
+  HOME_CONTENEUR,
   IMAGE_DEFAUT,
   MEMOIRE_MAX,
   MODES,
@@ -126,6 +127,21 @@ describe('isolement — les arguments d’un conteneur', () => {
     expect(tmpfs).toMatch(/nosuid/);
   });
 
+  it("ne transmet pas le HOME de l'hôte au conteneur", () => {
+    const { args } = envelopper('claude', ['--version'], {
+      fournisseur: PODMAN,
+      cwdHote: CWD,
+      variables: ['HOME', 'USERPROFILE', 'APPDATA', 'XDG_CONFIG_HOME', 'ANTHROPIC_API_KEY'],
+    });
+
+    expect(args).toContain(`--env=HOME=${HOME_CONTENEUR}`);
+    expect(args).not.toContain('--env=HOME');
+    expect(args).not.toContain('--env=USERPROFILE');
+    expect(args).not.toContain('--env=APPDATA');
+    expect(args).not.toContain('--env=XDG_CONFIG_HOME');
+    expect(args).toContain('--env=ANTHROPIC_API_KEY');
+  });
+
   it('LE SECRET NE PASSE JAMAIS PAR LA LIGNE DE COMMANDE', () => {
     // `-e CLE=valeur` écrirait le secret dans la table des processus, lisible
     // par `ps` pour tout utilisateur de la machine. Le nom seul le fait
@@ -134,7 +150,7 @@ describe('isolement — les arguments d’un conteneur', () => {
     expect(args).toContain('--env=ANTHROPIC_API_KEY');
     expect(args).toContain('--env=OPENAI_API_KEY');
     // Aucun « = » de plus : pas de valeur.
-    for (const a of args.filter((x) => x.startsWith('--env='))) {
+    for (const a of args.filter((x) => x.startsWith('--env=') && !x.startsWith('--env=HOME='))) {
       expect(a.split('=').length, `valeur exposée dans « ${a} »`).toBe(2);
     }
   });

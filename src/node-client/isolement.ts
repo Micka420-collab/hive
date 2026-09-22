@@ -64,6 +64,8 @@ export const CPU_MAX = '2';
 
 /** Point de montage du répertoire de tâche À L'INTÉRIEUR du bac. */
 export const MONTAGE = '/hive/tache';
+/** HOME éphémère du CLI dans un conteneur ; jamais le chemin de l'hôte. */
+export const HOME_CONTENEUR = '/tmp/hive-home';
 
 /**
  * Image utilisée par les moteurs de conteneurs.
@@ -273,8 +275,22 @@ function enveloppeConteneur(
     `--cpus=${CPU_MAX}`,
   ];
 
+  // Le HOME de l'hôte peut contenir une session et un chemin Windows que
+  // l'invité Linux ne peut ni lire ni interpréter. Le CLI reçoit un HOME
+  // éphémère dans le tmpfs ; seules les clés explicitement autorisées traversent
+  // la frontière. Les variables de configuration hôte ne sont jamais montées.
+  args.push(`--env=HOME=${HOME_CONTENEUR}`);
+  const variablesHote = new Set([
+    'HOME',
+    'USERPROFILE',
+    'APPDATA',
+    'LOCALAPPDATA',
+    'XDG_CONFIG_HOME',
+  ]);
   // Les secrets passent par leur NOM seul : jamais dans la ligne de commande.
-  for (const nom of opts.variables) args.push(`--env=${nom}`);
+  for (const nom of opts.variables) {
+    if (!variablesHote.has(nom)) args.push(`--env=${nom}`);
+  }
 
   args.push(opts.image ?? IMAGE_DEFAUT, bin, ...argsAgent);
   return { bin: opts.fournisseur.bin, args };
