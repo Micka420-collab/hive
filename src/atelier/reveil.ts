@@ -54,6 +54,7 @@ export async function lancerCrochets(opts: {
   }
   for (const nom of noms.sort()) {
     const brut = path.posix.join(dossier.replaceAll('\\', '/'), nom);
+    let cheminValide: string;
     let st;
     try {
       const reel = await realpath(brut);
@@ -71,13 +72,22 @@ export async function lancerCrochets(opts: {
         refuses.push(`${nom}: ${juge.raison}`);
         continue;
       }
+      cheminValide = juge.chemin;
     } catch (e) {
       refuses.push(`${nom}: ${e instanceof Error ? e.message : 'illisible'}`);
       continue;
     }
     const spawnFn = opts.spawnFn ?? spawn;
     await new Promise<void>((resolve) => {
-      const enfant = spawnFn(brut, [], { cwd: '/workspace', shell: false, windowsHide: true });
+      // Spawn the canonical path we validated, not the directory entry we
+      // enumerated.  Using `brut` would reopen a symlink after `realpath()`:
+      // replacing that entry between the check and spawn could execute a file
+      // outside `.wake-hooks` despite the path check above.
+      const enfant = spawnFn(cheminValide, [], {
+        cwd: '/workspace',
+        shell: false,
+        windowsHide: true,
+      });
       enfant.on('close', () => resolve());
       enfant.on('error', () => resolve());
     });
