@@ -10,6 +10,7 @@ import type { HiveServer } from '../src/orchestrator/server.js';
 
 const TOKEN = 'jeton-maitre-de-la-ruche-long';
 const headers = { 'content-type': 'application/json', 'x-hive-token': TOKEN };
+let adminHeaders: Record<string, string>;
 
 let server: HiveServer;
 let dir: string;
@@ -29,6 +30,17 @@ beforeEach(async () => {
     tickMs: 10_000,
   });
   base = `http://127.0.0.1:${server.port}`;
+  const auth = await fetch(`${base}/api/auth/register`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      email: 'admin@hive.test',
+      password: 'mot-de-passe-test',
+      displayName: 'Admin',
+    }),
+  });
+  const { token } = (await auth.json()) as { token: string };
+  adminHeaders = { ...headers, authorization: `Bearer ${token}` };
 });
 
 afterEach(async () => {
@@ -118,7 +130,7 @@ describe('réquisition — protocole nœud', () => {
 
     const rep = await fetch(`${base}/api/requisitions/${ack.id}/repondre`, {
       method: 'POST',
-      headers,
+      headers: adminHeaders,
       body: JSON.stringify({ decision: 'accordee', secret: 'sk-seedance-test' }),
     });
     expect(rep.status).toBe(200);
