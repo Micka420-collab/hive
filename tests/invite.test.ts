@@ -111,6 +111,7 @@ describe('détection d’agent', () => {
 describe("flux complet d'invitation", () => {
   let server: HiveServer;
   let dir: string;
+  let adminHeaders: Record<string, string>;
 
   beforeAll(async () => {
     dir = mkdtempSync(path.join(os.tmpdir(), 'hive-invite-'));
@@ -123,6 +124,21 @@ describe("flux complet d'invitation", () => {
       simulation: true,
       tickMs: 80,
     });
+    const base = `http://127.0.0.1:${server.port}`;
+    const auth = await fetch(`${base}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        email: 'admin@hive.test',
+        password: 'mot-de-passe-test',
+        displayName: 'Admin',
+      }),
+    });
+    adminHeaders = {
+      'content-type': 'application/json',
+      'x-hive-token': TOKEN,
+      authorization: `Bearer ${((await auth.json()) as { token: string }).token}`,
+    };
   });
 
   afterAll(async () => {
@@ -134,7 +150,7 @@ describe("flux complet d'invitation", () => {
     const base = `http://127.0.0.1:${server.port}`;
     const url = `ws://127.0.0.1:${server.port}/ws`;
     const res = await fetch(`${base}/api/invite?url=${encodeURIComponent(url)}`, {
-      headers: { 'x-hive-token': TOKEN },
+      headers: adminHeaders,
     });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { invite: string; joinCommand: string };
@@ -153,7 +169,7 @@ describe("flux complet d'invitation", () => {
     const base = `http://127.0.0.1:${server.port}`;
     const lan = `ws://192.168.1.20:${server.port}/ws`;
     const res = await fetch(`${base}/api/invite?url=${encodeURIComponent(lan)}`, {
-      headers: { 'x-hive-token': TOKEN },
+      headers: adminHeaders,
     });
     const body = (await res.json()) as { invite: string; injoignable?: string };
     expect(body.invite, 'on fabrique quand même l’invitation').toBeTruthy();
@@ -164,7 +180,7 @@ describe("flux complet d'invitation", () => {
     // normal (travail solo), et ne doit déclencher aucune alarme.
     const local = `ws://127.0.0.1:${server.port}/ws`;
     const sain = await fetch(`${base}/api/invite?url=${encodeURIComponent(local)}`, {
-      headers: { 'x-hive-token': TOKEN },
+      headers: adminHeaders,
     });
     expect(((await sain.json()) as { injoignable?: string }).injoignable).toBeUndefined();
   });
@@ -175,7 +191,7 @@ describe("flux complet d'invitation", () => {
 
     // L'hôte génère l'invitation.
     const inviteRes = await fetch(`${base}/api/invite?url=${encodeURIComponent(url)}`, {
-      headers: { 'x-hive-token': TOKEN },
+      headers: adminHeaders,
     });
     const invite = decodeInvite(((await inviteRes.json()) as { invite: string }).invite);
     expect(invite).not.toBeNull();
@@ -201,7 +217,7 @@ describe("flux complet d'invitation", () => {
     client.start();
 
     try {
-      const headers = { 'content-type': 'application/json', 'x-hive-token': TOKEN };
+      const headers = adminHeaders;
       const project = (await (
         await fetch(`${base}/api/projects`, {
           method: 'POST',
