@@ -181,6 +181,7 @@ describe.runIf(process.platform !== 'win32')('le banc du seuil — en comporteme
             'const noeuds = [];',
             'const taches = [];',
             `const ABOUTIT = ${options.travailAboutit !== false};`,
+            "  const ADMIN_TOKEN = 'admin-token-du-banc';",
             'createServer((q, r) => {',
             "  if (q.url === '/') {",
             "    r.writeHead(200, { 'content-type': 'text/html' });",
@@ -192,6 +193,13 @@ describe.runIf(process.platform !== 'win32')('le banc du seuil — en comporteme
             "    r.writeHead(201, { 'content-type': 'application/json' });",
             '    return r.end(JSON.stringify({ id }));',
             '  }',
+            // L'essai réel amorce le premier compte avant de frapper un billet.
+            // Le faux serveur doit parler ce contrat, sinon le banc rougit sur
+            // une route absente et ne vérifie jamais la frontière de privilèges.
+            "  if (q.url === '/api/auth/register' && q.method === 'POST') {",
+            "    r.writeHead(200, { 'content-type': 'application/json' });",
+            '    return r.end(JSON.stringify({ token: ADMIN_TOKEN }));',
+            '  }',
             // ─── ET MAINTENANT LE PAS 6 : ELLE FRAPPE DES BILLETS ──────────
             //
             // La fausse ruche doit remettre une commande d'entrée COMPLÈTE,
@@ -200,6 +208,10 @@ describe.runIf(process.platform !== 'win32')('le banc du seuil — en comporteme
             // ainsi que « l'invité est entré » devient observable sans WebSocket
             // ni vrai nœud.
             "  if (q.url === '/api/billets' && q.method === 'POST') {",
+            "    if (q.headers.authorization !== 'Bearer ' + ADMIN_TOKEN) {",
+            "      r.writeHead(401, { 'content-type': 'application/json' });",
+            "      return r.end(JSON.stringify({ error: 'Non authentifié' }));",
+            '    }',
             "    const b = 'hive2_billetDeBanc-01';",
             "    r.writeHead(200, { 'content-type': 'application/json' });",
             '    return r.end(',
