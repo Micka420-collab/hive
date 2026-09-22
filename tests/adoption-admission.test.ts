@@ -384,6 +384,31 @@ describe('créer un projet, et pouvoir s’en servir', () => {
     expect(admission.status).toBe(201);
   });
 
+  it('réserve les chemins locaux à un administrateur explicite', async () => {
+    const local = '/tmp/hive-projet-local';
+    const membre = await fetch(`${base}/api/projects/user`, {
+      method: 'POST',
+      headers: auth(jetonOuvriere),
+      body: JSON.stringify({ name: 'Source locale membre', repoUrl: local }),
+    });
+    expect(membre.status).toBe(400);
+
+    const traverse = await fetch(`${base}/api/projects/user`, {
+      method: 'POST',
+      headers: auth(jetonAdmin),
+      body: JSON.stringify({ name: 'Source traversée', repoUrl: '/tmp/../etc' }),
+    });
+    expect(traverse.status).toBe(400);
+
+    const admin = await fetch(`${base}/api/projects/user`, {
+      method: 'POST',
+      headers: auth(jetonAdmin),
+      body: JSON.stringify({ name: 'Source locale admin', repoUrl: local }),
+    });
+    expect(admin.status).toBe(201);
+    expect(((await admin.json()) as { repoUrl: string }).repoUrl).toBe(local);
+  });
+
   it('LA VOIE « JETON DE RUCHE » RESTE ORPHELINE — et c’est pour ça qu’on adopte', async () => {
     // Le tableau de bord s'utilise sans compte : cette porte-là ne disparaît
     // pas. Elle produit un projet que personne ne tient, ce qui est exactement
