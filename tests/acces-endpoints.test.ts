@@ -21,6 +21,7 @@ const LIMITES = { id: 64, nom: 120 };
 let server: HiveServer;
 let dir: string;
 let base: string;
+let adminToken = '';
 
 beforeEach(async () => {
   dir = mkdtempSync(path.join(os.tmpdir(), 'hive-acces-'));
@@ -34,6 +35,16 @@ beforeEach(async () => {
     tickMs: 10_000,
   });
   base = `http://127.0.0.1:${server.port}`;
+  const auth = await fetch(`${base}/api/auth/register`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      email: 'admin@hive.test',
+      password: 'mot-de-passe-test',
+      displayName: 'Admin',
+    }),
+  });
+  adminToken = ((await auth.json()) as { token: string }).token;
 });
 
 afterEach(async () => {
@@ -45,7 +56,7 @@ afterEach(async () => {
 async function creerBillet(body: Record<string, unknown> = {}): Promise<Response> {
   return fetch(`${base}/api/billets`, {
     method: 'POST',
-    headers,
+    headers: { ...headers, authorization: `Bearer ${adminToken}` },
     body: JSON.stringify({ url: 'ws://127.0.0.1:7777/ws', ...body }),
   });
 }
@@ -164,7 +175,10 @@ describe('échanger un billet', () => {
 
   it('un billet RÉVOQUÉ ne s’échange plus', async () => {
     const j = (await (await creerBillet()).json()) as { billet: string; id: string };
-    const rev = await fetch(`${base}/api/billets/${j.id}`, { method: 'DELETE', headers });
+    const rev = await fetch(`${base}/api/billets/${j.id}`, {
+      method: 'DELETE',
+      headers: { ...headers, authorization: `Bearer ${adminToken}` },
+    });
     expect(rev.status).toBe(200);
     expect((await rejoindre(j.billet, 'node-a')).status).toBe(401);
   });
@@ -237,7 +251,10 @@ describe('échanger un billet', () => {
     // est une décision, pas un effet de bord d'une requête anonyme.
     const a = (await (await creerBillet()).json()) as { billet: string };
     const c1 = (await (await rejoindre(a.billet, 'node-y')).json()) as { cle: string };
-    await fetch(`${base}/api/membres/node-y`, { method: 'DELETE', headers });
+    await fetch(`${base}/api/membres/node-y`, {
+      method: 'DELETE',
+      headers: { ...headers, authorization: `Bearer ${adminToken}` },
+    });
 
     const b = (await (await creerBillet()).json()) as { billet: string };
     const rep = await rejoindre(b.billet, 'node-y');
@@ -287,7 +304,11 @@ describe('les membres', () => {
   it('la liste n’expose JAMAIS d’empreinte ni de secret', async () => {
     const j = (await (await creerBillet()).json()) as { billet: string };
     await rejoindre(j.billet, 'node-alpha');
-    const vue = await (await fetch(`${base}/api/membres`, { headers })).json();
+    const vue = await (
+      await fetch(`${base}/api/membres`, {
+        headers: { ...headers, authorization: `Bearer ${adminToken}` },
+      })
+    ).json();
     const brut = JSON.stringify(vue);
     expect(brut).not.toMatch(/Hash|secret|keyHash/i);
     expect(brut).toContain('node-alpha');
@@ -300,7 +321,11 @@ describe('les membres', () => {
   it('l’état d’un billet est CALCULÉ, pas rangé : le temps le fait expirer seul', async () => {
     const j = (await (await creerBillet({ ttlMs: 60_000 })).json()) as { id: string };
     type Vue = { billets: { id: string; etat: string }[] };
-    const avant = (await (await fetch(`${base}/api/membres`, { headers })).json()) as Vue;
+    const avant = (await (
+      await fetch(`${base}/api/membres`, {
+        headers: { ...headers, authorization: `Bearer ${adminToken}` },
+      })
+    ).json()) as Vue;
     expect(avant.billets.find((b) => b.id === j.id)?.etat).toBe('vivant');
 
     (
@@ -311,7 +336,11 @@ describe('les membres', () => {
       .prepare('UPDATE invite_tickets SET expiresAt = ? WHERE id = ?')
       .run(Date.now() - 1, j.id);
 
-    const apres = (await (await fetch(`${base}/api/membres`, { headers })).json()) as Vue;
+    const apres = (await (
+      await fetch(`${base}/api/membres`, {
+        headers: { ...headers, authorization: `Bearer ${adminToken}` },
+      })
+    ).json()) as Vue;
     expect(apres.billets.find((b) => b.id === j.id)?.etat).toBe('expire');
   });
 
@@ -322,24 +351,42 @@ describe('les membres', () => {
     const b = (await (await creerBillet()).json()) as { billet: string };
     await rejoindre(b.billet, 'node-b');
 
-    const rep = await fetch(`${base}/api/membres/node-a`, { method: 'DELETE', headers });
+    const rep = await fetch(`${base}/api/membres/node-a`, {
+      method: 'DELETE',
+      headers: { ...headers, authorization: `Bearer ${adminToken}` },
+    });
     expect(rep.status).toBe(200);
     expect(server.store.getCleNoeud('node-a')?.revokedAt).not.toBeNull();
     expect(server.store.getCleNoeud('node-b')?.revokedAt).toBeNull(); // l'autre est intact
   });
 
   it('exclure un inconnu rend 404, exclure deux fois aussi', async () => {
-    expect((await fetch(`${base}/api/membres/fantome`, { method: 'DELETE', headers })).status).toBe(
-      404,
-    );
+    expect(
+      (
+        await fetch(`${base}/api/membres/fantome`, {
+          method: 'DELETE',
+          headers: { ...headers, authorization: `Bearer ${adminToken}` },
+        })
+      ).status,
+    ).toBe(404);
     const j = (await (await creerBillet()).json()) as { billet: string };
     await rejoindre(j.billet, 'node-a');
-    expect((await fetch(`${base}/api/membres/node-a`, { method: 'DELETE', headers })).status).toBe(
-      200,
-    );
-    expect((await fetch(`${base}/api/membres/node-a`, { method: 'DELETE', headers })).status).toBe(
-      404,
-    );
+    expect(
+      (
+        await fetch(`${base}/api/membres/node-a`, {
+          method: 'DELETE',
+          headers: { ...headers, authorization: `Bearer ${adminToken}` },
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await fetch(`${base}/api/membres/node-a`, {
+          method: 'DELETE',
+          headers: { ...headers, authorization: `Bearer ${adminToken}` },
+        })
+      ).status,
+    ).toBe(404);
   });
 });
 
@@ -347,7 +394,10 @@ describe('l’élagage', () => {
   it('supprime les billets MORTS et jamais les vivants', async () => {
     const vivant = (await (await creerBillet()).json()) as { id: string };
     const mort = (await (await creerBillet()).json()) as { id: string };
-    await fetch(`${base}/api/billets/${mort.id}`, { method: 'DELETE', headers });
+    await fetch(`${base}/api/billets/${mort.id}`, {
+      method: 'DELETE',
+      headers: { ...headers, authorization: `Bearer ${adminToken}` },
+    });
 
     // Grâce nulle : tout ce qui est mort et créé avant « maintenant » part.
     const supprimes = server.store.pruneAcces(0, Date.now() + 1);
@@ -360,7 +410,10 @@ describe('l’élagage', () => {
 
   it('la période de grâce garde un billet mort récent, pour pouvoir dire « révoqué »', async () => {
     const j = (await (await creerBillet()).json()) as { id: string };
-    await fetch(`${base}/api/billets/${j.id}`, { method: 'DELETE', headers });
+    await fetch(`${base}/api/billets/${j.id}`, {
+      method: 'DELETE',
+      headers: { ...headers, authorization: `Bearer ${adminToken}` },
+    });
     expect(server.store.pruneAcces(3_600_000)).toBe(0);
     expect(server.store.getBillet(j.id)).not.toBeNull();
   });
