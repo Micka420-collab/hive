@@ -276,6 +276,7 @@ import { detectConflicts } from './sting-detector.js';
 import { Scheduler } from './scheduler.js';
 import { HiveStore } from './store.js';
 import type { SessionRangee } from './store.js';
+import { projeterWorkers } from './workers.js';
 import { lireTemperature, FENETRE_MS as FENETRE_THERMO_MS, TYPES_THERMO } from './thermo.js';
 import { buildWaggleBoard } from './waggle.js';
 import { lireVersionRuche } from './version-lue.js';
@@ -1942,6 +1943,18 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     edition,
     factureHorlogeHote: edition === 'cloud',
   }));
+
+  /**
+   * Projection des Workers réellement enregistrés.
+   *
+   * La réponse réutilise les nœuds et l'historique de l'Aiguillage ; elle ne
+   * crée ni identité parallèle ni score inventé. Un modèle sans vécu reste
+   * marqué comme « à explorer » par `projeterWorkers`.
+   */
+  app.get('/api/workers', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    return { workers: projeterWorkers(store.listNodes(), store.observationsAiguillage()) };
+  });
 
   app.get('/api/atelier', async (req, reply) => {
     if (!authorized(req)) return reject(reply);
