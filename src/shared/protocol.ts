@@ -987,6 +987,24 @@ export function octetsDe(data: unknown): number {
   return 0;
 }
 
+const estCheminLocalAbsolu = (v: string): boolean => /^[A-Za-z]:[\\/]/.test(v) || /^\//.test(v);
+
+/**
+ * Un chemin local destiné à une création administrée doit rester un chemin
+ * absolu sans segment de remontée. La validation ne suit pas les symlinks :
+ * cette fonction décide seulement si la forme peut franchir la frontière HTTP.
+ */
+export function isValidLocalRepoPath(v: unknown): v is string {
+  if (typeof v !== 'string' || v.length === 0 || v.length > 500 || v.startsWith('-')) {
+    return false;
+  }
+  if (!estCheminLocalAbsolu(v)) return false;
+  return !v
+    .replaceAll('\\', '/')
+    .split('/')
+    .some((segment) => segment === '..');
+}
+
 export function isValidRepoUrl(v: unknown): v is string {
   if (typeof v !== 'string' || v.length === 0 || v.length > 500) return false;
   if (v.startsWith('-')) return false;
@@ -996,7 +1014,15 @@ export function isValidRepoUrl(v: unknown): v is string {
     /^git:\/\//.test(v) ||
     /^ssh:\/\//.test(v) ||
     /^git@[\w.-]+:/.test(v) ||
-    /^[A-Za-z]:[\\/]/.test(v) || // chemin Windows (C:\...)
-    /^\//.test(v) // chemin POSIX absolu
+    estCheminLocalAbsolu(v)
   );
+}
+
+/**
+ * Contrat des sources entrées par une route HTTP non administrée : seuls les
+ * transports distants passent. `isValidRepoUrl` reste permissive pour les
+ * messages internes et les dépôts locaux des tests d'intégration.
+ */
+export function isValidRemoteRepoUrl(v: unknown): v is string {
+  return isValidRepoUrl(v) && !estCheminLocalAbsolu(v);
 }

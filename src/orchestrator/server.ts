@@ -91,7 +91,13 @@ import {
   jugerPartage,
   partageVivant,
 } from '../shared/partage.js';
-import { isValidRepoUrl, LIMITS, octetsDe, parseClientMessage } from '../shared/protocol.js';
+import {
+  isValidLocalRepoPath,
+  isValidRemoteRepoUrl,
+  LIMITS,
+  octetsDe,
+  parseClientMessage,
+} from '../shared/protocol.js';
 import type { ChantierResultMsg, MergeResultMsg, ServerMessage } from '../shared/protocol.js';
 import { direManques, manquesDeDemarrage } from '../shared/amorce.js';
 import { DEFAULT_TOKEN } from '../shared/types.js';
@@ -5507,11 +5513,12 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     },
     async (req, reply) => {
       if (!authorized(req)) return reject(reply);
-      // repoUrl atteint `git clone` sur chaque nœud : refuser tout schéma non sûr
-      // (le transport ext:: de git = exécution de commande arbitraire = RCE).
-      if (req.body.repoUrl !== undefined && !isValidRepoUrl(req.body.repoUrl)) {
+      // Cette route est aussi appelée avec le jeton partagé aux nœuds. Un
+      // chemin local serait donc résolu sur une machine qui n'est pas celle
+      // de l'appelant : seules les sources distantes franchissent cette porte.
+      if (req.body.repoUrl !== undefined && !isValidRemoteRepoUrl(req.body.repoUrl)) {
         return reply.code(400).send({
-          error: 'repoUrl invalide : schémas autorisés http(s)/git/ssh ou chemin local absolu',
+          error: 'repoUrl invalide : une URL Git distante est requise',
         });
       }
       const project = store.createProject(req.body);
@@ -7156,9 +7163,13 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     },
     async (req, reply) => {
       if (!authorizedUser(req)) return reply.status(401).send({ error: 'Non authentifié' });
-      if (req.body.repoUrl !== undefined && !isValidRepoUrl(req.body.repoUrl)) {
+      const repoUrl = req.body.repoUrl;
+      const cheminLocalAdmin =
+        repoUrl !== undefined && isValidLocalRepoPath(repoUrl) && roleDe(req)?.role === 'admin';
+      if (repoUrl !== undefined && !isValidRemoteRepoUrl(repoUrl) && !cheminLocalAdmin) {
         return reply.code(400).send({
-          error: 'repoUrl invalide',
+          error:
+            'repoUrl invalide : une URL Git distante est requise ; un chemin local est réservé à un administrateur',
         });
       }
       const userId = (req as AuthRequest).userId!;

@@ -153,6 +153,18 @@ describe('durcissement du serveur', () => {
     expect(good.status).toBe(201);
   });
 
+  it('refuse les chemins locaux sur la porte au jeton partagé', async () => {
+    for (const repoUrl of ['/tmp/depot-local', 'C:\\repos\\projet']) {
+      const res = await fetch(`${base}/api/projects`, {
+        method: 'POST',
+        headers: jsonHeaders,
+        body: JSON.stringify({ name: 'Local interdit', repoUrl }),
+      });
+      expect(res.status, repoUrl).toBe(400);
+      expect(((await res.json()) as { error: string }).error).toMatch(/URL Git distante/);
+    }
+  });
+
   it('limite le débit REST : au-delà du plafond, renvoie 429', async () => {
     // ─── POURQUOI UN DÉLAI EXPLICITE, ET POURQUOI CELUI-CI ───────────────────
     //
