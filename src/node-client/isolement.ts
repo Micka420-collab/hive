@@ -1,1 +1,533 @@
-Ly8gTCdpc29sZW1lbnQgZHVyY2kg4oCUIGZhaXJlIHRvdXJuZXIgbCdhZ2VudCBkJ3VuIGluY29ubnUgc2FucyBsdWkgZG9ubmVyIGxhCi8vIG1hY2hpbmUuCi8vCi8vIOKUgOKUgOKUgCBMQSBMSU1JVEUgUVVFIENFIE1PRFVMRSBFWElTVEUgUE9VUiBMRVZFUiDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIAKLy8KLy8gTGEgc2FuZGJveCB2MCAoYHdvcmtzcGFjZS50c2ApIGRvbm5lIHVuIGN3ZCBkw6lkacOpIGV0IHVuIGVudmlyb25uZW1lbnQgw6lwdXLDqS4KLy8gQydlc3QgdXRpbGUgZXQgYydlc3QgaW5zdWZmaXNhbnQsIGV0IGxlIHNpdGUgbGUgZGl0IG5vaXIgc3VyIGJsYW5jIDogwqsgdW4KLy8gcHJvY2Vzc3VzIHLDqWVsIHBldXQgbGlyZSBsZSBkaXNxdWUgZXQgam9pbmRyZSBsZSByw6lzZWF1IDsgbid1dGlsaXNleiBIaXZlCi8vIHF1J2VudHJlIG1lbWJyZXMgZGUgY29uZmlhbmNlIMK7LiBUYW50IHF1ZSBjZXR0ZSBwaHJhc2UgZXN0IHZyYWllLCB1bgovLyBsYW5jZW1lbnQgcHVibGljIG4nZXN0IHBhcyBkw6lmZW5kYWJsZSDigJQgcGFzIHBhcmNlIHF1ZSBsYSBmb25jdGlvbm5hbGl0w6kKLy8gbWFucXVlLCBtYWlzIHBhcmNlIHF1J29uIGRlbWFuZGVyYWl0IMOgIGRlcyBpbmNvbm51cyBkJ2V4w6ljdXRlciBsZSBjb2RlCi8vIGQnYXV0cmVzIGluY29ubnVzIHN1ciBsZXVyIG1hY2hpbmUgcGVyc29ubmVsbGUuCi8vCi8vIOKUgOKUgOKUgCBDRSBRVUUgTCdJU09MRU1FTlQgUFJPVMOIR0UsIEVUIENFIFFVJ0lMIE5FIFBST1TDiEdFIFBBUyDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIAKLy8KLy8gSUwgUFJPVMOIR0UgTEUgRElTUVVFIEVUIExFIFJFU1RFIERVIFNZU1TDiE1FLiBTZXVsIGxlIHLDqXBlcnRvaXJlIGRlIGxhIHTDomNoZQovLyBlc3QgbW9udMOpLCBlbiDDqWNyaXR1cmUuIE5pIGxlIEhPTUUgZHUgbWVtYnJlLCBuaSBzZXMgY2zDqXMgU1NILCBuaSBzYSBiYXNlCi8vIEhpdmUsIG5pIGxhIHNvY2tldCBkdSBkw6ltb24gZGUgY29udGVuZXVycy4gTGEgcmFjaW5lIGVzdCBlbiBsZWN0dXJlIHNldWxlLAovLyB0b3V0ZXMgbGVzIGNhcGFjaXTDqXMgc29udCBhYmFuZG9ubsOpZXMsIGwnw6lsw6l2YXRpb24gZGUgcHJpdmlsw6hnZSBlc3QgYmxvcXXDqWUsCi8vIGV0IGxlIHByb2Nlc3N1cyB0b3VybmUgc291cyB1biB1dGlsaXNhdGV1ciBub24gcHJpdmlsw6lnacOpLgovLwovLyBJTCBORSBGRVJNRSBQQVMgTEUgUsOJU0VBVSwgZXQgYydlc3Qgc3RydWN0dXJlbCA6IHVuIGFnZW50IGRlIGNvZGFnZSBkb2l0Ci8vIGpvaW5kcmUgbCdBUEkgZGUgc29uIG1vZMOobGUuIFVuIGAtLW5ldHdvcmsgbm9uZWAgcmVuZHJhaXQgSGl2ZSBpbnV0aWxpc2FibGUuCi8vIMOJY3JpcmUgwqsgaXNvbMOpIMK7IHNhbnMgY2V0dGUgcGhyYXNlIHNlcmFpdCB1biBtZW5zb25nZSBwYXIgb21pc3Npb24g4oCUIGxhCi8vIGRvbm7DqWUgcXVlIGxlIGNvbnRlbmV1ciBuZSBwcm90w6hnZSBwYXMgZXN0IGp1c3RlbWVudCBjZWxsZSBxdWkgc29ydC4KLy8KLy8gQ29uc8OpcXVlbmNlIMOgIGFzc3VtZXIgZXQgw6AgYWZmaWNoZXIgOiBsJ2lzb2xlbWVudCBlbXDDqmNoZSB1biBhZ2VudCBob3N0aWxlCi8vIGRlIExJUkUgdm90cmUgbWFjaGluZSwgaWwgbmUgbCdlbXDDqmNoZSBwYXMgZCdFTlZPWUVSIGNlIHF1J2lsIGEgcHJvZHVpdC4KLy8KLy8g4pSA4pSA4pSAIEFVQ1VORSBEw4lQRU5EQU5DRSBFTUJBUlFVw4lFIOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgAovLwovLyBNw6ptZSBkb2N0cmluZSBxdWUgYHR1bm5lbC50c2AgOiBIaXZlIG4naW5zdGFsbGUgYXVjdW4gbW90ZXVyIGRlIGNvbnRlbmV1cnMuCi8vIElsIGTDqXRlY3RlIGNlIHF1aSBlc3QgZMOpasOgIGzDoCBldCBzJ2VuIHNlcnQuIEltcG9zZXIgRG9ja2VyIMOgIHF1ZWxxdSd1biBxdWkKLy8gcHLDqnRlIHNhIG1hY2hpbmUgw6AgZGVzIGFtaXMgc2VyYWl0IHVuZSBleGlnZW5jZSBkaXNwcm9wb3J0aW9ubsOpZSwgZXQKLy8gbCdlbWJhcnF1ZXIgc2VyYWl0IHBpcmUg4oCUIHVuIGBucG0gaW5zdGFsbGAgbmUgZG9pdCBwYXMgZMOpY2lkZXIgZCdpbnN0YWxsZXIKLy8gdW4gZMOpbW9uIHByaXZpbMOpZ2nDqS4KLy8KLy8gTU9EVUxFIFBVUiBwb3VyIHRvdXQgY2UgcXVpIHNlIGNhbGN1bGUgKGxlcyBhcmd1bWVudHMsIGxlcyBnYXJhbnRpZXMsIGxlCi8vIG5pdmVhdSkgOyBsYSBzZXVsZSBpbXB1cmV0w6kgZXN0IGxhIFNPTkRFLCBxdWkgbGFuY2UgYC0tdmVyc2lvbmAuCgppbXBvcnQgeyBzcGF3biB9IGZyb20gJ25vZGU6Y2hpbGRfcHJvY2Vzcyc7CmltcG9ydCB7IG1rZHRlbXBTeW5jLCBybVN5bmMgfSBmcm9tICdub2RlOmZzJzsKaW1wb3J0IHsgam9pbiB9IGZyb20gJ25vZGU6cGF0aCc7CmltcG9ydCB7IHRtcGRpciB9IGZyb20gJ25vZGU6b3MnOwppbXBvcnQgeyBlbnZTb25kZSB9IGZyb20gJy4vYWdlbnQtZGV0ZWN0LmpzJzsKCi8qKiBMZXMgdHJvaXMgcG9zaXRpb25zIGRlIGwnaW50ZXJydXB0ZXVyLiAqLwpleHBvcnQgY29uc3QgTU9ERVMgPSBbJ29mZicsICdhdXRvJywgJ2V4aWdlJ10gYXMgY29uc3Q7CmV4cG9ydCB0eXBlIE1vZGVJc29sZW1lbnQgPSAodHlwZW9mIE1PREVTKVtudW1iZXJdOwoKLyoqCiAqIENlIHF1ZSBsZSBuxZN1ZCBvYnRpZW50IHLDqWVsbGVtZW50LgogKgogKiBgcHJvY2Vzc3VzYCBlc3QgbGUgbm9tIGhvbm7DqnRlIGRlIGxhIHNhbmRib3ggdjAgOiB1biBjd2QgZXQgdW4gZW52aXJvbm5lbWVudAogKiDDqXB1csOpcywgcmllbiBkZSBwbHVzLiBJbCBuZSBzZSBwcsOpc2VudGUgUEFTIGNvbW1lIHVuZSBpc29sYXRpb24uCiAqLwpleHBvcnQgY29uc3QgTklWRUFVWCA9IFsnYXVjdW4nLCAncHJvY2Vzc3VzJywgJ2NvbnRlbmV1ciddIGFzIGNvbnN0OwpleHBvcnQgdHlwZSBOaXZlYXVJc29sZW1lbnQgPSAodHlwZW9mIE5JVkVBVVgpW251bWJlcl07CgovKiogTGltaXRlcyBkZSByZXNzb3VyY2VzIGQndW5lIHTDomNoZSBpc29sw6llLiAqLwpleHBvcnQgY29uc3QgTUVNT0lSRV9NQVggPSAnMmcnOwpleHBvcnQgY29uc3QgUFJPQ0VTU1VTX01BWCA9IDUxMjsKZXhwb3J0IGNvbnN0IENQVV9NQVggPSAnMic7CgovKiogUG9pbnQgZGUgbW9udGFnZSBkdSByw6lwZXJ0b2lyZSBkZSB0w6JjaGUgw4AgTCdJTlTDiVJJRVVSIGR1IGJhYy4gKi8KZXhwb3J0IGNvbnN0IE1PTlRBR0UgPSAnL2hpdmUvdGFjaGUnOwoKLyoqCiAqIEltYWdlIHV0aWxpc8OpZSBwYXIgbGVzIG1vdGV1cnMgZGUgY29udGVuZXVycy4KICoKICogQ2V0dGUgaW1hZ2UgZGUgYmFzZSBuZSBjb250aWVudCBwYXMgbGVzIENMSSBkJ2FnZW50cy4gTGUgcHJlZmxpZ2h0IGRvaXQKICogdsOpcmlmaWVyIGxldXIgcHLDqXNlbmNlIGRhbnMgbCdpbWFnZSBjaG9pc2llIHZpYSBISVZFX0lTT0xFTUVOVF9JTUFHRSA7CiAqIHNldWwgbGUgd29ya3NwYWNlIGVzdCBtb250w6ksIGphbWFpcyBsJ2luc3RhbGxhdGlvbiBkZSBsJ2FnZW50IHN1ciBsJ2jDtHRlLgogKi8KZXhwb3J0IGNvbnN0IElNQUdFX0RFRkFVVCA9ICdkb2NrZXIuaW8vbGlicmFyeS9ub2RlOjIwLXNsaW0nOwoKLyoqIEltYWdlIHLDqWVsbGVtZW50IGRlbWFuZMOpZSBwYXIgbCdvcMOpcmF0ZXVyLCBzYW5zIHZhbGV1ciB2aWRlIHRyb21wZXVzZS4gKi8KZXhwb3J0IGZ1bmN0aW9uIGltYWdlRGVwdWlzRW52KGVudjogTm9kZUpTLlByb2Nlc3NFbnYgPSBwcm9jZXNzLmVudik6IHN0cmluZyB7CiAgcmV0dXJuIGVudi5ISVZFX0lTT0xFTUVOVF9JTUFHRT8udHJpbSgpIHx8IElNQUdFX0RFRkFVVDsKfQoKZXhwb3J0IGludGVyZmFjZSBGb3Vybmlzc2V1ciB7CiAgbm9tOiBzdHJpbmc7CiAgYmluOiBzdHJpbmc7CiAgbml2ZWF1OiBOaXZlYXVJc29sZW1lbnQ7CiAgLyoqIENvbW1lbnQgbCdvYnRlbmlyLCBkaXQgZW4gdW5lIGxpZ25lIMOgIHVuIGh1bWFpbi4gKi8KICBpbnN0YWxsYXRpb246IHN0cmluZzsKICAvKiogQ2UgcXUnaWwgZ2FyYW50aXQgcsOpZWxsZW1lbnQg4oCUIGphbWFpcyB1bmUgcHJvbWVzc2Ugcm9uZGUuICovCiAgZ2FyYW50aWVzOiBzdHJpbmdbXTsKfQoKLyoqCiAqIExlcyBtb3RldXJzIHJlY29ubnVzLCBkdSBwbHVzIGF1IG1vaW5zIHNvdWhhaXRhYmxlLgogKgogKiBQb2RtYW4gQVZBTlQgRG9ja2VyLCBkw6lsaWLDqXLDqW1lbnQgOiBpbCB0b3VybmUgc2FucyBkw6ltb24gcHJpdmlsw6lnacOpIGV0IGVuCiAqIG1vZGUgwqsgcm9vdGxlc3MgwrsgcGFyIGTDqWZhdXQuIERvY2tlciBleGlnZSB1biBkw6ltb24gcm9vdCwgY2UgcXVpIGTDqXBsYWNlIGxlCiAqIHJpc3F1ZSBwbHV0w7R0IHF1ZSBkZSBsZSByw6lkdWlyZSDigJQgdW4gY29udGVuZXVyIERvY2tlciBtYWwgY29udHJhaW50IGRvbm5lIGxhCiAqIG1hY2hpbmUgZW50acOocmUuCiAqLwpleHBvcnQgY29uc3QgRk9VUk5JU1NFVVJTOiByZWFkb25seSBGb3Vybmlzc2V1cltdID0gWwogIHsKICAgIG5vbTogJ3BvZG1hbicsCiAgICBiaW46ICdwb2RtYW4nLAogICAgbml2ZWF1OiAnY29udGVuZXVyJywKICAgIGluc3RhbGxhdGlvbjogJ2h0dHBzOi8vcG9kbWFuLmlvL2RvY3MvaW5zdGFsbGF0aW9uIChzYW5zIGTDqW1vbiwgc2FucyByb290KScsCiAgICBnYXJhbnRpZXM6IFsKICAgICAgJ3NldWwgbGUgcsOpcGVydG9pcmUgZGUgbGEgdMOiY2hlIGVzdCB2aXNpYmxlJywKICAgICAgJ3JhY2luZSBlbiBsZWN0dXJlIHNldWxlLCBjYXBhY2l0w6lzIGFiYW5kb25uw6llcycsCiAgICAgICdzYW5zIGTDqW1vbiBwcml2aWzDqWdpw6kgOiBsZSBjb250ZW5ldXIgdG91cm5lIHNvdXMgdm90cmUgdXRpbGlzYXRldXInLAogICAgICAnbcOpbW9pcmUsIHByb2Nlc3N1cyBldCBDUFUgYm9ybsOpcycsCiAgICBdLAogIH0sCiAgewogICAgbm9tOiAnZG9ja2VyJywKICAgIGJpbjogJ2RvY2tlcicsCiAgICBuaXZlYXU6ICdjb250ZW5ldXInLAogICAgaW5zdGFsbGF0aW9uOiAnaHR0cHM6Ly9kb2NzLmRvY2tlci5jb20vZ2V0LWRvY2tlci8nLAogICAgZ2FyYW50aWVzOiBbCiAgICAgICdzZXVsIGxlIHLDqXBlcnRvaXJlIGRlIGxhIHTDomNoZSBlc3QgdmlzaWJsZScsCiAgICAgICdyYWNpbmUgZW4gbGVjdHVyZSBzZXVsZSwgY2FwYWNpdMOpcyBhYmFuZG9ubsOpZXMnLAogICAgICAnbcOpbW9pcmUsIHByb2Nlc3N1cyBldCBDUFUgYm9ybsOpcycsCiAgICAgICfimqAgbGUgZMOpbW9uIERvY2tlciB0b3VybmUgZW4gcm9vdCA6IGNvbXByb21ldHRyZSBsZSBkw6ltb24sIGPigJllc3QgbGEgbWFjaGluZScsCiAgICBdLAogIH0sCiAgewogICAgbm9tOiAnYnViYmxld3JhcCcsCiAgICBiaW46ICdid3JhcCcsCiAgICBuaXZlYXU6ICdjb250ZW5ldXInLAogICAgaW5zdGFsbGF0aW9uOiAnYXB0IGluc3RhbGwgYnViYmxld3JhcCDCtyBkbmYgaW5zdGFsbCBidWJibGV3cmFwIChMaW51eCB1bmlxdWVtZW50KScsCiAgICBnYXJhbnRpZXM6IFsKICAgICAgJ3NldWwgbGUgcsOpcGVydG9pcmUgZGUgbGEgdMOiY2hlIGVzdCBhY2Nlc3NpYmxlIGVuIMOpY3JpdHVyZScsCiAgICAgICdzYW5zIGTDqW1vbiwgc2FucyByb290LCB0csOocyBsw6lnZXInLAogICAgICAn4pqgIG5lIGJvcm5lIE5JIGxhIG3DqW1vaXJlIE5JIGxlIENQVSAocGFzIGRlIGNncm91cHMpJywKICAgIF0sCiAgfSwKXSBhcyBjb25zdDsKCmV4cG9ydCBmdW5jdGlvbiBmb3Vybmlzc2V1clBhck5vbShub206IHN0cmluZyk6IEZvdXJuaXNzZXVyIHwgbnVsbCB7CiAgcmV0dXJuIEZPVVJOSVNTRVVSUy5maW5kKChmKSA9PiBmLm5vbSA9PT0gbm9tIHx8IGYuYmluID09PSBub20pID8/IG51bGw7Cn0KCi8vIOKUgOKUgOKUgCBDZSBxdWUgbCdpc29sZW1lbnQgZGl0IGRlIGx1aS1tw6ptZSDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIAKCi8qKiBDZSBxdWUgbCdpc29sZW1lbnQgcHJvdMOoZ2UgZXQgY2UgcXUnaWwgbGFpc3NlIHBhc3NlciwgcG91ciBhZmZpY2hhZ2UuICovCmV4cG9ydCBpbnRlcmZhY2UgQ29uc3RhdCB7CiAgbml2ZWF1OiBOaXZlYXVJc29sZW1lbnQ7CiAgcHJvdGVnZTogc3RyaW5nW107CiAgbGFpc3NlUGFzc2VyOiBzdHJpbmdbXTsKfQoKLyoqCiAqIEwnw6l0YXQgcsOpZWwsIMOpbm9uY8OpIHNhbnMgYXJyb25kaS4KICoKICogYGxhaXNzZVBhc3NlcmAgbidlc3QgamFtYWlzIHZpZGUsIG3Dqm1lIGF1IG1laWxsZXVyIG5pdmVhdS4gVW5lIGludGVyZmFjZSBxdWkKICogYWZmaWNoZXJhaXQgwqsgaXNvbMOpIOKckyDCuyBzYW5zIGRpcmUgcXVlIGxlIHLDqXNlYXUgcmVzdGUgb3V2ZXJ0IGZlcmFpdCBwcmVuZHJlCiAqIHVuIHJpc3F1ZSDDoCBxdWVscXUndW4gcXVpIGNyb2l0IG5lIHBhcyBlbiBwcmVuZHJlIOKAlCBldCBjJ2VzdCBleGFjdGVtZW50IGNlCiAqIHF1J29uIHJlcHJvY2hlIGF1eCBwcm9kdWl0cyBxdWkgdmVuZGVudCBkZSBsYSBzw6ljdXJpdMOpLgogKi8KZXhwb3J0IGZ1bmN0aW9uIGNvbnN0YXQobml2ZWF1OiBOaXZlYXVJc29sZW1lbnQsIGZvdXJuaXNzZXVyOiBGb3Vybmlzc2V1ciB8IG51bGwpOiBDb25zdGF0IHsKICBpZiAobml2ZWF1ID09PSAnY29udGVuZXVyJyAmJiBmb3Vybmlzc2V1cikgewogICAgcmV0dXJuIHsKICAgICAgbml2ZWF1LAogICAgICBwcm90ZWdlOiBmb3Vybmlzc2V1ci5nYXJhbnRpZXMsCiAgICAgIGxhaXNzZVBhc3NlcjogWwogICAgICAgICdsZSByw6lzZWF1IOKAlCB1biBhZ2VudCBkZSBjb2RhZ2UgZG9pdCBqb2luZHJlIGzigJlBUEkgZGUgc29uIG1vZMOobGUnLAogICAgICAgICdjZSBxdWUgbOKAmWFnZW50IHByb2R1aXQgOiBpbCBwZXV0IGVudm95ZXIgYWlsbGV1cnMgY2UgcXXigJlpbCBhIGx1IGR1IGTDqXDDtHQnLAogICAgICBdLAogICAgfTsKICB9CiAgaWYgKG5pdmVhdSA9PT0gJ3Byb2Nlc3N1cycpIHsKICAgIHJldHVybiB7CiAgICAgIG5pdmVhdSwKICAgICAgcHJvdGVnZTogWwogICAgICAgICd1biByw6lwZXJ0b2lyZSBkZSB0cmF2YWlsIGTDqWRpw6kgcGFyIHTDomNoZScsCiAgICAgICAgJ3VuIGVudmlyb25uZW1lbnQgw6lwdXLDqSAobmkgSE9NRSwgbmkgdmFyaWFibGVzIGR1IG1lbWJyZSknLAogICAgICBdLAogICAgICBsYWlzc2VQYXNzZXI6IFsKICAgICAgICAnTEUgRElTUVVFIEVOVElFUiDigJQgbGUgcHJvY2Vzc3VzIHRvdXJuZSBzb3VzIHZvdHJlIHV0aWxpc2F0ZXVyJywKICAgICAgICAnbGUgcsOpc2VhdScsCiAgICAgICAgJ3ZvcyBjbMOpcyBTU0gsIHZvdHJlIGJhc2UgSGl2ZSwgdm9zIGF1dHJlcyBwcm9qZXRzJywKICAgICAgXSwKICAgIH07CiAgfQogIHJldHVybiB7CiAgICBuaXZlYXU6ICdhdWN1bicsCiAgICBwcm90ZWdlOiBbXSwKICAgIGxhaXNzZVBhc3NlcjogWyd0b3V0IGNlIHF1ZSB2b3RyZSB1dGlsaXNhdGV1ciBwZXV0IGZhaXJlJ10sCiAgfTsKfQoKLy8g4pSA4pSA4pSAIENvbnN0cnVpcmUgbGEgY29tbWFuZGUgaXNvbMOpZSDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIAKCmV4cG9ydCBpbnRlcmZhY2UgT3B0aW9uc0VudmVsb3BwZSB7CiAgZm91cm5pc3NldXI6IEZvdXJuaXNzZXVyOwogIC8qKiBSw6lwZXJ0b2lyZSBkZSB0w6JjaGUgc3VyIGwnSMOUVEUuIE1vbnTDqSBzZXVsLCBlbiDDqWNyaXR1cmUuICovCiAgY3dkSG90ZTogc3RyaW5nOwogIC8qKgogICAqIE5vbXMgZGVzIHZhcmlhYmxlcyBkJ2Vudmlyb25uZW1lbnQgw6AgdHJhbnNtZXR0cmUuCiAgICoKICAgKiBERVMgTk9NUywgSkFNQUlTIERFUyBWQUxFVVJTIDogYC1lIENMRT12YWxldXJgIMOpY3JpcmFpdCBsZSBzZWNyZXQgZGFucyBsYQogICAqIGxpZ25lIGRlIGNvbW1hbmRlLCBkb25jIGRhbnMgbGEgdGFibGUgZGVzIHByb2Nlc3N1cywgZG9uYyBsaXNpYmxlIHBhcgogICAqIGBwc2AgcG91ciB0b3V0IHV0aWxpc2F0ZXVyIGRlIGxhIG1hY2hpbmUuIGAtZSBDTEVgIChub20gc2V1bCkgbGUgZmFpdAogICAqIGjDqXJpdGVyIGRlIGwnZW52aXJvbm5lbWVudCBkZSBsJ2FwcGVsYW50IHNhbnMgamFtYWlzIGwnZXhwb3Nlci4KICAgKi8KICB2YXJpYWJsZXM6IHJlYWRvbmx5IHN0cmluZ1tdOwogIGltYWdlPzogc3RyaW5nOwogIC8qKiBJZGVudGlmaWFudCBudW3DqXJpcXVlIHNvdXMgbGVxdWVsIGV4w6ljdXRlci4gRMOpZmF1dCA6IG5vbiBwcml2aWzDqWdpw6kuICovCiAgdWlkPzogbnVtYmVyOwp9CgpleHBvcnQgaW50ZXJmYWNlIEVudmVsb3BwZSB7CiAgYmluOiBzdHJpbmc7CiAgYXJnczogc3RyaW5nW107Cn0KCi8qKgogKiBFbnZlbG9wcGUgdW5lIGNvbW1hbmRlIGRhbnMgc29uIGJhYyDDoCBzYWJsZS4KICoKICogUmVuZCBgeyBiaW4sIGFyZ3MgfWAgcHLDqnRzIHBvdXIgYHNwYXduKGJpbiwgYXJncywgeyBzaGVsbDogZmFsc2UgfSlgIOKAlCBsYQogKiBjb250cmFpbnRlIMKnNS4xIGR1IGTDqXDDtHQgcydhcHBsaXF1ZSBpbmNoYW5nw6llLCBldCBjJ2VzdCBwcsOpY2lzw6ltZW50IHBvdXIgw6dhCiAqIHF1J29uIHJlbmQgdW4gVEFCTEVBVSBkJ2FyZ3VtZW50cyBwbHV0w7R0IHF1J3VuZSBjaGHDrm5lIDogdW5lIGNoYcOubmUKICogZXhpZ2VyYWl0IHVuIHNoZWxsIHBvdXIgw6p0cmUgZMOpY291cMOpZSwgZXQgcm91dnJpcmFpdCBsJ2luamVjdGlvbiBxdSdvbgogKiBmZXJtZSBwYXIgYWlsbGV1cnMuCiAqLwpleHBvcnQgZnVuY3Rpb24gZW52ZWxvcHBlcigKICBiaW46IHN0cmluZywKICBhcmdzQWdlbnQ6IHJlYWRvbmx5IHN0cmluZ1tdLAogIG9wdHM6IE9wdGlvbnNFbnZlbG9wcGUsCik6IEVudmVsb3BwZSB7CiAgY29uc3QgeyBmb3Vybmlzc2V1ciB9ID0gb3B0czsKICBpZiAoZm91cm5pc3NldXIuYmluID09PSAnYndyYXAnKSByZXR1cm4gZW52ZWxvcHBlQndyYXAoYmluLCBhcmdzQWdlbnQsIG9wdHMpOwogIHJldHVybiBlbnZlbG9wcGVDb250ZW5ldXIoYmluLCBhcmdzQWdlbnQsIG9wdHMpOwp9CgovKiogUG9kbWFuIGV0IERvY2tlciBwYXJ0YWdlbnQgbGEgbcOqbWUgZ3JhbW1haXJlIGQnYXJndW1lbnRzLiAqLwpmdW5jdGlvbiBlbnZlbG9wcGVDb250ZW5ldXIoCiAgYmluOiBzdHJpbmcsCiAgYXJnc0FnZW50OiByZWFkb25seSBzdHJpbmdbXSwKICBvcHRzOiBPcHRpb25zRW52ZWxvcHBlLAopOiBFbnZlbG9wcGUgewogIC8vIERvY2tlciBEZXNrdG9wIHBhcnNlcyBiaW5kIHNvdXJjZXMgYXMgUE9TSVgtbGlrZSBwYXRocyBldmVuIHdoZW4gaXRzCiAgLy8gY2FsbGVyIGlzIFdpbmRvd3M7IGEgcmF3IGBDOlxc4oCmYCBzb3VyY2UgaXMgb3RoZXJ3aXNlIHNwbGl0IGF0IHRoZSBkcml2ZQogIC8vIGNvbG9uIGFuZCB0aGUgYWdlbnQgcHJlZmxpZ2h0IGZhaWxzIGJlZm9yZSB0aGUgY29udGFpbmVyIHN0YXJ0cy4KICBjb25zdCB2b2x1bWVTb3VyY2UgPSAvXltBLVphLXpdOltcXC9dLy50ZXN0KG9wdHMuY3dkSG90ZSkKICAgID8gb3B0cy5jd2RIb3RlLnJlcGxhY2VBbGwoJ1xcJywgJy8nKQogICAgOiBvcHRzLmN3ZEhvdGU7CiAgY29uc3QgYXJncyA9IFsKICAgICdydW4nLAogICAgJy0tcm0nLAogICAgLy8gUGFzIGRlIFRUWSwgcGFzIGQnZW50csOpZSBpbnRlcmFjdGl2ZSA6IGwnYWdlbnQgZXN0IHBpbG90w6kgcGFyIGFyZ3YuCiAgICAnLS1pbnRlcmFjdGl2ZT1mYWxzZScsCgogICAgLy8g4pSA4pSAIENlIHF1aSBlc3QgdmlzaWJsZSDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIAKICAgIC8vIExFIFNFVUwgbW9udGFnZS4gUGFzIGRlICRIT01FLCBwYXMgZGUgfi8uc3NoLCBwYXMgZGUgc29ja2V0IGRlIGTDqW1vbi4KICAgIGAtLXZvbHVtZT0ke3ZvbHVtZVNvdXJjZX06JHtNT05UQUdFfTpyd2AsCiAgICBgLS13b3JrZGlyPSR7TU9OVEFHRX1gLAogICAgLy8gUmFjaW5lIGVuIGxlY3R1cmUgc2V1bGUgOiB1biBhZ2VudCBuZSByw6nDqWNyaXQgcGFzIHNvbiBwcm9wcmUgc3lzdMOobWUuCiAgICAnLS1yZWFkLW9ubHknLAogICAgLy8g4oCmbWFpcyAvdG1wIGRvaXQgZXhpc3RlciBldCDDqnRyZSBpbnNjcmlwdGlibGUsIHNpbm9uIGxhIG1vaXRpw6kgZGVzCiAgICAvLyBvdXRpbHMgw6ljaG91ZW50LiBFbiB0bXBmcywgZG9uYyBlbiBtw6ltb2lyZSwgZG9uYyBlZmZhY8OpIMOgIGwnYXJyw6p0LgogICAgJy0tdG1wZnM9L3RtcDpydyxub2V4ZWMsbm9zdWlkLHNpemU9NTEybScsCgogICAgLy8g4pSA4pSAIENlIHF1aSBlc3QgaW50ZXJkaXQg4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSACiAgICAnLS1jYXAtZHJvcD1BTEwnLAogICAgLy8gQmxvcXVlIHNldHVpZCA6IG3Dqm1lIGVuIHRyb3V2YW50IHVuIGJpbmFpcmUgcHJpdmlsw6lnacOpLCBwYXMgZCfDqWzDqXZhdGlvbi4KICAgICctLXNlY3VyaXR5LW9wdD1uby1uZXctcHJpdmlsZWdlcycsCiAgICBgLS11c2VyPSR7b3B0cy51aWQgPz8gMTAwMH06JHtvcHRzLnVpZCA/PyAxMDAwfWAsCgogICAgLy8g4pSA4pSAIENlIHF1aSBlc3QgYm9ybsOpIOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgAogICAgLy8gVW5lIGJvbWJlIMOgIGZvcmsgbidlbXBvcnRlIHBhcyBsYSBtYWNoaW5lIGR1IG1lbWJyZS4KICAgIGAtLXBpZHMtbGltaXQ9JHtQUk9DRVNTVVNfTUFYfWAsCiAgICBgLS1tZW1vcnk9JHtNRU1PSVJFX01BWH1gLAogICAgYC0tY3B1cz0ke0NQVV9NQVh9YCwKICBdOwoKICAvLyBMZXMgc2VjcmV0cyBwYXNzZW50IHBhciBsZXVyIE5PTSBzZXVsIDogamFtYWlzIGRhbnMgbGEgbGlnbmUgZGUgY29tbWFuZGUuCiAgZm9yIChjb25zdCBub20gb2Ygb3B0cy52YXJpYWJsZXMpIGFyZ3MucHVzaChgLS1lbnY9JHtub219YCk7CgogIGFyZ3MucHVzaChvcHRzLmltYWdlID8/IElNQUdFX0RFRkFVVCwgYmluLCAuLi5hcmdzQWdlbnQpOwogIHJldHVybiB7IGJpbjogb3B0cy5mb3Vybmlzc2V1ci5iaW4sIGFyZ3MgfTsKfQoKLyoqCiAqIEJ1YmJsZXdyYXAgOiBwYXMgZGUgZMOpbW9uLCBwYXMgZCdpbWFnZSwgcGFzIGRlIGNncm91cHMuCiAqCiAqIE9uIHJlY29uc3RydWl0IHVuIHN5c3TDqG1lIG1pbmltYWwgZW4gTEVDVFVSRSBTRVVMRSDDoCBwYXJ0aXIgZGUgY2VsdWkgZGUKICogbCdow7R0ZSAobCdhZ2VudCBhIGJlc29pbiBkZSBzb24gaW50ZXJwcsOpdGV1ciBldCBkZSBzZXMgYmlibGlvdGjDqHF1ZXMpLCBldCBvbgogKiBuJ291dnJlIGVuIMOpY3JpdHVyZSBxdWUgbGUgcsOpcGVydG9pcmUgZGUgbGEgdMOiY2hlLgogKi8KZnVuY3Rpb24gZW52ZWxvcHBlQndyYXAoCiAgYmluOiBzdHJpbmcsCiAgYXJnc0FnZW50OiByZWFkb25seSBzdHJpbmdbXSwKICBvcHRzOiBPcHRpb25zRW52ZWxvcHBlLAopOiBFbnZlbG9wcGUgewogIGNvbnN0IGFyZ3MgPSBbCiAgICAvLyBMZSBzeXN0w6htZSBkZSBsJ2jDtHRlLCBlbiBMRUNUVVJFIFNFVUxFLgogICAgJy0tcm8tYmluZCcsCiAgICAnL3VzcicsCiAgICAnL3VzcicsCiAgICAnLS1yby1iaW5kJywKICAgICcvYmluJywKICAgICcvYmluJywKICAgICctLXJvLWJpbmQnLAogICAgJy9saWInLAogICAgJy9saWInLAogICAgLy8gUHLDqXNlbnQgc3VyIGxlcyBzeXN0w6htZXMgNjQgYml0cywgYWJzZW50IGFpbGxldXJzIDogYC0tcm8tYmluZC10cnlgIG5lCiAgICAvLyBmYWl0IHBhcyDDqWNob3VlciBsZSBsYW5jZW1lbnQgc2kgbGUgY2hlbWluIG4nZXhpc3RlIHBhcy4KICAgICctLXJvLWJpbmQtdHJ5JywKICAgICcvbGliNjQnLAogICAgJy9saWI2NCcsCiAgICAnLS1yby1iaW5kLXRyeScsCiAgICAnL2V0Yy9zc2wnLAogICAgJy9ldGMvc3NsJywKICAgICctLXJvLWJpbmQtdHJ5JywKICAgICcvZXRjL3Jlc29sdi5jb25mJywKICAgICcvZXRjL3Jlc29sdi5jb25mJywKICAgICctLXByb2MnLAogICAgJy9wcm9jJywKICAgICctLWRldicsCiAgICAnL2RldicsCiAgICAnLS10bXBmcycsCiAgICAnL3RtcCcsCgogICAgLy8gTEUgU0VVTCBjaGVtaW4gaW5zY3JpcHRpYmxlLgogICAgJy0tYmluZCcsCiAgICBvcHRzLmN3ZEhvdGUsCiAgICBNT05UQUdFLAogICAgJy0tY2hkaXInLAogICAgTU9OVEFHRSwKCiAgICAvLyBQYXMgZCfDqWzDqXZhdGlvbiwgcGFzIGRlIHNlc3Npb24gcGFydGFnw6llLCBldCBsZSBwcm9jZXNzdXMgbWV1cnQgYXZlYyBIaXZlLgogICAgJy0tdW5zaGFyZS1hbGwnLAogICAgLy8g4oCmc2F1ZiBsZSByw6lzZWF1IDogbCdhZ2VudCBkb2l0IGpvaW5kcmUgc29uIG1vZMOobGUuIEMnZXN0IGxhIG3Dqm1lCiAgICAvLyBjb25jZXNzaW9uIHF1ZSBwb3VyIGxlcyBjb250ZW5ldXJzLCBldCBlbGxlIGVzdCBkaXRlIGF1IG3Dqm1lIGVuZHJvaXQuCiAgICAnLS1zaGFyZS1uZXQnLAogICAgJy0tbmV3LXNlc3Npb24nLAogICAgJy0tZGllLXdpdGgtcGFyZW50JywKICAgICctLScsCiAgICBiaW4sCiAgICAuLi5hcmdzQWdlbnQsCiAgXTsKICByZXR1cm4geyBiaW46IG9wdHMuZm91cm5pc3NldXIuYmluLCBhcmdzIH07Cn0KCi8vIOKUgOKUgOKUgCBUcm91dmVyIGNlIHF1aSBlc3QgaW5zdGFsbMOpIOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgAoKLyoqIFZyYWkgc2kgYGJpbiAtLXZlcnNpb25gIHMnZXjDqWN1dGUgZXQgcmVuZCAwLiBNb3RpZiBkZSBgYWdlbnQtZGV0ZWN0LnRzYC4gKi8KZXhwb3J0IGZ1bmN0aW9uIHNvbmRlcihiaW46IHN0cmluZywgdGltZW91dE1zID0gNF8wMDApOiBQcm9taXNlPGJvb2xlYW4+IHsKICByZXR1cm4gbmV3IFByb21pc2UoKHJlc29sdmUpID0+IHsKICAgIGxldCBmaW5pID0gZmFsc2U7CiAgICBjb25zdCBmaW5pciA9IChvazogYm9vbGVhbik6IHZvaWQgPT4gewogICAgICBpZiAoZmluaSkgcmV0dXJuOwogICAgICBmaW5pID0gdHJ1ZTsKICAgICAgcmVzb2x2ZShvayk7CiAgICB9OwogICAgbGV0IGVuZmFudDsKICAgIHRyeSB7CiAgICAgIC8vIOKUgOKUgOKUgCBMRSBNw4pNRSBTT0lOIFFVRSBMQSBTT05ERSBEJ0FHRU5ULCBFVCBQT1VSIExBIE3Dik1FIFJBSVNPTiDilIDilIDilIDilIDilIDilIDilIDilIAKICAgICAgLy8KICAgICAgLy8gYG1haW4udHNgIGNoYXJnZSBgLmVudmAgQVZBTlQgZGUgcHLDqXBhcmVyIGxlIGJhYy4gU2FucyBgZW52YCwgbCdlbmZhbnQKICAgICAgLy8gaMOpcml0ZSBkZSB0b3V0IGBwcm9jZXNzLmVudmAgOiBISVZFX1RPS0VOLCBISVZFX0pXVF9TRUNSRVQgZXQgbGEgY2zDqQogICAgICAvLyBkJ0FQSSBwYXJ0YWllbnQgw6AgdW4gYmluYWlyZSBub21tw6kgYGRvY2tlcmAsIGBwb2RtYW5gIG91IGBid3JhcGAgdHJvdXbDqQogICAgICAvLyBkYW5zIGxlIFBBVEgg4oCUIGMnZXN0LcOgLWRpcmUgw6AgbidpbXBvcnRlIHF1ZWwgaG9tb255bWUgZMOpcG9zw6kgZW4gdMOqdGUKICAgICAgLy8gZGUgUEFUSC4KICAgICAgLy8KICAgICAgLy8gTGEgZ2FyZGUgZXhpc3RhaXQgZMOpasOgLCBwdXJlIGV0IHRlc3TDqWUsIHBvdXIgbGEgc29uZGUgZCdhZ2VudCA7IGVsbGUKICAgICAgLy8gbidhdmFpdCBzaW1wbGVtZW50IHBhcyDDqXTDqSBwb3J0w6llIGljaS4gQydlc3QgbGUgwqcgOSBiaXMgZHUgam91cm5hbCA6CiAgICAgIC8vIGRldXggY2hlbWlucyBwb3VyIHVuIG3Dqm1lIGdlc3RlLCBkb250IGwndW4gZXN0IHNvaWduw6kgZXQgbCdhdXRyZSBub24uCiAgICAgIGVuZmFudCA9IHNwYXduKGJpbiwgWyctLXZlcnNpb24nXSwgewogICAgICAgIHNoZWxsOiBmYWxzZSwKICAgICAgICB3aW5kb3dzSGlkZTogdHJ1ZSwKICAgICAgICBzdGRpbzogJ2lnbm9yZScsCiAgICAgICAgZW52OiBlbnZTb25kZShwcm9jZXNzLmVudiksCiAgICAgIH0pOwogICAgfSBjYXRjaCB7CiAgICAgIGZpbmlyKGZhbHNlKTsKICAgICAgcmV0dXJuOwogICAgfQogICAgY29uc3QgbWludXRldXIgPSBzZXRUaW1lb3V0KCgpID0+IHsKICAgICAgZW5mYW50LmtpbGwoKTsKICAgICAgLy8gVW4gYmluYWlyZSBxdWkgc2UgYmxvcXVlIGVzdCB0cmFpdMOpIGNvbW1lIEFCU0VOVCA6IG9uIG5lIGNvbmZpZSBwYXMKICAgICAgLy8gbCdpc29sZW1lbnQgw6AgdW4gb3V0aWwgcXVpIG5lIHLDqXBvbmQgcGFzLgogICAgICBmaW5pcihmYWxzZSk7CiAgICB9LCB0aW1lb3V0TXMpOwogICAgbWludXRldXIudW5yZWY/LigpOwogICAgZW5mYW50Lm9uKCdlcnJvcicsICgpID0+IHsKICAgICAgY2xlYXJUaW1lb3V0KG1pbnV0ZXVyKTsKICAgICAgZmluaXIoZmFsc2UpOwogICAgfSk7CiAgICBlbmZhbnQub24oJ2Nsb3NlJywgKGNvZGUpID0+IHsKICAgICAgY2xlYXJUaW1lb3V0KG1pbnV0ZXVyKTsKICAgICAgZmluaXIoY29kZSA9PT0gMCk7CiAgICB9KTsKICB9KTsKfQoKLyoqIExlIHByZW1pZXIgZm91cm5pc3NldXIgZGlzcG9uaWJsZSwgZGFucyBsJ29yZHJlIGRlIHByw6lmw6lyZW5jZS4gKi8KZXhwb3J0IGFzeW5jIGZ1bmN0aW9uIHRyb3V2ZXJGb3Vybmlzc2V1cigpOiBQcm9taXNlPEZvdXJuaXNzZXVyIHwgbnVsbD4gewogIGZvciAoY29uc3QgZiBvZiBGT1VSTklTU0VVUlMpIHsKICAgIGlmIChhd2FpdCBzb25kZXIoZi5iaW4pKSByZXR1cm4gZjsKICB9CiAgcmV0dXJuIG51bGw7Cn0KCmV4cG9ydCBpbnRlcmZhY2UgUmVzdWx0YXRQcmVmbGlnaHRBZ2VudCB7CiAgZXhlY3V0YWJsZTogYm9vbGVhbjsKICBtb3RpZjogc3RyaW5nOwp9CgovKiogVsOpcmlmaWUgbGUgbm9tIGxvZ2lxdWUgZGUgbCdhZ2VudCBkYW5zIGxlIGJhYyBxdWkgZXjDqWN1dGVyYSBsZXMgdMOiY2hlcy4gKi8KZXhwb3J0IGZ1bmN0aW9uIHNvbmRlckFnZW50RGFuc0JhYygKICBmb3Vybmlzc2V1cjogRm91cm5pc3NldXIsCiAgYmluQWdlbnQ6IHN0cmluZywKICBpbWFnZSA9IElNQUdFX0RFRkFVVCwKICBjd2RIb3RlPzogc3RyaW5nLAogIHRpbWVvdXRNcyA9IDMwXzAwMCwKKTogUHJvbWlzZTxSZXN1bHRhdFByZWZsaWdodEFnZW50PiB7CiAgLy8gQSBwcmVmbGlnaHQgb25seSBwcm92ZXMgaW1hZ2UgY29udGVudHMuIE1vdW50aW5nIHRoZSBjYWxsZXIncyB3b3Jrc3BhY2UKICAvLyB3b3VsZCBleHBvc2UgYC5lbnZgLCBzdGF0ZSwgYW5kIHNvdXJjZSBmaWxlcyB0byBhbiBhZ2VudCBwcm9iZSB0aGF0IG5ldmVyCiAgLy8gbmVlZHMgdGhlbTsgdXNlIGFuIGVtcHR5IGRpc3Bvc2FibGUgZGlyZWN0b3J5IGJ5IGRlZmF1bHQuCiAgY29uc3QgcHJvYmVDd2QgPSBjd2RIb3RlID8/IG1rZHRlbXBTeW5jKGpvaW4odG1wZGlyKCksICdoaXZlLWFnZW50LXByZWZsaWdodC0nKSk7CiAgY29uc3Qgb3duZWRDd2QgPSBjd2RIb3RlID09PSB1bmRlZmluZWQ7CiAgbGV0IGxhbmNlOiBFbnZlbG9wcGU7CiAgdHJ5IHsKICAgIGxhbmNlID0gZW52ZWxvcHBlcihiaW5BZ2VudCwgWyctLXZlcnNpb24nXSwgewogICAgICBmb3Vybmlzc2V1ciwKICAgICAgY3dkSG90ZTogcHJvYmVDd2QsCiAgICAgIHZhcmlhYmxlczogW10sCiAgICAgIGltYWdlLAogICAgfSk7CiAgfSBjYXRjaCB7CiAgICBpZiAob3duZWRDd2QpIHJtU3luYyhwcm9iZUN3ZCwgeyByZWN1cnNpdmU6IHRydWUsIGZvcmNlOiB0cnVlIH0pOwogICAgcmV0dXJuIFByb21pc2UucmVzb2x2ZSh7CiAgICAgIGV4ZWN1dGFibGU6IGZhbHNlLAogICAgICBtb3RpZjogYHByZWZsaWdodCBpbXBvc3NpYmxlIHZpYSAke2ZvdXJuaXNzZXVyLm5vbX1gLAogICAgfSk7CiAgfQoKICByZXR1cm4gbmV3IFByb21pc2UoKHJlc29sdmUpID0+IHsKICAgIGxldCBmaW5pID0gZmFsc2U7CiAgICBjb25zdCBmaW5pciA9IChleGVjdXRhYmxlOiBib29sZWFuLCBtb3RpZjogc3RyaW5nKTogdm9pZCA9PiB7CiAgICAgIGlmIChmaW5pKSByZXR1cm47CiAgICAgIGZpbmkgPSB0cnVlOwogICAgICBpZiAob3duZWRDd2QpIHJtU3luYyhwcm9iZUN3ZCwgeyByZWN1cnNpdmU6IHRydWUsIGZvcmNlOiB0cnVlIH0pOwogICAgICByZXNvbHZlKHsgZXhlY3V0YWJsZSwgbW90aWYgfSk7CiAgICB9OwogICAgbGV0IGVuZmFudDsKICAgIHRyeSB7CiAgICAgIGVuZmFudCA9IHNwYXduKGxhbmNlLmJpbiwgbGFuY2UuYXJncywgewogICAgICAgIGN3ZDogcHJvYmVDd2QsCiAgICAgICAgc2hlbGw6IGZhbHNlLAogICAgICAgIHdpbmRvd3NIaWRlOiB0cnVlLAogICAgICAgIHN0ZGlvOiAnaWdub3JlJywKICAgICAgICBlbnY6IGVudlNvbmRlKHByb2Nlc3MuZW52KSwKICAgICAgfSk7CiAgICB9IGNhdGNoIHsKICAgICAgZmluaXIoZmFsc2UsIGBwcmVmbGlnaHQgaW1wb3NzaWJsZSB2aWEgJHtmb3Vybmlzc2V1ci5ub219YCk7CiAgICAgIHJldHVybjsKICAgIH0KICAgIGNvbnN0IG1pbnV0ZXVyID0gc2V0VGltZW91dCgoKSA9PiB7CiAgICAgIGVuZmFudC5raWxsKCk7CiAgICAgIGZpbmlyKGZhbHNlLCBgcHJlZmxpZ2h0IGRlIGwnYWdlbnQgZXhwaXLDqSB2aWEgJHtmb3Vybmlzc2V1ci5ub219YCk7CiAgICB9LCB0aW1lb3V0TXMpOwogICAgbWludXRldXIudW5yZWY/LigpOwogICAgZW5mYW50Lm9uKCdlcnJvcicsICgpID0+IHsKICAgICAgY2xlYXJUaW1lb3V0KG1pbnV0ZXVyKTsKICAgICAgZmluaXIoZmFsc2UsIGBhZ2VudCDCqyAke2JpbkFnZW50fSDCuyBub24gZXjDqWN1dGFibGUgdmlhICR7Zm91cm5pc3NldXIubm9tfWApOwogICAgfSk7CiAgICBlbmZhbnQub24oJ2Nsb3NlJywgKGNvZGUpID0+IHsKICAgICAgY2xlYXJUaW1lb3V0KG1pbnV0ZXVyKTsKICAgICAgZmluaXIoCiAgICAgICAgY29kZSA9PT0gMCwKICAgICAgICBjb2RlID09PSAwCiAgICAgICAgICA/IGBhZ2VudCDCqyAke2JpbkFnZW50fSDCuyBleMOpY3V0YWJsZSBkYW5zIGxlIGJhY2AKICAgICAgICAgIDogYGFnZW50IMKrICR7YmluQWdlbnR9IMK7IGFic2VudCBvdSBub24gZXjDqWN1dGFibGUgZGFucyBsZSBiYWNgLAogICAgICApOwogICAgfSk7CiAgfSk7Cn0KCi8qKgogKiBDZSBxdWUgbGUgbsWTdWQgZG9pdCBmYWlyZSwgY29tcHRlIHRlbnUgZGUgc29uIG1vZGUgZXQgZGUgY2UgcXUnaWwgYSB0cm91dsOpLgogKgogKiBGRVJNw4kgUEFSIETDiUZBVVQgZW4gYGV4aWdlYCA6IHBhcyBkZSBtb3RldXIg4oeSIGxlIG7Fk3VkIFJFRlVTRSBkZSB0cmF2YWlsbGVyLgogKiBDJ2VzdCBsZSBtb2RlIHF1ZSBkb2l0IGNob2lzaXIgcXVpY29ucXVlIHByw6p0ZSBzYSBtYWNoaW5lIMOgIGRlcyBpbmNvbm51cywgZXQKICogaWwgdmF1dCBtaWV1eCB1biBuxZN1ZCBxdWkgbmUgcHJlbmQgcGFzIGRlIHTDomNoZSBxdSd1biBuxZN1ZCBxdWkgZW4gcHJlbmQgdW5lCiAqIHNhbnMgYmFjIMOgIHNhYmxlIGVuIGNyb3lhbnQgbGUgY29udHJhaXJlLgogKi8KZXhwb3J0IGZ1bmN0aW9uIGRlY2lkZXIoCiAgbW9kZTogTW9kZUlzb2xlbWVudCwKICBmb3Vybmlzc2V1cjogRm91cm5pc3NldXIgfCBudWxsLAopOiB7IGlzb2xlOiBib29sZWFuOyBuaXZlYXU6IE5pdmVhdUlzb2xlbWVudDsgcmVmdXNlOiBib29sZWFuOyBtb3RpZjogc3RyaW5nIH0gewogIGlmIChtb2RlID09PSAnb2ZmJykgewogICAgcmV0dXJuIHsKICAgICAgaXNvbGU6IGZhbHNlLAogICAgICBuaXZlYXU6ICdwcm9jZXNzdXMnLAogICAgICByZWZ1c2U6IGZhbHNlLAogICAgICBtb3RpZjogJ2lzb2xlbWVudCBkw6lzYWN0aXbDqSAoSElWRV9JU09MRU1FTlQ9b2ZmKSDigJQgc2FuZGJveCBkZSBwcm9jZXNzdXMgc2V1bGUnLAogICAgfTsKICB9CiAgaWYgKGZvdXJuaXNzZXVyKSB7CiAgICByZXR1cm4gewogICAgICBpc29sZTogdHJ1ZSwKICAgICAgbml2ZWF1OiAnY29udGVuZXVyJywKICAgICAgcmVmdXNlOiBmYWxzZSwKICAgICAgbW90aWY6IGBpc29sZW1lbnQgcGFyICR7Zm91cm5pc3NldXIubm9tfWAsCiAgICB9OwogIH0KICBpZiAobW9kZSA9PT0gJ2V4aWdlJykgewogICAgcmV0dXJuIHsKICAgICAgaXNvbGU6IGZhbHNlLAogICAgICBuaXZlYXU6ICdhdWN1bicsCiAgICAgIHJlZnVzZTogdHJ1ZSwKICAgICAgbW90aWY6CiAgICAgICAgJ0hJVkVfSVNPTEVNRU5UPWV4aWdlIGV0IGF1Y3VuIG1vdGV1ciBkZSBjb250ZW5ldXJzIHRyb3V2w6kgOiBjZSBuxZN1ZCByZWZ1c2UgZGUgdHJhdmFpbGxlci4gJyArCiAgICAgICAgRk9VUk5JU1NFVVJTLm1hcCgoZikgPT4gYCR7Zi5ub219IOKGkiAke2YuaW5zdGFsbGF0aW9ufWApLmpvaW4oJyDCtyAnKSwKICAgIH07CiAgfQogIHJldHVybiB7CiAgICBpc29sZTogZmFsc2UsCiAgICBuaXZlYXU6ICdwcm9jZXNzdXMnLAogICAgcmVmdXNlOiBmYWxzZSwKICAgIG1vdGlmOgogICAgICAnYXVjdW4gbW90ZXVyIGRlIGNvbnRlbmV1cnMgdHJvdXbDqSDigJQgc2FuZGJveCBkZSBwcm9jZXNzdXMgc2V1bGUuICcgKwogICAgICAnSW5zdGFsbGV6IHBvZG1hbiBwb3VyIHVuIHZyYWkgYmFjIMOgIHNhYmxlLCBvdSBwYXNzZXogSElWRV9JU09MRU1FTlQ9ZXhpZ2UgcG91ciByZWZ1c2VyIGxlIHRyYXZhaWwgc2FucyBsdWkuJywKICB9Owp9CgovKiogTGl0IGxlIG1vZGUgZGVwdWlzIGwnZW52aXJvbm5lbWVudC4gRMOpZmF1dCBgYXV0b2AgOiBhbcOpbGlvcmUgc2FucyBibG9xdWVyLiAqLwpleHBvcnQgZnVuY3Rpb24gbW9kZURlcHVpc0VudihlbnY6IE5vZGVKUy5Qcm9jZXNzRW52ID0gcHJvY2Vzcy5lbnYpOiBNb2RlSXNvbGVtZW50IHsKICBjb25zdCB2ID0gKGVudi5ISVZFX0lTT0xFTUVOVCA/PyAnJykudHJpbSgpOwogIHJldHVybiBNT0RFUy5pbmNsdWRlcyh2IGFzIE1vZGVJc29sZW1lbnQpID8gKHYgYXMgTW9kZUlzb2xlbWVudCkgOiAnYXV0byc7Cn0K
+// L'isolement durci — faire tourner l'agent d'un inconnu sans lui donner la
+// machine.
+//
+// ─── LA LIMITE QUE CE MODULE EXISTE POUR LEVER ───────────────────────────────
+//
+// La sandbox v0 (`workspace.ts`) donne un cwd dédié et un environnement épuré.
+// C'est utile et c'est insuffisant, et le site le dit noir sur blanc : « un
+// processus réel peut lire le disque et joindre le réseau ; n'utilisez Hive
+// qu'entre membres de confiance ». Tant que cette phrase est vraie, un
+// lancement public n'est pas défendable — pas parce que la fonctionnalité
+// manque, mais parce qu'on demanderait à des inconnus d'exécuter le code
+// d'autres inconnus sur leur machine personnelle.
+//
+// ─── CE QUE L'ISOLEMENT PROTÈGE, ET CE QU'IL NE PROTÈGE PAS ──────────────────
+//
+// IL PROTÈGE LE DISQUE ET LE RESTE DU SYSTÈME. Seul le répertoire de la tâche
+// est monté, en écriture. Ni le HOME du membre, ni ses clés SSH, ni sa base
+// Hive, ni la socket du démon de conteneurs. La racine est en lecture seule,
+// toutes les capacités sont abandonnées, l'élévation de privilège est bloquée,
+// et le processus tourne sous un utilisateur non privilégié.
+//
+// IL NE FERME PAS LE RÉSEAU, et c'est structurel : un agent de codage doit
+// joindre l'API de son modèle. Un `--network none` rendrait Hive inutilisable.
+// Écrire « isolé » sans cette phrase serait un mensonge par omission — la
+// donnée que le conteneur ne protège pas est justement celle qui sort.
+//
+// Conséquence à assumer et à afficher : l'isolement empêche un agent hostile
+// de LIRE votre machine, il ne l'empêche pas d'ENVOYER ce qu'il a produit.
+//
+// ─── AUCUNE DÉPENDANCE EMBARQUÉE ─────────────────────────────────────────────
+//
+// Même doctrine que `tunnel.ts` : Hive n'installe aucun moteur de conteneurs.
+// Il détecte ce qui est déjà là et s'en sert. Imposer Docker à quelqu'un qui
+// prête sa machine à des amis serait une exigence disproportionnée, et
+// l'embarquer serait pire — un `npm install` ne doit pas décider d'installer
+// un démon privilégié.
+//
+// MODULE PUR pour tout ce qui se calcule (les arguments, les garanties, le
+// niveau) ; la seule impureté est la SONDE, qui lance `--version`.
+
+import { spawn } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { envSonde } from './agent-detect.js';
+
+/** Les trois positions de l'interrupteur. */
+export const MODES = ['off', 'auto', 'exige'] as const;
+export type ModeIsolement = (typeof MODES)[number];
+
+/**
+ * Ce que le nœud obtient réellement.
+ *
+ * `processus` est le nom honnête de la sandbox v0 : un cwd et un environnement
+ * épurés, rien de plus. Il ne se présente PAS comme une isolation.
+ */
+export const NIVEAUX = ['aucun', 'processus', 'conteneur'] as const;
+export type NiveauIsolement = (typeof NIVEAUX)[number];
+
+/** Limites de ressources d'une tâche isolée. */
+export const MEMOIRE_MAX = '2g';
+export const PROCESSUS_MAX = 512;
+export const CPU_MAX = '2';
+
+/** Point de montage du répertoire de tâche À L'INTÉRIEUR du bac. */
+export const MONTAGE = '/hive/tache';
+
+/**
+ * Image utilisée par les moteurs de conteneurs.
+ *
+ * Cette image de base ne contient pas les CLI d'agents. Le preflight doit
+ * vérifier leur présence dans l'image choisie via HIVE_ISOLEMENT_IMAGE ;
+ * seul le workspace est monté, jamais l'installation de l'agent sur l'hôte.
+ */
+export const IMAGE_DEFAUT = 'docker.io/library/node:20-slim';
+
+/** Image réellement demandée par l'opérateur, sans valeur vide trompeuse. */
+export function imageDepuisEnv(env: NodeJS.ProcessEnv = process.env): string {
+  return env.HIVE_ISOLEMENT_IMAGE?.trim() || IMAGE_DEFAUT;
+}
+
+export interface Fournisseur {
+  nom: string;
+  bin: string;
+  niveau: NiveauIsolement;
+  /** Comment l'obtenir, dit en une ligne à un humain. */
+  installation: string;
+  /** Ce qu'il garantit réellement — jamais une promesse ronde. */
+  garanties: string[];
+}
+
+/**
+ * Les moteurs reconnus, du plus au moins souhaitable.
+ *
+ * Podman AVANT Docker, délibérément : il tourne sans démon privilégié et en
+ * mode « rootless » par défaut. Docker exige un démon root, ce qui déplace le
+ * risque plutôt que de le réduire — un conteneur Docker mal contraint donne la
+ * machine entière.
+ */
+export const FOURNISSEURS: readonly Fournisseur[] = [
+  {
+    nom: 'podman',
+    bin: 'podman',
+    niveau: 'conteneur',
+    installation: 'https://podman.io/docs/installation (sans démon, sans root)',
+    garanties: [
+      'seul le répertoire de la tâche est visible',
+      'racine en lecture seule, capacités abandonnées',
+      'sans démon privilégié : le conteneur tourne sous votre utilisateur',
+      'mémoire, processus et CPU bornés',
+    ],
+  },
+  {
+    nom: 'docker',
+    bin: 'docker',
+    niveau: 'conteneur',
+    installation: 'https://docs.docker.com/get-docker/',
+    garanties: [
+      'seul le répertoire de la tâche est visible',
+      'racine en lecture seule, capacités abandonnées',
+      'mémoire, processus et CPU bornés',
+      '⚠ le démon Docker tourne en root : compromettre le démon, c’est la machine',
+    ],
+  },
+  {
+    nom: 'bubblewrap',
+    bin: 'bwrap',
+    niveau: 'conteneur',
+    installation: 'apt install bubblewrap · dnf install bubblewrap (Linux uniquement)',
+    garanties: [
+      'seul le répertoire de la tâche est accessible en écriture',
+      'sans démon, sans root, très léger',
+      '⚠ ne borne NI la mémoire NI le CPU (pas de cgroups)',
+    ],
+  },
+] as const;
+
+export function fournisseurParNom(nom: string): Fournisseur | null {
+  return FOURNISSEURS.find((f) => f.nom === nom || f.bin === nom) ?? null;
+}
+
+// ─── Ce que l'isolement dit de lui-même ──────────────────────────────────────
+
+/** Ce que l'isolement protège et ce qu'il laisse passer, pour affichage. */
+export interface Constat {
+  niveau: NiveauIsolement;
+  protege: string[];
+  laissePasser: string[];
+}
+
+/**
+ * L'état réel, énoncé sans arrondi.
+ *
+ * `laissePasser` n'est jamais vide, même au meilleur niveau. Une interface qui
+ * afficherait « isolé ✓ » sans dire que le réseau reste ouvert ferait prendre
+ * un risque à quelqu'un qui croit ne pas en prendre — et c'est exactement ce
+ * qu'on reproche aux produits qui vendent de la sécurité.
+ */
+export function constat(niveau: NiveauIsolement, fournisseur: Fournisseur | null): Constat {
+  if (niveau === 'conteneur' && fournisseur) {
+    return {
+      niveau,
+      protege: fournisseur.garanties,
+      laissePasser: [
+        'le réseau — un agent de codage doit joindre l’API de son modèle',
+        'ce que l’agent produit : il peut envoyer ailleurs ce qu’il a lu du dépôt',
+      ],
+    };
+  }
+  if (niveau === 'processus') {
+    return {
+      niveau,
+      protege: [
+        'un répertoire de travail dédié par tâche',
+        'un environnement épuré (ni HOME, ni variables du membre)',
+      ],
+      laissePasser: [
+        'LE DISQUE ENTIER — le processus tourne sous votre utilisateur',
+        'le réseau',
+        'vos clés SSH, votre base Hive, vos autres projets',
+      ],
+    };
+  }
+  return {
+    niveau: 'aucun',
+    protege: [],
+    laissePasser: ['tout ce que votre utilisateur peut faire'],
+  };
+}
+
+// ─── Construire la commande isolée ───────────────────────────────────────────
+
+export interface OptionsEnveloppe {
+  fournisseur: Fournisseur;
+  /** Répertoire de tâche sur l'HÔTE. Monté seul, en écriture. */
+  cwdHote: string;
+  /**
+   * Noms des variables d'environnement à transmettre.
+   *
+   * DES NOMS, JAMAIS DES VALEURS : `-e CLE=valeur` écrirait le secret dans la
+   * ligne de commande, donc dans la table des processus, donc lisible par
+   * `ps` pour tout utilisateur de la machine. `-e CLE` (nom seul) le fait
+   * hériter de l'environnement de l'appelant sans jamais l'exposer.
+   */
+  variables: readonly string[];
+  image?: string;
+  /** Identifiant numérique sous lequel exécuter. Défaut : non privilégié. */
+  uid?: number;
+}
+
+export interface Enveloppe {
+  bin: string;
+  args: string[];
+}
+
+/**
+ * Enveloppe une commande dans son bac à sable.
+ *
+ * Rend `{ bin, args }` prêts pour `spawn(bin, args, { shell: false })` — la
+ * contrainte §5.1 du dépôt s'applique inchangée, et c'est précisément pour ça
+ * qu'on rend un TABLEAU d'arguments plutôt qu'une chaîne : une chaîne
+ * exigerait un shell pour être découpée, et rouvrirait l'injection qu'on
+ * ferme par ailleurs.
+ */
+export function envelopper(
+  bin: string,
+  argsAgent: readonly string[],
+  opts: OptionsEnveloppe,
+): Enveloppe {
+  const { fournisseur } = opts;
+  if (fournisseur.bin === 'bwrap') return enveloppeBwrap(bin, argsAgent, opts);
+  return enveloppeConteneur(bin, argsAgent, opts);
+}
+
+/** Podman et Docker partagent la même grammaire d'arguments. */
+function enveloppeConteneur(
+  bin: string,
+  argsAgent: readonly string[],
+  opts: OptionsEnveloppe,
+): Enveloppe {
+  // Docker Desktop parses bind sources as POSIX-like paths even when its
+  // caller is Windows; a raw `C:\\…` source is otherwise split at the drive
+  // colon and the agent preflight fails before the container starts.
+  const volumeSource = /^[A-Za-z]:[\\/]/.test(opts.cwdHote)
+    ? opts.cwdHote.replaceAll('\\', '/')
+    : opts.cwdHote;
+  const args = [
+    'run',
+    '--rm',
+    // Pas de TTY, pas d'entrée interactive : l'agent est piloté par argv.
+    '--interactive=false',
+
+    // ── Ce qui est visible ─────────────────────────────────────────────────
+    // LE SEUL montage. Pas de $HOME, pas de ~/.ssh, pas de socket de démon.
+    `--volume=${volumeSource}:${MONTAGE}:rw`,
+    `--workdir=${MONTAGE}`,
+    // Racine en lecture seule : un agent ne réécrit pas son propre système.
+    '--read-only',
+    // …mais /tmp doit exister et être inscriptible, sinon la moitié des
+    // outils échouent. En tmpfs, donc en mémoire, donc effacé à l'arrêt.
+    '--tmpfs=/tmp:rw,noexec,nosuid,size=512m',
+
+    // ── Ce qui est interdit ────────────────────────────────────────────────
+    '--cap-drop=ALL',
+    // Bloque setuid : même en trouvant un binaire privilégié, pas d'élévation.
+    '--security-opt=no-new-privileges',
+    `--user=${opts.uid ?? 1000}:${opts.uid ?? 1000}`,
+
+    // ── Ce qui est borné ───────────────────────────────────────────────────
+    // Une bombe à fork n'emporte pas la machine du membre.
+    `--pids-limit=${PROCESSUS_MAX}`,
+    `--memory=${MEMOIRE_MAX}`,
+    `--cpus=${CPU_MAX}`,
+  ];
+
+  // Les secrets passent par leur NOM seul : jamais dans la ligne de commande.
+  for (const nom of opts.variables) args.push(`--env=${nom}`);
+
+  args.push(opts.image ?? IMAGE_DEFAUT, bin, ...argsAgent);
+  return { bin: opts.fournisseur.bin, args };
+}
+
+/**
+ * Bubblewrap : pas de démon, pas d'image, pas de cgroups.
+ *
+ * On reconstruit un système minimal en LECTURE SEULE à partir de celui de
+ * l'hôte (l'agent a besoin de son interpréteur et de ses bibliothèques), et on
+ * n'ouvre en écriture que le répertoire de la tâche.
+ */
+function enveloppeBwrap(
+  bin: string,
+  argsAgent: readonly string[],
+  opts: OptionsEnveloppe,
+): Enveloppe {
+  const args = [
+    // Le système de l'hôte, en LECTURE SEULE.
+    '--ro-bind',
+    '/usr',
+    '/usr',
+    '--ro-bind',
+    '/bin',
+    '/bin',
+    '--ro-bind',
+    '/lib',
+    '/lib',
+    // Présent sur les systèmes 64 bits, absent ailleurs : `--ro-bind-try` ne
+    // fait pas échouer le lancement si le chemin n'existe pas.
+    '--ro-bind-try',
+    '/lib64',
+    '/lib64',
+    '--ro-bind-try',
+    '/etc/ssl',
+    '/etc/ssl',
+    '--ro-bind-try',
+    '/etc/resolv.conf',
+    '/etc/resolv.conf',
+    '--proc',
+    '/proc',
+    '--dev',
+    '/dev',
+    '--tmpfs',
+    '/tmp',
+
+    // LE SEUL chemin inscriptible.
+    '--bind',
+    opts.cwdHote,
+    MONTAGE,
+    '--chdir',
+    MONTAGE,
+
+    // Pas d'élévation, pas de session partagée, et le processus meurt avec Hive.
+    '--unshare-all',
+    // …sauf le réseau : l'agent doit joindre son modèle. C'est la même
+    // concession que pour les conteneurs, et elle est dite au même endroit.
+    '--share-net',
+    '--new-session',
+    '--die-with-parent',
+    '--',
+    bin,
+    ...argsAgent,
+  ];
+  return { bin: opts.fournisseur.bin, args };
+}
+
+// ─── Trouver ce qui est installé ─────────────────────────────────────────────
+
+/** Vrai si `bin --version` s'exécute et rend 0. Motif de `agent-detect.ts`. */
+export function sonder(bin: string, timeoutMs = 4_000): Promise<boolean> {
+  return new Promise((resolve) => {
+    let fini = false;
+    const finir = (ok: boolean): void => {
+      if (fini) return;
+      fini = true;
+      resolve(ok);
+    };
+    let enfant;
+    try {
+      // ─── LE MÊME SOIN QUE LA SONDE D'AGENT, ET POUR LA MÊME RAISON ────────
+      //
+      // `main.ts` charge `.env` AVANT de préparer le bac. Sans `env`, l'enfant
+      // hérite de tout `process.env` : HIVE_TOKEN, HIVE_JWT_SECRET et la clé
+      // d'API partaient à un binaire nommé `docker`, `podman` ou `bwrap` trouvé
+      // dans le PATH — c'est-à-dire à n'importe quel homonyme déposé en tête
+      // de PATH.
+      //
+      // La garde existait déjà, pure et testée, pour la sonde d'agent ; elle
+      // n'avait simplement pas été portée ici. C'est le § 9 bis du journal :
+      // deux chemins pour un même geste, dont l'un est soigné et l'autre non.
+      enfant = spawn(bin, ['--version'], {
+        shell: false,
+        windowsHide: true,
+        stdio: 'ignore',
+        env: envSonde(process.env),
+      });
+    } catch {
+      finir(false);
+      return;
+    }
+    const minuteur = setTimeout(() => {
+      enfant.kill();
+      // Un binaire qui se bloque est traité comme ABSENT : on ne confie pas
+      // l'isolement à un outil qui ne répond pas.
+      finir(false);
+    }, timeoutMs);
+    minuteur.unref?.();
+    enfant.on('error', () => {
+      clearTimeout(minuteur);
+      finir(false);
+    });
+    enfant.on('close', (code) => {
+      clearTimeout(minuteur);
+      finir(code === 0);
+    });
+  });
+}
+
+/** Le premier fournisseur disponible, dans l'ordre de préférence. */
+export async function trouverFournisseur(): Promise<Fournisseur | null> {
+  for (const f of FOURNISSEURS) {
+    if (await sonder(f.bin)) return f;
+  }
+  return null;
+}
+
+export interface ResultatPreflightAgent {
+  executable: boolean;
+  motif: string;
+}
+
+/** Vérifie le nom logique de l'agent dans le bac qui exécutera les tâches. */
+export function sonderAgentDansBac(
+  fournisseur: Fournisseur,
+  binAgent: string,
+  image = IMAGE_DEFAUT,
+  cwdHote?: string,
+  timeoutMs = 30_000,
+): Promise<ResultatPreflightAgent> {
+  // A preflight only proves image contents. Mounting the caller's workspace
+  // would expose `.env`, state, and source files to an agent probe that never
+  // needs them; use an empty disposable directory by default.
+  const probeCwd = cwdHote ?? mkdtempSync(join(tmpdir(), 'hive-agent-preflight-'));
+  const ownedCwd = cwdHote === undefined;
+  let lance: Enveloppe;
+  try {
+    lance = envelopper(binAgent, ['--version'], {
+      fournisseur,
+      cwdHote: probeCwd,
+      variables: [],
+      image,
+    });
+  } catch {
+    if (ownedCwd) rmSync(probeCwd, { recursive: true, force: true });
+    return Promise.resolve({
+      executable: false,
+      motif: `preflight impossible via ${fournisseur.nom}`,
+    });
+  }
+
+  return new Promise((resolve) => {
+    let fini = false;
+    const finir = (executable: boolean, motif: string): void => {
+      if (fini) return;
+      fini = true;
+      if (ownedCwd) rmSync(probeCwd, { recursive: true, force: true });
+      resolve({ executable, motif });
+    };
+    let enfant;
+    try {
+      enfant = spawn(lance.bin, lance.args, {
+        cwd: probeCwd,
+        shell: false,
+        windowsHide: true,
+        stdio: 'ignore',
+        env: envSonde(process.env),
+      });
+    } catch {
+      finir(false, `preflight impossible via ${fournisseur.nom}`);
+      return;
+    }
+    const minuteur = setTimeout(() => {
+      enfant.kill();
+      finir(false, `preflight de l'agent expiré via ${fournisseur.nom}`);
+    }, timeoutMs);
+    minuteur.unref?.();
+    enfant.on('error', () => {
+      clearTimeout(minuteur);
+      finir(false, `agent « ${binAgent} » non exécutable via ${fournisseur.nom}`);
+    });
+    enfant.on('close', (code) => {
+      clearTimeout(minuteur);
+      finir(
+        code === 0,
+        code === 0
+          ? `agent « ${binAgent} » exécutable dans le bac`
+          : `agent « ${binAgent} » absent ou non exécutable dans le bac`,
+      );
+    });
+  });
+}
+
+/**
+ * Ce que le nœud doit faire, compte tenu de son mode et de ce qu'il a trouvé.
+ *
+ * FERMÉ PAR DÉFAUT en `exige` : pas de moteur ⇒ le nœud REFUSE de travailler.
+ * C'est le mode que doit choisir quiconque prête sa machine à des inconnus, et
+ * il vaut mieux un nœud qui ne prend pas de tâche qu'un nœud qui en prend une
+ * sans bac à sable en croyant le contraire.
+ */
+export function decider(
+  mode: ModeIsolement,
+  fournisseur: Fournisseur | null,
+): { isole: boolean; niveau: NiveauIsolement; refuse: boolean; motif: string } {
+  if (mode === 'off') {
+    return {
+      isole: false,
+      niveau: 'processus',
+      refuse: false,
+      motif: 'isolement désactivé (HIVE_ISOLEMENT=off) — sandbox de processus seule',
+    };
+  }
+  if (fournisseur) {
+    return {
+      isole: true,
+      niveau: 'conteneur',
+      refuse: false,
+      motif: `isolement par ${fournisseur.nom}`,
+    };
+  }
+  if (mode === 'exige') {
+    return {
+      isole: false,
+      niveau: 'aucun',
+      refuse: true,
+      motif:
+        'HIVE_ISOLEMENT=exige et aucun moteur de conteneurs trouvé : ce nœud refuse de travailler. ' +
+        FOURNISSEURS.map((f) => `${f.nom} → ${f.installation}`).join(' · '),
+    };
+  }
+  return {
+    isole: false,
+    niveau: 'processus',
+    refuse: false,
+    motif:
+      'aucun moteur de conteneurs trouvé — sandbox de processus seule. ' +
+      'Installez podman pour un vrai bac à sable, ou passez HIVE_ISOLEMENT=exige pour refuser le travail sans lui.',
+  };
+}
+
+/** Lit le mode depuis l'environnement. Défaut `auto` : améliore sans bloquer. */
+export function modeDepuisEnv(env: NodeJS.ProcessEnv = process.env): ModeIsolement {
+  const v = (env.HIVE_ISOLEMENT ?? '').trim();
+  return MODES.includes(v as ModeIsolement) ? (v as ModeIsolement) : 'auto';
+}
