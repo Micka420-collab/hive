@@ -41,6 +41,7 @@ import {
   ouvrirFabrique,
   poserQueenCle,
   poserStatutFabrique,
+  saveJwt,
   saveToken,
 } from '../dashboard/src/api';
 
@@ -99,6 +100,14 @@ describe('les clés de la Reine', () => {
   it('le jeton de la ruche accompagne l’appel', async () => {
     reponse.corps = { fournisseurs: [], presence: [] };
     await fetchQueenCles();
+    expect(seul().entetes['x-hive-token']).toBe('jeton-de-banc');
+  });
+
+  it('une écriture de clé porte aussi le JWT de la session admin', async () => {
+    saveJwt('jwt-admin-de-banc');
+    reponse.corps = { ok: true, envVar: 'SEEDANCE_API_KEY' };
+    await poserQueenCle({ secret: 'sk-de-banc-jamais-reelle', envVar: 'SEEDANCE_API_KEY' });
+    expect(seul().entetes.authorization).toBe('Bearer jwt-admin-de-banc');
     expect(seul().entetes['x-hive-token']).toBe('jeton-de-banc');
   });
 
