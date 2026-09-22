@@ -38,8 +38,13 @@ describe('révoquer une clé, révoquer un billet', () => {
   let base: string;
   let billet = '';
   let billetId = '';
+  let adminToken = '';
 
-  const hive = () => ({ 'content-type': 'application/json', 'x-hive-token': TOKEN });
+  const hive = () => ({
+    'content-type': 'application/json',
+    'x-hive-token': TOKEN,
+    authorization: `Bearer ${adminToken}`,
+  });
 
   const rejoindre = (nodeId: string, label: string) =>
     fetch(`${base}/api/rejoindre`, {
@@ -75,6 +80,16 @@ describe('révoquer une clé, révoquer un billet', () => {
       tickMs: 60_000,
     });
     base = `http://127.0.0.1:${server.port}`;
+    const auth = await fetch(`${base}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        email: 'admin@hive.test',
+        password: 'mot-de-passe-test',
+        displayName: 'Admin',
+      }),
+    });
+    adminToken = ((await auth.json()) as { token: string }).token;
 
     // L'URL est explicite et locale : la ruche REFUSE d'émettre un billet vers
     // une adresse publique en clair, parce qu'un `ws://` exposerait le billet
