@@ -3,6 +3,8 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  isValidLocalRepoPath,
+  isValidRemoteRepoUrl,
   isValidRepoUrl,
   isValidTask,
   LIMITS,
@@ -291,6 +293,18 @@ describe('isValidRepoUrl', () => {
     expect(isValidRepoUrl('git@github.com:x/y.git')).toBe(true);
     expect(isValidRepoUrl('C:\\repos\\x')).toBe(true);
     expect(isValidRepoUrl('/home/user/repo')).toBe(true);
+  });
+
+  it('sépare les sources distantes des chemins locaux', () => {
+    expect(isValidRemoteRepoUrl('https://github.com/x/y.git')).toBe(true);
+    expect(isValidRemoteRepoUrl('git@github.com:x/y.git')).toBe(true);
+    expect(isValidRemoteRepoUrl('/home/user/repo')).toBe(false);
+    expect(isValidRemoteRepoUrl('C:\\repos\\x')).toBe(false);
+
+    expect(isValidLocalRepoPath('/home/user/repo')).toBe(true);
+    expect(isValidLocalRepoPath('C:\\repos\\x')).toBe(true);
+    expect(isValidLocalRepoPath('/tmp/../etc')).toBe(false);
+    expect(isValidLocalRepoPath('relative/repo')).toBe(false);
   });
 
   it('rejette ext::, une injection d’argument, et le vide', () => {
