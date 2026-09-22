@@ -6,6 +6,7 @@ import { t as tNow } from './i18n';
 import { parseServerMessage } from '../../src/shared/protocol';
 import type { HiveEvent, Project, StateSnapshot, Task, TaskResult } from '../../src/shared/types';
 import type { Graphe } from '../../src/shared/cerveau-graphe.js';
+import type { WorkerSnapshot } from '../../src/orchestrator/workers.js';
 
 const TOKEN_KEY = 'hive.token';
 export const DEFAULT_TOKEN = 'change-me';
@@ -461,6 +462,7 @@ export type { MergeConflict, MergePlan } from '../../src/orchestrator/honeycomb'
 export type { Domaine, TraceePheromone } from '../../src/orchestrator/pheromones';
 export type { BandeThermo, LectureThermo } from '../../src/orchestrator/thermo';
 export type { Compte, DecisionPlafond, Devis, Pesee, Poste } from '../../src/orchestrator/balance';
+export type { WorkerSnapshot } from '../../src/orchestrator/workers';
 
 import type { HivePulse } from '../../src/orchestrator/pulse';
 import type { WaggleBoard } from '../../src/orchestrator/waggle';
@@ -840,6 +842,11 @@ export interface EtatEssaimUi {
 
 export function fetchEssaim(projectId: string): Promise<EtatEssaimUi> {
   return api<EtatEssaimUi>(`/api/projects/${projectId}/essaim`);
+}
+
+/** Projection authentifiée des nœuds Worker et du vécu Aiguillage. */
+export function fetchWorkers(): Promise<{ workers: WorkerSnapshot[] }> {
+  return api<{ workers: WorkerSnapshot[] }>('/api/workers');
 }
 
 export function fetchEssaimCycles(
