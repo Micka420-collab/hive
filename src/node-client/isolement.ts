@@ -210,6 +210,18 @@ export interface OptionsEnveloppe {
   uid?: number;
 }
 
+/**
+ * L'atelier créé par Hive appartient à l'utilisateur qui a lancé le nœud.
+ * Reprendre systématiquement 1000 casse donc l'écriture dans le volume sur les
+ * runners et les postes où cet utilisateur a un autre UID. On reprend son UID
+ * quand il est non privilégié ; un nœud lancé en root reste explicitement
+ * abaissé à 1000.
+ */
+function uidNonPrivilegie(): number {
+  const uid = typeof process.getuid === 'function' ? process.getuid() : undefined;
+  return typeof uid === 'number' && uid > 0 ? uid : 1000;
+}
+
 export interface Enveloppe {
   bin: string;
   args: string[];
@@ -246,6 +258,7 @@ function enveloppeConteneur(
   const volumeSource = /^[A-Za-z]:[\\/]/.test(opts.cwdHote)
     ? opts.cwdHote.replaceAll('\\', '/')
     : opts.cwdHote;
+  const uid = opts.uid ?? uidNonPrivilegie();
   const args = [
     'run',
     '--rm',
@@ -266,7 +279,7 @@ function enveloppeConteneur(
     '--cap-drop=ALL',
     // Bloque setuid : même en trouvant un binaire privilégié, pas d'élévation.
     '--security-opt=no-new-privileges',
-    `--user=${opts.uid ?? 1000}:${opts.uid ?? 1000}`,
+    `--user=${uid}:${uid}`,
 
     // ── Ce qui est borné ───────────────────────────────────────────────────
     // Une bombe à fork n'emporte pas la machine du membre.

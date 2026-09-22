@@ -108,6 +108,9 @@ describe('isolement — les arguments d’un conteneur', () => {
     const { args } = enveloppe(PODMAN);
     expect(args.some((a) => a.startsWith('--user='))).toBe(true);
     expect(args).not.toContain('--user=0:0');
+    const uid =
+      typeof process.getuid === 'function' && process.getuid() > 0 ? process.getuid() : 1000;
+    expect(args).toContain(`--user=${uid}:${uid}`);
   });
 
   it('borne mémoire, processus et CPU', () => {
