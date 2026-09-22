@@ -603,6 +603,17 @@ jobs:
       - name: Ce que l'image pèse
         run: docker image inspect hive:ci --format '{{.Size}}' | awk '{printf "%.0f Mo\n", $1/1048576}'
 
+      # Image distincte du bureau Atelier : elle contient les CLI que le
+      # preflight du Worker doit trouver dans le conteneur, pas sur l'hôte.
+      - name: Construire l'image agent-aware
+        run: docker build -f docker/agents/Dockerfile -t hive-agent:ci .
+
+      - name: Vérifier les CLI agent-aware dans leur image
+        run: |
+          docker run --rm hive-agent:ci claude --version
+          docker run --rm hive-agent:ci codex --version
+          test "$(docker run --rm hive-agent:ci id -u)" = "1000"
+
       - name: Arrêter
         if: always()
         run: docker rm -f ruche-ci 2>/dev/null || true
