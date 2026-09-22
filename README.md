@@ -71,9 +71,14 @@ l’alignement entre le preflight et l’exécution des agents dans un bac, y co
 pour Windows et Cline. Son état de revue, sa CI et sa livraison restent visibles
 sur GitHub.
 
-Les images agent-aware et la preuve d’une mission réelle dans Docker/Podman
-restent à faire. `docker/atelier` est un bureau Chromium/VNC, pas une image
-d’agent. L’adaptateur `shell` est une simulation et ne produit pas de vrai diff.
+La preuve d’une mission réelle dans Docker/Podman reste à faire. `docker/atelier`
+est un bureau Chromium/VNC, pas une image d’agent. L’adaptateur `shell` est une
+simulation et ne produit pas de vrai diff.
+
+Le sous-lot suivant ajoute `docker/agents`, une image épinglée pour Claude Code
+et Codex, ainsi qu’une construction et deux sondes de version dans la CI. Cette
+image prouve la disponibilité des CLI dans le bac ; elle ne remplace pas encore
+une mission authentifiée avec un vrai dépôt, des tests et une livraison Git.
 
 ## 🖥 L'interface
 
