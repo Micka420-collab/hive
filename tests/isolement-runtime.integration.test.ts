@@ -43,7 +43,7 @@ describe('isolement — intégration runtime réel', () => {
       const binaires = imageDemandee ? ['claude', 'codex'] : ['node'];
       for (const binaire of binaires) {
         const resultat = await sonderAgentDansBac(runtime!, binaire, image);
-        expect(resultat.executable, `${binaire} dans ${image}`).toBe(true);
+        expect(resultat.executable, `${binaire} dans ${image}: ${resultat.motif}`).toBe(true);
       }
 
       const absent = await sonderAgentDansBac(runtime!, 'hive-agent-inexistant', image);
