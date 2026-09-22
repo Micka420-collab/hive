@@ -68,10 +68,9 @@ export const MONTAGE = '/hive/tache';
 /**
  * Image utilisée par les moteurs de conteneurs.
  *
- * Volontairement une image de base Node officielle et rien de plus : une image
- * maison serait un artefact de plus à construire, publier, signer et tenir à
- * jour — c'est-à-dire trois occasions supplémentaires de livrer une faille.
- * L'agent lui-même est monté depuis l'hôte, pas cuit dans l'image.
+ * Cette image de base ne contient pas les CLI d'agents. Le preflight doit
+ * vérifier leur présence dans l'image choisie via HIVE_ISOLEMENT_IMAGE ;
+ * seul le workspace est monté, jamais l'installation de l'agent sur l'hôte.
  */
 export const IMAGE_DEFAUT = 'docker.io/library/node:20-slim';
 
@@ -243,7 +242,7 @@ function enveloppeConteneur(
   // caller is Windows; a raw `C:\\…` source is otherwise split at the drive
   // colon and the agent preflight fails before the container starts.
   const volumeSource = /^[A-Za-z]:[\\/]/.test(opts.cwdHote)
-    ? opts.cwdHote.replaceAll('\\\\', '/')
+    ? opts.cwdHote.replaceAll('\\', '/')
     : opts.cwdHote;
   const args = [
     'run',

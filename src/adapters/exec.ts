@@ -30,6 +30,23 @@ const DEFAULT_TIMEOUT_MS = 5 * 60_000;
 const INFRA_FAILURE_RE =
   /unauthor|authentication|not logged in|forbidden|\b401\b|\b403\b|\b429\b|quota|rate.?limit|insufficient|out of credit|billing|api[_ -]?key|invalid.{0,12}key|login|sign in|subscription/i;
 
+/** Le bac résout le même nom logique que son preflight, jamais un chemin hôte. */
+function preparerCommande(bin: string, args: string[], ctx: AdapterContext) {
+  const [binReel = bin, ...avant] = ctx.bac
+    ? [bin]
+    : argvAgent(bin, process.env, process.platform, existsSync);
+  const argsReels = [...avant, ...args];
+
+  return ctx.bac
+    ? envelopper(binReel, argsReels, {
+        fournisseur: ctx.bac.fournisseur,
+        cwdHote: ctx.cwd,
+        variables: ctx.bac.variables,
+        image: ctx.bac.image,
+      })
+    : { bin: binReel, args: argsReels };
+}
+
 /**
  * Lance un binaire avec ses arguments dans le cwd isolé de la tâche.
  * Sortie plafonnée, timeout dur, annulation via le signal du contexte.
@@ -40,41 +57,7 @@ export function runCommand(
   ctx: AdapterContext,
   timeoutMs = DEFAULT_TIMEOUT_MS,
 ): Promise<AdapterResult> {
-  // ISOLEMENT. Si le nœud a trouvé un moteur de conteneurs, la commande de
-  // l'agent est enveloppée dedans AVANT le spawn.
-  //
-  // Ce commentaire disait « c'est le SEUL endroit où un agent est lancé, donc
-  // le seul endroit où l'oubli serait total ». C'était faux, et le croire a
-  // coûté cher : `merge-runner.ts` lançait la commande de test d'un merge avec
-  // son propre `spawn`, sans enveloppe — du code du dépôt exécuté sur l'hôte nu
-  // pendant que `HIVE_ISOLEMENT=exige` était posé. C'est désormais
-  // `tests/isolement-couverture.test.ts` qui tient la liste, parce qu'un
-  // commentaire ne vérifie rien.
-  //
-  // `cwd` reste celui de l'hôte : c'est lui qu'on monte, et c'est aussi lui
-  // que `collectDiff()` relira après coup. L'enveloppe ne déplace rien, elle
-  // restreint ce que le processus voit.
-  // ─── LE SHIM WINDOWS, RÉSOLU ICI AUSSI ─────────────────────────────────────
-  //
-  // Détecter l'agent ne suffit pas : c'est ici qu'on le LANCE. Sur une machine
-  // Windows où Claude Code vient de npm, `spawn('claude')` échoue en ENOENT —
-  // seul un `claude.cmd` existe, et `spawn` sans shell ne sait pas l'exécuter.
-  //
-  // On vise donc son script réel et on lance Node, exactement comme
-  // `lanceur.ts` le fait pour `npm`. Hors Windows, et quand rien n'est
-  // déductible, `argvAgent` rend `[bin]` — le comportement d'avant, à
-  // l'identique.
-  const [binReel = bin, ...avant] = argvAgent(bin, process.env, process.platform, existsSync);
-  const argsReels = [...avant, ...args];
-
-  const lance = ctx.bac
-    ? envelopper(binReel, argsReels, {
-        fournisseur: ctx.bac.fournisseur,
-        cwdHote: ctx.cwd,
-        variables: ctx.bac.variables,
-        image: ctx.bac.image,
-      })
-    : { bin: binReel, args: argsReels };
+  const lance = preparerCommande(bin, args, ctx);
 
   return new Promise((resolve) => {
     const child = spawn(lance.bin, lance.args, {
@@ -137,29 +120,7 @@ export function runCommandStreaming(
   onLine: (line: string) => void,
   timeoutMs = DEFAULT_TIMEOUT_MS,
 ): Promise<AdapterResult> {
-  // Même enveloppe que `runCommand` : sans elle, l'isolement sauterait dès
-  // qu'un agent parle en flux, c'est-à-dire pour le plus courant d'entre eux.
-  // ─── LE SHIM WINDOWS, RÉSOLU ICI AUSSI ─────────────────────────────────────
-  //
-  // Détecter l'agent ne suffit pas : c'est ici qu'on le LANCE. Sur une machine
-  // Windows où Claude Code vient de npm, `spawn('claude')` échoue en ENOENT —
-  // seul un `claude.cmd` existe, et `spawn` sans shell ne sait pas l'exécuter.
-  //
-  // On vise donc son script réel et on lance Node, exactement comme
-  // `lanceur.ts` le fait pour `npm`. Hors Windows, et quand rien n'est
-  // déductible, `argvAgent` rend `[bin]` — le comportement d'avant, à
-  // l'identique.
-  const [binReel = bin, ...avant] = argvAgent(bin, process.env, process.platform, existsSync);
-  const argsReels = [...avant, ...args];
-
-  const lance = ctx.bac
-    ? envelopper(binReel, argsReels, {
-        fournisseur: ctx.bac.fournisseur,
-        cwdHote: ctx.cwd,
-        variables: ctx.bac.variables,
-        image: ctx.bac.image,
-      })
-    : { bin: binReel, args: argsReels };
+  const lance = preparerCommande(bin, args, ctx);
 
   return new Promise((resolve) => {
     const child = spawn(lance.bin, lance.args, {

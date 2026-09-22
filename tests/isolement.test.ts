@@ -11,7 +11,8 @@
 // « isolé ✓ » sans dire que le réseau reste ouvert ferait prendre un risque à
 // quelqu'un qui croit ne pas en prendre.
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import * as agentWindows from '../src/shared/agent-windows.js';
 import {
   CPU_MAX,
   FOURNISSEURS,
@@ -72,6 +73,15 @@ describe('isolement — les arguments d’un conteneur', () => {
     const { args } = enveloppe(PODMAN);
     const montages = args.filter((a) => a.startsWith('--volume='));
     expect(montages).toEqual([`--volume=${CWD}:${MONTAGE}:rw`]);
+  });
+
+  it.each([DOCKER, PODMAN])('normalise le chemin Windows pour $nom', (fournisseur) => {
+    const { args } = envelopper('claude', ['--version'], {
+      fournisseur,
+      cwdHote: String.raw`C:\Users\Alice Smith\hive`,
+      variables: [],
+    });
+    expect(args).toContain('--volume=C:/Users/Alice Smith/hive:/hive/tache:rw');
   });
 
   it('ne monte JAMAIS la socket d’un démon de conteneurs', () => {
@@ -320,6 +330,33 @@ describe('isolement — câblage : l’enveloppe atteint vraiment le spawn', () 
     ...(bac ? { bac: { ...bac, image: IMAGE_DEFAUT } } : {}),
   });
 
+  afterEach(() => vi.restoreAllMocks());
+
+  it.each(['classique', 'flux'] as const)(
+    'résout le lanceur hôte uniquement hors du bac — %s',
+    async (mode) => {
+      // Imite le contrat du lanceur Windows ; le processus enfant reste réel.
+      vi.spyOn(agentWindows, 'argvAgent').mockReturnValue([
+        process.execPath,
+        '-e',
+        'console.log("lanceur-hote")',
+      ]);
+      const lancer = (contexte: ReturnType<typeof ctx>) =>
+        mode === 'classique'
+          ? runCommand('claude', [], contexte)
+          : runCommandStreaming('claude', [], contexte, () => {});
+
+      const hote = await lancer(ctx());
+      expect(hote.success).toBe(true);
+      expect(hote.logs.trim()).toBe('lanceur-hote');
+
+      const bac = await lancer(ctx({ fournisseur: ECHO, variables: [] }));
+      expect(bac.success).toBe(true);
+      expect(bac.logs.trim().endsWith(`${IMAGE_DEFAUT} claude`)).toBe(true);
+      expect(bac.logs).not.toContain('lanceur-hote');
+    },
+  );
+
   it('sans bac, la commande part telle quelle', async () => {
     const r = await runCommand('echo', ['bonjour'], ctx());
     expect(r.logs.trim()).toBe('bonjour');
@@ -332,7 +369,7 @@ describe('isolement — câblage : l’enveloppe atteint vraiment le spawn', () 
     expect(r.logs).toContain('run');
     expect(r.logs).toContain('--read-only');
     expect(r.logs).toContain('--cap-drop=ALL');
-    expect(r.logs).toContain(`--volume=${process.cwd()}:${MONTAGE}:rw`);
+    expect(r.logs).toContain(`--volume=${process.cwd().replaceAll('\\', '/')}:${MONTAGE}:rw`);
     // …et la commande de l'agent est à la fin, intacte.
     expect(r.logs.trim().endsWith('claude -p test')).toBe(true);
   });

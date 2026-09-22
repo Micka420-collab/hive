@@ -68,7 +68,10 @@ export function createClineAdapter(token = process.env.HIVE_TOKEN ?? DEFAULT_TOK
   return {
     name: 'cline',
     async run(task: Task, ctx: AdapterContext): Promise<AdapterResult> {
-      const bin = binaireCline(process.env, process.platform, existsSync);
+      // Le preflight du bac vérifie le nom logique dans l'image. Un chemin
+      // natif résolu sur l'hôte (notamment Windows) ne peut pas être transmis
+      // à l'invité Linux ; le runtime du bac doit donc recevoir `cline`.
+      const bin = ctx.bac ? 'cline' : binaireCline(process.env, process.platform, existsSync);
       ctx.onProgress({ log: `${bin} --json --auto-approve démarré` });
       const result = await runCommand(bin, argvCline(task.prompt), ctx, CLINE_TIMEOUT_MS);
       // `subAgents: []` : Cline rend bien du JSON par lignes, mais rien dans sa
