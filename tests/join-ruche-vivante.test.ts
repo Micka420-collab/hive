@@ -128,6 +128,7 @@ async function scruter(condition: () => boolean, quoi: string, echeanceMs = 10_0
 describe('la porte des amis, ruche allumée', () => {
   let server: HiveServer;
   let racineDonnees: string;
+  let adminToken = '';
   const nids: string[] = [];
 
   const nid = (): string => {
@@ -140,7 +141,11 @@ describe('la porte des amis, ruche allumée', () => {
   async function creerBillet(): Promise<string> {
     const rep = await fetch(`http://127.0.0.1:${server.port}/api/billets`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-hive-token': TOKEN },
+      headers: {
+        'content-type': 'application/json',
+        'x-hive-token': TOKEN,
+        authorization: `Bearer ${adminToken}`,
+      },
       body: JSON.stringify({ uses: 1, url: `ws://127.0.0.1:${server.port}/ws` }),
     });
     expect(rep.status, 'la ruche a refusé de créer le billet').toBe(201);
@@ -159,6 +164,16 @@ describe('la porte des amis, ruche allumée', () => {
       simulation: false,
       tickMs: 1_000,
     });
+    const auth = await fetch(`http://127.0.0.1:${server.port}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        email: 'admin@hive.test',
+        password: 'mot-de-passe-test',
+        displayName: 'Admin',
+      }),
+    });
+    adminToken = ((await auth.json()) as { token: string }).token;
   });
 
   afterAll(async () => {
