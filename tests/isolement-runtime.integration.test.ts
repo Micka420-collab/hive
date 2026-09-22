@@ -7,6 +7,8 @@ import {
   type Fournisseur,
 } from '../src/node-client/isolement.js';
 
+const imageDemandee = process.env.HIVE_ISOLEMENT_IMAGE?.trim() || '';
+
 function runtimeDisponible(): Fournisseur | null {
   // Docker Desktop on the hosted Windows runner exposes the CLI but does not
   // provide a bind mount compatible with this Linux-container probe. Keep the
@@ -17,6 +19,16 @@ function runtimeDisponible(): Fournisseur | null {
     try {
       execFileSync(nom, ['--version'], { stdio: 'ignore', timeout: 4_000 });
       execFileSync(nom, ['info'], { stdio: 'ignore', timeout: 8_000 });
+      if (imageDemandee) {
+        // Docker et Podman ont généralement des magasins distincts. Quand la
+        // CI fournit une image déjà construite, retenir un moteur qui ne la
+        // possède pas transformerait un problème de sélection en faux échec
+        // « agent absent ».
+        execFileSync(nom, ['image', 'inspect', imageDemandee], {
+          stdio: 'ignore',
+          timeout: 8_000,
+        });
+      }
       return fournisseurParNom(nom);
     } catch {
       // Le test reste conditionnel : une CI sans runtime ne doit pas inventer
@@ -27,7 +39,6 @@ function runtimeDisponible(): Fournisseur | null {
 }
 
 const runtime = runtimeDisponible();
-const imageDemandee = process.env.HIVE_ISOLEMENT_IMAGE?.trim() || '';
 
 describe('isolement — intégration runtime réel', () => {
   it.skipIf(!runtime && !imageDemandee)(
