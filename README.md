@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-5849%20d%C3%A9couverts-6B7280?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-5849%20passing-F6C445?labelColor=17130C)
 ![Licence](https://img.shields.io/badge/licence-MIT-F6C445?labelColor=17130C)
 
 🇫🇷 Français · [🇬🇧 English](README.en.md) · [🌐 Site](https://micka420-collab.github.io/hive/) · [📚 Documentation](#-documentation)
@@ -27,8 +27,8 @@ décompose, distribue les tâches aux agents disponibles, conserve les résultat
 et prépare une livraison Git que vous pouvez vérifier. Rien n’est fusionné sans
 votre accord et les secrets restent sur vos machines.
 
-> Le badge indique le nombre de tests découverts par la suite. Il ne remplace
-> pas une preuve de CI verte : l’état réel se trouve dans GitHub et dans la
+> Le badge suit le total mesuré par la CI. Il ne remplace pas une preuve de
+> validation de la mission : l’état réel se trouve dans GitHub et dans la
 > [Roadmap & Audit Notion](https://app.notion.com/p/d8787e3f019a4e8786b585e47fc9f77c?v=3db94c8d5ab28173bcda000ca345fbfe).
 
 ## La boucle produit
