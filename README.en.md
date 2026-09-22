@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-5854%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-5857%20passing-F6C445?labelColor=17130C)
 ![License](https://img.shields.io/badge/license-MIT-F6C445?labelColor=17130C)
 
 [🇫🇷 Français](README.md) · 🇬🇧 English · [🌐 Site](https://micka420-collab.github.io/hive/?lang=en) · [📚 Documentation](#-documentation)
@@ -132,6 +132,11 @@ npm run ruche
 ```
 
 Open **http://localhost:7777**. One token, one local node, the screen.
+
+Administrative actions that create or revoke access (inviting, issuing a
+ticket, listing or excluding a node) require an administrator account session.
+`HIVE_TOKEN` identifies the hive and its nodes; it is not an administrative
+credential. For the CLI, provide the admin JWT through `HIVE_JWT`.
 
 Simulated demo (no real agent, 7 tasks): `npm install` then `npm run demo`.
 
