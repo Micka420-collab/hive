@@ -68,8 +68,8 @@ Les fondations suivantes sont publiées sur `main` :
 
 La [PR #386](https://github.com/Micka420-collab/hive/pull/386) corrige
 l’alignement entre le preflight et l’exécution des agents dans un bac, y compris
-pour Windows et Cline. Elle doit encore passer sa CI finale et sa revue avant
-fusion.
+pour Windows et Cline. Son état de revue, sa CI et sa livraison restent visibles
+sur GitHub.
 
 Les images agent-aware et la preuve d’une mission réelle dans Docker/Podman
 restent à faire. `docker/atelier` est un bureau Chromium/VNC, pas une image
