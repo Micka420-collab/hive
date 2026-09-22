@@ -171,3 +171,22 @@ là, le refus ne dit rien du projet, il dit que l'appelant n'est personne.
 Aucun test de la suite n'a rougi lors du resserrement, et c'est précisément
 pourquoi `tests/engagement-projet.test.ts` a été écrit : une garde qu'aucun test
 ne voit mordre est une garde qu'on retirera un jour sans s'en apercevoir.
+
+## Première étape livrée : les capacités globales
+
+La séparation a maintenant franchi la frontière des opérations globales qui
+créent, révoquent ou exécutent une capacité sur l'hôte. Les routes suivantes
+exigent un JWT de compte administrateur (`gerer_serveurs`) ; `HIVE_TOKEN` seul
+rend 401 et un compte membre rend 403 :
+
+- démarrer ou arrêter l'Atelier ;
+- émettre une invitation ou un billet ;
+- lister et révoquer les clés de nœuds et les billets ;
+- poser un outil à distance, baptiser une ouvrière ou lui assigner un métier ;
+- poser une clé API ou répondre à une réquisition ;
+- les révocations d'identité et autres écritures globales de la Chambre.
+
+Le tableau de bord signe ces appels avec le JWT de la session. La CLI accepte
+également `HIVE_JWT` pour ses commandes d'intendance ; les nœuds continuent
+d'utiliser leur clé dédiée pour rejoindre la ruche. Les lectures de présence et
+de projet qui ne changent pas l'état restent derrière leur contrat existant.

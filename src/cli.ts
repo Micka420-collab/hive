@@ -29,7 +29,8 @@
 // argument — la seule confrontée à la table d'aiguillage par une garde
 // (`tests/cli-dispatch.test.ts`), donc la seule qui ne peut pas dériver.
 //
-// Config : HIVE_HTTP (défaut http://localhost:7777) et HIVE_TOKEN (.env lu si présent).
+// Config : HIVE_HTTP (défaut http://localhost:7777), HIVE_TOKEN (.env lu si
+// présent) et HIVE_JWT (session de compte admin pour les gestes d'intendance).
 // Format du fichier de tâches : [{ "id"?, "title", "prompt", "dependsOn"?: [] }, …]
 
 import { spawn } from 'node:child_process';
@@ -92,6 +93,7 @@ import { estInjoignable, expliquerRucheInjoignable } from './shared/amorce.js';
 
 const BASE = process.env.HIVE_HTTP ?? 'http://localhost:7777';
 const TOKEN = process.env.HIVE_TOKEN ?? 'change-me';
+const JWT = process.env.HIVE_JWT?.trim();
 
 async function api<T>(pathname: string, init?: RequestInit): Promise<T> {
   // `content-type: application/json` seulement quand il Y A un corps : l'annoncer
@@ -102,9 +104,16 @@ async function api<T>(pathname: string, init?: RequestInit): Promise<T> {
     headers: {
       ...(init?.body === undefined ? {} : { 'content-type': 'application/json' }),
       'x-hive-token': TOKEN,
+      ...(JWT ? { authorization: `Bearer ${JWT}` } : {}),
     },
   });
   if (!res.ok) {
+    if ((res.status === 401 || res.status === 403) && !JWT) {
+      throw new Error(
+        `${res.status} ${res.statusText} — cette action exige une session de compte administrateur. ` +
+          'Définissez HIVE_JWT avec le JWT admin obtenu via /api/auth/login.',
+      );
+    }
     throw new Error(`${res.status} ${res.statusText} — ${await res.text()}`);
   }
   return (await res.json()) as T;

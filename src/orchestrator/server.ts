@@ -1949,7 +1949,9 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   });
 
   app.post('/api/atelier/demarrer', async (req, reply) => {
-    if (!authorized(req)) return reject(reply);
+    // Lancer l'Atelier exécute compose sur l'hôte de l'orchestrateur : le
+    // jeton partagé identifie un nœud, il ne délègue pas ce privilège.
+    if (!exige(req, reply, 'gerer_serveurs')) return reply;
     const mode = atelierDepuisEnv(process.env);
     if (mode === 'off') {
       return reply.code(403).send({ error: 'HIVE_ATELIER=off — posez auto ou on' });
@@ -1962,7 +1964,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   });
 
   app.post('/api/atelier/arreter', async (req, reply) => {
-    if (!authorized(req)) return reject(reply);
+    if (!exige(req, reply, 'gerer_serveurs')) return reply;
     const plan = planComposeArret(moteurAtelier(process.env));
     if (!plan.ok) return reply.code(409).send({ error: plan.raison });
     const out = await executerPlan(plan, { cwd: process.cwd(), env: process.env });
@@ -2093,7 +2095,9 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
+      // Baptiser une ouvrière est une écriture globale : un nœud membre ne
+      // peut pas renommer l'identité affichée aux autres opérateurs.
+      if (!exige(req, reply, 'gerer_serveurs')) return reply;
       const verdict = store.baptiser(req.body.nodeId, req.body.nom);
       if (!verdict.ok) {
         return reply.code(400).send({ error: expliquerRefusBapteme(verdict.motif) });
@@ -2104,7 +2108,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   );
 
   app.delete<{ Params: { nodeId: string } }>('/api/baptemes/:nodeId', async (req, reply) => {
-    if (!authorized(req)) return reject(reply);
+    if (!exige(req, reply, 'gerer_serveurs')) return reply;
     if (!store.getNode(req.params.nodeId)) {
       return reply.code(404).send({ error: 'ouvrière inconnue' });
     }
@@ -2140,7 +2144,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
+      if (!exige(req, reply, 'gerer_serveurs')) return reply;
       const verdict = store.assignerMetier(req.body.nodeId, req.body.metier);
       if (!verdict.ok) {
         return reply.code(400).send({ error: expliquerRefusMetier(verdict.motif) });
@@ -2213,7 +2217,10 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
+      // La pose d'une clé écrit le secret dans l'environnement de l'hôte.
+      // HIVE_TOKEN n'est donc pas une preuve suffisante : il est distribué
+      // aux nœuds membres.
+      if (!exige(req, reply, 'gerer_serveurs')) return reply;
       const vs = validerSecretRequisition(req.body.secret);
       if (!vs.ok) {
         return reply.code(400).send({ error: vs.motif, message: expliquerRefusSecret(vs.motif) });
@@ -2304,7 +2311,9 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
+      // Répondre peut persister une clé API ; cette décision appartient à un
+      // administrateur authentifié, même pour un refus sans secret.
+      if (!exige(req, reply, 'gerer_serveurs')) return reply;
       const cur = store.lireRequisition(req.params.id);
       if (!cur) return reply.code(404).send({ error: 'inconnue' });
 
@@ -2840,7 +2849,9 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
+      // L'invitation historique embarque le jeton maître. Sa génération est
+      // donc une opération d'administration, pas une capacité d'un nœud.
+      if (!exige(req, reply, 'gerer_serveurs')) return reply;
       // URL joignable : ?url= explicite > HIVE_PUBLIC_URL > IP LAN détectée.
       const wsUrl = req.query.url ?? config.publicUrl ?? detectLanWsUrl(port);
       if (!isWsUrl(wsUrl)) {
@@ -2901,7 +2912,9 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
+      // Même éphémère, un billet crée une nouvelle capacité d'accès : seul un
+      // administrateur peut en émettre.
+      if (!exige(req, reply, 'gerer_serveurs')) return reply;
       const body = req.body ?? {};
       const wsUrl = body.url ?? config.publicUrl ?? detectLanWsUrl(port);
       const transport = jugerTransport(wsUrl);
@@ -4953,7 +4966,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
 
   /** Qui a les clés de la ruche. Empreintes jamais exposées. */
   app.get('/api/membres', async (req, reply) => {
-    if (!authorized(req)) return reject(reply);
+    if (!exige(req, reply, 'gerer_serveurs')) return reply;
     const now = Date.now();
     return {
       noeuds: store.listClesNoeuds().map((c) => ({
@@ -4997,7 +5010,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
+      if (!exige(req, reply, 'gerer_serveurs')) return reply;
       const fait = store.revoquerCleNoeud(req.params.nodeId);
       if (!fait) return reply.code(404).send({ error: 'nœud inconnu ou déjà révoqué' });
       emitEvent('node_revoked', { nodeId: req.params.nodeId });
@@ -5039,7 +5052,9 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
+      // La pose envoie une commande d'installation au nœud distant : le
+      // jeton partagé n'autorise pas cette action côté hôte.
+      if (!exige(req, reply, 'gerer_serveurs')) return reply;
       const { nodeId, outilId } = req.params;
       if (commandeDePose(outilId) === null) {
         return reply
@@ -5070,7 +5085,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
+      if (!exige(req, reply, 'gerer_serveurs')) return reply;
       const fait = store.revoquerBillet(req.params.id);
       if (!fait) return reply.code(404).send({ error: 'billet inconnu ou déjà révoqué' });
       emitEvent('invite_revoked', { ticketId: req.params.id });

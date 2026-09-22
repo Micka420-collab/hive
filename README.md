@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-5854%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-5857%20passing-F6C445?labelColor=17130C)
 ![Licence](https://img.shields.io/badge/licence-MIT-F6C445?labelColor=17130C)
 
 🇫🇷 Français · [🇬🇧 English](README.en.md) · [🌐 Site](https://micka420-collab.github.io/hive/) · [📚 Documentation](#-documentation)
@@ -173,6 +173,11 @@ npm run ruche
 ```
 
 Ouvrez **http://localhost:7777**. Un jeton, un nœud local, l'écran.
+
+Les actions d'intendance qui créent ou révoquent des accès (inviter, émettre un
+billet, consulter ou exclure un nœud) exigent une session de compte
+administrateur. `HIVE_TOKEN` identifie la ruche et ses nœuds ; il ne suffit pas
+à obtenir ces privilèges. Pour la CLI, passez le JWT admin dans `HIVE_JWT`.
 
 Démo simulée (aucun agent réel, 7 tâches) : `npm install` puis `npm run demo`.
 

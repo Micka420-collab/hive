@@ -22,6 +22,7 @@ const TOKEN = 'jeton-de-pose-assez-long-pour-passer';
 const headers = { 'content-type': 'application/json', 'x-hive-token': TOKEN };
 const INSTALLABLE = Object.keys(PAQUETS)[0]!;
 const SANS_COMMANDE = OUTILS.find((o) => o.installation === null)!.id;
+let adminHeaders: Record<string, string> = headers;
 
 let server: HiveServer;
 let dir: string;
@@ -40,6 +41,19 @@ beforeEach(async () => {
     tickMs: 10_000,
   });
   base = `http://127.0.0.1:${server.port}`;
+  const auth = await fetch(`${base}/api/auth/register`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      email: 'admin@hive.test',
+      password: 'mot-de-passe-test',
+      displayName: 'Admin',
+    }),
+  });
+  adminHeaders = {
+    ...headers,
+    authorization: `Bearer ${((await auth.json()) as { token: string }).token}`,
+  };
 });
 
 afterEach(async () => {
@@ -48,7 +62,7 @@ afterEach(async () => {
   rmSync(dir, { recursive: true, force: true, maxRetries: 5 });
 });
 
-const poser = (nodeId: string, outilId: string, h: Record<string, string> = headers) =>
+const poser = (nodeId: string, outilId: string, h: Record<string, string> = adminHeaders) =>
   fetch(`${base}/api/nodes/${nodeId}/outils/${outilId}/poser`, { method: 'POST', headers: h });
 
 /** Inscrit un faux nœud et rend son socket, une fois l'accusé reçu. */
@@ -142,7 +156,7 @@ describe('la chaîne complète, jusqu’au fil', () => {
     await inscrire(nodeId);
     await poser(nodeId, INSTALLABLE);
 
-    const rep = await fetch(`${base}/api/events?limit=200`, { headers });
+    const rep = await fetch(`${base}/api/events?limit=200`, { headers: adminHeaders });
     const brut: unknown = await rep.json();
     // La route rend le tableau tel quel ; on ne suppose pas d'enveloppe.
     const liste = (Array.isArray(brut) ? brut : []) as { type: string; payload?: unknown }[];

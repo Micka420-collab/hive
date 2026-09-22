@@ -312,7 +312,7 @@ export function poserOutilSurNoeud(
   nodeId: string,
   outilId: string,
 ): Promise<{ poseId: string; nodeId: string; outilId: string }> {
-  return api<{ poseId: string; nodeId: string; outilId: string }>(
+  return apiCompte<{ poseId: string; nodeId: string; outilId: string }>(
     `/api/nodes/${encodeURIComponent(nodeId)}/outils/${encodeURIComponent(outilId)}/poser`,
     { method: 'POST' },
   );
@@ -446,12 +446,7 @@ export interface InviteResponse {
 /** Demande une invitation à l'orchestrateur (URL WS optionnelle à annoncer). */
 export async function fetchInvite(url?: string): Promise<InviteResponse> {
   const query = url ? `?url=${encodeURIComponent(url)}` : '';
-  const res = await fetch(`/api/invite${query}`, { headers: { 'x-hive-token': getToken() } });
-  if (!res.ok)
-    throw new Error(
-      tNow(`invitation refusée (${res.status})`, `invitation refused (${res.status})`),
-    );
-  return (await res.json()) as InviteResponse;
+  return apiCompte<InviteResponse>(`/api/invite${query}`);
 }
 
 // ─── Mission Control : endpoints d'observation et d'action ──────────────────
@@ -1553,17 +1548,21 @@ export interface ClesRuche {
 }
 
 export function fetchCles(): Promise<ClesRuche> {
-  return api<ClesRuche>('/api/membres');
+  return apiCompte<ClesRuche>('/api/membres');
 }
 
 /** Exclure une machine. La révocation MORD tout de suite : le nœud est déconnecté. */
 export function revoquerNoeud(nodeId: string): Promise<{ ok: boolean }> {
-  return api<{ ok: boolean }>(`/api/membres/${encodeURIComponent(nodeId)}`, { method: 'DELETE' });
+  return apiCompte<{ ok: boolean }>(`/api/membres/${encodeURIComponent(nodeId)}`, {
+    method: 'DELETE',
+  });
 }
 
 /** Révoquer un billet : il ne sert plus à obtenir de clé, même s'il reste des usages. */
 export function revoquerBillet(billetId: string): Promise<{ ok: boolean }> {
-  return api<{ ok: boolean }>(`/api/billets/${encodeURIComponent(billetId)}`, { method: 'DELETE' });
+  return apiCompte<{ ok: boolean }>(`/api/billets/${encodeURIComponent(billetId)}`, {
+    method: 'DELETE',
+  });
 }
 
 // ─── Mon tableau de bord ────────────────────────────────────────────────────
@@ -1819,11 +1818,11 @@ export function fetchAtelier(): Promise<EtatAtelier> {
 }
 
 export function demarrerAtelier(): Promise<{ ok: boolean; plan?: string[] }> {
-  return api('/api/atelier/demarrer', { method: 'POST', body: '{}' });
+  return apiCompte('/api/atelier/demarrer', { method: 'POST', body: '{}' });
 }
 
 export function arreterAtelier(): Promise<{ ok: boolean }> {
-  return api('/api/atelier/arreter', { method: 'POST', body: '{}' });
+  return apiCompte('/api/atelier/arreter', { method: 'POST', body: '{}' });
 }
 
 /** Réponse de `GET /api/chambre/:nodeId` — absences = null / [] (pas de théâtre). */
@@ -1900,21 +1899,21 @@ export function baptiserOuvriere(
   nodeId: string,
   nom: string,
 ): Promise<{ ok: boolean; nom: string }> {
-  return api('/api/baptemes', {
+  return apiCompte('/api/baptemes', {
     method: 'POST',
     body: JSON.stringify({ nodeId, nom }),
   });
 }
 
 export function debaptiserOuvriere(nodeId: string): Promise<{ ok: boolean }> {
-  return api(`/api/baptemes/${encodeURIComponent(nodeId)}`, { method: 'DELETE' });
+  return apiCompte(`/api/baptemes/${encodeURIComponent(nodeId)}`, { method: 'DELETE' });
 }
 
 export function assignerMetierOuvriere(
   nodeId: string,
   metier: string,
 ): Promise<{ ok: boolean; metier: string }> {
-  return api('/api/metiers', {
+  return apiCompte('/api/metiers', {
     method: 'POST',
     body: JSON.stringify({ nodeId, metier }),
   });
@@ -1948,7 +1947,7 @@ export function repondreRequisition(
   decision: 'accordee' | 'refusee',
   opts?: { secret?: string; envVar?: string },
 ): Promise<{ ok: boolean; statut: string; envVar?: string }> {
-  return api(`/api/requisitions/${encodeURIComponent(id)}/repondre`, {
+  return apiCompte(`/api/requisitions/${encodeURIComponent(id)}/repondre`, {
     method: 'POST',
     body: JSON.stringify({
       decision,
@@ -1979,7 +1978,7 @@ export function poserQueenCle(body: {
   envVar: string;
   libelle?: string;
 }): Promise<{ ok: boolean; envVar: string }> {
-  return api('/api/queen/cles', {
+  return apiCompte('/api/queen/cles', {
     method: 'POST',
     body: JSON.stringify(body),
   });

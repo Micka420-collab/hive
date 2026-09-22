@@ -292,6 +292,32 @@ async function principal() {
   if (etatAvant.status !== 200) rate(`6/6 — l’instantané rend ${etatAvant.status} avant l’entrée`);
   const dejaVus = noeudsConnus(await etatAvant.json());
 
+  // ─── LA SESSION D'ADMINISTRATION ─────────────────────────────────────────
+  //
+  // Le jeton de ruche est volontairement partagé avec chaque nœud : il ne peut
+  // donc plus frapper un billet, qui crée une nouvelle capacité d'accès. Le
+  // parcours d'installation doit exercer le geste réel de l'hôte : amorcer
+  // son premier compte, puis porter son JWT sur l'opération d'intendance.
+  // Le mot de passe est éphémère, utilisé uniquement dans ce dossier d'essai,
+  // et ni le JWT ni le secret de ruche ne sont écrits dans le journal.
+  const inscription = await demander('/api/auth/register', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      email: `essai-admin-${process.pid}@hive.test`,
+      password: 'mot-de-passe-essai-hive',
+      displayName: 'Admin essai Hive',
+    }),
+  });
+  if (inscription.status !== 200) {
+    rate(`6/6 — la ruche refuse l'amorçage du compte administrateur (${inscription.status})`);
+  }
+  const compte = await inscription.json();
+  if (typeof compte?.token !== 'string' || compte.token.length === 0) {
+    rate("6/6 — l'amorçage du compte administrateur ne rend pas de session");
+  }
+  const entetesAdmin = { ...entetes, authorization: `Bearer ${compte.token}` };
+
   // ─── LE BILLET, FRAPPÉ PAR LA RUCHE VIVANTE ───────────────────────────────
   //
   // L'adresse est imposée en boucle locale : laissée à la ruche, elle serait
@@ -299,7 +325,7 @@ async function principal() {
   // de CI se voit elle-même — une variable qui n'a rien à faire ici.
   const frappe = await demander('/api/billets', {
     method: 'POST',
-    headers: { ...entetes, 'content-type': 'application/json' },
+    headers: { ...entetesAdmin, 'content-type': 'application/json' },
     body: JSON.stringify({
       label: 'Le poste de l’invité (essai)',
       uses: 1,

@@ -42,9 +42,23 @@ describe('GET /api/atelier', () => {
 
   it('POST refusé tant que HIVE_ATELIER=off — on n’allume pas Docker', async () => {
     srv = await createServer(cfg(':memory:'));
+    const auth = await fetch(`${srv.url}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        email: 'admin@hive.test',
+        password: 'mot-de-passe-test',
+        displayName: 'Admin',
+      }),
+    });
+    const { token } = (await auth.json()) as { token: string };
     const res = await fetch(`${srv.url}/api/atelier/demarrer`, {
       method: 'POST',
-      headers: { 'x-hive-token': TOKEN, 'content-type': 'application/json' },
+      headers: {
+        'x-hive-token': TOKEN,
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+      },
       body: '{}',
     });
     expect(res.status).toBe(403);

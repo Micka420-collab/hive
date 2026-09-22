@@ -35,6 +35,17 @@ describe('réquisition mid-task — boucle B/C/D', () => {
       tickMs: 60,
     });
     const base = `http://127.0.0.1:${server.port}`;
+    const auth = await fetch(`${base}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        email: 'admin@hive.test',
+        password: 'mot-de-passe-test',
+        displayName: 'Admin',
+      }),
+    });
+    const { token: adminToken } = (await auth.json()) as { token: string };
+    const adminHeaders = { ...headers, authorization: `Bearer ${adminToken}` };
 
     const project = (await (
       await fetch(`${base}/api/projects`, {
@@ -98,7 +109,7 @@ describe('réquisition mid-task — boucle B/C/D', () => {
     phase = 'ok';
     const rep = await fetch(`${base}/api/requisitions/${reqId}/repondre`, {
       method: 'POST',
-      headers,
+      headers: adminHeaders,
       body: JSON.stringify({ decision: 'accordee', secret: 'sk-midtask-test' }),
     });
     expect(rep.status).toBe(200);
@@ -127,6 +138,17 @@ describe('réquisition mid-task — boucle B/C/D', () => {
       tickMs: 60,
     });
     const base = `http://127.0.0.1:${server.port}`;
+    const auth = await fetch(`${base}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        email: 'admin@hive.test',
+        password: 'mot-de-passe-test',
+        displayName: 'Admin',
+      }),
+    });
+    const { token: adminToken } = (await auth.json()) as { token: string };
+    const adminHeaders = { ...headers, authorization: `Bearer ${adminToken}` };
 
     const project = (await (
       await fetch(`${base}/api/projects`, {
@@ -195,7 +217,7 @@ describe('réquisition mid-task — boucle B/C/D', () => {
     // Accorder alors que le CLI manque encore → pause conservée, nouvelle req.
     const repTropTot = await fetch(`${base}/api/requisitions/${reqId}/repondre`, {
       method: 'POST',
-      headers,
+      headers: adminHeaders,
       body: JSON.stringify({ decision: 'accordee' }),
     });
     expect(repTropTot.status).toBe(200);
@@ -219,7 +241,7 @@ describe('réquisition mid-task — boucle B/C/D', () => {
     binOk = true;
     const rep = await fetch(`${base}/api/requisitions/${reqId2}/repondre`, {
       method: 'POST',
-      headers,
+      headers: adminHeaders,
       body: JSON.stringify({ decision: 'accordee' }),
     });
     expect(rep.status).toBe(200);

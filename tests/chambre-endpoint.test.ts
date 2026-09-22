@@ -36,6 +36,20 @@ describe('GET /api/chambre/:nodeId', () => {
     return server;
   }
 
+  async function entetesAdmin(srv: HiveServer): Promise<Record<string, string>> {
+    const auth = await fetch(`${srv.url}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        email: 'admin@hive.test',
+        password: 'mot-de-passe-test',
+        displayName: 'Admin',
+      }),
+    });
+    const { token } = (await auth.json()) as { token: string };
+    return { ...headers, authorization: `Bearer ${token}` };
+  }
+
   it('401 sans jeton — un partage ne lit pas les identités', async () => {
     const srv = await demarrer();
     const res = await fetch(`${srv.url}/api/chambre/n-1`);
@@ -165,6 +179,7 @@ describe('GET /api/chambre/:nodeId', () => {
 
   it('POST /api/baptemes et /api/metiers : la Reine nomme et assigne', async () => {
     const srv = await demarrer();
+    const admin = await entetesAdmin(srv);
     srv.store.registerNode({
       nodeId: 'n-b2',
       name: 'tech',
@@ -174,13 +189,13 @@ describe('GET /api/chambre/:nodeId', () => {
     });
     const bapt = await fetch(`${srv.url}/api/baptemes`, {
       method: 'POST',
-      headers,
+      headers: admin,
       body: JSON.stringify({ nodeId: 'n-b2', nom: 'Violette' }),
     });
     expect(bapt.status).toBe(200);
     const met = await fetch(`${srv.url}/api/metiers`, {
       method: 'POST',
-      headers,
+      headers: admin,
       body: JSON.stringify({ nodeId: 'n-b2', metier: 'edite' }),
     });
     expect(met.status).toBe(200);
@@ -193,7 +208,7 @@ describe('GET /api/chambre/:nodeId', () => {
     expect(body.metier.metier).toBe('edite');
     const collision = await fetch(`${srv.url}/api/baptemes`, {
       method: 'POST',
-      headers,
+      headers: admin,
       body: JSON.stringify({ nodeId: 'n-b2', nom: 'claude-code' }),
     });
     expect(collision.status).toBe(400);
@@ -201,6 +216,7 @@ describe('GET /api/chambre/:nodeId', () => {
 
   it('réquisitions : ouvrir et répondre via API', async () => {
     const srv = await demarrer();
+    const admin = await entetesAdmin(srv);
     srv.store.registerNode({
       nodeId: 'n-4',
       name: 'w',
@@ -224,7 +240,7 @@ describe('GET /api/chambre/:nodeId', () => {
     expect(corps.requisitions).toHaveLength(1);
     const rep = await fetch(`${srv.url}/api/requisitions/${id}/repondre`, {
       method: 'POST',
-      headers,
+      headers: admin,
       body: JSON.stringify({ decision: 'accordee', secret: 'sk-seedance-test' }),
     });
     expect(rep.status).toBe(200);
@@ -239,6 +255,7 @@ describe('GET /api/chambre/:nodeId', () => {
 
   it('réquisition déjà close : 409 sans réécrire le .env', async () => {
     const srv = await demarrer();
+    const admin = await entetesAdmin(srv);
     srv.store.registerNode({
       nodeId: 'n-close',
       name: 'w',
@@ -258,14 +275,14 @@ describe('GET /api/chambre/:nodeId', () => {
     const { id } = (await cree.json()) as { id: string };
     await fetch(`${srv.url}/api/requisitions/${id}/repondre`, {
       method: 'POST',
-      headers,
+      headers: admin,
       body: JSON.stringify({ decision: 'accordee', secret: 'sk-premier' }),
     });
     const envPath = path.join(dir!, '.env');
     const avant = readFileSync(envPath, 'utf8');
     const replay = await fetch(`${srv.url}/api/requisitions/${id}/repondre`, {
       method: 'POST',
-      headers,
+      headers: admin,
       body: JSON.stringify({ decision: 'accordee', secret: 'sk-deuxieme-hostile' }),
     });
     expect(replay.status).toBe(409);
@@ -276,6 +293,7 @@ describe('GET /api/chambre/:nodeId', () => {
 
   it('envVar différent du dérivé → 400 env_refuse', async () => {
     const srv = await demarrer();
+    const admin = await entetesAdmin(srv);
     srv.store.registerNode({
       nodeId: 'n-env',
       name: 'w',
@@ -295,7 +313,7 @@ describe('GET /api/chambre/:nodeId', () => {
     const { id } = (await cree.json()) as { id: string };
     const bad = await fetch(`${srv.url}/api/requisitions/${id}/repondre`, {
       method: 'POST',
-      headers,
+      headers: admin,
       body: JSON.stringify({
         decision: 'accordee',
         secret: 'sk-x',
@@ -312,6 +330,7 @@ describe('GET /api/chambre/:nodeId', () => {
 
   it('GET/POST /api/queen/cles : catalogue + pose OpenRouter sans stocker le secret en base', async () => {
     const srv = await demarrer();
+    const admin = await entetesAdmin(srv);
     const liste = await fetch(`${srv.url}/api/queen/cles`, { headers });
     expect(liste.status).toBe(200);
     const corps = (await liste.json()) as {
@@ -323,7 +342,7 @@ describe('GET /api/chambre/:nodeId', () => {
 
     const pose = await fetch(`${srv.url}/api/queen/cles`, {
       method: 'POST',
-      headers,
+      headers: admin,
       body: JSON.stringify({
         secret: 'sk-or-test-key',
         envVar: 'OPENROUTER_API_KEY',
