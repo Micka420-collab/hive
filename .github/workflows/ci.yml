@@ -536,6 +536,15 @@ jobs:
       - name: Récupérer le code
         uses: actions/checkout@v4
 
+      - name: Installer Node.js ${{ env.NODE }} pour le test d’intégration
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE }}
+          cache: npm
+
+      - name: Installer les dépendances pour le test d’intégration
+        run: npm ci --foreground-scripts
+
       - name: Construire l'image
         run: docker build -t hive:ci .
 
@@ -613,6 +622,15 @@ jobs:
           docker run --rm hive-agent:ci claude --version
           docker run --rm hive-agent:ci codex --version
           test "$(docker run --rm hive-agent:ci id -u)" = "1000"
+
+      # La commande ci-dessus prouve que Docker voit les CLI. Ce test exerce
+      # ensuite le même preflight que le Worker Hive, avec l’image construite
+      # et le vrai moteur du runner. Sans cette étape, une divergence entre la
+      # détection et l’exécution pourrait rester verte.
+      - name: Preflight Hive réel de l’image agent-aware
+        env:
+          HIVE_ISOLEMENT_IMAGE: hive-agent:ci
+        run: npm test -- --run tests/isolement-runtime.integration.test.ts
 
       - name: Arrêter
         if: always()
