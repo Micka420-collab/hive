@@ -27,15 +27,26 @@ function runtimeDisponible(): Fournisseur | null {
 }
 
 const runtime = runtimeDisponible();
+const imageDemandee = process.env.HIVE_ISOLEMENT_IMAGE?.trim() || '';
 
 describe('isolement — intégration runtime réel', () => {
-  it.skipIf(!runtime)(
+  it.skipIf(!runtime && !imageDemandee)(
     'exécute réellement le preflight dans Docker/Podman',
     async () => {
-      const node = await sonderAgentDansBac(runtime!, 'node', IMAGE_DEFAUT);
-      expect(node.executable).toBe(true);
+      expect(runtime, 'HIVE_ISOLEMENT_IMAGE exige un runtime Docker/Podman actif').not.toBeNull();
 
-      const absent = await sonderAgentDansBac(runtime!, 'hive-agent-inexistant', IMAGE_DEFAUT);
+      // Le chemin par défaut vérifie le contrat minimal de l’image Node. La
+      // jambe CI qui construit l’image agent-aware pose HIVE_ISOLEMENT_IMAGE :
+      // elle exerce alors les vrais binaires que le Worker lancera, pas une
+      // simple commande `docker run` indépendante de Hive.
+      const image = imageDemandee || IMAGE_DEFAUT;
+      const binaires = imageDemandee ? ['claude', 'codex'] : ['node'];
+      for (const binaire of binaires) {
+        const resultat = await sonderAgentDansBac(runtime!, binaire, image);
+        expect(resultat.executable, `${binaire} dans ${image}`).toBe(true);
+      }
+
+      const absent = await sonderAgentDansBac(runtime!, 'hive-agent-inexistant', image);
       expect(absent.executable).toBe(false);
     },
     120_000,
