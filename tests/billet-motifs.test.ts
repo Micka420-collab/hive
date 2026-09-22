@@ -44,6 +44,7 @@ const headers = { 'content-type': 'application/json', 'x-hive-token': TOKEN };
 let server: HiveServer;
 let dir: string;
 let base: string;
+let adminToken = '';
 
 beforeEach(async () => {
   dir = mkdtempSync(path.join(os.tmpdir(), 'hive-motifs-'));
@@ -57,6 +58,16 @@ beforeEach(async () => {
     tickMs: 10_000,
   });
   base = `http://127.0.0.1:${server.port}`;
+  const auth = await fetch(`${base}/api/auth/register`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      email: 'admin@hive.test',
+      password: 'mot-de-passe-test',
+      displayName: 'Admin',
+    }),
+  });
+  adminToken = ((await auth.json()) as { token: string }).token;
 });
 
 afterEach(async () => {
@@ -67,7 +78,7 @@ afterEach(async () => {
 async function creerBillet(body: Record<string, unknown> = {}): Promise<string> {
   const rep = await fetch(`${base}/api/billets`, {
     method: 'POST',
-    headers,
+    headers: { ...headers, authorization: `Bearer ${adminToken}` },
     body: JSON.stringify({ url: 'ws://127.0.0.1:7777/ws', ...body }),
   });
   const j = (await rep.json()) as { billet: string };
