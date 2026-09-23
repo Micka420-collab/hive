@@ -935,6 +935,9 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     // la seule manière de ne pas rattacher une relecture tardive à une
     // tentative plus récente de la même tâche.
     const resultId = store.resultsForTask(taskId).at(-1)?.resultId;
+    // Le modèle doit voyager avec le resultId : une correction peut
+    // réaffecter la même tâche avant le retour d'une contre-revue tardive.
+    const producteurModele = store.modeleAiguillageDe(taskId);
 
     const choix = choisirCritiques(
       production,
@@ -954,6 +957,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       emitEvent('contre_expertise', {
         taskId,
         ...(resultId !== undefined ? { resultId } : {}),
+        ...(producteurModele ? { producteurModele } : {}),
         possible: false,
         producteur: production.agentType,
         motif: choix.motif,
@@ -1004,6 +1008,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     emitEvent('contre_expertise', {
       taskId,
       ...(resultId !== undefined ? { resultId } : {}),
+      ...(producteurModele ? { producteurModele } : {}),
       possible: true,
       producteur: production.agentType,
       modeles: choix.modeles,
@@ -1052,6 +1057,9 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       source: 'hive_counter_review',
       taskId: lien.productionTaskId,
       ...(exactResultId !== undefined ? { resultId: exactResultId } : {}),
+      ...(typeof lancement?.payload.producteurModele === 'string'
+        ? { producteurModele: lancement.payload.producteurModele }
+        : {}),
       relecture: relectureTaskId,
       relecteur: lien.relecteurAgent,
       reviewerNodeId: lien.relecteurNodeId,

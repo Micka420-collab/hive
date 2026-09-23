@@ -103,12 +103,19 @@ function NodeCard({
           <span
             className="es-models-label"
             title={t(
-              'Historique Aiguillage global ; la réputation attribuée à chaque Worker viendra avec la traçabilité des observations.',
-              'Global Aiguillage history; per-Worker reputation will follow once observations carry worker attribution.',
+              'Les essais affichés par modèle sont globaux ; la réputation Worker ne compte que les résultats reliés à ce poste.',
+              'Model trials are global; Worker reputation counts only results linked to this Worker.',
             )}
           >
             {t('Modèles · vécu Aiguillage', 'Models · Aiguillage history')}
           </span>
+          {worker.reputation && (
+            <span className="es-worker-reputation" data-testid="worker-reputation">
+              {worker.reputation.essais === 0
+                ? t('réputation Worker non attribuée', 'Worker reputation unavailable')
+                : `${t('réputation Worker', 'Worker reputation')} · ${worker.reputation.essais} ${t('avis', 'reviews')} · ${Math.round((worker.reputation.moyenne ?? 0) * 100)}%`}
+            </span>
+          )}
           {worker.modeles === undefined || worker.modeles.length === 0 ? (
             <span className="muted-text">{t('aucun modèle déclaré', 'no model declared')}</span>
           ) : (
@@ -131,17 +138,22 @@ function NodeCard({
                       `${categorie}: ${preuve.essais} · ${preuve.moyenne ?? 0}`,
                   )
                   .join(' · ');
+                const reputation = model.reputation;
+                const preuveWorker =
+                  reputation?.essais && reputation.essais > 0
+                    ? ` · Worker: ${reputation.essais} · ${Math.round((reputation.moyenne ?? 0) * 100)}%`
+                    : '';
                 return (
                   <li
                     key={model.modele}
                     className={observes.length === 0 ? 'es-model exploration' : 'es-model'}
-                    title={detail || t('aucun vécu observé', 'no observed history')}
+                    title={`${detail || t('aucun vécu observé', 'no observed history')}${preuveWorker}`}
                   >
                     <span className="es-model-name">{model.modele}</span>
                     <span className="es-model-proof">
                       {observes.length === 0
                         ? t('à explorer', 'explore')
-                        : `${observes.length} ${t('cat.', 'cats.')} · ${essais} ${t('essais', 'trials')} · ${Math.round((moyenne ?? 0) * 100)}%`}
+                        : `${observes.length} ${t('cat.', 'cats.')} · ${essais} ${t('essais', 'trials')} · ${Math.round((moyenne ?? 0) * 100)}%${preuveWorker}`}
                     </span>
                   </li>
                 );

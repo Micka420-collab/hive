@@ -58,6 +58,27 @@ describe('GET /api/workers', () => {
       prompt: 'ajouter la route',
     });
     server!.store.poserModeleAiguillage(task.id, 'claude-sonnet', 10);
+    const resultId = server!.store.insertResult({
+      taskId: task.id,
+      nodeId: 'worker-1',
+      diff: 'diff --git a/src/api.ts b/src/api.ts',
+      logs: 'tests: 0 failed',
+      success: true,
+      durationMs: 12,
+      subAgents: [],
+    });
+    server!.store.appendEvent('contre_expertise_verdict', {
+      source: 'hive_counter_review',
+      taskId: task.id,
+      resultId,
+      producteurModele: 'claude-sonnet',
+      relecture: 'review-worker-1',
+      relecteur: 'codex',
+      reviewerNodeId: 'reviewer-1',
+      conteste: false,
+      objections: [],
+      recordedAt: 11,
+    });
     server!.store.enregistrerContreVisite({
       productionTaskId: task.id,
       suite: 'appliquer',
@@ -75,7 +96,9 @@ describe('GET /api/workers', () => {
         modeles?: Array<{
           modele: string;
           categories: Record<string, { exploration: boolean; essais: number }>;
+          reputation: { essais: number; moyenne: number | null; attribution: string };
         }>;
+        reputation: { essais: number; moyenne: number | null; attribution: string };
       }>;
     };
 
@@ -85,5 +108,15 @@ describe('GET /api/workers', () => {
     expect(body.workers[0]?.modeles?.[0]?.modele).toBe('claude-sonnet');
     expect(body.workers[0]?.modeles?.[0]?.categories.code?.exploration).toBe(false);
     expect(body.workers[0]?.modeles?.[0]?.categories.code?.essais).toBe(1);
+    expect(body.workers[0]?.reputation).toMatchObject({
+      essais: 1,
+      moyenne: 1,
+      attribution: 'exacte',
+    });
+    expect(body.workers[0]?.modeles?.[0]?.reputation).toMatchObject({
+      essais: 1,
+      moyenne: 1,
+      attribution: 'exacte',
+    });
   });
 });
