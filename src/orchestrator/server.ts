@@ -267,7 +267,7 @@ import { buildHiveContext } from './hive-mind.js';
 import { buildMergePlan } from './honeycomb.js';
 import { tally, signatureOf } from './parliament.js';
 import type { Ballot } from './parliament.js';
-import { evaluate } from './evaluator.js';
+import { evaluate, missingCrossReviewEvidence } from './evaluator.js';
 import type { ValidationProvenance } from './evaluator.js';
 import { validationsDepuisControles } from './ci-evidence.js';
 import { CacheDomaines, domaineDeTache, replierTraces } from './pheromones.js';
@@ -931,6 +931,10 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     );
     if (!ouverture) return;
     const { production, projectId } = ouverture;
+    // Le résultat vient d'être accepté par le scheduler : son identifiant est
+    // la seule manière de ne pas rattacher une relecture tardive à une
+    // tentative plus récente de la même tâche.
+    const resultId = store.resultsForTask(taskId).at(-1)?.resultId;
 
     const choix = choisirCritiques(
       production,
@@ -949,6 +953,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // rassure.
       emitEvent('contre_expertise', {
         taskId,
+        ...(resultId !== undefined ? { resultId } : {}),
         possible: false,
         producteur: production.agentType,
         motif: choix.motif,
@@ -998,6 +1003,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
 
     emitEvent('contre_expertise', {
       taskId,
+      ...(resultId !== undefined ? { resultId } : {}),
       possible: true,
       producteur: production.agentType,
       modeles: choix.modeles,
@@ -1025,6 +1031,10 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     texte: string,
   ): void => {
     const verdict = agreger([lireAvis(lien.relecteurNodeId, lien.relecteurAgent, texte)]);
+    const lancement = store.eventForRelecture(relectureTaskId);
+    const resultId = lancement?.payload.resultId;
+    const exactResultId =
+      typeof resultId === 'number' && Number.isSafeInteger(resultId) ? resultId : undefined;
 
     // ─── CE QUE LA CONTRE-VISITE A DÉCIDÉ, RANGÉ ─────────────────────────────
     //
@@ -1038,21 +1048,32 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     // état (`refaire`) demanderait au relecteur une gradation qu'on ne lui
     // demande pas, et l'inventer ici en lisant entre les lignes serait une
     // décision prise sur rien.
-    store.enregistrerContreVisite({
-      productionTaskId: lien.productionTaskId,
-      suite: verdict.conteste ? 'ameliorer' : 'appliquer',
-      raison: verdict.objections[0] ?? '',
-      visiteurNodeId: lien.relecteurNodeId,
-      visiteurAgent: lien.relecteurAgent,
-    });
-
     emitEvent('contre_expertise_verdict', {
+      source: 'hive_counter_review',
       taskId: lien.productionTaskId,
+      ...(exactResultId !== undefined ? { resultId: exactResultId } : {}),
       relecture: relectureTaskId,
       relecteur: lien.relecteurAgent,
+      reviewerNodeId: lien.relecteurNodeId,
       producteur: lien.producteurAgent,
       conteste: verdict.conteste,
       objections: verdict.objections,
+      recordedAt: Date.now(),
+    });
+
+    // La table de contre-visite est la projection de livraison. Une production
+    // peut avoir plusieurs relectrices : elle ne doit jamais perdre une
+    // objection parce que le dernier avis arrivé était favorable.
+    const resume =
+      exactResultId === undefined
+        ? null
+        : store.crossReviewForResult(lien.productionTaskId, exactResultId);
+    store.enregistrerContreVisite({
+      productionTaskId: lien.productionTaskId,
+      suite: resume?.decision ?? (verdict.conteste ? 'ameliorer' : 'appliquer'),
+      raison: resume?.objections[0] ?? verdict.objections[0] ?? '',
+      visiteurNodeId: lien.relecteurNodeId,
+      visiteurAgent: lien.relecteurAgent,
     });
   };
 
@@ -1501,6 +1522,12 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     const results = store.resultsForTask(task.id);
     const latest = results[results.length - 1];
     const ci = latest?.resultId ? store.latestCiValidation(task.id, latest.resultId) : null;
+    const crossReview = latest
+      ? latest.resultId
+        ? (store.crossReviewForResult(task.id, latest.resultId) ??
+          missingCrossReviewEvidence(task.id, latest.resultId))
+        : missingCrossReviewEvidence(task.id, null)
+      : null;
     const inspections = store.listInspections();
     const inspection = latest
       ? inspectionDeProduction(inspections, task.id, latest.nodeId, latest.resultId)
@@ -1537,6 +1564,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
               } satisfies ValidationProvenance,
             }
           : {}),
+        ...(crossReview ? { crossReview } : {}),
       }),
     };
   };

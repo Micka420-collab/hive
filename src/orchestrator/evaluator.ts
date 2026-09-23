@@ -43,6 +43,52 @@ export interface ValidationProvenance {
   recordedAt: number;
 }
 
+/** Avis individuel d'un Worker distinct sur la production relue. */
+export interface CrossReviewVote {
+  relectureTaskId: string;
+  reviewerNodeId: string;
+  reviewerAgent: string;
+  decision: 'appliquer' | 'ameliorer';
+  reason: string;
+  recordedAt: number;
+}
+
+export type CrossReviewStatus = 'missing' | 'applied' | 'improvement_required';
+
+/** Résumé agrégé des contre-revues liées à une production exacte. */
+export interface CrossReviewEvidence {
+  source: 'hive_counter_review';
+  taskId: string;
+  resultId: number | null;
+  status: CrossReviewStatus;
+  decision?: 'appliquer' | 'ameliorer';
+  reviewers: readonly CrossReviewVote[];
+  objections: readonly string[];
+  reviewerCount: number;
+  contestingReviewers: number;
+  approvingReviewers: number;
+  recordedAt: number;
+}
+
+/** Preuve explicite qu'aucun avis n'est rattaché à cette production. */
+export function missingCrossReviewEvidence(
+  taskId: string,
+  resultId: number | null,
+): CrossReviewEvidence {
+  return {
+    source: 'hive_counter_review',
+    taskId,
+    resultId,
+    status: 'missing',
+    reviewers: [],
+    objections: [],
+    reviewerCount: 0,
+    contestingReviewers: 0,
+    approvingReviewers: 0,
+    recordedAt: 0,
+  };
+}
+
 export interface EvaluatorInput {
   taskId: string;
   taskStatus: string;
@@ -56,6 +102,8 @@ export interface EvaluatorInput {
    */
   validation?: Partial<ValidationEvidence>;
   validationProvenance?: ValidationProvenance;
+  /** Preuve facultative : quand elle existe, le verdict de la contre-revue gouverne. */
+  crossReview?: CrossReviewEvidence;
 }
 
 export interface EvaluationEvidence {
@@ -69,6 +117,7 @@ export interface EvaluationEvidence {
   build: ValidationState;
   lint: ValidationState;
   validationProvenance?: ValidationProvenance;
+  crossReview: CrossReviewEvidence;
   humanReview: 'approved' | 'rejected' | 'missing';
 }
 
@@ -96,6 +145,8 @@ function stateOf(value: ValidationState | undefined): ValidationState {
  */
 export function evaluate(input: EvaluatorInput): EvaluationResult {
   const latest = input.results[input.results.length - 1];
+  const crossReview =
+    input.crossReview ?? missingCrossReviewEvidence(input.taskId, latest?.resultId ?? null);
   const validation: ValidationEvidence = {
     tests: stateOf(input.validation?.tests),
     typecheck: stateOf(input.validation?.typecheck),
@@ -119,6 +170,7 @@ export function evaluate(input: EvaluatorInput): EvaluationResult {
     lint: validation.lint,
     humanReview: input.humanReview ?? 'missing',
     ...(input.validationProvenance ? { validationProvenance: input.validationProvenance } : {}),
+    crossReview,
   };
 
   const reasons: string[] = [];
@@ -193,6 +245,20 @@ export function evaluate(input: EvaluatorInput): EvaluationResult {
       evidence,
     );
   }
+  if (crossReview.status === 'improvement_required' || crossReview.decision === 'ameliorer') {
+    return result(
+      input.taskId,
+      'correction_required',
+      false,
+      true,
+      [
+        crossReview.objections[0]
+          ? `la contre-revue indépendante demande une amélioration : ${crossReview.objections[0]}`
+          : 'la contre-revue indépendante demande une amélioration',
+      ],
+      evidence,
+    );
+  }
   if (failedValidation) {
     reasons.push(`validation ${failedValidation} en échec`);
     return result(input.taskId, 'correction_required', false, true, reasons, evidence);
@@ -212,12 +278,22 @@ export function evaluate(input: EvaluatorInput): EvaluationResult {
 
   // `accepted` est un verdict de qualité de l'Evaluator, pas une autorisation
   // de fusion : le merge reste explicitement humain (`canMerge` ci-dessous).
+  const acceptedReasons = [
+    'résultat réussi, Gardiennes propres, validations vertes et consensus atteint',
+  ];
+  if (crossReview.status === 'applied' || crossReview.decision === 'appliquer') {
+    acceptedReasons.push('contre-revue indépendante favorable');
+  } else if (crossReview.status === 'missing') {
+    acceptedReasons.push(
+      'aucune contre-revue indépendante rattachée à ce résultat : preuve séparée manquante',
+    );
+  }
   return result(
     input.taskId,
     'accepted',
     input.humanReview === 'approved',
     false,
-    ['résultat réussi, Gardiennes propres, validations vertes et consensus atteint'],
+    acceptedReasons,
     evidence,
   );
 }

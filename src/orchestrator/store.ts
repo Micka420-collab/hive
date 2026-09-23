@@ -17,6 +17,9 @@ import { CORPUS_GARDE_FOU } from './garde-fou.js';
 import type { Echelon, FaitsProduction } from './garde-fou.js';
 import type { Suite } from './polyethisme.js';
 import type { CiValidationRecord } from './ci-evidence.js';
+import type { CrossReviewEvidence, CrossReviewVote } from './evaluator.js';
+import { agreger, type Avis } from '../shared/contre-expertise.js';
+import { champSurUneLigne } from '../shared/donnees-non-fiables.js';
 import { CORPUS_BALANCE, LOT_GRAND_LIVRE, VERSION_BALANCE } from './balance.js';
 import { depenseHote, fermerSession, ouvrirSession } from './horloge-hote.js';
 import type { SessionHote } from './horloge-hote.js';
@@ -5112,6 +5115,34 @@ export class HiveStore {
   }
 
   /**
+   * Retrouve l'événement de lancement qui contient une relecture précise.
+   *
+   * Le lien tâche→production reste dans `contre_expertises`, mais le résultat
+   * exact est une observation de l'instant du lancement. Le journal porte donc
+   * ce filigrane sans ajouter de colonne SQLite à une table existante.
+   */
+  eventForRelecture(relectureTaskId: string): HiveEvent | null {
+    const row = this.db
+      .prepare(
+        `SELECT e.* FROM events e, json_each(e.payload, '$.relectures') r
+         WHERE e.type = 'contre_expertise' AND r.value = ?
+         ORDER BY e.id DESC LIMIT 1`,
+      )
+      .get(relectureTaskId) as EventRow | undefined;
+    if (!row) return null;
+    try {
+      return {
+        id: row.id,
+        ts: row.ts,
+        type: row.type,
+        payload: JSON.parse(row.payload) as Record<string, unknown>,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Dernière preuve CI pour un résultat précis. Les preuves vivent dans le
    * journal d'événements : aucune seconde table ne pourrait rester alignée
    * avec les résultats élagués. Toute charge persistée est revalidée avant de
@@ -5179,6 +5210,89 @@ export class HiveStore {
       return null;
     }
     return result;
+  }
+
+  /** Résumé de toutes les contre-revues indépendantes d'un résultat exact. */
+  crossReviewForResult(taskId: string, resultId: number): CrossReviewEvidence | null {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM events
+         WHERE type = 'contre_expertise_verdict'
+           AND json_extract(payload, '$.taskId') = ?
+           AND json_extract(payload, '$.resultId') = ?
+         ORDER BY id ASC`,
+      )
+      .all(taskId, resultId) as EventRow[];
+    const votes: CrossReviewVote[] = [];
+    const avis: Avis[] = [];
+
+    for (const row of rows) {
+      let payload: Record<string, unknown>;
+      try {
+        payload = JSON.parse(row.payload) as Record<string, unknown>;
+      } catch {
+        continue;
+      }
+      const task = payload.taskId;
+      const result = payload.resultId;
+      const relecture = payload.relecture;
+      const reviewerNodeId = payload.reviewerNodeId;
+      const reviewerAgent = payload.relecteur;
+      const objections = payload.objections;
+      if (
+        payload.source !== 'hive_counter_review' ||
+        task !== taskId ||
+        result !== resultId ||
+        typeof payload.conteste !== 'boolean' ||
+        typeof relecture !== 'string' ||
+        relecture.length === 0 ||
+        typeof reviewerNodeId !== 'string' ||
+        reviewerNodeId.length === 0 ||
+        typeof reviewerAgent !== 'string' ||
+        reviewerAgent.length === 0 ||
+        !Array.isArray(objections) ||
+        objections.some((objection) => typeof objection !== 'string')
+      ) {
+        continue;
+      }
+
+      const boundedObjections = objections
+        .slice(0, 20)
+        .map((objection) => champSurUneLigne(objection, 300).trim())
+        .filter((objection) => objection !== '');
+      const decision =
+        payload.conteste === true || boundedObjections.length > 0 ? 'ameliorer' : 'appliquer';
+      votes.push({
+        relectureTaskId: relecture,
+        reviewerNodeId,
+        reviewerAgent,
+        decision,
+        reason: boundedObjections[0] ?? '',
+        recordedAt: row.ts,
+      });
+      avis.push({
+        nodeId: reviewerNodeId,
+        agentType: reviewerAgent,
+        valide: decision === 'appliquer',
+        objections: boundedObjections,
+      });
+    }
+
+    if (votes.length === 0) return null;
+    const verdict = agreger(avis);
+    return {
+      source: 'hive_counter_review',
+      taskId,
+      resultId,
+      status: verdict.conteste ? 'improvement_required' : 'applied',
+      decision: verdict.conteste ? 'ameliorer' : 'appliquer',
+      reviewers: votes,
+      objections: verdict.objections,
+      reviewerCount: votes.length,
+      contestingReviewers: votes.filter((vote) => vote.decision === 'ameliorer').length,
+      approvingReviewers: votes.filter((vote) => vote.decision === 'appliquer').length,
+      recordedAt: Math.max(...votes.map((vote) => vote.recordedAt)),
+    };
   }
 
   /**
