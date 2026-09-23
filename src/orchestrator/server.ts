@@ -4156,11 +4156,11 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         const dernier = resultats[resultats.length - 1]!;
         const noeud = store.getNode(dernier.nodeId);
         const inspection = inspectionDeProduction(
-        store.listInspections(),
-        task.id,
-        dernier.nodeId,
-        dernier.resultId,
-      );
+          store.listInspections(),
+          task.id,
+          dernier.nodeId,
+          dernier.resultId,
+        );
         const branche = nomBranche(task.id);
         const issueOrigine = store.issueDeTache(task.id);
 
