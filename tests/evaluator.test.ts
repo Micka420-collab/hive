@@ -93,26 +93,27 @@ describe('Evaluator indépendant', () => {
   });
 
   it('accepte la qualité après preuves vertes et consensus, sans auto-merger', () => {
+    const delivered = result(true, 'n1');
     const consensus = tally([
       {
         nodeId: 'n1',
         agentType: 'codex',
         success: true,
-        signature: signatureOf('A'),
+        signature: signatureOf(delivered.diff),
         fichiers: ['src/a.ts'],
       },
       {
         nodeId: 'n2',
         agentType: 'claude-code',
         success: true,
-        signature: signatureOf('A'),
+        signature: signatureOf(delivered.diff),
         fichiers: ['src/a.ts'],
       },
     ]);
     const verdict = evaluate({
       taskId: 'task-1',
       taskStatus: 'done',
-      results: [result(true, 'n1')],
+      results: [delivered],
       inspection: clean,
       validation: validations,
       consensus,
@@ -123,21 +124,62 @@ describe('Evaluator indépendant', () => {
     expect(verdict.retryRecommended).toBe(false);
   });
 
-  it('refuse le résultat si une validation a échoué', () => {
+  it('refuse un résultat livré qui ne correspond pas à la faction élue', () => {
+    const consensus = tally([
+      {
+        nodeId: 'n1',
+        agentType: 'codex',
+        success: true,
+        signature: signatureOf('diff A'),
+        fichiers: ['src/a.ts'],
+      },
+      {
+        nodeId: 'n2',
+        agentType: 'claude-code',
+        success: true,
+        signature: signatureOf('diff A'),
+        fichiers: ['src/a.ts'],
+      },
+    ]);
     const verdict = evaluate({
       taskId: 'task-1',
       taskStatus: 'done',
-      results: [result()],
+      results: [result(true, 'n1'), { ...result(true, 'n3'), diff: 'diff B' }],
+      inspection: clean,
+      validation: validations,
+      consensus,
+      humanReview: 'approved',
+    });
+    expect(verdict.decision).toBe('correction_required');
+    expect(verdict.canMerge).toBe(false);
+    expect(verdict.retryRecommended).toBe(true);
+    expect(verdict.evidence.resultAlignment).toBe('mismatch');
+  });
+
+  it('refuse le résultat si une validation a échoué', () => {
+    const delivered = result();
+    const verdict = evaluate({
+      taskId: 'task-1',
+      taskStatus: 'done',
+      results: [delivered],
       inspection: clean,
       validation: { ...validations, tests: 'failed' },
-      consensus: {
-        outcome: 'elected',
-        winner: null,
-        factions: [],
-        quorum: 2,
-        surfaces: [],
-        sansSurface: 0,
-      },
+      consensus: tally([
+        {
+          nodeId: 'n1',
+          agentType: 'codex',
+          success: true,
+          signature: signatureOf(delivered.diff),
+          fichiers: ['src/a.ts'],
+        },
+        {
+          nodeId: 'n2',
+          agentType: 'claude-code',
+          success: true,
+          signature: signatureOf(delivered.diff),
+          fichiers: ['src/a.ts'],
+        },
+      ]),
     });
     expect(verdict.decision).toBe('correction_required');
     expect(verdict.reasons).toContain('validation tests en échec');
