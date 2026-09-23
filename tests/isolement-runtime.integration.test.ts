@@ -1,5 +1,9 @@
 import { execFileSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
 import { describe, expect, it } from 'vitest';
+import { runCommand } from '../src/adapters/exec.js';
 import {
   fournisseurParNom,
   IMAGE_DEFAUT,
@@ -59,6 +63,64 @@ describe('isolement — intégration runtime réel', () => {
 
       const absent = await sonderAgentDansBac(runtime!, 'hive-agent-inexistant', image);
       expect(absent.executable).toBe(false);
+    },
+    120_000,
+  );
+
+  it.skipIf(!runtime || !imageDemandee)(
+    'exécute une commande réelle dans le seul workspace monté',
+    async () => {
+      // Ce test ne lance pas un modèle payant : il exerce le même chemin
+      // d'exécution avec Node présent dans l'image agent-aware. La preuve
+      // utile est l'enveloppe réelle (volume unique, HOME éphémère, aucune
+      // variable de secret implicite), pas un faux résultat d'adaptateur.
+      if (!runtime || !imageDemandee) return;
+      const root = mkdtempSync(path.join(os.tmpdir(), 'hive-sandbox-runtime-'));
+      const workspace = path.join(root, 'workspace');
+      const secretPath = path.join(root, 'outside-secret.txt');
+      mkdirSync(workspace, { recursive: true });
+      writeFileSync(secretPath, 'ne doit jamais être visible dans le conteneur\n');
+      try {
+        const probe = await runCommand(
+          'node',
+          [
+            '-e',
+            [
+              "const fs = require('node:fs');",
+              "const result = { cwd: process.cwd(), home: process.env.HOME, outside: fs.existsSync(process.env.HOST_SECRET_PATH ?? ''), token: process.env.HIVE_TOKEN ?? null };",
+              "fs.writeFileSync('/hive/tache/probe.json', JSON.stringify(result));",
+            ].join(''),
+          ],
+          {
+            cwd: workspace,
+            env: { PATH: process.env.PATH, HOST_SECRET_PATH: secretPath },
+            attempt: 1,
+            signal: new AbortController().signal,
+            onProgress: () => {},
+            bac: {
+              fournisseur: runtime,
+              image: imageDemandee,
+              variables: ['HOST_SECRET_PATH'],
+            },
+          },
+        );
+        expect(probe.success, probe.logs).toBe(true);
+        const result = JSON.parse(readFileSync(path.join(workspace, 'probe.json'), 'utf8')) as {
+          cwd: string;
+          home: string;
+          outside: boolean;
+          token: string | null;
+        };
+        expect(result).toEqual({
+          cwd: '/hive/tache',
+          home: '/tmp/hive-home',
+          outside: false,
+          token: null,
+        });
+        expect(readFileSync(secretPath, 'utf8')).toContain('ne doit jamais être visible');
+      } finally {
+        rmSync(root, { recursive: true, force: true, maxRetries: 3 });
+      }
     },
     120_000,
   );
