@@ -50,8 +50,14 @@ import type {
 } from '../adapters/index.js';
 
 const MAX_PENDING_DELEGATIONS = 32;
+const MAX_ACCEPTED_DELEGATIONS = 128;
 const DELEGATION_RESPONSE_TIMEOUT_MS = 15_000;
-const DELEGATION_RESULT_TIMEOUT_MS = 5 * 60_000;
+/**
+ * La durée demandée est un budget de travail, pas une garantie de latence :
+ * l'enfant peut attendre dans la file ou consommer des retries. On garde donc
+ * une marge, tout en restant borné par le plafond de transport accepté.
+ */
+const DELEGATION_RESULT_GRACE_MS = 5 * 60_000;
 
 export interface NodeClientOptions {
   /** URL WebSocket de l'orchestrateur, ex. ws://localhost:7777/ws */
@@ -163,10 +169,19 @@ export class HiveNodeClient {
   /** Délégations en vol : bornées pour qu'un Worker ne crée pas une file locale infinie. */
   private readonly pendingDelegations = new Map<
     string,
-    { resolve: (outcome: WorkerDelegationOutcome) => void; timer: NodeJS.Timeout }
+    {
+      resolve: (outcome: WorkerDelegationOutcome) => void;
+      timer: NodeJS.Timeout;
+      parentTaskId: string;
+      childTaskId: string;
+      durationMs: number;
+    }
   >();
   /** Enfants admis par ce nœud : la réponse d'un autre graphe est ignorée. */
-  private readonly acceptedDelegations = new Map<string, string>();
+  private readonly acceptedDelegations = new Map<
+    string,
+    { parentTaskId: string; timer: NodeJS.Timeout; expiresAt: number }
+  >();
   /** Attentes bornées des résultats terminaux d'enfants. */
   private readonly pendingDelegationResults = new Map<
     string,
@@ -330,7 +345,13 @@ export class HiveNodeClient {
         resolve({ ok: false, code: 'timeout', message: 'réponse de délégation absente' });
       }, DELEGATION_RESPONSE_TIMEOUT_MS);
       timer.unref?.();
-      this.pendingDelegations.set(requestId, { resolve, timer });
+      this.pendingDelegations.set(requestId, {
+        resolve,
+        timer,
+        parentTaskId,
+        childTaskId: input.childTaskId,
+        durationMs: input.durationMs,
+      });
       this.send({
         type: 'delegate_task',
         requestId,
@@ -362,7 +383,7 @@ export class HiveNodeClient {
     childTaskId: string,
     signal: AbortSignal,
   ): Promise<WorkerDelegationResult> {
-    if (this.acceptedDelegations.get(childTaskId) !== parentTaskId) {
+    if (this.acceptedDelegations.get(childTaskId)?.parentTaskId !== parentTaskId) {
       return Promise.resolve({
         ok: false,
         code: 'unknown_child',
@@ -372,7 +393,7 @@ export class HiveNodeClient {
     const completed = this.completedDelegationResults.get(childTaskId);
     if (completed) {
       this.completedDelegationResults.delete(childTaskId);
-      this.acceptedDelegations.delete(childTaskId);
+      this.clearAcceptedDelegation(childTaskId);
       return Promise.resolve(completed);
     }
     if (this.pendingDelegationResults.has(childTaskId)) {
@@ -385,18 +406,27 @@ export class HiveNodeClient {
     if (signal.aborted) {
       return Promise.resolve({ ok: false, code: 'cancelled', message: 'tâche parente annulée' });
     }
+    const accepted = this.acceptedDelegations.get(childTaskId);
+    if (!accepted) {
+      return Promise.resolve({
+        ok: false,
+        code: 'unknown_child',
+        message: 'enfant non admis par cette tâche parente',
+      });
+    }
     return new Promise((resolve) => {
+      const timeoutMs = Math.max(0, accepted.expiresAt - Date.now());
       const timer = setTimeout(() => {
         this.pendingDelegationResults.delete(childTaskId);
-        this.acceptedDelegations.delete(childTaskId);
+        this.clearAcceptedDelegation(childTaskId);
         signal.removeEventListener('abort', onAbort);
         resolve({ ok: false, code: 'timeout', message: 'résultat de délégation absent' });
-      }, DELEGATION_RESULT_TIMEOUT_MS);
+      }, timeoutMs);
       timer.unref?.();
       const onAbort = (): void => {
         clearTimeout(timer);
         this.pendingDelegationResults.delete(childTaskId);
-        this.acceptedDelegations.delete(childTaskId);
+        this.clearAcceptedDelegation(childTaskId);
         resolve({ ok: false, code: 'cancelled', message: 'tâche parente annulée' });
       };
       signal.addEventListener('abort', onAbort, { once: true });
@@ -406,24 +436,90 @@ export class HiveNodeClient {
 
   private resolveDelegationResult(result: WorkerDelegationResult): void {
     if (!result.ok) return;
-    const parentTaskId = this.acceptedDelegations.get(result.childTaskId);
-    if (parentTaskId !== result.parentTaskId) return;
+    const accepted = this.acceptedDelegations.get(result.childTaskId);
+    if (accepted?.parentTaskId !== result.parentTaskId) return;
     const pending = this.pendingDelegationResults.get(result.childTaskId);
     if (pending) {
       this.pendingDelegationResults.delete(result.childTaskId);
       clearTimeout(pending.timer);
       pending.signal.removeEventListener('abort', pending.onAbort);
-      this.acceptedDelegations.delete(result.childTaskId);
+      this.clearAcceptedDelegation(result.childTaskId);
       pending.resolve(result);
       return;
     }
+    // Le résultat est durable côté hub : garder seulement une copie bornée
+    // permet à l'adaptateur de commencer à l'attendre après la fin de l'enfant.
+    clearTimeout(accepted.timer);
     this.completedDelegationResults.set(result.childTaskId, result);
     while (this.completedDelegationResults.size > MAX_PENDING_DELEGATIONS) {
       const oldest = this.completedDelegationResults.keys().next().value;
       if (oldest === undefined) break;
       this.completedDelegationResults.delete(oldest);
-      this.acceptedDelegations.delete(oldest);
+      this.clearAcceptedDelegation(oldest);
     }
+  }
+
+  private clearAcceptedDelegation(childTaskId: string): void {
+    const accepted = this.acceptedDelegations.get(childTaskId);
+    if (!accepted) return;
+    clearTimeout(accepted.timer);
+    this.acceptedDelegations.delete(childTaskId);
+  }
+
+  /**
+   * Nettoie les enfants d'un parent qui vient de quitter son tour. Un Worker
+   * qui choisit de ne pas attendre un enfant ne doit pas laisser une entrée
+   * vivre jusqu'à la prochaine reconnexion du nœud.
+   */
+  private clearDelegationsForParent(parentTaskId: string): void {
+    for (const [childTaskId, accepted] of this.acceptedDelegations) {
+      if (accepted.parentTaskId !== parentTaskId) continue;
+      const pending = this.pendingDelegationResults.get(childTaskId);
+      if (pending) {
+        clearTimeout(pending.timer);
+        pending.signal.removeEventListener('abort', pending.onAbort);
+        this.pendingDelegationResults.delete(childTaskId);
+        pending.resolve({ ok: false, code: 'parent_finished', message: 'tâche parente terminée' });
+      }
+      this.completedDelegationResults.delete(childTaskId);
+      this.clearAcceptedDelegation(childTaskId);
+    }
+  }
+
+  private rememberAcceptedDelegation(
+    parentTaskId: string,
+    childTaskId: string,
+    durationMs: number,
+  ): void {
+    this.clearAcceptedDelegation(childTaskId);
+    while (this.acceptedDelegations.size >= MAX_ACCEPTED_DELEGATIONS) {
+      const oldest = this.acceptedDelegations.keys().next().value;
+      if (oldest === undefined) break;
+      const waiting = this.pendingDelegationResults.get(oldest);
+      if (waiting) {
+        clearTimeout(waiting.timer);
+        waiting.signal.removeEventListener('abort', waiting.onAbort);
+        this.pendingDelegationResults.delete(oldest);
+        waiting.resolve({
+          ok: false,
+          code: 'local_quota',
+          message: 'trop de résultats de délégation',
+        });
+      }
+      this.completedDelegationResults.delete(oldest);
+      this.clearAcceptedDelegation(oldest);
+    }
+    const timeoutMs = Math.min(
+      LIMITS.delegationDurationMs + DELEGATION_RESULT_GRACE_MS,
+      Math.max(DELEGATION_RESULT_GRACE_MS, durationMs + DELEGATION_RESULT_GRACE_MS),
+    );
+    const expiresAt = Date.now() + timeoutMs;
+    const timer = setTimeout(() => {
+      this.acceptedDelegations.delete(childTaskId);
+      this.completedDelegationResults.delete(childTaskId);
+    }, timeoutMs);
+    timer.unref?.();
+    this.acceptedDelegations.set(childTaskId, { parentTaskId, timer, expiresAt });
   }
 
   private rejectPendingDelegations(message: string): void {
@@ -438,7 +534,9 @@ export class HiveNodeClient {
       pending.resolve({ ok: false, code: 'transport', message });
       this.pendingDelegationResults.delete(childTaskId);
     }
-    this.acceptedDelegations.clear();
+    for (const childTaskId of this.acceptedDelegations.keys()) {
+      this.clearAcceptedDelegation(childTaskId);
+    }
     this.completedDelegationResults.clear();
   }
 
@@ -534,7 +632,22 @@ export class HiveNodeClient {
         break;
       case 'delegation_accepted': {
         const accepted: DelegationAcceptedMsg = msg;
-        this.acceptedDelegations.set(accepted.childTaskId, accepted.parentTaskId);
+        // Un accusé arrivé après l'expiration de la demande locale ne doit pas
+        // créer une nouvelle entrée d'attente : il pourrait être rejoué par un
+        // ancien transport et retenir un résultat qui ne nous appartient plus.
+        const pending = this.pendingDelegations.get(accepted.requestId);
+        if (
+          !pending ||
+          pending.parentTaskId !== accepted.parentTaskId ||
+          pending.childTaskId !== accepted.childTaskId
+        ) {
+          break;
+        }
+        this.rememberAcceptedDelegation(
+          accepted.parentTaskId,
+          accepted.childTaskId,
+          pending.durationMs,
+        );
         this.resolveDelegation(
           {
             ok: true,
@@ -836,6 +949,7 @@ export class HiveNodeClient {
     } finally {
       if (!conserverWorkspace) {
         this.active.delete(task.id);
+        this.clearDelegationsForParent(task.id);
         workspace?.cleanup();
       }
     }
@@ -951,6 +1065,7 @@ export class HiveNodeClient {
     } finally {
       if (!this.attenteRequisition) {
         this.active.delete(task.id);
+        this.clearDelegationsForParent(task.id);
         workspace.cleanup();
       }
     }
