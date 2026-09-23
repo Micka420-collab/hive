@@ -165,4 +165,89 @@ describe('GET /api/tasks/:id/evaluation', () => {
     expect(body.evidence.gardiennes).toBe('clean');
     expect(body.decision).toBe('additional_test_required');
   });
+
+  it('réenfile automatiquement un rejet humain via le verdict Evaluator borné', async () => {
+    const response = await fetch(`${base}/api/tasks/${taskId}/review`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ state: 'rejected', clientId: 'miellerie-test' }),
+    });
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      retry?: { ok: boolean; attempt?: number; resultId?: number };
+    };
+    expect(body.retry?.ok).toBe(true);
+    expect(body.retry?.attempt).toBe(1);
+    expect(body.retry?.resultId).toBeTypeOf('number');
+    expect(server.store.getTask(taskId)?.attempts).toBe(1);
+    expect(
+      server.store
+        .listEvents()
+        .some((event) => event.type === 'task_retry' && event.payload.source === 'evaluator'),
+    ).toBe(true);
+  });
+
+  it("exige l'identifiant du résultat courant pour une demande de retry explicite", async () => {
+    const project = server.store.createProject({
+      name: 'Retry explicite',
+      repoUrl: 'file:///repo',
+    });
+    const task = server.store.createTask({
+      projectId: project.id,
+      title: 'Retry exact',
+      prompt: 'retry exact',
+    });
+    server.store.patchTask(task.id, { status: 'done' });
+    const first = server.store.insertResult({
+      taskId: task.id,
+      nodeId: 'n1',
+      diff: DIFF,
+      logs: 'tests: 0 failed',
+      success: true,
+      durationMs: 10,
+      subAgents: [],
+    });
+    const latest = server.store.insertResult({
+      taskId: task.id,
+      nodeId: 'n2',
+      diff: DIFF,
+      logs: 'tests: 0 failed',
+      success: true,
+      durationMs: 11,
+      subAgents: [],
+    });
+    for (const [resultId, nodeId] of [
+      [first, 'n1'],
+      [latest, 'n2'],
+    ] as const) {
+      server.store.enregistrerInspection({
+        resultId,
+        taskId: task.id,
+        nodeId,
+        verdict: 'clean',
+        score: 0,
+        applique: false,
+        griefs: [],
+      });
+    }
+    server.store.setTaskReview(task.id, 'rejected');
+
+    const stale = await fetch(`${base}/api/tasks/${task.id}/evaluation/retry`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ resultId: first }),
+    });
+    expect(stale.status).toBe(409);
+    expect((await stale.json()).code).toBe('stale_result');
+
+    const current = await fetch(`${base}/api/tasks/${task.id}/evaluation/retry`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ resultId: latest }),
+    });
+    expect(current.status).toBe(202);
+    const body = (await current.json()) as { resultId: number; attempt: number };
+    expect(body.resultId).toBe(latest);
+    expect(body.attempt).toBe(1);
+  });
 });
