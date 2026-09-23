@@ -592,14 +592,20 @@ describe('Gardiennes : invariants de SOURCE', () => {
   });
 });
 
-describe('inspectionDeProduction — l’inspection du couple (tâche, ouvrière) EXACT', () => {
-  const insp = (taskId: string, nodeId: string, verdict: string) => ({ taskId, nodeId, verdict });
+describe('inspectionDeProduction — l’inspection du triplet (résultat, tâche, ouvrière) EXACT', () => {
+  const insp = (resultId: number, taskId: string, nodeId: string, verdict: string) => ({
+    resultId,
+    taskId,
+    nodeId,
+    verdict,
+  });
 
   it('EXIGE LA TÂCHE — une inspection de la même ouvrière sur une AUTRE tâche est écartée', () => {
     const trouvee = inspectionDeProduction(
-      [insp('t2', 'n1', 'hollow'), insp('t1', 'n1', 'clean')],
+      [insp(2, 't2', 'n1', 'hollow'), insp(1, 't1', 'n1', 'clean')],
       't1',
       'n1',
+      1,
     );
     expect(trouvee?.verdict, 'la tâche doit correspondre').toBe('clean');
   });
@@ -610,14 +616,21 @@ describe('inspectionDeProduction — l’inspection du couple (tâche, ouvrière
     // de la liste (rendue en tête) est l'ancienne : sans le membre sur le nodeId,
     // c'est elle qui sortirait.
     const trouvee = inspectionDeProduction(
-      [insp('t1', 'n-ancienne', 'hollow'), insp('t1', 'n-derniere', 'clean')],
+      [insp(1, 't1', 'n-ancienne', 'hollow'), insp(2, 't1', 'n-derniere', 'clean')],
       't1',
       'n-derniere',
+      2,
     );
     expect(trouvee?.verdict, 'l’ouvrière doit correspondre').toBe('clean');
   });
 
   it('RIEN NE CORRESPOND ⇒ undefined — jamais une inspection au hasard', () => {
-    expect(inspectionDeProduction([insp('t1', 'n1', 'clean')], 't2', 'n2')).toBeUndefined();
+    expect(inspectionDeProduction([insp(1, 't1', 'n1', 'clean')], 't2', 'n2', 2)).toBeUndefined();
+  });
+
+  it('un résultat sans identifiant n’emprunte jamais une inspection existante', () => {
+    expect(
+      inspectionDeProduction([insp(1, 't1', 'n1', 'clean')], 't1', 'n1', undefined),
+    ).toBeUndefined();
   });
 });
