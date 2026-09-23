@@ -429,6 +429,31 @@ describe('la contre-expertise est annoncée à chaque production', () => {
     return undefined;
   };
 
+  const attendreVerdicts = async (
+    srv: HiveServer,
+    taskId: string,
+    combien: number,
+    ms = 8_000,
+  ): Promise<Array<Record<string, unknown>>> => {
+    const fin = Date.now() + ms;
+    while (Date.now() < fin) {
+      const verdicts = srv.store
+        .listEvents(0, 500)
+        .filter(
+          (event) => event.type === 'contre_expertise_verdict' && event.payload.taskId === taskId,
+        )
+        .map((event) => event.payload);
+      if (verdicts.length >= combien) return verdicts;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    return srv.store
+      .listEvents(0, 500)
+      .filter(
+        (event) => event.type === 'contre_expertise_verdict' && event.payload.taskId === taskId,
+      )
+      .map((event) => event.payload);
+  };
+
   it('UN SECOND MODÈLE EN LIGNE ⇒ la ruche le nomme', { timeout: 40_000 }, async () => {
     const srv = await ruche();
     const recues = await noeud(srv, 'producteur', 'claude-code');
@@ -642,6 +667,72 @@ describe('la contre-expertise est annoncée à chaque production', () => {
     expect(range?.suite, 'un verdict contesté ne peut pas valoir « appliquer »').toBe('ameliorer');
     expect(range?.visiteurAgent).toBe('codex');
   });
+
+  it(
+    'UNE OBJECTION RESTE BLOQUANTE quand plusieurs relecteurs répondent dans un ordre différent',
+    { timeout: 40_000 },
+    async () => {
+      const srv = await ruche();
+      const produits = await noeud(srv, 'aaa-producteur', 'claude-code');
+      const favorables = await noeud(srv, 'bbb-favorable', 'codex');
+      const contestataires = await noeud(srv, 'ccc-contestataire', 'hermes-agent');
+
+      const idProduction = await produire(
+        srv,
+        produits,
+        'diff --git a/auth.ts b/auth.ts\n+if (!jeton) return;',
+      );
+      const relectureCodex = await attendreAssignation(favorables);
+      const relectureHermes = await attendreAssignation(contestataires);
+      expect(relectureCodex, 'aucune relecture codex lancée').toBeDefined();
+      expect(relectureHermes, 'aucune relecture hermes lancée').toBeDefined();
+
+      const resultId = srv.store.resultsForTask(idProduction).at(-1)?.resultId;
+      expect(resultId).toBeTypeOf('number');
+
+      // La contestation arrive en premier ; l'avis favorable arrive ensuite.
+      (sockets[2] as WebSocket).send(
+        JSON.stringify({
+          type: 'task_result',
+          taskId: relectureHermes?.task?.id,
+          success: true,
+          diff: '',
+          logs: 'conteste\n- le cas limite n’est pas traité',
+          durationMs: 5,
+          subAgents: [],
+        }),
+      );
+      expect(await attendreVerdicts(srv, idProduction, 1)).toHaveLength(1);
+
+      (sockets[1] as WebSocket).send(
+        JSON.stringify({
+          type: 'task_result',
+          taskId: relectureCodex?.task?.id,
+          success: true,
+          diff: '',
+          logs: 'valide',
+          durationMs: 5,
+          subAgents: [],
+        }),
+      );
+      const verdicts = await attendreVerdicts(srv, idProduction, 2);
+      expect(verdicts).toHaveLength(2);
+
+      const resume = srv.store.crossReviewForResult(idProduction, resultId as number);
+      expect(resume).toMatchObject({
+        status: 'improvement_required',
+        decision: 'ameliorer',
+        reviewerCount: 2,
+        contestingReviewers: 1,
+        approvingReviewers: 1,
+        objections: ['le cas limite n’est pas traité'],
+      });
+      expect(srv.store.contreVisiteDe(idProduction)).toMatchObject({
+        suite: 'ameliorer',
+        raison: 'le cas limite n’est pas traité',
+      });
+    },
+  );
 
   it(
     'UNE RELECTURE N’EST PAS RELUE — sinon c’est une régression infinie',
