@@ -34,10 +34,12 @@ interface Props {
    * qu'un « — » qui laisserait croire que la ruche n'avait rien annoncé.
    */
   horloge?: VueHorloge;
+  /** Incrémenté par App quand un événement persistant peut modifier le graphe. */
+  refreshTick?: number;
   onClose: () => void;
 }
 
-export function TaskDrawer({ task, nodes, horloge, onClose }: Props) {
+export function TaskDrawer({ task, nodes, horloge, refreshTick = 0, onClose }: Props) {
   const t = useT();
   const lang = useLang();
   const [results, setResults] = useState<TaskResult[] | null>(null);
@@ -98,7 +100,7 @@ export function TaskDrawer({ task, nodes, horloge, onClose }: Props) {
     return () => {
       alive = false;
     };
-  }, [task.id]);
+  }, [task.id, refreshTick]);
 
   // Drone Wars : une course est-elle en vol sur cette tâche ? (lecture à
   // l'ouverture et au changement de statut — pas de polling, les événements

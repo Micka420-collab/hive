@@ -262,6 +262,61 @@ describe('le tiroir — le graphe de délégation réel', () => {
     expect(dom.textContent).toContain('route absente');
     expect(dom.textContent).not.toContain('Aucune sous-tâche Hive persistée.');
   });
+
+  it('relit le graphe quand App reçoit une invalidation, sans changer de tâche', async () => {
+    const rootGraph = {
+      taskId: 'tache-du-tiroir',
+      rootTaskId: 'tache-du-tiroir',
+      graph: [
+        {
+          taskId: 'tache-du-tiroir',
+          rootTaskId: 'tache-du-tiroir',
+          parentTaskId: null,
+          depth: 0,
+          status: 'running' as const,
+          origine: 'native' as const,
+        },
+      ],
+      delegations: [],
+      events: [],
+    };
+    const enfant = {
+      ...rootGraph,
+      graph: [
+        ...rootGraph.graph,
+        {
+          taskId: 'enfant-live',
+          rootTaskId: 'tache-du-tiroir',
+          parentTaskId: 'tache-du-tiroir',
+          depth: 1,
+          status: 'ready' as const,
+          origine: 'hive' as const,
+        },
+      ],
+      events: [
+        {
+          id: 1,
+          ts: 1,
+          type: 'delegation_created',
+          payload: { childTaskId: 'enfant-live', reason: 'valider la sécurité' },
+        },
+      ],
+    };
+    vi.mocked(fetchDelegationGraph).mockResolvedValueOnce(rootGraph).mockResolvedValueOnce(enfant);
+    const task = tache('running');
+    const dom = await monter(
+      <TaskDrawer task={task} nodes={NOEUDS} refreshTick={0} onClose={() => {}} />,
+    );
+    await act(async () => {});
+    expect(dom.textContent).toContain('Aucune sous-tâche Hive persistée.');
+    await act(async () => {
+      racine?.render(<TaskDrawer task={task} nodes={NOEUDS} refreshTick={1} onClose={() => {}} />);
+    });
+    await act(async () => {});
+    expect(vi.mocked(fetchDelegationGraph)).toHaveBeenCalledTimes(2);
+    expect(dom.textContent).toContain('enfant-live');
+    expect(dom.textContent).toContain('valider la sécurité');
+  });
 });
 
 describe('le tiroir — l’onglet affiché (survivantes d’attribut du balayage)', () => {

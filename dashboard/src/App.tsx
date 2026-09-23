@@ -301,6 +301,10 @@ export function App() {
             'merge_completed',
             'merge_failed',
             'conflict_detected',
+            'delegation_created',
+            'delegation_replayed',
+            'delegation_rejected',
+            'delegation_result',
             'node_online',
             'node_offline',
             // Changement de régime thermique : la jauge de Santé doit refléter
@@ -720,6 +724,7 @@ export function App() {
           task={openTask}
           nodes={snapshot.nodes}
           horloge={annonces.get(openTask.id)}
+          refreshTick={refreshTick}
           onClose={() => setOpenTaskId(null)}
         />
       )}
