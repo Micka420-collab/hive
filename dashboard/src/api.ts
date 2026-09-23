@@ -7,6 +7,7 @@ import { parseServerMessage } from '../../src/shared/protocol';
 import type { HiveEvent, Project, StateSnapshot, Task, TaskResult } from '../../src/shared/types';
 import type { Graphe } from '../../src/shared/cerveau-graphe.js';
 import type { WorkerSnapshot } from '../../src/orchestrator/workers.js';
+import type { EvaluationResult } from '../../src/orchestrator/evaluator.js';
 
 const TOKEN_KEY = 'hive.token';
 export const DEFAULT_TOKEN = 'change-me';
@@ -1021,6 +1022,11 @@ export function fetchMergeResult(projectId: string): Promise<{ result: MergeRunR
 /** Parlement des Agents : verdict de consensus sur les résultats d'une tâche. */
 export function fetchConsensus(taskId: string): Promise<Verdict> {
   return api<Verdict>(`/api/tasks/${taskId}/consensus`);
+}
+
+/** Verdict indépendant : preuves Worker, Gardiennes, validations et relecture. */
+export function fetchEvaluation(taskId: string): Promise<EvaluationResult> {
+  return api<EvaluationResult>(`/api/tasks/${taskId}/evaluation`);
 }
 
 export type ReviewVerdict = 'approved' | 'rejected';
