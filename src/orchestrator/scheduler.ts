@@ -125,6 +125,28 @@ export interface SchedulerOptions {
   gardiennes?: { mode: ModeGardiennes };
 }
 
+export type EvaluationRetryDecision = 'correction_required' | 'rejected';
+
+export type EvaluationRetryOutcome =
+  | {
+      ok: true;
+      task: Task;
+      resultId: number;
+      attempt: number;
+      maxAttempts: number;
+    }
+  | {
+      ok: false;
+      reason:
+        | 'unknown_task'
+        | 'task_not_done'
+        | 'invalid_result_id'
+        | 'stale_result'
+        | 'dependent_progressed'
+        | 'attempts_exhausted';
+      task?: Task;
+    };
+
 export class Scheduler {
   private readonly maxAttempts: number;
   private readonly nodeTimeoutMs: number;
@@ -954,6 +976,66 @@ export class Scheduler {
     }
     this.promoteAndAssign();
     return true;
+  }
+
+  /**
+   * Remet en file une production terminée que l'Evaluator a jugée à corriger.
+   *
+   * La demande est liée au `resultId` exact : une ancienne décision ne peut
+   * pas rouvrir une production plus récente. La tâche doit encore être `done`
+   * et ses dépendantes doivent être restées `pending`, sinon rouvrir ce nœud
+   * rendrait le graphe incohérent. Le passage à `ready` est unique et le même
+   * budget `maxAttempts` que les échecs Worker borne la boucle.
+   */
+  retryFromEvaluator(input: {
+    taskId: string;
+    resultId: number;
+    decision: EvaluationRetryDecision;
+    now?: number;
+  }): EvaluationRetryOutcome {
+    const now = input.now ?? Date.now();
+    const task = this.store.getTask(input.taskId);
+    if (!task) return { ok: false, reason: 'unknown_task' };
+    if (task.status !== 'done') return { ok: false, reason: 'task_not_done', task };
+    if (!Number.isSafeInteger(input.resultId) || input.resultId <= 0) {
+      return { ok: false, reason: 'invalid_result_id', task };
+    }
+    const results = this.store.resultsForTask(task.id);
+    const latest = results[results.length - 1];
+    if (!latest || latest.resultId !== input.resultId) {
+      return { ok: false, reason: 'stale_result', task };
+    }
+    const dependents = this.store.tasksDependingOn(task.id);
+    if (dependents.some((dependent) => dependent.status !== 'pending')) {
+      return { ok: false, reason: 'dependent_progressed', task };
+    }
+    if (task.attempts >= this.maxAttempts) {
+      return { ok: false, reason: 'attempts_exhausted', task };
+    }
+
+    const attempt = task.attempts + 1;
+    const requeued = this.store.patchTask(
+      task.id,
+      { status: 'ready', assignedNodeId: null, result: null, attempts: attempt },
+      now,
+    );
+    if (!requeued) return { ok: false, reason: 'unknown_task' };
+    this.emit('task_retry', {
+      taskId: task.id,
+      source: 'evaluator',
+      resultId: input.resultId,
+      decision: input.decision,
+      attempt,
+      maxAttempts: this.maxAttempts,
+    });
+    this.promoteAndAssign(now);
+    return {
+      ok: true,
+      task: this.store.getTask(task.id) ?? requeued,
+      resultId: input.resultId,
+      attempt,
+      maxAttempts: this.maxAttempts,
+    };
   }
 
   /**

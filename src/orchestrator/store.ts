@@ -2931,6 +2931,20 @@ export class HiveStore {
     return rows.map(rowToTask);
   }
 
+  /** Tâches qui citent exactement `taskId` comme dépendance. */
+  tasksDependingOn(taskId: string): Task[] {
+    const rows = this.db
+      .prepare(
+        `SELECT t.* FROM tasks t
+         WHERE EXISTS (
+           SELECT 1 FROM json_each(t.dependsOn) d WHERE d.value = ?
+         )
+         ORDER BY t.createdAt, t.id`,
+      )
+      .all(taskId) as TaskRow[];
+    return rows.map(rowToTask);
+  }
+
   /** Tâches actives (assigned/running) d'un nœud donné. */
   activeTasksOfNode(nodeId: string): Task[] {
     const rows = this.db

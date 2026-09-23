@@ -1491,6 +1491,34 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   // Reprise après redémarrage : les tâches running orphelines repartent en ready.
   scheduler.recoverAtBoot();
 
+  /** Faits communs au GET d'évaluation et à la remise en file contrôlée. */
+  const evaluationPour = (task: Task) => {
+    const results = store.resultsForTask(task.id);
+    const latest = results[results.length - 1];
+    const inspections = store.listInspections();
+    const inspection = latest
+      ? inspectionDeProduction(inspections, task.id, latest.nodeId, latest.resultId)
+      : undefined;
+    const ballots: Ballot[] = results.map((r) => ({
+      nodeId: r.nodeId,
+      agentType: store.getNode(r.nodeId)?.agentType ?? 'inconnu',
+      success: r.success,
+      signature: signatureOf(r.diff),
+      fichiers: fichiersTouches(r.diff),
+    }));
+    return {
+      latest,
+      evaluation: evaluate({
+        taskId: task.id,
+        taskStatus: task.status,
+        results,
+        ...(inspection ? { inspection } : {}),
+        consensus: tally(ballots),
+        humanReview: store.getTaskReview(task.id)?.state ?? null,
+      }),
+    };
+  };
+
   // ─── HTTP (REST + dashboard) ───────────────────────────────────────────────
   const app = Fastify({ bodyLimit: 1024 * 1024, logger: false });
 
@@ -6510,8 +6538,9 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   );
 
   // Revue humaine (Miellerie) : verdict approved/rejected partagé entre tous
-  // les opérateurs. `state: null` efface la revue. La revue n'a AUCUN effet de
-  // bord sur la tâche — c'est un avis humain, le merge reste un geste séparé.
+  // les opérateurs. `state: null` efface la revue. Un rejet qui dispose d'un
+  // résultat exact et d'un verdict Evaluator réparable déclenche le retry
+  // borné ; le merge reste toujours un geste séparé.
   app.post<{
     Params: { taskId: string };
     Body: {
@@ -6576,8 +6605,29 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         state: req.body.state,
         ...(req.body.clientId ? { clientId: req.body.clientId } : {}),
       });
+      let retry: ReturnType<Scheduler['retryFromEvaluator']> | null = null;
+      if (req.body.state === 'rejected') {
+        const { latest, evaluation } = evaluationPour(task);
+        if (
+          latest?.resultId !== undefined &&
+          evaluation.retryRecommended &&
+          (evaluation.decision === 'correction_required' || evaluation.decision === 'rejected')
+        ) {
+          retry = scheduler.retryFromEvaluator({
+            taskId: task.id,
+            resultId: latest.resultId,
+            decision: evaluation.decision,
+          });
+          if (retry.ok) stateDirty = true;
+        }
+      }
       const saved = store.getTaskReview(task.id);
-      return { taskId: task.id, state: req.body.state, updatedAt: saved?.updatedAt ?? null };
+      return {
+        taskId: task.id,
+        state: req.body.state,
+        updatedAt: saved?.updatedAt ?? null,
+        ...(retry ? { retry } : {}),
+      };
     },
   );
 
@@ -6642,26 +6692,69 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       const task = store.getTask(req.params.taskId);
       if (!task) return reply.code(404).send({ error: 'tâche inconnue' });
 
-      const results = store.resultsForTask(task.id);
-      const latest = results[results.length - 1];
-      const inspections = store.listInspections();
-      const inspection = latest
-        ? inspectionDeProduction(inspections, task.id, latest.nodeId, latest.resultId)
-        : undefined;
-      const ballots: Ballot[] = results.map((r) => ({
-        nodeId: r.nodeId,
-        agentType: store.getNode(r.nodeId)?.agentType ?? 'inconnu',
-        success: r.success,
-        signature: signatureOf(r.diff),
-        fichiers: fichiersTouches(r.diff),
-      }));
-      return evaluate({
+      return evaluationPour(task).evaluation;
+    },
+  );
+
+  // Retry Evaluator : même calcul de faits que la lecture, mais avec une
+  // mutation explicite. Le résultat exact est obligatoire pour empêcher une
+  // décision retardée de rouvrir une production plus récente.
+  app.post<{
+    Params: { taskId: string };
+    Body: { resultId: number };
+  }>(
+    '/api/tasks/:taskId/evaluation/retry',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['taskId'],
+          properties: { taskId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+        body: {
+          type: 'object',
+          required: ['resultId'],
+          additionalProperties: false,
+          properties: { resultId: { type: 'integer', minimum: 1 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const task = store.getTask(req.params.taskId);
+      if (!task) return reply.code(404).send({ error: 'tâche inconnue' });
+      const { latest, evaluation } = evaluationPour(task);
+      if (
+        !latest?.resultId ||
+        !evaluation.retryRecommended ||
+        (evaluation.decision !== 'correction_required' && evaluation.decision !== 'rejected')
+      ) {
+        return reply.code(409).send({
+          code: 'retry_not_recommended',
+          evaluation,
+        });
+      }
+      const retry = scheduler.retryFromEvaluator({
         taskId: task.id,
-        taskStatus: task.status,
-        results,
-        ...(inspection ? { inspection } : {}),
-        consensus: tally(ballots),
-        humanReview: store.getTaskReview(task.id)?.state ?? null,
+        resultId: req.body.resultId,
+        decision: evaluation.decision,
+      });
+      if (!retry.ok) {
+        const status = retry.reason === 'unknown_task' ? 404 : 409;
+        return reply.code(status).send({ code: retry.reason, evaluation });
+      }
+      stateDirty = true;
+      return reply.code(202).send({
+        taskId: task.id,
+        resultId: retry.resultId,
+        decision: evaluation.decision,
+        attempt: retry.attempt,
+        maxAttempts: retry.maxAttempts,
+        task: {
+          status: retry.task.status,
+          assignedNodeId: retry.task.assignedNodeId,
+          attempts: retry.task.attempts,
+        },
       });
     },
   );

@@ -322,6 +322,73 @@ describe('Scheduler (ordonnancement)', () => {
     expect(store.getTask(t.id)?.assignedNodeId).toBeNull();
   });
 
+  it("relance une production évaluée sur l'identifiant exact et reste idempotent", () => {
+    const p = store.createProject({ name: 'P' });
+    const t = store.createTask({ projectId: p.id, title: 'T', prompt: 't' });
+    const node = scheduler.registerNode(profile('n1'));
+    scheduler.tick();
+    expect(scheduler.handleTaskResult(node.id, result(t.id))).toBe(true);
+    const first = store.resultsForTask(t.id)[0]!;
+    expect(first.resultId).toBeTypeOf('number');
+
+    const dependent = store.createTask({
+      projectId: p.id,
+      title: 'D',
+      prompt: 'd',
+      dependsOn: [t.id],
+    });
+    const retry = scheduler.retryFromEvaluator({
+      taskId: t.id,
+      resultId: first.resultId!,
+      decision: 'correction_required',
+    });
+    expect(retry.ok).toBe(true);
+    expect(store.getTask(t.id)?.attempts).toBe(1);
+    expect(store.getTask(dependent.id)?.status).toBe('pending');
+    expect(
+      store
+        .listEvents()
+        .filter((event) => event.type === 'task_retry')
+        .at(-1)?.payload,
+    ).toMatchObject({
+      source: 'evaluator',
+      resultId: first.resultId,
+      attempt: 1,
+    });
+
+    // Le même verdict retardé ne peut pas brûler une deuxième tentative.
+    const duplicate = scheduler.retryFromEvaluator({
+      taskId: t.id,
+      resultId: first.resultId!,
+      decision: 'correction_required',
+    });
+    expect(duplicate).toMatchObject({ ok: false, reason: 'task_not_done' });
+  });
+
+  it('refuse le retry Evaluator si une dépendante a déjà progressé', () => {
+    const p = store.createProject({ name: 'P' });
+    const t = store.createTask({ projectId: p.id, title: 'T', prompt: 't' });
+    const dependent = store.createTask({
+      projectId: p.id,
+      title: 'D',
+      prompt: 'd',
+      dependsOn: [t.id],
+    });
+    const node = scheduler.registerNode(profile('n1'));
+    scheduler.tick();
+    expect(scheduler.handleTaskResult(node.id, result(t.id))).toBe(true);
+    const latest = store.resultsForTask(t.id).at(-1)!;
+    store.patchTask(dependent.id, { status: 'ready' });
+
+    const retry = scheduler.retryFromEvaluator({
+      taskId: t.id,
+      resultId: latest.resultId!,
+      decision: 'rejected',
+    });
+    expect(retry).toMatchObject({ ok: false, reason: 'dependent_progressed' });
+    expect(store.getTask(t.id)?.status).toBe('done');
+  });
+
   it('fait échouer en cascade les tâches dont une dépendance a échoué', () => {
     const p = store.createProject({ name: 'P' });
     const a = store.createTask({ projectId: p.id, title: 'A', prompt: 'a' });
