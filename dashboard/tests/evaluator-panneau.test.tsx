@@ -17,6 +17,7 @@ let container: HTMLElement | null = null;
 
 const evidence: EvaluationResult['evidence'] = {
   result: 'passed',
+  resultAlignment: 'unknown',
   gardiennes: 'clean',
   consensus: 'elected',
   tests: 'missing',
@@ -59,6 +60,7 @@ describe('Evaluator dans la Miellerie', () => {
     await mount(evaluation());
     const text = container!.textContent ?? '';
     expect(text).toContain('Tests supplémentaires requis');
+    expect(text).toContain('Résultat élu');
     expect(text).toContain('missing');
     expect(text).toContain('Aucune autorisation de fusion automatique');
   });
