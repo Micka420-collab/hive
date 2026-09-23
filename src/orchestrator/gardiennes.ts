@@ -253,27 +253,36 @@ export interface Inspection {
 }
 
 /**
- * L'inspection DE CETTE production — celle du couple (tâche, ouvrière) EXACT.
+ * L'inspection DE CETTE production — celle du triplet (résultat, tâche,
+ * ouvrière) EXACT.
  *
- * Les DEUX membres sont nécessaires, et le second est le plus facile à oublier :
- * une même tâche peut avoir été réessayée par PLUSIEURS ouvrières, et
- * `listInspections` en rend alors plusieurs qui partagent la tâche. Sans le
- * `nodeId`, on retiendrait la première venue — et `listInspections` rendant les
- * plus récentes en tête, ce serait souvent le verdict d'une tentative
- * ANTÉRIEURE d'une AUTRE ouvrière. La pull request annoncerait ainsi « clean »
- * sur un travail jugé creux, ou l'inverse : un mensonge de la ruche dans le seul
- * document sur lequel un humain décide de fusionner.
+ * Les TROIS membres sont nécessaires : une même tâche peut être réessayée par
+ * plusieurs ouvrières, et une même ouvrière peut recevoir plusieurs tentatives.
+ * Sans `resultId`, une inspection retardée d'une ancienne production peut
+ * passer devant la bonne dans `listInspections` (qui rend les plus récentes en
+ * tête). La pull request annoncerait ainsi « clean » sur un travail jugé
+ * creux, ou l'inverse : un mensonge de la ruche dans le seul document sur
+ * lequel un humain décide de fusionner.
  *
  * Extrait pour être TENU en un seul endroit : deux copies de cette recherche
  * (route HTTP et livraison autonome) pouvaient dériver — ou être fausses
  * ensemble (§ 2 sexdecies du carnet).
  */
-export function inspectionDeProduction<T extends { taskId: string; nodeId: string }>(
+export function inspectionDeProduction<
+  T extends { resultId: number; taskId: string; nodeId: string },
+>(
   inspections: readonly T[],
   taskId: string,
   nodeId: string,
+  resultId: number | undefined,
 ): T | undefined {
-  return inspections.find((i) => i.taskId === taskId && i.nodeId === nodeId);
+  // Une production issue d'une vue synthétique sans identifiant ne peut pas
+  // être reliée de façon sûre : mieux vaut demander une nouvelle revue que
+  // réutiliser silencieusement le verdict d'une autre tentative.
+  if (!Number.isInteger(resultId)) return undefined;
+  return inspections.find(
+    (i) => i.resultId === resultId && i.taskId === taskId && i.nodeId === nodeId,
+  );
 }
 
 // ─── La promesse ────────────────────────────────────────────────────────────
