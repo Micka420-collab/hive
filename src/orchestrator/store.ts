@@ -5367,6 +5367,32 @@ export class HiveStore {
     }));
   }
 
+  /** Événements de délégation d'un graphe, bornés par le journal courant. */
+  listDelegationEvents(rootTaskId: string): HiveEvent[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM events
+         WHERE type IN ('delegation_created', 'delegation_replayed', 'delegation_rejected', 'delegation_result')
+           AND (json_extract(payload, '$.rootTaskId') = ? OR json_extract(payload, '$.parentTaskId') = ?)
+         ORDER BY id`,
+      )
+      .all(rootTaskId, rootTaskId) as EventRow[];
+    const events: HiveEvent[] = [];
+    for (const row of rows) {
+      try {
+        events.push({
+          id: row.id,
+          ts: row.ts,
+          type: row.type,
+          payload: JSON.parse(row.payload) as Record<string, unknown>,
+        });
+      } catch {
+        // Un événement illisible ne doit pas rendre le graphe entier indisponible.
+      }
+    }
+    return events;
+  }
+
   // ─── Hive Mind (mémoire partagée) ──────────────────────────────────────────
   /** Enregistre (ou remplace) le souvenir d'une tâche. Un souvenir par tâche. */
   recordMemory(

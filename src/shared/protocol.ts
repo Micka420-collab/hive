@@ -50,6 +50,12 @@ export const LIMITS = {
   /** Nombre max d'arguments d'une commande de test, et longueur de chaque. */
   testArgs: 32,
   arg: 1_000,
+  /** Motif borné d'une délégation Worker → enfant, journalisé côté Queen. */
+  delegationReason: 1_000,
+  /** Bornes de transport larges ; la politique de délégation reste plus stricte. */
+  delegationDurationMs: 86_400_000,
+  delegationCostMicros: 1_000_000_000,
+  delegationResourceUnits: 1_000,
 } as const;
 
 export const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
@@ -203,6 +209,26 @@ export interface TaskRejectMsg {
   retryAfterMs?: number;
 }
 
+/** Demande de délégation émise par un Worker pendant l'exécution de sa tâche. */
+export interface DelegateTaskMsg {
+  type: 'delegate_task';
+  /** Corrélation de la réponse, générée par le nœud et non par le modèle. */
+  requestId: string;
+  /** Clé d'idempotence choisie par le Worker pour une même sous-tâche. */
+  childTaskId: string;
+  /** Le serveur vérifie que ce parent appartient bien à ce nœud. */
+  parentTaskId: string;
+  /** Pourquoi le parent délègue : fait d'audit, pas une instruction shell. */
+  reason: string;
+  title: string;
+  prompt: string;
+  durationMs: number;
+  costMicros: number;
+  resourceUnits: number;
+  preferredAgent?: string;
+  preferredModel?: string;
+}
+
 export interface SubscribeMsg {
   type: 'subscribe';
   token: string;
@@ -299,6 +325,7 @@ export type ClientMessage =
   | TaskUpdateMsg
   | TaskResultMsg
   | TaskRejectMsg
+  | DelegateTaskMsg
   | SubscribeMsg
   | RequisitionOpenMsg
   | MergeResultMsg
@@ -353,6 +380,24 @@ export interface RequisitionAckMsg {
   id: string;
   genre: string;
   libelle: string;
+}
+
+/** Accusé de création d'un enfant de délégation. */
+export interface DelegationAcceptedMsg {
+  type: 'delegation_accepted';
+  requestId: string;
+  parentTaskId: string;
+  childTaskId: string;
+  depth: number;
+}
+
+/** Rejet explicite d'une demande de délégation ; aucun enfant n'est créé. */
+export interface DelegationRejectedMsg {
+  type: 'delegation_rejected';
+  requestId: string;
+  parentTaskId: string;
+  code: string;
+  message: string;
 }
 
 /**
@@ -453,6 +498,8 @@ export type ServerMessage =
   | EventMsg
   | ErrorMsg
   | RequisitionAckMsg
+  | DelegationAcceptedMsg
+  | DelegationRejectedMsg
   | RequisitionResultMsg
   | AssignMergeMsg
   | AssignChantierMsg
@@ -466,6 +513,8 @@ const SERVER_MESSAGE_TYPES = new Set([
   'event',
   'error',
   'requisition_ack',
+  'delegation_accepted',
+  'delegation_rejected',
   'requisition_result',
   'assign_merge',
   'assign_chantier',
@@ -735,6 +784,39 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
       }
       return null;
     }
+    case 'delegate_task': {
+      if (
+        isId(m.requestId) &&
+        isId(m.childTaskId) &&
+        isId(m.parentTaskId) &&
+        isStr(m.reason, LIMITS.delegationReason) &&
+        m.reason.trim().length > 0 &&
+        isStr(m.title, LIMITS.title) &&
+        isStr(m.prompt, LIMITS.prompt) &&
+        isInt(m.durationMs, 0, LIMITS.delegationDurationMs) &&
+        isInt(m.costMicros, 0, LIMITS.delegationCostMicros) &&
+        isInt(m.resourceUnits, 0, LIMITS.delegationResourceUnits) &&
+        (m.preferredAgent === undefined || isStr(m.preferredAgent, LIMITS.name)) &&
+        (m.preferredModel === undefined || isStr(m.preferredModel, LIMITS.name))
+      ) {
+        const msg: DelegateTaskMsg = {
+          type: 'delegate_task',
+          requestId: m.requestId,
+          childTaskId: m.childTaskId,
+          parentTaskId: m.parentTaskId,
+          reason: m.reason,
+          title: m.title,
+          prompt: m.prompt,
+          durationMs: m.durationMs,
+          costMicros: m.costMicros,
+          resourceUnits: m.resourceUnits,
+        };
+        if (m.preferredAgent !== undefined) msg.preferredAgent = m.preferredAgent;
+        if (m.preferredModel !== undefined) msg.preferredModel = m.preferredModel;
+        return msg;
+      }
+      return null;
+    }
     case 'subscribe': {
       if (isStr(m.token, LIMITS.token)) return { type: 'subscribe', token: m.token };
       return null;
@@ -890,6 +972,32 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
             id: m.id,
             genre: m.genre,
             libelle: m.libelle,
+          }
+        : null;
+    case 'delegation_accepted':
+      return isId(m.requestId) &&
+        isId(m.parentTaskId) &&
+        isId(m.childTaskId) &&
+        isInt(m.depth, 1, 64)
+        ? {
+            type: 'delegation_accepted',
+            requestId: m.requestId,
+            parentTaskId: m.parentTaskId,
+            childTaskId: m.childTaskId,
+            depth: m.depth,
+          }
+        : null;
+    case 'delegation_rejected':
+      return isId(m.requestId) &&
+        isId(m.parentTaskId) &&
+        isStr(m.code, LIMITS.name) &&
+        isStr(m.message, LIMITS.delegationReason)
+        ? {
+            type: 'delegation_rejected',
+            requestId: m.requestId,
+            parentTaskId: m.parentTaskId,
+            code: m.code,
+            message: m.message,
           }
         : null;
     case 'requisition_result':

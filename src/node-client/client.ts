@@ -6,6 +6,7 @@
 // ce client lui-même.
 
 import { mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import WebSocket from 'ws';
 import { getAdapter } from '../adapters/index.js';
@@ -27,6 +28,8 @@ import type {
   AssignChantierMsg,
   AssignMergeMsg,
   ClientMessage,
+  DelegationAcceptedMsg,
+  DelegationRejectedMsg,
   OutilConstate,
   PoserOutilMsg,
 } from '../shared/protocol.js';
@@ -39,6 +42,10 @@ import { requisitionDepuisEchecInfra } from '../shared/requisition-infra.js';
 import { motifRefusPresence, refuseParPresence } from '../shared/presence-noeud.js';
 import type { Fournisseur } from './isolement.js';
 import type { Workspace } from './workspace.js';
+import type { WorkerDelegationInput, WorkerDelegationOutcome } from '../adapters/index.js';
+
+const MAX_PENDING_DELEGATIONS = 32;
+const DELEGATION_RESPONSE_TIMEOUT_MS = 15_000;
 
 export interface NodeClientOptions {
   /** URL WebSocket de l'orchestrateur, ex. ws://localhost:7777/ws */
@@ -147,6 +154,11 @@ export class HiveNodeClient {
   }
 
   private readonly active = new Map<string, AbortController>();
+  /** Délégations en vol : bornées pour qu'un Worker ne crée pas une file locale infinie. */
+  private readonly pendingDelegations = new Map<
+    string,
+    { resolve: (outcome: WorkerDelegationOutcome) => void; timer: NodeJS.Timeout }
+  >();
   /** Merges en cours (par mergeId) — anti-doublon si le hub réémet le même id. */
   private readonly activeMerges = new Set<string>();
   private readonly activeChantiers = new Set<string>();
@@ -214,6 +226,7 @@ export class HiveNodeClient {
     this.closed = true;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     for (const ctrl of this.active.values()) ctrl.abort();
+    this.rejectPendingDelegations('client arrêté');
     this.stopHeartbeat();
     this.ws?.close(1000, 'arrêt du nœud');
     this.ws = null;
@@ -243,6 +256,92 @@ export class HiveNodeClient {
       ...(detail ? { detail } : {}),
       ...(taskId ? { taskId } : {}),
     });
+  }
+
+  /** Demande un enfant au hub sans exposer le socket à l'adaptateur. */
+  private requestDelegation(
+    parentTaskId: string,
+    input: WorkerDelegationInput,
+  ): Promise<WorkerDelegationOutcome> {
+    if (
+      !ID_PATTERN.test(parentTaskId) ||
+      !ID_PATTERN.test(input.childTaskId) ||
+      !input.reason ||
+      input.reason.trim().length === 0 ||
+      input.reason.length > LIMITS.delegationReason ||
+      !input.title ||
+      input.title.length > LIMITS.title ||
+      !input.prompt ||
+      input.prompt.length > LIMITS.prompt ||
+      !Number.isSafeInteger(input.durationMs) ||
+      input.durationMs < 0 ||
+      input.durationMs > LIMITS.delegationDurationMs ||
+      !Number.isSafeInteger(input.costMicros) ||
+      input.costMicros < 0 ||
+      input.costMicros > LIMITS.delegationCostMicros ||
+      !Number.isSafeInteger(input.resourceUnits) ||
+      input.resourceUnits < 0 ||
+      input.resourceUnits > LIMITS.delegationResourceUnits ||
+      (input.preferredAgent !== undefined &&
+        (input.preferredAgent.length === 0 || input.preferredAgent.length > LIMITS.name)) ||
+      (input.preferredModel !== undefined &&
+        (input.preferredModel.length === 0 || input.preferredModel.length > LIMITS.name))
+    ) {
+      return Promise.resolve({
+        ok: false,
+        code: 'invalid_request',
+        message: 'demande de délégation mal formée',
+      });
+    }
+    if (!this.nodeId || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return Promise.resolve({ ok: false, code: 'transport', message: 'nœud non connecté' });
+    }
+    if (this.pendingDelegations.size >= MAX_PENDING_DELEGATIONS) {
+      return Promise.resolve({
+        ok: false,
+        code: 'local_quota',
+        message: 'trop de délégations en attente sur ce nœud',
+      });
+    }
+    const requestId = randomUUID();
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.pendingDelegations.delete(requestId);
+        resolve({ ok: false, code: 'timeout', message: 'réponse de délégation absente' });
+      }, DELEGATION_RESPONSE_TIMEOUT_MS);
+      timer.unref?.();
+      this.pendingDelegations.set(requestId, { resolve, timer });
+      this.send({
+        type: 'delegate_task',
+        requestId,
+        childTaskId: input.childTaskId,
+        parentTaskId,
+        reason: input.reason,
+        title: input.title,
+        prompt: input.prompt,
+        durationMs: input.durationMs,
+        costMicros: input.costMicros,
+        resourceUnits: input.resourceUnits,
+        ...(input.preferredAgent ? { preferredAgent: input.preferredAgent } : {}),
+        ...(input.preferredModel ? { preferredModel: input.preferredModel } : {}),
+      });
+    });
+  }
+
+  private resolveDelegation(outcome: WorkerDelegationOutcome, requestId: string): void {
+    const pending = this.pendingDelegations.get(requestId);
+    if (!pending) return;
+    this.pendingDelegations.delete(requestId);
+    clearTimeout(pending.timer);
+    pending.resolve(outcome);
+  }
+
+  private rejectPendingDelegations(message: string): void {
+    for (const [requestId, pending] of this.pendingDelegations) {
+      clearTimeout(pending.timer);
+      pending.resolve({ ok: false, code: 'transport', message });
+      this.pendingDelegations.delete(requestId);
+    }
   }
 
   // ─── Connexion ───────────────────────────────────────────────────────────
@@ -288,6 +387,7 @@ export class HiveNodeClient {
 
     ws.on('close', () => {
       this.stopHeartbeat();
+      this.rejectPendingDelegations('connexion au hub perdue');
       if (!this.closed) this.scheduleReconnect();
     });
 
@@ -334,6 +434,31 @@ export class HiveNodeClient {
       case 'error':
         this.log(`erreur du hub : ${msg.message}`);
         break;
+      case 'delegation_accepted': {
+        const accepted: DelegationAcceptedMsg = msg;
+        this.resolveDelegation(
+          {
+            ok: true,
+            parentTaskId: accepted.parentTaskId,
+            childTaskId: accepted.childTaskId,
+            depth: accepted.depth,
+          },
+          accepted.requestId,
+        );
+        this.log(
+          `délégation acceptée : ${accepted.childTaskId.slice(0, 8)}… (profondeur ${accepted.depth})`,
+        );
+        break;
+      }
+      case 'delegation_rejected': {
+        const rejected: DelegationRejectedMsg = msg;
+        this.resolveDelegation(
+          { ok: false, code: rejected.code, message: rejected.message },
+          rejected.requestId,
+        );
+        this.log(`délégation refusée : ${rejected.message}`);
+        break;
+      }
       case 'requisition_ack':
         this.log(`réquisition ouverte (${msg.id.slice(0, 8)}…) — ${msg.genre} : ${msg.libelle}`);
         break;
@@ -524,6 +649,7 @@ export class HiveNodeClient {
         // le passera à son CLI (`--model`). Absent ⇒ modèle par défaut de l'agent.
         ...(modele ? { modele } : {}),
         ...(this.opts.bac ? { bac: this.opts.bac } : {}),
+        delegate: (input) => this.requestDelegation(task.id, input),
         onProgress: (p) => {
           this.send({
             type: 'task_update',
@@ -653,6 +779,7 @@ export class HiveNodeClient {
         signal: ctrl.signal,
         ...(modele ? { modele } : {}),
         ...(this.opts.bac ? { bac: this.opts.bac } : {}),
+        delegate: (input) => this.requestDelegation(task.id, input),
         onProgress: (p) => {
           this.send({
             type: 'task_update',

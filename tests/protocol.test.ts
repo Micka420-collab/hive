@@ -200,6 +200,50 @@ describe('parseClientMessage', () => {
     ).toBeNull();
   });
 
+  it('valide une demande de délégation Worker bornée et reconstruit ses champs', () => {
+    const delegation = {
+      type: 'delegate_task',
+      requestId: 'req-1',
+      childTaskId: 'child-1',
+      parentTaskId: 'parent-1',
+      reason: 'séparer la vérification de sécurité',
+      title: 'Vérifier la sécurité',
+      prompt: 'Analyse les chemins sensibles et rapporte les preuves.',
+      durationMs: 60_000,
+      costMicros: 100_000,
+      resourceUnits: 1,
+      preferredAgent: 'codex',
+      preferredModel: 'modele-explore',
+      injecte: 'ignoré',
+    };
+    expect(parseClientMessage(JSON.stringify(delegation))).toEqual({
+      type: 'delegate_task',
+      requestId: 'req-1',
+      childTaskId: 'child-1',
+      parentTaskId: 'parent-1',
+      reason: 'séparer la vérification de sécurité',
+      title: 'Vérifier la sécurité',
+      prompt: 'Analyse les chemins sensibles et rapporte les preuves.',
+      durationMs: 60_000,
+      costMicros: 100_000,
+      resourceUnits: 1,
+      preferredAgent: 'codex',
+      preferredModel: 'modele-explore',
+    });
+    expect(
+      parseClientMessage(JSON.stringify({ ...delegation, childTaskId: '../evil' })),
+    ).toBeNull();
+    expect(
+      parseClientMessage(
+        JSON.stringify({ ...delegation, durationMs: LIMITS.delegationDurationMs + 1 }),
+      ),
+    ).toBeNull();
+    expect(parseClientMessage(JSON.stringify({ ...delegation, resourceUnits: -1 }))).toBeNull();
+    expect(
+      parseClientMessage(JSON.stringify({ ...delegation, prompt: 'x'.repeat(LIMITS.prompt + 1) })),
+    ).toBeNull();
+  });
+
   it('accepte requisition_open valide et rejette les invalides', () => {
     const ok = parseClientMessage(
       JSON.stringify({
@@ -228,6 +272,48 @@ describe('parseClientMessage', () => {
 });
 
 describe('parseServerMessage — validation des messages du hub (anti-traversal/RCE)', () => {
+  it('accepte les réponses explicites d’une délégation', () => {
+    expect(
+      parseServerMessage(
+        JSON.stringify({
+          type: 'delegation_accepted',
+          requestId: 'req-1',
+          parentTaskId: 'parent-1',
+          childTaskId: 'child-1',
+          depth: 1,
+        }),
+      ),
+    ).toEqual({
+      type: 'delegation_accepted',
+      requestId: 'req-1',
+      parentTaskId: 'parent-1',
+      childTaskId: 'child-1',
+      depth: 1,
+    });
+    expect(
+      parseServerMessage(
+        JSON.stringify({
+          type: 'delegation_rejected',
+          requestId: 'req-1',
+          parentTaskId: 'parent-1',
+          code: 'parent_termine',
+          message: 'une tâche terminée ne délègue plus',
+        }),
+      ),
+    ).toMatchObject({ type: 'delegation_rejected', code: 'parent_termine' });
+    expect(
+      parseServerMessage(
+        JSON.stringify({
+          type: 'delegation_accepted',
+          requestId: 'req-1',
+          parentTaskId: 'parent-1',
+          childTaskId: 'child-1',
+          depth: 0,
+        }),
+      ),
+    ).toBeNull();
+  });
+
   it('accepte un assign_task valide', () => {
     const msg = parseServerMessage(
       JSON.stringify({ type: 'assign_task', task: validTask, repoUrl: null }),
