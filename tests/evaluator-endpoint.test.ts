@@ -167,7 +167,52 @@ describe('GET /api/tasks/:id/evaluation', () => {
   });
 
   it('réenfile automatiquement un rejet humain via le verdict Evaluator borné', async () => {
-    const response = await fetch(`${base}/api/tasks/${taskId}/review`, {
+    const project = server.store.createProject({ name: 'Retry humain', repoUrl: 'file:///repo' });
+    const task = server.store.createTask({
+      projectId: project.id,
+      title: 'Rejet humain',
+      prompt: 'rejouer après revue',
+    });
+    server.store.patchTask(task.id, { status: 'done' });
+    const results = [
+      [
+        server.store.insertResult({
+          taskId: task.id,
+          nodeId: 'n1',
+          diff: DIFF,
+          logs: 'tests: 0 failed',
+          success: true,
+          durationMs: 10,
+          subAgents: [],
+        }),
+        'n1',
+      ],
+      [
+        server.store.insertResult({
+          taskId: task.id,
+          nodeId: 'n2',
+          diff: DIFF,
+          logs: 'tests: 0 failed',
+          success: true,
+          durationMs: 11,
+          subAgents: [],
+        }),
+        'n2',
+      ],
+    ] as const;
+    for (const [resultId, nodeId] of results) {
+      server.store.enregistrerInspection({
+        resultId,
+        taskId: task.id,
+        nodeId,
+        verdict: 'clean',
+        score: 0,
+        applique: false,
+        griefs: [],
+      });
+    }
+
+    const response = await fetch(`${base}/api/tasks/${task.id}/review`, {
       method: 'POST',
       headers,
       body: JSON.stringify({ state: 'rejected', clientId: 'miellerie-test' }),
@@ -179,11 +224,16 @@ describe('GET /api/tasks/:id/evaluation', () => {
     expect(body.retry?.ok).toBe(true);
     expect(body.retry?.attempt).toBe(1);
     expect(body.retry?.resultId).toBeTypeOf('number');
-    expect(server.store.getTask(taskId)?.attempts).toBe(1);
+    expect(server.store.getTask(task.id)?.attempts).toBe(1);
     expect(
       server.store
         .listEvents()
-        .some((event) => event.type === 'task_retry' && event.payload.source === 'evaluator'),
+        .some(
+          (event) =>
+            event.type === 'task_retry' &&
+            event.payload.source === 'evaluator' &&
+            event.payload.taskId === task.id,
+        ),
     ).toBe(true);
   });
 
