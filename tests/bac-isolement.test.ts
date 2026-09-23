@@ -29,6 +29,7 @@ import {
   deciderAvecPreflight,
   optionBac,
   preparerBac,
+  raisonPontMcpDansBac,
   type Bac,
 } from '../src/node-client/bac.js';
 import { decider, IMAGE_DEFAUT, type Fournisseur } from '../src/node-client/isolement.js';
@@ -115,6 +116,28 @@ describe('le refus, et ce qui part au client', () => {
     expect(binaireMcpDansBac('claude-code')).toBe('node');
     expect(binaireMcpDansBac('codex')).toBe('node');
     expect(binaireMcpDansBac('shell')).toBeNull();
+  });
+
+  it('désactive le bac Windows quand le pont MCP local ne peut pas le traverser', () => {
+    const claude = raisonPontMcpDansBac('claude-code', 'win32');
+    const codex = raisonPontMcpDansBac('codex', 'win32');
+    expect(claude).toMatch(/Windows.*pont MCP local/i);
+    expect(codex).toMatch(/Windows.*pont MCP local/i);
+    expect(raisonPontMcpDansBac('claude-code', 'linux')).toBeNull();
+    expect(raisonPontMcpDansBac('shell', 'win32')).toBeNull();
+
+    const auto = deciderAvecPreflight('auto', PODMAN, 'image:test', {
+      executable: false,
+      motif: claude!,
+    });
+    expect(auto.decision).toMatchObject({ isole: false, refuse: false, niveau: 'processus' });
+    expect(auto.decision.motif).toContain('non isolée du disque');
+
+    const exige = deciderAvecPreflight('exige', PODMAN, 'image:test', {
+      executable: false,
+      motif: claude!,
+    });
+    expect(exige.decision).toMatchObject({ isole: false, refuse: true, niveau: 'aucun' });
   });
 
   it('« auto » se replie explicitement si l’agent manque dans l’image', () => {

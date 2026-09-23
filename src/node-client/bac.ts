@@ -133,6 +133,20 @@ export function binaireMcpDansBac(agent: AgentType): string | null {
   return agent === 'claude-code' || agent === 'codex' ? 'node' : null;
 }
 
+/**
+ * Le pont MCP est local au processus Worker. Sous Windows, le bac ne partage
+ * pas ce transport avec le CLI ; annoncer le conteneur ferait donc accepter
+ * une tâche qui échouerait dès son démarrage. Le mode `auto` doit revenir à la
+ * sandbox de processus et `exige` doit refuser le nœud, avec une raison visible.
+ */
+export function raisonPontMcpDansBac(
+  agent: AgentType,
+  plateforme: NodeJS.Platform = process.platform,
+): string | null {
+  if (plateforme !== 'win32' || !binaireMcpDansBac(agent)) return null;
+  return `bac conteneurisé indisponible pour ${agent} sous Windows : le pont MCP local du CLI n'est pas partageable`;
+}
+
 export function deciderAvecPreflight(
   mode: ReturnType<typeof modeDepuisEnv>,
   fournisseur: Fournisseur,
@@ -164,15 +178,20 @@ export async function preparerBac(
   const binAgent = agent ? binaireDansBac(agent, env) : null;
 
   if (fournisseur && binAgent) {
-    let resultat = await sonderAgentDansBac(fournisseur, binAgent, image);
-    const binPont = agent ? binaireMcpDansBac(agent) : null;
-    if (resultat.executable && binPont) {
-      const pont = await sonderAgentDansBac(fournisseur, binPont, image);
-      if (!pont.executable) {
-        resultat = {
-          executable: false,
-          motif: `${pont.motif} — runtime Node requis par le pont MCP CLI`,
-        };
+    const motifPont = agent ? raisonPontMcpDansBac(agent) : null;
+    let resultat = motifPont
+      ? { executable: false, motif: motifPont }
+      : await sonderAgentDansBac(fournisseur, binAgent, image);
+    if (!motifPont) {
+      const binPont = agent ? binaireMcpDansBac(agent) : null;
+      if (resultat.executable && binPont) {
+        const pont = await sonderAgentDansBac(fournisseur, binPont, image);
+        if (!pont.executable) {
+          resultat = {
+            executable: false,
+            motif: `${pont.motif} — runtime Node requis par le pont MCP CLI`,
+          };
+        }
       }
     }
     preflight = resultat.motif;
