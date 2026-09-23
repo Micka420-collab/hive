@@ -1,0 +1,507 @@
+// Scénario V2 Alpha : mission → Workers → contre-revue → retry → Evaluator.
+//
+// Ce banc protège un contrat d'intégration observable, pas une forme de code :
+// une mission doit traverser les mêmes portes qu'en production. Le scénario
+// utilise trois HiveNodeClient réels, un clone Git local et les routes REST de
+// l'Evaluator. Une régression qui laisse verts l'e2e DAG (adaptateur simulé),
+// la contre-revue (WebSocket nu) et la livraison (résultat injecté) séparément
+// mais casse leur enchaînement doit rougir ici.
+//
+// Le faux GitHub est volontairement réduit aux appels de la livraison et de la
+// lecture CI. Le scénario vérifie que la production réelle du Worker alimente
+// la PR, que la preuve CI vise le résultat exact, et que le merge reste humain.
+
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer as createHttpServer } from 'node:http';
+import type { Server as HttpServer } from 'node:http';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import { simpleGit } from 'simple-git';
+import type { AgentAdapter } from '../src/adapters/index.js';
+import { HiveNodeClient } from '../src/node-client/client.js';
+import { createServer } from '../src/orchestrator/server.js';
+import type { HiveServer } from '../src/orchestrator/server.js';
+import type { Fetcheur } from '../src/orchestrator/github.js';
+
+const TOKEN = 'jeton-v2-alpha-suffisamment-long';
+const GITHUB_TOKEN = 'jeton-github-v2-alpha-suffisant';
+
+type GithubFixture = {
+  requests: string[];
+  branch: string | null;
+  commitSha: string;
+};
+
+type Scenario = {
+  server: HiveServer;
+  clients: HiveNodeClient[];
+  githubApi: HttpServer;
+  root: string;
+  repo: string;
+};
+
+async function attendre(
+  predicate: () => boolean,
+  message: string,
+  timeoutMs = 12_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate() && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 30));
+  }
+  expect(predicate(), message).toBe(true);
+}
+
+async function depotFixture(root: string): Promise<string> {
+  const repo = path.join(root, 'repo');
+  mkdirSync(path.join(repo, 'src'), { recursive: true });
+  writeFileSync(path.join(repo, 'src', 'feature.js'), 'export const secure = false;\n');
+  writeFileSync(
+    path.join(repo, 'package.json'),
+    JSON.stringify(
+      {
+        name: 'hive-v2-alpha-fixture',
+        scripts: {
+          test: 'node -e "process.exit(0)"',
+          typecheck: 'node -e "process.exit(0)"',
+          build: 'node -e "process.exit(0)"',
+          lint: 'node -e "process.exit(0)"',
+        },
+      },
+      null,
+      2,
+    ),
+  );
+  const git = simpleGit({ baseDir: repo });
+  await git.init();
+  await git.addConfig('user.email', 'hive-v2-alpha@example.test');
+  await git.addConfig('user.name', 'Hive V2 Alpha');
+  await git.addConfig('commit.gpgsign', 'false');
+  await git.add('.');
+  await git.commit('fixture');
+  return repo;
+}
+
+function githubFixture(): { fixture: GithubFixture; fetcher: Fetcheur } {
+  const fixture: GithubFixture = { requests: [], branch: null, commitSha: 'commit-v2-alpha' };
+  const json = (body: unknown, status = 200): Response =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { 'content-type': 'application/json' },
+    });
+
+  const fetcher: Fetcheur = async (rawUrl, init) => {
+    const url = new URL(rawUrl);
+    const method = String(init?.method ?? 'GET').toUpperCase();
+    fixture.requests.push(`${method} ${url.pathname}${url.search}`);
+    const body =
+      typeof init?.body === 'string' ? (JSON.parse(init.body) as Record<string, unknown>) : {};
+
+    if (method === 'GET' && url.pathname.endsWith('/git/ref/heads/main')) {
+      return json({ object: { sha: 'base-v2-alpha' } });
+    }
+    if (method === 'GET' && url.pathname.includes('/contents/')) {
+      if (url.pathname.endsWith('/src/feature.js')) {
+        return json({
+          type: 'file',
+          encoding: 'base64',
+          content: Buffer.from('export const secure = false;\n').toString('base64'),
+        });
+      }
+      return json({ message: 'Not Found' }, 404);
+    }
+    if (method === 'POST' && url.pathname.endsWith('/git/blobs'))
+      return json({ sha: 'blob-v2-alpha' }, 201);
+    if (method === 'POST' && url.pathname.endsWith('/git/trees'))
+      return json({ sha: 'tree-v2-alpha' }, 201);
+    if (method === 'POST' && url.pathname.endsWith('/git/commits')) {
+      fixture.commitSha = 'commit-v2-alpha';
+      return json({ sha: fixture.commitSha }, 201);
+    }
+    if (method === 'POST' && url.pathname.endsWith('/git/refs')) {
+      const ref = typeof body.ref === 'string' ? body.ref : '';
+      fixture.branch = ref.replace(/^refs\/heads\//, '') || null;
+      return json({ ref });
+    }
+    if (method === 'POST' && url.pathname.endsWith('/pulls')) {
+      fixture.branch = typeof body.head === 'string' ? body.head : fixture.branch;
+      return json({ number: 7, html_url: 'https://github.com/demo/hive/pull/7' }, 201);
+    }
+    if (method === 'GET' && /\/pulls\/7$/.test(url.pathname)) {
+      return json({
+        state: 'open',
+        merged: false,
+        mergeable: true,
+        head: { ref: fixture.branch, sha: fixture.commitSha },
+      });
+    }
+    if (method === 'GET' && url.pathname.endsWith(`/commits/${fixture.commitSha}/check-runs`)) {
+      return json({
+        check_runs: ['Tests', 'Typecheck', 'Build', 'Lint'].map((name) => ({
+          name,
+          status: 'completed',
+          conclusion: 'success',
+          html_url: `https://github.com/demo/hive/actions/${name.toLowerCase()}`,
+        })),
+      });
+    }
+    if (method === 'GET' && /\/pulls\/7\/reviews$/.test(url.pathname)) return json([]);
+    return json({ message: `Unhandled fake GitHub request: ${method} ${url.pathname}` }, 404);
+  };
+  return { fixture, fetcher };
+}
+
+async function startGithubApi(fetcher: Fetcheur): Promise<{ server: HttpServer; url: string }> {
+  const server = createHttpServer((request, response) => {
+    const chunks: Buffer[] = [];
+    request.on('data', (chunk: Buffer) => chunks.push(chunk));
+    request.on('end', async () => {
+      try {
+        const body = Buffer.concat(chunks).toString('utf8');
+        const result = await fetcher(`http://github-fixture${request.url ?? '/'}`, {
+          method: request.method ?? 'GET',
+          ...(body ? { body } : {}),
+        });
+        response.writeHead(result.status, {
+          'content-type': result.headers.get('content-type') ?? 'application/json',
+        });
+        response.end(Buffer.from(await result.arrayBuffer()));
+      } catch (error) {
+        response.writeHead(500, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({ error: String(error) }));
+      }
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('faux GitHub sans port');
+  return { server, url: `http://127.0.0.1:${address.port}` };
+}
+
+function workerAdapter(reviews: Map<string, number>, agentType: string): AgentAdapter {
+  return {
+    name: 'v2-alpha-fixture-worker',
+    async run(task, ctx) {
+      if (task.title.startsWith('Contre-expertise —')) {
+        const reviewKey = `${agentType}:${task.title}`;
+        const calls = (reviews.get(reviewKey) ?? 0) + 1;
+        reviews.set(reviewKey, calls);
+        // Un premier avis conteste la production. Les avis de la seconde
+        // production sont favorables : c'est le trajet correction → retry.
+        if (calls === 1 && agentType === 'hermes-agent') {
+          return {
+            success: true,
+            diff: '',
+            logs: 'conteste\n- ajoute un test du chemin sécurisé',
+            subAgents: [],
+          };
+        }
+        return { success: true, diff: '', logs: 'valide', subAgents: [] };
+      }
+
+      const body = 'export const secure = true;\n';
+      if (agentType === 'claude-code') {
+        // Laisser le temps aux deux relecteurs de rejoindre la ruche après que
+        // le producteur a été choisi, sans dépendre de l'ordre des sockets.
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+      writeFileSync(path.join(ctx.cwd, 'src', 'feature.js'), body);
+      if (ctx.attempt > 1) {
+        writeFileSync(
+          path.join(ctx.cwd, 'src', 'feature.test.js'),
+          "import { secure } from './feature.js';\nif (!secure) throw new Error('insecure');\n",
+        );
+      }
+      return {
+        success: true,
+        diff: '',
+        logs: `production attempt ${ctx.attempt}`,
+        subAgents: [],
+      };
+    },
+  };
+}
+
+describe('V2 Alpha — mission locale vérifiable', () => {
+  let scenario: Scenario | null = null;
+  let previousHome: string | undefined;
+  let previousGithubToken: string | undefined;
+  let previousGithubApi: string | undefined;
+
+  afterEach(async () => {
+    for (const client of scenario?.clients ?? []) client.stop();
+    await scenario?.server.stop();
+    await new Promise<void>((resolve) => {
+      if (!scenario?.githubApi) {
+        resolve();
+        return;
+      }
+      scenario.githubApi.close(() => resolve());
+    });
+    if (previousHome === undefined) delete process.env.HOME;
+    else process.env.HOME = previousHome;
+    if (previousGithubToken === undefined) delete process.env.HIVE_GITHUB_TOKEN;
+    else process.env.HIVE_GITHUB_TOKEN = previousGithubToken;
+    if (previousGithubApi === undefined) delete process.env.HIVE_GITHUB_API;
+    else process.env.HIVE_GITHUB_API = previousGithubApi;
+    if (scenario) rmSync(scenario.root, { recursive: true, force: true, maxRetries: 3 });
+    scenario = null;
+    previousHome = undefined;
+    previousGithubToken = undefined;
+    previousGithubApi = undefined;
+  });
+
+  it(
+    'exécute une production réelle, corrige après contre-revue et rend les preuves Git/CI lisibles',
+    { timeout: 90_000 },
+    async () => {
+      const root = mkdtempSync(path.join(os.tmpdir(), 'hive-v2-alpha-'));
+      const repo = await depotFixture(root);
+      const gitHome = path.join(root, 'git-home');
+      mkdirSync(gitHome, { recursive: true });
+      writeFileSync(
+        path.join(gitHome, '.gitconfig'),
+        `[url "file://${repo}"]\n\tinsteadOf = https://github.com/demo/hive.git\n`,
+      );
+      previousHome = process.env.HOME;
+      previousGithubToken = process.env.HIVE_GITHUB_TOKEN;
+      process.env.HOME = gitHome;
+      process.env.HIVE_GITHUB_TOKEN = GITHUB_TOKEN;
+      const reviews = new Map<string, number>();
+      const github = githubFixture();
+      const githubApi = await startGithubApi(github.fetcher);
+      previousGithubApi = process.env.HIVE_GITHUB_API;
+      process.env.HIVE_GITHUB_API = githubApi.url;
+      const server = await createServer({
+        port: 0,
+        host: '127.0.0.1',
+        token: TOKEN,
+        corsOrigins: ['http://localhost:5173'],
+        dbPath: path.join(root, 'hive.db'),
+        simulation: false,
+        tickMs: 20,
+        githubFetcher: github.fetcher,
+      });
+      const runningClients: HiveNodeClient[] = [];
+      const startClient = (name: string, agentType: string): void => {
+        const client = new HiveNodeClient({
+          url: `ws://127.0.0.1:${server.port}/ws`,
+          token: TOKEN,
+          name,
+          ownerName: 'v2-alpha',
+          agentType,
+          nodeId: `v2-${agentType}`,
+          modeles: [`${agentType}-model`],
+          maxConcurrency: 2,
+          workRoot: path.join(root, name),
+          adapter: workerAdapter(reviews, agentType),
+          quiet: true,
+        });
+        client.start();
+        runningClients.push(client);
+      };
+      scenario = { server, clients: runningClients, githubApi: githubApi.server, root, repo };
+      startClient('producteur', 'claude-code');
+
+      await attendre(
+        () => server.store.listNodes().some((node) => node.id === 'v2-claude-code'),
+        'le Worker producteur ne rejoint pas la ruche',
+      );
+
+      const project = server.store.createProject({
+        name: 'V2 Alpha',
+        repoUrl: 'https://github.com/demo/hive.git',
+      });
+      const task = server.store.createTask({
+        projectId: project.id,
+        title: 'Sécuriser feature.js',
+        prompt: 'remplacer le garde insecure et ajouter le test correspondant',
+      });
+      server.store.patchTask(task.id, { status: 'ready' });
+
+      await attendre(
+        () => server.store.getTask(task.id)?.assignedNodeId === 'v2-claude-code',
+        'la tâche n’est pas affectée au Worker producteur',
+      );
+      startClient('relecteur-codex', 'codex');
+      startClient('relecteur-hermes', 'hermes-agent');
+      await attendre(
+        () => server.store.listNodes().filter((node) => node.status === 'online').length === 3,
+        'les trois Workers ne sont pas en ligne',
+      );
+
+      await attendre(
+        () => server.store.getTask(task.id)?.status === 'done',
+        'la production Worker n’est pas terminée',
+      );
+      const first = server.store.resultsForTask(task.id).at(-1);
+      expect(first?.success).toBe(true);
+      expect(first?.diff).toContain('secure = true');
+      expect(first?.diff).toContain('secure = false');
+      expect(first?.nodeId).toBeTruthy();
+
+      await attendre(
+        () =>
+          server.store
+            .listEvents()
+            .filter(
+              (event) =>
+                event.type === 'contre_expertise_verdict' && event.payload.taskId === task.id,
+            ).length >= 2,
+        'les deux modèles de contre-revue n’ont pas répondu',
+      );
+      const firstReview = server.store.crossReviewForResult(task.id, first?.resultId ?? -1);
+      expect(firstReview).toMatchObject({
+        status: 'improvement_required',
+        contestingReviewers: 1,
+        approvingReviewers: 1,
+      });
+
+      const base = `http://127.0.0.1:${server.port}`;
+      const headers = { 'content-type': 'application/json', 'x-hive-token': TOKEN };
+      const firstEvaluation = await fetch(`${base}/api/tasks/${task.id}/evaluation`, { headers });
+      expect(firstEvaluation.status).toBe(200);
+      expect((await firstEvaluation.json()).decision).toBe('correction_required');
+
+      const rejected = await fetch(`${base}/api/tasks/${task.id}/review`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ state: 'rejected', clientId: 'v2-alpha' }),
+      });
+      expect(rejected.status).toBe(200);
+      expect((await rejected.json()).retry?.ok).toBe(true);
+
+      await attendre(
+        () => server.store.resultsForTask(task.id).length >= 2,
+        'le retry Evaluator n’a pas produit une seconde tentative',
+      );
+      const second = server.store.resultsForTask(task.id).at(-1);
+      expect(second?.resultId).not.toBe(first?.resultId);
+      expect(second?.diff, second?.logs).toContain('secure = true');
+
+      await attendre(
+        () =>
+          server.store
+            .listEvents()
+            .filter(
+              (event) =>
+                event.type === 'contre_expertise_verdict' &&
+                event.payload.taskId === task.id &&
+                event.payload.resultId === second?.resultId,
+            ).length >= 2,
+        'la seconde production n’a pas reçu ses contre-revues exactes',
+      );
+      const secondReview = server.store.crossReviewForResult(task.id, second?.resultId ?? -1);
+      expect(secondReview).toMatchObject({
+        status: 'applied',
+        contestingReviewers: 0,
+        approvingReviewers: 2,
+      });
+
+      const approved = await fetch(`${base}/api/tasks/${task.id}/review`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ state: 'approved', clientId: 'v2-alpha' }),
+      });
+      expect(approved.status).toBe(200);
+
+      const delivery = await fetch(`${base}/api/livraison`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ taskId: task.id }),
+      });
+      expect(delivery.status, await delivery.clone().text()).toBe(201);
+      expect(await delivery.json()).toMatchObject({
+        pr: 7,
+        branche: `hive/${task.id}`,
+        commitSha: 'commit-v2-alpha',
+      });
+
+      const ci = await fetch(`${base}/api/tasks/${task.id}/evaluation/ci`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ resultId: second?.resultId }),
+      });
+      expect(ci.status).toBe(200);
+      expect(await ci.json()).toMatchObject({
+        resultId: second?.resultId,
+        validation: { tests: 'passed', typecheck: 'passed', build: 'passed', lint: 'passed' },
+        provenance: {
+          source: 'github_pull_request',
+          branch: `hive/${task.id}`,
+          commitSha: 'commit-v2-alpha',
+        },
+      });
+
+      const final = await fetch(`${base}/api/tasks/${task.id}/evaluation`, { headers });
+      expect(final.status).toBe(200);
+      const evaluation = (await final.json()) as {
+        decision: string;
+        canMerge: boolean;
+        evidence: {
+          result: string;
+          consensus: string;
+          crossReview: { resultId: number | null; status: string };
+          humanReview: string;
+          tests: string;
+          typecheck: string;
+          build: string;
+          lint: string;
+          validationProvenance: {
+            source: string;
+            resultId: number | null;
+            branch: string | null;
+            commitSha: string | null;
+          };
+        };
+      };
+      expect(evaluation).toMatchObject({
+        decision: 'human_review_required',
+        canMerge: false,
+      });
+      expect(evaluation.evidence.crossReview).toMatchObject({
+        resultId: second?.resultId,
+        status: 'applied',
+      });
+      expect(evaluation.evidence.humanReview).toBe('approved');
+      expect(evaluation.evidence).toMatchObject({
+        tests: 'passed',
+        typecheck: 'passed',
+        build: 'passed',
+        lint: 'passed',
+      });
+      expect(evaluation.evidence.validationProvenance).toMatchObject({
+        source: 'github_pull_request',
+        resultId: second?.resultId,
+        branch: `hive/${task.id}`,
+        commitSha: 'commit-v2-alpha',
+      });
+      // Le Parlement garde un quorum de deux sorties identiques. Après un
+      // retry correctif, deux diffs différents restent honnêtement sans
+      // quorum : l'Evaluator demande donc encore les contrôles externes.
+      expect(evaluation.evidence.consensus).toBe('no_quorum');
+      expect(evaluation.evidence.result).toBe('passed');
+
+      expect(
+        github.fixture.requests.some((request) =>
+          request.startsWith('POST /repos/demo/hive/pulls'),
+        ),
+      ).toBe(true);
+      expect(
+        github.fixture.requests.some((request) =>
+          request.startsWith('GET /repos/demo/hive/commits/commit-v2-alpha/check-runs'),
+        ),
+      ).toBe(true);
+      // Une PR ouverte et validée reste en attente du geste humain explicite.
+      expect(github.fixture.requests.some((request) => request.startsWith('PUT '))).toBe(false);
+
+      // Le dépôt original reste inchangé : la production vit dans le clone
+      // isolé du Worker. Le scénario n'affirme pas une sandbox conteneur : ce
+      // niveau est couvert séparément par les tests d'isolement Docker/Podman.
+      expect(readFileSync(path.join(repo, 'src', 'feature.js'), 'utf8')).toContain(
+        'secure = false',
+      );
+    },
+  );
+});
