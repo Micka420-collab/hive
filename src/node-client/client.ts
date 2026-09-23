@@ -390,6 +390,9 @@ export class HiveNodeClient {
         message: 'enfant non admis par cette tâche parente',
       });
     }
+    if (signal.aborted) {
+      return Promise.resolve({ ok: false, code: 'cancelled', message: 'tâche parente annulée' });
+    }
     const completed = this.completedDelegationResults.get(childTaskId);
     if (completed) {
       this.completedDelegationResults.delete(childTaskId);
@@ -402,9 +405,6 @@ export class HiveNodeClient {
         code: 'duplicate_wait',
         message: 'une attente de résultat existe déjà pour cet enfant',
       });
-    }
-    if (signal.aborted) {
-      return Promise.resolve({ ok: false, code: 'cancelled', message: 'tâche parente annulée' });
     }
     const accepted = this.acceptedDelegations.get(childTaskId);
     if (!accepted) {
@@ -1089,6 +1089,7 @@ export class HiveNodeClient {
     });
     this.log(`✘ ${task.title} : réquisition ${statut}`);
     this.active.delete(task.id);
+    this.clearDelegationsForParent(task.id);
     workspace.cleanup();
   }
 
