@@ -375,13 +375,23 @@ describe('V2 Alpha — mission locale vérifiable', () => {
       expect(firstEvaluation.status).toBe(200);
       expect((await firstEvaluation.json()).decision).toBe('correction_required');
 
-      const rejected = await fetch(`${base}/api/tasks/${task.id}/review`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ state: 'rejected', clientId: 'v2-alpha' }),
-      });
-      expect(rejected.status).toBe(200);
-      expect((await rejected.json()).retry?.ok).toBe(true);
+      // La contre-revue complète déclenche elle-même le retry borné. La revue
+      // humaine reste réservée à la production suivante : une fois la tâche
+      // réenfilée, le serveur refuse naturellement un verdict sur le travail
+      // encore en cours.
+      await attendre(
+        () =>
+          server.store
+            .listEvents()
+            .some(
+              (event) =>
+                event.type === 'task_retry' &&
+                event.payload.source === 'evaluator' &&
+                event.payload.taskId === task.id &&
+                event.payload.resultId === first?.resultId,
+            ),
+        'la contre-revue insuffisante n’a pas déclenché le retry automatique',
+      );
 
       await attendre(
         () => server.store.resultsForTask(task.id).length >= 2,

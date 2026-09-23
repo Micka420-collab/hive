@@ -1018,18 +1018,67 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   };
 
   /**
+   * La contre-revue est complète quand chaque relecture lancée pour CE
+   * `resultId` est terminale. Les liens du store couvrent l'historique de la
+   * tâche ; l'événement de lancement porte donc le filigrane qui sépare les
+   * tentatives. Un premier avis contestataire ne doit pas relancer la tâche
+   * pendant qu'un autre avis est encore en vol.
+   */
+  function contreRevueTerminee(taskId: string, resultId: number): boolean {
+    const relectures = store.relecturesDeProduction(taskId).filter((relectureTaskId) => {
+      const lancement = store.eventForRelecture(relectureTaskId);
+      return lancement?.payload.resultId === resultId;
+    });
+    if (relectures.length === 0) return false;
+    return relectures.every((relectureTaskId) => {
+      const relecture = store.getTask(relectureTaskId);
+      return relecture?.status === 'done' || relecture?.status === 'failed';
+    });
+  }
+
+  /**
    * Un verdict revient — on le lit, on l'agrège, on le journalise.
    *
-   * ─── CE QUE CE VERDICT NE FAIT PAS, ET NE FERA PAS ───────────────────────
+   * ─── CE QUE CE VERDICT FAIT, ET CE QU'IL NE FAIT PAS ──────────────────────
    *
    * Il ne bloque aucune fusion. La règle du dépôt reste « jamais de fusion sans
-   * revue humaine », et une contre-expertise qui DÉCIDERAIT remplacerait la
-   * revue au lieu de l'armer. Ce qu'on veut, c'est qu'un humain lise des
-   * objections qu'il n'aurait pas trouvées seul — pas qu'une seconde IA ait le
-   * dernier mot sur la première.
-   *
-   * Il n'y a donc aucun chemin d'ici vers la livraison, et c'est délibéré.
+   * revue humaine ». Une contre-revue insuffisante peut toutefois demander une
+   * correction automatique une fois que tous ses relecteurs ont terminé : le
+   * scheduler réutilise alors la même borne de tentatives, la vérification du
+   * résultat exact et la protection des dépendances que le retry explicite.
+   * Le merge reste toujours un geste humain séparé.
    */
+  function relancerSiContreRevueInsuffisante(taskId: string, resultId: number): void {
+    if (!contreRevueTerminee(taskId, resultId)) return;
+    const task = store.getTask(taskId);
+    if (!task) return;
+    const { latest, evaluation } = evaluationPour(task);
+    if (
+      latest?.resultId !== resultId ||
+      evaluation.evidence.crossReview.resultId !== resultId ||
+      evaluation.evidence.crossReview.status !== 'improvement_required' ||
+      !evaluation.retryRecommended ||
+      (evaluation.decision !== 'correction_required' && evaluation.decision !== 'rejected')
+    ) {
+      return;
+    }
+
+    const retry = scheduler.retryFromEvaluator({
+      taskId,
+      resultId,
+      decision: evaluation.decision,
+    });
+    if (!retry.ok) {
+      // Un retry automatique refusé doit rester observable : une annulation,
+      // une dépendance déjà avancée ou la borne d'essais ne sont pas un silence.
+      emitEvent('evaluator_retry_skipped', {
+        taskId,
+        resultId,
+        reason: retry.reason,
+      });
+    }
+  }
+
   const noterVerdict = (
     relectureTaskId: string,
     lien: NonNullable<ReturnType<typeof store.relectureDe>>,
@@ -1083,6 +1132,9 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       visiteurNodeId: lien.relecteurNodeId,
       visiteurAgent: lien.relecteurAgent,
     });
+    if (exactResultId !== undefined) {
+      relancerSiContreRevueInsuffisante(lien.productionTaskId, exactResultId);
+    }
   };
 
   const noterEchec = (taskId: string, logs: string): void => {

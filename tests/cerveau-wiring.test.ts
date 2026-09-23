@@ -704,6 +704,26 @@ describe('la contre-expertise est annoncée à chaque production', () => {
       );
       expect(await attendreVerdicts(srv, idProduction, 1)).toHaveLength(1);
 
+      // Un seul avis contestataire ne suffit pas encore : l'Evaluator attend
+      // que chaque relecteur lancé pour ce `resultId` soit arrivé. Relancer ici
+      // ferait perdre l'avis favorable qui suit et pourrait ouvrir une boucle
+      // sur une contre-revue encore en vol.
+      expect(srv.store.getTask(idProduction)?.status).toBe('done');
+      expect(
+        srv.store
+          .listEvents()
+          .filter(
+            (event) =>
+              event.type === 'task_retry' &&
+              event.payload.source === 'evaluator' &&
+              event.payload.taskId === idProduction,
+          ),
+      ).toHaveLength(0);
+
+      // L'approbation humaine reste une condition de livraison, pas un
+      // contournement d'une objection indépendante déjà visible par l'Evaluator.
+      srv.store.setTaskReview(idProduction, 'approved');
+
       (sockets[1] as WebSocket).send(
         JSON.stringify({
           type: 'task_result',
@@ -717,6 +737,18 @@ describe('la contre-expertise est annoncée à chaque production', () => {
       );
       const verdicts = await attendreVerdicts(srv, idProduction, 2);
       expect(verdicts).toHaveLength(2);
+
+      const retries = srv.store
+        .listEvents()
+        .filter(
+          (event) =>
+            event.type === 'task_retry' &&
+            event.payload.source === 'evaluator' &&
+            event.payload.taskId === idProduction,
+        );
+      expect(retries).toHaveLength(1);
+      expect(retries[0]?.payload.resultId).toBe(resultId);
+      expect(srv.store.getTask(idProduction)?.attempts).toBe(1);
 
       const resume = srv.store.crossReviewForResult(idProduction, resultId as number);
       expect(resume).toMatchObject({
