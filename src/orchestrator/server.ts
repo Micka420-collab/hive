@@ -266,6 +266,7 @@ import { buildHiveContext } from './hive-mind.js';
 import { buildMergePlan } from './honeycomb.js';
 import { tally, signatureOf } from './parliament.js';
 import type { Ballot } from './parliament.js';
+import { evaluate } from './evaluator.js';
 import { CacheDomaines, domaineDeTache, replierTraces } from './pheromones.js';
 import type { Domaine, TraceePheromone } from './pheromones.js';
 import { anthropicLlm, anthropicLlmStream, llmPlannerAvailable, planBrief } from './planner.js';
@@ -6607,6 +6608,51 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         fichiers: fichiersTouches(r.diff),
       }));
       return tally(ballots);
+    },
+  );
+
+  // Evaluator indépendant : compose les faits déjà produits par les
+  // Gardiennes, le Parlement et la revue humaine. Les validations CI restent
+  // explicitement absentes tant qu'aucun producteur de preuves ne les a
+  // enregistrées ; les logs d'un Worker ne sont jamais interprétés comme une
+  // validation.
+  app.get<{ Params: { taskId: string } }>(
+    '/api/tasks/:taskId/evaluation',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['taskId'],
+          properties: { taskId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const task = store.getTask(req.params.taskId);
+      if (!task) return reply.code(404).send({ error: 'tâche inconnue' });
+
+      const results = store.resultsForTask(task.id);
+      const latest = results[results.length - 1];
+      const inspections = store.listInspections();
+      const inspection = latest
+        ? inspectionDeProduction(inspections, task.id, latest.nodeId)
+        : undefined;
+      const ballots: Ballot[] = results.map((r) => ({
+        nodeId: r.nodeId,
+        agentType: store.getNode(r.nodeId)?.agentType ?? 'inconnu',
+        success: r.success,
+        signature: signatureOf(r.diff),
+        fichiers: fichiersTouches(r.diff),
+      }));
+      return evaluate({
+        taskId: task.id,
+        taskStatus: task.status,
+        results,
+        ...(inspection ? { inspection } : {}),
+        consensus: tally(ballots),
+        humanReview: store.getTaskReview(task.id)?.state ?? null,
+      });
     },
   );
 
