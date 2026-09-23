@@ -235,16 +235,40 @@ describe('endpoints de l’instinct de ruche', () => {
             ownerName: 'test',
             agentType: 'shell',
             maxConcurrency: 1,
+            modeles: ['opus'],
             nodeId: 'noeud-muet',
           }),
         );
+
+        // Le modèle est réellement choisi par l'Aiguillage : trois productions
+        // relues établissent l'expérience « opus » pour le même genre de tâche.
+        // Le test vérifie ainsi le contrat de production, pas une valeur posée
+        // artificiellement après l'assignation.
+        const historique = server.store.createProject({ name: 'Historique' });
+        for (let i = 0; i < 3; i++) {
+          const precedente = server.store.createTask({
+            projectId: historique.id,
+            title: 'Ajoute un endpoint',
+            prompt: 'implémente la fonction',
+          });
+          server.store.poserModeleAiguillage(precedente.id, 'opus', 1_000 + i);
+          server.store.enregistrerContreVisite({
+            productionTaskId: precedente.id,
+            suite: 'appliquer',
+            raison: '',
+            visiteurNodeId: 'relecteur',
+            visiteurAgent: 'claude-code',
+            now: 2_000 + i,
+          });
+          server.store.patchTask(precedente.id, { status: 'done' });
+        }
 
         // Une tâche qui a DÉJÀ échoué une fois, avec des logs exploitables.
         const projet = server.store.createProject({ name: 'Ruche' });
         const task = server.store.createTask({
           projectId: projet.id,
-          title: 'Tâche fragile',
-          prompt: 'faire quelque chose de délicat',
+          title: 'Ajoute un endpoint',
+          prompt: 'implémente la fonction',
         });
         server.store.insertResult({
           taskId: task.id,
@@ -276,6 +300,12 @@ describe('endpoints de l’instinct de ruche', () => {
         // re-livraison), quel que soit le nombre de re-livraisons.
         expect(assignations.length).toBeGreaterThanOrEqual(4);
         expect(recherches).toBeLessThanOrEqual(2);
+
+        // Le filet doit conserver le choix d'Aiguillage. Sans ce champ, le
+        // Worker relancé retombe sur son modèle par défaut alors que le journal
+        // et l'apprentissage attribuent le résultat à opus.
+        expect(assignations[0]?.modele).toBe('opus');
+        expect(assignations[1]?.modele).toBe('opus');
 
         // Les DEUX chemins servent le même contexte : sans cela, la leçon
         // annoncée par brood_context n'arrivait jamais à l'ouvrière re-servie.

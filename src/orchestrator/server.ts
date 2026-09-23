@@ -9526,11 +9526,20 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         for (const nodeId of ouvertes) {
           const ws = nodeSockets.get(nodeId);
           if (ws) {
+            // Une re-livraison doit reprendre exactement le modèle commandé
+            // lors de l'assignation initiale. Une course garde un modèle par
+            // drone ; une tâche ordinaire garde le dernier modèle élu dans le
+            // store. Omettre ce champ ferait exécuter le modèle par défaut du
+            // Worker tout en attribuant ensuite le résultat au modèle élu.
+            const modele = race
+              ? race.modeleParDrone?.[nodeId]
+              : (store.modeleAiguillageDe(task.id) ?? undefined);
             send(ws, {
               type: 'assign_task',
               task,
               repoUrl: project?.repoUrl ?? null,
               ...(hiveContext ? { hiveContext } : {}),
+              ...(modele ? { modele } : {}),
             });
           }
         }
