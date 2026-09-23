@@ -2,8 +2,15 @@
 // en vol) et Waggle Board, la danse frétillante qui classe le nectar butiné.
 
 import { jamaisRienRecu } from './etat-sondage';
-import { fetchPheromones, fetchPolyethisme, fetchRaces, fetchWaggle } from '../api';
-import type { Caste, NodeNectar, TraceePheromone, VuePolyethisme, WaggleBoard } from '../api';
+import { fetchPheromones, fetchPolyethisme, fetchRaces, fetchWaggle, fetchWorkers } from '../api';
+import type {
+  Caste,
+  NodeNectar,
+  TraceePheromone,
+  VuePolyethisme,
+  WaggleBoard,
+  WorkerSnapshot,
+} from '../api';
 import { useLang, useT } from '../i18n';
 import { libelleAgent } from '../../../src/shared/agent-libelle';
 import { activateProps, DOMAINE_LABEL, formatMs, ProgressBar } from '../ui';
@@ -29,12 +36,15 @@ function activeAgentsOf(
 
 function NodeCard({
   node,
+  worker,
   agents,
   racing,
   bapt,
   onOuvrirPoste,
 }: {
   node: HiveNode;
+  /** Projection API ; absente = route indisponible ou lecture en échec. */
+  worker?: WorkerSnapshot;
   agents: SubAgent[];
   racing: boolean;
   /** undefined = pas encore chargé ; null = constaté absent ; string = baptême. */
@@ -88,6 +98,58 @@ function NodeCard({
         <span className="chip es-chip">{libelleAgent(node.agentType, lang === 'en')}</span>
         <span>{node.ownerName}</span>
       </div>
+      {worker && (
+        <div className="es-models" data-testid="worker-models">
+          <span
+            className="es-models-label"
+            title={t(
+              'Historique Aiguillage global ; la réputation attribuée à chaque Worker viendra avec la traçabilité des observations.',
+              'Global Aiguillage history; per-Worker reputation will follow once observations carry worker attribution.',
+            )}
+          >
+            {t('Modèles · vécu Aiguillage', 'Models · Aiguillage history')}
+          </span>
+          {worker.modeles === undefined || worker.modeles.length === 0 ? (
+            <span className="muted-text">{t('aucun modèle déclaré', 'no model declared')}</span>
+          ) : (
+            <ul className="es-model-list">
+              {worker.modeles.map((model) => {
+                const observes = Object.entries(model.categories).filter(
+                  ([, preuve]) => preuve.essais > 0,
+                );
+                const essais = observes.reduce((total, [, preuve]) => total + preuve.essais, 0);
+                const moyenne =
+                  essais > 0
+                    ? observes.reduce(
+                        (total, [, preuve]) => total + (preuve.moyenne ?? 0) * preuve.essais,
+                        0,
+                      ) / essais
+                    : null;
+                const detail = observes
+                  .map(
+                    ([categorie, preuve]) =>
+                      `${categorie}: ${preuve.essais} · ${preuve.moyenne ?? 0}`,
+                  )
+                  .join(' · ');
+                return (
+                  <li
+                    key={model.modele}
+                    className={observes.length === 0 ? 'es-model exploration' : 'es-model'}
+                    title={detail || t('aucun vécu observé', 'no observed history')}
+                  >
+                    <span className="es-model-name">{model.modele}</span>
+                    <span className="es-model-proof">
+                      {observes.length === 0
+                        ? t('à explorer', 'explore')
+                        : `${observes.length} ${t('cat.', 'cats.')} · ${essais} ${t('essais', 'trials')} · ${Math.round((moyenne ?? 0) * 100)}%`}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      )}
       <div className="es-node-load">
         <span className="es-load-txt">
           {node.running}/{node.maxConcurrency}
@@ -536,6 +598,10 @@ export default function Essaim({ snapshot, agentsByTask, refreshTick, onNavigate
   // Les phéromones s'évaporent avec une demi-vie de 7 jours : la cadence du
   // Waggle Board suffit largement.
   const pheromones = useApiPoll(fetchPheromones, 30_000, refreshTick);
+  // Cette projection est la seule source des modèles et de leur vécu affichés
+  // ici. En cas d'erreur, on masque la donnée pour ne pas conserver un profil
+  // périmé et on explique l'absence à l'opérateur.
+  const workers = useApiPoll(fetchWorkers, 30_000, refreshTick);
   // Les castes sont mémoïsées côté serveur sur la fenêtre des Gardiennes : les
   // interroger plus souvent ne rendrait pas des chiffres plus frais.
   const poly = useApiPoll(fetchPolyethisme, 60_000, refreshTick);
@@ -552,6 +618,10 @@ export default function Essaim({ snapshot, agentsByTask, refreshTick, onNavigate
   /** nodeId → baptême constaté ; null map = silence ; baptemes null = pas chargé. */
   const nodeIdsKey = snapshot.nodes.map((n) => n.id).join(',');
   const baptemes = useBaptemes(nodeIdsKey, refreshTick);
+  const workersById =
+    workers.error === null && workers.data
+      ? new Map(workers.data.workers.map((worker) => [worker.id, worker]))
+      : null;
 
   return (
     <div className="mc-view es-view">
@@ -577,6 +647,7 @@ export default function Essaim({ snapshot, agentsByTask, refreshTick, onNavigate
                   <NodeCard
                     key={n.id}
                     node={n}
+                    worker={workersById?.get(n.id)}
                     agents={activeAgentsOf(n.id, snapshot.tasks, agentsByTask)}
                     racing={racingNodes.has(n.id)}
                     bapt={baptemes ? (baptemes[n.id] ?? null) : undefined}
@@ -584,6 +655,14 @@ export default function Essaim({ snapshot, agentsByTask, refreshTick, onNavigate
                   />
                 ))}
               </div>
+            )}
+            {workers.error && (
+              <p className="panel-error es-workers-error">
+                {t(
+                  'Profils modèles indisponibles — la charge ci-dessus vient du flux temps réel des nœuds.',
+                  'Model profiles unavailable — the load above comes from the live node stream.',
+                )}
+              </p>
             )}
           </section>
           {/* Dégradation propre : si /api/pheromones n'a JAMAIS répondu et est

@@ -57,6 +57,7 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   fetchRaces: vi.fn(() => Promise.resolve({ races: [] })),
   fetchPheromones: vi.fn(() => Promise.resolve(null)),
   fetchPolyethisme: vi.fn(() => Promise.resolve(null)),
+  fetchWorkers: vi.fn(() => Promise.resolve({ workers: [] })),
   fetchBaptemes: vi.fn(() => Promise.resolve({ baptemes: [] })),
 }));
 
@@ -66,6 +67,7 @@ import {
   fetchPolyethisme,
   fetchRaces,
   fetchWaggle,
+  fetchWorkers,
 } from '../dashboard/src/api';
 import Essaim from '../dashboard/src/views/Essaim';
 
@@ -85,6 +87,9 @@ beforeEach(() => {
   vi.mocked(fetchPolyethisme)
     .mockReset()
     .mockResolvedValue(null as never);
+  vi.mocked(fetchWorkers)
+    .mockReset()
+    .mockResolvedValue({ workers: [] } as never);
   vi.mocked(fetchWaggle).mockReset();
   vi.mocked(fetchBaptemes).mockReset().mockResolvedValue({ baptemes: [] });
 });

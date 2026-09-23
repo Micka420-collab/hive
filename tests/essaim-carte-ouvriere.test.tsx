@@ -60,6 +60,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setLang } from '../dashboard/src/i18n';
+import type { WorkerSnapshot } from '../dashboard/src/api';
 import type { ViewProps } from '../dashboard/src/views/shared';
 import type { HiveNode, StateSnapshot, SubAgent, Task } from '../src/shared/types';
 
@@ -72,6 +73,7 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   fetchRaces: vi.fn(() => Promise.resolve({ races: [] })),
   fetchPheromones: vi.fn(() => Promise.resolve(null)),
   fetchPolyethisme: vi.fn(() => Promise.resolve(null)),
+  fetchWorkers: vi.fn(() => Promise.resolve({ workers: [] })),
   fetchBaptemes: vi.fn(() => Promise.resolve({ baptemes: [] })),
 }));
 
@@ -81,6 +83,7 @@ import {
   fetchPolyethisme,
   fetchRaces,
   fetchWaggle,
+  fetchWorkers,
 } from '../dashboard/src/api';
 import Essaim from '../dashboard/src/views/Essaim';
 
@@ -106,6 +109,9 @@ beforeEach(() => {
   vi.mocked(fetchPolyethisme)
     .mockReset()
     .mockResolvedValue(null as never);
+  vi.mocked(fetchWorkers)
+    .mockReset()
+    .mockResolvedValue({ workers: [] } as never);
   vi.mocked(fetchBaptemes).mockReset().mockResolvedValue({ baptemes: [] });
 });
 
@@ -258,6 +264,65 @@ describe('la carte d’une ouvrière : ce qu’elle porte en vol', () => {
     expect(c.textContent, 'la charge de l’ouvrière n’est pas affichée').toContain('2/4');
     expect(pastilles(c), 'les sous-agents en vol ne sont pas rendus').toHaveLength(2);
     expect(c.textContent, 'le nom d’un sous-agent manque').toContain('agent-a1');
+  });
+
+  it('UNE OUVRIÈRE MONTRE LES MODÈLES VENUS DE LA PROJECTION API — connu et à explorer restent distincts', async () => {
+    const preuve = (
+      over: Partial<{
+        essais: number;
+        moyenne: number | null;
+        score: number | null;
+        exploration: boolean;
+      }> = {},
+    ) => ({
+      essais: 0,
+      moyenne: null,
+      score: null,
+      exploration: true,
+      ...over,
+    });
+    const worker = {
+      ...noeud(),
+      slotsLibres: 3,
+      modeles: [
+        {
+          modele: 'alpha',
+          categories: {
+            ideation: preuve(),
+            code: preuve({ essais: 1, moyenne: 1, score: 1, exploration: false }),
+            correction: preuve(),
+            refactorisation: preuve(),
+            test: preuve(),
+            documentation: preuve(),
+            autre: preuve(),
+          },
+        },
+        {
+          modele: 'zeta',
+          categories: {
+            ideation: preuve(),
+            code: preuve(),
+            correction: preuve(),
+            refactorisation: preuve(),
+            test: preuve(),
+            documentation: preuve(),
+            autre: preuve(),
+          },
+        },
+      ],
+    } as unknown as WorkerSnapshot;
+    vi.mocked(fetchWorkers).mockResolvedValue({ workers: [worker] });
+
+    const dom = await monter([noeud()]);
+    const c = carte(dom, 'ruche-nord');
+    const modeles = c.querySelector('[data-testid="worker-models"]');
+
+    expect(modeles?.textContent).toContain('alpha');
+    expect(modeles?.textContent).toContain('1 essais');
+    expect(modeles?.textContent).toContain('zeta');
+    expect(modeles?.textContent).toContain('à explorer');
+    expect(modeles?.querySelectorAll('.es-model')).toHaveLength(2);
+    expect(modeles?.querySelector('.es-model.exploration')?.textContent).toContain('zeta');
   });
 
   it('SIX PILE : SIX PASTILLES ET AUCUN « +N » — sept : six et « +1 »', async () => {

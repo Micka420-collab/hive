@@ -69,10 +69,17 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   fetchRaces: vi.fn(() => Promise.resolve({ races: [] })),
   fetchPheromones: vi.fn(() => Promise.resolve(null)),
   fetchPolyethisme: vi.fn(() => Promise.resolve(null)),
+  fetchWorkers: vi.fn(() => Promise.resolve({ workers: [] })),
   fetchBaptemes: vi.fn(() => Promise.resolve({ baptemes: [] })),
 }));
 
-import { fetchPheromones, fetchPolyethisme, fetchRaces, fetchWaggle } from '../dashboard/src/api';
+import {
+  fetchPheromones,
+  fetchPolyethisme,
+  fetchRaces,
+  fetchWaggle,
+  fetchWorkers,
+} from '../dashboard/src/api';
 import Essaim from '../dashboard/src/views/Essaim';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -91,6 +98,9 @@ beforeEach(() => {
   vi.mocked(fetchPolyethisme)
     .mockReset()
     .mockResolvedValue(null as never);
+  vi.mocked(fetchWorkers)
+    .mockReset()
+    .mockResolvedValue({ workers: [] } as never);
   vi.mocked(fetchPheromones).mockReset();
 });
 
