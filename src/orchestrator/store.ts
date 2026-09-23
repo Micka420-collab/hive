@@ -92,6 +92,8 @@ export interface LigneObservationAiguillage {
   suite: Suite;
   /** Worker qui a produit le résultat relu, quand le résultat est encore disponible. */
   nodeId?: string;
+  /** Modèle réellement choisi pour ce résultat, quand le lancement l'a tracé. */
+  modeleExact?: string;
 }
 
 const SCHEMA = `
@@ -4325,6 +4327,14 @@ export class HiveStore {
       .run(taskId, modele, now);
   }
 
+  /** Modèle choisi pour la tentative actuellement représentée par la tâche. */
+  modeleAiguillageDe(taskId: string): string | null {
+    const row = this.db
+      .prepare('SELECT modele FROM aiguillage_modeles WHERE taskId = ?')
+      .get(taskId) as { modele: string } | undefined;
+    return row?.modele ?? null;
+  }
+
   /**
    * Range l'ÉCHELON de garde-fous sous lequel une tâche a été assignée. `INSERT
    * OR REPLACE` : une réassignation ré-élit, la dernière gouverne (motif
@@ -4413,12 +4423,13 @@ export class HiveStore {
     const rows = this.db
       .prepare(
         `SELECT t.title AS title, t.prompt AS prompt, am.modele AS modele, cv.suite AS suite,
-                r.nodeId AS nodeId
+                r.nodeId AS nodeId,
+                json_extract(ce.payload, '$.producteurModele') AS modeleExact
            FROM contre_visites cv
            JOIN aiguillage_modeles am ON am.taskId = cv.productionTaskId
            JOIN tasks t              ON t.id      = cv.productionTaskId
-           LEFT JOIN results r ON r.id = (
-             SELECT CAST(json_extract(e.payload, '$.resultId') AS INTEGER)
+           LEFT JOIN events ce ON ce.id = (
+             SELECT e.id
                FROM events e
               WHERE e.type = 'contre_expertise_verdict'
                 AND json_extract(e.payload, '$.source') = 'hive_counter_review'
@@ -4427,13 +4438,18 @@ export class HiveStore {
               ORDER BY e.id DESC
               LIMIT 1
            )
+           LEFT JOIN results r ON r.id = CAST(json_extract(ce.payload, '$.resultId') AS INTEGER)
           ORDER BY cv.renduA DESC
           LIMIT ?`,
       )
       .all(Math.max(1, Math.min(limite, CORPUS_AIGUILLAGE))) as Array<
-      LigneObservationAiguillage & { nodeId: string | null }
+      LigneObservationAiguillage & { nodeId: string | null; modeleExact: string | null }
     >;
-    return rows.reverse().map(({ nodeId, ...ligne }) => (nodeId ? { ...ligne, nodeId } : ligne));
+    return rows.reverse().map(({ nodeId, modeleExact, ...ligne }) => ({
+      ...ligne,
+      ...(nodeId ? { nodeId } : {}),
+      ...(modeleExact ? { modeleExact } : {}),
+    }));
   }
 
   /**

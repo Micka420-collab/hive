@@ -66,6 +66,7 @@ type LigneObservation = Pick<Observation, 'modele' | 'suite'> & {
   title: string;
   prompt: string;
   nodeId?: string;
+  modeleExact?: string;
 };
 
 function reputationDe(lignes: readonly LigneObservation[]): WorkerReputationSnapshot {
@@ -150,7 +151,7 @@ export function projeterWorkers(
             return [categorie, scoreDe(rang)];
           }),
         ) as ModeleWorkerSnapshot['categories'],
-        reputation: reputationDe(lignesDuWorker.filter((ligne) => ligne.modele === modele)),
+        reputation: reputationDe(lignesDuWorker.filter((ligne) => ligne.modeleExact === modele)),
       }));
     }
 

@@ -71,6 +71,7 @@ describe('GET /api/workers', () => {
       source: 'hive_counter_review',
       taskId: task.id,
       resultId,
+      producteurModele: 'claude-sonnet',
       relecture: 'review-worker-1',
       relecteur: 'codex',
       reviewerNodeId: 'reviewer-1',
