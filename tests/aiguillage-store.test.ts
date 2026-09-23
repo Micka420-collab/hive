@@ -12,8 +12,8 @@
 //   · la catégorie n'est pas stockée — `categoriser` la recalcule à la lecture.
 //
 // Les trois propriétés qui comptent, et que ce banc tient :
-//   1. une observation n'apparaît QUE si l'on connaît À LA FOIS le modèle ET le
-//      verdict (jointure interne) — un demi-fait ne fausse pas la mémoire ;
+//   1. une observation n'apparaît QUE si l'on connaît le verdict et soit le
+//      modèle courant, soit le modèle exact prouvé par la contre-revue ;
 //   2. la reconstruction est bornée et rendue en ordre chronologique, tel que
 //      `replierAntecedents` l'attend ;
 //   3. la borne d'élagage retire les liens dont la tâche a disparu.
@@ -109,6 +109,21 @@ describe('HiveStore — le lien tâche→modèle de l’Aiguillage', () => {
       1_800,
     );
     verdict(t, 'appliquer', 2_000);
+
+    // Le modèle courant peut changer, puis le journal dépasser sa fenêtre. Le
+    // dernier verdict de cette tâche reste dans le corpus durable : son
+    // événement doit survivre assez longtemps pour conserver `modeleExact`.
+    store.poserModeleAiguillage(t, 'fable-courant', 2_500);
+    for (let i = 0; i < 5_001; i++) store.appendEvent('bruit', { i });
+    expect(store.pruneEvents(5_000)).toBe(1);
+    expect(store.observationsAiguillage()).toEqual([
+      expect.objectContaining({
+        modele: 'fable-courant',
+        modeleExact: 'opus-exact',
+        suite: 'appliquer',
+      }),
+    ]);
+
     store.effacerModeleAiguillage(t);
 
     expect(store.modeleAiguillageDe(t)).toBeNull();
