@@ -1046,6 +1046,7 @@ interface DelegationRow {
 }
 
 interface ResultRow {
+  id: number;
   taskId: string;
   nodeId: string;
   success: number;
@@ -3140,6 +3141,7 @@ export class HiveStore {
       .prepare('SELECT * FROM results WHERE taskId = ? ORDER BY id')
       .all(taskId) as ResultRow[];
     return rows.map((r) => ({
+      resultId: r.id,
       taskId: r.taskId,
       nodeId: r.nodeId,
       success: r.success === 1,

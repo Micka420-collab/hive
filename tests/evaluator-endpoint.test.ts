@@ -19,6 +19,7 @@ describe('GET /api/tasks/:id/evaluation', () => {
   let dir: string;
   let base: string;
   let taskId: string;
+  let secondResultId: number;
   const headers = { 'x-hive-token': TOKEN, 'content-type': 'application/json' };
 
   beforeAll(async () => {
@@ -73,6 +74,7 @@ describe('GET /api/tasks/:id/evaluation', () => {
       durationMs: 11,
       subAgents: [],
     });
+    secondResultId = second;
     server.store.enregistrerInspection({
       resultId: first,
       taskId: task.id,
@@ -121,5 +123,46 @@ describe('GET /api/tasks/:id/evaluation', () => {
     expect(noToken.status).toBe(401);
     const unknown = await fetch(`${base}/api/tasks/inconnue/evaluation`, { headers });
     expect(unknown.status).toBe(404);
+  });
+
+  it('ne rattache pas une inspection retardée au résultat courant', async () => {
+    const latestResultId = server.store.insertResult({
+      taskId,
+      nodeId: 'n2',
+      diff: DIFF,
+      logs: 'tests: 0 failed',
+      success: true,
+      durationMs: 12,
+      subAgents: [],
+    });
+    server.store.enregistrerInspection({
+      resultId: latestResultId,
+      taskId,
+      nodeId: 'n2',
+      verdict: 'clean',
+      score: 0,
+      applique: false,
+      griefs: [],
+    });
+    // Cette relecture de l'ancienne tentative arrive après la nouvelle. Elle
+    // est donc en tête de `listInspections`, tout en pointant vers `second`.
+    server.store.enregistrerInspection({
+      resultId: secondResultId,
+      taskId,
+      nodeId: 'n2',
+      verdict: 'hollow',
+      score: 90,
+      applique: true,
+      griefs: [],
+    });
+
+    const response = await fetch(`${base}/api/tasks/${taskId}/evaluation`, { headers });
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      decision: string;
+      evidence: Record<string, string>;
+    };
+    expect(body.evidence.gardiennes).toBe('clean');
+    expect(body.decision).toBe('additional_test_required');
   });
 });

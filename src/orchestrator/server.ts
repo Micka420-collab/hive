@@ -3355,7 +3355,12 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       }
 
       const noeud = store.getNode(dernier.nodeId);
-      const inspection = inspectionDeProduction(store.listInspections(), task.id, dernier.nodeId);
+      const inspection = inspectionDeProduction(
+        store.listInspections(),
+        task.id,
+        dernier.nodeId,
+        dernier.resultId,
+      );
       // Les fichiers sont lus du diff AVANT la livraison : le corps de la PR
       // part avec la requête qui l'ouvre, il ne peut donc pas attendre le
       // résultat. Une analyse en trop coûte quelques microsecondes ; une PR
@@ -4150,7 +4155,12 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         const resultats = store.resultsForTask(task.id);
         const dernier = resultats[resultats.length - 1]!;
         const noeud = store.getNode(dernier.nodeId);
-        const inspection = inspectionDeProduction(store.listInspections(), task.id, dernier.nodeId);
+        const inspection = inspectionDeProduction(
+          store.listInspections(),
+          task.id,
+          dernier.nodeId,
+          dernier.resultId,
+        );
         const branche = nomBranche(task.id);
         const issueOrigine = store.issueDeTache(task.id);
 
@@ -6636,7 +6646,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       const latest = results[results.length - 1];
       const inspections = store.listInspections();
       const inspection = latest
-        ? inspectionDeProduction(inspections, task.id, latest.nodeId)
+        ? inspectionDeProduction(inspections, task.id, latest.nodeId, latest.resultId)
         : undefined;
       const ballots: Ballot[] = results.map((r) => ({
         nodeId: r.nodeId,
