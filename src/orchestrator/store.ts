@@ -4333,6 +4333,18 @@ export class HiveStore {
       .run(taskId, modele, now);
   }
 
+  /**
+   * Retire le modèle de la tentative actuellement portée par une tâche.
+   *
+   * L'absence de ligne signifie « aucun modèle choisi : le nœud emploie son
+   * défaut ». Une réassignation vers un nœud sans modèle doit donc effacer la
+   * ligne précédente, sinon une relivraison attribuerait à tort l'ancien
+   * modèle au nouveau producteur.
+   */
+  effacerModeleAiguillage(taskId: string): void {
+    this.db.prepare('DELETE FROM aiguillage_modeles WHERE taskId = ?').run(taskId);
+  }
+
   /** Modèle choisi pour la tentative actuellement représentée par la tâche. */
   modeleAiguillageDe(taskId: string): string | null {
     const row = this.db

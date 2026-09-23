@@ -218,6 +218,7 @@ describe('endpoints de l’instinct de ruche', () => {
       // 5 s, le serveur re-livre le message (filet anti-perte en vol).
       const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
       const assignations: Array<Record<string, unknown>> = [];
+      let wsSansModele: WebSocket | undefined;
       ws.on('message', (data) => {
         const msg = JSON.parse(data.toString()) as Record<string, unknown>;
         if (msg.type === 'assign_task') assignations.push(msg);
@@ -318,7 +319,61 @@ describe('endpoints de l’instinct de ruche', () => {
         // re-livraison (sinon le journal serait noyé toutes les 2 secondes).
         const brood = server.store.listEvents(0, 1_000).filter((e) => e.type === 'brood_context');
         expect(brood).toHaveLength(1);
+
+        // Une réassignation vers un nœud qui ne déclare aucun modèle doit
+        // retirer l'élection « opus » de la tentative. Sinon le filet de
+        // relivraison enverrait opus au nouveau nœud, qui n'a jamais choisi ce
+        // modèle, et l'historique lui attribuerait un résultat qu'il n'a pas
+        // exécuté.
+        wsSansModele = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
+        const assignationsSansModele: Array<Record<string, unknown>> = [];
+        wsSansModele.on('message', (data) => {
+          const msg = JSON.parse(data.toString()) as Record<string, unknown>;
+          if (msg.type === 'assign_task') assignationsSansModele.push(msg);
+        });
+        await new Promise<void>((resolve, reject) => {
+          wsSansModele?.once('open', () => resolve());
+          wsSansModele?.once('error', reject);
+        });
+        wsSansModele.send(
+          JSON.stringify({
+            type: 'register',
+            token: TOKEN,
+            name: 'ouvriere-sans-modele',
+            ownerName: 'test',
+            agentType: 'shell',
+            maxConcurrency: 1,
+            nodeId: 'noeud-sans-modele',
+          }),
+        );
+        const fermeture = new Promise<void>((resolve) => ws.once('close', () => resolve()));
+        ws.close();
+        await fermeture;
+
+        const reassignmentDeadline = Date.now() + 5_000;
+        while (assignationsSansModele.length < 1 && Date.now() < reassignmentDeadline) {
+          await new Promise((r) => setTimeout(r, 50));
+        }
+        expect(assignationsSansModele.length).toBeGreaterThanOrEqual(1);
+        expect(assignationsSansModele[0]?.modele).toBeUndefined();
+        expect(server.store.modeleAiguillageDe(task.id)).toBeNull();
+
+        // Reproduire le silence après la réassignation pour forcer le second
+        // chemin : la relivraison doit conserver l'absence de modèle.
+        server.store.patchTask(
+          task.id,
+          { status: 'assigned', assignedNodeId: 'noeud-sans-modele' },
+          Date.now() - 60_000,
+        );
+        const redeliveryDeadline = Date.now() + 5_000;
+        while (assignationsSansModele.length < 2 && Date.now() < redeliveryDeadline) {
+          await new Promise((r) => setTimeout(r, 50));
+        }
+        expect(assignationsSansModele.length).toBeGreaterThanOrEqual(2);
+        expect(assignationsSansModele[1]?.modele).toBeUndefined();
+        expect(server.store.modeleAiguillageDe(task.id)).toBeNull();
       } finally {
+        wsSansModele?.close();
         ws.close();
       }
     },
