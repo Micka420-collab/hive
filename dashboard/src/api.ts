@@ -354,6 +354,52 @@ export function fetchResults(taskId: string): Promise<TaskResult[]> {
   return api<TaskResult[]>(`/api/tasks/${taskId}/results`);
 }
 
+/** Graphe Hive réellement persisté pour le tiroir Mission Control. */
+export interface DelegationGraphNode {
+  taskId: string;
+  rootTaskId: string;
+  parentTaskId: string | null;
+  depth: number;
+  status: Task['status'];
+  origine: 'hive' | 'native';
+}
+
+export interface DelegationRecord {
+  childTaskId: string;
+  parentTaskId: string;
+  rootTaskId: string;
+  depth: number;
+  origine: 'hive' | 'native';
+  durationMs: number;
+  costMicros: number;
+  resourceUnits: number;
+  preferredAgent?: string | null;
+  preferredModel?: string | null;
+  title: string;
+  prompt: string;
+  createdAt: number;
+}
+
+export interface DelegationEvent {
+  id: number;
+  ts: number;
+  type: string;
+  payload: Record<string, unknown>;
+}
+
+export interface TaskDelegationGraph {
+  taskId: string;
+  rootTaskId: string;
+  graph: DelegationGraphNode[];
+  delegations: DelegationRecord[];
+  events: DelegationEvent[];
+}
+
+/** Lecture authentifiée du graphe et de l’activité de délégation réelle. */
+export function fetchDelegationGraph(taskId: string): Promise<TaskDelegationGraph> {
+  return api<TaskDelegationGraph>(`/api/tasks/${encodeURIComponent(taskId)}/delegation`);
+}
+
 export interface Memory {
   id: number;
   projectId: string;

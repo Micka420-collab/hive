@@ -2,14 +2,22 @@
 // revue humaine, avec possibilité d'annuler une tâche en cours.
 
 import { lazy, Suspense, useEffect, useState } from 'react';
-import { cancelTask, fetchRace, fetchResults, raceTask } from './api';
-import type { DroneRace, RaceVictory } from './api';
+import { cancelTask, fetchDelegationGraph, fetchRace, fetchResults, raceTask } from './api';
+import type { DelegationEvent, DroneRace, RaceVictory, TaskDelegationGraph } from './api';
 import type { HiveNode, Task, TaskResult } from '../../src/shared/types';
 import { useLang, useT } from './i18n';
 import { formatMs, StatusBadge, useDialog } from './ui';
 import { direAnnonce, direDuree } from '../../src/shared/horloge-chantier';
 import { verdictAnnonce } from './horloge-vue';
 import type { VueHorloge } from './horloge-vue';
+
+function raisonDelegation(events: DelegationEvent[], taskId: string): string | null {
+  const event = events.find(
+    (candidate) =>
+      candidate.type === 'delegation_created' && candidate.payload.childTaskId === taskId,
+  );
+  return typeof event?.payload.reason === 'string' ? event.payload.reason : null;
+}
 
 // L'éditeur (CodeMirror) est chargé à la demande — pesant seulement quand on
 // ouvre le tiroir d'une tâche.
@@ -39,6 +47,9 @@ export function TaskDrawer({ task, nodes, horloge, onClose }: Props) {
   const [raced, setRaced] = useState<number | null>(null);
   const [race, setRace] = useState<DroneRace | null>(null);
   const [victory, setVictory] = useState<RaceVictory | null>(null);
+  const [delegation, setDelegation] = useState<TaskDelegationGraph | null>(null);
+  const [delegationLoading, setDelegationLoading] = useState(true);
+  const [delegationError, setDelegationError] = useState<string | null>(null);
   const [editable, setEditable] = useState(false);
   const [edited, setEdited] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -60,6 +71,30 @@ export function TaskDrawer({ task, nodes, horloge, onClose }: Props) {
     fetchResults(task.id)
       .then((r) => alive && setResults(r))
       .catch(() => alive && setResults([]));
+    return () => {
+      alive = false;
+    };
+  }, [task.id]);
+
+  // Le graphe est relu depuis la même API que Mission Control : aucun enfant,
+  // statut ou événement ne doit être déduit du rendu temps réel.
+  useEffect(() => {
+    let alive = true;
+    setDelegation(null);
+    setDelegationLoading(true);
+    setDelegationError(null);
+    fetchDelegationGraph(task.id)
+      .then((graph) => {
+        if (!alive) return;
+        setDelegation(graph);
+      })
+      .catch((e: unknown) => {
+        if (!alive) return;
+        setDelegationError(e instanceof Error ? e.message : String(e));
+      })
+      .finally(() => {
+        if (alive) setDelegationLoading(false);
+      });
     return () => {
       alive = false;
     };
@@ -181,6 +216,59 @@ export function TaskDrawer({ task, nodes, horloge, onClose }: Props) {
           <dt>ID</dt>
           <dd className="mono">{task.id}</dd>
         </dl>
+
+        <section className="delegation-panel" aria-labelledby="delegation-title">
+          <div className="delegation-panel-head">
+            <h3 id="delegation-title">{t('Délégation Hive', 'Hive delegation')}</h3>
+            {delegation && delegation.events.length > 0 && (
+              <span className="muted-text">
+                {delegation.events.length} {t('événement(s)', 'event(s)')}
+              </span>
+            )}
+          </div>
+          {delegationLoading && (
+            <p className="muted-text" role="status">
+              {t('Lecture du graphe réel…', 'Reading the live graph…')}
+            </p>
+          )}
+          {delegationError && (
+            <p className="modal-error" role="status">
+              {t('Graphe indisponible :', 'Graph unavailable:')} {delegationError}
+            </p>
+          )}
+          {!delegationLoading && !delegationError && delegation && delegation.graph.length <= 1 && (
+            <p className="muted-text">
+              {t('Aucune sous-tâche Hive persistée.', 'No persisted Hive child task.')}
+            </p>
+          )}
+          {!delegationLoading && !delegationError && delegation && delegation.graph.length > 1 && (
+            <ol
+              className="delegation-tree"
+              aria-label={t('Graphe de délégation', 'Delegation graph')}
+            >
+              {delegation.graph.map((node) => {
+                const reason = raisonDelegation(delegation.events, node.taskId);
+                return (
+                  <li key={node.taskId} className="delegation-tree-node">
+                    <div
+                      className="delegation-tree-row"
+                      style={{ paddingInlineStart: node.depth * 16 }}
+                    >
+                      <span className="delegation-tree-id mono">{node.taskId}</span>
+                      <StatusBadge status={node.status} />
+                    </div>
+                    {node.parentTaskId && (
+                      <span className="delegation-tree-parent">
+                        {t('parent', 'parent')} : {node.parentTaskId}
+                      </span>
+                    )}
+                    {reason && <p className="delegation-tree-reason">{reason}</p>}
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+        </section>
 
         {race && !race.decided && (
           <p className="muted-text" title={t('Course de drones en vol', 'Drone race in flight')}>

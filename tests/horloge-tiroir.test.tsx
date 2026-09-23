@@ -30,6 +30,24 @@ import type { VueHorloge } from '../dashboard/src/horloge-vue';
 vi.mock('../dashboard/src/api', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   fetchResults: vi.fn(() => Promise.resolve([])),
+  fetchDelegationGraph: vi.fn(() =>
+    Promise.resolve({
+      taskId: 'tache-horloge',
+      rootTaskId: 'tache-horloge',
+      graph: [
+        {
+          taskId: 'tache-horloge',
+          rootTaskId: 'tache-horloge',
+          parentTaskId: null,
+          depth: 0,
+          status: 'done',
+          origine: 'native',
+        },
+      ],
+      delegations: [],
+      events: [],
+    }),
+  ),
   fetchRace: vi.fn(() => Promise.resolve({ race: null, victory: null })),
   cancelTask: vi.fn(() => Promise.resolve()),
   raceTask: vi.fn(() => Promise.resolve({ drones: [] })),
