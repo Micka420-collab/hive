@@ -331,19 +331,62 @@ describe('Scheduler (ordonnancement)', () => {
     const first = store.resultsForTask(t.id)[0]!;
     expect(first.resultId).toBeTypeOf('number');
 
-    const dependent = store.createTask({
+    store.setTaskReview(t.id, 'approved');
+    store.setLivraison({
+      taskId: t.id,
       projectId: p.id,
-      title: 'D',
-      prompt: 'd',
-      dependsOn: [t.id],
+      depot: 'moi/hive',
+      pr: 7,
+      branche: `hive/${t.id}`,
+      etat: 'ouverte',
     });
-    const retry = scheduler.retryFromEvaluator({
+    const blockedByDelivery = scheduler.retryFromEvaluator({
       taskId: t.id,
       resultId: first.resultId!,
       decision: 'correction_required',
     });
+    expect(blockedByDelivery).toMatchObject({ ok: false, reason: 'delivery_exists' });
+    expect(store.getTask(t.id)?.status).toBe('done');
+    expect(store.getTaskReview(t.id)?.state).toBe('approved');
+
+    for (const pr of [7, 0]) {
+      store.setLivraison({
+        taskId: t.id,
+        projectId: p.id,
+        depot: 'moi/hive',
+        pr,
+        branche: `hive/${t.id}`,
+        etat: 'echouee',
+      });
+      const failedDelivery = scheduler.retryFromEvaluator({
+        taskId: t.id,
+        resultId: first.resultId!,
+        decision: 'correction_required',
+      });
+      expect(failedDelivery).toMatchObject({ ok: false, reason: 'delivery_exists' });
+      expect(store.getTask(t.id)?.status).toBe('done');
+      expect(store.getTaskReview(t.id)?.state).toBe('approved');
+    }
+
+    // Une tâche sans historique de livraison reste réessayable.
+    const retryable = store.createTask({ projectId: p.id, title: 'R', prompt: 'r' });
+    scheduler.tick();
+    expect(scheduler.handleTaskResult(node.id, result(retryable.id))).toBe(true);
+    const retryableFirst = store.resultsForTask(retryable.id)[0]!;
+    const dependent = store.createTask({
+      projectId: p.id,
+      title: 'D',
+      prompt: 'd',
+      dependsOn: [retryable.id],
+    });
+    const retry = scheduler.retryFromEvaluator({
+      taskId: retryable.id,
+      resultId: retryableFirst.resultId!,
+      decision: 'correction_required',
+    });
     expect(retry.ok).toBe(true);
-    expect(store.getTask(t.id)?.attempts).toBe(1);
+    expect(store.getTaskReview(retryable.id)).toBeNull();
+    expect(store.getTask(retryable.id)?.attempts).toBe(1);
     expect(store.getTask(dependent.id)?.status).toBe('pending');
     expect(
       store
@@ -352,17 +395,58 @@ describe('Scheduler (ordonnancement)', () => {
         .at(-1)?.payload,
     ).toMatchObject({
       source: 'evaluator',
-      resultId: first.resultId,
+      resultId: retryableFirst.resultId,
       attempt: 1,
     });
 
     // Le même verdict retardé ne peut pas brûler une deuxième tentative.
     const duplicate = scheduler.retryFromEvaluator({
-      taskId: t.id,
-      resultId: first.resultId!,
+      taskId: retryable.id,
+      resultId: retryableFirst.resultId!,
       decision: 'correction_required',
     });
     expect(duplicate).toMatchObject({ ok: false, reason: 'task_not_done' });
+
+    // Une annulation pendant la nouvelle tentative ferme aussi la porte à un
+    // avis retardé de la contre-revue : le même résultat ne peut pas rouvrir
+    // une tâche terminale.
+    expect(scheduler.cancelTask(retryable.id, 'annulée par un humain')?.status).toBe('failed');
+    const lateAfterCancellation = scheduler.retryFromEvaluator({
+      taskId: retryable.id,
+      resultId: retryableFirst.resultId!,
+      decision: 'correction_required',
+    });
+    expect(lateAfterCancellation).toMatchObject({ ok: false, reason: 'task_not_done' });
+  });
+
+  it("n'auto-réessaie jamais au-delà de la borne Evaluator", () => {
+    const p = store.createProject({ name: 'P' });
+    const t = store.createTask({ projectId: p.id, title: 'T', prompt: 't' });
+    const node = scheduler.registerNode(profile('n1'));
+    scheduler.tick();
+    expect(scheduler.handleTaskResult(node.id, result(t.id))).toBe(true);
+    const latest = store.resultsForTask(t.id).at(-1)!;
+    // Simule une tâche qui a déjà consommé tout son budget avant l'avis
+    // retardé. Le résultat reste exact, mais la borne doit gagner.
+    store.patchTask(t.id, { status: 'done', attempts: 3, assignedNodeId: null });
+
+    const retry = scheduler.retryFromEvaluator({
+      taskId: t.id,
+      resultId: latest.resultId!,
+      decision: 'rejected',
+    });
+    expect(retry).toMatchObject({ ok: false, reason: 'attempts_exhausted' });
+    expect(store.getTask(t.id)).toMatchObject({ status: 'done', attempts: 3 });
+    expect(
+      store
+        .listEvents()
+        .filter(
+          (event) =>
+            event.type === 'task_retry' &&
+            event.payload.source === 'evaluator' &&
+            event.payload.taskId === t.id,
+        ),
+    ).toHaveLength(0);
   });
 
   it('refuse le retry Evaluator si une dépendante a déjà progressé', () => {

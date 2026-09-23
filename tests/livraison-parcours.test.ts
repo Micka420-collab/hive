@@ -71,6 +71,8 @@ describe('livrer, puis fusionner', () => {
   const fusionnees: number[] = [];
   /** Ce que le faux n'a pas su servir — pour ne pas déboguer à l'aveugle. */
   const nonServis: string[] = [];
+  let bloquerLecture = false;
+  let libererLecture: (() => void) | null = null;
   let avantJeton: string | undefined;
   let avantApi: string | undefined;
 
@@ -92,6 +94,12 @@ describe('livrer, puis fusionner', () => {
         return repondre(200, { full_name: DEPOT, default_branch: 'main' });
       }
       if (u.pathname === `/repos/${DEPOT}/git/ref/heads/main`) {
+        if (bloquerLecture) {
+          bloquerLecture = false;
+          return new Promise<void>((resolve) => {
+            libererLecture = resolve;
+          }).then(() => repondre(200, { object: { sha: 'base-sha' } }));
+        }
         return repondre(200, { object: { sha: 'base-sha' } });
       }
       if (u.pathname.startsWith(`/repos/${DEPOT}/contents/`)) {
@@ -221,6 +229,41 @@ describe('livrer, puis fusionner', () => {
     expect(pr).toBeGreaterThanOrEqual(42);
   });
 
+  it('réserve la livraison manuelle avant le premier appel GitHub', async () => {
+    const t = tacheLivrable('réserver avant GitHub');
+    bloquerLecture = true;
+    const requete = fetch(`${base}/api/livraison`, {
+      method: 'POST',
+      headers: hive(),
+      body: JSON.stringify({ taskId: t.id }),
+    });
+    const fin = Date.now() + 2_000;
+    while (!libererLecture && Date.now() < fin) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    expect(libererLecture).toBeTypeOf('function');
+    expect(server.store.getLivraison(t.id)?.etat).toBe('en_cours');
+    const resultat = server.store.resultsForTask(t.id).at(-1);
+    const retry = server.scheduler.retryFromEvaluator({
+      taskId: t.id,
+      resultId: resultat?.resultId ?? -1,
+      decision: 'correction_required',
+    });
+    expect(retry).toMatchObject({ ok: false, reason: 'delivery_exists' });
+    const enCours = server.store.getLivraison(t.id);
+    expect(enCours?.etat).toBe('en_cours');
+    // Simule la décision concurrente qui remplace la réservation avant le
+    // retour GitHub. Le retour tardif ne doit pas la transformer en PR ouverte.
+    if (enCours) {
+      server.store.setLivraison({ ...enCours, pr: 0, etat: 'echouee', motif: 'remplacée' });
+    }
+    libererLecture?.();
+    libererLecture = null;
+    const res = await requete;
+    expect(res.status, await res.clone().text()).toBe(409);
+    expect(server.store.getLivraison(t.id)?.etat).toBe('echouee');
+  });
+
   it('LA VOIE MANUELLE RANGE SA LIVRAISON, comme la voie autonome', async () => {
     // Sans ça, le numéro de PR n'existe nulle part où le retrouver : ni pour
     // rouvrir « où en est ma livraison ? », ni pour vérifier quoi que ce soit
@@ -273,6 +316,12 @@ describe('livrer, puis fusionner', () => {
       body: JSON.stringify({ projectId: projet, pr }),
     });
     expect(server.store.getLivraison(tache.id)?.etat).toBe('fusionnee');
+    const reprise = await fetch(`${base}/api/livraison/fusion`, {
+      method: 'POST',
+      headers: hive(),
+      body: JSON.stringify({ projectId: projet, pr }),
+    });
+    expect(reprise.status).toBe(409);
   });
 
   it('LA FUSION HUMAINE PASSE LES FABRIQUES LIÉES EN mergee', async () => {
@@ -322,5 +371,47 @@ describe('livrer, puis fusionner', () => {
       body: JSON.stringify({ projectId: sansDepot, pr: 1 }),
     });
     expect(res.status).toBe(404);
+  });
+
+  it('réconcilie une réservation orpheline au redémarrage', async () => {
+    const t = tacheLivrable('réservation interrompue');
+    expect(
+      server.store.reserverLivraison({
+        taskId: t.id,
+        projectId: projet,
+        depot: DEPOT,
+        branche: `hive/${t.id}`,
+        now: 1,
+      }),
+    ).toBe(true);
+    expect(server.store.getLivraison(t.id)?.etat).toBe('en_cours');
+
+    await server.stop();
+    server = await createServer({
+      port: 0,
+      host: '127.0.0.1',
+      token: TOKEN,
+      corsOrigins: ['http://localhost:5173'],
+      dbPath: path.join(dir, 'hive.db'),
+      simulation: false,
+      tickMs: 60_000,
+    });
+    base = `http://127.0.0.1:${server.port}`;
+
+    const livraison = server.store.getLivraison(t.id);
+    expect(livraison?.etat).toBe('echouee');
+    expect(livraison?.pr).toBe(0);
+    expect(livraison?.motif).toMatch(/redémarrage.*PR.*distante peut exister/);
+
+    const vue = await fetch(`${base}/api/projects/${projet}/livraisons`, {
+      headers: hive(),
+    });
+    expect(vue.status).toBe(200);
+    const corps = (await vue.json()) as {
+      livraisons: Array<{ taskId: string; etat: string; pr: number; faits: unknown; dit: string }>;
+    };
+    const interrompue = corps.livraisons.find((l) => l.taskId === t.id);
+    expect(interrompue).toMatchObject({ taskId: t.id, etat: 'echouee', pr: 0, faits: null });
+    expect(interrompue?.dit).toMatch(/redémarrage.*PR.*distante peut exister/);
   });
 });

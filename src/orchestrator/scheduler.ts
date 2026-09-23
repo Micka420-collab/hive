@@ -143,6 +143,7 @@ export type EvaluationRetryOutcome =
         | 'invalid_result_id'
         | 'stale_result'
         | 'dependent_progressed'
+        | 'delivery_exists'
         | 'attempts_exhausted';
       task?: Task;
     };
@@ -997,6 +998,13 @@ export class Scheduler {
     const task = this.store.getTask(input.taskId);
     if (!task) return { ok: false, reason: 'unknown_task' };
     if (task.status !== 'done') return { ok: false, reason: 'task_not_done', task };
+    // Toute ligne de livraison est une décision historique : une livraison
+    // échouée peut encore correspondre à une PR distante, et `pr: 0` marque
+    // explicitement un échec de création. Réouvrir la tâche ferait perdre ce
+    // lien et pourrait créer une seconde livraison pour le même résultat.
+    if (this.store.getLivraison(task.id)) {
+      return { ok: false, reason: 'delivery_exists', task };
+    }
     if (!Number.isSafeInteger(input.resultId) || input.resultId <= 0) {
       return { ok: false, reason: 'invalid_result_id', task };
     }
@@ -1020,6 +1028,10 @@ export class Scheduler {
       now,
     );
     if (!requeued) return { ok: false, reason: 'unknown_task' };
+    // Une revue humaine approuve un résultat précis. La nouvelle tentative
+    // doit repasser par cette porte : conserver l'approbation ferait fuiter un
+    // verdict de la production précédente jusque dans la suivante.
+    this.store.setTaskReview(task.id, null);
     this.emit('task_retry', {
       taskId: task.id,
       source: 'evaluator',

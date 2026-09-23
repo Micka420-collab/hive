@@ -443,7 +443,9 @@ CREATE TABLE IF NOT EXISTS gardiennes (
 );
 
 -- ─── Les livraisons ─────────────────────────────────────────────────────────
--- Ce que la ruche a DEJA ouvert sur le depot de l'utilisateur.
+-- Ce que la ruche a DEJA réservé ou ouvert sur le depot de l'utilisateur.
+-- l'état en_cours est une réservation durable pendant l'appel GitHub ;
+-- elle empêche un retry concurrent avant qu'un numéro de PR existe.
 --
 -- Table LATERALE (regle 2 : aucune migration). Sans cette trace, le runner
 -- d'essaim relirait la meme production relue a chaque cycle et rouvrirait une
@@ -1136,11 +1138,12 @@ export interface CleNoeudRangee {
 }
 
 /**
- * Une pull request ouverte par la ruche sur le dépôt de l'utilisateur.
+ * Une livraison de la ruche sur le dépôt de l'utilisateur.
  *
- * `etat` : `ouverte` (PR en attente) · `fusionnee` · `echouee`. Un échec reste
- * VISIBLE avec son motif plutôt que d'être effacé — une livraison qui disparaît
- * sans laisser de trace, c'est une ruche qui retentera la même chose demain.
+ * `etat` : `en_cours` (réservation avant l'appel GitHub) · `ouverte` (PR en
+ * attente) · `fusionnee` · `echouee`. Un état terminal reste VISIBLE avec son
+ * motif plutôt que d'être effacé — une livraison qui disparaît sans laisser de
+ * trace, c'est une ruche qui retentera la même chose demain.
  */
 export interface LivraisonRangee {
   taskId: string;
@@ -1154,6 +1157,9 @@ export interface LivraisonRangee {
   creeA: number;
   majA: number;
 }
+
+/** État transitoire qui réserve une tâche pendant l'appel GitHub asynchrone. */
+export const ETAT_LIVRAISON_EN_COURS = 'en_cours';
 
 /** Une session de Conseil telle qu'elle est rangée. */
 export interface SessionRangee {
@@ -4970,6 +4976,110 @@ export class HiveStore {
   }
 
   // ─── Livraisons : ce que la ruche a déjà ouvert sur le dépôt ──────────────
+
+  /**
+   * Réserve une tâche avant le premier `await` vers GitHub.
+   *
+   * L'insertion conditionnelle est la frontière atomique entre la voie
+   * manuelle et le runner : deux processus ne peuvent pas réserver la même
+   * tâche, même si leurs lectures précédentes ont toutes deux vu l'absence de
+   * livraison.
+   */
+  reserverLivraison(l: {
+    taskId: string;
+    projectId: string;
+    depot: string;
+    branche: string;
+    now?: number;
+  }): boolean {
+    const now = l.now ?? Date.now();
+    const info = this.db
+      .prepare(
+        `INSERT INTO livraisons (taskId, projectId, depot, pr, branche, etat, motif, version, creeA, majA)
+         VALUES (?, ?, ?, 0, ?, ?, '', 1, ?, ?)
+         ON CONFLICT(taskId) DO NOTHING`,
+      )
+      .run(l.taskId, l.projectId, l.depot, l.branche, ETAT_LIVRAISON_EN_COURS, now, now);
+    return info.changes === 1;
+  }
+
+  /**
+   * Passe une réservation à son état terminal, uniquement si elle est encore
+   * la réservation attendue. Une livraison remplacée ne peut donc pas être
+   * réécrite par le retour tardif d'un appel GitHub.
+   */
+  finaliserLivraisonEnCours(l: {
+    taskId: string;
+    projectId: string;
+    depot: string;
+    branche: string;
+    pr: number;
+    etat: 'ouverte' | 'echouee';
+    motif?: string;
+    now?: number;
+  }): boolean {
+    const now = l.now ?? Date.now();
+    const info = this.db
+      .prepare(
+        `UPDATE livraisons
+            SET pr = ?, etat = ?, motif = ?, majA = ?
+          WHERE taskId = ?
+            AND projectId = ?
+            AND depot = ?
+            AND branche = ?
+            AND pr = 0
+            AND etat = ?`,
+      )
+      .run(
+        l.pr,
+        l.etat,
+        l.motif ?? '',
+        now,
+        l.taskId,
+        l.projectId,
+        l.depot,
+        l.branche,
+        ETAT_LIVRAISON_EN_COURS,
+      );
+    return info.changes === 1;
+  }
+
+  /**
+   * Réconcilie les réservations laissées par une Queen arrêtée.
+   *
+   * Une réservation `en_cours` est volontairement durable pendant l'appel
+   * GitHub : elle ferme la course avec un retry concurrent. Après un arrêt du
+   * processus, aucun `finally` ne peut toutefois la finaliser. La classer ici,
+   * avant toute nouvelle livraison, évite d'afficher un travail fantôme tout
+   * en conservant `pr: 0` et l'incertitude qu'une PR distante puisse exister.
+   */
+  requalifierLivraisonsEnCours(now = Date.now()): LivraisonRangee[] {
+    const motif =
+      'livraison interrompue par le redémarrage de la Queen ; une PR GitHub distante peut exister, vérifiez GitHub avant toute reprise';
+    const enCours = this.db
+      .prepare('SELECT * FROM livraisons WHERE etat = ? ORDER BY creeA ASC')
+      .all(ETAT_LIVRAISON_EN_COURS) as LivraisonRangee[];
+    if (enCours.length === 0) return [];
+
+    const requalifier = this.db.transaction((lignes: LivraisonRangee[]) => {
+      const update = this.db.prepare(
+        `UPDATE livraisons
+            SET etat = ?, motif = ?, majA = ?
+          WHERE taskId = ? AND etat = ? AND pr = 0`,
+      );
+      const sorties: LivraisonRangee[] = [];
+      for (const ligne of lignes) {
+        if (
+          update.run('echouee', motif, now, ligne.taskId, ETAT_LIVRAISON_EN_COURS).changes !== 1
+        ) {
+          continue;
+        }
+        sorties.push({ ...ligne, etat: 'echouee', motif, majA: now });
+      }
+      return sorties;
+    });
+    return requalifier(enCours);
+  }
 
   /** Note (ou met à jour) la pull request ouverte pour une tâche. */
   setLivraison(l: {

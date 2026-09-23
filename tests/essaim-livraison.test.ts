@@ -51,12 +51,19 @@ interface FauxGithub {
   fermer(): Promise<void>;
   /** Statut rendu par l'endpoint de fusion. 200 = fusionne. */
   statutFusion: number;
+  /** Bloque la prochaine lecture de la branche de base jusqu'à libération. */
+  bloquerProchaineLecture(): void;
+  libererLecture(): void;
 }
 
 async function fauxGithub(): Promise<FauxGithub> {
   const appels: Array<{ methode: string; chemin: string }> = [];
   const corpsDesPr: Array<Record<string, unknown>> = [];
-  const etat = { statutFusion: 200 };
+  const etat: {
+    statutFusion: number;
+    bloquerLecture: boolean;
+    libererLecture: (() => void) | null;
+  } = { statutFusion: 200, bloquerLecture: false, libererLecture: null };
   let prochainePr = 41;
 
   const srv: Server = createHttp((req, rep) => {
@@ -71,7 +78,15 @@ async function fauxGithub(): Promise<FauxGithub> {
     let brut = '';
     req.on('data', (c: Buffer) => (brut += c.toString()));
     req.on('end', () => {
-      if (chemin.includes('/git/ref/heads/')) return envoyer(200, { object: { sha: 'base-sha' } });
+      if (chemin.includes('/git/ref/heads/')) {
+        if (etat.bloquerLecture) {
+          etat.bloquerLecture = false;
+          return new Promise<void>((resolve) => {
+            etat.libererLecture = resolve;
+          }).then(() => envoyer(200, { object: { sha: 'base-sha' } }));
+        }
+        return envoyer(200, { object: { sha: 'base-sha' } });
+      }
       if (chemin.includes('/contents/')) {
         return envoyer(200, {
           type: 'file',
@@ -110,6 +125,14 @@ async function fauxGithub(): Promise<FauxGithub> {
     },
     set statutFusion(v: number) {
       etat.statutFusion = v;
+    },
+    bloquerProchaineLecture() {
+      etat.bloquerLecture = true;
+    },
+    libererLecture() {
+      const liberer = etat.libererLecture;
+      etat.libererLecture = null;
+      liberer?.();
     },
     fermer: () => new Promise<void>((r) => srv.close(() => r())),
   };
@@ -238,6 +261,42 @@ describe('la ruche livre toute seule', () => {
     expect(srv.store.listLivraisons(p, 'ouverte')[0]?.pr).toBeGreaterThan(0);
   });
 
+  it('UNE LIVRAISON EN VOL RÉSERVE LA PRODUCTION AVANT LA CONTRE-REVUE', async () => {
+    const { base, srv, faux } = await demarrer();
+    const p = projetLivrable(srv);
+    faux.bloquerProchaineLecture();
+    await regler(base, p, 'gouverne');
+
+    const lectureBloquee = await jusqua(() =>
+      faux.appels.some((appel) => appel.chemin.includes('/git/ref/heads/')),
+    );
+    expect(lectureBloquee).toBe(true);
+
+    const production = srv.store
+      .listTasks(p)
+      .find((task) => srv.store.resultsForTask(task.id).length > 0);
+    expect(production).toBeDefined();
+    if (!production) {
+      faux.libererLecture();
+      return;
+    }
+    expect(srv.store.getLivraison(production.id)?.etat).toBe('en_cours');
+    const resultat = srv.store.resultsForTask(production.id).at(-1);
+    expect(resultat?.resultId).toBeTypeOf('number');
+
+    const retry = srv.scheduler.retryFromEvaluator({
+      taskId: production.id,
+      resultId: resultat?.resultId ?? -1,
+      decision: 'correction_required',
+    });
+    expect(retry).toMatchObject({ ok: false, reason: 'delivery_exists' });
+    expect(srv.store.getTask(production.id)?.status).toBe('done');
+
+    faux.libererLecture();
+    expect(await jusqua(() => srv.store.listLivraisons(p, 'ouverte').length === 1)).toBe(true);
+    expect(srv.store.listLivraisons(p)).toHaveLength(1);
+  });
+
   it('LA PR N’ANNONCE PAS UN VERDICT QUE PERSONNE N’A RENDU SUR CETTE PRODUCTION', async () => {
     // Garde JUMELLE de celle du trajet manuel (`livraison-inspection.test.ts`) :
     //
@@ -295,6 +354,34 @@ describe('la ruche livre toute seule', () => {
     // Plus rien à livrer : la ruche est passée à autre chose.
     expect(vue.decision.pas).not.toBe('livrer');
     expect(srv.store.listLivraisons(p)).toHaveLength(1);
+
+    // Une livraison échouée reste une trace et empêche toute nouvelle PR
+    // tant qu'un humain n'a pas traité cette décision historique.
+    const production = srv.store
+      .listTasks(p)
+      .find((task) => srv.store.resultsForTask(task.id).length > 0);
+    expect(production).toBeDefined();
+    const livraison = production ? srv.store.getLivraison(production.id) : null;
+    expect(livraison).not.toBeNull();
+    if (production && livraison) {
+      srv.store.setLivraison({ ...livraison, etat: 'echouee' });
+    }
+    const apresEchec = (await (
+      await fetch(`${base}/api/projects/${p}/essaim`, { headers })
+    ).json()) as {
+      decision: { pas: string };
+    };
+    expect(apresEchec.decision.pas).not.toBe('livrer');
+
+    if (production && livraison) {
+      srv.store.setLivraison({ ...livraison, etat: 'fusionnee' });
+    }
+    const apresFusion = (await (
+      await fetch(`${base}/api/projects/${p}/essaim`, { headers })
+    ).json()) as {
+      decision: { pas: string };
+    };
+    expect(apresFusion.decision.pas).not.toBe('livrer');
   });
 
   it('SANS JETON, RIEN N’EST TENTÉ', async () => {

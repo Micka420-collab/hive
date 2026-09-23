@@ -329,6 +329,7 @@ describe('GET /api/tasks/:id/evaluation', () => {
     expect(body.retry?.attempt).toBe(1);
     expect(body.retry?.resultId).toBeTypeOf('number');
     expect(server.store.getTask(task.id)?.attempts).toBe(1);
+    expect(server.store.getTaskReview(task.id)).toBeNull();
     expect(
       server.store
         .listEvents()

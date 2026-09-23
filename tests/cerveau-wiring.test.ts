@@ -704,6 +704,26 @@ describe('la contre-expertise est annoncée à chaque production', () => {
       );
       expect(await attendreVerdicts(srv, idProduction, 1)).toHaveLength(1);
 
+      // Un seul avis contestataire ne suffit pas encore : l'Evaluator attend
+      // que chaque relecteur lancé pour ce `resultId` soit arrivé. Relancer ici
+      // ferait perdre l'avis favorable qui suit et pourrait ouvrir une boucle
+      // sur une contre-revue encore en vol.
+      expect(srv.store.getTask(idProduction)?.status).toBe('done');
+      expect(
+        srv.store
+          .listEvents()
+          .filter(
+            (event) =>
+              event.type === 'task_retry' &&
+              event.payload.source === 'evaluator' &&
+              event.payload.taskId === idProduction,
+          ),
+      ).toHaveLength(0);
+
+      // L'approbation humaine reste une condition de livraison, pas un
+      // contournement d'une objection indépendante déjà visible par l'Evaluator.
+      srv.store.setTaskReview(idProduction, 'approved');
+
       (sockets[1] as WebSocket).send(
         JSON.stringify({
           type: 'task_result',
@@ -717,6 +737,18 @@ describe('la contre-expertise est annoncée à chaque production', () => {
       );
       const verdicts = await attendreVerdicts(srv, idProduction, 2);
       expect(verdicts).toHaveLength(2);
+
+      const retries = srv.store
+        .listEvents()
+        .filter(
+          (event) =>
+            event.type === 'task_retry' &&
+            event.payload.source === 'evaluator' &&
+            event.payload.taskId === idProduction,
+        );
+      expect(retries).toHaveLength(1);
+      expect(retries[0]?.payload.resultId).toBe(resultId);
+      expect(srv.store.getTask(idProduction)?.attempts).toBe(1);
 
       const resume = srv.store.crossReviewForResult(idProduction, resultId as number);
       expect(resume).toMatchObject({
@@ -774,6 +806,54 @@ describe('la contre-expertise est annoncée à chaque production', () => {
         relus.length,
         `le relecteur a reçu ${relus.length} tâches : la relecture a été relue`,
       ).toBe(1);
+
+      // Un échec de relecture n'est pas un avis contestataire. Le Worker de
+      // contre-expertise peut être réessayé, mais la production reste intacte
+      // et aucune correction Evaluator ne doit partir sur une absence de vote.
+      produits.length = 0;
+      relus.length = 0;
+      const secondeProduction = await produire(srv, produits, 'diff --git a/y b/y\n+const b = 2;');
+      const secondeRelecture = await attendreAssignation(relus);
+      expect(secondeRelecture, 'aucune seconde relecture lancée').toBeDefined();
+      (sockets[1] as WebSocket).send(
+        JSON.stringify({
+          type: 'task_result',
+          taskId: secondeRelecture?.task?.id,
+          success: false,
+          diff: '',
+          logs: 'relecteur indisponible',
+          durationMs: 5,
+          subAgents: [],
+        }),
+      );
+
+      const echec = (await attendreEvt(srv, 'contre_expertise_review_failed')) as
+        { taskId?: string; relecture?: string; terminal?: boolean } | undefined;
+      expect(echec).toMatchObject({
+        taskId: secondeProduction,
+        relecture: secondeRelecture?.task?.id,
+        terminal: false,
+      });
+      expect(srv.store.getTask(secondeProduction)?.status).toBe('done');
+      expect(
+        srv.store
+          .listEvents()
+          .filter(
+            (event) =>
+              event.type === 'contre_expertise_verdict' &&
+              event.payload.taskId === secondeProduction,
+          ),
+      ).toHaveLength(0);
+      expect(
+        srv.store
+          .listEvents()
+          .filter(
+            (event) =>
+              event.type === 'task_retry' &&
+              event.payload.source === 'evaluator' &&
+              event.payload.taskId === secondeProduction,
+          ),
+      ).toHaveLength(0);
     },
   );
 });
