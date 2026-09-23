@@ -6599,6 +6599,40 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     },
   );
 
+  // Graphe de délégation borné : état des tâches + événements parent→raison→résultat.
+  // La lecture ne déduit rien d'un état UI : elle relit les arêtes SQLite et le
+  // journal réellement produit par le chemin Worker.
+  app.get<{ Params: { taskId: string } }>(
+    '/api/tasks/:taskId/delegation',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['taskId'],
+          properties: { taskId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const task = store.getTask(req.params.taskId);
+      if (!task) return reply.code(404).send({ error: 'tâche inconnue' });
+      const graph = store.listDelegationGraph(task.id);
+      const rootTaskId = graph[0]?.rootTaskId ?? task.id;
+      const delegations = graph
+        .filter((node) => node.parentTaskId !== null)
+        .map((node) => store.getDelegation(node.taskId))
+        .filter((delegation): delegation is NonNullable<typeof delegation> => delegation !== null);
+      return {
+        taskId: task.id,
+        rootTaskId,
+        graph,
+        delegations,
+        events: store.listDelegationEvents(rootTaskId),
+      };
+    },
+  );
+
   // Revue humaine (Miellerie) : verdict approved/rejected partagé entre tous
   // les opérateurs. `state: null` efface la revue. Un rejet qui dispose d'un
   // résultat exact et d'un verdict Evaluator réparable déclenche le retry
@@ -8694,6 +8728,20 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
             if (pris && !msg.success) {
               noterEchec(msg.taskId, msg.logs ?? '');
             }
+            if (pris) {
+              const delegation = store.getDelegation(msg.taskId);
+              if (delegation) {
+                const result = store.resultsForTask(msg.taskId).at(-1);
+                emitEvent('delegation_result', {
+                  parentTaskId: delegation.parentTaskId,
+                  childTaskId: delegation.childTaskId,
+                  rootTaskId: delegation.rootTaskId,
+                  nodeId,
+                  success: result?.success ?? msg.success,
+                  ...(result?.resultId !== undefined ? { resultId: result.resultId } : {}),
+                });
+              }
+            }
             // ─── UNE RELECTURE N'EST PAS UNE PRODUCTION ─────────────────────
             //
             // Sans cette question, le résultat d'une relecture repartirait
@@ -8726,6 +8774,116 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
               msg.retryAfterMs,
             );
             break;
+          case 'delegate_task': {
+            const parent = store.getTask(msg.parentTaskId);
+            const rejectDelegation = (code: string, message: string): void => {
+              emitEvent('delegation_rejected', {
+                requestId: msg.requestId,
+                parentTaskId: msg.parentTaskId,
+                childTaskId: msg.childTaskId,
+                nodeId,
+                code,
+                message,
+              });
+              send(ws, {
+                type: 'delegation_rejected',
+                requestId: msg.requestId,
+                parentTaskId: msg.parentTaskId,
+                code,
+                message,
+              });
+            };
+
+            // Un Worker ne peut déléguer qu'à partir de la tâche qu'il exécute
+            // réellement. Le parent fourni par le réseau ne suffit jamais à
+            // autoriser une création dans le projet d'un autre nœud.
+            if (!parent) {
+              rejectDelegation('parent_absent', 'tâche parente introuvable');
+              break;
+            }
+            if (parent.assignedNodeId !== nodeId) {
+              rejectDelegation('parent_non_attribue', 'tâche parente non attribuée à ce nœud');
+              break;
+            }
+            if (parent.status !== 'assigned' && parent.status !== 'running') {
+              rejectDelegation('parent_termine', 'une tâche terminée ne délègue plus');
+              break;
+            }
+
+            // Le childTaskId est la clé d'idempotence choisie par le Worker.
+            // Une retransmission après perte de l'accusé ne crée donc jamais un
+            // second enfant ; un id déjà utilisé dans un autre graphe reste un
+            // refus explicite.
+            const deja = store.getDelegation(msg.childTaskId);
+            if (deja) {
+              if (deja.parentTaskId !== msg.parentTaskId) {
+                rejectDelegation('task_id_duplique', 'identifiant enfant déjà utilisé');
+                break;
+              }
+              send(ws, {
+                type: 'delegation_accepted',
+                requestId: msg.requestId,
+                parentTaskId: msg.parentTaskId,
+                childTaskId: deja.childTaskId,
+                depth: deja.depth,
+              });
+              emitEvent('delegation_replayed', {
+                requestId: msg.requestId,
+                parentTaskId: msg.parentTaskId,
+                childTaskId: deja.childTaskId,
+                rootTaskId: deja.rootTaskId,
+                depth: deja.depth,
+                nodeId,
+              });
+              break;
+            }
+
+            const creation = store.createDelegatedTask({
+              childTaskId: msg.childTaskId,
+              parentTaskId: msg.parentTaskId,
+              title: msg.title,
+              prompt: msg.prompt,
+              durationMs: msg.durationMs,
+              costMicros: msg.costMicros,
+              resourceUnits: msg.resourceUnits,
+              ...(msg.preferredAgent ? { preferredAgent: msg.preferredAgent } : {}),
+              ...(msg.preferredModel ? { preferredModel: msg.preferredModel } : {}),
+            });
+            if (!creation.ok) {
+              rejectDelegation(creation.code, creation.motif);
+              break;
+            }
+            const reason = champSurUneLigne(msg.reason, LIMITS.delegationReason);
+            emitEvent('delegation_created', {
+              requestId: msg.requestId,
+              parentTaskId: msg.parentTaskId,
+              childTaskId: creation.task.id,
+              rootTaskId: creation.delegation.rootTaskId,
+              depth: creation.delegation.depth,
+              parentNodeId: nodeId,
+              reason,
+              title: creation.delegation.title,
+              durationMs: creation.delegation.durationMs,
+              costMicros: creation.delegation.costMicros,
+              resourceUnits: creation.delegation.resourceUnits,
+              ...(creation.delegation.preferredAgent
+                ? { preferredAgent: creation.delegation.preferredAgent }
+                : {}),
+              ...(creation.delegation.preferredModel
+                ? { preferredModel: creation.delegation.preferredModel }
+                : {}),
+            });
+            send(ws, {
+              type: 'delegation_accepted',
+              requestId: msg.requestId,
+              parentTaskId: msg.parentTaskId,
+              childTaskId: creation.task.id,
+              depth: creation.delegation.depth,
+            });
+            stateDirty = true;
+            scheduler.tick();
+            break;
+          }
           case 'requisition_open': {
             const v = store.ouvrirRequisition(
               nodeId,

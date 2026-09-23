@@ -20,6 +20,24 @@ export interface AdapterProgress {
   log?: string;
 }
 
+/** Demande bornée qu'un Worker peut transmettre à la Queen pour un enfant. */
+export interface WorkerDelegationInput {
+  /** Identifiant stable de la sous-tâche, réutilisé si le Worker réessaie. */
+  childTaskId: string;
+  reason: string;
+  title: string;
+  prompt: string;
+  durationMs: number;
+  costMicros: number;
+  resourceUnits: number;
+  preferredAgent?: string;
+  preferredModel?: string;
+}
+
+export type WorkerDelegationOutcome =
+  | { ok: true; parentTaskId: string; childTaskId: string; depth: number }
+  | { ok: false; code: string; message: string };
+
 import type { Fournisseur } from '../node-client/isolement.js';
 
 export interface AdapterContext {
@@ -39,6 +57,11 @@ export interface AdapterContext {
   modele?: string;
   /** Remontée de progrès vers l'orchestrateur (sous-agents, logs). */
   onProgress: (progress: AdapterProgress) => void;
+  /**
+   * Délégation contrôlée vers un enfant : l'adaptateur ne reçoit jamais un
+   * accès à SQLite ni un socket, seulement cette capacité bornée et traçable.
+   */
+  delegate?: (input: WorkerDelegationInput) => Promise<WorkerDelegationOutcome>;
   /**
    * Bac à sable dans lequel envelopper la commande, s'il y en a un.
    *
