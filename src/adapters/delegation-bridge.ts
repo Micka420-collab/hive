@@ -479,7 +479,11 @@ export async function createDelegationBridge(
   const bridgeId = randomUUID();
   const dir = path.join(ctx.cwd, '.hive');
   mkdirSync(dir, { recursive: true, mode: 0o700 });
-  const socketName = `d-${randomBytes(8).toString('hex')}.sock`;
+  // Un socket Unix porte déjà l'authentification éphémère du pont. Garder son
+  // nom court est nécessaire : macOS limite le chemin AF_UNIX bien avant la
+  // limite habituelle d'un chemin de fichier, et `cwd/.hive/` peut déjà être
+  // profond dans un workspace CI ou un dossier utilisateur.
+  const socketName = 's';
   const mcpServerName = `hive_${randomBytes(8).toString('hex')}`;
   let endpoint = '';
   let childEndpoint: string;

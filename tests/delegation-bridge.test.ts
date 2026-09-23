@@ -212,7 +212,7 @@ describe('pont MCP de délégation Worker → CLI', () => {
     await bridge.close();
     bridge = undefined;
     expect(existsSync(configPath)).toBe(false);
-    expect(endpoint.startsWith('tcp://')).toBe(false);
+    expect(endpoint.startsWith('tcp://')).toBe(process.platform === 'win32');
   });
 
   it('borne le diff et les logs avant de les rendre visibles au CLI', async () => {
