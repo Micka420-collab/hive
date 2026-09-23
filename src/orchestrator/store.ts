@@ -5261,9 +5261,23 @@ export class HiveStore {
               AND json_extract(payload, '$.source') = 'hive_counter_review'
               AND json_extract(payload, '$.resultId') IS NOT NULL
               AND json_extract(payload, '$.taskId') IN (
-                SELECT productionTaskId
-                  FROM contre_visites
-                 ORDER BY renduA DESC, productionTaskId DESC
+                SELECT cv.productionTaskId
+                  FROM contre_visites cv
+                  JOIN tasks t ON t.id = cv.productionTaskId
+                  LEFT JOIN aiguillage_modeles am ON am.taskId = cv.productionTaskId
+                  LEFT JOIN events ce ON ce.id = (
+                    SELECT e0.id
+                      FROM events e0
+                     WHERE e0.type = 'contre_expertise_verdict'
+                       AND json_extract(e0.payload, '$.source') = 'hive_counter_review'
+                       AND json_extract(e0.payload, '$.taskId') = cv.productionTaskId
+                       AND json_extract(e0.payload, '$.resultId') IS NOT NULL
+                     ORDER BY e0.id DESC
+                     LIMIT 1
+                  )
+                 WHERE am.taskId IS NOT NULL
+                    OR json_extract(ce.payload, '$.producteurModele') IS NOT NULL
+                 ORDER BY cv.renduA DESC, cv.productionTaskId DESC
                  LIMIT ?
               )
               AND id = (
@@ -5684,17 +5698,3 @@ export class HiveStore {
   // ─── Snapshot ──────────────────────────────────────────────────────────────
   /**
    * L'état que le tableau de bord reçoit — BORNÉ, et qui le dit.
-   *
-   * La limite est un paramètre pour que les tests puissent l'atteindre sans
-   * fabriquer deux mille tâches : une borne qu'on ne peut éprouver qu'au prix
-   * d'un banc ne sera jamais éprouvée.
-   */
-  getSnapshot(limite: number = LIMITE_TACHES_INSTANTANE): StateSnapshot {
-    return {
-      projects: this.listProjects(),
-      nodes: this.listNodes(),
-      tasks: this.tachesPourEcran(limite),
-      tasksTotal: this.compterTaches(),
-    };
-  }
-}

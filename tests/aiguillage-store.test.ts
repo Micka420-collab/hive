@@ -110,6 +110,13 @@ describe('HiveStore — le lien tâche→modèle de l’Aiguillage', () => {
     );
     verdict(t, 'appliquer', 2_000);
 
+    // Trois cents verdicts plus récents sans modèle ne sont pas des
+    // observations d'Aiguillage. Ils doivent donc déplacer la fenêtre brute
+    // des contre-visites sans faire sortir cette preuve exacte du corpus utile.
+    for (let i = 0; i < 300; i++) {
+      verdict(tache('Sans modèle', `ancien ${i}`), 'appliquer', 3_000 + i);
+    }
+
     // Le modèle courant peut changer, puis le journal dépasser sa fenêtre. Le
     // dernier verdict de cette tâche reste dans le corpus durable : son
     // événement doit survivre assez longtemps pour conserver `modeleExact`.
