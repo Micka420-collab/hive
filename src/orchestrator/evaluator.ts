@@ -30,6 +30,19 @@ export interface ValidationEvidence {
   lint: ValidationState;
 }
 
+/** Provenance de la validation, conservée avec le verdict plutôt que déduite. */
+export interface ValidationProvenance {
+  source: 'github_pull_request';
+  taskId: string;
+  projectId: string;
+  resultId: number;
+  depot: string;
+  pr: number;
+  branch: string;
+  commitSha: string;
+  recordedAt: number;
+}
+
 export interface EvaluatorInput {
   taskId: string;
   taskStatus: string;
@@ -42,6 +55,7 @@ export interface EvaluatorInput {
    * apportées par un producteur de preuve identifié. L'absence est explicite.
    */
   validation?: Partial<ValidationEvidence>;
+  validationProvenance?: ValidationProvenance;
 }
 
 export interface EvaluationEvidence {
@@ -54,6 +68,7 @@ export interface EvaluationEvidence {
   typecheck: ValidationState;
   build: ValidationState;
   lint: ValidationState;
+  validationProvenance?: ValidationProvenance;
   humanReview: 'approved' | 'rejected' | 'missing';
 }
 
@@ -103,6 +118,7 @@ export function evaluate(input: EvaluatorInput): EvaluationResult {
     build: validation.build,
     lint: validation.lint,
     humanReview: input.humanReview ?? 'missing',
+    ...(input.validationProvenance ? { validationProvenance: input.validationProvenance } : {}),
   };
 
   const reasons: string[] = [];
