@@ -1576,6 +1576,27 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
 
   // Reprise après redémarrage : les tâches running orphelines repartent en ready.
   scheduler.recoverAtBoot();
+  // Une réservation de livraison survit volontairement au premier appel
+  // GitHub pour fermer la course avec un retry. Après un crash, elle n'a plus
+  // de requête qui puisse la terminer : la classer échouée garde `pr: 0`,
+  // signale qu'une PR distante peut exister et empêche l'écran de mentir sur
+  // une livraison encore active.
+  const livraisonsInterrompues = store.requalifierLivraisonsEnCours();
+  for (const livraison of livraisonsInterrompues) {
+    emitEvent('delivery_recovered', {
+      taskId: livraison.taskId,
+      projectId: livraison.projectId,
+      branch: livraison.branche,
+      reason: 'queen_restart',
+      remotePullRequestUnknown: true,
+    });
+  }
+  if (livraisonsInterrompues.length > 0) {
+    emitEvent('delivery_recovery_required', {
+      count: livraisonsInterrompues.length,
+      reason: 'queen_restart',
+    });
+  }
 
   /** Faits communs au GET d'évaluation et à la remise en file contrôlée. */
   const evaluationPour = (task: Task) => {
@@ -7351,19 +7372,24 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // déclencherait la limite SECONDAIRE de GitHub, qui est un bannissement
       // temporaire et non un simple 429.
       for (const l of rangees.slice(-MAX_LIVRAISONS_LUES)) {
-        // Une réservation n'a pas encore de numéro GitHub. Elle doit rester
-        // visible sans transformer `pr: 0` en requête vers `/pulls/0`.
-        if (l.etat === ETAT_LIVRAISON_EN_COURS && l.pr === 0) {
+        // Une livraison sans numéro GitHub doit rester visible sans
+        // transformer `pr: 0` en requête vers `/pulls/0`. Après un redémarrage,
+        // `echouee` signifie que la réservation a été interrompue et qu'une
+        // PR distante reste possible : l'écran doit montrer cette incertitude.
+        if (l.pr === 0 && (l.etat === ETAT_LIVRAISON_EN_COURS || l.etat === 'echouee')) {
           const tache = store.getTask(l.taskId);
           livraisons.push({
             taskId: l.taskId,
             depot: l.depot,
             pr: 0,
-            etat: ETAT_LIVRAISON_EN_COURS,
+            etat: l.etat,
             faits: null,
             branche: l.branche,
             titre: tache?.title ?? '',
-            dit: 'Livraison GitHub en cours',
+            dit:
+              l.etat === ETAT_LIVRAISON_EN_COURS
+                ? 'Livraison GitHub en cours'
+                : l.motif || 'Livraison interrompue : vérifiez GitHub avant toute reprise',
             reprenable: false,
           });
           continue;

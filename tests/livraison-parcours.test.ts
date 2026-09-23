@@ -372,4 +372,46 @@ describe('livrer, puis fusionner', () => {
     });
     expect(res.status).toBe(404);
   });
+
+  it('réconcilie une réservation orpheline au redémarrage', async () => {
+    const t = tacheLivrable('réservation interrompue');
+    expect(
+      server.store.reserverLivraison({
+        taskId: t.id,
+        projectId: projet,
+        depot: DEPOT,
+        branche: `hive/${t.id}`,
+        now: 1,
+      }),
+    ).toBe(true);
+    expect(server.store.getLivraison(t.id)?.etat).toBe('en_cours');
+
+    await server.stop();
+    server = await createServer({
+      port: 0,
+      host: '127.0.0.1',
+      token: TOKEN,
+      corsOrigins: ['http://localhost:5173'],
+      dbPath: path.join(dir, 'hive.db'),
+      simulation: false,
+      tickMs: 60_000,
+    });
+    base = `http://127.0.0.1:${server.port}`;
+
+    const livraison = server.store.getLivraison(t.id);
+    expect(livraison?.etat).toBe('echouee');
+    expect(livraison?.pr).toBe(0);
+    expect(livraison?.motif).toMatch(/redémarrage.*PR.*distante peut exister/);
+
+    const vue = await fetch(`${base}/api/projects/${projet}/livraisons`, {
+      headers: hive(),
+    });
+    expect(vue.status).toBe(200);
+    const corps = (await vue.json()) as {
+      livraisons: Array<{ taskId: string; etat: string; pr: number; faits: unknown; dit: string }>;
+    };
+    const interrompue = corps.livraisons.find((l) => l.taskId === t.id);
+    expect(interrompue).toMatchObject({ taskId: t.id, etat: 'echouee', pr: 0, faits: null });
+    expect(interrompue?.dit).toMatch(/redémarrage.*PR.*distante peut exister/);
+  });
 });
