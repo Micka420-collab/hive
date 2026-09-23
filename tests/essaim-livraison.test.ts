@@ -295,6 +295,34 @@ describe('la ruche livre toute seule', () => {
     // Plus rien à livrer : la ruche est passée à autre chose.
     expect(vue.decision.pas).not.toBe('livrer');
     expect(srv.store.listLivraisons(p)).toHaveLength(1);
+
+    // Une livraison échouée reste une trace, mais ne condamne pas une
+    // production corrigée à rester invisible pour une nouvelle PR.
+    const production = srv.store
+      .listTasks(p)
+      .find((task) => srv.store.resultsForTask(task.id).length > 0);
+    expect(production).toBeDefined();
+    const livraison = production ? srv.store.getLivraison(production.id) : null;
+    expect(livraison).not.toBeNull();
+    if (production && livraison) {
+      srv.store.setLivraison({ ...livraison, etat: 'echouee' });
+    }
+    const apresEchec = (await (
+      await fetch(`${base}/api/projects/${p}/essaim`, { headers })
+    ).json()) as {
+      decision: { pas: string };
+    };
+    expect(apresEchec.decision.pas).toBe('livrer');
+
+    if (production && livraison) {
+      srv.store.setLivraison({ ...livraison, etat: 'fusionnee' });
+    }
+    const apresFusion = (await (
+      await fetch(`${base}/api/projects/${p}/essaim`, { headers })
+    ).json()) as {
+      decision: { pas: string };
+    };
+    expect(apresFusion.decision.pas).not.toBe('livrer');
   });
 
   it('SANS JETON, RIEN N’EST TENTÉ', async () => {

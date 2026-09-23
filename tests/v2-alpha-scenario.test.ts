@@ -420,6 +420,23 @@ describe('V2 Alpha — mission locale vérifiable', () => {
         approvingReviewers: 2,
       });
 
+      const secondBeforeApproval = await fetch(`${base}/api/tasks/${task.id}/evaluation`, {
+        headers,
+      });
+      expect(secondBeforeApproval.status).toBe(200);
+      expect((await secondBeforeApproval.json()).evidence.humanReview).toBe('missing');
+      expect(
+        server.store
+          .listEvents()
+          .filter(
+            (event) =>
+              event.type === 'task_retry' &&
+              event.payload.source === 'evaluator' &&
+              event.payload.taskId === task.id &&
+              event.payload.resultId === second?.resultId,
+          ),
+      ).toHaveLength(0);
+
       const approved = await fetch(`${base}/api/tasks/${task.id}/review`, {
         method: 'POST',
         headers,

@@ -337,12 +337,39 @@ describe('Scheduler (ordonnancement)', () => {
       prompt: 'd',
       dependsOn: [t.id],
     });
+    store.setTaskReview(t.id, 'approved');
+    store.setLivraison({
+      taskId: t.id,
+      projectId: p.id,
+      depot: 'moi/hive',
+      pr: 7,
+      branche: `hive/${t.id}`,
+      etat: 'ouverte',
+    });
+    const blockedByDelivery = scheduler.retryFromEvaluator({
+      taskId: t.id,
+      resultId: first.resultId!,
+      decision: 'correction_required',
+    });
+    expect(blockedByDelivery).toMatchObject({ ok: false, reason: 'delivery_open' });
+    expect(store.getTask(t.id)?.status).toBe('done');
+    expect(store.getTaskReview(t.id)?.state).toBe('approved');
+
+    store.setLivraison({
+      taskId: t.id,
+      projectId: p.id,
+      depot: 'moi/hive',
+      pr: 7,
+      branche: `hive/${t.id}`,
+      etat: 'echouee',
+    });
     const retry = scheduler.retryFromEvaluator({
       taskId: t.id,
       resultId: first.resultId!,
       decision: 'correction_required',
     });
     expect(retry.ok).toBe(true);
+    expect(store.getTaskReview(t.id)).toBeNull();
     expect(store.getTask(t.id)?.attempts).toBe(1);
     expect(store.getTask(dependent.id)?.status).toBe('pending');
     expect(

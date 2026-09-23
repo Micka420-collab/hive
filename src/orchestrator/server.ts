@@ -3684,8 +3684,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
    *     pull requests, elle ne décide pas seule de ce qui mérite d'en être une ;
    *   · son dernier résultat est un succès PORTEUR D'UN DIFF — un « succès » à
    *     diff vide n'a rien à livrer (c'est déjà ce que les Gardiennes disent) ;
-   *   · elle n'a pas DÉJÀ été livrée — sans quoi la ruche rouvrirait une PR
-   *     par minute sur le dépôt de quelqu'un ;
+   *   · elle n'a pas de livraison OU sa dernière livraison est explicitement
+   *     échouée — une livraison fusionnée reste une sortie définitive ;
    *   · le projet a un dépôt connu, sinon il n'y a pas d'endroit où livrer.
    *
    * L'ordre est celui de la création : la ruche livre dans l'ordre où elle a
@@ -3790,7 +3790,11 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     const inspections = store.listInspections();
     return store
       .listTasks(projectId)
-      .filter((t) => revues[t.id] === 'approved' && !store.getLivraison(t.id))
+      .filter((t) => t.status === 'done' && revues[t.id] === 'approved')
+      .filter((t) => {
+        const livraison = store.getLivraison(t.id);
+        return livraison === null || livraison.etat === 'echouee';
+      })
       .filter((t) => {
         const resultats = store.resultsForTask(t.id);
         const dernier = resultats[resultats.length - 1];
@@ -8831,10 +8835,31 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
             // seulement si elle a été créée POUR relire quelque chose.
             const lienRelecture = pris ? store.relectureDe(msg.taskId) : null;
             if (lienRelecture) {
-              // Le texte du relecteur est une DONNÉE : `lireAvis` le neutralise
-              // et le borne avant qu'il n'atteigne un événement lu par un
-              // humain. Un verdict illisible compte comme CONTESTÉ.
-              noterVerdict(msg.taskId, lienRelecture, `${msg.logs ?? ''}\n${msg.diff ?? ''}`);
+              const relecture = store.getTask(msg.taskId);
+              if (msg.success && relecture?.status === 'done') {
+                // Le texte du relecteur est une DONNÉE : `lireAvis` le
+                // neutralise et le borne avant qu'il n'atteigne un événement
+                // lu par un humain. Un verdict illisible compte comme
+                // CONTESTÉ, mais seulement après une production de relecture
+                // effectivement terminée.
+                noterVerdict(msg.taskId, lienRelecture, `${msg.logs ?? ''}\n${msg.diff ?? ''}`);
+              } else if (!msg.success) {
+                // Un échec intermédiaire repart en file avec la relecture : il
+                // ne constitue pas un avis. Le rendre explicite évite que
+                // l'absence de vote ressemble à une approbation silencieuse.
+                const lancement = store.eventForRelecture(msg.taskId);
+                const resultId = lancement?.payload.resultId;
+                emitEvent('contre_expertise_review_failed', {
+                  taskId: lienRelecture.productionTaskId,
+                  ...(typeof resultId === 'number' && Number.isSafeInteger(resultId)
+                    ? { resultId }
+                    : {}),
+                  relecture: msg.taskId,
+                  relecteur: lienRelecture.relecteurAgent,
+                  terminal: relecture?.status === 'failed',
+                  attempt: relecture?.attempts ?? 0,
+                });
+              }
             } else if (pris && msg.success && (msg.diff ?? '').trim() !== '') {
               signalerContreExpertise(msg.taskId, nodeId, msg.diff ?? '', msg.logs ?? '');
             }
