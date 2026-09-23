@@ -126,6 +126,11 @@ describe('Aiguillage câblé — la boucle principale de l’ordonnanceur', () =
       .observationsAiguillage()
       .find((o) => o.title === 'Ajoute le composant Ruche');
     expect(mienne?.modele, 'opus a été commandé et rangé').toBe('opus');
+
+    const assignation = store
+      .listEvents()
+      .find((event) => event.type === 'task_assigned' && event.payload.taskId === t);
+    expect(assignation?.payload.modele, 'le journal conserve le modèle commandé').toBe('opus');
   });
 
   it('L’UNION SE CALCULE SUR LES ÉLIGIBLES — un modèle dont l’unique porteur est saturé ne fait pas attendre la tâche', () => {
@@ -229,6 +234,10 @@ describe('Aiguillage câblé — la boucle principale de l’ordonnanceur', () =
     const mienne = assignations.find((a) => a.taskId === t);
     expect(mienne, 'la tâche est bien assignée').toBeTruthy();
     expect(mienne?.modele, 'mais sans modèle imposé').toBeUndefined();
+    const assignation = store
+      .listEvents()
+      .find((event) => event.type === 'task_assigned' && event.payload.taskId === t);
+    expect(assignation?.payload).not.toHaveProperty('modele');
   });
 
   it('LE TROUPEAU EST BORNÉ — un modèle neuf avec des élections EN VOL ne rafle plus la tâche prête', () => {

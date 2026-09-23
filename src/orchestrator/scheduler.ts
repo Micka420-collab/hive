@@ -1207,8 +1207,23 @@ export class Scheduler {
     // La tâche part en course : elle n'est plus « différée pour conflit ».
     this.deferredByConflict.delete(taskId);
     this.races.set(taskId, race);
-    this.emit('drone_race_started', { taskId, factor: race.factor, drones: launch });
-    this.emit('task_assigned', { taskId, nodeId: primary, branch: assigned.branch });
+    this.emit('drone_race_started', {
+      taskId,
+      factor: race.factor,
+      drones: launch,
+      ...(Object.keys(modeleParDrone).length > 0 ? { modeles: modeleParDrone } : {}),
+    });
+    this.emit('task_assigned', {
+      taskId,
+      nodeId: primary,
+      branch: assigned.branch,
+      // Le journal garde le modèle effectivement commandé au primaire. Il ne
+      // prétend pas prouver le modèle choisi par le CLI : cette preuve reste
+      // attachée au résultat du nœud. Sans ce fait, Mission Control devrait
+      // recroiser une table latérale et l'événement perdrait sa valeur de
+      // replay.
+      ...(modeleParDrone[primary] ? { modele: modeleParDrone[primary] } : {}),
+    });
     this.store.ouvrirHorlogeHote(assigned.projectId, assigned.id, Date.now());
     // Chaque drone reçoit SON modèle élu (la course diversifie les agents).
     for (const droneId of launch) this.opts.onAssign?.(droneId, assigned, modeleParDrone[droneId]);
@@ -1726,7 +1741,15 @@ export class Scheduler {
       }
       // Le contexte Hive Mind est joint côté serveur (onAssign → assign_task),
       // sans réécrire le prompt persisté de la tâche.
-      this.emit('task_assigned', { taskId: task.id, nodeId: node.id, branch: assigned.branch });
+      this.emit('task_assigned', {
+        taskId: task.id,
+        nodeId: node.id,
+        branch: assigned.branch,
+        // Même convention que pour une course : ce champ est le modèle
+        // commandé par l'Aiguillage, jamais une valeur inventée quand aucun
+        // nœud ne déclare de modèle.
+        ...(route?.modele ? { modele: route.modele } : {}),
+      });
       this.store.ouvrirHorlogeHote(assigned.projectId, assigned.id, Date.now());
       // Le modèle élu part avec la tâche : le nœud le passera à `--model`.
       this.opts.onAssign?.(node.id, assigned, route?.modele);
