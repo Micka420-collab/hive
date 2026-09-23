@@ -89,6 +89,8 @@ export interface Task {
 
 /** Résultat complet remonté par un nœud. Le diff reste soumis à revue humaine. */
 export interface TaskResult {
+  /** Identifiant SQLite de la production — présent quand elle vient du store. */
+  resultId?: number;
   taskId: string;
   nodeId: string;
   diff: string;
