@@ -1527,7 +1527,12 @@ export class Scheduler {
     const antecedents = replierAntecedents(
       this.store.observationsAiguillage().map((o) => ({
         categorie: categoriser(o.title, o.prompt),
-        modele: o.modele,
+        // Une contre-revue porte le modèle réellement commandé au résultat
+        // (`modeleExact`). Revenir au modèle posé sur la tâche reste nécessaire
+        // pour les verdicts historiques qui n'ont pas cette preuve, mais dès
+        // qu'elle existe elle doit gouverner l'apprentissage : une réassignation
+        // peut avoir remplacé `aiguillage_modeles` depuis la production relue.
+        modele: o.modeleExact ?? o.modele,
         suite: o.suite,
       })),
     );
