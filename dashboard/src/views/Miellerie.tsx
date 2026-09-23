@@ -452,6 +452,7 @@ export function EvaluationPanel({
 
   const entries = [
     [t('Résultat Worker', 'Worker result'), evaluation.evidence.result],
+    [t('Résultat élu', 'Elected result'), evaluation.evidence.resultAlignment],
     [t('Gardiennes', 'Guards'), evaluation.evidence.gardiennes],
     [t('Consensus', 'Consensus'), evaluation.evidence.consensus],
     [t('Tests', 'Tests'), evaluation.evidence.tests],
