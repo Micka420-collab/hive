@@ -90,6 +90,8 @@ export interface LigneObservationAiguillage {
   prompt: string;
   modele: string;
   suite: Suite;
+  /** Worker qui a produit le résultat relu, quand le résultat est encore disponible. */
+  nodeId?: string;
 }
 
 const SCHEMA = `
@@ -4406,15 +4408,21 @@ export class HiveStore {
   observationsAiguillage(limite = CORPUS_AIGUILLAGE): LigneObservationAiguillage[] {
     const rows = this.db
       .prepare(
-        `SELECT t.title AS title, t.prompt AS prompt, am.modele AS modele, cv.suite AS suite
+        `SELECT t.title AS title, t.prompt AS prompt, am.modele AS modele, cv.suite AS suite,
+                r.nodeId AS nodeId
            FROM contre_visites cv
            JOIN aiguillage_modeles am ON am.taskId = cv.productionTaskId
            JOIN tasks t              ON t.id      = cv.productionTaskId
+           LEFT JOIN results r ON r.id = (
+             SELECT MAX(r2.id) FROM results r2 WHERE r2.taskId = cv.productionTaskId
+           )
           ORDER BY cv.renduA DESC
           LIMIT ?`,
       )
-      .all(Math.max(1, Math.min(limite, CORPUS_AIGUILLAGE))) as LigneObservationAiguillage[];
-    return rows.reverse();
+      .all(Math.max(1, Math.min(limite, CORPUS_AIGUILLAGE))) as Array<
+      LigneObservationAiguillage & { nodeId: string | null }
+    >;
+    return rows.reverse().map(({ nodeId, ...ligne }) => (nodeId ? { ...ligne, nodeId } : ligne));
   }
 
   /**

@@ -3,10 +3,25 @@ import {
   categoriser,
   classer,
   replierAntecedents,
+  recompenseDe,
   type Categorie,
   type Observation,
 } from './aiguillage.js';
 import type { HiveNode } from '../shared/types.js';
+import type { Suite } from './polyethisme.js';
+
+export interface WorkerReputationSnapshot {
+  /** Nombre de verdicts reliés à ce Worker par le résultat exact. */
+  essais: number;
+  appliquer: number;
+  ameliorer: number;
+  refaire: number;
+  moyenne: number | null;
+  /** Récompense moyenne de l'Aiguillage, dans [0, 1]. */
+  score: number | null;
+  /** `absente` signifie qu'aucun résultat exact n'est encore attribuable. */
+  attribution: 'exacte' | 'absente';
+}
 
 /**
  * Preuve disponible pour un modèle déclaré par une ouvrière.
@@ -26,6 +41,8 @@ export interface ModeleWorkerSnapshot {
       exploration: boolean;
     }
   >;
+  /** Vécu de ce modèle sur ce Worker, séparé de l'historique global. */
+  reputation: WorkerReputationSnapshot;
 }
 
 /** Projection observable d'un nœud réel, sans seconde source de vérité. */
@@ -40,13 +57,47 @@ export interface WorkerSnapshot {
   slotsLibres: number;
   plateforme?: HiveNode['plateforme'];
   outils?: HiveNode['outils'];
+  /** Réputation du Worker, calculée uniquement sur ses résultats attribués. */
+  reputation: WorkerReputationSnapshot;
   modeles?: ModeleWorkerSnapshot[];
 }
 
 type LigneObservation = Pick<Observation, 'modele' | 'suite'> & {
   title: string;
   prompt: string;
+  nodeId?: string;
 };
+
+function reputationDe(lignes: readonly LigneObservation[]): WorkerReputationSnapshot {
+  let appliquer = 0;
+  let ameliorer = 0;
+  let refaire = 0;
+  let total = 0;
+  for (const ligne of lignes) {
+    switch (ligne.suite as Suite) {
+      case 'appliquer':
+        appliquer += 1;
+        break;
+      case 'ameliorer':
+        ameliorer += 1;
+        break;
+      case 'refaire':
+        refaire += 1;
+        break;
+    }
+    total += recompenseDe(ligne.suite);
+  }
+  const essais = appliquer + ameliorer + refaire;
+  return {
+    essais,
+    appliquer,
+    ameliorer,
+    refaire,
+    moyenne: essais > 0 ? total / essais : null,
+    score: essais > 0 ? total / essais : null,
+    attribution: essais > 0 ? 'exacte' : 'absente',
+  };
+}
 
 const scoreDe = (rang: ReturnType<typeof classer>[number]) => ({
   essais: rang.essais,
@@ -75,6 +126,7 @@ export function projeterWorkers(
 
   return nodes.map((node) => {
     const modeles = node.modeles?.slice().sort((a, b) => a.localeCompare(b));
+    const lignesDuWorker = lignes.filter((ligne) => ligne.nodeId === node.id);
     const projection: WorkerSnapshot = {
       id: node.id,
       name: node.name,
@@ -86,6 +138,7 @@ export function projeterWorkers(
       slotsLibres: Math.max(0, node.maxConcurrency - node.running),
       ...(node.plateforme !== undefined ? { plateforme: node.plateforme } : {}),
       ...(node.outils !== undefined ? { outils: node.outils } : {}),
+      reputation: reputationDe(lignesDuWorker),
     };
 
     if (modeles && modeles.length > 0) {
@@ -97,6 +150,7 @@ export function projeterWorkers(
             return [categorie, scoreDe(rang)];
           }),
         ) as ModeleWorkerSnapshot['categories'],
+        reputation: reputationDe(lignesDuWorker.filter((ligne) => ligne.modele === modele)),
       }));
     }
 

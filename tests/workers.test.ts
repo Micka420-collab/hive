@@ -54,4 +54,53 @@ describe('projection Worker', () => {
     expect(worker).not.toHaveProperty('modeles');
     expect(worker.outils).toBeUndefined();
   });
+
+  it('sépare la réputation exacte du Worker du vécu global', () => {
+    const lignes = [
+      {
+        title: 'Implémenter endpoint',
+        prompt: 'ajouter la route',
+        modele: 'alpha',
+        suite: 'appliquer' as const,
+        nodeId: 'node-1',
+      },
+      {
+        title: 'Corriger endpoint',
+        prompt: 'réparer la route',
+        modele: 'alpha',
+        suite: 'ameliorer' as const,
+        nodeId: 'node-1',
+      },
+      {
+        title: 'Corriger endpoint',
+        prompt: 'réparer la route',
+        modele: 'alpha',
+        suite: 'refaire' as const,
+        nodeId: 'node-2',
+      },
+    ];
+    const workers = projeterWorkers(
+      [node({ id: 'node-1', modeles: ['alpha'] }), node({ id: 'node-2', modeles: ['alpha'] })],
+      lignes,
+    );
+
+    expect(workers[0]?.reputation).toMatchObject({
+      essais: 2,
+      appliquer: 1,
+      ameliorer: 1,
+      refaire: 0,
+      attribution: 'exacte',
+    });
+    expect(workers[0]?.modeles?.[0]?.reputation).toMatchObject({
+      essais: 2,
+      moyenne: 0.75,
+      attribution: 'exacte',
+    });
+    expect(workers[1]?.reputation).toMatchObject({
+      essais: 1,
+      refaire: 1,
+      moyenne: 0,
+      attribution: 'exacte',
+    });
+  });
 });
