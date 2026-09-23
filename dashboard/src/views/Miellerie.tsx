@@ -7,12 +7,14 @@ import type { HiveNode, Task, TaskResult } from '../../../src/shared/types';
 import {
   fetchConflicts,
   fetchConsensus,
+  fetchEvaluation,
   fetchMergePlan,
   fetchMergeResult,
   fetchResults,
   runMerge,
 } from '../api';
 import type { Conflict, MergePlan, MergeRunResult, Verdict } from '../api';
+import type { EvaluationResult } from '../../../src/orchestrator/evaluator.js';
 import { t as tNow, useT } from '../i18n';
 import type { Translate } from '../i18n';
 import { activateProps, formatMs, modalOpen, StatusBadge } from '../ui';
@@ -419,9 +421,77 @@ export function ConsensusPanel({
   );
 }
 
+const evaluationLabel = (t: Translate): Record<EvaluationResult['decision'], string> => ({
+  accepted: t('Evaluator : accepté', 'Evaluator: accepted'),
+  correction_required: t('Correction nécessaire', 'Correction required'),
+  rejected: t('Production rejetée', 'Production rejected'),
+  additional_test_required: t('Tests supplémentaires requis', 'Additional tests required'),
+  human_review_required: t('Revue humaine requise', 'Human review required'),
+});
+
+/**
+ * Verdict indépendant de la production. Les valeurs « missing » restent
+ * visibles : l’écran ne transforme pas une absence de CI en validation verte.
+ */
+export function EvaluationPanel({
+  evaluation,
+  error,
+}: {
+  evaluation: EvaluationResult | null;
+  error: string | null;
+}) {
+  const t = useT();
+  if (error)
+    return (
+      <p className="panel-error">
+        {t('Evaluator indisponible :', 'Evaluator unavailable:')} {error}
+      </p>
+    );
+  if (!evaluation)
+    return <p className="muted-text">{t('Évaluation en cours…', 'Evaluation in progress…')}</p>;
+
+  const entries = [
+    [t('Résultat Worker', 'Worker result'), evaluation.evidence.result],
+    [t('Gardiennes', 'Guards'), evaluation.evidence.gardiennes],
+    [t('Consensus', 'Consensus'), evaluation.evidence.consensus],
+    [t('Tests', 'Tests'), evaluation.evidence.tests],
+    [t('Typecheck', 'Typecheck'), evaluation.evidence.typecheck],
+    [t('Build', 'Build'), evaluation.evidence.build],
+    [t('Lint', 'Lint'), evaluation.evidence.lint],
+    [t('Revue humaine', 'Human review'), evaluation.evidence.humanReview],
+  ] as const;
+  return (
+    <div className="mi-eval" data-testid="mi-evaluation">
+      <p className={`mi-cons-outcome ${evaluation.decision}`}>
+        {evaluationLabel(t)[evaluation.decision]}
+      </p>
+      <p className="mi-cons-sens">{evaluation.reasons.join(' · ')}</p>
+      <dl className="meta-grid">
+        {entries.map(([label, value]) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd className={`mi-eval-value ${value}`}>{value}</dd>
+          </div>
+        ))}
+      </dl>
+      <p className="mi-cons-note">
+        {evaluation.canMerge
+          ? t(
+              'La qualité est acceptée ; la fusion reste un geste humain explicite.',
+              'Quality accepted; merging remains an explicit human action.',
+            )
+          : t(
+              'Aucune autorisation de fusion automatique : les preuves manquantes restent à produire.',
+              'No automatic merge authorization: missing evidence must still be produced.',
+            )}
+      </p>
+    </div>
+  );
+}
+
 // ─── Vue principale ──────────────────────────────────────────────────────────
 
-type Tab = 'diff' | 'logs' | 'consensus';
+type Tab = 'diff' | 'logs' | 'consensus' | 'evaluation';
 
 type MergePhase =
   | { step: 'idle' }
@@ -541,6 +611,27 @@ export default function Miellerie({
   const curConsensus = consensus.data && consensus.data.id === activeId ? consensus.data : null;
   const verdict = curConsensus?.v ?? null;
   const consensusError = curConsensus?.error ?? null;
+
+  const evaluation = useApiPoll<{
+    id: string;
+    v?: Awaited<ReturnType<typeof fetchEvaluation>>;
+    error?: string;
+  } | null>(
+    () => {
+      const id = activeId;
+      return id
+        ? fetchEvaluation(id).then(
+            (v) => ({ id, v }),
+            (e: unknown) => ({ id, error: e instanceof Error ? e.message : String(e) }),
+          )
+        : Promise.resolve(null);
+    },
+    30_000,
+    pollTick,
+  );
+  const curEvaluation = evaluation.data && evaluation.data.id === activeId ? evaluation.data : null;
+  const evaluationError = curEvaluation?.error ?? null;
+  const evaluationVerdict = curEvaluation?.v ?? null;
 
   const conflictsPoll = useApiPoll(
     () => {
@@ -864,9 +955,15 @@ export default function Miellerie({
             className="drawer-tabs mi-tabs"
             aria-label={t("Onglets d'inspection", 'Inspection tabs')}
           >
-            {(['diff', 'logs', 'consensus'] as const).map((tb) => (
+            {(['diff', 'logs', 'consensus', 'evaluation'] as const).map((tb) => (
               <button key={tb} className={tab === tb ? 'active' : ''} onClick={() => setTab(tb)}>
-                {tb === 'diff' ? 'Diff' : tb === 'logs' ? 'Logs' : 'Consensus'}
+                {tb === 'diff'
+                  ? 'Diff'
+                  : tb === 'logs'
+                    ? 'Logs'
+                    : tb === 'consensus'
+                      ? 'Consensus'
+                      : 'Evaluator'}
               </button>
             ))}
           </div>
@@ -909,6 +1006,9 @@ export default function Miellerie({
                 </p>
               ))}
             {tab === 'consensus' && <ConsensusPanel verdict={verdict} error={consensusError} />}
+            {tab === 'evaluation' && (
+              <EvaluationPanel evaluation={evaluationVerdict} error={evaluationError} />
+            )}
           </div>
 
           {/* ── Barre de décision sticky ── */}
