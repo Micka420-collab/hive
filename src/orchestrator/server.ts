@@ -8776,6 +8776,12 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
             break;
           case 'delegate_task': {
             const parent = store.getTask(msg.parentTaskId);
+            // Conserver la racine même lorsqu'une demande est refusée avant la
+            // création de l'enfant : le graphe doit exposer aussi les rejets
+            // d'un descendant profond, pas seulement ceux de sa racine.
+            const parentRootTaskId = parent
+              ? (store.getDelegation(parent.id)?.rootTaskId ?? parent.id)
+              : undefined;
             const rejectDelegation = (code: string, message: string): void => {
               emitEvent('delegation_rejected', {
                 requestId: msg.requestId,
@@ -8784,6 +8790,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
                 nodeId,
                 code,
                 message,
+                ...(parentRootTaskId ? { rootTaskId: parentRootTaskId } : {}),
               });
               send(ws, {
                 type: 'delegation_rejected',

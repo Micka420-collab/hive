@@ -149,9 +149,24 @@ describe('délégation Worker → enfant en conditions réelles', () => {
       const rejection = new Promise<ReturnType<typeof parseServerMessage> | null>((resolve) => {
         intruder.on('message', (data) => {
           const parsed = parseServerMessage(data.toString());
-          if (parsed?.type === 'delegation_rejected') resolve(parsed);
+          if (parsed?.type === 'delegation_rejected' && parsed.requestId === 'intruder-request') {
+            resolve(parsed);
+          }
         });
       });
+      const nestedRejection = new Promise<ReturnType<typeof parseServerMessage> | null>(
+        (resolve) => {
+          intruder.on('message', (data) => {
+            const parsed = parseServerMessage(data.toString());
+            if (
+              parsed?.type === 'delegation_rejected' &&
+              parsed.requestId === 'intruder-deep-request'
+            ) {
+              resolve(parsed);
+            }
+          });
+        },
+      );
       await new Promise<void>((resolve, reject) => {
         intruder.once('open', () => resolve());
         intruder.once('error', reject);
@@ -188,6 +203,30 @@ describe('délégation Worker → enfant en conditions réelles', () => {
       expect(rejected).toMatchObject({
         type: 'delegation_rejected',
         code: 'parent_non_attribue',
+      });
+      // Un rejet depuis un enfant doit rester visible dans le graphe de sa
+      // racine, même lorsque l'enfant est déjà terminé.
+      intruder.send(
+        JSON.stringify({
+          type: 'delegate_task',
+          requestId: 'intruder-deep-request',
+          childTaskId: 'intruder-deep-child',
+          parentTaskId: 'child',
+          reason: 'usurpation profonde',
+          title: 'Ne doit pas exister',
+          prompt: 'ne doit pas exister',
+          durationMs: 1,
+          costMicros: 1,
+          resourceUnits: 1,
+        }),
+      );
+      const nestedRejected = await Promise.race([
+        nestedRejection,
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 5_000)),
+      ]);
+      expect(nestedRejected).toMatchObject({
+        type: 'delegation_rejected',
+        requestId: 'intruder-deep-request',
       });
       intruder.close();
 
@@ -238,6 +277,14 @@ describe('délégation Worker → enfant en conditions réelles', () => {
               parentTaskId: 'parent',
               childTaskId: 'child',
               success: true,
+            }),
+          }),
+          expect.objectContaining({
+            type: 'delegation_rejected',
+            payload: expect.objectContaining({
+              rootTaskId: 'parent',
+              parentTaskId: 'child',
+              childTaskId: 'intruder-deep-child',
             }),
           }),
         ]),
