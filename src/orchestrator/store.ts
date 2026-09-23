@@ -4406,6 +4406,10 @@ export class HiveStore {
    * `slice(-CORPUS)` redevient un no-op puisque la borne est déjà le `LIMIT`.
    */
   observationsAiguillage(limite = CORPUS_AIGUILLAGE): LigneObservationAiguillage[] {
+    // Une contre-visite peut survivre à une nouvelle tentative de la même
+    // tâche. Le seul lien qui garde l'identité de la production est le
+    // `resultId` du verdict de contre-revue ; sans lui, l'observation reste
+    // globale et ne doit pas être attribuée au dernier Worker par supposition.
     const rows = this.db
       .prepare(
         `SELECT t.title AS title, t.prompt AS prompt, am.modele AS modele, cv.suite AS suite,
@@ -4414,7 +4418,14 @@ export class HiveStore {
            JOIN aiguillage_modeles am ON am.taskId = cv.productionTaskId
            JOIN tasks t              ON t.id      = cv.productionTaskId
            LEFT JOIN results r ON r.id = (
-             SELECT MAX(r2.id) FROM results r2 WHERE r2.taskId = cv.productionTaskId
+             SELECT CAST(json_extract(e.payload, '$.resultId') AS INTEGER)
+               FROM events e
+              WHERE e.type = 'contre_expertise_verdict'
+                AND json_extract(e.payload, '$.source') = 'hive_counter_review'
+                AND json_extract(e.payload, '$.taskId') = cv.productionTaskId
+                AND json_extract(e.payload, '$.resultId') IS NOT NULL
+              ORDER BY e.id DESC
+              LIMIT 1
            )
           ORDER BY cv.renduA DESC
           LIMIT ?`,

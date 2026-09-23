@@ -58,7 +58,7 @@ describe('GET /api/workers', () => {
       prompt: 'ajouter la route',
     });
     server!.store.poserModeleAiguillage(task.id, 'claude-sonnet', 10);
-    server!.store.insertResult({
+    const resultId = server!.store.insertResult({
       taskId: task.id,
       nodeId: 'worker-1',
       diff: 'diff --git a/src/api.ts b/src/api.ts',
@@ -66,6 +66,17 @@ describe('GET /api/workers', () => {
       success: true,
       durationMs: 12,
       subAgents: [],
+    });
+    server!.store.appendEvent('contre_expertise_verdict', {
+      source: 'hive_counter_review',
+      taskId: task.id,
+      resultId,
+      relecture: 'review-worker-1',
+      relecteur: 'codex',
+      reviewerNodeId: 'reviewer-1',
+      conteste: false,
+      objections: [],
+      recordedAt: 11,
     });
     server!.store.enregistrerContreVisite({
       productionTaskId: task.id,
