@@ -119,10 +119,31 @@ describe('GET /api/tasks/:id/evaluation', () => {
   });
 
   it('agrège toutes les contre-revues du résultat courant et ignore une ancienne tentative', async () => {
+    // Chaque test prépare sa production courante : d'autres cas de ce fichier
+    // ajoutent des résultats et l'ordre du tamis ne doit pas changer la cible.
+    const reviewedResultId = server.store.insertResult({
+      taskId,
+      nodeId: 'n2',
+      diff: DIFF,
+      logs: 'tests: 0 failed',
+      success: true,
+      durationMs: 12,
+      subAgents: [],
+    });
+    server.store.enregistrerInspection({
+      resultId: reviewedResultId,
+      taskId,
+      nodeId: 'n2',
+      verdict: 'clean',
+      score: 0,
+      applique: false,
+      griefs: [],
+    });
+
     server.store.appendEvent('contre_expertise_verdict', {
       source: 'hive_counter_review',
       taskId,
-      resultId: secondResultId,
+      resultId: reviewedResultId,
       relecture: 'relecture-favorable',
       relecteur: 'codex',
       reviewerNodeId: 'n1',
@@ -133,7 +154,7 @@ describe('GET /api/tasks/:id/evaluation', () => {
     server.store.appendEvent('contre_expertise_verdict', {
       source: 'hive_counter_review',
       taskId,
-      resultId: secondResultId,
+      resultId: reviewedResultId,
       relecture: 'relecture-contestee',
       relecteur: 'claude-code',
       reviewerNodeId: 'n2',
