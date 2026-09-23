@@ -24,10 +24,12 @@ import { describe, expect, it } from 'vitest';
 import {
   annonce,
   binaireDansBac,
+  binaireMcpDansBac,
   codeDuBac,
   deciderAvecPreflight,
   optionBac,
   preparerBac,
+  raisonPontMcpDansBac,
   type Bac,
 } from '../src/node-client/bac.js';
 import { decider, IMAGE_DEFAUT, type Fournisseur } from '../src/node-client/isolement.js';
@@ -108,6 +110,34 @@ describe('le refus, et ce qui part au client', () => {
     expect(binaireDansBac('codex')).toBe('codex');
     expect(binaireDansBac('shell')).toBeNull();
     expect(binaireDansBac('custom', { HIVE_AGENT_CMD: 'outil --flag' })).toBe('outil');
+  });
+
+  it('préflight le runtime Node du pont MCP pour les CLI qui le chargent', () => {
+    expect(binaireMcpDansBac('claude-code')).toBe('node');
+    expect(binaireMcpDansBac('codex')).toBe('node');
+    expect(binaireMcpDansBac('shell')).toBeNull();
+  });
+
+  it('désactive le bac Windows quand le pont MCP local ne peut pas le traverser', () => {
+    const claude = raisonPontMcpDansBac('claude-code', 'win32');
+    const codex = raisonPontMcpDansBac('codex', 'win32');
+    expect(claude).toMatch(/Windows.*pont MCP local/i);
+    expect(codex).toMatch(/Windows.*pont MCP local/i);
+    expect(raisonPontMcpDansBac('claude-code', 'linux')).toBeNull();
+    expect(raisonPontMcpDansBac('shell', 'win32')).toBeNull();
+
+    const auto = deciderAvecPreflight('auto', PODMAN, 'image:test', {
+      executable: false,
+      motif: claude!,
+    });
+    expect(auto.decision).toMatchObject({ isole: false, refuse: false, niveau: 'processus' });
+    expect(auto.decision.motif).toContain('non isolée du disque');
+
+    const exige = deciderAvecPreflight('exige', PODMAN, 'image:test', {
+      executable: false,
+      motif: claude!,
+    });
+    expect(exige.decision).toMatchObject({ isole: false, refuse: true, niveau: 'aucun' });
   });
 
   it('« auto » se replie explicitement si l’agent manque dans l’image', () => {
@@ -205,6 +235,16 @@ describe('le refus, et ce qui part au client', () => {
     };
     variables.push('SECRET_AJOUTE_APRES_COUP');
     expect(option.bac.variables).toEqual(['HOME']);
+  });
+
+  it('ne transmet jamais les secrets de la ruche au conteneur agent', () => {
+    const option = optionBac(bacDe('auto', PODMAN), [
+      'HOME',
+      'HIVE_TOKEN',
+      'HIVE_JWT_SECRET',
+      'ANTHROPIC_API_KEY',
+    ]) as { bac: { variables: string[] } };
+    expect(option.bac.variables).toEqual(['HOME', 'ANTHROPIC_API_KEY']);
   });
 });
 

@@ -40,11 +40,26 @@ export interface Workspace {
   cleanup(): void;
 }
 
+/** Secrets de la ruche qui ne doivent jamais devenir des variables d'agent. */
+const SECRETS_INTERDITS_AGENT = new Set([
+  'HIVE_TOKEN',
+  'HIVE_JWT_SECRET',
+  'HIVE_INVITE',
+  'HIVE_GITHUB_TOKEN',
+  'HIVE_WEBHOOK_SECRET',
+  'GITHUB_TOKEN',
+]);
+
+export function variablesAgentSansSecrets(variables: readonly string[]): string[] {
+  return variables.filter((name) => !SECRETS_INTERDITS_AGENT.has(name));
+}
+
 /**
  * Environnement minimal pour la sandbox v0. Seuls PATH et les variables
  * système indispensables passent ; `keepEnv` permet d'ajouter explicitement
- * des variables nécessaires à un agent réel (ex. ANTHROPIC_API_KEY) — ces
- * secrets restent locaux au nœud, jamais transmis au hub.
+ * des variables nécessaires à un agent réel (ex. ANTHROPIC_API_KEY). Les
+ * secrets de la ruche restent exclus même si `keepEnv` les nomme ; ils restent
+ * locaux au nœud, jamais transmis au CLI ni au hub.
  */
 export function buildSandboxEnv(cwd: string, keepEnv: string[] = []): NodeJS.ProcessEnv {
   // TEMP vit À CÔTÉ du workspace, pas dedans : le clone git exige un répertoire
@@ -61,7 +76,7 @@ export function buildSandboxEnv(cwd: string, keepEnv: string[] = []): NodeJS.Pro
     TMPDIR: tmp,
     HIVE_TASK_CWD: cwd,
   };
-  for (const name of keepEnv) {
+  for (const name of variablesAgentSansSecrets(keepEnv)) {
     const value = process.env[name];
     if (value !== undefined) env[name] = value;
   }
