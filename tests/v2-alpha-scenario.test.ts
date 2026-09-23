@@ -16,6 +16,7 @@ import { createServer as createHttpServer } from 'node:http';
 import type { Server as HttpServer } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { simpleGit } from 'simple-git';
 import type { AgentAdapter } from '../src/adapters/index.js';
@@ -226,6 +227,7 @@ function workerAdapter(reviews: Map<string, number>, agentType: string): AgentAd
 describe('V2 Alpha — mission locale vérifiable', () => {
   let scenario: Scenario | null = null;
   let previousHome: string | undefined;
+  let previousGitConfigGlobal: string | undefined;
   let previousGithubToken: string | undefined;
   let previousGithubApi: string | undefined;
 
@@ -241,6 +243,8 @@ describe('V2 Alpha — mission locale vérifiable', () => {
     });
     if (previousHome === undefined) delete process.env.HOME;
     else process.env.HOME = previousHome;
+    if (previousGitConfigGlobal === undefined) delete process.env.GIT_CONFIG_GLOBAL;
+    else process.env.GIT_CONFIG_GLOBAL = previousGitConfigGlobal;
     if (previousGithubToken === undefined) delete process.env.HIVE_GITHUB_TOKEN;
     else process.env.HIVE_GITHUB_TOKEN = previousGithubToken;
     if (previousGithubApi === undefined) delete process.env.HIVE_GITHUB_API;
@@ -248,6 +252,7 @@ describe('V2 Alpha — mission locale vérifiable', () => {
     if (scenario) rmSync(scenario.root, { recursive: true, force: true, maxRetries: 3 });
     scenario = null;
     previousHome = undefined;
+    previousGitConfigGlobal = undefined;
     previousGithubToken = undefined;
     previousGithubApi = undefined;
   });
@@ -262,11 +267,17 @@ describe('V2 Alpha — mission locale vérifiable', () => {
       mkdirSync(gitHome, { recursive: true });
       writeFileSync(
         path.join(gitHome, '.gitconfig'),
-        `[url "file://${repo}"]\n\tinsteadOf = https://github.com/demo/hive.git\n`,
+        `[url "${pathToFileURL(repo).href}"]\n\tinsteadOf = https://github.com/demo/hive.git\n`,
       );
       previousHome = process.env.HOME;
+      previousGitConfigGlobal = process.env.GIT_CONFIG_GLOBAL;
       previousGithubToken = process.env.HIVE_GITHUB_TOKEN;
       process.env.HOME = gitHome;
+      // Git for Windows may resolve the global config from USERPROFILE even
+      // when HOME is overridden. Pinning the fixture config makes the local
+      // URL rewrite deterministic on every runner without changing production
+      // process environment handling.
+      process.env.GIT_CONFIG_GLOBAL = path.join(gitHome, '.gitconfig');
       process.env.HIVE_GITHUB_TOKEN = GITHUB_TOKEN;
       const reviews = new Map<string, number>();
       const github = githubFixture();
