@@ -58,6 +58,16 @@ describe('délégation Worker → enfant en conditions réelles', () => {
       expect(taskResponse.status).toBe(201);
 
       const outcomes: Array<{ ok: boolean; childTaskId?: string }> = [];
+      let childOutcome: {
+        ok: boolean;
+        parentTaskId?: string;
+        childTaskId?: string;
+        success?: boolean;
+        diff?: string;
+        logs?: string;
+        durationMs?: number;
+        resultId?: number;
+      } | null = null;
       let releaseParent!: () => void;
       const parentReleased = new Promise<void>((resolve) => {
         releaseParent = resolve;
@@ -84,6 +94,10 @@ describe('délégation Worker → enfant en conditions réelles', () => {
             ok: replay.ok,
             ...(replay.ok ? { childTaskId: replay.childTaskId } : {}),
           });
+          if (!ctx.waitForDelegationResult) {
+            throw new Error('capacité de résultat de délégation absente');
+          }
+          childOutcome = await ctx.waitForDelegationResult('child');
           await parentReleased;
           return {
             success: task.id === 'parent',
@@ -235,6 +249,16 @@ describe('délégation Worker → enfant en conditions réelles', () => {
         const parent = server!.store.getTask('parent');
         const child = server!.store.getTask('child');
         return parent?.status === 'done' && child?.status === 'done';
+      });
+      expect(childOutcome).toMatchObject({
+        ok: true,
+        parentTaskId: 'parent',
+        childTaskId: 'child',
+        success: true,
+        diff: 'diff enfant',
+        logs: 'tests enfant verts',
+        durationMs: expect.any(Number),
+        resultId: expect.any(Number),
       });
 
       const graphResponse = await fetch(`${base}/api/tasks/parent/delegation`, { headers });

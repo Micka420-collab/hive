@@ -312,6 +312,84 @@ describe('parseServerMessage — validation des messages du hub (anti-traversal/
         }),
       ),
     ).toBeNull();
+
+    expect(
+      parseServerMessage(
+        JSON.stringify({
+          type: 'delegation_result',
+          parentTaskId: 'parent-1',
+          childTaskId: 'child-1',
+          success: true,
+          diff: 'diff enfant',
+          logs: 'tests verts',
+          durationMs: 42,
+          resultId: 7,
+          injecte: 'ignoré',
+        }),
+      ),
+    ).toEqual({
+      type: 'delegation_result',
+      parentTaskId: 'parent-1',
+      childTaskId: 'child-1',
+      success: true,
+      diff: 'diff enfant',
+      logs: 'tests verts',
+      durationMs: 42,
+      resultId: 7,
+    });
+    expect(
+      parseServerMessage(
+        JSON.stringify({
+          type: 'delegation_result',
+          parentTaskId: 'parent-1',
+          childTaskId: 'child-1',
+          success: false,
+          diff: '',
+          logs: '',
+          durationMs: 0,
+        }),
+      ),
+    ).toMatchObject({ type: 'delegation_result', success: false });
+    expect(
+      parseServerMessage(
+        JSON.stringify({
+          type: 'delegation_result',
+          parentTaskId: 'parent-1',
+          childTaskId: 'child-1',
+          success: true,
+          diff: 'x'.repeat(LIMITS.diff + 1),
+          logs: '',
+          durationMs: 1,
+        }),
+      ),
+    ).toBeNull();
+    expect(
+      parseServerMessage(
+        JSON.stringify({
+          type: 'delegation_result',
+          parentTaskId: 'parent-1',
+          childTaskId: 'child-1',
+          success: true,
+          diff: '',
+          logs: '',
+          durationMs: -1,
+        }),
+      ),
+    ).toBeNull();
+    expect(
+      parseServerMessage(
+        JSON.stringify({
+          type: 'delegation_result',
+          parentTaskId: 'parent-1',
+          childTaskId: 'child-1',
+          success: true,
+          diff: '',
+          logs: '',
+          durationMs: 1,
+          resultId: 0,
+        }),
+      ),
+    ).toBeNull();
   });
 
   it('accepte un assign_task valide', () => {

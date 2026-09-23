@@ -30,6 +30,7 @@ import type {
   ClientMessage,
   DelegationAcceptedMsg,
   DelegationRejectedMsg,
+  DelegationResultMsg,
   OutilConstate,
   PoserOutilMsg,
 } from '../shared/protocol.js';
@@ -42,10 +43,15 @@ import { requisitionDepuisEchecInfra } from '../shared/requisition-infra.js';
 import { motifRefusPresence, refuseParPresence } from '../shared/presence-noeud.js';
 import type { Fournisseur } from './isolement.js';
 import type { Workspace } from './workspace.js';
-import type { WorkerDelegationInput, WorkerDelegationOutcome } from '../adapters/index.js';
+import type {
+  WorkerDelegationInput,
+  WorkerDelegationOutcome,
+  WorkerDelegationResult,
+} from '../adapters/index.js';
 
 const MAX_PENDING_DELEGATIONS = 32;
 const DELEGATION_RESPONSE_TIMEOUT_MS = 15_000;
+const DELEGATION_RESULT_TIMEOUT_MS = 5 * 60_000;
 
 export interface NodeClientOptions {
   /** URL WebSocket de l'orchestrateur, ex. ws://localhost:7777/ws */
@@ -159,6 +165,20 @@ export class HiveNodeClient {
     string,
     { resolve: (outcome: WorkerDelegationOutcome) => void; timer: NodeJS.Timeout }
   >();
+  /** Enfants admis par ce nœud : la réponse d'un autre graphe est ignorée. */
+  private readonly acceptedDelegations = new Map<string, string>();
+  /** Attentes bornées des résultats terminaux d'enfants. */
+  private readonly pendingDelegationResults = new Map<
+    string,
+    {
+      resolve: (result: WorkerDelegationResult) => void;
+      timer: NodeJS.Timeout;
+      signal: AbortSignal;
+      onAbort: () => void;
+    }
+  >();
+  /** Un enfant peut finir avant que l'adaptateur n'appelle l'attente. */
+  private readonly completedDelegationResults = new Map<string, WorkerDelegationResult>();
   /** Merges en cours (par mergeId) — anti-doublon si le hub réémet le même id. */
   private readonly activeMerges = new Set<string>();
   private readonly activeChantiers = new Set<string>();
@@ -336,12 +356,90 @@ export class HiveNodeClient {
     pending.resolve(outcome);
   }
 
+  /** Attend le résultat terminal d'un enfant admis par la tâche parente. */
+  private waitForDelegationResult(
+    parentTaskId: string,
+    childTaskId: string,
+    signal: AbortSignal,
+  ): Promise<WorkerDelegationResult> {
+    if (this.acceptedDelegations.get(childTaskId) !== parentTaskId) {
+      return Promise.resolve({
+        ok: false,
+        code: 'unknown_child',
+        message: 'enfant non admis par cette tâche parente',
+      });
+    }
+    const completed = this.completedDelegationResults.get(childTaskId);
+    if (completed) {
+      this.completedDelegationResults.delete(childTaskId);
+      this.acceptedDelegations.delete(childTaskId);
+      return Promise.resolve(completed);
+    }
+    if (this.pendingDelegationResults.has(childTaskId)) {
+      return Promise.resolve({
+        ok: false,
+        code: 'duplicate_wait',
+        message: 'une attente de résultat existe déjà pour cet enfant',
+      });
+    }
+    if (signal.aborted) {
+      return Promise.resolve({ ok: false, code: 'cancelled', message: 'tâche parente annulée' });
+    }
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.pendingDelegationResults.delete(childTaskId);
+        this.acceptedDelegations.delete(childTaskId);
+        signal.removeEventListener('abort', onAbort);
+        resolve({ ok: false, code: 'timeout', message: 'résultat de délégation absent' });
+      }, DELEGATION_RESULT_TIMEOUT_MS);
+      timer.unref?.();
+      const onAbort = (): void => {
+        clearTimeout(timer);
+        this.pendingDelegationResults.delete(childTaskId);
+        this.acceptedDelegations.delete(childTaskId);
+        resolve({ ok: false, code: 'cancelled', message: 'tâche parente annulée' });
+      };
+      signal.addEventListener('abort', onAbort, { once: true });
+      this.pendingDelegationResults.set(childTaskId, { resolve, timer, signal, onAbort });
+    });
+  }
+
+  private resolveDelegationResult(result: WorkerDelegationResult): void {
+    if (!result.ok) return;
+    const parentTaskId = this.acceptedDelegations.get(result.childTaskId);
+    if (parentTaskId !== result.parentTaskId) return;
+    const pending = this.pendingDelegationResults.get(result.childTaskId);
+    if (pending) {
+      this.pendingDelegationResults.delete(result.childTaskId);
+      clearTimeout(pending.timer);
+      pending.signal.removeEventListener('abort', pending.onAbort);
+      this.acceptedDelegations.delete(result.childTaskId);
+      pending.resolve(result);
+      return;
+    }
+    this.completedDelegationResults.set(result.childTaskId, result);
+    while (this.completedDelegationResults.size > MAX_PENDING_DELEGATIONS) {
+      const oldest = this.completedDelegationResults.keys().next().value;
+      if (oldest === undefined) break;
+      this.completedDelegationResults.delete(oldest);
+      this.acceptedDelegations.delete(oldest);
+    }
+  }
+
   private rejectPendingDelegations(message: string): void {
     for (const [requestId, pending] of this.pendingDelegations) {
       clearTimeout(pending.timer);
       pending.resolve({ ok: false, code: 'transport', message });
       this.pendingDelegations.delete(requestId);
     }
+    for (const [childTaskId, pending] of this.pendingDelegationResults) {
+      clearTimeout(pending.timer);
+      pending.signal.removeEventListener('abort', pending.onAbort);
+      pending.resolve({ ok: false, code: 'transport', message });
+      this.pendingDelegationResults.delete(childTaskId);
+    }
+    this.acceptedDelegations.clear();
+    this.completedDelegationResults.clear();
   }
 
   // ─── Connexion ───────────────────────────────────────────────────────────
@@ -436,6 +534,7 @@ export class HiveNodeClient {
         break;
       case 'delegation_accepted': {
         const accepted: DelegationAcceptedMsg = msg;
+        this.acceptedDelegations.set(accepted.childTaskId, accepted.parentTaskId);
         this.resolveDelegation(
           {
             ok: true,
@@ -457,6 +556,11 @@ export class HiveNodeClient {
           rejected.requestId,
         );
         this.log(`délégation refusée : ${rejected.message}`);
+        break;
+      }
+      case 'delegation_result': {
+        const result: DelegationResultMsg = msg;
+        this.resolveDelegationResult({ ok: true, ...result });
         break;
       }
       case 'requisition_ack':
@@ -650,6 +754,8 @@ export class HiveNodeClient {
         ...(modele ? { modele } : {}),
         ...(this.opts.bac ? { bac: this.opts.bac } : {}),
         delegate: (input) => this.requestDelegation(task.id, input),
+        waitForDelegationResult: (childTaskId) =>
+          this.waitForDelegationResult(task.id, childTaskId, ctrl.signal),
         onProgress: (p) => {
           this.send({
             type: 'task_update',
@@ -780,6 +886,8 @@ export class HiveNodeClient {
         ...(modele ? { modele } : {}),
         ...(this.opts.bac ? { bac: this.opts.bac } : {}),
         delegate: (input) => this.requestDelegation(task.id, input),
+        waitForDelegationResult: (childTaskId) =>
+          this.waitForDelegationResult(task.id, childTaskId, ctrl.signal),
         onProgress: (p) => {
           this.send({
             type: 'task_update',

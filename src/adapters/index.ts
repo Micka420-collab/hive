@@ -38,6 +38,20 @@ export type WorkerDelegationOutcome =
   | { ok: true; parentTaskId: string; childTaskId: string; depth: number }
   | { ok: false; code: string; message: string };
 
+/** Résultat terminal borné d'un enfant déjà admis par la Queen. */
+export type WorkerDelegationResult =
+  | {
+      ok: true;
+      parentTaskId: string;
+      childTaskId: string;
+      success: boolean;
+      diff: string;
+      logs: string;
+      durationMs: number;
+      resultId?: number;
+    }
+  | { ok: false; code: string; message: string };
+
 import type { Fournisseur } from '../node-client/isolement.js';
 
 export interface AdapterContext {
@@ -62,6 +76,8 @@ export interface AdapterContext {
    * accès à SQLite ni un socket, seulement cette capacité bornée et traçable.
    */
   delegate?: (input: WorkerDelegationInput) => Promise<WorkerDelegationOutcome>;
+  /** Attend le résultat terminal d'un enfant admis, sans exposer le socket. */
+  waitForDelegationResult?: (childTaskId: string) => Promise<WorkerDelegationResult>;
   /**
    * Bac à sable dans lequel envelopper la commande, s'il y en a un.
    *
