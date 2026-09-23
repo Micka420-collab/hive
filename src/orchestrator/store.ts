@@ -5698,3 +5698,17 @@ export class HiveStore {
   // ─── Snapshot ──────────────────────────────────────────────────────────────
   /**
    * L'état que le tableau de bord reçoit — BORNÉ, et qui le dit.
+   *
+   * La limite est un paramètre pour que les tests puissent l'atteindre sans
+   * fabriquer deux mille tâches : une borne qu'on ne peut éprouver qu'au prix
+   * d'un banc ne sera jamais éprouvée.
+   */
+  getSnapshot(limite: number = LIMITE_TACHES_INSTANTANE): StateSnapshot {
+    return {
+      projects: this.listProjects(),
+      nodes: this.listNodes(),
+      tasks: this.tachesPourEcran(limite),
+      tasksTotal: this.compterTaches(),
+    };
+  }
+}
