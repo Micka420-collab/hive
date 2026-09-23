@@ -143,7 +143,9 @@ export async function lireFaitsPr(
   }
 
   const pr = await lire(ctx, `/repos/${ctx.depot}/pulls/${numero}`);
-  const tete = chaine(champ(pr, 'head'), 'sha');
+  const head = champ(pr, 'head');
+  const tete = chaine(head, 'sha');
+  const branche = chaine(head, 'ref');
   const fusionnableBrut = champ(pr, 'mergeable');
 
   const controles: Controle[] = [];
@@ -185,6 +187,8 @@ export async function lireFaitsPr(
     ouverte: chaine(pr, 'state') === 'open',
     fusionnee: champ(pr, 'merged') === true || chaine(pr, 'merged_at') !== '',
     fusionnable: typeof fusionnableBrut === 'boolean' ? fusionnableBrut : null,
+    ...(tete ? { commitSha: tete } : {}),
+    ...(branche ? { branche } : {}),
     controles,
     revues,
   };

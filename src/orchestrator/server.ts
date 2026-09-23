@@ -123,6 +123,7 @@ import {
   listerWorkflows,
   lireUnDepot,
 } from './github.js';
+import type { Fetcheur } from './github.js';
 import {
   corpsPr,
   depotDepuisUrl,
@@ -267,6 +268,8 @@ import { buildMergePlan } from './honeycomb.js';
 import { tally, signatureOf } from './parliament.js';
 import type { Ballot } from './parliament.js';
 import { evaluate } from './evaluator.js';
+import type { ValidationProvenance } from './evaluator.js';
+import { validationsDepuisControles } from './ci-evidence.js';
 import { CacheDomaines, domaineDeTache, replierTraces } from './pheromones.js';
 import type { Domaine, TraceePheromone } from './pheromones.js';
 import { anthropicLlm, anthropicLlmStream, llmPlannerAvailable, planBrief } from './planner.js';
@@ -638,6 +641,8 @@ export interface ServerConfig {
    * Cloud : Queen sur tes serveurs, horloge d'hébergeur, webhook Stripe exigé.
    */
   edition?: Edition;
+  /** Fetcher GitHub injectable pour les intégrations et bancs hors réseau. */
+  githubFetcher?: Fetcheur;
 }
 
 /**
@@ -1495,6 +1500,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   const evaluationPour = (task: Task) => {
     const results = store.resultsForTask(task.id);
     const latest = results[results.length - 1];
+    const ci = latest?.resultId ? store.latestCiValidation(task.id, latest.resultId) : null;
     const inspections = store.listInspections();
     const inspection = latest
       ? inspectionDeProduction(inspections, task.id, latest.nodeId, latest.resultId)
@@ -1515,6 +1521,22 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         ...(inspection ? { inspection } : {}),
         consensus: tally(ballots),
         humanReview: store.getTaskReview(task.id)?.state ?? null,
+        ...(ci
+          ? {
+              validation: ci.validation,
+              validationProvenance: {
+                source: ci.source,
+                taskId: ci.taskId,
+                projectId: ci.projectId,
+                resultId: ci.resultId,
+                depot: ci.depot,
+                pr: ci.pr,
+                branch: ci.branch,
+                commitSha: ci.commitSha,
+                recordedAt: ci.recordedAt,
+              } satisfies ValidationProvenance,
+            }
+          : {}),
       }),
     };
   };
@@ -3444,6 +3466,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           taskId: task.id,
           nodeId: dernier.nodeId,
           pr: resultat.pr,
+          branch: resultat.branche,
+          commitSha: resultat.commitSha,
           fichiers: resultat.fichiers.length,
         });
         return reply.code(201).send(resultat);
@@ -4224,6 +4248,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
             taskId: task.id,
             nodeId: dernier.nodeId,
             pr: resultat.pr,
+            branch: resultat.branche,
+            commitSha: resultat.commitSha,
             fichiers: resultat.fichiers.length,
           });
           return `pull request #${resultat.pr} ouverte`;
@@ -6693,6 +6719,144 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       if (!task) return reply.code(404).send({ error: 'tâche inconnue' });
 
       return evaluationPour(task).evaluation;
+    },
+  );
+
+  // Ingestion explicite des contrôles GitHub : la preuve est liée à la
+  // livraison rangée et au résultat exact demandé par l'appelant. Un GET ne
+  // déclenche jamais de réseau ni d'écriture ; cette route est le geste
+  // observable qui transforme les faits vivants de GitHub en trace durable.
+  app.post<{
+    Params: { taskId: string };
+    Body: { resultId: number };
+  }>(
+    '/api/tasks/:taskId/evaluation/ci',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['taskId'],
+          properties: { taskId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+        body: {
+          type: 'object',
+          required: ['resultId'],
+          additionalProperties: false,
+          properties: { resultId: { type: 'integer', minimum: 1 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const task = store.getTask(req.params.taskId);
+      if (!task) return reply.code(404).send({ error: 'tâche inconnue' });
+
+      const results = store.resultsForTask(task.id);
+      const latest = results[results.length - 1];
+      if (!latest?.resultId || latest.resultId !== req.body.resultId) {
+        return reply.code(409).send({
+          code: 'stale_result',
+          currentResultId: latest?.resultId ?? null,
+        });
+      }
+
+      const livraison = store.getLivraison(task.id);
+      if (!livraison || livraison.projectId !== task.projectId || livraison.pr <= 0) {
+        return reply.code(409).send({
+          code: 'delivery_missing',
+          error: 'aucune pull request exploitable n’est rangée pour cette tâche',
+        });
+      }
+      if (task.branch && task.branch !== livraison.branche) {
+        return reply.code(409).send({ code: 'branch_binding_mismatch' });
+      }
+      const ouverture = store.lastEventFor('delivery_opened', task.id);
+      const ouverturePr = ouverture?.payload.pr;
+      const ouvertureBranche = ouverture?.payload.branch;
+      const ouvertureCommit = ouverture?.payload.commitSha;
+      if (
+        typeof ouverturePr !== 'number' ||
+        ouverturePr !== livraison.pr ||
+        typeof ouvertureBranche !== 'string' ||
+        ouvertureBranche !== livraison.branche ||
+        typeof ouvertureCommit !== 'string' ||
+        ouvertureCommit.length === 0
+      ) {
+        return reply.code(409).send({
+          code: 'delivery_provenance_missing',
+          error: 'la livraison ne possède pas encore la provenance du commit ouvert',
+        });
+      }
+      if (!jetonGithub) return sansJeton(reply);
+
+      let faits: FaitsPr;
+      try {
+        faits = await lireFaitsPr(
+          {
+            jeton: jetonGithub,
+            ...(apiGithub ? { api: apiGithub } : {}),
+            ...(config.githubFetcher ? { fetcheur: config.githubFetcher } : {}),
+          },
+          livraison.depot,
+          livraison.pr,
+        );
+      } catch (err) {
+        return repondreErreurGithub(reply, err);
+      }
+
+      // Le résultat peut changer pendant les trois lectures GitHub. Ne range
+      // jamais une preuve qui ne vise plus la production demandée.
+      const resultatCourant = store.resultsForTask(task.id).at(-1);
+      if (resultatCourant?.resultId !== req.body.resultId) {
+        return reply.code(409).send({
+          code: 'stale_result',
+          currentResultId: resultatCourant?.resultId ?? null,
+        });
+      }
+
+      const branch = faits.branche ?? '';
+      const commitSha = faits.commitSha ?? '';
+      if (!branch || !commitSha || branch !== livraison.branche || commitSha !== ouvertureCommit) {
+        return reply.code(409).send({
+          code: 'provenance_mismatch',
+          expectedBranch: livraison.branche,
+          expectedCommitSha: ouvertureCommit,
+        });
+      }
+
+      const validation = validationsDepuisControles(faits.controles);
+      const recordedAt = Date.now();
+      emitEvent('ci_validation_recorded', {
+        source: 'github_pull_request',
+        taskId: task.id,
+        projectId: task.projectId,
+        resultId: req.body.resultId,
+        depot: livraison.depot,
+        pr: livraison.pr,
+        branch,
+        commitSha,
+        validation,
+        recordedAt,
+      });
+
+      const evaluation = evaluationPour(task).evaluation;
+      return {
+        taskId: task.id,
+        resultId: req.body.resultId,
+        validation,
+        provenance: {
+          source: 'github_pull_request' as const,
+          taskId: task.id,
+          projectId: task.projectId,
+          resultId: req.body.resultId,
+          depot: livraison.depot,
+          pr: livraison.pr,
+          branch,
+          commitSha,
+          recordedAt,
+        },
+        evaluation,
+      };
     },
   );
 

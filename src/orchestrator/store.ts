@@ -16,6 +16,7 @@ import { CORPUS_AIGUILLAGE } from './aiguillage.js';
 import { CORPUS_GARDE_FOU } from './garde-fou.js';
 import type { Echelon, FaitsProduction } from './garde-fou.js';
 import type { Suite } from './polyethisme.js';
+import type { CiValidationRecord } from './ci-evidence.js';
 import { CORPUS_BALANCE, LOT_GRAND_LIVRE, VERSION_BALANCE } from './balance.js';
 import { depenseHote, fermerSession, ouvrirSession } from './horloge-hote.js';
 import type { SessionHote } from './horloge-hote.js';
@@ -5108,6 +5109,76 @@ export class HiveStore {
       type: row.type,
       payload: JSON.parse(row.payload) as Record<string, unknown>,
     };
+  }
+
+  /**
+   * Dernière preuve CI pour un résultat précis. Les preuves vivent dans le
+   * journal d'événements : aucune seconde table ne pourrait rester alignée
+   * avec les résultats élagués. Toute charge persistée est revalidée avant de
+   * rejoindre l'Evaluator, car le journal est une trace, pas une zone de
+   * confiance.
+   */
+  latestCiValidation(taskId: string, resultId: number): CiValidationRecord | null {
+    const row = this.db
+      .prepare(
+        `SELECT * FROM events
+         WHERE type = 'ci_validation_recorded'
+           AND json_extract(payload, '$.taskId') = ?
+           AND json_extract(payload, '$.resultId') = ?
+         ORDER BY id DESC LIMIT 1`,
+      )
+      .get(taskId, resultId) as EventRow | undefined;
+    if (!row) return null;
+    let payload: Record<string, unknown>;
+    try {
+      payload = JSON.parse(row.payload) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+    const text = (key: string): string =>
+      typeof payload[key] === 'string' ? (payload[key] as string) : '';
+    const integer = (key: string): number =>
+      typeof payload[key] === 'number' && Number.isSafeInteger(payload[key])
+        ? (payload[key] as number)
+        : 0;
+    const validation = payload.validation;
+    if (typeof validation !== 'object' || validation === null) return null;
+    const states = ['tests', 'typecheck', 'build', 'lint'] as const;
+    const evidence = Object.fromEntries(
+      states.map((key) => {
+        const value = (validation as Record<string, unknown>)[key];
+        return [
+          key,
+          value === 'passed' || value === 'failed' || value === 'missing' ? value : 'missing',
+        ];
+      }),
+    ) as unknown as CiValidationRecord['validation'];
+    const result: CiValidationRecord = {
+      source: 'github_pull_request',
+      taskId: text('taskId'),
+      projectId: text('projectId'),
+      resultId: integer('resultId'),
+      depot: text('depot'),
+      pr: integer('pr'),
+      branch: text('branch'),
+      commitSha: text('commitSha'),
+      recordedAt: integer('recordedAt'),
+      validation: evidence,
+    };
+    if (
+      result.taskId !== taskId ||
+      result.resultId !== resultId ||
+      result.source !== payload.source ||
+      !result.projectId ||
+      !result.depot ||
+      result.pr <= 0 ||
+      !result.branch ||
+      !result.commitSha ||
+      result.recordedAt <= 0
+    ) {
+      return null;
+    }
+    return result;
   }
 
   /**

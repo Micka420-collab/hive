@@ -55,6 +55,10 @@ export interface FaitsPr {
   fusionnee: boolean;
   /** `true` quand GitHub sait que la branche s'applique encore. */
   fusionnable: boolean | null;
+  /** SHA de la tête réellement lue, quand GitHub l'a fourni. */
+  commitSha?: string;
+  /** Branche de la tête réellement lue, quand GitHub l'a fourni. */
+  branche?: string;
   controles: Controle[];
   revues: Revue[];
 }
