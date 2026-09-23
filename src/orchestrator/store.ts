@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 54534)
-Total output lines: 5700
-
 // Persistance SQLite (better-sqlite3) — l'état de la ruche survit aux
 // redémarrages de l'orchestrateur. Tout le SQL vit dans cette classe.
 
@@ -2622,7 +2619,426 @@ export class HiveStore {
     ];
   }
 
-  getDelegation(taskId: string): Delegatio…4534 tokens truncated…length > 0) {
+  getDelegation(taskId: string): DelegationRangee | null {
+    const row = this.db
+      .prepare('SELECT * FROM task_delegations WHERE childTaskId = ?')
+      .get(taskId) as DelegationRow | undefined;
+    if (!row) return null;
+    const task = this.getTask(taskId);
+    if (!task) return null;
+    return { ...rowToDelegation(row), title: task.title, prompt: task.prompt };
+  }
+
+  /**
+   * Valide, crée la tâche enfant et range son arête dans UNE transaction.
+   * Aucun enfant orphelin ne peut donc devenir visible au scheduler.
+   */
+  createDelegatedTask(
+    demande: DemandeDelegation,
+    limites?: Readonly<LimitesDelegation>,
+    now = Date.now(),
+  ): CreationDeleguee {
+    const tx = this.db.transaction((): CreationDeleguee => {
+      const parent = this.getTask(demande.parentTaskId);
+      const graphe = parent ? this.listDelegationGraph(parent.id) : [];
+      if (this.getTask(demande.childTaskId)) {
+        return { ok: false, code: 'task_id_duplique', motif: 'identifiant enfant déjà utilisé' };
+      }
+      const verdict = limites
+        ? jugerDelegation(demande, graphe, limites)
+        : jugerDelegation(demande, graphe);
+      if (!verdict.ok) return verdict;
+      if (!parent) {
+        // `jugerDelegation` couvre déjà ce cas. Cette garde maintient le
+        // narrowing local et évite toute création si sa politique évolue.
+        return { ok: false, code: 'parent_absent', motif: 'tâche parente introuvable' };
+      }
+      const plan = verdict.plan;
+      this.db
+        .prepare(
+          `INSERT INTO tasks
+             (id, projectId, title, prompt, status, dependsOn, attempts, createdAt, updatedAt)
+           VALUES (?, ?, ?, ?, 'pending', '[]', 0, ?, ?)`,
+        )
+        .run(plan.childTaskId, parent.projectId, plan.title, plan.prompt, now, now);
+      this.db
+        .prepare(
+          `INSERT INTO task_delegations
+             (childTaskId, parentTaskId, rootTaskId, depth, origin, durationMs,
+              costMicros, resourceUnits, preferredAgent, preferredModel, createdAt)
+           VALUES (?, ?, ?, ?, 'hive', ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          plan.childTaskId,
+          plan.parentTaskId,
+          plan.rootTaskId,
+          plan.depth,
+          plan.durationMs,
+          plan.costMicros,
+          plan.resourceUnits,
+          plan.preferredAgent ?? null,
+          plan.preferredModel ?? null,
+          now,
+        );
+      return {
+        ok: true,
+        task: this.getTask(plan.childTaskId) as Task,
+        delegation: {
+          ...plan,
+          origine: 'hive',
+          createdAt: now,
+        },
+      };
+    });
+    return tx();
+  }
+
+  getTask(id: string): Task | undefined {
+    const row = this.db.prepare('SELECT * FROM tasks WHERE id = ?').get(id) as TaskRow | undefined;
+    return row ? rowToTask(row) : undefined;
+  }
+
+  listTasks(projectId?: string): Task[] {
+    const rows = (
+      projectId
+        ? this.db
+            .prepare('SELECT * FROM tasks WHERE projectId = ? ORDER BY createdAt, id')
+            .all(projectId)
+        : this.db.prepare('SELECT * FROM tasks ORDER BY createdAt, id').all()
+    ) as TaskRow[];
+    return rows.map(rowToTask);
+  }
+
+  /** Le nombre de tâches, sans en charger une seule. */
+  compterTaches(): number {
+    return (this.db.prepare('SELECT COUNT(*) AS n FROM tasks').get() as { n: number }).n;
+  }
+
+  /**
+   * Les `limite` tâches qui comptent le plus pour un écran, et rien de plus.
+   *
+   * ─── POURQUOI CETTE MÉTHODE EXISTE ─────────────────────────────────────────
+   *
+   * `getSnapshot()` chargeait la table ENTIÈRE, et `broadcastState()` la
+   * rediffuse à chaque changement d'état. Mesuré sur ce dépôt, tâches de
+   * longueur réaliste :
+   *
+   *     tâches | getSnapshot | JSON.stringify | octets envoyés
+   *     -------|-------------|----------------|----------------
+   *        500 |     3,9 ms  |      2,3 ms    |  0,23 Mo
+   *      2 000 |    14,2 ms  |      8,9 ms    |  0,91 Mo
+   *      5 000 |    39,4 ms  |     21,5 ms    |  2,28 Mo
+   *     20 000 |   182,1 ms  |     94,6 ms    |  9,13 Mo
+   *
+   * À 20 000 tâches, un seul changement d'état BLOQUE la boucle 277 ms et
+   * pousse 9,1 Mo à chaque tableau de bord connecté. L'orchestrateur est
+   * mono-thread : pendant ce temps, il ne répond à personne.
+   *
+   * ─── L'ORDRE N'EST PAS « LES PLUS RÉCENTES » ───────────────────────────────
+   *
+   * Prendre les N dernières par date perdrait une tâche VIVANTE mais ancienne —
+   * exactement celle qu'on regarde quand quelque chose ne va pas. Les tâches
+   * non terminales passent donc TOUTES en premier, quel que soit leur âge ;
+   * la limite ne rogne que sur les terminées, des plus récentes aux plus
+   * vieilles.
+   *
+   * Le retour est ensuite retrié par `createdAt` : `listTasks` promet cet
+   * ordre-là, et une fenêtre ne doit pas changer le contrat, seulement sa
+   * taille.
+   */
+  tachesPourEcran(limite: number): Task[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM tasks
+          ORDER BY (status IN ('done', 'failed')) ASC, updatedAt DESC, id
+          LIMIT ?`,
+      )
+      .all(limite) as TaskRow[];
+    // Les DEUX bornes du départage — `a.id < b.id` et `a.id > b.id` — sont des
+    // mutants ÉQUIVALENTS, et c'est CONSIGNÉ, pas un test qui manque : elles ne
+    // diffèrent de `<=` / `>=` que pour `a.id === b.id`, et `id` est la clé
+    // primaire de `tasks`. Deux lignes d'un même `SELECT` ne peuvent donc pas
+    // porter le même `id` — le cas qui distinguerait n'existe pas.
+    //
+    // Un balayage élargi de la loupe les re-signalera « sans test » à chaque
+    // fois. Ce qu'il faut lire alors, ce n'est pas ce départage — c'est l'ORDRE
+    // et la FENÊTRE au-dessus, éprouvés en six cas par `taches-bornees.test.ts`
+    // à travers `getSnapshot`, la porte publique (ERREURS § 9 duotrigies : un
+    // banc bien écrit ne nomme pas la fonction interne qu'il traverse).
+    return (
+      rows
+        .map(rowToTask)
+        // loupe : équivalent — < → <= ; loupe : équivalent — > → >=
+        // (voir la consignation au-dessus de ce `return`.)
+        .sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    );
+  }
+
+  /**
+   * Élague les tâches TERMINÉES au-delà de la rétention.
+   *
+   * ─── LA SEULE TABLE DU DÉPÔT QUI N'AVAIT PAS DE BORNE ──────────────────────
+   *
+   * `pruneTachesIssue` et `pruneContreExpertises` sont des bornes RÉFÉRENTIELLES
+   * — elles suppriment les liens dont la tâche n'existe plus. Leurs docstrings
+   * ont longtemps justifié cette conception par « les tâches ont déjà leur
+   * propre élagage ». C'était faux, et mesuré comme tel : sur 2 000 tâches, les
+   * deux supprimaient 0 ligne, pour toujours. Aucune tâche ne disparaissant
+   * jamais, aucun lien n'était jamais orphelin.
+   *
+   * Cette méthode-ci les rend enfin vraies.
+   *
+   * ─── DEUX CHOSES QU'ELLE NE SUPPRIME PAS, ET POURQUOI ──────────────────────
+   *
+   * 1. UNE TÂCHE DONT UNE SURVIVANTE DÉPEND ENCORE. C'est la correction qui
+   *    compte : `dependsOn` cite des identifiants, et une tâche qui attend un id
+   *    disparu n'est jamais prête — elle reste bloquée sans que rien ne le dise.
+   *    Le `EXCEPT` ci-dessous exclut donc les ids cités par les tâches qui
+   *    RESTENT. Une chaîne entière de tâches terminées part bien d'un bloc :
+   *    protéger les ids cités par n'importe quelle tâche, y compris celles qu'on
+   *    supprime, aurait fait de cette borne un no-op de plus.
+   *
+   * 2. LA MÉMOIRE. `memories` porte un `taskId`, et pourtant elle survit : le
+   *    Cerveau existe précisément pour que le SAVOIR dure plus longtemps que
+   *    l'épisode qui l'a produit. Il a sa propre borne, `pruneMemories`, qui
+   *    élague par genre et par usage. Cascader ici effacerait les leçons en même
+   *    temps que les faits — c'est-à-dire tout ce que le projet cherche à ne pas
+   *    perdre.
+   *
+   * `reviews`, elle, cascade : un verdict sur une tâche qui n'existe plus ne
+   * désigne rien, et aucune autre borne ne la nettoierait.
+   */
+  pruneTasks(retentionMs: number, now = Date.now()): number {
+    const seuil = now - retentionMs;
+    const supprimer = this.db.transaction((limite: number) => {
+      const condamnees = (
+        this.db
+          .prepare(
+            `SELECT id FROM tasks
+              WHERE status IN ('done', 'failed') AND updatedAt < ?
+             EXCEPT
+             SELECT j.value FROM tasks t, json_each(t.dependsOn) j
+              WHERE NOT (t.status IN ('done', 'failed') AND t.updatedAt < ?)
+             EXCEPT
+             SELECT d.parentTaskId
+               FROM task_delegations d
+               JOIN tasks enfant ON enfant.id = d.childTaskId
+              WHERE NOT (enfant.status IN ('done', 'failed') AND enfant.updatedAt < ?)
+             EXCEPT
+             SELECT d.rootTaskId
+               FROM task_delegations d
+               JOIN tasks enfant ON enfant.id = d.childTaskId
+              WHERE NOT (enfant.status IN ('done', 'failed') AND enfant.updatedAt < ?)`,
+          )
+          .all(limite, limite, limite, limite) as { id: string }[]
+      ).map((r) => r.id);
+      if (condamnees.length === 0) return 0;
+      let partis = 0;
+      const LOT = 900; // sous la limite de variables liées de SQLite
+      // loupe : équivalent — < → <=
+      // La borne de cette boucle est un mutant ÉQUIVALENT — MESURÉ, pas déduit,
+      // et c'est l'inverse de ce que la lecture annonçait.
+      //
+      // Le raisonnement naturel : avec `<=`, un compte de condamnées multiple
+      // EXACT de `LOT` ajoute un tour où `slice` rend `[]`, donc `trous` est vide,
+      // donc `IN ()` — que l'on croit être une erreur de syntaxe qui ferait jeter
+      // toute la transaction et cesser l'élagage pour de bon.
+      //
+      // Sondé à 899 et à 900 condamnées, sur source saine puis mutée : les quatre
+      // passes suppriment tout, sans rien jeter. SQLite ACCEPTE `expr IN ()` —
+      // c'est une extension documentée, qui vaut toujours faux. Le tour de trop ne
+      // coûte qu'une requête sans effet.
+      //
+      // Le laisser en `<` reste juste : on n'écrit pas une requête pour rien. Mais
+      // un balayage le re-signalera « sans test » à chaque passe, et le prochain
+      // lecteur refera exactement ma prédiction — elle est fausse, elle est ici.
+      for (let i = 0; i < condamnees.length; i += LOT) {
+        const lot = condamnees.slice(i, i + LOT);
+        const trous = lot.map(() => '?').join(', ');
+        this.db.prepare(`DELETE FROM reviews WHERE taskId IN (${trous})`).run(...lot);
+        this.db.prepare(`DELETE FROM task_delegations WHERE childTaskId IN (${trous})`).run(...lot);
+        partis += this.db.prepare(`DELETE FROM tasks WHERE id IN (${trous})`).run(...lot).changes;
+      }
+      return partis;
+    });
+    return supprimer(seuil);
+  }
+
+  /**
+   * Lecture ciblée par CLÉ PRIMAIRE : seules les colonnes et les lignes
+   * demandées. Découpée en lots de 900 pour rester sous la limite de variables
+   * liées de SQLite (999 par défaut) ; les ids sont dédoublonnés, les inconnus
+   * simplement absents du retour.
+   *
+   * `table` / `cle` par défaut sur `tasks(id)` — le cas de très loin le plus
+   * fréquent. `reviews(taskId)` emprunte le même chemin : sa clé primaire est
+   * un index, le plan est un SEARCH, jamais un SCAN (verrouillé par
+   * tests/store-scaling.test.ts). Ni l'un ni l'autre ne vient jamais de
+   * l'extérieur : ce sont des littéraux de ce fichier.
+   */
+  private lireParIds<T>(
+    colonnes: string,
+    ids: readonly string[],
+    table: 'tasks' | 'reviews' = 'tasks',
+    cle: 'id' | 'taskId' = 'id',
+  ): T[] {
+    const uniques = [...new Set(ids)];
+    const LOT = 900;
+    const out: T[] = [];
+    for (let i = 0; i < uniques.length; i += LOT) {
+      const lot = uniques.slice(i, i + LOT);
+      const placeholders = lot.map(() => '?').join(', ');
+      out.push(
+        ...(this.db
+          .prepare(`SELECT ${colonnes} FROM ${table} WHERE ${cle} IN (${placeholders})`)
+          .all(...lot) as T[]),
+      );
+    }
+    return out;
+  }
+
+  /**
+   * Titre et prompt des SEULES tâches demandées. Les phéromones n'ont besoin
+   * que des tâches citées par les résultats récents (≤ 500) : un `SELECT *` de
+   * toute la table `tasks`, avec un `JSON.parse` par ligne, jetait 99,5 % du
+   * travail à 100 000 tâches.
+   */
+  listTaskTexts(ids: readonly string[]): Array<{ id: string; title: string; prompt: string }> {
+    return this.lireParIds<{ id: string; title: string; prompt: string }>('id, title, prompt', ids);
+  }
+
+  /**
+   * Projet et statut des SEULES tâches demandées — ce que la Balance a besoin
+   * de savoir pour imputer les tentatives d'un corpus borné. Lecture par clé
+   * primaire (`lireParIds`), jamais un `SELECT *` de `tasks` : c'est exactement
+   * le péché de performance que le dépôt a déjà combattu pour `listTaskTexts`.
+   */
+  listTaskComptes(
+    ids: readonly string[],
+  ): Array<{ id: string; projectId: string; status: TaskStatus }> {
+    return this.lireParIds<{ id: string; projectId: string; status: TaskStatus }>(
+      'id, projectId, status',
+      ids,
+    );
+  }
+
+  /** Projet des SEULES tâches citées — le grand livre n'a pas besoin du statut. */
+  listTaskProjects(ids: readonly string[]): Array<{ id: string; projectId: string }> {
+    return this.lireParIds<{ id: string; projectId: string }>('id, projectId', ids);
+  }
+
+  /**
+   * Statut des SEULES tâches demandées, indexé par id. Sert la promotion des
+   * dépendances : seules les tâches DONT DÉPEND une tâche en attente comptent —
+   * pas toute la table.
+   */
+  taskStatuses(ids: readonly string[]): Map<string, TaskStatus> {
+    const rows = this.lireParIds<{ id: string; status: TaskStatus }>('id, status', ids);
+    return new Map(rows.map((r) => [r.id, r.status]));
+  }
+
+  tasksByStatus(...statuses: TaskStatus[]): Task[] {
+    const placeholders = statuses.map(() => '?').join(', ');
+    const rows = this.db
+      .prepare(`SELECT * FROM tasks WHERE status IN (${placeholders}) ORDER BY createdAt, id`)
+      .all(...statuses) as TaskRow[];
+    return rows.map(rowToTask);
+  }
+
+  /** Tâches qui citent exactement `taskId` comme dépendance. */
+  tasksDependingOn(taskId: string): Task[] {
+    const rows = this.db
+      .prepare(
+        `SELECT t.* FROM tasks t
+         WHERE EXISTS (
+           SELECT 1 FROM json_each(t.dependsOn) d WHERE d.value = ?
+         )
+         ORDER BY t.createdAt, t.id`,
+      )
+      .all(taskId) as TaskRow[];
+    return rows.map(rowToTask);
+  }
+
+  /** Tâches actives (assigned/running) d'un nœud donné. */
+  activeTasksOfNode(nodeId: string): Task[] {
+    const rows = this.db
+      .prepare(
+        "SELECT * FROM tasks WHERE assignedNodeId = ? AND status IN ('assigned', 'running') ORDER BY createdAt, id",
+      )
+      .all(nodeId) as TaskRow[];
+    return rows.map(rowToTask);
+  }
+
+  patchTask(id: string, patch: TaskPatch, now = Date.now()): Task | undefined {
+    const current = this.getTask(id);
+    if (!current) return undefined;
+    const next: Task = {
+      ...current,
+      status: patch.status ?? current.status,
+      assignedNodeId:
+        patch.assignedNodeId !== undefined ? patch.assignedNodeId : current.assignedNodeId,
+      result: patch.result !== undefined ? patch.result : current.result,
+      branch: patch.branch !== undefined ? patch.branch : current.branch,
+      attempts: patch.attempts ?? current.attempts,
+      updatedAt: now,
+    };
+    this.db
+      .prepare(
+        'UPDATE tasks SET status = ?, assignedNodeId = ?, result = ?, branch = ?, attempts = ?, updatedAt = ? WHERE id = ?',
+      )
+      .run(
+        next.status,
+        next.assignedNodeId,
+        next.result ? JSON.stringify(next.result) : null,
+        next.branch,
+        next.attempts,
+        next.updatedAt,
+        id,
+      );
+    return next;
+  }
+
+  /**
+   * Récupération au démarrage : les tâches assigned/running d'un précédent
+   * process sont orphelines → elles repartent en ready ; tous les nœuds
+   * repartent offline (ils se ré-enregistreront via WebSocket).
+   */
+  recoverOrphanTasks(now = Date.now()): Task[] {
+    const orphans = this.tasksByStatus('assigned', 'running');
+    for (const t of orphans) {
+      this.patchTask(t.id, { status: 'ready', assignedNodeId: null }, now);
+    }
+    this.db.prepare("UPDATE nodes SET status = 'offline'").run();
+    return orphans;
+  }
+
+  // ─── Résultats ─────────────────────────────────────────────────────────────
+  /**
+   * Range un résultat et rend son `results.id`. Le retour est ADDITIF (les
+   * appelants qui l'ignoraient continuent de compiler) : il sert aux Gardiennes
+   * à faire pointer leur verdict sur la production exacte qu'elles ont
+   * reniflée, plutôt que sur un couple (taskId, nodeId) qui se répète à chaque
+   * tentative.
+   */
+  insertResult(res: TaskResult, now = Date.now()): number {
+    const info = this.db
+      .prepare(
+        'INSERT INTO results (taskId, nodeId, success, diff, logs, durationMs, subAgents, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      )
+      .run(
+        res.taskId,
+        res.nodeId,
+        res.success ? 1 : 0,
+        res.diff.slice(0, LIMITS.diff),
+        res.logs.slice(0, LIMITS.log),
+        res.durationMs,
+        JSON.stringify(res.subAgents.slice(0, LIMITS.subAgents)),
+        now,
+      );
+    const resultId = Number(info.lastInsertRowid);
+    // Étape auto : chaque production réussie avec un diff devient une
+    // sauvegarde récupérable — même après pruneResults.
+    if (res.success && res.diff.trim().length > 0) {
       const tache = this.getTask(res.taskId);
       if (tache) {
         this.creerSauvegarde({
