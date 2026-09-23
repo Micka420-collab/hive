@@ -305,6 +305,8 @@ export function App() {
             'delegation_replayed',
             'delegation_rejected',
             'delegation_result',
+            'task_requeued',
+            'task_retry',
             'node_online',
             'node_offline',
             // Changement de régime thermique : la jauge de Santé doit refléter
@@ -357,6 +359,10 @@ export function App() {
         // À CHAQUE (re)connexion : ré-hydrater les revues — les task_reviewed
         // émis pendant une coupure ne sont jamais rejoués par le serveur.
         if (up) {
+          // Le snapshot courant ne rejoue pas les événements manqués : les
+          // tiroirs et vues qui lisent une API doivent donc repartir d'une
+          // lecture après chaque reconnexion réussie.
+          setRefreshTick((t) => t + 1);
           const seq = beginReviewHydration();
           fetchReviews()
             .then((r) => hydrateReviews(r.reviews, seq))
