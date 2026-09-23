@@ -296,8 +296,8 @@ describe('la ruche livre toute seule', () => {
     expect(vue.decision.pas).not.toBe('livrer');
     expect(srv.store.listLivraisons(p)).toHaveLength(1);
 
-    // Une livraison échouée reste une trace, mais ne condamne pas une
-    // production corrigée à rester invisible pour une nouvelle PR.
+    // Une livraison échouée reste une trace et empêche toute nouvelle PR
+    // tant qu'un humain n'a pas traité cette décision historique.
     const production = srv.store
       .listTasks(p)
       .find((task) => srv.store.resultsForTask(task.id).length > 0);
@@ -312,7 +312,7 @@ describe('la ruche livre toute seule', () => {
     ).json()) as {
       decision: { pas: string };
     };
-    expect(apresEchec.decision.pas).toBe('livrer');
+    expect(apresEchec.decision.pas).not.toBe('livrer');
 
     if (production && livraison) {
       srv.store.setLivraison({ ...livraison, etat: 'fusionnee' });

@@ -331,12 +331,6 @@ describe('Scheduler (ordonnancement)', () => {
     const first = store.resultsForTask(t.id)[0]!;
     expect(first.resultId).toBeTypeOf('number');
 
-    const dependent = store.createTask({
-      projectId: p.id,
-      title: 'D',
-      prompt: 'd',
-      dependsOn: [t.id],
-    });
     store.setTaskReview(t.id, 'approved');
     store.setLivraison({
       taskId: t.id,
@@ -351,26 +345,48 @@ describe('Scheduler (ordonnancement)', () => {
       resultId: first.resultId!,
       decision: 'correction_required',
     });
-    expect(blockedByDelivery).toMatchObject({ ok: false, reason: 'delivery_open' });
+    expect(blockedByDelivery).toMatchObject({ ok: false, reason: 'delivery_exists' });
     expect(store.getTask(t.id)?.status).toBe('done');
     expect(store.getTaskReview(t.id)?.state).toBe('approved');
 
-    store.setLivraison({
-      taskId: t.id,
+    for (const pr of [7, 0]) {
+      store.setLivraison({
+        taskId: t.id,
+        projectId: p.id,
+        depot: 'moi/hive',
+        pr,
+        branche: `hive/${t.id}`,
+        etat: 'echouee',
+      });
+      const failedDelivery = scheduler.retryFromEvaluator({
+        taskId: t.id,
+        resultId: first.resultId!,
+        decision: 'correction_required',
+      });
+      expect(failedDelivery).toMatchObject({ ok: false, reason: 'delivery_exists' });
+      expect(store.getTask(t.id)?.status).toBe('done');
+      expect(store.getTaskReview(t.id)?.state).toBe('approved');
+    }
+
+    // Une tâche sans historique de livraison reste réessayable.
+    const retryable = store.createTask({ projectId: p.id, title: 'R', prompt: 'r' });
+    scheduler.tick();
+    expect(scheduler.handleTaskResult(node.id, result(retryable.id))).toBe(true);
+    const retryableFirst = store.resultsForTask(retryable.id)[0]!;
+    const dependent = store.createTask({
       projectId: p.id,
-      depot: 'moi/hive',
-      pr: 7,
-      branche: `hive/${t.id}`,
-      etat: 'echouee',
+      title: 'D',
+      prompt: 'd',
+      dependsOn: [retryable.id],
     });
     const retry = scheduler.retryFromEvaluator({
-      taskId: t.id,
-      resultId: first.resultId!,
+      taskId: retryable.id,
+      resultId: retryableFirst.resultId!,
       decision: 'correction_required',
     });
     expect(retry.ok).toBe(true);
-    expect(store.getTaskReview(t.id)).toBeNull();
-    expect(store.getTask(t.id)?.attempts).toBe(1);
+    expect(store.getTaskReview(retryable.id)).toBeNull();
+    expect(store.getTask(retryable.id)?.attempts).toBe(1);
     expect(store.getTask(dependent.id)?.status).toBe('pending');
     expect(
       store
@@ -379,14 +395,14 @@ describe('Scheduler (ordonnancement)', () => {
         .at(-1)?.payload,
     ).toMatchObject({
       source: 'evaluator',
-      resultId: first.resultId,
+      resultId: retryableFirst.resultId,
       attempt: 1,
     });
 
     // Le même verdict retardé ne peut pas brûler une deuxième tentative.
     const duplicate = scheduler.retryFromEvaluator({
-      taskId: t.id,
-      resultId: first.resultId!,
+      taskId: retryable.id,
+      resultId: retryableFirst.resultId!,
       decision: 'correction_required',
     });
     expect(duplicate).toMatchObject({ ok: false, reason: 'task_not_done' });
@@ -394,10 +410,10 @@ describe('Scheduler (ordonnancement)', () => {
     // Une annulation pendant la nouvelle tentative ferme aussi la porte à un
     // avis retardé de la contre-revue : le même résultat ne peut pas rouvrir
     // une tâche terminale.
-    expect(scheduler.cancelTask(t.id, 'annulée par un humain')?.status).toBe('failed');
+    expect(scheduler.cancelTask(retryable.id, 'annulée par un humain')?.status).toBe('failed');
     const lateAfterCancellation = scheduler.retryFromEvaluator({
-      taskId: t.id,
-      resultId: first.resultId!,
+      taskId: retryable.id,
+      resultId: retryableFirst.resultId!,
       decision: 'correction_required',
     });
     expect(lateAfterCancellation).toMatchObject({ ok: false, reason: 'task_not_done' });

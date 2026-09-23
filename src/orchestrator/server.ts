@@ -3788,13 +3788,13 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     // rend jusqu'à 2 000 lignes, et l'appeler par tâche referait ce travail
     // autant de fois qu'il y a de productions à livrer.
     const inspections = store.listInspections();
+    // Une ligne existe dès qu'une tentative de livraison a été prise. Même
+    // un échec (`pr: 0` ou PR distante refusée) reste une décision humaine à
+    // traiter ; l'effacer est la seule manière explicite de relancer.
     return store
       .listTasks(projectId)
       .filter((t) => t.status === 'done' && revues[t.id] === 'approved')
-      .filter((t) => {
-        const livraison = store.getLivraison(t.id);
-        return livraison === null || livraison.etat === 'echouee';
-      })
+      .filter((t) => store.getLivraison(t.id) === null)
       .filter((t) => {
         const resultats = store.resultsForTask(t.id);
         const dernier = resultats[resultats.length - 1];

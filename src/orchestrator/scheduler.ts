@@ -143,7 +143,7 @@ export type EvaluationRetryOutcome =
         | 'invalid_result_id'
         | 'stale_result'
         | 'dependent_progressed'
-        | 'delivery_open'
+        | 'delivery_exists'
         | 'attempts_exhausted';
       task?: Task;
     };
@@ -998,8 +998,12 @@ export class Scheduler {
     const task = this.store.getTask(input.taskId);
     if (!task) return { ok: false, reason: 'unknown_task' };
     if (task.status !== 'done') return { ok: false, reason: 'task_not_done', task };
-    if (this.store.getLivraison(task.id)?.etat === 'ouverte') {
-      return { ok: false, reason: 'delivery_open', task };
+    // Toute ligne de livraison est une décision historique : une livraison
+    // échouée peut encore correspondre à une PR distante, et `pr: 0` marque
+    // explicitement un échec de création. Réouvrir la tâche ferait perdre ce
+    // lien et pourrait créer une seconde livraison pour le même résultat.
+    if (this.store.getLivraison(task.id)) {
+      return { ok: false, reason: 'delivery_exists', task };
     }
     if (!Number.isSafeInteger(input.resultId) || input.resultId <= 0) {
       return { ok: false, reason: 'invalid_result_id', task };
