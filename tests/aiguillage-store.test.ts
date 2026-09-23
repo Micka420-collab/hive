@@ -79,6 +79,48 @@ describe('HiveStore — le lien tâche→modèle de l’Aiguillage', () => {
     expect(store.observationsAiguillage(), 'pas de verdict, pas d’observation').toEqual([]);
   });
 
+  it('GARDE LE MODÈLE EXACT après effacement de l’élection courante', () => {
+    // Une nouvelle tentative peut être assignée à un nœud sans modèle et
+    // effacer l’élection courante. La contre-revue de la production précédente
+    // porte toutefois son modèle exact : cette preuve doit continuer à nourrir
+    // l’Aiguillage, même si la ligne latérale courante a disparu.
+    const t = tache('Ajoute un endpoint', 'implémente la fonction');
+    store.poserModeleAiguillage(t, 'opus-commande', 1_000);
+    const resultId = store.insertResult(
+      {
+        taskId: t,
+        nodeId: 'producteur',
+        success: true,
+        diff: 'diff',
+        logs: '',
+        durationMs: 1,
+        subAgents: [],
+      },
+      1_500,
+    );
+    store.appendEvent(
+      'contre_expertise_verdict',
+      {
+        source: 'hive_counter_review',
+        taskId: t,
+        resultId,
+        producteurModele: 'opus-exact',
+      },
+      1_800,
+    );
+    verdict(t, 'appliquer', 2_000);
+    store.effacerModeleAiguillage(t);
+
+    expect(store.modeleAiguillageDe(t)).toBeNull();
+    expect(store.observationsAiguillage()).toEqual([
+      expect.objectContaining({
+        modele: 'opus-exact',
+        modeleExact: 'opus-exact',
+        suite: 'appliquer',
+      }),
+    ]);
+  });
+
   it('ORDRE CHRONOLOGIQUE ET BORNE — les plus récentes, du plus ancien au plus neuf', () => {
     // Trois verdicts à des instants croissants. Avec une borne de 2, on garde
     // les DEUX plus récents (renduA 2000 et 3000), rendus dans l'ordre du temps.

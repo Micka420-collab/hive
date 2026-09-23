@@ -4425,9 +4425,11 @@ export class HiveStore {
 
   /**
    * Reconstruit les observations que `replierAntecedents` replie — SANS rien
-   * recopier. Pour chaque tâche dont on connaît À LA FOIS le modèle
-   * (`aiguillage_modeles`) ET le verdict (`contre_visites`), on rend son
-   * titre + prompt (pour `categoriser` à la lecture), le modèle, et le verdict.
+   * recopier. Pour chaque tâche dont on connaît le verdict
+   * (`contre_visites`) et soit le modèle commandé (`aiguillage_modeles`), soit
+   * le modèle exact prouvé par la contre-revue, on rend son titre + prompt (pour
+   * `categoriser` à la lecture), le modèle, et le verdict. La preuve exacte doit
+   * survivre à l'effacement d'une élection courante lors d'une réassignation.
    *
    * Bornée par `limite` (les plus récentes), puis rendue en ordre
    * CHRONOLOGIQUE : c'est l'ordre que `replierAntecedents` documente, et son
@@ -4440,11 +4442,13 @@ export class HiveStore {
     // globale et ne doit pas être attribuée au dernier Worker par supposition.
     const rows = this.db
       .prepare(
-        `SELECT t.title AS title, t.prompt AS prompt, am.modele AS modele, cv.suite AS suite,
+        `SELECT t.title AS title, t.prompt AS prompt,
+                COALESCE(am.modele, json_extract(ce.payload, '$.producteurModele')) AS modele,
+                cv.suite AS suite,
                 r.nodeId AS nodeId,
                 json_extract(ce.payload, '$.producteurModele') AS modeleExact
            FROM contre_visites cv
-           JOIN aiguillage_modeles am ON am.taskId = cv.productionTaskId
+           LEFT JOIN aiguillage_modeles am ON am.taskId = cv.productionTaskId
            JOIN tasks t              ON t.id      = cv.productionTaskId
            LEFT JOIN events ce ON ce.id = (
              SELECT e.id
@@ -4457,7 +4461,9 @@ export class HiveStore {
               LIMIT 1
            )
            LEFT JOIN results r ON r.id = CAST(json_extract(ce.payload, '$.resultId') AS INTEGER)
-          ORDER BY cv.renduA DESC
+          WHERE am.taskId IS NOT NULL
+             OR json_extract(ce.payload, '$.producteurModele') IS NOT NULL
+           ORDER BY cv.renduA DESC
           LIMIT ?`,
       )
       .all(Math.max(1, Math.min(limite, CORPUS_AIGUILLAGE))) as Array<
