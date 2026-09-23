@@ -57,7 +57,7 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   fetchAtelier: vi.fn(() => Promise.resolve({ mode: 'off', actif: false })),
 }));
 
-import { connectFeed, getToken } from '../dashboard/src/api';
+import { connectFeed, fetchPulse, getToken } from '../dashboard/src/api';
 import type { FeedHandlers } from '../dashboard/src/api';
 import { App } from '../dashboard/src/App';
 import { getReview } from '../dashboard/src/views/shared';
@@ -211,6 +211,26 @@ describe('la coquille de l’App — les deux dernières survivantes du balayage
 });
 
 describe('la coquille de l’App — les survivantes du balayage du soir', () => {
+  it('INVALIDATION APRÈS RECONNEXION : les vues relisent les API après le snapshot courant', async () => {
+    let poignees: FeedHandlers | null = null;
+    vi.mocked(connectFeed).mockImplementation((h: FeedHandlers) => {
+      poignees = h;
+      return { close: () => {} };
+    });
+    await monter();
+    expect(poignees, 'le flux doit être branché au montage').toBeTruthy();
+    vi.mocked(fetchPulse).mockClear();
+
+    await act(async () => {
+      (poignees as FeedHandlers).onStatus(true);
+    });
+
+    expect(
+      vi.mocked(fetchPulse),
+      'une reconnexion doit invalider les lectures qui ont pu manquer des événements',
+    ).toHaveBeenCalled();
+  });
+
   it('SEUL L’ÉVÉNEMENT task_reviewed SYNCHRONISE LES REVUES — les autres n’y touchent pas', async () => {
     // `if (ev.type === 'task_reviewed')` mutée en `!==` : le verdict posé par
     // un autre opérateur ne se synchroniserait JAMAIS, et chaque autre

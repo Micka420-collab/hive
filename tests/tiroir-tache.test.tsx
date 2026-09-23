@@ -26,13 +26,31 @@ import { setLang } from '../dashboard/src/i18n';
 vi.mock('../dashboard/src/api', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   fetchResults: vi.fn(() => Promise.resolve([])),
+  fetchDelegationGraph: vi.fn(() =>
+    Promise.resolve({
+      taskId: 'tache-du-tiroir',
+      rootTaskId: 'tache-du-tiroir',
+      graph: [
+        {
+          taskId: 'tache-du-tiroir',
+          rootTaskId: 'tache-du-tiroir',
+          parentTaskId: null,
+          depth: 0,
+          status: 'running',
+          origine: 'native',
+        },
+      ],
+      delegations: [],
+      events: [],
+    }),
+  ),
   fetchRace: vi.fn(() => Promise.resolve({ race: null, victory: null })),
   cancelTask: vi.fn(() => Promise.resolve()),
   raceTask: vi.fn(() => Promise.resolve({ drones: [] })),
 }));
 vi.mock('../dashboard/src/CodeEditor', () => ({ default: () => null }));
 
-import { cancelTask, fetchRace, fetchResults } from '../dashboard/src/api';
+import { cancelTask, fetchDelegationGraph, fetchRace, fetchResults } from '../dashboard/src/api';
 import { TaskDrawer } from '../dashboard/src/TaskDrawer';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -43,11 +61,28 @@ let conteneur: HTMLElement | null = null;
 beforeEach(() => {
   setLang('fr');
   vi.mocked(fetchRace).mockClear();
+  vi.mocked(fetchDelegationGraph).mockClear();
   vi.mocked(cancelTask).mockClear();
   // Défaut : aucun résultat (les onglets ne se rendent pas). Un test qui veut
   // les onglets pose son propre `mockResolvedValue` — remis à zéro ici pour
   // qu'il ne fuie pas dans le banc suivant.
   vi.mocked(fetchResults).mockResolvedValue([]);
+  vi.mocked(fetchDelegationGraph).mockResolvedValue({
+    taskId: 'tache-du-tiroir',
+    rootTaskId: 'tache-du-tiroir',
+    graph: [
+      {
+        taskId: 'tache-du-tiroir',
+        rootTaskId: 'tache-du-tiroir',
+        parentTaskId: null,
+        depth: 0,
+        status: 'running',
+        origine: 'native',
+      },
+    ],
+    delegations: [],
+    events: [],
+  });
 });
 afterEach(() => {
   act(() => racine?.unmount());
@@ -169,6 +204,118 @@ describe('le tiroir — les métadonnées et le geste qui coupe', () => {
       ),
       'une tâche terminée ne s’annule plus — le bouton serait un mensonge',
     ).toBe(false);
+  });
+});
+
+describe('le tiroir — le graphe de délégation réel', () => {
+  it('rend les enfants, leur parent et la raison persistés par l’API', async () => {
+    vi.mocked(fetchDelegationGraph).mockResolvedValue({
+      taskId: 'tache-du-tiroir',
+      rootTaskId: 'tache-du-tiroir',
+      graph: [
+        {
+          taskId: 'tache-du-tiroir',
+          rootTaskId: 'tache-du-tiroir',
+          parentTaskId: null,
+          depth: 0,
+          status: 'running',
+          origine: 'native',
+        },
+        {
+          taskId: 'enfant-1',
+          rootTaskId: 'tache-du-tiroir',
+          parentTaskId: 'tache-du-tiroir',
+          depth: 1,
+          status: 'done',
+          origine: 'hive',
+        },
+      ],
+      delegations: [],
+      events: [
+        {
+          id: 1,
+          ts: 1,
+          type: 'delegation_created',
+          payload: { childTaskId: 'enfant-1', reason: 'isoler les tests de sécurité' },
+        },
+      ],
+    });
+    const dom = await monter(
+      <TaskDrawer task={tache('running')} nodes={NOEUDS} onClose={() => {}} />,
+    );
+    await act(async () => {});
+    expect(vi.mocked(fetchDelegationGraph)).toHaveBeenCalledWith('tache-du-tiroir');
+    expect(dom.textContent).toContain('Délégation Hive');
+    expect(dom.textContent).toContain('enfant-1');
+    expect(dom.textContent).toContain('parent : tache-du-tiroir');
+    expect(dom.textContent).toContain('isoler les tests de sécurité');
+    expect(dom.textContent).toContain('terminée');
+  });
+
+  it('expose une erreur de lecture au lieu de simuler un graphe vide', async () => {
+    vi.mocked(fetchDelegationGraph).mockRejectedValue(new Error('route absente'));
+    const dom = await monter(
+      <TaskDrawer task={tache('running')} nodes={NOEUDS} onClose={() => {}} />,
+    );
+    await act(async () => {});
+    expect(dom.textContent).toContain('Graphe indisponible');
+    expect(dom.textContent).toContain('route absente');
+    expect(dom.textContent).not.toContain('Aucune sous-tâche Hive persistée.');
+  });
+
+  it('relit le graphe quand App reçoit une invalidation, sans changer de tâche', async () => {
+    const rootGraph = {
+      taskId: 'tache-du-tiroir',
+      rootTaskId: 'tache-du-tiroir',
+      graph: [
+        {
+          taskId: 'tache-du-tiroir',
+          rootTaskId: 'tache-du-tiroir',
+          parentTaskId: null,
+          depth: 0,
+          status: 'running' as const,
+          origine: 'native' as const,
+        },
+      ],
+      delegations: [],
+      events: [],
+    };
+    const enfant = {
+      ...rootGraph,
+      graph: [
+        ...rootGraph.graph,
+        {
+          taskId: 'enfant-live',
+          rootTaskId: 'tache-du-tiroir',
+          parentTaskId: 'tache-du-tiroir',
+          depth: 1,
+          status: 'ready' as const,
+          origine: 'hive' as const,
+        },
+      ],
+      events: [
+        {
+          id: 1,
+          ts: 1,
+          type: 'delegation_created',
+          payload: { childTaskId: 'enfant-live', reason: 'valider la sécurité' },
+        },
+      ],
+    };
+    vi.mocked(fetchDelegationGraph).mockResolvedValueOnce(rootGraph).mockResolvedValueOnce(enfant);
+    const task = tache('running');
+    const dom = await monter(
+      <TaskDrawer task={task} nodes={NOEUDS} refreshTick={0} onClose={() => {}} />,
+    );
+    await act(async () => {});
+    expect(dom.textContent).toContain('Aucune sous-tâche Hive persistée.');
+    await act(async () => {
+      racine?.render(<TaskDrawer task={task} nodes={NOEUDS} refreshTick={1} onClose={() => {}} />);
+    });
+    await act(async () => {});
+    expect(vi.mocked(fetchDelegationGraph)).toHaveBeenCalledTimes(2);
+    expect(dom.textContent).toContain('enfant-live');
+    expect(dom.textContent).toContain('valider la sécurité');
   });
 });
 

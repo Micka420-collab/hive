@@ -1043,6 +1043,63 @@ h3 {
   color: var(--text);
 }
 
+.delegation-panel {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+}
+
+.delegation-panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.delegation-panel-head h3 {
+  margin: 0;
+}
+
+.delegation-tree {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.delegation-tree-node {
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 8px 10px;
+  background: var(--panel-2);
+}
+
+.delegation-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.delegation-tree-id {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.delegation-tree-parent {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 4px;
+}
+
+.delegation-tree-reason {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 5px 0 0;
+}
+
 .code-block {
   background: var(--bg);
   border: 1px solid var(--border);
