@@ -278,7 +278,7 @@ import { computePulse } from './pulse.js';
 import { buildTimeline } from './replay.js';
 import { detectConflicts } from './sting-detector.js';
 import { Scheduler } from './scheduler.js';
-import { HiveStore } from './store.js';
+import { ETAT_LIVRAISON_EN_COURS, HiveStore } from './store.js';
 import type { SessionRangee } from './store.js';
 import { projeterWorkers } from './workers.js';
 import { lireTemperature, FENETRE_MS as FENETRE_THERMO_MS, TYPES_THERMO } from './thermo.js';
@@ -3452,6 +3452,94 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   // livrerait puis fusionnerait « si tout est vert » retirerait la seule
   // garantie que Hive donne. Cette séparation est verrouillée par
   // tests/security-invariants.test.ts.
+
+  type RevueLivraison = 'approved' | 'rejected' | null;
+
+  type ReservationLivraison = {
+    taskId: string;
+    projectId: string;
+    depot: string;
+    branche: string;
+    resultId: number;
+    revue: RevueLivraison;
+  };
+
+  type ResultatLivraison = Awaited<ReturnType<typeof livrer>>;
+
+  /** Le résultat et la revue restent ceux que la réservation a vus. */
+  const productionEstToujoursCourante = (reservation: ReservationLivraison): boolean => {
+    const task = store.getTask(reservation.taskId);
+    const latest = store.resultsForTask(reservation.taskId).at(-1);
+    const revue = store.getTaskReview(reservation.taskId)?.state ?? null;
+    return (
+      task?.projectId === reservation.projectId &&
+      task.status === 'done' &&
+      latest?.resultId === reservation.resultId &&
+      latest.success &&
+      Boolean(latest.diff) &&
+      revue === reservation.revue
+    );
+  };
+
+  /** La réservation n'a pas été remplacée pendant l'appel GitHub. */
+  const reservationEstToujoursLa = (reservation: ReservationLivraison): boolean => {
+    const rangee = store.getLivraison(reservation.taskId);
+    return (
+      productionEstToujoursCourante(reservation) &&
+      rangee?.taskId === reservation.taskId &&
+      rangee.projectId === reservation.projectId &&
+      rangee.depot === reservation.depot &&
+      rangee.branche === reservation.branche &&
+      rangee.pr === 0 &&
+      rangee.etat === ETAT_LIVRAISON_EN_COURS
+    );
+  };
+
+  /** Pose le verrou durable avant le premier appel GitHub de toute livraison. */
+  const reserverLivraison = (input: ReservationLivraison): ReservationLivraison | null => {
+    if (!productionEstToujoursCourante(input)) return null;
+    if (
+      !store.reserverLivraison({
+        taskId: input.taskId,
+        projectId: input.projectId,
+        depot: input.depot,
+        branche: input.branche,
+      })
+    ) {
+      return null;
+    }
+    emitEvent('delivery_started', { taskId: input.taskId, resultId: input.resultId });
+    return input;
+  };
+
+  /** Conserve l'échec et le verrou si GitHub n'a pas pu terminer la livraison. */
+  const echouerReservation = (
+    reservation: ReservationLivraison | null,
+    motif: string,
+    pr = 0,
+  ): void => {
+    if (!reservation) return;
+    store.finaliserLivraisonEnCours({
+      taskId: reservation.taskId,
+      projectId: reservation.projectId,
+      depot: reservation.depot,
+      branche: reservation.branche,
+      pr,
+      etat: 'echouee',
+      motif: motif.slice(0, 400),
+    });
+  };
+
+  /** Un retour GitHub doit rester rattaché à la branche réservée. */
+  const resultatLivraisonValide = (resultat: ResultatLivraison, branche: string): boolean => {
+    return (
+      Number.isSafeInteger(resultat.pr) &&
+      resultat.pr > 0 &&
+      resultat.branche === branche &&
+      resultat.commitSha.length > 0
+    );
+  };
+
   app.post<{ Body: { taskId: string; base?: string } }>(
     '/api/livraison',
     {
@@ -3491,7 +3579,9 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           conseil: 'La tâche n’a pas de résultat réussi porteur d’un diff.',
         });
       }
-
+      if (typeof dernier.resultId !== 'number') {
+        return reply.code(409).send({ error: 'production sans identifiant' });
+      }
       const noeud = store.getNode(dernier.nodeId);
       const inspection = inspectionDeProduction(
         store.listInspections(),
@@ -3514,13 +3604,31 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       }
       // L'issue d'origine, si cette tâche vient d'une demande GitHub.
       const issueOrigine = store.issueDeTache(task.id);
+      const branche = nomBranche(task.id);
+      // Réserver AVANT le premier await GitHub. Une contre-revue peut terminer
+      // pendant la création de la branche ; sans cette ligne, le Scheduler
+      // verrait encore « aucune livraison » et relancerait cette production.
+      const reservation = reserverLivraison({
+        taskId: task.id,
+        projectId: task.projectId,
+        depot,
+        branche,
+        resultId: dernier.resultId,
+        revue: store.getTaskReview(task.id)?.state ?? null,
+      });
+      if (!reservation) {
+        return reply.code(409).send({
+          code: 'delivery_exists',
+          error: 'une livraison est déjà enregistrée pour cette tâche',
+        });
+      }
       try {
         const resultat = await livrer(
           { jeton: jetonGithub, ...(apiGithub ? { api: apiGithub } : {}) },
           {
             depot,
             base: req.body.base ?? 'main',
-            branche: nomBranche(task.id),
+            branche,
             diff: dernier.diff,
             titre: task.title,
             corps: corpsPr({
@@ -3535,20 +3643,35 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
             }),
           },
         );
+        const resultatValide = resultatLivraisonValide(resultat, branche);
+        if (!resultatValide || !reservationEstToujoursLa(reservation)) {
+          const motif = 'production modifiée pendant la livraison';
+          echouerReservation(reservation, motif, resultatValide ? resultat.pr : 0);
+          emitEvent('delivery_stale', {
+            taskId: task.id,
+            resultId: dernier.resultId,
+            pr: resultat.pr,
+          });
+          return reply.code(409).send({ code: 'stale_result', error: motif, pr: resultat.pr });
+        }
         // LA LIVRAISON SE RANGE, comme sur la voie autonome. Elle ne le faisait
         // pas ici : le trajet manuel n'émettait qu'un événement, et le numéro
         // de PR n'existait donc nulle part où on puisse le retrouver. Deux
         // conséquences, et la seconde est la grave : on ne pouvait pas rouvrir
         // « où en est ma livraison ? », et surtout RIEN ne permettait de
         // vérifier qu'une PR venait bien de la ruche au moment de la fusionner.
-        store.setLivraison({
+        const finalisee = store.finaliserLivraisonEnCours({
           taskId: task.id,
           projectId: task.projectId,
           depot,
           pr: resultat.pr,
-          branche: nomBranche(task.id),
+          branche,
           etat: 'ouverte',
         });
+        if (!finalisee) {
+          const motif = 'réservation de livraison remplacée pendant la livraison';
+          return reply.code(409).send({ code: 'delivery_stale', error: motif });
+        }
         // Faits typés uniquement : le texte bilingue est reconstruit à l'affichage.
         emitEvent('delivery_opened', {
           taskId: task.id,
@@ -3561,10 +3684,13 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         return reply.code(201).send(resultat);
       } catch (err) {
         if (err instanceof ErreurRustine) {
+          echouerReservation(reservation, err.message);
           return reply
             .code(409)
             .send({ error: err.message, conseil: err.conseil, chemin: err.chemin });
         }
+        const e = err as { message?: string };
+        echouerReservation(reservation, e.message ?? String(err));
         return repondreErreurGithub(reply, err);
       }
     },
@@ -3615,7 +3741,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // place sur une PR qu'on n'a pas écrite.
       const nôtre = store
         .listLivraisons(req.body.projectId)
-        .some((l) => l.pr === req.body.pr && l.depot === depot);
+        .some((l) => l.etat === 'ouverte' && l.pr === req.body.pr && l.depot === depot);
       if (!nôtre) {
         return reply.code(409).send({
           error: 'cette pull request n’a pas été ouverte par la ruche',
@@ -3684,8 +3810,9 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
    *     pull requests, elle ne décide pas seule de ce qui mérite d'en être une ;
    *   · son dernier résultat est un succès PORTEUR D'UN DIFF — un « succès » à
    *     diff vide n'a rien à livrer (c'est déjà ce que les Gardiennes disent) ;
-   *   · elle n'a pas de livraison OU sa dernière livraison est explicitement
-   *     échouée — une livraison fusionnée reste une sortie définitive ;
+   *   · elle n'a aucune livraison enregistrée — une livraison en cours,
+   *     échouée ou fusionnée reste une décision durable jusqu'à reprise
+   *     humaine ;
    *   · le projet a un dépôt connu, sinon il n'y a pas d'endroit où livrer.
    *
    * L'ordre est celui de la création : la ruche livre dans l'ordre où elle a
@@ -4298,6 +4425,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
 
         const resultats = store.resultsForTask(task.id);
         const dernier = resultats[resultats.length - 1]!;
+        if (typeof dernier.resultId !== 'number') return 'production sans identifiant';
         const noeud = store.getNode(dernier.nodeId);
         const inspection = inspectionDeProduction(
           store.listInspections(),
@@ -4307,9 +4435,22 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         );
         const branche = nomBranche(task.id);
         const issueOrigine = store.issueDeTache(task.id);
+        let reservation: ReservationLivraison | null = null;
 
         try {
           const fichiers = cheminsDe(analyserRustine(dernier.diff));
+          // `aLivrer` a déjà filtré les lignes existantes. Relire juste avant
+          // l'écriture protège toutefois le cas où une route manuelle a
+          // réservé la même tâche depuis le dernier tick.
+          reservation = reserverLivraison({
+            taskId: task.id,
+            projectId,
+            depot,
+            branche,
+            resultId: dernier.resultId,
+            revue: store.getTaskReview(task.id)?.state ?? null,
+          });
+          if (!reservation) return 'une livraison est déjà enregistrée';
           const resultat = await livrer(
             { jeton: jetonGithub, ...(apiGithub ? { api: apiGithub } : {}) },
             {
@@ -4328,7 +4469,18 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
               }),
             },
           );
-          store.setLivraison({
+          const resultatValide = resultatLivraisonValide(resultat, branche);
+          if (!resultatValide || !reservationEstToujoursLa(reservation)) {
+            const motif = 'production modifiée pendant la livraison';
+            echouerReservation(reservation, motif, resultatValide ? resultat.pr : 0);
+            emitEvent('delivery_stale', {
+              taskId: task.id,
+              resultId: dernier.resultId,
+              pr: resultat.pr,
+            });
+            return `livraison abandonnée : ${motif}`;
+          }
+          const finalisee = store.finaliserLivraisonEnCours({
             taskId: task.id,
             projectId,
             depot,
@@ -4336,6 +4488,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
             branche,
             etat: 'ouverte',
           });
+          if (!finalisee) return 'livraison abandonnée : réservation remplacée';
           emitEvent('delivery_opened', {
             taskId: task.id,
             nodeId: dernier.nodeId,
@@ -4350,15 +4503,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           // n'essaie pas la même production en boucle ; c'est à l'humain de la
           // débloquer, comme un plafond de La Balance.
           const motif = e instanceof Error ? e.message : String(e);
-          store.setLivraison({
-            taskId: task.id,
-            projectId,
-            depot,
-            pr: 0,
-            branche,
-            etat: 'echouee',
-            motif: motif.slice(0, 400),
-          });
+          echouerReservation(reservation, motif);
           throw e;
         }
       },
@@ -7206,6 +7351,23 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // déclencherait la limite SECONDAIRE de GitHub, qui est un bannissement
       // temporaire et non un simple 429.
       for (const l of rangees.slice(-MAX_LIVRAISONS_LUES)) {
+        // Une réservation n'a pas encore de numéro GitHub. Elle doit rester
+        // visible sans transformer `pr: 0` en requête vers `/pulls/0`.
+        if (l.etat === ETAT_LIVRAISON_EN_COURS && l.pr === 0) {
+          const tache = store.getTask(l.taskId);
+          livraisons.push({
+            taskId: l.taskId,
+            depot: l.depot,
+            pr: 0,
+            etat: ETAT_LIVRAISON_EN_COURS,
+            faits: null,
+            branche: l.branche,
+            titre: tache?.title ?? '',
+            dit: 'Livraison GitHub en cours',
+            reprenable: false,
+          });
+          continue;
+        }
         try {
           const vue = await etatDeLivraison(l);
           const tache = store.getTask(l.taskId);
@@ -7257,6 +7419,12 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // projet ne doit pas se laisser deviner par un message différent.
       if (!rangee || rangee.projectId !== req.params.projectId) {
         return reply.code(404).send({ error: 'livraison inconnue' });
+      }
+      if (rangee.etat === ETAT_LIVRAISON_EN_COURS) {
+        return reply.code(409).send({
+          error: 'livraison encore en cours',
+          etat: ETAT_LIVRAISON_EN_COURS,
+        });
       }
 
       let vue;
