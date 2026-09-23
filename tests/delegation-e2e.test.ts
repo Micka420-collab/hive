@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import WebSocket from 'ws';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { AgentAdapter } from '../src/adapters/index.js';
+import type { AgentAdapter, WorkerDelegationResult } from '../src/adapters/index.js';
 import { HiveNodeClient } from '../src/node-client/client.js';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
@@ -58,6 +58,17 @@ describe('délégation Worker → enfant en conditions réelles', () => {
       expect(taskResponse.status).toBe(201);
 
       const outcomes: Array<{ ok: boolean; childTaskId?: string }> = [];
+      let childOutcome: {
+        ok: boolean;
+        parentTaskId?: string;
+        childTaskId?: string;
+        success?: boolean;
+        diff?: string;
+        logs?: string;
+        durationMs?: number;
+        resultId?: number;
+      } | null = null;
+      let replayAfterCompletionOutcome: WorkerDelegationResult | null = null;
       let releaseParent!: () => void;
       const parentReleased = new Promise<void>((resolve) => {
         releaseParent = resolve;
@@ -84,6 +95,16 @@ describe('délégation Worker → enfant en conditions réelles', () => {
             ok: replay.ok,
             ...(replay.ok ? { childTaskId: replay.childTaskId } : {}),
           });
+          if (!ctx.waitForDelegationResult) {
+            throw new Error('capacité de résultat de délégation absente');
+          }
+          childOutcome = await ctx.waitForDelegationResult('child');
+          const replayAfterCompletion = await ctx.delegate(request);
+          outcomes.push({
+            ok: replayAfterCompletion.ok,
+            ...(replayAfterCompletion.ok ? { childTaskId: replayAfterCompletion.childTaskId } : {}),
+          });
+          replayAfterCompletionOutcome = await ctx.waitForDelegationResult('child');
           await parentReleased;
           return {
             success: task.id === 'parent',
@@ -138,8 +159,8 @@ describe('délégation Worker → enfant en conditions réelles', () => {
         }
         expect(predicate()).toBe(true);
       };
-      await waitFor(() => outcomes.length === 2);
-      expect(outcomes).toEqual([
+      await waitFor(() => outcomes.length >= 2);
+      expect(outcomes.slice(0, 2)).toEqual([
         { ok: true, childTaskId: 'child' },
         { ok: true, childTaskId: 'child' },
       ]);
@@ -235,6 +256,26 @@ describe('délégation Worker → enfant en conditions réelles', () => {
         const parent = server!.store.getTask('parent');
         const child = server!.store.getTask('child');
         return parent?.status === 'done' && child?.status === 'done';
+      });
+      expect(childOutcome).toMatchObject({
+        ok: true,
+        parentTaskId: 'parent',
+        childTaskId: 'child',
+        success: true,
+        diff: 'diff enfant',
+        logs: 'tests enfant verts',
+        durationMs: expect.any(Number),
+        resultId: expect.any(Number),
+      });
+      expect(replayAfterCompletionOutcome).toMatchObject({
+        ok: true,
+        parentTaskId: 'parent',
+        childTaskId: 'child',
+        success: true,
+        diff: 'diff enfant',
+        logs: 'tests enfant verts',
+        durationMs: expect.any(Number),
+        resultId: expect.any(Number),
       });
 
       const graphResponse = await fetch(`${base}/api/tasks/parent/delegation`, { headers });

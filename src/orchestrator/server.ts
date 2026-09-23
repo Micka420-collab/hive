@@ -8740,6 +8740,33 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
                   success: result?.success ?? msg.success,
                   ...(result?.resultId !== undefined ? { resultId: result.resultId } : {}),
                 });
+
+                // Le parent reçoit le résultat seulement quand l'enfant est
+                // terminal. Une tentative échouée qui repart en `ready` ne
+                // doit pas réveiller le Worker parent avec un résultat
+                // intermédiaire : le graphe conserve le fait, l'adaptateur
+                // attend la production finale.
+                const child = store.getTask(msg.taskId);
+                const parent = store.getTask(delegation.parentTaskId);
+                const parentNodeId = parent?.assignedNodeId;
+                const parentSocket = parentNodeId ? nodeSockets.get(parentNodeId) : undefined;
+                if (
+                  result &&
+                  child &&
+                  (child.status === 'done' || child.status === 'failed') &&
+                  parentSocket
+                ) {
+                  send(parentSocket, {
+                    type: 'delegation_result',
+                    parentTaskId: delegation.parentTaskId,
+                    childTaskId: delegation.childTaskId,
+                    success: result.success,
+                    diff: result.diff,
+                    logs: result.logs,
+                    durationMs: result.durationMs,
+                    ...(result.resultId !== undefined ? { resultId: result.resultId } : {}),
+                  });
+                }
               }
             }
             // ─── UNE RELECTURE N'EST PAS UNE PRODUCTION ─────────────────────
@@ -8834,6 +8861,25 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
                 childTaskId: deja.childTaskId,
                 depth: deja.depth,
               });
+              // Un rejeu peut arriver après la fin de l'enfant (reconnexion
+              // ou nouvelle tentative du parent). L'accusé seul laisserait le
+              // parent attendre un événement qui ne sera plus produit : le
+              // résultat terminal est déjà durable dans `results`, on le
+              // retransmet donc sur le même socket après l'autorisation.
+              const child = store.getTask(deja.childTaskId);
+              const result = store.resultsForTask(deja.childTaskId).at(-1);
+              if (child && result && (child.status === 'done' || child.status === 'failed')) {
+                send(ws, {
+                  type: 'delegation_result',
+                  parentTaskId: deja.parentTaskId,
+                  childTaskId: deja.childTaskId,
+                  success: result.success,
+                  diff: result.diff,
+                  logs: result.logs,
+                  durationMs: result.durationMs,
+                  ...(result.resultId !== undefined ? { resultId: result.resultId } : {}),
+                });
+              }
               emitEvent('delegation_replayed', {
                 requestId: msg.requestId,
                 parentTaskId: msg.parentTaskId,

@@ -400,6 +400,18 @@ export interface DelegationRejectedMsg {
   message: string;
 }
 
+/** Résultat terminal d'un enfant, renvoyé au Worker qui l'a délégué. */
+export interface DelegationResultMsg {
+  type: 'delegation_result';
+  parentTaskId: string;
+  childTaskId: string;
+  success: boolean;
+  diff: string;
+  logs: string;
+  durationMs: number;
+  resultId?: number;
+}
+
 /**
  * Décision humaine relayée au nœud — jamais le secret (clé chez la Queen).
  */
@@ -500,6 +512,7 @@ export type ServerMessage =
   | RequisitionAckMsg
   | DelegationAcceptedMsg
   | DelegationRejectedMsg
+  | DelegationResultMsg
   | RequisitionResultMsg
   | AssignMergeMsg
   | AssignChantierMsg
@@ -515,6 +528,7 @@ const SERVER_MESSAGE_TYPES = new Set([
   'requisition_ack',
   'delegation_accepted',
   'delegation_rejected',
+  'delegation_result',
   'requisition_result',
   'assign_merge',
   'assign_chantier',
@@ -1000,6 +1014,30 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
             message: m.message,
           }
         : null;
+    case 'delegation_result': {
+      if (
+        !isId(m.parentTaskId) ||
+        !isId(m.childTaskId) ||
+        typeof m.success !== 'boolean' ||
+        !isStrAllowEmpty(m.diff, LIMITS.diff) ||
+        !isStrAllowEmpty(m.logs, LIMITS.log) ||
+        !isInt(m.durationMs, 0, Number.MAX_SAFE_INTEGER) ||
+        (m.resultId !== undefined && !isInt(m.resultId, 1, Number.MAX_SAFE_INTEGER))
+      ) {
+        return null;
+      }
+      const msg: DelegationResultMsg = {
+        type: 'delegation_result',
+        parentTaskId: m.parentTaskId,
+        childTaskId: m.childTaskId,
+        success: m.success,
+        diff: m.diff,
+        logs: m.logs,
+        durationMs: m.durationMs,
+      };
+      if (m.resultId !== undefined) msg.resultId = m.resultId;
+      return msg;
+    }
     case 'requisition_result':
       return isId(m.id) && (m.statut === 'accordee' || m.statut === 'refusee')
         ? { type: 'requisition_result', id: m.id, statut: m.statut }
