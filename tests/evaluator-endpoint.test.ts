@@ -124,6 +124,7 @@ describe('GET /api/tasks/:id/evaluation', () => {
     const unknown = await fetch(`${base}/api/tasks/inconnue/evaluation`, { headers });
     expect(unknown.status).toBe(404);
   });
+
   it('ne rattache pas une inspection retardée au résultat courant', async () => {
     const latestResultId = server.store.insertResult({
       taskId,
