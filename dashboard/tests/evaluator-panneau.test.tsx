@@ -24,6 +24,18 @@ const evidence: EvaluationResult['evidence'] = {
   typecheck: 'missing',
   build: 'missing',
   lint: 'missing',
+  crossReview: {
+    source: 'hive_counter_review',
+    taskId: 'task-1',
+    resultId: null,
+    status: 'missing',
+    reviewers: [],
+    objections: [],
+    reviewerCount: 0,
+    contestingReviewers: 0,
+    approvingReviewers: 0,
+    recordedAt: 0,
+  },
   humanReview: 'approved',
 };
 
