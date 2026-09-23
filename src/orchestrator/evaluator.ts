@@ -8,7 +8,7 @@
 // devient jamais un succès par défaut.
 
 import type { Inspection } from './gardiennes.js';
-import type { Verdict as ParliamentVerdict } from './parliament.js';
+import { signatureOf, type Verdict as ParliamentVerdict } from './parliament.js';
 import type { TaskResult } from '../shared/types.js';
 
 export const VERSION_EVALUATOR = 1;
@@ -46,6 +46,8 @@ export interface EvaluatorInput {
 
 export interface EvaluationEvidence {
   result: 'passed' | 'failed' | 'missing';
+  /** Le résultat livré doit être celui que le Parlement a élu. */
+  resultAlignment: 'aligned' | 'mismatch' | 'unknown';
   gardiennes: 'clean' | 'suspect' | 'hollow' | 'missing';
   consensus: 'elected' | 'no_quorum' | 'no_ballots' | 'missing';
   tests: ValidationState;
@@ -85,8 +87,15 @@ export function evaluate(input: EvaluatorInput): EvaluationResult {
     build: stateOf(input.validation?.build),
     lint: stateOf(input.validation?.lint),
   };
+  const resultAlignment =
+    latest && input.consensus?.outcome === 'elected'
+      ? input.consensus.winner && signatureOf(latest.diff) === input.consensus.winner.signature
+        ? 'aligned'
+        : 'mismatch'
+      : 'unknown';
   const evidence: EvaluationEvidence = {
     result: latest ? (latest.success ? 'passed' : 'failed') : 'missing',
+    resultAlignment,
     gardiennes: input.inspection?.verdict ?? 'missing',
     consensus: input.consensus?.outcome ?? 'missing',
     tests: validation.tests,
@@ -155,6 +164,16 @@ export function evaluate(input: EvaluatorInput): EvaluationResult {
       false,
       true,
       ['la revue humaine a rejeté la production'],
+      evidence,
+    );
+  }
+  if (resultAlignment === 'mismatch') {
+    return result(
+      input.taskId,
+      'correction_required',
+      false,
+      true,
+      ['le dernier résultat ne correspond pas à la faction élue'],
       evidence,
     );
   }
