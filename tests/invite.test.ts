@@ -100,8 +100,15 @@ describe('détection d’agent', () => {
       // Le shell simulé reste totalement épuré (aucune clé transmise).
       const shellEnv = buildSandboxEnv(dir, agentCredentialEnv('shell'));
       expect(shellEnv.ANTHROPIC_API_KEY).toBeUndefined();
+      process.env.HIVE_TOKEN = 'jeton-de-ruche-ne-doit-pas-partir';
+      process.env.HIVE_JWT_SECRET = 'secret-de-session-ne-doit-pas-partir';
+      const guardedEnv = buildSandboxEnv(dir, ['HIVE_TOKEN', 'HIVE_JWT_SECRET']);
+      expect(guardedEnv.HIVE_TOKEN).toBeUndefined();
+      expect(guardedEnv.HIVE_JWT_SECRET).toBeUndefined();
     } finally {
       delete process.env.ANTHROPIC_API_KEY;
+      delete process.env.HIVE_TOKEN;
+      delete process.env.HIVE_JWT_SECRET;
       rmSync(dir, { recursive: true, force: true });
       rmSync(`${dir}.tmp`, { recursive: true, force: true });
     }

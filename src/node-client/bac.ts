@@ -35,6 +35,7 @@ import {
 } from './isolement.js';
 import { CODE, type CodeSortie } from '../codes-sortie.js';
 import type { AgentType } from './agent-detect.js';
+import { variablesAgentSansSecrets } from './workspace.js';
 
 /** Ce que `decider` rend — nommé ici, faute de l'être à la source. */
 export type Decision = ReturnType<typeof decider>;
@@ -127,6 +128,11 @@ export function binaireDansBac(
   }[agent];
 }
 
+/** Le pont MCP CLI est un processus Node séparé dans l'image de l'agent. */
+export function binaireMcpDansBac(agent: AgentType): string | null {
+  return agent === 'claude-code' || agent === 'codex' ? 'node' : null;
+}
+
 export function deciderAvecPreflight(
   mode: ReturnType<typeof modeDepuisEnv>,
   fournisseur: Fournisseur,
@@ -158,7 +164,17 @@ export async function preparerBac(
   const binAgent = agent ? binaireDansBac(agent, env) : null;
 
   if (fournisseur && binAgent) {
-    const resultat = await sonderAgentDansBac(fournisseur, binAgent, image);
+    let resultat = await sonderAgentDansBac(fournisseur, binAgent, image);
+    const binPont = agent ? binaireMcpDansBac(agent) : null;
+    if (resultat.executable && binPont) {
+      const pont = await sonderAgentDansBac(fournisseur, binPont, image);
+      if (!pont.executable) {
+        resultat = {
+          executable: false,
+          motif: `${pont.motif} — runtime Node requis par le pont MCP CLI`,
+        };
+      }
+    }
     preflight = resultat.motif;
     ({ decision, fournisseur } = deciderAvecPreflight(mode, fournisseur, image, resultat));
   }
@@ -191,5 +207,11 @@ export function optionBac(
   | { bac: { fournisseur: Fournisseur; variables: string[]; image: string } }
   | Record<string, never> {
   if (!bac.decision.isole || !bac.fournisseur) return {};
-  return { bac: { fournisseur: bac.fournisseur, variables: [...variables], image: bac.image } };
+  return {
+    bac: {
+      fournisseur: bac.fournisseur,
+      variables: variablesAgentSansSecrets(variables),
+      image: bac.image,
+    },
+  };
 }

@@ -658,6 +658,9 @@ describe('LA GARDE : aucune écriture ne s’ajoute en douce hors de l’inventa
     // écrivain du `.env` mais deux, et le second — celui de l'assistant —
     // écrivait sans atomicité et sans obtenir les droits qu'il demandait.
     'src/ecriture-atomique.ts': '<racine>/.env, écrit en 600 par écriture atomique',
+    'src/adapters/delegation-bridge.ts':
+      '<workdir>/tasks/<task-id>/.hive — socket local et configuration MCP éphémères, ' +
+      'supprimés avant le calcul du diff',
     'src/node-client/client.ts': '<workdir>/<nom> — l’espace d’une tâche',
     // Les CHEMINS n'ont pas bougé — `<workdir>/join/node-id.txt` et
     // `node-key.txt` sont toujours déclarés dans `empreinte()`, donc toujours

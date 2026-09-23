@@ -24,6 +24,7 @@ import { describe, expect, it } from 'vitest';
 import {
   annonce,
   binaireDansBac,
+  binaireMcpDansBac,
   codeDuBac,
   deciderAvecPreflight,
   optionBac,
@@ -108,6 +109,12 @@ describe('le refus, et ce qui part au client', () => {
     expect(binaireDansBac('codex')).toBe('codex');
     expect(binaireDansBac('shell')).toBeNull();
     expect(binaireDansBac('custom', { HIVE_AGENT_CMD: 'outil --flag' })).toBe('outil');
+  });
+
+  it('préflight le runtime Node du pont MCP pour les CLI qui le chargent', () => {
+    expect(binaireMcpDansBac('claude-code')).toBe('node');
+    expect(binaireMcpDansBac('codex')).toBe('node');
+    expect(binaireMcpDansBac('shell')).toBeNull();
   });
 
   it('« auto » se replie explicitement si l’agent manque dans l’image', () => {
@@ -205,6 +212,16 @@ describe('le refus, et ce qui part au client', () => {
     };
     variables.push('SECRET_AJOUTE_APRES_COUP');
     expect(option.bac.variables).toEqual(['HOME']);
+  });
+
+  it('ne transmet jamais les secrets de la ruche au conteneur agent', () => {
+    const option = optionBac(bacDe('auto', PODMAN), [
+      'HOME',
+      'HIVE_TOKEN',
+      'HIVE_JWT_SECRET',
+      'ANTHROPIC_API_KEY',
+    ]) as { bac: { variables: string[] } };
+    expect(option.bac.variables).toEqual(['HOME', 'ANTHROPIC_API_KEY']);
   });
 });
 

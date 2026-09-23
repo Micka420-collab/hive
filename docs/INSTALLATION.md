@@ -488,14 +488,14 @@ Un outil d'installation n'est pas un outil de destruction —
 
 ### Où Hive écrit, exactement
 
-|                                  |                                                             |
-| -------------------------------- | ----------------------------------------------------------- |
-| `<installation>/.env`            | jetons et secrets                                           |
-| `<installation>/data/hive.db`    | la base, plus ses `-wal` et `-shm`                          |
-| `<installation>/data/rayons/`    | les miroirs des dépôts                                      |
-| `<installation>/.hive-work/`     | espaces de travail, clé du nœud, `cloudflared`              |
-| `$TMPDIR/hive-merge-*`           | patchs d'une fusion — effacés à la fin de chacune           |
-| `$TMPDIR/hive-agent-preflight-*` | répertoires vides de sonde — effacés après chaque preflight |
+|                                  |                                                                     |
+| -------------------------------- | ------------------------------------------------------------------- |
+| `<installation>/.env`            | jetons et secrets                                                   |
+| `<installation>/data/hive.db`    | la base, plus ses `-wal` et `-shm`                                  |
+| `<installation>/data/rayons/`    | les miroirs des dépôts                                              |
+| `<installation>/.hive-work/`     | espaces de travail, clé du nœud, `cloudflared`, ponts MCP éphémères |
+| `$TMPDIR/hive-merge-*`           | patchs d'une fusion — effacés à la fin de chacune                   |
+| `$TMPDIR/hive-agent-preflight-*` | répertoires vides de sonde — effacés après chaque preflight         |
 
 Pas de service, pas d'entrée de registre, pas de fichier dans `/etc`, rien
 dans votre dossier personnel. Ce n'est pas une promesse en prose :
@@ -510,6 +510,13 @@ d'écriture réels de `src/` et **rougit** si l'un d'eux apparaît ailleurs.
 - `$TMPDIR/hive-agent-preflight-*` : le preflight utilise un répertoire vide
   pour ne jamais monter votre workspace ; il est supprimé dès que la sonde
   `--version` se termine.
+- `<installation>/.hive-work/tasks/<task-id>/.hive/` : le Worker y pose
+  temporairement le socket local et la configuration du pont MCP qui relie un
+  CLI à `hive_delegate` et `hive_wait_for_delegation_result`. Le pont est
+  authentifié pour cette seule tentative et ces fichiers sont supprimés avant
+  le calcul du diff ; ils ne doivent donc jamais apparaître dans une livraison.
+  Une image de bac personnalisée doit contenir `node` en plus du CLI : le
+  preflight le vérifie pour Claude Code et Codex avant d'accepter le bac.
 - **si vous avez demandé un service**, son fichier vit dans votre dossier
   personnel — `~/.config/systemd/user/` sous Linux, `~/Library/LaunchAgents/`
   sous macOS. C'est la seule chose que Hive écrit là, elle est **opt-in**, et

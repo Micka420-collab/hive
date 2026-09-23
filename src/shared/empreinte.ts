@@ -239,6 +239,10 @@ export function empreinte(ctx: Contexte): Emplacement[] {
           chemin: p.join(ctx.workdir, 'bin'),
           quoi: 'cloudflared, s’il a été téléchargé par `hive cloudflare --install`',
         },
+        {
+          chemin: p.join(ctx.workdir, 'tasks', '<task-id>', '.hive'),
+          quoi: 'socket local et configuration MCP éphémères du pont de délégation, supprimés avant le diff',
+        },
       ],
     },
     {
