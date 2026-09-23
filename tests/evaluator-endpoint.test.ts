@@ -118,6 +118,89 @@ describe('GET /api/tasks/:id/evaluation', () => {
     expect(body.reasons.join(' ')).toContain('tests');
   });
 
+  it('agrège toutes les contre-revues du résultat courant et ignore une ancienne tentative', async () => {
+    server.store.appendEvent('contre_expertise_verdict', {
+      source: 'hive_counter_review',
+      taskId,
+      resultId: secondResultId,
+      relecture: 'relecture-favorable',
+      relecteur: 'codex',
+      reviewerNodeId: 'n1',
+      conteste: false,
+      objections: [],
+      recordedAt: 1,
+    });
+    server.store.appendEvent('contre_expertise_verdict', {
+      source: 'hive_counter_review',
+      taskId,
+      resultId: secondResultId,
+      relecture: 'relecture-contestee',
+      relecteur: 'claude-code',
+      reviewerNodeId: 'n2',
+      conteste: true,
+      objections: ['le cas limite n’est pas traité'],
+      recordedAt: 2,
+    });
+
+    const reviewed = await fetch(`${base}/api/tasks/${taskId}/evaluation`, { headers });
+    expect(reviewed.status).toBe(200);
+    const reviewedBody = (await reviewed.json()) as {
+      decision: string;
+      evidence: {
+        crossReview?: {
+          status: string;
+          decision: string;
+          reviewerCount: number;
+          contestingReviewers: number;
+          approvingReviewers: number;
+          objections: string[];
+        };
+      };
+    };
+    expect(reviewedBody.decision).toBe('correction_required');
+    expect(reviewedBody.evidence.crossReview).toMatchObject({
+      status: 'improvement_required',
+      decision: 'ameliorer',
+      reviewerCount: 2,
+      contestingReviewers: 1,
+      approvingReviewers: 1,
+      objections: ['le cas limite n’est pas traité'],
+    });
+
+    // Une nouvelle production de la même tâche ne doit pas récupérer la preuve
+    // de la tentative précédente, même si les deux verdicts restent journalisés.
+    const latestResultId = server.store.insertResult({
+      taskId,
+      nodeId: 'n2',
+      diff: DIFF,
+      logs: 'tests: 0 failed',
+      success: true,
+      durationMs: 12,
+      subAgents: [],
+    });
+    server.store.enregistrerInspection({
+      resultId: latestResultId,
+      taskId,
+      nodeId: 'n2',
+      verdict: 'clean',
+      score: 0,
+      applique: false,
+      griefs: [],
+    });
+
+    const reread = await fetch(`${base}/api/tasks/${taskId}/evaluation`, { headers });
+    expect(reread.status).toBe(200);
+    const rereadBody = (await reread.json()) as {
+      decision: string;
+      evidence: { crossReview?: { status?: string; resultId?: number | null } };
+    };
+    expect(rereadBody.decision).toBe('additional_test_required');
+    expect(rereadBody.evidence.crossReview).toMatchObject({
+      status: 'missing',
+      resultId: latestResultId,
+    });
+  });
+
   it('protège la route et ne révèle pas une tâche inconnue', async () => {
     const noToken = await fetch(`${base}/api/tasks/${taskId}/evaluation`);
     expect(noToken.status).toBe(401);
