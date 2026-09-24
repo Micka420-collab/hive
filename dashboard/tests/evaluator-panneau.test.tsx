@@ -14,6 +14,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 let root: Root | null = null;
 let container: HTMLElement | null = null;
+const nativeFetch = globalThis.fetch;
 
 const evidence: EvaluationResult['evidence'] = {
   result: 'passed',
@@ -60,6 +61,7 @@ async function mount(value: EvaluationResult): Promise<void> {
 }
 
 afterEach(async () => {
+  globalThis.fetch = nativeFetch;
   await act(async () => root?.unmount());
   container?.remove();
   root = null;
@@ -143,5 +145,62 @@ describe('Evaluator dans la Miellerie', () => {
     expect(
       container!.querySelector('[data-testid="mi-cross-review-objections"]')?.textContent,
     ).toContain('ajouter un test du chemin sécurisé');
+  });
+
+  it('déclenche la lecture CI du résultat courant et expose sa réussite', async () => {
+    setLang('fr');
+    const appels: { url: string; init?: RequestInit }[] = [];
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      appels.push({ url: String(input), init });
+      return new Response(
+        JSON.stringify({
+          taskId: 'task-1',
+          resultId: 42,
+          validation: { tests: 'passed', typecheck: 'passed', build: 'passed', lint: 'passed' },
+          provenance: {
+            source: 'github_pull_request',
+            taskId: 'task-1',
+            projectId: 'project-1',
+            resultId: 42,
+            depot: 'demo/hive',
+            pr: 7,
+            branch: 'hive/task-1',
+            commitSha: 'abc123',
+            recordedAt: 1,
+          },
+          evaluation: evaluation(),
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    }) as typeof fetch;
+    let recorded = 0;
+    await mount(evaluation());
+    // L'action est disponible uniquement quand l'inspection fournit le lien
+    // de la tâche et le résultat exact — elle ne peut donc pas viser une
+    // production périmée ou en inventer une.
+    await act(async () => {
+      root!.render(
+        <EvaluationPanel
+          evaluation={evaluation()}
+          error={null}
+          taskId="task-1"
+          resultId={42}
+          onCiRecorded={() => {
+            recorded += 1;
+          }}
+        />,
+      );
+    });
+    const button = container!.querySelector<HTMLButtonElement>('[data-testid="mi-fetch-ci"]');
+    expect(button).toBeTruthy();
+    await act(async () => {
+      button!.click();
+    });
+    expect(appels).toHaveLength(1);
+    expect(appels[0]?.url).toBe('/api/tasks/task-1/evaluation/ci');
+    expect(appels[0]?.init?.method).toBe('POST');
+    expect(appels[0]?.init?.body).toBe(JSON.stringify({ resultId: 42 }));
+    expect(recorded).toBe(1);
+    expect(container!.textContent).toContain('Preuve CI enregistrée');
   });
 });
