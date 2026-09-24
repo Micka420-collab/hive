@@ -274,6 +274,51 @@
   white-space: nowrap;
 }
 
+.es-current-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.es-current-tasks-label {
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.es-current-task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.es-current-task {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  padding: 4px 7px;
+  border-left: 2px solid var(--gold);
+  background: var(--panel-3);
+}
+
+.es-current-task-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.es-current-task-state {
+  color: var(--faint);
+  font-size: 10px;
+}
+
 .es-node-foot {
   font-size: 11px;
   color: var(--faint);

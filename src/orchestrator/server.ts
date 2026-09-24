@@ -2113,7 +2113,13 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
    */
   app.get('/api/workers', async (req, reply) => {
     if (!authorized(req)) return reject(reply);
-    return { workers: projeterWorkers(store.listNodes(), store.observationsAiguillage()) };
+    return {
+      workers: projeterWorkers(
+        store.listNodes(),
+        store.observationsAiguillage(),
+        store.tasksByStatus('assigned', 'running'),
+      ),
+    };
   });
 
   app.get('/api/atelier', async (req, reply) => {

@@ -119,4 +119,55 @@ describe('GET /api/workers', () => {
       attribution: 'exacte',
     });
   });
+
+  it('expose le travail actif sans divulguer le prompt', async () => {
+    const base = await demarrer();
+    server!.store.registerNode({
+      nodeId: 'worker-live',
+      name: 'poste-live',
+      ownerName: 'micka',
+      agentType: 'claude-code',
+      maxConcurrency: 2,
+    });
+    const project = server!.store.createProject({ name: 'Projet live' });
+    const task = server!.store.createTask({
+      id: 'task-live',
+      projectId: project.id,
+      title: 'Corriger le flux',
+      prompt: 'secret qui ne doit pas apparaître dans la projection Worker',
+    });
+    server!.store.patchTask(task.id, {
+      status: 'running',
+      assignedNodeId: 'worker-live',
+      attempts: 2,
+      branch: 'hive/task-live',
+    });
+
+    const response = await fetch(`${base}/api/workers`, { headers });
+    const body = (await response.json()) as {
+      workers: Array<{
+        currentTasks: Array<{
+          id: string;
+          title: string;
+          status: string;
+          attempts: number;
+          branch: string | null;
+          updatedAt: number;
+          prompt?: string;
+        }>;
+      }>;
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.workers[0]?.currentTasks).toEqual([
+      expect.objectContaining({
+        id: 'task-live',
+        title: 'Corriger le flux',
+        status: 'running',
+        attempts: 2,
+        branch: 'hive/task-live',
+      }),
+    ]);
+    expect(body.workers[0]?.currentTasks[0]).not.toHaveProperty('prompt');
+  });
 });

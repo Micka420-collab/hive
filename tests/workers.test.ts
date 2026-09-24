@@ -106,4 +106,49 @@ describe('projection Worker', () => {
       attribution: 'exacte',
     });
   });
+
+  it('expose uniquement le travail actif attribué à chaque Worker', () => {
+    const activeTasks = [
+      {
+        id: 'task-running',
+        title: 'Corriger la session',
+        status: 'running' as const,
+        assignedNodeId: 'node-1',
+        attempts: 2,
+        branch: 'hive/task-running',
+        updatedAt: 42,
+      },
+      {
+        id: 'task-done',
+        title: 'Ancienne tâche',
+        status: 'done' as const,
+        assignedNodeId: 'node-1',
+        attempts: 1,
+        branch: 'hive/task-done',
+        updatedAt: 41,
+      },
+      {
+        id: 'task-other-worker',
+        title: 'Travail voisin',
+        status: 'assigned' as const,
+        assignedNodeId: 'node-2',
+        attempts: 1,
+        branch: null,
+        updatedAt: 40,
+      },
+    ];
+
+    const workers = projeterWorkers([node()], [], activeTasks);
+
+    expect(workers[0]?.currentTasks).toEqual([
+      {
+        id: 'task-running',
+        title: 'Corriger la session',
+        status: 'running',
+        attempts: 2,
+        branch: 'hive/task-running',
+        updatedAt: 42,
+      },
+    ]);
+  });
 });
