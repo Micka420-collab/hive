@@ -1094,6 +1094,16 @@ h3 {
   margin-top: 4px;
 }
 
+.delegation-tree-budget {
+  color: var(--text);
+  font-size: 11px;
+  margin: 5px 0 0;
+}
+
+.delegation-tree-budget.missing {
+  color: var(--muted);
+}
+
 .delegation-tree-reason {
   color: var(--muted);
   font-size: 12px;

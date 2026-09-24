@@ -3,7 +3,13 @@
 
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { cancelTask, fetchDelegationGraph, fetchRace, fetchResults, raceTask } from './api';
-import type { DelegationEvent, DroneRace, RaceVictory, TaskDelegationGraph } from './api';
+import type {
+  DelegationEvent,
+  DelegationRecord,
+  DroneRace,
+  RaceVictory,
+  TaskDelegationGraph,
+} from './api';
 import type { HiveNode, Task, TaskResult } from '../../src/shared/types';
 import { useLang, useT } from './i18n';
 import { formatMs, StatusBadge, useDialog } from './ui';
@@ -17,6 +23,21 @@ function raisonDelegation(events: DelegationEvent[], taskId: string): string | n
       candidate.type === 'delegation_created' && candidate.payload.childTaskId === taskId,
   );
   return typeof event?.payload.reason === 'string' ? event.payload.reason : null;
+}
+
+function budgetDelegation(record: DelegationRecord | null, t: ReturnType<typeof useT>): string {
+  if (!record) {
+    return t(
+      'Budget indisponible dans le graphe persistant.',
+      'Requested budget missing from the persisted graph.',
+    );
+  }
+  const duree = formatMs(record.durationMs);
+  const cout = String(record.costMicros);
+  return t(
+    `Budget demandé : ${duree} · coût ${cout} µ · ressources ${record.resourceUnits}`,
+    `Requested budget: ${duree} · cost ${cout} µ · resources ${record.resourceUnits}`,
+  );
 }
 
 // L'éditeur (CodeMirror) est chargé à la demande — pesant seulement quand on
@@ -250,6 +271,11 @@ export function TaskDrawer({ task, nodes, horloge, refreshTick = 0, onClose }: P
             >
               {delegation.graph.map((node) => {
                 const reason = raisonDelegation(delegation.events, node.taskId);
+                const record = node.parentTaskId
+                  ? (delegation.delegations.find(
+                      (candidate) => candidate.childTaskId === node.taskId,
+                    ) ?? null)
+                  : null;
                 return (
                   <li key={node.taskId} className="delegation-tree-node">
                     <div
@@ -263,6 +289,14 @@ export function TaskDrawer({ task, nodes, horloge, refreshTick = 0, onClose }: P
                       <span className="delegation-tree-parent">
                         {t('parent', 'parent')} : {node.parentTaskId}
                       </span>
+                    )}
+                    {node.parentTaskId && (
+                      <p
+                        className={`delegation-tree-budget${record ? '' : ' missing'}`}
+                        data-testid={`delegation-budget-${node.taskId}`}
+                      >
+                        {budgetDelegation(record, t)}
+                      </p>
                     )}
                     {reason && <p className="delegation-tree-reason">{reason}</p>}
                   </li>
