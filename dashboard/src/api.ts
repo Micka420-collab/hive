@@ -7,7 +7,11 @@ import { parseServerMessage } from '../../src/shared/protocol';
 import type { HiveEvent, Project, StateSnapshot, Task, TaskResult } from '../../src/shared/types';
 import type { Graphe } from '../../src/shared/cerveau-graphe.js';
 import type { WorkerSnapshot } from '../../src/orchestrator/workers.js';
-import type { EvaluationResult } from '../../src/orchestrator/evaluator.js';
+import type {
+  EvaluationResult,
+  ValidationEvidence,
+  ValidationProvenance,
+} from '../../src/orchestrator/evaluator.js';
 
 const TOKEN_KEY = 'hive.token';
 export const DEFAULT_TOKEN = 'change-me';
@@ -1073,6 +1077,26 @@ export function fetchConsensus(taskId: string): Promise<Verdict> {
 /** Verdict indépendant : preuves Worker, Gardiennes, validations et relecture. */
 export function fetchEvaluation(taskId: string): Promise<EvaluationResult> {
   return api<EvaluationResult>(`/api/tasks/${taskId}/evaluation`);
+}
+
+/**
+ * Lit les contrôles GitHub de la PR rangée et les attache au résultat exact.
+ * Le serveur vérifie la branche et le commit avant de persister la preuve.
+ */
+export function recordEvaluationCi(
+  taskId: string,
+  resultId: number,
+): Promise<{
+  taskId: string;
+  resultId: number;
+  validation: ValidationEvidence;
+  provenance: ValidationProvenance;
+  evaluation: EvaluationResult;
+}> {
+  return api(`/api/tasks/${encodeURIComponent(taskId)}/evaluation/ci`, {
+    method: 'POST',
+    body: JSON.stringify({ resultId }),
+  });
 }
 
 export type ReviewVerdict = 'approved' | 'rejected';

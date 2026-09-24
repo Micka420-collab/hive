@@ -11,6 +11,7 @@ import {
   fetchMergePlan,
   fetchMergeResult,
   fetchResults,
+  recordEvaluationCi,
   runMerge,
 } from '../api';
 import type { Conflict, MergePlan, MergeRunResult, Verdict } from '../api';
@@ -436,11 +437,25 @@ const evaluationLabel = (t: Translate): Record<EvaluationResult['decision'], str
 export function EvaluationPanel({
   evaluation,
   error,
+  taskId,
+  resultId,
+  onCiRecorded,
 }: {
   evaluation: EvaluationResult | null;
   error: string | null;
+  /** Résultat exact visible dans l'inspection ; absent = aucune action CI possible. */
+  taskId?: string | null;
+  resultId?: number | null;
+  /** Force la sonde Evaluation à relire la preuve qui vient d'être rangée. */
+  onCiRecorded?: () => void;
 }) {
   const t = useT();
+  const [ciState, setCiState] = useState<'idle' | 'loading' | 'recorded'>('idle');
+  const [ciError, setCiError] = useState<string | null>(null);
+  useEffect(() => {
+    setCiState('idle');
+    setCiError(null);
+  }, [taskId, resultId, evaluation?.evidence.validationProvenance?.resultId]);
   if (error)
     return (
       <p className="panel-error">
@@ -472,6 +487,20 @@ export function EvaluationPanel({
   const provenanceSummary = provenance
     ? `${provenance.source} · ${provenance.depot} · PR #${provenance.pr} · ${provenance.branch} · ${provenance.commitSha.slice(0, 8)}`
     : t('missing', 'missing');
+  const canRecordCi = !provenance && Boolean(taskId && resultId !== undefined && resultId !== null);
+  const recordCi = async () => {
+    if (!taskId || resultId === undefined || resultId === null || ciState === 'loading') return;
+    setCiState('loading');
+    setCiError(null);
+    try {
+      await recordEvaluationCi(taskId, resultId);
+      setCiState('recorded');
+      onCiRecorded?.();
+    } catch (cause) {
+      setCiState('idle');
+      setCiError(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
   return (
     <div className="mi-eval" data-testid="mi-evaluation">
       <p className={`mi-cons-outcome ${evaluation.decision}`}>
@@ -507,6 +536,34 @@ export function EvaluationPanel({
           </dd>
         </div>
       </dl>
+      {canRecordCi && (
+        <div className="mi-ci-action">
+          <button
+            className="btn ghost"
+            type="button"
+            data-testid="mi-fetch-ci"
+            onClick={() => void recordCi()}
+            disabled={ciState === 'loading'}
+          >
+            {ciState === 'loading'
+              ? t('Lecture CI…', 'Reading CI…')
+              : t('Récupérer les contrôles CI', 'Fetch CI checks')}
+          </button>
+          {ciState === 'recorded' && (
+            <span className="muted-text" role="status">
+              {t(
+                'Preuve CI enregistrée — relecture en cours.',
+                'CI evidence recorded — refreshing.',
+              )}
+            </span>
+          )}
+          {ciError && (
+            <span className="panel-error" role="alert">
+              {t('Lecture CI impossible :', 'CI read failed:')} {ciError}
+            </span>
+          )}
+        </div>
+      )}
       {crossReview.objections.length > 0 && (
         <ul className="mi-sting" data-testid="mi-cross-review-objections">
           {crossReview.objections.slice(0, 3).map((objection, index) => (
@@ -1049,7 +1106,13 @@ export default function Miellerie({
               ))}
             {tab === 'consensus' && <ConsensusPanel verdict={verdict} error={consensusError} />}
             {tab === 'evaluation' && (
-              <EvaluationPanel evaluation={evaluationVerdict} error={evaluationError} />
+              <EvaluationPanel
+                evaluation={evaluationVerdict}
+                error={evaluationError}
+                taskId={activeId}
+                resultId={lastResult?.resultId}
+                onCiRecorded={() => setSelEpoch((epoch) => epoch + 1)}
+              />
             )}
           </div>
 
