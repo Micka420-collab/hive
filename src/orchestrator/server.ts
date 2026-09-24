@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 104793)
-Total output lines: 9847
-
 // Serveur de l'orchestrateur (Queen) : Fastify pour le REST + le dashboard
 // statique, `ws` pour le temps réel nœuds ↔ hub ↔ dashboard.
 // Sécurité : CORS restreint (jamais "*"), token obligatoire (non-trivial hors
@@ -2314,7 +2311,5372 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     }
     const ok = store.debaptiser(req.params.nodeId);
     if (!ok) return reply.code(404).send({ error: 'aucun baptême à retirer' });
-    emi…54793 tokens truncated…enuméroter
+    emitEvent('bapteme_retire', { nodeId: req.params.nodeId });
+    return { ok: true };
+  });
+
+  /** Métiers de cycle assignés — lecture constatée. */
+  app.get('/api/metiers', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    return {
+      metiers: store.listerMetiers(),
+      catalogue: METIERS,
+    };
+  });
+
+  /** La Reine assigne un métier de cycle — liste fermée. */
+  app.post<{ Body: { nodeId: string; metier: string } }>(
+    '/api/metiers',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['nodeId', 'metier'],
+          additionalProperties: false,
+          properties: {
+            nodeId: { type: 'string', minLength: 1, maxLength: 64 },
+            metier: { type: 'string', minLength: 1, maxLength: 20 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!exige(req, reply, 'gerer_serveurs')) return reply;
+      const verdict = store.assignerMetier(req.body.nodeId, req.body.metier);
+      if (!verdict.ok) {
+        return reply.code(400).send({ error: expliquerRefusMetier(verdict.motif) });
+      }
+      emitEvent('metier_assigne', {
+        nodeId: req.body.nodeId,
+        metier: verdict.metier,
+      });
+      return { ok: true, nodeId: req.body.nodeId, metier: verdict.metier };
+    },
+  );
+
+  /**
+   * Réquisitions (ADR 0010 lot 7) — besoins ouverts / historiques récents.
+   * Jeton de ruche uniquement. Aucun secret dans le corps.
+   */
+  app.get('/api/requisitions', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    const q = req.query as { statut?: string; nodeId?: string };
+    const statut =
+      q.statut === 'ouverte' || q.statut === 'accordee' || q.statut === 'refusee'
+        ? q.statut
+        : undefined;
+    const rows = store.listerRequisitions({
+      ...(typeof q.nodeId === 'string' ? { nodeId: q.nodeId } : {}),
+      ...(statut ? { statut } : {}),
+    });
+    return {
+      requisitions: rows.map((r) => ({
+        ...r,
+        bapteme: store.lireBapteme(r.nodeId)?.nom ?? null,
+      })),
+    };
+  });
+
+  // Catalogue + pose proactive de clés API Queen (OpenRouter, Anthropic…).
+  // Même doctrine que le grant HITL : secret uniquement dans `.env`, jamais
+  // en base. Présence = booléen, jamais la valeur.
+  app.get('/api/queen/cles', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    return {
+      fournisseurs: FOURNISSEURS_CLE.map((f) => ({
+        id: f.id,
+        libelleFr: f.libelleFr,
+        libelleEn: f.libelleEn,
+        envVar: f.envVar,
+        hintFr: f.hintFr,
+        hintEn: f.hintEn,
+      })),
+      presence: presenceClesCatalogue(cheminEnvQueen),
+    };
+  });
+
+  app.post<{
+    Body: { secret: string; envVar: string; libelle?: string };
+  }>(
+    '/api/queen/cles',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['secret', 'envVar'],
+          additionalProperties: false,
+          properties: {
+            secret: { type: 'string', minLength: 1, maxLength: 512 },
+            envVar: { type: 'string', minLength: 1, maxLength: 64 },
+            libelle: { type: 'string', maxLength: 200 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      // La pose d'une clé écrit le secret dans l'environnement de l'hôte.
+      // HIVE_TOKEN n'est donc pas une preuve suffisante : il est distribué
+      // aux nœuds membres.
+      if (!exige(req, reply, 'gerer_serveurs')) return reply;
+      const vs = validerSecretRequisition(req.body.secret);
+      if (!vs.ok) {
+        return reply.code(400).send({ error: vs.motif, message: expliquerRefusSecret(vs.motif) });
+      }
+      const nom = req.body.envVar.trim();
+      if (!estNomEnvValide(nom) || !estEnvQueenAutorisee(nom)) {
+        return reply.code(400).send({ error: 'env_invalide' });
+      }
+      const libelle = (req.body.libelle ?? nom).trim() || nom;
+      try {
+        poserCleQueenEnv(
+          cheminEnvQueen,
+          nom,
+          vs.secret,
+          `Clé ${libelle} (posée depuis la Chambre)`,
+        );
+        process.env[nom] = vs.secret;
+      } catch {
+        return reply.code(500).send({ error: 'ecriture_env' });
+      }
+      emitEvent('queen_cle_posee', { envVar: nom, libelle });
+      return { ok: true, envVar: nom };
+    },
+  );
+
+  app.post<{
+    Body: { nodeId: string; genre: string; libelle: string; detail?: string };
+  }>(
+    '/api/requisitions',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['nodeId', 'genre', 'libelle'],
+          additionalProperties: false,
+          properties: {
+            nodeId: { type: 'string', minLength: 1, maxLength: 64 },
+            genre: { type: 'string', minLength: 1, maxLength: 40 },
+            libelle: { type: 'string', minLength: 1, maxLength: 200 },
+            detail: { type: 'string', maxLength: 2000 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const v = store.ouvrirRequisition(
+        req.body.nodeId,
+        req.body.genre,
+        req.body.libelle,
+        req.body.detail ?? null,
+      );
+      if (!v.ok) {
+        return reply.code(400).send({ error: v.motif });
+      }
+      emitEvent('requisition_ouverte', {
+        id: v.id,
+        nodeId: req.body.nodeId,
+        genre: v.genre,
+        libelle: v.libelle,
+      });
+      return { ok: true, id: v.id, genre: v.genre, libelle: v.libelle };
+    },
+  );
+
+  app.post<{
+    Params: { id: string };
+    Body: { decision: 'accordee' | 'refusee'; secret?: string; envVar?: string };
+  }>(
+    '/api/requisitions/:id/repondre',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: { id: { type: 'string', minLength: 1, maxLength: 64 } },
+        },
+        body: {
+          type: 'object',
+          required: ['decision'],
+          additionalProperties: false,
+          properties: {
+            decision: { type: 'string', enum: ['accordee', 'refusee'] },
+            secret: { type: 'string', minLength: 1, maxLength: 512 },
+            envVar: { type: 'string', minLength: 1, maxLength: 64 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      // Répondre peut persister une clé API ; cette décision appartient à un
+      // administrateur authentifié, même pour un refus sans secret.
+      if (!exige(req, reply, 'gerer_serveurs')) return reply;
+      const cur = store.lireRequisition(req.params.id);
+      if (!cur) return reply.code(404).send({ error: 'inconnue' });
+
+      // Valider AVANT la transition ; écrire APRÈS. Sinon : (a) une réquisition
+      // déjà close réécrit le .env puis 409 ; (b) une transition « accordée »
+      // sans secret valide laisse une réquisition close sans clé.
+      let secretValide: string | undefined;
+      let nomEnv: string | undefined;
+      if (req.body.decision === 'accordee' && cur.genre === 'cle_api') {
+        const vs = validerSecretRequisition(req.body.secret);
+        if (!vs.ok) {
+          return reply.code(400).send({ error: vs.motif, message: expliquerRefusSecret(vs.motif) });
+        }
+        const derive = nomEnvDepuisLibelle(cur.libelle);
+        if (req.body.envVar !== undefined && req.body.envVar !== derive) {
+          return reply.code(400).send({ error: 'env_refuse', attendu: derive });
+        }
+        if (!estNomEnvValide(derive) || !estEnvQueenAutorisee(derive)) {
+          return reply.code(400).send({ error: 'env_invalide' });
+        }
+        secretValide = vs.secret;
+        nomEnv = derive;
+      }
+
+      const v = store.repondreRequisition(req.params.id, req.body.decision);
+      if (!v.ok) {
+        const code = v.motif === 'inconnue' ? 404 : 409;
+        return reply.code(code).send({ error: v.motif });
+      }
+
+      let envPose: string | undefined;
+      if (secretValide && nomEnv) {
+        try {
+          poserCleQueenEnv(
+            cheminEnvQueen,
+            nomEnv,
+            secretValide,
+            `Réquisition ${cur.libelle} (accordée depuis la Chambre)`,
+          );
+          process.env[nomEnv] = secretValide;
+          envPose = nomEnv;
+        } catch {
+          return reply.code(500).send({ error: 'ecriture_env' });
+        }
+      }
+      // La clé reste chez la Queen / Intendance — on constate la décision, pas le secret.
+      emitEvent('requisition_reponse', {
+        id: req.params.id,
+        statut: v.statut,
+        ...(envPose ? { envVar: envPose } : {}),
+      });
+      const ws = nodeSockets.get(cur.nodeId);
+      if (ws) {
+        send(ws, {
+          type: 'requisition_result',
+          id: req.params.id,
+          statut: v.statut,
+        });
+      }
+      return { ok: true, statut: v.statut, ...(envPose ? { envVar: envPose } : {}) };
+    },
+  );
+
+  // ─── Fabrique / Horizon / Motifs (ADR 0010 lots 8–10) ───────────────────────
+
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/fabriques',
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      return { fabriques: store.listerFabriques(req.params.projectId) };
+    },
+  );
+
+  app.post<{
+    Params: { projectId: string };
+    Body: {
+      genre: string;
+      libelle: string;
+      nomScript?: string;
+      nodeId?: string;
+      creerTache?: boolean;
+    };
+  }>(
+    '/api/projects/:projectId/fabriques',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['genre', 'libelle'],
+          additionalProperties: false,
+          properties: {
+            genre: { type: 'string', minLength: 1, maxLength: 40 },
+            libelle: { type: 'string', minLength: 1, maxLength: 200 },
+            nomScript: { type: 'string', maxLength: 80 },
+            nodeId: { type: 'string', maxLength: 64 },
+            creerTache: { type: 'boolean' },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const projectId = req.params.projectId;
+      if (!store.getProject(projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const { promptFabrique, validerGenreFabrique } = await import('./fabrique.js');
+      const g = validerGenreFabrique(req.body.genre);
+      if (!g.ok) return reply.code(400).send({ error: g.motif });
+      let taskId: string | undefined;
+      if (req.body.creerTache !== false) {
+        const prompt = promptFabrique({
+          genre: g.genre,
+          libelle: req.body.libelle,
+          nomScript: req.body.nomScript,
+        });
+        const task = store.createTask({
+          projectId,
+          title: `Fabrique : ${req.body.libelle}`.slice(0, 120),
+          prompt,
+        });
+        store.patchTask(task.id, { status: 'ready' });
+        taskId = task.id;
+      }
+      const v = store.ouvrirFabrique(projectId, req.body.genre, req.body.libelle, {
+        nodeId: req.body.nodeId,
+        nomScript: req.body.nomScript,
+        taskId,
+      });
+      if (!v.ok) return reply.code(400).send({ error: v.motif });
+      return { ok: true, id: v.id, taskId: taskId ?? null };
+    },
+  );
+
+  app.post<{
+    Params: { projectId: string; id: string };
+    Body: { statut: 'en_revue' | 'mergee' | 'refusee' };
+  }>(
+    '/api/projects/:projectId/fabriques/:id/statut',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['statut'],
+          additionalProperties: false,
+          properties: {
+            statut: { type: 'string', enum: ['en_revue', 'mergee', 'refusee'] },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const v = store.poserStatutFabrique(req.params.id, req.body.statut);
+      if (!v.ok) {
+        const code = v.motif === 'inconnue' ? 404 : 409;
+        return reply.code(code).send({ error: v.motif });
+      }
+      return { ok: true, statut: req.body.statut };
+    },
+  );
+
+  app.post<{
+    Params: { projectId: string };
+    Body: { nomScript: string; scriptsMiroir: Record<string, string>; mergeLanded: boolean };
+  }>(
+    '/api/projects/:projectId/fabriques/juger-chantier',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['nomScript', 'scriptsMiroir', 'mergeLanded'],
+          additionalProperties: false,
+          properties: {
+            nomScript: { type: 'string', minLength: 1, maxLength: 80 },
+            scriptsMiroir: { type: 'object' },
+            mergeLanded: { type: 'boolean' },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const { jugerFabriqueAvantChantier } = await import('./fabrique.js');
+      const scripts = req.body.scriptsMiroir ?? {};
+      const clean: Record<string, string> = {};
+      for (const [k, v] of Object.entries(scripts)) {
+        if (typeof k === 'string' && typeof v === 'string') clean[k] = v;
+      }
+      return jugerFabriqueAvantChantier({
+        nomScript: req.body.nomScript,
+        scriptsMiroir: clean,
+        mergeLanded: req.body.mergeLanded === true,
+      });
+    },
+  );
+
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/horizon',
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const { resumeHorizon } = await import('./horizon.js');
+      const entrees = store.listerHorizon(req.params.projectId);
+      return { ...resumeHorizon(entrees), entrees };
+    },
+  );
+
+  app.post<{
+    Params: { projectId: string };
+    Body: { kind: string; texte: string; source?: string };
+  }>(
+    '/api/projects/:projectId/horizon',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['kind', 'texte'],
+          additionalProperties: false,
+          properties: {
+            kind: { type: 'string', minLength: 1, maxLength: 20 },
+            texte: { type: 'string', minLength: 1, maxLength: 500 },
+            source: { type: 'string', maxLength: 80 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const v = store.ajouterHorizon(
+        req.params.projectId,
+        req.body.kind,
+        req.body.texte,
+        req.body.source ?? 'reine',
+      );
+      if (!v.ok) {
+        const code = v.motif === 'projet_inconnu' ? 404 : 400;
+        return reply.code(code).send({ error: v.motif });
+      }
+      return { ok: true, entree: v.entree };
+    },
+  );
+
+  app.get('/api/motifs', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    const { MOTIFS } = await import('./motifs.js');
+    return {
+      motifs: MOTIFS.map((m) => ({
+        id: m.id,
+        domaine: m.domaine,
+        libelleFr: m.libelleFr,
+        libelleEn: m.libelleEn,
+        etapes: m.etapes.map((e) => ({ id: e.id, titreFr: e.titreFr, titreEn: e.titreEn })),
+      })),
+    };
+  });
+
+  app.post<{
+    Params: { projectId: string; motifId: string };
+    Body: { lang?: string; corps?: string };
+  }>(
+    '/api/projects/:projectId/motifs/:motifId/appliquer',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            lang: { type: 'string', enum: ['fr', 'en'] },
+            corps: { type: 'string', maxLength: 50_000 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const { appliquerMotif } = await import('./motifs.js');
+      const lang = req.body?.lang === 'en' ? 'en' : 'fr';
+      const v = appliquerMotif(req.params.motifId, lang, req.body?.corps);
+      if (!v.ok) {
+        const code = v.motif === 'diff_interdit' ? 400 : 404;
+        return reply.code(code).send({ error: v.motif });
+      }
+      const taskIds: string[] = [];
+      let prevId: string | undefined;
+      for (const titre of v.titres) {
+        const task = store.createTask({
+          projectId: req.params.projectId,
+          title: titre.slice(0, 120),
+          prompt:
+            `Motif « ${v.motif.id} » — étape ordonnée.\n\n${titre}\n\n` +
+            `Ne collez pas le diff d'un autre dépôt. Procédure uniquement.`,
+          dependsOn: prevId ? [prevId] : [],
+        });
+        store.patchTask(task.id, { status: prevId ? 'pending' : 'ready' });
+        taskIds.push(task.id);
+        prevId = task.id;
+      }
+      return { ok: true, motifId: v.motif.id, taskIds, titres: v.titres };
+    },
+  );
+
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/motifs/perso',
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      return { motifs: store.listerMotifsProjet(req.params.projectId) };
+    },
+  );
+
+  app.post<{
+    Params: { projectId: string };
+    Body: { libelle: string; etapes: string[] };
+  }>(
+    '/api/projects/:projectId/motifs/perso',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['libelle', 'etapes'],
+          additionalProperties: false,
+          properties: {
+            libelle: { type: 'string', minLength: 1, maxLength: 120 },
+            etapes: {
+              type: 'array',
+              minItems: 1,
+              maxItems: 8,
+              items: { type: 'string', minLength: 1, maxLength: 200 },
+            },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const projectId = req.params.projectId;
+      if (!store.getProject(projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const { expliquerRefusMotifPerso } = await import('./motifs.js');
+      const v = store.creerMotifProjet(projectId, req.body.libelle, req.body.etapes);
+      if (!v.ok) {
+        return reply.code(400).send({ error: v.motif, message: expliquerRefusMotifPerso(v.motif) });
+      }
+      return { ok: true, id: v.id, libelle: v.libelle, etapes: v.etapes };
+    },
+  );
+
+  app.post<{ Params: { projectId: string; motifId: string } }>(
+    '/api/projects/:projectId/motifs/perso/:motifId/appliquer',
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const projectId = req.params.projectId;
+      if (!store.getProject(projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const m = store.lireMotifProjet(req.params.motifId);
+      if (!m || m.projectId !== projectId) {
+        return reply.code(404).send({ error: 'inconnu' });
+      }
+      const taskIds: string[] = [];
+      let prevId: string | undefined;
+      for (const titre of m.etapes) {
+        const task = store.createTask({
+          projectId,
+          title: titre.slice(0, 120),
+          prompt:
+            `Procédure « ${m.libelle} » — étape ordonnée.\n\n${titre}\n\n` +
+            `Ne collez pas le diff d'un autre dépôt. Procédure uniquement.`,
+          dependsOn: prevId ? [prevId] : [],
+        });
+        store.patchTask(task.id, { status: prevId ? 'pending' : 'ready' });
+        taskIds.push(task.id);
+        prevId = task.id;
+      }
+      return { ok: true, motifId: m.id, taskIds, titres: m.etapes };
+    },
+  );
+
+  app.get('/api/state', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    return store.getSnapshot();
+  });
+
+  // ─── Auth routes ──────────────────────────────────────────────────────────
+  app.post<{ Body: { email: string; password: string; displayName: string } }>(
+    '/api/auth/register',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['email', 'password', 'displayName'],
+          additionalProperties: false,
+          properties: {
+            email: { type: 'string', minLength: 3, maxLength: 254 },
+            password: { type: 'string', minLength: 8, maxLength: 256 },
+            displayName: { type: 'string', minLength: 2, maxLength: 80 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const { email, password, displayName } = req.body;
+      if (!isValidEmail(email)) return reply.status(400).send({ error: 'Email invalide' });
+
+      // L'inscription peut être fermée ou sur invitation. Le PREMIER compte
+      // passe toujours : sinon une ruche installée en « fermée » serait
+      // définitivement inutilisable, sans moyen de créer son administrateur.
+      const comptes = store.countUsers();
+      const porte = inscriptionPermise({ mode: modeInscription, comptesExistants: comptes });
+      if (!porte.permise) return reply.status(403).send({ error: porte.motif });
+
+      const force = jugerMotDePasse(password);
+      if (!force.accepte) return reply.status(400).send({ error: force.motif });
+      if (!displayName || displayName.length < 2)
+        return reply.status(400).send({ error: 'Nom trop court' });
+      // Le 409 qui suit est un annuaire des inscrits : on le rend, parce que
+      // sans lui personne ne comprendrait pourquoi son inscription échoue, mais
+      // on le rend LENTEMENT. Au-delà de quelques collisions dans la fenêtre,
+      // cette IP n'apprend plus rien — pas même sur une adresse libre.
+      if (!inscriptionAutorisee(req.ip)) {
+        return reply
+          .status(429)
+          .header('retry-after', String(Math.ceil(INSCRIPTION_FENETRE_MS / 1000)))
+          .send({ error: 'trop de tentatives d’inscription, réessayez plus tard' });
+      }
+      if (store.getUserByEmail(email)) {
+        collisionInscription(req.ip);
+        return reply.status(409).send({ error: 'Email déjà utilisé' });
+      }
+
+      const user = store.createUser({
+        email,
+        passwordHash: hashPassword(password),
+        displayName,
+      });
+      // LE PREMIER COMPTE EST ADMIN. C'est la seule amorce qui ne demande ni
+      // mot de passe par défaut, ni variable d'environnement, ni route
+      // secrète : celui qui installe la ruche est celui qui l'administre.
+      const role = roleALaCreation(comptes);
+      store.setRole(user.id, role, 'amorçage');
+      return { token: signJwt(user.id, user.email), role };
+    },
+  );
+
+  app.post<{ Body: { email: string; password: string } }>(
+    '/api/auth/login',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['email', 'password'],
+          additionalProperties: false,
+          properties: {
+            email: { type: 'string', minLength: 3, maxLength: 254 },
+            password: { type: 'string', minLength: 1, maxLength: 256 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const { email, password } = req.body;
+      const now = Date.now();
+      const cle = cleCompte(email);
+
+      // AVANT le PBKDF2, et c'est tout l'intérêt : un verrou qui ne
+      // s'appliquerait qu'après le calcul ne protégerait ni le mot de passe
+      // ni le CPU du hub.
+      const porte = tentativeAutorisee(
+        echecsCompte.get(cle) ?? compteurVide(),
+        echecsIp.get(req.ip) ?? compteurVide(),
+        now,
+      );
+      if (!porte.autorisee) {
+        return reply
+          .status(429)
+          .header('retry-after', String(Math.ceil(porte.attendreMs / 1000)))
+          .send({ error: porte.motif });
+      }
+
+      const user = store.getUserByEmail(email);
+      // MÊME réponse, qu'on ne connaisse pas l'email ou que le mot de passe
+      // soit faux : distinguer les deux offrirait un annuaire des inscrits.
+      if (!user || !verifyPassword(password, user.passwordHash)) {
+        noterEchecConnexion(cle, req.ip, now);
+        return reply.status(401).send({ error: 'Email ou mot de passe incorrect' });
+      }
+      // Une réussite efface l'ardoise : quelqu'un qui finit par se souvenir de
+      // son mot de passe ne doit pas rester à un essai du verrou.
+      echecsCompte.delete(cle);
+      return { token: signJwt(user.id, user.email), role: store.getRole(user.id) };
+    },
+  );
+
+  app.get('/api/auth/me', async (req, reply) => {
+    if (!authorizedUser(req)) return reply.status(401).send({ error: 'Non authentifié' });
+    const userId = (req as AuthRequest).userId!;
+    const user = store.getUserById(userId);
+    if (!user) return reply.status(404).send({ error: 'Utilisateur introuvable' });
+    const { passwordHash: _passwordHash, ...publicUser } = user;
+    return { ...publicUser, role: store.getRole(user.id) };
+  });
+
+  // Génère une invitation à envoyer à un ami : elle encode l'URL WS publique + le
+  // token. L'ami la colle dans `npm run join <invitation>`. ⚠ Elle contient le
+  // token : c'est un secret, à transmettre par un canal privé.
+  app.get<{ Querystring: { url?: string; label?: string } }>(
+    '/api/invite',
+    {
+      schema: {
+        querystring: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            url: { type: 'string', maxLength: 300 },
+            label: { type: 'string', maxLength: LIMITS.name },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      // L'invitation historique embarque le jeton maître. Sa génération est
+      // donc une opération d'administration, pas une capacité d'un nœud.
+      if (!exige(req, reply, 'gerer_serveurs')) return reply;
+      // URL joignable : ?url= explicite > HIVE_PUBLIC_URL > IP LAN détectée.
+      const wsUrl = req.query.url ?? config.publicUrl ?? detectLanWsUrl(port);
+      if (!isWsUrl(wsUrl)) {
+        return reply.code(400).send({ error: 'url doit être un ws:// ou wss:// valide' });
+      }
+      const label = req.query.label ?? `Ruche Hive (${config.host}:${port})`;
+      const invite = encodeInvite({ url: wsUrl, token: config.token, label });
+      // Une invitation vers une adresse sur laquelle on n'écoute pas ne mène
+      // nulle part : on la fabrique quand même (l'hôte peut avoir un routage
+      // qu'on ignore), mais on ne la laisse plus passer pour joignable.
+      const injoignable = inviteInjoignable(config.host, wsUrl);
+      return {
+        invite,
+        url: wsUrl,
+        label,
+        joinCommand: `npm run join -- ${invite}`,
+        ...(injoignable ? { injoignable } : {}),
+        note: "Cette invitation contient le token de la ruche : ne la partagez qu'avec des personnes de confiance.",
+        // L'ancien format donne un accès TOTAL et DÉFINITIF. On ne le retire
+        // pas (des ruches tournent avec), mais on ne le laisse plus passer pour
+        // ce qu'il n'est pas : le remplaçant est annoncé ici même.
+        obsolete: {
+          raison:
+            'Ce format partage le token maître : ni expiration, ni usage unique, ni révocation individuelle.',
+          remplacant: 'POST /api/billets',
+        },
+      };
+    },
+  );
+
+  // ─── Le trou de vol ────────────────────────────────────────────────────────
+
+  /**
+   * Crée un BILLET : une invitation éphémère, à usage compté et révocable, qui
+   * ne donne aucun pouvoir sur la ruche — elle ne sert qu'à demander une clé.
+   *
+   * Le secret n'existe qu'ici, le temps de la réponse : seule son empreinte est
+   * rangée. Un billet perdu ne se retrouve pas, il se remplace — c'est le prix
+   * (assumé) du fait qu'une base volée ne donne aucun accès.
+   */
+  app.post<{
+    Body: { url?: string; label?: string; ttlMs?: number; uses?: number; insecure?: boolean };
+  }>(
+    '/api/billets',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            url: { type: 'string', maxLength: 300 },
+            label: { type: 'string', maxLength: LIMITS.name },
+            ttlMs: { type: 'integer', minimum: 0, maximum: TTL_BILLET_MAX_MS },
+            uses: { type: 'integer', minimum: 1, maximum: USAGES_MAX },
+            insecure: { type: 'boolean' },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      // Même éphémère, un billet crée une nouvelle capacité d'accès : seul un
+      // administrateur peut en émettre.
+      if (!exige(req, reply, 'gerer_serveurs')) return reply;
+      const body = req.body ?? {};
+      const wsUrl = body.url ?? config.publicUrl ?? detectLanWsUrl(port);
+      const transport = jugerTransport(wsUrl);
+      if (!transport) {
+        return reply.code(400).send({ error: 'url doit être un ws:// ou wss:// valide' });
+      }
+      // GARDE-FOU : en clair vers l'Internet public, ce n'est pas seulement le
+      // billet qui fuite — c'est TOUT le trafic de la ruche, donc les prompts,
+      // les logs et les DIFFS DE CODE SOURCE des tâches. On refuse par défaut,
+      // et le contournement doit être demandé explicitement (`insecure`) pour
+      // que personne ne le fasse sans le savoir.
+      if (transport === 'clair_public' && body.insecure !== true) {
+        return reply.code(400).send({
+          error: 'transport en clair vers une adresse publique',
+          detail:
+            'ws:// hors réseau privé exposerait le billet ET tout le trafic (prompts, logs, diffs de code) en clair. ' +
+            'Utilisez wss:// (voir `npm run cli -- tunnel`), ou passez insecure=true en connaissance de cause.',
+          url: wsUrl,
+        });
+      }
+
+      // Même garde que pour `/api/invite` : un billet parfait vers une adresse
+      // où la ruche n'écoute pas fait chercher l'erreur partout sauf là.
+      const injoignableBillet = inviteInjoignable(config.host, wsUrl);
+
+      const now = Date.now();
+      const id = `bil-${randomUUID()}`.slice(0, LIMITS.id);
+      const secret = tirerSecret();
+      const ttl = bornerTtl(body.ttlMs);
+      const uses = bornerUsages(body.uses);
+      const label = body.label ?? `Ruche Hive (${config.host}:${port})`;
+      store.creerBillet({
+        id,
+        secretHash: empreinte(secret),
+        label,
+        expiresAt: now + ttl,
+        uses,
+        now,
+      });
+      // Fait typé : ni le secret, ni l'empreinte n'entrent au journal.
+      emitEvent('invite_created', { ticketId: id, uses, expiresAt: now + ttl, transport });
+
+      const billet = encoderBillet({ url: wsUrl, id, secret, label });
+      return reply.code(201).send({
+        billet,
+        id,
+        url: wsUrl,
+        label,
+        transport,
+        expiresAt: now + ttl,
+        uses,
+        joinCommand: `npm run join -- ${billet}`,
+        // ─── LA COMMANDE D'ENTRÉE, UNE PAR SYSTÈME ─────────────────────────
+        //
+        // `joinCommand` reste — la CLI l'imprime, et il vaut pour quelqu'un qui
+        // a DÉJÀ Hive installé. Mais il suppose exactement ce qu'un invité n'a
+        // pas : le dossier. Ces deux-ci installent si besoin, puis rejoignent,
+        // et ne demandent rien d'autre que le billet.
+        entree: {
+          posix: commandeEntree(billet, 'posix'),
+          windows: commandeEntree(billet, 'windows'),
+        },
+        ...(injoignableBillet ? { injoignable: injoignableBillet } : {}),
+        note:
+          uses === 1
+            ? 'Billet à usage UNIQUE : il devient inutile dès que votre ami a rejoint.'
+            : `Billet valable pour ${uses} machines.`,
+      });
+    },
+  );
+
+  /**
+   * Échange un billet contre la clé propre du nœud. Route PUBLIQUE — par
+   * construction : celui qui la frappe n'a pas encore d'accès, c'est tout
+   * l'objet de l'échange. Sa seule défense est le billet lui-même, d'où :
+   * lecture par clé primaire, PBKDF2 payé en dernier, et consommation atomique.
+   */
+  app.post<{ Body: { billet: string; nodeId: string; label?: string } }>(
+    '/api/rejoindre',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['billet', 'nodeId'],
+          properties: {
+            billet: { type: 'string', minLength: 1, maxLength: 2_000 },
+            nodeId: { type: 'string', minLength: 1, maxLength: LIMITS.id },
+            label: { type: 'string', maxLength: LIMITS.name },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      // Garde de débit AVANT tout travail : le décodage est bon marché, mais la
+      // vérification PBKDF2 qui suit ne l'est pas, et cette route est publique.
+      if (!joinAutorise(req.ip)) {
+        return reply.code(429).send({ error: 'trop de tentatives, réessayez dans une minute' });
+      }
+      const decode = decoderBillet(req.body.billet, { id: LIMITS.id, nom: LIMITS.name });
+      if (!decode) {
+        joinEchec(req.ip);
+        return reply.code(400).send({ error: 'billet illisible' });
+      }
+
+      const now = Date.now();
+      const range = store.getBillet(decode.id);
+
+      // ─── LE SECRET D'ABORD, ET TOUJOURS AU MÊME COÛT ────────────────────────
+      //
+      // L'ordre a changé, et ce n'est pas cosmétique.
+      //
+      // AVANT : on jugeait l'état du billet, puis on vérifiait le secret. Un
+      // identifiant inconnu était refusé SANS que PBKDF2 tourne — donc en une
+      // fraction du temps qu'il faut à un identifiant connu. Le message
+      // uniforme prétendait cacher quels billets existent ; L'HORLOGE LE
+      // DISAIT. L'oracle existait déjà, il était simplement mesuré au
+      // chronomètre plutôt que lu dans la réponse.
+      //
+      // MAINTENANT : on vérifie toujours le secret, contre l'empreinte réelle
+      // si le billet existe, contre un LEURRE de coût identique sinon. Les
+      // deux chemins coûtent la même chose, et l'oracle temporel disparaît.
+      //
+      // Ce n'est qu'ENSUITE, une fois le porteur authentifié, qu'on peut dire
+      // POURQUOI son billet est refusé : expiré, épuisé ou révoqué ne
+      // s'apprennent qu'avec le bon secret en main, donc les dire n'apprend
+      // rien à qui ne l'avait pas.
+      // Voir `docs/adr/0005-motifs-de-refus-d-un-billet.md`.
+      const secretOk = empreinteValide(decode.secret, range?.secretHash ?? empreinteLeurre());
+
+      const refuserOpaque = (refus: string) => {
+        joinEchec(req.ip);
+        emitEvent('invite_rejected', { ticketId: decode.id, refus });
+        return reply.code(401).send({ error: 'billet refusé' });
+      };
+      // Billet inconnu et secret faux prennent le MÊME chemin et rendent la
+      // MÊME réponse, à l'octet près. C'est cette indistinction-là qui empêche
+      // d'énumérer les identifiants existants.
+      if (!range || !secretOk) return refuserOpaque(range ? 'secret_invalide' : 'inconnu');
+
+      const juge = jugerBillet(
+        {
+          expireA: range.expiresAt,
+          usagesRestants: range.usesLeft,
+          revoqueA: range.revokedAt,
+        },
+        now,
+      );
+      if (!juge.ok) {
+        joinEchec(req.ip);
+        emitEvent('invite_rejected', { ticketId: decode.id, refus: juge.refus });
+        // Le porteur a prouvé qu'il détenait ce billet : on lui doit la raison,
+        // et surtout la marche à suivre.
+        return reply
+          .code(401)
+          .send(
+            motifDicible(juge.refus)
+              ? { error: EXPLICATION_REFUS[juge.refus], motif: juge.refus }
+              : { error: 'billet refusé' },
+          );
+      }
+      const refuser = refuserOpaque;
+
+      // L'IDENTIFIANT EST-IL LIBRE ? Vérifié APRÈS le secret (on ne renseigne
+      // pas un inconnu sur les nœuds existants) mais AVANT de consommer le
+      // billet (un refus ne doit pas brûler un usage).
+      //
+      // Sans cette garde, `INSERT OR REPLACE` faisait une ROTATION de la clé du
+      // nœud visé : n'importe quel porteur d'un billet valide pouvait éjecter un
+      // membre déjà en place en réclamant son identifiant — par malveillance, ou
+      // simplement parce que deux personnes ont saisi le même nom. Une
+      // fonctionnalité dont l'objet est de protéger les accès ne peut pas offrir
+      // ce geste-là.
+      //
+      // Le déblocage est un GESTE HUMAIN DE L'HÔTE (`exclure`), comme le merge
+      // et comme le plafond : re-clé d'un nœud existant est une décision, pas un
+      // effet de bord d'une requête anonyme.
+      const existante = store.getCleNoeud(req.body.nodeId);
+      if (existante && existante.revokedAt === null) {
+        joinEchec(req.ip);
+        emitEvent('invite_rejected', { ticketId: decode.id, refus: 'identifiant_occupe' });
+        return reply.code(409).send({
+          error: 'identifiant de nœud déjà utilisé',
+          detail:
+            "Ce nœud possède déjà une clé. Si c'est bien votre machine et que vous avez perdu " +
+            'sa clé, demandez à l’hôte de la ruche : npm run cli -- exclure ' +
+            req.body.nodeId,
+        });
+      }
+
+      // Consommation ATOMIQUE : deux nœuds qui présentent le même billet à
+      // usage unique au même instant ne peuvent pas réussir tous les deux.
+      if (!store.consommerBillet(decode.id, now)) return refuser('course_perdue');
+
+      const cle = tirerSecret();
+      store.poserCleNoeud({
+        nodeId: req.body.nodeId,
+        keyHash: empreinte(cle),
+        label: req.body.label ?? range!.label,
+        ticketId: decode.id,
+        now,
+      });
+      emitEvent('node_joined', { nodeId: req.body.nodeId, ticketId: decode.id });
+      return reply.code(201).send({ cle, nodeId: req.body.nodeId, label: range!.label });
+    },
+  );
+
+  // ─── Connecter ses dépôts GitHub ───────────────────────────────────────────
+  //
+  // Le jeton vient de l'ENVIRONNEMENT et n'est jamais rangé : voir l'en-tête de
+  // github.ts. Absent, la fonctionnalité dit comment l'activer plutôt que de
+  // rendre un 500 opaque.
+
+  // UNIQUEMENT `HIVE_GITHUB_TOKEN`, et pas de repli sur `GITHUB_TOKEN`.
+  //
+  // Constaté en exécutant la commande : `GITHUB_TOKEN` est partout — GitHub
+  // Actions le définit d'office (portée limitée au dépôt courant), beaucoup
+  // d'outils et de shells le posent pour leur propre usage. Un repli dessus
+  // faisait envoyer À api.github.com un jeton que l'utilisateur n'avait pas
+  // choisi de donner à Hive, et rendait un « jeton refusé » incompréhensible
+  // pour quelqu'un qui n'avait jamais configuré la fonctionnalité.
+  //
+  // Un secret ne se ramasse pas dans l'environnement au hasard d'un nom
+  // courant : il se donne explicitement.
+  const jetonGithub = process.env.HIVE_GITHUB_TOKEN ?? '';
+  const apiGithub = process.env.HIVE_GITHUB_API;
+
+  function sansJeton(reply: FastifyReply): FastifyReply {
+    return reply.code(501).send({
+      error: 'GitHub non connecté',
+      detail:
+        'Définissez HIVE_GITHUB_TOKEN dans l’environnement de l’orchestrateur, puis relancez-le. ' +
+        'Créez un jeton sur https://github.com/settings/tokens avec la portée « repo » pour voir vos dépôts privés. ' +
+        'Le jeton n’est jamais écrit en base — il vit en mémoire, le temps du processus.',
+    });
+  }
+
+  /** Sonde : le jeton GitHub est-il posé ? Ne révèle jamais sa valeur. */
+  app.get('/api/github/status', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    if (!jetonGithub) {
+      return {
+        configure: false,
+        detail:
+          'Définissez HIVE_GITHUB_TOKEN dans l’environnement de l’orchestrateur, puis relancez-le. ' +
+          'Créez un jeton sur https://github.com/settings/tokens avec la portée « repo » pour voir vos dépôts privés. ' +
+          'Le jeton n’est jamais écrit en base — il vit en mémoire, le temps du processus.',
+      };
+    }
+    return { configure: true };
+  });
+
+  /** Traduit une erreur GitHub en réponse actionnable, sans jamais fuiter le jeton. */
+  function repondreErreurGithub(reply: FastifyReply, err: unknown): FastifyReply {
+    if (err instanceof ErreurGithub) {
+      return reply.code(err.statut === 400 ? 400 : 502).send({
+        error: err.message,
+        detail: err.conseil,
+        statutGithub: err.statut,
+      });
+    }
+    return reply.code(502).send({
+      error: 'GitHub injoignable',
+      detail: 'Vérifiez la connexion réseau de l’orchestrateur.',
+    });
+  }
+
+  /** La liste dans laquelle choisir. Marque ce qui est DÉJÀ importé. */
+  app.get<{ Querystring: { q?: string } }>(
+    '/api/github/repos',
+    {
+      schema: {
+        querystring: {
+          type: 'object',
+          additionalProperties: false,
+          properties: { q: { type: 'string', maxLength: 100 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      if (!jetonGithub) return sansJeton(reply);
+      try {
+        const { depots, tronque } = await listerDepots({
+          jeton: jetonGithub,
+          ...(apiGithub ? { api: apiGithub } : {}),
+        });
+        // Signaler ce qui est déjà dans la ruche évite le doublon silencieux :
+        // deux projets Hive sur le même dépôt, c'est deux plans de merge
+        // concurrents sur les mêmes fichiers.
+        const deja = new Set(
+          store
+            .listProjects()
+            .map((p) => p.repoUrl)
+            .filter((u): u is string => Boolean(u)),
+        );
+        const filtres = filtrer(depots, req.query.q ?? '');
+        return {
+          depots: filtres.map((d) => ({ ...d, importe: deja.has(d.cloneUrl) })),
+          total: depots.length,
+          tronque,
+        };
+      } catch (err) {
+        return repondreErreurGithub(reply, err);
+      }
+    },
+  );
+
+  /** Importe un dépôt choisi : crée le projet Hive correspondant. */
+  app.post<{ Body: { fullName: string } }>(
+    '/api/github/import',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['fullName'],
+          properties: { fullName: { type: 'string', minLength: 3, maxLength: 200 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      if (!jetonGithub) return sansJeton(reply);
+      let depot;
+      try {
+        depot = await lireUnDepot(
+          { jeton: jetonGithub, ...(apiGithub ? { api: apiGithub } : {}) },
+          req.body.fullName,
+        );
+      } catch (err) {
+        return repondreErreurGithub(reply, err);
+      }
+
+      const existant = store.listProjects().find((p) => p.repoUrl === depot.cloneUrl);
+      if (existant) {
+        return reply
+          .code(409)
+          .send({ error: 'dépôt déjà importé', projectId: existant.id, nom: existant.name });
+      }
+
+      // SI L'APPEL VIENT D'UN COMPTE, LE PROJET LUI APPARTIENT.
+      //
+      // L'import s'authentifie par le jeton de ruche — il n'a donc personne à
+      // qui attribuer le dépôt, et le rangeait orphelin. Conséquence : la
+      // personne qui venait de connecter SON dépôt ne pouvait ni en lire le
+      // code, ni y admettre quelqu'un, sauf à être administratrice et à
+      // l'adopter d'abord. Le tableau de bord, lui, présente toujours un
+      // compte : autant s'en servir.
+      //
+      // La voie CLI reste possible et reste orpheline (elle n'a que le jeton
+      // de ruche) : c'est exactement le cas que l'adoption rattrape.
+      const parCompte = authorizedUser(req) ? (req as AuthRequest).userId! : null;
+      const projet = store.createProject({
+        name: depot.fullName,
+        repoUrl: depot.cloneUrl,
+        // La description vient de GitHub, donc d'un tiers possible. Elle est
+        // déjà aplatie et bornée par github.ts ; le Conseil l'emballera ensuite
+        // dans son bloc de données non fiables.
+        ...(depot.description ? { description: depot.description } : {}),
+        ...(parCompte ? { ownerId: parCompte } : {}),
+      });
+      if (parCompte) store.addMember(projet.id, parCompte, 'owner');
+      emitEvent('github_imported', {
+        projectId: projet.id,
+        fullName: depot.fullName,
+        prive: depot.prive,
+        ...(parCompte ? { userId: parCompte } : {}),
+      });
+      return reply.code(201).send({ projet, depot });
+    },
+  );
+
+  // ─── La livraison : de la production à la pull request ─────────────────────
+  //
+  // La chaîne complète est décrite en tête de `livraison.ts`. Ici, deux routes
+  // et une frontière :
+  //
+  //   POST /api/livraison            ouvre une branche + une PR — jamais un merge
+  //   POST /api/livraison/fusion     fusionne, sur geste humain explicite
+  //
+  // Les deux sont SÉPARÉES, et c'est tout le sujet. Une seule route qui
+  // livrerait puis fusionnerait « si tout est vert » retirerait la seule
+  // garantie que Hive donne. Cette séparation est verrouillée par
+  // tests/security-invariants.test.ts.
+
+  type RevueLivraison = 'approved' | 'rejected' | null;
+
+  type ReservationLivraison = {
+    taskId: string;
+    projectId: string;
+    depot: string;
+    branche: string;
+    resultId: number;
+    revue: RevueLivraison;
+  };
+
+  type ResultatLivraison = Awaited<ReturnType<typeof livrer>>;
+
+  /** Le résultat et la revue restent ceux que la réservation a vus. */
+  const productionEstToujoursCourante = (reservation: ReservationLivraison): boolean => {
+    const task = store.getTask(reservation.taskId);
+    const latest = store.resultsForTask(reservation.taskId).at(-1);
+    const revue = store.getTaskReview(reservation.taskId)?.state ?? null;
+    return (
+      task?.projectId === reservation.projectId &&
+      task.status === 'done' &&
+      latest?.resultId === reservation.resultId &&
+      latest.success &&
+      Boolean(latest.diff) &&
+      revue === reservation.revue
+    );
+  };
+
+  /** La réservation n'a pas été remplacée pendant l'appel GitHub. */
+  const reservationEstToujoursLa = (reservation: ReservationLivraison): boolean => {
+    const rangee = store.getLivraison(reservation.taskId);
+    return (
+      productionEstToujoursCourante(reservation) &&
+      rangee?.taskId === reservation.taskId &&
+      rangee.projectId === reservation.projectId &&
+      rangee.depot === reservation.depot &&
+      rangee.branche === reservation.branche &&
+      rangee.pr === 0 &&
+      rangee.etat === ETAT_LIVRAISON_EN_COURS
+    );
+  };
+
+  /** Pose le verrou durable avant le premier appel GitHub de toute livraison. */
+  const reserverLivraison = (input: ReservationLivraison): ReservationLivraison | null => {
+    if (!productionEstToujoursCourante(input)) return null;
+    if (
+      !store.reserverLivraison({
+        taskId: input.taskId,
+        projectId: input.projectId,
+        depot: input.depot,
+        branche: input.branche,
+      })
+    ) {
+      return null;
+    }
+    emitEvent('delivery_started', { taskId: input.taskId, resultId: input.resultId });
+    return input;
+  };
+
+  /** Conserve l'échec et le verrou si GitHub n'a pas pu terminer la livraison. */
+  const echouerReservation = (
+    reservation: ReservationLivraison | null,
+    motif: string,
+    pr = 0,
+  ): void => {
+    if (!reservation) return;
+    store.finaliserLivraisonEnCours({
+      taskId: reservation.taskId,
+      projectId: reservation.projectId,
+      depot: reservation.depot,
+      branche: reservation.branche,
+      pr,
+      etat: 'echouee',
+      motif: motif.slice(0, 400),
+    });
+  };
+
+  /** Un retour GitHub doit rester rattaché à la branche réservée. */
+  const resultatLivraisonValide = (resultat: ResultatLivraison, branche: string): boolean => {
+    return (
+      Number.isSafeInteger(resultat.pr) &&
+      resultat.pr > 0 &&
+      resultat.branche === branche &&
+      resultat.commitSha.length > 0
+    );
+  };
+
+  app.post<{ Body: { taskId: string; base?: string } }>(
+    '/api/livraison',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['taskId'],
+          properties: {
+            taskId: { type: 'string', minLength: 1, maxLength: 200 },
+            base: { type: 'string', minLength: 1, maxLength: 200 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      if (!jetonGithub) return sansJeton(reply);
+
+      const task = store.getTask(req.body.taskId);
+      if (!task) return reply.code(404).send({ error: 'tâche inconnue' });
+      const projet = store.getProject(task.projectId);
+      const depot = depotDepuisUrl(projet?.repoUrl ?? null);
+      if (!depot) {
+        return reply.code(409).send({
+          error: 'projet sans dépôt GitHub',
+          conseil:
+            'Importez le dépôt (« hive github-import ») avant de livrer : la ruche doit savoir où ouvrir la pull request.',
+        });
+      }
+      // La DERNIÈRE production de la tâche : c'est celle qui a été relue.
+      const resultats = store.resultsForTask(task.id);
+      const dernier = resultats[resultats.length - 1];
+      if (!dernier || !dernier.success || !dernier.diff) {
+        return reply.code(409).send({
+          error: 'aucune production livrable',
+          conseil: 'La tâche n’a pas de résultat réussi porteur d’un diff.',
+        });
+      }
+      if (typeof dernier.resultId !== 'number') {
+        return reply.code(409).send({ error: 'production sans identifiant' });
+      }
+      const noeud = store.getNode(dernier.nodeId);
+      const inspection = inspectionDeProduction(
+        store.listInspections(),
+        task.id,
+        dernier.nodeId,
+        dernier.resultId,
+      );
+      // Les fichiers sont lus du diff AVANT la livraison : le corps de la PR
+      // part avec la requête qui l'ouvre, il ne peut donc pas attendre le
+      // résultat. Une analyse en trop coûte quelques microsecondes ; une PR
+      // qui n'énumère pas ce qu'elle touche coûte une relecture.
+      let fichiers: string[];
+      try {
+        fichiers = cheminsDe(analyserRustine(dernier.diff));
+      } catch (err) {
+        if (err instanceof ErreurRustine) {
+          return reply.code(409).send({ error: err.message, conseil: err.conseil });
+        }
+        throw err;
+      }
+      // L'issue d'origine, si cette tâche vient d'une demande GitHub.
+      const issueOrigine = store.issueDeTache(task.id);
+      const branche = nomBranche(task.id);
+      // Réserver AVANT le premier await GitHub. Une contre-revue peut terminer
+      // pendant la création de la branche ; sans cette ligne, le Scheduler
+      // verrait encore « aucune livraison » et relancerait cette production.
+      const reservation = reserverLivraison({
+        taskId: task.id,
+        projectId: task.projectId,
+        depot,
+        branche,
+        resultId: dernier.resultId,
+        revue: store.getTaskReview(task.id)?.state ?? null,
+      });
+      if (!reservation) {
+        return reply.code(409).send({
+          code: 'delivery_exists',
+          error: 'une livraison est déjà enregistrée pour cette tâche',
+        });
+      }
+      try {
+        const resultat = await livrer(
+          { jeton: jetonGithub, ...(apiGithub ? { api: apiGithub } : {}) },
+          {
+            depot,
+            base: req.body.base ?? 'main',
+            branche,
+            diff: dernier.diff,
+            titre: task.title,
+            corps: corpsPr({
+              tache: task.title,
+              nodeName: noeud?.name ?? dernier.nodeId,
+              caste: casteDe(dernier.nodeId),
+              ...(inspection ? { verdictGardiennes: inspection.verdict } : {}),
+              fichiers,
+              // L'issue d'origine, s'il y en a une : c'est elle qui referme la
+              // boucle côté GitHub au moment du merge.
+              ...(issueOrigine ? { issue: issueOrigine.numero } : {}),
+            }),
+          },
+        );
+        const resultatValide = resultatLivraisonValide(resultat, branche);
+        if (!resultatValide || !reservationEstToujoursLa(reservation)) {
+          const motif = 'production modifiée pendant la livraison';
+          echouerReservation(reservation, motif, resultatValide ? resultat.pr : 0);
+          emitEvent('delivery_stale', {
+            taskId: task.id,
+            resultId: dernier.resultId,
+            pr: resultat.pr,
+          });
+          return reply.code(409).send({ code: 'stale_result', error: motif, pr: resultat.pr });
+        }
+        // LA LIVRAISON SE RANGE, comme sur la voie autonome. Elle ne le faisait
+        // pas ici : le trajet manuel n'émettait qu'un événement, et le numéro
+        // de PR n'existait donc nulle part où on puisse le retrouver. Deux
+        // conséquences, et la seconde est la grave : on ne pouvait pas rouvrir
+        // « où en est ma livraison ? », et surtout RIEN ne permettait de
+        // vérifier qu'une PR venait bien de la ruche au moment de la fusionner.
+        const finalisee = store.finaliserLivraisonEnCours({
+          taskId: task.id,
+          projectId: task.projectId,
+          depot,
+          pr: resultat.pr,
+          branche,
+          etat: 'ouverte',
+        });
+        if (!finalisee) {
+          const motif = 'réservation de livraison remplacée pendant la livraison';
+          return reply.code(409).send({ code: 'delivery_stale', error: motif });
+        }
+        // Faits typés uniquement : le texte bilingue est reconstruit à l'affichage.
+        emitEvent('delivery_opened', {
+          taskId: task.id,
+          nodeId: dernier.nodeId,
+          pr: resultat.pr,
+          branch: resultat.branche,
+          commitSha: resultat.commitSha,
+          fichiers: resultat.fichiers.length,
+        });
+        return reply.code(201).send(resultat);
+      } catch (err) {
+        if (err instanceof ErreurRustine) {
+          echouerReservation(reservation, err.message);
+          return reply
+            .code(409)
+            .send({ error: err.message, conseil: err.conseil, chemin: err.chemin });
+        }
+        const e = err as { message?: string };
+        echouerReservation(reservation, e.message ?? String(err));
+        return repondreErreurGithub(reply, err);
+      }
+    },
+  );
+
+  /**
+   * Fusionne une pull request ouverte par la ruche.
+   *
+   * GESTE HUMAIN. Rien dans la ruche n'appelle cette route : ni le Scheduler,
+   * ni un runner, ni une réaction à un résultat de tâche. Elle existe pour
+   * qu'un humain qui a relu puisse conclure sans quitter la ruche.
+   */
+  app.post<{ Body: { projectId: string; pr: number; methode?: 'merge' | 'squash' | 'rebase' } }>(
+    '/api/livraison/fusion',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['projectId', 'pr'],
+          properties: {
+            projectId: { type: 'string', minLength: 1, maxLength: 200 },
+            pr: { type: 'integer', minimum: 1 },
+            methode: { type: 'string', enum: ['merge', 'squash', 'rebase'] },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      if (!jetonGithub) return sansJeton(reply);
+      const depot = depotDepuisUrl(store.getProject(req.body.projectId)?.repoUrl ?? null);
+      if (!depot) return reply.code(404).send({ error: 'projet sans dépôt GitHub' });
+
+      // ON NE FUSIONNE QUE CE QUE LA RUCHE A OUVERT.
+      //
+      // Cette route disait déjà « fusionne une pull request ouverte par la
+      // ruche » — et ne le vérifiait pas : n'importe quel numéro passait. Elle
+      // fusionnait donc, avec le jeton GitHub de l'hôte, N'IMPORTE QUELLE PR du
+      // dépôt : celle qu'un humain relit encore, celle d'un contributeur
+      // extérieur. Le geste est réputé humain, mais le jeton qui l'autorise se
+      // recopie sur chaque machine membre (cf. ADR 0007).
+      //
+      // La table des livraisons est la source de vérité : la ruche y range ce
+      // qu'elle ouvre, sur les DEUX voies désormais. Ce qui n'y est pas ne
+      // vient pas d'elle, et ne se fusionne pas d'ici — on ne prétend pas
+      // empêcher de fusionner sur GitHub, on refuse seulement de le faire à sa
+      // place sur une PR qu'on n'a pas écrite.
+      const nôtre = store
+        .listLivraisons(req.body.projectId)
+        .some((l) => l.etat === 'ouverte' && l.pr === req.body.pr && l.depot === depot);
+      if (!nôtre) {
+        return reply.code(409).send({
+          error: 'cette pull request n’a pas été ouverte par la ruche',
+          conseil:
+            'La ruche ne fusionne que ce qu’elle a livré. Pour les autres pull requests, ' +
+            'passez par GitHub — c’est votre dépôt, pas le sien.',
+        });
+      }
+
+      try {
+        const r = await fusionner(
+          { jeton: jetonGithub, ...(apiGithub ? { api: apiGithub } : {}) },
+          depot,
+          req.body.pr,
+          req.body.methode ?? 'squash',
+        );
+        // La table suit l'état réel : une livraison fusionnée qui resterait
+        // « ouverte » ferait mentir l'écran et rouvrirait la porte à une
+        // seconde fusion de la même PR.
+        for (const l of store.listLivraisons(req.body.projectId)) {
+          if (l.pr === req.body.pr && l.depot === depot) {
+            store.setLivraison({
+              taskId: l.taskId,
+              projectId: l.projectId,
+              depot: l.depot,
+              pr: l.pr,
+              branche: l.branche,
+              etat: r.fusionnee ? 'fusionnee' : l.etat,
+            });
+            // ADR 0010 lot 8 : même règle que la voie autonome — merge landé
+            // → fabriques liées passent « mergee » (Chantiers peut juger).
+            if (r.fusionnee) {
+              marquerFabriquesMergeesApresFusion(store, req.body.projectId, l.taskId);
+            }
+          }
+        }
+        emitEvent('delivery_merged', {
+          projectId: req.body.projectId,
+          pr: req.body.pr,
+          methode: req.body.methode ?? 'squash',
+        });
+        return r;
+      } catch (err) {
+        return repondreErreurGithub(reply, err);
+      }
+    },
+  );
+
+  // ─── Le Plein Essaim : la ruche se gouverne elle-même ──────────────────────
+  //
+  // Deux routes, et la seconde est un GESTE HUMAIN qui n'a pas d'équivalent
+  // automatique : rien dans la ruche n'appelle POST /api/essaim. Une ruche
+  // autonome capable d'élever son propre niveau d'autonomie ne serait pas
+  // gouvernée, elle serait échappée — la table `essaim` porte `definiPar` pour
+  // que cette phrase reste vérifiable dans trois ans.
+  //
+  // La lecture rend le PAS que la ruche prendrait maintenant, avec son motif :
+  // un bouton qui allume l'autonomie sans montrer ce qu'elle ferait ensuite
+  // demande une confiance qu'on n'a pas à demander.
+
+  /**
+   * Les productions prêtes à partir sur le dépôt, les plus anciennes d'abord.
+   *
+   * QUATRE conditions, et aucune n'est superflue :
+   *   · la tâche est APPROUVÉE par un humain — la ruche autonome ouvre des
+   *     pull requests, elle ne décide pas seule de ce qui mérite d'en être une ;
+   *   · son dernier résultat est un succès PORTEUR D'UN DIFF — un « succès » à
+   *     diff vide n'a rien à livrer (c'est déjà ce que les Gardiennes disent) ;
+   *   · elle n'a aucune livraison enregistrée — une livraison en cours,
+   *     échouée ou fusionnée reste une décision durable jusqu'à reprise
+   *     humaine ;
+   *   · le projet a un dépôt connu, sinon il n'y a pas d'endroit où livrer.
+   *
+   * L'ordre est celui de la création : la ruche livre dans l'ordre où elle a
+   * travaillé, et deux relevés successifs rendent la même file.
+   */
+  /**
+   * La contre-visite autorise-t-elle la livraison de cette production ?
+   *
+   * ─── LA PROMESSE QUI N'EN ÉTAIT PAS UNE ────────────────────────────────────
+   *
+   * Le cadre envoyé à chaque jeune ouvrière dit, mot pour mot : « TA PRODUCTION
+   * SERA RELUE par une ouvrière plus expérimentée avant d'être appliquée ».
+   * `exigeContreVisite` et `trancher` savaient depuis toujours quoi en faire —
+   * et n'avaient AUCUN appelant. La phrase était donc fausse, et c'est la pire
+   * espèce de fausseté : celle qui rassure celui qu'elle vise.
+   *
+   * ─── CE QUE CETTE PORTE NE FAIT PAS ────────────────────────────────────────
+   *
+   * Elle ne remplace la revue humaine par rien. `aLivrer` exige déjà
+   * `approved`, et cette condition-ci s'AJOUTE : la ruche peut refuser de
+   * livrer ce qu'un humain a approuvé, jamais l'inverse. La règle du dépôt —
+   * « jamais de fusion sans revue humaine » — n'est pas touchée.
+   *
+   * `attendre` n'est pas un échec. C'est l'état d'une production que la ruche
+   * ne peut pas juger seule, et qui reste donc où elle était : devant l'humain.
+   *
+   * ─── ET ELLE NE MORD QU'EN `strict` ────────────────────────────────────────
+   *
+   * En `consignes` — le défaut — le polyéthisme guide sans contraindre, et
+   * `modeEffectif` le dit. Faire mordre la porte partout changerait le
+   * comportement de toutes les ruches installées, sur une décision que
+   * personne n'a prise.
+   */
+  const contreVisiteAutorise = (
+    task: Task,
+    inspections: readonly LigneGardienne[],
+  ): { ok: boolean; motif: string } => {
+    // Le POLYÉTHISME suit l'échelon du projet (opt-in), pas le seul mode global :
+    // un projet en « strict » atteint la contre-visite même sous un hive global
+    // « consignes ». Et `optIn` (échelon posé) commande le RANGEMENT de l'exigence.
+    const poly = polyethismeDe(task);
+    const optIn = store.getEchelonGardeFou(task.id) !== null;
+
+    if (poly !== 'strict') {
+      // Aucune contre-visite sous cet échelon : la production passe. Mais si le
+      // projet est opt-in, on RANGE que la contre-visite était DISPENSÉE — c'est
+      // ce fait daté qui rend l'observation REPLIABLE (traversée `directe`). Sans
+      // lui, toute production « leger »/« standard » resterait en vol pour
+      // toujours, et le bandit n'apprendrait jamais rien d'autre que « strict ».
+      if (optIn) store.poserExigenceGardeFou(task.id, false);
+      return { ok: true, motif: 'polyéthisme non strict' };
+    }
+
+    // `casteDe` plutôt qu'une seconde carte : elle est mémoïsée avec le TTL des
+    // Gardiennes, et surtout elle tient LA règle qui compte — un nœud sans
+    // antécédent est une NOURRICE. Recalculer ici rendrait `undefined` pour ce
+    // même nœud, et l'inconnu deviendrait le cas permissif.
+    const auteur = task.assignedNodeId === null ? null : casteDe(task.assignedNodeId);
+    if (auteur === null) {
+      // Une production sans nœud ne peut pas être jugée par une règle qui parle
+      // de castes. Fermé par défaut : elle reste devant l'humain.
+      return { ok: false, motif: 'production sans nœud : caste indéterminable' };
+    }
+
+    const resultats = store.resultsForTask(task.id);
+    const dernier = resultats[resultats.length - 1];
+    // `listInspections` rend de la plus récente à la plus ancienne : le premier
+    // trouvé est donc le dernier verdict rendu sur cette tâche.
+    const inspection = inspections.find((i) => i.taskId === task.id);
+    const exigee = exigeContreVisite({
+      caste: auteur,
+      // On n'arrive ici QUE si les Gardiennes inspectent (`modeEffectif` rend
+      // `off` sinon). Une tâche sans inspection est donc une tâche qu'elles
+      // n'ont pas eu à juger, pas une ruche sans garde — `clean` est le bon
+      // défaut, et la porte se referme alors sur la seule caste.
+      verdict: inspection?.verdict ?? 'clean',
+      chemins: fichiersTouches(dernier?.diff ?? ''),
+    });
+    // Opt-in : on RANGE l'exigence CONSTATÉE (exigee/dispensee) — le fait daté,
+    // pris à l'instant où la caste vive est interrogée, qui fait apprendre le
+    // bandit. `INSERT OR REPLACE` : rejoué à chaque passe, la dernière décision
+    // (celle du moment de livrer) gagne, comme le veut la doctrine des Gardiennes.
+    if (optIn) store.poserExigenceGardeFou(task.id, exigee);
+
+    const cv = store.contreVisiteDe(task.id);
+    const verdict = trancher({
+      exigee,
+      casteAuteur: auteur,
+      ...(cv === null ? {} : { casteVisiteur: casteDe(cv.visiteurNodeId) }),
+      contreVisite:
+        cv === null ? null : { suite: cv.suite, raison: cv.raison, mieux: '', force: 0 },
+    });
+    return { ok: verdict.issue === 'appliquer', motif: verdict.motif };
+  };
+
+  const aLivrer = (projectId: string): Task[] => {
+    if (!depotDepuisUrl(store.getProject(projectId)?.repoUrl ?? null)) return [];
+    const revues = store.listReviews();
+    // UNE seule lecture pour toutes les tâches du projet : `listInspections`
+    // rend jusqu'à 2 000 lignes, et l'appeler par tâche referait ce travail
+    // autant de fois qu'il y a de productions à livrer.
+    const inspections = store.listInspections();
+    // Une ligne existe dès qu'une tentative de livraison a été prise. Même
+    // un échec (`pr: 0` ou PR distante refusée) reste une décision humaine à
+    // traiter ; l'effacer est la seule manière explicite de relancer.
+    return store
+      .listTasks(projectId)
+      .filter((t) => t.status === 'done' && revues[t.id] === 'approved')
+      .filter((t) => store.getLivraison(t.id) === null)
+      .filter((t) => {
+        const resultats = store.resultsForTask(t.id);
+        const dernier = resultats[resultats.length - 1];
+        return Boolean(dernier?.success && dernier.diff);
+      })
+      .filter((t) => contreVisiteAutorise(t, inspections).ok)
+      .sort((a, b) => a.createdAt - b.createdAt);
+  };
+
+  /** L'état de gouvernance d'un projet, et ce que la ruche ferait maintenant. */
+  const etatEssaim = (projectId: string): EtatEssaim & { decision: Decision } => {
+    const reglage = store.getEssaim(projectId);
+    const niveau: NiveauAutonomie = NIVEAUX.includes((reglage?.niveau ?? 'off') as NiveauAutonomie)
+      ? ((reglage?.niveau ?? 'off') as NiveauAutonomie)
+      : 'off';
+
+    const inspections = store.listInspections();
+    const antecedents = replierAntecedents(inspections);
+    const noeuds: NoeudObserve[] = store.listNodes().map((n) => ({
+      nodeId: n.id,
+      nom: n.name,
+      enLigne: n.status === 'online',
+      antecedents: antecedents.get(n.id) ?? VIERGE,
+    }));
+
+    const taches = store.listTasks(projectId);
+    const lecons = leconsCroisees(store.listRecentFailures());
+    const projet = store.getProject(projectId);
+
+    // Le plafond vient de La Balance TELLE QU'ELLE EST DÉJÀ CALCULÉE par le
+    // Scheduler — on ne refait pas la somme. Une ruche autonome sans borne de
+    // dépense brûlerait un mois de temps-machine en une nuit ; une ruche qui
+    // calculerait sa borne deux fois de deux façons finirait par se contredire.
+    const solde = scheduler.balance.soldes.find((x) => x.projectId === projectId);
+    const plafond = solde?.etat ?? 'passe';
+
+    const etat: EtatEssaim = {
+      niveau,
+      noeuds,
+      tachesEnCours: taches.filter((t) => t.status === 'assigned' || t.status === 'running').length,
+      tachesPretes: taches.filter((t) => t.status === 'ready').length,
+      conseilEnCours: store
+        .listSessions()
+        .some((c) => c.projectId === projectId && c.etat !== 'clos'),
+      // Un conseil clos dont le verdict n'a pas encore été transformé en
+      // travail. Ce champ valait `false` en dur : la porte `planifier` de
+      // `deciderPas` était donc INATTEIGNABLE, et la ruche délibérait sans
+      // jamais rien faire de ses délibérations.
+      verdictANourrir: store.sessionsANourrir(projectId).length > 0,
+      // Ces deux champs valaient `0` en dur, comme `verdictANourrir` : les
+      // portes `livrer` et `fusionner` étaient donc inatteignables elles aussi.
+      productionsALivrer: aLivrer(projectId).length,
+      prAFusionner: store.listLivraisons(projectId, 'ouverte').length,
+      depotInscrit:
+        Boolean(reglage?.depotInscrit) && depotDepuisUrl(projet?.repoUrl ?? null) !== null,
+      lecons,
+      plafond,
+      derive: mesurerDerive({
+        // Les lignes brutes deviennent des FAITS mesurables ici : le compte de
+        // lignes vient du diff, la signature des logs. Les deux fonctions sont
+        // pures et partagées avec les modules qui les ont définies — un second
+        // compteur de lignes, ou une seconde normalisation d'erreur, finirait
+        // par diverger de l'original (même leçon que l'ANSI de brood.ts).
+        productions: store.listProductionsPourDerive(FENETRE).map((r) => {
+          const { ajouts, suppressions } = compterLignes(r.diff);
+          return {
+            verdict: (r.verdict === 'hollow' || r.verdict === 'suspect'
+              ? r.verdict
+              : 'clean') as Verdict,
+            ajouts,
+            suppressions,
+            signature: r.success ? '' : signatureEchec(r.logs),
+            createdAt: r.createdAt,
+          };
+        }),
+        dernierApportHumain: store.dernierApportHumain(),
+        now: Date.now(),
+      }),
+      horizonEntrees: store.compterHorizon(projectId),
+    };
+    // ADR 0010 lot 9 : stall / dérive → FAIT dans le carnet (pas hypothèse).
+    // Anti-spam : au plus une fois par fenêtre et par niveau.
+    const now = Date.now();
+    const horizonProjet = store.listerHorizon(projectId);
+    if (etat.derive.etat === 'degradee') {
+      if (doitNoterFaitDeriveDegradee(horizonProjet, now)) {
+        store.ajouterHorizon(
+          projectId,
+          'fait',
+          texteFaitDeriveDegradee(etat.derive.motif || 'la ruche se dégrade'),
+          SOURCE_HORIZON_DERIVE,
+          now,
+        );
+        etat.horizonEntrees = store.compterHorizon(projectId);
+      }
+    } else if (etat.derive.etat === 'a_surveiller') {
+      if (doitNoterFaitDeriveASurveiller(horizonProjet, now)) {
+        store.ajouterHorizon(
+          projectId,
+          'fait',
+          texteFaitDeriveASurveiller(etat.derive.motif || 'signaux à surveiller'),
+          SOURCE_HORIZON_DERIVE,
+          now,
+        );
+        etat.horizonEntrees = store.compterHorizon(projectId);
+      }
+    }
+    return { ...etat, decision: deciderPas(etat) };
+  };
+
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/essaim',
+    async (req, reply) => {
+      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const e = etatEssaim(req.params.projectId);
+      const suivi = cadencier.suivi(req.params.projectId);
+      const body: Record<string, unknown> = {
+        niveau: e.niveau,
+        decision: e.decision,
+        gouvernantes: gouvernantes(e.noeuds).map((g) => ({ nodeId: g.nodeId, nom: g.nom })),
+        gouvernantesRequises: GOUVERNANTES_MIN,
+        depotInscrit: e.depotInscrit,
+        plafond: e.plafond,
+        derive: e.derive,
+        lecons: e.lecons,
+        niveaux: NIVEAUX,
+        /**
+         * Ce que le RUNNER fait de cette décision. Distinct du verdict : une
+         * ruche peut décider « délibérer » et ne rien faire parce que l'hôte
+         * n'a pas allumé l'autonomie, ou parce qu'elle est en pause après cinq
+         * échecs. Sans ces trois champs, l'écran montrerait une décision qui
+         * n'arrive jamais et personne ne saurait pourquoi.
+         */
+        runner: {
+          mode: modeRunner,
+          enPause: enPause(suivi),
+          echecs: suivi.echecs,
+          dernierTourA: suivi.dernierTourA,
+        },
+      };
+      // Horizon (faits ≠ hypothèses) : jeton de ruche seulement — pas le partage.
+      if (authorized(req)) {
+        const { resumeHorizon } = await import('./horizon.js');
+        body.horizon = resumeHorizon(store.listerHorizon(req.params.projectId));
+      }
+      const nodes = store.listNodes();
+      const enLigne = nodes.filter((n) => n.status === 'online').length;
+      const agentsReels = nodes.some((n) => n.agentType !== 'shell' && n.agentType !== 'sim');
+      const projet = store.getProject(req.params.projectId);
+      const veutFusion = e.niveau === 'plein';
+      const gouv = gouvernantes(e.noeuds);
+      body.pret = {
+        runner: modeRunner === 'on',
+        gouvernantes: gouv.length >= GOUVERNANTES_MIN,
+        noeudsEnLigne: enLigne >= 1,
+        agentsReels,
+        depot: !veutFusion || e.depotInscrit,
+        derive: e.derive.etat !== 'degradee',
+        plafond: e.plafond !== 'bloque',
+        repo: !veutFusion || depotDepuisUrl(projet?.repoUrl ?? null) !== null,
+      };
+      return body;
+    },
+  );
+
+  /** Derniers cycles du runner pour ce projet — journal essaim_cycle. */
+  app.get<{ Params: { projectId: string }; Querystring: { limit?: string } }>(
+    '/api/projects/:projectId/essaim/cycles',
+    async (req, reply) => {
+      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const lim = Math.min(40, Math.max(1, Number(req.query.limit) || 12));
+      const pid = req.params.projectId;
+      const cycles = store
+        .listEvents(0, 800)
+        .filter(
+          (ev) =>
+            ev.type === 'essaim_cycle' &&
+            typeof ev.payload === 'object' &&
+            ev.payload !== null &&
+            (ev.payload as { projectId?: string }).projectId === pid,
+        )
+        .slice(-lim)
+        .reverse()
+        .map((ev) => ({
+          ts: ev.ts,
+          ...(ev.payload as Record<string, unknown>),
+        }));
+      return { cycles };
+    },
+  );
+
+  /**
+   * Règle l'autonomie d'un projet. GESTE HUMAIN, sans équivalent automatique.
+   *
+   * `depotInscrit` est l'autorisation de fusionner, donnée UNE FOIS pour ce
+   * dépôt. Elle est distincte du niveau, et les deux sont exigées ensemble pour
+   * qu'une fusion parte (essaim.ts, `deciderPas`).
+   */
+  app.post<{
+    Params: { projectId: string };
+    Body: { niveau: NiveauAutonomie; depotInscrit?: boolean };
+  }>(
+    '/api/projects/:projectId/essaim',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['niveau'],
+          properties: {
+            niveau: { type: 'string', enum: [...NIVEAUX] },
+            depotInscrit: { type: 'boolean' },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const projet = store.getProject(req.params.projectId);
+      if (!projet) return reply.code(404).send({ error: 'projet inconnu' });
+
+      const veutFusionner = req.body.niveau === 'plein';
+      const inscrit = req.body.depotInscrit ?? false;
+      // Demander « plein » sur un projet sans dépôt GitHub connu n'a pas de
+      // sens : il n'y a rien à fusionner. On le DIT plutôt que d'accepter un
+      // réglage qui ne produira jamais rien.
+      if (veutFusionner && inscrit && depotDepuisUrl(projet.repoUrl) === null) {
+        return reply.code(409).send({
+          error: 'projet sans dépôt GitHub',
+          conseil:
+            'Importez le dépôt (« hive github-import ») avant d’inscrire le projet pour la fusion autonome.',
+        });
+      }
+
+      store.setEssaim(
+        req.params.projectId,
+        { niveau: req.body.niveau, depotInscrit: inscrit },
+        'humain',
+      );
+      // Faits typés uniquement — le texte bilingue est reconstruit à l'affichage.
+      emitEvent('swarm_level_set', {
+        projectId: req.params.projectId,
+        niveau: req.body.niveau,
+        depotInscrit: inscrit,
+      });
+      // Régler l'autonomie est LE geste humain qui lève une pause du runner.
+      // Sans ce rappel, un projet mis en pause après cinq échecs ne repartirait
+      // jamais — et le seul bouton qui parle d'autonomie ne le débloquerait pas.
+      cadencier.reprendre(req.params.projectId);
+
+      const e = etatEssaim(req.params.projectId);
+      return reply
+        .code(200)
+        .send({ niveau: e.niveau, depotInscrit: e.depotInscrit, decision: e.decision });
+    },
+  );
+
+  /**
+   * L'état de l'Agent Garde-Fous d'un projet, pour le tableau de bord : le
+   * consentement (opt-in + bornes posés par l'humain) ET ce que la ruche a appris
+   * — le classement des échelons permis, le premier étant l'ÉLU. `classement` vide
+   * ⇒ projet non opt-in. L'échelle complète et ses réglages accompagnent, pour que
+   * l'écran explique ce que chaque échelon commande, sans le deviner.
+   */
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/garde-fou',
+    async (req, reply) => {
+      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const c = store.getGardeFou(req.params.projectId);
+      const classement = scheduler.classementGardeFou(req.params.projectId);
+      return {
+        actif: c?.actif ?? false,
+        bornes: c ? { min: c.borneMin, max: c.borneMax } : null,
+        definiPar: c?.definiPar ?? null,
+        echelonElu: classement[0]?.echelon ?? null,
+        classement,
+        echelons: ECHELONS,
+        reglages: REGLAGES,
+      };
+    },
+  );
+
+  /**
+   * Règle l'Agent Garde-Fous d'un projet — GESTE HUMAIN, sans équivalent
+   * automatique (le méta garde-fou : la ruche n'élargit jamais sa propre
+   * latitude). L'opt-in et les DEUX bornes de l'échelle. `borneMin`/`borneMax`
+   * validés contre l'échelle par le schéma : seul un échelon connu entre.
+   */
+  app.post<{
+    Params: { projectId: string };
+    Body: { actif: boolean; borneMin: Echelon; borneMax: Echelon };
+  }>(
+    '/api/projects/:projectId/garde-fou',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['actif', 'borneMin', 'borneMax'],
+          properties: {
+            actif: { type: 'boolean' },
+            borneMin: { type: 'string', enum: [...ECHELONS] },
+            borneMax: { type: 'string', enum: [...ECHELONS] },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      store.setGardeFou(
+        req.params.projectId,
+        { actif: req.body.actif, borneMin: req.body.borneMin, borneMax: req.body.borneMax },
+        'humain',
+      );
+      const classement = scheduler.classementGardeFou(req.params.projectId);
+      return reply.code(200).send({
+        actif: req.body.actif,
+        bornes: { min: req.body.borneMin, max: req.body.borneMax },
+        echelonElu: classement[0]?.echelon ?? null,
+      });
+    },
+  );
+
+  // ─── Le runner : la ruche agit vraiment ────────────────────────────────────
+  //
+  // `deciderPas` savait déjà quoi faire ; personne ne l'appelait en boucle. Ce
+  // cadencier est ce qui transforme le verdict en geste — et c'est le seul
+  // endroit du dépôt où la ruche agit sans clic humain, d'où les garde-fous
+  // détaillés en tête d'essaim-runner.ts.
+  //
+  // `HIVE_RUNNER` est le commutateur de l'HÔTE, distinct du niveau réglé par
+  // l'utilisateur. Éteint par défaut : le niveau dit ce que l'utilisateur veut,
+  // celui-ci dit si la machine qui paie est d'accord pour le faire.
+  const modeRunner = modeRunnerDepuisEnv();
+
+  const cadencier = new Cadencier({
+    lireDecision: (projectId) => etatEssaim(projectId).decision,
+    lireNiveau: (projectId) => {
+      const brut = store.getEssaim(projectId)?.niveau ?? 'off';
+      return NIVEAUX.includes(brut as NiveauAutonomie) ? (brut as NiveauAutonomie) : 'off';
+    },
+    lireMode: () => modeRunner,
+    emettre: emitEvent,
+    actions: {
+      /**
+       * Ouvrir un conseil. Coût borné par construction (`TOURS_MAX`), et ne
+       * touche à aucun dépôt.
+       *
+       * `livrer` et `fusionner` restent `non_branche`, VISIBLE dans le
+       * Journal : ils écrivent sur le dépôt de quelqu'un et méritent leur
+       * propre garde. Une ruche qui ne livre pas parce que la livraison n'est
+       * pas câblée doit rester discernable d'une ruche qui n'a rien à livrer.
+       */
+      deliberer: (projectId) => {
+        const projet = store.getProject(projectId);
+        if (!projet) throw new Error('projet inconnu');
+        // Un seul conseil à la fois, même garde que la route humaine : deux
+        // conseils concurrents doubleraient la dépense et rendraient leurs
+        // verdicts incomparables.
+        const deja = store.sessionsOuvertes().find((s) => s.projectId === projectId);
+        if (deja) return Promise.resolve(`conseil déjà ouvert (${deja.id})`);
+        const session = ouvrirConseil(depConseil, {
+          projectId,
+          contexteProjet: contexteProjetAvecHorizon(projectId, projet),
+        });
+        return Promise.resolve(`conseil ${session.id} ouvert`);
+      },
+
+      /**
+       * Transformer le verdict d'un conseil clos en travail d'ouvrière.
+       *
+       * Le plus ANCIEN verdict non nourri d'abord : la ruche exécute ses
+       * décisions dans l'ordre où elle les a prises. Et la trace est posée
+       * MÊME quand le verdict ne donne aucune tâche — un « départ » ou un
+       * conseil vide sont des conclusions, pas des échecs, et les relire à
+       * chaque cycle ferait tourner la ruche en rond sur un conseil qui a déjà
+       * dit tout ce qu'il avait à dire.
+       */
+      planifier: (projectId) => {
+        const session = store.sessionsANourrir(projectId)[0];
+        if (!session) return Promise.resolve('aucun verdict en attente');
+
+        const verdict = evaluerConseil(etatConseil(session));
+        // Le CORPS de la proposition n'est pas dans le verdict : `Proposition`
+        // ne porte que ce qui sert à départager. Il faut le relire en base.
+        const retenue = verdict.retenue
+          ? (store
+              .listPropositions(session.id)
+              .find((p) => p.id === verdict.retenue?.proposition.id) ?? null)
+          : null;
+        const taches = planifierVerdict({
+          issue: verdict.issue,
+          question: session.question,
+          retenue: retenue ? { titre: retenue.titre, corps: retenue.corps } : null,
+        });
+
+        for (const t of taches) {
+          const tache = store.createTask({ projectId, title: t.title, prompt: t.prompt });
+          emitEvent('swarm_task_created', {
+            projectId,
+            taskId: tache.id,
+            origine: 'conseil',
+            sessionId: session.id,
+          });
+        }
+        store.marquerPlanifie(session.id, projectId, taches.length);
+        return Promise.resolve(
+          taches.length > 0
+            ? `${taches.length} tâche(s) depuis le conseil ${session.id}`
+            : `conseil ${session.id} clos sans recommandation (${verdict.issue})`,
+        );
+      },
+
+      /**
+       * Ouvrir un chantier sur une leçon systémique.
+       *
+       * Le garde qui compte est le compte de correctifs DÉJÀ EN VOL : sans
+       * lui, une leçon systémique — qui reste systémique tant qu'elle n'est
+       * pas corrigée — ferait créer une tâche identique à chaque cycle, une
+       * par minute, jusqu'à ce que quelqu'un regarde.
+       */
+      corriger: (projectId) => {
+        const lecon = leconsCroisees(store.listRecentFailures()).find(
+          (l) => l.portee === 'systemique',
+        );
+        if (!lecon) return Promise.resolve('plus de leçon systémique');
+
+        const enVol = store
+          .listTasks(projectId)
+          .filter(
+            (t) =>
+              t.title.startsWith('Corriger : ') &&
+              (t.status === 'ready' || t.status === 'assigned' || t.status === 'running'),
+          ).length;
+
+        const taches = corrigerLecon(
+          {
+            signature: lecon.signature,
+            noeuds: lecon.noeuds,
+            occurrences: lecon.occurrences,
+            extrait: lecon.extrait,
+          },
+          enVol,
+        );
+        if (taches.length === 0) return Promise.resolve(`correctif déjà en vol (${enVol})`);
+
+        for (const t of taches) {
+          const tache = store.createTask({ projectId, title: t.title, prompt: t.prompt });
+          // Faits typés seulement : la signature est une donnée d'agent, elle
+          // n'a rien à faire dans un journal que tout membre peut lire.
+          emitEvent('swarm_task_created', {
+            projectId,
+            taskId: tache.id,
+            origine: 'lecon',
+            noeuds: lecon.noeuds,
+          });
+        }
+        return Promise.resolve(`chantier correctif ouvert (${lecon.noeuds} machines)`);
+      },
+
+      /**
+       * Ouvrir la pull request d'une production relue.
+       *
+       * PREMIER des deux pas qui ÉCRIVENT sur le dépôt de quelqu'un. Trois
+       * choses ne s'y négocient pas :
+       *
+       *   · le jeton vient de l'environnement, jamais de la base, et son
+       *     absence est un refus net — pas une tentative qui échouera plus loin
+       *     avec un message obscur ;
+       *   · la production a été APPROUVÉE par un humain (`aLivrer`). La ruche
+       *     autonome ouvre des PR, elle ne décide pas seule de ce qui mérite
+       *     d'en être une ;
+       *   · UNE seule par cycle. Livrer en rafale, c'est noyer le dépôt sous
+       *     des PR qu'aucun humain n'aura le temps de lire — et une ruche dont
+       *     on ne lit plus les PR n'est plus relue du tout.
+       *
+       * L'échec est RANGÉ avec son motif, pas seulement journalisé : une
+       * livraison qui disparaît sans trace, c'est une ruche qui retentera
+       * exactement la même chose au cycle suivant.
+       */
+      livrer: async (projectId) => {
+        if (!jetonGithub) return 'aucun jeton GitHub configuré (HIVE_GITHUB_TOKEN)';
+        const projet = store.getProject(projectId);
+        const depot = depotDepuisUrl(projet?.repoUrl ?? null);
+        if (!depot) return 'projet sans dépôt GitHub';
+
+        const task = aLivrer(projectId)[0];
+        if (!task) return 'aucune production relue à livrer';
+
+        const resultats = store.resultsForTask(task.id);
+        const dernier = resultats[resultats.length - 1]!;
+        if (typeof dernier.resultId !== 'number') return 'production sans identifiant';
+        const noeud = store.getNode(dernier.nodeId);
+        const inspection = inspectionDeProduction(
+          store.listInspections(),
+          task.id,
+          dernier.nodeId,
+          dernier.resultId,
+        );
+        const branche = nomBranche(task.id);
+        const issueOrigine = store.issueDeTache(task.id);
+        let reservation: ReservationLivraison | null = null;
+
+        try {
+          const fichiers = cheminsDe(analyserRustine(dernier.diff));
+          // `aLivrer` a déjà filtré les lignes existantes. Relire juste avant
+          // l'écriture protège toutefois le cas où une route manuelle a
+          // réservé la même tâche depuis le dernier tick.
+          reservation = reserverLivraison({
+            taskId: task.id,
+            projectId,
+            depot,
+            branche,
+            resultId: dernier.resultId,
+            revue: store.getTaskReview(task.id)?.state ?? null,
+          });
+          if (!reservation) return 'une livraison est déjà enregistrée';
+          const resultat = await livrer(
+            { jeton: jetonGithub, ...(apiGithub ? { api: apiGithub } : {}) },
+            {
+              depot,
+              base: 'main',
+              branche,
+              diff: dernier.diff,
+              titre: task.title,
+              corps: corpsPr({
+                tache: task.title,
+                nodeName: noeud?.name ?? dernier.nodeId,
+                caste: casteDe(dernier.nodeId),
+                ...(inspection ? { verdictGardiennes: inspection.verdict } : {}),
+                fichiers,
+                ...(issueOrigine ? { issue: issueOrigine.numero } : {}),
+              }),
+            },
+          );
+          const resultatValide = resultatLivraisonValide(resultat, branche);
+          if (!resultatValide || !reservationEstToujoursLa(reservation)) {
+            const motif = 'production modifiée pendant la livraison';
+            echouerReservation(reservation, motif, resultatValide ? resultat.pr : 0);
+            emitEvent('delivery_stale', {
+              taskId: task.id,
+              resultId: dernier.resultId,
+              pr: resultat.pr,
+            });
+            return `livraison abandonnée : ${motif}`;
+          }
+          const finalisee = store.finaliserLivraisonEnCours({
+            taskId: task.id,
+            projectId,
+            depot,
+            pr: resultat.pr,
+            branche,
+            etat: 'ouverte',
+          });
+          if (!finalisee) return 'livraison abandonnée : réservation remplacée';
+          emitEvent('delivery_opened', {
+            taskId: task.id,
+            nodeId: dernier.nodeId,
+            pr: resultat.pr,
+            branch: resultat.branche,
+            commitSha: resultat.commitSha,
+            fichiers: resultat.fichiers.length,
+          });
+          return `pull request #${resultat.pr} ouverte`;
+        } catch (e) {
+          // `pr: 0` — il n'y en a pas. La ligne existe pour que la ruche
+          // n'essaie pas la même production en boucle ; c'est à l'humain de la
+          // débloquer, comme un plafond de La Balance.
+          const motif = e instanceof Error ? e.message : String(e);
+          echouerReservation(reservation, motif);
+          throw e;
+        }
+      },
+
+      /**
+       * Fusionner une pull request que la ruche a ouverte.
+       *
+       * LE GESTE LE PLUS ENGAGEANT DE TOUT LE DÉPÔT. Il n'arrive que si TROIS
+       * conditions sont réunies, et elles le sont à trois endroits différents :
+       *
+       *   1. `deciderPas` exige le niveau « plein » ET le dépôt inscrit — une
+       *      autorisation donnée une seule fois, à la main, pour ce dépôt-là ;
+       *   2. le runner exige les deux interrupteurs, relus juste avant l'effet ;
+       *   3. GitHub lui-même refuse (405) si la PR n'est pas fusionnable :
+       *      conflit, vérification en échec, ou revue exigée par le dépôt.
+       *
+       * La troisième n'est pas la nôtre, et c'est justement pour cela qu'elle
+       * compte : les protections de branche du propriétaire restent la dernière
+       * barrière, et la ruche ne cherche pas à les contourner.
+       */
+      fusionner: async (projectId) => {
+        if (!jetonGithub) return 'aucun jeton GitHub configuré (HIVE_GITHUB_TOKEN)';
+        const ouverte = store.listLivraisons(projectId, 'ouverte')[0];
+        if (!ouverte) return 'aucune pull request ouverte';
+
+        try {
+          const r = await fusionner(
+            { jeton: jetonGithub, ...(apiGithub ? { api: apiGithub } : {}) },
+            ouverte.depot,
+            ouverte.pr,
+          );
+          store.setLivraison({ ...ouverte, etat: r.fusionnee ? 'fusionnee' : 'ouverte' });
+          emitEvent('delivery_merged', {
+            taskId: ouverte.taskId,
+            pr: ouverte.pr,
+            fusionnee: r.fusionnee,
+          });
+          // ADR 0010 lot 8 : merge landé → les fabriques liées passent « mergee »
+          // (Chantiers pourra enfin juger le script déclaré).
+          if (r.fusionnee) {
+            marquerFabriquesMergeesApresFusion(store, projectId, ouverte.taskId);
+          }
+          return r.fusionnee ? `pull request #${ouverte.pr} fusionnée` : 'fusion refusée';
+        } catch (e) {
+          // Un refus de GitHub (405 : conflit, CI rouge, revue exigée) n'est
+          // PAS une panne de la ruche : c'est le dépôt qui protège sa branche.
+          // On range le motif et on rend la main — retenter en boucle ne
+          // changerait rien et brûlerait le quota d'API.
+          const motif = e instanceof Error ? e.message : String(e);
+          store.setLivraison({ ...ouverte, etat: 'echouee', motif: motif.slice(0, 400) });
+          throw e;
+        }
+      },
+    },
+  });
+
+  // ─── Le provisionnement automatique ───────────────────────────────────────
+  //
+  // Quand un abonnement devient actif, les serveurs de son plan sont demandés
+  // ICI. Le fournisseur est injectable ; celui livré (« manuel ») ne démarre
+  // aucune machine mais produit les instructions exactes, billet compris, pour
+  // que l'humain les colle sur n'importe quel VPS. La CHAÎNE est réelle de bout
+  // en bout ; seul le « qui allume la machine » est remplaçable.
+  const fournisseurServeurs = config.fournisseurServeurs ?? FOURNISSEUR_MANUEL;
+
+  /**
+   * Gabarit demandé par défaut. Aligné sur ce que l'isolement borne déjà
+   * (2 vCPU / 2 Go de mémoire par tâche) : promettre moins ferait échouer les
+   * tâches, promettre plus ferait payer du matériel inutilisé.
+   */
+  const GABARIT_DEFAUT = '2 vCPU / 4 Go';
+
+  /** Serveurs d'un abonnement, relus depuis la base et rétrécis. */
+  const serveursDe = (refAbonnement?: string): Serveur[] =>
+    store.listServeurs(refAbonnement).map((r) => ({
+      ...r,
+      etat: (ETATS_SERVEUR.includes(r.etat as EtatServeur) ? r.etat : 'echoue') as EtatServeur,
+    }));
+
+  /**
+   * Aligne les serveurs sur les droits d'un abonnement.
+   *
+   * Appelée à chaque webhook accepté — donc potentiellement REJOUÉE. Toute
+   * l'idempotence tient dans `decider`, qui compte ce qui existe déjà : sans
+   * elle, chaque re-livraison démarrerait une machine de plus.
+   */
+  /**
+   * Les billets de rattachement des serveurs provisionnés — EN MÉMOIRE SEULE.
+   *
+   * Un billet à usage unique, expirant, est exactement le genre de secret
+   * qu'on ne range pas : il vaut un accès à la ruche tant qu'il n'est pas
+   * consommé. Vivre en mémoire signifie qu'un redémarrage du hub le perd, et
+   * c'est la bonne propriété — le code le dit déjà ailleurs : « un billet perdu
+   * ne se retrouve pas, il se remplace ».
+   *
+   * Il est remis UNE FOIS puis oublié : celui qui l'a lu l'a, et il ne traîne
+   * pas dans une réponse d'API qu'on rejoue en rafraîchissant une page.
+   */
+  const billetsServeurs = new Map<string, { billet: string; expire: number }>();
+
+  /**
+   * Efface les machines dont la rétention est échue. AUCUN geste humain.
+   *
+   * ─── POURQUOI C'EST UNE OBLIGATION, PAS UN NETTOYAGE ──────────────────────
+   *
+   * Un abonnement s'arrête : la ruche éteint la machine, et le tableau de bord
+   * annonce au client « ⏳ N j avant effacement ». Ne jamais effacer, c'est
+   * conserver indéfiniment les données de quelqu'un qui est parti — après le
+   * lui avoir promis par écrit, avec un décompte.
+   *
+   * ─── L'ORDRE DES DEUX GESTES, ET POURQUOI IL EST CELUI-LÀ ─────────────────
+   *
+   * On demande au fournisseur d'abord, on range ensuite. Si le fournisseur
+   * échoue, la ligne RESTE en `arrete` : elle repassera au prochain tour, et
+   * quelqu'un peut encore voir qu'il y a une machine à éteindre. Ranger
+   * d'abord perdrait la seule trace de ce qu'on paie encore.
+   */
+  const balayerRetention = async (now: number): Promise<void> => {
+    // Pas de retour anticipé sur une liste vide : la boucle ne fait déjà rien.
+    // Le garde qui s'y trouvait était une micro-optimisation, et il ajoutait une
+    // BRANCHE que rien ne pouvait éprouver — la loupe l'a fait survivre. Une
+    // ligne qu'aucun test ne peut atteindre ne se justifie pas par sa vitesse.
+    for (const s of aSupprimer(serveursDe(), now)) {
+      try {
+        if (s.refMachine) await fournisseurServeurs.supprimer(s.refMachine);
+      } catch (e) {
+        // On NE range PAS : la ligne doit rester visible tant que la machine
+        // peut exister quelque part. Elle repassera au prochain tour.
+        app.log.warn({ err: e, id: s.id }, 'suppression de machine en échec');
+        continue;
+      }
+      const r = transiter(s, 'supprime', 'rétention échue', now);
+      if (!r.applique) continue;
+      store.setServeur(r.serveur);
+      emitEvent('server_deleted', { serverId: s.id, projectId: s.projectId });
+    }
+  };
+
+  const alignerServeurs = async (
+    projectId: string,
+    refAbonnement: string,
+    plan: string,
+    actif: boolean,
+    now: number,
+  ): Promise<void> => {
+    const existants = serveursDe(refAbonnement);
+
+    if (!actif) {
+      // La facture cesse tout de suite ; les données restent le temps de la
+      // rétention. Deux gestes séparés, jamais fusionnés.
+      for (const s of aArreter(existants)) {
+        const r = transiter(s, 'arrete', 'abonnement sans droits', now);
+        if (r.applique) {
+          try {
+            if (s.refMachine) await fournisseurServeurs.arreter(s.refMachine);
+          } catch (e) {
+            // On range quand même l'arrêt : la ligne doit refléter l'INTENTION,
+            // sinon plus personne ne sait qu'il faut réessayer.
+            app.log.warn({ err: e, id: s.id }, 'arrêt de machine en échec');
+          }
+          store.setServeur(r.serveur);
+          emitEvent('server_stopped', { serverId: s.id, projectId });
+        }
+      }
+      return;
+    }
+
+    const p = planParCle(plan);
+    const verdict = decider(
+      {
+        projectId,
+        refAbonnement,
+        serveursInclus: p?.serveurs ?? 0,
+        gabarit: GABARIT_DEFAUT,
+      },
+      existants,
+    );
+    if (verdict.action === 'rien') return;
+
+    for (let i = 0; i < verdict.combien; i++) {
+      const id = randomUUID();
+      // Le billet est à USAGE UNIQUE : une machine, un billet. Un billet
+      // réutilisable traînerait dans les instructions d'un client et vaudrait
+      // accès permanent à la ruche.
+      const idBillet = `bil-${randomUUID()}`.slice(0, LIMITS.id);
+      const secret = tirerSecret();
+      const label = `serveur ${id.slice(0, 8)}`;
+      store.creerBillet({
+        id: idBillet,
+        secretHash: empreinte(secret),
+        label,
+        expiresAt: now + bornerTtl(undefined),
+        uses: 1,
+        now,
+      });
+      const urlRuche = config.publicUrl ?? `ws://${config.host}:${port}/ws`;
+      const billetServeur = encoderBillet({ id: idBillet, secret, label, url: urlRuche });
+      const base: Serveur = {
+        id,
+        projectId,
+        refAbonnement,
+        etat: 'demande',
+        fournisseur: fournisseurServeurs.nom,
+        refMachine: '',
+        gabarit: GABARIT_DEFAUT,
+        motif: verdict.motif,
+        creeA: now,
+        majA: now,
+        arreteA: 0,
+      };
+      store.setServeur(base);
+      try {
+        const machine = await fournisseurServeurs.demarrer({
+          gabarit: GABARIT_DEFAUT,
+          billet: billetServeur,
+          urlRuche,
+        });
+        // LE BILLET NE SE RANGE PAS. Les instructions le contiennent par
+        // construction, et un billet porte le secret EN CLAIR : les écrire
+        // dans `motif` annulait toute la précaution prise à côté (ne ranger
+        // que `secretHash`, une empreinte PBKDF2). L'empreinte dans `billets`,
+        // et le secret juste à côté dans `serveurs`, durablement.
+        // Il est remis à l'administrateur par `GET /api/admin/serveurs/:id/billet`,
+        // une seule fois, depuis la mémoire.
+        const r = transiter(
+          base,
+          'provisionnement',
+          caviarderBillet(machine.instructions, billetServeur).join(' ⏎ '),
+          now,
+        );
+        store.setServeur({ ...r.serveur, refMachine: machine.ref });
+        billetsServeurs.set(id, { billet: billetServeur, expire: now + bornerTtl(undefined) });
+        emitEvent('server_requested', {
+          serverId: id,
+          projectId,
+          fournisseur: fournisseurServeurs.nom,
+        });
+      } catch (e) {
+        // Un provisionnement raté reste VISIBLE avec son motif : un client qui
+        // a payé et qui attend ne doit pas disparaître d'un tableau de bord.
+        const r = transiter(base, 'echoue', e instanceof Error ? e.message : String(e), now);
+        store.setServeur(r.serveur);
+        emitEvent('server_failed', { serverId: id, projectId });
+      }
+    }
+  };
+
+  // ─── Les abonnements : vendre des heures-ouvrières ─────────────────────────
+  //
+  // Hive ne voit AUCUNE donnée de paiement : ni carte, ni IBAN, ni adresse de
+  // facturation. Le processeur les détient ; on n'en garde qu'un identifiant
+  // opaque et un état (abonnement.ts).
+  //
+  // Le secret de signature vient de l'environnement, jamais de la base — même
+  // doctrine que le jeton GitHub. Sans lui, la route REFUSE TOUT : « pas de
+  // secret configuré donc on laisse passer » est la porte dérobée la plus
+  // fréquente de toutes les intégrations de paiement.
+  const secretWebhook = process.env.HIVE_WEBHOOK_SECRET ?? '';
+
+  /** L'abonnement d'un projet, ou l'absence d'abonnement. */
+  const lireAbonnement = (projectId: string): Abonnement => {
+    const range = store.getAbonnement(projectId);
+    if (!range) return aucunAbonnement(projectId);
+    // La base rend une chaîne : on la RÉTRÉCIT ici. Un état inconnu — écrit
+    // par une version plus récente, puis relu après un retour arrière — ne
+    // doit surtout pas donner de droits par accident. Il retombe sur `aucun`,
+    // qui n'en donne aucun.
+    const etat = ETATS.includes(range.etat as EtatAbonnement)
+      ? (range.etat as EtatAbonnement)
+      : 'aucun';
+    return { ...range, etat };
+  };
+
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/abonnement',
+    async (req, reply) => {
+      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const now = Date.now();
+      const a = lireAbonnement(req.params.projectId);
+      const d = droits(a, now);
+      return {
+        plan: a.plan,
+        etat: a.etat,
+        finPeriode: a.finPeriode,
+        droits: d,
+        plans: PLANS,
+        // On dit si un secret est configuré, JAMAIS le secret : sans lui,
+        // aucun abonnement ne peut être activé, et le silence sur ce point
+        // ferait chercher la panne au mauvais endroit.
+        webhookConfigure: secretWebhook !== '',
+      };
+    },
+  );
+
+  /**
+   * Webhook du processeur de paiement.
+   *
+   * PAS de garde par jeton de ruche : le processeur ne le connaît pas. C'est
+   * la SIGNATURE qui authentifie, et elle est vérifiée sur le corps BRUT avant
+   * qu'on regarde son contenu. Les deux contrôles sont distincts : la
+   * signature dit que l'expéditeur détient le secret, elle ne dit rien de la
+   * forme de ce qu'il envoie.
+   */
+  app.post('/api/webhooks/abonnement', async (req, reply) => {
+    const brut = (req as { rawBody?: string }).rawBody ?? '';
+    const entete = String(req.headers['x-hive-signature'] ?? req.headers['stripe-signature'] ?? '');
+    const now = Date.now();
+
+    const v = verifierSignature({ charge: brut, entete, secret: secretWebhook, now });
+    if (!v.valide) {
+      // 401 et un motif COURT : un message bavard aiderait à forger la requête
+      // suivante. Le détail utile est journalisé côté serveur, pas renvoyé.
+      app.log.warn({ motif: v.motif }, 'webhook d’abonnement refusé');
+      return reply.code(401).send({ error: 'signature refusée' });
+    }
+
+    const evenement = lireCharge(req.body) ?? evenementDepuisStripe(req.body);
+    if (!evenement) return reply.code(400).send({ error: 'charge inexploitable' });
+    if (!store.getProject(evenement.projectId)) {
+      return reply.code(404).send({ error: 'projet inconnu' });
+    }
+
+    const courant = lireAbonnement(evenement.projectId);
+    const suivant = appliquerEvenement(courant, evenement);
+    if (!suivant) {
+      // Événement plus ancien que l'état courant, ou plan inconnu : on accuse
+      // réception sans rien changer. Renvoyer une erreur ferait re-livrer le
+      // webhook en boucle par le processeur.
+      return { applique: false, motif: 'sans effet' };
+    }
+    store.setAbonnement(suivant);
+
+    // Le plafond de La Balance suit les droits : vendre n'ajoute AUCUN
+    // mécanisme d'exécution, cela alimente une porte qui existait déjà.
+    //
+    // ─── `scheduler.setPlafond`, ET SURTOUT PAS `store.setBudget` ────────────
+    //
+    // Cette ligne appelait le store directement. Le plafond partait bien en
+    // base — et la PORTE continuait d'appliquer l'ancien, parce que le
+    // scheduler mémoïse `budgets` et que seul `setPlafond` invalide ce cache.
+    //
+    // Concrètement, sur une rétrogradation Colonie 200 h → Éclaireuse 10 h : le
+    // webhook accepté, l'abonnement à jour, et 190 heures non payées qui
+    // passent encore la porte. Symétrique à la montée — un client qui paie plus
+    // reste bloqué à son ancien quota. L'écart ne se refermait qu'au
+    // redémarrage du processus.
+    //
+    // La docstring de `setPlafond` dit depuis toujours « C'est le SEUL chemin
+    // d'écriture de `budgets` », et la route humaine (plus bas) l'honore. Ce
+    // webhook était le seul à ne pas la lire. `tests/bornes-cablees.test.ts`
+    // interdit désormais tout autre appelant.
+    const d = droits(suivant, now);
+    const h = hebergement(suivant, now);
+    scheduler.setPlafond(evenement.projectId, d.plafondMs, 'abonnement', now);
+
+    // Faits typés seulement — jamais le refExterne, qui identifie un client
+    // chez le processeur et n'a rien à faire dans un journal partagé.
+    emitEvent('subscription_changed', {
+      projectId: evenement.projectId,
+      plan: suivant.plan,
+      etat: suivant.etat,
+      heures: d.heures,
+    });
+
+    // LE SERVEUR SE CRÉE TOUT SEUL À L'ACHAT. Après le plafond, pas avant :
+    // une machine qui démarre sans quota consommerait sans jamais s'arrêter.
+    // Queen (0 h) n'a pas de droits d'ouvrières mais A de l'hébergement.
+    await alignerServeurs(
+      evenement.projectId,
+      suivant.refExterne,
+      suivant.plan,
+      d.actif || h.actif,
+      now,
+    );
+    return { applique: true, etat: suivant.etat, heures: d.heures };
+  });
+
+  // ─── L'administration des comptes ─────────────────────────────────────────
+  //
+  // Toutes ces routes exigent un COMPTE (JWT), pas seulement le jeton de ruche.
+  // La distinction compte : le jeton de ruche est partagé avec chaque nœud
+  // membre — s'en servir comme preuve d'administration donnerait les pleins
+  // pouvoirs à toute machine qui butine.
+
+  /** Le rôle de l'appelant, ou `null` s'il n'est pas authentifié en tant que compte. */
+  const roleDe = (req: FastifyRequest): { userId: string; role: Role } | null => {
+    if (!authorizedUser(req)) return null;
+    const userId = (req as AuthRequest).userId;
+    if (!userId) return null;
+    const brut = store.getRole(userId);
+    return { userId, role: ROLES.includes(brut as Role) ? (brut as Role) : 'membre' };
+  };
+
+  /** Garde d'action. Rend l'appelant, ou répond et rend `null`. */
+  const exige = (
+    req: FastifyRequest,
+    reply: FastifyReply,
+    action: Parameters<typeof peut>[1],
+  ): { userId: string; role: Role } | null => {
+    const moi = roleDe(req);
+    if (!moi) {
+      void reply.status(401).send({ error: 'Non authentifié' });
+      return null;
+    }
+    if (!peut(moi.role, action)) {
+      // 403 et pas 404 : l'utilisateur EST authentifié, la ressource existe,
+      // et lui faire croire le contraire ne protégerait rien tout en le
+      // laissant chercher une panne inexistante.
+      void reply.status(403).send({ error: 'Action réservée aux administrateurs' });
+      return null;
+    }
+    return moi;
+  };
+
+  /**
+   * Le Cerveau, vu comme un graphe.
+   *
+   * ─── POURQUOI CETTE ROUTE EST EN LECTURE SEULE, ET ADMINISTRATIVE ──────────
+   *
+   * Le Cerveau est le savoir de TOUTE la ruche : il n'appartient à aucun
+   * projet, donc aucune permission par projet ne le couvre. `voir_tous_les_
+   * projets` est la seule qui dise « cette personne voit l'ensemble », et c'est
+   * exactement le périmètre.
+   *
+   * Aucune écriture ici, volontairement. Promouvoir un épisode en leçon demande
+   * de comprendre POURQUOI, et ce geste-là se fait dans Obsidian, à la main,
+   * avec un commit qu'on peut relire et annuler. Un bouton « promouvoir » sur
+   * un écran ferait écrire une règle en un clic — or une règle fausse coûte
+   * plus cher que pas de règle, parce qu'elle est SUIVIE.
+   *
+   * Le corps des notes n'est jamais renvoyé : la vue montre la FORME du savoir
+   * (qui cite qui, ce qui sert, ce qui dort), pas son contenu. Ça borne aussi
+   * la réponse, qu'un cerveau de mille notes ferait exploser autrement.
+   */
+  app.get('/api/admin/cerveau', async (req, reply) => {
+    if (!exige(req, reply, 'voir_tous_les_projets')) return reply;
+    // Un dossier absent est l'état NORMAL d'une ruche neuve : `lire` rend une
+    // liste vide, et le graphe vide se dessine très bien. Pas de 404 — « pas
+    // encore de savoir » n'est pas une erreur.
+    return { ...graphe(lire(dossierCerveau), Date.now()), dossier: dossierCerveau };
+  });
+
+  app.get('/api/admin/membres', async (req, reply) => {
+    if (!exige(req, reply, 'gerer_membres')) return reply;
+    return {
+      membres: store.listUsersWithRoles(),
+      admins: store.countAdmins(),
+      inscription: etatInscription(modeInscription, store.countUsers()),
+    };
+  });
+
+  app.put<{ Params: { userId: string }; Body: { role: Role } }>(
+    '/api/admin/membres/:userId/role',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['role'],
+          additionalProperties: false,
+          properties: { role: { type: 'string', enum: [...ROLES] } },
+        },
+      },
+    },
+    async (req, reply) => {
+      const moi = exige(req, reply, 'changer_role');
+      if (!moi) return reply;
+      if (!store.getUserById(req.params.userId)) {
+        return reply.status(404).send({ error: 'Compte introuvable' });
+      }
+      const verdict = peutChangerRole({
+        auteur: moi.role,
+        auteurId: moi.userId,
+        cibleId: req.params.userId,
+        nouveauRole: req.body.role,
+        admins: store.countAdmins(),
+      });
+      if (!verdict.autorise) return reply.status(409).send({ error: verdict.motif });
+
+      store.setRole(req.params.userId, req.body.role, moi.userId);
+      // Faits typés seulement — jamais l'email, qui identifie une personne
+      // dans un journal que tout membre de la ruche peut lire.
+      emitEvent('role_changed', { userId: req.params.userId, role: req.body.role });
+      return { userId: req.params.userId, role: req.body.role };
+    },
+  );
+
+  // ─── L'administration des serveurs ────────────────────────────────────────
+  //
+  // Réservée aux administrateurs (`gerer_serveurs`). Le chiffre mis en avant
+  // est `facturables` : ce qui coûte de l'argent EN CE MOMENT est la seule
+  // chose qu'un hôte ne veut jamais découvrir en retard.
+
+  app.get('/api/admin/serveurs', async (req, reply) => {
+    if (!exige(req, reply, 'gerer_serveurs')) return reply;
+    const now = Date.now();
+    const serveurs = serveursDe();
+    // Le nom du projet, pas seulement son identifiant : « hive-a3f2 » ne dit
+    // à personne quelle machine il s'apprête à éteindre.
+    const noms = new Map(store.listProjects().map((p) => [p.id, p.name]));
+    return {
+      vue: replierServeurs(serveurs, now),
+      serveurs: serveurs.map((s) => ({
+        ...s,
+        projet: noms.get(s.projectId) ?? '',
+        joursAvantSuppression: joursAvantSuppression(s, now),
+        // Les gestes que CE serveur acceptera. L'écran n'en propose pas
+        // d'autres : recopier la matrice côté navigateur la ferait dériver.
+        transitions: transitionsDepuis(s.etat),
+      })),
+      fournisseur: fournisseurServeurs.nom,
+      retentionJours: RETENTION_JOURS,
+      serveursMax: SERVEURS_MAX,
+    };
+  });
+
+  /**
+   * Le billet de rattachement d'un serveur — REMIS UNE SEULE FOIS.
+   *
+   * Il était auparavant rangé en clair dans `serveurs.motif`, parce que les
+   * instructions du fournisseur le contiennent par construction. Un billet
+   * porte le secret en clair : l'écrire en base annulait toute la précaution
+   * prise à côté, où seule une empreinte PBKDF2 est rangée.
+   *
+   * Une seule remise, puis oubli : celui qui l'a lu l'a. Le laisser
+   * consultable indéfiniment recréerait exactement ce qu'on vient de retirer,
+   * en mémoire au lieu du disque.
+   */
+  app.get<{ Params: { id: string } }>('/api/admin/serveurs/:id/billet', async (req, reply) => {
+    if (!exige(req, reply, 'gerer_serveurs')) return reply;
+    const garde = billetsServeurs.get(req.params.id);
+    billetsServeurs.delete(req.params.id);
+    if (!garde || garde.expire <= Date.now()) {
+      // Même réponse que « jamais eu de billet » : un billet périmé et un
+      // billet déjà lu se remplacent tous les deux de la même façon.
+      return reply.code(404).send({
+        error:
+          'aucun billet à remettre pour ce serveur — un billet ne se retrouve pas, ' +
+          'il se remplace : relancez le provisionnement.',
+      });
+    }
+    return reply.send({ billet: garde.billet, commande: `npm run join ${garde.billet}` });
+  });
+
+  /**
+   * Change l'état d'un serveur à la main.
+   *
+   * Les transitions permises sont celles du module pur : on ne ressuscite pas
+   * un serveur supprimé, et on ne saute pas de « demandé » à « prêt ». Un
+   * bouton d'administration qui pourrait poser n'importe quel état ferait
+   * mentir le tableau de bord au premier clic maladroit.
+   */
+  app.put<{ Params: { id: string }; Body: { etat: EtatServeur; motif?: string } }>(
+    '/api/admin/serveurs/:id',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['etat'],
+          additionalProperties: false,
+          properties: {
+            etat: { type: 'string', enum: [...ETATS_SERVEUR] },
+            motif: { type: 'string', maxLength: 400 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const moi = exige(req, reply, 'gerer_serveurs');
+      if (!moi) return reply;
+      const brut = store.getServeur(req.params.id);
+      if (!brut) return reply.code(404).send({ error: 'serveur inconnu' });
+
+      const courant: Serveur = {
+        ...brut,
+        etat: (ETATS_SERVEUR.includes(brut.etat as EtatServeur)
+          ? brut.etat
+          : 'echoue') as EtatServeur,
+      };
+      const now = Date.now();
+      const r = transiter(courant, req.body.etat, req.body.motif ?? 'geste humain', now);
+      if (r.refus) return reply.code(409).send({ error: r.refus });
+      if (!r.applique) return { id: courant.id, etat: courant.etat, change: false };
+
+      // La machine SUIT la décision : sans cet appel, le tableau de bord dirait
+      // « arrêté » pendant que la facture continue de courir.
+      try {
+        if (courant.refMachine && req.body.etat === 'arrete') {
+          await fournisseurServeurs.arreter(courant.refMachine);
+        }
+        if (courant.refMachine && req.body.etat === 'supprime') {
+          await fournisseurServeurs.supprimer(courant.refMachine);
+        }
+      } catch (e) {
+        return reply.code(502).send({
+          error: 'le fournisseur a refusé',
+          conseil: e instanceof Error ? e.message : String(e),
+        });
+      }
+      store.setServeur(r.serveur);
+      emitEvent('server_state_changed', { serverId: courant.id, etat: req.body.etat });
+      return { id: courant.id, etat: r.serveur.etat, change: true };
+    },
+  );
+
+  // ─── Le Conseil des Éclaireuses ────────────────────────────────────────────
+
+  /**
+   * Ouvre un conseil sur un projet.
+   *
+   * Le geste est EXPLICITEMENT HUMAIN, et c'est le garde-fou : un conseil crée
+   * de vraies tâches d'ouvrières, donc consomme du temps-machine prêté par les
+   * membres. Il n'y a volontairement aucun déclenchement automatique — une
+   * ruche qui s'interrogerait toute seule en boucle brûlerait le temps de ses
+   * membres sans que personne l'ait demandé.
+   */
+  app.post<{ Params: { projectId: string }; Body: { question?: string } }>(
+    '/api/projects/:projectId/conseil',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId'],
+          properties: { projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          properties: { question: { type: 'string', maxLength: 500 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      const permis = engagementProjetPermis(req, req.params.projectId);
+      if (permis !== 'permis') return refuserEngagement(reply, permis);
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+      // Un seul conseil à la fois par projet : deux conseils concurrents
+      // doubleraient la dépense et rendraient leurs verdicts incomparables.
+      const dejaOuvert = store.sessionsOuvertes().find((s) => s.projectId === project.id);
+      if (dejaOuvert) {
+        return reply
+          .code(409)
+          .send({ error: 'un conseil est déjà en cours sur ce projet', sessionId: dejaOuvert.id });
+      }
+      const session = ouvrirConseil(depConseil, {
+        projectId: project.id,
+        ...(req.body?.question ? { question: req.body.question } : {}),
+        contexteProjet: contexteProjetAvecHorizon(project.id, project),
+      });
+      return reply.code(201).send(vueSession(session.id));
+    },
+  );
+
+  /** L'état d'un conseil : ses danses, classées, et son verdict s'il est clos. */
+  app.get<{ Params: { sessionId: string } }>(
+    '/api/conseil/:sessionId',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['sessionId'],
+          properties: { sessionId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const vue = vueSession(req.params.sessionId);
+      if (!vue) return reply.code(404).send({ error: 'conseil inconnu' });
+      return vue;
+    },
+  );
+
+  /** Les conseils récents, du plus récent au plus ancien. */
+  app.get('/api/conseils', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    return {
+      conseils: store.listSessions().map((s) => ({
+        id: s.id,
+        question: s.question,
+        projectId: s.projectId,
+        etat: s.etat,
+        tour: s.tour,
+        issue: s.issue,
+        createdAt: s.createdAt,
+        closedAt: s.closedAt,
+      })),
+    };
+  });
+
+  /**
+   * Vue d'un conseil. Le verdict est RECALCULÉ à la lecture par le module pur
+   * plutôt que relu d'une colonne : ainsi la vue ne peut pas diverger de ce que
+   * le protocole dirait aujourd'hui, et un conseil archivé reste rejouable.
+   */
+  /**
+   * L'état d'un conseil, tel que `evaluerConseil` l'attend.
+   *
+   * EXTRAIT plutôt que recopié : la vue humaine et le runner d'essaim lisent
+   * tous deux le verdict, et deux constructions parallèles du même état
+   * finiraient par diverger — l'écran montrerait alors une recommandation, et
+   * la ruche en exécuterait une autre.
+   */
+  function etatConseil(s: SessionRangee): Parameters<typeof evaluerConseil>[0] {
+    return {
+      tour: s.tour,
+      propositions: store.listPropositions(s.id).map(versProposition),
+      avis: store.listAvis(s.id).map((a) => ({
+        propositionId: a.propositionId,
+        eclaireuse: a.eclaireuse,
+        famille: a.famille,
+        type: a.type,
+        force: a.force,
+        tour: a.tour,
+      })),
+    };
+  }
+
+  function vueSession(sessionId: string): Record<string, unknown> | null {
+    const s = store.getSession(sessionId);
+    if (!s) return null;
+    const propositions = store.listPropositions(sessionId);
+    const avis = store.listAvis(sessionId);
+    const verdict = evaluerConseil(etatConseil(s));
+    const parId = new Map(propositions.map((p) => [p.id, p]));
+    return {
+      id: s.id,
+      question: s.question,
+      projectId: s.projectId,
+      etat: s.etat,
+      tour: s.tour,
+      issue: s.issue ?? verdict.issue,
+      motif: s.motif ?? verdict.motif,
+      createdAt: s.createdAt,
+      closedAt: s.closedAt,
+      enVol: store.tachesADepouiller(sessionId).length,
+      danses: verdict.danses.map((d) => {
+        const p = parId.get(d.proposition.id);
+        return {
+          id: d.proposition.id,
+          titre: d.proposition.titre,
+          corps: p?.corps ?? '',
+          // Les sources sont AFFICHÉES, jamais suivies par la ruche.
+          sources: lireSources(p?.sources),
+          eclaireuse: d.proposition.eclaireuse,
+          famille: d.proposition.famille,
+          qualite: d.proposition.qualite,
+          intensite: d.intensite,
+          soutiens: d.soutiens,
+          arrets: d.arrets,
+          familles: d.familles,
+          quorum: d.quorum,
+          autoSoutienIgnore: d.autoSoutienIgnore,
+          raisons: avis
+            .filter((a) => a.propositionId === d.proposition.id && a.raison)
+            .map((a) => ({ type: a.type, raison: a.raison, eclaireuse: a.eclaireuse })),
+        };
+      }),
+      retenue: verdict.retenue?.proposition.id ?? null,
+    };
+  }
+
+  function lireSources(brut: string | undefined): string[] {
+    if (!brut) return [];
+    try {
+      const v: unknown = JSON.parse(brut);
+      return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+    } catch {
+      return [];
+    }
+  }
+
+  /** Qui a les clés de la ruche. Empreintes jamais exposées. */
+  app.get('/api/membres', async (req, reply) => {
+    if (!exige(req, reply, 'gerer_serveurs')) return reply;
+    const now = Date.now();
+    return {
+      noeuds: store.listClesNoeuds().map((c) => ({
+        nodeId: c.nodeId,
+        label: c.label,
+        createdAt: c.createdAt,
+        lastSeenAt: c.lastSeenAt,
+        revoque: c.revokedAt !== null,
+      })),
+      billets: store.listBillets().map((b) => ({
+        id: b.id,
+        label: b.label,
+        createdAt: b.createdAt,
+        expiresAt: b.expiresAt,
+        usesLeft: b.usesLeft,
+        usesTotal: b.usesTotal,
+        // État calculé plutôt que rangé : un billet devient « expiré » par le
+        // simple passage du temps, sans que personne n'écrive rien.
+        etat:
+          b.revokedAt !== null
+            ? 'revoque'
+            : b.expiresAt <= now
+              ? 'expire'
+              : b.usesLeft <= 0
+                ? 'epuise'
+                : 'vivant',
+      })),
+    };
+  });
+
+  /** Exclure un membre — le geste que l'ancien modèle rendait impossible. */
+  app.delete<{ Params: { nodeId: string } }>(
+    '/api/membres/:nodeId',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['nodeId'],
+          properties: { nodeId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!exige(req, reply, 'gerer_serveurs')) return reply;
+      const fait = store.revoquerCleNoeud(req.params.nodeId);
+      if (!fait) return reply.code(404).send({ error: 'nœud inconnu ou déjà révoqué' });
+      emitEvent('node_revoked', { nodeId: req.params.nodeId });
+      // La révocation doit MORDRE tout de suite : un membre exclu qui reste
+      // connecté jusqu'à sa prochaine reconnexion, ce n'est pas une exclusion.
+      const socket = nodeSockets.get(req.params.nodeId);
+      if (socket) socket.close(4403, 'accès révoqué');
+      return { nodeId: req.params.nodeId, revoque: true };
+    },
+  );
+
+  /**
+   * Poser un outil sur la machine d'un nœud.
+   *
+   * ─── CE QUE CETTE ROUTE PEUT ET NE PEUT PAS ────────────────────────────────
+   *
+   * L'utilisateur a tranché : le bouton LANCE, il n'affiche plus seulement la
+   * commande. La contrepartie est assumée — un accès à cet écran déclenche une
+   * installation chez un membre — et la borne qui l'empêche de s'élargir est
+   * ici : la requête porte un `outilId` de catalogue, le corps n'est pas lu, et
+   * AUCUNE commande ne traverse. Le nœud relira son propre catalogue.
+   *
+   * Le refus est prononcé ici aussi, et pas seulement chez le nœud : rendre
+   * 400 tout de suite épargne un aller-retour et dit au demandeur POURQUOI,
+   * plutôt que de le laisser attendre un résultat qui ne viendra pas.
+   */
+  app.post<{ Params: { nodeId: string; outilId: string } }>(
+    '/api/nodes/:nodeId/outils/:outilId/poser',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['nodeId', 'outilId'],
+          properties: {
+            nodeId: { type: 'string', minLength: 1, maxLength: LIMITS.id },
+            outilId: { type: 'string', minLength: 1, maxLength: LIMITS.id },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      // La pose envoie une commande d'installation au nœud distant : le
+      // jeton partagé n'autorise pas cette action côté hôte.
+      if (!exige(req, reply, 'gerer_serveurs')) return reply;
+      const { nodeId, outilId } = req.params;
+      if (commandeDePose(outilId) === null) {
+        return reply
+          .code(400)
+          .send({ error: `« ${outilId} » n'a pas d'installation automatique au catalogue` });
+      }
+      const socket = nodeSockets.get(nodeId);
+      if (!socket) return reply.code(409).send({ error: 'nœud hors ligne' });
+      const poseId = `pos-${randomUUID()}`.slice(0, LIMITS.id);
+      pendingPoses.set(poseId, { nodeId, outilId, demandeeA: Date.now() });
+      send(socket, { type: 'poser_outil', poseId, outilId });
+      // La trace est le prix de l'automatisme : qui a lancé quoi, où, quand.
+      emitEvent('outil_pose_demandee', { nodeId, outilId, poseId });
+      return reply.code(202).send({ poseId, nodeId, outilId });
+    },
+  );
+
+  /** Révoquer un billet encore en circulation. */
+  app.delete<{ Params: { id: string } }>(
+    '/api/billets/:id',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: { id: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!exige(req, reply, 'gerer_serveurs')) return reply;
+      const fait = store.revoquerBillet(req.params.id);
+      if (!fait) return reply.code(404).send({ error: 'billet inconnu ou déjà révoqué' });
+      emitEvent('invite_revoked', { ticketId: req.params.id });
+      return { id: req.params.id, revoque: true };
+    },
+  );
+
+  app.get<{ Querystring: { since?: number; limit?: number } }>(
+    '/api/events',
+    {
+      schema: {
+        querystring: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            since: { type: 'integer', minimum: 0 },
+            limit: { type: 'integer', minimum: 1, maximum: 1000 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      return store.listEvents(req.query.since ?? 0, req.query.limit ?? 200);
+    },
+  );
+
+  // Time-Lapse Replay : rejoue le journal pour renvoyer une frise chronologique
+  // (une image par événement) + le résumé de l'état final. Lecture seule. La
+  // pagination interne (le store plafonne chaque page à 1000) est bornée par
+  // EVENT_RETENTION pour éviter tout abus.
+  app.get<{ Querystring: { since?: number; limit?: number } }>(
+    '/api/replay',
+    {
+      schema: {
+        querystring: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            since: { type: 'integer', minimum: 0 },
+            limit: { type: 'integer', minimum: 1, maximum: EVENT_RETENTION },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const cap = req.query.limit ?? EVENT_RETENTION;
+      const events: HiveEvent[] = [];
+      let cursor = req.query.since ?? 0;
+      for (;;) {
+        const remaining = cap - events.length;
+        if (remaining <= 0) break;
+        const page = store.listEvents(cursor, Math.min(1000, remaining));
+        if (page.length === 0) break;
+        events.push(...page);
+        const last = page[page.length - 1];
+        if (!last) break;
+        cursor = last.id;
+      }
+      return buildTimeline(events);
+    },
+  );
+
+  // Waggle Board : classement de contribution des nœuds (nectar), calculé en
+  // repliant le journal. Lecture seule. Pagination interne bornée par
+  // EVENT_RETENTION (le store plafonne chaque page à 1000).
+  app.get('/api/waggle', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    const events: HiveEvent[] = [];
+    let cursor = 0;
+    for (;;) {
+      if (events.length >= EVENT_RETENTION) break;
+      const page = store.listEvents(cursor, Math.min(1000, EVENT_RETENTION - events.length));
+      if (page.length === 0) break;
+      events.push(...page);
+      const last = page[page.length - 1];
+      if (!last) break;
+      cursor = last.id;
+    }
+    return buildWaggleBoard(events);
+  });
+
+  // Ghost in the Hive : détection d'anomalies (nœuds flaky/silencieux, tâches en
+  // boucle…) par repli du journal. Lecture seule ; pagination interne bornée par
+  // EVENT_RETENTION (le store plafonne chaque page à 1000).
+  app.get('/api/ghost', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    const events: HiveEvent[] = [];
+    let cursor = 0;
+    for (;;) {
+      if (events.length >= EVENT_RETENTION) break;
+      const page = store.listEvents(cursor, Math.min(1000, EVENT_RETENTION - events.length));
+      if (page.length === 0) break;
+      events.push(...page);
+      const last = page[page.length - 1];
+      if (!last) break;
+      cursor = last.id;
+    }
+    return detectGhosts(events);
+  });
+
+  // Hive Pulse : signes vitaux agrégés (débit, latence p50/p95, taux de succès,
+  // nœuds actifs) par repli du journal. Lecture seule ; pagination interne bornée.
+  // ─── Les Guetteuses ────────────────────────────────────────────────────────
+  //
+  // Elles ne ferment aucune porte : elles rendent le reniflage BRUYANT. Sans
+  // elles, quelqu'un peut passer une nuit à chercher un `.env` ou un
+  // `/phpmyadmin` sur une ruche exposée sans que son propriétaire l'apprenne
+  // jamais. Le renseignement précède l'intrusion ; le voir, c'est gagner le
+  // temps de réagir avant que quoi que ce soit de coûteux n'arrive.
+  app.setNotFoundHandler((req, reply) => {
+    const maintenant = Date.now();
+    const leurre = guet.noter(req.url, req.ip, maintenant);
+    if (leurre) {
+      // ON N'ÉCRIT PAS AU JOURNAL À CHAQUE PASSAGE, et c'est une correction,
+      // pas une économie : le journal est durable et borné à EVENT_RETENTION,
+      // et cette route n'est couverte par AUCUNE limitation de débit (le
+      // crochet ne voit que `/api/*`). Une boucle `curl` anonyme y écrivait
+      // une ligne par requête et chassait tout l'historique d'audit — le
+      // module de détection devenait l'arme.
+      //
+      // `doitAlerter` ne rend un niveau que lorsqu'il MONTE, et au plus une
+      // fois par fenêtre. Le compte exact reste en mémoire, pour /api/guet.
+      const niveau = guet.doitAlerter(maintenant);
+      if (niveau) {
+        emitEvent('guet_leurre', {
+          niveau,
+          chemin: leurre.chemin,
+          appat: leurre.appat,
+          intention: leurre.intention,
+        });
+      }
+    }
+    // La réponse est EXACTEMENT celle d'un 404 ordinaire. Un leurre qui se
+    // signale — par un message, un délai, un en-tête — cesse d'être un leurre.
+    return reply.code(404).send({ error: 'introuvable' });
+  });
+
+  /**
+   * Ce que les guetteuses ont vu. Réservé à l'hôte : c'est un renseignement
+   * sur qui s'intéresse à sa ruche.
+   */
+  app.get('/api/guet', async (req, reply) => {
+    if (!authorized(req)) return reply.status(401).send({ error: 'Non autorisé' });
+    return reply.send({ ...guet.verdict(Date.now()), derniers: guet.derniers() });
+  });
+
+  app.get('/api/pulse', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    const events: HiveEvent[] = [];
+    let cursor = 0;
+    for (;;) {
+      if (events.length >= EVENT_RETENTION) break;
+      const page = store.listEvents(cursor, Math.min(1000, EVENT_RETENTION - events.length));
+      if (page.length === 0) break;
+      events.push(...page);
+      const last = page[page.length - 1];
+      if (!last) break;
+      cursor = last.id;
+    }
+    return computePulse(events);
+  });
+
+  // Thermorégulation : la température INSTANTANÉE (dérivée de la fenêtre de
+  // 10 minutes) ET l'état hystérésé réellement APPLIQUÉ par le scheduler — les
+  // deux peuvent diverger brièvement, c'est précisément le rôle de
+  // l'hystérésis. Deux noms distincts pour deux sémantiques distinctes.
+  app.get('/api/thermo', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    const now = Date.now();
+    const instantane = lireTemperature(
+      store.listEventsInWindow(now - FENETRE_THERMO_MS, TYPES_THERMO),
+      now,
+    );
+    return { instantane, applique: scheduler.thermo };
+  });
+
+  // Phéromones : affinité apprise nœud × domaine (qui réussit quel TYPE de
+  // tâche), repliée à la demande depuis les résultats récents — vue dérivée
+  // pure, jamais matérialisée. Lecture seule ; bornée aux 30 premières traces.
+  // Chemin BORNÉ, identique à celui du Scheduler : ≤ 500 résultats, domaine
+  // résolu par clé primaire pour les seules tâches citées, mémoïsé.
+  app.get('/api/pheromones', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    const now = Date.now();
+    if (!pheromonesMemo || now - pheromonesMemo.calculeA >= PHEROMONES_TTL_MS) {
+      const resultats = store.listResultsForPheromones();
+      const domaines = cacheDomaines.domaines(
+        resultats.map((r) => r.taskId),
+        (manquants) => store.listTaskTexts(manquants),
+      );
+      pheromonesMemo = { calculeA: now, traces: replierTraces(domaines, resultats, now) };
+    }
+    return { traces: pheromonesMemo.traces.slice(0, 30) };
+  });
+
+  // Les Gardiennes : ce que le contrôle d'entrée a refusé — ou seulement noté.
+  // Vue dérivée PURE (`replierInspections`) d'un corpus BORNÉ des dernières
+  // inspections, jamais matérialisée.
+  //
+  // Ce qui est LU ici, en revanche, a bel et bien été écrit : le verdict n'est
+  // pas recalculable après coup (`pruneResults` vide `diff` et `logs` au-delà
+  // de 5 000 résultats), il est donc rangé à la RÉCEPTION du résultat. Cette
+  // route ne fait que replier des faits datés.
+  //
+  // `mode` est dans la réponse, et il est indispensable : en `consultatif`,
+  // `refusees` vaut toujours 0 — non pas parce que rien n'est creux, mais parce
+  // que rien n'est refusé. Sans le mode, un zéro se lirait comme une bonne
+  // nouvelle.
+  app.get('/api/gardiennes', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    const now = Date.now();
+    if (!gardiennesMemo || now - gardiennesMemo.calculeA >= GARDIENNES_TTL_MS) {
+      gardiennesMemo = { calculeA: now, vue: replierInspections(store.listInspections()) };
+    }
+    return { ...gardiennesMemo.vue, mode: scheduler.gardiennes.mode, fenetre: CORPUS_GARDIENNES };
+  });
+
+  // Le polyéthisme : quelle caste la ruche reconnaît à chaque nœud, et pourquoi.
+  //
+  // Vue dérivée PURE du même corpus borné que /api/gardiennes — rien n'est
+  // matérialisé, et surtout rien n'est déclaré : un nœud ne peut pas annoncer
+  // sa caste, elle est constatée (polyethisme.ts, doctrine règle 1).
+  //
+  // `mode` est indispensable dans la réponse : en `consignes`, `exigeraient`
+  // compte les productions qui SERAIENT relues en `strict`, alors qu'aucune ne
+  // l'est réellement. Sans le mode, ce nombre se lirait comme un travail fait.
+  app.get('/api/polyethisme', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    const now = Date.now();
+    const inspections = store.listInspections();
+    const antecedents = replierAntecedents(inspections);
+    const noeuds = store.listNodes().map((n) => {
+      const a = antecedents.get(n.id) ?? VIERGE;
+      return {
+        nodeId: n.id,
+        name: n.name,
+        agentType: n.agentType,
+        caste: casteDe(n.id, now),
+        productions: a.productions,
+        creuses: a.creuses,
+        suspectes: a.suspectes,
+        fiabilite: Math.round(fiabilite(a) * 100) / 100,
+      };
+    });
+    return {
+      mode: polyethismeEnVigueur(),
+      modeDemande: modePolyethismeDemande,
+      fenetre: CORPUS_GARDIENNES,
+      seuils: { batisseuse: SEUIL_BATISSEUSE, butineuse: SEUIL_BUTINEUSE },
+      noeuds: noeuds.sort((a, b) => b.productions - a.productions || a.name.localeCompare(b.name)),
+    };
+  });
+
+  // La Balance : où est passé le temps-ouvrière que la ruche a emprunté à ses
+  // membres. Vue dérivée PURE, recalculée depuis un corpus borné — jamais
+  // matérialisée, jamais écrite. `fenetre` dit sur combien de tentatives
+  // l'imputation a été faite, `aJour` si le grand livre a fini son rattrapage :
+  // un chiffre qui ne dit pas ce qu'il n'a pas vu est un chiffre qui ment.
+  //
+  // `durationMs` mesure le temps machine PRÊTÉ, pas le travail accompli : c'est
+  // la bonne unité pour dire ce que la ruche a consommé chez ses membres, et
+  // une très mauvaise pour juger un nœud. Le tableau par nœud n'est donc jamais
+  // trié en « pire contributeur » (balance.ts, doctrine règle 4).
+  app.get('/api/balance', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    const balance = scheduler.balance;
+    return {
+      version: VERSION_BALANCE,
+      mode: balance.mode,
+      aJour: balance.aJour,
+      pesee: peser(),
+      soldes: balance.soldes,
+      fenetre: CORPUS_BALANCE,
+    };
+  });
+
+  /**
+   * Solde neutre d'un projet qui ne figure pas dans le grand livre : il n'a
+   * encore rien dépensé — ou le livre ne tourne pas (mode `off`), et c'est
+   * `mode` qui le dit dans la même réponse.
+   *
+   * `plafondMs` est repris de `budgets` et non forcé à `null` : l'intention
+   * humaine existe en base indépendamment du livre, et un plafond qui
+   * disparaîtrait de l'affichage parce que la Balance est éteinte serait un
+   * mensonge — le pire endroit pour en faire un.
+   */
+  const soldeVide = (
+    projectId: string,
+    plafondMs: number | null = null,
+  ): (typeof scheduler.balance)['soldes'][number] & { projectId: string } => ({
+    projectId,
+    depenseMs: 0,
+    tentatives: 0,
+    plafondMs,
+    etat: 'passe',
+    bloque: false,
+  });
+
+  // La Balance d'UN projet : sa tranche de pesée, son solde, et surtout
+  // l'intention humaine qui le borne — plafond, verdict appliqué, qui l'a posé
+  // et quand. C'est la réponse DURABLE à « pourquoi ce projet ne part-il
+  // plus ? » : cette question ne doit pas dépendre d'un journal élagué à 5 000
+  // événements. Un projet bloqué se lit dans l'état, pas seulement dans
+  // l'histoire.
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/balance',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId'],
+          properties: { projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+      const balance = scheduler.balance;
+      const budget = store.getBudget(project.id);
+      const solde =
+        balance.soldes.find((s) => s.projectId === project.id) ??
+        soldeVide(project.id, budget?.plafondMs ?? null);
+      return {
+        version: VERSION_BALANCE,
+        mode: balance.mode,
+        aJour: balance.aJour,
+        ...solde,
+        /** Trace de l'opérateur (jamais une autorisation) et date de la pose. */
+        definiPar: budget?.definiPar ?? null,
+        updatedAt: budget?.updatedAt ?? null,
+        /** Imputation de ce projet sur la fenêtre bornée — `null` s'il n'y figure pas. */
+        compte: peser().parProjet.find((p) => p.projectId === project.id) ?? null,
+        fenetre: CORPUS_BALANCE,
+      };
+    },
+  );
+
+  // Poser (ou retirer) le plafond de dépense d'un projet. C'est le SEUL geste
+  // qui peut arrêter la ruche pour cause d'économie, et le seul qui peut la
+  // redémarrer : le déblocage est HUMAIN et EXPLICITE, exactement symétrique de
+  // l'invariant du merge. La ruche ne se ré-autorise jamais elle-même à
+  // dépenser.
+  //
+  // `plafondMs: null` retire le plafond (la ligne est supprimée) : le projet
+  // redevient rigoureusement indiscernable d'un projet d'avant la Balance.
+  app.put<{ Params: { projectId: string }; Body: { plafondMs: number | null } }>(
+    '/api/projects/:projectId/balance',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId'],
+          properties: { projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+        body: {
+          type: 'object',
+          required: ['plafondMs'],
+          additionalProperties: false,
+          properties: {
+            // `null` = pas de plafond ; 0 = « ce projet ne dépense plus rien ».
+            // Un plafond négatif n'a aucun sens et est refusé par le schéma.
+            // Les bornes ci-dessous ne valent QUE parce que `preValidation`
+            // a déjà refusé la valeur BRUTE — voir juste en dessous.
+            plafondMs: { type: ['integer', 'null'], minimum: 0, maximum: PLAFOND_MAX_MS },
+          },
+        },
+      },
+      // Fastify active la COERCITION d'AJV par défaut : sans ce garde-fou,
+      // `false` devient l'entier 0 — un projet arrêté net — et `""` devient
+      // `null` — un plafond retiré. Le schéma croit borner une valeur que la
+      // coercition a déjà remplacée. On refuse donc la valeur BRUTE, ici, où
+      // `req.body` est encore le JSON d'origine (preValidation s'exécute AVANT
+      // la validation de schéma). Le seul geste qui peut arrêter la ruche pour
+      // cause d'économie ne doit jamais être posé par une conversion implicite.
+      preValidation: async (req: FastifyRequest, reply: FastifyReply) => {
+        const brut = (req.body as { plafondMs?: unknown } | null | undefined)?.plafondMs;
+        if (brut !== null && !Number.isInteger(brut)) {
+          return reply
+            .code(400)
+            .send({ error: 'plafondMs doit être un entier de millisecondes, ou null' });
+        }
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+      // `definiPar` est une TRACE (qui a serré la vis), jamais une
+      // autorisation : la garde reste le token du hub. Si un Bearer JWT valide
+      // accompagne la requête, on sait QUI ; sinon `null`, et c'est très bien.
+      const definiPar = authorizedUser(req) ? ((req as AuthRequest).userId ?? null) : null;
+      // Le geste humain est journalisé AVANT d'être appliqué : `setPlafond`
+      // relance l'assignation dans la foulée et peut donc émettre un
+      // `balance_cap_reached` immédiat. Dans l'autre ordre, la Chronique
+      // montrerait la conséquence avant la cause — « seuil franchi » puis
+      // « plafond posé » —, illisible précisément dans le cas intéressant.
+      // Faits typés uniquement : aucune phrase n'est persistée, le Journal
+      // reconstruit le bilingue depuis ces champs.
+      emitEvent('balance_cap_set', {
+        projectId: project.id,
+        plafondMs: req.body.plafondMs,
+        ...(definiPar ? { definiPar } : {}),
+      });
+      scheduler.setPlafond(project.id, req.body.plafondMs, definiPar);
+      const balance = scheduler.balance;
+      const budget = store.getBudget(project.id);
+      const solde =
+        balance.soldes.find((s) => s.projectId === project.id) ??
+        soldeVide(project.id, budget?.plafondMs ?? null);
+      return {
+        version: VERSION_BALANCE,
+        mode: balance.mode,
+        aJour: balance.aJour,
+        ...solde,
+        definiPar: budget?.definiPar ?? null,
+        updatedAt: budget?.updatedAt ?? null,
+      };
+    },
+  );
+
+  app.post<{ Body: { name: string; repoUrl?: string; description?: string } }>(
+    '/api/projects',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['name'],
+          additionalProperties: false,
+          properties: {
+            name: { type: 'string', minLength: 1, maxLength: LIMITS.name },
+            repoUrl: { type: 'string', maxLength: 500 },
+            description: { type: 'string', maxLength: 2000 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      // Cette route est aussi appelée avec le jeton partagé aux nœuds. Un
+      // chemin local serait donc résolu sur une machine qui n'est pas celle
+      // de l'appelant : seules les sources distantes franchissent cette porte.
+      if (req.body.repoUrl !== undefined && !isValidRemoteRepoUrl(req.body.repoUrl)) {
+        return reply.code(400).send({
+          error: 'repoUrl invalide : une URL Git distante est requise',
+        });
+      }
+      const project = store.createProject(req.body);
+      emitEvent('project_created', { projectId: project.id, name: project.name });
+      return reply.code(201).send(project);
+    },
+  );
+
+  // Queen Bee (Palier 2) : propose un DAG de tâches à partir d'un brief en
+  // langage naturel. Sans effet de bord — la sortie est destinée à être revue,
+  // ajustée, puis envoyée via POST /api/projects/:id/tasks. Découpage heuristique
+  // par défaut (hors-ligne) ; bascule sur l'IA si une clé API locale est présente.
+  app.post<{ Body: { brief: string; mode?: 'auto' | 'heuristic' | 'llm' } }>(
+    '/api/plan',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['brief'],
+          additionalProperties: false,
+          properties: {
+            brief: { type: 'string', minLength: 1, maxLength: 4000 },
+            mode: { type: 'string', enum: ['auto', 'heuristic', 'llm'] },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      try {
+        const result = await planBrief(req.body.brief, { mode: req.body.mode ?? 'auto' });
+        if (result.tasks.length === 0) {
+          return reply.code(422).send({ error: 'brief trop court pour en déduire des tâches' });
+        }
+        // Balance (prévoir) : ce que ce DAG devrait coûter, d'après les tâches
+        // comparables déjà terminées. Purement indicatif, jamais bloquant, et
+        // `null` tant que l'échantillon est maigre.
+        return { ...result, devis: devisSansRisque(result.tasks) };
+      } catch (err) {
+        // Mode 'llm' explicite ayant échoué : on remonte l'erreur telle quelle.
+        return reply.code(502).send({ error: err instanceof Error ? err.message : String(err) });
+      }
+    },
+  );
+
+  // La Reine répond : dialogue en langage naturel avec la ruche. Réponses
+  // composées depuis l'état RÉEL (rapports, pouls, nectar, anomalies, mémoire) ;
+  // bascule sur l'IA (clé locale à la Queen) si disponible, repli live sinon.
+  // Avec Accept: text/event-stream ou body.stream=true → SSE (deltas + done).
+  app.post<{ Body: { message: string; projectId?: string; stream?: boolean } }>(
+    '/api/chat',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['message'],
+          additionalProperties: false,
+          properties: {
+            message: { type: 'string', minLength: 1, maxLength: CHAT_ENVOI_MAX },
+            projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id },
+            stream: { type: 'boolean' },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const events: HiveEvent[] = [];
+      let cursor = 0;
+      for (;;) {
+        if (events.length >= EVENT_RETENTION) break;
+        const page = store.listEvents(cursor, Math.min(1000, EVENT_RETENTION - events.length));
+        if (page.length === 0) break;
+        events.push(...page);
+        const last = page[page.length - 1];
+        if (!last) break;
+        cursor = last.id;
+      }
+      const projects = store.listProjects();
+      const nodes = store.listNodes();
+      // Focus fourni → un seul rapport à construire (progressReply filtre déjà
+      // dessus) ; sinon un rapport par projet.
+      const focusId = req.body.projectId ?? null;
+      const reportProjects = focusId ? projects.filter((p) => p.id === focusId) : projects;
+      const tachesFocus = store.listTasks(focusId ?? undefined);
+      const enCours = tachesFocus
+        .filter((t) => t.status === 'assigned' || t.status === 'running')
+        .slice(0, 12)
+        .map((t) => {
+          const n = t.assignedNodeId ? nodes.find((x) => x.id === t.assignedNodeId) : undefined;
+          return {
+            taskId: t.id,
+            title: t.title,
+            status: t.status,
+            nodeId: t.assignedNodeId,
+            nodeName: n?.name ?? null,
+          };
+        });
+      let essaim: ConciergeContext['essaim'] = null;
+      if (focusId && store.getProject(focusId)) {
+        const e = etatEssaim(focusId);
+        const suivi = cadencier.suivi(focusId);
+        essaim = {
+          niveau: e.niveau,
+          pas: e.decision.pas,
+          motif: e.decision.motif,
+          enPause: enPause(suivi),
+          derive: e.derive.etat,
+        };
+      }
+      const ctx: ConciergeContext = {
+        projects,
+        nodes,
+        reports: reportProjects.map((p) => buildProjectReport(p, store.listTasks(p.id))),
+        pulse: computePulse(events),
+        waggle: buildWaggleBoard(events),
+        ghosts: detectGhosts(events).ghosts,
+        memories: store.searchMemories(req.body.message, 3).map((s) => s.memory),
+        recentEvents: events.slice(-100),
+        reviews: store.listReviews(),
+        // Scopé sur le projet ciblé quand il est fourni : la Reine ne mélange
+        // pas les revues d'un autre projet dans sa réponse.
+        finishedTasks: tachesFocus
+          .filter((t) => t.status === 'done' || t.status === 'failed')
+          .map((t) => ({ id: t.id, title: t.title, status: t.status as 'done' | 'failed' })),
+        sauvegardes: focusId
+          ? store.listSauvegardes(focusId, 5).map((s) => ({
+              id: s.id,
+              label: s.label,
+              kind: s.kind,
+              createdAt: s.createdAt,
+            }))
+          : [],
+        races: scheduler.listRaces().map((r) => ({
+          taskId: r.taskId,
+          title: store.getTask(r.taskId)?.title ?? r.taskId,
+          drones: r.drones.map((d) => ({ nodeId: d.nodeId, status: d.status })),
+        })),
+        enCours,
+        sousAgents: sousAgentsDepuisEvenements(events.slice(-200)),
+        essaim,
+        focusProjectId: req.body.projectId ?? null,
+      };
+      const veutStream =
+        req.body.stream === true || (req.headers.accept ?? '').includes('text/event-stream');
+      const llm = llmPlannerAvailable() ? anthropicLlm() : undefined;
+      const llmStream = llmPlannerAvailable() ? anthropicLlmStream() : undefined;
+      const opts = llm || llmStream ? { llm, llmStream } : {};
+
+      if (!veutStream) {
+        return askConcierge(req.body.message, ctx, opts);
+      }
+
+      reply.hijack();
+      reply.raw.writeHead(200, {
+        'content-type': 'text/event-stream; charset=utf-8',
+        'cache-control': 'no-cache, no-transform',
+        connection: 'keep-alive',
+        'x-accel-buffering': 'no',
+      });
+      const ecrire = (obj: unknown) => {
+        reply.raw.write(`data: ${JSON.stringify(obj)}\n\n`);
+      };
+      try {
+        for await (const ev of askConciergeStream(req.body.message, ctx, opts)) {
+          if (ev.type === 'delta') ecrire({ type: 'delta', text: ev.text });
+          else ecrire({ type: 'done', ...ev.answer });
+        }
+      } catch (err) {
+        ecrire({
+          type: 'done',
+          reply: err instanceof Error ? err.message : String(err),
+          source: 'live',
+          lang: 'fr',
+          suggestions: [],
+        });
+      }
+      reply.raw.end();
+    },
+  );
+
+  // Hive Mind : interroger la mémoire partagée. Sans `q`, renvoie les souvenirs
+  // les plus récents ; avec `q`, les plus pertinents (BM25) et leur score.
+  app.get<{ Querystring: { q?: string; limit?: number } }>(
+    '/api/hive-mind',
+    {
+      schema: {
+        querystring: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            q: { type: 'string', maxLength: 2000 },
+            limit: { type: 'integer', minimum: 1, maximum: 20 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const q = req.query.q?.trim();
+      const limit = req.query.limit ?? 5;
+      const total = store.countMemories();
+      if (!q) {
+        return { total, memories: store.listMemories(limit).map((m) => ({ ...m, score: null })) };
+      }
+      const memories = store
+        .searchMemories(q, limit)
+        .map((s) => ({ ...s.memory, score: Number(s.score.toFixed(3)) }));
+      return { total, memories };
+    },
+  );
+
+  interface NewTaskBody {
+    tasks: { id?: string; title: string; prompt: string; dependsOn?: string[] }[];
+  }
+
+  // Rapport d'avancement d'un projet (lecture seule) : avancement %, répartition
+  // par statut, nœuds contributeurs. Calculé à partir des tâches du projet.
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/report',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId'],
+          properties: { projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      // DEUX PORTES. Le jeton de ruche (membres de l'essaim, CLI) — ou un lien
+      // de partage portant `voir_avancement`.
+      //
+      // CET ACTE ÉTAIT DÉCLARÉ ET INUTILISABLE. `ACTES_PARTAGES` l'annonce
+      // depuis le premier jour, et AUCUNE route ne le consultait : les trois
+      // seules qui acceptaient un lien demandaient toutes `lire_code`. Un lien
+      // « voir l'avancement » ne montrait donc jamais d'avancement — on
+      // promettait au porteur une chose qu'on ne lui donnait pas.
+      //
+      // L'ordre compte : le refus d'un appelant sans droit reste `reject`, le
+      // même que le projet existe ou non. Chercher le projet d'abord sert
+      // seulement à juger le lien, jamais à répondre.
+      const project = store.getProject(req.params.projectId);
+      const parPartage = project
+        ? partagePermet(req, project.id, 'voir_avancement')
+        : { ok: false as const };
+      if (!parPartage.ok && !authorized(req)) return reject(reply);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+      const rapport = buildProjectReport(project, store.listTasks(project.id));
+      if (!parPartage.ok) return rapport;
+      store.toucherPartage(parPartage.partageId);
+      // UN PARTAGE MONTRE L'AVANCEMENT, PAS QUI TRAVAILLE. Les identifiants de
+      // nœuds nomment les machines de gens qui n'ont pas consenti à figurer
+      // dans un lien qu'on fait circuler.
+      return { ...rapport, contributingNodes: [] };
+    },
+  );
+
+  app.post<{ Params: { projectId: string }; Body: NewTaskBody }>(
+    '/api/projects/:projectId/tasks',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId'],
+          properties: { projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+        body: {
+          type: 'object',
+          required: ['tasks'],
+          additionalProperties: false,
+          properties: {
+            tasks: {
+              type: 'array',
+              minItems: 1,
+              maxItems: 100,
+              items: {
+                type: 'object',
+                required: ['title', 'prompt'],
+                additionalProperties: false,
+                properties: {
+                  id: { type: 'string', pattern: '^[A-Za-z0-9_-]{1,64}$' },
+                  title: { type: 'string', minLength: 1, maxLength: LIMITS.title },
+                  prompt: { type: 'string', minLength: 1, maxLength: LIMITS.prompt },
+                  dependsOn: {
+                    type: 'array',
+                    maxItems: 32,
+                    items: { type: 'string', pattern: '^[A-Za-z0-9_-]{1,64}$' },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const permis = engagementProjetPermis(req, req.params.projectId);
+      if (permis !== 'permis') return refuserEngagement(reply, permis);
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+
+      // Une dépendance doit référencer une tâche existante du projet, ou une
+      // tâche du même lot. Les ids fournis ne doivent pas entrer en collision.
+      const existingIds = new Set(store.listTasks(project.id).map((t) => t.id));
+      const batchIds = new Set<string>();
+      for (const t of req.body.tasks) {
+        if (t.id) {
+          if (existingIds.has(t.id) || batchIds.has(t.id) || store.getTask(t.id)) {
+            return reply.code(400).send({ error: `id de tâche déjà utilisé : ${t.id}` });
+          }
+          batchIds.add(t.id);
+        }
+      }
+      for (const t of req.body.tasks) {
+        for (const dep of t.dependsOn ?? []) {
+          if (t.id && dep === t.id) {
+            return reply.code(400).send({ error: `tâche dépendante d'elle-même : ${t.id}` });
+          }
+          if (!existingIds.has(dep) && !batchIds.has(dep)) {
+            return reply.code(400).send({ error: `dépendance inconnue : ${dep}` });
+          }
+        }
+      }
+
+      // Détection de cycle intra-lot : sans elle, des tâches mutuellement
+      // dépendantes resteraient « pending » à jamais, sans erreur visible.
+      const cycle = findCycle(req.body.tasks);
+      if (cycle) {
+        return reply
+          .code(400)
+          .send({ error: `cycle de dépendances détecté : ${cycle.join(' → ')}` });
+      }
+
+      const created = req.body.tasks.map((t) =>
+        store.createTask({
+          id: t.id,
+          projectId: project.id,
+          title: t.title,
+          prompt: t.prompt,
+          dependsOn: t.dependsOn ?? [],
+        }),
+      );
+      for (const t of created) {
+        emitEvent('task_created', { taskId: t.id, projectId: project.id, title: t.title });
+      }
+      // Sting Detector : signaler (sans bloquer) les conflits potentiels que ce
+      // nouveau lot introduit — visible dans le journal du dashboard.
+      const newIds = new Set(created.map((t) => t.id));
+      for (const c of detectConflicts(store.listTasks(project.id))) {
+        if (newIds.has(c.a) || newIds.has(c.b)) {
+          emitEvent('conflict_detected', {
+            projectId: project.id,
+            a: c.a,
+            b: c.b,
+            severity: c.severity,
+            ...(c.sharedPaths.length ? { sharedPaths: c.sharedPaths } : {}),
+          });
+        }
+      }
+      scheduler.tick(); // promotion + assignation immédiates
+      return reply.code(201).send(created);
+    },
+  );
+
+  // Sting Detector : conflits potentiels au sein d'un projet (analyse advisory).
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/conflicts',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId'],
+          properties: { projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+      return { conflicts: detectConflicts(store.listTasks(project.id)) };
+    },
+  );
+
+  // Honeycomb Merge (Palier 3) : plan d'intégration d'un projet — ordre de merge
+  // (dépendances d'abord) + conflits de lignes entre diffs des tâches terminées.
+  // Advisory : n'effectue ni merge git ni exécution de tests (côté nœud, différé).
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/merge',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId'],
+          properties: { projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+      const tasks = store.listTasks(project.id);
+      const diffs = new Map<string, string>();
+      for (const t of tasks) {
+        if (t.status !== 'done') continue;
+        const success = store
+          .resultsForTask(t.id)
+          .filter((r) => r.success)
+          .at(-1);
+        if (success) diffs.set(t.id, success.diff);
+      }
+      return buildMergePlan(tasks, diffs);
+    },
+  );
+
+  // Honeycomb Merge — déclenche l'exécution réelle du merge sur un nœud : clone,
+  // application des diffs dans l'ordre du plan (conflits git réels), tests
+  // optionnels. Asynchrone : le résultat revient via merge_result, à lire sur
+  // /merge/result. Ne commit ni ne push jamais.
+  app.post<{
+    Params: { projectId: string };
+    Body: { testCommand?: string[]; prepareCommand?: string[]; taskIds?: string[] };
+  }>(
+    '/api/projects/:projectId/merge/run',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId'],
+          properties: { projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            testCommand: {
+              type: 'array',
+              minItems: 1,
+              maxItems: LIMITS.testArgs,
+              items: { type: 'string', minLength: 1, maxLength: LIMITS.arg },
+            },
+            // La préparation de l'environnement, lancée avant les tests.
+            prepareCommand: {
+              type: 'array',
+              minItems: 1,
+              maxItems: LIMITS.testArgs,
+              items: { type: 'string', minLength: 1, maxLength: LIMITS.arg },
+            },
+            // Sélection de revue (Miellerie) : n'intégrer QUE ces tâches.
+            taskIds: {
+              type: 'array',
+              minItems: 1,
+              maxItems: LIMITS.mergeDiffs,
+              items: { type: 'string', minLength: 1, maxLength: LIMITS.id },
+            },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const permis = engagementProjetPermis(req, req.params.projectId);
+      if (permis !== 'permis') return refuserEngagement(reply, permis);
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+      if (!project.repoUrl) {
+        return reply
+          .code(400)
+          .send({ error: 'le projet doit avoir un dépôt (repoUrl) pour un merge' });
+      }
+      // Cette commande s'exécutera sur la MACHINE D'UN MEMBRE. Le schéma
+      // Fastify ne borne que la forme (tableau de chaînes) ; c'est ici qu'on
+      // borne le binaire. Refus tôt et explicite : la vraie garde est côté
+      // nœud, celle-ci sert à donner un message lisible plutôt qu'un merge
+      // qui échoue silencieusement à l'autre bout.
+      if (req.body.testCommand) {
+        const verdict = jugerCommandeTest(req.body.testCommand);
+        if (!verdict.ok) return reply.code(400).send({ error: verdict.motif });
+      }
+      // Et la préparation avec, pour la même raison : elle s'exécute là-bas,
+      // et une installation exécute les scripts de ce qu'elle installe.
+      if (req.body.prepareCommand) {
+        const verdict = jugerPreparation(req.body.prepareCommand);
+        if (!verdict.ok) return reply.code(400).send({ error: verdict.motif });
+      }
+      const tasks = store.listTasks(project.id);
+      // Le serveur est la SOURCE DE VÉRITÉ des revues : une tâche rejetée en
+      // revue ne coule jamais dans le miel, quel que soit le cache du client.
+      const reviews = store.listReviews();
+      // Sélection optionnelle (revue humaine) : chaque id doit être une tâche
+      // done DE CE projet, non rejetée — on refuse explicitement plutôt que
+      // d'ignorer.
+      const selection = req.body.taskIds ? new Set(req.body.taskIds) : null;
+      if (selection) {
+        const byId = new Map(tasks.map((t) => [t.id, t]));
+        for (const id of selection) {
+          const t = byId.get(id);
+          if (!t) return reply.code(400).send({ error: `tâche hors projet : ${id}` });
+          if (t.status !== 'done') {
+            return reply.code(400).send({ error: `tâche non terminée : ${t.title}` });
+          }
+          if (reviews[id] === 'rejected') {
+            return reply.code(400).send({ error: `tâche rejetée en revue : ${t.title}` });
+          }
+        }
+      }
+      const doneDiffs = new Map<string, string>();
+      let rejectedSkipped = 0;
+      for (const t of tasks) {
+        if (t.status !== 'done') continue;
+        if (selection && !selection.has(t.id)) continue;
+        // Sans sélection explicite, les tâches rejetées sont exclues d'office.
+        if (!selection && reviews[t.id] === 'rejected') {
+          rejectedSkipped++;
+          continue;
+        }
+        const success = store
+          .resultsForTask(t.id)
+          .filter((r) => r.success)
+          .at(-1);
+        if (success) doneDiffs.set(t.id, success.diff);
+      }
+      const plan = buildMergePlan(tasks, doneDiffs);
+      if (plan.done === 0 || doneDiffs.size === 0) {
+        return reply.code(400).send({
+          error:
+            rejectedSkipped > 0
+              ? 'toutes les tâches terminées sont rejetées en revue — rien à intégrer'
+              : 'aucune tâche terminée à intégrer',
+        });
+      }
+      // Ordre topologique du plan, restreint aux tâches réellement à intégrer
+      // (sélection de revue et/ou porteuses d'un diff).
+      const diffs = plan.order
+        .filter((taskId) => doneDiffs.has(taskId))
+        .map((taskId) => ({ taskId, diff: doneDiffs.get(taskId) ?? '' }));
+      if (diffs.length === 0) {
+        return reply.code(400).send({ error: 'aucun diff à intégrer pour cette sélection' });
+      }
+      // Le nœud rejette silencieusement un assign_merge > LIMITS.mergeDiffs : on
+      // borne ici pour renvoyer une erreur claire plutôt que de perdre le merge.
+      if (diffs.length > LIMITS.mergeDiffs) {
+        return reply
+          .code(413)
+          .send({ error: `trop de tâches à intégrer (> ${LIMITS.mergeDiffs}) pour un merge (v0)` });
+      }
+      const totalBytes = diffs.reduce((s, d) => s + d.diff.length, 0);
+      if (totalBytes > 1_500_000) {
+        return reply.code(413).send({ error: 'diffs trop volumineux pour un merge (v0)' });
+      }
+      // Choisir un nœud en ligne, connecté ET de service (Night Shift) : un
+      // nœud hors service refuserait le merge — autant l'éviter d'office.
+      const node = store
+        .listNodes()
+        .find(
+          (n) => n.status === 'online' && nodeSockets.has(n.id) && (nodeOnShift.get(n.id) ?? true),
+        );
+      const ws = node ? nodeSockets.get(node.id) : undefined;
+      if (!node || !ws) {
+        return reply
+          .code(503)
+          .send({ error: 'aucun nœud en ligne et de service pour exécuter le merge' });
+      }
+      const mergeId = randomUUID();
+      pendingMerges.set(mergeId, { projectId: project.id, nodeId: node.id, startedAt: Date.now() });
+      send(ws, {
+        type: 'assign_merge',
+        mergeId,
+        repoUrl: project.repoUrl,
+        diffs,
+        ...(req.body.prepareCommand ? { prepareCommand: req.body.prepareCommand } : {}),
+        ...(req.body.testCommand ? { testCommand: req.body.testCommand } : {}),
+      });
+      emitEvent('merge_started', {
+        projectId: project.id,
+        mergeId,
+        nodeId: node.id,
+        diffs: diffs.length,
+      });
+      return reply.code(202).send({ mergeId, nodeId: node.id, order: plan.order });
+    },
+  );
+
+  // ─── LES CHANTIERS ─────────────────────────────────────────────────────────
+  //
+  // Lancer, sur un nœud, un travail que le dépôt DÉCLARE : `npm test`,
+  // `npm run lint`, `npm run typecheck`. Deux règles, et elles se lisent dans
+  // le code ci-dessous plutôt que dans un commentaire :
+  //
+  //   1. La liste vient du `package.json` du MIROIR — le dépôt connecté, pas
+  //      la ruche. On choisit dans une liste qu'on n'a pas écrite.
+  //   2. La route n'expose PAS `intentionHumaine`. Une requête HTTP ne peut
+  //      pas prouver qu'un humain est derrière, et `jugerChantier` réserve les
+  //      travaux SORTANTS (publier, déployer, démarrer) à une intention
+  //      humaine explicite. Les exposer ici reviendrait à laisser n'importe
+  //      quel appelant cocher « c'est un humain qui le demande ».
+
+  /** Les scripts déclarés par le miroir d'un projet, ou `{}` s'il n'y en a pas. */
+  const scriptsDuMiroir = async (project: Project): Promise<Record<string, string>> => {
+    try {
+      const fichier = await rayons.lire(project.id, 'package.json');
+      const brut: unknown = JSON.parse(fichier.contenu);
+      // loupe : équivalent — && → ||. Le `catch` de ce bloc et le
+      // `if (typeof bloc !== 'object' …)` juste dessous mènent TOUS DEUX à
+      // `{}`. Mué en `||`, un `package.json` valant `null` fait lever
+      // l'indexation — et le `catch` rend `{}`, exactement comme la garde
+      // l'aurait fait. Aucun banc ne peut distinguer les deux mondes.
+      const bloc =
+        typeof brut === 'object' && brut !== null
+          ? (brut as Record<string, unknown>).scripts
+          : null;
+      // loupe : équivalent — || → &&. Même raison que la ligne marquée au-dessus :
+      // mué, `Object.entries(null)` lève, et le `catch` de ce bloc rend `{}` —
+      // exactement ce que la garde aurait rendu.
+      if (typeof bloc !== 'object' || bloc === null) return {};
+      const scripts: Record<string, string> = {};
+      for (const [k, v] of Object.entries(bloc)) {
+        if (typeof v === 'string') scripts[k] = v;
+      }
+      return scripts;
+    } catch {
+      // Pas de `package.json`, illisible, ou miroir absent : aucun chantier.
+      // Rendre `{}` plutôt que lever laisse `jugerChantier` produire le bon
+      // message — « ce dépôt n'en déclare aucun » — au lieu d'un 500.
+      return {};
+    }
+  };
+
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/chantiers',
+    async (req, reply) => {
+      // MÊME PORTE QUE `merge/result` : `lectureProjetPermise`, qui accepte le
+      // jeton de ruche. `projetLisible` exige un COMPTE, ce qui fermerait cette
+      // liste à la CLI et à un script — or lire les chantiers d'un projet est
+      // exactement ce qu'un script fait avant d'en lancer un.
+      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+      if (!(await assurerMiroir(project, reply))) return reply;
+      return reply.send({ chantiers: chantiersDe(await scriptsDuMiroir(project)) });
+    },
+  );
+
+  app.post<{ Params: { projectId: string; nom: string }; Body: { prepareCommand?: string[] } }>(
+    '/api/projects/:projectId/chantiers/:nom/run',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId', 'nom'],
+          properties: {
+            projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id },
+            nom: { type: 'string', minLength: 1, maxLength: 100 },
+          },
+        },
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            prepareCommand: {
+              type: 'array',
+              minItems: 1,
+              maxItems: LIMITS.testArgs,
+              items: { type: 'string', minLength: 1, maxLength: LIMITS.arg },
+            },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const permis = engagementProjetPermis(req, req.params.projectId);
+      if (permis !== 'permis') return refuserEngagement(reply, permis);
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+      if (!project.repoUrl) {
+        return reply.code(400).send({ error: 'le projet doit avoir un dépôt (repoUrl)' });
+      }
+      // La préparation s'exécute sur la machine d'un membre, et une
+      // installation exécute les scripts de ce qu'elle installe.
+      if (req.body?.prepareCommand) {
+        const v = jugerPreparation(req.body.prepareCommand);
+        if (!v.ok) return reply.code(400).send({ error: v.motif });
+      }
+      if (!(await assurerMiroir(project, reply))) return reply;
+
+      // LE DÉPÔT DÉCIDE. `intentionHumaine` n'est volontairement pas passée.
+      const scripts = await scriptsDuMiroir(project);
+      const verdict = jugerChantier(scripts, req.params.nom);
+      if (!verdict.ok) return reply.code(400).send({ error: verdict.motif });
+
+      // ADR 0010 lot 8 : une fabrique encore ouverte pour CE script bloque.
+      const { fabriqueBloqueChantier, jugerFabriqueAvantChantier, expliquerRefusFabrique } =
+        await import('./fabrique.js');
+      const gate = fabriqueBloqueChantier(store.listerFabriques(project.id), req.params.nom);
+      if (!gate.ok) {
+        return reply.code(400).send({ error: expliquerRefusFabrique(gate.motif) });
+      }
+      const avant = jugerFabriqueAvantChantier({
+        nomScript: req.params.nom,
+        scriptsMiroir: scripts,
+        mergeLanded: gate.mergeLanded,
+      });
+      if (!avant.ok) {
+        return reply.code(400).send({ error: expliquerRefusFabrique(avant.motif) });
+      }
+
+      const node = store
+        .listNodes()
+        .find(
+          (n) => n.status === 'online' && nodeSockets.has(n.id) && (nodeOnShift.get(n.id) ?? true),
+        );
+      const ws = node ? nodeSockets.get(node.id) : undefined;
+      if (!node || !ws) {
+        return reply
+          .code(503)
+          .send({ error: 'aucun nœud en ligne et de service pour lancer ce chantier' });
+      }
+
+      const chantierId = randomUUID();
+      pendingChantiers.set(chantierId, {
+        projectId: project.id,
+        nodeId: node.id,
+        nom: req.params.nom,
+        startedAt: Date.now(),
+      });
+      // LE MESSAGE NE PORTE AUCUNE COMMANDE — seulement un nom. Le nœud relira
+      // le `package.json` de SON clone et composera l'argv lui-même. C'est ce
+      // qui fait qu'un hub compromis ne peut désigner que ce que le dépôt
+      // déclare déjà.
+      send(ws, {
+        type: 'assign_chantier',
+        chantierId,
+        repoUrl: project.repoUrl,
+        nom: req.params.nom,
+        ...(req.body?.prepareCommand ? { prepareCommand: req.body.prepareCommand } : {}),
+      });
+      emitEvent('chantier_started', {
+        projectId: project.id,
+        chantierId,
+        nodeId: node.id,
+        nom: req.params.nom,
+        // La commande est AFFICHÉE à l'humain : elle vient du dépôt, donc c'est
+        // une donnée. `chantiersDe` l'a déjà mise sur une ligne.
+        argv: argvDe(req.params.nom).join(' '),
+      });
+      return reply.code(202).send({ chantierId, nodeId: node.id, nom: req.params.nom });
+    },
+  );
+
+  // ─── LES WORKFLOWS GITHUB ──────────────────────────────────────────────────
+  //
+  // Le pendant distant des Chantiers : là-bas, c'est GitHub qui exécute, et on
+  // lui demande par son API.
+  //
+  // ─── LA DÉCISION QUI AUTORISE CETTE ROUTE À EXISTER ────────────────────────
+  //
+  // Un chantier SORTANT (publier, déployer, démarrer) n'est pas lançable par la
+  // route locale : elle ne peut pas prouver qu'un humain est derrière. On
+  // pourrait croire que lancer un workflow tombe sous la même règle — il tourne
+  // à l'extérieur, il peut déployer, il consomme des minutes.
+  //
+  // Ce qui le distingue tient en une ligne de YAML : `on: workflow_dispatch:`.
+  //
+  // C'est le propriétaire du dépôt qui l'écrit, dans le dépôt, sur sa branche
+  // par défaut. Ce n'est pas une CAPACITÉ que la ruche découvre — c'est une
+  // PERMISSION que le dépôt déclare, lisible par une machine, et GitHub la fait
+  // respecter lui-même : un workflow qui ne la porte pas répond 422, quoi qu'on
+  // demande. C'est la forme la plus forte de « la ruche exécute ce que le dépôt
+  // déclare » qu'on puisse trouver.
+  //
+  // Et la ruche ne choisit toujours pas librement : seulement dans la liste que
+  // l'API vient de rendre, par identifiant numérique — jamais par un nom de
+  // fichier, qui serait un morceau d'URL (voir `shared/workflow.ts`).
+
+  /** Le `owner/repo` d'un projet, ou une réponse d'erreur déjà envoyée. */
+  const depotGithubDe = (project: Project, reply: FastifyReply): string | null => {
+    const fullName = project.repoUrl ? fullNameDepuisUrl(project.repoUrl) : null;
+    if (!fullName) {
+      reply.code(400).send({
+        error: 'ce projet n’a pas de dépôt GitHub',
+        detail:
+          'Les workflows demandent un dépôt hébergé sur GitHub. Ce projet pointe ' +
+          'vers autre chose (un chemin local, ou une URL que la ruche ne sait pas lire).',
+      });
+      return null;
+    }
+    return fullName;
+  };
+
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/workflows',
+    async (req, reply) => {
+      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+      if (!jetonGithub) return sansJeton(reply);
+      const fullName = depotGithubDe(project, reply);
+      if (!fullName) return reply;
+      try {
+        const { workflows, tronque } = await listerWorkflows(
+          { jeton: jetonGithub, ...(apiGithub ? { api: apiGithub } : {}) },
+          fullName,
+        );
+        return reply.send({ workflows, tronque });
+      } catch (err) {
+        return repondreErreurGithub(reply, err);
+      }
+    },
+  );
+
+  app.get<{ Params: { projectId: string }; Querystring: { workflowId?: string } }>(
+    '/api/projects/:projectId/workflows/runs',
+    async (req, reply) => {
+      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+      if (!jetonGithub) return sansJeton(reply);
+      const fullName = depotGithubDe(project, reply);
+      if (!fullName) return reply;
+      // `workflowId` arrive en chaîne (querystring). `Number` et non
+      // `parseInt` : « 12abc » deviendrait 12 avec `parseInt`, et 12 n'est pas
+      // ce qui a été demandé.
+      //
+      // LA VÉRIFICATION VIT DANS `lireRuns`, PAS ICI. Elle y était en double,
+      // et la loupe l'a montré : couper la copie de cette route ne faisait
+      // rougir personne, parce que `lireRuns` refuse déjà un identifiant qui
+      // n'en est pas un. Une garde qu'on peut retirer sans rien changer n'est
+      // pas une garde — c'est un endroit de plus où la règle peut diverger.
+      const brut = req.query.workflowId;
+      const id = brut === undefined ? undefined : Number(brut);
+      try {
+        return reply.send({
+          runs: await lireRuns(
+            { jeton: jetonGithub, ...(apiGithub ? { api: apiGithub } : {}) },
+            fullName,
+            id === undefined ? {} : { workflowId: id },
+          ),
+        });
+      } catch (err) {
+        return repondreErreurGithub(reply, err);
+      }
+    },
+  );
+
+  app.post<{ Params: { projectId: string; workflowId: string }; Body: { ref?: string } }>(
+    '/api/projects/:projectId/workflows/:workflowId/run',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          properties: { ref: { type: 'string', minLength: 1, maxLength: 255 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      const permis = engagementProjetPermis(req, req.params.projectId);
+      if (permis !== 'permis') return refuserEngagement(reply, permis);
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+      if (!jetonGithub) return sansJeton(reply);
+      const fullName = depotGithubDe(project, reply);
+      if (!fullName) return reply;
+
+      const id = Number(req.params.workflowId);
+      if (!Number.isSafeInteger(id)) {
+        return reply.code(400).send({
+          error: 'identifiant de workflow invalide',
+          detail:
+            'Un workflow se désigne par son identifiant NUMÉRIQUE, jamais par un ' +
+            'nom de fichier : ce segment d’URL accepte les deux côté GitHub, et ' +
+            'accepter le nom laisserait écrire un morceau d’URL de son API.',
+        });
+      }
+      // La branche par défaut de la ruche est `main` ; le dépôt peut en avoir
+      // une autre, d'où le réglage. Un défaut DOCUMENTÉ vaut mieux qu'une
+      // devinette silencieuse.
+      const ref = req.body?.ref ?? 'main';
+      try {
+        const lance = await lancerWorkflow(
+          { jeton: jetonGithub, ...(apiGithub ? { api: apiGithub } : {}) },
+          fullName,
+          id,
+          ref,
+        );
+        emitEvent('workflow_lance', {
+          projectId: project.id,
+          workflowId: lance.workflow.id,
+          nom: lance.workflow.nom,
+          chemin: lance.workflow.chemin,
+          ref: lance.ref,
+        });
+        // 202 comme les chantiers : GitHub rend 204 SANS CORPS et le run
+        // n'existe pas encore au retour de l'appel. On ne peut donc pas rendre
+        // d'identifiant de run — c'est `/workflows/runs` qui le trouvera.
+        return reply.code(202).send({ workflow: lance.workflow, ref: lance.ref });
+      } catch (err) {
+        return repondreErreurGithub(reply, err);
+      }
+    },
+  );
+
+  /** Dernier chantier rendu pour ce projet (null tant qu'aucun n'a abouti). */
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/chantiers/result',
+    async (req, reply) => {
+      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
+      return reply.send({ resultat: chantierResults.get(req.params.projectId) ?? null });
+    },
+  );
+
+  // Dernier résultat de merge d'un projet (null tant qu'aucun n'a abouti).
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/merge/result',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId'],
+          properties: { projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      return { result: mergeResults.get(req.params.projectId) ?? null };
+    },
+  );
+
+  // Le diff d'une tâche remonte pour revue humaine — jamais de merge automatique.
+  app.get<{ Params: { taskId: string } }>(
+    '/api/tasks/:taskId/results',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['taskId'],
+          properties: { taskId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      return store.resultsForTask(req.params.taskId);
+    },
+  );
+
+  // Graphe de délégation borné : état des tâches + événements parent→raison→résultat.
+  // La lecture ne déduit rien d'un état UI : elle relit les arêtes SQLite et le
+  // journal réellement produit par le chemin Worker.
+  app.get<{ Params: { taskId: string } }>(
+    '/api/tasks/:taskId/delegation',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['taskId'],
+          properties: { taskId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const task = store.getTask(req.params.taskId);
+      if (!task) return reply.code(404).send({ error: 'tâche inconnue' });
+      const graph = store.listDelegationGraph(task.id);
+      const rootTaskId = graph[0]?.rootTaskId ?? task.id;
+      const delegations = graph
+        .filter((node) => node.parentTaskId !== null)
+        .map((node) => store.getDelegation(node.taskId))
+        .filter((delegation): delegation is NonNullable<typeof delegation> => delegation !== null);
+      return {
+        taskId: task.id,
+        rootTaskId,
+        graph,
+        delegations,
+        events: store.listDelegationEvents(rootTaskId),
+      };
+    },
+  );
+
+  // Revue humaine (Miellerie) : verdict approved/rejected partagé entre tous
+  // les opérateurs. `state: null` efface la revue. Un rejet qui dispose d'un
+  // résultat exact et d'un verdict Evaluator réparable déclenche le retry
+  // borné ; le merge reste toujours un geste séparé.
+  app.post<{
+    Params: { taskId: string };
+    Body: {
+      state: 'approved' | 'rejected' | null;
+      expectedUpdatedAt?: number | null;
+      clientId?: string;
+    };
+  }>(
+    '/api/tasks/:taskId/review',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['taskId'],
+          properties: { taskId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+        body: {
+          type: 'object',
+          required: ['state'],
+          additionalProperties: false,
+          properties: {
+            state: { type: ['string', 'null'], enum: ['approved', 'rejected', null] },
+            // Compare-and-set OPT-IN : horodatage du verdict que le client
+            // croyait courant (null = « aucun verdict »). 409 si décalage —
+            // un geste posé sur une vision périmée ne l'emporte jamais.
+            expectedUpdatedAt: { type: ['integer', 'null'] },
+            // Identité d'onglet (écho dans task_reviewed) : permet au client
+            // de distinguer ses propres échos de ceux des autres opérateurs.
+            clientId: { type: 'string', minLength: 1, maxLength: LIMITS.id },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const task = store.getTask(req.params.taskId);
+      if (!task) return reply.code(404).send({ error: 'tâche inconnue' });
+      // Pas de pré-approbation : on ne juge un diff qu'une fois la tâche
+      // terminée (409 comme /cancel pour les conflits d'état). L'effacement
+      // (null) reste permis quel que soit le statut — toujours sûr.
+      if (req.body.state !== null && task.status !== 'done' && task.status !== 'failed') {
+        return reply.code(409).send({
+          code: 'task_not_terminal',
+          error: `tâche ${task.status} — revue possible seulement après terminaison`,
+        });
+      }
+      if (req.body.expectedUpdatedAt !== undefined) {
+        const current = store.getTaskReview(task.id);
+        const currentTs = current?.updatedAt ?? null;
+        if (currentTs !== req.body.expectedUpdatedAt) {
+          return reply.code(409).send({
+            code: 'review_conflict',
+            error: 'verdict modifié par un autre opérateur — rechargez la revue',
+            currentState: current?.state ?? null,
+            currentUpdatedAt: currentTs,
+          });
+        }
+      }
+      store.setTaskReview(task.id, req.body.state);
+      emitEvent('task_reviewed', {
+        taskId: task.id,
+        state: req.body.state,
+        ...(req.body.clientId ? { clientId: req.body.clientId } : {}),
+      });
+      let retry: ReturnType<Scheduler['retryFromEvaluator']> | null = null;
+      if (req.body.state === 'rejected') {
+        const { latest, evaluation } = evaluationPour(task);
+        if (
+          latest?.resultId !== undefined &&
+          evaluation.retryRecommended &&
+          (evaluation.decision === 'correction_required' || evaluation.decision === 'rejected')
+        ) {
+          retry = scheduler.retryFromEvaluator({
+            taskId: task.id,
+            resultId: latest.resultId,
+            decision: evaluation.decision,
+          });
+          if (retry.ok) stateDirty = true;
+        }
+      }
+      const saved = store.getTaskReview(task.id);
+      return {
+        taskId: task.id,
+        state: req.body.state,
+        updatedAt: saved?.updatedAt ?? null,
+        ...(retry ? { retry } : {}),
+      };
+    },
+  );
+
+  // Toutes les revues (dictionnaire taskId → verdict) — hydrate le dashboard.
+  // `updatedAt` : horodatages par tâche, pour le compare-and-set opt-in.
+  app.get('/api/reviews', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    return { reviews: store.listReviews(), updatedAt: store.listReviewTimestamps() };
+  });
+
+  // Parlement des Agents : consensus par vote sur les résultats d'une tâche.
+  // Lecture seule : on charge les résultats stockés, on en fait des bulletins
+  // (signature = empreinte du diff, agentType retrouvé via le nœud) et on
+  // dépouille. Utile quand plusieurs nœuds ont produit un résultat pour la même
+  // tâche (tentatives multiples, futurs drones).
+  app.get<{ Params: { taskId: string } }>(
+    '/api/tasks/:taskId/consensus',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['taskId'],
+          properties: { taskId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const ballots: Ballot[] = store.resultsForTask(req.params.taskId).map((r) => ({
+        nodeId: r.nodeId,
+        agentType: store.getNode(r.nodeId)?.agentType ?? 'inconnu',
+        success: r.success,
+        signature: signatureOf(r.diff),
+        // La SURFACE — le seul signal qui fonctionne sur du code, l'identité
+        // textuelle ne pouvant rien mesurer sur un diff (voir parliament.ts).
+        // `fichiersTouches` est celle des Gardiennes : une deuxième lecture de
+        // diff finirait par ne plus dire la même chose que la première.
+        fichiers: fichiersTouches(r.diff),
+      }));
+      return tally(ballots);
+    },
+  );
+
+  // Evaluator indépendant : compose les faits déjà produits par les
+  // Gardiennes, le Parlement et la revue humaine. Les validations CI restent
+  // explicitement absentes tant qu'aucun producteur de preuves ne les a
+  // enregistrées ; les logs d'un Worker ne sont jamais interprétés comme une
+  // validation.
+  app.get<{ Params: { taskId: string } }>(
+    '/api/tasks/:taskId/evaluation',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['taskId'],
+          properties: { taskId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const task = store.getTask(req.params.taskId);
+      if (!task) return reply.code(404).send({ error: 'tâche inconnue' });
+
+      return evaluationPour(task).evaluation;
+    },
+  );
+
+  // Ingestion explicite des contrôles GitHub : la preuve est liée à la
+  // livraison rangée et au résultat exact demandé par l'appelant. Un GET ne
+  // déclenche jamais de réseau ni d'écriture ; cette route est le geste
+  // observable qui transforme les faits vivants de GitHub en trace durable.
+  app.post<{
+    Params: { taskId: string };
+    Body: { resultId: number };
+  }>(
+    '/api/tasks/:taskId/evaluation/ci',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['taskId'],
+          properties: { taskId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+        body: {
+          type: 'object',
+          required: ['resultId'],
+          additionalProperties: false,
+          properties: { resultId: { type: 'integer', minimum: 1 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const task = store.getTask(req.params.taskId);
+      if (!task) return reply.code(404).send({ error: 'tâche inconnue' });
+
+      const results = store.resultsForTask(task.id);
+      const latest = results[results.length - 1];
+      if (!latest?.resultId || latest.resultId !== req.body.resultId) {
+        return reply.code(409).send({
+          code: 'stale_result',
+          currentResultId: latest?.resultId ?? null,
+        });
+      }
+
+      const livraison = store.getLivraison(task.id);
+      if (!livraison || livraison.projectId !== task.projectId || livraison.pr <= 0) {
+        return reply.code(409).send({
+          code: 'delivery_missing',
+          error: 'aucune pull request exploitable n’est rangée pour cette tâche',
+        });
+      }
+      if (task.branch && task.branch !== livraison.branche) {
+        return reply.code(409).send({ code: 'branch_binding_mismatch' });
+      }
+      const ouverture = store.lastEventFor('delivery_opened', task.id);
+      const ouverturePr = ouverture?.payload.pr;
+      const ouvertureBranche = ouverture?.payload.branch;
+      const ouvertureCommit = ouverture?.payload.commitSha;
+      if (
+        typeof ouverturePr !== 'number' ||
+        ouverturePr !== livraison.pr ||
+        typeof ouvertureBranche !== 'string' ||
+        ouvertureBranche !== livraison.branche ||
+        typeof ouvertureCommit !== 'string' ||
+        ouvertureCommit.length === 0
+      ) {
+        return reply.code(409).send({
+          code: 'delivery_provenance_missing',
+          error: 'la livraison ne possède pas encore la provenance du commit ouvert',
+        });
+      }
+      if (!jetonGithub) return sansJeton(reply);
+
+      let faits: FaitsPr;
+      try {
+        faits = await lireFaitsPr(
+          {
+            jeton: jetonGithub,
+            ...(apiGithub ? { api: apiGithub } : {}),
+            ...(config.githubFetcher ? { fetcheur: config.githubFetcher } : {}),
+          },
+          livraison.depot,
+          livraison.pr,
+        );
+      } catch (err) {
+        return repondreErreurGithub(reply, err);
+      }
+
+      // Le résultat peut changer pendant les trois lectures GitHub. Ne range
+      // jamais une preuve qui ne vise plus la production demandée.
+      const resultatCourant = store.resultsForTask(task.id).at(-1);
+      if (resultatCourant?.resultId !== req.body.resultId) {
+        return reply.code(409).send({
+          code: 'stale_result',
+          currentResultId: resultatCourant?.resultId ?? null,
+        });
+      }
+
+      const branch = faits.branche ?? '';
+      const commitSha = faits.commitSha ?? '';
+      if (!branch || !commitSha || branch !== livraison.branche || commitSha !== ouvertureCommit) {
+        return reply.code(409).send({
+          code: 'provenance_mismatch',
+          expectedBranch: livraison.branche,
+          expectedCommitSha: ouvertureCommit,
+        });
+      }
+
+      const validation = validationsDepuisControles(faits.controles);
+      const recordedAt = Date.now();
+      emitEvent('ci_validation_recorded', {
+        source: 'github_pull_request',
+        taskId: task.id,
+        projectId: task.projectId,
+        resultId: req.body.resultId,
+        depot: livraison.depot,
+        pr: livraison.pr,
+        branch,
+        commitSha,
+        validation,
+        recordedAt,
+      });
+
+      const evaluation = evaluationPour(task).evaluation;
+      return {
+        taskId: task.id,
+        resultId: req.body.resultId,
+        validation,
+        provenance: {
+          source: 'github_pull_request' as const,
+          taskId: task.id,
+          projectId: task.projectId,
+          resultId: req.body.resultId,
+          depot: livraison.depot,
+          pr: livraison.pr,
+          branch,
+          commitSha,
+          recordedAt,
+        },
+        evaluation,
+      };
+    },
+  );
+
+  // Retry Evaluator : même calcul de faits que la lecture, mais avec une
+  // mutation explicite. Le résultat exact est obligatoire pour empêcher une
+  // décision retardée de rouvrir une production plus récente.
+  app.post<{
+    Params: { taskId: string };
+    Body: { resultId: number };
+  }>(
+    '/api/tasks/:taskId/evaluation/retry',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['taskId'],
+          properties: { taskId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+        body: {
+          type: 'object',
+          required: ['resultId'],
+          additionalProperties: false,
+          properties: { resultId: { type: 'integer', minimum: 1 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const task = store.getTask(req.params.taskId);
+      if (!task) return reply.code(404).send({ error: 'tâche inconnue' });
+      const { latest, evaluation } = evaluationPour(task);
+      if (
+        !latest?.resultId ||
+        !evaluation.retryRecommended ||
+        (evaluation.decision !== 'correction_required' && evaluation.decision !== 'rejected')
+      ) {
+        return reply.code(409).send({
+          code: 'retry_not_recommended',
+          evaluation,
+        });
+      }
+      const retry = scheduler.retryFromEvaluator({
+        taskId: task.id,
+        resultId: req.body.resultId,
+        decision: evaluation.decision,
+      });
+      if (!retry.ok) {
+        const status = retry.reason === 'unknown_task' ? 404 : 409;
+        return reply.code(status).send({ code: retry.reason, evaluation });
+      }
+      stateDirty = true;
+      return reply.code(202).send({
+        taskId: task.id,
+        resultId: retry.resultId,
+        decision: evaluation.decision,
+        attempt: retry.attempt,
+        maxAttempts: retry.maxAttempts,
+        task: {
+          status: retry.task.status,
+          assignedNodeId: retry.task.assignedNodeId,
+          attempts: retry.task.attempts,
+        },
+      });
+    },
+  );
+
+  // Drone Wars : lance une course compétitive — la même tâche (ready) confiée
+  // à jusqu'à `factor` nœuds distincts, le premier succès gagne, les perdants
+  // sont annulés. Geste explicite (jamais automatique), pour tâches critiques.
+  app.post<{ Params: { taskId: string }; Body: { factor?: number } }>(
+    '/api/tasks/:taskId/race',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['taskId'],
+          properties: { taskId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          properties: { factor: { type: 'integer', minimum: 2, maximum: 5 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const started = scheduler.startRace(req.params.taskId, req.body.factor ?? 3);
+      if (!started.ok) {
+        const code = started.error.includes('inconnue')
+          ? 404
+          : started.error.includes('aucun nœud')
+            ? 503
+            : 409;
+        return reply.code(code).send({ error: started.error });
+      }
+      return reply.code(202).send({ taskId: req.params.taskId, drones: started.drones });
+    },
+  );
+
+  // État d'une course en vol (null si aucune) — pour le dashboard/CLI.
+  app.get<{ Params: { taskId: string } }>(
+    '/api/tasks/:taskId/race',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['taskId'],
+          properties: { taskId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const race = scheduler.getRace(req.params.taskId) ?? null;
+      if (race) return { race, victory: null };
+      // Course déjà tranchée : le journal garde la victoire (drone_won) —
+      // permet au tiroir d'afficher le vainqueur après coup.
+      const won = store.lastEventFor('drone_won', req.params.taskId);
+      const victory =
+        won && typeof won.payload.nodeId === 'string'
+          ? {
+              nodeId: won.payload.nodeId,
+              cancelled: typeof won.payload.cancelled === 'number' ? won.payload.cancelled : 0,
+            }
+          : null;
+      return { race: null, victory };
+    },
+  );
+
+  // Toutes les courses en vol — permet au dashboard de marquer d'un ⚔ les
+  // nœuds actuellement en course (les courses vivent en mémoire du scheduler).
+  app.get('/api/races', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    return { races: scheduler.listRaces() };
+  });
+
+  // Annulation humaine d'une tâche : le nœud reçoit cancel_task et abandonne.
+  app.post<{ Params: { taskId: string } }>(
+    '/api/tasks/:taskId/cancel',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['taskId'],
+          properties: { taskId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const task = store.getTask(req.params.taskId);
+      if (!task) return reply.code(404).send({ error: 'tâche inconnue' });
+      if (task.status === 'done' || task.status === 'failed') {
+        return reply.code(409).send({ error: `tâche déjà ${task.status}` });
+      }
+      // La notification cancel_task part du scheduler (onCancel) : primaire en
+      // mono, TOUS les drones en course — plus d'envoi manuel dupliqué ici.
+      const cancelled = scheduler.cancelTask(task.id, 'annulée par un humain');
+      stateDirty = true;
+      return cancelled;
+    },
+  );
+
+  // ─── Le chemin de RETOUR : ce que la pull request renvoie à la ruche ───────
+  //
+  // La ruche savait aller — issue → DAG → travail → pull request — et pas
+  // revenir. Une fois la PR ouverte elle devenait aveugle : la CI casse,
+  // personne ne le sait ; un relecteur demande des changements, personne ne le
+  // sait. Le travail s'arrêtait là où il commence vraiment.
+  //
+  // DEUX ROUTES, ET LA SÉPARATION EST LA DÉCISION :
+  //
+  //   · VOIR ne coûte que des appels de lecture chez GitHub. L'état est dérivé
+  //     à chaque lecture, jamais rangé — un statut rangé se périme exactement
+  //     quand il compte.
+  //   · REPRENDRE fait travailler l'essaim, donc dépense du temps-ouvrière.
+  //     C'est un GESTE, comme prendre une issue et comme fusionner. La ruche ne
+  //     se remet pas au travail toute seule sur la foi d'un webhook : ce serait
+  //     la seule dépense qu'aucun humain n'aurait demandée.
+
+  /** Les faits d'une livraison, lus chez GitHub et repliés en un état. */
+  const etatDeLivraison = async (l: {
+    taskId: string;
+    depot: string;
+    pr: number;
+  }): Promise<{
+    taskId: string;
+    depot: string;
+    pr: number;
+    etat: EtatLivraison;
+    faits: FaitsPr;
+  }> => {
+    const faits = await lireFaitsPr(
+      { jeton: jetonGithub, ...(apiGithub ? { api: apiGithub } : {}) },
+      l.depot,
+      l.pr,
+    );
+    return { taskId: l.taskId, depot: l.depot, pr: l.pr, etat: etatLivraison(faits), faits };
+  };
+
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/livraisons',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId'],
+          properties: { projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      const permis = engagementProjetPermis(req, req.params.projectId);
+      if (permis !== 'permis') return refuserEngagement(reply, permis);
+      if (!jetonGithub) return reply.code(503).send({ error: SANS_JETON_GITHUB });
+
+      const rangees = store.listLivraisons(req.params.projectId);
+      const livraisons = [];
+      // SÉQUENTIEL, comme la livraison elle-même : une rafale de requêtes
+      // déclencherait la limite SECONDAIRE de GitHub, qui est un bannissement
+      // temporaire et non un simple 429.
+      for (const l of rangees.slice(-MAX_LIVRAISONS_LUES)) {
+        // Une livraison sans numéro GitHub doit rester visible sans
+        // transformer `pr: 0` en requête vers `/pulls/0`. Après un redémarrage,
+        // `echouee` signifie que la réservation a été interrompue et qu'une
+        // PR distante reste possible : l'écran doit montrer cette incertitude.
+        if (l.pr === 0 && (l.etat === ETAT_LIVRAISON_EN_COURS || l.etat === 'echouee')) {
+          const tache = store.getTask(l.taskId);
+          livraisons.push({
+            taskId: l.taskId,
+            depot: l.depot,
+            pr: 0,
+            etat: l.etat,
+            faits: null,
+            branche: l.branche,
+            titre: tache?.title ?? '',
+            dit:
+              l.etat === ETAT_LIVRAISON_EN_COURS
+                ? 'Livraison GitHub en cours'
+                : l.motif || 'Livraison interrompue : vérifiez GitHub avant toute reprise',
+            reprenable: false,
+          });
+          continue;
+        }
+        try {
+          const vue = await etatDeLivraison(l);
+          const tache = store.getTask(l.taskId);
+          livraisons.push({
+            ...vue,
+            branche: l.branche,
+            titre: tache?.title ?? '',
+            dit: direEtat(vue.etat),
+            reprenable: demandeDuTravail(vue.etat),
+          });
+        } catch (e) {
+          // Une PR illisible (supprimée, dépôt transféré) ne doit pas rendre
+          // toute la liste inutilisable : on dit ce qu'on n'a pas pu lire.
+          const err = e as { message?: string };
+          livraisons.push({
+            taskId: l.taskId,
+            depot: l.depot,
+            pr: l.pr,
+            branche: l.branche,
+            illisible: err.message ?? 'échec GitHub',
+          });
+        }
+      }
+      return { livraisons };
+    },
+  );
+
+  app.post<{ Params: { projectId: string; taskId: string } }>(
+    '/api/projects/:projectId/livraisons/:taskId/reprendre',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId', 'taskId'],
+          properties: {
+            projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id },
+            taskId: { type: 'string', minLength: 1, maxLength: LIMITS.id },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const permis = engagementProjetPermis(req, req.params.projectId);
+      if (permis !== 'permis') return refuserEngagement(reply, permis);
+      if (!jetonGithub) return reply.code(503).send({ error: SANS_JETON_GITHUB });
+
+      const rangee = store.getLivraison(req.params.taskId);
+      // Le refus prend la forme de l'inexistence : une livraison d'un AUTRE
+      // projet ne doit pas se laisser deviner par un message différent.
+      if (!rangee || rangee.projectId !== req.params.projectId) {
+        return reply.code(404).send({ error: 'livraison inconnue' });
+      }
+      if (rangee.etat === ETAT_LIVRAISON_EN_COURS) {
+        return reply.code(409).send({
+          error: 'livraison encore en cours',
+          etat: ETAT_LIVRAISON_EN_COURS,
+        });
+      }
+
+      let vue;
+      try {
+        vue = await etatDeLivraison(rangee);
+      } catch (e) {
+        const err = e as { statut?: number; message?: string; conseil?: string };
+        return reply
+          .code(typeof err.statut === 'number' ? err.statut : 502)
+          .send({ error: err.message ?? 'échec GitHub', conseil: err.conseil });
+      }
+
+      if (!demandeDuTravail(vue.etat)) {
+        return reply
+          .code(409)
+          .send({ error: `Rien à reprendre. ${direEtat(vue.etat)}`, etat: vue.etat });
+      }
+
+      const tacheOrigine = store.getTask(rangee.taskId);
+      const brief = briefDeRetour({
+        faits: vue.faits,
+        etat: vue.etat,
+        tache: tacheOrigine?.title ?? rangee.taskId,
+      });
+      if (brief === '') {
+        return reply
+          .code(422)
+          .send({ error: 'Les faits de cette pull request ne tiennent pas dans une consigne.' });
+      }
+
+      // UNE SEULE TÂCHE, pas un découpage. Une reprise est ciblée par nature :
+      // la faire passer par la Queen Bee dépenserait un appel de modèle pour
+      // redécouper ce que la CI a déjà nommé précisément.
+      const tache = store.createTask({
+        id: `r${vue.pr}-${Date.now().toString(36)}`,
+        projectId: req.params.projectId,
+        title: `Reprise PR #${vue.pr} — ${vue.etat}`,
+        prompt: brief,
+        dependsOn: [],
+      });
+      // LE LIEN VERS L'ISSUE SUIT LA REPRISE. Sans cela, la pull request de la
+      // correction ne refermerait plus l'issue d'origine, et le demandeur
+      // verrait sa demande rester ouverte alors qu'elle a été traitée.
+      const issue = store.issueDeTache(rangee.taskId);
+      if (issue) {
+        store.lierTacheIssue({
+          taskId: tache.id,
+          projectId: req.params.projectId,
+          depot: issue.depot,
+          numero: issue.numero,
+        });
+      }
+      emitEvent('livraison_reprise', {
+        projectId: req.params.projectId,
+        taskId: tache.id,
+        origine: rangee.taskId,
+        pr: vue.pr,
+        etat: vue.etat,
+      });
+      scheduler.tick();
+      stateDirty = true;
+      return reply.code(201).send({ tache, etat: vue.etat, dit: direEtat(vue.etat) });
+    },
+  );
+
+  // ─── Les issues comme source de travail ────────────────────────────────────
+  //
+  // La ruche savait importer un dépôt, découper un brief, travailler, et ouvrir
+  // une pull request. Il manquait la PREMIÈRE marche : d'où vient le brief. Une
+  // issue EST un brief — écrit par quelqu'un qui a pris le temps de décrire ce
+  // qu'il veut, et qui attend une réponse.
+  //
+  // Les deux routes sont sous la garde d'ENGAGEMENT (ADR 0007) : lister les
+  // issues d'un projet, c'est déjà consommer le quota GitHub de l'hôte ; en
+  // prendre une, c'est faire travailler l'essaim.
+
+  /** Un seul texte pour ce refus : deux formulations divergeraient un jour. */
+  const SANS_JETON_GITHUB =
+    'HIVE_GITHUB_TOKEN non configuré. Sans jeton, la ruche ne peut pas lire les issues du dépôt.';
+
+  /** Le dépôt `owner/repo` d'un projet, ou `null` s'il n'en a pas. */
+  const depotDeProjet = (repoUrl: string | null): string | null => depotDepuisUrl(repoUrl);
+
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/issues',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId'],
+          properties: { projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      const permis = engagementProjetPermis(req, req.params.projectId);
+      if (permis !== 'permis') return refuserEngagement(reply, permis);
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+
+      const fullName = depotDeProjet(project.repoUrl);
+      if (!fullName) {
+        return reply.code(400).send({
+          error: 'Ce projet n’est pas rattaché à un dépôt GitHub : il n’a pas d’issues à lire.',
+        });
+      }
+      if (!jetonGithub) return reply.code(503).send({ error: SANS_JETON_GITHUB });
+
+      try {
+        const { listerIssues } = await import('./github.js');
+        const { issues, tronque } = await listerIssues(
+          { jeton: jetonGithub, ...(apiGithub ? { api: apiGithub } : {}) },
+          fullName,
+        );
+        return { depot: fullName, issues, tronque };
+      } catch (e) {
+        const err = e as { statut?: number; message?: string; conseil?: string };
+        return reply
+          .code(typeof err.statut === 'number' ? err.statut : 502)
+          .send({ error: err.message ?? 'échec GitHub', conseil: err.conseil });
+      }
+    },
+  );
+
+  app.post<{ Params: { projectId: string; numero: string } }>(
+    '/api/projects/:projectId/issues/:numero',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId', 'numero'],
+          properties: {
+            projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id },
+            numero: { type: 'string', pattern: '^[1-9][0-9]{0,9}$' },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const permis = engagementProjetPermis(req, req.params.projectId);
+      if (permis !== 'permis') return refuserEngagement(reply, permis);
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+
+      const fullName = depotDeProjet(project.repoUrl);
+      if (!fullName) {
+        return reply.code(400).send({ error: 'Ce projet n’est pas rattaché à un dépôt GitHub.' });
+      }
+      if (!jetonGithub) return reply.code(503).send({ error: SANS_JETON_GITHUB });
+
+      // ON RELIT L'ISSUE À LA SOURCE, jamais depuis ce que le client envoie.
+      // Le client ne fournit qu'un NUMÉRO : le titre, le corps et l'état
+      // viennent de GitHub à cet instant. Sinon n'importe quel appelant
+      // fabriquerait le « contenu d'une issue » et la ruche le planifierait.
+      const { lireUneIssue } = await import('./github.js');
+      let issue;
+      try {
+        issue = await lireUneIssue(
+          { jeton: jetonGithub, ...(apiGithub ? { api: apiGithub } : {}) },
+          fullName,
+          Number(req.params.numero),
+        );
+      } catch (e) {
+        const err = e as { statut?: number; message?: string; conseil?: string };
+        return reply
+          .code(typeof err.statut === 'number' ? err.statut : 502)
+          .send({ error: err.message ?? 'échec GitHub', conseil: err.conseil });
+      }
+
+      const verdict = recevable(issue);
+      if (!verdict.ok) {
+        return reply.code(409).send({ error: motifRefus(verdict.refus), refus: verdict.refus });
+      }
+
+      const brief = briefDeIssue(issue);
+      if (brief === '') {
+        return reply.code(422).send({
+          error:
+            'Cette issue ne tient pas dans un brief. Décrivez la demande en quelques lignes dans une tâche.',
+        });
+      }
+
+      const { briefToDAG, loadQueenBeeConfig } = await import('./queen-bee.js');
+      const beeConfig = loadQueenBeeConfig(process.env);
+      if (!beeConfig.apiKey) {
+        return reply.code(500).send({
+          error: 'QUEEN_BEE_API_KEY non configurée. Définissez cette variable (clé OpenRouter).',
+        });
+      }
+
+      try {
+        const dag = await briefToDAG(brief, beeConfig);
+
+        // ─── LES IDENTIFIANTS SONT RÉÉCRITS, ET C'EST NÉCESSAIRE ────────────
+        //
+        // La Queen Bee rend des identifiants de son cru — « A », « B », « T1 ».
+        // Ils sont uniques DANS UN DÉCOUPAGE, pas dans un projet. Reprendre la
+        // même issue une seconde fois (parce que le premier plan ne convenait
+        // pas, geste parfaitement naturel) redemandait donc les mêmes clés
+        // primaires, et la route rendait un 502 qui ne disait rien.
+        //
+        // On préfixe, et on REMAPPE `dependsOn` dans la foulée : renuméroter
         // les tâches sans renuméroter leurs dépendances casserait le DAG en
         // silence, ce qui est bien pire qu'une collision bruyante.
         const prefixe = `i${issue.numero}-${Date.now().toString(36)}`;
