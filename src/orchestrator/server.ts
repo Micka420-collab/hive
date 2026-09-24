@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 104775)
-Total output lines: 9846
-
 // Serveur de l'orchestrateur (Queen) : Fastify pour le REST + le dashboard
 // statique, `ws` pour le temps réel nœuds ↔ hub ↔ dashboard.
 // Sécurité : CORS restreint (jamais "*"), token obligatoire (non-trivial hors
@@ -4759,7 +4756,442 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         gabarit: GABARIT_DEFAUT,
         motif: verdict.motif,
         creeA: now,
-        ma…4775 tokens truncated…) {
+        majA: now,
+        arreteA: 0,
+      };
+      store.setServeur(base);
+      try {
+        const machine = await fournisseurServeurs.demarrer({
+          gabarit: GABARIT_DEFAUT,
+          billet: billetServeur,
+          urlRuche,
+        });
+        // LE BILLET NE SE RANGE PAS. Les instructions le contiennent par
+        // construction, et un billet porte le secret EN CLAIR : les écrire
+        // dans `motif` annulait toute la précaution prise à côté (ne ranger
+        // que `secretHash`, une empreinte PBKDF2). L'empreinte dans `billets`,
+        // et le secret juste à côté dans `serveurs`, durablement.
+        // Il est remis à l'administrateur par `GET /api/admin/serveurs/:id/billet`,
+        // une seule fois, depuis la mémoire.
+        const r = transiter(
+          base,
+          'provisionnement',
+          caviarderBillet(machine.instructions, billetServeur).join(' ⏎ '),
+          now,
+        );
+        store.setServeur({ ...r.serveur, refMachine: machine.ref });
+        billetsServeurs.set(id, { billet: billetServeur, expire: now + bornerTtl(undefined) });
+        emitEvent('server_requested', {
+          serverId: id,
+          projectId,
+          fournisseur: fournisseurServeurs.nom,
+        });
+      } catch (e) {
+        // Un provisionnement raté reste VISIBLE avec son motif : un client qui
+        // a payé et qui attend ne doit pas disparaître d'un tableau de bord.
+        const r = transiter(base, 'echoue', e instanceof Error ? e.message : String(e), now);
+        store.setServeur(r.serveur);
+        emitEvent('server_failed', { serverId: id, projectId });
+      }
+    }
+  };
+
+  // ─── Les abonnements : vendre des heures-ouvrières ─────────────────────────
+  //
+  // Hive ne voit AUCUNE donnée de paiement : ni carte, ni IBAN, ni adresse de
+  // facturation. Le processeur les détient ; on n'en garde qu'un identifiant
+  // opaque et un état (abonnement.ts).
+  //
+  // Le secret de signature vient de l'environnement, jamais de la base — même
+  // doctrine que le jeton GitHub. Sans lui, la route REFUSE TOUT : « pas de
+  // secret configuré donc on laisse passer » est la porte dérobée la plus
+  // fréquente de toutes les intégrations de paiement.
+  const secretWebhook = process.env.HIVE_WEBHOOK_SECRET ?? '';
+
+  /** L'abonnement d'un projet, ou l'absence d'abonnement. */
+  const lireAbonnement = (projectId: string): Abonnement => {
+    const range = store.getAbonnement(projectId);
+    if (!range) return aucunAbonnement(projectId);
+    // La base rend une chaîne : on la RÉTRÉCIT ici. Un état inconnu — écrit
+    // par une version plus récente, puis relu après un retour arrière — ne
+    // doit surtout pas donner de droits par accident. Il retombe sur `aucun`,
+    // qui n'en donne aucun.
+    const etat = ETATS.includes(range.etat as EtatAbonnement)
+      ? (range.etat as EtatAbonnement)
+      : 'aucun';
+    return { ...range, etat };
+  };
+
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/abonnement',
+    async (req, reply) => {
+      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const now = Date.now();
+      const a = lireAbonnement(req.params.projectId);
+      const d = droits(a, now);
+      return {
+        plan: a.plan,
+        etat: a.etat,
+        finPeriode: a.finPeriode,
+        droits: d,
+        plans: PLANS,
+        // On dit si un secret est configuré, JAMAIS le secret : sans lui,
+        // aucun abonnement ne peut être activé, et le silence sur ce point
+        // ferait chercher la panne au mauvais endroit.
+        webhookConfigure: secretWebhook !== '',
+      };
+    },
+  );
+
+  /**
+   * Webhook du processeur de paiement.
+   *
+   * PAS de garde par jeton de ruche : le processeur ne le connaît pas. C'est
+   * la SIGNATURE qui authentifie, et elle est vérifiée sur le corps BRUT avant
+   * qu'on regarde son contenu. Les deux contrôles sont distincts : la
+   * signature dit que l'expéditeur détient le secret, elle ne dit rien de la
+   * forme de ce qu'il envoie.
+   */
+  app.post('/api/webhooks/abonnement', async (req, reply) => {
+    const brut = (req as { rawBody?: string }).rawBody ?? '';
+    const entete = String(req.headers['x-hive-signature'] ?? req.headers['stripe-signature'] ?? '');
+    const now = Date.now();
+
+    const v = verifierSignature({ charge: brut, entete, secret: secretWebhook, now });
+    if (!v.valide) {
+      // 401 et un motif COURT : un message bavard aiderait à forger la requête
+      // suivante. Le détail utile est journalisé côté serveur, pas renvoyé.
+      app.log.warn({ motif: v.motif }, 'webhook d’abonnement refusé');
+      return reply.code(401).send({ error: 'signature refusée' });
+    }
+
+    const evenement = lireCharge(req.body) ?? evenementDepuisStripe(req.body);
+    if (!evenement) return reply.code(400).send({ error: 'charge inexploitable' });
+    if (!store.getProject(evenement.projectId)) {
+      return reply.code(404).send({ error: 'projet inconnu' });
+    }
+
+    const courant = lireAbonnement(evenement.projectId);
+    const suivant = appliquerEvenement(courant, evenement);
+    if (!suivant) {
+      // Événement plus ancien que l'état courant, ou plan inconnu : on accuse
+      // réception sans rien changer. Renvoyer une erreur ferait re-livrer le
+      // webhook en boucle par le processeur.
+      return { applique: false, motif: 'sans effet' };
+    }
+    store.setAbonnement(suivant);
+
+    // Le plafond de La Balance suit les droits : vendre n'ajoute AUCUN
+    // mécanisme d'exécution, cela alimente une porte qui existait déjà.
+    //
+    // ─── `scheduler.setPlafond`, ET SURTOUT PAS `store.setBudget` ────────────
+    //
+    // Cette ligne appelait le store directement. Le plafond partait bien en
+    // base — et la PORTE continuait d'appliquer l'ancien, parce que le
+    // scheduler mémoïse `budgets` et que seul `setPlafond` invalide ce cache.
+    //
+    // Concrètement, sur une rétrogradation Colonie 200 h → Éclaireuse 10 h : le
+    // webhook accepté, l'abonnement à jour, et 190 heures non payées qui
+    // passent encore la porte. Symétrique à la montée — un client qui paie plus
+    // reste bloqué à son ancien quota. L'écart ne se refermait qu'au
+    // redémarrage du processus.
+    //
+    // La docstring de `setPlafond` dit depuis toujours « C'est le SEUL chemin
+    // d'écriture de `budgets` », et la route humaine (plus bas) l'honore. Ce
+    // webhook était le seul à ne pas la lire. `tests/bornes-cablees.test.ts`
+    // interdit désormais tout autre appelant.
+    const d = droits(suivant, now);
+    const h = hebergement(suivant, now);
+    scheduler.setPlafond(evenement.projectId, d.plafondMs, 'abonnement', now);
+
+    // Faits typés seulement — jamais le refExterne, qui identifie un client
+    // chez le processeur et n'a rien à faire dans un journal partagé.
+    emitEvent('subscription_changed', {
+      projectId: evenement.projectId,
+      plan: suivant.plan,
+      etat: suivant.etat,
+      heures: d.heures,
+    });
+
+    // LE SERVEUR SE CRÉE TOUT SEUL À L'ACHAT. Après le plafond, pas avant :
+    // une machine qui démarre sans quota consommerait sans jamais s'arrêter.
+    // Queen (0 h) n'a pas de droits d'ouvrières mais A de l'hébergement.
+    await alignerServeurs(
+      evenement.projectId,
+      suivant.refExterne,
+      suivant.plan,
+      d.actif || h.actif,
+      now,
+    );
+    return { applique: true, etat: suivant.etat, heures: d.heures };
+  });
+
+  // ─── L'administration des comptes ─────────────────────────────────────────
+  //
+  // Toutes ces routes exigent un COMPTE (JWT), pas seulement le jeton de ruche.
+  // La distinction compte : le jeton de ruche est partagé avec chaque nœud
+  // membre — s'en servir comme preuve d'administration donnerait les pleins
+  // pouvoirs à toute machine qui butine.
+
+  /** Le rôle de l'appelant, ou `null` s'il n'est pas authentifié en tant que compte. */
+  const roleDe = (req: FastifyRequest): { userId: string; role: Role } | null => {
+    if (!authorizedUser(req)) return null;
+    const userId = (req as AuthRequest).userId;
+    if (!userId) return null;
+    const brut = store.getRole(userId);
+    return { userId, role: ROLES.includes(brut as Role) ? (brut as Role) : 'membre' };
+  };
+
+  /** Garde d'action. Rend l'appelant, ou répond et rend `null`. */
+  const exige = (
+    req: FastifyRequest,
+    reply: FastifyReply,
+    action: Parameters<typeof peut>[1],
+  ): { userId: string; role: Role } | null => {
+    const moi = roleDe(req);
+    if (!moi) {
+      void reply.status(401).send({ error: 'Non authentifié' });
+      return null;
+    }
+    if (!peut(moi.role, action)) {
+      // 403 et pas 404 : l'utilisateur EST authentifié, la ressource existe,
+      // et lui faire croire le contraire ne protégerait rien tout en le
+      // laissant chercher une panne inexistante.
+      void reply.status(403).send({ error: 'Action réservée aux administrateurs' });
+      return null;
+    }
+    return moi;
+  };
+
+  /**
+   * Le Cerveau, vu comme un graphe.
+   *
+   * ─── POURQUOI CETTE ROUTE EST EN LECTURE SEULE, ET ADMINISTRATIVE ──────────
+   *
+   * Le Cerveau est le savoir de TOUTE la ruche : il n'appartient à aucun
+   * projet, donc aucune permission par projet ne le couvre. `voir_tous_les_
+   * projets` est la seule qui dise « cette personne voit l'ensemble », et c'est
+   * exactement le périmètre.
+   *
+   * Aucune écriture ici, volontairement. Promouvoir un épisode en leçon demande
+   * de comprendre POURQUOI, et ce geste-là se fait dans Obsidian, à la main,
+   * avec un commit qu'on peut relire et annuler. Un bouton « promouvoir » sur
+   * un écran ferait écrire une règle en un clic — or une règle fausse coûte
+   * plus cher que pas de règle, parce qu'elle est SUIVIE.
+   *
+   * Le corps des notes n'est jamais renvoyé : la vue montre la FORME du savoir
+   * (qui cite qui, ce qui sert, ce qui dort), pas son contenu. Ça borne aussi
+   * la réponse, qu'un cerveau de mille notes ferait exploser autrement.
+   */
+  app.get('/api/admin/cerveau', async (req, reply) => {
+    if (!exige(req, reply, 'voir_tous_les_projets')) return reply;
+    // Un dossier absent est l'état NORMAL d'une ruche neuve : `lire` rend une
+    // liste vide, et le graphe vide se dessine très bien. Pas de 404 — « pas
+    // encore de savoir » n'est pas une erreur.
+    return { ...graphe(lire(dossierCerveau), Date.now()), dossier: dossierCerveau };
+  });
+
+  app.get('/api/admin/membres', async (req, reply) => {
+    if (!exige(req, reply, 'gerer_membres')) return reply;
+    return {
+      membres: store.listUsersWithRoles(),
+      admins: store.countAdmins(),
+      inscription: etatInscription(modeInscription, store.countUsers()),
+    };
+  });
+
+  app.put<{ Params: { userId: string }; Body: { role: Role } }>(
+    '/api/admin/membres/:userId/role',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['role'],
+          additionalProperties: false,
+          properties: { role: { type: 'string', enum: [...ROLES] } },
+        },
+      },
+    },
+    async (req, reply) => {
+      const moi = exige(req, reply, 'changer_role');
+      if (!moi) return reply;
+      if (!store.getUserById(req.params.userId)) {
+        return reply.status(404).send({ error: 'Compte introuvable' });
+      }
+      const verdict = peutChangerRole({
+        auteur: moi.role,
+        auteurId: moi.userId,
+        cibleId: req.params.userId,
+        nouveauRole: req.body.role,
+        admins: store.countAdmins(),
+      });
+      if (!verdict.autorise) return reply.status(409).send({ error: verdict.motif });
+
+      store.setRole(req.params.userId, req.body.role, moi.userId);
+      // Faits typés seulement — jamais l'email, qui identifie une personne
+      // dans un journal que tout membre de la ruche peut lire.
+      emitEvent('role_changed', { userId: req.params.userId, role: req.body.role });
+      return { userId: req.params.userId, role: req.body.role };
+    },
+  );
+
+  // ─── L'administration des serveurs ────────────────────────────────────────
+  //
+  // Réservée aux administrateurs (`gerer_serveurs`). Le chiffre mis en avant
+  // est `facturables` : ce qui coûte de l'argent EN CE MOMENT est la seule
+  // chose qu'un hôte ne veut jamais découvrir en retard.
+
+  app.get('/api/admin/serveurs', async (req, reply) => {
+    if (!exige(req, reply, 'gerer_serveurs')) return reply;
+    const now = Date.now();
+    const serveurs = serveursDe();
+    // Le nom du projet, pas seulement son identifiant : « hive-a3f2 » ne dit
+    // à personne quelle machine il s'apprête à éteindre.
+    const noms = new Map(store.listProjects().map((p) => [p.id, p.name]));
+    return {
+      vue: replierServeurs(serveurs, now),
+      serveurs: serveurs.map((s) => ({
+        ...s,
+        projet: noms.get(s.projectId) ?? '',
+        joursAvantSuppression: joursAvantSuppression(s, now),
+        // Les gestes que CE serveur acceptera. L'écran n'en propose pas
+        // d'autres : recopier la matrice côté navigateur la ferait dériver.
+        transitions: transitionsDepuis(s.etat),
+      })),
+      fournisseur: fournisseurServeurs.nom,
+      retentionJours: RETENTION_JOURS,
+      serveursMax: SERVEURS_MAX,
+    };
+  });
+
+  /**
+   * Le billet de rattachement d'un serveur — REMIS UNE SEULE FOIS.
+   *
+   * Il était auparavant rangé en clair dans `serveurs.motif`, parce que les
+   * instructions du fournisseur le contiennent par construction. Un billet
+   * porte le secret en clair : l'écrire en base annulait toute la précaution
+   * prise à côté, où seule une empreinte PBKDF2 est rangée.
+   *
+   * Une seule remise, puis oubli : celui qui l'a lu l'a. Le laisser
+   * consultable indéfiniment recréerait exactement ce qu'on vient de retirer,
+   * en mémoire au lieu du disque.
+   */
+  app.get<{ Params: { id: string } }>('/api/admin/serveurs/:id/billet', async (req, reply) => {
+    if (!exige(req, reply, 'gerer_serveurs')) return reply;
+    const garde = billetsServeurs.get(req.params.id);
+    billetsServeurs.delete(req.params.id);
+    if (!garde || garde.expire <= Date.now()) {
+      // Même réponse que « jamais eu de billet » : un billet périmé et un
+      // billet déjà lu se remplacent tous les deux de la même façon.
+      return reply.code(404).send({
+        error:
+          'aucun billet à remettre pour ce serveur — un billet ne se retrouve pas, ' +
+          'il se remplace : relancez le provisionnement.',
+      });
+    }
+    return reply.send({ billet: garde.billet, commande: `npm run join ${garde.billet}` });
+  });
+
+  /**
+   * Change l'état d'un serveur à la main.
+   *
+   * Les transitions permises sont celles du module pur : on ne ressuscite pas
+   * un serveur supprimé, et on ne saute pas de « demandé » à « prêt ». Un
+   * bouton d'administration qui pourrait poser n'importe quel état ferait
+   * mentir le tableau de bord au premier clic maladroit.
+   */
+  app.put<{ Params: { id: string }; Body: { etat: EtatServeur; motif?: string } }>(
+    '/api/admin/serveurs/:id',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['etat'],
+          additionalProperties: false,
+          properties: {
+            etat: { type: 'string', enum: [...ETATS_SERVEUR] },
+            motif: { type: 'string', maxLength: 400 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const moi = exige(req, reply, 'gerer_serveurs');
+      if (!moi) return reply;
+      const brut = store.getServeur(req.params.id);
+      if (!brut) return reply.code(404).send({ error: 'serveur inconnu' });
+
+      const courant: Serveur = {
+        ...brut,
+        etat: (ETATS_SERVEUR.includes(brut.etat as EtatServeur)
+          ? brut.etat
+          : 'echoue') as EtatServeur,
+      };
+      const now = Date.now();
+      const r = transiter(courant, req.body.etat, req.body.motif ?? 'geste humain', now);
+      if (r.refus) return reply.code(409).send({ error: r.refus });
+      if (!r.applique) return { id: courant.id, etat: courant.etat, change: false };
+
+      // La machine SUIT la décision : sans cet appel, le tableau de bord dirait
+      // « arrêté » pendant que la facture continue de courir.
+      try {
+        if (courant.refMachine && req.body.etat === 'arrete') {
+          await fournisseurServeurs.arreter(courant.refMachine);
+        }
+        if (courant.refMachine && req.body.etat === 'supprime') {
+          await fournisseurServeurs.supprimer(courant.refMachine);
+        }
+      } catch (e) {
+        return reply.code(502).send({
+          error: 'le fournisseur a refusé',
+          conseil: e instanceof Error ? e.message : String(e),
+        });
+      }
+      store.setServeur(r.serveur);
+      emitEvent('server_state_changed', { serverId: courant.id, etat: req.body.etat });
+      return { id: courant.id, etat: r.serveur.etat, change: true };
+    },
+  );
+
+  // ─── Le Conseil des Éclaireuses ────────────────────────────────────────────
+
+  /**
+   * Ouvre un conseil sur un projet.
+   *
+   * Le geste est EXPLICITEMENT HUMAIN, et c'est le garde-fou : un conseil crée
+   * de vraies tâches d'ouvrières, donc consomme du temps-machine prêté par les
+   * membres. Il n'y a volontairement aucun déclenchement automatique — une
+   * ruche qui s'interrogerait toute seule en boucle brûlerait le temps de ses
+   * membres sans que personne l'ait demandé.
+   */
+  app.post<{ Params: { projectId: string }; Body: { question?: string } }>(
+    '/api/projects/:projectId/conseil',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId'],
+          properties: { projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          properties: { question: { type: 'string', maxLength: 500 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      const permis = engagementProjetPermis(req, req.params.projectId);
+      if (permis !== 'permis') return refuserEngagement(reply, permis);
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+      // Un seul conseil à la fois par projet : deux conseils concurrents
+      // doubleraient la dépense et rendraient leurs verdicts incomparables.
+      const dejaOuvert = store.sessionsOuvertes().find((s) => s.projectId === project.id);
+      if (dejaOuvert) {
         return reply
           .code(409)
           .send({ error: 'un conseil est déjà en cours sur ce projet', sessionId: dejaOuvert.id });
