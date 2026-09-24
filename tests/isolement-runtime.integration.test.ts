@@ -3,13 +3,16 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import path from 'node:path';
 import os from 'node:os';
 import { describe, expect, it } from 'vitest';
+import type { AgentAdapter } from '../src/adapters/index.js';
 import { runCommand } from '../src/adapters/exec.js';
+import { HiveNodeClient } from '../src/node-client/client.js';
 import {
   fournisseurParNom,
   IMAGE_DEFAUT,
   sonderAgentDansBac,
   type Fournisseur,
 } from '../src/node-client/isolement.js';
+import { createServer } from '../src/orchestrator/server.js';
 
 const imageDemandee = process.env.HIVE_ISOLEMENT_IMAGE?.trim() || '';
 
@@ -119,6 +122,126 @@ describe('isolement — intégration runtime réel', () => {
         });
         expect(readFileSync(secretPath, 'utf8')).toContain('ne doit jamais être visible');
       } finally {
+        rmSync(root, { recursive: true, force: true, maxRetries: 3 });
+      }
+    },
+    120_000,
+  );
+
+  it.skipIf(!runtime || !imageDemandee)(
+    'fait traverser le bac réel au chemin Worker → tâche',
+    async () => {
+      // Le test précédent prouve l'enveloppe `runCommand` seule. Celui-ci
+      // garde une frontière supplémentaire : la tâche est assignée par un
+      // orchestrateur réel à un `HiveNodeClient`, puis l'adaptateur reçoit le
+      // contexte préparé par `runTask`. Une régression qui oublierait de
+      // transmettre `opts.bac` au chemin Worker resterait verte autrement.
+      if (!runtime || !imageDemandee) return;
+      const root = mkdtempSync(path.join(os.tmpdir(), 'hive-sandbox-worker-'));
+      const secretPath = path.join(root, 'outside-secret.txt');
+      writeFileSync(secretPath, 'ne doit jamais être visible dans le conteneur\n');
+      const token = 'jeton-sandbox-worker-suffisamment-long';
+      const server = await createServer({
+        port: 0,
+        host: '127.0.0.1',
+        token,
+        corsOrigins: ['http://localhost:5173'],
+        dbPath: path.join(root, 'hive.db'),
+        simulation: false,
+        tickMs: 20,
+      });
+
+      const adapter: AgentAdapter = {
+        name: 'sandbox-worker-probe',
+        async run(_task, ctx) {
+          // Cette variable est ajoutée au contexte déjà épuré du Worker. Le
+          // bac ne transmet que son NOM, puis le conteneur résout la valeur
+          // depuis l'environnement du processus parent.
+          ctx.env.HOST_SECRET_PATH = secretPath;
+          const probe = await runCommand(
+            'node',
+            [
+              '-e',
+              [
+                "const fs = require('node:fs');",
+                "const result = { cwd: process.cwd(), home: process.env.HOME, outside: fs.existsSync(process.env.HOST_SECRET_PATH ?? ''), token: process.env.HIVE_TOKEN ?? null };",
+                "fs.writeFileSync('/hive/tache/worker-proof.json', JSON.stringify(result));",
+              ].join(''),
+            ],
+            ctx,
+            30_000,
+          );
+          if (!probe.success) return probe;
+          const preuve = JSON.parse(
+            readFileSync(path.join(ctx.cwd, 'worker-proof.json'), 'utf8'),
+          ) as {
+            cwd: string;
+            home: string;
+            outside: boolean;
+            token: string | null;
+          };
+          return { ...probe, logs: JSON.stringify(preuve), subAgents: [] };
+        },
+      };
+      const client = new HiveNodeClient({
+        url: `ws://127.0.0.1:${server.port}/ws`,
+        token,
+        name: 'worker-sandbox-reel',
+        ownerName: 'integration',
+        agentType: 'custom',
+        nodeId: 'worker-sandbox-reel',
+        maxConcurrency: 1,
+        workRoot: path.join(root, 'work'),
+        adapter,
+        quiet: true,
+        bac: { fournisseur: runtime, image: imageDemandee, variables: ['HOST_SECRET_PATH'] },
+      });
+      client.start();
+
+      const attendre = async (condition: () => boolean, message: string): Promise<void> => {
+        const limite = Date.now() + 30_000;
+        while (Date.now() < limite) {
+          if (condition()) return;
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        throw new Error(message);
+      };
+
+      try {
+        await attendre(
+          () => server.store.listNodes().some((node) => node.id === 'worker-sandbox-reel'),
+          'le Worker réel ne rejoint pas la ruche',
+        );
+        const project = server.store.createProject({ name: 'Mission sandbox réelle' });
+        const task = server.store.createTask({
+          projectId: project.id,
+          title: 'Prouver le bac du Worker',
+          prompt: 'écrire la preuve du contexte d’exécution',
+        });
+        server.store.patchTask(task.id, { status: 'ready' });
+        await attendre(
+          () => server.store.getTask(task.id)?.status === 'done',
+          'la tâche Worker sandbox ne se termine pas',
+        );
+
+        const result = server.store.resultsForTask(task.id).at(-1);
+        expect(result?.success, result?.logs).toBe(true);
+        const preuve = JSON.parse(result?.logs ?? '{}') as {
+          cwd: string;
+          home: string;
+          outside: boolean;
+          token: string | null;
+        };
+        expect(preuve).toEqual({
+          cwd: '/hive/tache',
+          home: '/tmp/hive-home',
+          outside: false,
+          token: null,
+        });
+        expect(readFileSync(secretPath, 'utf8')).toContain('ne doit jamais être visible');
+      } finally {
+        client.stop();
+        await server.stop();
         rmSync(root, { recursive: true, force: true, maxRetries: 3 });
       }
     },
