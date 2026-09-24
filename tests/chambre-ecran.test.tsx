@@ -681,6 +681,24 @@ describe('Chambre à l’écran', () => {
     expect(onNavigate).toHaveBeenCalledWith('rayon', PROJECT_ID);
   });
 
+  it('affiche l’activité durable relue par la Chambre après reconnexion', async () => {
+    vi.mocked(fetchChambre).mockResolvedValue(
+      poste({
+        journal: [
+          {
+            id: 91,
+            ts: 2,
+            type: 'task_retry',
+            payload: { taskId: 't-historique', reason: 'Worker hors ligne' },
+          },
+        ],
+      }),
+    );
+    const dom = await monter();
+    expect(dom.textContent).toContain('task_retry');
+    expect(dom.textContent).toContain('t-historique');
+  });
+
   it('point de statut hors ligne sur la Fiche', async () => {
     const dom = await monter();
     expect(dom.querySelector('.ch-statut-dot.ch-statut-off')).toBeTruthy();

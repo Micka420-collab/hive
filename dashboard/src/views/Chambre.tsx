@@ -315,10 +315,17 @@ export default function Chambre({
     return [...byId.values()].sort((a, b) => b.updatedAt - a.updatedAt);
   }, [snapshot.tasks, poste, nodeId]);
 
-  const journal = useMemo(
-    () => evenementsDuNoeud(events, nodeId, tasksLive),
-    [events, nodeId, tasksLive],
-  );
+  const journal = useMemo(() => {
+    const live = evenementsDuNoeud(events, nodeId, tasksLive);
+    const durable = (poste?.journal ?? []).map((entry) => ({
+      id: entry.id,
+      ts: entry.ts,
+      type: entry.type,
+      payload: entry.payload,
+    }));
+    const byId = new Map([...durable, ...live].map((event) => [event.id, event]));
+    return [...byId.values()].sort((a, b) => b.id - a.id).slice(0, 80);
+  }, [events, nodeId, poste?.journal, tasksLive]);
 
   const activite = missionsFiltrees(tasksLive, filtre);
   const reqs = poste?.requisitions ?? [];

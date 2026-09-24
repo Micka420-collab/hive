@@ -7,6 +7,7 @@ import { parseServerMessage } from '../../src/shared/protocol';
 import type { HiveEvent, Project, StateSnapshot, Task, TaskResult } from '../../src/shared/types';
 import type { Graphe } from '../../src/shared/cerveau-graphe.js';
 import type { WorkerSnapshot } from '../../src/orchestrator/workers.js';
+import type { JournalOuvriere } from '../../src/orchestrator/journal-ouvriere.js';
 import type {
   EvaluationResult,
   ValidationEvidence,
@@ -1935,6 +1936,8 @@ export interface ChambrePoste {
     constateA: number;
   }>;
   tasks: Task[];
+  /** Fenêtre durable relue par le serveur ; absent sur un hub plus ancien. */
+  journal?: JournalOuvriere[];
   requisitions?: RequisitionPoste[];
   horizon?: {
     faits: Array<{ id: string; texte: string; source: string; creeA: number }>;

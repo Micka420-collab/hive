@@ -5539,6 +5539,44 @@ export class HiveStore {
     }));
   }
 
+  /**
+   * Derniers événements liés à une ouvrière, pour la Chambre.
+   *
+   * Les tâches gardent leur résultat et les résultats gardent le nodeId : la
+   * sous-requête couvre donc aussi une tâche terminée ou réassignée, sans
+   * ajouter une colonne d'événement ni charger tout le journal en mémoire.
+   * La limite est volontairement petite : l'interface affiche une fenêtre,
+   * tandis que le journal complet reste disponible par `/api/events`.
+   */
+  listEventsForNode(nodeId: string, limit = 80): HiveEvent[] {
+    const rows = this.db
+      .prepare(
+        `SELECT e.* FROM events e
+         WHERE json_extract(CASE WHEN json_valid(e.payload) THEN e.payload ELSE '{}' END, '$.nodeId') = ?
+            OR json_extract(CASE WHEN json_valid(e.payload) THEN e.payload ELSE '{}' END, '$.taskId') IN (
+                 SELECT t.id FROM tasks t WHERE t.assignedNodeId = ?
+                 UNION
+                 SELECT r.taskId FROM results r WHERE r.nodeId = ?
+               )
+         ORDER BY e.id DESC LIMIT ?`,
+      )
+      .all(nodeId, nodeId, nodeId, Math.max(1, Math.min(limit, 200))) as EventRow[];
+    const events: HiveEvent[] = [];
+    for (const row of rows) {
+      try {
+        events.push({
+          id: row.id,
+          ts: row.ts,
+          type: row.type,
+          payload: JSON.parse(row.payload) as Record<string, unknown>,
+        });
+      } catch {
+        // A malformed historical payload must not make the Worker page fail.
+      }
+    }
+    return events;
+  }
+
   /** Événements de délégation d'un graphe, bornés par le journal courant. */
   listDelegationEvents(rootTaskId: string): HiveEvent[] {
     const rows = this.db
