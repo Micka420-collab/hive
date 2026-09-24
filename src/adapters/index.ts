@@ -3,7 +3,7 @@
 // connaître l'outil qui exécute réellement la tâche (contrainte §5.4).
 
 import type { PresenceFichier } from '../shared/presence.js';
-import type { SubAgent, Task } from '../shared/types.js';
+import type { ExecutionUsage, SubAgent, Task } from '../shared/types.js';
 import { createClaudeCodeAdapter } from './claude-code.js';
 import { createClineAdapter } from './cline.js';
 import { createCodexAdapter } from './codex.js';
@@ -48,6 +48,7 @@ export type WorkerDelegationResult =
       diff: string;
       logs: string;
       durationMs: number;
+      usage?: ExecutionUsage;
       resultId?: number;
     }
   | { ok: false; code: string; message: string };

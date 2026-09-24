@@ -5,7 +5,7 @@ import { nomDeChantierValide } from './chantier.js';
 import { estPlateforme } from './machine.js';
 import type { PlateformeNoeud } from './machine.js';
 import type { PresenceFichier } from './presence.js';
-import type { HiveEvent, StateSnapshot, SubAgent, Task } from './types.js';
+import type { ExecutionUsage, HiveEvent, StateSnapshot, SubAgent, Task } from './types.js';
 
 // ─── Limites de taille (validation d'entrée) ─────────────────────────────────
 export const LIMITS = {
@@ -191,6 +191,8 @@ export interface TaskResultMsg {
   logs: string;
   durationMs: number;
   subAgents: SubAgent[];
+  /** Compteurs locaux du Worker, optionnels pour les nœuds plus anciens. */
+  usage?: ExecutionUsage;
 }
 
 /**
@@ -419,6 +421,7 @@ export interface DelegationResultMsg {
   logs: string;
   durationMs: number;
   resultId?: number;
+  usage?: ExecutionUsage;
 }
 
 /**
@@ -582,6 +585,18 @@ function isSubAgents(v: unknown): v is SubAgent[] {
       (sa.status === 'running' || sa.status === 'done' || sa.status === 'failed')
     );
   });
+}
+
+function isExecutionUsage(v: unknown): v is ExecutionUsage {
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return false;
+  const usage = v as Record<string, unknown>;
+  return (
+    isInt(usage.userCpuMicros, 0, Number.MAX_SAFE_INTEGER) &&
+    isInt(usage.systemCpuMicros, 0, Number.MAX_SAFE_INTEGER) &&
+    isInt(usage.maxRssBytes, 0, Number.MAX_SAFE_INTEGER) &&
+    isInt(usage.rssBytes, 0, Number.MAX_SAFE_INTEGER) &&
+    isInt(usage.heapUsedBytes, 0, Number.MAX_SAFE_INTEGER)
+  );
 }
 
 /** Snapshot présence Rayon — toolUseId Claude peut dépasser ID_PATTERN. */
@@ -789,7 +804,8 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
         isStrAllowEmpty(m.diff, LIMITS.diff) &&
         isStrAllowEmpty(m.logs, LIMITS.log) &&
         isInt(m.durationMs, 0, 86_400_000) &&
-        isSubAgents(m.subAgents)
+        isSubAgents(m.subAgents) &&
+        (m.usage === undefined || isExecutionUsage(m.usage))
       ) {
         return {
           type: 'task_result',
@@ -799,6 +815,7 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
           logs: m.logs,
           durationMs: m.durationMs,
           subAgents: m.subAgents,
+          ...(m.usage !== undefined ? { usage: m.usage } : {}),
         };
       }
       return null;
@@ -1052,7 +1069,8 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
         !isStrAllowEmpty(m.diff, LIMITS.diff) ||
         !isStrAllowEmpty(m.logs, LIMITS.log) ||
         !isInt(m.durationMs, 0, Number.MAX_SAFE_INTEGER) ||
-        (m.resultId !== undefined && !isInt(m.resultId, 1, Number.MAX_SAFE_INTEGER))
+        (m.resultId !== undefined && !isInt(m.resultId, 1, Number.MAX_SAFE_INTEGER)) ||
+        (m.usage !== undefined && !isExecutionUsage(m.usage))
       ) {
         return null;
       }
@@ -1066,6 +1084,7 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
         durationMs: m.durationMs,
       };
       if (m.resultId !== undefined) msg.resultId = m.resultId;
+      if (m.usage !== undefined) msg.usage = m.usage as ExecutionUsage;
       return msg;
     }
     case 'requisition_result':

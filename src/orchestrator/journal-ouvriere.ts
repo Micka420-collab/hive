@@ -44,6 +44,11 @@ const TEXT_FIELDS = new Set([
 
 const NUMBER_FIELDS = new Set([
   'durationMs',
+  'userCpuMicros',
+  'systemCpuMicros',
+  'maxRssBytes',
+  'rssBytes',
+  'heapUsedBytes',
   'attempt',
   'maxAttempts',
   'attempts',

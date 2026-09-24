@@ -932,9 +932,19 @@ export class Scheduler {
     if (retenu) {
       this.store.patchTask(task.id, {
         status: 'done',
-        result: { success: true, nodeId, durationMs: result.durationMs },
+        result: {
+          success: true,
+          nodeId,
+          durationMs: result.durationMs,
+          ...(result.usage ? { usage: result.usage } : {}),
+        },
       });
-      this.emit('task_done', { taskId: task.id, nodeId, durationMs: result.durationMs });
+      this.emit('task_done', {
+        taskId: task.id,
+        nodeId,
+        durationMs: result.durationMs,
+        ...(result.usage ? { usage: result.usage } : {}),
+      });
       // Hive Mind : la tâche réussie laisse un souvenir réutilisable par la ruche.
       this.store.recordMemory({
         projectId: task.projectId,
@@ -954,7 +964,12 @@ export class Scheduler {
           status: 'failed',
           attempts,
           assignedNodeId: null,
-          result: { success: false, nodeId, durationMs: result.durationMs },
+          result: {
+            success: false,
+            nodeId,
+            durationMs: result.durationMs,
+            ...(result.usage ? { usage: result.usage } : {}),
+          },
         });
         // `durationMs` : le temps machine que cet échec a coûté. Purement
         // ADDITIF — tous les lecteurs actuels lisent en défensif (`num(p, …)
@@ -962,7 +977,13 @@ export class Scheduler {
         // Sans lui, deux tentatives sur trois (MAX_ATTEMPTS = 3) pouvaient ne
         // laisser AUCUNE trace de leur coût : une histoire économique
         // définitivement perdue, jour après jour.
-        this.emit('task_failed', { taskId: task.id, nodeId, attempts, durationMs });
+        this.emit('task_failed', {
+          taskId: task.id,
+          nodeId,
+          attempts,
+          durationMs,
+          ...(result.usage ? { usage: result.usage } : {}),
+        });
       } else {
         // Échec → réessai : la tâche repart en ready, une autre ouvrière la prendra.
         this.store.patchTask(task.id, { status: 'ready', attempts, assignedNodeId: null });
@@ -972,6 +993,7 @@ export class Scheduler {
           attempt: attempts,
           maxAttempts: this.maxAttempts,
           durationMs,
+          ...(result.usage ? { usage: result.usage } : {}),
         });
       }
     }
@@ -1286,7 +1308,12 @@ export class Scheduler {
         {
           status: 'done',
           assignedNodeId: nodeId,
-          result: { success: true, nodeId, durationMs: result.durationMs },
+          result: {
+            success: true,
+            nodeId,
+            durationMs: result.durationMs,
+            ...(result.usage ? { usage: result.usage } : {}),
+          },
         },
         now,
       );
@@ -1299,7 +1326,12 @@ export class Scheduler {
       } else {
         this.store.effacerModeleAiguillage(task.id);
       }
-      this.emit('task_done', { taskId: task.id, nodeId, durationMs: result.durationMs });
+      this.emit('task_done', {
+        taskId: task.id,
+        nodeId,
+        durationMs: result.durationMs,
+        ...(result.usage ? { usage: result.usage } : {}),
+      });
       this.emit('drone_won', { taskId: task.id, nodeId, cancelled: decision.cancel.length });
       for (const loser of decision.cancel) {
         this.emit('drone_cancelled', { taskId: task.id, nodeId: loser });
@@ -1338,9 +1370,20 @@ export class Scheduler {
         status: 'failed',
         attempts,
         assignedNodeId: null,
-        result: { success: false, nodeId, durationMs: result.durationMs },
+        result: {
+          success: false,
+          nodeId,
+          durationMs: result.durationMs,
+          ...(result.usage ? { usage: result.usage } : {}),
+        },
       });
-      this.emit('task_failed', { taskId: task.id, nodeId, attempts, durationMs });
+      this.emit('task_failed', {
+        taskId: task.id,
+        nodeId,
+        attempts,
+        durationMs,
+        ...(result.usage ? { usage: result.usage } : {}),
+      });
     } else {
       this.store.patchTask(task.id, { status: 'ready', attempts, assignedNodeId: null });
       this.emit('task_retry', {
@@ -1349,6 +1392,7 @@ export class Scheduler {
         attempt: attempts,
         maxAttempts: this.maxAttempts,
         durationMs,
+        ...(result.usage ? { usage: result.usage } : {}),
       });
     }
     this.promoteAndAssign(now);

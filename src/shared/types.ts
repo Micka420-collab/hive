@@ -69,6 +69,22 @@ export interface TaskResultSummary {
   success: boolean;
   nodeId: string;
   durationMs: number;
+  /** Mesure locale du processus Worker, absente sur les anciens résultats. */
+  usage?: ExecutionUsage;
+}
+
+/**
+ * Ressources réellement observées par le Worker pendant une tentative.
+ *
+ * Ces compteurs décrivent le processus Node local. Ils ne sont pas une facture
+ * fournisseur et ne doivent jamais être présentés comme un coût monétaire.
+ */
+export interface ExecutionUsage {
+  userCpuMicros: number;
+  systemCpuMicros: number;
+  maxRssBytes: number;
+  rssBytes: number;
+  heapUsedBytes: number;
 }
 
 export interface Task {
@@ -98,6 +114,8 @@ export interface TaskResult {
   success: boolean;
   durationMs: number;
   subAgents: SubAgent[];
+  /** Ressources locales observées, quand le nœud les a mesurées. */
+  usage?: ExecutionUsage;
 }
 
 /** Entrée du journal d'événements — base du futur Time-Lapse Replay (palier 3). */

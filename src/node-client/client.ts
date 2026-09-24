@@ -36,7 +36,7 @@ import type {
   PoserOutilMsg,
 } from '../shared/protocol.js';
 import { HEARTBEAT_INTERVAL_MS } from '../shared/types.js';
-import type { Task } from '../shared/types.js';
+import type { ExecutionUsage, Task } from '../shared/types.js';
 import { runMerge, runProc } from './merge-runner.js';
 import { lancerVraiment, poserOutil } from './pose-runner.js';
 import { buildSandboxEnv, cloneRepo, prepareWorkspace } from './workspace.js';
@@ -49,6 +49,7 @@ import type {
   WorkerDelegationOutcome,
   WorkerDelegationResult,
 } from '../adapters/index.js';
+import { capturerExecutionUsage, executionUsageDepuis } from './execution-usage.js';
 
 const MAX_PENDING_DELEGATIONS = 32;
 const MAX_ACCEPTED_DELEGATIONS = 128;
@@ -883,6 +884,8 @@ export class HiveNodeClient {
     const started = Date.now();
     let budgetExceeded = false;
     let budgetTimer: NodeJS.Timeout | null = null;
+    let usage: ExecutionUsage | undefined;
+    let usageBefore: ReturnType<typeof capturerExecutionUsage> | null = null;
     this.send({ type: 'task_update', taskId: task.id, status: 'running' });
     this.log(`butinage : ${task.title} (tentative ${task.attempts + 1})`);
 
@@ -907,6 +910,7 @@ export class HiveNodeClient {
       budgetTimer = this.startDelegationBudget(delegationBudget, ctrl, () => {
         budgetExceeded = true;
       });
+      usageBefore = capturerExecutionUsage();
       const rawResult = await this.adapter.run(taskForAgent, {
         cwd: workspace.cwd,
         env: workspace.env,
@@ -938,6 +942,7 @@ export class HiveNodeClient {
         budgetExceeded && delegationBudget
           ? this.resultAfterDelegationBudget(rawResult, delegationBudget)
           : rawResult;
+      usage = executionUsageDepuis(usageBefore, capturerExecutionUsage());
       // Échec d'INFRASTRUCTURE : réquisition mid-task si credentials, sinon failover.
       if (!result.success && result.infra) {
         const req = requisitionDepuisEchecInfra(this.opts.agentType, result.logs, task.title);
@@ -991,10 +996,12 @@ export class HiveNodeClient {
         logs: result.logs.slice(0, LIMITS.log),
         durationMs: Date.now() - started,
         subAgents: result.subAgents.slice(0, LIMITS.subAgents),
+        ...(usage ? { usage } : {}),
       });
       this.log(`${result.success ? '✔' : '✘'} ${task.title}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      usage = usageBefore ? executionUsageDepuis(usageBefore, capturerExecutionUsage()) : undefined;
       this.send({
         type: 'task_result',
         taskId: task.id,
@@ -1006,6 +1013,7 @@ export class HiveNodeClient {
             : `[nœud] exception : ${message}`,
         durationMs: Date.now() - started,
         subAgents: [],
+        ...(usage ? { usage } : {}),
       });
       this.log(`✘ ${task.title} : ${message}`);
     } finally {
@@ -1058,6 +1066,8 @@ export class HiveNodeClient {
     this.log(`↻ reprise de ${task.title} après réquisition accordée`);
     let budgetExceeded = false;
     let budgetTimer: NodeJS.Timeout | null = null;
+    let usage: ExecutionUsage | undefined;
+    let usageBefore: ReturnType<typeof capturerExecutionUsage> | null = null;
     try {
       try {
         process.loadEnvFile('.env');
@@ -1071,6 +1081,7 @@ export class HiveNodeClient {
       budgetTimer = this.startDelegationBudget(delegationBudget, ctrl, () => {
         budgetExceeded = true;
       });
+      usageBefore = capturerExecutionUsage();
       const rawResult = await this.adapter.run(taskForAgent, {
         cwd: workspace.cwd,
         env: workspace.env,
@@ -1100,6 +1111,7 @@ export class HiveNodeClient {
         budgetExceeded && delegationBudget
           ? this.resultAfterDelegationBudget(rawResult, delegationBudget)
           : rawResult;
+      usage = executionUsageDepuis(usageBefore, capturerExecutionUsage());
       if (!result.success && result.infra) {
         const encore = requisitionDepuisEchecInfra(this.opts.agentType, result.logs, task.title);
         if (encore?.genre === 'binaire') {
@@ -1136,10 +1148,12 @@ export class HiveNodeClient {
         logs: result.logs.slice(0, LIMITS.log),
         durationMs: Date.now() - started,
         subAgents: result.subAgents.slice(0, LIMITS.subAgents),
+        ...(usage ? { usage } : {}),
       });
       this.log(`${result.success ? '✔' : '✘'} ${task.title} (reprise)`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      usage = usageBefore ? executionUsageDepuis(usageBefore, capturerExecutionUsage()) : undefined;
       this.send({
         type: 'task_result',
         taskId: task.id,
@@ -1151,6 +1165,7 @@ export class HiveNodeClient {
             : `[nœud] reprise après réquisition : ${message}`,
         durationMs: Date.now() - started,
         subAgents: [],
+        ...(usage ? { usage } : {}),
       });
     } finally {
       if (budgetTimer) clearTimeout(budgetTimer);

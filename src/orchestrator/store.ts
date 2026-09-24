@@ -3036,6 +3036,22 @@ export class HiveStore {
         now,
       );
     const resultId = Number(info.lastInsertRowid);
+    // Les colonnes historiques de `results` restent inchangées : la mesure
+    // locale est un fait d'exécution borné, rangé dans le journal et relié au
+    // résultat exact. Cela évite une migration SQLite tout en permettant sa
+    // relecture tant que le résultat reste dans la fenêtre de preuve.
+    if (res.usage) {
+      this.appendEvent(
+        'worker_usage',
+        {
+          resultId,
+          taskId: res.taskId,
+          nodeId: res.nodeId,
+          ...res.usage,
+        },
+        now,
+      );
+    }
     // Étape auto : chaque production réussie avec un diff devient une
     // sauvegarde récupérable — même après pruneResults.
     if (res.success && res.diff.trim().length > 0) {
@@ -3168,6 +3184,7 @@ export class HiveStore {
     const rows = this.db
       .prepare('SELECT * FROM results WHERE taskId = ? ORDER BY id')
       .all(taskId) as ResultRow[];
+    const usages = this.usagesForResults(rows.map((r) => r.id));
     return rows.map((r) => ({
       resultId: r.id,
       taskId: r.taskId,
@@ -3177,7 +3194,73 @@ export class HiveStore {
       logs: r.logs,
       durationMs: r.durationMs,
       subAgents: JSON.parse(r.subAgents) as SubAgent[],
+      ...(usages.get(r.id) ? { usage: usages.get(r.id) } : {}),
     }));
+  }
+
+  /** Mesures reliées aux résultats exacts, relues depuis les événements bornés. */
+  private usagesForResults(resultIds: readonly number[]): Map<number, TaskResult['usage']> {
+    const ids = [...new Set(resultIds.filter((id) => Number.isSafeInteger(id) && id > 0))];
+    if (ids.length === 0) return new Map();
+    const placeholders = ids.map(() => '?').join(', ');
+    const rows = this.db
+      .prepare(
+        `SELECT json_extract(payload, '$.resultId') AS resultId,
+                json_extract(payload, '$.userCpuMicros') AS userCpuMicros,
+                json_extract(payload, '$.systemCpuMicros') AS systemCpuMicros,
+                json_extract(payload, '$.maxRssBytes') AS maxRssBytes,
+                json_extract(payload, '$.rssBytes') AS rssBytes,
+                json_extract(payload, '$.heapUsedBytes') AS heapUsedBytes
+           FROM events
+          WHERE type = 'worker_usage'
+            AND json_extract(payload, '$.resultId') IN (${placeholders})
+          ORDER BY id`,
+      )
+      .all(...ids) as Array<{
+      resultId: number | null;
+      userCpuMicros: number | null;
+      systemCpuMicros: number | null;
+      maxRssBytes: number | null;
+      rssBytes: number | null;
+      heapUsedBytes: number | null;
+    }>;
+    const out = new Map<number, TaskResult['usage']>();
+    for (const row of rows) {
+      const resultId = row.resultId;
+      const userCpuMicros = row.userCpuMicros;
+      const systemCpuMicros = row.systemCpuMicros;
+      const maxRssBytes = row.maxRssBytes;
+      const rssBytes = row.rssBytes;
+      const heapUsedBytes = row.heapUsedBytes;
+      if (
+        typeof resultId !== 'number' ||
+        !Number.isSafeInteger(resultId) ||
+        typeof userCpuMicros !== 'number' ||
+        typeof systemCpuMicros !== 'number' ||
+        typeof maxRssBytes !== 'number' ||
+        typeof rssBytes !== 'number' ||
+        typeof heapUsedBytes !== 'number' ||
+        !Number.isSafeInteger(userCpuMicros) ||
+        !Number.isSafeInteger(systemCpuMicros) ||
+        !Number.isSafeInteger(maxRssBytes) ||
+        !Number.isSafeInteger(rssBytes) ||
+        !Number.isSafeInteger(heapUsedBytes) ||
+        userCpuMicros < 0 ||
+        systemCpuMicros < 0 ||
+        maxRssBytes < 0 ||
+        rssBytes < 0 ||
+        heapUsedBytes < 0
+      )
+        continue;
+      out.set(resultId, {
+        userCpuMicros,
+        systemCpuMicros,
+        maxRssBytes,
+        rssBytes,
+        heapUsedBytes,
+      });
+    }
+    return out;
   }
 
   /**
@@ -5257,7 +5340,8 @@ export class HiveStore {
         `DELETE FROM events
           WHERE id <= ?
             AND NOT (
-              type = 'contre_expertise_verdict'
+              (
+                type = 'contre_expertise_verdict'
               AND json_extract(payload, '$.source') = 'hive_counter_review'
               AND json_extract(payload, '$.resultId') IS NOT NULL
               AND json_extract(payload, '$.taskId') IN (
@@ -5290,9 +5374,16 @@ export class HiveStore {
                  ORDER BY e.id DESC
                  LIMIT 1
               )
+              )
+              OR (
+                type = 'worker_usage'
+                AND json_extract(payload, '$.resultId') IN (
+                  SELECT id FROM results ORDER BY id DESC LIMIT ?
+                )
+              )
             )`,
       )
-      .run(cutoff, CORPUS_AIGUILLAGE);
+      .run(cutoff, CORPUS_AIGUILLAGE, Math.max(0, maxKeep));
     return info.changes;
   }
 
