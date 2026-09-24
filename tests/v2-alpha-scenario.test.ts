@@ -11,6 +11,7 @@
 // lecture CI. Le scénario vérifie que la production réelle du Worker alimente
 // la PR, que la preuve CI vise le résultat exact, et que le merge reste humain.
 
+import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer as createHttpServer } from 'node:http';
 import type { Server as HttpServer } from 'node:http';
@@ -20,13 +21,38 @@ import { pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { simpleGit } from 'simple-git';
 import type { AgentAdapter } from '../src/adapters/index.js';
+import { runCommand } from '../src/adapters/exec.js';
 import { HiveNodeClient } from '../src/node-client/client.js';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
 import type { Fetcheur } from '../src/orchestrator/github.js';
+import { fournisseurParNom, type Fournisseur } from '../src/node-client/isolement.js';
 
 const TOKEN = 'jeton-v2-alpha-suffisamment-long';
 const GITHUB_TOKEN = 'jeton-github-v2-alpha-suffisant';
+const imageDemandee = process.env.HIVE_ISOLEMENT_IMAGE?.trim() ?? '';
+
+function bacDepuisEnv():
+  { fournisseur: Fournisseur; image: string; variables: string[] } | undefined {
+  if (!imageDemandee || process.platform === 'win32') return undefined;
+  for (const nom of ['podman', 'docker']) {
+    try {
+      execFileSync(nom, ['--version'], { stdio: 'ignore', timeout: 4_000 });
+      execFileSync(nom, ['info'], { stdio: 'ignore', timeout: 8_000 });
+      execFileSync(nom, ['image', 'inspect', imageDemandee], {
+        stdio: 'ignore',
+        timeout: 8_000,
+      });
+      const fournisseur = fournisseurParNom(nom);
+      if (!fournisseur) continue;
+      return { fournisseur, image: imageDemandee, variables: [] };
+    } catch {
+      // L'image est un prérequis explicite du job sandbox ; les jobs ordinaires
+      // n'en déclarent pas et continuent donc d'exercer le même scénario hors bac.
+    }
+  }
+  return undefined;
+}
 
 type GithubFixture = {
   requests: string[];
@@ -190,15 +216,12 @@ function workerAdapter(reviews: Map<string, number>, agentType: string): AgentAd
         reviews.set(reviewKey, calls);
         // Un premier avis conteste la production. Les avis de la seconde
         // production sont favorables : c'est le trajet correction → retry.
-        if (calls === 1 && agentType === 'hermes-agent') {
-          return {
-            success: true,
-            diff: '',
-            logs: 'conteste\n- ajoute un test du chemin sécurisé',
-            subAgents: [],
-          };
-        }
-        return { success: true, diff: '', logs: 'valide', subAgents: [] };
+        const avis =
+          calls === 1 && agentType === 'hermes-agent'
+            ? 'conteste\n- ajoute un test du chemin sécurisé'
+            : 'valide';
+        const execution = await runCommand('node', ['-e', 'process.exit(0)'], ctx, 30_000);
+        return { ...execution, logs: avis, subAgents: [] };
       }
 
       const body = 'export const secure = true;\n';
@@ -207,19 +230,17 @@ function workerAdapter(reviews: Map<string, number>, agentType: string): AgentAd
         // le producteur a été choisi, sans dépendre de l'ordre des sockets.
         await new Promise((resolve) => setTimeout(resolve, 250));
       }
-      writeFileSync(path.join(ctx.cwd, 'src', 'feature.js'), body);
-      if (ctx.attempt > 1) {
-        writeFileSync(
-          path.join(ctx.cwd, 'src', 'feature.test.js'),
-          "import { secure } from './feature.js';\nif (!secure) throw new Error('insecure');\n",
-        );
-      }
-      return {
-        success: true,
-        diff: '',
-        logs: `production attempt ${ctx.attempt}`,
-        subAgents: [],
-      };
+      const test =
+        "import { secure } from './feature.js';\nif (!secure) throw new Error('insecure');\n";
+      const script = [
+        "const fs = require('node:fs');",
+        `fs.writeFileSync('src/feature.js', ${JSON.stringify(body)});`,
+        ...(ctx.attempt > 1
+          ? [`fs.writeFileSync('src/feature.test.js', ${JSON.stringify(test)});`]
+          : []),
+      ].join('');
+      const execution = await runCommand('node', ['-e', script], ctx, 30_000);
+      return { ...execution, logs: `production attempt ${ctx.attempt}`, subAgents: [] };
     },
   };
 }
@@ -280,6 +301,10 @@ describe('V2 Alpha — mission locale vérifiable', () => {
       process.env.GIT_CONFIG_GLOBAL = path.join(gitHome, '.gitconfig');
       process.env.HIVE_GITHUB_TOKEN = GITHUB_TOKEN;
       const reviews = new Map<string, number>();
+      const bac = bacDepuisEnv();
+      if (imageDemandee && !bac) {
+        throw new Error(`HIVE_ISOLEMENT_IMAGE=${imageDemandee} exige un runtime Docker/Podman`);
+      }
       const github = githubFixture();
       const githubApi = await startGithubApi(github.fetcher);
       previousGithubApi = process.env.HIVE_GITHUB_API;
@@ -308,6 +333,7 @@ describe('V2 Alpha — mission locale vérifiable', () => {
           workRoot: path.join(root, name),
           adapter: workerAdapter(reviews, agentType),
           quiet: true,
+          ...(bac ? { bac } : {}),
         });
         client.start();
         runningClients.push(client);

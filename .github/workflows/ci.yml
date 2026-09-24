@@ -652,7 +652,7 @@ jobs:
       - name: Preflight Hive réel de l’image agent-aware
         env:
           HIVE_ISOLEMENT_IMAGE: hive-agent:ci
-        run: npm test -- --run tests/isolement-runtime.integration.test.ts
+        run: npm test -- --run tests/isolement-runtime.integration.test.ts tests/v2-alpha-scenario.test.ts
 
       - name: Arrêter
         if: always()
