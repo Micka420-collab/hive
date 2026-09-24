@@ -198,11 +198,14 @@ describe('HiveStore — le lien tâche→modèle de l’Aiguillage', () => {
 
       const observations = tieStore.observationsAiguillage();
       expect(observations).toHaveLength(300);
-      expect(new Set(observations.map((observation) => observation.modeleExact))).toEqual(exactsAvant);
+      expect(new Set(observations.map((observation) => observation.modeleExact))).toEqual(
+        exactsAvant,
+      );
       expect(observations.every((observation) => observation.modeleExact)).toBe(true);
     } finally {
       tieStore.close();
-    }  });
+    }
+  });
 
   it('ORDRE CHRONOLOGIQUE ET BORNE — les plus récentes, du plus ancien au plus neuf', () => {
     // Trois verdicts à des instants croissants. Avec une borne de 2, on garde
