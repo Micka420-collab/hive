@@ -218,6 +218,7 @@ describe('endpoints de l’instinct de ruche', () => {
       // 5 s, le serveur re-livre le message (filet anti-perte en vol).
       const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
       const assignations: Array<Record<string, unknown>> = [];
+      let wsSansModele: WebSocket | undefined;
       ws.on('message', (data) => {
         const msg = JSON.parse(data.toString()) as Record<string, unknown>;
         if (msg.type === 'assign_task') assignations.push(msg);
@@ -235,16 +236,40 @@ describe('endpoints de l’instinct de ruche', () => {
             ownerName: 'test',
             agentType: 'shell',
             maxConcurrency: 1,
+            modeles: ['opus'],
             nodeId: 'noeud-muet',
           }),
         );
+
+        // Le modèle est réellement choisi par l'Aiguillage : trois productions
+        // relues établissent l'expérience « opus » pour le même genre de tâche.
+        // Le test vérifie ainsi le contrat de production, pas une valeur posée
+        // artificiellement après l'assignation.
+        const historique = server.store.createProject({ name: 'Historique' });
+        for (let i = 0; i < 3; i++) {
+          const precedente = server.store.createTask({
+            projectId: historique.id,
+            title: 'Ajoute un endpoint',
+            prompt: 'implémente la fonction',
+          });
+          server.store.poserModeleAiguillage(precedente.id, 'opus', 1_000 + i);
+          server.store.enregistrerContreVisite({
+            productionTaskId: precedente.id,
+            suite: 'appliquer',
+            raison: '',
+            visiteurNodeId: 'relecteur',
+            visiteurAgent: 'claude-code',
+            now: 2_000 + i,
+          });
+          server.store.patchTask(precedente.id, { status: 'done' });
+        }
 
         // Une tâche qui a DÉJÀ échoué une fois, avec des logs exploitables.
         const projet = server.store.createProject({ name: 'Ruche' });
         const task = server.store.createTask({
           projectId: projet.id,
-          title: 'Tâche fragile',
-          prompt: 'faire quelque chose de délicat',
+          title: 'Ajoute un endpoint',
+          prompt: 'implémente la fonction',
         });
         server.store.insertResult({
           taskId: task.id,
@@ -277,6 +302,12 @@ describe('endpoints de l’instinct de ruche', () => {
         expect(assignations.length).toBeGreaterThanOrEqual(4);
         expect(recherches).toBeLessThanOrEqual(2);
 
+        // Le filet doit conserver le choix d'Aiguillage. Sans ce champ, le
+        // Worker relancé retombe sur son modèle par défaut alors que le journal
+        // et l'apprentissage attribuent le résultat à opus.
+        expect(assignations[0]?.modele).toBe('opus');
+        expect(assignations[1]?.modele).toBe('opus');
+
         // Les DEUX chemins servent le même contexte : sans cela, la leçon
         // annoncée par brood_context n'arrivait jamais à l'ouvrière re-servie.
         for (const msg of assignations.slice(0, 2)) {
@@ -288,7 +319,61 @@ describe('endpoints de l’instinct de ruche', () => {
         // re-livraison (sinon le journal serait noyé toutes les 2 secondes).
         const brood = server.store.listEvents(0, 1_000).filter((e) => e.type === 'brood_context');
         expect(brood).toHaveLength(1);
+
+        // Une réassignation vers un nœud qui ne déclare aucun modèle doit
+        // retirer l'élection « opus » de la tentative. Sinon le filet de
+        // relivraison enverrait opus au nouveau nœud, qui n'a jamais choisi ce
+        // modèle, et l'historique lui attribuerait un résultat qu'il n'a pas
+        // exécuté.
+        wsSansModele = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
+        const assignationsSansModele: Array<Record<string, unknown>> = [];
+        wsSansModele.on('message', (data) => {
+          const msg = JSON.parse(data.toString()) as Record<string, unknown>;
+          if (msg.type === 'assign_task') assignationsSansModele.push(msg);
+        });
+        await new Promise<void>((resolve, reject) => {
+          wsSansModele?.once('open', () => resolve());
+          wsSansModele?.once('error', reject);
+        });
+        wsSansModele.send(
+          JSON.stringify({
+            type: 'register',
+            token: TOKEN,
+            name: 'ouvriere-sans-modele',
+            ownerName: 'test',
+            agentType: 'shell',
+            maxConcurrency: 1,
+            nodeId: 'noeud-sans-modele',
+          }),
+        );
+        const fermeture = new Promise<void>((resolve) => ws.once('close', () => resolve()));
+        ws.close();
+        await fermeture;
+
+        const reassignmentDeadline = Date.now() + 5_000;
+        while (assignationsSansModele.length < 1 && Date.now() < reassignmentDeadline) {
+          await new Promise((r) => setTimeout(r, 50));
+        }
+        expect(assignationsSansModele.length).toBeGreaterThanOrEqual(1);
+        expect(assignationsSansModele[0]?.modele).toBeUndefined();
+        expect(server.store.modeleAiguillageDe(task.id)).toBeNull();
+
+        // Reproduire le silence après la réassignation pour forcer le second
+        // chemin : la relivraison doit conserver l'absence de modèle.
+        server.store.patchTask(
+          task.id,
+          { status: 'assigned', assignedNodeId: 'noeud-sans-modele' },
+          Date.now() - 60_000,
+        );
+        const redeliveryDeadline = Date.now() + 5_000;
+        while (assignationsSansModele.length < 2 && Date.now() < redeliveryDeadline) {
+          await new Promise((r) => setTimeout(r, 50));
+        }
+        expect(assignationsSansModele.length).toBeGreaterThanOrEqual(2);
+        expect(assignationsSansModele[1]?.modele).toBeUndefined();
+        expect(server.store.modeleAiguillageDe(task.id)).toBeNull();
       } finally {
+        wsSansModele?.close();
         ws.close();
       }
     },

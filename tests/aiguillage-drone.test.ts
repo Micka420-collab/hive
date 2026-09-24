@@ -83,6 +83,19 @@ describe('Aiguillage câblé — la course de drones', () => {
     // de « garde le primaire ». Son modèle doit écraser celui du primaire.
     const primaire = started.drones[0]!;
     const vainqueur = started.drones[1]!;
+    const assignation = store
+      .listEvents()
+      .find((event) => event.type === 'task_assigned' && event.payload.taskId === taskId);
+    expect(assignation?.payload.modele, 'la course journalise le modèle du primaire').toBe(
+      modeleDe(primaire),
+    );
+    const course = store
+      .listEvents()
+      .find((event) => event.type === 'drone_race_started' && event.payload.taskId === taskId);
+    expect(course?.payload.modeles, 'la course expose le modèle de chaque drone').toEqual({
+      [primaire]: 'modele-a',
+      [vainqueur]: 'modele-b',
+    });
     scheduler.handleTaskResult(vainqueur, result(taskId));
 
     verdict(taskId, 3_000);

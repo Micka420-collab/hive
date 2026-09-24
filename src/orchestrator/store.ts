@@ -4333,6 +4333,18 @@ export class HiveStore {
       .run(taskId, modele, now);
   }
 
+  /**
+   * Retire le modèle de la tentative actuellement portée par une tâche.
+   *
+   * L'absence de ligne signifie « aucun modèle choisi : le nœud emploie son
+   * défaut ». Une réassignation vers un nœud sans modèle doit donc effacer la
+   * ligne précédente, sinon une relivraison attribuerait à tort l'ancien
+   * modèle au nouveau producteur.
+   */
+  effacerModeleAiguillage(taskId: string): void {
+    this.db.prepare('DELETE FROM aiguillage_modeles WHERE taskId = ?').run(taskId);
+  }
+
   /** Modèle choisi pour la tentative actuellement représentée par la tâche. */
   modeleAiguillageDe(taskId: string): string | null {
     const row = this.db
@@ -4413,9 +4425,11 @@ export class HiveStore {
 
   /**
    * Reconstruit les observations que `replierAntecedents` replie — SANS rien
-   * recopier. Pour chaque tâche dont on connaît À LA FOIS le modèle
-   * (`aiguillage_modeles`) ET le verdict (`contre_visites`), on rend son
-   * titre + prompt (pour `categoriser` à la lecture), le modèle, et le verdict.
+   * recopier. Pour chaque tâche dont on connaît le verdict
+   * (`contre_visites`) et soit le modèle commandé (`aiguillage_modeles`), soit
+   * le modèle exact prouvé par la contre-revue, on rend son titre + prompt (pour
+   * `categoriser` à la lecture), le modèle, et le verdict. La preuve exacte doit
+   * survivre à l'effacement d'une élection courante lors d'une réassignation.
    *
    * Bornée par `limite` (les plus récentes), puis rendue en ordre
    * CHRONOLOGIQUE : c'est l'ordre que `replierAntecedents` documente, et son
@@ -4428,11 +4442,13 @@ export class HiveStore {
     // globale et ne doit pas être attribuée au dernier Worker par supposition.
     const rows = this.db
       .prepare(
-        `SELECT t.title AS title, t.prompt AS prompt, am.modele AS modele, cv.suite AS suite,
+        `SELECT t.title AS title, t.prompt AS prompt,
+                COALESCE(am.modele, json_extract(ce.payload, '$.producteurModele')) AS modele,
+                cv.suite AS suite,
                 r.nodeId AS nodeId,
                 json_extract(ce.payload, '$.producteurModele') AS modeleExact
            FROM contre_visites cv
-           JOIN aiguillage_modeles am ON am.taskId = cv.productionTaskId
+           LEFT JOIN aiguillage_modeles am ON am.taskId = cv.productionTaskId
            JOIN tasks t              ON t.id      = cv.productionTaskId
            LEFT JOIN events ce ON ce.id = (
              SELECT e.id
@@ -4445,7 +4461,9 @@ export class HiveStore {
               LIMIT 1
            )
            LEFT JOIN results r ON r.id = CAST(json_extract(ce.payload, '$.resultId') AS INTEGER)
-          ORDER BY cv.renduA DESC
+          WHERE am.taskId IS NOT NULL
+             OR json_extract(ce.payload, '$.producteurModele') IS NOT NULL
+           ORDER BY cv.renduA DESC, cv.productionTaskId DESC
           LIMIT ?`,
       )
       .all(Math.max(1, Math.min(limite, CORPUS_AIGUILLAGE))) as Array<
@@ -5223,14 +5241,58 @@ export class HiveStore {
   }
 
   /**
-   * Ne conserve que les `maxKeep` événements les plus récents (par id). Borne la
-   * croissance du journal sur un orchestrateur qui tourne longtemps. Retourne le
-   * nombre d'événements supprimés. Appelé périodiquement par le serveur.
+   * Ne conserve que les `maxKeep` événements les plus récents (par id), en
+   * préservant les derniers verdicts de contre-revue qui alimentent encore le
+   * corpus borné de l'Aiguillage. Leur `producteurModele` est la seule preuve
+   * du modèle exact d'un résultat après réassignation : supprimer l'événement
+   * tout en gardant `contre_visites` ferait apprendre le modèle courant à la
+   * place du producteur historique. Les preuves conservées sont bornées par
+   * `CORPUS_AIGUILLAGE`, comme la lecture qu'elles servent.
    */
   pruneEvents(maxKeep: number): number {
     const cutoff = this.lastEventId() - Math.max(0, maxKeep);
     if (cutoff <= 0) return 0;
-    const info = this.db.prepare('DELETE FROM events WHERE id <= ?').run(cutoff);
+    const info = this.db
+      .prepare(
+        `DELETE FROM events
+          WHERE id <= ?
+            AND NOT (
+              type = 'contre_expertise_verdict'
+              AND json_extract(payload, '$.source') = 'hive_counter_review'
+              AND json_extract(payload, '$.resultId') IS NOT NULL
+              AND json_extract(payload, '$.taskId') IN (
+                SELECT cv.productionTaskId
+                  FROM contre_visites cv
+                  JOIN tasks t ON t.id = cv.productionTaskId
+                  LEFT JOIN aiguillage_modeles am ON am.taskId = cv.productionTaskId
+                  LEFT JOIN events ce ON ce.id = (
+                    SELECT e0.id
+                      FROM events e0
+                     WHERE e0.type = 'contre_expertise_verdict'
+                       AND json_extract(e0.payload, '$.source') = 'hive_counter_review'
+                       AND json_extract(e0.payload, '$.taskId') = cv.productionTaskId
+                       AND json_extract(e0.payload, '$.resultId') IS NOT NULL
+                     ORDER BY e0.id DESC
+                     LIMIT 1
+                  )
+                 WHERE am.taskId IS NOT NULL
+                    OR json_extract(ce.payload, '$.producteurModele') IS NOT NULL
+                 ORDER BY cv.renduA DESC, cv.productionTaskId DESC
+                 LIMIT ?
+              )
+              AND id = (
+                SELECT e.id
+                  FROM events e
+                 WHERE e.type = 'contre_expertise_verdict'
+                   AND json_extract(e.payload, '$.source') = 'hive_counter_review'
+                   AND json_extract(e.payload, '$.taskId') = json_extract(events.payload, '$.taskId')
+                   AND json_extract(e.payload, '$.resultId') IS NOT NULL
+                 ORDER BY e.id DESC
+                 LIMIT 1
+              )
+            )`,
+      )
+      .run(cutoff, CORPUS_AIGUILLAGE);
     return info.changes;
   }
 

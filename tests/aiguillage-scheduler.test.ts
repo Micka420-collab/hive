@@ -74,6 +74,55 @@ describe('Aiguillage câblé — la boucle principale de l’ordonnanceur', () =
     }
   }
 
+  /** Vécu où l'Evaluator a conservé le modèle exact du résultat relu. */
+  function vecuAvecModeleExact(
+    modeleCommande: string,
+    modeleExact: string,
+    suite: Suite,
+    n: number,
+  ): void {
+    const p = store.createProject({ name: 'vecu-exact' });
+    for (let i = 0; i < n; i++) {
+      const t = store.createTask({
+        projectId: p.id,
+        title: 'Ajoute un endpoint',
+        prompt: 'implémente la fonction',
+      }).id;
+      store.poserModeleAiguillage(t, modeleCommande, 1_000 + i);
+      const resultId = store.insertResult(
+        {
+          taskId: t,
+          nodeId: 'producteur',
+          success: true,
+          diff: 'diff',
+          logs: '',
+          durationMs: 1,
+          subAgents: [],
+        },
+        2_000 + i,
+      );
+      store.appendEvent(
+        'contre_expertise_verdict',
+        {
+          source: 'hive_counter_review',
+          taskId: t,
+          resultId,
+          producteurModele: modeleExact,
+        },
+        2_100 + i,
+      );
+      store.enregistrerContreVisite({
+        productionTaskId: t,
+        suite,
+        raison: '',
+        visiteurNodeId: 'v',
+        visiteurAgent: 'claude-code',
+        now: 3_000 + i,
+      });
+      store.patchTask(t, { status: 'done' });
+    }
+  }
+
   it('NO-OP : sans modèles déclarés, le nœud par défaut est choisi, et RIEN n’est enregistré', () => {
     const na = scheduler.registerNode(profile('aaa'));
     scheduler.registerNode(profile('zzz'));
@@ -126,6 +175,32 @@ describe('Aiguillage câblé — la boucle principale de l’ordonnanceur', () =
       .observationsAiguillage()
       .find((o) => o.title === 'Ajoute le composant Ruche');
     expect(mienne?.modele, 'opus a été commandé et rangé').toBe('opus');
+
+    const assignation = store
+      .listEvents()
+      .find((event) => event.type === 'task_assigned' && event.payload.taskId === t);
+    expect(assignation?.payload.modele, 'le journal conserve le modèle commandé').toBe('opus');
+  });
+
+  it('APPREND le modèle exact du résultat relu après une réassignation', () => {
+    // La tâche a été commandée à fable puis son résultat a été produit par opus.
+    // Le modèle posé sur la tâche reste fable, mais la preuve de l’Evaluator
+    // porte opus : le prochain aiguillage doit apprendre opus, pas attribuer le
+    // verdict au modèle remplacé.
+    vecuAvecModeleExact('fable', 'opus', 'appliquer', 3);
+    vecu('fable', 'refaire', 3);
+    const fable = scheduler.registerNode(profile('aaa', ['fable']));
+    const opus = scheduler.registerNode(profile('zzz', ['opus']));
+    const t = tacheCode('Ajoute le composant Ruche');
+
+    const historique = store
+      .observationsAiguillage()
+      .filter((observation) => observation.modeleExact === 'opus');
+    expect(historique).toHaveLength(3);
+    scheduler.tick(5_000);
+
+    expect(store.getTask(t)?.assignedNodeId, 'le modèle exact appris porte la tâche').toBe(opus.id);
+    expect(store.getTask(t)?.assignedNodeId).not.toBe(fable.id);
   });
 
   it('L’UNION SE CALCULE SUR LES ÉLIGIBLES — un modèle dont l’unique porteur est saturé ne fait pas attendre la tâche', () => {
@@ -229,6 +304,10 @@ describe('Aiguillage câblé — la boucle principale de l’ordonnanceur', () =
     const mienne = assignations.find((a) => a.taskId === t);
     expect(mienne, 'la tâche est bien assignée').toBeTruthy();
     expect(mienne?.modele, 'mais sans modèle imposé').toBeUndefined();
+    const assignation = store
+      .listEvents()
+      .find((event) => event.type === 'task_assigned' && event.payload.taskId === t);
+    expect(assignation?.payload).not.toHaveProperty('modele');
   });
 
   it('LE TROUPEAU EST BORNÉ — un modèle neuf avec des élections EN VOL ne rafle plus la tâche prête', () => {

@@ -12,8 +12,8 @@
 //   · la catégorie n'est pas stockée — `categoriser` la recalcule à la lecture.
 //
 // Les trois propriétés qui comptent, et que ce banc tient :
-//   1. une observation n'apparaît QUE si l'on connaît À LA FOIS le modèle ET le
-//      verdict (jointure interne) — un demi-fait ne fausse pas la mémoire ;
+//   1. une observation n'apparaît QUE si l'on connaît le verdict et soit le
+//      modèle courant, soit le modèle exact prouvé par la contre-revue ;
 //   2. la reconstruction est bornée et rendue en ordre chronologique, tel que
 //      `replierAntecedents` l'attend ;
 //   3. la borne d'élagage retire les liens dont la tâche a disparu.
@@ -77,6 +77,134 @@ describe('HiveStore — le lien tâche→modèle de l’Aiguillage', () => {
     const t = tache('Refactor', 'simplifie');
     store.poserModeleAiguillage(t, 'claude-fable-5', 1_000);
     expect(store.observationsAiguillage(), 'pas de verdict, pas d’observation').toEqual([]);
+  });
+
+  it('GARDE LE MODÈLE EXACT après effacement de l’élection courante', () => {
+    // Une nouvelle tentative peut être assignée à un nœud sans modèle et
+    // effacer l’élection courante. La contre-revue de la production précédente
+    // porte toutefois son modèle exact : cette preuve doit continuer à nourrir
+    // l’Aiguillage, même si la ligne latérale courante a disparu.
+    const t = tache('Ajoute un endpoint', 'implémente la fonction');
+    store.poserModeleAiguillage(t, 'opus-commande', 1_000);
+    const resultId = store.insertResult(
+      {
+        taskId: t,
+        nodeId: 'producteur',
+        success: true,
+        diff: 'diff',
+        logs: '',
+        durationMs: 1,
+        subAgents: [],
+      },
+      1_500,
+    );
+    store.appendEvent(
+      'contre_expertise_verdict',
+      {
+        source: 'hive_counter_review',
+        taskId: t,
+        resultId,
+        producteurModele: 'opus-exact',
+      },
+      1_800,
+    );
+    verdict(t, 'appliquer', 2_000);
+
+    // Trois cents verdicts plus récents sans modèle ne sont pas des
+    // observations d'Aiguillage. Ils doivent donc déplacer la fenêtre brute
+    // des contre-visites sans faire sortir cette preuve exacte du corpus utile.
+    for (let i = 0; i < 300; i++) {
+      verdict(tache('Sans modèle', `ancien ${i}`), 'appliquer', 3_000 + i);
+    }
+
+    // Le modèle courant peut changer, puis le journal dépasser sa fenêtre. Le
+    // dernier verdict de cette tâche reste dans le corpus durable : son
+    // événement doit survivre assez longtemps pour conserver `modeleExact`.
+    store.poserModeleAiguillage(t, 'fable-courant', 2_500);
+    for (let i = 0; i < 5_001; i++) store.appendEvent('bruit', { i });
+    expect(store.pruneEvents(5_000)).toBe(1);
+    expect(store.observationsAiguillage()).toEqual([
+      expect.objectContaining({
+        modele: 'fable-courant',
+        modeleExact: 'opus-exact',
+        suite: 'appliquer',
+      }),
+    ]);
+
+    store.effacerModeleAiguillage(t);
+
+    expect(store.modeleAiguillageDe(t)).toBeNull();
+    expect(store.observationsAiguillage()).toEqual([
+      expect.objectContaining({
+        modele: 'opus-exact',
+        modeleExact: 'opus-exact',
+        suite: 'appliquer',
+      }),
+    ]);
+
+    // Le filtre de lecture et l'élagueur doivent choisir le MÊME corpus quand
+    // plusieurs contre-visites ont exactement le même instant. Le départage
+    // par id de tâche est volontairement celui de `pruneEvents`.
+    const tieStore = new HiveStore(':memory:');
+    try {
+      const tasks: Array<{ id: string; modele: string }> = [];
+      for (let i = 0; i < 301; i++) {
+        const projet = tieStore.createProject({ name: 'Même instant' });
+        const id = tieStore.createTask({
+          projectId: projet.id,
+          title: 'Même instant',
+          prompt: `tâche ${i}`,
+        }).id;
+        const modele = `exact-${i}`;
+        tieStore.poserModeleAiguillage(id, `courant-${i}`, 1_000);
+        const resultId = tieStore.insertResult(
+          {
+            taskId: id,
+            nodeId: 'producteur',
+            success: true,
+            diff: 'diff',
+            logs: '',
+            durationMs: 1,
+            subAgents: [],
+          },
+          1_500,
+        );
+        tieStore.appendEvent(
+          'contre_expertise_verdict',
+          {
+            source: 'hive_counter_review',
+            taskId: id,
+            resultId,
+            producteurModele: modele,
+          },
+          2_000,
+        );
+        tieStore.enregistrerContreVisite({
+          productionTaskId: id,
+          suite: 'appliquer',
+          raison: '',
+          visiteurNodeId: 'v',
+          visiteurAgent: 'claude-code',
+          now: 3_000,
+        });
+        tasks.push({ id, modele });
+      }
+      const avant = tieStore.observationsAiguillage();
+      expect(avant).toHaveLength(300);
+      expect(avant.every((observation) => observation.modeleExact)).toBe(true);
+      const exactsAvant = new Set(avant.map((observation) => observation.modeleExact));
+      for (let i = 0; i < 5_001; i++) tieStore.appendEvent('bruit', { i });
+      tieStore.pruneEvents(5_000);
+
+      const observations = tieStore.observationsAiguillage();
+      expect(observations).toHaveLength(300);
+      expect(new Set(observations.map((observation) => observation.modeleExact))).toEqual(
+        exactsAvant,
+      );
+      expect(observations.every((observation) => observation.modeleExact)).toBe(true);
+    } finally {
+      tieStore.close();
+    }
   });
 
   it('ORDRE CHRONOLOGIQUE ET BORNE — les plus récentes, du plus ancien au plus neuf', () => {

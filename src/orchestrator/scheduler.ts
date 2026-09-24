@@ -1197,7 +1197,7 @@ export class Scheduler {
     if (Object.keys(modeleParDrone).length > 0) race.modeleParDrone = modeleParDrone;
     if (modeleParDrone[primary]) {
       this.store.poserModeleAiguillage(taskId, modeleParDrone[primary], now);
-    }
+    } else this.store.effacerModeleAiguillage(taskId);
     // L'Agent Garde-Fous : l'échelon de garde-fous gouverne TOUTE la course (le
     // mode est PAR TÂCHE, pas par drone comme le modèle), donc on le pose UNE
     // FOIS pour la tâche — il vaudra pour le drone qui gagnera, sans re-pose.
@@ -1207,8 +1207,23 @@ export class Scheduler {
     // La tâche part en course : elle n'est plus « différée pour conflit ».
     this.deferredByConflict.delete(taskId);
     this.races.set(taskId, race);
-    this.emit('drone_race_started', { taskId, factor: race.factor, drones: launch });
-    this.emit('task_assigned', { taskId, nodeId: primary, branch: assigned.branch });
+    this.emit('drone_race_started', {
+      taskId,
+      factor: race.factor,
+      drones: launch,
+      ...(Object.keys(modeleParDrone).length > 0 ? { modeles: modeleParDrone } : {}),
+    });
+    this.emit('task_assigned', {
+      taskId,
+      nodeId: primary,
+      branch: assigned.branch,
+      // Le journal garde le modèle effectivement commandé au primaire. Il ne
+      // prétend pas prouver le modèle choisi par le CLI : cette preuve reste
+      // attachée au résultat du nœud. Sans ce fait, Mission Control devrait
+      // recroiser une table latérale et l'événement perdrait sa valeur de
+      // replay.
+      ...(modeleParDrone[primary] ? { modele: modeleParDrone[primary] } : {}),
+    });
     this.store.ouvrirHorlogeHote(assigned.projectId, assigned.id, Date.now());
     // Chaque drone reçoit SON modèle élu (la course diversifie les agents).
     for (const droneId of launch) this.opts.onAssign?.(droneId, assigned, modeleParDrone[droneId]);
@@ -1279,7 +1294,11 @@ export class Scheduler {
       // jugera — on re-pose SON modèle (écrase celui du primaire posé au départ).
       // `won` précède toujours le verdict, donc la jointure lira le bon couple.
       const modeleVainqueur = race.modeleParDrone?.[nodeId];
-      if (modeleVainqueur) this.store.poserModeleAiguillage(task.id, modeleVainqueur, now);
+      if (modeleVainqueur) {
+        this.store.poserModeleAiguillage(task.id, modeleVainqueur, now);
+      } else {
+        this.store.effacerModeleAiguillage(task.id);
+      }
       this.emit('task_done', { taskId: task.id, nodeId, durationMs: result.durationMs });
       this.emit('drone_won', { taskId: task.id, nodeId, cancelled: decision.cancel.length });
       for (const loser of decision.cancel) {
@@ -1350,7 +1369,11 @@ export class Scheduler {
       // Le producteur suivi change : l'élection en vol suit, pour que la borne du
       // troupeau attribue la tâche au modèle qui la porte VRAIMENT désormais.
       const modelePromu = race.modeleParDrone?.[next];
-      if (modelePromu) this.store.poserModeleAiguillage(taskId, modelePromu, now);
+      if (modelePromu) {
+        this.store.poserModeleAiguillage(taskId, modelePromu, now);
+      } else {
+        this.store.effacerModeleAiguillage(taskId);
+      }
       this.emit('drone_promoted', { taskId, nodeId: next });
     }
   }
@@ -1512,7 +1535,12 @@ export class Scheduler {
     const antecedents = replierAntecedents(
       this.store.observationsAiguillage().map((o) => ({
         categorie: categoriser(o.title, o.prompt),
-        modele: o.modele,
+        // Une contre-revue porte le modèle réellement commandé au résultat
+        // (`modeleExact`). Revenir au modèle posé sur la tâche reste nécessaire
+        // pour les verdicts historiques qui n'ont pas cette preuve, mais dès
+        // qu'elle existe elle doit gouverner l'apprentissage : une réassignation
+        // peut avoir remplacé `aiguillage_modeles` depuis la production relue.
+        modele: o.modeleExact ?? o.modele,
         suite: o.suite,
       })),
     );
@@ -1704,7 +1732,13 @@ export class Scheduler {
       // poserait un modèle fantôme), jamais au résultat (une ré-assignation doit
       // écraser, c'est le contrat « la dernière assignation gagne » qui aligne
       // dernier modèle et dernier verdict).
-      if (route) this.store.poserModeleAiguillage(task.id, route.modele, now);
+      if (route) {
+        this.store.poserModeleAiguillage(task.id, route.modele, now);
+      } else {
+        // Une réassignation sans élection revient au modèle par défaut du
+        // nouveau nœud : l'ancienne élection ne doit pas survivre à la tâche.
+        this.store.effacerModeleAiguillage(task.id);
+      }
       // L'Agent Garde-Fous : si le projet a opt-in, on élit et on POSE l'échelon
       // de garde-fous — c'est lui qui gouvernera la sévérité des Gardiennes de
       // cette production (lu par `modeGardiennesDe` à la réception). Après le patch
@@ -1726,7 +1760,15 @@ export class Scheduler {
       }
       // Le contexte Hive Mind est joint côté serveur (onAssign → assign_task),
       // sans réécrire le prompt persisté de la tâche.
-      this.emit('task_assigned', { taskId: task.id, nodeId: node.id, branch: assigned.branch });
+      this.emit('task_assigned', {
+        taskId: task.id,
+        nodeId: node.id,
+        branch: assigned.branch,
+        // Même convention que pour une course : ce champ est le modèle
+        // commandé par l'Aiguillage, jamais une valeur inventée quand aucun
+        // nœud ne déclare de modèle.
+        ...(route?.modele ? { modele: route.modele } : {}),
+      });
       this.store.ouvrirHorlogeHote(assigned.projectId, assigned.id, Date.now());
       // Le modèle élu part avec la tâche : le nœud le passera à `--model`.
       this.opts.onAssign?.(node.id, assigned, route?.modele);
