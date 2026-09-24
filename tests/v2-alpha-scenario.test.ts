@@ -634,6 +634,7 @@ describe('V2 Alpha — mission locale vérifiable', () => {
               parentTaskId: task.id,
               childTaskId: delegatedTaskId,
               success: true,
+              durationMs: expect.any(Number),
             }),
           }),
         ]),

@@ -40,6 +40,37 @@ function budgetDelegation(record: DelegationRecord | null, t: ReturnType<typeof 
   );
 }
 
+/**
+ * La durée réellement observée vient du résultat persisté, relayé dans
+ * `delegation_result`. Le budget demandé ne doit jamais être présenté comme
+ * une consommation : coût et ressources restent inconnus tant qu'un Worker ne
+ * fournit pas un contrat de mesure fiable.
+ */
+function consommationDelegation(
+  events: DelegationEvent[],
+  taskId: string,
+  t: ReturnType<typeof useT>,
+): string {
+  const event = [...events]
+    .reverse()
+    .find(
+      (candidate) =>
+        candidate.type === 'delegation_result' && candidate.payload.childTaskId === taskId,
+    );
+  const durationMs = event?.payload.durationMs;
+  if (typeof durationMs !== 'number' || !Number.isFinite(durationMs) || durationMs < 0) {
+    return t(
+      'Consommation réelle : non disponible · coût et ressources non mesurés',
+      'Actual usage: unavailable · cost and resources not measured',
+    );
+  }
+  const duree = formatMs(durationMs);
+  return t(
+    `Dernière exécution mesurée : ${duree} · coût non mesuré · ressources non mesurées`,
+    `Last measured run: ${duree} · cost not measured · resources not measured`,
+  );
+}
+
 // L'éditeur (CodeMirror) est chargé à la demande — pesant seulement quand on
 // ouvre le tiroir d'une tâche.
 const CodeEditor = lazy(() => import('./CodeEditor'));
@@ -296,6 +327,14 @@ export function TaskDrawer({ task, nodes, horloge, refreshTick = 0, onClose }: P
                         data-testid={`delegation-budget-${node.taskId}`}
                       >
                         {budgetDelegation(record, t)}
+                      </p>
+                    )}
+                    {node.parentTaskId && (
+                      <p
+                        className="delegation-tree-budget"
+                        data-testid={`delegation-consumption-${node.taskId}`}
+                      >
+                        {consommationDelegation(delegation.events, node.taskId, t)}
                       </p>
                     )}
                     {reason && <p className="delegation-tree-reason">{reason}</p>}

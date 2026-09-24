@@ -252,6 +252,12 @@ describe('le tiroir — le graphe de délégation réel', () => {
           type: 'delegation_created',
           payload: { childTaskId: 'enfant-1', reason: 'isoler les tests de sécurité' },
         },
+        {
+          id: 2,
+          ts: 2,
+          type: 'delegation_result',
+          payload: { childTaskId: 'enfant-1', durationMs: 1_250, success: true },
+        },
       ],
     });
     const dom = await monter(
@@ -264,6 +270,9 @@ describe('le tiroir — le graphe de délégation réel', () => {
     expect(dom.textContent).toContain('parent : tache-du-tiroir');
     expect(dom.textContent).toContain('isoler les tests de sécurité');
     expect(dom.textContent).toContain('Budget demandé : 60.0 s · coût 42 µ · ressources 1');
+    expect(dom.textContent).toContain(
+      'Dernière exécution mesurée : 1.3 s · coût non mesuré · ressources non mesurées',
+    );
     expect(dom.textContent).toContain('terminée');
   });
 

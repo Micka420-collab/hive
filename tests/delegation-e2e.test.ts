@@ -318,6 +318,7 @@ describe('délégation Worker → enfant en conditions réelles', () => {
               parentTaskId: 'parent',
               childTaskId: 'child',
               success: true,
+              durationMs: expect.any(Number),
             }),
           }),
           expect.objectContaining({

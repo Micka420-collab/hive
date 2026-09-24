@@ -9012,6 +9012,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
                   rootTaskId: delegation.rootTaskId,
                   nodeId,
                   success: result?.success ?? msg.success,
+                  ...(result ? { durationMs: result.durationMs } : {}),
                   ...(result?.resultId !== undefined ? { resultId: result.resultId } : {}),
                 });
 
