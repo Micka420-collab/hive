@@ -210,6 +210,37 @@ function workerAdapter(reviews: Map<string, number>, agentType: string): AgentAd
   return {
     name: 'v2-alpha-fixture-worker',
     async run(task, ctx) {
+      if (task.title === 'Sécuriser feature.js' && ctx.delegate && ctx.waitForDelegationResult) {
+        const childTaskId = `${task.id}-delegated-security`;
+        const admitted = await ctx.delegate({
+          childTaskId,
+          reason: 'faire vérifier la sécurité par un Worker indépendant',
+          title: 'Vérification sécurité déléguée',
+          prompt: 'Vérifie les chemins sensibles et rends un résultat terminal.',
+          durationMs: 60_000,
+          costMicros: 100_000,
+          resourceUnits: 1,
+          preferredAgent: 'codex',
+          preferredModel: 'codex-review-model',
+        });
+        if (!admitted.ok) {
+          return {
+            success: false,
+            diff: '',
+            logs: `delegation refused: ${admitted.code}`,
+            subAgents: [],
+          };
+        }
+        const child = await ctx.waitForDelegationResult(childTaskId);
+        if (!child.ok || !child.success) {
+          return {
+            success: false,
+            diff: '',
+            logs: child.ok ? 'delegated security check failed' : `delegation failed: ${child.code}`,
+            subAgents: [],
+          };
+        }
+      }
       if (task.title.startsWith('Contre-expertise —')) {
         const reviewKey = `${agentType}:${task.title}`;
         const calls = (reviews.get(reviewKey) ?? 0) + 1;
@@ -557,6 +588,56 @@ describe('V2 Alpha — mission locale vérifiable', () => {
           request.startsWith('GET /repos/demo/hive/commits/commit-v2-alpha/check-runs'),
         ),
       ).toBe(true);
+
+      const delegationResponse = await fetch(`${base}/api/tasks/${task.id}/delegation`, {
+        headers,
+      });
+      expect(delegationResponse.status).toBe(200);
+      const delegation = (await delegationResponse.json()) as {
+        graph: Array<{
+          taskId: string;
+          parentTaskId: string | null;
+          depth: number;
+          status: string;
+        }>;
+        events: Array<{ type: string; payload: Record<string, unknown> }>;
+      };
+      const delegatedTaskId = `${task.id}-delegated-security`;
+      expect(delegation.graph).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            taskId: task.id,
+            parentTaskId: null,
+            depth: 0,
+          }),
+          expect.objectContaining({
+            taskId: delegatedTaskId,
+            parentTaskId: task.id,
+            depth: 1,
+            status: 'done',
+          }),
+        ]),
+      );
+      expect(delegation.events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: 'delegation_created',
+            payload: expect.objectContaining({
+              parentTaskId: task.id,
+              childTaskId: delegatedTaskId,
+              reason: 'faire vérifier la sécurité par un Worker indépendant',
+            }),
+          }),
+          expect.objectContaining({
+            type: 'delegation_result',
+            payload: expect.objectContaining({
+              parentTaskId: task.id,
+              childTaskId: delegatedTaskId,
+              success: true,
+            }),
+          }),
+        ]),
+      );
       // Une PR ouverte et validée reste en attente du geste humain explicite.
       expect(github.fixture.requests.some((request) => request.startsWith('PUT '))).toBe(false);
 
