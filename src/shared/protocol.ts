@@ -60,6 +60,13 @@ export const LIMITS = {
 
 export const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
+/** Budget transmis avec une tâche enfant pour que le nœud puisse l'appliquer. */
+export interface DelegationBudget {
+  durationMs: number;
+  costMicros: number;
+  resourceUnits: number;
+}
+
 // ─── Messages client → orchestrateur ─────────────────────────────────────────
 export interface RegisterMsg {
   type: 'register';
@@ -351,6 +358,8 @@ export interface AssignTaskMsg {
    * par défaut. Un nom de modèle n'est PAS un secret ; il voyage en clair.
    */
   modele?: string;
+  /** Budget persistant de l'enfant ; absent pour une tâche racine ou une revue. */
+  delegationBudget?: DelegationBudget;
 }
 
 export interface CancelTaskMsg {
@@ -546,6 +555,16 @@ function isStrAllowEmpty(v: unknown, max: number): v is string {
 
 function isInt(v: unknown, min: number, max: number): v is number {
   return typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max;
+}
+
+function isDelegationBudget(v: unknown): v is DelegationBudget {
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return false;
+  const budget = v as Record<string, unknown>;
+  return (
+    isInt(budget.durationMs, 0, LIMITS.delegationDurationMs) &&
+    isInt(budget.costMicros, 0, LIMITS.delegationCostMicros) &&
+    isInt(budget.resourceUnits, 0, LIMITS.delegationResourceUnits)
+  );
 }
 
 export function isId(v: unknown): v is string {
@@ -967,10 +986,21 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
       // comme un nom de nœud. Mal formé ⇒ tout le message tombe (même sévérité
       // que le reste — un hub qui ment sur un champ ment peut-être sur les autres).
       if (m.modele !== undefined && !isStr(m.modele, LIMITS.name)) return null;
+      if (m.delegationBudget !== undefined && !isDelegationBudget(m.delegationBudget)) {
+        return null;
+      }
       const msg: AssignTaskMsg = { type: 'assign_task', task: m.task };
       if (m.repoUrl !== undefined) msg.repoUrl = (m.repoUrl as string | null) ?? null;
       if (m.hiveContext !== undefined) msg.hiveContext = m.hiveContext;
       if (m.modele !== undefined) msg.modele = m.modele;
+      if (m.delegationBudget !== undefined) {
+        const budget = m.delegationBudget as DelegationBudget;
+        msg.delegationBudget = {
+          durationMs: budget.durationMs,
+          costMicros: budget.costMicros,
+          resourceUnits: budget.resourceUnits,
+        };
+      }
       return msg;
     }
     case 'cancel_task':

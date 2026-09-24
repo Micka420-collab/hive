@@ -394,9 +394,34 @@ describe('parseServerMessage — validation des messages du hub (anti-traversal/
 
   it('accepte un assign_task valide', () => {
     const msg = parseServerMessage(
-      JSON.stringify({ type: 'assign_task', task: validTask, repoUrl: null }),
+      JSON.stringify({
+        type: 'assign_task',
+        task: validTask,
+        repoUrl: null,
+        delegationBudget: { durationMs: 60_000, costMicros: 42, resourceUnits: 1 },
+      }),
     );
-    expect(msg?.type).toBe('assign_task');
+    expect(msg).toMatchObject({
+      type: 'assign_task',
+      delegationBudget: { durationMs: 60_000, costMicros: 42, resourceUnits: 1 },
+    });
+  });
+
+  it('rejette un budget enfant malformé dans assign_task', () => {
+    const budget = { durationMs: 60_000, costMicros: 42, resourceUnits: 1 };
+    const message = (delegationBudget: unknown) =>
+      JSON.stringify({ type: 'assign_task', task: validTask, delegationBudget });
+    expect(parseServerMessage(message(budget))).not.toBeNull();
+    expect(parseServerMessage(message({ ...budget, durationMs: -1 }))).toBeNull();
+    expect(
+      parseServerMessage(message({ ...budget, durationMs: LIMITS.delegationDurationMs + 1 })),
+    ).toBeNull();
+    expect(parseServerMessage(message({ ...budget, resourceUnits: '1' }))).toBeNull();
+    expect(parseServerMessage(message({ ...budget, extra: 'injecte' }))).toMatchObject({
+      type: 'assign_task',
+      delegationBudget: budget,
+    });
+    expect(parseServerMessage(message({ ...budget, costMicros: 1_000_000_001 }))).toBeNull();
   });
 
   it('rejette assign_task sans task ou avec un task.id malveillant (path traversal)', () => {
