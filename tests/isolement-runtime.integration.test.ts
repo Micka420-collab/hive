@@ -239,6 +239,41 @@ describe('isolement — intégration runtime réel', () => {
           token: null,
         });
         expect(readFileSync(secretPath, 'utf8')).toContain('ne doit jamais être visible');
+
+        // Le verdict doit relire la production réellement persistée, tout en
+        // refusant honnêtement de l'accepter tant que les preuves
+        // indépendantes (tests, quorum et contre-revue) n'existent pas.
+        const evaluationResponse = await fetch(
+          `http://127.0.0.1:${server.port}/api/tasks/${task.id}/evaluation`,
+          { headers: { 'x-hive-token': token } },
+        );
+        expect(evaluationResponse.status).toBe(200);
+        const evaluation = (await evaluationResponse.json()) as {
+          taskId: string;
+          decision: string;
+          canMerge: boolean;
+          retryRecommended: boolean;
+          evidence: {
+            result: string;
+            gardiennes: string;
+            consensus: string;
+            tests: string;
+            crossReview: { status: string; resultId: number | null };
+          };
+        };
+        expect(evaluation).toMatchObject({
+          taskId: task.id,
+          decision: 'additional_test_required',
+          canMerge: false,
+          retryRecommended: false,
+        });
+        expect(evaluation.evidence).toMatchObject({
+          result: 'passed',
+          gardiennes: 'clean',
+          consensus: 'no_quorum',
+          tests: 'missing',
+          crossReview: { status: 'missing', resultId: result?.resultId },
+        });
       } finally {
         client.stop();
         await server.stop();
