@@ -286,6 +286,7 @@ import { Scheduler } from './scheduler.js';
 import { ETAT_LIVRAISON_EN_COURS, HiveStore } from './store.js';
 import type { SessionRangee } from './store.js';
 import { projeterWorkers } from './workers.js';
+import { projeterJournalOuvrier } from './journal-ouvriere.js';
 import { lireTemperature, FENETRE_MS as FENETRE_THERMO_MS, TYPES_THERMO } from './thermo.js';
 import { buildWaggleBoard } from './waggle.js';
 import { lireVersionRuche } from './version-lue.js';
@@ -2199,6 +2200,10 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         .filter((t) => t.assignedNodeId === node.id || t.result?.nodeId === node.id)
         .sort((a, b) => b.updatedAt - a.updatedAt)
         .slice(0, 80);
+      // La Chambre doit survivre à un rafraîchissement et à une reconnexion
+      // WebSocket. Le journal est relu côté serveur depuis les faits persistés,
+      // puis réduit à son contrat d'activité borné (jamais les logs/diffs).
+      const journal = projeterJournalOuvrier(store.listEventsForNode(node.id));
       // Projet dominant = dernière tâche touchée — pour horizon / fabrique à l'écran.
       const projectId = tasks[0]?.projectId ?? null;
       let horizon: { faits: unknown[]; hypotheses: unknown[] } | null = null;
@@ -2228,6 +2233,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         },
         presences,
         tasks,
+        journal,
         requisitions: store.listerRequisitions({ nodeId: node.id, statut: 'ouverte' }),
         horizon,
         fabriques,

@@ -78,6 +78,7 @@ describe('GET /api/chambre/:nodeId', () => {
       metier: unknown;
       presences: unknown[];
       tasks: unknown[];
+      journal: unknown[];
       node: { nameTechnique: string };
       caste: string;
     };
@@ -85,8 +86,67 @@ describe('GET /api/chambre/:nodeId', () => {
     expect(body.metier).toBeNull();
     expect(body.presences).toEqual([]);
     expect(body.tasks).toEqual([]);
+    expect(body.journal).toEqual([]);
     expect(body.node.nameTechnique).toBe('claude-code');
     expect(typeof body.caste).toBe('string');
+  });
+
+  it('relit un journal Worker durable, borné et sans sortie sensible', async () => {
+    const srv = await demarrer();
+    srv.store.registerNode({
+      nodeId: 'n-journal',
+      name: 'worker',
+      ownerName: 'hôte',
+      agentType: 'claude-code',
+      maxConcurrency: 1,
+    });
+    srv.store.appendEvent('task_progress', {
+      nodeId: 'n-journal',
+      taskId: 't-journal',
+      error: 'HIVE_TOKEN=secret-qui-ne-sort-pas',
+      logs: 'sk-live-secret',
+      diff: 'diff --git a/.env b/.env',
+    });
+    const project = srv.store.createProject({ name: 'Journal durable' });
+    const historicalTask = srv.store.createTask({
+      projectId: project.id,
+      title: 'Tâche terminée',
+      prompt: 'prompt',
+    });
+    srv.store.insertResult({
+      taskId: historicalTask.id,
+      nodeId: 'n-journal',
+      diff: '',
+      logs: '',
+      success: false,
+      durationMs: 1,
+      subAgents: [],
+    });
+    srv.store.appendEvent('task_retry', {
+      taskId: historicalTask.id,
+      reason: 'Worker hors ligne',
+    });
+    const res = await fetch(`${srv.url}/api/chambre/n-journal`, { headers });
+    const body = (await res.json()) as {
+      journal: Array<{ type: string; payload: Record<string, unknown> }>;
+    };
+
+    expect(res.status).toBe(200);
+    expect(body.journal).toHaveLength(2);
+    const progress = body.journal.find((entry) => entry.type === 'task_progress');
+    const retry = body.journal.find((entry) => entry.type === 'task_retry');
+    expect(progress).toMatchObject({
+      type: 'task_progress',
+      payload: { nodeId: 'n-journal', taskId: 't-journal', error: '[secret]' },
+    });
+    expect(retry).toMatchObject({
+      type: 'task_retry',
+      payload: { taskId: historicalTask.id, reason: 'Worker hors ligne' },
+    });
+    expect(progress?.payload).not.toHaveProperty('logs');
+    expect(progress?.payload).not.toHaveProperty('diff');
+    expect(JSON.stringify(body.journal)).not.toContain('secret-qui-ne-sort-pas');
+    expect(JSON.stringify(body.journal)).not.toContain('sk-live-secret');
   });
 
   it('expose baptême, métier et présence constatés', async () => {
