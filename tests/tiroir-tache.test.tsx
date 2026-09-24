@@ -230,7 +230,21 @@ describe('le tiroir — le graphe de délégation réel', () => {
           origine: 'hive',
         },
       ],
-      delegations: [],
+      delegations: [
+        {
+          childTaskId: 'enfant-1',
+          parentTaskId: 'tache-du-tiroir',
+          rootTaskId: 'tache-du-tiroir',
+          depth: 1,
+          origine: 'hive',
+          durationMs: 60_000,
+          costMicros: 42,
+          resourceUnits: 1,
+          title: 'vérifier la sécurité',
+          prompt: 'isoler les tests de sécurité',
+          createdAt: 1,
+        },
+      ],
       events: [
         {
           id: 1,
@@ -249,6 +263,7 @@ describe('le tiroir — le graphe de délégation réel', () => {
     expect(dom.textContent).toContain('enfant-1');
     expect(dom.textContent).toContain('parent : tache-du-tiroir');
     expect(dom.textContent).toContain('isoler les tests de sécurité');
+    expect(dom.textContent).toContain('Budget demandé : 60.0 s · coût 42 µ · ressources 1');
     expect(dom.textContent).toContain('terminée');
   });
 
