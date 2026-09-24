@@ -96,4 +96,52 @@ describe('Evaluator dans la Miellerie', () => {
     expect(container!.textContent).toContain('Evaluator : accepté');
     expect(container!.textContent).toContain('la fusion reste un geste humain explicite');
   });
+
+  it('expose la contre-revue, le retry et la provenance CI réels', async () => {
+    setLang('fr');
+    await mount(
+      evaluation({
+        retryRecommended: true,
+        evidence: {
+          ...evidence,
+          crossReview: {
+            ...evidence.crossReview,
+            status: 'applied',
+            resultId: 7,
+            reviewerCount: 2,
+            approvingReviewers: 1,
+            contestingReviewers: 1,
+            objections: ['ajouter un test du chemin sécurisé'],
+          },
+          validationProvenance: {
+            source: 'github_pull_request',
+            taskId: 'task-1',
+            projectId: 'project-1',
+            resultId: 7,
+            depot: 'Micka420-collab/hive',
+            pr: 417,
+            branch: 'feat/mission-control-evidence',
+            commitSha: 'deadbeef12345678',
+            recordedAt: 1_790_000_000_000,
+          },
+        },
+      }),
+    );
+    expect(container!.querySelector('[data-testid="mi-cross-review"]')?.textContent).toContain(
+      'applied',
+    );
+    expect(container!.querySelector('[data-testid="mi-cross-review"]')?.textContent).toContain(
+      '2 relecteur(s)',
+    );
+    expect(container!.querySelector('[data-testid="mi-evaluator-retry"]')?.textContent).toContain(
+      'recommandé',
+    );
+    const provenance = container!.querySelector('[data-testid="mi-validation-provenance"]');
+    expect(provenance?.textContent).toContain('PR #417');
+    expect(provenance?.textContent).toContain('feat/mission-control-evidence');
+    expect(provenance?.textContent).toContain('deadbeef');
+    expect(
+      container!.querySelector('[data-testid="mi-cross-review-objections"]')?.textContent,
+    ).toContain('ajouter un test du chemin sécurisé');
+  });
 });

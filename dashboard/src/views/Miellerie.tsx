@@ -461,6 +461,17 @@ export function EvaluationPanel({
     [t('Lint', 'Lint'), evaluation.evidence.lint],
     [t('Revue humaine', 'Human review'), evaluation.evidence.humanReview],
   ] as const;
+  const crossReview = evaluation.evidence.crossReview;
+  const crossReviewSummary = `${crossReview.status} · ${crossReview.reviewerCount} ${t(
+    'relecteur(s)',
+    'reviewer(s)',
+  )} · ${crossReview.approvingReviewers} ${t('favorable(s)', 'approving')} / ${
+    crossReview.contestingReviewers
+  } ${t('à corriger', 'contesting')}`;
+  const provenance = evaluation.evidence.validationProvenance;
+  const provenanceSummary = provenance
+    ? `${provenance.source} · ${provenance.depot} · PR #${provenance.pr} · ${provenance.branch} · ${provenance.commitSha.slice(0, 8)}`
+    : t('missing', 'missing');
   return (
     <div className="mi-eval" data-testid="mi-evaluation">
       <p className={`mi-cons-outcome ${evaluation.decision}`}>
@@ -475,6 +486,36 @@ export function EvaluationPanel({
           </div>
         ))}
       </dl>
+      <h3 className="mi-sub">{t('Traçabilité des preuves', 'Evidence traceability')}</h3>
+      <dl className="meta-grid" data-testid="mi-evaluation-proofs">
+        <div>
+          <dt>{t('Contre-revue', 'Cross-review')}</dt>
+          <dd data-testid="mi-cross-review">{crossReviewSummary}</dd>
+        </div>
+        <div>
+          <dt>{t('Retry Evaluator', 'Evaluator retry')}</dt>
+          <dd data-testid="mi-evaluator-retry">
+            {evaluation.retryRecommended
+              ? t('recommandé', 'recommended')
+              : t('non recommandé', 'not recommended')}
+          </dd>
+        </div>
+        <div>
+          <dt>{t('Provenance CI', 'CI provenance')}</dt>
+          <dd className="mono" data-testid="mi-validation-provenance">
+            {provenanceSummary}
+          </dd>
+        </div>
+      </dl>
+      {crossReview.objections.length > 0 && (
+        <ul className="mi-sting" data-testid="mi-cross-review-objections">
+          {crossReview.objections.slice(0, 3).map((objection, index) => (
+            <li key={`${index}-${objection}`} className="mi-sting-item high">
+              {objection}
+            </li>
+          ))}
+        </ul>
+      )}
       <p className="mi-cons-note">
         {evaluation.canMerge
           ? t(

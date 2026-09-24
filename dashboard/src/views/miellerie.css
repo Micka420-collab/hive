@@ -402,6 +402,10 @@
   font-style: normal;
 }
 
+.mi-eval .meta-grid dd {
+  overflow-wrap: anywhere;
+}
+
 .mi-fac-list {
   list-style: none;
   margin: 0;
