@@ -98,7 +98,12 @@ import {
   octetsDe,
   parseClientMessage,
 } from '../shared/protocol.js';
-import type { ChantierResultMsg, MergeResultMsg, ServerMessage } from '../shared/protocol.js';
+import type {
+  ChantierResultMsg,
+  DelegationBudget,
+  MergeResultMsg,
+  ServerMessage,
+} from '../shared/protocol.js';
 import { direManques, manquesDeDemarrage } from '../shared/amorce.js';
 import { DEFAULT_TOKEN } from '../shared/types.js';
 import type { HiveEvent, Project, Task } from '../shared/types.js';
@@ -1456,6 +1461,17 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
    * contexte du Cerveau et le journal des refus. Deux portes, c'est une porte
    * qu'on oublie de garder.
    */
+  const budgetDelegationDe = (taskId: string): DelegationBudget | undefined => {
+    const delegation = store.getDelegation(taskId);
+    return delegation
+      ? {
+          durationMs: delegation.durationMs,
+          costMicros: delegation.costMicros,
+          resourceUnits: delegation.resourceUnits,
+        }
+      : undefined;
+  };
+
   const envoyerTache = (nodeId: string, task: Task, modele?: string): void => {
     const ws = nodeSockets.get(nodeId);
     // Socket absent ou fermé : le close/reap réaffectera la tâche, rien à faire ici.
@@ -1466,6 +1482,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // qu'un souvenir en moins n'est qu'un souvenir en moins.
       const cadre = construireCadre(task, nodeId);
       const { hiveContext, echecs, refusCerveau } = construireHiveContext(task, cadre.length);
+      const delegationBudget = budgetDelegationDe(task.id);
       // Le Cerveau a refusé : ses invariants ne tenaient pas dans le budget,
       // donc cette ouvrière travaille sans les contraintes de sûreté du
       // projet. C'est précisément le genre de fait qu'un `''` silencieux
@@ -1485,6 +1502,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         // Le modèle choisi par l'Aiguillage, s'il y en a un : le nœud le passe à
         // son adaptateur. Absent ⇒ le nœud emploie son modèle par défaut.
         ...(modele ? { modele } : {}),
+        ...(delegationBudget ? { delegationBudget } : {}),
       });
 
       // ─── L'HORLOGE DU CHANTIER : ce qu'on ANNONCE, écrit au moment où on
@@ -9529,6 +9547,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           contextesRelivres.set(task.id, hiveContext);
         }
         derniereRelivraison.set(task.id, maintenant);
+        const delegationBudget = budgetDelegationDe(task.id);
         for (const nodeId of ouvertes) {
           const ws = nodeSockets.get(nodeId);
           if (ws) {
@@ -9546,6 +9565,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
               repoUrl: project?.repoUrl ?? null,
               ...(hiveContext ? { hiveContext } : {}),
               ...(modele ? { modele } : {}),
+              ...(delegationBudget ? { delegationBudget } : {}),
             });
           }
         }

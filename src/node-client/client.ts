@@ -10,7 +10,7 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import WebSocket from 'ws';
 import { getAdapter } from '../adapters/index.js';
-import type { AgentAdapter } from '../adapters/index.js';
+import type { AdapterResult, AgentAdapter } from '../adapters/index.js';
 import {
   agentBinairePresent,
   estAgentType,
@@ -28,6 +28,7 @@ import type {
   AssignChantierMsg,
   AssignMergeMsg,
   ClientMessage,
+  DelegationBudget,
   DelegationAcceptedMsg,
   DelegationRejectedMsg,
   DelegationResultMsg,
@@ -206,6 +207,7 @@ export class HiveNodeClient {
     repoUrl: string | null;
     hiveContext?: string;
     modele?: string;
+    delegationBudget?: DelegationBudget;
     workspace: Workspace;
     started: number;
     ctrl: AbortController;
@@ -219,6 +221,42 @@ export class HiveNodeClient {
   private closed = false;
   private readonly adapter: AgentAdapter;
   private readonly workRoot: string;
+
+  /**
+   * Arma la seule limite d'exécution actuellement consommée côté Worker.
+   * `costMicros` et `resourceUnits` restent transportés comme faits demandés
+   * jusqu'à ce que les adaptateurs sachent les mesurer réellement.
+   */
+  private startDelegationBudget(
+    budget: DelegationBudget | undefined,
+    ctrl: AbortController,
+    onExceeded: () => void,
+  ): NodeJS.Timeout | null {
+    if (!budget) return null;
+    const expire = (): void => {
+      onExceeded();
+      ctrl.abort();
+    };
+    if (budget.durationMs === 0) {
+      expire();
+      return null;
+    }
+    const timer = setTimeout(expire, budget.durationMs);
+    timer.unref?.();
+    return timer;
+  }
+
+  private resultAfterDelegationBudget(
+    result: AdapterResult,
+    budget: DelegationBudget,
+  ): AdapterResult {
+    return {
+      success: false,
+      diff: '',
+      logs: `${result.logs}\n[hive] budget de durée dépassé (${budget.durationMs} ms)`,
+      subAgents: result.subAgents,
+    };
+  }
 
   constructor(private readonly opts: NodeClientOptions) {
     this.adapter = opts.adapter ?? getAdapter(opts.agentType);
@@ -613,7 +651,13 @@ export class HiveNodeClient {
         this.proposerRequisitionCredentialsSiBesoin();
         break;
       case 'assign_task':
-        void this.runTask(msg.task, msg.repoUrl ?? null, msg.hiveContext, msg.modele);
+        void this.runTask(
+          msg.task,
+          msg.repoUrl ?? null,
+          msg.hiveContext,
+          msg.modele,
+          msg.delegationBudget,
+        );
         break;
       case 'assign_merge':
         void this.runMergeJob(msg);
@@ -788,6 +832,7 @@ export class HiveNodeClient {
     repoUrl: string | null,
     hiveContext?: string,
     modele?: string,
+    delegationBudget?: DelegationBudget,
   ): Promise<void> {
     // Défense en profondeur : l'id sert à construire des chemins locaux — on ne
     // fait pas confiance au hub (anti path-traversal si le hub était compromis).
@@ -836,6 +881,8 @@ export class HiveNodeClient {
     const ctrl = new AbortController();
     this.active.set(task.id, ctrl);
     const started = Date.now();
+    let budgetExceeded = false;
+    let budgetTimer: NodeJS.Timeout | null = null;
     this.send({ type: 'task_update', taskId: task.id, status: 'running' });
     this.log(`butinage : ${task.title} (tentative ${task.attempts + 1})`);
 
@@ -857,7 +904,10 @@ export class HiveNodeClient {
       const taskForAgent = hiveContext
         ? { ...task, prompt: composeAgentPrompt(hiveContext, task.prompt) }
         : task;
-      const result = await this.adapter.run(taskForAgent, {
+      budgetTimer = this.startDelegationBudget(delegationBudget, ctrl, () => {
+        budgetExceeded = true;
+      });
+      const rawResult = await this.adapter.run(taskForAgent, {
         cwd: workspace.cwd,
         env: workspace.env,
         attempt: task.attempts + 1,
@@ -880,6 +930,14 @@ export class HiveNodeClient {
           });
         },
       });
+      if (budgetTimer) {
+        clearTimeout(budgetTimer);
+        budgetTimer = null;
+      }
+      const result =
+        budgetExceeded && delegationBudget
+          ? this.resultAfterDelegationBudget(rawResult, delegationBudget)
+          : rawResult;
       // Échec d'INFRASTRUCTURE : réquisition mid-task si credentials, sinon failover.
       if (!result.success && result.infra) {
         const req = requisitionDepuisEchecInfra(this.opts.agentType, result.logs, task.title);
@@ -890,6 +948,7 @@ export class HiveNodeClient {
             repoUrl,
             hiveContext,
             modele,
+            delegationBudget,
             workspace,
             started,
             ctrl,
@@ -941,12 +1000,16 @@ export class HiveNodeClient {
         taskId: task.id,
         success: false,
         diff: '',
-        logs: `[nœud] exception : ${message}`,
+        logs:
+          budgetExceeded && delegationBudget
+            ? `[nœud] budget de durée dépassé (${delegationBudget.durationMs} ms)`
+            : `[nœud] exception : ${message}`,
         durationMs: Date.now() - started,
         subAgents: [],
       });
       this.log(`✘ ${task.title} : ${message}`);
     } finally {
+      if (budgetTimer) clearTimeout(budgetTimer);
       if (!conserverWorkspace) {
         this.active.delete(task.id);
         this.clearDelegationsForParent(task.id);
@@ -959,7 +1022,18 @@ export class HiveNodeClient {
   private async reprendreApresRequisition(): Promise<void> {
     const attente = this.attenteRequisition;
     if (!attente) return;
-    const { task, hiveContext, modele, workspace, started, ctrl, genre, libelle, detail } = attente;
+    const {
+      task,
+      hiveContext,
+      modele,
+      delegationBudget,
+      workspace,
+      started,
+      ctrl,
+      genre,
+      libelle,
+      detail,
+    } = attente;
 
     if (genre === 'binaire') {
       const pret = this.opts.verifierBinaireAgent
@@ -982,6 +1056,8 @@ export class HiveNodeClient {
 
     this.attenteRequisition = null;
     this.log(`↻ reprise de ${task.title} après réquisition accordée`);
+    let budgetExceeded = false;
+    let budgetTimer: NodeJS.Timeout | null = null;
     try {
       try {
         process.loadEnvFile('.env');
@@ -992,7 +1068,10 @@ export class HiveNodeClient {
       const taskForAgent = hiveContext
         ? { ...task, prompt: composeAgentPrompt(hiveContext, task.prompt) }
         : task;
-      const result = await this.adapter.run(taskForAgent, {
+      budgetTimer = this.startDelegationBudget(delegationBudget, ctrl, () => {
+        budgetExceeded = true;
+      });
+      const rawResult = await this.adapter.run(taskForAgent, {
         cwd: workspace.cwd,
         env: workspace.env,
         attempt: task.attempts + 1,
@@ -1013,6 +1092,14 @@ export class HiveNodeClient {
           });
         },
       });
+      if (budgetTimer) {
+        clearTimeout(budgetTimer);
+        budgetTimer = null;
+      }
+      const result =
+        budgetExceeded && delegationBudget
+          ? this.resultAfterDelegationBudget(rawResult, delegationBudget)
+          : rawResult;
       if (!result.success && result.infra) {
         const encore = requisitionDepuisEchecInfra(this.opts.agentType, result.logs, task.title);
         if (encore?.genre === 'binaire') {
@@ -1058,11 +1145,15 @@ export class HiveNodeClient {
         taskId: task.id,
         success: false,
         diff: '',
-        logs: `[nœud] reprise après réquisition : ${message}`,
+        logs:
+          budgetExceeded && delegationBudget
+            ? `[nœud] budget de durée dépassé (${delegationBudget.durationMs} ms)`
+            : `[nœud] reprise après réquisition : ${message}`,
         durationMs: Date.now() - started,
         subAgents: [],
       });
     } finally {
+      if (budgetTimer) clearTimeout(budgetTimer);
       if (!this.attenteRequisition) {
         this.active.delete(task.id);
         this.clearDelegationsForParent(task.id);

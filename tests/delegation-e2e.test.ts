@@ -333,4 +333,121 @@ describe('délégation Worker → enfant en conditions réelles', () => {
       expect(server.store.getTask('intruder-child')).toBeUndefined();
     },
   );
+
+  it(
+    'interrompt un enfant quand son budget de durée est dépassé',
+    { timeout: 30_000 },
+    async () => {
+      tempDir = mkdtempSync(path.join(os.tmpdir(), 'hive-delegation-budget-'));
+      server = await createServer({
+        port: 0,
+        host: '127.0.0.1',
+        token: TOKEN,
+        corsOrigins: [],
+        dbPath: path.join(tempDir, 'hive.db'),
+        simulation: true,
+        tickMs: 20,
+      });
+      const project = server.store.createProject({ name: 'Budget délégation' });
+      server.store.createTask({
+        id: 'budget-parent',
+        projectId: project.id,
+        title: 'Parent budget',
+        prompt: 'attendre le contrôle enfant',
+      });
+      server.store.patchTask('budget-parent', { status: 'ready' });
+
+      let childOutcome: WorkerDelegationResult | null = null;
+      const parentAdapter: AgentAdapter = {
+        name: 'budget-parent',
+        async run(task, ctx) {
+          if (!ctx.delegate || !ctx.waitForDelegationResult) {
+            throw new Error('capacités de délégation absentes');
+          }
+          const admitted = await ctx.delegate({
+            childTaskId: 'budget-child',
+            reason: 'borner le contrôle sécurité enfant',
+            title: 'Contrôle enfant borné',
+            prompt: 'attendre puis répondre',
+            durationMs: 20,
+            costMicros: 1,
+            resourceUnits: 1,
+          });
+          if (!admitted.ok) {
+            return { success: false, diff: '', logs: admitted.message, subAgents: [] };
+          }
+          childOutcome = await ctx.waitForDelegationResult('budget-child');
+          return {
+            success: childOutcome.ok && childOutcome.success,
+            diff: '',
+            logs: childOutcome.ok ? childOutcome.logs : childOutcome.message,
+            subAgents: [],
+          };
+        },
+      };
+      const childAdapter: AgentAdapter = {
+        name: 'budget-child',
+        async run(_task, ctx) {
+          await new Promise<void>((resolve) => {
+            const timer = setTimeout(resolve, 250);
+            ctx.signal.addEventListener(
+              'abort',
+              () => {
+                clearTimeout(timer);
+                resolve();
+              },
+              { once: true },
+            );
+          });
+          // Le Worker ignore volontairement le signal et annonce un succès :
+          // le nœud doit encore transformer cette réponse en échec de budget.
+          return {
+            success: true,
+            diff: 'diff abandonné',
+            logs: 'le Worker a ignoré le signal',
+            subAgents: [],
+          };
+        },
+      };
+      const parentClient = new HiveNodeClient({
+        url: `ws://127.0.0.1:${server.port}/ws`,
+        token: TOKEN,
+        name: 'budget-parent-node',
+        ownerName: 'e2e',
+        agentType: 'shell',
+        maxConcurrency: 1,
+        workRoot: path.join(tempDir, 'parent'),
+        adapter: parentAdapter,
+        quiet: true,
+      });
+      const childClient = new HiveNodeClient({
+        url: `ws://127.0.0.1:${server.port}/ws`,
+        token: TOKEN,
+        name: 'budget-child-node',
+        ownerName: 'e2e',
+        agentType: 'shell',
+        maxConcurrency: 1,
+        workRoot: path.join(tempDir, 'child'),
+        adapter: childAdapter,
+        quiet: true,
+      });
+      clients.push(parentClient, childClient);
+      parentClient.start();
+      childClient.start();
+
+      const deadline = Date.now() + 12_000;
+      while (childOutcome === null && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      const outcome = childOutcome as WorkerDelegationResult | null;
+      if (outcome === null) throw new Error('le résultat enfant n’est jamais devenu terminal');
+      expect(outcome).toMatchObject({ ok: true, success: false });
+      if (outcome.ok) {
+        expect(outcome.logs).toContain('budget de durée dépassé (20 ms)');
+      }
+      const child = server.store.getTask('budget-child');
+      expect(child?.status).toBe('failed');
+      expect(server.store.resultsForTask('budget-child').at(-1)?.success).toBe(false);
+    },
+  );
 });
