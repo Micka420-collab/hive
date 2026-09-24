@@ -141,7 +141,68 @@ describe('HiveStore — le lien tâche→modèle de l’Aiguillage', () => {
         suite: 'appliquer',
       }),
     ]);
-  });
+
+    // Le filtre de lecture et l'élagueur doivent choisir le MÊME corpus quand
+    // plusieurs contre-visites ont exactement le même instant. Le départage
+    // par id de tâche est volontairement celui de `pruneEvents`.
+    const tieStore = new HiveStore(':memory:');
+    try {
+      const tasks: Array<{ id: string; modele: string }> = [];
+      for (let i = 0; i < 301; i++) {
+        const projet = tieStore.createProject({ name: 'Même instant' });
+        const id = tieStore.createTask({
+          projectId: projet.id,
+          title: 'Même instant',
+          prompt: `tâche \${i}`,
+        }).id;
+        const modele = `exact-\${i}`;
+        tieStore.poserModeleAiguillage(id, `courant-\${i}`, 1_000);
+        const resultId = tieStore.insertResult(
+          {
+            taskId: id,
+            nodeId: 'producteur',
+            success: true,
+            diff: 'diff',
+            logs: '',
+            durationMs: 1,
+            subAgents: [],
+          },
+          1_500,
+        );
+        tieStore.appendEvent(
+          'contre_expertise_verdict',
+          {
+            source: 'hive_counter_review',
+            taskId: id,
+            resultId,
+            producteurModele: modele,
+          },
+          2_000,
+        );
+        tieStore.enregistrerContreVisite({
+          productionTaskId: id,
+          suite: 'appliquer',
+          raison: '',
+          visiteurNodeId: 'v',
+          visiteurAgent: 'claude-code',
+          now: 3_000,
+        });
+        tasks.push({ id, modele });
+      }
+      const avant = tieStore.observationsAiguillage();
+      expect(avant).toHaveLength(300);
+      expect(avant.every((observation) => observation.modeleExact)).toBe(true);
+      const exactsAvant = new Set(avant.map((observation) => observation.modeleExact));
+      for (let i = 0; i < 5_001; i++) tieStore.appendEvent('bruit', { i });
+      tieStore.pruneEvents(5_000);
+
+      const observations = tieStore.observationsAiguillage();
+      expect(observations).toHaveLength(300);
+      expect(new Set(observations.map((observation) => observation.modeleExact))).toEqual(exactsAvant);
+      expect(observations.every((observation) => observation.modeleExact)).toBe(true);
+    } finally {
+      tieStore.close();
+    }  });
 
   it('ORDRE CHRONOLOGIQUE ET BORNE — les plus récentes, du plus ancien au plus neuf', () => {
     // Trois verdicts à des instants croissants. Avec une borne de 2, on garde

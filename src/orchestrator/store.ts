@@ -4463,7 +4463,7 @@ export class HiveStore {
            LEFT JOIN results r ON r.id = CAST(json_extract(ce.payload, '$.resultId') AS INTEGER)
           WHERE am.taskId IS NOT NULL
              OR json_extract(ce.payload, '$.producteurModele') IS NOT NULL
-           ORDER BY cv.renduA DESC
+           ORDER BY cv.renduA DESC, cv.productionTaskId DESC
           LIMIT ?`,
       )
       .all(Math.max(1, Math.min(limite, CORPUS_AIGUILLAGE))) as Array<
