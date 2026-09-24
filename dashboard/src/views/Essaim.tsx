@@ -168,6 +168,34 @@ function NodeCard({
         </span>
         <ProgressBar value={node.running} max={node.maxConcurrency} />
       </div>
+      {worker && (
+        <div className="es-current-tasks" data-testid="worker-current-tasks">
+          <span className="es-current-tasks-label">{t('Travail courant', 'Current work')}</span>
+          {worker.currentTasks === undefined ? (
+            <span className="es-agents-none">
+              {t('travail courant indisponible', 'current work unavailable')}
+            </span>
+          ) : worker.currentTasks.length === 0 ? (
+            <span className="es-agents-none">{t('aucune tâche assignée', 'no assigned task')}</span>
+          ) : (
+            <ul className="es-current-task-list">
+              {worker.currentTasks.map((task) => (
+                <li key={task.id} className="es-current-task">
+                  <span className="es-current-task-title" title={task.title}>
+                    {task.title}
+                  </span>
+                  <span className="es-current-task-state">
+                    {task.status === 'running'
+                      ? t('en cours', 'running')
+                      : t('assignée', 'assigned')}{' '}
+                    · {t('essai', 'attempt')} {task.attempts}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
       <div className="es-agents">
         {agents.length === 0 ? (
           <span className="es-agents-none">

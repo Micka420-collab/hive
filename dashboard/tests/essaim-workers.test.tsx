@@ -67,6 +67,7 @@ const workerAvecModeles = (): WorkerSnapshot =>
   ({
     ...noeud(),
     slotsLibres: 3,
+    currentTasks: [],
     modeles: [
       {
         modele: 'alpha',
@@ -184,6 +185,34 @@ describe('projection Worker dans Mission Control', () => {
     expect(modeles?.textContent).toContain('zeta');
     expect(modeles?.textContent).toContain('à explorer');
     expect(modeles?.querySelector('.es-model.exploration')?.textContent).toContain('zeta');
+  });
+
+  it('rend le travail courant renvoyé par la projection Worker', async () => {
+    vi.mocked(fetchWorkers).mockResolvedValue({
+      workers: [
+        {
+          ...workerAvecModeles(),
+          currentTasks: [
+            {
+              id: 'task-live',
+              title: 'Corriger le flux',
+              status: 'running',
+              attempts: 2,
+              branch: 'hive/task-live',
+              updatedAt: 42,
+            },
+          ],
+        },
+      ],
+    });
+
+    const dom = await monter();
+    const travail = carte(dom).querySelector('[data-testid="worker-current-tasks"]');
+
+    expect(travail?.textContent).toContain('Travail courant');
+    expect(travail?.textContent).toContain('Corriger le flux');
+    expect(travail?.textContent).toContain('en cours');
+    expect(travail?.textContent).toContain('essai 2');
   });
 
   it('ne fabrique aucun profil quand la projection ne contient aucun Worker correspondant', async () => {

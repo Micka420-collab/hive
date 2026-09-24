@@ -7,7 +7,7 @@ import {
   type Categorie,
   type Observation,
 } from './aiguillage.js';
-import type { HiveNode } from '../shared/types.js';
+import type { HiveNode, Task, TaskStatus } from '../shared/types.js';
 import type { Suite } from './polyethisme.js';
 
 export interface WorkerReputationSnapshot {
@@ -55,11 +55,22 @@ export interface WorkerSnapshot {
   running: number;
   maxConcurrency: number;
   slotsLibres: number;
+  /** Tâches réellement attribuées à ce Worker au moment de la lecture. */
+  currentTasks?: WorkerCurrentTask[];
   plateforme?: HiveNode['plateforme'];
   outils?: HiveNode['outils'];
   /** Réputation du Worker, calculée uniquement sur ses résultats attribués. */
   reputation: WorkerReputationSnapshot;
   modeles?: ModeleWorkerSnapshot[];
+}
+
+export interface WorkerCurrentTask {
+  id: string;
+  title: string;
+  status: Extract<TaskStatus, 'assigned' | 'running'>;
+  attempts: number;
+  branch: string | null;
+  updatedAt: number;
 }
 
 type LigneObservation = Pick<Observation, 'modele' | 'suite'> & {
@@ -116,6 +127,10 @@ const scoreDe = (rang: ReturnType<typeof classer>[number]) => ({
 export function projeterWorkers(
   nodes: readonly HiveNode[],
   lignes: readonly LigneObservation[],
+  activeTasks: readonly Pick<
+    Task,
+    'id' | 'title' | 'status' | 'assignedNodeId' | 'attempts' | 'branch' | 'updatedAt'
+  >[] = [],
 ): WorkerSnapshot[] {
   const antecedents = replierAntecedents(
     lignes.map((ligne) => ({
@@ -137,6 +152,25 @@ export function projeterWorkers(
       running: node.running,
       maxConcurrency: node.maxConcurrency,
       slotsLibres: Math.max(0, node.maxConcurrency - node.running),
+      currentTasks: activeTasks
+        .filter(
+          (
+            task,
+          ): task is typeof task & {
+            assignedNodeId: string;
+            status: Extract<TaskStatus, 'assigned' | 'running'>;
+          } =>
+            task.assignedNodeId === node.id &&
+            (task.status === 'assigned' || task.status === 'running'),
+        )
+        .map((task) => ({
+          id: task.id,
+          title: task.title,
+          status: task.status,
+          attempts: task.attempts,
+          branch: task.branch,
+          updatedAt: task.updatedAt,
+        })),
       ...(node.plateforme !== undefined ? { plateforme: node.plateforme } : {}),
       ...(node.outils !== undefined ? { outils: node.outils } : {}),
       reputation: reputationDe(lignesDuWorker),
