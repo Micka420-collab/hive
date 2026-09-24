@@ -2,6 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { once } from 'node:events';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   codexMcpOverrides,
@@ -46,8 +47,14 @@ describe('pont MCP de délégation Worker → CLI', () => {
   let child: ChildProcessWithoutNullStreams | undefined;
 
   afterEach(async () => {
-    child?.kill('SIGTERM');
+    const runningChild = child;
     child = undefined;
+    if (runningChild) {
+      if (runningChild.exitCode === null && runningChild.signalCode === null) {
+        runningChild.kill('SIGTERM');
+        await once(runningChild, 'close');
+      }
+    }
     await bridge?.close();
     bridge = undefined;
     if (tempDir) rmSync(tempDir, { recursive: true, force: true });
