@@ -153,10 +153,10 @@ describe('HiveStore — le lien tâche→modèle de l’Aiguillage', () => {
         const id = tieStore.createTask({
           projectId: projet.id,
           title: 'Même instant',
-          prompt: `tâche \${i}`,
+          prompt: `tâche ${i}`,
         }).id;
-        const modele = `exact-\${i}`;
-        tieStore.poserModeleAiguillage(id, `courant-\${i}`, 1_000);
+        const modele = `exact-${i}`;
+        tieStore.poserModeleAiguillage(id, `courant-${i}`, 1_000);
         const resultId = tieStore.insertResult(
           {
             taskId: id,
