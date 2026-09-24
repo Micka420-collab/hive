@@ -181,6 +181,28 @@ describe('le tiroir — les métadonnées et le geste qui coupe', () => {
     expect(dom.textContent).toContain('construire le rayon');
   });
 
+  it('affiche les ressources réellement observées par le Worker', async () => {
+    const task = {
+      ...tache('done'),
+      result: {
+        success: true,
+        nodeId: 'noeud-1',
+        durationMs: 1_250,
+        usage: {
+          userCpuMicros: 8_000,
+          systemCpuMicros: 2_000,
+          maxRssBytes: 2 * 1024 * 1024,
+          rssBytes: 1 * 1024 * 1024,
+          heapUsedBytes: 512 * 1024,
+        },
+      },
+    };
+    const dom = await monter(<TaskDrawer task={task} nodes={NOEUDS} onClose={() => {}} />);
+    expect(dom.querySelector('[data-testid="task-observed-resources"]')?.textContent).toContain(
+      'processus Worker : 10 ms CPU · 2.0 MiB RSS · coût fournisseur non mesuré',
+    );
+  });
+
   it('ANNULER n’existe que si la tâche peut encore l’être — et le clic annule VRAIMENT', async () => {
     const enCours = await monter(
       <TaskDrawer task={tache('running')} nodes={NOEUDS} onClose={() => {}} />,
@@ -256,7 +278,18 @@ describe('le tiroir — le graphe de délégation réel', () => {
           id: 2,
           ts: 2,
           type: 'delegation_result',
-          payload: { childTaskId: 'enfant-1', durationMs: 1_250, success: true },
+          payload: {
+            childTaskId: 'enfant-1',
+            durationMs: 1_250,
+            success: true,
+            usage: {
+              userCpuMicros: 12_000,
+              systemCpuMicros: 3_000,
+              maxRssBytes: 4 * 1024 * 1024,
+              rssBytes: 3 * 1024 * 1024,
+              heapUsedBytes: 2 * 1024 * 1024,
+            },
+          },
         },
       ],
     });
@@ -271,7 +304,7 @@ describe('le tiroir — le graphe de délégation réel', () => {
     expect(dom.textContent).toContain('isoler les tests de sécurité');
     expect(dom.textContent).toContain('Budget demandé : 60.0 s · coût 42 µ · ressources 1');
     expect(dom.textContent).toContain(
-      'Dernière exécution mesurée : 1.3 s · coût non mesuré · ressources non mesurées',
+      'Dernière exécution mesurée : 1.3 s · processus Worker : 15 ms CPU · 4.0 MiB RSS · coût fournisseur non mesuré',
     );
     expect(dom.textContent).toContain('terminée');
   });

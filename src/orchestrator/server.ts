@@ -8988,6 +8988,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
               logs: msg.logs,
               durationMs: msg.durationMs,
               subAgents: msg.subAgents,
+              ...(msg.usage ? { usage: msg.usage } : {}),
             });
             if (!pris) {
               send(ws, {
@@ -9019,6 +9020,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
                   nodeId,
                   success: result?.success ?? msg.success,
                   ...(result ? { durationMs: result.durationMs } : {}),
+                  ...(result?.usage ? { usage: result.usage } : {}),
                   ...(result?.resultId !== undefined ? { resultId: result.resultId } : {}),
                 });
 
@@ -9045,6 +9047,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
                     diff: result.diff,
                     logs: result.logs,
                     durationMs: result.durationMs,
+                    ...(result.usage ? { usage: result.usage } : {}),
                     ...(result.resultId !== undefined ? { resultId: result.resultId } : {}),
                   });
                 }
@@ -9179,6 +9182,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
                   diff: result.diff,
                   logs: result.logs,
                   durationMs: result.durationMs,
+                  ...(result.usage ? { usage: result.usage } : {}),
                   ...(result.resultId !== undefined ? { resultId: result.resultId } : {}),
                 });
               }

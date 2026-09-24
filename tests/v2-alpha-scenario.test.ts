@@ -408,6 +408,20 @@ describe('V2 Alpha — mission locale vérifiable', () => {
       expect(first?.diff).toContain('secure = true');
       expect(first?.diff).toContain('secure = false');
       expect(first?.nodeId).toBeTruthy();
+      expect(first?.usage).toMatchObject({
+        userCpuMicros: expect.any(Number),
+        systemCpuMicros: expect.any(Number),
+        maxRssBytes: expect.any(Number),
+        rssBytes: expect.any(Number),
+        heapUsedBytes: expect.any(Number),
+      });
+      expect(
+        server.store
+          .listEvents()
+          .some(
+            (event) => event.type === 'worker_usage' && event.payload.resultId === first?.resultId,
+          ),
+      ).toBe(true);
 
       await attendre(
         () =>

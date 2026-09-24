@@ -183,6 +183,43 @@ describe('parseClientMessage', () => {
     expect(msg?.type).toBe('task_result');
   });
 
+  it('accepte et borne la mesure de ressources d’un Worker', () => {
+    const usage = {
+      userCpuMicros: 12_000,
+      systemCpuMicros: 3_000,
+      maxRssBytes: 8 * 1024 * 1024,
+      rssBytes: 6 * 1024 * 1024,
+      heapUsedBytes: 3 * 1024 * 1024,
+    };
+    const msg = parseClientMessage(
+      JSON.stringify({
+        type: 'task_result',
+        taskId: 't-usage',
+        success: true,
+        diff: '',
+        logs: '',
+        durationMs: 12,
+        subAgents: [],
+        usage,
+      }),
+    );
+    expect(msg).toMatchObject({ type: 'task_result', usage });
+    expect(
+      parseClientMessage(
+        JSON.stringify({
+          type: 'task_result',
+          taskId: 't-usage',
+          success: true,
+          diff: '',
+          logs: '',
+          durationMs: 12,
+          subAgents: [],
+          usage: { ...usage, rssBytes: -1 },
+        }),
+      ),
+    ).toBeNull();
+  });
+
   it('accepte task_reject et register avec activeTasks, rejette les invalides', () => {
     expect(
       parseClientMessage(JSON.stringify({ type: 'task_reject', taskId: 't1', reason: 'sature' }))

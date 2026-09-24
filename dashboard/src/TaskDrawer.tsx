@@ -10,7 +10,7 @@ import type {
   RaceVictory,
   TaskDelegationGraph,
 } from './api';
-import type { HiveNode, Task, TaskResult } from '../../src/shared/types';
+import type { ExecutionUsage, HiveNode, Task, TaskResult } from '../../src/shared/types';
 import { useLang, useT } from './i18n';
 import { formatMs, StatusBadge, useDialog } from './ui';
 import { direAnnonce, direDuree } from '../../src/shared/horloge-chantier';
@@ -65,9 +65,46 @@ function consommationDelegation(
     );
   }
   const duree = formatMs(durationMs);
+  const usage = event?.payload.usage;
+  if (typeof usage === 'object' && usage !== null) {
+    const mesure = usage as Record<string, unknown>;
+    const userCpuMicros = mesure.userCpuMicros;
+    const systemCpuMicros = mesure.systemCpuMicros;
+    const maxRssBytes = mesure.maxRssBytes;
+    if (
+      typeof userCpuMicros === 'number' &&
+      Number.isFinite(userCpuMicros) &&
+      typeof systemCpuMicros === 'number' &&
+      Number.isFinite(systemCpuMicros) &&
+      typeof maxRssBytes === 'number' &&
+      Number.isFinite(maxRssBytes)
+    ) {
+      return t(
+        `Dernière exécution mesurée : ${duree} · processus Worker : ${(userCpuMicros + systemCpuMicros) / 1_000} ms CPU · ${(maxRssBytes / (1024 * 1024)).toFixed(1)} MiB RSS · coût fournisseur non mesuré`,
+        `Last measured run: ${duree} · Worker process: ${(userCpuMicros + systemCpuMicros) / 1_000} ms CPU · ${(maxRssBytes / (1024 * 1024)).toFixed(1)} MiB RSS · provider cost not measured`,
+      );
+    }
+  }
   return t(
     `Dernière exécution mesurée : ${duree} · coût non mesuré · ressources non mesurées`,
     `Last measured run: ${duree} · cost not measured · resources not measured`,
+  );
+}
+
+function ressourcesObservees(
+  usage: ExecutionUsage | undefined,
+  t: ReturnType<typeof useT>,
+): string {
+  if (!usage)
+    return t(
+      'Non mesurées · coût fournisseur non mesuré',
+      'Not measured · provider cost not measured',
+    );
+  const cpuMs = (usage.userCpuMicros + usage.systemCpuMicros) / 1_000;
+  const rssMiB = usage.maxRssBytes / (1024 * 1024);
+  return t(
+    `processus Worker : ${formatMs(cpuMs)} CPU · ${rssMiB.toFixed(1)} MiB RSS · coût fournisseur non mesuré`,
+    `Worker process: ${formatMs(cpuMs)} CPU · ${rssMiB.toFixed(1)} MiB RSS · provider cost not measured`,
   );
 }
 
@@ -259,6 +296,10 @@ export function TaskDrawer({ task, nodes, horloge, refreshTick = 0, onClose }: P
           <dd className="mono">{task.branch ?? '—'}</dd>
           <dt>{t('Durée', 'Duration')}</dt>
           <dd>{task.result ? formatMs(task.result.durationMs) : '—'}</dd>
+          <dt>{t('Ressources observées', 'Observed resources')}</dt>
+          <dd data-testid="task-observed-resources">
+            {ressourcesObservees(task.result?.usage, t)}
+          </dd>
           {horloge?.annonce && (
             <>
               <dt>{t('Annoncé', 'Announced')}</dt>
