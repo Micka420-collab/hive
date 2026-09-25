@@ -129,9 +129,20 @@ describe('hive — la porte unique du paquet npm', () => {
     // `hive --dry-run` doit être `hive install --dry-run`. Sous un Node trop
     // vieux, l'installeur s'arrête à sa porte (code PREREQUIS) : c'est ENCORE
     // une preuve que l'installeur a été atteint, pas une excuse pour sauter.
+    //
+    // ─── LE PORT PAR DÉFAUT N'APPARTIENT PAS AU TEST ─────────────────────────
+    //
+    // Sans `.env`, l'installeur sonde le port 7777. Une ruche locale, ou un test
+    // voisin de la suite parallèle, peut le tenir à cet instant : l'installeur
+    // le dit (« Port 7777 — déjà occupé ») et sort en PORT_OCCUPE. Même
+    // raisonnement que PREREQUIS : c'est l'installeur qui répond, donc la porte
+    // a été franchie. Ce code n'est toléré QUE si l'installeur a lui-même nommé
+    // le port occupé, et le dry-run doit toujours avoir tout annoncé sans rien
+    // écrire. Tout autre code reste un échec.
     const r = await lancer('--dry-run');
     if (nodeSuffisant(process.version)) {
-      expect(r.code, `sortie :\n${r.sortie}`).toBe(0);
+      const portTenu = /Port \d+ — déjà occupé/.test(r.sortie);
+      expect(r.code, `sortie :\n${r.sortie}`).toBe(portTenu ? CODE.PORT_OCCUPE : CODE.SUCCES);
       expect(r.sortie).toContain('rien n’a été écrit');
     } else {
       expect(r.code, 'l’installeur n’a pas été atteint').toBe(CODE.PREREQUIS);
