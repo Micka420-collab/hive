@@ -73,6 +73,18 @@ describe('CE QU’ON LANCE, ET DANS QUEL ORDRE', () => {
     }
   });
 
+  it('LA REINE ET L’OUVRIÈRE TOURNENT DANS UN SEUL PROCESSUS — pas derrière le CLI de tsx', () => {
+    // Le CLI de tsx lance un second Node et lui relaie les signaux en
+    // n'attendant que 30 ms l'accusé de l'enfant avant un SIGKILL (sortie 130).
+    // Mesuré sur un runner macOS de la CI : la Reine, qui avait reçu son SIGINT
+    // et commencé à s'arrêter proprement, a été tuée net. Le lanceur maison
+    // enregistre tsx DANS le processus : le signal va à qui sait s'arrêter.
+    for (const p of pieces(NODE).filter((x) => x.nom !== 'écran')) {
+      expect(p.argv[0], p.nom).toBe(SCRIPTS.lanceur);
+      expect(p.argv.join(' '), p.nom).not.toMatch(/tsx[\\/]dist[\\/]cli/);
+    }
+  });
+
   it('L’ARGV EST UN TABLEAU — c’est ce qui fait tenir `shell: false`', () => {
     // Un chemin qui contient une espace — `C:\Users\Jean Dupont\…` est banal
     // sous Windows — traverserait un interpréteur en DEUX arguments.

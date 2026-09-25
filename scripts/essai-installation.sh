@@ -171,7 +171,13 @@ menage() {
       ou=$(lsof -a -p "$p" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -1)
       case "$ou" in
         "$CIBLE" | "$CIBLE"/* | "$CIBLE_REEL" | "$CIBLE_REEL"/*)
-          kill -9 "$p" 2>/dev/null
+          # `|| true` : le processus a pu mourir entre la liste et le coup — la
+          # Reine abattue, le lanceur arrête aussitôt l'ouvrière. Sous `set -e`,
+          # le `kill` d'un mort rendait 1 et faisait sortir le piège EXIT en 1 :
+          # un essai aux sept pas verts, rouge sur son ménage (macOS, PR #443).
+          # La branche `/proc` n'y était pas exposée : son `kill` est en fin de
+          # liste `&&`, que `set -e` ne juge pas.
+          kill -9 "$p" 2>/dev/null || true
           ;;
       esac
     done
