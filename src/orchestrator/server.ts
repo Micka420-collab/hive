@@ -285,7 +285,7 @@ import { detectConflicts } from './sting-detector.js';
 import { Scheduler } from './scheduler.js';
 import { ETAT_LIVRAISON_EN_COURS, HiveStore } from './store.js';
 import type { SessionRangee } from './store.js';
-import { projeterWorkers } from './workers.js';
+import { projeterWorkers, type WorkerIdentitySnapshot } from './workers.js';
 import { projeterJournalOuvrier } from './journal-ouvriere.js';
 import { lireTemperature, FENETRE_MS as FENETRE_THERMO_MS, TYPES_THERMO } from './thermo.js';
 import { buildWaggleBoard } from './waggle.js';
@@ -2132,11 +2132,32 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
    */
   app.get('/api/workers', async (req, reply) => {
     if (!authorized(req)) return reject(reply);
+    const nodes = store.listNodes();
+    const baptemes = new Map(
+      store
+        .listerBaptemes()
+        .map(({ nodeId, nom, baptiseA }) => [nodeId, { nom, baptiseA }] as const),
+    );
+    const metiers = new Map(
+      store
+        .listerMetiers()
+        .map(({ nodeId, metier, assigneA }) => [nodeId, { metier, assigneA }] as const),
+    );
+    const identites = new Map<string, WorkerIdentitySnapshot>(
+      nodes.map((node) => [
+        node.id,
+        {
+          bapteme: baptemes.get(node.id) ?? null,
+          metier: metiers.get(node.id) ?? null,
+        },
+      ]),
+    );
     return {
       workers: projeterWorkers(
-        store.listNodes(),
+        nodes,
         store.observationsAiguillage(),
         store.tasksByStatus('assigned', 'running'),
+        identites,
       ),
     };
   });

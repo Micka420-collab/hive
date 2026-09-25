@@ -9,6 +9,15 @@ import {
 } from './aiguillage.js';
 import type { HiveNode, Task, TaskStatus } from '../shared/types.js';
 import type { Suite } from './polyethisme.js';
+import type { MetierCycle } from './metier.js';
+
+/** Identité humaine constatée par la Reine, distincte du nœud technique. */
+export interface WorkerIdentitySnapshot {
+  /** Baptême persistant ; null signifie qu'aucun nom n'a été posé. */
+  bapteme: { nom: string; baptiseA: number } | null;
+  /** Métier de cycle persistant ; null signifie qu'aucun rôle n'est assigné. */
+  metier: { metier: MetierCycle; assigneA: number } | null;
+}
 
 export interface WorkerReputationSnapshot {
   /** Nombre de verdicts reliés à ce Worker par le résultat exact. */
@@ -51,6 +60,8 @@ export interface WorkerSnapshot {
   name: string;
   ownerName: string;
   agentType: string;
+  /** Identité humaine persistée, quand elle est disponible dans la projection. */
+  identite?: WorkerIdentitySnapshot;
   status: HiveNode['status'];
   running: number;
   maxConcurrency: number;
@@ -131,6 +142,7 @@ export function projeterWorkers(
     Task,
     'id' | 'title' | 'status' | 'assignedNodeId' | 'attempts' | 'branch' | 'updatedAt'
   >[] = [],
+  identites: ReadonlyMap<string, WorkerIdentitySnapshot> = new Map(),
 ): WorkerSnapshot[] {
   const antecedents = replierAntecedents(
     lignes.map((ligne) => ({
@@ -148,6 +160,7 @@ export function projeterWorkers(
       name: node.name,
       ownerName: node.ownerName,
       agentType: node.agentType,
+      ...(identites.has(node.id) ? { identite: identites.get(node.id) } : {}),
       status: node.status,
       running: node.running,
       maxConcurrency: node.maxConcurrency,

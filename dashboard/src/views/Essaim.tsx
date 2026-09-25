@@ -13,6 +13,7 @@ import type {
 } from '../api';
 import { useLang, useT } from '../i18n';
 import { libelleAgent } from '../../../src/shared/agent-libelle';
+import { libelleMetier } from '../../../src/orchestrator/metier';
 import { activateProps, DOMAINE_LABEL, formatMs, ProgressBar } from '../ui';
 import { nomConstate, useBaptemes } from '../useBaptemes';
 import { timeShort, useApiPoll } from './shared';
@@ -53,10 +54,13 @@ function NodeCard({
 }) {
   const t = useT();
   const lang = useLang();
-  const label = bapt || node.name;
+  const baptProjection = worker?.identite?.bapteme?.nom;
+  const baptConstate = worker?.identite ? (baptProjection ?? null) : bapt;
+  const identiteChargee = worker?.identite !== undefined || bapt !== undefined;
+  const label = baptConstate || node.name;
   const ouvrirTitre = onOuvrirPoste
-    ? bapt
-      ? t(`Ouvrir la Chambre · ${bapt}`, `Open the Chambre · ${bapt}`)
+    ? baptConstate
+      ? t(`Ouvrir la Chambre · ${baptConstate}`, `Open the Chambre · ${baptConstate}`)
       : t('Ouvrir la Chambre', 'Open the Chambre')
     : undefined;
   return (
@@ -69,8 +73,8 @@ function NodeCard({
     >
       <header className="es-node-head">
         <span
-          className={`es-node-name${bapt === null ? ' muted-text' : ''}`}
-          title={bapt ? `${bapt} · ${node.name}` : node.name}
+          className={`es-node-name${identiteChargee && baptConstate === null ? ' muted-text' : ''}`}
+          title={baptConstate ? `${baptConstate} · ${node.name}` : node.name}
         >
           {racing && (
             <span
@@ -82,14 +86,16 @@ function NodeCard({
               ◇
             </span>
           )}
-          {bapt === null ? t('Pas encore baptisée', 'Not baptised yet') : label}
+          {identiteChargee && baptConstate === null
+            ? t('Pas encore baptisée', 'Not baptised yet')
+            : label}
         </span>
         <span className={`conn ${node.status}`}>
           <span className="conn-dot" />
           {node.status === 'online' ? t('en ligne', 'online') : t('hors ligne', 'offline')}
         </span>
       </header>
-      {(bapt || bapt === null) && (
+      {identiteChargee && (baptConstate || baptConstate === null) && (
         <div className="es-node-tech muted-text">
           {t('Technique', 'Technical')} · {node.name}
         </div>
@@ -97,6 +103,12 @@ function NodeCard({
       <div className="es-node-meta">
         <span className="chip es-chip">{libelleAgent(node.agentType, lang === 'en')}</span>
         <span>{node.ownerName}</span>
+        {worker?.identite?.metier && (
+          <span data-testid="worker-role">
+            {t('Rôle', 'Role')} ·{' '}
+            {libelleMetier(worker.identite.metier.metier, lang === 'en' ? 'en' : 'fr')}
+          </span>
+        )}
       </div>
       {worker && (
         <div className="es-models" data-testid="worker-models">
