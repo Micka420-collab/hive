@@ -32,7 +32,7 @@
 // publié ni explicitement retenu. Ajouter une colonne devient donc une
 // décision, pas un effet de bord.
 
-import type { Project } from './types.js';
+import type { Project, StateSnapshot } from './types.js';
 
 /** Ce qu'un visiteur non authentifié reçoit. Rien de plus. */
 export interface ProjetPublic {
@@ -91,5 +91,90 @@ export function vuePublique(projet: Project): ProjetPublic {
     description: projet.description,
     repoUrl: sansIdentifiants(projet.repoUrl),
     createdAt: projet.createdAt,
+  };
+}
+
+// ─── L'ESSAIM N'EST PAS UN LIEU POUR UN JETON NON PLUS ───────────────────────
+//
+// Le catalogue anonyme était fermé ; la même fuite restait ouverte une porte à
+// côté. `GET /api/state` et le message WebSocket `state` rendent l'instantané
+// COMPLET du magasin — `listProjects()`, donc chaque `repoUrl` tel qu'en base,
+// jeton d'un dépôt privé compris. Or les deux ne demandent que le jeton de
+// ruche, et `HIVE_TOKEN` se recopie sur CHAQUE machine membre (ADR 0007).
+//
+// Le tableau de bord le savait : il lave l'URL à l'AFFICHAGE (« l'afficher brut
+// donnerait le jeton GitHub de l'hôte à chaque nouvelle arrivante »). Mais le
+// jeton voyageait toujours en clair dans le JSON — lisible dans l'onglet réseau
+// du navigateur, ou d'un simple `curl` avec le jeton de ruche. Laver l'écran
+// sans laver le fil, c'est cacher le secret à ceux qui ne le cherchent pas.
+//
+// Le nœud qui clone ne passe PAS par ici : il reçoit l'URL complète dans le
+// message d'affectation de tâche, lue en base. Le magasin garde l'URL entière ;
+// seule sa sortie vers l'essaim est lavée.
+
+/**
+ * Retire les identifiants d'une URL de dépôt — et RIEN d'autre.
+ *
+ * Ce n'est pas `sansIdentifiants`, dont le contrat est celui d'une route
+ * ANONYME : devant un doute elle se tait (chemin local ou chaîne illisible →
+ * `null`). L'essaim, lui, est authentifié, et le tableau de bord se sert de la
+ * simple PRÉSENCE d'un dépôt (`if (!project.repoUrl)`) pour proposer tickets et
+ * livraisons ; rendre `null` pour le chemin local d'un administrateur éteindrait
+ * ces panneaux. Ici, seul le secret part : chemins locaux et `git@hote:chemin`
+ * passent tels quels, une URL sans identifiants est rendue à l'identique.
+ */
+export function laverIdentifiants(url: string | null): string | null {
+  if (url === null) return null;
+  if (/^[/\\]/.test(url) || /^[A-Za-z]:[\\/]/.test(url) || /^git@/.test(url)) return url;
+  let analysee: URL;
+  try {
+    analysee = new URL(url);
+  } catch {
+    // Illisible par `new URL` mais qui en a la forme : par prudence, tout ce
+    // qui précède l'arobase d'un « schéma://…@ » part, plutôt que d'envoyer la
+    // chaîne telle quelle à tout l'essaim.
+    return url.replace(/^([A-Za-z][A-Za-z0-9+.-]*:\/\/)[^/?#\s]*@/, '$1');
+  }
+  if (analysee.username === '' && analysee.password === '') return url;
+  analysee.username = '';
+  analysee.password = '';
+  return analysee.toString();
+}
+
+/**
+ * L'instantané tel que l'essaim le reçoit : le même, sans les identifiants des
+ * dépôts. Construit de NOUVEAUX objets — l'instantané du magasin n'est pas
+ * touché.
+ *
+ * ─── LE PROJET, ET CE QUE LES TÂCHES EN ONT RECOPIÉ ─────────────────────────
+ *
+ * Laver `projects[].repoUrl` ne suffisait pas. Le Conseil recopiait l'URL
+ * BRUTE dans le prompt de ses éclaireuses (`contexteProjetAvecHorizon`), et
+ * l'instantané rend chaque tâche avec son prompt. Le contexte est désormais
+ * lavé à la source, mais les tâches créées AVANT le gardent en base. On
+ * remplace donc, mot pour mot, chaque URL brute connue par sa forme lavée dans
+ * le titre et le prompt des tâches — sans toucher au reste du texte, et sans
+ * recopier une tâche qui n'en contient pas.
+ */
+export function instantanePourEssaim(instantane: StateSnapshot): StateSnapshot {
+  const paires: [brut: string, lave: string][] = [];
+  for (const p of instantane.projects) {
+    const lave = laverIdentifiants(p.repoUrl);
+    if (p.repoUrl !== null && lave !== null && lave !== p.repoUrl) paires.push([p.repoUrl, lave]);
+  }
+  const laverTexte = (texte: string): string =>
+    paires.reduce((acc, [brut, lave]) => acc.split(brut).join(lave), texte);
+
+  return {
+    ...instantane,
+    projects: instantane.projects.map((p) => ({ ...p, repoUrl: laverIdentifiants(p.repoUrl) })),
+    tasks:
+      paires.length === 0
+        ? instantane.tasks
+        : instantane.tasks.map((t) => {
+            const title = laverTexte(t.title);
+            const prompt = laverTexte(t.prompt);
+            return title === t.title && prompt === t.prompt ? t : { ...t, title, prompt };
+          }),
   };
 }

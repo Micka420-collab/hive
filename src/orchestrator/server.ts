@@ -61,7 +61,7 @@ import { commandeEntree } from '../shared/commande-entree.js';
 import { Registre } from './guetteuses.js';
 import { jugerCommandeTest } from '../shared/commande-test.js';
 import { jugerPreparation } from '../shared/preparation.js';
-import { vuePublique } from '../shared/projet-public.js';
+import { instantanePourEssaim, laverIdentifiants, vuePublique } from '../shared/projet-public.js';
 import {
   ouvertAuJetonDeRuche,
   peutAdmettre,
@@ -798,7 +798,11 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   const cheminEnvQueen = config.envPath ?? path.join(process.cwd(), '.env');
 
   const contexteProjetAvecHorizon = (projectId: string, projet: Project): string => {
-    const base = [projet.name, projet.description ?? '', projet.repoUrl ?? '']
+    // Ce contexte devient le PROMPT des éclaireuses du Conseil : rangé avec la
+    // tâche, rendu par l'instantané à tout l'essaim, envoyé au nœud qui
+    // l'exécute et au fournisseur du modèle. Le modèle a besoin de savoir OÙ est
+    // le dépôt, jamais comment s'y authentifier : l'URL y entre lavée.
+    const base = [projet.name, projet.description ?? '', laverIdentifiants(projet.repoUrl) ?? '']
       .filter(Boolean)
       .join(' — ');
     const horizon = texteHorizonPourContexte(store.listerHorizon(projectId));
@@ -863,11 +867,21 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg));
   };
 
+  /**
+   * L'instantané tel qu'il SORT vers l'essaim — la seule porte par laquelle il
+   * sort. `/api/state`, la diffusion et l'accueil d'un tableau de bord ne
+   * demandent que le jeton de ruche, présent sur chaque machine membre : les
+   * identifiants d'un dépôt privé n'y ont pas leur place (cf.
+   * `instantanePourEssaim`). Un test de source exige que `store.getSnapshot()`
+   * n'apparaisse qu'ici.
+   */
+  const instantaneEssaim = () => instantanePourEssaim(store.getSnapshot());
+
   const broadcastState = (): void => {
     if (dashboardSockets.size === 0) return;
     const raw = JSON.stringify({
       type: 'state',
-      snapshot: store.getSnapshot(),
+      snapshot: instantaneEssaim(),
     } satisfies ServerMessage);
     for (const ws of dashboardSockets) {
       if (ws.readyState === ws.OPEN) ws.send(raw);
@@ -2942,7 +2956,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
 
   app.get('/api/state', async (req, reply) => {
     if (!authorized(req)) return reject(reply);
-    return store.getSnapshot();
+    return instantaneEssaim();
   });
 
   // ─── Auth routes ──────────────────────────────────────────────────────────
@@ -8979,7 +8993,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
             role = 'dashboard';
             clearTimeout(authTimer);
             dashboardSockets.add(ws);
-            send(ws, { type: 'state', snapshot: store.getSnapshot() });
+            send(ws, { type: 'state', snapshot: instantaneEssaim() });
           } else {
             ws.close(4401, 'authentification requise');
           }
