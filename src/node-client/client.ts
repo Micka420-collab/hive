@@ -35,7 +35,7 @@ import type {
   OutilConstate,
   PoserOutilMsg,
 } from '../shared/protocol.js';
-import { HEARTBEAT_INTERVAL_MS } from '../shared/types.js';
+import { HEARTBEAT_INTERVAL_MS, NODE_TIMEOUT_MS } from '../shared/types.js';
 import type { ExecutionUsage, Task } from '../shared/types.js';
 import { runMerge, runProc } from './merge-runner.js';
 import { lancerVraiment, poserOutil } from './pose-runner.js';
@@ -111,6 +111,14 @@ export interface NodeClientOptions {
    * Sert à la reprise après Accorder `binaire` sans relancer un ENOENT immédiat.
    */
   verifierBinaireAgent?: () => Promise<boolean>;
+  /**
+   * Silence du hub au-delà duquel la connexion est tenue pour morte (ms).
+   * Défaut : `NODE_TIMEOUT_MS`, le délai au bout duquel le hub, lui, tient le
+   * nœud pour mort — les deux côtés renoncent au même rythme.
+   */
+  silenceMaxMs?: number;
+  /** Cadence des pings de vie vers le hub (ms). Défaut : `HEARTBEAT_INTERVAL_MS`. */
+  pingMs?: number;
 }
 
 /**
@@ -220,6 +228,10 @@ export class HiveNodeClient {
   private reconnectTimer: NodeJS.Timeout | null = null;
   private reconnectDelay = 1_000;
   private closed = false;
+  /** Veille de la connexion : pings de vie et constat du silence du hub. */
+  private vigieTimer: NodeJS.Timeout | null = null;
+  /** Dernière fois que le hub a donné signe de vie (message ou pong). */
+  private derniereNouvelle = 0;
   private readonly adapter: AgentAdapter;
   private readonly workRoot: string;
 
@@ -302,6 +314,7 @@ export class HiveNodeClient {
     for (const ctrl of this.active.values()) ctrl.abort();
     this.rejectPendingDelegations('client arrêté');
     this.stopHeartbeat();
+    this.arreterVeille();
     this.ws?.close(1000, 'arrêt du nœud');
     this.ws = null;
   }
@@ -582,11 +595,18 @@ export class HiveNodeClient {
   // ─── Connexion ───────────────────────────────────────────────────────────
   private connect(): void {
     if (this.closed) return;
-    const ws = new WebSocket(this.opts.url);
+    // `handshakeTimeout` : un hub dont les paquets se PERDENT (au lieu d'être
+    // refusés) laisserait la poignée de main pendre jusqu'aux délais du noyau,
+    // sans jamais retenter. Au-delà du silence toléré, on abandonne et on
+    // repasse par la reconnexion.
+    const ws = new WebSocket(this.opts.url, {
+      handshakeTimeout: this.opts.silenceMaxMs ?? NODE_TIMEOUT_MS,
+    });
     this.ws = ws;
 
     ws.on('open', () => {
       this.reconnectDelay = 1_000;
+      this.veiller(ws);
       this.send({
         type: 'register',
         token: this.opts.token,
@@ -617,10 +637,17 @@ export class HiveNodeClient {
     });
 
     ws.on('message', (data) => {
+      this.derniereNouvelle = Date.now();
       this.onMessage(typeof data === 'string' ? data : data.toString());
     });
 
+    // Le hub répond aux pings sans rien coder : `ws` renvoie le pong tout seul.
+    ws.on('pong', () => {
+      this.derniereNouvelle = Date.now();
+    });
+
     ws.on('close', () => {
+      this.arreterVeille();
       this.stopHeartbeat();
       this.rejectPendingDelegations('connexion au hub perdue');
       if (!this.closed) this.scheduleReconnect();
@@ -629,6 +656,48 @@ export class HiveNodeClient {
     ws.on('error', () => {
       // L'événement close suit toujours : la reconnexion y est gérée.
     });
+  }
+
+  // ─── La veille : ne pas attendre que TCP constate la mort ────────────────
+  //
+  // Le nœud n'apprenait la perte du hub que par l'événement `close`, donc par
+  // TCP. Or un chemin réseau qui MEURT sans rien fermer — Wi-Fi qui décroche,
+  // portable qui se réveille sur un autre réseau, NAT qui oublie la session —
+  // laisse la socket « ouverte » pendant les délais de retransmission du noyau,
+  // de l'ordre du quart d'heure. Mesuré sur une vraie Reine derrière un relais
+  // dont le chemin meurt : le hub tient le nœud pour mort au bout de 15 s et
+  // remet ses tâches en file, mais le nœud, lui, ne retente JAMAIS — la mission
+  // reste bloquée, tâches prêtes et nœud hors ligne, alors qu'une nouvelle
+  // connexion aurait abouti.
+  //
+  // Le nœud pingue donc le hub à chaque battement et tient la connexion pour
+  // morte quand le hub n'a plus rien dit (ni message, ni pong) depuis
+  // `silenceMaxMs`. `terminate()` émet `close` : la reconnexion habituelle,
+  // avec son recul exponentiel, prend le relais.
+  private veiller(ws: WebSocket): void {
+    this.arreterVeille();
+    this.derniereNouvelle = Date.now();
+    const silenceMax = this.opts.silenceMaxMs ?? NODE_TIMEOUT_MS;
+    this.vigieTimer = setInterval(() => {
+      if (ws !== this.ws || ws.readyState !== WebSocket.OPEN) return;
+      const silence = Date.now() - this.derniereNouvelle;
+      if (silence > silenceMax) {
+        this.log(`hub muet depuis ${Math.round(silence / 1000)} s — connexion tenue pour morte`);
+        ws.terminate();
+        return;
+      }
+      try {
+        ws.ping();
+      } catch {
+        // Socket en train de tomber : `close` suivra et relancera.
+      }
+    }, this.opts.pingMs ?? HEARTBEAT_INTERVAL_MS);
+    this.vigieTimer.unref?.();
+  }
+
+  private arreterVeille(): void {
+    if (this.vigieTimer) clearInterval(this.vigieTimer);
+    this.vigieTimer = null;
   }
 
   private scheduleReconnect(): void {
