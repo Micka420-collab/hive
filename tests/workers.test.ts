@@ -55,6 +55,23 @@ describe('projection Worker', () => {
     expect(worker.outils).toBeUndefined();
   });
 
+  it('expose les limites de délégation canoniques sans permettre au Worker de les relever', () => {
+    const worker = projeterWorkers([node()], [])[0]!;
+
+    expect(worker.autonomie).toEqual({
+      delegation: {
+        maxDepth: 3,
+        maxChildrenPerParent: 4,
+        maxDescendantsPerRoot: 16,
+        maxDurationMs: 30 * 60_000,
+        maxCostMicros: 5_000_000,
+        maxResourceUnits: 4,
+        maxTitleChars: 160,
+        maxPromptChars: 16_000,
+      },
+    });
+  });
+
   it('transporte l’identité humaine persistée sans remplacer le nom technique', () => {
     const worker = projeterWorkers(
       [node({ name: 'poste-technique' })],

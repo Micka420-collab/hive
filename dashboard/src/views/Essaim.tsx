@@ -209,6 +209,33 @@ function NodeCard({
         </div>
       )}
       {worker && (
+        <div className="es-autonomy" data-testid="worker-autonomy">
+          <span className="es-autonomy-label">{t('Limites d’autonomie', 'Autonomy limits')}</span>
+          {worker.autonomie === undefined ? (
+            <span className="es-agents-none">
+              {t('limites indisponibles', 'limits unavailable')}
+            </span>
+          ) : (
+            <>
+              <span>
+                {t('Délégation', 'Delegation')} · {t('profondeur', 'depth')} ≤{' '}
+                {worker.autonomie.delegation.maxDepth} · {t('enfants', 'children')} ≤{' '}
+                {worker.autonomie.delegation.maxChildrenPerParent} ·{' '}
+                {t('descendants', 'descendants')} ≤{' '}
+                {worker.autonomie.delegation.maxDescendantsPerRoot}
+              </span>
+              <span>
+                {formatMs(worker.autonomie.delegation.maxDurationMs)} ·{' '}
+                {worker.autonomie.delegation.maxCostMicros.toLocaleString(
+                  lang === 'en' ? 'en-US' : 'fr-FR',
+                )}{' '}
+                µ · {worker.autonomie.delegation.maxResourceUnits} {t('unités', 'units')}
+              </span>
+            </>
+          )}
+        </div>
+      )}
+      {worker && (
         <div className="es-history" data-testid="worker-history">
           <span className="es-history-label">{t('Activité récente', 'Recent activity')}</span>
           {worker.historique === undefined ? (
