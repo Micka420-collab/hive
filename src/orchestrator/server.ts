@@ -64,6 +64,7 @@ import { jugerPreparation } from '../shared/preparation.js';
 import { instantanePourEssaim, laverIdentifiants, vuePublique } from '../shared/projet-public.js';
 import { cheminEnvQueen } from '../shared/env-queen.js';
 import { affectationsDepuisEvenements } from '../shared/routage-vue.js';
+import { TYPES_CHRONOLOGIE, chronologieDepuisEvenements } from '../shared/chronologie-tache.js';
 import {
   confiancePourFastify,
   lireConfianceProxy,
@@ -6961,6 +6962,32 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         'pheromone_route',
       ]);
       return { taskId: req.params.taskId, affectations: affectationsDepuisEvenements(evenements) };
+    },
+  );
+
+  // Où est passé le temps d'une tâche — phases relues dans le journal ; la
+  // latence du modèle et le coût fournisseur restent « inconnu » (cf.
+  // `shared/chronologie-tache.ts`).
+  app.get<{ Params: { taskId: string } }>(
+    '/api/tasks/:taskId/chronologie',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['taskId'],
+          properties: { taskId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const tache = store.getTask(req.params.taskId);
+      if (!tache) return reply.code(404).send({ error: 'tâche inconnue' });
+      const evenements = store.evenementsDeTache(req.params.taskId, TYPES_CHRONOLOGIE, 500);
+      return {
+        taskId: tache.id,
+        chronologie: chronologieDepuisEvenements(tache.createdAt, evenements),
+      };
     },
   );
 

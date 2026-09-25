@@ -1146,6 +1146,17 @@ export function getJwt(): string | null {
  * répond 401 et le panneau croit à une panne.
  */
 /**
+ * Où est passé le temps d'une tâche : phases relues dans le journal (cf.
+ * `src/shared/chronologie-tache.ts`) ; latence du modèle et coût fournisseur
+ * « inconnu ».
+ */
+export function fetchChronologie(
+  taskId: string,
+): Promise<{ taskId: string; chronologie: ChronologieTache }> {
+  return api(`/api/tasks/${encodeURIComponent(taskId)}/chronologie`);
+}
+
+/**
  * « Pourquoi ce Worker ? Pourquoi ce modèle ? » pour une tâche : les
  * affectations relues dans le journal (raison figée à la décision, jamais
  * recalculée — cf. `src/shared/routage-vue.ts`).
@@ -1798,6 +1809,7 @@ export function connectFeed(handlers: FeedHandlers): HiveFeed {
 
 import type { ProjetPublic as ProjetPublicVue } from '../../src/shared/projet-public';
 import type { AffectationVue } from '../../src/shared/routage-vue';
+import type { ChronologieTache } from '../../src/shared/chronologie-tache';
 export type { ProjetPublic as ProjetPublicVue } from '../../src/shared/projet-public';
 
 /**
