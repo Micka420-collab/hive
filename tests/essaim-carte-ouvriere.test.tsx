@@ -325,6 +325,49 @@ describe('la carte d’une ouvrière : ce qu’elle porte en vol', () => {
     expect(modeles?.querySelector('.es-model.exploration')?.textContent).toContain('zeta');
   });
 
+  it('LA RÉPUTATION PAR CATÉGORIE : JUGÉE LÀ OÙ ELLE L’A ÉTÉ, INCONNUE AILLEURS', async () => {
+    const reputation = (essais: number, moyenne: number) => ({
+      essais,
+      appliquer: essais,
+      ameliorer: 0,
+      refaire: 0,
+      moyenne,
+      score: moyenne,
+      attribution: 'exacte' as const,
+    });
+    const worker = {
+      ...noeud(),
+      slotsLibres: 3,
+      reputation: reputation(3, 0.83),
+      reputationParCategorie: { code: reputation(2, 1), correction: reputation(1, 0.5) },
+    } as unknown as WorkerSnapshot;
+    vi.mocked(fetchWorkers).mockResolvedValue({ workers: [worker] });
+
+    const dom = await monter([noeud()]);
+    const ligne = carte(dom, 'ruche-nord').querySelector(
+      '[data-testid="worker-reputation-categories"]',
+    );
+    expect(ligne?.textContent).toContain('code 100% (2)');
+    expect(ligne?.textContent).toContain('correction 50% (1)');
+    expect(ligne?.textContent, 'les autres catégories sont inconnues, pas nulles').toContain(
+      'inconnu ailleurs',
+    );
+    expect(ligne?.textContent).not.toContain('documentation');
+  });
+
+  it('SANS VERDICT PAR CATÉGORIE, RIEN N’EST AFFICHÉ — ni zéro, ni ligne vide', async () => {
+    const worker = {
+      ...noeud(),
+      slotsLibres: 3,
+      reputationParCategorie: {},
+    } as unknown as WorkerSnapshot;
+    vi.mocked(fetchWorkers).mockResolvedValue({ workers: [worker] });
+    const dom = await monter([noeud()]);
+    expect(
+      carte(dom, 'ruche-nord').querySelector('[data-testid="worker-reputation-categories"]'),
+    ).toBeNull();
+  });
+
   it('SIX PILE : SIX PASTILLES ET AUCUN « +N » — sept : six et « +1 »', async () => {
     // ─── LES DEUX BORNES DU PLAFOND (§ 9 tertrigicenties) ──────────────────
     //
