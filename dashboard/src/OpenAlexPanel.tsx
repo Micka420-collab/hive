@@ -6,6 +6,7 @@ import { useState, useCallback, useRef } from 'react';
 import { useT, t as tStatic } from './i18n';
 import type { Translate } from './i18n';
 import { useDialog, Voile } from './ui';
+import { enTetesRuche } from './api';
 
 /** Résultat formaté renvoyé par le backend. */
 interface Paper {
@@ -74,7 +75,8 @@ export function OpenAlexPanel({ onClose }: { onClose: () => void }) {
     setError(null);
     try {
       const params = new URLSearchParams({ q, page: String(p) });
-      const res = await fetch(`/api/openalex/search?${params}`);
+      // Le relais est réservé à la ruche : sans ses en-têtes, 401.
+      const res = await fetch(`/api/openalex/search?${params}`, { headers: enTetesRuche() });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         // tStatic (non réactif) : dans un useCallback à dépendances vides, un

@@ -8727,11 +8727,19 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   });
 
   // ─── OpenAlex : moteur de recherche scientifique ────────────────────────────
-  // Proxy vers l'API OpenAlex (gratuite, pas de clé). Accessible sans auth.
+  // Proxy vers l'API OpenAlex (gratuite, pas de clé).
   // Docs : https://docs.openalex.org/api-reference
+  //
+  // RÉSERVÉ À LA RUCHE (jeton ou compte). Il était « accessible sans auth » :
+  // sur une ruche Cloud publique, n'importe qui faisait partir des requêtes
+  // vers api.openalex.org depuis le serveur de l'opérateur — et avec SON
+  // adresse `mailto:` s'il l'a posée, donc son nom sur le trafic d'inconnus.
+  // Le seul appelant est le panneau OpenAlex du tableau de bord, qui vit dans
+  // l'interface authentifiée et envoie ses en-têtes (`enTetesRuche`).
   app.get<{ Querystring: { q?: string; page?: string; filter?: string; sort?: string } }>(
     '/api/openalex/search',
     async (req, reply) => {
+      if (!authorized(req) && !authorizedUser(req)) return reject(reply);
       const { q, page, filter, sort } = req.query;
       if (!q || q.length < 2)
         return reply.status(400).send({ error: 'Requête trop courte (min 2 caractères)' });
