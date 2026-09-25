@@ -68,7 +68,17 @@ export interface Voeu {
  * fichiers existent vraiment sur le disque.
  */
 export const SCRIPTS = {
-  tsx: path.join('node_modules', 'tsx', 'dist', 'cli.mjs'),
+  /**
+   * Le lanceur maison : il enregistre tsx DANS le processus, puis importe
+   * l'entrée. C'était `node_modules/tsx/dist/cli.mjs`, qui lance un SECOND
+   * processus Node et lui relaie les signaux — en n'attendant que 30 ms
+   * l'accusé de réception de l'enfant avant de le tuer en SIGKILL et de sortir
+   * en 130. Sous charge (mesuré sur un runner macOS de la CI), la Reine avait
+   * reçu son SIGINT et commencé son arrêt propre (« SIGINT reçu, arrêt de
+   * l'orchestrateur… ») quand elle a été tuée net. Un seul processus : le
+   * signal va directement à celui qui sait s'arrêter.
+   */
+  lanceur: path.join('scripts', 'lancer.mjs'),
   vite: path.join('node_modules', 'vite', 'bin', 'vite.js'),
 } as const;
 
@@ -100,7 +110,7 @@ export function pieces(noeud: string, voeu: Voeu = {}, port: number = PORT_PAR_D
     liste.push({
       nom: 'reine',
       bin: noeud,
-      argv: [SCRIPTS.tsx, ENTREES.hub],
+      argv: [SCRIPTS.lanceur, ENTREES.hub],
       // Le port 0 veut dire « le système en choisira un » : personne ne le
       // connaît encore, pas même la Reine. Écrire `http://127.0.0.1:0` serait
       // remplacer un lien mort par un autre — on dit donc ce qu'on sait, à
@@ -115,7 +125,7 @@ export function pieces(noeud: string, voeu: Voeu = {}, port: number = PORT_PAR_D
     liste.push({
       nom: 'ouvrière',
       bin: noeud,
-      argv: [SCRIPTS.tsx, ENTREES.noeud],
+      argv: [SCRIPTS.lanceur, ENTREES.noeud],
       role: 'exécute le travail avec votre agent',
     });
   }

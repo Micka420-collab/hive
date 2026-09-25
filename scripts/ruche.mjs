@@ -22,8 +22,9 @@
 //
 // 2. NE PAS PASSER PAR `npm`. Sous Windows c'est `npm.cmd`, et `spawn` sans
 //    interpréteur ne sait pas le lancer (§ 6.2 du journal, déjà mordu deux
-//    fois). On vise les scripts réels de `tsx` et `vite`, lancés par le Node qui
-//    tourne déjà.
+//    fois). On vise des scripts réels — `scripts/lancer.mjs` (tsx enregistré
+//    dans le processus, cf. `SCRIPTS.lanceur`) et `vite` —, lancés par le Node
+//    qui tourne déjà.
 
 import { spawn } from 'node:child_process';
 // `setTimeout` explicite : ce fichier est du `.mjs`, que la configuration ESLint
