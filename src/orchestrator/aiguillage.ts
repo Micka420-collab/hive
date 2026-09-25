@@ -422,17 +422,22 @@ export function aiguillerNoeuds<N extends { readonly modeles?: readonly string[]
   categorie: Categorie,
   eligibles: readonly N[],
   antecedents: Map<string, Antecedent>,
-): { modele: string; noeuds: N[] } | null {
+): { modele: string; noeuds: N[]; rang: Rang[] } | null {
   // Un `Set` déduplique par CONSTRUCTION : le même modèle offert par deux nœuds
   // ne doit compter qu'une fois pour `classer`, sinon le total du genre est
   // doublé et le bonus d'exploration faussé. Aucun prédicat de dédup à part —
   // c'est la structure qui le tient, pas une ligne qu'on pourrait muter seule.
   const union = new Set<string>();
   for (const n of eligibles) for (const m of n.modeles ?? []) union.add(m);
-  // Union vide (aucun éligible ne déclare de modèle) : `choisirModele` rend
-  // `null`, et ce `null` EST le no-op — l'appelant garde son ordonnancement.
-  const modele = choisirModele(categorie, [...union], antecedents);
+  // On CLASSE une seule fois : le premier est l'élu, et le classement entier
+  // est la RAISON du choix — celle que Mission Control montrera (« pourquoi ce
+  // modèle »). Recalculer un second classement pour l'explication le ferait
+  // diverger du choix ; c'est le même `Rang[]` qui décide et qui s'explique.
+  // Union vide (aucun éligible ne déclare de modèle) : `rang` est vide, l'élu
+  // est `null`, et ce `null` EST le no-op — l'appelant garde son ordonnancement.
+  const rang = classer(categorie, [...union], antecedents);
+  const modele = rang[0]?.modele ?? null;
   if (modele === null) return null;
   const noeuds = eligibles.filter((n) => (n.modeles ?? []).includes(modele));
-  return { modele, noeuds };
+  return { modele, noeuds, rang };
 }

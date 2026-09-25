@@ -182,6 +182,47 @@ describe('Aiguillage câblé — la boucle principale de l’ordonnanceur', () =
     expect(assignation?.payload.modele, 'le journal conserve le modèle commandé').toBe('opus');
   });
 
+  it('LE JOURNAL GARDE LA RAISON DU CHOIX — « pourquoi ce modèle », figée à la décision', () => {
+    // Mission Control doit pouvoir répondre « pourquoi opus » sans recroiser des
+    // antécédents qui, eux, bougent. La raison est le classement même qui a
+    // décidé, joint à `task_assigned` : l'élu en tête, avec son vécu.
+    vecu('opus', 'appliquer', 3);
+    vecu('fable', 'refaire', 3);
+    scheduler.registerNode(profile('aaa', ['fable']));
+    scheduler.registerNode(profile('zzz', ['opus']));
+    const t = tacheCode('Ajoute le composant Ruche');
+
+    scheduler.tick(5_000);
+
+    const assignation = store
+      .listEvents()
+      .find((event) => event.type === 'task_assigned' && event.payload.taskId === t);
+    expect(assignation?.payload.categorie, 'le genre de la tâche est consigné').toBe('code');
+    const raison = assignation?.payload.raisonModele as
+      { modele: string; essais: number; moyenne: number; score: number }[] | undefined;
+    expect(raison, 'la raison du choix est jointe').toBeTruthy();
+    expect(raison?.[0]?.modele, 'l’élu est en tête de la raison').toBe('opus');
+    expect(
+      raison?.map((r) => r.modele).sort(),
+      'les deux modèles en lice figurent dans la raison',
+    ).toEqual(['fable', 'opus']);
+    expect(raison?.find((r) => r.modele === 'opus')?.essais, 'le vécu réel est porté').toBe(3);
+  });
+
+  it('SANS MODÈLE DÉCLARÉ, LE JOURNAL NE PORTE AUCUNE RAISON — on n’invente pas de justification', () => {
+    scheduler.registerNode(profile('aaa'));
+    scheduler.registerNode(profile('zzz'));
+    const t = tacheCode('Ajoute le composant Ruche');
+
+    scheduler.tick(5_000);
+
+    const assignation = store
+      .listEvents()
+      .find((event) => event.type === 'task_assigned' && event.payload.taskId === t);
+    expect(assignation?.payload.raisonModele, 'aucune raison sans aiguillage').toBeUndefined();
+    expect(assignation?.payload.categorie, 'ni catégorie sans aiguillage').toBeUndefined();
+  });
+
   it('APPREND le modèle exact du résultat relu après une réassignation', () => {
     // La tâche a été commandée à fable puis son résultat a été produit par opus.
     // Le modèle posé sur la tâche reste fable, mais la preuve de l’Evaluator
