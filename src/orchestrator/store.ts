@@ -5447,6 +5447,33 @@ export class HiveStore {
   }
 
   /**
+   * Les `limite` derniers événements de quelques types, rendus en ordre
+   * chronologique. Sert les replis qui lisent tout le journal retenu (registre
+   * Genome) : bornés par l'appelant, jamais au-delà de 10 000 lignes.
+   */
+  evenementsParTypes(types: readonly string[], limite: number): HiveEvent[] {
+    if (types.length === 0) return [];
+    const marques = types.map(() => '?').join(', ');
+    const rows = this.db
+      .prepare(`SELECT * FROM events WHERE type IN (${marques}) ORDER BY id DESC LIMIT ?`)
+      .all(...types, Math.max(1, Math.min(limite, 10_000))) as EventRow[];
+    const evenements: HiveEvent[] = [];
+    for (const row of rows.reverse()) {
+      try {
+        evenements.push({
+          id: row.id,
+          ts: row.ts,
+          type: row.type,
+          payload: JSON.parse(row.payload) as Record<string, unknown>,
+        });
+      } catch {
+        // Payload illisible : ignoré, jamais deviné.
+      }
+    }
+    return evenements;
+  }
+
+  /**
    * Retrouve l'événement de lancement qui contient une relecture précise.
    *
    * Le lien tâche→production reste dans `contre_expertises`, mais le résultat

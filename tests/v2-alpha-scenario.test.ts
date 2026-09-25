@@ -711,6 +711,41 @@ describe('V2 Alpha — mission locale vérifiable', () => {
       expect(chronologie.dureeModele).toBe('inconnu');
       expect(chronologie.coutFournisseur).toBe('inconnu');
 
+      // Le registre Genome range ces mêmes faits sous le modèle qui les a
+      // produits : la correction va à la première production, la revue
+      // humaine à la dernière — sans note, sans coût inventé.
+      const genomeResponse = await fetch(`${base}/api/genome`, { headers });
+      expect(genomeResponse.status).toBe(200);
+      const genome = (await genomeResponse.json()) as {
+        lignes: Array<{
+          modele: string;
+          rendus: number;
+          corrections: number;
+          avis: { valides: number; contestes: number };
+          humain: { approuvees: number; rejetees: number };
+          coutFournisseur: string;
+        }>;
+      };
+      const somme = (modele: string, fait: (l: (typeof genome.lignes)[number]) => number) =>
+        genome.lignes.filter((l) => l.modele === modele).reduce((n, l) => n + fait(l), 0);
+      expect(somme('claude-code-model', (l) => l.rendus)).toBeGreaterThanOrEqual(1);
+      expect(
+        somme('claude-code-model', (l) => l.corrections),
+        'la correction de l’Evaluator revient à la première production',
+      ).toBeGreaterThanOrEqual(1);
+      expect(
+        genome.lignes.reduce((n, l) => n + l.avis.valides + l.avis.contestes, 0),
+        'les avis des relectrices sont rangés',
+      ).toBeGreaterThanOrEqual(1);
+      expect(
+        genome.lignes.reduce((n, l) => n + l.humain.approuvees, 0),
+        'l’approbation humaine de la production finale',
+      ).toBe(1);
+      for (const ligne of genome.lignes) {
+        expect(ligne.modele).toMatch(/-model$/);
+        expect(ligne.coutFournisseur).toBe('inconnu');
+      }
+
       // Une PR ouverte et validée reste en attente du geste humain explicite.
       expect(github.fixture.requests.some((request) => request.startsWith('PUT '))).toBe(false);
 

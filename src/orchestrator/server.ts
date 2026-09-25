@@ -66,6 +66,10 @@ import { cheminEnvQueen } from '../shared/env-queen.js';
 import { affectationsDepuisEvenements } from '../shared/routage-vue.js';
 import { TYPES_CHRONOLOGIE, chronologieDepuisEvenements } from '../shared/chronologie-tache.js';
 import {
+  registreGenomeDepuisEvenements,
+  TYPES_REGISTRE_GENOME,
+} from '../shared/registre-genome.js';
+import {
   confiancePourFastify,
   lireConfianceProxy,
   type ConfianceProxy,
@@ -179,6 +183,7 @@ import {
   verifierSignature,
 } from './abonnement.js';
 import type { Abonnement, EtatAbonnement } from './abonnement.js';
+import { categoriser, type Categorie } from './aiguillage.js';
 import { evenementDepuisStripe } from './nuage.js';
 import {
   ETATS as ETATS_SERVEUR,
@@ -6990,6 +6995,23 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       };
     },
   );
+
+  // Le registre Genome : les faits de chaque modèle par catégorie, repliés du
+  // journal retenu (cf. `shared/registre-genome.ts`). Lecture seule — ni le
+  // routing ni la récompense de l'Aiguillage n'en dépendent.
+  app.get('/api/genome', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    const evenements = store.evenementsParTypes(TYPES_REGISTRE_GENOME, EVENT_RETENTION);
+    const categories = new Map<string, Categorie | null>();
+    const categorieDe = (taskId: string): Categorie | null => {
+      if (!categories.has(taskId)) {
+        const tache = store.getTask(taskId);
+        categories.set(taskId, tache ? categoriser(tache.title, tache.prompt) : null);
+      }
+      return categories.get(taskId) ?? null;
+    };
+    return registreGenomeDepuisEvenements(evenements, categorieDe, EVENT_RETENTION);
+  });
 
   // Graphe de délégation borné : état des tâches + événements parent→raison→résultat.
   // La lecture ne déduit rien d'un état UI : elle relit les arêtes SQLite et le

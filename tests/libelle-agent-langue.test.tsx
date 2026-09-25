@@ -45,6 +45,7 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   fetchRaces: vi.fn(() => Promise.resolve({ races: [] })),
   fetchPheromones: vi.fn(() => Promise.resolve(null)),
   fetchPolyethisme: vi.fn(() => Promise.resolve(null)),
+  fetchGenome: vi.fn(() => Promise.resolve(null)),
   fetchWorkers: vi.fn(() => Promise.resolve({ workers: [] })),
 }));
 

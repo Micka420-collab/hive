@@ -2,7 +2,15 @@
 // en vol) et Waggle Board, la danse frétillante qui classe le nectar butiné.
 
 import { jamaisRienRecu } from './etat-sondage';
-import { fetchPheromones, fetchPolyethisme, fetchRaces, fetchWaggle, fetchWorkers } from '../api';
+import {
+  fetchGenome,
+  fetchPheromones,
+  fetchPolyethisme,
+  fetchRaces,
+  fetchWaggle,
+  fetchWorkers,
+} from '../api';
+import { RegistreGenome } from '../RegistreGenome';
 import type {
   Caste,
   NodeNectar,
@@ -740,6 +748,8 @@ export default function Essaim({ snapshot, agentsByTask, refreshTick, onNavigate
   // Les castes sont mémoïsées côté serveur sur la fenêtre des Gardiennes : les
   // interroger plus souvent ne rendrait pas des chiffres plus frais.
   const poly = useApiPoll(fetchPolyethisme, 60_000, refreshTick);
+  // Le registre replie tout le journal retenu : une lecture par minute suffit.
+  const genome = useApiPoll(fetchGenome, 60_000, refreshTick);
   const online = snapshot.nodes.filter((n) => n.status === 'online').length;
   const board = waggle.data;
   // Nœuds avec un drone encore en vol : marqués ⚔ sur leur carte. Les courses
@@ -847,6 +857,11 @@ export default function Essaim({ snapshot, agentsByTask, refreshTick, onNavigate
               </>
             )}
           </section>
+          {/* Un orchestrateur plus ancien n'a pas la route : la carte
+              disparaît, la vue Essaim reste entière. */}
+          {!jamaisRienRecu(genome) && (
+            <RegistreGenome registre={genome.data} erreur={genome.error} />
+          )}
         </div>
       </div>
     </div>
