@@ -339,6 +339,19 @@ const VERSION_DECLAREE: string = (() => {
 /** Plafond de messages WS traités par socket et par seconde (anti-DoS). */
 const WS_MSG_PER_SEC = 100;
 
+/**
+ * Cadence de la veille des sockets (ms) : ping à chaque tour, et une socket
+ * dont le pong du tour précédent n'est pas revenu est coupée.
+ *
+ * Sans elle, une connexion morte en silence — l'onglet d'un portable mis en
+ * veille, un réseau qui disparaît sans rien fermer — restait dans
+ * `dashboardSockets` jusqu'aux délais TCP du noyau (de l'ordre du quart
+ * d'heure), et chaque diffusion d'instantané s'accumulait dans son tampon
+ * d'envoi, sur le serveur. Navigateurs et nœuds répondent aux pings sans rien
+ * coder : le pong fait partie du protocole WebSocket.
+ */
+const WS_VIE_MS = 30_000;
+
 /** Nombre d'événements conservés dans le journal (les plus anciens sont purgés). */
 const EVENT_RETENTION = 5_000;
 
@@ -608,6 +621,8 @@ export interface ServerConfig {
   trustProxy?: ConfianceProxy;
   /** URL WebSocket publique annoncée dans les invitations (HIVE_PUBLIC_URL). */
   publicUrl?: string;
+  /** Cadence de la veille des sockets WebSocket (ms). Défaut : `WS_VIE_MS`. */
+  wsVieMs?: number;
   /** Périodicité du tick du scheduler (ms). */
   tickMs?: number;
   /**
@@ -8888,6 +8903,27 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     }, 5_000);
     authTimer.unref?.();
 
+    // La veille (cf. `WS_VIE_MS`) : un pong manqué d'un tour à l'autre, et la
+    // socket est coupée. `terminate()` émet `close`, qui fait le ménage
+    // habituel — nœud déclaré déconnecté, tableau de bord retiré de la diffusion.
+    let enVie = true;
+    ws.on('pong', () => {
+      enVie = true;
+    });
+    const veille = setInterval(() => {
+      if (!enVie) {
+        ws.terminate();
+        return;
+      }
+      enVie = false;
+      try {
+        ws.ping();
+      } catch {
+        // Socket en train de tomber : `close` suivra.
+      }
+    }, config.wsVieMs ?? WS_VIE_MS);
+    veille.unref?.();
+
     ws.on('message', (data, isBinary) => {
       // Toute exception (ex. écriture SQLite qui échoue) est confinée à ce
       // message : elle ferme la connexion fautive sans abattre l'orchestrateur.
@@ -9501,6 +9537,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     ws.on('close', () => {
       clearTimeout(authTimer);
       clearInterval(budgetTimer);
+      clearInterval(veille);
       if (role === 'node' && nodeId !== null && nodeSockets.get(nodeId) === ws) {
         nodeSockets.delete(nodeId);
         nodeOnShift.delete(nodeId);
