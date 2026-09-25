@@ -12,6 +12,7 @@ import type { Suite } from './polyethisme.js';
 import type { MetierCycle } from './metier.js';
 import type { HiveEvent } from '../shared/types.js';
 import { projeterJournalOuvrier } from './journal-ouvriere.js';
+import { LIMITES_DELEGATION_DEFAUT, type LimitesDelegation } from './delegation.js';
 
 /** Identité humaine constatée par la Reine, distincte du nœud technique. */
 export interface WorkerIdentitySnapshot {
@@ -33,6 +34,11 @@ export interface WorkerHistorySnapshot {
   status?: string;
   decision?: string;
   reason?: string;
+}
+
+/** Limites d'autonomie réellement appliquées à la délégation Hive. */
+export interface WorkerAutonomySnapshot {
+  delegation: Readonly<LimitesDelegation>;
 }
 
 const HISTORIQUE_WORKER_MAX = 5;
@@ -109,6 +115,8 @@ export interface WorkerSnapshot {
   slotsLibres: number;
   /** Tâches réellement attribuées à ce Worker au moment de la lecture. */
   currentTasks?: WorkerCurrentTask[];
+  /** Limites de délégation appliquées par la Queen, jamais augmentées par le Worker. */
+  autonomie?: WorkerAutonomySnapshot;
   /** Fenêtre d'activité persistée, absente si la source n'est pas disponible. */
   historique?: readonly WorkerHistorySnapshot[];
   plateforme?: HiveNode['plateforme'];
@@ -209,6 +217,7 @@ export function projeterWorkers(
       running: node.running,
       maxConcurrency: node.maxConcurrency,
       slotsLibres: Math.max(0, node.maxConcurrency - node.running),
+      autonomie: { delegation: { ...LIMITES_DELEGATION_DEFAUT } },
       currentTasks: activeTasks
         .filter(
           (

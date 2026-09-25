@@ -118,6 +118,18 @@ describe('GET /api/workers', () => {
           title?: string;
           logs?: string;
         }>;
+        autonomie: {
+          delegation: {
+            maxDepth: number;
+            maxChildrenPerParent: number;
+            maxDescendantsPerRoot: number;
+            maxDurationMs: number;
+            maxCostMicros: number;
+            maxResourceUnits: number;
+            maxTitleChars: number;
+            maxPromptChars: number;
+          };
+        };
       }>;
     };
 
@@ -146,6 +158,18 @@ describe('GET /api/workers', () => {
       ]),
     );
     expect(body.workers[0]?.historique[0]).not.toHaveProperty('logs');
+    expect(body.workers[0]?.autonomie).toEqual({
+      delegation: {
+        maxDepth: 3,
+        maxChildrenPerParent: 4,
+        maxDescendantsPerRoot: 16,
+        maxDurationMs: 30 * 60_000,
+        maxCostMicros: 5_000_000,
+        maxResourceUnits: 4,
+        maxTitleChars: 160,
+        maxPromptChars: 16_000,
+      },
+    });
     expect(body.workers[0]?.modeles?.[0]?.reputation).toMatchObject({
       essais: 1,
       moyenne: 1,

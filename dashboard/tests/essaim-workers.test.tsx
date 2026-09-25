@@ -260,6 +260,34 @@ describe('projection Worker dans Mission Control', () => {
     expect(historique?.textContent).not.toContain('historique indisponible');
   });
 
+  it('rend les limites d’autonomie reçues du Worker', async () => {
+    vi.mocked(fetchWorkers).mockResolvedValue({
+      workers: [
+        {
+          ...workerAvecModeles(),
+          autonomie: {
+            delegation: {
+              maxDepth: 3,
+              maxChildrenPerParent: 4,
+              maxDescendantsPerRoot: 16,
+              maxDurationMs: 30 * 60_000,
+              maxCostMicros: 5_000_000,
+              maxResourceUnits: 4,
+              maxTitleChars: 160,
+              maxPromptChars: 16_000,
+            },
+          },
+        },
+      ],
+    });
+    const dom = await monter();
+    const autonomie = carte(dom).querySelector('[data-testid="worker-autonomy"]');
+
+    expect(autonomie?.textContent).toContain('Limites d’autonomie');
+    expect(autonomie?.textContent).toContain('profondeur ≤ 3');
+    expect(autonomie?.textContent).toContain('enfants ≤ 4');
+  });
+
   it('ne fabrique aucun profil quand la projection ne contient aucun Worker correspondant', async () => {
     vi.mocked(fetchWorkers).mockResolvedValue({ workers: [] });
     const dom = await monter();
