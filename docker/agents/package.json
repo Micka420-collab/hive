@@ -1,0 +1,16 @@
+{
+  "name": "hive-agents-image",
+  "private": true,
+  "description": "CLI d'agents installés dans l'image docker/agents — arbre complet épinglé par package-lock.json (npm ci).",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@anthropic-ai/claude-code": "2.1.278",
+    "@openai/codex": "0.155.1",
+    "cline": "3.0.65"
+  },
+  "allowScripts": {
+    "@anthropic-ai/claude-code": true,
+    "cline": true,
+    "protobufjs": true
+  }
+}
