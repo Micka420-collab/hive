@@ -83,5 +83,9 @@
     "typescript-eslint": "^8.63.0",
     "vite": "^8.1.3",
     "vitest": "^4.1.11"
+  },
+  "allowScripts": {
+    "better-sqlite3": true,
+    "esbuild": true
   }
 }

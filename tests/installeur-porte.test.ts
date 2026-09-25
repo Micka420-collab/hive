@@ -183,6 +183,12 @@ describe.runIf(NODE_OK !== null)('l’installeur — les chemins complets, sous 
       env: { action: string; clesAjoutees: string[] };
     };
     expect(machine.dryRun).toBe(true);
+    // La version est LUE dans le paquet, pas recopiée à la main : elle était
+    // restée à « 0.2.0 » en dur quand le paquet est passé à 0.3.0.
+    const paquet = JSON.parse(readFileSync(path.join(RACINE, 'package.json'), 'utf8')) as {
+      version: string;
+    };
+    expect(machine.version).toBe(paquet.version);
     expect(machine.env.action).toBe('cree');
     expect(machine.env.clesAjoutees.length).toBeGreaterThan(3);
   });
