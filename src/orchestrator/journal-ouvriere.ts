@@ -60,7 +60,7 @@ const BOOLEAN_FIELDS = new Set(['infra', 'conteste', 'applique', 'possible']);
 
 /** Credentials commonly emitted by command line tools or repository URLs. */
 const SECRET_VALUE =
-  /(?:gh[pousr]_[A-Za-z0-9_-]+|github_pat_[A-Za-z0-9_]+|sk-[A-Za-z0-9_-]+|xai-[A-Za-z0-9_-]+|(?:Bearer|Basic)\s+[^\s,;]+|(?:token|secret|password|api[_-]?key)\s*[=:]\s*|(?:HIVE_TOKEN|[A-Z0-9_]*(?:API_KEY|SECRET|PASSWORD|PRIVATE_KEY))\s*[=:]\s*|https?:\/\/[^\s/@]+:[^\s/@]+@)[^\s,;]+/gi;
+  /(?:\bgh[pousr]_[A-Za-z0-9_-]+\b|\bgithub_pat_[A-Za-z0-9_]+\b|\bsk-[A-Za-z0-9_-]+\b|\bxai-[A-Za-z0-9_-]+\b|\b(?:Bearer|Basic)\s+[^\s,;]+|\b(?:token|secret|password|api[_-]?key)\s*[=:]\s*[^\s,;]+|\b(?:HIVE_TOKEN|[A-Z0-9_]*(?:API_KEY|SECRET|PASSWORD|PRIVATE_KEY))\s*[=:]\s*[^\s,;]+|https?:\/\/[^\s/@]+:[^\s/@]+@[^\s,;]+)/gi;
 
 function safeText(value: string): string {
   return champSurUneLigne(value, 240).replace(SECRET_VALUE, '[secret]');

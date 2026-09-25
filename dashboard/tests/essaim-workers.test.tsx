@@ -234,6 +234,32 @@ describe('projection Worker dans Mission Control', () => {
     expect(card.querySelector('[data-testid="worker-role"]')?.textContent).toContain('Édite');
   });
 
+  it('rend les faits récents persistés et leur état indisponible explicitement', async () => {
+    vi.mocked(fetchWorkers).mockResolvedValue({
+      workers: [
+        {
+          ...workerAvecModeles(),
+          historique: [
+            {
+              id: 9,
+              ts: 1_700_000_000_000,
+              type: 'task_done',
+              taskId: 'task-live',
+              title: 'Corriger le flux',
+            },
+          ],
+        },
+      ],
+    });
+    const dom = await monter();
+    const historique = carte(dom).querySelector('[data-testid="worker-history"]');
+
+    expect(historique?.textContent).toContain('Activité récente');
+    expect(historique?.textContent).toContain('task_done');
+    expect(historique?.textContent).toContain('Corriger le flux');
+    expect(historique?.textContent).not.toContain('historique indisponible');
+  });
+
   it('ne fabrique aucun profil quand la projection ne contient aucun Worker correspondant', async () => {
     vi.mocked(fetchWorkers).mockResolvedValue({ workers: [] });
     const dom = await monter();

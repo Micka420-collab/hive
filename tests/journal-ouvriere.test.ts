@@ -35,6 +35,17 @@ describe('journal Worker contrôlé', () => {
     expect(JSON.stringify(entry)).not.toContain('diff --git');
   });
 
+  it('ne transforme pas un identifiant de tâche valide en faux secret', () => {
+    const entry = projeterEvenementOuvriere({
+      id: 9,
+      ts: 44,
+      type: 'task_done',
+      payload: { taskId: 'task-observed', nodeId: 'worker-1' },
+    });
+
+    expect(entry.payload).toMatchObject({ taskId: 'task-observed', nodeId: 'worker-1' });
+  });
+
   it('conserve un événement futur sans laisser passer ses champs inconnus', () => {
     const entry = projeterEvenementOuvriere({
       id: 8,

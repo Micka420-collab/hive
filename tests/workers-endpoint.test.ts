@@ -111,6 +111,13 @@ describe('GET /api/workers', () => {
           bapteme: { nom: string; baptiseA: number } | null;
           metier: { metier: string; assigneA: number } | null;
         };
+        historique: Array<{
+          type: string;
+          taskId?: string;
+          resultId?: number;
+          title?: string;
+          logs?: string;
+        }>;
       }>;
     };
 
@@ -129,6 +136,16 @@ describe('GET /api/workers', () => {
       bapteme: { nom: 'Capucine', baptiseA: 1 },
       metier: { metier: 'edite', assigneA: 2 },
     });
+    expect(body.workers[0]?.historique).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'contre_expertise_verdict',
+          taskId: task.id,
+          resultId,
+        }),
+      ]),
+    );
+    expect(body.workers[0]?.historique[0]).not.toHaveProperty('logs');
     expect(body.workers[0]?.modeles?.[0]?.reputation).toMatchObject({
       essais: 1,
       moyenne: 1,

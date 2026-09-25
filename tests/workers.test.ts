@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { HiveNode } from '../src/shared/types.js';
-import { projeterWorkers } from '../src/orchestrator/workers.js';
+import { projeterHistoriqueWorker, projeterWorkers } from '../src/orchestrator/workers.js';
 
 const node = (patch: Partial<HiveNode> = {}): HiveNode => ({
   id: 'node-1',
@@ -78,6 +78,28 @@ describe('projection Worker', () => {
         metier: { metier: 'edite', assigneA: 101 },
       },
     });
+  });
+
+  it('borne l’historique Worker et retire les champs libres du journal', () => {
+    const events = Array.from({ length: 7 }, (_, index) => ({
+      id: index + 1,
+      ts: index + 1,
+      type: 'task_done',
+      payload: {
+        taskId: `task-${index}`,
+        title: `Tâche ${index}`,
+        logs: 'Bearer secret-a-ne-pas-exposer',
+        prompt: 'prompt privé',
+      },
+    }));
+
+    const historique = projeterHistoriqueWorker(events);
+
+    expect(historique).toHaveLength(5);
+    expect(historique[0]).toMatchObject({ id: 1, taskId: 'task-0', title: 'Tâche 0' });
+    expect(historique[0]).not.toHaveProperty('logs');
+    expect(historique[0]).not.toHaveProperty('prompt');
+    expect(historique.at(-1)?.id).toBe(5);
   });
 
   it('sépare la réputation exacte du Worker du vécu global', () => {
