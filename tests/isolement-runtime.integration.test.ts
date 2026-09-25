@@ -56,9 +56,12 @@ describe('isolement — intégration runtime réel', () => {
       // Le chemin par défaut vérifie le contrat minimal de l’image Node. La
       // jambe CI qui construit l’image agent-aware pose HIVE_ISOLEMENT_IMAGE :
       // elle exerce alors les vrais binaires que le Worker lancera, pas une
-      // simple commande `docker run` indépendante de Hive.
+      // simple commande `docker run` indépendante de Hive. Chaque CLI intégré
+      // à `docker/agents/Dockerfile` doit figurer ici : c'est ce preflight
+      // durci (racine en lecture seule, /tmp noexec, uid non privilégié) qui
+      // prouve qu'un Worker pourra réellement le lancer.
       const image = imageDemandee || IMAGE_DEFAUT;
-      const binaires = imageDemandee ? ['claude', 'codex'] : ['node'];
+      const binaires = imageDemandee ? ['claude', 'codex', 'cline'] : ['node'];
       for (const binaire of binaires) {
         const resultat = await sonderAgentDansBac(runtime!, binaire, image);
         expect(resultat.executable, `${binaire} dans ${image}: ${resultat.motif}`).toBe(true);

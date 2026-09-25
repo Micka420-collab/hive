@@ -38,8 +38,14 @@ volontairement pas intégrés ici, parce qu’ils casseraient le contrat « vers
 Un opérateur qui veut faire tourner l’un de ces agents en conteneur fournit sa
 propre image (à partir de celle-ci) et la désigne par la variable
 `HIVE_ISOLEMENT_IMAGE`. Le preflight de Hive lance `<cli> --version` dans le
-conteneur et n’exige que le code de sortie 0 ; toute image qui contient le
-binaire du CLI choisi passe.
+conteneur, avec les mêmes contraintes que l’exécution réelle (racine en lecture
+seule, `/tmp` en mémoire et non exécutable, uid non privilégié, aucune
+capacité) et exige le code de sortie 0. Une image passe si son CLI répond sous
+ces contraintes ; sa seule présence ne suffit pas.
+
+Tout CLI ajouté à ce Dockerfile doit aussi être ajouté à la liste des binaires
+de `tests/isolement-runtime.integration.test.ts` : c’est ce test, lancé en CI
+avec l’image construite, qui prouve le preflight durci.
 
 L’image ne contient aucun secret. Une clé API doit être fournie explicitement au
 conteneur par l’opérateur ; une session stockée sur l’hôte n’est pas copiée dans
