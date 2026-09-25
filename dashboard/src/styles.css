@@ -1043,6 +1043,27 @@ h3 {
   color: var(--text);
 }
 
+.routage-panel {
+  margin-top: 1rem;
+}
+.routage-panel h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
+}
+.routage-rang {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+.routage-rang th,
+.routage-rang td {
+  text-align: left;
+  padding: 0.2rem 0.4rem;
+  border-bottom: 1px solid var(--border, rgba(127, 127, 127, 0.25));
+}
+.routage-rang tr.elu td {
+  font-weight: 600;
+}
 .delegation-panel {
   margin-top: 18px;
   padding-top: 14px;
