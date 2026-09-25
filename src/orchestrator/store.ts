@@ -5413,6 +5413,40 @@ export class HiveStore {
   }
 
   /**
+   * Les événements d'UNE tâche, de types donnés, dans l'ordre du journal.
+   *
+   * Même correspondance exacte que `lastEventFor` (json_extract, jamais LIKE :
+   * un id client contenant `%` ou `_` ne doit pas ramasser les événements d'une
+   * autre tâche). Bornée : le journal complet reste lisible par `/api/events`.
+   */
+  evenementsDeTache(taskId: string, types: readonly string[], limite = 100): HiveEvent[] {
+    if (types.length === 0) return [];
+    const marques = types.map(() => '?').join(', ');
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM events
+          WHERE type IN (${marques})
+            AND json_extract(CASE WHEN json_valid(payload) THEN payload ELSE '{}' END, '$.taskId') = ?
+          ORDER BY id DESC LIMIT ?`,
+      )
+      .all(...types, taskId, Math.max(1, Math.min(limite, 500))) as EventRow[];
+    const evenements: HiveEvent[] = [];
+    for (const row of rows.reverse()) {
+      try {
+        evenements.push({
+          id: row.id,
+          ts: row.ts,
+          type: row.type,
+          payload: JSON.parse(row.payload) as Record<string, unknown>,
+        });
+      } catch {
+        // Payload illisible : ignoré, jamais deviné.
+      }
+    }
+    return evenements;
+  }
+
+  /**
    * Retrouve l'événement de lancement qui contient une relecture précise.
    *
    * Le lien tâche→production reste dans `contre_expertises`, mais le résultat

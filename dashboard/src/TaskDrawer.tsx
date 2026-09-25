@@ -15,6 +15,7 @@ import { useLang, useT } from './i18n';
 import { formatMs, StatusBadge, useDialog } from './ui';
 import { direAnnonce, direDuree } from '../../src/shared/horloge-chantier';
 import { verdictAnnonce } from './horloge-vue';
+import { RoutageTache } from './RoutageTache';
 import type { VueHorloge } from './horloge-vue';
 
 function raisonDelegation(events: DelegationEvent[], taskId: string): string | null {
@@ -311,6 +312,12 @@ export function TaskDrawer({ task, nodes, horloge, refreshTick = 0, onClose }: P
           <dt>ID</dt>
           <dd className="mono">{task.id}</dd>
         </dl>
+
+        <RoutageTache
+          taskId={task.id}
+          cle={`${task.status}:${task.assignedNodeId ?? ''}:${refreshTick}`}
+          nodes={nodes}
+        />
 
         <section className="delegation-panel" aria-labelledby="delegation-title">
           <div className="delegation-panel-head">

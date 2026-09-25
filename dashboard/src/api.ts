@@ -1145,6 +1145,17 @@ export function getJwt(): string | null {
  * eux-mêmes la réponse) mais qui visent une route réservée — sans eux, la route
  * répond 401 et le panneau croit à une panne.
  */
+/**
+ * « Pourquoi ce Worker ? Pourquoi ce modèle ? » pour une tâche : les
+ * affectations relues dans le journal (raison figée à la décision, jamais
+ * recalculée — cf. `src/shared/routage-vue.ts`).
+ */
+export function fetchRoutage(
+  taskId: string,
+): Promise<{ taskId: string; affectations: AffectationVue[] }> {
+  return api(`/api/tasks/${encodeURIComponent(taskId)}/routage`);
+}
+
 export function enTetesRuche(): Record<string, string> {
   const jwt = getJwt();
   return { 'x-hive-token': getToken(), ...(jwt ? { authorization: `Bearer ${jwt}` } : {}) };
@@ -1786,6 +1797,7 @@ export function connectFeed(handlers: FeedHandlers): HiveFeed {
 // rien ne fait.
 
 import type { ProjetPublic as ProjetPublicVue } from '../../src/shared/projet-public';
+import type { AffectationVue } from '../../src/shared/routage-vue';
 export type { ProjetPublic as ProjetPublicVue } from '../../src/shared/projet-public';
 
 /**
