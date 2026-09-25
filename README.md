@@ -60,25 +60,50 @@ carte Notion distingue le code présent de la preuve de bout en bout.
 
 ## État réel du projet
 
-Les fondations suivantes sont publiées sur `main` :
+Mis à jour le 25 septembre 2026. Tout ce qui suit est fusionné sur `main`,
+avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes.
 
-- baseline de compilation, tests et CI restaurée dans [PR #384](https://github.com/Micka420-collab/hive/pull/384) ;
-- préflight des moteurs Docker, Podman et bubblewrap dans [PR #385](https://github.com/Micka420-collab/hive/pull/385) ;
-- graphe de délégation borné et persistant dans [PR #383](https://github.com/Micka420-collab/hive/pull/383).
+**Prouvé :**
 
-La [PR #386](https://github.com/Micka420-collab/hive/pull/386) corrige
-l’alignement entre le preflight et l’exécution des agents dans un bac, y compris
-pour Windows et Cline. Son état de revue, sa CI et sa livraison restent visibles
-sur GitHub.
+- **Installation et démarrage.** Installeur une-commande (Linux, macOS,
+  Windows) essayé en CI jusqu'à une ruche qui répond, un invité qui rejoint par
+  billet et une tâche exécutée. `npm run ruche` lance la Reine, l'ouvrière et
+  l'écran ; la Reine et l'ouvrière tournent chacune dans un seul processus, ce
+  qui garantit un arrêt propre ([#443](https://github.com/Micka420-collab/hive/pull/443)).
+- **Reprise après panne**, mesurée avec de vrais processus :
+  - `kill -9` de la Reine ou d'un nœud en pleine mission ;
+  - base verrouillée par un autre processus ;
+  - réseau gelé ou chemin réseau mort.
 
-La preuve d’une mission réelle dans Docker/Podman reste à faire. `docker/atelier`
-est un bureau Chromium/VNC, pas une image d’agent. L’adaptateur `shell` est une
-simulation et ne produit pas de vrai diff.
+  Les tâches reprennent, aucun résultat n'est compté deux fois. Le nœud détecte une
+  connexion morte par ping/pong au lieu d'attendre TCP
+  ([#437](https://github.com/Micka420-collab/hive/pull/437)).
 
-Le sous-lot suivant ajoute `docker/agents`, une image épinglée pour Claude Code
-et Codex, ainsi qu’une construction et deux sondes de version dans la CI. Cette
-image prouve la disponibilité des CLI dans le bac ; elle ne remplace pas encore
-une mission authentifiée avec un vrai dépôt, des tests et une livraison Git.
+- **Sécurité** :
+  - les identifiants des dépôts privés ne sortent plus vers l'essaim
+    ([#435](https://github.com/Micka420-collab/hive/pull/435)) ;
+  - sur une ruche exposée, le premier compte (administrateur) exige le jeton
+    de ruche ([#440](https://github.com/Micka420-collab/hive/pull/440)) ;
+  - derrière un proxy, chaque client garde ses compteurs anti-abus
+    (`HIVE_TRUST_PROXY`, [#439](https://github.com/Micka420-collab/hive/pull/439)).
+- **Bac à sable.** Preflight Docker, Podman et bubblewrap. L'image
+  `docker/agents` embarque Claude Code, Codex et Cline, sondés dans le
+  preflight durci de Hive (racine en lecture seule, `/tmp` noexec, uid non
+  privilégié).
+- **Orchestration.** Graphe de délégation borné et persistant, Workers
+  (identité, historique, ressources observées, limites d'autonomie), Evaluator
+  et contre-revue exacte, visibles dans Mission Control.
+
+**Reste à prouver :**
+
+- une mission **authentifiée** complète, avec un vrai agent dans un vrai bac
+  Docker ou Podman (diff, tests, revue, correction, livraison Git) ;
+- les coûts et la latence réels des fournisseurs ;
+- l'apprentissage (Genome) ;
+- la démonstration V2 Alpha de bout en bout.
+
+L'adaptateur `shell` reste une **simulation** : sans agent réel installé, les
+diffs produits sont factices, et l'installeur comme la Reine le disent.
 
 ## 🖥 L'interface
 
