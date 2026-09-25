@@ -634,7 +634,9 @@ function websocket(r: Releve): Diagnostic {
     cle: 'websocket',
     gravite: 'inconnu',
     constat: 'ruche éteinte — le WebSocket n’a pas pu être essayé',
-    reparation: 'npm run dev  puis relancez `npm run cli -- doctor`',
+    // `ruche`, pas `dev` : la commande unique que l'installeur et le README
+    // conseillent — `dev` n'allumerait que la Reine.
+    reparation: 'npm run ruche  puis relancez `npm run cli -- doctor`',
   };
 }
 
