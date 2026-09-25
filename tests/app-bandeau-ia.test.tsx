@@ -42,6 +42,7 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
 import { connectFeed } from '../dashboard/src/api';
 import type { FeedHandlers } from '../dashboard/src/api';
 import { App } from '../dashboard/src/App';
+import { laisserFinirLesVuesParesseuses } from './aide/vues-paresseuses';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -60,7 +61,8 @@ beforeEach(() => {
   });
 });
 
-afterEach(() => {
+afterEach(async () => {
+  await laisserFinirLesVuesParesseuses();
   act(() => racine?.unmount());
   conteneur?.remove();
   racine = null;
