@@ -3,11 +3,13 @@
 //
 // Tout vient de `/api/genome`, un repli du journal retenu. L'écran ne note ni
 // ne classe : les lignes sortent par nom de modèle, chaque fait dans sa
-// colonne. Une affectation sans modèle déclaré n'est rangée sous aucun modèle,
-// et le coût fournisseur est dit « inconnu » — jamais estimé.
+// colonne. Une affectation sans modèle déclaré n'est rangée sous aucun modèle.
+// Coût et temps modèle sont ce que DÉCLARE le CLI de l'agent : « ≥ » quand une
+// tentative s'est tue, « inconnu » sans aucune déclaration — jamais estimés.
 
-import { formatMs } from './ui';
-import { useT } from './i18n';
+import { direUsd, formatMs } from './ui';
+import { useLang, useT } from './i18n';
+import type { SommeDeclaree } from '../../src/shared/declaration-fournisseur';
 import type { RegistreGenome as Registre } from '../../src/shared/registre-genome';
 
 interface Props {
@@ -17,6 +19,21 @@ interface Props {
 
 export function RegistreGenome({ registre, erreur }: Props) {
   const t = useT();
+  const lang = useLang();
+  const declaree = (s: SommeDeclaree | 'inconnu', rendu: (v: number) => string) =>
+    s === 'inconnu' ? (
+      <td className="muted-text">{t('inconnu', 'unknown')}</td>
+    ) : (
+      <td
+        title={t(
+          `${s.declarees}/${s.tentatives} tentative(s) déclarée(s) par le CLI de l’agent`,
+          `${s.declarees}/${s.tentatives} attempt(s) declared by the agent CLI`,
+        )}
+      >
+        {s.declarees < s.tentatives ? '≥ ' : ''}
+        {rendu(s.total)}
+      </td>
+    );
   return (
     <section className="card genome-panel" data-testid="registre-genome">
       <header className="panel-head">
@@ -66,13 +83,27 @@ export function RegistreGenome({ registre, erreur }: Props) {
                 <th scope="col">{t('Relectures', 'Reviews')}</th>
                 <th scope="col">{t('Humain', 'Human')}</th>
                 <th scope="col">{t('Durée méd.', 'Median time')}</th>
-                <th scope="col">{t('Coût', 'Cost')}</th>
+                <th scope="col">{t('Temps modèle', 'Model time')}</th>
+                <th scope="col">{t('Coût déclaré', 'Declared cost')}</th>
               </tr>
             </thead>
             <tbody>
               {registre.lignes.map((l) => (
                 <tr key={`${l.modele}/${l.categorie}`} data-testid="genome-ligne">
-                  <td className="genome-modele">{l.modele}</td>
+                  <td className="genome-modele">
+                    {l.modele}
+                    {l.modelesExacts.length > 0 && (
+                      <span
+                        className="genome-exacts"
+                        title={t(
+                          'modèles exacts déclarés par le CLI',
+                          'exact models declared by the CLI',
+                        )}
+                      >
+                        {l.modelesExacts.join(', ')}
+                      </span>
+                    )}
+                  </td>
                   <td>{l.categorie}</td>
                   <td>
                     {l.rendus}/{l.affectations}
@@ -97,7 +128,8 @@ export function RegistreGenome({ registre, erreur }: Props) {
                     ✓ {l.humain.approuvees} · ✗ {l.humain.rejetees}
                   </td>
                   <td>{l.dureeMedianeMs === null ? '—' : formatMs(l.dureeMedianeMs)}</td>
-                  <td className="muted-text">{t('inconnu', 'unknown')}</td>
+                  {declaree(l.dureeModele, formatMs)}
+                  {declaree(l.coutFournisseur, (v) => direUsd(v, lang))}
                 </tr>
               ))}
             </tbody>
@@ -115,8 +147,8 @@ export function RegistreGenome({ registre, erreur }: Props) {
             </span>
           )}
           {t(
-            `Lu sur ${registre.fenetre.evenements} événement(s) du journal retenu. Aucun classement : le routing apprend des seules contre-visites. Le coût fournisseur n’est transmis par aucun fournisseur.`,
-            `Read from ${registre.fenetre.evenements} retained journal event(s). No ranking: routing learns from counter-reviews only. No provider reports its cost.`,
+            `Lu sur ${registre.fenetre.evenements} événement(s) du journal retenu. Aucun classement : le routing apprend des seules contre-visites. Coût et temps modèle : ce que déclare le CLI de l’agent, jamais estimés — « ≥ » quand une tentative n’a rien déclaré.`,
+            `Read from ${registre.fenetre.evenements} retained journal event(s). No ranking: routing learns from counter-reviews only. Cost and model time: what the agent CLI declares, never estimated — “≥” when an attempt declared nothing.`,
           )}
           {registre.fenetre.tronquee && (
             <span data-testid="genome-tronque">

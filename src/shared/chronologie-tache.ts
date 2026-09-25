@@ -7,12 +7,17 @@
 // phases distinctes, SANS rien estimer :
 //
 //   · une phase dont un bord manque est `null`, pas zéro ;
-//   · la durée côté modèle (latence du fournisseur) et le coût fournisseur ne
-//     sont rapportés par aucun agent aujourd'hui : ils sont `inconnu`, dit tel
-//     quel — jamais déduits de la durée du Worker, qui mesure le processus
-//     local et non le modèle distant.
+//   · la durée côté modèle et le coût fournisseur viennent de ce que le CLI de
+//     l'agent DÉCLARE (Claude Code : `duration_api_ms`, `total_cost_usd`), avec
+//     leur couverture (tentatives déclarées / tentatives rendues). Sans aucune
+//     déclaration ils sont `inconnu`, dit tel quel — jamais déduits de la durée
+//     du Worker, qui mesure le processus local et non le modèle distant.
 
+import { declarationDe, sommeDeclaree } from './declaration-fournisseur.js';
+import type { SommeDeclaree } from './declaration-fournisseur.js';
 import type { HiveEvent } from './types.js';
+
+export type { SommeDeclaree } from './declaration-fournisseur.js';
 
 export type IssueTentative = 'reussie' | 'reprise' | 'echec';
 
@@ -20,6 +25,10 @@ export interface TentativeVue {
   issue: IssueTentative;
   /** Durée mesurée par le Worker autour de l'agent ; `null` si non rapportée. */
   dureeWorkerMs: number | null;
+  /** Temps passé dans les appels au modèle, déclaré par le CLI ; `null` sinon. */
+  dureeModeleMs: number | null;
+  /** Coût déclaré par le CLI de l'agent (USD) ; `null` sinon. */
+  coutUsd: number | null;
 }
 
 export interface ChronologieTache {
@@ -48,10 +57,10 @@ export interface ChronologieTache {
   /** Création → issue terminale. `null` tant que la tâche n'est pas terminée. */
   totalMs: number | null;
   terminee: boolean;
-  /** Aucun agent ne rapporte la latence du modèle distant. */
-  dureeModele: 'inconnu';
-  /** Aucun fournisseur ne rapporte un coût : jamais estimé depuis le temps. */
-  coutFournisseur: 'inconnu';
+  /** Temps modèle déclaré par le CLI, sommé sur les tentatives qui le déclarent. */
+  dureeModele: SommeDeclaree | 'inconnu';
+  /** Coût déclaré par le CLI (USD), sommé de même — jamais estimé depuis le temps. */
+  coutFournisseur: SommeDeclaree | 'inconnu';
 }
 
 /** Les types d'événements que la chronologie lit — et rien d'autre. */
@@ -70,6 +79,16 @@ export const TYPES_CHRONOLOGIE = [
 
 const nombre = (v: unknown): number | null =>
   typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null;
+
+const tentative = (issue: IssueTentative, payload: Record<string, unknown>): TentativeVue => {
+  const declaration = declarationDe(payload);
+  return {
+    issue,
+    dureeWorkerMs: nombre(payload.durationMs),
+    dureeModeleMs: declaration.dureeApiMs,
+    coutUsd: declaration.coutUsd,
+  };
+};
 
 const ecart = (debut: number | null, fin: number | null): number | null =>
   debut !== null && fin !== null && fin >= debut ? fin - debut : null;
@@ -106,7 +125,7 @@ export function chronologieDepuisEvenements(
   for (const e of tries) {
     switch (e.type) {
       case 'task_done':
-        tentatives.push({ issue: 'reussie', dureeWorkerMs: nombre(e.payload.durationMs) });
+        tentatives.push(tentative('reussie', e.payload));
         terminaleA = e.ts;
         break;
       case 'task_retry':
@@ -115,14 +134,14 @@ export function chronologieDepuisEvenements(
           // est déjà comptée (task_done) ; aucune durée Worker ici.
           corrections += 1;
         } else {
-          tentatives.push({ issue: 'reprise', dureeWorkerMs: nombre(e.payload.durationMs) });
+          tentatives.push(tentative('reprise', e.payload));
           reprises += 1;
         }
         break;
       case 'task_failed':
         // Un refus d'infrastructure (aucun agent qui fonctionne) n'a pas de
         // durée : la tentative compte, sa durée reste inconnue.
-        tentatives.push({ issue: 'echec', dureeWorkerMs: nombre(e.payload.durationMs) });
+        tentatives.push(tentative('echec', e.payload));
         terminaleA = e.ts;
         break;
       case 'task_cancelled':
@@ -161,7 +180,7 @@ export function chronologieDepuisEvenements(
     revueMs: revueConnue ? revueTotale : null,
     totalMs: ecart(creeeA, terminaleA),
     terminee: terminaleA !== null,
-    dureeModele: 'inconnu',
-    coutFournisseur: 'inconnu',
+    dureeModele: sommeDeclaree(tentatives.map((x) => x.dureeModeleMs)),
+    coutFournisseur: sommeDeclaree(tentatives.map((x) => x.coutUsd)),
   };
 }

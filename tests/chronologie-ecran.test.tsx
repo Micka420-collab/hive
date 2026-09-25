@@ -68,8 +68,8 @@ describe('le panneau « Où est passé le temps »', () => {
     const dom = await monter({
       ...base,
       tentatives: [
-        { issue: 'reussie', dureeWorkerMs: 2_000 },
-        { issue: 'reussie', dureeWorkerMs: 3_000 },
+        { issue: 'reussie', dureeWorkerMs: 2_000, dureeModeleMs: null, coutUsd: null },
+        { issue: 'reussie', dureeWorkerMs: 3_000, dureeModeleMs: null, coutUsd: null },
       ],
       dureeWorkerTotaleMs: 5_000,
       corrections: 1,
@@ -95,10 +95,30 @@ describe('le panneau « Où est passé le temps »', () => {
     expect(phase(dom, 'execution'), 'pas d’exécution encore').toBeNull();
   });
 
-  it('LA LATENCE DU MODÈLE ET LE COÛT FOURNISSEUR SONT DITS INCONNUS', async () => {
+  it('SANS DÉCLARATION, LA LATENCE DU MODÈLE ET LE COÛT FOURNISSEUR SONT DITS INCONNUS', async () => {
     const dom = await monter(base);
     expect(phase(dom, 'modele')).toContain('inconnue');
     expect(phase(dom, 'cout')).toContain('inconnu');
     expect(phase(dom, 'cout')).toContain('jamais estimé');
+  });
+
+  it('CE QUE LE CLI DÉCLARE EST DIT TEL QUEL, ET SA SOURCE AVEC', async () => {
+    const dom = await monter({
+      ...base,
+      dureeModele: { total: 45_000, declarees: 2, tentatives: 2 },
+      coutFournisseur: { total: 0.0421, declarees: 2, tentatives: 2 },
+    });
+    expect(phase(dom, 'modele')).toBe('45 s — déclaré par le CLI de l’agent');
+    expect(phase(dom, 'cout')).toMatch(/^0,0421\s\$US — déclaré par le CLI de l’agent$/);
+  });
+
+  it('UNE COUVERTURE PARTIELLE SE LIT « AU MOINS » — la tentative muette n’est pas estimée', async () => {
+    const dom = await monter({
+      ...base,
+      dureeModele: { total: 30_000, declarees: 1, tentatives: 3 },
+      coutFournisseur: { total: 0.5, declarees: 1, tentatives: 3 },
+    });
+    expect(phase(dom, 'modele')).toBe('≥ 30 s — 1/3 tentative(s) déclarée(s)');
+    expect(phase(dom, 'cout')).toMatch(/^≥ 0,50\s\$US — 1\/3 tentative\(s\) déclarée\(s\)$/);
   });
 });

@@ -2,14 +2,19 @@
 //
 // Une phase dont un bord manque n'est pas affichée comme zéro : elle est tue
 // (pas encore arrivée) ou dite « en cours ». La latence du modèle distant et le
-// coût fournisseur ne sont rapportés par aucun agent : le panneau les dit
-// INCONNUS, sans les déduire de la durée du Worker.
+// coût fournisseur viennent de ce que le CLI de l'agent DÉCLARE : le panneau
+// les dit tels quels, avec « ≥ » et leur couverture quand une tentative s'est
+// tue, et INCONNUS sans aucune déclaration — jamais déduits du temps Worker.
 
 import { useEffect, useState } from 'react';
 import { fetchChronologie } from './api';
 import { useLang, useT } from './i18n';
 import { direDuree } from '../../src/shared/horloge-chantier';
-import type { ChronologieTache as Chronologie } from '../../src/shared/chronologie-tache';
+import type {
+  ChronologieTache as Chronologie,
+  SommeDeclaree,
+} from '../../src/shared/chronologie-tache';
+import { direUsd } from './ui';
 
 interface Props {
   taskId: string;
@@ -41,6 +46,14 @@ export function ChronologieTache({ taskId, cle }: Props) {
       : i === 'reprise'
         ? t('reprise', 'retried')
         : t('échec', 'failed');
+
+  const declare = (s: SommeDeclaree, rendu: string): string =>
+    s.declarees === s.tentatives
+      ? t(`${rendu} — déclaré par le CLI de l’agent`, `${rendu} — declared by the agent CLI`)
+      : t(
+          `≥ ${rendu} — ${s.declarees}/${s.tentatives} tentative(s) déclarée(s)`,
+          `≥ ${rendu} — ${s.declarees}/${s.tentatives} attempt(s) declared`,
+        );
 
   const lignes: [string, string, string][] = [];
   if (c) {
@@ -107,15 +120,29 @@ export function ChronologieTache({ taskId, cle }: Props) {
           ))}
           <div data-phase="modele">
             <dt>{t('Durée côté modèle', 'Model-side duration')}</dt>
-            <dd className="muted">
-              {t('inconnue — aucun fournisseur ne la rapporte', 'unknown — no provider reports it')}
-            </dd>
+            {c.dureeModele === 'inconnu' ? (
+              <dd className="muted">
+                {t(
+                  'inconnue — l’agent ne la déclare pas',
+                  'unknown — the agent does not declare it',
+                )}
+              </dd>
+            ) : (
+              <dd>{declare(c.dureeModele, direDuree(c.dureeModele.total, lang))}</dd>
+            )}
           </div>
           <div data-phase="cout">
             <dt>{t('Coût fournisseur', 'Provider cost')}</dt>
-            <dd className="muted">
-              {t('inconnu — jamais estimé depuis le temps', 'unknown — never estimated from time')}
-            </dd>
+            {c.coutFournisseur === 'inconnu' ? (
+              <dd className="muted">
+                {t(
+                  'inconnu — jamais estimé depuis le temps',
+                  'unknown — never estimated from time',
+                )}
+              </dd>
+            ) : (
+              <dd>{declare(c.coutFournisseur, direUsd(c.coutFournisseur.total, lang))}</dd>
+            )}
           </div>
         </dl>
       )}

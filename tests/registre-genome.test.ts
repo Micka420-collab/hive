@@ -43,8 +43,49 @@ describe('registre Genome', () => {
         humain: { approuvees: 1, rejetees: 0 },
         dureeMedianeMs: 1_200,
         coutFournisseur: 'inconnu',
+        dureeModele: 'inconnu',
+        modelesExacts: [],
       },
     ]);
+  });
+
+  it('somme ce que le CLI déclare, par tentative rendue, et nomme les modèles exacts', () => {
+    const registre = registreGenomeDepuisEvenements(
+      [
+        ev('task_assigned', { taskId: 't1', nodeId: 'n1', modele: 'sonnet' }),
+        ev('task_retry', {
+          taskId: 't1',
+          nodeId: 'n1',
+          fournisseur: { source: 'claude-code', coutUsd: 0.02, dureeApiMs: 800 },
+        }),
+        ev('task_assigned', { taskId: 't1', nodeId: 'n1', modele: 'sonnet' }),
+        // Tentative sans déclaration : comptée dans la couverture, pas estimée.
+        ev('task_failed', { taskId: 't1', nodeId: 'n1', attempts: 3 }),
+        ev('task_assigned', { taskId: 't3', nodeId: 'n1', modele: 'sonnet' }),
+        ev('task_done', {
+          taskId: 't3',
+          nodeId: 'n1',
+          durationMs: 5_000,
+          fournisseur: {
+            source: 'claude-code',
+            coutUsd: 0.05,
+            dureeApiMs: 3_200,
+            modeles: ['claude-sonnet-4-5-20250929'],
+          },
+        }),
+      ],
+      categorieDe,
+    );
+
+    expect(registre.lignes).toHaveLength(1);
+    const [ligne] = registre.lignes;
+    expect(ligne?.dureeModele).toEqual({ total: 4_000, declarees: 2, tentatives: 3 });
+    expect(ligne?.coutFournisseur).toMatchObject({ declarees: 2, tentatives: 3 });
+    expect(ligne?.coutFournisseur !== 'inconnu' && ligne?.coutFournisseur.total).toBeCloseTo(
+      0.07,
+      10,
+    );
+    expect(ligne?.modelesExacts).toEqual(['claude-sonnet-4-5-20250929']);
   });
 
   it('attribue la reprise au modèle en cours et la correction à la dernière production', () => {
