@@ -14,9 +14,16 @@ docker run --rm hive-agent:local codex --version
 docker run --rm hive-agent:local cline --version
 ```
 
-Les versions sont épinglées dans le Dockerfile (`CLAUDE_CODE_VERSION`,
-`CODEX_VERSION`, `CLINE_VERSION`). Une mise à jour doit modifier l’argument de
-version, reconstruire l’image et refaire les trois sondes.
+Les versions sont épinglées dans `docker/agents/package.json`, et **tout l’arbre
+de leurs dépendances** dans `docker/agents/package-lock.json` (versions et
+empreintes d’intégrité) : l’image s’installe par `npm ci`, qui pose exactement
+cet arbre ou échoue. Un `npm install --global` n’épinglait que les trois CLI ;
+leurs dépendances transitives flottaient, et une publication en amont a suffi à
+casser la construction le 25 septembre sans qu’une ligne du dépôt change.
+
+Mettre à jour un CLI : changer sa version dans `package.json`, lancer
+`npm install --package-lock-only` dans ce dossier, reconstruire l’image et refaire
+les trois sondes.
 
 Cline se distribue en binaire compilé par plateforme (Bun embarqué), tiré par
 npm via les `optionalDependencies` du paquet. Il pèse lourd (~150 Mo) et exige
