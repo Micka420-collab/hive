@@ -16,6 +16,7 @@ import { formatMs, StatusBadge, useDialog } from './ui';
 import { direAnnonce, direDuree } from '../../src/shared/horloge-chantier';
 import { verdictAnnonce } from './horloge-vue';
 import { RoutageTache } from './RoutageTache';
+import { ChronologieTache } from './ChronologieTache';
 import type { VueHorloge } from './horloge-vue';
 
 function raisonDelegation(events: DelegationEvent[], taskId: string): string | null {
@@ -312,6 +313,8 @@ export function TaskDrawer({ task, nodes, horloge, refreshTick = 0, onClose }: P
           <dt>ID</dt>
           <dd className="mono">{task.id}</dd>
         </dl>
+
+        <ChronologieTache taskId={task.id} cle={`${task.status}:${task.attempts}:${refreshTick}`} />
 
         <RoutageTache
           taskId={task.id}

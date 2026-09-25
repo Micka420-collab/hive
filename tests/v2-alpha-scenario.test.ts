@@ -653,6 +653,64 @@ describe('V2 Alpha — mission locale vérifiable', () => {
           }),
         ]),
       );
+      // Mission Control sait dire POURQUOI ce Worker et ce modèle : la raison
+      // figée à la décision (classement de l'Aiguillage) est relue dans le
+      // journal, pour chaque affectation de la mission — la seconde, après la
+      // correction demandée par l'Evaluator, comprise.
+      const routageResponse = await fetch(`${base}/api/tasks/${task.id}/routage`, { headers });
+      expect(routageResponse.status).toBe(200);
+      const routage = (await routageResponse.json()) as {
+        affectations: Array<{
+          nodeId: string;
+          modele: string | null;
+          categorie: string | null;
+          raisonModele: Array<{ modele: string }>;
+          critereNoeud: string;
+        }>;
+      };
+      expect(routage.affectations.length, 'production puis correction').toBeGreaterThanOrEqual(2);
+      expect(routage.affectations[0]?.nodeId, 'la production part au producteur').toBe(
+        'v2-claude-code',
+      );
+      for (const affectation of routage.affectations) {
+        // Chaque nœud du scénario déclare `<agent>-model` : le modèle élu est
+        // celui du nœud retenu, et il est en tête de la raison consignée.
+        expect(affectation.modele).toBe(`${affectation.nodeId.replace(/^v2-/, '')}-model`);
+        expect(affectation.categorie).toBeTruthy();
+        expect(affectation.raisonModele[0]?.modele, 'l’élu en tête de sa raison').toBe(
+          affectation.modele,
+        );
+      }
+
+      // …et où est passé le temps : deux productions réussies, une correction
+      // demandée par l'Evaluator, du temps passé en revue croisée. Ce que rien
+      // ne mesure (latence du modèle, coût fournisseur) est dit « inconnu ».
+      const chronologieResponse = await fetch(`${base}/api/tasks/${task.id}/chronologie`, {
+        headers,
+      });
+      expect(chronologieResponse.status).toBe(200);
+      const { chronologie } = (await chronologieResponse.json()) as {
+        chronologie: {
+          tentatives: Array<{ issue: string; dureeWorkerMs: number | null }>;
+          corrections: number;
+          revueMs: number | null;
+          attenteWorkerMs: number | null;
+          dureeModele: string;
+          coutFournisseur: string;
+        };
+      };
+      expect(
+        chronologie.tentatives.filter((t) => t.issue === 'reussie').length,
+      ).toBeGreaterThanOrEqual(2);
+      expect(
+        chronologie.corrections,
+        'la correction demandée par l’Evaluator',
+      ).toBeGreaterThanOrEqual(1);
+      expect(chronologie.revueMs, 'le temps de revue croisée est mesuré').not.toBeNull();
+      expect(chronologie.attenteWorkerMs).not.toBeNull();
+      expect(chronologie.dureeModele).toBe('inconnu');
+      expect(chronologie.coutFournisseur).toBe('inconnu');
+
       // Une PR ouverte et validée reste en attente du geste humain explicite.
       expect(github.fixture.requests.some((request) => request.startsWith('PUT '))).toBe(false);
 
