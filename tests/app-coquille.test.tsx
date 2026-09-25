@@ -60,6 +60,7 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
 import { connectFeed, fetchPulse, getToken } from '../dashboard/src/api';
 import type { FeedHandlers } from '../dashboard/src/api';
 import { App } from '../dashboard/src/App';
+import { laisserFinirLesVuesParesseuses } from './aide/vues-paresseuses';
 import { getReview } from '../dashboard/src/views/shared';
 import { couperLeReseau } from './aide/sans-reseau';
 
@@ -76,7 +77,8 @@ beforeEach(() => {
   localStorage.clear();
   location.hash = '';
 });
-afterEach(() => {
+afterEach(async () => {
+  await laisserFinirLesVuesParesseuses();
   act(() => racine?.unmount());
   conteneur?.remove();
   racine = null;

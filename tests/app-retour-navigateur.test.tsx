@@ -80,6 +80,7 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
 }));
 
 import { App } from '../dashboard/src/App';
+import { laisserFinirLesVuesParesseuses } from './aide/vues-paresseuses';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -92,7 +93,8 @@ beforeEach(() => {
   location.hash = '';
 });
 
-afterEach(() => {
+afterEach(async () => {
+  await laisserFinirLesVuesParesseuses();
   act(() => racine?.unmount());
   conteneur?.remove();
   racine = null;
