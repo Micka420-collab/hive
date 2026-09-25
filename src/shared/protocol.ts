@@ -5,7 +5,14 @@ import { nomDeChantierValide } from './chantier.js';
 import { estPlateforme } from './machine.js';
 import type { PlateformeNoeud } from './machine.js';
 import type { PresenceFichier } from './presence.js';
-import type { ExecutionUsage, HiveEvent, StateSnapshot, SubAgent, Task } from './types.js';
+import type {
+  ExecutionUsage,
+  HiveEvent,
+  StateSnapshot,
+  SubAgent,
+  Task,
+  UsageFournisseur,
+} from './types.js';
 
 // ─── Limites de taille (validation d'entrée) ─────────────────────────────────
 export const LIMITS = {
@@ -193,6 +200,8 @@ export interface TaskResultMsg {
   subAgents: SubAgent[];
   /** Compteurs locaux du Worker, optionnels pour les nœuds plus anciens. */
   usage?: ExecutionUsage;
+  /** Déclaration du CLI de l'agent (coût, temps modèle), jamais estimée. */
+  fournisseur?: UsageFournisseur;
 }
 
 /**
@@ -599,6 +608,37 @@ function isExecutionUsage(v: unknown): v is ExecutionUsage {
   );
 }
 
+const SOURCE_FOURNISSEUR = /^[a-z0-9][a-z0-9-]{0,39}$/;
+const NOM_MODELE = /^[\w.:@/+-]{1,120}$/;
+
+/**
+ * Nettoie la déclaration fournisseur d'un résultat. Contrairement à `usage`,
+ * une déclaration malformée ne fait PAS rejeter le message : elle est
+ * abandonnée, champ par champ. Perdre le travail d'un Worker parce que son CLI
+ * a rendu un coût illisible serait pire que de ne pas afficher ce coût.
+ */
+export function usageFournisseurDepuis(v: unknown): UsageFournisseur | undefined {
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return undefined;
+  const brut = v as Record<string, unknown>;
+  if (typeof brut.source !== 'string' || !SOURCE_FOURNISSEUR.test(brut.source)) return undefined;
+  const usage: UsageFournisseur = { source: brut.source };
+  const cout = brut.coutUsd;
+  if (typeof cout === 'number' && Number.isFinite(cout) && cout >= 0 && cout <= 100_000) {
+    usage.coutUsd = cout;
+  }
+  if (isInt(brut.dureeApiMs, 0, 86_400_000)) usage.dureeApiMs = brut.dureeApiMs;
+  if (Array.isArray(brut.modeles)) {
+    const modeles = brut.modeles
+      .filter((m): m is string => typeof m === 'string' && NOM_MODELE.test(m))
+      .slice(0, 8);
+    if (modeles.length > 0) usage.modeles = modeles;
+  }
+  if (isInt(brut.jetonsEntree, 0, Number.MAX_SAFE_INTEGER)) usage.jetonsEntree = brut.jetonsEntree;
+  if (isInt(brut.jetonsSortie, 0, Number.MAX_SAFE_INTEGER)) usage.jetonsSortie = brut.jetonsSortie;
+  // Une source sans aucune mesure ne déclare rien.
+  return Object.keys(usage).length > 1 ? usage : undefined;
+}
+
 /** Snapshot présence Rayon — toolUseId Claude peut dépasser ID_PATTERN. */
 function isPresences(v: unknown): v is PresenceFichier[] {
   if (!Array.isArray(v) || v.length > LIMITS.presences) return false;
@@ -807,6 +847,7 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
         isSubAgents(m.subAgents) &&
         (m.usage === undefined || isExecutionUsage(m.usage))
       ) {
+        const fournisseur = usageFournisseurDepuis(m.fournisseur);
         return {
           type: 'task_result',
           taskId: m.taskId,
@@ -816,6 +857,7 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
           durationMs: m.durationMs,
           subAgents: m.subAgents,
           ...(m.usage !== undefined ? { usage: m.usage } : {}),
+          ...(fournisseur ? { fournisseur } : {}),
         };
       }
       return null;

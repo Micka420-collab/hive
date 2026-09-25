@@ -87,6 +87,27 @@ export interface ExecutionUsage {
   heapUsedBytes: number;
 }
 
+/**
+ * Ce que le CLI de l'agent DÉCLARE pour une exécution — coût, temps passé dans
+ * les appels au modèle, modèles exacts, jetons. Hive ne l'estime jamais : un
+ * champ absent veut dire « non déclaré », et l'interface le dit « inconnu ».
+ *
+ * `coutUsd` est le montant rapporté par le CLI (Claude Code : `total_cost_usd`,
+ * calculé par le CLI au tarif public). Sur un abonnement, ce n'est pas une
+ * facture : c'est la valeur déclarée, et elle est présentée comme telle.
+ */
+export interface UsageFournisseur {
+  /** L'agent dont le CLI a fait la déclaration. */
+  source: string;
+  coutUsd?: number;
+  /** Temps passé dans les appels au modèle, selon le CLI. */
+  dureeApiMs?: number;
+  /** Modèles exacts ayant servi, tels que nommés par le CLI. */
+  modeles?: string[];
+  jetonsEntree?: number;
+  jetonsSortie?: number;
+}
+
 export interface Task {
   id: string;
   projectId: string;
@@ -116,6 +137,8 @@ export interface TaskResult {
   subAgents: SubAgent[];
   /** Ressources locales observées, quand le nœud les a mesurées. */
   usage?: ExecutionUsage;
+  /** Déclaration du CLI de l'agent, quand il en fait une. */
+  fournisseur?: UsageFournisseur;
 }
 
 /** Entrée du journal d'événements — base du futur Time-Lapse Replay (palier 3). */

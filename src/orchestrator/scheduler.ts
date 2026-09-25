@@ -944,6 +944,7 @@ export class Scheduler {
         nodeId,
         durationMs: result.durationMs,
         ...(result.usage ? { usage: result.usage } : {}),
+        ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
       });
       // Hive Mind : la tâche réussie laisse un souvenir réutilisable par la ruche.
       this.store.recordMemory({
@@ -983,6 +984,7 @@ export class Scheduler {
           attempts,
           durationMs,
           ...(result.usage ? { usage: result.usage } : {}),
+          ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
         });
       } else {
         // Échec → réessai : la tâche repart en ready, une autre ouvrière la prendra.
@@ -994,6 +996,7 @@ export class Scheduler {
           maxAttempts: this.maxAttempts,
           durationMs,
           ...(result.usage ? { usage: result.usage } : {}),
+          ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
         });
       }
     }
@@ -1331,6 +1334,7 @@ export class Scheduler {
         nodeId,
         durationMs: result.durationMs,
         ...(result.usage ? { usage: result.usage } : {}),
+        ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
       });
       this.emit('drone_won', { taskId: task.id, nodeId, cancelled: decision.cancel.length });
       for (const loser of decision.cancel) {
@@ -1383,6 +1387,7 @@ export class Scheduler {
         attempts,
         durationMs,
         ...(result.usage ? { usage: result.usage } : {}),
+        ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
       });
     } else {
       this.store.patchTask(task.id, { status: 'ready', attempts, assignedNodeId: null });
@@ -1393,6 +1398,7 @@ export class Scheduler {
         maxAttempts: this.maxAttempts,
         durationMs,
         ...(result.usage ? { usage: result.usage } : {}),
+        ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
       });
     }
     this.promoteAndAssign(now);

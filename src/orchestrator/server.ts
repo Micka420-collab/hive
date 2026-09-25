@@ -9180,6 +9180,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
               durationMs: msg.durationMs,
               subAgents: msg.subAgents,
               ...(msg.usage ? { usage: msg.usage } : {}),
+              ...(msg.fournisseur ? { fournisseur: msg.fournisseur } : {}),
             });
             if (!pris) {
               send(ws, {

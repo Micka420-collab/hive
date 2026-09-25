@@ -3,7 +3,7 @@
 // connaître l'outil qui exécute réellement la tâche (contrainte §5.4).
 
 import type { PresenceFichier } from '../shared/presence.js';
-import type { ExecutionUsage, SubAgent, Task } from '../shared/types.js';
+import type { ExecutionUsage, SubAgent, Task, UsageFournisseur } from '../shared/types.js';
 import { createClaudeCodeAdapter } from './claude-code.js';
 import { createClineAdapter } from './cline.js';
 import { createCodexAdapter } from './codex.js';
@@ -110,6 +110,11 @@ export interface AdapterResult {
    * (task_reject) pour qu'un AUTRE nœud, dont l'agent fonctionne, reprenne la tâche.
    */
   infra?: boolean;
+  /**
+   * Ce que le CLI de l'agent a DÉCLARÉ (coût, temps modèle, modèles exacts).
+   * Absent quand il ne déclare rien — jamais estimé par Hive.
+   */
+  fournisseur?: UsageFournisseur;
 }
 
 export interface AgentAdapter {

@@ -12,6 +12,7 @@ import {
   writeClaudeMcpConfig,
   type DelegationBridge,
 } from './delegation-bridge.js';
+import { createDeclarationFournisseurTracker } from './fournisseur-parser.js';
 import { createPresenceTracker } from './presence-parser.js';
 import { createSubAgentTracker } from './subagent-parser.js';
 import type { AdapterContext, AdapterResult, AgentAdapter } from './index.js';
@@ -79,6 +80,8 @@ export function createClaudeCodeAdapter(
       ctx.onProgress({ log: 'claude -p (stream-json) démarré' });
       const tracker = createSubAgentTracker();
       const presence = createPresenceTracker();
+      // La ligne `result` finale porte le coût et le temps modèle déclarés.
+      const declaration = createDeclarationFournisseurTracker('claude-code');
       let bridge: DelegationBridge | undefined;
       try {
         // Sans les deux capacités, aucun faux outil n'est injecté dans le CLI.
@@ -103,6 +106,7 @@ export function createClaudeCodeAdapter(
           (line) => {
             const subAgents = tracker.feed(line);
             const presences = presence.feed(line);
+            declaration.feed(line);
             // Remonter dès qu'un sous-agent apparaît/évolue → butineuses en direct.
             if (subAgents) ctx.onProgress({ subAgents });
             // Présence Rayon : fichiers ouverts constatés (ADR 0010).
@@ -111,7 +115,8 @@ export function createClaudeCodeAdapter(
           CLAUDE_TIMEOUT_MS,
         );
         // La liste finale accompagne le résultat (dernier état des sous-agents).
-        return { ...result, subAgents: tracker.list() };
+        const fournisseur = declaration.declaration();
+        return { ...result, subAgents: tracker.list(), ...(fournisseur ? { fournisseur } : {}) };
       } catch (error) {
         return {
           success: false,
