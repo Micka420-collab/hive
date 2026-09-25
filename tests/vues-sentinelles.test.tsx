@@ -390,7 +390,7 @@ describe('les sentinelles — une par survivante isolée', () => {
     expect(repos.querySelector('.modal-error'), 'aucune erreur au repos').toBeNull();
 
     // Une recherche qui échoue : le proxy répond 503 avec sa raison.
-    vi.spyOn(window, 'fetch').mockResolvedValue({
+    const espion = vi.spyOn(window, 'fetch').mockResolvedValue({
       ok: false,
       status: 503,
       json: () => Promise.resolve({ error: 'OpenAlex en panne' }),
@@ -410,6 +410,9 @@ describe('les sentinelles — une par survivante isolée', () => {
     const erreur = repos.querySelector('.modal-error');
     expect(erreur, 'l’erreur porte son habit .modal-error').toBeTruthy();
     expect(erreur?.textContent).toContain('OpenAlex en panne');
+    // Le relais est réservé à la ruche : sans son jeton, il répondrait 401.
+    const enTetes = espion.mock.calls[0]?.[1]?.headers as Record<string, string> | undefined;
+    expect(enTetes?.['x-hive-token'], 'le panneau n’envoie pas le jeton de ruche').toBeTruthy();
   });
 
   it('SHARED : le badge « à revoir » ne compte NI les revues NI les tâches en vol', () => {

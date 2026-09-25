@@ -1139,6 +1139,17 @@ export function getJwt(): string | null {
   return localStorage.getItem(JWT_KEY);
 }
 
+/**
+ * Les en-têtes qui disent « je suis de la ruche » : le jeton, et le compte s'il
+ * y en a un. Pour les rares appels qui gardent leur propre `fetch` (ils lisent
+ * eux-mêmes la réponse) mais qui visent une route réservée — sans eux, la route
+ * répond 401 et le panneau croit à une panne.
+ */
+export function enTetesRuche(): Record<string, string> {
+  const jwt = getJwt();
+  return { 'x-hive-token': getToken(), ...(jwt ? { authorization: `Bearer ${jwt}` } : {}) };
+}
+
 export function saveJwt(token: string): void {
   localStorage.setItem(JWT_KEY, token);
 }
