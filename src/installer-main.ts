@@ -21,6 +21,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { analyser, nonInteractif, type Forme } from './args.js';
 import { type ReglagePropose } from './assistant.js';
 import { CODE, legendeCodes } from './codes-sortie.js';
@@ -54,9 +55,28 @@ import {
   type Verification,
 } from './tui/rendu.js';
 import { Interrompu, ReponseManquante, creerTerminal } from './tui/terminal.js';
+import { versionDeclaree } from './shared/version-ruche.js';
 
 const CHEMIN_ENV = path.resolve(process.cwd(), '.env');
-const VERSION = '0.2.0';
+
+/**
+ * La version déclarée par le `package.json` du dépôt — lue, jamais recopiée.
+ *
+ * Elle était écrite en dur (`'0.2.0'`) et n'avait pas suivi le passage à
+ * 0.3.0 : la bannière et la sortie `--json` annonçaient une version que le
+ * paquet ne déclarait plus. La racine se calcule depuis CE fichier (`src/` ou
+ * `dist/`, tous deux un cran sous le dépôt), jamais depuis `process.cwd()` :
+ * l'installeur tourne dans le dossier de la ruche, qui n'est pas forcément
+ * celui du code.
+ */
+const VERSION: string = (() => {
+  try {
+    const racine = fileURLToPath(new URL('..', import.meta.url));
+    return versionDeclaree(JSON.parse(readFileSync(path.join(racine, 'package.json'), 'utf8')));
+  } catch {
+    return 'inconnue';
+  }
+})();
 
 /** Les drapeaux acceptés. Tout le reste est une erreur, jamais un silence. */
 const DRAPEAUX: Record<string, Forme> = {
