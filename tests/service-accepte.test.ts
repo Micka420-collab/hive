@@ -115,10 +115,43 @@ function poser(p: Plan, nomFichier = path.basename(p.fichier.chemin)): string {
   return ou;
 }
 
+/**
+ * Le verdict de systemd SUR NOTRE UNITÉ, débarrassé du bruit de l'hôte.
+ *
+ * ─── CE QUE `systemd-analyze verify` FAIT EN PLUS DE LIRE NOTRE FICHIER ──────
+ *
+ * Il ne se contente pas du fichier qu'on lui donne : il charge les unités dont
+ * il dépend transitivement, et signale les options dépréciées qu'il rencontre
+ * DANS CELLES DE L'HÔTE. Sur une machine récente (systemd ≥ 258, Ubuntu 26.04),
+ * cela met sur la sortie d'erreur, AVEC un code de sortie 0, par exemple :
+ *
+ *   /usr/lib/systemd/system/xfs_scrub_all.service:26: Support for option
+ *   CPUAccounting= has been removed and it is ignored
+ *
+ * Ces lignes parlent d'unités DU SYSTÈME — jamais de la nôtre, qui vit dans un
+ * dossier temporaire et se cite par SON chemin. Les compter comme un refus fait
+ * échouer la garde sur la configuration de la machine de test, pas sur le
+ * fichier que Hive écrit. On ne retire donc QUE les diagnostics visant une unité
+ * du système située ailleurs que notre fichier : toute plainte réelle sur notre
+ * unité est préfixée de son chemin et reste vue — le contrôle négatif d'à côté
+ * (« path is not absolute ») en dépend et le prouve.
+ */
+function verdictSurNotreUnite(sortie: string, cheminUnite: string): string {
+  const uniteHote = /(^|\s)\/(usr\/lib|lib|etc|run)\/systemd\/\S+/;
+  return sortie
+    .split('\n')
+    .map((l) => l.trimEnd())
+    .filter((l) => l.trim() !== '')
+    .filter((l) => !uniteHote.test(l) || l.includes(cheminUnite))
+    .join('\n')
+    .trim();
+}
+
 describe('LE FICHIER DE SERVICE EST RECEVABLE PAR SA PLATEFORME', () => {
   it.runIf(LINUX)('systemd accepte l’unité que Hive écrit', () => {
-    // LA garde de ce fichier. Sortie vide = unité chargeable. Le moindre mot
-    // sur la sortie d'erreur est un refus — `systemd-analyze` ne bavarde pas.
+    // LA garde de ce fichier. Verdict vide SUR NOTRE unité = unité chargeable.
+    // Le moindre mot de `systemd-analyze` sur elle est un refus ; le bruit qu'il
+    // émet sur les unités de l'hôte (options dépréciées) est écarté à part.
     const chemin = poser(planIci());
     const r = spawnSync('systemd-analyze', ['verify', chemin], {
       shell: false,
@@ -126,7 +159,7 @@ describe('LE FICHIER DE SERVICE EST RECEVABLE PAR SA PLATEFORME', () => {
       timeout: 60_000,
     });
     expect(r.error, `systemd-analyze introuvable : ${r.error?.message ?? ''}`).toBeUndefined();
-    const dit = `${r.stdout}${r.stderr}`.trim();
+    const dit = verdictSurNotreUnite(`${r.stdout}\n${r.stderr}`, chemin);
     expect(
       dit,
       `systemd REFUSE l’unité :\n${dit}\n\n--- l’unité ---\n${readFileSync(chemin, 'utf8')}`,
