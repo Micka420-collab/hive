@@ -23,7 +23,7 @@ import WebSocket from 'ws';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
 import { instantanePourEssaim, laverIdentifiants } from '../src/shared/projet-public.js';
-import type { StateSnapshot } from '../src/shared/types.js';
+import type { StateSnapshot, Task } from '../src/shared/types.js';
 
 const SECRET = 'ghp_TRESSECRET';
 const DEPOT_LAVE = 'https://github.com/mika/depot.git';
@@ -121,6 +121,34 @@ describe('instantanePourEssaim — une copie lavée, jamais une retouche', () =>
     instantanePourEssaim(brut);
     expect(brut.projects[0]!.repoUrl).toBe(DEPOT_BRUT);
   });
+
+  it('LAVE AUSSI L’URL RECOPIÉE DANS LES TÂCHES — mot pour mot, rien d’autre', () => {
+    // Une éclaireuse du Conseil créée avant le lavage à la source garde l'URL
+    // brute dans son prompt, en base.
+    const tache = (id: string, prompt: string): Task => ({
+      id,
+      projectId: 'p1',
+      title: '🔭 Éclaireuse — risques',
+      prompt,
+      status: 'pending',
+      dependsOn: [],
+      assignedNodeId: null,
+      result: null,
+      branch: null,
+      attempts: 0,
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    const avecUrl = tache('t1', `CONTEXTE : Privé — ${DEPOT_BRUT} — fin`);
+    const sansUrl = tache('t2', 'rien à voir avec un dépôt');
+    const s: StateSnapshot = { ...instantane(), tasks: [avecUrl, sansUrl], tasksTotal: 2 };
+
+    const lave = instantanePourEssaim(s);
+    expect(JSON.stringify(lave)).not.toContain(SECRET);
+    expect(lave.tasks[0]!.prompt).toBe(`CONTEXTE : Privé — ${DEPOT_LAVE} — fin`);
+    expect(lave.tasks[1], 'une tâche sans URL a été recopiée pour rien').toBe(sansUrl);
+    expect(s.tasks[0]!.prompt, 'l’instantané reçu a été modifié').toContain(SECRET);
+  });
 });
 
 describe('LES TROIS SORTIES DE L’INSTANTANÉ SONT LAVÉES', () => {
@@ -204,6 +232,71 @@ describe('LES TROIS SORTIES DE L’INSTANTANÉ SONT LAVÉES', () => {
     // Le nœud reçoit l'URL par le message d'affectation de tâche, lue en base :
     // laver la sortie vers l'essaim ne doit rien retirer de ce qui est rangé.
     expect(server.store.getProject(projetId)?.repoUrl).toBe(DEPOT_BRUT);
+  });
+});
+
+describe('LE CONSEIL NE RECOPIE PLUS LE JETON — ni en base, ni dans l’instantané', () => {
+  // Trouvé en revue : `contexteProjetAvecHorizon` mettait l'URL BRUTE dans le
+  // contexte du Conseil, donc dans le prompt de chaque éclaireuse — rangé en
+  // base, rendu par `tasks[]` de l'instantané, envoyé au nœud et au fournisseur
+  // du modèle. Laver `projects[].repoUrl` seul laissait ce canal ouvert.
+  let server: HiveServer;
+  let dir: string;
+  let base: string;
+  const TOKEN = 'jeton-conseil-essaim-assez-long';
+  const entetes = { 'content-type': 'application/json', 'x-hive-token': TOKEN };
+
+  beforeAll(async () => {
+    dir = mkdtempSync(path.join(os.tmpdir(), 'hive-conseil-essaim-'));
+    server = await createServer({
+      port: 0,
+      host: '127.0.0.1',
+      token: TOKEN,
+      corsOrigins: ['http://localhost:5173'],
+      dbPath: path.join(dir, 'hive.db'),
+      simulation: false,
+      tickMs: 60_000,
+    });
+    base = `http://127.0.0.1:${server.port}`;
+  });
+
+  afterAll(async () => {
+    await server.stop();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('les prompts des éclaireuses nomment le dépôt LAVÉ, jamais le jeton', async () => {
+    const projetId = server.store.createProject({
+      name: 'Conseil',
+      description: 'un projet',
+      repoUrl: DEPOT_BRUT,
+    }).id;
+    const r = await fetch(`${base}/api/projects/${projetId}/conseil`, {
+      method: 'POST',
+      headers: entetes,
+      body: '{}',
+    });
+    expect(r.status).toBe(201);
+
+    const taches = server.store.listTasks(projetId);
+    expect(taches.length, 'le Conseil n’a créé aucune éclaireuse').toBeGreaterThan(0);
+    for (const t of taches) {
+      expect(t.prompt, 'le jeton est rangé en base dans un prompt').not.toContain(SECRET);
+    }
+    // Le contexte reste utile : il dit toujours OÙ est le dépôt.
+    expect(taches.some((t) => t.prompt.includes(DEPOT_LAVE))).toBe(true);
+  });
+
+  it('une tâche ANCIENNE qui recopiait le jeton ne le rend plus par /api/state', async () => {
+    const projetId = server.store.createProject({ name: 'Ancien', repoUrl: DEPOT_BRUT }).id;
+    server.store.createTask({
+      projectId: projetId,
+      title: 'Éclaireuse d’avant le lavage',
+      prompt: `CONTEXTE : Ancien — ${DEPOT_BRUT}`,
+    });
+    const corps = await (await fetch(`${base}/api/state`, { headers: entetes })).text();
+    expect(corps, 'le jeton sort par le prompt d’une tâche ancienne').not.toContain(SECRET);
+    expect(corps).toContain(`CONTEXTE : Ancien — ${DEPOT_LAVE}`);
   });
 });
 

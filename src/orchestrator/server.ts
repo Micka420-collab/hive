@@ -61,7 +61,7 @@ import { commandeEntree } from '../shared/commande-entree.js';
 import { Registre } from './guetteuses.js';
 import { jugerCommandeTest } from '../shared/commande-test.js';
 import { jugerPreparation } from '../shared/preparation.js';
-import { instantanePourEssaim, vuePublique } from '../shared/projet-public.js';
+import { instantanePourEssaim, laverIdentifiants, vuePublique } from '../shared/projet-public.js';
 import {
   ouvertAuJetonDeRuche,
   peutAdmettre,
@@ -798,7 +798,11 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   const cheminEnvQueen = config.envPath ?? path.join(process.cwd(), '.env');
 
   const contexteProjetAvecHorizon = (projectId: string, projet: Project): string => {
-    const base = [projet.name, projet.description ?? '', projet.repoUrl ?? '']
+    // Ce contexte devient le PROMPT des éclaireuses du Conseil : rangé avec la
+    // tâche, rendu par l'instantané à tout l'essaim, envoyé au nœud qui
+    // l'exécute et au fournisseur du modèle. Le modèle a besoin de savoir OÙ est
+    // le dépôt, jamais comment s'y authentifier : l'URL y entre lavée.
+    const base = [projet.name, projet.description ?? '', laverIdentifiants(projet.repoUrl) ?? '']
       .filter(Boolean)
       .join(' — ');
     const horizon = texteHorizonPourContexte(store.listerHorizon(projectId));

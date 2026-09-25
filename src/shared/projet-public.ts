@@ -144,11 +144,37 @@ export function laverIdentifiants(url: string | null): string | null {
 /**
  * L'instantané tel que l'essaim le reçoit : le même, sans les identifiants des
  * dépôts. Construit de NOUVEAUX objets — l'instantané du magasin n'est pas
- * touché, et rien d'autre que `repoUrl` ne change.
+ * touché.
+ *
+ * ─── LE PROJET, ET CE QUE LES TÂCHES EN ONT RECOPIÉ ─────────────────────────
+ *
+ * Laver `projects[].repoUrl` ne suffisait pas. Le Conseil recopiait l'URL
+ * BRUTE dans le prompt de ses éclaireuses (`contexteProjetAvecHorizon`), et
+ * l'instantané rend chaque tâche avec son prompt. Le contexte est désormais
+ * lavé à la source, mais les tâches créées AVANT le gardent en base. On
+ * remplace donc, mot pour mot, chaque URL brute connue par sa forme lavée dans
+ * le titre et le prompt des tâches — sans toucher au reste du texte, et sans
+ * recopier une tâche qui n'en contient pas.
  */
 export function instantanePourEssaim(instantane: StateSnapshot): StateSnapshot {
+  const paires: [brut: string, lave: string][] = [];
+  for (const p of instantane.projects) {
+    const lave = laverIdentifiants(p.repoUrl);
+    if (p.repoUrl !== null && lave !== null && lave !== p.repoUrl) paires.push([p.repoUrl, lave]);
+  }
+  const laverTexte = (texte: string): string =>
+    paires.reduce((acc, [brut, lave]) => acc.split(brut).join(lave), texte);
+
   return {
     ...instantane,
     projects: instantane.projects.map((p) => ({ ...p, repoUrl: laverIdentifiants(p.repoUrl) })),
+    tasks:
+      paires.length === 0
+        ? instantane.tasks
+        : instantane.tasks.map((t) => {
+            const title = laverTexte(t.title);
+            const prompt = laverTexte(t.prompt);
+            return title === t.title && prompt === t.prompt ? t : { ...t, title, prompt };
+          }),
   };
 }
