@@ -8,6 +8,13 @@ FROM node:24-bookworm-slim
 
 ARG CLAUDE_CODE_VERSION=2.1.278
 ARG CODEX_VERSION=0.155.1
+# Cline se distribue en binaire compilé par plateforme (Bun embarqué), résolu
+# par npm via les optionalDependencies du paquet `cline`. Épinglé comme les
+# autres. NOTE : ce binaire exige un CPU x86-64 récent ; sur un cœur trop ancien
+# il s'arrête en « Illegal instruction ». Les runners CI et les machines
+# modernes l'exécutent sans souci ; c'est le même compromis que tout binaire
+# précompilé.
+ARG CLINE_VERSION=3.0.65
 
 ENV DEBIAN_FRONTEND=noninteractive \
     HOME=/tmp/hive-home \
@@ -18,6 +25,7 @@ RUN apt-get update \
   && npm install --global \
        @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} \
        @openai/codex@${CODEX_VERSION} \
+       cline@${CLINE_VERSION} \
   && npm cache clean --force \
   && rm -rf /var/lib/apt/lists/*
 

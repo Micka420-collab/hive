@@ -621,6 +621,7 @@ jobs:
         run: |
           docker run --rm hive-agent:ci claude --version
           docker run --rm hive-agent:ci codex --version
+          docker run --rm hive-agent:ci cline --version
           test "$(docker run --rm hive-agent:ci id -u)" = "1000"
 
       # Même ligne que `envelopper`, avec l'UID/GID du runner. Cette sonde
