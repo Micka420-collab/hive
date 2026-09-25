@@ -26,7 +26,7 @@ import { shellForce } from '../shared/agent-production.js';
 import { calibrer, estimerDuree, resteEstime } from '../shared/horloge-chantier.js';
 import type { Calibration } from '../shared/horloge-chantier.js';
 import { encodeInvite, isWsUrl } from '../shared/invite.js';
-import { inviteInjoignable } from '../shared/joignable.js';
+import { boucleLocale, inviteInjoignable } from '../shared/joignable.js';
 import { portDepuisEnv } from '../shared/port.js';
 import { gardiennesDepuisEnv } from '../shared/reglages.js';
 import { editionDepuisEnv, secretWebhookExige } from '../shared/edition.js';
@@ -3003,7 +3003,12 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // passe toujours : sinon une ruche installée en « fermée » serait
       // définitivement inutilisable, sans moyen de créer son administrateur.
       const comptes = store.countUsers();
-      const porte = inscriptionPermise({ mode: modeInscription, comptesExistants: comptes });
+      const porte = inscriptionPermise({
+        mode: modeInscription,
+        comptesExistants: comptes,
+        exposee: !boucleLocale(config.host),
+        jetonDeRuche: authorized(req),
+      });
       if (!porte.permise) return reply.status(403).send({ error: porte.motif });
 
       const force = jugerMotDePasse(password);

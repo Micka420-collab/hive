@@ -300,9 +300,13 @@ async function principal() {
   // son premier compte, puis porter son JWT sur l'opération d'intendance.
   // Le mot de passe est éphémère, utilisé uniquement dans ce dossier d'essai,
   // et ni le JWT ni le secret de ruche ne sont écrits dans le journal.
+  // Le jeton de ruche accompagne l'amorce, comme depuis le tableau de bord : une
+  // ruche EXPOSÉE refuse son premier compte (futur admin) à qui ne le présente
+  // pas. Celle de l'essai écoute la boucle locale, mais l'essai ne doit pas
+  // dépendre de ce détail.
   const inscription = await demander('/api/auth/register', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { ...entetes, 'content-type': 'application/json' },
     body: JSON.stringify({
       email: `essai-admin-${process.pid}@hive.test`,
       password: 'mot-de-passe-essai-hive',
