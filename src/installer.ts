@@ -482,22 +482,21 @@ export function prochainesEtapes(
     // La ruche ne se lance pas d'où l'on est : l'installeur a rendu la main au
     // shell de départ, et ce n'est pas là que vit le `package.json`.
     colonne('Aller dans la ruche', `cd ${citerChemin(dossier, plateforme)}`),
-    colonne('Lancer la ruche', `${npm} run dev`),
+    // UNE commande, celle que le README promet (« tout en une commande »).
+    // L'installeur proposait trois terminaux — `dev`, `dev:dashboard`, `node` —
+    // pour ce que `ruche` lance seule, avec des sorties préfixées et un seul
+    // Ctrl+C pour tout arrêter. Les pièces séparées restent dites, plus bas.
+    colonne('Lancer la ruche', `${npm} run ruche   (Reine + ouvrière + écran)`),
     // L'adresse vient de la MÊME constante que l'origine CORS proposée par
     // l'assistant. Écrite deux fois, elle a divergé une fois — et un écran
     // envoyait alors vers une adresse que l'autre venait d'interdire.
-    colonne(
-      'Ouvrir Mission Control',
-      `${npm} run dev:dashboard   (puis http://localhost:${PORT_DASHBOARD_DEV})`,
-    ),
+    colonne('Ouvrir Mission Control', `http://localhost:${PORT_DASHBOARD_DEV}`),
     agent
-      ? colonne('Brancher votre agent', `${npm} run node        (${agent} détecté)`)
-      : colonne(
-          'Brancher un agent',
-          `${npm} run node        (aucun agent détecté — le mode simulé prendra le relais)`,
-        ),
+      ? colonne('Votre agent', `${agent} détecté — l’ouvrière s’en servira`)
+      : colonne('Votre agent', 'aucun détecté — mode simulé, les diffs seront factices'),
     colonne('Inviter quelqu’un', `${npm} run cli -- invite`),
     colonne('Voir une démo complète', `${npm} run demo`),
+    colonne('Pièces séparées', `${npm} run dev · ${npm} run dev:dashboard · ${npm} run node`),
     ...(windows
       ? [
           '',

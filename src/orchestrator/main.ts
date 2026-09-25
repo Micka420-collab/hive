@@ -1,6 +1,7 @@
 // Point d'entrée de l'orchestrateur : `npm run dev`.
 
 // Statique : ce module n'a aucune dépendance optionnelle (cf. plus bas).
+import { annonceSimulation } from '../shared/annonce-simulation.js';
 import { lireConfianceProxy } from '../shared/proxy-confiance.js';
 
 try {
@@ -44,9 +45,7 @@ console.log('🐝 Hive — orchestrateur (Queen) en ligne');
 console.log(`   Dashboard : ${server.url}`);
 console.log(`   WebSocket : ws://${config.host}:${server.port}/ws`);
 console.log(`   Base      : ${config.dbPath}`);
-if (config.simulation) {
-  console.log('   ⚠ Mode simulation actif (token par défaut toléré, démo locale uniquement).');
-}
+if (config.simulation) console.log(`   ${annonceSimulation(config.token)}`);
 const confianceProxy = lireConfianceProxy(process.env.HIVE_TRUST_PROXY);
 if (confianceProxy.refus !== null) {
   console.log(`   ⚠ ${confianceProxy.refus}`);

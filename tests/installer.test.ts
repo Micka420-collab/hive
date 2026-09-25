@@ -232,6 +232,21 @@ describe('installation — les prochaines étapes', () => {
     expect(etapes.join('\n')).toContain('Claude Code');
   });
 
+  it('LA RUCHE SE LANCE EN UNE COMMANDE — `npm run ruche` d’abord, les pièces séparées après', () => {
+    // L'installeur proposait trois terminaux (`dev`, `dev:dashboard`, `node`)
+    // pour ce que `npm run ruche` lance seule, comme le README le promet.
+    for (const [plateforme, npm] of [
+      ['linux', 'npm'],
+      ['win32', 'npm.cmd'],
+    ] as const) {
+      const etapes = prochainesEtapes('Claude Code', plateforme, '/home/x/hive');
+      const lancer = etapes.findIndex((e) => e.includes(`${npm} run ruche`));
+      const pieces = etapes.findIndex((e) => e.includes(`${npm} run dev`));
+      expect(lancer, `${plateforme} : \`${npm} run ruche\` absent`).toBe(1);
+      expect(pieces, `${plateforme} : les pièces séparées viennent après`).toBeGreaterThan(lancer);
+    }
+  });
+
   it('sans agent, disent que la ruche tourne quand même', () => {
     // Ne pas avoir d'agent ne doit jamais ressembler à un échec d'installation.
     expect(prochainesEtapes(null).join('\n')).toMatch(/simulé/);
