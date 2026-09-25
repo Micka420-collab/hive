@@ -32,6 +32,10 @@ services:
       HIVE_PORT: 7777
       HIVE_DB: /app/data/hive.db
       HIVE_BALANCE: strict
+      # La Reine n'est joignable QUE par Caddy (`expose`, jamais `ports`) : on
+      # croit donc le X-Forwarded-For venu du réseau privé de Docker. Sans ça,
+      # tous les clients auraient l'IP de Caddy et un seul compteur anti-abus.
+      HIVE_TRUST_PROXY: uniquelocal
     volumes:
       - hive-cloud-donnees:/app/data
     expose:

@@ -63,6 +63,11 @@ import { jugerCommandeTest } from '../shared/commande-test.js';
 import { jugerPreparation } from '../shared/preparation.js';
 import { instantanePourEssaim, laverIdentifiants, vuePublique } from '../shared/projet-public.js';
 import {
+  confiancePourFastify,
+  lireConfianceProxy,
+  type ConfianceProxy,
+} from '../shared/proxy-confiance.js';
+import {
   ouvertAuJetonDeRuche,
   peutAdmettre,
   peutAdopter,
@@ -596,6 +601,11 @@ export interface ServerConfig {
   dbPath: string;
   /** Mode démo : tolère le token par défaut (jamais en production). */
   simulation: boolean;
+  /**
+   * Proxys dont on croit le `X-Forwarded-For` (HIVE_TRUST_PROXY, cf.
+   * `shared/proxy-confiance.ts`). `false` par défaut : exposition directe.
+   */
+  trustProxy?: ConfianceProxy;
   /** URL WebSocket publique annoncée dans les invitations (HIVE_PUBLIC_URL). */
   publicUrl?: string;
   /** Périodicité du tick du scheduler (ms). */
@@ -685,6 +695,8 @@ export function loadConfigFromEnv(env: NodeJS.ProcessEnv = process.env): ServerC
       .filter(Boolean),
     dbPath: env.HIVE_DB ?? './data/hive.db',
     simulation: env.HIVE_SIMULATION === '1',
+    // Un refus retombe sur « aucune confiance » : `main.ts` le dit au démarrage.
+    trustProxy: lireConfianceProxy(env.HIVE_TRUST_PROXY).valeur,
     // Toute valeur inconnue retombe sur le défaut : une faute de frappe ne doit
     // jamais éteindre silencieusement la pesée.
     balance:
@@ -1689,7 +1701,14 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   };
 
   // ─── HTTP (REST + dashboard) ───────────────────────────────────────────────
-  const app = Fastify({ bodyLimit: 1024 * 1024, logger: false });
+  // `trustProxy` : sans lui, derrière Caddy, `req.ip` est l'adresse du PROXY
+  // pour tout le monde et chaque compteur anti-abus rangé par IP devient un
+  // compteur unique partagé (cf. `shared/proxy-confiance.ts`).
+  const app = Fastify({
+    bodyLimit: 1024 * 1024,
+    logger: false,
+    trustProxy: confiancePourFastify(config.trustProxy ?? false),
+  });
 
   // Un corps VIDE annoncé en JSON vaut « pas de corps », pas une erreur.
   //
