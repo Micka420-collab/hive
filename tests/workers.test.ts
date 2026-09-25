@@ -171,6 +171,51 @@ describe('projection Worker', () => {
     });
   });
 
+  it('DÉCLINE LA RÉPUTATION DU WORKER PAR CATÉGORIE — une catégorie jamais jugée reste inconnue', () => {
+    // Un Worker peut exceller sur le code et n'avoir jamais été jugé en
+    // documentation : la seconde doit être ABSENTE, pas notée 0.
+    const lignes = [
+      {
+        title: 'Implémenter endpoint',
+        prompt: 'ajouter la route',
+        modele: 'alpha',
+        modeleExact: 'alpha',
+        suite: 'appliquer' as const,
+        nodeId: 'node-1',
+      },
+      {
+        title: 'Corriger endpoint',
+        prompt: 'réparer la route',
+        modele: 'alpha',
+        modeleExact: 'alpha',
+        suite: 'ameliorer' as const,
+        nodeId: 'node-1',
+      },
+      {
+        title: 'Corriger endpoint',
+        prompt: 'réparer la route',
+        modele: 'alpha',
+        modeleExact: 'alpha',
+        suite: 'refaire' as const,
+        nodeId: 'node-2',
+      },
+    ];
+    const [un, deux, trois] = projeterWorkers(
+      [node({ id: 'node-1' }), node({ id: 'node-2' }), node({ id: 'node-3' })],
+      lignes,
+    );
+
+    expect(Object.keys(un?.reputationParCategorie ?? {}).sort()).toEqual(['code', 'correction']);
+    expect(un?.reputationParCategorie.code).toMatchObject({ essais: 1, moyenne: 1 });
+    expect(un?.reputationParCategorie.correction).toMatchObject({ essais: 1, moyenne: 0.5 });
+    expect(un?.reputationParCategorie.documentation, 'jamais jugé : inconnu').toBeUndefined();
+    // Le verdict de node-2 ne se mélange pas à celui de node-1.
+    expect(deux?.reputationParCategorie).toEqual({
+      correction: expect.objectContaining({ essais: 1, refaire: 1, moyenne: 0 }),
+    });
+    expect(trois?.reputationParCategorie, 'un Worker jamais jugé n’a aucune catégorie').toEqual({});
+  });
+
   it('expose uniquement le travail actif attribué à chaque Worker', () => {
     const activeTasks = [
       {

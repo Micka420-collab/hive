@@ -128,6 +128,27 @@ function NodeCard({
                 : `${t('réputation Worker', 'Worker reputation')} · ${worker.reputation.essais} ${t('avis', 'reviews')} · ${Math.round((worker.reputation.moyenne ?? 0) * 100)}%`}
             </span>
           )}
+          {(() => {
+            // Par catégorie : seulement là où ce Worker a été jugé. Ailleurs,
+            // c'est INCONNU — pas une réputation nulle. `?? {}` : une Reine plus
+            // ancienne n'envoie pas encore ce champ.
+            const parCategorie = Object.entries(worker.reputationParCategorie ?? {}).filter(
+              ([, r]) => r !== undefined && r.essais > 0,
+            );
+            if (parCategorie.length === 0) return null;
+            return (
+              <span className="es-worker-categories" data-testid="worker-reputation-categories">
+                {t('par catégorie', 'by category')} ·{' '}
+                {parCategorie
+                  .map(
+                    ([categorie, r]) =>
+                      `${categorie} ${Math.round((r!.moyenne ?? 0) * 100)}% (${r!.essais})`,
+                  )
+                  .join(' · ')}{' '}
+                — {t('inconnu ailleurs', 'unknown elsewhere')}
+              </span>
+            );
+          })()}
           {worker.modeles === undefined || worker.modeles.length === 0 ? (
             <span className="muted-text">{t('aucun modèle déclaré', 'no model declared')}</span>
           ) : (

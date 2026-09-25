@@ -123,6 +123,13 @@ export interface WorkerSnapshot {
   outils?: HiveNode['outils'];
   /** Réputation du Worker, calculée uniquement sur ses résultats attribués. */
   reputation: WorkerReputationSnapshot;
+  /**
+   * La même réputation, par catégorie de tâche : un Worker peut exceller en
+   * interface et n'avoir jamais été jugé en sécurité. Seules les catégories où
+   * ce Worker a des verdicts attribués figurent — une catégorie ABSENTE est
+   * une catégorie inconnue, jamais une réputation nulle.
+   */
+  reputationParCategorie: Partial<Record<Categorie, WorkerReputationSnapshot>>;
   modeles?: ModeleWorkerSnapshot[];
 }
 
@@ -171,6 +178,32 @@ function reputationDe(lignes: readonly LigneObservation[]): WorkerReputationSnap
     score: essais > 0 ? total / essais : null,
     attribution: essais > 0 ? 'exacte' : 'absente',
   };
+}
+
+/**
+ * La réputation par catégorie : les verdicts du Worker regroupés selon la
+ * catégorie de la tâche jugée (la même `categoriser` que l'Aiguillage). Une
+ * catégorie sans verdict n'apparaît pas : l'absence de données reste une
+ * absence, pas un zéro.
+ */
+function reputationParCategorieDe(
+  lignes: readonly LigneObservation[],
+): Partial<Record<Categorie, WorkerReputationSnapshot>> {
+  const parCategorie = new Map<Categorie, LigneObservation[]>();
+  for (const ligne of lignes) {
+    const categorie = categoriser(ligne.title, ligne.prompt);
+    const groupe = parCategorie.get(categorie);
+    if (groupe) groupe.push(ligne);
+    else parCategorie.set(categorie, [ligne]);
+  }
+  const resultat: Partial<Record<Categorie, WorkerReputationSnapshot>> = {};
+  for (const categorie of CATEGORIES) {
+    const groupe = parCategorie.get(categorie);
+    if (!groupe) continue;
+    const reputation = reputationDe(groupe);
+    if (reputation.essais > 0) resultat[categorie] = reputation;
+  }
+  return resultat;
 }
 
 const scoreDe = (rang: ReturnType<typeof classer>[number]) => ({
@@ -241,6 +274,7 @@ export function projeterWorkers(
       ...(node.plateforme !== undefined ? { plateforme: node.plateforme } : {}),
       ...(node.outils !== undefined ? { outils: node.outils } : {}),
       reputation: reputationDe(lignesDuWorker),
+      reputationParCategorie: reputationParCategorieDe(lignesDuWorker),
     };
 
     if (modeles && modeles.length > 0) {
