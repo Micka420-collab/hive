@@ -129,23 +129,68 @@ function poser(p: Plan, nomFichier = path.basename(p.fichier.chemin)): string {
  *   CPUAccounting= has been removed and it is ignored
  *
  * Ces lignes parlent d'unités DU SYSTÈME — jamais de la nôtre, qui vit dans un
- * dossier temporaire et se cite par SON chemin. Les compter comme un refus fait
- * échouer la garde sur la configuration de la machine de test, pas sur le
- * fichier que Hive écrit. On ne retire donc QUE les diagnostics visant une unité
- * du système située ailleurs que notre fichier : toute plainte réelle sur notre
- * unité est préfixée de son chemin et reste vue — le contrôle négatif d'à côté
- * (« path is not absolute ») en dépend et le prouve.
+ * dossier temporaire. Les compter comme un refus fait échouer la garde sur la
+ * configuration de la machine de test, pas sur le fichier que Hive écrit.
+ *
+ * ─── CE QU'ON RETIRE, EXACTEMENT ─────────────────────────────────────────────
+ *
+ * Un diagnostic de `systemd-analyze` commence par le fichier qu'il concerne :
+ * « /chemin/de/l.unite:ligne: message ». On ne retire QUE ceux dont ce SUJET est
+ * un fichier rangé sous un dossier `systemd/` et différent du nôtre. Une ligne
+ * sur notre unité — préfixée de son chemin, ou de son seul nom comme
+ * « hive-ruche.service: Unit configuration has fatal error » — reste vue, même
+ * si elle cite au passage une unité de l'hôte. Le contrôle négatif d'à côté
+ * (« path is not absolute ») et le bloc « LE FILTRE » ci-dessous le prouvent.
  */
 function verdictSurNotreUnite(sortie: string, cheminUnite: string): string {
-  const uniteHote = /(^|\s)\/(usr\/lib|lib|etc|run)\/systemd\/\S+/;
+  const sujetHote = /^(\/\S*\/systemd\/[^\s:]+):(?:\d+:)?\s/;
   return sortie
     .split('\n')
     .map((l) => l.trimEnd())
     .filter((l) => l.trim() !== '')
-    .filter((l) => !uniteHote.test(l) || l.includes(cheminUnite))
+    .filter((l) => {
+      const sujet = sujetHote.exec(l)?.[1];
+      return sujet === undefined || sujet === cheminUnite;
+    })
     .join('\n')
     .trim();
 }
+
+describe('LE FILTRE NE RETIRE QUE LE BRUIT DE L’HÔTE', () => {
+  // Ces cas tournent PARTOUT. La jambe Linux dont l'hôte est bruyant prouve le
+  // filtre en vrai ; un runner propre, macOS ou Windows ne le verraient jamais à
+  // l'œuvre sans eux — et un filtre trop large passerait inaperçu.
+  const notre = '/tmp/ruche-svc-AbC123/hive-ruche.service';
+  const bruit = [
+    '/usr/lib/systemd/system/xfs_scrub_all.service:26: Support for option CPUAccounting= has been removed and it is ignored',
+    '/usr/lib/systemd/system/system-xfs_scrub.slice:15: Support for option CPUAccounting= has been removed and it is ignored',
+    '/etc/systemd/system/autre.service.d/override.conf: Unknown key name, ignoring.',
+  ];
+
+  it('le bruit de l’hôte seul rend un verdict vide', () => {
+    expect(verdictSurNotreUnite(bruit.join('\n'), notre)).toBe('');
+  });
+
+  it('une plainte sur NOTRE unité reste, qu’elle cite son chemin ou son nom', () => {
+    const parChemin = `${notre}:5: WorkingDirectory= path is not absolute, ignoring: "home/x"`;
+    const parNom =
+      'hive-ruche.service: Unit configuration has fatal error, unit will not be started.';
+    const sortie = [bruit[0], parChemin, bruit[1], parNom].join('\n');
+    expect(verdictSurNotreUnite(sortie, notre)).toBe(`${parChemin}\n${parNom}`);
+  });
+
+  it('une ligne sur notre unité qui CITE une unité de l’hôte n’est pas retirée', () => {
+    const ligne =
+      'hive-ruche.service: Failed to add dependency on /usr/lib/systemd/system/absent.target, ignoring';
+    expect(verdictSurNotreUnite(ligne, notre)).toBe(ligne);
+  });
+
+  it('notre unité ne se retire jamais elle-même, même rangée sous un dossier systemd', () => {
+    const rangee = '/run/systemd/transient/hive-ruche.service';
+    const ligne = `${rangee}:3: Unknown section 'Foo'. Ignoring.`;
+    expect(verdictSurNotreUnite(ligne, rangee)).toBe(ligne);
+  });
+});
 
 describe('LE FICHIER DE SERVICE EST RECEVABLE PAR SA PLATEFORME', () => {
   it.runIf(LINUX)('systemd accepte l’unité que Hive écrit', () => {
@@ -191,6 +236,9 @@ describe('LE FICHIER DE SERVICE EST RECEVABLE PAR SA PLATEFORME', () => {
       timeout: 60_000,
     });
     expect(`${r.stdout}${r.stderr}`).toMatch(/path is not absolute/);
+    // Et le filtre du test du dessus GARDE ce refus : sur la sortie réelle de
+    // systemd, pas seulement sur les lignes fabriquées du bloc « LE FILTRE ».
+    expect(verdictSurNotreUnite(`${r.stdout}\n${r.stderr}`, ou)).toMatch(/path is not absolute/);
   });
 
   it.runIf(MACOS)('launchd : le plist est un plist', () => {
