@@ -10,6 +10,8 @@ import {
 import type { HiveNode, Task, TaskStatus } from '../shared/types.js';
 import type { Suite } from './polyethisme.js';
 import type { MetierCycle } from './metier.js';
+import type { HiveEvent } from '../shared/types.js';
+import { projeterJournalOuvrier } from './journal-ouvriere.js';
 
 /** Identité humaine constatée par la Reine, distincte du nœud technique. */
 export interface WorkerIdentitySnapshot {
@@ -17,6 +19,45 @@ export interface WorkerIdentitySnapshot {
   bapteme: { nom: string; baptiseA: number } | null;
   /** Métier de cycle persistant ; null signifie qu'aucun rôle n'est assigné. */
   metier: { metier: MetierCycle; assigneA: number } | null;
+}
+
+/** Faits récents bornés d'un Worker, sans logs, diff, prompt ni secret. */
+export interface WorkerHistorySnapshot {
+  id: number;
+  ts: number;
+  type: string;
+  taskId?: string;
+  childTaskId?: string;
+  resultId?: number;
+  title?: string;
+  status?: string;
+  decision?: string;
+  reason?: string;
+}
+
+const HISTORIQUE_WORKER_MAX = 5;
+
+/**
+ * Réduit le journal durable au contrat de la carte Worker.
+ * JournalOuvriere porte déjà l'allowlist et la neutralisation des textes ;
+ * cette projection empêche en plus qu'un nouveau champ du journal élargisse
+ * silencieusement la réponse de GET /api/workers.
+ */
+export function projeterHistoriqueWorker(events: readonly HiveEvent[]): WorkerHistorySnapshot[] {
+  return projeterJournalOuvrier(events)
+    .slice(0, HISTORIQUE_WORKER_MAX)
+    .map(({ id, ts, type, payload }) => ({
+      id,
+      ts,
+      type,
+      ...(typeof payload.taskId === 'string' ? { taskId: payload.taskId } : {}),
+      ...(typeof payload.childTaskId === 'string' ? { childTaskId: payload.childTaskId } : {}),
+      ...(typeof payload.resultId === 'number' ? { resultId: payload.resultId } : {}),
+      ...(typeof payload.title === 'string' ? { title: payload.title } : {}),
+      ...(typeof payload.status === 'string' ? { status: payload.status } : {}),
+      ...(typeof payload.decision === 'string' ? { decision: payload.decision } : {}),
+      ...(typeof payload.reason === 'string' ? { reason: payload.reason } : {}),
+    }));
 }
 
 export interface WorkerReputationSnapshot {
@@ -68,6 +109,8 @@ export interface WorkerSnapshot {
   slotsLibres: number;
   /** Tâches réellement attribuées à ce Worker au moment de la lecture. */
   currentTasks?: WorkerCurrentTask[];
+  /** Fenêtre d'activité persistée, absente si la source n'est pas disponible. */
+  historique?: readonly WorkerHistorySnapshot[];
   plateforme?: HiveNode['plateforme'];
   outils?: HiveNode['outils'];
   /** Réputation du Worker, calculée uniquement sur ses résultats attribués. */
@@ -143,6 +186,7 @@ export function projeterWorkers(
     'id' | 'title' | 'status' | 'assignedNodeId' | 'attempts' | 'branch' | 'updatedAt'
   >[] = [],
   identites: ReadonlyMap<string, WorkerIdentitySnapshot> = new Map(),
+  historiques: ReadonlyMap<string, readonly WorkerHistorySnapshot[]> = new Map(),
 ): WorkerSnapshot[] {
   const antecedents = replierAntecedents(
     lignes.map((ligne) => ({
@@ -184,6 +228,7 @@ export function projeterWorkers(
           branch: task.branch,
           updatedAt: task.updatedAt,
         })),
+      ...(historiques.has(node.id) ? { historique: historiques.get(node.id) } : {}),
       ...(node.plateforme !== undefined ? { plateforme: node.plateforme } : {}),
       ...(node.outils !== undefined ? { outils: node.outils } : {}),
       reputation: reputationDe(lignesDuWorker),

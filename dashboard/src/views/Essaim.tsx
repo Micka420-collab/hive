@@ -208,6 +208,41 @@ function NodeCard({
           )}
         </div>
       )}
+      {worker && (
+        <div className="es-history" data-testid="worker-history">
+          <span className="es-history-label">{t('Activité récente', 'Recent activity')}</span>
+          {worker.historique === undefined ? (
+            <span className="es-agents-none">
+              {t('historique indisponible', 'history unavailable')}
+            </span>
+          ) : worker.historique.length === 0 ? (
+            <span className="es-agents-none">
+              {t('aucune activité persistée', 'no persisted activity')}
+            </span>
+          ) : (
+            <ul className="es-history-list">
+              {worker.historique.map((event) => {
+                const detail =
+                  event.title ??
+                  event.reason ??
+                  event.taskId ??
+                  event.childTaskId ??
+                  event.status ??
+                  event.decision;
+                return (
+                  <li key={event.id} className="es-history-item">
+                    <span className="es-history-type">{event.type}</span>
+                    <span className="es-history-detail" title={detail}>
+                      {detail ?? t('fait enregistré', 'recorded fact')}
+                    </span>
+                    <time dateTime={new Date(event.ts).toISOString()}>{timeShort(event.ts)}</time>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      )}
       <div className="es-agents">
         {agents.length === 0 ? (
           <span className="es-agents-none">

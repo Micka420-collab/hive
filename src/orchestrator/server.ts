@@ -285,7 +285,12 @@ import { detectConflicts } from './sting-detector.js';
 import { Scheduler } from './scheduler.js';
 import { ETAT_LIVRAISON_EN_COURS, HiveStore } from './store.js';
 import type { SessionRangee } from './store.js';
-import { projeterWorkers, type WorkerIdentitySnapshot } from './workers.js';
+import {
+  projeterHistoriqueWorker,
+  projeterWorkers,
+  type WorkerHistorySnapshot,
+  type WorkerIdentitySnapshot,
+} from './workers.js';
 import { projeterJournalOuvrier } from './journal-ouvriere.js';
 import { lireTemperature, FENETRE_MS as FENETRE_THERMO_MS, TYPES_THERMO } from './thermo.js';
 import { buildWaggleBoard } from './waggle.js';
@@ -2152,12 +2157,16 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         },
       ]),
     );
+    const historiques = new Map<string, readonly WorkerHistorySnapshot[]>(
+      nodes.map((node) => [node.id, projeterHistoriqueWorker(store.listEventsForNode(node.id, 6))]),
+    );
     return {
       workers: projeterWorkers(
         nodes,
         store.observationsAiguillage(),
         store.tasksByStatus('assigned', 'running'),
         identites,
+        historiques,
       ),
     };
   });
