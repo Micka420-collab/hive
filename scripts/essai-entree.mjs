@@ -417,8 +417,25 @@ async function principal() {
     // Vérifié APRÈS l'entrée, pas avant : c'est la seule façon d'avoir tout ce
     // que le script a dit. Une réinstallation tirerait du dépôt public, donc
     // mesurerait `main` et non l'arbre livré — et l'essai serait vert.
+    //
+    // ─── LE NŒUD PEUT ARRIVER AVANT LA PHRASE ───────────────────────────────
+    //
+    // « Après l'entrée » ne veut pas dire « après la phrase ». Sous Windows, le
+    // `Write-Host` d'un powershell.exe dont la sortie est un TUBE peut atteindre
+    // ce tube après que le nœud lancé ensuite s'est déjà inscrit. Mesuré deux
+    // fois le 25 septembre, jambe windows-latest : run 36178415598 (main
+    // 7e41ee7) et run 36178933683 (PR #436) — pas 1 à 5 verts, nœud neuf vu,
+    // verdict « inconnu » — quand les runs voisins, sur le même script
+    // d'entrée, rendaient ✔ 6/6.
+    //
+    // On laisse donc à la phrase le temps d'arriver. Le verdict reste EXIGÉ :
+    // ce délai ne change que QUAND on le lit, jamais ce qu'il doit dire. Et si
+    // elle ne vient pas, on montre ce qui est venu, pour que le rouge se lise.
+    for (let i = 0; i < 40 && verdictEntree(dit) === 'inconnu'; i++) await attendre(250);
     const fait = verdictEntree(dit);
-    if (fait !== 'rejoint') rate(`6/6 — ${RAISON_ENTREE[fait] ?? fait}`);
+    if (fait !== 'rejoint') {
+      rate(`6/6 — ${RAISON_ENTREE[fait] ?? fait}. Ce que l’entrée a dit :\n${dit}`);
+    }
 
     console.log(`✔ 6/6 — un invité a collé la commande et il est dans la ruche (${neuf})`);
     return OK;
