@@ -82,7 +82,7 @@ async function hubEcoutant(): Promise<{ serveur: WebSocketServer; port: number }
   const serveur = new WebSocketServer({ port: 0, host: '127.0.0.1' });
   await new Promise<void>((r) => serveur.once('listening', () => r()));
   const adresse = serveur.address();
-  if (typeof adresse === 'string') throw new Error('adresse inattendue');
+  if (adresse === null || typeof adresse === 'string') throw new Error('adresse inattendue');
   return { serveur, port: adresse.port };
 }
 
