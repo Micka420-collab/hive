@@ -62,6 +62,7 @@ import { Registre } from './guetteuses.js';
 import { jugerCommandeTest } from '../shared/commande-test.js';
 import { jugerPreparation } from '../shared/preparation.js';
 import { instantanePourEssaim, laverIdentifiants, vuePublique } from '../shared/projet-public.js';
+import { cheminEnvQueen } from '../shared/env-queen.js';
 import {
   confiancePourFastify,
   lireConfianceProxy,
@@ -710,6 +711,8 @@ export function loadConfigFromEnv(env: NodeJS.ProcessEnv = process.env): ServerC
       .filter(Boolean),
     dbPath: env.HIVE_DB ?? './data/hive.db',
     simulation: env.HIVE_SIMULATION === '1',
+    // Le fichier de clés de la Reine, s'il est désigné (cf. `shared/env-queen.ts`).
+    ...(env.HIVE_ENV_FILE?.trim() ? { envPath: cheminEnvQueen(env, process.cwd()) } : {}),
     // Un refus retombe sur « aucune confiance » : `main.ts` le dit au démarrage.
     trustProxy: lireConfianceProxy(env.HIVE_TRUST_PROXY).valeur,
     // Toute valeur inconnue retombe sur le défaut : une faute de frappe ne doit
