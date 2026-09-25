@@ -237,6 +237,30 @@ describe('aiguillerNoeuds — du modèle élu aux nœuds qui savent le faire tou
     ).toEqual(['n1']);
   });
 
+  it('REND LE CLASSEMENT QUI JUSTIFIE LE CHOIX — l’élu est en tête, et c’est le même rang', () => {
+    // La raison « pourquoi ce modèle » DOIT être le classement qui a décidé, pas
+    // un second calcul qui pourrait diverger. On vérifie donc que `rang[0]` est
+    // bien l’élu, que tous les modèles offerts y figurent, et qu’il est trié.
+    const memoire = replierAntecedents([
+      ...Array.from({ length: 4 }, () => obs('code', 'opus', 'appliquer')),
+      ...Array.from({ length: 4 }, () => obs('code', 'fable', 'refaire')),
+    ]);
+    const route = aiguillerNoeuds('code', [noeud('n1', ['opus']), noeud('n2', ['fable'])], memoire);
+    expect(route?.rang[0]?.modele, 'l’élu est en tête du classement').toBe(route?.modele);
+    expect(
+      route?.rang.map((r) => r.modele).sort(),
+      'tous les modèles offerts sont dans la raison',
+    ).toEqual(['fable', 'opus']);
+    const scores = route?.rang.map((r) => r.score) ?? [];
+    expect(
+      [...scores].sort((a, b) => b - a),
+      'le classement est trié par score décroissant',
+    ).toEqual(scores);
+    // Chaque ligne porte le vécu réel : essais et moyenne, pour la lecture.
+    const opus = route?.rang.find((r) => r.modele === 'opus');
+    expect(opus?.essais).toBe(4);
+  });
+
   it('NO-OP quand AUCUN éligible ne déclare de modèle — l’appelant ne touche à rien', () => {
     // Une flotte d'avant l'Aiguillage (aucun `modeles`) ou aux listes vides : la
     // fonction rend `null`, signal à l'appelant de garder son ordonnancement.

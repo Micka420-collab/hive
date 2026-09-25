@@ -1812,6 +1812,18 @@ export class Scheduler {
         // commandé par l'Aiguillage, jamais une valeur inventée quand aucun
         // nœud ne déclare de modèle.
         ...(route?.modele ? { modele: route.modele } : {}),
+        // La RAISON du choix, figée à l'instant de la décision : Mission
+        // Control répond « pourquoi ce modèle » sans recroiser des antécédents
+        // qui, eux, ont bougé depuis. Absente quand aucun modèle n'est en jeu
+        // (route === null) — on n'invente pas une justification. Bornée aux
+        // quatre premiers : le classement entier peut être long, l'élu et ses
+        // poursuivants immédiats suffisent à la lecture.
+        ...(route
+          ? {
+              categorie: categoriser(task.title, task.prompt),
+              raisonModele: route.rang.slice(0, 4),
+            }
+          : {}),
       });
       this.store.ouvrirHorlogeHote(assigned.projectId, assigned.id, Date.now());
       // Le modèle élu part avec la tâche : le nœud le passera à `--model`.
