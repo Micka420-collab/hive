@@ -1,5 +1,8 @@
 // Point d'entrée de l'orchestrateur : `npm run dev`.
 
+// Statique : ce module n'a aucune dépendance optionnelle (cf. plus bas).
+import { lireConfianceProxy } from '../shared/proxy-confiance.js';
+
 try {
   process.loadEnvFile('.env');
 } catch {
@@ -43,6 +46,12 @@ console.log(`   WebSocket : ws://${config.host}:${server.port}/ws`);
 console.log(`   Base      : ${config.dbPath}`);
 if (config.simulation) {
   console.log('   ⚠ Mode simulation actif (token par défaut toléré, démo locale uniquement).');
+}
+const confianceProxy = lireConfianceProxy(process.env.HIVE_TRUST_PROXY);
+if (confianceProxy.refus !== null) {
+  console.log(`   ⚠ ${confianceProxy.refus}`);
+} else if (confianceProxy.valeur !== false) {
+  console.log(`   IP client  : X-Forwarded-For cru depuis ${String(confianceProxy.valeur)}`);
 }
 
 let stopping = false;
