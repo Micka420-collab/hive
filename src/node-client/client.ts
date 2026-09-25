@@ -1066,6 +1066,7 @@ export class HiveNodeClient {
         durationMs: Date.now() - started,
         subAgents: result.subAgents.slice(0, LIMITS.subAgents),
         ...(usage ? { usage } : {}),
+        ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
       });
       this.log(`${result.success ? '✔' : '✘'} ${task.title}`);
     } catch (err) {

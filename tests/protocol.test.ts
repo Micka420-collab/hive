@@ -220,6 +220,61 @@ describe('parseClientMessage', () => {
     ).toBeNull();
   });
 
+  it('garde la déclaration fournisseur valide, et abandonne un champ faux sans perdre le résultat', () => {
+    const resultat = (fournisseur: unknown) =>
+      parseClientMessage(
+        JSON.stringify({
+          type: 'task_result',
+          taskId: 't-cout',
+          success: true,
+          diff: '',
+          logs: '',
+          durationMs: 12,
+          subAgents: [],
+          fournisseur,
+        }),
+      );
+    const declaration = {
+      source: 'claude-code',
+      coutUsd: 0.0421,
+      dureeApiMs: 7_250,
+      modeles: ['claude-sonnet-4-5-20250929'],
+      jetonsEntree: 12_012,
+      jetonsSortie: 850,
+    };
+    expect(resultat(declaration)).toMatchObject({ type: 'task_result', fournisseur: declaration });
+
+    // Champ par champ : un coût négatif, un nom de modèle avec espace, des
+    // jetons fractionnaires sont abandonnés ; le reste de la déclaration tient.
+    expect(
+      resultat({
+        source: 'claude-code',
+        coutUsd: -3,
+        dureeApiMs: 400,
+        modeles: ['ok-model', 'nom avec espace', 42],
+        jetonsEntree: 1.5,
+      }),
+    ).toMatchObject({
+      fournisseur: { source: 'claude-code', dureeApiMs: 400, modeles: ['ok-model'] },
+    });
+
+    // Une déclaration illisible ne fait jamais rejeter le travail du Worker.
+    for (const faux of ['0.04 $', { source: 'Pas Une Source', coutUsd: 1 }, { source: 'x' }]) {
+      const msg = resultat(faux);
+      expect(msg?.type, JSON.stringify(faux)).toBe('task_result');
+      expect(msg).not.toHaveProperty('fournisseur');
+    }
+    // Bornée : pas plus de huit modèles.
+    const beaucoup = Array.from({ length: 12 }, (_, i) => `m-${i}`);
+    expect(
+      (
+        resultat({ source: 'claude-code', modeles: beaucoup }) as {
+          fournisseur?: { modeles?: string[] };
+        }
+      )?.fournisseur?.modeles,
+    ).toHaveLength(8);
+  });
+
   it('accepte task_reject et register avec activeTasks, rejette les invalides', () => {
     expect(
       parseClientMessage(JSON.stringify({ type: 'task_reject', taskId: 't1', reason: 'sature' }))
