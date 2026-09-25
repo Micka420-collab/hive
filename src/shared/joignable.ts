@@ -21,7 +21,7 @@
 // remédier. Pur, sans réseau : le serveur l'appelle, le test le déroule.
 
 /** Un hôte d'écoute qui ne reçoit que la machine elle-même. */
-function boucleLocale(hote: string): boolean {
+export function boucleLocale(hote: string): boolean {
   const h = hote
     .trim()
     .toLowerCase()

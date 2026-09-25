@@ -176,16 +176,45 @@ export function modeInscriptionDepuisEnv(env: NodeJS.ProcessEnv = process.env): 
 /**
  * Cette inscription est-elle permise ?
  *
- * Le PREMIER compte passe toujours, quel que soit le mode : sans cela, une
- * ruche installée avec `HIVE_INSCRIPTION=fermee` serait définitivement
- * inutilisable, sans aucun moyen de créer son premier administrateur.
+ * Le PREMIER compte passe quel que soit le mode : sans cela, une ruche
+ * installée avec `HIVE_INSCRIPTION=fermee` serait définitivement inutilisable,
+ * sans aucun moyen de créer son premier administrateur.
+ *
+ * ─── MAIS PAS AU PREMIER VENU, QUAND LA RUCHE EST EXPOSÉE ──────────────────
+ *
+ * Le premier compte devient ADMIN (`roleALaCreation`). Sur une ruche qui
+ * n'écoute que la boucle locale, « le premier venu » est quelqu'un qui a déjà
+ * la machine : l'amorce ne donne rien de plus. Sur une ruche EXPOSÉE — Cloud
+ * derrière Caddy, serveur posé avec `HIVE_HOST=0.0.0.0`, partage LAN —,
+ * quiconque appelait `/api/auth/register` avant l'hôte prenait
+ * l'administration de la ruche : la fenêtre entre le démarrage et la première
+ * inscription de l'hôte était une escalade de privilèges ouverte à Internet.
+ *
+ * On exige alors la preuve que l'hôte est bien l'hôte, SANS nouveau secret :
+ * le jeton de ruche (`HIVE_TOKEN`), que l'installeur affiche et que le tableau
+ * de bord réclame de toute façon pour fonctionner. La règle « ni mot de passe
+ * par défaut, ni route secrète » tient : rien n'est ajouté, on demande ce que
+ * l'hôte a déjà.
  */
 export function inscriptionPermise(opts: {
   mode: ModeInscription;
   comptesExistants: number;
   billetValide?: boolean;
+  /** La ruche écoute-t-elle au-delà de la boucle locale ? */
+  exposee?: boolean;
+  /** L'appelant a-t-il présenté le jeton de ruche ? */
+  jetonDeRuche?: boolean;
 }): { permise: boolean; motif: string } {
   if (opts.comptesExistants === 0) {
+    if (opts.exposee === true && opts.jetonDeRuche !== true) {
+      return {
+        permise: false,
+        motif:
+          'premier compte d’une ruche exposée : il deviendra administrateur, présentez donc ' +
+          'le jeton de la ruche (HIVE_TOKEN, affiché par l’installeur — champ « Jeton » du ' +
+          'tableau de bord, ou en-tête x-hive-token)',
+      };
+    }
     return { permise: true, motif: 'premier compte de la ruche' };
   }
   if (opts.mode === 'ouverte') return { permise: true, motif: 'inscriptions ouvertes' };
