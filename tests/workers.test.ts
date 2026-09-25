@@ -55,6 +55,31 @@ describe('projection Worker', () => {
     expect(worker.outils).toBeUndefined();
   });
 
+  it('transporte l’identité humaine persistée sans remplacer le nom technique', () => {
+    const worker = projeterWorkers(
+      [node({ name: 'poste-technique' })],
+      [],
+      [],
+      new Map([
+        [
+          'node-1',
+          {
+            bapteme: { nom: 'Capucine', baptiseA: 100 },
+            metier: { metier: 'edite', assigneA: 101 },
+          },
+        ],
+      ]),
+    )[0]!;
+
+    expect(worker).toMatchObject({
+      name: 'poste-technique',
+      identite: {
+        bapteme: { nom: 'Capucine', baptiseA: 100 },
+        metier: { metier: 'edite', assigneA: 101 },
+      },
+    });
+  });
+
   it('sépare la réputation exacte du Worker du vécu global', () => {
     const lignes = [
       {

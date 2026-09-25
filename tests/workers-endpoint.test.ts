@@ -50,6 +50,14 @@ describe('GET /api/workers', () => {
       maxConcurrency: 2,
       modeles: ['claude-sonnet'],
     });
+    expect(server!.store.baptiser('worker-1', 'Capucine', 1)).toEqual({
+      ok: true,
+      nom: 'Capucine',
+    });
+    expect(server!.store.assignerMetier('worker-1', 'edite', 2)).toEqual({
+      ok: true,
+      metier: 'edite',
+    });
     const project = server!.store.createProject({ name: 'Projet' });
     const task = server!.store.createTask({
       id: 'task-observed',
@@ -99,6 +107,10 @@ describe('GET /api/workers', () => {
           reputation: { essais: number; moyenne: number | null; attribution: string };
         }>;
         reputation: { essais: number; moyenne: number | null; attribution: string };
+        identite: {
+          bapteme: { nom: string; baptiseA: number } | null;
+          metier: { metier: string; assigneA: number } | null;
+        };
       }>;
     };
 
@@ -112,6 +124,10 @@ describe('GET /api/workers', () => {
       essais: 1,
       moyenne: 1,
       attribution: 'exacte',
+    });
+    expect(body.workers[0]?.identite).toEqual({
+      bapteme: { nom: 'Capucine', baptiseA: 1 },
+      metier: { metier: 'edite', assigneA: 2 },
     });
     expect(body.workers[0]?.modeles?.[0]?.reputation).toMatchObject({
       essais: 1,

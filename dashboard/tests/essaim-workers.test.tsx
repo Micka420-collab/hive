@@ -215,6 +215,25 @@ describe('projection Worker dans Mission Control', () => {
     expect(travail?.textContent).toContain('essai 2');
   });
 
+  it('rend le baptême et le métier du Worker depuis la projection unifiée', async () => {
+    vi.mocked(fetchWorkers).mockResolvedValue({
+      workers: [
+        {
+          ...workerAvecModeles(),
+          identite: {
+            bapteme: { nom: 'Capucine', baptiseA: 1 },
+            metier: { metier: 'edite', assigneA: 2 },
+          },
+        },
+      ],
+    });
+    const dom = await monter();
+    const card = carte(dom);
+
+    expect(card.textContent).toContain('Capucine');
+    expect(card.querySelector('[data-testid="worker-role"]')?.textContent).toContain('Édite');
+  });
+
   it('ne fabrique aucun profil quand la projection ne contient aucun Worker correspondant', async () => {
     vi.mocked(fetchWorkers).mockResolvedValue({ workers: [] });
     const dom = await monter();
