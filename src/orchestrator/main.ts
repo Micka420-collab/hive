@@ -1,13 +1,16 @@
 // Point d'entrée de l'orchestrateur : `npm run dev`.
 
-// Statique : ce module n'a aucune dépendance optionnelle (cf. plus bas).
+// Statiques : ces modules n'ont aucune dépendance optionnelle (cf. plus bas).
 import { annonceSimulation } from '../shared/annonce-simulation.js';
+import { chargerEnvQueen } from '../shared/env-queen.js';
 import { lireConfianceProxy } from '../shared/proxy-confiance.js';
 
 try {
-  process.loadEnvFile('.env');
+  // Le `.env` du dossier, puis le fichier de clés de la Reine s'il est ailleurs
+  // (`HIVE_ENV_FILE`, cf. `shared/env-queen.ts`).
+  chargerEnvQueen(process.env, process.cwd());
 } catch {
-  // Pas de fichier .env : les valeurs par défaut / variables d'environnement s'appliquent.
+  // Fichier illisible : les valeurs par défaut / variables d'environnement s'appliquent.
 }
 
 // ─── L'orchestrateur est chargé DYNAMIQUEMENT, et ce n'est pas un détail ─────

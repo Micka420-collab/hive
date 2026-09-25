@@ -68,6 +68,11 @@ ENV NODE_ENV=production
 ENV HIVE_HOST=0.0.0.0
 ENV HIVE_PORT=7777
 ENV HIVE_DB=/app/data/hive.db
+# Les clés d'API posées depuis la Chambre vont DANS le volume : les compose
+# montent la racine en lecture seule, et `/app/.env` n'y est pas inscriptible
+# (la route rendait 500). Ici elles survivent au redémarrage du conteneur, et
+# la Reine les relit en démarrant (cf. `src/shared/env-queen.ts`).
+ENV HIVE_ENV_FILE=/app/data/queen.env
 
 COPY package.json package-lock.json ./
 # `--omit=dev` retire TypeScript et Vite. Les dépendances OPTIONNELLES, elles,
