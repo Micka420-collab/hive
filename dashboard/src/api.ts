@@ -1167,6 +1167,15 @@ export function fetchRoutage(
   return api(`/api/tasks/${encodeURIComponent(taskId)}/routage`);
 }
 
+/**
+ * Registre Genome : les faits de chaque modèle par catégorie, repliés du
+ * journal retenu (cf. `src/shared/registre-genome.ts`). Aucune note, aucun
+ * classement, coût fournisseur `inconnu`.
+ */
+export function fetchGenome(): Promise<RegistreGenome> {
+  return api<RegistreGenome>('/api/genome');
+}
+
 export function enTetesRuche(): Record<string, string> {
   const jwt = getJwt();
   return { 'x-hive-token': getToken(), ...(jwt ? { authorization: `Bearer ${jwt}` } : {}) };
@@ -1810,6 +1819,7 @@ export function connectFeed(handlers: FeedHandlers): HiveFeed {
 import type { ProjetPublic as ProjetPublicVue } from '../../src/shared/projet-public';
 import type { AffectationVue } from '../../src/shared/routage-vue';
 import type { ChronologieTache } from '../../src/shared/chronologie-tache';
+import type { RegistreGenome } from '../../src/shared/registre-genome';
 export type { ProjetPublic as ProjetPublicVue } from '../../src/shared/projet-public';
 
 /**
