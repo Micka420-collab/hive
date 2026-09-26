@@ -60,7 +60,7 @@ carte Notion distingue le code présent de la preuve de bout en bout.
 
 ## État réel du projet
 
-Mis à jour le 25 septembre 2026. Tout ce qui suit est fusionné sur `main`,
+Mis à jour le 26 septembre 2026. Tout ce qui suit est fusionné sur `main`,
 avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes.
 
 **Prouvé :**
@@ -89,17 +89,42 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
 - **Bac à sable.** Preflight Docker, Podman et bubblewrap. L'image
   `docker/agents` embarque Claude Code, Codex et Cline, sondés dans le
   preflight durci de Hive (racine en lecture seule, `/tmp` noexec, uid non
-  privilégié).
+  privilégié), installés depuis un fichier de verrouillage
+  ([#447](https://github.com/Micka420-collab/hive/pull/447)). En Docker, les
+  clés d'API accordées depuis la Chambre sont rangées dans le volume de
+  données ([#446](https://github.com/Micka420-collab/hive/pull/446)).
 - **Orchestration.** Graphe de délégation borné et persistant, Workers
   (identité, historique, ressources observées, limites d'autonomie), Evaluator
   et contre-revue exacte, visibles dans Mission Control.
+- **Mission Control explique ce qu'il a fait**, depuis le journal, sans rien
+  recalculer ni estimer :
+  - pourquoi ce Worker et ce modèle : le classement de l'Aiguillage figé à
+    l'instant du choix ([#449](https://github.com/Micka420-collab/hive/pull/449),
+    [#450](https://github.com/Micka420-collab/hive/pull/450)) ;
+  - où est passé le temps : attente, démarrage, exécution, reprises,
+    corrections, revue ([#451](https://github.com/Micka420-collab/hive/pull/451)) ;
+  - la réputation d'un Worker par catégorie de tâche, « inconnue » là où il
+    n'a jamais été jugé ([#452](https://github.com/Micka420-collab/hive/pull/452)) ;
+  - le registre Genome : ce que chaque modèle a réellement fait, par
+    catégorie — rendus, reprises, corrections de l'Evaluator, avis des
+    relectrices, revue humaine, durée — sans note ni classement
+    ([#454](https://github.com/Micka420-collab/hive/pull/454)) ;
+  - le coût et le temps modèle **déclarés par le CLI de l'agent** (Claude
+    Code), avec leur couverture — « inconnu » quand rien n'est déclaré
+    ([#455](https://github.com/Micka420-collab/hive/pull/455),
+    [#456](https://github.com/Micka420-collab/hive/pull/456)).
 
 **Reste à prouver :**
 
 - une mission **authentifiée** complète, avec un vrai agent dans un vrai bac
   Docker ou Podman (diff, tests, revue, correction, livraison Git) ;
-- les coûts et la latence réels des fournisseurs ;
-- l'apprentissage (Genome) ;
+- le coût et le temps modèle sur un **vrai** run : la lecture de la
+  déclaration de Claude Code suit le format documenté et est éprouvée contre
+  un faux binaire, pas encore contre le CLI réel ; Codex ne déclare encore
+  rien à Hive ;
+- l'apprentissage : le routing apprend toujours des seules contre-visites ;
+  y faire entrer les autres faits du registre Genome est une décision de
+  pondération, pas encore prise ;
 - la démonstration V2 Alpha de bout en bout.
 
 L'adaptateur `shell` reste une **simulation** : sans agent réel installé, les
