@@ -64,6 +64,8 @@ describe('la déclaration fournisseur — d’un vrai nœud jusqu’au journal d
       name: 'ouvriere-cout',
       ownerName: 'banc',
       agentType: 'claude-code',
+      // Un modèle déclaré : le registre Genome range les faits sous lui.
+      modeles: ['sonnet'],
       maxConcurrency: 1,
       workRoot: path.join(dossier, 'travail'),
       adapter: {
@@ -120,5 +122,50 @@ describe('la déclaration fournisseur — d’un vrai nœud jusqu’au journal d
 
     const [fait] = s.store.evenementsDeTache(sansDeclaration.id, ['task_done']);
     expect(fait?.payload, 'rien de déclaré, rien d’inventé').not.toHaveProperty('fournisseur');
+
+    // ─── ET L'ÉCRAN LE DIT : chronologie de la tâche, registre Genome ────────
+    const base = `http://127.0.0.1:${s.port}`;
+    const headers = { 'x-hive-token': JETON };
+    const lire = async <T>(chemin: string): Promise<T> => {
+      const r = await fetch(`${base}${chemin}`, { headers });
+      expect(r.status, chemin).toBe(200);
+      return (await r.json()) as T;
+    };
+    type Somme = { total: number; declarees: number; tentatives: number } | 'inconnu';
+
+    const { chronologie } = await lire<{
+      chronologie: { dureeModele: Somme; coutFournisseur: Somme };
+    }>(`/api/tasks/${t.id}/chronologie`);
+    expect(chronologie.dureeModele).toEqual({ total: 3_000, declarees: 2, tentatives: 2 });
+    expect(chronologie.coutFournisseur).toMatchObject({ declarees: 2, tentatives: 2 });
+    expect(
+      chronologie.coutFournisseur !== 'inconnu' && chronologie.coutFournisseur.total,
+    ).toBeCloseTo(0.042, 10);
+
+    const { chronologie: muette } = await lire<{
+      chronologie: { dureeModele: Somme; coutFournisseur: Somme };
+    }>(`/api/tasks/${sansDeclaration.id}/chronologie`);
+    expect(muette.coutFournisseur, 'rien de déclaré : inconnu, pas zéro').toBe('inconnu');
+
+    const genome = await lire<{
+      lignes: Array<{
+        modele: string;
+        coutFournisseur: Somme;
+        dureeModele: Somme;
+        modelesExacts: string[];
+      }>;
+    }>('/api/genome');
+    const sonnet = genome.lignes.filter((l) => l.modele === 'sonnet');
+    const couverture = sonnet.reduce(
+      (n, l) => n + (l.coutFournisseur === 'inconnu' ? 0 : l.coutFournisseur.declarees),
+      0,
+    );
+    const tentatives = sonnet.reduce(
+      (n, l) => n + (l.coutFournisseur === 'inconnu' ? 0 : l.coutFournisseur.tentatives),
+      0,
+    );
+    expect(couverture, 'deux tentatives déclarées').toBe(2);
+    expect(tentatives, 'trois rendues, dont une muette').toBe(3);
+    expect(sonnet.flatMap((l) => l.modelesExacts)).toContain('claude-sonnet-4-5-20250929');
   });
 });

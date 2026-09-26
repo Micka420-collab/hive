@@ -199,7 +199,7 @@ describe('le tiroir — les métadonnées et le geste qui coupe', () => {
     };
     const dom = await monter(<TaskDrawer task={task} nodes={NOEUDS} onClose={() => {}} />);
     expect(dom.querySelector('[data-testid="task-observed-resources"]')?.textContent).toContain(
-      'processus Worker : 10 ms CPU · 2.0 MiB RSS · coût fournisseur non mesuré',
+      'processus Worker : 10 ms CPU · 2.0 MiB RSS · coût fournisseur à part (« Où est passé le temps »)',
     );
   });
 

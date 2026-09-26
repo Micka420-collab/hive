@@ -10,14 +10,17 @@
 //   · les relectrices ont-elles contesté ou validé ?
 //   · un humain a-t-il approuvé ou rejeté la dernière production ?
 //   · combien de temps a pris une réussite, côté Worker ?
+//   · qu'ont DÉCLARÉ les CLI des agents : coût, temps modèle, modèles exacts ?
 //
 // ─── TROIS RÈGLES DE LECTURE ─────────────────────────────────────────────────
 //
 //   1. L'ABSENCE RESTE ABSENTE. Une affectation sans modèle déclaré n'est pas
 //      rangée sous un modèle « par défaut » : elle va dans `sansModele`. Une
 //      issue dont l'affectation est sortie de la fenêtre du journal n'est
-//      attribuée à personne. Le coût fournisseur n'est jamais estimé : aucun
-//      fournisseur ne le transmet aujourd'hui, il vaut `'inconnu'`.
+//      attribuée à personne. Le coût fournisseur et le temps modèle ne
+//      viennent que de la déclaration du CLI de l'agent, sommés avec leur
+//      couverture (tentatives déclarées / tentatives rendues) ; sans aucune
+//      déclaration ils valent `'inconnu'` — jamais estimés.
 //   2. AUCUN CLASSEMENT. Les lignes sortent triées par nom de modèle puis par
 //      catégorie. Classer demanderait une pondération entre ces faits — une
 //      décision produit, pas une lecture.
@@ -34,6 +37,8 @@
 // ni au routing, ni à la récompense de l'Aiguillage.
 
 import type { Categorie } from '../orchestrator/aiguillage.js';
+import { declarationDe, sommeDeclaree } from './declaration-fournisseur.js';
+import type { SommeDeclaree } from './declaration-fournisseur.js';
 import type { HiveEvent } from './types.js';
 
 export const TYPES_REGISTRE_GENOME = [
@@ -70,8 +75,12 @@ export interface FaitsGenome {
   humain: { approuvees: number; rejetees: number };
   /** Médiane des durées Worker des rendus ; `null` sans rendu mesuré. */
   dureeMedianeMs: number | null;
-  /** Aucun fournisseur ne transmet son coût : jamais estimé. */
-  coutFournisseur: 'inconnu';
+  /** Coût déclaré par le CLI (USD), sur les tentatives rendues — jamais estimé. */
+  coutFournisseur: SommeDeclaree | 'inconnu';
+  /** Temps passé dans les appels au modèle, déclaré par le CLI. */
+  dureeModele: SommeDeclaree | 'inconnu';
+  /** Modèles exacts nommés par le CLI (la version derrière le modèle commandé). */
+  modelesExacts: string[];
 }
 
 export interface LigneGenome extends FaitsGenome {
@@ -88,8 +97,12 @@ export interface RegistreGenome {
 }
 
 interface Accumulateur {
-  faits: Omit<FaitsGenome, 'dureeMedianeMs' | 'coutFournisseur'>;
+  faits: Omit<FaitsGenome, 'dureeMedianeMs' | 'coutFournisseur' | 'dureeModele' | 'modelesExacts'>;
   durees: number[];
+  /** Une entrée par tentative rendue ; `null` quand le CLI n'a rien déclaré. */
+  couts: (number | null)[];
+  dureesModele: (number | null)[];
+  modelesExacts: Set<string>;
 }
 
 interface Production {
@@ -117,7 +130,18 @@ function vide(): Accumulateur {
       humain: { approuvees: 0, rejetees: 0 },
     },
     durees: [],
+    couts: [],
+    dureesModele: [],
+    modelesExacts: new Set(),
   };
+}
+
+/** Consigne la déclaration d'une tentative rendue (réussie, reprise, échouée). */
+function consignerDeclaration(acc: Accumulateur, payload: Record<string, unknown>): void {
+  const declaration = declarationDe(payload);
+  acc.couts.push(declaration.coutUsd);
+  acc.dureesModele.push(declaration.dureeApiMs);
+  for (const m of declaration.modeles) acc.modelesExacts.add(m);
 }
 
 function mediane(valeurs: readonly number[]): number | null {
@@ -139,7 +163,9 @@ function figer(acc: Accumulateur): FaitsGenome {
     avis: { ...acc.faits.avis },
     humain: { ...acc.faits.humain },
     dureeMedianeMs: mediane(acc.durees),
-    coutFournisseur: 'inconnu',
+    coutFournisseur: sommeDeclaree(acc.couts),
+    dureeModele: sommeDeclaree(acc.dureesModele),
+    modelesExacts: [...acc.modelesExacts].sort(),
   };
 }
 
@@ -211,6 +237,7 @@ export function registreGenomeDepuisEvenements(
         if (typeof duree === 'number' && Number.isFinite(duree) && duree >= 0) {
           acc.durees.push(duree);
         }
+        consignerDeclaration(acc, p);
         solderRevue(etat);
         etat.derniere = { modele: courante.modele, categorie: courante.categorie };
         etat.courante = null;
@@ -225,12 +252,14 @@ export function registreGenomeDepuisEvenements(
         }
         if (!issueDeLaCourante) break;
         accumulateur(courante).faits.reprises += 1;
+        consignerDeclaration(accumulateur(courante), p);
         etat.courante = null;
         break;
       }
       case 'task_failed': {
         if (!issueDeLaCourante) break;
         accumulateur(courante).faits.echecs += 1;
+        consignerDeclaration(accumulateur(courante), p);
         etat.courante = null;
         break;
       }

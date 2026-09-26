@@ -185,6 +185,16 @@ export function formatMs(ms: number): string {
   return ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${ms} ms`;
 }
 
+/** Montant déclaré, en dollars US — jusqu'à quatre décimales pour les petits coûts. */
+export function direUsd(montant: number, lang: 'fr' | 'en'): string {
+  return new Intl.NumberFormat(lang === 'fr' ? 'fr-FR' : 'en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
+  }).format(montant);
+}
+
 // ─── Domaines (phéromones, devis de la Balance) ──────────────────────────────
 // Double libellé fr/en, résolu via `t` au rendu. Ici plutôt que dans une vue :
 // la carte Phéromones (Essaim) et le devis de la Balance (Projets) sont deux

@@ -3032,3 +3032,8 @@ button.mc-cell:focus-visible {
   font-size: 0.75rem;
   color: var(--muted);
 }
+.genome-exacts {
+  display: block;
+  font-size: 0.7rem;
+  color: var(--muted);
+}

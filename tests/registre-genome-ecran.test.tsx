@@ -48,6 +48,8 @@ const faits = (over: Partial<FaitsGenome> = {}): FaitsGenome => ({
   humain: { approuvees: 0, rejetees: 0 },
   dureeMedianeMs: null,
   coutFournisseur: 'inconnu',
+  dureeModele: 'inconnu',
+  modelesExacts: [],
   ...over,
 });
 
@@ -94,10 +96,42 @@ describe('registre Genome — écran', () => {
       '✓ 1 · ✗ 0',
       '1.5 s',
       'inconnu',
+      'inconnu',
     ]);
     expect(c.querySelector('[data-testid="genome-sans-modele"]')).toBeNull();
     expect(c.querySelector('[data-testid="genome-tronque"]')).toBeNull();
     expect(c.textContent).toContain('Lu sur 12 événement(s)');
+  });
+
+  it('dit ce que le CLI déclare — « ≥ » quand une tentative s’est tue — et les modèles exacts', () => {
+    const c = monter({
+      lignes: [
+        {
+          modele: 'sonnet',
+          categorie: 'code',
+          ...faits({
+            affectations: 3,
+            rendus: 1,
+            dureeModele: { total: 4_000, declarees: 3, tentatives: 3 },
+            coutFournisseur: { total: 0.07, declarees: 2, tentatives: 3 },
+            modelesExacts: ['claude-sonnet-4-5-20250929'],
+          }),
+        },
+      ],
+      sansModele: faits(),
+      fenetre: { evenements: 9, depuis: 1, tronquee: false },
+    });
+    const cellules = [...c.querySelectorAll('[data-testid="genome-ligne"] td')];
+
+    expect(cellules[0]?.textContent).toBe('sonnetclaude-sonnet-4-5-20250929');
+    expect(cellules[0]?.querySelector('.genome-exacts')?.textContent).toBe(
+      'claude-sonnet-4-5-20250929',
+    );
+    expect(cellules[8]?.textContent).toBe('4.0 s');
+    expect(cellules[9]?.textContent).toMatch(/^≥ 0,07\s\$US$/);
+    expect(cellules[9]?.getAttribute('title')).toBe(
+      '2/3 tentative(s) déclarée(s) par le CLI de l’agent',
+    );
   });
 
   it('signale l’absence de modèle et la fenêtre pleine, sans inventer de ligne', () => {

@@ -1,6 +1,7 @@
 // Où est passé le temps d'une tâche — phases relues dans le journal, rien
-// d'estimé : un bord manquant rend la phase `null`, la latence du modèle et le
-// coût fournisseur restent `inconnu`.
+// d'estimé : un bord manquant rend la phase `null` ; la latence du modèle et le
+// coût fournisseur ne viennent que de la déclaration du CLI, avec leur
+// couverture, et restent `inconnu` sans elle.
 
 import { describe, expect, it } from 'vitest';
 import { chronologieDepuisEvenements } from '../src/shared/chronologie-tache.js';
@@ -31,7 +32,9 @@ describe('chronologieDepuisEvenements — les phases d’une tâche', () => {
       totalMs: 3_500,
       terminee: true,
     });
-    expect(c.tentatives).toEqual([{ issue: 'reussie', dureeWorkerMs: 2_900 }]);
+    expect(c.tentatives).toEqual([
+      { issue: 'reussie', dureeWorkerMs: 2_900, dureeModeleMs: null, coutUsd: null },
+    ]);
   });
 
   it('DISTINGUE L’ATTENTE DES DÉPENDANCES DE L’ATTENTE D’UN WORKER', () => {
@@ -103,8 +106,40 @@ describe('chronologieDepuisEvenements — les phases d’une tâche', () => {
     expect(c.dureeWorkerTotaleMs).toBeNull();
   });
 
-  it('LA LATENCE DU MODÈLE ET LE COÛT FOURNISSEUR SONT « INCONNU » — jamais déduits du temps Worker', () => {
+  it('SANS DÉCLARATION, LATENCE DU MODÈLE ET COÛT FOURNISSEUR SONT « INCONNU » — jamais déduits du temps Worker', () => {
     const c = chronologieDepuisEvenements(0, [ev(1_000, 'task_done', { durationMs: 900 })]);
+    expect(c.dureeModele).toBe('inconnu');
+    expect(c.coutFournisseur).toBe('inconnu');
+  });
+
+  it('SOMME CE QUE LE CLI DÉCLARE, AVEC SA COUVERTURE — la tentative muette n’est pas estimée', () => {
+    const c = chronologieDepuisEvenements(0, [
+      ev(1, 'task_retry', {
+        durationMs: 1_000,
+        fournisseur: { source: 'claude-code', coutUsd: 0.01, dureeApiMs: 700 },
+      }),
+      // Tentative sans déclaration : elle compte dans la couverture, pas dans la somme.
+      ev(2, 'task_retry', { durationMs: 1_200 }),
+      ev(3, 'task_done', {
+        durationMs: 2_000,
+        fournisseur: { source: 'claude-code', coutUsd: 0.03, dureeApiMs: 1_500 },
+      }),
+    ]);
+    expect(c.tentatives.map((t) => [t.dureeModeleMs, t.coutUsd])).toEqual([
+      [700, 0.01],
+      [null, null],
+      [1_500, 0.03],
+    ]);
+    expect(c.dureeModele).toEqual({ total: 2_200, declarees: 2, tentatives: 3 });
+    expect(c.coutFournisseur).toMatchObject({ declarees: 2, tentatives: 3 });
+    expect(c.coutFournisseur !== 'inconnu' && c.coutFournisseur.total).toBeCloseTo(0.04, 10);
+  });
+
+  it('UNE DÉCLARATION ILLISIBLE NE DÉCLARE RIEN — coût négatif, texte, forme fausse', () => {
+    const c = chronologieDepuisEvenements(0, [
+      ev(1, 'task_retry', { fournisseur: { coutUsd: -1, dureeApiMs: '700' } }),
+      ev(2, 'task_done', { fournisseur: 'beaucoup' }),
+    ]);
     expect(c.dureeModele).toBe('inconnu');
     expect(c.coutFournisseur).toBe('inconnu');
   });

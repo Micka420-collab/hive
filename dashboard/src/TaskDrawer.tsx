@@ -93,20 +93,24 @@ function consommationDelegation(
   );
 }
 
+// Les ressources du processus Worker (CPU, mémoire) ne sont PAS un coût : le
+// coût fournisseur a sa propre ligne, dans « Où est passé le temps », avec ce
+// que le CLI de l'agent déclare — ou « inconnu ». Le dire ici « non mesuré »
+// contredirait ce panneau dès qu'un CLI déclare un montant.
 function ressourcesObservees(
   usage: ExecutionUsage | undefined,
   t: ReturnType<typeof useT>,
 ): string {
   if (!usage)
     return t(
-      'Non mesurées · coût fournisseur non mesuré',
-      'Not measured · provider cost not measured',
+      'Non mesurées · coût fournisseur à part (« Où est passé le temps »)',
+      'Not measured · provider cost shown separately (“Where the time went”)',
     );
   const cpuMs = (usage.userCpuMicros + usage.systemCpuMicros) / 1_000;
   const rssMiB = usage.maxRssBytes / (1024 * 1024);
   return t(
-    `processus Worker : ${formatMs(cpuMs)} CPU · ${rssMiB.toFixed(1)} MiB RSS · coût fournisseur non mesuré`,
-    `Worker process: ${formatMs(cpuMs)} CPU · ${rssMiB.toFixed(1)} MiB RSS · provider cost not measured`,
+    `processus Worker : ${formatMs(cpuMs)} CPU · ${rssMiB.toFixed(1)} MiB RSS · coût fournisseur à part (« Où est passé le temps »)`,
+    `Worker process: ${formatMs(cpuMs)} CPU · ${rssMiB.toFixed(1)} MiB RSS · provider cost shown separately (“Where the time went”)`,
   );
 }
 
