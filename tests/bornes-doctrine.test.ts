@@ -94,6 +94,8 @@ const BORNÉES_PAR_L_HUMAIN: Record<string, string> = {
     'une liste de modèles par machine — clé primaire nodeId, écrasée à la ré-inscription',
   outils_noeuds:
     'les outils IA constatés par une machine — clé primaire nodeId, écrasée à la ré-inscription ; le JSON est borné en amont par estOutilsConstates (32 entrées)',
+  isolements_noeuds:
+    'le bac à sable déclaré par une machine — clé primaire nodeId, écrasée à la ré-inscription, effacée quand elle n’est pas redite',
   baptemes:
     'une ligne par ouvrière baptisée par la Reine (ADR 0010) — clé primaire nodeId ; collision de noms refusée',
   metiers_cycle:

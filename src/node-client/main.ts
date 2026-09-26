@@ -13,7 +13,7 @@ import { demarrageNoeudAutorise, messageRefusShellProduction } from '../shared/a
 import { conseilDemarrage, constatsPourLeHub, diagnostiquerAgents } from './connexion.js';
 import { entreeEnRuche } from '../shared/presence-noeud.js';
 import { HiveNodeClient } from './client.js';
-import { optionBac, preparerBac } from './bac.js';
+import { isolementDeclareDe, optionBac, preparerBac } from './bac.js';
 import { parseModeles } from './modeles.js';
 import { createInterface } from 'node:readline/promises';
 
@@ -177,6 +177,7 @@ const client = new HiveNodeClient({
   // Les modèles que l'opérateur déclare (HIVE_MODELES), pour l'Aiguillage appris.
   ...(modelesDeclares ? { modeles: modelesDeclares } : {}),
   ...optionBac(bac, variables),
+  isolement: isolementDeclareDe(bac),
   // La seconde garde. `presenceSeule` n'est POSÉ que dans ce mode : un nœud de
   // production ne porte pas le champ du tout, et ne peut donc pas se le voir
   // basculer par accident.

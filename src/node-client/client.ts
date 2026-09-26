@@ -36,7 +36,7 @@ import type {
   PoserOutilMsg,
 } from '../shared/protocol.js';
 import { HEARTBEAT_INTERVAL_MS, NODE_TIMEOUT_MS } from '../shared/types.js';
-import type { ExecutionUsage, Task } from '../shared/types.js';
+import type { ExecutionUsage, IsolementDeclare, Task } from '../shared/types.js';
 import { runMerge, runProc } from './merge-runner.js';
 import { lancerVraiment, poserOutil } from './pose-runner.js';
 import { buildSandboxEnv, cloneRepo, prepareWorkspace } from './workspace.js';
@@ -106,6 +106,11 @@ export interface NodeClientOptions {
    * suite. C'est le même motif que `adapter`.
    */
   bac?: { fournisseur: Fournisseur; variables: readonly string[]; image: string };
+  /**
+   * Le bac à sable DÉCLARÉ au hub à l'inscription (`isolementDeclareDe`).
+   * Affichage seulement ; absent, le hub dit « non déclaré ».
+   */
+  isolement?: IsolementDeclare;
   /**
    * Présence du binaire agent (tests / override). Défaut : sonde PATH réelle.
    * Sert à la reprise après Accorder `binaire` sans relancer un ENOENT immédiat.
@@ -633,6 +638,9 @@ export class HiveNodeClient {
         // rapporter ce qu'on a vu. Absent tant que le diagnostic n'a pas
         // tourné : un tableau vide se lirait comme « rien d'installé ».
         ...(this.outilsConstates ? { outils: this.outilsConstates } : {}),
+        // Le bac à sable où les tâches tourneront — redit à CHAQUE inscription :
+        // le hub efface une déclaration qui n'est pas répétée.
+        ...(this.opts.isolement ? { isolement: this.opts.isolement } : {}),
       });
     });
 

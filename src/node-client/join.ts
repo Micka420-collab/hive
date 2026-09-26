@@ -13,7 +13,7 @@ import path from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { agentCredentialEnv, detectAllAgents } from './agent-detect.js';
 import { resoudreAgentAuDemarrage } from './choisir-agent.js';
-import { optionBac, preparerBac } from './bac.js';
+import { isolementDeclareDe, optionBac, preparerBac } from './bac.js';
 import { CODE } from '../codes-sortie.js';
 import { libelleAgent } from '../shared/agent-libelle.js';
 import { HiveNodeClient } from './client.js';
@@ -273,6 +273,7 @@ async function main(): Promise<void> {
     nodeId,
     keepEnv,
     ...optionBac(bac, keepEnv),
+    isolement: isolementDeclareDe(bac),
   });
 
   client.start();
