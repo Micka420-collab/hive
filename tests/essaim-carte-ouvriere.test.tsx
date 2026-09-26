@@ -470,4 +470,27 @@ describe('la carte d’une ouvrière : ce qu’elle porte en vol', () => {
     expect(vive, 'une ouvrière qui répond se déclare jamais vue').not.toContain('jamais vu');
     expect(vive, 'l’heure du dernier contact n’est pas donnée').toContain('vu à');
   });
+
+  it('LE BAC À SABLE EST DIT TEL QUE LE NŒUD L’A DÉCLARÉ — et « non déclaré » quand il se tait', async () => {
+    const dom = await monter([
+      noeud({
+        id: 'n-bac',
+        name: 'ruche-bac',
+        isolement: { niveau: 'conteneur', fournisseur: 'podman' },
+      }),
+      noeud({ id: 'n-proc', name: 'ruche-proc', isolement: { niveau: 'processus' } }),
+      noeud({ id: 'n-muet', name: 'ruche-muette' }),
+    ]);
+    const bac = (nom: string) =>
+      carte(dom, nom).querySelector<HTMLElement>('[data-testid="worker-bac"]');
+
+    expect(bac('ruche-bac')?.textContent).toBe('bac · conteneur (podman)');
+    expect(bac('ruche-bac')?.title, 'le réseau ouvert est dit').toContain('réseau reste ouvert');
+    expect(bac('ruche-proc')?.textContent).toBe('bac · processus seul');
+    expect(bac('ruche-proc')?.title, 'processus n’est pas vendu comme une isolation').toContain(
+      'le disque et le réseau restent ouverts',
+    );
+    expect(bac('ruche-muette')?.textContent).toBe('bac · non déclaré');
+    expect(bac('ruche-muette')?.className).toContain('muted-text');
+  });
 });

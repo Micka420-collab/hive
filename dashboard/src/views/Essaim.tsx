@@ -29,6 +29,55 @@ import type { ViewProps } from './shared';
 import type { HiveNode, StateSnapshot, SubAgent, Task } from '../../../src/shared/types';
 import './essaim.css';
 
+/**
+ * Le bac à sable DÉCLARÉ par le nœud, en une étiquette et une infobulle.
+ *
+ * Déclaré, pas constaté : la Reine ne peut pas vérifier ce qu'un nœud fait
+ * tourner chez lui, et l'infobulle le dit. `processus` n'est pas présenté comme
+ * une isolation — le disque et le réseau restent ouverts, et c'est écrit.
+ */
+function bacDeclare(
+  isolement: HiveNode['isolement'],
+  t: ReturnType<typeof useT>,
+): { texte: string; titre: string; muet: boolean } {
+  if (!isolement) {
+    return {
+      texte: t('bac · non déclaré', 'sandbox · not declared'),
+      titre: t(
+        'Ce nœud n’a pas déclaré son bac à sable à son inscription.',
+        'This node did not declare its sandbox when it registered.',
+      ),
+      muet: true,
+    };
+  }
+  if (isolement.niveau === 'conteneur') {
+    const moteur = isolement.fournisseur ? ` (${isolement.fournisseur})` : '';
+    return {
+      texte: t(`bac · conteneur${moteur}`, `sandbox · container${moteur}`),
+      titre: t(
+        'Déclaré par le nœud. Le réseau reste ouvert : l’agent doit joindre son modèle.',
+        'Declared by the node. The network stays open: the agent must reach its model.',
+      ),
+      muet: false,
+    };
+  }
+  if (isolement.niveau === 'processus') {
+    return {
+      texte: t('bac · processus seul', 'sandbox · process only'),
+      titre: t(
+        'Déclaré par le nœud : répertoire et environnement épurés — le disque et le réseau restent ouverts.',
+        'Declared by the node: clean directory and environment — disk and network stay open.',
+      ),
+      muet: false,
+    };
+  }
+  return {
+    texte: t('bac · aucun', 'sandbox · none'),
+    titre: t('Déclaré par le nœud : aucun bac à sable.', 'Declared by the node: no sandbox.'),
+    muet: false,
+  };
+}
+
 /** Sous-agents en vol sur un nœud : agrégés via les tâches qui lui sont assignées. */
 function activeAgentsOf(
   nodeId: string,
@@ -111,6 +160,18 @@ function NodeCard({
       <div className="es-node-meta">
         <span className="chip es-chip">{libelleAgent(node.agentType, lang === 'en')}</span>
         <span>{node.ownerName}</span>
+        {(() => {
+          const bac = bacDeclare(node.isolement, t);
+          return (
+            <span
+              data-testid="worker-bac"
+              className={bac.muet ? 'muted-text' : undefined}
+              title={bac.titre}
+            >
+              {bac.texte}
+            </span>
+          );
+        })()}
         {worker?.identite?.metier && (
           <span data-testid="worker-role">
             {t('Rôle', 'Role')} ·{' '}

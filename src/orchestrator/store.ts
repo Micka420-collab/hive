@@ -8,7 +8,7 @@ import { randomUUID } from 'node:crypto';
 import type { PlateformeNoeud } from '../shared/machine.js';
 import { LIMITS } from '../shared/protocol.js';
 import type { OutilConstate } from '../shared/protocol.js';
-import { LIMITE_TACHES_INSTANTANE } from '../shared/types.js';
+import { LIMITE_TACHES_INSTANTANE, NIVEAUX_ISOLEMENT } from '../shared/types.js';
 import type { Partage } from '../shared/partage.js';
 import type { GenreSauvegarde, Sauvegarde, SauvegardeResume } from '../shared/sauvegardes.js';
 import { libelleEtape } from '../shared/sauvegardes.js';
@@ -69,6 +69,7 @@ import {
 import type {
   HiveEvent,
   HiveNode,
+  IsolementDeclare,
   NodeStatus,
   Project,
   StateSnapshot,
@@ -891,6 +892,22 @@ CREATE TABLE IF NOT EXISTS outils_noeuds (
   majA   INTEGER NOT NULL
 );
 
+-- BORNE STRUCTURELLE (regle 3), quatrieme jumelle : une ligne par noeud, la
+-- clef primaire EST la borne. Le BAC A SABLE declare par le noeud a son
+-- inscription (niveau aucun/processus/conteneur, et le moteur).
+--
+-- UNE DIFFERENCE VOULUE avec les trois tables au-dessus : une inscription qui
+-- ne declare PAS d'isolement EFFACE la ligne. Garder l'ancien « conteneur »
+-- d'un noeud redemarre autrement serait une affirmation de securite perimee ;
+-- « non declare » est la seule reponse honnete. Affichage seulement — jamais
+-- un critere d'assignation.
+CREATE TABLE IF NOT EXISTS isolements_noeuds (
+  nodeId      TEXT PRIMARY KEY REFERENCES nodes(id),
+  niveau      TEXT NOT NULL,
+  fournisseur TEXT,
+  majA        INTEGER NOT NULL
+);
+
 -- Baptême Reine (ADR 0010) : le nom affiché d'une ouvrière. TABLE LATÉRALE —
 -- on n'ALTÈRE pas « nodes.name » (règle 2). Le nœud ne pose PAS ce nom via le
 -- protocole ; seule la Reine (API / CLI) écrit ici. UNIQUE insensible à la
@@ -1270,6 +1287,12 @@ export interface NodeProfile {
    * constats qu'une version récente avait appris.
    */
   outils?: OutilConstate[];
+  /**
+   * Le bac à sable déclaré à CETTE inscription. Absent : la ligne connue est
+   * EFFACÉE — une déclaration de sécurité ne survit pas à l'inscription qui ne
+   * la répète pas.
+   */
+  isolement?: IsolementDeclare;
 }
 
 export interface TaskPatch {
@@ -1340,7 +1363,8 @@ function rowToDelegation(row: DelegationRow): DelegationRangee {
 
 /** `running` est calculé à la volée depuis les tâches actives — jamais stocké. */
 const NODE_SELECT = `
-  SELECT n.*, m.plateforme AS plateforme, md.modeles AS modeles, o.outils AS outils, (
+  SELECT n.*, m.plateforme AS plateforme, md.modeles AS modeles, o.outils AS outils,
+    i.niveau AS isolementNiveau, i.fournisseur AS isolementFournisseur, (
     SELECT COUNT(*) FROM tasks t
     WHERE t.assignedNodeId = n.id AND t.status IN ('assigned', 'running')
   ) AS running
@@ -1348,6 +1372,7 @@ const NODE_SELECT = `
   LEFT JOIN machines_noeuds m ON m.nodeId = n.id
   LEFT JOIN modeles_noeuds md ON md.nodeId = n.id
   LEFT JOIN outils_noeuds o ON o.nodeId = n.id
+  LEFT JOIN isolements_noeuds i ON i.nodeId = n.id
 `;
 
 /** La ligne brute d'un nœud telle que `NODE_SELECT` la rend, avant relecture. */
@@ -1355,6 +1380,8 @@ interface NodeRowBrut extends NodeRow {
   plateforme: PlateformeNoeud | null;
   modeles: string | null;
   outils: string | null;
+  isolementNiveau: string | null;
+  isolementFournisseur: string | null;
 }
 
 /**
@@ -1408,8 +1435,18 @@ function lireOutils(brut: string): OutilConstate[] {
  * n'a pas de `modeles: []` inventé, et un nœud sans constat pas d'`outils: []`.
  */
 function rowToNode(row: NodeRowBrut): HiveNode {
-  const { modeles, outils, ...reste } = row;
+  const { modeles, outils, isolementNiveau, isolementFournisseur, ...reste } = row;
   const node = reste as unknown as HiveNode;
+  // Un niveau illisible (base éditée à la main) vaut « non déclaré ».
+  const niveau = NIVEAUX_ISOLEMENT.find((n) => n === isolementNiveau);
+  if (niveau !== undefined) {
+    node.isolement = {
+      niveau,
+      ...(typeof isolementFournisseur === 'string' && isolementFournisseur.length > 0
+        ? { fournisseur: isolementFournisseur }
+        : {}),
+    };
+  }
   const liste = typeof modeles === 'string' ? lireModeles(modeles) : [];
   if (liste.length > 0) node.modeles = liste;
   const constats = typeof outils === 'string' ? lireOutils(outils) : [];
@@ -1678,6 +1715,20 @@ export class HiveStore {
             'ON CONFLICT(nodeId) DO UPDATE SET outils = excluded.outils, majA = excluded.majA',
         )
         .run(id, JSON.stringify(profile.outils), now);
+    }
+    // Le bac à sable : présent, la dernière inscription gagne ; ABSENT, la
+    // ligne est effacée (cf. le schéma : une affirmation de sécurité ne
+    // survit pas à l'inscription qui ne la répète pas).
+    if (profile.isolement !== undefined) {
+      this.db
+        .prepare(
+          'INSERT INTO isolements_noeuds (nodeId, niveau, fournisseur, majA) VALUES (?, ?, ?, ?) ' +
+            'ON CONFLICT(nodeId) DO UPDATE SET niveau = excluded.niveau, ' +
+            'fournisseur = excluded.fournisseur, majA = excluded.majA',
+        )
+        .run(id, profile.isolement.niveau, profile.isolement.fournisseur ?? null, now);
+    } else {
+      this.db.prepare('DELETE FROM isolements_noeuds WHERE nodeId = ?').run(id);
     }
     return this.getNode(id) as HiveNode;
   }

@@ -5,9 +5,11 @@ import { nomDeChantierValide } from './chantier.js';
 import { estPlateforme } from './machine.js';
 import type { PlateformeNoeud } from './machine.js';
 import type { PresenceFichier } from './presence.js';
+import { NIVEAUX_ISOLEMENT } from './types.js';
 import type {
   ExecutionUsage,
   HiveEvent,
+  IsolementDeclare,
   StateSnapshot,
   SubAgent,
   Task,
@@ -126,6 +128,12 @@ export interface RegisterMsg {
    * ne se déclare pas, elle se constate.
    */
   outils?: OutilConstate[];
+  /**
+   * Le bac à sable où ce nœud exécute ses tâches, tel qu'il l'a décidé au
+   * démarrage (`bac.ts`). Même doctrine que `outils` : un FAIT déclaré, pour
+   * l'affichage — jamais un critère d'assignation ni un privilège.
+   */
+  isolement?: IsolementDeclare;
 }
 
 /** Un constat brut sur un outil, tel que le nœud le voit. */
@@ -608,6 +616,21 @@ function isExecutionUsage(v: unknown): v is ExecutionUsage {
   );
 }
 
+const MOTEUR_ISOLEMENT = /^[a-z][a-z0-9-]{0,31}$/;
+
+/** Relit un isolement déclaré ; `null` s'il est mal formé. */
+function isolementDeclare(v: unknown): IsolementDeclare | null {
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return null;
+  const brut = v as Record<string, unknown>;
+  const niveau = NIVEAUX_ISOLEMENT.find((n) => n === brut.niveau);
+  if (niveau === undefined) return null;
+  if (brut.fournisseur === undefined) return { niveau };
+  if (typeof brut.fournisseur !== 'string' || !MOTEUR_ISOLEMENT.test(brut.fournisseur)) {
+    return null;
+  }
+  return { niveau, fournisseur: brut.fournisseur };
+}
+
 const SOURCE_FOURNISSEUR = /^[a-z0-9][a-z0-9-]{0,39}$/;
 const NOM_MODELE = /^[\w.:@/+-]{1,120}$/;
 
@@ -783,6 +806,13 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
         if (m.modeles !== undefined) {
           if (!isModeleList(m.modeles)) return null;
           msg.modeles = m.modeles;
+        }
+        // L'isolement déclaré : mêmes règles — mal formé, le message est REFUSÉ ;
+        // bien formé, il est RECONSTRUIT (niveau + moteur, rien d'autre).
+        if (m.isolement !== undefined) {
+          const isolement = isolementDeclare(m.isolement);
+          if (isolement === null) return null;
+          msg.isolement = isolement;
         }
         // Les constats d'outils : mêmes règles que les deux champs au-dessus.
         // Une liste mal formée est un client qui ment ou qui bogue, et les deux

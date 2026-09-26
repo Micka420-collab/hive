@@ -35,6 +35,7 @@ import {
 } from './isolement.js';
 import { CODE, type CodeSortie } from '../codes-sortie.js';
 import type { AgentType } from './agent-detect.js';
+import type { IsolementDeclare } from '../shared/types.js';
 import { variablesAgentSansSecrets } from './workspace.js';
 
 /** Ce que `decider` rend — nommé ici, faute de l'être à la source. */
@@ -210,6 +211,22 @@ export async function preparerBac(
     refuse: decision.refuse,
     codeSortie: codeDuBac(decision.refuse),
   };
+}
+
+/**
+ * Ce que le nœud DÉCLARE au hub de son bac à sable : le niveau réellement
+ * décidé au démarrage (préflight compris), et le moteur quand il y en a un.
+ *
+ * C'est une déclaration pour l'AFFICHAGE (Mission Control, preuve V2 Alpha) —
+ * le hub n'en fait jamais un critère d'assignation. Un nœud non isolé se dit
+ * `processus` : cwd et environnement épurés, rien de plus, et l'écran le dit.
+ */
+export function isolementDeclareDe(bac: Bac): IsolementDeclare {
+  if (bac.decision.isole && bac.fournisseur) {
+    return { niveau: 'conteneur', fournisseur: bac.fournisseur.nom };
+  }
+  // Sans moteur, « conteneur » serait un mensonge : on retombe sur ce qui tourne.
+  return { niveau: bac.decision.niveau === 'conteneur' ? 'processus' : bac.decision.niveau };
 }
 
 /**

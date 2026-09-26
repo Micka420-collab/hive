@@ -9115,6 +9115,10 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
               // ruche sait faire est le travail de `outils-du-noeud.ts`, à
               // l'affichage.
               ...(msg.outils !== undefined ? { outils: msg.outils } : {}),
+              // Le bac à sable déclaré, reconstruit par le protocole. Absent, le
+              // store EFFACE l'ancien : une déclaration de sécurité ne survit pas
+              // à l'inscription qui ne la répète pas. Affichage seulement.
+              ...(msg.isolement !== undefined ? { isolement: msg.isolement } : {}),
             });
             nodeId = node.id;
             const previous = nodeSockets.get(node.id);

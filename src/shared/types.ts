@@ -55,6 +55,22 @@ export interface HiveNode {
    * pas, plutôt qu'une liste vide qui se lirait « aucun outil ».
    */
   outils?: OutilConstate[];
+  /**
+   * Le bac à sable dans lequel ce nœud exécute ses tâches, DÉCLARÉ par lui à
+   * l'inscription. Affichage seulement — jamais un critère d'assignation ni un
+   * privilège : un nœud peut se tromper ou mentir, l'écran dit « déclaré ».
+   * Absent : le nœud ne l'a pas dit à cette inscription, et l'écran le dit.
+   */
+  isolement?: IsolementDeclare;
+}
+
+/** Les niveaux d'isolement qu'un nœud peut déclarer (cf. `node-client/isolement.ts`). */
+export const NIVEAUX_ISOLEMENT = ['aucun', 'processus', 'conteneur'] as const;
+
+export interface IsolementDeclare {
+  niveau: (typeof NIVEAUX_ISOLEMENT)[number];
+  /** Le moteur du bac (`podman`, `docker`, `bubblewrap`) au niveau `conteneur`. */
+  fournisseur?: string;
 }
 
 /** Sous-agent lancé par un agent sur un nœud (visualisé en pulsation sur le Swarm View). */
