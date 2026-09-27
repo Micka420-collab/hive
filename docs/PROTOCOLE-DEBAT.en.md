@@ -57,7 +57,7 @@ a task; they do not settle it.
 | `AGENTS_SANS_AVIS`               | shell                                            | `src/shared/contre-expertise.ts`     | Families that never review (the simulated `shell`).                        |
 | `OBJECTIONS_MAX`                 | 20                                               | `src/shared/contre-expertise.ts`     | Maximum objections read from a reviewer's verdict.                         |
 | `ATTENTE_RELECTEUR_ABSENT_MS`    | 300000                                           | `src/orchestrator/scheduler.ts`      | Wait for an offline reviewer family (5 minutes) before `relecteur_absent`. |
-| `MAX_ATTEMPTS`                   | 3                                                | `src/shared/types.ts`                | Attempts of a task — Worker failures and corrections together.             |
+| `MAX_ATTEMPTS`                   | 3                                                | `src/shared/types.ts`                | A task's attempt counter, shared by Worker failures and corrections.       |
 | `VERSION_EVALUATOR`              | 1                                                | `src/orchestrator/evaluator.ts`      | Version of the Evaluator rules.                                            |
 | `BORNES_CRITIQUE.objections`     | 8                                                | `src/orchestrator/brood.ts`          | Maximum objections frozen in a correction's critique.                      |
 | `BORNES_CRITIQUE.objection`      | 300                                              | `src/orchestrator/brood.ts`          | Characters per frozen objection.                                           |
@@ -137,7 +137,9 @@ Gardiennes inspect it (`clean`, `suspect`, `hollow`).
   nothing".
 - **The verdict:** the reviewer answers `valide` or `conteste`, then one
   objection per line (`OBJECTIONS_MAX` at most, 300 characters each), in its
-  **final answer** — never read from its logs. `conteste` always wins.
+  **final answer** — never read from its logs. `conteste` always wins,
+  and **one objection is enough**: written under `valide`, it counts as a
+  contest (`agreger`). An unreadable verdict counts as contested too.
 - **The wait:** a review only goes to its family. A family absent for
   `ATTENTE_RELECTEUR_ABSENT_MS` fails the review with
   `contre_expertise_review_failed`, reason `relecteur_absent`.
@@ -214,7 +216,18 @@ Three doors reopen a successful production, all through
 
 Common guards: the `resultId` must be the latest, no delivery may exist,
 dependents must still be `pending`, no delegating ancestor may have failed,
-and `MAX_ATTEMPTS` — the same budget as Worker failures — bounds the loop.
+and the attempt counter — the one Worker failures use — bounds the loop: a
+retry is refused (`attempts_exhausted`) once the task has reached
+`MAX_ATTEMPTS`.
+
+**Known limit — the bound does not start from the same place.** A Worker
+failure increments the counter and fails the task when it reaches
+`MAX_ATTEMPTS`: three runs at most. A correction retry is granted while the
+counter is **below** `MAX_ATTEMPTS`, and the first production did not
+increment it: a production contested every time runs four times before
+`attempts_exhausted` (measured on the capture lab hive). Aligning both paths
+would change the bound of shipped behavior: it is left to an explicit
+decision.
 
 **The critique travels with the correction.** At retry time, the hive freezes
 in the `task_retry` payload (`source: "evaluator"`, `critique.source` = the

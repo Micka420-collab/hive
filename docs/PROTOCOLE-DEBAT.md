@@ -58,7 +58,7 @@ tâche ; il ne tranche pas.
 | `AGENTS_SANS_AVIS`               | shell                                            | `src/shared/contre-expertise.ts`     | Familles qui ne relisent jamais (le `shell` simulé).                                      |
 | `OBJECTIONS_MAX`                 | 20                                               | `src/shared/contre-expertise.ts`     | Objections lues au plus dans un verdict de relecteur.                                     |
 | `ATTENTE_RELECTEUR_ABSENT_MS`    | 300000                                           | `src/orchestrator/scheduler.ts`      | Attente d'une famille relectrice hors ligne (5 minutes) avant `relecteur_absent`.         |
-| `MAX_ATTEMPTS`                   | 3                                                | `src/shared/types.ts`                | Essais d'une tâche — échecs Worker et corrections confondus.                              |
+| `MAX_ATTEMPTS`                   | 3                                                | `src/shared/types.ts`                | Le compteur d'essais d'une tâche, que partagent échecs Worker et corrections.             |
 | `VERSION_EVALUATOR`              | 1                                                | `src/orchestrator/evaluator.ts`      | Version des règles de l'Evaluator.                                                        |
 | `BORNES_CRITIQUE.objections`     | 8                                                | `src/orchestrator/brood.ts`          | Objections figées au plus dans la critique d'une correction.                              |
 | `BORNES_CRITIQUE.objection`      | 300                                              | `src/orchestrator/brood.ts`          | Caractères par objection figée.                                                           |
@@ -142,7 +142,9 @@ Gardiennes l'inspectent (`clean`, `suspect`, `hollow`).
 - **Le verdict :** le relecteur répond `valide` ou `conteste`, puis une
   objection par ligne (`OBJECTIONS_MAX` au plus, 300 caractères chacune), dans
   sa **réponse finale** — jamais lue dans ses logs. `conteste` l'emporte
-  toujours.
+  toujours, et **une objection suffit** : écrite sous `valide`, elle compte
+  comme une contestation (`agreger`). Un verdict illisible compte aussi
+  comme contesté.
 - **L'attente :** une relecture ne part qu'à sa famille. Une famille absente
   `ATTENTE_RELECTEUR_ABSENT_MS` échoue la relecture avec
   `contre_expertise_review_failed`, motif `relecteur_absent`.
@@ -220,8 +222,18 @@ Trois portes rouvrent une production réussie, toutes par
 
 Gardes communes : le `resultId` doit être le dernier, aucune livraison ne doit
 exister, les dépendantes doivent être restées `pending`, aucun ancêtre délégué
-ne doit avoir échoué, et `MAX_ATTEMPTS` — le même budget que les échecs
-Worker — borne la boucle.
+ne doit avoir échoué, et le compteur d'essais — celui des échecs Worker —
+borne la boucle : un renvoi est refusé (`attempts_exhausted`) dès que la tâche
+a atteint `MAX_ATTEMPTS`.
+
+**Limite connue — la borne n'a pas le même point de départ.** Un échec Worker
+incrémente le compteur et fait échouer la tâche quand il atteint
+`MAX_ATTEMPTS` : trois exécutions au plus. Un renvoi en correction, lui, est
+accordé tant que le compteur est **sous** `MAX_ATTEMPTS`, et la première
+production ne l'a pas incrémenté : une production contestée à chaque fois
+s'exécute quatre fois avant `attempts_exhausted` (mesuré sur la ruche de
+laboratoire des captures). Aligner les deux voies changerait la borne d'un
+comportement livré : c'est laissé à une décision explicite.
 
 **La critique voyage avec la correction.** Au moment du renvoi, la ruche fige
 dans le payload de `task_retry` (`source: "evaluator"`, `critique.source` =
