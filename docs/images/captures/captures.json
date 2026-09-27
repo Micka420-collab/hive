@@ -1,19 +1,34 @@
 {
-  "genere": "2026-09-27T04:50:54.605Z",
-  "commit": "2702226",
+  "genere": "2026-09-27T22:15:14.869Z",
+  "commit": "a798087",
   "arbreModifie": false,
   "langue": "fr",
   "formats": [
     { "nom": "bureau", "largeur": 1440, "hauteur": 900, "densite": 1 },
     { "nom": "mobile", "largeur": 390, "hauteur": 844, "densite": 2 }
   ],
+  "debat": {
+    "relectrice": "relectrice-demo",
+    "conseils": [
+      { "issue": "sans_quorum", "tranche": true },
+      { "issue": "sans_quorum", "tranche": false }
+    ]
+  },
   "captures": [
     {
       "fichier": "ruche.bureau.png",
       "vue": "ruche",
       "format": "bureau",
       "debordement": 0,
-      "hauteur": 900,
+      "hauteur": 1980,
+      "erreurs": []
+    },
+    {
+      "fichier": "miellerie.bureau.png",
+      "vue": "miellerie",
+      "format": "bureau",
+      "debordement": 0,
+      "hauteur": 918,
       "erreurs": []
     },
     {
@@ -22,6 +37,22 @@
       "format": "bureau",
       "debordement": 0,
       "hauteur": 1204,
+      "erreurs": []
+    },
+    {
+      "fichier": "warroom.bureau.png",
+      "vue": "warroom",
+      "format": "bureau",
+      "debordement": 0,
+      "hauteur": 3494,
+      "erreurs": []
+    },
+    {
+      "fichier": "warroom-decisions.bureau.png",
+      "vue": "warroom-decisions",
+      "format": "bureau",
+      "debordement": 0,
+      "hauteur": 930,
       "erreurs": []
     },
     {
@@ -37,7 +68,7 @@
       "vue": "ruche",
       "format": "mobile",
       "debordement": 0,
-      "hauteur": 1362,
+      "hauteur": 2033,
       "erreurs": []
     },
     {
@@ -45,7 +76,31 @@
       "vue": "miellerie",
       "format": "mobile",
       "debordement": 11,
-      "hauteur": 1496,
+      "hauteur": 1621,
+      "erreurs": []
+    },
+    {
+      "fichier": "essaim.mobile.png",
+      "vue": "essaim",
+      "format": "mobile",
+      "debordement": 0,
+      "hauteur": 2815,
+      "erreurs": []
+    },
+    {
+      "fichier": "warroom.mobile.png",
+      "vue": "warroom",
+      "format": "mobile",
+      "debordement": 0,
+      "hauteur": 9742,
+      "erreurs": []
+    },
+    {
+      "fichier": "warroom-decisions.mobile.png",
+      "vue": "warroom-decisions",
+      "format": "mobile",
+      "debordement": 0,
+      "hauteur": 1834,
       "erreurs": []
     },
     {
@@ -53,7 +108,7 @@
       "vue": "ruche-en-vol",
       "format": "bureau",
       "debordement": 0,
-      "hauteur": 1300,
+      "hauteur": 2144,
       "erreurs": []
     },
     {
@@ -62,6 +117,14 @@
       "format": "bureau",
       "debordement": 0,
       "hauteur": 5579,
+      "erreurs": []
+    },
+    {
+      "fichier": "chronique-en-vol.bureau.png",
+      "vue": "chronique-en-vol",
+      "format": "bureau",
+      "debordement": 0,
+      "hauteur": 900,
       "erreurs": []
     }
   ],
