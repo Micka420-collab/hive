@@ -140,10 +140,12 @@ npm run captures -- --sortie docs/images/captures --vues ruche.bureau,ruche-en-v
 - **Miellerie, mobile** : les onglets du panneau de revue (Diff · Logs ·
   Consensus · Evaluator) débordent de 11 px.
 - **Ruche, le rayon 2D** : la barre « N/M tâches butinées » recouvre la
-  dernière rangée d'alvéoles **à toute largeur**, dès qu'une cinquième rangée
-  existe — sur bureau pendant un vol (`ruche-en-vol.bureau.png` : la barre
-  « 7/13 » couvre T13), sur mobile au repos. Sur mobile, le rayon est de plus
-  réduit au point que les alvéoles ne se lisent plus.
+  dernière rangée d'alvéoles — un défaut de la mise en page du rayon, **pas
+  seulement du mobile** : sur bureau, dès qu'une cinquième rangée existe
+  (`ruche-en-vol.bureau.png` : pendant un vol, la barre « 7/13 » couvre T13).
+  Sur mobile, le rayon est de plus réduit au point que les alvéoles ne se
+  lisent plus, et sa dernière rangée vient buter contre la barre dès le repos
+  (`ruche.mobile.png`).
 - **Cerveau** : les chiffres des quatre tuiles d'en-tête sont sombres sur fond
   sombre — `.cerveau-tuile` hérite (`color: inherit`) le texte de la page
   claire.
