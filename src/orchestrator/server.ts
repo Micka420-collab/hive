@@ -121,7 +121,8 @@ import { DEFAULT_TOKEN } from '../shared/types.js';
 import type { HiveEvent, Project, Task } from '../shared/types.js';
 import { CORPUS_BALANCE, estimerCout, peserLaRuche, VERSION_BALANCE } from './balance.js';
 import type { CompteTache, Devis, Pesee } from './balance.js';
-import { leconsDesEchecs, texteDEchec } from './brood.js';
+import { leconsDesEchecs } from './brood.js';
+import { texteDEchec } from '../shared/texte-d-echec.js';
 import {
   CONSEILS_CONSERVES,
   avancerConseil,
@@ -278,6 +279,7 @@ import {
   choisirCritiques,
   consigneDeCritique,
   lireAvis,
+  MOTIF_RELECTURE_SANS_TEXTE_FINAL,
   productionAContreExpertiser,
 } from '../shared/contre-expertise.js';
 import { champSurUneLigne } from '../shared/donnees-non-fiables.js';
@@ -1144,7 +1146,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   const noterVerdict = (
     relectureTaskId: string,
     lien: NonNullable<ReturnType<typeof store.relectureDe>>,
-    texteFinal: string | undefined,
+    texteFinal: string,
   ): void => {
     const verdict = agreger([lireAvis(lien.relecteurNodeId, lien.relecteurAgent, texteFinal)]);
     const lancement = store.eventForRelecture(relectureTaskId);
@@ -9275,7 +9277,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
             const lienRelecture = pris ? store.relectureDe(msg.taskId) : null;
             if (lienRelecture) {
               const relecture = store.getTask(msg.taskId);
-              if (msg.success && relecture?.status === 'done') {
+              const terminee = msg.success && relecture?.status === 'done';
+              if (terminee && msg.finalText !== undefined) {
                 // Le texte du relecteur est une DONNÉE : `lireAvis` le
                 // neutralise et le borne avant qu'il n'atteigne un événement
                 // lu par un humain. Un verdict illisible compte comme
@@ -9287,10 +9290,16 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
                 // « conteste »), le stream-json y échappe les retours à la
                 // ligne. Voir `lireAvis`.
                 noterVerdict(msg.taskId, lienRelecture, msg.finalText);
-              } else if (!msg.success) {
-                // Un échec intermédiaire repart en file avec la relecture : il
-                // ne constitue pas un avis. Le rendre explicite évite que
-                // l'absence de vote ressemble à une approbation silencieuse.
+              } else if (!msg.success || terminee) {
+                // Pas d'avis : un échec intermédiaire repart en file avec la
+                // relecture ; une relecture TERMINÉE sans réponse finale est
+                // un défaut du RELECTEUR (nœud antérieur au contrat, CLI muet)
+                // — la compter « contestée » relancerait le producteur pour
+                // rien, jusqu'à la borne d'essais, et pénaliserait son modèle
+                // dans l'Aiguillage. Le rendre explicite évite que l'absence de
+                // vote ressemble à une approbation silencieuse : la
+                // contre-revue reste « manquante », et c'est un humain qui
+                // tranche.
                 const lancement = store.eventForRelecture(msg.taskId);
                 const resultId = lancement?.payload.resultId;
                 emitEvent('contre_expertise_review_failed', {
@@ -9300,8 +9309,9 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
                     : {}),
                   relecture: msg.taskId,
                   relecteur: lienRelecture.relecteurAgent,
-                  terminal: relecture?.status === 'failed',
+                  terminal: terminee || relecture?.status === 'failed',
                   attempt: relecture?.attempts ?? 0,
+                  ...(terminee ? { motif: MOTIF_RELECTURE_SANS_TEXTE_FINAL } : {}),
                 });
               }
             } else if (pris && msg.success && (msg.diff ?? '').trim() !== '') {

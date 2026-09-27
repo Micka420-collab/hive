@@ -947,11 +947,14 @@ export class Scheduler {
         ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
       });
       // Hive Mind : la tâche réussie laisse un souvenir réutilisable par la ruche.
+      // Ce que l'agent a RÉPONDU, quand son CLI le déclare : les logs d'un flux
+      // stream-json commencent par la ligne `init` (dossier de travail, session,
+      // outils), et le souvenir n'aurait gardé qu'elle — pas un mot de réponse.
       this.store.recordMemory({
         projectId: task.projectId,
         taskId: task.id,
         title: task.title,
-        content: summarizeTask(task.title, task.prompt, result.logs),
+        content: summarizeTask(task.title, task.prompt, result.finalText ?? result.logs),
       });
       this.emit('memory_recorded', { taskId: task.id, projectId: task.projectId });
     } else {
@@ -1341,12 +1344,13 @@ export class Scheduler {
         this.emit('drone_cancelled', { taskId: task.id, nodeId: loser });
         this.opts.onCancel?.(loser, task.id, 'course de drones perdue');
       }
-      // Hive Mind : même parité que le circuit normal — la victoire laisse un souvenir.
+      // Hive Mind : même parité que le circuit normal — la victoire laisse un
+      // souvenir, fait de la réponse finale quand il y en a une.
       this.store.recordMemory({
         projectId: task.projectId,
         taskId: task.id,
         title: task.title,
-        content: summarizeTask(task.title, task.prompt, result.logs),
+        content: summarizeTask(task.title, task.prompt, result.finalText ?? result.logs),
       });
       this.emit('memory_recorded', { taskId: task.id, projectId: task.projectId });
       this.promoteAndAssign(now);

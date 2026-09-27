@@ -43,6 +43,7 @@ import { runMerge, runProc } from './merge-runner.js';
 import { lancerVraiment, poserOutil } from './pose-runner.js';
 import { buildSandboxEnv, cloneRepo, prepareWorkspace } from './workspace.js';
 import { requisitionDepuisEchecInfra } from '../shared/requisition-infra.js';
+import { texteDEchec } from '../shared/texte-d-echec.js';
 import { motifRefusPresence, refuseParPresence } from '../shared/presence-noeud.js';
 import type { Fournisseur } from './isolement.js';
 import type { Workspace } from './workspace.js';
@@ -1045,8 +1046,15 @@ export class HiveNodeClient {
           : rawResult;
       usage = executionUsageDepuis(usageBefore, capturerExecutionUsage());
       // Échec d'INFRASTRUCTURE : réquisition mid-task si credentials, sinon failover.
+      // Le genre se lit sur ce que l'échec DIT, pas sur les logs bruts : la
+      // ligne `init` du stream-json porte `apiKeySource`, et un simple 429 y
+      // ouvrait une réquisition d'identifiants (shared/texte-d-echec.ts).
       if (!result.success && result.infra) {
-        const req = requisitionDepuisEchecInfra(this.opts.agentType, result.logs, task.title);
+        const req = requisitionDepuisEchecInfra(
+          this.opts.agentType,
+          texteDEchec(result.logs, result.finalText),
+          task.title,
+        );
         if (req && workspace && !this.attenteRequisition) {
           conserverWorkspace = true;
           this.attenteRequisition = {
@@ -1215,7 +1223,11 @@ export class HiveNodeClient {
           : rawResult;
       usage = executionUsageDepuis(usageBefore, capturerExecutionUsage());
       if (!result.success && result.infra) {
-        const encore = requisitionDepuisEchecInfra(this.opts.agentType, result.logs, task.title);
+        const encore = requisitionDepuisEchecInfra(
+          this.opts.agentType,
+          texteDEchec(result.logs, result.finalText),
+          task.title,
+        );
         if (encore?.genre === 'binaire') {
           this.attenteRequisition = {
             ...attente,

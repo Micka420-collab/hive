@@ -34,10 +34,12 @@ import type { AdapterContext } from '../src/adapters/index.js';
 import {
   borneTexteFinal,
   createTexteFinalTracker,
+  lecteurCursor,
   texteFinalCline,
   texteFinalStreamJson,
 } from '../src/adapters/texte-final.js';
-import { LIMITS } from '../src/shared/protocol.js';
+import { agreger, lireAvis } from '../src/shared/contre-expertise.js';
+import { COUPURE_TEXTE_FINAL, LIMITS } from '../src/shared/protocol.js';
 import type { Task } from '../src/shared/types.js';
 
 const FIXTURES = path.join(import.meta.dirname, 'fixtures', 'texte-final');
@@ -50,14 +52,14 @@ const REPONSE_CLAUDE =
   "- `verifier('')` rend toujours `false` sans le dire : la garde traite `undefined`, pas le jeton vide.\n" +
   "- Aucun test ne couvre `jeton === ''` : la garde peut disparaître sans qu'un banc rougisse.";
 
-describe('borneTexteFinal — la fin du texte, rognée, jamais vide', () => {
+describe('borneTexteFinal — le début ET la fin, la coupe dite', () => {
   it('rogne, et rend ABSENT un texte vide ou blanc', () => {
     expect(borneTexteFinal('  valide \n')).toBe('valide');
     expect(borneTexteFinal('')).toBeUndefined();
     expect(borneTexteFinal(' \n\t ')).toBeUndefined();
   });
 
-  it('garde les DERNIERS caractères : le marqueur « en tout dernier » survit', () => {
+  it('garde la FIN : le marqueur « en tout dernier » du Conseil survit', () => {
     const marqueur = 'HIVE_AVIS {"type":"soutien","force":8,"raison":"vérifié"}';
     const texte = `${'réflexion '.repeat(2_000)}\n${marqueur}`;
     const borne = borneTexteFinal(texte)!;
@@ -65,13 +67,59 @@ describe('borneTexteFinal — la fin du texte, rognée, jamais vide', () => {
     expect(borne.endsWith(marqueur)).toBe(true);
   });
 
-  it('ne laisse jamais un demi-caractère en tête après la coupe', () => {
-    // « 🐝 » tient sur deux unités UTF-16 : une coupe au milieu laisserait la
-    // seconde moitié seule en tête, une chaîne mal formée à ranger en base.
-    const texte = `${'🐝'.repeat(LIMITS.finalText)}fin`;
+  it('garde le DÉBUT, et écrit la coupe : le hub sait qu’il n’a pas tout lu', () => {
+    const texte = `conteste\n${'prose '.repeat(3_000)}\nfin`;
     const borne = borneTexteFinal(texte)!;
+    expect(borne.length).toBeLessThanOrEqual(LIMITS.finalText);
+    expect(borne.startsWith('conteste\n')).toBe(true);
+    expect(borne.split('\n')).toContain(COUPURE_TEXTE_FINAL);
     expect(borne.endsWith('fin')).toBe(true);
-    expect(borne.isWellFormed()).toBe(true);
+    // Idempotente : le nœud reborne ce que rend l'adaptateur.
+    expect(borneTexteFinal(borne)).toBe(borne);
+    // Un texte qui tient n'est jamais marqué.
+    expect(borneTexteFinal('valide\n- rien')).toBe('valide\n- rien');
+  });
+
+  it('ne laisse jamais un demi-caractère de part et d’autre de la coupe', () => {
+    // « 🐝 » tient sur deux unités UTF-16 : une coupe au milieu laisserait une
+    // moitié seule, une chaîne mal formée à ranger en base. Le « x » décale la
+    // tête d'une unité, pour que la coupe de tête tombe AU MILIEU d'une paire.
+    for (const texte of [
+      `${'🐝'.repeat(LIMITS.finalText)}fin`,
+      `x${'🐝'.repeat(LIMITS.finalText)}`,
+    ]) {
+      const borne = borneTexteFinal(texte)!;
+      expect(borne.length).toBeLessThanOrEqual(LIMITS.finalText);
+      expect(borne.isWellFormed()).toBe(true);
+    }
+  });
+});
+
+describe('une relecture trop longue, lue coupée, n’est jamais un feu vert par accident', () => {
+  // La consigne demande le verdict EN TÊTE. Ne garder que la fin perdait le
+  // « conteste » d'une relecture bavarde, et une « entrée valide » dans sa
+  // prose l'APPROUVAIT — le faux vert que `lireAvis` existe pour empêcher.
+  const prose = 'La garde traite undefined mais laisse passer la chaîne vide sans le dire. '.repeat(
+    130,
+  );
+
+  it('« conteste » en tête, « entrée valide » dans la fin : reste CONTESTÉ', () => {
+    const reponse = `conteste\n\n${prose}\nEn revanche, le chemin nominal avec une entrée valide est correct.`;
+    expect(reponse.length).toBeGreaterThan(LIMITS.finalText);
+    const verdict = agreger([lireAvis('n', 'claude-code', borneTexteFinal(reponse)!)]);
+    expect(verdict.conteste).toBe(true);
+  });
+
+  it('coupée, sans verdict en première ligne : illisible, donc contestée', () => {
+    const reponse = `Voici mon analyse.\n${prose}\nconteste\n${prose}\nUne entrée valide passe.`;
+    const avis = lireAvis('n', 'claude-code', borneTexteFinal(reponse)!);
+    expect(avis.valide).toBe(false);
+    expect(avis.objections[0]).toMatch(/lue coupée/);
+  });
+
+  it('coupée, « valide » en première ligne : le verdict est lu', () => {
+    const avis = lireAvis('n', 'claude-code', borneTexteFinal(`valide\n${prose}`)!);
+    expect(avis).toMatchObject({ valide: true, objections: [] });
   });
 });
 
@@ -101,18 +149,97 @@ describe('lire l’événement final d’un flux JSON par lignes', () => {
     );
   });
 
-  it('Cursor : même ligne `result`, `request_id` en plus — même lecture', () => {
-    const ligne = {
-      type: 'result',
-      subtype: 'success',
-      duration_ms: 10,
-      duration_api_ms: 10,
-      is_error: false,
-      result: 'valide',
+  describe('Cursor : le texte DEPUIS LE DERNIER OUTIL, pas sa ligne `result`', () => {
+    // Formes du binaire cursor-agent 2026.09.02 en stream-json : l'assistant
+    // est vidé en un événement avant chaque outil, et `result` recolle TOUT le
+    // texte de l'exécution, sans séparateur (`ce += …`, jamais vidé).
+    const assistant = (text: string) =>
+      JSON.stringify({
+        type: 'assistant',
+        message: { role: 'assistant', content: [{ type: 'text', text }] },
+        session_id: 's',
+      });
+    const outil = JSON.stringify({
+      type: 'tool_call',
+      subtype: 'started',
+      call_id: 'c',
       session_id: 's',
-      request_id: 'r',
-    };
-    expect(suivre([JSON.stringify(ligne)])).toBe('valide');
+    });
+    const fini = JSON.stringify({
+      type: 'tool_call',
+      subtype: 'completed',
+      call_id: 'c',
+      session_id: 's',
+    });
+    const resultat = (result: string) =>
+      JSON.stringify({
+        type: 'result',
+        subtype: 'success',
+        is_error: false,
+        result,
+        session_id: 's',
+        request_id: 'r',
+      });
+
+    it('la narration d’avant un outil n’est ni une objection, ni collée au marqueur', () => {
+      const narration = '- je lis src/auth.ts';
+      const reponse = 'conteste\n- la garde laisse passer la chaîne vide';
+      const lignes = [
+        assistant(narration),
+        outil,
+        fini,
+        assistant(reponse),
+        resultat(narration + reponse),
+      ];
+      expect(suivre(lignes, lecteurCursor())).toBe(reponse);
+
+      const proposition = 'HIVE_PROPOSITION {"titre":"t","corps":"c"}';
+      expect(
+        suivre(
+          [
+            assistant('Je regarde.'),
+            outil,
+            fini,
+            assistant(proposition),
+            resultat(`Je regarde.${proposition}`),
+          ],
+          lecteurCursor(),
+        ),
+      ).toBe(proposition);
+    });
+
+    it('une reprise qui n’est pas un « resume » repart de zéro ; un « resume » continue', () => {
+      const reprise = (is_resume: boolean) =>
+        JSON.stringify({
+          type: 'retry',
+          subtype: 'starting',
+          attempt: 1,
+          is_resume,
+          session_id: 's',
+        });
+      expect(
+        suivre(
+          [assistant('brouillon avorté'), reprise(false), assistant('valide'), resultat('x')],
+          lecteurCursor(),
+        ),
+      ).toBe('valide');
+      expect(
+        suivre([assistant('val'), reprise(true), assistant('ide'), resultat('x')], lecteurCursor()),
+      ).toBe('valide');
+    });
+
+    it('fini sur un outil : aucune réponse, comme le mode texte de Cursor', () => {
+      expect(
+        suivre(
+          [assistant('je lance les tests'), outil, fini, resultat('je lance les tests')],
+          lecteurCursor(),
+        ),
+      ).toBeUndefined();
+    });
+
+    it('sans aucun événement `assistant`, rien à découper : la ligne `result`', () => {
+      expect(suivre([resultat('valide')], lecteurCursor())).toBe('valide');
+    });
   });
 
   it('Cline : `text` de `run_result`, et rien d’autre', () => {
@@ -254,17 +381,26 @@ describe.skipIf(process.platform === 'win32')(
       },
     );
 
-    it('CURSOR : la ligne `result` est lue même quand les logs sont plafonnés avant elle', async () => {
-      // La ligne finale arrive EN DERNIER, là où le plafond de 512 ko coupe les
-      // logs d'une longue exécution. Elle doit être lue au fil de l'eau.
+    it('CURSOR : la réponse est lue même quand les logs sont plafonnés avant elle', async () => {
+      // La réponse arrive EN DERNIER, là où le plafond de 512 ko coupe les
+      // logs d'une longue exécution. Elle doit être lue au fil de l'eau. Le
+      // flux a la forme du vrai binaire : la narration vidée avant chaque
+      // outil, et une ligne `result` qui recolle TOUT le texte de l'exécution.
       const dossier = dossierJetable();
       const bin = fauxBinaire(
         dossier,
         'cursor-agent',
         [
-          "const bavard = JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'x'.repeat(1000) }] } }) + '\\n';",
-          'for (let i = 0; i < 700; i++) process.stdout.write(bavard);',
-          "process.stdout.write(JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: 'conteste\\n- une garde manque', session_id: 's', request_id: 'r' }) + '\\n');",
+          "const ecrire = (e) => process.stdout.write(JSON.stringify(e) + '\\n');",
+          "const dire = (text) => ecrire({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text }] }, session_id: 's' });",
+          "const narration = '- je relis le fichier ' + 'x'.repeat(1000);",
+          'for (let i = 0; i < 700; i++) {',
+          '  dire(narration);',
+          "  ecrire({ type: 'tool_call', subtype: 'started', call_id: 'c' + i, session_id: 's' });",
+          '}',
+          "const reponse = 'conteste\\n- une garde manque';",
+          'dire(reponse);',
+          "ecrire({ type: 'result', subtype: 'success', is_error: false, result: narration.repeat(700) + reponse, session_id: 's', request_id: 'r' });",
         ].join('\n'),
       );
 
@@ -274,7 +410,62 @@ describe.skipIf(process.platform === 'win32')(
 
       expect(r.success, r.logs.slice(-300)).toBe(true);
       expect(r.logs).not.toContain('"type":"result"');
+      // La narration n'est ni une objection, ni une partie de la réponse.
       expect(r.finalText).toBe('conteste\n- une garde manque');
+    });
+
+    it('un caractère accentué COUPÉ entre deux lectures reste entier dans la réponse', async () => {
+      // « é » tient sur deux octets (C3 A9). Écrits en deux fois, ils arrivent
+      // en deux morceaux ; décodés morceau par morceau, ils devenaient « �� »
+      // jusque dans la ligne `result`.
+      const dossier = dossierJetable();
+      fauxBinaire(
+        dossier,
+        'claude',
+        [
+          "const ligne = Buffer.from(JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: 'validé' }) + '\\n');",
+          "const coupe = ligne.indexOf(Buffer.from('é')) + 1;",
+          'process.stdout.write(ligne.subarray(0, coupe));',
+          'setTimeout(() => process.stdout.write(ligne.subarray(coupe)), 150);',
+        ].join('\n'),
+      );
+
+      const r = await createClaudeCodeAdapter(TOKEN).run(tache('relis'), contexte(dossier));
+
+      expect(r.success, r.logs).toBe(true);
+      expect(r.finalText).toBe('validé');
+    });
+
+    it('CLAUDE CODE en échec : ce n’est PAS une panne d’identifiants — sauf si l’échec le dit', async () => {
+      // La ligne `init` porte `"apiKeySource"` à chaque exécution : lu sur les
+      // logs bruts, tout échec était « auth/quota », et le nœud ouvrait une
+      // réquisition d'identifiants au lieu de rendre l'échec (Couveuse,
+      // signatures et Cerveau ne recevaient rien).
+      const dossier = dossierJetable();
+      const flux = path.join(FIXTURES, 'claude-echec-prompt-trop-long.stream.jsonl');
+      fauxBinaire(
+        dossier,
+        'claude',
+        `process.stdout.write(require('node:fs').readFileSync(${JSON.stringify(flux)}), () => process.exit(1));`,
+      );
+      expect(fixture('claude-echec-prompt-trop-long.stream.jsonl')).toContain('"apiKeySource"');
+
+      const echec = await createClaudeCodeAdapter(TOKEN).run(tache('répare'), contexte(dossier));
+      expect(echec.success).toBe(false);
+      expect(echec.finalText).toBe('Prompt is too long');
+      expect(echec.infra, 'un prompt trop long n’est pas une panne d’identifiants').toBeUndefined();
+
+      // Le vrai libellé de Claude Code 2.1.283 pour une clé refusée, lui, reste
+      // un échec d'infrastructure : la tâche part vers un autre nœud.
+      const init = fixture('claude-echec-prompt-trop-long.stream.jsonl').split('\n')[0];
+      const cle = `${init}\n${JSON.stringify({ type: 'result', subtype: 'success', is_error: true, result: 'Invalid API key · Please run /login' })}\n`;
+      fauxBinaire(
+        dossier,
+        'claude',
+        `process.stdout.write(${JSON.stringify(cle)}, () => process.exit(1));`,
+      );
+      const refus = await createClaudeCodeAdapter(TOKEN).run(tache('répare'), contexte(dossier));
+      expect(refus.infra).toBe(true);
     });
 
     it('CLINE : le `text` de `run_result`', async () => {

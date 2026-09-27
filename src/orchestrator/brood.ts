@@ -14,6 +14,9 @@ import {
   neutraliserDelimiteur,
   tronquerChamp,
 } from '../shared/donnees-non-fiables.js';
+// Partagés avec le nœud, qui classe ses échecs d'infrastructure sur la même
+// règle (shared/texte-d-echec.ts).
+import { MOTIF_ANSI, texteDEchec } from '../shared/texte-d-echec.js';
 
 /** Longueur maximale d'une ligne d'extrait (au-delà : tronquée, '…' final). */
 const LIGNE_MAX = 200;
@@ -26,11 +29,6 @@ const JOINT = ' ⏎ ';
 
 /** Lignes qui « sentent » l'erreur : privilégiées dans l'extrait. */
 const MOTIF_ERREUR = /error|erreur|échec|failed|exception|traceback|assert/i;
-
-// Séquences d'échappement ANSI (couleurs, curseur…) : bruit de terminal qui
-// n'apprend rien à l'ouvrière suivante — retirées avant toute analyse.
-// eslint-disable-next-line no-control-regex
-const MOTIF_ANSI = /\u001B\[[0-9;?]*[A-Za-z]/g;
 
 // ─── Contrat anti-injection : bloc de DONNÉES délimité ──────────────────────
 //
@@ -91,41 +89,6 @@ export function lignesDeLogs(logs: string): string[] {
     .split('\n')
     .map((l) => l.trim())
     .filter((l) => l.length > 0);
-}
-
-/**
- * Ce qu'un échec DIT à un humain — ses logs, sans les événements d'un flux
- * structuré, et la réponse finale de l'agent quand ces événements la cachaient.
- *
- * ─── POURQUOI ─────────────────────────────────────────────────────────────────
- *
- * Claude Code, Cursor et Cline écrivent leur sortie standard en JSON par
- * lignes. `MOTIF_ERREUR` y trouvait « error » dans des CLÉS — `is_error`,
- * `compact_error`, `"error":"invalid_request"` — et la Couveuse servait à
- * l'ouvrière suivante des préfixes d'événements JSON coupés à 200 caractères,
- * tandis que l'essaim en tirait des SIGNATURES : deux pannes sans rapport
- * finissaient sous la même clé `{"type":"system",…`, et trois nœuds suffisent à
- * déclarer une leçon « systémique » — qui ouvre des chantiers en mode autonome.
- *
- * ─── LA RÈGLE ─────────────────────────────────────────────────────────────────
- *
- * Une ligne qui commence par `{"` est un ÉVÉNEMENT de machine, pas une phrase :
- * les flux JSON par lignes commencent chaque enregistrement ainsi, un message
- * humain jamais. Critère de préfixe et non `JSON.parse` : la dernière ligne
- * d'un log plafonné (512 ko) est un JSON TRONQUÉ — illisible, mais tout aussi
- * machinal. Et l'analyse reste linéaire sur les 300 échecs que l'essaim relit.
- *
- * Ce qui reste — stderr, marqueurs `[hive]` (délai de garde…), sortie en texte
- * des autres CLI — est ce que l'échec dit à un humain. Si des événements ont
- * été retirés, la parole de l'agent était DEDANS : on la rend en y ajoutant
- * son texte final. Sans événement retiré (Codex, CLI en texte), les logs
- * contiennent déjà la sortie standard, et l'ajouter la doublerait.
- */
-export function texteDEchec(logs: string, finalText?: string): string {
-  const lignes = logs.split('\n');
-  const humaines = lignes.filter((l) => !l.replace(MOTIF_ANSI, '').trimStart().startsWith('{"'));
-  const texte = humaines.join('\n');
-  return humaines.length < lignes.length && finalText ? `${texte}\n${finalText}` : texte;
 }
 
 /**

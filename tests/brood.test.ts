@@ -9,7 +9,7 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { AgentAdapter } from '../src/adapters/index.js';
 import { HiveNodeClient } from '../src/node-client/client.js';
-import { extraitDesLogs, leconsDesEchecs, texteDEchec } from '../src/orchestrator/brood.js';
+import { extraitDesLogs, leconsDesEchecs } from '../src/orchestrator/brood.js';
 import type { EchecPrecedent } from '../src/orchestrator/brood.js';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
@@ -187,35 +187,6 @@ describe('leconsDesEchecs (module pur)', () => {
     const extrait = extraitDesLogs(`Error: ${'z'.repeat(500)}`);
     expect(extrait.length).toBe(200);
     expect(extrait.endsWith('…')).toBe(true);
-  });
-});
-
-describe('texteDEchec — ce qu’un échec dit à un humain', () => {
-  // Le flux JSON par lignes (Claude Code, Cursor, Cline) fait répondre
-  // `MOTIF_ERREUR` à des CLÉS (`is_error`, `compact_error`) : ces lignes-là
-  // sont des événements de machine, pas des phrases. Voir aussi
-  // tests/texte-final-ruche.test.ts, sur des flux enregistrés.
-  const logs = [
-    '{"type":"system","subtype":"init"}',
-    'Error: ENOSPC: no space left on device',
-    '{"type":"result","is_error":true,"resu', // dernière ligne coupée par le plafond
-    '\u001B[31m{"type":"user"}\u001B[0m',
-    '[hive] timeout après 900000 ms — processus tué',
-  ].join('\n');
-
-  it('retire les événements JSON, même tronqués ou colorés ; garde stderr et les marqueurs', () => {
-    expect(texteDEchec(logs)).toBe(
-      'Error: ENOSPC: no space left on device\n[hive] timeout après 900000 ms — processus tué',
-    );
-  });
-
-  it('rend la parole de l’agent quand des événements la cachaient', () => {
-    expect(texteDEchec(logs, 'Disque plein').endsWith('\nDisque plein')).toBe(true);
-  });
-
-  it('ne double pas une sortie en texte, qui contient déjà la réponse (Codex, CLI en texte)', () => {
-    const texte = 'ERROR: stream disconnected\nréponse';
-    expect(texteDEchec(texte, 'réponse')).toBe(texte);
   });
 });
 

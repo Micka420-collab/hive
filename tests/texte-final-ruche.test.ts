@@ -21,18 +21,31 @@
 //   · deux erreurs d'API DIFFÉRENTES sur trois nœuds — une leçon « systémique »,
 //     parce que leur signature était le même préfixe d'événement JSON ;
 //   · une ouvrière Claude Code a échoué — la suivante recevait en « leçon » des
-//     préfixes d'événements JSON au lieu de l'erreur.
+//     préfixes d'événements JSON au lieu de l'erreur ; et, bout en bout, le
+//     nœud ne rendait même pas l'échec : la clé `apiKeySource` de la ligne
+//     `init` le faisait passer pour une panne d'identifiants (réquisition) ;
+//   · une relecture SANS texte final — lue dans les logs avant ce contrat, puis
+//     comptée contestée par sa première version, qui relançait le producteur
+//     pour un défaut du relecteur.
 //
 // Ce fichier n'importe que des symboles qui existaient avant ce contrat : sur
 // l'ancien code, il se charge, et ses cas échouent pour la raison qu'ils
 // décrivent — pas pour un import manquant.
 
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
-import type { AgentAdapter } from '../src/adapters/index.js';
+import { createClaudeCodeAdapter } from '../src/adapters/claude-code.js';
 import { HiveNodeClient } from '../src/node-client/client.js';
 import { leconsDesEchecs } from '../src/orchestrator/brood.js';
 import { leconsCroisees, signatureEchec } from '../src/orchestrator/essaim.js';
@@ -131,7 +144,7 @@ describe('la contre-expertise lit la réponse finale du relecteur', () => {
   async function relire(
     agents: { producteur: string; relecteur: string },
     resultat: { logs: string; finalText?: string },
-  ): Promise<{ conteste?: boolean; objections?: string[] } | undefined> {
+  ): Promise<{ srv: HiveServer; production: string | undefined }> {
     const srv = await ruche({ simulation: true, tickMs: 60 });
     const producteur = await noeud(srv, 'producteur', agents.producteur);
     const relecteur = await noeud(srv, 'relecteur', agents.relecteur);
@@ -166,21 +179,26 @@ describe('la contre-expertise lit la réponse finale du relecteur', () => {
         ...resultat,
       }),
     );
-    return attendre(
+    return { srv, production: production?.task?.id };
+  }
+
+  /** Le verdict journalisé de la relecture. */
+  const verdictDe = (srv: HiveServer) =>
+    attendre(
       () =>
         srv.store.listEvents(0, 500).find((e) => e.type === 'contre_expertise_verdict')?.payload as
           { conteste?: boolean; objections?: string[] } | undefined,
     );
-  }
 
   it('CODEX a répondu « valide » : la consigne répétée sur stderr ne le rend plus contesté', async () => {
     // Ce que le nœud remonte : stderr et stdout MÊLÉS dans les logs (exec.ts),
     // la sortie standard seule dans `finalText`.
     const stdout = fixture('codex-relecture.stdout.txt');
-    const v = await relire(
+    const { srv } = await relire(
       { producteur: 'claude-code', relecteur: 'codex' },
       { logs: fixture('codex-relecture.stderr.txt') + stdout, finalText: stdout.trim() },
     );
+    const v = await verdictDe(srv);
 
     expect(v, 'aucun verdict').toBeDefined();
     expect(v?.conteste, JSON.stringify(v)).toBe(false);
@@ -189,10 +207,11 @@ describe('la contre-expertise lit la réponse finale du relecteur', () => {
 
   it('CLAUDE CODE conteste avec deux objections : les DEUX arrivent', async () => {
     const flux = fixture('claude-relecture.stream.jsonl');
-    const v = await relire(
+    const { srv } = await relire(
       { producteur: 'codex', relecteur: 'claude-code' },
       { logs: flux, finalText: resultatDe(flux) },
     );
+    const v = await verdictDe(srv);
 
     expect(v?.conteste).toBe(true);
     expect(v?.objections).toEqual([
@@ -201,13 +220,34 @@ describe('la contre-expertise lit la réponse finale du relecteur', () => {
     ]);
   }, 30_000);
 
-  it('SANS texte final (nœud antérieur) : contesté, motif écrit — jamais relu dans les logs', async () => {
-    // Les logs disent « valide » : c'est exactement là que la lecture était
-    // fausse, donc on ne s'y rabat pas. L'absence se dit, elle ne se devine pas.
-    const v = await relire({ producteur: 'claude-code', relecteur: 'codex' }, { logs: 'valide' });
+  it('SANS texte final : relecture échouée, motif écrit — ni avis, ni correction du producteur', async () => {
+    // Un nœud Claude Code antérieur à ce contrat envoie son flux brut, dont le
+    // `result` dit « valide », et aucun `finalText`. Ce n'est pas dans les logs
+    // qu'on va le chercher : c'est exactement là que la lecture était fausse.
+    // Mais ce n'est pas non plus un avis CONTESTÉ : c'était relancer le
+    // PRODUCTEUR (jusqu'à la borne d'essais) pour un défaut du RELECTEUR, et
+    // retirer un point à son modèle dans l'Aiguillage.
+    const { srv, production } = await relire(
+      { producteur: 'codex', relecteur: 'claude-code' },
+      { logs: fixture('claude-relecture.stream.jsonl').replaceAll('conteste', 'valide') },
+    );
 
-    expect(v?.conteste).toBe(true);
-    expect(v?.objections?.[0]).toMatch(/Aucune réponse finale/);
+    const echec = await attendre(
+      () =>
+        srv.store.listEvents(0, 500).find((e) => e.type === 'contre_expertise_review_failed')
+          ?.payload,
+    );
+    expect(echec).toMatchObject({ taskId: production, terminal: true });
+    expect(String(echec?.motif)).toMatch(/sans réponse finale/);
+
+    // Laisser à une éventuelle relance le temps de partir.
+    await new Promise((r) => setTimeout(r, 600));
+    const evenements = srv.store.listEvents(0, 500);
+    expect(evenements.filter((e) => e.type === 'contre_expertise_verdict')).toEqual([]);
+    expect(
+      evenements.filter((e) => e.type === 'task_retry' && e.payload.taskId === production),
+    ).toEqual([]);
+    expect(srv.store.contreVisiteDe(production!), 'aucune contre-visite rangée').toBeNull();
   }, 30_000);
 });
 
@@ -374,48 +414,89 @@ describe('les leçons d’échec lisent ce que l’échec DIT, pas les événeme
 
 // ─── LA COUVEUSE, DU NŒUD À LA TENTATIVE SUIVANTE ────────────────────────────
 
-describe('bout en bout : l’ouvrière suivante hérite de l’erreur, pas du flux JSON', () => {
-  it('le texte final part du nœud, passe par le journal, et arrive dans la leçon', async () => {
-    const srv = await ruche({ simulation: true, tickMs: 80 });
-    const echoue = fixture('claude-echec-prompt-trop-long.stream.jsonl');
-    const prompts = new Map<number, string>();
-    // Un adaptateur qui rend EXACTEMENT ce que le vrai claude-code rend sur cet
-    // enregistrement : les logs bruts, et la ligne `result` en texte final.
-    const adapter: AgentAdapter = {
-      name: 'claude-code',
-      async run(task, ctx) {
-        prompts.set(ctx.attempt, task.prompt);
-        return ctx.attempt === 1
-          ? { success: false, diff: '', logs: echoue, subAgents: [], finalText: resultatDe(echoue) }
-          : { success: true, diff: '', logs: 'corrigé', subAgents: [] };
-      },
-    };
-    const client = new HiveNodeClient({
-      url: `ws://127.0.0.1:${srv.port}/ws`,
-      token: TOKEN,
-      name: 'ouvriere-claude',
-      ownerName: 'test',
-      agentType: 'claude-code',
-      maxConcurrency: 1,
-      workRoot: path.join(dir!, 'work'),
-      adapter,
-      quiet: true,
-    });
-    client.start();
-    try {
-      const projet = srv.store.createProject({ name: 'Couveuse' });
-      const t = srv.store.createTask({ projectId: projet.id, title: 'Fragile', prompt: 'réparer' });
-      srv.store.patchTask(t.id, { status: 'ready' });
-
-      const seconde = await attendre(() => prompts.get(2), 15_000);
-      expect(seconde, 'aucune seconde tentative').toBeDefined();
-      expect(seconde).toContain('Couveuse');
-      expect(seconde).toContain('Prompt is too long');
-      expect(seconde, 'la leçon ne doit pas être un événement JSON').not.toMatch(
-        /\\"type\\":\\"(system|assistant|user|result)\\"/,
+describe.skipIf(process.platform === 'win32')(
+  'bout en bout : l’ouvrière suivante hérite de l’erreur, pas du flux JSON',
+  () => {
+    it('le VRAI adaptateur claude-code rend l’échec ; la leçon arrive à la tentative suivante', async () => {
+      // Pas un adaptateur de test : le vrai `createClaudeCodeAdapter`, contre un
+      // faux `claude` posé sur le PATH qui REJOUE l'enregistrement (sortie 1),
+      // puis réussit en notant le prompt reçu. La ligne `init` du flux porte
+      // `"apiKeySource"` : lu sur les logs bruts, l'échec passait pour une panne
+      // d'identifiants, le nœud ouvrait une réquisition au lieu de le rendre,
+      // et rien n'atteignait la Couveuse.
+      const srv = await ruche({ simulation: true, tickMs: 80 });
+      const faux = path.join(dir!, 'bin');
+      mkdirSync(faux);
+      const flux = path.join(FIXTURES, 'claude-echec-prompt-trop-long.stream.jsonl');
+      const ok = JSON.stringify({
+        type: 'result',
+        subtype: 'success',
+        is_error: false,
+        result: 'corrigé',
+      });
+      writeFileSync(
+        path.join(faux, 'claude'),
+        [
+          '#!/usr/bin/env node',
+          "'use strict';",
+          "const fs = require('node:fs');",
+          "const path = require('node:path');",
+          `const compteur = path.join(${JSON.stringify(faux)}, 'appels');`,
+          "const n = fs.existsSync(compteur) ? Number(fs.readFileSync(compteur, 'utf8')) + 1 : 1;",
+          'fs.writeFileSync(compteur, String(n));',
+          `fs.writeFileSync(path.join(${JSON.stringify(faux)}, 'prompt-' + n), process.argv[process.argv.length - 1]);`,
+          'if (n === 1) {',
+          `  process.stdout.write(fs.readFileSync(${JSON.stringify(flux)}), () => process.exit(1));`,
+          '} else {',
+          `  process.stdout.write(${JSON.stringify(ok + '\n')});`,
+          '}',
+        ].join('\n'),
       );
-    } finally {
-      client.stop();
-    }
-  }, 30_000);
-});
+      chmodSync(path.join(faux, 'claude'), 0o755);
+      const promptRecu = (n: number): string | undefined => {
+        const f = path.join(faux, `prompt-${n}`);
+        return existsSync(f) ? readFileSync(f, 'utf8') : undefined;
+      };
+
+      const pathAvant = process.env.PATH;
+      process.env.PATH = `${faux}${path.delimiter}${pathAvant ?? ''}`;
+      const client = new HiveNodeClient({
+        url: `ws://127.0.0.1:${srv.port}/ws`,
+        token: TOKEN,
+        name: 'ouvriere-claude',
+        ownerName: 'test',
+        agentType: 'claude-code',
+        maxConcurrency: 1,
+        workRoot: path.join(dir!, 'work'),
+        adapter: createClaudeCodeAdapter(TOKEN),
+        quiet: true,
+      });
+      client.start();
+      try {
+        const projet = srv.store.createProject({ name: 'Couveuse' });
+        const t = srv.store.createTask({
+          projectId: projet.id,
+          title: 'Fragile',
+          prompt: 'réparer',
+        });
+        srv.store.patchTask(t.id, { status: 'ready' });
+
+        const seconde = await attendre(() => promptRecu(2), 15_000);
+        expect(
+          srv.store.listerRequisitions({ statut: 'ouverte' }),
+          'un prompt trop long n’est pas une panne d’identifiants',
+        ).toEqual([]);
+        expect(seconde, 'aucune seconde tentative').toBeDefined();
+        expect(seconde).toContain('Couveuse');
+        expect(seconde).toContain('Prompt is too long');
+        expect(seconde, 'la leçon ne doit pas être un événement JSON').not.toMatch(
+          /\\"type\\":\\"(system|assistant|user|result)\\"/,
+        );
+        expect(srv.store.listFailedResultsForTask(t.id)[0]?.finalText).toBe('Prompt is too long');
+      } finally {
+        client.stop();
+        process.env.PATH = pathAvant;
+      }
+    }, 30_000);
+  },
+);

@@ -183,11 +183,15 @@ export function rankMemoriesHybrid(query: string, corpus: Memory[], limit = 3): 
     .slice(0, limit);
 }
 
-/** Construit le texte d'un souvenir compact à partir d'une tâche réussie. */
-export function summarizeTask(title: string, prompt: string, logs: string): string {
+/**
+ * Construit le texte d'un souvenir compact à partir d'une tâche réussie : son
+ * prompt, puis ce que l'ouvrière a rendu — sa réponse finale quand son CLI en
+ * déclare une, ses logs sinon (le scheduler choisit).
+ */
+export function summarizeTask(title: string, prompt: string, sortie: string): string {
   const cleanPrompt = prompt.replace(/\s+/g, ' ').trim().slice(0, 400);
-  const cleanLogs = logs.replace(/\s+/g, ' ').trim().slice(0, 600);
-  return [cleanPrompt, cleanLogs].filter(Boolean).join(' — ') || title;
+  const cleanSortie = sortie.replace(/\s+/g, ' ').trim().slice(0, 600);
+  return [cleanPrompt, cleanSortie].filter(Boolean).join(' — ') || title;
 }
 
 /** En-tête du bloc de contexte injecté — sert aussi de marqueur repérable. */
@@ -196,10 +200,10 @@ export const HIVE_CONTEXT_HEADER = '[Hive Mind — savoir de tâches passées de
 // ─── Contrat anti-injection : les souvenirs sont des DONNÉES ────────────────
 //
 // `memory.content` est fabriqué par summarizeTask à partir du prompt de la
-// tâche ET DES LOGS de l'ouvrière : c'est la même matière non fiable que celle
-// de la Couveuse, seulement passée par une tâche RÉUSSIE. Durcir la Couveuse
-// sans durcir ici ne protégerait de rien : il suffirait de déplacer la charge
-// d'un échec vers un succès. Même contrat, même helper partagé — voir
+// tâche ET DE LA SORTIE de l'ouvrière (réponse finale ou logs) : c'est la même
+// matière non fiable que celle de la Couveuse, seulement passée par une tâche
+// RÉUSSIE. Durcir la Couveuse sans durcir ici ne protégerait de rien : il
+// suffirait de déplacer la charge d'un échec vers un succès. Même contrat, même helper partagé — voir
 // src/shared/donnees-non-fiables.ts, qui explique aussi pourquoi les deux blocs
 // partagent volontairement le même couple de marqueurs.
 

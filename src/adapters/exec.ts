@@ -6,6 +6,7 @@ import { existsSync } from 'node:fs';
 import { argvAgent } from '../shared/agent-windows.js';
 import { envelopper } from '../node-client/isolement.js';
 import { LIMITS } from '../shared/protocol.js';
+import { texteDEchec } from '../shared/texte-d-echec.js';
 import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from '../shared/types.js';
 import type { AdapterContext, AdapterResult } from './index.js';
 import { borneTexteFinal, createTexteFinalTracker } from './texte-final.js';
@@ -29,9 +30,15 @@ const DEFAULT_TIMEOUT_MS = 5 * 60_000;
  * qu'un échec de la tâche. Sert au token-failover : la tâche est réaffectée à un
  * autre nœud plutôt que de brûler une tentative. Volontairement large ; un faux
  * positif ne fait que déplacer la tâche (au pire elle échoue faute de nœud viable).
+ *
+ * Testés sur ce que l'échec DIT (`texteDEchec`), jamais sur les logs bruts : la
+ * ligne `init` du stream-json porte `"apiKeySource"` à CHAQUE exécution, et
+ * tout échec de Claude Code ou de Cursor y passait pour une panne
+ * d'identifiants. `credit balance` : le libellé de Claude Code 2.1.283
+ * (« Credit balance is too low »), que seul ce faux positif rattrapait.
  */
 const INFRA_FAILURE_RE =
-  /unauthor|authentication|not logged in|forbidden|\b401\b|\b403\b|\b429\b|quota|rate.?limit|insufficient|out of credit|billing|api[_ -]?key|invalid.{0,12}key|login|sign in|subscription/i;
+  /unauthor|authentication|not logged in|forbidden|\b401\b|\b403\b|\b429\b|quota|rate.?limit|insufficient|out of credit|credit balance|billing|api[_ -]?key|invalid.{0,12}key|login|sign in|subscription/i;
 
 /** Le bac résout le même nom logique que son preflight, jamais un chemin hôte. */
 function preparerCommande(bin: string, args: string[], ctx: AdapterContext) {
@@ -194,8 +201,6 @@ function executer(
     child.on('close', (code) => {
       clearTimeout(timeout);
       if (parLigne && tampon.trim()) parLigne(tampon); // dernière ligne sans \n final
-      // Échec dont la sortie évoque un problème d'auth/quota → infra (réaffectation).
-      const infra = code !== 0 && INFRA_FAILURE_RE.test(output);
       // Un processus TUÉ n'a pas conclu : ce qu'il avait écrit n'est pas sa
       // réponse finale, et le lire comme tel ferait juger une phrase coupée.
       const finalText = tue
@@ -203,6 +208,9 @@ function executer(
         : texteFinal === 'sortie-standard'
           ? borneTexteFinal(sortieStandard)
           : suivi?.texte();
+      // Échec dont le TEXTE évoque un problème d'auth/quota → infra
+      // (réaffectation). Pas les logs bruts : voir `INFRA_FAILURE_RE`.
+      const infra = code !== 0 && INFRA_FAILURE_RE.test(texteDEchec(output, finalText));
       resolve({
         success: code === 0,
         diff: '',

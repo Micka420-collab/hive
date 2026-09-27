@@ -75,6 +75,19 @@ export const LIMITS = {
   delegationResourceUnits: 1_000,
 } as const;
 
+/**
+ * La ligne qui remplace le MILIEU d'un texte final trop long (`borneTexteFinal`).
+ *
+ * Écrite sur le nœud, lue sur le hub : c'est le seul moyen pour le hub de SAVOIR
+ * qu'une réponse n'a pas été lue en entier. Sans elle, une relecture dont le
+ * « conteste » était tombé dans la coupe se lisait sur ce qui restait — et une
+ * « entrée valide » dans la prose de sa fin l'APPROUVAIT (`lireAvis`).
+ *
+ * Un agent peut l'écrire lui-même : il n'y gagne rien, `lireAvis` n'en devient
+ * que plus exigeant.
+ */
+export const COUPURE_TEXTE_FINAL = '[… texte final coupé en son milieu …]';
+
 export const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
 /** Budget transmis avec une tâche enfant pour que le nœud puisse l'appliquer. */
@@ -687,7 +700,7 @@ export function usageFournisseurDepuis(v: unknown): UsageFournisseur | undefined
  * texte malformé (pas une chaîne, vide, trop long) est ABANDONNÉ, le message
  * reste. Rejeter tout le `task_result` perdrait la production du Worker pour
  * un champ qui ne sert qu'à la relire — et son absence, elle, se voit : la
- * contre-expertise la compte comme un avis contesté, motif écrit.
+ * contre-expertise la journalise comme une relecture SANS AVIS, motif écrit.
  */
 function texteFinalDepuis(v: unknown): string | undefined {
   return typeof v === 'string' && v.trim() !== '' && v.length <= LIMITS.finalText ? v : undefined;

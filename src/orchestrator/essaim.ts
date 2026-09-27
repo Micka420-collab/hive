@@ -68,7 +68,8 @@
 // est le seul à toucher au monde.
 
 import { champSurUneLigne } from '../shared/donnees-non-fiables.js';
-import { lignesDeLogs, texteDEchec } from './brood.js';
+import { texteDEchec } from '../shared/texte-d-echec.js';
+import { lignesDeLogs } from './brood.js';
 import { SOLITUDE_JOURS } from './derive.js';
 import type { Derive } from './derive.js';
 import { horizonDepasseBudgetTaches } from './horizon.js';
