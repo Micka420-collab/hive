@@ -222,10 +222,10 @@ export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
   }
   // Le clone vient du nœud et aucun code étranger n'y a tourné : son git dir
   // est de confiance. On l'ÉPINGLE quand même (rien n'est cherché ailleurs), et
-  // les `.gitattributes` qu'un diff apporte ne déclenchent aucun filtre
-  // (git-hote.ts). La préparation et les tests, eux, tournent APRÈS le dernier
+  // les `.gitattributes` qu'un diff apporte ne choisissent aucun filtre — ceux
+  // du projet restent appliqués (git-hote.ts, `figerFiltres`). La préparation et les tests, eux, tournent APRÈS le dernier
   // git — ce qu'ils écrivent dans `.git` ne gouverne plus rien.
-  const depot = epinglerClone(opts.repoDir);
+  const depot = await epinglerClone(opts.repoDir);
   const base = await commitDeDepart(depot);
   const applied: string[] = [];
   const conflicts: { taskId: string; reason: string }[] = [];

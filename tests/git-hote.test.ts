@@ -21,17 +21,24 @@
 // nœud : `collectDiff` doit rendre le VRAI diff de l'agent sans qu'aucune
 // sentinelle ne naisse.
 //
-// Le pager est le seul vecteur qu'on ne sait pas armer ici : git ne l'appelle
-// que sous un terminal. Il est posé quand même — `--no-pager` le couvre.
+// Trois entrées sont DOCUMENTAIRES, et vertes sur l'ancien code aussi :
+// `core.sshCommand`, l'alias et le pager. Aucun git de l'hôte ne lance, après
+// l'agent, de `fetch`, d'alias, ni rien sous un terminal dans le dépôt de la
+// tâche — ces pièges ne peuvent donc pas se déclencher. Elles fixent
+// l'inventaire des vecteurs (et le pager, qu'on ne sait pas armer ici, reste
+// couvert par `--no-pager`) ; elles ne prouvent aucune régression.
 
 import { execFileSync } from 'node:child_process';
 import {
+  appendFileSync,
   copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
+  readFileSync,
   rmSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import os from 'node:os';
@@ -135,6 +142,8 @@ interface Vecteur {
   poser: (cwd: string) => void;
   /** Les commandes git naïves qui le déclenchent ; `null` : inarmable ici. */
   armer: string[][] | null;
+  /** Ce que le diff rendu doit montrer EN PLUS du travail de l'agent. */
+  verifierDiff?: (diff: string) => void;
 }
 
 const VECTEURS: Record<string, Vecteur> = {
@@ -202,19 +211,56 @@ const VECTEURS: Record<string, Vecteur> = {
     },
     armer: COLLECTE_NAIVE,
   },
-  '`core.sshCommand`': {
+  // Un dépôt IMBRIQUÉ que l'agent crée (`git init` dans un sous-dossier, un
+  // échafaudeur) est un sous-module aux yeux de git : juger s'il est « sale »
+  // lance un `git status` DANS ce dépôt, sous SA configuration. Le filtre y
+  // est le seul piège que les `-c` de l'hôte (hérités par ce git enfant) ne
+  // couvrent pas : c'est lui qui prouve `--ignore-submodules=dirty`. Le
+  // fichier change à TAILLE ÉGALE, pour que git doive le relire (et le filtrer).
+  'un dépôt imbriqué (`sous/.git`) et SA configuration': {
+    poser: (cwd) => {
+      const sous = path.join(cwd, 'sous');
+      mkdirSync(sous);
+      git(sous, 'init', '-q');
+      writeFileSync(path.join(sous, 'f.txt'), 'x\n');
+      git(sous, 'add', 'f.txt');
+      git(sous, 'commit', '-q', '-m', 'imbriqué');
+      writeFileSync(path.join(sous, '.gitattributes'), '*.txt filter=piege\n');
+      git(sous, 'config', 'filter.piege.clean', `${trace('imbrique-filtre')}; cat`);
+      git(
+        sous,
+        'config',
+        'core.fsmonitor',
+        pourSh(script(path.join(sous, '.git'), 'imbrique-fsm')),
+      );
+      script(path.join(sous, '.git', 'hooks'), 'post-index-change');
+      writeFileSync(path.join(sous, 'f.txt'), 'z\n');
+    },
+    // Contre la base, comme le diff de l'hôte : un `git diff` index↔arbre ne
+    // sonde pas un dépôt imbriqué que `add -N` vient de noter en intention.
+    armer: [
+      ['add', '--all', '--intent-to-add'],
+      ['diff', 'HEAD'],
+    ],
+    verifierDiff: (diff) => {
+      // Visible à la revue — son contenu n'y est pas —, mais jamais sondé.
+      expect(diff).toMatch(/\+Subproject commit [0-9a-f]+\n/);
+      expect(diff).not.toContain('-dirty');
+    },
+  },
+  '`core.sshCommand` (documentaire)': {
     poser: (cwd) => {
       git(cwd, 'config', 'core.sshCommand', `${trace('ssh-command')}; false`);
     },
     armer: [['ls-remote', 'ssh://depot.invalide/prive.git']],
   },
-  'un alias': {
+  'un alias (documentaire)': {
     poser: (cwd) => {
       git(cwd, 'config', 'alias.piege', `!${trace('alias')}`);
     },
     armer: [['piege']],
   },
-  '`core.pager` et `pager.diff`': {
+  '`core.pager` et `pager.diff` (documentaire)': {
     poser: (cwd) => {
       git(cwd, 'config', 'core.pager', trace('pager'));
       git(cwd, 'config', 'pager.diff', trace('pager-diff'));
@@ -226,7 +272,7 @@ const VECTEURS: Record<string, Vecteur> = {
 describe('le diff de revue d’une tâche (`collectDiff`) n’exécute rien que l’agent a configuré', () => {
   it.each(Object.entries(VECTEURS).map(([nom, v], i) => [nom, v, i] as const))(
     '%s',
-    async (_nom, { poser, armer }, i) => {
+    async (_nom, { poser, armer, verifierDiff }, i) => {
       const ws = await prepareWorkspace(travail, tache(`piege-${i}`), amontUrl);
       try {
         // L'agent travaille… puis arme son piège dans son propre dépôt.
@@ -244,6 +290,7 @@ describe('le diff de revue d’une tâche (`collectDiff`) n’exécute rien que 
         expect(declenchees(), 'aucun programme de l’agent n’a tourné sur l’hôte').toEqual([]);
         // Et le diff reste le VRAI : ce que l'agent a changé, rien de filtré.
         expect(diff).toContain('+bonjour, ruche');
+        verifierDiff?.(diff);
       } finally {
         ws.cleanup();
       }
@@ -557,7 +604,9 @@ describe('un git local de l’hôte est BORNÉ, et son échec ne recopie pas la 
         rmSync(path.join(info, 'alternates'), { force: true });
         execFileSync('mkfifo', [path.join(info, 'alternates')]);
         const depot = { gitDir: `${ws.cwd}.git`, workTree: ws.cwd };
-        const echec = await gitHote(['diff', 'HEAD'], depot, 1_500).catch((e: unknown) => e);
+        const echec = await gitHote(['diff', 'HEAD'], depot, { delaiMs: 1_500 }).catch(
+          (e: unknown) => e,
+        );
         expect(echec).toBeInstanceOf(EchecGitHote);
         const message = (echec as EchecGitHote).message;
         expect(message).toMatch(/interrompu/);
@@ -570,4 +619,121 @@ describe('un git local de l’hôte est BORNÉ, et son échec ne recopie pas la 
     },
     15_000,
   );
+});
+
+describe('un filtre que le PROJET déclare (Git LFS) reste appliqué', () => {
+  // Neutraliser TOUS les filtres coupait aussi celui que le commit de départ
+  // déclare : l'arbre cloné porte le contenu (`smudge`), la base le pointeur,
+  // et git relisait le fichier sans `clean` — chaque fichier LFS intact
+  // sortait modifié de chaque diff, et la fusion finissait en faux conflit.
+  // `faux` joue git-lfs : défini par la MACHINE (comme Git for Windows le
+  // fait pour `filter.lfs`), requis, déclaré par le `.gitattributes` du projet
+  // — à la racine ET dans un sous-dossier (réécriture des motifs).
+  const FILTRE_MACHINE = {
+    'filter.faux.clean': 'tr A-Z a-z',
+    'filter.faux.smudge': 'tr a-z A-Z',
+    'filter.faux.required': 'true',
+  };
+  let lfsUrl: string;
+
+  beforeAll(() => {
+    const depot = path.join(racine, 'amont-lfs.git');
+    execFileSync('git', ['init', '-q', '--bare', depot]);
+    git(depot, 'symbolic-ref', 'HEAD', 'refs/heads/main');
+    const copie = path.join(racine, 'amont-lfs');
+    mkdirSync(path.join(copie, 'sous'), { recursive: true });
+    git(copie, 'init', '-q');
+    git(copie, 'symbolic-ref', 'HEAD', 'refs/heads/main');
+    writeFileSync(path.join(copie, '.gitattributes'), '*.bin filter=faux\n');
+    writeFileSync(path.join(copie, 'sous', '.gitattributes'), '*.dat filter=faux\n');
+    // Le filtre n'est pas défini ici : les pointeurs sont committés tels quels.
+    writeFileSync(path.join(copie, 'gros.bin'), 'pointeur oid abc\n');
+    writeFileSync(path.join(copie, 'sous', 'autre.dat'), 'pointeur oid def\n');
+    writeFileSync(path.join(copie, 'app.txt'), 'bonjour\n');
+    git(copie, 'add', '--all');
+    git(copie, 'commit', '-q', '-m', 'projet lfs');
+    git(copie, 'push', '-q', depot, 'main');
+    lfsUrl = pathToFileURL(depot).href;
+  });
+
+  /**
+   * Des dates neuves, contenu intact (un outil de build le fait) : git ne
+   * peut plus se fier à l'index et DOIT relire — donc filtrer — ces fichiers.
+   * Sans cela, le banc dépendrait de la seconde où le clone a écrit l'index.
+   */
+  function toucher(cwd: string): void {
+    const plusTard = new Date(Date.now() + 60_000);
+    for (const f of ['gros.bin', path.join('sous', 'autre.dat')]) {
+      utimesSync(path.join(cwd, f), plusTard, plusTard);
+    }
+  }
+
+  it('`collectDiff` ne montre que le travail de l’agent', async () => {
+    await avecConfigMachine(FILTRE_MACHINE, async () => {
+      const ws = await prepareWorkspace(travail, tache('lfs'), lfsUrl);
+      try {
+        expect(readFileSync(path.join(ws.cwd, 'gros.bin'), 'utf8')).toMatch(/^POINTEUR/);
+        // L'agent, lui, ÉTEND la déclaration du projet à `*.txt` : ignoré —
+        // passé par `clean`, son texte sortirait en minuscules.
+        writeFileSync(path.join(ws.cwd, 'app.txt'), 'Bonjour, Ruche\n');
+        appendFileSync(path.join(ws.cwd, '.gitattributes'), '*.txt filter=faux\n');
+        toucher(ws.cwd);
+        const diff = await ws.collectDiff();
+        expect(diff).toContain('+Bonjour, Ruche');
+        expect(diff).not.toContain('gros.bin');
+        expect(diff).not.toContain('autre.dat');
+      } finally {
+        ws.cleanup();
+      }
+    });
+  });
+
+  it('la fusion applique le diff, et son diff cumulé ne montre que lui', async () => {
+    await avecConfigMachine(FILTRE_MACHINE, async () => {
+      const dossier = path.join(racine, 'fusion-lfs');
+      await cloneRepo(dossier, lfsUrl);
+      toucher(dossier);
+      const r = await runMerge({
+        repoDir: dossier,
+        diffs: [{ taskId: 'agent', diff: enDiff({}) }],
+      });
+      expect(r.conflicts).toEqual([]);
+      expect(r.applied).toEqual(['agent']);
+      expect(r.mergedDiff).toContain('+bonjour, ruche');
+      expect(r.mergedDiff).not.toContain('gros.bin');
+      expect(r.mergedDiff).not.toContain('autre.dat');
+    });
+  });
+});
+
+describe('la configuration GLOBALE du membre reste servie', () => {
+  it('un `core.splitIndex=true` global : le diff se calcule', async () => {
+    // Sous un index scindé, l'index du clone n'est qu'un renvoi vers un
+    // `sharedindex.*` de son git dir : le registre doit l'avoir aussi.
+    await avecConfigMachine({ 'core.splitIndex': 'true' }, async () => {
+      const ws = await prepareWorkspace(travail, tache('index-scinde'), amontUrl);
+      try {
+        writeFileSync(path.join(ws.cwd, 'app.txt'), 'bonjour, ruche\n');
+        expect(await ws.collectDiff()).toContain('+bonjour, ruche');
+      } finally {
+        ws.cleanup();
+      }
+    });
+  });
+
+  it('le `core.sshCommand` du membre sert au clone, EN mode lot', async () => {
+    // Sous Windows, c'est ce réglage qui fait parler git à l'agent ssh du
+    // système : le remplacer par `ssh` cassait les clés à phrase de passe.
+    const journal = pourSh(path.join(sentinelles, 'ssh-membre'));
+    const commande = `f() { echo "$*" >> '${journal}'; exit 1; }; f`;
+    await avecConfigMachine({ 'core.sshCommand': commande }, async () => {
+      const dossier = path.join(racine, 'clone-ssh');
+      await expect(cloneRepo(dossier, 'ssh://depot.invalide/prive.git')).rejects.toThrow(
+        EchecGitHote,
+      );
+    });
+    const appel = readFileSync(path.join(sentinelles, 'ssh-membre'), 'utf8');
+    expect(appel).toContain('-o BatchMode=yes');
+    expect(appel).toContain('depot.invalide');
+  });
 });

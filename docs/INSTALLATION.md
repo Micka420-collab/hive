@@ -527,9 +527,11 @@ d'écriture réels de `src/` et **rougit** si l'un d'eux apparaît ailleurs.
   (`ssh -o BatchMode=yes`), sans jamais attendre une invite. La clé d'hôte
   doit donc déjà figurer dans votre `~/.ssh/known_hosts`, et une clé à phrase
   de passe doit être chargée dans votre agent ssh (`ssh-add`) — le nœud lui
-  transmet `SSH_AUTH_SOCK`, jamais à l'agent de codage. Un `core.sshCommand`
-  de votre configuration git est remplacé ; choisissez la clé d'un hôte dans
-  `~/.ssh/config`, que `ssh` lit toujours.
+  transmet `SSH_AUTH_SOCK`, jamais à l'agent de codage. Le `core.sshCommand`
+  de votre configuration git globale ou système est conservé — le mode lot
+  lui est ajouté : sous Windows, un `core.sshCommand` qui désigne
+  `C:/Windows/System32/OpenSSH/ssh.exe` continue donc de servir l'agent ssh
+  de Windows. Celui d'un dépôt n'est jamais lu.
 - **si vous avez demandé un service**, son fichier vit dans votre dossier
   personnel — `~/.config/systemd/user/` sous Linux, `~/Library/LaunchAgents/`
   sous macOS. C'est la seule chose que Hive écrit là, elle est **opt-in**, et

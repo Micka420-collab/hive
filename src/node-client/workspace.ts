@@ -26,7 +26,13 @@
 import { mkdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import type { Task } from '../shared/types.js';
-import { commitDeDepart, diffContreBase, gitHote, poserRegistre } from './git-hote.js';
+import {
+  commandeSshDuMembre,
+  commitDeDepart,
+  diffContreBase,
+  gitHote,
+  poserRegistre,
+} from './git-hote.js';
 
 export interface Workspace {
   /** Répertoire de travail isolé de la tâche. */
@@ -89,8 +95,10 @@ export function buildSandboxEnv(cwd: string, keepEnv: string[] = []): NodeJS.Pro
  * invite (ni de git, ni de GCM, ni de `ssh`). Voir `git-hote.ts`.
  */
 export async function cloneRepo(dir: string, repoUrl: string): Promise<void> {
+  const parent = path.dirname(path.resolve(dir));
+  const ssh = await commandeSshDuMembre(parent);
   // `--` : une URL qui commencerait par un tiret ne devient pas une option.
-  await gitHote(['clone', '--depth', '1', '--', repoUrl, dir], path.dirname(path.resolve(dir)));
+  await gitHote(['clone', '--depth', '1', '--', repoUrl, dir], parent, { ssh });
 }
 
 export async function prepareWorkspace(

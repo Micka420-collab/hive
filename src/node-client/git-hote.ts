@@ -53,8 +53,11 @@
 //     la commande, et celle du registre n'en définit aucune. Restent ceux que
 //     la machine définit (Git for Windows inscrit `filter.lfs` dans sa
 //     configuration système, et git-lfs lit le `.lfsconfig` de l'arbre) : le
-//     registre porte `info/attributes` = `* -filter`, qui PRIME sur tout
-//     `.gitattributes`. Pilotes de diff : `--no-ext-diff --no-textconv`.
+//     registre porte un `info/attributes` qui PRIME sur tout `.gitattributes`
+//     — `* -filter`, puis les SEULES affectations de filtre que le commit de
+//     départ déclarait (`figerFiltres`). Le LFS du projet reste appliqué ;
+//     ce que l'agent ajoute ne choisit plus aucun filtre. Pilotes de diff :
+//     `--no-ext-diff --no-textconv`.
 //   · Les objets de la tâche, par `alternates` : des données, LUES seulement —
 //     jamais sa configuration ni ses crochets, et rien n'est écrit hors du
 //     registre. L'agent peut les corrompre ou les effacer (le diff ÉCHOUE
@@ -72,7 +75,7 @@
 // de bac dont sortir, et `constat()` le dit déjà (isolement.ts).
 
 import { execFile, type ExecFileException } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 /**
@@ -92,9 +95,8 @@ import path from 'node:path';
  *   · `GIT_SSH_COMMAND` en mode lot : par SSH, c'est `ssh` qui demande, pas
  *     git — clé d'hôte inconnue, phrase de passe — et il lit le TERMINAL
  *     lui-même. `BatchMode=yes` rend un refus lisible au lieu d'une attente.
- *     Revers assumé : un `core.sshCommand` du membre est remplacé ; le choix
- *     d'une clé par hôte reste possible par `~/.ssh/config`, que `ssh` lit
- *     toujours (HOME passe) ;
+ *     `ssh` : la commande à laquelle on l'ajoute — celle du MEMBRE quand il en
+ *     a une (`commandeSshDuMembre`), sinon `ssh` ;
  *   · `SSH_AUTH_SOCK` passe, lui, vers GIT et jamais vers l'agent
  *     (`buildSandboxEnv` ne le transmet pas) : c'est ce qui permet à une clé
  *     à phrase de passe, déverrouillée dans l'agent ssh du membre, de servir
@@ -103,7 +105,7 @@ import path from 'node:path';
  *   · `GIT_NO_LAZY_FETCH=1` : un objet manquant ne déclenche jamais de
  *     téléchargement depuis une commande locale (diff, add, apply).
  */
-export function envGitHote(): NodeJS.ProcessEnv {
+export function envGitHote(ssh = 'ssh'): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
     PATH: process.env.PATH,
     HOME: process.env.HOME,
@@ -113,11 +115,31 @@ export function envGitHote(): NodeJS.ProcessEnv {
     GIT_ALLOW_PROTOCOL: 'http:https:git:ssh:file',
     GIT_TERMINAL_PROMPT: '0',
     GCM_INTERACTIVE: 'Never',
-    GIT_SSH_COMMAND: 'ssh -o BatchMode=yes',
+    GIT_SSH_COMMAND: `${ssh} -o BatchMode=yes`,
     GIT_NO_LAZY_FETCH: '1',
   };
   if (process.env.SSH_AUTH_SOCK !== undefined) env.SSH_AUTH_SOCK = process.env.SSH_AUTH_SOCK;
   return env;
+}
+
+/**
+ * La commande ssh du MEMBRE : son `core.sshCommand` global, sinon système —
+ * `--global`/`--system` ne lisent QUE ces fichiers, jamais la configuration
+ * d'un dépôt, et un clone n'en a pas encore. On y AJOUTE le mode lot au lieu
+ * de la remplacer : sous Windows, `core.sshCommand =
+ * C:/Windows/System32/OpenSSH/ssh.exe` est ce qui fait parler git à l'agent
+ * ssh de Windows ; remplacé par le `ssh` de Git for Windows, une clé à phrase
+ * de passe cessait de servir. Illisible (HOME absent, fichier cassé) : `ssh`,
+ * et le clone dira lui-même ce qui ne va pas.
+ */
+export async function commandeSshDuMembre(ou: string): Promise<string> {
+  for (const portee of ['--global', '--system']) {
+    const valeur = await gitHote(['config', portee, '--includes', '--get', 'core.sshCommand'], ou)
+      .then((v) => v.trim())
+      .catch(() => '');
+    if (valeur !== '') return valeur;
+  }
+  return 'ssh';
 }
 
 /**
@@ -157,6 +179,9 @@ const PROTECTIONS = [
  * taille inconnue) n'est pas borné ici.
  */
 const DELAI_GIT_LOCAL_MS = 5 * 60_000;
+
+/** La sortie la plus grande que le nœud garde d'un git (voir `gitHote`). */
+const SORTIE_MAX_OCTETS = 256 * 1024 * 1024;
 
 /**
  * Un échec de git, avec son code de sortie (`null` : git n'a pas démarré, ou
@@ -199,7 +224,7 @@ export interface DepotEpingle {
 export function gitHote(
   args: readonly string[],
   ou: string | DepotEpingle,
-  delaiMs = DELAI_GIT_LOCAL_MS,
+  { delaiMs = DELAI_GIT_LOCAL_MS, ssh }: { delaiMs?: number; ssh?: string } = {},
 ): Promise<string> {
   const local = typeof ou !== 'string';
   // `-C` : git, lui, travaille DANS l'arbre — `apply` résout les chemins du
@@ -213,12 +238,15 @@ export function gitHote(
       [...PROTECTIONS, ...epingle, ...args],
       {
         cwd: local ? path.dirname(ou.workTree) : ou,
-        env: envGitHote(),
+        env: envGitHote(ssh),
         shell: false, // jamais d'interprétation shell (contrainte §5.1)
         windowsHide: true,
         encoding: 'utf8',
         // Un diff de revue peut être gros ; il est plafonné plus loin (LIMITS).
-        maxBuffer: 256 * 1024 * 1024,
+        // Au-delà, la tâche ÉCHOUE, message à l'appui (`raisonEchec`) : c'est
+        // voulu — tout garder en mémoire pour en jeter l'essentiel exposerait
+        // le nœud à un arbre de plusieurs Gio non ignoré.
+        maxBuffer: SORTIE_MAX_OCTETS,
         timeout: local ? delaiMs : 0,
         killSignal: 'SIGKILL',
       },
@@ -244,6 +272,12 @@ export function gitHote(
 function raisonEchec(err: ExecFileException, code: number | null, stderr: string): string {
   const sortie = stderr.trim();
   if (code !== null) return sortie || `code de sortie ${code}`;
+  if (err.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
+    return (
+      `sortie au-delà de ${SORTIE_MAX_OCTETS / 1024 / 1024} Mio — un gros fichier ` +
+      'que le `.gitignore` du projet devrait exclure ?'
+    );
+  }
   if (err.signal) {
     const cause = err.killed ? 'délai dépassé ou arrêt du nœud' : 'tué de l’extérieur';
     return `interrompu (${err.signal}, ${cause})${sortie ? ` : ${sortie}` : ''}`;
@@ -252,13 +286,55 @@ function raisonEchec(err: ExecFileException, code: number | null, stderr: string
 }
 
 /**
- * `* -filter` : aucun filtre `clean`/`smudge`/`process` ne s'applique, quel
- * que soit le `.gitattributes` qui le demande. Ce fichier du git dir PRIME sur
- * tous ceux de l'arbre (gitattributes(5)).
+ * `info/attributes` : ce fichier du git dir PRIME sur tous les `.gitattributes`
+ * de l'arbre (gitattributes(5)). Il porte `* -filter` — aucun filtre
+ * `clean`/`smudge`/`process` ne s'applique, quel que soit le `.gitattributes`
+ * qui le demande — PUIS les affectations de filtre du commit de départ, lues
+ * dans l'index que seul git a écrit : la dernière ligne qui correspond gagne,
+ * donc le filtre que le PROJET déclare (Git LFS) s'applique encore.
+ *
+ * Sans cette seconde partie, un fichier LFS intact sortait modifié de chaque
+ * diff (l'arbre porte le contenu, la base le pointeur), `git apply` refusait
+ * la fusion : toute tâche d'un projet LFS finissait en faux conflit.
+ *
+ * Un `.gitattributes` de sous-dossier se réécrit contre la racine : un motif
+ * sans `/` vaut à toute profondeur SOUS son dossier (préfixe `d/**`), un
+ * motif avec `/` est relatif à ce dossier. Écarts assumés, faute de cas
+ * réels : un motif entre guillemets et une macro (`[attr]`) qui porterait
+ * `filter` ne sont pas repris — ces fichiers restent alors sans filtre, et
+ * sortent modifiés du diff : visiblement.
  */
-function neutraliserFiltres(gitDir: string): void {
-  mkdirSync(path.join(gitDir, 'info'), { recursive: true });
-  writeFileSync(path.join(gitDir, 'info', 'attributes'), '* -filter\n');
+async function figerFiltres(depot: DepotEpingle): Promise<void> {
+  const lignes = ['* -filter'];
+  // `-s` : le mode — un `.gitattributes` lien symbolique n'est pas lu par git.
+  const entrees = await gitHote(['ls-files', '-s', '-z', '--', ':(glob)**/.gitattributes'], depot);
+  const fichiers: { blob: string; dossier: string }[] = [];
+  for (const entree of entrees.split('\0')) {
+    const m = /^100\d{3} ([0-9a-f]+) 0\t(.+)$/.exec(entree);
+    if (m?.[1] && m[2]) fichiers.push({ blob: m[1], dossier: path.posix.dirname(m[2]) });
+  }
+  // Du moins profond au plus profond : le plus profond gagne, comme dans l'arbre.
+  const profondeur = (d: string): number => (d === '.' ? 0 : d.split('/').length);
+  fichiers.sort((a, b) => profondeur(a.dossier) - profondeur(b.dossier));
+  for (const { blob, dossier } of fichiers) {
+    for (const ligne of (await gitHote(['cat-file', 'blob', blob], depot)).split(/\r?\n/)) {
+      const [motif, ...attributs] = ligne.trim().split(/\s+/);
+      const filtres = attributs.filter((a) => /^[-!]?filter(=|$)/.test(a));
+      if (!motif || filtres.length === 0 || /^([#!"]|\[attr\])/.test(motif)) continue;
+      lignes.push(`${relatifALaRacine(dossier, motif)} ${filtres.join(' ')}`);
+    }
+  }
+  mkdirSync(path.join(depot.gitDir, 'info'), { recursive: true });
+  writeFileSync(path.join(depot.gitDir, 'info', 'attributes'), `${lignes.join('\n')}\n`);
+}
+
+/** Un motif du `.gitattributes` de `dossier`, réécrit pour la racine. */
+function relatifALaRacine(dossier: string, motif: string): string {
+  if (dossier === '.') return motif;
+  const sansFinale = motif.replace(/\/$/, '');
+  return sansFinale.includes('/')
+    ? `${dossier}/${motif.replace(/^\//, '')}`
+    : `${dossier}/**/${motif}`;
 }
 
 /**
@@ -306,13 +382,18 @@ export async function poserRegistre(
     `${path.join(source, 'objects').split(path.sep).join('/')}\n`,
   );
   // Un clone `--depth 1` n'a pas le parent de son commit : sans `shallow`,
-  // git le chercherait.
-  for (const fichier of ['shallow', 'index']) {
-    const chemin = path.join(source, fichier);
-    if (existsSync(chemin)) copyFileSync(chemin, path.join(registre, fichier));
+  // git le chercherait. L'index vient avec son cache de dates : sans lui,
+  // chaque fichier serait relu. Et avec ses `sharedindex.*` : sous un
+  // `core.splitIndex=true` du membre, l'index n'est qu'un renvoi vers eux, et
+  // sans eux chaque diff échouait (« index file open failed »).
+  const aCopier = readdirSync(source).filter(
+    (f) => f === 'shallow' || f === 'index' || f.startsWith('sharedindex.'),
+  );
+  for (const fichier of aCopier) {
+    copyFileSync(path.join(source, fichier), path.join(registre, fichier));
   }
-  neutraliserFiltres(registre);
   const depot = { gitDir: registre, workTree };
+  await figerFiltres(depot);
   if (base !== null) await gitHote(['update-ref', '--no-deref', 'HEAD', base], depot);
   return depot;
 }
@@ -335,9 +416,12 @@ export async function diffContreBase(depot: DepotEpingle, base: string | null): 
       '--no-ext-diff',
       '--no-textconv',
       // Un dépôt IMBRIQUÉ dans l'arbre est un sous-module aux yeux de git, et
-      // en juger l'état lancerait un `git status` DANS ce dépôt — avec SA
-      // configuration, que l'agent a écrite.
-      '--ignore-submodules=all',
+      // juger s'il est « sale » lancerait un `git status` DANS ce dépôt — avec
+      // SA configuration, que l'agent a écrite. `dirty` coupe CE jugement-là
+      // (aucun processus lancé, vérifié sous GIT_TRACE) mais garde la ligne
+      // `Subproject commit` : le dépôt imbriqué reste VISIBLE à la revue — son
+      // contenu n'y est pas, et `all` le faisait disparaître sans un mot.
+      '--ignore-submodules=dirty',
       ...(base !== null ? [base] : []),
     ],
     depot,
@@ -347,13 +431,13 @@ export async function diffContreBase(depot: DepotEpingle, base: string | null): 
 /**
  * Épingle un dépôt que le NŒUD a cloné et où aucun code étranger n'a encore
  * tourné (le clone d'un merge) : son git dir est de confiance, on le garde, et
- * on y neutralise les filtres que des `.gitattributes` appliqués feraient
- * sinon tourner.
+ * on y fige les filtres du commit cloné — un `.gitattributes` qu'un diff
+ * appliquerait ensuite n'en choisit aucun (`figerFiltres`).
  */
-export function epinglerClone(repoDir: string): DepotEpingle {
+export async function epinglerClone(repoDir: string): Promise<DepotEpingle> {
   // Absolus : `-C <arbre>` passe AVANT `--git-dir` (gitHote).
   const workTree = path.resolve(repoDir);
   const depot = { gitDir: path.join(workTree, '.git'), workTree };
-  neutraliserFiltres(depot.gitDir);
+  await figerFiltres(depot);
   return depot;
 }
