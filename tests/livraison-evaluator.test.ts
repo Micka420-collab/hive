@@ -15,12 +15,18 @@
 //     deux verdicts où une preuve indépendante a dit non ;
 //   · une preuve qui MANQUE (`human_review_required`, `additional_test_required`)
 //     n'arrête rien : l'humain qui livre est justement celui qui relit ;
-//   · passer outre est un RÉGLAGE du projet : propriétaire ou administrateur
-//     (ou le jeton sur un projet orphelin), une raison obligatoire, et
-//     `evaluator_overridden` garde qui, pourquoi, contre quel verdict.
+//   · livrer et fusionner ÉCRIVENT avec la clé GitHub de l'hôte : il faut
+//     répondre du projet (propriétaire, administrateur, ou le jeton sur un
+//     orphelin), parler au nom de l'hôte (le jeton de ruche ou un compte
+//     administrateur), et répondre de CHAQUE projet qui tient le même dépôt ;
+//   · qui peut livrer peut passer outre, avec une raison obligatoire, et
+//     `evaluator_overridden` garde qui, pourquoi, contre quel verdict — en faits
+//     typés seulement.
 //
 // Le faux GitHub est celui de `livraison-parcours.test.ts` : `HIVE_GITHUB_API`
-// pointe sur un serveur local, rien ne part sur le réseau.
+// pointe sur un serveur local, rien ne part sur le réseau. Il sert N'IMPORTE
+// QUEL dépôt `micka/…` : chaque projet du banc a le sien, sauf quand un test
+// éprouve justement deux projets sur le même dépôt.
 
 import { mkdtempSync, rmSync } from 'node:fs';
 import { createServer as creerHttp } from 'node:http';
@@ -32,7 +38,9 @@ import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
 
 const TOKEN = 'jeton-livraison-evaluator-long';
+/** Le dépôt du projet POSSÉDÉ ; l'orphelin a le sien (cf. `beforeAll`). */
 const DEPOT = 'micka/ruche-evaluee';
+const DEPOT_ORPHELIN = 'micka/ruche-orpheline';
 
 const DIFF = [
   'diff --git a/note.txt b/note.txt',
@@ -55,6 +63,7 @@ describe('livrer et fusionner sous le verdict de l’Evaluator', () => {
   let idProprio = '';
   let jetonProprio = '';
   let jetonMembre = '';
+  let jetonInconnu = '';
   let prochainePr = 500;
   /** Les pull requests que le faux GitHub a ouvertes, puis fusionnées. */
   const ouvertes: number[] = [];
@@ -64,6 +73,8 @@ describe('livrer et fusionner sous le verdict de l’Evaluator', () => {
 
   const jeton = { 'x-hive-token': TOKEN };
   const compte = (t: string) => ({ authorization: `Bearer ${t}` });
+  /** Ce que le tableau de bord envoie à un propriétaire connecté : les deux. */
+  const proprioConnecte = () => ({ ...compte(jetonProprio), ...jeton });
 
   const poster = (chemin: string, corps: unknown, entetes: Record<string, string>) =>
     fetch(`${base}${chemin}`, {
@@ -132,13 +143,11 @@ describe('livrer et fusionner sous le verdict de l’Evaluator', () => {
         res.writeHead(code, { 'content-type': 'application/json' });
         res.end(JSON.stringify(corps));
       };
-      if (u.pathname === `/repos/${DEPOT}`) {
-        return repondre(200, { full_name: DEPOT, default_branch: 'main' });
-      }
-      if (u.pathname === `/repos/${DEPOT}/git/ref/heads/main`) {
-        return repondre(200, { object: { sha: 'base-sha' } });
-      }
-      if (u.pathname.startsWith(`/repos/${DEPOT}/contents/`)) {
+      const [, depot = '', suite = ''] = /^\/repos\/(micka\/[^/]+)(.*)$/.exec(u.pathname) ?? [];
+      if (depot === '') return repondre(404, { message: 'Not Found' });
+      if (suite === '') return repondre(200, { full_name: depot, default_branch: 'main' });
+      if (suite === '/git/ref/heads/main') return repondre(200, { object: { sha: 'base-sha' } });
+      if (suite.startsWith('/contents/')) {
         return repondre(200, {
           type: 'file',
           sha: 'ancien-sha',
@@ -146,18 +155,16 @@ describe('livrer et fusionner sous le verdict de l’Evaluator', () => {
           content: Buffer.from('avant\n').toString('base64'),
         });
       }
-      if (u.pathname === `/repos/${DEPOT}/git/blobs`) return repondre(201, { sha: 'blob-sha' });
-      if (u.pathname === `/repos/${DEPOT}/git/trees`) return repondre(201, { sha: 'arbre-sha' });
-      if (u.pathname === `/repos/${DEPOT}/git/commits`) {
-        return repondre(201, { sha: 'commit-sha' });
-      }
-      if (u.pathname === `/repos/${DEPOT}/git/refs`) return repondre(201, { ref: 'ok' });
-      if (u.pathname === `/repos/${DEPOT}/pulls` && req.method === 'POST') {
+      if (suite === '/git/blobs') return repondre(201, { sha: 'blob-sha' });
+      if (suite === '/git/trees') return repondre(201, { sha: 'arbre-sha' });
+      if (suite === '/git/commits') return repondre(201, { sha: 'commit-sha' });
+      if (suite === '/git/refs') return repondre(201, { ref: 'ok' });
+      if (suite === '/pulls' && req.method === 'POST') {
         const numero = prochainePr++;
         ouvertes.push(numero);
         return repondre(201, {
           number: numero,
-          html_url: `https://github.com/${DEPOT}/pull/${numero}`,
+          html_url: `https://github.com/${depot}/pull/${numero}`,
         });
       }
       const m = /^\/repos\/(.+)\/pulls\/(\d+)\/merge$/.exec(u.pathname);
@@ -193,12 +200,16 @@ describe('livrer et fusionner sous le verdict de l’Evaluator', () => {
     jetonProprio = proprio.token;
     const membre = await inscrire('membre@ruche.test');
     jetonMembre = membre.token;
+    jetonInconnu = (await inscrire('inconnu@ailleurs.test')).token;
 
-    const repoUrl = `https://github.com/${DEPOT}.git`;
-    orphelin = server.store.createProject({ name: 'Orphelin', repoUrl, ownerId: null }).id;
+    orphelin = server.store.createProject({
+      name: 'Orphelin',
+      repoUrl: `https://github.com/${DEPOT_ORPHELIN}.git`,
+      ownerId: null,
+    }).id;
     possede = server.store.createProject({
       name: 'Possédé',
-      repoUrl,
+      repoUrl: `https://github.com/${DEPOT}.git`,
       visibility: 'private',
       ownerId: proprio.id,
     }).id;
@@ -231,6 +242,8 @@ describe('livrer et fusionner sous le verdict de l’Evaluator', () => {
     expect(corps.decision).toBe('correction_required');
     expect(corps.raisons.join(' ')).toMatch(/Gardiennes/);
     expect(corps.conseil, 'le refus nomme la sortie').toMatch(/forcer/);
+    // Avant la livraison, la production se fait encore corriger.
+    expect(corps.conseil).toContain(`/api/tasks/${tache}/evaluation/retry`);
     expect(ouvertes.length, 'une pull request est partie malgré le verdict').toBe(avant);
     expect(server.store.getLivraison(tache), 'une livraison a été réservée').toBeFalsy();
   });
@@ -253,19 +266,16 @@ describe('livrer et fusionner sous le verdict de l’Evaluator', () => {
     expect(r.status).toBe(201);
   });
 
-  it('PASSER OUTRE : le propriétaire, avec une raison — pas un membre, et jamais sans trace', async () => {
+  it('PASSER OUTRE : qui peut livrer, avec une raison — et une trace en faits typés', async () => {
     const tache = production(possede, 'suspect');
 
-    // Un membre ENGAGE le projet (il atteint le verdict)…
-    const sansForcer = await poster('/api/livraison', { taskId: tache }, compte(jetonMembre));
-    expect(sansForcer.status).toBe(409);
-    // …mais passer outre est un réglage : 403, qui dit à qui s'adresser.
-    const parMembre = await poster(
-      '/api/livraison',
-      { taskId: tache, forcer: { raison: 'je suis pressé' } },
-      compte(jetonMembre),
-    );
-    expect(parMembre.status).toBe(403);
+    // Un membre ENGAGE le projet ; il ne décide pas de ce qui part chez GitHub,
+    // forcé ou non : 403, qui dit à qui s'adresser.
+    for (const corps of [{ taskId: tache }, { taskId: tache, forcer: { raison: 'pressé' } }]) {
+      const parMembre = await poster('/api/livraison', corps, compte(jetonMembre));
+      expect(parMembre.status).toBe(403);
+      expect(((await parMembre.json()) as { error: string }).error).toMatch(/propriétaire/);
+    }
     // Le jeton de ruche n'engage même pas le projet d'autrui.
     const parJeton = await poster(
       '/api/livraison',
@@ -277,7 +287,7 @@ describe('livrer et fusionner sous le verdict de l’Evaluator', () => {
     const muet = await poster(
       '/api/livraison',
       { taskId: tache, forcer: { raison: '   ' } },
-      compte(jetonProprio),
+      proprioConnecte(),
     );
     expect(muet.status).toBe(400);
     expect(forcages(tache), 'aucun refus ne doit laisser de trace de forçage').toHaveLength(0);
@@ -285,7 +295,7 @@ describe('livrer et fusionner sous le verdict de l’Evaluator', () => {
     const r = await poster(
       '/api/livraison',
       { taskId: tache, forcer: { raison: 'faux positif des Gardiennes, relu à la main' } },
-      compte(jetonProprio),
+      proprioConnecte(),
     );
     expect(r.status).toBe(201);
     const [trace] = forcages(tache);
@@ -297,6 +307,21 @@ describe('livrer et fusionner sous le verdict de l’Evaluator', () => {
       raison: 'faux positif des Gardiennes, relu à la main',
       parUserId: idProprio,
     });
+    // Faits TYPÉS seulement : les raisons de l'Evaluator peuvent citer le texte
+    // d'un agent, et ce journal part à tout le tableau de bord.
+    expect(trace?.payload, 'le journal recopie les raisons de l’Evaluator').not.toHaveProperty(
+      'raisons',
+    );
+
+    // Un second forçage sur une tâche DÉJÀ livrée est refusé (409) — et ne
+    // laisse pas de trace : il n'a rien forcé.
+    const encore = await poster(
+      '/api/livraison',
+      { taskId: tache, forcer: { raison: 'une deuxième fois' } },
+      proprioConnecte(),
+    );
+    expect(encore.status).toBe(409);
+    expect(forcages(tache), 'un forçage refusé a laissé une trace').toHaveLength(1);
   });
 
   it('LA FUSION RELIT LE VERDICT AU MOMENT DE FUSIONNER', async () => {
@@ -309,8 +334,13 @@ describe('livrer et fusionner sous le verdict de l’Evaluator', () => {
 
     const refus = await poster('/api/livraison/fusion', { projectId: orphelin, pr }, jeton);
     expect(refus.status).toBe(409);
-    expect(((await refus.json()) as { decision: string }).decision).toBe('correction_required');
+    const corps = (await refus.json()) as { decision: string; conseil: string };
+    expect(corps.decision).toBe('correction_required');
     expect(fusionnees, 'la PR a été fusionnée malgré le verdict').not.toContain(pr);
+    // Après la livraison, relancer la tâche est FERMÉ (`delivery_exists`) : le
+    // conseil nomme la reprise de la pull request, pas un second refus.
+    expect(corps.conseil).toContain(`/api/projects/${orphelin}/livraisons/${tache}/reprendre`);
+    expect(corps.conseil).not.toContain('evaluation/retry');
 
     // Sur un projet orphelin, le jeton de ruche EST le propriétaire (ADR 0007).
     const forcee = await poster(
@@ -327,5 +357,130 @@ describe('livrer et fusionner sous le verdict de l’Evaluator', () => {
       raison: 'rejet levé à l’oral, on fusionne',
       parUserId: null,
     });
+  });
+
+  it('UNE PULL REQUEST DONT LA TÂCHE A DISPARU NE SE FUSIONNE PAS EN SILENCE', async () => {
+    // L'élagage des livraisons passe AVANT celui des tâches : une livraison
+    // ouverte peut survivre à sa tâche. Sans verdict, pas de feu vert.
+    const pr = prochainePr++;
+    server.store.setLivraison({
+      taskId: 'tache-elaguee',
+      projectId: orphelin,
+      depot: DEPOT_ORPHELIN,
+      pr,
+      branche: 'hive/tache-elaguee',
+      etat: 'ouverte',
+    });
+    const refus = await poster('/api/livraison/fusion', { projectId: orphelin, pr }, jeton);
+    expect(refus.status).toBe(409);
+    expect(((await refus.json()) as { code: string }).code).toBe('evaluation_indisponible');
+    expect(fusionnees).not.toContain(pr);
+
+    const forcee = await poster(
+      '/api/livraison/fusion',
+      { projectId: orphelin, pr, forcer: { raison: 'relue sur GitHub, tâche élaguée' } },
+      jeton,
+    );
+    expect(forcee.status).toBe(200);
+    expect(fusionnees).toContain(pr);
+    expect(forcages('tache-elaguee')[0]?.payload).toMatchObject({
+      geste: 'fusion',
+      decision: null,
+      raison: 'relue sur GitHub, tâche élaguée',
+    });
+  });
+
+  it('LA CLÉ GITHUB DE L’HÔTE N’OBÉIT PAS AU PREMIER INSCRIT VENU', async () => {
+    // L'inscription est ouverte par défaut. Un inconnu, sans le jeton de ruche,
+    // crée SON projet sur un dépôt que la clé de l'hôte atteint : il en est le
+    // propriétaire. Il ne livre pas, ne fusionne pas, et ne règle pas la ruche
+    // pour qu'elle le fasse à sa place.
+    const creation = await poster(
+      '/api/projects/user',
+      { name: 'Le mien', repoUrl: 'https://github.com/micka/depot-de-l-hote' },
+      compte(jetonInconnu),
+    );
+    expect(creation.status).toBe(201);
+    const { id: sien } = (await creation.json()) as { id: string };
+    const tache = production(sien, 'clean');
+    const avant = ouvertes.length;
+
+    const livraison = await poster('/api/livraison', { taskId: tache }, compte(jetonInconnu));
+    expect(livraison.status).toBe(403);
+    expect(((await livraison.json()) as { code: string }).code).toBe('jeton_hote_requis');
+    server.store.setLivraison({
+      taskId: tache,
+      projectId: sien,
+      depot: 'micka/depot-de-l-hote',
+      pr: 4242,
+      branche: `hive/${tache}`,
+      etat: 'ouverte',
+    });
+    const fusion = await poster(
+      '/api/livraison/fusion',
+      { projectId: sien, pr: 4242 },
+      compte(jetonInconnu),
+    );
+    expect(fusion.status).toBe(403);
+    const essaim = await poster(
+      `/api/projects/${sien}/essaim`,
+      { niveau: 'gouverne' },
+      compte(jetonInconnu),
+    );
+    expect(essaim.status, 'régler « gouverne », c’est livrer plus tard').toBe(403);
+    // Ce qui n'écrit pas chez GitHub reste à lui : il règle « propose ».
+    const propose = await poster(
+      `/api/projects/${sien}/essaim`,
+      { niveau: 'propose' },
+      compte(jetonInconnu),
+    );
+    expect(propose.status).toBe(200);
+    expect(ouvertes.length, 'une pull request est partie').toBe(avant);
+    expect(fusionnees).not.toContain(4242);
+
+    // Le propriétaire d'un projet sur SON dépôt, connecté comme le tableau de
+    // bord le connecte (compte + jeton), livre ; son compte seul ne suffit pas.
+    const autre = production(possede, 'clean');
+    const compteSeul = await poster('/api/livraison', { taskId: autre }, compte(jetonProprio));
+    expect(compteSeul.status).toBe(403);
+    expect((await poster('/api/livraison', { taskId: autre }, proprioConnecte())).status).toBe(201);
+  });
+
+  it('UN SECOND PROJET SUR LE MÊME DÉPÔT NE ROUVRE PAS AU JETON LE DÉPÔT D’UN PROPRIÉTAIRE', async () => {
+    // Le jeton ne livre plus sur le projet possédé. Il créait alors un projet
+    // ORPHELIN sur le même dépôt — `.git` en moins, casse changée : rien ne le
+    // dédoublonne —, qui lui était ouvert, et livrait puis fusionnait de là.
+    for (const repoUrl of [
+      `https://github.com/${DEPOT}`,
+      `https://github.com/${DEPOT.toUpperCase()}.git`,
+    ]) {
+      const cree = await poster('/api/projects', { name: 'Alias', repoUrl }, jeton);
+      expect(cree.status).toBe(201);
+      const { id: alias } = (await cree.json()) as { id: string };
+      const tache = production(alias, 'clean');
+      const avant = ouvertes.length;
+
+      const livraison = await poster('/api/livraison', { taskId: tache }, jeton);
+      expect(livraison.status, repoUrl).toBe(403);
+      expect(((await livraison.json()) as { code: string }).code).toBe('depot_tenu_ailleurs');
+      server.store.setLivraison({
+        taskId: tache,
+        projectId: alias,
+        depot: DEPOT,
+        pr: 4343,
+        branche: `hive/${tache}`,
+        etat: 'ouverte',
+      });
+      const fusion = await poster('/api/livraison/fusion', { projectId: alias, pr: 4343 }, jeton);
+      expect(fusion.status, repoUrl).toBe(403);
+      const plein = await poster(
+        `/api/projects/${alias}/essaim`,
+        { niveau: 'plein', depotInscrit: true },
+        jeton,
+      );
+      expect(plein.status, `${repoUrl} : plein + dépôt inscrit`).toBe(403);
+      expect(ouvertes.length, 'une pull request est partie de l’alias').toBe(avant);
+      expect(fusionnees).not.toContain(4343);
+    }
   });
 });

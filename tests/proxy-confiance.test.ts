@@ -67,6 +67,14 @@ describe('lireConfianceProxy — ce que HIVE_TRUST_PROXY accorde', () => {
       expect(lu.refus, brut).not.toBeNull();
     }
   });
+
+  it('CHAQUE REFUS DIT QUOI ÉCRIRE À LA PLACE — la Reine refuse de démarrer dessus', () => {
+    for (const brut of ['true', '1', 'caddy', ',']) {
+      expect(lireConfianceProxy(brut).refus, brut).toMatch(
+        /Valeurs acceptées : loopback .*uniquelocal .*linklocal, une IP ou un CIDR/,
+      );
+    }
+  });
 });
 
 describe('les compteurs anti-abus derrière un proxy — une vraie Reine', () => {
@@ -147,5 +155,29 @@ describe('les compteurs anti-abus derrière un proxy — une vraie Reine', () =>
       await marteler(port, '198.51.100.99', 1),
       'l’en-tête d’un pair non déclaré a été cru',
     ).toBe(429);
+  });
+
+  it('LE GUET NE SERT PAS L’ADRESSE DES CURIEUX À TOUT PORTEUR DU JETON', async () => {
+    // Derrière un proxy déclaré, le guet connaît enfin l'adresse du CLIENT. Il
+    // la garde pour compter les sources ; `/api/guet`, lu par toute machine qui
+    // a le jeton de ruche, ne la recopie pas — l'écran ne l'affichait pas.
+    const { port } = await reine('loopback');
+    const leurre = await fetch(`http://127.0.0.1:${port}/.env`, {
+      headers: { 'x-forwarded-for': '203.0.113.77' },
+    });
+    expect(leurre.status, 'le banc : un leurre répond comme une page absente').toBe(404);
+    const r = await fetch(`http://127.0.0.1:${port}/api/guet`, {
+      headers: { 'x-hive-token': 'jeton-de-banc-suffisamment-long' },
+    });
+    expect(r.status).toBe(200);
+    const texte = await r.text();
+    const guet = JSON.parse(texte) as {
+      sources: number;
+      derniers: Record<string, unknown>[];
+    };
+    expect(guet.sources, 'le passage a bien été compté').toBe(1);
+    expect(guet.derniers[0]).toMatchObject({ chemin: '/.env' });
+    expect(Object.keys(guet.derniers[0] ?? {}).sort()).toEqual(['appat', 'chemin', 'quand']);
+    expect(texte, 'l’adresse du curieux est sortie').not.toContain('203.0.113.77');
   });
 });

@@ -213,11 +213,31 @@ de la matrice), ou le jeton de ruche sur un projet orphelin. Un membre qui y
 travaille reçoit un 403 qui dit à qui s'adresser — il sait déjà que le projet
 existe.
 
-**L'Evaluator est écouté au moment de livrer.** Livraison et fusion rendent 409
-quand il demande une correction ou rejette la production. Passer outre est un
-réglage : même porte, une raison obligatoire (`forcer: { raison }`, CLI
-`--forcer="…"`), et l'événement `evaluator_overridden` garde qui, pourquoi, et
-contre quel verdict.
+**Décider n'est pas engager non plus.** La revue humaine (approuvée, elle ouvre
+la livraison autonome), l'annulation, la livraison et la fusion disent ce que
+devient un travail déjà fait : même porte que les réglages. La raison est
+précise : être membre ne prouve pas qu'on a été admis. `peutRejoindre` ouvre
+tout projet public au premier compte venu, et un inconnu inscrit à l'instant
+livrait puis fusionnait ainsi, avec la clé GitHub de l'hôte, sur la vitrine
+d'autrui. Ce qu'un membre inscrit tout seul peut encore ENGAGER (des tâches)
+reste une décision d'hôte ouverte.
+
+**La clé GitHub de l'hôte obéit à l'hôte.** Livrer, fusionner, et régler la
+ruche à `gouverne` ou plus (elle livre alors seule) écrivent avec
+`HIVE_GITHUB_TOKEN`. Il faut donc, en plus de répondre du projet, parler au nom
+de l'hôte — le jeton de ruche ou un compte administrateur — et répondre de
+CHAQUE projet qui tient le même dépôt. Sans la première condition, un inconnu
+créait son propre projet sur un dépôt de l'hôte et y livrait ; sans la seconde,
+le jeton créait un projet orphelin sur le dépôt d'un propriétaire (un `.git` en
+moins suffit) et rouvrait au jeton un dépôt qu'un propriétaire lui avait soustrait.
+
+**L'Evaluator est écouté au moment de livrer — sur les deux voies.** Livraison
+et fusion rendent 409 quand il demande une correction ou rejette la production ;
+la ruche autonome ne livre ni ne fusionne ces productions-là, et une pull
+request dont la tâche a disparu ne se fusionne pas sans forçage. Passer outre
+demande une raison (`forcer: { raison }`, CLI `--forcer="…"`), et l'événement
+`evaluator_overridden` garde qui, pourquoi, et contre quel verdict — en faits
+typés, sans recopier les raisons de l'Evaluator, qui peuvent citer un agent.
 
 Enfin, le premier compte (futur administrateur) exige le jeton de ruche sur
 TOUTE ruche : l'adresse d'écoute ne disait pas qui parle, et un proxy posé sur

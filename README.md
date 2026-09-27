@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-6092%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-6125%20passing-F6C445?labelColor=17130C)
 ![Licence](https://img.shields.io/badge/licence-MIT-F6C445?labelColor=17130C)
 
 🇫🇷 Français · [🇬🇧 English](README.en.md) · [🌐 Site](https://micka420-collab.github.io/hive/) · [📚 Documentation](#-documentation)
@@ -86,7 +86,11 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
     ([#440](https://github.com/Micka420-collab/hive/pull/440)), sur toute
     ruche, proxy local compris ;
   - derrière un proxy, chaque client garde ses compteurs anti-abus
-    (`HIVE_TRUST_PROXY`, [#439](https://github.com/Micka420-collab/hive/pull/439)).
+    (`HIVE_TRUST_PROXY`, [#439](https://github.com/Micka420-collab/hive/pull/439)) ;
+  - le jeton de ruche n'engage plus le projet d'autrui ; livrer et fusionner
+    avec la clé GitHub de l'hôte exigent de répondre du projet et du dépôt, et
+    l'Evaluator arrête ce qu'il rejette, sur la voie humaine comme autonome
+    ([#467](https://github.com/Micka420-collab/hive/pull/467)).
 - **Bac à sable.** Preflight Docker, Podman et bubblewrap. L'image
   `docker/agents` embarque Claude Code, Codex et Cline, sondés dans le
   preflight durci de Hive (racine en lecture seule, `/tmp` noexec, uid non

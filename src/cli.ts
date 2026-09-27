@@ -1558,16 +1558,40 @@ async function cmdGithubImport(fullName: string): Promise<void> {
  * rejette la production. La ruche ne l'accorde qu'au propriétaire du projet ou
  * à un administrateur (HIVE_JWT), ou au jeton sur un projet orphelin, et
  * JOURNALISE la raison : il n'existe pas de forçage muet.
+ *
+ * ─── TOUTE AUTRE OPTION EST REFUSÉE, AVANT D'APPELER LA RUCHE ──────────────
+ *
+ * La forme `--forcer "raison"` (espace, pas `=`) est acceptée, parce qu'on la
+ * tape. Une option qu'on ne connaît pas, ou `--forcer` sans raison, est une
+ * erreur d'usage : la laisser passer pour un argument de position envoyait
+ * `--forcer` comme BRANCHE DE BASE de la pull request — un échec GitHub qui
+ * rangeait une livraison « échouée » et bloquait la tâche jusqu'à un
+ * nettoyage à la main.
  */
 function separerForcer(args: readonly string[]): {
   positionnels: string[];
   forcer?: { raison: string };
 } {
-  const positionnels = args.filter((a) => !a.startsWith('--forcer='));
-  const drapeau = args.find((a) => a.startsWith('--forcer='));
-  return drapeau === undefined
-    ? { positionnels }
-    : { positionnels, forcer: { raison: drapeau.slice('--forcer='.length) } };
+  const positionnels: string[] = [];
+  let raison: string | undefined;
+  for (let i = 0; i < args.length; i += 1) {
+    const a = args[i]!;
+    if (a.startsWith('--forcer=')) {
+      raison = a.slice('--forcer='.length);
+    } else if (a === '--forcer') {
+      const suivant = args[i + 1];
+      if (suivant === undefined || suivant.startsWith('--')) {
+        throw new Error('--forcer attend une raison : --forcer="pourquoi on passe outre"');
+      }
+      raison = suivant;
+      i += 1;
+    } else if (a.startsWith('--')) {
+      throw new Error(`option inconnue « ${a} » — seule --forcer="raison" est acceptée ici`);
+    } else {
+      positionnels.push(a);
+    }
+  }
+  return raison === undefined ? { positionnels } : { positionnels, forcer: { raison } };
 }
 
 /**

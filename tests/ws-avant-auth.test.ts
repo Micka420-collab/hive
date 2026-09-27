@@ -21,7 +21,9 @@
 // `Buffer[]`. Ne mesurer que la première laisserait passer, par la fragmentation,
 // exactement ce qu'on borne — et l'attaquant choisit sa fragmentation.
 
+import { randomBytes } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
+import { connect } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import WebSocket from 'ws';
@@ -246,4 +248,70 @@ describe('le nombre de sockets anonymes est borné — par client et en tout', (
     const neuf = await muette('192.0.2.77');
     expect(await issue(neuf.fermee), 'le 257e inconnu, d’un client jamais vu').toBe(4429);
   }, 20_000);
+
+  it('EN IPv6, UN CLIENT EST UN /64 — pas une adresse qu’il choisit', async () => {
+    // Un hôte IPv6 reçoit d'ordinaire un /64 entier. Compté à l'adresse, il
+    // ouvrait 16 sockets sur chacune, et seize adresses de son préfixe
+    // remplissaient les 256 places de tout le monde.
+    const prefixe = '2001:db8:1:2';
+    await Promise.all(Array.from({ length: 16 }, (_, i) => muette(`${prefixe}::${i + 1}`)));
+    const dixSeptieme = await muette(`${prefixe}:ffff::1`);
+    expect(await issue(dixSeptieme.fermee), 'la 17e du même /64').toBe(4429);
+    // L'écriture longue du même préfixe est le même client.
+    const longue = await muette('2001:0db8:0001:0002:0:0:0:99');
+    expect(await issue(longue.fermee), 'le même /64, autrement écrit').toBe(4429);
+    // Le /64 voisin est un autre client : il passe la garde, et c'est son
+    // jeton faux qui le ferme.
+    const voisin = await muette('2001:db8:1:3::1');
+    voisin.ws.send(JSON.stringify({ type: 'subscribe', token: 'pas-le-bon-jeton-du-tout' }));
+    expect(await issue(voisin.fermee), 'un autre /64').toBe(4401);
+  });
+
+  it('UNE SOCKET REFUSÉE NE FAIT PAS TOMBER UNE EXCEPTION DANS LA REINE', async () => {
+    // La socket refusée (4429) rendait la main AVANT que l'écouteur d'erreur
+    // soit posé. Une trame invalide pendant la fermeture — ici non masquée —
+    // devenait une exception non rattrapée, déclenchable par n'importe qui.
+    const nonRattrapees: unknown[] = [];
+    const temoin = (e: unknown): void => {
+      nonRattrapees.push(e);
+    };
+    process.on('uncaughtException', temoin);
+    try {
+      const x = '203.0.113.40';
+      await Promise.all(Array.from({ length: 16 }, () => muette(x)));
+      const brute = connect(server.port, '127.0.0.1');
+      const recu: Buffer[] = [];
+      const poignee = new Promise<void>((resolve, reject) => {
+        brute.on('data', (morceau: Buffer) => {
+          recu.push(morceau);
+          if (Buffer.concat(recu).includes('\r\n\r\n')) resolve();
+        });
+        brute.on('error', reject);
+      });
+      brute.write(
+        [
+          'GET /ws HTTP/1.1',
+          `Host: 127.0.0.1:${server.port}`,
+          'Upgrade: websocket',
+          'Connection: Upgrade',
+          `Sec-WebSocket-Key: ${randomBytes(16).toString('base64')}`,
+          'Sec-WebSocket-Version: 13',
+          `X-Forwarded-For: ${x}`,
+          '',
+          '',
+        ].join('\r\n'),
+      );
+      await poignee;
+      expect(Buffer.concat(recu).toString('latin1'), 'le banc : la montée a lieu').toMatch(
+        /^HTTP\/1\.1 101/,
+      );
+      // Une trame texte NON MASQUÉE : un client n'a pas le droit d'en envoyer.
+      brute.write(Buffer.from([0x81, 0x02, 0x68, 0x69]));
+      await new Promise((r) => setTimeout(r, 300));
+      brute.destroy();
+      expect(nonRattrapees, 'une exception non rattrapée est tombée dans la Reine').toEqual([]);
+    } finally {
+      process.off('uncaughtException', temoin);
+    }
+  });
 });

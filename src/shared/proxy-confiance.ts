@@ -36,6 +36,13 @@
 //
 // Exemples : `loopback` (Caddy sur la même machine), `uniquelocal` (Caddy dans
 // le réseau Docker du compose), `172.18.0.0/16`.
+//
+// ─── UN REFUS ARRÊTE LA REINE ────────────────────────────────────────────────
+//
+// Ce module ne lève jamais : un refus rend `valeur: false` et sa raison. C'est
+// `orchestrator/main.ts` qui refuse alors de démarrer, en disant quoi écrire —
+// une Reine qui démarrerait sans la confiance demandée ferait partager à tous
+// ses clients le compteur du proxy, sans autre trace qu'une ligne de journal.
 
 import { isIP } from 'node:net';
 
@@ -49,6 +56,12 @@ export interface LectureConfianceProxy {
 }
 
 const AUCUNE = new Set(['', '0', 'false', 'off', 'non', 'no']);
+
+/** Ce que chaque refus rappelle : ce qu'il faut écrire à la place. */
+const ACCEPTEES =
+  'Valeurs acceptées : loopback (proxy sur la même machine), uniquelocal (réseau privé, ' +
+  'Docker), linklocal, une IP ou un CIDR (plusieurs séparés par des virgules), ou vide ' +
+  '(aucun proxy).';
 const TOUT = new Set(['true', 'yes', 'oui', 'on', '*', 'all', 'tout']);
 const PLAGES_NOMMEES = new Set(['loopback', 'linklocal', 'uniquelocal']);
 
@@ -72,8 +85,7 @@ export function lireConfianceProxy(brut: string | undefined): LectureConfiancePr
       valeur: false,
       refus:
         `HIVE_TRUST_PROXY=${brut?.trim()} ferait croire le X-Forwarded-For de n'importe quel ` +
-        'client : nommez le proxy (loopback, uniquelocal, une IP ou un CIDR). Aucune confiance ' +
-        'accordée en attendant.',
+        `client : nommez le proxy. ${ACCEPTEES}`,
     };
   }
   if (/^\d+$/.test(texte)) {
@@ -81,9 +93,7 @@ export function lireConfianceProxy(brut: string | undefined): LectureConfiancePr
       valeur: false,
       refus:
         `HIVE_TRUST_PROXY=${texte} : un nombre de sauts n'est plus accepté — il ferait croire le ` +
-        'X-Forwarded-For de tout client joignable en direct. Valeurs acceptées : loopback (proxy ' +
-        'sur la même machine), uniquelocal (réseau privé, Docker), linklocal, une IP ou un CIDR ' +
-        '(plusieurs séparés par des virgules), ou vide. Aucune confiance accordée en attendant.',
+        `X-Forwarded-For de tout client joignable en direct. ${ACCEPTEES}`,
     };
   }
   const jetons = texte
@@ -96,7 +106,7 @@ export function lireConfianceProxy(brut: string | undefined): LectureConfiancePr
       valeur: false,
       refus:
         `HIVE_TRUST_PROXY : ${invalides.length > 0 ? `« ${invalides.join(', ')} » n'est ni une IP, ni un CIDR, ni loopback / linklocal / uniquelocal` : 'valeur illisible'}. ` +
-        'Aucune confiance accordée.',
+        ACCEPTEES,
     };
   }
   return { valeur: jetons.join(','), refus: null };

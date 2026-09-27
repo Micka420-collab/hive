@@ -21,6 +21,11 @@
 // qui en répond — le propriétaire ou un administrateur, ou le jeton sur un
 // projet orphelin. Un membre reçoit 403 : il sait déjà que le projet existe.
 //
+// DÉCIDER n'est pas engager non plus : la revue humaine, l'annulation, la
+// livraison et la fusion disent ce que devient un travail déjà fait. Même
+// porte que les réglages — parce qu'être membre ne prouve pas qu'on a été
+// admis : un projet PUBLIC se rejoint tout seul, en un clic.
+//
 // ─── POURQUOI CE FICHIER ÉNUMÈRE TOUT ────────────────────────────────────────
 //
 // Le premier resserrement tenait sur quatre routes, et un relevé complet en a
@@ -216,30 +221,6 @@ const ENGAGEMENTS: readonly Acte[] = [
     jeton: false,
   },
   {
-    nom: 'livraison',
-    methode: 'POST',
-    route: '/api/livraison',
-    url: () => '/api/livraison',
-    corps: (c) => ({ taskId: c.tache }),
-    refus: 'tache',
-  },
-  {
-    nom: 'livraison/fusion',
-    methode: 'POST',
-    route: '/api/livraison/fusion',
-    url: () => '/api/livraison/fusion',
-    corps: (c) => ({ projectId: c.projet, pr: 1 }),
-    refus: 'projet',
-  },
-  {
-    nom: 'tasks/:taskId/review',
-    methode: 'POST',
-    route: '/api/tasks/:taskId/review',
-    url: (c) => `/api/tasks/${c.tache}/review`,
-    corps: () => ({ state: null }),
-    refus: 'tache',
-  },
-  {
     nom: 'tasks/:taskId/evaluation/ci',
     methode: 'POST',
     route: '/api/tasks/:taskId/evaluation/ci',
@@ -261,6 +242,40 @@ const ENGAGEMENTS: readonly Acte[] = [
     route: '/api/tasks/:taskId/race',
     url: (c) => `/api/tasks/${c.tache}/race`,
     corps: () => ({}),
+    refus: 'tache',
+  },
+];
+
+/**
+ * Les actes qui DÉCIDENT du sort d'un travail : propriétaire ou administrateur.
+ *
+ * La revue approuvée ouvre la livraison autonome ; la livraison et la fusion
+ * écrivent sur le dépôt avec la clé GitHub de l'hôte ; l'annulation éteint le
+ * travail en cours. Aucun n'ajoute de travail — tous disent ce qu'il devient.
+ */
+const DECISIONS: readonly Acte[] = [
+  {
+    nom: 'livraison',
+    methode: 'POST',
+    route: '/api/livraison',
+    url: () => '/api/livraison',
+    corps: (c) => ({ taskId: c.tache }),
+    refus: 'tache',
+  },
+  {
+    nom: 'livraison/fusion',
+    methode: 'POST',
+    route: '/api/livraison/fusion',
+    url: () => '/api/livraison/fusion',
+    corps: (c) => ({ projectId: c.projet, pr: 1 }),
+    refus: 'projet',
+  },
+  {
+    nom: 'tasks/:taskId/review',
+    methode: 'POST',
+    route: '/api/tasks/:taskId/review',
+    url: (c) => `/api/tasks/${c.tache}/review`,
+    corps: () => ({ state: null }),
     refus: 'tache',
   },
   {
@@ -321,8 +336,9 @@ const HORS_ENGAGEMENT: Readonly<Record<string, string>> = {
   'POST /api/projects/:projectId/membres': 'admettre : `peutAdmettre`, propriétaire ou admin',
   'DELETE /api/projects/:projectId/membres/:userId': 'retirer : propriétaire ou admin',
   'POST /api/projects/:projectId/partages':
-    'un lien de LECTURE, par un compte qui lit déjà ce qu’il partage (`peutLireCode`)',
-  'DELETE /api/projects/:projectId/partages/:partageId': 'révoquer un lien : même porte',
+    'un lien de LECTURE, par un compte qui a affaire au projet (`peutEngager`)',
+  'DELETE /api/projects/:projectId/partages/:partageId':
+    'révoquer : le créateur du lien, ou qui répond du projet (`peutRegler`)',
 };
 
 describe('ADR 0007 — le jeton de ruche n’engage plus le projet d’autrui', () => {
@@ -607,13 +623,141 @@ describe('ADR 0007 — le jeton de ruche n’engage plus le projet d’autrui', 
     });
   });
 
+  describe('les DÉCISIONS', () => {
+    it('le propriétaire et l’administratrice décident ; le jeton décide sur un orphelin', async () => {
+      for (const acte of DECISIONS) {
+        for (const [qui, t] of [
+          ['le propriétaire', jetonProprio],
+          ['l’administratrice', jetonReine],
+        ] as const) {
+          const r = await tenter(possede, acte, compte(t));
+          expect(await passe(r, acte), `${acte.nom} par ${qui} (${r.status})`).toBe(true);
+          expect(r.status, `${acte.nom} par ${qui}`).not.toBe(403);
+        }
+        const r = await tenter(orphelin, acte, jeton);
+        expect(await passe(r, acte), `${acte.nom} (orphelin, ${r.status})`).toBe(true);
+        expect(r.status, `${acte.nom} (orphelin)`).not.toBe(403);
+      }
+    });
+
+    it('UN MEMBRE ENGAGE, MAIS NE DÉCIDE PAS — même en ajoutant le jeton', async () => {
+      for (const acte of DECISIONS) {
+        const r = await tenter(possede, acte, compte(jetonMembre));
+        expect(r.status, `${acte.nom} par un membre`).toBe(403);
+        expect(((await r.json()) as { error: string }).error).toMatch(/propriétaire/);
+        const avecJeton = await tenter(possede, acte, { ...compte(jetonMembre), ...jeton });
+        expect(avecJeton.status, `${acte.nom} par un membre + jeton`).toBe(403);
+      }
+    });
+
+    it('ni le jeton sur le projet d’autrui, ni un tiers, ni l’anonyme', async () => {
+      for (const acte of DECISIONS) {
+        const r = await tenter(possede, acte, jeton);
+        expect(r.status, `${acte.nom} par le jeton`).toBe(404);
+        expect(await r.text(), acte.nom).toBe(REFUS[acte.refus]);
+        expect((await tenter(possede, acte, compte(jetonTiers))).status, acte.nom).toBe(404);
+        const tiersEtJeton = await tenter(possede, acte, { ...compte(jetonTiers), ...jeton });
+        expect(tiersEtJeton.status, `${acte.nom} (tiers + jeton)`).toBe(404);
+        expect((await tenter(possede, acte, {})).status, `${acte.nom} anonyme`).toBe(401);
+      }
+    });
+
+    it('S’INSCRIRE SUR UNE VITRINE N’Y DONNE PAS LE DROIT DE DÉCIDER', async () => {
+      // LE TROU QUE CE TEST FERME. `peutRejoindre` ouvre tout projet public au
+      // premier compte venu, et un membre ENGAGE : un inconnu inscrit à
+      // l'instant, sans le jeton de ruche, rejoignait la vitrine d'un clic, puis
+      // livrait et fusionnait avec la clé GitHub de l'hôte, et approuvait sa
+      // propre revue — que la ruche en `gouverne` livrait ensuite d'elle-même.
+      //
+      // Ce qu'un membre inscrit tout seul peut ENGAGER (des tâches) reste la
+      // règle de l'ADR 0007 tant que l'hôte n'a pas tranché ; ce qu'il ne peut
+      // pas, c'est DÉCIDER. Projet et inconnu neufs : rejoindre change l'état,
+      // et `tamis-ordres` rejoue ce fichier dans tous les ordres.
+      const passant = await inscrire(`passant-${Date.now()}@ailleurs.test`);
+      const vitrine = garnir(
+        server.store.createProject({
+          name: 'Vitrine ouverte',
+          visibility: 'public',
+          ownerId: server.store.getProject(possede.projet)!.ownerId,
+        }).id,
+      );
+      const rejoint = await fetch(`${base}/api/projects/${vitrine.projet}/join`, {
+        method: 'POST',
+        headers: { ...compte(passant.token), 'x-forwarded-for': '10.9.9.9' },
+      });
+      expect(rejoint.status, 'le banc : la vitrine se rejoint d’un clic').toBe(200);
+      for (const acte of DECISIONS) {
+        const r = await tenter(vitrine, acte, compte(passant.token));
+        expect(r.status, `${acte.nom} par un membre inscrit tout seul`).toBe(403);
+      }
+      expect(server.store.getTaskReview(vitrine.tache), 'une revue a été rendue').toBeFalsy();
+      expect(server.store.getTask(vitrine.tache)?.status, 'la tâche a été annulée').toBe('pending');
+    });
+  });
+
+  describe('les LIENS DE PARTAGE', () => {
+    /** Un lien créé par `t` sur `projet` ; rend son identifiant. */
+    const partager = async (projet: string, t: string): Promise<string> => {
+      const r = await fetch(`${base}/api/projects/${projet}/partages`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...compte(t) },
+        body: JSON.stringify({ label: 'pour un invité' }),
+      });
+      expect(r.status, 'le banc : créer un lien').toBe(200);
+      return ((await r.json()) as { id: string }).id;
+    };
+    const lister = (projet: string, t: string) =>
+      fetch(`${base}/api/projects/${projet}/partages`, { headers: compte(t) });
+    const revoquer = (projet: string, id: string, t: string) =>
+      fetch(`${base}/api/projects/${projet}/partages/${id}`, {
+        method: 'DELETE',
+        headers: compte(t),
+      });
+
+    it('UN INCONNU NE VOIT NI NE RÉVOQUE LES LIENS D’UNE VITRINE', async () => {
+      // `peutLireCode` gardait ces routes : vrai pour tout inscrit sur un projet
+      // public. Un inconnu listait les liens du propriétaire et les révoquait,
+      // coupant la vue qu'il avait donnée à ses invités.
+      const id = await partager(publique.projet, jetonProprio);
+      expect((await lister(publique.projet, jetonTiers)).status).toBe(404);
+      expect((await revoquer(publique.projet, id, jetonTiers)).status).toBe(404);
+      const creer = await fetch(`${base}/api/projects/${publique.projet}/partages`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...compte(jetonTiers) },
+        body: '{}',
+      });
+      expect(creer.status, 'un inconnu crée un lien sur la vitrine d’autrui').toBe(404);
+      expect(server.store.getPartage(id)?.revoqueA, 'le lien a été révoqué').toBe(0);
+    });
+
+    it('UN MEMBRE GÈRE SES LIENS, PAS CEUX DU PROPRIÉTAIRE', async () => {
+      const duProprio = await partager(possede.projet, jetonProprio);
+      const duMembre = await partager(possede.projet, jetonMembre);
+      const vus = (await (await lister(possede.projet, jetonMembre)).json()) as { id: string }[];
+      expect(vus.map((l) => l.id)).toContain(duMembre);
+      expect(
+        vus.map((l) => l.id),
+        'le membre voit le lien du propriétaire',
+      ).not.toContain(duProprio);
+      const r = await revoquer(possede.projet, duProprio, jetonMembre);
+      expect(r.status).toBe(404);
+      expect(await r.text()).toBe(JSON.stringify({ error: 'lien inconnu' }));
+      expect(server.store.getPartage(duProprio)?.revoqueA).toBe(0);
+      expect((await revoquer(possede.projet, duMembre, jetonMembre)).status).toBe(200);
+      // Le propriétaire, lui, voit et révoque tout.
+      const tous = (await (await lister(possede.projet, jetonProprio)).json()) as { id: string }[];
+      expect(tous.map((l) => l.id)).toEqual(expect.arrayContaining([duProprio, duMembre]));
+      expect((await revoquer(possede.projet, duProprio, jetonProprio)).status).toBe(200);
+    });
+  });
+
   it('ADOPTER UN PROJET LE SOUSTRAIT AU JETON DE TOUT L’ESSAIM', async () => {
     // LE TEST QUI PORTE LA MIGRATION. La voie (c) de l'ADR — séparer le jeton
     // d'opérateur de la clé de nœud — demande de retirer au jeton partagé ce
     // qu'il n'aurait jamais dû avoir. Ce geste-là existe déjà et se fait projet
     // par projet : l'adoption.
     const aAdopter = garnir(server.store.createProject({ name: 'À protéger', ownerId: null }).id);
-    const parLeJeton = [...ENGAGEMENTS, ...REGLAGES].filter((a) => a.jeton !== false);
+    const parLeJeton = [...ENGAGEMENTS, ...REGLAGES, ...DECISIONS].filter((a) => a.jeton !== false);
     for (const acte of parLeJeton) {
       const r = await tenter(aAdopter, acte, jeton);
       expect(await passe(r, acte), `avant : ${acte.nom}`).toBe(true);
@@ -652,7 +796,7 @@ describe('ADR 0007 — le jeton de ruche n’engage plus le projet d’autrui', 
       /^\S+ \/api\/(projects\/:projectId\/|tasks\/:taskId\/|livraison)/.test(r),
     );
     const connues = new Set([
-      ...[...ENGAGEMENTS, ...REGLAGES].map((a) => `${a.methode} ${a.route}`),
+      ...[...ENGAGEMENTS, ...REGLAGES, ...DECISIONS].map((a) => `${a.methode} ${a.route}`),
       ...Object.keys(HORS_ENGAGEMENT),
     ]);
     expect(declarees.length, 'le relevé des routes a échoué').toBeGreaterThan(30);
