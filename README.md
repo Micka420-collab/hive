@@ -77,14 +77,19 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
   - base verrouillée 8 s par un autre processus ;
   - réseau gelé au-delà du délai de vie.
 
-  Chaque tâche finit avec exactement un succès rangé : aucun résultat n'est
-  compté deux fois. Un chemin réseau mort sans fermeture est éprouvé sur le
-  vrai client et de vraies sockets (`tests/noeud-veille.test.ts`) : le nœud
-  détecte la connexion morte par ping/pong au lieu d'attendre TCP
-  ([#437](https://github.com/Micka420-collab/hive/pull/437)). Arrêté par
-  SIGTERM (`npm run ruche`, systemd, `kill`), le nœud annule ses agents en
-  cours au lieu de les laisser tourner orphelins
-  ([#468](https://github.com/Micka420-collab/hive/pull/468)).
+  Chaque tâche y finit `done`, avec exactement un succès rangé. Qu'aucun
+  résultat ne soit compté deux fois repose sur deux gardes, éprouvées à part
+  parce qu'aucune de ces pannes ne les atteint à coup sûr : un résultat se
+  range en une seule transaction, tout ou rien
+  (`tests/resultat-tout-ou-rien.test.ts`), et le résultat tardif d'une tâche
+  réaffectée est écarté (`tests/scheduler.test.ts`). Un chemin réseau mort
+  sans fermeture est éprouvé sur le vrai client et de vraies sockets
+  (`tests/noeud-veille.test.ts`) : le nœud détecte la connexion morte par
+  ping/pong au lieu d'attendre TCP
+  ([#437](https://github.com/Micka420-collab/hive/pull/437)). Sous Linux et
+  macOS, hors mode conteneur, un nœud arrêté par SIGTERM (`npm run ruche`,
+  systemd, `kill`) annule ses agents en cours au lieu de les laisser tourner
+  orphelins ([#468](https://github.com/Micka420-collab/hive/pull/468)).
 
 - **Sécurité** :
   - les identifiants des dépôts privés ne sortent plus vers l'essaim
@@ -129,6 +134,10 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
   déclaration de Claude Code suit le format documenté et est éprouvée contre
   un faux binaire, pas encore contre le CLI réel ; Codex ne déclare encore
   rien à Hive ;
+- l'arrêt d'un nœud en **mode conteneur** et **sous Windows** : l'agent peut
+  survivre à son nœud (conteneur lancé sans `--init`, `TerminateProcess` sous
+  Windows), comme les merges et chantiers en cours et les sous-processus
+  qu'un agent lance lui-même ;
 - l'apprentissage : le routing apprend toujours des seules contre-visites ;
   y faire entrer les autres faits du registre Genome est une décision de
   pondération, pas encore prise ;
