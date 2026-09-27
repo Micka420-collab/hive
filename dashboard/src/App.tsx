@@ -594,6 +594,9 @@ export function App() {
             <li key={item.id}>
               <button
                 className={`mc-nav-cell${route.view === item.id ? ' active' : ''}`}
+                // L'identifiant de la vue, lisible sans dépendre de la langue :
+                // `npm run captures` nomme ses images d'après lui.
+                data-vue={item.id}
                 onClick={() => navigate(item.id)}
                 title={`${lang === 'fr' ? item.label : item.labelEn} (${t('touche', 'key')} ${item.key})`}
                 aria-current={route.view === item.id ? 'page' : undefined}

@@ -84,70 +84,9 @@ export const FOURNISSEURS_CLE: readonly FournisseurCle[] = Object.freeze([
   },
 ]);
 
-/** Catalogue optionnel pour libellés ambigus (clé normalisée minuscule). */
-const CATALOGUE_ENV: Record<string, string> = {
-  'clé seedance': 'SEEDANCE_API_KEY',
-  'cle seedance': 'SEEDANCE_API_KEY',
-  seedance: 'SEEDANCE_API_KEY',
-  'clé openai': 'OPENAI_API_KEY',
-  'cle openai': 'OPENAI_API_KEY',
-  // La réquisition que le nœud Codex ouvre : son détail dit « posez
-  // CODEX_API_KEY », et la Chambre refuse tout autre nom que celui dérivé ici.
-  'clé openai (codex)': 'CODEX_API_KEY',
-  'cle openai (codex)': 'CODEX_API_KEY',
-  'clé ou session anthropic (claude code)': 'ANTHROPIC_API_KEY',
-  'cle ou session anthropic (claude code)': 'ANTHROPIC_API_KEY',
-  'clé anthropic': 'ANTHROPIC_API_KEY',
-  'cle anthropic': 'ANTHROPIC_API_KEY',
-  'clé xai': 'XAI_API_KEY',
-  'cle xai': 'XAI_API_KEY',
-  'clé xai ou session grok': 'XAI_API_KEY',
-  'cle xai ou session grok': 'XAI_API_KEY',
-  'clé ou session cursor': 'CURSOR_API_KEY',
-  'cle ou session cursor': 'CURSOR_API_KEY',
-  'clé cursor': 'CURSOR_API_KEY',
-  'cle cursor': 'CURSOR_API_KEY',
-  'clé openrouter': 'OPENROUTER_API_KEY',
-  'cle openrouter': 'OPENROUTER_API_KEY',
-  openrouter: 'OPENROUTER_API_KEY',
-  'clé queen bee': 'QUEEN_BEE_API_KEY',
-  'cle queen bee': 'QUEEN_BEE_API_KEY',
-  'queen bee': 'QUEEN_BEE_API_KEY',
-};
-
-/** Indices dans le libellé (après normalisation) → variable d’environnement. */
-const INDICES_ENV: Array<{ re: RegExp; nom: string }> = [
-  { re: /seedance/, nom: 'SEEDANCE_API_KEY' },
-  { re: /openrouter|queen\s*bee/, nom: 'OPENROUTER_API_KEY' },
-  // Codex AVANT OpenAI : « Identifiants agent (codex) » vise l'agent Codex.
-  { re: /codex/, nom: 'CODEX_API_KEY' },
-  { re: /openai/, nom: 'OPENAI_API_KEY' },
-  { re: /anthropic|claude/, nom: 'ANTHROPIC_API_KEY' },
-  { re: /\bcursor\b/, nom: 'CURSOR_API_KEY' },
-  { re: /\bxai\b|grok/, nom: 'XAI_API_KEY' },
-];
-
 export const SECRET_REQUISITION_MAX = 512;
 
 export type MotifRefusSecret = 'vide' | 'trop_long' | 'forme';
-
-export function nomEnvDepuisLibelle(libelle: string): string {
-  const norm = libelle.trim().toLowerCase();
-  if (CATALOGUE_ENV[norm]) return CATALOGUE_ENV[norm];
-  for (const { re, nom } of INDICES_ENV) {
-    if (re.test(norm)) return nom;
-  }
-  const slug = libelle
-    .normalize('NFD')
-    .replace(/\p{M}/gu, '')
-    .replace(/^(clé|cle|key)\s+/i, '')
-    .replace(/[^A-Za-z0-9]+/g, '_')
-    .replace(/^_|_$/g, '')
-    .toUpperCase();
-  if (!slug) return 'API_KEY';
-  if (slug.endsWith('_KEY') || slug.endsWith('_API_KEY')) return slug;
-  return `${slug}_API_KEY`;
-}
 
 export function estNomEnvValide(nom: string): boolean {
   return /^[A-Z][A-Z0-9_]{0,63}$/.test(nom);

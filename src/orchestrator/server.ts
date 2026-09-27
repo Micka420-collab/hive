@@ -254,11 +254,11 @@ import {
   estEnvQueenAutorisee,
   estNomEnvValide,
   expliquerRefusSecret,
-  nomEnvDepuisLibelle,
   poserCleQueenEnv,
   presenceClesCatalogue,
   validerSecretRequisition,
 } from './requisition-env.js';
+import { nomEnvDepuisLibelle } from '../shared/nom-env.js';
 import { conseilVeilleBrief } from './queen-veille.js';
 import {
   CORPUS_GARDIENNES,

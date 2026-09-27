@@ -5,11 +5,11 @@ import { describe, expect, it } from 'vitest';
 import {
   FOURNISSEURS_CLE,
   estEnvQueenAutorisee,
-  nomEnvDepuisLibelle,
   poserCleQueenEnv,
   presenceClesCatalogue,
   validerSecretRequisition,
 } from '../src/orchestrator/requisition-env.js';
+import { nomEnvDepuisLibelle } from '../src/shared/nom-env.js';
 
 describe('requisition-env', () => {
   it('mappe Seedance et agents courants', () => {

@@ -191,6 +191,9 @@ diffs produits sont factices, et l'installeur comme la Reine le disent.
 ## 🖥 L'interface
 
 Captures de l'écran réel (`npm run ruche`), pas de maquettes.
+Chaque vue de la barre, la Chambre et un tiroir de tâche, sur bureau et sur
+mobile, se rephotographient en une commande sur une ruche de laboratoire :
+`npm run captures` ([docs/CAPTURES.md](docs/CAPTURES.md)).
 
 <p align="center">
   <img src="docs/images/vitrine.png" width="840" alt="Vitrine Hive — page d'accueil crème, miel en accent, hexagones.">
@@ -397,6 +400,7 @@ et de Node, jamais le HOME.
 | `npm run cli -- doctor`                       | **Le docteur** — 13 causes de panne, et la commande qui répare                                                                                                                |
 | `npm run preuve:v2-alpha -- --racine . --oui` | **La preuve V2 Alpha** — une vraie mission confiée à un vrai agent, jugée critère par critère une fois réglée ; `--workers 3` pour l'essaim, `--exige-bac` pour exiger le bac |
 | `npm run cli -- livrer-local <projet>`        | **Livrer sans GitHub** — la mission commitée sur `hive/mission-<projet>-<n>` (`--pousser`)                                                                                    |
+| `npm run captures`                            | **Les captures** — chaque vue de la barre, la Chambre et un tiroir, bureau et mobile, sur une ruche de laboratoire                                                            |
 | `npm run cli -- sauvegarde`                   | Sauvegarde SQLite par `VACUUM INTO`                                                                                                                                           |
 | `npm run cli -- service`                      | Installer la ruche en service (systemd · launchd · tâche planifiée)                                                                                                           |
 | `npm test`                                    | La suite complète (vitest) — le compte vit dans le badge, en un seul endroit                                                                                                  |
@@ -411,6 +415,7 @@ et de Node, jamais le HOME.
 | **[docs/INSTALLATION.md](docs/INSTALLATION.md)**             | Installer, désinstaller, service, conteneur, sauvegardes |
 | **[docs/CLOUD.md](docs/CLOUD.md)**                           | Community 0 € vs Cloud payant sur tes serveurs           |
 | **[docs/ATELIER.md](docs/ATELIER.md)**                       | Bureau de recette : écran, CDP, outils                   |
+| **[docs/CAPTURES.md](docs/CAPTURES.md)**                     | Les captures de Mission Control, et comment les refaire  |
 | **[docs/WINDOWS-CLAUDE.md](docs/WINDOWS-CLAUDE.md)**         | Tourner seul sous Windows avec son abonnement Claude     |
 | **[docs/PROTECTION-BRANCHE.md](docs/PROTECTION-BRANCHE.md)** | Protéger `main` : les réglages exacts, et pourquoi       |
 | **[docs/FONCTIONNALITES.md](docs/FONCTIONNALITES.md)**       | Chaque partie en détail, avec ses arbitrages             |
