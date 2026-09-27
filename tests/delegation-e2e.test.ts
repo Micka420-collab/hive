@@ -545,8 +545,13 @@ describe('délégation Worker → enfant en conditions réelles', () => {
         client.start();
       }
 
-      await attendre(() =>
-        ['parent-annule', 'enfant-annule', 'independante'].every((id) => demarrees.has(id)),
+      // L'accusé d'admission et le démarrage de l'enfant voyagent sur deux
+      // sockets différents : l'enfant peut démarrer avant que le parent ait lu
+      // son accusé. On attend les deux faits, pas l'un pour l'autre.
+      await attendre(
+        () =>
+          admission !== null &&
+          ['parent-annule', 'enfant-annule', 'independante'].every((id) => demarrees.has(id)),
       );
       expect(admission).toMatchObject({ ok: true, childTaskId: 'enfant-annule' });
 
@@ -561,7 +566,9 @@ describe('délégation Worker → enfant en conditions réelles', () => {
       await attendre(() => annulees.has('enfant-annule'));
       const store = server.store;
       expect(store.getTask('enfant-annule')?.status).toBe('failed');
-      expect(store.getTask('independante')?.status).toBe('running');
+      // `assigned` ou `running` selon que son `task_update` est déjà lu : ce qui
+      // compte, c'est qu'elle vole encore — et qu'elle aboutit plus bas.
+      expect(['assigned', 'running']).toContain(store.getTask('independante')?.status);
       expect(annulees.has('independante')).toBe(false);
 
       const graphe = (await (
