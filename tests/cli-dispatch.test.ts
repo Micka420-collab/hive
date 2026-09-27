@@ -148,6 +148,7 @@ const GARDEES = [
   'cancel',
   'merge',
   'merge-run',
+  'livrer-local',
   'consensus',
   'report',
   'ask',

@@ -13,6 +13,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   nomDeLivraison,
+  phraseDeLivraison,
   suffixeEnVol,
   verdictDesTests,
 } from '../dashboard/src/views/projets-rendu.js';
@@ -101,5 +102,49 @@ describe('suffixeEnVol — ne pas annoncer une activité qui n’existe plus', (
 
   it('une seule en vol compte aussi — la borne est à zéro, pas à un', () => {
     expect(suffixeEnVol(1, fr)).toBe(' · 1 en vol');
+  });
+});
+
+describe('phraseDeLivraison — une branche qui n’a pas atteint le dépôt n’est pas verte', () => {
+  const commitee = (poussee: 'non_demandee' | 'poussee' | 'refusee' | 'echec', motif?: string) => ({
+    etat: 'commitee' as const,
+    branche: 'hive/mission-p-2',
+    commit: '0123456789abcdef'.repeat(2) + '01234567',
+    poussee,
+    ...(motif ? { motif } : {}),
+  });
+
+  it('poussée : vert, et rien n’est fusionné', () => {
+    const p = phraseDeLivraison(commitee('poussee'), 'atelier', fr);
+    expect(p.gravite).toBe('ok');
+    expect(p.texte).toContain('hive/mission-p-2 (0123456789ab)');
+    expect(p.texte).toContain('Rien n’est fusionné');
+  });
+
+  it('gardée sur l’ouvrière : vert aussi — c’est ce qu’on a demandé — et on dit laquelle', () => {
+    const p = phraseDeLivraison(commitee('non_demandee'), 'atelier', en);
+    expect(p.gravite).toBe('ok');
+    expect(p.texte).toContain('kept on worker “atelier”');
+  });
+
+  it('LE CAS QUI TRANCHE : demandée mais refusée ou en échec, c’est un AVERTISSEMENT', () => {
+    for (const etat of ['refusee', 'echec'] as const) {
+      const p = phraseDeLivraison(commitee(etat, 'le motif du nœud'), 'atelier', fr);
+      expect(p.gravite, etat).toBe('avertissement');
+      expect(p.texte, etat).toContain('le motif du nœud');
+    }
+  });
+
+  it('une issue que la Reine ne connaît pas n’est ni verte ni rouge', () => {
+    const p = phraseDeLivraison({ etat: 'inconnue', motif: 'nœud déconnecté' }, 'a', fr);
+    expect(p).toEqual({ gravite: 'avertissement', texte: 'Issue inconnue : nœud déconnecté' });
+  });
+
+  it('rien de commité, ou aucun rapport : un échec qui se dit', () => {
+    expect(phraseDeLivraison({ etat: 'non_commitee', motif: 'tests rouges' }, 'a', fr)).toEqual({
+      gravite: 'echec',
+      texte: 'Rien n’est commité : tests rouges',
+    });
+    expect(phraseDeLivraison(undefined, 'a', fr).gravite).toBe('echec');
   });
 });

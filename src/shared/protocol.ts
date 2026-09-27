@@ -2,6 +2,14 @@
 // Chaque message entrant est validé champ par champ — jamais de confiance aveugle.
 
 import { nomDeChantierValide } from './chantier.js';
+import { MOTIF_BRANCHE_MISSION, NUMERO_MAX_MISSION } from './livraison-locale.js';
+import type {
+  DemandeLivraisonLocale,
+  EtatPoussee,
+  ProvenanceTache,
+  RapportDuNoeud,
+  RapportLivraisonLocale,
+} from './livraison-locale.js';
 import { estPlateforme } from './machine.js';
 import { validationsBacDepuis } from './validations-bac.js';
 import type { ValidationsBac } from './validations-bac.js';
@@ -162,6 +170,17 @@ export interface RegisterMsg {
    * l'affichage — jamais un critère d'assignation ni un privilège.
    */
   isolement?: IsolementDeclare;
+  /**
+   * L'opérateur de ce nœud a CONSENTI à pousser des branches de mission
+   * (`HIVE_LIVRAISON_POUSSER=1`). Absent : il n'y a pas consenti.
+   *
+   * Sert au hub à CHOISIR un nœud pour une livraison poussée — et à refuser
+   * tôt, avec la marche à suivre, quand aucun ne consent. Ce n'est PAS la
+   * garde : le nœud relit son propre consentement avant de pousser, parce
+   * qu'un hub qui mentirait sur ce champ pousserait sinon avec les
+   * identifiants de quelqu'un qui n'a rien accepté.
+   */
+  pousseLivraisons?: boolean;
 }
 
 /** Un constat brut sur un outil, tel que le nœud le voit. */
@@ -373,6 +392,12 @@ export interface MergeResultMsg {
    * merge lui-même (nœud déconnecté, délai dépassé).
    */
   refused?: string;
+  /**
+   * Ce que le nœud a fait de la LIVRAISON demandée (`assign_merge.livraison`) :
+   * la branche de mission commitée — et poussée ou non —, ou pourquoi rien ne
+   * l'a été. Absent quand aucune livraison n'était demandée.
+   */
+  livraison?: RapportLivraisonLocale;
 }
 
 /** Ce que le nœud a fait de la demande de pose. */
@@ -553,6 +578,12 @@ export interface AssignMergeMsg {
   prepareCommand?: string[];
   /** Commande de test optionnelle (argv, jamais interprétée par un shell). */
   testCommand?: string[];
+  /**
+   * Commiter le résultat intégré sur `hive/mission-<projectId>-<n>` — et le
+   * pousser si c'est demandé ET consenti par le nœud. Absent : le merge reste
+   * ce qu'il a toujours été, une intégration jetée après revue.
+   */
+  livraison?: DemandeLivraisonLocale;
 }
 
 /**
@@ -809,6 +840,94 @@ function isMergeConflicts(v: unknown): v is MergeConflictReport[] {
   });
 }
 
+/** Verdict d'Evaluator en transit : un jeton court, jamais une phrase. */
+const DECISION_EVALUATOR = /^[a-z_]{1,40}$/;
+
+/** Une provenance de tâche : identifiant, résultat (ou `null`), verdict. */
+function isProvenance(v: unknown): v is ProvenanceTache {
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return false;
+  const p = v as Record<string, unknown>;
+  return (
+    isId(p.taskId) &&
+    (p.resultId === null || isInt(p.resultId, 0, Number.MAX_SAFE_INTEGER)) &&
+    typeof p.decision === 'string' &&
+    DECISION_EVALUATOR.test(p.decision)
+  );
+}
+
+/**
+ * La demande de livraison jointe à un merge, RECONSTRUITE champ par champ.
+ *
+ * Elle déclenche une écriture git sur la machine d'un membre — et, poussée,
+ * sur un dépôt distant avec SES identifiants. Mal formée, `null` : le message
+ * entier est alors refusé, jamais rafistolé en « merge sans livraison » qui
+ * tairait qu'on a demandé autre chose.
+ */
+function demandeLivraison(v: unknown): DemandeLivraisonLocale | null {
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return null;
+  const d = v as Record<string, unknown>;
+  if (
+    !isId(d.projectId) ||
+    typeof d.pousser !== 'boolean' ||
+    !Array.isArray(d.provenance) ||
+    d.provenance.length === 0 ||
+    d.provenance.length > LIMITS.mergeDiffs ||
+    !d.provenance.every(isProvenance) ||
+    (d.forcage !== undefined && !isStr(d.forcage, 500)) ||
+    (d.numeroMin !== undefined && !isInt(d.numeroMin, 1, NUMERO_MAX_MISSION))
+  ) {
+    return null;
+  }
+  const demande: DemandeLivraisonLocale = {
+    projectId: d.projectId,
+    pousser: d.pousser,
+    provenance: d.provenance.map((p: ProvenanceTache) => ({
+      taskId: p.taskId,
+      resultId: p.resultId,
+      decision: p.decision,
+    })),
+  };
+  if (typeof d.forcage === 'string') demande.forcage = d.forcage;
+  if (typeof d.numeroMin === 'number') demande.numeroMin = d.numeroMin;
+  return demande;
+}
+
+const ETATS_POUSSEE = new Set<EtatPoussee>(['non_demandee', 'poussee', 'refusee', 'echec']);
+/** SHA-1 (40) ou SHA-256 (64) complet, en minuscules — ce que `git rev-parse` rend. */
+const SHA_COMMIT = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+
+/**
+ * Le rapport de livraison d'un `merge_result`, RECONSTRUIT champ par champ.
+ * Seules les issues d'un NŒUD passent : « inconnue » est un constat du hub.
+ */
+function rapportLivraison(v: unknown): RapportDuNoeud | null {
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return null;
+  const r = v as Record<string, unknown>;
+  const motifOk = r.motif === undefined || isStr(r.motif, LIMITS.arg);
+  if (r.etat === 'non_commitee') {
+    return isStr(r.motif, LIMITS.arg) ? { etat: 'non_commitee', motif: r.motif } : null;
+  }
+  if (
+    r.etat !== 'commitee' ||
+    typeof r.branche !== 'string' ||
+    !MOTIF_BRANCHE_MISSION.test(r.branche) ||
+    typeof r.commit !== 'string' ||
+    !SHA_COMMIT.test(r.commit) ||
+    !ETATS_POUSSEE.has(r.poussee as EtatPoussee) ||
+    !motifOk
+  ) {
+    return null;
+  }
+  const rapport: RapportDuNoeud = {
+    etat: 'commitee',
+    branche: r.branche,
+    commit: r.commit,
+    poussee: r.poussee as EtatPoussee,
+  };
+  if (typeof r.motif === 'string') rapport.motif = r.motif;
+  return rapport;
+}
+
 /** Commande (argv) : liste non vide et bornée de chaînes courtes non vides. */
 function isArgv(v: unknown): v is string[] {
   return (
@@ -902,6 +1021,11 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
           const isolement = isolementDeclare(m.isolement);
           if (isolement === null) return null;
           msg.isolement = isolement;
+        }
+        // Le consentement à pousser : un booléen, ou le message est refusé.
+        if (m.pousseLivraisons !== undefined) {
+          if (typeof m.pousseLivraisons !== 'boolean') return null;
+          msg.pousseLivraisons = m.pousseLivraisons;
         }
         // Les constats d'outils : mêmes règles que les deux champs au-dessus.
         // Une liste mal formée est un client qui ment ou qui bogue, et les deux
@@ -1071,6 +1195,10 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
         isStrAllowEmpty(m.logs, LIMITS.log) &&
         (m.refused === undefined || isStr(m.refused, LIMITS.name))
       ) {
+        // Mal formé, le rapport de livraison fait refuser le message : un
+        // « commité » illisible ne doit pas devenir un silence.
+        const livraison = m.livraison === undefined ? undefined : rapportLivraison(m.livraison);
+        if (livraison === null) return null;
         const msg: MergeResultMsg = {
           type: 'merge_result',
           mergeId: m.mergeId,
@@ -1083,6 +1211,7 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
         };
         if (m.preparedOk !== undefined) msg.preparedOk = m.preparedOk as boolean | null;
         if (typeof m.refused === 'string') msg.refused = m.refused;
+        if (livraison) msg.livraison = livraison;
         return msg;
       }
       return null;
@@ -1269,6 +1398,8 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
         (m.prepareCommand === undefined || isArgv(m.prepareCommand)) &&
         (m.testCommand === undefined || isArgv(m.testCommand))
       ) {
+        const livraison = m.livraison === undefined ? undefined : demandeLivraison(m.livraison);
+        if (livraison === null) return null;
         const msg: AssignMergeMsg = {
           type: 'assign_merge',
           mergeId: m.mergeId,
@@ -1277,6 +1408,7 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
         };
         if (m.prepareCommand !== undefined) msg.prepareCommand = m.prepareCommand as string[];
         if (m.testCommand !== undefined) msg.testCommand = m.testCommand as string[];
+        if (livraison) msg.livraison = livraison;
         return msg;
       }
       return null;

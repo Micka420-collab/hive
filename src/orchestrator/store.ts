@@ -6116,6 +6116,30 @@ export class HiveStore {
     return events;
   }
 
+  /**
+   * Les branches de mission que le journal a vues passer sous ce préfixe —
+   * commitées (`livraison_locale`) ou rendues trop tard (`merge_result_ignored`).
+   *
+   * Sert de PLANCHER au numéro de la livraison suivante : une branche gardée
+   * sur une ouvrière, non poussée, n'est visible d'aucune autre ouvrière ; le
+   * hub, lui, l'a journalisée. Plancher au mieux, et assumé comme tel :
+   * l'élagage du journal peut en avoir oublié, et le nœud croise de toute
+   * façon ses propres branches et celles du dépôt. Le préfixe filtre ; c'est
+   * `numeroDeMission` qui tranche (`hive/mission-p-` couvre aussi le projet
+   * `p-1`).
+   */
+  branchesDeMissionJournalisees(prefixe: string): string[] {
+    const rows = this.db
+      .prepare(
+        `SELECT json_extract(CASE WHEN json_valid(payload) THEN payload ELSE '{}' END, '$.branche') AS branche
+         FROM events
+         WHERE type IN ('livraison_locale', 'merge_result_ignored')
+           AND substr(json_extract(CASE WHEN json_valid(payload) THEN payload ELSE '{}' END, '$.branche'), 1, ?) = ?`,
+      )
+      .all(prefixe.length, prefixe) as Array<{ branche: unknown }>;
+    return rows.flatMap((r) => (typeof r.branche === 'string' ? [r.branche] : []));
+  }
+
   /** Événements de délégation d'un graphe, bornés par le journal courant. */
   listDelegationEvents(rootTaskId: string): HiveEvent[] {
     const rows = this.db

@@ -13,8 +13,17 @@
 // `node_modules` que celle-ci installe se retrouveraient dans ce qu'on soumet à
 // la revue humaine.
 //
-// Sûr par construction : ne fait NI commit NI push (jamais de merge auto sur main).
-// Le résultat (diff cumulé + verdict tests) remonte pour revue humaine.
+// Sans demande de livraison : ne fait NI commit NI push (jamais de merge auto
+// sur main). Le résultat (diff cumulé + verdict tests) remonte pour revue
+// humaine, et le clone est jeté.
+//
+// AVEC une demande de livraison (`livraison`, décidée par un humain au hub,
+// Evaluator écouté) : l'arbre intégré est capturé et son commit COMPOSÉ AVANT
+// la préparation — avant que le code du dépôt ne tourne dans le clone —, puis
+// gardé sur `hive/mission-<projectId>-<n>` si — et seulement si — tout s'est
+// appliqué et que ni la préparation ni les tests n'ont échoué. Après eux, plus
+// aucune commande git dans le clone. Jamais sur la branche principale, jamais
+// de poussée forcée (`livraison-locale.ts`).
 
 import { spawn, spawnSync } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
@@ -30,6 +39,9 @@ import type { Arret } from '../shared/validations-bac.js';
 import { LanceurIndisponible, resoudreLanceur } from '../lanceur-reel.js';
 import { envelopper } from './isolement.js';
 import type { Fournisseur } from './isolement.js';
+import { composerMission, garderMission } from './livraison-locale.js';
+import type { LivraisonDuNoeud, MissionComposee } from './livraison-locale.js';
+import type { RapportDuNoeud } from '../shared/livraison-locale.js';
 import { buildSandboxEnv } from './workspace.js';
 
 export interface MergeDiff {
@@ -77,6 +89,8 @@ export interface MergeRunOptions {
    */
   prepareTimeoutMs?: number;
   signal?: AbortSignal;
+  /** Commiter le résultat intégré sur une branche de mission (cf. en-tête). */
+  livraison?: LivraisonDuNoeud;
 }
 
 export interface MergeRunResult {
@@ -99,6 +113,8 @@ export interface MergeRunResult {
    */
   preparedOk: boolean | null;
   logs: string;
+  /** Ce qu'est devenue la livraison demandée ; absent si aucune ne l'était. */
+  livraison?: RapportDuNoeud;
 }
 
 const OUTPUT_CAP = 512 * 1024;
@@ -230,9 +246,10 @@ export function runProc(
     // test d'un merge exécute du code fourni par le dépôt, exactement comme un
     // agent, mais tournait sur l'hôte nu même sous `HIVE_ISOLEMENT=exige`.
     //
-    // `cwdHote` est le clone : c'est lui qu'on monte, et c'est aussi lui que
-    // git relira après. L'enveloppe ne déplace rien, elle restreint ce que le
-    // processus voit.
+    // `cwdHote` est le clone : c'est lui qu'on monte, `.git` compris — d'où
+    // la règle de `livraison-locale.ts` : git n'y relit PLUS RIEN après. Ce
+    // que le code testé y a écrit ne gouverne aucune commande de l'hôte.
+    // L'enveloppe ne déplace rien, elle restreint ce que le processus voit.
     // SOUS BAC À SABLE, ON NE TOUCHE À RIEN : l'enveloppe lance `docker` (un
     // vrai binaire partout) et la commande s'exécute DANS le conteneur, donc
     // sous Linux. Y appliquer une résolution Windows viserait la mauvaise
@@ -359,7 +376,8 @@ export function runProc(
 
 /**
  * Applique les diffs dans l'ordre sur le dépôt local, détecte les conflits réels
- * (git), puis lance éventuellement les tests. Ne commit ni ne push jamais.
+ * (git), puis lance éventuellement les tests. Ne commit ni ne push — sauf
+ * livraison demandée, et alors jamais ailleurs que sur une branche de mission.
  */
 export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
   // LA GARDE QUI COMPTE. Le hub refuse déjà les commandes hors liste, mais un
@@ -384,6 +402,10 @@ export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
   const conflicts: { taskId: string; reason: string }[] = [];
   const logs: string[] = [];
   const patchDir = mkdtempSync(path.join(os.tmpdir(), 'hive-merge-'));
+  // Le dépôt de TRANSIT d'une livraison : À CÔTÉ du clone, comme son `.tmp`,
+  // parce que le bac à sable ne monte que le clone. Effacé en `finally` ; la
+  // branche gardée, elle, vit dans le dépôt durable.
+  const transit = `${opts.repoDir}.livraison.git`;
 
   try {
     for (const { taskId, diff } of opts.diffs) {
@@ -409,6 +431,27 @@ export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
     // Diff cumulé (nouveaux fichiers rendus visibles via --intent-to-add).
     await git.raw(['add', '--all', '--intent-to-add']);
     const mergedDiff = await git.diff();
+
+    // L'ARBRE À LIVRER, figé MAINTENANT : après, la préparation installe ses
+    // dépendances et les tests écrivent leurs traces dans cette même copie.
+    // Capturé plus tard, le commit livrerait `node_modules` — ou le fichier
+    // qu'un test aurait réécrit — sous le nom de la mission.
+    let arbre: string | null = null;
+    if (opts.livraison && conflicts.length === 0 && mergedDiff.trim()) {
+      await git.raw(['add', '--all']);
+      arbre = (await git.raw(['write-tree'])).trim();
+    }
+    // LA MISSION SE COMPOSE ICI, pas après les tests : la préparation et les
+    // tests exécutent le code du dépôt DANS ce clone, `.git` compris. Tout ce
+    // que git doit y lire — le parent, le commit — se lit tant que seuls
+    // `clone` et `apply` y sont passés (en-tête de `livraison-locale.ts`).
+    const composee = opts.livraison
+      ? await composerSiIntegrable(opts.livraison, opts.repoDir, transit, opts.testCommand, {
+          applied,
+          conflicts,
+          arbre,
+        })
+      : undefined;
 
     let testsRun = false;
     let testsPassed: boolean | null = null;
@@ -469,6 +512,12 @@ export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
       }
     }
 
+    const livraison =
+      opts.livraison && composee
+        ? await garderSiRienNeContredit(composee, opts.livraison, { preparedOk, testsPassed })
+        : undefined;
+    if (livraison) logs.push(ligneDeLivraison(livraison));
+
     return {
       applied,
       conflicts,
@@ -477,8 +526,88 @@ export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
       testsPassed,
       preparedOk,
       logs: logs.join('\n'),
+      ...(livraison ? { livraison } : {}),
     };
   } finally {
     rmSync(patchDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    rmSync(transit, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
+}
+
+/**
+ * AVANT les tests : la mission ne se compose que sur une intégration COMPLÈTE.
+ *
+ * Chaque refus porte son motif : un merge demandé « avec livraison » qui
+ * rendrait un simple « appliqué » laisserait croire qu'une branche existe.
+ */
+async function composerSiIntegrable(
+  livraison: LivraisonDuNoeud,
+  repoDir: string,
+  transit: string,
+  testCommand: readonly string[] | undefined,
+  etat: {
+    applied: readonly string[];
+    conflicts: readonly { taskId: string }[];
+    arbre: string | null;
+  },
+): Promise<MissionComposee | RapportDuNoeud> {
+  const refus = (motif: string): RapportDuNoeud => ({ etat: 'non_commitee', motif });
+  // Une branche de mission ne livre pas une intégration PARTIELLE : elle se
+  // lirait comme « la mission », il y manquerait des tâches.
+  if (etat.conflicts.length > 0) {
+    return refus(
+      `${etat.conflicts.length} tâche(s) en conflit : une intégration partielle n’est pas livrée`,
+    );
+  }
+  if (etat.arbre === null) return refus('rien à livrer : les diffs intégrés sont vides');
+  // Les trailers diront « ces tâches, ces résultats » : ils doivent nommer
+  // EXACTEMENT ce qui a été appliqué, ni plus ni moins.
+  const annoncees = livraison.demande.provenance.map((p) => p.taskId);
+  const memes =
+    annoncees.length === etat.applied.length &&
+    new Set(annoncees).size === annoncees.length &&
+    annoncees.every((id) => etat.applied.includes(id));
+  if (!memes) {
+    return refus('provenance incomplète : elle ne nomme pas exactement les tâches intégrées');
+  }
+  return composerMission({
+    cloneDir: repoDir,
+    arbre: etat.arbre,
+    transit,
+    livraison,
+    // Sans conflit, la commande de test tourne dès que la préparation passe —
+    // et si elle ne passe pas, rien n'est gardé. « ok » est donc le seul
+    // verdict qu'un commit GARDÉ puisse porter quand une commande existe.
+    tests: testCommand?.length ? { lances: true, commande: testCommand } : { lances: false },
+  });
+}
+
+/**
+ * APRÈS les tests : la mission composée n'est gardée que si ni la préparation
+ * ni les tests ne l'ont contredite. Aucun de ces refus ne touche le clone.
+ */
+async function garderSiRienNeContredit(
+  composee: MissionComposee | RapportDuNoeud,
+  livraison: LivraisonDuNoeud,
+  etat: { preparedOk: boolean | null; testsPassed: boolean | null },
+): Promise<RapportDuNoeud> {
+  if (composee.etat !== 'composee') return composee;
+  const refus = (motif: string): RapportDuNoeud => ({ etat: 'non_commitee', motif });
+  if (etat.preparedOk === false) {
+    return refus('environnement non préparé, tests non lancés : rien n’est commité');
+  }
+  if (etat.testsPassed === false) return refus('tests en échec : rien n’est commité');
+  return garderMission(composee, livraison);
+}
+
+/** La ligne du journal de merge qui dit ce qu'est devenue la livraison. */
+function ligneDeLivraison(r: RapportDuNoeud): string {
+  if (r.etat === 'non_commitee') return `livraison : ✘ non commitée — ${r.motif}`;
+  const poussee: Record<typeof r.poussee, string> = {
+    non_demandee: 'gardée sur ce nœud',
+    poussee: 'poussée vers le dépôt',
+    refusee: `non poussée — ${r.motif ?? ''}`,
+    echec: `poussée en échec — ${r.motif ?? ''}`,
+  };
+  return `livraison : ✔ ${r.branche} (${r.commit.slice(0, 12)}), ${poussee[r.poussee]}`;
 }

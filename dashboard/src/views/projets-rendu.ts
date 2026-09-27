@@ -99,3 +99,81 @@ export function nomDeLivraison(l: LivraisonNommee): string {
 export function suffixeEnVol(enVol: number, t: Traduire): string {
   return enVol > 0 ? ` · ${enVol} ${t('en vol', 'in flight')}` : '';
 }
+
+/** La part d'un rapport de livraison de mission dont dépend la phrase (cf. `livraison-locale.ts`). */
+export type RapportLivraisonVu =
+  | {
+      etat: 'commitee';
+      branche: string;
+      commit: string;
+      poussee: 'non_demandee' | 'poussee' | 'refusee' | 'echec';
+      motif?: string;
+    }
+  | { etat: 'non_commitee'; motif: string }
+  | { etat: 'inconnue'; motif: string };
+
+/**
+ * Ce qu'une livraison de mission est devenue, en une phrase — et sa gravité.
+ *
+ * ─── TROIS GRAVITÉS, ET LA DEUXIÈME EST CELLE QU'ON RATERAIT ──────────────────
+ *
+ * `echec` : rien n'est commité. `avertissement` : la branche EXISTE, rangée sur
+ * l'ouvrière, mais la poussée demandée n'a pas eu lieu — refusée faute de
+ * consentement, ou rejetée par le dépôt. L'afficher en vert parce qu'« il y a
+ * une branche » ferait croire que le dépôt du projet l'a reçue ; c'est
+ * exactement la question que la personne se pose en cliquant « pousser ».
+ *
+ * Un rapport ABSENT n'est pas un succès non plus : un merge lancé pour livrer
+ * qui revient sans rien en dire est un échec qui se tait, et on le dit.
+ */
+export function phraseDeLivraison(
+  rapport: RapportLivraisonVu | undefined,
+  noeud: string,
+  t: Traduire,
+): { gravite: 'ok' | 'avertissement' | 'echec'; texte: string } {
+  if (!rapport) {
+    return {
+      gravite: 'echec',
+      texte: t(
+        'Aucun rapport de livraison : rien ne prouve qu’une branche existe.',
+        'No delivery report: nothing proves a branch exists.',
+      ),
+    };
+  }
+  // La Reine a perdu le fil : ni succès ni échec — on ne tranche pas à sa place.
+  if (rapport.etat === 'inconnue') {
+    return {
+      gravite: 'avertissement',
+      texte: `${t('Issue inconnue :', 'Unknown outcome:')} ${rapport.motif}`,
+    };
+  }
+  if (rapport.etat === 'non_commitee') {
+    return {
+      gravite: 'echec',
+      texte: `${t('Rien n’est commité :', 'Nothing committed:')} ${rapport.motif}`,
+    };
+  }
+  const tete = `✔ ${rapport.branche} (${rapport.commit.slice(0, 12)})`;
+  switch (rapport.poussee) {
+    case 'poussee':
+      return {
+        gravite: 'ok',
+        texte: `${tete} — ${t('poussée vers le dépôt du projet. Rien n’est fusionné.', 'pushed to the project repository. Nothing is merged.')}`,
+      };
+    case 'non_demandee':
+      return {
+        gravite: 'ok',
+        texte: `${tete} — ${t(`rangée sur l’ouvrière « ${noeud} », prête à être poussée.`, `kept on worker “${noeud}”, ready to be pushed.`)}`,
+      };
+    case 'refusee':
+      return {
+        gravite: 'avertissement',
+        texte: `${tete} — ${t('non poussée :', 'not pushed:')} ${rapport.motif ?? ''}`,
+      };
+    case 'echec':
+      return {
+        gravite: 'avertissement',
+        texte: `${tete} — ${t('poussée en échec :', 'push failed:')} ${rapport.motif ?? ''}`,
+      };
+  }
+}

@@ -83,6 +83,12 @@ import {
   peutRejoindre,
   peutVoirMembres,
 } from '../shared/acces-projet.js';
+import {
+  CONSENTEMENT_POUSSEE,
+  PREFIXE_BRANCHE_MISSION,
+  numeroSuivant,
+} from '../shared/livraison-locale.js';
+import type { ProvenanceTache, RapportLivraisonLocale } from '../shared/livraison-locale.js';
 import { argvDe, chantiersDe, jugerChantier } from '../shared/chantier.js';
 import { CHANTIER_TIMEOUT_MS, MERGE_TIMEOUT_MS, POSE_TIMEOUT_MS } from '../shared/butoirs-noeud.js';
 import { Miroir, RayonIndisponible } from './miroir.js';
@@ -115,6 +121,7 @@ import {
 import type {
   ChantierResultMsg,
   DelegationBudget,
+  MergeDiffInput,
   MergeResultMsg,
   ServerMessage,
 } from '../shared/protocol.js';
@@ -1002,8 +1009,16 @@ async function monterReine(
   const nodeOnShift = new Map<string, boolean>();
   // Honeycomb Merge : dernier résultat de merge par projet + suivi des merges en
   // cours (routage mergeId→projet, nœud, âge — pour détecter les orphelins).
+  // `livraison` : ce merge doit rendre une branche de mission — son absence au
+  // retour est alors un fait à dire, pas un détail à taire.
   const mergeResults = new Map<string, MergeResultMsg>();
-  const pendingMerges = new Map<string, TravailConfie & { projectId: string; startedAt: number }>();
+  const pendingMerges = new Map<
+    string,
+    TravailConfie & { projectId: string; startedAt: number; livraison?: { pousser: boolean } }
+  >();
+  // Les nœuds dont l'opérateur a consenti à POUSSER les branches de mission
+  // (`register.pousseLivraisons`). Sert à choisir — la garde reste au nœud.
+  const nodesQuiPoussent = new Set<string>();
   /** Chantiers partis vers un nœud et pas encore rendus. */
   const pendingChantiers = new Map<
     string,
@@ -1816,6 +1831,28 @@ async function monterReine(
   });
 
   /**
+   * Le fait « livraison de mission », au journal : des FAITS TYPÉS seulement.
+   * Le motif est du texte de nœud ; il se relit sur /merge/result, pas dans un
+   * journal diffusé à tout le tableau de bord.
+   */
+  const journaliserLivraison = (
+    projectId: string,
+    mergeId: string,
+    nodeId: string,
+    rapport: RapportLivraisonLocale,
+  ): void => {
+    emitEvent('livraison_locale', {
+      projectId,
+      mergeId,
+      nodeId,
+      etat: rapport.etat,
+      ...(rapport.etat === 'commitee'
+        ? { branche: rapport.branche, commit: rapport.commit, poussee: rapport.poussee }
+        : {}),
+    });
+  };
+
+  /**
    * Marque un merge en cours comme échoué (contact perdu, timeout, ou merge
    * que le nœud dit n'avoir PAS eu lieu) : range un résultat d'échec pour que
    * /merge/result ne reste pas `null` éternellement, et libère l'entrée
@@ -1830,10 +1867,30 @@ async function monterReine(
    * par la ligne du hub la jetait — l'échec devenait visible, et illisible.
    * `refused` rangé dans le résultat est ce que l'écran affiche.
    */
-  const failMerge = (mergeId: string, reason: string, logsDuNoeud?: string): void => {
+  const failMerge = (
+    mergeId: string,
+    reason: string,
+    logsDuNoeud?: string,
+    // Ce que le hub SAIT de la livraison : un nœud qui a refusé n'a rien
+    // commité ; un nœud qui s'est tu a pu le faire, et même pousser.
+    livraisonConnue: 'non_commitee' | 'inconnue' = 'inconnue',
+  ): void => {
     const pending = pendingMerges.get(mergeId);
     if (!pending) return;
     pendingMerges.delete(mergeId);
+    // Une livraison interrompue le DIT : sans ce rapport, l'écran qui attend
+    // une branche lirait « merge en échec » et devrait deviner le reste.
+    const livraison: RapportLivraisonLocale | undefined = !pending.livraison
+      ? undefined
+      : livraisonConnue === 'non_commitee'
+        ? { etat: 'non_commitee', motif: `merge refusé par le nœud : ${reason}` }
+        : {
+            etat: 'inconnue',
+            motif:
+              `merge sans résultat (${reason}) : la ruche ne sait pas si la branche a été ` +
+              `commitée ou poussée — regardez livraisons/${pending.projectId}.git sur le nœud, ` +
+              'et les branches hive/mission-* du dépôt du projet',
+          };
     mergeResults.set(pending.projectId, {
       type: 'merge_result',
       mergeId,
@@ -1844,8 +1901,10 @@ async function monterReine(
       testsPassed: null,
       logs: logsDuNoeud || `[hub] merge sans résultat : ${reason}`,
       refused: reason,
+      ...(livraison ? { livraison } : {}),
     });
     emitEvent('merge_failed', { projectId: pending.projectId, mergeId, reason });
+    if (livraison) journaliserLivraison(pending.projectId, mergeId, pending.nodeId, livraison);
   };
 
   /**
@@ -1996,9 +2055,23 @@ async function monterReine(
     });
   }
 
-  /** Faits communs au GET d'évaluation et à la remise en file contrôlée. */
-  const evaluationPour = (task: Task) => {
-    const results = store.resultsForTask(task.id);
+  /**
+   * Faits communs au GET d'évaluation et à la remise en file contrôlée.
+   *
+   * `jugee` : le résultat EXACT à juger, quand ce n'est pas forcément le
+   * dernier. La livraison locale intègre la dernière production RÉUSSIE ; si
+   * un essai raté l'a suivie (un concurrent de Drone Wars qui rend après le
+   * vainqueur), juger « la dernière » ferait décider la porte sur une
+   * production et en livrer une autre, sous un `Hive-Result` qui ne serait pas
+   * celui jugé. On juge alors l'historique tel qu'il était à cette production
+   * — ses preuves (CI, contre-revue, Gardiennes) sont rangées par `resultId`,
+   * elles la suivent. Introuvable : on juge tout, et l'appelant, qui compare
+   * `latest.resultId`, voit que ce n'est pas celle qu'il demandait.
+   */
+  const evaluationPour = (task: Task, jugee?: number) => {
+    const tous = store.resultsForTask(task.id);
+    const jusqua = jugee === undefined ? -1 : tous.findIndex((r) => r.resultId === jugee);
+    const results = jusqua === -1 ? tous : tous.slice(0, jusqua + 1);
     const latest = results[results.length - 1];
     const preuve = latest?.resultId ? store.latestValidation(task.id, latest.resultId) : null;
     const crossReview = latest
@@ -4204,16 +4277,53 @@ async function monterReine(
   }
 
   /**
+   * Le verdict de l'Evaluator sur une production, qu'il l'arrête ou non.
+   *
+   * `jugee` : la production EXACTE qu'on livre, quand ce n'est pas forcément la
+   * dernière (la livraison locale intègre la dernière RÉUSSIE — cf.
+   * `evaluationPour`). Un verdict rendu sur une AUTRE production ne dit rien de
+   * celle-ci, et une production sans identifiant ne se juge pas : `decision:
+   * null`, donc bloquant — un inconnu ne devient pas un « oui ».
+   */
+  const verdictEvaluator = (task: Task | undefined, jugee?: number | null): ArretEvaluator => {
+    if (!task) {
+      return {
+        decision: null,
+        raisons: ['la tâche de cette production n’existe plus : l’Evaluator ne peut pas la juger'],
+        resultId: jugee ?? null,
+      };
+    }
+    const { latest, evaluation } = evaluationPour(task, jugee ?? undefined);
+    if (jugee !== undefined && (jugee === null || latest?.resultId !== jugee)) {
+      return {
+        decision: null,
+        raisons: ['l’Evaluator n’a pas pu juger la production intégrée'],
+        resultId: jugee,
+      };
+    }
+    return {
+      decision: evaluation.decision,
+      raisons: evaluation.reasons,
+      resultId: latest?.resultId ?? null,
+    };
+  };
+
+  /** LA règle d'arrêt : un verdict bloquant, ou aucun verdict. */
+  const arrete = (verdict: ArretEvaluator): boolean =>
+    verdict.decision === null || VERDICTS_BLOQUANTS.has(verdict.decision);
+
+  /**
    * L'Evaluator ARRÊTE-t-il cette production ? `null` s'il la laisse partir.
    *
-   * ─── UNE SEULE RÈGLE POUR LES DEUX VOIES ───────────────────────────────────
+   * ─── UNE SEULE RÈGLE POUR TOUTES LES VOIES ─────────────────────────────────
    *
    * Les routes humaines la lisaient seules. La ruche en `gouverne` livrait, et
    * en `plein` fusionnait, avec la clé GitHub de l'hôte, la production que ces
    * routes refusaient : la voie sans humain était la plus permissive. `aLivrer`
    * et `livraisonsAFusionner` lisent donc ce même prédicat, et `deciderPas` ne
    * compte que ce que le runner acceptera — sans quoi il choisirait à chaque
-   * cycle un pas que le runner refuse.
+   * cycle un pas que le runner refuse. La livraison locale d'une mission
+   * (`livraison-locale`) applique la même règle (`arrete`), tâche par tâche.
    *
    * ─── FERMÉ QUAND LA TÂCHE MANQUE ───────────────────────────────────────────
    *
@@ -4222,20 +4332,8 @@ async function monterReine(
    * fusionne pas en silence ; seul un forçage signé le peut.
    */
   const arretEvaluator = (task: Task | undefined): ArretEvaluator | null => {
-    if (!task) {
-      return {
-        decision: null,
-        raisons: ['la tâche de cette production n’existe plus : l’Evaluator ne peut pas la juger'],
-        resultId: null,
-      };
-    }
-    const { latest, evaluation } = evaluationPour(task);
-    if (!VERDICTS_BLOQUANTS.has(evaluation.decision)) return null;
-    return {
-      decision: evaluation.decision,
-      raisons: evaluation.reasons,
-      resultId: latest?.resultId ?? null,
-    };
+    const verdict = verdictEvaluator(task);
+    return arrete(verdict) ? verdict : null;
   };
 
   /** Schéma du geste qui passe outre : la raison est OBLIGATOIRE, elle est journalisée. */
@@ -7170,15 +7268,326 @@ async function monterReine(
     },
   );
 
+  // ─── Honeycomb Merge : intégrer sur un nœud, et — sur demande — livrer ─────
+  //
+  // Deux routes, UN chemin. `merge/run` intègre et jette le clone après revue ;
+  // `livraison-locale` intègre puis commite la mission sur sa branche. Tout ce
+  // qui les sépare est la PORTE (propriétaire, Evaluator) et la demande jointe
+  // au message : la sélection des tâches, l'ordre, le choix du nœud et le suivi
+  // du résultat sont les mêmes, et vivent donc une seule fois ci-dessous.
+
+  /** Le schéma des commandes et de la sélection, commun aux deux routes. */
+  const SCHEMA_CORPS_MERGE = {
+    testCommand: {
+      type: 'array',
+      minItems: 1,
+      maxItems: LIMITS.testArgs,
+      items: { type: 'string', minLength: 1, maxLength: LIMITS.arg },
+    },
+    // La préparation de l'environnement, lancée avant les tests.
+    prepareCommand: {
+      type: 'array',
+      minItems: 1,
+      maxItems: LIMITS.testArgs,
+      items: { type: 'string', minLength: 1, maxLength: LIMITS.arg },
+    },
+    // Sélection de revue (Miellerie) : n'intégrer QUE ces tâches.
+    taskIds: {
+      type: 'array',
+      minItems: 1,
+      maxItems: LIMITS.mergeDiffs,
+      items: { type: 'string', minLength: 1, maxLength: LIMITS.id },
+    },
+  } as const;
+
+  interface CorpsMerge {
+    testCommand?: string[];
+    prepareCommand?: string[];
+    taskIds?: string[];
+  }
+
+  type RefusMerge = { refus: { code: number; corps: Record<string, unknown> } };
+
+  /** Ce que la route de livraison ajoute au merge. */
+  interface DemandeLivraisonMission {
+    pousser: boolean;
+    provenance: ProvenanceTache[];
+    forcage?: string;
+    numeroMin: number;
+  }
+
+  /**
+   * Ce qu'un merge intègre : les diffs dans l'ordre du plan, et le résultat
+   * EXACT intégré pour chaque tâche — ou le refus à rendre tel quel.
+   */
+  const aIntegrer = (
+    project: Project,
+    corps: CorpsMerge,
+  ):
+    | RefusMerge
+    | { diffs: MergeDiffInput[]; order: string[]; resultIds: Map<string, number | null> } => {
+    const refus = (code: number, error: string): RefusMerge => ({
+      refus: { code, corps: { error } },
+    });
+    // Ces commandes s'exécuteront sur la MACHINE D'UN MEMBRE. Le schéma
+    // Fastify ne borne que la forme (tableau de chaînes) ; c'est ici qu'on
+    // borne le binaire. Refus tôt et explicite : la vraie garde est côté
+    // nœud, celle-ci sert à donner un message lisible plutôt qu'un merge
+    // qui échoue silencieusement à l'autre bout. La préparation avec, pour la
+    // même raison : une installation exécute les scripts de ce qu'elle installe.
+    if (corps.testCommand) {
+      const verdict = jugerCommandeTest(corps.testCommand);
+      if (!verdict.ok) return refus(400, verdict.motif);
+    }
+    if (corps.prepareCommand) {
+      const verdict = jugerPreparation(corps.prepareCommand);
+      if (!verdict.ok) return refus(400, verdict.motif);
+    }
+    const tasks = store.listTasks(project.id);
+    // Le serveur est la SOURCE DE VÉRITÉ des revues : une tâche rejetée en
+    // revue ne coule jamais dans le miel, quel que soit le cache du client.
+    const reviews = store.listReviews();
+    // Sélection optionnelle (revue humaine) : chaque id doit être une tâche
+    // done DE CE projet, non rejetée — on refuse explicitement plutôt que
+    // d'ignorer.
+    const selection = corps.taskIds ? new Set(corps.taskIds) : null;
+    if (selection) {
+      const byId = new Map(tasks.map((t) => [t.id, t]));
+      for (const id of selection) {
+        const t = byId.get(id);
+        if (!t) return refus(400, `tâche hors projet : ${id}`);
+        if (t.status !== 'done') return refus(400, `tâche non terminée : ${t.title}`);
+        if (reviews[id] === 'rejected') return refus(400, `tâche rejetée en revue : ${t.title}`);
+      }
+    }
+    const doneDiffs = new Map<string, string>();
+    const resultIds = new Map<string, number | null>();
+    let rejectedSkipped = 0;
+    for (const t of tasks) {
+      if (t.status !== 'done') continue;
+      if (selection && !selection.has(t.id)) continue;
+      // Sans sélection explicite, les tâches rejetées sont exclues d'office.
+      if (!selection && reviews[t.id] === 'rejected') {
+        rejectedSkipped++;
+        continue;
+      }
+      const success = store
+        .resultsForTask(t.id)
+        .filter((r) => r.success)
+        .at(-1);
+      if (success) {
+        doneDiffs.set(t.id, success.diff);
+        resultIds.set(t.id, success.resultId ?? null);
+      }
+    }
+    const plan = buildMergePlan(tasks, doneDiffs);
+    if (plan.done === 0 || doneDiffs.size === 0) {
+      return refus(
+        400,
+        rejectedSkipped > 0
+          ? 'toutes les tâches terminées sont rejetées en revue — rien à intégrer'
+          : 'aucune tâche terminée à intégrer',
+      );
+    }
+    // Ordre topologique du plan, restreint aux tâches réellement à intégrer
+    // (sélection de revue et/ou porteuses d'un diff).
+    const diffs = plan.order
+      .filter((taskId) => doneDiffs.has(taskId))
+      .map((taskId) => ({ taskId, diff: doneDiffs.get(taskId) ?? '' }));
+    if (diffs.length === 0) return refus(400, 'aucun diff à intégrer pour cette sélection');
+    // Le nœud rejette silencieusement un assign_merge > LIMITS.mergeDiffs : on
+    // borne ici pour renvoyer une erreur claire plutôt que de perdre le merge.
+    if (diffs.length > LIMITS.mergeDiffs) {
+      return refus(413, `trop de tâches à intégrer (> ${LIMITS.mergeDiffs}) pour un merge (v0)`);
+    }
+    const totalBytes = diffs.reduce((s, d) => s + d.diff.length, 0);
+    if (totalBytes > 1_500_000) return refus(413, 'diffs trop volumineux pour un merge (v0)');
+    return { diffs, order: plan.order, resultIds };
+  };
+
+  /**
+   * Choisit un nœud et lui confie le merge — avec la demande de livraison s'il
+   * y en a une.
+   *
+   * Un nœud en ligne, connecté ET de service (Night Shift) : un nœud hors
+   * service refuserait le merge — autant l'éviter d'office. Pour une livraison
+   * POUSSÉE, un nœud dont l'opérateur y a consenti : choisir un nœud qui
+   * refusera, c'est faire tourner tout le merge pour rien, et renvoyer
+   * l'humain au même nœud la fois suivante.
+   */
+  const confierMerge = (
+    project: Project & { repoUrl: string },
+    diffs: MergeDiffInput[],
+    corps: CorpsMerge,
+    livraison?: DemandeLivraisonMission,
+  ): RefusMerge | { mergeId: string; nodeId: string; nodeName: string } => {
+    // ─── UNE LIVRAISON NE PARTAGE PAS SON PROJET ────────────────────────────
+    // `/merge/result` garde UN résultat par projet. Un merge d'essai qui
+    // finirait après une livraison écraserait son rapport : l'écran et la CLI,
+    // qui attendent LEUR `mergeId`, ne verraient jamais la branche et
+    // concluraient « pas de résultat » au bout de dix minutes — elle ne
+    // survivrait qu'au journal. Et deux livraisons concurrentes prendraient
+    // le même numéro. Une livraison attend donc que son projet soit libre, et
+    // le projet l'attend. Deux merges d'essai, eux, cohabitent comme avant.
+    for (const enCours of pendingMerges.values()) {
+      if (enCours.projectId !== project.id) continue;
+      if (enCours.livraison) {
+        return {
+          refus: {
+            code: 409,
+            corps: {
+              code: 'livraison_en_cours',
+              error: 'une livraison de cette mission est déjà en cours sur un nœud',
+              conseil: 'Attendez son résultat (/merge/result), puis relancez si besoin.',
+            },
+          },
+        };
+      }
+      if (livraison) {
+        return {
+          refus: {
+            code: 409,
+            corps: {
+              code: 'merge_en_cours',
+              error: 'un merge de cette mission est en cours sur un nœud',
+              conseil:
+                'Attendez son résultat (/merge/result) : son rapport écraserait celui de la ' +
+                'livraison. Relancez la livraison ensuite.',
+            },
+          },
+        };
+      }
+    }
+    const disponibles = store
+      .listNodes()
+      .filter(
+        (n) => n.status === 'online' && nodeSockets.has(n.id) && (nodeOnShift.get(n.id) ?? true),
+      );
+    const node = disponibles.find((n) => !livraison?.pousser || nodesQuiPoussent.has(n.id));
+    const ws = node ? nodeSockets.get(node.id) : undefined;
+    if (!node || !ws) {
+      return disponibles.length > 0 && livraison?.pousser
+        ? {
+            refus: {
+              code: 409,
+              corps: {
+                code: 'aucun_noeud_consentant',
+                error: 'aucune ouvrière en ligne n’a consenti à pousser',
+                conseil:
+                  `Pour pousser, ${CONSENTEMENT_POUSSEE}. Sinon, livrez sans pousser : la ` +
+                  'branche restera rangée sur le nœud, prête à être poussée à la main.',
+              },
+            },
+          }
+        : {
+            refus: {
+              code: 503,
+              corps: { error: 'aucun nœud en ligne et de service pour exécuter le merge' },
+            },
+          };
+    }
+    const mergeId = randomUUID();
+    pendingMerges.set(mergeId, {
+      projectId: project.id,
+      nodeId: node.id,
+      startedAt: Date.now(),
+      ...(livraison ? { livraison: { pousser: livraison.pousser } } : {}),
+    });
+    send(ws, {
+      type: 'assign_merge',
+      mergeId,
+      repoUrl: project.repoUrl,
+      diffs,
+      ...(corps.prepareCommand ? { prepareCommand: corps.prepareCommand } : {}),
+      ...(corps.testCommand ? { testCommand: corps.testCommand } : {}),
+      ...(livraison
+        ? {
+            livraison: {
+              projectId: project.id,
+              pousser: livraison.pousser,
+              provenance: livraison.provenance,
+              ...(livraison.forcage ? { forcage: livraison.forcage } : {}),
+              numeroMin: livraison.numeroMin,
+            },
+          }
+        : {}),
+    });
+    emitEvent('merge_started', {
+      projectId: project.id,
+      mergeId,
+      nodeId: node.id,
+      diffs: diffs.length,
+      ...(livraison ? { livraison: true, pousser: livraison.pousser } : {}),
+    });
+    return { mergeId, nodeId: node.id, nodeName: node.name };
+  };
+
   // Honeycomb Merge — déclenche l'exécution réelle du merge sur un nœud : clone,
   // application des diffs dans l'ordre du plan (conflits git réels), tests
   // optionnels. Asynchrone : le résultat revient via merge_result, à lire sur
   // /merge/result. Ne commit ni ne push jamais.
+  app.post<{ Params: { projectId: string }; Body: CorpsMerge }>(
+    '/api/projects/:projectId/merge/run',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId'],
+          properties: { projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+        body: { type: 'object', additionalProperties: false, properties: SCHEMA_CORPS_MERGE },
+      },
+    },
+    async (req, reply) => {
+      const permis = engagementProjetPermis(req, req.params.projectId);
+      if (permis !== 'permis') return refuserProjet(reply, permis);
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+      const repoUrl = project.repoUrl;
+      if (!repoUrl) {
+        return reply
+          .code(400)
+          .send({ error: 'le projet doit avoir un dépôt (repoUrl) pour un merge' });
+      }
+      const integration = aIntegrer(project, req.body);
+      if ('refus' in integration) {
+        return reply.code(integration.refus.code).send(integration.refus.corps);
+      }
+      const confie = confierMerge({ ...project, repoUrl }, integration.diffs, req.body);
+      if ('refus' in confie) return reply.code(confie.refus.code).send(confie.refus.corps);
+      return reply
+        .code(202)
+        .send({ mergeId: confie.mergeId, nodeId: confie.nodeId, order: integration.order });
+    },
+  );
+
+  // ─── LA LIVRAISON SANS GITHUB : une mission, une branche ───────────────────
+  //
+  // Le merge de la mission, puis son COMMIT sur `hive/mission-<projectId>-<n>`
+  // dans le dépôt du projet, par l'ouvrière qui l'a intégré. La chaîne et ce
+  // qui n'arrive jamais sont décrits en tête de `shared/livraison-locale.ts`.
+  //
+  // Trois portes, dans cet ordre :
+  //
+  //   1. RÉPONDRE DU PROJET (`proprieteProjetPermise`) : livrer décide du sort
+  //      du travail — un membre y ajoute des tâches, il ne dit pas « oui ».
+  //   2. L'EVALUATOR, tâche par tâche, sur la production EXACTE intégrée :
+  //      `correction_required` ou `rejected` sur UNE tâche arrête la mission,
+  //      sauf forçage signé d'une raison — la même règle que la livraison
+  //      GitHub. Le forçage est journalisé (`evaluator_overridden`) quand le
+  //      merge part, pas avant : un forçage refusé ensuite (aucun nœud) n'a
+  //      rien forcé.
+  //   3. POUSSER est une option, jamais un défaut. Elle exige de parler au nom
+  //      de l'hôte (jeton de ruche ou administrateur), et un nœud dont
+  //      l'opérateur a consenti à écrire avec ses identifiants.
+  //
+  // Asynchrone comme le merge : le rapport (`livraison`) revient avec le
+  // résultat, sur /merge/result, et au journal (`livraison_locale`).
   app.post<{
     Params: { projectId: string };
-    Body: { testCommand?: string[]; prepareCommand?: string[]; taskIds?: string[] };
+    Body: CorpsMerge & { pousser?: boolean; forcer?: { raison: string } };
   }>(
-    '/api/projects/:projectId/merge/run',
+    '/api/projects/:projectId/livraison-locale',
     {
       schema: {
         params: {
@@ -7190,150 +7599,115 @@ async function monterReine(
           type: 'object',
           additionalProperties: false,
           properties: {
-            testCommand: {
-              type: 'array',
-              minItems: 1,
-              maxItems: LIMITS.testArgs,
-              items: { type: 'string', minLength: 1, maxLength: LIMITS.arg },
-            },
-            // La préparation de l'environnement, lancée avant les tests.
-            prepareCommand: {
-              type: 'array',
-              minItems: 1,
-              maxItems: LIMITS.testArgs,
-              items: { type: 'string', minLength: 1, maxLength: LIMITS.arg },
-            },
-            // Sélection de revue (Miellerie) : n'intégrer QUE ces tâches.
-            taskIds: {
-              type: 'array',
-              minItems: 1,
-              maxItems: LIMITS.mergeDiffs,
-              items: { type: 'string', minLength: 1, maxLength: LIMITS.id },
-            },
+            ...SCHEMA_CORPS_MERGE,
+            pousser: { type: 'boolean' },
+            forcer: SCHEMA_FORCER,
           },
         },
       },
     },
     async (req, reply) => {
-      const permis = engagementProjetPermis(req, req.params.projectId);
-      if (permis !== 'permis') return refuserProjet(reply, permis);
-      const project = store.getProject(req.params.projectId);
-      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
-      if (!project.repoUrl) {
-        return reply
-          .code(400)
-          .send({ error: 'le projet doit avoir un dépôt (repoUrl) pour un merge' });
-      }
-      // Cette commande s'exécutera sur la MACHINE D'UN MEMBRE. Le schéma
-      // Fastify ne borne que la forme (tableau de chaînes) ; c'est ici qu'on
-      // borne le binaire. Refus tôt et explicite : la vraie garde est côté
-      // nœud, celle-ci sert à donner un message lisible plutôt qu'un merge
-      // qui échoue silencieusement à l'autre bout.
-      if (req.body.testCommand) {
-        const verdict = jugerCommandeTest(req.body.testCommand);
-        if (!verdict.ok) return reply.code(400).send({ error: verdict.motif });
-      }
-      // Et la préparation avec, pour la même raison : elle s'exécute là-bas,
-      // et une installation exécute les scripts de ce qu'elle installe.
-      if (req.body.prepareCommand) {
-        const verdict = jugerPreparation(req.body.prepareCommand);
-        if (!verdict.ok) return reply.code(400).send({ error: verdict.motif });
-      }
-      const tasks = store.listTasks(project.id);
-      // Le serveur est la SOURCE DE VÉRITÉ des revues : une tâche rejetée en
-      // revue ne coule jamais dans le miel, quel que soit le cache du client.
-      const reviews = store.listReviews();
-      // Sélection optionnelle (revue humaine) : chaque id doit être une tâche
-      // done DE CE projet, non rejetée — on refuse explicitement plutôt que
-      // d'ignorer.
-      const selection = req.body.taskIds ? new Set(req.body.taskIds) : null;
-      if (selection) {
-        const byId = new Map(tasks.map((t) => [t.id, t]));
-        for (const id of selection) {
-          const t = byId.get(id);
-          if (!t) return reply.code(400).send({ error: `tâche hors projet : ${id}` });
-          if (t.status !== 'done') {
-            return reply.code(400).send({ error: `tâche non terminée : ${t.title}` });
-          }
-          if (reviews[id] === 'rejected') {
-            return reply.code(400).send({ error: `tâche rejetée en revue : ${t.title}` });
-          }
-        }
-      }
-      const doneDiffs = new Map<string, string>();
-      let rejectedSkipped = 0;
-      for (const t of tasks) {
-        if (t.status !== 'done') continue;
-        if (selection && !selection.has(t.id)) continue;
-        // Sans sélection explicite, les tâches rejetées sont exclues d'office.
-        if (!selection && reviews[t.id] === 'rejected') {
-          rejectedSkipped++;
-          continue;
-        }
-        const success = store
-          .resultsForTask(t.id)
-          .filter((r) => r.success)
-          .at(-1);
-        if (success) doneDiffs.set(t.id, success.diff);
-      }
-      const plan = buildMergePlan(tasks, doneDiffs);
-      if (plan.done === 0 || doneDiffs.size === 0) {
-        return reply.code(400).send({
+      const propriete = proprieteProjetPermise(req, req.params.projectId);
+      if (propriete !== 'permis') return refuserReglage(reply, propriete);
+      // POUSSER écrit avec les identifiants git d'une OUVRIÈRE, sur l'adresse
+      // que le projet déclare. Son opérateur a consenti pour la RUCHE — pas
+      // pour le premier compte venu : l'inscription est ouverte par défaut, et
+      // un inconnu propriétaire de SON projet y écrirait l'adresse d'un dépôt
+      // que ces identifiants atteignent. Il faut donc parler au nom de l'hôte
+      // (jeton de ruche, ou compte administrateur) — la condition même que la
+      // livraison GitHub pose pour la clé de l'hôte.
+      if (req.body.pousser === true && !authorized(req) && !lecteurDe(req).voitTout) {
+        return reply.code(403).send({
+          code: 'jeton_hote_requis',
           error:
-            rejectedSkipped > 0
-              ? 'toutes les tâches terminées sont rejetées en revue — rien à intégrer'
-              : 'aucune tâche terminée à intégrer',
+            'pousser avec les identifiants d’une ouvrière exige le jeton de ruche ou un administrateur',
+          conseil:
+            'Livrez sans pousser (la branche reste rangée sur l’ouvrière), ou demandez la ' +
+            'poussée à l’hôte de la ruche.',
         });
       }
-      // Ordre topologique du plan, restreint aux tâches réellement à intégrer
-      // (sélection de revue et/ou porteuses d'un diff).
-      const diffs = plan.order
-        .filter((taskId) => doneDiffs.has(taskId))
-        .map((taskId) => ({ taskId, diff: doneDiffs.get(taskId) ?? '' }));
-      if (diffs.length === 0) {
-        return reply.code(400).send({ error: 'aucun diff à intégrer pour cette sélection' });
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+      const repoUrl = project.repoUrl;
+      if (!repoUrl) {
+        return reply.code(400).send({
+          error: 'le projet doit avoir un dépôt (repoUrl) pour livrer',
+          conseil: 'Donnez-lui l’adresse de son dépôt git — GitLab, Gitea, un dépôt nu, GitHub.',
+        });
       }
-      // Le nœud rejette silencieusement un assign_merge > LIMITS.mergeDiffs : on
-      // borne ici pour renvoyer une erreur claire plutôt que de perdre le merge.
-      if (diffs.length > LIMITS.mergeDiffs) {
-        return reply
-          .code(413)
-          .send({ error: `trop de tâches à intégrer (> ${LIMITS.mergeDiffs}) pour un merge (v0)` });
+      const integration = aIntegrer(project, req.body);
+      if ('refus' in integration) {
+        return reply.code(integration.refus.code).send(integration.refus.corps);
       }
-      const totalBytes = diffs.reduce((s, d) => s + d.diff.length, 0);
-      if (totalBytes > 1_500_000) {
-        return reply.code(413).send({ error: 'diffs trop volumineux pour un merge (v0)' });
+
+      // L'EVALUATOR, lu MAINTENANT : la CI, une contre-revue ou une revue
+      // humaine arrivées depuis le merge d'essai comptent. Et il juge la
+      // production EXACTE qu'on intègre — celle dont le `resultId` part dans
+      // `Hive-Result` et dans `evaluator_overridden` : la porte, le commit et
+      // le journal nomment la même.
+      const verdicts = integration.diffs.map((d) => ({
+        taskId: d.taskId,
+        ...verdictEvaluator(store.getTask(d.taskId), integration.resultIds.get(d.taskId) ?? null),
+      }));
+      // La règle de la livraison GitHub (`arrete`, cf. `arretEvaluator`).
+      const arrets = verdicts.filter(arrete);
+      if (arrets.length > 0 && !req.body.forcer) {
+        return reply.code(409).send({
+          code: 'evaluator_blocks',
+          error:
+            `l’Evaluator arrête ${arrets.length} tâche(s) de cette mission : ` +
+            arrets.map((a) => `${a.taskId} (${a.decision ?? 'inconnu'})`).join(', '),
+          bloquees: arrets,
+          conseil:
+            'Faites corriger ces productions (rejet dans la Miellerie, ou POST ' +
+            '/api/tasks/<taskId>/evaluation/retry), puis relivrez. Pour passer outre, ' +
+            'renvoyez la demande avec « forcer: { raison } » (CLI : --forcer="raison") — ' +
+            'le geste est journalisé.',
+        });
       }
-      // Choisir un nœud en ligne, connecté ET de service (Night Shift) : un
-      // nœud hors service refuserait le merge — autant l'éviter d'office.
-      const node = store
-        .listNodes()
-        .find(
-          (n) => n.status === 'online' && nodeSockets.has(n.id) && (nodeOnShift.get(n.id) ?? true),
-        );
-      const ws = node ? nodeSockets.get(node.id) : undefined;
-      if (!node || !ws) {
-        return reply
-          .code(503)
-          .send({ error: 'aucun nœud en ligne et de service pour exécuter le merge' });
-      }
-      const mergeId = randomUUID();
-      pendingMerges.set(mergeId, { projectId: project.id, nodeId: node.id, startedAt: Date.now() });
-      send(ws, {
-        type: 'assign_merge',
-        mergeId,
-        repoUrl: project.repoUrl,
-        diffs,
-        ...(req.body.prepareCommand ? { prepareCommand: req.body.prepareCommand } : {}),
-        ...(req.body.testCommand ? { testCommand: req.body.testCommand } : {}),
+
+      const pousser = req.body.pousser === true;
+      const confie = confierMerge({ ...project, repoUrl }, integration.diffs, req.body, {
+        pousser,
+        provenance: verdicts.map((v) => ({
+          taskId: v.taskId,
+          resultId: v.resultId,
+          decision: v.decision ?? 'inconnu',
+        })),
+        ...(arrets.length > 0 && req.body.forcer ? { forcage: req.body.forcer.raison } : {}),
+        // Le plancher du journal (`DemandeLivraisonLocale.numeroMin`) : les
+        // branches gardées sur d'AUTRES ouvrières ne se voient que d'ici.
+        numeroMin: numeroSuivant(
+          project.id,
+          store.branchesDeMissionJournalisees(`${PREFIXE_BRANCHE_MISSION}${project.id}-`),
+        ),
       });
-      emitEvent('merge_started', {
-        projectId: project.id,
-        mergeId,
-        nodeId: node.id,
-        diffs: diffs.length,
+      if ('refus' in confie) return reply.code(confie.refus.code).send(confie.refus.corps);
+      // Le forçage s'écrit ICI : le merge est parti, la livraison aura lieu
+      // ou dira pourquoi. Des faits typés — les raisons de l'Evaluator se
+      // relisent sur GET /api/tasks/:taskId/evaluation.
+      if (req.body.forcer) {
+        for (const a of arrets) {
+          emitEvent('evaluator_overridden', {
+            taskId: a.taskId,
+            projectId: project.id,
+            geste: 'livraison_locale',
+            mergeId: confie.mergeId,
+            resultId: a.resultId,
+            decision: a.decision,
+            raison: req.body.forcer.raison,
+            parUserId: (req as AuthRequest).userId ?? null,
+          });
+        }
+      }
+      return reply.code(202).send({
+        mergeId: confie.mergeId,
+        nodeId: confie.nodeId,
+        noeud: confie.nodeName,
+        order: integration.order,
+        pousser,
+        forcees: arrets.map((a) => a.taskId),
       });
-      return reply.code(202).send({ mergeId, nodeId: node.id, order: plan.order });
     },
   );
 
@@ -10035,6 +10409,10 @@ async function monterReine(
             if (previous && previous !== ws)
               previous.close(4000, 'remplacé par une nouvelle connexion');
             nodeSockets.set(node.id, ws);
+            // Redit à CHAQUE inscription : un consentement retiré (nœud relancé
+            // sans `HIVE_LIVRAISON_POUSSER=1`) ne survit pas dans le hub.
+            if (msg.pousseLivraisons === true) nodesQuiPoussent.add(node.id);
+            else nodesQuiPoussent.delete(node.id);
             send(ws, { type: 'registered', nodeId: node.id });
             // Réconciliation : requalifier les tâches que le nœud ne fait plus
             // tourner (crash/redémarrage), et demander l'abandon de ses zombies
@@ -10472,7 +10850,21 @@ async function monterReine(
                 type: 'error',
                 message: `merge ${msg.mergeId} inconnu du hub (expiré ou déjà clos) — résultat ignoré`,
               });
-              emitEvent('merge_result_ignored', { mergeId: msg.mergeId, nodeId });
+              // Une livraison qui arrive APRÈS que le hub a perdu le fil
+              // (`failMerge` : issue « inconnue ») laisse ses faits ici — la
+              // branche existe peut-être déjà dans le dépôt, et c'est le seul
+              // endroit où la ruche peut encore le dire.
+              emitEvent('merge_result_ignored', {
+                mergeId: msg.mergeId,
+                nodeId,
+                ...(msg.livraison?.etat === 'commitee'
+                  ? {
+                      branche: msg.livraison.branche,
+                      commit: msg.livraison.commit,
+                      poussee: msg.livraison.poussee,
+                    }
+                  : {}),
+              });
               break;
             }
             // ─── L'APPARTENANCE, COMME POUR UNE TÂCHE ──────────────────────
@@ -10498,11 +10890,26 @@ async function monterReine(
             }
             // Un merge qui n'a PAS EU LIEU (refus, clone impossible) est un
             // échec explicite — jamais consigné comme un merge « réussi » vide.
+            // Et le nœud qui refuse n'a rien commité : sa livraison le dit.
             if (msg.refused) {
-              failMerge(msg.mergeId, msg.refused, msg.logs);
+              failMerge(msg.mergeId, msg.refused, msg.logs, 'non_commitee');
               break;
             }
-            mergeResults.set(pending.projectId, msg);
+            // La livraison demandée revient avec son rapport — ou son absence
+            // est DITE. Un nœud d'avant cette version ignore la demande et rend
+            // un merge nu : l'écran croirait sinon qu'une branche existe
+            // quelque part. Un rapport que personne n'a demandé, lui, ne se
+            // range pas.
+            const { livraison: rapportRecu, ...merge } = msg;
+            const livraison: RapportLivraisonLocale | undefined = pending.livraison
+              ? (rapportRecu ?? {
+                  etat: 'non_commitee',
+                  motif:
+                    'le nœud n’a rien rendu de la livraison : sa version de Hive ne sait pas ' +
+                    'encore livrer — mettez-le à jour, puis relancez',
+                })
+              : undefined;
+            mergeResults.set(pending.projectId, livraison ? { ...merge, livraison } : merge);
             pendingMerges.delete(msg.mergeId);
             emitEvent('merge_completed', {
               projectId: pending.projectId,
@@ -10511,6 +10918,7 @@ async function monterReine(
               conflicts: msg.conflicts.length,
               testsPassed: msg.testsPassed,
             });
+            if (livraison) journaliserLivraison(pending.projectId, msg.mergeId, nodeId, livraison);
             break;
           }
           case 'pose_result': {
@@ -10606,6 +11014,7 @@ async function monterReine(
       if (role === 'node' && nodeId !== null && nodeSockets.get(nodeId) === ws) {
         nodeSockets.delete(nodeId);
         nodeOnShift.delete(nodeId);
+        nodesQuiPoussent.delete(nodeId);
         scheduler.nodeDisconnected(nodeId, 'ws_closed');
         // Un merge, un chantier ou une pose confiés à ce nœud : une issue
         // visible tout de suite (sinon leur résultat resterait `null` ou

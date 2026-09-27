@@ -12,6 +12,7 @@ import type { HiveEvent, Project, StateSnapshot, Task, TaskResult } from '../../
 import type { Graphe } from '../../src/shared/cerveau-graphe.js';
 import type { WorkerSnapshot } from '../../src/orchestrator/workers.js';
 import type { JournalOuvriere } from '../../src/orchestrator/journal-ouvriere.js';
+import type { RapportLivraisonLocale } from '../../src/shared/livraison-locale.js';
 import type {
   EvaluationResult,
   ValidationEvidence,
@@ -1113,6 +1114,94 @@ export interface MergeRunResult {
    * appliqué(s), 0 conflit(s) » : un succès vide.
    */
   refused?: string;
+  /** Ce qu'est devenue la livraison de mission demandée avec ce merge, s'il y en avait une. */
+  livraison?: RapportLivraisonLocale;
+}
+
+/** Ce que la Reine rend quand une livraison de mission part vers une ouvrière. */
+export interface DepartLivraison {
+  mergeId: string;
+  nodeId: string;
+  /** Le nom de l'ouvrière — c'est chez elle que la branche sera rangée. */
+  noeud: string;
+  order: string[];
+  pousser: boolean;
+  /** Tâches que l'Evaluator arrêtait et qu'un forçage journalisé a laissé partir. */
+  forcees: string[];
+}
+
+/**
+ * Le refus d'une livraison, avec ce que l'écran doit pouvoir LIRE — pas
+ * seulement afficher.
+ *
+ * `code` distingue « l'Evaluator arrête » (un forçage signé devient possible)
+ * de « aucune ouvrière n'a consenti à pousser » ou « une livraison est déjà en
+ * cours », où proposer de forcer n'aurait aucun sens. `bloquees` nomme les
+ * tâches arrêtées et leur verdict.
+ */
+export class RefusLivraison extends ApiError {
+  constructor(
+    message: string,
+    status: number,
+    readonly code?: string,
+    readonly bloquees: readonly { taskId: string; decision: string | null }[] = [],
+  ) {
+    super(message, status);
+    this.name = 'RefusLivraison';
+  }
+}
+
+/**
+ * Livre la mission SANS GitHub : merge sur une ouvrière, puis commit sur
+ * `hive/mission-<projectId>-<n>`. `pousser` : vers le dépôt du projet, avec
+ * les identifiants git de l'ouvrière — si son opérateur y a consenti.
+ *
+ * Son propre `fetch` (avec `enTetesRuche`, qui porte aussi le compte : livrer
+ * est un geste de propriétaire) : la réponse de refus se LIT — `code`,
+ * `bloquees`, `conseil` —, ce que `api()` réduit à une phrase.
+ */
+export async function livrerLocalement(
+  projectId: string,
+  opts: {
+    pousser?: boolean;
+    testCommand?: string[];
+    prepareCommand?: string[];
+    forcer?: { raison: string };
+  } = {},
+): Promise<DepartLivraison> {
+  const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/livraison-locale`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...enTetesRuche() },
+    body: JSON.stringify({
+      ...(opts.pousser ? { pousser: true } : {}),
+      ...(opts.prepareCommand?.length ? { prepareCommand: opts.prepareCommand } : {}),
+      ...(opts.testCommand?.length ? { testCommand: opts.testCommand } : {}),
+      ...(opts.forcer ? { forcer: opts.forcer } : {}),
+    }),
+  });
+  let corps: Record<string, unknown> = {};
+  try {
+    corps = (await res.json()) as Record<string, unknown>;
+  } catch {
+    /* corps non-JSON : le statut parlera seul */
+  }
+  if (!res.ok) {
+    const texte = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
+    const { message } = messageApi(
+      {
+        ...(texte(corps.error) ? { error: texte(corps.error) } : {}),
+        ...(texte(corps.message) ? { message: texte(corps.message) } : {}),
+        // Le `conseil` de la Reine EST la marche à suivre : on le montre.
+        ...(texte(corps.conseil) ? { detail: texte(corps.conseil) } : {}),
+      },
+      res.status,
+    );
+    const bloquees = Array.isArray(corps.bloquees)
+      ? (corps.bloquees as { taskId: string; decision: string | null }[])
+      : [];
+    throw new RefusLivraison(message, res.status, texte(corps.code), bloquees);
+  }
+  return corps as unknown as DepartLivraison;
 }
 
 /** Dernier résultat de merge d'un projet (null tant qu'aucun n'a abouti). */

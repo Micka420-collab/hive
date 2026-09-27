@@ -116,27 +116,24 @@ export function buildSandboxEnv(cwd: string, keepEnv: string[] = []): NodeJS.Pro
 }
 
 /**
- * Clone superficiel d'un dépôt dans `dir`, avec la même protection de transport
- * que les clones de tâches : GIT_ALLOW_PROTOCOL neutralise `ext::` (RCE), pas de
- * prompt de terminal, environnement épuré. `dir` doit être vide/inexistant.
+ * L'environnement de TRANSPORT git du nœud : ce qui parle au dépôt distant.
  *
- * ─── BORNÉ, PARCE QUE LE HUB COMPTE DESSUS ─────────────────────────────────
+ * GIT_ALLOW_PROTOCOL restreint les transports autorisés : neutralise le
+ * transport `ext::` de git (exécution de commande arbitraire = RCE), en plus de
+ * la validation du repoUrl côté hub. GIT_TERMINAL_PROMPT=0 : des identifiants
+ * refusés échouent tout de suite au lieu d'attendre une saisie que personne ne
+ * fera. On repart d'un environnement épuré (sans variables d'éditeur, que
+ * simple-git refuse) : seuls PATH/HOME et les variables système passent — HOME
+ * porte la configuration git de l'opérateur, donc ses assistants
+ * d'identifiants.
  *
- * Ce clone ouvre chaque merge et chaque chantier, et il n'avait aucun butoir :
- * un dépôt qui accepte la connexion puis se tait laissait le travail pendre
- * chez le nœud, sans résultat, pendant que le hub — qui dérive ses délais des
- * butoirs du nœud (`butoirs-noeud.ts`) — ne pouvait que DEVINER sa durée. Au-delà
- * de `delaiMs`, git est TUÉ (le plugin d'annulation de simple-git), et le
- * travail échoue en le disant. Un `Promise.race` rendrait la main en laissant
- * le processus pendre derrière.
- *
- * Limite, dite : c'est le processus LANCÉ qui est tué. Sous Windows, où le `git`
- * du PATH est d'ordinaire un lanceur, le vrai git peut lui survivre jusqu'à ce
- * que le dépôt ferme (mesuré, `tests/clone-borne.test.ts`) — la limite de tout
- * `child.kill()` du nœud. Le travail, lui, échoue à l'heure partout.
+ * UN SEUL ENDROIT, parce que la livraison POUSSE avec exactement les
+ * identifiants qui ont servi au clone : deux copies de cet environnement —
+ * il y en avait déjà deux, ici même — finiraient par ne plus ouvrir les mêmes
+ * portes, et « le clone passe, la poussée non » se chercherait longtemps.
  */
-export async function cloneRepo(dir: string, repoUrl: string, delaiMs = CLONE_MS): Promise<void> {
-  const cloneEnv: NodeJS.ProcessEnv = {
+export function envTransportGit(): NodeJS.ProcessEnv {
+  return {
     PATH: process.env.PATH,
     HOME: process.env.HOME,
     USERPROFILE: process.env.USERPROFILE,
@@ -144,10 +141,40 @@ export async function cloneRepo(dir: string, repoUrl: string, delaiMs = CLONE_MS
     SYSTEMDRIVE: process.env.SYSTEMDRIVE,
     GIT_ALLOW_PROTOCOL: 'http:https:git:ssh:file',
     GIT_TERMINAL_PROMPT: '0',
+    // `GIT_TERMINAL_PROMPT` ne gouverne que l'invite du TERMINAL. Sous
+    // Windows, Git Credential Manager ne la lit pas et attend sur sa propre
+    // fenêtre, indéfiniment — le miroir l'a mesuré au plafond près
+    // (`orchestrator/miroir.ts`). Ici, c'est plus grave qu'une requête lente :
+    // un dépôt public se clone sans identifiants, et c'est souvent la POUSSÉE
+    // d'une livraison qui les demande la première. Sans cette ligne, elle
+    // figerait le job de merge et son clone, que rien ne libérerait.
+    GCM_INTERACTIVE: 'Never',
   };
+}
+
+/**
+ * Clone superficiel d'un dépôt dans `dir`, avec la même protection de transport
+ * que les clones de tâches (`envTransportGit`). `dir` doit être vide/inexistant.
+ *
+ * ─── BORNÉ, PARCE QUE LE HUB COMPTE DESSUS ─────────────────────────────────
+ *
+ * Ce clone ouvre chaque merge, chaque chantier et chaque tâche, et il n'avait
+ * aucun butoir : un dépôt qui accepte la connexion puis se tait laissait le
+ * travail pendre chez le nœud, sans résultat, pendant que le hub — qui dérive
+ * ses délais des butoirs du nœud (`butoirs-noeud.ts`) — ne pouvait que DEVINER
+ * sa durée. Au-delà de `delaiMs`, git est TUÉ (le plugin d'annulation de
+ * simple-git), et le travail échoue en le disant. Un `Promise.race` rendrait la
+ * main en laissant le processus pendre derrière.
+ *
+ * Limite, dite : c'est le processus LANCÉ qui est tué. Sous Windows, où le `git`
+ * du PATH est d'ordinaire un lanceur, le vrai git peut lui survivre jusqu'à ce
+ * que le dépôt ferme (mesuré, `tests/clone-borne.test.ts`) — la limite de tout
+ * `child.kill()` du nœud. Le travail, lui, échoue à l'heure partout.
+ */
+export async function cloneRepo(dir: string, repoUrl: string, delaiMs = CLONE_MS): Promise<void> {
   const butoir = AbortSignal.timeout(delaiMs);
   try {
-    await simpleGit({ abort: butoir }).env(cloneEnv).clone(repoUrl, dir, ['--depth', '1']);
+    await simpleGit({ abort: butoir }).env(envTransportGit()).clone(repoUrl, dir, ['--depth', '1']);
   } catch (err) {
     if (!butoir.aborted) throw err;
     const duree =
@@ -189,22 +216,8 @@ export async function prepareWorkspace(
   let branch: string | null = null;
   let baseSha: string | null = null;
   if (repoUrl) {
-    // GIT_ALLOW_PROTOCOL restreint les transports autorisés : neutralise le
-    // transport `ext::` de git (exécution de commande arbitraire = RCE), en plus
-    // de la validation du repoUrl côté hub. On repart d'un environnement épuré
-    // (sans variables d'éditeur, que simple-git refuse) : seuls PATH/HOME et les
-    // variables système passent. Le clone exige un répertoire vide, il précède
-    // donc toute écriture dans cwd.
-    const cloneEnv: NodeJS.ProcessEnv = {
-      PATH: process.env.PATH,
-      HOME: process.env.HOME,
-      USERPROFILE: process.env.USERPROFILE,
-      SYSTEMROOT: process.env.SYSTEMROOT,
-      SYSTEMDRIVE: process.env.SYSTEMDRIVE,
-      GIT_ALLOW_PROTOCOL: 'http:https:git:ssh:file',
-      GIT_TERMINAL_PROMPT: '0',
-    };
-    await simpleGit().env(cloneEnv).clone(repoUrl, cwd, ['--depth', '1']);
+    // Le clone exige un répertoire vide, il précède donc toute écriture dans cwd.
+    await cloneRepo(cwd, repoUrl);
     git = simpleGit({ baseDir: cwd });
     // Une tâche = une branche isolée. Jamais de travail direct sur main (§5.2).
     branch = task.branch ?? `hive/${task.id}`;
