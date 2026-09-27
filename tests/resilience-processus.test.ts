@@ -22,8 +22,8 @@
 //      MÊME port ;
 //   B. `kill -9` du nœud en pleine tâche, relancé avec le MÊME `HIVE_WORKDIR`
 //      (donc la même identité) ;
-//   C. une seconde connexion SQLite tient `BEGIN EXCLUSIVE` pendant 8 s — plus
-//      que le délai d'attente de better-sqlite3 (5 s) : la Reine prend de vrais
+//   C. un autre processus tient `BEGIN EXCLUSIVE` pendant 8 s — plus que le
+//      délai d'attente de better-sqlite3 (5 s) : la Reine prend de vrais
 //      `SQLITE_BUSY`, pas seulement une attente ;
 //   D. le chemin réseau GÈLE — un relais TCP cesse de transmettre sans rien
 //      fermer — plus longtemps que `NODE_TIMEOUT_MS`, pour que les DEUX côtés
@@ -61,6 +61,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -80,6 +81,34 @@ const CONCURRENCE = 2;
 
 /** Le verrou de C : au-delà des 5 s d'attente par défaut de better-sqlite3. */
 const VERROU_MS = 8_000;
+
+/**
+ * Le processus qui tient le verrou de C — un AUTRE processus, comme le dit le
+ * README, et comme le serait une sauvegarde ou un `sqlite3` ouvert à la main
+ * sur la base de production.
+ *
+ * Il fut d'abord une connexion DU BANC. Mesuré sur la jambe macOS : ainsi
+ * tenu, le verrou n'y a jamais fait buter la Reine, deux fois de suite, alors
+ * qu'il la bloquait sous Linux. La cause n'est pas caractérisée ; mais les
+ * verrous `fcntl` sur lesquels SQLite repose appartiennent au PROCESSUS, pas
+ * à la connexion, et le banc ouvre et ferme ses propres lectures pendant que
+ * le verrou court. Un processus à lui seul ne partage rien de tout ça.
+ *
+ * CommonJS par `-e` : `argv[1]` est le module better-sqlite3 résolu depuis ce
+ * fichier, `argv[2]` la base, `argv[3]` la durée.
+ */
+const VERROUILLEUR = [
+  'const Database = require(process.argv[1]);',
+  'const db = new Database(process.argv[2]);',
+  "db.exec('BEGIN EXCLUSIVE');",
+  "console.log('VERROU PRIS');",
+  'setTimeout(() => {',
+  "  db.exec('COMMIT');",
+  '  db.close();',
+  "  console.log('VERROU RENDU');",
+  '}, Number(process.argv[3]));',
+].join('\n');
+const MODULE_SQLITE = createRequire(import.meta.url).resolve('better-sqlite3');
 
 /**
  * Le gel de D : plus que le silence toléré des deux côtés (`NODE_TIMEOUT_MS`),
@@ -114,6 +143,8 @@ interface Banc {
   travail: string;
   /** Tout ce que les processus ont dit — rendu en entier quand un banc rougit. */
   journal: string[];
+  /** L'origine des horodatages du journal : une panne se lit dans le temps. */
+  debut: number;
 }
 
 async function portLibre(): Promise<number> {
@@ -134,6 +165,7 @@ async function nouveauBanc(): Promise<Banc> {
     port: await portLibre(),
     travail: path.join(dossier, 'travail'),
     journal: [],
+    debut: Date.now(),
   };
 }
 
@@ -144,22 +176,29 @@ function envPropre(extra: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return { ...env, ...extra };
 }
 
+/** Range une ligne au journal, horodatée depuis le début du banc. */
+function noter(banc: Banc, nom: string, texte: string): void {
+  const t = ((Date.now() - banc.debut) / 1000).toFixed(1);
+  banc.journal.push(`[${nom} +${t} s] ${texte}`);
+}
+
 /**
- * Lance un point d'entrée par la porte des humains et attend son marqueur.
+ * Lance un processus Node et attend son marqueur.
  *
- * `scripts/lancer.mjs` et pas `tsx` : un seul processus, donc le `kill -9`
- * frappe celui qui porte la ruche, pas une enveloppe qui la relaierait. Le
- * cwd est le dossier jetable : les deux points d'entrée lisent le `.env` du
- * répertoire courant, et celui du dépôt n'a rien à faire ici.
+ * Pour la Reine et le nœud, c'est `scripts/lancer.mjs` et pas `tsx` : un seul
+ * processus, donc le `kill -9` frappe celui qui porte la ruche, pas une
+ * enveloppe qui la relaierait. Le cwd est le dossier jetable : les deux
+ * points d'entrée lisent le `.env` du répertoire courant, et celui du dépôt
+ * n'a rien à faire ici.
  */
 async function lancer(
   banc: Banc,
   nom: string,
-  entree: string,
+  args: readonly string[],
   env: NodeJS.ProcessEnv,
   marqueur: string,
 ): Promise<ChildProcessAvecTuyaux> {
-  const proc = lancerBorneTuyaute(process.execPath, [LANCER, entree], {
+  const proc = lancerBorneTuyaute(process.execPath, args, {
     cwd: banc.dossier,
     env: envPropre(env),
   });
@@ -167,7 +206,7 @@ async function lancer(
   const lire = (m: Buffer): void => {
     const texte = m.toString('utf8');
     sortie += texte;
-    banc.journal.push(`[${nom}] ${texte}`);
+    noter(banc, nom, texte);
   };
   proc.stdout.on('data', lire);
   proc.stderr.on('data', lire);
@@ -184,7 +223,7 @@ function lancerReine(banc: Banc): Promise<ChildProcessAvecTuyaux> {
   return lancer(
     banc,
     'reine',
-    'src/orchestrator/main.ts',
+    [LANCER, 'src/orchestrator/main.ts'],
     {
       HIVE_PORT: String(banc.port),
       HIVE_HOST: '127.0.0.1',
@@ -209,7 +248,7 @@ async function lancerNoeud(banc: Banc, url: string): Promise<ChildProcessAvecTuy
   const proc = await lancer(
     banc,
     'noeud',
-    'src/node-client/main.ts',
+    [LANCER, 'src/node-client/main.ts'],
     {
       HIVE_URL: url,
       HIVE_TOKEN: TOKEN,
@@ -505,19 +544,25 @@ describe.runIf(POSIX)('reprise après panne — vrais processus, vraie base', ()
     const ids = await creerMission(banc, 'panne C');
     await enVol(banc, ids);
 
-    // Le verrou est pris par une connexion À PART, comme le ferait une
-    // sauvegarde ou un `sqlite3` ouvert à la main sur la base de production.
-    const intrus = new Database(banc.db);
-    try {
-      intrus.exec('BEGIN EXCLUSIVE');
-      // La panne a mordu : du travail était en vol quand le verrou est tombé.
-      const enCours = [...statuts(banc, ids).values()].filter((s) => s !== 'done');
-      expect(enCours.length, 'le verrou est tombé sur une mission déjà finie').toBeGreaterThan(0);
-      await new Promise((r) => setTimeout(r, VERROU_MS));
-      intrus.exec('COMMIT');
-    } finally {
-      intrus.close();
-    }
+    // Le verrou, tenu par un autre processus — voir `VERROUILLEUR`.
+    await lancer(
+      banc,
+      'verrou',
+      ['-e', VERROUILLEUR, MODULE_SQLITE, banc.db, String(VERROU_MS)],
+      {},
+      'VERROU PRIS',
+    );
+    // La panne a mordu : du travail était en vol quand le verrou est tombé.
+    const auVerrou = statuts(banc, ids);
+    noter(banc, 'banc', `statuts au verrou : ${JSON.stringify([...auVerrou.values()])}\n`);
+    const enCours = [...auVerrou.values()].filter((s) => s !== 'done');
+    expect(enCours.length, 'le verrou est tombé sur une mission déjà finie').toBeGreaterThan(0);
+    await attendre(
+      () => banc.journal.join('').includes('VERROU RENDU'),
+      'le verrou n’a jamais été rendu',
+      VERROU_MS + 10_000,
+      banc,
+    );
     // Et elle a mordu la REINE : une écriture au moins a pris `SQLITE_BUSY`
     // (« database is locked ») au lieu de seulement attendre — c'est ce que
     // garantissent 8 s de verrou contre 5 s d'attente, avec un progrès de
