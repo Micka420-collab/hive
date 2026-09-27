@@ -42,34 +42,63 @@
 // sur une suite verte, sinon il attribue à la garde ce qui vient du décor
 // (§ 9 quincenties, ici payé sur ma propre pollution).
 
+//
+// ─── ET LE DÉFAUT INVERSE, TROUVÉ PAR LA PREUVE V2 ALPHA ─────────────────────
+//
+// `info` posé à TOUS les moteurs : bubblewrap n'a pas de sous-commande, il
+// prend `info` pour le programme à lancer (`bwrap: execvp info: No such file
+// or directory`). Sur un Ubuntu où le nœud isolait très bien ses tâches par
+// bubblewrap 0.11.1, le docteur disait « aucun bac à sable ne répond » et
+// envoyait installer Docker. La question est désormais celle du nœud
+// (`questionAuMoteur`) : `info` pour un moteur de conteneurs, un bac VIDE pour
+// bubblewrap — le bac même que le preflight ouvre (`bacVideRefuse`).
+
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { SONDE_ISOLEMENT, imageDuBac, isolementDisponible } from '../src/doctor-releve.js';
-import { FOURNISSEURS, fournisseurParNom, IMAGE_DEFAUT } from '../src/node-client/isolement.js';
-import type { Fournisseur } from '../src/node-client/isolement.js';
+import { imageDuBac, relever } from '../src/doctor-releve.js';
+import { diagnostiquer } from '../src/shared/doctor.js';
+import {
+  FOURNISSEURS,
+  fournisseurParNom,
+  IMAGE_DEFAUT,
+  moteursJoignables,
+  SONDE_ISOLEMENT,
+} from '../src/node-client/isolement.js';
+import type { Enveloppe, Fournisseur } from '../src/node-client/isolement.js';
 
 /** Ce que chaque fournisseur s'est vu demander. */
 type Demande = { bin: string; args: readonly string[] };
 
+/** Bubblewrap a-t-il reçu la question du nœud : ouvrir un bac vide et y lancer `true` ? */
+const bacVide = (d: Demande): boolean =>
+  d.bin === 'bwrap' && d.args.at(-1) === 'true' && d.args.at(-2) === '--';
+
 /**
  * Un lanceur de laboratoire.
  *
- * `repond` décide, à partir de l'argument, si le binaire rend 0 — c'est
+ * `repond` décide, à partir de la question, si le binaire rend 0 — c'est
  * exactement la distinction qu'on éprouve : le client parle, le service non.
  */
-function lanceur(repond: (bin: string, args: readonly string[]) => boolean) {
+function lanceur(repond: (d: Demande) => boolean) {
   const vues: Demande[] = [];
-  const lancer = (bin: string, args: readonly string[]): Promise<boolean> => {
-    vues.push({ bin, args });
-    return Promise.resolve(repond(bin, args));
+  const lancer = (lance: Enveloppe): Promise<boolean> => {
+    const d = { bin: lance.bin, args: lance.args };
+    vues.push(d);
+    return Promise.resolve(repond(d));
   };
   return { lancer, vues };
 }
+
+const noms = (fs: readonly Fournisseur[]): string[] => fs.map((f) => f.nom);
 
 describe('la sonde d’isolement interroge le SERVICE, pas le client', () => {
   it('UN FOURNISSEUR JOIGNABLE EST RENDU — sinon rien ici ne mesure rien', async () => {
     // ─── LE CAS NOMINAL, ÉCRIT EN PREMIER (§ 9 unvicicenties) ──────────────
     const { lancer } = lanceur(() => true);
-    expect(await isolementDisponible(lancer)).toBe(FOURNISSEURS[0]!.nom);
+    expect(noms(await moteursJoignables(lancer))[0]).toBe(FOURNISSEURS[0]!.nom);
   });
 
   it('LE CLIENT RÉPOND, LE DÉMON EST MORT : AUCUN BAC À SABLE', async () => {
@@ -77,45 +106,58 @@ describe('la sonde d’isolement interroge le SERVICE, pas le client', () => {
     //
     // C'est la SEULE machine qui les départage. Là où le démon tourne, les deux
     // versions rendent « docker » ; là où rien n'est installé, les deux rendent
-    // `null`. Le poste d'un arrivant qui a le client sans le service — un
+    // rien. Le poste d'un arrivant qui a le client sans le service — un
     // Docker Desktop pas démarré, un démon arrêté, un conteneur sans socket —
     // est exactement le cas où le docteur mentait.
-    const { lancer, vues } = lanceur((_bin, args) => args[0] === '--version');
+    const { lancer, vues } = lanceur((d) => d.args[0] === '--version');
 
     expect(
-      await isolementDisponible(lancer),
+      await moteursJoignables(lancer),
       'un client sans démon passe pour un bac à sable disponible',
-    ).toBeNull();
+    ).toEqual([]);
 
     // Et l'on vérifie ce qui a été DEMANDÉ, pas seulement ce qui est rendu :
-    // un `null` obtenu en ne lançant rien du tout serait vert pour la mauvaise
+    // un vide obtenu en ne lançant rien du tout serait vert pour la mauvaise
     // raison.
     expect(
       vues.map((v) => v.bin),
       'les fournisseurs ne sont pas tous sondés',
     ).toEqual(FOURNISSEURS.map((f: Fournisseur) => f.bin));
-    for (const v of vues) {
+    for (const v of vues.filter((d) => d.bin !== 'bwrap')) {
       expect(v.args, `« ${v.bin} » n’est pas interrogé sur son service`).toEqual([SONDE_ISOLEMENT]);
     }
   });
 
+  it('BUBBLEWRAP EST ÉPROUVÉ COMME LE NŒUD L’ÉPROUVE — un bac vide, jamais `bwrap info`', async () => {
+    // Le lanceur joue ce que fait le vrai bubblewrap : `info` le fait échouer
+    // (il cherche un programme de ce nom), un bac vide réussit. Sur le code
+    // d'avant, la même machine rendait « aucun bac à sable ».
+    const { lancer, vues } = lanceur(bacVide);
+    expect(noms(await moteursJoignables(lancer))).toEqual(['bubblewrap']);
+    const bwrap = vues.find((d) => d.bin === 'bwrap');
+    expect(bwrap?.args, 'bubblewrap reçoit encore une sous-commande').not.toContain(
+      SONDE_ISOLEMENT,
+    );
+    // Le bac vide monte le système en LECTURE SEULE, comme celui des tâches.
+    expect(bwrap?.args.slice(0, 3)).toEqual(['--ro-bind', '/usr', '/usr']);
+  });
+
   it('AUCUN BINAIRE : AUCUN BAC À SABLE — et tous ont été essayés', async () => {
     const { lancer, vues } = lanceur(() => false);
-    expect(await isolementDisponible(lancer)).toBeNull();
+    expect(await moteursJoignables(lancer)).toEqual([]);
     expect(vues, 'un fournisseur a été écarté sans être essayé').toHaveLength(FOURNISSEURS.length);
   });
 
   it('LE PRÉFÉRÉ EST RENDU, MÊME QUAND LES SUIVANTS RÉPONDENT AUSSI', async () => {
     // L'ordre de `FOURNISSEURS` est une préférence (podman d'abord : sans démon,
-    // sans root) : le nom rendu est le PRÉFÉRÉ, pas le dernier essayé.
+    // sans root) : le premier rendu est le PRÉFÉRÉ, pas le dernier essayé.
     //
-    // La recherche ne s'arrête plus au premier : chaque moteur a son propre
+    // La recherche ne s'arrête pas au premier : chaque moteur a son propre
     // magasin d'images, et le docteur cherche l'image du bac dans chacun de
     // ceux qui répondent (`imageDuBac`), comme le nœud.
-    const premier = FOURNISSEURS[0]!;
     const { lancer, vues } = lanceur(() => true);
 
-    expect(await isolementDisponible(lancer)).toBe(premier.nom);
+    expect(noms(await moteursJoignables(lancer))).toEqual(noms(FOURNISSEURS));
     expect(vues.map((v) => v.bin)).toEqual(FOURNISSEURS.map((f: Fournisseur) => f.bin));
   });
 
@@ -129,6 +171,54 @@ describe('la sonde d’isolement interroge le SERVICE, pas le client', () => {
     );
     expect(SONDE_ISOLEMENT, 'la sonde n’interroge plus le service').toBe('info');
   });
+});
+
+/**
+ * Le vrai bubblewrap de cette machine ouvre-t-il un bac ? Mesuré ICI, à la
+ * main et sans le code éprouvé : un Ubuntu 24.04 d'origine le refuse
+ * (`kernel.apparmor_restrict_unprivileged_userns=1`), une machine sans
+ * bubblewrap ne l'a pas — le banc réel ne vaut que là où il peut conclure.
+ */
+function bubblewrapOuvreUnBac(): boolean {
+  if (process.platform !== 'linux') return false;
+  const r = spawnSync(
+    'bwrap',
+    ['--ro-bind', '/usr', '/usr', '--ro-bind', '/bin', '/bin', '--ro-bind', '/lib', '/lib'].concat([
+      '--ro-bind-try',
+      '/lib64',
+      '/lib64',
+      '--proc',
+      '/proc',
+      '--dev',
+      '/dev',
+      'true',
+    ]),
+    { stdio: 'ignore', timeout: 10_000 },
+  );
+  return r.status === 0;
+}
+
+describe('le vrai bubblewrap, là où il ouvre un bac', () => {
+  it.runIf(bubblewrapOuvreUnBac())(
+    'LE DOCTEUR LE VOIT — « bac à sable disponible », et non « installez Docker »',
+    async () => {
+      // Le cas de la preuve V2 Alpha, rejoué sur la machine même : bubblewrap
+      // ouvre un bac, le nœud l'utiliserait. Le relevé RÉEL (aucun lanceur
+      // injecté) doit le trouver, et le verdict ne plus envoyer installer un
+      // moteur de conteneurs.
+      const racine = mkdtempSync(path.join(tmpdir(), 'hive-doc-bwrap-'));
+      try {
+        const r = await relever(racine, { HIVE_PORT: '0' }, 'linux');
+        expect(r.isolement, 'le docteur ne voit aucun bac à sable').not.toBeNull();
+        const verdict = diagnostiquer(r).find((d) => d.cle === 'isolement');
+        expect(verdict?.gravite, verdict?.constat).toBe('ok');
+      } finally {
+        rmSync(racine, { recursive: true, force: true });
+      }
+      expect(noms(await moteursJoignables())).toContain('bubblewrap');
+    },
+    30_000,
+  );
 });
 
 describe('l’image du bac : le docteur suit la règle du nœud', () => {

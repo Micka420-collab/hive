@@ -20,9 +20,11 @@
 
 import {
   AGENTS_A_IDENTIFIANTS_CONNUS,
-  detectAllAgents,
+  constaterAgents,
   requisitionSiCredentialsManquantes,
+  type AgentPresent,
   type AgentType,
+  type EtatSession,
 } from './agent-detect.js';
 import { estAgentSimule } from '../shared/agent-production.js';
 import { juger, type EtatAgent, type EtatCle } from '../shared/connexion-agent.js';
@@ -34,8 +36,12 @@ import type { OutilConstate } from '../shared/protocol.js';
 const INTERROGES: readonly AgentType[] = ['claude-code', 'cursor', 'cline', 'codex', 'grok'];
 
 export interface OutilsConnexion {
-  /** Les agents dont le BINAIRE a été trouvé sur ce poste. */
-  agentsPresents?: () => Promise<AgentType[]>;
+  /**
+   * Les agents dont le BINAIRE a été trouvé sur ce poste, avec ce que leur CLI
+   * dit de sa session — un agent non connecté reste PRÉSENT : c'est sa clé
+   * qui manque, pas sa ligne de commande.
+   */
+  agentsPresents?: () => Promise<readonly AgentPresent[]>;
   /** L'environnement où chercher les clés — `.env` est déjà chargé dedans. */
   env?: NodeJS.ProcessEnv;
   existe?: (chemin: string) => boolean;
@@ -66,9 +72,15 @@ export interface OutilsConnexion {
  * On ne demande donc son avis à la fonction QUE pour les agents dont elle a une
  * branche à elle. Pour les autres, la seule réponse honnête est « inconnue ».
  */
-function etatCle(agent: AgentType, env: NodeJS.ProcessEnv, outils: OutilsConnexion): EtatCle {
+function etatCle(
+  agent: AgentType,
+  session: EtatSession,
+  env: NodeJS.ProcessEnv,
+  outils: OutilsConnexion,
+): EtatCle {
   if (!AGENTS_A_IDENTIFIANTS_CONNUS.includes(agent)) return 'inconnue';
   const manque = requisitionSiCredentialsManquantes(agent, env, {
+    session,
     ...(outils.existe ? { existe: outils.existe } : {}),
     ...(outils.plateforme ? { plateforme: outils.plateforme } : {}),
     ...(outils.sessionsHote !== undefined ? { sessionsHote: outils.sessionsHote } : {}),
@@ -85,12 +97,17 @@ function etatCle(agent: AgentType, env: NodeJS.ProcessEnv, outils: OutilsConnexi
  */
 export async function diagnostiquerAgents(outils: OutilsConnexion = {}): Promise<EtatAgent[]> {
   const env = outils.env ?? process.env;
-  const presents = new Set(await (outils.agentsPresents ?? (() => detectAllAgents(env)))());
+  const presents = new Map(
+    (await (outils.agentsPresents ?? (() => constaterAgents(env)))()).map((p) => [
+      p.agent,
+      p.session,
+    ]),
+  );
   const etats = INTERROGES.map((agent) =>
     juger({
       agent,
       binaire: presents.has(agent),
-      cle: etatCle(agent, env, outils),
+      cle: etatCle(agent, presents.get(agent) ?? 'inconnue', env, outils),
     }),
   );
   const rang = (e: EtatAgent): number =>

@@ -36,7 +36,8 @@
 // un démon privilégié.
 //
 // MODULE PUR pour tout ce qui se calcule (les arguments, les garanties, le
-// niveau) ; les impuretés sont la SONDE, qui lance `--version`, et, pour
+// niveau) ; les impuretés sont les SONDES — `--version`, et la question qui
+// dit si un moteur répond (`questionAuMoteur`) —, et, pour
 // bubblewrap seul, la LECTURE du PATH de l'hôte (`installationHote`), qui ne
 // lance rien et qu'un banc remplace par `OptionsEnveloppe.hote`.
 
@@ -989,6 +990,92 @@ export async function trouverFournisseurs(): Promise<Fournisseur[]> {
   return presents;
 }
 
+/**
+ * La question qui dit si un moteur RÉPOND sur cet hôte — une par moteur, parce
+ * qu'ils ne se questionnent pas de la même façon.
+ *
+ * ─── « AUCUN BAC À SABLE NE RÉPOND », SUR UN BUBBLEWRAP QUI MARCHAIT ────────
+ *
+ * Le docteur posait `<moteur> info` à tous. C'est juste pour Docker et Podman
+ * (voir `SONDE_ISOLEMENT`) ; bubblewrap, lui, n'a pas de sous-commande : il
+ * prend `info` pour le programme à lancer. Mesuré sur un Ubuntu où le nœud
+ * isolait très bien ses tâches par bubblewrap 0.11.1 :
+ *
+ *     bwrap info  → code=1   bwrap: execvp info: No such file or directory
+ *
+ * et `hive doctor` concluait « aucun bac à sable ne répond », puis envoyait
+ * installer Docker ou Podman. Le docteur et le nœud répondaient à deux
+ * questions différentes.
+ *
+ * Pour bubblewrap, la question est donc celle du NŒUD : ouvrir un bac VIDE
+ * (`true`, pris dans le système monté), exactement celui de `bacVideRefuse` —
+ * un seul propriétaire, le docteur ne peut plus dire autre chose que le
+ * preflight. Et elle vaut mieux que `--version`, qui répond même quand le
+ * noyau refuse les espaces de noms utilisateur.
+ */
+export function questionAuMoteur(fournisseur: Fournisseur, cwdVide: string): Enveloppe {
+  if (fournisseur.bin !== 'bwrap') return { bin: fournisseur.bin, args: [SONDE_ISOLEMENT] };
+  return envelopper('true', [], {
+    fournisseur,
+    cwdHote: cwdVide,
+    variables: [],
+    image: IMAGE_DEFAUT,
+  });
+}
+
+/**
+ * L'argument qui touche le SERVICE d'un moteur de conteneurs, et non seulement
+ * son client.
+ *
+ * `docker --version` répond 0 SANS JAMAIS PARLER AU DÉMON — mesuré dans le
+ * conteneur où le défaut a été trouvé : `--version` → 0, `info` → 1 « failed
+ * to connect to the docker API ». Le docteur affichait alors « ✔ docker » sur
+ * un démon arrêté, et la première tâche ratait trois fois. `info` interroge le
+ * service ; Podman, sans démon, y répond aussi.
+ */
+export const SONDE_ISOLEMENT = 'info';
+
+/** Le délai d'une sonde de moteur : il penche du bon côté — trop lent vaut absent. */
+export const SONDE_MOTEUR_MS = 5_000;
+
+/** Ce qu'une sonde de moteur sait faire : lancer la question, et dire si elle a réussi. */
+export type LanceurDeSonde = (lance: Enveloppe, fournisseur: Fournisseur) => Promise<boolean>;
+
+/**
+ * Le lanceur réel : sans aucun secret (`eprouver`), avec, pour un moteur de
+ * conteneurs, ce que son client lit (`envMoteur`) — le même environnement que
+ * le nœud lui donne.
+ */
+const lanceurDeSonde: LanceurDeSonde = async (lance, fournisseur) => {
+  const r = await eprouver(lance, {
+    cwd: tmpdir(),
+    timeoutMs: SONDE_MOTEUR_MS,
+    ...(fournisseur.bin === 'bwrap' ? {} : { env: envMoteur(fournisseur) }),
+  });
+  return r.issue === 'sortie' && r.code === 0;
+};
+
+/**
+ * Tous les moteurs RÉELLEMENT joignables, dans l'ordre de préférence — ce que
+ * le docteur et l'installeur annoncent. Le lanceur est injectable pour qu'un
+ * banc joue « le client est là, le service ne répond pas » sans démon.
+ */
+export async function moteursJoignables(
+  lancer: LanceurDeSonde = lanceurDeSonde,
+): Promise<Fournisseur[]> {
+  // Un dossier vide et jetable : c'est le seul que le bac vide de bubblewrap monte.
+  const vide = mkdtempSync(join(tmpdir(), 'hive-sonde-moteur-'));
+  try {
+    const joignables: Fournisseur[] = [];
+    for (const f of FOURNISSEURS) {
+      if (await lancer(questionAuMoteur(f, vide), f)) joignables.push(f);
+    }
+    return joignables;
+  } finally {
+    rmSync(vide, { recursive: true, force: true });
+  }
+}
+
 export interface ResultatPreflightAgent {
   executable: boolean;
   motif: string;
@@ -1108,11 +1195,11 @@ function citation(erreurs: string): string {
  * pourquoi sur sa sortie d'erreur, qu'on cite plutôt que de la deviner.
  */
 async function bacVideRefuse(
-  options: OptionsEnveloppe,
+  fournisseur: Fournisseur,
   cwd: string,
   timeoutMs: number,
 ): Promise<string | null> {
-  const r = await eprouver(envelopper('true', [], options), {
+  const r = await eprouver(questionAuMoteur(fournisseur, cwd), {
     cwd,
     timeoutMs,
     garderErreurs: true,
@@ -1164,7 +1251,7 @@ export async function sonderAgentDansBac(
     }
     if (r.code === 0)
       return { executable: true, motif: `agent « ${binAgent} » exécutable dans le bac` };
-    const bac = conteneur ? null : await bacVideRefuse(options, probeCwd, timeoutMs);
+    const bac = conteneur ? null : await bacVideRefuse(fournisseur, probeCwd, timeoutMs);
     return echec(
       bac ?? `agent « ${binAgent} » absent ou non exécutable dans le bac${citation(r.erreurs)}`,
     );

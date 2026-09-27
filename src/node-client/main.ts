@@ -5,7 +5,13 @@
 import os from 'node:os';
 import path from 'node:path';
 import { bornerConcurrence, identiteStable } from './identite-noeud.js';
-import { agentCredentialEnv, detectAllAgents, messageAgent } from './agent-detect.js';
+import {
+  agentCredentialEnv,
+  inventaireAgents,
+  lignesNonConnectes,
+  messageAgent,
+  refusNonConnecte,
+} from './agent-detect.js';
 import type { AgentType } from './agent-detect.js';
 import { resoudreAgentAuDemarrage } from './choisir-agent.js';
 import { libelleAgent } from '../shared/agent-libelle.js';
@@ -84,7 +90,13 @@ const detecte = await resoudreAgentAuDemarrage({
   demander: demanderAgent,
 });
 const agentType: AgentType = detecte.agent;
-const tousAgents = await detectAllAgents();
+const inventaire = await inventaireAgents();
+const tousAgents = inventaire.tous;
+const refusAgent = refusNonConnecte(agentType, inventaire);
+if (refusAgent) {
+  console.error(`✘ Ce nœud ne démarre pas : ${refusAgent}\n`);
+  process.exit(CODE.PREREQUIS);
+}
 
 // Même défaut que `HiveNodeClient` (client.ts) : calculé ICI pour pouvoir
 // lire/écrire l'identité stable AVANT de construire le client.
@@ -113,7 +125,9 @@ for (const l of reprise.lignes) console.log(l);
 const bac = await preparerBac(process.env, agentType, { moteurs: async () => reprise.moteurs });
 for (const l of bac.lignes) console.log(l);
 if (bac.refuse) {
-  console.error('✘ Ce nœud ne démarre pas.\n');
+  // Le motif sur la DERNIÈRE ligne : c'est celle que la ruche cite quand une
+  // ouvrière tombe (`scripts/ruche.mjs`), au milieu des lignes des autres.
+  console.error(`✘ Ce nœud ne démarre pas : ${bac.decision.motif}\n`);
   process.exit(bac.codeSortie);
 }
 
@@ -169,6 +183,7 @@ if (entree.mode === 'presence') {
 }
 
 console.log(`   Agents détectés : ${tousAgents.map((a) => libelleAgent(a)).join(', ')}`);
+for (const l of lignesNonConnectes(inventaire)) console.log(l);
 console.log(`   Agent utilisé   : ${detecte.label}`);
 // Le dire ICI, et pas seulement dans `hive doctor` : personne ne lance le
 // docteur avant de voir sa ruche « travailler ». Un simulacre silencieux

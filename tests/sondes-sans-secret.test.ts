@@ -93,7 +93,13 @@ function sansCommentaires(source: string): string {
  * passée à `info`. Toute sonde qui pose une AUTRE question s'ajoute ici — et le
  * compte plancher plus bas rougira si on l'oublie.
  */
-const MARQUEURS_DE_SONDE = ["'--version'", 'SONDE_ISOLEMENT'] as const;
+//
+// La sonde d'isolement du docteur a quitté cette liste le 27 septembre : elle
+// passe désormais par `eprouver` (`isolement.ts`), le lanceur des preflights
+// du nœud, dont l'environnement est `envSonde` ou `envMoteur` — construit à
+// partir de rien. La commande de statut des agents (`argsStatut`, « es-tu
+// connecté ? ») l'a remplacée : le compte plancher tient.
+const MARQUEURS_DE_SONDE = ["'--version'", 'argsStatut'] as const;
 
 describe('la règle : toute sonde d’un binaire tiers est lavée de ses secrets', () => {
   it('LES SONDES DU DÉPÔT PASSENT TOUTES PAR envSonde — y compris celles à venir', () => {

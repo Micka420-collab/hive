@@ -253,7 +253,8 @@ describe('LE RELEVÉ COMPLET, SUR UNE RACINE FABRIQUÉE', () => {
       // La détection sonde le PATH réel de la machine : on ne peut pas la
       // forcer par l'environnement, d'où la couture d'injection.
       const r = await relever(racine, { HIVE_PORT: '0' }, 'linux', async () => ({
-        agent: 'shell',
+        tous: ['shell'],
+        nonConnectes: [],
       }));
       expect(r.agent, '`shell` vaut « aucun agent » pour le docteur').toBeNull();
       expect(diagnostiquer(r).find((d) => d.cle === 'agent')?.gravite).toBe('risque');
@@ -261,7 +262,8 @@ describe('LE RELEVÉ COMPLET, SUR UNE RACINE FABRIQUÉE', () => {
       // Et un VRAI agent, lui, est bien rapporté — sinon le diagnostic
       // crierait sur toutes les machines correctement installées.
       const vrai = await relever(racine, { HIVE_PORT: '0' }, 'linux', async () => ({
-        agent: 'claude-code',
+        tous: ['claude-code', 'shell'],
+        nonConnectes: [],
       }));
       expect(vrai.agent).toBe('claude-code');
       expect(diagnostiquer(vrai).find((d) => d.cle === 'agent')?.gravite).toBe('ok');

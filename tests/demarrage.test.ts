@@ -29,9 +29,11 @@ import {
   type PlanOuvrieres,
   SCRIPTS,
   adresseAnnoncee,
+  annonceNonConnectes,
   annonceOuvrieres,
   attendLaReine,
   decouperLignes,
+  derniereLigne,
   entreesAbsentes,
   envDePiece,
   largeurEtiquettes,
@@ -41,6 +43,7 @@ import {
   prefixe,
   reliquat,
   silenceDeLaReine,
+  suiteDUneMort,
   veutOuvriere,
   voeuDepuisArgv,
 } from '../src/shared/demarrage.js';
@@ -583,9 +586,13 @@ describe('UNE OUVRIÈRE PAR AGENT — ce que le lanceur en fait', () => {
     expect(liste.find((p) => p.nom === 'ouvrière codex')?.role).toContain('Codex');
   });
 
-  it('SEULE L’AJOUTÉE EST FACULTATIVE — la Reine, la première, l’écran emportent toujours la ruche', async () => {
+  it('TOUTES LES OUVRIÈRES SONT DES OUVRIÈRES — la première comme l’ajoutée ; ni la Reine ni l’écran', async () => {
+    // La première ouvrière emportait la ruche en tombant : c'est elle, sous
+    // `exige`, qui refusait (session de l'hôte invisible dans le bac) et
+    // arrêtait la Reine et les deux autres familles déjà inscrites.
     const liste = pieces(NODE, {}, PORT_PAR_DEFAUT, await planPour(['claude-code', 'codex']));
-    expect(liste.filter((p) => p.facultative === true).map((p) => p.nom)).toEqual([
+    expect(liste.filter((p) => p.ouvriere === true).map((p) => p.nom)).toEqual([
+      'ouvrière claude-code',
       'ouvrière codex',
     ]);
   });
@@ -597,7 +604,7 @@ describe('UNE OUVRIÈRE PAR AGENT — ce que le lanceur en fait', () => {
     const ouvriere = liste.find((p) => p.nom === 'ouvrière');
     expect(ouvriere).toBeDefined();
     expect(ouvriere?.env).toBeUndefined();
-    expect(ouvriere?.facultative).toBeUndefined();
+    expect(ouvriere?.ouvriere).toBe(true);
   });
 
   it('`--sans-noeud` L’EMPORTE SUR LE PLAN — et le lanceur ne sonde même pas', async () => {
@@ -808,5 +815,74 @@ describe('CEUX QUI REJOIGNENT LA REINE PARTENT À SON ANNONCE, VERS SON VRAI POR
       expect(proxy?.['/api']).toBe(`http://localhost:${PORT_PAR_DEFAUT}`);
       expect(proxy?.['/ws']).toEqual({ target: `ws://localhost:${PORT_PAR_DEFAUT}`, ws: true });
     });
+  });
+});
+
+describe('la mort d’une pièce — la Reine emporte la ruche, une ouvrière non', () => {
+  const OUVRIERE = { ouvriere: true } as const;
+  const REFUS =
+    '✘ Ce nœud ne démarre pas : HIVE_ISOLEMENT=exige : Dans le bac à sable, la session ~/.claude ' +
+    'de l’hôte est invisible : posez CLAUDE_CODE_OAUTH_TOKEN dans le .env de ce nœud.';
+
+  it('UNE OUVRIÈRE QUI REFUSE : la ruche continue, et cite SA raison et SON remède', () => {
+    // Le cas mesuré de la preuve V2 Alpha : code 5 sous `exige`, deux autres
+    // ouvrières en place. Le lanceur arrêtait tout.
+    const suite = suiteDUneMort({
+      piece: OUVRIERE,
+      code: 5,
+      signal: null,
+      ouvrieresRestantes: 2,
+      derniere: REFUS,
+    });
+    expect(suite.arreter).toBe(false);
+    expect(suite.message).toContain('la ruche continue sans elle');
+    expect(suite.message).toContain('(code 5)');
+    expect(suite.message, 'le remède n’est pas cité').toContain('posez CLAUDE_CODE_OAUTH_TOKEN');
+    expect(suite.message).toContain('2 ouvrière(s) en place');
+  });
+
+  it('LA DERNIÈRE OUVRIÈRE TOMBE : la ruche s’arrête, en code non nul — même sur un 0', () => {
+    for (const code of [5, 0, null]) {
+      const suite = suiteDUneMort({
+        piece: OUVRIERE,
+        code,
+        signal: code === null ? 'SIGKILL' : null,
+        ouvrieresRestantes: 0,
+        derniere: null,
+      });
+      expect(suite).toMatchObject({ arreter: true });
+      expect(suite.arreter && suite.code, `code ${String(code)}`).not.toBe(0);
+      expect(suite.message).toContain('plus aucune ouvrière');
+    }
+  });
+
+  it('LA REINE MEURT : la ruche s’arrête, même s’il reste des ouvrières', () => {
+    const suite = suiteDUneMort({
+      piece: {},
+      code: 0,
+      signal: null,
+      ouvrieresRestantes: 3,
+      derniere: null,
+    });
+    expect(suite).toEqual({
+      arreter: true,
+      code: 1,
+      message: "✘ arrêté (code 0) — la ruche s'arrête.",
+    });
+  });
+
+  it('la dernière phrase est la dernière ligne NON VIDE — `console.error(…\\n)` finit par une vide', () => {
+    expect(derniereLigne([REFUS, '', '  '], null)).toBe(REFUS);
+    expect(derniereLigne(['', ''], 'avant')).toBe('avant');
+    expect(derniereLigne(['x'.repeat(1_000)], null)).toHaveLength(400);
+  });
+
+  it('un agent non connecté se DIT dans la bannière — aucune ouvrière pour lui', () => {
+    expect(annonceNonConnectes([])).toEqual([]);
+    const [ligne] = annonceNonConnectes([
+      { detail: 'Cursor est installé mais non connecté (`cursor-agent status` le dit) : …' },
+    ]);
+    expect(ligne).toMatch(/^⚠ Cursor est installé mais non connecté/);
+    expect(ligne).toContain('Aucune ouvrière ne le fait travailler.');
   });
 });

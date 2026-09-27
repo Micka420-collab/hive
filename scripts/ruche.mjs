@@ -75,9 +75,11 @@ register();
 const {
   DELAI_ANNONCE_REINE_MS,
   adresseAnnoncee,
+  annonceNonConnectes,
   annonceOuvrieres,
   attendLaReine,
   decouperLignes,
+  derniereLigne,
   entreesAbsentes,
   envDePiece,
   largeurEtiquettes,
@@ -87,6 +89,7 @@ const {
   prefixe,
   reliquat,
   silenceDeLaReine,
+  suiteDUneMort,
   veutOuvriere,
   voeuDepuisArgv,
 } = await import('../src/shared/demarrage.ts');
@@ -126,15 +129,22 @@ const voeu = voeuDepuisArgv(argv);
 // règle de `portAnnonce` : l'environnement au-dessus du `.env`. La sonde, elle,
 // lance chaque binaire avec l'environnement de CE processus, qui ne porte aucun
 // secret du `.env` (voir `envSonde`).
+//
+// Un agent installé que son CLI dit NON CONNECTÉ n'a pas d'ouvrière : elle
+// s'inscrirait, la Reine lui confierait du travail, et chaque tâche échouerait
+// « non authentifié ». La bannière le dit, avec le remède (`inventaireAgents`).
 const envFusionne = { ...envFichier, ...process.env };
+let nonConnectes = [];
 const plan = veutOuvriere(voeu)
   ? await planOuvrieres({
       argv,
       env: envFusionne,
       hote: hostname(),
       detecter: async () => {
-        const { detectAllAgents } = await import('../src/node-client/agent-detect.ts');
-        return detectAllAgents(envFusionne);
+        const { inventaireAgents } = await import('../src/node-client/agent-detect.ts');
+        const inventaire = await inventaireAgents(envFusionne);
+        nonConnectes = inventaire.nonConnectes;
+        return inventaire.tous;
       },
     })
   : undefined;
@@ -169,12 +179,15 @@ console.log('');
 for (const p of liste) console.log(`      ${p.nom.padEnd(largeur)}  ${p.role}`);
 console.log('');
 for (const l of annonceOuvrieres(plan)) console.log(`      ${l}`);
+for (const l of annonceNonConnectes(nonConnectes)) console.log(`      ${l}`);
 console.log('      ^C arrête tout.');
 console.log('');
 
 /** Les enfants vivants, pour pouvoir tous les emporter. */
 const enfants = [];
 let onFerme = false;
+/** Les ouvrières vivantes ou à lancer : la ruche tient tant qu'il en reste une. */
+let ouvrieresEnPlace = liste.filter((p) => p.ouvriere).length;
 
 /**
  * Préfixe chaque LIGNE, pas chaque morceau.
@@ -183,15 +196,17 @@ let onFerme = false;
  * s'éprouvent sans processus. Ici il ne reste que le branchement : ce qui n'est
  * pas une décision.
  */
-function brancher(flux, etiquette, vers) {
+function brancher(flux, etiquette, vers, retenir = () => undefined) {
   let reste = '';
   flux.setEncoding('utf8');
   flux.on('data', (bout) => {
     const debit = decouperLignes(reste, bout);
     reste = debit.reste;
+    retenir(debit.lignes);
     for (const l of debit.lignes) vers.write(`${etiquette}${l}\n`);
   });
   flux.on('end', () => {
+    retenir(reliquat(reste));
     for (const l of reliquat(reste)) vers.write(`${etiquette}${l}\n`);
   });
 }
@@ -221,38 +236,52 @@ function lancer(p, reine) {
     env: pose ? { ...process.env, ...pose } : process.env,
   });
   const etiquette = prefixe(p.nom, largeur);
+  // Sa dernière phrase d'erreur, pour la citer s'il meurt : c'est là qu'un
+  // nœud qui refuse dit pourquoi, et ce qu'il faut poser.
+  let derniere = null;
   brancher(enfant.stdout, etiquette, process.stdout);
-  brancher(enfant.stderr, etiquette, process.stderr);
+  brancher(enfant.stderr, etiquette, process.stderr, (lignes) => {
+    derniere = derniereLigne(lignes, derniere);
+  });
 
   enfant.on('error', (e) => {
     console.error(`${etiquette}✘ ${e.message}`);
     arreter(1);
   });
 
-  // ─── LA MORT D'UN SEUL EMPORTE LES AUTRES ─────────────────────────────────
+  // ─── LA MORT DE LA REINE EMPORTE LA RUCHE, CELLE D'UNE OUVRIÈRE NON ─────────
   //
   // Une ruche dont le hub est mort n'est pas une ruche à moitié : c'est un nœud
   // qui reconnecte dans le vide et un écran qui affiche des données périmées.
-  // Laisser survivre les deux autres, c'est laisser croire que ça tourne.
+  // Une ouvrière qui tombe — un refus `exige`, un agent qui plante — laisse
+  // en revanche la Reine et les autres travailler ; elle se dit, avec sa
+  // dernière phrase, et la ruche ne s'arrête que s'il n'en reste AUCUNE. La
+  // règle vit dans `suiteDUneMort`, pure et éprouvée.
   //
-  // Une seule exception, et elle se DIT : l'ouvrière qu'un essaim par agent a
-  // AJOUTÉE (`facultative`). La ruche d'avant — la Reine, la première ouvrière,
-  // l'écran — tourne toujours sans elle ; l'emporter, c'était casser une ruche
-  // qui marchait pour une ouvrière que personne n'avait demandée. Voir
-  // `OuvriereAgent.ajoutee`.
+  // La dernière phrase d'erreur doit être LUE avant d'être citée : `exit` peut
+  // tirer avant que le tuyau soit vidé. On attend donc sa fin — une seconde au
+  // plus : un petit-enfant qui garderait le tuyau ouvert (le service esbuild
+  // de Vite hérite de sa sortie d'erreur) ne doit pas retenir la décision.
   enfant.on('exit', (code, signal) => {
-    if (onFerme) return;
-    if (p.facultative) {
-      console.error(
-        `${etiquette}✘ arrêtée (${signal ?? `code ${String(code)}`}) — la ruche continue sans elle.`,
-      );
-      return;
-    }
-    console.error('');
-    console.error(
-      `${etiquette}✘ arrêté (${signal ?? `code ${String(code)}`}) — la ruche s'arrête.`,
-    );
-    arreter(code === 0 ? 1 : (code ?? 1));
+    let tranche = false;
+    const trancher = () => {
+      if (tranche || onFerme) return;
+      tranche = true;
+      if (p.ouvriere) ouvrieresEnPlace -= 1;
+      const suite = suiteDUneMort({
+        piece: p,
+        code,
+        signal,
+        ouvrieresRestantes: ouvrieresEnPlace,
+        derniere,
+      });
+      if (suite.arreter) console.error('');
+      console.error(`${etiquette}${suite.message}`);
+      if (suite.arreter) arreter(suite.code);
+    };
+    if (enfant.stderr.readableEnded) return trancher();
+    enfant.stderr.once('end', trancher);
+    differer(trancher, 1_000).unref();
   });
 
   if (p.reine === 'annonce') {

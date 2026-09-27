@@ -217,7 +217,14 @@ another family independent of the producer if one is online; otherwise the
 Evaluator asks for a human review, stating « relecture impossible : <cause> ».
 The producer is never retried for its reviewer's failure. The first worker keeps its
 previous name, folder and `HIVE_MODELES`; the others take `<name>-<family>`. To
-start only one: `npm run ruche -- --une-ouvriere`, or `HIVE_AGENT` in `.env`.
+start only one: `npm run ruche -- --une-ouvriere`, or `HIVE_AGENT` in `.env`. An
+agent that is installed but not signed in — its own status command says so
+(`claude auth status`, `cursor-agent status`, `codex login status`) and no key
+is set — gets no worker: the hive and `hive doctor` say so, with the command
+that signs it in. A worker that dies or refuses to start no longer stops the
+hive: the launcher quotes its last line (the reason and the fix), and only
+stops, with a non-zero code, when the Queen dies or no worker is left. `^C`
+still stops everything.
 
 ## 🔒 Security
 

@@ -247,7 +247,7 @@ describe('UNE SESSION DE L’HÔTE NE COMPTE PAS DANS LE BAC', () => {
   it('le constat envoyé au hub ne dit pas « clé présente » sur la foi d’une session invisible', async () => {
     const poste = (sessionsHote: boolean) =>
       diagnostiquerAgents({
-        agentsPresents: async () => ['claude-code'],
+        agentsPresents: async () => [{ agent: 'claude-code', session: 'inconnue' }],
         env,
         existe: sessionClaude,
         plateforme: 'linux',
@@ -393,7 +393,7 @@ describe('LE BAC NE S’ANNONCE PAS QUAND L’AGENT N’Y SERAIT PAS AUTHENTIFI�
     const bac = await preparerBac(env, 'codex', outils);
     expect(bac.decision.isole).toBe(true);
     const etats = await diagnostiquerAgents({
-      agentsPresents: async () => ['codex'],
+      agentsPresents: async () => [{ agent: 'codex', session: 'inconnue' }],
       env,
       existe: () => false,
       plateforme: 'linux',

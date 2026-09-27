@@ -38,6 +38,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import type { InventaireAgents } from '../src/node-client/agent-detect.js';
 import { describe, expect, it } from 'vitest';
 import { loadConfigFromEnv } from '../src/orchestrator/server.js';
 import { relever } from '../src/doctor-releve.js';
@@ -47,7 +48,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 
 const RACINE = fileURLToPath(new URL('..', import.meta.url));
-const sansAgent = (): Promise<{ agent: string }> => Promise.resolve({ agent: 'shell' });
+const sansAgent = (): Promise<InventaireAgents> =>
+  Promise.resolve({ tous: ['shell'], nonConnectes: [] });
 
 /** Ce qu'un `.env` récolte tout seul, et ce qu'un humain tape de travers. */
 const TORDUES = ['on ', ' on', 'ON', 'oui', '', 'off '];

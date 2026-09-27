@@ -25,13 +25,14 @@
 // `reine-demarrage.test.ts`).
 
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { HiveStore } from '../src/orchestrator/store.js';
+import { occuperIdentite } from '../src/node-client/identite-noeud.js';
 import { lancerBorne, lancerBorneTuyaute, reprendreTous, tuerGroupe } from './harnais-processus.js';
 
 const RACINE = fileURLToPath(new URL('..', import.meta.url));
@@ -463,6 +464,98 @@ describe('le lanceur de la ruche — vie et mort', () => {
       const identite = (...dossier: string[]): string =>
         readFileSync(path.join(faux, ...dossier, 'node-id.txt'), 'utf8').trim();
       expect(identite('travail')).not.toBe(identite('travail', 'codex'));
+    },
+    90_000,
+  );
+
+  /**
+   * Deux faux agents (Claude Code, Codex) et une ruche prête à les lancer —
+   * le décor du banc précédent, sans ses gestes.
+   */
+  function rucheDeDeux(): { env: NodeJS.ProcessEnv; travail: string } {
+    const faux = mkdtempSync(path.join(tmpdir(), 'ruche-refus-'));
+    aNettoyer.push(faux);
+    for (const bin of ['claude', 'codex']) {
+      writeFileSync(path.join(faux, bin), '#!/bin/sh\necho "faux 1.0"\n', { mode: 0o755 });
+    }
+    const travail = path.join(faux, 'travail');
+    return {
+      travail,
+      env: envRuche({
+        PATH: faux,
+        HOME: faux,
+        HIVE_NODE_NAME: 'banc',
+        HIVE_WORKDIR: travail,
+        HIVE_ISOLEMENT: 'off',
+        HIVE_AGENT: '',
+        HIVE_AGENT_CMD: '',
+      }),
+    };
+  }
+
+  /**
+   * Fait REFUSER une ouvrière au démarrage, pour de vrai : son identité est
+   * déjà tenue par un processus vivant (ce banc), et le nœud dit alors
+   * « ✘ Ce nœud ne démarre pas : un autre processus vivant porte déjà
+   * l'identité de ce nœud » avant de sortir — le même chemin qu'un refus
+   * `exige`, sans dépendre du moteur de conteneurs de la machine du banc.
+   */
+  async function tenirIdentite(dossier: string): Promise<() => void> {
+    mkdirSync(dossier, { recursive: true });
+    const o = await occuperIdentite(dossier);
+    if (o.occupee) throw new Error(`identité déjà tenue : ${dossier}`);
+    return o.liberer;
+  }
+
+  it.runIf(POSIX)(
+    'LA PREMIÈRE OUVRIÈRE REFUSE : la Reine et l’autre ouvrière TOURNENT, la raison est citée, ^C rend 0',
+    async () => {
+      // Le cas de la preuve V2 Alpha : l'ouvrière Claude Code refusait (code 5
+      // sous `exige`), et le lanceur arrêtait la Reine et les ouvrières Codex
+      // et Cursor qui venaient de s'inscrire. Sur le code d'avant, ce banc
+      // lisait « la ruche s'arrête » et un code 1.
+      const { env, travail } = rucheDeDeux();
+      const liberer = await tenirIdentite(travail);
+      try {
+        const r = await jouerRuche(['--sans-ecran'], env, [
+          { marqueur: 'la ruche continue sans elle', geste: () => undefined },
+          // L'autre ouvrière travaille APRÈS le refus : elle s'inscrit.
+          {
+            marqueur: '[banc-codex] enregistré',
+            geste: (pid) => process.kill(pid, 'SIGINT'),
+          },
+        ]);
+        expect(r.sortie).not.toContain("la ruche s'arrête");
+        // La raison, citée sur la ligne du lanceur — pas seulement noyée plus
+        // haut parmi les lignes des autres.
+        expect(r.sortie).toMatch(
+          /ouvrière claude-code\s*│ ✘ arrêtée \(code 1\) — « ✘ Ce nœud ne démarre pas : un autre processus vivant porte déjà l'identité/,
+        );
+        expect(r.sortie).toContain('1 ouvrière(s) en place');
+        expect(r.code, r.sortie).toBe(0);
+      } finally {
+        liberer();
+      }
+    },
+    90_000,
+  );
+
+  it.runIf(POSIX)(
+    'TOUTES LES OUVRIÈRES REFUSENT : plus aucune — la ruche s’arrête, en code non nul',
+    async () => {
+      const { env, travail } = rucheDeDeux();
+      const liberations = [
+        await tenirIdentite(travail),
+        await tenirIdentite(path.join(travail, 'codex')),
+      ];
+      try {
+        const r = await lancerRuche(['--sans-ecran'], env, "la ruche s'arrête", () => undefined);
+        expect(r.sortie).toContain('la ruche continue sans elle');
+        expect(r.sortie).toContain('plus aucune ouvrière');
+        expect(r.code, `une ruche sans ouvrière n’est pas un succès :\n${r.sortie}`).not.toBe(0);
+      } finally {
+        for (const l of liberations) l();
+      }
     },
     90_000,
   );

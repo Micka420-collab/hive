@@ -26,16 +26,12 @@
 // concaténation dans une commande.
 //
 // CE QUE CETTE NOTE DISAIT DE FAUX, et qui a tenu jusqu'au 14 août : « ce
-// fichier n'exécute d'ailleurs AUCUN binaire externe ». Il en exécute un —
-// `isolementDisponible()` lance `docker --version` puis `podman --version`
-// pour savoir lequel est là. C'est le garde des invariants, élargi à toute la
-// famille `child_process`, qui l'a dit ; sa règle ne cherchait auparavant que
-// `spawn(`, et `execFile(` lui échappait.
-//
-// Le lancement est sûr — binaire d'une liste fermée, argument constant,
-// environnement filtré par `envSonde` —, et il DÉCLARE maintenant `shell: false`
-// au lieu de s'en remettre au défaut d'`execFile`. Une prose qui survit au code
-// qu'elle décrit est un mensonge à retardement : celle-ci en était un.
+// fichier n'exécute d'ailleurs AUCUN binaire externe ». Il en exécutait un —
+// la sonde d'isolement, un `execFile` à lui. Elle vit désormais avec le nœud
+// (`moteursJoignables`, `isolement.ts`) : c'est la question du preflight, et
+// un docteur qui posait la sienne concluait « aucun bac à sable » sur un
+// bubblewrap qui isolait très bien (`bwrap info` lance un programme `info`).
+// Une prose qui survit au code qu'elle décrit est un mensonge à retardement.
 
 import { accessSync, constants, existsSync, statfsSync, statSync } from 'node:fs';
 import { createServer as creerServeurTcp } from 'node:net';
@@ -46,18 +42,17 @@ import { RUCHE_COMPLETE } from './shared/doctor.js';
 import { adresseLocale, hoteDeConnexion, portDepuisEnv } from './shared/port.js';
 import { gardiennesDepuisEnv } from './shared/reglages.js';
 import { modeRunnerDepuisEnv } from './orchestrator/essaim-runner.js';
-import { detectBestAgent } from './node-client/agent-detect.js';
+import { inventaireAgents, type InventaireAgents } from './node-client/agent-detect.js';
 import {
   commandeImage,
-  FOURNISSEURS,
   IMAGE_DEFAUT,
   imageDepuisEnv,
   inspecterImage,
   moteurPret,
+  moteursJoignables,
   type EtatImage,
   type Fournisseur,
 } from './node-client/isolement.js';
-import { envSonde } from './node-client/agent-detect.js';
 import { SECRET_JWT_INTERDIT, secretJwtDepuisEnv } from './orchestrator/auth.js';
 
 /** Où la ruche range ses affaires, vu depuis la racine du dépôt. */
@@ -293,83 +288,6 @@ export function octetsLibres(chemin: string): number | null {
 }
 
 /**
- * L'ARGUMENT QUI TOUCHE LE SERVICE, ET NON SEULEMENT LE CLIENT.
- *
- * ─── LE FAUX VERT QU'IL REMPLACE, MESURÉ ────────────────────────────────────
- *
- * Cette sonde lançait `--version`. Un client Docker installé répond alors 0
- * SANS JAMAIS PARLER AU DÉMON — et le docteur affichait :
- *
- *     ✔ isolement      bac à sable disponible : docker
- *
- * sur une machine où le démon ne tournait pas. Mesuré, sans tube, dans le même
- * conteneur :
- *
- *     docker --version  → code=0   Docker version 29.3.1
- *     docker info       → code=1   failed to connect to the docker API at
- *                                  unix:///var/run/docker.sock
- *
- * Ce que l'arrivant vivait ensuite : `hive doctor` tout vert, puis sa première
- * tâche ratée TROIS FOIS, chaque tentative rendant zéro diff et le message brut
- * du démon dans les journaux. Le docteur existe précisément pour que cela
- * n'arrive pas — un ✔ qu'on n'a pas mesuré est pire que pas de ✔ du tout.
- *
- * `info` interroge le SERVICE. Podman, sans démon, y répond aussi : la même
- * question convient aux deux fournisseurs.
- *
- * ─── LE SENS DU DÉLAI ────────────────────────────────────────────────────────
- *
- * `info` fait un vrai aller-retour, là où `--version` lisait une constante. Le
- * délai reste à 3 s, et il PENCHE DU BON CÔTÉ : un démon qui met plus de trois
- * secondes à répondre est déclaré absent. On préfère annoncer moins que ce
- * qu'on a — l'inverse est exactement le défaut qu'on vient de fermer.
- */
-export const SONDE_ISOLEMENT = 'info';
-
-/** Ce que la sonde a besoin de savoir faire : lancer, et dire si ça a marché. */
-export type LanceurDeSonde = (bin: string, args: readonly string[]) => Promise<boolean>;
-
-/**
- * Le lanceur réel.
- *
- * `shell: false` est DIT, pas seulement subi : c'est déjà le défaut d'`execFile`,
- * mais un défaut ne se relit pas en revue et peut basculer sous une refonte.
- * L'argument est une constante — rien d'interpolé, rien à détourner — et aucun
- * secret ne part au binaire qu'on éprouve (`envSonde`), même garde que la sonde
- * d'agent, portée ici aussi.
- */
-const lanceurReel: LanceurDeSonde = async (bin, args) => {
-  const { execFile } = await import('node:child_process');
-  return new Promise((resolve) => {
-    execFile(bin, [...args], { timeout: 3_000, shell: false, env: envSonde(process.env) }, (err) =>
-      resolve(!err),
-    );
-  });
-};
-
-/**
- * Le premier runtime d'isolement RÉELLEMENT joignable, ou `null`.
- *
- * Le lanceur est injectable pour que la règle s'éprouve sans démon : un banc
- * peut jouer « le client est là, le service ne répond pas » — la seule entrée
- * qui sépare cette sonde de celle qu'elle remplace.
- */
-export async function isolementDisponible(
-  lancer: LanceurDeSonde = lanceurReel,
-): Promise<string | null> {
-  return (await moteursJoignables(lancer))[0]?.nom ?? null;
-}
-
-/** Tous les moteurs RÉELLEMENT joignables, dans l'ordre de préférence. */
-async function moteursJoignables(lancer: LanceurDeSonde = lanceurReel): Promise<Fournisseur[]> {
-  const joignables: Fournisseur[] = [];
-  for (const f of FOURNISSEURS) {
-    if (await lancer(f.bin, [SONDE_ISOLEMENT])) joignables.push(f);
-  }
-  return joignables;
-}
-
-/**
  * L'image que le nœud utiliserait (`imageDepuisEnv`), cherchée par la MÊME
  * règle que lui (`moteurPret`) dans les moteurs joignables — `null` s'il n'y
  * en a aucun. Voir le diagnostic `isolement`.
@@ -404,7 +322,7 @@ export async function relever(
   // variable d'environnement ne détourne. Sans cette couture, la règle
   // « `shell` vaut aucun agent » ne serait vérifiable que sur une machine où
   // rien n'est installé — c'est-à-dire nulle part en pratique.
-  detecter: (e: NodeJS.ProcessEnv) => Promise<{ agent: string }> = detectBestAgent,
+  inventorier: (e: NodeJS.ProcessEnv) => Promise<InventaireAgents> = inventaireAgents,
 ): Promise<Releve> {
   const lieux = emplacements(racine, env);
   // MÊME règle que la ruche (`shared/port.ts`) : un docteur qui sonderait un
@@ -425,6 +343,12 @@ export async function relever(
   const basePresente = existsSync(lieux.base);
   const jeton = env.HIVE_TOKEN ?? '';
   const moteur = await moteurManquant();
+  // UNE passe de sondes : l'agent que le nœud retiendrait (le premier
+  // utilisable — la règle de `detectBestAgent`) et ceux qu'il écarte.
+  const agents = await inventorier(env).catch((): InventaireAgents => ({
+    tous: ['shell'],
+    nonConnectes: [],
+  }));
   // Sondés UNE fois : le nom du premier et l'image du bac en découlent.
   const joignables = await moteursJoignables().catch((): Fournisseur[] => []);
 
@@ -480,16 +404,17 @@ export async function relever(
         : inscriptible(path.dirname(lieux.base)),
     },
     dashboardConstruit: existsSync(lieux.dashboard),
-    // `detectBestAgent` NE REND JAMAIS NULL : faute de mieux, elle retombe sur
+    // L'inventaire NE REND JAMAIS VIDE : faute de mieux, il retombe sur
     // l'adaptateur `shell`, qui est SIMULÉ. Le rapporter comme un agent détecté
     // dirait « tout va bien » à qui n'a rien d'installé, et son nœud
     // produirait des diffs vides sans que personne comprenne pourquoi.
     //
     // Pour le docteur, `shell` vaut donc « aucun agent » — c'est ce que la
     // personne a besoin d'entendre.
-    agent: await detecter(env)
-      .then((a) => (a.agent === 'shell' ? null : a.agent))
-      .catch(() => null),
+    agent: agents.tous[0] === 'shell' ? null : (agents.tous[0] ?? null),
+    // Installé n'est pas connecté : ces agents n'auront pas d'ouvrière, et le
+    // docteur le dit avec le remède plutôt que de les taire.
+    agentsNonConnectes: agents.nonConnectes,
     isolement: joignables[0]?.nom ?? null,
     // Une inspection qui plante n'est ni « présente » ni « absente » : inconnue.
     imageBac: await imageDuBac(env, joignables).catch(() =>
