@@ -5586,6 +5586,10 @@ export class HiveStore {
    * « preuves manquantes », et une relecture de secours close ensuite perdait
    * sa suite. Bornée aux `CORPUS_AIGUILLAGE` productions rendues les plus
    * récentes : au plus trois faits chacune (lancement, secours, impossibilité).
+   * « Productions » au sens strict — les tâches qui ont des relectures
+   * (`contre_expertises.productionTaskId`) : compter toute tâche `done`
+   * laisserait les relectures elles-mêmes, et les tâches jamais relues,
+   * occuper la moitié des places et élaguer plus tôt que promis.
    */
   pruneEvents(maxKeep: number): number {
     const cutoff = this.lastEventId() - Math.max(0, maxKeep);
@@ -5641,6 +5645,7 @@ export class HiveStore {
                 AND json_extract(payload, '$.taskId') IN (
                   SELECT t.id FROM tasks t
                    WHERE t.status = 'done'
+                     AND t.id IN (SELECT productionTaskId FROM contre_expertises)
                    ORDER BY t.updatedAt DESC, t.id DESC
                    LIMIT ?
                 )

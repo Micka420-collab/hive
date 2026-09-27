@@ -10126,7 +10126,11 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
                 // tranche. Un avis rendu par une autre famille que la
                 // désignée est terminal lui aussi : la relecture est close, et
                 // personne ne la relira ; son motif prime sur l'absence de
-                // texte, parce qu'il vaudrait même avec un texte.
+                // texte, parce qu'il vaudrait même avec un texte. Mais un
+                // ÉCHEC n'est pas un avis, de quelque famille qu'il vienne :
+                // sa dernière tentative plantée chez un autre nœud reste
+                // « le relecteur a échoué » — dire « avis d'une autre
+                // famille » enverrait l'humain chercher la mauvaise panne.
                 const lancement = store.eventForRelecture(msg.taskId);
                 const resultId = lancement?.payload.resultId;
                 const echec = {
@@ -10139,7 +10143,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
                   reviewerNodeId: nodeId,
                   terminal: relecture?.status === 'failed' || relecture?.status === 'done',
                   attempt: relecture?.attempts ?? 0,
-                  ...(!avisValable
+                  ...(msg.success && !avisValable
                     ? { motif: 'famille_non_designee', livreur: livreur ?? null }
                     : terminee
                       ? { motif: MOTIF_RELECTURE_SANS_TEXTE_FINAL }

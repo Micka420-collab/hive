@@ -141,13 +141,20 @@ export function attenteDe(taskId, taches, evenements) {
 
   // Le lancement de CETTE production suit son `task_done` : ils sont émis dans
   // le même geste. Un lancement antérieur visait une tentative précédente.
-  const lancement = evenements.find(
+  // Les lancements SUIVANTS sont des secours (`secours: true`) : nés quand une
+  // relecture s'est close sans avis, dans le geste même qui la clôt — ils sont
+  // donc au journal dès que l'instantané la montre terminale. Ne lire que le
+  // premier déclarait réglée une production dont le secours relit encore, et
+  // la preuve lisait l'Evaluator au milieu de la contre-revue.
+  const lancements = evenements.filter(
     (e) => e.id > fin.id && e.type === 'contre_expertise' && charge(e).taskId === taskId,
   );
-  if (!lancement || charge(lancement).possible === false) return null;
-  const relectures = Array.isArray(charge(lancement).relectures)
-    ? charge(lancement).relectures.filter((id) => typeof id === 'string')
-    : [];
+  if (lancements.length === 0 || charge(lancements[0]).possible === false) return null;
+  const relectures = lancements.flatMap((e) =>
+    Array.isArray(charge(e).relectures)
+      ? charge(e).relectures.filter((id) => typeof id === 'string')
+      : [],
+  );
   const enVol = relectures.filter((id) => !TERMINAUX.has(taches.get(id)?.status));
   if (enVol.length === 0) return null;
   return `${taskId} : contre-revue en cours (${relectures.length - enVol.length}/${relectures.length} rendue(s))`;
