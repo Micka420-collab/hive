@@ -527,7 +527,10 @@ describe('l’Aiguillage inactif se dit — avec le geste qui l’allume', () =>
     expect(avis(dom)).toBeNull();
   });
 
-  it('UN MODÈLE SANS VERDICT MAIS EN VOL EST « À EXPLORER (n EN VOL) »', async () => {
+  it('UN MODÈLE SANS VERDICT MAIS EN VOL EST « À EXPLORER (n EN VOL DANS LA RUCHE) »', async () => {
+    // Le compte vient de toute la ruche, pas de cette ouvrière : sans « dans
+    // la ruche », une carte au repos affirmerait porter des tâches qu'une
+    // autre fait tourner.
     const preuve = (enVol: number) => ({
       essais: 0,
       enVol,
@@ -557,6 +560,6 @@ describe('l’Aiguillage inactif se dit — avec le geste qui l’allume', () =>
 
     const dom = await monter([noeud({ modeles: ['alpha'] })]);
     const modele = carte(dom, 'ruche-nord').querySelector('.es-model.exploration');
-    expect(modele?.textContent).toContain('à explorer (3 en vol)');
+    expect(modele?.textContent).toContain('à explorer (3 en vol dans la ruche)');
   });
 });

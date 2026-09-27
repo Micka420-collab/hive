@@ -1716,8 +1716,9 @@ export class HiveStore {
     } else {
       this.db.prepare('DELETE FROM modeles_noeuds WHERE nodeId = ?').run(id);
     }
-    // Les constats d'outils, même règle que les deux tables au-dessus :
-    // ABSENTS, on ne touche à rien ; présents, la dernière inscription gagne.
+    // Les constats d'outils suivent la règle de la PLATEFORME, pas celle des
+    // modèles ni du bac : ABSENTS, on ne touche à rien ; présents, la dernière
+    // inscription gagne.
     // Un nœud qui a désinstallé Cursor le dit en le rangeant `binaire: false`
     // — il n'omet pas la ligne, sans quoi le hub garderait l'ancien constat.
     if (profile.outils !== undefined) {

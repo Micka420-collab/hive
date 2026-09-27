@@ -247,7 +247,11 @@ function NodeCard({
                     : '';
                 // Élections lancées, pas encore jugées : elles pèsent déjà sur le
                 // score du routing, jamais sur les essais ni la moyenne. `?? 0` :
-                // une Reine plus ancienne n'envoie pas ce compte.
+                // une Reine plus ancienne n'envoie pas ce compte. Le compte est
+                // celui de la RUCHE (toute tâche active commandée à ce modèle,
+                // sur n'importe quel nœud), et le libellé le dit : sur la carte
+                // d'une ouvrière au repos, « 3 en vol » tout court se lirait
+                // comme trois tâches à elle.
                 const enVol = Object.values(model.categories).reduce(
                   (total, preuve) => total + (preuve.enVol ?? 0),
                   0,
@@ -262,7 +266,10 @@ function NodeCard({
                     <span className="es-model-proof">
                       {observes.length === 0
                         ? enVol > 0
-                          ? t(`à explorer (${enVol} en vol)`, `explore (${enVol} in flight)`)
+                          ? t(
+                              `à explorer (${enVol} en vol dans la ruche)`,
+                              `explore (${enVol} in flight hive-wide)`,
+                            )
                           : t('à explorer', 'explore')
                         : `${observes.length} ${t('cat.', 'cats.')} · ${essais} ${t('essais', 'trials')} · ${Math.round((moyenne ?? 0) * 100)}%${preuveWorker}`}
                     </span>

@@ -94,10 +94,13 @@ export interface RegistreGenome {
   sansModele: FaitsGenome;
   /**
    * Fenêtre réellement lue : le journal est borné par sa rétention.
-   * `tronquee` : des faits plus anciens manquent — la lecture a atteint sa
-   * borne, OU le journal a déjà été élagué. Le second cas est le courant :
+   * `tronquee` : des faits plus anciens ONT PU manquer — la lecture a atteint
+   * sa borne, OU le journal a déjà été élagué. Le second cas est le courant :
    * l'élagage garde les derniers événements de TOUS types, et les faits Genome
-   * en sortent bien avant que leurs seuls types remplissent la borne.
+   * en sortent bien avant que leurs seuls types remplissent la borne. Drapeau
+   * CONSERVATEUR : le type des événements élagués est perdu avec eux, donc un
+   * élagage qui n'a ôté que des battements de cœur l'allume aussi. L'écran dit
+   * « ont pu », jamais « sont » — inconnu reste inconnu.
    */
   fenetre: { evenements: number; depuis: number | null; tronquee: boolean };
 }
