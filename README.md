@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-6059%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-6076%20passing-F6C445?labelColor=17130C)
 ![Licence](https://img.shields.io/badge/licence-MIT-F6C445?labelColor=17130C)
 
 🇫🇷 Français · [🇬🇧 English](README.en.md) · [🌐 Site](https://micka420-collab.github.io/hive/) · [📚 Documentation](#-documentation)
@@ -125,7 +125,12 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
 - l'apprentissage : le routing apprend toujours des seules contre-visites ;
   y faire entrer les autres faits du registre Genome est une décision de
   pondération, pas encore prise ;
-- la démonstration V2 Alpha de bout en bout.
+- la démonstration V2 Alpha de bout en bout — elle tient désormais en une
+  commande sur une ruche qui a un vrai agent authentifié :
+  `npm run preuve:v2-alpha -- --racine . --oui` confie une petite mission,
+  puis dit pour chaque critère ce que la Reine a réellement consigné
+  (`✔` prouvé, `?` inconnu, `✘` échec). Sans `--oui`, rien n'est créé : la
+  mission consomme des crédits de l'agent.
 
 L'adaptateur `shell` reste une **simulation** : sans agent réel installé, les
 diffs produits sont factices, et l'installeur comme la Reine le disent.
@@ -306,19 +311,20 @@ travailler à découvert.
 
 ## 🛠️ Commandes
 
-| Commande                    | Effet                                                                        |
-| --------------------------- | ---------------------------------------------------------------------------- |
-| `npm run ruche`             | **Tout en une commande** — Reine + ouvrière + écran                          |
-| `npm run demo`              | Démo complète (orchestrateur + 2 nœuds + projet)                             |
-| `npm run dev`               | Orchestrateur seul                                                           |
-| `npm run node`              | Un nœud membre                                                               |
-| `npm run cli -- doctor`     | **Le docteur** — 13 causes de panne, et la commande qui répare               |
-| `npm run cli -- sauvegarde` | Sauvegarde SQLite par `VACUUM INTO`                                          |
-| `npm run cli -- service`    | Installer la ruche en service (systemd · launchd · tâche planifiée)          |
-| `npm test`                  | La suite complète (vitest) — le compte vit dans le badge, en un seul endroit |
-| `npm run fusionner`         | Porte la branche sur `main` en **avance rapide** — sans commit de fusion     |
-| `npm run lint`              | ESLint + Prettier — zéro erreur exigé                                        |
-| `npm run loupe`             | **La loupe** — le code neuf est-il défendu par ses tests ?                   |
+| Commande                                      | Effet                                                                                         |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `npm run ruche`                               | **Tout en une commande** — Reine + ouvrière + écran                                           |
+| `npm run demo`                                | Démo complète (orchestrateur + 2 nœuds + projet)                                              |
+| `npm run dev`                                 | Orchestrateur seul                                                                            |
+| `npm run node`                                | Un nœud membre                                                                                |
+| `npm run cli -- doctor`                       | **Le docteur** — 13 causes de panne, et la commande qui répare                                |
+| `npm run preuve:v2-alpha -- --racine . --oui` | **La preuve V2 Alpha** — une vraie mission confiée à un vrai agent, jugée critère par critère |
+| `npm run cli -- sauvegarde`                   | Sauvegarde SQLite par `VACUUM INTO`                                                           |
+| `npm run cli -- service`                      | Installer la ruche en service (systemd · launchd · tâche planifiée)                           |
+| `npm test`                                    | La suite complète (vitest) — le compte vit dans le badge, en un seul endroit                  |
+| `npm run fusionner`                           | Porte la branche sur `main` en **avance rapide** — sans commit de fusion                      |
+| `npm run lint`                                | ESLint + Prettier — zéro erreur exigé                                                         |
+| `npm run loupe`                               | **La loupe** — le code neuf est-il défendu par ses tests ?                                    |
 
 ## 📚 Documentation
 

@@ -22,6 +22,7 @@
     "node": "node scripts/lancer.mjs src/node-client/main.ts",
     "join": "node scripts/lancer.mjs src/node-client/join.ts",
     "demo": "node scripts/lancer.mjs src/demo.ts",
+    "preuve:v2-alpha": "node scripts/preuve-v2-alpha.mjs",
     "cli": "node scripts/lancer.mjs src/cli.ts",
     "install:hive": "node scripts/lancer.mjs src/installer-main.ts",
     "setup": "npm install && npm run install:hive",
