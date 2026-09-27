@@ -3,8 +3,10 @@
 //
 // Tout vient du journal (`/api/tasks/:id/routage`) : le classement qui a
 // décidé, figé à l'instant du choix, jamais recalculé à l'affichage. Un modèle
-// jamais essayé est dit « à explorer », jamais noté 0 ; une absence de modèle
-// déclaré est dite telle quelle, sans justification inventée.
+// jamais jugé est dit « à explorer », jamais noté 0 — y compris quand des
+// élections en vol pèsent déjà sur son score, et ces élections sont comptées à
+// part ; une absence de modèle déclaré est dite telle quelle, sans
+// justification inventée.
 
 import { useEffect, useState } from 'react';
 import { fetchRoutage } from './api';
@@ -56,8 +58,19 @@ export function RoutageTache({ taskId, cle, nodes }: Props) {
     return t('le moins chargé des nœuds éligibles', 'the least loaded eligible node');
   };
 
-  const score = (l: LigneRaison): string =>
-    l.aExplorer ? t('à explorer', 'to explore') : l.score === null ? '—' : deux(l.score);
+  // `enVol` null (raison d'avant la v2) : inconnu, on n'affiche rien plutôt
+  // qu'un « 0 en vol » qui affirmerait ce que la raison ne dit pas.
+  const enVol = (l: LigneRaison): number => l.enVol ?? 0;
+  const score = (l: LigneRaison): string => {
+    if (!l.aExplorer) return l.score === null ? '—' : deux(l.score);
+    return enVol(l) > 0
+      ? t(`à explorer (${enVol(l)} en vol)`, `to explore (${enVol(l)} in flight)`)
+      : t('à explorer', 'to explore');
+  };
+  const essais = (l: LigneRaison): string =>
+    !l.aExplorer && enVol(l) > 0
+      ? t(`${l.essais} + ${enVol(l)} en vol`, `${l.essais} + ${enVol(l)} in flight`)
+      : String(l.essais);
 
   return (
     <section className="routage-panel" aria-labelledby="routage-title" data-testid="routage-tache">
@@ -88,6 +101,12 @@ export function RoutageTache({ taskId, cle, nodes }: Props) {
                     — {t(`catégorie « ${derniere.categorie} »`, `category “${derniere.categorie}”`)}
                   </>
                 )}
+                {derniere.versionAiguillage !== null && (
+                  <span className="muted" data-testid="routage-version">
+                    {' '}
+                    · Aiguillage v{derniere.versionAiguillage}
+                  </span>
+                )}
               </p>
               {derniere.raisonModele.length > 0 && (
                 <table
@@ -109,7 +128,7 @@ export function RoutageTache({ taskId, cle, nodes }: Props) {
                         className={l.modele === derniere.modele ? 'elu' : undefined}
                       >
                         <td>{l.modele}</td>
-                        <td>{l.essais}</td>
+                        <td>{essais(l)}</td>
                         <td>{l.moyenne === null ? '—' : deux(l.moyenne)}</td>
                         <td>{score(l)}</td>
                       </tr>

@@ -153,8 +153,8 @@ export function RegistreGenome({ registre, erreur }: Props) {
           {registre.fenetre.tronquee && (
             <span data-testid="genome-tronque">
               {t(
-                ' Fenêtre pleine : les faits plus anciens sont sortis du journal.',
-                ' Window full: older facts have left the journal.',
+                ' Fenêtre tronquée : des faits plus anciens sont sortis du journal retenu et ne sont plus comptés.',
+                ' Truncated window: older facts have left the retained journal and are no longer counted.',
               )}
             </span>
           )}

@@ -870,7 +870,9 @@ CREATE TABLE IF NOT EXISTS machines_noeuds (
 -- BORNE STRUCTURELLE (regle 3), jumelle de « machines_noeuds » : une ligne par
 -- noeud, jamais plus — la clef primaire EST la borne, et la ré-inscription
 -- ECRASE (ON CONFLICT). Les modeles declares par le noeud, ranges en JSON : ce
--- que l'Aiguillage lit pour choisir. Un noeud a modele unique n'a pas de ligne.
+-- que l'Aiguillage lit pour choisir. Un noeud qui ne declare rien n'a pas de
+-- ligne, et l'inscription qui ne les REDIT pas EFFACE la sienne : une
+-- declaration retiree ne doit plus commander de modele.
 CREATE TABLE IF NOT EXISTS modeles_noeuds (
   nodeId  TEXT PRIMARY KEY REFERENCES nodes(id),
   modeles TEXT NOT NULL,
@@ -1279,7 +1281,11 @@ export interface NodeProfile {
   maxConcurrency: number;
   /** La machine déclarée par le nœud. Absente : on n'écrase pas ce qu'on sait. */
   plateforme?: PlateformeNoeud;
-  /** Les modèles déclarés par le nœud. Absents : on n'écrase pas ce qu'on sait. */
+  /**
+   * Les modèles déclarés à CETTE inscription. Absents : la ligne connue est
+   * EFFACÉE — c'est le retrait d'une déclaration, jamais un oubli (le nœud les
+   * redit à chaque inscription).
+   */
   modeles?: string[];
   /**
    * Les outils IA CONSTATÉS sur la machine du nœud. Absents : on n'écrase pas
@@ -1693,9 +1699,13 @@ export class HiveStore {
         )
         .run(id, profile.plateforme, now);
     }
-    // Les modèles déclarés, rangés à part (table latérale), même règle que la
-    // plateforme : ABSENTS, on ne touche à rien ; présents, on ÉCRASE la liste
-    // d'avant (une ré-inscription redéclare — la dernière déclaration gagne).
+    // Les modèles déclarés, rangés à part (table latérale) : présents, on ÉCRASE
+    // la liste d'avant (la dernière déclaration gagne) ; ABSENTS, on EFFACE —
+    // la règle du bac à sable, pas celle de la plateforme. Le nœud les redit à
+    // CHAQUE inscription (`client.ts`), donc leur absence est un retrait :
+    // l'opérateur a ôté `HIVE_MODELES`. Garder l'ancienne liste ferait commander
+    // `--model` à un nœud qui ne l'offre plus — un modèle que son compte ne
+    // peut peut-être plus appeler, élu en boucle sans verdict pour l'écarter.
     if (profile.modeles !== undefined) {
       this.db
         .prepare(
@@ -1703,6 +1713,8 @@ export class HiveStore {
             'ON CONFLICT(nodeId) DO UPDATE SET modeles = excluded.modeles, majA = excluded.majA',
         )
         .run(id, JSON.stringify(profile.modeles), now);
+    } else {
+      this.db.prepare('DELETE FROM modeles_noeuds WHERE nodeId = ?').run(id);
     }
     // Les constats d'outils, même règle que les deux tables au-dessus :
     // ABSENTS, on ne touche à rien ; présents, la dernière inscription gagne.
@@ -5366,6 +5378,26 @@ export class HiveStore {
       id: number | null;
     };
     return row.id ?? 0;
+  }
+
+  /**
+   * Le journal a-t-il déjà perdu des événements à l'élagage ?
+   *
+   * `events.id` est AUTOINCREMENT : `sqlite_sequence` garde le plus grand id
+   * JAMAIS attribué, suppressions comprises, et les ids ne sont jamais
+   * réutilisés. Seul `pruneEvents` supprime des événements ; il en manque donc
+   * exactement quand plus d'ids ont été attribués qu'il ne reste de lignes.
+   * Un fait que tout repli du journal (registre Genome) doit dire : ce qu'il
+   * compte n'est plus toute l'histoire de la ruche.
+   */
+  journalElague(): boolean {
+    const row = this.db
+      .prepare(
+        "SELECT (SELECT seq FROM sqlite_sequence WHERE name = 'events') AS attribues, " +
+          '(SELECT COUNT(*) FROM events) AS restants',
+      )
+      .get() as { attribues: number | null; restants: number };
+    return (row.attribues ?? 0) > row.restants;
   }
 
   /** Nombre d'événements dans le journal. */

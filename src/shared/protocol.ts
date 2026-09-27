@@ -103,6 +103,11 @@ export interface RegisterMsg {
    * son comportement d'avant (le nœud choisit lui-même). Aucun nœud n'est
    * forcé de le déclarer, et rien de sensible n'y transite : un nom de modèle
    * n'est pas un secret.
+   *
+   * Redit à CHAQUE inscription : absent, le hub efface la déclaration
+   * précédente. C'est ainsi qu'un opérateur RETIRE ses modèles — sans liste
+   * vide, que `isModeleList` refuse (et qu'un hub plus ancien refuserait aussi,
+   * inscription comprise).
    */
   modeles?: string[];
   /**

@@ -11,22 +11,31 @@
 //
 // Trois règles de lecture :
 //   · une valeur absente reste absente — pas de modèle déclaré, pas de raison ;
-//   · un modèle jamais essayé n'a PAS une moyenne de 0 : il est « à explorer »
+//   · un modèle jamais JUGÉ n'a PAS une moyenne de 0 : il est « à explorer »
 //     (son score UCB +∞ devient `null` en JSON, et sa moyenne n'est pas une
-//     mesure) ;
+//     mesure) — même quand des élections en vol ont déjà éteint son infini ;
 //   · un payload illisible est ignoré, jamais deviné.
+//
+// La raison se lit selon la version du calcul qui l'a prise
+// (`versionAiguillage`, cf. `VERSION_AIGUILLAGE`). Depuis la v2, chaque ligne
+// sépare les verdicts reçus (`essais`) des élections en vol (`enVol`). Avant,
+// `essais` mêlait les deux : ces raisons-là sont relues telles quelles, sans
+// prétendre savoir combien de leurs essais étaient en vol.
 
 import type { HiveEvent } from './types.js';
 
 /** Une ligne du classement qui a décidé du modèle. */
 export interface LigneRaison {
   modele: string;
+  /** Verdicts reçus (v2+) ; avant la v2, élections en vol comprises. */
   essais: number;
-  /** `null` quand le modèle n'a jamais été essayé : ce n'est pas une mesure. */
+  /** Élections en vol, sans verdict ; `null` quand la raison précède la v2 (inconnu). */
+  enVol: number | null;
+  /** `null` quand le modèle n'a jamais été jugé : ce n'est pas une mesure. */
   moyenne: number | null;
-  /** `null` quand le score est infini (jamais essayé) ou illisible. */
+  /** `null` quand le score est infini (ni jugé, ni en vol) ou illisible. */
   score: number | null;
-  /** Jamais essayé : l'Aiguillage l'explore avant de prétendre le connaître. */
+  /** Jamais jugé : l'Aiguillage l'explore avant de prétendre le connaître. */
   aExplorer: boolean;
 }
 
@@ -40,6 +49,8 @@ export interface AffectationVue {
   /** Modèle commandé par l'Aiguillage, `null` quand aucun nœud n'en déclare. */
   modele: string | null;
   categorie: string | null;
+  /** Version du calcul qui a pris la décision ; `null` avant son tampon (v1). */
+  versionAiguillage: number | null;
   raisonModele: LigneRaison[];
   pheromone: { domaine: string; score: number } | null;
   critereNoeud: CritereNoeud;
@@ -49,16 +60,22 @@ const nombre = (v: unknown): number | null =>
   typeof v === 'number' && Number.isFinite(v) ? v : null;
 const texte = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v : null);
 
-function ligneDepuis(brut: unknown): LigneRaison | null {
+function ligneDepuis(brut: unknown, version: number | null): LigneRaison | null {
   if (typeof brut !== 'object' || brut === null) return null;
   const r = brut as Record<string, unknown>;
   const modele = texte(r.modele);
   const essais = nombre(r.essais);
   if (modele === null || essais === null || essais < 0) return null;
+  // v2+ : la ligne DOIT dire ses élections en vol — absente ou négative, elle
+  // est illisible. Avant la v2 : inconnu, et dit tel quel (`null`).
+  const separe = version !== null && version >= 2;
+  const enVol = separe ? nombre(r.enVol) : null;
+  if (separe && (enVol === null || enVol < 0)) return null;
   const aExplorer = essais === 0;
   return {
     modele,
     essais,
+    enVol,
     moyenne: aExplorer ? null : nombre(r.moyenne),
     score: nombre(r.score),
     aExplorer,
@@ -92,8 +109,11 @@ export function affectationsDepuisEvenements(evenements: readonly HiveEvent[]): 
       pheromoneEnAttente = null;
       continue;
     }
+    const versionAiguillage = nombre(p.versionAiguillage);
     const raisonModele = Array.isArray(p.raisonModele)
-      ? p.raisonModele.map(ligneDepuis).filter((l): l is LigneRaison => l !== null)
+      ? p.raisonModele
+          .map((brut) => ligneDepuis(brut, versionAiguillage))
+          .filter((l): l is LigneRaison => l !== null)
       : [];
     const pheromone =
       pheromoneEnAttente && pheromoneEnAttente.nodeId === nodeId
@@ -107,6 +127,7 @@ export function affectationsDepuisEvenements(evenements: readonly HiveEvent[]): 
       nodeId,
       modele,
       categorie: texte(p.categorie),
+      versionAiguillage,
       raisonModele,
       pheromone,
       critereNoeud: pheromone ? 'pheromones' : modele ? 'porteur_du_modele' : 'moins_charge',

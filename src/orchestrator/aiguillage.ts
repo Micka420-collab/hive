@@ -42,8 +42,22 @@
 
 import type { Suite } from './polyethisme.js';
 
-/** Version du format des antécédents rangés — relevée si le calcul change. */
-export const VERSION_AIGUILLAGE = 1;
+/**
+ * Version du calcul de l'Aiguillage : taxonomie (`categoriser`), repli des
+ * antécédents et format du classement (`Rang`). Relevée à chaque changement.
+ *
+ * Elle est FIGÉE dans `task_assigned` (`versionAiguillage`) à côté de la raison
+ * du choix : une raison relue des semaines plus tard dit sous quel calcul elle a
+ * été prise, et le lecteur (`routage-vue.ts`) sait comment lire ses lignes. Sans
+ * ce tampon, un classement d'avant un changement se lirait avec les règles
+ * d'après — exactement la confusion que la raison figée doit éviter.
+ *
+ *   · v1 — `essais` mêlait verdicts reçus et élections en vol, `moyenne` en
+ *          était diluée : un modèle neuf en vol se lisait « 1 essai, moyenne 0 ».
+ *   · v2 — `essais` et `moyenne` ne parlent QUE des verdicts reçus ; les
+ *          élections en vol sont comptées à part (`enVol`).
+ */
+export const VERSION_AIGUILLAGE = 2;
 
 // ─── Les genres de tâche ──────────────────────────────────────────────────────
 //
@@ -239,10 +253,17 @@ export interface Observation {
 
 /** Le vécu accumulé d'un couple (genre × modèle). */
 export interface Antecedent {
-  /** Combien de fois ce modèle a servi sur ce genre. */
+  /** Combien de fois ce modèle a servi sur ce genre — élections en vol comprises. */
   essais: number;
   /** Somme des notes récoltées — la moyenne s'en déduit. */
   recompenseTotale: number;
+  /**
+   * Parmi `essais`, les élections EN VOL (`injecterEnVol`) : lancées, pas encore
+   * jugées. Absent : aucune. Le score les compte (c'est la borne du troupeau) ;
+   * le classement les montre à part, pour qu'aucun écran ne les lise comme des
+   * verdicts nuls.
+   */
+  enVol?: number;
 }
 
 /**
@@ -303,6 +324,11 @@ export function moyenne(a: Antecedent): number {
  * la partage pas). Une élection en vol dont on connaît DÉJÀ un verdict passé
  * n'écrase rien : elle s'ajoute, alourdissant `essais` sans toucher la note — ce
  * qui pèse un peu plus pessimiste tant que la production en cours n'a pas rendu.
+ *
+ * Chaque essai injecté est AUSSI compté dans `enVol` : le score doit le voir,
+ * l'explication doit le distinguer. Sans ce second compte, `classer` rendrait
+ * « 1 essai, moyenne 0 » pour un modèle qui n'a jamais été jugé — un modèle
+ * « à explorer » affiché comme un modèle mauvais.
  */
 export function injecterEnVol(
   antecedents: Map<string, Antecedent>,
@@ -312,8 +338,62 @@ export function injecterEnVol(
     const k = cle(e.categorie, e.modele);
     const a = antecedents.get(k) ?? { essais: 0, recompenseTotale: 0 };
     a.essais += 1;
+    a.enVol = (a.enVol ?? 0) + 1;
     antecedents.set(k, a);
   }
+}
+
+/** Un verdict de contre-visite relu du store, avec la tâche qu'il juge. */
+export interface VerdictAiguillage {
+  title: string;
+  prompt: string;
+  /** Modèle COMMANDÉ à la tâche (`aiguillage_modeles`). */
+  modele: string;
+  /** Modèle PROUVÉ par la contre-revue (`producteurModele`), quand elle l'a tracé. */
+  modeleExact?: string;
+  suite: Suite;
+}
+
+/** Une élection en vol relue du store : tâche active, modèle commandé, pas de verdict. */
+export interface ElectionEnVol {
+  title: string;
+  prompt: string;
+  modele: string;
+}
+
+/**
+ * LES antécédents de l'Aiguillage, depuis ce que le store relit : les verdicts
+ * (repliés) PLUS les élections en vol (la borne du troupeau).
+ *
+ * UNE seule fonction, pour l'ordonnanceur qui CHOISIT et pour `/api/workers`
+ * qui MONTRE. Deux replis écrits à la main avaient divergé : l'écran rangeait
+ * chaque verdict sous le modèle COMMANDÉ, l'ordonnanceur sous le modèle PROUVÉ —
+ * Mission Control montrait un modèle devant quand le routing le classait
+ * derrière.
+ *
+ * Le modèle prouvé (`modeleExact`) l'emporte quand il existe : une
+ * réassignation peut avoir remplacé `aiguillage_modeles` depuis la production
+ * relue, et le verdict juge CE QUI A PRODUIT, pas ce qui est commandé
+ * aujourd'hui. Les verdicts historiques sans cette preuve retombent sur le
+ * modèle commandé. La catégorie n'est jamais stockée : elle est RECALCULÉE ici,
+ * pour que la taxonomie du jour s'applique au vécu ancien.
+ */
+export function antecedentsDuVecu(
+  verdicts: readonly VerdictAiguillage[],
+  enVol: readonly ElectionEnVol[],
+): Map<string, Antecedent> {
+  const antecedents = replierAntecedents(
+    verdicts.map((v) => ({
+      categorie: categoriser(v.title, v.prompt),
+      modele: v.modeleExact ?? v.modele,
+      suite: v.suite,
+    })),
+  );
+  injecterEnVol(
+    antecedents,
+    enVol.map((e) => ({ categorie: categoriser(e.title, e.prompt), modele: e.modele })),
+  );
+  return antecedents;
 }
 
 // ─── Le choix : exploiter le meilleur, explorer le reste ──────────────────────
@@ -340,10 +420,21 @@ export function scoreUCB(a: Antecedent, totalGenre: number): number {
   return moyenne(a) + C_EXPLORATION * Math.sqrt(Math.log(Math.max(totalGenre, 1)) / a.essais);
 }
 
-/** Ce qu'on rend pour la transparence : le score de chaque modèle, expliqué. */
+/**
+ * Ce qu'on rend pour la transparence : le score de chaque modèle, expliqué.
+ *
+ * `essais` et `moyenne` ne parlent QUE des verdicts reçus ; `enVol` compte à
+ * part les élections lancées et pas encore jugées. Le `score`, lui, compte les
+ * deux (une élection en vol y pèse comme un essai à note nulle, cf.
+ * `injecterEnVol`) : c'est lui qui décide, les trois autres l'expliquent.
+ */
 export interface Rang {
   modele: string;
+  /** Verdicts reçus. 0 : jamais jugé sur ce genre — « à explorer », pas « mauvais ». */
   essais: number;
+  /** Élections en vol, sans verdict encore. */
+  enVol: number;
+  /** Moyenne des seuls verdicts reçus ; 0 sans verdict (jamais `NaN`). */
   moyenne: number;
   score: number;
 }
@@ -373,7 +464,18 @@ export function classer(
   return modelesDispo
     .map((modele) => {
       const a = antecedents.get(cle(categorie, modele)) ?? { essais: 0, recompenseTotale: 0 };
-      return { modele, essais: a.essais, moyenne: moyenne(a), score: scoreUCB(a, totalGenre) };
+      const enVol = a.enVol ?? 0;
+      // Les élections en vol n'ont récolté aucune note : les retirer d'`essais`
+      // rend la moyenne des VERDICTS, là où `moyenne(a)` la diluerait de zéros
+      // qui n'ont jamais été prononcés.
+      const juges = { essais: a.essais - enVol, recompenseTotale: a.recompenseTotale };
+      return {
+        modele,
+        essais: juges.essais,
+        enVol,
+        moyenne: moyenne(juges),
+        score: scoreUCB(a, totalGenre),
+      };
     })
     .sort((x, y) => (y.score !== x.score ? y.score - x.score : x.modele.localeCompare(y.modele)));
 }

@@ -12,6 +12,7 @@ import {
   C_EXPLORATION,
   CORPUS_AIGUILLAGE,
   aiguillerNoeuds,
+  antecedentsDuVecu,
   categoriser,
   choisirModele,
   classer,
@@ -323,7 +324,11 @@ describe('injecterEnVol — le troupeau borné : le +∞ s’éteint au premier 
     );
     injecterEnVol(m, [{ categorie: 'code', modele: 'grok' }]);
     const a = m.get(cle('code', 'grok'));
-    expect(a, 'l’essai en vol crée l’antécédent').toEqual({ essais: 1, recompenseTotale: 0 });
+    expect(a, 'l’essai en vol crée l’antécédent — et se compte en vol').toEqual({
+      essais: 1,
+      recompenseTotale: 0,
+      enVol: 1,
+    });
     expect(Number.isFinite(scoreUCB(a!, 10)), 'le score est désormais FINI').toBe(true);
     expect(moyenne(a!), 'et la note reste 0 — pessimiste tant que rien n’est jugé').toBe(0);
   });
@@ -338,8 +343,38 @@ describe('injecterEnVol — le troupeau borné : le +∞ s’éteint au premier 
     expect(m.get(cle('code', 'opus')), 'un essai de plus, même somme de notes').toEqual({
       essais: 5,
       recompenseTotale: 4,
+      enVol: 1,
     });
     expect(moyenne(m.get(cle('code', 'opus'))!), 'la moyenne baisse un peu').toBeCloseTo(0.8, 10);
+  });
+
+  it('LE CLASSEMENT SÉPARE LE JUGÉ DE L’EN-VOL — un modèle neuf en vol reste « à explorer »', () => {
+    // Le défaut relu dans Mission Control : grok n'a JAMAIS été jugé, mais une
+    // élection en vol l'a fait sortir de +∞. Le classement disait alors
+    // « 1 essai, moyenne 0 » — un modèle à explorer affiché comme un modèle
+    // mauvais. Le score, lui, DOIT garder l'effet de l'essai en vol (c'est la
+    // borne du troupeau) ; seule l'explication change.
+    const m = replierAntecedents([
+      obs('code', 'opus', 'appliquer'),
+      obs('code', 'opus', 'appliquer'),
+    ]);
+    injecterEnVol(m, [{ categorie: 'code', modele: 'grok' }]);
+    const grok = classer('code', ['opus', 'grok'], m).find((r) => r.modele === 'grok');
+    expect(grok).toMatchObject({ essais: 0, enVol: 1, moyenne: 0 });
+    expect(grok?.score, 'le score reste fini : l’infini est éteint').toBe(
+      scoreUCB({ essais: 1, recompenseTotale: 0 }, 3),
+    );
+  });
+
+  it('LA MOYENNE NE PARLE QUE DES VERDICTS — un essai en vol ne la dilue pas', () => {
+    // opus : quatre verdicts parfaits, une production en cours. Sa moyenne est
+    // 1 (quatre verdicts sur quatre), pas 0,8 — le zéro de l'essai en vol n'a
+    // jamais été prononcé. Le score, lui, reste celui de l'antécédent complet.
+    const m = replierAntecedents(Array.from({ length: 4 }, () => obs('code', 'opus', 'appliquer')));
+    injecterEnVol(m, [{ categorie: 'code', modele: 'opus' }]);
+    const [opus] = classer('code', ['opus'], m);
+    expect(opus).toMatchObject({ essais: 4, enVol: 1, moyenne: 1 });
+    expect(opus?.score).toBe(scoreUCB({ essais: 5, recompenseTotale: 4 }, 5));
   });
 
   it('CHAQUE ÉLECTION EN VOL COMPTE — deux tâches en vol du même modèle = deux essais', () => {
@@ -407,5 +442,25 @@ describe('UNE RUCHE SANS PASSÉ AFFICHE ZÉRO, JAMAIS NaN', () => {
     expect(grok?.score, 'et il reste à +∞ — inconnu n’est pas mauvais').toBe(
       Number.POSITIVE_INFINITY,
     );
+  });
+});
+
+describe('antecedentsDuVecu — le repli unique, pour qui choisit et pour qui montre', () => {
+  it('LE MODÈLE PROUVÉ L’EMPORTE SUR LE COMMANDÉ — et les élections en vol pèsent à part', () => {
+    // Deux replis écrits à la main avaient divergé : `/api/workers` rangeait
+    // chaque verdict sous le modèle COMMANDÉ. Ici, une tâche commandée à opus a
+    // été produite par fable (réassignation) et jugée « refaire » : c'est
+    // fable qui l'a ratée.
+    const tache = { title: 'Ajoute un endpoint', prompt: 'implémente la fonction' };
+    const m = antecedentsDuVecu(
+      [
+        { ...tache, modele: 'opus', modeleExact: 'opus', suite: 'appliquer' },
+        { ...tache, modele: 'opus', modeleExact: 'fable', suite: 'refaire' },
+        { ...tache, modele: 'fable', suite: 'appliquer' },
+      ],
+      [{ ...tache, modele: 'opus' }],
+    );
+    expect(m.get(cle('code', 'opus'))).toEqual({ essais: 2, recompenseTotale: 1, enVol: 1 });
+    expect(m.get(cle('code', 'fable'))).toEqual({ essais: 2, recompenseTotale: 1 });
   });
 });
