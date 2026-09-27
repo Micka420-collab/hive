@@ -29,10 +29,18 @@ export const AGENTS_SIMULES = new Set(['shell']);
 /** Les quatre validations que l'Evaluator exige pour `accepted`. */
 export const VALIDATIONS = ['tests', 'typecheck', 'build', 'lint'];
 
-/** Le résultat retenu : la production réussie la plus récente. */
+/**
+ * La production que la Reine GARDE : son DERNIER résultat, réussi ou non.
+ *
+ * C'est la règle de la Reine elle-même — `/api/livraison` livre
+ * `resultats.at(-1)` et refuse s'il a échoué, l'Evaluator juge
+ * `results.at(-1)`. Retenir la dernière RÉUSSIE faisait prouver, après une
+ * objection puis une reprise échouée, la production que le relecteur avait
+ * contestée et que la Reine ne livrera jamais : « prouvé » sur un travail
+ * abandonné.
+ */
 export function productionRetenue(resultats) {
-  const reussies = (Array.isArray(resultats) ? resultats : []).filter((r) => r?.success === true);
-  return reussies.at(-1) ?? null;
+  return (Array.isArray(resultats) ? resultats.at(-1) : undefined) ?? null;
 }
 
 const usd = (v) =>
@@ -42,8 +50,9 @@ const couverture = (s) =>
   s.declarees === s.tentatives ? '' : ` (${s.declarees}/${s.tentatives} tentatives déclarées)`;
 
 /**
- * `executants` : chaque nœud qui a exécuté la mission (producteur et
- * relecteurs, relus au journal) ; à défaut, le seul nœud producteur.
+ * `executants` : chaque nœud qui a exécuté la mission (producteur,
+ * sous-tâches déléguées et relecteurs, relus au journal) ; à défaut, le seul
+ * nœud producteur. `noeud` : celui de la production retenue.
  *
  * @param {{
  *   noeud?: any, executants?: any[], tache?: any, resultats?: any[], routage?: any,
@@ -77,9 +86,22 @@ export function jugerV2Alpha(faits) {
     );
   }
 
-  if (!production) {
-    const statut = faits.tache?.status ?? 'inconnu';
+  // Réussie ET gardée : une tâche qui n'est pas `done` n'a rien de livrable,
+  // quel que soit le résultat qu'elle a rendu un jour.
+  const statut = faits.tache?.status ?? 'inconnu';
+  const reussieAvant = (faits.resultats ?? []).some((r) => r?.success === true);
+  if (production?.success !== true && reussieAvant) {
+    dire(
+      'A-diff',
+      'Travail produit',
+      'echec',
+      `dernière tentative échouée (tâche ${statut}) : la production réussie antérieure ` +
+        'n’est plus celle que la Reine garde',
+    );
+  } else if (production?.success !== true) {
     dire('A-diff', 'Travail produit', 'echec', `aucune production réussie (tâche ${statut})`);
+  } else if (statut !== 'done') {
+    dire('A-diff', 'Travail produit', 'echec', `dernière production réussie, mais tâche ${statut}`);
   } else if (typeof production.diff !== 'string' || production.diff.trim() === '') {
     dire('A-diff', 'Travail produit', 'echec', 'production réussie mais diff vide');
   } else if (faits.attendu && !faits.attendu.test(production.diff)) {
@@ -229,10 +251,10 @@ export function jugerV2Alpha(faits) {
 }
 
 /**
- * Le bac à sable de CHAQUE nœud qui a exécuté la mission — producteur et
- * relecteurs. Un relecteur est un agent lancé sur le même code : s'il tourne
- * hors du bac, la mission n'a pas tourné dans un bac, quel que soit le
- * producteur.
+ * Le bac à sable de CHAQUE nœud qui a exécuté la mission — producteur,
+ * sous-tâches déléguées et relecteurs. Chacun est un agent lancé pour elle :
+ * s'il tourne hors du bac, la mission n'a pas tourné dans un bac, quel que
+ * soit le producteur.
  *
  * `prouve` exige un conteneur ET son moteur : « conteneur » sans moteur est
  * précisément la déclaration que `isolementDeclareDe` refuse de faire, donc

@@ -240,6 +240,58 @@ describe('sérialisation par l’ordonnanceur', () => {
     }
   });
 
+  it('UNE COURSE SUR UN ENFANT DÉLÉGUÉ SUIT LA MÊME GARDE — son parent ne la bloque pas, une voisine si', () => {
+    // La course ne contourne jamais le Sting Detector ; elle ne doit pas non
+    // plus être PLUS stricte que l'assignation automatique qui, elle, lance
+    // l'enfant malgré le parent qui l'attend.
+    const { store, scheduler } = setup();
+    try {
+      for (const n of ['n1', 'n2', 'n3']) scheduler.registerNode(profile(n));
+      const p = store.createProject({ name: 'P' });
+      store.createTask({
+        id: 'parent',
+        projectId: p.id,
+        title: 'Parent',
+        prompt: 'délègue la création de src/double.ts, attends son résultat',
+      });
+      scheduler.tick();
+      store.patchTask('parent', { status: 'running' });
+      const enfant = (childTaskId: string) =>
+        store.createDelegatedTask({
+          childTaskId,
+          parentTaskId: 'parent',
+          title: `Enfant ${childTaskId}`,
+          prompt: 'crée src/double.ts et son test',
+          durationMs: 60_000,
+          costMicros: 100_000,
+          resourceUnits: 1,
+        });
+      expect(enfant('enfant').ok).toBe(true);
+      // Prête mais pas encore partie (toutes les ouvrières étaient occupées) :
+      // c'est là qu'un humain lance une course à la main.
+      store.patchTask('enfant', { status: 'ready' });
+
+      expect(scheduler.startRace('enfant', 2), 'le parent attend : la course part').toMatchObject({
+        ok: true,
+      });
+
+      // Une tâche SANS lien de délégation en conflit fort : refusée, comme avant.
+      store.createTask({
+        id: 'voisine',
+        projectId: p.id,
+        title: 'Voisine',
+        prompt: 'modifier src/double.ts',
+      });
+      store.patchTask('voisine', { status: 'ready' });
+      expect(scheduler.startRace('voisine', 2)).toEqual({
+        ok: false,
+        error: expect.stringContaining('en conflit fort avec la tâche active'),
+      });
+    } finally {
+      store.close();
+    }
+  });
+
   it('laisse tourner en parallèle deux tâches en conflit seulement faible', () => {
     const { store, scheduler, assigned } = setup();
     try {

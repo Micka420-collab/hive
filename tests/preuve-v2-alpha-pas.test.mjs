@@ -7,15 +7,20 @@
 
 import { describe, expect, it } from 'vitest';
 import { HIVE_DELEGATE_TOOL, HIVE_WAIT_TOOL } from '../src/adapters/delegation-bridge.ts';
+import { depotDepuisUrl } from '../src/orchestrator/livraison.ts';
 import {
   MISSION,
   OUTIL_ATTENDRE,
   OUTIL_DELEGUER,
   argumentsDeLaPreuve,
+  bacLePlusFaible,
+  depotGithub,
   menerLaPreuve,
   missionsEssaim,
   ouvrieresReelles,
 } from '../scripts/preuve-v2-alpha-pas.mjs';
+import { conclurePreuve } from '../scripts/preuve-v2-alpha-rapport.mjs';
+import { jugerV2Alpha } from '../scripts/preuve-v2-alpha-verdict.mjs';
 
 const PODMAN = { niveau: 'conteneur', fournisseur: 'podman' };
 const NOEUD_REEL = { id: 'n-reel', name: 'poste', agentType: 'claude-code', status: 'online' };
@@ -47,11 +52,14 @@ const TOURS_SIMPLES = [
   },
 ];
 
+/** La sonde GitHub d'une Reine qui a son jeton. */
+const GITHUB_PRET = { '/api/github/status': { configure: true } };
+
 /**
  * Une ruche de laboratoire : chaque appel est journalisé, chaque réponse
  * réglable. `tours[k]` est ce que rend le k-ième instantané (le tour 0 est
- * celui d'avant la création) ; le journal montre ANCIENS puis les
- * `evenements` des tours déjà servis.
+ * celui d'avant la création), avec ses `noeuds` s'il en donne ; le journal
+ * montre ANCIENS puis les `evenements` des tours déjà servis.
  */
 function laboratoire({
   noeuds = [NOEUD_REEL],
@@ -73,7 +81,10 @@ function laboratoire({
       instantane: async () => {
         appels.push('instantane');
         servi = Math.min(servi + 1, tours.length - 1);
-        return { status: 200, corps: { nodes: noeuds, tasks: tours[servi].taches } };
+        return {
+          status: 200,
+          corps: { nodes: tours[servi].noeuds ?? noeuds, tasks: tours[servi].taches },
+        };
       },
       creerProjet: async (corps) => {
         appels.push(
@@ -132,16 +143,21 @@ describe('preuve V2 Alpha — la séquence', () => {
     expect(issue.message).toContain('--oui');
     expect(appels).toEqual(['instantane']);
 
-    // Les exigences ne dépensent rien non plus : seul `creer` confie.
-    const essaim = laboratoire({ noeuds: [NOEUD_REEL, NOEUD_CODEX, { ...NOEUD_REEL, id: 'n3' }] });
+    // Les exigences ne dépensent rien non plus : seul `creer` confie. La
+    // sonde GitHub est une lecture, et l'URL montrée perd ses identifiants.
+    const essaim = laboratoire({
+      noeuds: [NOEUD_REEL, NOEUD_CODEX, { ...NOEUD_REEL, id: 'n3' }],
+      lectures: GITHUB_PRET,
+    });
     const plan = await menerLaPreuve(essaim.ruche, {
       ouvrieres: 3,
-      depot: 'https://github.com/demo/hive.git',
+      depot: 'https://moi:ghp_secret@github.com/demo/hive.git',
     });
     expect(plan.message).toContain(
       'confier 4 tâches (3 indépendantes, 1 qui délègue) sur https://github.com/demo/hive.git, puis la livrer',
     );
-    expect(essaim.appels).toEqual(['instantane']);
+    expect(plan.message).not.toContain('ghp_secret');
+    expect(essaim.appels).toEqual(['instantane', 'lire:/api/github/status']);
   });
 
   it('UN PROJET OU UNE MISSION REFUSÉS SONT DITS — avec le statut', async () => {
@@ -318,7 +334,7 @@ describe('preuve V2 Alpha — la séquence', () => {
   });
 
   it('AVEC UN DÉPÔT, LE PROJET Y TRAVAILLE ET CHAQUE TÂCHE EST LIVRÉE — APRÈS le réglage', async () => {
-    const { ruche, appels } = laboratoire();
+    const { ruche, appels } = laboratoire({ lectures: GITHUB_PRET });
     const issue = await menerLaPreuve(ruche, {
       creer: true,
       depot: 'https://github.com/demo/hive.git',
@@ -333,6 +349,71 @@ describe('preuve V2 Alpha — la séquence', () => {
     ]);
   });
 
+  it('SOUS --depot, UNE REINE QUI NE SAURAIT PAS LIVRER EST REFUSÉE AVANT DE DÉPENSER', async () => {
+    // Sans jeton, `/api/livraison` rend 501 — mais seulement APRÈS la mission.
+    const sansJeton = laboratoire({ lectures: { '/api/github/status': { configure: false } } });
+    expect(
+      await menerLaPreuve(sansJeton.ruche, {
+        creer: true,
+        depot: 'https://github.com/demo/hive.git',
+      }),
+    ).toEqual({
+      ok: false,
+      raison:
+        '--depot : la Reine n’a pas de jeton GitHub — définissez HIVE_GITHUB_TOKEN dans son ' +
+        'environnement et relancez-la, sinon aucune tâche ne serait livrée',
+    });
+    expect(sansJeton.appels, 'rien n’est créé').toEqual(['instantane', 'lire:/api/github/status']);
+
+    // Une sonde illisible ne permet pas de promettre une livraison non plus.
+    const muette = laboratoire();
+    expect(
+      (await menerLaPreuve(muette.ruche, { depot: 'https://github.com/demo/hive.git' })).raison,
+    ).toBe('--depot : impossible de savoir si la Reine peut livrer (/api/github/status rend 404)');
+  });
+
+  it('AVEC UN DÉPÔT, LA SOUS-TÂCHE DÉLÉGUÉE EST LIVRÉE AUSSI — son diff ne revient au parent qu’en texte', async () => {
+    const tours = [
+      { taches: [] },
+      {
+        taches: [
+          { id: 't1', status: 'running' },
+          { id: 'enfant', status: 'running' },
+        ],
+        evenements: [
+          ev(10, 'task_started', { taskId: 't1', nodeId: 'n-reel' }),
+          ev(11, 'delegation_created', { parentTaskId: 't1', childTaskId: 'enfant' }),
+          ev(12, 'task_started', { taskId: 'enfant', nodeId: 'n-codex' }),
+        ],
+      },
+      {
+        taches: [
+          { id: 't1', status: 'done' },
+          { id: 'enfant', status: 'done' },
+        ],
+        evenements: [
+          ev(13, 'task_done', { taskId: 'enfant', nodeId: 'n-codex' }),
+          ev(14, 'contre_expertise', { taskId: 'enfant', possible: false }),
+          ev(15, 'task_done', { taskId: 't1', nodeId: 'n-reel' }),
+          ev(16, 'contre_expertise', { taskId: 't1', possible: false }),
+        ],
+      },
+    ];
+    const { ruche, appels } = laboratoire({
+      noeuds: [NOEUD_REEL, NOEUD_CODEX],
+      tours,
+      lectures: GITHUB_PRET,
+    });
+    const issue = await menerLaPreuve(ruche, {
+      creer: true,
+      depot: 'https://github.com/demo/hive.git',
+    });
+
+    expect(issue.ok, issue.raison).toBe(true);
+    expect(appels.filter((a) => a.startsWith('livrer:'))).toEqual(['livrer:t1', 'livrer:enfant']);
+    // L'enfant a tourné pour la mission : son nœud est l'un de ses exécutants.
+    expect(issue.faits.executants.map((n) => n.id)).toEqual(['n-reel', 'n-codex']);
+  });
   it('L’ESSAIM EXIGE ASSEZ D’OUVRIÈRES RÉELLES DE DEUX FAMILLES — et le dit avant de dépenser', async () => {
     const trop = laboratoire({ noeuds: [NOEUD_REEL, NOEUD_CODEX, NOEUD_SIMULE] });
     const issue = await menerLaPreuve(trop.ruche, { creer: true, ouvrieres: 3 });
@@ -347,6 +428,110 @@ describe('preuve V2 Alpha — la séquence', () => {
     });
     const refus = await menerLaPreuve(uneFamille.ruche, { creer: true, ouvrieres: 3 });
     expect(refus.raison).toContain('en ligne : 3 de 1 famille(s)');
+
+    // Deux familles, mais aucune dont l'adaptateur porte le pont : la tâche
+    // qui délègue ne pourrait que tomber à côté.
+    const sansPont = laboratoire({
+      noeuds: [
+        { id: 'k1', name: 'k1', agentType: 'cursor', status: 'online' },
+        { id: 'k2', name: 'k2', agentType: 'cline', status: 'online' },
+        { id: 'k3', name: 'k3', agentType: 'cursor', status: 'online' },
+      ],
+    });
+    expect((await menerLaPreuve(sansPont.ruche, { ouvrieres: 3 })).raison).toBe(
+      '--workers 3 : aucune ouvrière en ligne dont l’adaptateur porte le pont de délégation ' +
+        '(claude-code, codex) — la délégation serait impossible ; en ligne : ' +
+        'k1 (cursor), k2 (cline), k3 (cursor)',
+    );
+
+    // Une seule en porte un : le plan le dit avant de dépenser.
+    const mixte = laboratoire({
+      noeuds: [
+        NOEUD_REEL,
+        { id: 'k1', name: 'k1', agentType: 'cursor', status: 'online' },
+        { id: 'k2', name: 'k2', agentType: 'cline', status: 'online' },
+      ],
+    });
+    expect((await menerLaPreuve(mixte.ruche, { ouvrieres: 3 })).message).toContain(
+      'La tâche qui délègue peut échoir à k1 (cursor), k2 (cline), sans pont de délégation',
+    );
+  });
+
+  it('SOUS --exige-bac, LE NŒUD ARRIVÉ EN COURS DE ROUTE QUI PREND LA SOUS-TÂCHE EST JUGÉ AUSSI', async () => {
+    // Tous en conteneur au départ : la vérification d'avant la mission passe.
+    // Puis un nœud hors bac rejoint la ruche, et c'est lui qui exécute
+    // l'enfant délégué — un agent lancé pour la mission, hors du bac.
+    const noeuds = [
+      { ...NOEUD_REEL, id: 'n-a', name: 'alpha', isolement: PODMAN },
+      { ...NOEUD_CODEX, id: 'n-b', name: 'beta', isolement: PODMAN },
+      { ...NOEUD_REEL, id: 'n-c', name: 'gamma', isolement: PODMAN },
+    ];
+    const tardive = {
+      ...NOEUD_REEL,
+      id: 'n-t',
+      name: 'tardive',
+      isolement: { niveau: 'processus' },
+    };
+    const confiees = ['t1', 't2', 't3', 't4'].map((id) => ({
+      id,
+      status: 'done',
+      projectId: 'p1',
+    }));
+    const tours = [
+      { taches: [] },
+      {
+        noeuds: [...noeuds, tardive],
+        taches: [...confiees, { id: 'v2a-g1-double', status: 'running', projectId: 'p1' }],
+        evenements: [
+          ev(10, 'task_started', { taskId: 't4', nodeId: 'n-a' }),
+          ev(11, 'delegation_created', { parentTaskId: 't4', childTaskId: 'v2a-g1-double' }),
+          ev(12, 'task_started', { taskId: 'v2a-g1-double', nodeId: 'n-t' }),
+          ...confiees.map((t, i) => ev(13 + i, 'task_done', { taskId: t.id, nodeId: 'n-a' })),
+        ],
+      },
+      {
+        noeuds: [...noeuds, tardive],
+        taches: [...confiees, { id: 'v2a-g1-double', status: 'done', projectId: 'p1' }],
+        evenements: [ev(20, 'task_done', { taskId: 'v2a-g1-double', nodeId: 'n-t' })],
+      },
+    ];
+    const { ruche } = laboratoire({ noeuds, tours });
+    const issue = await menerLaPreuve(ruche, {
+      creer: true,
+      exigeBac: true,
+      ouvrieres: 3,
+      graine: 'g1',
+    });
+
+    expect(issue.ok, issue.raison).toBe(true);
+    const deleguante = issue.missions[3].faits;
+    expect(deleguante.executants.map((n) => n.id)).toEqual(['n-a', 'n-t']);
+    expect(jugerV2Alpha(deleguante).find((v) => v.critere === 'A-bac')).toMatchObject({
+      etat: 'echec',
+      detail: 'tardive « processus » seulement — pas un conteneur',
+    });
+    const conclusion = conclurePreuve(issue, { exigeBac: true });
+    expect(conclusion.prouve).toBe(false);
+    expect(conclusion.texte).toMatch(/✘ A-bac\s+Bac à sable — tardive « processus »/);
+  });
+
+  it('UN NŒUD EST JUGÉ SUR LE BAC LE PLUS FAIBLE QU’IL A DÉCLARÉ PENDANT LA MISSION — pas sur le dernier', async () => {
+    // Le poste se réinscrit hors du bac le temps d'exécuter, puis revient en
+    // conteneur avant le dernier relevé.
+    const hors = { ...NOEUD_REEL, isolement: { niveau: 'processus' } };
+    const tours = TOURS_SIMPLES.map((t, i) => (i === 2 ? { ...t, noeuds: [hors] } : t));
+    const { ruche } = laboratoire({ noeuds: [{ ...NOEUD_REEL, isolement: PODMAN }], tours });
+    const issue = await menerLaPreuve(ruche, { creer: true });
+
+    expect(issue.faits.executants).toEqual([{ ...NOEUD_REEL, isolement: { niveau: 'processus' } }]);
+    expect(jugerV2Alpha(issue.faits).find((v) => v.critere === 'A-bac')?.etat).toBe('echec');
+
+    const bwrap = { niveau: 'conteneur', fournisseur: 'bubblewrap' };
+    expect(bacLePlusFaible([PODMAN, bwrap]), 'tout en conteneur : la dernière').toEqual(bwrap);
+    expect(bacLePlusFaible([PODMAN, null]), 'un relevé muet rend le bac inconnu').toBeNull();
+    expect(bacLePlusFaible([PODMAN, { niveau: 'conteneur' }])).toEqual({ niveau: 'conteneur' });
+    expect(bacLePlusFaible([null, { niveau: 'processus' }])).toEqual({ niveau: 'processus' });
+    expect(bacLePlusFaible([])).toBeNull();
   });
 
   it('L’ESSAIM CONFIE UN SEUL LOT, ATTEND AUSSI LA SOUS-TÂCHE DÉLÉGUÉE, ET REND LES FAITS DE CHAQUE TÂCHE', async () => {
@@ -395,6 +580,8 @@ describe('preuve V2 Alpha — la séquence', () => {
     ]);
     expect(issue.missions[3].faits.attendu.test('+++ b/delegation-g1.md')).toBe(true);
     expect(issue.essaim.productions).toEqual(['t1', 't2', 't3', 't4', 'v2a-g1-double']);
+    expect(issue.essaim.independantes).toEqual(['t1', 't2', 't3']);
+    expect(issue.essaim.deleguante).toBe('t4');
     expect(issue.essaim.requis).toBe(3);
     expect(
       issue.essaim.taches.map((t) => t.id),
@@ -480,5 +667,46 @@ describe('preuve V2 Alpha — les arguments', () => {
     expect(argumentsDeLaPreuve(['--racine', '.', '--patience', '0'])).toEqual({
       erreur: '--patience attend un nombre de secondes positif',
     });
+  });
+
+  it('--depot N’ACCEPTE QUE CE QUE LA REINE SAIT LIVRER — refusé avant la moindre requête', () => {
+    const refus = {
+      erreur:
+        '--depot attend l’URL https d’un dépôt GitHub (https://github.com/<owner>/<repo>) : ' +
+        'la Reine ne livre que là',
+    };
+    for (const url of [
+      'git@github.com:demo/hive.git',
+      'https://gitlab.com/demo/hive',
+      'http://github.com/demo/hive',
+      'https://github.com/demo/hive/tree/main',
+      '/srv/depots/hive',
+    ]) {
+      expect(argumentsDeLaPreuve(['--racine', '.', '--depot', url]), url).toEqual(refus);
+    }
+    expect(
+      argumentsDeLaPreuve(['--racine', '.', '--depot', 'https://moi:jeton@github.com/demo/hive'])
+        .depot,
+      'un dépôt privé cloné avec ses identifiants reste livrable',
+    ).toBe('https://moi:jeton@github.com/demo/hive');
+  });
+
+  it('LA RÈGLE DU DÉPÔT EST CELLE DE LA LIVRAISON — recopiée, et tenue égale à l’original', () => {
+    for (const url of [
+      'https://github.com/demo/hive.git',
+      'https://www.github.com/demo/hive',
+      'https://moi:jeton@github.com/demo/hive.git',
+      'git@github.com:demo/hive.git',
+      'https://gitlab.com/demo/hive',
+      'http://github.com/demo/hive',
+      'https://github.com/demo',
+      'https://github.com/demo/hive/tree/main',
+      'https://github.com/de..mo/hive',
+      'https://github.com/demo/hi ve',
+      '/srv/depots/hive',
+      'pas une url',
+    ]) {
+      expect(depotGithub(url), url).toBe(depotDepuisUrl(url));
+    }
   });
 });

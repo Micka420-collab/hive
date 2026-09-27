@@ -27,6 +27,9 @@ const PODMAN: IsolementDeclare = { niveau: 'conteneur', fournisseur: 'podman' };
 let serveur: HiveServer | null = null;
 const clients: HiveNodeClient[] = [];
 let dossier = '';
+// La Reine lit HIVE_GITHUB_TOKEN à sa création : un jeton présent dans
+// l'environnement du développeur ne doit pas changer ce que ces bancs prouvent.
+const jetonGithubAmbiant = process.env.HIVE_GITHUB_TOKEN;
 
 afterEach(async () => {
   for (const client of clients.splice(0)) client.stop();
@@ -34,6 +37,8 @@ afterEach(async () => {
   serveur = null;
   if (dossier) rmSync(dossier, { recursive: true, force: true, maxRetries: 3 });
   dossier = '';
+  if (jetonGithubAmbiant === undefined) delete process.env.HIVE_GITHUB_TOKEN;
+  else process.env.HIVE_GITHUB_TOKEN = jetonGithubAmbiant;
 });
 
 const dormir = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -220,7 +225,7 @@ describe('la preuve V2 Alpha — le script, contre une vraie Reine', () => {
             }
             const admise = await ctx.delegate({
               childTaskId: enfant,
-              reason: 'prouver la délégation entre ouvrières',
+              reason: 'prouver la délégation',
               title: 'Preuve V2 Alpha — double',
               prompt: 'Crée double.mjs et son test.',
               durationMs: 600_000,
@@ -265,9 +270,14 @@ describe('la preuve V2 Alpha — le script, contre une vraie Reine', () => {
       expect(preuve.sortie).toMatch(
         /✔ Ouvrières\s+Ouvrières réelles — 3 ouvrière\(s\) réelle\(s\) de 2 famille\(s\)/,
       );
-      expect(preuve.sortie).toMatch(/✔ Parallèle\s+Travail en parallèle — jusqu’à [23] ouvrières/);
       expect(preuve.sortie).toMatch(
-        /✔ Délégation\s+Délégation — « Preuve V2 Alpha — délégation » → v2a-\w+-double, rendue par/,
+        /✔ Parallèle\s+Travail en parallèle — jusqu’à [23] ouvrières en même temps sur les tâches indépendantes/,
+      );
+      // Qui a rendu l'enfant est nommé, et OÙ par rapport au parent est dit :
+      // l'Aiguillage peut le rendre à l'ouvrière du parent (la Reine ne
+      // l'épingle pas), et c'est arrivé sur ce banc sous charge.
+      expect(preuve.sortie).toMatch(
+        /✔ Délégation\s+Délégation — « Preuve V2 Alpha — délégation » → v2a-\w+-double, rendue par (alpha|beta|gamma) \((claude-code|codex)\)(, sur l’ouvrière même de la tâche parente| pour (alpha|beta|gamma) \()/,
       );
       expect(preuve.sortie).toMatch(/✔ Relecture\s+Relecture croisée — /);
       expect(preuve.sortie).toMatch(
@@ -292,5 +302,38 @@ describe('la preuve V2 Alpha — le script, contre une vraie Reine', () => {
     const faute = await lancer(['--racine', '.', '--oui', '--exige-bacs']);
     expect(faute.code).toBe(64);
     expect(faute.sortie).toContain('argument inconnu : --exige-bacs');
+
+    // Un dépôt que la Reine ne saurait pas livrer est une faute d'appel.
+    const ssh = await lancer(['--racine', '.', '--depot', 'git@github.com:demo/hive.git']);
+    expect(ssh.code).toBe(64);
+    expect(ssh.sortie).toContain('--depot attend l’URL https d’un dépôt GitHub');
+  });
+
+  it('--depot SANS JETON GITHUB CÔTÉ REINE : REFUSÉ AVANT DE RIEN CRÉER', async () => {
+    // Sans la sonde, la Reine aurait répondu 501 à la livraison — APRÈS la
+    // mission, donc après avoir fait payer les agents.
+    delete process.env.HIVE_GITHUB_TOKEN;
+    const s = await reine();
+    ouvriere(s, 'poste-depot', 'claude-code', {
+      name: 'banc',
+      async run() {
+        return rendu(diffDe('somme.mjs', 'export const somme = (a, b) => a + b;'));
+      },
+    });
+    await attendre(
+      () => s.store.listNodes().some((n) => n.status === 'online'),
+      'le nœud ne rejoint pas la ruche',
+    );
+
+    const r = await lancer([
+      '--racine',
+      dossier,
+      '--oui',
+      '--depot',
+      'https://github.com/demo/hive.git',
+    ]);
+    expect(r.code, r.sortie).toBe(1);
+    expect(r.sortie).toContain('--depot : la Reine n’a pas de jeton GitHub');
+    expect(s.store.listProjects(), 'rien n’est créé').toHaveLength(0);
   });
 });

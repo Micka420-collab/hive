@@ -310,7 +310,7 @@ describe('preuve V2 Alpha — le verdict', () => {
     );
   });
 
-  it('LA PRODUCTION RETENUE EST LA DERNIÈRE RÉUSSIE — pas la première', () => {
+  it('LA PRODUCTION RETENUE EST LA DERNIÈRE — celle que la Reine livre, pas la dernière réussie', () => {
     expect(
       productionRetenue([
         { success: true, diff: 'a' },
@@ -318,7 +318,51 @@ describe('preuve V2 Alpha — le verdict', () => {
         { success: true, diff: 'c' },
       ])?.diff,
     ).toBe('c');
+    expect(
+      productionRetenue([
+        { success: true, diff: 'a' },
+        { success: false, diff: 'b' },
+      ])?.diff,
+      'une réussite antérieure ne remplace pas la dernière tentative',
+    ).toBe('b');
     expect(productionRetenue(null)).toBeNull();
+    expect(productionRetenue([])).toBeNull();
+  });
+
+  it('CONTESTÉE, REPRISE, PUIS ÉCHOUÉE : LE TRAVAIL N’EST PAS PRODUIT — la réussite d’avant a été renvoyée', () => {
+    // Une objection renvoie la première production en correction ; la reprise
+    // échoue jusqu'à épuiser les tentatives. La Reine ne livrera pas la
+    // production contestée (`/api/livraison` prend le DERNIER résultat) : la
+    // preuve ne doit pas la déclarer produite.
+    const f = complet();
+    f.resultats = [
+      { nodeId: 'n1', success: true, diff: DIFF },
+      { nodeId: 'n1', success: false, diff: '' },
+    ];
+    f.tache.status = 'failed';
+    f.evaluation = {
+      decision: 'rejected',
+      evidence: {},
+      reasons: ['le dernier résultat a échoué'],
+    };
+    const v = jugerV2Alpha(f);
+
+    expect(etat(v, 'A-diff')).toMatchObject({
+      etat: 'echec',
+      detail:
+        'dernière tentative échouée (tâche failed) : la production réussie antérieure ' +
+        'n’est plus celle que la Reine garde',
+    });
+    expect(missionReelleProuvee(v, { exigeBac: true })).toBe(false);
+
+    // Une dernière production réussie sur une tâche qui n'est pas `done`
+    // n'est pas non plus celle que la Reine garde.
+    const pasDone = complet();
+    pasDone.tache.status = 'ready';
+    expect(etat(jugerV2Alpha(pasDone), 'A-diff')).toMatchObject({
+      etat: 'echec',
+      detail: 'dernière production réussie, mais tâche ready',
+    });
   });
 
   it('LE RAPPORT DIT CHAQUE CRITÈRE SUR UNE LIGNE, AVEC SON SIGNE', () => {

@@ -41,6 +41,26 @@ describe('preuve V2 Alpha — la conclusion', () => {
     expect(conclurePreuve(mission(POSTE), { exigeBac: true }).prouve).toBe(true);
   });
 
+  it('UNE PRODUCTION CONTESTÉE DONT LA REPRISE A ÉCHOUÉ NE SORT PAS EN 0 — la Reine ne la garde plus', () => {
+    const reprise = mission(POSTE);
+    reprise.faits = {
+      ...reprise.faits,
+      tache: { id: 't1', status: 'failed' },
+      resultats: [
+        { nodeId: 'n1', success: true, diff: DIFF },
+        { nodeId: 'n1', success: false, diff: '' },
+      ],
+      evaluation: { decision: 'rejected', evidence: {} },
+    };
+    const r = conclurePreuve(reprise, { exigeBac: true });
+
+    expect(r.prouve).toBe(false);
+    expect(r.texte).toMatch(
+      /✘ A-diff\s+Travail produit — dernière tentative échouée \(tâche failed\)/,
+    );
+    expect(r.texte).not.toContain('✔ Mission réelle prouvée');
+  });
+
   it('SOUS --depot, UNE LIVRAISON RATÉE FAIT ÉCHOUER LA PREUVE — sans, la ligne reste inconnue', () => {
     const sansDepot = conclurePreuve(mission(POSTE));
     expect(sansDepot.texte).toMatch(/\? Git\s+Livraison Git — sans --depot/);
@@ -72,19 +92,24 @@ describe('preuve V2 Alpha — la conclusion', () => {
       taches: [
         { id: 't1', status: 'done' },
         { id: 't2', status: 'done' },
+        { id: 't3', status: 'done' },
         { id: 'enfant', status: 'done' },
       ],
-      productions: ['t1', 't2', 'enfant'],
+      productions: ['t1', 't2', 't3', 'enfant'],
+      independantes: ['t1', 't3'],
+      deleguante: 't2',
       evenements: [
         ev(1, 'task_started', { taskId: 't1', nodeId: 'a' }),
         ev(2, 'task_started', { taskId: 't2', nodeId: 'b' }),
-        ev(3, 'delegation_created', { parentTaskId: 't2', childTaskId: 'enfant' }),
-        ev(4, 'task_started', { taskId: 'enfant', nodeId: 'c' }),
-        ev(5, 'task_done', { taskId: 'enfant', nodeId: 'c' }),
-        ev(6, 'task_done', { taskId: 't1', nodeId: 'a' }),
-        ev(7, 'task_done', { taskId: 't2', nodeId: 'b' }),
-        ev(8, 'task_done', { taskId: 'r1', nodeId: 'b' }),
-        ev(9, 'contre_expertise_verdict', {
+        ev(3, 'task_started', { taskId: 't3', nodeId: 'c' }),
+        ev(4, 'delegation_created', { parentTaskId: 't2', childTaskId: 'enfant' }),
+        ev(5, 'task_done', { taskId: 't3', nodeId: 'c' }),
+        ev(6, 'task_started', { taskId: 'enfant', nodeId: 'c' }),
+        ev(7, 'task_done', { taskId: 'enfant', nodeId: 'c' }),
+        ev(8, 'task_done', { taskId: 't1', nodeId: 'a' }),
+        ev(9, 'task_done', { taskId: 't2', nodeId: 'b' }),
+        ev(10, 'task_done', { taskId: 'r1', nodeId: 'b' }),
+        ev(11, 'contre_expertise_verdict', {
           source: 'hive_counter_review',
           taskId: 't1',
           relecture: 'r1',
@@ -101,6 +126,7 @@ describe('preuve V2 Alpha — la conclusion', () => {
       missions: [
         { taskId: 't1', titre: 'ajoute1', faits: faits(noeuds[0]) },
         { taskId: 't2', titre: 'délégation', faits: faits(noeuds[1]) },
+        { taskId: 't3', titre: 'ajoute2', faits: faits(noeuds[2]) },
       ],
       essaim,
       livraisons: null,
@@ -113,12 +139,13 @@ describe('preuve V2 Alpha — la conclusion', () => {
     expect(r.prouve).toBe(true);
 
     // La tâche qui délègue a rendu autre chose que ce qui était demandé.
-    const [ajoute1, deleguante] = issue.missions;
+    const [ajoute1, deleguante, ajoute2] = issue.missions;
     const horsSujet = {
       ...issue,
       missions: [
         ajoute1,
         { ...deleguante, faits: { ...deleguante.faits, attendu: /delegation-/ } },
+        ajoute2,
       ],
     };
     const refus = conclurePreuve(horsSujet, { exigeBac: true });

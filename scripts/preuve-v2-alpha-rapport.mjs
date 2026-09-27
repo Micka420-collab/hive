@@ -5,9 +5,11 @@
 // se décide ce qui est EXIGÉ. Tout le reste du rapport est dit, ✔ ? ou ✘,
 // mais seules ces lignes font sortir en 0 :
 //
-//   · une mission : A-agent et A-diff ; A-bac sous `--exige-bac` ; Git sous
-//     `--depot` (une livraison demandée qui échoue n'est pas une mission
-//     livrée) ;
+//   · une mission : A-agent et A-diff (sur la production que la Reine GARDE,
+//     la dernière) ; A-bac sous `--exige-bac` (chaque nœud qui a exécuté la
+//     tâche, ses sous-tâches déléguées ou leurs relectures) ; Git sous
+//     `--depot` (une livraison demandée qui échoue — sous-tâche déléguée
+//     comprise — n'est pas une mission livrée) ;
 //   · un essaim : les mêmes, pour CHAQUE tâche confiée, plus les critères
 //     d'essaim (`EXIGES_ESSAIM`).
 //

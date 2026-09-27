@@ -130,14 +130,20 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
   `npm run preuve:v2-alpha -- --racine . --oui` confie une petite mission,
   attend qu'elle soit **réglée** (contre-revue rendue, aucun retry de
   l'Evaluator en attente), puis dit pour chaque critère ce que la Reine a
-  réellement consigné (`✔` prouvé, `?` inconnu, `✘` échec). L'évaluation
+  réellement consigné (`✔` prouvé, `?` inconnu, `✘` échec). Le travail
+  jugé est celui que la Reine garde (sa dernière production) ; l'évaluation
   n'est `✔` que pour `accepted` avec les quatre validations vertes.
-  `--workers 3` prouve l'**essaim** : trois ouvrières réelles de deux
-  familles, en parallèle, une délégation, une relecture par une autre
-  famille, une reprise après objection. `--exige-bac` exige un bac conteneur
-  de chaque nœud qui exécute la mission, `--depot <url>` livre chaque tâche
-  en pull request. Sans `--oui`, rien n'est créé : la mission consomme des
-  crédits des agents.
+  `--workers 3` exige l'**essaim** : trois ouvrières réelles de deux
+  familles, des tâches indépendantes en parallèle, une délégation vers une
+  AUTRE ouvrière (il faut une ouvrière Claude Code ou Codex : seuls leurs
+  adaptateurs savent déléguer), une relecture par une autre famille ; la
+  reprise après objection et l'Evaluator sont dits, sans être exigés.
+  `--exige-bac` exige un bac conteneur de chaque nœud qui exécute la
+  mission (sous-tâches déléguées et relectures comprises), `--depot <url>`
+  (un dépôt GitHub en https, et `HIVE_GITHUB_TOKEN` côté Reine, vérifiés
+  avant de dépenser) livre chaque production en pull request, sous-tâches
+  déléguées comprises. Sans `--oui`, rien n'est créé : la mission consomme
+  des crédits des agents.
 
 L'adaptateur `shell` reste une **simulation** : sans agent réel installé, les
 diffs produits sont factices, et l'installeur comme la Reine le disent.

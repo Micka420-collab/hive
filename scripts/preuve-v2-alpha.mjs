@@ -6,14 +6,20 @@
 //
 // Options :
 //   --patience <s>   attente maximale (900 s ; 1800 s avec --workers)
-//   --exige-bac      chaque nœud qui exécute la mission doit déclarer un bac
-//                    conteneur (podman, docker ou bubblewrap) — sinon ✘
+//   --exige-bac      chaque nœud qui exécute la mission (sous-tâches déléguées
+//                    et relectures comprises) doit déclarer un bac conteneur
+//                    (podman, docker ou bubblewrap) — sinon ✘
 //   --workers <n>    l'ESSAIM : n ouvrières réelles de 2 familles au moins,
-//                    n tâches indépendantes et une qui délègue ; jugés en plus :
-//                    parallélisme, délégation, relecture croisée, reprise
-//   --depot <url>    la mission travaille sur ce dépôt distant, puis chaque
-//                    tâche est livrée en pull request (la Reine a besoin de
-//                    HIVE_GITHUB_TOKEN)
+//                    dont une Claude Code ou Codex (seuls leurs adaptateurs
+//                    savent déléguer), n tâches indépendantes et une qui
+//                    délègue ; exigés en plus : parallélisme des tâches
+//                    indépendantes, délégation vers une AUTRE ouvrière,
+//                    relecture croisée ; la reprise après objection est dite,
+//                    jamais exigée (une objection ne se provoque pas)
+//   --depot <url>    la mission travaille sur ce dépôt GitHub (https), puis
+//                    chaque production — sous-tâches déléguées comprises — est
+//                    livrée en pull request ; l'URL et le jeton de la Reine
+//                    (HIVE_GITHUB_TOKEN) sont vérifiés AVANT de dépenser
 //
 // ─── CE QUE CE SCRIPT PROUVE, ET CE QU'IL NE PROUVE PAS ─────────────────────
 //

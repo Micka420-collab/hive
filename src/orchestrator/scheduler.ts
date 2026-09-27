@@ -1137,15 +1137,9 @@ export class Scheduler {
       return { ok: false, error: 'plafond de dépense atteint pour ce projet — course refusée' };
     }
     // Sting Detector : une course ne contourne JAMAIS la prévention des
-    // éditions concurrentes — même garde que l'assignation automatique.
-    const clash = this.store
-      .tasksByStatus('assigned', 'running')
-      .find(
-        (t) =>
-          t.projectId === task.projectId &&
-          t.id !== taskId &&
-          analyzePair(task, t).severity === 'high',
-      );
+    // éditions concurrentes — même garde que l'assignation automatique,
+    // littéralement : la même fonction.
+    const clash = this.conflitFortActif(task, this.store.tasksByStatus('assigned', 'running'));
     if (clash) {
       return {
         ok: false,
@@ -1657,6 +1651,26 @@ export class Scheduler {
     return false;
   }
 
+  /**
+   * La tâche active avec laquelle `task` est en conflit FORT (Sting
+   * Detector), hors de ses propres ancêtres de délégation (`estAncetre`) — ou
+   * `undefined`.
+   *
+   * UNE garde pour l'assignation automatique ET pour la course : deux copies
+   * avaient déjà divergé — la course refusait l'enfant délégué que
+   * l'assignation lançait, alors que son commentaire promettait « la même
+   * garde ». Une seule fonction ne peut plus diverger d'elle-même.
+   */
+  private conflitFortActif(task: Task, actives: readonly Task[]): Task | undefined {
+    return actives.find(
+      (t) =>
+        t.projectId === task.projectId &&
+        t.id !== task.id &&
+        analyzePair(task, t).severity === 'high' &&
+        !this.estAncetre(t.id, task.id),
+    );
+  }
+
   /** ready → assigned sur le nœud online le moins chargé qui a encore de la capacité. */
   private assignReadyTasks(now = Date.now()): void {
     // Balance : le livre avance AVANT toute décision, pour que la lecture
@@ -1700,13 +1714,7 @@ export class Scheduler {
       // Sting Detector : ne pas lancer une tâche en conflit FORT (même fichier)
       // avec une tâche déjà active du même projet. On la diffère jusqu'à ce que
       // l'autre se termine — prévention des conflits d'édition concurrents.
-      const clash = activeNow.find(
-        (t) =>
-          t.projectId === task.projectId &&
-          t.id !== task.id &&
-          analyzePair(task, t).severity === 'high' &&
-          !this.estAncetre(t.id, task.id),
-      );
+      const clash = this.conflitFortActif(task, activeNow);
       if (clash) {
         if (!this.deferredByConflict.has(task.id)) {
           this.deferredByConflict.add(task.id);

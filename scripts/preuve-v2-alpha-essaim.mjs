@@ -4,8 +4,8 @@
 // Le verdict d'une mission (`preuve-v2-alpha-verdict.mjs`) juge chaque tâche
 // seule. Le jalon V2 Alpha demande en plus des faits qui n'existent qu'à
 // PLUSIEURS : des ouvrières de familles différentes qui travaillent en même
-// temps, une qui délègue à une autre, une qui relit l'autre, et une production
-// reprise après une objection.
+// temps, une qui délègue une sous-tâche, une qui relit l'autre, et une
+// production reprise après une objection.
 //
 // Mêmes règles que le verdict d'une mission : `prouve` seulement sur le fait
 // exact, `inconnu` quand le fait manque, `echec` quand il dit le contraire.
@@ -23,6 +23,15 @@ const FINS_EXECUTION = new Set([
   'task_requeued',
   'task_cancelled',
 ]);
+
+/**
+ * Les familles dont l'adaptateur donne au CLI les outils du pont de délégation
+ * (`createDelegationBridge`, `src/adapters/`). Les autres n'ont AUCUN moyen de
+ * déléguer : une tâche qui délègue tombée chez elles ne dit rien de la
+ * délégation, et reprocher à l'agent de « ne pas avoir appelé l'outil »
+ * serait faux. Recopiée pour Node nu ; un banc la confronte aux adaptateurs.
+ */
+export const FAMILLES_DELEGANTES = new Set(['claude-code', 'codex']);
 
 const charge = (e) => (e && typeof e.payload === 'object' && e.payload !== null ? e.payload : {});
 const court = (texte, max = 120) => (texte.length > max ? `${texte.slice(0, max - 1)}…` : texte);
@@ -66,11 +75,13 @@ export function simultaneiteMax(fenetres) {
 /**
  * @param {{
  *   requis: number, noeuds?: any[], taches?: any[], productions?: string[],
- *   evenements?: any[]
+ *   independantes?: string[], deleguante?: string, evenements?: any[]
  * }} faits
  *   `productions` : les tâches confiées et leurs sous-tâches déléguées ;
- *   `taches` et `noeuds` : l'instantané final ; `evenements` : le journal
- *   gardé depuis l'amorce.
+ *   `independantes` : les tâches confiées SANS lien entre elles ;
+ *   `deleguante` : la tâche confiée qui doit déléguer ;
+ *   `taches` : l'instantané final ; `noeuds` : chaque nœud vu pendant la
+ *   mission ; `evenements` : le journal gardé depuis l'amorce.
  */
 export function jugerEssaim(faits) {
   const verdicts = [];
@@ -83,6 +94,8 @@ export function jugerEssaim(faits) {
   const relectures = new Set([...productions].flatMap((id) => relecturesDe(id, evenements)));
   const nom = (id) => noeuds.get(id)?.name ?? id;
   const agent = (id) => noeuds.get(id)?.agentType ?? 'inconnu';
+  const reel = (id) => noeuds.has(id) && !AGENTS_SIMULES.has(agent(id));
+  const qui = (id) => `${nom(id)} (${agent(id)})`;
   const titre = (id) => taches.get(id)?.title ?? id;
   const du = (type, filtre = () => true) =>
     evenements.filter((e) => e.type === type && filtre(charge(e)));
@@ -98,9 +111,9 @@ export function jugerEssaim(faits) {
       ),
     ),
   ];
-  const reelles = rendeurs.filter((id) => noeuds.has(id) && !AGENTS_SIMULES.has(agent(id)));
+  const reelles = rendeurs.filter(reel);
   const familles = new Set(reelles.map(agent));
-  const liste = reelles.map((id) => `${nom(id)} (${agent(id)})`).join(', ');
+  const liste = reelles.map(qui).join(', ');
   const ouvrieres = `${reelles.length} ouvrière(s) réelle(s) de ${familles.size} famille(s)`;
   if (reelles.length >= faits.requis && familles.size >= 2) {
     dire(
@@ -119,53 +132,133 @@ export function jugerEssaim(faits) {
   }
 
   // ─── Le parallélisme, mesuré par l'horloge de la Reine ─────────────────────
-  const fenetres = fenetresDe([...productions], evenements);
+  //
+  // Sur les seules tâches INDÉPENDANTES, et sur de vrais agents. Une tâche qui
+  // délègue reste `running` tant qu'elle attend son enfant : sa fenêtre
+  // enveloppe celle de l'enfant par construction. Les compter ensemble faisait
+  // de toute délégation vers un autre nœud un « parallélisme », même si les
+  // tâches indépendantes s'étaient toutes succédé.
+  const fenetres = fenetresDe(faits.independantes ?? [], evenements).filter((f) => reel(f.nodeId));
   const simultanees = simultaneiteMax(fenetres);
   if (fenetres.length < 2) {
-    dire('Parallèle', 'Travail en parallèle', 'inconnu', 'moins de deux exécutions mesurées');
+    dire(
+      'Parallèle',
+      'Travail en parallèle',
+      'inconnu',
+      'moins de deux exécutions de tâches indépendantes mesurées',
+    );
   } else if (simultanees >= 2) {
     dire(
       'Parallèle',
       'Travail en parallèle',
       'prouve',
-      `jusqu’à ${simultanees} ouvrières en même temps (démarrage → fin, horloge de la Reine)`,
+      `jusqu’à ${simultanees} ouvrières en même temps sur les tâches indépendantes ` +
+        '(démarrage → fin, horloge de la Reine)',
     );
   } else {
     dire(
       'Parallèle',
       'Travail en parallèle',
       'echec',
-      'les productions se sont succédé : aucune ne chevauche celle d’une autre ouvrière',
+      'les tâches indépendantes se sont succédé : aucune ne chevauche celle d’une autre ouvrière',
     );
   }
 
-  // ─── La délégation : une arête, et une sous-tâche rendue ────────────────────
+  // ─── La délégation : une arête, et une sous-tâche rendue par un vrai agent ─
+  //
+  // Une arête et un enfant `done` ne suffisent pas : il faut SAVOIR qui a
+  // rendu l'enfant, et que ce soit un agent réel. Où il a tourné, en
+  // revanche, n'est pas exigé — seulement DIT : la Reine ne sait pas épingler
+  // l'enfant, et l'Aiguillage peut le rendre au nœud même du parent (vu sur
+  // une vraie Reine : le modèle élu n'était offert que par lui et par une
+  // ouvrière plus chargée). Exiger une autre ouvrière ferait échouer la
+  // preuve au hasard du routage, sans rien apprendre de plus sur la
+  // délégation elle-même : l'enfant est une autre tâche, un autre atelier, un
+  // autre processus d'agent.
   const aretes = du('delegation_created', (p) => productions.has(p.parentTaskId));
-  const rendue = aretes.find((e) => taches.get(charge(e).childTaskId)?.status === 'done');
-  if (rendue) {
-    const { parentTaskId, childTaskId } = charge(rendue);
+  /** Le nœud qui exécutait le parent quand il a délégué, et celui qui a rendu l'enfant. */
+  const cote = (arete) => {
+    const { parentTaskId, childTaskId } = charge(arete);
+    const depart = du('task_started', (p) => p.taskId === parentTaskId)
+      .filter((e) => e.id < arete.id)
+      .at(-1);
     const fin = du('task_done', (p) => p.taskId === childTaskId).at(-1);
-    const par = fin ? ` par ${nom(charge(fin).nodeId)} (${agent(charge(fin).nodeId)})` : '';
+    return {
+      parentTaskId,
+      childTaskId,
+      parent: depart ? charge(depart).nodeId : undefined,
+      enfant: fin ? charge(fin).nodeId : undefined,
+    };
+  };
+  const rendues = aretes
+    .filter((e) => taches.get(charge(e).childTaskId)?.status === 'done')
+    .map(cote);
+  // Une délégation vers une AUTRE ouvrière se dit en premier, si l'essaim en a une.
+  const parAgents = rendues.filter((r) => reel(r.enfant));
+  const prouvee =
+    parAgents.find((r) => r.parent !== undefined && r.parent !== r.enfant) ?? parAgents[0];
+  /** Où l'enfant a tourné, par rapport au parent — dit, jamais exigé. */
+  const ou = (r) =>
+    r.parent === undefined
+      ? ''
+      : r.parent === r.enfant
+        ? ', sur l’ouvrière même de la tâche parente (la Reine ne l’épingle pas)'
+        : ` pour ${qui(r.parent)}`;
+  if (prouvee) {
     dire(
       'Délégation',
       'Délégation',
       'prouve',
-      `« ${titre(parentTaskId)} » → ${childTaskId}, rendue${par}`,
+      `« ${titre(prouvee.parentTaskId)} » → ${prouvee.childTaskId}, rendue par ` +
+        `${qui(prouvee.enfant)}${ou(prouvee)}`,
     );
+  } else if (rendues.length > 0) {
+    const r = rendues[0];
+    const [etat, pourquoi] =
+      r.enfant === undefined
+        ? ['inconnu', 'rendue, mais son rendu n’est pas au journal']
+        : noeuds.has(r.enfant)
+          ? ['echec', `rendue par ${qui(r.enfant)}, une simulation`]
+          : ['inconnu', `rendue par ${r.enfant}, nœud jamais vu : agent inconnu`];
+    dire('Délégation', 'Délégation', etat, `sous-tâche ${r.childTaskId} ${pourquoi}`);
   } else if (aretes.length > 0) {
     const enfant = charge(aretes[0]).childTaskId;
     const statut = taches.get(enfant)?.status ?? 'absente';
     dire('Délégation', 'Délégation', 'echec', `sous-tâche ${enfant} ${statut}, jamais rendue`);
   } else {
     const refus = du('delegation_rejected', (p) => productions.has(p.parentTaskId)).at(-1);
-    dire(
-      'Délégation',
-      'Délégation',
-      'echec',
-      refus
-        ? `délégation refusée par la Reine : ${charge(refus).code} — ${charge(refus).message}`
-        : 'aucune sous-tâche créée : l’agent n’a pas appelé l’outil de délégation',
-    );
+    // Qui a pris la tâche qui délègue : si AUCUN de ses nœuds n'a le pont,
+    // l'agent n'avait pas l'outil — ce n'est pas lui qui a manqué.
+    const porteurs = [
+      ...new Set(
+        du('task_started', (p) => p.taskId === faits.deleguante).map((e) => charge(e).nodeId),
+      ),
+    ];
+    const sansPont =
+      porteurs.length > 0 && porteurs.every((id) => !FAMILLES_DELEGANTES.has(agent(id)));
+    if (refus) {
+      dire(
+        'Délégation',
+        'Délégation',
+        'echec',
+        `délégation refusée par la Reine : ${charge(refus).code} — ${charge(refus).message}`,
+      );
+    } else if (sansPont) {
+      dire(
+        'Délégation',
+        'Délégation',
+        'inconnu',
+        `la tâche qui délègue a tourné sur ${porteurs.map(qui).join(', ')} : adaptateur sans pont ` +
+          `de délégation (seuls ${[...FAMILLES_DELEGANTES].join(', ')} en ont un)`,
+      );
+    } else {
+      dire(
+        'Délégation',
+        'Délégation',
+        'echec',
+        'aucune sous-tâche créée : l’agent n’a pas appelé l’outil de délégation',
+      );
+    }
   }
 
   // ─── La relecture par une AUTRE famille ─────────────────────────────────────
@@ -183,7 +276,7 @@ export function jugerEssaim(faits) {
   const familleDuRendu = (relecture) => {
     const fin = du('task_done', (q) => q.taskId === relecture).at(-1);
     const id = fin ? charge(fin).nodeId : undefined;
-    return noeuds.has(id) && !AGENTS_SIMULES.has(agent(id)) ? agent(id) : null;
+    return reel(id) ? agent(id) : null;
   };
   const croises = avis
     .map((p) => ({ p, famille: familleDuRendu(p.relecture) }))

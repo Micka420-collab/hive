@@ -4,8 +4,10 @@
 // qui se sont succédé, ou sur une relecture par la même famille, serait
 // exactement la preuve par accident que ce verdict existe pour refuser.
 
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
+  FAMILLES_DELEGANTES,
   essaimProuve,
   fenetresDe,
   jugerEssaim,
@@ -37,6 +39,8 @@ const complet = () => ({
     { id: 'enfant', title: 'Preuve V2 Alpha — double', status: 'done' },
   ],
   productions: ['t1', 't2', 't3', 't4', 'enfant'],
+  independantes: ['t1', 't2', 't3'],
+  deleguante: 't4',
   evenements: [
     ev(1, 'task_started', { taskId: 't1', nodeId: 'a' }, 1_000),
     ev(2, 'task_started', { taskId: 't2', nodeId: 'b' }, 1_100),
@@ -99,9 +103,11 @@ describe('preuve V2 Alpha — le verdict de l’essaim', () => {
     expect(etat(v, 'Ouvrières').detail).toBe(
       '3 ouvrière(s) réelle(s) de 2 famille(s) ont rendu du travail : alpha (claude-code), beta (codex), gamma (claude-code)',
     );
-    expect(etat(v, 'Parallèle').detail).toContain('jusqu’à 3 ouvrières en même temps');
+    expect(etat(v, 'Parallèle').detail).toContain(
+      'jusqu’à 3 ouvrières en même temps sur les tâches indépendantes',
+    );
     expect(etat(v, 'Délégation').detail).toBe(
-      '« Preuve V2 Alpha — délégation » → enfant, rendue par beta (codex)',
+      '« Preuve V2 Alpha — délégation » → enfant, rendue par beta (codex) pour alpha (claude-code)',
     );
     expect(etat(v, 'Relecture').detail).toBe(
       'codex relit claude-code ×1, claude-code relit codex ×1',
@@ -159,6 +165,40 @@ describe('preuve V2 Alpha — le verdict de l’essaim', () => {
     expect(etat(jugerEssaim(f), 'Parallèle').etat).toBe('inconnu');
   });
 
+  it('UN PARENT QUI ATTEND SON ENFANT N’EST PAS DU PARALLÉLISME — seules comptent les tâches indépendantes', () => {
+    // Les trois tâches indépendantes se succèdent ; seule la tâche qui délègue
+    // chevauche son propre enfant, sur un autre nœud, parce qu'elle l'ATTEND.
+    const f = complet();
+    f.evenements = [
+      ev(1, 'task_started', { taskId: 't1', nodeId: 'a' }, 1_000),
+      ev(2, 'task_done', { taskId: 't1', nodeId: 'a' }, 2_000),
+      ev(3, 'task_started', { taskId: 't2', nodeId: 'b' }, 2_000),
+      ev(4, 'task_done', { taskId: 't2', nodeId: 'b' }, 3_000),
+      ev(5, 'task_started', { taskId: 't3', nodeId: 'c' }, 3_000),
+      ev(6, 'task_done', { taskId: 't3', nodeId: 'c' }, 4_000),
+      ev(7, 'task_started', { taskId: 't4', nodeId: 'a' }, 4_000),
+      ev(8, 'delegation_created', { parentTaskId: 't4', childTaskId: 'enfant' }, 4_100),
+      ev(9, 'task_started', { taskId: 'enfant', nodeId: 'c' }, 5_000),
+      ev(10, 'task_done', { taskId: 'enfant', nodeId: 'c' }, 6_000),
+      ev(11, 'task_done', { taskId: 't4', nodeId: 'a' }, 7_000),
+    ];
+    const v = jugerEssaim(f);
+    expect(etat(v, 'Délégation').etat, 'la délégation, elle, est bien là').toBe('prouve');
+    expect(etat(v, 'Parallèle')).toMatchObject({
+      etat: 'echec',
+      detail:
+        'les tâches indépendantes se sont succédé : aucune ne chevauche celle d’une autre ouvrière',
+    });
+    expect(essaimProuve(v)).toBe(false);
+
+    // Une simulation qui tourne en même temps n'est pas une ouvrière de plus.
+    f.evenements.push(
+      ev(20, 'task_started', { taskId: 't1', nodeId: 's' }, 1_500),
+      ev(21, 'task_done', { taskId: 't1', nodeId: 's' }, 1_800),
+    );
+    expect(etat(jugerEssaim(f), 'Parallèle').etat).toBe('echec');
+  });
+
   it('UNE EXÉCUTION SANS FIN CONSIGNÉE N’EST PAS MESURÉE — plutôt que de chevaucher tout ce qui suit', () => {
     expect(
       fenetresDe(
@@ -200,6 +240,79 @@ describe('preuve V2 Alpha — le verdict de l’essaim', () => {
       etat: 'echec',
       detail: 'sous-tâche enfant failed, jamais rendue',
     });
+  });
+
+  it('LA DÉLÉGATION DIT OÙ L’ENFANT A TOURNÉ — et exige qu’un vrai agent l’ait rendu', () => {
+    // La Reine ne sait pas épingler l'enfant : il peut tomber sur le nœud du
+    // parent. La ligne le DIT, au lieu de laisser croire à un changement
+    // d'ouvrière — sans l'exiger, ce serait échouer au hasard du routage.
+    const meme = complet();
+    meme.evenements = meme.evenements.map((e) =>
+      e.payload.taskId === 'enfant' ? { ...e, payload: { ...e.payload, nodeId: 'a' } } : e,
+    );
+    expect(etat(jugerEssaim(meme), 'Délégation')).toMatchObject({
+      etat: 'prouve',
+      detail:
+        '« Preuve V2 Alpha — délégation » → enfant, rendue par alpha (claude-code), ' +
+        'sur l’ouvrière même de la tâche parente (la Reine ne l’épingle pas)',
+    });
+
+    // Rendue par un nœud jamais vu : on ne sait pas si c'était un agent.
+    const inconnu = complet();
+    inconnu.evenements = inconnu.evenements.map((e) =>
+      e.type === 'task_done' && e.payload.taskId === 'enfant'
+        ? { ...e, payload: { ...e.payload, nodeId: 'fantome' } }
+        : e,
+    );
+    const v = jugerEssaim(inconnu);
+    expect(etat(v, 'Délégation')).toMatchObject({
+      etat: 'inconnu',
+      detail: 'sous-tâche enfant rendue par fantome, nœud jamais vu : agent inconnu',
+    });
+    expect(essaimProuve(v)).toBe(false);
+
+    // Rendue par une simulation : le fait contredit le critère.
+    const simulee = complet();
+    simulee.evenements = simulee.evenements.map((e) =>
+      e.type === 'task_done' && e.payload.taskId === 'enfant'
+        ? { ...e, payload: { ...e.payload, nodeId: 's' } }
+        : e,
+    );
+    expect(etat(jugerEssaim(simulee), 'Délégation')).toMatchObject({
+      etat: 'echec',
+      detail: 'sous-tâche enfant rendue par banc (shell), une simulation',
+    });
+  });
+
+  it('UN ADAPTATEUR SANS PONT N’A PAS « OUBLIÉ » DE DÉLÉGUER — il ne le pouvait pas', () => {
+    const f = complet();
+    f.noeuds = [...NOEUDS, { id: 'k', name: 'curseur', agentType: 'cursor' }];
+    f.evenements = f.evenements
+      .filter((e) => e.type !== 'delegation_created')
+      .map((e) =>
+        e.payload.taskId === 't4' ? { ...e, payload: { ...e.payload, nodeId: 'k' } } : e,
+      );
+    expect(etat(jugerEssaim(f), 'Délégation')).toEqual({
+      critere: 'Délégation',
+      libelle: 'Délégation',
+      etat: 'inconnu',
+      detail:
+        'la tâche qui délègue a tourné sur curseur (cursor) : adaptateur sans pont de ' +
+        'délégation (seuls claude-code, codex en ont un)',
+    });
+  });
+
+  it('LES FAMILLES QUI PEUVENT DÉLÉGUER SONT CELLES DONT L’ADAPTATEUR OUVRE LE PONT', () => {
+    // Le script tourne en Node nu : il recopie la liste, ce banc la tient
+    // égale aux adaptateurs que `getAdapter` sait construire.
+    const racine = new URL('../src/adapters/', import.meta.url);
+    const registre = readFileSync(new URL('index.ts', racine), 'utf8');
+    const familles = [...registre.matchAll(/case '([a-z-]+)':/g)].map((m) => m[1]);
+    expect(familles).toContain('cursor');
+    const avecPont = familles.filter((f) =>
+      /createDelegationBridge\(/.test(readFileSync(new URL(`${f}.ts`, racine), 'utf8')),
+    );
+    expect(new Set(avecPont)).toEqual(FAMILLES_DELEGANTES);
   });
 
   it('LA FAMILLE D’UNE RELECTURE EST CELLE DU NŒUD QUI L’A RENDUE — pas celle que le verdict nomme', () => {
