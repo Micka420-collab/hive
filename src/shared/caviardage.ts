@@ -135,7 +135,8 @@ export interface Caviardeur {
    * Le texte FINAL de l'agent : valeurs exactes, bords coupés, jetons réels —
    * pas les motifs d'affectation. Ce texte n'est pas qu'affiché : le hub le
    * relit (le `HIVE_PROPOSITION {…}` d'une éclaireuse, le `HIVE_AVIS {…}` d'un
-   * conseil, la réponse qu'une tâche parente intègre). « par Basic auth »
+   * conseil, le `HIVE_CRITIQUE {…}` d'un relecteur, la réponse qu'une tâche
+   * parente intègre). « par Basic auth »
    * devenu « par [secret] » change ce qu'a dit l'agent, sans rien protéger :
    * une vraie clé transmise y est caviardée par sa valeur exacte.
    */

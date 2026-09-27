@@ -26,6 +26,7 @@
 // (types, projet, tâche) et joint les titres ; l'écran rend.
 
 import type { Issue as IssueConseil } from '../orchestrator/conseil.js';
+import { type CompteCritere, compterParCritere, lireConstats } from './critique-structuree.js';
 import type { HiveEvent } from './types.js';
 
 export type { IssueConseil };
@@ -124,6 +125,14 @@ export type EntreeWarRoom =
       relecteur: string;
       conteste: boolean;
       objections: string[];
+      /**
+       * Les constats du marqueur `HIVE_CRITIQUE`, COMPTÉS par critère — pas
+       * recopiés : les bloquants sont déjà dans `objections`, et le fil n'a
+       * pas à porter vingt constats par avis. Vide pour une critique libre.
+       */
+      criteres: CompteCritere[];
+      /** Le relecteur a écrit un marqueur illisible : son avis a été lu en texte libre. */
+      marqueurIllisible: boolean;
     })
   | (Base & {
       genre: 'contre_echec';
@@ -278,6 +287,10 @@ function lireEntree(e: HiveEvent): EntreeWarRoom | null {
         relecteur,
         conteste: p.conteste,
         objections: textes(p.objections, 300, 5),
+        // Des constats hors grille ne se comptent pas : le compte serait
+        // faux, et l'avis reste lisible par ses objections.
+        criteres: compterParCritere(lireConstats(p.findings) ?? []),
+        marqueurIllisible: p.marqueur === 'illisible',
       };
     }
     case 'contre_expertise_review_failed': {

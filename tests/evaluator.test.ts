@@ -48,6 +48,7 @@ const crossReview = (
     recordedAt: index + 1,
   })),
   objections: order.includes('ameliorer') ? ['le cas limite n’est pas traité'] : [],
+  findings: [],
   reviewerCount: order.length,
   contestingReviewers: order.filter((decision) => decision === 'ameliorer').length,
   approvingReviewers: order.filter((decision) => decision === 'appliquer').length,

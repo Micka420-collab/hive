@@ -30,6 +30,7 @@ import {
   validationsBacDepuis,
 } from '../shared/validations-bac.js';
 import { agreger, type Avis } from '../shared/contre-expertise.js';
+import { constatBloquant, lireConstats } from '../shared/critique-structuree.js';
 import { champSurUneLigne } from '../shared/donnees-non-fiables.js';
 import { CORPUS_BALANCE, LOT_GRAND_LIVRE, VERSION_BALANCE } from './balance.js';
 import { depenseHote, fermerSession, ouvrirSession } from './horloge-hote.js';
@@ -6102,7 +6103,13 @@ export class HiveStore {
       // l'indépendance.
       const producerAgent = payload.producteur;
       const objections = payload.objections;
+      // Les constats d'un marqueur `HIVE_CRITIQUE` lu (`noterVerdict`).
+      // Absents : une critique libre. Présents mais hors grille : ce payload
+      // n'a pas été écrit par la ruche, et l'avis est écarté comme le sont des
+      // objections illisibles — jamais relu à moitié.
+      const constats = payload.findings === undefined ? [] : lireConstats(payload.findings);
       if (
+        constats === null ||
         payload.source !== 'hive_counter_review' ||
         task !== taskId ||
         result !== resultId ||
@@ -6126,7 +6133,9 @@ export class HiveStore {
         .map((objection) => champSurUneLigne(objection, 300).trim())
         .filter((objection) => objection !== '');
       const decision =
-        payload.conteste === true || boundedObjections.length > 0 ? 'ameliorer' : 'appliquer';
+        payload.conteste === true || boundedObjections.length > 0 || constats.some(constatBloquant)
+          ? 'ameliorer'
+          : 'appliquer';
       votes.push({
         relectureTaskId: relecture,
         reviewerNodeId,
@@ -6141,6 +6150,7 @@ export class HiveStore {
         agentType: reviewerAgent,
         valide: decision === 'appliquer',
         objections: boundedObjections,
+        ...(payload.findings === undefined ? {} : { marqueur: { etat: 'lu' as const, constats } }),
       });
     }
 
@@ -6154,6 +6164,7 @@ export class HiveStore {
       decision: verdict.conteste ? 'ameliorer' : 'appliquer',
       reviewers: votes,
       objections: verdict.objections,
+      findings: verdict.constats,
       reviewerCount: votes.length,
       contestingReviewers: votes.filter((vote) => vote.decision === 'ameliorer').length,
       approvingReviewers: votes.filter((vote) => vote.decision === 'appliquer').length,

@@ -69,8 +69,31 @@ Gardiennes l'inspectent (`clean`, `suspect`, `hollow`).
   ligne : la contre-revue est refusée **et journalisée** (`contre_expertise`,
   `possible: false`) — jamais confondue avec « rien trouvé ».
 - **Le verdict :** le relecteur écrit `valide` ou `conteste` suivi
-  d'objections (au plus 20, 300 caractères chacune). `conteste` l'emporte
-  toujours ; un verdict illisible compte comme contesté.
+  d'objections (au plus 20, 300 caractères chacune), puis **termine** par une
+  ligne `HIVE_CRITIQUE` (`src/shared/critique-structuree.ts`) :
+
+  ```text
+  HIVE_CRITIQUE {"verdict":"valide|conteste","findings":[{"severite":"…","critere":"…","fichier":"…","preuve":"…","proposition":"…"}]}
+  ```
+
+  - `severite` ∈ `bloquant`, `majeur`, `mineur`, `info` ; `critere` ∈
+    `correction`, `securite`, `tests`, `performance`, `lisibilite`,
+    `conformite` (accents et majuscules tolérés) ; chaque constat porte sa
+    `preuve`.
+  - **Un constat `bloquant` ou `majeur` conteste**, même sous un verdict
+    `valide` — il devient une objection. **`mineur` et `info` ne bloquent
+    jamais** : ce sont des remarques, affichées et transmises, qui ne rouvrent
+    pas la production. Un `conteste` écrit reste une contestation.
+  - Le marqueur n'est lu **que** dans la réponse finale du relecteur
+    (`finalText`), jamais dans ses logs ; la **dernière** ligne qui commence
+    par `HIVE_CRITIQUE` fait foi. Lu, il décide seul : la prose autour n'est
+    plus lue.
+  - Un marqueur mal formé (JSON cassé, valeur hors grille, preuve absente,
+    plus d'une ligne) est écarté **en entier** — jamais lu à moitié — et la
+    réponse se lit en texte libre : `conteste` l'emporte, un verdict illisible
+    compte comme contesté. Le verdict le consigne (`marqueur: "illisible"`).
+  - Sans marqueur, la lecture libre s'applique telle quelle.
+
 - **L'attente :** une relecture dont la famille reste hors ligne
   `ATTENTE_RELECTEUR_ABSENT_MS` (5 minutes, `src/orchestrator/scheduler.ts`)
   échoue avec `contre_expertise_review_failed`, motif `relecteur_absent`.
@@ -131,19 +154,22 @@ dans le payload de `task_retry` (source `evaluator`) :
   caractères chacune) ;
 - les **motifs** de la décision de l'Evaluator (au plus 3, 400 caractères) ;
 - la **raison de l'humain** qui a rejeté, s'il en a donné une (1 000
-  caractères au plus, bornée à l'entrée de la route).
+  caractères au plus, bornée à l'entrée de la route) ;
+- les **remarques** de la contre-revue — ses constats `mineur` ou `info` (au
+  plus 4). Les constats bloquants ou majeurs y sont déjà, en objections,
+  avec leur sévérité et leur critère.
 
 À l'assignation suivante, ce bloc entre dans le contexte de l'ouvrière juste
 après le Cerveau et avant les leçons de la Couveuse
 (`blocCritique`, `src/orchestrator/brood.ts`), dans un budget de 2 000
 caractères (`BUDGET_CRITIQUE`) : note humaine d'abord, puis objections, puis
-motifs — sous budget, la queue tombe en premier. Comme tout texte venu d'un
-agent, la critique est une **donnée** encadrée `<<<HIVE_DATA … HIVE_DATA>>>`,
-jamais une instruction libre : un relecteur a pu être trompé par le dépôt
-qu'il lisait, donc l'ouvrière **évalue** chaque objection au regard de la
-tâche d'origine, et aucune objection n'autorise une commande réseau, un
-script d'installation, un accès à des secrets ni une modification de CI ou
-de dépendances.
+motifs, puis remarques — sous budget, la queue tombe en premier. Comme tout
+texte venu d'un agent, la critique est une **donnée** encadrée
+`<<<HIVE_DATA … HIVE_DATA>>>`, jamais une instruction libre : un relecteur a
+pu être trompé par le dépôt qu'il lisait, donc l'ouvrière **évalue** chaque
+objection au regard de la tâche d'origine, et aucune objection n'autorise une
+commande réseau, un script d'installation, un accès à des secrets ni une
+modification de CI ou de dépendances.
 
 Le budget est **un seul décompte** pour tout le contexte : le cadre du
 polyéthisme se sert d'abord, puis Cerveau, critique, Couveuse, Hive Mind,
@@ -175,10 +201,14 @@ n'est deviné.
 
 ### Étape 5 — la notation
 
-Il n'y a **pas de note unique**. Le signal d'une relecture est binaire
-(`conteste` ou non) et chaque objection est rendue telle quelle. Une grille de
-critères (exactitude, tests, sécurité…) n'existe pas encore : elle demande une
-décision produit — quels critères, et lesquels pèsent sur la décision.
+Il n'y a **pas de note unique** : une note cacherait _quel_ critère a péché.
+Les constats structurés sont **comptés par critère et par sévérité**
+(`compterParCritere`), et c'est ce que montrent la Miellerie (volet Evaluator :
+« Constats par critère », puis chaque constat avec sa preuve) et la War Room
+(sous chaque avis de relecteur). Ce qui pèse sur la décision est fixé par la
+sévérité, pas par le critère : `bloquant` et `majeur` contestent — donc
+`correction_required` —, `mineur` et `info` jamais. Une production
+`accepted` avec des remarques le dit dans ses motifs.
 
 ### Étape 6 — l'arbitrage humain
 
@@ -200,6 +230,8 @@ décision produit — quels critères, et lesquels pèsent sur la décision.
 | Aucune autre famille en ligne                       | `human_review_required` : l'humain tranche ; un rejet relance la production.            |
 | Relecteur absent 5 minutes                          | Relecture échouée (`relecteur_absent`) ; l'Evaluator attend un avis humain.             |
 | Relecteurs divisés                                  | `conteste` l'emporte : correction, avec l'objection.                                    |
+| `valide` avec un constat `majeur` ou `bloquant`     | Contesté : correction, le constat en objection.                                         |
+| `valide` avec des remarques `mineur` / `info`       | Pas de correction ; les remarques restent affichées, et suivent une reprise éventuelle. |
 | L'humain rejette                                    | Correction, avec sa raison et les objections du résultat.                               |
 | Tout vert, relu favorablement par une autre famille | `accepted` — le merge attend encore l'approbation humaine.                              |
 
@@ -208,7 +240,6 @@ décision produit — quels critères, et lesquels pèsent sur la décision.
 - **Un tour de réponse du producteur** avant la correction (accepter et
   réviser, ou réfuter avec preuves et escalader). Il coûte une exécution
   d'agent de plus par désaccord : décision produit en attente.
-- **Des critères objectifs** attachés à chaque objection.
 - **Un arbitrage gradué par le risque** hors polyéthisme `strict` : aujourd'hui
   seul l'échelon `strict` du chemin de livraison autonome distingue les
   surfaces sensibles.

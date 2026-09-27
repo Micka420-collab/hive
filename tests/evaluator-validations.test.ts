@@ -81,6 +81,7 @@ const relueParCodex: CrossReviewEvidence = {
     },
   ],
   objections: [],
+  findings: [],
   reviewerCount: 1,
   contestingReviewers: 0,
   approvingReviewers: 1,
