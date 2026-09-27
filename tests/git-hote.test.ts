@@ -499,7 +499,10 @@ describe('un pilote que la MACHINE définit ne tourne pas parce que l’arbre de
         // Le piège armé : la fusion naïve, dans un clone témoin, le déclenche.
         const temoin = path.join(racine, `machine-temoin-${i}`);
         execFileSync('git', ['clone', '-q', amontUrl, temoin], { stdio: 'ignore' });
-        gitSansVerdict(temoin, 'apply', patch);
+        // `apply` sans les réglages du banc, comme la fusion témoin plus haut :
+        // sous Windows, `core.autocrlf=false` ne reconnaîtrait pas l'app.txt que
+        // le clone a écrit en CRLF, et le piège ne serait jamais posé.
+        execFileSync('git', ['apply', patch], { cwd: temoin, stdio: 'ignore' });
         for (const args of COLLECTE_NAIVE) gitSansVerdict(temoin, ...args);
         expect(declenchees(), 'le piège est armé').not.toEqual([]);
         sentinellesAZero();
@@ -538,20 +541,21 @@ describe('le git que lance l’hôte est celui de la machine, jamais un binaire 
 });
 
 describe('un git local de l’hôte est BORNÉ, et son échec ne recopie pas la ligne de commande', () => {
-  // Le registre emprunte les objets de la tâche (`alternates`) : un FIFO que
-  // l'agent pose en guise d'index de pack bloque l'`open()` de git — et, sans
-  // délai, `collectDiff` ne rendait jamais la main, la place de la tâche
-  // restait prise. Pas de FIFO sous Windows.
+  // Le registre emprunte les objets de la tâche (`alternates`) — et git suit
+  // les `alternates` de CEUX-LÀ. Un FIFO que l'agent pose à leur place
+  // bloque l'`open()` de git dès la première lecture d'objet (un index de
+  // pack piégé fait de même, mais seulement si git en vient à l'ouvrir) :
+  // sans délai, `collectDiff` ne rendait jamais la main, la place de la
+  // tâche restait prise. Pas de FIFO sous Windows.
   it.skipIf(process.platform === 'win32')(
-    'un index de pack piégé (FIFO) : échec visible au bout du délai, sans l’argv',
+    'des `alternates` piégés (FIFO) : échec visible au bout du délai, sans l’argv',
     async () => {
       const ws = await prepareWorkspace(travail, tache('fifo'), amontUrl);
       try {
-        const pack = path.join(ws.cwd, '.git', 'objects', 'pack');
-        mkdirSync(pack, { recursive: true });
-        const nom = `pack-${'0'.repeat(40)}`;
-        writeFileSync(path.join(pack, `${nom}.pack`), '');
-        execFileSync('mkfifo', [path.join(pack, `${nom}.idx`)]);
+        const info = path.join(ws.cwd, '.git', 'objects', 'info');
+        mkdirSync(info, { recursive: true });
+        rmSync(path.join(info, 'alternates'), { force: true });
+        execFileSync('mkfifo', [path.join(info, 'alternates')]);
         const depot = { gitDir: `${ws.cwd}.git`, workTree: ws.cwd };
         const echec = await gitHote(['diff', 'HEAD'], depot, 1_500).catch((e: unknown) => e);
         expect(echec).toBeInstanceOf(EchecGitHote);
