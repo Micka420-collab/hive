@@ -28,7 +28,13 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setLang } from '../dashboard/src/i18n';
 
-const panne = vi.hoisted(() => ({ rayon: false }));
+const panne = vi.hoisted(() => ({
+  rayon: false,
+  /** La fiche du Rayon (`#/rayon/<id>`) dont les données font jeter la vue. */
+  fiche: null as string | null,
+  /** Combien de fois le Rayon a été MONTÉ — pas rendu. */
+  montages: 0,
+}));
 
 vi.mock('../dashboard/src/api', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
@@ -42,12 +48,21 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
 // Un compteur de rendus ne conviendrait pas — React rejoue un rendu qui a jeté
 // avant d'abandonner à la frontière, et une panne « au premier rendu seulement »
 // guérirait toute seule, sans que le filet n'ait rien eu à faire.
-vi.mock('../dashboard/src/views/Rayon', () => ({
-  default: () => {
-    if (panne.rayon) throw new Error('champ « entrees » absent de la réponse');
-    return <div className="mc-view">le Rayon répond</div>;
-  },
-}));
+vi.mock('../dashboard/src/views/Rayon', async () => {
+  const { useEffect } = await import('react');
+  return {
+    default: ({ selectedId }: { selectedId: string | null }) => {
+      useEffect(() => {
+        panne.montages += 1;
+      }, []);
+      if (panne.rayon) throw new Error('champ « entrees » absent de la réponse');
+      if (selectedId !== null && selectedId === panne.fiche) {
+        throw new Error(`fiche ${selectedId} : champ « auteur » absent`);
+      }
+      return <div className="mc-view">le Rayon répond</div>;
+    },
+  };
+});
 
 // Le morceau des Chantiers ne se charge pas : c'est ce que vit un onglet resté
 // ouvert pendant une mise à jour, quand les noms de fichiers ont changé.
@@ -70,6 +85,8 @@ beforeEach(() => {
   localStorage.clear();
   location.hash = '';
   panne.rayon = false;
+  panne.fiche = null;
+  panne.montages = 0;
   // React journalise chaque erreur rattrapée : ici, c'est le scénario même.
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
@@ -147,12 +164,50 @@ describe('une vue qui tombe ne blanchit plus l’écran', () => {
     expect(dom.querySelector('.mc-panne'), 'la panne du Rayon s’affiche sur la Ruche').toBeNull();
     expect(dom.textContent).toContain('Votre ruche est prête');
 
-    // Retour au Rayon guéri : un filet NEUF, qui laisse passer la vue.
+    // Retour au Rayon guéri : le filet réarmé laisse passer la vue.
     panne.rayon = false;
     await naviguer('#/rayon');
     await attendre(dom, (d) => (d.textContent ?? '').includes('le Rayon répond'));
     expect(dom.textContent).toContain('le Rayon répond');
     expect(dom.querySelector('.mc-panne')).toBeNull();
+  });
+
+  it('…ET À CHAQUE FICHE — la panne d’une fiche ne suit pas vers une autre', async () => {
+    // Les vues à fiche (`#/projets/<id>`, `#/chambre/<nœud>`, `#/miellerie/<tâche>`)
+    // restent la MÊME vue quand seule la fiche change. Une panne due aux
+    // données d'une fiche restait donc affichée sur toutes les autres — et sur
+    // la liste — jusqu'au clic sur « Réessayer ».
+    panne.fiche = 'fiche-cassee';
+    const dom = await monter('#/rayon/fiche-cassee');
+    await attendre(dom, (d) => d.querySelector('.mc-panne') !== null);
+    expect(dom.querySelector('.mc-panne')?.textContent).toContain('fiche-cassee');
+
+    await naviguer('#/rayon/fiche-saine');
+    expect(
+      dom.querySelector('.mc-panne'),
+      'la panne d’une fiche s’affiche sur une autre',
+    ).toBeNull();
+    expect(dom.textContent).toContain('le Rayon répond');
+
+    await naviguer('#/rayon/fiche-cassee');
+    expect(dom.querySelector('.mc-panne')).not.toBeNull();
+    await naviguer('#/rayon');
+    expect(
+      dom.querySelector('.mc-panne'),
+      'la panne d’une fiche s’affiche sur la liste',
+    ).toBeNull();
+  });
+
+  it('CHANGER DE FICHE NE REMONTE PAS UNE VUE SAINE', async () => {
+    // Le filet se réarme sans démonter : ouvrir un autre projet ne doit pas
+    // repartir de zéro (relectures, onglet, défilement) pour une panne absente.
+    const dom = await monter('#/rayon/a');
+    await attendre(dom, (d) => (d.textContent ?? '').includes('le Rayon répond'));
+    const avant = panne.montages;
+    await naviguer('#/rayon/b');
+    await naviguer('#/rayon');
+    expect(dom.textContent).toContain('le Rayon répond');
+    expect(panne.montages, 'la vue est remontée à chaque fiche').toBe(avant);
   });
 
   it('RÉESSAYER REND LA VUE — et un échec répété se compte au lieu de se taire', async () => {

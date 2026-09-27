@@ -310,7 +310,10 @@ h3 {
   transform: scale(0.98);
 }
 
-.btn:disabled {
+/* `aria-disabled` : éteint à l'œil et au lecteur d'écran, mais GARDE le focus
+   (voir `EchecSondage`, views/shared.tsx). */
+.btn:disabled,
+.btn[aria-disabled='true'] {
   opacity: 0.5;
   cursor: default;
 }

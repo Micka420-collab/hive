@@ -726,10 +726,11 @@ export function App() {
             le lecteur d'écran trouve le contenu sans traverser la barre. La
             Ruche portait le sien, seule des quatorze — il est devenu un `div`.
 
-            Le filet est RÉARMÉ à chaque changement de vue (`key`) : une panne
-            de la Miellerie ne doit pas suivre l'opérateur jusqu'aux Projets. */}
+            Le filet est RÉARMÉ à chaque adresse — vue ET fiche : une panne de
+            la Miellerie ne doit pas suivre l'opérateur jusqu'aux Projets, ni
+            celle d'un projet jusqu'au projet suivant. */}
         <main id="mc-contenu" ref={principal} className="mc-main" tabIndex={-1}>
-          <FiletDeSecurite key={route.view} portee="vue">
+          <FiletDeSecurite adresse={`${route.view}/${route.selectedId ?? ''}`} portee="vue">
             <Suspense
               fallback={
                 <div className="mc-view-loading">{t('Chargement de la vue…', 'Loading view…')}</div>

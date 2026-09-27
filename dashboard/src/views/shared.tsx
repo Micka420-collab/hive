@@ -444,11 +444,16 @@ export function EchecSondage({
     <p className={classe}>
       {avant !== undefined && `${avant} `}
       {sondage.error}
+      {/* `aria-disabled`, jamais `disabled` : un bouton focalisé qu'on éteint
+          perd le focus (« focus fixup » du HTML), et au clavier le Tab
+          suivant repartait du haut de la page. Le clic en vol est ignoré. */}
       <button
         type="button"
         className="btn ghost echec-sondage-relance"
-        onClick={sondage.refresh}
-        disabled={sondage.relance}
+        onClick={() => {
+          if (!sondage.relance) sondage.refresh();
+        }}
+        aria-disabled={sondage.relance || undefined}
       >
         {sondage.relance ? t('Nouvel essai…', 'Retrying…') : t('Réessayer', 'Retry')}
       </button>

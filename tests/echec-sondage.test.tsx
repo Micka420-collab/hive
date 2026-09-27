@@ -119,11 +119,36 @@ describe('le sondage en échec', () => {
 
     await act(async () => relancer(dom).click());
     expect(relancer(dom).textContent).toBe('Nouvel essai…');
-    expect(relancer(dom).disabled, 'on peut relancer une lecture déjà en vol').toBe(true);
+    expect(relancer(dom).getAttribute('aria-disabled'), 'l’attente n’est pas annoncée').toBe(
+      'true',
+    );
+    await act(async () => relancer(dom).click());
+    expect(lire, 'on peut relancer une lecture déjà en vol').toHaveBeenCalledTimes(2);
 
     await act(async () => second.rompre(new Error('HTTP 503')));
     expect(relancer(dom).textContent, 'le bouton reste bloqué après la réponse').toBe('Réessayer');
-    expect(relancer(dom).disabled).toBe(false);
+    expect(relancer(dom).hasAttribute('aria-disabled')).toBe(false);
+  });
+
+  it('LE BOUTON GARDE LE FOCUS PENDANT L’ESSAI — il n’est jamais éteint', async () => {
+    // Un bouton focalisé qu'on ÉTEINT (`disabled`) perd le focus : la règle de
+    // « focus fixup » du HTML le renvoie au document (Firefox, Chromium). Au
+    // clavier, le Tab suivant repartait du haut de la page — lien d'évitement,
+    // barre entière — pour un simple nouvel essai. `aria-disabled` annonce
+    // l'attente sans rien retirer au focus ; le clic, lui, est ignoré.
+    const second = enAttente<string>();
+    const lire = vi
+      .fn<() => Promise<string>>()
+      .mockRejectedValueOnce(new Error('HTTP 503'))
+      .mockReturnValueOnce(second.promesse);
+    const dom = await monter(<Sonde lire={lire} />);
+    const bouton = relancer(dom);
+    act(() => bouton.focus());
+
+    await act(async () => bouton.click());
+    expect(bouton.disabled, 'le bouton focalisé est éteint : le focus lui échappe').toBe(false);
+    await act(async () => second.rompre(new Error('HTTP 503')));
+    expect(document.activeElement, 'le focus n’est plus sur « Réessayer »').toBe(bouton);
   });
 
   it('UN ÉCHEC RÉPÉTÉ CHANGE L’HEURE DU DERNIER ESSAI — le clic laisse une trace', async () => {
