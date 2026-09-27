@@ -206,7 +206,11 @@ export const BORNES_CRITIQUE = {
   note: 1_000,
 } as const;
 
-const SOURCES_CRITIQUE: readonly SourceCritique[] = ['contre_revue', 'revue_humaine', 'evaluator'];
+export const SOURCES_CRITIQUE: readonly SourceCritique[] = [
+  'contre_revue',
+  'revue_humaine',
+  'evaluator',
+];
 
 /** Liste de textes non vides, une ligne chacun, bornée en nombre et en taille. */
 function textesBornes(valeurs: readonly unknown[], combien: number, taille: number): string[] {

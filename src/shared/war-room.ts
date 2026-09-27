@@ -242,6 +242,26 @@ const ISSUES: Record<IssueConseil, true> = {
 const issueDe = (v: unknown): IssueConseil | null =>
   typeof v === 'string' && Object.hasOwn(ISSUES, v) ? (v as IssueConseil) : null;
 
+/** Toutes les issues d'un Conseil — ce que `docs/PROTOCOLE-DEBAT.md` doit toutes nommer. */
+export const ISSUES_CONSEIL = Object.keys(ISSUES) as readonly IssueConseil[];
+
+/**
+ * Tous les refus de `retryFromEvaluator`, exhaustifs par construction comme
+ * `ISSUES` : un refus ajouté au scheduler sans être rangé ici ne compile pas,
+ * et `tests/protocole-debat.test.ts` exige que le protocole publié le nomme.
+ */
+const REFUS_RENVOI: Record<RaisonRefusRenvoi, true> = {
+  unknown_task: true,
+  task_not_done: true,
+  invalid_result_id: true,
+  stale_result: true,
+  dependent_progressed: true,
+  ancestor_failed: true,
+  delivery_exists: true,
+  attempts_exhausted: true,
+};
+export const RAISONS_REFUS_RENVOI = Object.keys(REFUS_RENVOI) as readonly RaisonRefusRenvoi[];
+
 /** Les sources de critique, exhaustives par construction (même raison que `ISSUES`). */
 const SOURCES: Record<SourceCritique, true> = {
   contre_revue: true,

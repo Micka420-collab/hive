@@ -436,7 +436,7 @@ export const MOTIF_RELECTURE_SANS_TEXTE_FINAL =
  * partout : entre deux lectures possibles, on garde celle qui fait REGARDER.
  */
 /** Au-delà, ce n'est plus une liste d'objections, c'est un déversement. */
-const OBJECTIONS_MAX = 20;
+export const OBJECTIONS_MAX = 20;
 
 export function lireAvis(nodeId: string, agentType: string, texte: string): Avis {
   const lignes = texte.split(/\r?\n/);

@@ -1,0 +1,341 @@
+# Debate, critique and arbitration — the hive's protocol
+
+> What the hive does when two agents disagree, who settles, and what happens
+> to an objection. Two protocols coexist, because there are two questions:
+> **"are we heading the right way?"** (the Council) and **"is this production
+> good?"** (counter-review + Evaluator). The War Room reads them together; the
+> human settles.
+>
+> **This document cannot drift from the code.** Every table framed by a
+> `verifie:…` comment is read back by `tests/protocole-debat.test.ts`: the
+> constants against their values in the code, the Evaluator rules against
+> `evaluate()` itself, scenario by scenario, the refusals, doors and events
+> against their exhaustive lists. A changed constant, a moved rule, a refusal
+> added without being described here: the suite turns red. The French
+> version, [PROTOCOLE-DEBAT.md](PROTOCOLE-DEBAT.md), is held by the same test.
+
+## The common rule
+
+**No agent alone decides what enters `main`.** The Council proposes to a
+human; the counter-review objects; the Evaluator judges quality, not
+permission; merging a pull request always requires a human approval
+(`canMerge` is true only on `accepted` **and** human review `approved`,
+`src/orchestrator/evaluator.ts`).
+
+## Who decides what
+
+| Who                       | What it decides                                                                                                                             | What it never decides                                                                                |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| The Council of Scouts     | A **recommendation** (outcome `quorum`) — or the admission that it did not converge.                                                        | Nothing is applied: no task created, no repository touched.                                          |
+| The counter-review        | `valide` or `conteste`, with objections. A contest, once every review is closed, requests an automatic correction.                          | It is never enough to merge, and never reruns the producer for its reviewer's failure.               |
+| The Evaluator             | A quality verdict on the exact result; `correction_required` and `rejected` **stop** delivery and merge.                                    | It authorizes no merge; `human_review_required` and `additional_test_required` do not stop anything. |
+| The human (project owner) | Settle a closed Council, approve or reject a production (with a reason), **override** the Evaluator with a required reason, deliver, merge. | —                                                                                                    |
+
+"Project owner": its owner or an administrator — or the hive token on a
+project with no owner (#467, `proprieteProjetPermise`,
+`src/orchestrator/server.ts`). A member convenes the Council the way they add
+a task; they do not settle it.
+
+## The constants
+
+<!-- verifie:constantes -->
+
+| Constant                         | Value                                            | Where                                | What it governs                                                            |
+| -------------------------------- | ------------------------------------------------ | ------------------------------------ | -------------------------------------------------------------------------- |
+| `VERSION_CONSEIL`                | 1                                                | `src/orchestrator/conseil.ts`        | Version of the deliberation protocol, stored with each session.            |
+| `QUORUM_ECLAIREUSES`             | 3                                                | `src/orchestrator/conseil.ts`        | Distinct supports (author excluded) for a proposal to converge.            |
+| `DIVERSITE_MIN`                  | 2                                                | `src/orchestrator/conseil.ts`        | Distinct agent families among those supports.                              |
+| `POIDS_ARRET`                    | 1.5                                              | `src/orchestrator/conseil.ts`        | Weight of a stop signal against a support.                                 |
+| `DEMI_VIE_TOURS`                 | 1                                                | `src/orchestrator/conseil.ts`        | Rounds after which an unreinforced dance loses half its intensity.         |
+| `TOURS_MAX`                      | 5                                                | `src/orchestrator/conseil.ts`        | Maximum rounds; beyond, the Council stops (`epuise`).                      |
+| `TOURS_SECS`                     | 2                                                | `src/orchestrator/conseil.ts`        | Rounds without a new proposal before exploration ends.                     |
+| `LENTILLES`                      | utilite, concurrence, faiblesse, levier, abandon | `src/orchestrator/conseil.ts`        | The exploration angles, two of them adversarial.                           |
+| `VERIFICATRICES_PAR_PROPOSITION` | 3                                                | `src/orchestrator/conseil-runner.ts` | Verifiers asked per proposal and per round — exactly the quorum.           |
+| `CONSEILS_CONSERVES`             | 50                                               | `src/orchestrator/conseil-runner.ts` | Closed sessions kept; their human decision lives as long as they do.       |
+| `JUSTIFICATION_MAX`              | 1000                                             | `src/shared/war-room.ts`             | Characters of the required justification of a Council decision.            |
+| `RELECTEURS_PAR_PRODUCTION`      | 2                                                | `src/shared/contre-expertise.ts`     | Maximum reviewers per production, one per family, never the producer's.    |
+| `AGENTS_SANS_AVIS`               | shell                                            | `src/shared/contre-expertise.ts`     | Families that never review (the simulated `shell`).                        |
+| `OBJECTIONS_MAX`                 | 20                                               | `src/shared/contre-expertise.ts`     | Maximum objections read from a reviewer's verdict.                         |
+| `ATTENTE_RELECTEUR_ABSENT_MS`    | 300000                                           | `src/orchestrator/scheduler.ts`      | Wait for an offline reviewer family (5 minutes) before `relecteur_absent`. |
+| `MAX_ATTEMPTS`                   | 3                                                | `src/shared/types.ts`                | Attempts of a task — Worker failures and corrections together.             |
+| `VERSION_EVALUATOR`              | 1                                                | `src/orchestrator/evaluator.ts`      | Version of the Evaluator rules.                                            |
+| `BORNES_CRITIQUE.objections`     | 8                                                | `src/orchestrator/brood.ts`          | Maximum objections frozen in a correction's critique.                      |
+| `BORNES_CRITIQUE.objection`      | 300                                              | `src/orchestrator/brood.ts`          | Characters per frozen objection.                                           |
+| `BORNES_CRITIQUE.raisons`        | 3                                                | `src/orchestrator/brood.ts`          | Maximum Evaluator reasons frozen.                                          |
+| `BORNES_CRITIQUE.raison`         | 400                                              | `src/orchestrator/brood.ts`          | Characters per frozen reason.                                              |
+| `BORNES_CRITIQUE.note`           | 1000                                             | `src/orchestrator/brood.ts`          | Characters of the human reason joined to the critique.                     |
+| `BUDGET_CRITIQUE`                | 2000                                             | `src/orchestrator/server.ts`         | Characters of the "critique" block in the worker's context.                |
+| `RAISON_REVUE_MAX`               | 1000                                             | `src/shared/war-room.ts`             | Characters of a human review's reason, at the route and when read back.    |
+
+<!-- /verifie:constantes -->
+
+---
+
+## 1. The strategic debate — the Council of Scouts
+
+`src/orchestrator/conseil.ts` decides (a pure module), `conseil-runner.ts`
+runs it. A Council only opens on a human gesture (`POST
+/api/projects/:projectId/conseil`, or "Convene the Council" in the War Room):
+it creates real worker tasks, so it spends the time members lend.
+
+1. **Proposal.** One scout per lens explores and reports `HIVE_PROPOSITION
+{…}` as its final answer. An author's self-assessment (`qualite`) orders
+   what gets checked first; it **never** counts as a support.
+2. **Independent verification.** The other scouts go and look, and answer
+   `HIVE_AVIS {"type":"soutien|arret",…}`. An author's opinion on its own
+   proposal is ignored (flagged, never counted). One opinion per scout and per
+   proposal: the latest wins.
+3. **Decay.** An unreinforced dance loses half its intensity every
+   `DEMI_VIE_TOURS` rounds: the first idea does not win by seniority.
+4. **Quorum, not majority.** `QUORUM_ECLAIREUSES` distinct supports, from at
+   least `DIVERSITE_MIN` families, **no** stop signal, a positive intensity. A
+   stop weighs `POIDS_ARRET` supports.
+5. **Bound.** `TOURS_MAX` rounds; exploration also ends after `TOURS_SECS`
+   rounds without a new proposal.
+
+<!-- verifie:issues -->
+
+| Outcome       | Settled by a human | What the hive does                                                     |
+| ------------- | ------------------ | ---------------------------------------------------------------------- |
+| `quorum`      | no                 | A recommendation, **proposed** to the human. Nothing is applied.       |
+| `depart`      | yes                | Several proposals tied at quorum: breaking the tie is refused.         |
+| `sans_quorum` | yes                | Debate, nothing converged, nothing left to check.                      |
+| `epuise`      | yes                | `TOURS_MAX` reached without converging: the Council stops and says so. |
+| `vide`        | no                 | No proposal reported: there is nothing to settle.                      |
+
+<!-- /verifie:issues -->
+
+**The human decision is recorded (#478).** `POST
+/api/conseil/:sessionId/decision` records `council_decided`: the retained
+path — or `null`, "no path", which is a decision too —, a required
+justification (`JUSTIFICATION_MAX` characters, never silently truncated), and
+**who**: the account, its name frozen at the gesture, or the admission
+`jeton_de_ruche` (the token is shared, it names nobody). A Council still
+deliberating cannot be settled (409). Revising a decision requires naming the
+one it replaces (`precedente`): two operators settling at once never silently
+overwrite each other. The current decision survives journal pruning as long as
+its Council is kept (`pruneEvents`).
+
+---
+
+## 2. The debate over code — counter-review, Evaluator, correction
+
+### Step 1 — the production
+
+A worker returns a result (`results`, identified by its `resultId`). The
+Gardiennes inspect it (`clean`, `suspect`, `hollow`).
+
+### Step 2 — critique by another family
+
+`src/shared/contre-expertise.ts`, launched by `signalerContreExpertise`
+(`src/orchestrator/server.ts`).
+
+- **Who reviews:** at most `RELECTEURS_PAR_PRODUCTION` reviewers, **one per
+  family**, never the producer's family nor a family of `AGENTS_SANS_AVIS`. No
+  other family online: the counter-review is refused **and journaled**
+  (`contre_expertise`, `possible: false`) — never mistaken for "found
+  nothing".
+- **The verdict:** the reviewer answers `valide` or `conteste`, then one
+  objection per line (`OBJECTIONS_MAX` at most, 300 characters each), in its
+  **final answer** — never read from its logs. `conteste` always wins.
+- **The wait:** a review only goes to its family. A family absent for
+  `ATTENTE_RELECTEUR_ABSENT_MS` fails the review with
+  `contre_expertise_review_failed`, reason `relecteur_absent`.
+
+### Step 2b — the impossible review (#484)
+
+A review can end **without an opinion**: absent family, reviewer failing past
+its attempts, no final answer, review cancelled by a human. When it is the
+last review in flight for that result and no opinion arrived:
+
+1. **One fallback**, once, by a family independent of the producer that has
+   not been engaged on this result yet (`contre_expertise` with `secours:
+true`).
+2. Otherwise — no fallback family, fallback already tried, or a
+   **cancelled** review (a review a human just stopped is not bought back) —
+   the hive records `contre_expertise_impossible` with its cause, and the
+   Evaluator answers `human_review_required`: "relecture impossible:
+   _cause_".
+
+**The producer is never rerun for its reviewer's failure.** If another
+reviewer already gave an opinion, that opinion decides once every review has
+ended.
+
+### Step 3 — the evidence and the Evaluator
+
+`src/orchestrator/evaluator.ts` composes the facts of the **exact result**:
+result, Gardiennes, Parliament, human review, counter-review, validations
+(`tests`, `typecheck`, `build`, `lint`, brought by an identified evidence
+producer — Hive sandbox or GitHub CI — never read from a worker's logs). The
+first rule that applies decides, in the order of `evaluate()`:
+
+<!-- verifie:evaluator -->
+
+| #   | When                                                       | Decision                   | Retry recommended |
+| --- | ---------------------------------------------------------- | -------------------------- | ----------------- |
+| 1   | no Worker result                                           | `correction_required`      | yes               |
+| 2   | latest result failed                                       | `rejected`                 | yes               |
+| 3   | hollow production (Gardiennes `hollow`)                    | `rejected`                 | yes               |
+| 4   | Gardiennes `suspect`                                       | `correction_required`      | yes               |
+| 5   | human rejection                                            | `correction_required`      | yes               |
+| 6   | no Gardiennes inspection                                   | `human_review_required`    | no                |
+| 7   | the result is not the one the Parliament elected           | `correction_required`      | yes               |
+| 8   | contested counter-review                                   | `correction_required`      | yes               |
+| 9   | a failed validation                                        | `correction_required`      | yes               |
+| 10  | review impossible, with no opinion and no review in flight | `human_review_required`    | no                |
+| 11  | a validation is missing (or tests are not declared)        | `additional_test_required` | no                |
+| 12  | a review of this result is still in flight                 | `human_review_required`    | no                |
+| 13  | no favorable opinion from another family                   | `human_review_required`    | no                |
+| 14  | everything green **and** an independent favorable opinion  | `accepted`                 | no                |
+
+<!-- /verifie:evaluator -->
+
+The impossible review (10) comes **before** missing evidence: no CI would
+make `accepted` without an independent opinion, and "additional tests
+required" would send the operator after evidence that unblocks nothing. A
+first favorable opinion is not acceptance while another review of the same
+result is in flight (12): an objection stays blocking, wherever it comes
+from.
+
+### Step 4 — the correction, with the critique (#488)
+
+Three doors reopen a successful production, all through
+`Scheduler.retryFromEvaluator`; each freezes its **source** in the critique:
+
+<!-- verifie:portes -->
+
+| Source          | Door                                    | Trigger                                                                   |
+| --------------- | --------------------------------------- | ------------------------------------------------------------------------- |
+| `contre_revue`  | insufficient counter-review (automatic) | every review of the result is closed and the Evaluator recommends a retry |
+| `revue_humaine` | human rejection (Honey House)           | `POST /api/tasks/:taskId/review` `{ state: "rejected", raison? }`         |
+| `evaluator`     | explicit retry                          | `POST /api/tasks/:taskId/evaluation/retry` `{ resultId }`                 |
+
+<!-- /verifie:portes -->
+
+Common guards: the `resultId` must be the latest, no delivery may exist,
+dependents must still be `pending`, no delegating ancestor may have failed,
+and `MAX_ATTEMPTS` — the same budget as Worker failures — bounds the loop.
+
+**The critique travels with the correction.** At retry time, the hive freezes
+in the `task_retry` payload (`source: "evaluator"`, `critique.source` = the
+door): the counter-review **objections** of the exact result
+(`BORNES_CRITIQUE.objections` × `BORNES_CRITIQUE.objection`), the Evaluator
+**reasons** (`BORNES_CRITIQUE.raisons` × `BORNES_CRITIQUE.raison`), and the
+**reason of the human** who rejected (`BORNES_CRITIQUE.note`). At the next
+assignment, this block enters the worker's context, within a
+`BUDGET_CRITIQUE`-character budget: human note first, then objections, then
+reasons — under budget, the tail falls off. Like any text coming from an
+agent, the critique is **data** framed by `<<<HIVE_DATA … HIVE_DATA>>>`,
+never a free instruction. `critique_context` journals that it was joined;
+`critique_refus` says it did not fit the budget — the attempt leaves without
+it, and that shows.
+
+**Known limit — pruned critique.** The critique only lives in the
+`task_retry` payload. A reopened task waiting in `ready` while the journal
+rotates loses its critique without any signal: telling "never had a critique"
+from "critique pruned" would need a durable fact outside the journal (a
+SQLite schema change, not done).
+
+### Step 5 — retry refusals, and what is left to settle
+
+A refused retry is journaled (`evaluator_retry_skipped`, with its reason
+**and its source**: `contre_revue` or `revue_humaine`):
+
+<!-- verifie:refus -->
+
+| Refusal                | Opens a disagreement | What it says                                                    |
+| ---------------------- | -------------------- | --------------------------------------------------------------- |
+| `attempts_exhausted`   | yes                  | Attempts are exhausted: the objection stays without follow-up.  |
+| `delivery_exists`      | yes                  | The production is already delivered: it is no longer rerun.     |
+| `dependent_progressed` | yes                  | Dependent tasks have already built on it.                       |
+| `stale_result`         | no                   | A newer production exists: the contest is moot.                 |
+| `task_not_done`        | no                   | The task is no longer done.                                     |
+| `ancestor_failed`      | no                   | A delegating ancestor failed: nobody would read the correction. |
+| `invalid_result_id`    | no                   | The named result does not belong to the task.                   |
+| `unknown_task`         | no                   | The task no longer exists.                                      |
+
+<!-- /verifie:refus -->
+
+"Opens a disagreement" only holds for the `contre_revue` source: after a
+**human rejection**, the human has already settled — the War Room says "human
+rejection without correction" without counting it as pending (neither
+approving against one's judgement nor rejecting again would clear it). A
+refusal journaled before that field, with no source, is still read as a
+contest: unknown, so shown rather than hidden.
+
+### Step 6 — human arbitration
+
+- The human review (Honey House) **decides**: `approved` opens delivery,
+  `rejected` reruns the correction with its reason (`RAISON_REVUE_MAX`
+  characters). A reason without a verdict is refused (`400
+raison_sans_verdict`). A retry clears the verdict: an approval does not
+  leak to the next production.
+- `correction_required` and `rejected` **stop** delivery and merge.
+  Overriding requires a reason (`forcer: { raison }`), and the gesture is
+  journaled (`evaluator_overridden`: who, why, against which verdict) when it
+  commits.
+- Merging a pull request requires `accepted` **and** `approved`.
+- Under `strict` polyethism, the counter-visit can **refuse** to deliver what
+  a human approved (never the reverse): nurses and sensitive surfaces are
+  always re-visited (`exigeContreVisite`, `src/orchestrator/polyethisme.ts`).
+
+---
+
+## 3. The War Room — reading it all in one place
+
+`GET /api/war-room` (`src/shared/war-room.ts`, view
+`dashboard/src/views/WarRoom.tsx`) folds these facts into one thread, per
+project and per task, **recomputing nothing**; its only write is the decision
+on a Council.
+
+**On top, what is waiting on someone** — computed over the whole retained
+thread, never hidden by a filter:
+
+| What waits                                         | What clears it                                                                    |
+| -------------------------------------------------- | --------------------------------------------------------------------------------- |
+| a Council closed `depart`, `sans_quorum`, `epuise` | a human decision, "no path" included                                              |
+| a contest whose retry was refused                  | a human review posted **after** the refusal (approve or reject), or a new attempt |
+| an impossible review                               | the human review it asks for (whenever it was posted), or a new attempt           |
+
+**The thread**, newest first, is filtered by **voice** — the route's
+`famille` — and each event read has exactly one:
+
+<!-- verifie:journal -->
+
+| Event                            | Who writes it                               | Voice       |
+| -------------------------------- | ------------------------------------------- | ----------- |
+| `council_opened`                 | the Council                                 | `conseil`   |
+| `council_proposal`               | a scout                                     | `conseil`   |
+| `council_review`                 | a verifier                                  | `conseil`   |
+| `council_round`                  | the Council                                 | `conseil`   |
+| `council_closed`                 | the Council                                 | `conseil`   |
+| `contre_expertise`               | the launch (or its refusal, or a fallback)  | `relecture` |
+| `contre_expertise_verdict`       | a reviewer from another family              | `relecture` |
+| `contre_expertise_review_failed` | a review closed without an opinion          | `relecture` |
+| `contre_expertise_impossible`    | the end of a counter-review with no opinion | `relecture` |
+| `task_retry`                     | a correction retry (source `evaluator`)     | `evaluator` |
+| `evaluator_retry_skipped`        | a refused retry                             | `evaluator` |
+| `council_decided`                | a human settling a Council                  | `humain`    |
+| `task_reviewed`                  | a human reviewing a production              | `humain`    |
+| `evaluator_overridden`           | a human overriding the Evaluator            | `humain`    |
+
+<!-- /verifie:journal -->
+
+Retries after a Worker failure share `task_retry`; they are not a
+disagreement, and the War Room does not show them. The journal is pruned:
+when it has already lost lines, the thread **says so**. What must survive
+pruning does — the current decision of each kept Council, the last retry
+refusal of each task, the impossibility and launch announcements of the
+ongoing counter-review of recent productions — and what clears a
+disagreement is also read from the stored tables (current review, latest
+result).
+
+## What does not exist (yet)
+
+- **A producer response round** before the correction (accept and revise, or
+  refute with evidence and escalate). It costs one more agent run per
+  disagreement: a pending product decision.
+- **A criteria grid** attached to each objection (correctness, tests,
+  security…): a review's signal stays binary, each objection is returned as
+  is.
+- **Risk-graded arbitration** outside `strict` polyethism.

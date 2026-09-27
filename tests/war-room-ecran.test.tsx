@@ -717,7 +717,7 @@ describe('l’accès depuis la Ruche', () => {
       taskId: null,
       famille: 'humain',
     });
-    expect(bouton(dom, 'Décisions humaines').getAttribute('aria-pressed')).toBe('true');
+    expect(bouton(dom, 'Décisions humaines')?.getAttribute('aria-pressed')).toBe('true');
     expect(dom.querySelector('.wr-fil')?.textContent).toContain('« le jeton vide passe encore »');
     // Le filtre ne touche que le fil : ce qui attend reste en tête.
     expect(desaccords()).toContain('Personne n’a pu relire cette production');
