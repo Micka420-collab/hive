@@ -112,6 +112,29 @@ const DELAI_ECHEC_RAPIDE_MS = 30_000;
 /** Le délai d'un banc qui attend sous ce plafond : le plafond, et de quoi conclure. */
 const DELAI_BANC_ECHEC_RAPIDE_MS = 2 * DELAI_ECHEC_RAPIDE_MS;
 
+/**
+ * Le PLAFOND d'un banc qui enchaîne de vrais lancements de git — pas sa mesure.
+ *
+ * Chaque banc des blocs « fichier non suivi » et « changement concurrent »
+ * monte un amont (`amont`, `pousser`), clone la tâche et calcule son diff
+ * (`prepareWorkspace`, `collectDiff`) ; la moitié refait ensuite un clone frais
+ * et un `git apply` (`fusionnerSurClone`). Vingt à trente-cinq processus git,
+ * l'un après l'autre, et rien qui ATTENDE quoi que ce soit — transport
+ * `file://`, ni invite ni réseau : leur durée est celle de ces créations de
+ * processus, et elle suit la charge de la machine sans autre borne. Mesuré :
+ * 1,2 à 3,6 s sur la CI Windows (run 36340450633) ; sous une charge de ~20
+ * (#494, « Known gaps »), 16,8 s puis 20 030 ms pour « le MÊME endroit », que
+ * le plafond global de 20 s a coupé en plein travail. Git ralenti de 500 ms
+ * par lancement, ces dix bancs prennent 10,2 à 18,4 s : les dix plus lourds du
+ * fichier parmi ceux qui n'avaient pas de plafond à eux.
+ *
+ * 60 s : ce que ce fichier donne déjà à ses bancs de bout en bout, qui font le
+ * même travail — une tâche entière, clone compris. Un git qui attendrait POUR
+ * DE BON — une invite, un verrou — collerait au plafond à la milliseconde
+ * près, et se lirait encore comme tel (cf. `vitest.config.ts`).
+ */
+const PLAFOND_BANC_GIT = { timeout: 60_000 };
+
 /** Identité et réglages des commits FABRIQUÉS par le banc — rien de la personne. */
 const REGLAGES_BANC = [
   '-c',
@@ -761,92 +784,98 @@ describe('branche absente', () => {
 
 // ─── 3. FICHIER NON SUIVI ────────────────────────────────────────────────────
 
-describe('fichier non suivi — ce que l’agent laisse doit arriver ENTIER à la revue', () => {
-  it('un fichier neuf dans un dossier neuf entre dans le diff et la fusion le recrée ; un fichier ignoré n’y entre pas', async () => {
-    const a = amont('non-suivi', { 'app.txt': 'bonjour\n', '.gitignore': 'dist/\n' });
-    const ws = await prepareWorkspace(travail, tache('non-suivi'), a.url);
-    try {
-      ecrire(ws.cwd, { 'docs/guide/nouveau.md': '# Guide\n', 'dist/paquet.js': 'compilé\n' });
-      const diff = await ws.collectDiff();
-      expect(diff).toContain('docs/guide/nouveau.md');
-      // Ignoré par le dépôt, donc hors de la revue : c'est ainsi que
-      // `node_modules`, un `.env` ou un build ne partent pas au hub.
-      expect(diff).not.toContain('dist/paquet.js');
+describe(
+  'fichier non suivi — ce que l’agent laisse doit arriver ENTIER à la revue',
+  PLAFOND_BANC_GIT,
+  () => {
+    it('un fichier neuf dans un dossier neuf entre dans le diff et la fusion le recrée ; un fichier ignoré n’y entre pas', async () => {
+      const a = amont('non-suivi', { 'app.txt': 'bonjour\n', '.gitignore': 'dist/\n' });
+      const ws = await prepareWorkspace(travail, tache('non-suivi'), a.url);
+      try {
+        ecrire(ws.cwd, { 'docs/guide/nouveau.md': '# Guide\n', 'dist/paquet.js': 'compilé\n' });
+        const diff = await ws.collectDiff();
+        expect(diff).toContain('docs/guide/nouveau.md');
+        // Ignoré par le dépôt, donc hors de la revue : c'est ainsi que
+        // `node_modules`, un `.env` ou un build ne partent pas au hub.
+        expect(diff).not.toContain('dist/paquet.js');
 
-      const { dossier, resultat } = await fusionnerSurClone(a, [{ taskId: 'non-suivi', diff }]);
-      expect(resultat.conflicts).toEqual([]);
-      expect(resultat.applied).toEqual(['non-suivi']);
-      expect(lireTexte(dossier, 'docs/guide/nouveau.md')).toBe('# Guide\n');
-    } finally {
-      ws.cleanup();
-    }
-  });
+        const { dossier, resultat } = await fusionnerSurClone(a, [{ taskId: 'non-suivi', diff }]);
+        expect(resultat.conflicts).toEqual([]);
+        expect(resultat.applied).toEqual(['non-suivi']);
+        expect(lireTexte(dossier, 'docs/guide/nouveau.md')).toBe('# Guide\n');
+      } finally {
+        ws.cleanup();
+      }
+    });
 
-  // ─── DÉFAUT CONSIGNÉ — workspace.ts, `collectDiff` (et `mergedDiff`) ───────
-  //
-  // `git diff` sans `--binary` résume un fichier binaire en « Binary files
-  // /dev/null and b/logo.png differ » : le CONTENU n'y est pas. Mesuré : la
-  // fusion refuse alors le diff ENTIER comme « conflit » — le texte d'à côté
-  // part avec — alors qu'aucun conflit n'existe. Un binaire créé par l'agent
-  // (une image, une police, un fixture) coûte toute la production, sous un
-  // motif faux.
-  it.fails('un fichier BINAIRE non suivi doit survivre au diff et à la fusion', async () => {
-    const a = amont('binaire', { 'app.txt': 'bonjour\n' });
-    const ws = await prepareWorkspace(travail, tache('binaire'), a.url);
-    try {
-      const logo = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0xff, 0x00]);
-      ecrire(ws.cwd, { 'logo.png': logo, 'notes.txt': 'à côté\n' });
-      const diff = await ws.collectDiff();
-      const { dossier, resultat } = await fusionnerSurClone(a, [{ taskId: 'binaire', diff }]);
-      expect(resultat.conflicts).toEqual([]);
-      expect(readFileSync(path.join(dossier, 'logo.png')).equals(logo)).toBe(true);
-    } finally {
-      ws.cleanup();
-    }
-  });
+    // ─── DÉFAUT CONSIGNÉ — workspace.ts, `collectDiff` (et `mergedDiff`) ───────
+    //
+    // `git diff` sans `--binary` résume un fichier binaire en « Binary files
+    // /dev/null and b/logo.png differ » : le CONTENU n'y est pas. Mesuré : la
+    // fusion refuse alors le diff ENTIER comme « conflit » — le texte d'à côté
+    // part avec — alors qu'aucun conflit n'existe. Un binaire créé par l'agent
+    // (une image, une police, un fixture) coûte toute la production, sous un
+    // motif faux.
+    it.fails('un fichier BINAIRE non suivi doit survivre au diff et à la fusion', async () => {
+      const a = amont('binaire', { 'app.txt': 'bonjour\n' });
+      const ws = await prepareWorkspace(travail, tache('binaire'), a.url);
+      try {
+        const logo = Buffer.from([
+          0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0xff, 0x00,
+        ]);
+        ecrire(ws.cwd, { 'logo.png': logo, 'notes.txt': 'à côté\n' });
+        const diff = await ws.collectDiff();
+        const { dossier, resultat } = await fusionnerSurClone(a, [{ taskId: 'binaire', diff }]);
+        expect(resultat.conflicts).toEqual([]);
+        expect(readFileSync(path.join(dossier, 'logo.png')).equals(logo)).toBe(true);
+      } finally {
+        ws.cleanup();
+      }
+    });
 
-  // ─── DÉFAUT CORRIGÉ — `collectDiff` compare au commit de DÉPART ──────────
-  //
-  // Le diff se calculait entre l'INDEX de la tâche et son arbre de travail.
-  // Tout ce que l'agent avait lui-même mis en index (`git add`) ou committé
-  // sur sa branche `hive/<id>` en sortait donc. Mesuré : diff VIDE dans les
-  // deux cas — le travail perdu, la tâche déclarée réussie avec rien.
-  //
-  // #475 puis #483 l'ont corrigé chacun : le diff se calcule contre le commit
-  // de départ du clone (`Workspace.baseSha`), épinglé avant l'agent, et par le
-  // git dir de la ruche, dont HEAD reste sur ce commit (git-hote.ts). Les deux
-  // bancs, consignés ici en `it.fails`, sont des GARDES désormais. Claude Code
-  // (`acceptEdits`, sans Bash) et Codex (`.git` en lecture seule dans son bac)
-  // ne le peuvent pas aujourd'hui ; un agent `custom`, Cursor ou Cline le
-  // peuvent.
-  it('une modification que l’agent a mise en index (`git add`) doit rester dans le diff', async () => {
-    const a = amont('mis-en-index', { 'app.txt': 'bonjour\n' });
-    const ws = await prepareWorkspace(travail, tache('mis-en-index'), a.url);
-    try {
-      ecrire(ws.cwd, { 'app.txt': 'bonjour, ruche\n' });
-      git(ws.cwd, 'add', 'app.txt');
-      expect(await ws.collectDiff()).toContain('+bonjour, ruche');
-    } finally {
-      ws.cleanup();
-    }
-  });
+    // ─── DÉFAUT CORRIGÉ — `collectDiff` compare au commit de DÉPART ──────────
+    //
+    // Le diff se calculait entre l'INDEX de la tâche et son arbre de travail.
+    // Tout ce que l'agent avait lui-même mis en index (`git add`) ou committé
+    // sur sa branche `hive/<id>` en sortait donc. Mesuré : diff VIDE dans les
+    // deux cas — le travail perdu, la tâche déclarée réussie avec rien.
+    //
+    // #475 puis #483 l'ont corrigé chacun : le diff se calcule contre le commit
+    // de départ du clone (`Workspace.baseSha`), épinglé avant l'agent, et par le
+    // git dir de la ruche, dont HEAD reste sur ce commit (git-hote.ts). Les deux
+    // bancs, consignés ici en `it.fails`, sont des GARDES désormais. Claude Code
+    // (`acceptEdits`, sans Bash) et Codex (`.git` en lecture seule dans son bac)
+    // ne le peuvent pas aujourd'hui ; un agent `custom`, Cursor ou Cline le
+    // peuvent.
+    it('une modification que l’agent a mise en index (`git add`) doit rester dans le diff', async () => {
+      const a = amont('mis-en-index', { 'app.txt': 'bonjour\n' });
+      const ws = await prepareWorkspace(travail, tache('mis-en-index'), a.url);
+      try {
+        ecrire(ws.cwd, { 'app.txt': 'bonjour, ruche\n' });
+        git(ws.cwd, 'add', 'app.txt');
+        expect(await ws.collectDiff()).toContain('+bonjour, ruche');
+      } finally {
+        ws.cleanup();
+      }
+    });
 
-  it('un commit que l’agent a fait sur sa branche doit rester dans le diff', async () => {
-    const a = amont('committe', { 'app.txt': 'bonjour\n' });
-    const ws = await prepareWorkspace(travail, tache('committe'), a.url);
-    try {
-      ecrire(ws.cwd, { 'app.txt': 'bonjour, ruche\n' });
-      git(ws.cwd, 'commit', '-q', '-a', '-m', 'l’agent committe lui-même');
-      expect(await ws.collectDiff()).toContain('+bonjour, ruche');
-    } finally {
-      ws.cleanup();
-    }
-  });
-});
+    it('un commit que l’agent a fait sur sa branche doit rester dans le diff', async () => {
+      const a = amont('committe', { 'app.txt': 'bonjour\n' });
+      const ws = await prepareWorkspace(travail, tache('committe'), a.url);
+      try {
+        ecrire(ws.cwd, { 'app.txt': 'bonjour, ruche\n' });
+        git(ws.cwd, 'commit', '-q', '-a', '-m', 'l’agent committe lui-même');
+        expect(await ws.collectDiff()).toContain('+bonjour, ruche');
+      } finally {
+        ws.cleanup();
+      }
+    });
+  },
+);
 
 // ─── 4. CHANGEMENT CONCURRENT ────────────────────────────────────────────────
 
-describe('changement concurrent — l’amont bouge sous l’espace de travail', () => {
+describe('changement concurrent — l’amont bouge sous l’espace de travail', PLAFOND_BANC_GIT, () => {
   // La tâche clone l'amont à l'instant T ; quelqu'un pousse pendant qu'elle
   // travaille ; le merge, lui, repart d'un clone FRAIS — la base a bougé. Deux
   // choses doivent tenir : un changement disjoint passe sans que le diff

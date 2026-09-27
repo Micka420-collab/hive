@@ -137,27 +137,42 @@ describe('LE POLYÉTHISME STRICT TIENT SA PROMESSE', () => {
     return { base: `http://127.0.0.1:${server.port}`, srv: server, faux: gh };
   }
 
-  /** Un nœud avec assez d'antécédents propres pour être BUTINEUSE — donc relectrice. */
+  /**
+   * Un nœud avec assez d'antécédents propres pour être BUTINEUSE — donc relectrice.
+   *
+   * ─── EN UNE TRANSACTION, ET C'EST TOUT LE COÛT DU BANC ────────────────────
+   *
+   * `SEUIL_BUTINEUSE` inspections, plus le nœud : trente-deux écritures. Chaque
+   * banc pose deux ou trois butineuses, soit près de cent COMMIT de préparation
+   * — et le store tourne en `synchronous = FULL`, un fsync par COMMIT. Sur la
+   * CI Windows (run 36340450633, tentative 1), le premier banc a dépassé les
+   * 20 s du plafond et son voisin en a pris 13, là où les mêmes bancs finissent
+   * en 1,4 à 3 s les autres jours : c'est la préparation, pas la porte, que le
+   * disque chargé mesurait. Même geste que `gouvernantes` dans essaim-endpoint,
+   * et que `nourrice` et `projetAvecProduction` ci-dessous.
+   */
   function butineuse(srv: HiveServer, id: string, depart: number): void {
-    srv.store.registerNode({
-      nodeId: id,
-      name: id,
-      ownerName: 'test',
-      agentType: 'shell',
-      maxConcurrency: 1,
-    });
-    srv.store.setNodeStatus(id, 'online');
-    for (let k = 0; k < SEUIL_BUTINEUSE; k++) {
-      srv.store.enregistrerInspection({
-        resultId: depart + k,
-        taskId: `hist-${id}-${k}`,
+    srv.store.enTransaction(() => {
+      srv.store.registerNode({
         nodeId: id,
-        verdict: 'clean',
-        score: 0,
-        applique: false,
-        griefs: [],
+        name: id,
+        ownerName: 'test',
+        agentType: 'shell',
+        maxConcurrency: 1,
       });
-    }
+      srv.store.setNodeStatus(id, 'online');
+      for (let k = 0; k < SEUIL_BUTINEUSE; k++) {
+        srv.store.enregistrerInspection({
+          resultId: depart + k,
+          taskId: `hist-${id}-${k}`,
+          nodeId: id,
+          verdict: 'clean',
+          score: 0,
+          applique: false,
+          griefs: [],
+        });
+      }
+    });
   }
 
   /**
@@ -181,14 +196,16 @@ describe('LE POLYÉTHISME STRICT TIENT SA PROMESSE', () => {
 
   /** Un nœud SANS aucun antécédent — donc nourrice, l'inconnu étant le cas dangereux. */
   function nourrice(srv: HiveServer, id: string): void {
-    srv.store.registerNode({
-      nodeId: id,
-      name: id,
-      ownerName: 'test',
-      agentType: 'shell',
-      maxConcurrency: 1,
+    srv.store.enTransaction(() => {
+      srv.store.registerNode({
+        nodeId: id,
+        name: id,
+        ownerName: 'test',
+        agentType: 'shell',
+        maxConcurrency: 1,
+      });
+      srv.store.setNodeStatus(id, 'online');
     });
-    srv.store.setNodeStatus(id, 'online');
   }
 
   /**
@@ -202,23 +219,25 @@ describe('LE POLYÉTHISME STRICT TIENT SA PROMESSE', () => {
     srv: HiveServer,
     auteur: string,
   ): { projet: string; tache: string } {
-    const p = srv.store.createProject({
-      name: 'Ruche autonome',
-      repoUrl: 'https://github.com/moi/projet.git',
-    }).id;
-    const t = srv.store.createTask({ projectId: p, title: 'Passer a à 2', prompt: 'fais-le' });
-    srv.store.patchTask(t.id, { status: 'done', assignedNodeId: auteur });
-    srv.store.insertResult({
-      taskId: t.id,
-      nodeId: auteur,
-      success: true,
-      diff: DIFF,
-      logs: 'ok',
-      durationMs: 10,
-      subAgents: [],
+    return srv.store.enTransaction(() => {
+      const p = srv.store.createProject({
+        name: 'Ruche autonome',
+        repoUrl: 'https://github.com/moi/projet.git',
+      }).id;
+      const t = srv.store.createTask({ projectId: p, title: 'Passer a à 2', prompt: 'fais-le' });
+      srv.store.patchTask(t.id, { status: 'done', assignedNodeId: auteur });
+      srv.store.insertResult({
+        taskId: t.id,
+        nodeId: auteur,
+        success: true,
+        diff: DIFF,
+        logs: 'ok',
+        durationMs: 10,
+        subAgents: [],
+      });
+      srv.store.setTaskReview(t.id, 'approved');
+      return { projet: p, tache: t.id };
     });
-    srv.store.setTaskReview(t.id, 'approved');
-    return { projet: p, tache: t.id };
   }
 
   const regler = (base: string, id: string): Promise<Response> =>

@@ -16,6 +16,34 @@ import type { TraceePheromone } from '../src/orchestrator/pheromones.js';
 const TOKEN = 'jeton-instinct-assez-long';
 const headers = { 'content-type': 'application/json', 'x-hive-token': TOKEN };
 
+interface ReponseThermo {
+  instantane: LectureThermo;
+  applique: { bande: string; facteur: number };
+}
+
+// ─── DEUX BANCS, PARCE QUE DEUX RAPPORTS À LA BOUCLE DE LA REINE ─────────────
+//
+// Les LECTURES (/api/thermo, /api/pheromones) ne dépendent pas de la boucle
+// d'ordonnancement ; le FILET DE RE-LIVRAISON, lui, n'existe que par elle. Un
+// seul banc les montait tous avec la boucle à 80 ms, et les lectures l'ont
+// payé sur la CI Windows (run 36340450633, tentatives 1 et 3) :
+//
+//   · /api/thermo lisait « l'hystérésis n'a pas encore basculé » en COURSE
+//     contre la boucle : deux ticks hors bande suffisent à la confirmer. Que
+//     la requête mette plus de deux ticks (160 ms) à atteindre la route — le
+//     premier `fetch` du fichier, sur un runner chargé — et le banc lisait
+//     `surchauffe` là où il attendait `froide`.
+//   · /api/pheromones : le PREMIER tick promouvait les 302 tâches du corpus
+//     une à une — `ready` puis `task_ready`, deux COMMIT chacune, soit 604
+//     fsync en `synchronous = FULL` — dans le corps SYNCHRONE du setInterval,
+//     sur la boucle d'événements dont la requête a besoin. Chaque tick suivant
+//     repassait ensuite les 302 tâches prêtes. 10 à 16 s sous Windows les bons
+//     jours ; au-delà des 20 s du plafond les autres.
+//
+// Ici, la boucle ne tourne qu'À LA MAIN (`server.scheduler.tick()`) : ce que
+// lit chaque banc est l'état que le banc a posé, et rien d'autre.
+const BOUCLE_A_LA_MAIN_MS = 3_600_000;
+
 describe('endpoints de l’instinct de ruche', () => {
   let server: HiveServer;
   let dir: string;
@@ -30,16 +58,7 @@ describe('endpoints de l’instinct de ruche', () => {
       corsOrigins: ['http://localhost:5173'],
       dbPath: path.join(dir, 'hive.db'),
       simulation: true,
-      tickMs: 80,
-      // ─── POURQUOI CE TEST DÉBRIDE L'ESPACEMENT ───────────────────────────
-      //
-      // Il prouve que le contexte d'une tâche muette est MÉMOÏSÉ : beaucoup de
-      // re-livraisons, au plus deux calculs. Il lui faut donc beaucoup de
-      // re-livraisons — or le filet en espace désormais quinze secondes.
-      //
-      // Le régler ici est préférable à baisser l'assertion : sans plusieurs
-      // livraisons, « au plus deux calculs » serait vrai sans rien prouver.
-      relivraisonMinMs: 0,
+      tickMs: BOUCLE_A_LA_MAIN_MS,
     });
     base = `http://127.0.0.1:${server.port}`;
   });
@@ -55,10 +74,9 @@ describe('endpoints de l’instinct de ruche', () => {
     for (let i = 0; i < 6; i++) server.store.appendEvent('task_failed', { taskId: `f${i}` }, now);
     for (let i = 0; i < 4; i++) server.store.appendEvent('task_retry', { taskId: `r${i}` }, now);
 
-    const res = (await (await fetch(`${base}/api/thermo`, { headers })).json()) as {
-      instantane: LectureThermo;
-      applique: { bande: string; facteur: number };
-    };
+    const lire = async (): Promise<ReponseThermo> =>
+      (await (await fetch(`${base}/api/thermo`, { headers })).json()) as ReponseThermo;
+    const res = await lire();
     // Deux clés, deux sémantiques — `bande` ne figure plus deux fois avec deux
     // sens différents dans la même réponse.
     expect(Object.keys(res).sort()).toEqual(['applique', 'instantane']);
@@ -66,6 +84,14 @@ describe('endpoints de l’instinct de ruche', () => {
     expect(res.instantane.signaux.echecs).toBe(6);
     // L'hystérésis n'a pas encore basculé : la ruche applique toujours le froid.
     expect(res.applique).toEqual({ bande: 'froide', facteur: 1 });
+
+    // Elle bascule quand la boucle l'a CONFIRMÉE — au deuxième tick hors
+    // bande, pas au premier. Sans ces deux lectures, un `applique` figé à
+    // `froide` passerait ce banc.
+    server.scheduler.tick();
+    expect((await lire()).applique).toEqual({ bande: 'froide', facteur: 1 });
+    server.scheduler.tick();
+    expect((await lire()).applique).toEqual({ bande: 'surchauffe', facteur: 0.5 });
   });
 
   it('/api/thermo ne compte ni les cascades ni les refus sains', async () => {
@@ -99,14 +125,13 @@ describe('endpoints de l’instinct de ruche', () => {
     // Le bruit s'écrit en UNE transaction : le store tourne en
     // `synchronous = FULL`, et 300 COMMIT isolés payaient 300 fsync — plusieurs
     // secondes sur un disque réel, pour un corpus qui n'est pas ce qu'on mesure.
-    const connexion = (
-      server.store as unknown as { db: { transaction(fn: () => void): () => void } }
-    ).db;
-    connexion.transaction(() => {
+    // (Et la boucle de la Reine ne tourne pas : voir l'en-tête du fichier —
+    // son premier tick les réécrivait une à une, deux fois chacune.)
+    server.store.enTransaction(() => {
       for (let i = 0; i < 300; i++) {
         server.store.createTask({ projectId: projet.id, title: `bruit ${i}`, prompt: 'blabla' });
       }
-    })();
+    });
     const citees = [0, 1].map((i) =>
       server.store.createTask({
         projectId: projet.id,
@@ -185,14 +210,48 @@ describe('endpoints de l’instinct de ruche', () => {
     expect(idsLus).toHaveLength(2); // aucune relecture : un seul calcul
     expect(dépliages).toBe(0);
   });
+});
 
-  // ─── Le filet de re-livraison ne doit RIEN recalculer pour rien ──────────
-  //
-  // Le contexte (Couveuse + Hive Mind) coûte un BM25 sur toute la mémoire —
-  // ~37 ms mesurées sur 500 souvenirs — et il était payé PAR TÂCHE MUETTE ET
-  // PAR TICK, dans le corps SYNCHRONE du setInterval, AVANT même de savoir si
-  // une socket était ouverte. À 2 s de tick, c'est la boucle d'événements de la
-  // ruche qui s'arrête, en boucle, pour rien.
+// ─── Le filet de re-livraison ne doit RIEN recalculer pour rien ──────────────
+//
+// Le contexte (Couveuse + Hive Mind) coûte un BM25 sur toute la mémoire —
+// ~37 ms mesurées sur 500 souvenirs — et il était payé PAR TÂCHE MUETTE ET
+// PAR TICK, dans le corps SYNCHRONE du setInterval, AVANT même de savoir si
+// une socket était ouverte. À 2 s de tick, c'est la boucle d'événements de la
+// ruche qui s'arrête, en boucle, pour rien.
+//
+// Ce banc-ci a BESOIN de la boucle : c'est elle qui re-livre. Elle tourne
+// donc seule, toutes les 80 ms.
+describe('le filet de re-livraison de l’instinct de ruche', () => {
+  let server: HiveServer;
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = mkdtempSync(path.join(os.tmpdir(), 'hive-instinct-'));
+    server = await createServer({
+      port: 0,
+      host: '127.0.0.1',
+      token: TOKEN,
+      corsOrigins: ['http://localhost:5173'],
+      dbPath: path.join(dir, 'hive.db'),
+      simulation: true,
+      tickMs: 80,
+      // ─── POURQUOI CE TEST DÉBRIDE L'ESPACEMENT ───────────────────────────
+      //
+      // Il prouve que le contexte d'une tâche muette est MÉMOÏSÉ : beaucoup de
+      // re-livraisons, au plus deux calculs. Il lui faut donc beaucoup de
+      // re-livraisons — or le filet en espace désormais quinze secondes.
+      //
+      // Le régler ici est préférable à baisser l'assertion : sans plusieurs
+      // livraisons, « au plus deux calculs » serait vrai sans rien prouver.
+      relivraisonMinMs: 0,
+    });
+  });
+
+  afterEach(async () => {
+    await server.stop();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+  });
 
   it(
     'aucune socket ouverte ⇒ AUCUN contexte calculé pour une tâche muette',
