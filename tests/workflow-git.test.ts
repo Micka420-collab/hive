@@ -14,19 +14,32 @@
 //
 //   · identifiants invalides — le plus utile des cinq : prouver que le clone
 //     échoue VITE, et que l'échec REMONTE à l'opérateur comme issue de la
-//     tâche, lisible, sans que l'agent ait tourné ;
+//     tâche ET du merge, lisible, sans que l'agent ait tourné ;
 //   · branche absente ;
-//   · fichier non suivi ;
-//   · changement concurrent — l'amont bouge sous l'espace de travail ;
+//   · fichier non suivi — et le fichier que la tâche crée pendant que l'amont
+//     crée le même ;
+//   · changement concurrent — l'amont bouge sous l'espace de travail, et
+//     l'agent casse le dépôt de sa tâche (`.git` retiré ou remplacé) ;
 //   · clone interrompu.
 //
 // La HEAD détachée est HORS PÉRIMÈTRE, par décision : le flux Hive fait
 // toujours `checkoutLocalBranch`, elle ne peut pas y naître.
 //
-// ─── CE QUE CE BANC A TROUVÉ, ET POURQUOI CE N'EST PAS CORRIGÉ ICI ──────────
+// Les dépôts de l'amont sont clonés par `file://`, pas par leur chemin : un
+// chemin nu prend le transport LOCAL, qui ignore `--depth 1` — ce ne serait
+// pas le clone superficiel qu'un vrai distant reçoit.
 //
-// Cinq défauts réels, tous dans `src/node-client/workspace.ts` — fichier tenu
-// par un autre lot au moment où ce banc s'écrit. Ils sont CONSIGNÉS, pas
+// ─── CE QUE CE BANC A TROUVÉ ─────────────────────────────────────────────────
+//
+// UN défaut hors de `src/node-client/workspace.ts`, CORRIGÉ avec ce banc : un
+// merge dont le clone échoue (identifiants refusés) finissait en
+// `merge_completed` « 0 diff(s) appliqué(s), 0 conflit(s) » — un succès vide.
+// Le nœud le dit désormais `refused`, le hub le range en `merge_failed` en
+// gardant le journal de git, et l'écran l'affiche (client.ts, server.ts).
+//
+// SEPT défauts dans `src/node-client/workspace.ts` — fichier tenu par un
+// autre lot au moment où ce banc s'écrit — dont un qui déborde sur
+// `merge-runner.ts` (`mergedDiff`, le binaire). Ils sont CONSIGNÉS, pas
 // cachés, et chacun est nommé sur place :
 //
 //   · `it.fails` quand le défaut se mesure en une seconde : le banc est VERT
@@ -39,7 +52,9 @@
 //
 // Un `it.fails` n'est PAS une assertion du défaut comme comportement voulu :
 // son corps écrit le comportement JUSTE. C'est ce qui le fera rougir au bon
-// moment, et pas avant.
+// moment, et pas avant. Revers assumé : il reste vert s'il échoue pour une
+// AUTRE raison — chacun a donc été lancé en `it` simple, et son message
+// d'échec lu : c'est bien le défaut nommé qui le fait échouer.
 
 import { execFileSync, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -58,6 +73,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { AgentAdapter } from '../src/adapters/index.js';
 import { HiveNodeClient } from '../src/node-client/client.js';
@@ -65,8 +81,9 @@ import { runMerge } from '../src/node-client/merge-runner.js';
 import type { MergeDiff, MergeRunResult } from '../src/node-client/merge-runner.js';
 import { cloneRepo, prepareWorkspace } from '../src/node-client/workspace.js';
 import { createServer } from '../src/orchestrator/server.js';
+import type { MergeResultMsg } from '../src/shared/protocol.js';
 import { MAX_ATTEMPTS } from '../src/shared/types.js';
-import type { Task, TaskResult } from '../src/shared/types.js';
+import type { HiveEvent, StateSnapshot, Task, TaskResult } from '../src/shared/types.js';
 
 /**
  * Ce que « vite » veut dire ici. Mesuré sous Linux : 20 à 45 ms pour un clone
@@ -142,8 +159,10 @@ function lireTexte(dossier: string, relatif: string): string {
 const tache = (id: string): Task => ({ id, title: id, prompt: 'x', branch: null }) as Task;
 
 interface Amont {
-  /** Le dépôt bare, tel qu'une tâche le clone. */
+  /** Le dépôt bare, sur le disque. */
   depot: string;
+  /** Son adresse `file://`, telle qu'une tâche ou un merge la clone. */
+  url: string;
   /** La copie de travail qui l'alimente — l'amont qui avance pendant la tâche. */
   copie: string;
 }
@@ -160,8 +179,9 @@ function amont(nom: string, fichiers: Record<string, string | Buffer>): Amont {
   mkdirSync(copie, { recursive: true });
   git(copie, 'init', '-q');
   git(copie, 'symbolic-ref', 'HEAD', 'refs/heads/main');
-  pousser({ depot, copie }, fichiers, 'premier commit');
-  return { depot, copie };
+  const a = { depot, url: pathToFileURL(depot).href, copie };
+  pousser(a, fichiers, 'premier commit');
+  return a;
 }
 
 function pousser(a: Amont, fichiers: Record<string, string | Buffer>, message: string): void {
@@ -182,7 +202,7 @@ async function fusionnerSurClone(
 ): Promise<{ dossier: string; resultat: MergeRunResult }> {
   const dossier = mkdtempSync(path.join(racine, 'fusion-'));
   rmSync(dossier, { recursive: true, force: true });
-  await cloneRepo(dossier, a.depot);
+  await cloneRepo(dossier, a.url);
   return { dossier, resultat: await runMerge({ repoDir: dossier, diffs }) };
 }
 
@@ -335,7 +355,7 @@ class ServeurGit {
 describe('identifiants Git invalides — l’échec est RAPIDE, et il REMONTE', () => {
   // ─── CE QUE `GIT_TERMINAL_PROMPT=0` ACHÈTE, MESURÉ ─────────────────────────
   //
-  // Un dépôt privé répond 401. Sans ce réglage, git demande un nom
+  // Un dépôt privé en HTTP(S) répond 401. Sans ce réglage, git demande un nom
   // d'utilisateur sur le TERMINAL du processus. Un nœud lancé à la main dans
   // un terminal en a un : mesuré sous un vrai pseudo-terminal, git affiche
   // « Username for 'http://127.0.0.1:…': » et ATTEND — jusqu'à ce qu'on le
@@ -351,6 +371,7 @@ describe('identifiants Git invalides — l’échec est RAPIDE, et il REMONTE', 
   //
   // Les DEUX portes de clone du nœud sont éprouvées : elles portent chacune
   // leur copie de l'environnement de clone, et une copie se nettoie seule.
+  // Tout ceci vaut pour HTTP(S) ; SSH est un autre défaut, consigné plus bas.
   //
   // ─── DÉFAUT CONSIGNÉ SOUS WINDOWS — workspace.ts, les deux environnements ──
   //
@@ -366,13 +387,23 @@ describe('identifiants Git invalides — l’échec est RAPIDE, et il REMONTE', 
   // Des identifiants mis DANS l'URL, eux, ne réveillent pas GCM : leur banc
   // passe partout.
   //
-  // D'où `fails` sous Windows seulement : vert tant que le nœud attend, ROUGE
-  // le jour où son environnement de clone met GCM en non-interactif — il
-  // faudra alors retirer cette bascule, et les trois bancs redeviendront des
-  // gardes sur les trois systèmes.
-  const attenteGcm = { fails: process.platform === 'win32' };
+  // D'où, sous Windows, une bascule À DEUX ÉTATS :
+  //
+  //   · sur la CI, `fails` : le runner n'a pas de bureau, l'attente s'y MESURE
+  //     — vert tant que le nœud attend, ROUGE le jour où son environnement de
+  //     clone met GCM en non-interactif ; il faudra alors retirer la bascule,
+  //     et ces bancs redeviendront des gardes sur les trois systèmes. Le prix :
+  //     chaque banc attend son échéance (plus d'une minute en tout sur la
+  //     jambe Windows), et le git bloqué survit à la suite — rien ne le tue,
+  //     ni `cloneRepo` ni `prepareWorkspace` ne prenant de signal d'annulation ;
+  //   · sur un poste de bureau, `skip` : GCM y ouvrirait une VRAIE fenêtre
+  //     d'identifiants par banc devant la personne, et le verdict dépendrait
+  //     de qui la ferme, et quand.
+  const attenteGcm =
+    process.platform !== 'win32' ? {} : process.env.CI ? { fails: true } : { skip: true };
 
-  it.each<[string, (dossier: string, url: string) => Promise<unknown>]>([
+  /** Les deux portes de clone du nœud. */
+  const PORTES: [string, (dossier: string, url: string) => Promise<unknown>][] = [
     [
       'prepareWorkspace, le clone d’une tâche',
       (dossier, url) => prepareWorkspace(dossier, tache('sans-identifiants'), url),
@@ -381,7 +412,9 @@ describe('identifiants Git invalides — l’échec est RAPIDE, et il REMONTE', 
       'cloneRepo, le clone d’un merge ou d’un chantier',
       (dossier, url) => cloneRepo(path.join(dossier, 'clone'), url),
     ],
-  ])(
+  ];
+
+  it.each(PORTES)(
     '%s : sans identifiants, git échoue sur-le-champ au lieu d’ouvrir une invite',
     attenteGcm,
     async (_porte, cloner) => {
@@ -415,82 +448,156 @@ describe('identifiants Git invalides — l’échec est RAPIDE, et il REMONTE', 
     expect(issue.etat === 'rejetee' ? issue.motif : '').not.toContain(secret);
   });
 
+  // ─── DÉFAUT CONSIGNÉ — workspace.ts, les deux environnements : SSH ────────
+  //
+  // `GIT_TERMINAL_PROMPT=0` ne gouverne que les invites de GIT. Par SSH
+  // (`ssh://…`, `git@hôte:…` — la forme la plus courante d'un dépôt privé, et
+  // `isValidRepoUrl` l'accepte), c'est `ssh` qui demande, et il lit le
+  // TERMINAL lui-même. Mesuré contre un sshd de boucle locale, sous un vrai
+  // pseudo-terminal : `cloneRepo` affiche « Are you sure you want to continue
+  // connecting (yes/no/[fingerprint])? » et attend jusqu'à ce qu'on le tue ;
+  // sans terminal, « Host key verification failed. » en 31 ms. Une clé à
+  // phrase de passe fait pareil — et les deux environnements de clone
+  // retirent `SSH_AUTH_SOCK`, donc l'agent ssh du membre ne peut pas la
+  // fournir à sa place.
+  //
+  // Le juste : `ssh` en mode lot (`-o BatchMode=yes`, par `GIT_SSH_COMMAND`
+  // ou `core.sshCommand`) — plus aucune invite, un refus lisible. Le banc met
+  // un FAUX `ssh` en tête du PATH (les deux environnements de clone
+  // transmettent PATH) : il note ses arguments et refuse comme le vrai. Ni
+  // sshd, ni terminal, ni attente. POSIX seulement : ce faux `ssh` est un
+  // script `sh`.
+  it.each(PORTES)(
+    '%s, par SSH : ssh doit tourner en mode lot — ni invite de clé d’hôte, ni phrase de passe',
+    { fails: true, skip: process.platform === 'win32' },
+    async (_porte, cloner) => {
+      const faux = mkdtempSync(path.join(racine, 'faux-ssh-'));
+      const trace = path.join(faux, 'arguments.txt');
+      writeFileSync(
+        path.join(faux, 'ssh'),
+        `#!/bin/sh\nprintf '%s\\n' "$@" > '${trace}'\necho 'Host key verification failed.' >&2\nexit 255\n`,
+        { mode: 0o755 },
+      );
+      const pathAvant = process.env.PATH;
+      process.env.PATH = `${faux}${path.delimiter}${pathAvant ?? ''}`;
+      try {
+        const dossier = mkdtempSync(path.join(racine, 'ssh-'));
+        const issue = await issueSous(
+          cloner(dossier, 'ssh://git@depot.invalide/prive.git'),
+          DELAI_ECHEC_RAPIDE_MS,
+        );
+        // Le faux `ssh` a bien été appelé, et son refus est remonté…
+        expect(issue).toMatchObject({
+          etat: 'rejetee',
+          motif: expect.stringMatching(/Host key verification failed/),
+        });
+        // …mais sans mode lot : sous un terminal, le vrai aurait attendu.
+        expect(readFileSync(trace, 'utf8')).toMatch(/BatchMode=yes/);
+      } finally {
+        if (pathAvant === undefined) delete process.env.PATH;
+        else process.env.PATH = pathAvant;
+      }
+    },
+  );
+
+  // ─── LE PARCOURS ENTIER, parce que c'est lui que l'opérateur voit ─────────
+  //
+  // Ce qu'il faut prouver n'est pas « le clone lève » — c'est que la levée
+  // devient une ISSUE, lisible, et pas un travail « en cours » à jamais ni un
+  // succès vide (la doctrine interdit l'échec silencieux). Une vraie Reine,
+  // une vraie ouvrière, un projet dont le dépôt refuse.
+
+  /** Relit `lire` jusqu'à `fini`, ou jusqu'à l'échéance — rend la dernière lecture. */
+  async function attendre<T>(lire: () => Promise<T>, fini: (v: T) => boolean, ms: number) {
+    const echeance = Date.now() + ms;
+    let v = await lire();
+    while (!fini(v) && Date.now() < echeance) {
+      await new Promise((r) => setTimeout(r, 150));
+      v = await lire();
+    }
+    return v;
+  }
+
+  async function ruche(nom: string) {
+    const JETON = 'jeton-workflow-git-suffisant';
+    const entetes = { 'content-type': 'application/json', 'x-hive-token': JETON };
+    let lancementsAgent = 0;
+    const agent: AgentAdapter = {
+      name: 'temoin',
+      async run() {
+        lancementsAgent += 1;
+        return { success: true, diff: '', logs: 'ok', subAgents: [] };
+      },
+    };
+    const reine = await createServer({
+      port: 0,
+      host: '127.0.0.1',
+      token: JETON,
+      corsOrigins: ['http://localhost:5173'],
+      dbPath: path.join(racine, `reine-${nom}.db`),
+      simulation: true,
+      tickMs: 100,
+    });
+    const ouvriere = new HiveNodeClient({
+      url: `ws://127.0.0.1:${reine.port}/ws`,
+      token: JETON,
+      name: `sans-cles-${nom}`,
+      ownerName: 'banc',
+      agentType: 'shell',
+      maxConcurrency: 1,
+      nodeId: `noeud-${nom}`,
+      workRoot: path.join(racine, `ouvriere-${nom}`),
+      adapter: agent,
+      quiet: true,
+    });
+    ouvriere.start();
+    async function appel<T>(route: string, corps?: unknown): Promise<T> {
+      const res = await fetch(
+        `http://127.0.0.1:${reine.port}${route}`,
+        corps === undefined
+          ? { headers: entetes }
+          : { method: 'POST', headers: entetes, body: JSON.stringify(corps) },
+      );
+      expect(res.ok, `${route} → HTTP ${res.status}`).toBe(true);
+      return (await res.json()) as T;
+    }
+    async function arreter(): Promise<void> {
+      ouvriere.stop();
+      await reine.stop();
+    }
+    try {
+      const projet = await appel<{ id: string }>('/api/projects', {
+        name: 'Dépôt privé',
+        repoUrl: serveur.url('prive'),
+      });
+      return { reine, appel, arreter, projetId: projet.id, lancementsAgent: () => lancementsAgent };
+    } catch (e) {
+      await arreter();
+      throw e;
+    }
+  }
+
   it(
     'LA TÂCHE FINIT `failed`, AVEC LA RAISON LISIBLE PAR L’OPÉRATEUR — et l’agent n’a jamais tourné',
     { ...attenteGcm, timeout: 60_000 },
     async () => {
-      // Le parcours ENTIER, parce que c'est lui que l'opérateur voit : une
-      // vraie Reine, une vraie ouvrière, un projet dont le dépôt refuse. Ce
-      // qu'il faut prouver n'est pas « prepareWorkspace lève » — c'est que la
-      // levée devient une issue de tâche, et pas une tâche « running » à
-      // jamais ni un succès vide (la doctrine interdit l'échec silencieux).
       serveur.mode = 'identifiants';
-      const JETON = 'jeton-workflow-git-suffisant';
-      const entetes = { 'content-type': 'application/json', 'x-hive-token': JETON };
-      let lancementsAgent = 0;
-      const agent: AgentAdapter = {
-        name: 'temoin',
-        async run() {
-          lancementsAgent += 1;
-          return { success: true, diff: '', logs: 'ok', subAgents: [] };
-        },
-      };
-      const reine = await createServer({
-        port: 0,
-        host: '127.0.0.1',
-        token: JETON,
-        corsOrigins: ['http://localhost:5173'],
-        dbPath: path.join(racine, 'reine.db'),
-        simulation: true,
-        tickMs: 100,
-      });
-      const base = `http://127.0.0.1:${reine.port}`;
-      const ouvriere = new HiveNodeClient({
-        url: `ws://127.0.0.1:${reine.port}/ws`,
-        token: JETON,
-        name: 'sans-cles',
-        ownerName: 'banc',
-        agentType: 'shell',
-        maxConcurrency: 1,
-        nodeId: 'noeud-sans-cles',
-        workRoot: path.join(racine, 'ouvriere'),
-        adapter: agent,
-        quiet: true,
-      });
-      ouvriere.start();
-      async function appel<T>(route: string, corps?: unknown): Promise<T> {
-        const res = await fetch(
-          `${base}${route}`,
-          corps === undefined
-            ? { headers: entetes }
-            : { method: 'POST', headers: entetes, body: JSON.stringify(corps) },
-        );
-        expect(res.ok, `${route} → HTTP ${res.status}`).toBe(true);
-        return (await res.json()) as T;
-      }
+      const r = await ruche('tache');
       try {
-        const projet = await appel<{ id: string }>('/api/projects', {
-          name: 'Dépôt privé',
-          repoUrl: serveur.url('prive'),
-        });
-        const [t] = await appel<Task[]>(`/api/projects/${projet.id}/tasks`, {
+        const [t] = await r.appel<Task[]>(`/api/projects/${r.projetId}/tasks`, {
           tasks: [{ title: 'Toucher au privé', prompt: 'travail' }],
         });
         const taskId = (t as Task).id;
-
-        const echeance = Date.now() + 30_000;
-        let statut: string | undefined;
-        while (Date.now() < echeance) {
-          const etat = await appel<{ tasks: Task[] }>('/api/state');
-          statut = etat.tasks.find((x) => x.id === taskId)?.status;
-          if (statut === 'failed') break;
-          await new Promise((r) => setTimeout(r, 150));
-        }
-        expect(statut).toBe('failed');
+        const etat = await attendre(
+          () => r.appel<{ tasks: Task[] }>('/api/state'),
+          (s) => s.tasks.find((x) => x.id === taskId)?.status === 'failed',
+          30_000,
+        );
+        expect(etat.tasks.find((x) => x.id === taskId)?.status).toBe('failed');
 
         // Chaque tentative est une PRODUCTION rangée, en échec, qui dit
         // pourquoi — c'est ce que l'écran de la tâche relit.
-        const productions = await appel<TaskResult[]>(`/api/tasks/${taskId}/results`);
+        const productions = await r.appel<TaskResult[]>(`/api/tasks/${taskId}/results`);
         expect(productions).toHaveLength(MAX_ATTEMPTS);
         for (const p of productions) {
           expect(p.success).toBe(false);
@@ -499,10 +606,71 @@ describe('identifiants Git invalides — l’échec est RAPIDE, et il REMONTE', 
         }
         // Et l'agent n'a JAMAIS été lancé sur un espace sans dépôt : il aurait
         // « réussi » sur un répertoire vide, et le succès aurait menti.
-        expect(lancementsAgent).toBe(0);
+        expect(r.lancementsAgent()).toBe(0);
       } finally {
-        ouvriere.stop();
-        await reine.stop();
+        await r.arreter();
+      }
+    },
+  );
+
+  it(
+    'LE MERGE AUSSI : le clone refusé finit en `merge_failed` avec la raison de git — jamais en merge « réussi » vide',
+    { ...attenteGcm, timeout: 60_000 },
+    async () => {
+      // Le merge clone le dépôt à son tour (`cloneRepo`, dans `runMergeJob`).
+      // Mesuré avant correction : le nœud rendait `applied: [], conflicts: []`
+      // SANS `refused`, le hub le rangeait en `merge_completed`, et l'écran
+      // lisait « 0 diff(s) appliqué(s), 0 conflit(s) — tests non lancés ». La
+      // cause — « terminal prompts disabled » — dormait dans un journal replié.
+      serveur.mode = 'identifiants';
+      const r = await ruche('merge');
+      try {
+        // Une tâche TERMINÉE avec un vrai diff : sans elle, le hub refuse le
+        // merge (400) avant que le moindre clone ne parte.
+        r.reine.store.createTask({
+          id: 'a-fusionner',
+          projectId: r.projetId,
+          title: 'À fusionner',
+          prompt: 'p',
+        });
+        r.reine.store.patchTask('a-fusionner', { status: 'done' });
+        r.reine.store.insertResult({
+          taskId: 'a-fusionner',
+          nodeId: 'banc',
+          success: true,
+          diff: 'diff --git a/x.md b/x.md\nnew file mode 100644\n--- /dev/null\n+++ b/x.md\n@@ -0,0 +1 @@\n+x\n',
+          logs: '',
+          durationMs: 1,
+          subAgents: [],
+        });
+        await attendre(
+          () => r.appel<StateSnapshot>('/api/state'),
+          (s) => s.nodes.some((n) => n.status === 'online'),
+          10_000,
+        );
+        const { mergeId } = await r.appel<{ mergeId: string }>(
+          `/api/projects/${r.projetId}/merge/run`,
+          {},
+        );
+        const { result } = await attendre(
+          () =>
+            r.appel<{ result: MergeResultMsg | null }>(`/api/projects/${r.projetId}/merge/result`),
+          (v) => v.result?.mergeId === mergeId,
+          20_000,
+        );
+        expect(result).toMatchObject({
+          mergeId,
+          applied: [],
+          refused: expect.any(String),
+          logs: expect.stringMatching(/terminal prompts disabled/),
+        });
+        const issues = (await r.appel<HiveEvent[]>('/api/events?limit=1000'))
+          .filter((e) => e.payload.mergeId === mergeId)
+          .map((e) => e.type);
+        expect(issues).toContain('merge_failed');
+        expect(issues).not.toContain('merge_completed');
+      } finally {
+        await r.arreter();
       }
     },
   );
@@ -534,9 +702,13 @@ describe('branche absente', () => {
       git(a.depot, 'symbolic-ref', 'HEAD', 'refs/heads/master');
       // Résolue, la préparation rend ce que l'agent recevrait — aujourd'hui
       // `['.git']`, et c'est ce que le message d'échec affichera.
-      const recu = prepareWorkspace(travail, tache('tete-orpheline'), a.depot).then((ws) =>
-        readdirSync(ws.cwd),
-      );
+      const recu = prepareWorkspace(travail, tache('tete-orpheline'), a.url).then((ws) => {
+        try {
+          return readdirSync(ws.cwd);
+        } finally {
+          ws.cleanup();
+        }
+      });
       await expect(recu).rejects.toThrow(/master/);
     },
   );
@@ -547,7 +719,7 @@ describe('branche absente', () => {
 describe('fichier non suivi — ce que l’agent laisse doit arriver ENTIER à la revue', () => {
   it('un fichier neuf dans un dossier neuf entre dans le diff et la fusion le recrée ; un fichier ignoré n’y entre pas', async () => {
     const a = amont('non-suivi', { 'app.txt': 'bonjour\n', '.gitignore': 'dist/\n' });
-    const ws = await prepareWorkspace(travail, tache('non-suivi'), a.depot);
+    const ws = await prepareWorkspace(travail, tache('non-suivi'), a.url);
     try {
       ecrire(ws.cwd, { 'docs/guide/nouveau.md': '# Guide\n', 'dist/paquet.js': 'compilé\n' });
       const diff = await ws.collectDiff();
@@ -575,7 +747,7 @@ describe('fichier non suivi — ce que l’agent laisse doit arriver ENTIER à l
   // motif faux.
   it.fails('un fichier BINAIRE non suivi doit survivre au diff et à la fusion', async () => {
     const a = amont('binaire', { 'app.txt': 'bonjour\n' });
-    const ws = await prepareWorkspace(travail, tache('binaire'), a.depot);
+    const ws = await prepareWorkspace(travail, tache('binaire'), a.url);
     try {
       const logo = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0xff, 0x00]);
       ecrire(ws.cwd, { 'logo.png': logo, 'notes.txt': 'à côté\n' });
@@ -603,7 +775,7 @@ describe('fichier non suivi — ce que l’agent laisse doit arriver ENTIER à l
     'une modification que l’agent a mise en index (`git add`) doit rester dans le diff',
     async () => {
       const a = amont('mis-en-index', { 'app.txt': 'bonjour\n' });
-      const ws = await prepareWorkspace(travail, tache('mis-en-index'), a.depot);
+      const ws = await prepareWorkspace(travail, tache('mis-en-index'), a.url);
       try {
         ecrire(ws.cwd, { 'app.txt': 'bonjour, ruche\n' });
         git(ws.cwd, 'add', 'app.txt');
@@ -616,7 +788,7 @@ describe('fichier non suivi — ce que l’agent laisse doit arriver ENTIER à l
 
   it.fails('un commit que l’agent a fait sur sa branche doit rester dans le diff', async () => {
     const a = amont('committe', { 'app.txt': 'bonjour\n' });
-    const ws = await prepareWorkspace(travail, tache('committe'), a.depot);
+    const ws = await prepareWorkspace(travail, tache('committe'), a.url);
     try {
       ecrire(ws.cwd, { 'app.txt': 'bonjour, ruche\n' });
       git(ws.cwd, 'commit', '-q', '-a', '-m', 'l’agent committe lui-même');
@@ -649,7 +821,7 @@ describe('changement concurrent — l’amont bouge sous l’espace de travail',
     id: string,
     fichiers: Record<string, string>,
   ): Promise<string> {
-    const ws = await prepareWorkspace(travail, tache(id), a.depot);
+    const ws = await prepareWorkspace(travail, tache(id), a.url);
     try {
       ecrire(ws.cwd, fichiers);
       return await ws.collectDiff();
@@ -695,18 +867,111 @@ describe('changement concurrent — l’amont bouge sous l’espace de travail',
     expect(resultat.mergedDiff).toBe('');
   });
 
+  it('un fichier que la tâche CRÉE, créé aussi en amont entre-temps : conflit, et le fichier de l’amont reste intact', async () => {
+    // Le cas « fichier non suivi » qui coûte : l'agent crée `docs/nouveau.md`
+    // (non suivi, pris par `--intent-to-add`), et l'amont pousse le même
+    // chemin pendant ce temps. Un diff de création appliqué PAR-DESSUS
+    // écraserait le fichier de l'amont ; `git apply --check` le refuse
+    // (« already exists in working directory »), et c'est la garde.
+    const a = amont('concurrent-creation', { 'app.txt': 'bonjour\n' });
+    const diff = await diffDeTache(a, 'concurrent-creation', {
+      'docs/nouveau.md': '# La tâche\n',
+    });
+    pousser(a, { 'docs/nouveau.md': '# L’amont\n' }, 'l’amont crée le même fichier');
+
+    const { dossier, resultat } = await fusionnerSurClone(a, [
+      { taskId: 'concurrent-creation', diff },
+    ]);
+    expect(resultat.applied).toEqual([]);
+    expect(resultat.conflicts.map((c) => c.taskId)).toEqual(['concurrent-creation']);
+    expect(lireTexte(dossier, 'docs/nouveau.md')).toBe('# L’amont\n');
+  });
+
   it('l’espace de travail disparaît pendant la tâche : le diff ÉCHOUE, il ne revient jamais vide', async () => {
     // Un diff vide rendu ici se lirait « la tâche n'a rien changé » — un
     // succès creux, silencieux. Une levée devient une production en échec
     // (`[nœud] exception : …`), visible. Suite consignée : le motif rendu est
     // aujourd'hui « spawn git ENOENT », qui fait chercher un git absent là où
-    // c'est le RÉPERTOIRE qui manque.
+    // c'est le RÉPERTOIRE qui manque. Ce banc ne vaut QUE pour le répertoire
+    // entier : si seul `.git` disparaît, c'est le défaut consigné juste après.
     const a = amont('espace-disparu', { 'app.txt': 'bonjour\n' });
-    const ws = await prepareWorkspace(travail, tache('espace-disparu'), a.depot);
+    const ws = await prepareWorkspace(travail, tache('espace-disparu'), a.url);
     ecrire(ws.cwd, { 'app.txt': 'bonjour, ruche\n' });
     renameSync(ws.cwd, `${ws.cwd}-deplace`);
     await expect(ws.collectDiff()).rejects.toThrow();
   });
+
+  // ─── DÉFAUT CONSIGNÉ, ET IL TOUCHE À LA SÉCURITÉ — workspace.ts, `collectDiff`
+  //
+  // `collectDiff` lance `git add --all --intent-to-add` puis `git diff` DEPUIS
+  // le cwd de la tâche, sans épingler son dépôt. Or le `workRoot` par défaut —
+  // `.hive-work/<nom>`, relatif au répertoire courant (client.ts, main.ts,
+  // join.ts) — vit DANS le checkout du membre quand il lance son nœud de là.
+  // Que l'agent casse le dépôt de sa tâche, et git en cherche un autre :
+  //
+  //   · `.git` retiré : git REMONTE jusqu'au checkout du membre. Mesuré : le
+  //     « diff de la tâche » devient ses changements privés non committés et
+  //     ses fichiers non suivis — partis au hub, en revue, peut-être fusionnés
+  //     ou livrés — et son index est modifié (`A` d'intention) ;
+  //   · `.git` remplacé par un FICHIER `gitdir: …` — un chemin relatif suffit,
+  //     aucun besoin de connaître l'hôte : git prend l'index de CE dépôt-là et
+  //     y inscrit la suppression de chaque fichier suivi. Une écriture hors du
+  //     bac, par git, côté hôte.
+  //
+  // Le juste : le diff ÉCHOUE, et rien hors de la tâche n'est lu ni touché —
+  // épingler le dépôt (`GIT_DIR=<cwd>/.git`, `GIT_WORK_TREE=<cwd>`, ou
+  // `GIT_CEILING_DIRECTORIES`) et vérifier que `.git` est bien le répertoire
+  // que le clone a créé.
+  it.each<[string, (cwd: string, membre: string) => void]>([
+    [
+      'son `.git` retiré',
+      (cwd) => rmSync(path.join(cwd, '.git'), { recursive: true, force: true }),
+    ],
+    [
+      'son `.git` remplacé par un fichier qui désigne le dépôt du membre',
+      (cwd, membre) => {
+        rmSync(path.join(cwd, '.git'), { recursive: true, force: true });
+        const cible = path.relative(cwd, path.join(membre, '.git')).split(path.sep).join('/');
+        writeFileSync(path.join(cwd, '.git'), `gitdir: ${cible}\n`);
+      },
+    ],
+  ])(
+    'l’agent casse le dépôt de sa tâche (%s) : le diff doit ÉCHOUER, sans lire ni toucher le checkout du membre autour',
+    { fails: true },
+    async (cas, casser) => {
+      const a = amont(`casse-${cas.length}`, { 'app.txt': 'bonjour\n' });
+      // Le checkout du membre, là où il a lancé son nœud : un changement
+      // privé en cours, un fichier personnel non suivi, `.hive-work` ignoré.
+      const membre = mkdtempSync(path.join(racine, 'checkout-du-membre-'));
+      git(membre, 'init', '-q');
+      ecrire(membre, { '.gitignore': '.hive-work/\n', 'config.ts': 'export const x = 1;\n' });
+      git(membre, 'add', '--all');
+      git(membre, 'commit', '-q', '-m', 'le projet du membre');
+      ecrire(membre, {
+        'config.ts': 'export const x = "PRIVE-EN-COURS";\n',
+        'notes-perso.txt': 'notes privées\n',
+      });
+      const statutAvant = git(membre, 'status', '--porcelain');
+
+      const ws = await prepareWorkspace(
+        path.join(membre, '.hive-work', 'noeud'),
+        tache(`casse-${cas.length}`),
+        a.url,
+      );
+      try {
+        ecrire(ws.cwd, { 'app.txt': 'bonjour, ruche\n' });
+        casser(ws.cwd, membre);
+        const diff = await ws.collectDiff().catch((e: unknown) => e);
+        expect(String(diff), 'le diff ne porte rien du membre').not.toMatch(/PRIVE|notes-perso/);
+        expect(git(membre, 'status', '--porcelain'), 'l’index du membre est intact').toBe(
+          statutAvant,
+        );
+        expect(diff, 'le diff doit échouer').toBeInstanceOf(Error);
+      } finally {
+        ws.cleanup();
+      }
+    },
+  );
 });
 
 // ─── 5. CLONE INTERROMPU ─────────────────────────────────────────────────────
@@ -752,7 +1017,7 @@ describe('clone interrompu', () => {
     });
     ecrire(`${cwd}.tmp`, { 'reste.txt': 'x' });
 
-    const ws = await prepareWorkspace(travail, t, a.depot);
+    const ws = await prepareWorkspace(travail, t, a.url);
     try {
       expect(ws.branch).toBe('hive/restes-de-clone');
       expect(lireTexte(ws.cwd, 'LISEZMOI.md')).toBe('# Propre\n');
