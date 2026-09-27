@@ -121,7 +121,8 @@ import { DEFAULT_TOKEN } from '../shared/types.js';
 import type { HiveEvent, HiveNode, Project, Task } from '../shared/types.js';
 import { CORPUS_BALANCE, estimerCout, peserLaRuche, VERSION_BALANCE } from './balance.js';
 import type { CompteTache, Devis, Pesee } from './balance.js';
-import { leconsDesEchecs } from './brood.js';
+import { blocCritique, bornerCritique, leconsDesEchecs } from './brood.js';
+import type { CritiqueReprise, SourceCritique } from './brood.js';
 import { texteDEchec } from '../shared/texte-d-echec.js';
 import {
   CONSEILS_CONSERVES,
@@ -289,7 +290,7 @@ import { buildMergePlan } from './honeycomb.js';
 import { tally, signatureOf } from './parliament.js';
 import type { Ballot } from './parliament.js';
 import { evaluate, missingCrossReviewEvidence } from './evaluator.js';
-import type { EvaluationDecision, ValidationProvenance } from './evaluator.js';
+import type { EvaluationDecision, EvaluationResult, ValidationProvenance } from './evaluator.js';
 import { validationsDepuisControles } from './ci-evidence.js';
 import { CacheDomaines, domaineDeTache, replierTraces } from './pheromones.js';
 import type { Domaine, TraceePheromone } from './pheromones.js';
@@ -625,6 +626,20 @@ const BUDGET_COUVEUSE = 3_000;
  * pourquoi SA tâche a échoué deux fois n'est pas mieux lotie.
  */
 const BUDGET_CERVEAU = 3_000;
+/**
+ * Ce que la critique d'une correction peut prendre du contexte (voir
+ * `blocCritique`, brood.ts). Servie juste après le Cerveau : c'est la raison
+ * d'être de la tentative, et une ouvrière qui ne la lit pas refait la
+ * production contestée. Plus petite que la Couveuse — huit objections d'une
+ * ligne et une note humaine y tiennent ; au-delà, la queue tombe.
+ */
+const BUDGET_CRITIQUE = 2_000;
+/**
+ * La raison qu'un humain peut joindre à son verdict de revue. Elle part telle
+ * quelle dans le contexte de la correction : bornée comme ce qu'elle nourrit
+ * (`BORNES_CRITIQUE.note`, brood.ts).
+ */
+const MAX_RAISON_REVUE = 1_000;
 
 /** Limitation de débit REST : fenêtre et nombre maximal de requêtes /api par IP. */
 const REST_RATE_WINDOW_MS = 10_000;
@@ -1202,6 +1217,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       taskId,
       resultId,
       decision: evaluation.decision,
+      critique: critiquePourRetry(taskId, evaluation, 'contre_revue'),
     });
     if (!retry.ok) {
       // Un retry automatique refusé doit rester observable : une annulation,
@@ -1315,6 +1331,67 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   };
 
   /**
+   * La critique figée par la DERNIÈRE correction demandée pour cette tâche
+   * (`task_retry` de source `evaluator`, voir `retryFromEvaluator`). La plus
+   * récente seulement : une seconde correction remplace la première, dont les
+   * objections visaient une production qui n'existe plus. Un échec Worker
+   * survenu depuis ne l'efface pas — l'objection reste à traiter.
+   *
+   * Élaguée du journal (au-delà d'EVENT_RETENTION) ou écrite avant que le
+   * payload ne la porte : `null`, et la tentative part sans — jamais une
+   * critique devinée.
+   */
+  const derniereReprise = (taskId: string): HiveEvent | null => {
+    const reprises = store.evenementsDeTache(taskId, ['task_retry'], 50);
+    for (let i = reprises.length - 1; i >= 0; i--) {
+      const reprise = reprises[i];
+      if (reprise?.payload.source === 'evaluator') return reprise;
+    }
+    return null;
+  };
+  const critiqueEnCours = (taskId: string): CritiqueReprise | null =>
+    bornerCritique(derniereReprise(taskId)?.payload.critique);
+
+  /**
+   * La raison jointe au verdict humain ACTUEL, relue dans le journal : elle
+   * voyage dans `task_reviewed`, la table des revues ne garde que l'état. Le
+   * dernier événement ne compte que s'il dit encore l'état courant — un
+   * retry efface la revue sans rien journaliser, et la raison d'un rejet déjà
+   * traité ne doit pas s'afficher sous la production suivante.
+   */
+  const raisonDeRevueCourante = (taskId: string): string | null => {
+    const courant = store.getTaskReview(taskId)?.state ?? null;
+    if (courant === null) return null;
+    const dernier = store.lastEventFor('task_reviewed', taskId);
+    const raison = dernier?.payload.raison;
+    return dernier?.payload.state === courant && typeof raison === 'string' && raison !== ''
+      ? raison
+      : null;
+  };
+
+  /**
+   * La critique à figer au moment d'une correction : les objections de la
+   * contre-revue du résultat exact, les motifs de l'Evaluator et, pour un
+   * rejet humain, la raison de l'humain. Les TROIS portes de retry passent
+   * par ici — une porte qui l'oublierait renverrait l'ouvrière refaire la
+   * même production.
+   */
+  const critiquePourRetry = (
+    taskId: string,
+    evaluation: EvaluationResult,
+    source: SourceCritique,
+  ): CritiqueReprise => {
+    const note =
+      evaluation.evidence.humanReview === 'rejected' ? raisonDeRevueCourante(taskId) : null;
+    return {
+      source,
+      objections: [...evaluation.evidence.crossReview.objections],
+      raisons: evaluation.reasons,
+      ...(note ? { noteHumaine: note } : {}),
+    };
+  };
+
+  /**
    * Contexte joint à `assign_task` : leçons de la Couveuse (tâche déjà échouée)
    * puis souvenirs du Hive Mind, dans le budget total LIMITS.hiveContext.
    * PARTAGÉ par les deux chemins de livraison — l'assignation initiale ET la
@@ -1330,7 +1407,27 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     // `refusCerveau` est posé quand les invariants du Cerveau ne tenaient pas
     // dans le budget : l'ouvrière part alors SANS eux, et c'est un fait qui
     // doit se voir. L'appelant le journalise.
-  ): { hiveContext: string; echecs: number; refusCerveau?: string } => {
+  ): {
+    hiveContext: string;
+    echecs: number;
+    /** La critique réellement jointe — absente si rien n'a tenu ou rien n'existait. */
+    critique?: CritiqueReprise;
+    refusCerveau?: string;
+  } => {
+    // ─── UN SEUL BUDGET, DÉCOMPTÉ BLOC APRÈS BLOC ────────────────────────────
+    //
+    // Chaque bloc se sert sur ce qui RESTE (« \n\n » de jonction compris),
+    // plafonné par sa part propre. La Couveuse avait jadis une part fixe prise
+    // hors décompte : avec un cadre de polyéthisme long, Cerveau et Couveuse
+    // pouvaient ensemble dépasser LIMITS.hiveContext — et le nœud rejette
+    // alors tout l'`assign_task` (protocol.ts), leçons comprises.
+    let restant = LIMITS.hiveContext - (dejaPris ? dejaPris + 2 : 0);
+    const retenir = (bloc: string): string => {
+      if (bloc) restant -= bloc.length + 2;
+      return bloc;
+    };
+    const part = (plafond: number): number => Math.max(0, Math.min(plafond, restant));
+
     // ─── LE CERVEAU — ce que le PROJET a appris, pas cette tâche-ci ──────────
     //
     // Invariants, leçons consolidées et décisions, choisis sous budget par le
@@ -1338,18 +1435,27 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     // centaines de fichiers, donc c'est instantané, et surtout ça veut dire
     // qu'une note corrigée à la main dans Obsidian vaut pour la tâche
     // SUIVANTE, sans redémarrer la ruche.
-    const { bloc: savoir, selection } = pourLaTache(
+    const { bloc: savoirBrut, selection } = pourLaTache(
       dossierCerveau,
       `${task.title} ${task.prompt}`,
-      Math.max(0, Math.min(BUDGET_CERVEAU, LIMITS.hiveContext - (dejaPris ? dejaPris + 2 : 0))),
+      part(BUDGET_CERVEAU),
     );
+    const savoir = retenir(savoirBrut);
     const refus = selection.refus;
 
-    // Couveuse : les leçons des échecs précédents viennent EN TÊTE (le plus
+    // La critique qui a rouvert la tâche : SA raison d'être, donc avant les
+    // leçons d'échec. Seulement sur une reprise (`attempts > 0`) — une
+    // première tentative n'a rien à corriger, et le journal n'est pas relu.
+    const critiqueFigee = task.attempts > 0 ? critiqueEnCours(task.id) : null;
+    const critique = retenir(
+      critiqueFigee ? blocCritique(critiqueFigee, task.attempts + 1, part(BUDGET_CRITIQUE)) : '',
+    );
+
+    // Couveuse : les leçons des échecs précédents viennent ensuite (le plus
     // spécifique d'abord). Le nom du nœud fautif est résolu ici — la table
     // results ne garde que son id.
     const echecs = task.attempts > 0 ? store.listFailedResultsForTask(task.id) : [];
-    const lecons =
+    const lecons = retenir(
       echecs.length > 0
         ? leconsDesEchecs(
             echecs.map((e, i) => ({
@@ -1359,29 +1465,24 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
               ...(e.finalText !== undefined ? { finalText: e.finalText } : {}),
               createdAt: e.createdAt,
             })),
-            BUDGET_COUVEUSE,
+            part(BUDGET_COUVEUSE),
           )
-        : '';
-    // Hive Mind : souvenirs pertinents des tâches déjà réussies, dans le budget
-    // RESTANT après le Cerveau et la Couveuse (« \n\n » de jonction compris).
-    const souvenirs = buildHiveContext(
-      store.searchMemories(`${task.title} ${task.prompt}`, 3),
-      LIMITS.hiveContext -
-        (savoir ? savoir.length + 2 : 0) -
-        (lecons ? lecons.length + 2 : 0) -
-        (dejaPris ? dejaPris + 2 : 0),
+        : '',
     );
-    const budgetHorizon =
-      LIMITS.hiveContext -
-      (savoir ? savoir.length + 2 : 0) -
-      (lecons ? lecons.length + 2 : 0) -
-      (souvenirs ? souvenirs.length + 2 : 0) -
-      (dejaPris ? dejaPris + 2 : 0);
-    const horizon =
-      budgetHorizon > 80
-        ? texteHorizonPourContexte(store.listerHorizon(task.projectId), budgetHorizon - 2)
-        : '';
-    const veille = conseilVeilleBrief(`${task.title} ${task.prompt}`) ?? '';
+    // Hive Mind : souvenirs pertinents des tâches déjà réussies, dans le budget
+    // RESTANT après le Cerveau, la critique et la Couveuse.
+    const souvenirs = retenir(
+      buildHiveContext(store.searchMemories(`${task.title} ${task.prompt}`, 3), part(restant)),
+    );
+    const horizon = retenir(
+      restant > 80
+        ? texteHorizonPourContexte(store.listerHorizon(task.projectId), restant - 2)
+        : '',
+    );
+    // Le conseil de veille est une phrase fixe : il entre s'il tient, il ne se
+    // tronque pas.
+    const conseil = conseilVeilleBrief(`${task.title} ${task.prompt}`) ?? '';
+    const veille = conseil.length + 2 <= restant ? conseil : '';
     return {
       // ─── L'ORDRE EST UNE DÉCISION, PAS UNE HABITUDE ────────────────────────
       //
@@ -1395,8 +1496,11 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // dernier, il n'aurait plus de place les jours où une tâche a beaucoup
       // échoué — c'est-à-dire exactement les jours où ses invariants comptent
       // le plus.
-      hiveContext: [savoir, lecons, souvenirs, horizon, veille].filter(Boolean).join('\n\n'),
+      hiveContext: [savoir, critique, lecons, souvenirs, horizon, veille]
+        .filter(Boolean)
+        .join('\n\n'),
       echecs: lecons ? echecs.length : 0,
+      ...(critique && critiqueFigee ? { critique: critiqueFigee } : {}),
       // Un refus ne se tait pas. Il veut dire que les invariants ne tenaient
       // pas dans le budget, donc que l'ouvrière va travailler SANS eux ;
       // l'appelant journalise. Rendre '' sans le dire serait la panne
@@ -1625,7 +1729,10 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // premier : une consigne tronquée à moitié est pire qu'absente, alors
       // qu'un souvenir en moins n'est qu'un souvenir en moins.
       const cadre = construireCadre(task, nodeId);
-      const { hiveContext, echecs, refusCerveau } = construireHiveContext(task, cadre.length);
+      const { hiveContext, echecs, critique, refusCerveau } = construireHiveContext(
+        task,
+        cadre.length,
+      );
       const delegationBudget = budgetDelegationDe(task.id);
       // Le Cerveau a refusé : ses invariants ne tenaient pas dans le budget,
       // donc cette ouvrière travaille sans les contraintes de sûreté du
@@ -1637,6 +1744,19 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // Couveuse : la ré-assignation d'une tâche déjà échouée est journalisée
       // ici seulement (payload de faits typés, texte reconstruit à l'affichage).
       if (echecs > 0) emitEvent('brood_context', { taskId: task.id, nodeId, echecs });
+      // La critique d'une correction, jointe : des faits comptés, jamais son
+      // texte (déjà au journal dans `task_retry`). Absente du contexte — rien
+      // n'a tenu dans le budget —, elle ne s'annonce pas.
+      if (critique) {
+        emitEvent('critique_context', {
+          taskId: task.id,
+          nodeId,
+          attempt: task.attempts + 1,
+          source: critique.source,
+          objections: critique.objections.length,
+          noteHumaine: critique.noteHumaine !== undefined,
+        });
+      }
       const contexte = [cadre, hiveContext].filter(Boolean).join('\n\n');
       send(ws, {
         type: 'assign_task',
@@ -7605,12 +7725,18 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   // les opérateurs. `state: null` efface la revue. Un rejet qui dispose d'un
   // résultat exact et d'un verdict Evaluator réparable déclenche le retry
   // borné ; le merge reste toujours un geste séparé.
+  //
+  // `raison` : ce que l'humain veut voir corrigé. Elle voyage dans
+  // `task_reviewed` (aucune colonne ajoutée) et, sur un rejet qui relance,
+  // dans la critique figée de la tentative suivante — un « non » sans le
+  // pourquoi renvoyait l'ouvrière refaire la même production.
   app.post<{
     Params: { taskId: string };
     Body: {
       state: 'approved' | 'rejected' | null;
       expectedUpdatedAt?: number | null;
       clientId?: string;
+      raison?: string;
     };
   }>(
     '/api/tasks/:taskId/review',
@@ -7634,6 +7760,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
             // Identité d'onglet (écho dans task_reviewed) : permet au client
             // de distinguer ses propres échos de ceux des autres opérateurs.
             clientId: { type: 'string', minLength: 1, maxLength: LIMITS.id },
+            raison: { type: 'string', maxLength: MAX_RAISON_REVUE },
           },
         },
       },
@@ -7643,6 +7770,16 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // (`aLivrer`) ; rejeté, il relance la tâche. Qui répond du projet le rend.
       const task = decisionTache(req, reply, req.params.taskId);
       if (!task) return reply;
+      // Une raison ne se joint qu'à un verdict : jointe à un effacement, elle
+      // ne serait lue par personne, et l'accepter sans rien dire laisserait
+      // croire qu'elle a été transmise.
+      const raison = req.body.raison?.trim() ?? '';
+      if (raison !== '' && req.body.state === null) {
+        return reply.code(400).send({
+          code: 'raison_sans_verdict',
+          error: 'une raison accompagne un verdict — rien à motiver quand on efface la revue',
+        });
+      }
       // Pas de pré-approbation : on ne juge un diff qu'une fois la tâche
       // terminée (409 comme /cancel pour les conflits d'état). L'effacement
       // (null) reste permis quel que soit le statut — toujours sûr.
@@ -7669,6 +7806,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         taskId: task.id,
         state: req.body.state,
         ...(req.body.clientId ? { clientId: req.body.clientId } : {}),
+        ...(raison ? { raison } : {}),
       });
       let retry: ReturnType<Scheduler['retryFromEvaluator']> | null = null;
       if (req.body.state === 'rejected') {
@@ -7682,6 +7820,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
             taskId: task.id,
             resultId: latest.resultId,
             decision: evaluation.decision,
+            critique: critiquePourRetry(task.id, evaluation, 'revue_humaine'),
           });
           if (retry.ok) {
             stateDirty = true;
@@ -7704,6 +7843,45 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         state: req.body.state,
         updatedAt: saved?.updatedAt ?? null,
         ...(retry ? { retry } : {}),
+      };
+    },
+  );
+
+  // La critique d'une tâche, pour la Miellerie : la raison du verdict humain
+  // courant et ce que la tentative en cours a reçu en reprenant — les deux
+  // relus dans le journal, là où ils ont été écrits. Lecture seule.
+  app.get<{ Params: { taskId: string } }>(
+    '/api/tasks/:taskId/critique',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['taskId'],
+          properties: { taskId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const task = store.getTask(req.params.taskId);
+      if (!task) return reply.code(404).send({ error: 'tâche inconnue' });
+      const reprise = derniereReprise(task.id);
+      const critique = bornerCritique(reprise?.payload.critique);
+      const attempt = reprise?.payload.attempt;
+      return {
+        taskId: task.id,
+        raisonRevue: raisonDeRevueCourante(task.id),
+        reprise:
+          reprise && critique
+            ? {
+                // `attempt` du journal = tentatives déjà consommées ; celle
+                // qui a reçu la critique est la suivante (`attempt + 1` côté
+                // nœud).
+                tentative: typeof attempt === 'number' ? attempt + 1 : null,
+                ts: reprise.ts,
+                critique,
+              }
+            : null,
       };
     },
   );
@@ -7953,6 +8131,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         taskId: task.id,
         resultId: req.body.resultId,
         decision: evaluation.decision,
+        critique: critiquePourRetry(task.id, evaluation, 'evaluator'),
       });
       if (!retry.ok) {
         const status = retry.reason === 'unknown_task' ? 404 : 409;

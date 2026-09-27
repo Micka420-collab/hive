@@ -7,6 +7,7 @@ import type { HiveNode, Task, TaskResult } from '../../../src/shared/types';
 import {
   fetchConflicts,
   fetchConsensus,
+  fetchCritique,
   fetchEvaluation,
   fetchMergePlan,
   fetchMergeResult,
@@ -14,7 +15,7 @@ import {
   recordEvaluationCi,
   runMerge,
 } from '../api';
-import type { Conflict, MergePlan, MergeRunResult, Verdict } from '../api';
+import type { Conflict, CritiqueReprise, MergePlan, MergeRunResult, Verdict } from '../api';
 import type { EvaluationResult } from '../../../src/orchestrator/evaluator.js';
 import { t as tNow, useT } from '../i18n';
 import type { Translate } from '../i18n';
@@ -596,6 +597,84 @@ export function EvaluationPanel({
   );
 }
 
+// ─── Critique transmise ──────────────────────────────────────────────────────
+//
+// Ce que la tentative EN COURS a reçu en reprenant (objections, motifs de
+// l'Evaluator, raison humaine) et la raison du verdict humain courant. Sans
+// ce volet, le relecteur de la tentative 2 jugeait une correction sans savoir
+// ce qu'on lui avait demandé de corriger.
+
+const sourceCritique = (t: Translate): Record<CritiqueReprise['source'], string> => ({
+  contre_revue: t('la contre-revue', 'the counter-review'),
+  revue_humaine: t('un rejet humain', 'a human rejection'),
+  evaluator: t('l’Evaluator', 'the Evaluator'),
+});
+
+function CritiqueTransmise({
+  critique,
+  error,
+}: {
+  critique: Awaited<ReturnType<typeof fetchCritique>> | null;
+  error: string | null;
+}) {
+  const t = useT();
+  if (error) {
+    return (
+      <p className="muted-text">
+        {t('Critique indisponible :', 'Critique unavailable:')} {error}
+      </p>
+    );
+  }
+  if (!critique) return <p className="muted-text">{t('Lecture…', 'Loading…')}</p>;
+  const { raisonRevue, reprise } = critique;
+  if (!raisonRevue && !reprise) {
+    return (
+      <p className="muted-text">
+        {t(
+          'Aucune critique transmise à cette tentative.',
+          'No critique was passed to this attempt.',
+        )}
+      </p>
+    );
+  }
+  return (
+    <div className="mi-critique">
+      {raisonRevue && (
+        <p>
+          <strong>{t('Raison du verdict :', 'Verdict reason:')}</strong> {raisonRevue}
+        </p>
+      )}
+      {reprise && (
+        <>
+          <p>
+            {t(
+              `Tentative ${reprise.tentative ?? '?'} reprise après ${sourceCritique(t)[reprise.critique.source]}, avec :`,
+              `Attempt ${reprise.tentative ?? '?'} restarted after ${sourceCritique(t)[reprise.critique.source]}, with:`,
+            )}
+          </p>
+          <ul>
+            {reprise.critique.noteHumaine && (
+              <li>
+                <strong>{t('note humaine', 'human note')}</strong> — {reprise.critique.noteHumaine}
+              </li>
+            )}
+            {reprise.critique.objections.map((o, i) => (
+              <li key={`o${i}`}>
+                <strong>{t('objection', 'objection')}</strong> — {o}
+              </li>
+            ))}
+            {reprise.critique.raisons.map((r, i) => (
+              <li key={`r${i}`} className="muted-text">
+                Evaluator — {r}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ─── Vue principale ──────────────────────────────────────────────────────────
 
 type Tab = 'diff' | 'logs' | 'consensus' | 'evaluation';
@@ -740,6 +819,25 @@ export default function Miellerie({
   const evaluationError = curEvaluation?.error ?? null;
   const evaluationVerdict = curEvaluation?.v ?? null;
 
+  const critique = useApiPoll<{
+    id: string;
+    v?: Awaited<ReturnType<typeof fetchCritique>>;
+    error?: string;
+  } | null>(
+    () => {
+      const id = activeId;
+      return id
+        ? fetchCritique(id).then(
+            (v) => ({ id, v }),
+            (e: unknown) => ({ id, error: e instanceof Error ? e.message : String(e) }),
+          )
+        : Promise.resolve(null);
+    },
+    30_000,
+    pollTick,
+  );
+  const curCritique = critique.data && critique.data.id === activeId ? critique.data : null;
+
   const conflictsPoll = useApiPoll(
     () => {
       const id = projectId;
@@ -756,9 +854,16 @@ export default function Miellerie({
       : null;
 
   // ─── Décision de revue + auto-avance ────────────────────────────────────────
+  // La raison saisie appartient à la tâche affichée : changer de tâche la vide,
+  // sinon elle partirait avec le verdict d'une autre production.
+  const [raison, setRaison] = useState('');
+  useEffect(() => setRaison(''), [activeId]);
   const decide = (state: ReviewState | null) => {
     if (!activeTask) return;
-    setReview(activeTask.id, state);
+    setReview(activeTask.id, state, state === null ? undefined : raison);
+    setRaison('');
+    // La raison transmise se relit tout de suite dans le volet verdict.
+    setSelEpoch((e) => e + 1);
     if (state === null) return;
     // Auto-avance : prochaine tâche non revue, en bouclant sur la liste.
     const idx = flat.findIndex((t) => t.id === activeTask.id);
@@ -1136,6 +1241,17 @@ export default function Miellerie({
             >
               {t('Approuver', 'Approve')} <kbd>a</kbd>
             </button>
+            <input
+              className="mi-raison"
+              value={raison}
+              maxLength={1_000}
+              onChange={(e) => setRaison(e.target.value)}
+              placeholder={t(
+                'raison (facultative) — transmise à la correction',
+                'reason (optional) — passed to the correction',
+              )}
+              aria-label={t('Raison du verdict', 'Verdict reason')}
+            />
             <button
               className="btn mi-reject"
               title={t(
@@ -1213,6 +1329,12 @@ export default function Miellerie({
                 <dt>Id</dt>
                 <dd className="mono">{activeTask.id}</dd>
               </dl>
+
+              <h3 className="mi-sub">{t('Critique transmise', 'Critique passed on')}</h3>
+              <CritiqueTransmise
+                critique={curCritique?.v ?? null}
+                error={curCritique?.error ?? null}
+              />
 
               <details className="mi-prompt">
                 <summary>{t('Prompt d’origine', 'Original prompt')}</summary>

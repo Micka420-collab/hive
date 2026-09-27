@@ -39,6 +39,8 @@ import type { Echelon, ObservationGardeFou, RangGardeFou } from './garde-fou.js'
 // tests/security-invariants.test.ts.
 import { CacheProjets, GrandLivre, jugerPlafond, LOT_GRAND_LIVRE } from './balance.js';
 import type { DecisionPlafond } from './balance.js';
+import { bornerCritique } from './brood.js';
+import type { CritiqueReprise } from './brood.js';
 import { ancetreEchoue, descendantsEnVol } from './delegation.js';
 import type { CauseAnnulationDelegation } from './delegation.js';
 import { createRace, enlistDrones, recordDroneResult, runningDrones } from './drone-wars.js';
@@ -1102,6 +1104,12 @@ export class Scheduler {
     taskId: string;
     resultId: number;
     decision: EvaluationRetryDecision;
+    /**
+     * Ce qui a motivé la correction, transmis à la tentative suivante
+     * (`blocCritique`, brood.ts). Borné ICI, à l'entrée du journal : c'est le
+     * scheduler qui l'écrit, quel que soit l'appelant.
+     */
+    critique?: CritiqueReprise;
     now?: number;
   }): EvaluationRetryOutcome {
     const now = input.now ?? Date.now();
@@ -1148,6 +1156,10 @@ export class Scheduler {
     // doit repasser par cette porte : conserver l'approbation ferait fuiter un
     // verdict de la production précédente jusque dans la suivante.
     this.store.setTaskReview(task.id, null);
+    // La critique est journalisée AVANT `promoteAndAssign` : l'assignation
+    // qui suit est synchrone et relit ce payload pour composer le contexte de
+    // la tentative — émise après, elle arriverait une tentative trop tard.
+    const critique = bornerCritique(input.critique);
     this.emit('task_retry', {
       taskId: task.id,
       source: 'evaluator',
@@ -1155,6 +1167,7 @@ export class Scheduler {
       decision: input.decision,
       attempt,
       maxAttempts: this.maxAttempts,
+      ...(critique ? { critique } : {}),
     });
     this.promoteAndAssign(now);
     return {

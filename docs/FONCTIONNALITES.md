@@ -266,6 +266,19 @@ npm run cli -- mind                          # souvenirs récents
 # ou : GET /api/hive-mind?q=…
 ```
 
+## ⚖️ Débat et critique — une objection atteint la correction
+
+Une production réussie est relue par un modèle d'une **autre famille** ; si le
+relecteur conteste — ou si un humain la rejette en Miellerie —, l'Evaluator la
+remet en file. La tentative suivante ne repart pas à l'aveugle : elle reçoit,
+dans un bloc de données borné, **les objections, les motifs de l'Evaluator et
+la raison de l'humain** (champ facultatif à côté du bouton « Rejeter »). La
+Miellerie affiche sous chaque tâche la critique que sa tentative a reçue.
+
+Le protocole complet — seuils du Conseil, règles de l'Evaluator, portes de
+retry, issues d'un désaccord — est dans
+**[PROTOCOLE-CRITIQUE.md](PROTOCOLE-CRITIQUE.md)**.
+
 ## 🛡️ Sting Detector — prévention de conflits (Palier 2)
 
 Deux tâches qui pourraient tourner **en même temps** (aucun ordre de dépendance

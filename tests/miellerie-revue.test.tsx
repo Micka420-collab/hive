@@ -33,6 +33,7 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   fetchResults: vi.fn(() => Promise.resolve([])),
   fetchConsensus: vi.fn(() => Promise.resolve(null)),
   fetchEvaluation: vi.fn(() => Promise.resolve(null)),
+  fetchCritique: vi.fn(() => Promise.resolve({ taskId: '', raisonRevue: null, reprise: null })),
   fetchConflicts: vi.fn(() => Promise.resolve({ conflicts: [] })),
   fetchMergePlan: vi.fn(() =>
     Promise.resolve({ total: 0, done: 0, mergeable: true, order: [], conflicts: [] }),

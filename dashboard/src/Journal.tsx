@@ -367,6 +367,29 @@ const EVENTS: Record<string, Meta> = {
         `brood chamber: ${short(p.taskId)} restarts with the lessons of ${String(p.echecs ?? '?')} failure(s)`,
       ),
   },
+  // La critique jointe à une correction. Le payload ne porte que des faits
+  // comptés : le TEXTE des objections vit dans `task_retry`, et la Miellerie
+  // le montre sous la tâche (`/api/tasks/:taskId/critique`).
+  critique_context: {
+    icon: '◦',
+    cls: 'info',
+    text: (p, t) => {
+      const qui =
+        p.source === 'revue_humaine'
+          ? t('le rejet humain', 'the human rejection')
+          : p.source === 'contre_revue'
+            ? t('la contre-revue', 'the counter-review')
+            : t('l’Evaluator', 'the Evaluator');
+      const note =
+        p.noteHumaine === true
+          ? t(', avec la raison de l’humain', ', with the human’s reason')
+          : '';
+      return t(
+        `critique : ${short(p.taskId)} repart (essai ${String(p.attempt ?? '?')}) avec ${qui} — ${String(p.objections ?? 0)} objection(s)${note}`,
+        `critique: ${short(p.taskId)} restarts (attempt ${String(p.attempt ?? '?')}) with ${qui} — ${String(p.objections ?? 0)} objection(s)${note}`,
+      );
+    },
+  },
   // La Balance, geste « borner ». Trois faits typés — `projectId`, des entiers,
   // un booléen — et AUCUNE phrase persistée : le bilingue est reconstruit ici
   // depuis les champs, exactement comme `thermo_shift`. `formatDuree` est

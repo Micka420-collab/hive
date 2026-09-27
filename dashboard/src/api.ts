@@ -1167,11 +1167,37 @@ export function postReview(
   taskId: string,
   state: ReviewVerdict | null,
   clientId?: string,
+  raison?: string,
 ): Promise<{ taskId: string; state: ReviewVerdict | null }> {
   return api<{ taskId: string; state: ReviewVerdict | null }>(`/api/tasks/${taskId}/review`, {
     method: 'POST',
-    body: JSON.stringify({ state, ...(clientId ? { clientId } : {}) }),
+    body: JSON.stringify({
+      state,
+      ...(clientId ? { clientId } : {}),
+      // Jamais jointe à un effacement : le serveur la refuserait (400).
+      ...(raison && state !== null ? { raison } : {}),
+    }),
   });
+}
+
+/** La critique figée d'une correction (voir `blocCritique`, brood.ts). */
+export interface CritiqueReprise {
+  source: 'contre_revue' | 'revue_humaine' | 'evaluator';
+  objections: string[];
+  raisons: string[];
+  noteHumaine?: string;
+}
+
+/**
+ * Ce qu'une tâche a reçu comme critique : la raison du verdict humain courant
+ * et la critique que la tentative en cours a reçue en reprenant.
+ */
+export function fetchCritique(taskId: string): Promise<{
+  taskId: string;
+  raisonRevue: string | null;
+  reprise: { tentative: number | null; ts: number; critique: CritiqueReprise } | null;
+}> {
+  return api(`/api/tasks/${encodeURIComponent(taskId)}/critique`);
 }
 
 // ─── Comptes utilisateurs (JWT — indépendant du token de ruche) ──────────────
