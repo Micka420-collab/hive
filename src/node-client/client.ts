@@ -39,8 +39,13 @@ import type {
   PoserOutilMsg,
   TaskResultMsg,
 } from '../shared/protocol.js';
-import { HEARTBEAT_INTERVAL_MS, NODE_TIMEOUT_MS } from '../shared/types.js';
-import type { ExecutionUsage, IsolementDeclare, Task } from '../shared/types.js';
+import {
+  DEFAULT_TOKEN,
+  HEARTBEAT_INTERVAL_MS,
+  MIN_TOKEN_LENGTH,
+  NODE_TIMEOUT_MS,
+} from '../shared/types.js';
+import type { ExecutionUsage, IsolementDeclare, SubAgent, Task } from '../shared/types.js';
 import { runMerge, runProc } from './merge-runner.js';
 import { lancerVraiment, poserOutil } from './pose-runner.js';
 import { buildSandboxEnv, cloneRepo, prepareWorkspace } from './workspace.js';
@@ -68,6 +73,20 @@ const DELEGATION_RESPONSE_TIMEOUT_MS = 15_000;
  * une marge, tout en restant borné par le plafond de transport accepté.
  */
 const DELEGATION_RESULT_GRACE_MS = 5 * 60_000;
+
+/**
+ * Un morceau de sortie en direct, après caviardage, sous `LIMITS.sortie`. Le
+ * caviardage peut ALLONGER (`sk-x` devient `[secret]`) : couper à l'aveugle
+ * ferait disparaître la fin sans le dire. On coupe à la dernière ligne entière
+ * qui tient, et on l'annonce — comme `sortie-directe.ts` annonce ses omissions.
+ */
+function morceauCaviarde(sortie: string): string {
+  if (sortie.length <= LIMITS.sortie) return sortie;
+  const annonce = '[… fin du morceau omise après caviardage]\n';
+  const tete = sortie.slice(0, LIMITS.sortie - annonce.length);
+  const coupe = tete.lastIndexOf('\n');
+  return (coupe >= 0 ? tete.slice(0, coupe + 1) : '') + annonce;
+}
 
 /**
  * Ce que l'adaptateur a DÉCLARÉ, tel que `task_result` le transporte : la
@@ -976,7 +995,39 @@ export class HiveNodeClient {
     const env = Object.fromEntries(
       (this.opts.keepEnv ?? []).map((nom): [string, string | undefined] => [nom, process.env[nom]]),
     );
-    return creerCaviardeur([...valeursSecretes(env), this.opts.token]);
+    // Le jeton par défaut (`change-me`) ou trop court ne protège rien — le hub
+    // le refuse hors développement — et `change-me` est écrit en clair dans
+    // les sources de Hive : le caviarder réécrirait leurs diffs et leurs logs.
+    const jeton = this.opts.token;
+    const jetonReel = jeton !== DEFAULT_TOKEN && jeton.length >= MIN_TOKEN_LENGTH;
+    return creerCaviardeur([...valeursSecretes(env), ...(jetonReel ? [jeton] : [])]);
+  }
+
+  /**
+   * Ce que l'agent écrit lui-même et que le nœud relaie hors de la machine,
+   * au-delà de sa sortie : les noms de ses sous-agents, et les demandes de
+   * délégation (le hub en fait une tâche, affichée sur chaque écran). Le
+   * prompt délégué sera EXÉCUTÉ par un autre agent : il ne perd que les
+   * valeurs exactes et les jetons réels (`Caviardeur.code`), pas son code.
+   */
+  private static sousAgentsCaviardes(
+    sousAgents: readonly SubAgent[],
+    caviardeur: Caviardeur,
+  ): SubAgent[] {
+    return sousAgents.map((a) => ({ ...a, name: caviardeur.texte(a.name) }));
+  }
+
+  private delegationCaviardee(
+    taskId: string,
+    input: WorkerDelegationInput,
+    caviardeur: Caviardeur,
+  ): Promise<WorkerDelegationOutcome> {
+    return this.requestDelegation(taskId, {
+      ...input,
+      title: caviardeur.texte(input.title),
+      reason: caviardeur.texte(input.reason),
+      prompt: caviardeur.code(input.prompt),
+    });
   }
 
   /**
@@ -994,12 +1045,14 @@ export class HiveNodeClient {
       // par un adaptateur fini écrirait sinon dans la console de la tentative
       // suivante (même tâche, même nœud — le hub ne peut pas les distinguer).
       if (this.active.get(taskId) !== ctrl) return;
-      const sortie = p.sortie ? caviardeur.texte(p.sortie).slice(0, LIMITS.sortie) : '';
+      const sortie = p.sortie ? morceauCaviarde(caviardeur.texte(p.sortie)) : '';
       this.send({
         type: 'task_update',
         taskId,
         status: 'running',
-        ...(p.subAgents ? { subAgents: p.subAgents } : {}),
+        ...(p.subAgents
+          ? { subAgents: HiveNodeClient.sousAgentsCaviardes(p.subAgents, caviardeur) }
+          : {}),
         ...(p.presences ? { presences: p.presences } : {}),
         ...(p.log ? { log: caviardeur.texte(p.log).slice(0, LIMITS.log) } : {}),
         ...(sortie ? { sortie } : {}),
@@ -1101,7 +1154,7 @@ export class HiveNodeClient {
         // le passera à son CLI (`--model`). Absent ⇒ modèle par défaut de l'agent.
         ...(modele ? { modele } : {}),
         ...(this.opts.bac ? { bac: this.opts.bac } : {}),
-        delegate: (input) => this.requestDelegation(task.id, input),
+        delegate: (input) => this.delegationCaviardee(task.id, input, caviardeur),
         waitForDelegationResult: (childTaskId) =>
           this.waitForDelegationResult(task.id, childTaskId, ctrl.signal),
         onProgress: this.progresVersHub(task.id, ctrl, caviardeur),
@@ -1174,7 +1227,10 @@ export class HiveNodeClient {
         diff: caviardeur.diff(diff).slice(0, LIMITS.diff),
         logs: caviardeur.texte(result.logs).slice(0, LIMITS.log),
         durationMs: Date.now() - started,
-        subAgents: result.subAgents.slice(0, LIMITS.subAgents),
+        subAgents: HiveNodeClient.sousAgentsCaviardes(
+          result.subAgents.slice(0, LIMITS.subAgents),
+          caviardeur,
+        ),
         ...(usage ? { usage } : {}),
         ...declarationsDuResultat(result, caviardeur),
       });
@@ -1273,7 +1329,7 @@ export class HiveNodeClient {
         signal: ctrl.signal,
         ...(modele ? { modele } : {}),
         ...(this.opts.bac ? { bac: this.opts.bac } : {}),
-        delegate: (input) => this.requestDelegation(task.id, input),
+        delegate: (input) => this.delegationCaviardee(task.id, input, caviardeur),
         waitForDelegationResult: (childTaskId) =>
           this.waitForDelegationResult(task.id, childTaskId, ctrl.signal),
         onProgress: this.progresVersHub(task.id, ctrl, caviardeur),
@@ -1326,7 +1382,10 @@ export class HiveNodeClient {
         diff: caviardeur.diff(diff).slice(0, LIMITS.diff),
         logs: caviardeur.texte(result.logs).slice(0, LIMITS.log),
         durationMs: Date.now() - started,
-        subAgents: result.subAgents.slice(0, LIMITS.subAgents),
+        subAgents: HiveNodeClient.sousAgentsCaviardes(
+          result.subAgents.slice(0, LIMITS.subAgents),
+          caviardeur,
+        ),
         ...(usage ? { usage } : {}),
         ...declarationsDuResultat(result, caviardeur),
       });

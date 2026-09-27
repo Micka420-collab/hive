@@ -387,6 +387,16 @@ describe('la sortie en direct — du flux au tiroir, et vidée quand la tâche n
     );
     expect(console_()?.textContent).not.toContain('lecture de rayon.ts');
 
+    // Refus du nœud APRÈS exécution (auth, quota) : la tâche redevient
+    // « prête » sans `task_requeued` — sa sortie ne doit pas se coller à
+    // celle du nœud suivant.
+    await act(async () => h.onSortie?.('tache-en-direct', 'noeud-1', 'quota épuisé\n'));
+    expect(console_()?.textContent).toContain('quota épuisé');
+    await act(async () =>
+      h.onEvent({ id: 10, ts: 1, type: 'task_rejected', payload: { taskId: 'tache-en-direct' } }),
+    );
+    expect(console_()?.textContent).not.toContain('quota épuisé');
+
     // Fin de vie MANQUÉE (coupure) : l'instantané suivant dit `done`, la
     // sortie reçue entre-temps ne survit pas.
     await act(async () => h.onSortie?.('tache-en-direct', 'noeud-1', 'encore\n'));

@@ -9,7 +9,7 @@ import { LIMITS } from '../shared/protocol.js';
 import { texteDEchec } from '../shared/texte-d-echec.js';
 import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from '../shared/types.js';
 import type { AdapterContext, AdapterResult } from './index.js';
-import { createSortieDirecte } from './sortie-directe.js';
+import { cadenceDe, createSortieDirecte } from './sortie-directe.js';
 import { borneTexteFinal, createTexteFinalTracker } from './texte-final.js';
 import type { LecteurEvenementFinal } from './texte-final.js';
 
@@ -165,16 +165,24 @@ function executer(
       stdio: ENTREE_FERMEE,
     });
 
-    // Stdout part AUSSI en direct, borné et cadencé (sortie-directe.ts) : c'est
-    // ici, au seul `spawn` des adaptateurs, que tous les agents réels
-    // l'obtiennent d'un coup. Le caviardage, lui, est l'affaire du nœud.
-    const direct = createSortieDirecte((sortie) => {
-      try {
-        ctx.onProgress({ sortie });
-      } catch {
-        /* le départ vit dans un minuteur : une exception y tuerait le nœud */
-      }
-    });
+    // Stdout ET stderr partent aussi en direct, bornés et cadencés
+    // (sortie-directe.ts) : c'est ici, au seul `spawn` des adaptateurs, que
+    // tous les agents réels l'obtiennent d'un coup. Les deux flux : `codex
+    // exec` n'écrit sur stdout que son dernier message, à la fin — toute son
+    // activité (commandes, raisonnement) est sur stderr. La cadence est celle
+    // de la TÂCHE (`cadenceDe`), pas de ce processus. Le caviardage, lui, est
+    // l'affaire du nœud.
+    const direct = createSortieDirecte(
+      (sortie) => {
+        try {
+          ctx.onProgress({ sortie });
+        } catch {
+          /* le départ vit dans un minuteur : une exception y tuerait le nœud */
+        }
+      },
+      undefined,
+      cadenceDe(ctx.onProgress),
+    );
     let output = '';
     let tampon = '';
     // Fin de la sortie standard seule, pour `'sortie-standard'` : stdout et
@@ -202,6 +210,7 @@ function executer(
     });
     child.stderr?.on('data', (s: string) => {
       if (output.length < OUTPUT_CAP) output += s;
+      direct.ecrire(s, 'stderr');
     });
 
     const timeout = setTimeout(() => {

@@ -5,7 +5,13 @@
 // DIFF, que Honeycomb Merge appliquera ensuite, où seuls les formats littéraux
 // de jetons et les valeurs exactes s'appliquent — `token: string` est du code.
 
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { borneTexteFinal } from '../src/adapters/texte-final.js';
+import { analyserRustine, appliquerRustine } from '../src/orchestrator/rustine.js';
 import {
   creerCaviardeur,
   MARQUE_LIGNE_TRONQUEE,
@@ -70,19 +76,105 @@ describe('creerCaviardeur — texte', () => {
 describe('creerCaviardeur — diff', () => {
   it('remplace une clé écrite dans un fichier, et les formats littéraux de jetons', () => {
     const c = creerCaviardeur([CLE]);
-    const diff = `+const cle = '${CLE}';\n+const gh = 'ghp_abcdefghij0123';\n`;
+    const diff = `@@ -0,0 +1,2 @@\n+const cle = '${CLE}';\n+const gh = 'ghp_abcdefghij0123456789ab';\n`;
     expect(c.diff(diff)).toBe(
-      `+const cle = '${SECRET_CAVIARDE}';\n+const gh = '${SECRET_CAVIARDE}';\n`,
+      `@@ -0,0 +1,2 @@\n+const cle = '${SECRET_CAVIARDE}';\n+const gh = '${SECRET_CAVIARDE}';\n`,
     );
   });
 
   it('ne réécrit PAS le code ordinaire que les motifs d’affectation reconnaîtraient', () => {
     const code =
+      '@@ -0,0 +1,3 @@\n' +
       "+  token: string;\n+  headers: { authorization: 'Bearer ' + jeton },\n" +
       '+  const url = `https://${user}:${pass}@github.com/o/d.git`;\n';
     expect(creerCaviardeur([CLE]).diff(code)).toBe(code);
     // Le même texte, traité comme un log, serait caviardé : c'est bien la
     // frontière qui protège le patch.
     expect(creerCaviardeur([CLE]).texte(code)).not.toBe(code);
+  });
+});
+
+describe('creerCaviardeur — un diff caviardé s’applique TOUJOURS', () => {
+  // Le hub applique le diff au contexte exact (rustine.ts, `git apply`) :
+  // réécrire une ligne de contexte ou une ligne retirée refuserait une
+  // livraison légitime. Ces lignes sont déjà dans le dépôt ; seules les lignes
+  // AJOUTÉES peuvent y apporter une clé.
+  const base =
+    '// Apache 2.0 (github.com/xai-org/grok-build)\n' +
+    `const locale = 'sk-SK'; // pip install xai-sdk, fixture 'sk-test-key'\n` +
+    `const deja = '${CLE}';\n` +
+    '-- ancien commentaire sql\n' +
+    'const x = 1;\n';
+  const diff =
+    'diff --git a/f.ts b/f.ts\n' +
+    '--- a/f.ts\n' +
+    '+++ b/f.ts\n' +
+    '@@ -1,5 +1,7 @@\n' +
+    ' // Apache 2.0 (github.com/xai-org/grok-build)\n' +
+    ` const locale = 'sk-SK'; // pip install xai-sdk, fixture 'sk-test-key'\n` +
+    ` const deja = '${CLE}';\n` +
+    // Dans un hunk, `--- …` est une ligne retirée et `+++ …` une ligne ajoutée.
+    '--- ancien commentaire sql\n' +
+    '+++ sk-proj-abcdefghijklmnopqrstuvwx\n' +
+    `+const cle = '${CLE}';\n` +
+    "+const gh = 'ghp_abcdefghij0123456789abcd';\n" +
+    ' const x = 1;\n';
+
+  it('le contexte et les lignes retirées passent intacts, le patch s’applique', () => {
+    const caviarde = creerCaviardeur([CLE]).diff(diff);
+    const [ecriture] = appliquerRustine(analyserRustine(caviarde), new Map([['f.ts', base]]));
+    expect(ecriture?.contenu).toBe(
+      '// Apache 2.0 (github.com/xai-org/grok-build)\n' +
+        `const locale = 'sk-SK'; // pip install xai-sdk, fixture 'sk-test-key'\n` +
+        `const deja = '${CLE}';\n` +
+        `++ ${SECRET_CAVIARDE}\n` +
+        `const cle = '${SECRET_CAVIARDE}';\n` +
+        `const gh = '${SECRET_CAVIARDE}';\n` +
+        'const x = 1;\n',
+    );
+  });
+
+  it('et `git apply --check` (Honeycomb Merge, merge-runner.ts) l’accepte aussi', () => {
+    const dossier = mkdtempSync(path.join(tmpdir(), 'hive-caviardage-diff-'));
+    try {
+      writeFileSync(path.join(dossier, 'f.ts'), base);
+      const caviarde = creerCaviardeur([CLE]).diff(diff);
+      expect(() =>
+        execFileSync('git', ['apply', '--check', '-'], { cwd: dossier, input: caviarde }),
+      ).not.toThrow();
+    } finally {
+      rmSync(dossier, { recursive: true, force: true });
+    }
+  });
+
+  it('les en-têtes de fichier, hors hunk, ne sont jamais réécrits', () => {
+    const entete =
+      '--- a/sk-proj-abcdefghijklmnopqrstuvwx.ts\n+++ b/sk-proj-abcdefghijklmnopqrstuvwx.ts\n';
+    expect(creerCaviardeur([]).diff(entete)).toBe(entete);
+  });
+});
+
+describe('creerCaviardeur — les bords qu’une coupe laisse d’un secret', () => {
+  it('de part et d’autre de la coupure du texte final (borneTexteFinal)', () => {
+    // La clé tombe PILE sur la coupe : sa moitié avant, sa moitié après.
+    const tete = 'a'.repeat(2_000 - 20) + CLE;
+    const texte = tete + 'b'.repeat(20_000) + CLE + 'c'.repeat(5_000);
+    const borne = borneTexteFinal(texte) ?? '';
+    const sortie = creerCaviardeur([CLE]).texte(borne);
+    expect(sortie).not.toContain(CLE.slice(0, 20));
+    expect(sortie).not.toContain(CLE.slice(-15));
+  });
+
+  it('en tête d’une fenêtre qui a commencé au milieu d’une clé', () => {
+    expect(creerCaviardeur([CLE]).texte(`${CLE.slice(12)} puis la suite`)).toBe(
+      `${SECRET_CAVIARDE} puis la suite`,
+    );
+  });
+
+  it('des identifiants d’URL coupés avant leur @ par la marque de ligne tronquée', () => {
+    const sortie = creerCaviardeur([]).texte(
+      `clone https://moi:motdepasse-tres-l${MARQUE_LIGNE_TRONQUEE}`,
+    );
+    expect(sortie).not.toContain('motdepasse');
   });
 });

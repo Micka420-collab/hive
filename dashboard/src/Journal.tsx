@@ -114,7 +114,7 @@ function progres(p: Record<string, unknown>, t: Translate): string {
     const n = p.subAgents.length;
     return t(`${id} · ${n} sous-agent(s)`, `${id} · ${n} sub-agent(s)`);
   }
-  if (Array.isArray(p.presences)) {
+  if (Array.isArray(p.presences) && p.presences.length > 0) {
     const n = p.presences.length;
     return t(`${id} · ${n} fichier(s) ouvert(s)`, `${id} · ${n} open file(s)`);
   }

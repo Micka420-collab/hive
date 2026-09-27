@@ -2,7 +2,7 @@
 //
 // ─── CE QU'ELLE MONTRE, ET CE QU'ELLE NE PRÉTEND PAS ────────────────────────
 //
-// La sortie standard de l'agent, caviardée par le nœud avant tout envoi
+// La sortie de l'agent (stdout, stderr), caviardée par le nœud avant tout envoi
 // (`src/shared/caviardage.ts`), cadencée à quatre morceaux de 4 Kio par seconde
 // au plus (`src/adapters/sortie-directe.ts`) et gardée ici sur 256 Kio
 // (`sorties-directes.ts`). C'est un APERÇU : sous une rafale, le nœud omet et

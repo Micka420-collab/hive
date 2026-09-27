@@ -229,7 +229,7 @@ export interface TaskUpdateMsg {
   presences?: PresenceFichier[];
   log?: string;
   /**
-   * Un morceau de la sortie standard de l'agent, caviardé PAR LE NŒUD
+   * Un morceau de la sortie de l'agent (stdout, stderr), caviardé PAR LE NŒUD
    * (`shared/caviardage.ts`) avant l'envoi. ÉPHÉMÈRE : le hub le relaie aux
    * tableaux de bord (`task_output`) sans l'écrire au journal. Quatre morceaux
    * par seconde journalisés, c'était 3 600 événements pour une tâche de quinze

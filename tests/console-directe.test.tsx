@@ -212,6 +212,11 @@ describe('le journal dit ce que le progrès APPORTE', () => {
       '1 sous-agent(s)',
     );
     act(() => racine?.unmount());
-    expect(await ligne({ presences: [] })).toContain('0 fichier(s) ouvert(s)');
+    expect(
+      await ligne({ presences: [{ toolUseId: 't', chemin: 'src/a.ts', outil: 'Read' }] }),
+    ).toContain('1 fichier(s) ouvert(s)');
+    act(() => racine?.unmount());
+    // Fichiers refermés (`[]`) : rien à dire, pas « 0 fichier(s) ouvert(s) ».
+    expect(await ligne({ presences: [] })).not.toContain('fichier');
   });
 });

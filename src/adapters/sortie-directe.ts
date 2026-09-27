@@ -1,4 +1,4 @@
-// La sortie standard de l'agent, remontée EN DIRECT — bornée et cadencée.
+// La sortie de l'agent (stdout et stderr), remontée EN DIRECT — bornée et cadencée.
 //
 // ─── CE QUE L'ÉCRAN NE VOYAIT PAS ───────────────────────────────────────────
 //
@@ -49,9 +49,16 @@ function ligneBornee(ligne: string, max: number): string {
   return tronquerOctets(ligne, max - octets(MARQUE_LIGNE_TRONQUEE)) + MARQUE_LIGNE_TRONQUEE;
 }
 
+/** Les deux flux d'un processus : chacun a sa ligne en cours. */
+export type FluxSortie = 'stdout' | 'stderr';
+
 export interface SortieDirecte {
-  /** Un fragment de stdout, tel que le processus l'a écrit. */
-  ecrire(fragment: string): void;
+  /**
+   * Un fragment, tel que le processus l'a écrit sur `flux`. Les deux flux
+   * partagent le morceau et la cadence, pas la ligne en cours : un fragment de
+   * stderr arrivé au milieu d'une ligne de stdout ne s'y colle pas.
+   */
+  ecrire(fragment: string, flux?: FluxSortie): void;
   /**
    * Fin du processus : vide ce qui attend, si la cadence le permet encore.
    * Sinon ce reste est abandonné — il est dans le log du résultat, qui part
@@ -74,20 +81,55 @@ const horlogeReelle: HorlogeSortie = {
   },
 };
 
+/**
+ * L'instant du dernier morceau d'une TÂCHE. La cadence est par tâche, pas par
+ * processus : un adaptateur qui relance son agent (reprise, second passage)
+ * crée une nouvelle `SortieDirecte` à chaque `spawn`, et chacune, partant de
+ * zéro, pouvait émettre aussitôt — au-delà des 4 morceaux par seconde promis
+ * au hub, qui coupe le nœud entier au-delà de 100 messages/s.
+ */
+export interface CadenceSortie {
+  dernierDepart: number;
+}
+
+const cadences = new WeakMap<object, CadenceSortie>();
+
+/**
+ * La cadence attachée à `cle` — en pratique le `onProgress` de l'exécution,
+ * que le nœud crée une fois par tâche et que chaque `spawn` reçoit. Faiblement
+ * tenue : elle disparaît avec l'exécution, sans rien à nettoyer.
+ */
+export function cadenceDe(cle: object): CadenceSortie {
+  let cadence = cadences.get(cle);
+  if (!cadence) {
+    cadence = { dernierDepart: -Infinity };
+    cadences.set(cle, cadence);
+  }
+  return cadence;
+}
+
+interface EtatFlux {
+  ligneEnCours: string;
+  /** La ligne en cours a dépassé un morceau : sa suite est comptée, pas gardée. */
+  debordement: boolean;
+}
+
 export function createSortieDirecte(
   emettre: (morceau: string) => void,
   horloge: HorlogeSortie = horlogeReelle,
+  cadence: CadenceSortie = { dernierDepart: -Infinity },
 ): SortieDirecte {
   // Réserve pour l'annonce d'omission : un morceau, annonce comprise, reste
   // sous le plafond.
   const budgetLignes = SORTIE_MORCEAU_MAX_OCTETS - 64;
-  let ligneEnCours = '';
+  const flux: Record<FluxSortie, EtatFlux> = {
+    stdout: { ligneEnCours: '', debordement: false },
+    stderr: { ligneEnCours: '', debordement: false },
+  };
   let attente = '';
   let omis = 0;
-  let dernierDepart = -Infinity;
   let annuler: (() => void) | null = null;
   let fini = false;
-  let debordement = false;
 
   const empiler = (ligne: string): void => {
     // `- 1` : le retour à la ligne compte aussi — sans lui, une ligne tronquée
@@ -97,54 +139,70 @@ export function createSortieDirecte(
     else omis += octets(ligne) + 1;
   };
 
+  const delai = (): number =>
+    Math.max(0, cadence.dernierDepart + SORTIE_INTERVALLE_MS - horloge.maintenant());
+
   const partir = (): void => {
     annuler = null;
     if (attente === '' && omis === 0) return;
+    // Un autre processus de la même tâche a pu partir entre-temps.
+    if (delai() > 0) {
+      programmer();
+      return;
+    }
     const annonce = omis > 0 ? `[… ${omis} octets omis]\n` : '';
     const morceau = annonce + attente;
     attente = '';
     omis = 0;
-    dernierDepart = horloge.maintenant();
+    cadence.dernierDepart = horloge.maintenant();
     emettre(morceau);
   };
 
-  const programmer = (): void => {
+  function programmer(): void {
     if (annuler || fini) return;
-    const delai = Math.max(0, dernierDepart + SORTIE_INTERVALLE_MS - horloge.maintenant());
-    annuler = horloge.planifier(partir, delai);
-  };
+    annuler = horloge.planifier(partir, delai());
+  }
 
   return {
-    ecrire(fragment) {
+    ecrire(fragment, nom = 'stdout') {
       if (fini) return;
+      const etat = flux[nom];
       let texte = fragment;
-      if (debordement) {
+      if (etat.debordement) {
         const fin = texte.indexOf('\n');
         omis += octets(fin < 0 ? texte : texte.slice(0, fin));
         texte = fin < 0 ? '' : texte.slice(fin + 1);
-        debordement = fin < 0;
+        etat.debordement = fin < 0;
       }
-      const lignes = (ligneEnCours + texte).split('\n');
-      ligneEnCours = lignes.pop() ?? '';
+      const lignes = (etat.ligneEnCours + texte).split('\n');
+      etat.ligneEnCours = lignes.pop() ?? '';
       // Une ligne sans fin (barre de progression, `\r` répétés) ne grossit pas
       // sans borne : au-delà d'un morceau, elle part tronquée, et la suite de
       // la même ligne, jusqu'à son retour, est comptée comme omise.
-      if (octets(ligneEnCours) > budgetLignes) {
-        lignes.push(ligneEnCours);
-        ligneEnCours = '';
-        debordement = true;
+      if (octets(etat.ligneEnCours) > budgetLignes) {
+        lignes.push(etat.ligneEnCours);
+        etat.ligneEnCours = '';
+        etat.debordement = true;
       }
       for (const ligne of lignes) empiler(ligne);
-      if (attente !== '' || omis > 0) programmer();
+      // Pendant un débordement, le compte d'omission ATTEND la fin de la
+      // ligne (ou le prochain vrai morceau) : programmer un départ pour lui
+      // seul enverrait « [… N octets omis] » quatre fois par seconde tant que
+      // la barre de progression tourne.
+      if (attente !== '' || (omis > 0 && !flux.stdout.debordement && !flux.stderr.debordement)) {
+        programmer();
+      }
     },
     terminer() {
       if (fini) return;
       fini = true;
       annuler?.();
       annuler = null;
-      if (ligneEnCours !== '') empiler(ligneEnCours);
-      ligneEnCours = '';
-      if (horloge.maintenant() - dernierDepart >= SORTIE_INTERVALLE_MS) partir();
+      for (const etat of Object.values(flux)) {
+        if (etat.ligneEnCours !== '') empiler(etat.ligneEnCours);
+        etat.ligneEnCours = '';
+      }
+      if (delai() === 0) partir();
     },
   };
 }

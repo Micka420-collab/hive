@@ -20,7 +20,7 @@ export interface AdapterProgress {
   /** Jalon lisible (« claude -p démarré ») : journalisé par le hub. */
   log?: string;
   /**
-   * Un morceau de la sortie standard de l'agent, EN DIRECT (sortie-directe.ts :
+   * Un morceau de la sortie de l'agent (stdout, stderr), EN DIRECT (sortie-directe.ts :
    * ≤ 4 Kio, ≤ 4 par seconde). Éphémère : le hub le relaie aux écrans sans le
    * journaliser — voir `TaskUpdateMsg.sortie`.
    */

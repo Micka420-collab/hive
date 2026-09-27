@@ -5,13 +5,13 @@
 // (ce qui est omis est compté et annoncé). Horloge simulée : le banc pilote le
 // temps, il ne l'attend pas.
 
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { runCommand } from '../src/adapters/exec.js';
-import type { AdapterProgress } from '../src/adapters/index.js';
 import {
+  cadenceDe,
   createSortieDirecte,
   SORTIE_INTERVALLE_MS,
   SORTIE_MORCEAU_MAX_OCTETS,
@@ -150,43 +150,107 @@ describe('createSortieDirecte — bornes et cadence', () => {
   });
 });
 
+describe('createSortieDirecte — deux flux, une cadence par tâche, des omissions sobres', () => {
+  it('stdout et stderr gardent chacun leur ligne en cours : aucun collage à mi-ligne', () => {
+    const { horloge, avancer } = horlogeManuelle();
+    const departs: string[] = [];
+    const sortie = createSortieDirecte((m) => departs.push(m), horloge);
+    sortie.ecrire('début stdout', 'stdout');
+    sortie.ecrire('ligne stderr\n', 'stderr');
+    sortie.ecrire(' fin stdout\n', 'stdout');
+    avancer(SORTIE_INTERVALLE_MS * 2);
+    sortie.terminer();
+    expect(departs.join('').split('\n').filter(Boolean).sort()).toEqual([
+      'début stdout fin stdout',
+      'ligne stderr',
+    ]);
+  });
+
+  it('la cadence est celle de la TÂCHE : un second processus attend le tour du premier', () => {
+    const { horloge, avancer, instant } = horlogeManuelle();
+    const departs: number[] = [];
+    const tache = {};
+    const premier = createSortieDirecte(() => departs.push(instant()), horloge, cadenceDe(tache));
+    premier.ecrire('a\n');
+    avancer(0);
+    premier.terminer();
+    // Relance immédiate de l'agent par l'adaptateur : nouveau `spawn`, même tâche.
+    const second = createSortieDirecte(() => departs.push(instant()), horloge, cadenceDe(tache));
+    second.ecrire('b\n');
+    avancer(SORTIE_INTERVALLE_MS * 2);
+    second.terminer();
+    expect(departs).toHaveLength(2);
+    expect(departs[1]! - departs[0]!).toBeGreaterThanOrEqual(SORTIE_INTERVALLE_MS);
+  });
+
+  it('une barre de progression qui tourne n’émet pas d’omission à chaque tour', () => {
+    const { horloge, avancer } = horlogeManuelle();
+    const departs: string[] = [];
+    const sortie = createSortieDirecte((m) => departs.push(m), horloge);
+    // Deux secondes de `\r` sans retour à la ligne, bien au-delà d'un morceau.
+    for (let i = 0; i < 2_000; i += 1) {
+      sortie.ecrire('\r[#####     ] 50 %');
+      avancer(1);
+    }
+    sortie.ecrire(' fin\n');
+    avancer(SORTIE_INTERVALLE_MS * 2);
+    sortie.terminer();
+    const omissionsSeules = departs.filter((m) => /^\[… \d+ octets omis\]\n$/.test(m));
+    expect(omissionsSeules.length).toBeLessThanOrEqual(1);
+    expect(departs.join('')).toMatch(/octets omis/);
+  });
+});
+
 const aNettoyer: string[] = [];
 afterEach(() => {
   for (const d of aNettoyer.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 
-describe.skipIf(process.platform === 'win32')(
-  'runCommand — tout agent réel diffuse sa sortie',
-  () => {
-    it('la sortie standard arrive EN DIRECT par onProgress({ sortie }), avant la fin', async () => {
-      const dossier = mkdtempSync(path.join(tmpdir(), 'hive-sortie-directe-'));
-      aNettoyer.push(dossier);
-      const bin = path.join(dossier, 'agent');
-      writeFileSync(
-        bin,
-        "#!/usr/bin/env node\n'use strict';\n" +
-          "process.stdout.write('premier pas\\n');\n" +
-          "process.stderr.write('bruit de diagnostic\\n');\n" +
-          "setTimeout(() => process.stdout.write('second pas\\n'), 400);\n",
-      );
-      chmodSync(bin, 0o755);
-      const progres: Array<{ t: number; p: AdapterProgress }> = [];
-      const debut = Date.now();
+// Un vrai processus, lancé par `process.execPath` (pas de shebang ni de chmod) :
+// le même banc passe sur les trois OS de la CI, là où `shared/agent-windows.ts`
+// résout les binaires. Aucune fenêtre de temps : le faux agent ATTEND un
+// fichier témoin que le banc ne pose qu'après avoir VU sa sortie en direct —
+// si elle n'arrivait qu'à la fin, il ne finirait jamais (délai dur de 10 s).
+describe('runCommand — tout agent réel diffuse sa sortie, stdout ET stderr', () => {
+  it('le progrès écrit sur STDERR (forme de `codex exec`) arrive avant la fin', async () => {
+    const dossier = mkdtempSync(path.join(tmpdir(), 'hive-sortie-directe-'));
+    aNettoyer.push(dossier);
+    const temoin = path.join(dossier, 'vu');
+    const script = path.join(dossier, 'agent.js');
+    writeFileSync(
+      script,
+      "'use strict';\nconst fs = require('node:fs');\n" +
+        "process.stdout.write('premier pas\\n');\n" +
+        // Codex : commandes et raisonnement sur stderr, le message final seul sur stdout.
+        "process.stderr.write('exec: npm test\\n');\n" +
+        `const t = setInterval(() => { if (fs.existsSync(${JSON.stringify(temoin)})) {\n` +
+        "  clearInterval(t); process.stdout.write('message final\\n');\n" +
+        // Vivant au-delà d'un intervalle : le dernier morceau part avant la fin.
+        '  setTimeout(() => {}, 2 * 250); } }, 20);\n',
+    );
+    const sorties: string[] = [];
 
-      const r = await runCommand(bin, [], {
+    const r = await runCommand(
+      process.execPath,
+      [script],
+      {
         cwd: dossier,
-        env: { PATH: process.env.PATH ?? '' },
+        env: { ...process.env },
         attempt: 1,
         signal: new AbortController().signal,
-        onProgress: (p) => progres.push({ t: Date.now() - debut, p }),
-      });
-      const fin = Date.now() - debut;
+        onProgress: (p) => {
+          if (p.sortie === undefined) return;
+          sorties.push(p.sortie);
+          if (sorties.join('').includes('exec: npm test')) writeFileSync(temoin, '');
+        },
+      },
+      10_000,
+    );
 
-      expect(r.success).toBe(true);
-      const sorties = progres.filter((x) => x.p.sortie !== undefined);
-      expect(sorties.map((x) => x.p.sortie).join('')).toBe('premier pas\nsecond pas\n');
-      // Le premier morceau est parti bien avant la fin du processus.
-      expect(sorties[0]!.t).toBeLessThan(fin - 200);
-    });
-  },
-);
+    expect(r.success).toBe(true);
+    const vu = sorties.join('');
+    expect(vu).toContain('premier pas\n');
+    expect(vu).toContain('exec: npm test\n');
+    expect(vu).toContain('message final\n');
+  });
+});

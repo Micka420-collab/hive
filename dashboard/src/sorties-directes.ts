@@ -2,7 +2,7 @@
 //
 // ─── POURQUOI UN TAMPON, ET POURQUOI BORNÉ ──────────────────────────────────
 //
-// Le hub relaie la sortie standard de chaque agent (`task_output`) sans la
+// Le hub relaie la sortie (stdout, stderr) de chaque agent (`task_output`) sans la
 // journaliser : ce qui n'est pas gardé ICI est perdu pour cet écran. Mais un
 // agent peut écrire quatre morceaux de 4 Kio par seconde pendant quinze
 // minutes — 14 Mo par tâche, plusieurs tâches à la fois, dans un onglet ouvert
@@ -13,8 +13,8 @@
 // ─── CE QUI VIDE LE TAMPON ──────────────────────────────────────────────────
 //
 // La fin de vie de la tâche (terminée, échouée, annulée, requalifiée,
-// relancée) : la sortie d'une exécution finie n'est plus « en direct », et le
-// log complet arrive avec le résultat. Et, à chaque instantané, toute tâche
+// relancée, refusée par son nœud) : la sortie d'une exécution finie n'est plus
+// « en direct », et le log complet arrive avec le résultat. Et, à chaque instantané, toute tâche
 // qui n'y est plus vivante : un écran déconnecté au moment de `task_done` n'a
 // jamais reçu l'événement, et garderait sinon cette console pour toujours.
 //
@@ -33,6 +33,10 @@ export const FINS_D_EXECUTION: readonly string[] = [
   'task_cancelled',
   'task_requeued',
   'task_retry',
+  // Un nœud qui refuse APRÈS avoir fait tourner l'agent (auth, quota) : la
+  // tâche redevient « prête », sans `task_requeued`. Sans cette fin, sa sortie
+  // restait à l'écran et se collait à celle du nœud suivant.
+  'task_rejected',
 ];
 
 export interface MorceauSortie {
