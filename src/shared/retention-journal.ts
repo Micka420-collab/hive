@@ -37,7 +37,9 @@
 // restées le plus longtemps inactives — TÂCHE PAR TÂCHE : la moitié des preuves
 // d'une production (le verdict sans son lancement, la CI sans sa relecture)
 // ferait conclure l'Evaluator sur un dossier incohérent ; un dossier vide, lui,
-// se lit « preuves manquantes », et le journal dit pourquoi.
+// se lit « preuves manquantes », et le journal dit pourquoi. Une tâche qui a
+// encore des preuves dans la fenêtre n'est donc jamais prise : on ne toucherait
+// qu'à la moitié de son dossier.
 //
 // Chaque passe qui retire quelque chose est JOURNALISÉE (`journal_elagage` :
 // combien, de quels types, pour quel motif, quelles tâches le plafond a
@@ -200,7 +202,12 @@ export interface FaitsCloture {
  * humaine, d'une livraison, d'une fusion (l'Evaluator relit ses preuves pour
  * laisser fusionner une PR ouverte), d'une reprise après une livraison échouée.
  * Close : échouée ; fusionnée ; rejetée par un humain sans nouvel essai (un
- * essai la remettrait en `ready`) ; ou relecture / enfant délégué rendu.
+ * essai la remettrait en `ready`, et un résultat rendu APRÈS le rejet attend à
+ * nouveau son humain) ; ou relecture / enfant délégué rendu.
+ * `livraison.etat` est l'état RANGÉ (`livraisons`) — `en_cours`, `ouverte`,
+ * `echouee`, `fusionnee` — pas l'état dérivé de GitHub (`shared/retour.ts`) :
+ * une PR fermée sans fusion reste `ouverte` en table, donc vivante ici. Le
+ * jour où la table saura la dire fermée, c'est ici qu'elle fermera la tâche.
  * L'instant de clôture est le PLUS RÉCENT des faits qui la ferment : une
  * fusion survenue après le dernier changement d'état compte à partir d'elle.
  */
@@ -208,7 +215,12 @@ export function clotureDe(f: FaitsCloture): number | null {
   if (f.status === 'failed') return f.updatedAt;
   if (f.status !== 'done') return null;
   if (f.livraison?.etat === 'fusionnee') return Math.max(f.updatedAt, f.livraison.majA);
-  if (f.revue?.state === 'rejected') return Math.max(f.updatedAt, f.revue.updatedAt);
+  // Un rejet ne ferme que le résultat qu'il a JUGÉ. Seul `retryFromEvaluator`
+  // efface la revue en rouvrant la tâche ; une reprise par un autre chemin
+  // laisse la ligne `rejected` en place, et le nouveau résultat — plus récent
+  // que le rejet — attend encore un humain : le compter clos lui donnerait
+  // l'horloge des trente jours et la tête du plafond.
+  if (f.revue?.state === 'rejected' && f.revue.updatedAt >= f.updatedAt) return f.revue.updatedAt;
   if (f.rendueAUneAutre) return f.updatedAt;
   return null;
 }
@@ -228,12 +240,15 @@ export interface Retrait {
  * `null` si elle est vivante, l'instant de sa clôture sinon. `rangees` sont les
  * ids que leur propre borne tient déjà (décision courante d'un Conseil rangé,
  * verdict du corpus de l'Aiguillage) : ni la fenêtre ni le plafond n'y
- * touchent. `total` est le nombre de lignes du journal avant la passe.
+ * touchent. `dansLaFenetre` : les tâches qui ont AUSSI des preuves dans la
+ * fenêtre — le plafond ne les prend pas (voir plus bas). `total` est le nombre
+ * de lignes du journal avant la passe.
  */
 export function planDeRetention(
   lignes: readonly LigneJournal[],
   clotureDeTache: (taskId: string) => number | null | undefined,
   rangees: ReadonlySet<number>,
+  dansLaFenetre: ReadonlySet<string>,
   politique: PolitiqueJournal,
   total: number,
   now: number,
@@ -263,13 +278,25 @@ export function planDeRetention(
 
   let exces = total - retraits.length - politique.plafond;
   if (exces <= 0) return retraits;
+  // Une tâche qui a AUSSI des preuves dans la fenêtre n'est jamais prise : la
+  // fenêtre ne se touche pas, si bien que retirer ses preuves d'en dessous
+  // couperait son dossier en deux (la critique partie, la tentative en cours
+  // restée ; le lancement parti, le verdict resté) — exactement ce que le
+  // plafond promet de ne jamais faire. Elle est aussi, par construction, parmi
+  // les plus actives : ses preuves les plus récentes sont du direct. Compromis
+  // assumé : le plafond peut être dépassé des preuves d'en dessous de ces
+  // tâches-là ; elles redeviennent éligibles, entières, dès que leur dernière
+  // preuve quitte la fenêtre.
+  //
   // Closes d'abord, de la plus anciennement close à la plus récente ; puis les
   // vivantes, de la plus longtemps inactive (dernière preuve la plus ancienne)
-  // à la plus récente. Les lignes arrivent par id croissant : la dernière de
-  // chaque dossier est sa preuve la plus récente. Égalités tranchées par id de
+  // à la plus récente. Les lignes arrivent par id croissant, et aucune preuve
+  // de ces dossiers n'est dans la fenêtre : la dernière de chaque dossier est
+  // sa preuve la plus récente DE TOUT LE JOURNAL. Égalités tranchées par id de
   // tâche — une passe rejouée sur les mêmes faits retire la même chose.
   const derniere = (d: { ids: LigneJournal[] }): number => d.ids[d.ids.length - 1]?.id ?? 0;
-  const ordre = [...gardees.entries()].sort(([ta, a], [tb, b]) => {
+  const eligibles = [...gardees.entries()].filter(([taskId]) => !dansLaFenetre.has(taskId));
+  const ordre = eligibles.sort(([ta, a], [tb, b]) => {
     if ((a.cloture === null) !== (b.cloture === null)) return a.cloture === null ? 1 : -1;
     const parCloture = (a.cloture ?? 0) - (b.cloture ?? 0);
     const parActivite = derniere(a) - derniere(b);

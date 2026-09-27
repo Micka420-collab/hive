@@ -5527,8 +5527,14 @@ async function monterReine(
       }
       const lim = Math.min(40, Math.max(1, Number(req.query.limit) || 12));
       const pid = req.params.projectId;
+      // Les DERNIERS cycles, par type (`idx_events_type`) — jamais « les 800
+      // premiers depuis l'id 0 » : sous la fenêtre ne dorment plus que les
+      // preuves retenues des tâches, et `essaim_cycle`, une trace, n'y est
+      // jamais. Lu depuis 0, le panneau des cycles se vidait dès que 800
+      // preuves s'y accumulaient. Toute la fenêtre : un autre projet bavard
+      // ne doit pas masquer les cycles de celui-ci.
       const cycles = store
-        .listEvents(0, 800)
+        .evenementsParTypes(['essaim_cycle'], EVENT_RETENTION)
         .filter(
           (ev) =>
             ev.type === 'essaim_cycle' &&
@@ -12075,24 +12081,6 @@ async function monterReine(
         }
       }
 
-      // ─── LE JOURNAL A UN SEUL PROPRIÉTAIRE DE RÉTENTION ────────────────────
-      //
-      // Fenêtre pour les traces, vie de la tâche pour les preuves, plafond en
-      // dernier recours (`shared/retention-journal.ts`). À sa cadence, pas à
-      // chaque tick (`RETENTION_JOURNAL_LOT`). Une passe qui retire quelque
-      // chose le DIT — combien, de quoi, pourquoi : un journal qui perd des
-      // lignes sans le dire se lit comme une ruche qui n'a rien fait.
-      if (
-        store.lastEventId() - retentionJournalJusqua >= RETENTION_JOURNAL_LOT ||
-        maintenant - retentionJournalA >= RETENTION_JOURNAL_PERIODE_MS
-      ) {
-        const bilan = store.pruneEvents(POLITIQUE_JOURNAL, maintenant);
-        retentionJournalA = maintenant;
-        if (bilan.supprimes > 0) emitEvent('journal_elagage', payloadDeBilan(bilan));
-        // APRÈS l'événement : le récit de la passe ne compte pas dans le lot
-        // suivant, sans quoi chaque passe en appellerait une autre.
-        retentionJournalJusqua = store.lastEventId();
-      }
       store.pruneMemories(MEMORY_RETENTION);
       store.pruneResults(RESULT_RETENTION);
       store.pruneSauvegardes(SAUVEGARDES_RETENTION);
@@ -12141,6 +12129,30 @@ async function monterReine(
       store.pruneGardeFouEchelons();
       store.pruneGardeFouExigences();
       store.pruneConseils(CONSEILS_CONSERVES);
+      // ─── LE JOURNAL A UN SEUL PROPRIÉTAIRE DE RÉTENTION ────────────────────
+      //
+      // Fenêtre pour les traces, vie de la tâche pour les preuves, plafond en
+      // dernier recours (`shared/retention-journal.ts`). À sa cadence, pas à
+      // chaque tick (`RETENTION_JOURNAL_LOT`). Une passe qui retire quelque
+      // chose le DIT — combien, de quoi, pourquoi : un journal qui perd des
+      // lignes sans le dire se lit comme une ruche qui n'a rien fait.
+      //
+      // APRÈS `pruneTasks` et `pruneConseils` : une tâche que ce tick vient de
+      // supprimer n'a plus rien à prouver, ses preuves partent comme ORPHELINES
+      // — comptées plus tôt, elles seraient ÉCHUES, un motif qui dit au Genome
+      // qu'une tâche connue a perdu des faits (`faitsElagues`). Et un Conseil
+      // que ce tick vient d'élaguer ne protège plus sa décision (`faitsRanges`).
+      if (
+        store.lastEventId() - retentionJournalJusqua >= RETENTION_JOURNAL_LOT ||
+        maintenant - retentionJournalA >= RETENTION_JOURNAL_PERIODE_MS
+      ) {
+        const bilan = store.pruneEvents(POLITIQUE_JOURNAL, maintenant);
+        retentionJournalA = maintenant;
+        if (bilan.supprimes > 0) emitEvent('journal_elagage', payloadDeBilan(bilan));
+        // APRÈS l'événement : le récit de la passe ne compte pas dans le lot
+        // suivant, sans quoi chaque passe en appellerait une autre.
+        retentionJournalJusqua = store.lastEventId();
+      }
       // ─── LES TROIS BORNES QUI ÉTAIENT ÉCRITES ET PAS CÂBLÉES ───────────────
       //
       // `pruneAcces`, `prunePartages` et `pruneServeurs` existaient, documentés

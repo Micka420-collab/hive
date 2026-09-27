@@ -5852,6 +5852,7 @@ export class HiveStore {
         lignes,
         (taskId) => clotures.get(taskId),
         this.faitsRanges(),
+        this.tachesProuveesDansLaFenetre(cutoff),
         politique,
         this.countEvents(),
         now,
@@ -5879,6 +5880,24 @@ export class HiveStore {
       return bilanDeRetraits(retraits, this.countEvents());
     });
     return retenir.immediate();
+  }
+
+  /**
+   * Les tâches qui ont au moins une preuve AU-DESSUS de `cutoff` — dans la
+   * fenêtre, que la passe ne touche jamais. Le plafond ne les prend pas : il ne
+   * retirerait que la moitié de leur dossier (`planDeRetention`). La fenêtre
+   * est bornée (`fenetre` lignes) ; DISTINCT replie les milliers de progrès
+   * d'une même tâche en une ligne par type.
+   */
+  private tachesProuveesDansLaFenetre(cutoff: number): Set<string> {
+    const rows = this.db
+      .prepare(`SELECT DISTINCT type, ${TACHE_DE_L_EVENEMENT} AS taskId FROM events WHERE id > ?`)
+      .all(cutoff) as Array<{ type: string; taskId: unknown }>;
+    return new Set(
+      rows.flatMap((r) =>
+        typeof r.taskId === 'string' && r.taskId !== '' && estPreuve(r.type) ? [r.taskId] : [],
+      ),
+    );
   }
 
   /**
@@ -5991,7 +6010,12 @@ export class HiveStore {
    *
    * Vrai quand l'une de ces trois choses est vraie :
    *   · le registre compte un fait de ces types retiré pour un motif qui touche
-   *     une tâche connue (`MOTIFS_FAIT_CONNU` : échu, ou pris par le plafond) ;
+   *     une tâche connue (`MOTIFS_FAIT_CONNU` : échu, ou pris par le plafond), et
+   *     une tâche créée avant le DERNIER de ces retraits est toujours là. Une
+   *     tâche créée après n'a rien pu y perdre ; quand la dernière d'avant
+   *     disparaît (`pruneTasks`), l'aveu tombe avec elle — le Genome ignore déjà
+   *     les faits d'une tâche disparue. Sans ce lien, un seul fait échu
+   *     allumait « tronqué » pour toute la vie de la base ;
    *   · l'ancienne rétention a supprimé des lignes de types inconnus
    *     (`avant_registre`) et une tâche créée avant qu'on le constate est
    *     toujours là — ses faits ont pu partir avec ;
@@ -6007,8 +6031,10 @@ export class HiveStore {
     const row = this.db
       .prepare(
         `SELECT
-           EXISTS (SELECT 1 FROM journal_elagages
-                    WHERE type IN (${marques}) AND motif IN (${motifs})) AS connus,
+           EXISTS (SELECT 1 FROM tasks
+                    WHERE createdAt <= (SELECT MAX(dernierA) FROM journal_elagages
+                                         WHERE type IN (${marques})
+                                           AND motif IN (${motifs}))) AS connus,
            EXISTS (SELECT 1 FROM tasks
                     WHERE createdAt <= (SELECT dernierA FROM journal_elagages
                                          WHERE motif = 'avant_registre')) AS anciens,

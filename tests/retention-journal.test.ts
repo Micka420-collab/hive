@@ -94,6 +94,11 @@ describe('la clôture d’une tâche : quand la ruche n’a plus rien à en déc
       { revue: { state: 'rejected', updatedAt: 6_000 } },
       6_000,
     ],
+    [
+      'rejetée, puis rendue À NOUVEAU par une autre reprise — le nouveau résultat attend son humain',
+      { updatedAt: 7_000, revue: { state: 'rejected', updatedAt: 6_000 } },
+      null,
+    ],
     ['relecture ou enfant délégué rendu', { rendueAUneAutre: true }, 1_000],
     ['relecture encore en vol', { status: 'running', rendueAUneAutre: true }, null],
   ];
@@ -140,6 +145,7 @@ describe('le plan de rétention', () => {
       ],
       (id) => (clotures.has(id) ? clotures.get(id) : undefined),
       new Set(),
+      new Set(),
       politique(),
       7,
       T0,
@@ -158,6 +164,7 @@ describe('le plan de rétention', () => {
       [l(1, 'council_decided'), l(2, 'task_done', 'vivante'), l(3, 'task_done', 'vivante')],
       () => null,
       new Set([1]),
+      new Set(),
       politique({ plafond: 0 }),
       3,
       T0,
@@ -185,7 +192,15 @@ describe('le plan de rétention', () => {
       l(7, 'task_assigned', 'vivante-active'),
     ];
     const lire = (plafond: number): Retrait[] =>
-      planDeRetention(lignes, (id) => clotures.get(id), new Set(), politique({ plafond }), 7, T0);
+      planDeRetention(
+        lignes,
+        (id) => clotures.get(id),
+        new Set(),
+        new Set(),
+        politique({ plafond }),
+        7,
+        T0,
+      );
 
     // Un excès d'UNE ligne retire quand même toute la tâche close la plus
     // ancienne — jamais la moitié d'un dossier.
@@ -217,7 +232,15 @@ describe('le plan de rétention', () => {
       ...Array.from({ length: 6 }, (_, i) => l(i + 1, 'task_progress')),
       ...Array.from({ length: 4 }, (_, i) => l(i + 7, 'task_done', 'vivante')),
     ];
-    const plan = planDeRetention(lignes, () => null, new Set(), politique({ plafond: 4 }), 10, T0);
+    const plan = planDeRetention(
+      lignes,
+      () => null,
+      new Set(),
+      new Set(),
+      politique({ plafond: 4 }),
+      10,
+      T0,
+    );
     expect(plan.every((r) => r.motif === 'trace')).toBe(true);
     expect(plan).toHaveLength(6);
   });
@@ -441,6 +464,58 @@ describe('HiveStore.pruneEvents — le propriétaire unique', () => {
     expect(store.faitsElagues(TYPES_REGISTRE_GENOME)).toBe(true);
   });
 
+  it('LE PLAFOND NE COUPE JAMAIS UN DOSSIER : une tâche qui a des preuves dans la fenêtre n’est pas prise, et l’inactivité se lit sur tout le journal', () => {
+    ouvrir();
+    const p = store.createProject({ name: 'P' });
+    const active = store.createTask({ projectId: p.id, title: 'A', prompt: 'p' }, T0);
+    const endormie = store.createTask({ projectId: p.id, title: 'B', prompt: 'p' }, T0);
+    // L'active : une vieille critique sous la fenêtre, sa tentative en cours DEDANS.
+    store.appendEvent('task_retry', { taskId: active.id, source: 'evaluator' }, T0);
+    store.appendEvent('task_assigned', { taskId: endormie.id, nodeId: 'n' }, T0);
+    store.appendEvent('task_done', { taskId: endormie.id, nodeId: 'n' }, T0);
+    bavarder(3);
+    store.appendEvent('task_assigned', { taskId: active.id, nodeId: 'n' }, T0);
+    store.appendEvent('task_started', { taskId: active.id, nodeId: 'n' }, T0);
+    bavarder(3);
+
+    // 11 lignes, fenêtre 5 : trois traces partent, il en reste 8 pour un plafond de 7.
+    const bilan = store.pruneEvents(politique({ plafond: 7 }), T0);
+    expect(bilan.tachesPlafond).toEqual([endormie.id]);
+    expect(bilan.parMotif).toMatchObject({ trace: 3, plafond_vivante: 2 });
+    // La critique de l'active est restée avec sa tentative.
+    expect(typesRestants()).toEqual([
+      'task_retry',
+      'task_assigned',
+      'task_started',
+      ...Array(3).fill('task_progress'),
+    ]);
+
+    // Même un plafond nul ne prend que la moitié d'aucun dossier.
+    expect(store.pruneEvents(politique({ plafond: 0 }), T0).supprimes).toBe(0);
+    expect(typesRestants()[0]).toBe('task_retry');
+  });
+
+  it('L’AVEU « FAITS PERDUS » TOMBE QUAND LA DERNIÈRE TÂCHE QUI A PU LES PERDRE DISPARAÎT', () => {
+    ouvrir();
+    const p = store.createProject({ name: 'P' });
+    const ancienne = store.createTask({ projectId: p.id, title: 'A', prompt: 'p' }, T0);
+    const suite = store.createTask(
+      { projectId: p.id, title: 'B', prompt: 'p', dependsOn: [ancienne.id] },
+      T0,
+    );
+    store.patchTask(ancienne.id, { status: 'failed' }, T0);
+    store.appendEvent('task_failed', { taskId: ancienne.id, nodeId: 'n' }, T0);
+    bavarder(10);
+    expect(store.pruneEvents(politique(), T0 + 31 * JOUR).parMotif.echue).toBe(1);
+    expect(store.faitsElagues(TYPES_REGISTRE_GENOME)).toBe(true);
+
+    // Une tâche créée APRÈS le retrait n'a rien pu y perdre.
+    store.createTask({ projectId: p.id, title: 'Neuve', prompt: 'p' }, T0 + 32 * JOUR);
+    store.patchTask(suite.id, { status: 'failed' }, T0);
+    expect(store.pruneTasks(TRENTE_JOURS_MS, T0 + 32 * JOUR)).toBe(2);
+    expect(store.faitsElagues(TYPES_REGISTRE_GENOME)).toBe(false);
+  });
+
   it('LES FAITS RANGÉS SURVIVENT À L’ÉCHÉANCE ET AU PLAFOND : décision de Conseil, verdict du corpus de l’Aiguillage', () => {
     ouvrir();
     const p = store.createProject({ name: 'P' });
@@ -545,6 +620,12 @@ describe('une base écrite par la version précédente', () => {
       );
       for (let i = 0; i < 10; i++) inserer.run(T0, JSON.stringify({ taskId: 'd-avant', i }));
       ancienne.exec('DELETE FROM events WHERE id <= 6');
+      // Un payload ILLISIBLE, écrit par une version qui ne le validait pas :
+      // l'index par tâche et la passe de rétention doivent le lire comme une
+      // trace, pas faire tomber l'ouverture de la base.
+      ancienne
+        .prepare("INSERT INTO events (ts, type, payload) VALUES (?, 'task_done', ?)")
+        .run(T0, '{not json');
       ancienne.close();
 
       const avant = Date.now();
@@ -571,6 +652,14 @@ describe('une base écrite par la version précédente', () => {
         // Les six perdus avaient un type inconnu, et la tâche d'avant est là :
         // ses faits ont pu partir avec.
         expect(store.faitsElagues(TYPES_REGISTRE_GENOME)).toBe(true);
+        expect(store.countEvents()).toBe(5);
+        // La passe relit le payload illisible sans tomber : une trace, comptée.
+        const bilan = store.pruneEvents(
+          { fenetre: 0, preuvesClosesMs: TRENTE_JOURS_MS, plafond: 1_000_000 },
+          T0,
+        );
+        expect(bilan.parType).toEqual({ task_done: 1 });
+        expect(bilan.parMotif.trace).toBe(1);
         expect(store.countEvents()).toBe(4);
       } finally {
         store.close();
@@ -579,7 +668,7 @@ describe('une base écrite par la version précédente', () => {
       // Réouverture : rien n'est réamorcé, rien n'est compté deux fois.
       store = new HiveStore(chemin);
       try {
-        expect(registre(chemin)).toHaveLength(1);
+        expect(registre(chemin)).toHaveLength(2);
         expect(registre(chemin)[0]?.supprimes).toBe(6);
         // Une tâche créée après n'a rien pu perdre à l'ancienne rétention…
         store.createTask({ projectId: 'p', title: 'Après', prompt: 'p' }, Date.now() + 1_000);
@@ -725,5 +814,38 @@ describe('au tick de la Reine, une production garde ses preuves sous le bavardag
       parMotif: { trace: expect.any(Number), plafond_vivante: 0 },
       parType: { task_progress: expect.any(Number) },
     });
+  });
+
+  it('LES CYCLES DE L’ESSAIM SE LISENT AU DIRECT, PAS SOUS LES PREUVES RETENUES D’EN DESSOUS', async () => {
+    dossier = mkdtempSync(path.join(os.tmpdir(), 'hive-retention-cycles-'));
+    serveur = await createServer({
+      port: 0,
+      host: '127.0.0.1',
+      token: JETON,
+      corsOrigins: ['http://localhost:5173'],
+      dbPath: path.join(dossier, 'hive.db'),
+      simulation: true,
+      tickMs: 60_000,
+    });
+    const s = serveur;
+    const p = s.store.createProject({ name: 'P' });
+    const ouverte = s.store.createTask({ projectId: p.id, title: 'Ouverte', prompt: 'p' });
+    // Plus de preuves retenues qu'une lecture « depuis l'id 0 » n'en prenait
+    // (800), puis trois cycles, puis du direct.
+    s.store.enTransaction(() => {
+      for (let i = 0; i < 900; i++) s.store.appendEvent('task_requeued', { taskId: ouverte.id, i });
+      for (let n = 1; n <= 3; n++) s.store.appendEvent('essaim_cycle', { projectId: p.id, n });
+      s.store.appendEvent('essaim_cycle', { projectId: 'autre', n: 99 });
+      for (let i = 0; i < 10; i++) s.store.appendEvent('task_progress', { i });
+    });
+    s.store.pruneEvents({ fenetre: 50, preuvesClosesMs: TRENTE_JOURS_MS, plafond: 1_000_000 });
+    expect(s.store.countEvents(), 'les preuves de la tâche ouverte restent').toBeGreaterThan(900);
+
+    const r = await fetch(`http://127.0.0.1:${s.port}/api/projects/${p.id}/essaim/cycles`, {
+      headers: { 'x-hive-token': JETON },
+    });
+    expect(r.status).toBe(200);
+    const { cycles } = (await r.json()) as { cycles: Array<{ n: number }> };
+    expect(cycles.map((c) => c.n)).toEqual([3, 2, 1]);
   });
 });

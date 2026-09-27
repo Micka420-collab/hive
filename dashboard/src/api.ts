@@ -2231,9 +2231,11 @@ export interface FeedHandlers {
   ) => void;
   /**
    * Le rattrapage a trouvé un TROU : `manquants` événements émis pendant la
-   * coupure étaient déjà élagués par la Reine (elle ne garde que ses derniers
-   * événements). Le trou ne se comble plus ; il se DIT, pour que le Journal ne
-   * passe pas pour complet.
+   * coupure étaient déjà élagués par la Reine — sa rétention garde une fenêtre
+   * des derniers événements pour les traces, et sous elle les seules preuves
+   * des tâches qui comptent encore (`shared/retention-journal.ts`) : un curseur
+   * ancien traverse donc des preuves éparses, séparées de trous. Le trou ne se
+   * comble plus ; il se DIT, pour que le Journal ne passe pas pour complet.
    */
   onJournalIncomplet?: (manquants: number) => void;
 }
