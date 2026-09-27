@@ -84,7 +84,11 @@ import {
   peutRejoindre,
   peutVoirMembres,
 } from '../shared/acces-projet.js';
-import { CONSENTEMENT_POUSSEE } from '../shared/livraison-locale.js';
+import {
+  CONSENTEMENT_POUSSEE,
+  PREFIXE_BRANCHE_MISSION,
+  numeroSuivant,
+} from '../shared/livraison-locale.js';
 import type { ProvenanceTache, RapportLivraisonLocale } from '../shared/livraison-locale.js';
 import { argvDe, chantiersDe, jugerChantier } from '../shared/chantier.js';
 import { Miroir, RayonIndisponible } from './miroir.js';
@@ -1728,9 +1732,23 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     });
   }
 
-  /** Faits communs au GET d'évaluation et à la remise en file contrôlée. */
-  const evaluationPour = (task: Task) => {
-    const results = store.resultsForTask(task.id);
+  /**
+   * Faits communs au GET d'évaluation et à la remise en file contrôlée.
+   *
+   * `jugee` : le résultat EXACT à juger, quand ce n'est pas forcément le
+   * dernier. La livraison locale intègre la dernière production RÉUSSIE ; si
+   * un essai raté l'a suivie (un concurrent de Drone Wars qui rend après le
+   * vainqueur), juger « la dernière » ferait décider la porte sur une
+   * production et en livrer une autre, sous un `Hive-Result` qui ne serait pas
+   * celui jugé. On juge alors l'historique tel qu'il était à cette production
+   * — ses preuves (CI, contre-revue, Gardiennes) sont rangées par `resultId`,
+   * elles la suivent. Introuvable : on juge tout, et l'appelant, qui compare
+   * `latest.resultId`, voit que ce n'est pas celle qu'il demandait.
+   */
+  const evaluationPour = (task: Task, jugee?: number) => {
+    const tous = store.resultsForTask(task.id);
+    const jusqua = jugee === undefined ? -1 : tous.findIndex((r) => r.resultId === jugee);
+    const results = jusqua === -1 ? tous : tous.slice(0, jusqua + 1);
     const latest = results[results.length - 1];
     const ci = latest?.resultId ? store.latestCiValidation(task.id, latest.resultId) : null;
     const crossReview = latest
@@ -6578,6 +6596,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     pousser: boolean;
     provenance: ProvenanceTache[];
     forcage?: string;
+    numeroMin: number;
   }
 
   /**
@@ -6685,6 +6704,43 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     corps: CorpsMerge,
     livraison?: DemandeLivraisonMission,
   ): RefusMerge | { mergeId: string; nodeId: string; nodeName: string } => {
+    // ─── UNE LIVRAISON NE PARTAGE PAS SON PROJET ────────────────────────────
+    // `/merge/result` garde UN résultat par projet. Un merge d'essai qui
+    // finirait après une livraison écraserait son rapport : l'écran et la CLI,
+    // qui attendent LEUR `mergeId`, ne verraient jamais la branche et
+    // concluraient « pas de résultat » au bout de dix minutes — elle ne
+    // survivrait qu'au journal. Et deux livraisons concurrentes prendraient
+    // le même numéro. Une livraison attend donc que son projet soit libre, et
+    // le projet l'attend. Deux merges d'essai, eux, cohabitent comme avant.
+    for (const enCours of pendingMerges.values()) {
+      if (enCours.projectId !== project.id) continue;
+      if (enCours.livraison) {
+        return {
+          refus: {
+            code: 409,
+            corps: {
+              code: 'livraison_en_cours',
+              error: 'une livraison de cette mission est déjà en cours sur un nœud',
+              conseil: 'Attendez son résultat (/merge/result), puis relancez si besoin.',
+            },
+          },
+        };
+      }
+      if (livraison) {
+        return {
+          refus: {
+            code: 409,
+            corps: {
+              code: 'merge_en_cours',
+              error: 'un merge de cette mission est en cours sur un nœud',
+              conseil:
+                'Attendez son résultat (/merge/result) : son rapport écraserait celui de la ' +
+                'livraison. Relancez la livraison ensuite.',
+            },
+          },
+        };
+      }
+    }
     const disponibles = store
       .listNodes()
       .filter(
@@ -6734,6 +6790,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
               pousser: livraison.pousser,
               provenance: livraison.provenance,
               ...(livraison.forcage ? { forcage: livraison.forcage } : {}),
+              numeroMin: livraison.numeroMin,
             },
           }
         : {}),
@@ -6797,11 +6854,12 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   //
   //   1. RÉPONDRE DU PROJET (`proprieteProjetPermise`) : livrer décide du sort
   //      du travail — un membre y ajoute des tâches, il ne dit pas « oui ».
-  //   2. L'EVALUATOR, tâche par tâche : `correction_required` ou `rejected` sur
-  //      UNE tâche arrête la mission, sauf forçage signé d'une raison — la même
-  //      règle que la livraison GitHub. Le forçage est journalisé
-  //      (`evaluator_overridden`) quand le merge part, pas avant : un forçage
-  //      refusé ensuite (aucun nœud) n'a rien forcé.
+  //   2. L'EVALUATOR, tâche par tâche, sur la production EXACTE intégrée :
+  //      `correction_required` ou `rejected` sur UNE tâche arrête la mission,
+  //      sauf forçage signé d'une raison — la même règle que la livraison
+  //      GitHub. Le forçage est journalisé (`evaluator_overridden`) quand le
+  //      merge part, pas avant : un forçage refusé ensuite (aucun nœud) n'a
+  //      rien forcé.
   //   3. POUSSER est une option, jamais un défaut. Elle exige de parler au nom
   //      de l'hôte (jeton de ruche ou administrateur), et un nœud dont
   //      l'opérateur a consenti à écrire avec ses identifiants.
@@ -6860,34 +6918,30 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           conseil: 'Donnez-lui l’adresse de son dépôt git — GitLab, Gitea, un dépôt nu, GitHub.',
         });
       }
-      // UNE livraison à la fois par projet : deux merges concurrents
-      // prendraient le même numéro de branche, et le second échouerait tard.
-      for (const pending of pendingMerges.values()) {
-        if (pending.projectId === project.id && pending.livraison) {
-          return reply.code(409).send({
-            code: 'livraison_en_cours',
-            error: 'une livraison de cette mission est déjà en cours sur un nœud',
-            conseil: 'Attendez son résultat (/merge/result), puis relancez si besoin.',
-          });
-        }
-      }
       const integration = aIntegrer(project, req.body);
       if ('refus' in integration) {
         return reply.code(integration.refus.code).send(integration.refus.corps);
       }
 
       // L'EVALUATOR, lu MAINTENANT : la CI, une contre-revue ou une revue
-      // humaine arrivées depuis le merge d'essai comptent.
+      // humaine arrivées depuis le merge d'essai comptent. Et il juge la
+      // production EXACTE qu'on intègre — celle dont le `resultId` part dans
+      // `Hive-Result` et dans `evaluator_overridden` : la porte, le commit et
+      // le journal nomment la même.
       const verdicts = integration.diffs.map((d) => {
         const task = store.getTask(d.taskId);
-        const { latest, evaluation } = task
-          ? evaluationPour(task)
-          : { latest: undefined, evaluation: null };
+        const integre = integration.resultIds.get(d.taskId) ?? null;
+        const juge = task && integre !== null ? evaluationPour(task, integre) : null;
+        // Un verdict rendu sur une AUTRE production ne dit rien de celle-ci :
+        // inconnu, donc bloquant — un inconnu ne devient pas un « oui ».
+        const evaluation = juge?.latest?.resultId === integre ? juge.evaluation : null;
         return {
           taskId: d.taskId,
           decision: evaluation?.decision ?? null,
-          raisons: evaluation?.reasons ?? ['la tâche n’existe plus'],
-          resultId: latest?.resultId ?? null,
+          raisons: evaluation?.reasons ?? [
+            task ? 'l’Evaluator n’a pas pu juger la production intégrée' : 'la tâche n’existe plus',
+          ],
+          resultId: integre,
         };
       });
       const arrets = verdicts.filter(
@@ -6913,10 +6967,16 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         pousser,
         provenance: verdicts.map((v) => ({
           taskId: v.taskId,
-          resultId: integration.resultIds.get(v.taskId) ?? null,
+          resultId: v.resultId,
           decision: v.decision ?? 'inconnu',
         })),
         ...(arrets.length > 0 && req.body.forcer ? { forcage: req.body.forcer.raison } : {}),
+        // Le plancher du journal (`DemandeLivraisonLocale.numeroMin`) : les
+        // branches gardées sur d'AUTRES ouvrières ne se voient que d'ici.
+        numeroMin: numeroSuivant(
+          project.id,
+          store.branchesDeMissionJournalisees(`${PREFIXE_BRANCHE_MISSION}${project.id}-`),
+        ),
       });
       if ('refus' in confie) return reply.code(confie.refus.code).send(confie.refus.corps);
       // Le forçage s'écrit ICI : le merge est parti, la livraison aura lieu

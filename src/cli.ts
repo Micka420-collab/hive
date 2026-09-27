@@ -12,7 +12,7 @@
 //   npm run cli -- events [sinceId]                   journal d'événements
 //   npm run cli -- merge <projectId>                  plan d'intégration (Honeycomb Merge)
 //   npm run cli -- merge-run <projectId> [cmd test…]  exécuter réellement le merge sur un nœud
-//   npm run cli -- livrer-local <projectId> [--pousser] [cmd test…]
+//   npm run cli -- livrer-local <projectId> [--pousser] [--forcer="raison"] [cmd test…]
 //                                                     commiter la mission sur hive/mission-<id>-<n>
 //   npm run cli -- replay [sinceId]                   time-lapse (rejeu du journal)
 //   npm run cli -- waggle                             classement des contributeurs (nectar)

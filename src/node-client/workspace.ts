@@ -109,6 +109,14 @@ export function envTransportGit(): NodeJS.ProcessEnv {
     SYSTEMDRIVE: process.env.SYSTEMDRIVE,
     GIT_ALLOW_PROTOCOL: 'http:https:git:ssh:file',
     GIT_TERMINAL_PROMPT: '0',
+    // `GIT_TERMINAL_PROMPT` ne gouverne que l'invite du TERMINAL. Sous
+    // Windows, Git Credential Manager ne la lit pas et attend sur sa propre
+    // fenêtre, indéfiniment — le miroir l'a mesuré au plafond près
+    // (`orchestrator/miroir.ts`). Ici, c'est plus grave qu'une requête lente :
+    // un dépôt public se clone sans identifiants, et c'est souvent la POUSSÉE
+    // d'une livraison qui les demande la première. Sans cette ligne, elle
+    // figerait le job de merge et son clone, que rien ne libérerait.
+    GCM_INTERACTIVE: 'Never',
   };
 }
 

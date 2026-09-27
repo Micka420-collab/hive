@@ -2,7 +2,7 @@
 // Chaque message entrant est validé champ par champ — jamais de confiance aveugle.
 
 import { nomDeChantierValide } from './chantier.js';
-import { MOTIF_BRANCHE_MISSION } from './livraison-locale.js';
+import { MOTIF_BRANCHE_MISSION, NUMERO_MAX_MISSION } from './livraison-locale.js';
 import type {
   DemandeLivraisonLocale,
   EtatPoussee,
@@ -789,7 +789,8 @@ function demandeLivraison(v: unknown): DemandeLivraisonLocale | null {
     d.provenance.length === 0 ||
     d.provenance.length > LIMITS.mergeDiffs ||
     !d.provenance.every(isProvenance) ||
-    (d.forcage !== undefined && !isStr(d.forcage, 500))
+    (d.forcage !== undefined && !isStr(d.forcage, 500)) ||
+    (d.numeroMin !== undefined && !isInt(d.numeroMin, 1, NUMERO_MAX_MISSION))
   ) {
     return null;
   }
@@ -803,6 +804,7 @@ function demandeLivraison(v: unknown): DemandeLivraisonLocale | null {
     })),
   };
   if (typeof d.forcage === 'string') demande.forcage = d.forcage;
+  if (typeof d.numeroMin === 'number') demande.numeroMin = d.numeroMin;
   return demande;
 }
 

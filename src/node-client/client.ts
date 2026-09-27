@@ -1401,6 +1401,9 @@ export class HiveNodeClient {
           ? {
               livraison: {
                 demande: msg.livraison,
+                // L'adresse validée par le protocole, celle qu'on vient de
+                // cloner : la seule vers laquelle la livraison liste et pousse.
+                depotProjet: msg.repoUrl,
                 depotLocal: this.depotDeLivraisons(msg.livraison.projectId),
                 pousseeConsentie: this.pousseLivraisons(),
                 envTransport: envTransportGit(),

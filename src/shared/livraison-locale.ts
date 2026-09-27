@@ -55,8 +55,10 @@ export interface ProvenanceTache {
  * La demande de livraison que le hub joint à un merge (`assign_merge.livraison`).
  *
  * Elle ne porte NI nom de branche NI commande : le nœud compose le nom depuis
- * `projectId`, et pousse vers le dépôt qu'il vient de cloner. Un hub compromis
- * peut demander une livraison ; il ne peut pas désigner une autre référence.
+ * `projectId`, et pousse vers le `repoUrl` du même message — celui qu'il a
+ * cloné, validé par le protocole —, jamais vers ce que la configuration du
+ * clone dirait après les tests. Un hub compromis peut demander une livraison ;
+ * il ne peut pas désigner une autre référence.
  */
 export interface DemandeLivraisonLocale {
   projectId: string;
@@ -66,6 +68,17 @@ export interface DemandeLivraisonLocale {
   provenance: ProvenanceTache[];
   /** Raison d'un forçage de l'Evaluator, journalisée côté hub et portée par le commit. */
   forcage?: string;
+  /**
+   * Le plus petit numéro de livraison encore libre SELON LE JOURNAL du hub.
+   *
+   * Une ouvrière ne voit que ses propres branches et celles du dépôt distant :
+   * une livraison GARDÉE, non poussée, sur une autre ouvrière lui est
+   * invisible — et deux `hive/mission-p-1` différentes finiraient par exister.
+   * Le hub journalise chaque branche commitée (`livraison_locale`) : il connaît
+   * les numéros pris ailleurs. Un plancher, pas un ordre — le nœud prend le
+   * plus grand de ce plancher, de ses branches et de celles du dépôt.
+   */
+  numeroMin?: number;
 }
 
 /** Ce que la poussée est devenue. */
@@ -135,6 +148,9 @@ export function numeroSuivant(projectId: string, branches: readonly string[]): n
 /** Forme d'un nom de branche de mission, quel que soit le projet (validation de transport). */
 export const MOTIF_BRANCHE_MISSION = /^hive\/mission-[A-Za-z0-9_-]{1,64}-[1-9]\d{0,8}$/;
 
+/** Le plus grand numéro que ce motif (neuf chiffres) laisse passer. */
+export const NUMERO_MAX_MISSION = 999_999_999;
+
 /** Ce que les tests ont dit du tree commité — il n'y a que deux cas où l'on commite. */
 export type TestsLivres = { lances: false } | { lances: true; commande: readonly string[] };
 
@@ -203,7 +219,7 @@ export function pousseeConsentie(env: NodeJS.ProcessEnv): boolean {
 }
 
 /**
- * Découpe `livrer-local <projectId> [--pousser] [--forcer="raison"] [cmd…]`.
+ * Découpe `livrer-local <projectId> [--pousser] [--forcer="raison"] [--] [cmd…]`.
  *
  * Les deux options se lisent EN TÊTE, et seulement là : ce qui suit est une
  * commande de merge (`--preparer npm ci --tester npm test`), dont un argument
@@ -226,6 +242,13 @@ export function decouperLivraisonArgv(queue: readonly string[]): {
     if (a === '--pousser') {
       pousser = true;
       continue;
+    }
+    // `--` FERME les options, comme partout ailleurs. `npm run cli -- … --
+    // npm test` le transmet tel quel : laissé en tête de la commande de test,
+    // le hub la refuserait (« commence par un tiret ») pour un geste correct.
+    if (a === '--') {
+      i++;
+      break;
     }
     if (a !== '--forcer' && !a.startsWith('--forcer=')) break;
     raison = a === '--forcer' ? queue[++i] : a.slice('--forcer='.length);

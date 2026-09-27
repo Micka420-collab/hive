@@ -125,6 +125,20 @@ describe('la CLI : livrer-local <projectId> [--pousser] [--forcer="…"] [cmd…
     });
   });
 
+  it('`--` ferme les options, comme partout — il n’entre pas dans la commande', () => {
+    // `npm run cli -- livrer-local p --pousser -- npm test` : npm transmet le
+    // second `--`. Laissé en tête, il ferait refuser la commande de test.
+    expect(decouperLivraisonArgv(['--pousser', '--', 'npm', 'test'])).toEqual({
+      pousser: true,
+      reste: ['npm', 'test'],
+    });
+    // Après lui, même `--pousser` appartient à la commande.
+    expect(decouperLivraisonArgv(['--', '--pousser'])).toEqual({
+      pousser: false,
+      reste: ['--pousser'],
+    });
+  });
+
   it('une option APRÈS la commande appartient à la commande', () => {
     expect(decouperLivraisonArgv(['npm', 'test', '--pousser'])).toEqual({
       pousser: false,
@@ -165,10 +179,10 @@ describe('le transport : reconstruit, ou refusé', () => {
     );
 
   it('une demande bien formée arrive telle quelle, sans champ glissé', () => {
-    const msg = assign({ ...DEMANDE, forcage: 'relu', branche: 'main' });
+    const msg = assign({ ...DEMANDE, forcage: 'relu', numeroMin: 4, branche: 'main' });
     expect(msg?.type).toBe('assign_merge');
     if (msg?.type !== 'assign_merge') return;
-    expect(msg.livraison).toEqual({ ...DEMANDE, forcage: 'relu' });
+    expect(msg.livraison).toEqual({ ...DEMANDE, forcage: 'relu', numeroMin: 4 });
     // Le hub ne désigne JAMAIS une branche : un champ en trop est oublié.
     expect(msg.livraison).not.toHaveProperty('branche');
   });
@@ -181,6 +195,10 @@ describe('le transport : reconstruit, ou refusé', () => {
       { ...DEMANDE, provenance: [{ taskId: 'ta', resultId: -1, decision: 'accepted' }] },
       { ...DEMANDE, provenance: [{ taskId: 'ta', resultId: 1, decision: 'Accepté !' }] },
       { ...DEMANDE, forcage: '' },
+      { ...DEMANDE, numeroMin: 0 },
+      { ...DEMANDE, numeroMin: 1.5 },
+      { ...DEMANDE, numeroMin: '3' },
+      { ...DEMANDE, numeroMin: 1_000_000_000 },
     ]) {
       expect(assign(mauvaise), JSON.stringify(mauvaise)).toBeNull();
     }

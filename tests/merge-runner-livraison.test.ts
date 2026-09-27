@@ -11,7 +11,10 @@
 //   · son numéro ne reprend ni une branche d'ici, ni une branche de là-bas ;
 //   · pousser exige la demande ET le consentement du nœud, et un refus du
 //     dépôt distant remonte lavé de ses identifiants ;
-//   · un conflit ou des tests rouges ne livrent RIEN, et le disent.
+//   · un conflit, une préparation en échec ou des tests rouges ne livrent
+//     RIEN, et le disent ;
+//   · ce que le code testé écrit dans le `.git` du clone ne gouverne AUCUNE
+//     commande de l'hôte : ni la destination, ni le parent, ni un crochet.
 
 import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
@@ -91,8 +94,10 @@ interface Essai {
   diffs: MergeDiff[];
   pousser?: boolean;
   consentie?: boolean;
+  prepareCommand?: string[];
   testCommand?: string[];
   forcage?: string;
+  numeroMin?: number;
   depotLocal?: string;
   url?: string;
 }
@@ -100,7 +105,8 @@ interface Essai {
 /** Un merge avec livraison, depuis un clone SUPERFICIEL frais — comme un nœud. */
 async function livrer(e: Essai) {
   const clone = path.join(racine, 'merges', `m${++compteur}`);
-  await cloneRepo(clone, e.url ?? pathToFileURL(origine).href);
+  const url = e.url ?? pathToFileURL(origine).href;
+  await cloneRepo(clone, url);
   const demande: DemandeLivraisonLocale = {
     projectId: e.projectId,
     pousser: e.pousser ?? false,
@@ -110,14 +116,17 @@ async function livrer(e: Essai) {
       decision: 'accepted',
     })),
     ...(e.forcage ? { forcage: e.forcage } : {}),
+    ...(e.numeroMin ? { numeroMin: e.numeroMin } : {}),
   };
   const depotLocal = e.depotLocal ?? path.join(racine, 'livraisons', `${e.projectId}.git`);
   const res = await runMerge({
     repoDir: clone,
     diffs: e.diffs,
+    ...(e.prepareCommand ? { prepareCommand: e.prepareCommand } : {}),
     ...(e.testCommand ? { testCommand: e.testCommand } : {}),
     livraison: {
       demande,
+      depotProjet: url,
       depotLocal,
       pousseeConsentie: e.consentie ?? false,
       envTransport: envTransportGit(),
@@ -215,6 +224,75 @@ describe('la livraison d’une mission (git réel, clone superficiel)', () => {
     expect(res.livraison).toMatchObject({ etat: 'commitee', branche: 'hive/mission-num-8' });
   });
 
+  it('prend le plancher du hub quand il dépasse ce que ce nœud et le dépôt connaissent', async () => {
+    // Une livraison n°4 GARDÉE sur une autre ouvrière : ni ce nœud ni le dépôt
+    // ne la voient ; seul le journal du hub la connaît.
+    const premiere = await livrer({
+      projectId: 'plancher',
+      diffs: [{ taskId: 'ta', diff: patchA }],
+      numeroMin: 5,
+    });
+    expect(premiere.res.livraison).toMatchObject({ branche: 'hive/mission-plancher-5' });
+    // Un plancher PLUS BAS ne fait pas reculer : le n°5 est ici.
+    const seconde = await livrer({
+      projectId: 'plancher',
+      diffs: [{ taskId: 'ta', diff: patchA }],
+      numeroMin: 2,
+    });
+    expect(seconde.res.livraison).toMatchObject({ branche: 'hive/mission-plancher-6' });
+  });
+
+  it('ce que le code testé écrit dans `.git` ne gouverne AUCUNE commande de l’hôte', async () => {
+    // La préparation et les tests tournent DANS le clone, `.git` compris — et
+    // sous bac à sable, c'est même le seul chemin qu'ils peuvent écrire. Ce
+    // test-ci pose les trois pièges d'une relecture : il détourne `origin` vers
+    // un autre dépôt (qui ACCEPTERAIT la poussée), avance HEAD sur un commit à
+    // lui, et arme un crochet qui se déclenche à la moindre création de
+    // référence. Un git lancé dans le clone après lui tomberait dans les trois.
+    const autre = path.join(racine, 'autre-destination.git');
+    await simpleGit().raw(['clone', '--bare', '--quiet', origine, autre]);
+    const marqueur = path.join(racine, 'crochet-execute.txt').replaceAll('\\', '/');
+    const piege = [
+      "const { execFileSync } = require('child_process');",
+      "const fs = require('fs');",
+      "const g = (...a) => execFileSync('git', ['-c', 'user.name=piege', '-c', " +
+        "'user.email=piege@piege.invalid', '-c', 'commit.gpgsign=false', ...a]);",
+      `g('remote', 'set-url', 'origin', ${JSON.stringify(autre)});`,
+      "g('commit', '-q', '--allow-empty', '-m', 'parent choisi par le code teste');",
+      `fs.writeFileSync('.git/hooks/reference-transaction', ${JSON.stringify(
+        `#!/bin/sh\necho execute >> "${marqueur}"\n`,
+      )}, { mode: 0o755 });`,
+    ].join('\n');
+    const { res, depotLocal, clone } = await livrer({
+      projectId: 'piege',
+      diffs: [{ taskId: 'ta', diff: patchA }],
+      pousser: true,
+      consentie: true,
+      testCommand: ['node', '-e', piege],
+    });
+    expect(res.testsPassed, res.logs).toBe(true);
+    expect(res.livraison, res.logs).toMatchObject({ etat: 'commitee', poussee: 'poussee' });
+    if (res.livraison?.etat !== 'commitee') throw new Error(res.logs);
+    // La poussée est arrivée dans le dépôt DU PROJET — pas là où `origin` pointe.
+    expect((await git(origine).raw(['rev-parse', res.livraison.branche])).trim()).toBe(
+      res.livraison.commit,
+    );
+    expect(await git(autre).raw(['for-each-ref', '--format=%(refname)'])).not.toContain(
+      res.livraison.branche,
+    );
+    // Le parent est la base CLONÉE, pas le commit que le test a posé.
+    const parent = (await git(depotLocal).raw(['rev-parse', `${res.livraison.commit}^`])).trim();
+    expect(parent).toBe((await git(origine).raw(['rev-parse', 'HEAD'])).trim());
+    // Le dépôt durable ne garde pas l'adresse détournée : un `git push origin`
+    // tapé à la main plus tard irait au bon endroit.
+    expect((await git(depotLocal).raw(['config', 'remote.origin.url'])).trim()).toBe(
+      pathToFileURL(origine).href,
+    );
+    // Et le crochet n'a JAMAIS tourné : aucune commande n'a touché le clone après.
+    expect(existsSync(marqueur)).toBe(false);
+    expect(existsSync(`${clone}.livraison.git`)).toBe(false);
+  });
+
   it('ne pousse pas sans le consentement du nœud — et dit comment l’accorder', async () => {
     const { res, depotLocal } = await livrer({
       projectId: 'sans-consentement',
@@ -296,6 +374,29 @@ describe('la livraison d’une mission (git réel, clone superficiel)', () => {
     expect(existsSync(depotLocal)).toBe(false);
   });
 
+  it('une préparation en échec ne livre rien : des tests non lancés ne valent pas « ok »', async () => {
+    // Sans ce refus, `testsPassed` resterait `null` — et la mission partirait
+    // avec `Hive-Tests: ok`, alors que personne n'a rien vérifié.
+    const depotLocal = path.join(racine, 'livraisons', 'sans-env.git');
+    const { res, clone } = await livrer({
+      projectId: 'sans-env',
+      diffs: [{ taskId: 'ta', diff: patchA }],
+      // `npm ci` sans `package-lock.json` refuse immédiatement, hors ligne compris.
+      prepareCommand: ['npm', 'ci', '--no-audit', '--no-fund'],
+      testCommand: ['node', '-e', 'process.exit(0)'],
+      depotLocal,
+    });
+    expect(res.preparedOk, res.logs).toBe(false);
+    expect(res.livraison).toEqual({
+      etat: 'non_commitee',
+      motif: 'environnement non préparé, tests non lancés : rien n’est commité',
+    });
+    expect(existsSync(depotLocal)).toBe(false);
+    // Le commit composé avant la préparation n'a jamais quitté le transit,
+    // et le transit est parti avec le merge.
+    expect(existsSync(`${clone}.livraison.git`)).toBe(false);
+  }, 60_000);
+
   it('des tests rouges ne livrent rien, et le disent', async () => {
     const depotLocal = path.join(racine, 'livraisons', 'rouge.git');
     const { res } = await livrer({
@@ -336,6 +437,7 @@ describe('la livraison d’une mission (git réel, clone superficiel)', () => {
           pousser: false,
           provenance: [{ taskId: 'tv', resultId: 1, decision: 'accepted' }],
         },
+        depotProjet: pathToFileURL(vide).href,
         depotLocal,
         pousseeConsentie: false,
         envTransport: envTransportGit(),
@@ -359,6 +461,7 @@ describe('la livraison d’une mission (git réel, clone superficiel)', () => {
           pousser: false,
           provenance: [{ taskId: 'autre', resultId: 1, decision: 'accepted' }],
         },
+        depotProjet: pathToFileURL(origine).href,
         depotLocal: path.join(racine, 'livraisons', 'provenance.git'),
         pousseeConsentie: false,
         envTransport: envTransportGit(),

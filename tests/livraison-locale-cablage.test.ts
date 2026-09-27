@@ -12,6 +12,8 @@
 // la demande, ou ne pas avoir consenti.
 
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -333,6 +335,51 @@ describe('livraison locale — une vraie ouvrière, un vrai dépôt', () => {
     });
   });
 
+  it('un échec de clone remonte au hub LAVÉ — merge d’essai comme livraison', async () => {
+    // Un vrai git, un vrai message de serveur : un dépôt HTTP qui refuse le
+    // clone par une ligne `ERR` — ce que font Gitea ou GitLab — et y cite une
+    // URL à identifiants. Git la recopie TELLE QUELLE (« fatal: remote error:
+    // … ») : il ne masque que les URL qu'il compose lui-même. Ce texte part au
+    // hub, donc à tout le tableau de bord.
+    const pkt = (t: string): string =>
+      `${(Buffer.byteLength(t) + 4).toString(16).padStart(4, '0')}${t}`;
+    const refusant = http.createServer((_req, res) => {
+      res.writeHead(200, {
+        'content-type': 'application/x-git-upload-pack-advertisement',
+        'cache-control': 'no-cache',
+      });
+      res.end(
+        `${pkt('# service=git-upload-pack\n')}0000` +
+          pkt('ERR depot ferme, voir https://moi:jeton-secret@git.exemple.test/d.git\n'),
+      );
+    });
+    await new Promise<void>((r) => refusant.listen(0, '127.0.0.1', () => r()));
+    try {
+      const port = (refusant.address() as AddressInfo).port;
+      const { project } = mission(server, `http://127.0.0.1:${port}/d.git`, [['wh', depot.patchA]]);
+      const essai = await poster(base, `/api/projects/${project.id}/merge/run`, {});
+      expect(essai.status).toBe(202);
+      const { mergeId: idEssai } = (await essai.json()) as { mergeId: string };
+      const echec = await resultatDe(base, project.id, idEssai);
+      // L'erreur est bien revenue — lavée, pas tue.
+      expect(echec.logs).toContain('remote error');
+      expect(echec.logs).toContain('https://***@git.exemple.test/d.git');
+      expect(echec.logs).not.toContain('jeton-secret');
+
+      const livraison = await poster(base, `/api/projects/${project.id}/livraison-locale`, {});
+      expect(livraison.status).toBe(202);
+      const { mergeId } = (await livraison.json()) as { mergeId: string };
+      const rapport = await resultatDe(base, project.id, mergeId);
+      expect(rapport.livraison).toMatchObject({
+        etat: 'non_commitee',
+        motif: expect.stringContaining('https://***@git.exemple.test/d.git'),
+      });
+      expect(JSON.stringify(rapport)).not.toContain('jeton-secret');
+    } finally {
+      refusant.close();
+    }
+  });
+
   it('un projet qui appartient à quelqu’un ne se livre pas au seul jeton de ruche', async () => {
     const possede = server.store.createProject({
       name: 'À quelqu’un',
@@ -451,6 +498,150 @@ describe('livraison locale — ce qu’une vraie ouvrière ne sait pas mal faire
       etat: 'non_commitee',
       motif: expect.stringContaining('version de Hive ne sait pas encore livrer'),
     });
+  });
+
+  it('une livraison ne partage pas son projet : ni avec un merge d’essai, ni l’inverse', async () => {
+    // `/merge/result` garde UN résultat par projet, et l'écran comme la CLI
+    // attendent LEUR `mergeId` : un essai qui finirait après la livraison
+    // écraserait son rapport, et la branche ne se lirait plus qu'au journal.
+    const n = await seul('n-partage');
+    const { project } = mission(server, '/depot/fictif-4', [['fd', 'diff']]);
+    const essai = await poster(base, `/api/projects/${project.id}/merge/run`, {});
+    expect(essai.status).toBe(202);
+    const { mergeId: idEssai } = (await essai.json()) as { mergeId: string };
+    const pendantEssai = await poster(base, `/api/projects/${project.id}/livraison-locale`, {});
+    expect(pendantEssai.status).toBe(409);
+    expect(((await pendantEssai.json()) as { code: string }).code).toBe('merge_en_cours');
+    await attendre(async () =>
+      n.recus.find((m) => m.type === 'assign_merge' && m.mergeId === idEssai),
+    );
+    n.ws.send(
+      JSON.stringify({
+        type: 'merge_result',
+        mergeId: idEssai,
+        applied: ['fd'],
+        conflicts: [],
+        mergedDiff: 'diff',
+        testsRun: false,
+        testsPassed: null,
+        logs: 'appliqué',
+      }),
+    );
+    await resultatDe(base, project.id, idEssai);
+    // Le projet est libre : la livraison part — et c'est l'essai qui attend.
+    const livraison = await poster(base, `/api/projects/${project.id}/livraison-locale`, {});
+    expect(livraison.status).toBe(202);
+    const pendantLivraison = await poster(base, `/api/projects/${project.id}/merge/run`, {});
+    expect(pendantLivraison.status).toBe(409);
+    expect(((await pendantLivraison.json()) as { code: string }).code).toBe('livraison_en_cours');
+  });
+
+  it('l’Evaluator juge la production INTÉGRÉE, pas un essai raté venu après elle', async () => {
+    const n = await seul('n-juge');
+    const { project, resultIds } = mission(server, '/depot/fictif-5', [['fe', 'diff']]);
+    // Un concurrent rend APRÈS la production retenue, et en échec : la tâche
+    // reste terminée, sa DERNIÈRE production est ratée — et c'est la
+    // précédente, réussie, que le merge intègre. Juger la dernière ferait
+    // décider la porte (« rejected ») sur ce qu'on ne livre pas.
+    server.store.insertResult({
+      taskId: 'fe',
+      nodeId: 'seed-concurrent',
+      success: false,
+      diff: '',
+      logs: 'raté',
+      durationMs: 1,
+      subAgents: [],
+    });
+    const res = await poster(base, `/api/projects/${project.id}/livraison-locale`, {});
+    expect(res.status, await res.clone().text()).toBe(202);
+    const { mergeId } = (await res.json()) as { mergeId: string };
+    const recu = await attendre(async () =>
+      n.recus.find((m) => m.type === 'assign_merge' && m.mergeId === mergeId),
+    );
+    // Le verdict et le `Hive-Result` nomment la MÊME production.
+    expect(recu.livraison).toMatchObject({
+      provenance: [
+        { taskId: 'fe', resultId: resultIds.get('fe'), decision: 'human_review_required' },
+      ],
+    });
+  });
+
+  it('un forçage que personne n’exécute n’a rien forcé : 503, et rien au journal', async () => {
+    for (const ws of sockets.splice(0)) ws.close();
+    await attendre(async () => {
+      const etat = (await (await fetch(`${base}/api/state`, { headers })).json()) as StateSnapshot;
+      return etat.nodes.every((x) => x.status !== 'online');
+    });
+    const { project, resultIds } = mission(server, '/depot/fictif-6', [['ff', 'diff']]);
+    server.store.enregistrerInspection({
+      resultId: resultIds.get('ff') ?? 0,
+      taskId: 'ff',
+      nodeId: 'seed',
+      verdict: 'suspect',
+      score: 1,
+      applique: true,
+      griefs: [],
+    });
+    const res = await poster(base, `/api/projects/${project.id}/livraison-locale`, {
+      forcer: { raison: 'relu à la main, faux positif' },
+    });
+    expect(res.status).toBe(503);
+    const journal = await evenements(base);
+    expect(
+      journal.some((e) => e.type === 'evaluator_overridden' && e.payload.projectId === project.id),
+    ).toBe(false);
+    expect(
+      journal.some((e) => e.type === 'merge_started' && e.payload.projectId === project.id),
+    ).toBe(false);
+  });
+
+  it('une branche rendue trop tard reste au journal — et la suivante ne reprend pas son numéro', async () => {
+    const n = await seul('n-tardif');
+    const { project } = mission(server, '/depot/fictif-7', [['fg', 'diff']]);
+    const chemin = `/api/projects/${project.id}/livraison-locale`;
+    const depart = await poster(base, chemin, {});
+    expect(depart.status).toBe(202);
+    const { mergeId } = (await depart.json()) as { mergeId: string };
+    const recu = await attendre(async () =>
+      n.recus.find((m) => m.type === 'assign_merge' && m.mergeId === mergeId),
+    );
+    // Le journal ne connaît encore aucune branche de ce projet.
+    expect(recu.livraison).toMatchObject({ numeroMin: 1 });
+    // Le nœud se tait : la ruche conclut « inconnue »…
+    n.ws.close();
+    expect((await resultatDe(base, project.id, mergeId)).livraison?.etat).toBe('inconnue');
+    // …puis il revient et rend ce qu'il avait fait : la branche n°3.
+    const retour = await noeud('n-tardif');
+    const branche = `hive/mission-${project.id}-3`;
+    const commit = 'c'.repeat(40);
+    retour.ws.send(
+      JSON.stringify({
+        type: 'merge_result',
+        mergeId,
+        applied: ['fg'],
+        conflicts: [],
+        mergedDiff: 'diff',
+        testsRun: false,
+        testsPassed: null,
+        logs: 'appliqué',
+        livraison: { etat: 'commitee', branche, commit, poussee: 'non_demandee' },
+      }),
+    );
+    // Le seul endroit où la ruche peut encore dire qu'une branche existe.
+    const ignore = await attendre(async () =>
+      (await evenements(base)).find(
+        (e) => e.type === 'merge_result_ignored' && e.payload.mergeId === mergeId,
+      ),
+    );
+    expect(ignore.payload).toMatchObject({ branche, commit, poussee: 'non_demandee' });
+    // Et la livraison suivante part avec ce plancher : n°3 est pris.
+    const suite = await poster(base, chemin, {});
+    expect(suite.status).toBe(202);
+    const { mergeId: idSuite } = (await suite.json()) as { mergeId: string };
+    const recuSuite = await attendre(async () =>
+      retour.recus.find((m) => m.type === 'assign_merge' && m.mergeId === idSuite),
+    );
+    expect(recuSuite.livraison).toMatchObject({ numeroMin: 4 });
   });
 
   it('pousser sans ouvrière consentante est refusé AVANT tout travail, avec la marche à suivre', async () => {
