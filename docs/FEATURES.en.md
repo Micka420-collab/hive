@@ -276,10 +276,21 @@ HIVE_PLANNER_MODEL=claude-haiku-4-5   # fast/economical default; opus for more f
 
 ## 🧬 Hive Mind — the hive learns
 
-The hive keeps a **shared memory**: every successful task leaves a _memory_
-(what was done + a log excerpt). Before assigning a new task, the orchestrator
-retrieves the most relevant memories and **injects them into the worker's
-prompt** — later tasks benefit from work already done.
+The hive keeps a **shared memory**: every **validated** production leaves a
+_memory_ (what was done + the agent's answer). Before assigning a new task, the
+orchestrator retrieves the most relevant memories and **injects them into the
+worker's prompt** — later tasks benefit from work already done.
+
+A success declared by the worker is not enough: the memory enters only when the
+**Evaluator accepts** the production (a favorable review from another agent
+family, green validations) or a **human approves** it in review — the only path
+for a single-family hive. A rejection (a reviewer's objection, red CI, a human
+rejection) withdraws it, and review tasks never leave one. The event log says
+so: `memory_recorded` (with who validated) and `memory_forgotten`.
+
+Failures go to the **Brain** (the `cerveau/` folder next to the database): a
+worker failure, a reviewer's objection and an Evaluator rejection each leave an
+attributed _episode_ — agent, commanded model, node, exact task and result.
 
 Retrieval is **100% offline** (BM25-style lexical scoring, no embeddings, no
 API), hence deterministic and free. The dashboard shows a live **Hive Mind

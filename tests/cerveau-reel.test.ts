@@ -12,6 +12,7 @@ import {
   lstatSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -29,7 +30,7 @@ import {
   lire,
   pourLaTache,
 } from '../src/cerveau-reel.js';
-import type { Note } from '../src/shared/cerveau.js';
+import type { Note, OrigineEpisode } from '../src/shared/cerveau.js';
 
 const bacs: string[] = [];
 const bac = (): string => {
@@ -40,6 +41,9 @@ const bac = (): string => {
 afterAll(() => {
   for (const b of bacs) rmSync(b, { recursive: true, force: true });
 });
+
+/** Une attribution quelconque : ces bancs-là ne parlent pas d'elle. */
+const origine: OrigineEpisode = { source: 'echec_worker', taskId: 't-1' };
 
 const note = (o: Partial<Note> = {}): Note => ({
   id: 'une-note',
@@ -213,6 +217,7 @@ describe('LA RUCHE ÉCRIT SES ÉPISODES', () => {
       signature: 'erreur: module <chemin> introuvable',
       titre: 'Compiler',
       detail: 'log',
+      origine,
     };
 
     const a = enregistrerEpisode(d, echec, '2026-07-01T00:00:00.000Z');
@@ -235,8 +240,8 @@ describe('LA RUCHE ÉCRIT SES ÉPISODES', () => {
 
   it('UNE PANNE DIFFÉRENTE EST UNE AUTRE NOTE', () => {
     const d = path.join(bac(), 'cerveau');
-    enregistrerEpisode(d, { signature: 'panne A', titre: 'T', detail: 'x' });
-    enregistrerEpisode(d, { signature: 'panne B', titre: 'T', detail: 'x' });
+    enregistrerEpisode(d, { signature: 'panne A', titre: 'T', detail: 'x', origine });
+    enregistrerEpisode(d, { signature: 'panne B', titre: 'T', detail: 'x', origine });
     expect(lire(d)).toHaveLength(2);
   });
 
@@ -244,18 +249,144 @@ describe('LA RUCHE ÉCRIT SES ÉPISODES', () => {
     // Une note vide occuperait du budget de contexte pour raconter qu'il ne
     // s'est rien passé.
     const d = path.join(bac(), 'cerveau');
-    expect(enregistrerEpisode(d, { signature: '   ', titre: 'T', detail: 'x' })).toBeNull();
+    expect(
+      enregistrerEpisode(d, { signature: '   ', titre: 'T', detail: 'x', origine }),
+    ).toBeNull();
     expect(lire(d)).toEqual([]);
+  });
+
+  it('L’ÉPISODE DIT QUI A ÉCHOUÉ, ET SUR QUELLE PRODUCTION — la dernière fois', () => {
+    // Sans attribution, un épisode ne disait ni quel agent ni quel modèle
+    // retombe dans cette panne, ni sur quelle pièce la vérifier.
+    const d = path.join(bac(), 'cerveau');
+    const echec = { signature: 'erreur: port <n> occupé', titre: 'Serveur', detail: 'log' };
+    enregistrerEpisode(d, {
+      ...echec,
+      origine: { source: 'echec_worker', taskId: 't-1', resultId: 4, nodeId: 'n-1' },
+    });
+    enregistrerEpisode(d, {
+      ...echec,
+      origine: {
+        source: 'contre_revue',
+        taskId: 't-2',
+        resultId: 9,
+        nodeId: 'n-2',
+        agentType: 'codex',
+        modele: 'gpt-5.6-luna',
+      },
+    });
+    const [n] = lire(d);
+    expect(n?.recurrences).toBe(2);
+    expect(n?.origine, 'l’en-tête garde l’occurrence la plus récente').toEqual({
+      source: 'contre_revue',
+      taskId: 't-2',
+      resultId: 9,
+      nodeId: 'n-2',
+      agentType: 'codex',
+      modele: 'gpt-5.6-luna',
+    });
   });
 
   it('un épisode écrit par la ruche N’EST JAMAIS une règle', () => {
     // La ruche accumule la matière ; elle n'écrit pas la loi. Une règle fausse
     // coûte plus cher que pas de règle, parce qu'elle est SUIVIE.
     const d = path.join(bac(), 'cerveau');
-    enregistrerEpisode(d, { signature: 'une panne', titre: 'T', detail: 'x' });
+    enregistrerEpisode(d, { signature: 'une panne', titre: 'T', detail: 'x', origine });
     const n = lire(d)[0];
     expect(n?.genre).toBe('episode');
     expect(n?.regle, 'la ruche ne rédige pas de règle').toBeUndefined();
+  });
+});
+
+describe('UNE NOTE QUI SERT LE DIT — `serviLe`', () => {
+  // `serviLe` était documenté « la dernière fois que cette note a servi », et
+  // l'élagage se règle dessus — mais `pourLaTache`, le seul endroit où une
+  // note SERT, ne l'écrivait jamais. Un épisode injecté chaque jour partait à
+  // 90 jours comme s'il n'avait jamais été lu.
+  const naissance = '2026-01-01T00:00:00.000Z';
+  const tache = 'compiler le module natif';
+  const episode = (id: string, corps = 'la compilation du module natif échoue'): Note =>
+    note({ id, genre: 'episode', regle: undefined, titre: 'Compiler', corps, creee: naissance });
+
+  it('UN ÉPISODE INJECTÉ N’EST PAS ÉLAGUÉ À 91 JOURS', () => {
+    const d = path.join(bac(), 'cerveau');
+    ecrire(d, episode('ep-compile'));
+
+    // Servi au 80ᵉ jour, pour une tâche qui en parle…
+    const { bloc } = pourLaTache(d, tache, 12_000, '2026-03-22T09:00:00.000Z');
+    expect(bloc, 'l’épisode doit avoir été injecté').toContain('module natif');
+
+    // … il a servi il y a onze jours au 91ᵉ : il reste.
+    expect(elaguer(d, '2026-04-02T00:00:00.000Z').retires).toEqual([]);
+    expect(lire(d)[0]?.serviLe).toBe('2026-03-22T09:00:00.000Z');
+  });
+
+  it('AU PLUS UNE ÉCRITURE PAR NOTE ET PAR JOUR', () => {
+    // `pourLaTache` tourne à chaque assignation et à chaque re-livraison : sans
+    // borne, le dossier deviendrait une source d'écritures continues.
+    const d = path.join(bac(), 'cerveau');
+    ecrire(d, episode('ep-compile'));
+
+    pourLaTache(d, tache, 12_000, '2026-03-22T09:00:00.000Z');
+    pourLaTache(d, tache, 12_000, '2026-03-22T18:00:00.000Z');
+    expect(lire(d)[0]?.serviLe, 'le même jour, rien n’est réécrit').toBe(
+      '2026-03-22T09:00:00.000Z',
+    );
+
+    pourLaTache(d, tache, 12_000, '2026-03-23T08:00:00.000Z');
+    expect(lire(d)[0]?.serviLe, 'le lendemain, si').toBe('2026-03-23T08:00:00.000Z');
+  });
+
+  it('UNE NOTE ÉCRITE À LA MAIN GARDE SES OCTETS — seule la ligne `serviLe` apparaît', () => {
+    // Relire puis réécrire la note (`rendre(analyser(…))`) effacerait ce que le
+    // module ne lit pas — ici `aliases` et la mise en forme du corps —, chaque
+    // jour, sur chaque invariant transmis.
+    const d = path.join(bac(), 'cerveau');
+    mkdirSync(d, { recursive: true });
+    const avant = [
+      '---',
+      'genre: invariant',
+      'titre: Jamais de shell',
+      'aliases: [shell, spawn]',
+      'regle: TOUJOURS-SPAWN-SHELL-FALSE',
+      '---',
+      '',
+      '## Pourquoi',
+      '',
+      'Toute exécution passe par **spawn**, sans shell.',
+      '',
+    ].join('\n');
+    writeFileSync(path.join(d, 'shell-false.md'), avant, 'utf8');
+
+    pourLaTache(d, 'lancer un processus', 12_000, '2026-03-22T09:00:00.000Z');
+
+    expect(readFileSync(path.join(d, 'shell-false.md'), 'utf8')).toBe(
+      avant.replace(
+        'regle: TOUJOURS-SPAWN-SHELL-FALSE\n---',
+        'regle: TOUJOURS-SPAWN-SHELL-FALSE\nserviLe: 2026-03-22T09:00:00.000Z\n---',
+      ),
+    );
+  });
+
+  it('UNE NOTE TOMBÉE DU BLOC N’EST PAS DITE SERVIE', () => {
+    // `selectionner` compte en caractères de note, `contexte` y ajoute
+    // l'enveloppe JSON et retire la queue quand elle déborde. Dire « servie »
+    // d'une note qu'aucune ouvrière n'a lue la garderait de l'élagage sur un
+    // usage inventé.
+    const d = path.join(bac(), 'cerveau');
+    ecrire(d, episode('ep-a', `module natif ${'a'.repeat(400)}`));
+    ecrire(d, episode('ep-b', `module natif ${'b'.repeat(400)}`));
+
+    const { bloc, selection } = pourLaTache(d, tache, 1_000, '2026-03-22T09:00:00.000Z');
+    expect(
+      selection.retenues.map((n) => n.id),
+      'les deux tiennent au budget brut',
+    ).toEqual(['ep-a', 'ep-b']);
+    expect(bloc, 'la seconde n’a pas tenu dans le bloc').not.toContain('bbbb');
+
+    const servi = new Map(lire(d).map((n) => [n.id, n.serviLe]));
+    expect(servi.get('ep-a')).toBe('2026-03-22T09:00:00.000Z');
+    expect(servi.get('ep-b'), 'jamais lue, jamais servie').toBeUndefined();
   });
 });
 

@@ -308,11 +308,24 @@ HIVE_PLANNER_MODEL=claude-haiku-4-5   # défaut rapide/économique ; opus pour +
 
 ## 🧩 Hive Mind — la ruche apprend (Palier 2)
 
-La ruche garde une **mémoire partagée** : chaque tâche réussie laisse un
-_souvenir_ (ce qui a été fait + un extrait des logs). Avant d'assigner une
+La ruche garde une **mémoire partagée** : chaque production **validée** laisse
+un _souvenir_ (ce qui a été fait + la réponse de l'agent). Avant d'assigner une
 nouvelle tâche, l'orchestrateur récupère les souvenirs les plus pertinents et
 **les injecte dans le prompt de l'ouvrière** — les tâches suivantes profitent du
 travail déjà accompli.
+
+Une réussite déclarée par l'ouvrière ne suffit pas : le souvenir n'entre en
+mémoire que lorsque l'**Evaluator accepte** la production (contre-revue
+favorable d'une autre famille, validations vertes) ou qu'un **humain
+l'approuve** en revue — le seul chemin d'une ruche à une seule famille d'agent.
+Un rejet (objection d'une relectrice, CI rouge, rejet humain) l'en retire, et
+les relectures n'en laissent jamais. Le journal le dit : `memory_recorded` (avec
+qui a validé) et `memory_forgotten`.
+
+Les échecs, eux, vont au **Cerveau** (dossier `cerveau/`, à côté de la base) :
+échec d'une ouvrière, objection d'une relectrice et rejet de l'Evaluator
+laissent chacun un _épisode_ attribué — agent, modèle commandé, nœud, tâche et
+résultat exacts.
 
 La récupération est **100 % hors-ligne** (scoring lexical type BM25, sans
 embeddings ni API), donc déterministe et sans coût. Le dashboard affiche un

@@ -62,7 +62,12 @@ export interface Trace {
    * exact où se voit un succès creux refusé.
    */
   resultats: Array<{ taskId: string; nodeId: string; success: boolean }>;
-  /** Souvenirs Hive Mind laissés derrière : la mémoire collective, pour toujours. */
+  /**
+   * Souvenirs Hive Mind PROPOSÉS par les productions retenues. Le scheduler ne
+   * fait que proposer : la mémoire elle-même n'entre qu'à la validation
+   * (Evaluator ou humain), hors de son périmètre — c'est donc la proposition
+   * que ce harnais observe.
+   */
   souvenirs: number;
   /** Verdicts de garde rangés, du plus ancien au plus récent. */
   inspections: Array<{
@@ -197,7 +202,7 @@ export function rejouerScenario(
         .listResultsForBalance()
         .reverse()
         .map((r) => ({ taskId: r.taskId, nodeId: r.nodeId, success: r.success })),
-      souvenirs: store.countMemories(),
+      souvenirs: store.listTasks().filter((t) => store.souvenirPropose(t.id) !== null).length,
       inspections: store
         .listInspections()
         .reverse()

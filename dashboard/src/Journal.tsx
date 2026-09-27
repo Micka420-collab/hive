@@ -307,11 +307,34 @@ const EVENTS: Record<string, Meta> = {
       );
     },
   },
+  // Le Hive Mind n'apprend qu'une production VALIDÉE : le souvenir entre à
+  // l'acceptation de l'Evaluator ou à l'approbation humaine, et sort sur un
+  // rejet. La ligne dit qui a validé — les anciens événements, émis à la
+  // simple réussite, n'ont pas de `source` et se lisent comme avant.
   memory_recorded: {
     icon: '※',
     cls: 'muted',
     text: (p, t) =>
-      t(`souvenir consigné (${short(p.taskId)})`, `memory recorded (${short(p.taskId)})`),
+      p.source === 'evaluator'
+        ? t(
+            `souvenir consigné, validé par l’Evaluator (${short(p.taskId)})`,
+            `memory recorded, validated by the Evaluator (${short(p.taskId)})`,
+          )
+        : p.source === 'revue_humaine'
+          ? t(
+              `souvenir consigné, approuvé en revue humaine (${short(p.taskId)})`,
+              `memory recorded, approved in human review (${short(p.taskId)})`,
+            )
+          : t(`souvenir consigné (${short(p.taskId)})`, `memory recorded (${short(p.taskId)})`),
+  },
+  memory_forgotten: {
+    icon: '※',
+    cls: 'warn',
+    text: (p, t) =>
+      t(
+        `souvenir retiré : production rejetée (${short(p.taskId)})`,
+        `memory withdrawn: production rejected (${short(p.taskId)})`,
+      ),
   },
   conflict_detected: {
     icon: '△',

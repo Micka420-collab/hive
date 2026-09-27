@@ -66,8 +66,8 @@ import {
   type MotifRefusHorizon,
 } from './horizon.js';
 import { validerMotifPerso, type MotifPersoRefus } from './motifs.js';
-import { rankMemoriesHybrid } from './hive-mind.js';
-import type { Memory, ScoredMemory } from './hive-mind.js';
+import { rankMemoriesHybrid, suiteSouvenir } from './hive-mind.js';
+import type { IssueSouvenir, Memory, ScoredMemory } from './hive-mind.js';
 import {
   jugerDelegation,
   type DemandeDelegation,
@@ -806,6 +806,40 @@ CREATE TABLE IF NOT EXISTS memories (
   createdAt INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_memories_task ON memories(taskId);
+
+-- Le souvenir qu'une production PROPOSE au Hive Mind, en attendant qu'on la
+-- juge. Écrit À LA RÉCEPTION d'une réussite (scheduler.handleTaskResult) :
+-- c'est le seul instant où la réponse finale de l'agent est en main — le
+-- journal ne la garde pas pour un succès (insertResult), et le souvenir en est
+-- fait. Il n'entre dans « memories » qu'à l'acceptation de l'Evaluator ou à
+-- l'approbation humaine (hive-mind.ts, suiteSouvenir).
+--
+-- POURQUOI UNE TABLE LATÉRALE : « memories » n'a pas de colonne pour dire
+-- « pas encore validé », et en ajouter une serait une migration (règle 2).
+--
+-- POURQUOI UNE ISSUE RANGÉE, alors que la règle 1 interdit d'écrire un calcul :
+-- ce n'est pas le verdict qu'on range — l'Evaluator le recalcule à chaque
+-- lecture —, c'est ce que la ruche en a DÉJÀ FAIT. Sans elle, chaque fait relu
+-- (un avis, une CI, une revue) reverserait au Cerveau le même rejet, et le
+-- compteur de récurrences mentirait.
+--
+-- resultId : la production exacte jugée ; une nouvelle production de la même
+--            tâche REMPLACE la ligne (clé primaire taskId), et un verdict
+--            rendu sur l'ancienne ne touche plus rien.
+--
+-- BORNE (règle 3) : une ligne par tâche, et pruneSouvenirsProposes,
+-- référentielle, câblée dans server.ts après pruneTasks. Le souvenir RETENU,
+-- lui, vit dans « memories » et survit à sa tâche (voir pruneTasks).
+CREATE TABLE IF NOT EXISTS souvenirs_proposes (
+  taskId    TEXT PRIMARY KEY,
+  resultId  INTEGER NOT NULL,
+  projectId TEXT NOT NULL,
+  title     TEXT NOT NULL,
+  content   TEXT NOT NULL DEFAULT '',
+  issue     TEXT NOT NULL DEFAULT 'en_attente'
+            CHECK (issue IN ('en_attente', 'retenu', 'rejete')),
+  proposeA  INTEGER NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS reviews (
   taskId    TEXT PRIMARY KEY,
@@ -6325,6 +6359,96 @@ export class HiveStore {
   /** Récupère les souvenirs pertinents (BM25 + trigrammes sur le corpus récent). */
   searchMemories(query: string, limit = 3): ScoredMemory[] {
     return rankMemoriesHybrid(query, this.listMemories(500), limit);
+  }
+
+  /**
+   * Range le souvenir qu'une production réussie PROPOSE — sans l'écrire dans
+   * la mémoire (voir `souvenirs_proposes`). Une nouvelle production de la même
+   * tâche remplace la proposition précédente, issue comprise.
+   */
+  proposerSouvenir(
+    m: { projectId: string; taskId: string; resultId: number; title: string; content: string },
+    now = Date.now(),
+  ): void {
+    this.db
+      .prepare(
+        `INSERT OR REPLACE INTO souvenirs_proposes
+           (taskId, resultId, projectId, title, content, issue, proposeA)
+         VALUES (?, ?, ?, ?, ?, 'en_attente', ?)`,
+      )
+      .run(
+        m.taskId,
+        m.resultId,
+        m.projectId,
+        m.title.slice(0, LIMITS.title),
+        m.content.slice(0, LIMITS.prompt),
+        now,
+      );
+  }
+
+  /** La proposition en cours pour une tâche : la production visée et son issue. */
+  souvenirPropose(taskId: string): { resultId: number; issue: IssueSouvenir } | null {
+    const row = this.db
+      .prepare('SELECT resultId, issue FROM souvenirs_proposes WHERE taskId = ?')
+      .get(taskId) as { resultId: number; issue: IssueSouvenir } | undefined;
+    return row ?? null;
+  }
+
+  /**
+   * Applique à la proposition de `resultId` le verdict qui vient d'être rendu,
+   * et rend ce qui a CHANGÉ — `null` quand rien n'a bougé (verdict identique,
+   * validation qu'un simple « en attente » ne révoque pas, ou proposition qui
+   * ne vise plus cette production).
+   *
+   * UN seul geste : l'issue et la mémoire bougent ensemble, sinon un souvenir
+   * pourrait rester dans la mémoire d'une production marquée rejetée.
+   */
+  statuerSouvenir(
+    taskId: string,
+    resultId: number,
+    verdict: IssueSouvenir,
+    now = Date.now(),
+  ): { avant: IssueSouvenir; apres: IssueSouvenir; memoire: Memory | null } | null {
+    return this.db.transaction(() => {
+      const propose = this.db
+        .prepare(
+          `SELECT projectId, title, content, issue FROM souvenirs_proposes
+            WHERE taskId = ? AND resultId = ?`,
+        )
+        .get(taskId, resultId) as
+        { projectId: string; title: string; content: string; issue: IssueSouvenir } | undefined;
+      if (!propose) return null;
+      const apres = suiteSouvenir(propose.issue, verdict);
+      if (apres === null) return null;
+      this.db
+        .prepare('UPDATE souvenirs_proposes SET issue = ? WHERE taskId = ?')
+        .run(apres, taskId);
+      if (apres === 'retenu') {
+        // Né à la validation, pas à la proposition : c'est l'instant où ce
+        // savoir devient transmissible, et `pruneMemories` garde les plus
+        // récents.
+        const memoire = this.recordMemory(
+          { projectId: propose.projectId, taskId, title: propose.title, content: propose.content },
+          now,
+        );
+        return { avant: propose.issue, apres, memoire };
+      }
+      if (propose.issue === 'retenu') {
+        this.db.prepare('DELETE FROM memories WHERE taskId = ?').run(taskId);
+      }
+      return { avant: propose.issue, apres, memoire: null };
+    })();
+  }
+
+  /**
+   * Propositions dont la tâche n'existe plus : borne RÉFÉRENTIELLE, câblée
+   * après `pruneTasks` (motif `pruneAiguillageModeles`). Le souvenir retenu,
+   * lui, reste dans `memories` : le savoir dure plus longtemps que la tâche.
+   */
+  pruneSouvenirsProposes(): number {
+    return this.db
+      .prepare('DELETE FROM souvenirs_proposes WHERE taskId NOT IN (SELECT id FROM tasks)')
+      .run().changes;
   }
 
   /** Ne conserve que les `maxKeep` souvenirs les plus récents. Retourne le nombre supprimé. */
