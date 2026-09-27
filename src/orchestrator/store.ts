@@ -1543,6 +1543,20 @@ export class HiveStore {
     this.db.close();
   }
 
+  /**
+   * Exécute `ecrire` en UNE transaction : tout est écrit, ou rien.
+   *
+   * IMMEDIATE, pas DEFERRED : le verrou d'écriture est pris au BEGIN, avant la
+   * première écriture. Si un autre processus tient la base, l'attente (5 s) et
+   * l'éventuel SQLITE_BUSY tombent là, quand rien n'est encore écrit — jamais
+   * ENTRE deux écritures, où ils laisseraient un état à moitié rangé. `ecrire`
+   * reste synchrone (better-sqlite3 refuse une promesse) ; imbriquée, la
+   * transaction devient un SAVEPOINT.
+   */
+  enTransaction<T>(ecrire: () => T): T {
+    return this.db.transaction(ecrire).immediate();
+  }
+
   // ─── Utilisateurs ───────────────────────────────────────────────────────────
   createUser(input: NewUser): User {
     const id = randomUUID();

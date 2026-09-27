@@ -60,7 +60,7 @@ carte Notion distingue le code présent de la preuve de bout en bout.
 
 ## État réel du projet
 
-Mis à jour le 26 septembre 2026. Tout ce qui suit est fusionné sur `main`,
+Mis à jour le 27 septembre 2026. Tout ce qui suit est fusionné sur `main`,
 avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes.
 
 **Prouvé :**
@@ -73,14 +73,26 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
   Dès que deux familles d'agent sont installées, c'est une ouvrière par
   famille : la contre-expertise croisée est sur le chemin par défaut
   ([#466](https://github.com/Micka420-collab/hive/pull/466)).
-- **Reprise après panne**, mesurée avec de vrais processus :
+- **Reprise après panne**, rejouée à chaque CI (Linux, macOS) sur de vrais
+  processus — une Reine, un nœud, une base sur disque
+  (`tests/resilience-processus.test.ts`) :
   - `kill -9` de la Reine ou d'un nœud en pleine mission ;
-  - base verrouillée par un autre processus ;
-  - réseau gelé ou chemin réseau mort.
+  - base verrouillée 15 s par un autre processus ;
+  - réseau gelé au-delà du délai de vie.
 
-  Les tâches reprennent, aucun résultat n'est compté deux fois. Le nœud détecte une
-  connexion morte par ping/pong au lieu d'attendre TCP
-  ([#437](https://github.com/Micka420-collab/hive/pull/437)).
+  Chaque tâche y finit `done`, avec exactement un succès rangé. Qu'aucun
+  résultat ne soit compté deux fois repose sur deux gardes, éprouvées à part
+  parce qu'aucune de ces pannes ne les atteint à coup sûr : un résultat se
+  range en une seule transaction, tout ou rien
+  (`tests/resultat-tout-ou-rien.test.ts`), et le résultat tardif d'une tâche
+  réaffectée est écarté (`tests/scheduler.test.ts`). Un chemin réseau mort
+  sans fermeture est éprouvé sur le vrai client et de vraies sockets
+  (`tests/noeud-veille.test.ts`) : le nœud détecte la connexion morte par
+  ping/pong au lieu d'attendre TCP
+  ([#437](https://github.com/Micka420-collab/hive/pull/437)). Sous Linux et
+  macOS, hors mode conteneur, un nœud arrêté par SIGTERM (`npm run ruche`,
+  systemd, `kill`) annule ses agents en cours au lieu de les laisser tourner
+  orphelins ([#468](https://github.com/Micka420-collab/hive/pull/468)).
 
 - **Sécurité** :
   - les identifiants des dépôts privés ne sortent plus vers l'essaim
@@ -143,6 +155,10 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
   déclaration de Claude Code suit le format documenté et est éprouvée contre
   un faux binaire, pas encore contre le CLI réel ; Codex ne déclare encore
   rien à Hive ;
+- l'arrêt d'un nœud en **mode conteneur** et **sous Windows** : l'agent peut
+  survivre à son nœud (conteneur lancé sans `--init`, `TerminateProcess` sous
+  Windows), comme les merges et chantiers en cours et les sous-processus
+  qu'un agent lance lui-même ;
 - l'apprentissage : le routing apprend toujours des seules contre-visites ;
   y faire entrer les autres faits du registre Genome est une décision de
   pondération, pas encore prise ;

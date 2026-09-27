@@ -12,7 +12,7 @@ import { libelleAgent } from '../shared/agent-libelle.js';
 import { demarrageNoeudAutorise, messageRefusShellProduction } from '../shared/agent-production.js';
 import { conseilDemarrage, constatsPourLeHub, diagnostiquerAgents } from './connexion.js';
 import { entreeEnRuche } from '../shared/presence-noeud.js';
-import { HiveNodeClient } from './client.js';
+import { HiveNodeClient, arreterSurSignaux } from './client.js';
 import { isolementDeclareDe, optionBac, preparerBac } from './bac.js';
 import { parseModeles } from './modeles.js';
 import { createInterface } from 'node:readline/promises';
@@ -210,10 +210,9 @@ console.log(
     : '🐝 Nœud Hive démarré — Ctrl+C pour quitter la ruche.',
 );
 
-process.on('SIGINT', () => {
-  client.stop();
-  process.exit(0);
-});
+// SIGTERM comme SIGINT — le signal des superviseurs ; pourquoi, et ses limites :
+// `arreterSurSignaux` (client.ts).
+arreterSurSignaux(client);
 
 // Dernier recours : un imprévu ne doit pas tuer le nœud en silence et perdre la
 // reconnexion. On journalise et on laisse le client continuer/reconnecter.

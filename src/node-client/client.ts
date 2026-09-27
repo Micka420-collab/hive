@@ -176,6 +176,45 @@ export function composeAgentPrompt(hiveContext: string | undefined, prompt: stri
   return hiveContext ? `${hiveContext}\n\n${prompt}` : prompt;
 }
 
+/**
+ * SIGINT ET SIGTERM : LE MÊME ARRÊT, pour les deux portes du nœud (`main.ts`,
+ * `join.ts`). Une seule copie : ces deux portes ont déjà divergé plus d'une fois.
+ *
+ * SIGINT n'arrive que d'un terminal (Ctrl+C) ; ce qui SUPERVISE un nœud envoie
+ * SIGTERM — `npm run ruche` à l'arrêt (`scripts/ruche.mjs`, au seul pid de
+ * l'ouvrière), systemd, launchd, un `kill` nu. Sans gestionnaire, SIGTERM tuait
+ * le nœud net, sans `stop()`, et là où personne ne balaie son groupe l'agent en
+ * cours lui SURVIVAIT, orphelin, pour une tâche que la Reine remettait déjà en
+ * file ailleurs. `stop()` annule chaque tâche active, et l'annulation envoie son
+ * SIGTERM à l'agent SYNCHRONEMENT (le `signal` passé à `spawn`, `exec.ts`) : il
+ * part avant notre `exit`. `tests/noeud-arret-signal.test.ts` l'éprouve sur les
+ * deux portes, en vrais processus.
+ *
+ * CE QUE ÇA NE COUVRE PAS ENCORE, et il faut le savoir avant de s'y fier :
+ *   - Windows : `kill('SIGTERM')` y est un TerminateProcess, aucun gestionnaire
+ *     ne tourne ;
+ *   - le mode conteneur : l'annulation atteint le client `docker run`, pas
+ *     l'agent, PID 1 du conteneur sans `--init` (isolement.ts) — et `codex
+ *     exec` n'écoute que SIGINT ;
+ *   - les petits-enfants d'un agent, et les merges et chantiers, que `stop()`
+ *     n'annule pas.
+ *
+ * `finally` : si `stop()` levait, le nœud sort QUAND MÊME — un arrêt demandé
+ * qui laisserait tourner le nœud serait pire que l'orphelin.
+ */
+export function arreterSurSignaux(client: Pick<HiveNodeClient, 'stop'>): void {
+  for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+    process.on(signal, () => {
+      console.log('\nDéconnexion de la ruche…');
+      try {
+        client.stop();
+      } finally {
+        process.exit(0);
+      }
+    });
+  }
+}
+
 export class HiveNodeClient {
   private ws: WebSocket | null = null;
   private nodeId: string | null = null;
