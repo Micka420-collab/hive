@@ -177,3 +177,38 @@ export function phraseDeLivraison(
       };
   }
 }
+
+/** Qui a tranché un Conseil, tel que la Reine le range (cf. `src/shared/war-room.ts`). */
+export type AuteurRange = { genre: 'compte'; nom: string | null } | { genre: 'jeton_de_ruche' };
+
+/**
+ * Qui a tranché, en mots.
+ *
+ * Le jeton de ruche est recopié sur chaque machine membre : il ne désigne
+ * PERSONNE. L'écran le dit, plutôt que d'écrire « opérateur » — une décision
+ * anonyme présentée comme signée est exactement ce qu'une trace de décision
+ * existe pour empêcher.
+ */
+export function auteurDeDecision(par: AuteurRange, t: Traduire): string {
+  if (par.genre === 'jeton_de_ruche') {
+    return t('jeton de ruche — auteur non identifié', 'hive token — author not identified');
+  }
+  return par.nom ?? t('un compte sans nom', 'an unnamed account');
+}
+
+/**
+ * Ce que la ligne d'un conseil dit de sa décision : `tranche`, `a_trancher`,
+ * ou rien.
+ *
+ * « À trancher » ne vaut que pour un conseil CLOS qui a débattu sans
+ * converger (`aTrancher`, cf. `ISSUES_A_TRANCHER`) : un conseil qui délibère
+ * n'attend encore personne, et un quorum a déjà une recommandation.
+ */
+export function marqueDeDecision(
+  c: { closedAt?: number | null; issue: string | null; decision?: object | null },
+  aTrancher: ReadonlySet<string>,
+): 'tranche' | 'a_trancher' | null {
+  if (c.decision) return 'tranche';
+  if (c.closedAt && c.issue !== null && aTrancher.has(c.issue)) return 'a_trancher';
+  return null;
+}

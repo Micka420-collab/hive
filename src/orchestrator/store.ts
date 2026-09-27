@@ -3638,6 +3638,19 @@ export class HiveStore {
     return rows.map(rowToResultatBalance);
   }
 
+  /**
+   * Id du dernier résultat d'UNE tâche, `null` sans résultat — sans relire ni
+   * diffs ni journaux (`resultsForTask` les déplie tous). Sert la War Room :
+   * une contestation porte sur un résultat exact, et un résultat plus récent
+   * la rend caduque même quand l'événement du nouvel essai est élagué.
+   */
+  dernierResultatDe(taskId: string): number | null {
+    const row = this.db
+      .prepare('SELECT MAX(id) AS id FROM results WHERE taskId = ?')
+      .get(taskId) as { id: number | null };
+    return row.id;
+  }
+
   /** Id du dernier résultat inséré (0 si la table est vide). */
   lastResultId(): number {
     const row = this.db.prepare('SELECT MAX(id) AS id FROM results').get() as { id: number | null };
@@ -5662,6 +5675,22 @@ export class HiveStore {
    * tout en gardant `contre_visites` ferait apprendre le modèle courant à la
    * place du producteur historique. Les preuves conservées sont bornées par
    * `CORPUS_AIGUILLAGE`, comme la lecture qu'elles servent.
+   *
+   * La DÉCISION HUMAINE COURANTE de chaque Conseil encore rangé est gardée de
+   * même (`council_decided`, cf. `shared/war-room.ts`). C'est un geste humain,
+   * pas une trace machine : l'élaguer ferait dire « à trancher » à un conseil
+   * que quelqu'un a déjà tranché, et laisserait trancher à nouveau comme si de
+   * rien n'était. Bornée par `pruneConseils` : une par session conservée, et
+   * la protection tombe avec la session.
+   *
+   * Le DERNIER REFUS DE RENVOI de chaque tâche encore rangée l'est aussi
+   * (`evaluator_retry_skipped`). C'est le seul endroit où la ruche dit « des
+   * relecteurs contestent cette production, et la correction n'a pas eu
+   * lieu » : l'élaguer effacerait de la War Room une contestation levée
+   * pendant une nuit de travail avant que quiconque l'ait lue — le journal
+   * tourne en quelques heures. Ce qui la LÈVE (revue humaine, nouvel essai)
+   * se relit dans les tables rangées, pas ici (`TacheRangee`). Bornée par
+   * `pruneTasks` : une par tâche conservée, et la protection tombe avec elle.
    */
   pruneEvents(maxKeep: number): number {
     const cutoff = this.lastEventId() - Math.max(0, maxKeep);
@@ -5710,6 +5739,26 @@ export class HiveStore {
                 type = 'worker_usage'
                 AND json_extract(payload, '$.resultId') IN (
                   SELECT id FROM results ORDER BY id DESC LIMIT ?
+                )
+              )
+              OR (
+                type = 'council_decided'
+                AND json_extract(payload, '$.sessionId') IN (SELECT id FROM conseil_sessions)
+                AND id = (
+                  SELECT MAX(d.id)
+                    FROM events d
+                   WHERE d.type = 'council_decided'
+                     AND json_extract(d.payload, '$.sessionId') = json_extract(events.payload, '$.sessionId')
+                )
+              )
+              OR (
+                type = 'evaluator_retry_skipped'
+                AND json_extract(payload, '$.taskId') IN (SELECT id FROM tasks)
+                AND id = (
+                  SELECT MAX(r.id)
+                    FROM events r
+                   WHERE r.type = 'evaluator_retry_skipped'
+                     AND json_extract(r.payload, '$.taskId') = json_extract(events.payload, '$.taskId')
                 )
               )
             )`,

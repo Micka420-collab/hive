@@ -62,6 +62,7 @@ const Intendance = lazy(() => import('./views/Intendance'));
 const Cerveau = lazy(() => import('./views/Cerveau'));
 const Chantiers = lazy(() => import('./views/Chantiers'));
 const Chambre = lazy(() => import('./views/Chambre'));
+const WarRoom = lazy(() => import('./views/WarRoom'));
 
 const EMPTY: StateSnapshot = { projects: [], nodes: [], tasks: [], tasksTotal: 0 };
 
@@ -86,6 +87,7 @@ const NAV: NavItem[] = [
   { id: 'rayon', label: 'Rayon', labelEn: 'Comb', key: '9' },
   { id: 'monespace', label: 'Mon espace', labelEn: 'My space', key: '0' },
   { id: 'chantiers', label: 'Chantiers', labelEn: 'Works', key: 'h' },
+  { id: 'warroom', label: 'War Room', labelEn: 'War Room', key: 'w' },
   {
     id: 'intendance',
     label: 'Intendance',
@@ -187,6 +189,14 @@ function NavGlyph({ id }: { id: ViewId }) {
         <svg {...common}>
           <path d="M14.5 5.5 18.5 9.5 10 18H6v-4L14.5 5.5Z" />
           <path d="M12.8 7.2 16.8 11.2" />
+        </svg>
+      );
+    case 'warroom':
+      // Deux bulles qui se font face : un débat, pas une alerte.
+      return (
+        <svg {...common}>
+          <path d="M4 6.5h9.5v6.2H8.2L5.5 15v-2.3H4V6.5Z" />
+          <path d="M15.5 9.5H20v6.2h-1.5V18l-2.7-2.3h-5.3v-3" />
         </svg>
       );
     case 'intendance':
@@ -319,6 +329,15 @@ export function App() {
             // Changement de régime thermique : la jauge de Santé doit refléter
             // la nouvelle bande appliquée sans attendre le prochain poll.
             'thermo_shift',
+            // Le Conseil et la War Room : un conseil réuni, clos ou tranché par
+            // un AUTRE opérateur, un renvoi refusé qui laisse une contestation
+            // en suspens, la revue humaine qui la lève — les panneaux qui le
+            // montrent se relisent.
+            'council_opened',
+            'council_closed',
+            'council_decided',
+            'evaluator_retry_skipped',
+            'task_reviewed',
           ].includes(ev.type)
         ) {
           if (refreshTimer.current === undefined) {
@@ -786,6 +805,7 @@ export function App() {
               {route.view === 'cerveau' && <Cerveau {...viewProps} />}
               {route.view === 'chantiers' && <Chantiers {...viewProps} />}
               {route.view === 'chambre' && <Chambre {...viewProps} />}
+              {route.view === 'warroom' && <WarRoom {...viewProps} />}
             </Suspense>
           </FiletDeSecurite>
         </main>

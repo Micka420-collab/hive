@@ -1,0 +1,514 @@
+// La War Room — là où les IA se contredisent, relue dans le journal.
+//
+// ─── CE QUE CE MODULE EST, ET CE QU'IL N'EST PAS ─────────────────────────────
+//
+// Ce n'est PAS un second moteur de décision. Le Conseil des Éclaireuses
+// délibère (conseil.ts), la contre-expertise relit (contre-expertise.ts),
+// l'Evaluator renvoie en correction (scheduler.retryFromEvaluator), l'humain
+// revoit (Miellerie) — et chacun CONSIGNE déjà ce qu'il a fait dans le
+// journal. Ce qui manquait, c'est l'endroit où ces faits se lisent ENSEMBLE :
+// un débat de code dispersé entre quatre écrans n'est lu par personne.
+//
+// Ce module replie donc des événements EXISTANTS en un fil typé, sans rien
+// recalculer. Il n'y ajoute qu'UN fait, et c'est un geste humain :
+// `council_decided`, la décision qu'une personne prend sur un Conseil clos
+// (« il propose, vous tranchez » — jusque-là, rien ne rangeait le « vous
+// tranchez »).
+//
+// Trois règles de lecture, celles de `routage-vue.ts` :
+//   · un payload illisible est IGNORÉ, jamais deviné — le journal est une
+//     trace, pas une zone de confiance ;
+//   · une valeur absente reste absente (`null`), jamais un zéro inventé ;
+//   · le texte venu d'un agent est re-borné ici même, parce qu'une ligne du
+//     journal n'a pas à être crue sur sa longueur.
+//
+// Module PUR : aucune I/O, aucune horloge. Le serveur choisit les événements
+// (types, projet, tâche) et joint les titres ; l'écran rend.
+
+import type { Issue as IssueConseil } from '../orchestrator/conseil.js';
+import type { HiveEvent } from './types.js';
+
+export type { IssueConseil };
+
+/**
+ * Les types d'événements que la War Room lit — et rien d'autre.
+ *
+ * `task_retry` y figure pour SES renvois d'Evaluator seulement
+ * (`source: 'evaluator'`) : une reprise après panne de Worker n'est pas un
+ * désaccord, c'est une machine qui a toussé. Le filtre est dans `lireEntree`.
+ */
+export const TYPES_WAR_ROOM = [
+  'council_opened',
+  'council_proposal',
+  'council_review',
+  'council_round',
+  'council_closed',
+  'council_decided',
+  'contre_expertise',
+  'contre_expertise_verdict',
+  'contre_expertise_review_failed',
+  'task_retry',
+  'evaluator_retry_skipped',
+  'task_reviewed',
+] as const;
+
+/** Longueur maximale d'une justification humaine, au serveur comme à l'écran. */
+export const JUSTIFICATION_MAX = 1000;
+
+/**
+ * Qui a tranché. Fermé à deux cas, et le second est un AVEU, pas un défaut :
+ * le jeton de ruche est partagé par toutes les machines membres, il ne
+ * désigne personne. L'écrire « opérateur » ou le taire ferait passer une
+ * décision anonyme pour une décision signée.
+ */
+export type AuteurDecision =
+  { genre: 'compte'; userId: string; nom: string | null } | { genre: 'jeton_de_ruche' };
+
+interface Base {
+  /** Id de l'événement : ordre total du journal, et clé des renvois. */
+  id: number;
+  ts: number;
+}
+
+export type EntreeWarRoom =
+  | (Base & { genre: 'conseil_ouvert'; sessionId: string })
+  | (Base & {
+      genre: 'conseil_proposition';
+      sessionId: string;
+      propositionId: string;
+      nodeId: string;
+      tour: number;
+    })
+  | (Base & {
+      genre: 'conseil_avis';
+      sessionId: string;
+      propositionId: string;
+      nodeId: string;
+      avis: 'soutien' | 'arret';
+      tour: number;
+    })
+  | (Base & { genre: 'conseil_tour'; sessionId: string; tour: number; taches: number })
+  | (Base & {
+      genre: 'conseil_clos';
+      sessionId: string;
+      issue: IssueConseil;
+      /** Proposition retenue par le quorum, `null` sans convergence. */
+      retenue: string | null;
+    })
+  | (Base & {
+      genre: 'conseil_decide';
+      sessionId: string;
+      projectId: string | null;
+      /** `null` = l'humain ne retient AUCUNE piste — c'est une décision aussi. */
+      propositionId: string | null;
+      /** Titre de la piste, FIGÉ à la décision : les propositions s'élaguent avec leur session. */
+      titre: string | null;
+      justification: string;
+      par: AuteurDecision;
+      /** Id de la décision que celle-ci remplace, `null` pour une première décision. */
+      remplace: number | null;
+    })
+  | (Base & {
+      genre: 'contre_expertise';
+      taskId: string;
+      resultId: number | null;
+      /** `false` = aucun second modèle n'a pu relire : une information, pas un silence. */
+      possible: boolean;
+      relecteurs: string[];
+      motif: string | null;
+    })
+  | (Base & {
+      genre: 'contre_verdict';
+      taskId: string;
+      resultId: number | null;
+      relecteur: string;
+      conteste: boolean;
+      objections: string[];
+    })
+  | (Base & {
+      genre: 'contre_echec';
+      taskId: string;
+      resultId: number | null;
+      relecteur: string;
+      /** La relecture a épuisé ses essais : cet avis ne viendra jamais. */
+      terminal: boolean;
+    })
+  | (Base & {
+      genre: 'renvoi_evaluator';
+      taskId: string;
+      resultId: number | null;
+      decision: string;
+      tentative: number | null;
+      maxTentatives: number | null;
+    })
+  | (Base & { genre: 'renvoi_refuse'; taskId: string; resultId: number | null; raison: string })
+  | (Base & { genre: 'revue_humaine'; taskId: string; etat: 'approved' | 'rejected' | null });
+
+export type GenreEntree = EntreeWarRoom['genre'];
+
+/** La décision humaine sur un Conseil : l'entrée `conseil_decide`, telle quelle. */
+export type DecisionConseil = Extract<EntreeWarRoom, { genre: 'conseil_decide' }>;
+
+// ─── Lecture défensive ────────────────────────────────────────────────────────
+
+const texte = (v: unknown, max: number): string | null =>
+  typeof v === 'string' && v.trim() !== '' ? v.trim().slice(0, max) : null;
+const entier = (v: unknown): number | null =>
+  typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 ? v : null;
+/** Un identifiant du journal ou des résultats : entier strictement positif. */
+const idPositif = (v: unknown): number | null => {
+  const n = entier(v);
+  return n !== null && n > 0 ? n : null;
+};
+const textes = (v: unknown, max: number, nombreMax: number): string[] =>
+  Array.isArray(v)
+    ? v
+        .map((x) => texte(x, max))
+        .filter((x): x is string => x !== null)
+        .slice(0, nombreMax)
+    : [];
+
+/**
+ * Les issues du Conseil, EXHAUSTIVES par construction : un `Record` sur
+ * l'union refuse à la compilation une issue ajoutée au protocole et oubliée
+ * ici — elle serait sinon lue comme un payload illisible, et un conseil clos
+ * disparaîtrait du fil.
+ */
+const ISSUES: Record<IssueConseil, true> = {
+  quorum: true,
+  depart: true,
+  sans_quorum: true,
+  epuise: true,
+  vide: true,
+};
+const issueDe = (v: unknown): IssueConseil | null =>
+  typeof v === 'string' && Object.hasOwn(ISSUES, v) ? (v as IssueConseil) : null;
+
+function auteurDe(v: unknown): AuteurDecision | null {
+  if (typeof v !== 'object' || v === null) return null;
+  const a = v as Record<string, unknown>;
+  if (a.genre === 'jeton_de_ruche') return { genre: 'jeton_de_ruche' };
+  if (a.genre !== 'compte') return null;
+  const userId = texte(a.userId, 128);
+  return userId === null ? null : { genre: 'compte', userId, nom: texte(a.nom, 120) };
+}
+
+/** Une ligne du journal, lue — ou `null` si elle ne dit rien de lisible. */
+function lireEntree(e: HiveEvent): EntreeWarRoom | null {
+  const p = e.payload;
+  const base = { id: e.id, ts: e.ts };
+  const sessionId = texte(p.sessionId, 128);
+  const taskId = texte(p.taskId, 128);
+  switch (e.type) {
+    case 'council_opened':
+      return sessionId ? { ...base, genre: 'conseil_ouvert', sessionId } : null;
+    case 'council_proposal': {
+      const propositionId = texte(p.propositionId, 128);
+      const nodeId = texte(p.nodeId, 128);
+      const tour = entier(p.tour);
+      if (!sessionId || !propositionId || !nodeId || tour === null) return null;
+      return { ...base, genre: 'conseil_proposition', sessionId, propositionId, nodeId, tour };
+    }
+    case 'council_review': {
+      const propositionId = texte(p.propositionId, 128);
+      const nodeId = texte(p.nodeId, 128);
+      const tour = entier(p.tour);
+      const avis = p.type === 'soutien' || p.type === 'arret' ? p.type : null;
+      if (!sessionId || !propositionId || !nodeId || tour === null || !avis) return null;
+      return { ...base, genre: 'conseil_avis', sessionId, propositionId, nodeId, avis, tour };
+    }
+    case 'council_round': {
+      const tour = entier(p.tour);
+      const taches = entier(p.taches);
+      if (!sessionId || tour === null || taches === null) return null;
+      return { ...base, genre: 'conseil_tour', sessionId, tour, taches };
+    }
+    case 'council_closed': {
+      const issue = issueDe(p.issue);
+      if (!sessionId || !issue) return null;
+      return {
+        ...base,
+        genre: 'conseil_clos',
+        sessionId,
+        issue,
+        retenue: texte(p.retenue, 128),
+      };
+    }
+    case 'council_decided': {
+      const justification = texte(p.justification, JUSTIFICATION_MAX);
+      const par = auteurDe(p.par);
+      // `propositionId: null` est une décision (« aucune piste ») ; une clé
+      // ABSENTE ou d'un autre type est une ligne illisible — les confondre
+      // ferait lire « rien retenu » là où l'on ne sait pas ce qui l'a été.
+      const propositionId = p.propositionId === null ? null : texte(p.propositionId, 128);
+      if (!sessionId || !justification || !par) return null;
+      if (propositionId === null && p.propositionId !== null) return null;
+      return {
+        ...base,
+        genre: 'conseil_decide',
+        sessionId,
+        projectId: texte(p.projectId, 128),
+        propositionId,
+        titre: propositionId === null ? null : texte(p.titre, 300),
+        justification,
+        par,
+        remplace: idPositif(p.remplace),
+      };
+    }
+    case 'contre_expertise': {
+      if (!taskId || typeof p.possible !== 'boolean') return null;
+      return {
+        ...base,
+        genre: 'contre_expertise',
+        taskId,
+        resultId: idPositif(p.resultId),
+        possible: p.possible,
+        relecteurs: textes(p.relecteurs, 120, 10),
+        motif: texte(p.motif, 300),
+      };
+    }
+    case 'contre_expertise_verdict': {
+      const relecteur = texte(p.relecteur, 120);
+      if (!taskId || !relecteur || typeof p.conteste !== 'boolean') return null;
+      return {
+        ...base,
+        genre: 'contre_verdict',
+        taskId,
+        resultId: idPositif(p.resultId),
+        relecteur,
+        conteste: p.conteste,
+        objections: textes(p.objections, 300, 5),
+      };
+    }
+    case 'contre_expertise_review_failed': {
+      const relecteur = texte(p.relecteur, 120);
+      if (!taskId || !relecteur) return null;
+      return {
+        ...base,
+        genre: 'contre_echec',
+        taskId,
+        resultId: idPositif(p.resultId),
+        relecteur,
+        terminal: p.terminal === true,
+      };
+    }
+    case 'task_retry': {
+      // Les reprises après panne de Worker partagent ce type : elles ne sont
+      // pas un désaccord, et la War Room ne les montre pas.
+      if (p.source !== 'evaluator') return null;
+      const decision = texte(p.decision, 60);
+      if (!taskId || !decision) return null;
+      return {
+        ...base,
+        genre: 'renvoi_evaluator',
+        taskId,
+        resultId: idPositif(p.resultId),
+        decision,
+        tentative: entier(p.attempt),
+        maxTentatives: entier(p.maxAttempts),
+      };
+    }
+    case 'evaluator_retry_skipped': {
+      const raison = texte(p.reason, 60);
+      if (!taskId || !raison) return null;
+      return { ...base, genre: 'renvoi_refuse', taskId, resultId: idPositif(p.resultId), raison };
+    }
+    case 'task_reviewed': {
+      // `state: null` est un geste (la revue est effacée) : lisible, et gardé.
+      const etat = p.state;
+      if (!taskId || (etat !== null && etat !== 'approved' && etat !== 'rejected')) return null;
+      return { ...base, genre: 'revue_humaine', taskId, etat };
+    }
+    default:
+      return null;
+  }
+}
+
+/** Le fil, du plus ancien au plus récent (ordre du journal, pas des horloges). */
+export function entreesWarRoom(evenements: readonly HiveEvent[]): EntreeWarRoom[] {
+  const entrees: EntreeWarRoom[] = [];
+  for (const e of [...evenements].sort((a, b) => a.id - b.id)) {
+    const entree = lireEntree(e);
+    if (entree) entrees.push(entree);
+  }
+  return entrees;
+}
+
+/** Ce dont parle une entrée : une tâche, ou une session de Conseil. */
+export function sujetDe(
+  e: EntreeWarRoom,
+): { genre: 'tache'; taskId: string } | { genre: 'conseil'; sessionId: string } {
+  return 'taskId' in e
+    ? { genre: 'tache', taskId: e.taskId }
+    : { genre: 'conseil', sessionId: e.sessionId };
+}
+
+/**
+ * La décision COURANTE de chaque Conseil : la plus récente fait foi, et les
+ * précédentes restent au fil — revenir sur une décision se voit.
+ */
+export function dernieresDecisions(
+  entrees: readonly EntreeWarRoom[],
+): Map<string, DecisionConseil> {
+  const decisions = new Map<string, DecisionConseil>();
+  for (const e of entrees) if (e.genre === 'conseil_decide') decisions.set(e.sessionId, e);
+  return decisions;
+}
+
+// ─── Les désaccords que personne n'a tranchés ─────────────────────────────────
+
+/**
+ * Issues de Conseil qui ont DÉBATTU sans converger. `depart` (égalité au
+ * quorum) et `epuise` (plafond de tours) sont les deux cas nommés ; un conseil
+ * clos `sans_quorum` (plus rien à vérifier, rien de convergé) l'est au même
+ * titre. `vide` n'en est pas un — personne n'a rien rapporté, il n'y a rien à
+ * départager — et `quorum` a une recommandation.
+ */
+export const ISSUES_A_TRANCHER: ReadonlySet<IssueConseil> = new Set<IssueConseil>([
+  'depart',
+  'epuise',
+  'sans_quorum',
+]);
+
+/**
+ * Renvois refusés qui laissent une production CONTESTÉE en place.
+ *
+ * `evaluator_retry_skipped` n'est émis qu'après une contre-revue qui demande
+ * une amélioration (voir `relancerSiContreRevueInsuffisante`). Trois refus
+ * laissent alors l'objection sans suite : les essais sont épuisés, la
+ * production est déjà livrée, ou des dépendantes ont déjà bâti dessus. Les
+ * autres (`stale_result`, `task_not_done`…) disent que la production
+ * contestée n'est plus celle qui compte — la contestation est caduque, pas
+ * pendante.
+ */
+export const RAISONS_EN_SUSPENS: ReadonlySet<string> = new Set([
+  'attempts_exhausted',
+  'delivery_exists',
+  'dependent_progressed',
+]);
+
+export type Desaccord =
+  | {
+      genre: 'conseil';
+      sessionId: string;
+      issue: IssueConseil;
+      /** Clôture du conseil : le désaccord attend depuis cet instant. */
+      depuis: number;
+    }
+  | {
+      genre: 'tache';
+      taskId: string;
+      resultId: number | null;
+      raison: string;
+      /** Les objections des relecteurs sur CE résultat, bornées. */
+      objections: string[];
+      depuis: number;
+    };
+
+/**
+ * Ce que la Reine a RANGÉ d'une tâche, hors du journal — donc à l'abri de son
+ * élagage. Le refus de renvoi qui ouvre une contestation est gardé par
+ * `pruneEvents` tant que sa tâche existe ; la revue humaine ou le nouvel essai
+ * qui l'ont levée, eux, peuvent être sortis du journal. Sans ces faits rangés,
+ * une contestation tranchée il y a une semaine redeviendrait « à trancher ».
+ */
+export interface TacheRangee {
+  /** Dernier résultat rangé de la tâche, `null` sans résultat. */
+  dernierResultId: number | null;
+  /** Instant du verdict humain courant (Miellerie), `null` sans verdict. */
+  revueA: number | null;
+}
+
+/** Une session telle que le serveur la range — le strict nécessaire. */
+export interface SessionPourDesaccord {
+  id: string;
+  etat: string;
+  issue: string | null;
+  closedAt: number | null;
+}
+
+/**
+ * Les désaccords en suspens, du plus ancien au plus récent : celui qui attend
+ * depuis le plus longtemps d'abord.
+ *
+ * Un Conseil est tranché dès qu'une décision humaine existe — quelle qu'elle
+ * soit, « aucune piste » comprise. Une contestation de tâche est levée par une
+ * revue humaine qui pose un verdict (approuver OU rejeter, c'est trancher), ou
+ * rendue caduque par un nouvel essai : un renvoi de l'Evaluator, ou une
+ * nouvelle contre-expertise, qui porte sur une production plus récente.
+ *
+ * `decisions` vient par défaut du fil lui-même ; le serveur les passe lues À
+ * PART (`council_decided` seul). La fenêtre de lecture du fil est bornée : la
+ * décision d'un vieux conseil encore rangé peut en être sortie, et ce conseil
+ * redeviendrait « à trancher » alors que quelqu'un l'a tranché.
+ *
+ * `tacheRangee` applique la même règle aux faits RANGÉS, pour la même raison
+ * (voir `TacheRangee`) : un verdict humain posé APRÈS le refus tranche, un
+ * résultat plus récent que la production contestée la rend caduque. Et une
+ * tâche que la Reine ne connaît plus (`null`) n'attend plus personne : la
+ * Miellerie refuserait de la revoir, le désaccord ne se trancherait jamais.
+ * Sans elle (module pur éprouvé seul), le fil seul fait foi.
+ */
+export function desaccordsNonResolus(
+  entrees: readonly EntreeWarRoom[],
+  sessions: readonly SessionPourDesaccord[],
+  decisions: ReadonlyMap<string, DecisionConseil> = dernieresDecisions(entrees),
+  tacheRangee?: (taskId: string) => TacheRangee | null,
+): Desaccord[] {
+  const desaccords: Desaccord[] = [];
+
+  for (const s of sessions) {
+    const issue = issueDe(s.issue);
+    if (s.etat !== 'clos' || s.closedAt === null || !issue || !ISSUES_A_TRANCHER.has(issue)) {
+      continue;
+    }
+    if (decisions.has(s.id)) continue;
+    desaccords.push({ genre: 'conseil', sessionId: s.id, issue, depuis: s.closedAt });
+  }
+
+  const enSuspens = new Map<string, Extract<EntreeWarRoom, { genre: 'renvoi_refuse' }>>();
+  for (const e of entrees) {
+    if (e.genre === 'renvoi_refuse' && RAISONS_EN_SUSPENS.has(e.raison)) enSuspens.set(e.taskId, e);
+    else if (e.genre === 'revue_humaine' && e.etat !== null) enSuspens.delete(e.taskId);
+    else if (e.genre === 'renvoi_evaluator' || e.genre === 'contre_expertise') {
+      enSuspens.delete(e.taskId);
+    }
+  }
+  for (const refus of enSuspens.values()) {
+    if (tacheRangee) {
+      const rangee = tacheRangee(refus.taskId);
+      if (!rangee) continue;
+      // Strictement APRÈS : à la milliseconde près, le fil (ordonné par id)
+      // tranche déjà les cas frais ; ici on ne lève que ce qui est sûr.
+      if (rangee.revueA !== null && rangee.revueA > refus.ts) continue;
+      if (
+        refus.resultId !== null &&
+        rangee.dernierResultId !== null &&
+        rangee.dernierResultId !== refus.resultId
+      ) {
+        continue;
+      }
+    }
+    const objections = new Set<string>();
+    for (const e of entrees) {
+      if (
+        e.genre === 'contre_verdict' &&
+        e.taskId === refus.taskId &&
+        e.resultId === refus.resultId &&
+        e.conteste
+      ) {
+        for (const o of e.objections) objections.add(o);
+      }
+    }
+    desaccords.push({
+      genre: 'tache',
+      taskId: refus.taskId,
+      resultId: refus.resultId,
+      raison: refus.raison,
+      objections: [...objections].slice(0, 3),
+      depuis: refus.ts,
+    });
+  }
+
+  return desaccords.sort((a, b) => a.depuis - b.depuis);
+}
