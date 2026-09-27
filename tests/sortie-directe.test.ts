@@ -9,7 +9,8 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { runCommand } from '../src/adapters/exec.js';
+import { runCommand, runCommandFlux } from '../src/adapters/exec.js';
+import { createLecteurFluxCodex } from '../src/adapters/flux-codex.js';
 import {
   cadenceDe,
   createSortieDirecte,
@@ -252,5 +253,63 @@ describe('runCommand — tout agent réel diffuse sa sortie, stdout ET stderr', 
     expect(vu).toContain('premier pas\n');
     expect(vu).toContain('exec: npm test\n');
     expect(vu).toContain('message final\n');
+  });
+
+  // Codex `--json` (#481) écrit ses événements sur STDOUT. Brut, le direct
+  // (#489) aurait montré du JSON à l'écran ; c'est la forme LISIBLE du flux
+  // — celle des logs — qui part, ligne à ligne, et jamais l'événement.
+  it('un flux lu en entier (`codex exec --json`) part sous sa forme LISIBLE, jamais brut', async () => {
+    const dossier = mkdtempSync(path.join(tmpdir(), 'hive-sortie-flux-'));
+    aNettoyer.push(dossier);
+    const temoin = path.join(dossier, 'vu');
+    const script = path.join(dossier, 'agent.js');
+    const evenement = (e: unknown): string =>
+      `process.stdout.write(${JSON.stringify(`${JSON.stringify(e)}\n`)});\n`;
+    writeFileSync(
+      script,
+      "'use strict';\nconst fs = require('node:fs');\n" +
+        evenement({ type: 'thread.started', thread_id: 't' }) +
+        evenement({ type: 'turn.started' }) +
+        evenement({
+          type: 'item.completed',
+          item: { id: 'i1', type: 'reasoning', text: 'Je relis la garde du jeton.' },
+        }) +
+        `const t = setInterval(() => { if (fs.existsSync(${JSON.stringify(temoin)})) {\n` +
+        '  clearInterval(t);\n' +
+        evenement({
+          type: 'item.completed',
+          item: { id: 'i2', type: 'agent_message', text: 'valide' },
+        }) +
+        evenement({
+          type: 'turn.completed',
+          usage: { input_tokens: 1, cached_input_tokens: 0, output_tokens: 1 },
+        }) +
+        '  setTimeout(() => {}, 2 * 250); } }, 20);\n',
+    );
+    const sorties: string[] = [];
+
+    const r = await runCommandFlux(
+      process.execPath,
+      [script],
+      {
+        cwd: dossier,
+        env: { ...process.env },
+        attempt: 1,
+        signal: new AbortController().signal,
+        onProgress: (p) => {
+          if (p.sortie === undefined) return;
+          sorties.push(p.sortie);
+          if (sorties.join('').includes('Je relis la garde du jeton.')) writeFileSync(temoin, '');
+        },
+      },
+      createLecteurFluxCodex(),
+      10_000,
+    );
+
+    expect(r.success, r.logs).toBe(true);
+    expect(r.finalText).toBe('valide');
+    const vu = sorties.join('');
+    expect(vu).toContain('Je relis la garde du jeton.');
+    expect(vu, 'un événement brut est parti à l’écran').not.toContain('"type"');
   });
 });
