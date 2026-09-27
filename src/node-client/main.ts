@@ -13,8 +13,9 @@ import { demarrageNoeudAutorise, messageRefusShellProduction } from '../shared/a
 import { conseilDemarrage, constatsPourLeHub, diagnostiquerAgents } from './connexion.js';
 import { entreeEnRuche } from '../shared/presence-noeud.js';
 import { HiveNodeClient } from './client.js';
-import { isolementDeclareDe, optionBac, preparerBac, ramasserRestes } from './bac.js';
+import { isolementDeclareDe, optionBac, preparerBac, reprendreIdentite } from './bac.js';
 import { parseModeles } from './modeles.js';
+import { CODE } from '../codes-sortie.js';
 import { createInterface } from 'node:readline/promises';
 
 try {
@@ -85,9 +86,31 @@ const detecte = await resoudreAgentAuDemarrage({
 const agentType: AgentType = detecte.agent;
 const tousAgents = await detectAllAgents();
 
+// Même défaut que `HiveNodeClient` (client.ts) : calculé ICI pour pouvoir
+// lire/écrire l'identité stable AVANT de construire le client.
+const name = process.env.HIVE_NODE_NAME ?? os.hostname();
+const workRoot =
+  process.env.HIVE_WORKDIR ?? path.join('.hive-work', name.replace(/[^A-Za-z0-9_-]+/g, '_'));
+
+// L'identité survit au redémarrage — même mécanisme que `join.ts`
+// (`identite-noeud.ts`). Sans elle, chaque lancement de `npm run node`
+// mintait un nouvel id et laissait le précédent affiché « hors ligne »
+// pour toujours dans le dashboard : un fantôme par redémarrage.
+const nodeId = identiteStable(workRoot);
+
+// L'identité prise, puis ce qu'un lancement précédent de CE nœud a laissé
+// tourner (kill -9, panne) supprimé — AVANT le preflight, qui peut durer, et
+// avant un éventuel refus. Voir `reprendreIdentite`.
+const reprise = await reprendreIdentite(process.env, nodeId, workRoot);
+if (reprise.occupee) {
+  console.error(`✘ Ce nœud ne démarre pas : ${reprise.message}\n`);
+  process.exit(CODE.ERREUR);
+}
+for (const l of reprise.lignes) console.log(l);
+
 // Un moteur présent ne suffit pas : le CLI choisi doit réellement être
 // exécutable dans l'image. La décision arrive donc après le choix de l'agent.
-const bac = await preparerBac(process.env, agentType);
+const bac = await preparerBac(process.env, agentType, { moteurs: async () => reprise.moteurs });
 for (const l of bac.lignes) console.log(l);
 if (bac.refuse) {
   console.error('✘ Ce nœud ne démarre pas.\n');
@@ -157,22 +180,6 @@ const aDire = messageAgent(agentType, tousAgents);
 if (aDire) console.log(aDire);
 
 const variables = [...new Set([...agentCredentialEnv(agentType), ...extraKeep])];
-
-// Même défaut que `HiveNodeClient` (client.ts) : calculé ICI pour pouvoir
-// lire/écrire l'identité stable AVANT de construire le client.
-const name = process.env.HIVE_NODE_NAME ?? os.hostname();
-const workRoot =
-  process.env.HIVE_WORKDIR ?? path.join('.hive-work', name.replace(/[^A-Za-z0-9_-]+/g, '_'));
-
-// L'identité survit au redémarrage — même mécanisme que `join.ts`
-// (`identite-noeud.ts`). Sans elle, chaque lancement de `npm run node`
-// mintait un nouvel id et laissait le précédent affiché « hors ligne »
-// pour toujours dans le dashboard : un fantôme par redémarrage.
-const nodeId = identiteStable(workRoot);
-
-// Ce qu'un lancement précédent de CE nœud a laissé tourner dans son moteur
-// (kill -9, panne) — supprimé AVANT de prendre du travail. Voir `ramasserRestes`.
-for (const l of await ramasserRestes(bac, nodeId, workRoot)) console.log(l);
 
 const client = new HiveNodeClient({
   url: process.env.HIVE_URL ?? 'ws://localhost:7777/ws',

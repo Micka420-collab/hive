@@ -138,6 +138,15 @@ export interface Fournisseur {
   installation: string;
   /** Ce qu'il garantit réellement — jamais une promesse ronde. */
   garanties: string[];
+  /**
+   * Podman : le MOTEUR tourne-t-il sans root ? Appris au preflight de lui-même
+   * (`podman info`, voir `preparerIdentite`), pas de l'UID de l'hôte : un
+   * podman-remote vers une machine rootful (`podman machine set --rootful`,
+   * `CONTAINER_HOST`) refuse `--userns=keep-id`, quel que soit l'UID du nœud.
+   * Absent : le moteur n'a pas été interrogé, ou n'a rien dit — l'UID de l'hôte
+   * en décide, comme pour un Podman local.
+   */
+  rootless?: boolean;
 }
 
 /**
@@ -291,6 +300,13 @@ function identiteNonPrivilegiee(): { uid: number; gid: number; rootless: boolean
   return { uid: 1000, gid: 1000, rootless: false };
 }
 
+/** Podman rootless — selon le moteur s'il l'a dit, sinon selon l'UID du nœud. */
+function keepId(fournisseur: Fournisseur): boolean {
+  return (
+    fournisseur.nom === 'podman' && (fournisseur.rootless ?? identiteNonPrivilegiee().rootless)
+  );
+}
+
 /** Étiquette de conteneur : le nœud qui l'a lancé. Voir `ramasserConteneurs`. */
 export const ETIQUETTE_NOEUD = 'hive.noeud';
 /** Étiquette de conteneur : la tâche qu'il exécute, pour qui inspecte à la main. */
@@ -412,7 +428,7 @@ function enveloppeConteneur(
     // l'UID du conteneur avec celui du nœud. Un nœud root, lui, n'a aucune
     // identité non privilégiée à garder : il garde l'abaissement explicite à
     // 1000:1000, sans `keep-id`.
-    ...(opts.fournisseur.nom === 'podman' && hote.rootless ? ['--userns=keep-id'] : []),
+    ...(keepId(opts.fournisseur) ? ['--userns=keep-id'] : []),
     `--user=${uid}:${gid}`,
 
     // ── Ce qui est borné ───────────────────────────────────────────────────
@@ -483,6 +499,30 @@ const VARIABLES_MOTEUR: readonly string[] = [
 ];
 
 /**
+ * Ce que le client d'un moteur lit pour TÉLÉCHARGER une image : le proxy
+ * d'entreprise, le fichier d'authentification du registre, les autorités de
+ * certification. Podman rootless tire l'image dans le processus client : sans
+ * eux, une image nommée ne se téléchargeait plus derrière un proxy.
+ *
+ * AU `pull` SEULEMENT, ni à la tâche ni aux preflights : une tâche ne
+ * télécharge rien (`--pull=never`), et Podman fait traverser par défaut les
+ * variables de proxy de son client jusque dans le conteneur (`--http-proxy`) —
+ * un proxy à identifiants aurait rejoint l'environnement de l'agent sans que
+ * le bac l'ait autorisé. Un `pull` ne lance aucun conteneur.
+ */
+const VARIABLES_TELECHARGEMENT: readonly string[] = [
+  'HTTP_PROXY',
+  'HTTPS_PROXY',
+  'NO_PROXY',
+  'http_proxy',
+  'https_proxy',
+  'no_proxy',
+  'REGISTRY_AUTH_FILE',
+  'SSL_CERT_FILE',
+  'SSL_CERT_DIR',
+];
+
+/**
  * L'environnement du client d'un moteur de conteneurs pour les ÉPREUVES du
  * démarrage (inspection, téléchargement, preflight, ramassage).
  *
@@ -493,7 +533,8 @@ const VARIABLES_MOTEUR: readonly string[] = [
  * `VARIABLES_MOTEUR`. Tout réglage du moteur hors de cette liste faisait
  * passer le preflight et échouer chaque tâche. Les deux partent maintenant de
  * la MÊME règle, `envDuLanceur`, sur la même base système que
- * `buildSandboxEnv` : ce que le preflight trouve, la tâche le trouve.
+ * `buildSandboxEnv` : ce que le preflight trouve, la tâche le trouve. Seul le
+ * `pull` en reçoit plus (`envTelechargement`), qu'aucune tâche ne fait.
  */
 export function envMoteur(
   fournisseur: Fournisseur,
@@ -504,6 +545,18 @@ export function envMoteur(
     if (envHote[nom] !== undefined) base[nom] = envHote[nom];
   }
   return envDuLanceur(fournisseur, base, envHote);
+}
+
+/** `envMoteur`, plus ce que lit un téléchargement (`VARIABLES_TELECHARGEMENT`). */
+export function envTelechargement(
+  fournisseur: Fournisseur,
+  envHote: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  const env = envMoteur(fournisseur, envHote);
+  for (const nom of VARIABLES_TELECHARGEMENT) {
+    if (envHote[nom] !== undefined) env[nom] = envHote[nom];
+  }
+  return env;
 }
 
 /** L'environnement du processus qui lance le bac : celui de la tâche, plus ce que le moteur lit. */
@@ -921,6 +974,8 @@ export interface ResultatPreflightAgent {
   motif: string;
   /** Une image nommée absente, non téléchargée (`preparerImage` avec `tirer: false`). */
   imageAbsente?: true;
+  /** Le moteur tel que l'épreuve l'a appris (`Fournisseur.rootless`), à garder pour la suite. */
+  fournisseur?: Fournisseur;
 }
 
 /** Ce qu'a rendu une commande d'épreuve lancée dans le bac. */
@@ -1238,7 +1293,7 @@ export async function preparerImage(
   );
   const tirage = await eprouver(
     { bin: fournisseur.bin, args: ['pull', image] },
-    { cwd: tmpdir(), timeoutMs: delai, garderErreurs: true, env: envMoteur(fournisseur) },
+    { cwd: tmpdir(), timeoutMs: delai, garderErreurs: true, env: envTelechargement(fournisseur) },
   );
   if (tirage.issue === 'sortie' && tirage.code === 0) {
     return preparerIdentite(fournisseur, image, opts, `image téléchargée dans ${fournisseur.nom}`);
@@ -1278,17 +1333,27 @@ const PREPARATION_ANNONCEE_MS = 3_000;
  * nommée par l'opérateur, pas encore jugée — tournait une fois avec les
  * capacités, sans `no-new-privileges` ni racine en lecture seule. Elle passe
  * maintenant par `envelopper`, comme le preflight et la tâche : le seul
- * lancement qui précède le preflight a exactement les murs du bac.
+ * lancement qui précède le preflight a exactement les murs du bac. *
+ * ─── ROOTLESS SELON LE MOTEUR, PAS SELON L'HÔTE ──────────────────────────────
+ *
+ * `keep-id` suivait l'UID du nœud. Or un podman-remote vers une machine
+ * rootful (macOS, Windows, `CONTAINER_HOST`) le refuse — « keep-id is only
+ * supported in rootless mode » : chaque preflight échouait, et un poste qui
+ * s'isolait avant retombait en processus. Le moteur est interrogé ici, une
+ * fois ; ce qu'il dit voyage avec le moteur retenu (`fournisseur` du résultat)
+ * jusqu'aux preflights et aux tâches.
  */
 async function preparerIdentite(
-  fournisseur: Fournisseur,
+  moteur: Fournisseur,
   image: string,
   opts: { informer?: (ligne: string) => void; telechargementMs?: number },
   motif: string,
 ): Promise<ResultatPreflightAgent> {
-  if (fournisseur.nom !== 'podman' || !identiteNonPrivilegiee().rootless) {
-    return { executable: true, motif };
-  }
+  if (moteur.nom !== 'podman') return { executable: true, motif };
+  const rootless = await moteurRootless(moteur);
+  const fournisseur = rootless === null ? moteur : { ...moteur, rootless };
+  const appris = rootless === null ? {} : { fournisseur };
+  if (!keepId(fournisseur)) return { executable: true, motif, ...appris };
   const delai = opts.telechargementMs ?? TELECHARGEMENT_MAX_MS;
   const annonce = setTimeout(
     () =>
@@ -1314,11 +1379,33 @@ async function preparerIdentite(
           `${Math.round(delai / 60_000)} min (podman --userns=keep-id) — relancez le nœud`,
       };
     }
-    return { executable: true, motif };
+    return { executable: true, motif, ...appris };
   } finally {
     clearTimeout(annonce);
     rmSync(vide, { recursive: true, force: true });
   }
+}
+
+/**
+ * Le moteur Podman tourne-t-il sans root ? Sa propre réponse
+ * (`podman info`) — `null` s'il ne la donne pas : on ne l'invente pas.
+ */
+async function moteurRootless(fournisseur: Fournisseur): Promise<boolean | null> {
+  const r = await eprouver(
+    {
+      bin: fournisseur.bin,
+      args: ['info', '--format', '{{.Host.Security.Rootless}}'],
+    },
+    {
+      cwd: tmpdir(),
+      timeoutMs: INSPECTION_MAX_MS,
+      garderSortie: true,
+      env: envMoteur(fournisseur),
+    },
+  );
+  if (r.issue !== 'sortie' || r.code !== 0) return null;
+  const dit = r.sortie.trim();
+  return dit === 'true' ? true : dit === 'false' ? false : null;
 }
 
 /**
@@ -1337,13 +1424,20 @@ async function preparerIdentite(
  * prendre du travail, le nœud supprime donc tout conteneur qui porte la sienne :
  * aucun ne peut être à lui et légitime, puisqu'il n'a encore rien lancé.
  *
- * Rend les identifiants supprimés — ou un motif si le moteur n'a pas pu le dire.
+ * Les lancements du démarrage lui-même — la préparation `keep-id` (`true`),
+ * les preflights (`--version`) — ne portent pas d'étiquette, et c'est voulu :
+ * ils finissent d'eux-mêmes, et `--rm` est tenu par le moteur (démon Docker,
+ * `conmon` de Podman), pas par le client qu'un kill -9 emporterait. Seul un
+ * agent au travail survit à son nœud.
+ *
+ * Rend les identifiants supprimés, `injoignable` quand le client répond mais
+ * pas son moteur, ou un motif quand le moteur n'a pas pu dire ou supprimer.
  */
 export async function ramasserConteneurs(
   fournisseur: Fournisseur,
   noeud: string,
   timeoutMs = INSPECTION_MAX_MS,
-): Promise<{ supprimes: string[] } | { motif: string }> {
+): Promise<{ supprimes: string[] } | { injoignable: string } | { motif: string }> {
   if (fournisseur.bin === 'bwrap') return { supprimes: [] }; // `--die-with-parent`
   const cwd = tmpdir();
   const liste = await eprouver(
@@ -1353,9 +1447,15 @@ export async function ramasserConteneurs(
     },
     { cwd, timeoutMs, garderErreurs: true, garderSortie: true, env: envMoteur(fournisseur) },
   );
-  if (liste.issue !== 'sortie' || liste.code !== 0) {
-    const dit = liste.issue === 'sortie' ? citation(liste.erreurs) : ` (${liste.issue})`;
-    return { motif: `${fournisseur.nom} n'a pas listé les conteneurs de ce nœud${dit}` };
+  if (liste.issue !== 'sortie') {
+    return {
+      motif: `${fournisseur.nom} n'a pas listé les conteneurs de ce nœud (${liste.issue})`,
+    };
+  }
+  if (liste.code !== 0) {
+    // Le client a répondu, son moteur non (démon arrêté, Docker Desktop
+    // éteint) : pas une panne à signaler en rouge à chaque démarrage.
+    return { injoignable: `${fournisseur.nom} injoignable${citation(liste.erreurs)}` };
   }
   const ids = [...new Set(liste.sortie.split(/\s+/).filter((id) => /^[0-9a-f]{12,64}$/.test(id)))];
   if (ids.length === 0) return { supprimes: [] };

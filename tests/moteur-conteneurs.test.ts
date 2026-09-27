@@ -23,25 +23,25 @@
 // réponses. Le vrai Docker et le vrai Podman sont exercés par
 // `tests/isolement-runtime.integration.test.ts`, dans le job image de la CI.
 
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  annonce,
-  codeDuBac,
   optionBac,
   preparerBac,
   ramasserRestes,
-  sessionsHoteDuMode,
-  type Bac,
+  reprendreIdentite,
   type OutilsBac,
 } from '../src/node-client/bac.js';
+import { cheminVerrou, occuperIdentite } from '../src/node-client/identite-noeud.js';
 import {
   COMMANDE_IMAGE,
-  decider,
   envDuLanceur,
+  envelopper,
   envMoteur,
+  envTelechargement,
   ETIQUETTE_NOEUD,
   fournisseurParNom,
   IMAGE_DEFAUT,
@@ -320,8 +320,10 @@ describe.skipIf(!surPosix)('preparerImage — trois pannes, trois motifs', () =>
     const dit: string[] = [];
     const r = await preparerImage(moteur, IMAGE_DEFAUT, { informer: (l) => dit.push(l) });
     expect(r).toEqual({ executable: true, motif: 'image présente dans podman' });
+    // Le moteur est interrogé d'abord ; muet, l'UID du nœud en décide.
+    expect(appels()[1]).toBe('info --format {{.Host.Security.Rootless}}');
     // Le même bac que la tâche : l'image nommée ne tourne jamais sans ses murs.
-    const preparation = appels()[1] ?? '';
+    const preparation = appels()[2] ?? '';
     expect(preparation).toMatch(/^run --rm /);
     for (const mur of [
       '--userns=keep-id',
@@ -348,6 +350,49 @@ describe.skipIf(!surPosix)('preparerImage — trois pannes, trois motifs', () =>
     });
     expect(r.executable).toBe(false);
     expect(r.motif).toMatch(/toujours en cours .*podman --userns=keep-id/);
+  });
+
+  it('un podman-remote ROOTFUL, sous un nœud non root : ni préparation ni `keep-id`, qu’il refuserait', async () => {
+    // `keep-id` suivait l'UID de l'hôte : sur macOS (UID 501) vers une machine
+    // `--rootful`, chaque preflight échouait « keep-id is only supported in
+    // rootless mode », et le poste retombait en processus.
+    vi.spyOn(process, 'getuid').mockReturnValue(501);
+    const { moteur, appels } = fauxMoteur(
+      'podman',
+      `'image inspect') echo sha256:abc ;;\n'info --format') echo false ;;`,
+    );
+    const r = await preparerImage(moteur, IMAGE_DEFAUT);
+    expect(r).toMatchObject({ executable: true, fournisseur: { nom: 'podman', rootless: false } });
+    expect(appels().some((a) => a.startsWith('run'))).toBe(false);
+    // Ce que le moteur a dit voyage avec lui jusqu'à la tâche.
+    const tache = envelopper('claude', [], {
+      fournisseur: r.fournisseur as Fournisseur,
+      cwdHote: dossier,
+      variables: [],
+    });
+    expect(tache.args).not.toContain('--userns=keep-id');
+    const gid = process.getgid?.() ?? 0;
+    expect(tache.args).toContain(`--user=501:${gid > 0 ? gid : 501}`);
+  });
+
+  it('un Podman qui se dit rootless garde `keep-id`, et le preflight retenu le porte', async () => {
+    vi.spyOn(process, 'getuid').mockReturnValue(1001);
+    const { moteur } = fauxMoteur(
+      'podman',
+      `'image inspect') echo sha256:abc ;;\n'info --format') echo true ;;`,
+    );
+    const { outils } = machine([moteur], {});
+    const bac = await preparerBac(CLE, 'claude-code', {
+      ...outils,
+      preparerImage: (f, image) => preparerImage(f, image, { informer: () => {} }),
+    });
+    expect(bac.fournisseur).toMatchObject({ nom: 'podman', rootless: true });
+    const tache = envelopper('claude', [], {
+      fournisseur: bac.fournisseur as Fournisseur,
+      cwdHote: dossier,
+      variables: [],
+    });
+    expect(tache.args).toContain('--userns=keep-id');
   });
 
   it('Docker, lui, n’a rien à préparer', async () => {
@@ -436,37 +481,22 @@ describe.skipIf(!surPosix)('ramasserConteneurs — ce qu’un nœud tué a laiss
     expect(appels()).toHaveLength(1);
   });
 
-  it('un moteur qui ne liste pas se DIT — jamais un « rien à ramasser » inventé', async () => {
+  it('un moteur qui ne liste pas se DIT injoignable — jamais un « rien à ramasser » inventé', async () => {
     const { moteur } = fauxMoteur(
       'docker',
       `'ps --all') echo "Cannot connect to the Docker daemon" >&2; exit 1 ;;`,
     );
     const r = await ramasserConteneurs(moteur, 'node-42');
     expect(r).toEqual({
-      motif:
-        "docker n'a pas listé les conteneurs de ce nœud (« Cannot connect to the Docker daemon »)",
+      injoignable: 'docker injoignable (« Cannot connect to the Docker daemon »)',
     });
   });
 });
 
 describe('ramasserRestes — au démarrage du nœud', () => {
-  function bacDe(fournisseur: Fournisseur | null): Bac {
-    const decision = decider('auto', fournisseur);
-    return {
-      decision,
-      fournisseur,
-      moteurs: fournisseur ? [fournisseur] : [],
-      image: imageDepuisEnv({}),
-      lignes: annonce(decision, fournisseur),
-      refuse: decision.refuse,
-      codeSortie: codeDuBac(decision.refuse),
-      sessionsHote: sessionsHoteDuMode('auto'),
-    };
-  }
-
-  it('interroge le moteur du bac, avec l’identité stable du nœud, et dit ce qu’il a supprimé', async () => {
+  it('interroge chaque moteur, avec l’identité stable du nœud, et dit ce qu’il a supprimé', async () => {
     const vus: string[] = [];
-    const lignes = await ramasserRestes(bacDe(DOCKER), 'node-42', dossier, async (f, noeud) => {
+    const lignes = await ramasserRestes([DOCKER], 'node-42', async (f, noeud) => {
       vus.push(`${f.nom}:${noeud}`);
       return { supprimes: ['a1b2c3d4e5f6'] };
     });
@@ -475,60 +505,135 @@ describe('ramasserRestes — au démarrage du nœud', () => {
   });
 
   it('un échec du moteur n’empêche pas le démarrage, mais se dit', async () => {
-    const lignes = await ramasserRestes(bacDe(PODMAN), 'node-42', dossier, async () => ({
+    const lignes = await ramasserRestes([PODMAN], 'node-42', async () => ({
       motif: 'podman muet',
     }));
     expect(lignes.join('\n')).toMatch(/⚠ podman muet/);
   });
 
-  it('un démarrage REPLIÉ ramasse tout de même, dans chaque moteur qui répond', async () => {
-    // Le Docker d'hier tué net, un preflight qui expire aujourd'hui : le nœud
-    // se replie en processus, et l'orphelin n'était jamais cherché.
+  it('un Docker arrêté se dit sobrement, sans l’alarme d’un agent qui tournerait encore', async () => {
+    // Docker Desktop installé et éteint : il ne fait rien tourner qu'on
+    // pourrait joindre, et le dire en rouge à chaque démarrage n'aide personne.
+    const lignes = await ramasserRestes([DOCKER], 'node-42', async () => ({
+      injoignable: 'docker injoignable (« Cannot connect »)',
+    }));
+    expect(lignes).toEqual([
+      "   · docker injoignable (« Cannot connect ») — ses conteneurs n'ont pas été cherchés.",
+    ]);
+  });
+
+  it('plusieurs moteurs : chacun est interrogé, bubblewrap (`--die-with-parent`) non', async () => {
+    // Le Docker d'hier tué net, un Podman retenu aujourd'hui.
     const vus: string[] = [];
-    const replie: Bac = { ...bacDe(null), moteurs: [PODMAN, DOCKER, BWRAP] };
-    const lignes = await ramasserRestes(replie, 'node-42', dossier, async (f, noeud) => {
+    const lignes = await ramasserRestes([PODMAN, DOCKER, BWRAP], 'node-42', async (f, noeud) => {
       vus.push(`${f.nom}:${noeud}`);
       return f.nom === 'docker' ? { supprimes: ['a1b2c3d4e5f6'] } : { supprimes: [] };
     });
     expect(vus).toEqual(['podman:node-42', 'docker:node-42']);
     expect(lignes.join('\n')).toMatch(/1 conteneur\(s\) .* supprimé\(s\) \(docker\)/);
   });
+});
 
-  it('un AUTRE processus vivant porte cette identité : rien n’est supprimé, et c’est dit', async () => {
-    // `npm run node` lancé deux fois sous le même nom : le second tuait les
-    // agents en cours du premier.
-    writeFileSync(path.join(dossier, 'node.pid'), `${process.ppid}\n`);
-    let appele = false;
-    const lignes = await ramasserRestes(bacDe(DOCKER), 'node-42', dossier, async () => {
-      appele = true;
-      return { supprimes: ['a1b2c3d4e5f6'] };
-    });
-    expect(appele).toBe(false);
-    expect(lignes.join('\n')).toMatch(
-      new RegExp(`processus ${process.ppid} porte déjà l'identité`),
-    );
-  });
-
-  it('un occupant MORT (kill -9) ne bloque rien : ce processus prend sa place', async () => {
-    writeFileSync(path.join(dossier, 'node.pid'), '999999999\n');
+describe('reprendreIdentite — l’identité prise, les restes ramassés, AVANT le preflight', () => {
+  it('ramasse même quand `exige` refusera ensuite : le ramassage ne dépend d’aucun preflight', async () => {
+    // Le ramassage venait après `preparerBac` : un refus `exige` sortait avant,
+    // et l'orphelin d'hier continuait d'écrire et de dépenser.
     const vus: string[] = [];
-    await ramasserRestes(bacDe(DOCKER), 'node-42', dossier, async (f) => {
-      vus.push(f.nom);
-      return { supprimes: [] };
+    const reprise = await reprendreIdentite({ HIVE_ISOLEMENT: 'exige' }, 'node-42', dossier, {
+      trouver: async () => [DOCKER],
+      ramasser: async (f, noeud) => {
+        vus.push(`${f.nom}:${noeud}`);
+        return { supprimes: ['a1b2c3d4e5f6'] };
+      },
     });
-    expect(vus).toEqual(['docker']);
-    expect(readFileSync(path.join(dossier, 'node.pid'), 'utf8').trim()).toBe(String(process.pid));
+    expect(vus).toEqual(['docker:node-42']);
+    expect(reprise).toMatchObject({ occupee: false, moteurs: [DOCKER] });
+    // Les moteurs sondés ici sont ceux que le preflight éprouvera : une sonde, pas deux.
+    const bac = await preparerBac({ HIVE_ISOLEMENT: 'exige' }, undefined, {
+      ...machine([], {}).outils,
+      moteurs: async () => (reprise.occupee ? [] : reprise.moteurs),
+    });
+    expect(bac.fournisseur?.nom).toBe('docker');
   });
 
-  it('ni bubblewrap (`--die-with-parent`) ni la sandbox de processus n’ont rien à ramasser', async () => {
+  it('en `off`, aucun moteur n’est sondé ni fouillé', async () => {
+    let sonde = false;
+    const reprise = await reprendreIdentite({ HIVE_ISOLEMENT: 'off' }, 'node-42', dossier, {
+      trouver: async () => {
+        sonde = true;
+        return [DOCKER];
+      },
+    });
+    expect(sonde).toBe(false);
+    expect(reprise).toEqual({ occupee: false, moteurs: [], lignes: [] });
+  });
+
+  it('un AUTRE processus vivant tient l’identité : rien n’est supprimé, et ce nœud ne démarre pas', async () => {
+    // `npm run node` lancé deux fois sous le même nom : le second tuait les
+    // agents en cours du premier — et, laissé tourner, se serait fait tuer
+    // les siens au prochain redémarrage du premier.
+    const premier = await occuperIdentite(dossier);
+    expect(premier.occupee).toBe(false);
     let appele = false;
-    const espion = async (): Promise<{ supprimes: string[] }> => {
-      appele = true;
-      return { supprimes: [] };
-    };
-    expect(await ramasserRestes(bacDe(BWRAP), 'node-42', dossier, espion)).toEqual([]);
-    expect(await ramasserRestes(bacDe(null), 'node-42', dossier, espion)).toEqual([]);
+    const reprise = await reprendreIdentite({}, 'node-42', dossier, {
+      trouver: async () => [DOCKER],
+      ramasser: async () => {
+        appele = true;
+        return { supprimes: [] };
+      },
+    });
     expect(appele).toBe(false);
+    expect(reprise.occupee).toBe(true);
+    if (reprise.occupee) expect(reprise.message).toMatch(/porte déjà l'identité de ce nœud/);
+    if (!premier.occupee) premier.liberer();
+  });
+});
+
+describe('occuperIdentite — un verrou que l’OS rend à la mort du processus', () => {
+  it('tenu, il refuse un second occupant ; rendu, il se reprend', async () => {
+    const premier = await occuperIdentite(dossier);
+    expect(premier.occupee).toBe(false);
+    expect((await occuperIdentite(dossier)).occupee).toBe(true);
+    if (!premier.occupee) premier.liberer();
+    const repris = await occuperIdentite(dossier);
+    expect(repris.occupee).toBe(false);
+    if (!repris.occupee) repris.liberer();
+  });
+
+  it.skipIf(!surPosix)(
+    'un occupant tué net (kill -9) ne bloque rien, même si son pid est recyclé',
+    async () => {
+      // Le pid inscrit dans `node.pid` survivait à son processus : un
+      // programme sans rapport qui en héritait faisait sauter chaque ramassage.
+      // La socket, elle, n'écoute plus : une connexion est refusée.
+      const chemin = cheminVerrou(dossier);
+      const enfant = spawn(
+        process.execPath,
+        [
+          '-e',
+          `require('node:net').createServer().listen(${JSON.stringify(chemin)}, () => console.log('pret'))`,
+        ],
+        { stdio: ['ignore', 'pipe', 'ignore'] },
+      );
+      await new Promise<void>((resolve) => enfant.stdout.once('data', () => resolve()));
+      expect((await occuperIdentite(dossier)).occupee).toBe(true);
+      enfant.kill('SIGKILL');
+      await new Promise((resolve) => enfant.once('exit', resolve));
+      // La socket est restée sur le disque : elle est reprise.
+      expect(existsSync(chemin)).toBe(true);
+      const repris = await occuperIdentite(dossier);
+      expect(repris.occupee).toBe(false);
+      if (!repris.occupee) repris.liberer();
+    },
+    15_000,
+  );
+
+  it('un atelier au chemin trop long pour une socket Unix verrouille dans le dossier temporaire', () => {
+    const long = path.join(os.tmpdir(), 'x'.repeat(120));
+    const chemin = cheminVerrou(long, 'linux');
+    expect(Buffer.byteLength(chemin)).toBeLessThan(100);
+    expect(chemin).toBe(cheminVerrou(long, 'linux'));
+    expect(cheminVerrou(long, 'win32')).toMatch(/^\\\\\.\\pipe\\hive-noeud-[0-9a-f]{16}$/);
   });
 });
 
@@ -590,6 +695,41 @@ describe('le client du moteur reçoit ce qu’il lit de l’hôte — l’agent,
     vi.stubEnv('REGLAGE_INCONNU', 'x');
     expect((await preparerImage(moteur, IMAGE_DEFAUT)).executable).toBe(true);
     expect(readFileSync(trace, 'utf8').trim()).toBe('TLS=1 INCONNU=');
+  });
+
+  it('le `pull` seul voit le proxy, l’authentification du registre et les autorités — jamais la tâche', () => {
+    // Podman rootless tire l'image dans son client : sans proxy, une image
+    // nommée ne se téléchargeait plus derrière un proxy d'entreprise. Mais la
+    // tâche ne tire rien, et Podman ferait traverser le proxy jusqu'à l'agent.
+    const hote = {
+      PATH: '/usr/bin',
+      HTTPS_PROXY: 'http://proxy:3128',
+      no_proxy: 'localhost',
+      REGISTRY_AUTH_FILE: '/home/membre/auth.json',
+      SSL_CERT_FILE: '/etc/ssl/entreprise.pem',
+      HIVE_TOKEN: 'secret-de-la-ruche',
+    };
+    expect(envTelechargement(PODMAN, hote)).toEqual({
+      PATH: '/usr/bin',
+      HTTPS_PROXY: 'http://proxy:3128',
+      no_proxy: 'localhost',
+      REGISTRY_AUTH_FILE: '/home/membre/auth.json',
+      SSL_CERT_FILE: '/etc/ssl/entreprise.pem',
+    });
+    expect(envMoteur(PODMAN, hote)).toEqual({ PATH: '/usr/bin' });
+    expect(envDuLanceur(PODMAN, { PATH: '/usr/bin' }, hote)).toEqual({ PATH: '/usr/bin' });
+  });
+
+  it.skipIf(!surPosix)('le vrai `pull` part avec le proxy de l’hôte', async () => {
+    const trace = path.join(dossier, 'env.txt');
+    const { moteur } = fauxMoteur(
+      'podman',
+      `'image inspect') echo "image not known" >&2; exit 125 ;;\n'pull ghcr.io/x/agent:1') echo "PROXY=$HTTPS_PROXY" > ${JSON.stringify(trace)} ;;`,
+    );
+    vi.stubEnv('HTTPS_PROXY', 'http://proxy:3128');
+    const r = await preparerImage(moteur, 'ghcr.io/x/agent:1', { informer: () => {} });
+    expect(r.executable).toBe(true);
+    expect(readFileSync(trace, 'utf8').trim()).toBe('PROXY=http://proxy:3128');
   });
 
   it('bubblewrap TRANSMET son environnement à l’agent : il ne reçoit rien de plus', () => {

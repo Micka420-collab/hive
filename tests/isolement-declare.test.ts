@@ -40,7 +40,6 @@ function bacDe(mode: 'off' | 'auto' | 'exige', fournisseur: Fournisseur | null):
   return {
     decision,
     fournisseur,
-    moteurs: fournisseur ? [fournisseur] : [],
     image: IMAGE_DEFAUT,
     lignes: annonce(decision, fournisseur),
     refuse: decision.refuse,

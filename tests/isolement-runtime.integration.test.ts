@@ -127,13 +127,17 @@ describe('isolement — intégration runtime réel', () => {
         return;
       }
       expect(pret.executable, `${image} dans ${runtime!.nom}: ${pret.motif}`).toBe(true);
+      // Le vrai Podman du runner (rootless) le dit de lui-même, et c'est ce
+      // moteur appris — pas l'UID de l'hôte — qui décide de `keep-id` ensuite.
+      if (runtime!.nom === 'podman') expect(pret.fournisseur?.rootless).toBe(true);
+      const moteur = pret.fournisseur ?? runtime!;
       const binaires = imageDemandee ? ['claude', 'codex', 'cline'] : ['node'];
       for (const binaire of binaires) {
-        const resultat = await sonderAgentDansBac(runtime!, binaire, image);
+        const resultat = await sonderAgentDansBac(moteur, binaire, image);
         expect(resultat.executable, `${binaire} dans ${image}: ${resultat.motif}`).toBe(true);
       }
 
-      const absent = await sonderAgentDansBac(runtime!, 'hive-agent-inexistant', image);
+      const absent = await sonderAgentDansBac(moteur, 'hive-agent-inexistant', image);
       expect(absent.executable).toBe(false);
     },
     // Sous Podman rootless, le premier `keep-id` copie l'image (`preparerImage`).

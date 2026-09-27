@@ -638,15 +638,7 @@ function isolement(r: Releve): Diagnostic {
       reparation: null,
     };
   }
-  if (img === null) {
-    return {
-      cle: 'isolement',
-      gravite: 'inconnu',
-      constat: `${r.isolement} répond, mais l'image du bac n'a pas pu être cherchée`,
-      reparation: `${r.isolement} images  — la liste dit si l'image du bac y est construite`,
-    };
-  }
-  if (img.construire !== null) {
+  if (img?.construire) {
     return {
       cle: 'isolement',
       gravite: 'risque',
@@ -656,7 +648,7 @@ function isolement(r: Releve): Diagnostic {
       reparation: `${img.construire}  (depuis un clone du dépôt)`,
     };
   }
-  if (img.absenteDe !== null) {
+  if (img?.absenteDe) {
     // Une image NOMMÉE par l'opérateur : le nœud la télécharge au démarrage.
     return {
       cle: 'isolement',
@@ -665,12 +657,15 @@ function isolement(r: Releve): Diagnostic {
       reparation: null,
     };
   }
-  // Aucun moteur n'a su dire si l'image est là : on ne l'invente pas.
+  // Aucun moteur n'a su dire si l'image est là : on ne l'invente pas. (Un
+  // relevé sans `imageBac` alors qu'un moteur répond n'est pas produit par
+  // `relever` ; il reçoit le même verdict.)
+  const image = img?.image ?? '<image du bac>';
   return {
     cle: 'isolement',
     gravite: 'inconnu',
-    constat: `${r.isolement} répond, mais n'a rien dit de l'image du bac (${img.image})`,
-    reparation: `${r.isolement} image inspect ${img.image}  — la réponse dit ce qui bloque`,
+    constat: `${r.isolement} répond, mais n'a rien dit de l'image du bac (${image})`,
+    reparation: `${r.isolement} image inspect ${image}  — la réponse dit ce qui bloque`,
   };
 }
 
