@@ -54,7 +54,7 @@ import {
   expliquerRefusFabrique,
 } from '../../../src/orchestrator/fabrique.js';
 import { resumerEvenementChambre } from '../../../src/orchestrator/chambre-journal.js';
-import { nomEnvDepuisLibelle } from '../../../src/orchestrator/requisition-env.js';
+import { nomEnvDepuisLibelle } from '../../../src/shared/nom-env.js';
 import { timeShort } from './shared';
 import type { ViewProps } from './shared';
 import type { HiveEvent, Task, TaskStatus } from '../../../src/shared/types';
