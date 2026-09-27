@@ -75,6 +75,13 @@ export const CPU_MAX = '2';
 
 /** Point de montage du répertoire de tâche À L'INTÉRIEUR du bac. */
 export const MONTAGE = '/hive/tache';
+/**
+ * Point de montage, dans le bac, du dossier du pont de délégation de la tâche
+ * (`rendez-vous-pont.ts`) : son socket et sa configuration MCP, en LECTURE
+ * SEULE. Hors de `MONTAGE` : le socket ne vit plus dans le répertoire de la
+ * tâche, dont la profondeur dépassait la limite d'un chemin de socket Unix.
+ */
+export const MONTAGE_PONT = '/hive/pont';
 /** HOME éphémère du CLI dans un conteneur ; jamais le chemin de l'hôte. */
 export const HOME_CONTENEUR = '/tmp/hive-home';
 
@@ -245,6 +252,14 @@ export interface OptionsEnveloppe {
    * arguments ne dépendent pas des agents installés sur sa machine.
    */
   hote?: ContexteHote;
+  /**
+   * Dossier HÔTE du pont de délégation de CETTE tâche, monté seul et en
+   * LECTURE SEULE à `MONTAGE_PONT`. Se connecter à un socket n'écrit rien sur
+   * le système de fichiers : la lecture seule suffit (mesuré sous bubblewrap),
+   * et l'agent ne peut ni effacer ni remplacer le socket. Absent : la commande
+   * n'a pas de pont, rien n'est monté.
+   */
+  pont?: string;
 }
 
 /**
@@ -303,8 +318,11 @@ function enveloppeConteneur(
     '--interactive=false',
 
     // ── Ce qui est visible ─────────────────────────────────────────────────
-    // LE SEUL montage. Pas de $HOME, pas de ~/.ssh, pas de socket de démon.
+    // LE SEUL montage inscriptible. Pas de $HOME, pas de ~/.ssh, pas de socket
+    // de démon — seulement, en lecture seule, le pont de la tâche s'il y en a
+    // un (jamais sous Windows : `raisonPontMcpDansBac` y écarte le bac).
     `--volume=${volumeSource}:${MONTAGE}:rw`,
+    ...(opts.pont ? [`--volume=${opts.pont}:${MONTAGE_PONT}:ro`] : []),
     `--workdir=${MONTAGE}`,
     // Racine en lecture seule : un agent ne réécrit pas son propre système.
     '--read-only',
@@ -440,6 +458,8 @@ function enveloppeBwrap(
     '--bind',
     opts.cwdHote,
     MONTAGE,
+    // Le pont de la tâche, en LECTURE SEULE (voir `OptionsEnveloppe.pont`).
+    ...(opts.pont ? ['--ro-bind', opts.pont, MONTAGE_PONT] : []),
     '--chdir',
     MONTAGE,
 

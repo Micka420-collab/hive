@@ -54,6 +54,7 @@ export type WorkerDelegationResult =
   | { ok: false; code: string; message: string };
 
 import type { Fournisseur } from '../node-client/isolement.js';
+import type { ReservationPont } from '../node-client/rendez-vous-pont.js';
 
 export interface AdapterContext {
   /** Répertoire de travail isolé de la tâche (sandbox v0). */
@@ -79,6 +80,13 @@ export interface AdapterContext {
   delegate?: (input: WorkerDelegationInput) => Promise<WorkerDelegationOutcome>;
   /** Attend le résultat terminal d'un enfant admis, sans exposer le socket. */
   waitForDelegationResult?: (childTaskId: string) => Promise<WorkerDelegationResult>;
+  /**
+   * Où le pont de délégation de la tâche ouvre son socket : le rendez-vous
+   * privé du NŒUD sous le dossier temporaire du système, jamais le répertoire
+   * de la tâche, dont la profondeur dépassait la limite d'un socket Unix (voir
+   * `rendez-vous-pont.ts`). Fourni avec `delegate` et `waitForDelegationResult`.
+   */
+  rendezVous?: ReservationPont;
   /**
    * Bac à sable dans lequel envelopper la commande, s'il y en a un.
    *

@@ -36,6 +36,7 @@ import { describe, expect, it } from 'vitest';
 import {
   type Contexte,
   PREFIXE_FUSION,
+  PREFIXE_PONT,
   PREFIXE_PREFLIGHT_AGENT,
   empreinte,
   horsDuDossier,
@@ -73,7 +74,7 @@ const ctxPosix: Contexte = {
 };
 
 describe('L’EMPREINTE — module pur', () => {
-  it('nomme les neuf endroits où la ruche peut écrire', () => {
+  it('nomme les dix endroits où la ruche peut écrire', () => {
     // Cette liste est un ENGAGEMENT, pas un reflet : elle rougit dès qu'un
     // emplacement s'ajoute, et c'est tout son intérêt. Le `cerveau` l'a fait
     // rougir en arrivant — donc son inscription a été un geste conscient, pas
@@ -89,6 +90,7 @@ describe('L’EMPREINTE — module pur', () => {
       'service',
       'fusions',
       'preflights',
+      'ponts',
     ]);
   });
 
@@ -157,15 +159,18 @@ describe('L’EMPREINTE — module pur', () => {
     );
   });
 
-  it('DEUX choses sortent du dossier d’installation, et pas une de plus', () => {
+  it('le service et les restes temporaires sortent du dossier d’installation, et rien de plus', () => {
     // Les restes de fusion, toujours — et le fichier de SERVICE, qui vit dans
     // le dossier personnel quand on en a demandé un. Ce second est arrivé avec
     // le lot du service, et c'est ce test qui a exigé qu'on le dise : la
     // documentation annonçait « une seule écriture hors du dossier ».
     const dehors = horsDuDossier(ctxPosix);
-    expect(dehors.map((e) => e.cle)).toEqual(['service', 'fusions', 'preflights']);
+    // Les ponts de délégation ont quitté `.hive-work` pour le dossier
+    // temporaire : leur socket y dépassait la limite d'un chemin AF_UNIX.
+    expect(dehors.map((e) => e.cle)).toEqual(['service', 'fusions', 'preflights', 'ponts']);
     expect(dehors.find((e) => e.cle === 'fusions')!.prefixe).toBe(PREFIXE_FUSION);
     expect(dehors.find((e) => e.cle === 'preflights')!.prefixe).toBe(PREFIXE_PREFLIGHT_AGENT);
+    expect(dehors.find((e) => e.cle === 'ponts')!.prefixe).toBe(PREFIXE_PONT);
     // Le fichier de service n'est jamais retiré à la main : `hive service
     // uninstall` désinscrit d'abord.
     expect(dehors.find((e) => e.cle === 'service')!.retirable).toBe(false);
@@ -185,6 +190,7 @@ describe('L’EMPREINTE — module pur', () => {
       'base',
       'cerveau',
       'fusions',
+      'ponts',
       'preflights',
       'rayons',
       'sauvegardes',
@@ -659,8 +665,8 @@ describe('LA GARDE : aucune écriture ne s’ajoute en douce hors de l’inventa
     // écrivait sans atomicité et sans obtenir les droits qu'il demandait.
     'src/ecriture-atomique.ts': '<racine>/.env, écrit en 600 par écriture atomique',
     'src/adapters/delegation-bridge.ts':
-      '<workdir>/tasks/<task-id>/.hive — socket local et configuration MCP éphémères, ' +
-      'supprimés avant le calcul du diff',
+      'os.tmpdir()/hive-pont-*/<pont> — la configuration MCP éphémère d’un pont, ' +
+      'effacée avec son dossier à la fermeture du pont',
     'src/node-client/client.ts': '<workdir>/<nom> — l’espace d’une tâche',
     // Les CHEMINS n'ont pas bougé — `<workdir>/join/node-id.txt` et
     // `node-key.txt` sont toujours déclarés dans `empreinte()`, donc toujours
@@ -679,6 +685,9 @@ describe('LA GARDE : aucune écriture ne s’ajoute en douce hors de l’inventa
       'effacé avec lui, jamais dans `os.tmpdir()`.',
     'src/node-client/isolement.ts':
       'os.tmpdir()/hive-agent-preflight-* — répertoire vide, effacé après la sonde',
+    'src/node-client/rendez-vous-pont.ts':
+      'os.tmpdir()/hive-pont-* — le rendez-vous 0700 des ponts d’un nœud, effacé ' +
+      'à son arrêt ; celui d’un nœud tué est balayé au démarrage suivant',
     'src/node-client/workspace.ts': '<workdir>/<nom> et son .tmp voisin',
     'src/orchestrator/miroir.ts': '<données>/rayons — les miroirs git',
     'src/service-reel.ts':
@@ -798,7 +807,7 @@ describe('LA GARDE : aucune écriture ne s’ajoute en douce hors de l’inventa
     }
   });
 
-  it('UN SEUL fichier CRÉE quelque chose dans `os.tmpdir()`, et il l’efface', () => {
+  it('ce qui CRÉE quelque chose dans `os.tmpdir()` l’efface aussi', () => {
     // On regarde `mkdtemp`, pas `tmpdir` : `src/desinstallation.ts` LIT le
     // dossier temporaire pour y chercher des restes — c'est son travail — mais
     // il n'y crée rien. Viser la lecture ferait rougir la bonne intention.
@@ -806,6 +815,7 @@ describe('LA GARDE : aucune écriture ne s’ajoute en douce hors de l’inventa
     expect(createurs.map((f) => f.chemin).sort()).toEqual([
       'src/node-client/isolement.ts',
       'src/node-client/merge-runner.ts',
+      'src/node-client/rendez-vous-pont.ts',
     ]);
     // Et le même fichier doit le nettoyer. Un `mkdtemp` sans `rmSync` remplit
     // le disque de quelqu'un, lentement, sans jamais rien dire.
@@ -815,6 +825,9 @@ describe('LA GARDE : aucune écriture ne s’ajoute en douce hors de l’inventa
     expect(createurs.find((f) => f.chemin === 'src/node-client/merge-runner.ts')!.texte).toMatch(
       /finally/,
     );
+    expect(
+      nu(createurs.find((f) => f.chemin === 'src/node-client/rendez-vous-pont.ts')!.texte),
+    ).toMatch(/rmSync/);
   });
 
   it('aucun chemin ABSOLU de système n’est écrit', () => {

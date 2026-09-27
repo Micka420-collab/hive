@@ -9,6 +9,7 @@ import type { Task } from '../shared/types.js';
 import { assertRealExecutionAllowed, runCommandStreaming } from './exec.js';
 import {
   createDelegationBridge,
+  resultatSansPont,
   writeClaudeMcpConfig,
   type DelegationBridge,
 } from './delegation-bridge.js';
@@ -85,9 +86,11 @@ export function createClaudeCodeAdapter(
       const declaration = createDeclarationFournisseurTracker('claude-code');
       let bridge: DelegationBridge | undefined;
       try {
-        // Sans les deux capacités, aucun faux outil n'est injecté dans le CLI.
-        // En exécution via HiveNodeClient elles sont toujours fournies ensemble.
-        if (ctx.delegate && ctx.waitForDelegationResult) {
+        // Sans les trois capacités, aucun faux outil n'est injecté dans le CLI.
+        // En exécution via HiveNodeClient elles sont toujours fournies ensemble ;
+        // un contexte partiel n'entre pas dans le pont pour y échouer en panne
+        // d'« infrastructure » (`capacités de délégation absentes`).
+        if (ctx.delegate && ctx.waitForDelegationResult && ctx.rendezVous) {
           bridge = await createDelegationBridge(ctx, task.id);
           writeClaudeMcpConfig(bridge);
         }
@@ -117,18 +120,14 @@ export function createClaudeCodeAdapter(
           // La réponse finale vit dans la ligne `result` du flux — pas dans
           // les logs, où elle n'est qu'une chaîne échappée (texte-final.ts).
           texteFinalStreamJson,
+          // Le dossier du pont, que le bac éventuel monte en lecture seule.
+          bridge?.dossier,
         );
         // La liste finale accompagne le résultat (dernier état des sous-agents).
         const fournisseur = declaration.declaration();
         return { ...result, subAgents: tracker.list(), ...(fournisseur ? { fournisseur } : {}) };
       } catch (error) {
-        return {
-          success: false,
-          diff: '',
-          logs: `[hive] pont de délégation indisponible : ${error instanceof Error ? error.message : String(error)}`,
-          subAgents: tracker.list(),
-          infra: true,
-        };
+        return resultatSansPont(error, tracker.list());
       } finally {
         await bridge?.close();
       }

@@ -7,6 +7,7 @@ import { assertRealExecutionAllowed, runCommand } from './exec.js';
 import {
   codexMcpOverrides,
   createDelegationBridge,
+  resultatSansPont,
   type DelegationBridge,
 } from './delegation-bridge.js';
 import type { AdapterContext, AdapterResult, AgentAdapter } from './index.js';
@@ -32,7 +33,7 @@ export function createCodexAdapter(token = process.env.HIVE_TOKEN ?? DEFAULT_TOK
       ctx.onProgress({ log: 'codex exec démarré' });
       let bridge: DelegationBridge | undefined;
       try {
-        if (ctx.delegate && ctx.waitForDelegationResult) {
+        if (ctx.delegate && ctx.waitForDelegationResult && ctx.rendezVous) {
           bridge = await createDelegationBridge(ctx, task.id);
         }
         // `--` avant le prompt : sans lui, un prompt commençant par un tiret est
@@ -50,16 +51,12 @@ export function createCodexAdapter(token = process.env.HIVE_TOKEN ?? DEFAULT_TOK
           ctx,
           CODEX_TIMEOUT_MS,
           'sortie-standard',
+          // Le dossier du pont, que le bac éventuel monte en lecture seule.
+          bridge?.dossier,
         );
         return { ...result, subAgents: [] };
       } catch (error) {
-        return {
-          success: false,
-          diff: '',
-          logs: `[hive] pont de délégation indisponible : ${error instanceof Error ? error.message : String(error)}`,
-          subAgents: [],
-          infra: true,
-        };
+        return resultatSansPont(error, []);
       } finally {
         await bridge?.close();
       }

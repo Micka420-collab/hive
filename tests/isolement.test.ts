@@ -40,6 +40,7 @@ import {
   fournisseurParNom,
   installationHote,
   modeDepuisEnv,
+  MONTAGE_PONT,
   racineDePaquet,
   sonderAgentDansBac,
   type ContexteHote,
@@ -99,6 +100,30 @@ describe('isolement — les arguments d’un conteneur', () => {
     const montages = args.filter((a) => a.startsWith('--volume='));
     expect(montages).toEqual([`--volume=${CWD}:${MONTAGE}:rw`]);
   });
+
+  it.each([PODMAN, DOCKER, BWRAP])(
+    '$nom monte le pont de la tâche seul, en LECTURE SEULE, hors du répertoire de la tâche',
+    (fournisseur) => {
+      // Le socket du pont vit sous le dossier temporaire de l'hôte, plus dans
+      // la tâche : sans ce montage, le CLI du bac ne le joindrait pas. En
+      // lecture seule, l'agent ne peut ni l'effacer ni y substituer le sien.
+      const pont = '/tmp/hive-pont-42-AbCdEf/GhIjKl';
+      const { args } = envelopper('claude', ['-p', 'x'], {
+        fournisseur,
+        cwdHote: CWD,
+        variables: [],
+        hote: HOTE_NU,
+        pont,
+      });
+      const montage =
+        fournisseur === BWRAP
+          ? ['--ro-bind', pont, MONTAGE_PONT]
+          : [`--volume=${pont}:${MONTAGE_PONT}:ro`];
+      expect(args.join('\n')).toContain(montage.join('\n'));
+      // Sans pont, rien n'est monté à sa place.
+      expect(enveloppe(fournisseur).args.join(' ')).not.toContain(MONTAGE_PONT);
+    },
+  );
 
   it.each([DOCKER, PODMAN])('normalise le chemin Windows pour $nom', (fournisseur) => {
     const { args } = envelopper('claude', ['--version'], {
