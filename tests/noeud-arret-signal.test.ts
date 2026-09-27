@@ -202,6 +202,10 @@ describe('le nœud — SIGTERM, le signal des superviseurs, et l’ordre de la r
   });
 
   afterEach(async () => {
+    // Le filet AVANT le ménage : le superviseur, vivant par construction, a
+    // son `cwd` dans ce dossier — et sous Windows, un dossier qui est le `cwd`
+    // d'un processus vivant ne s'efface pas (EPERM, mesuré sur `windows-latest`).
+    reprendreTous();
     await server.stop();
     rmSync(racine, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   });

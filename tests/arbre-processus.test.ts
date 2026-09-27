@@ -192,16 +192,15 @@ describe('runCommand — l’arbre de l’agent, pas seulement l’agent', () =>
 
     const { petit } = pids(dossier);
     expect(petit).toHaveLength(1);
+    // Sous POSIX, le groupe survit à son chef : ce qu'il laisse n'a plus de
+    // propriétaire, et part avec lui. Sous Windows, le pid d'un agent sorti est
+    // libéré — `taskkill /T` abattrait l'arbre d'un inconnu : on ne tue rien,
+    // la limite est dite (`arbre-processus.ts`), et le filet reprend le témoin.
+    // Seule la BORNE y est exigée : mesuré sur `windows-latest`, le petit-enfant
+    // n'y retient même pas les tubes, et `close` arrive d'elle-même.
     if (POSIX) {
-      // Sous POSIX, le groupe survit à son chef : ce qu'il laisse n'a plus de
-      // propriétaire, et part avec lui.
       const eteint = await jusqua(() => !petit.some(processusVivant), 5_000);
       expect(eteint, 'le petit-enfant d’un agent sorti a survécu').toBe(true);
-    } else {
-      // Sous Windows, le pid d'un agent sorti est libéré : `taskkill /T`
-      // abattrait l'arbre d'un inconnu. On cesse d'attendre, on ne tue rien —
-      // la limite est dite (`arbre-processus.ts`), et le filet reprend le témoin.
-      expect(res.logs).toContain('la sortie est restée ouverte');
     }
   }, 60_000);
 
