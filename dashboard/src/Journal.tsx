@@ -460,6 +460,80 @@ const EVENTS: Record<string, Meta> = {
           );
     },
   },
+  // ─── La contre-expertise ─────────────────────────────────────────────────
+  // Une relecture qui tombe ne doit pas se lire comme un silence : la ligne
+  // dit qui relit, qui a échoué, qui relaie, et quand plus personne ne le
+  // peut. La cause d'une relecture impossible est rangée en français (c'est
+  // aussi le motif de l'Evaluator) : la ligne anglaise nomme le dernier
+  // relecteur plutôt que de mêler les deux langues.
+  contre_expertise: {
+    icon: '⚖',
+    cls: 'info',
+    text: (p, t) => {
+      const modeles = Array.isArray(p.modeles) ? p.modeles.map(String).join(', ') : '?';
+      if (p.possible === false) {
+        return t(
+          `aucun second modèle en ligne pour relire ${short(p.taskId)}`,
+          `no second model online to review ${short(p.taskId)}`,
+        );
+      }
+      return p.secours === true
+        ? t(
+            `relecture de secours de ${short(p.taskId)} confiée à ${modeles}`,
+            `fallback review of ${short(p.taskId)} handed to ${modeles}`,
+          )
+        : t(
+            `contre-expertise de ${short(p.taskId)} par ${modeles}`,
+            `cross-review of ${short(p.taskId)} by ${modeles}`,
+          );
+    },
+  },
+  contre_expertise_review_waiting: {
+    icon: '⏸',
+    cls: 'warn',
+    text: (p, t) =>
+      t(
+        `relecture de ${short(p.taskId)} en attente : aucun nœud ${String(p.relecteur ?? '?')} en ligne`,
+        `review of ${short(p.taskId)} waiting: no ${String(p.relecteur ?? '?')} node online`,
+      ),
+  },
+  contre_expertise_review_failed: {
+    icon: '▽',
+    cls: 'warn',
+    text: (p, t) =>
+      p.terminal === true
+        ? t(
+            `relecture de ${short(p.taskId)} par ${String(p.relecteur ?? '?')} close sans avis`,
+            `review of ${short(p.taskId)} by ${String(p.relecteur ?? '?')} closed without a verdict`,
+          )
+        : t(
+            `relecture de ${short(p.taskId)} par ${String(p.relecteur ?? '?')} : échec, nouvel essai`,
+            `review of ${short(p.taskId)} by ${String(p.relecteur ?? '?')}: failed, retrying`,
+          ),
+  },
+  contre_expertise_impossible: {
+    icon: '✋',
+    cls: 'fail',
+    text: (p, t) =>
+      t(
+        `relecture impossible (${short(p.taskId)}) : ${String(p.cause ?? '?')} — revue humaine requise`,
+        `review impossible (${short(p.taskId)}), last reviewer ${String(p.relecteur ?? '?')} — human review required`,
+      ),
+  },
+  contre_expertise_verdict: {
+    icon: '⚖',
+    cls: 'info',
+    text: (p, t) =>
+      p.conteste === true
+        ? t(
+            `${String(p.relecteur ?? '?')} conteste ${short(p.taskId)}`,
+            `${String(p.relecteur ?? '?')} contests ${short(p.taskId)}`,
+          )
+        : t(
+            `${String(p.relecteur ?? '?')} valide ${short(p.taskId)}`,
+            `${String(p.relecteur ?? '?')} approves ${short(p.taskId)}`,
+          ),
+  },
   boot_recovery: {
     icon: '⟲',
     cls: 'info',

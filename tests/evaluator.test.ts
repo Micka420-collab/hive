@@ -423,3 +423,66 @@ describe('Evaluator indépendant', () => {
     expect(verdict.reasons.join(' ')).toContain('aucune contre-revue d’une autre famille');
   });
 });
+
+// ─── UNE RELECTURE IMPOSSIBLE APPELLE L'HUMAIN, EN LE DISANT ────────────────
+//
+// La contre-revue est tombée, secours compris (`contre_expertise_impossible`).
+// Sans cette règle, l'Evaluator demandait des « tests supplémentaires » : aucune
+// CI ne ferait jamais `accepted` sans avis indépendant, l'opérateur partait
+// chercher une preuve qui ne débloquait rien.
+describe('Evaluator — relecture impossible', () => {
+  const CAUSE =
+    'codex a échoué (3 tentative(s)) ; aucune autre famille que claude-code (producteur) et codex n’est en ligne pour la relayer';
+
+  it('DEMANDE LA REVUE HUMAINE EN NOMMANT LA CAUSE, même sans CI — et ne relance pas le producteur', () => {
+    const verdict = evaluate({
+      taskId: 'task-1',
+      taskStatus: 'done',
+      results: [{ ...result(), resultId: 1 }],
+      inspection: clean,
+      crossReviewImpossible: CAUSE,
+    });
+    expect(verdict.decision).toBe('human_review_required');
+    expect(verdict.reasons).toEqual([`relecture impossible : ${CAUSE}`]);
+    expect(verdict.retryRecommended).toBe(false);
+    expect(verdict.canMerge).toBe(false);
+    expect(verdict.evidence.crossReviewImpossible).toBe(CAUSE);
+  });
+
+  it('une CI en échec reste une faute du PRODUCTEUR : la correction passe avant', () => {
+    const verdict = evaluate({
+      taskId: 'task-1',
+      taskStatus: 'done',
+      results: [{ ...result(), resultId: 1 }],
+      inspection: clean,
+      validation: { ...validations, tests: 'failed' },
+      crossReviewImpossible: CAUSE,
+    });
+    expect(verdict.decision).toBe('correction_required');
+  });
+
+  it('UN AVIS ARRIVÉ GOUVERNE : l’impossibilité consignée ne le masque pas', () => {
+    const verdict = evaluate({
+      taskId: 'task-1',
+      taskStatus: 'done',
+      results: [{ ...result(), resultId: 1 }],
+      inspection: clean,
+      validation: validations,
+      crossReview: crossReview(['appliquer']),
+      crossReviewImpossible: CAUSE,
+    });
+    expect(verdict.decision).toBe('accepted');
+  });
+
+  it('une relecture encore en vol peut rendre l’avis : pas d’impossibilité prononcée', () => {
+    const verdict = evaluate({
+      taskId: 'task-1',
+      taskStatus: 'done',
+      results: [{ ...result(), resultId: 1 }],
+      inspection: clean,
+      crossReviewPending: 1,
+      crossReviewImpossible: CAUSE,
+    });
+    expect(verdict.reasons.join(' ')).not.toMatch(/relecture impossible/);
+  });
+});

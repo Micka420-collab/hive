@@ -17,10 +17,13 @@ import {
   type Candidat,
   type Production,
   agreger,
+  causeEchecRelecture,
   choisirCritiques,
   consigneDeCritique,
   lireAvis,
+  MOTIF_RELECTURE_SANS_TEXTE_FINAL,
   productionAContreExpertiser,
+  suiteRelectureEchouee,
 } from '../src/shared/contre-expertise.js';
 
 const production = (o: Partial<Production> = {}): Production => ({
@@ -345,5 +348,89 @@ describe('productionAContreExpertiser — il faut les DEUX, et aucune ne suffit'
 
   it('les deux manquent ⇒ rien', () => {
     expect(productionAContreExpertiser(undefined, undefined, 'd', 'l')).toBeNull();
+  });
+});
+
+// ─── UNE RELECTURE CLOSE SANS AVIS : UN SECOURS, PUIS L'HUMAIN ──────────────
+describe('suiteRelectureEchouee — un secours indépendant, une fois, puis la revue humaine', () => {
+  const echec = { relecteur: 'codex', motif: undefined, tentatives: 3 };
+  const base = {
+    producteur: { nodeId: 'noeud-a', agentType: 'claude-code' },
+    famillesEngagees: ['codex'],
+    secoursDejaTente: false,
+    echec,
+  };
+
+  it('UNE FAMILLE NEUVE ET INDÉPENDANTE EN LIGNE ⇒ elle relaie', () => {
+    const suite = suiteRelectureEchouee({
+      ...base,
+      candidats: [
+        candidat({ nodeId: 'n-codex', agentType: 'codex' }),
+        candidat({ nodeId: 'n-hermes', agentType: 'hermes-agent' }),
+      ],
+    });
+    expect(suite).toEqual({
+      genre: 'secours',
+      relecteur: candidat({ nodeId: 'n-hermes', agentType: 'hermes-agent' }),
+    });
+  });
+
+  it('JAMAIS la famille qui vient d’échouer, ni celle du producteur, ni le shell simulé', () => {
+    const suite = suiteRelectureEchouee({
+      ...base,
+      candidats: [
+        candidat({ nodeId: 'n-codex', agentType: 'codex' }),
+        candidat({ nodeId: 'n-claude', agentType: 'claude-code' }),
+        candidat({ nodeId: 'n-shell', agentType: 'shell' }),
+        candidat({ nodeId: 'n-hermes', agentType: 'hermes-agent', enLigne: false }),
+      ],
+    });
+    expect(suite).toEqual({
+      genre: 'impossible',
+      cause:
+        'codex a échoué (3 tentative(s)) ; aucune autre famille que claude-code (producteur) ' +
+        'et codex n’est en ligne pour la relayer',
+    });
+  });
+
+  it('UN SEUL SECOURS : déjà tenté ⇒ impossible, même avec une famille neuve en ligne', () => {
+    const suite = suiteRelectureEchouee({
+      ...base,
+      famillesEngagees: ['codex', 'hermes-agent'],
+      secoursDejaTente: true,
+      candidats: [candidat({ nodeId: 'n-cursor', agentType: 'cursor-agent' })],
+      echec: { relecteur: 'hermes-agent', motif: MOTIF_RELECTURE_SANS_TEXTE_FINAL, tentatives: 0 },
+    });
+    expect(suite).toEqual({
+      genre: 'impossible',
+      cause:
+        'hermes-agent a terminé sans réponse finale lisible ; la relecture de secours a déjà été tentée',
+    });
+  });
+
+  it('UNE RELECTURE ANNULÉE N’EST PAS RACHETÉE — un humain a dit stop', () => {
+    const suite = suiteRelectureEchouee({
+      ...base,
+      candidats: [candidat({ nodeId: 'n-hermes', agentType: 'hermes-agent' })],
+      echec: { relecteur: 'codex', motif: 'annulee', tentatives: 0 },
+    });
+    expect(suite).toEqual({
+      genre: 'impossible',
+      cause: 'la relecture confiée à codex a été annulée',
+    });
+  });
+
+  it('chaque motif terminal se dit en clair, un échec sans motif compte ses tentatives', () => {
+    expect(causeEchecRelecture('codex', 'relecteur_absent', 0)).toBe(
+      'aucun nœud codex en ligne pendant tout le délai d’attente',
+    );
+    expect(causeEchecRelecture('codex', 'aucun_agent_fonctionnel', 0)).toBe(
+      'aucun nœud codex n’a pu lancer son agent',
+    );
+    expect(causeEchecRelecture('codex', 'famille_non_designee', 1)).toBe(
+      'l’avis a été rendu par une autre famille que codex — non compté',
+    );
+    expect(causeEchecRelecture('codex', undefined, 2)).toBe('codex a échoué (2 tentative(s))');
+    expect(causeEchecRelecture('codex', undefined, 'x')).toBe('codex a échoué');
   });
 });

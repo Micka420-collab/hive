@@ -361,7 +361,11 @@ ces verdicts. Au repos, une ouvrière ne dépense rien ; une relecture, elle, es
 une vraie tâche, que la ligne de démarrage compte. Une relecture n'est confiée
 qu'à sa famille : si celle-ci disparaît (ouvrière arrêtée, relance en
 `--une-ouvriere`), elle échoue au bout de cinq minutes, et le journal dit
-pourquoi. La première ouvrière garde le nom, le dossier et les `HIVE_MODELES`
+pourquoi. Une relecture qui tombe sans avis (famille absente, relecteur en
+échec, réponse vide) est relayée UNE fois par une autre famille indépendante
+du producteur si l'une est en ligne ; sinon l'Evaluator demande une revue
+humaine en écrivant « relecture impossible : <cause> ». Le producteur n'est
+jamais relancé pour la panne de son relecteur. La première ouvrière garde le nom, le dossier et les `HIVE_MODELES`
 d'avant ; les autres prennent `<nom>-<famille>`. Pour n'en lancer qu'une :
 `npm run ruche -- --une-ouvriere`, ou `HIVE_AGENT` dans `.env`.
 

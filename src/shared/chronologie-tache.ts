@@ -164,7 +164,11 @@ export function chronologieDepuisEvenements(
         break;
       case 'contre_expertise':
         // Seule une contre-expertise réellement lancée ouvre une fenêtre de revue.
-        if (e.payload.possible !== false) {
+        // Une relecture de SECOURS prolonge la fenêtre ouverte : le temps
+        // perdu par la relecture tombée est du temps de revue, pas un trou.
+        if (e.payload.secours === true) {
+          lancement ??= e.ts;
+        } else if (e.payload.possible !== false) {
           fermerFenetre();
           lancement = e.ts;
         }

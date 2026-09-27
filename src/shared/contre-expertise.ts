@@ -161,7 +161,7 @@ export function relecteurIndependant(relecteurAgent: string, producteurAgent: st
  * MODÈLE, ce qui rend la diversité structurelle plutôt qu'espérée.
  */
 export function choisirCritiques(
-  production: Production,
+  production: Pick<Production, 'nodeId' | 'agentType'>,
   candidats: readonly Candidat[],
   combien = RELECTEURS_PAR_PRODUCTION,
 ): Choix | Refus {
@@ -199,6 +199,118 @@ export function choisirCritiques(
     genre: 'choix',
     relecteurs,
     modeles: relecteurs.map((r) => r.agentType),
+  };
+}
+
+/**
+ * Pourquoi une relecture s'est close SANS avis — lu dans le fait terminal
+ * `contre_expertise_review_failed`, pour être dit à un humain.
+ *
+ * Les émetteurs ne parlent pas la même langue : le planificateur pose des
+ * codes (`relecteur_absent`, `aucun_agent_fonctionnel`, `annulee`), le hub un
+ * code (`famille_non_designee`) ou une phrase (`MOTIF_RELECTURE_SANS_TEXTE_FINAL`),
+ * et un échec ordinaire n'a pas de motif du tout — c'est la borne d'essais qui
+ * l'a rendu terminal. Une seule traduction, ici : deux copies diraient deux
+ * causes différentes du même échec à deux écrans.
+ */
+export function causeEchecRelecture(
+  relecteur: string,
+  motif: unknown,
+  tentatives: unknown,
+): string {
+  switch (motif) {
+    case 'relecteur_absent':
+      return `aucun nœud ${relecteur} en ligne pendant tout le délai d’attente`;
+    case 'famille_non_designee':
+      return `l’avis a été rendu par une autre famille que ${relecteur} — non compté`;
+    case 'aucun_agent_fonctionnel':
+      return `aucun nœud ${relecteur} n’a pu lancer son agent`;
+    case 'annulee':
+      return `la relecture confiée à ${relecteur} a été annulée`;
+    case MOTIF_RELECTURE_SANS_TEXTE_FINAL:
+      return `${relecteur} a terminé sans réponse finale lisible`;
+    default:
+      return typeof tentatives === 'number' && Number.isSafeInteger(tentatives) && tentatives > 0
+        ? `${relecteur} a échoué (${tentatives} tentative(s))`
+        : `${relecteur} a échoué`;
+  }
+}
+
+/** Ce qui suit une relecture close sans avis, quand plus rien d'autre n'est en vol. */
+export type SuiteRelectureEchouee =
+  | { readonly genre: 'secours'; readonly relecteur: Candidat }
+  | { readonly genre: 'impossible'; readonly cause: string };
+
+/**
+ * La contre-revue d'un résultat a perdu sa dernière relecture sans rendre un
+ * seul avis. Que faire ?
+ *
+ * ─── LE SILENCE QUE CETTE FONCTION FERME ─────────────────────────────────────
+ *
+ * Rien ne faisait avancer la production : l'Evaluator la voyait « sans avis »,
+ * exactement comme une production qu'aucun second modèle n'a jamais pu voir,
+ * et personne n'était appelé. Une ouvrière codex tombée pour de bon suffisait
+ * à laisser la production de Claude en suspens, sans une ligne pour le dire.
+ *
+ * ─── UN SECOURS, PUIS L'HUMAIN ───────────────────────────────────────────────
+ *
+ *   · UNE relecture de secours, par une famille INDÉPENDANTE du producteur
+ *     (`relecteurIndependant`) et qui n'a PAS déjà été engagée sur ce
+ *     résultat. Pas une seconde chance pour la famille qui vient d'échouer :
+ *     elle a déjà eu ses essais et son délai d'absence. Et pas une famille qui
+ *     relit déjà : deux relectures du même modèle compteraient deux voix là où
+ *     un seul modèle a lu.
+ *   · Aucune famille de secours, secours déjà tenté, ou relecture ANNULÉE —
+ *     un humain a dit stop, on ne rachète pas une relecture qu'il vient
+ *     d'arrêter : la relecture est IMPOSSIBLE, avec sa cause. L'Evaluator la
+ *     lit et demande une revue humaine en la nommant.
+ *
+ * Et jamais le PRODUCTEUR n'est relancé : il n'est pour rien dans la panne de
+ * son relecteur. Le relancer brûlait un essai, un vrai appel de modèle, et un
+ * point de son modèle dans l'Aiguillage, pour une faute qui n'était pas la
+ * sienne.
+ *
+ * ─── L'ÉPINGLE DE FAMILLE TIENT ──────────────────────────────────────────────
+ *
+ * Le secours est une relecture NEUVE, épinglée à SA famille comme toutes les
+ * autres (lien `contre_expertises`, garde de `assignReadyTasks`), avec le même
+ * délai d'absence. La relecture échouée garde la sienne : elle n'est jamais
+ * ré-épinglée à une autre famille — c'est ce que la garde de famille interdit,
+ * et c'est ce qui rendrait l'avis d'un modèle indiscernable de celui d'un autre.
+ */
+export function suiteRelectureEchouee(entree: {
+  readonly producteur: Pick<Production, 'nodeId' | 'agentType'>;
+  readonly candidats: readonly Candidat[];
+  /** Familles déjà chargées de relire CE résultat, échouées comprises. */
+  readonly famillesEngagees: readonly string[];
+  readonly secoursDejaTente: boolean;
+  readonly echec: {
+    readonly relecteur: string;
+    readonly motif: unknown;
+    readonly tentatives: unknown;
+  };
+}): SuiteRelectureEchouee {
+  const cause = causeEchecRelecture(
+    entree.echec.relecteur,
+    entree.echec.motif,
+    entree.echec.tentatives,
+  );
+  if (entree.echec.motif === 'annulee') return { genre: 'impossible', cause };
+  if (entree.secoursDejaTente) {
+    return { genre: 'impossible', cause: `${cause} ; la relecture de secours a déjà été tentée` };
+  }
+  const choix = choisirCritiques(
+    entree.producteur,
+    entree.candidats.filter((c) => !entree.famillesEngagees.includes(c.agentType)),
+    1,
+  );
+  if (choix.genre === 'choix') return { genre: 'secours', relecteur: choix.relecteurs[0]! };
+  const engagees = [...new Set(entree.famillesEngagees)].sort().join(', ');
+  return {
+    genre: 'impossible',
+    cause:
+      `${cause} ; aucune autre famille que ${entree.producteur.agentType} (producteur)` +
+      `${engagees ? ` et ${engagees}` : ''} n’est en ligne pour la relayer`,
   };
 }
 

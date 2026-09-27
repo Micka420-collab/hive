@@ -440,6 +440,63 @@ describe('UNE RELECTURE NE CHANGE PAS DE FAMILLE', () => {
     expect(evenements('task_conflict_deferred')).toEqual([]);
   });
 
+  // Le fait `contre_expertise_review_failed` (`terminal`) est le déclencheur
+  // UNIQUE de la suite d'une relecture close sans avis (secours, ou revue
+  // humaine nommée — tests/relecture-issue-terminale.test.ts). Un chemin
+  // terminal qui l'omettait laissait la production en suspens sans un mot.
+  it('L’AGENT RELECTEUR NE DÉMARRE NULLE PART : la relecture close le DIT, comme toute clôture sans avis', () => {
+    const { producteur, relecteur, relecture, occupation, production } = scene();
+    store.patchTask(occupation, { status: 'done' }, T + 5);
+    // Deux nœuds en ligne : la borne des refus d'infrastructure est max(3, 2×3).
+    for (let i = 0; i < 6; i += 1) {
+      const t = T + 10 + i * 10_000;
+      // Vivant, sans quoi le tick le faucherait (`NODE_TIMEOUT_MS`).
+      scheduler.heartbeat(relecteur, t);
+      scheduler.heartbeat(producteur, t);
+      scheduler.tick(t);
+      expect(store.getTask(relecture)?.assignedNodeId, `refus n°${i + 1}`).toBe(relecteur);
+      scheduler.rejectTask(relecteur, relecture, 'agent_absent', true, t + 1);
+    }
+
+    expect(store.getTask(relecture)?.status).toBe('failed');
+    expect(evenements('contre_expertise_review_failed')).toEqual([
+      {
+        taskId: production,
+        relecture,
+        relecteur: 'codex',
+        terminal: true,
+        attempt: 0,
+        motif: 'aucun_agent_fonctionnel',
+      },
+    ]);
+  });
+
+  it('UN HUMAIN ANNULE LA RELECTURE : la clôture sans avis est dite, motif `annulee`', () => {
+    const { relecture, production } = scene();
+
+    scheduler.cancelTask(relecture, 'annulée par un humain', T + 10);
+
+    expect(evenements('contre_expertise_review_failed')).toEqual([
+      {
+        taskId: production,
+        relecture,
+        relecteur: 'codex',
+        terminal: true,
+        attempt: 0,
+        motif: 'annulee',
+      },
+    ]);
+  });
+
+  it('UNE TÂCHE ORDINAIRE ANNULÉE N’EST PAS UNE RELECTURE : aucun fait de relecture', () => {
+    const { projet } = scene();
+    const ordinaire = store.createTask({ projectId: projet, title: 'Écris la doc', prompt: 'doc' });
+
+    scheduler.cancelTask(ordinaire.id, 'annulée par un humain', T + 10);
+
+    expect(evenements('contre_expertise_review_failed')).toEqual([]);
+  });
+
   it('PAS DE COURSE SUR UNE RELECTURE — la course enrôlerait le producteur', () => {
     const { relecteur, relecture } = scene();
     scheduler.nodeDisconnected(relecteur, 'ws_close', T + 10);

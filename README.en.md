@@ -211,7 +211,11 @@ that is two reviews per production — and the router learns from those
 verdicts. An idle worker spends nothing; a review, though, is a real task, and
 the startup line counts them. A review only goes to its family: if that family
 disappears (worker stopped, restart with `--une-ouvriere`), the review fails
-after five minutes and the journal says why. The first worker keeps its
+after five minutes and the journal says why. A review that ends without a
+verdict (absent family, failing reviewer, empty answer) is handed ONCE to
+another family independent of the producer if one is online; otherwise the
+Evaluator asks for a human review, stating « relecture impossible : <cause> ».
+The producer is never retried for its reviewer's failure. The first worker keeps its
 previous name, folder and `HIVE_MODELES`; the others take `<name>-<family>`. To
 start only one: `npm run ruche -- --une-ouvriere`, or `HIVE_AGENT` in `.env`.
 
