@@ -1102,6 +1102,21 @@ interface ResultatRow {
   durationMs: number;
 }
 
+/**
+ * Rattache à chaque ligne de `results` son texte final relu du journal, et
+ * retire l'`id` qui n'a servi qu'à la jointure : la forme rendue aux lecteurs
+ * ne change que d'un champ optionnel.
+ */
+function avecTexteFinal<T extends { id: number }>(
+  lignes: readonly T[],
+  textes: ReadonlyMap<number, string>,
+): Array<Omit<T, 'id'> & { finalText?: string }> {
+  return lignes.map(({ id, ...reste }) => {
+    const finalText = textes.get(id);
+    return finalText === undefined ? reste : { ...reste, finalText };
+  });
+}
+
 function rowToResultatBalance(r: ResultatRow): ResultatBalance {
   return {
     id: r.id,
@@ -3162,6 +3177,33 @@ export class HiveStore {
         now,
       );
     }
+    // ─── LE TEXTE FINAL : RANGÉ LÀ OÙ UN LECTEUR DIFFÉRÉ L'ATTEND, PAS AILLEURS ─
+    //
+    // Même voie que la mesure locale juste au-dessus — le journal, relié au
+    // `resultId` exact, sans migration de `results`. Mais PAS pour tous les
+    // résultats : chaque événement rangé raccourcit d'autant la fenêtre de
+    // EVENT_RETENTION où vivent d'autres preuves (lancements de contre-
+    // expertise, CI), et un succès ordinaire n'a aucun lecteur DIFFÉRÉ de son
+    // texte final — la contre-expertise le lit en direct, sur le message.
+    //
+    // Deux lecteurs le relisent plus tard, et eux seuls justifient la ligne :
+    //   · les ÉCHECS — Couveuse, leçons croisées, dérive (`texteDEchec`) ;
+    //   · les éclaireuses que le Conseil n'a pas encore dépouillées : il lit
+    //     leur réponse au tick suivant, depuis la base.
+    // Hors fenêtre du journal, le texte n'existe plus : ses lecteurs retombent
+    // sur ce qu'ils savent faire sans lui, jamais sur une invention.
+    if (res.finalText && (!res.success || this.eclaireuseAttendue(res.taskId))) {
+      this.appendEvent(
+        'worker_final_text',
+        {
+          resultId,
+          taskId: res.taskId,
+          nodeId: res.nodeId,
+          finalText: res.finalText.slice(-LIMITS.finalText),
+        },
+        now,
+      );
+    }
     // Étape auto : chaque production réussie avec un diff devient une
     // sauvegarde récupérable — même après pruneResults.
     if (res.success && res.diff.trim().length > 0) {
@@ -3322,6 +3364,42 @@ export class HiveStore {
     }));
   }
 
+  /**
+   * Textes finaux rangés par `insertResult`, relus par `resultId` exact.
+   * Seuls les résultats encore dans la fenêtre du journal en ont un.
+   */
+  textesFinauxPour(resultIds: readonly number[]): Map<number, string> {
+    const ids = [...new Set(resultIds.filter((id) => Number.isSafeInteger(id) && id > 0))];
+    if (ids.length === 0) return new Map();
+    const placeholders = ids.map(() => '?').join(', ');
+    const rows = this.db
+      .prepare(
+        `SELECT json_extract(payload, '$.resultId') AS resultId,
+                json_extract(payload, '$.finalText') AS finalText
+           FROM events
+          WHERE type = 'worker_final_text'
+            AND json_extract(payload, '$.resultId') IN (${placeholders})
+          ORDER BY id`,
+      )
+      .all(...ids) as Array<{ resultId: unknown; finalText: unknown }>;
+    const out = new Map<number, string>();
+    for (const r of rows) {
+      if (typeof r.resultId === 'number' && typeof r.finalText === 'string' && r.finalText !== '') {
+        out.set(r.resultId, r.finalText);
+      }
+    }
+    return out;
+  }
+
+  /** Vrai si le Conseil attend encore la réponse de cette tâche (éclaireuse). */
+  private eclaireuseAttendue(taskId: string): boolean {
+    return (
+      this.db
+        .prepare('SELECT 1 FROM conseil_taches WHERE taskId = ? AND depouille = 0')
+        .get(taskId) !== undefined
+    );
+  }
+
   /** Mesures reliées aux résultats exacts, relues depuis les événements bornés. */
   private usagesForResults(resultIds: readonly number[]): Map<number, TaskResult['usage']> {
     const ids = [...new Set(resultIds.filter((id) => Number.isSafeInteger(id) && id > 0))];
@@ -3395,12 +3473,13 @@ export class HiveStore {
    */
   listFailedResultsForTask(
     taskId: string,
-  ): Array<{ nodeId: string; logs: string; createdAt: number }> {
-    return this.db
+  ): Array<{ nodeId: string; logs: string; createdAt: number; finalText?: string }> {
+    const rows = this.db
       .prepare(
-        'SELECT nodeId, logs, createdAt FROM results WHERE taskId = ? AND success = 0 ORDER BY createdAt, id',
+        'SELECT id, nodeId, logs, createdAt FROM results WHERE taskId = ? AND success = 0 ORDER BY createdAt, id',
       )
-      .all(taskId) as Array<{ nodeId: string; logs: string; createdAt: number }>;
+      .all(taskId) as Array<{ id: number; nodeId: string; logs: string; createdAt: number }>;
+    return avecTexteFinal(rows, this.textesFinauxPour(rows.map((r) => r.id)));
   }
 
   /**
@@ -3630,11 +3709,12 @@ export class HiveStore {
     logs: string;
     success: boolean;
     createdAt: number;
+    finalText?: string;
   }> {
-    return this.db
+    const rows = this.db
       .prepare(
-        `SELECT COALESCE(g.verdict, 'clean') AS verdict, r.diff AS diff, r.logs AS logs,
-                r.success AS success, r.createdAt AS createdAt
+        `SELECT r.id AS id, COALESCE(g.verdict, 'clean') AS verdict, r.diff AS diff,
+                r.logs AS logs, r.success AS success, r.createdAt AS createdAt
            FROM results r
            LEFT JOIN gardiennes g ON g.resultId = r.id
           ORDER BY r.id DESC LIMIT ?`,
@@ -3642,6 +3722,7 @@ export class HiveStore {
       .all(limit)
       .map((row) => {
         const r = row as {
+          id: number;
           verdict: string;
           diff: string | null;
           logs: string | null;
@@ -3649,6 +3730,7 @@ export class HiveStore {
           createdAt: number;
         };
         return {
+          id: r.id,
           verdict: r.verdict,
           diff: r.diff ?? '',
           logs: r.logs ?? '',
@@ -3656,6 +3738,9 @@ export class HiveStore {
           createdAt: r.createdAt,
         };
       });
+    // Seuls les échecs ont une signature, donc un texte final à relire.
+    const echecs = rows.filter((r) => !r.success).map((r) => r.id);
+    return avecTexteFinal(rows, this.textesFinauxPour(echecs));
   }
 
   /**
@@ -4121,13 +4206,21 @@ export class HiveStore {
     taskId: string;
     logs: string;
     createdAt: number;
+    finalText?: string;
   }> {
-    return this.db
+    const rows = this.db
       .prepare(
-        `SELECT nodeId, taskId, logs, createdAt FROM results
+        `SELECT id, nodeId, taskId, logs, createdAt FROM results
          WHERE success = 0 ORDER BY id DESC LIMIT ?`,
       )
-      .all(limit) as Array<{ nodeId: string; taskId: string; logs: string; createdAt: number }>;
+      .all(limit) as Array<{
+      id: number;
+      nodeId: string;
+      taskId: string;
+      logs: string;
+      createdAt: number;
+    }>;
+    return avecTexteFinal(rows, this.textesFinauxPour(rows.map((r) => r.id)));
   }
 
   setBudget(

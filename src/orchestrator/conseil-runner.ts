@@ -56,18 +56,25 @@ export interface DependancesConseil {
   now?: () => number;
 }
 
-/** Un résultat d'ouvrière, réduit à ce que le conseil en a besoin. */
+/**
+ * Un résultat d'ouvrière, réduit à ce que le conseil en a besoin.
+ *
+ * ─── LA RÉPONSE FINALE, PAS LES LOGS ─────────────────────────────────────────
+ *
+ * Les marqueurs `HIVE_PROPOSITION` / `HIVE_AVIS` doivent COMMENCER une ligne
+ * (eclaireuse.ts). On les cherchait dans `logs + diff` : or le stream-json de
+ * Claude Code et de Cursor, comme le `--json` de Cline, rangent la réponse dans
+ * une chaîne JSON aux retours à la ligne échappés — aucun marqueur n'y commence
+ * une ligne, et un conseil tenu par ces agents se clôturait VIDE. Seule une
+ * sortie en texte (Codex) pouvait passer. Le conseil lit donc la réponse finale
+ * que le CLI déclare (adapters/texte-final.ts) ; absente, l'éclaireuse n'a
+ * rien rapporté — une abstention, comme un marqueur illisible.
+ */
 export interface ResultatOuvriere {
   nodeId: string;
   agentType: string;
   success: boolean;
-  logs: string;
-  diff: string;
-}
-
-/** Le conseil lit la sortie de l'agent : logs d'abord, diff en secours. */
-function sortieDe(r: ResultatOuvriere): string {
-  return `${r.logs}\n${r.diff}`;
+  finalText?: string;
 }
 
 /**
@@ -160,7 +167,7 @@ export function avancerConseil(
     if (!res || !res.success) continue; // éclaireuse non revenue : on continue sans elle
 
     if (t.role === 'exploration') {
-      const p = lireProposition(sortieDe(res), {
+      const p = lireProposition(res.finalText ?? '', {
         id: `prop-${randomUUID()}`,
         eclaireuse: res.nodeId,
         famille: res.agentType,
@@ -176,7 +183,7 @@ export function avancerConseil(
         tour: t.tour,
       });
     } else if (t.propositionId) {
-      const a = lireAvis(sortieDe(res), {
+      const a = lireAvis(res.finalText ?? '', {
         propositionId: t.propositionId,
         eclaireuse: res.nodeId,
         famille: res.agentType,

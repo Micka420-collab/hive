@@ -5,7 +5,7 @@
 // `claude` posé sur le PATH : le flux traverse `runCommandStreaming`, le suivi
 // ligne à ligne, et la déclaration ressort dans le résultat de l'adaptateur.
 
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -73,6 +73,27 @@ describe('déclaration fournisseur — ligne `result` de Claude Code', () => {
     expect(
       declarationDepuisResultat({ type: 'assistant', total_cost_usd: 1 }, 'claude-code'),
     ).toBeUndefined();
+  });
+
+  it('lit la ligne `result` ENREGISTRÉE sur Claude Code 2.1.283, pas seulement le format documenté', () => {
+    // Enregistrée sur le vrai CLI, branché sur une API factice
+    // (tests/fixtures/texte-final, provenance dans texte-final.test.ts) : le
+    // coût est celui que le CLI a calculé lui-même, pas une valeur de banc.
+    const flux = readFileSync(
+      path.join(import.meta.dirname, 'fixtures', 'texte-final', 'claude-relecture.stream.jsonl'),
+      'utf8',
+    );
+    const suivi = createDeclarationFournisseurTracker('claude-code');
+    for (const ligne of flux.split('\n')) suivi.feed(ligne);
+
+    expect(suivi.declaration()).toEqual({
+      source: 'claude-code',
+      coutUsd: 0.00081,
+      dureeApiMs: 55,
+      jetonsEntree: 120,
+      jetonsSortie: 30,
+      modeles: ['claude-sonnet-4-5'],
+    });
   });
 
   it('suit le flux : ignore le bruit, garde la dernière déclaration', () => {

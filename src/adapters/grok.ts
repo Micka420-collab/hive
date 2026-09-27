@@ -56,11 +56,16 @@ export function createGrokAdapter(token = process.env.HIVE_TOKEN ?? DEFAULT_TOKE
       // de `grok`. C'est la même injection que `prompt-argv.ts` démontre sur le
       // binaire `claude`, et elle ne dépend pas de l'agent : elle dépend de la
       // façon dont TOUT analyseur d'arguments traite un tiret en tête.
+      //
+      // Réponse finale : la sortie standard, par la convention des CLI sans
+      // écran. NON vérifiée sur ce binaire — mais au pire, c'est un sous-ensemble
+      // de ce que la ruche lisait déjà (stdout était dans les logs, avec stderr).
       const result = await runCommand(
         'grok',
         [...DRAPEAUX_SANS_ECRAN, '--', task.prompt],
         ctx,
         GROK_TIMEOUT_MS,
+        'sortie-standard',
       );
       return { ...result, subAgents: [] };
     },

@@ -5,9 +5,11 @@
 // `total_cost_usd`, `duration_api_ms` (le temps passé dans les appels au
 // modèle), `usage` (jetons) et `modelUsage` (une entrée par modèle exact).
 //
-// On n'en retient que des NOMBRES et des NOMS DE MODÈLE : ni le texte de la
-// réponse (`result`), ni l'identifiant de session ne quittent le nœud. Un champ
-// absent ou illisible est laissé absent — jamais remplacé par une estimation.
+// La déclaration n'en retient que des NOMBRES et des NOMS DE MODÈLE : ni le
+// texte de la réponse (`result`), ni l'identifiant de session n'y entrent. La
+// réponse a son propre canal, borné et nommé — `finalText` (texte-final.ts) ;
+// l'identifiant de session, aucun. Un champ absent ou illisible est laissé
+// absent — jamais remplacé par une estimation.
 // Si le format change, la déclaration disparaît et l'écran dit « inconnu » :
 // l'échec est muet, pas faux.
 

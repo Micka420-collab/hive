@@ -38,11 +38,18 @@ export function createCodexAdapter(token = process.env.HIVE_TOKEN ?? DEFAULT_TOK
         // `--` avant le prompt : sans lui, un prompt commençant par un tiret est
         // lu comme une option de `codex exec` (cf. src/adapters/prompt-argv.ts,
         // où l'injection est démontrée sur le binaire claude).
+        //
+        // La réponse est la SORTIE STANDARD, et seulement elle : `codex exec`
+        // y écrit le dernier message quand stdout n'est pas un terminal, et
+        // envoie tout le reste — bannière, PROMPT RÉPÉTÉ, commandes — sur
+        // stderr (event_processor_with_human_output.rs). Lire les logs mêlés,
+        // c'était relire la consigne, « valide » ou « conteste » compris.
         const result = await runCommand(
           'codex',
           argvCodex(task.prompt, ctx.modele, bridge),
           ctx,
           CODEX_TIMEOUT_MS,
+          'sortie-standard',
         );
         return { ...result, subAgents: [] };
       } catch (error) {

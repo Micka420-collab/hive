@@ -29,7 +29,9 @@ export function createHermesAgentAdapter(
       const args = ['agent', 'run', '--prompt', task.prompt];
       if (model) args.push('--model', model);
 
-      const result = await runCommand(hermesPath, args, ctx, HERMES_TIMEOUT_MS);
+      // Réponse finale : la sortie standard (convention des CLI sans écran,
+      // non vérifiée sur ce binaire — cf. grok.ts pour le raisonnement).
+      const result = await runCommand(hermesPath, args, ctx, HERMES_TIMEOUT_MS, 'sortie-standard');
       return { ...result, subAgents: [] };
     },
   };

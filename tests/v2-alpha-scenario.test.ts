@@ -252,7 +252,9 @@ function workerAdapter(reviews: Map<string, number>, agentType: string): AgentAd
             ? 'conteste\n- ajoute un test du chemin sécurisé'
             : 'valide';
         const execution = await runCommand('node', ['-e', 'process.exit(0)'], ctx, 30_000);
-        return { ...execution, logs: avis, subAgents: [] };
+        // L'avis voyage dans `finalText`, comme la réponse d'un vrai CLI : la
+        // contre-expertise ne lit plus les logs (adapters/texte-final.ts).
+        return { ...execution, logs: avis, finalText: avis, subAgents: [] };
       }
 
       const body = 'export const secure = true;\n';

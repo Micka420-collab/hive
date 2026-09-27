@@ -31,6 +31,7 @@
 // AGRÈGE les verdicts. Lancer les agents est l'affaire de l'appelant.
 
 import { blocDonnees, champSurUneLigne, tronquerChamp } from './donnees-non-fiables.js';
+import { COUPURE_TEXTE_FINAL } from './protocol.js';
 
 /** Ce qu'on sait d'un nœud candidat à la relecture. */
 export interface Candidat {
@@ -258,6 +259,18 @@ export function agreger(avis: readonly Avis[]): Verdict {
 }
 
 /**
+ * Pourquoi une relecture TERMINÉE ne rend aucun avis. Le hub ne distingue pas
+ * les trois causes — un CLI qui a rendu une réponse vide, un CLI dont Hive ne
+ * sait pas lire la réponse, un nœud antérieur au contrat `finalText` : les
+ * trois arrivent sans texte final. Le motif les nomme toutes plutôt que d'en
+ * deviner une.
+ */
+export const MOTIF_RELECTURE_SANS_TEXTE_FINAL =
+  'relecture terminée sans réponse finale — réponse vide du CLI relecteur, CLI dont ' +
+  'Hive ne lit pas la réponse, ou nœud antérieur au contrat finalText (à mettre à jour). ' +
+  'Aucun avis compté : ni feu vert, ni correction demandée au producteur.';
+
+/**
  * Ce qu'un relecteur a écrit, transformé en avis.
  *
  * ─── LA RÉPONSE D'UN RELECTEUR EST UNE DONNÉE, ELLE AUSSI ────────────────────
@@ -280,13 +293,43 @@ export function agreger(avis: readonly Avis[]): Verdict {
  * que personne ne va vérifier. Un verdict qu'on n'a pas su lire devient donc
  * une CONTESTATION, dont l'unique objection est qu'on n'a pas su le lire.
  * L'humain regardera — c'est tout ce qu'on demande.
+ *
+ * ─── CE QU'ON LIT : LA RÉPONSE FINALE, JAMAIS LES LOGS ───────────────────────
+ *
+ * `texte` est le `finalText` du résultat — ce que le CLI déclare comme réponse
+ * (adapters/texte-final.ts). On lisait `logs + diff`, et c'était lire ailleurs
+ * que là où le relecteur parle :
+ *
+ *   · Codex répète le prompt sur stderr, et le prompt de critique contient
+ *     « valide » ou « conteste » : `conteste` l'emportait, TOUJOURS ;
+ *   · le stream-json de Claude Code échappe les retours à la ligne : aucune
+ *     objection « - … » n'était une ligne, AUCUNE n'était retenue ;
+ *   · une ligne retirée du diff (« - ancien code ») devenait une objection.
+ *
+ * PAS de texte final n'est PAS un avis, et ne passe donc pas par ici : le hub
+ * journalise une relecture échouée (traitement de `task_result`, server.ts).
+ * Le compter « contesté » relançait le PRODUCTEUR pour un défaut du RELECTEUR
+ * (nœud antérieur à ce contrat, CLI muet) — une correction qu'aucune reprise ne
+ * pouvait satisfaire, et un point retiré au modèle du producteur dans
+ * l'Aiguillage. Et on ne se rabat pas sur les logs : c'est précisément là que
+ * la lecture était fausse.
+ *
+ * ─── UN TEXTE COUPÉ N'APPROUVE QU'EN PREMIÈRE LIGNE ─────────────────────────
+ *
+ * Un texte final trop long arrive coupé en son milieu, la coupe écrite
+ * (`COUPURE_TEXTE_FINAL`, voir `borneTexteFinal`). Ce qui manque peut être le
+ * « conteste » ; ce qui reste, une « entrée valide » au détour d'une phrase.
+ * Sur un texte coupé, « valide » ne compte donc qu'en PREMIÈRE ligne — là où la
+ * consigne le demande, et là où la coupe le garde. « conteste », lui, compte
+ * partout : entre deux lectures possibles, on garde celle qui fait REGARDER.
  */
 /** Au-delà, ce n'est plus une liste d'objections, c'est un déversement. */
 const OBJECTIONS_MAX = 20;
 
 export function lireAvis(nodeId: string, agentType: string, texte: string): Avis {
+  const lignes = texte.split(/\r?\n/);
   const objections: string[] = [];
-  for (const ligne of texte.split(/\r?\n/)) {
+  for (const ligne of lignes) {
     // `[\s\S]` et non `.` : en JavaScript, `.` ne traverse PAS U+2028 ni
     // U+2029. Avec `(.+)$`, une objection contenant un de ces séparateurs ne
     // capturait rien du tout — l'objection était SILENCIEUSEMENT PERDUE, alors
@@ -319,17 +362,25 @@ export function lireAvis(nodeId: string, agentType: string, texte: string): Avis
   // il ne servirait que pour un accent à L'INTÉRIEUR du mot, or ni « valid » ni
   // « contest » n'en portent dans aucune forme française. Une ligne qu'aucun
   // test ne peut tuer est du décor — elle est partie.
-  const nu = texte.normalize('NFD').toLowerCase();
-  if (/\bconteste\b/.test(nu)) return { nodeId, agentType, valide: false, objections };
-  if (/\bvalide\b/.test(nu)) return { nodeId, agentType, valide: true, objections };
+  const nu = (t: string): string => t.normalize('NFD').toLowerCase();
+  if (/\bconteste\b/.test(nu(texte))) return { nodeId, agentType, valide: false, objections };
+  const coupe = lignes.some((l) => l.trim() === COUPURE_TEXTE_FINAL);
+  const premiere = lignes.find((l) => l.trim() !== '') ?? '';
+  if (/\bvalide\b/.test(nu(coupe ? premiere : texte))) {
+    return { nodeId, agentType, valide: true, objections };
+  }
 
   return {
     nodeId,
     agentType,
     valide: false,
     objections: [
-      'Verdict illisible : le relecteur n’a écrit ni « valide » ni « conteste ». ' +
-        'Compté comme contesté — un avis qu’on n’a pas su lire ne vaut pas un feu vert.',
+      coupe
+        ? 'Verdict illisible : réponse trop longue, lue coupée, et sa première ligne ' +
+          'n’est ni « valide » ni « conteste ». Compté comme contesté — un avis lu ' +
+          'en partie ne vaut pas un feu vert.'
+        : 'Verdict illisible : le relecteur n’a écrit ni « valide » ni « conteste ». ' +
+          'Compté comme contesté — un avis qu’on n’a pas su lire ne vaut pas un feu vert.',
       ...objections,
     ],
   };

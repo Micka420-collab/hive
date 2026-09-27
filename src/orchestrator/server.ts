@@ -122,6 +122,7 @@ import type { HiveEvent, HiveNode, Project, Task } from '../shared/types.js';
 import { CORPUS_BALANCE, estimerCout, peserLaRuche, VERSION_BALANCE } from './balance.js';
 import type { CompteTache, Devis, Pesee } from './balance.js';
 import { leconsDesEchecs } from './brood.js';
+import { texteDEchec } from '../shared/texte-d-echec.js';
 import {
   CONSEILS_CONSERVES,
   avancerConseil,
@@ -279,6 +280,7 @@ import {
   choisirCritiques,
   consigneDeCritique,
   lireAvis,
+  MOTIF_RELECTURE_SANS_TEXTE_FINAL,
   productionAContreExpertiser,
 } from '../shared/contre-expertise.js';
 import { champSurUneLigne } from '../shared/donnees-non-fiables.js';
@@ -1226,9 +1228,9 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     relectureTaskId: string,
     lien: NonNullable<ReturnType<typeof store.relectureDe>>,
     auteur: Pick<HiveNode, 'id' | 'agentType'>,
-    texte: string,
+    texteFinal: string,
   ): void => {
-    const verdict = agreger([lireAvis(auteur.id, auteur.agentType, texte)]);
+    const verdict = agreger([lireAvis(auteur.id, auteur.agentType, texteFinal)]);
     const lancement = store.eventForRelecture(relectureTaskId);
     const resultId = lancement?.payload.resultId;
     const exactResultId =
@@ -1281,13 +1283,15 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     }
   };
 
-  const noterEchec = (taskId: string, logs: string): void => {
+  const noterEchec = (taskId: string, logs: string, finalText: string | undefined): void => {
     const task = store.getTask(taskId);
     if (!task) return;
+    // Ce que l'échec DIT, pas les événements JSON de son flux (`texteDEchec`) :
+    // l'épisode prenait sinon pour détail la ligne d'initialisation du CLI.
     const ecrit = enregistrerEpisode(dossierCerveau, {
-      signature: signatureEchec(logs),
+      signature: signatureEchec(logs, finalText),
       titre: task.title,
-      detail: champSurUneLigne(logs, 800),
+      detail: champSurUneLigne(texteDEchec(logs, finalText), 800),
     });
     if (ecrit === null) return; // Échec sans log exploitable : rien à apprendre.
 
@@ -1352,6 +1356,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
               attempt: i + 1,
               nodeName: store.getNode(e.nodeId)?.name ?? e.nodeId,
               logs: e.logs,
+              ...(e.finalText !== undefined ? { finalText: e.finalText } : {}),
               createdAt: e.createdAt,
             })),
             BUDGET_COUVEUSE,
@@ -2039,9 +2044,14 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         }
         if (tache.status !== 'done' && tache.status !== 'failed') continue;
         // Le DERNIER résultat de la tâche : une éclaireuse a pu être
-        // re-tentée, et c'est sa dernière parole qui compte.
+        // re-tentée, et c'est sa dernière parole qui compte — sa réponse
+        // FINALE, rangée au journal par `insertResult`, jamais ses logs.
         const tous = store.resultsForTask(lien.taskId);
         const dernier = tous.length > 0 ? tous[tous.length - 1]! : null;
+        const finalText =
+          dernier?.resultId !== undefined
+            ? store.textesFinauxPour([dernier.resultId]).get(dernier.resultId)
+            : undefined;
         terminales.set(
           lien.taskId,
           dernier
@@ -2049,8 +2059,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
                 nodeId: dernier.nodeId,
                 agentType: store.getNode(dernier.nodeId)?.agentType ?? 'inconnu',
                 success: dernier.success,
-                logs: dernier.logs,
-                diff: dernier.diff,
+                ...(finalText !== undefined ? { finalText } : {}),
               }
             : null,
         );
@@ -4619,7 +4628,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
               : 'clean') as Verdict,
             ajouts,
             suppressions,
-            signature: r.success ? '' : signatureEchec(r.logs),
+            signature: r.success ? '' : signatureEchec(r.logs, r.finalText),
             createdAt: r.createdAt,
           };
         }),
@@ -9829,6 +9838,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
               subAgents: msg.subAgents,
               ...(msg.usage ? { usage: msg.usage } : {}),
               ...(msg.fournisseur ? { fournisseur: msg.fournisseur } : {}),
+              ...(msg.finalText !== undefined ? { finalText: msg.finalText } : {}),
             });
             if (!pris) {
               send(ws, {
@@ -9847,7 +9857,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
             // gonflerait le compteur de récurrences d'une panne qui n'a pas eu
             // lieu deux fois, et le seuil de consolidation deviendrait faux.
             if (pris && !msg.success) {
-              noterEchec(msg.taskId, msg.logs ?? '');
+              noterEchec(msg.taskId, msg.logs ?? '', msg.finalText);
             }
             if (pris) {
               const delegation = store.getDelegation(msg.taskId);
@@ -9924,24 +9934,32 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
               const auteur = store.getNode(nodeId);
               const livreur = auteur?.agentType;
               const avisValable = livreur === lienRelecture.relecteurAgent;
-              if (msg.success && relecture?.status === 'done' && auteur && avisValable) {
+              const terminee = msg.success && relecture?.status === 'done';
+              if (terminee && auteur && avisValable && msg.finalText !== undefined) {
                 // Le texte du relecteur est une DONNÉE : `lireAvis` le
                 // neutralise et le borne avant qu'il n'atteigne un événement
                 // lu par un humain. Un verdict illisible compte comme
                 // CONTESTÉ, mais seulement après une production de relecture
                 // effectivement terminée.
-                noterVerdict(
-                  msg.taskId,
-                  lienRelecture,
-                  auteur,
-                  `${msg.logs ?? ''}\n${msg.diff ?? ''}`,
-                );
-              } else if (!msg.success || !avisValable) {
-                // Un échec intermédiaire repart en file avec la relecture : il
-                // ne constitue pas un avis. Le rendre explicite évite que
-                // l'absence de vote ressemble à une approbation silencieuse.
-                // Un avis rendu par une autre famille est terminal : la
-                // relecture est close, et personne ne la relira.
+                //
+                // Et ce texte est la RÉPONSE FINALE du relecteur, jamais ses
+                // logs ni son diff : Codex y répète la consigne (« valide » ou
+                // « conteste »), le stream-json y échappe les retours à la
+                // ligne. Voir `lireAvis`.
+                noterVerdict(msg.taskId, lienRelecture, auteur, msg.finalText);
+              } else if (!msg.success || terminee || !avisValable) {
+                // Pas d'avis : un échec intermédiaire repart en file avec la
+                // relecture ; une relecture TERMINÉE sans réponse finale est
+                // un défaut du RELECTEUR (nœud antérieur au contrat, CLI muet)
+                // — la compter « contestée » relancerait le producteur pour
+                // rien, jusqu'à la borne d'essais, et pénaliserait son modèle
+                // dans l'Aiguillage. Le rendre explicite évite que l'absence de
+                // vote ressemble à une approbation silencieuse : la
+                // contre-revue reste « manquante », et c'est un humain qui
+                // tranche. Un avis rendu par une autre famille que la
+                // désignée est terminal lui aussi : la relecture est close, et
+                // personne ne la relira ; son motif prime sur l'absence de
+                // texte, parce qu'il vaudrait même avec un texte.
                 const lancement = store.eventForRelecture(msg.taskId);
                 const resultId = lancement?.payload.resultId;
                 emitEvent('contre_expertise_review_failed', {
@@ -9954,9 +9972,11 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
                   reviewerNodeId: nodeId,
                   terminal: relecture?.status === 'failed' || relecture?.status === 'done',
                   attempt: relecture?.attempts ?? 0,
-                  ...(avisValable
-                    ? {}
-                    : { motif: 'famille_non_designee', livreur: livreur ?? null }),
+                  ...(!avisValable
+                    ? { motif: 'famille_non_designee', livreur: livreur ?? null }
+                    : terminee
+                      ? { motif: MOTIF_RELECTURE_SANS_TEXTE_FINAL }
+                      : {}),
                 });
               }
             } else if (pris && msg.success && (msg.diff ?? '').trim() !== '') {

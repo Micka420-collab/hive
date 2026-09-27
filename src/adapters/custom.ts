@@ -42,7 +42,9 @@ export function createCustomAdapter(
         ? rest.map((a) => (a === PROMPT_PLACEHOLDER ? prompt : a))
         : [...rest, prompt];
       ctx.onProgress({ log: `commande libre : ${bin}` });
-      const result = await runCommand(bin, argv, ctx, CUSTOM_TIMEOUT_MS);
+      // La commande de l'opérateur répond sur sa sortie standard, par
+      // convention : c'est elle que la contre-expertise et le Conseil liront.
+      const result = await runCommand(bin, argv, ctx, CUSTOM_TIMEOUT_MS, 'sortie-standard');
       return { ...result, subAgents: [] };
     },
   };

@@ -8,6 +8,7 @@ import { DEFAULT_TOKEN } from '../shared/types.js';
 import type { Task } from '../shared/types.js';
 import { cheminsNatifs } from '../node-client/agent-detect.js';
 import { assertRealExecutionAllowed, runCommand } from './exec.js';
+import { lecteurCursor } from './texte-final.js';
 import type { AdapterContext, AdapterResult, AgentAdapter } from './index.js';
 
 const CURSOR_TIMEOUT_MS = 15 * 60_000;
@@ -49,11 +50,15 @@ export function createCursorAdapter(token = process.env.HIVE_TOKEN ?? DEFAULT_TO
     async run(task: Task, ctx: AdapterContext): Promise<AdapterResult> {
       const bin = binaireCursor(process.env, process.platform, existsSync);
       ctx.onProgress({ log: `${bin} -p --force (stream-json) démarré` });
+      // Même flux que Claude Code, mais PAS la même ligne `result` : chez
+      // Cursor, elle recolle toute la narration de l'exécution. La réponse est
+      // le texte depuis le dernier outil — un lecteur neuf par exécution.
       const result = await runCommand(
         bin,
         argvCursor(task.prompt, ctx.modele),
         ctx,
         CURSOR_TIMEOUT_MS,
+        lecteurCursor(),
       );
       return { ...result, subAgents: [] };
     },
