@@ -1272,9 +1272,19 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
    *
    * Le planificateur émet ce fait en pleine passe d'assignation
    * (`relecteurAbsent`). Cette fonction n'appelle donc JAMAIS le
-   * planificateur : le secours naît `pending`, et le tick suivant (au plus
-   * `tickMs`) le promeut et l'assigne. Le rappeler d'ici réentrerait dans une
-   * passe dont l'instantané des tâches prêtes est déjà pris.
+   * planificateur de façon synchrone : le secours naît `pending`, et le tick
+   * suivant (au plus `tickMs`) le promeut et l'assigne ; la relance d'une
+   * production contestée attend la fin de la passe (microtâche). Le rappeler
+   * d'ici réentrerait dans une passe dont l'instantané des tâches prêtes est
+   * déjà pris.
+   *
+   * ─── CE QUI S'EFFACE AVEC L'ÉLAGAGE ─────────────────────────────────────
+   *
+   * Le filigrane `resultId` vient de l'annonce de lancement. `pruneEvents`
+   * garde les annonces et l'impossibilité du DERNIER résultat des productions
+   * récentes (voir sa garde) ; au-delà, une clôture sans filigrane s'arrête à
+   * son `contre_expertise_review_failed`, déjà journalisé : visible, mais
+   * sans suite automatique — sur une production que la ruche a oubliée.
    */
   function reprendreContreRevue(echec: Readonly<Record<string, unknown>>): void {
     const { relecture: relectureTaskId, resultId } = echec;
@@ -1283,10 +1293,29 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     const lien = store.relectureDe(relectureTaskId);
     if (!lien) return;
     const productionTaskId = lien.productionTaskId;
+    // Une production déjà rendue à la file (rejet humain, correction de
+    // l'Evaluator) n'attend plus de relecture de CE résultat : sa prochaine
+    // tentative aura la sienne. Un secours y paierait un vrai appel de modèle
+    // pour relire un travail déjà écarté.
+    if (store.getTask(productionTaskId)?.status !== 'done') return;
     const latest = store.resultsForTask(productionTaskId).at(-1);
     if (latest?.resultId !== resultId) return;
     if (relecturesEnVol(productionTaskId, resultId) > 0) return;
-    if (store.crossReviewForResult(productionTaskId, resultId) !== null) return;
+    if (store.crossReviewForResult(productionTaskId, resultId) !== null) {
+      // Un avis est déjà là, et CETTE clôture était la dernière attendue :
+      // c'est elle qui termine la contre-revue. Un avis contestataire arrivé
+      // pendant qu'elle était en vol n'a rien relancé (`noterVerdict` attend
+      // que tout soit terminal) ; sans ce rappel, l'Evaluator demandait une
+      // correction que personne n'envoyait — le blocage silencieux, selon
+      // l'ordre d'arrivée. La relance vise la production parce que son
+      // travail est CONTESTÉ, jamais pour la panne du relecteur : la fonction
+      // relit l'avis et ne fait rien s'il est favorable.
+      //
+      // Différée hors de la passe : `retryFromEvaluator` rappelle le
+      // planificateur, dont on peut être au milieu (voir plus bas).
+      queueMicrotask(() => relancerSiContreRevueInsuffisante(productionTaskId, resultId));
+      return;
+    }
     if (store.contreRevueImpossible(productionTaskId, resultId) !== null) return;
 
     const relectures = relecturesDuResultat(productionTaskId, resultId);

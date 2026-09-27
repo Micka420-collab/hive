@@ -31,6 +31,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import { ATTENTE_RELECTEUR_ABSENT_MS } from '../src/orchestrator/scheduler.js';
 import { createServer } from '../src/orchestrator/server.js';
+import { HiveStore } from '../src/orchestrator/store.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
 
 const TOKEN = 'jeton-issue-terminale-assez-long';
@@ -135,12 +136,17 @@ async function relectureRecue(n: FauxNoeud, rang = 0): Promise<string> {
 }
 
 /** Une production de `producteur`, rendue avec un vrai diff : elle part en relecture. */
-async function produire(srv: HiveServer, producteur: FauxNoeud): Promise<string> {
+async function produire(
+  srv: HiveServer,
+  producteur: FauxNoeud,
+  avantResultat: () => Promise<void> = async () => {},
+): Promise<string> {
   const projet = srv.store.createProject({ name: 'P' });
   const t = srv.store.createTask({ projectId: projet.id, title: 'Garde du jeton', prompt: 'p' });
   srv.store.patchTask(t.id, { status: 'ready' });
   const assignation = await attendre(() => producteur.recues[0]);
   expect(assignation?.task?.id, 'le producteur n’a rien reçu').toBe(t.id);
+  await avantResultat();
   producteur.ws.send(
     JSON.stringify({
       type: 'task_result',
@@ -341,4 +347,212 @@ describe('une contre-revue qui tombe aboutit toujours à une issue visible', () 
     expect(verdict.decision).toBe('human_review_required');
     producteurIntact(srv, production, producteur);
   }, 30_000);
+
+  it('AUCUN NŒUD N’A PU LANCER L’AGENT RELECTEUR : revue humaine nommée', async () => {
+    const srv = await ruche();
+    const producteur = await noeud(srv, 'producteur', 'claude-code');
+    const relecteur = await noeud(srv, 'relecteur', 'codex');
+    const production = await produire(srv, producteur);
+
+    // L'ouvrière codex refuse chaque assignation pour une panne d'agent
+    // (auth, quota) : le token-failover compte ces refus jusqu'à sa borne
+    // (trois par nœud en ligne), puis clôt la relecture sans avis. Le tick
+    // avancé franchit le refroidissement de 3 s sans l'attendre.
+    const relecture = await relectureRecue(relecteur);
+    for (let refus = 0; refus < 10; refus += 1) {
+      if (srv.store.getTask(relecture)?.status === 'failed') break;
+      await attendre(() => (relecteur.recues.length > refus + 1 ? true : undefined));
+      relecteur.ws.send(
+        JSON.stringify({ type: 'task_reject', taskId: relecture, reason: 'quota', infra: true }),
+      );
+      await attendre(() =>
+        srv.store.getTask(relecture)?.status !== 'assigned' ? true : undefined,
+      );
+      srv.scheduler.tick(Date.now() + 3_100);
+    }
+    expect(srv.store.getTask(relecture)?.status).toBe('failed');
+
+    const impossible = await attendre(() => evenements(srv, 'contre_expertise_impossible')[0]);
+    expect(impossible).toMatchObject({ taskId: production, relecture, relecteur: 'codex' });
+    expect(String(impossible?.cause)).toMatch(/aucun nœud codex n’a pu lancer son agent/);
+
+    const verdict = await evaluation(srv, production);
+    expect(verdict.decision).toBe('human_review_required');
+    expect(verdict.reasons[0]).toMatch(/^relecture impossible : aucun nœud codex n’a pu/);
+    producteurIntact(srv, production, producteur);
+  }, 30_000);
+
+  it('L’AVIS RENDU PAR UNE AUTRE FAMILLE NE COMPTE PAS : UN secours, et son avis compte', async () => {
+    const srv = await ruche();
+    const producteur = await noeud(srv, 'producteur', 'claude-code');
+    const relecteur = await noeud(srv, 'relecteur', 'codex');
+    const production = await produire(srv, producteur);
+    const relecture = await relectureRecue(relecteur);
+    const hermes = await noeud(srv, 'hermes', 'hermes-agent');
+
+    // La relecture est ré-adoptée par un nœud de la famille du producteur
+    // (`reconcileNode` reprend ce qu'un nœud déclare exécuter) : son avis
+    // serait Claude relisant Claude. Le hub le refuse, et la relecture est
+    // close — c'est une clôture sans avis comme une autre.
+    srv.store.patchTask(relecture, { status: 'running', assignedNodeId: 'producteur' });
+    producteur.rendre(relecture, { success: true, finalText: 'valide' });
+
+    const echec = await attendre(() =>
+      evenements(srv, 'contre_expertise_review_failed').find((e) => e.relecture === relecture),
+    );
+    expect(echec).toMatchObject({ terminal: true, motif: 'famille_non_designee' });
+    const secours = await relectureRecue(hermes);
+    expect(evenements(srv, 'contre_expertise').find((e) => e.secours === true)).toMatchObject({
+      taskId: production,
+      relaie: relecture,
+      modeles: ['hermes-agent'],
+      relectures: [secours],
+    });
+    expect(evenements(srv, 'contre_expertise_verdict'), 'l’avis de Claude a compté').toEqual([]);
+
+    hermes.rendre(secours, { success: true, finalText: 'valide' });
+    const avis = await attendre(() => evenements(srv, 'contre_expertise_verdict')[0]);
+    expect(avis).toMatchObject({ taskId: production, relecteur: 'hermes-agent', conteste: false });
+    expect(evenements(srv, 'contre_expertise_impossible')).toEqual([]);
+    producteurIntact(srv, production, producteur);
+  }, 30_000);
+
+  it('UN AVIS CONTESTE, PUIS L’AUTRE RELECTURE TOMBE : la correction part quand même, une fois', async () => {
+    const srv = await ruche();
+    const producteur = await noeud(srv, 'producteur', 'claude-code');
+    // Deux familles relectrices en ligne au lancement (inscrites une fois la
+    // production confiée au producteur) : deux relectures du même résultat.
+    const relecteurs: { codex?: FauxNoeud; hermes?: FauxNoeud } = {};
+    const production = await produire(srv, producteur, async () => {
+      relecteurs.codex = await noeud(srv, 'codex', 'codex');
+      relecteurs.hermes = await noeud(srv, 'hermes', 'hermes-agent');
+    });
+    const { codex, hermes } = relecteurs;
+    if (!codex || !hermes) throw new Error('relecteurs non inscrits');
+
+    const relectureCodex = await relectureRecue(codex);
+    const relectureHermes = await relectureRecue(hermes);
+    codex.rendre(relectureCodex, { success: true, finalText: 'conteste\n- le jeton vide passe' });
+    await attendre(() => evenements(srv, 'contre_expertise_verdict')[0]);
+    // L'avis est tombé pendant que hermes relisait encore : rien n'est parti.
+    expect(evenements(srv, 'task_retry')).toEqual([]);
+
+    // Puis hermes échoue à chacun de ses essais : c'est SA clôture qui
+    // termine la contre-revue — et l'objection de codex doit alors agir.
+    hermes.rendre(relectureHermes, { success: false });
+    for (let essai = 1; essai < 3; essai += 1) {
+      hermes.rendre(await relectureRecue(hermes, essai), { success: false });
+    }
+    await attendre(() =>
+      evenements(srv, 'contre_expertise_review_failed').find(
+        (e) => e.relecture === relectureHermes && e.terminal === true,
+      ),
+    );
+
+    const relance = await attendre(() =>
+      evenements(srv, 'task_retry').find((e) => e.taskId === production),
+    );
+    expect(relance, 'la correction demandée par l’Evaluator n’est jamais partie').toMatchObject({
+      taskId: production,
+      source: 'evaluator',
+      decision: 'correction_required',
+    });
+    await new Promise((r) => setTimeout(r, 300));
+    expect(evenements(srv, 'task_retry').filter((e) => e.taskId === production)).toHaveLength(1);
+    expect(evenements(srv, 'evaluator_retry_skipped')).toEqual([]);
+    // La relance vient de l'objection, pas d'une impossibilité ni d'un secours.
+    expect(evenements(srv, 'contre_expertise_impossible')).toEqual([]);
+    expect(evenements(srv, 'contre_expertise').filter((e) => e.secours === true)).toEqual([]);
+  }, 30_000);
+
+  it('LA PRODUCTION DÉJÀ REJETÉE PAR UN HUMAIN : sa relecture qui tombe ne rachète rien', async () => {
+    const srv = await ruche();
+    const producteur = await noeud(srv, 'producteur', 'claude-code');
+    const relecteur = await noeud(srv, 'relecteur', 'codex');
+    const production = await produire(srv, producteur);
+    const relecture = await relectureRecue(relecteur);
+    const hermes = await noeud(srv, 'hermes', 'hermes-agent');
+
+    // Un humain rejette pendant que codex relit : la production repart en
+    // file pour une nouvelle tentative, qui aura sa propre contre-revue.
+    const r = await fetch(`http://127.0.0.1:${srv.port}/api/tasks/${production}/review`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ state: 'rejected' }),
+    });
+    expect(r.status).toBe(200);
+    expect(srv.store.getTask(production)?.status).not.toBe('done');
+
+    // Puis la relecture de l'ANCIEN résultat tombe pour de bon.
+    relecteur.rendre(relecture, { success: false });
+    for (let essai = 1; essai < 3; essai += 1) {
+      relecteur.rendre(await relectureRecue(relecteur, essai), { success: false });
+    }
+    await attendre(() =>
+      evenements(srv, 'contre_expertise_review_failed').find(
+        (e) => e.relecture === relecture && e.terminal === true,
+      ),
+    );
+    await new Promise((r2) => setTimeout(r2, 300));
+    expect(
+      evenements(srv, 'contre_expertise').filter((e) => e.secours === true),
+      'un secours relit un résultat déjà écarté',
+    ).toEqual([]);
+    expect(hermes.recues.filter((a) => /CONTRE-EXPERTISE/.test(a.task?.prompt ?? ''))).toEqual([]);
+    expect(evenements(srv, 'contre_expertise_impossible')).toEqual([]);
+  }, 30_000);
+});
+
+// Le fait d'impossibilité est ce sur quoi l'Evaluator nomme sa revue humaine,
+// et l'annonce de lancement le filigrane qui rattache une clôture à son
+// résultat. Élagués comme un événement ordinaire, une production en attente
+// d'humain retombait en « preuves manquantes » dès que la ruche avait
+// journalisé 5 000 autres choses.
+describe('l’élagage du journal garde la contre-revue du dernier résultat', () => {
+  it('L’IMPOSSIBILITÉ ET LES LANCEMENTS DU DERNIER RÉSULTAT SURVIVENT, PAS CEUX D’AVANT', () => {
+    const store = new HiveStore(':memory:');
+    try {
+      const projet = store.createProject({ name: 'P' });
+      const t = store.createTask({ projectId: projet.id, title: 'Garde', prompt: 'p' });
+      const resultat = (): number =>
+        store.insertResult({
+          taskId: t.id,
+          nodeId: 'n',
+          success: true,
+          diff: 'd',
+          logs: '',
+          durationMs: 1,
+          subAgents: [],
+        });
+      const ancien = resultat();
+      store.appendEvent('contre_expertise', { taskId: t.id, resultId: ancien, relectures: ['r0'] });
+      store.appendEvent('contre_expertise_impossible', {
+        taskId: t.id,
+        resultId: ancien,
+        cause: 'ancienne cause',
+      });
+      const dernier = resultat();
+      store.appendEvent('contre_expertise', {
+        taskId: t.id,
+        resultId: dernier,
+        relectures: ['r1'],
+      });
+      store.appendEvent('contre_expertise_impossible', {
+        taskId: t.id,
+        resultId: dernier,
+        cause: 'codex a échoué (3 tentative(s))',
+      });
+      store.patchTask(t.id, { status: 'done' });
+      for (let i = 0; i < 20; i += 1) store.appendEvent('bruit', { i });
+
+      store.pruneEvents(5);
+
+      expect(store.contreRevueImpossible(t.id, dernier)).toBe('codex a échoué (3 tentative(s))');
+      expect(store.eventForRelecture('r1')?.payload.resultId).toBe(dernier);
+      expect(store.contreRevueImpossible(t.id, ancien), 'la borne ne tient plus').toBeNull();
+      expect(store.eventForRelecture('r0')).toBeNull();
+    } finally {
+      store.close();
+    }
+  });
 });

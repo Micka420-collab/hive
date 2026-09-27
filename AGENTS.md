@@ -44,12 +44,16 @@ non-obvious caveats are captured below.
   counts them). `-- --une-ouvriere` or `HIVE_AGENT` in `.env` keeps a single
   worker. Idle workers spend no credits. A review only goes to its reviewer
   family; if that family stays offline for five minutes the review fails with
-  `contre_expertise_review_failed` (`motif: relecteur_absent`). A review that
-  ends without a verdict gets one fallback review by another online family
-  independent of the producer (`contre_expertise` with `secours: true`);
-  otherwise `contre_expertise_impossible` is journaled and the Evaluator
-  answers `human_review_required` with `relecture impossible : <cause>`. The
-  producer is never retried for a reviewer failure.
+  `contre_expertise_review_failed` (`motif: relecteur_absent`). When the last
+  review of a result ends without a verdict and no other review of it gave
+  one, it gets one fallback review by another online family independent of
+  the producer (`contre_expertise` with `secours: true`); otherwise (no such
+  family, fallback already tried, or a human cancelled the review — a
+  cancelled review is never replaced) `contre_expertise_impossible` is
+  journaled and the Evaluator answers `human_review_required` with
+  `relecture impossible : <cause>`. If another review already gave a verdict,
+  that verdict decides once every review has ended (a contested one retries
+  the producer). The producer is never retried for a reviewer failure.
 - With no AI coding CLI installed, the worker auto-selects `Shell (simulé)` — tasks
   still dispatch and complete but produced diffs are fake. That is sufficient to
   exercise the platform end-to-end; install Claude Code (`npm i -g

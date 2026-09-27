@@ -5576,6 +5576,16 @@ export class HiveStore {
    * tout en gardant `contre_visites` ferait apprendre le modèle courant à la
    * place du producteur historique. Les preuves conservées sont bornées par
    * `CORPUS_AIGUILLAGE`, comme la lecture qu'elles servent.
+   *
+   * La contre-revue en cours du DERNIER résultat d'une production rendue
+   * (`done`) garde aussi ses faits : les annonces de lancement (filigrane
+   * `resultId` que `eventForRelecture` relit pour compter les relectures en
+   * vol et rattacher une clôture) et l'impossibilité consignée
+   * (`contreRevueImpossible`, sur laquelle l'Evaluator nomme sa revue
+   * humaine). Élagués, une production en attente d'humain retombait en
+   * « preuves manquantes », et une relecture de secours close ensuite perdait
+   * sa suite. Bornée aux `CORPUS_AIGUILLAGE` productions rendues les plus
+   * récentes : au plus trois faits chacune (lancement, secours, impossibilité).
    */
   pruneEvents(maxKeep: number): number {
     const cutoff = this.lastEventId() - Math.max(0, maxKeep);
@@ -5626,9 +5636,22 @@ export class HiveStore {
                   SELECT id FROM results ORDER BY id DESC LIMIT ?
                 )
               )
+              OR (
+                type IN ('contre_expertise', 'contre_expertise_impossible')
+                AND json_extract(payload, '$.taskId') IN (
+                  SELECT t.id FROM tasks t
+                   WHERE t.status = 'done'
+                   ORDER BY t.updatedAt DESC, t.id DESC
+                   LIMIT ?
+                )
+                AND json_extract(payload, '$.resultId') = (
+                  SELECT MAX(r.id) FROM results r
+                   WHERE r.taskId = json_extract(events.payload, '$.taskId')
+                )
+              )
             )`,
       )
-      .run(cutoff, CORPUS_AIGUILLAGE, Math.max(0, maxKeep));
+      .run(cutoff, CORPUS_AIGUILLAGE, Math.max(0, maxKeep), CORPUS_AIGUILLAGE);
     return info.changes;
   }
 
