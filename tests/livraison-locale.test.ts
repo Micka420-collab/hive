@@ -164,6 +164,11 @@ describe('un identifiant ne remonte jamais au hub', () => {
     expect(lave).toContain('https://***@git.exemple.test/d.git/');
     expect(lave).toContain('http://hote/sans-identifiant');
   });
+
+  it('un mot de passe qui contient un arobase part EN ENTIER', () => {
+    const lave = laverIdentifiantsDuTexte("fatal: 'https://u:p@ss-SECRET@hote/d.git/' refusé");
+    expect(lave).toBe("fatal: 'https://***@hote/d.git/' refusé");
+  });
 });
 
 describe('le transport : reconstruit, ou refusé', () => {

@@ -64,7 +64,12 @@ import { commandeEntree } from '../shared/commande-entree.js';
 import { Registre } from './guetteuses.js';
 import { jugerCommandeTest } from '../shared/commande-test.js';
 import { jugerPreparation } from '../shared/preparation.js';
-import { instantanePourEssaim, laverIdentifiants, vuePublique } from '../shared/projet-public.js';
+import {
+  instantanePourEssaim,
+  laverIdentifiants,
+  laverIdentifiantsDuTexte,
+  vuePublique,
+} from '../shared/projet-public.js';
 import { cheminEnvQueen } from '../shared/env-queen.js';
 import { affectationsDepuisEvenements, TYPES_ROUTAGE } from '../shared/routage-vue.js';
 import { TYPES_CHRONOLOGIE, chronologieDepuisEvenements } from '../shared/chronologie-tache.js';
@@ -161,6 +166,7 @@ import {
 } from './github.js';
 import type { Fetcheur } from './github.js';
 import {
+  cleDepot,
   corpsPr,
   depotDepuisUrl,
   fusionner,
@@ -2642,20 +2648,27 @@ async function monterReine(
    * Un projet sans dépôt GitHub n'a rien que la clé puisse écrire : la
    * première condition suffit, et la route dit elle-même qu'il n'y a pas où
    * livrer.
+   *
+   * La même règle garde la POUSSÉE d'une livraison locale (`par: 'noeud'`),
+   * sur toute forge : les identifiants d'une ouvrière ont consenti pour la
+   * ruche, et un jumeau orphelin de l'adresse d'un projet tenu les dirigeait
+   * sur le dépôt de son propriétaire. Là, tout dépôt compte, pas seulement
+   * GitHub ; les adresses se comparent par `cleDepot`.
    */
   const ecritureDepotPermise = (
     req: FastifyRequest,
     projectId: string,
+    par: 'cle_hote' | 'noeud' = 'cle_hote',
   ): VerdictProjet | 'reserve' | 'hote' | 'depot' => {
     const propriete = proprieteProjetPermise(req, projectId);
     if (propriete !== 'permis') return propriete;
-    const depot = depotDepuisUrl(store.getProject(projectId)?.repoUrl ?? null)?.toLowerCase();
+    const url = store.getProject(projectId)?.repoUrl ?? null;
+    const depot = par === 'noeud' || depotDepuisUrl(url) ? cleDepot(url) : null;
     if (!depot) return 'permis';
     if (!authorized(req) && !lecteurDe(req).voitTout) return 'hote';
-    // GitHub ne distingue pas la casse d'`owner/repo` : la comparaison non plus.
     const autres = store
       .listProjects()
-      .filter((p) => p.id !== projectId && depotDepuisUrl(p.repoUrl)?.toLowerCase() === depot);
+      .filter((p) => p.id !== projectId && cleDepot(p.repoUrl) === depot);
     return autres.every((p) => proprieteProjetPermise(req, p.id) === 'permis') ? 'permis' : 'depot';
   };
 
@@ -2676,7 +2689,7 @@ async function monterReine(
     if (verdict === 'depot') {
       return reply.code(403).send({
         code: 'depot_tenu_ailleurs',
-        error: 'ce dépôt GitHub est aussi celui d’un projet dont vous ne répondez pas',
+        error: 'ce dépôt est aussi celui d’un projet dont vous ne répondez pas',
         conseil:
           'Seuls son propriétaire et les administrateurs de la ruche y écrivent : livrez depuis ' +
           'ce projet-là, ou demandez-le à un administrateur.',
@@ -7924,16 +7937,19 @@ async function monterReine(
       },
     },
     async (req, reply) => {
-      const propriete = proprieteProjetPermise(req, req.params.projectId);
-      if (propriete !== 'permis') return refuserReglage(reply, propriete);
       // POUSSER écrit avec les identifiants git d'une OUVRIÈRE, sur l'adresse
       // que le projet déclare. Son opérateur a consenti pour la RUCHE — pas
       // pour le premier compte venu : l'inscription est ouverte par défaut, et
       // un inconnu propriétaire de SON projet y écrirait l'adresse d'un dépôt
-      // que ces identifiants atteignent. Il faut donc parler au nom de l'hôte
-      // (jeton de ruche, ou compte administrateur) — la condition même que la
-      // livraison GitHub pose pour la clé de l'hôte.
-      if (req.body.pousser === true && !authorized(req) && !lecteurDe(req).voitTout) {
+      // que ces identifiants atteignent. D'où la règle de la livraison GitHub
+      // (`ecritureDepotPermise`) : parler au nom de l'hôte, et répondre de
+      // CHAQUE projet qui tient ce dépôt — un jumeau orphelin ne rouvre pas au
+      // jeton le dépôt d'un propriétaire.
+      const droit =
+        req.body.pousser === true
+          ? ecritureDepotPermise(req, req.params.projectId, 'noeud')
+          : proprieteProjetPermise(req, req.params.projectId);
+      if (droit === 'hote') {
         return reply.code(403).send({
           code: 'jeton_hote_requis',
           error:
@@ -7943,6 +7959,7 @@ async function monterReine(
             'poussée à l’hôte de la ruche.',
         });
       }
+      if (droit !== 'permis') return refuserEcriture(reply, droit);
       const project = store.getProject(req.params.projectId);
       if (!project) return reply.code(404).send({ error: 'projet inconnu' });
       const repoUrl = project.repoUrl;
@@ -11210,12 +11227,14 @@ async function monterReine(
             // Et le nœud qui refuse n'a rien commité : sa livraison le dit.
             if (msg.refused) {
               // Un refus est `non_commitee` quoi que le nœud prétende d'autre.
+              // Son motif est relavé : le nœud lave le sien, mais ce texte part
+              // à tout l'écran, et un nœud d'une autre version peut l'oublier.
               failMerge(
                 msg.mergeId,
                 msg.refused,
                 msg.logs,
                 msg.livraison?.etat === 'non_commitee'
-                  ? msg.livraison
+                  ? { etat: 'non_commitee', motif: laverIdentifiantsDuTexte(msg.livraison.motif) }
                   : { etat: 'non_commitee', motif: `merge refusé par le nœud : ${msg.refused}` },
               );
               break;

@@ -149,10 +149,12 @@ export function laverIdentifiants(url: string | null): string | null {
  * 'https://user:ghp_…@hote/depot/' »). Git masque parfois lui-même, pas
  * toujours, et pas dans toutes ses versions : un échec de poussée remonté tel
  * quel au hub diffuserait le jeton du nœud à tout le tableau de bord. Tout ce
- * qui précède l'arobase d'un « schéma://…@ » part, remplacé par `***`.
+ * qui précède le dernier arobase d'un « schéma://…@ » part, remplacé par `***`.
  */
 export function laverIdentifiantsDuTexte(texte: string): string {
-  return texte.replace(/([A-Za-z][A-Za-z0-9+.-]*:\/\/)[^/?#\s@'"]+@/g, '$1***@');
+  // Jusqu'au DERNIER arobase avant l'hôte : un mot de passe peut en contenir
+  // un (`https://u:p@ss@hote`), et s'arrêter au premier en laissait la fin.
+  return texte.replace(/([A-Za-z][A-Za-z0-9+.-]*:\/\/)[^/?#\s'"]+@/g, '$1***@');
 }
 
 /**

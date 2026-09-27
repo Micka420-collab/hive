@@ -25,6 +25,7 @@ import { jugerPreparation } from '../shared/preparation.js';
 import { isOnShift, minutesUntilOpen, nightShiftFromEnv } from '../shared/night-shift.js';
 import type { NightShiftPolicy } from '../shared/night-shift.js';
 import { plateformeDepuis } from '../shared/machine.js';
+import { laverIdentifiantsDuTexte } from '../shared/projet-public.js';
 import { ID_PATTERN, LIMITS, parseServerMessage } from '../shared/protocol.js';
 import type {
   AssignChantierMsg,
@@ -1198,7 +1199,9 @@ export class HiveNodeClient {
       });
       this.log(`${result.success ? '✔' : '✘'} ${task.title}`);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      // Lavé : une exception de git ou d'un adaptateur peut citer une URL à
+      // identifiants, et ces logs partent au hub, donc à tout l'écran.
+      const message = laverIdentifiantsDuTexte(err instanceof Error ? err.message : String(err));
       usage = usageBefore ? executionUsageDepuis(usageBefore, capturerExecutionUsage()) : undefined;
       this.send({
         type: 'task_result',
@@ -1391,7 +1394,9 @@ export class HiveNodeClient {
       });
       this.log(`${result.success ? '✔' : '✘'} ${task.title} (reprise)`);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      // Lavé : une exception de git ou d'un adaptateur peut citer une URL à
+      // identifiants, et ces logs partent au hub, donc à tout l'écran.
+      const message = laverIdentifiantsDuTexte(err instanceof Error ? err.message : String(err));
       usage = usageBefore ? executionUsageDepuis(usageBefore, capturerExecutionUsage()) : undefined;
       this.send({
         type: 'task_result',

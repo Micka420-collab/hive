@@ -679,6 +679,83 @@ describe('livraison locale — ce qu’une vraie ouvrière ne sait pas mal faire
     expect(refus.conseil).toContain('HIVE_LIVRAISON_POUSSER=1');
   });
 
+  it('pousser depuis un JUMEAU orphelin sur le dépôt d’un projet tenu : 403, et rien ne part', async () => {
+    // Le jeton de ruche répond d'un projet orphelin, pas de celui d'Alice. Un
+    // jumeau sur la MÊME adresse, écrite autrement (casse de l'hôte, `/`
+    // final), faisait pousser une ouvrière consentante sur le dépôt d'Alice —
+    // la livraison GitHub, elle, le refusait déjà (`depot_tenu_ailleurs`).
+    const n = await seul('n-jumeau', true);
+    server.store.createProject({
+      name: 'Le projet d’Alice',
+      repoUrl: 'https://git.exemple.test/alice/app.git',
+      visibility: 'private',
+      ownerId: 'u-alice',
+    });
+    const { project: jumeau } = mission(server, 'https://GIT.exemple.test/alice/app/', [
+      ['fj', 'diff'],
+    ]);
+    const res = await poster(base, `/api/projects/${jumeau.id}/livraison-locale`, {
+      pousser: true,
+    });
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { code: string }).code).toBe('depot_tenu_ailleurs');
+    expect(n.recus.some((m) => m.type === 'assign_merge')).toBe(false);
+  });
+
+  it('un REFUS se lit « non commitée » quoi que le nœud prétende — et son motif est relavé', async () => {
+    const n = await seul('n-refus');
+    const { project } = mission(server, '/depot/fictif-8', [['fk', 'diff']]);
+    const chemin = `/api/projects/${project.id}/livraison-locale`;
+    const refuser = async (livraison: unknown): Promise<MergeResultMsg> => {
+      const res = await attendre(async () => {
+        const r = await poster(base, chemin, {});
+        return r.status === 202 ? r : null;
+      });
+      const { mergeId } = (await res.json()) as { mergeId: string };
+      await attendre(async () =>
+        n.recus.find((m) => m.type === 'assign_merge' && m.mergeId === mergeId),
+      );
+      n.ws.send(
+        JSON.stringify({
+          type: 'merge_result',
+          mergeId,
+          applied: [],
+          conflicts: [],
+          mergedDiff: '',
+          testsRun: false,
+          testsPassed: null,
+          logs: 'refusé',
+          refused: 'commande refusée',
+          livraison,
+        }),
+      );
+      return resultatDe(base, project.id, mergeId);
+    };
+
+    // Un nœud qui refuse n'a rien fait : une branche qu'il dirait commitée
+    // serait une branche que personne ne trouvera.
+    const pretendue = await refuser({
+      etat: 'commitee',
+      branche: `hive/mission-${project.id}-1`,
+      commit: 'e'.repeat(40),
+      poussee: 'non_demandee',
+    });
+    expect(pretendue.livraison).toEqual({
+      etat: 'non_commitee',
+      motif: 'merge refusé par le nœud : commande refusée',
+    });
+
+    // Son propre motif passe — lavé par le hub aussi : il part à tout l'écran.
+    const dit = await refuser({
+      etat: 'non_commitee',
+      motif: 'refusé, voir https://moi:jeton-secret@git.exemple.test/d.git',
+    });
+    expect(dit.livraison).toEqual({
+      etat: 'non_commitee',
+      motif: 'refusé, voir https://***@git.exemple.test/d.git',
+    });
+  });
+
   it('un nœud qui REFUSE n’a rien commité ; un nœud qui se TAIT, la ruche n’en sait rien', async () => {
     const n = await seul('n-muet');
     const { project } = mission(server, '/depot/fictif-3', [['fc', 'diff']]);
