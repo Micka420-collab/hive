@@ -33,7 +33,7 @@ import {
   phraseAlertes,
   porteLaPastille,
 } from './views/pastille-alertes';
-import { modalOpen } from './ui';
+import { FiletDeSecurite, modalOpen } from './ui';
 import Ruche from './views/Ruche';
 import {
   applyReviewEvent,
@@ -284,6 +284,8 @@ export function App() {
   userRef.current = user;
   // Coalescence des invalidations : une rafale d'événements → 1 re-fetch/s max.
   const refreshTimer = useRef<number | undefined>(undefined);
+  // La cible du lien d'évitement (voir plus bas).
+  const principal = useRef<HTMLElement>(null);
 
   // ─── Flux temps réel ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -521,6 +523,23 @@ export function App() {
 
   return (
     <div className="app mc-app">
+      {/* ─── LE LIEN D'ÉVITEMENT, ET POURQUOI IL NE SUIT PAS SON `href` ──────
+          La navigation de ce tableau de bord VIT dans le fragment (`#/vue`).
+          Laisser le lien suivre `#mc-contenu` réécrirait le fragment :
+          `parseHash` ne reconnaîtrait aucune vue et renverrait sur la Ruche —
+          « aller au contenu » ferait QUITTER le contenu. Le `href` reste pour
+          que ce soit un vrai lien (tabulable, annoncé comme tel) ; le clic
+          pose le focus lui-même. */}
+      <a
+        className="mc-evitement"
+        href="#mc-contenu"
+        onClick={(e) => {
+          e.preventDefault();
+          principal.current?.focus();
+        }}
+      >
+        {t('Aller au contenu', 'Skip to content')}
+      </a>
       <nav className="mc-sidebar" aria-label={t('Navigation principale', 'Main navigation')}>
         <div className="mc-sidebar-brand" title="Hive — Mission Control">
           <span className="brand-logo" aria-hidden="true">
@@ -539,7 +558,7 @@ export function App() {
           </span>
           {/* Le nom écrit, et pas seulement la marque : sur la barre large du
               design, le logo seul laissait un vide que rien n'expliquait. */}
-          <span className="mc-sidebar-brand">
+          <span className="mc-sidebar-nom">
             <span className="mc-sidebar-word">Hive</span>
             <span className="mc-sidebar-product">Mission Control</span>
           </span>
@@ -704,26 +723,37 @@ export function App() {
           </div>
         )}
 
-        <Suspense
-          fallback={
-            <div className="mc-view-loading">{t('Chargement de la vue…', 'Loading view…')}</div>
-          }
-        >
-          {route.view === 'ruche' && <Ruche {...viewProps} />}
-          {route.view === 'miellerie' && <Miellerie {...viewProps} />}
-          {route.view === 'projets' && <Projets {...viewProps} />}
-          {route.view === 'essaim' && <Essaim {...viewProps} />}
-          {route.view === 'sante' && <Sante {...viewProps} />}
-          {route.view === 'chronique' && <Chronique {...viewProps} />}
-          {route.view === 'memoire' && <Memoire {...viewProps} />}
-          {route.view === 'reine' && <Reine {...viewProps} />}
-          {route.view === 'rayon' && <Rayon {...viewProps} />}
-          {route.view === 'monespace' && <MonEspace {...viewProps} />}
-          {route.view === 'intendance' && <Intendance {...viewProps} />}
-          {route.view === 'cerveau' && <Cerveau {...viewProps} />}
-          {route.view === 'chantiers' && <Chantiers {...viewProps} />}
-          {route.view === 'chambre' && <Chambre {...viewProps} />}
-        </Suspense>
+        {/* Un seul `main`, autour de la vue courante : chaque vue y entre, et
+            le lecteur d'écran trouve le contenu sans traverser la barre. La
+            Ruche portait le sien, seule des quatorze — il est devenu un `div`.
+
+            Le filet est RÉARMÉ à chaque adresse — vue ET fiche : une panne de
+            la Miellerie ne doit pas suivre l'opérateur jusqu'aux Projets, ni
+            celle d'un projet jusqu'au projet suivant. */}
+        <main id="mc-contenu" ref={principal} className="mc-main" tabIndex={-1}>
+          <FiletDeSecurite adresse={`${route.view}/${route.selectedId ?? ''}`} portee="vue">
+            <Suspense
+              fallback={
+                <div className="mc-view-loading">{t('Chargement de la vue…', 'Loading view…')}</div>
+              }
+            >
+              {route.view === 'ruche' && <Ruche {...viewProps} />}
+              {route.view === 'miellerie' && <Miellerie {...viewProps} />}
+              {route.view === 'projets' && <Projets {...viewProps} />}
+              {route.view === 'essaim' && <Essaim {...viewProps} />}
+              {route.view === 'sante' && <Sante {...viewProps} />}
+              {route.view === 'chronique' && <Chronique {...viewProps} />}
+              {route.view === 'memoire' && <Memoire {...viewProps} />}
+              {route.view === 'reine' && <Reine {...viewProps} />}
+              {route.view === 'rayon' && <Rayon {...viewProps} />}
+              {route.view === 'monespace' && <MonEspace {...viewProps} />}
+              {route.view === 'intendance' && <Intendance {...viewProps} />}
+              {route.view === 'cerveau' && <Cerveau {...viewProps} />}
+              {route.view === 'chantiers' && <Chantiers {...viewProps} />}
+              {route.view === 'chambre' && <Chambre {...viewProps} />}
+            </Suspense>
+          </FiletDeSecurite>
+        </main>
       </div>
 
       {openTask && (

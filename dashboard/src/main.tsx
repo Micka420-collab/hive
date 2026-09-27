@@ -2,6 +2,7 @@ import { lazy, StrictMode, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { getPartage, savePartage } from './api';
+import { FiletDeSecurite } from './ui';
 import './styles.css';
 
 const Partage = lazy(() => import('./views/Partage'));
@@ -47,14 +48,19 @@ function racine(): { partage: true; projectId: string } | { partage: false } {
 
 const r = racine();
 
+// Le dernier filet : une panne que rien n'a rattrapée plus bas — la coquille
+// elle-même, le tiroir, une modale, l'écran du porteur de lien — laisse une
+// explication et deux gestes au lieu d'un `#root` vide (voir `FiletDeSecurite`).
 createRoot(document.getElementById('root') as HTMLElement).render(
   <StrictMode>
-    {r.partage ? (
-      <Suspense fallback={null}>
-        <Partage projectId={r.projectId} />
-      </Suspense>
-    ) : (
-      <App />
-    )}
+    <FiletDeSecurite portee="application">
+      {r.partage ? (
+        <Suspense fallback={null}>
+          <Partage projectId={r.projectId} />
+        </Suspense>
+      ) : (
+        <App />
+      )}
+    </FiletDeSecurite>
   </StrictMode>,
 );

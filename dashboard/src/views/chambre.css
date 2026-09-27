@@ -1,7 +1,15 @@
 /* Chambre — fidèle à la maquette produit (miel / crème, poste ouvrière ADR 0010).
    Pas de thème sombre Delos. Absences = silence. */
 
-.ch-view {
+/* La palette de la Chambre, posée sur CHAQUE racine de ses surfaces — la vue,
+   et ses deux dialogues. Ceux-ci passent par `Voile`, qui les monte à la racine
+   du document : hors de `.ch-view`, un `--ch-…` ne se résolvait jamais, et le
+   dialogue du secret s'affichait sans fond ni bordure, transparent sur le
+   voile. Un nouveau dialogue de la Chambre s'ajoute à cette liste
+   (garde : tests/dashboard-feuilles.test.ts, « surfaces portées »). */
+.ch-view,
+.ch-grant-dialog,
+.ch-dialog {
   --ch-creme: #fdf8f0;
   --ch-papier: #fffdf8;
   --ch-miel: #f2b441;
@@ -11,7 +19,9 @@
   --ch-ligne: color-mix(in srgb, var(--ch-miel) 28%, #e8dfd0);
   --ch-ombre: 0 10px 28px color-mix(in srgb, var(--ch-encre) 6%, transparent);
   --ch-rayon: 12px;
+}
 
+.ch-view {
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -50,7 +60,7 @@
 
 .ch-brand-hive {
   margin: 0;
-  font-family: var(--font-display, 'Bricolage Grotesque', Georgia, serif);
+  font-family: var(--titre);
   font-size: 1.55rem;
   font-weight: 700;
   letter-spacing: -0.02em;
@@ -168,7 +178,7 @@
 }
 
 .ch-hitl-titre {
-  font-family: var(--font-display, 'Bricolage Grotesque', Georgia, serif);
+  font-family: var(--titre);
   font-size: 1.05rem;
   font-weight: 700;
 }
@@ -262,7 +272,7 @@
   text-transform: uppercase;
   letter-spacing: 0.12em;
   color: var(--ch-mute);
-  font-family: var(--font-display, 'Bricolage Grotesque', Georgia, serif);
+  font-family: var(--titre);
 }
 
 .ch-identite {
@@ -380,7 +390,7 @@
 .ch-nom {
   margin: 0 0 6px;
   font-size: clamp(1.55rem, 2.4vw, 2rem);
-  font-family: var(--font-display, 'Bricolage Grotesque', Georgia, serif);
+  font-family: var(--titre);
   font-weight: 700;
   letter-spacing: -0.02em;
   line-height: 1.15;
@@ -553,7 +563,7 @@
 .ch-bapteme-label input {
   padding: 6px 8px;
   border-radius: 6px;
-  border: 1px solid var(--ch-bordure, #e0d2b6);
+  border: 1px solid var(--ch-ligne);
 }
 .ch-metier-form {
   margin-top: 14px;
@@ -604,7 +614,7 @@
 .ch-outil {
   display: inline-block;
   min-width: 3.2em;
-  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-family: var(--mono);
   font-size: 0.72rem;
   font-weight: 600;
   color: color-mix(in srgb, var(--ch-miel-fonce) 50%, var(--ch-encre));
@@ -709,7 +719,7 @@
   letter-spacing: 0.06em;
   background: color-mix(in srgb, var(--ch-miel) 55%, white);
   color: var(--ch-encre);
-  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-family: var(--mono);
 }
 
 .ch-badge-read {
@@ -769,7 +779,7 @@ button.ch-lien-chemin:focus-visible {
 .ch-log-detail {
   font-size: 0.75rem;
   color: var(--ch-mute);
-  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-family: var(--mono);
 }
 
 .ch-log-time {
@@ -912,7 +922,7 @@ button.ch-lien-chemin:focus-visible {
   text-transform: uppercase;
   letter-spacing: 0.12em;
   color: var(--ch-mute);
-  font-family: var(--font-display, 'Bricolage Grotesque', Georgia, serif);
+  font-family: var(--titre);
 }
 
 .ch-ordi-actions {
@@ -955,7 +965,7 @@ button.ch-lien-chemin:focus-visible {
   border-top: 1px solid var(--ch-ligne);
   font-size: 0.72rem;
   color: var(--ch-mute);
-  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-family: var(--mono);
 }
 
 .ch-err {
@@ -1001,7 +1011,7 @@ button.ch-lien-chemin:focus-visible {
 .ch-grant-field input {
   padding: 8px 10px;
   font-size: 0.9rem;
-  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-family: var(--mono);
   border: 1px solid var(--ch-ligne);
   border-radius: 8px;
   background: #fff;
@@ -1063,9 +1073,12 @@ button.ch-lien-chemin:focus-visible {
   max-width: 100%;
 }
 
+/* Il lisait `--ch-cream`/`--ch-honey`, deux jetons que personne n'a posés, et
+   vivait de leurs seuls replis : la crème et le miel de la palette, que la
+   racine du dialogue porte désormais (voir `.ch-view` en tête de feuille). */
 .ch-dialog {
-  background: var(--ch-cream, #fdf8f0);
-  border: 1px solid var(--ch-honey, #f2b441);
+  background: var(--ch-creme);
+  border: 1px solid var(--ch-miel);
   border-radius: 12px;
   padding: 1rem 1.25rem;
   max-width: 28rem;
