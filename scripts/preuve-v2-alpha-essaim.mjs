@@ -264,11 +264,12 @@ export function jugerEssaim(faits) {
   // ─── La relecture par une AUTRE famille ─────────────────────────────────────
   //
   // La famille est celle du nœud qui a RENDU la relecture (son `task_done`),
-  // pas celle que le verdict nomme. Le verdict reprend le relecteur choisi au
-  // lancement ; or une relecture remise en file (nœud saturé, échec
-  // intermédiaire) repart vers n'importe quel nœud — la même famille que le
-  // producteur comprise. Se fier au nom inscrit ferait passer une relecture
-  // par soi-même pour une relecture croisée.
+  // établie ici sans passer par le verdict. Le hub en répond déjà : le verdict
+  // nomme le nœud qui le rend (`reviewerNodeId`), une relecture remise en file
+  // ne repart que vers la famille désignée, et un avis rendu par une autre
+  // famille n'est pas un verdict (`famille_non_designee`). La preuve recoupe
+  // quand même, en défense en profondeur : elle ne certifie pas une relecture
+  // croisée sur la seule parole du hub qu'elle vérifie.
   const avis = du(
     'contre_expertise_verdict',
     (p) => p.source === 'hive_counter_review' && productions.has(p.taskId),

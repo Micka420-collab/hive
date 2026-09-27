@@ -1236,8 +1236,16 @@ export class Scheduler {
    *
    * Pas d'appel depuis la cascade des dépendances : une tâche `pending` n'a
    * jamais tourné, elle n'a donc jamais délégué.
+   *
+   * Rend les identifiants annulés : une passe d'assignation qui ferme un
+   * sous-arbre en cours de route (`relecteurAbsent`) les tient encore pour
+   * prêts dans son instantané, et les réassignerait `failed`.
    */
-  private fermerSousArbre(taskId: string, cause: CauseAnnulationDelegation, now: number): void {
+  private fermerSousArbre(
+    taskId: string,
+    cause: CauseAnnulationDelegation,
+    now: number,
+  ): readonly string[] {
     const graphe = this.store.listDelegationGraph(taskId);
     const orphelins = descendantsEnVol(graphe, taskId, cause, (id) =>
       // En vol ET déjà porteur d'un résultat retenu : l'Evaluator l'a rouvert
@@ -1258,6 +1266,7 @@ export class Scheduler {
       });
       this.annulerEnVol(descendant, cause, now);
     }
+    return orphelins.map((noeud) => noeud.taskId);
   }
 
   // ─── Drone Wars : redondance compétitive (opt-in, par tâche) ────────────────
@@ -1828,12 +1837,19 @@ export class Scheduler {
    * seconde lecture, c'est une contre-revue qui compte deux relectrices là où
    * un seul modèle a lu (`crossReviewForResult`). Une famille revenue à temps
    * reprend la relecture, quel que soit son nœud.
+   *
+   * Cet échec est une transition terminale comme les autres : il ferme le
+   * sous-arbre délégué de la relecture (`fermerSousArbre`) — un relecteur
+   * tombé a pu déléguer avant de tomber, et ses enfants n'auraient plus de
+   * destinataire. Les descendants annulés entrent dans `fermees`, que la
+   * passe en cours consulte avant d'assigner.
    */
   private relecteurAbsent(
     task: Task,
     lien: LienRelecture,
     noeuds: readonly HiveNode[],
     now: number,
+    fermees: Set<string>,
   ): boolean {
     if (noeuds.some((n) => n.status === 'online' && n.agentType === lien.relecteurAgent)) {
       this.relecturesSansRelecteur.delete(task.id);
@@ -1854,8 +1870,12 @@ export class Scheduler {
     if (now - depuis < ATTENTE_RELECTEUR_ABSENT_MS) return true;
 
     this.relecturesSansRelecteur.delete(task.id);
+    // Terminale, elle n'est plus jamais réévaluée : ses refus d'infrastructure
+    // ne seraient plus purgés par personne (même règle qu'`annulerEnVol`).
+    this.infraRejects.delete(task.id);
     this.store.patchTask(task.id, { status: 'failed', assignedNodeId: null }, now);
     this.emit('task_failed', { taskId: task.id, reason: 'relecteur_absent' });
+    for (const id of this.fermerSousArbre(task.id, 'ancestor_failed', now)) fermees.add(id);
     // Le `resultId` du lancement, comme le hub le joint à ses propres échecs
     // de relecture : il dit QUELLE tentative de la production perd son avis.
     const resultId = this.store.eventForRelecture(task.id)?.payload.resultId;
@@ -1988,7 +2008,14 @@ export class Scheduler {
         if (!enFile.has(id)) this.relecturesSansRelecteur.delete(id);
       }
     }
+    // `pretes` est un instantané : une relecture qui échoue à cette passe
+    // (`relecteurAbsent`) annule ses descendants délégués, que l'instantané
+    // tient encore pour prêts. Sans ce registre, la suite de la boucle
+    // réassignerait une tâche `failed` — les relectures passent en tête, leurs
+    // descendants après.
+    const fermees = new Set<string>();
     for (const { task, lien } of pretes) {
+      if (fermees.has(task.id)) continue;
       // Sting Detector : ne pas lancer une tâche en conflit FORT (même fichier)
       // avec une tâche déjà active du même projet. On la diffère jusqu'à ce que
       // l'autre se termine — prévention des conflits d'édition concurrents.
@@ -2035,7 +2062,7 @@ export class Scheduler {
       //
       // Une famille ABSENTE ne se laisse pas attendre en silence : voir
       // `relecteurAbsent`.
-      if (lien !== null && this.relecteurAbsent(task, lien, noeuds, now)) continue;
+      if (lien !== null && this.relecteurAbsent(task, lien, noeuds, now, fermees)) continue;
       const eligibles = noeuds
         .filter(
           (n) =>

@@ -978,6 +978,10 @@ describe('la contre-expertise est annoncée à chaque production', () => {
       }
       expect(srv.store.getTask(idRelecture)?.assignedNodeId).toBe('producteur');
 
+      // L'avis porte une RÉPONSE FINALE lisible : sans elle, le résultat
+      // n'atteindrait jamais la branche du verdict (une relecture terminée
+      // sans texte est un non-vote), et ce banc passerait même sans la garde
+      // de famille. C'est la famille, et elle seule, qui doit l'écarter.
       ws.send(
         JSON.stringify({
           type: 'task_result',
@@ -985,6 +989,7 @@ describe('la contre-expertise est annoncée à chaque production', () => {
           success: true,
           diff: '',
           logs: 'valide',
+          finalText: 'valide',
           durationMs: 5,
           subAgents: [],
         }),

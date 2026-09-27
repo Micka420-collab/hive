@@ -245,4 +245,20 @@ describe('une correction de l’Evaluator ne se lit pas comme un échec', () => 
     expect(ligne(dom)).not.toContain('pas (ou plus) terminée');
     expect(ligne(dom)).toContain('retry ordinaire');
   });
+
+  // Sans cas dédié, le repli affichait le code brut `ancestor_failed` : un
+  // identifiant technique là où l'opérateur attend la raison.
+  for (const [lang, attendu] of [
+    ['fr', 'un ancêtre délégué a échoué (ou a été annulé) : plus personne n’attend'],
+    ['en', 'a delegated ancestor failed (or was cancelled): nobody is waiting'],
+  ] as const) {
+    it(`SOUS UN ANCÊTRE DÉLÉGUÉ ÉCHOUÉ, PERSONNE N’ATTEND LA CORRECTION (${lang})`, async () => {
+      setLang(lang);
+      const dom = await monter(
+        evenement('evaluator_retry_skipped', { taskId: 'enfant', reason: 'ancestor_failed' }),
+      );
+      expect(ligne(dom)).toContain(attendu);
+      expect(ligne(dom), 'le code brut est affiché').not.toContain('ancestor_failed');
+    });
+  }
 });

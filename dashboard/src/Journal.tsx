@@ -68,6 +68,14 @@ function raisonRetrySaute(code: unknown, t: Translate): string {
       return t('une livraison est déjà ouverte', 'a delivery is already open');
     case 'dependent_progressed':
       return t('une tâche dépendante a déjà avancé', 'a dependent task has already moved on');
+    // Même fait que le tiroir d'une tâche annulée avec son sous-arbre : un
+    // enfant délégué n'a qu'un destinataire, et une annulation compte comme
+    // un échec (`ancetreEchoue`).
+    case 'ancestor_failed':
+      return t(
+        'un ancêtre délégué a échoué (ou a été annulé) : plus personne n’attend cette correction',
+        'a delegated ancestor failed (or was cancelled): nobody is waiting for this correction any more',
+      );
     case 'stale_result':
       return t('une production plus récente existe', 'a newer production exists');
     // Une tâche ÉCHOUÉE est terminée, mais pas `done` : c'est le retry

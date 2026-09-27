@@ -25,6 +25,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ATTENTE_RELECTEUR_ABSENT_MS, Scheduler } from '../src/orchestrator/scheduler.js';
 import { HiveStore } from '../src/orchestrator/store.js';
+import { AGENTS_SANS_AVIS } from '../src/shared/contre-expertise.js';
 
 /** Un instant fixe : tout le banc est daté, rien ne dépend de l'horloge. */
 const T = 1_000_000;
@@ -211,6 +212,99 @@ describe('UNE RELECTURE NE CHANGE PAS DE FAMILLE', () => {
     ]);
     expect(evenements('contre_expertise_review_waiting')).toHaveLength(1);
   });
+
+  it('LA RELECTURE ÉCHOUÉE FAUTE DE FAMILLE FERME SON SOUS-ARBRE DÉLÉGUÉ — rien n’en repart', () => {
+    // Un relecteur tombé a pu déléguer avant de tomber. L'échec `relecteur_absent`
+    // est une transition terminale comme les autres : ses enfants n'ont plus de
+    // destinataire. Celui qui tourne est annulé chez son nœud ; celui qui
+    // attend en file ne part plus — pas même sur la place que l'annulation du
+    // premier vient de libérer, dans la passe même qui tranche.
+    const annulations: Array<{ nodeId: string; taskId: string; reason: string }> = [];
+    scheduler = new Scheduler(store, {
+      onCancel: (nodeId, taskId, reason) => annulations.push({ nodeId, taskId, reason }),
+    });
+    const { producteur, relecteur, relecture, occupation } = scene();
+    store.patchTask(occupation, { status: 'done' }, T + 5);
+    scheduler.tick(T + 5);
+    scheduler.handleTaskUpdate(relecteur, relecture);
+    const deleguer = (childTaskId: string, at: number): void => {
+      const creation = store.createDelegatedTask(
+        {
+          childTaskId,
+          parentTaskId: relecture,
+          title: `Sous-tâche ${childTaskId}`,
+          prompt: 'Vérifie ce cas limite et rapporte les preuves.',
+          durationMs: 60_000,
+          costMicros: 100_000,
+          resourceUnits: 1,
+        },
+        undefined,
+        at,
+      );
+      expect(creation.ok, childTaskId).toBe(true);
+      scheduler.tick(at);
+    };
+    deleguer('enfant', T + 6);
+    // Codex tient la relecture : l'enfant part chez Claude, seul libre…
+    expect(store.getTask('enfant')?.assignedNodeId).toBe(producteur);
+    deleguer('enfant-en-file', T + 7);
+    // … et le second attend en file, faute de place.
+    expect(store.getTask('enfant-en-file')?.status).toBe('ready');
+
+    scheduler.nodeDisconnected(relecteur, 'ws_close', T + 10);
+    const borne = T + 10 + ATTENTE_RELECTEUR_ABSENT_MS;
+    scheduler.heartbeat(producteur, borne);
+    scheduler.tick(borne);
+
+    expect(store.getTask(relecture)?.status).toBe('failed');
+    for (const id of ['enfant', 'enfant-en-file']) {
+      expect(store.getTask(id), id).toMatchObject({ status: 'failed', assignedNodeId: null });
+    }
+    expect(annulations).toEqual([
+      { nodeId: producteur, taskId: 'enfant', reason: 'ancestor_failed' },
+    ]);
+    expect(
+      evenements('delegation_cancelled').map((e) => [e.childTaskId, e.ancestorTaskId, e.reason]),
+    ).toEqual([
+      ['enfant', relecture, 'ancestor_failed'],
+      ['enfant-en-file', relecture, 'ancestor_failed'],
+    ]);
+    expect(
+      evenements('task_assigned').filter((e) => e.taskId === 'enfant-en-file'),
+      'un descendant annulé a été réassigné par la passe qui l’annulait',
+    ).toEqual([]);
+  });
+
+  // La garde de famille (`n.agentType === lien.relecteurAgent`) masque l'autre :
+  // un lien sain désigne par construction une famille indépendante. Celle-ci
+  // (`relecteurIndependant`) doit tenir SEULE pour un lien qui ne le serait pas
+  // — ligne ancienne, ou inscrite par un autre chemin que `choisirCritiques`.
+  for (const relecteurAgent of ['claude-code', ...AGENTS_SANS_AVIS]) {
+    it(`UN LIEN NON INDÉPENDANT (${relecteurAgent}) NE PART PAS, même vers un nœud de sa famille en ligne`, () => {
+      const { relecture, production, occupation } = scene();
+      store.patchTask(occupation, { status: 'done' }, T + 5);
+      const famille = scheduler.registerNode(
+        { name: 'mmm-famille', ownerName: 'banc', agentType: relecteurAgent, maxConcurrency: 1 },
+        T + 5,
+      ).id;
+      store.inscrireRelecture({
+        relectureTaskId: relecture,
+        productionTaskId: production,
+        relecteurNodeId: famille,
+        relecteurAgent,
+        producteurAgent: 'claude-code',
+        now: T + 5,
+      });
+
+      scheduler.tick(T + 20);
+
+      const tache = store.getTask(relecture);
+      expect(tache?.status).toBe('ready');
+      expect(tache?.assignedNodeId ?? null, 'un avis non indépendant a été commandé').toBeNull();
+      // Sa famille est en ligne : ce n'est pas une absence à annoncer.
+      expect(evenements('contre_expertise_review_waiting')).toEqual([]);
+    });
+  }
 
   it('UN AUTRE NŒUD DE LA MÊME FAMILLE la prend — c’est la famille qui relit, pas le poste', () => {
     const { producteur, relecteur, relecture } = scene();
