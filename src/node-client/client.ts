@@ -1318,7 +1318,9 @@ export class HiveNodeClient {
         workspace.depot && workspace.baseSha
           ? { depot: workspace.depot, baseSha: workspace.baseSha }
           : null,
-      ...(this.opts.bac ? { bac: this.opts.bac } : {}),
+      // Étiquetés comme la tâche : un nœud tué pendant ses validations laisse
+      // des conteneurs que son redémarrage doit ramasser (`ramasserConteneurs`).
+      ...this.optionBacTache(taskId),
       signal: ctrl.signal,
       surEtape: (log) => this.send({ type: 'task_update', taskId, status: 'running', log }),
     });

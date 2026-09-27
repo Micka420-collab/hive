@@ -71,7 +71,7 @@ import type {
   ValidationKey,
   ValidationsBac,
 } from '../shared/validations-bac.js';
-import type { Fournisseur } from './isolement.js';
+import type { BacExecution } from './isolement.js';
 import { runProc } from './merge-runner.js';
 import { gitHote } from './git-hote.js';
 import type { DepotEpingle } from './git-hote.js';
@@ -96,7 +96,7 @@ export interface OptionsValidation {
    */
   depot: { depot: DepotEpingle; baseSha: string } | null;
   /** Le bac du nœud ; absent, RIEN ne tourne (`sans_bac`). */
-  bac?: { fournisseur: Fournisseur; variables: readonly string[]; image: string };
+  bac?: BacExecution;
   /** Le signal de la tâche : une annulation arrête aussi ses validations. */
   signal?: AbortSignal;
   /** Une ligne de progrès, relayée au hub pendant que les commandes tournent. */

@@ -30,7 +30,7 @@ import { simpleGit } from 'simple-git';
 import type { AgentAdapter } from '../src/adapters/index.js';
 import { HiveNodeClient } from '../src/node-client/client.js';
 import { createServer, type HiveServer } from '../src/orchestrator/server.js';
-import { fauxBac } from './fixtures/faux-bac.js';
+import { appelsDuFauxBac, fauxBac } from './fixtures/faux-bac.js';
 
 const JETON = 'jeton-validations-bac-suffisamment-long';
 
@@ -257,11 +257,21 @@ describe('validations du bac — du nœud producteur jusqu’à l’Evaluator', 
   it.runIf(process.platform !== 'win32')(
     'RANGÉES AVEC LE RÉSULTAT EXACT, LUES PAR L’EVALUATOR, JAMAIS PRÊTÉES À CE QUI N’A RIEN À JUGER',
     async () => {
-      const { s, baseSha, produire, evaluer } = await demarrer(fauxBac(dossiers), true);
+      const bac = fauxBac(dossiers);
+      const { s, baseSha, produire, evaluer } = await demarrer(bac, true);
 
       // ─── UNE PRODUCTION QUI TIENT SES TESTS ───────────────────────────────
       const saine = await produire('Sécuriser feature.js');
       expect(saine.resultat?.diff).toContain('secure: true');
+      // Ses validations tournent dans des conteneurs ÉTIQUETÉS comme la tâche
+      // (#486) : sans étiquette, un nœud tué pendant elles les laissait
+      // tourner, et son redémarrage ne les ramassait pas.
+      const lancements = appelsDuFauxBac(bac);
+      expect(lancements.length, 'les validations n’ont rien lancé dans le bac').toBeGreaterThan(0);
+      for (const ligne of lancements) {
+        expect(ligne).toContain('--label=hive.noeud=noeud-bac');
+        expect(ligne).toContain(`--label=hive.tache=${saine.tacheId}`);
+      }
       expect(saine.preuves).toHaveLength(1);
       expect(saine.preuves[0]?.payload).toMatchObject({
         source: 'hive_sandbox',
