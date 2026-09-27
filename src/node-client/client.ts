@@ -49,6 +49,7 @@ import {
 import { texteDEchec } from '../shared/texte-d-echec.js';
 import { motifRefusPresence, refuseParPresence } from '../shared/presence-noeud.js';
 import type { Fournisseur } from './isolement.js';
+import { balayerPontsOrphelins, RendezVousPont } from './rendez-vous-pont.js';
 import type { Workspace } from './workspace.js';
 import type {
   WorkerDelegationInput,
@@ -265,6 +266,13 @@ export class HiveNodeClient {
   private derniereNouvelle = 0;
   private readonly adapter: AgentAdapter;
   private readonly workRoot: string;
+  /**
+   * Où les ponts de délégation de ce nœud ouvrent leurs sockets : un dossier
+   * privé sous le dossier temporaire du système, créé au premier pont et
+   * effacé par `stop()` — jamais sous `workRoot`, dont la profondeur dépend du
+   * dossier d'où l'on a lancé le nœud (voir `rendez-vous-pont.ts`).
+   */
+  private readonly rendezVous = new RendezVousPont();
 
   /**
    * Arma la seule limite d'exécution actuellement consommée côté Worker.
@@ -313,7 +321,19 @@ export class HiveNodeClient {
   start(): void {
     this.closed = false;
     this.warnIfInsecureTransport();
+    this.preparerRendezVous();
     this.connect();
+  }
+
+  /**
+   * Les ponts de délégation, au démarrage : balayer ce qu'un nœud tué a laissé
+   * (un `kill -9` n'appelle pas `stop()`), et DIRE tout de suite si aucun pont
+   * ne pourra s'ouvrir ici — plutôt qu'à la première tâche Claude Code ou Codex.
+   */
+  private preparerRendezVous(): void {
+    for (const reste of balayerPontsOrphelins()) this.log(`pont orphelin effacé : ${reste}`);
+    const alerte = this.rendezVous.alerte();
+    if (alerte) this.log(`⚠ ${alerte}`);
   }
 
   /**
@@ -348,6 +368,9 @@ export class HiveNodeClient {
     this.arreterVeille();
     this.ws?.close(1000, 'arrêt du nœud');
     this.ws = null;
+    // Après l'annulation des tâches : leurs ponts se ferment d'eux-mêmes, et
+    // le dossier du nœud part avec ce qui y resterait.
+    this.rendezVous.fermer();
   }
 
   get id(): string | null {
@@ -1049,6 +1072,7 @@ export class HiveNodeClient {
         delegate: (input) => this.requestDelegation(task.id, input),
         waitForDelegationResult: (childTaskId) =>
           this.waitForDelegationResult(task.id, childTaskId, ctrl.signal),
+        rendezVous: this.rendezVous,
         onProgress: (p) => {
           this.send({
             type: 'task_update',
@@ -1225,6 +1249,7 @@ export class HiveNodeClient {
         delegate: (input) => this.requestDelegation(task.id, input),
         waitForDelegationResult: (childTaskId) =>
           this.waitForDelegationResult(task.id, childTaskId, ctrl.signal),
+        rendezVous: this.rendezVous,
         onProgress: (p) => {
           this.send({
             type: 'task_update',

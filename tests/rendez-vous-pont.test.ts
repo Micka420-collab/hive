@@ -1,0 +1,83 @@
+// Le rendez-vous des ponts d'un nœud : ce qu'un nœud TUÉ laisse, le démarrage
+// suivant l'efface — sans jamais toucher au rendez-vous d'un nœud vivant.
+//
+// Un `kill -9` n'appelle pas `stop()` : sans ce balayage, chaque nœud tué
+// laisserait un dossier 0700 sous le dossier temporaire du système, pour
+// toujours. Et un balayage trop large effacerait le socket d'un nœud voisin
+// en pleine tâche — sa tâche Claude Code ou Codex perdrait son pont.
+
+import { spawnSync } from 'node:child_process';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { balayerPontsOrphelins, RendezVousPont } from '../src/node-client/rendez-vous-pont.js';
+import { PREFIXE_PONT } from '../src/shared/empreinte.js';
+
+let tmp = '';
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  if (tmp) rmSync(tmp, { recursive: true, force: true, maxRetries: 3 });
+  tmp = '';
+});
+
+/** Un dossier temporaire du système à part, pour ne balayer que le nôtre. */
+function tmpDuBanc(): string {
+  tmp = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'hive-rdv-')));
+  for (const v of ['TMPDIR', 'TEMP', 'TMP']) vi.stubEnv(v, tmp);
+  expect(os.tmpdir()).toBe(tmp);
+  return tmp;
+}
+
+/** Le pid d'un processus qui a existé et n'existe plus. */
+function pidMort(): number {
+  const r = spawnSync(process.execPath, ['-e', 'process.stdout.write(String(process.pid))']);
+  return Number(r.stdout.toString());
+}
+
+describe('rendez-vous des ponts de délégation', () => {
+  it('le démarrage efface le rendez-vous d’un nœud mort, jamais celui d’un vivant', () => {
+    const dossier = tmpDuBanc();
+    const mort = path.join(dossier, `${PREFIXE_PONT}${pidMort()}-AbC123`);
+    mkdirSync(path.join(mort, 'XyZ789'), { recursive: true, mode: 0o700 });
+    writeFileSync(path.join(mort, 'XyZ789', 'mcp.json'), '{}');
+    // Un nœud vivant (ce processus) avec un pont ouvert.
+    const vivant = new RendezVousPont();
+    const pont = vivant.reserver();
+    // Un nom qui ressemble sans être le nôtre : jamais touché.
+    const etranger = path.join(dossier, `${PREFIXE_PONT}autre-chose`);
+    mkdirSync(etranger);
+
+    expect(balayerPontsOrphelins()).toEqual([mort]);
+    expect(existsSync(mort)).toBe(false);
+    expect(existsSync(pont.dossier)).toBe(true);
+    expect(existsSync(etranger)).toBe(true);
+
+    vivant.fermer();
+    expect(existsSync(path.dirname(pont.dossier)), 'l’arrêt du nœud efface son rendez-vous').toBe(
+      false,
+    );
+  });
+
+  it.skipIf(process.platform === 'win32')(
+    'un dossier temporaire trop profond est dit AVANT toute création, avec sa cause',
+    () => {
+      const profond = path.join(tmpDuBanc(), 'd'.padEnd(110, 'd'));
+      mkdirSync(profond);
+      vi.stubEnv('TMPDIR', profond);
+      const rdv = new RendezVousPont();
+      expect(rdv.alerte()).toMatch(/trop long.*TMPDIR/s);
+      expect(() => rdv.reserver()).toThrow(/socket du pont de délégation trop long/);
+      expect(readdirSync(profond), 'rien créé').toEqual([]);
+    },
+  );
+});

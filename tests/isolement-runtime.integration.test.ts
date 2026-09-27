@@ -12,6 +12,8 @@ import {
 import path from 'node:path';
 import os from 'node:os';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createClaudeCodeAdapter } from '../src/adapters/claude-code.js';
+import { HIVE_DELEGATE_TOOL, HIVE_WAIT_TOOL } from '../src/adapters/delegation-bridge.js';
 import type { AgentAdapter } from '../src/adapters/index.js';
 import { runCommand } from '../src/adapters/exec.js';
 import { agentCredentialEnv } from '../src/node-client/agent-detect.js';
@@ -24,6 +26,7 @@ import {
 } from '../src/node-client/isolement.js';
 import { buildSandboxEnv } from '../src/node-client/workspace.js';
 import { createServer } from '../src/orchestrator/server.js';
+import { FAUX_CLAUDE_MCP } from './aide/faux-claude-mcp.js';
 
 const imageDemandee = process.env.HIVE_ISOLEMENT_IMAGE?.trim() || '';
 
@@ -535,6 +538,83 @@ describe('isolement — intégration bubblewrap réelle', () => {
         const resultat = server.store.resultsForTask(tache.id).at(-1);
         expect(resultat?.success, resultat?.logs).toBe(true);
         expect(JSON.parse(resultat?.logs ?? '{}')).toEqual(constatAttendu);
+      } finally {
+        client.stop();
+        await server.stop();
+      }
+    },
+    60_000,
+  );
+  it.skipIf(!bwrap && !bwrapRequis)(
+    'dans bubblewrap, un CLI parti d’une racine profonde joint le pont de délégation du nœud',
+    async () => {
+      // Le socket du pont vit sous le dossier temporaire de l'HÔTE, que le bac
+      // recouvre d'un tmpfs : seul le montage en lecture seule de son dossier
+      // (`MONTAGE_PONT`) le rend joignable. Ce banc passe par le vrai nœud, le
+      // vrai adaptateur Claude Code et un faux `claude` installé sous le HOME,
+      // depuis une racine de travail délibérément plus longue que `sun_path`.
+      expect(bwrap, 'HIVE_BWRAP_REQUIS=1 exige un bubblewrap qui démarre').not.toBeNull();
+      const { maison } = hote();
+      const version = path.join(maison, '.local/share/claude/versions/1.0.0/claude');
+      mkdirSync(path.dirname(version), { recursive: true });
+      writeFileSync(version, FAUX_CLAUDE_MCP);
+      chmodSync(version, 0o755);
+      symlinkSync(version, path.join(maison, '.local/bin/claude'));
+      const token = 'jeton-pont-bwrap-profond-long';
+      const server = await createServer({
+        port: 0,
+        host: '127.0.0.1',
+        token,
+        corsOrigins: ['http://localhost:5173'],
+        dbPath: path.join(racine, 'hive.db'),
+        simulation: false,
+        tickMs: 20,
+      });
+      const variables = agentCredentialEnv('claude-code');
+      const client = new HiveNodeClient({
+        url: `ws://127.0.0.1:${server.port}/ws`,
+        token,
+        name: 'worker-bwrap-pont',
+        ownerName: 'integration',
+        agentType: 'claude-code',
+        nodeId: 'worker-bwrap-pont',
+        maxConcurrency: 1,
+        workRoot: path.join(racine, 'projets-du-membre-'.padEnd(130, 'x')),
+        adapter: createClaudeCodeAdapter(token),
+        quiet: true,
+        keepEnv: variables,
+        bac: { fournisseur: bwrap!, image: 'sans objet pour bubblewrap', variables },
+      });
+      client.start();
+      const attendre = async (condition: () => boolean, message: string): Promise<void> => {
+        const limite = Date.now() + 30_000;
+        while (Date.now() < limite) {
+          if (condition()) return;
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        throw new Error(message);
+      };
+      try {
+        await attendre(
+          () => server.store.listNodes().some((n) => n.id === 'worker-bwrap-pont'),
+          'le Worker ne rejoint pas la ruche',
+        );
+        const projet = server.store.createProject({ name: 'Pont dans bubblewrap' });
+        const tache = server.store.createTask({
+          projectId: projet.id,
+          title: 'Joindre le pont depuis le bac',
+          prompt: 'délègue si besoin',
+        });
+        server.store.patchTask(tache.id, { status: 'ready' });
+        await attendre(
+          () => server.store.resultsForTask(tache.id).length > 0,
+          'aucun résultat : la tâche a été rejetée ou réaffectée au lieu d’aboutir',
+        );
+        const resultat = server.store.resultsForTask(tache.id).at(0);
+        expect(resultat?.success, resultat?.logs).toBe(true);
+        expect(resultat?.logs).toContain(
+          `outils du pont : ${HIVE_DELEGATE_TOOL},${HIVE_WAIT_TOOL}`,
+        );
       } finally {
         client.stop();
         await server.stop();

@@ -60,8 +60,12 @@ const INFRA_FAILURE_RE =
  * Le bac reçoit le même nom logique que son preflight, jamais un chemin hôte :
  * c'est l'enveloppe qui le résout — dans l'image pour un conteneur, sur l'hôte
  * monté en lecture seule pour bubblewrap (`installationHote`).
+ *
+ * `pont` : le dossier hôte du pont de délégation de la tâche, que le bac monte
+ * en lecture seule (`OptionsEnveloppe.pont`). Hors bac, le CLI l'atteint déjà
+ * par son chemin d'hôte.
  */
-function preparerCommande(bin: string, args: string[], ctx: AdapterContext) {
+function preparerCommande(bin: string, args: string[], ctx: AdapterContext, pont?: string) {
   const [binReel = bin, ...avant] = ctx.bac
     ? [bin]
     : argvAgent(bin, process.env, process.platform, existsSync);
@@ -73,6 +77,7 @@ function preparerCommande(bin: string, args: string[], ctx: AdapterContext) {
         cwdHote: ctx.cwd,
         variables: ctx.bac.variables,
         image: ctx.bac.image,
+        ...(pont ? { pont } : {}),
       })
     : { bin: binReel, args: argsReels };
 }
@@ -94,6 +99,7 @@ export type SourceTexteFinal = 'sortie-standard' | LecteurEvenementFinal;
 /**
  * Lance un binaire avec ses arguments dans le cwd isolé de la tâche.
  * Sortie plafonnée, timeout dur, annulation via le signal du contexte.
+ * `pont` : voir `preparerCommande`.
  */
 export function runCommand(
   bin: string,
@@ -101,8 +107,13 @@ export function runCommand(
   ctx: AdapterContext,
   timeoutMs = DEFAULT_TIMEOUT_MS,
   texteFinal?: SourceTexteFinal,
+  pont?: string,
 ): Promise<AdapterResult> {
-  return executer(bin, args, ctx, { timeoutMs, ...(texteFinal ? { texteFinal } : {}) });
+  return executer(bin, args, ctx, {
+    timeoutMs,
+    ...(texteFinal ? { texteFinal } : {}),
+    ...(pont ? { pont } : {}),
+  });
 }
 
 /**
@@ -117,8 +128,14 @@ export function runCommandStreaming(
   onLine: (line: string) => void,
   timeoutMs = DEFAULT_TIMEOUT_MS,
   texteFinal?: SourceTexteFinal,
+  pont?: string,
 ): Promise<AdapterResult> {
-  return executer(bin, args, ctx, { timeoutMs, onLine, ...(texteFinal ? { texteFinal } : {}) });
+  return executer(bin, args, ctx, {
+    timeoutMs,
+    onLine,
+    ...(texteFinal ? { texteFinal } : {}),
+    ...(pont ? { pont } : {}),
+  });
 }
 
 /**
@@ -135,9 +152,10 @@ function executer(
     timeoutMs: number;
     onLine?: (line: string) => void;
     texteFinal?: SourceTexteFinal;
+    pont?: string;
   },
 ): Promise<AdapterResult> {
-  const lance = preparerCommande(bin, args, ctx);
+  const lance = preparerCommande(bin, args, ctx, opts.pont);
   const { texteFinal } = opts;
   const suivi = typeof texteFinal === 'function' ? createTexteFinalTracker(texteFinal) : undefined;
   const parLigne =

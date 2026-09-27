@@ -5,15 +5,23 @@
 // relaie leurs appels vers le Worker parent par un socket local authentifié.
 // Le jeton de ce pont est aléatoire, valable pour une seule tentative et n'est
 // jamais le HIVE_TOKEN.
+//
+// Le socket et la configuration MCP vivent dans le rendez-vous privé du NŒUD
+// (`rendez-vous-pont.ts`), sous le dossier temporaire du système — jamais dans
+// le répertoire de la tâche, dont la profondeur dépassait la limite d'un
+// chemin de socket Unix et faisait échouer chaque tâche Claude Code ou Codex.
 
-import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { chmodSync, rmSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import net, { type Server, type Socket } from 'node:net';
 import path from 'node:path';
 import { SECRETS_JAMAIS_SONDES } from '../node-client/agent-detect.js';
-import { MONTAGE } from '../node-client/isolement.js';
+import { MONTAGE_PONT } from '../node-client/isolement.js';
+import { CheminSocketTropLong } from '../node-client/rendez-vous-pont.js';
+import type { SubAgent } from '../shared/types.js';
 import type {
   AdapterContext,
+  AdapterResult,
   WorkerDelegationInput,
   WorkerDelegationOutcome,
   WorkerDelegationResult,
@@ -77,10 +85,15 @@ interface BridgeConnectionState {
 }
 
 export interface DelegationBridge {
-  /** Chemin lu par le parent (hôte) pour le socket Unix ou le pipe Windows. */
+  /** Où le parent (hôte) écoute : socket Unix du rendez-vous, ou pipe nommé Windows. */
   readonly endpoint: string;
   /** Chemin que le CLI voit depuis son bac éventuel. */
   readonly childEndpoint: string;
+  /**
+   * Dossier HÔTE du pont (socket et configuration) : le bac le monte seul, en
+   * lecture seule, à `MONTAGE_PONT` — voir `runCommand(…, pont)`.
+   */
+  readonly dossier: string;
   readonly token: string;
   readonly parentTaskId: string;
   /** Nom unique pour éviter de fusionner avec un MCP Codex existant. */
@@ -189,10 +202,7 @@ if (!endpoint || !token || !parentTaskId) {
   };
 
   const connectParent = () => {
-    const options = endpoint.startsWith('tcp://')
-      ? (() => { const parsed = new URL(endpoint); return { host: parsed.hostname, port: Number(parsed.port) }; })()
-      : endpoint;
-    parentSocket = net.connect(options);
+    parentSocket = net.connect(endpoint);
     parentSocket.setEncoding('utf8');
     parentSocket.on('data', consumeParent);
     parentSocket.on('error', (error) => failPending(error.message));
@@ -417,11 +427,6 @@ function jsonFrame(value: unknown): string {
   return `${frame}\n`;
 }
 
-function endpointForChild(hostEndpoint: string, sandboxed: boolean): string {
-  if (!sandboxed || hostEndpoint.startsWith('tcp://')) return hostEndpoint;
-  return path.join(MONTAGE, '.hive', path.basename(hostEndpoint));
-}
-
 function mcpConfig(
   handle: Pick<DelegationBridge, 'childCommand' | 'childArgs' | 'mcpServerName'>,
 ): Record<string, unknown> {
@@ -436,7 +441,7 @@ function mcpConfig(
   };
 }
 
-/** Écrit le fichier Claude dans le workspace, puis sera supprimé avec le pont. */
+/** Écrit le fichier Claude dans le dossier du pont, effacé avec lui. */
 export function writeClaudeMcpConfig(bridge: DelegationBridge): void {
   writeFileSync(bridge.configPath, JSON.stringify(mcpConfig(bridge), null, 2), {
     encoding: 'utf8',
@@ -463,15 +468,47 @@ export function codexMcpOverrides(bridge: DelegationBridge): string[] {
 }
 
 /**
+ * Ce que rend un adaptateur quand son pont n'a pas pu s'ouvrir.
+ *
+ * ─── UN SOCKET TROP LONG N'EST PAS UNE PANNE D'AGENT ─────────────────────────
+ *
+ * Toute panne du pont partait en échec d'INFRASTRUCTURE : le nœud rejetait la
+ * tâche sous « agent indisponible (auth/quota) », la ruche la réaffectait, et
+ * rien ne disait pourquoi. Pour un dossier temporaire trop profond
+ * (`CheminSocketTropLong`), c'est faux deux fois : l'agent va bien, et le même
+ * poste échouera à chaque tentative. C'est donc un échec de la TÂCHE, dont les
+ * logs portent la cause et le remède. Les autres pannes du pont restent propres
+ * à ce nœud : un autre peut reprendre la tâche.
+ */
+export function resultatSansPont(error: unknown, subAgents: SubAgent[]): AdapterResult {
+  const message = error instanceof Error ? error.message : String(error);
+  if (error instanceof CheminSocketTropLong) {
+    return {
+      success: false,
+      diff: '',
+      logs: `[hive] ${message}`,
+      subAgents,
+    };
+  }
+  return {
+    success: false,
+    diff: '',
+    logs: `[hive] pont de délégation indisponible : ${message}`,
+    subAgents,
+    infra: true,
+  };
+}
+
+/**
  * Démarre le serveur hôte du pont. Le CLI ne reçoit qu'un endpoint local, un
  * jeton éphémère et l'identifiant exact du parent ; HIVE_TOKEN reste absent.
  */
 export async function createDelegationBridge(
-  ctx: Pick<AdapterContext, 'cwd' | 'bac' | 'delegate' | 'waitForDelegationResult'>,
+  ctx: Pick<AdapterContext, 'bac' | 'delegate' | 'waitForDelegationResult' | 'rendezVous'>,
   parentTaskId: string,
 ): Promise<DelegationBridge> {
   if (!text(parentTaskId, MAX_ID_LENGTH)) throw new Error('identifiant parent invalide');
-  if (!ctx.delegate || !ctx.waitForDelegationResult) {
+  if (!ctx.delegate || !ctx.waitForDelegationResult || !ctx.rendezVous) {
     throw new Error('capacités de délégation absentes');
   }
   const delegate = ctx.delegate;
@@ -480,17 +517,11 @@ export async function createDelegationBridge(
     throw new Error('pont MCP sandboxé indisponible sous Windows : transport local non partagé');
   }
 
-  const bridgeId = randomUUID();
-  const dir = path.join(ctx.cwd, '.hive');
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
-  // Un socket Unix porte déjà l'authentification éphémère du pont. Garder son
-  // nom court est nécessaire : macOS limite le chemin AF_UNIX bien avant la
-  // limite habituelle d'un chemin de fichier, et `cwd/.hive/` peut déjà être
-  // profond dans un workspace CI ou un dossier utilisateur.
-  const socketName = 's';
+  // Un dossier privé par pont, dans le rendez-vous du nœud : court quel que
+  // soit le répertoire de la tâche. Lève `CheminSocketTropLong` AVANT toute
+  // création si le dossier temporaire du système est lui-même trop profond.
+  const { dossier, extremite: endpoint } = ctx.rendezVous.reserver();
   const mcpServerName = `hive_${randomBytes(8).toString('hex')}`;
-  let endpoint = '';
-  let childEndpoint: string;
   const token = randomBytes(24).toString('base64url');
   const sockets = new Set<Socket>();
   const server = net.createServer((socket) => {
@@ -601,6 +632,9 @@ export async function createDelegationBridge(
     socket.on('error', () => sockets.delete(socket));
   });
 
+  // Le socket ET la configuration MCP partent avec le dossier du pont : rien
+  // de ce pont ne survit à sa tentative, et rien n'a jamais touché le
+  // répertoire de la tâche — donc rien ne peut entrer dans son diff.
   const closeServer = async (): Promise<void> => {
     for (const socket of sockets) socket.destroy();
     await new Promise<void>((resolve) => {
@@ -610,58 +644,47 @@ export async function createDelegationBridge(
       }
       server.close(() => resolve());
     });
-    if (endpoint && !endpoint.startsWith('tcp://')) rmSync(endpoint, { force: true });
+    rmSync(dossier, { recursive: true, force: true, maxRetries: 3 });
   };
 
   try {
-    if (process.platform === 'win32') {
-      // Bind port 0 and publish the assigned port. Probing then binding would
-      // leave a race where another local process can squat on the endpoint.
-      await listen(server, { host: '127.0.0.1', port: 0 });
-      const address = server.address();
-      if (!address || typeof address === 'string' || !address.port) {
-        throw new Error('port local indisponible pour le pont MCP');
-      }
-      endpoint = `tcp://127.0.0.1:${address.port}`;
-      childEndpoint = endpoint;
-    } else {
-      endpoint = path.join(dir, socketName);
-      if (endpoint.length > 100) throw new Error('chemin du socket MCP trop long');
-      rmSync(endpoint, { force: true });
-      await listen(server, endpoint);
-      chmodSync(endpoint, 0o600);
-      childEndpoint = endpointForChild(endpoint, Boolean(ctx.bac));
-    }
+    // Sous Windows, un pipe nommé : ni chemin de fichier ni limite `sun_path`,
+    // et sa liste de contrôle par défaut ne laisse aucun autre compte y écrire
+    // — là où le port TCP local d'avant s'ouvrait à tout processus du poste.
+    // Son nom porte les suffixes aléatoires du rendez-vous, et libuv crée la
+    // première instance avec FILE_FLAG_FIRST_PIPE_INSTANCE : un pipe occupé
+    // d'avance sous ce nom fait échouer l'écoute (EADDRINUSE), jamais l'inverse.
+    await listen(server, endpoint);
+    if (process.platform !== 'win32') chmodSync(endpoint, 0o600);
   } catch (error) {
     await closeServer();
     throw error;
   }
 
+  // Dans le bac, le dossier du pont est monté seul à `MONTAGE_PONT` : le CLI y
+  // voit le même socket et la même configuration, sous un chemin du bac.
+  const dansLeBac = (fichier: string): string =>
+    ctx.bac ? path.posix.join(MONTAGE_PONT, path.basename(fichier)) : fichier;
+  const configPath = path.join(dossier, 'mcp.json');
   const childCommand = ctx.bac ? 'node' : process.execPath;
-  const childArgs = ['--eval', DELEGATION_BRIDGE_SOURCE, childEndpoint, token, parentTaskId];
-  const childConfigPath = path.join(ctx.bac ? MONTAGE : ctx.cwd, '.hive', `mcp-${bridgeId}.json`);
-  const configPath = path.join(dir, `mcp-${bridgeId}.json`);
+  const childArgs = ['--eval', DELEGATION_BRIDGE_SOURCE, dansLeBac(endpoint), token, parentTaskId];
 
   return {
     endpoint,
-    childEndpoint,
+    childEndpoint: dansLeBac(endpoint),
+    dossier,
     token,
     parentTaskId,
     mcpServerName,
     childCommand,
     childArgs,
-    childConfigPath,
+    childConfigPath: dansLeBac(configPath),
     configPath,
-    close: async () => {
-      await closeServer();
-      rmSync(configPath, { force: true });
-      // Les fichiers temporaires restent dans le workspace mais sont toujours
-      // supprimés avant que le nœud ne calcule son diff.
-    },
+    close: closeServer,
   };
 }
 
-function listen(server: Server, options: net.ListenOptions | string): Promise<void> {
+function listen(server: Server, endpoint: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const onError = (error: Error): void => {
       server.off('listening', onListening);
@@ -673,7 +696,6 @@ function listen(server: Server, options: net.ListenOptions | string): Promise<vo
     };
     server.once('error', onError);
     server.once('listening', onListening);
-    if (typeof options === 'string') server.listen(options);
-    else server.listen(options);
+    server.listen(endpoint);
   });
 }

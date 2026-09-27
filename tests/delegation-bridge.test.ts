@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
@@ -12,6 +12,8 @@ import {
   writeClaudeMcpConfig,
   type DelegationBridge,
 } from '../src/adapters/delegation-bridge.js';
+import { fournisseurParNom } from '../src/node-client/isolement.js';
+import { RendezVousPont } from '../src/node-client/rendez-vous-pont.js';
 
 function mcpResponseLine(child: ChildProcessWithoutNullStreams): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
@@ -45,6 +47,8 @@ describe('pont MCP de délégation Worker → CLI', () => {
   let tempDir: string | undefined;
   let bridge: DelegationBridge | undefined;
   let child: ChildProcessWithoutNullStreams | undefined;
+  // Le rendez-vous d'un nœud, comme `HiveNodeClient` le fournit à l'adaptateur.
+  let rendezVous = new RendezVousPont();
 
   afterEach(async () => {
     const runningChild = child;
@@ -57,6 +61,8 @@ describe('pont MCP de délégation Worker → CLI', () => {
     }
     await bridge?.close();
     bridge = undefined;
+    rendezVous.fermer();
+    rendezVous = new RendezVousPont();
     if (tempDir) rmSync(tempDir, { recursive: true, force: true });
     tempDir = undefined;
   });
@@ -66,7 +72,7 @@ describe('pont MCP de délégation Worker → CLI', () => {
     let delegatedChild = '';
     bridge = await createDelegationBridge(
       {
-        cwd: tempDir,
+        rendezVous,
         delegate: async (input) => {
           delegatedChild = input.childTaskId;
           return { ok: true, parentTaskId: 'parent', childTaskId: input.childTaskId, depth: 1 };
@@ -163,7 +169,7 @@ describe('pont MCP de délégation Worker → CLI', () => {
     tempDir = mkdtempSync(path.join(os.tmpdir(), 'hive-bridge-invalid-'));
     bridge = await createDelegationBridge(
       {
-        cwd: tempDir,
+        rendezVous,
         delegate: async () => {
           throw new Error('ne doit pas être appelé');
         },
@@ -203,30 +209,68 @@ describe('pont MCP de délégation Worker → CLI', () => {
     });
   });
 
-  it('nettoie le fichier de configuration et le socket', async () => {
-    tempDir = mkdtempSync(path.join(os.tmpdir(), 'hive-bridge-cleanup-'));
+  it('vit dans le rendez-vous privé du nœud, et le quitte sans rien laisser', async () => {
     bridge = await createDelegationBridge(
       {
-        cwd: tempDir,
+        rendezVous,
         delegate: async () => ({ ok: false, code: 'x', message: 'x' }),
         waitForDelegationResult: async () => ({ ok: false, code: 'x', message: 'x' }),
       },
       'parent',
     );
     writeClaudeMcpConfig(bridge);
-    const configPath = bridge.configPath;
-    const endpoint = bridge.endpoint;
+    const { configPath, dossier, endpoint } = bridge;
+    // Sous le dossier temporaire du système, jamais sous le répertoire d'une
+    // tâche : c'est ce qui garde le socket sous la limite de `sun_path`.
+    expect(dossier.startsWith(os.tmpdir())).toBe(true);
+    expect(path.dirname(configPath)).toBe(dossier);
+    if (process.platform === 'win32') {
+      // Un pipe nommé, pas un port TCP ouvert à tout le poste.
+      expect(endpoint.startsWith('\\\\.\\pipe\\hive-pont-')).toBe(true);
+    } else {
+      expect(path.dirname(endpoint)).toBe(dossier);
+      expect(Buffer.byteLength(endpoint)).toBeLessThanOrEqual(
+        process.platform === 'linux' ? 108 : 104,
+      );
+      // Privé : ni le dossier ni le socket ne s'ouvrent aux autres comptes.
+      expect(statSync(dossier).mode & 0o777).toBe(0o700);
+      expect(statSync(endpoint).mode & 0o777).toBe(0o600);
+    }
     await bridge.close();
     bridge = undefined;
-    expect(existsSync(configPath)).toBe(false);
-    expect(endpoint.startsWith('tcp://')).toBe(process.platform === 'win32');
+    expect(existsSync(dossier), 'socket et configuration partent avec le pont').toBe(false);
   });
+
+  // Sous Windows, aucun bac ne reçoit de pont (`raisonPontMcpDansBac`).
+  it.skipIf(process.platform === 'win32')(
+    'dans un bac, le CLI atteint le pont par son montage, jamais par un chemin de l’hôte',
+    async () => {
+      bridge = await createDelegationBridge(
+        {
+          rendezVous,
+          bac: {
+            fournisseur: fournisseurParNom('bubblewrap')!,
+            image: 'sans objet',
+            variables: [],
+          },
+          delegate: async () => ({ ok: false, code: 'x', message: 'x' }),
+          waitForDelegationResult: async () => ({ ok: false, code: 'x', message: 'x' }),
+        },
+        'parent',
+      );
+      expect(bridge.childEndpoint).toBe('/hive/pont/s');
+      expect(bridge.childConfigPath).toBe('/hive/pont/mcp.json');
+      expect(bridge.childCommand).toBe('node');
+      expect(bridge.childArgs).toContain('/hive/pont/s');
+      expect(bridge.childArgs.join(' ')).not.toContain(os.tmpdir());
+    },
+  );
 
   it('borne le diff et les logs avant de les rendre visibles au CLI', async () => {
     tempDir = mkdtempSync(path.join(os.tmpdir(), 'hive-bridge-bounds-'));
     bridge = await createDelegationBridge(
       {
-        cwd: tempDir,
+        rendezVous,
         delegate: async (input) => ({
           ok: true,
           parentTaskId: 'parent',
