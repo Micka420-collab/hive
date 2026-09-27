@@ -42,6 +42,7 @@ import { CODE, type CodeSortie } from '../codes-sortie.js';
 import { requisitionSiCredentialsManquantes, type AgentType } from './agent-detect.js';
 import type { IsolementDeclare } from '../shared/types.js';
 import { variablesAgentSansSecrets } from './workspace.js';
+import { occuperIdentite } from './identite-noeud.js';
 
 /** Ce que `decider` rend — nommé ici, faute de l'être à la source. */
 export type Decision = ReturnType<typeof decider>;
@@ -50,6 +51,12 @@ export type Decision = ReturnType<typeof decider>;
 export interface Bac {
   decision: Decision;
   fournisseur: Fournisseur | null;
+  /**
+   * TOUS les moteurs qui ont répondu au démarrage, retenu ou non : un
+   * lancement précédent a pu isoler ses agents dans un autre que celui
+   * d'aujourd'hui (voir `ramasserRestes`). Vide en `off`.
+   */
+  moteurs: Fournisseur[];
   image: string;
   /** Les lignes à afficher, déjà composées. */
   lignes: string[];
@@ -217,8 +224,15 @@ export interface OutilsBac {
    * réelle (`trouverFournisseurs`, `--version` de chacun).
    */
   moteurs?: () => Promise<Fournisseur[]>;
-  /** L'image est-elle prête dans ce moteur ? Défaut : la vraie (`preparerImage`). */
-  preparerImage?: (fournisseur: Fournisseur, image: string) => Promise<ResultatPreflightAgent>;
+  /**
+   * L'image est-elle prête dans ce moteur ? Défaut : la vraie (`preparerImage`).
+   * `tirer` : une image nommée absente peut-elle être téléchargée ?
+   */
+  preparerImage?: (
+    fournisseur: Fournisseur,
+    image: string,
+    tirer: boolean,
+  ) => Promise<ResultatPreflightAgent>;
   /** Le preflight d'un binaire dans le bac. Défaut : le vrai, qui le lance. */
   sonderAgent?: (
     fournisseur: Fournisseur,
@@ -242,10 +256,11 @@ async function eprouverMoteur(
   binAgent: string | null,
   binPont: string | null,
   outils: Required<Pick<OutilsBac, 'preparerImage' | 'sonderAgent'>>,
+  tirer: boolean,
 ): Promise<ResultatPreflightAgent> {
   let dernier: ResultatPreflightAgent | null = null;
   if (fournisseur.bin !== 'bwrap') {
-    dernier = await outils.preparerImage(fournisseur, image);
+    dernier = await outils.preparerImage(fournisseur, image, tirer);
     if (!dernier.executable) return dernier;
   }
   if (!binAgent) return dernier ?? { executable: true, motif: 'aucun agent à éprouver' };
@@ -269,6 +284,16 @@ async function eprouverMoteur(
  * le moteur suivant (le Docker qui A l'image, le bubblewrap qui marche)
  * l'aurait isolé. Le banc d'intégration, lui, choisissait déjà le moteur qui a
  * l'image : la production suit maintenant la même règle.
+ *
+ * ─── TROIS PASSES : L'IMAGE LÀ OÙ ELLE EST, PUIS UN TÉLÉCHARGEMENT, PUIS BWRAP ─
+ *
+ * Une image NOMMÉE absente du premier moteur y était téléchargée aussitôt —
+ * jusqu'à 10 min, par la résolution des noms courts de Podman — alors que le
+ * Docker suivant l'avait déjà construite. On éprouve donc d'abord les moteurs
+ * de conteneurs SANS rien tirer ; si aucun ne passe, on télécharge dans le
+ * PREMIER qui ne l'avait pas, et lui seul ; bubblewrap, sans image, ne vient
+ * qu'ensuite : un opérateur qui nomme une image veut un conteneur, et c'est
+ * l'ordre qui le lui donnait déjà.
  */
 async function choisirMoteur(
   moteurs: readonly Fournisseur[],
@@ -278,19 +303,34 @@ async function choisirMoteur(
   outils: Required<Pick<OutilsBac, 'preparerImage' | 'sonderAgent'>>,
 ): Promise<{ retenu: Fournisseur | null; motif: string | null; ecartes: string[] }> {
   const ecartes: string[] = [];
-  for (const fournisseur of moteurs) {
-    const r = await eprouverMoteur(fournisseur, image, binAgent, binPont, outils);
+  const conteneurs = moteurs.filter((f) => f.bin !== 'bwrap');
+  let aTirer: Fournisseur | null = null;
+  let retenu: { fournisseur: Fournisseur; motif: string | null } | null = null;
+  const essayer = async (fournisseur: Fournisseur, tirer: boolean): Promise<boolean> => {
+    const r = await eprouverMoteur(fournisseur, image, binAgent, binPont, outils, tirer);
+    if (r.imageAbsente) {
+      // Pas un refus : une image à télécharger, si aucun moteur ne l'a.
+      aTirer ??= fournisseur;
+      return false;
+    }
     const motif = `${r.motif}${lieuDuBac(fournisseur, image)}`;
-    // Rien n'a été lancé (bubblewrap, sans agent) : pas de preflight à citer.
-    if (r.executable)
-      return {
-        retenu: fournisseur,
-        motif: binAgent || fournisseur.bin !== 'bwrap' ? motif : null,
-        ecartes,
-      };
+    if (r.executable) {
+      // Rien n'a été lancé (bubblewrap, sans agent) : pas de preflight à citer.
+      retenu = { fournisseur, motif: binAgent || fournisseur.bin !== 'bwrap' ? motif : null };
+      return true;
+    }
     ecartes.push(moteurs.length > 1 ? `${fournisseur.nom} : ${motif}` : motif);
-  }
-  return { retenu: null, motif: null, ecartes };
+    return false;
+  };
+  const fin = (): { retenu: Fournisseur | null; motif: string | null; ecartes: string[] } => ({
+    retenu: retenu?.fournisseur ?? null,
+    motif: retenu?.motif ?? null,
+    ecartes,
+  });
+  for (const f of conteneurs) if (await essayer(f, false)) return fin();
+  if (aTirer && (await essayer(aTirer, true))) return fin();
+  for (const f of moteurs) if (f.bin === 'bwrap' && (await essayer(f, false))) return fin();
+  return fin();
 }
 
 /**
@@ -339,7 +379,7 @@ export async function preparerBac(
     sonderAgent: outils.sonderAgent ?? sonderAgentDansBac,
     preparerImage:
       outils.preparerImage ??
-      ((f: Fournisseur, img: string) => preparerImage(f, img, { informer })),
+      ((f: Fournisseur, img: string, tirer: boolean) => preparerImage(f, img, { informer, tirer })),
   };
   const moteurs = mode === 'off' ? [] : await (outils.moteurs ?? trouverFournisseurs)();
   let fournisseur = moteurs[0] ?? null;
@@ -383,6 +423,7 @@ export async function preparerBac(
   return {
     decision,
     fournisseur,
+    moteurs,
     image,
     lignes,
     // FERMÉ PAR DÉFAUT en « exige » : mieux vaut un nœud qui ne prend aucune
@@ -395,27 +436,52 @@ export async function preparerBac(
 }
 
 /**
- * Au démarrage d'un nœud dont le bac est un conteneur : supprime ce qu'un
- * lancement précédent de CE nœud a laissé tourner (voir `ramasserConteneurs`).
- * Rend les lignes à afficher — rien quand il n'y avait rien.
+ * Au démarrage d'un nœud : supprime ce qu'un lancement précédent de CE nœud a
+ * laissé tourner (voir `ramasserConteneurs`). Rend les lignes à afficher —
+ * rien quand il n'y avait rien.
  *
- * Un moteur qui ne répond pas ne fait PAS refuser le nœud : le preflight
- * vient de le trouver en état de marche, et un orphelin non ramassé coûte
- * moins qu'une ruche sans ouvrière. Mais il se dit.
+ * ─── DANS CHAQUE MOTEUR QUI RÉPOND, PAS SEULEMENT CELUI D'AUJOURD'HUI ────────
+ *
+ * Le ramassage n'interrogeait que le moteur RETENU à ce démarrage. Or les
+ * orphelins sont les plus probables précisément quand ce démarrage-ci est
+ * dégradé : le Docker d'hier tué net, une machine encore chargée par son
+ * agent, un preflight qui expire — le nœud se replie, et l'orphelin, jamais
+ * cherché, continuait d'écrire et de dépenser. Ou Podman retenu aujourd'hui,
+ * Docker hier. L'étiquette porte l'identité STABLE du nœud : la chercher dans
+ * chaque moteur de conteneurs qui répond ne touche rien d'autre.
+ *
+ * Un moteur qui ne répond pas ne fait PAS refuser le nœud : un orphelin non
+ * ramassé coûte moins qu'une ruche sans ouvrière. Mais il se dit.
  */
 export async function ramasserRestes(
   bac: Bac,
   noeud: string,
+  racine: string,
   ramasser: typeof ramasserConteneurs = ramasserConteneurs,
 ): Promise<string[]> {
-  if (!bacActif(bac) || bac.fournisseur.bin === 'bwrap') return [];
-  const r = await ramasser(bac.fournisseur, noeud);
-  if ('motif' in r)
-    return [`   ⚠ ${r.motif} — un agent d'un lancement précédent tourne peut-être encore.`];
-  if (r.supprimes.length === 0) return [];
-  return [
-    `   ${r.supprimes.length} conteneur(s) laissé(s) par un lancement précédent de ce nœud supprimé(s).`,
-  ];
+  // Un AUTRE processus vivant porte cette identité : ses conteneurs sont à
+  // lui, et au travail. Voir `occuperIdentite`.
+  const occupant = occuperIdentite(racine);
+  if (occupant !== null) {
+    return [
+      `   ⚠ le processus ${occupant} porte déjà l'identité de ce nœud (${racine}) — ` +
+        'ramassage des conteneurs sauté ; deux nœuds sous un même nom se disputent la ruche.',
+    ];
+  }
+  const lignes: string[] = [];
+  // Bubblewrap : `--die-with-parent`, rien ne lui survit.
+  for (const moteur of bac.moteurs.filter((f) => f.bin !== 'bwrap')) {
+    const r = await ramasser(moteur, noeud);
+    if ('motif' in r) {
+      lignes.push(`   ⚠ ${r.motif} — un agent d'un lancement précédent tourne peut-être encore.`);
+    } else if (r.supprimes.length > 0) {
+      lignes.push(
+        `   ${r.supprimes.length} conteneur(s) laissé(s) par un lancement précédent de ce nœud ` +
+          `supprimé(s) (${moteur.nom}).`,
+      );
+    }
+  }
+  return lignes;
 }
 
 /**

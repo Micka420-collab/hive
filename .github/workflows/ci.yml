@@ -640,8 +640,16 @@ jobs:
 
       # Image distincte du bureau Atelier : elle contient les CLI que le
       # preflight du Worker doit trouver dans le conteneur, pas sur l'hôte.
+      #
+      # Construite par la commande que le nœud donne à l'opérateur
+      # (`npm run bac:image`), sous le nom par défaut (`IMAGE_DEFAUT`) : sans
+      # cela, le chemin qu'emprunte l'opérateur — construire, puis démarrer
+      # sans HIVE_ISOLEMENT_IMAGE — ne tournait jamais en CI. `hive-agent:ci`
+      # en est un second nom, pour les bancs qui nomment l'image.
       - name: Construire l'image agent-aware
-        run: docker build -f docker/agents/Dockerfile -t hive-agent:ci .
+        run: |
+          npm run bac:image -- --moteur docker
+          docker tag localhost/hive-agent:local hive-agent:ci
 
       - name: Vérifier les CLI agent-aware dans leur image
         run: |
@@ -682,6 +690,7 @@ jobs:
         env:
           HIVE_ISOLEMENT_IMAGE: hive-agent:ci
           HIVE_TEST_MOTEUR: docker
+          HIVE_TEST_IMAGE_DEFAUT: '1'
         run: npm test -- --run tests/isolement-runtime.integration.test.ts tests/v2-alpha-scenario.test.ts
 
       # ─── PODMAN ROOTLESS, EXERCÉ POUR DE VRAI ─────────────────────────────
@@ -697,7 +706,8 @@ jobs:
         run: |
           set -e
           podman --version
-          docker save hive-agent:ci | podman load
+          docker save hive-agent:ci localhost/hive-agent:local | podman load
+          podman image inspect localhost/hive-agent:local --format '{{.Id}}'
           podman image inspect hive-agent:ci --format '{{.Id}}'
           # `--init` exige un binaire d'init sur l'hôte (catatonit) : l'absence
           # ferait échouer chaque preflight, en le disant.
@@ -716,6 +726,7 @@ jobs:
         env:
           HIVE_ISOLEMENT_IMAGE: hive-agent:ci
           HIVE_TEST_MOTEUR: podman
+          HIVE_TEST_IMAGE_DEFAUT: '1'
         run: |
           npm test -- --run tests/isolement-runtime.integration.test.ts
           npm test -- --run tests/v2-alpha-scenario.test.ts

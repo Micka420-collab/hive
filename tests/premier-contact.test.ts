@@ -57,6 +57,12 @@ function releveAvec(reglages: { cle: string; valeur: string }[]): Releve {
     dashboardConstruit: true,
     agent: 'claude-code',
     isolement: 'podman',
+    imageBac: {
+      image: 'localhost/hive-agent:local',
+      dans: 'podman',
+      absenteDe: null,
+      construire: null,
+    },
     wsJoignable: true,
     reglages: { runner: 'off', bindPublic: false, gardiennes: 'strict', corsOuvert: false },
     espace: { octetsLibres: 40 * 1024 * 1024 * 1024, inscriptible: true },

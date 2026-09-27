@@ -43,8 +43,8 @@
 // (§ 9 quincenties, ici payé sur ma propre pollution).
 
 import { describe, expect, it } from 'vitest';
-import { SONDE_ISOLEMENT, isolementDisponible } from '../src/doctor-releve.js';
-import { FOURNISSEURS } from '../src/node-client/isolement.js';
+import { SONDE_ISOLEMENT, imageDuBac, isolementDisponible } from '../src/doctor-releve.js';
+import { FOURNISSEURS, fournisseurParNom, IMAGE_DEFAUT } from '../src/node-client/isolement.js';
 import type { Fournisseur } from '../src/node-client/isolement.js';
 
 /** Ce que chaque fournisseur s'est vu demander. */
@@ -105,16 +105,18 @@ describe('la sonde d’isolement interroge le SERVICE, pas le client', () => {
     expect(vues, 'un fournisseur a été écarté sans être essayé').toHaveLength(FOURNISSEURS.length);
   });
 
-  it('LE PREMIER QUI RÉPOND ARRÊTE LA RECHERCHE — on ne sonde pas pour rien', async () => {
+  it('LE PRÉFÉRÉ EST RENDU, MÊME QUAND LES SUIVANTS RÉPONDENT AUSSI', async () => {
     // L'ordre de `FOURNISSEURS` est une préférence (podman d'abord : sans démon,
-    // sans root). Le second ne doit pas être interrogé quand le premier a dit
-    // oui — et c'est aussi ce qui garantit que le nom rendu est le PRÉFÉRÉ, pas
-    // le dernier essayé.
+    // sans root) : le nom rendu est le PRÉFÉRÉ, pas le dernier essayé.
+    //
+    // La recherche ne s'arrête plus au premier : chaque moteur a son propre
+    // magasin d'images, et le docteur cherche l'image du bac dans chacun de
+    // ceux qui répondent (`imageDuBac`), comme le nœud.
     const premier = FOURNISSEURS[0]!;
-    const { lancer, vues } = lanceur((bin) => bin === premier.bin);
+    const { lancer, vues } = lanceur(() => true);
 
     expect(await isolementDisponible(lancer)).toBe(premier.nom);
-    expect(vues, 'la recherche continue après avoir trouvé').toHaveLength(1);
+    expect(vues.map((v) => v.bin)).toEqual(FOURNISSEURS.map((f: Fournisseur) => f.bin));
   });
 
   it('LA QUESTION POSÉE TOUCHE LE DÉMON — « --version » ne le fait pas', () => {
@@ -126,5 +128,55 @@ describe('la sonde d’isolement interroge le SERVICE, pas le client', () => {
       '--version',
     );
     expect(SONDE_ISOLEMENT, 'la sonde n’interroge plus le service').toBe('info');
+  });
+});
+
+describe('l’image du bac : le docteur suit la règle du nœud', () => {
+  const PODMAN = fournisseurParNom('podman') as Fournisseur;
+  const DOCKER = fournisseurParNom('docker') as Fournisseur;
+
+  it('l’image par défaut absente partout : la commande qui la construit, pour le PREMIER moteur', async () => {
+    const r = await imageDuBac({}, [DOCKER], async () => ({ etat: 'absente' }));
+    expect(r).toEqual({
+      image: IMAGE_DEFAUT,
+      dans: null,
+      absenteDe: 'docker',
+      construire: 'npm run bac:image -- --moteur docker',
+    });
+  });
+
+  it('Podman sans l’image, Docker avec : c’est Docker qui est prêt', async () => {
+    const vus: string[] = [];
+    const r = await imageDuBac({}, [PODMAN, DOCKER], async (f) => {
+      vus.push(f.nom);
+      return f.nom === 'docker' ? { etat: 'presente' } : { etat: 'absente' };
+    });
+    expect(r).toMatchObject({ dans: 'docker', construire: null });
+    expect(vus).toEqual(['podman', 'docker']);
+  });
+
+  it('l’image que le nœud utiliserait : HIVE_ISOLEMENT_IMAGE, et rien à construire', async () => {
+    const r = await imageDuBac(
+      { HIVE_ISOLEMENT_IMAGE: 'ghcr.io/x/agent:1' },
+      [PODMAN],
+      async () => ({
+        etat: 'absente',
+      }),
+    );
+    expect(r).toEqual({
+      image: 'ghcr.io/x/agent:1',
+      dans: null,
+      absenteDe: 'podman',
+      construire: null,
+    });
+  });
+
+  it('un moteur injoignable ne se lit ni présent ni absent', async () => {
+    const r = await imageDuBac({}, [PODMAN], async () => ({ etat: 'injoignable', motif: 'x' }));
+    expect(r).toMatchObject({ dans: null, absenteDe: null, construire: null });
+  });
+
+  it('aucun moteur joignable : rien à dire de l’image', async () => {
+    expect(await imageDuBac({}, [], async () => ({ etat: 'presente' }))).toBeNull();
   });
 });

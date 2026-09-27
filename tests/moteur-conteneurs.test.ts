@@ -41,10 +41,12 @@ import {
   COMMANDE_IMAGE,
   decider,
   envDuLanceur,
+  envMoteur,
   ETIQUETTE_NOEUD,
   fournisseurParNom,
   IMAGE_DEFAUT,
   imageDepuisEnv,
+  moteurPret,
   preparerImage,
   ramasserConteneurs,
   sonderAgentDansBac,
@@ -78,8 +80,8 @@ function machine(
     appels,
     outils: {
       moteurs: async () => moteurs,
-      preparerImage: async (f) => {
-        appels.push(`${f.nom}:image`);
+      preparerImage: async (f, _image, tirer) => {
+        appels.push(`${f.nom}:image${tirer ? ':tirer' : ''}`);
         return images[f.nom] ?? { executable: true, motif: `image présente dans ${f.nom}` };
       },
       sonderAgent: async (f, bin) => {
@@ -150,6 +152,47 @@ describe('LE MOTEUR EST CHOISI PAR SON PREFLIGHT, PAS PAR --version', () => {
     expect(bac.decision.motif).toContain('injoignable');
   });
 
+  it('une image NOMMÉE déjà dans Docker n’est pas téléchargée par le Podman qui la précède', async () => {
+    const ABSENTE = {
+      executable: false,
+      motif: 'image x absente de podman',
+      imageAbsente: true,
+    } as const;
+    const { outils, appels } = machine([PODMAN, DOCKER], { podman: ABSENTE });
+    const bac = await preparerBac(
+      { ...CLE, HIVE_ISOLEMENT_IMAGE: 'ghcr.io/x/agent:1' },
+      'claude-code',
+      outils,
+    );
+    expect(bac.fournisseur?.nom).toBe('docker');
+    expect(appels).toEqual(['podman:image', 'docker:image', 'docker:claude', 'docker:node']);
+    // Une absence n'est pas un refus : rien à dire de Podman.
+    expect(bac.lignes.join('\n')).not.toContain('Écarté');
+  });
+
+  it('aucun moteur ne l’a : un seul téléchargement, dans le premier — et avant bubblewrap', async () => {
+    const images: Partial<Record<string, ResultatPreflightAgent>> = {};
+    const { outils, appels } = machine([PODMAN, DOCKER, BWRAP], images);
+    const absente = { executable: false, motif: 'image absente', imageAbsente: true } as const;
+    outils.preparerImage = async (f, _image, tirer) => {
+      appels.push(`${f.nom}:image${tirer ? ':tirer' : ''}`);
+      return tirer ? { executable: true, motif: `image téléchargée dans ${f.nom}` } : absente;
+    };
+    const bac = await preparerBac(
+      { ...CLE, HIVE_ISOLEMENT_IMAGE: 'ghcr.io/x/agent:1' },
+      'claude-code',
+      outils,
+    );
+    expect(bac.fournisseur?.nom).toBe('podman');
+    expect(appels).toEqual([
+      'podman:image',
+      'docker:image',
+      'podman:image:tirer',
+      'podman:claude',
+      'podman:node',
+    ]);
+  });
+
   it('sans agent à éprouver (shell), un conteneur doit tout de même AVOIR son image', async () => {
     // Le shell réel, les commandes de test d'un merge et d'un chantier tournent
     // dans l'image : un bac annoncé sur une image absente ferait échouer
@@ -160,6 +203,24 @@ describe('LE MOTEUR EST CHOISI PAR SON PREFLIGHT, PAS PAR --version', () => {
     const bac = await preparerBac({}, 'shell', outils);
     expect(bac.fournisseur?.nom).toBe('bubblewrap');
     expect(appels).toEqual(['podman:image']);
+  });
+});
+
+describe('moteurPret — la règle que le docteur et l’installeur partagent avec le nœud', () => {
+  it('le premier qui A l’image, bubblewrap prêt d’office ; la première absence est retenue', async () => {
+    const vus: string[] = [];
+    const r = await moteurPret([PODMAN, DOCKER, BWRAP], IMAGE_DEFAUT, async (f) => {
+      vus.push(f.nom);
+      return f.nom === 'podman' ? { etat: 'absente' } : { etat: 'injoignable', motif: 'x' };
+    });
+    expect(r).toEqual({ pret: BWRAP, absente: PODMAN });
+    // bubblewrap n'a pas d'image : rien à lui demander.
+    expect(vus).toEqual(['podman', 'docker']);
+  });
+
+  it('aucun prêt : ni moteur, et l’absence qui dit où construire', async () => {
+    const r = await moteurPret([DOCKER], IMAGE_DEFAUT, async () => ({ etat: 'absente' }));
+    expect(r).toEqual({ pret: null, absente: DOCKER });
   });
 });
 
@@ -259,7 +320,19 @@ describe.skipIf(!surPosix)('preparerImage — trois pannes, trois motifs', () =>
     const dit: string[] = [];
     const r = await preparerImage(moteur, IMAGE_DEFAUT, { informer: (l) => dit.push(l) });
     expect(r).toEqual({ executable: true, motif: 'image présente dans podman' });
-    expect(appels()[1]).toBe(`run --rm --pull=never --userns=keep-id ${IMAGE_DEFAUT} true`);
+    // Le même bac que la tâche : l'image nommée ne tourne jamais sans ses murs.
+    const preparation = appels()[1] ?? '';
+    expect(preparation).toMatch(/^run --rm /);
+    for (const mur of [
+      '--userns=keep-id',
+      '--pull=never',
+      '--cap-drop=ALL',
+      '--security-opt=no-new-privileges',
+      '--read-only',
+    ]) {
+      expect(preparation).toContain(mur);
+    }
+    expect(preparation).toMatch(new RegExp(`${IMAGE_DEFAUT} true$`));
     expect(dit.join('\n')).toMatch(/pour l'UID de ce nœud \(podman --userns=keep-id/);
   }, 15_000);
 
@@ -281,6 +354,39 @@ describe.skipIf(!surPosix)('preparerImage — trois pannes, trois motifs', () =>
     vi.spyOn(process, 'getuid').mockReturnValue(1001);
     const { moteur, appels } = fauxMoteur('docker', `'image inspect') echo sha256:abc ;;`);
     expect((await preparerImage(moteur, IMAGE_DEFAUT)).executable).toBe(true);
+    expect(appels()).toHaveLength(1);
+  });
+
+  it('un contexte introuvable n’est PAS une image absente : ni reconstruction, ni téléchargement', async () => {
+    // `not found` figurait dans le motif de l'absence : ce message renvoyait
+    // reconstruire (ou tirer) une image, en taisant la vraie panne.
+    const { moteur, appels } = fauxMoteur(
+      'docker',
+      `'image inspect') echo 'context "typo": context not found' >&2; exit 1 ;;`,
+    );
+    for (const image of [IMAGE_DEFAUT, 'ghcr.io/x/agent:1']) {
+      const r = await preparerImage(moteur, image, { informer: () => {} });
+      expect(r.motif).toBe('docker injoignable (« context "typo": context not found »)');
+    }
+    expect(appels().some((a) => a.startsWith('pull'))).toBe(false);
+  });
+
+  it('Docker ancien (« No such object ») : l’absence est reconnue', async () => {
+    const { moteur } = fauxMoteur(
+      'docker',
+      `'image inspect') echo "Error: No such object: ${IMAGE_DEFAUT}" >&2; exit 1 ;;`,
+    );
+    const r = await preparerImage(moteur, IMAGE_DEFAUT);
+    expect(r.motif).toContain(`${COMMANDE_IMAGE} -- --moteur docker`);
+  });
+
+  it('`tirer: false` : une image nommée absente se dit, sans téléchargement', async () => {
+    const { moteur, appels } = fauxMoteur(
+      'podman',
+      `'image inspect') echo "Error: ghcr.io/x/agent:1: image not known" >&2; exit 125 ;;`,
+    );
+    const r = await preparerImage(moteur, 'ghcr.io/x/agent:1', { tirer: false });
+    expect(r).toMatchObject({ executable: false, imageAbsente: true });
     expect(appels()).toHaveLength(1);
   });
 
@@ -349,6 +455,7 @@ describe('ramasserRestes — au démarrage du nœud', () => {
     return {
       decision,
       fournisseur,
+      moteurs: fournisseur ? [fournisseur] : [],
       image: imageDepuisEnv({}),
       lignes: annonce(decision, fournisseur),
       refuse: decision.refuse,
@@ -359,7 +466,7 @@ describe('ramasserRestes — au démarrage du nœud', () => {
 
   it('interroge le moteur du bac, avec l’identité stable du nœud, et dit ce qu’il a supprimé', async () => {
     const vus: string[] = [];
-    const lignes = await ramasserRestes(bacDe(DOCKER), 'node-42', async (f, noeud) => {
+    const lignes = await ramasserRestes(bacDe(DOCKER), 'node-42', dossier, async (f, noeud) => {
       vus.push(`${f.nom}:${noeud}`);
       return { supprimes: ['a1b2c3d4e5f6'] };
     });
@@ -368,10 +475,49 @@ describe('ramasserRestes — au démarrage du nœud', () => {
   });
 
   it('un échec du moteur n’empêche pas le démarrage, mais se dit', async () => {
-    const lignes = await ramasserRestes(bacDe(PODMAN), 'node-42', async () => ({
+    const lignes = await ramasserRestes(bacDe(PODMAN), 'node-42', dossier, async () => ({
       motif: 'podman muet',
     }));
     expect(lignes.join('\n')).toMatch(/⚠ podman muet/);
+  });
+
+  it('un démarrage REPLIÉ ramasse tout de même, dans chaque moteur qui répond', async () => {
+    // Le Docker d'hier tué net, un preflight qui expire aujourd'hui : le nœud
+    // se replie en processus, et l'orphelin n'était jamais cherché.
+    const vus: string[] = [];
+    const replie: Bac = { ...bacDe(null), moteurs: [PODMAN, DOCKER, BWRAP] };
+    const lignes = await ramasserRestes(replie, 'node-42', dossier, async (f, noeud) => {
+      vus.push(`${f.nom}:${noeud}`);
+      return f.nom === 'docker' ? { supprimes: ['a1b2c3d4e5f6'] } : { supprimes: [] };
+    });
+    expect(vus).toEqual(['podman:node-42', 'docker:node-42']);
+    expect(lignes.join('\n')).toMatch(/1 conteneur\(s\) .* supprimé\(s\) \(docker\)/);
+  });
+
+  it('un AUTRE processus vivant porte cette identité : rien n’est supprimé, et c’est dit', async () => {
+    // `npm run node` lancé deux fois sous le même nom : le second tuait les
+    // agents en cours du premier.
+    writeFileSync(path.join(dossier, 'node.pid'), `${process.ppid}\n`);
+    let appele = false;
+    const lignes = await ramasserRestes(bacDe(DOCKER), 'node-42', dossier, async () => {
+      appele = true;
+      return { supprimes: ['a1b2c3d4e5f6'] };
+    });
+    expect(appele).toBe(false);
+    expect(lignes.join('\n')).toMatch(
+      new RegExp(`processus ${process.ppid} porte déjà l'identité`),
+    );
+  });
+
+  it('un occupant MORT (kill -9) ne bloque rien : ce processus prend sa place', async () => {
+    writeFileSync(path.join(dossier, 'node.pid'), '999999999\n');
+    const vus: string[] = [];
+    await ramasserRestes(bacDe(DOCKER), 'node-42', dossier, async (f) => {
+      vus.push(f.nom);
+      return { supprimes: [] };
+    });
+    expect(vus).toEqual(['docker']);
+    expect(readFileSync(path.join(dossier, 'node.pid'), 'utf8').trim()).toBe(String(process.pid));
   });
 
   it('ni bubblewrap (`--die-with-parent`) ni la sandbox de processus n’ont rien à ramasser', async () => {
@@ -380,8 +526,8 @@ describe('ramasserRestes — au démarrage du nœud', () => {
       appele = true;
       return { supprimes: [] };
     };
-    expect(await ramasserRestes(bacDe(BWRAP), 'node-42', espion)).toEqual([]);
-    expect(await ramasserRestes(bacDe(null), 'node-42', espion)).toEqual([]);
+    expect(await ramasserRestes(bacDe(BWRAP), 'node-42', dossier, espion)).toEqual([]);
+    expect(await ramasserRestes(bacDe(null), 'node-42', dossier, espion)).toEqual([]);
     expect(appele).toBe(false);
   });
 });
@@ -412,6 +558,38 @@ describe('le client du moteur reçoit ce qu’il lit de l’hôte — l’agent,
       XDG_RUNTIME_DIR: '/run/user/1001',
       DOCKER_HOST: 'unix:///run/user/1001/docker.sock',
     });
+  });
+
+  it('les épreuves du démarrage voient le MÊME environnement de moteur que la tâche', () => {
+    // Le preflight partait avec presque tout l'hôte, la tâche avec une liste :
+    // un réglage hors liste faisait passer l'un et échouer l'autre.
+    const hote = {
+      PATH: '/usr/bin',
+      HOME: '/home/membre',
+      DOCKER_HOST: 'tcp://moteur:2376',
+      DOCKER_TLS_VERIFY: '1',
+      DOCKER_CERT_PATH: '/home/membre/.docker/tls',
+      APPDATA: 'C:\\Users\\m\\AppData\\Roaming',
+      REGLAGE_INCONNU: 'x',
+      HIVE_TOKEN: 'secret-de-la-ruche',
+    };
+    const epreuve = envMoteur(DOCKER, hote);
+    expect(epreuve).toEqual(envDuLanceur(DOCKER, { PATH: '/usr/bin' }, hote));
+    expect(epreuve).toMatchObject({ DOCKER_TLS_VERIFY: '1', APPDATA: hote.APPDATA });
+    expect(epreuve).not.toHaveProperty('REGLAGE_INCONNU');
+    expect(epreuve).not.toHaveProperty('HIVE_TOKEN');
+  });
+
+  it.skipIf(!surPosix)('le vrai `image inspect` part avec cet environnement', async () => {
+    const trace = path.join(dossier, 'env.txt');
+    const { moteur } = fauxMoteur(
+      'docker',
+      `'image inspect') echo "TLS=$DOCKER_TLS_VERIFY INCONNU=$REGLAGE_INCONNU" > ${JSON.stringify(trace)} ;;`,
+    );
+    vi.stubEnv('DOCKER_TLS_VERIFY', '1');
+    vi.stubEnv('REGLAGE_INCONNU', 'x');
+    expect((await preparerImage(moteur, IMAGE_DEFAUT)).executable).toBe(true);
+    expect(readFileSync(trace, 'utf8').trim()).toBe('TLS=1 INCONNU=');
   });
 
   it('bubblewrap TRANSMET son environnement à l’agent : il ne reçoit rien de plus', () => {

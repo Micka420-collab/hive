@@ -172,7 +172,7 @@ const nodeId = identiteStable(workRoot);
 
 // Ce qu'un lancement précédent de CE nœud a laissé tourner dans son moteur
 // (kill -9, panne) — supprimé AVANT de prendre du travail. Voir `ramasserRestes`.
-for (const l of await ramasserRestes(bac, nodeId)) console.log(l);
+for (const l of await ramasserRestes(bac, nodeId, workRoot)) console.log(l);
 
 const client = new HiveNodeClient({
   url: process.env.HIVE_URL ?? 'ws://localhost:7777/ws',

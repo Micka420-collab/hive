@@ -264,7 +264,7 @@ async function main(): Promise<void> {
   }
   // Les conteneurs qu'un lancement précédent de ce nœud a laissés — même
   // geste que `main.ts`, avant de prendre du travail.
-  for (const l of await ramasserRestes(bac, nodeId)) console.log(l);
+  for (const l of await ramasserRestes(bac, nodeId, workRoot)) console.log(l);
 
   const client = new HiveNodeClient({
     url,

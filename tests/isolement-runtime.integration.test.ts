@@ -28,6 +28,7 @@ import {
   type Fournisseur,
 } from '../src/node-client/isolement.js';
 import { buildSandboxEnv } from '../src/node-client/workspace.js';
+import { preparerBac } from '../src/node-client/bac.js';
 import { createServer } from '../src/orchestrator/server.js';
 
 const imageDemandee = process.env.HIVE_ISOLEMENT_IMAGE?.trim() || '';
@@ -71,7 +72,36 @@ function runtimeDisponible(): Fournisseur | null {
 
 const runtime = runtimeDisponible();
 
+/**
+ * Le job image de la CI construit l'image par défaut par `npm run bac:image`
+ * et pose ce drapeau : le chemin de l'opérateur — construire, puis démarrer
+ * SANS HIVE_ISOLEMENT_IMAGE — y est alors éprouvé par la vraie décision de
+ * production (`preparerBac`), avec les vrais moteurs du runner.
+ */
+const imageDefautConstruite = process.env.HIVE_TEST_IMAGE_DEFAUT === '1';
+
 describe('isolement — intégration runtime réel', () => {
+  it.skipIf(!imageDefautConstruite || !moteurImpose)(
+    'la production retient le moteur qui a l’image par défaut, par son preflight',
+    async () => {
+      // L'environnement du NŒUD, sans HIVE_ISOLEMENT_IMAGE : l'image par
+      // défaut. Une clé factice nommée suffit (elle n'est jamais utilisée :
+      // `--version` ne parle à aucun modèle) ; `exige` fait d'un repli un échec.
+      const bac = await preparerBac(
+        { PATH: process.env.PATH, HIVE_ISOLEMENT: 'exige', ANTHROPIC_API_KEY: 'sk-ci-factice' },
+        'claude-code',
+        { informer: () => {} },
+      );
+      expect(bac.image).toBe(IMAGE_DEFAUT);
+      expect(bac.refuse, bac.lignes.join('\n')).toBe(false);
+      // Sur la jambe Docker, Podman (installé sur le runner) n'a pas encore
+      // l'image : il est écarté, et c'est Docker qui isole. Sur la jambe
+      // Podman, il l'a reçue, et il passe en premier.
+      expect(bac.fournisseur?.nom, bac.lignes.join('\n')).toBe(moteurImpose);
+    },
+    300_000,
+  );
+
   it.skipIf(!runtime && !imageDemandee && !moteurImpose)(
     'exécute réellement le preflight dans Docker/Podman',
     async () => {

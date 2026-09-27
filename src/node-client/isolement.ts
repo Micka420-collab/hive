@@ -409,8 +409,9 @@ function enveloppeConteneur(
     // l'utilisateur et tout autre UID sur une plage subordonnée : `--user=1001`
     // y devient un subuid étranger, qui ne peut écrire ni dans le répertoire de
     // la tâche ni sur la socket du pont MCP (0600). `keep-id` fait coïncider
-    // l'UID du conteneur avec celui du nœud. Podman le refuse en root (il n'y a
-    // rien à garder) : un nœud root garde l'abaissement explicite à 1000.
+    // l'UID du conteneur avec celui du nœud. Un nœud root, lui, n'a aucune
+    // identité non privilégiée à garder : il garde l'abaissement explicite à
+    // 1000:1000, sans `keep-id`.
     ...(opts.fournisseur.nom === 'podman' && hote.rootless ? ['--userns=keep-id'] : []),
     `--user=${uid}:${gid}`,
 
@@ -466,11 +467,44 @@ const VARIABLES_MOTEUR: readonly string[] = [
   'DOCKER_HOST',
   'DOCKER_CONTEXT',
   'DOCKER_CONFIG',
+  // Un `DOCKER_HOST=tcp://…:2376` ne se joint qu'avec ses certificats.
+  'DOCKER_TLS_VERIFY',
+  'DOCKER_CERT_PATH',
   'CONTAINER_HOST',
   'CONTAINER_CONNECTION',
   'CONTAINERS_CONF',
   'CONTAINERS_STORAGE_CONF',
+  // Sous Windows, le client Docker et la connexion de la machine Podman se
+  // rangent sous le profil : sans eux, le client ne trouve pas son moteur.
+  'USERPROFILE',
+  'APPDATA',
+  'LOCALAPPDATA',
+  'PROGRAMDATA',
 ];
+
+/**
+ * L'environnement du client d'un moteur de conteneurs pour les ÉPREUVES du
+ * démarrage (inspection, téléchargement, preflight, ramassage).
+ *
+ * ─── LE PREFLIGHT VOYAIT PLUS QUE LA TÂCHE ───────────────────────────────────
+ *
+ * Les épreuves lançaient le client avec presque tout l'environnement de l'hôte
+ * (`envSonde` ne retire que les secrets) ; la tâche, avec la liste
+ * `VARIABLES_MOTEUR`. Tout réglage du moteur hors de cette liste faisait
+ * passer le preflight et échouer chaque tâche. Les deux partent maintenant de
+ * la MÊME règle, `envDuLanceur`, sur la même base système que
+ * `buildSandboxEnv` : ce que le preflight trouve, la tâche le trouve.
+ */
+export function envMoteur(
+  fournisseur: Fournisseur,
+  envHote: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  const base: NodeJS.ProcessEnv = {};
+  for (const nom of ['PATH', 'SYSTEMROOT', 'SYSTEMDRIVE']) {
+    if (envHote[nom] !== undefined) base[nom] = envHote[nom];
+  }
+  return envDuLanceur(fournisseur, base, envHote);
+}
 
 /** L'environnement du processus qui lance le bac : celui de la tâche, plus ce que le moteur lit. */
 export function envDuLanceur(
@@ -866,14 +900,6 @@ export function sonder(bin: string, timeoutMs = 4_000): Promise<boolean> {
   });
 }
 
-/** Le premier fournisseur disponible, dans l'ordre de préférence. */
-export async function trouverFournisseur(): Promise<Fournisseur | null> {
-  for (const f of FOURNISSEURS) {
-    if (await sonder(f.bin)) return f;
-  }
-  return null;
-}
-
 /**
  * TOUS les moteurs qui répondent à `--version`, dans l'ordre de préférence.
  *
@@ -893,6 +919,8 @@ export async function trouverFournisseurs(): Promise<Fournisseur[]> {
 export interface ResultatPreflightAgent {
   executable: boolean;
   motif: string;
+  /** Une image nommée absente, non téléchargée (`preparerImage` avec `tirer: false`). */
+  imageAbsente?: true;
 }
 
 /** Ce qu'a rendu une commande d'épreuve lancée dans le bac. */
@@ -915,7 +943,14 @@ const SORTIE_MAX = 64 * 1024;
  */
 function eprouver(
   lance: Enveloppe,
-  opts: { cwd: string; timeoutMs: number; garderErreurs?: boolean; garderSortie?: boolean },
+  opts: {
+    cwd: string;
+    timeoutMs: number;
+    garderErreurs?: boolean;
+    garderSortie?: boolean;
+    /** Défaut : l'hôte sans ses secrets. Un moteur de conteneurs reçoit `envMoteur`. */
+    env?: NodeJS.ProcessEnv;
+  },
 ): Promise<IssueEpreuve> {
   return new Promise((resolve) => {
     let fini = false;
@@ -935,7 +970,7 @@ function eprouver(
           opts.garderSortie ? 'pipe' : 'ignore',
           opts.garderErreurs ? 'pipe' : 'ignore',
         ],
-        env: envSonde(process.env),
+        env: opts.env ?? envSonde(process.env),
       });
     } catch {
       finir({ issue: 'impossible' });
@@ -986,7 +1021,7 @@ function citation(erreurs: string): string {
  *
  * ─── « AGENT ABSENT », QUAND C'ÉTAIT BUBBLEWRAP QUI NE DÉMARRAIT PAS ─────────
  *
- * `trouverFournisseur` retient bubblewrap sur `bwrap --version`, qui répond
+ * `trouverFournisseurs` retient bubblewrap sur `bwrap --version`, qui répond
  * même quand le noyau lui refuse les espaces de noms utilisateur — le cas
  * d'Ubuntu 24.04 d'origine (`kernel.apparmor_restrict_unprivileged_userns=1`),
  * mesuré sur le runner `ubuntu-latest` de la CI. Le preflight de l'agent
@@ -1040,7 +1075,13 @@ export async function sonderAgentDansBac(
     // (`--init` sans binaire d'init, montage refusé, exécutable introuvable) :
     // la citer vaut mieux que « absent », qui envoyait réinstaller l'agent.
     const conteneur = fournisseur.bin !== 'bwrap';
-    const r = await eprouver(lance, { cwd: probeCwd, timeoutMs, garderErreurs: conteneur });
+    const r = await eprouver(lance, {
+      cwd: probeCwd,
+      timeoutMs,
+      garderErreurs: conteneur,
+      // Le client du moteur voit ICI ce qu'il verra pour la tâche.
+      ...(conteneur ? { env: envMoteur(fournisseur) } : {}),
+    });
     if (r.issue === 'impossible') return echec(`preflight impossible via ${fournisseur.nom}`);
     if (r.issue === 'expiree') return echec(`preflight de l'agent expiré via ${fournisseur.nom}`);
     if (r.issue !== 'sortie') {
@@ -1062,8 +1103,82 @@ export const INSPECTION_MAX_MS = 15_000;
 /** Le délai d'un téléchargement d'image : quelques centaines de Mo, sur une ligne ordinaire. */
 export const TELECHARGEMENT_MAX_MS = 10 * 60_000;
 
-/** Ce que disent Docker (« No such image ») et Podman (« image not known ») d'une image absente. */
-const IMAGE_ABSENTE_RE = /no such image|image not known|not found|does not exist/i;
+/**
+ * Ce que disent Docker (« No such image », « No such object » avant la 20.10)
+ * et Podman (« image not known », « failed to find image ») d'une image absente.
+ *
+ * ─── PAS DE « NOT FOUND » NU ─────────────────────────────────────────────────
+ *
+ * `not found` et `does not exist` figuraient ici. Or un moteur qui ne se joint
+ * pas le dit souvent avec ces mots — `context "typo": context not found`, une
+ * couche introuvable du stockage — et le nœud envoyait alors RECONSTRUIRE une
+ * image peut-être présente (ou en tirait une), en taisant la vraie panne. Tout
+ * ce qui n'est pas l'absence de l'image va à la branche « injoignable », qui
+ * cite le moteur.
+ */
+const IMAGE_ABSENTE_RE = /no such image|no such object|image not known|failed to find image/i;
+
+/** La commande qui construit `IMAGE_DEFAUT` dans CE moteur. */
+export function commandeImage(fournisseur: Fournisseur): string {
+  return `${COMMANDE_IMAGE}${fournisseur.nom === 'docker' ? ' -- --moteur docker' : ''}`;
+}
+
+/** Ce qu'un moteur dit d'une image : là, absente, ou rien d'exploitable. */
+export type EtatImage =
+  { etat: 'presente' } | { etat: 'absente' } | { etat: 'injoignable'; motif: string };
+
+/**
+ * `image inspect`, sans rien lancer ni télécharger. Partagé par le nœud
+ * (`preparerImage`), le docteur et l'installeur : les trois jugent l'image par
+ * la même question, et un « prêt » affiché ne peut plus contredire le nœud.
+ */
+export async function inspecterImage(
+  fournisseur: Fournisseur,
+  image: string,
+  timeoutMs = INSPECTION_MAX_MS,
+): Promise<EtatImage> {
+  const r = await eprouver(
+    { bin: fournisseur.bin, args: ['image', 'inspect', '--format', '{{.Id}}', image] },
+    { cwd: tmpdir(), timeoutMs, garderErreurs: true, env: envMoteur(fournisseur) },
+  );
+  if (r.issue === 'sortie' && r.code === 0) return { etat: 'presente' };
+  if (r.issue !== 'sortie') {
+    return {
+      etat: 'injoignable',
+      motif: `${fournisseur.nom} ne répond pas (inspection de l'image ${r.issue})`,
+    };
+  }
+  // Démon arrêté, socket refusée, contexte inconnu, stockage illisible : le
+  // moteur répond à `--version` mais ne sait rien dire de ses images.
+  if (!IMAGE_ABSENTE_RE.test(r.erreurs)) {
+    return { etat: 'injoignable', motif: `${fournisseur.nom} injoignable${citation(r.erreurs)}` };
+  }
+  return { etat: 'absente' };
+}
+
+/**
+ * Le premier moteur PRÊT pour `image`, dans l'ordre donné — bubblewrap n'a pas
+ * d'image, il l'est d'office — et le premier où elle est absente.
+ *
+ * C'est la règle du nœud (`choisirMoteur`) sans le preflight de l'agent : le
+ * docteur et l'installeur ne peuvent plus annoncer « ✔ docker » sur la seule
+ * foi d'un `--version` ou d'un `info`, quand le nœud écartera ce moteur faute
+ * d'image et se repliera en processus.
+ */
+export async function moteurPret(
+  moteurs: readonly Fournisseur[],
+  image: string,
+  inspecter: typeof inspecterImage = inspecterImage,
+): Promise<{ pret: Fournisseur | null; absente: Fournisseur | null }> {
+  let absente: Fournisseur | null = null;
+  for (const f of moteurs) {
+    if (f.bin === 'bwrap') return { pret: f, absente };
+    const r = await inspecter(f, image);
+    if (r.etat === 'presente') return { pret: f, absente };
+    if (r.etat === 'absente') absente ??= f;
+  }
+  return { pret: null, absente };
+}
 
 /**
  * L'image est-elle là, dans CE moteur — et sinon, pourquoi ? Rend un motif qui
@@ -1081,8 +1196,10 @@ const IMAGE_ABSENTE_RE = /no such image|image not known|not found|does not exist
  * On inspecte donc d'abord, sans rien lancer. Absente, l'image par défaut
  * n'est JAMAIS tirée d'un registre (voir `IMAGE_DEFAUT`) : le motif donne la
  * commande qui la construit. Une image nommée par l'opérateur est téléchargée
- * sous son PROPRE délai, annoncé à l'humain avant de commencer. L'épreuve de
- * l'agent qui suit (`--pull=never`) ne mesure plus que l'agent.
+ * sous son PROPRE délai, annoncé à l'humain avant de commencer — sauf
+ * `tirer: false`, qui rend `imageAbsente` : le nœud cherche d'abord si un
+ * AUTRE moteur l'a déjà (`choisirMoteur`) avant d'en tirer une copie. L'épreuve
+ * de l'agent qui suit (`--pull=never`) ne mesure plus que l'agent.
  */
 export async function preparerImage(
   fournisseur: Fournisseur,
@@ -1091,30 +1208,28 @@ export async function preparerImage(
     informer?: (ligne: string) => void;
     inspectionMs?: number;
     telechargementMs?: number;
+    /** Défaut : oui. `false` : une image nommée absente n'est pas téléchargée. */
+    tirer?: boolean;
   } = {},
 ): Promise<ResultatPreflightAgent> {
   const echec = (motif: string): ResultatPreflightAgent => ({ executable: false, motif });
-  const cwd = tmpdir();
-  const inspection = await eprouver(
-    { bin: fournisseur.bin, args: ['image', 'inspect', '--format', '{{.Id}}', image] },
-    { cwd, timeoutMs: opts.inspectionMs ?? INSPECTION_MAX_MS, garderErreurs: true },
-  );
-  if (inspection.issue === 'sortie' && inspection.code === 0) {
+  const inspection = await inspecterImage(fournisseur, image, opts.inspectionMs);
+  if (inspection.etat === 'presente') {
     return preparerIdentite(fournisseur, image, opts, `image présente dans ${fournisseur.nom}`);
   }
-  if (inspection.issue !== 'sortie') {
-    return echec(`${fournisseur.nom} ne répond pas (inspection de l'image ${inspection.issue})`);
-  }
-  if (!IMAGE_ABSENTE_RE.test(inspection.erreurs)) {
-    // Démon arrêté, socket refusée, stockage illisible : le moteur répond à
-    // `--version` mais ne sait rien dire de ses images.
-    return echec(`${fournisseur.nom} injoignable${citation(inspection.erreurs)}`);
-  }
+  if (inspection.etat === 'injoignable') return echec(inspection.motif);
   if (image === IMAGE_DEFAUT) {
     return echec(
       `image absente de ${fournisseur.nom} — construisez-la depuis un clone du dépôt : ` +
-        `${COMMANDE_IMAGE}${fournisseur.bin === 'docker' ? ' -- --moteur docker' : ''}`,
+        commandeImage(fournisseur),
     );
+  }
+  if (opts.tirer === false) {
+    return {
+      executable: false,
+      motif: `image ${image} absente de ${fournisseur.nom}`,
+      imageAbsente: true,
+    };
   }
   const delai = opts.telechargementMs ?? TELECHARGEMENT_MAX_MS;
   (opts.informer ?? console.log)(
@@ -1123,7 +1238,7 @@ export async function preparerImage(
   );
   const tirage = await eprouver(
     { bin: fournisseur.bin, args: ['pull', image] },
-    { cwd, timeoutMs: delai, garderErreurs: true },
+    { cwd: tmpdir(), timeoutMs: delai, garderErreurs: true, env: envMoteur(fournisseur) },
   );
   if (tirage.issue === 'sortie' && tirage.code === 0) {
     return preparerIdentite(fournisseur, image, opts, `image téléchargée dans ${fournisseur.nom}`);
@@ -1156,6 +1271,14 @@ const PREPARATION_ANNONCEE_MS = 3_000;
  * préparation se fait donc ici, sous le délai d'un téléchargement ; elle est
  * annoncée si elle dure. Une autre panne que l'expiration n'est pas jugée ici :
  * le preflight de l'agent, qui suit, la dira avec les mots du moteur.
+ *
+ * ─── LE MÊME BAC QUE LA TÂCHE, PAS UN `run` NU ───────────────────────────────
+ *
+ * La préparation lançait `run --rm --userns=keep-id <image> true` : l'image —
+ * nommée par l'opérateur, pas encore jugée — tournait une fois avec les
+ * capacités, sans `no-new-privileges` ni racine en lecture seule. Elle passe
+ * maintenant par `envelopper`, comme le preflight et la tâche : le seul
+ * lancement qui précède le preflight a exactement les murs du bac.
  */
 async function preparerIdentite(
   fournisseur: Fournisseur,
@@ -1176,23 +1299,26 @@ async function preparerIdentite(
     PREPARATION_ANNONCEE_MS,
   );
   annonce.unref?.();
-  const r = await eprouver(
-    {
-      bin: fournisseur.bin,
-      args: ['run', '--rm', '--pull=never', '--userns=keep-id', image, 'true'],
-    },
-    { cwd: tmpdir(), timeoutMs: delai },
-  );
-  clearTimeout(annonce);
-  if (r.issue === 'expiree') {
-    return {
-      executable: false,
-      motif:
-        `préparation de l'image pour l'UID de ce nœud toujours en cours après ` +
-        `${Math.round(delai / 60_000)} min (podman --userns=keep-id) — relancez le nœud`,
-    };
+  // Un dossier vide et jetable : rien de l'hôte n'a à être visible.
+  const vide = mkdtempSync(join(tmpdir(), 'hive-keep-id-'));
+  try {
+    const r = await eprouver(
+      envelopper('true', [], { fournisseur, cwdHote: vide, variables: [], image }),
+      { cwd: vide, timeoutMs: delai, env: envMoteur(fournisseur) },
+    );
+    if (r.issue === 'expiree') {
+      return {
+        executable: false,
+        motif:
+          `préparation de l'image pour l'UID de ce nœud toujours en cours après ` +
+          `${Math.round(delai / 60_000)} min (podman --userns=keep-id) — relancez le nœud`,
+      };
+    }
+    return { executable: true, motif };
+  } finally {
+    clearTimeout(annonce);
+    rmSync(vide, { recursive: true, force: true });
   }
-  return { executable: true, motif };
 }
 
 /**
@@ -1225,7 +1351,7 @@ export async function ramasserConteneurs(
       bin: fournisseur.bin,
       args: ['ps', '--all', '--quiet', `--filter=label=${ETIQUETTE_NOEUD}=${noeud}`],
     },
-    { cwd, timeoutMs, garderErreurs: true, garderSortie: true },
+    { cwd, timeoutMs, garderErreurs: true, garderSortie: true, env: envMoteur(fournisseur) },
   );
   if (liste.issue !== 'sortie' || liste.code !== 0) {
     const dit = liste.issue === 'sortie' ? citation(liste.erreurs) : ` (${liste.issue})`;
@@ -1235,7 +1361,7 @@ export async function ramasserConteneurs(
   if (ids.length === 0) return { supprimes: [] };
   const rm = await eprouver(
     { bin: fournisseur.bin, args: ['rm', '--force', ...ids] },
-    { cwd, timeoutMs, garderErreurs: true },
+    { cwd, timeoutMs, garderErreurs: true, env: envMoteur(fournisseur) },
   );
   if (rm.issue !== 'sortie' || rm.code !== 0) {
     const dit = rm.issue === 'sortie' ? citation(rm.erreurs) : ` (${rm.issue})`;

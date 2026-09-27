@@ -139,3 +139,56 @@ export function rangerCle(racine: string, cle: string): void {
     // voir ci-dessus : dégrader, pas tuer
   }
 }
+
+/** Où le processus qui porte cette identité inscrit son pid. */
+export function cheminOccupant(racine: string): string {
+  return path.join(racine, 'node.pid');
+}
+
+/** Le processus `pid` vit-il ? `EPERM` : il vit, sous un autre compte. */
+function processusVivant(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+/**
+ * Inscrit CE processus comme porteur de l'identité du nœud — sauf si un AUTRE
+ * processus vivant la porte déjà : rend alors son pid, et n'écrit rien.
+ *
+ * ─── DEUX PROCESSUS, UNE IDENTITÉ, ET UN RAMASSAGE QUI TUE LE VOISIN ─────────
+ *
+ * Le ramassage du démarrage (`ramasserRestes`) supprime tout conteneur à
+ * l'étiquette de ce nœud, en tenant qu'aucun n'est à un processus vivant. Un
+ * `npm run node` lancé deux fois par erreur (même nom, donc même atelier,
+ * donc même identité) cassait cette hypothèse : le second tuait les agents en
+ * cours du premier. Le pid inscrit ici la rend vérifiable.
+ *
+ * Compromis nommé : un pid recyclé par un autre programme fait sauter UN
+ * ramassage (dit à l'humain), jamais supprimer à tort ; deux démarrages à la
+ * même milliseconde peuvent tous deux s'inscrire — le cas n'est pas celui
+ * qu'on ferme, qui est le second lancement d'un nœud déjà au travail.
+ */
+export function occuperIdentite(
+  racine: string,
+  pid: number = process.pid,
+  vivant: (pid: number) => boolean = processusVivant,
+): number | null {
+  const fichier = cheminOccupant(racine);
+  try {
+    const autre = Number.parseInt(readFileSync(fichier, 'utf8').trim(), 10);
+    if (Number.isInteger(autre) && autre > 0 && autre !== pid && vivant(autre)) return autre;
+  } catch {
+    // aucun occupant inscrit
+  }
+  try {
+    mkdirSync(racine, { recursive: true });
+    writeFileSync(fichier, `${pid}\n`, 'utf8');
+  } catch {
+    // disque refusé : dégrader, comme l'identité elle-même
+  }
+  return null;
+}

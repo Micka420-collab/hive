@@ -158,6 +158,20 @@ export interface Releve {
   agent: string | null;
   /** Runtime d'isolement détecté (`docker`, `podman`), ou `null` si aucun. */
   isolement: string | null;
+  /**
+   * L'image du bac dans les moteurs qui répondent — `null` quand aucun ne
+   * répond. Un moteur sans l'image est un moteur que le nœud écartera : le
+   * docteur ne peut pas le dire « disponible » sans l'avoir regardée.
+   */
+  imageBac: {
+    image: string;
+    /** Le premier moteur qui l'a ; `null` si aucun. */
+    dans: string | null;
+    /** Le premier moteur qui a répondu « absente » ; `null` si aucun ne l'a dit. */
+    absenteDe: string | null;
+    /** L'image par défaut, absente partout : la commande qui la construit. */
+    construire: string | null;
+  } | null;
   /** Le WebSocket répond-il ? `null` si la ruche n'écoute pas — on ne peut pas conclure. */
   wsJoignable: boolean | null;
   reglages: {
@@ -593,26 +607,71 @@ function agent(r: Releve): Diagnostic {
 }
 
 function isolement(r: Releve): Diagnostic {
-  return r.isolement !== null
-    ? {
-        cle: 'isolement',
-        gravite: 'ok',
-        constat: `bac à sable disponible : ${r.isolement}`,
-        reparation: null,
-      }
-    : {
-        cle: 'isolement',
-        gravite: 'risque',
-        // « ni docker ni podman » était FAUX dans le cas le plus courant : le
-        // client peut être installé et son SERVICE injoignable — un Docker
-        // Desktop pas démarré, un démon arrêté. Le relevé, qui sonde
-        // maintenant `info` et non `--version`, ne distingue pas les deux ; le
-        // constat ne doit donc affirmer que ce qu'il sait — aucun bac à sable
-        // ne RÉPOND — et la réparation couvre les deux causes.
-        constat: 'aucun bac à sable ne répond — les agents tourneront sans conteneur',
-        reparation:
-          'démarrez le service (Docker Desktop, `systemctl start docker`) ou installez podman (sans démon, sans root)',
-      };
+  if (r.isolement === null) {
+    return {
+      cle: 'isolement',
+      gravite: 'risque',
+      // « ni docker ni podman » était FAUX dans le cas le plus courant : le
+      // client peut être installé et son SERVICE injoignable — un Docker
+      // Desktop pas démarré, un démon arrêté. Le relevé, qui sonde
+      // maintenant `info` et non `--version`, ne distingue pas les deux ; le
+      // constat ne doit donc affirmer que ce qu'il sait — aucun bac à sable
+      // ne RÉPOND — et la réparation couvre les deux causes.
+      constat: 'aucun bac à sable ne répond — les agents tourneront sans conteneur',
+      reparation:
+        'démarrez le service (Docker Desktop, `systemctl start docker`) ou installez podman (sans démon, sans root)',
+    };
+  }
+  // ─── UN MOTEUR QUI RÉPOND N'EST PAS UN BAC PRÊT ──────────────────────────
+  //
+  // Sur une machine neuve, `docker info` répond et l'image par défaut n'est
+  // construite nulle part : le docteur disait « ✔ bac à sable disponible »,
+  // puis le nœud écartait ce moteur et se repliait en processus — ou, en
+  // `exige`, refusait. Le verdict suit maintenant la règle du nœud
+  // (`moteurPret`) : l'image doit être dans un moteur.
+  const img = r.imageBac;
+  if (img?.dans) {
+    return {
+      cle: 'isolement',
+      gravite: 'ok',
+      constat: `bac à sable disponible : ${img.dans} (image ${img.image})`,
+      reparation: null,
+    };
+  }
+  if (img === null) {
+    return {
+      cle: 'isolement',
+      gravite: 'inconnu',
+      constat: `${r.isolement} répond, mais l'image du bac n'a pas pu être cherchée`,
+      reparation: `${r.isolement} images  — la liste dit si l'image du bac y est construite`,
+    };
+  }
+  if (img.construire !== null) {
+    return {
+      cle: 'isolement',
+      gravite: 'risque',
+      constat:
+        `${r.isolement} répond, mais l'image du bac (${img.image}) n'est construite dans aucun ` +
+        'moteur — les agents tourneront sans conteneur',
+      reparation: `${img.construire}  (depuis un clone du dépôt)`,
+    };
+  }
+  if (img.absenteDe !== null) {
+    // Une image NOMMÉE par l'opérateur : le nœud la télécharge au démarrage.
+    return {
+      cle: 'isolement',
+      gravite: 'ok',
+      constat: `bac à sable disponible : ${img.absenteDe} — image ${img.image} téléchargée au démarrage du nœud`,
+      reparation: null,
+    };
+  }
+  // Aucun moteur n'a su dire si l'image est là : on ne l'invente pas.
+  return {
+    cle: 'isolement',
+    gravite: 'inconnu',
+    constat: `${r.isolement} répond, mais n'a rien dit de l'image du bac (${img.image})`,
+    reparation: `${r.isolement} image inspect ${img.image}  — la réponse dit ce qui bloque`,
+  };
 }
 
 function websocket(r: Releve): Diagnostic {

@@ -47,7 +47,16 @@ import { portDepuisEnv } from './shared/port.js';
 import { gardiennesDepuisEnv } from './shared/reglages.js';
 import { modeRunnerDepuisEnv } from './orchestrator/essaim-runner.js';
 import { detectBestAgent } from './node-client/agent-detect.js';
-import { FOURNISSEURS } from './node-client/isolement.js';
+import {
+  commandeImage,
+  FOURNISSEURS,
+  IMAGE_DEFAUT,
+  imageDepuisEnv,
+  inspecterImage,
+  moteurPret,
+  type EtatImage,
+  type Fournisseur,
+} from './node-client/isolement.js';
 import { envSonde } from './node-client/agent-detect.js';
 import { SECRET_JWT_INTERDIT, secretJwtDepuisEnv } from './orchestrator/auth.js';
 
@@ -365,10 +374,38 @@ const lanceurReel: LanceurDeSonde = async (bin, args) => {
 export async function isolementDisponible(
   lancer: LanceurDeSonde = lanceurReel,
 ): Promise<string | null> {
+  return (await moteursJoignables(lancer))[0]?.nom ?? null;
+}
+
+/** Tous les moteurs RÉELLEMENT joignables, dans l'ordre de préférence. */
+async function moteursJoignables(lancer: LanceurDeSonde = lanceurReel): Promise<Fournisseur[]> {
+  const joignables: Fournisseur[] = [];
   for (const f of FOURNISSEURS) {
-    if (await lancer(f.bin, [SONDE_ISOLEMENT])) return f.nom;
+    if (await lancer(f.bin, [SONDE_ISOLEMENT])) joignables.push(f);
   }
-  return null;
+  return joignables;
+}
+
+/**
+ * L'image que le nœud utiliserait (`imageDepuisEnv`), cherchée par la MÊME
+ * règle que lui (`moteurPret`) dans les moteurs joignables — `null` s'il n'y
+ * en a aucun. Voir le diagnostic `isolement`.
+ */
+export async function imageDuBac(
+  env: NodeJS.ProcessEnv,
+  moteurs: readonly Fournisseur[],
+  inspecter: (f: Fournisseur, image: string) => Promise<EtatImage> = (f, image) =>
+    inspecterImage(f, image, 5_000),
+): Promise<Releve['imageBac']> {
+  if (moteurs.length === 0) return null;
+  const image = imageDepuisEnv(env);
+  const { pret, absente } = await moteurPret(moteurs, image, inspecter);
+  return {
+    image,
+    dans: pret?.nom ?? null,
+    absenteDe: absente?.nom ?? null,
+    construire: !pret && absente && image === IMAGE_DEFAUT ? commandeImage(absente) : null,
+  };
 }
 
 /**
@@ -405,6 +442,8 @@ export async function relever(
   const basePresente = existsSync(lieux.base);
   const jeton = env.HIVE_TOKEN ?? '';
   const moteur = await moteurManquant();
+  // Sondés UNE fois : le nom du premier et l'image du bac en découlent.
+  const joignables = await moteursJoignables().catch((): Fournisseur[] => []);
 
   return {
     nodeMajeur: Number(process.versions.node.split('.')[0] ?? 0),
@@ -468,7 +507,13 @@ export async function relever(
     agent: await detecter(env)
       .then((a) => (a.agent === 'shell' ? null : a.agent))
       .catch(() => null),
-    isolement: await isolementDisponible().catch(() => null),
+    isolement: joignables[0]?.nom ?? null,
+    // Une inspection qui plante n'est ni « présente » ni « absente » : inconnue.
+    imageBac: await imageDuBac(env, joignables).catch(() =>
+      joignables.length === 0
+        ? null
+        : { image: imageDepuisEnv(env), dans: null, absenteDe: null, construire: null },
+    ),
     wsJoignable: ws,
     reglages: {
       // MÊMES règles que la ruche : un docteur qui annonce autre chose que ce
