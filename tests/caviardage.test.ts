@@ -12,6 +12,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { runCommand } from '../src/adapters/exec.js';
 import { borneTexteFinal } from '../src/adapters/texte-final.js';
+import { runProc } from '../src/node-client/merge-runner.js';
 import { lireAvis, lireProposition } from '../src/orchestrator/eclaireuse.js';
 import { analyserRustine, appliquerRustine } from '../src/orchestrator/rustine.js';
 import {
@@ -289,4 +290,40 @@ describe('creerCaviardeur — les bords qu’une coupe laisse d’un secret', ()
     );
     expect(sortie).not.toContain('motdepasse');
   });
+
+  it('de part et d’autre du milieu qu’omet runProc (merge, chantier, validations du bac)', async () => {
+    // `runProc` garde 256 Kio de DÉBUT et 256 Kio de FIN, et omet le milieu
+    // AVANT que quiconque ne caviarde. Deux clés sont posées sur les deux
+    // coupes : l'une chevauche la fin du début gardé, l'autre le début de la
+    // fin gardée. Ni l'une ni l'autre n'est plus entière nulle part — la
+    // comparaison exacte ne voit rien, et le chantier remonte 512 Kio : la
+    // jointure entière part au hub.
+    const moitie = 256 * 1024;
+    const script =
+      'const w = (s) => process.stdout.write(s);' +
+      `w('a'.repeat(${moitie - 20}) + ${JSON.stringify(CLE)});` +
+      "w('b'.repeat(100000));" +
+      `w(${JSON.stringify(CLE)} + 'c'.repeat(${moitie - 22}));`;
+    const env = { PATH: process.env.PATH, SYSTEMROOT: process.env.SYSTEMROOT };
+    const r = await runProc([process.execPath, '-e', script], process.cwd(), env, 60_000);
+
+    // Le piège est armé : la sortie brute porte les deux morceaux, de part
+    // et d'autre d'une vraie marque d'omission. (Des booléens : un échec
+    // recopierait sinon 512 Kio de sortie dans le rapport.)
+    const marque = /\n\[hive\] … \d+ caractères omis …\n/;
+    expect(marque.test(r.output), 'runProc n’a rien omis').toBe(true);
+    expect(r.output.includes(`${CLE.slice(0, 20)}\n[hive]`)).toBe(true);
+    expect(r.output.includes(`…\n${CLE.slice(-22)}`)).toBe(true);
+
+    const sortie = creerCaviardeur([CLE]).texte(r.output);
+    expect(
+      sortie.includes(CLE.slice(0, 20)),
+      'le début de la clé passe la coupe du début gardé',
+    ).toBe(false);
+    expect(
+      sortie.includes(CLE.slice(-22)),
+      'la fin de la clé passe la coupe de la fin gardée',
+    ).toBe(false);
+    expect(marque.test(sortie), 'la marque d’omission reste lisible').toBe(true);
+  }, 40_000);
 });
