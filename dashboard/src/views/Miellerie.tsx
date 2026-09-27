@@ -1351,15 +1351,24 @@ export default function Miellerie({
         {merge.step === 'error' && <p className="panel-error">{merge.message}</p>}
         {merge.step === 'done' && (
           <div className="mi-merge-result">
-            <p>
-              {merge.result.applied.length} {t('branche(s) appliquée(s)', 'branch(es) applied')} ·{' '}
-              {merge.result.conflicts.length} {t('conflit(s)', 'conflict(s)')} ·{' '}
-              {merge.result.testsRun
-                ? merge.result.testsPassed
-                  ? 'tests ✔'
-                  : 'tests ✘'
-                : t('tests non lancés', 'tests not run')}
-            </p>
+            {/* Un merge qui n'a PAS EU LIEU (refus, clone impossible, nœud
+                perdu) se dit comme tel — pas « 0 branche(s) appliquée(s) ».
+                Même règle que le rapport de `Projets.tsx`. */}
+            {merge.result.refused ? (
+              <p className="panel-error">
+                {t('Merge non effectué :', 'Merge not performed:')} {merge.result.refused}
+              </p>
+            ) : (
+              <p>
+                {merge.result.applied.length} {t('branche(s) appliquée(s)', 'branch(es) applied')} ·{' '}
+                {merge.result.conflicts.length} {t('conflit(s)', 'conflict(s)')} ·{' '}
+                {merge.result.testsRun
+                  ? merge.result.testsPassed
+                    ? 'tests ✔'
+                    : 'tests ✘'
+                  : t('tests non lancés', 'tests not run')}
+              </p>
+            )}
             {merge.result.conflicts.length > 0 && (
               <ul className="mi-plan-conflicts">
                 {merge.result.conflicts.map((c, i) => (
@@ -1370,7 +1379,7 @@ export default function Miellerie({
               </ul>
             )}
             {merge.result.logs && (
-              <details className="mi-merge-logs">
+              <details className="mi-merge-logs" open={Boolean(merge.result.refused)}>
                 <summary>{t('Logs du merge', 'Merge logs')}</summary>
                 <pre className="code-block scroll">{merge.result.logs}</pre>
               </details>

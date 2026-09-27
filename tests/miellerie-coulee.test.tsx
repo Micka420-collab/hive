@@ -208,6 +208,25 @@ describe('la coulée de la Miellerie : le relevé doit être LE NÔTRE', () => {
     );
   });
 
+  it('UNE COULÉE QUI N’A PAS EU LIEU SE DIT TELLE — pas « 0 branche(s) appliquée(s) »', async () => {
+    // Un clone refusé (identifiants, dépôt introuvable) revient `refused`, sa
+    // cause dans le journal (tests/workflow-git.test.ts). Sans cette ligne,
+    // l'écran lisait « 0 branche(s) appliquée(s) · 0 conflit(s) » — une coulée
+    // vide, réussie en apparence — et le journal restait replié.
+    const dom = await monter();
+    vi.mocked(fetchMergeResult).mockResolvedValue({
+      result: { ...RESULTAT('coulée-à-nous'), applied: [], refused: 'échec du merge sur le nœud' },
+    } as never);
+
+    await lancerLaCoulee(dom);
+
+    expect(dom.textContent).toContain('Merge non effectué : échec du merge sur le nœud');
+    expect(dom.textContent, 'un échec n’est pas une coulée vide').not.toContain(
+      'branche(s) appliquée(s)',
+    );
+    expect(dom.querySelector('details.mi-merge-logs')?.hasAttribute('open')).toBe(true);
+  });
+
   it('LE RÉSULTAT D’UNE AUTRE COULÉE EST IGNORÉ — on n’affiche pas le verdict du voisin', async () => {
     // `fetchMergeResult` rend LA DERNIÈRE coulée du projet, pas la nôtre : après
     // un lancement, l'ancienne est encore ce que la route renvoie. Sans la garde
