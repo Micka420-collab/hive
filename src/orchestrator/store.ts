@@ -14,6 +14,7 @@ import type { GenreSauvegarde, Sauvegarde, SauvegardeResume } from '../shared/sa
 import { libelleEtape } from '../shared/sauvegardes.js';
 import { CORPUS_AIGUILLAGE } from './aiguillage.js';
 import { CORPUS_GARDE_FOU } from './garde-fou.js';
+import type { ReglageBancOmbre, UsageBancOmbre } from './shadow-bench.js';
 import type { Echelon, FaitsProduction } from './garde-fou.js';
 import type { Suite } from './polyethisme.js';
 import type {
@@ -106,6 +107,24 @@ export interface LigneObservationAiguillage {
   nodeId?: string;
   /** Modèle réellement choisi pour ce résultat, quand le lancement l'a tracé. */
   modeleExact?: string;
+}
+
+/**
+ * Le lien d'une OMBRE (`taches_ombre`) : la tâche qui rejoue, la production
+ * originale qu'elle mesure, les deux modèles, et ce que le banc y a dépensé.
+ * Voir shadow-bench.ts.
+ */
+export interface TacheOmbre {
+  tacheOmbre: string;
+  tacheOriginale: string;
+  projectId: string;
+  /** Le résultat EXACT de l'originale que l'ombre mesure (sa première production). */
+  resultatOriginal: number;
+  modeleOriginal: string;
+  modeleOmbre: string;
+  coutDeclareUsd: number;
+  executionsMuettes: number;
+  creeA: number;
 }
 
 const SCHEMA = `
@@ -617,6 +636,55 @@ CREATE TABLE IF NOT EXISTS garde_fou_exigences (
   exigence         TEXT NOT NULL CHECK (exigence IN ('exigee', 'dispensee')),
   decideA          INTEGER NOT NULL
 );
+
+-- Le banc d'ombre (shadow-bench.ts) — le CONSENTEMENT d'un projet, et rien
+-- d'autre. Motif « garde_fous » : UNE INTENTION HUMAINE (règle 1), posée par
+-- qui répond du projet ; le banc ne s'allume ni n'élargit jamais son budget
+-- lui-même. Ligne ABSENTE = banc éteint : il coûte de vrais appels de modèle.
+--
+-- BORNE STRUCTURELLE (règle 3) : une ligne par projet. Pas d'élagueur, et il
+-- ne faut jamais en ajouter « par symétrie » — l'effacer éteindrait un banc
+-- que l'humain avait allumé, ou relâcherait son budget, sans un mot.
+CREATE TABLE IF NOT EXISTS banc_ombre (
+  projectId         TEXT PRIMARY KEY REFERENCES projects(id),
+  actif             INTEGER NOT NULL DEFAULT 0,
+  tauxPourMille     INTEGER NOT NULL,
+  executionsParJour INTEGER NOT NULL,
+  plafondCoutUsd    REAL NOT NULL,
+  version           INTEGER NOT NULL DEFAULT 1,
+  definiPar         TEXT,
+  updatedAt         INTEGER NOT NULL
+);
+
+-- Les ombres : quelle tâche REJOUE quelle production, avec quel modèle.
+-- Table LATÉRALE, motif « contre_expertises » : elle MARQUE une tâche comme
+-- ombre — sans cette marque, l'ombre se livrerait, se fusionnerait et
+-- nourrirait le routing comme une production ordinaire — et elle CORRÈLE
+-- l'ombre à la production originale qu'elle mesure (resultatOriginal).
+--
+-- Le modèle de l'ombre vit ICI et nulle part ailleurs, jamais dans
+-- aiguillage_modeles : c'est ce qui la tient hors de la récompense et des
+-- élections en vol de l'Aiguillage (décision écrite en tête de shadow-bench.ts).
+--
+-- UNIQUE sur la tâche originale : une ombre par tâche, jamais deux.
+-- coutDeclareUsd / executionsMuettes : ce que l'ombre et ses relectures ont
+-- DÉCLARÉ coûter, et combien n'ont rien déclaré. Le budget se lit ici : un
+-- journal élagué à 5 000 événements l'aurait oublié avant la fin de la journée.
+--
+-- BORNE D'ÉLAGAGE (règle 3), dans le MÊME changement : pruneTachesOmbre,
+-- référentielle — une ligne dont l'ombre a disparu ne désigne plus rien.
+CREATE TABLE IF NOT EXISTS taches_ombre (
+  tacheOmbre        TEXT PRIMARY KEY,
+  tacheOriginale    TEXT NOT NULL UNIQUE,
+  projectId         TEXT NOT NULL,
+  resultatOriginal  INTEGER NOT NULL,
+  modeleOriginal    TEXT NOT NULL,
+  modeleOmbre       TEXT NOT NULL,
+  coutDeclareUsd    REAL NOT NULL DEFAULT 0,
+  executionsMuettes INTEGER NOT NULL DEFAULT 0,
+  creeA             INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_taches_ombre_projet ON taches_ombre(projectId, creeA);
 
 -- ─── Le trou de vol ─────────────────────────────────────────────────────────
 -- Deux tables, une par nature, et surtout PAS une seule : un billet est une
@@ -2848,13 +2916,28 @@ export class HiveStore {
     return row ? rowToTask(row) : undefined;
   }
 
+  /**
+   * Le TRAVAIL des projets — jamais une ombre du banc (shadow-bench.ts).
+   *
+   * C'est par ici que passent tout ce qui livre, fusionne ou compte le travail
+   * d'un projet : plan et exécution du merge, livraison de mission, candidates
+   * de la livraison autonome, décision du Plein Essaim, rapport d'avancement,
+   * détection de conflits, dépendances admises à la création. Une ombre rejoue
+   * une tâche DÉJÀ comptée : la voir ici, c'était la livrer ou la fusionner une
+   * seconde fois, et compter deux fois le même travail. L'exclure à la source
+   * ferme toutes ces portes d'un coup ; le planificateur, lui, lit les tâches
+   * par statut (`tasksByStatus`) et voit bien les ombres qu'il doit lancer.
+   */
   listTasks(projectId?: string): Task[] {
+    const horsOmbres = 'id NOT IN (SELECT tacheOmbre FROM taches_ombre)';
     const rows = (
       projectId
         ? this.db
-            .prepare('SELECT * FROM tasks WHERE projectId = ? ORDER BY createdAt, id')
+            .prepare(
+              `SELECT * FROM tasks WHERE projectId = ? AND ${horsOmbres} ORDER BY createdAt, id`,
+            )
             .all(projectId)
-        : this.db.prepare('SELECT * FROM tasks ORDER BY createdAt, id').all()
+        : this.db.prepare(`SELECT * FROM tasks WHERE ${horsOmbres} ORDER BY createdAt, id`).all()
     ) as TaskRow[];
     return rows.map(rowToTask);
   }
@@ -3590,9 +3673,13 @@ export class HiveStore {
   listResultsForPheromones(
     limit = 500,
   ): Array<{ taskId: string; nodeId: string; success: boolean; createdAt: number }> {
+    // Une ombre n'y dépose rien : les phéromones départagent les nœuds, et le
+    // banc ne touche à aucun poids du routing (décision de shadow-bench.ts).
     const rows = this.db
       .prepare(
-        'SELECT taskId, nodeId, success, createdAt FROM results ORDER BY createdAt DESC, id DESC LIMIT ?',
+        `SELECT taskId, nodeId, success, createdAt FROM results
+          WHERE taskId NOT IN (SELECT tacheOmbre FROM taches_ombre)
+          ORDER BY createdAt DESC, id DESC LIMIT ?`,
       )
       .all(Math.max(1, Math.min(limit, 2000))) as {
       taskId: string;
@@ -4324,7 +4411,8 @@ export class HiveStore {
     const rows = this.db
       .prepare(
         `SELECT id, nodeId, taskId, logs, createdAt FROM results
-         WHERE success = 0 ORDER BY id DESC LIMIT ?`,
+         WHERE success = 0 AND taskId NOT IN (SELECT tacheOmbre FROM taches_ombre)
+         ORDER BY id DESC LIMIT ?`,
       )
       .all(limit) as Array<{
       id: number;
@@ -4836,7 +4924,8 @@ export class HiveStore {
            JOIN gardiennes g ON g.id = (SELECT MAX(id) FROM gardiennes WHERE taskId = e.taskId)
            LEFT JOIN contre_visites cv     ON cv.productionTaskId = e.taskId
            LEFT JOIN garde_fou_exigences ex ON ex.productionTaskId = e.taskId
-          WHERE cv.productionTaskId IS NOT NULL OR ex.productionTaskId IS NOT NULL
+          WHERE (cv.productionTaskId IS NOT NULL OR ex.productionTaskId IS NOT NULL)
+            AND e.taskId NOT IN (SELECT tacheOmbre FROM taches_ombre)
           ORDER BY e.choisiA DESC
           LIMIT ?`,
       )
@@ -4962,6 +5051,189 @@ export class HiveStore {
           WHERE relectureTaskId NOT IN (SELECT id FROM tasks)
              OR productionTaskId NOT IN (SELECT id FROM tasks)`,
       )
+      .run().changes;
+  }
+
+  // ─── Le banc d'ombre (shadow-bench.ts) ─────────────────────────────────────
+
+  /**
+   * Pose le CONSENTEMENT du banc d'ombre d'un projet — motif `setGardeFou` :
+   * une intention humaine écrasée en place, jamais un calcul de la ruche. Les
+   * bornes sont validées par la route (`BORNES_REGLAGE`) : le store range.
+   */
+  setBancOmbre(
+    projectId: string,
+    reglage: ReglageBancOmbre,
+    definiPar: string | null = null,
+    now = Date.now(),
+  ): void {
+    this.db
+      .prepare(
+        `INSERT INTO banc_ombre
+           (projectId, actif, tauxPourMille, executionsParJour, plafondCoutUsd, version, definiPar, updatedAt)
+         VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+         ON CONFLICT(projectId) DO UPDATE SET
+           actif = excluded.actif,
+           tauxPourMille = excluded.tauxPourMille,
+           executionsParJour = excluded.executionsParJour,
+           plafondCoutUsd = excluded.plafondCoutUsd,
+           definiPar = excluded.definiPar,
+           updatedAt = excluded.updatedAt`,
+      )
+      .run(
+        projectId,
+        reglage.actif ? 1 : 0,
+        reglage.tauxPourMille,
+        reglage.executionsParJour,
+        reglage.plafondCoutUsd,
+        definiPar,
+        now,
+      );
+  }
+
+  /** Le consentement d'un projet, ou `null` : pas de ligne ⇒ banc ÉTEINT. */
+  getBancOmbre(
+    projectId: string,
+  ): (ReglageBancOmbre & { definiPar: string | null; updatedAt: number }) | null {
+    const row = this.db
+      .prepare(
+        `SELECT actif, tauxPourMille, executionsParJour, plafondCoutUsd, definiPar, updatedAt
+           FROM banc_ombre WHERE projectId = ?`,
+      )
+      .get(projectId) as
+      | (Omit<ReglageBancOmbre, 'actif'> & {
+          actif: number;
+          definiPar: string | null;
+          updatedAt: number;
+        })
+      | undefined;
+    return row ? { ...row, actif: row.actif === 1 } : null;
+  }
+
+  /**
+   * Crée l'ombre ET son lien en UNE transaction. Une ombre sans son lien serait
+   * une production ordinaire — livrable, fusionnable, apprise par le routing —
+   * pendant l'instant qui sépare les deux écritures, et pour toujours si la
+   * seconde échouait. La tâche naît `pending` sans dépendance : rien ne la
+   * prend avant une passe du planificateur, et le lien est déjà là.
+   */
+  creerTacheOmbre(
+    o: {
+      original: Pick<Task, 'id' | 'projectId' | 'prompt'>;
+      titre: string;
+      resultatOriginal: number;
+      modeleOriginal: string;
+      modeleOmbre: string;
+    },
+    now = Date.now(),
+  ): TacheOmbre {
+    const tacheOmbre = randomUUID();
+    this.enTransaction(() => {
+      this.db
+        .prepare(
+          `INSERT INTO tasks (id, projectId, title, prompt, status, dependsOn, attempts, createdAt, updatedAt)
+           VALUES (?, ?, ?, ?, 'pending', '[]', 0, ?, ?)`,
+        )
+        .run(tacheOmbre, o.original.projectId, o.titre, o.original.prompt, now, now);
+      this.db
+        .prepare(
+          `INSERT INTO taches_ombre
+             (tacheOmbre, tacheOriginale, projectId, resultatOriginal, modeleOriginal, modeleOmbre, creeA)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          tacheOmbre,
+          o.original.id,
+          o.original.projectId,
+          o.resultatOriginal,
+          o.modeleOriginal,
+          o.modeleOmbre,
+          now,
+        );
+    });
+    return this.ombreDe(tacheOmbre) as TacheOmbre;
+  }
+
+  /** Le lien d'une OMBRE, ou `null` : cette tâche n'en est pas une. */
+  ombreDe(taskId: string): TacheOmbre | null {
+    return (
+      (this.db.prepare('SELECT * FROM taches_ombre WHERE tacheOmbre = ?').get(taskId) as
+        TacheOmbre | undefined) ?? null
+    );
+  }
+
+  /** L'ombre lancée pour cette tâche ORIGINALE, ou `null`. */
+  ombreDeOriginale(taskId: string): TacheOmbre | null {
+    return (
+      (this.db.prepare('SELECT * FROM taches_ombre WHERE tacheOriginale = ?').get(taskId) as
+        TacheOmbre | undefined) ?? null
+    );
+  }
+
+  /**
+   * Ce que le banc a dépensé pour un projet depuis `depuis`. Les ombres EN VOL
+   * se comptent sans fenêtre : une ombre lancée hier et toujours en file tient
+   * encore sa place (`OMBRES_EN_VOL_MAX`).
+   */
+  usageBancOmbre(projectId: string, depuis: number): UsageBancOmbre {
+    const fenetre = this.db
+      .prepare(
+        `SELECT COUNT(*) AS executions,
+                COALESCE(SUM(coutDeclareUsd), 0) AS coutDeclareUsd,
+                COALESCE(SUM(executionsMuettes), 0) AS executionsMuettes
+           FROM taches_ombre WHERE projectId = ? AND creeA >= ?`,
+      )
+      .get(projectId, depuis) as Omit<UsageBancOmbre, 'enVol'>;
+    const { enVol } = this.db
+      .prepare(
+        `SELECT COUNT(*) AS enVol
+           FROM taches_ombre o JOIN tasks t ON t.id = o.tacheOmbre
+          WHERE o.projectId = ? AND t.status NOT IN ('done', 'failed')`,
+      )
+      .get(projectId) as { enVol: number };
+    return { ...fenetre, enVol };
+  }
+
+  /**
+   * Ajoute ce qu'une exécution liée à une ombre — l'ombre elle-même, ou une de
+   * ses relectures — a DÉCLARÉ coûter. `null` : le CLI n'a rien déclaré, et
+   * c'est compté comme tel, jamais estimé.
+   */
+  consignerCoutOmbre(tacheOmbre: string, coutUsd: number | null): void {
+    this.db
+      .prepare(
+        `UPDATE taches_ombre
+            SET coutDeclareUsd = coutDeclareUsd + ?, executionsMuettes = executionsMuettes + ?
+          WHERE tacheOmbre = ?`,
+      )
+      .run(coutUsd ?? 0, coutUsd === null ? 1 : 0, tacheOmbre);
+  }
+
+  /**
+   * Les dernières ombres d'un projet, avec l'état de leur tâche (`null` si
+   * elle a disparu), les plus récentes d'abord. Bornée par `limite`.
+   */
+  ombresRecentes(
+    projectId: string,
+    limite = 20,
+  ): Array<TacheOmbre & { statut: TaskStatus | null; titre: string | null }> {
+    return this.db
+      .prepare(
+        `SELECT o.*, t.status AS statut, t.title AS titre
+           FROM taches_ombre o LEFT JOIN tasks t ON t.id = o.tacheOmbre
+          WHERE o.projectId = ?
+          ORDER BY o.creeA DESC, o.tacheOmbre DESC
+          LIMIT ?`,
+      )
+      .all(projectId, Math.max(1, Math.min(limite, 200))) as Array<
+      TacheOmbre & { statut: TaskStatus | null; titre: string | null }
+    >;
+  }
+
+  /** Élague les liens dont l'ombre n'existe plus. Référentielle, motif `pruneContreExpertises`. */
+  pruneTachesOmbre(): number {
+    return this.db
+      .prepare('DELETE FROM taches_ombre WHERE tacheOmbre NOT IN (SELECT id FROM tasks)')
       .run().changes;
   }
 
@@ -5432,13 +5704,17 @@ export class HiveStore {
     now?: number;
   }): boolean {
     const now = l.now ?? Date.now();
+    // Une OMBRE ne se réserve jamais (shadow-bench.ts) : la garde vit dans
+    // l'insertion même, la frontière atomique que toutes les voies de livraison
+    // traversent — la route humaine, le runner, et celles qui viendront.
     const info = this.db
       .prepare(
         `INSERT INTO livraisons (taskId, projectId, depot, pr, branche, etat, motif, version, creeA, majA)
-         VALUES (?, ?, ?, 0, ?, ?, '', 1, ?, ?)
+         SELECT ?, ?, ?, 0, ?, ?, '', 1, ?, ?
+          WHERE NOT EXISTS (SELECT 1 FROM taches_ombre WHERE tacheOmbre = ?)
          ON CONFLICT(taskId) DO NOTHING`,
       )
-      .run(l.taskId, l.projectId, l.depot, l.branche, ETAT_LIVRAISON_EN_COURS, now, now);
+      .run(l.taskId, l.projectId, l.depot, l.branche, ETAT_LIVRAISON_EN_COURS, now, now, l.taskId);
     return info.changes === 1;
   }
 
@@ -6322,9 +6598,22 @@ export class HiveStore {
     return row.n;
   }
 
-  /** Récupère les souvenirs pertinents (BM25 + trigrammes sur le corpus récent). */
-  searchMemories(query: string, limit = 3): ScoredMemory[] {
-    return rankMemoriesHybrid(query, this.listMemories(500), limit);
+  /**
+   * Récupère les souvenirs pertinents (BM25 + trigrammes sur le corpus récent).
+   *
+   * `exclureTache` : le souvenir de CETTE tâche ne compte pas. Une ombre rejoue
+   * une tâche dont la production a déjà laissé un souvenir — même titre, même
+   * prompt, donc le plus pertinent de tous : le lui servir, c'était lui
+   * souffler la réponse de l'autre modèle, et la comparaison ne mesurait plus
+   * rien.
+   */
+  searchMemories(query: string, limit = 3, exclureTache?: string): ScoredMemory[] {
+    const souvenirs = this.listMemories(500);
+    return rankMemoriesHybrid(
+      query,
+      exclureTache === undefined ? souvenirs : souvenirs.filter((m) => m.taskId !== exclureTache),
+      limit,
+    );
   }
 
   /** Ne conserve que les `maxKeep` souvenirs les plus récents. Retourne le nombre supprimé. */

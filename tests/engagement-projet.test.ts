@@ -16,10 +16,10 @@
 //   · OU un projet SANS PROPRIÉTAIRE, qui n'appartient qu'à la ruche, et pour
 //     lequel le jeton de ruche EST la ruche.
 //
-// Et RÉGLER n'est pas ENGAGER : autonomie, Garde-Fous, plafond de dépense et
-// horizon décident de ce que le projet s'autorise ensuite. Ils sont réservés à
-// qui en répond — le propriétaire ou un administrateur, ou le jeton sur un
-// projet orphelin. Un membre reçoit 403 : il sait déjà que le projet existe.
+// Et RÉGLER n'est pas ENGAGER : autonomie, Garde-Fous, plafond de dépense,
+// banc d'ombre et horizon décident de ce que le projet s'autorise ensuite.
+// Ils sont réservés à qui en répond — le propriétaire ou un administrateur, ou
+// le jeton sur un projet orphelin. Un membre reçoit 403 : il sait déjà que le projet existe.
 //
 // DÉCIDER n'est pas engager non plus : la revue humaine, l'annulation, la
 // livraison et la fusion disent ce que devient un travail déjà fait. Même
@@ -330,6 +330,16 @@ const REGLAGES: readonly Acte[] = [
     route: '/api/projects/:projectId/horizon',
     url: p('horizon'),
     corps: () => ({ kind: 'fait', texte: 'le site est en ligne' }),
+    refus: 'projet',
+  },
+  {
+    // Le banc d'ombre fait payer à l'hôte de vrais appels de modèle : l'allumer
+    // et fixer son budget, c'est décider de ce que le projet s'autorise.
+    nom: 'banc-ombre',
+    methode: 'POST',
+    route: '/api/projects/:projectId/banc-ombre',
+    url: p('banc-ombre'),
+    corps: () => ({ actif: false, executionsParJour: 3, plafondCoutUsd: 1 }),
     refus: 'projet',
   },
 ];

@@ -41,13 +41,30 @@
 // arrêtée d'un bloc (reprise au boot, annulation humaine) interrompt chaque
 // drone encore en vol.
 //
+// LE BANC D'OMBRE, À PART. Une ombre (orchestrator/shadow-bench.ts) rejoue une
+// tâche déjà comptée, avec un second modèle : ses faits ne se mêlent JAMAIS aux
+// lignes ci-dessus, qui disent ce que les modèles ont fait du travail des
+// projets. Ils forment une section à part (`ombre`), de provenance `shadow`,
+// où chaque comparaison porte son verdict — rendu par les TESTS — et sa
+// confiance. Comme le reste : des comptes, aucun classement, et rien de tout
+// cela ne revient au routing.
+//
 // Le module est pur : il replie des événements déjà journalisés. Il ne touche
 // ni au routing, ni à la récompense de l'Aiguillage.
 
 import type { Categorie } from '../orchestrator/aiguillage.js';
+import { comparerOmbre, issueDeCote } from '../orchestrator/shadow-bench.js';
+import type {
+  ConfianceOmbre,
+  CoteComparee,
+  RevueCote,
+  VerdictOmbre,
+} from '../orchestrator/shadow-bench.js';
 import { declarationDe, sommeDeclaree } from './declaration-fournisseur.js';
 import type { SommeDeclaree } from './declaration-fournisseur.js';
 import type { HiveEvent } from './types.js';
+import { estEtatDeValidation } from './validations-bac.js';
+import type { ValidationState } from './validations-bac.js';
 
 export const TYPES_REGISTRE_GENOME = [
   'task_assigned',
@@ -63,6 +80,10 @@ export const TYPES_REGISTRE_GENOME = [
   'drone_cancelled',
   'contre_expertise_verdict',
   'task_reviewed',
+  // Le banc d'ombre : l'annonce de chaque ombre (le côté original y est figé),
+  // et les validations — celles de l'ombre sont SON verdict de tests.
+  'shadow_bench_started',
+  'validation_recorded',
 ] as const;
 
 /** Les faits d'un modèle dans une catégorie — des comptes, jamais une note. */
@@ -104,8 +125,77 @@ export interface LigneGenome extends FaitsGenome {
   categorie: Categorie;
 }
 
+/** Un côté d'une comparaison du banc : ce qu'il a donné, et d'après quoi. */
+export interface CoteOmbreGenome extends CoteComparee {
+  /** Le résultat exact jugé ; `null` quand le journal ne l'a pas dit. */
+  resultId: number | null;
+  /** L'état `tests` de ses validations ; `null` sans validation relue. */
+  tests: ValidationState | null;
+}
+
+/** Une ombre et la production qu'elle mesure — un fait de provenance `shadow`. */
+export interface ComparaisonOmbre {
+  provenance: 'shadow';
+  tacheOriginale: string;
+  tacheOmbre: string;
+  /** Le modèle de l'ombre, connu dès l'annonce — même quand elle n'a encore rien rendu. */
+  modeleOmbre: string;
+  categorie: Categorie;
+  /** Instant de l'annonce (`shadow_bench_started`). */
+  depuis: number;
+  /**
+   * `en_vol` : l'ombre n'a pas encore rendu. `abandonnee` : elle s'est
+   * arrêtée sans rien rendre (annulée, modèle disparu, aucun agent qui
+   * démarre) — rien à comparer, et rien n'est inventé. `comparee` : elle a
+   * rendu, le verdict et la confiance existent.
+   */
+  etat: 'en_vol' | 'abandonnee' | 'comparee';
+  original: CoteOmbreGenome;
+  /** `null` tant que l'ombre n'a rien rendu. */
+  ombre: CoteOmbreGenome | null;
+  verdict: VerdictOmbre | null;
+  confiance: ConfianceOmbre | null;
+}
+
+/**
+ * Les comparaisons TRANCHÉES d'un modèle dans une catégorie, de SON point de
+ * vue : une victoire de l'ombre est une défaite de l'originale. Des comptes,
+ * par confiance — aucune note, aucun rang.
+ */
+export interface LigneOmbre {
+  provenance: 'shadow';
+  modele: string;
+  categorie: Categorie;
+  comparaisons: number;
+  /** Parmi elles, celles où ce modèle ÉTAIT l'ombre. */
+  commeOmbre: number;
+  victoires: number;
+  defaites: number;
+  egalites: number;
+  indecises: number;
+  confiance: Record<ConfianceOmbre, number>;
+}
+
+export interface BancOmbreGenome {
+  provenance: 'shadow';
+  lignes: LigneOmbre[];
+  /** Les plus récentes d'abord, bornées à `COMPARAISONS_OMBRE_MAX`. */
+  comparaisons: ComparaisonOmbre[];
+  /** Toutes les ombres annoncées dans la fenêtre lue, bornée ou pas. */
+  total: number;
+}
+
+/** Ce que l'écran liste d'ombres récentes ; les lignes, elles, comptent tout. */
+export const COMPARAISONS_OMBRE_MAX = 20;
+
 export interface RegistreGenome {
   lignes: LigneGenome[];
+  /**
+   * Le banc d'ombre, À PART : jamais mêlé aux lignes de production, et lu
+   * par personne d'autre que l'écran (shadow-bench.ts : les comparaisons ne
+   * changent aucun poids du routing).
+   */
+  ombre: BancOmbreGenome;
   /** Affectations faites sans modèle déclaré, toutes catégories confondues. */
   sansModele: FaitsGenome;
   /**
@@ -233,6 +323,113 @@ function figer(acc: Accumulateur): FaitsGenome {
   };
 }
 
+/** Une ombre suivie pendant la lecture : son annonce, puis ce qu'elle a rendu. */
+interface SuiviOmbre {
+  tacheOmbre: string;
+  tacheOriginale: string;
+  categorie: Categorie;
+  depuis: number;
+  modeleOriginal: string;
+  modeleOmbre: string;
+  original: {
+    resultId: number;
+    succes: boolean;
+    tests: ValidationState | null;
+    baseSha: string | null;
+  };
+  /** `null` : rien rendu encore. */
+  succes: boolean | null;
+  abandonnee: boolean;
+  resultId: number | null;
+  tests: ValidationState | null;
+  baseSha: string | null;
+}
+
+function entier(valeur: unknown): number | null {
+  return typeof valeur === 'number' && Number.isSafeInteger(valeur) ? valeur : null;
+}
+
+function etatTests(validation: unknown): ValidationState | null {
+  if (typeof validation !== 'object' || validation === null) return null;
+  const tests = (validation as Record<string, unknown>).tests;
+  return estEtatDeValidation(tests) ? tests : null;
+}
+
+/** L'annonce d'une ombre, relue champ par champ — `null` si elle est illisible. */
+function suiviDepuisAnnonce(ev: HiveEvent): SuiviOmbre | null {
+  const p = ev.payload;
+  const tacheOmbre = texte(p.taskId);
+  const tacheOriginale = texte(p.tacheOriginale);
+  const categorie = texte(p.categorie) as Categorie | null;
+  const modeleOmbre = texte(p.modeleOmbre);
+  const o =
+    typeof p.original === 'object' && p.original !== null
+      ? (p.original as Record<string, unknown>)
+      : null;
+  const modeleOriginal = o ? texte(o.modele) : null;
+  const resultId = o ? entier(o.resultId) : null;
+  if (
+    !tacheOmbre ||
+    !tacheOriginale ||
+    !categorie ||
+    !modeleOmbre ||
+    !o ||
+    !modeleOriginal ||
+    resultId === null ||
+    typeof o.succes !== 'boolean'
+  ) {
+    return null;
+  }
+  return {
+    tacheOmbre,
+    tacheOriginale,
+    categorie,
+    depuis: ev.ts,
+    modeleOriginal,
+    modeleOmbre,
+    original: {
+      resultId,
+      succes: o.succes,
+      tests: estEtatDeValidation(o.tests) ? o.tests : null,
+      baseSha: texte(o.baseSha),
+    },
+    succes: null,
+    abandonnee: false,
+    resultId: null,
+    tests: null,
+    baseSha: null,
+  };
+}
+
+/** Le fait d'une OMBRE elle-même : sa validation, son rendu, ou son abandon. */
+function suivreOmbre(suivi: SuiviOmbre, ev: HiveEvent): void {
+  const p = ev.payload;
+  switch (ev.type) {
+    case 'validation_recorded':
+      // Une ombre n'a qu'UNE tentative (scheduler.ts) : sa première
+      // validation est celle de son unique production.
+      if (suivi.resultId === null) {
+        suivi.resultId = entier(p.resultId);
+        suivi.tests = etatTests(p.validation);
+        suivi.baseSha = texte(p.baseSha);
+      }
+      break;
+    case 'task_done':
+      suivi.succes = true;
+      break;
+    case 'task_failed':
+      // Un échec qui vient d'un RÉSULTAT porte le nœud qui l'a rendu ; un
+      // échec motivé sans résultat (modèle disparu, aucun agent qui démarre)
+      // est un abandon : rien n'a été produit, rien ne se compare.
+      if (texte(p.reason) !== null && texte(p.nodeId) === null) suivi.abandonnee = true;
+      else suivi.succes = false;
+      break;
+    case 'task_cancelled':
+      if (suivi.succes === null) suivi.abandonnee = true;
+      break;
+  }
+}
+
 /**
  * Replie le journal en registre. `categorieDe` rend la catégorie d'une tâche
  * encore connue, `null` sinon : un événement d'une tâche disparue est ignoré.
@@ -240,16 +437,25 @@ function figer(acc: Accumulateur): FaitsGenome {
  * signale une fenêtre tronquée. `journalElague` dit si le journal a déjà
  * perdu des événements (`HiveStore.journalElague`) : un fait que les
  * événements lus ne peuvent pas révéler, puisque ce sont les absents.
+ * `estOmbre` dit si une tâche est une ombre du banc (`taches_ombre`) : ses
+ * faits vont à la section `ombre`, jamais aux lignes de production — même
+ * quand son annonce est déjà sortie de la fenêtre lue.
  */
 export function registreGenomeDepuisEvenements(
   evenements: readonly HiveEvent[],
   categorieDe: (taskId: string) => Categorie | null,
   borne = Number.POSITIVE_INFINITY,
   journalElague = false,
+  estOmbre: (taskId: string) => boolean = () => false,
 ): RegistreGenome {
   const parCle = new Map<string, { modele: string; categorie: Categorie; acc: Accumulateur }>();
   const sansModele = vide();
   const taches = new Map<string, EtatTache>();
+  // Le banc d'ombre : les ombres annoncées, et les avis de contre-revue de
+  // TOUTE tâche — le côté original d'une comparaison est une tâche ordinaire,
+  // et son avis peut précéder l'annonce de son ombre.
+  const ombres = new Map<string, SuiviOmbre>();
+  const avis = new Map<string, { valides: number; contestes: number }>();
 
   const accumulateur = (p: Production): Accumulateur => {
     if (p.modele === null) return sansModele;
@@ -278,6 +484,29 @@ export function registreGenomeDepuisEvenements(
     const p = ev.payload;
     const taskId = texte(p.taskId);
     if (taskId === null) continue;
+    if (
+      ev.type === 'contre_expertise_verdict' &&
+      p.source === 'hive_counter_review' &&
+      typeof p.conteste === 'boolean'
+    ) {
+      // Clé tâche ET résultat : l'avis juge une production précise. Sans
+      // `resultId`, il ne se rattache à aucune (`#`).
+      const cle = `${taskId}#${entier(p.resultId) ?? ''}`;
+      const compte = avis.get(cle) ?? { valides: 0, contestes: 0 };
+      if (p.conteste) compte.contestes += 1;
+      else compte.valides += 1;
+      avis.set(cle, compte);
+    }
+    if (ev.type === 'shadow_bench_started') {
+      const suivi = suiviDepuisAnnonce(ev);
+      if (suivi) ombres.set(suivi.tacheOmbre, suivi);
+      continue;
+    }
+    const suivi = ombres.get(taskId);
+    if (suivi || estOmbre(taskId)) {
+      if (suivi) suivreOmbre(suivi, ev);
+      continue;
+    }
     const categorie = categorieDe(taskId);
     if (categorie === null) continue;
     const etat: EtatTache = taches.get(taskId) ?? {
@@ -423,11 +652,129 @@ export function registreGenomeDepuisEvenements(
 
   return {
     lignes,
+    ombre: replierOmbres([...ombres.values()], avis),
     sansModele: figer(sansModele),
     fenetre: {
       evenements: evenements.length,
       depuis: ordonnes[0]?.ts ?? null,
       tronquee: journalElague || evenements.length >= borne,
     },
+  };
+}
+
+/** L'avis de la contre-revue sur un côté ; `resultId` absent : tous les résultats de la tâche. */
+function revueDe(
+  avis: ReadonlyMap<string, { valides: number; contestes: number }>,
+  taskId: string,
+  resultId: number | null,
+): RevueCote {
+  let valides = 0;
+  let contestes = 0;
+  for (const [cle, compte] of avis) {
+    const [tache, resultat] = cle.split('#');
+    if (tache !== taskId) continue;
+    if (resultId !== null && resultat !== String(resultId)) continue;
+    valides += compte.valides;
+    contestes += compte.contestes;
+  }
+  return contestes > 0 ? 'contestee' : valides > 0 ? 'validee' : 'absente';
+}
+
+/** Les comparaisons des ombres suivies, et leurs comptes par modèle et catégorie. */
+function replierOmbres(
+  suivis: readonly SuiviOmbre[],
+  avis: ReadonlyMap<string, { valides: number; contestes: number }>,
+): BancOmbreGenome {
+  const lignes = new Map<string, LigneOmbre>();
+  const compter = (
+    modele: string,
+    categorie: Categorie,
+    issue: 'victoire' | 'defaite' | 'egalite' | 'indecise',
+    commeOmbre: boolean,
+    confiance: ConfianceOmbre,
+  ): void => {
+    const cle = `${modele}\u0000${categorie}`;
+    const l = lignes.get(cle) ?? {
+      provenance: 'shadow' as const,
+      modele,
+      categorie,
+      comparaisons: 0,
+      commeOmbre: 0,
+      victoires: 0,
+      defaites: 0,
+      egalites: 0,
+      indecises: 0,
+      confiance: { haute: 0, moyenne: 0, faible: 0 },
+    };
+    l.comparaisons += 1;
+    if (commeOmbre) l.commeOmbre += 1;
+    if (issue === 'victoire') l.victoires += 1;
+    else if (issue === 'defaite') l.defaites += 1;
+    else if (issue === 'egalite') l.egalites += 1;
+    else l.indecises += 1;
+    l.confiance[confiance] += 1;
+    lignes.set(cle, l);
+  };
+
+  const comparaisons = suivis.map((s): ComparaisonOmbre => {
+    const original: CoteOmbreGenome = {
+      modele: s.modeleOriginal,
+      issue: issueDeCote(s.original.succes, s.original.tests),
+      revue: revueDe(avis, s.tacheOriginale, s.original.resultId),
+      baseSha: s.original.baseSha,
+      resultId: s.original.resultId,
+      tests: s.original.tests,
+    };
+    const base = {
+      provenance: 'shadow' as const,
+      tacheOriginale: s.tacheOriginale,
+      tacheOmbre: s.tacheOmbre,
+      modeleOmbre: s.modeleOmbre,
+      categorie: s.categorie,
+      depuis: s.depuis,
+      original,
+    };
+    if (s.abandonnee || s.succes === null) {
+      return {
+        ...base,
+        etat: s.abandonnee ? 'abandonnee' : 'en_vol',
+        ombre: null,
+        verdict: null,
+        confiance: null,
+      };
+    }
+    const ombre: CoteOmbreGenome = {
+      modele: s.modeleOmbre,
+      issue: issueDeCote(s.succes, s.tests),
+      revue: revueDe(avis, s.tacheOmbre, null),
+      baseSha: s.baseSha,
+      resultId: s.resultId,
+      tests: s.tests,
+    };
+    const { verdict, confiance } = comparerOmbre(original, ombre);
+    const pourOmbre =
+      verdict === 'ombre_meilleure'
+        ? 'victoire'
+        : verdict === 'originale_meilleure'
+          ? 'defaite'
+          : verdict === 'egalite'
+            ? 'egalite'
+            : 'indecise';
+    const pourOriginale =
+      pourOmbre === 'victoire' ? 'defaite' : pourOmbre === 'defaite' ? 'victoire' : pourOmbre;
+    compter(s.modeleOmbre, s.categorie, pourOmbre, true, confiance);
+    compter(s.modeleOriginal, s.categorie, pourOriginale, false, confiance);
+    return { ...base, etat: 'comparee', ombre, verdict, confiance };
+  });
+
+  return {
+    provenance: 'shadow',
+    lignes: [...lignes.values()].sort((a, b) =>
+      a.modele === b.modele
+        ? a.categorie.localeCompare(b.categorie)
+        : a.modele.localeCompare(b.modele),
+    ),
+    comparaisons: comparaisons.reverse().slice(0, COMPARAISONS_OMBRE_MAX),
+    total: suivis.length,
   };
 }

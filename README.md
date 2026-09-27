@@ -164,8 +164,10 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
   Windows), comme les merges et chantiers en cours et les sous-processus
   qu'un agent lance lui-même ;
 - l'apprentissage : le routing apprend toujours des seules contre-visites ;
-  y faire entrer les autres faits du registre Genome est une décision de
-  pondération, pas encore prise ;
+  y faire entrer les autres faits du registre Genome — et les comparaisons du
+  [banc d'ombre](docs/BANC-OMBRE.md), qui mesure deux modèles sur la même
+  tâche sans toucher au routing — est une décision de pondération, pas encore
+  prise ;
 - une contre-expertise croisée sur un vrai run : une ouvrière par famille est
   éprouvée avec de vrais processus et de faux agents, pas encore avec Claude
   Code relu par Codex ;
@@ -454,6 +456,7 @@ sont coupés aussi pour les tâches de la ruche.
 | **[docs/PROTECTION-BRANCHE.md](docs/PROTECTION-BRANCHE.md)** | Protéger `main` : les réglages exacts, et pourquoi       |
 | **[docs/FONCTIONNALITES.md](docs/FONCTIONNALITES.md)**       | Chaque partie en détail, avec ses arbitrages             |
 | **[docs/FEATURES.en.md](docs/FEATURES.en.md)**               | The same, in English                                     |
+| **[docs/BANC-OMBRE.md](docs/BANC-OMBRE.md)**                 | Comparer deux modèles sur une même tâche, sans livrer    |
 | **[docs/ERREURS.md](docs/ERREURS.md)**                       | Le journal des erreurs — par leçon, avec les règles      |
 | **[docs/ETAPES.md](docs/ETAPES.md)**                         | L'état réel du projet face à ses propres promesses       |
 | **[docs/MODELE-ECONOMIQUE.md](docs/MODELE-ECONOMIQUE.md)**   | Quotas, abonnements, ce qui est facturé                  |

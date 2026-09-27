@@ -49,8 +49,17 @@ export interface LigneRaison {
   aExplorer: boolean;
 }
 
-/** Ce qui a départagé le nœud, dans l'ordre où l'ordonnanceur l'applique. */
-export type CritereNoeud = 'course_de_drones' | 'porteur_du_modele' | 'pheromones' | 'moins_charge';
+/**
+ * Ce qui a départagé le nœud, dans l'ordre où l'ordonnanceur l'applique.
+ * `porteur_du_modele_ombre` : une ombre du banc (shadow-bench.ts) — son modèle
+ * n'a pas été ÉLU par l'Aiguillage, il a été choisi par le banc à sa création.
+ */
+export type CritereNoeud =
+  | 'course_de_drones'
+  | 'porteur_du_modele'
+  | 'porteur_du_modele_ombre'
+  | 'pheromones'
+  | 'moins_charge';
 
 /** Un drone d'une course : son nœud, le modèle qui lui a été commandé, et pourquoi. */
 export interface DroneVue {
@@ -214,7 +223,9 @@ export function affectationsDepuisEvenements(evenements: readonly HiveEvent[]): 
         : pheromone
           ? 'pheromones'
           : modele
-            ? 'porteur_du_modele'
+            ? p.ombre === true
+              ? 'porteur_du_modele_ombre'
+              : 'porteur_du_modele'
             : 'moins_charge',
     });
   }

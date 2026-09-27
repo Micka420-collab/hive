@@ -3242,8 +3242,39 @@ button.mc-cell:focus-visible {
   font-size: 0.75rem;
   color: var(--muted);
 }
+/* Le registre vit dans une carte sans marge intérieure : sans ce retrait, sa
+   table, son pied et le banc d'ombre touchaient le bord de la carte, à
+   l'écart de l'en-tête (16 px, `.panel-head`). */
+.genome-defile,
+.genome-pied,
+.genome-ombre {
+  padding-inline: 16px;
+}
+.genome-pied {
+  padding-bottom: 12px;
+}
+/* Dans le banc d'ombre, déjà en retrait : pas un second retrait. */
+.genome-ombre .genome-defile,
+.genome-ombre .genome-pied {
+  padding-inline: 0;
+}
 .genome-exacts {
   display: block;
   font-size: 0.7rem;
   color: var(--muted);
+}
+/* Le banc d'ombre, À PART des lignes de production : un filet le sépare. */
+.genome-ombre {
+  margin-top: 0.9rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--border, rgba(127, 127, 127, 0.25));
+}
+.genome-ombre h3 {
+  margin: 0 0 0.4rem;
+  font-size: 0.9rem;
+}
+.genome-ombre-liste {
+  margin: 0.4rem 0 0;
+  padding-left: 1.1em;
+  font-size: 0.78rem;
 }
