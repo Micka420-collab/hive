@@ -1,0 +1,5 @@
+{"type":"thread.started","thread_id":"01a0e487-9da1-7dd3-8c62-c709d70455fe"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"I’ll create `hello.txt` with the requested content."}}
+{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"I couldn’t create `hello.txt`: this workspace is read-only and approvals are disabled."}}
+{"type":"turn.completed","usage":{"input_tokens":27802,"cached_input_tokens":24064,"cache_write_input_tokens":0,"output_tokens":132,"reasoning_output_tokens":49}}

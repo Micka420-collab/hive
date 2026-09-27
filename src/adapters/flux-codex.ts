@@ -66,7 +66,8 @@
 //   · le BILAN (`bilan`) : ce que l'échec dit, en clair, sur une ligne — la
 //     raison de `turn.failed`, l'erreur non refaite d'un tour pourtant
 //     conclu, ou, faute de raison dans le flux, CE QUI s'est passé (sortie
-//     sans conclusion, sans événement, après un tour conclu). Jamais rien :
+//     sans conclusion, sans événement, après un tour conclu, tour conclu
+//     sans qu'aucun correctif s'applique). Jamais rien :
 //     sans bilan, ce que l'échec dit tombait sur la bannière de stderr
 //     (« Reading additional input from stdin... »), la même pour TOUS les
 //     échecs de Codex — une signature commune, et trois nœuds suffisent à en
@@ -269,6 +270,29 @@ const DIALECTE_INCONNU =
   'codex : flux `--json` sans aucun `turn.completed` ni `turn.failed` — dialecte non reconnu (codex-cli 0.156.0 ou plus récent attendu)';
 
 /**
+ * Un tour CONCLU où Codex n'a pu appliquer AUCUN des correctifs qu'il a tentés.
+ *
+ * ─── SORTIE EN 0, ET RIEN D'ÉCRIT ────────────────────────────────────────────
+ *
+ * Quand le bac de Codex ne démarre pas (bubblewrap sans espace de noms :
+ * openai/codex#46246), chaque correctif sort `file_change` en `failed`, le
+ * modèle conclut qu'il n'a rien pu faire, et `codex exec` sort en 0 —
+ * enregistré sur le vrai binaire (tests/fixtures/flux-codex/bac-casse.*). Sans
+ * ce bilan, c'était une réussite au diff vide. Un correctif en échec n'arrive
+ * qu'au moment d'ÉCRIRE : une vérification ratée (contexte périmé) ou un
+ * chemin hors du bac sont refusés AVANT, sans événement. Un seul correctif
+ * appliqué suffit à lever le doute ; une relecture, qui n'en tente aucun, n'y
+ * passe jamais.
+ *
+ * COMPROMIS ACCEPTÉ : un agent qui, faute de correctif, écrirait par une
+ * commande (`echo > f`) serait dit en échec — dans un bac qui refuse les
+ * correctifs, la commande échoue de même.
+ */
+function correctifsRefuses(enEchec: number): string {
+  return `codex : échec — tour conclu sans qu'aucun correctif s'applique (${enEchec} en échec) : le bac de Codex n'a pas laissé écrire, rien n'a été produit`;
+}
+
+/**
  * Le préfixe des erreurs que Codex va REFAIRE. Toute `error` à `will_retry`
  * naît d'un `EventMsg::StreamError` (app-server bespoke_event_handling.rs), et
  * ses seuls émetteurs (`notify_stream_error` : core/src/responses_retry.rs,
@@ -294,6 +318,9 @@ export function createLecteurFluxCodex(): LecteurFluxCodex {
   let derniereErreur: string | undefined;
   /** Un événement au moins a-t-il été lu : sinon, pas de `--json` du tout. */
   let fluxLu = false;
+  /** Les correctifs (`file_change`) terminés, appliqués ou en échec. */
+  let correctifsAppliques = 0;
+  let correctifsEnEchec = 0;
 
   const rendre = (e: Objet): string | undefined => {
     switch (e.type) {
@@ -307,6 +334,10 @@ export function createLecteurFluxCodex(): LecteurFluxCodex {
         if (!item) return narrer(`événement codex sans élément : ${nom(e.type)}`);
         if (e.type === 'item.completed' && item.type === 'agent_message') {
           dernierMessage = chaine(item.text);
+        }
+        if (e.type === 'item.completed' && item.type === 'file_change') {
+          if (item.status === 'completed') correctifsAppliques += 1;
+          if (item.status === 'failed') correctifsEnEchec += 1;
         }
         return rendreElement(e.type, item);
       }
@@ -360,7 +391,11 @@ export function createLecteurFluxCodex(): LecteurFluxCodex {
     texte: () => (reponse === undefined ? undefined : borneTexteFinal(reponse)),
     bilan(code: number | null, arreteParHive: boolean): string | undefined {
       if (fin === 'echec') return raisonDEchec('tour en échec', raisonDuTour ?? '');
-      if (code === 0) return fin === 'conclu' ? undefined : DIALECTE_INCONNU;
+      if (code === 0) {
+        if (fin !== 'conclu') return DIALECTE_INCONNU;
+        const refuses = correctifsEnEchec > 0 && correctifsAppliques === 0;
+        return refuses ? correctifsRefuses(correctifsEnEchec) : undefined;
+      }
       // Arrêté par Hive (délai de garde, annulation) : le marqueur `[hive]`
       // dit déjà pourquoi, et ses dernières erreurs n'étaient peut-être que
       // des tentatives.

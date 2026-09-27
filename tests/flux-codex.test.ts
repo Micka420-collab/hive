@@ -290,6 +290,9 @@ function fauxCodex(
     [
       '#!/usr/bin/env node',
       "'use strict';",
+      // La sonde du bac de Codex (`codex sandbox … -- true`, codex.ts) : un
+      // hôte où il démarre. Ses échecs sont éprouvés par codex-ecriture.test.ts.
+      "if (process.argv[2] === 'sandbox') process.exit(0);",
       "const fs = require('node:fs');",
       "const lire = (f) => (fs.existsSync(f) ? fs.readFileSync(f) : '');",
       "const json = process.argv.includes('--json');",

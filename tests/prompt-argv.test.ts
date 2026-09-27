@@ -56,14 +56,9 @@ describe('les adaptateurs à CLI connue posent le terminateur `--`', () => {
   });
 
   it('codex : le modèle et le pont restent avant le terminateur', () => {
-    expect(argvCodex('--version', 'gpt-5')).toEqual([
-      'exec',
-      '--json',
-      '--model',
-      'gpt-5',
-      '--',
-      '--version',
-    ]);
+    const argv = argvCodex('--version', { sandbox: 'workspace-write', depot: '/t' }, 'gpt-5');
+    expect(argv.slice(-4)).toEqual(['--model', 'gpt-5', '--', '--version']);
+    expect(argv.indexOf('--')).toBe(argv.length - 2);
   });
 
   it('cursor : le prompt est le DERNIER argument, derrière `--`', () => {
