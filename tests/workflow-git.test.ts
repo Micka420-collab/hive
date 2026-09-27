@@ -45,8 +45,7 @@
 //
 //   · `it.fails` quand le défaut se mesure en une seconde : le banc est VERT
 //     tant que le défaut est là, et ROUGIT le jour de la correction — il
-//     faudra alors le retourner en `it`, c'est-à-dire en garde (sous Windows
-//     seulement, pour l'attente de Git Credential Manager : `attenteGcm`) ;
+//     faudra alors le retourner en `it`, c'est-à-dire en garde ;
 //   · `it.todo` quand la mesure exigerait d'attendre une borne qui n'existe
 //     pas encore (on ne teste pas « ça bloque pour toujours » en attendant
 //     pour toujours).
@@ -374,34 +373,21 @@ describe('identifiants Git invalides — l’échec est RAPIDE, et il REMONTE', 
   // leur copie de l'environnement de clone, et une copie se nettoie seule.
   // Tout ceci vaut pour HTTP(S) ; SSH est un autre défaut, consigné plus bas.
   //
-  // ─── DÉFAUT CONSIGNÉ SOUS WINDOWS — workspace.ts, les deux environnements ──
+  // ─── DÉFAUT CORRIGÉ SOUS WINDOWS — l'environnement de transport (#476) ────
   //
   // Mesuré sur la CI Windows (run 36287712655) : les deux clones sans
-  // identifiants étaient toujours EN ATTENTE au bout de 10 s, et la tâche de
-  // bout en bout toujours « running » au bout de 30 s. Git for Windows inscrit
-  // `credential.helper=manager` dans sa configuration système, et Git
-  // Credential Manager n'obéit à `GIT_TERMINAL_PROMPT` que pour son invite de
-  // TERMINAL — pas pour sa fenêtre (son `BasicAuthentication.cs` : il consulte
-  // `GCM_INTERACTIVE` d'abord, ouvre sa fenêtre sur une session de bureau, et
-  // ne lit `GIT_TERMINAL_PROMPT` qu'à défaut). `miroir.ts` l'a appris et pose
-  // `GCM_INTERACTIVE=Never` ; les deux environnements de clone du nœud, non.
-  // Des identifiants mis DANS l'URL, eux, ne réveillent pas GCM : leur banc
-  // passe partout.
+  // identifiants restaient EN ATTENTE, la tâche de bout en bout « running ».
+  // Git for Windows inscrit `credential.helper=manager`, et Git Credential
+  // Manager n'obéit à `GIT_TERMINAL_PROMPT` que pour son invite de TERMINAL —
+  // pas pour sa fenêtre : il consulte `GCM_INTERACTIVE` d'abord. Ces bancs
+  // étaient donc consignés en `fails` sur la CI Windows (et `skip` sur un poste
+  // de bureau, où GCM aurait ouvert une vraie fenêtre).
   //
-  // D'où, sous Windows, une bascule À DEUX ÉTATS :
-  //
-  //   · sur la CI, `fails` : le runner n'a pas de bureau, l'attente s'y MESURE
-  //     — vert tant que le nœud attend, ROUGE le jour où son environnement de
-  //     clone met GCM en non-interactif ; il faudra alors retirer la bascule,
-  //     et ces bancs redeviendront des gardes sur les trois systèmes. Le prix :
-  //     chaque banc attend son échéance (plus d'une minute en tout sur la
-  //     jambe Windows), et le git bloqué survit à la suite — rien ne le tue,
-  //     ni `cloneRepo` ni `prepareWorkspace` ne prenant de signal d'annulation ;
-  //   · sur un poste de bureau, `skip` : GCM y ouvrirait une VRAIE fenêtre
-  //     d'identifiants par banc devant la personne, et le verdict dépendrait
-  //     de qui la ferme, et quand.
-  const attenteGcm =
-    process.platform !== 'win32' ? {} : process.env.CI ? { fails: true } : { skip: true };
+  // #476 a réuni les deux environnements de clone en un seul,
+  // `envTransportGit()`, qui pose `GCM_INTERACTIVE=Never` comme `miroir.ts` :
+  // la CI Windows les a vus rougir (run 36308334514, « attendu en échec, mais
+  // passé »). La bascule est retirée : ce sont des GARDES sur les trois
+  // systèmes, et un poste de bureau n'ouvre plus de fenêtre.
 
   /** Les deux portes de clone du nœud. */
   const PORTES: [string, (dossier: string, url: string) => Promise<unknown>][] = [
@@ -417,7 +403,6 @@ describe('identifiants Git invalides — l’échec est RAPIDE, et il REMONTE', 
 
   it.each(PORTES)(
     '%s : sans identifiants, git échoue sur-le-champ au lieu d’ouvrir une invite',
-    attenteGcm,
     async (_porte, cloner) => {
       serveur.mode = 'identifiants';
       const dossier = mkdtempSync(path.join(racine, 'sans-identifiants-'));
@@ -580,7 +565,7 @@ describe('identifiants Git invalides — l’échec est RAPIDE, et il REMONTE', 
 
   it(
     'LA TÂCHE FINIT `failed`, AVEC LA RAISON LISIBLE PAR L’OPÉRATEUR — et l’agent n’a jamais tourné',
-    { ...attenteGcm, timeout: 60_000 },
+    { timeout: 60_000 },
     async () => {
       serveur.mode = 'identifiants';
       const r = await ruche('tache');
@@ -616,7 +601,7 @@ describe('identifiants Git invalides — l’échec est RAPIDE, et il REMONTE', 
 
   it(
     'LE MERGE AUSSI : le clone refusé finit en `merge_failed` avec la raison de git — jamais en merge « réussi » vide',
-    { ...attenteGcm, timeout: 60_000 },
+    { timeout: 60_000 },
     async () => {
       // Le merge clone le dépôt à son tour (`cloneRepo`, dans `runMergeJob`).
       // Mesuré avant correction : le nœud rendait `applied: [], conflicts: []`
