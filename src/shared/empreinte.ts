@@ -207,6 +207,13 @@ export function empreinte(ctx: Contexte): Emplacement[] {
         // incomplète à qui copierait « le » fichier de base.
         { chemin: `${ctx.dbPath}-wal`, quoi: 'journal WAL de SQLite' },
         { chemin: `${ctx.dbPath}-shm`, quoi: 'mémoire partagée de SQLite' },
+        // Le verrou de la Reine (`orchestrator/verrou-reine.ts`) : présent tant
+        // qu'elle tourne, rendu à l'arrêt. Un reste après un arrêt brutal est
+        // repris par la Reine suivante quand elle peut prouver qu'il est périmé.
+        {
+          chemin: `${ctx.dbPath}.reine.lock`,
+          quoi: 'verrou de la Reine — une seule Reine par base',
+        },
       ],
     },
     {

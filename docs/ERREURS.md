@@ -15323,3 +15323,38 @@ Deux gestes s'imposaient donc, et le second seul est vraiment un remède :
 > gabarit. Et si une mesure n'a pas été refaite, on écrit qu'elle n'a pas été
 > refaite, avec l'arbre sur lequel elle avait été prise — jamais le chiffre
 > seul, qui se lirait comme une mesure du jour.
+
+---
+
+## 9 novemoctogicenties. Un réglage lu à l'ouverture n'est pas le réglage de la ruche
+
+Un audit de l'ordonnanceur a relevé les pragmas de la base sur un vrai fichier
+WAL, avec la bibliothèque installée : `synchronous=2` (FULL), `foreign_keys=1`,
+`busy_timeout=5000`. La note de la carte, écrite avant lui, disait NORMAL ;
+l'audit l'a déclarée fausse, et une décision de produit a été prise sur son
+chiffre — « garder FULL, c'est le réglage d'aujourd'hui ».
+
+Relu en ouvrant la base comme le fait le store, puis en y ÉCRIVANT une ligne :
+
+```
+base neuve    à l'ouverture : synchronous=2    après une écriture : 1
+réouverture   à l'ouverture : synchronous=1    après une écriture : 1
+```
+
+better-sqlite3 est compilé avec `SQLITE_DEFAULT_WAL_SYNCHRONOUS=1` : tant que
+personne n'a posé `synchronous`, SQLite le fait tomber à NORMAL dès que la base
+travaille en WAL — à la première écriture, puis à chaque ouverture. La mesure de
+l'audit était exacte à l'instant où elle a été prise, et cet instant n'existe
+jamais dans une ruche qui tourne. La carte avait raison ; l'audit qui la
+corrigeait avait tort.
+
+Pourquoi ça a échappé : on a mesuré une VALEUR, pas un ÉTAT. Un pragma se lit
+comme une constante, et celui-ci dépend du mode du journal, qui dépend de la
+première écriture. Les trois autres réglages, eux, étaient justes pour une
+raison fragile : un défaut de compilation de la dépendance, aucune ligne du
+dépôt.
+
+> **Règle** — un réglage d'exécution se mesure dans l'état où il agit : sur la
+> connexion qui travaille, après une écriture, et après une réouverture. Ce
+> qu'il doit valoir s'écrit dans le code, pas dans les défauts d'une dépendance,
+> et un banc le relit dans ce même état (`tests/sqlite-concurrent.test.ts`).

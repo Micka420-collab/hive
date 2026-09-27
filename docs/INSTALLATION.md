@@ -304,6 +304,18 @@ qui ne va pas. Un thermomètre qui ne propose rien ne sert qu'à nommer la peine
 
 `--json` rend le tout en machine, pour une supervision.
 
+### « Une autre Reine tient déjà cette base »
+
+Une seule Reine par base : deux s'assigneraient les mêmes tâches, et la seconde
+requalifierait au démarrage les travaux en vol de la première. La Reine pose donc
+`data/hive.db.reine.lock` en démarrant et le rend en s'arrêtant.
+
+Après un arrêt brutal (processus tué, coupure de courant), le verrou reste : la
+Reine suivante le reprend d'elle-même quand elle peut **prouver** qu'il est
+périmé — même machine et processus disparu, ou machine redémarrée depuis. Sinon
+elle refuse de démarrer et affiche le chemin du verrou : s'il n'y a vraiment
+aucune autre Reine sur cette base, supprimez ce fichier.
+
 ---
 
 ## Rejoindre la ruche d'un ami
@@ -491,7 +503,7 @@ Un outil d'installation n'est pas un outil de destruction —
 |                                  |                                                                     |
 | -------------------------------- | ------------------------------------------------------------------- |
 | `<installation>/.env`            | jetons et secrets                                                   |
-| `<installation>/data/hive.db`    | la base, plus ses `-wal` et `-shm`                                  |
+| `<installation>/data/hive.db`    | la base, plus ses `-wal`, `-shm` et `.reine.lock`                   |
 | `<installation>/data/rayons/`    | les miroirs des dépôts                                              |
 | `<installation>/.hive-work/`     | espaces de travail, clé du nœud, `cloudflared`, ponts MCP éphémères |
 | `$TMPDIR/hive-merge-*`           | patchs d'une fusion — effacés à la fin de chacune                   |

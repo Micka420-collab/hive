@@ -298,6 +298,8 @@ import { detectConflicts } from './sting-detector.js';
 import { Scheduler } from './scheduler.js';
 import { ETAT_LIVRAISON_EN_COURS, HiveStore } from './store.js';
 import type { SessionRangee } from './store.js';
+import { direRepriseVerrou, prendreVerrouReine } from './verrou-reine.js';
+import type { VerrouReine } from './verrou-reine.js';
 import {
   projeterHistoriqueWorker,
   projeterWorkers,
@@ -802,6 +804,24 @@ export interface HiveServer {
 }
 
 export async function createServer(config: ServerConfig): Promise<HiveServer> {
+  // ─── UNE SEULE REINE PAR BASE (verrou-reine.ts) ────────────────────────────
+  //
+  // Pris AVANT d'ouvrir la base : une seconde Reine doit être refusée avant
+  // d'avoir écrit quoi que ce soit — son `recoverAtBoot` requalifierait les
+  // travaux en vol de la première. Rendu par `stop()`, ou ICI si le montage
+  // échoue : sans ce `catch`, un démarrage raté (port occupé) laisserait la
+  // base verrouillée au nom d'un processus toujours vivant.
+  const verrou = prendreVerrouReine(config.dbPath);
+  if (verrou?.reprise) console.warn(direRepriseVerrou(verrou.reprise));
+  try {
+    return await monterReine(config, verrou);
+  } catch (err) {
+    verrou?.liberer();
+    throw err;
+  }
+}
+
+async function monterReine(config: ServerConfig, verrou: VerrouReine | null): Promise<HiveServer> {
   // ─── Garde-fous de sécurité, avant toute écoute réseau ─────────────────────
   //
   // TOUS EN UNE PASSE. Ces trois gardes levaient l'une après l'autre : l'hôte
@@ -1057,9 +1077,14 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         relecteurAgent: relecteur.agentType,
         producteurAgent: production.agentType,
       });
-      const assignee = store.patchTask(relecture.id, {
-        status: 'assigned',
-        assignedNodeId: relecteur.nodeId,
+      // Réclamée depuis `pending`, conditionnellement : la même porte que le
+      // scheduler, pour que toute prise d'une tâche par un nœud passe par une
+      // écriture qui refuse d'écraser une prise concurrente.
+      const assignee = store.reclamerTache({
+        taskId: relecture.id,
+        attendu: 'pending',
+        nodeId: relecteur.nodeId,
+        branch: null,
       });
       if (assignee) {
         envoyerTache(relecteur.nodeId, assignee);
@@ -8912,7 +8937,17 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     },
   );
 
-  await app.listen({ port: config.port, host: config.host });
+  try {
+    await app.listen({ port: config.port, host: config.host });
+  } catch (err) {
+    // Port occupé : rien n'écoute encore, et aucune minuterie n'est partie
+    // (elles partent plus bas). On referme ce qui a été ouvert : sans ça, un
+    // démarrage mort gardait la base ouverte — et sous Windows, un fichier
+    // ouvert ne se supprime pas. `createServer` rend ensuite le verrou.
+    await app.close();
+    store.close();
+    throw err;
+  }
   const address = app.server.address();
   // loupe : équivalent — && → ||. Le repli `config.port` est INATTEIGNABLE
   // ici : `listen({ port, host })` rend toujours un `AddressInfo`, jamais une
@@ -10048,6 +10083,9 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     await new Promise<void>((resolve) => wss.close(() => resolve()));
     await app.close();
     store.close();
+    // APRÈS la fermeture de la base, jamais avant : rendu plus tôt, le verrou
+    // laisserait démarrer une Reine suivante pendant que celle-ci écrit encore.
+    verrou?.liberer();
   };
 
   return {
