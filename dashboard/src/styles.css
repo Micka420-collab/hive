@@ -1265,6 +1265,27 @@ h3 {
   cursor: pointer;
 }
 
+/* ─── Console en direct (TaskDrawer) ─────────────────────────────────── */
+.console-directe-titre {
+  margin: 0;
+}
+
+.console-directe-recherche {
+  width: 140px;
+  padding: 3px 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font-size: 12px;
+}
+
+/* Replier : les lignes longues (stream-json) coupent au lieu de défiler. */
+.console-directe-zone.replie {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .code-editor .cm-editor {
   max-height: 380px;
   border: 1px solid var(--border);

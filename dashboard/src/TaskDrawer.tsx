@@ -17,6 +17,8 @@ import { direAnnonce, direDuree } from '../../src/shared/horloge-chantier';
 import { verdictAnnonce } from './horloge-vue';
 import { RoutageTache } from './RoutageTache';
 import { ChronologieTache } from './ChronologieTache';
+import { ConsoleDeTache } from './ConsoleDirecte';
+import type { MagasinSorties } from './sorties-directes';
 import type { VueHorloge } from './horloge-vue';
 
 function raisonDelegation(events: DelegationEvent[], taskId: string): string | null {
@@ -165,10 +167,19 @@ interface Props {
   horloge?: VueHorloge;
   /** Incrémenté par App quand un événement persistant peut modifier le graphe. */
   refreshTick?: number;
+  /** Les sorties en direct, gardées par App hors de React (`sorties-directes.ts`). */
+  magasinSorties?: MagasinSorties;
   onClose: () => void;
 }
 
-export function TaskDrawer({ task, nodes, horloge, refreshTick = 0, onClose }: Props) {
+export function TaskDrawer({
+  task,
+  nodes,
+  horloge,
+  refreshTick = 0,
+  magasinSorties,
+  onClose,
+}: Props) {
   const t = useT();
   const lang = useLang();
   const [results, setResults] = useState<TaskResult[] | null>(null);
@@ -507,6 +518,13 @@ export function TaskDrawer({ task, nodes, horloge, refreshTick = 0, onClose }: P
 
         <h3>Prompt</h3>
         <pre className="code-block">{task.prompt}</pre>
+
+        {/* Pendant l'exécution — et tant qu'App garde une sortie. */}
+        <ConsoleDeTache
+          magasin={magasinSorties}
+          taskId={task.id}
+          enCours={task.status === 'assigned' || task.status === 'running'}
+        />
 
         {last && (
           <>

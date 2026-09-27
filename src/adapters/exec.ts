@@ -9,6 +9,8 @@ import { LIMITS } from '../shared/protocol.js';
 import { texteDEchec } from '../shared/texte-d-echec.js';
 import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from '../shared/types.js';
 import type { AdapterContext, AdapterResult } from './index.js';
+import { cadenceDe, createSortieDirecte } from './sortie-directe.js';
+import type { FluxSortie } from './sortie-directe.js';
 import { borneTexteFinal, createTexteFinalTracker } from './texte-final.js';
 import type { LecteurEvenementFinal } from './texte-final.js';
 
@@ -244,7 +246,49 @@ function executer(
       stdio: ENTREE_FERMEE,
     });
 
+    // Stdout ET stderr partent aussi en direct, bornés et cadencés
+    // (sortie-directe.ts) : c'est ici, au seul `spawn` des adaptateurs, que
+    // tous les agents réels l'obtiennent d'un coup. Les deux flux : un CLI en
+    // texte peut n'écrire sur stdout que son dernier message, à la fin, et
+    // toute son activité sur stderr. Un flux lu en entier (Codex `--json`,
+    // `LecteurFlux`) part, lui, sous sa forme LISIBLE, ligne à ligne
+    // (`parLigne`) : jamais ses événements bruts. La cadence est celle de la
+    // TÂCHE (`cadenceDe`), pas de ce processus. Le caviardage, lui, est
+    // l'affaire du nœud.
+    const direct = createSortieDirecte(
+      (sortie) => {
+        try {
+          ctx.onProgress({ sortie });
+        } catch {
+          /* le départ vit dans un minuteur : une exception y tuerait le nœud */
+        }
+      },
+      undefined,
+      cadenceDe(ctx.onProgress),
+    );
     let output = '';
+    // Les logs du résultat reçoivent des lignes ENTIÈRES, flux par flux — comme
+    // la sortie en direct. Versées lecture par lecture, stdout et stderr
+    // s'entrelaçaient au milieu d'une ligne : une clé coupée par une lecture de
+    // stderr (`sk-live-ab<ligne de stderr>cd…`) n'était plus égale à sa valeur,
+    // et le caviardage du nœud la laissait partir en deux moitiés. Une ligne
+    // sans fin est versée quand elle atteint le plafond : c'est la seule coupe
+    // qui reste possible, au-delà de 512 Kio d'un seul tenant.
+    const enCours: Record<FluxSortie, string> = { stdout: '', stderr: '' };
+    const verser = (flux: FluxSortie, s: string): void => {
+      const texte = enCours[flux] + s;
+      const fin = texte.length >= OUTPUT_CAP ? texte.length - 1 : texte.lastIndexOf('\n');
+      enCours[flux] = texte.slice(fin + 1);
+      if (fin >= 0 && output.length < OUTPUT_CAP) output += texte.slice(0, fin + 1);
+    };
+    const viderLignes = (): void => {
+      for (const flux of ['stdout', 'stderr'] as const) {
+        if (enCours[flux] !== '' && output.length < OUTPUT_CAP) output += enCours[flux];
+        enCours[flux] = '';
+      }
+    };
+    // Ce qui n'est PAS un flux d'agent brut — la forme lisible d'un flux lu en
+    // entier (`LecteurFlux`) — entre d'un bloc, toujours en ligne entière.
     const consigner = (s: string): void => {
       if (output.length < OUTPUT_CAP) output += s;
     };
@@ -264,14 +308,16 @@ function executer(
             }
             suivi?.feed(line);
             // Un flux lu en entier entre dans les logs RENDU, jamais brut —
-            // et TOUJOURS en début de ligne : stderr est consigné par
-            // morceaux, et un morceau sans fin de ligne collait la narration
-            // derrière lui ; sa marque n'ouvrait plus la ligne, et
-            // `texteDEchec` gardait les mots de l'agent (« API key ») comme
-            // ce que l'échec dit.
+            // et TOUJOURS en début de ligne : un morceau de stderr sans fin de
+            // ligne collait la narration derrière lui ; sa marque n'ouvrait
+            // plus la ligne, et `texteDEchec` gardait les mots de l'agent
+            // (« API key ») comme ce que l'échec dit. `verser` n'y livre plus
+            // que des lignes entières ; la garde tient pour la ligne sans fin
+            // versée au plafond. Et c'est cette forme-là que l'écran suit.
             const rendue = flux?.lire(line);
             if (rendue !== undefined) {
               consigner(output === '' || output.endsWith('\n') ? `${rendue}\n` : `\n${rendue}\n`);
+              direct.ecrire(`${rendue}\n`);
             }
           }
         : undefined;
@@ -280,7 +326,12 @@ function executer(
     child.stdout?.setEncoding('utf8');
     child.stderr?.setEncoding('utf8');
     child.stdout?.on('data', (s: string) => {
-      if (!flux) consigner(s);
+      // Un flux lu en entier n'entre ni brut dans les logs, ni brut à l'écran :
+      // sa forme lisible y entre ligne à ligne (`parLigne`).
+      if (!flux) {
+        verser('stdout', s);
+        direct.ecrire(s);
+      }
       if (texteFinal === 'sortie-standard') {
         sortieStandard = (sortieStandard + s).slice(-2 * LIMITS.finalText);
       }
@@ -292,7 +343,10 @@ function executer(
         tampon = tampon.slice(idx + 1);
       }
     });
-    child.stderr?.on('data', consigner);
+    child.stderr?.on('data', (s: string) => {
+      verser('stderr', s);
+      direct.ecrire(s, 'stderr');
+    });
 
     const timeout = setTimeout(() => {
       tue = true;
@@ -302,6 +356,8 @@ function executer(
 
     child.on('error', (err) => {
       clearTimeout(timeout);
+      direct.terminer();
+      viderLignes();
       // Le binaire n'a pas pu être lancé (absent, non exécutable) : échec d'infra.
       resolve({
         success: false,
@@ -314,6 +370,10 @@ function executer(
 
     child.on('close', (code) => {
       clearTimeout(timeout);
+      // Avant le `resolve` : un morceau parti après le résultat serait ignoré
+      // par le hub, et ressusciterait une console déjà vidée à l'écran.
+      direct.terminer();
+      viderLignes();
       if (parLigne && tampon.trim()) parLigne(tampon); // dernière ligne sans \n final
       // Un processus TUÉ n'a pas conclu : ce qu'il avait écrit n'est pas sa
       // réponse finale, et le lire comme tel ferait juger une phrase coupée.

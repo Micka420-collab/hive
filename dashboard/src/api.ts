@@ -2188,6 +2188,8 @@ export function fetchMonTableau(): Promise<MonTableau> {
 export interface FeedHandlers {
   onState: (snapshot: StateSnapshot) => void;
   onEvent: (event: HiveEvent) => void;
+  /** Un morceau de sortie en direct d'un agent (éphémère, jamais rejoué). */
+  onSortie?: (taskId: string, nodeId: string, sortie: string) => void;
   /**
    * `connected` : le socket est ouvert **et** le hub a accepté le jeton.
    * `meta.authError` : fermeture 4401 « token invalide » — le champ Jeton ne
@@ -2365,6 +2367,10 @@ export function connectFeed(handlers: FeedHandlers): HiveFeed {
       } else if (msg.type === 'event') {
         if (enAttente) enAttente.push(msg.event);
         else livrer(msg.event);
+      } else if (msg.type === 'task_output') {
+        // Le direct n'est ni rangé ni rejoué (`task_output`) : il passe tout
+        // de suite, rattrapage ou pas.
+        handlers.onSortie?.(msg.taskId, msg.nodeId, msg.sortie);
       }
     };
 

@@ -104,6 +104,32 @@ function raisonRetrySaute(code: unknown, t: Translate): string {
   }
 }
 
+/**
+ * Ce qu'un `task_progress` APPORTE, et non le mot « progrès ».
+ *
+ * La ligne affichait « progrès (id) » quel que soit le payload : le jalon que
+ * le nœud avait écrit (« ⏸ Réquisition ouverte — en attente de décision
+ * humaine ») était reçu, puis jeté à l'affichage. Le journal dit maintenant le
+ * jalon, sinon les sous-agents, sinon les fichiers ouverts. La sortie brute de
+ * l'agent, elle, n'est pas un événement : elle vit dans la console du tiroir.
+ */
+function progres(p: Record<string, unknown>, t: Translate): string {
+  const id = short(p.taskId);
+  if (typeof p.log === 'string' && p.log.trim() !== '') {
+    const ligne = p.log.replace(/\s+/g, ' ').trim();
+    return `${id} · ${ligne.length > 120 ? `${ligne.slice(0, 119)}…` : ligne}`;
+  }
+  if (Array.isArray(p.subAgents) && p.subAgents.length > 0) {
+    const n = p.subAgents.length;
+    return t(`${id} · ${n} sous-agent(s)`, `${id} · ${n} sub-agent(s)`);
+  }
+  if (Array.isArray(p.presences) && p.presences.length > 0) {
+    const n = p.presences.length;
+    return t(`${id} · ${n} fichier(s) ouvert(s)`, `${id} · ${n} open file(s)`);
+  }
+  return t(`progrès (${id})`, `progress (${id})`);
+}
+
 const EVENTS: Record<string, Meta> = {
   project_created: {
     icon: '▦',
@@ -142,7 +168,7 @@ const EVENTS: Record<string, Meta> = {
   task_progress: {
     icon: '⋯',
     cls: 'run',
-    text: (p, t) => t(`progrès (${short(p.taskId)})`, `progress (${short(p.taskId)})`),
+    text: (p, t) => progres(p, t),
   },
   task_readopted: {
     icon: '↺',

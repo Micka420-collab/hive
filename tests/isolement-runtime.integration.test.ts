@@ -601,12 +601,17 @@ describe('isolement — intégration bubblewrap réelle', () => {
         simulation: false,
         tickMs: 20,
       });
+      // Le constat est lu DEUX fois : sur le nœud, tel que l'agent l'a écrit
+      // (le jeton exact a bien traversé le bac), puis à la Reine, tel que le
+      // nœud l'a laissé partir (caviardé : le jeton ne quitte pas la machine).
+      let constatAuNoeud: Constat | null = null;
       const adapter: AgentAdapter = {
         name: 'agent-factice',
         async run(_task, ctx) {
           const r = await runCommand('agent-factice', [], ctx, 30_000);
           if (!r.success) return r;
           const constat = readFileSync(path.join(ctx.cwd, 'constat.json'), 'utf8');
+          constatAuNoeud = JSON.parse(constat) as Constat;
           return { ...r, logs: constat, subAgents: [] };
         },
       };
@@ -652,7 +657,11 @@ describe('isolement — intégration bubblewrap réelle', () => {
         );
         const resultat = server.store.resultsForTask(tache.id).at(-1);
         expect(resultat?.success, resultat?.logs).toBe(true);
-        expect(JSON.parse(resultat?.logs ?? '{}')).toEqual(constatAttendu);
+        expect(constatAuNoeud).toEqual(constatAttendu);
+        expect(JSON.parse(resultat?.logs ?? '{}')).toEqual({
+          ...constatAttendu,
+          jeton: '[secret]',
+        });
       } finally {
         client.stop();
         await server.stop();

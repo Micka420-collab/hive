@@ -27,6 +27,12 @@ import { setLang, useLang, useT } from './i18n';
 import { InvitePanel } from './InvitePanel';
 import { NewProjectModal } from './NewProjectModal';
 import { TaskDrawer } from './TaskDrawer';
+import {
+  creerMagasinSorties,
+  FINS_D_EXECUTION,
+  garderVivantes,
+  oublierTache,
+} from './sorties-directes';
 import { transitionDifferees } from './differees';
 import { annoncesDepuisEvenements } from './horloge-vue';
 import {
@@ -278,6 +284,8 @@ export function App() {
   const [snapshot, setSnapshot] = useState<StateSnapshot>(EMPTY);
   const [events, setEvents] = useState<HiveEvent[]>([]);
   const [agentsByTask, setAgentsByTask] = useState<Record<string, SubAgent[]>>({});
+  // Hors de l'état React : un morceau ne re-rend que la console qui l'affiche.
+  const [magasinSorties] = useState(creerMagasinSorties);
   const [deferred, setDeferred] = useState<Set<string>>(() => new Set());
   const [connected, setConnected] = useState(false);
   const [tokenAuthError, setTokenAuthError] = useState(false);
@@ -333,7 +341,14 @@ export function App() {
   // ─── Flux temps réel ────────────────────────────────────────────────────────
   useEffect(() => {
     const feed = connectFeed({
-      onState: setSnapshot,
+      onState: (snap) => {
+        setSnapshot(snap);
+        // Un `task_done` manqué pendant une coupure ne viderait jamais ces
+        // états : l'instantané, lui, dit toujours quelles tâches vivent.
+        magasinSorties.garderVivantes(snap.tasks);
+        setAgentsByTask((prev) => garderVivantes(prev, snap.tasks));
+      },
+      onSortie: (taskId, nodeId, sortie) => magasinSorties.ajouter(taskId, nodeId, sortie),
       onEvent: (ev) => {
         setEvents((prev) => [...prev.slice(-499), ev]);
         // Tout événement de fin de tâche / merge / conflit invalide les vues qui fetchent.
@@ -390,17 +405,9 @@ export function App() {
         if (ev.type === 'task_progress' && Array.isArray(ev.payload.subAgents)) {
           const subAgents = ev.payload.subAgents as SubAgent[];
           setAgentsByTask((prev) => ({ ...prev, [taskId]: subAgents }));
-        } else if (
-          ['task_done', 'task_failed', 'task_cancelled', 'task_requeued', 'task_retry'].includes(
-            ev.type,
-          )
-        ) {
-          setAgentsByTask((prev) => {
-            if (!(taskId in prev)) return prev;
-            const next = { ...prev };
-            delete next[taskId];
-            return next;
-          });
+        } else if (FINS_D_EXECUTION.includes(ev.type)) {
+          setAgentsByTask((prev) => oublierTache(prev, taskId));
+          magasinSorties.oublier(taskId);
         }
         // La transition vit dans `differees.ts`, PUR — la loupe l'avait rendue
         // SANS TEST tant qu'elle était enfouie ici. Rendre `prev` lui-même
@@ -438,7 +445,7 @@ export function App() {
       }
       feed.close();
     };
-  }, [feedKey, demanderSession]);
+  }, [feedKey, demanderSession, magasinSorties]);
 
   // ─── Navigation par hash ────────────────────────────────────────────────────
   useEffect(() => {
@@ -915,6 +922,7 @@ export function App() {
           nodes={snapshot.nodes}
           horloge={annonces.get(openTask.id)}
           refreshTick={refreshTick}
+          magasinSorties={magasinSorties}
           onClose={() => setOpenTaskId(null)}
         />
       )}

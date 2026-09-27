@@ -10,7 +10,7 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import WebSocket from 'ws';
 import { getAdapter } from '../adapters/index.js';
-import type { AdapterResult, AgentAdapter } from '../adapters/index.js';
+import type { AdapterProgress, AdapterResult, AgentAdapter } from '../adapters/index.js';
 import { borneTexteFinal } from '../adapters/texte-final.js';
 import {
   agentBinairePresent,
@@ -19,6 +19,8 @@ import {
 } from './agent-detect.js';
 import type { AgentType } from './agent-detect.js';
 import { binaireMcpDansBac } from './bac.js';
+import { creerCaviardeur, SECRET_CAVIARDE, valeursSecretes } from '../shared/caviardage.js';
+import type { Caviardeur } from '../shared/caviardage.js';
 import { argvDe, jugerChantier } from '../shared/chantier.js';
 import { CHANTIER_EXECUTION_MS, CHANTIER_PREPARATION_MS } from '../shared/butoirs-noeud.js';
 import { jugerCommandeTest } from '../shared/commande-test.js';
@@ -40,8 +42,13 @@ import type {
   PoserOutilMsg,
   TaskResultMsg,
 } from '../shared/protocol.js';
-import { HEARTBEAT_INTERVAL_MS, NODE_TIMEOUT_MS } from '../shared/types.js';
-import type { ExecutionUsage, IsolementDeclare, Task } from '../shared/types.js';
+import {
+  DEFAULT_TOKEN,
+  HEARTBEAT_INTERVAL_MS,
+  MIN_TOKEN_LENGTH,
+  NODE_TIMEOUT_MS,
+} from '../shared/types.js';
+import type { ExecutionUsage, IsolementDeclare, SubAgent, Task } from '../shared/types.js';
 import { runMerge, runProc } from './merge-runner.js';
 import { lancerVraiment, poserOutil } from './pose-runner.js';
 import { buildSandboxEnv, cloneRepo, prepareWorkspace } from './workspace.js';
@@ -77,6 +84,38 @@ const DELEGATION_RESPONSE_TIMEOUT_MS = 15_000;
 const DELEGATION_RESULT_GRACE_MS = 5 * 60_000;
 
 /**
+ * Un morceau de sortie en direct, après caviardage, sous `LIMITS.sortie`. Le
+ * caviardage peut ALLONGER (`sk-x` devient `[secret]`) : couper à l'aveugle
+ * ferait disparaître la fin sans le dire. On coupe à la dernière ligne entière
+ * qui tient, et on l'annonce — comme `sortie-directe.ts` annonce ses omissions.
+ */
+function morceauCaviarde(sortie: string): string {
+  if (sortie.length <= LIMITS.sortie) return sortie;
+  const annonce = '[… fin du morceau omise après caviardage]\n';
+  const tete = sortie.slice(0, LIMITS.sortie - annonce.length);
+  const coupe = tete.lastIndexOf('\n');
+  return (coupe >= 0 ? tete.slice(0, coupe + 1) : '') + annonce;
+}
+
+/**
+ * Un champ caviardé, ramené sous la borne que le protocole lui impose.
+ *
+ * `Caviardeur.texte` peut ALLONGER : un motif plus court que `[secret]`
+ * (`sk-v1`, `token=1`, `Basic x`) devient huit caractères. Or les adaptateurs
+ * coupent déjà un nom de sous-agent PILE à `LIMITS.name` : caviardé, il la
+ * dépassait, `isSubAgents` refusait le `task_result` ENTIER, et le hub fermait
+ * la socket du nœud — résultat perdu, alors que le nœud le croyait livré. La
+ * coupe recule au début d'un `[secret]` qu'elle traverserait : une moitié de
+ * marque ne dit plus qu'un secret était là.
+ */
+function borneApresCaviardage(s: string, max: number): string {
+  if (s.length <= max) return s;
+  const marque = s.lastIndexOf(SECRET_CAVIARDE, max - 1);
+  const coupe = marque >= 0 && marque + SECRET_CAVIARDE.length > max ? marque : max;
+  return s.slice(0, coupe);
+}
+
+/**
  * Ce que l'adaptateur a DÉCLARÉ, tel que `task_result` le transporte : la
  * déclaration fournisseur et le texte final, reborné ici comme le diff et les
  * logs : le hub ABANDONNE un texte trop long (protocol.ts), mieux vaut lui en
@@ -88,8 +127,15 @@ const DELEGATION_RESULT_GRACE_MS = 5 * 60_000;
  */
 function declarationsDuResultat(
   result: AdapterResult,
+  caviardeur: Caviardeur,
 ): Pick<TaskResultMsg, 'fournisseur' | 'finalText'> {
-  const finalText = result.finalText === undefined ? undefined : borneTexteFinal(result.finalText);
+  // Caviardé AVANT d'être borné : la borne garde la fin, et une clé coupée
+  // par elle ne serait plus reconnue. `reponse`, pas `texte` : le hub RELIT ce
+  // texte (proposition d'éclaireuse, avis de conseil — voir `Caviardeur`).
+  const finalText =
+    result.finalText === undefined
+      ? undefined
+      : borneTexteFinal(caviardeur.reponse(result.finalText));
   return {
     ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
     ...(finalText ? { finalText } : {}),
@@ -1056,6 +1102,93 @@ export class HiveNodeClient {
     };
   }
 
+  /**
+   * Le caviardeur d'une exécution : les VALEURS des variables d'identification
+   * transmises à l'agent (`keepEnv`), plus le jeton de ruche du nœud. Ce sont
+   * exactement les secrets que l'agent peut avoir sous les yeux — et donc
+   * recracher dans sa sortie, ses logs, son diff ou sa réponse.
+   *
+   * Lu de `process.env` au moment de l'exécution, comme `buildSandboxEnv` :
+   * les deux voient les mêmes valeurs. Les secrets de la ruche que
+   * `buildSandboxEnv` retire de `keepEnv` restent caviardés ici — en trop,
+   * jamais en moins.
+   */
+  private caviardeurDuNoeud(): Caviardeur {
+    const env = Object.fromEntries(
+      (this.opts.keepEnv ?? []).map((nom): [string, string | undefined] => [nom, process.env[nom]]),
+    );
+    // Le jeton par défaut (`change-me`) ou trop court ne protège rien — le hub
+    // le refuse hors développement — et `change-me` est écrit en clair dans
+    // les sources de Hive : le caviarder réécrirait leurs diffs et leurs logs.
+    const jeton = this.opts.token;
+    const jetonReel = jeton !== DEFAULT_TOKEN && jeton.length >= MIN_TOKEN_LENGTH;
+    return creerCaviardeur([...valeursSecretes(env), ...(jetonReel ? [jeton] : [])]);
+  }
+
+  /**
+   * Ce que l'agent écrit lui-même et que le nœud relaie hors de la machine,
+   * au-delà de sa sortie : les noms de ses sous-agents, et les demandes de
+   * délégation (le hub en fait une tâche, affichée sur chaque écran). Le
+   * prompt délégué sera EXÉCUTÉ par un autre agent : il ne perd que les
+   * valeurs exactes et les jetons réels (`Caviardeur.code`), pas son code.
+   */
+  private static sousAgentsCaviardes(
+    sousAgents: readonly SubAgent[],
+    caviardeur: Caviardeur,
+  ): SubAgent[] {
+    return sousAgents.map((a) => ({
+      ...a,
+      name: borneApresCaviardage(caviardeur.texte(a.name), LIMITS.name),
+    }));
+  }
+
+  private delegationCaviardee(
+    taskId: string,
+    input: WorkerDelegationInput,
+    caviardeur: Caviardeur,
+  ): Promise<WorkerDelegationOutcome> {
+    // Reborné seulement si l'agent avait respecté la borne : une demande DÉJÀ
+    // trop longue doit rester refusée (`invalid_request`), pas tronquée en douce.
+    const champ = (v: string, max: number): string =>
+      v.length <= max ? borneApresCaviardage(caviardeur.texte(v), max) : caviardeur.texte(v);
+    return this.requestDelegation(taskId, {
+      ...input,
+      title: champ(input.title, LIMITS.title),
+      reason: champ(input.reason, LIMITS.delegationReason),
+      prompt: caviardeur.code(input.prompt),
+    });
+  }
+
+  /**
+   * Le progrès d'un adaptateur, tel qu'il part au hub : texte caviardé ici, sur
+   * la machine qui porte les secrets — le hub, lui, relaie la sortie en direct
+   * à chaque écran de la ruche.
+   */
+  private progresVersHub(
+    taskId: string,
+    ctrl: AbortController,
+    caviardeur: Caviardeur,
+  ): (p: AdapterProgress) => void {
+    return (p) => {
+      // Seule l'exécution EN COURS parle pour la tâche : un minuteur oublié
+      // par un adaptateur fini écrirait sinon dans la console de la tentative
+      // suivante (même tâche, même nœud — le hub ne peut pas les distinguer).
+      if (this.active.get(taskId) !== ctrl) return;
+      const sortie = p.sortie ? morceauCaviarde(caviardeur.texte(p.sortie)) : '';
+      this.send({
+        type: 'task_update',
+        taskId,
+        status: 'running',
+        ...(p.subAgents
+          ? { subAgents: HiveNodeClient.sousAgentsCaviardes(p.subAgents, caviardeur) }
+          : {}),
+        ...(p.presences ? { presences: p.presences } : {}),
+        ...(p.log ? { log: caviardeur.texte(p.log).slice(0, LIMITS.log) } : {}),
+        ...(sortie ? { sortie } : {}),
+      });
+    };
+  }
+
   // ─── Exécution d'une tâche ───────────────────────────────────────────────
   private async runTask(
     task: Task,
@@ -1111,6 +1244,7 @@ export class HiveNodeClient {
     const ctrl = new AbortController();
     this.active.set(task.id, ctrl);
     const started = Date.now();
+    const caviardeur = this.caviardeurDuNoeud();
     let budgetExceeded = false;
     let budgetTimer: NodeJS.Timeout | null = null;
     let usage: ExecutionUsage | undefined;
@@ -1171,20 +1305,11 @@ export class HiveNodeClient {
         // le passera à son CLI (`--model`). Absent ⇒ modèle par défaut de l'agent.
         ...(modele ? { modele } : {}),
         ...this.optionBacTache(task.id),
-        delegate: (input) => this.requestDelegation(task.id, input),
+        delegate: (input) => this.delegationCaviardee(task.id, input, caviardeur),
         waitForDelegationResult: (childTaskId) =>
           this.waitForDelegationResult(task.id, childTaskId, ctrl.signal),
         rendezVous: this.rendezVous,
-        onProgress: (p) => {
-          this.send({
-            type: 'task_update',
-            taskId: task.id,
-            status: 'running',
-            ...(p.subAgents ? { subAgents: p.subAgents } : {}),
-            ...(p.presences ? { presences: p.presences } : {}),
-            ...(p.log ? { log: p.log } : {}),
-          });
-        },
+        onProgress: this.progresVersHub(task.id, ctrl, caviardeur),
       });
       // LE BUDGET COURT ENCORE : le minuteur n'est levé qu'au `finally`. Les
       // validations du bac comptent dans la durée d'un enfant délégué — son
@@ -1257,12 +1382,16 @@ export class HiveNodeClient {
         type: 'task_result',
         taskId: task.id,
         success: result.success,
-        diff: diff.slice(0, LIMITS.diff),
-        logs: result.logs.slice(0, LIMITS.log),
+        // Caviardés AVANT d'être tronqués (voir `declarationsDuResultat`).
+        diff: caviardeur.diff(diff).slice(0, LIMITS.diff),
+        logs: caviardeur.texte(result.logs).slice(0, LIMITS.log),
         durationMs,
-        subAgents: result.subAgents.slice(0, LIMITS.subAgents),
+        subAgents: HiveNodeClient.sousAgentsCaviardes(
+          result.subAgents.slice(0, LIMITS.subAgents),
+          caviardeur,
+        ),
         ...(usage ? { usage } : {}),
-        ...declarationsDuResultat(result),
+        ...declarationsDuResultat(result, caviardeur),
         ...(validations ? { validations } : {}),
       });
       this.log(`${result.success ? '✔' : '✘'} ${task.title}`);
@@ -1279,7 +1408,7 @@ export class HiveNodeClient {
         logs:
           budgetExceeded && delegationBudget
             ? `[nœud] budget de durée dépassé (${delegationBudget.durationMs} ms)`
-            : `[nœud] exception : ${message}`,
+            : caviardeur.texte(`[nœud] exception : ${message}`),
         durationMs: Date.now() - started,
         subAgents: [],
         ...(usage ? { usage } : {}),
@@ -1367,6 +1496,7 @@ export class HiveNodeClient {
 
     this.attenteRequisition = null;
     this.log(`↻ reprise de ${task.title} après réquisition accordée`);
+    let caviardeur = this.caviardeurDuNoeud();
     let budgetExceeded = false;
     let budgetTimer: NodeJS.Timeout | null = null;
     let usage: ExecutionUsage | undefined;
@@ -1378,6 +1508,9 @@ export class HiveNodeClient {
         /* pas de .env local */
       }
       workspace.env = buildSandboxEnv(workspace.cwd, this.opts.keepEnv ?? []);
+      // Relu APRÈS le `.env` : la réquisition accordée vient peut-être d'y
+      // poser la clé — c'est elle, désormais, qu'il faut taire.
+      caviardeur = this.caviardeurDuNoeud();
       const taskForAgent = hiveContext
         ? { ...task, prompt: composeAgentPrompt(hiveContext, task.prompt) }
         : task;
@@ -1392,20 +1525,11 @@ export class HiveNodeClient {
         signal: ctrl.signal,
         ...(modele ? { modele } : {}),
         ...this.optionBacTache(task.id),
-        delegate: (input) => this.requestDelegation(task.id, input),
+        delegate: (input) => this.delegationCaviardee(task.id, input, caviardeur),
         waitForDelegationResult: (childTaskId) =>
           this.waitForDelegationResult(task.id, childTaskId, ctrl.signal),
         rendezVous: this.rendezVous,
-        onProgress: (p) => {
-          this.send({
-            type: 'task_update',
-            taskId: task.id,
-            status: 'running',
-            ...(p.subAgents ? { subAgents: p.subAgents } : {}),
-            ...(p.presences ? { presences: p.presences } : {}),
-            ...(p.log ? { log: p.log } : {}),
-          });
-        },
+        onProgress: this.progresVersHub(task.id, ctrl, caviardeur),
       });
       // LE BUDGET COURT ENCORE : le minuteur n'est levé qu'au `finally`. Les
       // validations du bac comptent dans la durée d'un enfant délégué — son
@@ -1455,12 +1579,16 @@ export class HiveNodeClient {
         type: 'task_result',
         taskId: task.id,
         success: result.success,
-        diff: diff.slice(0, LIMITS.diff),
-        logs: result.logs.slice(0, LIMITS.log),
+        // Caviardés AVANT d'être tronqués (voir `declarationsDuResultat`).
+        diff: caviardeur.diff(diff).slice(0, LIMITS.diff),
+        logs: caviardeur.texte(result.logs).slice(0, LIMITS.log),
         durationMs,
-        subAgents: result.subAgents.slice(0, LIMITS.subAgents),
+        subAgents: HiveNodeClient.sousAgentsCaviardes(
+          result.subAgents.slice(0, LIMITS.subAgents),
+          caviardeur,
+        ),
         ...(usage ? { usage } : {}),
-        ...declarationsDuResultat(result),
+        ...declarationsDuResultat(result, caviardeur),
         ...(validations ? { validations } : {}),
       });
       this.log(`${result.success ? '✔' : '✘'} ${task.title} (reprise)`);
@@ -1477,7 +1605,7 @@ export class HiveNodeClient {
         logs:
           budgetExceeded && delegationBudget
             ? `[nœud] budget de durée dépassé (${delegationBudget.durationMs} ms)`
-            : `[nœud] reprise après réquisition : ${message}`,
+            : caviardeur.texte(`[nœud] reprise après réquisition : ${message}`),
         durationMs: Date.now() - started,
         subAgents: [],
         ...(usage ? { usage } : {}),
