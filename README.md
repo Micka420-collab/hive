@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-6454%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-6458%20passing-F6C445?labelColor=17130C)
 ![Licence](https://img.shields.io/badge/licence-MIT-F6C445?labelColor=17130C)
 
 🇫🇷 Français · [🇬🇧 English](README.en.md) · [🌐 Site](https://micka420-collab.github.io/hive/) · [📚 Documentation](#-documentation)
@@ -120,7 +120,10 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
   - le coût et le temps modèle **déclarés par le CLI de l'agent** (Claude
     Code), avec leur couverture — « inconnu » quand rien n'est déclaré
     ([#455](https://github.com/Micka420-collab/hive/pull/455),
-    [#456](https://github.com/Micka420-collab/hive/pull/456)).
+    [#456](https://github.com/Micka420-collab/hive/pull/456)) ; Codex, lancé
+    en `codex exec --json`, déclare ses **jetons** d'entrée et de sortie, et
+    rien d'autre : ni coût, ni temps modèle, ni modèle exact — aucun coût
+    n'est déduit des jetons ([#481](https://github.com/Micka420-collab/hive/pull/481)).
 
 **Reste à prouver :**
 
@@ -128,8 +131,9 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
   Docker ou Podman (diff, tests, revue, correction, livraison Git) ;
 - le coût et le temps modèle sur un **vrai** run : la lecture de la
   déclaration de Claude Code suit le format documenté et est éprouvée contre
-  un faux binaire, pas encore contre le CLI réel ; Codex ne déclare encore
-  rien à Hive ;
+  un faux binaire, pas encore contre le CLI réel ; celle des jetons de Codex
+  est enregistrée sur le vrai codex-cli 0.156.0, mais contre un faux
+  fournisseur local, pas sur un vrai run payé ;
 - l'apprentissage : le routing apprend toujours des seules contre-visites ;
   y faire entrer les autres faits du registre Genome est une décision de
   pondération, pas encore prise ;

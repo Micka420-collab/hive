@@ -85,6 +85,12 @@ function estEnregistrementDErreur(ligne: string): boolean {
  * `┊` et pas un préfixe ASCII : aucun CLI n'ouvre une ligne de diagnostic par
  * ce caractère, et un marqueur `[codex]` aurait rejoint `[hive]`, que la règle
  * doit GARDER (délai de garde, échec du lancement).
+ *
+ * COMPROMIS ACCEPTÉ : la règle vaut pour les logs de TOUS les adaptateurs. Une
+ * ligne qu'un autre CLI ouvrirait par `┊` (un guide d'indentation de TUI)
+ * sortirait aussi de « ce que l'échec dit ». Aucun des CLI branchés n'en
+ * écrit ; restreindre la règle à Codex demanderait à `texteDEchec` de
+ * connaître l'adaptateur, que le hub (Couveuse, essaim) ne connaît pas.
  */
 export const MARQUE_NARRATION = '┊';
 

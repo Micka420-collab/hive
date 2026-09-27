@@ -127,8 +127,11 @@ export interface LecteurFlux {
    * ligne qui dise l'échec, et c'est la dernière que l'agent écrit — celle
    * qu'une narration de 512 ko poussait hors du journal, au nœud (classement
    * d'infra) comme au hub (Couveuse, essaim).
+   *
+   * `arreteParHive` : le processus a été tué par Hive (délai de garde,
+   * annulation) — le marqueur `[hive]` dit déjà pourquoi.
    */
-  bilan(code: number | null): string | undefined;
+  bilan(code: number | null, arreteParHive: boolean): string | undefined;
 }
 
 /**
@@ -240,9 +243,16 @@ function executer(
               /* parseur tolérant : on ignore */
             }
             suivi?.feed(line);
-            // Un flux lu en entier entre dans les logs RENDU, jamais brut.
+            // Un flux lu en entier entre dans les logs RENDU, jamais brut —
+            // et TOUJOURS en début de ligne : stderr est consigné par
+            // morceaux, et un morceau sans fin de ligne collait la narration
+            // derrière lui ; sa marque n'ouvrait plus la ligne, et
+            // `texteDEchec` gardait les mots de l'agent (« API key ») comme
+            // ce que l'échec dit.
             const rendue = flux?.lire(line);
-            if (rendue !== undefined) consigner(`${rendue}\n`);
+            if (rendue !== undefined) {
+              consigner(output === '' || output.endsWith('\n') ? `${rendue}\n` : `\n${rendue}\n`);
+            }
           }
         : undefined;
     // Décodage UTF-8 AU FIL DES MORCEAUX : un caractère accentué coupé entre
@@ -292,7 +302,7 @@ function executer(
         : texteFinal === 'sortie-standard'
           ? borneTexteFinal(sortieStandard)
           : (flux ?? suivi)?.texte();
-      const bilan = flux?.bilan(code);
+      const bilan = flux?.bilan(code, tue || ctx.signal?.aborted === true);
       const logs = journalAvecFin(output, [
         ...(tue ? [`[hive] timeout après ${opts.timeoutMs} ms — processus tué`] : []),
         ...(bilan !== undefined ? [bilan] : []),

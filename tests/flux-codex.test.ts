@@ -32,6 +32,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createCodexAdapter } from '../src/adapters/codex.js';
 import { createLecteurFluxCodex } from '../src/adapters/flux-codex.js';
 import type { AdapterContext } from '../src/adapters/index.js';
+import { signatureEchec } from '../src/orchestrator/essaim.js';
 import { LIMITS } from '../src/shared/protocol.js';
 import { texteDEchec } from '../src/shared/texte-d-echec.js';
 import type { Task } from '../src/shared/types.js';
@@ -62,13 +63,13 @@ function rendre(
     .split('\n')
     .map((l) => lecteur.lire(l))
     .filter((l): l is string => l !== undefined);
-  const bilan = lecteur.bilan(code);
+  const bilan = lecteur.bilan(code, false);
   return { logs: [...lignes, ...(bilan !== undefined ? [bilan] : [])].join('\n'), lecteur };
 }
 
 describe('le lecteur du flux `codex exec --json`', () => {
   it('RÉPONSE, JETONS, LOGS : le dernier message conclu, les jetons du tour, aucun JSON brut', () => {
-    const { logs, lecteur } = rendre(fixture('relecture-outil.json.stdout.jsonl'));
+    const { logs, lecteur } = rendre(fixture('relecture-outil.json.stdout.jsonl'), 0);
 
     // La réponse est la même qu'en sortie humaine (stdout du mode texte).
     expect(lecteur.texte()).toBe(OBJECTION);
@@ -135,6 +136,38 @@ describe('le lecteur du flux `codex exec --json`', () => {
       ].join('\n'),
     );
     expect(lecteur.texte()).toBeUndefined();
+  });
+
+  it('UN TOUR INTERROMPU (sortie en 1, aucun tour conclu) DIT CE QUI S’EST PASSÉ : la bannière de stderr n’est plus la signature de tous les échecs', () => {
+    // codex-rs/exec/src/lib.rs : un tour `Interrupted` lève `error_seen` —
+    // sortie en 1 — et le flux JSON n'en émet RIEN. Sans bilan, ce que
+    // l'échec dit se réduisait à la bannière de stderr, commune à tous.
+    const flux = [
+      '{"type":"thread.started","thread_id":"t"}',
+      '{"type":"turn.started"}',
+      '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"npm test a échoué : TypeError x, je vérifie l’API key"}}',
+    ].join('\n');
+    const { logs } = rendre(flux, 1);
+    const journal = `Reading additional input from stdin...\n${logs}`;
+
+    expect(texteDEchec(journal).split('\n')).toEqual([
+      'Reading additional input from stdin...',
+      'codex : échec — sortie en code 1 sans que le tour se conclue (ni `turn.completed` ni `turn.failed` : tour interrompu)',
+    ]);
+    expect(signatureEchec(journal)).not.toBe('reading additional input from stdin...');
+    expect(signatureEchec(journal)).toContain('sans que le tour se conclue');
+
+    // Tué par Hive : le marqueur `[hive]` le dit déjà, pas de bilan en plus.
+    const tue = createLecteurFluxCodex();
+    for (const l of flux.split('\n')) tue.lire(l);
+    expect(tue.bilan(null, true)).toBeUndefined();
+  });
+
+  it('UN CODEX SANS `--json` (sortie en erreur, aucun événement) LE DIT : trop ancien, ou lancement en échec', () => {
+    const { logs } = rendre('', 2);
+    expect(logs).toBe(
+      'codex : échec — sortie en code 2 sans aucun événement `--json` (codex-cli trop ancien pour `--json`, ou lancement en échec : voir stderr)',
+    );
   });
 
   it('UN USAGE À ZÉRO N’EST PAS UNE DÉCLARATION : Codex rend des zéros quand il n’a rien compté', () => {
@@ -236,14 +269,20 @@ afterEach(() => {
  * `--json` SYNTHÉTIQUE (`{ jsonl }`), écrit sur le contrat de codex-rs pour un
  * cas que le faux fournisseur ne sait pas provoquer.
  */
-function fauxCodex(scenario: string | { jsonl: string }, code: number): AdapterContext {
+function fauxCodex(
+  scenario: string | { jsonl: string; stderr?: string },
+  code: number,
+): AdapterContext {
   const dossier = mkdtempSync(path.join(tmpdir(), 'hive-flux-codex-'));
   aNettoyer.push(dossier);
   const racine =
     typeof scenario === 'string'
       ? path.join(FIXTURES, scenario)
       : path.join(dossier, 'synthetique');
-  if (typeof scenario !== 'string') writeFileSync(`${racine}.json.stdout.jsonl`, scenario.jsonl);
+  if (typeof scenario !== 'string') {
+    writeFileSync(`${racine}.json.stdout.jsonl`, scenario.jsonl);
+    if (scenario.stderr !== undefined) writeFileSync(`${racine}.json.stderr.txt`, scenario.stderr);
+  }
   const chemin = (nom: string) => JSON.stringify(`${racine}.${nom}`);
   const bin = path.join(dossier, 'codex');
   writeFileSync(
@@ -257,8 +296,12 @@ function fauxCodex(scenario: string | { jsonl: string }, code: number): AdapterC
       "process.stdin.on('data', () => undefined);",
       "process.stdin.on('end', () => {",
       `  process.stderr.write(lire(json ? ${chemin('json.stderr.txt')} : ${chemin('humain.stderr.txt')}));`,
-      `  process.stdout.write(lire(json ? ${chemin('json.stdout.jsonl')} : ${chemin('humain.stdout.txt')}));`,
-      `  process.exitCode = ${code};`,
+      // stdout APRÈS stderr, comme codex (diagnostics au lancement, puis le
+      // flux) : sans la pause, les deux tubes arrivent dans un ordre libre.
+      '  setTimeout(() => {',
+      `    process.stdout.write(lire(json ? ${chemin('json.stdout.jsonl')} : ${chemin('humain.stdout.txt')}));`,
+      `    process.exitCode = ${code};`,
+      '  }, 100);',
       '});',
     ].join('\n'),
   );
@@ -474,6 +517,66 @@ describe.skipIf(process.platform === 'win32')(
         );
         expect(r.success).toBe(false);
         expect(r.infra).toBe(true);
+      },
+    );
+
+    it(
+      'UN 429 QUE CODEX A REFAIT N’EST PAS LA RAISON D’UNE SORTIE EN 1 APRÈS UN TOUR CONCLU',
+      { timeout: 15_000 },
+      async () => {
+        // `error_seen` se lève aussi sans erreur non refaite (une requête du
+        // serveur mal traitée : codex-rs/exec/src/lib.rs, `handle_server_request`).
+        // La tentative « Reconnecting... » (`will_retry`) n'en est pas la raison.
+        const r = await createCodexAdapter(TOKEN).run(
+          tache('Répare le test'),
+          fauxCodex(
+            {
+              jsonl: [
+                '{"type":"thread.started","thread_id":"t"}',
+                '{"type":"turn.started"}',
+                '{"type":"error","message":"Reconnecting... 2/5 (unexpected status 429 Too Many Requests: Rate limit reached)"}',
+                '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"corrigé"}}',
+                '{"type":"turn.completed","usage":{"input_tokens":120,"output_tokens":30}}',
+              ].join('\n'),
+            },
+            1,
+          ),
+        );
+        expect(r.success).toBe(false);
+        expect(r.infra, texteDEchec(r.logs, r.finalText)).toBeUndefined();
+        expect(texteDEchec(r.logs, r.finalText)).toBe(
+          'codex : échec — sortie en code 1 après un tour conclu, sans erreur non refaite dans le flux (raison non déclarée, voir stderr)',
+        );
+      },
+    );
+
+    it(
+      'UN MORCEAU DE STDERR SANS FIN DE LIGNE NE DÉMARQUE PAS LA NARRATION QUI LE SUIT',
+      { timeout: 15_000 },
+      async () => {
+        // Collée derrière « WARN partiel », la ligne `┊ codex : …API key…`
+        // ne commençait plus par sa marque : ce que l'échec dit redevenait
+        // les mots de l'agent, et le 400 une panne d'identifiants.
+        const r = await createCodexAdapter(TOKEN).run(
+          tache('Répare le test'),
+          fauxCodex(
+            {
+              stderr: 'WARN partiel',
+              jsonl: [
+                '{"type":"thread.started","thread_id":"t"}',
+                '{"type":"turn.started"}',
+                '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"Je vérifie l’API key et le login."}}',
+                '{"type":"turn.failed","error":{"message":"unexpected status 400 Bad Request: context_length_exceeded"}}',
+              ].join('\n'),
+            },
+            1,
+          ),
+        );
+        expect(r.success).toBe(false);
+        expect(r.infra, texteDEchec(r.logs, r.finalText)).toBeUndefined();
+        expect(texteDEchec(r.logs, r.finalText)).toBe(
+          'WARN partiel\ncodex : tour en échec — unexpected status 400 Bad Request: context_length_exceeded',
+        );
       },
     );
 
