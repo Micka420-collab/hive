@@ -13,9 +13,11 @@
 //                    dont une Claude Code ou Codex (seuls leurs adaptateurs
 //                    savent déléguer), n tâches indépendantes et une qui
 //                    délègue ; exigés en plus : parallélisme des tâches
-//                    indépendantes, délégation vers une AUTRE ouvrière,
-//                    relecture croisée ; la reprise après objection est dite,
-//                    jamais exigée (une objection ne se provoque pas)
+//                    indépendantes, sous-tâche déléguée rendue par un agent
+//                    réel (où elle a tourné est dit, jamais exigé : la Reine
+//                    ne l'épingle pas), relecture croisée ; la reprise après
+//                    objection est dite, jamais exigée (une objection ne se
+//                    provoque pas)
 //   --depot <url>    la mission travaille sur ce dépôt GitHub (https), puis
 //                    chaque production — sous-tâches déléguées comprises — est
 //                    livrée en pull request ; l'URL et le jeton de la Reine
