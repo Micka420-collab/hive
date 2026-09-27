@@ -579,10 +579,18 @@ export function EvaluationPanel({
               'La qualité est acceptée ; la fusion reste un geste humain explicite.',
               'Quality accepted; merging remains an explicit human action.',
             )
-          : t(
-              'Aucune autorisation de fusion automatique : les preuves manquantes restent à produire.',
-              'No automatic merge authorization: missing evidence must still be produced.',
-            )}
+          : evaluation.decision === 'accepted'
+            ? // Acceptée sans approbation humaine : il ne MANQUE aucune preuve,
+              // il manque l'humain. Dire « preuves manquantes » l'enverrait
+              // chercher une validation qui est déjà là.
+              t(
+                'Qualité acceptée ; la fusion attend l’approbation humaine.',
+                'Quality accepted; merging awaits human approval.',
+              )
+            : t(
+                'Aucune autorisation de fusion automatique : les preuves manquantes restent à produire.',
+                'No automatic merge authorization: missing evidence must still be produced.',
+              )}
       </p>
     </div>
   );

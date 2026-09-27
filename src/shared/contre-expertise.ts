@@ -138,6 +138,21 @@ export const AGENTS_SANS_AVIS: readonly string[] = ['shell'];
 export const RELECTEURS_PAR_PRODUCTION = 2;
 
 /**
+ * Cet agent peut-il rendre un avis INDÉPENDANT sur une production de cette
+ * famille ? Une autre famille, et jamais le `shell` simulé.
+ *
+ * UNE définition pour les trois moments qui posent la question : le choix des
+ * relecteurs au lancement (`choisirCritiques`), la réassignation d'une
+ * relecture remise en file (le planificateur) et le décompte des avis
+ * favorables (l'Evaluator). Trois copies divergeraient — et c'est au moment le
+ * moins surveillé, la réassignation, que le producteur finissait par relire
+ * son propre diff.
+ */
+export function relecteurIndependant(relecteurAgent: string, producteurAgent: string): boolean {
+  return relecteurAgent !== producteurAgent && !AGENTS_SANS_AVIS.includes(relecteurAgent);
+}
+
+/**
  * Qui doit relire cette production.
  *
  * `combien` est un plafond, pas un objectif : mieux vaut une critique d'un
@@ -153,8 +168,7 @@ export function choisirCritiques(
     (c) =>
       c.enLigne &&
       c.nodeId !== production.nodeId &&
-      c.agentType !== production.agentType &&
-      !AGENTS_SANS_AVIS.includes(c.agentType),
+      relecteurIndependant(c.agentType, production.agentType),
   );
 
   if (utilisables.length === 0) {

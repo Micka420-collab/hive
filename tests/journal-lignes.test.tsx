@@ -172,3 +172,77 @@ describe('la course annonce les drones QUI VOLENT, pas le facteur demandé', () 
     expect(ligne(dom), 'la ligne anglaise annonce le facteur').not.toContain('7 drone(s)');
   });
 });
+
+describe('une correction de l’Evaluator ne se lit pas comme un échec', () => {
+  // ─── LE MÊME TYPE, DEUX HISTOIRES OPPOSÉES ─────────────────────────────
+  //
+  // `task_retry` sans source : le Worker a échoué. Avec `source: 'evaluator'` :
+  // sa production a RÉUSSI, et l'Evaluator (contre-revue, revue humaine) en
+  // demande une meilleure. Le journal écrivait « échec » dans les deux cas.
+  const correction = evenement('task_retry', {
+    taskId: 'tache-relue',
+    source: 'evaluator',
+    resultId: 4,
+    decision: 'correction_required',
+    attempt: 2,
+    maxAttempts: 3,
+  });
+
+  it('LA CORRECTION EST DITE COMME TELLE', async () => {
+    const dom = await monter(correction);
+    expect(ligne(dom), 'la correction n’est pas attribuée à l’Evaluator').toContain(
+      'correction demandée par l’Evaluator',
+    );
+    expect(ligne(dom), 'l’essai n’est pas compté').toContain('2/3');
+    expect(ligne(dom), 'une production réussie est dite en échec').not.toContain('échec');
+  });
+
+  it('EN ANGLAIS AUSSI : « correction requested », pas « failed »', async () => {
+    setLang('en');
+    const dom = await monter(correction);
+    expect(ligne(dom)).toContain('correction requested by the Evaluator');
+    expect(ligne(dom), 'a successful production reads as failed').not.toContain('failed');
+  });
+
+  it('UN VRAI ÉCHEC DU WORKER RESTE UN ÉCHEC — l’autre branche', async () => {
+    const dom = await monter(
+      evenement('task_retry', { taskId: 'tache-ratee', attempt: 2, maxAttempts: 3 }),
+    );
+    expect(ligne(dom)).toContain('échec, essai 2/3');
+  });
+
+  it('UNE CORRECTION NON RELANCÉE DIT POURQUOI', async () => {
+    // Sans rendu dédié, la ligne affichait le type brut — et un rejet humain
+    // resté sans suite passait pour une correction en route.
+    const dom = await monter(
+      evenement('evaluator_retry_skipped', {
+        taskId: 'tache-relue',
+        resultId: 4,
+        reason: 'attempts_exhausted',
+      }),
+    );
+    expect(ligne(dom), 'la ligne montre le type brut').not.toContain('evaluator_retry_skipped');
+    expect(ligne(dom)).toContain('correction Evaluator non relancée');
+    expect(ligne(dom), 'la raison n’est pas dite').toContain('essais épuisés');
+  });
+
+  it('EN ANGLAIS, LA RAISON AUSSI', async () => {
+    setLang('en');
+    const dom = await monter(
+      evenement('evaluator_retry_skipped', { taskId: 'tache-relue', reason: 'delivery_exists' }),
+    );
+    expect(ligne(dom)).toContain('Evaluator correction not retried');
+    expect(ligne(dom)).toContain('a delivery is already open');
+  });
+
+  it('UN REJET SUR UNE TÂCHE ÉCHOUÉE NE LA DIT PAS « PAS TERMINÉE »', async () => {
+    // Un humain rejette une tâche en échec : la correction de l'Evaluator ne
+    // part pas (`task_not_done`), parce que c'est le retry ordinaire qui la
+    // relance. La ligne doit le dire, pas nier un statut terminal.
+    const dom = await monter(
+      evenement('evaluator_retry_skipped', { taskId: 'tache-ratee', reason: 'task_not_done' }),
+    );
+    expect(ligne(dom)).not.toContain('pas (ou plus) terminée');
+    expect(ligne(dom)).toContain('retry ordinaire');
+  });
+});

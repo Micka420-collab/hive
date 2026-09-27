@@ -9,7 +9,7 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
-import type { Task } from '../src/shared/types.js';
+import { MAX_ATTEMPTS, type Task } from '../src/shared/types.js';
 
 const TOKEN = 'jeton-selection-suffisamment-long';
 
@@ -102,6 +102,11 @@ describe('POST /merge/run — sélection de tâches (taskIds)', () => {
   });
 
   it('une tâche rejetée en revue ne coule JAMAIS (sélection explicite ET repli)', async () => {
+    // Un rejet humain relance d'ordinaire une correction : la tâche quitte
+    // `done` et n'est plus candidate au merge. Elle ne reste « terminée ET
+    // rejetée » que lorsque cette correction est refusée — ici, essais
+    // épuisés. C'est cet état-là, réel, que le merge doit écarter.
+    server.store.patchTask(doneTask.id, { attempts: MAX_ATTEMPTS });
     await fetch(`${base}/api/tasks/${doneTask.id}/review`, {
       method: 'POST',
       headers,

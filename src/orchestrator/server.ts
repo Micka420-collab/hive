@@ -118,7 +118,7 @@ import type {
 } from '../shared/protocol.js';
 import { direManques, manquesDeDemarrage } from '../shared/amorce.js';
 import { DEFAULT_TOKEN } from '../shared/types.js';
-import type { HiveEvent, Project, Task } from '../shared/types.js';
+import type { HiveEvent, HiveNode, Project, Task } from '../shared/types.js';
 import { CORPUS_BALANCE, estimerCout, peserLaRuche, VERSION_BALANCE } from './balance.js';
 import type { CompteTache, Devis, Pesee } from './balance.js';
 import { leconsDesEchecs } from './brood.js';
@@ -1075,17 +1075,40 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   };
 
   /**
+   * Les relectures lancées pour CE `resultId`. Les liens du store couvrent
+   * l'historique de la tâche ; l'événement de lancement porte donc le
+   * filigrane qui sépare les tentatives.
+   */
+  function relecturesDuResultat(taskId: string, resultId: number): string[] {
+    return store
+      .relecturesDeProduction(taskId)
+      .filter(
+        (relectureTaskId) =>
+          store.eventForRelecture(relectureTaskId)?.payload.resultId === resultId,
+      );
+  }
+
+  /**
+   * Les relectures de ce résultat encore en vol — le pendant, côté
+   * acceptation, de `contreRevueTerminee` : un premier avis FAVORABLE ne doit
+   * pas faire accepter la production pendant qu'un autre peut encore objecter.
+   * Une relecture dont la tâche n'existe plus n'est pas en vol : elle ne rendra
+   * plus d'avis, et l'attendre bloquerait l'Evaluator pour toujours.
+   */
+  function relecturesEnVol(taskId: string, resultId: number): number {
+    return relecturesDuResultat(taskId, resultId).filter((relectureTaskId) => {
+      const statut = store.getTask(relectureTaskId)?.status;
+      return statut !== undefined && statut !== 'done' && statut !== 'failed';
+    }).length;
+  }
+
+  /**
    * La contre-revue est complète quand chaque relecture lancée pour CE
-   * `resultId` est terminale. Les liens du store couvrent l'historique de la
-   * tâche ; l'événement de lancement porte donc le filigrane qui sépare les
-   * tentatives. Un premier avis contestataire ne doit pas relancer la tâche
-   * pendant qu'un autre avis est encore en vol.
+   * `resultId` est terminale. Un premier avis contestataire ne doit pas
+   * relancer la tâche pendant qu'un autre avis est encore en vol.
    */
   function contreRevueTerminee(taskId: string, resultId: number): boolean {
-    const relectures = store.relecturesDeProduction(taskId).filter((relectureTaskId) => {
-      const lancement = store.eventForRelecture(relectureTaskId);
-      return lancement?.payload.resultId === resultId;
-    });
+    const relectures = relecturesDuResultat(taskId, resultId);
     if (relectures.length === 0) return false;
     return relectures.every((relectureTaskId) => {
       const relecture = store.getTask(relectureTaskId);
@@ -1137,12 +1160,22 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     }
   }
 
+  /**
+   * `auteur` est le nœud qui a RENDU l'avis, pas le relecteur choisi au
+   * lancement (`lien`). Une relecture remise en file (échec, refus, nœud
+   * déconnecté) change de mains ; consigner le choisi ferait passer l'avis
+   * d'un autre pour une relecture indépendante — et depuis qu'UN avis
+   * favorable d'une autre famille suffit à `accepted`, cette étiquette
+   * suffirait à accepter une production relue par sa propre famille. Le lien
+   * ne sert plus qu'à retrouver la production et sa famille.
+   */
   const noterVerdict = (
     relectureTaskId: string,
     lien: NonNullable<ReturnType<typeof store.relectureDe>>,
+    auteur: Pick<HiveNode, 'id' | 'agentType'>,
     texte: string,
   ): void => {
-    const verdict = agreger([lireAvis(lien.relecteurNodeId, lien.relecteurAgent, texte)]);
+    const verdict = agreger([lireAvis(auteur.id, auteur.agentType, texte)]);
     const lancement = store.eventForRelecture(relectureTaskId);
     const resultId = lancement?.payload.resultId;
     const exactResultId =
@@ -1168,8 +1201,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         ? { producteurModele: lancement.payload.producteurModele }
         : {}),
       relecture: relectureTaskId,
-      relecteur: lien.relecteurAgent,
-      reviewerNodeId: lien.relecteurNodeId,
+      relecteur: auteur.agentType,
+      reviewerNodeId: auteur.id,
       producteur: lien.producteurAgent,
       conteste: verdict.conteste,
       objections: verdict.objections,
@@ -1187,8 +1220,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       productionTaskId: lien.productionTaskId,
       suite: resume?.decision ?? (verdict.conteste ? 'ameliorer' : 'appliquer'),
       raison: resume?.objections[0] ?? verdict.objections[0] ?? '',
-      visiteurNodeId: lien.relecteurNodeId,
-      visiteurAgent: lien.relecteurAgent,
+      visiteurNodeId: auteur.id,
+      visiteurAgent: auteur.agentType,
     });
     if (exactResultId !== undefined) {
       relancerSiContreRevueInsuffisante(lien.productionTaskId, exactResultId);
@@ -1680,6 +1713,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           missingCrossReviewEvidence(task.id, latest.resultId))
         : missingCrossReviewEvidence(task.id, null)
       : null;
+    const crossReviewPending =
+      latest?.resultId !== undefined ? relecturesEnVol(task.id, latest.resultId) : 0;
     const inspections = store.listInspections();
     const inspection = latest
       ? inspectionDeProduction(inspections, task.id, latest.nodeId, latest.resultId)
@@ -1717,6 +1752,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
             }
           : {}),
         ...(crossReview ? { crossReview } : {}),
+        crossReviewPending,
       }),
     };
   };
@@ -7131,7 +7167,19 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
             resultId: latest.resultId,
             decision: evaluation.decision,
           });
-          if (retry.ok) stateDirty = true;
+          if (retry.ok) {
+            stateDirty = true;
+          } else {
+            // Même trace que le retry automatique de la contre-revue : Mission
+            // Control ne lit pas cette réponse, et un rejet humain resté sans
+            // correction (essais épuisés, livraison déjà ouverte…) ne doit pas
+            // se confondre avec une correction en route.
+            emitEvent('evaluator_retry_skipped', {
+              taskId: task.id,
+              resultId: latest.resultId,
+              reason: retry.reason,
+            });
+          }
         }
       }
       const saved = store.getTaskReview(task.id);
@@ -9275,9 +9323,15 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
               // relecture partie chez le producteur avant la garde de famille
               // peut revenir ainsi) serait Claude relisant Claude, consigné
               // sous le nom de Codex.
-              const livreur = store.getNode(nodeId)?.agentType;
+              //
+              // L'AUTEUR de ce résultat est le nœud qui l'envoie : le
+              // scheduler ne l'a pris que parce que ce nœud était l'assigné.
+              // Un nœud inscrit n'est jamais effacé du store ; sans lui,
+              // l'avis n'aurait pas d'auteur vérifiable et ne compterait pas.
+              const auteur = store.getNode(nodeId);
+              const livreur = auteur?.agentType;
               const avisValable = livreur === lienRelecture.relecteurAgent;
-              if (msg.success && relecture?.status === 'done' && avisValable) {
+              if (msg.success && relecture?.status === 'done' && auteur && avisValable) {
                 // Le texte du relecteur est une DONNÉE : `lireAvis` le
                 // neutralise et le borne avant qu'il n'atteigne un événement
                 // lu par un humain. Un verdict illisible compte comme
@@ -9285,7 +9339,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
                 // effectivement terminée.
                 noterVerdict(
                   msg.taskId,
-                  { ...lienRelecture, relecteurNodeId: nodeId },
+                  lienRelecture,
+                  auteur,
                   `${msg.logs ?? ''}\n${msg.diff ?? ''}`,
                 );
               } else if (!msg.success || !avisValable) {
@@ -9303,6 +9358,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
                     : {}),
                   relecture: msg.taskId,
                   relecteur: lienRelecture.relecteurAgent,
+                  reviewerNodeId: nodeId,
                   terminal: relecture?.status === 'failed' || relecture?.status === 'done',
                   attempt: relecture?.attempts ?? 0,
                   ...(avisValable

@@ -508,13 +508,6 @@ describe('V2 Alpha — mission locale vérifiable', () => {
           ),
       ).toHaveLength(0);
 
-      const approved = await fetch(`${base}/api/tasks/${task.id}/review`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ state: 'approved', clientId: 'v2-alpha' }),
-      });
-      expect(approved.status).toBe(200);
-
       const delivery = await fetch(`${base}/api/livraison`, {
         method: 'POST',
         headers,
@@ -543,6 +536,31 @@ describe('V2 Alpha — mission locale vérifiable', () => {
         },
       });
 
+      // Relue favorablement par une autre famille, validée par la CI du
+      // résultat exact : l'Evaluator ACCEPTE la qualité — sans que le Parlement
+      // ait eu à élire deux diffs identiques. La fusion, elle, attend l'humain.
+      const beforeApproval = await fetch(`${base}/api/tasks/${task.id}/evaluation`, { headers });
+      expect(beforeApproval.status).toBe(200);
+      const accepted = (await beforeApproval.json()) as {
+        decision: string;
+        canMerge: boolean;
+        reasons: string[];
+        evidence: { humanReview: string; consensus: string };
+      };
+      expect(accepted, accepted.reasons.join(' · ')).toMatchObject({
+        decision: 'accepted',
+        canMerge: false,
+      });
+      expect(accepted.evidence.humanReview).toBe('missing');
+      expect(accepted.evidence.consensus).toBe('no_quorum');
+
+      const approved = await fetch(`${base}/api/tasks/${task.id}/review`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ state: 'approved', clientId: 'v2-alpha' }),
+      });
+      expect(approved.status).toBe(200);
+
       const final = await fetch(`${base}/api/tasks/${task.id}/evaluation`, { headers });
       expect(final.status).toBe(200);
       const evaluation = (await final.json()) as {
@@ -566,8 +584,8 @@ describe('V2 Alpha — mission locale vérifiable', () => {
         };
       };
       expect(evaluation).toMatchObject({
-        decision: 'human_review_required',
-        canMerge: false,
+        decision: 'accepted',
+        canMerge: true,
       });
       expect(evaluation.evidence.crossReview).toMatchObject({
         resultId: second?.resultId,
@@ -588,7 +606,8 @@ describe('V2 Alpha — mission locale vérifiable', () => {
       });
       // Le Parlement garde un quorum de deux sorties identiques. Après un
       // retry correctif, deux diffs différents restent honnêtement sans
-      // quorum : l'Evaluator demande donc encore les contrôles externes.
+      // quorum — et ce n'est plus une condition : la contre-revue d'une autre
+      // famille porte l'indépendance que le Parlement ne sait pas mesurer.
       expect(evaluation.evidence.consensus).toBe('no_quorum');
       expect(evaluation.evidence.result).toBe('passed');
 

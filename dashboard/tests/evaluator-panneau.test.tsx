@@ -37,6 +37,7 @@ const evidence: EvaluationResult['evidence'] = {
     approvingReviewers: 0,
     recordedAt: 0,
   },
+  crossReviewPending: 0,
   humanReview: 'approved',
 };
 
@@ -85,7 +86,9 @@ describe('Evaluator dans la Miellerie', () => {
       evaluation({
         decision: 'accepted',
         canMerge: true,
-        reasons: ['résultat réussi, Gardiennes propres, validations vertes et consensus atteint'],
+        reasons: [
+          'résultat réussi, Gardiennes propres, validations vertes et contre-revue favorable de codex sur une production de claude-code',
+        ],
         evidence: {
           ...evidence,
           tests: 'passed',
@@ -97,6 +100,33 @@ describe('Evaluator dans la Miellerie', () => {
     );
     expect(container!.textContent).toContain('Evaluator : accepté');
     expect(container!.textContent).toContain('la fusion reste un geste humain explicite');
+  });
+
+  it('acceptée sans approbation humaine : c’est l’humain qui manque, pas une preuve', async () => {
+    // `accepted` sans `canMerge` n'était pas atteignable tant que l'Evaluator
+    // exigeait un consensus du Parlement. Il l'est : la note ne doit plus
+    // envoyer l'opérateur chercher une validation déjà verte.
+    setLang('fr');
+    await mount(
+      evaluation({
+        decision: 'accepted',
+        canMerge: false,
+        reasons: [
+          'résultat réussi, Gardiennes propres, validations vertes et contre-revue favorable de codex sur une production de claude-code',
+        ],
+        evidence: {
+          ...evidence,
+          tests: 'passed',
+          typecheck: 'passed',
+          build: 'passed',
+          lint: 'passed',
+          humanReview: 'missing',
+        },
+      }),
+    );
+    const note = container!.querySelector('.mi-cons-note')?.textContent ?? '';
+    expect(note).toContain('la fusion attend l’approbation humaine');
+    expect(note).not.toContain('preuves manquantes');
   });
 
   it('expose la contre-revue, le retry et la provenance CI réels', async () => {

@@ -52,6 +52,41 @@ const short = (v: unknown) => (typeof v === 'string' ? v.slice(0, 8) : '?');
 const cout = (v: unknown): string | null =>
   typeof v === 'number' && Number.isFinite(v) ? formatDuree(v) : null;
 
+/**
+ * Pourquoi une correction demandée par l'Evaluator n'est pas repartie.
+ *
+ * Les codes sont ceux du planificateur (`retryFromEvaluator`). Sans cette
+ * ligne, le journal affichait le type brut — ou rien du tout quand un rejet
+ * humain restait sans suite : l'opérateur croyait une correction en route. Un
+ * code inconnu reste affiché tel quel plutôt que traduit de travers.
+ */
+function raisonRetrySaute(code: unknown, t: Translate): string {
+  switch (code) {
+    case 'attempts_exhausted':
+      return t('essais épuisés', 'attempts exhausted');
+    case 'delivery_exists':
+      return t('une livraison est déjà ouverte', 'a delivery is already open');
+    case 'dependent_progressed':
+      return t('une tâche dépendante a déjà avancé', 'a dependent task has already moved on');
+    case 'stale_result':
+      return t('une production plus récente existe', 'a newer production exists');
+    // Une tâche ÉCHOUÉE est terminée, mais pas `done` : c'est le retry
+    // ordinaire qui la relance, jamais la correction de l'Evaluator. Dire
+    // « pas terminée » d'une tâche en échec contredirait son propre statut.
+    case 'task_not_done':
+      return t(
+        'la tâche n’est pas « terminée avec succès » (échouée : relancez-la par le retry ordinaire)',
+        'the task is not “completed successfully” (failed: relaunch it with the ordinary retry)',
+      );
+    case 'unknown_task':
+      return t('tâche inconnue', 'unknown task');
+    case 'invalid_result_id':
+      return t('résultat invalide', 'invalid result');
+    default:
+      return typeof code === 'string' && code.length > 0 ? code : '?';
+  }
+}
+
 const EVENTS: Record<string, Meta> = {
   project_created: {
     icon: '▦',
@@ -111,14 +146,41 @@ const EVENTS: Record<string, Meta> = {
     icon: '↻',
     cls: 'warn',
     text: (p, t) => {
+      const essai = `${String(p.attempt)}/${String(p.maxAttempts)}`;
+      // Le même type porte deux histoires opposées. Sans `source`, c'est le
+      // Worker qui a échoué ; avec `source: 'evaluator'`, sa production a
+      // RÉUSSI et l'Evaluator en demande une meilleure (contre-revue, revue
+      // humaine). L'écrire « échec » accusait un travail qui n'avait pas raté.
+      if (p.source === 'evaluator') {
+        return p.decision === 'rejected'
+          ? t(
+              `production rejetée par l’Evaluator, nouvel essai ${essai} (${short(p.taskId)})`,
+              `production rejected by the Evaluator, new attempt ${essai} (${short(p.taskId)})`,
+            )
+          : t(
+              `correction demandée par l’Evaluator, essai ${essai} (${short(p.taskId)})`,
+              `correction requested by the Evaluator, attempt ${essai} (${short(p.taskId)})`,
+            );
+      }
       const ms = cout(p.durationMs);
       const base = t(
-        `échec, essai ${String(p.attempt)}/${String(p.maxAttempts)} (${short(p.taskId)})`,
-        `failed, attempt ${String(p.attempt)}/${String(p.maxAttempts)} (${short(p.taskId)})`,
+        `échec, essai ${essai} (${short(p.taskId)})`,
+        `failed, attempt ${essai} (${short(p.taskId)})`,
       );
       // Le temps que cette tentative a coûté : imputé en « reprise » par la
       // Balance dès que la tâche aboutit.
       return ms === null ? base : `${base} — ${t(`${ms} en reprise`, `${ms} of rework`)}`;
+    },
+  },
+  evaluator_retry_skipped: {
+    icon: '⊘',
+    cls: 'warn',
+    text: (p, t) => {
+      const raison = raisonRetrySaute(p.reason, t);
+      return t(
+        `correction Evaluator non relancée (${short(p.taskId)}) : ${raison}`,
+        `Evaluator correction not retried (${short(p.taskId)}): ${raison}`,
+      );
     },
   },
   task_failed: {

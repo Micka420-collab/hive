@@ -317,6 +317,28 @@ describe('Gardiennes : ce qu’un refus ne nourrit pas', () => {
     expect(store.countInspections()).toBe(0);
   });
 
+  it('une RELECTURE n’est pas reniflée : un avis sans diff n’est pas une production creuse', () => {
+    // La consigne d'une relecture porte la promesse de la production relue
+    // (ici « corriger src/t1.ts », sur un dépôt git) ; un avis, lui, ne modifie
+    // rien. Reniflé comme une production, il était refusé en `strict`,
+    // re-tenté puis `failed` : la contre-revue ne rendait jamais d'avis, et
+    // `accepted` restait hors d'atteinte.
+    const p = plateau({ mode: 'strict' });
+    store.inscrireRelecture({
+      relectureTaskId: 'T1',
+      productionTaskId: 'P1',
+      relecteurNodeId: 'n1',
+      relecteurAgent: 'codex',
+      producteurAgent: 'claude-code',
+    });
+    expect(
+      p.scheduler.handleTaskResult('n1', resultat('T1', { success: true, logs: 'valide' })),
+    ).toBe(true);
+    expect(store.getTask('T1')?.status).toBe('done');
+    expect(p.journal.filter((e) => e.type === 'guard_refused')).toEqual([]);
+    expect(store.countInspections()).toBe(0);
+  });
+
   it('BORNE — un agent qui rend trois productions creuses épuise le MÊME budget qu’un agent qui échoue', () => {
     // C'est la réponse à « une re-tentative infinie sur un agent cassé serait
     // pire que le mal ». Le refus emprunte le circuit d'échec EXISTANT, donc le
