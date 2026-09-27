@@ -311,7 +311,7 @@ describe('V2 Alpha — mission locale vérifiable', () => {
 
   it(
     'exécute une production réelle, corrige après contre-revue et rend les preuves Git/CI lisibles',
-    { timeout: 90_000 },
+    { timeout: 150_000 },
     async () => {
       const root = mkdtempSync(path.join(os.tmpdir(), 'hive-v2-alpha-'));
       const repo = await depotFixture(root);
@@ -399,9 +399,15 @@ describe('V2 Alpha — mission locale vérifiable', () => {
         'les trois Workers ne sont pas en ligne',
       );
 
+      // Une production lance désormais, dans son bac, les quatre scripts que le
+      // dépôt déclare (`npm run` ×4) — et celle-ci attend en plus son enfant
+      // délégué, qui lance les siens. Sur un runner Windows chargé, c'est une
+      // dizaine de secondes de plus : la borne de vivacité suit le travail.
+      const PRODUCTION_MS = 45_000;
       await attendre(
         () => server.store.getTask(task.id)?.status === 'done',
         'la production Worker n’est pas terminée',
+        PRODUCTION_MS,
       );
       const first = server.store.resultsForTask(task.id).at(-1);
       expect(first?.success).toBe(true);
@@ -473,6 +479,7 @@ describe('V2 Alpha — mission locale vérifiable', () => {
       await attendre(
         () => server.store.resultsForTask(task.id).length >= 2,
         'le retry Evaluator n’a pas produit une seconde tentative',
+        PRODUCTION_MS,
       );
       const second = server.store.resultsForTask(task.id).at(-1);
       expect(second?.resultId).not.toBe(first?.resultId);

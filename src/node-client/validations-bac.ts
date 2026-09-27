@@ -185,17 +185,23 @@ async function lancerLePlan(
   // à lancer, ce sont les constats du plan, rendus tels quels.
   const controles = manquantes(plan, 'annule');
   const aLancer = ORDRE_DE_LANCEMENT.filter((cle) => plan[cle].genre === 'lancer');
-  if (aLancer.length === 0) return controles;
+  if (aLancer.length === 0 || opts.signal?.aborted) return controles;
 
   const env = buildSandboxEnv(cwd);
   const lancer = (argv: string[], delaiMs: number) =>
     runProc(argv, cwd, env, delaiMs, opts.signal, opts.bac);
 
   // npm se lance-t-il DANS CE BAC ? Sans cette sonde, un bac qui ne voit pas
-  // npm rendrait quatre `code 1` — lus comme quatre échecs de la production.
-  const sonde = await lancer(['npm', '--version'], DELAI_SONDE_MS);
-  if (sonde.code !== 0 || sonde.arret) {
-    return manquantes(plan, opts.signal?.aborted ? 'annule' : 'npm_indisponible', sonde.output);
+  // npm rendrait quatre `code 1` — le moteur qui échoue à exécuter l'invité
+  // répond comme un script en échec —, lus comme quatre échecs de la
+  // production. Hors bac, la sonde serait un processus de trop par
+  // production : un npm absent de l'hôte fait échouer le lancement lui-même,
+  // que `runProc` rend `arret: 'lancement'`, jamais un verdict.
+  if (opts.bac) {
+    const sonde = await lancer(['npm', '--version'], DELAI_SONDE_MS);
+    if (sonde.code !== 0 || sonde.arret) {
+      return manquantes(plan, opts.signal?.aborted ? 'annule' : 'npm_indisponible', sonde.output);
+    }
   }
 
   if (declareDesDependances(manifesteProduit)) {

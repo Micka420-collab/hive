@@ -15,6 +15,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { simpleGit } from 'simple-git';
+import { resoudreLanceur } from '../src/lanceur-reel.js';
 import { validerProduction } from '../src/node-client/validations-bac.js';
 import type { Fournisseur } from '../src/node-client/isolement.js';
 
@@ -113,21 +114,35 @@ describe('validerProduction — ce que la base déclare, lancé dans le réperto
     expect(existsSync(path.join(dir, 'test.ran'))).toBe(false);
   }, 30_000);
 
-  it('127, délai dépassé : missing — ce ne sont pas des verdicts sur la production', async () => {
+  // POSIX seulement : sous Windows, `cmd.exe` rend 1 pour une commande
+  // inconnue — limite consignée sur `controleApresLancement`.
+  it.skipIf(process.platform === 'win32')(
+    '127 : un outil introuvable n’est pas un verdict sur la production',
+    async () => {
+      const dir = await depot({
+        'package.json': manifeste({ test: 'outil-que-personne-n-a-installe --run' }),
+      });
+
+      const rapport = await valider(dir);
+
+      expect(rapport.controles.tests).toMatchObject({
+        etat: 'missing',
+        raison: 'outil_introuvable',
+        code: 127,
+      });
+    },
+    30_000,
+  );
+
+  it('délai dépassé : missing — la commande est arrêtée, son verdict reste inconnu', async () => {
+    // Une attente courte : sous Windows, tuer npm ne tue pas le script qu'il a
+    // lancé, et la sortie ne se ferme qu'avec lui.
     const dir = await depot({
-      'package.json': manifeste({
-        test: 'outil-que-personne-n-a-installe --run',
-        lint: 'node -e "setTimeout(() => {}, 20000)"',
-      }),
+      'package.json': manifeste({ lint: 'node -e "setTimeout(() => {}, 5000)"' }),
     });
 
     const rapport = await valider(dir, { delaiMs: 1_500 });
 
-    expect(rapport.controles.tests).toMatchObject({
-      etat: 'missing',
-      raison: 'outil_introuvable',
-      code: 127,
-    });
     expect(rapport.controles.lint).toMatchObject({ etat: 'missing', raison: 'delai' });
   }, 30_000);
 
@@ -161,7 +176,9 @@ describe('validerProduction — ce que la base déclare, lancé dans le réperto
       ),
       '.gitignore': 'node_modules\n',
     });
-    execFileSync('npm', ['install', '--no-audit', '--no-fund', '--offline'], {
+    // `resoudreLanceur` : sous Windows, `npm` est un script, pas un exécutable.
+    const npm = resoudreLanceur('npm', ['install', '--no-audit', '--no-fund', '--offline']);
+    execFileSync(npm.bin, npm.args, {
       cwd: dir,
       stdio: 'ignore',
     });

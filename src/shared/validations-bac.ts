@@ -275,6 +275,12 @@ export function extraitDe(sortie: string): { extrait?: string } {
  * installé dans le bac) — dit que l'ENVIRONNEMENT n'a pas permis de conclure,
  * pas que la production est fausse. Le classer `failed` enverrait l'agent
  * corriger du code qui va très bien ; c'est donc `missing`.
+ *
+ * LIMITE CONNUE, SOUS WINDOWS : `cmd.exe` rend 1, pas 127, pour une commande
+ * inconnue — un outil introuvable s'y lit donc `failed`. Lire son message pour
+ * le distinguer dépendrait de la langue du système ; c'est l'une des raisons
+ * pour lesquelles le bac reconstruit les dépendances depuis le lockfile avant
+ * de lancer quoi que ce soit.
  */
 export function controleApresLancement(p: {
   script: string;
