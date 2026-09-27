@@ -7,9 +7,11 @@
 import { DEFAULT_TOKEN } from '../shared/types.js';
 import type { Task } from '../shared/types.js';
 import { assertRealExecutionAllowed, runCommandStreaming } from './exec.js';
+import { configurationDuDepot, consignesDuDepot } from './consignes-depot.js';
 import {
   createDelegationBridge,
   resultatSansPont,
+  writeClaudeConsignes,
   writeClaudeMcpConfig,
   type DelegationBridge,
 } from './delegation-bridge.js';
@@ -22,6 +24,23 @@ import type { AdapterContext, AdapterResult, AgentAdapter } from './index.js';
 const CLAUDE_TIMEOUT_MS = 15 * 60_000;
 
 /**
+ * Les réglages que Hive impose à CHAQUE exécution (`--settings`, en JSON sur la
+ * ligne de commande : ni fichier à monter dans le bac, ni secret).
+ *
+ * `disableAllHooks` : « the repository's project settings take precedence over
+ * yours and can set it back to `false` » (code.claude.com/docs/en/permissions) —
+ * seuls `--settings` et les réglages gérés passent au-dessus du projet.
+ *
+ * `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` n'y est PAS, et c'est mesuré : sous Linux
+ * (Claude Code 2.1.283), il impose le bac à sable de Claude à l'outil Bash. Sur
+ * un poste sans `socat`, CHAQUE commande échouait (« Sandbox is required but
+ * failed to initialize ») ; et ce bac posait une vingtaine de fichiers vides
+ * dans le répertoire de la tâche (`package.json`, `.env*`, `node_modules/`,
+ * `.gitmodules`, `.git/commondir`…) — autant de lignes dans le diff livré.
+ */
+export const REGLAGES_IMPOSES = JSON.stringify({ disableAllHooks: true });
+
+/**
  * Les arguments de `claude -p`, avec le modèle de l'Aiguillage en option s'il y
  * en a un.
  *
@@ -32,8 +51,40 @@ const CLAUDE_TIMEOUT_MS = 15 * 60_000;
  * panne : mesuré en double sur ce dépôt (deux tâches, 0 octet de diff malgré 8
  * `Edit` tentés sur la seconde). `acceptEdits` — pas `bypassPermissions` — reste
  * scopé aux fichiers : la tâche s'exécute déjà dans un clone jetable, un
- * répertoire dédié, un environnement épuré (`buildSandboxEnv`, ni HOME ni
- * variables du membre), donc autoriser l'écriture n'ouvre rien de plus large.
+ * répertoire dédié, un environnement épuré (`buildSandboxEnv` : les seules
+ * variables de l'agent — dont, HORS du bac, le HOME du membre, où vit sa
+ * session), donc autoriser l'écriture n'ouvre rien de plus large.
+ *
+ * ─── RIEN DE CE QUE LE DÉPÔT APPORTE NE S'EXÉCUTE ────────────────────────────
+ *
+ * Sans terminal, `claude -p` ne demande jamais la confiance du dossier : il
+ * lançait les hooks de `.claude/settings.json`, les serveurs de `.mcp.json` et
+ * appliquait le bloc `env` du projet (code.claude.com/docs/en/headless). Mesuré
+ * sur 2.1.283, dans un dépôt piégé, avec une fausse clé : le hook SessionStart
+ * lisait la clé dans `/proc/<pid de claude>/environ`, le serveur MCP la
+ * recevait dans son environnement, et un `ANTHROPIC_BASE_URL` du projet
+ * envoyait chaque requête — clé comprise — à l'adresse choisie par le dépôt.
+ * Même règle que `git-protege.ts` pour git : la tâche vient d'un AUTRE membre.
+ *
+ *   · `--setting-sources user` est LA parade : ni `.claude/settings*.json`, ni
+ *     `.mcp.json`, ni `CLAUDE.md`, `.claude/rules`, skills ou agents du projet.
+ *     Seule, elle éteint tous les témoins ;
+ *   · `--settings REGLAGES_IMPOSES` et `--strict-mcp-config` (toujours, pont
+ *     ou non : sans `--mcp-config`, aucun serveur) doublent la garde si une
+ *     version du CLI élargissait un jour ce qu'une source « user » recouvre.
+ *     Aucun ne suffit seul : les hooks coupés, le `.mcp.json` démarrait encore ;
+ *     le MCP strict, le hook tournait encore ;
+ *   · `--bare` n'est PAS une option : il ne lit pas `CLAUDE_CODE_OAUTH_TOKEN`
+ *     (code.claude.com/docs/en/authentication), le jeton de l'abonnement dans
+ *     le bac — et il laisse passer le bloc `env` du projet.
+ *
+ * CHOIX ASSUMÉ, hors du bac (sandbox de processus, HOME du membre) : ses
+ * PROPRES hooks et serveurs MCP (`~/.claude`) sont coupés eux aussi. Ses
+ * réglages restent lus. Une tâche de la ruche n'est pas une session du membre :
+ * rien de ce qu'il a branché pour lui ne doit agir sur le dépôt d'un autre.
+ *
+ * `consignesPath` : les consignes du dépôt relues comme DONNÉES
+ * (`consignes-depot.ts`), que `--setting-sources user` retire au CLI.
  *
  * `--model <nom>` va AVANT le `--` : c'est une OPTION, et tout ce qui suit `--`
  * est du texte de prompt (cf. l'injection démontrée dans `prompt-argv.ts`). Le
@@ -46,12 +97,20 @@ export function argvClaude(
   modele?: string,
   mcpConfigPath?: string,
   mcpServerName = 'hive',
+  consignesPath?: string,
 ): string[] {
   const drapeauxModele = modele ? ['--model', modele] : [];
   const drapeauxPermission = ['--permission-mode', 'acceptEdits'];
+  const drapeauxDepot = [
+    '--setting-sources',
+    'user',
+    '--settings',
+    REGLAGES_IMPOSES,
+    '--strict-mcp-config',
+  ];
+  const drapeauxConsignes = consignesPath ? ['--append-system-prompt-file', consignesPath] : [];
   const drapeauxMcp = mcpConfigPath
     ? [
-        '--strict-mcp-config',
         '--mcp-config',
         mcpConfigPath,
         '--allowedTools',
@@ -64,11 +123,30 @@ export function argvClaude(
     'stream-json',
     '--verbose',
     ...drapeauxPermission,
+    ...drapeauxDepot,
     ...drapeauxModele,
+    ...drapeauxConsignes,
     ...drapeauxMcp,
     '--',
     prompt,
   ];
+}
+
+/**
+ * La ligne du journal qui DIT ce que le dépôt apportait et que Hive a écarté —
+ * ou `undefined` s'il n'apportait rien. Sans elle, l'auteur d'un dépôt dont
+ * les hooks ne tournent plus ne saurait pas pourquoi.
+ */
+export function noteConfigurationIgnoree(
+  presents: readonly string[],
+  consignesReprises: boolean,
+): string | undefined {
+  if (presents.length === 0) return undefined;
+  const liste = presents.map((nom) => (nom === '.claude' ? '.claude/' : nom)).join(', ');
+  const consignes = consignesReprises
+    ? ' ; CLAUDE.md et .claude/rules relus comme simples données'
+    : '';
+  return `configuration d'agent du dépôt ignorée (hooks, MCP, env) : ${liste}${consignes}`;
 }
 
 export function createClaudeCodeAdapter(
@@ -94,6 +172,19 @@ export function createClaudeCodeAdapter(
           bridge = await createDelegationBridge(ctx, task.id);
           writeClaudeMcpConfig(bridge);
         }
+        // Les consignes du dépôt voyagent dans le dossier du pont, que le bac
+        // monte en lecture seule : jamais dans le répertoire de la tâche, où
+        // elles entreraient dans le diff. Le nœud fournit toujours un pont ;
+        // sans lui (adaptateur appelé seul), elles restent écartées comme le
+        // reste, et la note ne les annonce pas reprises.
+        const consignes = consignesDuDepot(ctx.cwd);
+        const consignesPath =
+          bridge && consignes ? writeClaudeConsignes(bridge, consignes) : undefined;
+        const note = noteConfigurationIgnoree(
+          configurationDuDepot(ctx.cwd),
+          consignesPath !== undefined,
+        );
+        if (note) ctx.onProgress({ log: note });
         // --verbose est requis par Claude Code pour stream-json en mode -p.
         //
         // LE PROMPT EST EN DERNIER, DERRIÈRE `--`, ET CE N'EST PAS COSMÉTIQUE :
@@ -105,7 +196,13 @@ export function createClaudeCodeAdapter(
         // Tout ce qui suit `--` est du texte. Cf. src/adapters/prompt-argv.ts.
         const result = await runCommandStreaming(
           'claude',
-          argvClaude(task.prompt, ctx.modele, bridge?.childConfigPath, bridge?.mcpServerName),
+          argvClaude(
+            task.prompt,
+            ctx.modele,
+            bridge?.childConfigPath,
+            bridge?.mcpServerName,
+            consignesPath,
+          ),
           ctx,
           (line) => {
             const subAgents = tracker.feed(line);

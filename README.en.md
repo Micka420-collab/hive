@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-7025%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-7038%20passing-F6C445?labelColor=17130C)
 ![License](https://img.shields.io/badge/license-MIT-F6C445?labelColor=17130C)
 
 [🇫🇷 Français](README.md) · 🇬🇧 English · [🌐 Site](https://micka420-collab.github.io/hive/?lang=en) · [📚 Documentation](#-documentation)
@@ -254,6 +254,16 @@ Inside the sandbox the agent gets an ephemeral HOME: a `claude login` or
 these variables, `auto` falls back to the process sandbox and `exige` refuses,
 naming the variable to set. Bubblewrap mounts the agent's and Node's
 installation read-only, never the HOME.
+
+Claude Code runs nothing a task's repository brings: Hive launches it with
+`--setting-sources user`, `--settings '{"disableAllHooks":true}'` and
+`--strict-mcp-config`, so the project's hooks, `.mcp.json` servers and settings
+`env` block no longer apply — without them `claude -p` ran them unasked, and a
+repository `ANTHROPIC_BASE_URL` received the member's key. The repository's
+`CLAUDE.md` and `.claude/rules` are re-read by Hive as bounded plain data
+appended to the system prompt; the task log says so. Deliberate trade-off:
+outside the sandbox, the member's **own** hooks and MCP servers are off too for
+hive tasks.
 
 ## 🛠️ Commands
 

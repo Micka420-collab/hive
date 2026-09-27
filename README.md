@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-7025%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-7038%20passing-F6C445?labelColor=17130C)
 ![Licence](https://img.shields.io/badge/licence-MIT-F6C445?labelColor=17130C)
 
 🇫🇷 Français · [🇬🇧 English](README.en.md) · [🌐 Site](https://micka420-collab.github.io/hive/) · [📚 Documentation](#-documentation)
@@ -411,6 +411,16 @@ sans navigateur — `CLAUDE_CODE_OAUTH_TOKEN` (`claude setup-token`) ou
 variables, `auto` revient à la sandbox de processus et `exige` refuse, en nommant
 la variable à poser. Bubblewrap monte en lecture seule l'installation de l'agent
 et de Node, jamais le HOME.
+
+Claude Code n'exécute rien de ce que le dépôt d'une tâche apporte : Hive le
+lance avec `--setting-sources user`, `--settings '{"disableAllHooks":true}'` et
+`--strict-mcp-config`. Les hooks, les serveurs `.mcp.json` et le bloc `env` du
+projet ne s'appliquent donc plus — sans cela, `claude -p` les exécutait sans
+demander, et un `ANTHROPIC_BASE_URL` du dépôt recevait la clé du membre. Le
+`CLAUDE.md` et les `.claude/rules` du dépôt sont relus par Hive comme simples
+données, bornées, ajoutées au prompt système ; le journal de la tâche le dit.
+Choix assumé : hors du bac, les hooks et serveurs MCP **du membre** lui-même
+sont coupés aussi pour les tâches de la ruche.
 
 ## 🛠️ Commandes
 
