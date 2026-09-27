@@ -114,6 +114,18 @@ describe('horloge de l’hébergeur — close à l’interruption, jamais au-del
     expect(depense(T + BIEN_PLUS_TARD)).toBe(1_000);
   });
 
+  it('un nœud revenu SANS sa tâche l’a perdue avec lui : l’horloge s’arrête à son retour', () => {
+    const n1 = scheduler.registerNode(profil('n1'), T);
+    const taskId = assignerA(n1.id);
+
+    // Le nœud a redémarré à vide : il se ré-inscrit sans déclarer la tâche.
+    // La Reine ne la voyait pas mourir, elle l'apprend à cet instant-là.
+    scheduler.registerNode({ ...profil('n1'), nodeId: n1.id }, T + 6_000);
+    scheduler.reconcileNode(n1.id, [], T + 6_000);
+    expect(store.getTask(taskId)).toMatchObject({ status: 'ready', assignedNodeId: null });
+    expect(depense(T + BIEN_PLUS_TARD)).toBe(6_000);
+  });
+
   it('un nœud revenu qui ré-adopte sa tâche ROUVRE l’horloge', () => {
     const n1 = scheduler.registerNode(profil('n1'), T);
     const taskId = assignerA(n1.id);
@@ -127,6 +139,22 @@ describe('horloge de l’hébergeur — close à l’interruption, jamais au-del
 
     scheduler.cancelTask(taskId, 'annulée par un humain', T + 10_000);
     expect(depense(T + BIEN_PLUS_TARD)).toBe(2_000 + 3_000);
+  });
+
+  it('une course dont chaque drone refuse cesse d’être facturée au dernier refus', () => {
+    const a = scheduler.registerNode(profil('a'), T);
+    const b = scheduler.registerNode(profil('b'), T);
+    const task = store.createTask({ projectId, title: 'course', prompt: 'p' }, T);
+    store.patchTask(task.id, { status: 'ready' }, T);
+    expect(scheduler.startRace(task.id, 2, T).ok).toBe(true);
+
+    scheduler.rejectTask(a.id, task.id, 'saturé', false, T + 1_000);
+    // Un drone vole encore : la tâche est toujours en vol, l'horloge tourne.
+    expect(depense(T + 2_500) - depense(T + 2_000)).toBe(500);
+    scheduler.rejectTask(b.id, task.id, 'saturé', false, T + 2_000);
+    // Rien n'a tourné : la tâche attend en file, sur aucun hébergeur.
+    expect(store.getTask(task.id)).toMatchObject({ status: 'ready', assignedNodeId: null });
+    expect(depense(T + BIEN_PLUS_TARD)).toBe(2_000);
   });
 
   it('une course éteinte par la perte de tous ses drones cesse d’être facturée', () => {
