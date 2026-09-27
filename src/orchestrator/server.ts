@@ -9364,16 +9364,20 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
                 break;
               }
               const child = store.getTask(deja.childTaskId);
-              const result = store.resultsForTask(deja.childTaskId).at(-1);
               const enfantTermine = child?.status === 'done' || child?.status === 'failed';
-              // Un enfant terminé SANS résultat — annulé par un humain, annulé
-              // avec le sous-arbre d'un ancêtre terminé, ou échoué faute
-              // d'agent — ne produira plus jamais de `delegation_result`.
-              // L'accuser de nouveau laissait le parent attendre jusqu'à
-              // l'expiration de son budget : c'est le cas d'une tentative
-              // relancée par l'Evaluator qui rejoue son identifiant stable
-              // après la clôture de son sous-arbre. Le refus dit quoi faire.
-              if (enfantTermine && !result) {
+              // Son ISSUE est un fait rangé, pas la dernière ligne `results` :
+              // `tasks.result` n'est posé que par le résultat qui TERMINE la
+              // tâche (retenu, ou échec à tentatives épuisées) et remis à null
+              // quand l'Evaluator la rouvre ; une annulation ne le pose jamais.
+              // Un enfant terminé SANS issue — annulé par un humain, annulé
+              // avec le sous-arbre d'un ancêtre, ou échoué faute d'agent — ne
+              // produira plus jamais de `delegation_result`. L'accuser de
+              // nouveau laissait le parent attendre jusqu'à l'expiration de son
+              // budget ; et s'il avait une tentative derrière lui (un échec
+              // réessayé, un succès que l'Evaluator avait rouvert), cette ligne
+              // dépassée était servie au parent comme l'issue de l'enfant. Le
+              // refus dit quoi faire.
+              if (enfantTermine && !child.result) {
                 rejectDelegation(
                   'enfant_termine',
                   'sous-tâche déjà terminée sans résultat — délègue-la sous un nouvel identifiant',
@@ -9392,7 +9396,12 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
               // parent attendre un événement qui ne sera plus produit : le
               // résultat terminal est déjà durable dans `results`, on le
               // retransmet donc sur le même socket après l'autorisation.
-              if (result && enfantTermine) {
+              // L'issue rangée est la dernière ligne : un résultat arrivé
+              // après la transition terminale est ignoré, jamais inséré.
+              const result = enfantTermine
+                ? store.resultsForTask(deja.childTaskId).at(-1)
+                : undefined;
+              if (result) {
                 send(ws, {
                   type: 'delegation_result',
                   parentTaskId: deja.parentTaskId,

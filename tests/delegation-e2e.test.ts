@@ -602,76 +602,91 @@ describe('délégation Worker → enfant en conditions réelles', () => {
     },
   );
 
-  it(
-    'un enfant terminé sans résultat refuse le rejeu au lieu de laisser le parent attendre',
-    { timeout: 30_000 },
-    async () => {
-      tempDir = mkdtempSync(path.join(os.tmpdir(), 'hive-delegation-rejeu-'));
-      server = await createServer({
-        port: 0,
-        host: '127.0.0.1',
-        token: TOKEN,
-        corsOrigins: [],
-        dbPath: path.join(tempDir, 'hive.db'),
-        simulation: true,
-        tickMs: 20,
-      });
-      const projectId = server.store.createProject({ name: 'Rejeu' }).id;
-      server.store.createTask({ id: 'parent-rejeu', projectId, title: 'parent', prompt: 'p' });
-      server.store.patchTask('parent-rejeu', { status: 'ready' });
+  // Deux enfants terminés SANS issue propre : annulé avant tout résultat, ou
+  // annulé pendant sa deuxième tentative, la première ayant échoué. Le second
+  // garde une ligne `results` — celle d'une tentative DÉPASSÉE, que le rejeu
+  // servait au parent comme si c'était l'issue de l'enfant.
+  const casSansIssue = [
+    { nom: 'annulé avant tout résultat', tentativesRatees: 0 },
+    { nom: 'annulé après une tentative échouée', tentativesRatees: 1 },
+  ] as const;
 
-      let enfantDemarre = false;
-      let rejeu: WorkerDelegationOutcome | null = null;
-      let relancerParent!: () => void;
-      const parentRelance = new Promise<void>((resolve) => {
-        relancerParent = resolve;
-      });
-      const demande = { childTaskId: 'enfant-rejeu', ...DEMANDE_ENFANT };
-      const adapter: AgentAdapter = {
-        name: 'rejeu-e2e',
-        async run(task, ctx) {
-          if (task.id === 'parent-rejeu') {
-            if (!ctx.delegate) throw new Error('capacité de délégation absente');
-            await ctx.delegate(demande);
-            await parentRelance;
-            // Même identifiant stable, comme une tentative qui repart de zéro.
-            rejeu = await ctx.delegate(demande);
-          } else {
-            enfantDemarre = true;
-            await annulationRecue(ctx.signal);
-          }
-          return { success: true, diff: '', logs: 'fini', subAgents: [] };
-        },
-      };
-      for (const nom of ['ouvriere-1', 'ouvriere-2']) {
-        const client = new HiveNodeClient({
-          url: `ws://127.0.0.1:${server.port}/ws`,
+  for (const { nom, tentativesRatees } of casSansIssue) {
+    it(
+      `un enfant ${nom} refuse le rejeu au lieu de laisser le parent attendre`,
+      { timeout: 30_000 },
+      async () => {
+        tempDir = mkdtempSync(path.join(os.tmpdir(), 'hive-delegation-rejeu-'));
+        server = await createServer({
+          port: 0,
+          host: '127.0.0.1',
           token: TOKEN,
-          name: nom,
-          ownerName: 'e2e',
-          agentType: 'shell',
-          maxConcurrency: 1,
-          workRoot: path.join(tempDir, nom),
-          adapter,
-          quiet: true,
+          corsOrigins: [],
+          dbPath: path.join(tempDir, 'hive.db'),
+          simulation: true,
+          tickMs: 20,
         });
-        clients.push(client);
-        client.start();
-      }
+        const projectId = server.store.createProject({ name: 'Rejeu' }).id;
+        server.store.createTask({ id: 'parent-rejeu', projectId, title: 'parent', prompt: 'p' });
+        server.store.patchTask('parent-rejeu', { status: 'ready' });
 
-      await attendre(() => enfantDemarre);
-      const annulation = await fetch(
-        `http://127.0.0.1:${server.port}/api/tasks/enfant-rejeu/cancel`,
-        { method: 'POST', headers: { 'x-hive-token': TOKEN } },
-      );
-      expect(annulation.status).toBe(200);
-      relancerParent();
+        let enfantDemarre = false;
+        let rejeu: WorkerDelegationOutcome | null = null;
+        let relancerParent!: () => void;
+        const parentRelance = new Promise<void>((resolve) => {
+          relancerParent = resolve;
+        });
+        const demande = { childTaskId: 'enfant-rejeu', ...DEMANDE_ENFANT };
+        const adapter: AgentAdapter = {
+          name: 'rejeu-e2e',
+          async run(task, ctx) {
+            if (task.id === 'parent-rejeu') {
+              if (!ctx.delegate) throw new Error('capacité de délégation absente');
+              await ctx.delegate(demande);
+              await parentRelance;
+              // Même identifiant stable, comme une tentative qui repart de zéro.
+              rejeu = await ctx.delegate(demande);
+            } else if (ctx.attempt <= tentativesRatees) {
+              return { success: false, diff: '', logs: 'tentative ratée', subAgents: [] };
+            } else {
+              enfantDemarre = true;
+              await annulationRecue(ctx.signal);
+            }
+            return { success: true, diff: '', logs: 'fini', subAgents: [] };
+          },
+        };
+        for (const nom of ['ouvriere-1', 'ouvriere-2']) {
+          const client = new HiveNodeClient({
+            url: `ws://127.0.0.1:${server.port}/ws`,
+            token: TOKEN,
+            name: nom,
+            ownerName: 'e2e',
+            agentType: 'shell',
+            maxConcurrency: 1,
+            workRoot: path.join(tempDir, nom),
+            adapter,
+            quiet: true,
+          });
+          clients.push(client);
+          client.start();
+        }
 
-      // Avant : un nouvel accusé, puis une attente sans fin de résultat.
-      await attendre(() => rejeu !== null);
-      expect(rejeu).toMatchObject({ ok: false, code: 'enfant_termine' });
-      expect((rejeu as { message?: string } | null)?.message).toContain('nouvel identifiant');
-      expect(server.store.getTask('enfant-rejeu')?.status).toBe('failed');
-    },
-  );
+        await attendre(() => enfantDemarre);
+        expect(server.store.resultsForTask('enfant-rejeu')).toHaveLength(tentativesRatees);
+        const annulation = await fetch(
+          `http://127.0.0.1:${server.port}/api/tasks/enfant-rejeu/cancel`,
+          { method: 'POST', headers: { 'x-hive-token': TOKEN } },
+        );
+        expect(annulation.status).toBe(200);
+        relancerParent();
+
+        // Avant : un nouvel accusé, puis une attente sans fin de résultat — ou,
+        // après une tentative échouée, cet échec dépassé servi comme l'issue.
+        await attendre(() => rejeu !== null);
+        expect(rejeu).toMatchObject({ ok: false, code: 'enfant_termine' });
+        expect((rejeu as { message?: string } | null)?.message).toContain('nouvel identifiant');
+        expect(server.store.getTask('enfant-rejeu')?.status).toBe('failed');
+      },
+    );
+  }
 });
