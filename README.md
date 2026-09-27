@@ -71,7 +71,8 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
   l'écran ; la Reine et chaque ouvrière tournent dans un seul processus, ce
   qui garantit un arrêt propre ([#443](https://github.com/Micka420-collab/hive/pull/443)).
   Dès que deux familles d'agent sont installées, c'est une ouvrière par
-  famille : la contre-expertise croisée est sur le chemin par défaut.
+  famille : la contre-expertise croisée est sur le chemin par défaut
+  ([#466](https://github.com/Micka420-collab/hive/pull/466)).
 - **Reprise après panne**, mesurée avec de vrais processus :
   - `kill -9` de la Reine ou d'un nœud en pleine mission ;
   - base verrouillée par un autre processus ;
