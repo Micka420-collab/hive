@@ -147,6 +147,7 @@ describe('GET /api/tasks/:id/evaluation', () => {
       relecture: 'relecture-favorable',
       relecteur: 'codex',
       reviewerNodeId: 'n1',
+      producteur: 'claude-code',
       conteste: false,
       objections: [],
       recordedAt: 1,
@@ -156,8 +157,9 @@ describe('GET /api/tasks/:id/evaluation', () => {
       taskId,
       resultId: reviewedResultId,
       relecture: 'relecture-contestee',
-      relecteur: 'claude-code',
-      reviewerNodeId: 'n2',
+      relecteur: 'hermes-agent',
+      reviewerNodeId: 'n3',
+      producteur: 'claude-code',
       conteste: true,
       objections: ['le cas limite n’est pas traité'],
       recordedAt: 2,
@@ -404,5 +406,206 @@ describe('GET /api/tasks/:id/evaluation', () => {
     const body = (await current.json()) as { resultId: number; attempt: number };
     expect(body.resultId).toBe(latest);
     expect(body.attempt).toBe(1);
+  });
+
+  /**
+   * Une production de `claude-code` (n2), inspectée propre, validée par une CI
+   * rattachée à ce résultat exact, et relue favorablement par `codex`. Seule en
+   * lice : le Parlement n'a qu'un bulletin, donc `no_quorum`.
+   */
+  function productionRelueParUneAutreFamille(titre: string): { taskId: string; resultId: number } {
+    const project = server.store.createProject({ name: titre, repoUrl: 'file:///repo' });
+    const task = server.store.createTask({ projectId: project.id, title: titre, prompt: titre });
+    server.store.patchTask(task.id, { status: 'done' });
+    const resultId = server.store.insertResult({
+      taskId: task.id,
+      nodeId: 'n2',
+      diff: DIFF,
+      logs: 'tests: 0 failed',
+      success: true,
+      durationMs: 10,
+      subAgents: [],
+    });
+    server.store.enregistrerInspection({
+      resultId,
+      taskId: task.id,
+      nodeId: 'n2',
+      verdict: 'clean',
+      score: 0,
+      applique: false,
+      griefs: [],
+    });
+    server.store.appendEvent('ci_validation_recorded', {
+      source: 'github_pull_request',
+      taskId: task.id,
+      projectId: project.id,
+      resultId,
+      depot: 'demo/hive',
+      pr: 7,
+      branch: `hive/${task.id}`,
+      commitSha: 'commit-accepte',
+      validation: { tests: 'passed', typecheck: 'passed', build: 'passed', lint: 'passed' },
+      recordedAt: 1,
+    });
+    server.store.appendEvent('contre_expertise_verdict', {
+      source: 'hive_counter_review',
+      taskId: task.id,
+      resultId,
+      relecture: `${task.id}-relecture-codex`,
+      relecteur: 'codex',
+      reviewerNodeId: 'n1',
+      producteur: 'claude-code',
+      conteste: false,
+      objections: [],
+      recordedAt: 1,
+    });
+    return { taskId: task.id, resultId };
+  }
+
+  type Evaluation = {
+    decision: string;
+    canMerge: boolean;
+    reasons: string[];
+    evidence: { consensus: string; crossReviewPending: number; crossReview: { status: string } };
+  };
+  const lireEvaluation = async (id: string): Promise<Evaluation> => {
+    const response = await fetch(`${base}/api/tasks/${id}/evaluation`, { headers });
+    expect(response.status).toBe(200);
+    return (await response.json()) as Evaluation;
+  };
+
+  it('accepte une production relue par une autre famille sans quorum, et ne la dit fusionnable qu’après l’humain', async () => {
+    const { taskId: id } = productionRelueParUneAutreFamille('Relue par codex');
+
+    const avant = await lireEvaluation(id);
+    expect(avant.evidence.consensus).toBe('no_quorum');
+    expect(avant.evidence.crossReview.status).toBe('applied');
+    expect(avant.decision, avant.reasons.join(' · ')).toBe('accepted');
+    expect(avant.canMerge).toBe(false);
+
+    server.store.setTaskReview(id, 'approved');
+    const apres = await lireEvaluation(id);
+    expect(apres.decision).toBe('accepted');
+    expect(apres.canMerge).toBe(true);
+  });
+
+  it('retient l’acceptation tant qu’une seconde relecture de ce résultat est en vol', async () => {
+    const { taskId: id, resultId } = productionRelueParUneAutreFamille('Seconde relecture');
+    const project = server.store.getTask(id)?.projectId ?? '';
+    const relecture = server.store.createTask({
+      projectId: project,
+      title: 'Contre-expertise — Seconde relecture',
+      prompt: 'relire',
+    });
+    server.store.inscrireRelecture({
+      relectureTaskId: relecture.id,
+      productionTaskId: id,
+      relecteurNodeId: 'n3',
+      relecteurAgent: 'hermes-agent',
+      producteurAgent: 'claude-code',
+    });
+    server.store.patchTask(relecture.id, { status: 'running', assignedNodeId: 'n3' });
+    // Le filigrane du lancement rattache cette relecture au résultat EXACT.
+    server.store.appendEvent('contre_expertise', {
+      taskId: id,
+      resultId,
+      possible: true,
+      producteur: 'claude-code',
+      modeles: ['hermes-agent'],
+      relecteurs: ['hermes'],
+      relectures: [relecture.id],
+    });
+
+    const enVol = await lireEvaluation(id);
+    expect(enVol.evidence.crossReviewPending).toBe(1);
+    expect(enVol.decision).toBe('human_review_required');
+    expect(enVol.reasons.join(' ')).toContain('contre-revue en cours');
+
+    // Terminée sans avis (échec terminal) : elle n'objectera plus, et
+    // l'attendre bloquerait l'Evaluator pour toujours.
+    server.store.patchTask(relecture.id, { status: 'failed' });
+    const terminee = await lireEvaluation(id);
+    expect(terminee.evidence.crossReviewPending).toBe(0);
+    expect(terminee.decision).toBe('accepted');
+  });
+
+  it('réenfile un rejet humain même quand aucune inspection des Gardiennes n’existe', async () => {
+    // `HIVE_GARDIENNES=off` n'inspecte rien : le rejet humain doit malgré tout
+    // repartir en correction, pas se perdre dans « revue humaine requise ».
+    const project = server.store.createProject({
+      name: 'Sans Gardiennes',
+      repoUrl: 'file:///repo',
+    });
+    const task = server.store.createTask({
+      projectId: project.id,
+      title: 'Rejet sans inspection',
+      prompt: 'rejouer',
+    });
+    server.store.patchTask(task.id, { status: 'done' });
+    server.store.insertResult({
+      taskId: task.id,
+      nodeId: 'n1',
+      diff: DIFF,
+      logs: 'tests: 0 failed',
+      success: true,
+      durationMs: 10,
+      subAgents: [],
+    });
+
+    const response = await fetch(`${base}/api/tasks/${task.id}/review`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ state: 'rejected', clientId: 'miellerie-test' }),
+    });
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { retry?: { ok: boolean } };
+    expect(body.retry?.ok).toBe(true);
+    expect(server.store.getTask(task.id)?.attempts).toBe(1);
+    expect(
+      server.store
+        .listEvents()
+        .some(
+          (event) =>
+            event.type === 'task_retry' &&
+            event.payload.source === 'evaluator' &&
+            event.payload.taskId === task.id,
+        ),
+    ).toBe(true);
+  });
+
+  it('un rejet humain resté sans correction le dit au journal', async () => {
+    const project = server.store.createProject({ name: 'Essais épuisés', repoUrl: 'file:///repo' });
+    const task = server.store.createTask({
+      projectId: project.id,
+      title: 'Rejet sans essai restant',
+      prompt: 'plus d’essai',
+    });
+    server.store.patchTask(task.id, { status: 'done', attempts: 99 });
+    const resultId = server.store.insertResult({
+      taskId: task.id,
+      nodeId: 'n1',
+      diff: DIFF,
+      logs: 'tests: 0 failed',
+      success: true,
+      durationMs: 10,
+      subAgents: [],
+    });
+
+    const response = await fetch(`${base}/api/tasks/${task.id}/review`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ state: 'rejected', clientId: 'miellerie-test' }),
+    });
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { retry?: { ok: boolean; reason?: string } };
+    expect(body.retry).toMatchObject({ ok: false, reason: 'attempts_exhausted' });
+    // Mission Control ne lit pas la réponse : sans cette trace, l'opérateur
+    // croirait une correction en route.
+    const trace = server.store
+      .listEvents()
+      .find(
+        (event) => event.type === 'evaluator_retry_skipped' && event.payload.taskId === task.id,
+      );
+    expect(trace?.payload).toMatchObject({ resultId, reason: 'attempts_exhausted' });
   });
 });

@@ -1080,17 +1080,40 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   };
 
   /**
+   * Les relectures lancées pour CE `resultId`. Les liens du store couvrent
+   * l'historique de la tâche ; l'événement de lancement porte donc le
+   * filigrane qui sépare les tentatives.
+   */
+  function relecturesDuResultat(taskId: string, resultId: number): string[] {
+    return store
+      .relecturesDeProduction(taskId)
+      .filter(
+        (relectureTaskId) =>
+          store.eventForRelecture(relectureTaskId)?.payload.resultId === resultId,
+      );
+  }
+
+  /**
+   * Les relectures de ce résultat encore en vol — le pendant, côté
+   * acceptation, de `contreRevueTerminee` : un premier avis FAVORABLE ne doit
+   * pas faire accepter la production pendant qu'un autre peut encore objecter.
+   * Une relecture dont la tâche n'existe plus n'est pas en vol : elle ne rendra
+   * plus d'avis, et l'attendre bloquerait l'Evaluator pour toujours.
+   */
+  function relecturesEnVol(taskId: string, resultId: number): number {
+    return relecturesDuResultat(taskId, resultId).filter((relectureTaskId) => {
+      const statut = store.getTask(relectureTaskId)?.status;
+      return statut !== undefined && statut !== 'done' && statut !== 'failed';
+    }).length;
+  }
+
+  /**
    * La contre-revue est complète quand chaque relecture lancée pour CE
-   * `resultId` est terminale. Les liens du store couvrent l'historique de la
-   * tâche ; l'événement de lancement porte donc le filigrane qui sépare les
-   * tentatives. Un premier avis contestataire ne doit pas relancer la tâche
-   * pendant qu'un autre avis est encore en vol.
+   * `resultId` est terminale. Un premier avis contestataire ne doit pas
+   * relancer la tâche pendant qu'un autre avis est encore en vol.
    */
   function contreRevueTerminee(taskId: string, resultId: number): boolean {
-    const relectures = store.relecturesDeProduction(taskId).filter((relectureTaskId) => {
-      const lancement = store.eventForRelecture(relectureTaskId);
-      return lancement?.payload.resultId === resultId;
-    });
+    const relectures = relecturesDuResultat(taskId, resultId);
     if (relectures.length === 0) return false;
     return relectures.every((relectureTaskId) => {
       const relecture = store.getTask(relectureTaskId);
@@ -1684,6 +1707,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           missingCrossReviewEvidence(task.id, latest.resultId))
         : missingCrossReviewEvidence(task.id, null)
       : null;
+    const crossReviewPending =
+      latest?.resultId !== undefined ? relecturesEnVol(task.id, latest.resultId) : 0;
     const inspections = store.listInspections();
     const inspection = latest
       ? inspectionDeProduction(inspections, task.id, latest.nodeId, latest.resultId)
@@ -1721,6 +1746,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
             }
           : {}),
         ...(crossReview ? { crossReview } : {}),
+        crossReviewPending,
       }),
     };
   };
@@ -7135,7 +7161,19 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
             resultId: latest.resultId,
             decision: evaluation.decision,
           });
-          if (retry.ok) stateDirty = true;
+          if (retry.ok) {
+            stateDirty = true;
+          } else {
+            // Même trace que le retry automatique de la contre-revue : Mission
+            // Control ne lit pas cette réponse, et un rejet humain resté sans
+            // correction (essais épuisés, livraison déjà ouverte…) ne doit pas
+            // se confondre avec une correction en route.
+            emitEvent('evaluator_retry_skipped', {
+              taskId: task.id,
+              resultId: latest.resultId,
+              reason: retry.reason,
+            });
+          }
         }
       }
       const saved = store.getTaskReview(task.id);

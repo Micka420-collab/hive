@@ -5681,6 +5681,11 @@ export class HiveStore {
       const relecture = payload.relecture;
       const reviewerNodeId = payload.reviewerNodeId;
       const reviewerAgent = payload.relecteur;
+      // `producteur` voyage avec chaque avis depuis que la contre-expertise
+      // existe (bien avant `reviewerNodeId`) : un avis sans lui n'est pas un
+      // avis de cette ruche, et l'Evaluator ne pourrait pas en vérifier
+      // l'indépendance.
+      const producerAgent = payload.producteur;
       const objections = payload.objections;
       if (
         payload.source !== 'hive_counter_review' ||
@@ -5693,6 +5698,8 @@ export class HiveStore {
         reviewerNodeId.length === 0 ||
         typeof reviewerAgent !== 'string' ||
         reviewerAgent.length === 0 ||
+        typeof producerAgent !== 'string' ||
+        producerAgent.length === 0 ||
         !Array.isArray(objections) ||
         objections.some((objection) => typeof objection !== 'string')
       ) {
@@ -5709,6 +5716,7 @@ export class HiveStore {
         relectureTaskId: relecture,
         reviewerNodeId,
         reviewerAgent,
+        producerAgent,
         decision,
         reason: boundedObjections[0] ?? '',
         recordedAt: row.ts,

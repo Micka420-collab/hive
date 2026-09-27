@@ -21,7 +21,16 @@ const validations = {
   lint: 'passed' as const,
 };
 
-const crossReview = (order: Array<'appliquer' | 'ameliorer'>): CrossReviewEvidence => ({
+/**
+ * Contre-revue telle que le store l'agrège. Le producteur est `claude-code` ;
+ * les relecteurs viennent par défaut de deux AUTRES familles, comme
+ * `choisirCritiques` les choisit — `relecteurs` permet de simuler le cas qu'il
+ * n'est pas censé produire.
+ */
+const crossReview = (
+  order: Array<'appliquer' | 'ameliorer'>,
+  relecteurs: readonly string[] = ['codex', 'hermes-agent'],
+): CrossReviewEvidence => ({
   source: 'hive_counter_review',
   taskId: 'task-1',
   resultId: 1,
@@ -30,7 +39,8 @@ const crossReview = (order: Array<'appliquer' | 'ameliorer'>): CrossReviewEviden
   reviewers: order.map((decision, index) => ({
     relectureTaskId: `review-${index + 1}`,
     reviewerNodeId: `reviewer-${index + 1}`,
-    reviewerAgent: index === 0 ? 'codex' : 'claude-code',
+    reviewerAgent: relecteurs[index] ?? 'codex',
+    producerAgent: 'claude-code',
     decision,
     reason: decision === 'ameliorer' ? 'le cas limite n’est pas traité' : '',
     recordedAt: index + 1,
@@ -92,7 +102,7 @@ describe('Evaluator indépendant', () => {
     expect(verdict.evidence.gardiennes).toBe('missing');
   });
 
-  it('requiert une relecture humaine si le Parlement n a pas de quorum', () => {
+  it('sans contre-revue d une autre famille, le verdict reste humain — et ne parle pas de quorum', () => {
     const verdict = evaluate({
       taskId: 'task-1',
       taskStatus: 'done',
@@ -111,9 +121,53 @@ describe('Evaluator indépendant', () => {
     });
     expect(verdict.decision).toBe('human_review_required');
     expect(verdict.canMerge).toBe(false);
+    expect(verdict.reasons.join(' ')).toContain('autre famille');
+    // Le Parlement n'est plus une condition : l'invoquer serait mentir sur
+    // ce qui manque réellement.
+    expect(verdict.reasons.join(' ')).not.toContain('quorum');
   });
 
-  it('accepte la qualité après preuves vertes et consensus, sans auto-merger', () => {
+  // ─── LE CAS QUE L'EVALUATOR NE POUVAIT JAMAIS RENDRE ─────────────────────
+  //
+  // Deux agents n'écrivent jamais les mêmes octets : sur du code, le Parlement
+  // rend `no_quorum`. Tant que `accepted` exigeait `elected`, une production
+  // réussie, propre, validée et relue favorablement par une autre famille
+  // restait « revue humaine requise » pour toujours.
+  it('accepte une production relue favorablement par une autre famille, sans quorum du Parlement', () => {
+    const delivered = result(true, 'n1');
+    const sansQuorum = tally([
+      {
+        nodeId: 'n1',
+        agentType: 'claude-code',
+        success: true,
+        signature: signatureOf(delivered.diff),
+        fichiers: ['src/a.ts'],
+      },
+    ]);
+    expect(sansQuorum.outcome).toBe('no_quorum');
+    const entree = {
+      taskId: 'task-1',
+      taskStatus: 'done',
+      results: [delivered],
+      inspection: clean,
+      validation: validations,
+      consensus: sansQuorum,
+      crossReview: crossReview(['appliquer'], ['codex']),
+    };
+
+    const avantHumain = evaluate(entree);
+    expect(avantHumain.decision).toBe('accepted');
+    expect(avantHumain.retryRecommended).toBe(false);
+    // `accepted` est un verdict de qualité : sans l'humain, pas de fusion.
+    expect(avantHumain.canMerge).toBe(false);
+    expect(avantHumain.reasons.join(' ')).toContain('contre-revue favorable de codex');
+
+    const approuve = evaluate({ ...entree, humanReview: 'approved' });
+    expect(approuve.decision).toBe('accepted');
+    expect(approuve.canMerge).toBe(true);
+  });
+
+  it('un consensus élu reste un signal en plus, jamais une relecture à lui seul', () => {
     const delivered = result(true, 'n1');
     const consensus = tally([
       {
@@ -131,18 +185,82 @@ describe('Evaluator indépendant', () => {
         fichiers: ['src/a.ts'],
       },
     ]);
-    const verdict = evaluate({
+    const entree = {
       taskId: 'task-1',
       taskStatus: 'done',
       results: [delivered],
       inspection: clean,
       validation: validations,
       consensus,
+      humanReview: 'approved' as const,
+    };
+
+    const seul = evaluate(entree);
+    expect(seul.decision).toBe('human_review_required');
+    expect(seul.canMerge).toBe(false);
+
+    const relu = evaluate({ ...entree, crossReview: crossReview(['appliquer']) });
+    expect(relu.decision).toBe('accepted');
+    expect(relu.canMerge).toBe(true);
+    expect(relu.retryRecommended).toBe(false);
+    expect(relu.reasons.join(' ')).toContain('Parlement');
+  });
+
+  it('un avis favorable de la famille qui a produit ne vaut pas relecture indépendante', () => {
+    const verdict = evaluate({
+      taskId: 'task-1',
+      taskStatus: 'done',
+      results: [result()],
+      inspection: clean,
+      validation: validations,
       humanReview: 'approved',
+      // Le statut agrégé dit `applied` : c'est l'avis, pas le statut, qui
+      // doit prouver l'indépendance.
+      crossReview: crossReview(['appliquer'], ['claude-code']),
     });
-    expect(verdict.decision).toBe('accepted');
-    expect(verdict.canMerge).toBe(true);
-    expect(verdict.retryRecommended).toBe(false);
+    expect(verdict.evidence.crossReview.status).toBe('applied');
+    expect(verdict.decision).toBe('human_review_required');
+    expect(verdict.canMerge).toBe(false);
+    expect(verdict.reasons.join(' ')).toContain('famille d’agent qui a produit');
+  });
+
+  it('n accepte pas sur le premier avis favorable tant qu une relecture est en vol', () => {
+    const entree = {
+      taskId: 'task-1',
+      taskStatus: 'done',
+      results: [result()],
+      inspection: clean,
+      validation: validations,
+      humanReview: 'approved' as const,
+      crossReview: crossReview(['appliquer'], ['codex']),
+    };
+    const enVol = evaluate({ ...entree, crossReviewPending: 1 });
+    expect(enVol.decision).toBe('human_review_required');
+    expect(enVol.canMerge).toBe(false);
+    expect(enVol.retryRecommended).toBe(false);
+    expect(enVol.evidence.crossReviewPending).toBe(1);
+    expect(enVol.reasons.join(' ')).toContain('contre-revue en cours');
+
+    expect(evaluate({ ...entree, crossReviewPending: 0 }).decision).toBe('accepted');
+  });
+
+  // ─── UN REJET HUMAIN N'EST PAS UNE INSPECTION MANQUANTE ──────────────────
+  //
+  // `HIVE_GARDIENNES=off`, ou une inspection élaguée : l'humain rejette, et
+  // l'Evaluator lui répondait « revue humaine requise » — sans retry, sans
+  // correction, alors que la revue venait d'être rendue.
+  it('un rejet humain demande une correction même sans inspection des Gardiennes', () => {
+    const verdict = evaluate({
+      taskId: 'task-1',
+      taskStatus: 'done',
+      results: [result()],
+      humanReview: 'rejected',
+    });
+    expect(verdict.evidence.gardiennes).toBe('missing');
+    expect(verdict.decision).toBe('correction_required');
+    expect(verdict.retryRecommended).toBe(true);
+    expect(verdict.canMerge).toBe(false);
+    expect(verdict.reasons).toEqual(['la revue humaine a rejeté la production']);
   });
 
   it('refuse un résultat livré qui ne correspond pas à la faction élue', () => {
@@ -269,13 +387,14 @@ describe('Evaluator indépendant', () => {
       ]),
       humanReview: 'approved',
     });
-    expect(verdict.decision).toBe('accepted');
+    expect(verdict.decision).toBe('human_review_required');
+    expect(verdict.canMerge).toBe(false);
     expect(verdict.evidence.crossReview).toMatchObject({
       status: 'missing',
       taskId: 'task-1',
       resultId: 7,
       reviewerCount: 0,
     });
-    expect(verdict.reasons.join(' ')).toContain('preuve séparée manquante');
+    expect(verdict.reasons.join(' ')).toContain('aucune contre-revue d’une autre famille');
   });
 });

@@ -4,8 +4,27 @@
 // Le module ne lance rien, ne lit aucune base et ne juge jamais le Worker sur
 // sa propre déclaration. Il compose les signaux qui ont chacun un propriétaire
 // différent : résultat reçu, inspection des Gardiennes, validations explicites,
-// Parlement et revue humaine. Une preuve manquante reste manquante ; elle ne
-// devient jamais un succès par défaut.
+// contre-revue, Parlement et revue humaine. Une preuve manquante reste
+// manquante ; elle ne devient jamais un succès par défaut.
+//
+// ─── CE QUI FAIT `accepted` ──────────────────────────────────────────────────
+//
+// Un résultat réussi, des Gardiennes propres, les quatre validations vertes, et
+// UNE contre-revue favorable venue d'une AUTRE famille d'agent que celle qui a
+// produit — aucune objection, aucune relecture encore en vol.
+//
+// Le Parlement n'en fait PAS partie, et c'est voulu. `accepted` exigeait un
+// consensus `elected`, que `parliament.ts` déclare lui-même hors d'atteinte sur
+// du code libre : deux agents n'écrivent jamais les mêmes octets. L'Evaluator
+// ne pouvait donc jamais accepter une vraie production, et il le disait avec un
+// motif (« la relecture croisée n'a pas atteint le quorum ») qui contredisait
+// la contre-revue favorable affichée juste à côté. `elected` reste un signal
+// supplémentaire : cité quand il existe, bloquant quand le résultat livré n'est
+// pas celui que le Parlement a élu — jamais une condition.
+//
+// UNE relecture suffit, pas deux : exiger deux familles distinctes rendrait une
+// ruche de deux familles (un producteur, un relecteur) incapable d'accepter
+// quoi que ce soit, pour toujours.
 
 import type { Inspection } from './gardiennes.js';
 import { signatureOf, type Verdict as ParliamentVerdict } from './parliament.js';
@@ -48,6 +67,13 @@ export interface CrossReviewVote {
   relectureTaskId: string;
   reviewerNodeId: string;
   reviewerAgent: string;
+  /**
+   * Famille d'agent qui a PRODUIT le résultat relu, telle que consignée avec
+   * l'avis (`producteur`). Sans elle, l'indépendance du relecteur serait une
+   * supposition : c'est ce champ qui permet à l'Evaluator de la VÉRIFIER
+   * plutôt que de croire le module qui a choisi les relecteurs.
+   */
+  producerAgent: string;
   decision: 'appliquer' | 'ameliorer';
   reason: string;
   recordedAt: number;
@@ -104,6 +130,13 @@ export interface EvaluatorInput {
   validationProvenance?: ValidationProvenance;
   /** Preuve facultative : quand elle existe, le verdict de la contre-revue gouverne. */
   crossReview?: CrossReviewEvidence;
+  /**
+   * Relectures lancées pour CE résultat et encore en vol. Le premier avis
+   * favorable arrivé ne vaut pas acceptation tant qu'un autre relecteur peut
+   * encore objecter : une objection reste bloquante, d'où qu'elle vienne.
+   * Absent : aucune relecture connue en vol.
+   */
+  crossReviewPending?: number;
 }
 
 export interface EvaluationEvidence {
@@ -118,6 +151,8 @@ export interface EvaluationEvidence {
   lint: ValidationState;
   validationProvenance?: ValidationProvenance;
   crossReview: CrossReviewEvidence;
+  /** Relectures de ce résultat lancées et encore sans avis (voir `EvaluatorInput`). */
+  crossReviewPending: number;
   humanReview: 'approved' | 'rejected' | 'missing';
 }
 
@@ -140,8 +175,10 @@ function stateOf(value: ValidationState | undefined): ValidationState {
 
 /**
  * Rend le verdict de l'Evaluator. L'ordre des règles est volontaire : un
- * échec ou un résultat creux est plus important qu'une validation verte ; une
- * validation absente reste ensuite un manque de preuve, jamais un feu vert.
+ * échec ou un résultat creux est plus important qu'une validation verte ; un
+ * rejet humain compte avant une inspection absente ; une validation absente
+ * reste ensuite un manque de preuve, jamais un feu vert ; et la contre-revue
+ * d'une autre famille ferme la marche — c'est elle qui fait `accepted`.
  */
 export function evaluate(input: EvaluatorInput): EvaluationResult {
   const latest = input.results[input.results.length - 1];
@@ -159,6 +196,7 @@ export function evaluate(input: EvaluatorInput): EvaluationResult {
         ? 'aligned'
         : 'mismatch'
       : 'unknown';
+  const crossReviewPending = input.crossReviewPending ?? 0;
   const evidence: EvaluationEvidence = {
     result: latest ? (latest.success ? 'passed' : 'failed') : 'missing',
     resultAlignment,
@@ -171,6 +209,7 @@ export function evaluate(input: EvaluatorInput): EvaluationResult {
     humanReview: input.humanReview ?? 'missing',
     ...(input.validationProvenance ? { validationProvenance: input.validationProvenance } : {}),
     crossReview,
+    crossReviewPending,
   };
 
   const reasons: string[] = [];
@@ -215,16 +254,10 @@ export function evaluate(input: EvaluatorInput): EvaluationResult {
       evidence,
     );
   }
-  if (!input.inspection) {
-    return result(
-      input.taskId,
-      'human_review_required',
-      false,
-      false,
-      ['aucune inspection indépendante des Gardiennes disponible'],
-      evidence,
-    );
-  }
+  // Le rejet humain passe AVANT l'inspection manquante. Dans l'ordre inverse,
+  // une ruche en `HIVE_GARDIENNES=off` (ou dont l'inspection a été élaguée)
+  // répondait « revue humaine requise » à l'humain qui venait justement de la
+  // rendre : son rejet ne déclenchait aucune correction, sans rien dire.
   if (input.humanReview === 'rejected') {
     return result(
       input.taskId,
@@ -232,6 +265,16 @@ export function evaluate(input: EvaluatorInput): EvaluationResult {
       false,
       true,
       ['la revue humaine a rejeté la production'],
+      evidence,
+    );
+  }
+  if (!input.inspection) {
+    return result(
+      input.taskId,
+      'human_review_required',
+      false,
+      false,
+      ['aucune inspection indépendante des Gardiennes disponible'],
       evidence,
     );
   }
@@ -267,26 +310,37 @@ export function evaluate(input: EvaluatorInput): EvaluationResult {
     reasons.push(`preuves manquantes : ${missingValidation.join(', ')}`);
     return result(input.taskId, 'additional_test_required', false, false, reasons, evidence);
   }
-  if (input.consensus?.outcome !== 'elected') {
+  if (crossReviewPending > 0) {
     reasons.push(
-      input.consensus?.outcome === 'no_quorum'
-        ? 'la relecture croisée n’a pas atteint le quorum'
-        : 'aucun consensus indépendant disponible',
+      `contre-revue en cours : ${crossReviewPending} relecture(s) de ce résultat n’ont pas encore rendu d’avis — une objection resterait bloquante`,
+    );
+    return result(input.taskId, 'human_review_required', false, false, reasons, evidence);
+  }
+
+  // L'indépendance se VÉRIFIE avis par avis, contre la famille consignée du
+  // producteur : un avis favorable de la même famille relit ses propres angles
+  // morts, et ne compte pas — même si le statut agrégé dit `applied`.
+  const independants = crossReview.reviewers.filter(
+    (vote) => vote.decision === 'appliquer' && vote.reviewerAgent !== vote.producerAgent,
+  );
+  if (independants.length === 0) {
+    reasons.push(
+      crossReview.reviewerCount > 0
+        ? 'les avis favorables viennent de la famille d’agent qui a produit : ce n’est pas une relecture indépendante'
+        : 'aucune contre-revue d’une autre famille d’agent n’est rattachée à ce résultat : branchez un second agent, ou tranchez en revue humaine',
     );
     return result(input.taskId, 'human_review_required', false, false, reasons, evidence);
   }
 
   // `accepted` est un verdict de qualité de l'Evaluator, pas une autorisation
   // de fusion : le merge reste explicitement humain (`canMerge` ci-dessous).
+  const relecteurs = [...new Set(independants.map((vote) => vote.reviewerAgent))].sort();
+  const producteurs = [...new Set(independants.map((vote) => vote.producerAgent))].sort();
   const acceptedReasons = [
-    'résultat réussi, Gardiennes propres, validations vertes et consensus atteint',
+    `résultat réussi, Gardiennes propres, validations vertes et contre-revue favorable de ${relecteurs.join(', ')} sur une production de ${producteurs.join(', ')}`,
   ];
-  if (crossReview.status === 'applied' || crossReview.decision === 'appliquer') {
-    acceptedReasons.push('contre-revue indépendante favorable');
-  } else if (crossReview.status === 'missing') {
-    acceptedReasons.push(
-      'aucune contre-revue indépendante rattachée à ce résultat : preuve séparée manquante',
-    );
+  if (input.consensus?.outcome === 'elected') {
+    acceptedReasons.push('le Parlement a aussi élu ce résultat (signal supplémentaire)');
   }
   return result(
     input.taskId,
