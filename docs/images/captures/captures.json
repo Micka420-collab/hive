@@ -1,6 +1,6 @@
 {
-  "genere": "2026-09-27T22:15:14.869Z",
-  "commit": "a798087",
+  "genere": "2026-09-27T22:25:36.785Z",
+  "commit": "0ecc485",
   "arbreModifie": false,
   "langue": "fr",
   "formats": [
@@ -20,7 +20,7 @@
       "vue": "ruche",
       "format": "bureau",
       "debordement": 0,
-      "hauteur": 1980,
+      "hauteur": 2062,
       "erreurs": []
     },
     {
@@ -44,7 +44,7 @@
       "vue": "warroom",
       "format": "bureau",
       "debordement": 0,
-      "hauteur": 3494,
+      "hauteur": 3527,
       "erreurs": []
     },
     {
@@ -68,7 +68,7 @@
       "vue": "ruche",
       "format": "mobile",
       "debordement": 0,
-      "hauteur": 2033,
+      "hauteur": 2061,
       "erreurs": []
     },
     {
@@ -92,7 +92,7 @@
       "vue": "warroom",
       "format": "mobile",
       "debordement": 0,
-      "hauteur": 9742,
+      "hauteur": 9847,
       "erreurs": []
     },
     {
@@ -108,7 +108,7 @@
       "vue": "ruche-en-vol",
       "format": "bureau",
       "debordement": 0,
-      "hauteur": 2144,
+      "hauteur": 2226,
       "erreurs": []
     },
     {
