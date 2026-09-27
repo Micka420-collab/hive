@@ -32,7 +32,10 @@
 //     `ServerNotification::Error`) — y compris les tentatives que Codex va
 //     REFAIRE (`will_retry`, que le JSON ne transmet pas) : « Reconnecting...
 //     2/5 (unexpected status 429…) » (core/src/responses_retry.rs) précède
-//     souvent une réussite, ou un échec d'une tout autre nature.
+//     souvent une réussite, ou un échec d'une tout autre nature. Une erreur
+//     NON refaite fait sortir `codex exec` en 1 (lib.rs, `error_seen`) MÊME
+//     si le tour se conclut ensuite par `turn.completed` : sans `turn.failed`,
+//     c'est alors elle, la raison de l'échec.
 //
 // Le prompt n'y est PAS répété : `print_config_summary` n'émet que
 // `thread.started`, et l'élément du message utilisateur n'est pas publié.
@@ -44,15 +47,24 @@
 //   · la RÉPONSE FINALE : le dernier `agent_message` terminé d'un tour CONCLU
 //     (`turn.completed`) — comme Codex lui-même, qui n'écrit sa réponse
 //     (`--output-last-message`) qu'après un tour terminé, et l'efface sur un
-//     tour en échec ou interrompu (`final_message = None`) ;
-//   · les LOGS : chaque événement rendu lisible, jamais le JSON brut. La
-//     narration (raisonnement, messages, commandes et leur sortie, fichiers,
-//     outils, plan, avertissements, erreurs signalées, jetons) porte
-//     `MARQUE_NARRATION` ; seule la raison de `turn.failed` est écrite en
-//     clair. `texteDEchec` — au nœud pour classer l'échec, au hub pour la
-//     Couveuse, l'essaim et le Cerveau — ne lit donc que stderr et CETTE
-//     raison : plus la consigne, plus la narration, plus un 429 d'une
-//     tentative que Codex a refaite avant d'échouer sur autre chose ;
+//     tour en échec ou interrompu (`final_message = None`). Codex se rabat,
+//     faute de message, sur le texte d'un élément `Plan` : un élément du mode
+//     plan (core/src/session/turn.rs, `ModeKind::Plan`), que `codex exec`
+//     n'active pas (`collaboration_mode: None`) et que le flux JSON ne publie
+//     même pas (`map_item_with_id`) — rien à reproduire ici ;
+//   · les LOGS : chaque événement rendu lisible, jamais le JSON brut. TOUTE
+//     ligne de narration (raisonnement, messages, commandes et leur sortie,
+//     fichiers, outils, plan, avertissements, erreurs signalées, jetons) porte
+//     `MARQUE_NARRATION` — en-tête compris : une commande en heredoc met ses
+//     retours à la ligne jusque dans l'en-tête ;
+//   · le BILAN (`bilan`) : ce que l'échec dit, en clair, sur une ligne — la
+//     raison de `turn.failed`, ou l'erreur non refaite d'un tour pourtant
+//     conclu. L'exécuteur l'écrit APRÈS le plafond des logs (exec.ts) : une
+//     narration de 512 ko ne la pousse plus hors du journal. `texteDEchec` —
+//     au nœud pour classer l'échec, au hub pour la Couveuse, l'essaim et le
+//     Cerveau — ne lit donc que stderr et CE bilan : plus la consigne, plus la
+//     narration, plus la réponse de l'agent, plus un 429 d'une tentative que
+//     Codex a refaite avant d'échouer sur autre chose ;
 //   · la DÉCLARATION : les jetons de `turn.completed`, et rien d'autre. Codex
 //     n'y déclare ni coût, ni temps modèle, ni modèle exact : ces champs
 //     restent ABSENTS — l'écran dit « inconnu ». Aucun coût n'est déduit des
@@ -60,7 +72,9 @@
 //     serait faux demain.
 //
 // Un événement d'un type inconnu (une version future) est NOMMÉ dans les logs,
-// jamais recopié ni deviné.
+// jamais recopié ni deviné. Un flux qui sort en 0 sans AUCUN `turn.completed`
+// n'est pas le dialecte attendu (un codex-cli d'une autre époque) : c'est un
+// échec dit, jamais une réussite muette sans réponse ni jetons.
 
 import { MARQUE_NARRATION } from '../shared/texte-d-echec.js';
 import type { UsageFournisseur } from '../shared/types.js';
@@ -87,28 +101,44 @@ function nom(v: unknown): string {
   return chaine(v).replace(/\s+/g, ' ').slice(0, 60) || '?';
 }
 
+const FIN_DE_LIGNE = /\r\n|\r|\n/;
+
 /**
- * Des lignes de NARRATION, toutes marquées : un corps sur plusieurs lignes —
- * sortie d'une commande, message de l'agent — ne s'échappe jamais de la marque,
- * sans quoi sa deuxième ligne redeviendrait « ce que l'échec dit ».
+ * Des lignes de NARRATION, TOUTES marquées : un texte sur plusieurs lignes —
+ * sortie d'une commande, message de l'agent, et jusqu'à l'EN-TÊTE, qui porte
+ * la commande lancée — ne s'échappe jamais de la marque, sans quoi sa deuxième
+ * ligne redeviendrait « ce que l'échec dit ». Une commande en heredoc
+ * (`python3 - <<'PY'`, que Codex joint par `shlex_join` en gardant ses retours
+ * à la ligne) qui parlait d'`api_key` refaisait ainsi d'un 400 une panne
+ * d'identifiants. La règle vit ICI, pas chez chaque appelant.
  */
 function narrer(entete: string, corps = ''): string {
-  const lignes = corps.replace(/\s+$/, '').split(/\r\n|\r|\n/);
-  if (lignes.length === 1 && lignes[0] === '') return `${MARQUE_NARRATION} ${entete}`;
-  if (lignes.length === 1) return `${MARQUE_NARRATION} ${entete} : ${lignes[0]}`;
-  return [`${MARQUE_NARRATION} ${entete} :`, ...lignes.map((l) => `${MARQUE_NARRATION}   ${l}`)]
+  const [tete = '', ...suiteTete] = entete.trim().split(FIN_DE_LIGNE);
+  const texteCorps = corps.replace(/\s+$/, '');
+  const suite = [...suiteTete, ...(texteCorps === '' ? [] : texteCorps.split(FIN_DE_LIGNE))];
+  if (suite.length === 0) return `${MARQUE_NARRATION} ${tete}`;
+  if (suite.length === 1 && suiteTete.length === 0) {
+    return `${MARQUE_NARRATION} ${tete} : ${suite[0]}`;
+  }
+  return [`${MARQUE_NARRATION} ${tete} :`, ...suite.map((l) => `${MARQUE_NARRATION}   ${l}`)]
     .map((l) => l.trimEnd())
     .join('\n');
 }
+
+/** Un message d'échec tient en une phrase ; au-delà, c'est un corps recopié. */
+const RAISON_MAX = 2_000;
 
 /**
  * La raison d'un tour en ÉCHEC, en clair et sur UNE ligne : c'est ce que
  * l'échec dit. Sur une ligne, parce que ses lecteurs travaillent par lignes —
  * une suite de message coupée de son en-tête ne dirait plus d'où elle vient.
  */
-function raisonDEchec(message: string): string {
-  const texte = message.trim().replace(/\s*(?:\r\n|\r|\n)\s*/g, ' ⏎ ');
-  return `codex : tour en échec — ${texte || 'sans message'}`;
+function raisonDEchec(genre: string, message: string): string {
+  const texte = message
+    .trim()
+    .replace(/\s*(?:\r\n|\r|\n)\s*/g, ' ⏎ ')
+    .slice(0, RAISON_MAX);
+  return `codex : ${genre} — ${texte || 'sans message'}`;
 }
 
 /** Les jetons que `turn.completed` déclare ; absents si le fil n'en a compté aucun. */
@@ -197,6 +227,9 @@ function rendreElement(phase: string, item: Objet): string | undefined {
     case 'web_search':
       return termine ? narrer('recherche web', chaine(item.query)) : undefined;
     case 'todo_list': {
+      // Le plan à son ouverture et à sa clôture : chaque `item.updated` le
+      // répète en entier, du bruit qui mangeait le plafond des logs.
+      if (phase === 'item.updated') return undefined;
       const etapes = (Array.isArray(item.items) ? item.items : [])
         .map(objet)
         .filter((e): e is Objet => e !== undefined)
@@ -218,6 +251,9 @@ export interface LecteurFluxCodex extends LecteurFlux {
   declaration(): UsageFournisseur | undefined;
 }
 
+const DIALECTE_INCONNU =
+  'codex : flux `--json` sans aucun `turn.completed` ni `turn.failed` — dialecte non reconnu (codex-cli 0.156.0 ou plus récent attendu)';
+
 /**
  * Une FABRIQUE : l'état (dernier message, dernière erreur, jetons) vit le temps
  * d'une exécution.
@@ -227,6 +263,11 @@ export function createLecteurFluxCodex(): LecteurFluxCodex {
   let dernierMessage: string | undefined;
   let reponse: string | undefined;
   let declaration: UsageFournisseur | undefined;
+  /** Le tour s'est-il conclu, et comment : c'est ce qui fonde le bilan. */
+  let fin: 'conclu' | 'echec' | undefined;
+  let raisonDuTour: string | undefined;
+  /** La dernière erreur SIGNALÉE (`error`) — peut-être une tentative refaite. */
+  let derniereErreur: string | undefined;
 
   const rendre = (e: Objet): string | undefined => {
     switch (e.type) {
@@ -244,6 +285,7 @@ export function createLecteurFluxCodex(): LecteurFluxCodex {
         return rendreElement(e.type, item);
       }
       case 'turn.completed':
+        fin = 'conclu';
         reponse = dernierMessage;
         declaration = declarationDepuisUsage(e.usage) ?? declaration;
         return narrer(`tour terminé — ${direJetons(e.usage, declaration)}`);
@@ -252,14 +294,18 @@ export function createLecteurFluxCodex(): LecteurFluxCodex {
         // dit avant n'est pas une conclusion (event_processor_with_jsonl_output.rs).
         dernierMessage = undefined;
         reponse = undefined;
-        return raisonDEchec(chaine(objet(e.error)?.message));
+        fin = 'echec';
+        raisonDuTour = chaine(objet(e.error)?.message);
+        // Rien ici : le bilan l'écrit, en clair, après le plafond des logs.
+        return undefined;
       case 'error':
         // Marquée : une tentative refaite n'est pas l'échec. Une erreur qui
-        // fait échouer le tour revient, en clair, dans `turn.failed` — le
-        // flux enregistré l'y répète mot pour mot. Compromis accepté : une
-        // erreur fatale que Codex ne conclurait par AUCUN `turn.failed`
-        // resterait narration ; l'écran la montre, le classement l'ignore.
-        return narrer('erreur signalée', chaine(e.message));
+        // fait échouer le tour revient dans `turn.failed` ; une erreur non
+        // refaite d'un tour CONCLU (sortie en 1 malgré tout) revient par le
+        // bilan. Le JSON ne dit pas `will_retry` : la dernière erreur signalée
+        // est la meilleure lecture — celle qui a précédé la sortie.
+        derniereErreur = chaine(e.message);
+        return narrer('erreur signalée', derniereErreur);
       default:
         return narrer(`événement codex non reconnu : ${nom(e.type)}`);
     }
@@ -283,6 +329,17 @@ export function createLecteurFluxCodex(): LecteurFluxCodex {
       return e ? rendre(e) : narrer('événement codex illisible');
     },
     texte: () => (reponse === undefined ? undefined : borneTexteFinal(reponse)),
+    bilan(code: number | null): string | undefined {
+      if (fin === 'echec') return raisonDEchec('tour en échec', raisonDuTour ?? '');
+      if (code === 0) return fin === 'conclu' ? undefined : DIALECTE_INCONNU;
+      // Un tour conclu, et pourtant une sortie en échec : l'erreur non refaite
+      // que Codex a vue (`error_seen`). Un processus tué sans conclusion n'a
+      // pas de bilan : ses dernières erreurs n'étaient peut-être que des
+      // tentatives, et le délai de garde dit déjà pourquoi il s'est arrêté.
+      return fin === 'conclu' && derniereErreur !== undefined
+        ? raisonDEchec('erreur signalée', derniereErreur)
+        : undefined;
+    },
     declaration: () => declaration,
   };
 }

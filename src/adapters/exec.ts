@@ -52,9 +52,12 @@ export const ENTREE_FERMEE: ['ignore', 'pipe', 'pipe'] = ['ignore', 'pipe', 'pip
  * tout échec de Claude Code ou de Cursor y passait pour une panne
  * d'identifiants. `credit balance` : le libellé de Claude Code 2.1.283
  * (« Credit balance is too low »), que seul ce faux positif rattrapait.
+ * `usage limit` : le quota épuisé d'un compte ChatGPT sous Codex (« You’ve hit
+ * your usage limit… », codex-rs/protocol/src/error.rs) — sans lui, chaque
+ * tâche de ce nœud échouait comme une faute de la tâche.
  */
 const INFRA_FAILURE_RE =
-  /unauthor|authentication|not logged in|forbidden|\b401\b|\b403\b|\b429\b|quota|rate.?limit|insufficient|out of credit|credit balance|billing|api[_ -]?key|invalid.{0,12}key|login|sign in|subscription/i;
+  /unauthor|authentication|not logged in|forbidden|\b401\b|\b403\b|\b429\b|quota|rate.?limit|usage limit|insufficient|out of credit|credit balance|billing|api[_ -]?key|invalid.{0,12}key|login|sign in|subscription/i;
 
 /**
  * Le bac reçoit le même nom logique que son preflight, jamais un chemin hôte :
@@ -115,6 +118,30 @@ export interface LecteurFlux {
   lire(ligne: string): string | undefined;
   /** La réponse finale déclarée par le flux, déjà bornée (`borneTexteFinal`). */
   texte(): string | undefined;
+  /**
+   * À la sortie du processus (`code`), ce que l'échec DIT, en clair et sur une
+   * ligne — ou `undefined` si le flux n'a rien à en dire. Un bilan sur une
+   * sortie en 0 est un échec aussi : le flux n'a pas conclu comme il le doit.
+   *
+   * L'exécuteur l'écrit APRÈS le plafond des logs : c'est souvent la SEULE
+   * ligne qui dise l'échec, et c'est la dernière que l'agent écrit — celle
+   * qu'une narration de 512 ko poussait hors du journal, au nœud (classement
+   * d'infra) comme au hub (Couveuse, essaim).
+   */
+  bilan(code: number | null): string | undefined;
+}
+
+/**
+ * Les logs, et leur FIN GARANTIE : le bilan d'un flux, le délai de garde. Le
+ * nœud n'envoie au hub que la tête du journal (`LIMITS.log`) ; la fin y trouve
+ * donc sa place, prise sur la narration plutôt que perdue.
+ */
+function journalAvecFin(output: string, fin: string[]): string {
+  if (fin.length === 0) return output;
+  const texteFin = fin.join('\n');
+  const place = Math.max(0, LIMITS.log - texteFin.length - 1);
+  const corps = output.length > place ? output.slice(0, place) : output;
+  return corps === '' || corps.endsWith('\n') ? `${corps}${texteFin}` : `${corps}\n${texteFin}`;
 }
 
 /**
@@ -239,7 +266,6 @@ function executer(
 
     const timeout = setTimeout(() => {
       tue = true;
-      output += `\n[hive] timeout après ${opts.timeoutMs} ms — processus tué`;
       child.kill();
     }, opts.timeoutMs);
     timeout.unref?.();
@@ -266,13 +292,19 @@ function executer(
         : texteFinal === 'sortie-standard'
           ? borneTexteFinal(sortieStandard)
           : (flux ?? suivi)?.texte();
+      const bilan = flux?.bilan(code);
+      const logs = journalAvecFin(output, [
+        ...(tue ? [`[hive] timeout après ${opts.timeoutMs} ms — processus tué`] : []),
+        ...(bilan !== undefined ? [bilan] : []),
+      ]);
+      const success = code === 0 && bilan === undefined;
       // Échec dont le TEXTE évoque un problème d'auth/quota → infra
       // (réaffectation). Pas les logs bruts : voir `INFRA_FAILURE_RE`.
-      const infra = code !== 0 && INFRA_FAILURE_RE.test(texteDEchec(output, finalText));
+      const infra = !success && INFRA_FAILURE_RE.test(texteDEchec(logs, finalText));
       resolve({
-        success: code === 0,
+        success,
         diff: '',
-        logs: output,
+        logs,
         subAgents: [],
         ...(infra ? { infra: true } : {}),
         ...(finalText !== undefined ? { finalText } : {}),

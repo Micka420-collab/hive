@@ -32,6 +32,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createCodexAdapter } from '../src/adapters/codex.js';
 import { createLecteurFluxCodex } from '../src/adapters/flux-codex.js';
 import type { AdapterContext } from '../src/adapters/index.js';
+import { LIMITS } from '../src/shared/protocol.js';
 import { texteDEchec } from '../src/shared/texte-d-echec.js';
 import type { Task } from '../src/shared/types.js';
 
@@ -45,18 +46,24 @@ const CONSIGNE_PIEGE =
 const OBJECTION =
   'conteste\n- aucun test ne couvre la clé absente : la garde peut disparaître sans qu’un banc rougisse.';
 
-/** Rend un flux entier comme le nœud l'écrit dans ses logs. */
-function rendre(flux: string): {
+/**
+ * Rend un flux entier comme le nœud l'écrit dans ses logs : les lignes rendues,
+ * puis le bilan à la sortie du processus (`code`), comme l'exécuteur.
+ */
+function rendre(
+  flux: string,
+  code = 1,
+): {
   logs: string;
   lecteur: ReturnType<typeof createLecteurFluxCodex>;
 } {
   const lecteur = createLecteurFluxCodex();
-  const logs = flux
+  const lignes = flux
     .split('\n')
     .map((l) => lecteur.lire(l))
-    .filter((l): l is string => l !== undefined)
-    .join('\n');
-  return { logs, lecteur };
+    .filter((l): l is string => l !== undefined);
+  const bilan = lecteur.bilan(code);
+  return { logs: [...lignes, ...(bilan !== undefined ? [bilan] : [])].join('\n'), lecteur };
 }
 
 describe('le lecteur du flux `codex exec --json`', () => {
@@ -136,6 +143,7 @@ describe('le lecteur du flux `codex exec --json`', () => {
         '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"valide"}}',
         '{"type":"turn.completed","usage":{"input_tokens":0,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":0,"reasoning_output_tokens":0}}',
       ].join('\n'),
+      0,
     );
     expect(lecteur.texte()).toBe('valide');
     expect(lecteur.declaration()).toBeUndefined();
@@ -149,12 +157,66 @@ describe('le lecteur du flux `codex exec --json`', () => {
         '{"type":"item.completed","item":{"id":"i","type":"agent_message","text":"valide"}}',
         '{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":2}}',
       ].join('\n'),
+      0,
     );
     expect(logs).toContain('┊ événement codex non reconnu : thread.future');
     expect(logs).toMatch(/┊ événement codex illisible \(\d+ caractères\)/);
     expect(logs).not.toContain('ne doit pas sortir');
     expect(lecteur.texte()).toBe('valide');
     expect(texteDEchec(logs)).toBe('');
+  });
+
+  it('UNE COMMANDE SUR PLUSIEURS LIGNES RESTE NARRATION JUSQU’À SA DERNIÈRE LIGNE, en-tête compris', () => {
+    // Codex joint la commande par `shlex_join`, retours à la ligne gardés :
+    // un heredoc mettait ses lignes suivantes HORS de la marque, dans l'en-tête.
+    const { logs } = rendre(
+      [
+        JSON.stringify({
+          type: 'item.completed',
+          item: {
+            id: 'item_1',
+            type: 'command_execution',
+            command:
+              "/bin/bash -lc \"python3 - <<'PY'\nimport os\nprint(os.environ.get('OPENAI_API_KEY'))  # api key / login\nPY\"",
+            aggregated_output: 'None\n',
+            exit_code: 0,
+            status: 'completed',
+          },
+        }),
+        '{"type":"turn.failed","error":{"message":"unexpected status 400 Bad Request: context_length_exceeded"}}',
+      ].join('\n'),
+    );
+    expect(
+      logs
+        .split('\n')
+        .slice(0, -1)
+        .every((l) => l.startsWith('┊')),
+    ).toBe(true);
+    expect(texteDEchec(logs)).toBe(
+      'codex : tour en échec — unexpected status 400 Bad Request: context_length_exceeded',
+    );
+  });
+
+  it('LE PLAN SE DIT À SON OUVERTURE ET À SA CLÔTURE, pas à chaque mise à jour', () => {
+    const plan = (phase: string, fait: boolean) =>
+      JSON.stringify({
+        type: phase,
+        item: {
+          id: 'item_0',
+          type: 'todo_list',
+          items: [
+            { text: 'lire', completed: fait },
+            { text: 'corriger', completed: false },
+          ],
+        },
+      });
+    const { logs } = rendre(
+      [plan('item.started', false), plan('item.updated', true), plan('item.updated', true)].join(
+        '\n',
+      ),
+      0,
+    );
+    expect(logs.match(/┊ plan :/g)).toHaveLength(1);
   });
 });
 
@@ -169,11 +231,20 @@ afterEach(() => {
  * Un faux `codex` qui fait ce que fait codex-cli 0.156.0 : il lit stdin
  * jusqu'à sa fin, puis écrit l'enregistrement du MODE demandé — `--json` → le
  * flux d'événements, sinon la sortie humaine —, et sort en 1 sur un échec.
+ *
+ * `scenario` : un enregistrement de `tests/fixtures/flux-codex`, ou un flux
+ * `--json` SYNTHÉTIQUE (`{ jsonl }`), écrit sur le contrat de codex-rs pour un
+ * cas que le faux fournisseur ne sait pas provoquer.
  */
-function fauxCodex(scenario: string, code: number): AdapterContext {
+function fauxCodex(scenario: string | { jsonl: string }, code: number): AdapterContext {
   const dossier = mkdtempSync(path.join(tmpdir(), 'hive-flux-codex-'));
   aNettoyer.push(dossier);
-  const chemin = (nom: string) => JSON.stringify(path.join(FIXTURES, `${scenario}.${nom}`));
+  const racine =
+    typeof scenario === 'string'
+      ? path.join(FIXTURES, scenario)
+      : path.join(dossier, 'synthetique');
+  if (typeof scenario !== 'string') writeFileSync(`${racine}.json.stdout.jsonl`, scenario.jsonl);
+  const chemin = (nom: string) => JSON.stringify(`${racine}.${nom}`);
   const bin = path.join(dossier, 'codex');
   writeFileSync(
     bin,
@@ -275,6 +346,148 @@ describe.skipIf(process.platform === 'win32')(
         expect(r.fournisseur).toEqual({ source: 'codex', jetonsEntree: 4_448, jetonsSortie: 104 });
         expect(r.logs).toContain('Reading additional input from stdin...');
         expect(r.logs).not.toContain('{"type"');
+      },
+    );
+
+    it(
+      'UNE COMMANDE EN HEREDOC QUI PARLE D’API KEY NE FAIT PAS D’UN 400 UNE PANNE D’IDENTIFIANTS',
+      { timeout: 15_000 },
+      async () => {
+        const r = await createCodexAdapter(TOKEN).run(
+          tache('Répare le test'),
+          fauxCodex(
+            {
+              jsonl: [
+                '{"type":"thread.started","thread_id":"t"}',
+                '{"type":"turn.started"}',
+                JSON.stringify({
+                  type: 'item.completed',
+                  item: {
+                    id: 'item_1',
+                    type: 'command_execution',
+                    command:
+                      "/bin/bash -lc \"python3 - <<'PY'\nimport os\nprint(os.environ.get('OPENAI_API_KEY'))  # check api key / login\nPY\"",
+                    aggregated_output: 'None\n',
+                    exit_code: 0,
+                    status: 'completed',
+                  },
+                }),
+                '{"type":"turn.failed","error":{"message":"unexpected status 400 Bad Request: context_length_exceeded"}}',
+              ].join('\n'),
+            },
+            1,
+          ),
+        );
+        expect(r.success).toBe(false);
+        expect(r.infra, texteDEchec(r.logs, r.finalText)).toBeUndefined();
+        expect(r.logs).toContain('┊   PY"');
+      },
+    );
+
+    it(
+      'UNE ERREUR NON REFAITE SUR UN TOUR CONCLU (sortie en 1) : la raison est l’erreur, jamais la réponse de l’agent',
+      { timeout: 15_000 },
+      async () => {
+        // codex-rs/exec/src/lib.rs : une `error` sans `will_retry` fait
+        // sortir en 1 même si le tour se conclut. La réponse — qui parle
+        // d'API key — n'est pas ce que l'échec dit.
+        const r = await createCodexAdapter(TOKEN).run(
+          tache('Documente la clé'),
+          fauxCodex(
+            {
+              jsonl: [
+                '{"type":"thread.started","thread_id":"t"}',
+                '{"type":"turn.started"}',
+                '{"type":"error","message":"stream disconnected before completion: 400 Bad Request"}',
+                '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"J’ai documenté l’API key et le login dans le README."}}',
+                '{"type":"turn.completed","usage":{"input_tokens":120,"output_tokens":30}}',
+              ].join('\n'),
+            },
+            1,
+          ),
+        );
+        expect(r.success).toBe(false);
+        expect(r.infra, texteDEchec(r.logs, r.finalText)).toBeUndefined();
+        // La réponse reste la réponse : inchangée, simplement pas l'échec.
+        expect(r.finalText).toBe('J’ai documenté l’API key et le login dans le README.');
+        expect(texteDEchec(r.logs, r.finalText)).toBe(
+          'codex : erreur signalée — stream disconnected before completion: 400 Bad Request',
+        );
+      },
+    );
+
+    it(
+      'UNE NARRATION PLUS LONGUE QUE LE JOURNAL NE POUSSE PAS LA RAISON DEHORS : le 401 reste une panne d’infra',
+      { timeout: 15_000 },
+      async () => {
+        const sortie = 'ligne de test verbeuse\n'.repeat(40_000); // ~900 ko
+        const r = await createCodexAdapter(TOKEN).run(
+          tache('Lance la suite'),
+          fauxCodex(
+            {
+              jsonl: [
+                '{"type":"thread.started","thread_id":"t"}',
+                '{"type":"turn.started"}',
+                JSON.stringify({
+                  type: 'item.completed',
+                  item: {
+                    id: 'item_1',
+                    type: 'command_execution',
+                    command: 'npm test',
+                    aggregated_output: sortie,
+                    exit_code: 1,
+                    status: 'failed',
+                  },
+                }),
+                '{"type":"turn.failed","error":{"message":"unexpected status 401 Unauthorized: Incorrect API key provided"}}',
+              ].join('\n'),
+            },
+            1,
+          ),
+        );
+        expect(r.infra).toBe(true);
+        // Ce que le nœud envoie au hub (`logs.slice(0, LIMITS.log)`) la garde.
+        expect(r.logs.length).toBeLessThanOrEqual(LIMITS.log);
+        expect(r.logs.slice(0, LIMITS.log)).toMatch(
+          /\ncodex : tour en échec — unexpected status 401 Unauthorized: Incorrect API key provided$/,
+        );
+      },
+    );
+
+    it(
+      'UN QUOTA CHATGPT ÉPUISÉ EST UNE PANNE D’INFRA — « usage limit », la phrase de Codex',
+      { timeout: 15_000 },
+      async () => {
+        const r = await createCodexAdapter(TOKEN).run(
+          tache('Répare le test'),
+          fauxCodex(
+            {
+              jsonl: [
+                '{"type":"thread.started","thread_id":"t"}',
+                '{"type":"turn.started"}',
+                // codex-rs/protocol/src/error.rs, `UsageLimitReachedError`.
+                '{"type":"turn.failed","error":{"message":"You’ve hit your usage limit. Upgrade to Plus to continue using Codex (https://chatgpt.com/explore/plus), or try again later."}}',
+              ].join('\n'),
+            },
+            1,
+          ),
+        );
+        expect(r.success).toBe(false);
+        expect(r.infra).toBe(true);
+      },
+    );
+
+    it(
+      'UN FLUX D’UN AUTRE DIALECTE (sortie en 0, aucun tour conclu) EST UN ÉCHEC DIT, pas une réussite muette',
+      { timeout: 15_000 },
+      async () => {
+        const r = await createCodexAdapter(TOKEN).run(
+          tache('Relis'),
+          fauxCodex({ jsonl: '{"id":"0","msg":{"type":"task_complete"}}\n' }, 0),
+        );
+        expect(r.success).toBe(false);
+        expect(r.finalText).toBeUndefined();
+        expect(r.logs).toContain('dialecte non reconnu (codex-cli 0.156.0 ou plus récent attendu)');
       },
     );
   },

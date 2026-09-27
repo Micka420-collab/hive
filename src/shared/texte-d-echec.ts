@@ -72,9 +72,15 @@ function estEnregistrementDErreur(ligne: string): boolean {
  * d'identifiants — le mal que ce module répare pour le stream-json, revenu
  * par l'autre porte. La marque rend à ces lignes leur nature d'événement.
  *
- * La raison d'un tour en ÉCHEC, elle, est rendue SANS marque : c'est l'échec
+ * Le bilan d'un tour en ÉCHEC, lui, est écrit SANS marque : c'est l'échec
  * lui-même, au même titre que les enregistrements d'erreur des autres flux
  * (`estEnregistrementDErreur`).
+ *
+ * Et la réponse finale n'est PAS rajoutée pour une narration retirée : elle y
+ * est déjà (`┊ codex : …`), retirée à dessein. La rajouter rendait à « ce que
+ * l'échec dit » les mots de l'agent — une réponse qui parle d'API key, sur un
+ * tour conclu que Codex fait pourtant sortir en 1, et c'était encore une
+ * panne d'identifiants.
  *
  * `┊` et pas un préfixe ASCII : aucun CLI n'ouvre une ligne de diagnostic par
  * ce caractère, et un marqueur `[codex]` aurait rejoint `[hive]`, que la règle
@@ -115,17 +121,20 @@ export const MARQUE_NARRATION = '┊';
  *
  * Ce qui reste — stderr, marqueurs `[hive]` (délai de garde…), erreurs d'un
  * flux, sortie en texte des autres CLI — est ce que l'échec dit à un humain.
- * Si des événements ont été retirés, la parole de l'agent était DEDANS : on la
- * rend en y ajoutant son texte final. Sans événement retiré (CLI en texte),
- * les logs contiennent déjà la sortie standard, et l'ajouter la doublerait.
+ * Si des événements JSON ont été retirés, la parole de l'agent était DEDANS :
+ * on la rend en y ajoutant son texte final. Sans événement retiré (CLI en
+ * texte), les logs contiennent déjà la sortie standard, et l'ajouter la
+ * doublerait. Une narration retirée ne la rend pas : voir `MARQUE_NARRATION`.
  */
 export function texteDEchec(logs: string, finalText?: string): string {
-  const lignes = logs.split('\n');
-  const humaines = lignes.filter((l) => {
+  let evenementRetire = false;
+  const humaines = logs.split('\n').filter((l) => {
     const brute = l.replace(MOTIF_ANSI, '').trim();
     if (brute.startsWith(MARQUE_NARRATION)) return false;
-    return !brute.startsWith('{"') || estEnregistrementDErreur(brute);
+    if (!brute.startsWith('{"') || estEnregistrementDErreur(brute)) return true;
+    evenementRetire = true;
+    return false;
   });
   const texte = humaines.join('\n');
-  return humaines.length < lignes.length && finalText ? `${texte}\n${finalText}` : texte;
+  return evenementRetire && finalText ? `${texte}\n${finalText}` : texte;
 }
