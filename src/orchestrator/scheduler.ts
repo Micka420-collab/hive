@@ -722,12 +722,16 @@ export class Scheduler {
    * compté ; si tous les nœuds refusent ainsi, la tâche finit par échouer proprement
    * (« aucun nœud avec un agent fonctionnel ») plutôt que de rebondir sans fin. Un
    * refus de simple saturation n'est PAS compté (le nœud se libérera).
+   *
+   * `infra: 'avant_agent'` — le dépôt de la tâche ne s'est pas cloné : compté
+   * comme tout refus d'infrastructure, mais aucun modèle n'a tourné, aucun
+   * n'est écarté des reprises.
    */
   rejectTask(
     nodeId: string,
     taskId: string,
     reason: string,
-    infra = false,
+    infra: boolean | 'avant_agent' = false,
     now = Date.now(),
     retryAfterMs?: number,
   ): void {
@@ -744,7 +748,7 @@ export class Scheduler {
       const { race: updated, decision } = recordDroneResult(race, nodeId, false);
       this.races.set(taskId, updated);
       this.recentRejections.set(`${taskId}:${nodeId}`, now + cooldown);
-      if (infra) this.ecarterModele(taskId, race.modeleParDrone?.[nodeId]);
+      if (infra === true) this.ecarterModele(taskId, race.modeleParDrone?.[nodeId]);
       this.emit('drone_rejected', { taskId, nodeId, reason });
       const task = this.store.getTask(taskId);
       if (!task || task.status === 'done' || task.status === 'failed') {
@@ -774,11 +778,17 @@ export class Scheduler {
     // quota épuisé est souvent celui d'UN modèle. Si c'est l'agent entier qui
     // est en panne, ses autres modèles tombent de même, l'écart retombe sur le
     // concours complet et le compte `infraRejects` conclut comme avant. Un refus
-    // de saturation ou de service n'a rien lancé : le modèle reste en lice.
-    if (infra) this.ecarterModele(taskId, this.store.modeleAiguillageDe(taskId));
+    // de saturation, de service ou de clone n'a rien lancé : le modèle reste en lice.
+    if (infra === true) this.ecarterModele(taskId, this.store.modeleAiguillageDe(taskId));
     this.store.patchTask(taskId, { status: 'ready', assignedNodeId: null }, now);
     this.recentRejections.set(`${taskId}:${nodeId}`, now + cooldown);
-    this.emit('task_rejected', { taskId, nodeId, reason, ...(infra ? { infra: true } : {}) });
+    this.emit('task_rejected', {
+      taskId,
+      nodeId,
+      reason,
+      ...(infra ? { infra: true } : {}),
+      ...(infra === 'avant_agent' ? { avantAgent: true } : {}),
+    });
 
     if (infra) {
       const count = (this.infraRejects.get(taskId) ?? 0) + 1;
@@ -883,8 +893,11 @@ export class Scheduler {
     if (task.status === 'assigned') {
       this.store.patchTask(taskId, { status: 'running' });
       this.emit('task_started', { taskId, nodeId });
-      // Un nœud exécute enfin la tâche : l'agent fonctionne, on oublie les refus infra.
-      this.infraRejects.delete(taskId);
+      // Les refus infra NE s'oublient PAS ici : un nœud annonce `running` AVANT
+      // de cloner et de lancer l'agent, puis refuse (clone impossible, agent en
+      // panne). Remis à zéro à chaque annonce, le compte ne concluait jamais —
+      // la tâche rebondissait sans fin. Il tombe au premier RÉSULTAT : là,
+      // l'agent a vraiment tourné.
     }
     // Snapshot présence Rayon — constaté, jamais inventé (ADR 0010).
     if (presences !== undefined) {

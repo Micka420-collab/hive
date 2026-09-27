@@ -1076,15 +1076,37 @@ export class HiveNodeClient {
     let workspace: Workspace | null = null;
     let conserverWorkspace = false;
     try {
-      workspace = await prepareWorkspace(
-        this.workRoot,
-        task,
-        repoUrl,
-        this.opts.keepEnv ?? [],
-        // Isole le répertoire par nœud : deux drones d'une même course sur une
-        // même machine (workRoot partagé) ne se marchent pas dessus.
-        this.nodeId ? this.nodeId.slice(0, 8) : '',
-      );
+      try {
+        workspace = await prepareWorkspace(
+          this.workRoot,
+          task,
+          repoUrl,
+          this.opts.keepEnv ?? [],
+          // Isole le répertoire par nœud : deux drones d'une même course sur une
+          // même machine (workRoot partagé) ne se marchent pas dessus.
+          this.nodeId ? this.nodeId.slice(0, 8) : '',
+        );
+      } catch (err) {
+        // Le dépôt ne s'est pas cloné ICI (identifiants de ce nœud, réseau,
+        // dépôt muet) : l'agent n'a pas tourné. Un `task_result` en échec
+        // brûlait une tentative et écartait un modèle qui n'avait rien fait ;
+        // c'est un refus d'infrastructure — un autre nœud peut réussir, et le
+        // token-failover borne le cas où aucun n'y arrive. Lavé : la raison
+        // cite l'URL du dépôt, et part à tout l'écran. La DERNIÈRE ligne :
+        // celle où git dit pourquoi (`fatal: …`), dans les 120 caractères
+        // d'une raison de refus.
+        const brut = err instanceof Error ? err.message : String(err);
+        const cause = motifLave(brut.trim().split('\n').at(-1) ?? brut);
+        this.send({
+          type: 'task_reject',
+          taskId: task.id,
+          reason: `clone impossible : ${cause}`.slice(0, LIMITS.name),
+          infra: true,
+          avantAgent: true,
+        });
+        this.log(`⇄ ${task.title} : clone impossible → réaffectation (${cause})`);
+        return;
+      }
       // Hive Mind : le contexte reçu du hub est préfixé au prompt pour l'agent.
       // On n'altère que la copie transmise à l'adaptateur (chemins/branche du
       // workspace restent construits sur la tâche d'origine).

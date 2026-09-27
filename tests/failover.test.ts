@@ -72,6 +72,29 @@ describe('token-failover (scheduler)', () => {
     }
   });
 
+  it('le compte conclut aussi quand le nœud a annoncé `running` avant de refuser', () => {
+    // Un vrai nœud dit `running` puis clone et lance l'agent — ET SEULEMENT
+    // ALORS refuse. Remis à zéro par cette annonce, le compte ne concluait
+    // jamais : la tâche rebondissait sans fin sur un dépôt ou un agent cassé.
+    const store = new HiveStore(':memory:');
+    try {
+      const scheduler = new Scheduler(store);
+      let now = 1000;
+      const n1 = scheduler.registerNode(profile('n1'), now);
+      const p = store.createProject({ name: 'P' });
+      store.createTask({ id: 't1', projectId: p.id, title: 'T', prompt: 'p' });
+      for (let i = 0; i < 3; i++) {
+        scheduler.tick(now);
+        scheduler.handleTaskUpdate(n1.id, 't1');
+        scheduler.rejectTask(n1.id, 't1', 'clone impossible', 'avant_agent', now);
+        now += 4000;
+      }
+      expect(store.getTask('t1')).toMatchObject({ status: 'failed', attempts: 0 });
+    } finally {
+      store.close();
+    }
+  });
+
   it('un refus de saturation (non-infra) ne compte pas vers l’échec', () => {
     const store = new HiveStore(':memory:');
     try {

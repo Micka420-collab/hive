@@ -568,6 +568,20 @@ describe('Aiguillage câblé — la boucle principale de l’ordonnanceur', () =
     ]);
   });
 
+  it('UN CLONE IMPOSSIBLE N’ÉCARTE AUCUN MODÈLE ET NE BRÛLE AUCUNE TENTATIVE — l’agent n’a pas tourné', () => {
+    // Le nœud n'a pas pu cloner le dépôt de la tâche (`avant_agent`) : fable
+    // n'a rien lancé. Rangé comme un échec d'agent, il était écarté des
+    // reprises, et la tentative comptait.
+    const n = scheduler.registerNode(profile('seule', ['fable', 'opus']));
+    const t = tacheCode('Ajoute le composant Ruche');
+    scheduler.tick(5_000);
+    scheduler.rejectTask(n.id, t, 'clone impossible : dépôt muet', 'avant_agent', 5_000);
+    scheduler.tick(9_000);
+    expect(commandes(t), 'fable reste élu').toEqual(['fable', 'fable']);
+    expect(store.getTask(t)?.attempts).toBe(0);
+    expect(derniereAffectation(t)).not.toHaveProperty('modelesEcartes');
+  });
+
   it('SANS AUTRE MODÈLE DANS LA RUCHE, LA REPRISE PART QUAND MÊME — et la raison dit qu’il est re-tenté', () => {
     // L'unique modèle de la ruche a planté : l'écarter laisserait la tâche
     // prête sans porteur, à jamais. Il est re-tenté, comme avant — mais la

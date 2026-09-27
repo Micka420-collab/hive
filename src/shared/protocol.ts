@@ -287,6 +287,12 @@ export interface TaskRejectMsg {
    */
   infra?: boolean;
   /**
+   * Avec `infra` : l'échec a eu lieu AVANT que l'agent ne soit lancé — le
+   * dépôt de la tâche ne s'est pas cloné. Aucun modèle n'a tourné, aucun n'est
+   * écarté des reprises ; la tâche part ailleurs sans brûler de tentative.
+   */
+  avantAgent?: boolean;
+  /**
    * Indisponibilité PRÉVISIBLE (ex. Night Shift : fenêtre fermée) : durée en ms
    * avant laquelle il est inutile de représenter cette tâche à CE nœud. Le hub
    * l'utilise comme cooldown (borné) au lieu du cooldown court par défaut —
@@ -1117,10 +1123,12 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
         isId(m.taskId) &&
         isStr(m.reason, LIMITS.name) &&
         (m.infra === undefined || typeof m.infra === 'boolean') &&
+        (m.avantAgent === undefined || typeof m.avantAgent === 'boolean') &&
         (m.retryAfterMs === undefined || isInt(m.retryAfterMs, 0, 24 * 60 * 60 * 1000))
       ) {
         const msg: TaskRejectMsg = { type: 'task_reject', taskId: m.taskId, reason: m.reason };
         if (m.infra === true) msg.infra = true;
+        if (m.infra === true && m.avantAgent === true) msg.avantAgent = true;
         if (typeof m.retryAfterMs === 'number') msg.retryAfterMs = m.retryAfterMs;
         return msg;
       }

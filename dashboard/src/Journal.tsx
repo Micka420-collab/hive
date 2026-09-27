@@ -225,7 +225,13 @@ const EVENTS: Record<string, Meta> = {
   task_rejected: {
     icon: '⇄',
     cls: 'muted',
-    text: (p, t) => t(`refusée (${short(p.taskId)})`, `declined (${short(p.taskId)})`),
+    // Un refus d'INFRASTRUCTURE dit sa cause (agent en panne, clone
+    // impossible) : c'est la seule trace d'une tâche qui finit sans qu'aucun
+    // agent n'ait tourné — ni production, ni logs à relire.
+    text: (p, t) => {
+      const base = t(`refusée (${short(p.taskId)})`, `declined (${short(p.taskId)})`);
+      return p.infra === true && typeof p.reason === 'string' ? `${base} — ${p.reason}` : base;
+    },
   },
   node_registered: {
     icon: '⬡',

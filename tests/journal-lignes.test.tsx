@@ -300,3 +300,25 @@ describe('une perte de contact se lit comme telle — ni échec constaté, ni ty
     expect(ligne(dom)).toContain('délai dépassé');
   });
 });
+
+describe('un refus d’infrastructure dit sa cause — un refus ordinaire, non', () => {
+  it('LE CLONE IMPOSSIBLE SE LIT AU JOURNAL, seule trace d’une tâche où aucun agent n’a tourné', async () => {
+    const dom = await monter(
+      evenement('task_rejected', {
+        taskId: 'tache-clone',
+        nodeId: 'n1',
+        reason: 'clone impossible : fatal: terminal prompts disabled',
+        infra: true,
+      }),
+    );
+    expect(ligne(dom)).toContain('refusée (tache-cl)');
+    expect(ligne(dom), 'la cause du refus n’est pas dite').toContain('terminal prompts disabled');
+  });
+
+  it('UN REFUS DE SATURATION RESTE MUET SUR SON CODE', async () => {
+    const dom = await monter(
+      evenement('task_rejected', { taskId: 'tache-sat', nodeId: 'n1', reason: 'noeud_sature' }),
+    );
+    expect(ligne(dom)).not.toContain('noeud_sature');
+  });
+});

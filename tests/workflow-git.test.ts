@@ -79,10 +79,9 @@ import type { AgentAdapter } from '../src/adapters/index.js';
 import { HiveNodeClient } from '../src/node-client/client.js';
 import { runMerge } from '../src/node-client/merge-runner.js';
 import type { MergeDiff, MergeRunResult } from '../src/node-client/merge-runner.js';
-import { cloneRepo, prepareWorkspace } from '../src/node-client/workspace.js';
+import { cloneRepo, envTransportGit, prepareWorkspace } from '../src/node-client/workspace.js';
 import { createServer } from '../src/orchestrator/server.js';
 import type { MergeResultMsg } from '../src/shared/protocol.js';
-import { MAX_ATTEMPTS } from '../src/shared/types.js';
 import type { HiveEvent, StateSnapshot, Task, TaskResult } from '../src/shared/types.js';
 
 /**
@@ -389,6 +388,13 @@ describe('identifiants Git invalides — l’échec est RAPIDE, et il REMONTE', 
   // passé »). La bascule est retirée : ce sont des GARDES sur les trois
   // systèmes, et un poste de bureau n'ouvre plus de fenêtre.
 
+  // Et la ligne elle-même, vérifiée sur les TROIS systèmes : ces bancs ne
+  // rougissent sans elle que là où GCM est installé — sous Linux et macOS,
+  // la retirer passait inaperçu.
+  it('l’environnement de transport met Git Credential Manager en non-interactif', () => {
+    expect(envTransportGit()).toMatchObject({ GCM_INTERACTIVE: 'Never', GIT_TERMINAL_PROMPT: '0' });
+  });
+
   /** Les deux portes de clone du nœud. */
   const PORTES: [string, (dossier: string, url: string) => Promise<unknown>][] = [
     [
@@ -579,17 +585,31 @@ describe('identifiants Git invalides — l’échec est RAPIDE, et il REMONTE', 
           (s) => s.tasks.find((x) => x.id === taskId)?.status === 'failed',
           30_000,
         );
-        expect(etat.tasks.find((x) => x.id === taskId)?.status).toBe('failed');
+        const finale = etat.tasks.find((x) => x.id === taskId);
+        expect(finale?.status).toBe('failed');
 
-        // Chaque tentative est une PRODUCTION rangée, en échec, qui dit
-        // pourquoi — c'est ce que l'écran de la tâche relit.
-        const productions = await r.appel<TaskResult[]>(`/api/tasks/${taskId}/results`);
-        expect(productions).toHaveLength(MAX_ATTEMPTS);
-        for (const p of productions) {
-          expect(p.success).toBe(false);
-          expect(p.logs).toMatch(/terminal prompts disabled/);
-          expect(p.durationMs).toBeLessThan(DELAI_ECHEC_RAPIDE_MS);
+        // Un clone refusé n'est PAS une production : l'agent n'a pas tourné.
+        // Rangé en `task_result` en échec, il brûlait une tentative et
+        // écartait un modèle qui n'avait rien fait. C'est un refus
+        // d'infrastructure : aucune tentative brûlée, aucune production, et
+        // chaque refus dit pourquoi — c'est ce que le journal relit.
+        expect(finale?.attempts).toBe(0);
+        expect(await r.appel<TaskResult[]>(`/api/tasks/${taskId}/results`)).toEqual([]);
+        const journal = await r.appel<HiveEvent[]>('/api/events?limit=1000');
+        const refus = journal.filter(
+          (e) => e.type === 'task_rejected' && e.payload.taskId === taskId,
+        );
+        expect(refus.length).toBeGreaterThan(0);
+        for (const e of refus) {
+          expect(e.payload).toMatchObject({
+            infra: true,
+            avantAgent: true,
+            reason: expect.stringMatching(/^clone impossible : .*terminal prompts disabled/),
+          });
         }
+        expect(
+          journal.find((e) => e.type === 'task_failed' && e.payload.taskId === taskId)?.payload,
+        ).toMatchObject({ reason: 'no_working_agent' });
         // Et l'agent n'a JAMAIS été lancé sur un espace sans dépôt : il aurait
         // « réussi » sur un répertoire vide, et le succès aurait menti.
         expect(r.lancementsAgent()).toBe(0);
