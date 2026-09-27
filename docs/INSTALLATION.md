@@ -466,8 +466,8 @@ Ce qui fonde chaque case :
 
 ### Arrêter un nœud : ce qui part avec lui
 
-Chaque agent, commande de test de merge, chantier et validation est lancé
-comme la tête d'un **arbre** que le nœud possède (`src/shared/arbre-processus.ts`) :
+Chaque agent, commande de test de merge, chantier, validation et pose d'outil
+est lancé comme la tête d'un **arbre** que le nœud possède (`src/shared/arbre-processus.ts`) :
 
 - **Linux, macOS** : chef de son propre groupe de processus. Annulé ou
   expiré, tout le groupe reçoit SIGTERM, puis SIGKILL deux secondes plus tard ;

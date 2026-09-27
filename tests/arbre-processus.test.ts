@@ -31,6 +31,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { LIGNE_ANNULATION, runCommand } from '../src/adapters/exec.js';
 import type { AdapterContext } from '../src/adapters/index.js';
 import type { AdapterResult } from '../src/adapters/index.js';
+import { lancerVraiment } from '../src/node-client/pose-runner.js';
 import { arbresEteints, GRACE_ARRET_MS, lancerArbre } from '../src/shared/arbre-processus.js';
 import { processusVivant, reprendreTous, retenirPid } from './harnais-processus.js';
 
@@ -215,6 +216,34 @@ describe('runCommand — l’arbre de l’agent, pas seulement l’agent', () =>
     await new Promise((res) => setTimeout(res, 500));
     expect(readdirSync(dossier), 'un processus est parti pour une tâche déjà annulée').toEqual([]);
   });
+});
+
+describe('lancerVraiment — la pose d’un outil est un arbre aussi', () => {
+  // `npm install -g` lance un `node`, qui lance les `postinstall` du paquet.
+  // Avant, la pose ne tuait que `npm`, au délai — et attendait `close` : un
+  // script qui laissait un descendant sur la sortie retenait la pose « en
+  // cours » jusqu'au butoir de dix minutes, pour une commande déjà finie.
+  it('une pose SORTIE qui laisse un descendant rend son vrai code dans la borne', async () => {
+    const { dossier, script } = fauxAgent({ sortir: true });
+    const debut = Date.now();
+    const r = await borne(
+      lancerVraiment(process.execPath, ['-e', script]),
+      GRACE_ARRET_MS + MARGE_MS,
+    );
+    expect(r, 'la pose attendait la mort du petit-enfant').not.toBeNull();
+    expect(Date.now() - debut).toBeLessThan(GRACE_ARRET_MS + MARGE_MS);
+    expect(r?.code).toBe(0);
+    expect(r?.sortie).toContain('fini');
+
+    const { petit } = pids(dossier);
+    expect(petit).toHaveLength(1);
+    // Même partage qu'au cas de l'agent sorti : POSIX reprend le groupe,
+    // Windows ne tue pas un pid libéré (`arbre-processus.ts`).
+    if (POSIX) {
+      const eteint = await jusqua(() => !petit.some(processusVivant), 5_000);
+      expect(eteint, 'le petit-enfant d’une pose a survécu').toBe(true);
+    }
+  }, 60_000);
 });
 
 describe('arbresEteints — l’attente bornée d’un nœud qui s’arrête', () => {

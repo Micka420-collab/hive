@@ -64,11 +64,12 @@ const DEROGATIONS: Readonly<Record<string, string>> = {
   // paquet, donc du code du registre, sur la machine du membre.
   // ─── LA PRIMITIVE, PAS UN APPELANT ─────────────────────────────────────────
   //
-  // `lancerArbre` est le `spawn` des agents, des merges, des chantiers et des
-  // validations : il lance ce qu'on lui tend, DÉJÀ enveloppé. La garde ne perd
-  // rien à l'inscrire ici, parce qu'elle juge `lancerArbre(` comme `spawn(`
-  // chez chacun de ses appelants (`fichiersQuiLancent`) : un appelant qui
-  // oublierait l'enveloppe rougit comme avant.
+  // `lancerArbre` est le `spawn` des agents, des merges, des chantiers, des
+  // validations et des poses d'outils : il lance ce qu'on lui tend, DÉJÀ
+  // enveloppé. La garde ne perd rien à l'inscrire ici, parce qu'elle juge
+  // `lancerArbre(` comme `spawn(` chez chacun de ses appelants
+  // (`fichiersQuiLancent`) : un appelant qui oublierait l'enveloppe rougit
+  // comme avant.
   'shared/arbre-processus.ts':
     'la primitive qui lance un arbre de processus : elle exécute ce que ses ' +
     'appelants ont préparé et enveloppé — chacun d’eux est jugé ici sur son ' +
