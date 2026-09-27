@@ -30,9 +30,15 @@ afterEach(() => {
   tmp = '';
 });
 
-/** Un dossier temporaire du système à part, pour ne balayer que le nôtre. */
+/**
+ * Un dossier temporaire du système à part, pour ne balayer que le nôtre.
+ * Préfixe COURT : sous macOS, le dossier temporaire réel
+ * (`/private/var/folders/xx/…/T`, 57 octets) plus ce niveau de banc plus le
+ * rendez-vous frôlent déjà la borne `sun_path` de 103 octets — `hive-rdv-` y
+ * menait à 104, et le banc aurait mesuré son propre préfixe, pas le module.
+ */
 function tmpDuBanc(): string {
-  tmp = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'hive-rdv-')));
+  tmp = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'rdv-')));
   for (const v of ['TMPDIR', 'TEMP', 'TMP']) vi.stubEnv(v, tmp);
   expect(os.tmpdir()).toBe(tmp);
   return tmp;
