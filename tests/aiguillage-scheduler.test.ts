@@ -23,6 +23,7 @@ import { HiveStore } from '../src/orchestrator/store.js';
 import { projeterWorkers } from '../src/orchestrator/workers.js';
 import { affectationsDepuisEvenements } from '../src/shared/routage-vue.js';
 import type { Suite } from '../src/orchestrator/polyethisme.js';
+import type { TaskResult } from '../src/shared/types.js';
 
 const profile = (name: string, modeles?: string[]) => ({
   name,
@@ -476,5 +477,201 @@ describe('Aiguillage câblé — la boucle principale de l’ordonnanceur', () =
       enVol: 0,
       moyenne: 0.5,
     });
+  });
+
+  /** Ce que rend une tentative qui plante : CLI en erreur, délai dépassé, exception. */
+  const plantage = (taskId: string): Omit<TaskResult, 'nodeId'> => ({
+    taskId,
+    success: false,
+    diff: '',
+    logs: '[hive] timeout après 300000 ms — processus tué',
+    durationMs: 5,
+    subAgents: [],
+  });
+  /** Les modèles commandés à une tâche, dans l'ordre de ses affectations. */
+  const commandes = (taskId: string): (string | undefined)[] =>
+    assignations.filter((a) => a.taskId === taskId).map((a) => a.modele);
+  const derniereAffectation = (taskId: string) =>
+    store
+      .listEvents()
+      .filter((event) => event.type === 'task_assigned' && event.payload.taskId === taskId)
+      .at(-1)?.payload;
+
+  it('UN MODÈLE QUI A PLANTÉ SUR UNE TÂCHE N’EST PAS RÉ-ÉLU POUR SES REPRISES — et son échec n’est pas une note', () => {
+    // Une ouvrière déclare deux modèles, dont un cassé (alias mal saisi, modèle
+    // retiré). Jamais jugés, les deux sont « à explorer » (+∞) et le nom
+    // départage : fable, le cassé, est élu. Son plantage renvoie la tâche en
+    // file — hors vol, sans verdict, fable redevenait +∞ et prenait les TROIS
+    // tentatives, puis celles de chaque tâche suivante du même genre.
+    const n = scheduler.registerNode(profile('seule', ['fable', 'opus']));
+    const t = tacheCode('Ajoute le composant Ruche');
+    scheduler.tick(5_000);
+    expect(commandes(t)).toEqual(['fable']);
+
+    scheduler.handleTaskResult(n.id, plantage(t));
+
+    expect(store.getTask(t)?.status, 'la reprise part aussitôt').toBe('assigned');
+    expect(commandes(t), 'la reprise part sur l’autre modèle déclaré').toEqual(['fable', 'opus']);
+    const reprise = derniereAffectation(t);
+    expect(reprise?.modelesEcartes, 'la raison dit quel modèle a été écarté').toEqual(['fable']);
+    expect(
+      (reprise?.raisonModele as { modele: string }[] | undefined)?.map((r) => r.modele),
+      'le modèle écarté ne concourt plus pour cette tâche',
+    ).toEqual(['opus']);
+
+    scheduler.handleTaskResult(n.id, { ...plantage(t), success: true, diff: 'diff' });
+    expect(store.getTask(t)?.status).toBe('done');
+
+    // Décision : un plantage n'est PAS un essai loyal. Rien n'est appris — une
+    // tâche neuve du même genre essaie encore fable, jamais jugé. Son propre
+    // plantage n'efface pas l'écart d'une tâche rendue.
+    expect(store.observationsAiguillage(), 'aucune observation à récompense nulle').toEqual([]);
+    const autre = tacheCode('Ajoute le composant Alvéole');
+    scheduler.tick(6_000);
+    expect(commandes(autre), 'une tâche neuve n’hérite pas de l’écart').toEqual(['fable']);
+    scheduler.handleTaskResult(n.id, plantage(autre));
+    scheduler.handleTaskResult(n.id, { ...plantage(autre), success: true, diff: 'diff' });
+    expect(commandes(autre)).toEqual(['fable', 'opus']);
+
+    // Une correction demandée par l'Evaluator rouvre la tâche rendue : c'est
+    // une reprise de CETTE tâche, fable reste écarté.
+    const resultId = store.resultsForTask(t).at(-1)?.resultId ?? 0;
+    expect(
+      scheduler.retryFromEvaluator({ taskId: t, resultId, decision: 'correction_required' }).ok,
+    ).toBe(true);
+    expect(commandes(t), 'la correction ne repart pas sur fable').toEqual([
+      'fable',
+      'opus',
+      'opus',
+    ]);
+  });
+
+  it('UN REFUS D’INFRASTRUCTURE ÉCARTE LE MODÈLE COMMANDÉ — un refus de saturation, non', () => {
+    // Le CLI de fable répond « quota » : le nœud refuse (`infra`) et la tâche
+    // revenait sur fable à l'expiration du cooldown, jusqu'à échouer « aucun
+    // agent fonctionnel » quand opus, sur le même nœud, fonctionnait.
+    const n = scheduler.registerNode(profile('seule', ['fable', 'opus']));
+    const t = tacheCode('Ajoute le composant Ruche');
+    scheduler.tick(5_000);
+    // Saturé : fable n'a pas tourné, il n'a rien prouvé — il reste élu.
+    scheduler.rejectTask(n.id, t, 'noeud_sature', false, 5_000);
+    scheduler.tick(9_000);
+    expect(commandes(t)).toEqual(['fable', 'fable']);
+
+    scheduler.rejectTask(n.id, t, 'agent indisponible (auth/quota)', true, 9_000);
+    scheduler.tick(13_000);
+
+    expect(commandes(t), 'la tâche repart sur opus, pas sur fable').toEqual([
+      'fable',
+      'fable',
+      'opus',
+    ]);
+  });
+
+  it('UN CLONE IMPOSSIBLE N’ÉCARTE AUCUN MODÈLE ET NE BRÛLE AUCUNE TENTATIVE — l’agent n’a pas tourné', () => {
+    // Le nœud n'a pas pu cloner le dépôt de la tâche (`avant_agent`) : fable
+    // n'a rien lancé. Rangé comme un échec d'agent, il était écarté des
+    // reprises, et la tentative comptait.
+    const n = scheduler.registerNode(profile('seule', ['fable', 'opus']));
+    const t = tacheCode('Ajoute le composant Ruche');
+    scheduler.tick(5_000);
+    scheduler.rejectTask(n.id, t, 'clone impossible : dépôt muet', 'avant_agent', 5_000);
+    scheduler.tick(9_000);
+    expect(commandes(t), 'fable reste élu').toEqual(['fable', 'fable']);
+    expect(store.getTask(t)?.attempts).toBe(0);
+    expect(derniereAffectation(t)).not.toHaveProperty('modelesEcartes');
+  });
+
+  it('SANS AUTRE MODÈLE DANS LA RUCHE, LA REPRISE PART QUAND MÊME — et la raison dit qu’il est re-tenté', () => {
+    // L'unique modèle de la ruche a planté : l'écarter laisserait la tâche
+    // prête sans porteur, à jamais. Il est re-tenté, comme avant — mais la
+    // raison le dit : sans elle, le tiroir montrait un modèle qui vient de
+    // tomber sur cette tâche comme une exploration neuve (« à explorer »).
+    const n = scheduler.registerNode(profile('seule', ['fable']));
+    const t = tacheCode('Ajoute le composant Ruche');
+    scheduler.tick(5_000);
+
+    scheduler.handleTaskResult(n.id, plantage(t));
+
+    expect(store.getTask(t)?.status).toBe('assigned');
+    expect(commandes(t)).toEqual(['fable', 'fable']);
+    expect(derniereAffectation(t)).not.toHaveProperty('modelesEcartes');
+    expect(
+      derniereAffectation(t)?.modelesReadmis,
+      'déjà tombé sur cette tâche, re-tenté faute d’alternative',
+    ).toEqual(['fable']);
+
+    // Il rend, et sa production est retenue : il a prouvé qu'il tourne sur
+    // cette tâche, son écart tombe. Une correction de SA production lui
+    // revient, même si un autre modèle a rejoint la ruche entre-temps.
+    scheduler.handleTaskResult(n.id, { ...plantage(t), success: true, diff: 'diff' });
+    scheduler.registerNode(profile('nouvelle', ['opus']));
+    const resultId = store.resultsForTask(t).at(-1)?.resultId ?? 0;
+    expect(
+      scheduler.retryFromEvaluator({ taskId: t, resultId, decision: 'correction_required' }).ok,
+    ).toBe(true);
+    expect(commandes(t), 'la correction revient au modèle qui a écrit').toEqual([
+      'fable',
+      'fable',
+      'fable',
+    ]);
+    expect(derniereAffectation(t)).not.toHaveProperty('modelesReadmis');
+  });
+
+  it('LE PORTEUR SAIN EST OCCUPÉ : LA REPRISE L’ATTEND, ELLE NE RETOMBE PAS SUR LE MODÈLE TOMBÉ', () => {
+    // L'écart se décidait contre les seuls nœuds LIBRES du tick : opus occupé
+    // ailleurs, « tous les modèles offerts ont échoué » devenait vrai et fable
+    // reprenait les trois tentatives — la tâche échouait pour de bon pendant
+    // qu'une ouvrière saine tournait à côté. Une charge passe : la reprise
+    // attend opus comme toute tâche en file attend une place.
+    const a = scheduler.registerNode(profile('a', ['fable']));
+    const b = scheduler.registerNode(profile('b', ['opus']));
+    tacheCode('Ajoute le composant Ruche');
+    tacheCode('Ajoute le composant Alvéole');
+    scheduler.tick(5_000);
+    // Jamais jugés, les deux sont +∞ : le nom donne fable à la première tâche
+    // servie, et opus, seul libre ensuite, prend l'autre.
+    const surFable = assignations.find((x) => x.modele === 'fable');
+    const surOpus = assignations.find((x) => x.modele === 'opus');
+    expect([surFable?.nodeId, surOpus?.nodeId]).toEqual([a.id, b.id]);
+    const t = surFable?.taskId ?? '';
+    const voisine = surOpus?.taskId ?? '';
+
+    scheduler.handleTaskResult(a.id, plantage(t));
+    scheduler.tick(6_000);
+    expect(store.getTask(t)?.status, 'la reprise attend le porteur sain').toBe('ready');
+    expect(commandes(t)).toEqual(['fable']);
+
+    scheduler.handleTaskResult(b.id, { ...plantage(voisine), success: true, diff: 'diff' });
+    expect(assignations.at(-1), 'opus libéré prend la reprise').toEqual({
+      nodeId: b.id,
+      taskId: t,
+      modele: 'opus',
+    });
+    expect(derniereAffectation(t)?.modelesEcartes).toEqual(['fable']);
+  });
+
+  it('UN NŒUD SANS MODÈLE DÉCLARÉ EST UNE ALTERNATIVE — la reprise y part plutôt que sur le modèle tombé', () => {
+    // Il lance le modèle par défaut de son CLI : inconnu, mais pas celui qui
+    // vient de planter sur cette tâche. Le laisser au repos pendant que fable
+    // brûlait les trois tentatives était le même défaut que le porteur occupé.
+    const libre = scheduler.registerNode(profile('a-libre'));
+    const b = scheduler.registerNode(profile('b', ['fable']));
+    const t = tacheCode('Ajoute le composant Ruche');
+    scheduler.tick(5_000);
+    expect(assignations, 'un nœud qui déclare ses modèles domine').toEqual([
+      { nodeId: b.id, taskId: t, modele: 'fable' },
+    ]);
+
+    scheduler.handleTaskResult(b.id, plantage(t));
+
+    expect(assignations.at(-1), 'aucun modèle commandé : son défaut').toEqual({
+      nodeId: libre.id,
+      taskId: t,
+      modele: undefined,
+    });
+    const reprise = derniereAffectation(t);
+    expect(reprise?.modelesEcartes, 'la raison dit ce qui a été écarté').toEqual(['fable']);
+    expect(reprise, 'aucune élection de modèle inventée').not.toHaveProperty('modele');
   });
 });

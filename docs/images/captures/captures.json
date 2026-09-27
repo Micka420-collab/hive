@@ -1,0 +1,69 @@
+{
+  "genere": "2026-09-27T04:50:54.605Z",
+  "commit": "2702226",
+  "arbreModifie": false,
+  "langue": "fr",
+  "formats": [
+    { "nom": "bureau", "largeur": 1440, "hauteur": 900, "densite": 1 },
+    { "nom": "mobile", "largeur": 390, "hauteur": 844, "densite": 2 }
+  ],
+  "captures": [
+    {
+      "fichier": "ruche.bureau.png",
+      "vue": "ruche",
+      "format": "bureau",
+      "debordement": 0,
+      "hauteur": 900,
+      "erreurs": []
+    },
+    {
+      "fichier": "essaim.bureau.png",
+      "vue": "essaim",
+      "format": "bureau",
+      "debordement": 0,
+      "hauteur": 1204,
+      "erreurs": []
+    },
+    {
+      "fichier": "tache.bureau.png",
+      "vue": "tache",
+      "format": "bureau",
+      "debordement": 0,
+      "hauteur": 5579,
+      "erreurs": []
+    },
+    {
+      "fichier": "ruche.mobile.png",
+      "vue": "ruche",
+      "format": "mobile",
+      "debordement": 0,
+      "hauteur": 1362,
+      "erreurs": []
+    },
+    {
+      "fichier": "miellerie.mobile.png",
+      "vue": "miellerie",
+      "format": "mobile",
+      "debordement": 11,
+      "hauteur": 1496,
+      "erreurs": []
+    },
+    {
+      "fichier": "ruche-en-vol.bureau.png",
+      "vue": "ruche-en-vol",
+      "format": "bureau",
+      "debordement": 0,
+      "hauteur": 1300,
+      "erreurs": []
+    },
+    {
+      "fichier": "chambre-en-vol.bureau.png",
+      "vue": "chambre-en-vol",
+      "format": "bureau",
+      "debordement": 0,
+      "hauteur": 5579,
+      "erreurs": []
+    }
+  ],
+  "echecs": []
+}

@@ -6,7 +6,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
@@ -45,6 +45,7 @@ describe('endpoints de l’instinct de ruche', () => {
   });
 
   afterEach(async () => {
+    vi.useRealTimers();
     await server.stop();
     rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
   });
@@ -94,9 +95,18 @@ describe('endpoints de l’instinct de ruche', () => {
     const projet = server.store.createProject({ name: 'P' });
     // 300 tâches dont 2 seulement sont citées par des résultats : la route ne
     // doit jamais déplier la table tasks pour n'en garder que 0,7 %.
-    for (let i = 0; i < 300; i++) {
-      server.store.createTask({ projectId: projet.id, title: `bruit ${i}`, prompt: 'blabla' });
-    }
+    //
+    // Le bruit s'écrit en UNE transaction : le store tourne en
+    // `synchronous = FULL`, et 300 COMMIT isolés payaient 300 fsync — plusieurs
+    // secondes sur un disque réel, pour un corpus qui n'est pas ce qu'on mesure.
+    const connexion = (
+      server.store as unknown as { db: { transaction(fn: () => void): () => void } }
+    ).db;
+    connexion.transaction(() => {
+      for (let i = 0; i < 300; i++) {
+        server.store.createTask({ projectId: projet.id, title: `bruit ${i}`, prompt: 'blabla' });
+      }
+    })();
     const citees = [0, 1].map((i) =>
       server.store.createTask({
         projectId: projet.id,
@@ -139,6 +149,12 @@ describe('endpoints de l’instinct de ruche', () => {
         }
       ).traces;
 
+    // L'horloge de la Reine est GELÉE pour toute la fenêtre : le banc éprouve
+    // la mémoïsation, pas la vitesse du disque. Sur la CI Windows (run
+    // 36312988135), écrire le troisième résultat — `synchronous = FULL`, un
+    // fsync par COMMIT depuis #479 — a pris plus que les 3 s du TTL : la
+    // mémoïsation avait expiré, légitimement, et le banc lisait le recalcul.
+    vi.useFakeTimers({ toFake: ['Date'] });
     const premier = await lire();
     expect(premier).toHaveLength(1);
     expect(premier[0]).toMatchObject({ nodeId: 'n1', domaine: 'api', reussites: 2 });

@@ -9,7 +9,8 @@
 //
 // ─── CE QUI FAIT `accepted` ──────────────────────────────────────────────────
 //
-// Un résultat réussi, des Gardiennes propres, les quatre validations vertes, et
+// Un résultat réussi, des Gardiennes propres, les validations vertes (tests
+// toujours ; typecheck, build et lint peuvent être non applicables), et
 // UNE contre-revue favorable venue d'une AUTRE famille d'agent que celle qui a
 // produit — aucune objection, aucune relecture encore en vol.
 //
@@ -25,11 +26,20 @@
 // UNE relecture suffit, pas deux : exiger deux familles distinctes rendrait une
 // ruche de deux familles (un producteur, un relecteur) incapable d'accepter
 // quoi que ce soit, pour toujours.
+//
+// Les validations ont deux producteurs : la CI GitHub d'une PR, et le bac Hive
+// — des commandes que la BASE du dépôt déclarait, lancées par le code du nœud
+// après l'agent, jamais déclarées par l'agent lui-même. Elles comptent autant
+// l'une que l'autre ; chaque motif qui s'appuie sur elles nomme sa source.
 
 import type { Inspection } from './gardiennes.js';
 import { signatureOf, type Verdict as ParliamentVerdict } from './parliament.js';
 import { relecteurIndependant } from '../shared/contre-expertise.js';
 import type { TaskResult } from '../shared/types.js';
+import { VALIDATION_KEYS } from '../shared/validations-bac.js';
+import type { DetailControle, ValidationKey, ValidationState } from '../shared/validations-bac.js';
+
+export type { ValidationState } from '../shared/validations-bac.js';
 
 export const VERSION_EVALUATOR = 1;
 
@@ -40,27 +50,47 @@ export type EvaluationDecision =
   | 'additional_test_required'
   | 'human_review_required';
 
-export type ValidationState = 'passed' | 'failed' | 'missing';
+/** Validation produite par un outil identifiable (CI GitHub, bac Hive). */
+export type ValidationEvidence = Record<ValidationKey, ValidationState>;
 
-/** Validation produite par un outil extérieur identifiable (CI, runner, etc.). */
-export interface ValidationEvidence {
-  tests: ValidationState;
-  typecheck: ValidationState;
-  build: ValidationState;
-  lint: ValidationState;
-}
-
-/** Provenance de la validation, conservée avec le verdict plutôt que déduite. */
-export interface ValidationProvenance {
-  source: 'github_pull_request';
+interface ProvenanceCommune {
   taskId: string;
   projectId: string;
   resultId: number;
+  recordedAt: number;
+}
+
+/** Contrôles GitHub d'une PR, liés à la branche et au commit livrés. */
+export interface ProvenanceGithub extends ProvenanceCommune {
+  source: 'github_pull_request';
   depot: string;
   pr: number;
   branch: string;
   commitSha: string;
-  recordedAt: number;
+}
+
+/**
+ * Commandes déclarées par le projet, lancées par le nœud producteur dans le bac
+ * de la production (`shared/validations-bac.ts`). Elles COMPTENT comme la CI —
+ * c'est une décision du produit — mais ne se font jamais passer pour elle : la
+ * source reste affichée, et chaque constat dit ce qui a tourné.
+ */
+export interface ProvenanceBac extends ProvenanceCommune {
+  source: 'hive_sandbox';
+  nodeId: string;
+  baseSha?: string;
+  details: Record<ValidationKey, DetailControle>;
+}
+
+/** Provenance de la validation, conservée avec le verdict plutôt que déduite. */
+export type ValidationProvenance = ProvenanceGithub | ProvenanceBac;
+
+/** Qui a produit la preuve, dit dans les motifs du verdict ; vide sans provenance. */
+function origine(provenance: ValidationProvenance | undefined): string {
+  if (!provenance) return '';
+  return provenance.source === 'hive_sandbox'
+    ? `bac Hive du nœud ${provenance.nodeId}`
+    : `CI GitHub, PR #${provenance.pr}`;
 }
 
 /** Avis individuel d'un Worker distinct sur la production relue. */
@@ -173,10 +203,8 @@ export interface EvaluationResult {
   evidence: EvaluationEvidence;
 }
 
-const validationKeys = ['tests', 'typecheck', 'build', 'lint'] as const;
-
 function stateOf(value: ValidationState | undefined): ValidationState {
-  return value === 'passed' || value === 'failed' ? value : 'missing';
+  return value === 'passed' || value === 'failed' || value === 'not_applicable' ? value : 'missing';
 }
 
 /**
@@ -219,9 +247,11 @@ export function evaluate(input: EvaluatorInput): EvaluationResult {
   };
 
   const reasons: string[] = [];
-  const allValidationsPassed = validationKeys.every((key) => validation[key] === 'passed');
-  const failedValidation = validationKeys.find((key) => validation[key] === 'failed');
-  const missingValidation = validationKeys.filter((key) => validation[key] === 'missing');
+  const failedValidation = VALIDATION_KEYS.find((key) => validation[key] === 'failed');
+  const missingValidation = VALIDATION_KEYS.filter((key) => validation[key] === 'missing');
+  const notApplicable = VALIDATION_KEYS.filter((key) => validation[key] === 'not_applicable');
+  const source = origine(input.validationProvenance);
+  const suffixeSource = source ? ` (${source})` : '';
 
   if (!latest) {
     const motif =
@@ -309,11 +339,51 @@ export function evaluate(input: EvaluatorInput): EvaluationResult {
     );
   }
   if (failedValidation) {
-    reasons.push(`validation ${failedValidation} en échec`);
+    reasons.push(`validation ${failedValidation} en échec${suffixeSource}`);
     return result(input.taskId, 'correction_required', false, true, reasons, evidence);
   }
-  if (!allValidationsPassed) {
-    reasons.push(`preuves manquantes : ${missingValidation.join(', ')}`);
+  // ─── MANQUANTE ET NON APPLICABLE NE SONT PAS LA MÊME ABSENCE ──────────────
+  //
+  // `missing` : la preuve devrait exister et n'existe pas (aucun producteur,
+  // délai, environnement non préparé…). Elle bloque, toujours.
+  //
+  // `not_applicable` : le projet ne DÉCLARE pas cette commande. Un projet
+  // JavaScript n'a pas de typecheck ; exiger qu'il en ait un rendrait
+  // `accepted` inatteignable pour une raison étrangère à la production. Le
+  // typecheck, le build et le lint non applicables ne bloquent donc pas — ils
+  // restent affichés tels quels, jamais comptés verts. Les TESTS, eux, ne sont
+  // jamais dispensés : sans test, rien ne prouve que le code fait ce qu'on lui
+  // demande, et l'Evaluator le dit au lieu de conclure.
+  const bac =
+    input.validationProvenance?.source === 'hive_sandbox' ? input.validationProvenance : null;
+  if (missingValidation.length > 0) {
+    reasons.push(
+      `preuves manquantes : ${missingValidation.join(', ')}` +
+        (suffixeSource || ' (aucun producteur de preuve : ni bac Hive, ni CI GitHub)'),
+    );
+    // Sans bac, le nœud n'a rien lancé — et c'est un choix de sécurité, pas
+    // une panne : le motif dit comment en obtenir un, sinon l'opérateur
+    // reste devant un « manquant » sans issue.
+    if (bac && missingValidation.some((key) => bac.details[key].raison === 'sans_bac')) {
+      reasons.push(
+        `le nœud ${bac.nodeId} n’a pas de bac à sable : le code d’un agent ne tourne pas ` +
+          'sur l’hôte nu — installez podman, docker ou bubblewrap (HIVE_ISOLEMENT=auto ' +
+          'les trouve au démarrage du nœud), ou apportez la CI GitHub',
+      );
+    }
+    return result(input.taskId, 'additional_test_required', false, false, reasons, evidence);
+  }
+  if (validation.tests === 'not_applicable') {
+    // Deux absences différentes : un projet npm sans script « test », et un
+    // projet que Hive ne sait pas lire (cargo, pytest…) — lui dire de
+    // « déclarer un script test » serait faux.
+    reasons.push(
+      bac?.details.tests.raison === 'sans_manifeste'
+        ? `aucun package.json à la base du dépôt${suffixeSource} : le bac ne lit que les ` +
+            'scripts npm, et ne sait pas lancer les tests de ce projet — apportez la CI GitHub'
+        : `le projet ne déclare aucun test${suffixeSource} : sans test, rien ne prouve le ` +
+            'comportement — déclarez un script « test », ou apportez la CI GitHub',
+    );
     return result(input.taskId, 'additional_test_required', false, false, reasons, evidence);
   }
   if (crossReviewPending > 0) {
@@ -352,6 +422,12 @@ export function evaluate(input: EvaluatorInput): EvaluationResult {
   const acceptedReasons = [
     `résultat réussi, Gardiennes propres, validations vertes et contre-revue favorable de ${relecteurs.join(', ')} sur une production de ${producteurs.join(', ')}`,
   ];
+  if (source) acceptedReasons.push(`validations : ${source}`);
+  if (notApplicable.length > 0) {
+    acceptedReasons.push(
+      `non applicables, faute de déclaration par le projet : ${notApplicable.join(', ')}`,
+    );
+  }
   if (input.consensus?.outcome === 'elected') {
     acceptedReasons.push('le Parlement a aussi élu ce résultat (signal supplémentaire)');
   }

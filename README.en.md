@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-6433%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-6721%20passing-F6C445?labelColor=17130C)
 ![License](https://img.shields.io/badge/license-MIT-F6C445?labelColor=17130C)
 
 [🇫🇷 Français](README.md) · 🇬🇧 English · [🌐 Site](https://micka420-collab.github.io/hive/?lang=en) · [📚 Documentation](#-documentation)
@@ -42,6 +42,9 @@ without your say-so. **The code and the keys stay on your machines.**
 ## 🖥 The interface
 
 Shots of the running app (`npm run ruche`), not mockups.
+Every view of the navigation bar, the Chambre and a task drawer, desktop and
+mobile, are re-shot in one command on a lab hive: `npm run captures`
+([docs/CAPTURES.md](docs/CAPTURES.md), FR).
 
 <p align="center">
   <img src="docs/images/vitrine.png" width="840" alt="Hive landing page — cream paper, honey accent, hexagons.">
@@ -70,7 +73,13 @@ Shots of the running app (`npm run ruche`), not mockups.
    before launching.
 2. **The AIs work in parallel.** Each task goes to a member's computer, in an
    isolated folder. You watch progress live.
-3. **You validate, then it merges.** Nothing passes without your say-so.
+3. **You validate, then it merges.** Nothing passes without your say-so. After
+   a successful production, the worker runs the `test`, `typecheck`, `build`
+   and `lint` scripts the repository declared **before** the change (nothing,
+   if the change touched the scripts), on the base plus the diff, in its
+   sandbox — podman, docker or bubblewrap; without one, agent code never runs
+   on the bare host and the screen says so. The Evaluator counts them like
+   GitHub CI and always says which one spoke (“Hive sandbox” or “GitHub CI”).
 4. **You open a worker’s station.** Hive view → node sheet → **Open workstation**
    (Chambre): baptismal name, **observed** files, Atelier noVNC, requisitions —
    never inventing what isn’t there. Detail:
@@ -240,6 +249,8 @@ installation read-only, never the HOME.
 | `npm run node`                                | A member node                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `npm run cli -- doctor`                       | **The doctor** — 13 failure causes, each with the fixing command                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `npm run preuve:v2-alpha -- --racine . --oui` | **The V2 Alpha proof** — one real mission handed to a real agent, judged criterion by criterion once settled (review returned, no Evaluator retry pending); `--workers 3` requires the swarm (3 Workers from 2 families, one of them Claude Code or Codex, the only adapters that can delegate; independent tasks in parallel, delegation to ANOTHER Worker, cross-family review) and reports the retry after an objection and the Evaluator without requiring them; `--exige-bac` requires a container sandbox on every node that ran the mission, delegated children and reviews included; `--depot <url>` (an https GitHub repo, and `HIVE_GITHUB_TOKEN` on the Queen, both checked before spending) delivers every production as a PR, delegated children included (nothing is created without `--oui`: it spends the agents' credits) |
+| `npm run cli -- livrer-local <project>`       | **Deliver without GitHub** — the mission committed to `hive/mission-<project>-<n>` (`--pousser` pushes it)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `npm run captures`                            | **The screenshots** — every navigation-bar view, the Chambre and a drawer, desktop and mobile, on a lab hive (needs `npx playwright install --only-shell chromium` once)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `npm run cli -- sauvegarde`                   | SQLite backup via `VACUUM INTO`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `npm run cli -- service`                      | Install the hive as a service (systemd · launchd · scheduled task)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `npm test`                                    | The full suite (vitest) — the count lives in the badge, in one place                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
@@ -249,18 +260,19 @@ installation read-only, never the HOME.
 
 ## 📚 Documentation
 
-| File                                                         | What's in it                                            |
-| ------------------------------------------------------------ | ------------------------------------------------------- |
-| **[docs/FEATURES.en.md](docs/FEATURES.en.md)**               | Each part in detail, with its trade-offs                |
-| **[docs/INSTALLATION.md](docs/INSTALLATION.md)**             | Install, uninstall, service, container, backups (FR)    |
-| **[docs/CLOUD.md](docs/CLOUD.md)**                           | Community free vs Cloud paid on your servers            |
-| **[docs/ATELIER.md](docs/ATELIER.md)**                       | Acceptance desktop: screen, CDP, tools (FR)             |
-| **[docs/WINDOWS-CLAUDE.md](docs/WINDOWS-CLAUDE.md)**         | Running solo on Windows with a Claude subscription (FR) |
-| **[docs/PROTECTION-BRANCHE.md](docs/PROTECTION-BRANCHE.md)** | Protecting `main`: the exact settings, and why (FR)     |
-| **[docs/ERREURS.md](docs/ERREURS.md)**                       | The error journal — by lesson, with the rules (FR)      |
-| **[docs/ETAPES.md](docs/ETAPES.md)**                         | The project's real state against its own promises (FR)  |
-| **[docs/MODELE-ECONOMIQUE.md](docs/MODELE-ECONOMIQUE.md)**   | Quotas, subscriptions, what is billed (FR)              |
-| **[CHANGELOG.md](CHANGELOG.md)**                             | What changed, version by version                        |
+| File                                                         | What's in it                                               |
+| ------------------------------------------------------------ | ---------------------------------------------------------- |
+| **[docs/FEATURES.en.md](docs/FEATURES.en.md)**               | Each part in detail, with its trade-offs                   |
+| **[docs/INSTALLATION.md](docs/INSTALLATION.md)**             | Install, uninstall, service, container, backups (FR)       |
+| **[docs/CLOUD.md](docs/CLOUD.md)**                           | Community free vs Cloud paid on your servers               |
+| **[docs/ATELIER.md](docs/ATELIER.md)**                       | Acceptance desktop: screen, CDP, tools (FR)                |
+| **[docs/CAPTURES.md](docs/CAPTURES.md)**                     | Mission Control screenshots, and how to re-shoot them (FR) |
+| **[docs/WINDOWS-CLAUDE.md](docs/WINDOWS-CLAUDE.md)**         | Running solo on Windows with a Claude subscription (FR)    |
+| **[docs/PROTECTION-BRANCHE.md](docs/PROTECTION-BRANCHE.md)** | Protecting `main`: the exact settings, and why (FR)        |
+| **[docs/ERREURS.md](docs/ERREURS.md)**                       | The error journal — by lesson, with the rules (FR)         |
+| **[docs/ETAPES.md](docs/ETAPES.md)**                         | The project's real state against its own promises (FR)     |
+| **[docs/MODELE-ECONOMIQUE.md](docs/MODELE-ECONOMIQUE.md)**   | Quotas, subscriptions, what is billed (FR)                 |
+| **[CHANGELOG.md](CHANGELOG.md)**                             | What changed, version by version                           |
 
 Most of the deep documentation is in French, as is the codebase's commentary.
 `docs/FEATURES.en.md` is the English reference.

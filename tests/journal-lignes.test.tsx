@@ -262,3 +262,63 @@ describe('une correction de l’Evaluator ne se lit pas comme un échec', () => 
     });
   }
 });
+
+describe('une perte de contact se lit comme telle — ni échec constaté, ni type brut', () => {
+  // ─── POURQUOI CES LIGNES ONT UN BANC ─────────────────────────────────────
+  //
+  // Quand un nœud perd le contact, la Reine publie une issue PROVISOIRE : elle
+  // ne sait pas comment le travail a fini, et le dit. Avant ces lignes, le
+  // Journal affichait `chantier_failed` ou le type brut de la pose — l'écran
+  // des chantiers relisait bien son verdict, mais l'humain qui regardait le
+  // journal lisait un identifiant, ou un échec qu'on n'avait pas vu.
+  it('UN CHANTIER SANS RÉSULTAT DIT SA CAUSE — pas « en échec (code null) »', async () => {
+    const dom = await monter(
+      evenement('chantier_failed', {
+        projectId: 'p1',
+        chantierId: 'c1',
+        nom: 'test',
+        code: null,
+        reason: 'nœud déconnecté — issue inconnue',
+      }),
+    );
+    expect(ligne(dom)).toContain('chantier « test » sans résultat');
+    expect(ligne(dom), 'la cause — l’issue inconnue — n’est pas dite').toContain('issue inconnue');
+    expect(ligne(dom), 'une perte de contact se lit comme un échec').not.toContain('en échec');
+  });
+
+  it('UNE POSE SANS RÉPONSE NOMME L’OUTIL ET LE NŒUD — pas son type brut', async () => {
+    const dom = await monter(
+      evenement('outil_pose_sans_reponse', {
+        poseId: 'pos-1',
+        nodeId: 'noeud-poseur',
+        outilId: 'codex',
+        reason: 'délai dépassé',
+      }),
+    );
+    expect(ligne(dom), 'la pose s’affiche en type brut').not.toContain('outil_pose_sans_reponse');
+    expect(ligne(dom)).toContain('pose de codex sans réponse du nœud noeud-po');
+    expect(ligne(dom)).toContain('délai dépassé');
+  });
+});
+
+describe('un refus d’infrastructure dit sa cause — un refus ordinaire, non', () => {
+  it('LE CLONE IMPOSSIBLE SE LIT AU JOURNAL, seule trace d’une tâche où aucun agent n’a tourné', async () => {
+    const dom = await monter(
+      evenement('task_rejected', {
+        taskId: 'tache-clone',
+        nodeId: 'n1',
+        reason: 'clone impossible : fatal: terminal prompts disabled',
+        infra: true,
+      }),
+    );
+    expect(ligne(dom)).toContain('refusée (tache-cl)');
+    expect(ligne(dom), 'la cause du refus n’est pas dite').toContain('terminal prompts disabled');
+  });
+
+  it('UN REFUS DE SATURATION RESTE MUET SUR SON CODE', async () => {
+    const dom = await monter(
+      evenement('task_rejected', { taskId: 'tache-sat', nodeId: 'n1', reason: 'noeud_sature' }),
+    );
+    expect(ligne(dom)).not.toContain('noeud_sature');
+  });
+});

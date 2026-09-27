@@ -304,6 +304,28 @@ qui ne va pas. Un thermomètre qui ne propose rien ne sert qu'à nommer la peine
 
 `--json` rend le tout en machine, pour une supervision.
 
+### « Une autre Reine tient déjà cette base »
+
+Une seule Reine par base : deux s'assigneraient les mêmes tâches, et la seconde
+requalifierait au démarrage les travaux en vol de la première. La Reine tient
+donc un verrou sur `data/hive.db.reine.lock` tant qu'elle tourne.
+
+Ce verrou appartient au **système** : il tombe de lui-même quand la Reine
+s'arrête, de quelque façon qu'elle s'arrête — arrêt propre, processus tué,
+coupure de courant, conteneur détruit puis recréé. Il n'y a rien à nettoyer
+après un arrêt brutal, et le fichier reste en place d'un démarrage à l'autre :
+c'est normal.
+
+Si ce message s'affiche, une Reine tourne **vraiment** sur cette base, et il dit
+laquelle (pid et machine). Arrêtez-la, ou donnez à la nouvelle une autre base
+(`HIVE_DB`). Avec Docker, c'est en général une Reine lancée sur l'hôte alors que
+le conteneur tourne sur le même dossier `data/`, ou deux services sur le même
+volume. Supprimer le fichier n'arrêterait pas l'autre Reine : elle continuerait
+d'écrire, et la vôtre démarrerait à côté.
+
+Seul « Le verrou de Reine est illisible » (le fichier a été remplacé par autre
+chose) demande de le supprimer : il est recréé au démarrage suivant.
+
 ---
 
 ## Rejoindre la ruche d'un ami
@@ -488,14 +510,14 @@ Un outil d'installation n'est pas un outil de destruction —
 
 ### Où Hive écrit, exactement
 
-|                                  |                                                                     |
-| -------------------------------- | ------------------------------------------------------------------- |
-| `<installation>/.env`            | jetons et secrets                                                   |
-| `<installation>/data/hive.db`    | la base, plus ses `-wal` et `-shm`                                  |
-| `<installation>/data/rayons/`    | les miroirs des dépôts                                              |
-| `<installation>/.hive-work/`     | espaces de travail, clé du nœud, `cloudflared`, ponts MCP éphémères |
-| `$TMPDIR/hive-merge-*`           | patchs d'une fusion — effacés à la fin de chacune                   |
-| `$TMPDIR/hive-agent-preflight-*` | répertoires vides de sonde — effacés après chaque preflight         |
+|                                  |                                                                                                                              |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `<installation>/.env`            | jetons et secrets                                                                                                            |
+| `<installation>/data/hive.db`    | la base, plus ses `-wal`, `-shm` et `.reine.lock`                                                                            |
+| `<installation>/data/rayons/`    | les miroirs des dépôts                                                                                                       |
+| `<installation>/.hive-work/`     | espaces de travail, clé du nœud, `cloudflared`, ponts MCP éphémères, branches de mission non poussées (`<nœud>/livraisons/`) |
+| `$TMPDIR/hive-merge-*`           | patchs d'une fusion — effacés à la fin de chacune                                                                            |
+| `$TMPDIR/hive-agent-preflight-*` | répertoires vides de sonde — effacés après chaque preflight                                                                  |
 
 Pas de service, pas d'entrée de registre, pas de fichier dans `/etc`, rien
 dans votre dossier personnel. Ce n'est pas une promesse en prose :

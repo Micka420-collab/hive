@@ -4,7 +4,7 @@
 // temps réel via le snapshot WS reçu en props.
 
 import { useEffect, useMemo, useState } from 'react';
-import { nomDeLivraison, suffixeEnVol, verdictDesTests } from './projets-rendu';
+import { auteurDeDecision, marqueDeDecision, nomDeLivraison, suffixeEnVol } from './projets-rendu';
 import {
   addTasks,
   admettreMembre,
@@ -20,7 +20,6 @@ import {
   fetchMembresProjet,
   fetchMergePlan,
   fetchPartages,
-  fetchMergeResult,
   fetchProjetsOuverts,
   fetchReport,
   importerDepotGithub,
@@ -31,8 +30,10 @@ import {
   planBrief,
   rejoindreProjet,
   retirerMembre,
+  reunirConseil,
   revoquerPartage,
   runMerge,
+  trancherConseil,
 } from '../api';
 import { ApiError } from '../api';
 import type {
@@ -42,7 +43,6 @@ import type {
   IssueConseil,
   IssueVue,
   LivraisonVue,
-  MergeRunResult,
   NewTaskInput,
   PartageCree,
   PlanResponse,
@@ -58,7 +58,12 @@ import { OnboardingEssaim } from '../OnboardingEssaim';
 import { GardeFous } from '../GardeFous';
 import { EchecSondage, Honeycomb, useApiPoll } from './shared';
 import type { ViewProps } from './shared';
+import { argv, useSuiviMerge } from './suivi-merge';
+import { LivraisonMission } from './LivraisonMission';
+import { MergeReport } from './MergeReport';
 import { sansIdentifiants } from '../../../src/shared/projet-public';
+import { ISSUES_A_TRANCHER, JUSTIFICATION_MAX } from '../../../src/shared/war-room';
+import { LENTILLES, QUESTION_DEFAUT, TOURS_MAX } from '../../../src/orchestrator/conseil';
 import type { Project, Task, TaskStatus } from '../../../src/shared/types';
 import './projets.css';
 
@@ -290,83 +295,8 @@ function QueenBee({ projects }: { projects: Project[] }) {
 
 // ─── Plan de merge Honeycomb : analyse + exécution réelle suivie ─────────────
 
-const MERGE_POLL_MS = 3_000; // suivi d'une action utilisateur, borné à 2 min
+/** Suivi d'une action utilisateur (cf. `useSuiviMerge`), borné à 2 min. */
 const MERGE_TIMEOUT_MS = 120_000;
-
-type RunState =
-  | { phase: 'idle' }
-  | { phase: 'starting' }
-  | { phase: 'polling'; mergeId: string; since: number }
-  | { phase: 'done'; result: MergeRunResult }
-  | { phase: 'timeout' }
-  | { phase: 'error'; message: string };
-
-function MergeReport({
-  result,
-  taskTitles,
-}: {
-  result: MergeRunResult;
-  taskTitles: Map<string, string>;
-}) {
-  const t = useT();
-  // L'ENVIRONNEMENT EN ÉCHEC N'EST PAS UN TEST ROUGE. Les tests n'ont alors pas
-  // tourné du tout : afficher « tests non lancés » sans dire pourquoi enverrait
-  // chercher une régression dans du code qui va très bien.
-  const envRate = result.preparedOk === false;
-  // Les CINQ issues vivent dans `verdictDesTests`, pure et éprouvée : ce
-  // message est lu pour décider de fusionner, et son mutant le plus grave
-  // annonce « ✔ tests verts » sur une suite rouge.
-  const tests = verdictDesTests(result, t);
-  // UN MERGE QUI N'A PAS EU LIEU N'EST PAS UN MERGE VIDE. Sans cette ligne, un
-  // clone refusé (identifiants, dépôt introuvable) se lisait « 0 diff(s)
-  // appliqué(s), 0 conflit(s) » — un succès creux — et la cause dormait dans
-  // le journal replié. Le journal s'ouvre donc aussi : c'est lui qui la porte.
-  const avorte = result.refused;
-  return (
-    <div className="pj-merge-report">
-      {avorte ? (
-        <p className="panel-error">
-          {t('Merge non effectué :', 'Merge not performed:')} {avorte}
-        </p>
-      ) : (
-        <p>
-          <strong>{result.applied.length}</strong> {t('diff(s) appliqué(s),', 'diff(s) applied,')}{' '}
-          <strong>{result.conflicts.length}</strong> {t('conflit(s)', 'conflict(s)')} — {tests}
-        </p>
-      )}
-      {envRate && (
-        <p className="panel-error">
-          {t(
-            'L’installation des dépendances a échoué sur le nœud : le code n’est pas en cause. Vérifiez son accès réseau, puis le fichier de verrouillage du dépôt.',
-            'Dependency installation failed on the node: the code is not at fault. Check its network access, then the repository lockfile.',
-          )}
-        </p>
-      )}
-      {result.applied.length > 0 && (
-        <ul className="pj-applied">
-          {result.applied.map((id) => (
-            <li key={id}>✔ {taskTitles.get(id) ?? id}</li>
-          ))}
-        </ul>
-      )}
-      {result.conflicts.length > 0 && (
-        <ul className="pj-conf-list">
-          {result.conflicts.map((c) => (
-            <li key={c.taskId}>
-              <strong>{taskTitles.get(c.taskId) ?? c.taskId}</strong> — {c.reason}
-            </li>
-          ))}
-        </ul>
-      )}
-      {result.logs && (
-        <details className="pj-report-detail" open={Boolean(avorte)}>
-          <summary>{t('Journal du merge', 'Merge log')}</summary>
-          <pre className="code-block scroll">{result.logs}</pre>
-        </details>
-      )}
-    </div>
-  );
-}
 
 function MergePanel({
   project,
@@ -383,44 +313,16 @@ function MergePanel({
   const [testCmd, setTestCmd] = useState('');
   const [prepCmd, setPrepCmd] = useState('');
   const [confirming, setConfirming] = useState(false);
-  const [run, setRun] = useState<RunState>({ phase: 'idle' });
+  // Suivi du merge lancé : relevé toutes les 3 s, abandon après 2 min.
+  const { suivi: run, lancer } = useSuiviMerge(project.id, MERGE_TIMEOUT_MS);
   const busyRun = run.phase === 'starting' || run.phase === 'polling';
 
   const launch = () => {
     setConfirming(false);
-    setRun({ phase: 'starting' });
-    const argv = (s: string) => (s.trim() ? s.trim().split(/\s+/) : undefined);
-    runMerge(project.id, { testCommand: argv(testCmd), prepareCommand: argv(prepCmd) })
-      .then((start) => setRun({ phase: 'polling', mergeId: start.mergeId, since: Date.now() }))
-      .catch((e: unknown) => setRun({ phase: 'error', message: errMsg(e) }));
+    lancer(() =>
+      runMerge(project.id, { testCommand: argv(testCmd), prepareCommand: argv(prepCmd) }),
+    );
   };
-
-  // Suivi du merge lancé : relevé toutes les 3 s, abandon après 2 min.
-  useEffect(() => {
-    if (run.phase !== 'polling') return;
-    const { mergeId, since } = run;
-    let alive = true;
-    const id = window.setInterval(() => {
-      if (Date.now() - since > MERGE_TIMEOUT_MS) {
-        window.clearInterval(id);
-        if (alive) setRun({ phase: 'timeout' });
-        return;
-      }
-      fetchMergeResult(project.id)
-        .then(({ result }) => {
-          if (!alive || !result || result.mergeId !== mergeId) return;
-          window.clearInterval(id);
-          setRun({ phase: 'done', result });
-        })
-        .catch(() => {
-          /* relevé raté : on retente au prochain battement */
-        });
-    }, MERGE_POLL_MS);
-    return () => {
-      alive = false;
-      window.clearInterval(id);
-    };
-  }, [run, project.id]);
 
   return (
     <section className="pj-sub">
@@ -968,16 +870,51 @@ export function PartagesProjet({
  * Une issue sans recommandation (`vide`, `sans_quorum`, `epuise`) se DIT. Un
  * écran qui n'afficherait rien dans ces cas-là laisserait croire à une panne,
  * alors que « personne n'a rien trouvé » est un résultat.
+ *
+ * ─── LES DEUX GESTES QUI MANQUAIENT ──────────────────────────────────────────
+ *
+ * Le panneau disait « vous tranchez » sans rien pour trancher, et le Conseil ne
+ * se réunissait qu'en ligne de commande. Il porte désormais les deux gestes :
+ * RÉUNIR (le 409 « déjà en cours » est dit, et le conseil qui délibère est
+ * déplié) et TRANCHER un conseil clos (`council_decided`, avec qui et
+ * pourquoi). Exporté : la War Room le monte tel quel plutôt qu'un second écran
+ * du même Conseil, qui finirait par dire autre chose que celui-ci.
  */
-function ConseilProjet({ projectId, refreshTick }: { projectId: string; refreshTick: number }) {
+export function ConseilProjet({
+  projectId,
+  refreshTick,
+  reunion = false,
+  onReunionFin,
+  focus = null,
+}: {
+  projectId: string;
+  refreshTick: number;
+  /** Le formulaire « Réunir le Conseil » est déplié (bouton de la carte, ou de la War Room). */
+  reunion?: boolean;
+  /** Le formulaire a servi, ou l'humain y renonce : l'appelant le replie. */
+  onReunionFin?: () => void;
+  /**
+   * Session à déplier d'office — un désaccord cliqué dans la War Room. Un objet
+   * NEUF par demande : recliquer le même conseil après l'avoir replié doit le
+   * redéplier, ce qu'un identifiant inchangé ne déclencherait pas.
+   */
+  focus?: { sessionId: string } | null;
+}) {
   const t = useT();
   const liste = useApiPoll(fetchConseils, 60_000, refreshTick);
   const [ouvert, setOuvert] = useState<string | null>(null);
   const [session, setSession] = useState<SessionConseil | null>(null);
   const [erreur, setErreur] = useState<string | null>(null);
+  const [avis, setAvis] = useState<string | null>(null);
 
   const miens = (liste.data?.conseils ?? []).filter((c) => c.projectId === projectId);
 
+  useEffect(() => {
+    if (focus) setOuvert(focus.sessionId);
+  }, [focus]);
+
+  // Relu aussi au rythme de la ruche (`refreshTick`) : une décision posée par
+  // un AUTRE opérateur doit apparaître ici sans qu'on replie le conseil.
   useEffect(() => {
     if (!ouvert) return setSession(null);
     let vivant = true;
@@ -987,11 +924,30 @@ function ConseilProjet({ projectId, refreshTick }: { projectId: string; refreshT
     return () => {
       vivant = false;
     };
-  }, [ouvert]);
+  }, [ouvert, refreshTick]);
 
-  // Aucune délibération sur ce projet : on se tait plutôt que d'afficher une
-  // section vide sur chaque carte.
-  if (miens.length === 0) return null;
+  /**
+   * Le 409 « déjà en cours » n'est pas un échec : c'est la garde qui empêche
+   * deux conseils concurrents de doubler la dépense. On le DIT, et on déplie
+   * le conseil qui délibère — la personne voulait un conseil, il y en a un.
+   */
+  const dejaEnCours = async (): Promise<void> => {
+    setAvis(
+      t(
+        'Un conseil délibère déjà sur ce projet — le voici. Un seul à la fois : deux conseils concurrents doubleraient la dépense.',
+        'A council is already deliberating on this project — here it is. One at a time: two concurrent councils would double the spend.',
+      ),
+    );
+    const { conseils } = await fetchConseils();
+    const enCours = conseils.find((c) => c.projectId === projectId && !c.closedAt);
+    liste.refresh();
+    if (enCours) setOuvert(enCours.id);
+    onReunionFin?.();
+  };
+
+  // Aucune délibération et personne qui en demande une : on se tait plutôt que
+  // d'afficher une section vide sur chaque carte.
+  if (miens.length === 0 && !reunion) return null;
 
   const ISSUE: Record<IssueConseil, { fr: string; en: string }> = {
     quorum: { fr: '✔ une piste a convergé', en: '✔ one path converged' },
@@ -1008,28 +964,62 @@ function ConseilProjet({ projectId, refreshTick }: { projectId: string; refreshT
         <span className="pj-sub-meta">{miens.length}</span>
       </div>
 
-      <ul className="pj-cs-liste">
-        {miens.map((c) => (
-          <li key={c.id}>
-            <button
-              className="pj-cs-question"
-              onClick={() => setOuvert(ouvert === c.id ? null : c.id)}
-            >
-              {ouvert === c.id ? '▾' : '▸'} {c.question}
-            </button>
-            {/* DEUX QUESTIONS DIFFÉRENTES, et l'écran doit les distinguer.
-                La liste rend l'issue RANGÉE — celle d'un conseil clos — donc
-                `null` tant qu'il délibère. Le détail, lui, RECALCULE ce que le
-                protocole dirait à cet instant. Afficher l'un pour l'autre
-                donnerait un résumé qui contredit son propre détail. */}
-            <span className="pj-cs-issue">
-              {c.issue
-                ? t(ISSUE[c.issue].fr, ISSUE[c.issue].en)
-                : t('délibère encore', 'still deliberating')}
-            </span>
-          </li>
-        ))}
-      </ul>
+      {reunion && (
+        <ReunirConseil
+          projectId={projectId}
+          onReuni={(s) => {
+            setAvis(null);
+            liste.refresh();
+            setOuvert(s.id);
+            onReunionFin?.();
+          }}
+          onDejaEnCours={dejaEnCours}
+          onAnnuler={() => onReunionFin?.()}
+        />
+      )}
+      {avis && (
+        <p className="pj-cs-avis" role="status">
+          {avis}
+        </p>
+      )}
+
+      {miens.length > 0 && (
+        <ul className="pj-cs-liste">
+          {miens.map((c) => {
+            const marque = marqueDeDecision(c, ISSUES_A_TRANCHER);
+            return (
+              <li key={c.id}>
+                <button
+                  className="pj-cs-question"
+                  onClick={() => setOuvert(ouvert === c.id ? null : c.id)}
+                >
+                  {ouvert === c.id ? '▾' : '▸'} {c.question}
+                </button>
+                {/* DEUX QUESTIONS DIFFÉRENTES, et l'écran doit les distinguer.
+                    La liste rend l'issue RANGÉE — celle d'un conseil clos — donc
+                    `null` tant qu'il délibère. Le détail, lui, RECALCULE ce que le
+                    protocole dirait à cet instant. Afficher l'un pour l'autre
+                    donnerait un résumé qui contredit son propre détail. */}
+                <span className="pj-cs-issue">
+                  {c.issue
+                    ? t(ISSUE[c.issue].fr, ISSUE[c.issue].en)
+                    : t('délibère encore', 'still deliberating')}
+                </span>
+                {marque === 'tranche' && (
+                  <span className="pj-cs-marque-decision pj-cs-tranche">
+                    {t('✔ tranché', '✔ settled')}
+                  </span>
+                )}
+                {marque === 'a_trancher' && (
+                  <span className="pj-cs-marque-decision pj-cs-a-trancher">
+                    {t('à trancher', 'to settle')}
+                  </span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
 
       {erreur && <p className="panel-error">{erreur}</p>}
 
@@ -1102,15 +1092,292 @@ function ConseilProjet({ projectId, refreshTick }: { projectId: string; refreshT
               ))}
             </ul>
           )}
-          <p className="pj-equipe-moi">
-            {t(
-              'Le Conseil ne décide rien : il propose, vous tranchez.',
-              'The Council decides nothing: it proposes, you settle.',
-            )}
-          </p>
+          {/* La clé force un formulaire NEUF par session : un choix fait sur
+              un conseil ne doit pas survivre au passage à un autre. */}
+          <TrancherConseil key={session.id} session={session} onTranche={setSession} />
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Réunir un Conseil — le geste qui n'existait qu'en ligne de commande.
+ *
+ * Le COÛT est dit avant le bouton, et c'est le garde-fou : un conseil crée de
+ * vraies tâches d'ouvrières (une éclaireuse par lentille, puis des
+ * vérificatrices, tour après tour), donc du temps-machine prêté par les
+ * membres. Les chiffres viennent du protocole lui-même, pas d'une copie.
+ */
+function ReunirConseil({
+  projectId,
+  onReuni,
+  onDejaEnCours,
+  onAnnuler,
+}: {
+  projectId: string;
+  onReuni: (s: SessionConseil) => void;
+  onDejaEnCours: () => Promise<void>;
+  onAnnuler: () => void;
+}) {
+  const t = useT();
+  const [question, setQuestion] = useState('');
+  const [occupe, setOccupe] = useState(false);
+  const [erreur, setErreur] = useState<string | null>(null);
+
+  const reunir = async () => {
+    setOccupe(true);
+    setErreur(null);
+    try {
+      onReuni(await reunirConseil(projectId, question));
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409) await onDejaEnCours().catch(() => {});
+      else setErreur(errMsg(e));
+    } finally {
+      setOccupe(false);
+    }
+  };
+
+  return (
+    <div className="pj-cs-reunir">
+      <p className="pj-equipe-moi">
+        {t(
+          `${LENTILLES.length} éclaireuses explorent le projet sous des angles différents, puis se vérifient entre elles — ${TOURS_MAX} tours au plus. Ce sont de vraies tâches d’ouvrières. Le Conseil ne change rien : il propose, vous tranchez.`,
+          `${LENTILLES.length} scouts explore the project from different angles, then check each other — ${TOURS_MAX} rounds at most. These are real worker tasks. The Council changes nothing: it proposes, you settle.`,
+        )}
+      </p>
+      <div className="pj-run">
+        <input
+          className="pj-testcmd"
+          type="text"
+          maxLength={500}
+          placeholder={t(
+            `Question (facultative) — sinon : ${QUESTION_DEFAUT}`,
+            `Question (optional) — default: ${QUESTION_DEFAUT}`,
+          )}
+          value={question}
+          onChange={(e) => setQuestion(e.target.value)}
+          disabled={occupe}
+          aria-label={t('Question posée au Conseil', 'Question put to the Council')}
+        />
+        <button className="btn" disabled={occupe} onClick={() => void reunir()}>
+          {occupe ? t('Réunion…', 'Convening…') : t('Réunir', 'Convene')}
+        </button>
+        <button className="btn ghost" disabled={occupe} onClick={onAnnuler}>
+          {t('Annuler', 'Cancel')}
+        </button>
+      </div>
+      {erreur && <p className="panel-error">{erreur}</p>}
+    </div>
+  );
+}
+
+/** Le choix de l'humain : une piste précise, ou aucune — c'est une décision aussi. */
+type Choix = { genre: 'piste'; id: string } | { genre: 'aucune' };
+
+/**
+ * Trancher — le « vous tranchez » que l'écran promettait sans le permettre.
+ *
+ * ─── CE QUI EST DEMANDÉ, ET POURQUOI ─────────────────────────────────────────
+ *
+ * Une piste (ou AUCUNE, qui est une décision), et une JUSTIFICATION
+ * obligatoire. Sans elle, dans trois mois, « pourquoi a-t-on écarté la piste
+ * qui avait trois soutiens ? » n'aurait pas de réponse — et c'est exactement
+ * la question qu'une trace de décision existe pour servir.
+ *
+ * Revenir sur une décision est permis, mais NOMMÉ : le formulaire retient la
+ * décision qu'il remplace, et la Reine refuse (409) si quelqu'un a tranché
+ * entre-temps. Deux opérateurs ne s'écrasent pas en silence — et le refus ne
+ * se tait pas non plus : l'écran relit la décision de l'autre, et DIT que la
+ * vôtre n'a pas été consignée. Sans cet avis, deux décisions signées « jeton
+ * de ruche » se ressemblent assez pour croire la sienne rangée. Le choix et la
+ * raison refusés sont gardés : « Revoir la décision » les reprend tels quels,
+ * avec la bonne décision à remplacer.
+ */
+function TrancherConseil({
+  session,
+  onTranche,
+}: {
+  session: SessionConseil;
+  onTranche: (s: SessionConseil) => void;
+}) {
+  const t = useT();
+  const decision = session.decision ?? null;
+  const [revoir, setRevoir] = useState(false);
+  const [precedente, setPrecedente] = useState<number | null>(null);
+  const [choix, setChoix] = useState<Choix | null>(
+    session.retenue ? { genre: 'piste', id: session.retenue } : null,
+  );
+  const [justification, setJustification] = useState('');
+  const [occupe, setOccupe] = useState(false);
+  const [erreur, setErreur] = useState<string | null>(null);
+  /** La décision que la Reine a refusée (409) parce qu'une autre est passée avant. */
+  const [refusee, setRefusee] = useState<{ choix: Choix; justification: string } | null>(null);
+
+  if (!session.closedAt) {
+    return (
+      <p className="pj-equipe-moi">
+        {t(
+          'Le Conseil ne décide rien : il propose, vous tranchez — une fois clos. Il délibère encore.',
+          'The Council decides nothing: it proposes, you settle — once it is closed. It is still deliberating.',
+        )}
+      </p>
+    );
+  }
+
+  if (decision && !revoir) {
+    return (
+      <div className="pj-cs-decision" data-testid="pj-cs-decision">
+        <p className="pj-cs-decision-tete">
+          {t('✔ Tranché par', '✔ Settled by')} <strong>{auteurDeDecision(decision.par, t)}</strong>
+          {' · '}
+          {new Date(decision.ts).toLocaleString()}
+        </p>
+        <p className="pj-cs-decision-choix">
+          {decision.propositionId === null
+            ? t('Aucune piste retenue.', 'No path retained.')
+            : `${t('Piste retenue :', 'Path retained:')} ${decision.titre ?? decision.propositionId}`}
+        </p>
+        <p className="pj-cs-decision-pourquoi">« {decision.justification} »</p>
+        {refusee && (
+          <p className="panel-error" role="alert">
+            {t(
+              'Votre décision n’a pas été consignée : quelqu’un a tranché entre-temps — c’est la sienne ci-dessus. Si vous maintenez la vôtre, « Revoir la décision » la reprend telle que vous l’aviez écrite.',
+              'Your decision was not recorded: someone settled in the meantime — theirs is above. If you stand by yours, “Revise the decision” brings it back as you wrote it.',
+            )}
+          </p>
+        )}
+        <button
+          className="btn ghost"
+          onClick={() => {
+            setPrecedente(decision.id);
+            setChoix(
+              refusee?.choix ??
+                (decision.propositionId === null
+                  ? { genre: 'aucune' }
+                  : { genre: 'piste', id: decision.propositionId }),
+            );
+            setJustification(refusee?.justification ?? '');
+            setRefusee(null);
+            setErreur(null);
+            setRevoir(true);
+          }}
+        >
+          {t('Revoir la décision', 'Revise the decision')}
+        </button>
+      </div>
+    );
+  }
+
+  const trancher = async () => {
+    if (!choix || !justification.trim()) return;
+    setOccupe(true);
+    setErreur(null);
+    setRefusee(null);
+    try {
+      const s = await trancherConseil(session.id, {
+        propositionId: choix.genre === 'piste' ? choix.id : null,
+        justification: justification.trim(),
+        precedente: revoir ? precedente : null,
+      });
+      setRevoir(false);
+      onTranche(s);
+    } catch (e) {
+      setErreur(errMsg(e));
+      // Quelqu'un a tranché entre-temps : on relit, pour que l'écran montre
+      // SA décision plutôt que la nôtre — et l'on garde la nôtre, refusée,
+      // pour le dire et pouvoir la reprendre.
+      if (e instanceof ApiError && e.status === 409) {
+        setRefusee({ choix, justification });
+        fetchConseil(session.id)
+          .then((s) => {
+            setRevoir(false);
+            onTranche(s);
+          })
+          .catch(() => {});
+      }
+    } finally {
+      setOccupe(false);
+    }
+  };
+
+  const nom = `trancher-${session.id}`;
+  return (
+    <form
+      className="pj-cs-trancher"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void trancher();
+      }}
+    >
+      {/* Ce que la décision NE FAIT PAS se dit ici, au moment du geste : elle
+          est un enregistrement. Le Plein Essaim, lui, planifie depuis le
+          verdict du Conseil — « Aucune » ne retire pas une piste qu'il aurait
+          déjà transformée en tâches. */}
+      <p className="pj-cs-trancher-tete">
+        {t(
+          'Le Conseil propose, vous tranchez. Votre décision est rangée avec votre nom et votre raison. Elle ne crée ni n’annule aucune tâche : si le Plein Essaim est allumé sur ce projet, il suit le verdict du Conseil, pas cette décision.',
+          'The Council proposes, you settle. Your decision is recorded with your name and your reason. It creates and cancels no task: if the Full Swarm is on for this project, it follows the Council’s verdict, not this decision.',
+        )}
+      </p>
+      <fieldset className="pj-cs-choix" disabled={occupe}>
+        <legend>{t('Piste retenue', 'Path retained')}</legend>
+        {session.danses.map((d) => (
+          <label key={d.id}>
+            <input
+              type="radio"
+              name={nom}
+              checked={choix?.genre === 'piste' && choix.id === d.id}
+              onChange={() => setChoix({ genre: 'piste', id: d.id })}
+            />{' '}
+            {d.titre}
+          </label>
+        ))}
+        <label>
+          <input
+            type="radio"
+            name={nom}
+            checked={choix?.genre === 'aucune'}
+            onChange={() => setChoix({ genre: 'aucune' })}
+          />{' '}
+          {t('Aucune — ne rien retenir', 'None — retain nothing')}
+        </label>
+      </fieldset>
+      <textarea
+        className="pj-cs-justification"
+        value={justification}
+        onChange={(e) => setJustification(e.target.value)}
+        maxLength={JUSTIFICATION_MAX}
+        rows={3}
+        disabled={occupe}
+        required
+        placeholder={t(
+          'Pourquoi ? (obligatoire — c’est ce qu’on relira dans trois mois)',
+          'Why? (required — this is what will be read in three months)',
+        )}
+        aria-label={t('Justification de la décision', 'Justification of the decision')}
+      />
+      <div className="pj-run">
+        <button
+          className="btn primary"
+          type="submit"
+          disabled={occupe || !choix || !justification.trim()}
+        >
+          {t('Consigner la décision', 'Record the decision')}
+        </button>
+        {revoir && (
+          <button
+            className="btn ghost"
+            type="button"
+            disabled={occupe}
+            onClick={() => setRevoir(false)}
+          >
+            {t('Annuler', 'Cancel')}
+          </button>
+        )}
+      </div>
+      {erreur && <p className="panel-error">{erreur}</p>}
+    </form>
   );
 }
 
@@ -1605,7 +1872,13 @@ export function IssuesProjet({ project }: { project: Project }) {
  *
  * EXPORTÉ POUR ÊTRE RENDU EN TEST — même raison que `IssuesProjet`.
  */
-export function LivraisonsProjet({ project }: { project: Project }) {
+export function LivraisonsProjet({
+  project,
+  taskTitles,
+}: {
+  project: Project;
+  taskTitles?: Map<string, string>;
+}) {
   const t = useT();
   const [livraisons, setLivraisons] = useState<LivraisonVue[] | null>(null);
   const [chargement, setChargement] = useState(false);
@@ -1694,6 +1967,11 @@ export function LivraisonsProjet({ project }: { project: Project }) {
           ))}
         </ul>
       )}
+
+      {/* Sans GitHub : la mission ENTIÈRE, commitée sur une branche du dépôt.
+          Un composant à part — il suit son merge en scrutant la Reine, et ce
+          panneau-ci ne sonde jamais (quota GitHub de l'hôte). */}
+      <LivraisonMission project={project} taskTitles={taskTitles} />
     </div>
   );
 }
@@ -1733,6 +2011,7 @@ function ProjectCard({
   const report = reportPoll.data;
   const [showMerge, setShowMerge] = useState(false);
   const [showConflicts, setShowConflicts] = useState(false);
+  const [showConseil, setShowConseil] = useState(false);
 
   const contributors = report
     ? report.contributingNodes.map((id) => nodeNames.get(id) ?? id.slice(0, 8)).join(', ')
@@ -1843,11 +2122,17 @@ function ProjectCard({
           et ce qu'il devient. Les deux lisent chez GitHub, donc les deux
           attendent qu'on le demande — voir plus haut. */}
       <IssuesProjet project={project} />
-      <LivraisonsProjet project={project} />
+      <LivraisonsProjet project={project} taskTitles={taskTitles} />
 
-      {/* Le Conseil en dernier : c'est une lecture de délibération, pas un
-          geste. Il ne s'affiche que si ce projet a délibéré. */}
-      <ConseilProjet projectId={project.id} refreshTick={refreshTick} />
+      {/* Le Conseil en dernier : c'est d'abord une lecture de délibération. Il
+          ne s'affiche que si ce projet a délibéré — ou si l'on demande à le
+          réunir, par le bouton de la rangée d'actions. */}
+      <ConseilProjet
+        projectId={project.id}
+        refreshTick={refreshTick}
+        reunion={showConseil}
+        onReunionFin={() => setShowConseil(false)}
+      />
 
       {tasks.length > 0 ? (
         <Honeycomb
@@ -1879,6 +2164,13 @@ function ProjectCard({
           onClick={() => setShowConflicts((v) => !v)}
         >
           {t('Conflits Sting', 'Sting conflicts')}
+        </button>
+        <button
+          className="btn ghost"
+          aria-expanded={showConseil}
+          onClick={() => setShowConseil((v) => !v)}
+        >
+          {t('🔭 Réunir le Conseil', '🔭 Convene the Council')}
         </button>
       </div>
 

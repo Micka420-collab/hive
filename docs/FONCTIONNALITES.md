@@ -13,7 +13,7 @@
 ## 🎛️ Mission Control — l'interface de pilotage
 
 Le dashboard (servi sur `:7777`) est une application complète de gestion de la
-ruche, navigable au clavier (touches **1-9**, `0`, `h`, `i`, `c`) via une sidebar alvéolaire :
+ruche, navigable au clavier (touches **1-9**, `0`, `h`, `w`, `i`, `c`) via une sidebar alvéolaire :
 
 | Vue               | Ce qu'on y fait                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -27,6 +27,7 @@ ruche, navigable au clavier (touches **1-9**, `0`, `h`, `i`, `c`) via une sideba
 | 📜 **Chronique**  | Journal filtrable + Time-Lapse Replay (mode sépia « vous regardez le passé »).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | 🧠 **Mémoire**    | Recherche dans le savoir de la ruche (Hive Mind) + bibliothèque scientifique OpenAlex.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | 🏗 **Chantiers**   | **Les travaux que le dépôt DÉCLARE**, à un clic : ses scripts sur un nœud de la ruche, ses workflows sur GitHub. La ruche choisit dans cette liste et n'invente jamais une commande — et ce qui SORT de la machine porte la raison pour laquelle il faut un humain.                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ⚔ **War Room**    | **Là où les IA se contredisent, et où vous tranchez** : Conseil, contre-expertise, renvois de l'Evaluator et revues humaines relus dans le journal, par projet et par tâche. En tête, les **désaccords non résolus** — un Conseil sans consensus que personne n'a tranché, une contestation dont le renvoi en correction n'a pas pu avoir lieu. Réunir un Conseil et le **trancher** (piste ou aucune, raison obligatoire, auteur rangé) se fait ici comme depuis la carte projet ; c'est la seule écriture de la vue. Accès direct depuis la Ruche.                                                                                                                                                            |
 | 🪪 **Mon espace** | Le tableau de bord d'une personne : ses projets, son quota, ses abonnements, ses machines — et ce qui réclame son attention, classé par urgence.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | 🖥 **Intendance**  | _Administrateurs seulement._ Les machines démarrées pour les abonnés, les comptes de la ruche, et **les clés** : qui a une clé de votre ruche, et de quoi la révoquer.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | 🧠 **Cerveau**    | _Administrateurs seulement._ Le savoir de la ruche en **graphe vivant**, à la manière d'Obsidian : les notes se repoussent, les liens les rapprochent, un halo respire sur ce qui a servi récemment. Un point **creux** n'a jamais servi — c'est du savoir stocké sans usage. Les liens morts sont listés mais **jamais dessinés** : les tracer vers le vide inventerait une note qui n'existe pas. Lecture seule. **S'explore** : recherche insensible aux accents, filtres par genre, filtre « dorment », zoom, déplacement, et une vue **liste** — un vrai tableau navigable au clavier, parce qu'un écran qui n'existerait qu'en pixels serait le seul endroit où `NO_COLOR` et `TERM=dumb` s'arrêteraient. |
@@ -145,6 +146,64 @@ Si l'installation échoue — machine hors ligne, registre injoignable, lockfile
 désaccordé — **les tests ne sont pas lancés** et le rapport le dit : « environnement
 non préparé ». Un `✘ tests rouges` vous aurait envoyé chercher une régression
 dans du code qui va très bien.
+
+## 🌿 Livrer sans GitHub — une mission, une branche
+
+La livraison GitHub ouvre une pull request **par tâche**, avec la clé de l'hôte.
+Un projet sur GitLab, Gitea, un dépôt nu d'un serveur maison — ou un dépôt du
+disque de l'hôte — se livre autrement : la mission **entière**, intégrée par une
+ouvrière, commitée sur **une** branche du dépôt du projet.
+
+```bash
+npm run cli -- livrer-local <projectId>                       # commite, garde la branche sur l'ouvrière
+npm run cli -- livrer-local <projectId> --pousser --preparer npm ci --tester npm test
+npm run cli -- livrer-local <projectId> --forcer="relu à la main"   # passer outre l'Evaluator
+# ou « Livrer la mission » dans ⬡ Projets, sous « Ce que devient le travail livré »
+```
+
+- **La branche** s'appelle `hive/mission-<projectId>-<n>`, `n` suivant la plus
+  grande déjà prise — sur l'ouvrière, dans le dépôt, ou au journal de la ruche
+  (une branche gardée sur une autre ouvrière). Le commit est l'arbre
+  **intégré**, composé avant la préparation et les tests : ni `node_modules`,
+  ni ce qu'un test aurait réécrit. Après eux, plus aucune commande git ne
+  touche le clone : ce que le code testé écrirait dans son `.git` (`origin`,
+  crochets, HEAD) ne décide ni du parent, ni de la destination. La branche
+  principale n'est jamais touchée.
+- **La provenance voyage dans le commit**, en trailers que git relit
+  (`git log --format='%(trailers)'`) : `Hive-Task`, `Hive-Result` (le résultat
+  exact intégré, `inconnu` s'il n'en porte pas), `Hive-Evaluator` (le verdict au
+  moment de livrer), `Hive-Evaluator-Forced` (la raison d'un forçage),
+  `Hive-Tests`.
+- **Rien n'est commité** si une tâche est en conflit (une intégration partielle
+  n'est pas la mission), si la préparation échoue ou si les tests sont rouges —
+  et le rapport le dit. Si l'ouvrière se tait en route (déconnexion, délai
+  dépassé), le rapport dit **« issue inconnue »** plutôt que « rien de
+  commité » : elle a pu commiter, et même pousser, avant de disparaître.
+- **Une livraison à la fois par projet, et seule** : pendant qu'elle tourne,
+  un merge d'essai du même projet est refusé (et l'inverse) — son rapport
+  écraserait celui de la livraison.
+- **L'Evaluator garde la porte**, comme pour la livraison GitHub, et juge la
+  production **exacte** intégrée : une tâche en `correction_required` ou
+  `rejected` arrête la mission. Le propriétaire (ou un
+  administrateur, ou le jeton de ruche sur un projet sans propriétaire) peut
+  passer outre en donnant une raison ; le geste est journalisé
+  (`evaluator_overridden`). Un membre du projet ne livre pas.
+- **Sans `--pousser`**, la branche est rangée sur l'ouvrière, dans
+  `livraisons/<projectId>.git` sous son répertoire de travail (un dépôt nu dont
+  `origin` est le dépôt du projet, identifiants retirés) : `git fetch` depuis ce
+  chemin, ou `git -C … push origin hive/mission-…` sur l'ouvrière.
+- **Avec `--pousser`**, l'ouvrière pousse vers l'adresse du projet que la
+  ruche lui a envoyée, avec **ses** identifiants git — ceux du clone —, jamais
+  en force, jamais une autre branche. Un dépôt qui ne répond pas en deux
+  minutes (des identifiants attendus ?) fait échouer la poussée, qui le dit.
+  Elle ne le fait que si son opérateur l'a lancée avec
+  `HIVE_LIVRAISON_POUSSER=1` : le dépôt et le diff viennent du hub, et le jeton
+  de ruche circule sur chaque machine membre. Et seul l'hôte le demande (jeton
+  de ruche ou compte administrateur) : l'opérateur a consenti pour la ruche, pas
+  pour chaque propriétaire d'un projet inscrit. Sans ouvrière consentante, la
+  demande est refusée **avant** tout travail, avec cette marche à suivre. Un
+  refus du dépôt distant remonte lavé de tout identifiant, et la branche reste
+  rangée sur l'ouvrière.
 
 ## 👑 La Reine répond — parler à la ruche
 

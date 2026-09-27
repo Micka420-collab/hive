@@ -304,6 +304,22 @@ describe('parseClientMessage', () => {
     }
   });
 
+  it('task_reject : « avant l’agent » ne voyage qu’avec un refus d’infrastructure', () => {
+    const refus = (extra: Record<string, unknown>) =>
+      parseClientMessage(
+        JSON.stringify({ type: 'task_reject', taskId: 't1', reason: 'clone', ...extra }),
+      );
+    expect(refus({ infra: true, avantAgent: true })).toEqual({
+      type: 'task_reject',
+      taskId: 't1',
+      reason: 'clone',
+      infra: true,
+      avantAgent: true,
+    });
+    expect(refus({ avantAgent: true })).not.toHaveProperty('avantAgent');
+    expect(refus({ infra: true, avantAgent: 'oui' })).toBeNull();
+  });
+
   it('accepte task_reject et register avec activeTasks, rejette les invalides', () => {
     expect(
       parseClientMessage(JSON.stringify({ type: 'task_reject', taskId: 't1', reason: 'sature' }))

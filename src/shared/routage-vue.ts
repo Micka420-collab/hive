@@ -4,10 +4,12 @@
 // L'ordonnanceur consigne chaque affectation dans `task_assigned` : le nœud,
 // le modèle commandé, et depuis #449 la catégorie et le classement qui a
 // décidé (`raisonModele`, figé à l'instant du choix). Un départage par les
-// phéromones est consigné juste avant, dans `pheromone_route`. Ce module
-// replie ces faits en affectations lisibles, SANS rien recalculer : les
-// antécédents ont bougé depuis, un second classement ne dirait pas pourquoi
-// CE choix a été fait.
+// phéromones est consigné juste avant, dans `pheromone_route` ; une course de
+// drones, juste avant aussi, dans `drone_race_started` (le modèle et le
+// classement de CHAQUE drone), et sa victoire dans `drone_won` (le drone et son
+// modèle). Ce module replie ces faits en affectations lisibles, SANS rien
+// recalculer : les antécédents ont bougé depuis, un second classement ne dirait
+// pas pourquoi CE choix a été fait.
 //
 // Trois règles de lecture :
 //   · une valeur absente reste absente — pas de modèle déclaré, pas de raison ;
@@ -23,6 +25,14 @@
 // prétendre savoir combien de leurs essais étaient en vol.
 
 import type { HiveEvent } from './types.js';
+
+/** Les types que la projection relit : la route `/api/tasks/:id/routage` les demande tous. */
+export const TYPES_ROUTAGE = [
+  'task_assigned',
+  'pheromone_route',
+  'drone_race_started',
+  'drone_won',
+] as const;
 
 /** Une ligne du classement qui a décidé du modèle. */
 export interface LigneRaison {
@@ -40,7 +50,26 @@ export interface LigneRaison {
 }
 
 /** Ce qui a départagé le nœud, dans l'ordre où l'ordonnanceur l'applique. */
-export type CritereNoeud = 'porteur_du_modele' | 'pheromones' | 'moins_charge';
+export type CritereNoeud = 'course_de_drones' | 'porteur_du_modele' | 'pheromones' | 'moins_charge';
+
+/** Un drone d'une course : son nœud, le modèle qui lui a été commandé, et pourquoi. */
+export interface DroneVue {
+  nodeId: string;
+  /** `null` quand son nœud ne déclare aucun modèle. */
+  modele: string | null;
+  raisonModele: LigneRaison[];
+}
+
+/**
+ * Une course de drones. `task_assigned` n'en nomme que le PRIMAIRE : sans les
+ * drones et le vainqueur, une victoire d'un autre drone se lisait comme celle
+ * du primaire, avec son modèle.
+ */
+export interface CourseVue {
+  drones: DroneVue[];
+  /** `null` tant que la course court, ou si elle s'est éteinte sans gagnant. */
+  vainqueur: { nodeId: string; modele: string | null } | null;
+}
 
 export interface AffectationVue {
   eventId: number;
@@ -52,13 +81,27 @@ export interface AffectationVue {
   /** Version du calcul qui a pris la décision ; `null` avant son tampon (v1). */
   versionAiguillage: number | null;
   raisonModele: LigneRaison[];
+  /** Modèles qui avaient déjà échoué sur la tâche, écartés de ce choix. */
+  modelesEcartes: string[];
+  /**
+   * Modèles commandés alors qu'ils avaient déjà échoué sur la tâche : aucun
+   * autre nœud de la ruche ne la portait. Leur « à explorer » dans le
+   * classement ne dit rien de ce plantage, qui n'est pas une note.
+   */
+  modelesReadmis: string[];
   pheromone: { domaine: string; score: number } | null;
+  /** `null` hors course de drones. */
+  course: CourseVue | null;
   critereNoeud: CritereNoeud;
 }
 
 const nombre = (v: unknown): number | null =>
   typeof v === 'number' && Number.isFinite(v) ? v : null;
 const texte = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v : null);
+const textes = (v: unknown): string[] =>
+  Array.isArray(v) ? v.map(texte).filter((t): t is string => t !== null) : [];
+const objet = (v: unknown): Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
 
 function ligneDepuis(brut: unknown, version: number | null): LigneRaison | null {
   if (typeof brut !== 'object' || brut === null) return null;
@@ -82,17 +125,38 @@ function ligneDepuis(brut: unknown, version: number | null): LigneRaison | null 
   };
 }
 
+function raisonDepuis(brut: unknown, version: number | null): LigneRaison[] {
+  return Array.isArray(brut)
+    ? brut.map((l) => ligneDepuis(l, version)).filter((l): l is LigneRaison => l !== null)
+    : [];
+}
+
+/** Les drones d'un `drone_race_started` ; `[]` s'il est illisible. */
+function dronesDepuis(p: Record<string, unknown>): DroneVue[] {
+  const version = nombre(p.versionAiguillage);
+  const modeles = objet(p.modeles);
+  const raisons = objet(p.raisons);
+  return textes(p.drones).map((nodeId) => ({
+    nodeId,
+    modele: texte(modeles[nodeId]),
+    raisonModele: raisonDepuis(raisons[nodeId], version),
+  }));
+}
+
 /**
  * Les affectations d'une tâche, de la plus ancienne à la plus récente.
  *
- * `evenements` : les `task_assigned` et `pheromone_route` de la tâche, dans
- * l'ordre du journal. Un `pheromone_route` s'attache à l'affectation qui le
- * SUIT (l'ordonnanceur l'émet juste avant `task_assigned`) et au même nœud.
+ * `evenements` : les `TYPES_ROUTAGE` de la tâche, dans l'ordre du journal. Un
+ * `pheromone_route` s'attache à l'affectation qui le SUIT (l'ordonnanceur
+ * l'émet juste avant `task_assigned`) et au même nœud ; un `drone_race_started`
+ * aussi, quand ce nœud est l'un de ses drones. Un `drone_won` désigne le
+ * vainqueur de la course portée par la dernière affectation.
  */
 export function affectationsDepuisEvenements(evenements: readonly HiveEvent[]): AffectationVue[] {
   const tries = [...evenements].sort((a, b) => a.id - b.id);
   const affectations: AffectationVue[] = [];
   let pheromoneEnAttente: { nodeId: string; domaine: string; score: number } | null = null;
+  let dronesEnAttente: DroneVue[] = [];
   for (const e of tries) {
     const p = e.payload;
     if (e.type === 'pheromone_route') {
@@ -103,24 +167,36 @@ export function affectationsDepuisEvenements(evenements: readonly HiveEvent[]): 
         nodeId !== null && domaine !== null && score !== null ? { nodeId, domaine, score } : null;
       continue;
     }
+    if (e.type === 'drone_race_started') {
+      dronesEnAttente = dronesDepuis(p);
+      continue;
+    }
+    if (e.type === 'drone_won') {
+      const course = affectations.at(-1)?.course;
+      const drone = course?.drones.find((d) => d.nodeId === texte(p.nodeId));
+      // Un `drone_won` sans modèle (antérieur à ce fait) retombe sur le modèle
+      // COMMANDÉ au drone par la course : le même fait, consigné au départ.
+      if (course && drone) {
+        course.vainqueur = { nodeId: drone.nodeId, modele: texte(p.modele) ?? drone.modele };
+      }
+      continue;
+    }
     if (e.type !== 'task_assigned') continue;
     const nodeId = texte(p.nodeId);
+    const drones = dronesEnAttente;
+    dronesEnAttente = [];
     if (nodeId === null) {
       pheromoneEnAttente = null;
       continue;
     }
-    const versionAiguillage = nombre(p.versionAiguillage);
-    const raisonModele = Array.isArray(p.raisonModele)
-      ? p.raisonModele
-          .map((brut) => ligneDepuis(brut, versionAiguillage))
-          .filter((l): l is LigneRaison => l !== null)
-      : [];
     const pheromone =
       pheromoneEnAttente && pheromoneEnAttente.nodeId === nodeId
         ? { domaine: pheromoneEnAttente.domaine, score: pheromoneEnAttente.score }
         : null;
     pheromoneEnAttente = null;
+    const course = drones.some((d) => d.nodeId === nodeId) ? { drones, vainqueur: null } : null;
     const modele = texte(p.modele);
+    const versionAiguillage = nombre(p.versionAiguillage);
     affectations.push({
       eventId: e.id,
       ts: e.ts,
@@ -128,9 +204,18 @@ export function affectationsDepuisEvenements(evenements: readonly HiveEvent[]): 
       modele,
       categorie: texte(p.categorie),
       versionAiguillage,
-      raisonModele,
+      raisonModele: raisonDepuis(p.raisonModele, versionAiguillage),
+      modelesEcartes: textes(p.modelesEcartes),
+      modelesReadmis: textes(p.modelesReadmis),
       pheromone,
-      critereNoeud: pheromone ? 'pheromones' : modele ? 'porteur_du_modele' : 'moins_charge',
+      course,
+      critereNoeud: course
+        ? 'course_de_drones'
+        : pheromone
+          ? 'pheromones'
+          : modele
+            ? 'porteur_du_modele'
+            : 'moins_charge',
     });
   }
   return affectations;

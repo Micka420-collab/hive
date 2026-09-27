@@ -12,7 +12,7 @@ import { HiveNodeClient } from '../src/node-client/client.js';
 import { createServer, findCycle } from '../src/orchestrator/server.js';
 import type { HiveServer, ServerConfig } from '../src/orchestrator/server.js';
 import { LIMITS } from '../src/shared/protocol.js';
-import type { Task } from '../src/shared/types.js';
+import type { Task, TaskResult } from '../src/shared/types.js';
 
 const TOKEN = 'jeton-durcissement-assez-long';
 const jsonHeaders = { 'content-type': 'application/json', 'x-hive-token': TOKEN };
@@ -333,6 +333,46 @@ describe('durcissement du serveur', () => {
         };
         return s.tasks.find((t) => t.id === taskId)?.status === 'done';
       }, 10_000);
+    } finally {
+      client.stop();
+    }
+  });
+
+  // ─── Exception du nœud : lavée avant de partir ────────────────────────────────
+  it('une exception qui cite une URL à identifiants remonte LAVÉE au hub', async () => {
+    // Le texte de `[nœud] exception : …` part au hub, donc à tout l'écran :
+    // une erreur de git ou d'un adaptateur y recopie l'URL telle quelle.
+    const client = new HiveNodeClient({
+      url: `ws://127.0.0.1:${server.port}/ws`,
+      token: TOKEN,
+      name: 'bavarde',
+      ownerName: 'test',
+      agentType: 'shell',
+      maxConcurrency: 1,
+      nodeId: 'n-bavarde',
+      workRoot: path.join(dir, 'bavarde'),
+      adapter: {
+        name: 'bavard',
+        run: () => Promise.reject(new Error('fatal: https://moi:jeton-secret@git.exemple.test/d')),
+      },
+      quiet: true,
+    });
+    client.start();
+    try {
+      const projectId = await newProject('Bavarde');
+      await fetch(`${base}/api/projects/${projectId}/tasks`, {
+        method: 'POST',
+        headers: jsonHeaders,
+        body: JSON.stringify({ tasks: [{ id: 'tbavarde', title: 'T', prompt: 'p' }] }),
+      });
+      let logs = '';
+      await waitFor(async () => {
+        const r = await fetch(`${base}/api/tasks/tbavarde/results`, { headers: jsonHeaders });
+        logs = ((await r.json()) as TaskResult[])[0]?.logs ?? '';
+        return logs !== '';
+      }, 8_000);
+      expect(logs).toContain('[nœud] exception : fatal: https://***@git.exemple.test/d');
+      expect(logs).not.toContain('jeton-secret');
     } finally {
       client.stop();
     }

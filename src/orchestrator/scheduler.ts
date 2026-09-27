@@ -6,6 +6,13 @@
 import { MAX_ATTEMPTS, NODE_TIMEOUT_MS } from '../shared/types.js';
 import type { HiveEvent, HiveNode, SubAgent, Task, TaskResult } from '../shared/types.js';
 import type { PresenceFichier } from '../shared/presence.js';
+import { VALIDATION_KEYS } from '../shared/validations-bac.js';
+import type {
+  DetailControle,
+  ValidationKey,
+  ValidationState,
+  ValidationsBac,
+} from '../shared/validations-bac.js';
 // L'Aiguillage appris : parmi les nœuds éligibles à charge, restreindre à ceux
 // qui offrent le meilleur modèle pour le genre de la tâche. Module PUR — il ne
 // lit ni n'écrit rien ; le scheduler lui donne les antécédents et enregistre le
@@ -15,9 +22,9 @@ import {
   aiguillerNoeuds,
   antecedentsDuVecu,
   categoriser,
-  choisirModele,
+  repriseHorsEchecs,
 } from './aiguillage.js';
-import type { Antecedent } from './aiguillage.js';
+import type { Antecedent, Rang } from './aiguillage.js';
 // L'Agent Garde-Fous : élire, PAR PROJET opt-in, l'échelon de garde-fous et
 // gouverner la sévérité des Gardiennes de la production. Module PUR — le scheduler
 // lui donne les antécédents et pose l'échelon élu. Projet non opt-in ⇒ repli sur
@@ -178,6 +185,28 @@ export class Scheduler {
   private readonly nodeTimeoutMs: number;
   /** clé `taskId:nodeId` → timestamp d'expiration du cooldown de refus. */
   private readonly recentRejections = new Map<string, number>();
+  /**
+   * taskId → modèles qui ont ÉCHOUÉ sur cette tâche (plantage, délai, erreur du
+   * CLI, refus d'infrastructure, production refusée par les Gardiennes) :
+   * l'Aiguillage les écarte de ses reprises tant qu'un autre nœud de la ruche
+   * porte la tâche (`repriseHorsEchecs`).
+   *
+   * Le pendant de `recentRejections` pour le MODÈLE : un modèle cassé, jamais
+   * jugé donc à `+∞`, revenait en tête à chaque reprise — une tâche en file
+   * n'est plus une élection en vol — et brûlait les trois tentatives de chaque
+   * tâche de son genre. Décision produit : l'écart vaut pour CETTE tâche
+   * seulement et n'entre JAMAIS dans les antécédents — un plantage n'est pas
+   * un essai loyal ; la qualité s'apprend des contre-visites, comme avant.
+   *
+   * Une correction demandée par l'Evaluator ou par un humain rouvre une tâche
+   * `done` : c'est une reprise comme une autre, l'écart tient donc jusque-là
+   * — sauf pour le modèle qui a écrit la production retenue, réintégré
+   * (`reintegrerModele`). Il n'est oublié qu'avec la tâche — échouée pour de
+   * bon, annulée ou élaguée (`elaguerModelesEchoues`). En MÉMOIRE, comme les
+   * courses : un redémarrage l'oublie, et coûte au pire une tentative de plus
+   * sur le modèle déjà tombé, bornée par `maxAttempts`.
+   */
+  private readonly modelesEchoues = new Map<string, Set<string>>();
   /** Tâches actuellement différées pour cause de conflit (Sting Detector) — dédup des events. */
   private readonly deferredByConflict = new Set<string>();
   /**
@@ -250,6 +279,8 @@ export class Scheduler {
    */
   private readonly seuilsEmis = new Set<string>();
   private readonly alertesEmises = new Set<string>();
+  /** Suites retenues jusqu'au COMMIT d'`enUnSeulGeste` — `null` hors transaction. */
+  private suitesRetenues: (() => void)[] | null = null;
 
   constructor(
     private readonly store: HiveStore,
@@ -260,10 +291,43 @@ export class Scheduler {
     this.cacheProjets = new CacheProjets(opts.balance?.capaciteCacheProjets);
   }
 
-  /** Journalise la transition et la propage (dashboard, logs). */
+  /** Journalise la transition et la propage (dashboard, logs) — après le COMMIT, s'il y en a un. */
   private emit(type: string, payload: Record<string, unknown>): void {
     const event = this.store.appendEvent(type, payload);
-    this.opts.onEvent?.(event);
+    this.apresCommit(() => this.opts.onEvent?.(event));
+  }
+
+  /**
+   * Range un résultat EN UN SEUL GESTE : toutes ses écritures dans une
+   * transaction IMMEDIATE (`store.enTransaction`), tout le reste après.
+   *
+   * La ligne `results` (success = 1) et le statut `done` étaient deux
+   * autocommits. Une panne entre les deux — la base prise par un autre
+   * processus, `patchTask` qui lève SQLITE_BUSY après 5 s — laissait un succès
+   * rangé sur une tâche encore `running`. Le hub fermait alors la socket (1011),
+   * `nodeDisconnected` requalifiait la tâche, et elle se comptait DEUX fois
+   * (tests/resultat-tout-ou-rien.test.ts).
+   *
+   * Ce qui n'est pas la base attend le COMMIT (`apresCommit`) : la diffusion
+   * des événements (un tableau de bord ne voit jamais un `task_done` effacé par
+   * le ROLLBACK), l'état des courses en mémoire, les annulations envoyées aux
+   * nœuds, l'assignation suivante. Sur ROLLBACK, rien de tout cela n'a lieu.
+   */
+  private enUnSeulGeste(ecrire: () => void): void {
+    const suites: (() => void)[] = [];
+    this.suitesRetenues = suites;
+    try {
+      this.store.enTransaction(ecrire);
+    } finally {
+      this.suitesRetenues = null;
+    }
+    for (const suite of suites) suite();
+  }
+
+  /** Dans `enUnSeulGeste` : après le COMMIT, dans l'ordre. Ailleurs : tout de suite. */
+  private apresCommit(suite: () => void): void {
+    if (this.suitesRetenues) this.suitesRetenues.push(suite);
+    else suite();
   }
 
   /**
@@ -658,12 +722,16 @@ export class Scheduler {
    * compté ; si tous les nœuds refusent ainsi, la tâche finit par échouer proprement
    * (« aucun nœud avec un agent fonctionnel ») plutôt que de rebondir sans fin. Un
    * refus de simple saturation n'est PAS compté (le nœud se libérera).
+   *
+   * `infra: 'avant_agent'` — le dépôt de la tâche ne s'est pas cloné : compté
+   * comme tout refus d'infrastructure, mais aucun modèle n'a tourné, aucun
+   * n'est écarté des reprises.
    */
   rejectTask(
     nodeId: string,
     taskId: string,
     reason: string,
-    infra = false,
+    infra: boolean | 'avant_agent' = false,
     now = Date.now(),
     retryAfterMs?: number,
   ): void {
@@ -680,6 +748,7 @@ export class Scheduler {
       const { race: updated, decision } = recordDroneResult(race, nodeId, false);
       this.races.set(taskId, updated);
       this.recentRejections.set(`${taskId}:${nodeId}`, now + cooldown);
+      if (infra === true) this.ecarterModele(taskId, race.modeleParDrone?.[nodeId]);
       this.emit('drone_rejected', { taskId, nodeId, reason });
       const task = this.store.getTask(taskId);
       if (!task || task.status === 'done' || task.status === 'failed') {
@@ -704,9 +773,22 @@ export class Scheduler {
     // La session s'ouvrait à l'assignation et survivait au refus : un refus
     // Night Shift (cooldown jusqu'à 24 h) facturait toute l'attente en file.
     this.store.fermerHorlogeHote(taskId, now);
+    // Le CLI lancé avec le modèle commandé a buté sur l'infrastructure (auth,
+    // quota, binaire) : ce modèle est écarté des reprises de cette tâche — un
+    // quota épuisé est souvent celui d'UN modèle. Si c'est l'agent entier qui
+    // est en panne, ses autres modèles tombent de même, l'écart retombe sur le
+    // concours complet et le compte `infraRejects` conclut comme avant. Un refus
+    // de saturation, de service ou de clone n'a rien lancé : le modèle reste en lice.
+    if (infra === true) this.ecarterModele(taskId, this.store.modeleAiguillageDe(taskId));
     this.store.patchTask(taskId, { status: 'ready', assignedNodeId: null }, now);
     this.recentRejections.set(`${taskId}:${nodeId}`, now + cooldown);
-    this.emit('task_rejected', { taskId, nodeId, reason, ...(infra ? { infra: true } : {}) });
+    this.emit('task_rejected', {
+      taskId,
+      nodeId,
+      reason,
+      ...(infra ? { infra: true } : {}),
+      ...(infra === 'avant_agent' ? { avantAgent: true } : {}),
+    });
 
     if (infra) {
       const count = (this.infraRejects.get(taskId) ?? 0) + 1;
@@ -811,8 +893,11 @@ export class Scheduler {
     if (task.status === 'assigned') {
       this.store.patchTask(taskId, { status: 'running' });
       this.emit('task_started', { taskId, nodeId });
-      // Un nœud exécute enfin la tâche : l'agent fonctionne, on oublie les refus infra.
-      this.infraRejects.delete(taskId);
+      // Les refus infra NE s'oublient PAS ici : un nœud annonce `running` AVANT
+      // de cloner et de lancer l'agent, puis refuse (clone impossible, agent en
+      // panne). Remis à zéro à chaque annonce, le compte ne concluait jamais —
+      // la tâche rebondissait sans fin. Il tombe au premier RÉSULTAT : là,
+      // l'agent a vraiment tourné.
     }
     // Snapshot présence Rayon — constaté, jamais inventé (ADR 0010).
     if (presences !== undefined) {
@@ -939,6 +1024,47 @@ export class Scheduler {
   }
 
   /**
+   * Range les validations que le nœud a lancées dans le bac de CETTE production.
+   *
+   * Ici, et pas dans le serveur : c'est l'admission du résultat qui attribue
+   * son `resultId`, et c'est le seul endroit où le lien est un FAIT plutôt
+   * qu'une déduction (« le dernier résultat de la tâche » change dès qu'une
+   * course ou une reprise en range un autre). Rangées même pour une production
+   * que les Gardiennes refusent : ce qui a tourné a tourné, et l'Evaluator
+   * rejette de toute façon un résultat en échec avant de lire ses validations.
+   *
+   * Des FAITS TYPÉS seulement — états, raisons, codes, durées : l'écran dit
+   * les phrases dans sa langue. `validation` porte les quatre états, et
+   * `details` le reste de chaque constat : jamais deux copies d'un même état.
+   */
+  private rangerValidations(
+    validations: ValidationsBac | undefined,
+    resultId: number,
+    task: Task,
+    nodeId: string,
+  ): void {
+    if (!validations) return;
+    const validation = {} as Record<ValidationKey, ValidationState>;
+    const details = {} as Record<ValidationKey, DetailControle>;
+    for (const cle of VALIDATION_KEYS) {
+      const { etat, ...detail } = validations.controles[cle];
+      validation[cle] = etat;
+      details[cle] = detail;
+    }
+    this.emit('validation_recorded', {
+      source: 'hive_sandbox',
+      taskId: task.id,
+      projectId: task.projectId,
+      resultId,
+      nodeId,
+      ...(validations.baseSha ? { baseSha: validations.baseSha } : {}),
+      validation,
+      details,
+      recordedAt: Date.now(),
+    });
+  }
+
+  /**
    * Résultat remonté par un nœud. Idempotence : un résultat pour une tâche
    * réaffectée, requalifiée ou déjà terminée est ignoré (et journalisé).
    */
@@ -963,127 +1089,140 @@ export class Scheduler {
       return false;
     }
 
-    this.store.fermerHorlogeHote(task.id, Date.now());
+    // Tout ce que ce résultat écrit part en UN seul geste : un succès rangé sans
+    // son `done` se compterait deux fois (voir enUnSeulGeste).
+    this.enUnSeulGeste(() => {
+      this.store.fermerHorlogeHote(task.id, Date.now());
 
-    // Présence Rayon : la tâche est finie → plus aucun fichier « ouvert ».
-    this.store.effacerPresencesTache(task.id);
-    this.store.effacerPresencesNoeud(nodeId);
+      // Présence Rayon : la tâche est finie → plus aucun fichier « ouvert ».
+      this.store.effacerPresencesTache(task.id);
+      this.store.effacerPresencesNoeud(nodeId);
 
-    // Un résultat (succès ou échec de tâche) est arrivé : l'agent a tourné, on
-    // oublie l'historique de refus infra pour cette tâche.
-    this.infraRejects.delete(task.id);
+      // Un résultat (succès ou échec de tâche) est arrivé : l'agent a tourné, on
+      // oublie l'historique de refus infra pour cette tâche.
+      this.apresCommit(() => this.infraRejects.delete(task.id));
 
-    // ─── Les Gardiennes : le contrôle d'entrée ────────────────────────────────
-    // Une production jugée CREUSE en mode `strict` est traitée EXACTEMENT comme
-    // un échec d'agent, et c'est tout l'intérêt du câblage : elle emprunte le
-    // circuit d'échec existant, donc elle ne nourrit
-    //   - ni le Hive Mind (recordMemory ne vit que dans la branche de succès),
-    //   - ni les phéromones (la ligne `results` est rangée avec success = 0,
-    //     donc le repli dépose −6 au lieu de +10),
-    //   - ni le nectar (aucun `task_done` n'est émis, et le Waggle Board ne
-    //     compte que ça),
-    //   - ni `utile` dans La Balance (sans succès retenu, `posteDe` impute la
-    //     tentative en `reprise` ou en `echec`, jamais en `utile`).
-    // Les quatre « ne nourrit pas » sont donc STRUCTURELS : aucun des quatre
-    // modules n'a été modifié, et aucun ne peut être oublié dans trois ans.
-    //
-    // RE-TENTER OU ÉCHOUER ? Re-tenter — mais sur le budget de tentatives
-    // EXISTANT (`attempts`, plafonné par MAX_ATTEMPTS), jamais sur un compteur
-    // à part. C'est la réponse à « une re-tentative infinie sur un agent cassé
-    // serait pire que le mal » : un agent qui rend trois productions creuses de
-    // suite épuise le même budget qu'un agent qui échoue trois fois, et la
-    // tâche finit `failed` proprement. Un compteur séparé aurait rouvert la
-    // porte à l'emballement ; échouer du premier coup aurait puni un incident
-    // (un `git add` oublié) aussi durement qu'une fraude répétée — alors qu'une
-    // deuxième tentative, elle, part sur un AUTRE nœud, avec les logs de la
-    // production refusée en leçon de Couveuse.
-    const inspection = this.renifler(task, result);
-    // Le REFUS suit l'échelon de garde-fous du projet (modeGardiennesDe), pas le
-    // seul mode global : un projet opt-in en « standard »/« strict » ferme la
-    // porte au creux, un projet en « leger » ne la ferme pas.
-    const refusee = inspection?.verdict === 'hollow' && this.modeGardiennesDe(task) === 'strict';
-    const retenu = result.success && !refusee;
-    const resultId = this.store.insertResult({ ...result, nodeId, success: retenu });
-    if (inspection) this.rangerInspection(inspection, resultId, task.id, nodeId, refusee);
+      // ─── Les Gardiennes : le contrôle d'entrée ────────────────────────────────
+      // Une production jugée CREUSE en mode `strict` est traitée EXACTEMENT comme
+      // un échec d'agent, et c'est tout l'intérêt du câblage : elle emprunte le
+      // circuit d'échec existant, donc elle ne nourrit
+      //   - ni le Hive Mind (recordMemory ne vit que dans la branche de succès),
+      //   - ni les phéromones (la ligne `results` est rangée avec success = 0,
+      //     donc le repli dépose −6 au lieu de +10),
+      //   - ni le nectar (aucun `task_done` n'est émis, et le Waggle Board ne
+      //     compte que ça),
+      //   - ni `utile` dans La Balance (sans succès retenu, `posteDe` impute la
+      //     tentative en `reprise` ou en `echec`, jamais en `utile`).
+      // Les quatre « ne nourrit pas » sont donc STRUCTURELS : aucun des quatre
+      // modules n'a été modifié, et aucun ne peut être oublié dans trois ans.
+      //
+      // RE-TENTER OU ÉCHOUER ? Re-tenter — mais sur le budget de tentatives
+      // EXISTANT (`attempts`, plafonné par MAX_ATTEMPTS), jamais sur un compteur
+      // à part. C'est la réponse à « une re-tentative infinie sur un agent cassé
+      // serait pire que le mal » : un agent qui rend trois productions creuses de
+      // suite épuise le même budget qu'un agent qui échoue trois fois, et la
+      // tâche finit `failed` proprement. Un compteur séparé aurait rouvert la
+      // porte à l'emballement ; échouer du premier coup aurait puni un incident
+      // (un `git add` oublié) aussi durement qu'une fraude répétée — alors qu'une
+      // deuxième tentative, elle, part sur un AUTRE nœud, avec les logs de la
+      // production refusée en leçon de Couveuse.
+      const inspection = this.renifler(task, result);
+      // Le REFUS suit l'échelon de garde-fous du projet (modeGardiennesDe), pas le
+      // seul mode global : un projet opt-in en « standard »/« strict » ferme la
+      // porte au creux, un projet en « leger » ne la ferme pas.
+      const refusee = inspection?.verdict === 'hollow' && this.modeGardiennesDe(task) === 'strict';
+      const retenu = result.success && !refusee;
+      const resultId = this.store.insertResult({ ...result, nodeId, success: retenu });
+      if (inspection) this.rangerInspection(inspection, resultId, task.id, nodeId, refusee);
+      this.rangerValidations(result.validations, resultId, task, nodeId);
 
-    if (retenu) {
-      this.store.patchTask(task.id, {
-        status: 'done',
-        result: {
-          success: true,
-          nodeId,
-          durationMs: result.durationMs,
-          ...(result.usage ? { usage: result.usage } : {}),
-        },
-      });
-      this.emit('task_done', {
-        taskId: task.id,
-        nodeId,
-        durationMs: result.durationMs,
-        ...(result.usage ? { usage: result.usage } : {}),
-        ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
-      });
-      // Hive Mind : la tâche réussie laisse un souvenir réutilisable par la ruche.
-      // Ce que l'agent a RÉPONDU, quand son CLI le déclare : les logs d'un flux
-      // stream-json commencent par la ligne `init` (dossier de travail, session,
-      // outils), et le souvenir n'aurait gardé qu'elle — pas un mot de réponse.
-      this.store.recordMemory({
-        projectId: task.projectId,
-        taskId: task.id,
-        title: task.title,
-        content: summarizeTask(task.title, task.prompt, result.finalText ?? result.logs),
-      });
-      this.emit('memory_recorded', { taskId: task.id, projectId: task.projectId });
-      this.fermerSousArbre(task.id, 'ancestor_done', Date.now());
-    } else {
-      const attempts = task.attempts + 1;
-      // Bornée ici aussi, en plus de l'entrée (`isInt(m.durationMs, 0, …)`,
-      // protocol.ts) : aucune durée négative n'entre dans le journal, quel que
-      // soit l'appelant. La Balance la reborne une troisième fois au repli.
-      const durationMs = Math.max(0, result.durationMs);
-      if (attempts >= this.maxAttempts) {
+      if (retenu) {
+        // L'état des modèles écartés vit EN MÉMOIRE : il suit le COMMIT.
+        const modeleRetenu = this.store.modeleAiguillageDe(task.id);
+        this.apresCommit(() => this.reintegrerModele(task.id, modeleRetenu));
         this.store.patchTask(task.id, {
-          status: 'failed',
-          attempts,
-          assignedNodeId: null,
+          status: 'done',
           result: {
-            success: false,
+            success: true,
             nodeId,
             durationMs: result.durationMs,
             ...(result.usage ? { usage: result.usage } : {}),
           },
         });
-        // `durationMs` : le temps machine que cet échec a coûté. Purement
-        // ADDITIF — tous les lecteurs actuels lisent en défensif (`num(p, …)
-        // → 0` dans waggle.ts, idem pulse.ts) et n'en tiennent aucun compte.
-        // Sans lui, deux tentatives sur trois (MAX_ATTEMPTS = 3) pouvaient ne
-        // laisser AUCUNE trace de leur coût : une histoire économique
-        // définitivement perdue, jour après jour.
-        this.emit('task_failed', {
+        this.emit('task_done', {
           taskId: task.id,
           nodeId,
-          attempts,
-          durationMs,
+          durationMs: result.durationMs,
           ...(result.usage ? { usage: result.usage } : {}),
           ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
         });
-        this.fermerSousArbre(task.id, 'ancestor_failed', Date.now());
+        // Hive Mind : la tâche réussie laisse un souvenir réutilisable par la ruche.
+        // Ce que l'agent a RÉPONDU, quand son CLI le déclare : les logs d'un flux
+        // stream-json commencent par la ligne `init` (dossier de travail, session,
+        // outils), et le souvenir n'aurait gardé qu'elle — pas un mot de réponse.
+        this.store.recordMemory({
+          projectId: task.projectId,
+          taskId: task.id,
+          title: task.title,
+          content: summarizeTask(task.title, task.prompt, result.finalText ?? result.logs),
+        });
+        this.emit('memory_recorded', { taskId: task.id, projectId: task.projectId });
+        this.fermerSousArbre(task.id, 'ancestor_done', Date.now());
       } else {
-        // Échec → réessai : la tâche repart en ready, une autre ouvrière la prendra.
-        // Ses enfants délégués, eux, continuent : la tentative suivante peut
-        // les retrouver par rejeu de leur identifiant stable.
-        this.store.patchTask(task.id, { status: 'ready', attempts, assignedNodeId: null });
-        this.emit('task_retry', {
-          taskId: task.id,
-          nodeId,
-          attempt: attempts,
-          maxAttempts: this.maxAttempts,
-          durationMs,
-          ...(result.usage ? { usage: result.usage } : {}),
-          ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
-        });
+        // Le modèle commandé à CETTE tentative a échoué (la production creuse
+        // refusée compte comme un échec d'agent, cf. plus haut) : écarté des
+        // reprises. Lu avant la réassignation, qui effacera ou remplacera la ligne.
+        const modeleEchoue = this.store.modeleAiguillageDe(task.id);
+        this.apresCommit(() => this.ecarterModele(task.id, modeleEchoue));
+        const attempts = task.attempts + 1;
+        // Bornée ici aussi, en plus de l'entrée (`isInt(m.durationMs, 0, …)`,
+        // protocol.ts) : aucune durée négative n'entre dans le journal, quel que
+        // soit l'appelant. La Balance la reborne une troisième fois au repli.
+        const durationMs = Math.max(0, result.durationMs);
+        if (attempts >= this.maxAttempts) {
+          this.store.patchTask(task.id, {
+            status: 'failed',
+            attempts,
+            assignedNodeId: null,
+            result: {
+              success: false,
+              nodeId,
+              durationMs: result.durationMs,
+              ...(result.usage ? { usage: result.usage } : {}),
+            },
+          });
+          // `durationMs` : le temps machine que cet échec a coûté. Purement
+          // ADDITIF — tous les lecteurs actuels lisent en défensif (`num(p, …)
+          // → 0` dans waggle.ts, idem pulse.ts) et n'en tiennent aucun compte.
+          // Sans lui, deux tentatives sur trois (MAX_ATTEMPTS = 3) pouvaient ne
+          // laisser AUCUNE trace de leur coût : une histoire économique
+          // définitivement perdue, jour après jour.
+          this.emit('task_failed', {
+            taskId: task.id,
+            nodeId,
+            attempts,
+            durationMs,
+            ...(result.usage ? { usage: result.usage } : {}),
+            ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
+          });
+          this.fermerSousArbre(task.id, 'ancestor_failed', Date.now());
+        } else {
+          // Échec → réessai : la tâche repart en ready, une autre ouvrière la prendra.
+          // Ses enfants délégués, eux, continuent : la tentative suivante peut
+          // les retrouver par rejeu de leur identifiant stable.
+          this.store.patchTask(task.id, { status: 'ready', attempts, assignedNodeId: null });
+          this.emit('task_retry', {
+            taskId: task.id,
+            nodeId,
+            attempt: attempts,
+            maxAttempts: this.maxAttempts,
+            durationMs,
+            ...(result.usage ? { usage: result.usage } : {}),
+            ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
+          });
+        }
       }
-    }
+    });
     this.promoteAndAssign();
     return true;
   }
@@ -1191,24 +1330,32 @@ export class Scheduler {
    * elle ne se fermait que sur le chemin du résultat.
    */
   private annulerEnVol(task: Task, reason: string, now: number): Task | undefined {
+    // Ce qui n'est pas la base — les nœuds prévenus, les mémoires par tâche —
+    // suit le COMMIT quand une clôture de sous-arbre part d'un résultat rangé
+    // en un seul geste (`enUnSeulGeste`) ; hors transaction, tout de suite.
     // Drone Wars : annuler TOUS les drones encore en vol, pas seulement le primaire.
     const race = this.races.get(task.id);
-    if (race) {
-      for (const droneId of runningDrones(race)) this.opts.onCancel?.(droneId, task.id, reason);
-      this.races.delete(task.id);
-    } else if (task.assignedNodeId) {
-      // Mono : le nœud assigné est prévenu ici aussi — la notification vit dans
-      // le scheduler, pas dans chaque appelant (symétrie course/mono).
-      this.opts.onCancel?.(task.assignedNodeId, task.id, reason);
-    }
+    const assigne = task.assignedNodeId;
+    this.apresCommit(() => {
+      if (race) {
+        for (const droneId of runningDrones(race)) this.opts.onCancel?.(droneId, task.id, reason);
+        this.races.delete(task.id);
+      } else if (assigne) {
+        // Mono : le nœud assigné est prévenu ici aussi — la notification vit dans
+        // le scheduler, pas dans chaque appelant (symétrie course/mono).
+        this.opts.onCancel?.(assigne, task.id, reason);
+      }
+    });
     // Une tentative interrompue est facturée pour le temps qu'elle a occupé
     // l'hébergeur, pas un instant de plus : sans cette ligne, `depenseHorlogeHote`
     // comptait la session jusqu'à `now` à chaque lecture, jusqu'à l'élagage.
     this.store.fermerHorlogeHote(task.id, now);
     // Une tâche terminale n'est plus jamais réévaluée : ses entrées dans les
     // mémoires par tâche ne seraient plus purgées par personne.
-    this.infraRejects.delete(task.id);
-    this.deferredByConflict.delete(task.id);
+    this.apresCommit(() => {
+      this.infraRejects.delete(task.id);
+      this.deferredByConflict.delete(task.id);
+    });
     const nodeId = task.assignedNodeId;
     const patched = this.store.patchTask(task.id, { status: 'failed', assignedNodeId: null }, now);
     this.emit('task_cancelled', { taskId: task.id, reason, ...(nodeId ? { nodeId } : {}) });
@@ -1329,71 +1476,102 @@ export class Scheduler {
     // La charge des drones non-primaires n'existe pas dans le store : on
     // l'ajoute ici pour ne pas enrôler des nœuds déjà saturés par une course.
     const extra = this.droneLoad();
-    const candidates = this.store
-      .listNodes()
+    const charge = (n: HiveNode): number => n.running + (extra.get(n.id) ?? 0);
+    // L'OFFRE, charge ignorée, puis sa part libre : l'écart des modèles tombés
+    // se décide contre la première, comme dans la boucle principale.
+    const offre = this.store.listNodes().filter(
+      (n) =>
+        n.status === 'online' &&
+        // LA MÊME GARDE QUE `tick` — elle manquait ici, et « présence sans
+        // production » l'a rendue nécessaire.
+        //
+        // Tant qu'un poste sans agent réel mourait avant de s'inscrire, aucun
+        // nœud simulé n'existait en production : la faille dormait. Depuis
+        // que ces machines REJOIGNENT la ruche, une course lancée à la main
+        // les aurait enrôlées, leur adaptateur `shell` aurait rendu un diff
+        // SIMULÉ, et la course l'aurait départagé contre du code réel. Un
+        // faux gagnant, dans la fonctionnalité dont tout l'objet est de
+        // départager.
+        //
+        // La garde suit la CONFIG DU SERVEUR, pas une opinion sur `shell` :
+        // en simulation assumée, les nœuds simulés courent — c'est la
+        // démonstration qu'on a demandée.
+        assignationProductionAutorisee(n.agentType, {
+          simulation: this.opts.simulation,
+        }) &&
+        (this.recentRejections.get(`${taskId}:${n.id}`) ?? 0) <= now,
+    );
+    const libres = offre
       .filter(
         (n) =>
-          n.status === 'online' &&
-          // LA MÊME GARDE QUE `tick` — elle manquait ici, et « présence sans
-          // production » l'a rendue nécessaire.
-          //
-          // Tant qu'un poste sans agent réel mourait avant de s'inscrire, aucun
-          // nœud simulé n'existait en production : la faille dormait. Depuis
-          // que ces machines REJOIGNENT la ruche, une course lancée à la main
-          // les aurait enrôlées, leur adaptateur `shell` aurait rendu un diff
-          // SIMULÉ, et la course l'aurait départagé contre du code réel. Un
-          // faux gagnant, dans la fonctionnalité dont tout l'objet est de
-          // départager.
-          //
-          // La garde suit la CONFIG DU SERVEUR, pas une opinion sur `shell` :
-          // en simulation assumée, les nœuds simulés courent — c'est la
-          // démonstration qu'on a demandée.
-          assignationProductionAutorisee(n.agentType, {
-            simulation: this.opts.simulation,
-          }) &&
           // Thermorégulation : une course MULTIPLIE la charge sur une ruche qui
           // souffre déjà — elle respecte donc la concurrence effective, comme
           // l'assignation automatique. Décision assumée : le geste explicite
           // choisit QUI travaille, jamais COMBIEN la ruche encaisse. Le
           // plancher de 1 par nœud garantit qu'une course reste possible même
           // en surchauffe.
-          n.running + (extra.get(n.id) ?? 0) <
-            concurrenceEffective(n.maxConcurrency, this.facteurThermo) &&
-          (this.recentRejections.get(`${taskId}:${n.id}`) ?? 0) <= now,
+          charge(n) < concurrenceEffective(n.maxConcurrency, this.facteurThermo),
       )
-      .sort(
-        (a, b) =>
-          a.running + (extra.get(a.id) ?? 0) - (b.running + (extra.get(b.id) ?? 0)) ||
-          a.name.localeCompare(b.name),
-      )
-      .map((n) => ({ id: n.id, agentType: n.agentType }));
-    const { race, launch } = enlistDrones(createRace(taskId, factor), candidates);
-    if (launch.length === 0) return { ok: false, error: 'aucun nœud disponible pour la course' };
+      .sort((a, b) => charge(a) - charge(b) || a.name.localeCompare(b.name));
+    // Une course lancée sur une reprise suit la même règle que la boucle
+    // principale : un nœud qui n'offre que des modèles tombés sur cette tâche
+    // n'est pas enrôlé tant qu'un autre la porte. Chaque drone est ensuite
+    // aiguillé sur SA vue du nœud, privée de ces modèles.
+    const echoues = this.modelesEchoues.get(taskId);
+    const reprise = repriseHorsEchecs(libres, offre, echoues);
+    const { race, launch } = enlistDrones(
+      createRace(taskId, factor),
+      reprise.eligibles.map((n) => ({ id: n.id, agentType: n.agentType })),
+    );
+    if (launch.length === 0) {
+      // Des nœuds libres, mais qui n'offrent que des modèles déjà tombés ici :
+      // le dire, plutôt qu'un « aucun nœud » que l'écran démentirait.
+      const error =
+        libres.length > 0
+          ? 'les nœuds libres n’offrent que des modèles qui ont déjà planté sur cette tâche — ' +
+            'course refusée, la reprise attend un porteur sain'
+          : 'aucun nœud disponible pour la course';
+      return { ok: false, error };
+    }
 
     // Le 1er drone devient le « primaire » suivi par le store (reap/reconcile) ;
     // les autres volent en plus — leurs résultats arrivent par le même canal.
     const primary = launch[0] as string;
-    const assigned = this.store.patchTask(
-      taskId,
-      { status: 'assigned', assignedNodeId: primary, branch: `hive/${taskId}` },
+    // Réclamation CONDITIONNELLE, comme au tick : la tâche a été lue `ready`
+    // plus haut, et on ne l'arrache pas à qui l'aurait prise entre-temps.
+    const assigned = this.store.reclamerTache(
+      { taskId, attendu: 'ready', nodeId: primary, branch: `hive/${taskId}` },
       now,
     );
-    if (!assigned) return { ok: false, error: 'tâche introuvable' };
-    // L'Aiguillage : le modèle élu par CHAQUE drone, sur ses propres modeles. La
-    // course n'est PAS restreinte (elle maximise la diversité d'agents) — on note
-    // seulement, pour re-poser le modèle du VAINQUEUR quand il gagnera. Le modèle
-    // du primaire est posé DÈS MAINTENANT : tant que la course court, la tâche
-    // compte comme une élection en vol (borne du troupeau).
+    if (!assigned) return { ok: false, error: 'tâche introuvable ou déjà réclamée' };
+    // L'Aiguillage : le modèle élu par CHAQUE drone, sur ses propres modeles —
+    // hors ceux qui ont déjà échoué sur cette tâche, comme dans la boucle
+    // principale. La course n'est PAS restreinte (elle maximise la diversité
+    // d'agents) — on note seulement, pour re-poser le modèle du VAINQUEUR quand
+    // il gagnera. Le modèle du primaire est posé DÈS MAINTENANT : tant que la
+    // course court, la tâche compte comme une élection en vol (borne du
+    // troupeau). Le classement de chaque drone est la RAISON de son modèle,
+    // figée comme dans `task_assigned` : sans elle, le tiroir ne pouvait pas
+    // dire pourquoi un drone non primaire avait lancé le modèle qui a gagné.
     const categorie = categoriser(task.title, task.prompt);
     const antecedents = this.antecedentsAiguillage();
-    const noeuds = new Map(this.store.listNodes().map((n) => [n.id, n]));
+    const vues = new Map(reprise.eligibles.map((n) => [n.id, n]));
     const modeleParDrone: Record<string, string> = {};
+    const raisons: Record<string, Rang[]> = {};
     for (const droneId of launch) {
-      const modeles = noeuds.get(droneId)?.modeles;
-      const elu = modeles ? choisirModele(categorie, modeles, antecedents) : null;
-      if (elu) modeleParDrone[droneId] = elu;
+      const vue = vues.get(droneId);
+      const route = vue ? aiguillerNoeuds(categorie, [vue], antecedents) : null;
+      if (!route) continue;
+      modeleParDrone[droneId] = route.modele;
+      raisons[droneId] = route.rang.slice(0, 4);
     }
-    if (Object.keys(modeleParDrone).length > 0) race.modeleParDrone = modeleParDrone;
+    // Les modèles tombés ici qu'un drone re-lance faute d'alternative dans la
+    // ruche : la course le dit, comme la boucle principale.
+    const readmis = [...new Set(Object.values(modeleParDrone))]
+      .filter((m) => echoues?.has(m))
+      .sort();
+    const aiguillee = Object.keys(modeleParDrone).length > 0;
+    if (aiguillee) race.modeleParDrone = modeleParDrone;
     if (modeleParDrone[primary]) {
       this.store.poserModeleAiguillage(taskId, modeleParDrone[primary], now);
     } else this.store.effacerModeleAiguillage(taskId);
@@ -1410,7 +1588,14 @@ export class Scheduler {
       taskId,
       factor: race.factor,
       drones: launch,
-      ...(Object.keys(modeleParDrone).length > 0 ? { modeles: modeleParDrone } : {}),
+      ...(aiguillee
+        ? {
+            modeles: modeleParDrone,
+            categorie,
+            raisons,
+            versionAiguillage: VERSION_AIGUILLAGE,
+          }
+        : {}),
     });
     this.emit('task_assigned', {
       taskId,
@@ -1420,8 +1605,20 @@ export class Scheduler {
       // prétend pas prouver le modèle choisi par le CLI : cette preuve reste
       // attachée au résultat du nœud. Sans ce fait, Mission Control devrait
       // recroiser une table latérale et l'événement perdrait sa valeur de
-      // replay.
-      ...(modeleParDrone[primary] ? { modele: modeleParDrone[primary] } : {}),
+      // replay. La raison suit la forme de la boucle principale, pour se lire
+      // de même (`routage-vue.ts`).
+      ...(modeleParDrone[primary]
+        ? {
+            modele: modeleParDrone[primary],
+            categorie,
+            raisonModele: raisons[primary],
+            versionAiguillage: VERSION_AIGUILLAGE,
+          }
+        : {}),
+      // Faits de la TÂCHE, pas du primaire : les modèles écartés de la course,
+      // quel que soit le nœud qui les offrait, et ceux qu'un drone re-lance.
+      ...(reprise.ecartes.length > 0 ? { modelesEcartes: reprise.ecartes } : {}),
+      ...(readmis.length > 0 ? { modelesReadmis: readmis } : {}),
     });
     // L'instant de l'assignation, celui que porte `updatedAt` : ouverture et
     // clôture de la session se lisent sur la même horloge que la transition.
@@ -1474,113 +1671,141 @@ export class Scheduler {
       this.emit('result_ignored', { taskId: task.id, nodeId, reason: 'drone_not_in_race' });
       return false;
     }
-    this.races.set(task.id, updated);
-    const resultId = this.store.insertResult({ ...result, nodeId, success: retenu });
-    if (inspection) this.rangerInspection(inspection, resultId, task.id, nodeId, refusee);
+    // Tout ce que ce résultat écrit part en UN seul geste (voir enUnSeulGeste).
+    // L'état de la course EN MÉMOIRE, les annulations des perdants et
+    // l'assignation suivante attendent le COMMIT : un ROLLBACK ne laisse ni
+    // course tranchée que la base n'a jamais vue, ni perdant annulé pour rien.
+    this.enUnSeulGeste(() => {
+      this.apresCommit(() => this.races.set(task.id, updated));
+      const resultId = this.store.insertResult({ ...result, nodeId, success: retenu });
+      if (inspection) this.rangerInspection(inspection, resultId, task.id, nodeId, refusee);
+      this.rangerValidations(result.validations, resultId, task, nodeId);
+      // Parité avec la voie mono : le modèle de ce drone a échoué sur la tâche —
+      // si la course s'éteint, la reprise ne le ré-élira pas.
+      if (!retenu) {
+        this.apresCommit(() => this.ecarterModele(task.id, race.modeleParDrone?.[nodeId]));
+      }
 
-    if (decision.outcome === 'won') {
-      this.races.delete(task.id);
-      this.infraRejects.delete(task.id);
+      if (decision.outcome === 'won') {
+        this.apresCommit(() => {
+          this.races.delete(task.id);
+          this.infraRejects.delete(task.id);
+        });
+        this.store.fermerHorlogeHote(task.id, now);
+        this.store.patchTask(
+          task.id,
+          {
+            status: 'done',
+            assignedNodeId: nodeId,
+            result: {
+              success: true,
+              nodeId,
+              durationMs: result.durationMs,
+              ...(result.usage ? { usage: result.usage } : {}),
+            },
+          },
+          now,
+        );
+        // L'Aiguillage : c'est la production du VAINQUEUR que la contre-visite
+        // jugera — on re-pose SON modèle (écrase celui du primaire posé au départ).
+        // `won` précède toujours le verdict, donc la jointure lira le bon couple.
+        const modeleVainqueur = race.modeleParDrone?.[nodeId];
+        this.apresCommit(() => this.reintegrerModele(task.id, modeleVainqueur));
+        if (modeleVainqueur) {
+          this.store.poserModeleAiguillage(task.id, modeleVainqueur, now);
+        } else {
+          this.store.effacerModeleAiguillage(task.id);
+        }
+        this.emit('task_done', {
+          taskId: task.id,
+          nodeId,
+          durationMs: result.durationMs,
+          ...(result.usage ? { usage: result.usage } : {}),
+          ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
+        });
+        // Le modèle du VAINQUEUR, fait consigné là où il se décide : le tiroir
+        // et la Chronique nomment le modèle qui a gagné sans recroiser la course.
+        this.emit('drone_won', {
+          taskId: task.id,
+          nodeId,
+          cancelled: decision.cancel.length,
+          ...(modeleVainqueur ? { modele: modeleVainqueur } : {}),
+        });
+        for (const loser of decision.cancel) {
+          this.emit('drone_cancelled', { taskId: task.id, nodeId: loser });
+          this.apresCommit(() => this.opts.onCancel?.(loser, task.id, 'course de drones perdue'));
+        }
+        // Hive Mind : même parité que le circuit normal — la victoire laisse un
+        // souvenir, fait de la réponse finale quand il y en a une.
+        this.store.recordMemory({
+          projectId: task.projectId,
+          taskId: task.id,
+          title: task.title,
+          content: summarizeTask(task.title, task.prompt, result.finalText ?? result.logs),
+        });
+        this.emit('memory_recorded', { taskId: task.id, projectId: task.projectId });
+        this.fermerSousArbre(task.id, 'ancestor_done', now);
+        this.apresCommit(() => this.promoteAndAssign(now));
+        return;
+      }
+
+      if (decision.outcome === 'pending') {
+        // Ce drone a échoué mais d'autres volent encore : la course continue. Sa
+        // déclaration voyage avec le fait, comme sur `task_retry` : le registre
+        // Genome compte cette tentative rendue sous le modèle de CE drone.
+        this.emit('drone_failed', {
+          taskId: task.id,
+          nodeId,
+          ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
+        });
+        if (task.assignedNodeId === nodeId) this.promoteNextDrone(updated, task.id, now);
+        return;
+      }
+
+      // all_failed via un VRAI résultat : l'agent a tourné — tentative brûlée,
+      // circuit d'échec normal (retry ou failed définitif).
+      this.apresCommit(() => this.races.delete(task.id));
       this.store.fermerHorlogeHote(task.id, now);
-      this.store.patchTask(
-        task.id,
-        {
-          status: 'done',
-          assignedNodeId: nodeId,
+      this.emit('drone_all_failed', { taskId: task.id, drones: updated.drones.length });
+      const attempts = task.attempts + 1;
+      // Même enrichissement que le circuit mono : une course perdue coûte au
+      // moins aussi cher qu'une tentative solitaire, elle doit se peser pareil.
+      const durationMs = Math.max(0, result.durationMs);
+      if (attempts >= this.maxAttempts) {
+        this.store.patchTask(task.id, {
+          status: 'failed',
+          attempts,
+          assignedNodeId: null,
           result: {
-            success: true,
+            success: false,
             nodeId,
             durationMs: result.durationMs,
             ...(result.usage ? { usage: result.usage } : {}),
           },
-        },
-        now,
-      );
-      // L'Aiguillage : c'est la production du VAINQUEUR que la contre-visite
-      // jugera — on re-pose SON modèle (écrase celui du primaire posé au départ).
-      // `won` précède toujours le verdict, donc la jointure lira le bon couple.
-      const modeleVainqueur = race.modeleParDrone?.[nodeId];
-      if (modeleVainqueur) {
-        this.store.poserModeleAiguillage(task.id, modeleVainqueur, now);
-      } else {
-        this.store.effacerModeleAiguillage(task.id);
-      }
-      this.emit('task_done', {
-        taskId: task.id,
-        nodeId,
-        durationMs: result.durationMs,
-        ...(result.usage ? { usage: result.usage } : {}),
-        ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
-      });
-      this.emit('drone_won', { taskId: task.id, nodeId, cancelled: decision.cancel.length });
-      for (const loser of decision.cancel) {
-        this.emit('drone_cancelled', { taskId: task.id, nodeId: loser });
-        this.opts.onCancel?.(loser, task.id, 'course de drones perdue');
-      }
-      // Hive Mind : même parité que le circuit normal — la victoire laisse un
-      // souvenir, fait de la réponse finale quand il y en a une.
-      this.store.recordMemory({
-        projectId: task.projectId,
-        taskId: task.id,
-        title: task.title,
-        content: summarizeTask(task.title, task.prompt, result.finalText ?? result.logs),
-      });
-      this.emit('memory_recorded', { taskId: task.id, projectId: task.projectId });
-      this.fermerSousArbre(task.id, 'ancestor_done', now);
-      this.promoteAndAssign(now);
-      return true;
-    }
-
-    if (decision.outcome === 'pending') {
-      // Ce drone a échoué mais d'autres volent encore : la course continue.
-      this.emit('drone_failed', { taskId: task.id, nodeId });
-      if (task.assignedNodeId === nodeId) this.promoteNextDrone(updated, task.id, now);
-      return true;
-    }
-
-    // all_failed via un VRAI résultat : l'agent a tourné — tentative brûlée,
-    // circuit d'échec normal (retry ou failed définitif).
-    this.races.delete(task.id);
-    this.store.fermerHorlogeHote(task.id, now);
-    this.emit('drone_all_failed', { taskId: task.id, drones: updated.drones.length });
-    const attempts = task.attempts + 1;
-    // Même enrichissement que le circuit mono : une course perdue coûte au
-    // moins aussi cher qu'une tentative solitaire, elle doit se peser pareil.
-    const durationMs = Math.max(0, result.durationMs);
-    if (attempts >= this.maxAttempts) {
-      this.store.patchTask(task.id, {
-        status: 'failed',
-        attempts,
-        assignedNodeId: null,
-        result: {
-          success: false,
+        });
+        this.emit('task_failed', {
+          taskId: task.id,
           nodeId,
-          durationMs: result.durationMs,
+          attempts,
+          durationMs,
           ...(result.usage ? { usage: result.usage } : {}),
-        },
-      });
-      this.emit('task_failed', {
-        taskId: task.id,
-        nodeId,
-        attempts,
-        durationMs,
-        ...(result.usage ? { usage: result.usage } : {}),
-        ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
-      });
-      this.fermerSousArbre(task.id, 'ancestor_failed', now);
-    } else {
-      this.store.patchTask(task.id, { status: 'ready', attempts, assignedNodeId: null });
-      this.emit('task_retry', {
-        taskId: task.id,
-        nodeId,
-        attempt: attempts,
-        maxAttempts: this.maxAttempts,
-        durationMs,
-        ...(result.usage ? { usage: result.usage } : {}),
-        ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
-      });
-    }
-    this.promoteAndAssign(now);
+          ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
+        });
+        this.fermerSousArbre(task.id, 'ancestor_failed', now);
+      } else {
+        this.store.patchTask(task.id, { status: 'ready', attempts, assignedNodeId: null });
+        this.emit('task_retry', {
+          taskId: task.id,
+          nodeId,
+          attempt: attempts,
+          maxAttempts: this.maxAttempts,
+          durationMs,
+          ...(result.usage ? { usage: result.usage } : {}),
+          ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
+        });
+      }
+      this.apresCommit(() => this.promoteAndAssign(now));
+    });
     return true;
   }
 
@@ -2063,23 +2288,34 @@ export class Scheduler {
       // Une famille ABSENTE ne se laisse pas attendre en silence : voir
       // `relecteurAbsent`.
       if (lien !== null && this.relecteurAbsent(task, lien, noeuds, now, fermees)) continue;
-      const eligibles = noeuds
+      // L'OFFRE pour cette tâche : les nœuds qui pourraient la porter, charge
+      // ignorée. C'est contre elle que se décide l'écart des modèles tombés
+      // (`repriseHorsEchecs`) : un porteur sain seulement occupé se libérera.
+      const offre = noeuds.filter(
+        (n) =>
+          (lien === null || n.agentType === lien.relecteurAgent) &&
+          n.status === 'online' &&
+          assignationProductionAutorisee(n.agentType, {
+            simulation: this.opts.simulation,
+          }) &&
+          (lien === null || relecteurIndependant(n.agentType, lien.producteurAgent)) &&
+          // Ne pas ré-assigner aussitôt une tâche que ce nœud vient de refuser.
+          (this.recentRejections.get(`${task.id}:${n.id}`) ?? 0) <= now,
+      );
+      const eligibles = offre
         .filter(
           (n) =>
-            (lien === null || n.agentType === lien.relecteurAgent) &&
-            n.status === 'online' &&
-            assignationProductionAutorisee(n.agentType, {
-              simulation: this.opts.simulation,
-            }) &&
-            (lien === null || relecteurIndependant(n.agentType, lien.producteurAgent)) &&
             // Thermorégulation : sous ventilation, la capacité de chaque nœud
             // est réduite par le facteur en vigueur (plancher 1 — la ruche ne
             // s'arrête pas, elle ralentit).
-            charge(n) < concurrenceEffective(n.maxConcurrency, this.facteurThermo) &&
-            // Ne pas ré-assigner aussitôt une tâche que ce nœud vient de refuser.
-            (this.recentRejections.get(`${task.id}:${n.id}`) ?? 0) <= now,
+            charge(n) < concurrenceEffective(n.maxConcurrency, this.facteurThermo),
         )
         .sort((a, b) => charge(a) - charge(b) || a.name.localeCompare(b.name));
+      // Une reprise ne ré-élit pas un modèle qui a planté sur cette tâche tant
+      // qu'un autre nœud de l'offre la porte : les éligibles sont réduits à ses
+      // porteurs — vides si aucun n'est libre, et la tâche attend une place.
+      const echoues = this.modelesEchoues.get(task.id);
+      const reprise = repriseHorsEchecs(eligibles, offre, echoues);
       // ─── L'Aiguillage appris : le MODÈLE, avant le nœud ──────────────────
       // Parmi les éligibles (déjà filtrés par charge et triés), on restreint à
       // ceux qui offrent le meilleur modèle pour le genre de la tâche. `null`
@@ -2088,10 +2324,10 @@ export class Scheduler {
       // l'ordre de charge, donc le départage plus bas reste inchangé.
       const route = aiguillerNoeuds(
         categoriser(task.title, task.prompt),
-        eligibles,
+        reprise.eligibles,
         lireAntecedents(),
       );
-      const candidats = route ? route.noeuds : eligibles;
+      const candidats = route ? route.noeuds : reprise.eligibles;
       let node = candidats[0];
       if (!node) continue; // aucun nœud éligible pour CETTE tâche (essayer les suivantes)
       // Phéromones : le critère principal « moins chargé » reste intact — elles
@@ -2118,9 +2354,12 @@ export class Scheduler {
           routePheromone = { domaine, score };
         }
       }
-      const assigned = this.store.patchTask(
-        task.id,
-        { status: 'assigned', assignedNodeId: node.id, branch: `hive/${task.id}` },
+      // Réclamation CONDITIONNELLE : la liste `ready` a été lue en début de
+      // passe, et `onAssign` (plus bas) rend la main au serveur entre deux
+      // tâches. Une tâche prise entre-temps n'est plus `ready` : la
+      // réclamation échoue et on passe, au lieu de l'envoyer à un second nœud.
+      const assigned = this.store.reclamerTache(
+        { taskId: task.id, attendu: 'ready', nodeId: node.id, branch: `hive/${task.id}` },
         now,
       );
       if (!assigned) continue;
@@ -2182,6 +2421,16 @@ export class Scheduler {
               versionAiguillage: VERSION_AIGUILLAGE,
             }
           : {}),
+        // Ce que la reprise a fait des modèles qui ont planté sur cette tâche.
+        // `modelesEcartes` : offerts par la ruche mais hors concours — sans
+        // lui, la raison tairait pourquoi un modèle offert manque au
+        // classement, y compris quand aucun modèle n'est commandé (un nœud
+        // sans modèle déclaré a pris la reprise). `modelesReadmis` : le modèle
+        // commandé était déjà tombé ici, re-tenté faute d'alternative dans
+        // toute la ruche — sans lui, son « à explorer » se lirait comme une
+        // exploration neuve.
+        ...(reprise.ecartes.length > 0 ? { modelesEcartes: reprise.ecartes } : {}),
+        ...(route && echoues?.has(route.modele) ? { modelesReadmis: [route.modele] } : {}),
       });
       this.store.ouvrirHorlogeHote(assigned.projectId, assigned.id, now);
       // Le modèle élu part avec la tâche : le nœud le passera à `--model`.
@@ -2201,6 +2450,49 @@ export class Scheduler {
     // Purge des cooldowns de refus expirés (borne la taille de la map).
     for (const [key, until] of this.recentRejections) {
       if (until <= now) this.recentRejections.delete(key);
+    }
+  }
+
+  /**
+   * Écarte `modele` des reprises de cette tâche (cf. `modelesEchoues`). Sans
+   * modèle commandé : rien.
+   */
+  private ecarterModele(taskId: string, modele: string | null | undefined): void {
+    if (!modele) return;
+    this.elaguerModelesEchoues();
+    const echoues = this.modelesEchoues.get(taskId) ?? new Set<string>();
+    echoues.add(modele);
+    this.modelesEchoues.set(taskId, echoues);
+  }
+
+  /**
+   * `modele` vient de rendre une production RETENUE sur cette tâche : il a
+   * prouvé qu'il y tourne, son écart tombe. Sans cela, le modèle qui a écrit
+   * la production — un drone rescapé d'une course où le même modèle a planté
+   * sur un autre nœud, ou l'unique modèle ré-admis — serait privé de la
+   * correction que l'Evaluator demanderait de SA production.
+   */
+  private reintegrerModele(taskId: string, modele: string | null | undefined): void {
+    const echoues = this.modelesEchoues.get(taskId);
+    if (!echoues || !modele) return;
+    echoues.delete(modele);
+    if (echoues.size === 0) this.modelesEchoues.delete(taskId);
+  }
+
+  /**
+   * Oublie les écarts des tâches qui ne seront plus jamais reprises : échouées
+   * pour de bon (annulation comprise) ou élaguées (`pruneTasks`). Une tâche
+   * `done` garde les siens, puisqu'une correction peut la rouvrir. Appelé au
+   * moment d'écarter, jamais au tick : la lecture — par clé primaire, des seules
+   * tâches citées — est payée par un échec, pas par la ruche au repos, et la
+   * carte reste bornée par la rétention des tâches.
+   */
+  private elaguerModelesEchoues(): void {
+    if (this.modelesEchoues.size === 0) return;
+    const statuts = this.store.taskStatuses([...this.modelesEchoues.keys()]);
+    for (const taskId of this.modelesEchoues.keys()) {
+      const statut = statuts.get(taskId);
+      if (statut === undefined || statut === 'failed') this.modelesEchoues.delete(taskId);
     }
   }
 }

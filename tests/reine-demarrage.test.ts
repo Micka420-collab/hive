@@ -17,6 +17,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
+import { prendreVerrouReine } from '../src/orchestrator/verrou-reine.js';
 import { lancerBorneTuyaute, reprendreTous, tuerGroupe } from './harnais-processus.js';
 
 const RACINE = fileURLToPath(new URL('..', import.meta.url));
@@ -94,6 +95,29 @@ function demarrerPuisArreter(
     proc.stderr.on('data', lire);
     proc.on('error', rejeter);
     proc.on('close', (code, sig) => resoudre({ code, signal: sig, sortie }));
+  });
+}
+
+/** Lance la Reine et attend qu'elle rende la main d'elle-même — borné, comme le reste. */
+function lancerJusquAuBout(cwd: string, env: NodeJS.ProcessEnv): Promise<Issue> {
+  return new Promise((resoudre, rejeter) => {
+    const proc = lancerBorneTuyaute(process.execPath, [TSX, MAIN], { cwd, env });
+    let sortie = '';
+    const boucher = setTimeout(() => {
+      tuerGroupe(proc);
+      rejeter(new Error(`la Reine n'a pas rendu la main :\n${sortie}`));
+    }, 45_000);
+    boucher.unref?.();
+    const lire = (morceau: Buffer): void => {
+      sortie += morceau.toString('utf8');
+    };
+    proc.stdout.on('data', lire);
+    proc.stderr.on('data', lire);
+    proc.on('error', rejeter);
+    proc.on('close', (code, sig) => {
+      clearTimeout(boucher);
+      resoudre({ code, signal: sig, sortie });
+    });
   });
 }
 
@@ -190,5 +214,25 @@ describe('la Reine — démarrage, bannière, arrêt', () => {
     expect(sortie).toMatch(/nombre de sauts/);
     expect(sortie, 'le refus doit dire quoi écrire').toMatch(/loopback/);
     expect(sortie, 'la Reine a ouvert son port quand même').not.toContain('en ligne');
+  }, 60_000);
+
+  it('UNE SECONDE REINE SUR LA MÊME BASE EST REFUSÉE EN CLAIR — le texte, sans pile de Node', async () => {
+    // CE processus tient la base, comme le ferait une Reine déjà en marche.
+    // La seconde doit sortir en code 1 avec le message écrit pour l'humain
+    // — qui tient la base, quoi faire — et RIEN devant : ni la ligne source,
+    // ni `Error:`, ni les cadres de pile qui le noyaient.
+    const cwd = dossier();
+    const db = path.join(cwd, 'ruche.db');
+    const premiere = prendreVerrouReine(db);
+    try {
+      const r = await lancerJusquAuBout(cwd, envReine({ HIVE_DB: db }));
+      expect(r.code, `un refus est un échec de démarrage :\n${r.sortie}`).toBe(1);
+      expect(r.sortie).toContain('Une autre Reine tient déjà cette base');
+      expect(r.sortie, 'le message doit nommer qui tient la base').toContain(`pid ${process.pid}`);
+      expect(r.sortie, 'une pile de Node noie le message').not.toMatch(/^\s+at /m);
+      expect(r.sortie).not.toContain('Error:');
+    } finally {
+      premiere?.liberer();
+    }
   }, 60_000);
 });

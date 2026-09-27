@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-6433%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-6721%20passing-F6C445?labelColor=17130C)
 ![Licence](https://img.shields.io/badge/licence-MIT-F6C445?labelColor=17130C)
 
 🇫🇷 Français · [🇬🇧 English](README.en.md) · [🌐 Site](https://micka420-collab.github.io/hive/) · [📚 Documentation](#-documentation)
@@ -60,7 +60,7 @@ carte Notion distingue le code présent de la preuve de bout en bout.
 
 ## État réel du projet
 
-Mis à jour le 26 septembre 2026. Tout ce qui suit est fusionné sur `main`,
+Mis à jour le 27 septembre 2026. Tout ce qui suit est fusionné sur `main`,
 avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes.
 
 **Prouvé :**
@@ -73,14 +73,26 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
   Dès que deux familles d'agent sont installées, c'est une ouvrière par
   famille : la contre-expertise croisée est sur le chemin par défaut
   ([#466](https://github.com/Micka420-collab/hive/pull/466)).
-- **Reprise après panne**, mesurée avec de vrais processus :
+- **Reprise après panne**, rejouée à chaque CI (Linux, macOS) sur de vrais
+  processus — une Reine, un nœud, une base sur disque
+  (`tests/resilience-processus.test.ts`) :
   - `kill -9` de la Reine ou d'un nœud en pleine mission ;
-  - base verrouillée par un autre processus ;
-  - réseau gelé ou chemin réseau mort.
+  - base verrouillée 15 s par un autre processus ;
+  - réseau gelé au-delà du délai de vie.
 
-  Les tâches reprennent, aucun résultat n'est compté deux fois. Le nœud détecte une
-  connexion morte par ping/pong au lieu d'attendre TCP
-  ([#437](https://github.com/Micka420-collab/hive/pull/437)).
+  Chaque tâche y finit `done`, avec exactement un succès rangé. Qu'aucun
+  résultat ne soit compté deux fois repose sur deux gardes, éprouvées à part
+  parce qu'aucune de ces pannes ne les atteint à coup sûr : un résultat se
+  range en une seule transaction, tout ou rien
+  (`tests/resultat-tout-ou-rien.test.ts`), et le résultat tardif d'une tâche
+  réaffectée est écarté (`tests/scheduler.test.ts`). Un chemin réseau mort
+  sans fermeture est éprouvé sur le vrai client et de vraies sockets
+  (`tests/noeud-veille.test.ts`) : le nœud détecte la connexion morte par
+  ping/pong au lieu d'attendre TCP
+  ([#437](https://github.com/Micka420-collab/hive/pull/437)). Sous Linux et
+  macOS, hors mode conteneur, un nœud arrêté par SIGTERM (`npm run ruche`,
+  systemd, `kill`) annule ses agents en cours au lieu de les laisser tourner
+  orphelins ([#468](https://github.com/Micka420-collab/hive/pull/468)).
 
 - **Sécurité** :
   - les identifiants des dépôts privés ne sortent plus vers l'essaim
@@ -104,11 +116,24 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
 - **Orchestration.** Graphe de délégation borné et persistant, Workers
   (identité, historique, ressources observées, limites d'autonomie), Evaluator
   et contre-revue exacte, visibles dans Mission Control.
+- **Validations sans GitHub.** Après une production réussie, le nœud lance
+  dans son bac les scripts `test`, `typecheck`, `build` et `lint` que le dépôt
+  déclarait **avant** la production (rien, si la production a touché aux
+  scripts), sur la base plus le diff — ce que git ignore est retiré d'abord.
+  L'Evaluator les compte comme la CI GitHub, et Mission Control dit toujours
+  laquelle a parlé : « bac Hive » ou « CI GitHub ». Un script que le projet ne
+  déclare pas est « non applicable », jamais vert. **Il faut un bac** (podman,
+  docker ou bubblewrap) : sans lui, le code de l'agent ne tourne pas sur l'hôte
+  nu, et l'écran le dit. `accepted` demande en plus la relecture croisée.
 - **Mission Control explique ce qu'il a fait**, depuis le journal, sans rien
   recalculer ni estimer :
   - pourquoi ce Worker et ce modèle : le classement de l'Aiguillage figé à
     l'instant du choix ([#449](https://github.com/Micka420-collab/hive/pull/449),
-    [#450](https://github.com/Micka420-collab/hive/pull/450)) ;
+    [#450](https://github.com/Micka420-collab/hive/pull/450)) — y compris le
+    drone vainqueur d'une course et son modèle, et le modèle qui a planté sur
+    une tâche : écarté de ses reprises tant qu'un autre nœud de la ruche peut
+    la porter (la reprise attend qu'il se libère), re-tenté et dit tel quel
+    sinon, jamais compté comme une note ;
   - où est passé le temps : attente, démarrage, exécution, reprises,
     corrections, revue ([#451](https://github.com/Micka420-collab/hive/pull/451)) ;
   - la réputation d'un Worker par catégorie de tâche, « inconnue » là où il
@@ -130,6 +155,10 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
   déclaration de Claude Code suit le format documenté et est éprouvée contre
   un faux binaire, pas encore contre le CLI réel ; Codex ne déclare encore
   rien à Hive ;
+- l'arrêt d'un nœud en **mode conteneur** et **sous Windows** : l'agent peut
+  survivre à son nœud (conteneur lancé sans `--init`, `TerminateProcess` sous
+  Windows), comme les merges et chantiers en cours et les sous-processus
+  qu'un agent lance lui-même ;
 - l'apprentissage : le routing apprend toujours des seules contre-visites ;
   y faire entrer les autres faits du registre Genome est une décision de
   pondération, pas encore prise ;
@@ -162,6 +191,9 @@ diffs produits sont factices, et l'installeur comme la Reine le disent.
 ## 🖥 L'interface
 
 Captures de l'écran réel (`npm run ruche`), pas de maquettes.
+Chaque vue de la barre, la Chambre et un tiroir de tâche, sur bureau et sur
+mobile, se rephotographient en une commande sur une ruche de laboratoire :
+`npm run captures` ([docs/CAPTURES.md](docs/CAPTURES.md)).
 
 <p align="center">
   <img src="docs/images/vitrine.png" width="840" alt="Vitrine Hive — page d'accueil crème, miel en accent, hexagones.">
@@ -367,6 +399,8 @@ et de Node, jamais le HOME.
 | `npm run node`                                | Un nœud membre                                                                                                                                                                |
 | `npm run cli -- doctor`                       | **Le docteur** — 13 causes de panne, et la commande qui répare                                                                                                                |
 | `npm run preuve:v2-alpha -- --racine . --oui` | **La preuve V2 Alpha** — une vraie mission confiée à un vrai agent, jugée critère par critère une fois réglée ; `--workers 3` pour l'essaim, `--exige-bac` pour exiger le bac |
+| `npm run cli -- livrer-local <projet>`        | **Livrer sans GitHub** — la mission commitée sur `hive/mission-<projet>-<n>` (`--pousser`)                                                                                    |
+| `npm run captures`                            | **Les captures** — chaque vue de la barre, la Chambre et un tiroir, bureau et mobile, sur une ruche de laboratoire                                                            |
 | `npm run cli -- sauvegarde`                   | Sauvegarde SQLite par `VACUUM INTO`                                                                                                                                           |
 | `npm run cli -- service`                      | Installer la ruche en service (systemd · launchd · tâche planifiée)                                                                                                           |
 | `npm test`                                    | La suite complète (vitest) — le compte vit dans le badge, en un seul endroit                                                                                                  |
@@ -381,6 +415,7 @@ et de Node, jamais le HOME.
 | **[docs/INSTALLATION.md](docs/INSTALLATION.md)**             | Installer, désinstaller, service, conteneur, sauvegardes |
 | **[docs/CLOUD.md](docs/CLOUD.md)**                           | Community 0 € vs Cloud payant sur tes serveurs           |
 | **[docs/ATELIER.md](docs/ATELIER.md)**                       | Bureau de recette : écran, CDP, outils                   |
+| **[docs/CAPTURES.md](docs/CAPTURES.md)**                     | Les captures de Mission Control, et comment les refaire  |
 | **[docs/WINDOWS-CLAUDE.md](docs/WINDOWS-CLAUDE.md)**         | Tourner seul sous Windows avec son abonnement Claude     |
 | **[docs/PROTECTION-BRANCHE.md](docs/PROTECTION-BRANCHE.md)** | Protéger `main` : les réglages exacts, et pourquoi       |
 | **[docs/FONCTIONNALITES.md](docs/FONCTIONNALITES.md)**       | Chaque partie en détail, avec ses arbitrages             |

@@ -25,6 +25,7 @@ import { mkdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { simpleGit } from 'simple-git';
 import type { SimpleGit } from 'simple-git';
+import { CLONE_MS } from '../shared/butoirs-noeud.js';
 import type { Task } from '../shared/types.js';
 
 export interface Workspace {
@@ -32,6 +33,16 @@ export interface Workspace {
   cwd: string;
   git: SimpleGit | null;
   branch: string | null;
+  /**
+   * Le commit CLONÉ, épinglé avant que l'agent ne touche à rien ; `null` sans
+   * dépôt, ou pour un dépôt sans commit.
+   *
+   * Pas « HEAD au moment où on le demande » : l'agent écrit dans ce dépôt, et
+   * un `git commit` de sa part déplace HEAD. Relu après coup, HEAD nommerait
+   * le commit de l'agent comme « base » — et ce qu'il y a committé
+   * disparaîtrait du diff comme des déclarations que le bac compare.
+   */
+  baseSha: string | null;
   /** Environnement épuré pour les processus enfants. */
   env: NodeJS.ProcessEnv;
   /** Diff des modifications, pour revue humaine (vide sans dépôt git). */
@@ -49,6 +60,27 @@ const SECRETS_INTERDITS_AGENT = new Set([
   'HIVE_WEBHOOK_SECRET',
   'GITHUB_TOKEN',
 ]);
+
+/**
+ * Retire du répertoire d'une tâche tout ce que git IGNORE — `node_modules`,
+ * sorties de build, `.env`, et ce qu'un `.git/info/exclude` cacherait.
+ *
+ * Les validations du bac jugent la BASE plus le DIFF, exactement ce qu'une
+ * livraison ou un merge appliquera. Un fichier ignoré n'est dans aucun des
+ * deux : c'est l'environnement que l'agent s'est fabriqué, hors de la vue de
+ * tout relecteur. Un `node_modules/.bin/node` qui rend 0, laissé par l'agent
+ * dans un projet sans dépendances, faisait passer des tests qui échouent
+ * partout ailleurs — `npm run` met ce dossier en tête du PATH.
+ *
+ * Les fichiers SUIVIS ne bougent pas (`-X` ne vise que les ignorés), et le
+ * diff a déjà été calculé : rien de ce qui est livré ne change. L'écriture vit
+ * ICI parce que ce fichier possède le répertoire de tâche : l'inventaire de ce
+ * que Hive écrit sur la machine d'un membre (`empreinte.ts`) reste vrai.
+ */
+export async function retirerFichiersIgnores(git: SimpleGit): Promise<void> {
+  // `-ff` : aussi les dépôts imbriqués ignorés ; `-d` : les dossiers entiers.
+  await git.raw(['clean', '-ffdX']);
+}
 
 export function variablesAgentSansSecrets(variables: readonly string[]): string[] {
   return variables.filter((name) => !SECRETS_INTERDITS_AGENT.has(name));
@@ -84,12 +116,24 @@ export function buildSandboxEnv(cwd: string, keepEnv: string[] = []): NodeJS.Pro
 }
 
 /**
- * Clone superficiel d'un dépôt dans `dir`, avec la même protection de transport
- * que les clones de tâches : GIT_ALLOW_PROTOCOL neutralise `ext::` (RCE), pas de
- * prompt de terminal, environnement épuré. `dir` doit être vide/inexistant.
+ * L'environnement de TRANSPORT git du nœud : ce qui parle au dépôt distant.
+ *
+ * GIT_ALLOW_PROTOCOL restreint les transports autorisés : neutralise le
+ * transport `ext::` de git (exécution de commande arbitraire = RCE), en plus de
+ * la validation du repoUrl côté hub. GIT_TERMINAL_PROMPT=0 : des identifiants
+ * refusés échouent tout de suite au lieu d'attendre une saisie que personne ne
+ * fera. On repart d'un environnement épuré (sans variables d'éditeur, que
+ * simple-git refuse) : seuls PATH/HOME et les variables système passent — HOME
+ * porte la configuration git de l'opérateur, donc ses assistants
+ * d'identifiants.
+ *
+ * UN SEUL ENDROIT, parce que la livraison POUSSE avec exactement les
+ * identifiants qui ont servi au clone : deux copies de cet environnement —
+ * il y en avait déjà deux, ici même — finiraient par ne plus ouvrir les mêmes
+ * portes, et « le clone passe, la poussée non » se chercherait longtemps.
  */
-export async function cloneRepo(dir: string, repoUrl: string): Promise<void> {
-  const cloneEnv: NodeJS.ProcessEnv = {
+export function envTransportGit(): NodeJS.ProcessEnv {
+  return {
     PATH: process.env.PATH,
     HOME: process.env.HOME,
     USERPROFILE: process.env.USERPROFILE,
@@ -97,8 +141,46 @@ export async function cloneRepo(dir: string, repoUrl: string): Promise<void> {
     SYSTEMDRIVE: process.env.SYSTEMDRIVE,
     GIT_ALLOW_PROTOCOL: 'http:https:git:ssh:file',
     GIT_TERMINAL_PROMPT: '0',
+    // `GIT_TERMINAL_PROMPT` ne gouverne que l'invite du TERMINAL. Sous
+    // Windows, Git Credential Manager ne la lit pas et attend sur sa propre
+    // fenêtre, indéfiniment — le miroir l'a mesuré au plafond près
+    // (`orchestrator/miroir.ts`). Ici, c'est plus grave qu'une requête lente :
+    // un dépôt public se clone sans identifiants, et c'est souvent la POUSSÉE
+    // d'une livraison qui les demande la première. Sans cette ligne, elle
+    // figerait le job de merge et son clone, que rien ne libérerait.
+    GCM_INTERACTIVE: 'Never',
   };
-  await simpleGit().env(cloneEnv).clone(repoUrl, dir, ['--depth', '1']);
+}
+
+/**
+ * Clone superficiel d'un dépôt dans `dir`, avec la même protection de transport
+ * que les clones de tâches (`envTransportGit`). `dir` doit être vide/inexistant.
+ *
+ * ─── BORNÉ, PARCE QUE LE HUB COMPTE DESSUS ─────────────────────────────────
+ *
+ * Ce clone ouvre chaque merge, chaque chantier et chaque tâche, et il n'avait
+ * aucun butoir : un dépôt qui accepte la connexion puis se tait laissait le
+ * travail pendre chez le nœud, sans résultat, pendant que le hub — qui dérive
+ * ses délais des butoirs du nœud (`butoirs-noeud.ts`) — ne pouvait que DEVINER
+ * sa durée. Au-delà de `delaiMs`, git est TUÉ (le plugin d'annulation de
+ * simple-git), et le travail échoue en le disant. Un `Promise.race` rendrait la
+ * main en laissant le processus pendre derrière.
+ *
+ * Limite, dite : c'est le processus LANCÉ qui est tué. Sous Windows, où le `git`
+ * du PATH est d'ordinaire un lanceur, le vrai git peut lui survivre jusqu'à ce
+ * que le dépôt ferme (mesuré, `tests/clone-borne.test.ts`) — la limite de tout
+ * `child.kill()` du nœud. Le travail, lui, échoue à l'heure partout.
+ */
+export async function cloneRepo(dir: string, repoUrl: string, delaiMs = CLONE_MS): Promise<void> {
+  const butoir = AbortSignal.timeout(delaiMs);
+  try {
+    await simpleGit({ abort: butoir }).env(envTransportGit()).clone(repoUrl, dir, ['--depth', '1']);
+  } catch (err) {
+    if (!butoir.aborted) throw err;
+    const duree =
+      delaiMs >= 60_000 ? `${Math.round(delaiMs / 60_000)} min` : `${Math.ceil(delaiMs / 1000)} s`;
+    throw new Error(`clone abandonné après ${duree} — dépôt injoignable ou muet`, { cause: err });
+  }
 }
 
 export async function prepareWorkspace(
@@ -132,27 +214,19 @@ export async function prepareWorkspace(
 
   let git: SimpleGit | null = null;
   let branch: string | null = null;
+  let baseSha: string | null = null;
   if (repoUrl) {
-    // GIT_ALLOW_PROTOCOL restreint les transports autorisés : neutralise le
-    // transport `ext::` de git (exécution de commande arbitraire = RCE), en plus
-    // de la validation du repoUrl côté hub. On repart d'un environnement épuré
-    // (sans variables d'éditeur, que simple-git refuse) : seuls PATH/HOME et les
-    // variables système passent. Le clone exige un répertoire vide, il précède
-    // donc toute écriture dans cwd.
-    const cloneEnv: NodeJS.ProcessEnv = {
-      PATH: process.env.PATH,
-      HOME: process.env.HOME,
-      USERPROFILE: process.env.USERPROFILE,
-      SYSTEMROOT: process.env.SYSTEMROOT,
-      SYSTEMDRIVE: process.env.SYSTEMDRIVE,
-      GIT_ALLOW_PROTOCOL: 'http:https:git:ssh:file',
-      GIT_TERMINAL_PROMPT: '0',
-    };
-    await simpleGit().env(cloneEnv).clone(repoUrl, cwd, ['--depth', '1']);
+    // Le clone exige un répertoire vide, il précède donc toute écriture dans cwd.
+    await cloneRepo(cwd, repoUrl);
     git = simpleGit({ baseDir: cwd });
     // Une tâche = une branche isolée. Jamais de travail direct sur main (§5.2).
     branch = task.branch ?? `hive/${task.id}`;
     await git.checkoutLocalBranch(branch);
+    try {
+      baseSha = (await git.revparse(['HEAD'])).trim();
+    } catch {
+      // Dépôt cloné sans aucun commit : il n'y a pas de base à épingler.
+    }
   }
 
   const env = buildSandboxEnv(cwd, keepEnv);
@@ -161,12 +235,16 @@ export async function prepareWorkspace(
     cwd,
     git,
     branch,
+    baseSha,
     env,
     async collectDiff(): Promise<string> {
       if (!git) return '';
       // --intent-to-add rend les nouveaux fichiers visibles dans le diff.
       await git.raw(['add', '--all', '--intent-to-add']);
-      return git.diff();
+      // CONTRE LA BASE ÉPINGLÉE, pas contre l'index : `git diff` nu compare
+      // l'arbre à l'index, et perdait en silence ce que l'agent avait
+      // `git add` ou committé — absent de la revue, de la livraison, du merge.
+      return baseSha ? git.diff([baseSha]) : git.diff();
     },
     cleanup(): void {
       try {

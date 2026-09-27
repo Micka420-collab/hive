@@ -27,7 +27,7 @@
 //    même règle que le récapitulatif de l'installeur : rien n'est déclenché
 //    sans être nommé d'abord.
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   fetchChantiers,
   fetchRuns,
@@ -56,11 +56,28 @@ const TONS: Record<string, Ton> = {
   inconnue: 'neutre',
 };
 
-export default function Chantiers({ snapshot, selectedId, onNavigate }: ViewProps) {
+export default function Chantiers({ snapshot, events, selectedId, onNavigate }: ViewProps) {
   const t = useT();
   const projets = snapshot.projects;
   const projectId = selectedId ?? projets[0]?.id ?? null;
   const projet = projets.find((p) => p.id === projectId) ?? null;
+
+  // ─── LE VERDICT SE RELIT QUAND LE JOURNAL ANNONCE UNE ISSUE ────────────────
+  //
+  // L'écran repassait UNE fois, une seconde et demie après le clic, puis plus
+  // jamais. Un chantier plus long — n'importe quel vrai `npm test` — ou perdu
+  // avec son nœud laissait donc affiché le verdict PRÉCÉDENT, sans rien pour
+  // dire que la réponse était arrivée, ni qu'elle ne viendrait pas. C'est le
+  // journal qui sait quand un chantier se termine, y compris quand la Reine le
+  // déclare perdu : c'est donc lui qui déclenche la relecture.
+  const derniereIssue = useMemo(() => {
+    for (let i = events.length - 1; i >= 0; i--) {
+      const ev = events[i]!;
+      const issue = ev.type === 'chantier_completed' || ev.type === 'chantier_failed';
+      if (issue && ev.payload.projectId === projectId) return ev.id;
+    }
+    return null;
+  }, [events, projectId]);
 
   const [chantiers, setChantiers] = useState<Chantier[]>([]);
   const [verdict, setVerdict] = useState<VerdictChantier | null>(null);
@@ -106,19 +123,19 @@ export default function Chantiers({ snapshot, selectedId, onNavigate }: ViewProp
     }
   }, [projectId]);
 
+  // `derniereIssue` n'est pas lue ici : elle est le SIGNAL de relecture.
   useEffect(() => {
     void recharger();
-  }, [recharger]);
+  }, [recharger, derniereIssue]);
 
   const lancer = async (nom: string): Promise<void> => {
     if (!projectId) return;
     setEnCours(nom);
     setErreur(null);
     try {
+      // Le verdict arrivera par le journal (`derniereIssue`) quand le nœud
+      // aura fini — ou quand la Reine l'aura déclaré perdu. Rien à deviner ici.
       await lancerChantier(projectId, nom);
-      // Le verdict arrive quand le nœud a fini : on repasse le chercher plutôt
-      // que de prétendre savoir combien de temps ça prend.
-      setTimeout(() => void recharger(), 1500);
     } catch (e) {
       setErreur(e instanceof Error ? e.message : String(e));
     } finally {

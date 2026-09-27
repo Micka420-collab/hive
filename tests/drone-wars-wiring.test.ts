@@ -314,4 +314,44 @@ describe('Drone Wars : câblage scheduler', () => {
     // Un résultat tardif d'un drone annulé est ignoré proprement.
     expect(scheduler.handleTaskResult(started.drones[0]!, result(task.id))).toBe(false);
   });
+
+  it('les validations du bac du drone gagnant sont rangées avec SON résultat et SON nœud', () => {
+    // Le chemin de course range ses résultats à part du chemin mono-nœud :
+    // sans l'appel dédié, la preuve du gagnant se perdait — et l'Evaluator
+    // lisait « preuves manquantes » sur une production validée.
+    const { task } = setup(2);
+    const started = scheduler.startRace(task.id, 2);
+    if (!started.ok) throw new Error('course non lancée');
+    const gagnant = started.drones[1]!;
+    const verdict = { etat: 'passed', raison: 'termine', script: 'test', code: 0 } as const;
+
+    scheduler.handleTaskResult(gagnant, {
+      ...result(task.id),
+      validations: {
+        baseSha: 'b'.repeat(40),
+        controles: {
+          tests: verdict,
+          typecheck: { etat: 'not_applicable', raison: 'non_declare' },
+          build: { etat: 'not_applicable', raison: 'non_declare' },
+          lint: { ...verdict, script: 'lint' },
+        },
+      },
+    });
+
+    const resultId = store.resultsForTask(task.id).at(-1)?.resultId;
+    expect(resultId).toBeDefined();
+    const preuves = store.evenementsDeTache(task.id, ['validation_recorded']);
+    expect(preuves).toHaveLength(1);
+    expect(preuves[0]?.payload).toMatchObject({
+      source: 'hive_sandbox',
+      resultId,
+      nodeId: gagnant,
+    });
+    expect(store.latestValidation(task.id, resultId!)?.validation).toEqual({
+      tests: 'passed',
+      typecheck: 'not_applicable',
+      build: 'not_applicable',
+      lint: 'passed',
+    });
+  });
 });

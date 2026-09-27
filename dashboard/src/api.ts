@@ -3,11 +3,18 @@
 // localement ; en mode simulation, la valeur par défaut suffit.
 
 import { t as tNow } from './i18n';
-import { parseServerMessage } from '../../src/shared/protocol';
+import {
+  CODE_TABLEAU_TROP_LENT,
+  EVENEMENTS_NON_DIFFUSES,
+  parseServerMessage,
+} from '../../src/shared/protocol';
 import type { HiveEvent, Project, StateSnapshot, Task, TaskResult } from '../../src/shared/types';
 import type { Graphe } from '../../src/shared/cerveau-graphe.js';
+import type { DecisionConseil, Desaccord, EntreeWarRoom } from '../../src/shared/war-room.js';
+export type { DecisionConseil, Desaccord, EntreeWarRoom } from '../../src/shared/war-room.js';
 import type { WorkerSnapshot } from '../../src/orchestrator/workers.js';
 import type { JournalOuvriere } from '../../src/orchestrator/journal-ouvriere.js';
+import type { RapportLivraisonLocale } from '../../src/shared/livraison-locale.js';
 import type {
   EvaluationResult,
   ValidationEvidence,
@@ -255,6 +262,12 @@ export interface SessionConseil {
   danses: DanseConseil[];
   /** L'identifiant de la danse retenue, ou `null` si rien n'a convergé. */
   retenue: string | null;
+  /**
+   * La décision humaine COURANTE, ou `null` tant que personne n'a tranché.
+   * OPTIONNELLE : une Reine d'avant ce lot ne la rend pas — l'écran le lit
+   * comme « pas de décision », ce qui est exactement ce qu'elle savait.
+   */
+  decision?: DecisionConseil | null;
 }
 
 export interface ConseilResume {
@@ -266,6 +279,7 @@ export interface ConseilResume {
   issue: IssueConseil | null;
   createdAt: number;
   closedAt?: number | null;
+  decision?: DecisionConseil | null;
 }
 
 export function fetchConseils(): Promise<{ conseils: ConseilResume[] }> {
@@ -274,6 +288,64 @@ export function fetchConseils(): Promise<{ conseils: ConseilResume[] }> {
 
 export function fetchConseil(sessionId: string): Promise<SessionConseil> {
   return api<SessionConseil>(`/api/conseil/${encodeURIComponent(sessionId)}`);
+}
+
+// Réunir et trancher ENGAGENT le projet (ADR 0007) : sur un projet qui a un
+// propriétaire, la Reine exige le COMPTE, et c'est aussi le compte qu'elle
+// inscrit comme auteur de la décision. D'où `enTetesRuche()` — le jeton ET le
+// compte s'il y en a un. Sans lui, la personne connectée recevrait « projet
+// inconnu » sur son propre projet, et sa décision serait rangée anonyme.
+
+/** Réunit un Conseil sur un projet. 409 si un conseil y délibère déjà. */
+export function reunirConseil(projectId: string, question: string): Promise<SessionConseil> {
+  const q = question.trim();
+  return api<SessionConseil>(`/api/projects/${encodeURIComponent(projectId)}/conseil`, {
+    method: 'POST',
+    headers: enTetesRuche(),
+    body: JSON.stringify(q ? { question: q } : {}),
+  });
+}
+
+/**
+ * Tranche un Conseil clos. `precedente` nomme la décision qu'on remplace
+ * (`null` pour la première) : 409 si quelqu'un a tranché entre-temps.
+ */
+export function trancherConseil(
+  sessionId: string,
+  decision: { propositionId: string | null; justification: string; precedente: number | null },
+): Promise<SessionConseil> {
+  return api<SessionConseil>(`/api/conseil/${encodeURIComponent(sessionId)}/decision`, {
+    method: 'POST',
+    headers: enTetesRuche(),
+    body: JSON.stringify(decision),
+  });
+}
+
+/** Le fil de la War Room (cf. `src/shared/war-room.ts`). */
+export interface VueWarRoom {
+  projectId: string | null;
+  taskId: string | null;
+  /** Du plus ancien au plus récent, bornées à `limite`. */
+  entrees: EntreeWarRoom[];
+  /** Vrai quand des entrées plus anciennes existent au-delà de `limite`. */
+  tronque: boolean;
+  desaccords: Desaccord[];
+  taches: Record<string, { titre: string; projectId: string }>;
+  conseils: Record<string, { question: string; projectId: string | null }>;
+  /** Le journal a déjà perdu des lignes : ce fil n'est pas toute l'histoire. */
+  journalElague: boolean;
+}
+
+export function fetchWarRoom(
+  filtre: { projectId?: string | null; taskId?: string | null; limite?: number } = {},
+): Promise<VueWarRoom> {
+  const q = new URLSearchParams();
+  if (filtre.projectId) q.set('projectId', filtre.projectId);
+  if (filtre.taskId) q.set('taskId', filtre.taskId);
+  if (filtre.limite !== undefined) q.set('limite', String(filtre.limite));
+  const qs = q.toString();
+  // Lecture de projet : le compte ouvre les projets qui ont un propriétaire.
+  return api<VueWarRoom>(`/api/war-room${qs ? `?${qs}` : ''}`, { headers: enTetesRuche() });
 }
 
 // ─── Connecter un dépôt GitHub ──────────────────────────────────────────────
@@ -1109,6 +1181,94 @@ export interface MergeRunResult {
    * appliqué(s), 0 conflit(s) » : un succès vide.
    */
   refused?: string;
+  /** Ce qu'est devenue la livraison de mission demandée avec ce merge, s'il y en avait une. */
+  livraison?: RapportLivraisonLocale;
+}
+
+/** Ce que la Reine rend quand une livraison de mission part vers une ouvrière. */
+export interface DepartLivraison {
+  mergeId: string;
+  nodeId: string;
+  /** Le nom de l'ouvrière — c'est chez elle que la branche sera rangée. */
+  noeud: string;
+  order: string[];
+  pousser: boolean;
+  /** Tâches que l'Evaluator arrêtait et qu'un forçage journalisé a laissé partir. */
+  forcees: string[];
+}
+
+/**
+ * Le refus d'une livraison, avec ce que l'écran doit pouvoir LIRE — pas
+ * seulement afficher.
+ *
+ * `code` distingue « l'Evaluator arrête » (un forçage signé devient possible)
+ * de « aucune ouvrière n'a consenti à pousser » ou « une livraison est déjà en
+ * cours », où proposer de forcer n'aurait aucun sens. `bloquees` nomme les
+ * tâches arrêtées et leur verdict.
+ */
+export class RefusLivraison extends ApiError {
+  constructor(
+    message: string,
+    status: number,
+    readonly code?: string,
+    readonly bloquees: readonly { taskId: string; decision: string | null }[] = [],
+  ) {
+    super(message, status);
+    this.name = 'RefusLivraison';
+  }
+}
+
+/**
+ * Livre la mission SANS GitHub : merge sur une ouvrière, puis commit sur
+ * `hive/mission-<projectId>-<n>`. `pousser` : vers le dépôt du projet, avec
+ * les identifiants git de l'ouvrière — si son opérateur y a consenti.
+ *
+ * Son propre `fetch` (avec `enTetesRuche`, qui porte aussi le compte : livrer
+ * est un geste de propriétaire) : la réponse de refus se LIT — `code`,
+ * `bloquees`, `conseil` —, ce que `api()` réduit à une phrase.
+ */
+export async function livrerLocalement(
+  projectId: string,
+  opts: {
+    pousser?: boolean;
+    testCommand?: string[];
+    prepareCommand?: string[];
+    forcer?: { raison: string };
+  } = {},
+): Promise<DepartLivraison> {
+  const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/livraison-locale`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...enTetesRuche() },
+    body: JSON.stringify({
+      ...(opts.pousser ? { pousser: true } : {}),
+      ...(opts.prepareCommand?.length ? { prepareCommand: opts.prepareCommand } : {}),
+      ...(opts.testCommand?.length ? { testCommand: opts.testCommand } : {}),
+      ...(opts.forcer ? { forcer: opts.forcer } : {}),
+    }),
+  });
+  let corps: Record<string, unknown> = {};
+  try {
+    corps = (await res.json()) as Record<string, unknown>;
+  } catch {
+    /* corps non-JSON : le statut parlera seul */
+  }
+  if (!res.ok) {
+    const texte = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
+    const { message } = messageApi(
+      {
+        ...(texte(corps.error) ? { error: texte(corps.error) } : {}),
+        ...(texte(corps.message) ? { message: texte(corps.message) } : {}),
+        // Le `conseil` de la Reine EST la marche à suivre : on le montre.
+        ...(texte(corps.conseil) ? { detail: texte(corps.conseil) } : {}),
+      },
+      res.status,
+    );
+    const bloquees = Array.isArray(corps.bloquees)
+      ? (corps.bloquees as { taskId: string; decision: string | null }[])
+      : [];
+    throw new RefusLivraison(message, res.status, texte(corps.code), bloquees);
+  }
+  return corps as unknown as DepartLivraison;
 }
 
 /** Dernier résultat de merge d'un projet (null tant qu'aucun n'a abouti). */
@@ -1793,15 +1953,71 @@ export interface FeedHandlers {
    * `connected` : le socket est ouvert **et** le hub a accepté le jeton.
    * `meta.authError` : fermeture 4401 « token invalide » — le champ Jeton ne
    * correspond pas à `HIVE_TOKEN` de l'orchestrateur.
+   * `meta.tropLent` : fermeture `CODE_TABLEAU_TROP_LENT` — cet écran lisait
+   * moins vite que la Reine n'écrivait ; il se reconnecte seul.
    */
-  onStatus: (connected: boolean, meta?: { authError?: boolean; reason?: string }) => void;
+  onStatus: (
+    connected: boolean,
+    meta?: { authError?: boolean; tropLent?: boolean; reason?: string },
+  ) => void;
+  /**
+   * Le rattrapage a trouvé un TROU : `manquants` événements émis pendant la
+   * coupure étaient déjà élagués par la Reine (elle ne garde que ses derniers
+   * événements). Le trou ne se comble plus ; il se DIT, pour que le Journal ne
+   * passe pas pour complet.
+   */
+  onJournalIncomplet?: (manquants: number) => void;
 }
 
 export interface HiveFeed {
   close(): void;
 }
 
-/** Connexion WebSocket auto-reconnectante au flux d'état de la ruche. */
+/**
+ * Une page du journal, après l'événement `depuis`. 1000 est le plafond de la
+ * route : une page pleine veut dire qu'il en reste peut-être d'autres.
+ */
+const PAGE_RATTRAPAGE = 1000;
+
+/**
+ * Ce qu'une page de rattrapage peut prendre. Sans borne, une lecture qui ne
+ * revenait pas — un proxy qui garde la réponse, des connexions HTTP toutes
+ * prises par d'autres longues requêtes — laissait l'écran « connecté », son
+ * instantané à jour, et TOUT le direct retenu derrière elle : un Journal gelé
+ * sans un mot. Au-delà, la lecture échoue et prend le chemin de tout échec de
+ * rattrapage.
+ */
+const RATTRAPAGE_DELAI_MS = 30_000;
+
+function fetchEvenementsDepuis(depuis: number, signal: AbortSignal): Promise<HiveEvent[]> {
+  return api<HiveEvent[]>(`/api/events?since=${depuis}&limit=${PAGE_RATTRAPAGE}`, { signal });
+}
+
+/**
+ * Connexion WebSocket auto-reconnectante au flux d'état de la ruche.
+ *
+ * ─── L'ÉTAT SE RESYNCHRONISAIT, LE JOURNAL NON ──────────────────────────────
+ *
+ * Chaque connexion commence par un instantané complet : l'état se rattrape
+ * tout seul. Le journal, lui, ne se rattrapait pas — un événement émis pendant
+ * une coupure (onglet en veille, Wi-Fi qui décroche, Reine redémarrée) n'était
+ * jamais rejoué, et le Journal, les tiroirs et l'horloge des chantiers
+ * racontaient une histoire trouée sans le savoir. La route `?since=` existait ;
+ * personne ne l'appelait.
+ *
+ * Désormais chaque événement du journal est livré à `onEvent` UNE fois, dans
+ * l'ordre de ses ids. À la reconnexion, le flux relit le journal depuis le
+ * dernier événement livré ; le direct reçu pendant ce rattrapage attend son
+ * tour. Le dédoublonnage tient sur UN nombre, `curseur`, parce que la Reine
+ * journalise PUIS diffuse dans le même tour synchrone : les ids arrivent
+ * croissants, et un id déjà dépassé a déjà été livré.
+ *
+ * Limite, DITE à l'écran : le journal ne garde que ses derniers événements
+ * (`EVENT_RETENTION` côté Reine). Une coupure plus longue laisse un trou que
+ * personne ne peut combler — mais qui se VOIT : les ids du journal se suivent
+ * sans trou sauf là où la Reine a élagué, et le rattrapage le signale
+ * (`onJournalIncomplet`) au lieu de présenter la fin comme toute l'histoire.
+ */
 export function connectFeed(handlers: FeedHandlers): HiveFeed {
   let ws: WebSocket | null = null;
   let closed = false;
@@ -1809,42 +2025,132 @@ export function connectFeed(handlers: FeedHandlers): HiveFeed {
   let timer: number | undefined;
   /** Tant que le hub n'a pas renvoyé d'`state`, on n'est pas vraiment connecté. */
   let authentifie = false;
+  /**
+   * La connexion a SERVI : premier instantané reçu et journal rattrapé. Seule
+   * une connexion saine ramène le recul à une seconde (voir `onclose`).
+   */
+  let sain = false;
+  /**
+   * Le dernier événement livré — ou, avant le tout premier, celui que reflétait
+   * le premier instantané. `null` tant qu'aucune connexion n'a abouti.
+   */
+  let curseur: number | null = null;
+  /** Le direct reçu PENDANT un rattrapage, livré après lui. `null` hors rattrapage. */
+  let enAttente: HiveEvent[] | null = null;
+
+  const livrer = (ev: HiveEvent): void => {
+    // Le même événement peut venir du rattrapage ET du direct : une fois suffit.
+    if (curseur !== null && ev.id <= curseur) return;
+    curseur = ev.id;
+    // Le curseur avance, mais ce que le direct ne porte jamais reste tu.
+    if (!EVENEMENTS_NON_DIFFUSES.has(ev.type)) handlers.onEvent(ev);
+  };
+
+  const rattraper = async (socket: WebSocket, depuis: number): Promise<void> => {
+    let apres = depuis;
+    /** Le prochain id du journal : un id plus grand dit un trou élagué. */
+    let attendu = depuis + 1;
+    try {
+      for (;;) {
+        const ctrl = new AbortController();
+        const butoir = window.setTimeout(() => ctrl.abort(), RATTRAPAGE_DELAI_MS);
+        let page: HiveEvent[];
+        try {
+          page = await fetchEvenementsDepuis(apres, ctrl.signal);
+        } finally {
+          window.clearTimeout(butoir);
+        }
+        // Une autre connexion a pris la main, ou l'écran a fermé le flux.
+        if (closed || socket !== ws) return;
+        let manquants = 0;
+        for (const ev of page) {
+          if (ev.id > attendu) manquants += ev.id - attendu;
+          attendu = ev.id + 1;
+          livrer(ev);
+        }
+        if (manquants > 0) handlers.onJournalIncomplet?.(manquants);
+        const fin = page.at(-1)?.id;
+        // Une page qui n'avance pas arrête la boucle : sans ça, un serveur qui
+        // ignorerait `since` la ferait tourner pour toujours.
+        if (page.length < PAGE_RATTRAPAGE || fin === undefined || fin <= apres) break;
+        apres = fin;
+      }
+    } catch {
+      // Livrer le direct maintenant rendrait le trou définitif. On referme :
+      // la reconnexion retentera depuis le même curseur — et comme cette
+      // connexion n'a jamais été saine, son recul grandit à chaque échec.
+      if (!closed && socket === ws) socket.close();
+      return;
+    }
+    const direct = enAttente ?? [];
+    enAttente = null;
+    sain = true;
+    for (const ev of direct) livrer(ev);
+  };
 
   const open = (): void => {
     if (closed) return;
     authentifie = false;
+    sain = false;
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    ws = new WebSocket(`${proto}://${location.host}/ws`);
+    const socket = new WebSocket(`${proto}://${location.host}/ws`);
+    ws = socket;
 
-    ws.onopen = () => {
-      retryMs = 1_000;
+    socket.onopen = () => {
       // Pas encore `onStatus(true)` : le hub peut fermer en 4401 juste après
       // le `subscribe`. On attend le premier `state` (ou on signale l'échec).
-      ws?.send(JSON.stringify({ type: 'subscribe', token: getToken() }));
+      socket.send(JSON.stringify({ type: 'subscribe', token: getToken() }));
     };
 
-    ws.onmessage = (e: MessageEvent) => {
+    socket.onmessage = (e: MessageEvent) => {
       const msg = parseServerMessage(typeof e.data === 'string' ? e.data : '');
       if (!msg) return;
       if (msg.type === 'state') {
         if (!authentifie) {
           authentifie = true;
           handlers.onStatus(true);
+          const reprise = msg.dernierEvenementId;
+          if (curseur !== null && reprise > curseur) {
+            // Le journal a avancé pendant la coupure : on relit ce qui manque.
+            enAttente = [];
+            void rattraper(socket, curseur);
+          } else {
+            // Premier contact — l'instantané est à jour, rien à relire — ou
+            // journal reparti de zéro (base remplacée) : l'ancien curseur ne
+            // désigne plus rien, et le garder ferait taire tout ce qui suit.
+            curseur = reprise;
+            sain = true;
+          }
         }
         handlers.onState(msg.snapshot);
-      } else if (msg.type === 'event') handlers.onEvent(msg.event);
+      } else if (msg.type === 'event') {
+        if (enAttente) enAttente.push(msg.event);
+        else livrer(msg.event);
+      }
     };
 
-    ws.onclose = (ev: CloseEvent) => {
+    socket.onclose = (ev: CloseEvent) => {
+      // Le direct retenu est dans le journal : le prochain rattrapage le relira.
+      enAttente = null;
       const authError = ev.code === 4401 || /token invalide/i.test(ev.reason ?? '');
+      const tropLent = ev.code === CODE_TABLEAU_TROP_LENT;
       handlers.onStatus(false, {
         authError,
+        ...(tropLent ? { tropLent } : {}),
         ...(ev.reason ? { reason: ev.reason } : {}),
       });
-      if (!closed) {
-        timer = window.setTimeout(open, retryMs);
-        retryMs = Math.min(retryMs * 2, 15_000);
-      }
+      if (closed) return;
+      // ─── LE RECUL NE REPART D'UNE SECONDE QU'APRÈS UNE CONNEXION QUI A SERVI ─
+      //
+      // Remis à zéro à chaque OUVERTURE, il bouclait à 1 Hz sur un rattrapage
+      // qui échoue toujours : chaque tour, un instantané complet, une relecture
+      // de toutes les vues, un voyant qui clignote — et assez de requêtes pour
+      // épuiser le quota REST de l'adresse, donc faire échouer le rattrapage
+      // suivant. Un jeton refusé bouclait de même. Et un écran coupé pour
+      // lenteur ne se reconnecte pas plus vite qu'il ne sait lire.
+      if (sain && !tropLent) retryMs = 1_000;
+      timer = window.setTimeout(open, retryMs);
+      retryMs = Math.min(retryMs * 2, 15_000);
     };
   };
 

@@ -16,6 +16,15 @@ describe('POST /api/tasks/:id/evaluation/ci', () => {
   let taskId: string;
   let resultId: number;
   let headRef = '';
+  const CI_VERTE = [
+    {
+      name: 'CI · Tests · Typecheck · Build · Lint',
+      status: 'completed',
+      conclusion: 'success',
+      html_url: 'https://github.test/check/1',
+    },
+  ];
+  let checkRuns: Record<string, unknown>[] = CI_VERTE;
   const previousToken = process.env.HIVE_GITHUB_TOKEN;
 
   const json = (value: unknown, status = 200): Response =>
@@ -33,18 +42,7 @@ describe('POST /api/tasks/:id/evaluation/ci', () => {
         head: { sha: 'abc123', ref: headRef },
       });
     }
-    if (url.includes('/commits/abc123/check-runs')) {
-      return json({
-        check_runs: [
-          {
-            name: 'CI · Tests · Typecheck · Build · Lint',
-            status: 'completed',
-            conclusion: 'success',
-            html_url: 'https://github.test/check/1',
-          },
-        ],
-      });
-    }
+    if (url.includes('/commits/abc123/check-runs')) return json({ check_runs: checkRuns });
     if (url.endsWith('/pulls/7/reviews?per_page=100')) return json([]);
     return json({ message: 'route GitHub inattendue' }, 404);
   };
@@ -155,7 +153,10 @@ describe('POST /api/tasks/:id/evaluation/ci', () => {
       commitSha: 'abc123',
       resultId,
     });
-    expect(server.store.latestCiValidation(taskId, resultId)?.commitSha).toBe('abc123');
+    expect(server.store.latestValidation(taskId, resultId)?.provenance).toMatchObject({
+      source: 'github_pull_request',
+      commitSha: 'abc123',
+    });
   });
 
   it('refuse de ranger une preuve si la branche de la PR ne correspond plus', async () => {
@@ -170,5 +171,65 @@ describe('POST /api/tasks/:id/evaluation/ci', () => {
     expect((await response.json()).code).toBe('provenance_mismatch');
     expect(server.store.countEvents()).toBe(eventsBefore);
     headRef = `hive/${taskId}`;
+  });
+
+  // ─── UN INCONNU N'ÉCRASE PAS UN CONNU ───────────────────────────────────────
+  //
+  // La preuve la plus récente gouverne, entière. Ranger une CI qui tourne
+  // encore — ou une PR sans contrôle lisible — mettait quatre `missing`
+  // par-dessus les verdicts du bac Hive, et l'Evaluator repassait en
+  // `additional_test_required` sans retour possible.
+  it.each([
+    [
+      'une CI qui tourne encore',
+      [{ name: 'CI · Tests', status: 'in_progress', conclusion: null, html_url: 'https://g/1' }],
+      'ci_running',
+    ],
+    [
+      'une PR sans contrôle lisible',
+      [
+        {
+          name: 'Deploy preview',
+          status: 'completed',
+          conclusion: 'success',
+          html_url: 'https://g/2',
+        },
+      ],
+      'ci_without_verdict',
+    ],
+  ])('ne range pas %s par-dessus les verdicts du bac', async (_cas, controles, code) => {
+    server.store.appendEvent('validation_recorded', {
+      source: 'hive_sandbox',
+      taskId,
+      projectId: server.store.getTask(taskId)?.projectId,
+      resultId,
+      nodeId: 'n-ci',
+      validation: { tests: 'passed', typecheck: 'passed', build: 'passed', lint: 'passed' },
+      details: {
+        tests: { raison: 'termine', script: 'test', code: 0 },
+        typecheck: { raison: 'termine', script: 'typecheck', code: 0 },
+        build: { raison: 'termine', script: 'build', code: 0 },
+        lint: { raison: 'termine', script: 'lint', code: 0 },
+      },
+      recordedAt: Date.now(),
+    });
+    const eventsBefore = server.store.countEvents();
+    checkRuns = controles;
+    try {
+      const response = await fetch(`${base}/api/tasks/${taskId}/evaluation/ci`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ resultId }),
+      });
+      expect(response.status).toBe(409);
+      expect((await response.json()).code).toBe(code);
+    } finally {
+      checkRuns = CI_VERTE;
+    }
+    expect(server.store.countEvents()).toBe(eventsBefore);
+    expect(server.store.latestValidation(taskId, resultId)).toMatchObject({
+      validation: { tests: 'passed', lint: 'passed' },
+      provenance: { source: 'hive_sandbox' },
+    });
   });
 });

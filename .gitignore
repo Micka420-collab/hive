@@ -25,3 +25,7 @@ rapport-tests.json
 # de mutation, pour qu’un balayage tué ne laisse pas son défaut dans l’arbre.
 # Propre à une exécution, jamais partagé.
 .loupe-en-cours
+
+# Les captures d'écran de `npm run captures` — refaites en une commande, sur
+# l'arbre courant. Celles qu'on publie sont COPIÉES exprès sous docs/images.
+captures-ecran/

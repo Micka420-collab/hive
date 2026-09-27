@@ -120,6 +120,37 @@ export function depotDepuisUrl(url: string | null): string | null {
 }
 
 /**
+ * Ce qui désigne un DÉPÔT, quelle que soit la forge : deux adresses qui
+ * mènent au même dépôt rendent la même clé. `null` sans adresse.
+ *
+ * La propriété se juge sur le projet, mais c'est le dépôt qu'on écrit
+ * (`ecritureDepotPermise`) : un jumeau sur la même adresse, écrite autrement,
+ * ne doit pas passer pour un autre dépôt. Tombent donc les identifiants et le
+ * schéma (`ssh://git@h/d` et `https://h/d` atteignent le même dépôt avec les
+ * clés de qui pousse), la forme scp (`git@h:d`), un `.git` ou `/` final, et
+ * la casse — celle de l'hôte n'a jamais compté, et GitHub, GitLab et Gitea
+ * ne distinguent pas celle du chemin. Deux dépôts qui ne diffèrent que par la
+ * casse, sur un serveur qui la distingue, se confondent : un refus de trop,
+ * jamais une écriture de trop.
+ */
+export function cleDepot(url: string | null): string | null {
+  if (!url) return null;
+  const github = depotDepuisUrl(url);
+  if (github) return `github.com/${github}`.toLowerCase();
+  let hote: string;
+  let chemin: string;
+  try {
+    const u = new URL(url);
+    [hote, chemin] = [u.host, u.pathname];
+  } catch {
+    const scp = /^(?:[^@/\s]+@)?([^:/\s]+):(.+)$/.exec(url.trim());
+    [hote, chemin] = scp ? [scp[1] ?? '', scp[2] ?? ''] : ['', url.trim()];
+  }
+  const nu = chemin.replace(/^\/+/, '').replace(/(?:\.git)?\/*$/i, '');
+  return `${hote}/${nu}`.toLowerCase();
+}
+
+/**
  * Lit les FAITS VIVANTS d'une pull request : son état, ses contrôles, ses revues.
  *
  * Trois appels, et pas un de plus — un par nature de fait. On ne range rien de

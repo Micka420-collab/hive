@@ -1,6 +1,7 @@
 // Journal d'événements : flux temps réel, coloré et à icônes.
 
 import type { HiveEvent } from '../../src/shared/types';
+import { VALIDATION_KEYS } from '../../src/shared/validations-bac';
 import { useT } from './i18n';
 import type { Translate } from './i18n';
 import { bandeText, formatDuree } from './ui';
@@ -13,6 +14,14 @@ interface Meta {
 }
 
 const short = (v: unknown) => (typeof v === 'string' ? v.slice(0, 8) : '?');
+
+/** `—` : non applicable (le projet ne le déclare pas) — surtout pas un vert. */
+const SYMBOLE_VALIDATION: Record<string, string> = {
+  passed: '✔',
+  failed: '✘',
+  missing: '?',
+  not_applicable: '—',
+};
 
 /**
  * La Balance au journal. PESER et PRÉVOIR n'ont introduit aucun type
@@ -216,7 +225,13 @@ const EVENTS: Record<string, Meta> = {
   task_rejected: {
     icon: '⇄',
     cls: 'muted',
-    text: (p, t) => t(`refusée (${short(p.taskId)})`, `declined (${short(p.taskId)})`),
+    // Un refus d'INFRASTRUCTURE dit sa cause (agent en panne, clone
+    // impossible) : c'est la seule trace d'une tâche qui finit sans qu'aucun
+    // agent n'ait tourné — ni production, ni logs à relire.
+    text: (p, t) => {
+      const base = t(`refusée (${short(p.taskId)})`, `declined (${short(p.taskId)})`);
+      return p.infra === true && typeof p.reason === 'string' ? `${base} — ${p.reason}` : base;
+    },
   },
   node_registered: {
     icon: '⬡',
@@ -240,6 +255,31 @@ const EVENTS: Record<string, Meta> = {
     icon: '↺',
     cls: 'muted',
     text: (_p, t) => t('réconciliation', 'reconciliation'),
+  },
+  // Les validations d'une production, avec LEUR source : un vert du bac Hive
+  // n'est pas un vert de la CI GitHub, et la ligne le dit avant les états.
+  validation_recorded: {
+    icon: '✓',
+    cls: 'info',
+    text: (p, t) => {
+      const source =
+        p.source === 'hive_sandbox'
+          ? t('bac Hive', 'Hive sandbox')
+          : p.source === 'github_pull_request'
+            ? t('CI GitHub', 'GitHub CI')
+            : '?';
+      const etats =
+        typeof p.validation === 'object' && p.validation !== null
+          ? (p.validation as Record<string, unknown>)
+          : {};
+      const ligne = VALIDATION_KEYS.map(
+        (cle) => `${cle} ${SYMBOLE_VALIDATION[String(etats[cle])] ?? '?'}`,
+      ).join(' · ');
+      return t(
+        `validations ${short(p.taskId)} (${source}) : ${ligne}`,
+        `validations ${short(p.taskId)} (${source}): ${ligne}`,
+      );
+    },
   },
   memory_recorded: {
     icon: '※',
@@ -427,6 +467,85 @@ const EVENTS: Record<string, Meta> = {
       t(
         `reprise : ${String(p.requeued)} tâche(s) requalifiée(s)`,
         `recovery: ${String(p.requeued)} task(s) requeued`,
+      ),
+  },
+  // ─── Chantiers et poses : le journal EST leur réponse ─────────────────────
+  //
+  // L'écran d'une pose promet « la machine répondra dans le journal », et
+  // celui des chantiers relit son verdict quand le journal annonce une issue.
+  // Affichées en type brut, ces issues étaient là sans se lire — la perte de
+  // contact comprise, qui n'est PAS un échec constaté : sa cause le dit.
+  chantier_started: {
+    icon: '▶',
+    cls: 'run',
+    text: (p, t) =>
+      t(
+        `chantier « ${String(p.nom)} » lancé → nœud ${short(p.nodeId)}`,
+        `chantier “${String(p.nom)}” started → node ${short(p.nodeId)}`,
+      ),
+  },
+  chantier_completed: {
+    icon: '●',
+    cls: 'done',
+    text: (p, t) => t(`chantier « ${String(p.nom)} » réussi`, `chantier “${String(p.nom)}” passed`),
+  },
+  chantier_failed: {
+    icon: '✘',
+    cls: 'fail',
+    text: (p, t) => {
+      const nom = String(p.nom);
+      if (typeof p.reason === 'string') {
+        return t(
+          `chantier « ${nom} » sans résultat : ${p.reason}`,
+          `chantier “${nom}” without result: ${p.reason}`,
+        );
+      }
+      if (typeof p.refused === 'string') {
+        return t(
+          `chantier « ${nom} » refusé : ${p.refused}`,
+          `chantier “${nom}” refused: ${p.refused}`,
+        );
+      }
+      return t(
+        `chantier « ${nom} » en échec (code ${String(p.code)})`,
+        `chantier “${nom}” failed (code ${String(p.code)})`,
+      );
+    },
+  },
+  outil_pose_demandee: {
+    icon: '⇣',
+    cls: 'info',
+    text: (p, t) =>
+      t(
+        `pose de ${String(p.outilId)} demandée → nœud ${short(p.nodeId)}`,
+        `install of ${String(p.outilId)} requested → node ${short(p.nodeId)}`,
+      ),
+  },
+  outil_pose_rendue: {
+    icon: '⇣',
+    cls: 'info',
+    text: (p, t) => {
+      const outil = String(p.outilId);
+      if (p.ok === true) {
+        return t(
+          `${outil} posé sur le nœud ${short(p.nodeId)}`,
+          `${outil} installed on node ${short(p.nodeId)}`,
+        );
+      }
+      const pourquoi = typeof p.refuse === 'string' ? p.refuse : `code ${String(p.code)}`;
+      return t(
+        `pose de ${outil} en échec : ${pourquoi}`,
+        `install of ${outil} failed: ${pourquoi}`,
+      );
+    },
+  },
+  outil_pose_sans_reponse: {
+    icon: '⊘',
+    cls: 'warn',
+    text: (p, t) =>
+      t(
+        `pose de ${String(p.outilId)} sans réponse du nœud ${short(p.nodeId)} : ${String(p.reason)}`,
+        `install of ${String(p.outilId)}: no answer from node ${short(p.nodeId)}: ${String(p.reason)}`,
       ),
   },
 };

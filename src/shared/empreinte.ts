@@ -207,6 +207,15 @@ export function empreinte(ctx: Contexte): Emplacement[] {
         // incomplète à qui copierait « le » fichier de base.
         { chemin: `${ctx.dbPath}-wal`, quoi: 'journal WAL de SQLite' },
         { chemin: `${ctx.dbPath}-shm`, quoi: 'mémoire partagée de SQLite' },
+        // Le verrou de la Reine (`orchestrator/verrou-reine.ts`) : une petite
+        // base SQLite créée au premier démarrage et JAMAIS supprimée — c'est le
+        // verrou que le système pose dessus, pas sa présence, qui dit qu'une
+        // Reine tourne. Le supprimer sous une Reine vivante en laisserait
+        // démarrer une seconde.
+        {
+          chemin: `${ctx.dbPath}.reine.lock`,
+          quoi: 'verrou de la Reine — une seule Reine par base',
+        },
       ],
     },
     {
@@ -225,7 +234,8 @@ export function empreinte(ctx: Contexte): Emplacement[] {
       retirable: true,
       consequence:
         'une tâche EN COURS y vit. La supprimer pendant qu’un nœud travaille ' +
-        'perd ce qui n’a pas encore été livré.',
+        'perd ce qui n’a pas encore été livré — et une branche de mission ' +
+        'gardée sur le nœud sans avoir été poussée n’existe que là.',
       contenu: [
         {
           chemin: p.join(ctx.workdir, 'join', 'node-key.txt'),
@@ -238,6 +248,13 @@ export function empreinte(ctx: Contexte): Emplacement[] {
         {
           chemin: p.join(ctx.workdir, 'bin'),
           quoi: 'cloudflared, s’il a été téléchargé par `hive cloudflare --install`',
+        },
+        {
+          // Le seul contenu d'ici qui ne se REFAIT pas : une mission livrée
+          // sans GitHub et sans poussée vit dans ce dépôt nu, et nulle part
+          // ailleurs (`node-client/livraison-locale.ts`).
+          chemin: p.join(ctx.workdir, '<nœud>', 'livraisons', '<projet>.git'),
+          quoi: 'les branches de mission (`hive/mission-*`) livrées sur ce nœud — poussez-les avant d’effacer',
         },
         {
           chemin: p.join(ctx.workdir, 'tasks', '<task-id>', '.hive'),

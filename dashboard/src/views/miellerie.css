@@ -854,3 +854,24 @@
   color: var(--honey);
   overflow-wrap: anywhere;
 }
+
+/* Constats du bac Hive : une ligne par validation, l'état en tête. */
+.mi-controles {
+  list-style: none;
+  margin: 4px 0 8px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
+}
+
+.mi-controles li[data-etat='failed'] {
+  color: var(--red);
+}
+
+.mi-controles li[data-etat='missing'],
+.mi-controles li[data-etat='not_applicable'] {
+  color: var(--muted);
+}

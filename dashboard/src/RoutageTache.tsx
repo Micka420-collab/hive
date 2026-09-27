@@ -6,7 +6,10 @@
 // jamais jugé est dit « à explorer », jamais noté 0 — y compris quand des
 // élections en vol pèsent déjà sur son score, et ces élections sont comptées à
 // part ; une absence de modèle déclaré est dite telle quelle, sans
-// justification inventée.
+// justification inventée. Dans une course de drones, c'est le drone VAINQUEUR
+// qui répond — son nœud, son modèle, son classement —, pas le primaire que
+// nomme l'affectation ; et un modèle écarté après un échec sur la tâche est
+// dit, comme celui qui y est re-tenté faute d'alternative.
 
 import { useEffect, useState } from 'react';
 import { fetchRoutage } from './api';
@@ -41,8 +44,31 @@ export function RoutageTache({ taskId, cle, nodes }: Props) {
 
   const derniere = affectations && affectations.length > 0 ? affectations.at(-1)! : null;
   const nomNoeud = (id: string): string => nodes.find((n) => n.id === id)?.name ?? id.slice(0, 8);
+  // En course, le drone qui répond : le vainqueur une fois connu, sinon le
+  // primaire. Sa raison est la sienne — le classement de son propre nœud.
+  const course = derniere?.course ?? null;
+  const producteur = course?.drones.find(
+    (d) => d.nodeId === (course.vainqueur?.nodeId ?? derniere?.nodeId),
+  );
+  // Un drone sans modèle reste sans modèle : jamais celui du primaire.
+  const vue = producteur
+    ? {
+        nodeId: producteur.nodeId,
+        modele: course?.vainqueur?.modele ?? producteur.modele,
+        raisonModele: producteur.raisonModele,
+      }
+    : derniere;
 
   const critere = (a: AffectationVue): string => {
+    if (a.critereNoeud === 'course_de_drones' && a.course) {
+      const n = a.course.drones.length;
+      return a.course.vainqueur
+        ? t(`vainqueur d’une course de ${n} drones`, `winner of a ${n}-drone race`)
+        : t(
+            `primaire d’une course de ${n} drones à agents diversifiés`,
+            `primary of a ${n}-drone race across diverse agents`,
+          );
+    }
     if (a.critereNoeud === 'pheromones' && a.pheromone) {
       return t(
         `départagé par les phéromones (domaine « ${a.pheromone.domaine} », score ${deux(a.pheromone.score)})`,
@@ -86,15 +112,23 @@ export function RoutageTache({ taskId, cle, nodes }: Props) {
       {!erreur && affectations !== null && derniere === null && (
         <p className="muted">{t('Pas encore affectée.', 'Not assigned yet.')}</p>
       )}
-      {derniere && (
+      {derniere && vue && (
         <>
           <p data-testid="routage-worker">
-            <strong>{nomNoeud(derniere.nodeId)}</strong> — {critere(derniere)}
+            <strong>{nomNoeud(vue.nodeId)}</strong> — {critere(derniere)}
           </p>
-          {derniere.modele ? (
+          {course && (
+            <p className="muted" data-testid="routage-course">
+              {t('Drones :', 'Drones:')}{' '}
+              {course.drones
+                .map((d) => `${nomNoeud(d.nodeId)} (${d.modele ?? t('son défaut', 'its default')})`)
+                .join(' · ')}
+            </p>
+          )}
+          {vue.modele ? (
             <>
               <p data-testid="routage-modele">
-                {t('Modèle', 'Model')} <strong>{derniere.modele}</strong>
+                {t('Modèle', 'Model')} <strong>{vue.modele}</strong>
                 {derniere.categorie && (
                   <>
                     {' '}
@@ -108,7 +142,7 @@ export function RoutageTache({ taskId, cle, nodes }: Props) {
                   </span>
                 )}
               </p>
-              {derniere.raisonModele.length > 0 && (
+              {vue.raisonModele.length > 0 && (
                 <table
                   className="routage-rang"
                   aria-label={t('Classement de l’Aiguillage', 'Routing ranking')}
@@ -122,11 +156,8 @@ export function RoutageTache({ taskId, cle, nodes }: Props) {
                     </tr>
                   </thead>
                   <tbody>
-                    {derniere.raisonModele.map((l) => (
-                      <tr
-                        key={l.modele}
-                        className={l.modele === derniere.modele ? 'elu' : undefined}
-                      >
+                    {vue.raisonModele.map((l) => (
+                      <tr key={l.modele} className={l.modele === vue.modele ? 'elu' : undefined}>
                         <td>{l.modele}</td>
                         <td>{essais(l)}</td>
                         <td>{l.moyenne === null ? '—' : deux(l.moyenne)}</td>
@@ -142,6 +173,22 @@ export function RoutageTache({ taskId, cle, nodes }: Props) {
               {t(
                 'Aucun modèle déclaré par les nœuds éligibles : l’ouvrière choisit elle-même.',
                 'No model declared by eligible nodes: the worker picks its own.',
+              )}
+            </p>
+          )}
+          {derniere.modelesEcartes.length > 0 && (
+            <p className="muted" data-testid="routage-ecartes">
+              {t(
+                `Écarté pour cette tâche après un échec : ${derniere.modelesEcartes.join(', ')} — un plantage n’est pas une note, rien n’est appris.`,
+                `Set aside for this task after a failure: ${derniere.modelesEcartes.join(', ')} — a crash is not a grade, nothing is learned.`,
+              )}
+            </p>
+          )}
+          {derniere.modelesReadmis.length > 0 && (
+            <p className="muted" data-testid="routage-readmis">
+              {t(
+                `Déjà échoué sur cette tâche, re-tenté faute d’alternative dans la ruche : ${derniere.modelesReadmis.join(', ')}.`,
+                `Already failed on this task, retried for lack of an alternative in the hive: ${derniere.modelesReadmis.join(', ')}.`,
               )}
             </p>
           )}

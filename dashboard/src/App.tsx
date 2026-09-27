@@ -62,6 +62,7 @@ const Intendance = lazy(() => import('./views/Intendance'));
 const Cerveau = lazy(() => import('./views/Cerveau'));
 const Chantiers = lazy(() => import('./views/Chantiers'));
 const Chambre = lazy(() => import('./views/Chambre'));
+const WarRoom = lazy(() => import('./views/WarRoom'));
 
 const EMPTY: StateSnapshot = { projects: [], nodes: [], tasks: [], tasksTotal: 0 };
 
@@ -86,6 +87,7 @@ const NAV: NavItem[] = [
   { id: 'rayon', label: 'Rayon', labelEn: 'Comb', key: '9' },
   { id: 'monespace', label: 'Mon espace', labelEn: 'My space', key: '0' },
   { id: 'chantiers', label: 'Chantiers', labelEn: 'Works', key: 'h' },
+  { id: 'warroom', label: 'War Room', labelEn: 'War Room', key: 'w' },
   {
     id: 'intendance',
     label: 'Intendance',
@@ -189,6 +191,14 @@ function NavGlyph({ id }: { id: ViewId }) {
           <path d="M12.8 7.2 16.8 11.2" />
         </svg>
       );
+    case 'warroom':
+      // Deux bulles qui se font face : un débat, pas une alerte.
+      return (
+        <svg {...common}>
+          <path d="M4 6.5h9.5v6.2H8.2L5.5 15v-2.3H4V6.5Z" />
+          <path d="M15.5 9.5H20v6.2h-1.5V18l-2.7-2.3h-5.3v-3" />
+        </svg>
+      );
     case 'intendance':
       return (
         <svg {...common}>
@@ -268,6 +278,10 @@ export function App() {
   const [deferred, setDeferred] = useState<Set<string>>(() => new Set());
   const [connected, setConnected] = useState(false);
   const [tokenAuthError, setTokenAuthError] = useState(false);
+  /** Coupé pour lenteur (`CODE_TABLEAU_TROP_LENT`) : le voyant dit pourquoi. */
+  const [tropLent, setTropLent] = useState(false);
+  /** Événements perdus à l'élagage pendant une coupure — dit, jamais comblé. */
+  const [journalElague, setJournalElague] = useState(0);
   const [token, setTokenState] = useState(getToken());
   const [feedKey, setFeedKey] = useState(0);
   const [route, setRoute] = useState(parseHash);
@@ -315,6 +329,15 @@ export function App() {
             // Changement de régime thermique : la jauge de Santé doit refléter
             // la nouvelle bande appliquée sans attendre le prochain poll.
             'thermo_shift',
+            // Le Conseil et la War Room : un conseil réuni, clos ou tranché par
+            // un AUTRE opérateur, un renvoi refusé qui laisse une contestation
+            // en suspens, la revue humaine qui la lève — les panneaux qui le
+            // montrent se relisent.
+            'council_opened',
+            'council_closed',
+            'council_decided',
+            'evaluator_retry_skipped',
+            'task_reviewed',
           ].includes(ev.type)
         ) {
           if (refreshTimer.current === undefined) {
@@ -355,16 +378,19 @@ export function App() {
         // quand rien ne change est le contrat : même référence, pas de rendu.
         setDeferred((prev) => transitionDifferees(prev, ev.type, taskId) as Set<string>);
       },
+      onJournalIncomplet: (manquants) => setJournalElague((n) => n + manquants),
       onStatus: (up, meta) => {
         setConnected(up);
+        setTropLent(!up && meta?.tropLent === true);
         if (up) setTokenAuthError(false);
         else if (meta?.authError) setTokenAuthError(true);
-        // À CHAQUE (re)connexion : ré-hydrater les revues — les task_reviewed
-        // émis pendant une coupure ne sont jamais rejoués par le serveur.
+        // À CHAQUE (re)connexion : ré-hydrater les revues. Le flux rejoue les
+        // task_reviewed manqués (`connectFeed`), mais seulement dans la limite
+        // de ce que le journal a gardé — la table des revues n'oublie rien.
         if (up) {
-          // Le snapshot courant ne rejoue pas les événements manqués : les
-          // tiroirs et vues qui lisent une API doivent donc repartir d'une
-          // lecture après chaque reconnexion réussie.
+          // Les événements rattrapés passent par `onEvent` comme le direct,
+          // mais toutes les vues qui lisent une API n'écoutent pas un type
+          // d'événement : elles repartent d'une lecture à chaque reconnexion.
           setRefreshTick((t) => t + 1);
           const seq = beginReviewHydration();
           fetchReviews()
@@ -568,6 +594,9 @@ export function App() {
             <li key={item.id}>
               <button
                 className={`mc-nav-cell${route.view === item.id ? ' active' : ''}`}
+                // L'identifiant de la vue, lisible sans dépendre de la langue :
+                // `npm run captures` nomme ses images d'après lui.
+                data-vue={item.id}
                 onClick={() => navigate(item.id)}
                 title={`${lang === 'fr' ? item.label : item.labelEn} (${t('touche', 'key')} ${item.key})`}
                 aria-current={route.view === item.id ? 'page' : undefined}
@@ -705,9 +734,23 @@ export function App() {
                 </span>
               );
             })()}
-            <span className={connected ? 'conn online' : 'conn offline'}>
+            <span
+              className={connected ? 'conn online' : 'conn offline'}
+              title={
+                tropLent
+                  ? t(
+                      'Cet écran lisait moins vite que la Reine n’écrivait : elle l’a coupé pour borner sa mémoire. Il se reconnecte seul, puis rattrape le journal.',
+                      'This screen read slower than the Queen wrote: she cut it to bound her memory. It reconnects on its own, then catches up the journal.',
+                    )
+                  : undefined
+              }
+            >
               <span className="conn-dot" />
-              {connected ? t('connecté', 'connected') : t('hors ligne', 'offline')}
+              {connected
+                ? t('connecté', 'connected')
+                : tropLent
+                  ? t('hors ligne — écran trop lent', 'offline — screen too slow')
+                  : t('hors ligne', 'offline')}
             </span>
           </div>
         </header>
@@ -719,6 +762,20 @@ export function App() {
                 'Jeton de ruche refusé — collez dans le champ « Jeton » (en haut à droite) la valeur exacte de HIVE_TOKEN depuis le fichier .env de l’orchestrateur. Ce n’est pas le jeton GitHub.',
                 'Hive token rejected — paste the exact HIVE_TOKEN from the orchestrator’s .env into the Token field (top right). This is not the GitHub token.',
               )}
+            </p>
+          </div>
+        )}
+
+        {journalElague > 0 && (
+          <div className="mc-token-banner" role="status">
+            <p>
+              {t(
+                `Journal incomplet : ${journalElague} événement(s) émis pendant une coupure étaient déjà élagués par la Reine — le Journal ne les montrera pas. L’état affiché, lui, est à jour.`,
+                `Incomplete journal: ${journalElague} event(s) emitted during a disconnection had already been pruned by the Queen — the Journal will not show them. The displayed state is up to date.`,
+              )}{' '}
+              <button className="btn ghost" onClick={() => setJournalElague(0)}>
+                {t('Compris', 'Got it')}
+              </button>
             </p>
           </div>
         )}
@@ -751,6 +808,7 @@ export function App() {
               {route.view === 'cerveau' && <Cerveau {...viewProps} />}
               {route.view === 'chantiers' && <Chantiers {...viewProps} />}
               {route.view === 'chambre' && <Chambre {...viewProps} />}
+              {route.view === 'warroom' && <WarRoom {...viewProps} />}
             </Suspense>
           </FiletDeSecurite>
         </main>

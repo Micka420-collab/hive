@@ -271,6 +271,17 @@ const DECISIONS: readonly Acte[] = [
     refus: 'projet',
   },
   {
+    // #476 : la mission commitée sur `hive/mission-<projet>-<n>`, sans GitHub.
+    // Livrer décide du sort du travail, pousser ou non : la même porte que la
+    // livraison GitHub (`proprieteProjetPermise`).
+    nom: 'livraison-locale',
+    methode: 'POST',
+    route: '/api/projects/:projectId/livraison-locale',
+    url: p('livraison-locale'),
+    corps: () => ({}),
+    refus: 'projet',
+  },
+  {
     nom: 'tasks/:taskId/review',
     methode: 'POST',
     route: '/api/tasks/:taskId/review',

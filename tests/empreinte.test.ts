@@ -668,7 +668,15 @@ describe('LA GARDE : aucune écriture ne s’ajoute en douce hors de l’inventa
     // ces gestes ont quitté `join.ts`, qui s'exécute à l'import et qu'aucun
     // banc ne pouvait donc toucher (0 % de couverture), pour un module éprouvé.
     'src/node-client/identite-noeud.ts': '<workdir>/join — identifiant et clé du nœud',
-    'src/node-client/merge-runner.ts': 'os.tmpdir()/hive-merge-* — effacé en finally',
+    'src/node-client/merge-runner.ts':
+      'os.tmpdir()/hive-merge-*, et le dépôt de transit d’une livraison ' +
+      '(<workdir>/<nœud>/merges/<id>.livraison.git, voisin du clone) — effacés en finally',
+    'src/node-client/livraison-locale.ts':
+      '<workdir>/<nœud>/livraisons/<projet>.git — le dépôt nu où survivent les branches ' +
+      'de mission non poussées. Déclaré dans `empreinte()` comme contenu nommé de ' +
+      '« travail » : c’est la seule chose d’ici qui ne se refait pas. Le message de ' +
+      'commit s’écrit dans le dépôt de transit, voisin du clone sous « travail » et ' +
+      'effacé avec lui, jamais dans `os.tmpdir()`.',
     'src/node-client/isolement.ts':
       'os.tmpdir()/hive-agent-preflight-* — répertoire vide, effacé après la sonde',
     'src/node-client/workspace.ts': '<workdir>/<nom> et son .tmp voisin',
@@ -679,6 +687,9 @@ describe('LA GARDE : aucune écriture ne s’ajoute en douce hors de l’inventa
       'personnel, il est opt-in, et il figure dans `empreinte()` sous la clé ' +
       '« service » — donc dans `hive desinstaller`.',
     'src/orchestrator/store.ts': '<données> — le dossier de la base SQLite',
+    'src/orchestrator/verrou-reine.ts':
+      '<données> — le dossier de la base, pour y poser <base>.reine.lock, le ' +
+      'verrou de la Reine. Déclaré dans `empreinte()` parmi le contenu de la clé « base ».',
     'src/sauvegarde-reelle.ts':
       '<données>/sauvegardes — les copies de la base. Écrites par `VACUUM INTO` ' +
       'sous un nom `.part`, publiées par un renommage atomique, et élaguées à un ' +

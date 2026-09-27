@@ -19,11 +19,13 @@ import {
 } from './agent-detect.js';
 import type { AgentType } from './agent-detect.js';
 import { argvDe, jugerChantier } from '../shared/chantier.js';
+import { CHANTIER_EXECUTION_MS, CHANTIER_PREPARATION_MS } from '../shared/butoirs-noeud.js';
 import { jugerCommandeTest } from '../shared/commande-test.js';
 import { jugerPreparation } from '../shared/preparation.js';
 import { isOnShift, minutesUntilOpen, nightShiftFromEnv } from '../shared/night-shift.js';
 import type { NightShiftPolicy } from '../shared/night-shift.js';
 import { plateformeDepuis } from '../shared/machine.js';
+import { laverIdentifiantsDuTexte } from '../shared/projet-public.js';
 import { ID_PATTERN, LIMITS, parseServerMessage } from '../shared/protocol.js';
 import type {
   AssignChantierMsg,
@@ -41,7 +43,9 @@ import { HEARTBEAT_INTERVAL_MS, NODE_TIMEOUT_MS } from '../shared/types.js';
 import type { ExecutionUsage, IsolementDeclare, Task } from '../shared/types.js';
 import { runMerge, runProc } from './merge-runner.js';
 import { lancerVraiment, poserOutil } from './pose-runner.js';
-import { buildSandboxEnv, cloneRepo, prepareWorkspace } from './workspace.js';
+import { buildSandboxEnv, cloneRepo, envTransportGit, prepareWorkspace } from './workspace.js';
+import { motifLave } from './livraison-locale.js';
+import { pousseeConsentie } from '../shared/livraison-locale.js';
 import {
   requisitionDepuisEchecInfra,
   type RequisitionDepuisInfra,
@@ -56,6 +60,9 @@ import type {
   WorkerDelegationResult,
 } from '../adapters/index.js';
 import { capturerExecutionUsage, executionUsageDepuis } from './execution-usage.js';
+import { VALIDATION_KEYS } from '../shared/validations-bac.js';
+import type { ValidationsBac } from '../shared/validations-bac.js';
+import { validerProduction } from './validations-bac.js';
 
 const MAX_PENDING_DELEGATIONS = 32;
 const MAX_ACCEPTED_DELEGATIONS = 128;
@@ -150,6 +157,15 @@ export interface NodeClientOptions {
   silenceMaxMs?: number;
   /** Cadence des pings de vie vers le hub (ms). Défaut : `HEARTBEAT_INTERVAL_MS`. */
   pingMs?: number;
+  /**
+   * L'opérateur consent-il à POUSSER les branches de mission avec les
+   * identifiants git de cette machine ? Défaut : `HIVE_LIVRAISON_POUSSER=1`.
+   *
+   * Lu ICI, et non par chacun des deux points d'entrée (`main.ts`, `join.ts`) :
+   * c'est la même raison que Night Shift. Deux lectures finissent par diverger,
+   * et celle qui oublierait le réglage pousserait sans consentement.
+   */
+  pousseLivraisons?: boolean;
 }
 
 /**
@@ -159,6 +175,45 @@ export interface NodeClientOptions {
  */
 export function composeAgentPrompt(hiveContext: string | undefined, prompt: string): string {
   return hiveContext ? `${hiveContext}\n\n${prompt}` : prompt;
+}
+
+/**
+ * SIGINT ET SIGTERM : LE MÊME ARRÊT, pour les deux portes du nœud (`main.ts`,
+ * `join.ts`). Une seule copie : ces deux portes ont déjà divergé plus d'une fois.
+ *
+ * SIGINT n'arrive que d'un terminal (Ctrl+C) ; ce qui SUPERVISE un nœud envoie
+ * SIGTERM — `npm run ruche` à l'arrêt (`scripts/ruche.mjs`, au seul pid de
+ * l'ouvrière), systemd, launchd, un `kill` nu. Sans gestionnaire, SIGTERM tuait
+ * le nœud net, sans `stop()`, et là où personne ne balaie son groupe l'agent en
+ * cours lui SURVIVAIT, orphelin, pour une tâche que la Reine remettait déjà en
+ * file ailleurs. `stop()` annule chaque tâche active, et l'annulation envoie son
+ * SIGTERM à l'agent SYNCHRONEMENT (le `signal` passé à `spawn`, `exec.ts`) : il
+ * part avant notre `exit`. `tests/noeud-arret-signal.test.ts` l'éprouve sur les
+ * deux portes, en vrais processus.
+ *
+ * CE QUE ÇA NE COUVRE PAS ENCORE, et il faut le savoir avant de s'y fier :
+ *   - Windows : `kill('SIGTERM')` y est un TerminateProcess, aucun gestionnaire
+ *     ne tourne ;
+ *   - le mode conteneur : l'annulation atteint le client `docker run`, pas
+ *     l'agent, PID 1 du conteneur sans `--init` (isolement.ts) — et `codex
+ *     exec` n'écoute que SIGINT ;
+ *   - les petits-enfants d'un agent, et les merges et chantiers, que `stop()`
+ *     n'annule pas.
+ *
+ * `finally` : si `stop()` levait, le nœud sort QUAND MÊME — un arrêt demandé
+ * qui laisserait tourner le nœud serait pire que l'orphelin.
+ */
+export function arreterSurSignaux(client: Pick<HiveNodeClient, 'stop'>): void {
+  for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+    process.on(signal, () => {
+      console.log('\nDéconnexion de la ruche…');
+      try {
+        client.stop();
+      } finally {
+        process.exit(0);
+      }
+    });
+  }
 }
 
 export class HiveNodeClient {
@@ -669,6 +724,9 @@ export class HiveNodeClient {
         // Le bac à sable où les tâches tourneront — redit à CHAQUE inscription :
         // le hub efface une déclaration qui n'est pas répétée.
         ...(this.opts.isolement ? { isolement: this.opts.isolement } : {}),
+        // Le consentement à pousser, dit au hub pour qu'il CHOISISSE un nœud
+        // consentant. La garde, elle, reste ici (`runMergeJob`).
+        ...(this.pousseLivraisons() ? { pousseLivraisons: true } : {}),
       });
     });
 
@@ -1018,15 +1076,37 @@ export class HiveNodeClient {
     let workspace: Workspace | null = null;
     let conserverWorkspace = false;
     try {
-      workspace = await prepareWorkspace(
-        this.workRoot,
-        task,
-        repoUrl,
-        this.opts.keepEnv ?? [],
-        // Isole le répertoire par nœud : deux drones d'une même course sur une
-        // même machine (workRoot partagé) ne se marchent pas dessus.
-        this.nodeId ? this.nodeId.slice(0, 8) : '',
-      );
+      try {
+        workspace = await prepareWorkspace(
+          this.workRoot,
+          task,
+          repoUrl,
+          this.opts.keepEnv ?? [],
+          // Isole le répertoire par nœud : deux drones d'une même course sur une
+          // même machine (workRoot partagé) ne se marchent pas dessus.
+          this.nodeId ? this.nodeId.slice(0, 8) : '',
+        );
+      } catch (err) {
+        // Le dépôt ne s'est pas cloné ICI (identifiants de ce nœud, réseau,
+        // dépôt muet) : l'agent n'a pas tourné. Un `task_result` en échec
+        // brûlait une tentative et écartait un modèle qui n'avait rien fait ;
+        // c'est un refus d'infrastructure — un autre nœud peut réussir, et le
+        // token-failover borne le cas où aucun n'y arrive. Lavé : la raison
+        // cite l'URL du dépôt, et part à tout l'écran. La DERNIÈRE ligne :
+        // celle où git dit pourquoi (`fatal: …`), dans les 120 caractères
+        // d'une raison de refus.
+        const brut = err instanceof Error ? err.message : String(err);
+        const cause = motifLave(brut.trim().split('\n').at(-1) ?? brut);
+        this.send({
+          type: 'task_reject',
+          taskId: task.id,
+          reason: `clone impossible : ${cause}`.slice(0, LIMITS.name),
+          infra: true,
+          avantAgent: true,
+        });
+        this.log(`⇄ ${task.title} : clone impossible → réaffectation (${cause})`);
+        return;
+      }
       // Hive Mind : le contexte reçu du hub est préfixé au prompt pour l'agent.
       // On n'altère que la copie transmise à l'adaptateur (chemins/branche du
       // workspace restent construits sur la tâche d'origine).
@@ -1060,10 +1140,12 @@ export class HiveNodeClient {
           });
         },
       });
-      if (budgetTimer) {
-        clearTimeout(budgetTimer);
-        budgetTimer = null;
-      }
+      // LE BUDGET COURT ENCORE : le minuteur n'est levé qu'au `finally`. Les
+      // validations du bac comptent dans la durée d'un enfant délégué — son
+      // parent ne l'attend que `durationMs` plus une grâce, et des
+      // validations hors budget (jusqu'à une demi-heure) lui feraient lire
+      // « résultat absent » pour un enfant qui a réussi. À l'échéance, le
+      // signal arrête les validations en cours (`annule`) et le résultat part.
       const result =
         budgetExceeded && delegationBudget
           ? this.resultAfterDelegationBudget(rawResult, delegationBudget)
@@ -1117,6 +1199,11 @@ export class HiveNodeClient {
       }
       // L'adaptateur peut fournir son diff ; sinon le workspace git le calcule.
       const diff = result.diff !== '' ? result.diff : await workspace.collectDiff();
+      // La durée est celle de l'AGENT, mesurée avant les validations : elle
+      // nourrit la Balance et la chronologie, qui comparent des agents — pas
+      // la vitesse des tests du projet.
+      const durationMs = Date.now() - started;
+      const validations = await this.validerSiProduction(task.id, result, diff, workspace, ctrl);
       // Tronquer aux limites du protocole : un diff/log surdimensionné ferait
       // rejeter le message par le hub (fermeture de connexion) et la tâche
       // bouclerait indéfiniment sans jamais aboutir.
@@ -1126,14 +1213,17 @@ export class HiveNodeClient {
         success: result.success,
         diff: diff.slice(0, LIMITS.diff),
         logs: result.logs.slice(0, LIMITS.log),
-        durationMs: Date.now() - started,
+        durationMs,
         subAgents: result.subAgents.slice(0, LIMITS.subAgents),
         ...(usage ? { usage } : {}),
         ...declarationsDuResultat(result),
+        ...(validations ? { validations } : {}),
       });
       this.log(`${result.success ? '✔' : '✘'} ${task.title}`);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      // Lavé : une exception de git ou d'un adaptateur peut citer une URL à
+      // identifiants, et ces logs partent au hub, donc à tout l'écran.
+      const message = laverIdentifiantsDuTexte(err instanceof Error ? err.message : String(err));
       usage = usageBefore ? executionUsageDepuis(usageBefore, capturerExecutionUsage()) : undefined;
       this.send({
         type: 'task_result',
@@ -1157,6 +1247,38 @@ export class HiveNodeClient {
         workspace?.cleanup();
       }
     }
+  }
+
+  /**
+   * Les validations du bac pour CETTE production, ou rien.
+   *
+   * Seulement quand le diff remis est celui du RÉPERTOIRE — l'adaptateur n'en a
+   * pas fourni un à lui. L'adaptateur `shell` simulé rend un diff factice sans
+   * rien écrire : valider son répertoire rendrait des verts à propos de la base,
+   * attribués à une production qui n'existe pas. Rien non plus sans succès ni
+   * diff : un échec est déjà un verdict, et une relecture n'écrit rien.
+   */
+  private async validerSiProduction(
+    taskId: string,
+    result: AdapterResult,
+    diff: string,
+    workspace: Workspace,
+    ctrl: AbortController,
+  ): Promise<ValidationsBac | undefined> {
+    if (!result.success || result.diff !== '' || diff.trim() === '') return undefined;
+    const validations = await validerProduction({
+      cwd: workspace.cwd,
+      depot:
+        workspace.git && workspace.baseSha
+          ? { git: workspace.git, baseSha: workspace.baseSha }
+          : null,
+      ...(this.opts.bac ? { bac: this.opts.bac } : {}),
+      signal: ctrl.signal,
+      surEtape: (log) => this.send({ type: 'task_update', taskId, status: 'running', log }),
+    });
+    const etats = VALIDATION_KEYS.map((cle) => `${cle} ${validations.controles[cle].etat}`);
+    this.log(`validations du bac : ${etats.join(' · ')}`);
+    return validations;
   }
 
   /** Reprend une tâche après réquisition accordée — credentials / binaire prêts. */
@@ -1236,10 +1358,12 @@ export class HiveNodeClient {
           });
         },
       });
-      if (budgetTimer) {
-        clearTimeout(budgetTimer);
-        budgetTimer = null;
-      }
+      // LE BUDGET COURT ENCORE : le minuteur n'est levé qu'au `finally`. Les
+      // validations du bac comptent dans la durée d'un enfant délégué — son
+      // parent ne l'attend que `durationMs` plus une grâce, et des
+      // validations hors budget (jusqu'à une demi-heure) lui feraient lire
+      // « résultat absent » pour un enfant qui a réussi. À l'échéance, le
+      // signal arrête les validations en cours (`annule`) et le résultat part.
       const result =
         budgetExceeded && delegationBudget
           ? this.resultAfterDelegationBudget(rawResult, delegationBudget)
@@ -1276,20 +1400,25 @@ export class HiveNodeClient {
         return;
       }
       const diff = result.diff !== '' ? result.diff : await workspace.collectDiff();
+      const durationMs = Date.now() - started;
+      const validations = await this.validerSiProduction(task.id, result, diff, workspace, ctrl);
       this.send({
         type: 'task_result',
         taskId: task.id,
         success: result.success,
         diff: diff.slice(0, LIMITS.diff),
         logs: result.logs.slice(0, LIMITS.log),
-        durationMs: Date.now() - started,
+        durationMs,
         subAgents: result.subAgents.slice(0, LIMITS.subAgents),
         ...(usage ? { usage } : {}),
         ...declarationsDuResultat(result),
+        ...(validations ? { validations } : {}),
       });
       this.log(`${result.success ? '✔' : '✘'} ${task.title} (reprise)`);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      // Lavé : une exception de git ou d'un adaptateur peut citer une URL à
+      // identifiants, et ces logs partent au hub, donc à tout l'écran.
+      const message = laverIdentifiantsDuTexte(err instanceof Error ? err.message : String(err));
       usage = usageBefore ? executionUsageDepuis(usageBefore, capturerExecutionUsage()) : undefined;
       this.send({
         type: 'task_result',
@@ -1337,10 +1466,33 @@ export class HiveNodeClient {
   }
 
   // ─── Merge (Honeycomb Merge, Palier 3) ───────────────────────────────────
+  /** Consentement de l'opérateur à pousser (cf. `NodeClientOptions.pousseLivraisons`). */
+  private pousseLivraisons(): boolean {
+    return this.opts.pousseLivraisons ?? pousseeConsentie(process.env);
+  }
+
+  /**
+   * Le dépôt DURABLE des livraisons d'un projet sur ce nœud.
+   *
+   * `projectId` est validé (ID_PATTERN) par le protocole ; le confinement sous
+   * `<workRoot>/livraisons` est la seconde barrière, au plus près de l'écriture
+   * — même règle que le répertoire d'une tâche (`prepareWorkspace`).
+   */
+  private depotDeLivraisons(projectId: string): string {
+    const racine = path.resolve(this.workRoot, 'livraisons');
+    const depot = path.resolve(racine, `${projectId}.git`);
+    if (!depot.startsWith(racine + path.sep)) {
+      throw new Error(`projet hors du répertoire des livraisons : ${projectId}`);
+    }
+    return depot;
+  }
+
   /**
    * Exécute un merge demandé par le hub : clone le dépôt, applique les diffs dans
    * l'ordre (conflits git réels détectés), lance éventuellement les tests, et
-   * remonte le résultat. Ne commit ni ne push jamais (revue humaine).
+   * remonte le résultat. Sans demande de livraison, ne commit ni ne push
+   * (revue humaine) ; avec, commite la mission sur sa branche et ne la pousse
+   * que si l'opérateur de CE nœud y a consenti.
    */
   private async runMergeJob(msg: AssignMergeMsg): Promise<void> {
     // Anti-doublon : un hub qui réémet le même mergeId ne doit pas lancer deux
@@ -1417,6 +1569,19 @@ export class HiveNodeClient {
         // Le bac à sable du nœud suit le merge : la commande de test exécute du
         // code du dépôt, au même titre qu'un agent.
         ...(this.opts.bac ? { bac: this.opts.bac } : {}),
+        ...(msg.livraison
+          ? {
+              livraison: {
+                demande: msg.livraison,
+                // L'adresse validée par le protocole, celle qu'on vient de
+                // cloner : la seule vers laquelle la livraison liste et pousse.
+                depotProjet: msg.repoUrl,
+                depotLocal: this.depotDeLivraisons(msg.livraison.projectId),
+                pousseeConsentie: this.pousseLivraisons(),
+                envTransport: envTransportGit(),
+              },
+            }
+          : {}),
       });
       this.send({
         type: 'merge_result',
@@ -1428,18 +1593,23 @@ export class HiveNodeClient {
         testsPassed: result.testsPassed,
         preparedOk: result.preparedOk,
         logs: result.logs.slice(0, LIMITS.log),
+        ...(result.livraison ? { livraison: result.livraison } : {}),
       });
       this.log(
         `merge ${msg.mergeId.slice(0, 8)} : ${result.applied.length} appliqué(s), ${result.conflicts.length} conflit(s)`,
       );
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
       // `refused`, là aussi : ce merge n'a PAS EU LIEU (clone refusé —
       // identifiants, dépôt introuvable, réseau — ou `runMerge` qui a jeté).
       // Sans lui, le hub rangeait `applied: [], conflicts: []` en
       // `merge_completed`, et l'écran lisait « 0 diff(s) appliqué(s), 0
       // conflit(s) » : un succès vide, la cause enfouie dans un journal replié
       // (mesuré de bout en bout : tests/workflow-git.test.ts).
+      //
+      // LAVÉ : un clone refusé cite l'URL du dépôt, identifiants compris quand
+      // ils y sont écrits — et ce texte part au hub, donc à tout l'écran.
+      const brut = err instanceof Error ? err.message : String(err);
+      const message = motifLave(brut);
       this.send({
         type: 'merge_result',
         mergeId: msg.mergeId,
@@ -1450,6 +1620,9 @@ export class HiveNodeClient {
         testsPassed: null,
         logs: `[nœud] échec du merge : ${message}`,
         refused: 'échec du merge sur le nœud',
+        ...(msg.livraison
+          ? { livraison: { etat: 'non_commitee', motif: motifLave(`échec du merge : ${brut}`) } }
+          : {}),
       });
       this.log(`✘ merge ${msg.mergeId.slice(0, 8)} : ${message}`);
     } finally {
@@ -1561,7 +1734,7 @@ export class HiveNodeClient {
           msg.prepareCommand,
           dir,
           env,
-          10 * 60_000,
+          CHANTIER_PREPARATION_MS,
           undefined,
           this.opts.bac ? this.opts.bac : undefined,
         );
@@ -1591,7 +1764,7 @@ export class HiveNodeClient {
         argvDe(msg.nom),
         dir,
         env,
-        15 * 60_000,
+        CHANTIER_EXECUTION_MS,
         undefined,
         this.opts.bac ? this.opts.bac : undefined,
       );

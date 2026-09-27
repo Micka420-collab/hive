@@ -16,8 +16,19 @@ import { CORPUS_AIGUILLAGE } from './aiguillage.js';
 import { CORPUS_GARDE_FOU } from './garde-fou.js';
 import type { Echelon, FaitsProduction } from './garde-fou.js';
 import type { Suite } from './polyethisme.js';
-import type { CiValidationRecord } from './ci-evidence.js';
-import type { CrossReviewEvidence, CrossReviewVote } from './evaluator.js';
+import type {
+  CrossReviewEvidence,
+  CrossReviewVote,
+  ProvenanceBac,
+  ProvenanceGithub,
+  ValidationEvidence,
+  ValidationProvenance,
+} from './evaluator.js';
+import {
+  VALIDATION_KEYS,
+  estEtatDeValidation,
+  validationsBacDepuis,
+} from '../shared/validations-bac.js';
 import { agreger, type Avis } from '../shared/contre-expertise.js';
 import { champSurUneLigne } from '../shared/donnees-non-fiables.js';
 import { CORPUS_BALANCE, LOT_GRAND_LIVRE, VERSION_BALANCE } from './balance.js';
@@ -1488,12 +1499,62 @@ export class HiveStore {
       mkdirSync(path.dirname(path.resolve(dbPath)), { recursive: true });
     }
     this.db = new Database(dbPath);
+    // ─── LES QUATRE RÉGLAGES DE LA BASE, DITS ICI ET NON HÉRITÉS ─────────────
+    //
+    // Seul `journal_mode` était posé. Les trois autres valaient ce que le BUILD
+    // de better-sqlite3 décidait (`deps/defines.gypi`, `lib/database.js`) :
+    // une montée de version qui changerait un défaut aurait désarmé une garde
+    // sans qu'une ligne de Hive bouge.
+    //
+    //   • `synchronous = FULL` — la durabilité d'abord, décision du
+    //     propriétaire : un COMMIT rendu est sur le disque, même si la machine
+    //     s'éteint l'instant d'après (un résultat, une livraison, une
+    //     approbation). Ce n'était PAS le réglage en marche : le build pose
+    //     `SQLITE_DEFAULT_WAL_SYNCHRONOUS=1`, et la base tombait en NORMAL dès
+    //     sa première écriture en WAL, puis à chaque réouverture (mesuré ; cf.
+    //     docs/ERREURS.md § 9 novemoctogicenties). En NORMAL, une coupure de
+    //     courant pouvait emporter les dernières transactions validées.
+    //     Le prix est un fsync du WAL par COMMIT — mesuré sur disque réel :
+    //     0,02 ms en NORMAL, 6 ms en FULL. D'où le schéma ci-dessous, posé en
+    //     UNE transaction.
+    //   • `foreign_keys = ON` — les `REFERENCES` du schéma sont appliquées.
+    //     SQLite nu les ignore ; seul le défaut de compilation les armait.
+    //   • `busy_timeout = 5000` — un écrivain concurrent fait ATTENDRE jusqu'à
+    //     5 s au lieu d'échouer aussitôt en `SQLITE_BUSY` (sauvegarde en cours,
+    //     `sqlite3` ouvert à la main).
+    //
+    // Posés avant le schéma, et relus par tests/sqlite-concurrent.test.ts APRÈS
+    // une écriture et une réouverture — là où le défaut WAL avait trompé la
+    // lecture d'un audit.
     this.db.pragma('journal_mode = WAL');
-    this.db.exec(SCHEMA);
+    this.db.pragma('synchronous = FULL');
+    this.db.pragma('foreign_keys = ON');
+    this.db.pragma('busy_timeout = 5000');
+    // UNE transaction pour tout le schéma. En autocommit, chacun de ses
+    // quatre-vingts `CREATE … IF NOT EXISTS` validait seul : sous FULL, autant
+    // de fsync, et une base neuve coûtait 525 ms au lieu de 70 (mesuré sur
+    // disque réel) — à chaque démarrage d'une Reine neuve, à chaque banc qui
+    // en ouvre une. Tout-ou-rien, en prime : un démarrage interrompu ne laisse
+    // plus un schéma à moitié posé.
+    this.db.transaction(() => this.db.exec(SCHEMA))();
   }
 
   close(): void {
     this.db.close();
+  }
+
+  /**
+   * Exécute `ecrire` en UNE transaction : tout est écrit, ou rien.
+   *
+   * IMMEDIATE, pas DEFERRED : le verrou d'écriture est pris au BEGIN, avant la
+   * première écriture. Si un autre processus tient la base, l'attente (5 s) et
+   * l'éventuel SQLITE_BUSY tombent là, quand rien n'est encore écrit — jamais
+   * ENTRE deux écritures, où ils laisseraient un état à moitié rangé. `ecrire`
+   * reste synchrone (better-sqlite3 refuse une promesse) ; imbriquée, la
+   * transaction devient un SAVEPOINT.
+   */
+  enTransaction<T>(ecrire: () => T): T {
+    return this.db.transaction(ecrire).immediate();
   }
 
   // ─── Utilisateurs ───────────────────────────────────────────────────────────
@@ -3088,9 +3149,48 @@ export class HiveStore {
   }
 
   /**
+   * RÉCLAME une tâche pour un nœud : `attendu → assigned`, en UNE instruction
+   * conditionnelle. Rend la tâche réclamée, ou `undefined` si elle n'est plus
+   * dans le statut où l'appelant l'a lue — introuvable, ou déjà prise.
+   *
+   * `patchTask` lit PUIS écrit, sans condition : sûr sous une seule Reine,
+   * puisque tout y est synchrone, et c'est `verrou-reine.ts` qui garantit
+   * qu'il n'y en a qu'une. Ceci est la ceinture sous les bretelles : si deux
+   * écrivains partageaient malgré tout la base, le second `UPDATE … WHERE
+   * status = ?` ne toucherait aucune ligne au lieu d'écraser l'assignation du
+   * premier — et la même tâche partait sur deux nœuds.
+   *
+   * N'écrit QUE les colonnes de la réclamation : réécrire la ligne entière,
+   * comme `patchTask`, reposerait des `attempts` lus avant qu'un autre
+   * écrivain ne les change.
+   */
+  reclamerTache(
+    reclamation: {
+      taskId: string;
+      attendu: Extract<TaskStatus, 'pending' | 'ready'>;
+      nodeId: string;
+      branch: string | null;
+    },
+    now = Date.now(),
+  ): Task | undefined {
+    const { taskId, attendu, nodeId, branch } = reclamation;
+    const row = this.db
+      .prepare(
+        `UPDATE tasks SET status = 'assigned', assignedNodeId = ?, branch = ?, updatedAt = ?
+         WHERE id = ? AND status = ? RETURNING *`,
+      )
+      .get(nodeId, branch, now, taskId, attendu) as TaskRow | undefined;
+    return row ? rowToTask(row) : undefined;
+  }
+
+  /**
    * Récupération au démarrage : les tâches assigned/running d'un précédent
    * process sont orphelines → elles repartent en ready ; tous les nœuds
    * repartent offline (ils se ré-enregistreront via WebSocket).
+   *
+   * « D'un précédent process » est une HYPOTHÈSE, et c'est le verrou de la
+   * Reine (`verrou-reine.ts`) qui la rend vraie : sans lui, une seconde Reine
+   * lancée sur la même base volerait ici les travaux en vol de la première.
    *
    * L'HORLOGE DE L'HÉBERGEUR SE FERME D'ABORD. Au démarrage plus aucune tâche
    * n'est en vol, donc aucune session ne doit rester ouverte : une session
@@ -3550,6 +3650,19 @@ export class HiveStore {
       )
       .all(Math.max(1, Math.min(limit, 10_000))) as ResultatRow[];
     return rows.map(rowToResultatBalance);
+  }
+
+  /**
+   * Id du dernier résultat d'UNE tâche, `null` sans résultat — sans relire ni
+   * diffs ni journaux (`resultsForTask` les déplie tous). Sert la War Room :
+   * une contestation porte sur un résultat exact, et un résultat plus récent
+   * la rend caduque même quand l'événement du nouvel essai est élagué.
+   */
+  dernierResultatDe(taskId: string): number | null {
+    const row = this.db
+      .prepare('SELECT MAX(id) AS id FROM results WHERE taskId = ?')
+      .get(taskId) as { id: number | null };
+    return row.id;
   }
 
   /** Id du dernier résultat inséré (0 si la table est vide). */
@@ -5576,6 +5689,22 @@ export class HiveStore {
    * tout en gardant `contre_visites` ferait apprendre le modèle courant à la
    * place du producteur historique. Les preuves conservées sont bornées par
    * `CORPUS_AIGUILLAGE`, comme la lecture qu'elles servent.
+   *
+   * La DÉCISION HUMAINE COURANTE de chaque Conseil encore rangé est gardée de
+   * même (`council_decided`, cf. `shared/war-room.ts`). C'est un geste humain,
+   * pas une trace machine : l'élaguer ferait dire « à trancher » à un conseil
+   * que quelqu'un a déjà tranché, et laisserait trancher à nouveau comme si de
+   * rien n'était. Bornée par `pruneConseils` : une par session conservée, et
+   * la protection tombe avec la session.
+   *
+   * Le DERNIER REFUS DE RENVOI de chaque tâche encore rangée l'est aussi
+   * (`evaluator_retry_skipped`). C'est le seul endroit où la ruche dit « des
+   * relecteurs contestent cette production, et la correction n'a pas eu
+   * lieu » : l'élaguer effacerait de la War Room une contestation levée
+   * pendant une nuit de travail avant que quiconque l'ait lue — le journal
+   * tourne en quelques heures. Ce qui la LÈVE (revue humaine, nouvel essai)
+   * se relit dans les tables rangées, pas ici (`TacheRangee`). Bornée par
+   * `pruneTasks` : une par tâche conservée, et la protection tombe avec elle.
    */
   pruneEvents(maxKeep: number): number {
     const cutoff = this.lastEventId() - Math.max(0, maxKeep);
@@ -5624,6 +5753,26 @@ export class HiveStore {
                 type = 'worker_usage'
                 AND json_extract(payload, '$.resultId') IN (
                   SELECT id FROM results ORDER BY id DESC LIMIT ?
+                )
+              )
+              OR (
+                type = 'council_decided'
+                AND json_extract(payload, '$.sessionId') IN (SELECT id FROM conseil_sessions)
+                AND id = (
+                  SELECT MAX(d.id)
+                    FROM events d
+                   WHERE d.type = 'council_decided'
+                     AND json_extract(d.payload, '$.sessionId') = json_extract(events.payload, '$.sessionId')
+                )
+              )
+              OR (
+                type = 'evaluator_retry_skipped'
+                AND json_extract(payload, '$.taskId') IN (SELECT id FROM tasks)
+                AND id = (
+                  SELECT MAX(r.id)
+                    FROM events r
+                   WHERE r.type = 'evaluator_retry_skipped'
+                     AND json_extract(r.payload, '$.taskId') = json_extract(events.payload, '$.taskId')
                 )
               )
             )`,
@@ -5747,17 +5896,35 @@ export class HiveStore {
   }
 
   /**
-   * Dernière preuve CI pour un résultat précis. Les preuves vivent dans le
-   * journal d'événements : aucune seconde table ne pourrait rester alignée
-   * avec les résultats élagués. Toute charge persistée est revalidée avant de
-   * rejoindre l'Evaluator, car le journal est une trace, pas une zone de
-   * confiance.
+   * Dernière preuve de validation d'un résultat précis, quelle qu'en soit la
+   * source : CI GitHub (`github_pull_request`) ou bac Hive (`hive_sandbox`).
+   *
+   * La plus RÉCENTE gouverne, avec SA provenance entière — jamais un mélange
+   * état par état de deux sources, qui afficherait une provenance que la
+   * moitié des états n'a pas. En pratique le bac range la sienne à la
+   * réception du résultat, et une CI ingérée ensuite pour ce même résultat la
+   * remplace : le geste humain le plus récent a le dernier mot. La route
+   * d'ingestion ne range jamais une CI qui tourne encore ni une PR sans
+   * contrôle lisible — un inconnu n'écrase pas un connu.
+   *
+   * Les preuves vivent dans le journal d'événements : aucune seconde table ne
+   * pourrait rester alignée avec les résultats élagués. Toute charge persistée
+   * est revalidée avant de rejoindre l'Evaluator — celle du bac par les règles
+   * mêmes qui l'ont admise du réseau (`validationsBacDepuis`) —, car le journal
+   * est une trace, pas une zone de confiance.
+   *
+   * `ci_validation_recorded` est le nom sous lequel les preuves GitHub étaient
+   * rangées avant que le bac n'en produise : relu pour ne pas effacer une
+   * preuve déjà ingérée, il sort du journal avec l'élagage.
    */
-  latestCiValidation(taskId: string, resultId: number): CiValidationRecord | null {
+  latestValidation(
+    taskId: string,
+    resultId: number,
+  ): { validation: ValidationEvidence; provenance: ValidationProvenance } | null {
     const row = this.db
       .prepare(
         `SELECT * FROM events
-         WHERE type = 'ci_validation_recorded'
+         WHERE type IN ('validation_recorded', 'ci_validation_recorded')
            AND json_extract(payload, '$.taskId') = ?
            AND json_extract(payload, '$.resultId') = ?
          ORDER BY id DESC LIMIT 1`,
@@ -5776,44 +5943,74 @@ export class HiveStore {
       typeof payload[key] === 'number' && Number.isSafeInteger(payload[key])
         ? (payload[key] as number)
         : 0;
-    const validation = payload.validation;
-    if (typeof validation !== 'object' || validation === null) return null;
-    const states = ['tests', 'typecheck', 'build', 'lint'] as const;
-    const evidence = Object.fromEntries(
-      states.map((key) => {
-        const value = (validation as Record<string, unknown>)[key];
-        return [
-          key,
-          value === 'passed' || value === 'failed' || value === 'missing' ? value : 'missing',
-        ];
-      }),
-    ) as unknown as CiValidationRecord['validation'];
-    const result: CiValidationRecord = {
-      source: 'github_pull_request',
+    const etats = payload.validation;
+    if (typeof etats !== 'object' || etats === null) return null;
+    const commun = {
       taskId: text('taskId'),
       projectId: text('projectId'),
       resultId: integer('resultId'),
+      recordedAt: integer('recordedAt'),
+    };
+    if (
+      commun.taskId !== taskId ||
+      commun.resultId !== resultId ||
+      !commun.projectId ||
+      commun.recordedAt <= 0
+    ) {
+      return null;
+    }
+
+    if (payload.source === 'hive_sandbox' && row.type === 'validation_recorded') {
+      const details = payload.details;
+      const nodeId = text('nodeId');
+      if (!nodeId || typeof details !== 'object' || details === null) return null;
+      const bac = validationsBacDepuis({
+        ...(payload.baseSha !== undefined ? { baseSha: payload.baseSha } : {}),
+        controles: Object.fromEntries(
+          VALIDATION_KEYS.map((key) => [
+            key,
+            {
+              ...((details as Record<string, unknown>)[key] as object),
+              etat: (etats as Record<string, unknown>)[key],
+            },
+          ]),
+        ),
+      });
+      if (!bac) return null;
+      const validation = {} as ValidationEvidence;
+      const provenance: ProvenanceBac = {
+        source: 'hive_sandbox',
+        ...commun,
+        nodeId,
+        ...(bac.baseSha ? { baseSha: bac.baseSha } : {}),
+        details: {} as ProvenanceBac['details'],
+      };
+      for (const key of VALIDATION_KEYS) {
+        const { etat, ...detail } = bac.controles[key];
+        validation[key] = etat;
+        provenance.details[key] = detail;
+      }
+      return { validation, provenance };
+    }
+
+    if (payload.source !== 'github_pull_request') return null;
+    const validation = {} as ValidationEvidence;
+    for (const key of VALIDATION_KEYS) {
+      const value = (etats as Record<string, unknown>)[key];
+      validation[key] = estEtatDeValidation(value) ? value : 'missing';
+    }
+    const provenance: ProvenanceGithub = {
+      source: 'github_pull_request',
+      ...commun,
       depot: text('depot'),
       pr: integer('pr'),
       branch: text('branch'),
       commitSha: text('commitSha'),
-      recordedAt: integer('recordedAt'),
-      validation: evidence,
     };
-    if (
-      result.taskId !== taskId ||
-      result.resultId !== resultId ||
-      result.source !== payload.source ||
-      !result.projectId ||
-      !result.depot ||
-      result.pr <= 0 ||
-      !result.branch ||
-      !result.commitSha ||
-      result.recordedAt <= 0
-    ) {
+    if (!provenance.depot || provenance.pr <= 0 || !provenance.branch || !provenance.commitSha) {
       return null;
     }
-    return result;
+    return { validation, provenance };
   }
 
   /** Résumé de toutes les contre-revues indépendantes d'un résultat exact. */
@@ -5980,6 +6177,30 @@ export class HiveStore {
       }
     }
     return events;
+  }
+
+  /**
+   * Les branches de mission que le journal a vues passer sous ce préfixe —
+   * commitées (`livraison_locale`) ou rendues trop tard (`merge_result_ignored`).
+   *
+   * Sert de PLANCHER au numéro de la livraison suivante : une branche gardée
+   * sur une ouvrière, non poussée, n'est visible d'aucune autre ouvrière ; le
+   * hub, lui, l'a journalisée. Plancher au mieux, et assumé comme tel :
+   * l'élagage du journal peut en avoir oublié, et le nœud croise de toute
+   * façon ses propres branches et celles du dépôt. Le préfixe filtre ; c'est
+   * `numeroDeMission` qui tranche (`hive/mission-p-` couvre aussi le projet
+   * `p-1`).
+   */
+  branchesDeMissionJournalisees(prefixe: string): string[] {
+    const rows = this.db
+      .prepare(
+        `SELECT json_extract(CASE WHEN json_valid(payload) THEN payload ELSE '{}' END, '$.branche') AS branche
+         FROM events
+         WHERE type IN ('livraison_locale', 'merge_result_ignored')
+           AND substr(json_extract(CASE WHEN json_valid(payload) THEN payload ELSE '{}' END, '$.branche'), 1, ?) = ?`,
+      )
+      .all(prefixe.length, prefixe) as Array<{ branche: unknown }>;
+    return rows.flatMap((r) => (typeof r.branche === 'string' ? [r.branche] : []));
   }
 
   /** Événements de délégation d'un graphe, bornés par le journal courant. */

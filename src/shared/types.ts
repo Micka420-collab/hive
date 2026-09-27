@@ -4,6 +4,7 @@
 
 import type { PlateformeNoeud } from './machine.js';
 import type { OutilConstate } from './protocol.js';
+import type { ValidationsBac } from './validations-bac.js';
 
 /** Cycle de vie : pending → ready (dépendances done) → assigned → running → done | failed. */
 export type TaskStatus = 'pending' | 'ready' | 'assigned' | 'running' | 'done' | 'failed';
@@ -162,6 +163,12 @@ export interface TaskResult {
    * fenêtre (voir `HiveStore.insertResult`).
    */
   finalText?: string;
+  /**
+   * Validations lancées par le nœud dans le bac de la production — à la
+   * réception seulement : la Reine les range en `validation_recorded`, reliées
+   * au `resultId`, et `resultsForTask` ne les relit pas.
+   */
+  validations?: ValidationsBac;
 }
 
 /** Entrée du journal d'événements — base du futur Time-Lapse Replay (palier 3). */
