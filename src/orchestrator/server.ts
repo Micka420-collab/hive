@@ -1714,12 +1714,18 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   });
 
   /**
-   * Marque un merge en cours comme échoué (nœud déconnecté, timeout) : range un
-   * résultat d'échec pour que /merge/result ne reste pas `null` éternellement, et
-   * libère l'entrée (anti-fuite mémoire). Honeycomb Merge est advisory/v0 : les
-   * merges en cours ne survivent PAS à un redémarrage de l'orchestrateur.
+   * Marque un merge en cours comme échoué (nœud déconnecté, timeout, ou merge
+   * que le nœud dit n'avoir PAS eu lieu) : range un résultat d'échec pour que
+   * /merge/result ne reste pas `null` éternellement, et libère l'entrée
+   * (anti-fuite mémoire). Honeycomb Merge est advisory/v0 : les merges en cours
+   * ne survivent PAS à un redémarrage de l'orchestrateur.
+   *
+   * `logsDuNoeud` : quand c'est le nœud qui rend l'échec, SON journal porte la
+   * cause (« terminal prompts disabled », le motif d'un refus). Le remplacer
+   * par « [hub] merge interrompu » la jetait — l'échec devenait visible, et
+   * illisible. `refused` rangé dans le résultat est ce que l'écran affiche.
    */
-  const failMerge = (mergeId: string, reason: string): void => {
+  const failMerge = (mergeId: string, reason: string, logsDuNoeud?: string): void => {
     const pending = pendingMerges.get(mergeId);
     if (!pending) return;
     pendingMerges.delete(mergeId);
@@ -1731,7 +1737,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       mergedDiff: '',
       testsRun: false,
       testsPassed: null,
-      logs: `[hub] merge interrompu : ${reason}`,
+      logs: logsDuNoeud || `[hub] merge interrompu : ${reason}`,
+      refused: reason,
     });
     emitEvent('merge_failed', { projectId: pending.projectId, mergeId, reason });
   };
@@ -10190,12 +10197,6 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           }
           case 'merge_result': {
             // Honeycomb Merge : range le résultat pour le projet demandeur.
-            // Un REFUS du nœud (Night Shift…) est un échec explicite — jamais
-            // consigné comme un merge « réussi » vide.
-            if (msg.refused) {
-              failMerge(msg.mergeId, msg.refused);
-              break;
-            }
             const pending = pendingMerges.get(msg.mergeId);
             if (!pending) {
               // ─── LE TRAVAIL QUI DISPARAISSAIT SANS UN MOT ──────────────────
@@ -10232,13 +10233,21 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
             // secret, là où le reste de la ruche la VÉRIFIE, c'est un invariant
             // qui tient par accident. On l'aligne : un nœud qui n'est pas
             // l'assigné ne pose pas ce résultat, et surtout NE CONSOMME PAS le
-            // pending — le vrai assigné peut encore livrer.
+            // pending — le vrai assigné peut encore livrer. Un REFUS y compris :
+            // jugé avant cette garde, il laissait n'importe quel nœud clore en
+            // échec le merge d'un autre.
             if (pending.nodeId !== nodeId) {
               send(ws, {
                 type: 'error',
                 message: `merge ${msg.mergeId} non assigné à ce nœud — résultat ignoré`,
               });
               emitEvent('merge_result_ignored', { mergeId: msg.mergeId, nodeId });
+              break;
+            }
+            // Un merge qui n'a PAS EU LIEU (refus, clone impossible) est un
+            // échec explicite — jamais consigné comme un merge « réussi » vide.
+            if (msg.refused) {
+              failMerge(msg.mergeId, msg.refused, msg.logs);
               break;
             }
             mergeResults.set(pending.projectId, msg);

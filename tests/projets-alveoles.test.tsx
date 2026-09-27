@@ -274,6 +274,44 @@ describe('les Projets — les trois survivantes du balayage', () => {
     expect(dom.textContent).toContain('✔ Tâche fusionnée');
   });
 
+  it('UN MERGE QUI N’A PAS EU LIEU SE DIT TEL — pas « 0 diff(s) appliqué(s) », et son journal s’ouvre', async () => {
+    // Mesuré de bout en bout (tests/workflow-git.test.ts) : un dépôt qui
+    // refuse les identifiants rendait `applied: [], conflicts: []`, lu
+    // « 0 diff(s) appliqué(s), 0 conflit(s) — tests non lancés » — un succès
+    // creux — et git disait pourquoi dans un journal REPLIÉ.
+    vi.useFakeTimers();
+    const dom = await monter(instantane([tache('t-fusionnee', 'Tâche fusionnée')]));
+    cliquer(bouton(dom, '⬡ Plan de merge'));
+    await act(async () => {});
+    cliquer(bouton(dom, 'Lancer le merge'));
+    cliquer(bouton(dom, 'Confirmer'));
+    await act(async () => {});
+
+    vi.mocked(fetchMergeResult).mockResolvedValue({
+      result: {
+        mergeId: 'coulée-p',
+        applied: [],
+        conflicts: [],
+        mergedDiff: '',
+        testsRun: false,
+        testsPassed: null,
+        logs: '[nœud] échec du merge : fatal: … terminal prompts disabled',
+        refused: 'échec du merge sur le nœud',
+      },
+    } as never);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_100);
+    });
+
+    expect(dom.textContent).toContain('Merge non effectué : échec du merge sur le nœud');
+    expect(dom.textContent, 'un échec n’est pas un merge vide').not.toContain(
+      'diff(s) appliqué(s)',
+    );
+    const journal = dom.querySelector('details.pj-report-detail');
+    expect(journal?.hasAttribute('open'), 'la cause ne dort pas dans un journal replié').toBe(true);
+    expect(journal?.textContent).toContain('terminal prompts disabled');
+  });
+
   it('L’ÉTOILE DU CONSEIL MARQUE LA DANSE RETENUE — et elle seule', async () => {
     // `d.id === session.retenue` mutée en `!==` : l'habit de « retenue »
     // irait aux battues. La battue n'a AUCUN arrêt : sa classe ne peut devenir

@@ -357,8 +357,12 @@ export interface MergeResultMsg {
   preparedOk?: boolean | null;
   logs: string;
   /**
-   * Merge REFUSÉ par le nœud (ex. Night Shift : hors heures de service) : le
-   * hub le traite en échec explicite (merge_failed), jamais en succès vide.
+   * Merge qui n'a PAS EU LIEU, et pourquoi : REFUSÉ par le nœud (Night Shift,
+   * commande jugée) ou AVORTÉ avant tout résultat (clone impossible —
+   * identifiants, dépôt introuvable, réseau). Le hub le traite en échec
+   * explicite (merge_failed), jamais en succès vide, et garde les `logs` du
+   * nœud : c'est là qu'est la cause. Le hub le pose aussi quand il clôt le
+   * merge lui-même (nœud déconnecté, délai dépassé).
    */
   refused?: string;
 }

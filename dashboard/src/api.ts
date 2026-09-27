@@ -1103,6 +1103,12 @@ export interface MergeRunResult {
    */
   preparedOk?: boolean | null;
   logs: string;
+  /**
+   * Présent quand le merge n'a PAS EU LIEU — refusé, clone impossible, nœud
+   * perdu — et c'est sa raison. Sans lui, un échec se lisait « 0 diff(s)
+   * appliqué(s), 0 conflit(s) » : un succès vide.
+   */
+  refused?: string;
 }
 
 /** Dernier résultat de merge d'un projet (null tant qu'aucun n'a abouti). */

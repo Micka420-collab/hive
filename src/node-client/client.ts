@@ -1434,6 +1434,12 @@ export class HiveNodeClient {
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      // `refused`, là aussi : ce merge n'a PAS EU LIEU (clone refusé —
+      // identifiants, dépôt introuvable, réseau — ou `runMerge` qui a jeté).
+      // Sans lui, le hub rangeait `applied: [], conflicts: []` en
+      // `merge_completed`, et l'écran lisait « 0 diff(s) appliqué(s), 0
+      // conflit(s) » : un succès vide, la cause enfouie dans un journal replié
+      // (mesuré de bout en bout : tests/workflow-git.test.ts).
       this.send({
         type: 'merge_result',
         mergeId: msg.mergeId,
@@ -1443,6 +1449,7 @@ export class HiveNodeClient {
         testsRun: false,
         testsPassed: null,
         logs: `[nœud] échec du merge : ${message}`,
+        refused: 'échec du merge sur le nœud',
       });
       this.log(`✘ merge ${msg.mergeId.slice(0, 8)} : ${message}`);
     } finally {

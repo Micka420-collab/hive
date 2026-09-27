@@ -317,12 +317,23 @@ function MergeReport({
   // message est lu pour décider de fusionner, et son mutant le plus grave
   // annonce « ✔ tests verts » sur une suite rouge.
   const tests = verdictDesTests(result, t);
+  // UN MERGE QUI N'A PAS EU LIEU N'EST PAS UN MERGE VIDE. Sans cette ligne, un
+  // clone refusé (identifiants, dépôt introuvable) se lisait « 0 diff(s)
+  // appliqué(s), 0 conflit(s) » — un succès creux — et la cause dormait dans
+  // le journal replié. Le journal s'ouvre donc aussi : c'est lui qui la porte.
+  const avorte = result.refused;
   return (
     <div className="pj-merge-report">
-      <p>
-        <strong>{result.applied.length}</strong> {t('diff(s) appliqué(s),', 'diff(s) applied,')}{' '}
-        <strong>{result.conflicts.length}</strong> {t('conflit(s)', 'conflict(s)')} — {tests}
-      </p>
+      {avorte ? (
+        <p className="panel-error">
+          {t('Merge non effectué :', 'Merge not performed:')} {avorte}
+        </p>
+      ) : (
+        <p>
+          <strong>{result.applied.length}</strong> {t('diff(s) appliqué(s),', 'diff(s) applied,')}{' '}
+          <strong>{result.conflicts.length}</strong> {t('conflit(s)', 'conflict(s)')} — {tests}
+        </p>
+      )}
       {envRate && (
         <p className="panel-error">
           {t(
@@ -348,7 +359,7 @@ function MergeReport({
         </ul>
       )}
       {result.logs && (
-        <details className="pj-report-detail">
+        <details className="pj-report-detail" open={Boolean(avorte)}>
           <summary>{t('Journal du merge', 'Merge log')}</summary>
           <pre className="code-block scroll">{result.logs}</pre>
         </details>
