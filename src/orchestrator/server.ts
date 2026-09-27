@@ -6244,8 +6244,15 @@ async function monterReine(
    *     silence. Le contrôle et l'écriture sont SYNCHRONES, sans `await` entre
    *     eux : aucune autre requête ne peut s'intercaler.
    *
-   * La porte est celle de l'OUVERTURE (ADR 0007) : trancher engage le projet
-   * autant que réunir le conseil. Un refus a la forme exacte de l'inexistence.
+   * ─── LA PORTE : CELLE DES DÉCISIONS, PAS CELLE DE L'OUVERTURE ─────────────
+   *
+   * Réunir le Conseil ENGAGE le projet (`engagementProjetPermis`) : un membre
+   * peut le faire, comme il ajoute une tâche. Trancher, c'est dire « oui » à
+   * une piste au nom du projet — la règle de la revue, de l'annulation et des
+   * livraisons (#467, `proprieteProjetPermise`) : propriétaire ou
+   * administrateur, ou le jeton de ruche sur un projet orphelin. Un membre qui
+   * n'en répond pas reçoit le 403 qui dit à qui s'adresser (il SAIT que le
+   * conseil existe) ; tout autre refus a la forme exacte d'un conseil inconnu.
    */
   app.post<{
     Params: { sessionId: string };
@@ -6275,12 +6282,18 @@ async function monterReine(
       // Qui n'a RIEN de valide n'apprend pas si le conseil existe.
       if (!authorizedUser(req) && !authorized(req)) return reject(reply);
       const session = store.getSession(req.params.sessionId);
-      const permis =
-        session !== null &&
-        (session.projectId === null
-          ? authorized(req)
-          : engagementProjetPermis(req, session.projectId) === 'permis');
-      if (!session || !permis) return reply.code(404).send({ error: 'conseil inconnu' });
+      // Un Conseil de toute la ruche (sans projet) n'a que la ruche pour
+      // propriétaire : son jeton.
+      const droit =
+        session === null
+          ? 'absent'
+          : session.projectId === null
+            ? authorized(req)
+              ? 'permis'
+              : 'absent'
+            : proprieteProjetPermise(req, session.projectId);
+      if (droit === 'reserve') return refuserReglage(reply, droit);
+      if (!session || droit !== 'permis') return reply.code(404).send({ error: 'conseil inconnu' });
       if (session.etat !== 'clos') {
         return reply.code(409).send({
           code: 'conseil_en_cours',

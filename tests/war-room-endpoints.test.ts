@@ -291,6 +291,34 @@ describe('trancher un conseil', () => {
     expect(JSON.stringify(decisionsRangees())).not.toContain('ada@exemple.test');
   });
 
+  it('UN MEMBRE RÉUNIT LE CONSEIL, MAIS NE TRANCHE PAS — la porte des décisions (#467)', async () => {
+    await inscrire('reine@exemple.test', 'La Reine'); // le premier compte est admin
+    const jwtAda = await inscrire('ada@exemple.test', 'Ada');
+    const jwtBob = await inscrire('bob@exemple.test', 'Bob');
+    const ada = { ...headers, authorization: `Bearer ${jwtAda}` };
+    const bob = { ...headers, authorization: `Bearer ${jwtBob}` };
+    const cree = await fetch(`${base}/api/projects/user`, {
+      method: 'POST',
+      headers: ada,
+      body: JSON.stringify({ name: 'Projet d’Ada' }),
+    });
+    const projetAda = ((await cree.json()) as { id: string }).id;
+    server.store.addMember(projetAda, server.store.getUserByEmail('bob@exemple.test')!.id);
+    // Réunir ENGAGE le projet : le membre le peut, comme il ajoute une tâche.
+    const { id, pistes } = await conseilClos({ projet: projetAda, entetes: bob });
+
+    // Trancher DÉCIDE pour le projet : le membre, même avec le jeton de ruche,
+    // reçoit le 403 qui dit à qui s'adresser — et rien n'est rangé.
+    const refus = await trancher(id, { propositionId: pistes[0], justification: 'B' }, bob);
+    expect(refus.status).toBe(403);
+    expect(((await refus.json()) as { error: string }).error).toMatch(/propriétaire/);
+    expect(decisionsRangees()).toHaveLength(0);
+
+    const r = await trancher(id, { propositionId: pistes[0], justification: 'A' }, ada);
+    expect(r.status).toBe(201);
+    expect(decisionsRangees()).toHaveLength(1);
+  });
+
   it('LA DÉCISION SURVIT À L’ÉLAGAGE DU JOURNAL — aussi longtemps que son conseil', async () => {
     // Élaguée avec le reste du journal, la décision ferait redire « à
     // trancher » à un conseil que quelqu'un a tranché, et laisserait trancher
