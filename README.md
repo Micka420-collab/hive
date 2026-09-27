@@ -199,7 +199,8 @@ diffs produits sont factices, et l'installeur comme la Reine le disent.
 Captures de l'écran réel (`npm run ruche`), pas de maquettes.
 Chaque vue de la barre, la Chambre et un tiroir de tâche, sur bureau et sur
 mobile, se rephotographient en une commande sur une ruche de laboratoire :
-`npm run captures` ([docs/CAPTURES.md](docs/CAPTURES.md)).
+`npm run captures` ([docs/CAPTURES.md](docs/CAPTURES.md)). Qui tranche quoi
+quand les IA se contredisent : [docs/PROTOCOLE-DEBAT.md](docs/PROTOCOLE-DEBAT.md).
 
 <p align="center">
   <img src="docs/images/vitrine.png" width="840" alt="Vitrine Hive — page d'accueil crème, miel en accent, hexagones.">
@@ -215,6 +216,9 @@ mobile, se rephotographient en une commande sur une ruche de laboratoire :
 </p>
 <p align="center">
   <img src="docs/images/dashboard-chambre.png" width="840" alt="Tableau de bord — Chambre, poste ouvrière baptisée Capucine, bandeau À trancher, abeille et fleur.">
+</p>
+<p align="center">
+  <img src="docs/images/captures/warroom.bureau.png" width="840" alt="War Room — désaccords non résolus (contestation aux essais épuisés, relecture impossible, Conseil à trancher) et les voix du fil ; protocole : docs/PROTOCOLE-DEBAT.md.">
 </p>
 <p align="center">
   <a href="docs/media/chambre-presentation-demo.mp4">Vidéo — parcours Chambre (FR)</a>

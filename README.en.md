@@ -44,7 +44,8 @@ without your say-so. **The code and the keys stay on your machines.**
 Shots of the running app (`npm run ruche`), not mockups.
 Every view of the navigation bar, the Chambre and a task drawer, desktop and
 mobile, are re-shot in one command on a lab hive: `npm run captures`
-([docs/CAPTURES.md](docs/CAPTURES.md), FR).
+([docs/CAPTURES.md](docs/CAPTURES.md), FR). Who settles what when the AIs
+disagree: [docs/PROTOCOLE-DEBAT.en.md](docs/PROTOCOLE-DEBAT.en.md).
 
 <p align="center">
   <img src="docs/images/vitrine.png" width="840" alt="Hive landing page — cream paper, honey accent, hexagons.">
@@ -60,6 +61,9 @@ mobile, are re-shot in one command on a lab hive: `npm run captures`
 </p>
 <p align="center">
   <img src="docs/images/dashboard-chambre.png" width="840" alt="Dashboard — Chambre worker station Capucine, Needs a decision banner, bee and flower.">
+</p>
+<p align="center">
+  <img src="docs/images/captures/warroom.bureau.png" width="840" alt="War Room — unresolved disagreements (a contest out of attempts, an impossible review, a Council to settle) and the thread's voices; protocol: docs/PROTOCOLE-DEBAT.en.md.">
 </p>
 <p align="center">
   <a href="docs/media/chambre-presentation-demo.mp4">Video — Chambre walkthrough (FR UI)</a>
