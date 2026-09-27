@@ -25,13 +25,14 @@
 //
 // ─── CE QUE CE BANC A TROUVÉ, ET POURQUOI CE N'EST PAS CORRIGÉ ICI ──────────
 //
-// Quatre défauts réels, tous dans `src/node-client/workspace.ts` — fichier tenu
+// Cinq défauts réels, tous dans `src/node-client/workspace.ts` — fichier tenu
 // par un autre lot au moment où ce banc s'écrit. Ils sont CONSIGNÉS, pas
 // cachés, et chacun est nommé sur place :
 //
 //   · `it.fails` quand le défaut se mesure en une seconde : le banc est VERT
 //     tant que le défaut est là, et ROUGIT le jour de la correction — il
-//     faudra alors le retourner en `it`, c'est-à-dire en garde ;
+//     faudra alors le retourner en `it`, c'est-à-dire en garde (sous Windows
+//     seulement, pour l'attente de Git Credential Manager : `attenteGcm`) ;
 //   · `it.todo` quand la mesure exigerait d'attendre une borne qui n'existe
 //     pas encore (on ne teste pas « ça bloque pour toujours » en attendant
 //     pour toujours).
@@ -350,6 +351,26 @@ describe('identifiants Git invalides — l’échec est RAPIDE, et il REMONTE', 
   //
   // Les DEUX portes de clone du nœud sont éprouvées : elles portent chacune
   // leur copie de l'environnement de clone, et une copie se nettoie seule.
+  //
+  // ─── DÉFAUT CONSIGNÉ SOUS WINDOWS — workspace.ts, les deux environnements ──
+  //
+  // Mesuré sur la CI Windows (run 36287712655) : les deux clones sans
+  // identifiants étaient toujours EN ATTENTE au bout de 10 s, et la tâche de
+  // bout en bout toujours « running » au bout de 30 s. Git for Windows inscrit
+  // `credential.helper=manager` dans sa configuration système, et Git
+  // Credential Manager n'obéit à `GIT_TERMINAL_PROMPT` que pour son invite de
+  // TERMINAL — pas pour sa fenêtre (son `BasicAuthentication.cs` : il consulte
+  // `GCM_INTERACTIVE` d'abord, ouvre sa fenêtre sur une session de bureau, et
+  // ne lit `GIT_TERMINAL_PROMPT` qu'à défaut). `miroir.ts` l'a appris et pose
+  // `GCM_INTERACTIVE=Never` ; les deux environnements de clone du nœud, non.
+  // Des identifiants mis DANS l'URL, eux, ne réveillent pas GCM : leur banc
+  // passe partout.
+  //
+  // D'où `fails` sous Windows seulement : vert tant que le nœud attend, ROUGE
+  // le jour où son environnement de clone met GCM en non-interactif — il
+  // faudra alors retirer cette bascule, et les trois bancs redeviendront des
+  // gardes sur les trois systèmes.
+  const attenteGcm = { fails: process.platform === 'win32' };
 
   it.each<[string, (dossier: string, url: string) => Promise<unknown>]>([
     [
@@ -362,6 +383,7 @@ describe('identifiants Git invalides — l’échec est RAPIDE, et il REMONTE', 
     ],
   ])(
     '%s : sans identifiants, git échoue sur-le-champ au lieu d’ouvrir une invite',
+    attenteGcm,
     async (_porte, cloner) => {
       serveur.mode = 'identifiants';
       const dossier = mkdtempSync(path.join(racine, 'sans-identifiants-'));
@@ -395,7 +417,7 @@ describe('identifiants Git invalides — l’échec est RAPIDE, et il REMONTE', 
 
   it(
     'LA TÂCHE FINIT `failed`, AVEC LA RAISON LISIBLE PAR L’OPÉRATEUR — et l’agent n’a jamais tourné',
-    { timeout: 60_000 },
+    { ...attenteGcm, timeout: 60_000 },
     async () => {
       // Le parcours ENTIER, parce que c'est lui que l'opérateur voit : une
       // vraie Reine, une vraie ouvrière, un projet dont le dépôt refuse. Ce
