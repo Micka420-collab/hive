@@ -358,6 +358,16 @@ describe('polyéthisme — câblage', () => {
         objectionsFigees: 8,
         motif: 'budget',
       });
+      // Les leçons de la Couveuse, servies après la critique, sont évincées
+      // aussi : ça se journalise, et `brood_context` ne ment pas en disant
+      // qu'elles sont parties.
+      expect(contexte).not.toContain('Couveuse');
+      expect(journal.some((e) => e.type === 'brood_context')).toBe(false);
+      expect(journal.find((e) => e.type === 'brood_refus')?.payload).toMatchObject({
+        attempt: 3,
+        echecs: 2,
+        motif: 'budget',
+      });
     },
   );
 

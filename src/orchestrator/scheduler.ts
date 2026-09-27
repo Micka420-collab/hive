@@ -1107,9 +1107,12 @@ export class Scheduler {
     /**
      * Ce qui a motivé la correction, transmis à la tentative suivante
      * (`blocCritique`, brood.ts). Borné ICI, à l'entrée du journal : c'est le
-     * scheduler qui l'écrit, quel que soit l'appelant.
+     * scheduler qui l'écrit, quel que soit l'appelant. REQUISE (`null`
+     * explicite quand il n'y a rien à transmettre) : une porte de retry qui
+     * l'oublierait renverrait l'ouvrière refaire la production contestée, et
+     * le compilateur doit le voir.
      */
-    critique?: CritiqueReprise;
+    critique: CritiqueReprise | null;
     now?: number;
   }): EvaluationRetryOutcome {
     const now = input.now ?? Date.now();

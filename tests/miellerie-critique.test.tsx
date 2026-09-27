@@ -144,7 +144,7 @@ describe('la critique en Miellerie', () => {
     });
     await monter();
     const volet = document.querySelector('.mi-critique')?.textContent ?? '';
-    expect(volet).toContain('Tentative 2 reprise après la contre-revue');
+    expect(volet).toContain('Critique transmise depuis la tentative 2, après la contre-revue');
     expect(volet).toContain('ajoute un test du chemin sécurisé');
   });
 });

@@ -81,15 +81,26 @@ Gardiennes l'inspectent (`clean`, `suspect`, `hollow`).
 résultat, Gardiennes, Parlement, revue humaine, contre-revue, validations CI
 (`tests`, `typecheck`, `build`, `lint`, apportées par un producteur de preuves
 identifié — jamais lues dans les logs d'une ouvrière). L'ordre des règles est
-volontaire ; la première qui s'applique décide :
+volontaire ; la première qui s'applique décide, dans l'ordre de `evaluate()` :
 
-| Décision                   | Quand                                                                                                         | Retry recommandé |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------- | ---------------- |
-| `rejected`                 | dernier résultat en échec, ou production creuse (Gardiennes `hollow`)                                         | oui              |
-| `correction_required`      | aucun résultat Worker, Gardiennes `suspect`, rejet humain, résultat non élu, contre-revue contestée, CI rouge | oui              |
-| `human_review_required`    | pas d'inspection, relecture encore en vol, ou aucun avis favorable indépendant                                | non              |
-| `additional_test_required` | une validation manque                                                                                         | non              |
-| `accepted`                 | tout est vert **et** un avis favorable d'une autre famille                                                    | non              |
+| #   | Quand                                                      | Décision                   | Retry recommandé |
+| --- | ---------------------------------------------------------- | -------------------------- | ---------------- |
+| 1   | aucun résultat Worker                                      | `correction_required`      | oui              |
+| 2   | dernier résultat en échec                                  | `rejected`                 | oui              |
+| 3   | production creuse (Gardiennes `hollow`)                    | `rejected`                 | oui              |
+| 4   | Gardiennes `suspect`                                       | `correction_required`      | oui              |
+| 5   | rejet humain                                               | `correction_required`      | oui              |
+| 6   | pas d'inspection                                           | `human_review_required`    | non              |
+| 7   | résultat non élu                                           | `correction_required`      | oui              |
+| 8   | contre-revue contestée                                     | `correction_required`      | oui              |
+| 9   | CI rouge                                                   | `correction_required`      | oui              |
+| 10  | une validation manque                                      | `additional_test_required` | non              |
+| 11  | relecture encore en vol                                    | `human_review_required`    | non              |
+| 12  | aucun avis favorable indépendant                           | `human_review_required`    | non              |
+| 13  | tout est vert **et** un avis favorable d'une autre famille | `accepted`                 | non              |
+
+Une production sans preuve CI et sans relecture indépendante reçoit donc
+`additional_test_required` (règle 10), pas `human_review_required`.
 
 Un premier avis favorable ne vaut pas acceptation tant qu'une autre relecture
 du même résultat est en vol : une objection reste bloquante, d'où qu'elle
@@ -142,7 +153,9 @@ l'`assign_task`. L'événement `critique_context` journalise qu'elle a été
 jointe (source, tentative, objections **réellement jointes** et objections
 figées) ; si même son ossature ne tient pas (cadre et Cerveau ont tout pris),
 `critique_refus` le dit — la tentative repart sans, et ça se voit à la
-Chronique. La Miellerie l'affiche sous la tâche
+Chronique. Les leçons de la Couveuse, servies après la critique, cèdent les
+premières : évincées en entier, `brood_refus` le journalise de même (au lieu
+d'un `brood_context` qui mentirait). La Miellerie l'affiche sous la tâche
 (`GET /api/tasks/:taskId/critique`).
 
 La plus récente critique fait foi : une seconde correction remplace la

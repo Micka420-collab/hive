@@ -310,6 +310,10 @@ export function App() {
             'delegation_cancelled',
             'task_requeued',
             'task_retry',
+            // Verdict humain persisté (émis APRÈS l'écriture) : la raison jointe
+            // se relit alors dans le volet verdict de la Miellerie — relire
+            // plus tôt, au clic, lirait l'état d'avant le POST.
+            'task_reviewed',
             'node_online',
             'node_offline',
             // Changement de régime thermique : la jauge de Santé doit refléter

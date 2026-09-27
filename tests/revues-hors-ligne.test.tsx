@@ -53,7 +53,12 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
 }));
 
 import { postReview } from '../dashboard/src/api';
-import { countUnsyncedReviews, getReview, hydrateReviews } from '../dashboard/src/views/shared';
+import {
+  countUnsyncedReviews,
+  getReview,
+  hydrateReviews,
+  setReview,
+} from '../dashboard/src/views/shared';
 
 const TAMPON = 'hive.review.unsynced';
 
@@ -153,6 +158,51 @@ describe('le tampon des revues faites hors ligne', () => {
 
     expect(getReview('t-perime'), 'la décision serveur, plus récente, l’emporte').toBe('approved');
     expect(vi.mocked(postReview), 'et rien n’est renvoyé').not.toHaveBeenCalled();
+  });
+
+  it('UN REJET HORS LIGNE REPART AVEC SA RAISON — la correction sait pourquoi', async () => {
+    // Sur un rejet, le serveur transmet la raison de l'humain à la tentative
+    // suivante (critique de la reprise). Rejouer le verdict SANS elle, c'est
+    // relancer la correction muette : l'ouvrière refait la même production,
+    // et rien ne le signale — le verdict, lui, est bien arrivé.
+    vi.mocked(postReview).mockRejectedValueOnce(new Error('réseau coupé'));
+    setReview('t-raison', 'rejected', '  le jeton n’est jamais vérifié  ');
+    await drainer();
+
+    const tampon = JSON.parse(localStorage.getItem(TAMPON) ?? '{}') as Record<
+      string,
+      { raison?: string }
+    >;
+    expect(tampon['t-raison']?.raison, 'le tampon garde la raison, bornée').toBe(
+      'le jeton n’est jamais vérifié',
+    );
+
+    vi.mocked(postReview).mockClear();
+    hydrateReviews({});
+    await drainer();
+    expect(vi.mocked(postReview), 'le rejeu porte la raison').toHaveBeenCalledWith(
+      't-raison',
+      'rejected',
+      expect.anything(),
+      'le jeton n’est jamais vérifié',
+    );
+  });
+
+  it('UN EFFACEMENT HORS LIGNE NE PORTE JAMAIS DE RAISON', async () => {
+    // Le serveur refuse une raison sans verdict (`raison_sans_verdict`) : un
+    // effacement rejoué avec une raison serait purgé en 400 — le geste perdu.
+    vi.mocked(postReview).mockRejectedValueOnce(new Error('réseau coupé'));
+    setReview('t-efface', null, 'ne doit pas partir');
+    await drainer();
+    expect(JSON.parse(localStorage.getItem(TAMPON) ?? '{}')['t-efface']).toEqual({
+      state: null,
+      base: null,
+    });
+
+    vi.mocked(postReview).mockClear();
+    hydrateReviews({});
+    await drainer();
+    expect(vi.mocked(postReview).mock.calls).toEqual([['t-efface', null, expect.anything()]]);
   });
 
   it('UN TAMPON ILLISIBLE NE FAIT RIEN PERDRE D’AUTRE — il est simplement ignoré', () => {

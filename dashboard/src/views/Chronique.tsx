@@ -55,6 +55,8 @@ const INSTINCT = new Set([
   'pheromone_route',
   'thermo_shift',
   'brood_context',
+  // … ses leçons évincées par le budget : un échec oublié, qui doit se voir.
+  'brood_refus',
   // La critique jointe à une correction : la Couveuse des productions contestées.
   'critique_context',
   // … et celle que le budget a évincée : la reprise aveugle, qui doit se voir.

@@ -647,9 +647,12 @@ function CritiqueTransmise({
       {reprise && (
         <>
           <p>
+            {/* « depuis » : la critique reste jointe aux reprises suivantes
+                tant qu'aucune correction ne la remplace (un échec Worker ne
+                l'efface pas) — la tentative affichée ici peut être la 3ᵉ. */}
             {t(
-              `Tentative ${reprise.tentative ?? '?'} reprise après ${sourceCritique(t)[reprise.critique.source]}, avec :`,
-              `Attempt ${reprise.tentative ?? '?'} restarted after ${sourceCritique(t)[reprise.critique.source]}, with:`,
+              `Critique transmise depuis la tentative ${reprise.tentative ?? '?'}, après ${sourceCritique(t)[reprise.critique.source]} :`,
+              `Critique passed on since attempt ${reprise.tentative ?? '?'}, after ${sourceCritique(t)[reprise.critique.source]}:`,
             )}
           </p>
           <ul>
@@ -862,8 +865,8 @@ export default function Miellerie({
     if (!activeTask) return;
     setReview(activeTask.id, state, state === null ? undefined : raison);
     setRaison('');
-    // La raison transmise se relit tout de suite dans le volet verdict.
-    setSelEpoch((e) => e + 1);
+    // Pas de re-fetch ici : le POST part en file (enqueuePost) et n'a pas
+    // encore abouti. C'est l'écho WS `task_reviewed` qui rafraîchit le volet.
     if (state === null) return;
     // Auto-avance : prochaine tâche non revue, en bouclant sur la liste.
     const idx = flat.findIndex((t) => t.id === activeTask.id);

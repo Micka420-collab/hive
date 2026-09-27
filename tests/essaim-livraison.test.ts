@@ -312,6 +312,7 @@ describe('la ruche livre toute seule', () => {
       taskId: production.id,
       resultId: resultat?.resultId ?? -1,
       decision: 'correction_required',
+      critique: null,
     });
     expect(retry).toMatchObject({ ok: false, reason: 'delivery_exists' });
     expect(srv.store.getTask(production.id)?.status).toBe('done');

@@ -367,6 +367,18 @@ const EVENTS: Record<string, Meta> = {
         `brood chamber: ${short(p.taskId)} restarts with the lessons of ${String(p.echecs ?? '?')} failure(s)`,
       ),
   },
+  // Les leçons que le budget a évincées (cadre, Cerveau et critique ont tout
+  // pris) : la tentative repart sans savoir comment les précédentes ont
+  // échoué. Un avertissement, comme `critique_refus`.
+  brood_refus: {
+    icon: '⚠',
+    cls: 'warn',
+    text: (p, t) =>
+      t(
+        `couveuse muette : ${short(p.taskId)} repart (essai ${String(p.attempt ?? '?')}) sans les leçons de ${String(p.echecs ?? '?')} échec(s) — budget de contexte épuisé`,
+        `brood chamber silenced: ${short(p.taskId)} restarts (attempt ${String(p.attempt ?? '?')}) without the lessons of ${String(p.echecs ?? '?')} failure(s) — context budget exhausted`,
+      ),
+  },
   // La critique jointe à une correction. Le payload ne porte que des faits
   // comptés : le TEXTE des objections vit dans `task_retry`, et la Miellerie
   // le montre sous la tâche (`/api/tasks/:taskId/critique`).

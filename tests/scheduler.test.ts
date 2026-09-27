@@ -344,6 +344,7 @@ describe('Scheduler (ordonnancement)', () => {
       taskId: t.id,
       resultId: first.resultId!,
       decision: 'correction_required',
+      critique: null,
     });
     expect(blockedByDelivery).toMatchObject({ ok: false, reason: 'delivery_exists' });
     expect(store.getTask(t.id)?.status).toBe('done');
@@ -362,6 +363,7 @@ describe('Scheduler (ordonnancement)', () => {
         taskId: t.id,
         resultId: first.resultId!,
         decision: 'correction_required',
+        critique: null,
       });
       expect(failedDelivery).toMatchObject({ ok: false, reason: 'delivery_exists' });
       expect(store.getTask(t.id)?.status).toBe('done');
@@ -383,6 +385,7 @@ describe('Scheduler (ordonnancement)', () => {
       taskId: retryable.id,
       resultId: retryableFirst.resultId!,
       decision: 'correction_required',
+      critique: null,
     });
     expect(retry.ok).toBe(true);
     expect(store.getTaskReview(retryable.id)).toBeNull();
@@ -404,6 +407,7 @@ describe('Scheduler (ordonnancement)', () => {
       taskId: retryable.id,
       resultId: retryableFirst.resultId!,
       decision: 'correction_required',
+      critique: null,
     });
     expect(duplicate).toMatchObject({ ok: false, reason: 'task_not_done' });
 
@@ -415,6 +419,7 @@ describe('Scheduler (ordonnancement)', () => {
       taskId: retryable.id,
       resultId: retryableFirst.resultId!,
       decision: 'correction_required',
+      critique: null,
     });
     expect(lateAfterCancellation).toMatchObject({ ok: false, reason: 'task_not_done' });
   });
@@ -434,6 +439,7 @@ describe('Scheduler (ordonnancement)', () => {
       taskId: t.id,
       resultId: latest.resultId!,
       decision: 'rejected',
+      critique: null,
     });
     expect(retry).toMatchObject({ ok: false, reason: 'attempts_exhausted' });
     expect(store.getTask(t.id)).toMatchObject({ status: 'done', attempts: 3 });
@@ -468,6 +474,7 @@ describe('Scheduler (ordonnancement)', () => {
       taskId: t.id,
       resultId: latest.resultId!,
       decision: 'rejected',
+      critique: null,
     });
     expect(retry).toMatchObject({ ok: false, reason: 'dependent_progressed' });
     expect(store.getTask(t.id)?.status).toBe('done');

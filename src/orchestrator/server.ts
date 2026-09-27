@@ -1417,7 +1417,13 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     // doit se voir. L'appelant le journalise.
   ): {
     hiveContext: string;
-    echecs: number;
+    /**
+     * Les leçons de la Couveuse : `jointe` quand l'ouvrière les lira,
+     * `perdue` quand la tâche avait bien échoué mais que le cadre, le Cerveau
+     * et la critique ont pris tout le budget. Absente sans échec précédent.
+     * Même forme que `critique` : l'appelant journalise l'une et l'autre.
+     */
+    couveuse?: { etat: 'jointe' | 'perdue'; echecs: number };
     /**
      * La critique de la reprise : `jointe` avec le nombre d'objections que
      * l'ouvrière lira vraiment, ou `perdue` quand même son ossature ne tenait
@@ -1519,7 +1525,9 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       hiveContext: [savoir, blocDeCritique, lecons, souvenirs, horizon, veille]
         .filter(Boolean)
         .join('\n\n'),
-      echecs: lecons ? echecs.length : 0,
+      ...(echecs.length > 0
+        ? { couveuse: { etat: lecons ? 'jointe' : 'perdue', echecs: echecs.length } }
+        : {}),
       ...(enCours && critique
         ? {
             critique: critique.bloc
@@ -1755,7 +1763,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // premier : une consigne tronquée à moitié est pire qu'absente, alors
       // qu'un souvenir en moins n'est qu'un souvenir en moins.
       const cadre = construireCadre(task, nodeId);
-      const { hiveContext, echecs, critique, refusCerveau } = construireHiveContext(
+      const { hiveContext, couveuse, critique, refusCerveau } = construireHiveContext(
         task,
         cadre.length,
       );
@@ -1769,7 +1777,20 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       }
       // Couveuse : la ré-assignation d'une tâche déjà échouée est journalisée
       // ici seulement (payload de faits typés, texte reconstruit à l'affichage).
-      if (echecs > 0) emitEvent('brood_context', { taskId: task.id, nodeId, echecs });
+      if (couveuse?.etat === 'jointe') {
+        emitEvent('brood_context', { taskId: task.id, nodeId, echecs: couveuse.echecs });
+      } else if (couveuse?.etat === 'perdue') {
+        // Les leçons évincées par le budget : l'ouvrière repart sans savoir
+        // comment ses devancières ont échoué. Même classe que `critique_refus`
+        // — un `''` muet ferait croire à une première tentative.
+        emitEvent('brood_refus', {
+          taskId: task.id,
+          nodeId,
+          attempt: task.attempts + 1,
+          echecs: couveuse.echecs,
+          motif: 'budget',
+        });
+      }
       // La critique d'une correction : des faits comptés, jamais son texte
       // (déjà au journal dans `task_retry`). Jointe, on dit combien
       // d'objections l'ouvrière lira VRAIMENT — la queue tombe sous budget.
@@ -7913,9 +7934,10 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         reprise:
           reprise && critique
             ? {
-                // `attempt` du journal = tentatives déjà consommées ; celle
-                // qui a reçu la critique est la suivante (`attempt + 1` côté
-                // nœud).
+                // `attempt` du journal = tentatives déjà consommées ; la
+                // PREMIÈRE à recevoir la critique est la suivante (`attempt + 1`
+                // côté nœud). Un échec Worker ensuite ne l'efface pas : les
+                // tentatives d'après la reçoivent aussi — « depuis », pas « la ».
                 tentative: typeof attempt === 'number' ? attempt + 1 : null,
                 ts: reprise.ts,
                 critique,

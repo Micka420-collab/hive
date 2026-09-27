@@ -1190,7 +1190,9 @@ export interface CritiqueReprise {
 
 /**
  * Ce qu'une tâche a reçu comme critique : la raison du verdict humain courant
- * et la critique que la tentative en cours a reçue en reprenant.
+ * et la critique transmise aux reprises depuis la tentative `tentative` (la
+ * première à l'avoir reçue ; les suivantes la gardent jusqu'à une nouvelle
+ * correction).
  */
 export function fetchCritique(taskId: string): Promise<{
   taskId: string;
