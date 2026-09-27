@@ -123,9 +123,10 @@ async function lireWarRoom(query: string, entetes: Record<string, string> = head
 }
 
 async function inscrire(email: string, displayName: string): Promise<string> {
+  // Le jeton de ruche : le PREMIER compte ne se crée qu'avec lui (#467).
   const r = await fetch(`${base}/api/auth/register`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', 'x-hive-token': TOKEN },
     body: JSON.stringify({ email, password: 'motdepasse-assez-long-42', displayName }),
   });
   const { token } = (await r.json()) as { token: string };
@@ -441,6 +442,9 @@ describe('la War Room relit les vrais producteurs', () => {
         success: true,
         diff,
         logs,
+        // Le texte final, comme un vrai adaptateur : la Reine ne lit le
+        // verdict d'une relecture que là (#462), jamais dans les logs.
+        finalText: logs,
         durationMs: 5,
         subAgents: [],
       }),
