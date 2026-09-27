@@ -321,7 +321,10 @@ describe('la fusion n’exécute aucun filtre qu’un `.gitattributes` apporté 
     const temoin = cloneAvecPilotes('fusion-temoin');
     const patch = path.join(racine, 'agent.patch');
     writeFileSync(patch, DIFF_AGENT);
-    git(temoin, 'apply', patch);
+    // Sans les réglages du banc : `core.autocrlf=false` ne verrait pas, sous
+    // Windows, l'app.txt que le clone a écrit en CRLF — c'est le git de la
+    // machine, tel que l'ancien `runMerge` le lançait, qu'on arme ici.
+    execFileSync('git', ['apply', patch], { cwd: temoin, stdio: 'ignore' });
     gitSansVerdict(temoin, 'add', '--all', '--intent-to-add');
     gitSansVerdict(temoin, 'diff');
     expect(declenchees(), 'le piège est armé').not.toEqual([]);
