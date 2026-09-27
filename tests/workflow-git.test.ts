@@ -37,7 +37,8 @@
 // Le nœud le dit désormais `refused`, le hub le range en `merge_failed` en
 // gardant le journal de git, et l'écran l'affiche (client.ts, server.ts).
 //
-// SEPT défauts dans `src/node-client/workspace.ts` — fichier tenu par un
+// SEPT défauts consignés dans `src/node-client/workspace.ts` (deux corrigés
+// depuis par #475, retournés en gardes : `collectDiff`) — fichier tenu par un
 // autre lot au moment où ce banc s'écrit — dont un qui déborde sur
 // `merge-runner.ts` (`mergedDiff`, le binaire). Ils sont CONSIGNÉS, pas
 // cachés, et chacun est nommé sur place :
@@ -760,33 +761,29 @@ describe('fichier non suivi — ce que l’agent laisse doit arriver ENTIER à l
     }
   });
 
-  // ─── DÉFAUT CONSIGNÉ — workspace.ts, `collectDiff` ─────────────────────────
+  // ─── DÉFAUT CORRIGÉ — workspace.ts, `collectDiff` (#475) ─────────────────
   //
-  // Le diff se calcule entre l'INDEX et l'arbre de travail. Tout ce que
-  // l'agent a lui-même mis en index (`git add`) ou committé sur sa branche
-  // `hive/<id>` en sort donc. Mesuré : diff VIDE dans les deux cas — le
-  // travail est perdu, et la tâche se déclare réussie avec rien.
+  // Le diff se calculait entre l'INDEX et l'arbre de travail : tout ce que
+  // l'agent avait lui-même mis en index (`git add`) ou committé sur sa branche
+  // `hive/<id>` en sortait. Mesuré : diff VIDE dans les deux cas — le travail
+  // perdu, et la tâche déclarée réussie avec rien.
   //
-  // Claude Code (`acceptEdits`, sans Bash) et Codex (`.git` en lecture seule
-  // dans son bac) ne le peuvent pas aujourd'hui ; un agent `custom`, Cursor ou
-  // Cline le peuvent. Le juste : comparer au commit de départ du clone, pas à
-  // l'index.
-  it.fails(
-    'une modification que l’agent a mise en index (`git add`) doit rester dans le diff',
-    async () => {
-      const a = amont('mis-en-index', { 'app.txt': 'bonjour\n' });
-      const ws = await prepareWorkspace(travail, tache('mis-en-index'), a.url);
-      try {
-        ecrire(ws.cwd, { 'app.txt': 'bonjour, ruche\n' });
-        git(ws.cwd, 'add', 'app.txt');
-        expect(await ws.collectDiff()).toContain('+bonjour, ruche');
-      } finally {
-        ws.cleanup();
-      }
-    },
-  );
+  // #475 compare au commit de départ du clone (`Workspace.baseSha`), épinglé
+  // avant l'agent : les deux bancs, consignés ici en `it.fails`, ont rougi le
+  // jour de la correction et sont retournés en `it` — des GARDES désormais.
+  it('une modification que l’agent a mise en index (`git add`) doit rester dans le diff', async () => {
+    const a = amont('mis-en-index', { 'app.txt': 'bonjour\n' });
+    const ws = await prepareWorkspace(travail, tache('mis-en-index'), a.url);
+    try {
+      ecrire(ws.cwd, { 'app.txt': 'bonjour, ruche\n' });
+      git(ws.cwd, 'add', 'app.txt');
+      expect(await ws.collectDiff()).toContain('+bonjour, ruche');
+    } finally {
+      ws.cleanup();
+    }
+  });
 
-  it.fails('un commit que l’agent a fait sur sa branche doit rester dans le diff', async () => {
+  it('un commit que l’agent a fait sur sa branche doit rester dans le diff', async () => {
     const a = amont('committe', { 'app.txt': 'bonjour\n' });
     const ws = await prepareWorkspace(travail, tache('committe'), a.url);
     try {
