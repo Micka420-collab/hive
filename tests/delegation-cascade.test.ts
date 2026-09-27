@@ -222,12 +222,15 @@ describe('clôture du sous-arbre délégué à la transition terminale', () => {
     expect(store.getTask('enfant-2')?.status).not.toBe('failed');
   });
 
-  it('un enfant rouvert par l’Evaluator APRÈS avoir livré garde sa correction', () => {
-    // La course que le scénario V2 Alpha a révélée : l'enfant livre, le parent
-    // reprend son travail, une contre-revue conteste l'enfant et l'Evaluator le
-    // rouvre — puis le parent aboutit. La correction exigée n'est pas le
-    // travail en attente du parent ; l'annuler effaçait la décision de
-    // l'Evaluator, et la tentative suivante du parent relisait l'avis contesté.
+  /**
+   * La course que le scénario V2 Alpha a révélée : l'enfant livre, le parent
+   * reprend son travail, une contre-revue conteste l'enfant et l'Evaluator le
+   * rouvre — puis le parent se termine.
+   *
+   * parent (running) ─┬─ enfant (rouvert, assigned) ── petit-enfant (assigned)
+   *                   └─ enfant-2 (ready : jamais entendu par le parent)
+   */
+  function monterCorrection(): void {
     for (const nom of ['a', 'b', 'c']) scheduler.registerNode(profil(nom), T);
     creerPrete('parent', T);
     scheduler.tick(T);
@@ -254,16 +257,101 @@ describe('clôture du sous-arbre délégué à la transition terminale', () => {
     expect(store.getTask('enfant-2')?.status).toBe('ready');
     annulations = [];
     events = [];
+  }
 
-    scheduler.handleTaskResult(noeudDe('parent'), resultat('parent', true));
+  // Un parent ABOUTI peut encore être rouvert par l'Evaluator et rejouer
+  // l'identifiant stable : la correction exigée de l'enfant n'est pas le
+  // travail qu'il attend, l'annuler effaçait la décision de l'Evaluator et sa
+  // tentative suivante relisait l'avis contesté. Un parent échoué ou annulé,
+  // lui, ne sera JAMAIS rouvert (l'Evaluator ne rouvre qu'une tâche `done`) :
+  // la correction n'a plus de destinataire, elle est annulée comme le reste —
+  // sinon elle tournait, facturée, pour personne.
+  const casCorrection = [
+    {
+      cause: 'ancestor_done',
+      epargnee: true,
+      terminer: () => scheduler.handleTaskResult(noeudDe('parent'), resultat('parent', true)),
+    },
+    {
+      cause: 'ancestor_failed',
+      epargnee: false,
+      terminer: () => scheduler.handleTaskResult(noeudDe('parent'), resultat('parent', false)),
+    },
+    {
+      cause: 'ancestor_cancelled',
+      epargnee: false,
+      terminer: () => scheduler.cancelTask('parent', 'annulée par un humain', T + 10),
+    },
+  ] as const;
 
-    expect(store.getTask('enfant')?.status).toBe('assigned');
-    expect(store.getTask('petit-enfant')?.status).toBe('assigned');
-    expect(store.getTask('enfant-2')?.status).toBe('failed');
-    expect(annulations).toEqual([]);
-    expect(
-      events.filter((e) => e.type === 'delegation_cancelled').map((e) => e.payload.childTaskId),
-    ).toEqual(['enfant-2']);
+  for (const { cause, epargnee, terminer } of casCorrection) {
+    it(`un enfant rouvert par l’Evaluator après avoir livré ${
+      epargnee ? 'garde sa correction' : 'est annulé avec le reste'
+    } (${cause})`, () => {
+      monterCorrection();
+      const noeudEnfant = noeudDe('enfant');
+      const noeudPetitEnfant = noeudDe('petit-enfant');
+
+      terminer();
+
+      const correction = epargnee ? 'assigned' : 'failed';
+      expect(store.getTask('enfant')?.status).toBe(correction);
+      expect(store.getTask('petit-enfant')?.status).toBe(correction);
+      expect(store.getTask('enfant-2')?.status).toBe('failed');
+      expect(annulations.filter((a) => a.taskId !== 'parent')).toEqual(
+        epargnee
+          ? []
+          : [
+              { nodeId: noeudEnfant, taskId: 'enfant', reason: cause },
+              { nodeId: noeudPetitEnfant, taskId: 'petit-enfant', reason: cause },
+            ],
+      );
+      expect(
+        events.filter((e) => e.type === 'delegation_cancelled').map((e) => e.payload.childTaskId),
+      ).toEqual(epargnee ? ['enfant-2'] : ['enfant', 'enfant-2', 'petit-enfant']);
+      // Épargnée, la correction occupe encore deux hébergeurs ; annulée, plus
+      // rien de ce projet ne tourne, et la dépense s'arrête net.
+      const plusTard = Date.now() + 60_000;
+      expect(
+        store.depenseHorlogeHote(projectId, plusTard + 1_000) -
+          store.depenseHorlogeHote(projectId, plusTard),
+      ).toBe(epargnee ? 2_000 : 0);
+    });
+  }
+
+  it('sous un ancêtre échoué ou annulé, l’Evaluator ne rouvre plus aucun descendant', () => {
+    // La clôture n'a lieu qu'une fois, à la transition terminale : un
+    // descendant qui avait déjà livré n'est pas en vol, elle le laisse. Le
+    // rouvrir APRÈS — une contre-revue contestée qui revient tard — le
+    // remettait en vol, et à la facture, pour un ancêtre qui ne le lira jamais.
+    for (const nom of ['a', 'b', 'c']) scheduler.registerNode(profil(nom), T);
+    creerPrete('parent', T);
+    scheduler.tick(T);
+    scheduler.handleTaskUpdate(noeudDe('parent'), 'parent');
+    deleguer('parent', 'enfant');
+    scheduler.tick(T);
+    scheduler.handleTaskUpdate(noeudDe('enfant'), 'enfant');
+    deleguer('enfant', 'petit-enfant');
+    scheduler.tick(T);
+    scheduler.handleTaskResult(noeudDe('petit-enfant'), resultat('petit-enfant', true));
+    scheduler.handleTaskResult(noeudDe('enfant'), resultat('enfant', true));
+    scheduler.cancelTask('parent', 'annulée par un humain', T + 10);
+    events = [];
+
+    // Le parent direct du petit-enfant a ABOUTI ; c'est l'ancêtre au-dessus
+    // qui est annulé — la montée ne s'arrête pas à la première génération.
+    for (const taskId of ['enfant', 'petit-enfant']) {
+      const livre = store.resultsForTask(taskId).at(-1);
+      const retry = scheduler.retryFromEvaluator({
+        taskId,
+        resultId: livre?.resultId ?? -1,
+        decision: 'correction_required',
+      });
+      expect(retry, taskId).toMatchObject({ ok: false, reason: 'ancestor_failed' });
+      expect(store.getTask(taskId)?.status, taskId).toBe('done');
+    }
+    scheduler.tick(T + 20);
+    expect(events.filter((e) => e.type === 'task_retry' || e.type === 'task_assigned')).toEqual([]);
   });
 
   it('aucun agent fonctionnel : l’échec d’infrastructure du parent ferme aussi son sous-arbre', () => {
@@ -292,24 +380,37 @@ describe('clôture du sous-arbre délégué à la transition terminale', () => {
     });
   });
 
-  it('une course gagnée par le parent ferme aussi son sous-arbre', () => {
-    for (const nom of ['a', 'b', 'c']) scheduler.registerNode(profil(nom), T);
-    creerPrete('parent', T);
-    const course = scheduler.startRace('parent', 2, T);
-    if (!course.ok) throw new Error(course.error);
-    deleguer('parent', 'enfant');
-    scheduler.tick(T);
-    const noeudEnfant = noeudDe('enfant');
-    expect(course.drones).not.toContain(noeudEnfant);
+  // Une course a DEUX issues terminales pour le parent : un drone gagne, ou
+  // tous échouent sur la dernière tentative. Chacune ferme le sous-arbre.
+  const casCourse = [
+    { issue: 'gagnée', succes: true, statut: 'done', cause: 'ancestor_done' },
+    {
+      issue: 'perdue, tentatives épuisées,',
+      succes: false,
+      statut: 'failed',
+      cause: 'ancestor_failed',
+    },
+  ] as const;
 
-    scheduler.handleTaskResult(course.drones[0]!, resultat('parent', true));
+  for (const { issue, succes, statut, cause } of casCourse) {
+    it(`une course ${issue} par le parent ferme aussi son sous-arbre (${cause})`, () => {
+      for (const nom of ['a', 'b', 'c']) scheduler.registerNode(profil(nom), T);
+      creerPrete('parent', T);
+      const course = scheduler.startRace('parent', 2, T);
+      if (!course.ok) throw new Error(course.error);
+      deleguer('parent', 'enfant');
+      scheduler.tick(T);
+      const noeudEnfant = noeudDe('enfant');
+      expect(course.drones).not.toContain(noeudEnfant);
 
-    expect(store.getTask('parent')?.status).toBe('done');
-    expect(store.getTask('enfant')?.status).toBe('failed');
-    expect(annulations).toContainEqual({
-      nodeId: noeudEnfant,
-      taskId: 'enfant',
-      reason: 'ancestor_done',
+      // Gagnée : le premier drone suffit. Perdue : chacun rend son échec.
+      for (const drone of succes ? course.drones.slice(0, 1) : course.drones) {
+        scheduler.handleTaskResult(drone, resultat('parent', succes));
+      }
+
+      expect(store.getTask('parent')?.status).toBe(statut);
+      expect(store.getTask('enfant')?.status).toBe('failed');
+      expect(annulations).toContainEqual({ nodeId: noeudEnfant, taskId: 'enfant', reason: cause });
     });
-  });
+  }
 });

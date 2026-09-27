@@ -39,7 +39,7 @@ import type { Echelon, ObservationGardeFou, RangGardeFou } from './garde-fou.js'
 // tests/security-invariants.test.ts.
 import { CacheProjets, GrandLivre, jugerPlafond, LOT_GRAND_LIVRE } from './balance.js';
 import type { DecisionPlafond } from './balance.js';
-import { descendantsEnVol } from './delegation.js';
+import { ancetreEchoue, descendantsEnVol } from './delegation.js';
 import type { CauseAnnulationDelegation } from './delegation.js';
 import { createRace, enlistDrones, recordDroneResult, runningDrones } from './drone-wars.js';
 import type { DroneRace } from './drone-wars.js';
@@ -145,6 +145,7 @@ export type EvaluationRetryOutcome =
         | 'invalid_result_id'
         | 'stale_result'
         | 'dependent_progressed'
+        | 'ancestor_failed'
         | 'delivery_exists'
         | 'attempts_exhausted';
       task?: Task;
@@ -1051,8 +1052,9 @@ export class Scheduler {
    * Remet en file une production terminée que l'Evaluator a jugée à corriger.
    *
    * La demande est liée au `resultId` exact : une ancienne décision ne peut
-   * pas rouvrir une production plus récente. La tâche doit encore être `done`
-   * et ses dépendantes doivent être restées `pending`, sinon rouvrir ce nœud
+   * pas rouvrir une production plus récente. La tâche doit encore être `done`,
+   * ses dépendantes doivent être restées `pending` et aucun de ses ancêtres
+   * délégués ne doit avoir échoué (ou été annulé), sinon rouvrir ce nœud
    * rendrait le graphe incohérent. Le passage à `ready` est unique et le même
    * budget `maxAttempts` que les échecs Worker borne la boucle.
    */
@@ -1084,6 +1086,12 @@ export class Scheduler {
     const dependents = this.store.tasksDependingOn(task.id);
     if (dependents.some((dependent) => dependent.status !== 'pending')) {
       return { ok: false, reason: 'dependent_progressed', task };
+    }
+    // Un enfant délégué n'a qu'un destinataire : sous un ancêtre échoué, la
+    // correction ne serait lue par personne, et la rouvrir remettrait en vol —
+    // et à la facture — ce que la clôture du sous-arbre a justement arrêté.
+    if (ancetreEchoue(this.store.listDelegationGraph(task.id), task.id)) {
+      return { ok: false, reason: 'ancestor_failed', task };
     }
     if (task.attempts >= this.maxAttempts) {
       return { ok: false, reason: 'attempts_exhausted', task };
@@ -1169,13 +1177,17 @@ export class Scheduler {
 
   /**
    * Une tâche vient d'atteindre un état TERMINAL : chacun de ses descendants
-   * délégués ENCORE EN VOL est annulé — sauf un enfant que l'Evaluator a rouvert
-   * après qu'il a livré (voir `descendantsEnVol`). Un enfant délégué n'a qu'un
+   * délégués ENCORE EN VOL est annulé. Un enfant délégué n'a qu'un
    * destinataire, la tâche qui l'a demandé ; terminée (aboutie, échouée ou
    * annulée), elle n'attend plus rien. Sans cette clôture l'enfant continuait —
    * son nœud travaillait pour rien, son horloge tournait, et un petit-enfant
    * encore en file partait sur une ouvrière libre. La cascade de `dependsOn`
    * ne pouvait pas le voir : un enfant délégué en a `[]`.
+   *
+   * Une seule exception, et seulement quand la tâche a ABOUTI : un enfant que
+   * l'Evaluator a rouvert après qu'il a livré garde sa correction (voir
+   * `descendantsEnVol`). Échouée ou annulée, la tâche ne sera jamais rouverte :
+   * cette correction n'aurait plus de lecteur, elle est annulée avec le reste.
    *
    * Le POURQUOI est un fait typé, `delegation_cancelled`, émis AVANT la
    * transition qu'il cause (motif `guard_refused`) ; la transition elle-même
@@ -1186,7 +1198,8 @@ export class Scheduler {
    * jamais tourné, elle n'a donc jamais délégué.
    */
   private fermerSousArbre(taskId: string, cause: CauseAnnulationDelegation, now: number): void {
-    const orphelins = descendantsEnVol(this.store.listDelegationGraph(taskId), taskId, (id) =>
+    const graphe = this.store.listDelegationGraph(taskId);
+    const orphelins = descendantsEnVol(graphe, taskId, cause, (id) =>
       // En vol ET déjà porteur d'un résultat retenu : l'Evaluator l'a rouvert
       // après sa livraison (seul chemin de `done` vers la file).
       this.store.aUnResultatRetenu(id),

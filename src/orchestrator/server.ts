@@ -1132,7 +1132,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     });
     if (!retry.ok) {
       // Un retry automatique refusé doit rester observable : une annulation,
-      // une dépendance déjà avancée ou la borne d'essais ne sont pas un silence.
+      // une dépendance déjà avancée, un ancêtre délégué échoué ou la borne
+      // d'essais ne sont pas un silence.
       emitEvent('evaluator_retry_skipped', {
         taskId,
         resultId,
