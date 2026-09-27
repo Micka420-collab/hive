@@ -136,15 +136,18 @@ by a worker, committed to **one** branch of the project repository.
 
 ```bash
 npm run cli -- livrer-local <projectId>                       # commit, keep the branch on the worker
-npm run cli -- livrer-local <projectId> --pousser -- --tester npm test
+npm run cli -- livrer-local <projectId> --pousser --preparer npm ci --tester npm test
 npm run cli -- livrer-local <projectId> --forcer="read by hand"      # override the Evaluator
 # or "Deliver the mission" in ⬡ Projects, under "What the delivered work becomes"
 ```
 
 - **The branch** is `hive/mission-<projectId>-<n>`, `n` following the highest
-  one already taken — on the worker or in the repository. The commit is the
-  **integrated** tree, frozen before preparation and tests: no `node_modules`,
-  nothing a test rewrote. The main branch is never touched.
+  one already taken — on the worker, in the repository, or in the hive's log
+  (a branch kept on another worker). The commit is the **integrated** tree,
+  composed before preparation and tests: no `node_modules`, nothing a test
+  rewrote. After them, no git command touches the clone again: whatever the
+  tested code writes into its `.git` (`origin`, hooks, HEAD) decides neither
+  the parent nor the destination. The main branch is never touched.
 - **Provenance travels in the commit**, as trailers git reads back
   (`git log --format='%(trailers)'`): `Hive-Task`, `Hive-Result` (the exact
   integrated result, `inconnu` when it has none), `Hive-Evaluator` (the verdict
@@ -155,8 +158,12 @@ npm run cli -- livrer-local <projectId> --forcer="read by hand"      # override 
   says so. If the worker goes silent on the way (disconnection, timeout), the
   report says **"unknown outcome"** rather than "nothing committed": it may have
   committed, and even pushed, before disappearing.
-- **The Evaluator guards the door**, as for GitHub delivery: a task in
-  `correction_required` or `rejected` stops the mission. The owner (or an
+- **One delivery per project at a time, and alone**: while it runs, a trial
+  merge of the same project is refused (and the other way round) — its report
+  would overwrite the delivery's.
+- **The Evaluator guards the door**, as for GitHub delivery, and judges the
+  **exact** integrated result: a task in `correction_required` or `rejected`
+  stops the mission. The owner (or an
   administrator, or the hive token on an ownerless project) may override it by
   giving a reason; the act is logged (`evaluator_overridden`). A project member
   does not deliver.
@@ -164,9 +171,10 @@ npm run cli -- livrer-local <projectId> --forcer="read by hand"      # override 
   `livraisons/<projectId>.git` under its work directory (a bare repository whose
   `origin` is the project repository, credentials stripped): `git fetch` from
   that path, or `git -C … push origin hive/mission-…` on the worker.
-- **With `--pousser`**, the worker pushes to the project repository with **its
-  own** git credentials — the ones used to clone —, never forced, never another
-  branch. It only does so if its operator started it with
+- **With `--pousser`**, the worker pushes to the project address the hive sent
+  it, with **its own** git credentials — the ones used to clone —, never
+  forced, never another branch. A repository that does not answer within two
+  minutes (credentials awaited?) fails the push, and the report says so. It only does so if its operator started it with
   `HIVE_LIVRAISON_POUSSER=1`: the repository and the diff come from the hub, and
   the hive token sits on every member machine. And only the host asks for it
   (hive token or administrator account): the operator consented for the hive,
