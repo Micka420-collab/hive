@@ -635,7 +635,8 @@ describe('occuperIdentite — un verrou que l’OS rend à la mort du processus'
     // la ruche (`fs.cpSync` s'arrête sur elle) — mesuré par l'essai d'entrée.
     const env = { XDG_RUNTIME_DIR: '/run/user/1001' };
     const chemin = cheminVerrou('ruche/.hive-work/claude', env, 'linux');
-    expect(chemin).toMatch(/^\/run\/user\/1001\/hive-noeud-[0-9a-f]{16}\.sock$/);
+    expect(path.dirname(chemin)).toBe(path.join('/run/user/1001'));
+    expect(path.basename(chemin)).toMatch(/^hive-noeud-[0-9a-f]{16}\.sock$/);
     expect(cheminVerrou(path.resolve('ruche/.hive-work/claude'), env, 'linux')).toBe(chemin);
     expect(cheminVerrou('ruche/.hive-work/codex', env, 'linux')).not.toBe(chemin);
     expect(path.dirname(cheminVerrou('x', {}, 'linux'))).toBe(os.tmpdir());

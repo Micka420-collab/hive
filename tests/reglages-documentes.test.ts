@@ -53,6 +53,9 @@ const DU_SYSTEME = new Set([
   'APPDATA',
   'LOCALAPPDATA',
   'XDG_CONFIG_HOME',
+  // Posée par la session (pam_systemd) : le dossier privé où le nœud range le
+  // verrou de son identité (`cheminVerrou`).
+  'XDG_RUNTIME_DIR',
   'SYSTEMDRIVE',
   'SYSTEMROOT',
   'TMPDIR',
