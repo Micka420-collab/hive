@@ -5,8 +5,14 @@
 // client, il ne se vole que lui-même. Dès qu'on facture du temps sur des
 // machines HÉBERGÉES, ça ne l'est plus.
 //
-// Ici, le temps naît au moment où la Reine ASSIGNE, et s'arrête quand elle
-// REÇOIT un résultat (ou annule). L'agent n'écrit jamais `startedAt`.
+// Ici, le temps naît au moment où la Reine ASSIGNE (ou ré-adopte une tâche
+// qu'un nœud revenu porte encore), et s'arrête quand la TENTATIVE s'arrête :
+// résultat reçu, annulation (humaine ou avec le sous-arbre d'un ancêtre),
+// refus du nœud, nœud perdu, reprise au démarrage. Une tentative interrompue
+// est facturée pour le temps qu'elle a réellement occupé l'hébergeur — jusqu'au
+// dernier instant où la Reine l'a vue vivante, jamais au-delà : ni le délai de
+// détection d'un nœud muet, ni la panne de la Reine, ni l'attente en file.
+// L'agent n'écrit jamais `startedAt`.
 //
 // MODULE PUR. Aucune I/O. `now` est un paramètre.
 

@@ -39,6 +39,8 @@ import type { Echelon, ObservationGardeFou, RangGardeFou } from './garde-fou.js'
 // tests/security-invariants.test.ts.
 import { CacheProjets, GrandLivre, jugerPlafond, LOT_GRAND_LIVRE } from './balance.js';
 import type { DecisionPlafond } from './balance.js';
+import { ancetreEchoue, descendantsEnVol } from './delegation.js';
+import type { CauseAnnulationDelegation } from './delegation.js';
 import { createRace, enlistDrones, recordDroneResult, runningDrones } from './drone-wars.js';
 import type { DroneRace } from './drone-wars.js';
 import { inspecter } from './gardiennes.js';
@@ -164,6 +166,7 @@ export type EvaluationRetryOutcome =
         | 'invalid_result_id'
         | 'stale_result'
         | 'dependent_progressed'
+        | 'ancestor_failed'
         | 'delivery_exists'
         | 'attempts_exhausted';
       task?: Task;
@@ -262,7 +265,11 @@ export class Scheduler {
     this.opts.onEvent?.(event);
   }
 
-  /** À appeler une fois au démarrage : requalifie les tâches orphelines d'un crash. */
+  /**
+   * À appeler une fois au démarrage : requalifie les tâches orphelines d'un
+   * crash. Le store clôt au passage chaque session d'horloge de l'hébergeur à
+   * son dernier signe de vie — la panne de la Reine n'est facturée à personne.
+   */
   recoverAtBoot(): void {
     const orphans = this.store.recoverOrphanTasks();
     for (const t of orphans) {
@@ -567,6 +574,10 @@ export class Scheduler {
       // travail vivant sans le tuer.
       if (task.assignedNodeId !== nodeId || task.status !== 'running') {
         this.store.patchTask(taskId, { status: 'running', assignedNodeId: nodeId }, now);
+        // L'hébergeur travaille de nouveau pour elle : la perte l'avait close,
+        // la ré-adoption la rouvre (idempotent si elle n'avait jamais fermé).
+        // Sans elle, tout le reste de la tentative échapperait à la facture.
+        this.store.ouvrirHorlogeHote(task.projectId, taskId, now);
         this.emit('task_readopted', { taskId, nodeId });
       }
     }
@@ -578,6 +589,8 @@ export class Scheduler {
         // (promotion d'un autre drone), la tâche n'est requalifiée que si la
         // course s'éteint. Jamais de requeue pendant que des drones volent.
         if (this.dropDrone(task.id, nodeId, 'reconcile_orphan', now)) continue;
+        // Le nœud est revenu SANS elle : la tentative s'est arrêtée avec lui.
+        this.store.fermerHorlogeHote(task.id, now);
         this.store.patchTask(task.id, { status: 'ready', assignedNodeId: null }, now);
         this.emit('task_requeued', { taskId: task.id, nodeId, reason: 'reconcile_orphan' });
       }
@@ -601,8 +614,16 @@ export class Scheduler {
    * Retire un drone d'une course (perte d'infrastructure : blip, zombie…).
    * Retourne true si la tâche était bien dans une course où ce nœud volait —
    * l'appelant ne doit alors PAS appliquer sa requalification générique.
+   * `vuVivantA` : dernier instant où ce drone a été vu vivant — c'est là que
+   * s'arrête l'horloge si la course s'éteint avec lui.
    */
-  private dropDrone(taskId: string, nodeId: string, reason: string, now: number): boolean {
+  private dropDrone(
+    taskId: string,
+    nodeId: string,
+    reason: string,
+    now: number,
+    vuVivantA = now,
+  ): boolean {
     const race = this.races.get(taskId);
     if (!race || !race.drones.some((d) => d.nodeId === nodeId && d.status === 'running')) {
       return false;
@@ -617,6 +638,7 @@ export class Scheduler {
     }
     if (decision.outcome === 'all_failed') {
       this.races.delete(taskId);
+      this.store.fermerHorlogeHote(taskId, vuVivantA);
       this.store.patchTask(taskId, { status: 'ready', assignedNodeId: null }, now);
       this.emit('task_requeued', { taskId, nodeId, reason: 'drone_all_lost' });
     } else if (task.assignedNodeId === nodeId) {
@@ -665,6 +687,7 @@ export class Scheduler {
       }
       if (decision.outcome === 'all_failed') {
         this.races.delete(taskId);
+        this.store.fermerHorlogeHote(taskId, now);
         this.store.patchTask(taskId, { status: 'ready', assignedNodeId: null }, now);
         this.emit('task_requeued', { taskId, nodeId, reason: 'drone_all_rejected' });
         this.promoteAndAssign(now);
@@ -677,6 +700,9 @@ export class Scheduler {
     const task = this.store.getTask(taskId);
     if (!task || task.assignedNodeId !== nodeId) return;
     if (task.status !== 'assigned' && task.status !== 'running') return;
+    // La session s'ouvrait à l'assignation et survivait au refus : un refus
+    // Night Shift (cooldown jusqu'à 24 h) facturait toute l'attente en file.
+    this.store.fermerHorlogeHote(taskId, now);
     this.store.patchTask(taskId, { status: 'ready', assignedNodeId: null }, now);
     this.recentRejections.set(`${taskId}:${nodeId}`, now + cooldown);
     this.emit('task_rejected', { taskId, nodeId, reason, ...(infra ? { infra: true } : {}) });
@@ -691,6 +717,7 @@ export class Scheduler {
         this.store.patchTask(taskId, { status: 'failed', assignedNodeId: null }, now);
         this.emit('task_failed', { taskId, reason: 'no_working_agent', infraRejects: count });
         this.infraRejects.delete(taskId);
+        this.fermerSousArbre(taskId, 'ancestor_failed', now);
         this.promoteAndAssign(now); // propager l'échec en cascade aux dépendantes
         return;
       }
@@ -718,16 +745,29 @@ export class Scheduler {
     }
   }
 
-  /** Déconnexion (WS fermé) ou heartbeat expiré : offline + réaffectation des tâches actives. */
-  nodeDisconnected(nodeId: string, reason: string, now = Date.now()): void {
+  /**
+   * Déconnexion (WS fermé) ou heartbeat expiré : offline + réaffectation des
+   * tâches actives.
+   *
+   * `vuVivantA` : le dernier instant où la Reine a vu ce nœud vivant — c'est là
+   * que s'arrête l'horloge de l'hébergeur de ses tentatives, qui sont facturées
+   * pour le temps qu'elles ont réellement occupé. Un socket fermé s'interrompt
+   * MAINTENANT (défaut) ; un nœud fauché s'est tu à son dernier battement, et
+   * les NODE_TIMEOUT_MS qu'il faut au tick pour s'en apercevoir ne sont du
+   * temps consommé par personne. La tâche requalifiée rouvrira une session
+   * neuve à sa prochaine assignation (ou à sa ré-adoption) : l'attente en file
+   * n'occupe aucun hébergeur.
+   */
+  nodeDisconnected(nodeId: string, reason: string, now = Date.now(), vuVivantA = now): void {
     const node = this.store.getNode(nodeId);
     if (!node || node.status === 'offline') return;
     this.store.setNodeStatus(nodeId, 'offline');
     this.emit('node_offline', { nodeId, name: node.name, reason });
     // Drone Wars d'abord : une course qui continue promeut un nouveau primaire
     // (la tâche change d'assigné et n'est PAS requalifiée par la boucle suivante).
-    this.failDronesOfNode(nodeId, now);
+    this.failDronesOfNode(nodeId, now, vuVivantA);
     for (const task of this.store.activeTasksOfNode(nodeId)) {
+      this.store.fermerHorlogeHote(task.id, vuVivantA);
       this.store.patchTask(task.id, { status: 'ready', assignedNodeId: null }, now);
       this.emit('task_requeued', { taskId: task.id, nodeId, reason });
     }
@@ -983,6 +1023,7 @@ export class Scheduler {
         content: summarizeTask(task.title, task.prompt, result.logs),
       });
       this.emit('memory_recorded', { taskId: task.id, projectId: task.projectId });
+      this.fermerSousArbre(task.id, 'ancestor_done', Date.now());
     } else {
       const attempts = task.attempts + 1;
       // Bornée ici aussi, en plus de l'entrée (`isInt(m.durationMs, 0, …)`,
@@ -1015,8 +1056,11 @@ export class Scheduler {
           ...(result.usage ? { usage: result.usage } : {}),
           ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
         });
+        this.fermerSousArbre(task.id, 'ancestor_failed', Date.now());
       } else {
         // Échec → réessai : la tâche repart en ready, une autre ouvrière la prendra.
+        // Ses enfants délégués, eux, continuent : la tentative suivante peut
+        // les retrouver par rejeu de leur identifiant stable.
         this.store.patchTask(task.id, { status: 'ready', attempts, assignedNodeId: null });
         this.emit('task_retry', {
           taskId: task.id,
@@ -1037,8 +1081,9 @@ export class Scheduler {
    * Remet en file une production terminée que l'Evaluator a jugée à corriger.
    *
    * La demande est liée au `resultId` exact : une ancienne décision ne peut
-   * pas rouvrir une production plus récente. La tâche doit encore être `done`
-   * et ses dépendantes doivent être restées `pending`, sinon rouvrir ce nœud
+   * pas rouvrir une production plus récente. La tâche doit encore être `done`,
+   * ses dépendantes doivent être restées `pending` et aucun de ses ancêtres
+   * délégués ne doit avoir échoué (ou été annulé), sinon rouvrir ce nœud
    * rendrait le graphe incohérent. Le passage à `ready` est unique et le même
    * budget `maxAttempts` que les échecs Worker borne la boucle.
    */
@@ -1070,6 +1115,12 @@ export class Scheduler {
     const dependents = this.store.tasksDependingOn(task.id);
     if (dependents.some((dependent) => dependent.status !== 'pending')) {
       return { ok: false, reason: 'dependent_progressed', task };
+    }
+    // Un enfant délégué n'a qu'un destinataire : sous un ancêtre échoué, la
+    // correction ne serait lue par personne, et la rouvrir remettrait en vol —
+    // et à la facture — ce que la clôture du sous-arbre a justement arrêté.
+    if (ancetreEchoue(this.store.listDelegationGraph(task.id), task.id)) {
+      return { ok: false, reason: 'ancestor_failed', task };
     }
     if (task.attempts >= this.maxAttempts) {
       return { ok: false, reason: 'attempts_exhausted', task };
@@ -1106,28 +1157,96 @@ export class Scheduler {
 
   /**
    * Annulation demandée par un humain : la tâche passe `failed` immédiatement
-   * (le nœud est prévenu par le serveur via `cancel_task`) et ses dépendantes
-   * échouent en cascade. Sans effet si la tâche est déjà terminée.
+   * (le nœud est prévenu par le serveur via `cancel_task`), ses descendants
+   * délégués encore en vol sont annulés avec elle et ses dépendantes échouent
+   * en cascade. Sans effet si la tâche est déjà terminée.
    */
   cancelTask(taskId: string, reason = 'cancelled', now = Date.now()): Task | undefined {
     const task = this.store.getTask(taskId);
     if (!task) return undefined;
     if (task.status === 'done' || task.status === 'failed') return task;
+    const patched = this.annulerEnVol(task, reason, now);
+    this.fermerSousArbre(taskId, 'ancestor_cancelled', now);
+    this.promoteAndAssign(now);
+    return patched;
+  }
+
+  /**
+   * Annule UNE tâche encore en vol, sans relancer l'assignation : le ou les
+   * nœuds qui la portent sont prévenus, son horloge d'hébergeur s'arrête, elle
+   * passe `failed` et `task_cancelled` est journalisé. L'annulation humaine et
+   * la clôture d'un sous-arbre délégué passent TOUTES DEUX par ici : deux
+   * portes, c'est une porte qu'on oublie de garder — et l'horloge l'a prouvé,
+   * elle ne se fermait que sur le chemin du résultat.
+   */
+  private annulerEnVol(task: Task, reason: string, now: number): Task | undefined {
     // Drone Wars : annuler TOUS les drones encore en vol, pas seulement le primaire.
-    const race = this.races.get(taskId);
+    const race = this.races.get(task.id);
     if (race) {
-      for (const droneId of runningDrones(race)) this.opts.onCancel?.(droneId, taskId, reason);
-      this.races.delete(taskId);
+      for (const droneId of runningDrones(race)) this.opts.onCancel?.(droneId, task.id, reason);
+      this.races.delete(task.id);
     } else if (task.assignedNodeId) {
       // Mono : le nœud assigné est prévenu ici aussi — la notification vit dans
       // le scheduler, pas dans chaque appelant (symétrie course/mono).
-      this.opts.onCancel?.(task.assignedNodeId, taskId, reason);
+      this.opts.onCancel?.(task.assignedNodeId, task.id, reason);
     }
+    // Une tentative interrompue est facturée pour le temps qu'elle a occupé
+    // l'hébergeur, pas un instant de plus : sans cette ligne, `depenseHorlogeHote`
+    // comptait la session jusqu'à `now` à chaque lecture, jusqu'à l'élagage.
+    this.store.fermerHorlogeHote(task.id, now);
+    // Une tâche terminale n'est plus jamais réévaluée : ses entrées dans les
+    // mémoires par tâche ne seraient plus purgées par personne.
+    this.infraRejects.delete(task.id);
+    this.deferredByConflict.delete(task.id);
     const nodeId = task.assignedNodeId;
-    const patched = this.store.patchTask(taskId, { status: 'failed', assignedNodeId: null }, now);
-    this.emit('task_cancelled', { taskId, reason, ...(nodeId ? { nodeId } : {}) });
-    this.promoteAndAssign(now);
+    const patched = this.store.patchTask(task.id, { status: 'failed', assignedNodeId: null }, now);
+    this.emit('task_cancelled', { taskId: task.id, reason, ...(nodeId ? { nodeId } : {}) });
     return patched;
+  }
+
+  /**
+   * Une tâche vient d'atteindre un état TERMINAL : chacun de ses descendants
+   * délégués ENCORE EN VOL est annulé. Un enfant délégué n'a qu'un
+   * destinataire, la tâche qui l'a demandé ; terminée (aboutie, échouée ou
+   * annulée), elle n'attend plus rien. Sans cette clôture l'enfant continuait —
+   * son nœud travaillait pour rien, son horloge tournait, et un petit-enfant
+   * encore en file partait sur une ouvrière libre. La cascade de `dependsOn`
+   * ne pouvait pas le voir : un enfant délégué en a `[]`.
+   *
+   * Une seule exception, et seulement quand la tâche a ABOUTI : un enfant que
+   * l'Evaluator a rouvert après qu'il a livré garde sa correction (voir
+   * `descendantsEnVol`). Échouée ou annulée, la tâche ne sera jamais rouverte :
+   * cette correction n'aurait plus de lecteur, elle est annulée avec le reste.
+   *
+   * Le POURQUOI est un fait typé, `delegation_cancelled`, émis AVANT la
+   * transition qu'il cause (motif `guard_refused`) ; la transition elle-même
+   * reste le `task_cancelled` que la Chronique, le registre et le rejeu lisent
+   * déjà. Borné par construction : `maxDescendantsPerRoot` par racine.
+   *
+   * Pas d'appel depuis la cascade des dépendances : une tâche `pending` n'a
+   * jamais tourné, elle n'a donc jamais délégué.
+   */
+  private fermerSousArbre(taskId: string, cause: CauseAnnulationDelegation, now: number): void {
+    const graphe = this.store.listDelegationGraph(taskId);
+    const orphelins = descendantsEnVol(graphe, taskId, cause, (id) =>
+      // En vol ET déjà porteur d'un résultat retenu : l'Evaluator l'a rouvert
+      // après sa livraison (seul chemin de `done` vers la file).
+      this.store.aUnResultatRetenu(id),
+    );
+    for (const noeud of orphelins) {
+      const descendant = this.store.getTask(noeud.taskId);
+      if (!descendant) continue;
+      this.emit('delegation_cancelled', {
+        childTaskId: noeud.taskId,
+        parentTaskId: noeud.parentTaskId,
+        rootTaskId: noeud.rootTaskId,
+        depth: noeud.depth,
+        ancestorTaskId: taskId,
+        reason: cause,
+        ...(descendant.assignedNodeId ? { nodeId: descendant.assignedNodeId } : {}),
+      });
+      this.annulerEnVol(descendant, cause, now);
+    }
   }
 
   // ─── Drone Wars : redondance compétitive (opt-in, par tâche) ────────────────
@@ -1287,7 +1406,9 @@ export class Scheduler {
       // replay.
       ...(modeleParDrone[primary] ? { modele: modeleParDrone[primary] } : {}),
     });
-    this.store.ouvrirHorlogeHote(assigned.projectId, assigned.id, Date.now());
+    // L'instant de l'assignation, celui que porte `updatedAt` : ouverture et
+    // clôture de la session se lisent sur la même horloge que la transition.
+    this.store.ouvrirHorlogeHote(assigned.projectId, assigned.id, now);
     // Chaque drone reçoit SON modèle élu (la course diversifie les agents).
     for (const droneId of launch) this.opts.onAssign?.(droneId, assigned, modeleParDrone[droneId]);
     return { ok: true, drones: launch };
@@ -1387,6 +1508,7 @@ export class Scheduler {
         content: summarizeTask(task.title, task.prompt, result.logs),
       });
       this.emit('memory_recorded', { taskId: task.id, projectId: task.projectId });
+      this.fermerSousArbre(task.id, 'ancestor_done', now);
       this.promoteAndAssign(now);
       return true;
     }
@@ -1427,6 +1549,7 @@ export class Scheduler {
         ...(result.usage ? { usage: result.usage } : {}),
         ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
       });
+      this.fermerSousArbre(task.id, 'ancestor_failed', now);
     } else {
       this.store.patchTask(task.id, { status: 'ready', attempts, assignedNodeId: null });
       this.emit('task_retry', {
@@ -1491,8 +1614,10 @@ export class Scheduler {
    * tâche en ready SANS brûler de tentative (perte d'infrastructure, pas d'échec
    * de l'agent).
    */
-  private failDronesOfNode(nodeId: string, now: number): void {
-    for (const taskId of [...this.races.keys()]) this.dropDrone(taskId, nodeId, 'node_lost', now);
+  private failDronesOfNode(nodeId: string, now: number, vuVivantA: number): void {
+    for (const taskId of [...this.races.keys()]) {
+      this.dropDrone(taskId, nodeId, 'node_lost', now, vuVivantA);
+    }
   }
 
   // ─── Interne ───────────────────────────────────────────────────────────────
@@ -1976,7 +2101,7 @@ export class Scheduler {
             }
           : {}),
       });
-      this.store.ouvrirHorlogeHote(assigned.projectId, assigned.id, Date.now());
+      this.store.ouvrirHorlogeHote(assigned.projectId, assigned.id, now);
       // Le modèle élu part avec la tâche : le nœud le passera à `--model`.
       this.opts.onAssign?.(node.id, assigned, route?.modele);
       // Les tâches suivantes tiennent compte de celle-ci — si elle édite.
@@ -1987,7 +2112,9 @@ export class Scheduler {
   /** Nœud sans heartbeat depuis plus de `nodeTimeoutMs` → offline + réaffectation. */
   private reapDeadNodes(now: number): void {
     for (const node of this.store.staleNodes(now - this.nodeTimeoutMs)) {
-      this.nodeDisconnected(node.id, 'heartbeat_timeout', now);
+      // Le nœud s'est tu à son dernier battement : ses tentatives s'arrêtent
+      // là, pas à l'instant où ce tick s'en aperçoit.
+      this.nodeDisconnected(node.id, 'heartbeat_timeout', now, node.lastSeen ?? now);
     }
     // Purge des cooldowns de refus expirés (borne la taille de la map).
     for (const [key, until] of this.recentRejections) {

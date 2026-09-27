@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ancetreEchoue,
+  descendantsEnVol,
   jugerDelegation,
   LIMITES_DELEGATION_DEFAUT,
   type DemandeDelegation,
@@ -116,5 +118,78 @@ describe('délégation Hive bornée', () => {
       root(),
     ]);
     expect(verdict).toMatchObject({ ok: true, plan: { title: 'Titre', prompt: 'Mission' } });
+  });
+});
+
+describe('descendants orphelins d’une tâche qui se termine', () => {
+  // root ─┬─ a (done) ─┬─ a1 (running)
+  //       │            └─ a2 (done)
+  //       ├─ b (ready)
+  //       └─ c (failed)
+  const graphe: NoeudDelegation[] = [
+    root({ status: 'done' }),
+    root({ taskId: 'a', parentTaskId: 'root', depth: 1, status: 'done' }),
+    root({ taskId: 'b', parentTaskId: 'root', depth: 1, status: 'ready' }),
+    root({ taskId: 'c', parentTaskId: 'root', depth: 1, status: 'failed' }),
+    root({ taskId: 'a1', parentTaskId: 'a', depth: 2, status: 'running' }),
+    root({ taskId: 'a2', parentTaskId: 'a', depth: 2, status: 'done' }),
+  ];
+
+  it('traverse les descendants terminés et ne rend que ceux en vol, parents avant enfants', () => {
+    // Entrée volontairement désordonnée : la fonction ne suppose pas l'ordre
+    // du store. Le petit-enfant `a1` vole sous un enfant FINI — c'est lui
+    // qu'un arrêt à la première génération laisserait orphelin.
+    const orphelins = descendantsEnVol([...graphe].reverse(), 'root', 'ancestor_done', () => false);
+    expect(orphelins.map((n) => n.taskId)).toEqual(['b', 'a1']);
+  });
+
+  it('ne remonte jamais : le sous-arbre d’un enfant exclut son parent et ses frères', () => {
+    const sousArbre = (taskId: string): string[] =>
+      descendantsEnVol(graphe, taskId, 'ancestor_cancelled', () => false).map((n) => n.taskId);
+    expect(sousArbre('a')).toEqual(['a1']);
+    expect(sousArbre('b')).toEqual([]);
+  });
+
+  // `b` a livré, puis l'Evaluator l'a rouvert : sa correction lui appartient,
+  // et `b1`, qu'il vient de déléguer, attend SON résultat — pas celui de root.
+  // Seul un root ABOUTI peut encore être rouvert et la relire ; échoué ou
+  // annulé, il ne le sera jamais, et la correction n'a plus de lecteur.
+  const avecCorrection = [
+    ...graphe,
+    root({ taskId: 'b1', parentTaskId: 'b', depth: 2, status: 'running' }),
+  ];
+  const cas = [
+    { cause: 'ancestor_done', attendus: ['a1'] },
+    { cause: 'ancestor_failed', attendus: ['b', 'a1', 'b1'] },
+    { cause: 'ancestor_cancelled', attendus: ['b', 'a1', 'b1'] },
+  ] as const;
+
+  for (const { cause, attendus } of cas) {
+    it(`un enfant rouvert après livraison n’est épargné, avec sa descendance, que sous un ancêtre abouti (${cause})`, () => {
+      const rouverts = new Set(['b']);
+      expect(
+        descendantsEnVol(avecCorrection, 'root', cause, (id) => rouverts.has(id)).map(
+          (n) => n.taskId,
+        ),
+      ).toEqual(attendus);
+    });
+  }
+});
+
+describe('ancêtre échoué d’une tâche que l’Evaluator voudrait rouvrir', () => {
+  // root ── a ── a1 : le statut de chaque ancêtre varie selon le cas.
+  const chaine = (statutRoot: NoeudDelegation['status'], statutA: NoeudDelegation['status']) => [
+    root({ status: statutRoot }),
+    root({ taskId: 'a', parentTaskId: 'root', depth: 1, status: statutA }),
+    root({ taskId: 'a1', parentTaskId: 'a', depth: 2, status: 'done' }),
+  ];
+
+  it('remonte jusqu’à la racine, et seul un ancêtre échoué compte', () => {
+    // Un parent abouti sous une racine échouée n'a plus de lecteur non plus.
+    expect(ancetreEchoue(chaine('failed', 'done'), 'a1')).toBe(true);
+    expect(ancetreEchoue(chaine('running', 'failed'), 'a1')).toBe(true);
+    // Abouti, un ancêtre peut encore être rouvert et relire la correction.
+    expect(ancetreEchoue(chaine('done', 'done'), 'a1')).toBe(false);
+    expect(ancetreEchoue(chaine('failed', 'failed'), 'root')).toBe(false);
   });
 });

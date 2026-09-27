@@ -152,3 +152,84 @@ export function jugerDelegation(
     },
   };
 }
+
+/**
+ * Pourquoi un descendant délégué est annulé : l'état terminal que vient
+ * d'atteindre l'un de ses ANCÊTRES. Codes anglais snake_case, comme tous les
+ * faits persistés du journal — le texte est reconstruit à l'affichage.
+ */
+export type CauseAnnulationDelegation = 'ancestor_done' | 'ancestor_failed' | 'ancestor_cancelled';
+
+/**
+ * Les descendants ORPHELINS de `taskId` — encore en vol, et dont plus personne
+ * n'attend le résultat —, parents avant enfants.
+ *
+ * Un enfant délégué n'a qu'un destinataire : la tâche qui l'a demandé. Quand
+ * elle devient terminale, plus personne n'attend son résultat — ni celui de
+ * sa propre descendance. Le parcours traverse donc AUSSI les descendants déjà
+ * terminés : un petit-enfant en vol sous un enfant fini reste orphelin, et
+ * c'est lui que l'arrêt à la première génération oublierait.
+ *
+ * UNE EXCEPTION, SEULEMENT QUAND L'ANCÊTRE A ABOUTI (`ancestor_done`). Un
+ * enfant qui a déjà LIVRÉ son résultat à son parent, puis que l'Evaluator a
+ * rouvert après une contre-revue contestée, n'est plus le travail en attente
+ * de ce parent : c'est la correction que la ruche a exigée de SA production.
+ * L'annuler avec un ancêtre abouti effaçait la décision de l'Evaluator, et la
+ * tentative suivante du parent — rouverte à son tour — rejouait l'identifiant
+ * stable pour relire l'avis contesté au lieu d'attendre la correction. Le
+ * scénario V2 Alpha l'a montré, au gré d'une course entre les deux.
+ * `rouvertApresLivraison` désigne ces enfants : ni eux, ni la descendance qui
+ * travaille pour eux ne sont touchés.
+ *
+ * Un ancêtre ÉCHOUÉ ou ANNULÉ, lui, ne sera jamais rouvert : l'Evaluator ne
+ * rouvre qu'une tâche `done`. La correction n'aurait plus aucun destinataire —
+ * l'épargner la laissait tourner, facturée, pour personne. Elle est donc
+ * annulée comme le reste du sous-arbre.
+ *
+ * Seules les arêtes du graphe comptent : une tâche liée par `dependsOn` n'est
+ * pas une descendante (la cascade des dépendances vit dans le scheduler), et
+ * une tâche indépendante n'y figure jamais.
+ */
+export function descendantsEnVol(
+  graphe: readonly NoeudDelegation[],
+  taskId: string,
+  cause: CauseAnnulationDelegation,
+  rouvertApresLivraison: (taskId: string) => boolean,
+): NoeudDelegation[] {
+  const epargner = cause === 'ancestor_done' ? rouvertApresLivraison : () => false;
+  // Les tâches dont les enfants n'ont plus de destinataire vivant.
+  const sansDestinataire = new Set([taskId]);
+  const orphelins: NoeudDelegation[] = [];
+  // Tri stable par profondeur : un parent est toujours vu avant ses enfants,
+  // donc un seul passage suffit (graphe borné par `maxDescendantsPerRoot`).
+  for (const noeud of [...graphe].sort((a, b) => a.depth - b.depth)) {
+    if (noeud.parentTaskId === null || !sansDestinataire.has(noeud.parentTaskId)) continue;
+    const termine = noeud.status === 'done' || noeud.status === 'failed';
+    if (!termine && epargner(noeud.taskId)) continue;
+    sansDestinataire.add(noeud.taskId);
+    if (!termine) orphelins.push(noeud);
+  }
+  return orphelins;
+}
+
+/**
+ * Un ancêtre délégué de `taskId` a-t-il ÉCHOUÉ ? Une annulation est un
+ * `failed` dans le store : les deux cas n'en font qu'un ici.
+ *
+ * C'est la seconde porte de l'invariant de `descendantsEnVol`. La clôture du
+ * sous-arbre n'a lieu qu'une fois, à la transition terminale, et laisse un
+ * descendant qui avait déjà livré. Le rouvrir ENSUITE — une contre-revue
+ * contestée qui revient tard — le remettrait en vol, et à la facture, sous un
+ * ancêtre qui ne lira jamais sa correction. La montée va jusqu'à la racine :
+ * un parent direct abouti sous un grand-parent annulé n'a plus de lecteur non
+ * plus. Un ancêtre ABOUTI ne compte pas : il peut encore être rouvert et
+ * rejouer l'identifiant stable (voir l'exception de `descendantsEnVol`).
+ */
+export function ancetreEchoue(graphe: readonly NoeudDelegation[], taskId: string): boolean {
+  const parTache = new Map(graphe.map((noeud) => [noeud.taskId, noeud]));
+  // Borné par `maxDepth` : chaque pas remonte d'une génération vers la racine.
+  for (let id = parTache.get(taskId)?.parentTaskId; id; id = parTache.get(id)?.parentTaskId) {
+    if (parTache.get(id)?.status === 'failed') return true;
+  }
+  return false;
+}

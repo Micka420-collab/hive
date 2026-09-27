@@ -3,7 +3,11 @@ import os from 'node:os';
 import path from 'node:path';
 import WebSocket from 'ws';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { AgentAdapter, WorkerDelegationResult } from '../src/adapters/index.js';
+import type {
+  AgentAdapter,
+  WorkerDelegationOutcome,
+  WorkerDelegationResult,
+} from '../src/adapters/index.js';
 import { HiveNodeClient } from '../src/node-client/client.js';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
@@ -11,6 +15,32 @@ import { parseServerMessage } from '../src/shared/protocol.js';
 import type { Task } from '../src/shared/types.js';
 
 const TOKEN = 'delegation-e2e-token-suffisant';
+
+/** Attend un état observable, sans jamais masquer un échec derrière un délai. */
+async function attendre(predicate: () => boolean, timeoutMs = 10_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate() && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  expect(predicate()).toBe(true);
+}
+
+/** Résout quand la Reine annule la tâche (cancel_task → signal du Worker). */
+function annulationRecue(signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal.aborted) resolve();
+    else signal.addEventListener('abort', () => resolve(), { once: true });
+  });
+}
+
+const DEMANDE_ENFANT = {
+  reason: 'confier la vérification à un Worker indépendant',
+  title: 'Vérification enfant',
+  prompt: 'Vérifie puis rends les preuves.',
+  durationMs: 60_000,
+  costMicros: 1,
+  resourceUnits: 1,
+};
 
 describe('délégation Worker → enfant en conditions réelles', () => {
   let server: HiveServer | null = null;
@@ -451,4 +481,212 @@ describe('délégation Worker → enfant en conditions réelles', () => {
       expect(server.store.resultsForTask('budget-child').at(-1)?.success).toBe(false);
     },
   );
+  it(
+    'annuler le parent annule son enfant sur SON nœud, et laisse l’indépendante travailler',
+    { timeout: 30_000 },
+    async () => {
+      tempDir = mkdtempSync(path.join(os.tmpdir(), 'hive-delegation-cascade-'));
+      server = await createServer({
+        port: 0,
+        host: '127.0.0.1',
+        token: TOKEN,
+        corsOrigins: [],
+        dbPath: path.join(tempDir, 'hive.db'),
+        simulation: true,
+        tickMs: 20,
+      });
+      const projectId = server.store.createProject({ name: 'Cascade' }).id;
+      for (const id of ['parent-annule', 'independante']) {
+        server.store.createTask({ id, projectId, title: id, prompt: 'p' });
+        server.store.patchTask(id, { status: 'ready' });
+      }
+
+      const demarrees = new Set<string>();
+      const annulees = new Set<string>();
+      let admission: WorkerDelegationOutcome | null = null;
+      let libererIndependante!: () => void;
+      const independanteLiberee = new Promise<void>((resolve) => {
+        libererIndependante = resolve;
+      });
+      // Un seul adaptateur pour les trois nœuds : la Reine choisit qui porte
+      // quoi, et le test ne doit pas le supposer.
+      const adapter: AgentAdapter = {
+        name: 'cascade-e2e',
+        async run(task, ctx) {
+          demarrees.add(task.id);
+          if (task.id === 'parent-annule') {
+            if (!ctx.delegate) throw new Error('capacité de délégation absente');
+            admission = await ctx.delegate({ childTaskId: 'enfant-annule', ...DEMANDE_ENFANT });
+            await annulationRecue(ctx.signal);
+            annulees.add(task.id);
+          } else if (task.id === 'enfant-annule') {
+            await annulationRecue(ctx.signal);
+            annulees.add(task.id);
+          } else {
+            await Promise.race([independanteLiberee, annulationRecue(ctx.signal)]);
+            if (ctx.signal.aborted) annulees.add(task.id);
+          }
+          return { success: true, diff: `diff ${task.id}`, logs: 'fini', subAgents: [] };
+        },
+      };
+      for (const nom of ['ouvriere-1', 'ouvriere-2', 'ouvriere-3']) {
+        const client = new HiveNodeClient({
+          url: `ws://127.0.0.1:${server.port}/ws`,
+          token: TOKEN,
+          name: nom,
+          ownerName: 'e2e',
+          agentType: 'shell',
+          maxConcurrency: 1,
+          workRoot: path.join(tempDir, nom),
+          adapter,
+          quiet: true,
+        });
+        clients.push(client);
+        client.start();
+      }
+
+      // L'accusé d'admission et le démarrage de l'enfant voyagent sur deux
+      // sockets différents : l'enfant peut démarrer avant que le parent ait lu
+      // son accusé. On attend les deux faits, pas l'un pour l'autre.
+      await attendre(
+        () =>
+          admission !== null &&
+          ['parent-annule', 'enfant-annule', 'independante'].every((id) => demarrees.has(id)),
+      );
+      expect(admission).toMatchObject({ ok: true, childTaskId: 'enfant-annule' });
+
+      const base = `http://127.0.0.1:${server.port}`;
+      const annulation = await fetch(`${base}/api/tasks/parent-annule/cancel`, {
+        method: 'POST',
+        headers: { 'x-hive-token': TOKEN },
+      });
+      expect(annulation.status).toBe(200);
+
+      // `cancel_task` a atteint le nœud de l'ENFANT : son agent a vu le signal.
+      await attendre(() => annulees.has('enfant-annule'));
+      const store = server.store;
+      expect(store.getTask('enfant-annule')?.status).toBe('failed');
+      // `assigned` ou `running` selon que son `task_update` est déjà lu : ce qui
+      // compte, c'est qu'elle vole encore — et qu'elle aboutit plus bas.
+      expect(['assigned', 'running']).toContain(store.getTask('independante')?.status);
+      expect(annulees.has('independante')).toBe(false);
+
+      const graphe = (await (
+        await fetch(`${base}/api/tasks/parent-annule/delegation`, {
+          headers: { 'x-hive-token': TOKEN },
+        })
+      ).json()) as { events: Array<{ type: string; payload: Record<string, unknown> }> };
+      expect(graphe.events).toContainEqual(
+        expect.objectContaining({
+          type: 'delegation_cancelled',
+          payload: expect.objectContaining({
+            childTaskId: 'enfant-annule',
+            parentTaskId: 'parent-annule',
+            rootTaskId: 'parent-annule',
+            ancestorTaskId: 'parent-annule',
+            reason: 'ancestor_cancelled',
+          }),
+        }),
+      );
+
+      // L'horloge de l'hébergeur : seule l'indépendante occupe encore une
+      // machine, la dépense du projet n'avance plus qu'à UN rythme.
+      const plusTard = Date.now() + 60_000;
+      expect(
+        store.depenseHorlogeHote(projectId, plusTard + 1_000) -
+          store.depenseHorlogeHote(projectId, plusTard),
+      ).toBe(1_000);
+
+      libererIndependante();
+      await attendre(() => store.getTask('independante')?.status === 'done');
+    },
+  );
+
+  // Deux enfants terminés SANS issue propre : annulé avant tout résultat, ou
+  // annulé pendant sa deuxième tentative, la première ayant échoué. Le second
+  // garde une ligne `results` — celle d'une tentative DÉPASSÉE, que le rejeu
+  // servait au parent comme si c'était l'issue de l'enfant.
+  const casSansIssue = [
+    { nom: 'annulé avant tout résultat', tentativesRatees: 0 },
+    { nom: 'annulé après une tentative échouée', tentativesRatees: 1 },
+  ] as const;
+
+  for (const { nom, tentativesRatees } of casSansIssue) {
+    it(
+      `un enfant ${nom} refuse le rejeu au lieu de laisser le parent attendre`,
+      { timeout: 30_000 },
+      async () => {
+        tempDir = mkdtempSync(path.join(os.tmpdir(), 'hive-delegation-rejeu-'));
+        server = await createServer({
+          port: 0,
+          host: '127.0.0.1',
+          token: TOKEN,
+          corsOrigins: [],
+          dbPath: path.join(tempDir, 'hive.db'),
+          simulation: true,
+          tickMs: 20,
+        });
+        const projectId = server.store.createProject({ name: 'Rejeu' }).id;
+        server.store.createTask({ id: 'parent-rejeu', projectId, title: 'parent', prompt: 'p' });
+        server.store.patchTask('parent-rejeu', { status: 'ready' });
+
+        let enfantDemarre = false;
+        let rejeu: WorkerDelegationOutcome | null = null;
+        let relancerParent!: () => void;
+        const parentRelance = new Promise<void>((resolve) => {
+          relancerParent = resolve;
+        });
+        const demande = { childTaskId: 'enfant-rejeu', ...DEMANDE_ENFANT };
+        const adapter: AgentAdapter = {
+          name: 'rejeu-e2e',
+          async run(task, ctx) {
+            if (task.id === 'parent-rejeu') {
+              if (!ctx.delegate) throw new Error('capacité de délégation absente');
+              await ctx.delegate(demande);
+              await parentRelance;
+              // Même identifiant stable, comme une tentative qui repart de zéro.
+              rejeu = await ctx.delegate(demande);
+            } else if (ctx.attempt <= tentativesRatees) {
+              return { success: false, diff: '', logs: 'tentative ratée', subAgents: [] };
+            } else {
+              enfantDemarre = true;
+              await annulationRecue(ctx.signal);
+            }
+            return { success: true, diff: '', logs: 'fini', subAgents: [] };
+          },
+        };
+        for (const nom of ['ouvriere-1', 'ouvriere-2']) {
+          const client = new HiveNodeClient({
+            url: `ws://127.0.0.1:${server.port}/ws`,
+            token: TOKEN,
+            name: nom,
+            ownerName: 'e2e',
+            agentType: 'shell',
+            maxConcurrency: 1,
+            workRoot: path.join(tempDir, nom),
+            adapter,
+            quiet: true,
+          });
+          clients.push(client);
+          client.start();
+        }
+
+        await attendre(() => enfantDemarre);
+        expect(server.store.resultsForTask('enfant-rejeu')).toHaveLength(tentativesRatees);
+        const annulation = await fetch(
+          `http://127.0.0.1:${server.port}/api/tasks/enfant-rejeu/cancel`,
+          { method: 'POST', headers: { 'x-hive-token': TOKEN } },
+        );
+        expect(annulation.status).toBe(200);
+        relancerParent();
+
+        // Avant : un nouvel accusé, puis une attente sans fin de résultat — ou,
+        // après une tentative échouée, cet échec dépassé servi comme l'issue.
+        await attendre(() => rejeu !== null);
+        expect(rejeu).toMatchObject({ ok: false, code: 'enfant_termine' });
+        expect((rejeu as { message?: string } | null)?.message).toContain('nouvel identifiant');
+        expect(server.store.getTask('enfant-rejeu')?.status).toBe('failed');
+      },
+    );
+  }
 });
