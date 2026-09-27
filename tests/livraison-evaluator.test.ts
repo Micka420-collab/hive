@@ -115,8 +115,15 @@ describe('livrer et fusionner sous le verdict de l’Evaluator', () => {
     return t.id;
   };
 
-  const forcages = () =>
-    server.store.listEvents(0, 1000).filter((e) => e.type === 'evaluator_overridden');
+  /**
+   * Les forçages journalisés pour CETTE tâche. Filtrer par tâche n'est pas un
+   * confort : les tests de ce fichier se rejouent dans n'importe quel ordre
+   * (`tamis-ordres`), et le forçage d'un voisin ne doit rien dire ici.
+   */
+  const forcages = (taskId: string) =>
+    server.store
+      .listEvents(0, 1000)
+      .filter((e) => e.type === 'evaluator_overridden' && e.payload.taskId === taskId);
 
   beforeAll(async () => {
     faux = creerHttp((req, res) => {
@@ -273,7 +280,7 @@ describe('livrer et fusionner sous le verdict de l’Evaluator', () => {
       compte(jetonProprio),
     );
     expect(muet.status).toBe(400);
-    expect(forcages(), 'aucun refus ne doit laisser de trace de forçage').toHaveLength(0);
+    expect(forcages(tache), 'aucun refus ne doit laisser de trace de forçage').toHaveLength(0);
 
     const r = await poster(
       '/api/livraison',
@@ -281,7 +288,7 @@ describe('livrer et fusionner sous le verdict de l’Evaluator', () => {
       compte(jetonProprio),
     );
     expect(r.status).toBe(201);
-    const [trace] = forcages();
+    const [trace] = forcages(tache);
     expect(trace?.payload).toMatchObject({
       taskId: tache,
       projectId: possede,
@@ -313,7 +320,7 @@ describe('livrer et fusionner sous le verdict de l’Evaluator', () => {
     );
     expect(forcee.status).toBe(200);
     expect(fusionnees).toContain(pr);
-    const trace = forcages().find((e) => e.payload.geste === 'fusion');
+    const trace = forcages(tache).find((e) => e.payload.geste === 'fusion');
     expect(trace?.payload).toMatchObject({
       taskId: tache,
       decision: 'correction_required',

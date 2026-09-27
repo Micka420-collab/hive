@@ -25,7 +25,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import WebSocket from 'ws';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { LIMITS, octetsDe } from '../src/shared/protocol.js';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
@@ -152,7 +152,11 @@ describe('le nombre de sockets anonymes est borné — par client et en tout', (
   const TOKEN = 'jeton-ws-attente-suffisamment-long';
   const ouvertes: WebSocket[] = [];
 
-  beforeAll(async () => {
+  // UNE REINE PAR TEST. Le décompte des inconnus vit dans le hub, et une
+  // socket fermée côté client n'en sort qu'au passage de sa fermeture côté
+  // serveur : partager la Reine ferait dépendre chaque test des restes du
+  // précédent — et `tamis-ordres` rejoue ces tests dans tous les ordres.
+  beforeEach(async () => {
     dir = mkdtempSync(path.join(os.tmpdir(), 'hive-wsattente-'));
     server = await createServer({
       port: 0,
@@ -166,7 +170,7 @@ describe('le nombre de sockets anonymes est borné — par client et en tout', (
     });
   });
 
-  afterAll(async () => {
+  afterEach(async () => {
     for (const ws of ouvertes.splice(0)) ws.terminate();
     await server.stop();
     rmSync(dir, { recursive: true, force: true });
@@ -191,10 +195,6 @@ describe('le nombre de sockets anonymes est borné — par client et en tout', (
   const issue = (fermee: Promise<number>, ms = 1_000): Promise<number | 'ouverte'> =>
     Promise.race([fermee, new Promise<'ouverte'>((r) => setTimeout(() => r('ouverte'), ms))]);
 
-  const liberer = (): void => {
-    for (const ws of ouvertes.splice(0)) ws.terminate();
-  };
-
   it('LA 17e SOCKET MUETTE D’UN MÊME CLIENT EST REFUSÉE — pas celle d’un autre client', async () => {
     const a = '203.0.113.10';
     await Promise.all(Array.from({ length: 16 }, () => muette(a)));
@@ -207,7 +207,6 @@ describe('le nombre de sockets anonymes est borné — par client et en tout', (
     const b = await muette('203.0.113.20');
     b.ws.send(JSON.stringify({ type: 'subscribe', token: 'pas-le-bon-jeton-du-tout' }));
     expect(await issue(b.fermee), 'un autre client derrière le même proxy').toBe(4401);
-    liberer();
   });
 
   it('UNE SOCKET QUI S’AUTHENTIFIE LIBÈRE SA PLACE', async () => {
@@ -228,17 +227,23 @@ describe('le nombre de sockets anonymes est borné — par client et en tout', (
     expect(await issue(premiere.fermee, 50), 'le tableau de bord authentifié reste').toBe(
       'ouverte',
     );
-    liberer();
   });
 
   it('AU-DELÀ DE 256 INCONNUS EN TOUT, MÊME UN CLIENT NEUF ATTEND', async () => {
     // Seize clients distincts, chacun à son propre plafond : c'est le plafond
-    // GLOBAL qui mord, pas celui du client.
-    await Promise.all(
-      Array.from({ length: 256 }, (_, i) => muette(`198.51.100.${Math.floor(i / 16) + 1}`)),
-    );
+    // GLOBAL qui mord, pas celui du client. Par lots de 64 : 256 poignées de
+    // main lancées d'un coup débordent la file d'attente TCP de Windows
+    // (ECONNREFUSED), et le banc mesurerait le noyau, pas le hub. Pas plus
+    // lent non plus : les premières doivent encore attendre leur identité
+    // (5 s) quand la 257e arrive.
+    for (let lot = 0; lot < 4; lot += 1) {
+      await Promise.all(
+        Array.from({ length: 64 }, (_, i) =>
+          muette(`198.51.100.${lot * 4 + Math.floor(i / 16) + 1}`),
+        ),
+      );
+    }
     const neuf = await muette('192.0.2.77');
     expect(await issue(neuf.fermee), 'le 257e inconnu, d’un client jamais vu').toBe(4429);
-    liberer();
   }, 20_000);
 });
