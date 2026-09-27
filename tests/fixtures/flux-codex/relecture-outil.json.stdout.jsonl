@@ -1,0 +1,9 @@
+{"type":"thread.started","thread_id":"01a0e1e7-2ef9-7412-a1ae-e5540cfbe633"}
+{"type":"item.completed","item":{"id":"item_0","type":"error","message":"Model metadata for `modele-de-test` not found. Defaulting to fallback metadata; this can degrade performance and cause issues."}}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_1","type":"reasoning","text":"Je relis la garde sur l’API key avant de trancher."}}
+{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"Je lis src/auth.ts."}}
+{"type":"item.started","item":{"id":"item_3","type":"command_execution","command":"/bin/bash -lc 'cat src/auth.ts'","aggregated_output":"","exit_code":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_3","type":"command_execution","command":"/bin/bash -lc 'cat src/auth.ts'","aggregated_output":"export function facturer(api_key?: string) {\n  if (!api_key) throw new Error(\"login requis\");\n  return api_key.length;\n}\n","exit_code":0,"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_4","type":"agent_message","text":"conteste\n- aucun test ne couvre la clé absente : la garde peut disparaître sans qu’un banc rougisse."}}
+{"type":"turn.completed","usage":{"input_tokens":4448,"cached_input_tokens":2048,"cache_write_input_tokens":0,"output_tokens":104,"reasoning_output_tokens":24}}

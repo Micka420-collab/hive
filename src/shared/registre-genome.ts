@@ -10,17 +10,19 @@
 //   · les relectrices ont-elles contesté ou validé ?
 //   · un humain a-t-il approuvé ou rejeté la dernière production ?
 //   · combien de temps a pris une réussite, côté Worker ?
-//   · qu'ont DÉCLARÉ les CLI des agents : coût, temps modèle, modèles exacts ?
+//   · qu'ont DÉCLARÉ les CLI des agents : coût, temps modèle, modèles exacts,
+//     jetons ?
 //
 // ─── TROIS RÈGLES DE LECTURE ─────────────────────────────────────────────────
 //
 //   1. L'ABSENCE RESTE ABSENTE. Une affectation sans modèle déclaré n'est pas
 //      rangée sous un modèle « par défaut » : elle va dans `sansModele`. Une
 //      issue dont l'affectation est sortie de la fenêtre du journal n'est
-//      attribuée à personne. Le coût fournisseur et le temps modèle ne
-//      viennent que de la déclaration du CLI de l'agent, sommés avec leur
-//      couverture (tentatives déclarées / tentatives rendues) ; sans aucune
-//      déclaration ils valent `'inconnu'` — jamais estimés.
+//      attribuée à personne. Le coût fournisseur, le temps modèle et les
+//      jetons ne viennent que de la déclaration du CLI de l'agent, sommés avec
+//      leur couverture (tentatives déclarées / tentatives rendues) ; sans
+//      aucune déclaration ils valent `'inconnu'` — jamais estimés, et le coût
+//      jamais tiré des jetons.
 //   2. AUCUN CLASSEMENT. Les lignes sortent triées par nom de modèle puis par
 //      catégorie. Classer demanderait une pondération entre ces faits — une
 //      décision produit, pas une lecture.
@@ -89,6 +91,10 @@ export interface FaitsGenome {
   coutFournisseur: SommeDeclaree | 'inconnu';
   /** Temps passé dans les appels au modèle, déclaré par le CLI. */
   dureeModele: SommeDeclaree | 'inconnu';
+  /** Jetons d'entrée déclarés par le CLI, sur les tentatives rendues. */
+  jetonsEntree: SommeDeclaree | 'inconnu';
+  /** Jetons de sortie déclarés par le CLI, sur les tentatives rendues. */
+  jetonsSortie: SommeDeclaree | 'inconnu';
   /** Modèles exacts nommés par le CLI (la version derrière le modèle commandé). */
   modelesExacts: string[];
 }
@@ -116,11 +122,21 @@ export interface RegistreGenome {
 }
 
 interface Accumulateur {
-  faits: Omit<FaitsGenome, 'dureeMedianeMs' | 'coutFournisseur' | 'dureeModele' | 'modelesExacts'>;
+  faits: Omit<
+    FaitsGenome,
+    | 'dureeMedianeMs'
+    | 'coutFournisseur'
+    | 'dureeModele'
+    | 'jetonsEntree'
+    | 'jetonsSortie'
+    | 'modelesExacts'
+  >;
   durees: number[];
   /** Une entrée par tentative rendue ; `null` quand le CLI n'a rien déclaré. */
   couts: (number | null)[];
   dureesModele: (number | null)[];
+  jetonsEntree: (number | null)[];
+  jetonsSortie: (number | null)[];
   modelesExacts: Set<string>;
 }
 
@@ -160,6 +176,8 @@ function vide(): Accumulateur {
     durees: [],
     couts: [],
     dureesModele: [],
+    jetonsEntree: [],
+    jetonsSortie: [],
     modelesExacts: new Set(),
   };
 }
@@ -169,6 +187,8 @@ function consignerDeclaration(acc: Accumulateur, payload: Record<string, unknown
   const declaration = declarationDe(payload);
   acc.couts.push(declaration.coutUsd);
   acc.dureesModele.push(declaration.dureeApiMs);
+  acc.jetonsEntree.push(declaration.jetonsEntree);
+  acc.jetonsSortie.push(declaration.jetonsSortie);
   for (const m of declaration.modeles) acc.modelesExacts.add(m);
 }
 
@@ -207,6 +227,8 @@ function figer(acc: Accumulateur): FaitsGenome {
     dureeMedianeMs: mediane(acc.durees),
     coutFournisseur: sommeDeclaree(acc.couts),
     dureeModele: sommeDeclaree(acc.dureesModele),
+    jetonsEntree: sommeDeclaree(acc.jetonsEntree),
+    jetonsSortie: sommeDeclaree(acc.jetonsSortie),
     modelesExacts: [...acc.modelesExacts].sort(),
   };
 }

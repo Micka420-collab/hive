@@ -52,9 +52,12 @@ export const ENTREE_FERMEE: ['ignore', 'pipe', 'pipe'] = ['ignore', 'pipe', 'pip
  * tout échec de Claude Code ou de Cursor y passait pour une panne
  * d'identifiants. `credit balance` : le libellé de Claude Code 2.1.283
  * (« Credit balance is too low »), que seul ce faux positif rattrapait.
+ * `usage limit` : le quota épuisé d'un compte ChatGPT sous Codex (« You’ve hit
+ * your usage limit… », codex-rs/protocol/src/error.rs) — sans lui, chaque
+ * tâche de ce nœud échouait comme une faute de la tâche.
  */
 const INFRA_FAILURE_RE =
-  /unauthor|authentication|not logged in|forbidden|\b401\b|\b403\b|\b429\b|quota|rate.?limit|insufficient|out of credit|credit balance|billing|api[_ -]?key|invalid.{0,12}key|login|sign in|subscription/i;
+  /unauthor|authentication|not logged in|forbidden|\b401\b|\b403\b|\b429\b|quota|rate.?limit|usage limit|insufficient|out of credit|credit balance|billing|api[_ -]?key|invalid.{0,12}key|login|sign in|subscription/i;
 
 /**
  * Le bac reçoit le même nom logique que son preflight, jamais un chemin hôte :
@@ -85,16 +88,69 @@ function preparerCommande(bin: string, args: string[], ctx: AdapterContext, pont
 /**
  * D'où vient la réponse FINALE du processus — voir `texte-final.ts`.
  *
- *   · `'sortie-standard'` : la réponse EST la sortie standard (Codex, et les CLI
- *     en texte par la convention des outils sans écran : stdout rend, stderr
+ *   · `'sortie-standard'` : la réponse EST la sortie standard (les CLI en texte,
+ *     par la convention des outils sans écran : stdout rend, stderr
  *     diagnostique) ;
  *   · une fonction : la sortie standard est du JSON par lignes, et la fonction
  *     reconnaît l'événement final (stream-json, Cline).
  *
  * Absente : le processus ne déclare aucune réponse, `finalText` reste absent.
- * C'est le cas du shell : une commande n'est pas un agent qui répond.
+ * C'est le cas du shell : une commande n'est pas un agent qui répond. Un flux
+ * lu en entier (`LecteurFlux`) porte sa propre réponse.
  */
 export type SourceTexteFinal = 'sortie-standard' | LecteurEvenementFinal;
+
+/**
+ * Une sortie standard que l'adaptateur lit EN ENTIER : un flux d'événements
+ * dont il connaît chaque type (Codex `--json`, `flux-codex.ts`).
+ *
+ * ─── CE QUI LE DISTINGUE D'UN `LecteurEvenementFinal` ────────────────────────
+ *
+ * Le stream-json de Claude Code entre BRUT dans les logs, et `texteDEchec` en
+ * retire les événements : le lecteur n'y cherche que la ligne finale. Un flux
+ * lu en entier n'y entre JAMAIS brut — chaque ligne y entre RENDUE, lisible
+ * pour l'écran et les Gardiennes, narration marquée (`MARQUE_NARRATION`) et
+ * erreurs en clair. C'est cette forme que lisent ensuite tous les lecteurs
+ * d'un échec, au nœud comme au hub, par la même règle (`texteDEchec`).
+ */
+export interface LecteurFlux {
+  /**
+   * Une ligne de stdout, dans l'ordre d'arrivée. Rend ce que les logs en
+   * gardent — sa forme lisible, sur une ou plusieurs lignes —, ou `undefined`
+   * pour la taire. Ne lève jamais : une ligne illisible se dit, elle ne casse
+   * pas la lecture des suivantes.
+   */
+  lire(ligne: string): string | undefined;
+  /** La réponse finale déclarée par le flux, déjà bornée (`borneTexteFinal`). */
+  texte(): string | undefined;
+  /**
+   * À la sortie du processus (`code`), ce que l'échec DIT, en clair et sur une
+   * ligne — ou `undefined` si le flux n'a rien à en dire. Un bilan sur une
+   * sortie en 0 est un échec aussi : le flux n'a pas conclu comme il le doit.
+   *
+   * L'exécuteur l'écrit APRÈS le plafond des logs : c'est souvent la SEULE
+   * ligne qui dise l'échec, et c'est la dernière que l'agent écrit — celle
+   * qu'une narration de 512 ko poussait hors du journal, au nœud (classement
+   * d'infra) comme au hub (Couveuse, essaim).
+   *
+   * `arreteParHive` : le processus a été tué par Hive (délai de garde,
+   * annulation) — le marqueur `[hive]` dit déjà pourquoi.
+   */
+  bilan(code: number | null, arreteParHive: boolean): string | undefined;
+}
+
+/**
+ * Les logs, et leur FIN GARANTIE : le bilan d'un flux, le délai de garde. Le
+ * nœud n'envoie au hub que la tête du journal (`LIMITS.log`) ; la fin y trouve
+ * donc sa place, prise sur la narration plutôt que perdue.
+ */
+function journalAvecFin(output: string, fin: string[]): string {
+  if (fin.length === 0) return output;
+  const texteFin = fin.join('\n');
+  const place = Math.max(0, LIMITS.log - texteFin.length - 1);
+  const corps = output.length > place ? output.slice(0, place) : output;
+  return corps === '' || corps.endsWith('\n') ? `${corps}${texteFin}` : `${corps}\n${texteFin}`;
+}
 
 /**
  * Lance un binaire avec ses arguments dans le cwd isolé de la tâche.
@@ -139,6 +195,22 @@ export function runCommandStreaming(
 }
 
 /**
+ * Comme runCommand, pour une sortie standard lue EN ENTIER par `flux` : les
+ * logs gardent ce qu'il en rend, la réponse finale est la sienne.
+ * `pont` : voir `preparerCommande`.
+ */
+export function runCommandFlux(
+  bin: string,
+  args: string[],
+  ctx: AdapterContext,
+  flux: LecteurFlux,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+  pont?: string,
+): Promise<AdapterResult> {
+  return executer(bin, args, ctx, { timeoutMs, flux, ...(pont ? { pont } : {}) });
+}
+
+/**
  * Le seul `spawn` des adaptateurs. `runCommand` et `runCommandStreaming` en
  * étaient deux copies ; la seconde avait appris à lire ligne à ligne, pas la
  * première — et c'est la première que Cursor et Cline employaient pour un flux
@@ -153,22 +225,12 @@ function executer(
     onLine?: (line: string) => void;
     texteFinal?: SourceTexteFinal;
     pont?: string;
+    flux?: LecteurFlux;
   },
 ): Promise<AdapterResult> {
   const lance = preparerCommande(bin, args, ctx, opts.pont);
-  const { texteFinal } = opts;
+  const { texteFinal, flux } = opts;
   const suivi = typeof texteFinal === 'function' ? createTexteFinalTracker(texteFinal) : undefined;
-  const parLigne =
-    opts.onLine || suivi
-      ? (line: string): void => {
-          try {
-            opts.onLine?.(line);
-          } catch {
-            /* parseur tolérant : on ignore */
-          }
-          suivi?.feed(line);
-        }
-      : undefined;
 
   return new Promise((resolve) => {
     const child = spawn(lance.bin, lance.args, {
@@ -183,18 +245,42 @@ function executer(
     });
 
     let output = '';
+    const consigner = (s: string): void => {
+      if (output.length < OUTPUT_CAP) output += s;
+    };
     let tampon = '';
     // Fin de la sortie standard seule, pour `'sortie-standard'` : stdout et
-    // stderr sont MÊLÉS dans `output`, et plafonnés — Codex écrit sa réponse
-    // tout à la fin, après des centaines de kilo-octets de stderr.
+    // stderr sont MÊLÉS dans `output`, et plafonnés — un CLI en texte écrit sa
+    // réponse tout à la fin, après des centaines de kilo-octets de stderr.
     let sortieStandard = '';
     let tue = false;
+    const parLigne =
+      opts.onLine || suivi || flux
+        ? (line: string): void => {
+            try {
+              opts.onLine?.(line);
+            } catch {
+              /* parseur tolérant : on ignore */
+            }
+            suivi?.feed(line);
+            // Un flux lu en entier entre dans les logs RENDU, jamais brut —
+            // et TOUJOURS en début de ligne : stderr est consigné par
+            // morceaux, et un morceau sans fin de ligne collait la narration
+            // derrière lui ; sa marque n'ouvrait plus la ligne, et
+            // `texteDEchec` gardait les mots de l'agent (« API key ») comme
+            // ce que l'échec dit.
+            const rendue = flux?.lire(line);
+            if (rendue !== undefined) {
+              consigner(output === '' || output.endsWith('\n') ? `${rendue}\n` : `\n${rendue}\n`);
+            }
+          }
+        : undefined;
     // Décodage UTF-8 AU FIL DES MORCEAUX : un caractère accentué coupé entre
     // deux lectures devenait deux « � », jusque dans la ligne `result`.
     child.stdout?.setEncoding('utf8');
     child.stderr?.setEncoding('utf8');
     child.stdout?.on('data', (s: string) => {
-      if (output.length < OUTPUT_CAP) output += s;
+      if (!flux) consigner(s);
       if (texteFinal === 'sortie-standard') {
         sortieStandard = (sortieStandard + s).slice(-2 * LIMITS.finalText);
       }
@@ -206,13 +292,10 @@ function executer(
         tampon = tampon.slice(idx + 1);
       }
     });
-    child.stderr?.on('data', (s: string) => {
-      if (output.length < OUTPUT_CAP) output += s;
-    });
+    child.stderr?.on('data', consigner);
 
     const timeout = setTimeout(() => {
       tue = true;
-      output += `\n[hive] timeout après ${opts.timeoutMs} ms — processus tué`;
       child.kill();
     }, opts.timeoutMs);
     timeout.unref?.();
@@ -238,14 +321,20 @@ function executer(
         ? undefined
         : texteFinal === 'sortie-standard'
           ? borneTexteFinal(sortieStandard)
-          : suivi?.texte();
+          : (flux ?? suivi)?.texte();
+      const bilan = flux?.bilan(code, tue || ctx.signal?.aborted === true);
+      const logs = journalAvecFin(output, [
+        ...(tue ? [`[hive] timeout après ${opts.timeoutMs} ms — processus tué`] : []),
+        ...(bilan !== undefined ? [bilan] : []),
+      ]);
+      const success = code === 0 && bilan === undefined;
       // Échec dont le TEXTE évoque un problème d'auth/quota → infra
       // (réaffectation). Pas les logs bruts : voir `INFRA_FAILURE_RE`.
-      const infra = code !== 0 && INFRA_FAILURE_RE.test(texteDEchec(output, finalText));
+      const infra = !success && INFRA_FAILURE_RE.test(texteDEchec(logs, finalText));
       resolve({
-        success: code === 0,
+        success,
         diff: '',
-        logs: output,
+        logs,
         subAgents: [],
         ...(infra ? { infra: true } : {}),
         ...(finalText !== undefined ? { finalText } : {}),

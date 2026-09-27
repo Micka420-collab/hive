@@ -2,11 +2,16 @@
 // sommes HONNÊTES.
 //
 // La Reine range ce que le CLI de l'agent déclare (coût, temps passé dans les
-// appels au modèle, modèles exacts) sur `task_done` / `task_retry` /
+// appels au modèle, modèles exacts, jetons) sur `task_done` / `task_retry` /
 // `task_failed`, sous `fournisseur`. Une somme de ces valeurs n'a de sens
 // qu'avec sa COUVERTURE : trois tentatives dont deux déclarent un coût font
 // « au moins » ce total, pas ce total. Rien n'est estimé pour la tentative
 // muette, et aucune tentative déclarée → `inconnu`.
+//
+// Chaque valeur a SA couverture : Codex déclare ses jetons et rien d'autre,
+// Claude Code déclare tout. Aucune n'est déduite d'une autre — un coût tiré
+// des jetons demanderait une grille de prix, que Hive n'a pas et ne veut pas
+// dater.
 
 export interface SommeDeclaree {
   total: number;
@@ -20,6 +25,8 @@ export interface DeclarationLue {
   coutUsd: number | null;
   dureeApiMs: number | null;
   modeles: string[];
+  jetonsEntree: number | null;
+  jetonsSortie: number | null;
 }
 
 const nombre = (v: unknown): number | null =>
@@ -29,7 +36,7 @@ const nombre = (v: unknown): number | null =>
 export function declarationDe(payload: Record<string, unknown>): DeclarationLue {
   const f = payload.fournisseur;
   if (typeof f !== 'object' || f === null || Array.isArray(f)) {
-    return { coutUsd: null, dureeApiMs: null, modeles: [] };
+    return { coutUsd: null, dureeApiMs: null, modeles: [], jetonsEntree: null, jetonsSortie: null };
   }
   const brut = f as Record<string, unknown>;
   return {
@@ -38,6 +45,8 @@ export function declarationDe(payload: Record<string, unknown>): DeclarationLue 
     modeles: Array.isArray(brut.modeles)
       ? brut.modeles.filter((m): m is string => typeof m === 'string' && m.length > 0)
       : [],
+    jetonsEntree: nombre(brut.jetonsEntree),
+    jetonsSortie: nombre(brut.jetonsSortie),
   };
 }
 

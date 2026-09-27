@@ -33,7 +33,14 @@ describe('chronologieDepuisEvenements — les phases d’une tâche', () => {
       terminee: true,
     });
     expect(c.tentatives).toEqual([
-      { issue: 'reussie', dureeWorkerMs: 2_900, dureeModeleMs: null, coutUsd: null },
+      {
+        issue: 'reussie',
+        dureeWorkerMs: 2_900,
+        dureeModeleMs: null,
+        coutUsd: null,
+        jetonsEntree: null,
+        jetonsSortie: null,
+      },
     ]);
   });
 
@@ -133,6 +140,24 @@ describe('chronologieDepuisEvenements — les phases d’une tâche', () => {
     expect(c.dureeModele).toEqual({ total: 2_200, declarees: 2, tentatives: 3 });
     expect(c.coutFournisseur).toMatchObject({ declarees: 2, tentatives: 3 });
     expect(c.coutFournisseur !== 'inconnu' && c.coutFournisseur.total).toBeCloseTo(0.04, 10);
+  });
+
+  it('LES JETONS DÉCLARÉS (CODEX) SONT SOMMÉS AVEC LEUR COUVERTURE — aucun coût n’en est tiré', () => {
+    const c = chronologieDepuisEvenements(0, [
+      ev(1, 'task_retry', {
+        durationMs: 1_000,
+        fournisseur: { source: 'codex', jetonsEntree: 4_448, jetonsSortie: 104 },
+      }),
+      ev(2, 'task_done', {
+        durationMs: 2_000,
+        fournisseur: { source: 'codex', jetonsEntree: 1_234, jetonsSortie: 56 },
+      }),
+    ]);
+    expect(c.jetonsEntree).toEqual({ total: 5_682, declarees: 2, tentatives: 2 });
+    expect(c.jetonsSortie).toEqual({ total: 160, declarees: 2, tentatives: 2 });
+    // Codex ne déclare ni coût ni temps modèle : ils restent inconnus.
+    expect(c.coutFournisseur).toBe('inconnu');
+    expect(c.dureeModele).toBe('inconnu');
   });
 
   it('UNE DÉCLARATION ILLISIBLE NE DÉCLARE RIEN — coût négatif, texte, forme fausse', () => {

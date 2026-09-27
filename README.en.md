@@ -192,7 +192,7 @@ Any coding AI plugs in through the `AgentAdapter` interface:
 | `claude-code`  | `claude -p "<prompt>"` in the isolated workspace.                                                               |
 | `cursor`       | `cursor-agent -p --force --output-format stream-json -- "<prompt>"` — binary overridable via `HIVE_CURSOR_BIN`. |
 | `cline`        | `cline --json --auto-approve true "<prompt>"` — binary overridable via `HIVE_CLINE_BIN`.                        |
-| `codex`        | `codex exec "<prompt>"`                                                                                         |
+| `codex`        | `codex exec --json -- "<prompt>"` — tokens declared, cost unknown (never derived from tokens).                  |
 | `grok`         | `grok -p "<prompt>"` — xAI’s CLI agent, Apache 2.0.                                                             |
 | `hermes-agent` | `hermes agent run --prompt "<prompt>"`                                                                          |
 | `custom`       | Yours, via `HIVE_AGENT_CMD`.                                                                                    |

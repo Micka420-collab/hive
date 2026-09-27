@@ -1,0 +1,2 @@
+conteste
+- aucun test ne couvre la clé absente : la garde peut disparaître sans qu’un banc rougisse.

@@ -145,7 +145,10 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
   - le coût et le temps modèle **déclarés par le CLI de l'agent** (Claude
     Code), avec leur couverture — « inconnu » quand rien n'est déclaré
     ([#455](https://github.com/Micka420-collab/hive/pull/455),
-    [#456](https://github.com/Micka420-collab/hive/pull/456)).
+    [#456](https://github.com/Micka420-collab/hive/pull/456)) ; Codex, lancé
+    en `codex exec --json`, déclare ses **jetons** d'entrée et de sortie, et
+    rien d'autre : ni coût, ni temps modèle, ni modèle exact — aucun coût
+    n'est déduit des jetons ([#481](https://github.com/Micka420-collab/hive/pull/481)).
 
 **Reste à prouver :**
 
@@ -153,8 +156,9 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
   Docker ou Podman (diff, tests, revue, correction, livraison Git) ;
 - le coût et le temps modèle sur un **vrai** run : la lecture de la
   déclaration de Claude Code suit le format documenté et est éprouvée contre
-  un faux binaire, pas encore contre le CLI réel ; Codex ne déclare encore
-  rien à Hive ;
+  un faux binaire, pas encore contre le CLI réel ; celle des jetons de Codex
+  est enregistrée sur le vrai codex-cli 0.156.0, mais contre un faux
+  fournisseur local, pas sur un vrai run payé ;
 - l'arrêt d'un nœud en **mode conteneur** et **sous Windows** : l'agent peut
   survivre à son nœud (conteneur lancé sans `--init`, `TerminateProcess` sous
   Windows), comme les merges et chantiers en cours et les sous-processus
@@ -335,7 +339,7 @@ Toute IA de codage se branche via l'interface `AgentAdapter` :
 | `claude-code`  | `claude -p "<prompt>"` dans l'espace isolé.                                                                   |
 | `cursor`       | `cursor-agent -p --force --output-format stream-json -- "<prompt>"` — binaire réglable par `HIVE_CURSOR_BIN`. |
 | `cline`        | `cline --json --auto-approve true "<prompt>"` — binaire réglable par `HIVE_CLINE_BIN`.                        |
-| `codex`        | `codex exec "<prompt>"`                                                                                       |
+| `codex`        | `codex exec --json -- "<prompt>"` — jetons déclarés, coût inconnu (jamais tiré des jetons).                   |
 | `grok`         | `grok -p "<prompt>"` — l’agent CLI de xAI, Apache 2.0.                                                        |
 | `hermes-agent` | `hermes agent run --prompt "<prompt>"`                                                                        |
 | `custom`       | Le vôtre, via `HIVE_AGENT_CMD`.                                                                               |
