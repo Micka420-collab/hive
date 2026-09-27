@@ -522,8 +522,17 @@ describe.runIf(POSIX)('reprise après panne — vrais processus, vraie base', ()
     // (« database is locked ») au lieu de seulement attendre — c'est ce que
     // garantissent 8 s de verrou contre 5 s d'attente, avec un progrès de
     // tâche journalisé à chaque étape (350 à 750 ms).
-    expect(banc.journal.join(''), 'la Reine n’a jamais buté sur le verrou').toContain(
-      'database is locked',
+    //
+    // ATTENDU, PAS CONSTATÉ À L'INSTANT. La Reine imprime ce message pendant
+    // qu'une AUTRE écriture la retient jusqu'au `COMMIT` : better-sqlite3 est
+    // synchrone, sa boucle est figée. Node n'écrit les tubes de stdio de façon
+    // synchrone que sous Linux ; ailleurs, la ligne attend que la boucle se
+    // libère. Mesuré : la jambe macOS rougissait sur le constat immédiat.
+    await attendre(
+      () => banc.journal.join('').includes('database is locked'),
+      'la Reine n’a jamais buté sur le verrou',
+      15_000,
+      banc,
     );
 
     await verdict(banc, ids);
