@@ -116,14 +116,26 @@ export function clearPartage(): void {
  *
  * Joindre le JWT à chaque appel est sûr parce que le serveur l'AJOUTE sans
  * rien retirer : un engagement essaie le compte, puis le jeton sur un projet
- * orphelin ; une lecture accepte encore le jeton en premier. Un JWT périmé
- * retombe donc exactement sur l'ancien chemin, et sans session rien ne change.
- * La CLI fait déjà ainsi (`HIVE_JWT`, `src/cli.ts`).
+ * orphelin ; les lectures gardées par `lectureProjetPermise` acceptent encore
+ * le jeton en premier (celles du Rayon, elles, exigeaient déjà le compte ou un
+ * lien). Sans session rien ne change, et un JWT périmé est traité par la Reine
+ * comme absent. La CLI fait déjà ainsi (`HIVE_JWT`, `src/cli.ts`).
+ *
+ * ⚠ CE QUE ÇA NE RÈGLE PAS : une session qui expire PENDANT que l'onglet vit.
+ * `App` ne purge le JWT qu'au montage ; d'ici là il part périmé, et « traité
+ * comme absent » veut dire l'ancien chemin — 404 sur un projet qui a un
+ * propriétaire, 401 sur `createProject`, qui choisit la porte du compte dès
+ * qu'un JWT est rangé. Ce n'est pas un défaut nouveau, mais c'est le même
+ * silence : l'écran croit la personne connectée et ne lui dit pas de se
+ * reconnecter. Il reste à traiter.
+ *
+ * `path` est TOUJOURS une route de la Reine (`/api/…`, même origine) : cette
+ * identité ne part jamais chez un tiers. La garde de
+ * `tests/dashboard-contrat-compte.test.tsx` le vérifie à chaque appel.
  *
  * `identite` n'existe que pour UNE exception : la lecture par lien de partage
- * (`apiLecture`), qui ne doit jamais partir avec le compte. Retirer cette
- * valeur par défaut rouvre le 404 ; `tests/dashboard-contrat-compte.test.tsx`
- * le rejoue contre une vraie Reine.
+ * (`apiLecture`), qui part avec le lien SEUL. Retirer cette valeur par défaut
+ * rouvre le 404 ; le même banc le rejoue contre une vraie Reine.
  */
 async function api<T>(
   path: string,
@@ -1389,18 +1401,24 @@ function apiCompte<T>(path: string, init?: RequestInit): Promise<T> {
  * accessibles à un lien. Un appel d'écriture qui passerait par ici recevrait
  * 401 côté serveur — la retouche, elle, exige un compte, et c'est le point.
  *
- * ─── AVEC UN LIEN, LE COMPTE RESTE À LA MAISON ──────────────────────────────
+ * ─── AVEC UN LIEN, LE LIEN PART SEUL ────────────────────────────────────────
  *
- * Le JWT vit dans `localStorage`, commun à tous les onglets ; le lien, dans
- * l'onglet qui l'a ouvert. Le serveur essaie le lien d'abord, puis le compte :
- * joindre les deux ferait qu'un lien révoqué ou expiré retomberait en silence
- * sur les droits de la personne connectée — l'onglet de partage agirait en son
- * nom. C'est la seule identité que `api()` ne choisit pas lui-même.
+ * Le JWT et le jeton de ruche vivent dans `localStorage`, commun à tous les
+ * onglets ; le lien, dans l'onglet qui l'a ouvert. Le serveur essaie le lien
+ * d'abord, puis une autre porte : le COMPTE pour les lectures du Rayon
+ * (`projetLisible`), le JETON DE RUCHE pour le rapport d'avancement. Joindre
+ * l'une ou l'autre au lien ferait qu'un lien révoqué ou expiré retomberait en
+ * silence sur les droits de ce navigateur. L'hôte qui vérifie son propre lien
+ * avant de l'envoyer le verrait s'ouvrir — alors que chez l'invité il ne mène
+ * nulle part, et l'écran `Partage` ne dirait jamais « ce lien ne donne accès à
+ * rien ». La vue du porteur ne demande rien d'autre au serveur : `main.tsx`
+ * l'aiguille avant `App`, sans flux ni relevé à la ruche. C'est la seule
+ * identité que `api()` ne choisit pas lui-même.
  */
 function apiLecture<T>(path: string, init?: RequestInit): Promise<T> {
   const jeton = getPartage();
   if (!jeton) return api<T>(path, init);
-  return api<T>(path, init, { 'x-hive-token': getToken(), 'x-hive-partage': jeton });
+  return api<T>(path, init, { 'x-hive-partage': jeton });
 }
 
 // ─── Les issues, et ce que devient le travail livré ─────────────────────────

@@ -178,9 +178,15 @@ Et aucun test n'a vu ce que le resserrement cassait : le tableau de bord
 « 404 projet inconnu » sur les huit engagements de son propre projet, `addTasks`
 en tête, juste après l'avoir créé. Les bancs du serveur choisissent leurs
 en-têtes, ceux de l'écran bouchonnent `fetch` : le défaut vivait entre les deux.
-`api()` joint désormais le JWT à chaque appel (le lien de partage excepté), et
-`tests/dashboard-contrat-compte.test.tsx` fait passer les vraies fonctions de
-l'écran devant une vraie Reine.
+`api()` joint désormais le JWT à chaque appel — sauf la lecture par lien de
+partage, qui part avec le lien SEUL : ni compte ni jeton de ruche, sinon un lien
+révoqué s'ouvrirait encore chez son hôte. `tests/dashboard-contrat-compte.test.tsx`
+fait passer les vraies fonctions de l'écran devant une vraie Reine.
+
+Ce que cela ne règle pas encore : une session qui expire pendant que l'onglet
+reste ouvert. L'écran ne purge le JWT qu'au montage ; d'ici là il part périmé,
+la Reine le traite comme absent, et la personne retrouve le 404 sur son projet
+(ou un 401 à la création) sans qu'on lui dise de se reconnecter.
 
 ## Première étape livrée : les capacités globales
 

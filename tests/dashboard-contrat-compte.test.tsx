@@ -49,6 +49,7 @@ import { createServer as creerHttp } from 'node:http';
 import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+import ts from 'typescript';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import { signJwt } from '../src/orchestrator/auth.js';
@@ -65,9 +66,11 @@ import {
   fetchIssues,
   fetchLivraisons,
   fetchReport,
+  lancerChantier,
   lancerWorkflowGithub,
   prendreIssue,
   reprendreLivraison,
+  revoquerPartage,
   runMerge,
   saveJwt,
   savePartage,
@@ -142,6 +145,8 @@ interface Compte {
   email: string;
   jwt: string;
   id: string;
+  /** Tel que la Reine le rend à `authMe` — c'est lui que la prémisse vérifie. */
+  role: string | undefined;
 }
 
 describe('le tableau de bord connecté engage SON projet, par les vraies fonctions de api.ts', () => {
@@ -244,7 +249,8 @@ describe('le tableau de bord connecté engage SON projet, par les vraies fonctio
   const inscrire = async (email: string): Promise<Compte> => {
     const { token } = await authRegister(email, MOT_DE_PASSE, email);
     saveJwt(token);
-    return { email, jwt: token, id: (await authMe()).id };
+    const { id, role } = await authMe();
+    return { email, jwt: token, id, role };
   };
 
   /**
@@ -363,9 +369,17 @@ describe('le tableau de bord connecté engage SON projet, par les vraies fonctio
     // par son rôle et non par sa propriété — pour une mauvaise raison. On
     // consomme donc l'amorçage avec un compte qui ne sert qu'à ça.
     saveToken(TOKEN);
-    await inscrire('reine@ruche.test');
+    const amorce = await inscrire('reine@ruche.test');
     proprietaire = await inscrire('proprietaire@ruche.test');
     voisin = await inscrire('voisin@ruche.test');
+    // La prémisse, VÉRIFIÉE et non supposée : elle ne tient qu'à l'ordre des
+    // inscriptions, et un amorçage qui changerait de règle la ferait tomber en
+    // silence — le banc passerait alors par le rôle, sans que rien ne rougisse.
+    expect(amorce.role, 'prémisse : l’amorçage est consommé ici').toBe('admin');
+    expect([proprietaire.role, voisin.role], 'prémisse : aucun des deux n’est admin').toEqual([
+      'membre',
+      'membre',
+    ]);
   });
 
   beforeEach(() => {
@@ -391,9 +405,12 @@ describe('le tableau de bord connecté engage SON projet, par les vraies fonctio
   });
 
   /** Un projet créé par l'écran, connecté : il appartient à son créateur. */
-  const projetDuProprietaire = async (nom: string): Promise<string> => {
+  const projetDuProprietaire = async (
+    nom: string,
+    repoUrl: string | null = REPO_URL,
+  ): Promise<string> => {
     saveJwt(proprietaire.jwt);
-    const projet = await createProject({ name: nom, repoUrl: REPO_URL });
+    const projet = await createProject({ name: nom, ...(repoUrl ? { repoUrl } : {}) });
     // LA PRÉMISSE QUI DONNE SON SENS À TOUT LE RESTE. Un projet orphelin
     // s'engage encore au jeton de ruche : sans propriétaire, ce banc passerait
     // sans que le JWT ait servi à quoi que ce soit.
@@ -454,6 +471,27 @@ describe('le tableau de bord connecté engage SON projet, par les vraies fonctio
     expect(dispatches).toContain(WORKFLOW);
   });
 
+  it('LE CHANTIER PASSE LA PORTE DU COMPTE — le seul refus qui reste est celui du dépôt', async () => {
+    // Un chantier fait cloner le dépôt par le miroir : sur un vrai dépôt, ce
+    // banc partirait sur le réseau. Mais la route juge l'ENGAGEMENT avant tout
+    // le reste, `repoUrl` compris — un projet sans dépôt éprouve donc la porte
+    // sans rien cloner. Le propriétaire apprend ce qui lui manque pour la
+    // suite ; avant, il recevait « 404 projet inconnu » sur son propre projet.
+    const projet = await projetDuProprietaire('Chantier sans dépôt', null);
+    expect(await refus(lancerChantier(projet, 'test'))).toEqual({
+      status: 400,
+      message: 'le projet doit avoir un dépôt (repoUrl)',
+    });
+
+    // Et c'est bien le COMPTE qui a ouvert cette porte : le voisin, sur la même
+    // route, bute sur l'inexistence avant d'apprendre quoi que ce soit du dépôt.
+    saveJwt(voisin.jwt);
+    expect(await refus(lancerChantier(projet, 'test'))).toEqual({
+      status: 404,
+      message: 'projet inconnu',
+    });
+  });
+
   it('LE JWT N’OUVRE QUE CE QUI REGARDE SON PORTEUR — la frontière de l’ADR 0007 tient', async () => {
     const projet = await projetDuProprietaire('Projet qui ne regarde pas le voisin');
 
@@ -494,24 +532,33 @@ describe('le tableau de bord connecté engage SON projet, par les vraies fonctio
     );
   });
 
-  it('UN LIEN DE PARTAGE NE PART JAMAIS AVEC LE COMPTE, même quand une session existe', async () => {
+  it('UN LIEN DE PARTAGE PART SEUL — un lien révoqué ne s’ouvre pas chez son hôte', async () => {
     const projet = await projetDuProprietaire('Projet partagé');
-    const { jeton } = await creerPartage(projet, { label: 'Pour montrer' });
+    const { id, jeton } = await creerPartage(projet, { label: 'Pour montrer' });
 
-    // L'onglet où l'on a ouvert le lien : le JWT du compte est là, dans le
-    // `localStorage` commun à tous les onglets. La lecture doit partir avec le
-    // lien SEUL — sinon un lien révoqué retomberait sur les droits du compte,
-    // et l'onglet de partage agirait en son nom.
+    // L'onglet où l'hôte vérifie son propre lien avant de l'envoyer : le JWT
+    // ET le jeton de ruche sont là, dans le `localStorage` commun à tous les
+    // onglets. La lecture doit partir avec le lien SEUL.
     savePartage(jeton);
     expect((await fetchReport(projet)).projectId).toBe(projet);
     const lecture = envois.at(-1);
     expect(lecture?.chemin).toBe(`/api/projects/${projet}/report`);
     expect(lecture?.entetes['x-hive-partage']).toBe(jeton);
     expect(lecture?.entetes, 'le JWT a voyagé avec le lien').not.toHaveProperty('authorization');
+    expect(lecture?.entetes, 'le jeton de ruche a voyagé avec le lien').not.toHaveProperty(
+      'x-hive-token',
+    );
+
+    // Ce que l'absence d'en-têtes PROTÈGE, joué pour de vrai. Le rapport essaie
+    // le lien, puis le jeton de ruche : si ce dernier partait avec, le lien
+    // révoqué s'ouvrirait encore chez l'hôte — qui le croirait vivant, alors
+    // que chez l'invité il ne mène plus nulle part.
+    await revoquerPartage(projet, id);
+    expect((await refus(fetchReport(projet))).status).toBe(401);
   });
 });
 
-// ─── LE PROCHAIN `fetch` N'OUBLIERA PAS NON PLUS ─────────────────────────────
+// ─── LE PROCHAIN `fetch` N'OUBLIERA PAS NON PLUS — NI N'IRA TROP LOIN ────────
 //
 // Le défaut tenu plus haut est né d'une identité posée APPEL PAR APPEL : les
 // fonctions d'intendance ajoutaient le JWT, les autres non, et c'est la moitié
@@ -519,31 +566,183 @@ describe('le tableau de bord connecté engage SON projet, par les vraies fonctio
 // les rares appels qui gardent leur propre `fetch` parce qu'ils lisent eux-
 // mêmes la réponse (un flux SSE, une recherche relayée). Chacun doit la prendre
 // à `enTetesRuche()` — la seule source — et le suivant qu'on écrira aussi.
-describe('aucun fetch du tableau de bord ne part sans l’identité de la ruche', () => {
+//
+// ─── MAIS SEULEMENT VERS LA REINE ────────────────────────────────────────────
+//
+// Une garde qui dirait seulement « ce fetch part sans l'identité » pousserait
+// vers une fuite : le jour où l'écran appellera un tiers en direct (OpenAlex,
+// un CDN, `api.github.com`), la correction évidente du rouge serait d'ajouter
+// `enTetesRuche()` — et `HIVE_TOKEN` et le JWT partiraient chez lui. La règle
+// est donc les DEUX sens : l'identité va à la Reine (`/api/…`, même origine),
+// et nulle part ailleurs. Une cible qui ne se lit pas sans exécuter le code ne
+// se juge pas : elle rougit, pour qu'on dise laquelle des deux elle est.
+//
+// ─── POURQUOI LE VRAI ANALYSEUR, ET PAS UNE EXPRESSION RATIONNELLE ───────────
+//
+// La première version cherchait `enTetesRuche()` dans les 400 caractères après
+// `fetch(` : un `fetch` nu posé juste avant un appel sans rapport passait, et
+// `window.fetch(` échappait au balayage. L'arbre syntaxique de TypeScript juge
+// les en-têtes de CET appel-là, ignore commentaires et chaînes, et reconnaît le
+// `fetch` du navigateur sous tous les noms qu'on lui donne.
+describe('l’identité de la ruche part avec chaque fetch vers la Reine, et nulle part ailleurs', () => {
   const RACINE = new URL('../dashboard/src/', import.meta.url);
 
-  /** Le code, commentaires retirés : sinon une garde accuse sa propre doc. */
-  const sansCommentaires = (texte: string): string =>
-    texte.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*(?:\/\/|\*).*$/gm, '');
+  const sources = readdirSync(RACINE, { recursive: true, encoding: 'utf8' })
+    .filter((fichier) => /\.tsx?$/.test(fichier))
+    .map((fichier) =>
+      ts.createSourceFile(
+        fichier,
+        readFileSync(new URL(fichier, RACINE), 'utf8'),
+        ts.ScriptTarget.Latest,
+        true,
+        fichier.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+      ),
+    );
+  const sourceApi = sources.find((s) => s.fileName === 'api.ts');
 
-  it('chaque appel réseau passe par `api()` ou prend ses en-têtes à `enTetesRuche()`', () => {
-    const sites: { fichier: string; appel: string }[] = [];
-    for (const fichier of readdirSync(RACINE, { recursive: true, encoding: 'utf8' })) {
-      if (!/\.tsx?$/.test(fichier)) continue;
-      const code = sansCommentaires(readFileSync(new URL(fichier, RACINE), 'utf8'));
-      // `fetch(` nu — ni `.fetch(`, ni `fetchRayon(`.
-      for (const m of code.matchAll(/(?<![\w.])fetch\(/g)) {
-        sites.push({ fichier, appel: code.slice(m.index, m.index + 400) });
+  /** Tous les appels d'un fichier que `garder` retient, à toute profondeur. */
+  const appels = (
+    source: ts.SourceFile,
+    garder: (appel: ts.CallExpression) => boolean,
+  ): ts.CallExpression[] => {
+    const trouves: ts.CallExpression[] = [];
+    const visiter = (noeud: ts.Node): void => {
+      if (ts.isCallExpression(noeud) && garder(noeud)) trouves.push(noeud);
+      ts.forEachChild(noeud, visiter);
+    };
+    visiter(source);
+    return trouves;
+  };
+
+  /** La fonction déclarée qui contient ce nœud — `undefined` au niveau du module. */
+  const fonctionDe = (noeud: ts.Node): string | undefined => {
+    for (let p = noeud.parent; p; p = p.parent) {
+      if (ts.isFunctionDeclaration(p)) return p.name?.text;
+    }
+    return undefined;
+  };
+
+  /** `fetch(` nu, ou celui du navigateur sous un autre nom : `window.`, `globalThis.`, `self.`. */
+  const estFetch = (appel: ts.CallExpression): boolean => {
+    const e = appel.expression;
+    if (ts.isIdentifier(e)) return e.text === 'fetch';
+    return (
+      ts.isPropertyAccessExpression(e) &&
+      e.name.text === 'fetch' &&
+      ts.isIdentifier(e.expression) &&
+      ['window', 'globalThis', 'self'].includes(e.expression.text)
+    );
+  };
+
+  /** Le texte par lequel commence une cible littérale ; `null` si elle ne se lit pas. */
+  const debutLitteral = (cible: ts.Expression | undefined): string | null => {
+    if (!cible) return null;
+    if (ts.isStringLiteral(cible) || ts.isNoSubstitutionTemplateLiteral(cible)) return cible.text;
+    if (ts.isTemplateExpression(cible)) return cible.head.text;
+    return null;
+  };
+
+  /** `enTetesRuche()`, ou `identite` — le paramètre d'`api()` dont c'est la valeur par défaut. */
+  const estIdentite = (x: ts.Expression): boolean =>
+    (ts.isCallExpression(x) &&
+      ts.isIdentifier(x.expression) &&
+      x.expression.text === 'enTetesRuche') ||
+    (ts.isIdentifier(x) && x.text === 'identite');
+
+  /** Les en-têtes de CET appel portent-ils l'identité — directement, ou étalée dans un objet ? */
+  const porteIdentite = (appel: ts.CallExpression): boolean => {
+    const options = appel.arguments[1];
+    if (!options || !ts.isObjectLiteralExpression(options)) return false;
+    const headers = options.properties.find(
+      (p): p is ts.PropertyAssignment =>
+        ts.isPropertyAssignment(p) && ts.isIdentifier(p.name) && p.name.text === 'headers',
+    );
+    if (!headers) return false;
+    const valeur = headers.initializer;
+    if (estIdentite(valeur)) return true;
+    return (
+      ts.isObjectLiteralExpression(valeur) &&
+      valeur.properties.some((p) => ts.isSpreadAssignment(p) && estIdentite(p.expression))
+    );
+  };
+
+  const ou = (source: ts.SourceFile, noeud: ts.Node): string =>
+    `${source.fileName}:${source.getLineAndCharacterOfPosition(noeud.getStart()).line + 1}`;
+
+  it('chaque fetch vers `/api/…` prend ses en-têtes à `enTetesRuche()` ; aucun autre ne les prend', () => {
+    let vus = 0;
+    for (const source of sources) {
+      for (const appel of appels(source, estFetch)) {
+        vus += 1;
+        const cible = appel.arguments[0];
+        // `api()` reçoit un `path` : c'est le test suivant qui prouve que
+        // chacun de ses appelants lui donne une route de la Reine.
+        const cheminDApi =
+          source === sourceApi &&
+          fonctionDe(appel) === 'api' &&
+          cible !== undefined &&
+          ts.isIdentifier(cible) &&
+          cible.text === 'path';
+        const debut = cheminDApi ? '/api/' : debutLitteral(cible);
+        expect(
+          debut,
+          `${ou(source, appel)} : cible illisible — dites si c’est la Reine (\`/api/…\`, ` +
+            'avec `enTetesRuche()`) ou un tiers (SANS elle)',
+        ).not.toBeNull();
+        if (debut?.startsWith('/api/')) {
+          expect(porteIdentite(appel), `${ou(source, appel)} : un fetch part sans l’identité`).toBe(
+            true,
+          );
+        } else {
+          expect(
+            porteIdentite(appel),
+            `${ou(source, appel)} : l’identité de la ruche (HIVE_TOKEN, JWT) partirait chez un ` +
+              `tiers (${debut}) — un appel hors de la Reine ne la porte JAMAIS`,
+          ).toBe(false);
+        }
       }
     }
     // Trois aujourd'hui : `api()`, la Reine, OpenAlex. Zéro voudrait dire que
     // le balayage ne voit plus rien — une garde aveugle passe toujours.
-    expect(sites.length, 'le balayage ne trouve aucun fetch').toBeGreaterThanOrEqual(3);
-    for (const { fichier, appel } of sites) {
-      // `api()` étale `identite`, dont la valeur par défaut EST `enTetesRuche()`.
-      expect(appel, `${fichier} : un fetch part sans l’identité`).toMatch(
-        /enTetesRuche\(\)|\.\.\.identite\b/,
-      );
+    expect(vus, 'le balayage ne trouve aucun fetch').toBeGreaterThanOrEqual(3);
+  });
+
+  it('`api()` part avec `enTetesRuche()` par défaut, et chacun de ses appelants vise la Reine', () => {
+    if (!sourceApi) throw new Error('dashboard/src/api.ts introuvable');
+    // Le test précédent accepte `...identite` dans `api()` parce que SA VALEUR
+    // PAR DÉFAUT est l'identité. C'est donc elle qu'on épingle.
+    const declaration = sourceApi.statements.find(
+      (s): s is ts.FunctionDeclaration => ts.isFunctionDeclaration(s) && s.name?.text === 'api',
+    );
+    const identite = declaration?.parameters.find(
+      (p) => ts.isIdentifier(p.name) && p.name.text === 'identite',
+    );
+    expect(identite?.initializer?.getText(sourceApi), 'la valeur par défaut d’`identite`').toBe(
+      'enTetesRuche()',
+    );
+
+    const aides = new Set(['api', 'apiCompte', 'apiLecture']);
+    const passages = appels(
+      sourceApi,
+      (a) => ts.isIdentifier(a.expression) && aides.has(a.expression.text),
+    );
+    for (const appel of passages) {
+      const cible = appel.arguments[0];
+      // `apiCompte` et `apiLecture` transmettent leur propre `path` : ce sont
+      // LEURS appelants qui sont vérifiés, par cette même boucle.
+      const relais =
+        aides.has(fonctionDe(appel) ?? '') &&
+        cible !== undefined &&
+        ts.isIdentifier(cible) &&
+        cible.text === 'path';
+      if (relais) continue;
+      expect(
+        debutLitteral(cible),
+        `${ou(sourceApi, appel)} : \`api()\` porte l’identité — sa cible doit être \`/api/…\``,
+      ).toMatch(/^\/api\//);
     }
+    // Plus d'une centaine aujourd'hui : un balayage qui n'en verrait presque
+    // plus aurait cessé de lire le fichier, pas trouvé un code plus sobre.
+    expect(passages.length, 'le balayage ne trouve plus les appels d’`api()`').toBeGreaterThan(50);
   });
 });
