@@ -286,7 +286,6 @@ import { buildMergePlan } from './honeycomb.js';
 import { tally, signatureOf } from './parliament.js';
 import type { Ballot } from './parliament.js';
 import { evaluate, missingCrossReviewEvidence } from './evaluator.js';
-import type { ValidationProvenance } from './evaluator.js';
 import { validationsDepuisControles } from './ci-evidence.js';
 import { CacheDomaines, domaineDeTache, replierTraces } from './pheromones.js';
 import type { Domaine, TraceePheromone } from './pheromones.js';
@@ -1677,7 +1676,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   const evaluationPour = (task: Task) => {
     const results = store.resultsForTask(task.id);
     const latest = results[results.length - 1];
-    const ci = latest?.resultId ? store.latestCiValidation(task.id, latest.resultId) : null;
+    const preuve = latest?.resultId ? store.latestValidation(task.id, latest.resultId) : null;
     const crossReview = latest
       ? latest.resultId
         ? (store.crossReviewForResult(task.id, latest.resultId) ??
@@ -1704,21 +1703,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         ...(inspection ? { inspection } : {}),
         consensus: tally(ballots),
         humanReview: store.getTaskReview(task.id)?.state ?? null,
-        ...(ci
-          ? {
-              validation: ci.validation,
-              validationProvenance: {
-                source: ci.source,
-                taskId: ci.taskId,
-                projectId: ci.projectId,
-                resultId: ci.resultId,
-                depot: ci.depot,
-                pr: ci.pr,
-                branch: ci.branch,
-                commitSha: ci.commitSha,
-                recordedAt: ci.recordedAt,
-              } satisfies ValidationProvenance,
-            }
+        ...(preuve
+          ? { validation: preuve.validation, validationProvenance: preuve.provenance }
           : {}),
         ...(crossReview ? { crossReview } : {}),
       }),
@@ -7189,10 +7175,11 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   );
 
   // Evaluator indépendant : compose les faits déjà produits par les
-  // Gardiennes, le Parlement et la revue humaine. Les validations CI restent
+  // Gardiennes, le Parlement et la revue humaine. Les validations restent
   // explicitement absentes tant qu'aucun producteur de preuves ne les a
-  // enregistrées ; les logs d'un Worker ne sont jamais interprétés comme une
-  // validation.
+  // enregistrées — le bac Hive à la réception du résultat, ou la CI GitHub
+  // ingérée ci-dessous ; les logs d'un Worker ne sont jamais interprétés comme
+  // une validation.
   app.get<{ Params: { taskId: string } }>(
     '/api/tasks/:taskId/evaluation',
     {
@@ -7317,7 +7304,9 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
 
       const validation = validationsDepuisControles(faits.controles);
       const recordedAt = Date.now();
-      emitEvent('ci_validation_recorded', {
+      // Le même événement que les validations du bac, distingué par sa
+      // source : `store.latestValidation` lit la plus récente des deux.
+      emitEvent('validation_recorded', {
         source: 'github_pull_request',
         taskId: task.id,
         projectId: task.projectId,
@@ -9192,6 +9181,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
               subAgents: msg.subAgents,
               ...(msg.usage ? { usage: msg.usage } : {}),
               ...(msg.fournisseur ? { fournisseur: msg.fournisseur } : {}),
+              ...(msg.validations ? { validations: msg.validations } : {}),
             });
             if (!pris) {
               send(ws, {

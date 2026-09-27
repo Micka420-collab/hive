@@ -3,6 +3,8 @@
 
 import { nomDeChantierValide } from './chantier.js';
 import { estPlateforme } from './machine.js';
+import { validationsBacDepuis } from './validations-bac.js';
+import type { ValidationsBac } from './validations-bac.js';
 import type { PlateformeNoeud } from './machine.js';
 import type { PresenceFichier } from './presence.js';
 import { NIVEAUX_ISOLEMENT } from './types.js';
@@ -215,6 +217,12 @@ export interface TaskResultMsg {
   usage?: ExecutionUsage;
   /** Déclaration du CLI de l'agent (coût, temps modèle), jamais estimée. */
   fournisseur?: UsageFournisseur;
+  /**
+   * Ce que le projet déclare pour se vérifier, lancé par le nœud dans le bac de
+   * la production (`validations-bac.ts`). Voyage AVEC le résultat : c'est ce
+   * qui le lie au `resultId` exact que la Reine attribue à la réception.
+   */
+  validations?: ValidationsBac;
 }
 
 /**
@@ -883,6 +891,10 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
         (m.usage === undefined || isExecutionUsage(m.usage))
       ) {
         const fournisseur = usageFournisseurDepuis(m.fournisseur);
+        // Mal formées, les validations sont abandonnées — pas le résultat :
+        // elles redeviennent `missing`, ce qu'elles étaient sans rapport.
+        const validations =
+          m.validations === undefined ? null : validationsBacDepuis(m.validations);
         return {
           type: 'task_result',
           taskId: m.taskId,
@@ -893,6 +905,7 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
           subAgents: m.subAgents,
           ...(m.usage !== undefined ? { usage: m.usage } : {}),
           ...(fournisseur ? { fournisseur } : {}),
+          ...(validations ? { validations } : {}),
         };
       }
       return null;

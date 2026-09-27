@@ -16,8 +16,19 @@ import { CORPUS_AIGUILLAGE } from './aiguillage.js';
 import { CORPUS_GARDE_FOU } from './garde-fou.js';
 import type { Echelon, FaitsProduction } from './garde-fou.js';
 import type { Suite } from './polyethisme.js';
-import type { CiValidationRecord } from './ci-evidence.js';
-import type { CrossReviewEvidence, CrossReviewVote } from './evaluator.js';
+import type {
+  CrossReviewEvidence,
+  CrossReviewVote,
+  ProvenanceBac,
+  ProvenanceGithub,
+  ValidationEvidence,
+  ValidationProvenance,
+} from './evaluator.js';
+import {
+  VALIDATION_KEYS,
+  estEtatDeValidation,
+  validationsBacDepuis,
+} from '../shared/validations-bac.js';
 import { agreger, type Avis } from '../shared/contre-expertise.js';
 import { champSurUneLigne } from '../shared/donnees-non-fiables.js';
 import { CORPUS_BALANCE, LOT_GRAND_LIVRE, VERSION_BALANCE } from './balance.js';
@@ -5586,17 +5597,33 @@ export class HiveStore {
   }
 
   /**
-   * Dernière preuve CI pour un résultat précis. Les preuves vivent dans le
-   * journal d'événements : aucune seconde table ne pourrait rester alignée
-   * avec les résultats élagués. Toute charge persistée est revalidée avant de
-   * rejoindre l'Evaluator, car le journal est une trace, pas une zone de
-   * confiance.
+   * Dernière preuve de validation d'un résultat précis, quelle qu'en soit la
+   * source : CI GitHub (`github_pull_request`) ou bac Hive (`hive_sandbox`).
+   *
+   * La plus RÉCENTE gouverne, avec SA provenance entière — jamais un mélange
+   * état par état de deux sources, qui afficherait une provenance que la
+   * moitié des états n'a pas. En pratique le bac range la sienne à la
+   * réception du résultat, et une CI ingérée ensuite pour ce même résultat la
+   * remplace : le geste humain le plus récent a le dernier mot.
+   *
+   * Les preuves vivent dans le journal d'événements : aucune seconde table ne
+   * pourrait rester alignée avec les résultats élagués. Toute charge persistée
+   * est revalidée avant de rejoindre l'Evaluator — celle du bac par les règles
+   * mêmes qui l'ont admise du réseau (`validationsBacDepuis`) —, car le journal
+   * est une trace, pas une zone de confiance.
+   *
+   * `ci_validation_recorded` est le nom sous lequel les preuves GitHub étaient
+   * rangées avant que le bac n'en produise : relu pour ne pas effacer une
+   * preuve déjà ingérée, il sort du journal avec l'élagage.
    */
-  latestCiValidation(taskId: string, resultId: number): CiValidationRecord | null {
+  latestValidation(
+    taskId: string,
+    resultId: number,
+  ): { validation: ValidationEvidence; provenance: ValidationProvenance } | null {
     const row = this.db
       .prepare(
         `SELECT * FROM events
-         WHERE type = 'ci_validation_recorded'
+         WHERE type IN ('validation_recorded', 'ci_validation_recorded')
            AND json_extract(payload, '$.taskId') = ?
            AND json_extract(payload, '$.resultId') = ?
          ORDER BY id DESC LIMIT 1`,
@@ -5615,44 +5642,74 @@ export class HiveStore {
       typeof payload[key] === 'number' && Number.isSafeInteger(payload[key])
         ? (payload[key] as number)
         : 0;
-    const validation = payload.validation;
-    if (typeof validation !== 'object' || validation === null) return null;
-    const states = ['tests', 'typecheck', 'build', 'lint'] as const;
-    const evidence = Object.fromEntries(
-      states.map((key) => {
-        const value = (validation as Record<string, unknown>)[key];
-        return [
-          key,
-          value === 'passed' || value === 'failed' || value === 'missing' ? value : 'missing',
-        ];
-      }),
-    ) as unknown as CiValidationRecord['validation'];
-    const result: CiValidationRecord = {
-      source: 'github_pull_request',
+    const etats = payload.validation;
+    if (typeof etats !== 'object' || etats === null) return null;
+    const commun = {
       taskId: text('taskId'),
       projectId: text('projectId'),
       resultId: integer('resultId'),
+      recordedAt: integer('recordedAt'),
+    };
+    if (
+      commun.taskId !== taskId ||
+      commun.resultId !== resultId ||
+      !commun.projectId ||
+      commun.recordedAt <= 0
+    ) {
+      return null;
+    }
+
+    if (payload.source === 'hive_sandbox' && row.type === 'validation_recorded') {
+      const details = payload.details;
+      const nodeId = text('nodeId');
+      if (!nodeId || typeof details !== 'object' || details === null) return null;
+      const bac = validationsBacDepuis({
+        ...(payload.baseSha !== undefined ? { baseSha: payload.baseSha } : {}),
+        controles: Object.fromEntries(
+          VALIDATION_KEYS.map((key) => [
+            key,
+            {
+              ...((details as Record<string, unknown>)[key] as object),
+              etat: (etats as Record<string, unknown>)[key],
+            },
+          ]),
+        ),
+      });
+      if (!bac) return null;
+      const validation = {} as ValidationEvidence;
+      const provenance: ProvenanceBac = {
+        source: 'hive_sandbox',
+        ...commun,
+        nodeId,
+        ...(bac.baseSha ? { baseSha: bac.baseSha } : {}),
+        details: {} as ProvenanceBac['details'],
+      };
+      for (const key of VALIDATION_KEYS) {
+        const { etat, ...detail } = bac.controles[key];
+        validation[key] = etat;
+        provenance.details[key] = detail;
+      }
+      return { validation, provenance };
+    }
+
+    if (payload.source !== 'github_pull_request') return null;
+    const validation = {} as ValidationEvidence;
+    for (const key of VALIDATION_KEYS) {
+      const value = (etats as Record<string, unknown>)[key];
+      validation[key] = estEtatDeValidation(value) ? value : 'missing';
+    }
+    const provenance: ProvenanceGithub = {
+      source: 'github_pull_request',
+      ...commun,
       depot: text('depot'),
       pr: integer('pr'),
       branch: text('branch'),
       commitSha: text('commitSha'),
-      recordedAt: integer('recordedAt'),
-      validation: evidence,
     };
-    if (
-      result.taskId !== taskId ||
-      result.resultId !== resultId ||
-      result.source !== payload.source ||
-      !result.projectId ||
-      !result.depot ||
-      result.pr <= 0 ||
-      !result.branch ||
-      !result.commitSha ||
-      result.recordedAt <= 0
-    ) {
+    if (!provenance.depot || provenance.pr <= 0 || !provenance.branch || !provenance.commitSha) {
       return null;
     }
-    return result;
+    return { validation, provenance };
   }
 
   /** Résumé de toutes les contre-revues indépendantes d'un résultat exact. */

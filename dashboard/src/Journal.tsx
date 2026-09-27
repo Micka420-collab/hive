@@ -1,6 +1,7 @@
 // Journal d'événements : flux temps réel, coloré et à icônes.
 
 import type { HiveEvent } from '../../src/shared/types';
+import { VALIDATION_KEYS } from '../../src/shared/validations-bac';
 import { useT } from './i18n';
 import type { Translate } from './i18n';
 import { bandeText, formatDuree } from './ui';
@@ -13,6 +14,14 @@ interface Meta {
 }
 
 const short = (v: unknown) => (typeof v === 'string' ? v.slice(0, 8) : '?');
+
+/** `—` : non applicable (le projet ne le déclare pas) — surtout pas un vert. */
+const SYMBOLE_VALIDATION: Record<string, string> = {
+  passed: '✔',
+  failed: '✘',
+  missing: '?',
+  not_applicable: '—',
+};
 
 /**
  * La Balance au journal. PESER et PRÉVOIR n'ont introduit aucun type
@@ -170,6 +179,31 @@ const EVENTS: Record<string, Meta> = {
     icon: '↺',
     cls: 'muted',
     text: (_p, t) => t('réconciliation', 'reconciliation'),
+  },
+  // Les validations d'une production, avec LEUR source : un vert du bac Hive
+  // n'est pas un vert de la CI GitHub, et la ligne le dit avant les états.
+  validation_recorded: {
+    icon: '✓',
+    cls: 'info',
+    text: (p, t) => {
+      const source =
+        p.source === 'hive_sandbox'
+          ? t('bac Hive', 'Hive sandbox')
+          : p.source === 'github_pull_request'
+            ? t('CI GitHub', 'GitHub CI')
+            : '?';
+      const etats =
+        typeof p.validation === 'object' && p.validation !== null
+          ? (p.validation as Record<string, unknown>)
+          : {};
+      const ligne = VALIDATION_KEYS.map(
+        (cle) => `${cle} ${SYMBOLE_VALIDATION[String(etats[cle])] ?? '?'}`,
+      ).join(' · ');
+      return t(
+        `validations ${short(p.taskId)} (${source}) : ${ligne}`,
+        `validations ${short(p.taskId)} (${source}): ${ligne}`,
+      );
+    },
   },
   memory_recorded: {
     icon: '※',

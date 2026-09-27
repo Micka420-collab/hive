@@ -155,7 +155,10 @@ describe('POST /api/tasks/:id/evaluation/ci', () => {
       commitSha: 'abc123',
       resultId,
     });
-    expect(server.store.latestCiValidation(taskId, resultId)?.commitSha).toBe('abc123');
+    expect(server.store.latestValidation(taskId, resultId)?.provenance).toMatchObject({
+      source: 'github_pull_request',
+      commitSha: 'abc123',
+    });
   });
 
   it('refuse de ranger une preuve si la branche de la PR ne correspond plus', async () => {

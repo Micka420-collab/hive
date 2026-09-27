@@ -50,6 +50,9 @@ import type {
   WorkerDelegationResult,
 } from '../adapters/index.js';
 import { capturerExecutionUsage, executionUsageDepuis } from './execution-usage.js';
+import { VALIDATION_KEYS } from '../shared/validations-bac.js';
+import type { ValidationsBac } from '../shared/validations-bac.js';
+import { validerProduction } from './validations-bac.js';
 
 const MAX_PENDING_DELEGATIONS = 32;
 const MAX_ACCEPTED_DELEGATIONS = 128;
@@ -1064,6 +1067,11 @@ export class HiveNodeClient {
       }
       // L'adaptateur peut fournir son diff ; sinon le workspace git le calcule.
       const diff = result.diff !== '' ? result.diff : await workspace.collectDiff();
+      // La durée est celle de l'AGENT, mesurée avant les validations : elle
+      // nourrit la Balance et la chronologie, qui comparent des agents — pas
+      // la vitesse des tests du projet.
+      const durationMs = Date.now() - started;
+      const validations = await this.validerSiProduction(task.id, result, diff, workspace, ctrl);
       // Tronquer aux limites du protocole : un diff/log surdimensionné ferait
       // rejeter le message par le hub (fermeture de connexion) et la tâche
       // bouclerait indéfiniment sans jamais aboutir.
@@ -1073,10 +1081,11 @@ export class HiveNodeClient {
         success: result.success,
         diff: diff.slice(0, LIMITS.diff),
         logs: result.logs.slice(0, LIMITS.log),
-        durationMs: Date.now() - started,
+        durationMs,
         subAgents: result.subAgents.slice(0, LIMITS.subAgents),
         ...(usage ? { usage } : {}),
         ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
+        ...(validations ? { validations } : {}),
       });
       this.log(`${result.success ? '✔' : '✘'} ${task.title}`);
     } catch (err) {
@@ -1104,6 +1113,35 @@ export class HiveNodeClient {
         workspace?.cleanup();
       }
     }
+  }
+
+  /**
+   * Les validations du bac pour CETTE production, ou rien.
+   *
+   * Seulement quand le diff remis est celui du RÉPERTOIRE — l'adaptateur n'en a
+   * pas fourni un à lui. L'adaptateur `shell` simulé rend un diff factice sans
+   * rien écrire : valider son répertoire rendrait des verts à propos de la base,
+   * attribués à une production qui n'existe pas. Rien non plus sans succès ni
+   * diff : un échec est déjà un verdict, et une relecture n'écrit rien.
+   */
+  private async validerSiProduction(
+    taskId: string,
+    result: AdapterResult,
+    diff: string,
+    workspace: Workspace,
+    ctrl: AbortController,
+  ): Promise<ValidationsBac | undefined> {
+    if (!result.success || result.diff !== '' || diff.trim() === '') return undefined;
+    const validations = await validerProduction({
+      cwd: workspace.cwd,
+      git: workspace.git,
+      ...(this.opts.bac ? { bac: this.opts.bac } : {}),
+      signal: ctrl.signal,
+      surEtape: (log) => this.send({ type: 'task_update', taskId, status: 'running', log }),
+    });
+    const etats = VALIDATION_KEYS.map((cle) => `${cle} ${validations.controles[cle].etat}`);
+    this.log(`validations du bac : ${etats.join(' · ')}`);
+    return validations;
   }
 
   /** Reprend une tâche après réquisition accordée — credentials / binaire prêts. */
@@ -1220,15 +1258,18 @@ export class HiveNodeClient {
         return;
       }
       const diff = result.diff !== '' ? result.diff : await workspace.collectDiff();
+      const durationMs = Date.now() - started;
+      const validations = await this.validerSiProduction(task.id, result, diff, workspace, ctrl);
       this.send({
         type: 'task_result',
         taskId: task.id,
         success: result.success,
         diff: diff.slice(0, LIMITS.diff),
         logs: result.logs.slice(0, LIMITS.log),
-        durationMs: Date.now() - started,
+        durationMs,
         subAgents: result.subAgents.slice(0, LIMITS.subAgents),
         ...(usage ? { usage } : {}),
+        ...(validations ? { validations } : {}),
       });
       this.log(`${result.success ? '✔' : '✘'} ${task.title} (reprise)`);
     } catch (err) {

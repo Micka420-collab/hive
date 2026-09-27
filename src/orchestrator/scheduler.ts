@@ -6,6 +6,13 @@
 import { MAX_ATTEMPTS, NODE_TIMEOUT_MS } from '../shared/types.js';
 import type { HiveEvent, HiveNode, SubAgent, Task, TaskResult } from '../shared/types.js';
 import type { PresenceFichier } from '../shared/presence.js';
+import { VALIDATION_KEYS } from '../shared/validations-bac.js';
+import type {
+  DetailControle,
+  ValidationKey,
+  ValidationState,
+  ValidationsBac,
+} from '../shared/validations-bac.js';
 // L'Aiguillage appris : parmi les nœuds éligibles à charge, restreindre à ceux
 // qui offrent le meilleur modèle pour le genre de la tâche. Module PUR — il ne
 // lit ni n'écrit rien ; le scheduler lui donne les antécédents et enregistre le
@@ -862,6 +869,47 @@ export class Scheduler {
   }
 
   /**
+   * Range les validations que le nœud a lancées dans le bac de CETTE production.
+   *
+   * Ici, et pas dans le serveur : c'est l'admission du résultat qui attribue
+   * son `resultId`, et c'est le seul endroit où le lien est un FAIT plutôt
+   * qu'une déduction (« le dernier résultat de la tâche » change dès qu'une
+   * course ou une reprise en range un autre). Rangées même pour une production
+   * que les Gardiennes refusent : ce qui a tourné a tourné, et l'Evaluator
+   * rejette de toute façon un résultat en échec avant de lire ses validations.
+   *
+   * Des FAITS TYPÉS seulement — états, raisons, codes, durées : l'écran dit
+   * les phrases dans sa langue. `validation` porte les quatre états, et
+   * `details` le reste de chaque constat : jamais deux copies d'un même état.
+   */
+  private rangerValidations(
+    validations: ValidationsBac | undefined,
+    resultId: number,
+    task: Task,
+    nodeId: string,
+  ): void {
+    if (!validations) return;
+    const validation = {} as Record<ValidationKey, ValidationState>;
+    const details = {} as Record<ValidationKey, DetailControle>;
+    for (const cle of VALIDATION_KEYS) {
+      const { etat, ...detail } = validations.controles[cle];
+      validation[cle] = etat;
+      details[cle] = detail;
+    }
+    this.emit('validation_recorded', {
+      source: 'hive_sandbox',
+      taskId: task.id,
+      projectId: task.projectId,
+      resultId,
+      nodeId,
+      ...(validations.baseSha ? { baseSha: validations.baseSha } : {}),
+      validation,
+      details,
+      recordedAt: Date.now(),
+    });
+  }
+
+  /**
    * Résultat remonté par un nœud. Idempotence : un résultat pour une tâche
    * réaffectée, requalifiée ou déjà terminée est ignoré (et journalisé).
    */
@@ -928,6 +976,7 @@ export class Scheduler {
     const retenu = result.success && !refusee;
     const resultId = this.store.insertResult({ ...result, nodeId, success: retenu });
     if (inspection) this.rangerInspection(inspection, resultId, task.id, nodeId, refusee);
+    this.rangerValidations(result.validations, resultId, task, nodeId);
 
     if (retenu) {
       this.store.patchTask(task.id, {
@@ -1301,6 +1350,7 @@ export class Scheduler {
     this.races.set(task.id, updated);
     const resultId = this.store.insertResult({ ...result, nodeId, success: retenu });
     if (inspection) this.rangerInspection(inspection, resultId, task.id, nodeId, refusee);
+    this.rangerValidations(result.validations, resultId, task, nodeId);
 
     if (decision.outcome === 'won') {
       this.races.delete(task.id);

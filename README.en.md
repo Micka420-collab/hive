@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-6092%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-6147%20passing-F6C445?labelColor=17130C)
 ![License](https://img.shields.io/badge/license-MIT-F6C445?labelColor=17130C)
 
 [🇫🇷 Français](README.md) · 🇬🇧 English · [🌐 Site](https://micka420-collab.github.io/hive/?lang=en) · [📚 Documentation](#-documentation)
@@ -70,7 +70,11 @@ Shots of the running app (`npm run ruche`), not mockups.
    before launching.
 2. **The AIs work in parallel.** Each task goes to a member's computer, in an
    isolated folder. You watch progress live.
-3. **You validate, then it merges.** Nothing passes without your say-so.
+3. **You validate, then it merges.** Nothing passes without your say-so. After
+   a successful production, the worker runs the `test`, `typecheck`, `build`
+   and `lint` scripts the repository declared **before** the change, in the
+   same sandbox; the Evaluator counts them like GitHub CI and always says which
+   one spoke (“Hive sandbox” or “GitHub CI”).
 4. **You open a worker’s station.** Hive view → node sheet → **Open workstation**
    (Chambre): baptismal name, **observed** files, Atelier noVNC, requisitions —
    never inventing what isn’t there. Detail:

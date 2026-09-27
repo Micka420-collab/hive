@@ -422,6 +422,12 @@ describe('V2 Alpha — mission locale vérifiable', () => {
             (event) => event.type === 'worker_usage' && event.payload.resultId === first?.resultId,
           ),
       ).toBe(true);
+      // Le producteur a lancé, dans son bac, les quatre scripts que le dépôt
+      // déclare : la preuve est rangée avec CE résultat, avant toute PR.
+      expect(server.store.latestValidation(task.id, first?.resultId ?? -1)).toMatchObject({
+        validation: { tests: 'passed', typecheck: 'passed', build: 'passed', lint: 'passed' },
+        provenance: { source: 'hive_sandbox', nodeId: 'v2-claude-code' },
+      });
 
       await attendre(
         () =>

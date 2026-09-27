@@ -50,6 +50,24 @@ const SECRETS_INTERDITS_AGENT = new Set([
   'GITHUB_TOKEN',
 ]);
 
+/**
+ * Retire les dépendances installées dans le répertoire d'une tâche.
+ *
+ * Les validations du bac repartent du lockfile plutôt que du `node_modules`
+ * que l'agent a laissé — hors du diff, donc hors de la vue de tout relecteur.
+ * L'écriture vit ICI parce que ce fichier est celui qui possède le répertoire
+ * de tâche : l'inventaire de ce que Hive écrit sur la machine d'un membre
+ * (`empreinte.ts`) reste vrai sans une entrée de plus.
+ */
+export function retirerDependancesInstallees(cwd: string): void {
+  rmSync(path.join(cwd, 'node_modules'), {
+    recursive: true,
+    force: true,
+    maxRetries: 5,
+    retryDelay: 100,
+  });
+}
+
 export function variablesAgentSansSecrets(variables: readonly string[]): string[] {
   return variables.filter((name) => !SECRETS_INTERDITS_AGENT.has(name));
 }

@@ -3,14 +3,8 @@
 // cette fonction pure décide uniquement ce que chaque nom de contrôle prouve.
 
 import type { Controle } from '../shared/retour.js';
-import type { ValidationEvidence, ValidationState, ValidationProvenance } from './evaluator.js';
-
-export const VALIDATION_KEYS = ['tests', 'typecheck', 'build', 'lint'] as const;
-export type ValidationKey = (typeof VALIDATION_KEYS)[number];
-
-export interface CiValidationRecord extends ValidationProvenance {
-  validation: ValidationEvidence;
-}
+import type { ValidationKey, ValidationState } from '../shared/validations-bac.js';
+import type { ValidationEvidence } from './evaluator.js';
 
 const motifs: Record<ValidationKey, readonly RegExp[]> = {
   tests: [/\btest(?:s|ing)?\b/, /\bvitest\b/, /\bjest\b/, /\be2e\b/, /\bspec(?:s)?\b/],

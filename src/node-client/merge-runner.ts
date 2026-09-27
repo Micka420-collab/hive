@@ -23,6 +23,7 @@ import path from 'node:path';
 import { simpleGit } from 'simple-git';
 import { jugerCommandeTest } from '../shared/commande-test.js';
 import { jugerPreparation } from '../shared/preparation.js';
+import type { Arret } from '../shared/validations-bac.js';
 import { LanceurIndisponible, resoudreLanceur } from '../lanceur-reel.js';
 import { envelopper } from './isolement.js';
 import type { Fournisseur } from './isolement.js';
@@ -109,6 +110,11 @@ const OUTPUT_CAP = 512 * 1024;
  * de `npm` en `npm.cmd` sous Windows et l'enveloppe de bac à sable. En écrire
  * une seconde version aurait fait deux endroits où oublier l'isolement, et le
  * premier oubli de ce genre est déjà raconté trois lignes plus bas.
+ *
+ * `arret` dit quand le code ne vient PAS de la commande — délai dépassé,
+ * lancement impossible, annulation. Les validations du bac en ont besoin :
+ * un `code: 1` fabriqué ici n'est pas un verdict sur la production, et le
+ * confondre avec un vrai échec enverrait corriger du code qui va bien.
  */
 export function runProc(
   cmd: string[],
@@ -117,10 +123,11 @@ export function runProc(
   timeoutMs: number,
   signal?: AbortSignal,
   bac?: { fournisseur: Fournisseur; variables: readonly string[]; image: string },
-): Promise<{ code: number | null; output: string }> {
+): Promise<{ code: number | null; output: string; arret?: Arret }> {
   return new Promise((resolve) => {
     const [bin, ...args] = cmd;
     let output = '';
+    let delaiDepasse = false;
     // ISOLEMENT — même enveloppe que les adaptateurs de tâches. Ce chemin n'y
     // passait pas, et c'était le trou le plus embarrassant : la commande de
     // test d'un merge exécute du code fourni par le dépôt, exactement comme un
@@ -160,7 +167,7 @@ export function runProc(
         // verdict de test. Un bug qui se présente comme un résultat est le pire
         // des deux.
         if (e instanceof LanceurIndisponible) {
-          resolve({ code: 1, output: `${output}\n[hive] ${e.motif}` });
+          resolve({ code: 1, output: `${output}\n[hive] ${e.motif}`, arret: 'lancement' });
           return;
         }
         throw e;
@@ -179,17 +186,27 @@ export function runProc(
     child.stdout?.on('data', cap);
     child.stderr?.on('data', cap);
     const to = setTimeout(() => {
+      delaiDepasse = true;
       output += `\n[hive] timeout après ${timeoutMs} ms — processus tué`;
       child.kill();
     }, timeoutMs);
     to.unref?.();
     child.on('error', (e) => {
       clearTimeout(to);
-      resolve({ code: 1, output: `${output}\n[hive] échec du lancement : ${e.message}` });
+      resolve({
+        code: 1,
+        output: `${output}\n[hive] échec du lancement : ${e.message}`,
+        arret: signal?.aborted ? 'annule' : 'lancement',
+      });
     });
     child.on('close', (code) => {
       clearTimeout(to);
-      resolve({ code, output });
+      const arret: Arret | undefined = delaiDepasse
+        ? 'delai'
+        : signal?.aborted
+          ? 'annule'
+          : undefined;
+      resolve({ code, output, ...(arret ? { arret } : {}) });
     });
   });
 }
