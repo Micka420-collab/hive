@@ -20,7 +20,7 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { detectAllAgents, detectBestAgent } from '../src/node-client/agent-detect.js';
 import {
   DRAPEAU_UNE_OUVRIERE,
@@ -28,15 +28,19 @@ import {
   type Piece,
   type PlanOuvrieres,
   SCRIPTS,
+  adresseAnnoncee,
   annonceOuvrieres,
+  attendLaReine,
   decouperLignes,
   entreesAbsentes,
+  envDePiece,
   largeurEtiquettes,
   pieces,
   planOuvrieres,
   portAnnonce,
   prefixe,
   reliquat,
+  silenceDeLaReine,
   veutOuvriere,
   voeuDepuisArgv,
 } from '../src/shared/demarrage.js';
@@ -648,5 +652,161 @@ describe('UNE OUVRIÈRE PAR AGENT — ce que le lanceur en fait', () => {
       annonceOuvrieres(await planPour(['claude-code', 'codex'], {}, [DRAPEAU_UNE_OUVRIERE])),
     ).toEqual([]);
     expect(annonceOuvrieres(undefined)).toEqual([]);
+  });
+});
+
+describe('CEUX QUI REJOIGNENT LA REINE PARTENT À SON ANNONCE, VERS SON VRAI PORT', () => {
+  // ─── LE DÉFAUT, MESURÉ SUR UNE RUCHE VIVANTE ───────────────────────────────
+  //
+  // Le lanceur ne disait rien de la Reine à ses ouvrières : elles visaient
+  // `ws://localhost:7777/ws`, le défaut du nœud. Sur `HIVE_PORT=40253`, la
+  // Reine était en ligne sur :40253 et l'ouvrière imprimait « connexion
+  // perdue — nouvel essai dans 1 s, 2 s, 4 s… » sans fin : une ruche qui a
+  // l'air de tourner et n'exécute rien. L'écran relayait `/api` vers :7777.
+  //
+  // La Reine annonce désormais le port qu'elle a OUVERT ; ce banc tient la
+  // décision pure — qui attend, quelle adresse, quelle variable. Le câblage
+  // (un vrai lanceur, un vrai port tiré au sort) est éprouvé bout à bout par
+  // `lanceur-ruche.test.ts`.
+
+  it('LA REINE S’ANNONCE ; les ouvrières et l’écran attendent son annonce', async () => {
+    const liens = (liste: Piece[]) =>
+      liste.map((p) => [p.nom, p.reine ?? null, attendLaReine(p)] as const);
+    expect(liens(pieces(NODE))).toEqual([
+      ['reine', 'annonce', false],
+      ['ouvrière', 'HIVE_URL', true],
+      ['écran', 'HIVE_HTTP', true],
+    ]);
+    // L'essaim par agent : CHAQUE ouvrière attend, l'ajoutée comme la première.
+    const essaim = pieces(NODE, {}, PORT_PAR_DEFAUT, await planPour(['claude-code', 'codex']));
+    expect(liens(essaim).filter(([nom]) => nom.startsWith('ouvrière'))).toEqual([
+      ['ouvrière claude-code', 'HIVE_URL', true],
+      ['ouvrière codex', 'HIVE_URL', true],
+    ]);
+  });
+
+  it('SANS REINE LANCÉE ICI, PERSONNE N’ATTEND — l’ouvrière garde le `HIVE_URL` de l’opérateur', () => {
+    // Attendre une annonce qui ne viendra jamais, c'est une ouvrière qui ne
+    // démarre pas, en silence. Et lui imposer une adresse, c'est la détourner
+    // de la ruche que l'opérateur lui a désignée.
+    for (const liste of [
+      pieces(NODE, { noeud: true }),
+      pieces(NODE, voeuDepuisArgv(['--ecran-seul'])),
+    ]) {
+      for (const p of liste) {
+        expect(p.reine, p.nom).toBeUndefined();
+        expect(attendLaReine(p), p.nom).toBe(false);
+      }
+    }
+  });
+
+  it('L’ADRESSE EST CELLE QUE LA REINE A OUVERTE, vue de cette machine', () => {
+    const annonce = (hote: string, port = 40253) =>
+      adresseAnnoncee({ type: 'reine-en-ligne', hote, port });
+    expect(annonce('127.0.0.1')).toEqual({
+      http: 'http://127.0.0.1:40253',
+      ws: 'ws://127.0.0.1:40253/ws',
+    });
+    // Une écoute sur TOUTES les interfaces se joint par la boucle locale :
+    // `0.0.0.0` et `::` ne sont pas des adresses où se connecter (Windows refuse).
+    expect(annonce('0.0.0.0')?.ws).toBe('ws://127.0.0.1:40253/ws');
+    // Un littéral IPv6 entre crochets — sans eux, ce n'est pas une URL, et le
+    // client WebSocket de l'ouvrière la refuserait au démarrage.
+    expect(annonce('::')?.ws).toBe('ws://[::1]:40253/ws');
+    expect(annonce('::1')?.http).toBe('http://[::1]:40253');
+    // Un hôte précis est repris TEL QUEL : la ruche n'écoute que là.
+    expect(annonce('192.168.1.10')?.http).toBe('http://192.168.1.10:40253');
+    // Une ligne `HIVE_HOST=` laissée VIDE : la Reine écoute partout et annonce
+    // `''`. Reprise telle quelle, elle donnait `ws://:40253/ws` — une URL que
+    // le client de l'ouvrière refuse au démarrage, et la ruche tombait.
+    expect(annonce('')?.ws).toBe('ws://127.0.0.1:40253/ws');
+    // `::` sous ses autres graphies est la même adresse d'écoute.
+    for (const partout of ['::0', '0:0:0:0:0:0:0:0', '[::]']) {
+      expect(annonce(partout)?.ws, partout).toBe('ws://[::1]:40253/ws');
+    }
+    // Et chaque adresse rendue est une URL que le client accepte.
+    for (const hote of ['', '0.0.0.0', '::', '::1', '[::1]', '192.168.1.10']) {
+      const a = annonce(hote);
+      expect(() => new URL(a?.ws ?? ''), hote).not.toThrow();
+      expect(() => new URL(a?.http ?? ''), hote).not.toThrow();
+    }
+  });
+
+  it('UNE REINE QUI SE TAIT SE DIT — en nommant ceux qui l’attendent', () => {
+    // La seule issue visible d'une Reine vivante qui ne s'annonce jamais :
+    // sans cette ligne, une ruche sans ouvrière et sans écran, en silence.
+    expect(silenceDeLaReine([{ nom: 'ouvrière claude-code' }, { nom: 'écran' }], false)).toBe(
+      "  ⚠  La Reine ne s'est pas annoncée après 30 s : ouvrière claude-code, écran attendent toujours.",
+    );
+    // Rien à dire : la ruche s'arrête déjà, ou tout le monde est parti.
+    expect(silenceDeLaReine([{ nom: 'écran' }], true)).toBeNull();
+    expect(silenceDeLaReine([], false)).toBeNull();
+  });
+
+  it('CE QUI N’EST PAS SON ANNONCE N’EST PAS UNE ADRESSE', () => {
+    // Le port 0 surtout : c'est ce qu'on DEMANDE, jamais ce qu'on a ouvert. Le
+    // prendre pour une adresse enverrait les ouvrières sur `:0`.
+    for (const message of [
+      undefined,
+      null,
+      'reine-en-ligne',
+      { type: 'autre', hote: '127.0.0.1', port: 40253 },
+      { type: 'reine-en-ligne', port: 40253 },
+      { type: 'reine-en-ligne', hote: '127.0.0.1', port: 0 },
+      { type: 'reine-en-ligne', hote: '127.0.0.1', port: '40253' },
+      { type: 'reine-en-ligne', hote: '127.0.0.1', port: 402.5 },
+      // Hors des bornes d'un port : l'URL qu'on en tirerait n'ouvre rien.
+      { type: 'reine-en-ligne', hote: '127.0.0.1', port: 65_536 },
+    ]) {
+      expect(adresseAnnoncee(message), JSON.stringify(message)).toBeNull();
+    }
+  });
+
+  it('L’ADRESSE ANNONCÉE S’AJOUTE À CE QUE LA PIÈCE PORTE — sans rien en effacer', async () => {
+    const adresse = adresseAnnoncee({ type: 'reine-en-ligne', hote: '127.0.0.1', port: 40253 });
+    const [reine, claude, codex, ecran] = pieces(
+      NODE,
+      {},
+      PORT_PAR_DEFAUT,
+      await planPour(['claude-code', 'codex']),
+    );
+    // L'ajoutée garde SA famille, son nom, ses modèles vides : l'adresse
+    // s'ajoute à l'environnement du plan, elle ne le remplace pas.
+    expect(envDePiece(codex as Piece, adresse)).toEqual({
+      ...codex?.env,
+      HIVE_URL: 'ws://127.0.0.1:40253/ws',
+    });
+    expect(envDePiece(claude as Piece, adresse)?.HIVE_URL).toBe('ws://127.0.0.1:40253/ws');
+    // L'écran reçoit l'origine HTTP, que son proxy relaie — pas l'URL WebSocket.
+    expect(envDePiece(ecran as Piece, adresse)).toEqual({ HIVE_HTTP: 'http://127.0.0.1:40253' });
+    // La Reine ne se rejoint pas elle-même.
+    expect(envDePiece(reine as Piece, adresse)).toBeUndefined();
+  });
+
+  describe('l’écran relaie vers l’adresse qu’on lui pose', () => {
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    /** La configuration de Vite, relue sous l'environnement du moment. */
+    async function proxyDeLEcran() {
+      vi.resetModules();
+      const { default: config } = await import('../dashboard/vite.config.js');
+      return config.server?.proxy;
+    }
+
+    it('`HIVE_HTTP` posé par le lanceur : `/api` et `/ws` visent CETTE Reine', async () => {
+      vi.stubEnv('HIVE_HTTP', 'http://127.0.0.1:40253');
+      const proxy = await proxyDeLEcran();
+      expect(proxy?.['/api']).toBe('http://127.0.0.1:40253');
+      expect(proxy?.['/ws']).toEqual({ target: 'ws://127.0.0.1:40253', ws: true });
+    });
+
+    it('sans lui — `npm run dev:dashboard` seul —, la ruche locale par défaut', async () => {
+      vi.stubEnv('HIVE_HTTP', undefined);
+      const proxy = await proxyDeLEcran();
+      expect(proxy?.['/api']).toBe(`http://localhost:${PORT_PAR_DEFAUT}`);
+      expect(proxy?.['/ws']).toEqual({ target: `ws://localhost:${PORT_PAR_DEFAUT}`, ws: true });
+    });
   });
 });

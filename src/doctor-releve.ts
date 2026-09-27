@@ -43,7 +43,7 @@ import path from 'node:path';
 import { DEFAULT_TOKEN } from './shared/types.js';
 import type { Releve } from './shared/doctor.js';
 import { RUCHE_COMPLETE } from './shared/doctor.js';
-import { portDepuisEnv } from './shared/port.js';
+import { adresseLocale, hoteDeConnexion, portDepuisEnv } from './shared/port.js';
 import { gardiennesDepuisEnv } from './shared/reglages.js';
 import { modeRunnerDepuisEnv } from './orchestrator/essaim-runner.js';
 import { detectBestAgent } from './node-client/agent-detect.js';
@@ -105,25 +105,6 @@ function permissions(chemin: string, plateforme: string): number | null {
   }
 }
 
-/**
- * L'adresse à laquelle SONDER une ruche qui écoute sur `hote`.
- *
- * `0.0.0.0` veut dire « toutes les interfaces » : c'est une adresse d'ÉCOUTE,
- * pas une adresse à laquelle se connecter. S'y adresser échoue selon les
- * plateformes, et le docteur conclurait « rien ne répond » sur une ruche qui
- * tourne très bien. On sonde donc la boucle locale, qui fait partie de « toutes
- * les interfaces ».
- *
- * Tout autre hôte est repris tel quel : une ruche liée à une adresse précise ne
- * se sonde pas ailleurs.
- *
- * Extraite pour être TESTABLE : la loupe a montré que ce ternaire, enfoui dans
- * `relever`, pouvait être retourné sans qu'aucun test ne bouge.
- */
-export function hoteDeSondage(hote: string): string {
-  return hote === '0.0.0.0' ? '127.0.0.1' : hote;
-}
-
 /** Le port est-il libre ? On essaie de l'écouter — la seule réponse honnête. */
 export async function portLibre(port: number, hote = '127.0.0.1'): Promise<boolean> {
   return new Promise((resolve) => {
@@ -153,7 +134,9 @@ export async function portTenuParNous(
 ): Promise<boolean | null> {
   const arret = AbortSignal.timeout(delaiMs);
   try {
-    const r = await fetch(`http://${hote}:${port}/api/health`, { signal: arret });
+    // `adresseLocale` et non un gabarit : `http://::1:7777` n'est pas une URL.
+    // `fetch` la refusait, et une ruche liée à `::` passait pour « pas nous ».
+    const r = await fetch(`${adresseLocale(hote, port).http}/api/health`, { signal: arret });
     if (!r.ok) return false;
     const corps = (await r.json()) as { ok?: unknown };
     return corps.ok === true;
@@ -191,7 +174,7 @@ export async function wsRepond(
     const minuteur = setTimeout(() => finir(null), delaiMs);
     let ws: InstanceType<typeof WebSocket>;
     try {
-      ws = new WebSocket(`ws://${hote}:${port}/ws`);
+      ws = new WebSocket(adresseLocale(hote, port).ws);
     } catch {
       clearTimeout(minuteur);
       finir(null);
@@ -391,7 +374,7 @@ export async function relever(
   // autre port que celui où elle écoute enverrait chercher une panne inventée.
   const port = portDepuisEnv(env);
   const hote = env.HIVE_HOST ?? '127.0.0.1';
-  const sondage = hoteDeSondage(hote);
+  const sondage = hoteDeConnexion(hote);
 
   const envPresent = existsSync(lieux.env);
   const libre = await portLibre(port, sondage);

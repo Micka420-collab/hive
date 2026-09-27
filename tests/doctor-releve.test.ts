@@ -283,12 +283,41 @@ describe('LES TROIS POINTS QUE LA LOUPE A DÉSIGNÉS', () => {
     // `0.0.0.0` est une adresse d'ÉCOUTE, pas une adresse à laquelle se
     // connecter : s'y adresser échoue selon les plateformes, et le docteur
     // conclurait « rien ne répond » sur une ruche qui tourne très bien.
-    const { hoteDeSondage } = await import('../src/doctor-releve.js');
-    expect(hoteDeSondage('0.0.0.0')).toBe('127.0.0.1');
+    // La règle vit dans `shared/port.ts` : le lanceur de la ruche la LIT aussi.
+    const { hoteDeConnexion } = await import('../src/shared/port.js');
+    expect(hoteDeConnexion('0.0.0.0')).toBe('127.0.0.1');
+    // `::` est la même adresse d'écoute, côté IPv6 : sa boucle locale est `::1`.
+    expect(hoteDeConnexion('::')).toBe('::1');
     // …et un hôte précis est repris TEL QUEL. Le retourner sonderait la boucle
     // locale d'une ruche liée ailleurs — et la déclarerait éteinte.
-    expect(hoteDeSondage('192.168.1.10')).toBe('192.168.1.10');
-    expect(hoteDeSondage('127.0.0.1')).toBe('127.0.0.1');
+    expect(hoteDeConnexion('192.168.1.10')).toBe('192.168.1.10');
+    expect(hoteDeConnexion('127.0.0.1')).toBe('127.0.0.1');
+    // `HIVE_HOST=` laissé vide : Node écoute alors partout. `''` n'est pas un
+    // hôte où se connecter — la boucle locale IPv4 répond en double pile comme
+    // sans IPv6.
+    expect(hoteDeConnexion('')).toBe('127.0.0.1');
+    // `::` sous ses autres graphies, et un hôte recopié d'une URL avec ses
+    // crochets : `listen` n'en veut pas, `adresseLocale` les remet.
+    for (const partout of ['::0', '0:0:0:0:0:0:0:0', '[::]']) {
+      expect(hoteDeConnexion(partout), partout).toBe('::1');
+    }
+    expect(hoteDeConnexion('[::1]')).toBe('::1');
+  });
+
+  it('UNE RUCHE LIÉE À UNE ADRESSE IPv6 SE RECONNAÎT — l’URL de sonde porte ses crochets', async () => {
+    // `http://::1:PORT/api/health` n'est pas une URL : `fetch` la refusait, et
+    // le docteur déclarait « autre chose sur le port » une ruche liée à `::`.
+    const s = createServer((_q, r) => {
+      r.writeHead(200, { 'content-type': 'application/json' });
+      r.end(JSON.stringify({ ok: true }));
+    });
+    await new Promise<void>((r) => s.listen(0, '::1', r));
+    const port = (s.address() as { port: number }).port;
+    try {
+      expect(await portTenuParNous(port, '::1')).toBe(true);
+    } finally {
+      await new Promise<void>((r) => s.close(() => r()));
+    }
   });
 
   it('LE WEBSOCKET N’EST ESSAYÉ QUE SUR NOTRE RUCHE — et alors il conclut', async () => {

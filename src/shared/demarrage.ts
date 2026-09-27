@@ -53,7 +53,7 @@ import path from 'node:path';
 import { libelleAgent } from './agent-libelle.js';
 import { estAgentSimule } from './agent-production.js';
 import { RELECTEURS_PAR_PRODUCTION } from './contre-expertise.js';
-import { PORT_PAR_DEFAUT, portDepuisEnv } from './port.js';
+import { type AdresseRuche, adresseLocale, PORT_PAR_DEFAUT, portDepuisEnv } from './port.js';
 
 /** Un membre de l'essaim à démarrer. */
 export interface Piece {
@@ -78,7 +78,23 @@ export interface Piece {
    * autres.
    */
   readonly facultative?: boolean;
+  /**
+   * Son lien à la Reine que CETTE ruche lance (`LienReine`). Absent : aucune
+   * Reine n'est lancée ici, et la pièce démarre aussitôt avec ce qu'elle a.
+   */
+  readonly reine?: LienReine;
 }
+
+/**
+ * Le lien d'une pièce à la Reine que la ruche lance.
+ *
+ *   · `annonce`   — c'est elle. Lancée avec un canal IPC, elle y dit son
+ *                   adresse dès que son port est ouvert (`AnnonceReine`).
+ *   · `HIVE_URL`  — une ouvrière. Elle ne démarre qu'à cette annonce, avec
+ *                   l'URL WebSocket annoncée dans cette variable.
+ *   · `HIVE_HTTP` — l'écran. De même, avec l'origine HTTP, que son proxy vise.
+ */
+export type LienReine = 'annonce' | 'HIVE_URL' | 'HIVE_HTTP';
 
 /** Ce qu'on veut démarrer. Tout est facultatif : le défaut est « tout ». */
 export interface Voeu {
@@ -121,11 +137,16 @@ export const ENTREES = {
 /**
  * Les pièces à lancer, dans l'ordre où elles doivent démarrer.
  *
- * L'ORDRE COMPTE, et c'est la seule subtilité de ce module : le nœud se
- * connecte au hub. Le lancer en premier lui fait manquer sa cible, il
- * reconnecte — ça marche, mais l'humain lit une erreur de connexion au
- * démarrage de sa toute première ruche, ce qui est le pire moment pour en voir
- * une.
+ * L'ORDRE COMPTE : le nœud se connecte au hub. Le lancer en premier lui fait
+ * manquer sa cible, il reconnecte — ça marche, mais l'humain lit une erreur de
+ * connexion au démarrage de sa toute première ruche, ce qui est le pire moment
+ * pour en voir une.
+ *
+ * L'ordre de la liste ne suffisait pourtant pas : les trois `spawn` partaient
+ * ensemble, et rien ne disait aux ouvrières OÙ la Reine écoutait. Quand la
+ * ruche lance sa Reine, les pièces qui la rejoignent portent donc un
+ * `LienReine` : le lanceur ne les démarre qu'à son annonce, avec l'adresse
+ * qu'elle a réellement ouverte (`adresseAnnoncee`, `envDePiece`).
  *
  * `node` est `process.execPath` chez l'appelant : le Node qui tourne DÉJÀ. Pas
  * celui du PATH, qui peut être un autre — et pas un shim, donc lançable sans
@@ -141,6 +162,11 @@ export function pieces(
   plan?: PlanOuvrieres,
 ): Piece[] {
   const veut = (cle: keyof Voeu): boolean => voeuVeut(voeu, cle);
+  // Une pièce ne rejoint la Reine que si CETTE ruche la lance. Sans elle
+  // (`{ noeud: true }` seul), l'ouvrière garde son `HIVE_URL` : elle vise la
+  // ruche que l'opérateur a désignée, et rien ne l'attend ici.
+  const rejoint = (variable: 'HIVE_URL' | 'HIVE_HTTP'): { reine?: LienReine } =>
+    veut('hub') ? { reine: variable } : {};
 
   const liste: Piece[] = [];
   if (veut('hub')) {
@@ -148,6 +174,7 @@ export function pieces(
       nom: 'reine',
       bin: noeud,
       argv: [SCRIPTS.lanceur, ENTREES.hub],
+      reine: 'annonce',
       // Le port 0 veut dire « le système en choisira un » : personne ne le
       // connaît encore, pas même la Reine. Écrire `http://127.0.0.1:0` serait
       // remplacer un lien mort par un autre — on dit donc ce qu'on sait, à
@@ -167,6 +194,7 @@ export function pieces(
         role: `exécute le travail avec ${libelleAgent(o.agent)}`,
         env: o.env,
         ...(o.ajoutee ? { facultative: true } : {}),
+        ...rejoint('HIVE_URL'),
       });
     }
   } else if (veut('noeud')) {
@@ -175,6 +203,7 @@ export function pieces(
       bin: noeud,
       argv: [SCRIPTS.lanceur, ENTREES.noeud],
       role: 'exécute le travail avec votre agent',
+      ...rejoint('HIVE_URL'),
     });
   }
   if (veut('ecran')) {
@@ -183,9 +212,104 @@ export function pieces(
       bin: noeud,
       argv: [SCRIPTS.vite, 'dashboard'],
       role: 'Mission Control · http://localhost:5173',
+      ...rejoint('HIVE_HTTP'),
     });
   }
   return liste;
+}
+
+/**
+ * Ce que la Reine dit à son lanceur, par le canal IPC, dès que son port est
+ * ouvert.
+ *
+ * ─── LE DÉFAUT QUE CETTE ANNONCE RETIRE ─────────────────────────────────────
+ *
+ * Le lanceur ne disait rien de la Reine à ses ouvrières : elles visaient
+ * `ws://localhost:7777/ws`, le défaut de `node-client/main.ts`. Mesuré sur une
+ * ruche à `HIVE_PORT=40253` : la Reine en ligne sur :40253, l'ouvrière en
+ * « connexion perdue — nouvel essai » sans fin. Aucune erreur — une ruche qui
+ * a l'air de tourner et n'exécute rien ; et sur une machine qui porte une
+ * autre ruche sur 7777, des ouvrières qui frappent chez elle. L'écran, lui,
+ * relayait `/api` vers :7777 : une page qui s'affiche et dont chaque appel
+ * échoue.
+ *
+ * ─── POURQUOI LA REINE LE DIT, AU LIEU QUE LE LANCEUR LE DEVINE ─────────────
+ *
+ * Le lanceur ne peut pas recalculer ce port : `HIVE_PORT=0` n'est connu que de
+ * la Reine une fois ouvert, et un `HIVE_ENV_FILE` peut le poser là où le
+ * lanceur ne lit pas. Le port réellement ouvert est un FAIT : il se consigne
+ * là où il naît, et se lit là où l'on en a besoin.
+ */
+export interface AnnonceReine {
+  readonly type: 'reine-en-ligne';
+  /** L'hôte d'ÉCOUTE (`HIVE_HOST`) — pas forcément une adresse où se connecter. */
+  readonly hote: string;
+  /** Le port RÉELLEMENT ouvert : celui qu'a tiré le système quand on demandait 0. */
+  readonly port: number;
+}
+
+/**
+ * L'adresse, vue de cette machine, que porte l'annonce de la Reine — ou `null`
+ * si ce message n'en est pas une. Le lanceur n'attend qu'elle : tout autre
+ * message du canal est ignoré plutôt que pris pour une adresse.
+ */
+export function adresseAnnoncee(message: unknown): AdresseRuche | null {
+  const a = message as Partial<AnnonceReine> | null | undefined;
+  if (a?.type !== 'reine-en-ligne' || typeof a.hote !== 'string') return null;
+  // Les bornes de `portDepuisEnv`, moins le 0 : une fois ouvert, un port n'est
+  // plus « au hasard », et hors de [1, 65535] ce n'est pas une adresse.
+  if (typeof a.port !== 'number' || !Number.isInteger(a.port)) return null;
+  if (a.port < 1 || a.port > 65_535) return null;
+  return adresseLocale(a.hote, a.port);
+}
+
+/** La pièce attend-elle l'annonce de la Reine pour démarrer ? */
+export function attendLaReine(p: Piece): boolean {
+  return p.reine === 'HIVE_URL' || p.reine === 'HIVE_HTTP';
+}
+
+/** Combien de temps le lanceur laisse la Reine s'annoncer avant de le DIRE. */
+export const DELAI_ANNONCE_REINE_MS = 30_000;
+
+/**
+ * Ce que le lanceur imprime quand la Reine ne s'est toujours pas annoncée — ou
+ * `null` s'il n'y a rien à dire : la ruche s'arrête déjà, ou tout le monde est
+ * parti.
+ *
+ * Ce silence n'arrive pas aujourd'hui : la Reine s'annonce dans la foulée de
+ * son `listen`. Mais une Reine vivante qui ne s'annonce JAMAIS — un refactor de
+ * `orchestrator/main.ts` qui perd le `process.send` — laisserait ouvrières et
+ * écran non lancés sans une ligne : une ruche qui a l'air de tourner et n'a
+ * personne pour travailler. Ce message est la seule issue visible de ce cas ;
+ * sorti du `.mjs` pour qu'un test tienne qu'il nomme ceux qui attendent.
+ */
+export function silenceDeLaReine(
+  enAttente: readonly Pick<Piece, 'nom'>[],
+  onFerme: boolean,
+): string | null {
+  if (onFerme || enAttente.length === 0) return null;
+  const qui = enAttente.map((q) => q.nom).join(', ');
+  const secondes = DELAI_ANNONCE_REINE_MS / 1_000;
+  return `  ⚠  La Reine ne s'est pas annoncée après ${String(secondes)} s : ${qui} attendent toujours.`;
+}
+
+/**
+ * Les variables posées pour une pièce au moment de la lancer : les siennes, et,
+ * si elle rejoint la Reine, l'adresse que celle-ci a annoncée.
+ *
+ * Posée PAR-DESSUS l'hérité, elle l'emporte aussi sur le `.env`, que le nœud
+ * charge sans jamais écraser une variable présente : un `HIVE_URL` figé sur
+ * 7777 — celui de `.env.example` — ne détourne plus une ouvrière de la Reine
+ * que sa ruche vient de lancer.
+ */
+export function envDePiece(
+  p: Piece,
+  reine: AdresseRuche | null,
+): Readonly<Record<string, string>> | undefined {
+  if (reine === null || !attendLaReine(p)) return p.env;
+  return p.reine === 'HIVE_URL'
+    ? { ...p.env, HIVE_URL: reine.ws }
+    : { ...p.env, HIVE_HTTP: reine.http };
 }
 
 /**

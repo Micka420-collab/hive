@@ -178,10 +178,12 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
   jugé est celui que la Reine garde (sa dernière production) ; l'évaluation
   n'est `✔` que pour `accepted` avec les quatre validations vertes.
   `--workers 3` exige l'**essaim** : trois ouvrières réelles de deux
-  familles, des tâches indépendantes en parallèle, une délégation vers une
-  AUTRE ouvrière (il faut une ouvrière Claude Code ou Codex : seuls leurs
-  adaptateurs savent déléguer), une relecture par une autre famille ; la
-  reprise après objection et l'Evaluator sont dits, sans être exigés.
+  familles, des tâches indépendantes en parallèle, une délégation dont la
+  sous-tâche est rendue par un agent réel (il faut une ouvrière Claude Code
+  ou Codex : seuls leurs adaptateurs savent déléguer), une relecture par une
+  autre famille. Où la sous-tâche a tourné est dit, pas exigé : la Reine ne
+  l'épingle pas, et elle peut revenir à l'ouvrière même de sa tâche parente.
+  La reprise après objection et l'Evaluator sont dits, sans être exigés.
   `--exige-bac` exige un bac conteneur de chaque nœud qui exécute la
   mission (sous-tâches déléguées et relectures comprises), `--depot <url>`
   (un dépôt GitHub en https, et `HIVE_GITHUB_TOKEN` côté Reine, vérifiés
