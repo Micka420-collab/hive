@@ -8,7 +8,6 @@ import type { HiveEvent, StateSnapshot, SubAgent } from '../../src/shared/types'
 import { agentsConnectes, etatBandeau } from '../../src/shared/agents-connectes';
 import {
   authMe,
-  clearJwt,
   connectFeed,
   estAdmin,
   fetchPulse,
@@ -16,10 +15,12 @@ import {
   fetchReviews,
   getJwt,
   getToken,
+  oublierSessionExpiree,
   saveToken,
+  surSessionExpiree,
 } from './api';
 import type { AuthUser } from './api';
-import { AccountPanel } from './AccountPanel';
+import { AccountPanel, EVENT_OUVRIR_COMPTE } from './AccountPanel';
 import { setLang, useLang, useT } from './i18n';
 import { InvitePanel } from './InvitePanel';
 import { NewProjectModal } from './NewProjectModal';
@@ -274,6 +275,9 @@ export function App() {
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
   const [showNewProject, setShowNewProject] = useState(false);
   const [user, setUser] = useState<AuthUser | null>(null);
+  // La vue (`#/…`) où la session est morte ; `null` tant qu'elle vit. Voir
+  // « LA SESSION QUI EXPIRE, DITE À L'ÉCRAN » plus bas.
+  const [retourSession, setRetourSession] = useState<string | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
   const reviewTick = useReviewTick();
   const lang = useLang();
@@ -483,22 +487,59 @@ export function App() {
     setFeedKey((k) => k + 1);
   };
 
+  // ─── LA SESSION QUI EXPIRE, DITE À L'ÉCRAN ─────────────────────────────────
+  //
+  // `api()` reconnaît une session morte à n'importe quel appel (voir « LA
+  // SESSION QUI EXPIRE » dans `api.ts`) et purge le JWT. Ici, on en tire les
+  // conséquences VISIBLES : la barre cesse d'afficher un nom qui n'est plus
+  // connecté, un bandeau dit pourquoi les gestes échouent, et la fenêtre de
+  // connexion s'ouvre. On retient la vue où c'est arrivé : la reconnexion y
+  // ramène, au lieu de laisser la personne chercher où elle en était.
+  //
+  // Abonné AVANT la restauration ci-dessous : c'est son `authMe` qui découvre
+  // un JWT expiré depuis la dernière visite, et il doit trouver quelqu'un à
+  // prévenir.
+  useEffect(
+    () =>
+      surSessionExpiree(() => {
+        setUser(null);
+        setRetourSession(location.hash || '#/ruche');
+      }),
+    [],
+  );
+
   // Session utilisateur (JWT) : restaurée au montage si un jeton est présent.
-  // Un jeton périmé est simplement purgé — le dashboard vit très bien sans
-  // compte (le token de ruche suffit pour tout le reste).
+  // Un JWT refusé est purgé par `api()` et annoncé par l'abonnement ci-dessus.
+  // Une Reine injoignable, elle, ne dit RIEN de la session : on garde le JWT
+  // (le purger déconnectait quiconque ouvrait l'écran pendant un redémarrage
+  // de la Reine), et la barre reste sans nom jusqu'au prochain chargement.
   useEffect(() => {
     if (!getJwt()) return;
     let alive = true;
     authMe()
       .then((u) => alive && setUser(u))
       .catch(() => {
-        clearJwt();
-        if (alive) setUser(null);
+        /* refus : déjà traité par `api()` ; panne : inconnu, rien à purger */
       });
     return () => {
       alive = false;
     };
   }, []);
+
+  /** Ce que rapporte le panneau de compte : connexion, déconnexion, reconnexion. */
+  const changerDeCompte = (u: AuthUser | null) => {
+    setUser(u);
+    if (!u || retourSession === null) return;
+    // Reconnecté après une expiration : retour à la vue où elle a surpris.
+    if (location.hash !== retourSession) location.hash = retourSession;
+    setRetourSession(null);
+  };
+
+  /** « Continuer sans compte » — un choix explicite, qui rend la porte du jeton. */
+  const continuerSansCompte = () => {
+    oublierSessionExpiree();
+    setRetourSession(null);
+  };
 
   const viewProps: ViewProps = {
     snapshot,
@@ -639,7 +680,11 @@ export function App() {
             >
               {lang === 'fr' ? 'EN' : 'FR'}
             </button>
-            <AccountPanel user={user} onUser={setUser} />
+            <AccountPanel
+              user={user}
+              onUser={changerDeCompte}
+              sessionExpiree={retourSession !== null}
+            />
             <InvitePanel />
             <input
               type="password"
@@ -720,6 +765,29 @@ export function App() {
                 'Hive token rejected — paste the exact HIVE_TOKEN from the orchestrator’s .env into the Token field (top right). This is not the GitHub token.',
               )}
             </p>
+          </div>
+        )}
+
+        {retourSession !== null && (
+          <div className="mc-token-banner mc-session-banner" role="alert">
+            <p>
+              <strong>
+                {t('Session expirée — reconnectez-vous.', 'Session expired — sign in again.')}
+              </strong>{' '}
+              {t(
+                'Les gestes sur les projets de votre compte échouent tant que vous ne vous êtes pas reconnecté·e ; aucun n’est rejoué sans compte.',
+                'Actions on your account’s projects fail until you sign in again; none is replayed without an account.',
+              )}
+            </p>
+            <button
+              className="btn primary"
+              onClick={() => window.dispatchEvent(new Event(EVENT_OUVRIR_COMPTE))}
+            >
+              {t('Se reconnecter', 'Sign in again')}
+            </button>
+            <button className="btn ghost" onClick={continuerSansCompte}>
+              {t('Continuer sans compte', 'Continue without an account')}
+            </button>
           </div>
         )}
 

@@ -121,13 +121,8 @@ export function clearPartage(): void {
  * lien). Sans session rien ne change, et un JWT périmé est traité par la Reine
  * comme absent. La CLI fait déjà ainsi (`HIVE_JWT`, `src/cli.ts`).
  *
- * ⚠ CE QUE ÇA NE RÈGLE PAS : une session qui expire PENDANT que l'onglet vit.
- * `App` ne purge le JWT qu'au montage ; d'ici là il part périmé, et « traité
- * comme absent » veut dire l'ancien chemin — 404 sur un projet qui a un
- * propriétaire, 401 sur `createProject`, qui choisit la porte du compte dès
- * qu'un JWT est rangé. Ce n'est pas un défaut nouveau, mais c'est le même
- * silence : l'écran croit la personne connectée et ne lui dit pas de se
- * reconnecter. Il reste à traiter.
+ * Une session qui expire PENDANT que l'onglet vit est traitée ici même, au
+ * point où chaque refus arrive : voir « LA SESSION QUI EXPIRE » plus bas.
  *
  * `path` est TOUJOURS une route de la Reine (`/api/…`, même origine) : cette
  * identité ne part jamais chez un tiers. La garde de
@@ -162,9 +157,155 @@ async function api<T>(
     } catch {
       /* corps non-JSON */
     }
+    const jwt = jwtPorte(identite);
+    if (jwt && (await sessionRefusee(path, res.status, identite))) throw expirerSession(jwt);
     throw new ApiError(message, res.status, detail);
   }
   return (await res.json()) as T;
+}
+
+// ─── LA SESSION QUI EXPIRE PENDANT QUE L'ONGLET VIT ─────────────────────────
+//
+// Un JWT dure sept jours ; un onglet de tableau de bord, bien plus. Passé
+// l'échéance, la Reine traite le JWT comme ABSENT — c'est sa règle, et elle
+// est juste. Mais côté écran, « absent » voulait dire l'ancien chemin, en
+// silence :
+//
+//   · « 404 projet inconnu » sur SON PROPRE projet — les engagements ont la
+//     forme de l'inexistence pour qui n'y a pas droit (ADR 0007), et un jeton
+//     de ruche seul n'a pas droit à un projet qui appartient à un compte ;
+//   · 401 sur `createProject`, qui prend la porte du compte dès qu'un JWT est
+//     rangé ;
+//   · et pendant ce temps, la barre du haut affichait toujours le nom de la
+//     personne. Chaque geste échouait, et l'écran ne disait jamais pourquoi.
+//
+// ─── LE REFUS NE SUFFIT PAS À CONCLURE : ON DEMANDE À LA REINE ───────────────
+//
+// Un 404 peut être vrai (le projet d'autrui, une tâche disparue) et un 401 peut
+// viser le jeton de RUCHE, pas le compte. Deviner l'un de l'autre sur la forme
+// du refus, c'est déconnecter quelqu'un pour une faute qui n'est pas la
+// sienne. On repose donc la seule question qui tranche — `/api/auth/me`, que la
+// Reine juge sur le JWT SEUL — avec l'identité même qui vient d'échouer :
+//
+//   · refusée (401, ou 404 : le compte n'existe plus) → la session est morte.
+//     Le JWT est purgé, l'écran est prévenu (`surSessionExpiree`) et l'appel
+//     échoue en le DISANT : « Session expirée — reconnectez-vous » ;
+//   · acceptée → le refus d'origine était vrai, il remonte intact ;
+//   · injoignable, 5xx → on ne sait pas. Inconnu reste inconnu : on ne purge
+//     rien, le refus d'origine remonte.
+//
+// ─── CE QU'ON NE FAIT JAMAIS : REJOUER SANS LE COMPTE ────────────────────────
+//
+// La tentation serait de relancer l'appel au jeton de ruche seul, « pour que
+// ça marche ». Sur `createProject`, cela fabriquerait un projet ORPHELIN, que
+// la personne ne possède pas et dont elle ne pourrait ni lire le code ni
+// admettre quiconque — exactement le défaut que `/api/projects/user` a fermé.
+// L'appel échoue, la personne se reconnecte, et c'est ELLE qui refait le geste.
+
+/** Le JWT que CET appel a présenté — pas celui du stockage, qui a pu changer depuis. */
+function jwtPorte(identite: Record<string, string>): string | null {
+  const bearer = identite.authorization;
+  return bearer?.startsWith('Bearer ') ? bearer.slice(7) : null;
+}
+
+/**
+ * Ce refus peut-il venir d'une session morte ?
+ *
+ * Seuls deux refus en ont la forme : 401, et 404 sur une route de projet ou de
+ * tâche (la forme de l'inexistence des engagements). `/api/auth/login` et
+ * `/register` en sont exclues : leur 401 dit « identifiants invalides », et le
+ * transformer en « session expirée » mentirait à qui se trompe de mot de passe.
+ */
+function refusDeSession(path: string, statut: number): boolean {
+  if (path.startsWith('/api/auth/')) return false;
+  if (statut === 401) return true;
+  return statut === 404 && (path.startsWith('/api/projects/') || path.startsWith('/api/tasks/'));
+}
+
+/**
+ * Vérifications en vol, par JWT. Dix panneaux qui échouent ensemble ne doivent
+ * pas poser dix fois la même question à la Reine : sans ce partage, un seul
+ * JWT périmé déclenchait autant de `/api/auth/me` que d'appels en échec.
+ */
+const verifications = new Map<string, Promise<boolean>>();
+
+/** Vrai si la Reine confirme que la session de CET appel est morte. */
+async function sessionRefusee(
+  path: string,
+  statut: number,
+  identite: Record<string, string>,
+): Promise<boolean> {
+  // `/api/auth/me` EST l'oracle : son propre refus n'a pas à être revérifié.
+  if (path === '/api/auth/me') return statut === 401 || statut === 404;
+  if (!refusDeSession(path, statut)) return false;
+  const jwt = jwtPorte(identite) ?? '';
+  const enVol = verifications.get(jwt);
+  if (enVol) return enVol;
+  // Le rappel passe par `api()` avec la MÊME identité : la garde de
+  // `tests/dashboard-contrat-compte.test.tsx` s'applique donc à lui aussi, et
+  // son refus déclenche lui-même `expirerSession` (idempotent, voir plus bas).
+  const verification = api<AuthUser>('/api/auth/me', undefined, identite).then(
+    () => false,
+    (e: unknown) => e instanceof SessionExpireeError,
+  );
+  verifications.set(jwt, verification);
+  try {
+    return await verification;
+  } finally {
+    verifications.delete(jwt);
+  }
+}
+
+/**
+ * L'échec d'un appel dont la session est morte. C'est une `ApiError` 401 comme
+ * une autre — chaque écran qui affiche `e.message` dit donc déjà la bonne
+ * chose — mais elle se reconnaît, pour qui doit la distinguer.
+ */
+export class SessionExpireeError extends ApiError {
+  constructor() {
+    super(tNow('Session expirée — reconnectez-vous', 'Session expired — sign in again'), 401);
+    this.name = 'SessionExpireeError';
+  }
+}
+
+let sessionExpiree = false;
+const ecouteursSession = new Set<() => void>();
+
+/**
+ * Purge la session morte et prévient l'écran — UNE fois.
+ *
+ * Idempotent parce que la vérification passe elle-même par `api()` : l'appel
+ * d'origine et son rappel concluent tous deux. Et on ne purge que le JWT qui a
+ * échoué : si la personne s'est reconnectée entre-temps (un autre onglet), le
+ * nouveau JWT n'a rien fait pour mériter d'être effacé.
+ */
+function expirerSession(jwt: string): SessionExpireeError {
+  if (getJwt() === jwt) {
+    clearJwt();
+    sessionExpiree = true;
+    for (const ecouteur of ecouteursSession) ecouteur();
+  }
+  return new SessionExpireeError();
+}
+
+/** S'abonner à l'expiration de la session. Rend la désinscription. */
+export function surSessionExpiree(ecouteur: () => void): () => void {
+  ecouteursSession.add(ecouteur);
+  return () => ecouteursSession.delete(ecouteur);
+}
+
+/**
+ * La session vient-elle d'expirer, sans que la personne se soit reconnectée
+ * ni ait choisi de continuer sans compte ? Tant que oui, `createProject`
+ * refuse la porte du jeton : voir son commentaire.
+ */
+export function sessionEstExpiree(): boolean {
+  return sessionExpiree;
+}
+
+/** « Continuer sans compte » : un choix EXPLICITE, qui rend la porte du jeton. */
+export function oublierSessionExpiree(): void {
+  sessionExpiree = false;
 }
 
 export interface NewTaskInput {
@@ -203,6 +344,13 @@ export function createProject(input: {
   description?: string;
   visibility?: 'public' | 'private';
 }): Promise<Project> {
+  // Session tout juste expirée : le JWT est purgé, et sans cette garde le
+  // geste suivant — le même bouton « Créer », dans la même fenêtre encore
+  // ouverte — prendrait la porte du jeton et ferait naître en silence un
+  // projet ORPHELIN, que la personne croirait à elle. On refuse sans rien
+  // envoyer, jusqu'à ce qu'elle se reconnecte ou choisisse de continuer sans
+  // compte (`oublierSessionExpiree`).
+  if (sessionExpiree) return Promise.reject(new SessionExpireeError());
   if (getJwt()) {
     return apiCompte<Project>('/api/projects/user', {
       method: 'POST',
@@ -1230,6 +1378,8 @@ export function enTetesRuche(): Record<string, string> {
 
 export function saveJwt(token: string): void {
   localStorage.setItem(JWT_KEY, token);
+  // Une nouvelle session clôt l'expiration de la précédente.
+  sessionExpiree = false;
 }
 
 export function clearJwt(): void {
@@ -1370,7 +1520,11 @@ export function authLogin(email: string, password: string): Promise<{ token: str
   });
 }
 
-/** Profil de la session courante (401 → ApiError, le JWT est alors périmé). */
+/**
+ * Profil de la session courante. Un refus (401, ou 404 : compte disparu) purge
+ * le JWT et prévient l'écran — c'est `api()` qui le fait, pour cet appel comme
+ * pour les autres ; l'échec est alors une `SessionExpireeError`.
+ */
 export function authMe(): Promise<AuthUser> {
   return apiCompte<AuthUser>('/api/auth/me');
 }

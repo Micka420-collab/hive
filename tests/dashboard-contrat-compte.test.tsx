@@ -57,7 +57,9 @@ import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
 import {
   ApiError,
+  SessionExpireeError,
   addTasks,
+  authLogin,
   authMe,
   authRegister,
   clearJwt,
@@ -65,7 +67,11 @@ import {
   creerPartage,
   fetchIssues,
   fetchLivraisons,
+  fetchPulse,
   fetchReport,
+  getJwt,
+  oublierSessionExpiree,
+  surSessionExpiree,
   lancerChantier,
   lancerWorkflowGithub,
   prendreIssue,
@@ -530,6 +536,91 @@ describe('le tableau de bord connecté engage SON projet, par les vraies fonctio
     expect(envois.at(-1)?.entetes.authorization, 'le JWT expiré est bien parti').toBe(
       `Bearer ${expire}`,
     );
+  });
+
+  // ─── LA SESSION QUI MEURT PENDANT QUE L'ONGLET VIT ─────────────────────────
+  //
+  // Le cas d'à côté le montre : un JWT expiré ne RETIRE rien sur un projet
+  // orphelin. Mais sur le projet d'un compte, il rendait « 404 projet
+  // inconnu » à son propriétaire, et `createProject` répondait 401 — sans que
+  // l'écran dise jamais « reconnectez-vous ». La scène rendue vit dans
+  // `session-expiree-ecran.test.tsx` ; ici, la RÈGLE, par les vraies fonctions.
+  it('UNE SESSION MORTE EST DITE — et seule la Reine peut la déclarer morte', async () => {
+    const projet = await projetDuProprietaire('Projet dont la session meurt');
+    let annonces = 0;
+    const desabonner = surSessionExpiree(() => {
+      annonces += 1;
+    });
+    const verifications = (): number => envois.filter((e) => e.chemin === '/api/auth/me').length;
+    try {
+      // 1. Un 404 VRAI — le projet d'autrui, compte vivant — reste un 404, et
+      //    la session reste. On a demandé à la Reine, elle a dit « vivante ».
+      saveJwt(voisin.jwt);
+      expect(await refus(addTasks(projet, [{ title: 'Intrusion', prompt: 'x' }]))).toEqual({
+        status: 404,
+        message: 'projet inconnu',
+      });
+      expect(verifications(), 'le 404 n’a pas été revérifié').toBe(1);
+      expect(getJwt(), 'un 404 vrai a purgé une session vivante').toBe(voisin.jwt);
+
+      // 2. Un 401 du JETON DE RUCHE n'est pas une faute du compte.
+      saveJwt(proprietaire.jwt);
+      saveToken('mauvais-jeton-de-ruche-assez-long');
+      expect((await refus(fetchPulse())).message).toContain('token invalide');
+      expect(getJwt(), 'un jeton de ruche faux a déconnecté le compte').toBe(proprietaire.jwt);
+      saveToken(TOKEN);
+
+      // 3. Une Reine muette ne dit RIEN de la session : inconnu reste inconnu.
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(Date.now() + 8 * 24 * 60 * 60 * 1000);
+      const fetchDuBanc = globalThis.fetch;
+      vi.stubGlobal('fetch', (entree: string | URL | Request, init?: RequestInit) =>
+        entree === '/api/auth/me'
+          ? Promise.reject(new TypeError('Failed to fetch'))
+          : fetchDuBanc(entree, init),
+      );
+      try {
+        expect((await refus(addTasks(projet, [{ title: 'x', prompt: 'x' }]))).status).toBe(404);
+      } finally {
+        vi.stubGlobal('fetch', fetchDuBanc);
+      }
+      expect(getJwt(), 'une panne réseau a purgé la session').toBe(proprietaire.jwt);
+      expect(annonces).toBe(0);
+
+      // 4. Le JWT a expiré (l'horloge a passé ses sept jours) : l'engagement
+      //    sur SON projet échoue en le DISANT, et l'écran est prévenu une fois.
+      const echec = await addTasks(projet, [{ title: 'Après expiration', prompt: 'x' }]).then(
+        () => null,
+        (e: unknown) => e,
+      );
+      expect(echec).toBeInstanceOf(SessionExpireeError);
+      expect(echec).toBeInstanceOf(ApiError);
+      expect((echec as ApiError).status).toBe(401);
+      expect(getJwt(), 'le JWT mort est resté rangé').toBeNull();
+      expect(annonces).toBe(1);
+
+      // 5. Et rien n'est rejoué sans le compte : ni la création, ni en silence.
+      const projetsAvant = server.store.listProjects().length;
+      const envoisAvant = envois.length;
+      await expect(createProject({ name: 'Projet orphelin par erreur' })).rejects.toBeInstanceOf(
+        SessionExpireeError,
+      );
+      expect(envois.slice(envoisAvant), 'la création est partie sans le compte').toEqual([]);
+      expect(server.store.listProjects()).toHaveLength(projetsAvant);
+
+      // 6. « Continuer sans compte » est un choix EXPLICITE, et lui seul rend
+      //    la porte du jeton — le mode sans compte annoncé, rien de plus.
+      oublierSessionExpiree();
+      expect((await createProject({ name: 'Choisi sans compte' })).ownerId).toBeNull();
+
+      // 7. Reconnecté : le même geste aboutit, et le projet est à la personne.
+      saveJwt((await authLogin(proprietaire.email, MOT_DE_PASSE)).token);
+      const refait = await createProject({ name: 'Projet refait' });
+      expect(refait.ownerId).toBe(proprietaire.id);
+    } finally {
+      vi.useRealTimers();
+      desabonner();
+    }
   });
 
   it('UN LIEN DE PARTAGE PART SEUL — un lien révoqué ne s’ouvre pas chez son hôte', async () => {
