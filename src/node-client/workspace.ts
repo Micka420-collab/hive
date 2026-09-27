@@ -136,7 +136,7 @@ export async function prepareWorkspace(
     const depotDuClone = { gitDir: path.join(cwd, '.git'), workTree: cwd };
     // Une tâche = une branche isolée. Jamais de travail direct sur main (§5.2).
     branch = task.branch ?? `hive/${task.id}`;
-    await gitHote(['checkout', '-q', '-b', branch], cwd, depotDuClone);
+    await gitHote(['checkout', '-q', '-b', branch], depotDuClone);
     const base = await commitDeDepart(depotDuClone);
     const depot = await poserRegistre(cwd, registre, base);
     diffDeTache = () => diffContreBase(depot, base);

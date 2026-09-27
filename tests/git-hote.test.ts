@@ -25,11 +25,20 @@
 // que sous un terminal. Il est posé quand même — `--no-pager` le couvre.
 
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { EchecGitHote, gitHote } from '../src/node-client/git-hote.js';
 import { runMerge } from '../src/node-client/merge-runner.js';
 import { cloneRepo, prepareWorkspace } from '../src/node-client/workspace.js';
 import type { Task } from '../src/shared/types.js';
@@ -215,28 +224,31 @@ const VECTEURS: Record<string, Vecteur> = {
 };
 
 describe('le diff de revue d’une tâche (`collectDiff`) n’exécute rien que l’agent a configuré', () => {
-  it.each(Object.entries(VECTEURS))('%s', async (nom, { poser, armer }) => {
-    const ws = await prepareWorkspace(travail, tache(`piege-${nom.length}`), amontUrl);
-    try {
-      // L'agent travaille… puis arme son piège dans son propre dépôt.
-      writeFileSync(path.join(ws.cwd, 'app.txt'), 'bonjour, ruche\n');
-      poser(ws.cwd);
+  it.each(Object.entries(VECTEURS).map(([nom, v], i) => [nom, v, i] as const))(
+    '%s',
+    async (_nom, { poser, armer }, i) => {
+      const ws = await prepareWorkspace(travail, tache(`piege-${i}`), amontUrl);
+      try {
+        // L'agent travaille… puis arme son piège dans son propre dépôt.
+        writeFileSync(path.join(ws.cwd, 'app.txt'), 'bonjour, ruche\n');
+        poser(ws.cwd);
 
-      if (armer) {
-        for (const args of armer) gitSansVerdict(ws.cwd, ...args);
-        expect(declenchees(), 'le piège est armé : git naïf le déclenche').not.toEqual([]);
-        rmSync(sentinelles, { recursive: true, force: true });
-        mkdirSync(sentinelles);
+        if (armer) {
+          for (const args of armer) gitSansVerdict(ws.cwd, ...args);
+          expect(declenchees(), 'le piège est armé : git naïf le déclenche').not.toEqual([]);
+          rmSync(sentinelles, { recursive: true, force: true });
+          mkdirSync(sentinelles);
+        }
+
+        const diff = await ws.collectDiff();
+        expect(declenchees(), 'aucun programme de l’agent n’a tourné sur l’hôte').toEqual([]);
+        // Et le diff reste le VRAI : ce que l'agent a changé, rien de filtré.
+        expect(diff).toContain('+bonjour, ruche');
+      } finally {
+        ws.cleanup();
       }
-
-      const diff = await ws.collectDiff();
-      expect(declenchees(), 'aucun programme de l’agent n’a tourné sur l’hôte').toEqual([]);
-      // Et le diff reste le VRAI : ce que l'agent a changé, rien de filtré.
-      expect(diff).toContain('+bonjour, ruche');
-    } finally {
-      ws.cleanup();
-    }
-  });
+    },
+  );
 
   it('le git dir que lit l’hôte vit HORS du répertoire monté dans le bac, et part avec la tâche', async () => {
     const ws = await prepareWorkspace(travail, tache('registre'), amontUrl);
@@ -338,4 +350,220 @@ describe('la fusion n’exécute aucun filtre qu’un `.gitattributes` apporté 
     expect(r.applied).toEqual(['agent']);
     expect(r.mergedDiff).toContain('+bonjour, ruche');
   });
+});
+
+// ─── CE QUE LA MACHINE DÉFINIT, ET QUE L'AGENT NE FAIT QUE NOMMER ────────────
+//
+// Le registre ne lit plus la configuration de la tâche. Restent la
+// configuration GLOBALE et SYSTÈME du membre — lues, à dessein (git-hote.ts,
+// en-tête) — et ce qu'elles définissent peut être DÉCLENCHÉ par ce que l'agent
+// écrit dans l'arbre : un `core.hooksPath` relatif (`.githooks`, `.husky` —
+// un réglage global courant) se résout contre l'arbre de la tâche, un
+// `.gitattributes` nomme un filtre ou un `textconv` que la machine définit
+// (Git for Windows inscrit `filter.lfs`), un `diff.external` global
+// (difftastic) s'applique à tout diff. Le banc pose ces définitions dans une
+// configuration globale — un HOME à lui — et l'agent n'écrit QUE l'arbre.
+
+type Arbre = Record<string, { contenu: string; executable?: boolean }>;
+
+/** Des fonctions : les sentinelles n'ont de chemin qu'une fois le banc posé. */
+interface VecteurMachine {
+  /** Les clés de la configuration GLOBALE du membre. */
+  machine: () => Record<string, string>;
+  /** Ce que l'agent écrit dans l'arbre de SA tâche (jamais dans `.git`). */
+  arbre: () => Arbre;
+}
+
+const crochetArbre = (nom: string): string => `#!/bin/sh\n${trace(nom)}\nexit 0\n`;
+
+const VECTEURS_MACHINE: Record<string, VecteurMachine> = {
+  'un `core.hooksPath` global RELATIF, et le crochet posé dans l’arbre': {
+    machine: () => ({ 'core.hooksPath': '.githooks' }),
+    arbre: () => ({
+      '.githooks/post-index-change': { contenu: crochetArbre('crochet-arbre'), executable: true },
+    }),
+  },
+  'un filtre défini par la machine, nommé par `.gitattributes`': {
+    machine: () => ({
+      'filter.piege.clean': `${trace('filtre-machine-clean')}; cat`,
+      'filter.piege.smudge': `${trace('filtre-machine-smudge')}; cat`,
+    }),
+    arbre: () => ({ '.gitattributes': { contenu: '*.txt filter=piege\n' } }),
+  },
+  'un `textconv` défini par la machine, nommé par `.gitattributes`': {
+    machine: () => ({ 'diff.piege.textconv': `${trace('textconv-machine')}; cat` }),
+    arbre: () => ({ '.gitattributes': { contenu: '*.txt diff=piege\n' } }),
+  },
+  'un `diff.external` global': {
+    machine: () => ({ 'diff.external': trace('diff-external-machine') }),
+    arbre: () => ({}),
+  },
+};
+
+/**
+ * Pose `cles` dans la configuration GLOBALE d'un HOME neuf, le temps de
+ * `corps` — pour le banc ET pour le git du nœud (`envGitHote` transmet HOME).
+ */
+async function avecConfigMachine<T>(
+  cles: Record<string, string>,
+  corps: () => Promise<T>,
+): Promise<T> {
+  const home = mkdtempSync(path.join(racine, 'home-'));
+  const fichier = path.join(home, '.gitconfig');
+  for (const [cle, valeur] of Object.entries(cles)) {
+    execFileSync('git', ['config', '--file', fichier, cle, valeur]);
+  }
+  const avant = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+  process.env.HOME = home;
+  if (process.platform === 'win32') process.env.USERPROFILE = home;
+  try {
+    return await corps();
+  } finally {
+    for (const [cle, valeur] of Object.entries(avant)) {
+      if (valeur === undefined) delete process.env[cle];
+      else process.env[cle] = valeur;
+    }
+  }
+}
+
+function ecrireArbre(cwd: string, arbre: Arbre): void {
+  for (const [relatif, { contenu, executable }] of Object.entries(arbre)) {
+    const chemin = path.join(cwd, relatif);
+    mkdirSync(path.dirname(chemin), { recursive: true });
+    writeFileSync(chemin, contenu, { mode: executable ? 0o755 : 0o644 });
+  }
+}
+
+/** Le même arbre, en diff d'agent : ce qu'une fusion reçoit du hub. */
+function enDiff(arbre: Arbre): string {
+  const lignes: string[] = [];
+  for (const [relatif, { contenu, executable }] of Object.entries(arbre)) {
+    const corps = contenu.split('\n').slice(0, -1);
+    lignes.push(
+      `diff --git a/${relatif} b/${relatif}`,
+      `new file mode ${executable ? '100755' : '100644'}`,
+      '--- /dev/null',
+      `+++ b/${relatif}`,
+      `@@ -0,0 +1,${corps.length} @@`,
+      ...corps.map((l) => `+${l}`),
+    );
+  }
+  lignes.push(
+    'diff --git a/app.txt b/app.txt',
+    '--- a/app.txt',
+    '+++ b/app.txt',
+    '@@ -1 +1 @@',
+    '-bonjour',
+    '+bonjour, ruche',
+    '',
+  );
+  return lignes.join('\n');
+}
+
+function sentinellesAZero(): void {
+  rmSync(sentinelles, { recursive: true, force: true });
+  mkdirSync(sentinelles);
+}
+
+describe('un pilote que la MACHINE définit ne tourne pas parce que l’arbre de l’agent le nomme', () => {
+  it.each(Object.entries(VECTEURS_MACHINE).map(([nom, v], i) => [nom, v, i] as const))(
+    '`collectDiff` — %s',
+    async (_nom, { machine, arbre }, i) => {
+      await avecConfigMachine(machine(), async () => {
+        const ws = await prepareWorkspace(travail, tache(`machine-${i}`), amontUrl);
+        try {
+          writeFileSync(path.join(ws.cwd, 'app.txt'), 'bonjour, ruche\n');
+          ecrireArbre(ws.cwd, arbre());
+
+          for (const args of COLLECTE_NAIVE) gitSansVerdict(ws.cwd, ...args);
+          expect(declenchees(), 'le piège est armé : git naïf le déclenche').not.toEqual([]);
+          sentinellesAZero();
+
+          const diff = await ws.collectDiff();
+          expect(declenchees(), 'aucun programme n’a tourné sur l’hôte').toEqual([]);
+          expect(diff).toContain('+bonjour, ruche');
+        } finally {
+          ws.cleanup();
+        }
+      });
+    },
+  );
+
+  it.each(Object.entries(VECTEURS_MACHINE).map(([nom, v], i) => [nom, v, i] as const))(
+    '`runMerge` — %s',
+    async (_nom, { machine, arbre }, i) => {
+      await avecConfigMachine(machine(), async () => {
+        const diff = enDiff(arbre());
+        const patch = path.join(racine, `machine-${i}.patch`);
+        writeFileSync(patch, diff);
+        // Le piège armé : la fusion naïve, dans un clone témoin, le déclenche.
+        const temoin = path.join(racine, `machine-temoin-${i}`);
+        execFileSync('git', ['clone', '-q', amontUrl, temoin], { stdio: 'ignore' });
+        gitSansVerdict(temoin, 'apply', patch);
+        for (const args of COLLECTE_NAIVE) gitSansVerdict(temoin, ...args);
+        expect(declenchees(), 'le piège est armé').not.toEqual([]);
+        sentinellesAZero();
+
+        const dossier = path.join(racine, `machine-fusion-${i}`);
+        await cloneRepo(dossier, amontUrl);
+        const r = await runMerge({ repoDir: dossier, diffs: [{ taskId: 'agent', diff }] });
+        expect(declenchees(), 'aucun programme n’a tourné sur l’hôte').toEqual([]);
+        expect(r.conflicts).toEqual([]);
+        expect(r.mergedDiff).toContain('+bonjour, ruche');
+      });
+    },
+  );
+});
+
+describe('le git que lance l’hôte est celui de la machine, jamais un binaire de l’arbre', () => {
+  // Sous Windows, `execFile('git', …, { cwd })` cherche `git.exe`/`git.com`
+  // dans le cwd AVANT le PATH (libuv, `search_path`). Un git lancé DEPUIS
+  // l'arbre de la tâche lançait donc le binaire que l'agent y avait posé. Le
+  // banc y pose un `git.exe` qui n'est pas git (node lui-même) : s'il tourne,
+  // le diff échoue au lieu de rendre le travail de l'agent.
+  it.runIf(process.platform === 'win32')(
+    'un `git.exe` posé à la racine de la tâche ne tourne pas',
+    async () => {
+      const ws = await prepareWorkspace(travail, tache('faux-git'), amontUrl);
+      try {
+        writeFileSync(path.join(ws.cwd, 'app.txt'), 'bonjour, ruche\n');
+        copyFileSync(process.execPath, path.join(ws.cwd, 'git.exe'));
+        const diff = await ws.collectDiff();
+        expect(diff).toContain('+bonjour, ruche');
+      } finally {
+        ws.cleanup();
+      }
+    },
+  );
+});
+
+describe('un git local de l’hôte est BORNÉ, et son échec ne recopie pas la ligne de commande', () => {
+  // Le registre emprunte les objets de la tâche (`alternates`) : un FIFO que
+  // l'agent pose en guise d'index de pack bloque l'`open()` de git — et, sans
+  // délai, `collectDiff` ne rendait jamais la main, la place de la tâche
+  // restait prise. Pas de FIFO sous Windows.
+  it.skipIf(process.platform === 'win32')(
+    'un index de pack piégé (FIFO) : échec visible au bout du délai, sans l’argv',
+    async () => {
+      const ws = await prepareWorkspace(travail, tache('fifo'), amontUrl);
+      try {
+        const pack = path.join(ws.cwd, '.git', 'objects', 'pack');
+        mkdirSync(pack, { recursive: true });
+        const nom = `pack-${'0'.repeat(40)}`;
+        writeFileSync(path.join(pack, `${nom}.pack`), '');
+        execFileSync('mkfifo', [path.join(pack, `${nom}.idx`)]);
+        const depot = { gitDir: `${ws.cwd}.git`, workTree: ws.cwd };
+        const echec = await gitHote(['diff', 'HEAD'], depot, 1_500).catch((e: unknown) => e);
+        expect(echec).toBeInstanceOf(EchecGitHote);
+        const message = (echec as EchecGitHote).message;
+        expect(message).toMatch(/interrompu/);
+        // Le message d'`execFile` pour un processus tué recopie l'argv — et
+        // celui d'un clone porte l'URL, jeton compris.
+        expect(message).not.toContain('--git-dir');
+      } finally {
+        ws.cleanup();
+      }
+    },
+    15_000,
+  );
 });

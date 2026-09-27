@@ -911,8 +911,12 @@ describe('changement concurrent — l’amont bouge sous l’espace de travail',
   // Le juste, posé : rien hors de la tâche n'est lu ni touché. Toute commande
   // d'après l'agent passe `--git-dir=<registre de la ruche>` et
   // `--work-tree=<tâche>` : git ne cherche plus de dépôt, il n'en trouve donc
-  // pas d'autre. Le `.git` de la tâche n'est plus lu que pour ses OBJETS —
-  // retiré ou remplacé, ils manquent, et le diff ÉCHOUE, visiblement.
+  // pas d'autre. Le `.git` de la tâche n'est plus lu que pour ses OBJETS, en
+  // lecture seule — jamais sa configuration ni ses crochets, et rien n'est
+  // écrit hors du registre. Retiré ou remplacé, ses objets manquent, et le
+  // diff ÉCHOUE, visiblement. (Un lien vers un dépôt qui CONTIENT le commit de
+  // départ rendrait le diff calculable avec ces objets-là — lus, jamais
+  // exécutés ni modifiés ; ce n'est pas le cas mesuré ici.)
   it.each<[string, (cwd: string, membre: string) => void]>([
     [
       'son `.git` retiré',

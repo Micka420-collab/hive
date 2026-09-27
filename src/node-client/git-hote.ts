@@ -55,9 +55,12 @@
 //     configuration système, et git-lfs lit le `.lfsconfig` de l'arbre) : le
 //     registre porte `info/attributes` = `* -filter`, qui PRIME sur tout
 //     `.gitattributes`. Pilotes de diff : `--no-ext-diff --no-textconv`.
-//   · Les objets de la tâche, par `alternates` : des données. L'agent peut les
-//     corrompre ou les effacer — le diff ÉCHOUE alors, visiblement ; il ne peut
-//     pas les faire exécuter.
+//   · Les objets de la tâche, par `alternates` : des données, LUES seulement —
+//     jamais sa configuration ni ses crochets, et rien n'est écrit hors du
+//     registre. L'agent peut les corrompre ou les effacer (le diff ÉCHOUE
+//     alors, visiblement), ou faire de `.git` un lien vers un autre dépôt qui
+//     contient le commit de départ (le diff se calcule alors avec SES objets,
+//     en lecture) ; il ne peut pas les faire exécuter.
 //   · Les configurations SYSTÈME et GLOBALE : celles de la machine et du
 //     membre, jamais montées dans le bac. On ne les coupe pas
 //     (`GIT_CONFIG_NOSYSTEM` a déjà coûté `core.symlinks` au miroir — voir
@@ -68,7 +71,7 @@
 // partout sous l'utilisateur du membre, registre compris : il n'y a alors pas
 // de bac dont sortir, et `constat()` le dit déjà (isolement.ts).
 
-import { execFile } from 'node:child_process';
+import { execFile, type ExecFileException } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
@@ -123,11 +126,22 @@ export function envGitHote(): NodeJS.ProcessEnv {
  * l'agent, et qu'une configuration système ou globale pourrait aussi porter.
  * `--no-pager` : jamais de programme d'affichage, même sous un terminal.
  * `gc.auto`/`maintenance.auto` : aucune tâche de fond lancée par un `add`.
+ *
+ * `core.hooksPath` : AUCUN crochet, d'où qu'il vienne. Le registre n'en a
+ * pas, mais un `core.hooksPath` RELATIF de la configuration globale
+ * (`.githooks`, `.husky` — un réglage courant) se résout contre l'ARBRE de la
+ * tâche : `add` y lançait le `post-index-change` que l'agent avait posé, et
+ * `git apply` celui qu'un diff apportait à la fusion. Il désigne ici un
+ * chemin SOUS un fichier ordinaire — l'exécutable de node : aucun crochet ne
+ * peut y exister, il n'y a rien à créer ni à nettoyer, personne ne peut y
+ * déposer quoi que ce soit (`/dev/null` n'existe pas sous Windows).
  */
 const PROTECTIONS = [
   '--no-pager',
   '-c',
   'core.fsmonitor=false',
+  '-c',
+  `core.hooksPath=${path.join(process.execPath, 'aucun-crochet')}`,
   '-c',
   'gc.auto=0',
   '-c',
@@ -135,7 +149,18 @@ const PROTECTIONS = [
 ] as const;
 
 /**
- * Un échec de git, avec son code de sortie (`null` : git n'a pas démarré).
+ * Le délai d'une commande LOCALE (dépôt épinglé : diff, add, apply…). Le
+ * registre lit les objets de la tâche : un FIFO que l'agent pose en guise
+ * d'index de pack bloquait l'`open()` de git, et `collectDiff` ne rendait
+ * jamais la main — la place de la tâche restait prise. Large : un `add` sur
+ * un très gros arbre prend des secondes, pas des minutes. Le clone (réseau,
+ * taille inconnue) n'est pas borné ici.
+ */
+const DELAI_GIT_LOCAL_MS = 5 * 60_000;
+
+/**
+ * Un échec de git, avec son code de sortie (`null` : git n'a pas démarré, ou
+ * a été tué — délai dépassé, signal).
  * Le code est ce qui permet de distinguer « pas de commit » (`rev-parse -q`
  * rend 1, sans un mot) d'une vraie panne, sans lire du texte.
  */
@@ -157,7 +182,15 @@ export interface DepotEpingle {
 
 /**
  * Lance `git` sur l'hôte, sans shell, avec l'environnement et les protections
- * ci-dessus — et, si un dépôt est donné, ÉPINGLÉ sur lui.
+ * ci-dessus. `ou` : le répertoire d'un git SANS dépôt (clone, init), ou le
+ * dépôt ÉPINGLÉ sur lequel travailler.
+ *
+ * Un dépôt épinglé ne se lance JAMAIS depuis son arbre, mais depuis le
+ * répertoire qui le CONTIENT : sous Windows, `execFile` cherche `git.exe` dans
+ * le cwd AVANT le PATH (libuv, `search_path`) — depuis l'arbre de la tâche,
+ * c'est le `git.exe` de l'agent qui tournait. Le parent, lui, n'est ni monté
+ * dans le bac ni écrit par un `git apply`. C'est git qui entre ensuite dans
+ * l'arbre (`-C`), une fois SON binaire choisi.
  *
  * La raison d'échec est le stderr de git, et SEULEMENT lui : le message
  * d'`execFile` recopie la ligne de commande, donc l'URL de clone — et une URL
@@ -165,22 +198,29 @@ export interface DepotEpingle {
  */
 export function gitHote(
   args: readonly string[],
-  cwd: string,
-  depot?: DepotEpingle,
+  ou: string | DepotEpingle,
+  delaiMs = DELAI_GIT_LOCAL_MS,
 ): Promise<string> {
-  const epingle = depot ? [`--git-dir=${depot.gitDir}`, `--work-tree=${depot.workTree}`] : [];
+  const local = typeof ou !== 'string';
+  // `-C` : git, lui, travaille DANS l'arbre — `apply` résout les chemins du
+  // patch contre son répertoire courant, pas contre `--work-tree`.
+  const epingle = local
+    ? ['-C', ou.workTree, `--git-dir=${ou.gitDir}`, `--work-tree=${ou.workTree}`]
+    : [];
   return new Promise((resolve, reject) => {
     execFile(
       'git',
       [...PROTECTIONS, ...epingle, ...args],
       {
-        cwd,
+        cwd: local ? path.dirname(ou.workTree) : ou,
         env: envGitHote(),
         shell: false, // jamais d'interprétation shell (contrainte §5.1)
         windowsHide: true,
         encoding: 'utf8',
         // Un diff de revue peut être gros ; il est plafonné plus loin (LIMITS).
         maxBuffer: 256 * 1024 * 1024,
+        timeout: local ? delaiMs : 0,
+        killSignal: 'SIGKILL',
       },
       (err, stdout, stderr) => {
         if (!err) {
@@ -188,13 +228,27 @@ export function gitHote(
           return;
         }
         const code = typeof err.code === 'number' ? err.code : null;
-        // Sans code de sortie, git n'a pas démarré (`spawn git ENOENT` : git
-        // absent, ou cwd disparu) — ce message-là ne contient pas l'argv.
-        const raison = code === null ? err.message : stderr.trim() || `code de sortie ${code}`;
-        reject(new EchecGitHote(`git ${args[0] ?? ''} : ${raison}`, code));
+        reject(new EchecGitHote(`git ${args[0] ?? ''} : ${raisonEchec(err, code, stderr)}`, code));
       },
     );
   });
+}
+
+/**
+ * Jamais `err.message` pour un git qui a TOURNÉ : pour un processus sorti en
+ * erreur OU tué par un signal (délai, arrêt du nœud, OOM), c'est
+ * `Command failed: git … <URL>` — l'argv entier. Il n'est lu que quand git
+ * n'a pas démarré ou que node l'a coupé (`err.code` textuel : `ENOENT`,
+ * `ERR_CHILD_PROCESS_STDIO_MAXBUFFER`) — des messages sans argv.
+ */
+function raisonEchec(err: ExecFileException, code: number | null, stderr: string): string {
+  const sortie = stderr.trim();
+  if (code !== null) return sortie || `code de sortie ${code}`;
+  if (err.signal) {
+    const cause = err.killed ? 'délai dépassé ou arrêt du nœud' : 'tué de l’extérieur';
+    return `interrompu (${err.signal}, ${cause})${sortie ? ` : ${sortie}` : ''}`;
+  }
+  return typeof err.code === 'string' ? err.message : 'échec sans code de sortie';
 }
 
 /**
@@ -213,7 +267,7 @@ function neutraliserFiltres(gitDir: string): void {
  */
 export async function commitDeDepart(depot: DepotEpingle): Promise<string | null> {
   try {
-    return (await gitHote(['rev-parse', '--verify', '-q', 'HEAD'], depot.workTree, depot)).trim();
+    return (await gitHote(['rev-parse', '--verify', '-q', 'HEAD'], depot)).trim();
   } catch (e) {
     // Toute AUTRE panne remonte : la prendre pour un dépôt vide ferait
     // calculer le diff contre l'index, et les suppressions disparaîtraient.
@@ -259,7 +313,7 @@ export async function poserRegistre(
   }
   neutraliserFiltres(registre);
   const depot = { gitDir: registre, workTree };
-  if (base !== null) await gitHote(['update-ref', '--no-deref', 'HEAD', base], workTree, depot);
+  if (base !== null) await gitHote(['update-ref', '--no-deref', 'HEAD', base], depot);
   return depot;
 }
 
@@ -274,7 +328,7 @@ export async function poserRegistre(
  * index↔arbre est exact.
  */
 export async function diffContreBase(depot: DepotEpingle, base: string | null): Promise<string> {
-  await gitHote(['add', '--all', '--intent-to-add'], depot.workTree, depot);
+  await gitHote(['add', '--all', '--intent-to-add'], depot);
   return gitHote(
     [
       'diff',
@@ -286,7 +340,6 @@ export async function diffContreBase(depot: DepotEpingle, base: string | null): 
       '--ignore-submodules=all',
       ...(base !== null ? [base] : []),
     ],
-    depot.workTree,
     depot,
   );
 }
@@ -298,7 +351,9 @@ export async function diffContreBase(depot: DepotEpingle, base: string | null): 
  * sinon tourner.
  */
 export function epinglerClone(repoDir: string): DepotEpingle {
-  const depot = { gitDir: path.join(repoDir, '.git'), workTree: repoDir };
+  // Absolus : `-C <arbre>` passe AVANT `--git-dir` (gitHote).
+  const workTree = path.resolve(repoDir);
+  const depot = { gitDir: path.join(workTree, '.git'), workTree };
   neutraliserFiltres(depot.gitDir);
   return depot;
 }

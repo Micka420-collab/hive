@@ -242,13 +242,13 @@ export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
       writeFileSync(patchFile, diff.endsWith('\n') ? diff : `${diff}\n`);
       try {
         // Vérifie AVANT d'appliquer : échoue si le patch ne colle pas à l'état accumulé.
-        await gitHote(['apply', '--check', patchFile], opts.repoDir, depot);
+        await gitHote(['apply', '--check', patchFile], depot);
       } catch {
         conflicts.push({ taskId, reason: "le diff ne s'applique pas proprement (conflit)" });
         logs.push(`✘ ${taskId} : conflit d'application`);
         continue;
       }
-      await gitHote(['apply', patchFile], opts.repoDir, depot);
+      await gitHote(['apply', patchFile], depot);
       applied.push(taskId);
       logs.push(`✔ ${taskId} appliqué`);
     }
