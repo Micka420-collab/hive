@@ -287,6 +287,7 @@ describe('V2 Alpha — mission locale vérifiable', () => {
   let previousGitConfigGlobal: string | undefined;
   let previousGithubToken: string | undefined;
   let previousGithubApi: string | undefined;
+  let previousXdg: { data: string | undefined; config: string | undefined } | undefined;
 
   afterEach(async () => {
     for (const client of scenario?.clients ?? []) client.stop();
@@ -306,6 +307,13 @@ describe('V2 Alpha — mission locale vérifiable', () => {
     else process.env.HIVE_GITHUB_TOKEN = previousGithubToken;
     if (previousGithubApi === undefined) delete process.env.HIVE_GITHUB_API;
     else process.env.HIVE_GITHUB_API = previousGithubApi;
+    if (previousXdg) {
+      if (previousXdg.data === undefined) delete process.env.XDG_DATA_HOME;
+      else process.env.XDG_DATA_HOME = previousXdg.data;
+      if (previousXdg.config === undefined) delete process.env.XDG_CONFIG_HOME;
+      else process.env.XDG_CONFIG_HOME = previousXdg.config;
+    }
+    previousXdg = undefined;
     if (scenario) rmSync(scenario.root, { recursive: true, force: true, maxRetries: 3 });
     scenario = null;
     previousHome = undefined;
@@ -326,9 +334,23 @@ describe('V2 Alpha — mission locale vérifiable', () => {
         path.join(gitHome, '.gitconfig'),
         `[url "${pathToFileURL(repo).href}"]\n\tinsteadOf = https://github.com/demo/hive.git\n`,
       );
+      // Le moteur est choisi AVANT que HOME ne pointe sur la fixture Git :
+      // Podman rootless range son magasin d'images sous le HOME (ou
+      // XDG_DATA_HOME), et le HOME de la fixture n'en a aucun.
+      const bac = bacDepuisEnv();
+      if (imageDemandee && !bac) {
+        throw new Error(`HIVE_ISOLEMENT_IMAGE=${imageDemandee} exige un runtime Docker/Podman`);
+      }
       previousHome = process.env.HOME;
       previousGitConfigGlobal = process.env.GIT_CONFIG_GLOBAL;
       previousGithubToken = process.env.HIVE_GITHUB_TOKEN;
+      previousXdg = { data: process.env.XDG_DATA_HOME, config: process.env.XDG_CONFIG_HOME };
+      if (bac && previousHome) {
+        // …et les tâches, qui relancent le moteur avec l'environnement du
+        // processus (`envDuLanceur`), doivent y retrouver le même magasin.
+        process.env.XDG_DATA_HOME ??= path.join(previousHome, '.local', 'share');
+        process.env.XDG_CONFIG_HOME ??= path.join(previousHome, '.config');
+      }
       process.env.HOME = gitHome;
       // Git for Windows may resolve the global config from USERPROFILE even
       // when HOME is overridden. Pinning the fixture config makes the local
@@ -337,10 +359,6 @@ describe('V2 Alpha — mission locale vérifiable', () => {
       process.env.GIT_CONFIG_GLOBAL = path.join(gitHome, '.gitconfig');
       process.env.HIVE_GITHUB_TOKEN = GITHUB_TOKEN;
       const reviews = new Map<string, number>();
-      const bac = bacDepuisEnv();
-      if (imageDemandee && !bac) {
-        throw new Error(`HIVE_ISOLEMENT_IMAGE=${imageDemandee} exige un runtime Docker/Podman`);
-      }
       const github = githubFixture();
       const githubApi = await startGithubApi(github.fetcher);
       previousGithubApi = process.env.HIVE_GITHUB_API;

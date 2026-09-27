@@ -447,6 +447,10 @@ function enveloppeConteneur(
  * le moteur ; la tâche, lancée sans, pouvait ne pas le trouver. Un bac annoncé,
  * puis chaque tâche en échec d'infra.
  *
+ * `XDG_DATA_HOME` et `XDG_CONFIG_HOME` déplacent ce magasin et sa
+ * configuration quand ils sont posés : sans eux, la tâche cherchait les images
+ * ailleurs que le preflight.
+ *
  * Ces variables vont au CLIENT, jamais au conteneur : seule `--env=NOM` fait
  * traverser une variable, pour les noms que le bac autorise, et `HOME` y est
  * posé explicitement sur `HOME_CONTENEUR` (voir `VARIABLES_CHEMIN_HOTE`).
@@ -456,6 +460,8 @@ function enveloppeConteneur(
 const VARIABLES_MOTEUR: readonly string[] = [
   'HOME',
   'XDG_RUNTIME_DIR',
+  'XDG_DATA_HOME',
+  'XDG_CONFIG_HOME',
   'DBUS_SESSION_BUS_ADDRESS',
   'DOCKER_HOST',
   'DOCKER_CONTEXT',
