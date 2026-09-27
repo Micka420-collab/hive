@@ -173,6 +173,17 @@ describe('LE COMPTE DES ARRÊTS — le critère « ≤ 3 décisions »', () => {
     expect(r.ecran).toContain('npm run cli');
   });
 
+  it('LA RUCHE À DÉMARRER EST LA RUCHE ENTIÈRE — `npm run ruche`, pas la Reine seule', async () => {
+    // La phrase disait « une fois la ruche démarrée (« npm run dev ») ». Or
+    // `dev` ne lance que la Reine : le projet se crée, puis rien ne l'exécute —
+    // aucune ouvrière n'est là. Le README, l'écran de fin et `AGENTS.md`
+    // disent tous `npm run ruche` ; l'assistant était le seul à envoyer
+    // ailleurs, au moment précis où l'on suit ses consignes à la lettre.
+    const r = await jouer({ touches: [ENTREE], lignes: ['ma-ruche', ''], neuf: true });
+    expect(r.ecran).toContain('« npm run ruche »');
+    expect(r.ecran, 'la Reine seule n’exécute rien').not.toContain('npm run dev');
+  });
+
   it('LE DÉPÔT TAPÉ SE RETROUVE DANS LA COMMANDE — pas jeté en route', async () => {
     // Le balayage du soir : `depot === '' ? undefined : depot` muté en `!==`
     // JETTE précisément ce que l'humain vient de taper — la commande

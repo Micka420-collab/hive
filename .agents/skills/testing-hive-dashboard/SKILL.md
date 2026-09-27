@@ -15,7 +15,10 @@ cd <repo> && npm run ruche             # queen (7777) + local worker node + Vite
 `npm run ruche` runs all three processes with prefixed logs (`reine`, `ouvrière`, `écran`).
 Run it backgrounded and tail the log file — the `ouvrière` lines are where agent detection
 is printed (e.g. `Agent utilisé   : Claude Code`), which is often the thing under test.
-Variants: `-- --sans-ecran`, `-- --sans-noeud`, `-- --ecran-seul`.
+Variants: `-- --sans-ecran`, `-- --sans-noeud`, `-- --ecran-seul`, `-- --une-ouvriere`.
+With two or more real agent CLIs installed, it starts one worker per agent family instead
+(`ouvrière claude-code`, `ouvrière codex`…, one task at a time each) and says so in one
+banner line; `-- --une-ouvriere` or `HIVE_AGENT` in `.env` keeps a single `ouvrière`.
 
 Configuration is read from a root `.env` (do not print or commit its values). Keys that matter
 for testing: `HIVE_PORT`, `HIVE_HOST` (default `127.0.0.1`), `HIVE_TOKEN`, `HIVE_SIMULATION`,

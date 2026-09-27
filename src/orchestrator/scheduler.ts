@@ -71,6 +71,27 @@ const INTERVALLE_SAUVEGARDE_LIVRE_MS = 10_000;
  */
 const TICKS_CONFIRMATION_THERMO = 2;
 
+/**
+ * Combien de temps une contre-expertise attend une famille relectrice ABSENTE
+ * — aucun nœud de cette famille en ligne — avant d'échouer, dite.
+ *
+ * Une relecture ne part qu'à SA famille (voir `assignReadyTasks`). Sans borne,
+ * une famille disparue pour de bon — ouvrière ajoutée tombée, redémarrage en
+ * `--une-ouvriere` ou avec `HIVE_AGENT`, CLI désinstallé — laissait la
+ * relecture prête à jamais : aucun événement, une contre-revue « en vol »
+ * pour toujours, et personne pour dire pourquoi.
+ *
+ * Cinq minutes, et pas `NODE_TIMEOUT_MS` (15 s) : le compteur part du PREMIER
+ * constat de CE processus, donc d'un redémarrage de la ruche au plus tôt, et
+ * une ouvrière met plus de 15 s à revenir sur une machine chargée — sondes
+ * `--version` à 4 s par agent comprises. Échouer une relecture parce que son
+ * relecteur redémarrait, c'est perdre un avis qui serait arrivé.
+ */
+export const ATTENTE_RELECTEUR_ABSENT_MS = 5 * 60_000;
+
+/** Le lien d'une tâche de relecture vers ce qu'elle juge (`contre_expertises`). */
+type LienRelecture = NonNullable<ReturnType<HiveStore['relectureDe']>>;
+
 export interface SchedulerOptions {
   maxAttempts?: number;
   nodeTimeoutMs?: number;
@@ -155,6 +176,14 @@ export class Scheduler {
   private readonly recentRejections = new Map<string, number>();
   /** Tâches actuellement différées pour cause de conflit (Sting Detector) — dédup des events. */
   private readonly deferredByConflict = new Set<string>();
+  /**
+   * Relecture → instant du PREMIER constat que sa famille relectrice est
+   * absente. Dédup de l'événement d'attente, et départ de
+   * `ATTENTE_RELECTEUR_ABSENT_MS`. Élaguée à chaque passe : une entrée
+   * survivant à une relecture sortie de la file ferait échouer sans délai
+   * celle qui y revient.
+   */
+  private readonly relecturesSansRelecteur = new Map<string, number>();
   /** taskId → nombre de refus « infra » (token-failover) — borne les allers-retours. */
   private readonly infraRejects = new Map<string, number>();
   /**
@@ -1125,6 +1154,17 @@ export class Scheduler {
         error: `tâche ${task.status} — une course ne se lance que sur une tâche prête (ready)`,
       };
     }
+    // Une contre-expertise ne se court pas. Sa valeur est d'être lue par une
+    // famille PRÉCISE, et la course enrôle n'importe qui — le producteur
+    // d'abord, libre puisqu'il vient de rendre : Claude relirait Claude, et
+    // le verdict serait consigné sous le nom de Codex. Une relecture qui
+    // attend se débloque en rendant sa famille à la ruche, pas en la courant.
+    if (this.store.relectureDe(taskId)) {
+      return {
+        ok: false,
+        error: 'contre-expertise — elle ne part qu’à sa famille relectrice, pas en course',
+      };
+    }
     // Balance : une course est la dépense la plus LOURDE de la ruche (la même
     // tâche confiée à N nœuds à la fois). Refus symétrique de la porte
     // d'assignation — sinon le geste explicite serait un contournement du
@@ -1138,14 +1178,12 @@ export class Scheduler {
     }
     // Sting Detector : une course ne contourne JAMAIS la prévention des
     // éditions concurrentes — même garde que l'assignation automatique.
-    const clash = this.store
-      .tasksByStatus('assigned', 'running')
-      .find(
-        (t) =>
-          t.projectId === task.projectId &&
-          t.id !== taskId &&
-          analyzePair(task, t).severity === 'high',
-      );
+    const clash = this.activesEditrices().find(
+      (t) =>
+        t.projectId === task.projectId &&
+        t.id !== taskId &&
+        analyzePair(task, t).severity === 'high',
+    );
     if (clash) {
       return {
         ok: false,
@@ -1632,6 +1670,88 @@ export class Scheduler {
     return classerEchelons(echelonsPermis({ min, max }), this.antecedentsGardeFou());
   }
 
+  /**
+   * La famille relectrice de cette relecture est-elle ABSENTE — aucun nœud en
+   * ligne pour la lire ? Vrai : la relecture ne part pas à cette passe.
+   *
+   * ─── ATTENDRE SE DIT, ET S'ARRÊTE ────────────────────────────────────────
+   *
+   * Saturée, la famille reviendra d'elle-même : la relecture attend son tour,
+   * sans bruit, comme toute tâche. ABSENTE, rien ne garantit qu'elle revienne
+   * — une ouvrière ajoutée est facultative (`scripts/ruche.mjs`), et un
+   * redémarrage en `--une-ouvriere` ne la relance pas. Deux faits donc :
+   *
+   *   · au premier constat, `contre_expertise_review_waiting` — UNE fois,
+   *     motif `deferredByConflict` : le journal dit qui l'on attend ;
+   *   · au-delà de `ATTENTE_RELECTEUR_ABSENT_MS`, la relecture ÉCHOUE, dite
+   *     par `task_failed` et par `contre_expertise_review_failed`
+   *     (`terminal`, motif `relecteur_absent`) : les deux faits que le hub
+   *     émet déjà pour une relecture qui échoue en rendant son résultat.
+   *
+   * Échouer, pas réaffecter : une AUTRE famille n'est pas un remplaçant.
+   * `choisirCritiques` a déjà confié la production à une relectrice par
+   * famille en ligne, jusqu'à `RELECTEURS_PAR_PRODUCTION` ; lui en donner une
+   * seconde lecture, c'est une contre-revue qui compte deux relectrices là où
+   * un seul modèle a lu (`crossReviewForResult`). Une famille revenue à temps
+   * reprend la relecture, quel que soit son nœud.
+   */
+  private relecteurAbsent(
+    task: Task,
+    lien: LienRelecture,
+    noeuds: readonly HiveNode[],
+    now: number,
+  ): boolean {
+    if (noeuds.some((n) => n.status === 'online' && n.agentType === lien.relecteurAgent)) {
+      this.relecturesSansRelecteur.delete(task.id);
+      return false;
+    }
+    const depuis = this.relecturesSansRelecteur.get(task.id);
+    if (depuis === undefined) {
+      this.relecturesSansRelecteur.set(task.id, now);
+      this.emit('contre_expertise_review_waiting', {
+        taskId: lien.productionTaskId,
+        relecture: task.id,
+        relecteur: lien.relecteurAgent,
+        reviewerNodeId: lien.relecteurNodeId,
+        delaiMs: ATTENTE_RELECTEUR_ABSENT_MS,
+      });
+      return true;
+    }
+    if (now - depuis < ATTENTE_RELECTEUR_ABSENT_MS) return true;
+
+    this.relecturesSansRelecteur.delete(task.id);
+    this.store.patchTask(task.id, { status: 'failed', assignedNodeId: null }, now);
+    this.emit('task_failed', { taskId: task.id, reason: 'relecteur_absent' });
+    // Le `resultId` du lancement, comme le hub le joint à ses propres échecs
+    // de relecture : il dit QUELLE tentative de la production perd son avis.
+    const resultId = this.store.eventForRelecture(task.id)?.payload.resultId;
+    this.emit('contre_expertise_review_failed', {
+      taskId: lien.productionTaskId,
+      ...(typeof resultId === 'number' && Number.isSafeInteger(resultId) ? { resultId } : {}),
+      relecture: task.id,
+      relecteur: lien.relecteurAgent,
+      terminal: true,
+      attempt: task.attempts,
+      motif: 'relecteur_absent',
+    });
+    return true;
+  }
+
+  /**
+   * Les tâches actives qui ÉDITENT — celles que le Sting Detector sérialise.
+   *
+   * Une relecture n'en est pas : elle rend un verdict sur un diff qu'elle CITE
+   * (`consigneDeCritique`), et un fichier cité n'est pas un fichier touché. La
+   * compter, c'était sérialiser les relectrices d'une même production — leurs
+   * consignes citent les mêmes fichiers — et retenir toute production du
+   * projet qui les cite aussi, le temps d'une relecture qui ne modifie rien.
+   */
+  private activesEditrices(): Task[] {
+    return this.store
+      .tasksByStatus('assigned', 'running')
+      .filter((t) => this.store.relectureDe(t.id) === null);
+  }
+
   /** ready → assigned sur le nœud online le moins chargé qui a encore de la capacité. */
   private assignReadyTasks(now = Date.now()): void {
     // Balance : le livre avance AVANT toute décision, pour que la lecture
@@ -1641,7 +1761,7 @@ export class Scheduler {
     // Tâches déjà actives, enrichie au fil de la passe : une tâche qu'on vient
     // d'assigner doit être prise en compte pour la détection de conflit des
     // suivantes (sinon deux tâches ready mutuellement conflictuelles passeraient).
-    const activeNow = this.store.tasksByStatus('assigned', 'running');
+    const activeNow = this.activesEditrices();
     // Drones non-primaires en vol : charge invisible du store, à additionner.
     const extra = this.droneLoad();
     // Phéromones : calculées au plus UNE fois par passe, et seulement si un
@@ -1671,16 +1791,38 @@ export class Scheduler {
       antecedents ??= this.antecedentsAiguillage();
       return antecedents;
     };
-    for (const task of this.store.tasksByStatus('ready')) {
+    // ─── LES RELECTURES D'ABORD ────────────────────────────────────────────
+    // Une relecture achève un travail DÉJÀ payé ; une production prête est une
+    // dépense neuve. En file par date de création, une relecture passait
+    // derrière toutes les productions plus anciennes — sur une mission de dix
+    // tâches, les contre-revues (et les corrections de l'Evaluator qu'elles
+    // déclenchent) s'entassaient en fin de mission. Le tri est STABLE : l'ordre
+    // de création tient dans chaque groupe. Pas de famine possible : une
+    // production n'ouvre qu'au plus `RELECTEURS_PAR_PRODUCTION` relectures.
+    const pretes = this.store
+      .tasksByStatus('ready')
+      .map((task) => ({ task, lien: this.store.relectureDe(task.id) }))
+      .sort((a, b) => Number(b.lien !== null) - Number(a.lien !== null));
+    if (this.relecturesSansRelecteur.size > 0) {
+      const enFile = new Set(pretes.map((p) => p.task.id));
+      for (const id of this.relecturesSansRelecteur.keys()) {
+        if (!enFile.has(id)) this.relecturesSansRelecteur.delete(id);
+      }
+    }
+    for (const { task, lien } of pretes) {
       // Sting Detector : ne pas lancer une tâche en conflit FORT (même fichier)
       // avec une tâche déjà active du même projet. On la diffère jusqu'à ce que
       // l'autre se termine — prévention des conflits d'édition concurrents.
-      const clash = activeNow.find(
-        (t) =>
-          t.projectId === task.projectId &&
-          t.id !== task.id &&
-          analyzePair(task, t).severity === 'high',
-      );
+      // Une relecture n'édite rien : voir `activesEditrices`.
+      const clash =
+        lien === null
+          ? activeNow.find(
+              (t) =>
+                t.projectId === task.projectId &&
+                t.id !== task.id &&
+                analyzePair(task, t).severity === 'high',
+            )
+          : undefined;
       if (clash) {
         if (!this.deferredByConflict.has(task.id)) {
           this.deferredByConflict.add(task.id);
@@ -1702,10 +1844,23 @@ export class Scheduler {
       this.signalerPlafond(task.projectId, decision);
       if (decision === 'bloque' && this.opts.balance?.mode === 'strict') continue;
       const charge = (n: HiveNode): number => n.running + (extra.get(n.id) ?? 0);
-      const eligibles = this.store
-        .listNodes()
+      const noeuds = this.store.listNodes();
+      // ─── UNE RELECTURE NE CHANGE PAS DE FAMILLE ──────────────────────────
+      // Une contre-expertise vaut par la famille qui la lit : un modèle
+      // DIFFÉRENT du producteur (`choisirCritiques`). La file ne le savait
+      // pas : revenue en file — relecteur saturé qui refuse, ou déconnecté —,
+      // elle partait au premier nœud libre, souvent le PRODUCTEUR, qui relisait
+      // alors son propre travail sous le nom d'une autre famille. Seule SA
+      // famille la prend donc — n'importe quel nœud de celle-ci : le verdict
+      // est attribué au nœud qui le rend (serveur, `task_result`).
+      //
+      // Une famille ABSENTE ne se laisse pas attendre en silence : voir
+      // `relecteurAbsent`.
+      if (lien !== null && this.relecteurAbsent(task, lien, noeuds, now)) continue;
+      const eligibles = noeuds
         .filter(
           (n) =>
+            (lien === null || n.agentType === lien.relecteurAgent) &&
             n.status === 'online' &&
             assignationProductionAutorisee(n.agentType, {
               simulation: this.opts.simulation,
@@ -1824,7 +1979,8 @@ export class Scheduler {
       this.store.ouvrirHorlogeHote(assigned.projectId, assigned.id, Date.now());
       // Le modèle élu part avec la tâche : le nœud le passera à `--model`.
       this.opts.onAssign?.(node.id, assigned, route?.modele);
-      activeNow.push(assigned); // les tâches suivantes tiennent compte de celle-ci
+      // Les tâches suivantes tiennent compte de celle-ci — si elle édite.
+      if (lien === null) activeNow.push(assigned);
     }
   }
 

@@ -24,17 +24,21 @@
 // notre coup de grâce, pas l'arrêt du lanceur (même raison que
 // `reine-demarrage.test.ts`).
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
+import { HiveStore } from '../src/orchestrator/store.js';
 import { lancerBorne, lancerBorneTuyaute, reprendreTous, tuerGroupe } from './harnais-processus.js';
 
 const RACINE = fileURLToPath(new URL('..', import.meta.url));
 const LANCEUR = path.join(RACINE, 'scripts', 'ruche.mjs');
 const POSIX = process.platform !== 'win32';
+/** `/proc/<pid>/environ` : la seule façon exacte de reconnaître l'ouvrière d'une famille. */
+const LINUX = process.platform === 'linux';
 
 const aNettoyer: string[] = [];
 afterEach(() => {
@@ -51,17 +55,34 @@ interface Issue {
   sortie: string;
 }
 
-/**
- * Lance la ruche, attend un marqueur, exécute `alors`, recueille la fin.
- *
- * Tout est borné : marqueur sous 30 s, fin sous 15 s après le geste — un
- * lanceur qui ne meurt pas est précisément la panne qu'on cherche.
- */
+/** Un temps du scénario : attendre ce marqueur, puis faire ce geste. */
+interface Etape {
+  readonly marqueur: string;
+  readonly geste: (pid: number) => void;
+}
+
+/** Lance la ruche, attend UN marqueur, exécute `alors`, recueille la fin. */
 function lancerRuche(
   args: string[],
   env: NodeJS.ProcessEnv,
   marqueur: string,
   alors: (pid: number) => void,
+): Promise<Issue> {
+  return jouerRuche(args, env, [{ marqueur, geste: alors }]);
+}
+
+/**
+ * Lance la ruche et joue les étapes dans l'ordre, puis recueille la fin.
+ *
+ * Tout est borné : chaque marqueur sous 45 s, la fin sous 15 s après le
+ * dernier geste — un lanceur qui ne meurt pas est précisément la panne qu'on
+ * cherche. Un marqueur se lit sur TOUTE la sortie reçue : deux processus qui
+ * s'annoncent dans le désordre ne font pas manquer l'étape.
+ */
+function jouerRuche(
+  args: string[],
+  env: NodeJS.ProcessEnv,
+  etapes: readonly Etape[],
 ): Promise<Issue> {
   return new Promise((resoudre, rejeter) => {
     // `lancerBorne`, jamais `spawn` nu : le lanceur démarre lui-même un hub,
@@ -71,7 +92,7 @@ function lancerRuche(
     const proc = lancerBorneTuyaute(process.execPath, [LANCEUR, ...args], { cwd: RACINE, env });
     let sortie = '';
     let fini = false;
-    let vu = false;
+    let rang = 0;
     const finir = (v: Issue | null, e?: Error): void => {
       if (fini) return;
       fini = true;
@@ -86,17 +107,30 @@ function lancerRuche(
     // vu ici à 30 017 ms sur un conteneur chargé, alors que l'enfant allait
     // parfaitement bien. Un boucher qui tire sur la lenteur ne distingue plus
     // « en panne » de « occupé » — et c'est un test qui ment une fois sur N.
-    const boucherMarqueur = setTimeout(() => {
-      tuerGroupe(proc);
-      finir(null, new Error(`marqueur « ${marqueur} » jamais vu :\n${sortie}`));
-    }, 45_000);
-    boucherMarqueur.unref?.();
+    const armerMarqueur = (marqueur: string): NodeJS.Timeout => {
+      const boucher = setTimeout(() => {
+        tuerGroupe(proc);
+        finir(null, new Error(`marqueur « ${marqueur} » jamais vu :\n${sortie}`));
+      }, 45_000);
+      boucher.unref?.();
+      return boucher;
+    };
+    let boucherMarqueur = etapes[0] ? armerMarqueur(etapes[0].marqueur) : undefined;
     const lire = (m: Buffer): void => {
       sortie += m.toString('utf8');
-      if (!vu && sortie.includes(marqueur)) {
-        vu = true;
+      for (
+        let etape = etapes[rang];
+        etape && sortie.includes(etape.marqueur);
+        etape = etapes[rang]
+      ) {
         clearTimeout(boucherMarqueur);
-        alors(proc.pid as number);
+        rang += 1;
+        etape.geste(proc.pid as number);
+        const suivante = etapes[rang];
+        if (suivante) {
+          boucherMarqueur = armerMarqueur(suivante.marqueur);
+          continue;
+        }
         const boucherFin = setTimeout(() => {
           tuerGroupe(proc);
           finir(null, new Error(`le lanceur ne meurt pas après le geste :\n${sortie}`));
@@ -124,6 +158,36 @@ function envRuche(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
     HIVE_JWT_SECRET: 'secret-du-lanceur-suffisamment-long-pour-le-test',
     ...extra,
   };
+}
+
+/** Un port libre, rendu aussitôt : la Reine l'ouvrira, les ouvrières le viseront. */
+async function portLibre(): Promise<number> {
+  const s = createServer();
+  await new Promise<void>((resoudre, rejeter) => {
+    s.once('error', rejeter);
+    s.listen(0, '127.0.0.1', resoudre);
+  });
+  const port = (s.address() as { port: number }).port;
+  await new Promise((resoudre) => s.close(resoudre));
+  return port;
+}
+
+/**
+ * Le processus de l'ouvrière d'une famille, parmi les enfants du lanceur.
+ *
+ * Les trois enfants sont des `node scripts/lancer.mjs …` : seul leur
+ * environnement les distingue, et c'est justement ce que le banc éprouve.
+ */
+function pidOuvriere(lanceur: number, agent: string): number {
+  const enfants = execFileSync('pgrep', ['-P', String(lanceur)], { encoding: 'utf8' })
+    .trim()
+    .split('\n')
+    .map(Number);
+  const pid = enfants.find((p) =>
+    readFileSync(`/proc/${p}/environ`, 'utf8').split('\0').includes(`HIVE_AGENT=${agent}`),
+  );
+  if (pid === undefined) throw new Error(`aucune ouvrière ${agent} parmi ${enfants.join(', ')}`);
+  return pid;
 }
 
 describe('le lanceur de la ruche — vie et mort', () => {
@@ -227,5 +291,103 @@ describe('le lanceur de la ruche — vie et mort', () => {
       expect(r.code, `une ruche sans Reine n’est pas un succès :\n${r.sortie}`).not.toBe(0);
     },
     60_000,
+  );
+  it.runIf(POSIX)(
+    'DEUX AGENTS INSTALLÉS, DEUX OUVRIÈRES — chacune SON agent, SON identité, une tâche ; l’ajoutée tombe seule',
+    async () => {
+      // ─── CE QUE `demarrage.test.ts` NE PEUT PAS PROUVER ────────────────────
+      //
+      // Le plan est pur et éprouvé là-bas. Ce qu'il ne peut pas voir, c'est le
+      // CÂBLAGE : que le lanceur sonde vraiment, que chaque ouvrière reçoive
+      // SON environnement, et qu'une ajoutée qui meurt n'emporte pas la ruche.
+      // Un `env: process.env` resté en place dans le `spawn` donnait deux
+      // ouvrières du même agent, sous le même nom — et le plan, lui, restait
+      // parfaitement juste.
+      //
+      // Deux faux agents : des binaires qui répondent à `--version`, rien de
+      // plus — la détection n'en demande pas davantage, et aucun crédit ne peut
+      // partir d'ici. Le PATH ne contient QU'EUX : un vrai Cursor installé sur
+      // la machine du banc ne doit pas s'inviter dans la ruche.
+      //
+      // POSIX, comme tout ce fichier — sauf UN geste : abattre l'ouvrière
+      // Codex. C'est `/proc/<pid>/environ` qui la désigne, sans deviner, parmi
+      // trois `node` au même argv, et `/proc` n'existe que sous Linux. Ailleurs
+      // le banc s'arrête au ^C, après l'inscription : le câblage (chaque
+      // ouvrière reçoit SON environnement) est ce qui risque de différer d'un
+      // système à l'autre, et il est éprouvé sur les deux.
+      const faux = mkdtempSync(path.join(tmpdir(), 'ruche-agents-'));
+      aNettoyer.push(faux);
+      for (const bin of ['claude', 'codex']) {
+        writeFileSync(path.join(faux, bin), '#!/bin/sh\necho "faux 1.0"\n', { mode: 0o755 });
+      }
+      const port = await portLibre();
+      const env = envRuche({
+        PATH: faux,
+        // Les chemins natifs (`~/.local/bin`) ne doivent rien trouver non plus.
+        HOME: faux,
+        HIVE_PORT: String(port),
+        HIVE_URL: `ws://127.0.0.1:${port}/ws`,
+        HIVE_NODE_NAME: 'banc',
+        HIVE_WORKDIR: path.join(faux, 'travail'),
+        // Aucun moteur de conteneurs à sonder : le bac n'est pas le sujet.
+        HIVE_ISOLEMENT: 'off',
+        // Un `.env` du poste qui épinglerait un agent ne doit pas fausser le
+        // banc : une variable POSÉE, même vide, n'est jamais écrasée par lui.
+        HIVE_AGENT: '',
+        HIVE_AGENT_CMD: '',
+      });
+
+      const arreter = (pid: number): void => {
+        process.kill(pid, 'SIGINT');
+      };
+      const r = await jouerRuche(
+        ['--sans-ecran'],
+        env,
+        LINUX
+          ? [
+              { marqueur: '[banc] enregistré', geste: () => undefined },
+              {
+                marqueur: '[banc-codex] enregistré',
+                geste: (pid) => process.kill(pidOuvriere(pid, 'codex'), 'SIGKILL'),
+              },
+              { marqueur: 'la ruche continue sans elle', geste: arreter },
+            ]
+          : [
+              { marqueur: '[banc] enregistré', geste: () => undefined },
+              { marqueur: '[banc-codex] enregistré', geste: arreter },
+            ],
+      );
+
+      expect(r.sortie).toContain('Une ouvrière par agent détecté (Claude Code, Codex)');
+      // Chacune fait tourner SA famille : la preuve que `HIVE_AGENT` lui parvient.
+      expect(r.sortie).toMatch(/ouvrière claude-code\s*│\s+Agent utilisé\s*: Claude Code/);
+      expect(r.sortie).toMatch(/ouvrière codex\s*│\s+Agent utilisé\s*: Codex/);
+      // L'ajoutée est tombée, la ruche a continué, et le ^C final est un arrêt
+      // propre — pas une ruche amputée.
+      expect(r.sortie).not.toContain("la ruche s'arrête");
+      expect(r.code, r.sortie).toBe(0);
+
+      // Ce que la Reine a CONSIGNÉ — la vérité qui compte, pas ce que les
+      // processus ont imprimé : deux nœuds, deux familles, une tâche chacun.
+      const store = new HiveStore(env.HIVE_DB ?? '');
+      try {
+        const noeuds = store
+          .listNodes()
+          .map((n) => ({ nom: n.name, agent: n.agentType, concurrence: n.maxConcurrency }))
+          .sort((a, b) => a.nom.localeCompare(b.nom));
+        expect(noeuds).toEqual([
+          { nom: 'banc', agent: 'claude-code', concurrence: 1 },
+          { nom: 'banc-codex', agent: 'codex', concurrence: 1 },
+        ]);
+      } finally {
+        store.close();
+      }
+      // Deux identités sur le disque : la première dans le dossier d'hier,
+      // l'ajoutée DEDANS, sous le nom de sa famille.
+      const identite = (...dossier: string[]): string =>
+        readFileSync(path.join(faux, ...dossier, 'node-id.txt'), 'utf8').trim();
+      expect(identite('travail')).not.toBe(identite('travail', 'codex'));
+    },
+    90_000,
   );
 });

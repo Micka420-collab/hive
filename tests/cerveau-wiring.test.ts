@@ -856,4 +856,155 @@ describe('la contre-expertise est annoncée à chaque production', () => {
       ).toHaveLength(0);
     },
   );
+
+  // ─── LA RELECTURE PASSE PAR LA FILE ──────────────────────────────────────
+  //
+  // Elle était posée d'office sur le nœud relecteur, occupé ou non. À une
+  // tâche à la fois par ouvrière (`npm run ruche` à plusieurs familles), le
+  // relecteur l'est souvent : chaque relecture lui était JETÉE pour qu'il la
+  // refuse (`noeud_sature`). Elle attend désormais, en file, qu'il se libère.
+  it(
+    'UNE RELECTURE ATTEND SON RELECTEUR OCCUPÉ — elle ne lui est pas jetée pour être refusée',
+    { timeout: 40_000 },
+    async () => {
+      const srv = await ruche();
+      const produits = await noeud(srv, 'aaa-producteur', 'claude-code');
+      const relus = await noeud(srv, 'bbb-relecteur', 'codex');
+
+      const projet = srv.store.createProject({ name: 'P' });
+      for (const titre of ['Ajouter une garde', 'Écrire la doc']) {
+        const t = srv.store.createTask({ projectId: projet.id, title: titre, prompt: 'p' });
+        srv.store.patchTask(t.id, { status: 'ready' });
+      }
+      const fin = Date.now() + 8_000;
+      while ((produits.length === 0 || relus.length === 0) && Date.now() < fin) {
+        await new Promise((r) => setTimeout(r, 40));
+      }
+      expect(relus.length, 'Codex doit tenir sa propre tâche').toBe(1);
+
+      (sockets[0] as WebSocket).send(
+        JSON.stringify({
+          type: 'task_result',
+          taskId: produits[0]?.task?.id,
+          success: true,
+          diff: 'diff --git a/auth.ts b/auth.ts\n+if (!jeton) return;',
+          logs: 'ok',
+          durationMs: 5,
+          subAgents: [],
+        }),
+      );
+      expect(
+        await attendreEvt(srv, 'contre_expertise'),
+        'la relecture doit être lancée',
+      ).toBeDefined();
+      await new Promise((r) => setTimeout(r, 600));
+      expect(relus.length, 'la relecture a été jetée à un relecteur occupé').toBe(1);
+
+      // Codex rend sa tâche : la relecture lui arrive, par la file.
+      (sockets[1] as WebSocket).send(
+        JSON.stringify({
+          type: 'task_result',
+          taskId: relus[0]?.task?.id,
+          success: true,
+          diff: '',
+          logs: 'ok',
+          durationMs: 5,
+          subAgents: [],
+        }),
+      );
+      const fin2 = Date.now() + 3_000;
+      while (relus.length < 2 && Date.now() < fin2) await new Promise((r) => setTimeout(r, 40));
+      expect(relus[1]?.task?.prompt ?? '', 'la relecture n’est jamais arrivée').toMatch(
+        /CONTRE-EXPERTISE/,
+      );
+    },
+  );
+
+  // ─── LE VERDICT EST CELUI DU NŒUD QUI LE REND ────────────────────────────
+  //
+  // Un nœud qui se (ré)inscrit reprend toute tâche qu'il DÉCLARE exécuter
+  // (`reconcileNode`) — y compris une relecture en attente de sa famille.
+  // Rendue par le producteur, elle était rangée sous le nom du relecteur
+  // désigné : Claude relisant Claude, consigné comme l'avis de Codex, et
+  // l'Aiguillage l'apprenait.
+  it(
+    'UN AVIS RENDU PAR LA FAMILLE DU PRODUCTEUR N’EST PAS UN VERDICT — il est dit, pas rangé',
+    { timeout: 40_000 },
+    async () => {
+      const srv = await ruche();
+      const produits = await noeud(srv, 'producteur', 'claude-code');
+      const relus = await noeud(srv, 'relecteur', 'codex');
+
+      const idProduction = await produire(srv, produits, 'diff --git a/x b/x\n+const a = 1;');
+      const a = await attendreAssignation(relus);
+      const idRelecture = a?.task?.id as string;
+      expect(idRelecture, 'aucune relecture lancée').toBeDefined();
+
+      // Codex tombe : la relecture revient en file, et attend sa famille.
+      (sockets[1] as WebSocket).close();
+      const fin = Date.now() + 5_000;
+      while (srv.store.getTask(idRelecture)?.status !== 'ready' && Date.now() < fin) {
+        await new Promise((r) => setTimeout(r, 40));
+      }
+      expect(srv.store.getTask(idRelecture)?.status).toBe('ready');
+
+      // Le producteur se ré-inscrit en DÉCLARANT la relecture : ré-adoptée.
+      const ws = new WebSocket(`ws://127.0.0.1:${srv.port}/ws`);
+      sockets.push(ws);
+      await new Promise<void>((r, j) => {
+        ws.once('open', () => r());
+        ws.once('error', j);
+      });
+      ws.send(
+        JSON.stringify({
+          type: 'register',
+          token: TOKEN,
+          name: 'producteur',
+          ownerName: 'test',
+          agentType: 'claude-code',
+          maxConcurrency: 1,
+          nodeId: 'producteur',
+          activeTasks: [idRelecture],
+        }),
+      );
+      const fin2 = Date.now() + 5_000;
+      while (srv.store.getTask(idRelecture)?.assignedNodeId !== 'producteur' && Date.now() < fin2) {
+        await new Promise((r) => setTimeout(r, 40));
+      }
+      expect(srv.store.getTask(idRelecture)?.assignedNodeId).toBe('producteur');
+
+      ws.send(
+        JSON.stringify({
+          type: 'task_result',
+          taskId: idRelecture,
+          success: true,
+          diff: '',
+          logs: 'valide',
+          durationMs: 5,
+          subAgents: [],
+        }),
+      );
+
+      const echec = (await attendreEvt(srv, 'contre_expertise_review_failed')) as
+        Record<string, unknown> | undefined;
+      expect(echec).toMatchObject({
+        taskId: idProduction,
+        relecture: idRelecture,
+        relecteur: 'codex',
+        terminal: true,
+        motif: 'famille_non_designee',
+        livreur: 'claude-code',
+      });
+      expect(
+        srv.store
+          .listEvents(0, 500)
+          .filter(
+            (event) =>
+              event.type === 'contre_expertise_verdict' && event.payload.taskId === idProduction,
+          ),
+        'un avis du producteur a été rangé comme celui de Codex',
+      ).toHaveLength(0);
+      expect(srv.store.contreVisiteDe(idProduction)).toBeNull();
+    },
+  );
 });

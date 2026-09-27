@@ -486,7 +486,7 @@ export function prochainesEtapes(
     // L'installeur proposait trois terminaux — `dev`, `dev:dashboard`, `node` —
     // pour ce que `ruche` lance seule, avec des sorties préfixées et un seul
     // Ctrl+C pour tout arrêter. Les pièces séparées restent dites, plus bas.
-    colonne('Lancer la ruche', `${npm} run ruche   (Reine + ouvrière + écran)`),
+    colonne('Lancer la ruche', `${npm} run ruche   (Reine + ouvrières + écran)`),
     // L'adresse vient de la MÊME constante que l'origine CORS proposée par
     // l'assistant. Écrite deux fois, elle a divergé une fois — et un écran
     // envoyait alors vers une adresse que l'autre venait d'interdire.
