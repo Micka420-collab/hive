@@ -85,12 +85,16 @@ const demanderAgent =
         }
       }
     : undefined;
+// L'inventaire, UNE fois par processus : chaque passe relance la commande de
+// statut de chaque CLI, et deux passes pouvaient se contredire. Le choix de
+// l'agent, le refus et le constat envoyé au hub lisent tous celui-ci.
+const inventaire = await inventaireAgents();
 const detecte = await resoudreAgentAuDemarrage({
   stdinEstTty: Boolean(process.stdin.isTTY && process.stdout.isTTY),
   demander: demanderAgent,
+  inventaire,
 });
 const agentType: AgentType = detecte.agent;
-const inventaire = await inventaireAgents();
 const tousAgents = inventaire.tous;
 const refusAgent = refusNonConnecte(agentType, inventaire);
 if (refusAgent) {
@@ -141,7 +145,10 @@ if (bac.refuse) {
 // hub afficherait « prêt » un poste dont chaque tâche échouerait « non
 // authentifié ». La règle est celle de TOUS les agents, pas du seul retenu —
 // voir `Bac.sessionsHote`.
-const etatsOutils = await diagnostiquerAgents({ sessionsHote: bac.sessionsHote });
+const etatsOutils = await diagnostiquerAgents({
+  sessionsHote: bac.sessionsHote,
+  agentsPresents: async () => inventaire.presents,
+});
 
 // ─── PRÉSENCE SANS PRODUCTION ───────────────────────────────────────────────
 //

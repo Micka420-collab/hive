@@ -255,6 +255,7 @@ describe('LE RELEVÉ COMPLET, SUR UNE RACINE FABRIQUÉE', () => {
       const r = await relever(racine, { HIVE_PORT: '0' }, 'linux', async () => ({
         tous: ['shell'],
         nonConnectes: [],
+        presents: [],
       }));
       expect(r.agent, '`shell` vaut « aucun agent » pour le docteur').toBeNull();
       expect(diagnostiquer(r).find((d) => d.cle === 'agent')?.gravite).toBe('risque');
@@ -264,6 +265,7 @@ describe('LE RELEVÉ COMPLET, SUR UNE RACINE FABRIQUÉE', () => {
       const vrai = await relever(racine, { HIVE_PORT: '0' }, 'linux', async () => ({
         tous: ['claude-code', 'shell'],
         nonConnectes: [],
+        presents: [],
       }));
       expect(vrai.agent).toBe('claude-code');
       expect(diagnostiquer(vrai).find((d) => d.cle === 'agent')?.gravite).toBe('ok');

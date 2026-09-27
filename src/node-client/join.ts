@@ -177,11 +177,13 @@ async function main(): Promise<void> {
           }
         }
       : undefined;
+  // UNE passe de sondes pour tout le démarrage — voir `main.ts`.
+  const inventaire = await inventaireAgents();
   const detected = await resoudreAgentAuDemarrage({
     stdinEstTty: Boolean(process.stdin.isTTY && process.stdout.isTTY),
     demander: demanderAgent,
+    inventaire,
   });
-  const inventaire = await inventaireAgents();
   const allAgents = inventaire.tous;
   const refusAgent = refusNonConnecte(detected.agent, inventaire);
   if (refusAgent) {

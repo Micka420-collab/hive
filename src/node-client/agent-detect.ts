@@ -7,7 +7,7 @@
 // CLI dit de sa session (`sessionDeLAgent`) : installé n'est pas connecté.
 
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { argvAgent } from '../shared/agent-windows.js';
 
@@ -430,6 +430,76 @@ interface Statut {
   /** Le geste qui connecte, puis la clé qui en dispense. */
   readonly connecter: string;
   readonly cle: string;
+  /**
+   * La première version du CLI qui connaît la commande de statut. Avant elle,
+   * le CLI la prend pour autre chose — voir `STATUTS['claude-code']` — et on
+   * ne la lance pas : la session reste `inconnue`.
+   */
+  readonly versionMin?: readonly [number, number, number];
+  /** Vrai quand la commande de statut ne dirait rien d'utile ici (voir Codex). */
+  readonly sansObjet?: (env: NodeJS.ProcessEnv) => boolean;
+}
+
+/** `x.y.z` lu dans une sortie de `--version` est-il au moins `min` ? Illisible : non. */
+export function versionAuMoins(sortie: string, min: readonly [number, number, number]): boolean {
+  const m = /(\d+)\.(\d+)\.(\d+)/.exec(sortie);
+  if (!m) return false;
+  const v = [Number(m[1]), Number(m[2]), Number(m[3])];
+  for (let i = 0; i < 3; i++) {
+    if (v[i]! !== min[i]) return v[i]! > min[i]!;
+  }
+  return true;
+}
+
+/**
+ * Le fournisseur de modèle que Codex utilisera, s'il n'est pas celui d'OpenAI.
+ *
+ * ─── « NOT LOGGED IN », SUR UN CODEX QUI TOURNE TRÈS BIEN ───────────────────
+ *
+ * `codex login status` ne parle que des identifiants OPENAI. Un Codex branché
+ * sur un autre fournisseur (`model_provider = "ollama"`, Azure, un fournisseur
+ * déclaré) répond « Not logged in » et code 1 — et travaille pourtant, sans
+ * session ni CODEX_API_KEY. Le prendre au mot retirait de la ruche un agent
+ * qui marchait, et `HIVE_AGENT=codex` refusait de démarrer. Sa parole ne vaut
+ * donc que sur le fournisseur par défaut ; ailleurs, elle est `inconnue`.
+ *
+ * On lit la configuration EFFECTIVE, comme Codex : `$CODEX_HOME/config.toml`
+ * (défaut `~/.codex`), `model_provider` à la racine, ou celui du profil que
+ * désigne `profile`. Une lecture de lignes suffit à ces deux clés ; un fichier
+ * absent ou illisible, c'est le fournisseur par défaut.
+ */
+export function fournisseurCodexTiers(env: NodeJS.ProcessEnv): string | null {
+  const maison = (env.HOME ?? env.USERPROFILE ?? '').trim();
+  const dossier = (env.CODEX_HOME ?? '').trim() || (maison ? path.join(maison, '.codex') : '');
+  if (!dossier) return null;
+  let texte: string;
+  try {
+    texte = readFileSync(path.join(dossier, 'config.toml'), 'utf8');
+  } catch {
+    return null;
+  }
+  const valeur = (l: string, cle: string): string | undefined =>
+    new RegExp(`^\\s*${cle}\\s*=\\s*["']([^"']+)["']`).exec(l)?.[1];
+  let section = '';
+  const racine: Record<string, string> = {};
+  const profils: Record<string, string> = {};
+  for (const ligne of texte.split(/\r?\n/)) {
+    const entete = /^\s*\[([^\]]+)\]\s*$/.exec(ligne);
+    if (entete) {
+      section = entete[1]!.trim();
+      continue;
+    }
+    const fournisseur = valeur(ligne, 'model_provider');
+    if (section === '') {
+      if (fournisseur) racine.model_provider = fournisseur;
+      const profil = valeur(ligne, 'profile');
+      if (profil) racine.profile = profil;
+    } else if (fournisseur && section.startsWith('profiles.')) {
+      profils[section.slice('profiles.'.length).replace(/^["']|["']$/g, '')] = fournisseur;
+    }
+  }
+  const effectif = (racine.profile && profils[racine.profile]) ?? racine.model_provider;
+  return effectif && effectif !== 'openai' ? effectif : null;
 }
 
 /** Un booléen du premier objet JSON de la sortie — `null` s'il n'y est pas. */
@@ -453,6 +523,15 @@ const STATUTS: Partial<Record<AgentType, Statut>> = {
     args: ['auth', 'status'],
     lire: (_code, sortie) => selon(champBooleen(sortie, 'loggedIn')),
     commande: 'claude auth status',
+    // ─── AVANT 2.1.40, `auth status` EST UN PROMPT FACTURÉ ────────────────────
+    //
+    // Le sous-commande `auth` est apparue en 2.1.40 — mesuré le 27 septembre
+    // 2026 sur les paquets npm, HOME vide : 2.1.38 et 2.1.39 répondent « Not
+    // logged in · Please run /login », 2.1.40 rend le JSON. Avant, `claude auth
+    // status` lance le mode `--print` avec « auth status » pour prompt : un
+    // appel au modèle, payé par un membre connecté, à chaque sonde. On lit donc
+    // d'abord `--version`, et en dessous on ne demande rien.
+    versionMin: [2, 1, 40],
     connecter: '`claude login` (ou `claude setup-token` → CLAUDE_CODE_OAUTH_TOKEN)',
     cle: 'ANTHROPIC_API_KEY',
   },
@@ -472,6 +551,7 @@ const STATUTS: Partial<Record<AgentType, Statut>> = {
           ? 'connectee'
           : 'inconnue',
     commande: 'codex login status',
+    sansObjet: (env) => fournisseurCodexTiers(env) !== null,
     connecter: '`codex login`',
     cle: 'CODEX_API_KEY (`codex exec` ignore OPENAI_API_KEY)',
   },
@@ -520,6 +600,9 @@ const lancerStatut: LanceurStatut = (commande, argsStatut) =>
         windowsHide: true,
         stdio: ['ignore', 'pipe', 'pipe'],
         env: envSonde(process.env),
+        // Son PROPRE groupe (POSIX) : `cursor-agent` est un script qui lance
+        // Node, et tuer le seul script laissait le petit-enfant finir seul.
+        detached: process.platform !== 'win32',
       });
     } catch {
       finir(null);
@@ -531,7 +614,7 @@ const lancerStatut: LanceurStatut = (commande, argsStatut) =>
     enfant.stdout?.on('data', lire);
     enfant.stderr?.on('data', lire);
     const minuteur = setTimeout(() => {
-      enfant.kill();
+      tuerArbre(enfant.pid);
       finir(null);
     }, STATUT_MAX_MS);
     minuteur.unref?.();
@@ -545,6 +628,28 @@ const lancerStatut: LanceurStatut = (commande, argsStatut) =>
     });
   });
 
+/**
+ * Tue une commande de statut ET ses descendants : le groupe entier sous POSIX
+ * (elle en est la cheffe, `detached`), l'arbre par `taskkill /T` sous Windows.
+ */
+function tuerArbre(pid: number | undefined): void {
+  if (pid === undefined) return;
+  try {
+    if (process.platform === 'win32') {
+      spawn('taskkill', ['/T', '/F', '/PID', String(pid)], {
+        stdio: 'ignore',
+        shell: false,
+        windowsHide: true,
+        env: envSonde(process.env),
+      });
+    } else {
+      process.kill(-pid, 'SIGKILL');
+    }
+  } catch {
+    // déjà parti
+  }
+}
+
 /** Aucune commande lancée : la session reste inconnue. Le défaut d'une sonde injectée. */
 const statutMuet: LanceurStatut = () => Promise.resolve(null);
 
@@ -553,9 +658,14 @@ export async function sessionDeLAgent(
   agent: AgentType,
   commande: readonly string[],
   lancer: LanceurStatut = lancerStatut,
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<EtatSession> {
   const statut = STATUTS[agent];
-  if (!statut) return 'inconnue';
+  if (!statut || statut.sansObjet?.(env)) return 'inconnue';
+  if (statut.versionMin) {
+    const v = await lancer(commande, ['--version']);
+    if (!v || v.code !== 0 || !versionAuMoins(v.sortie, statut.versionMin)) return 'inconnue';
+  }
   const r = await lancer(commande, statut.args);
   return r === null ? 'inconnue' : statut.lire(r.code, r.sortie);
 }
@@ -602,7 +712,10 @@ async function constater(o: OutilsDetection, premierUtilisable = false): Promise
       probe.signature,
     );
     if (!commande) continue;
-    const p = { agent: probe.agent, session: await sessionDeLAgent(probe.agent, commande, lancer) };
+    const p = {
+      agent: probe.agent,
+      session: await sessionDeLAgent(probe.agent, commande, lancer, o.env),
+    };
     presents.push(p);
     if (premierUtilisable && !nonConnecte(p, o.env)) break;
   }
@@ -626,6 +739,8 @@ export interface InventaireAgents {
   readonly tous: AgentType[];
   /** Installés, mais leur CLI se dit non connecté et aucune clé n'en dispense : ni choisis, ni annoncés. */
   readonly nonConnectes: { readonly agent: AgentType; readonly detail: string }[];
+  /** Tous les binaires présents, avec leur session — le constat envoyé au hub (`connexion.ts`). */
+  readonly presents: AgentPresent[];
 }
 
 /**
@@ -643,13 +758,14 @@ export async function inventaireAgents(
   const tous: AgentType[] = [];
   const nonConnectes: { agent: AgentType; detail: string }[] = [];
   if ((env.HIVE_AGENT_CMD ?? '').trim()) tous.push('custom');
-  for (const p of await constater({ env, sonder, plateforme, existe, statut })) {
+  const presents = await constater({ env, sonder, plateforme, existe, statut });
+  for (const p of presents) {
     const detail = nonConnecte(p, env);
     if (detail) nonConnectes.push({ agent: p.agent, detail });
     else tous.push(p.agent);
   }
   tous.push('shell');
-  return { tous, nonConnectes };
+  return { tous, nonConnectes, presents };
 }
 
 /**

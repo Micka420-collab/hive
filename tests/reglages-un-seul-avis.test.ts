@@ -49,7 +49,7 @@ import os from 'node:os';
 
 const RACINE = fileURLToPath(new URL('..', import.meta.url));
 const sansAgent = (): Promise<InventaireAgents> =>
-  Promise.resolve({ tous: ['shell'], nonConnectes: [] });
+  Promise.resolve({ tous: ['shell'], nonConnectes: [], presents: [] });
 
 /** Ce qu'un `.env` récolte tout seul, et ce qu'un humain tape de travers. */
 const TORDUES = ['on ', ' on', 'ON', 'oui', '', 'off '];

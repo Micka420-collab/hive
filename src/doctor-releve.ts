@@ -348,6 +348,7 @@ export async function relever(
   const agents = await inventorier(env).catch((): InventaireAgents => ({
     tous: ['shell'],
     nonConnectes: [],
+    presents: [],
   }));
   // Sondés UNE fois : le nom du premier et l'image du bac en découlent.
   const joignables = await moteursJoignables().catch((): Fournisseur[] => []);

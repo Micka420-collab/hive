@@ -439,7 +439,10 @@ describe('LE CONSTAT DU POSTE JUGE CHAQUE AGENT AVEC SA RÈGLE, PAS CELLE DE L�
 
   it('main.ts passe au diagnostic la règle du poste, pas le bac de l’agent retenu', () => {
     const main = readFileSync(new URL('../src/node-client/main.ts', import.meta.url), 'utf8');
-    expect(main).toMatch(/diagnostiquerAgents\(\{\s*sessionsHote:\s*bac\.sessionsHote\s*\}\)/);
+    // L'inventaire de la passe unique voyage avec : le constat n'en refait pas.
+    expect(main).toMatch(
+      /diagnostiquerAgents\(\{\s*sessionsHote:\s*bac\.sessionsHote,\s*agentsPresents:\s*async \(\) => inventaire\.presents,?\s*\}\)/,
+    );
   });
 });
 

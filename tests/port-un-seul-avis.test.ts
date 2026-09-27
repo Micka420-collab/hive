@@ -86,7 +86,7 @@ describe('LE DOCTEUR ET LA RUCHE NE PEUVENT PAS DIVERGER', () => {
   // endroit à lui. Aucun `.env` dedans — on ne veut mesurer QUE le port.
   const racine = mkdtempSync(path.join(os.tmpdir(), 'hive-port-'));
   const sansAgent = (): Promise<InventaireAgents> =>
-    Promise.resolve({ tous: ['shell'], nonConnectes: [] });
+    Promise.resolve({ tous: ['shell'], nonConnectes: [], presents: [] });
 
   const VALEURS = ['', '   ', 'sept-mille', '7777.5', '-1', '70000', '3000', undefined];
 

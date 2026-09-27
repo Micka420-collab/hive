@@ -21,10 +21,13 @@
 // Puis la règle, pure : un agent n'est écarté que sur SA parole, jamais sur une
 // supposition — et une clé posée l'en dispense.
 
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { encodeInvite } from '../src/shared/invite.js';
 import {
   detectBestAgent,
   inventaireAgents,
@@ -33,6 +36,8 @@ import {
   requisitionSiCredentialsManquantes,
   sessionDeLAgent,
   STATUT_MAX_MS,
+  fournisseurCodexTiers,
+  versionAuMoins,
   type LanceurStatut,
   type Sonde,
 } from '../src/node-client/agent-detect.js';
@@ -57,9 +62,12 @@ function fauxCli(scripts: Record<string, string>): string {
   return dossier;
 }
 
-/** Répond à `--version`, et à la commande de statut par `statut` (corps shell). */
-const cli = (statut: string): string =>
-  `if [ "$1" = "--version" ]; then echo "1.0.0"; exit 0; fi\n${statut}`;
+/**
+ * Répond à `--version` (la première version de Claude Code qui connaît
+ * `auth status`, voir `versionMin`), et à la commande de statut par `statut`.
+ */
+const cli = (statut: string, version = '2.1.40 (Claude Code)'): string =>
+  `if [ "$1" = "--version" ]; then echo "${version}"; exit 0; fi\n${statut}`;
 
 const CURSOR_NON_CONNECTE = cli(
   'echo \'{"status":"unauthenticated","isAuthenticated":false,"message":"Not logged in"}\'',
@@ -99,12 +107,27 @@ describe('la commande de statut de chaque CLI, jouée par un faux CLI', () => {
   );
 
   it.runIf(POSIX)(
-    'PAS DE RÉPONSE : le délai tranche en « inconnue », et la détection reste bornée',
+    'PAS DE RÉPONSE : le délai tranche en « inconnue », borné — et l’ARBRE entier est abattu',
     async () => {
-      const d = fauxCli({ 'cursor-agent': cli('exec sleep 30') });
+      // `cursor-agent` est un script qui lance Node : le faux lance lui aussi
+      // un petit-enfant, et note son pid. Tuer le seul script le laissait vivre.
+      const d = fauxCli({
+        'cursor-agent': cli('sleep 30 & echo $! > "$(dirname "$0")/petit"; wait'),
+      });
       const debut = Date.now();
       expect(await sessionDeLAgent('cursor', [path.join(d, 'cursor-agent')])).toBe('inconnue');
       expect(Date.now() - debut).toBeLessThan(STATUT_MAX_MS + 2_000);
+      const petit = Number(readFileSync(path.join(d, 'petit'), 'utf8'));
+      const vivant = (): boolean => {
+        try {
+          process.kill(petit, 0);
+          return true;
+        } catch {
+          return false;
+        }
+      };
+      for (let i = 0; i < 40 && vivant(); i++) await new Promise((r) => setTimeout(r, 50));
+      expect(vivant(), 'le petit-enfant de la sonde survit à son délai').toBe(false);
     },
     STATUT_MAX_MS + 10_000,
   );
@@ -138,9 +161,14 @@ const presents =
   (argv) =>
     Promise.resolve(bins.includes(argv[0] ?? ''));
 
-/** Un lanceur de statut qui rend ces réponses, par binaire. */
+/** Un lanceur de statut qui rend ces réponses, par binaire — et une version récente à `--version`. */
 function statuts(reponses: Record<string, { code: number; sortie: string }>): LanceurStatut {
-  return (commande) => Promise.resolve(reponses[commande[0] ?? ''] ?? null);
+  return (commande, args) =>
+    Promise.resolve(
+      args[0] === '--version'
+        ? { code: 0, sortie: '2.1.40 (Claude Code)' }
+        : (reponses[commande[0] ?? ''] ?? null),
+    );
 }
 
 const CURSOR_DIT_NON = { code: 0, sortie: '{"isAuthenticated": false}' };
@@ -234,4 +262,142 @@ describe('la règle : écarté sur SA parole, jamais sur une supposition', () =>
     expect(refus).toContain('HIVE_AGENT=claude-code');
     expect(refusNonConnecte('codex', inventaire)).toBeNull();
   });
+});
+
+describe('ce que la review a relevé', () => {
+  it.runIf(POSIX)(
+    'UN CLAUDE CODE D’AVANT 2.1.40 N’EST PAS QUESTIONNÉ — `auth status` y serait un prompt facturé',
+    async () => {
+      // Mesuré sur les paquets npm, HOME vide : 2.1.39 prend « auth status »
+      // pour un prompt (« Not logged in · Please run /login »), 2.1.40 rend le
+      // JSON. Le faux note chaque appel : seul `--version` doit y être.
+      const note = 'echo "$@" >> "$(dirname "$0")/appels"';
+      const d = fauxCli({
+        claude: `${note}\n${cli('echo \'{"loggedIn": false}\'', '2.1.39 (Claude Code)')}`,
+      });
+      expect(await sessionDeLAgent('claude-code', [path.join(d, 'claude')])).toBe('inconnue');
+      expect(readFileSync(path.join(d, 'appels'), 'utf8').trim().split('\n')).toEqual([
+        '--version',
+      ]);
+      expect(versionAuMoins('2.1.40 (Claude Code)', [2, 1, 40])).toBe(true);
+      expect(versionAuMoins('2.2.0', [2, 1, 40])).toBe(true);
+      expect(versionAuMoins('1.0.128 (Claude Code)', [2, 1, 40])).toBe(false);
+      expect(versionAuMoins('illisible', [2, 1, 40])).toBe(false);
+    },
+  );
+
+  it('UN CODEX SUR UN AUTRE FOURNISSEUR N’EST PAS « NON CONNECTÉ » — il tourne sans session OpenAI', async () => {
+    const codexHome = mkdtempSync(path.join(tmpdir(), 'hive-codex-home-'));
+    aNettoyer.push(codexHome);
+    const env = { CODEX_HOME: codexHome, HOME: '/nulle-part' };
+    const ecrire = (toml: string): void => writeFileSync(path.join(codexHome, 'config.toml'), toml);
+    const lancer = statuts({ codex: { code: 1, sortie: 'Not logged in' } });
+    const inventaire = () => inventaireAgents(env, presents('codex'), 'linux', () => false, lancer);
+
+    // Le fournisseur par défaut : sa parole vaut, il est écarté.
+    expect(fournisseurCodexTiers(env)).toBeNull();
+    expect((await inventaire()).nonConnectes.map((n) => n.agent)).toEqual(['codex']);
+
+    // `model_provider = "ollama"` : « Not logged in » ne dit plus rien.
+    ecrire(
+      'model = "qwen"\nmodel_provider = "ollama"\n\n[model_providers.ollama]\nname = "Ollama"\n',
+    );
+    expect(fournisseurCodexTiers(env)).toBe('ollama');
+    expect((await inventaire()).tous).toEqual(['codex', 'shell']);
+
+    // Le fournisseur du PROFIL retenu compte, pas celui d'un autre profil.
+    ecrire(
+      'profile = "local"\n[profiles.local]\nmodel_provider = "azure"\n[profiles.x]\nmodel_provider = "openai"\n',
+    );
+    expect(fournisseurCodexTiers(env)).toBe('azure');
+    ecrire('[profiles.local]\nmodel_provider = "azure"\n');
+    expect(fournisseurCodexTiers(env), 'un profil non retenu ne compte pas').toBeNull();
+    ecrire('model_provider = "openai"\n');
+    expect(fournisseurCodexTiers(env)).toBeNull();
+
+    // Sans CODEX_HOME : `~/.codex`, le dossier que Codex lit.
+    mkdirSync(path.join(codexHome, '.codex'));
+    writeFileSync(path.join(codexHome, '.codex', 'config.toml'), 'model_provider = "ollama"\n');
+    expect(fournisseurCodexTiers({ HOME: codexHome })).toBe('ollama');
+  });
+
+  it('DES LIGNES AVANT LE JSON SONT TOLÉRÉES — un avertissement ne rend pas la réponse illisible', async () => {
+    // Codex imprime déjà un `WARNING:` avant sa réponse (HOME vide) ; un CLI
+    // qui fait de même avant son JSON doit rester lu. Un `JSON.parse` strict
+    // lirait « inconnue », et ce Cursor non connecté serait annoncé.
+    const inventaire = await inventaireAgents(
+      {},
+      presents('cursor-agent'),
+      'linux',
+      () => false,
+      statuts({
+        'cursor-agent': {
+          code: 0,
+          sortie: 'WARNING: proxy ignoré\n{"isAuthenticated": false}\n',
+        },
+      }),
+    );
+    expect(inventaire.nonConnectes.map((n) => n.agent)).toEqual(['cursor']);
+  });
+});
+
+const RACINE = fileURLToPath(new URL('..', import.meta.url));
+
+/** Lance un point d'entrée réel du nœud, un faux Cursor non connecté seul sur le PATH. */
+function lancerNoeud(entree: string, extra: NodeJS.ProcessEnv = {}) {
+  const d = fauxCli({ 'cursor-agent': CURSOR_NON_CONNECTE });
+  const env: NodeJS.ProcessEnv = { NO_COLOR: '1' };
+  for (const [k, v] of Object.entries(process.env)) {
+    if (!k.startsWith('HIVE_') && !/KEY|TOKEN|SECRET/.test(k)) env[k] = v;
+  }
+  return spawnSync(process.execPath, [path.join(RACINE, 'scripts', 'lancer.mjs'), entree], {
+    // Un dossier vide : aucun `.env` du poste ne s'invite.
+    cwd: d,
+    env: {
+      ...env,
+      PATH: d,
+      HOME: d,
+      HIVE_AGENT: 'cursor',
+      HIVE_WORKDIR: path.join(d, 'travail'),
+      HIVE_ISOLEMENT: 'off',
+      ...extra,
+    },
+    encoding: 'utf8',
+    timeout: 60_000,
+  });
+}
+
+describe('un nœud à qui l’on impose un agent non connecté ne démarre pas', () => {
+  it.runIf(POSIX)(
+    '`npm run node` : exit 2, et le remède sur la sortie d’erreur',
+    () => {
+      const r = lancerNoeud(path.join(RACINE, 'src', 'node-client', 'main.ts'), {
+        HIVE_URL: 'ws://127.0.0.1:9/ws',
+      });
+      expect(r.stderr).toContain(
+        '✘ Ce nœud ne démarre pas : Cursor est installé mais non connecté',
+      );
+      expect(r.stderr).toContain('`cursor-agent login`');
+      expect(r.stderr).toContain('HIVE_AGENT=cursor');
+      expect(r.status, r.stdout + r.stderr).toBe(2);
+    },
+    60_000,
+  );
+
+  it.runIf(POSIX)(
+    '`hive join` : la même règle sur le chemin des amis',
+    () => {
+      const r = lancerNoeud(path.join(RACINE, 'src', 'node-client', 'join.ts'), {
+        HIVE_INVITE: encodeInvite({
+          url: 'ws://127.0.0.1:9/ws',
+          token: 'jeton-de-banc-assez-long-0123',
+        }),
+      });
+      expect(r.stderr).toContain(
+        '✘ Ce nœud ne démarre pas : Cursor est installé mais non connecté',
+      );
+      expect(r.status, r.stdout + r.stderr).toBe(2);
+    },
+    60_000,
+  );
 });
