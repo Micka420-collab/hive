@@ -104,6 +104,32 @@ function raisonRetrySaute(code: unknown, t: Translate): string {
   }
 }
 
+/**
+ * Ce qu'un `task_progress` APPORTE, et non le mot « progrès ».
+ *
+ * La ligne affichait « progrès (id) » quel que soit le payload : le jalon que
+ * le nœud avait écrit (« ⏸ Réquisition ouverte — en attente de décision
+ * humaine ») était reçu, puis jeté à l'affichage. Le journal dit maintenant le
+ * jalon, sinon les sous-agents, sinon les fichiers ouverts. La sortie brute de
+ * l'agent, elle, n'est pas un événement : elle vit dans la console du tiroir.
+ */
+function progres(p: Record<string, unknown>, t: Translate): string {
+  const id = short(p.taskId);
+  if (typeof p.log === 'string' && p.log.trim() !== '') {
+    const ligne = p.log.replace(/\s+/g, ' ').trim();
+    return `${id} · ${ligne.length > 120 ? `${ligne.slice(0, 119)}…` : ligne}`;
+  }
+  if (Array.isArray(p.subAgents) && p.subAgents.length > 0) {
+    const n = p.subAgents.length;
+    return t(`${id} · ${n} sous-agent(s)`, `${id} · ${n} sub-agent(s)`);
+  }
+  if (Array.isArray(p.presences) && p.presences.length > 0) {
+    const n = p.presences.length;
+    return t(`${id} · ${n} fichier(s) ouvert(s)`, `${id} · ${n} open file(s)`);
+  }
+  return t(`progrès (${id})`, `progress (${id})`);
+}
+
 const EVENTS: Record<string, Meta> = {
   project_created: {
     icon: '▦',
@@ -142,7 +168,7 @@ const EVENTS: Record<string, Meta> = {
   task_progress: {
     icon: '⋯',
     cls: 'run',
-    text: (p, t) => t(`progrès (${short(p.taskId)})`, `progress (${short(p.taskId)})`),
+    text: (p, t) => progres(p, t),
   },
   task_readopted: {
     icon: '↺',
@@ -407,6 +433,61 @@ const EVENTS: Record<string, Meta> = {
         `brood chamber: ${short(p.taskId)} restarts with the lessons of ${String(p.echecs ?? '?')} failure(s)`,
       ),
   },
+  // Les leçons que le budget a évincées (cadre, Cerveau et critique ont tout
+  // pris) : la tentative repart sans savoir comment les précédentes ont
+  // échoué. Un avertissement, comme `critique_refus`.
+  brood_refus: {
+    icon: '⚠',
+    cls: 'warn',
+    text: (p, t) =>
+      t(
+        `couveuse muette : ${short(p.taskId)} repart (essai ${String(p.attempt ?? '?')}) sans les leçons de ${String(p.echecs ?? '?')} échec(s) — budget de contexte épuisé`,
+        `brood chamber silenced: ${short(p.taskId)} restarts (attempt ${String(p.attempt ?? '?')}) without the lessons of ${String(p.echecs ?? '?')} failure(s) — context budget exhausted`,
+      ),
+  },
+  // La critique jointe à une correction. Le payload ne porte que des faits
+  // comptés : le TEXTE des objections vit dans `task_retry`, et la Miellerie
+  // le montre sous la tâche (`/api/tasks/:taskId/critique`).
+  critique_context: {
+    icon: '◦',
+    cls: 'info',
+    text: (p, t) => {
+      const qui =
+        p.source === 'revue_humaine'
+          ? t('le rejet humain', 'the human rejection')
+          : p.source === 'contre_revue'
+            ? t('la contre-revue', 'the counter-review')
+            : t('l’Evaluator', 'the Evaluator');
+      const note =
+        p.noteHumaine === true
+          ? t(', avec la raison de l’humain', ', with the human’s reason')
+          : '';
+      // `objections` = ce que l'ouvrière a LU ; `objectionsFigees` = ce que
+      // la correction avait relevé. L'écart, c'est la queue tombée au budget.
+      const figees = typeof p.objectionsFigees === 'number' ? p.objectionsFigees : null;
+      const tronquee = figees !== null && figees > Number(p.objections ?? 0);
+      const sur = tronquee
+        ? { fr: ` (sur ${String(figees)} relevées)`, en: ` (of ${String(figees)} raised)` }
+        : { fr: '', en: '' };
+      return t(
+        `critique : ${short(p.taskId)} repart (essai ${String(p.attempt ?? '?')}) avec ${qui} — ${String(p.objections ?? 0)} objection(s)${sur.fr}${note}`,
+        `critique: ${short(p.taskId)} restarts (attempt ${String(p.attempt ?? '?')}) with ${qui} — ${String(p.objections ?? 0)} objection(s)${sur.en}${note}`,
+      );
+    },
+  },
+  // La critique que le budget a évincée : la tentative repart SANS savoir ce
+  // qu'on reprochait à la précédente. Un avertissement, comme un refus du
+  // Cerveau — c'est précisément la reprise aveugle que la critique existe à
+  // empêcher.
+  critique_refus: {
+    icon: '⚠',
+    cls: 'warn',
+    text: (p, t) =>
+      t(
+        `critique perdue : ${short(p.taskId)} repart (essai ${String(p.attempt ?? '?')}) sans les ${String(p.objectionsFigees ?? '?')} objection(s) de la correction — budget de contexte épuisé`,
+        `critique dropped: ${short(p.taskId)} restarts (attempt ${String(p.attempt ?? '?')}) without the correction’s ${String(p.objectionsFigees ?? '?')} objection(s) — context budget exhausted`,
+      ),
+  },
   // La Balance, geste « borner ». Trois faits typés — `projectId`, des entiers,
   // un booléen — et AUCUNE phrase persistée : le bilingue est reconstruit ici
   // depuis les champs, exactement comme `thermo_shift`. `formatDuree` est
@@ -459,6 +540,80 @@ const EVENTS: Record<string, Meta> = {
             `Balance: cap set to ${ms} on ${short(p.projectId)}${par}`,
           );
     },
+  },
+  // ─── La contre-expertise ─────────────────────────────────────────────────
+  // Une relecture qui tombe ne doit pas se lire comme un silence : la ligne
+  // dit qui relit, qui a échoué, qui relaie, et quand plus personne ne le
+  // peut. La cause d'une relecture impossible est rangée en français (c'est
+  // aussi le motif de l'Evaluator) : la ligne anglaise nomme le dernier
+  // relecteur plutôt que de mêler les deux langues.
+  contre_expertise: {
+    icon: '⚖',
+    cls: 'info',
+    text: (p, t) => {
+      const modeles = Array.isArray(p.modeles) ? p.modeles.map(String).join(', ') : '?';
+      if (p.possible === false) {
+        return t(
+          `aucun second modèle en ligne pour relire ${short(p.taskId)}`,
+          `no second model online to review ${short(p.taskId)}`,
+        );
+      }
+      return p.secours === true
+        ? t(
+            `relecture de secours de ${short(p.taskId)} confiée à ${modeles}`,
+            `fallback review of ${short(p.taskId)} handed to ${modeles}`,
+          )
+        : t(
+            `contre-expertise de ${short(p.taskId)} par ${modeles}`,
+            `cross-review of ${short(p.taskId)} by ${modeles}`,
+          );
+    },
+  },
+  contre_expertise_review_waiting: {
+    icon: '⏸',
+    cls: 'warn',
+    text: (p, t) =>
+      t(
+        `relecture de ${short(p.taskId)} en attente : aucun nœud ${String(p.relecteur ?? '?')} en ligne`,
+        `review of ${short(p.taskId)} waiting: no ${String(p.relecteur ?? '?')} node online`,
+      ),
+  },
+  contre_expertise_review_failed: {
+    icon: '▽',
+    cls: 'warn',
+    text: (p, t) =>
+      p.terminal === true
+        ? t(
+            `relecture de ${short(p.taskId)} par ${String(p.relecteur ?? '?')} close sans avis`,
+            `review of ${short(p.taskId)} by ${String(p.relecteur ?? '?')} closed without a verdict`,
+          )
+        : t(
+            `relecture de ${short(p.taskId)} par ${String(p.relecteur ?? '?')} : échec, nouvel essai`,
+            `review of ${short(p.taskId)} by ${String(p.relecteur ?? '?')}: failed, retrying`,
+          ),
+  },
+  contre_expertise_impossible: {
+    icon: '✋',
+    cls: 'fail',
+    text: (p, t) =>
+      t(
+        `relecture impossible (${short(p.taskId)}) : ${String(p.cause ?? '?')} — revue humaine requise`,
+        `review impossible (${short(p.taskId)}), last reviewer ${String(p.relecteur ?? '?')} — human review required`,
+      ),
+  },
+  contre_expertise_verdict: {
+    icon: '⚖',
+    cls: 'info',
+    text: (p, t) =>
+      p.conteste === true
+        ? t(
+            `${String(p.relecteur ?? '?')} conteste ${short(p.taskId)}`,
+            `${String(p.relecteur ?? '?')} contests ${short(p.taskId)}`,
+          )
+        : t(
+            `${String(p.relecteur ?? '?')} valide ${short(p.taskId)}`,
+            `${String(p.relecteur ?? '?')} approves ${short(p.taskId)}`,
+          ),
   },
   boot_recovery: {
     icon: '⟲',

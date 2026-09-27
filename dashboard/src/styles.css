@@ -438,6 +438,15 @@ h3 {
   max-width: 72rem;
 }
 
+/* Session expirée : le bandeau porte ses deux issues (se reconnecter, ou
+   continuer sans compte), côte à côte avec la phrase qui explique. */
+.mc-session-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
 .conn {
   display: inline-flex;
   align-items: center;
@@ -1256,6 +1265,27 @@ h3 {
   cursor: pointer;
 }
 
+/* ─── Console en direct (TaskDrawer) ─────────────────────────────────── */
+.console-directe-titre {
+  margin: 0;
+}
+
+.console-directe-recherche {
+  width: 140px;
+  padding: 3px 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font-size: 12px;
+}
+
+/* Replier : les lignes longues (stream-json) coupent au lieu de défiler. */
+.console-directe-zone.replie {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .code-editor .cm-editor {
   max-height: 380px;
   border: 1px solid var(--border);
@@ -1486,6 +1516,15 @@ h3 {
 
 .modal-close:hover {
   color: var(--text);
+}
+
+/* Une information, pas une faute : même gabarit que l'erreur, sans le rouge. */
+.modal-note {
+  background: color-mix(in srgb, var(--amber) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--amber) 35%, transparent);
+  border-radius: var(--r-sm);
+  padding: 8px 12px;
+  margin: 0 0 12px;
 }
 
 .modal-error {

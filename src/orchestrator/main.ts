@@ -3,7 +3,9 @@
 // Statiques : ces modules n'ont aucune dépendance optionnelle (cf. plus bas).
 import { RefusDemarrage } from '../shared/amorce.js';
 import { annonceSimulation } from '../shared/annonce-simulation.js';
+import type { AnnonceReine } from '../shared/demarrage.js';
 import { chargerEnvQueen } from '../shared/env-queen.js';
+import { adresseLocale } from '../shared/port.js';
 import { lireConfianceProxy } from '../shared/proxy-confiance.js';
 
 try {
@@ -72,13 +74,28 @@ const server = await createServer(config).catch((err: unknown) => {
 });
 
 console.log('🐝 Hive — orchestrateur (Queen) en ligne');
-console.log(`   Dashboard : ${server.url}`);
-console.log(`   WebSocket : ws://${config.host}:${server.port}/ws`);
+// L'adresse où SE CONNECTER, pas celle d'écoute : sur `HIVE_HOST=` vide ou
+// `::`, le gabarit brut imprimait `ws://:7777/ws` — une URL que personne ne
+// peut ouvrir. Même règle que celle que reçoivent les ouvrières du lanceur.
+const adresse = adresseLocale(config.host, server.port);
+console.log(`   Dashboard : ${adresse.http}`);
+console.log(`   WebSocket : ${adresse.ws}`);
 console.log(`   Base      : ${config.dbPath}`);
 if (config.simulation) console.log(`   ${annonceSimulation(config.token)}`);
 if (confianceProxy.valeur !== false) {
   console.log(`   IP client  : X-Forwarded-For cru depuis ${String(confianceProxy.valeur)}`);
 }
+
+// ─── LE LANCEUR DE LA RUCHE ATTEND CE FAIT ───────────────────────────────────
+//
+// `npm run ruche` ne démarre ses ouvrières et son écran qu'à cette annonce, et
+// leur passe l'adresse qu'elle porte (`AnnonceReine`, `shared/demarrage.ts`).
+// Sans elle, ils visaient `:7777` quel que soit le port ouvert ici — et sur
+// `HIVE_PORT=0`, seul ce processus le connaît. Hors du lanceur, aucun canal
+// IPC : `process.send` est absent, et rien n'est dit. Le rappel avale l'erreur
+// d'un lanceur déjà parti : il n'y a plus personne à qui l'annoncer.
+const annonce: AnnonceReine = { type: 'reine-en-ligne', hote: config.host, port: server.port };
+process.send?.(annonce, undefined, undefined, () => undefined);
 
 let stopping = false;
 const shutdown = async (signal: string): Promise<void> => {

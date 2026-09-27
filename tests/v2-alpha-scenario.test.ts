@@ -35,7 +35,10 @@ const imageDemandee = process.env.HIVE_ISOLEMENT_IMAGE?.trim() ?? '';
 function bacDepuisEnv():
   { fournisseur: Fournisseur; image: string; variables: string[] } | undefined {
   if (!imageDemandee || process.platform === 'win32') return undefined;
-  for (const nom of ['podman', 'docker']) {
+  // `HIVE_TEST_MOTEUR` : le même sélecteur réservé aux bancs que
+  // `tests/isolement-runtime.integration.test.ts`.
+  const impose = process.env.HIVE_TEST_MOTEUR?.trim();
+  for (const nom of impose ? [impose] : ['podman', 'docker']) {
     try {
       execFileSync(nom, ['--version'], { stdio: 'ignore', timeout: 4_000 });
       execFileSync(nom, ['info'], { stdio: 'ignore', timeout: 8_000 });
@@ -206,7 +209,14 @@ async function startGithubApi(fetcher: Fetcheur): Promise<{ server: HttpServer; 
   return { server, url: `http://127.0.0.1:${address.port}` };
 }
 
-function workerAdapter(reviews: Map<string, number>, agentType: string): AgentAdapter {
+/** L'objection que la contre-revue hermes rend sur la première production. */
+const OBJECTION = 'ajoute un test du chemin sécurisé';
+
+function workerAdapter(
+  reviews: Map<string, number>,
+  agentType: string,
+  productions: Map<number, string>,
+): AgentAdapter {
   return {
     name: 'v2-alpha-fixture-worker',
     async run(task, ctx) {
@@ -248,15 +258,16 @@ function workerAdapter(reviews: Map<string, number>, agentType: string): AgentAd
         // Un premier avis conteste la production. Les avis de la seconde
         // production sont favorables : c'est le trajet correction → retry.
         const avis =
-          calls === 1 && agentType === 'hermes-agent'
-            ? 'conteste\n- ajoute un test du chemin sécurisé'
-            : 'valide';
+          calls === 1 && agentType === 'hermes-agent' ? `conteste\n- ${OBJECTION}` : 'valide';
         const execution = await runCommand('node', ['-e', 'process.exit(0)'], ctx, 30_000);
         // L'avis voyage dans `finalText`, comme la réponse d'un vrai CLI : la
         // contre-expertise ne lit plus les logs (adapters/texte-final.ts).
         return { ...execution, logs: avis, finalText: avis, subAgents: [] };
       }
 
+      // Le prompt reçu par tentative : le contexte de la ruche y est préfixé
+      // (composeAgentPrompt), c'est là que la critique doit arriver.
+      if (task.title === 'Sécuriser feature.js') productions.set(ctx.attempt, task.prompt);
       const body = 'export const secure = true;\n';
       if (agentType === 'claude-code') {
         // Laisser le temps aux deux relecteurs de rejoindre la ruche après que
@@ -268,7 +279,10 @@ function workerAdapter(reviews: Map<string, number>, agentType: string): AgentAd
       const script = [
         "const fs = require('node:fs');",
         `fs.writeFileSync('src/feature.js', ${JSON.stringify(body)});`,
-        ...(ctx.attempt > 1
+        // Le test n'est ajouté QUE si l'objection est arrivée : une tentative
+        // qui ne la reçoit pas refait la production contestée, comme un vrai
+        // agent qui ignore pourquoi on le relance.
+        ...(task.prompt.includes(OBJECTION)
           ? [`fs.writeFileSync('src/feature.test.js', ${JSON.stringify(test)});`]
           : []),
       ].join('');
@@ -284,6 +298,7 @@ describe('V2 Alpha — mission locale vérifiable', () => {
   let previousGitConfigGlobal: string | undefined;
   let previousGithubToken: string | undefined;
   let previousGithubApi: string | undefined;
+  let previousXdg: { data: string | undefined; config: string | undefined } | undefined;
 
   afterEach(async () => {
     for (const client of scenario?.clients ?? []) client.stop();
@@ -303,6 +318,13 @@ describe('V2 Alpha — mission locale vérifiable', () => {
     else process.env.HIVE_GITHUB_TOKEN = previousGithubToken;
     if (previousGithubApi === undefined) delete process.env.HIVE_GITHUB_API;
     else process.env.HIVE_GITHUB_API = previousGithubApi;
+    if (previousXdg) {
+      if (previousXdg.data === undefined) delete process.env.XDG_DATA_HOME;
+      else process.env.XDG_DATA_HOME = previousXdg.data;
+      if (previousXdg.config === undefined) delete process.env.XDG_CONFIG_HOME;
+      else process.env.XDG_CONFIG_HOME = previousXdg.config;
+    }
+    previousXdg = undefined;
     if (scenario) rmSync(scenario.root, { recursive: true, force: true, maxRetries: 3 });
     scenario = null;
     previousHome = undefined;
@@ -323,9 +345,23 @@ describe('V2 Alpha — mission locale vérifiable', () => {
         path.join(gitHome, '.gitconfig'),
         `[url "${pathToFileURL(repo).href}"]\n\tinsteadOf = https://github.com/demo/hive.git\n`,
       );
+      // Le moteur est choisi AVANT que HOME ne pointe sur la fixture Git :
+      // Podman rootless range son magasin d'images sous le HOME (ou
+      // XDG_DATA_HOME), et le HOME de la fixture n'en a aucun.
+      const bac = bacDepuisEnv();
+      if (imageDemandee && !bac) {
+        throw new Error(`HIVE_ISOLEMENT_IMAGE=${imageDemandee} exige un runtime Docker/Podman`);
+      }
       previousHome = process.env.HOME;
       previousGitConfigGlobal = process.env.GIT_CONFIG_GLOBAL;
       previousGithubToken = process.env.HIVE_GITHUB_TOKEN;
+      previousXdg = { data: process.env.XDG_DATA_HOME, config: process.env.XDG_CONFIG_HOME };
+      if (bac && previousHome) {
+        // …et les tâches, qui relancent le moteur avec l'environnement du
+        // processus (`envDuLanceur`), doivent y retrouver le même magasin.
+        process.env.XDG_DATA_HOME ??= path.join(previousHome, '.local', 'share');
+        process.env.XDG_CONFIG_HOME ??= path.join(previousHome, '.config');
+      }
       process.env.HOME = gitHome;
       // Git for Windows may resolve the global config from USERPROFILE even
       // when HOME is overridden. Pinning the fixture config makes the local
@@ -334,10 +370,7 @@ describe('V2 Alpha — mission locale vérifiable', () => {
       process.env.GIT_CONFIG_GLOBAL = path.join(gitHome, '.gitconfig');
       process.env.HIVE_GITHUB_TOKEN = GITHUB_TOKEN;
       const reviews = new Map<string, number>();
-      const bac = bacDepuisEnv();
-      if (imageDemandee && !bac) {
-        throw new Error(`HIVE_ISOLEMENT_IMAGE=${imageDemandee} exige un runtime Docker/Podman`);
-      }
+      const productions = new Map<number, string>();
       const github = githubFixture();
       const githubApi = await startGithubApi(github.fetcher);
       previousGithubApi = process.env.HIVE_GITHUB_API;
@@ -364,7 +397,7 @@ describe('V2 Alpha — mission locale vérifiable', () => {
           modeles: [`${agentType}-model`],
           maxConcurrency: 2,
           workRoot: path.join(root, name),
-          adapter: workerAdapter(reviews, agentType),
+          adapter: workerAdapter(reviews, agentType, productions),
           quiet: true,
           ...(bac ? { bac } : {}),
         });
@@ -503,6 +536,28 @@ describe('V2 Alpha — mission locale vérifiable', () => {
       const second = server.store.resultsForTask(task.id).at(-1);
       expect(second?.resultId).not.toBe(first?.resultId);
       expect(second?.diff, second?.logs).toContain('secure = true');
+      // La critique atteint la correction : la première tentative ne la
+      // connaissait pas, la seconde reçoit l'objection dans un bloc de données
+      // — et la production révisée ajoute le test demandé.
+      expect(productions.get(1)).toBeDefined();
+      expect(productions.get(1)).not.toContain(OBJECTION);
+      const prompt2 = productions.get(2) ?? '';
+      expect(prompt2).toContain('Correction demandée — tentative 2');
+      expect(prompt2).toContain(`"genre":"objection","texte":"${OBJECTION}"`);
+      expect(second?.diff).toContain('src/feature.test.js');
+      expect(
+        server.store
+          .listEvents()
+          .some(
+            (event) =>
+              event.type === 'critique_context' &&
+              event.payload.taskId === task.id &&
+              event.payload.source === 'contre_revue' &&
+              event.payload.attempt === 2 &&
+              event.payload.objections === 1,
+          ),
+        'la critique jointe à la correction est journalisée',
+      ).toBe(true);
 
       await attendre(
         () =>

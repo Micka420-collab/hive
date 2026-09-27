@@ -47,6 +47,12 @@ const SAINE: Releve = {
   dashboardConstruit: true,
   agent: 'claude-code',
   isolement: 'podman',
+  imageBac: {
+    image: 'localhost/hive-agent:local',
+    dans: 'podman',
+    absenteDe: null,
+    construire: null,
+  },
   wsJoignable: true,
   reglages: { runner: 'off', bindPublic: false, gardiennes: 'strict', corsOuvert: false },
   espace: { octetsLibres: 40 * 1024 * 1024 * 1024, inscriptible: true },
@@ -83,6 +89,7 @@ describe('LES DEUX RÈGLES QUI PORTENT TOUT LE MODULE', () => {
       dashboardConstruit: false,
       agent: null,
       isolement: null,
+      imageBac: null,
       wsJoignable: false,
       reglages: { runner: 'on', bindPublic: true, gardiennes: 'off', corsOuvert: true },
       espace: { octetsLibres: 0, inscriptible: true },
@@ -318,6 +325,52 @@ describe('8. LE BAC À SABLE', () => {
     const d = diag(avec({ isolement: null }), 'isolement');
     expect(d.gravite).toBe('risque');
     expect(d.reparation).toMatch(/podman/);
+  });
+
+  // Machine neuve : `docker info` répond, l'image par défaut n'est construite
+  // nulle part. Le docteur disait « ✔ disponible », puis le nœud écartait
+  // docker et se repliait en processus.
+  const IMAGE = 'localhost/hive-agent:local';
+  const sansImage = {
+    image: IMAGE,
+    dans: null,
+    absenteDe: 'docker',
+    construire: 'npm run bac:image -- --moteur docker',
+  };
+
+  it('un moteur qui répond SANS l’image par défaut n’est pas un bac : risque, et la commande', () => {
+    const d = diag(avec({ isolement: 'docker', imageBac: sansImage }), 'isolement');
+    expect(d.gravite).toBe('risque');
+    expect(d.constat).toContain(IMAGE);
+    expect(d.reparation).toContain('npm run bac:image -- --moteur docker');
+  });
+
+  it('le moteur qui A l’image est celui qu’on annonce', () => {
+    const d = diag(
+      avec({ isolement: 'podman', imageBac: { ...sansImage, dans: 'docker', construire: null } }),
+      'isolement',
+    );
+    expect(d).toMatchObject({ gravite: 'ok', reparation: null });
+    expect(d.constat).toBe(`bac à sable disponible : docker (image ${IMAGE})`);
+  });
+
+  it('une image NOMMÉE absente sera téléchargée par le nœud : pas de risque inventé', () => {
+    const nommee = {
+      image: 'ghcr.io/x/agent:1',
+      dans: null,
+      absenteDe: 'podman',
+      construire: null,
+    };
+    const d = diag(avec({ isolement: 'podman', imageBac: nommee }), 'isolement');
+    expect(d.gravite).toBe('ok');
+    expect(d.constat).toMatch(/téléchargée au démarrage/);
+  });
+
+  it('aucun moteur n’a su dire si l’image est là : inconnu, jamais « ok »', () => {
+    const muet = { image: IMAGE, dans: null, absenteDe: null, construire: null };
+    const d = diag(avec({ isolement: 'docker', imageBac: muet }), 'isolement');
+    expect(d.gravite).toBe('inconnu');
+    expect(d.reparation).toContain(`docker image inspect ${IMAGE}`);
   });
 });
 

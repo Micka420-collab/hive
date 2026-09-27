@@ -8,7 +8,7 @@
 //      bavard supprimerait la tâche au lieu de l'encadrer ;
 //   3. l'interrupteur coupe bien, y compris par sa dépendance aux Gardiennes.
 
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -235,6 +235,141 @@ describe('polyéthisme — câblage', () => {
     expect(a.hiveContext).toMatch(/CADRE DE TRAVAIL/);
     expect(a.hiveContext).toMatch(/ne supprime et ne désactive AUCUN test/);
   });
+
+  // ─── UNE REPRISE CONTESTÉE : cadre long, échecs ET critique ─────────────
+  //
+  // La reprise est le moment où le budget est le plus disputé : le cadre du
+  // polyéthisme d'une nourrice (jusqu'à ~5,4 ko avec un périmètre plein), les
+  // leçons de la Couveuse, la critique de la correction. La Couveuse prenait
+  // jadis une part FIXE hors décompte : le total passait LIMITS.hiveContext,
+  // et le nœud rejetait tout l'`assign_task` — la reprise ne partait jamais.
+
+  /** Un prompt qui annonce un périmètre plein de chemins longs (MAX_PERIMETRE). */
+  const PROMPT_PERIMETRE_PLEIN = `modifier ${Array.from(
+    { length: 12 },
+    (_, i) => `src/auth/${'module-d-authentification-'.repeat(5)}${i}.ts`,
+  ).join(' ')}`;
+
+  /**
+   * Une tâche déjà reprise deux fois : deux échecs Worker aux logs bavards,
+   * puis une correction de l'Evaluator dont la critique est figée au journal
+   * — exactement ce que `retryFromEvaluator` écrit.
+   */
+  function semerReprise(srv: HiveServer): string {
+    const projet = srv.store.createProject({ name: 'Ruche' });
+    const t = srv.store.createTask({
+      projectId: projet.id,
+      title: 'Durcir l’authentification',
+      prompt: PROMPT_PERIMETRE_PLEIN,
+    });
+    for (let i = 0; i < 2; i++) {
+      srv.store.insertResult({
+        taskId: t.id,
+        nodeId: 'ancienne-ouvriere',
+        success: false,
+        diff: '',
+        logs: Array.from(
+          { length: 40 },
+          (_, l) => `error: échec ${i}.${l} ${'x'.repeat(180)}`,
+        ).join('\n'),
+        durationMs: 10,
+        subAgents: [],
+      });
+    }
+    srv.store.appendEvent('task_retry', {
+      taskId: t.id,
+      source: 'evaluator',
+      attempt: 2,
+      critique: {
+        source: 'contre_revue',
+        objections: Array.from({ length: 8 }, (_, i) => `objection ${i} ${'o'.repeat(280)}`),
+        raisons: ['la contre-revue conteste la production'],
+      },
+    });
+    srv.store.patchTask(t.id, { status: 'ready', attempts: 2 });
+    return t.id;
+  }
+
+  it(
+    'une reprise contestée (cadre long, échecs, critique) reste sous la limite du protocole',
+    { timeout: 20_000 },
+    async () => {
+      const srv = await demarrer({ polyethisme: 'consignes' });
+      const recues = await brancherNoeud(srv, 'n-reprise');
+      const taskId = semerReprise(srv);
+
+      const a = await attendre(recues);
+      expect(a.task?.id).toBe(taskId);
+      const contexte = a.hiveContext ?? '';
+      expect(contexte.length).toBeLessThanOrEqual(LIMITS.hiveContext);
+      // Budget RÉELLEMENT disputé : sans cela le test ne prouverait rien.
+      expect(contexte.length, 'budget non contesté').toBeGreaterThan(LIMITS.hiveContext * 0.9);
+      // Le cadre passe en entier, la critique ensuite : c'est la Couveuse qui
+      // cède, pas la raison d'être de la reprise.
+      expect(contexte).toMatch(/CADRE DE TRAVAIL/);
+      expect(contexte).toContain('Correction demandée — tentative 3');
+      const annonce = srv.store
+        .listEvents(0, 500)
+        .find((e) => e.type === 'critique_context' && e.payload.taskId === taskId);
+      expect(annonce?.payload).toMatchObject({ attempt: 3, objectionsFigees: 8 });
+      // Le compte journalisé est celui des objections RÉELLEMENT jointes.
+      expect(annonce?.payload.objections).toBe(
+        contexte.split('\n').filter((l) => l.startsWith('{"genre":"objection"')).length,
+      );
+    },
+  );
+
+  it(
+    'une critique que le budget évince se journalise — la reprise ne part pas en silence',
+    { timeout: 20_000 },
+    async () => {
+      const srv = await demarrer({ polyethisme: 'consignes' });
+      // Un invariant du Cerveau qui tient tout juste après le cadre : il passe
+      // AVANT la critique (sûreté d'abord), et ne lui laisse pas de quoi loger
+      // même son ossature.
+      const cerveau = path.join(dir ?? '', 'cerveau');
+      mkdirSync(cerveau, { recursive: true });
+      writeFileSync(
+        path.join(cerveau, 'auth.md'),
+        [
+          '---',
+          'genre: invariant',
+          'titre: Authentification',
+          'regle: JETON-TOUJOURS-VERIFIE',
+          '---',
+          `module-d-authentification ${'r'.repeat(2_150)}`,
+          '',
+        ].join('\n'),
+        'utf8',
+      );
+      const recues = await brancherNoeud(srv, 'n-reprise-evincee');
+      const taskId = semerReprise(srv);
+
+      const a = await attendre(recues);
+      const contexte = a.hiveContext ?? '';
+      expect(contexte.length).toBeLessThanOrEqual(LIMITS.hiveContext);
+      expect(contexte, 'l’invariant doit avoir tenu').toContain('JETON-TOUJOURS-VERIFIE');
+      expect(contexte).not.toContain('Correction demandée');
+      const journal = srv.store.listEvents(0, 500).filter((e) => e.payload.taskId === taskId);
+      expect(journal.some((e) => e.type === 'critique_context')).toBe(false);
+      expect(journal.find((e) => e.type === 'critique_refus')?.payload).toMatchObject({
+        attempt: 3,
+        source: 'contre_revue',
+        objectionsFigees: 8,
+        motif: 'budget',
+      });
+      // Les leçons de la Couveuse, servies après la critique, sont évincées
+      // aussi : ça se journalise, et `brood_context` ne ment pas en disant
+      // qu'elles sont parties.
+      expect(contexte).not.toContain('Couveuse');
+      expect(journal.some((e) => e.type === 'brood_context')).toBe(false);
+      expect(journal.find((e) => e.type === 'brood_refus')?.payload).toMatchObject({
+        attempt: 3,
+        echecs: 2,
+        motif: 'budget',
+      });
+    },
+  );
 
   it('la route rend des castes constatées, jamais déclarées', { timeout: 20_000 }, async () => {
     const srv = await demarrer({ polyethisme: 'consignes' });

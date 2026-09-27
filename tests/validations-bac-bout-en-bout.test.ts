@@ -30,7 +30,8 @@ import { simpleGit } from 'simple-git';
 import type { AgentAdapter } from '../src/adapters/index.js';
 import { HiveNodeClient } from '../src/node-client/client.js';
 import { createServer, type HiveServer } from '../src/orchestrator/server.js';
-import { fauxBac } from './fixtures/faux-bac.js';
+import { SECRET_CAVIARDE } from '../src/shared/caviardage.js';
+import { appelsDuFauxBac, fauxBac } from './fixtures/faux-bac.js';
 
 const JETON = 'jeton-validations-bac-suffisamment-long';
 
@@ -115,9 +116,13 @@ const agentDuBanc: AgentAdapter = {
     // sans diff, il n'y a rien à valider. « Échouer » écrit aussi, puis
     // échoue : l'échec est déjà le verdict.
     const secure = task.title.startsWith('Sécuriser') ? 'true' : "'presque'";
+    // « Casser » imprime aussi, au chargement, un secret du nœud (son jeton
+    // de ruche) : ce que ferait un test qui affiche un fichier où l'agent
+    // l'aurait écrit. L'extrait des validations part au hub — caviardé.
+    const fuite = task.title.startsWith('Casser') ? `console.log(${JSON.stringify(JETON)});\n` : '';
     writeFileSync(
       path.join(ctx.cwd, 'src', 'feature.js'),
-      `module.exports = { secure: ${secure} };\n`,
+      `${fuite}module.exports = { secure: ${secure} };\n`,
     );
     const succes = !task.title.startsWith('Échouer');
     return { success: succes, diff: '', logs: 'feature.js réécrit', subAgents: [] };
@@ -257,11 +262,21 @@ describe('validations du bac — du nœud producteur jusqu’à l’Evaluator', 
   it.runIf(process.platform !== 'win32')(
     'RANGÉES AVEC LE RÉSULTAT EXACT, LUES PAR L’EVALUATOR, JAMAIS PRÊTÉES À CE QUI N’A RIEN À JUGER',
     async () => {
-      const { s, baseSha, produire, evaluer } = await demarrer(fauxBac(dossiers), true);
+      const bac = fauxBac(dossiers);
+      const { s, baseSha, produire, evaluer } = await demarrer(bac, true);
 
       // ─── UNE PRODUCTION QUI TIENT SES TESTS ───────────────────────────────
       const saine = await produire('Sécuriser feature.js');
       expect(saine.resultat?.diff).toContain('secure: true');
+      // Ses validations tournent dans des conteneurs ÉTIQUETÉS comme la tâche
+      // (#486) : sans étiquette, un nœud tué pendant elles les laissait
+      // tourner, et son redémarrage ne les ramassait pas.
+      const lancements = appelsDuFauxBac(bac);
+      expect(lancements.length, 'les validations n’ont rien lancé dans le bac').toBeGreaterThan(0);
+      for (const ligne of lancements) {
+        expect(ligne).toContain('--label=hive.noeud=noeud-bac');
+        expect(ligne).toContain(`--label=hive.tache=${saine.tacheId}`);
+      }
       expect(saine.preuves).toHaveLength(1);
       expect(saine.preuves[0]?.payload).toMatchObject({
         source: 'hive_sandbox',
@@ -312,6 +327,11 @@ describe('validations du bac — du nœud producteur jusqu’à l’Evaluator', 
         validation: { tests: 'failed', lint: 'passed' },
         details: { tests: { raison: 'termine', code: 1 } },
       });
+      const extrait = JSON.stringify(cassee.preuves[0]?.payload);
+      expect(extrait, 'le secret imprimé par le test n’est pas dans l’extrait').toContain(
+        SECRET_CAVIARDE,
+      );
+      expect(extrait, 'le jeton du nœud a quitté la machine').not.toContain(JETON);
       expect(cassee.evaluation.decision).toBe('correction_required');
       expect(cassee.evaluation.reasons).toContain(
         'validation tests en échec (bac Hive du nœud noeud-bac)',

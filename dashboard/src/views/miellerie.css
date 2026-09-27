@@ -484,6 +484,34 @@
   color: var(--red);
 }
 
+.mi-raison {
+  flex: 1 1 220px;
+  min-width: 0;
+  padding: 5px 9px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+}
+
+.mi-raison:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--miel) 55%, var(--border));
+}
+
+.mi-critique p,
+.mi-critique ul {
+  margin: 4px 0;
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+
+.mi-critique ul {
+  padding-left: 18px;
+}
+
 .mi-decide-state {
   font-size: 11.5px;
   color: var(--muted);

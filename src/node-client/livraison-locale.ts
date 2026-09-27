@@ -58,7 +58,6 @@
 
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { simpleGit } from 'simple-git';
 import { DELAI_RESEAU_MS } from '../shared/butoirs-noeud.js';
 import {
   CONSENTEMENT_POUSSEE,
@@ -73,6 +72,8 @@ import type {
 } from '../shared/livraison-locale.js';
 import { laverIdentifiants, laverIdentifiantsDuTexte } from '../shared/projet-public.js';
 import { LIMITS } from '../shared/protocol.js';
+import { EchecGitHote, commandeSshDuMembre, gitHote } from './git-hote.js';
+import type { DepotEpingle, IdentiteCommit } from './git-hote.js';
 
 /**
  * L'identité des commits de mission : la RUCHE, pas l'opérateur du nœud.
@@ -83,12 +84,12 @@ import { LIMITS } from '../shared/protocol.js';
  * réglé. `.invalid` est le domaine réservé qui ne répond jamais (RFC 2606) :
  * l'adresse ne prétend pas être une boîte aux lettres.
  */
-const IDENTITE_RUCHE = {
+const IDENTITE_RUCHE: IdentiteCommit = {
   GIT_AUTHOR_NAME: 'Hive',
   GIT_AUTHOR_EMAIL: 'hive@hive.invalid',
   GIT_COMMITTER_NAME: 'Hive',
   GIT_COMMITTER_EMAIL: 'hive@hive.invalid',
-} as const;
+};
 
 /**
  * La référence qui porte le commit d'un dépôt à l'autre — jamais une branche.
@@ -111,8 +112,6 @@ export interface LivraisonDuNoeud {
   depotLocal: string;
   /** L'opérateur de CE nœud a-t-il consenti à pousser ? Relu ici, jamais cru du hub. */
   pousseeConsentie: boolean;
-  /** L'environnement de transport du clone (`envTransportGit`) : mêmes identifiants. */
-  envTransport: NodeJS.ProcessEnv;
 }
 
 /** La mission composée AVANT les tests : il ne reste qu'à la garder, ou à l'oublier. */
@@ -135,24 +134,36 @@ const messageDe = (err: unknown): string => (err instanceof Error ? err.message 
  * Une commande git qui parle au dépôt distant, plafonnée à `DELAI_RESEAU_MS`.
  *
  * Lancée dans `baseDir` — le transit ou le dépôt durable, jamais le clone —
- * pour que git n'y lise que la configuration écrite par le nœud. Le plafond
- * atteint devient une phrase qui dit quoi faire, pas « Abort signal received ».
+ * pour que git n'y lise que la configuration écrite par le nœud. Par
+ * `gitHote`, comme le clone : mêmes identifiants, même `ssh` du membre en mode
+ * lot — une poussée SSH qui attendrait une phrase de passe figerait le merge.
+ * Le plafond atteint devient une phrase qui dit quoi faire, pas un signal.
  */
-async function auDepotDistant(
-  baseDir: string,
-  env: NodeJS.ProcessEnv,
-  args: string[],
-): Promise<string> {
-  const plafond = AbortSignal.timeout(DELAI_RESEAU_MS);
+async function auDepotDistant(baseDir: string, args: string[]): Promise<string> {
+  const ssh = await commandeSshDuMembre(baseDir);
   try {
-    return await simpleGit({ baseDir, abort: plafond }).env(env).raw(args);
+    return await gitHote(args, baseDir, { ssh, delaiMs: DELAI_RESEAU_MS });
   } catch (err) {
-    if (!plafond.aborted) throw err;
+    if (!(err instanceof EchecGitHote && err.delaiDepasse)) throw err;
     throw new Error(
       `le dépôt du projet n’a pas répondu en ${DELAI_RESEAU_MS / 1000} s (git ${args[0]}) — ` +
         'des identifiants attendus sur ce nœud ? Enregistrez-les dans son assistant git, puis relancez',
       { cause: err },
     );
+  }
+}
+
+/**
+ * Où la référence de transit pointe dans le dépôt nu `ou` — vide si elle n'y
+ * est pas (`rev-parse -q` : code 1, sans un mot). C'est cette relecture, pas
+ * le code de sortie d'un `fetch`, qui prouve qu'un commit est à l'abri.
+ */
+async function refDe(ou: string): Promise<string> {
+  try {
+    return (await gitHote(['rev-parse', '--verify', '-q', REF_TRANSIT], ou)).trim();
+  } catch (e) {
+    if (e instanceof EchecGitHote && e.code === 1) return '';
+    throw e;
   }
 }
 
@@ -163,8 +174,14 @@ async function auDepotDistant(
  * Ne lève pas : un échec est un rapport `non_commitee` qui porte son motif.
  */
 export async function composerMission(opts: {
-  /** Le clone jetable du merge, HEAD = base intégrée — que seuls `clone` et `apply` ont touché. */
-  cloneDir: string;
+  /**
+   * Le clone jetable du merge, ÉPINGLÉ (`epinglerClone`), HEAD = base
+   * intégrée — que seuls `clone` et `apply` ont touché. Par `gitHote` : lancé
+   * DEPUIS son arbre, un git de Windows prendrait le `git.exe` qu'un diff y
+   * aurait livré, et un `core.hooksPath` relatif du membre y trouverait le
+   * `reference-transaction` qu'un diff y aurait posé (`update-ref`).
+   */
+  clone: DepotEpingle;
   /** L'arbre capturé après application des diffs. */
   arbre: string;
   /** Où créer le dépôt nu de transit — HORS du clone. */
@@ -173,24 +190,19 @@ export async function composerMission(opts: {
   /** Ce que `Hive-Tests` dira si le commit est gardé (cf. en-tête). */
   tests: TestsLivres;
 }): Promise<MissionComposee | RapportDuNoeud> {
-  const { demande, depotLocal, depotProjet, envTransport } = opts.livraison;
-  const clone = simpleGit({ baseDir: opts.cloneDir }).env({ ...envTransport, ...IDENTITE_RUCHE });
+  const { demande, depotLocal, depotProjet } = opts.livraison;
+  const { clone } = opts;
   try {
-    await simpleGit().env(envTransport).raw(['init', '--bare', '--quiet', opts.transit]);
-    const transit = simpleGit({ baseDir: opts.transit }).env(envTransport);
+    await gitHote(['init', '--bare', '--quiet', opts.transit], path.dirname(opts.transit));
 
     // ─── LE NUMÉRO : ni d'ici, ni de là-bas, ni du journal du hub ──────────
     // `ls-remote` vise le `repoUrl` du hub, depuis le transit : jamais l'`origin`
     // du clone. Après un clone réussi, il n'échoue qu'en cas de vraie panne ;
     // on ne devine pas alors un numéro qui pourrait déjà être pris là-bas.
     const locales = existsSync(path.join(depotLocal, 'HEAD'))
-      ? await simpleGit({ baseDir: depotLocal })
-          .env(envTransport)
-          .raw(['for-each-ref', '--format=%(refname)', 'refs/heads/hive/'])
+      ? await gitHote(['for-each-ref', '--format=%(refname)', 'refs/heads/hive/'], depotLocal)
       : '';
-    const distantes = (
-      await auDepotDistant(opts.transit, envTransport, ['ls-remote', '--heads', depotProjet])
-    )
+    const distantes = (await auDepotDistant(opts.transit, ['ls-remote', '--heads', depotProjet]))
       .split('\n')
       .map((l) => l.split('\t')[1] ?? '');
     const n = Math.max(
@@ -202,38 +214,51 @@ export async function composerMission(opts: {
     // ─── LE COMMIT, tant que le clone n'a vu que `clone` et `apply` ─────────
     // Un dépôt VIDE n'a pas de HEAD : la livraison y devient le premier commit.
     // `rev-parse -q` rend une sortie vide sans lever — c'est la sortie qu'on lit.
-    const parent = (await clone.raw(['rev-parse', '--verify', '-q', 'HEAD^{commit}'])).trim();
+    const parent = (
+      await gitHote(['rev-parse', '--verify', '-q', 'HEAD^{commit}'], clone).catch((e: unknown) => {
+        // `-q` sur un dépôt vide : code 1, sans un mot — c'est « pas de parent ».
+        if (e instanceof EchecGitHote && e.code === 1) return '';
+        throw e;
+      })
+    ).trim();
     // Le message s'écrit dans le TRANSIT, jamais dans le dossier temporaire du
     // système : il part avec lui, et l'empreinte de Hive sur la machine
     // (`shared/empreinte.ts`) n'y gagne pas un lieu de plus.
     const fichierMessage = path.join(opts.transit, 'HIVE_MESSAGE_MISSION');
     writeFileSync(fichierMessage, messageDeMission(demande, n, opts.tests));
     const commit = (
-      await clone.raw([
-        'commit-tree',
-        '--no-gpg-sign',
-        opts.arbre,
-        ...(parent ? ['-p', parent] : []),
-        '-F',
-        fichierMessage,
-      ])
+      await gitHote(
+        [
+          'commit-tree',
+          '--no-gpg-sign',
+          opts.arbre,
+          ...(parent ? ['-p', parent] : []),
+          '-F',
+          fichierMessage,
+        ],
+        clone,
+        { identite: IDENTITE_RUCHE },
+      )
     ).trim();
-    await clone.raw(['update-ref', REF_TRANSIT, commit]);
+    await gitHote(['update-ref', REF_TRANSIT, commit], clone);
 
     // ─── L'ABRI : le commit quitte le clone AVANT que le code n'y tourne ────
     // `--update-shallow` n'est pas une option de confort. Depuis un clone
     // superficiel, sans lui, git REFUSE la référence… et sort en 0, un simple
     // avertissement à l'appui. D'où la relecture qui suit : c'est elle qui
     // prouve que le commit est à l'abri, pas le code de sortie.
-    await transit.raw([
-      'fetch',
-      '--update-shallow',
-      '--no-tags',
-      '--quiet',
-      opts.cloneDir,
-      `${REF_TRANSIT}:${REF_TRANSIT}`,
-    ]);
-    const abrite = (await transit.raw(['rev-parse', '--verify', '-q', REF_TRANSIT])).trim();
+    await gitHote(
+      [
+        'fetch',
+        '--update-shallow',
+        '--no-tags',
+        '--quiet',
+        clone.gitDir,
+        `${REF_TRANSIT}:${REF_TRANSIT}`,
+      ],
+      opts.transit,
+    );
+    const abrite = await refDe(opts.transit);
     if (abrite !== commit) {
       return {
         etat: 'non_commitee',
@@ -257,7 +282,7 @@ export async function garderMission(
   mission: MissionComposee,
   livraison: LivraisonDuNoeud,
 ): Promise<RapportDuNoeud> {
-  const { demande, depotLocal, depotProjet, envTransport } = livraison;
+  const { demande, depotLocal, depotProjet } = livraison;
   const { branche, commit } = mission;
   try {
     // ─── LE DÉPÔT DURABLE ──────────────────────────────────────────────────
@@ -269,25 +294,27 @@ export async function garderMission(
     // clone n'y entre jamais, pas même pour une poussée faite à la main.
     mkdirSync(path.dirname(depotLocal), { recursive: true });
     if (!existsSync(path.join(depotLocal, 'HEAD'))) {
-      await simpleGit().env(envTransport).raw(['init', '--bare', '--quiet', depotLocal]);
+      await gitHote(['init', '--bare', '--quiet', depotLocal], path.dirname(depotLocal));
     }
-    const depot = simpleGit({ baseDir: depotLocal }).env(envTransport);
     const origine = laverIdentifiants(depotProjet);
-    if (origine) await depot.raw(['config', 'remote.origin.url', origine]);
+    if (origine) await gitHote(['config', 'remote.origin.url', origine], depotLocal);
 
     // ─── LE RANGEMENT : la branche doit survivre au clone ──────────────────
     // Même `--update-shallow`, même relecture qu'à l'abri. Le `+` ne vise que
     // la référence de transit : un reste d'une livraison interrompue ne doit
     // pas bloquer les suivantes, et ce n'est jamais une branche.
-    await depot.raw([
-      'fetch',
-      '--update-shallow',
-      '--no-tags',
-      '--quiet',
-      mission.transit,
-      `+${REF_TRANSIT}:${REF_TRANSIT}`,
-    ]);
-    const rangee = (await depot.raw(['rev-parse', '--verify', '-q', REF_TRANSIT])).trim();
+    await gitHote(
+      [
+        'fetch',
+        '--update-shallow',
+        '--no-tags',
+        '--quiet',
+        mission.transit,
+        `+${REF_TRANSIT}:${REF_TRANSIT}`,
+      ],
+      depotLocal,
+    );
+    const rangee = await refDe(depotLocal);
     if (rangee !== commit) {
       return {
         etat: 'non_commitee',
@@ -296,11 +323,11 @@ export async function garderMission(
     }
     // Ancienne valeur VIDE : « cette branche ne doit pas exister ». Jamais
     // d'écrasement — une branche déjà là fait échouer, et c'est dit.
-    await depot.raw(['update-ref', `refs/heads/${branche}`, commit, '']);
+    await gitHote(['update-ref', `refs/heads/${branche}`, commit, ''], depotLocal);
     // Un reste de transit ne livre rien, et la prochaine livraison l'écrase :
     // son effacement raté ne doit pas faire dire « non commitée » à une
     // branche qui existe.
-    await depot.raw(['update-ref', '-d', REF_TRANSIT]).catch(() => undefined);
+    await gitHote(['update-ref', '-d', REF_TRANSIT], depotLocal).catch(() => undefined);
   } catch (err) {
     return { etat: 'non_commitee', motif: motifLave(`livraison impossible : ${messageDe(err)}`) };
   }
@@ -311,7 +338,7 @@ export async function garderMission(
     return { etat: 'commitee', branche, commit, poussee: 'refusee', motif: CONSENTEMENT_POUSSEE };
   }
   try {
-    await auDepotDistant(depotLocal, envTransport, [
+    await auDepotDistant(depotLocal, [
       'push',
       '--no-verify',
       depotProjet,

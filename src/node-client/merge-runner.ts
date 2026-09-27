@@ -30,18 +30,19 @@ import type { ChildProcess } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { simpleGit } from 'simple-git';
 import { ENTREE_FERMEE } from '../adapters/exec.js';
 import { MERGE_PREPARATION_MS, MERGE_TESTS_MS } from '../shared/butoirs-noeud.js';
 import { jugerCommandeTest } from '../shared/commande-test.js';
 import { jugerPreparation } from '../shared/preparation.js';
 import type { Arret } from '../shared/validations-bac.js';
 import { LanceurIndisponible, resoudreLanceur } from '../lanceur-reel.js';
-import { envelopper } from './isolement.js';
-import type { Fournisseur } from './isolement.js';
+import { envDuLanceur, envelopper, optionsEnveloppe } from './isolement.js';
+import type { BacExecution } from './isolement.js';
 import { composerMission, garderMission } from './livraison-locale.js';
 import type { LivraisonDuNoeud, MissionComposee } from './livraison-locale.js';
 import type { RapportDuNoeud } from '../shared/livraison-locale.js';
+import { commitDeDepart, diffContreBase, epinglerClone, gitHote } from './git-hote.js';
+import type { DepotEpingle } from './git-hote.js';
 import { buildSandboxEnv } from './workspace.js';
 
 export interface MergeDiff {
@@ -76,7 +77,7 @@ export interface MergeRunOptions {
    * empêchait bien un agent de sortir de son bac, pendant que la commande de
    * test d'un merge s'exécutait à côté, sur l'hôte nu.
    */
-  bac?: { fournisseur: Fournisseur; variables: readonly string[]; image: string };
+  bac?: BacExecution;
   /** Délai max de la commande de test (défaut 5 min). */
   timeoutMs?: number;
   /**
@@ -236,7 +237,7 @@ export function runProc(
   env: NodeJS.ProcessEnv,
   timeoutMs: number,
   signal?: AbortSignal,
-  bac?: { fournisseur: Fournisseur; variables: readonly string[]; image: string },
+  bac?: BacExecution,
 ): Promise<{ code: number | null; output: string; arret?: Arret }> {
   return new Promise((resolve) => {
     const [bin, ...args] = cmd;
@@ -256,12 +257,7 @@ export function runProc(
     // plateforme — c'est l'hôte qui est Windows, pas l'invité.
     let lance: { bin: string; args: string[] };
     if (bac) {
-      lance = envelopper(bin ?? '', args, {
-        fournisseur: bac.fournisseur,
-        cwdHote: cwd,
-        variables: bac.variables,
-        image: bac.image,
-      });
+      lance = envelopper(bin ?? '', args, optionsEnveloppe(bac, cwd));
     } else {
       try {
         lance = resoudreLanceur(bin ?? '', args);
@@ -293,7 +289,8 @@ export function runProc(
     }
     const child = spawn(lance.bin, lance.args, {
       cwd,
-      env,
+      // Le client du moteur lit sa configuration sur l'hôte (voir `envDuLanceur`).
+      env: bac ? envDuLanceur(bac.fournisseur, env) : env,
       shell: false, // jamais d'interprétation shell (contrainte §5.1)
       windowsHide: true,
       // Chef de son groupe de processus, pour que `emporterArbre` atteigne
@@ -397,7 +394,15 @@ export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
     const verdict = jugerPreparation(opts.prepareCommand);
     if (!verdict.ok) throw new Error(`préparation refusée : ${verdict.motif}`);
   }
-  const git = simpleGit({ baseDir: opts.repoDir });
+  // Le clone vient du nœud et aucun code étranger n'y a tourné : son git dir
+  // est de confiance. On l'ÉPINGLE quand même (rien n'est cherché ailleurs), et
+  // les `.gitattributes` qu'un diff apporte ne choisissent aucun filtre — ceux
+  // du projet restent appliqués (git-hote.ts, `figerFiltres`). La préparation
+  // et les tests, eux, tournent APRÈS le dernier git — la livraison compose
+  // son commit AVANT eux (`composerMission`) : ce qu'ils écrivent dans `.git`
+  // ne gouverne plus rien.
+  const depot = await epinglerClone(opts.repoDir);
+  const base = await commitDeDepart(depot);
   const applied: string[] = [];
   const conflicts: { taskId: string; reason: string }[] = [];
   const logs: string[] = [];
@@ -417,20 +422,19 @@ export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
       writeFileSync(patchFile, diff.endsWith('\n') ? diff : `${diff}\n`);
       try {
         // Vérifie AVANT d'appliquer : échoue si le patch ne colle pas à l'état accumulé.
-        await git.raw(['apply', '--check', patchFile]);
+        await gitHote(['apply', '--check', patchFile], depot);
       } catch {
         conflicts.push({ taskId, reason: "le diff ne s'applique pas proprement (conflit)" });
         logs.push(`✘ ${taskId} : conflit d'application`);
         continue;
       }
-      await git.raw(['apply', patchFile]);
+      await gitHote(['apply', patchFile], depot);
       applied.push(taskId);
       logs.push(`✔ ${taskId} appliqué`);
     }
 
-    // Diff cumulé (nouveaux fichiers rendus visibles via --intent-to-add).
-    await git.raw(['add', '--all', '--intent-to-add']);
-    const mergedDiff = await git.diff();
+    // Diff cumulé contre la base du clone — créations ET suppressions.
+    const mergedDiff = await diffContreBase(depot, base);
 
     // L'ARBRE À LIVRER, figé MAINTENANT : après, la préparation installe ses
     // dépendances et les tests écrivent leurs traces dans cette même copie.
@@ -438,15 +442,15 @@ export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
     // qu'un test aurait réécrit — sous le nom de la mission.
     let arbre: string | null = null;
     if (opts.livraison && conflicts.length === 0 && mergedDiff.trim()) {
-      await git.raw(['add', '--all']);
-      arbre = (await git.raw(['write-tree'])).trim();
+      await gitHote(['add', '--all'], depot);
+      arbre = (await gitHote(['write-tree'], depot)).trim();
     }
     // LA MISSION SE COMPOSE ICI, pas après les tests : la préparation et les
     // tests exécutent le code du dépôt DANS ce clone, `.git` compris. Tout ce
     // que git doit y lire — le parent, le commit — se lit tant que seuls
     // `clone` et `apply` y sont passés (en-tête de `livraison-locale.ts`).
     const composee = opts.livraison
-      ? await composerSiIntegrable(opts.livraison, opts.repoDir, transit, opts.testCommand, {
+      ? await composerSiIntegrable(opts.livraison, depot, transit, opts.testCommand, {
           applied,
           conflicts,
           arbre,
@@ -542,7 +546,7 @@ export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
  */
 async function composerSiIntegrable(
   livraison: LivraisonDuNoeud,
-  repoDir: string,
+  clone: DepotEpingle,
   transit: string,
   testCommand: readonly string[] | undefined,
   etat: {
@@ -571,7 +575,7 @@ async function composerSiIntegrable(
     return refus('provenance incomplète : elle ne nomme pas exactement les tâches intégrées');
   }
   return composerMission({
-    cloneDir: repoDir,
+    clone,
     arbre: etat.arbre,
     transit,
     livraison,

@@ -17,7 +17,14 @@ export interface AdapterProgress {
   subAgents?: SubAgent[];
   /** Snapshot des fichiers ouverts constatés (ADR 0010). */
   presences?: PresenceFichier[];
+  /** Jalon lisible (« claude -p démarré ») : journalisé par le hub. */
   log?: string;
+  /**
+   * Un morceau de la sortie de l'agent (stdout, stderr), EN DIRECT (sortie-directe.ts :
+   * ≤ 4 Kio, ≤ 4 par seconde). Éphémère : le hub le relaie aux écrans sans le
+   * journaliser — voir `TaskUpdateMsg.sortie`.
+   */
+  sortie?: string;
 }
 
 /** Demande bornée qu'un Worker peut transmettre à la Queen pour un enfant. */
@@ -53,7 +60,8 @@ export type WorkerDelegationResult =
     }
   | { ok: false; code: string; message: string };
 
-import type { Fournisseur } from '../node-client/isolement.js';
+import type { BacExecution } from '../node-client/isolement.js';
+import type { ReservationPont } from '../node-client/rendez-vous-pont.js';
 
 export interface AdapterContext {
   /** Répertoire de travail isolé de la tâche (sandbox v0). */
@@ -80,6 +88,13 @@ export interface AdapterContext {
   /** Attend le résultat terminal d'un enfant admis, sans exposer le socket. */
   waitForDelegationResult?: (childTaskId: string) => Promise<WorkerDelegationResult>;
   /**
+   * Où le pont de délégation de la tâche ouvre son socket : le rendez-vous
+   * privé du NŒUD sous le dossier temporaire du système, jamais le répertoire
+   * de la tâche, dont la profondeur dépassait la limite d'un socket Unix (voir
+   * `rendez-vous-pont.ts`). Fourni avec `delegate` et `waitForDelegationResult`.
+   */
+  rendezVous?: ReservationPont;
+  /**
    * Bac à sable dans lequel envelopper la commande, s'il y en a un.
    *
    * Résolu UNE FOIS au démarrage du nœud, jamais par tâche : sonder un binaire
@@ -88,13 +103,7 @@ export interface AdapterContext {
    * sandbox de processus (voir `isolement.ts` pour ce que cela protège, et
    * surtout pour ce que cela ne protège pas).
    */
-  bac?: {
-    fournisseur: Fournisseur;
-    /** Image ayant passé le preflight agent-aware. */
-    image: string;
-    /** Noms — jamais valeurs — des variables à transmettre dans le bac. */
-    variables: readonly string[];
-  };
+  bac?: BacExecution;
 }
 
 export interface AdapterResult {

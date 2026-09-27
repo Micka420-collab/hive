@@ -5705,6 +5705,20 @@ export class HiveStore {
    * tourne en quelques heures. Ce qui la LÈVE (revue humaine, nouvel essai)
    * se relit dans les tables rangées, pas ici (`TacheRangee`). Bornée par
    * `pruneTasks` : une par tâche conservée, et la protection tombe avec elle.
+   *
+   * La contre-revue en cours du DERNIER résultat d'une production rendue
+   * (`done`) garde aussi ses faits : les annonces de lancement (filigrane
+   * `resultId` que `eventForRelecture` relit pour compter les relectures en
+   * vol et rattacher une clôture) et l'impossibilité consignée
+   * (`contreRevueImpossible`, sur laquelle l'Evaluator nomme sa revue
+   * humaine). Élagués, une production en attente d'humain retombait en
+   * « preuves manquantes », et une relecture de secours close ensuite perdait
+   * sa suite. Bornée aux `CORPUS_AIGUILLAGE` productions rendues les plus
+   * récentes : au plus trois faits chacune (lancement, secours, impossibilité).
+   * « Productions » au sens strict — les tâches qui ont des relectures
+   * (`contre_expertises.productionTaskId`) : compter toute tâche `done`
+   * laisserait les relectures elles-mêmes, et les tâches jamais relues,
+   * occuper la moitié des places et élaguer plus tôt que promis.
    */
   pruneEvents(maxKeep: number): number {
     const cutoff = this.lastEventId() - Math.max(0, maxKeep);
@@ -5775,9 +5789,23 @@ export class HiveStore {
                      AND json_extract(r.payload, '$.taskId') = json_extract(events.payload, '$.taskId')
                 )
               )
+              OR (
+                type IN ('contre_expertise', 'contre_expertise_impossible')
+                AND json_extract(payload, '$.taskId') IN (
+                  SELECT t.id FROM tasks t
+                   WHERE t.status = 'done'
+                     AND t.id IN (SELECT productionTaskId FROM contre_expertises)
+                   ORDER BY t.updatedAt DESC, t.id DESC
+                   LIMIT ?
+                )
+                AND json_extract(payload, '$.resultId') = (
+                  SELECT MAX(r.id) FROM results r
+                   WHERE r.taskId = json_extract(events.payload, '$.taskId')
+                )
+              )
             )`,
       )
-      .run(cutoff, CORPUS_AIGUILLAGE, Math.max(0, maxKeep));
+      .run(cutoff, CORPUS_AIGUILLAGE, Math.max(0, maxKeep), CORPUS_AIGUILLAGE);
     return info.changes;
   }
 
@@ -6011,6 +6039,35 @@ export class HiveStore {
       return null;
     }
     return { validation, provenance };
+  }
+
+  /**
+   * La cause consignée quand la contre-revue de CE résultat s'est révélée
+   * impossible (`contre_expertise_impossible`), ou `null`.
+   *
+   * Un fait du journal, comme les avis et les preuves CI : c'est au moment où
+   * la dernière relecture tombe que la cause est connue, et c'est là qu'elle
+   * est écrite. Relue à chaque verdict de l'Evaluator plutôt que redéduite de
+   * trois signaux (relectures échouées, secours tenté, nœuds en ligne) dont
+   * l'état a changé depuis.
+   */
+  contreRevueImpossible(taskId: string, resultId: number): string | null {
+    const row = this.db
+      .prepare(
+        `SELECT payload FROM events
+         WHERE type = 'contre_expertise_impossible'
+           AND json_extract(payload, '$.taskId') = ?
+           AND json_extract(payload, '$.resultId') = ?
+         ORDER BY id DESC LIMIT 1`,
+      )
+      .get(taskId, resultId) as { payload: string } | undefined;
+    if (!row) return null;
+    try {
+      const cause = (JSON.parse(row.payload) as Record<string, unknown>).cause;
+      return typeof cause === 'string' && cause.length > 0 ? champSurUneLigne(cause, 500) : null;
+    } catch {
+      return null;
+    }
   }
 
   /** Résumé de toutes les contre-revues indépendantes d'un résultat exact. */

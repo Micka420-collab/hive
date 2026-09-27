@@ -7,11 +7,13 @@
 // phases distinctes, SANS rien estimer :
 //
 //   · une phase dont un bord manque est `null`, pas zéro ;
-//   · la durée côté modèle et le coût fournisseur viennent de ce que le CLI de
-//     l'agent DÉCLARE (Claude Code : `duration_api_ms`, `total_cost_usd`), avec
-//     leur couverture (tentatives déclarées / tentatives rendues). Sans aucune
-//     déclaration ils sont `inconnu`, dit tel quel — jamais déduits de la durée
-//     du Worker, qui mesure le processus local et non le modèle distant.
+//   · la durée côté modèle, le coût fournisseur et les jetons viennent de ce
+//     que le CLI de l'agent DÉCLARE (Claude Code : `duration_api_ms`,
+//     `total_cost_usd`, `usage` ; Codex : les jetons de `turn.completed`, et
+//     rien d'autre), avec leur couverture (tentatives déclarées / tentatives
+//     rendues). Sans aucune déclaration ils sont `inconnu`, dit tel quel —
+//     jamais déduits de la durée du Worker, qui mesure le processus local et
+//     non le modèle distant, ni le coût des jetons.
 
 import { declarationDe, sommeDeclaree } from './declaration-fournisseur.js';
 import type { SommeDeclaree } from './declaration-fournisseur.js';
@@ -29,6 +31,10 @@ export interface TentativeVue {
   dureeModeleMs: number | null;
   /** Coût déclaré par le CLI de l'agent (USD) ; `null` sinon. */
   coutUsd: number | null;
+  /** Jetons d'entrée déclarés par le CLI (cache compris) ; `null` sinon. */
+  jetonsEntree: number | null;
+  /** Jetons de sortie déclarés par le CLI (raisonnement compris) ; `null` sinon. */
+  jetonsSortie: number | null;
 }
 
 export interface ChronologieTache {
@@ -59,8 +65,12 @@ export interface ChronologieTache {
   terminee: boolean;
   /** Temps modèle déclaré par le CLI, sommé sur les tentatives qui le déclarent. */
   dureeModele: SommeDeclaree | 'inconnu';
-  /** Coût déclaré par le CLI (USD), sommé de même — jamais estimé depuis le temps. */
+  /** Coût déclaré par le CLI (USD), sommé de même — jamais estimé, ni du temps ni des jetons. */
   coutFournisseur: SommeDeclaree | 'inconnu';
+  /** Jetons d'entrée déclarés par le CLI, sommés sur les tentatives qui les déclarent. */
+  jetonsEntree: SommeDeclaree | 'inconnu';
+  /** Jetons de sortie déclarés par le CLI, sommés de même. */
+  jetonsSortie: SommeDeclaree | 'inconnu';
 }
 
 /** Les types d'événements que la chronologie lit — et rien d'autre. */
@@ -87,6 +97,8 @@ const tentative = (issue: IssueTentative, payload: Record<string, unknown>): Ten
     dureeWorkerMs: nombre(payload.durationMs),
     dureeModeleMs: declaration.dureeApiMs,
     coutUsd: declaration.coutUsd,
+    jetonsEntree: declaration.jetonsEntree,
+    jetonsSortie: declaration.jetonsSortie,
   };
 };
 
@@ -152,7 +164,11 @@ export function chronologieDepuisEvenements(
         break;
       case 'contre_expertise':
         // Seule une contre-expertise réellement lancée ouvre une fenêtre de revue.
-        if (e.payload.possible !== false) {
+        // Une relecture de SECOURS prolonge la fenêtre ouverte : le temps
+        // perdu par la relecture tombée est du temps de revue, pas un trou.
+        if (e.payload.secours === true) {
+          lancement ??= e.ts;
+        } else if (e.payload.possible !== false) {
           fermerFenetre();
           lancement = e.ts;
         }
@@ -182,5 +198,7 @@ export function chronologieDepuisEvenements(
     terminee: terminaleA !== null,
     dureeModele: sommeDeclaree(tentatives.map((x) => x.dureeModeleMs)),
     coutFournisseur: sommeDeclaree(tentatives.map((x) => x.coutUsd)),
+    jetonsEntree: sommeDeclaree(tentatives.map((x) => x.jetonsEntree)),
+    jetonsSortie: sommeDeclaree(tentatives.map((x) => x.jetonsSortie)),
   };
 }

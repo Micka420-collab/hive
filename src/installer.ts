@@ -176,7 +176,8 @@ export function composerReglages(
       valeur: garde('HIVE_ISOLEMENT', 'auto'),
       commentaire:
         'Bac à sable des agents : off | auto | exige. « auto » utilise podman/docker/bubblewrap ' +
-        's’il y en a un, sinon travaille quand même en le disant. « exige » refuse de travailler ' +
+        's’il y en a un, sinon travaille quand même en le disant. Podman et Docker exigent l’image ' +
+        'des agents, construite sur ce poste par « npm run bac:image ». « exige » refuse de travailler ' +
         'sans bac à sable — c’est le réglage à choisir si vous prêtez votre machine à des inconnus.',
     },
     {

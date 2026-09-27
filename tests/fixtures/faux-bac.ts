@@ -11,7 +11,7 @@
 // POSIX seulement : un script à shebang ne se lance pas sans shell sous
 // Windows — même limite, et même raison, que `commande-test.test.ts`.
 
-import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { Fournisseur } from '../../src/node-client/isolement.js';
@@ -34,6 +34,8 @@ export function fauxBac(dossiers: string[]): {
   writeFileSync(
     bin,
     '#!/bin/sh\n' +
+      // Chaque lancement laisse sa ligne de commande (`appelsDuFauxBac`).
+      'printf \'%s\\n\' "$*" >> "$(dirname "$0")/appels"\n' +
       `while [ "$#" -gt 0 ] && [ "$1" != "${IMAGE}" ]; do shift; done\n` +
       'shift\n' +
       'exec "$@"\n',
@@ -44,4 +46,10 @@ export function fauxBac(dossiers: string[]): {
     variables: [],
     image: IMAGE,
   };
+}
+
+/** Les lignes de commande reçues par le faux moteur, une par lancement. */
+export function appelsDuFauxBac(bac: ReturnType<typeof fauxBac>): string[] {
+  const journal = path.join(path.dirname(bac.fournisseur.bin), 'appels');
+  return existsSync(journal) ? readFileSync(journal, 'utf8').split('\n').filter(Boolean) : [];
 }

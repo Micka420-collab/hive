@@ -322,3 +322,129 @@ describe('un refus d’infrastructure dit sa cause — un refus ordinaire, non',
     expect(ligne(dom)).not.toContain('noeud_sature');
   });
 });
+
+describe('une relecture impossible se lit comme un appel à l’humain', () => {
+  const impossible = evenement('contre_expertise_impossible', {
+    taskId: 'prod-1234abcd',
+    resultId: 3,
+    relecture: 'relu-5678',
+    relecteur: 'codex',
+    producteur: 'claude-code',
+    cause: 'codex a échoué (3 tentative(s))',
+  });
+
+  it('LA CAUSE ET LA REVUE HUMAINE SONT DITES', async () => {
+    const dom = await monter(impossible);
+    expect(ligne(dom)).toBe(
+      'relecture impossible (prod-123) : codex a échoué (3 tentative(s)) — revue humaine requise',
+    );
+  });
+
+  it('EN ANGLAIS, SANS PHRASE FRANÇAISE : le dernier relecteur est nommé', async () => {
+    setLang('en');
+    const dom = await monter(impossible);
+    expect(ligne(dom)).toBe(
+      'review impossible (prod-123), last reviewer codex — human review required',
+    );
+  });
+
+  it('LE RELAIS D’UNE FAMILLE NEUVE SE DISTINGUE D’UN LANCEMENT', async () => {
+    const dom = await monter(
+      evenement('contre_expertise', {
+        taskId: 'prod-1234abcd',
+        possible: true,
+        secours: true,
+        modeles: ['hermes-agent'],
+      }),
+    );
+    expect(ligne(dom)).toBe('relecture de secours de prod-123 confiée à hermes-agent');
+  });
+});
+
+// Les lignes qu'un opérateur lit pour distinguer un NOUVEL ESSAI d'une clôture
+// sans avis, une attente de famille d'un verdict : sans banc, inverser la
+// branche `terminal` ferait lire « nouvel essai » sur une relecture close pour
+// de bon — exactement le silence que la contre-revue ne doit plus laisser.
+describe('les lignes de la contre-revue disent où elle en est', () => {
+  const cas: ReadonlyArray<
+    readonly [string, string, Record<string, unknown>, 'fr' | 'en', string]
+  > = [
+    [
+      'attente de famille',
+      'contre_expertise_review_waiting',
+      { taskId: 'prod-1234abcd', relecteur: 'codex' },
+      'fr',
+      'relecture de prod-123 en attente : aucun nœud codex en ligne',
+    ],
+    [
+      'attente de famille',
+      'contre_expertise_review_waiting',
+      { taskId: 'prod-1234abcd', relecteur: 'codex' },
+      'en',
+      'review of prod-123 waiting: no codex node online',
+    ],
+    [
+      'échec terminal',
+      'contre_expertise_review_failed',
+      { taskId: 'prod-1234abcd', relecteur: 'codex', terminal: true },
+      'fr',
+      'relecture de prod-123 par codex close sans avis',
+    ],
+    [
+      'échec terminal',
+      'contre_expertise_review_failed',
+      { taskId: 'prod-1234abcd', relecteur: 'codex', terminal: true },
+      'en',
+      'review of prod-123 by codex closed without a verdict',
+    ],
+    [
+      'échec suivi d’un essai',
+      'contre_expertise_review_failed',
+      { taskId: 'prod-1234abcd', relecteur: 'codex', terminal: false },
+      'fr',
+      'relecture de prod-123 par codex : échec, nouvel essai',
+    ],
+    [
+      'échec suivi d’un essai',
+      'contre_expertise_review_failed',
+      { taskId: 'prod-1234abcd', relecteur: 'codex', terminal: false },
+      'en',
+      'review of prod-123 by codex: failed, retrying',
+    ],
+    [
+      'avis contestataire',
+      'contre_expertise_verdict',
+      { taskId: 'prod-1234abcd', relecteur: 'codex', conteste: true },
+      'fr',
+      'codex conteste prod-123',
+    ],
+    [
+      'avis contestataire',
+      'contre_expertise_verdict',
+      { taskId: 'prod-1234abcd', relecteur: 'codex', conteste: true },
+      'en',
+      'codex contests prod-123',
+    ],
+    [
+      'avis favorable',
+      'contre_expertise_verdict',
+      { taskId: 'prod-1234abcd', relecteur: 'codex', conteste: false },
+      'fr',
+      'codex valide prod-123',
+    ],
+    [
+      'avis favorable',
+      'contre_expertise_verdict',
+      { taskId: 'prod-1234abcd', relecteur: 'codex', conteste: false },
+      'en',
+      'codex approves prod-123',
+    ],
+  ];
+  for (const [nom, type, payload, lang, attendu] of cas) {
+    it(`${nom.toUpperCase()} (${lang})`, async () => {
+      setLang(lang);
+      const dom = await monter(evenement(type, payload));
+      expect(ligne(dom)).toBe(attendu);
+    });
+  }
+});

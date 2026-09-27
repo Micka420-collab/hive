@@ -58,7 +58,8 @@ interface Issue {
 /** Un temps du scénario : attendre ce marqueur, puis faire ce geste. */
 interface Etape {
   readonly marqueur: string;
-  readonly geste: (pid: number) => void;
+  /** `sortie` : tout ce que la ruche a imprimé jusque-là (une URL à y lire). */
+  readonly geste: (pid: number, sortie: string) => void;
 }
 
 /** Lance la ruche, attend UN marqueur, exécute `alors`, recueille la fin. */
@@ -125,7 +126,7 @@ function jouerRuche(
       ) {
         clearTimeout(boucherMarqueur);
         rang += 1;
-        etape.geste(proc.pid as number);
+        etape.geste(proc.pid as number, sortie);
         const suivante = etapes[rang];
         if (suivante) {
           boucherMarqueur = armerMarqueur(suivante.marqueur);
@@ -160,7 +161,7 @@ function envRuche(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   };
 }
 
-/** Un port libre, rendu aussitôt : la Reine l'ouvrira, les ouvrières le viseront. */
+/** Un port libre, rendu aussitôt : une adresse où personne n'écoute. */
 async function portLibre(): Promise<number> {
   const s = createServer();
   await new Promise<void>((resoudre, rejeter) => {
@@ -293,7 +294,68 @@ describe('le lanceur de la ruche — vie et mort', () => {
     60_000,
   );
   it.runIf(POSIX)(
-    'DEUX AGENTS INSTALLÉS, DEUX OUVRIÈRES — chacune SON agent, SON identité, une tâche ; l’ajoutée tombe seule',
+    'L’ÉCRAN RELAIE VERS SA REINE — `/api` joint le port qu’elle a ouvert, pas :7777',
+    async () => {
+      // ─── LA MOITIÉ ÉCRAN DU CÂBLAGE ─────────────────────────────────────────
+      //
+      // `demarrage.test.ts` prouve que `envDePiece` pose `HIVE_HTTP`, et que
+      // `vite.config.ts` le lit. Ce qu'il ne voit pas, c'est que `ruche.mjs`
+      // lance l'écran PAR cette file d'annonce, avec cet environnement : un
+      // écran démarré hors de la file, ou sur un `process.env` nu, relayait
+      // vers :7777 — une page qui s'affiche et dont chaque appel échoue.
+      //
+      // La preuve est ce que l'opérateur verrait : un `GET /api/health` à
+      // travers le proxy de Vite, rendu par NOTRE Reine, sur un port libre
+      // qui n'est jamais 7777. Sous Linux, en plus, l'environnement exact de
+      // l'écran (`/proc/<pid>/environ`) — un vert qui ne dépend pas de ce qui
+      // écoute, ou non, sur 7777 ce jour-là.
+      //
+      // Vite coûte ici quelques secondes : c'est lui, précisément, le sujet.
+      const port = await portLibre();
+      let sante: unknown;
+      let echec: unknown;
+      let environ: string[] = [];
+      const r = await jouerRuche(['--sans-noeud'], envRuche({ HIVE_PORT: String(port) }), [
+        {
+          marqueur: 'Local:',
+          geste: (pid, sortie) => {
+            if (LINUX) {
+              const enfants = execFileSync('pgrep', ['-P', String(pid)], { encoding: 'utf8' })
+                .trim()
+                .split('\n');
+              const ecran = enfants.find((p) =>
+                readFileSync(`/proc/${p}/cmdline`, 'utf8').includes('vite'),
+              );
+              if (ecran) environ = readFileSync(`/proc/${ecran}/environ`, 'utf8').split('\0');
+            }
+            const vite = /Local:\s+(http:\/\/\S+?)\/?\s/.exec(sortie)?.[1];
+            void fetch(`${vite ?? 'http://localhost:5173'}/api/health`)
+              .then(async (reponse) => {
+                sante = { statut: reponse.status, corps: await reponse.text() };
+              })
+              .catch((e: unknown) => {
+                echec = e;
+              })
+              .finally(() => {
+                process.kill(pid, 'SIGINT');
+              });
+          },
+        },
+      ]);
+
+      expect(echec, r.sortie).toBeUndefined();
+      expect(sante, `l’écran ne relaie pas vers sa Reine :\n${r.sortie}`).toEqual({
+        statut: 200,
+        corps: JSON.stringify({ ok: true }),
+      });
+      if (LINUX) expect(environ).toContain(`HIVE_HTTP=http://127.0.0.1:${port}`);
+      expect(r.code, r.sortie).toBe(0);
+    },
+    90_000,
+  );
+
+  it.runIf(POSIX)(
+    'DEUX AGENTS INSTALLÉS, DEUX OUVRIÈRES — chacune SON agent, SON identité, une tâche, SA Reine ; l’ajoutée tombe seule',
     async () => {
       // ─── CE QUE `demarrage.test.ts` NE PEUT PAS PROUVER ────────────────────
       //
@@ -315,18 +377,32 @@ describe('le lanceur de la ruche — vie et mort', () => {
       // le banc s'arrête au ^C, après l'inscription : le câblage (chaque
       // ouvrière reçoit SON environnement) est ce qui risque de différer d'un
       // système à l'autre, et il est éprouvé sur les deux.
+      //
+      // ─── ET CHACUNE TROUVE SA REINE, SUR LE PORT QU'ELLE A OUVERT ──────────
+      //
+      // Ce banc posait lui-même `HIVE_URL` au port de la Reine — et masquait
+      // ainsi le défaut qu'il aurait dû voir : le lanceur n'en passait aucun,
+      // et ses ouvrières visaient `ws://localhost:7777/ws` quel que soit
+      // `HIVE_PORT`. Mesuré sur un port libre : Reine en ligne, ouvrière en
+      // « connexion perdue — nouvel essai » sans fin.
+      //
+      // Désormais `HIVE_PORT=0` (celui d'`envRuche`) : le système tire le port,
+      // et seule la Reine le connaît. Aucune ouvrière ne peut s'inscrire sans
+      // qu'elle l'ait annoncé au lanceur et qu'il le leur ait passé. Et le
+      // `HIVE_URL` hérité pointe là où PERSONNE n'écoute — la forme du `.env`
+      // copié de `.env.example`, figé sur 7777 : il ne doit pas l'emporter
+      // sur l'adresse que la Reine a annoncée.
       const faux = mkdtempSync(path.join(tmpdir(), 'ruche-agents-'));
       aNettoyer.push(faux);
       for (const bin of ['claude', 'codex']) {
         writeFileSync(path.join(faux, bin), '#!/bin/sh\necho "faux 1.0"\n', { mode: 0o755 });
       }
-      const port = await portLibre();
+      const personne = await portLibre();
       const env = envRuche({
         PATH: faux,
         // Les chemins natifs (`~/.local/bin`) ne doivent rien trouver non plus.
         HOME: faux,
-        HIVE_PORT: String(port),
-        HIVE_URL: `ws://127.0.0.1:${port}/ws`,
+        HIVE_URL: `ws://127.0.0.1:${personne}/ws`,
         HIVE_NODE_NAME: 'banc',
         HIVE_WORKDIR: path.join(faux, 'travail'),
         // Aucun moteur de conteneurs à sonder : le bac n'est pas le sujet.

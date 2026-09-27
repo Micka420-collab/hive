@@ -30,11 +30,29 @@ export const EVENT_OUVRIR_COMPTE = 'hive:ouvrir-compte';
 interface Props {
   user: AuthUser | null;
   onUser: (user: AuthUser | null) => void;
+  /**
+   * La session vient d'expirer (`surSessionExpiree`) : la fenêtre s'ouvre
+   * d'elle-même et dit pourquoi. Sans ça, la personne ne découvrait qu'elle
+   * était déconnectée qu'en voyant ses gestes échouer un à un.
+   */
+  sessionExpiree?: boolean;
 }
 
-export function AccountPanel({ user, onUser }: Props) {
+export function AccountPanel({ user, onUser, sessionExpiree = false }: Props) {
   const t = useT();
   const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (sessionExpiree) setOpen(true);
+  }, [sessionExpiree]);
+
+  // Une session revenue par un AUTRE chemin (reconnexion dans un autre onglet)
+  // referme la fenêtre ouverte par l'expiration : sans ça, `open` restait vrai
+  // sous la branche « connecté », et la fenêtre « Connexion » surgissait
+  // d'elle-même au clic suivant sur « Déconnexion ».
+  useEffect(() => {
+    if (user) setOpen(false);
+  }, [user]);
 
   useEffect(() => {
     if (user) return;
@@ -71,7 +89,13 @@ export function AccountPanel({ user, onUser }: Props) {
       <button className="btn ghost" onClick={() => setOpen(true)}>
         {t('Se connecter', 'Sign in')}
       </button>
-      {open && <AccountModal onClose={() => setOpen(false)} onUser={onUser} />}
+      {open && (
+        <AccountModal
+          onClose={() => setOpen(false)}
+          onUser={onUser}
+          sessionExpiree={sessionExpiree}
+        />
+      )}
     </>
   );
 }
@@ -79,9 +103,11 @@ export function AccountPanel({ user, onUser }: Props) {
 function AccountModal({
   onClose,
   onUser,
+  sessionExpiree,
 }: {
   onClose: () => void;
   onUser: (user: AuthUser) => void;
+  sessionExpiree: boolean;
 }) {
   const t = useT();
   const [mode, setMode] = useState<'login' | 'register'>('login');
@@ -162,6 +188,14 @@ function AccountModal({
           </button>
         </div>
 
+        {sessionExpiree && !error && (
+          <p className="modal-note" role="status">
+            {t(
+              'Session expirée — reconnectez-vous pour reprendre là où vous en étiez.',
+              'Session expired — sign in again to pick up where you left off.',
+            )}
+          </p>
+        )}
         {error && <p className="modal-error">{error}</p>}
 
         {mode === 'register' && (

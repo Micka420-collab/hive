@@ -173,6 +173,13 @@ export interface EvaluatorInput {
    * Absent : aucune relecture connue en vol.
    */
   crossReviewPending?: number;
+  /**
+   * La contre-revue de ce résultat est IMPOSSIBLE — sa dernière relecture est
+   * tombée sans avis, et ni secours ni relecture en vol ne viendront — avec sa
+   * cause (`contre_expertise_impossible`, server.ts). Absent : rien de tel
+   * n'a été constaté.
+   */
+  crossReviewImpossible?: string;
 }
 
 export interface EvaluationEvidence {
@@ -189,6 +196,8 @@ export interface EvaluationEvidence {
   crossReview: CrossReviewEvidence;
   /** Relectures de ce résultat lancées et encore sans avis (voir `EvaluatorInput`). */
   crossReviewPending: number;
+  /** Cause d'une contre-revue impossible (voir `EvaluatorInput`), si constatée. */
+  crossReviewImpossible?: string;
   humanReview: 'approved' | 'rejected' | 'missing';
 }
 
@@ -244,6 +253,7 @@ export function evaluate(input: EvaluatorInput): EvaluationResult {
     ...(input.validationProvenance ? { validationProvenance: input.validationProvenance } : {}),
     crossReview,
     crossReviewPending,
+    ...(input.crossReviewImpossible ? { crossReviewImpossible: input.crossReviewImpossible } : {}),
   };
 
   const reasons: string[] = [];
@@ -341,6 +351,21 @@ export function evaluate(input: EvaluatorInput): EvaluationResult {
   if (failedValidation) {
     reasons.push(`validation ${failedValidation} en échec${suffixeSource}`);
     return result(input.taskId, 'correction_required', false, true, reasons, evidence);
+  }
+  // ─── UNE RELECTURE IMPOSSIBLE APPELLE L'HUMAIN, PAS LE PRODUCTEUR ────────
+  //
+  // Avant les preuves manquantes et les tests non applicables, et c'est
+  // voulu : aucune CI ne fera jamais
+  // `accepted` sans avis indépendant, et « tests supplémentaires requis »
+  // enverrait l'opérateur chercher une preuve qui ne débloquerait rien. La
+  // relecture est tombée, secours compris : c'est une personne qui tranche,
+  // et le motif dit POURQUOI personne d'autre ne le fera. Pas de relance
+  // (`retryRecommended` faux) : le producteur n'est pour rien dans la panne
+  // de son relecteur. Une CI en échec, elle, reste une faute du producteur —
+  // d'où la place, après elle.
+  if (input.crossReviewImpossible && crossReview.reviewerCount === 0 && crossReviewPending === 0) {
+    reasons.push(`relecture impossible : ${input.crossReviewImpossible}`);
+    return result(input.taskId, 'human_review_required', false, false, reasons, evidence);
   }
   // ─── MANQUANTE ET NON APPLICABLE NE SONT PAS LA MÊME ABSENCE ──────────────
   //

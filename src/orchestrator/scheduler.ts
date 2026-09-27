@@ -46,6 +46,8 @@ import type { Echelon, ObservationGardeFou, RangGardeFou } from './garde-fou.js'
 // tests/security-invariants.test.ts.
 import { CacheProjets, GrandLivre, jugerPlafond, LOT_GRAND_LIVRE } from './balance.js';
 import type { DecisionPlafond } from './balance.js';
+import { bornerCritique } from './brood.js';
+import type { CritiqueReprise } from './brood.js';
 import { ancetreEchoue, descendantsEnVol } from './delegation.js';
 import type { CauseAnnulationDelegation } from './delegation.js';
 import { createRace, enlistDrones, recordDroneResult, runningDrones } from './drone-wars.js';
@@ -113,6 +115,13 @@ export interface SchedulerOptions {
   onCancel?: (nodeId: string, taskId: string, reason: string) => void;
   /** Appelé pour chaque événement journalisé — le serveur le diffuse au dashboard. */
   onEvent?: (event: HiveEvent) => void;
+  /**
+   * Un morceau de sortie EN DIRECT d'un nœud légitime pour cette tâche : le
+   * serveur le relaie aux tableaux de bord, SANS le journaliser (voir
+   * `TaskUpdateMsg.sortie`). Même autorité que le progrès journalisé : le
+   * nœud assigné, ou un drone encore en course.
+   */
+  onSortie?: (taskId: string, nodeId: string, sortie: string) => void;
   /**
    * Balance : 'off' (le grand livre ne tourne pas du tout), 'observation'
    * (il pèse, se tient à jour et SIGNALE les franchissements, sans jamais rien
@@ -801,6 +810,7 @@ export class Scheduler {
         this.emit('task_failed', { taskId, reason: 'no_working_agent', infraRejects: count });
         this.infraRejects.delete(taskId);
         this.fermerSousArbre(taskId, 'ancestor_failed', now);
+        this.relectureCloseSansAvis(task, 'aucun_agent_fonctionnel');
         this.promoteAndAssign(now); // propager l'échec en cascade aux dépendantes
         return;
       }
@@ -864,6 +874,7 @@ export class Scheduler {
     subAgents?: SubAgent[],
     log?: string,
     presences?: PresenceFichier[],
+    sortie?: string,
   ): void {
     const task = this.store.getTask(taskId);
     // Mise à jour pour une tâche inconnue ou réaffectée ailleurs : ignorée —
@@ -886,6 +897,7 @@ export class Scheduler {
             ...(presences !== undefined ? { presences } : {}),
           });
         }
+        if (sortie) this.opts.onSortie?.(taskId, nodeId, sortie);
       }
       return;
     }
@@ -916,6 +928,12 @@ export class Scheduler {
         ...(presences !== undefined ? { presences } : {}),
       });
     }
+    // APRÈS la garde de statut : un morceau arrivé derrière le résultat d'une
+    // tâche close, ou réaffectée à un AUTRE nœud, ne rouvre pas une console que
+    // l'écran vient de vider. Relancée sur le MÊME nœud, la tâche est de
+    // nouveau « assignée » ici : c'est le nœud qui tait le morceau posthume de
+    // la tentative précédente (garde d'exécution de `progresVersHub`).
+    if (sortie) this.opts.onSortie?.(taskId, nodeId, sortie);
   }
 
   /** Mode des Gardiennes en vigueur. Défaut `consultatif` — jamais contraignant. */
@@ -1241,6 +1259,15 @@ export class Scheduler {
     taskId: string;
     resultId: number;
     decision: EvaluationRetryDecision;
+    /**
+     * Ce qui a motivé la correction, transmis à la tentative suivante
+     * (`blocCritique`, brood.ts). Borné ICI, à l'entrée du journal : c'est le
+     * scheduler qui l'écrit, quel que soit l'appelant. REQUISE (`null`
+     * explicite quand il n'y a rien à transmettre) : une porte de retry qui
+     * l'oublierait renverrait l'ouvrière refaire la production contestée, et
+     * le compilateur doit le voir.
+     */
+    critique: CritiqueReprise | null;
     now?: number;
   }): EvaluationRetryOutcome {
     const now = input.now ?? Date.now();
@@ -1287,6 +1314,10 @@ export class Scheduler {
     // doit repasser par cette porte : conserver l'approbation ferait fuiter un
     // verdict de la production précédente jusque dans la suivante.
     this.store.setTaskReview(task.id, null);
+    // La critique est journalisée AVANT `promoteAndAssign` : l'assignation
+    // qui suit est synchrone et relit ce payload pour composer le contexte de
+    // la tentative — émise après, elle arriverait une tentative trop tard.
+    const critique = bornerCritique(input.critique);
     this.emit('task_retry', {
       taskId: task.id,
       source: 'evaluator',
@@ -1294,6 +1325,7 @@ export class Scheduler {
       decision: input.decision,
       attempt,
       maxAttempts: this.maxAttempts,
+      ...(critique ? { critique } : {}),
     });
     this.promoteAndAssign(now);
     return {
@@ -1359,6 +1391,7 @@ export class Scheduler {
     const nodeId = task.assignedNodeId;
     const patched = this.store.patchTask(task.id, { status: 'failed', assignedNodeId: null }, now);
     this.emit('task_cancelled', { taskId: task.id, reason, ...(nodeId ? { nodeId } : {}) });
+    this.relectureCloseSansAvis(task, 'annulee');
     return patched;
   }
 
@@ -2056,12 +2089,15 @@ export class Scheduler {
    *     (`terminal`, motif `relecteur_absent`) : les deux faits que le hub
    *     émet déjà pour une relecture qui échoue en rendant son résultat.
    *
-   * Échouer, pas réaffecter : une AUTRE famille n'est pas un remplaçant.
-   * `choisirCritiques` a déjà confié la production à une relectrice par
-   * famille en ligne, jusqu'à `RELECTEURS_PAR_PRODUCTION` ; lui en donner une
-   * seconde lecture, c'est une contre-revue qui compte deux relectrices là où
-   * un seul modèle a lu (`crossReviewForResult`). Une famille revenue à temps
-   * reprend la relecture, quel que soit son nœud.
+   * Échouer, pas réaffecter : cette relecture reste épinglée à SA famille.
+   * La confier ici à une autre, ce serait parfois donner une seconde lecture
+   * à une famille qui relit déjà ce résultat (`choisirCritiques` en a engagé
+   * une par famille en ligne, jusqu'à `RELECTEURS_PAR_PRODUCTION`) — une
+   * contre-revue qui compte deux relectrices là où un seul modèle a lu
+   * (`crossReviewForResult`). Une famille revenue à temps reprend la
+   * relecture, quel que soit son nœud. Le relais par une famille NEUVE est
+   * une relecture de secours distincte, décidée par le hub une fois la
+   * contre-revue sans avis ni relecture en vol (`suiteRelectureEchouee`).
    *
    * Cet échec est une transition terminale comme les autres : il ferme le
    * sous-arbre délégué de la relecture (`fermerSousArbre`) — un relecteur
@@ -2101,6 +2137,31 @@ export class Scheduler {
     this.store.patchTask(task.id, { status: 'failed', assignedNodeId: null }, now);
     this.emit('task_failed', { taskId: task.id, reason: 'relecteur_absent' });
     for (const id of this.fermerSousArbre(task.id, 'ancestor_failed', now)) fermees.add(id);
+    this.relectureCloseSansAvis(task, 'relecteur_absent', lien);
+    return true;
+  }
+
+  /**
+   * Une relecture vient de passer TERMINALE sans rendre d'avis : le fait
+   * `contre_expertise_review_failed` (`terminal`) le dit, avec son motif.
+   *
+   * C'est le déclencheur UNIQUE de la suite (relecture de secours, ou revue
+   * humaine nommée — `reprendreContreRevue`, server.ts). Chaque chemin qui
+   * clôt une relecture sans avis passe donc par ici : l'absence de famille,
+   * l'agent qui ne démarre sur aucun nœud (`aucun_agent_fonctionnel`),
+   * l'annulation. Un chemin qui l'oublierait laisserait la production en
+   * suspens sans un mot — le silence même que ce fait existe pour fermer.
+   *
+   * Émis APRÈS la transition : la suite relit les relectures en vol, et
+   * celle-ci ne doit plus en être. Sans effet sur une tâche qui n'est pas une
+   * relecture.
+   */
+  private relectureCloseSansAvis(
+    task: Task,
+    motif: 'relecteur_absent' | 'aucun_agent_fonctionnel' | 'annulee',
+    lien = this.store.relectureDe(task.id),
+  ): void {
+    if (!lien) return;
     // Le `resultId` du lancement, comme le hub le joint à ses propres échecs
     // de relecture : il dit QUELLE tentative de la production perd son avis.
     const resultId = this.store.eventForRelecture(task.id)?.payload.resultId;
@@ -2111,9 +2172,8 @@ export class Scheduler {
       relecteur: lien.relecteurAgent,
       terminal: true,
       attempt: task.attempts,
-      motif: 'relecteur_absent',
+      motif,
     });
-    return true;
   }
 
   /**

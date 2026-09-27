@@ -58,6 +58,25 @@ describe('preuve V2 Alpha — le journal', () => {
     expect(attenteDe('t1', taches({ t1: 'done', r1: 'done', r2: 'done' }), seconde)).toBeNull();
   });
 
+  it('UNE RELECTURE CLOSE SANS AVIS DONT LE SECOURS RELIT ENCORE N’EST PAS RÉGLÉE', () => {
+    const secours = [
+      ...RENDUE,
+      ev(12, 'contre_expertise_review_failed', { taskId: 'r1', relecture: 'r1', terminal: true }),
+      ev(13, 'contre_expertise', {
+        taskId: 't1',
+        resultId: 1,
+        possible: true,
+        secours: true,
+        relaie: 'r1',
+        relectures: ['r2'],
+      }),
+    ];
+    expect(attenteDe('t1', taches({ t1: 'done', r1: 'failed', r2: 'ready' }), secours)).toBe(
+      't1 : contre-revue en cours (1/2 rendue(s))',
+    );
+    expect(attenteDe('t1', taches({ t1: 'done', r1: 'failed', r2: 'done' }), secours)).toBeNull();
+  });
+
   it('SANS CONTRE-REVUE POSSIBLE, OU SANS LANCEMENT, OU EN ÉCHEC : RÉGLÉE', () => {
     const refus = [
       ev(10, 'task_done', { taskId: 't1' }),

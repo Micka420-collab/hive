@@ -537,7 +537,12 @@ describe('Aiguillage câblé — la boucle principale de l’ordonnanceur', () =
     // une reprise de CETTE tâche, fable reste écarté.
     const resultId = store.resultsForTask(t).at(-1)?.resultId ?? 0;
     expect(
-      scheduler.retryFromEvaluator({ taskId: t, resultId, decision: 'correction_required' }).ok,
+      scheduler.retryFromEvaluator({
+        taskId: t,
+        resultId,
+        decision: 'correction_required',
+        critique: null,
+      }).ok,
     ).toBe(true);
     expect(commandes(t), 'la correction ne repart pas sur fable').toEqual([
       'fable',
@@ -608,7 +613,12 @@ describe('Aiguillage câblé — la boucle principale de l’ordonnanceur', () =
     scheduler.registerNode(profile('nouvelle', ['opus']));
     const resultId = store.resultsForTask(t).at(-1)?.resultId ?? 0;
     expect(
-      scheduler.retryFromEvaluator({ taskId: t, resultId, decision: 'correction_required' }).ok,
+      scheduler.retryFromEvaluator({
+        taskId: t,
+        resultId,
+        decision: 'correction_required',
+        critique: null,
+      }).ok,
     ).toBe(true);
     expect(commandes(t), 'la correction revient au modèle qui a écrit').toEqual([
       'fable',

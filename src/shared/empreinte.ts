@@ -120,6 +120,8 @@ export interface Contexte {
 export const PREFIXE_FUSION = 'hive-merge-';
 /** Préfixe des dossiers temporaires vides utilisés par le preflight agent. */
 export const PREFIXE_PREFLIGHT_AGENT = 'hive-agent-preflight-';
+/** Préfixe du rendez-vous privé des ponts de délégation d'un nœud (`rendez-vous-pont.ts`). */
+export const PREFIXE_PONT = 'hive-pont-';
 
 /**
  * Le fichier de service, s'il peut y en avoir un sur cette plateforme.
@@ -256,10 +258,6 @@ export function empreinte(ctx: Contexte): Emplacement[] {
           chemin: p.join(ctx.workdir, '<nœud>', 'livraisons', '<projet>.git'),
           quoi: 'les branches de mission (`hive/mission-*`) livrées sur ce nœud — poussez-les avant d’effacer',
         },
-        {
-          chemin: p.join(ctx.workdir, 'tasks', '<task-id>', '.hive'),
-          quoi: 'socket local et configuration MCP éphémères du pont de délégation, supprimés avant le diff',
-        },
       ],
     },
     {
@@ -316,6 +314,20 @@ export function empreinte(ctx: Contexte): Emplacement[] {
       genre: 'transitoire',
       retirable: true,
       consequence: 'rien. Le preflight les recrée au prochain démarrage si nécessaire.',
+    },
+    {
+      cle: 'ponts',
+      chemin: ctx.tmpdir,
+      prefixe: PREFIXE_PONT,
+      quoi:
+        'les rendez-vous privés (700) des ponts de délégation d’un nœud : le socket et ' +
+        'la configuration MCP qui relient un CLI à la délégation Hive',
+      genre: 'transitoire',
+      retirable: true,
+      consequence:
+        'rien, sauf pour un nœud EN COURS : sa tâche Claude Code ou Codex perdrait son ' +
+        'pont. Le dossier est effacé à l’arrêt du nœud (Ctrl-C ou SIGTERM) ; celui d’un nœud ' +
+        'tué (`kill -9`, SIGTERM sous Windows) est balayé par le démarrage suivant.',
     },
   ];
 }

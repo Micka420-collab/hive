@@ -8,7 +8,6 @@ import type { HiveEvent, StateSnapshot, SubAgent } from '../../src/shared/types'
 import { agentsConnectes, etatBandeau } from '../../src/shared/agents-connectes';
 import {
   authMe,
-  clearJwt,
   connectFeed,
   estAdmin,
   fetchPulse,
@@ -16,14 +15,24 @@ import {
   fetchReviews,
   getJwt,
   getToken,
+  oublierSessionExpiree,
   saveToken,
+  sessionEstExpiree,
+  surJwtAilleurs,
+  surSessionExpiree,
 } from './api';
 import type { AuthUser } from './api';
-import { AccountPanel } from './AccountPanel';
+import { AccountPanel, EVENT_OUVRIR_COMPTE } from './AccountPanel';
 import { setLang, useLang, useT } from './i18n';
 import { InvitePanel } from './InvitePanel';
 import { NewProjectModal } from './NewProjectModal';
 import { TaskDrawer } from './TaskDrawer';
+import {
+  creerMagasinSorties,
+  FINS_D_EXECUTION,
+  garderVivantes,
+  oublierTache,
+} from './sorties-directes';
 import { transitionDifferees } from './differees';
 import { annoncesDepuisEvenements } from './horloge-vue';
 import {
@@ -275,6 +284,8 @@ export function App() {
   const [snapshot, setSnapshot] = useState<StateSnapshot>(EMPTY);
   const [events, setEvents] = useState<HiveEvent[]>([]);
   const [agentsByTask, setAgentsByTask] = useState<Record<string, SubAgent[]>>({});
+  // Hors de l'état React : un morceau ne re-rend que la console qui l'affiche.
+  const [magasinSorties] = useState(creerMagasinSorties);
   const [deferred, setDeferred] = useState<Set<string>>(() => new Set());
   const [connected, setConnected] = useState(false);
   const [tokenAuthError, setTokenAuthError] = useState(false);
@@ -288,6 +299,13 @@ export function App() {
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
   const [showNewProject, setShowNewProject] = useState(false);
   const [user, setUser] = useState<AuthUser | null>(null);
+  // La vue (`#/…`) où la session est morte ; `null` tant qu'elle vit. Voir
+  // « LA SESSION QUI EXPIRE, DITE À L'ÉCRAN » plus bas. Une marque restée d'un
+  // chargement précédent s'affiche dès le montage : sans bandeau, « + Projet »
+  // refuserait sans que rien à l'écran ne dise pourquoi ni quoi faire.
+  const [retourSession, setRetourSession] = useState<string | null>(() =>
+    sessionEstExpiree() ? location.hash || '#/ruche' : null,
+  );
   const [refreshTick, setRefreshTick] = useState(0);
   const reviewTick = useReviewTick();
   const lang = useLang();
@@ -296,6 +314,25 @@ export function App() {
   // par référence, sinon il resterait sur celle du premier rendu (null).
   const userRef = useRef<AuthUser | null>(null);
   userRef.current = user;
+
+  // Session utilisateur (JWT) : demandée à la Reine quand un JWT est rangé.
+  // Un JWT refusé est purgé par `api()` et annoncé (« LA SESSION QUI EXPIRE,
+  // DITE À L'ÉCRAN »). Une Reine injoignable, elle, ne dit RIEN de la session :
+  // on garde le JWT (le purger déconnectait quiconque ouvrait l'écran pendant
+  // un redémarrage de la Reine) et on REDEMANDE à chaque reconnexion du flux —
+  // sinon la barre offrait « Se connecter » pour la durée de l'onglet, alors
+  // que chaque appel partait avec le compte.
+  const demanderSession = useCallback((memeSiConnue: boolean) => {
+    if (!getJwt() || (userRef.current && !memeSiConnue)) return;
+    authMe()
+      .then((u) => {
+        setUser(u);
+        setRetourSession(null);
+      })
+      .catch(() => {
+        /* refus : déjà traité par `api()` ; panne : inconnu, rien à purger */
+      });
+  }, []);
   // Coalescence des invalidations : une rafale d'événements → 1 re-fetch/s max.
   const refreshTimer = useRef<number | undefined>(undefined);
   // La cible du lien d'évitement (voir plus bas).
@@ -304,7 +341,14 @@ export function App() {
   // ─── Flux temps réel ────────────────────────────────────────────────────────
   useEffect(() => {
     const feed = connectFeed({
-      onState: setSnapshot,
+      onState: (snap) => {
+        setSnapshot(snap);
+        // Un `task_done` manqué pendant une coupure ne viderait jamais ces
+        // états : l'instantané, lui, dit toujours quelles tâches vivent.
+        magasinSorties.garderVivantes(snap.tasks);
+        setAgentsByTask((prev) => garderVivantes(prev, snap.tasks));
+      },
+      onSortie: (taskId, nodeId, sortie) => magasinSorties.ajouter(taskId, nodeId, sortie),
       onEvent: (ev) => {
         setEvents((prev) => [...prev.slice(-499), ev]);
         // Tout événement de fin de tâche / merge / conflit invalide les vues qui fetchent.
@@ -324,6 +368,10 @@ export function App() {
             'delegation_cancelled',
             'task_requeued',
             'task_retry',
+            // Verdict humain persisté (émis APRÈS l'écriture) : la raison jointe
+            // se relit alors dans le volet verdict de la Miellerie — relire
+            // plus tôt, au clic, lirait l'état d'avant le POST.
+            'task_reviewed',
             'node_online',
             'node_offline',
             // Changement de régime thermique : la jauge de Santé doit refléter
@@ -361,17 +409,9 @@ export function App() {
         if (ev.type === 'task_progress' && Array.isArray(ev.payload.subAgents)) {
           const subAgents = ev.payload.subAgents as SubAgent[];
           setAgentsByTask((prev) => ({ ...prev, [taskId]: subAgents }));
-        } else if (
-          ['task_done', 'task_failed', 'task_cancelled', 'task_requeued', 'task_retry'].includes(
-            ev.type,
-          )
-        ) {
-          setAgentsByTask((prev) => {
-            if (!(taskId in prev)) return prev;
-            const next = { ...prev };
-            delete next[taskId];
-            return next;
-          });
+        } else if (FINS_D_EXECUTION.includes(ev.type)) {
+          setAgentsByTask((prev) => oublierTache(prev, taskId));
+          magasinSorties.oublier(taskId);
         }
         // La transition vit dans `differees.ts`, PUR — la loupe l'avait rendue
         // SANS TEST tant qu'elle était enfouie ici. Rendre `prev` lui-même
@@ -388,6 +428,7 @@ export function App() {
         // task_reviewed manqués (`connectFeed`), mais seulement dans la limite
         // de ce que le journal a gardé — la table des revues n'oublie rien.
         if (up) {
+          demanderSession(false);
           // Les événements rattrapés passent par `onEvent` comme le direct,
           // mais toutes les vues qui lisent une API n'écoutent pas un type
           // d'événement : elles repartent d'une lecture à chaque reconnexion.
@@ -408,7 +449,7 @@ export function App() {
       }
       feed.close();
     };
-  }, [feedKey]);
+  }, [feedKey, demanderSession, magasinSorties]);
 
   // ─── Navigation par hash ────────────────────────────────────────────────────
   useEffect(() => {
@@ -509,22 +550,60 @@ export function App() {
     setFeedKey((k) => k + 1);
   };
 
-  // Session utilisateur (JWT) : restaurée au montage si un jeton est présent.
-  // Un jeton périmé est simplement purgé — le dashboard vit très bien sans
-  // compte (le token de ruche suffit pour tout le reste).
-  useEffect(() => {
-    if (!getJwt()) return;
-    let alive = true;
-    authMe()
-      .then((u) => alive && setUser(u))
-      .catch(() => {
-        clearJwt();
-        if (alive) setUser(null);
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
+  // ─── LA SESSION QUI EXPIRE, DITE À L'ÉCRAN ─────────────────────────────────
+  //
+  // `api()` reconnaît une session morte à n'importe quel appel (voir « LA
+  // SESSION QUI EXPIRE » dans `api.ts`) et purge le JWT. Ici, on en tire les
+  // conséquences VISIBLES : la barre cesse d'afficher un nom qui n'est plus
+  // connecté, un bandeau dit pourquoi les gestes échouent, et la fenêtre de
+  // connexion s'ouvre. On retient la vue où c'est arrivé : la reconnexion y
+  // ramène, au lieu de laisser la personne chercher où elle en était.
+  //
+  // Abonné AVANT la restauration ci-dessous : c'est son `authMe` qui découvre
+  // un JWT expiré depuis la dernière visite, et il doit trouver quelqu'un à
+  // prévenir.
+  useEffect(
+    () =>
+      surSessionExpiree(
+        () => {
+          setUser(null);
+          setRetourSession(location.hash || '#/ruche');
+        },
+        // Levée ailleurs : le bandeau tombe avec la garde qu'il annonçait.
+        () => setRetourSession(null),
+      ),
+    [],
+  );
+
+  // Restaurée au montage (voir `demanderSession`).
+  useEffect(() => demanderSession(false), [demanderSession]);
+
+  // Un AUTRE onglet a changé le JWT. Déconnecté là-bas : plus de nom ici, sans
+  // quoi « + Projet » partirait sans compte sous un nom affiché. Connecté
+  // là-bas : on redemande qui, même si un nom est déjà affiché.
+  useEffect(
+    () =>
+      surJwtAilleurs(() => {
+        if (getJwt()) demanderSession(true);
+        else setUser(null);
+      }),
+    [demanderSession],
+  );
+
+  /** Ce que rapporte le panneau de compte : connexion, déconnexion, reconnexion. */
+  const changerDeCompte = (u: AuthUser | null) => {
+    setUser(u);
+    if (!u || retourSession === null) return;
+    // Reconnecté après une expiration : retour à la vue où elle a surpris.
+    if (location.hash !== retourSession) location.hash = retourSession;
+    setRetourSession(null);
+  };
+
+  /** « Continuer sans compte » — un choix explicite, qui rend la porte du jeton. */
+  const continuerSansCompte = () => {
+    oublierSessionExpiree();
+    setRetourSession(null);
+  };
 
   const viewProps: ViewProps = {
     snapshot,
@@ -668,7 +747,11 @@ export function App() {
             >
               {lang === 'fr' ? 'EN' : 'FR'}
             </button>
-            <AccountPanel user={user} onUser={setUser} />
+            <AccountPanel
+              user={user}
+              onUser={changerDeCompte}
+              sessionExpiree={retourSession !== null}
+            />
             <InvitePanel />
             <input
               type="password"
@@ -780,6 +863,29 @@ export function App() {
           </div>
         )}
 
+        {retourSession !== null && (
+          <div className="mc-token-banner mc-session-banner" role="alert">
+            <p>
+              <strong>
+                {t('Session expirée — reconnectez-vous.', 'Session expired — sign in again.')}
+              </strong>{' '}
+              {t(
+                'Les gestes sur les projets de votre compte échouent tant que vous ne vous êtes pas reconnecté·e ; aucun n’est rejoué sans compte.',
+                'Actions on your account’s projects fail until you sign in again; none is replayed without an account.',
+              )}
+            </p>
+            <button
+              className="btn primary"
+              onClick={() => window.dispatchEvent(new Event(EVENT_OUVRIR_COMPTE))}
+            >
+              {t('Se reconnecter', 'Sign in again')}
+            </button>
+            <button className="btn ghost" onClick={continuerSansCompte}>
+              {t('Continuer sans compte', 'Continue without an account')}
+            </button>
+          </div>
+        )}
+
         {/* Un seul `main`, autour de la vue courante : chaque vue y entre, et
             le lecteur d'écran trouve le contenu sans traverser la barre. La
             Ruche portait le sien, seule des quatorze — il est devenu un `div`.
@@ -820,6 +926,7 @@ export function App() {
           nodes={snapshot.nodes}
           horloge={annonces.get(openTask.id)}
           refreshTick={refreshTick}
+          magasinSorties={magasinSorties}
           onClose={() => setOpenTaskId(null)}
         />
       )}

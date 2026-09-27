@@ -128,13 +128,8 @@ export function clearPartage(): void {
  * lien). Sans session rien ne change, et un JWT périmé est traité par la Reine
  * comme absent. La CLI fait déjà ainsi (`HIVE_JWT`, `src/cli.ts`).
  *
- * ⚠ CE QUE ÇA NE RÈGLE PAS : une session qui expire PENDANT que l'onglet vit.
- * `App` ne purge le JWT qu'au montage ; d'ici là il part périmé, et « traité
- * comme absent » veut dire l'ancien chemin — 404 sur un projet qui a un
- * propriétaire, 401 sur `createProject`, qui choisit la porte du compte dès
- * qu'un JWT est rangé. Ce n'est pas un défaut nouveau, mais c'est le même
- * silence : l'écran croit la personne connectée et ne lui dit pas de se
- * reconnecter. Il reste à traiter.
+ * Une session qui expire PENDANT que l'onglet vit est traitée ici même, au
+ * point où chaque refus arrive : voir « LA SESSION QUI EXPIRE » plus bas.
  *
  * `path` est TOUJOURS une route de la Reine (`/api/…`, même origine) : cette
  * identité ne part jamais chez un tiers. La garde de
@@ -169,9 +164,242 @@ async function api<T>(
     } catch {
       /* corps non-JSON */
     }
+    const jwt = jwtPorte(identite);
+    if (jwt && (await sessionRefusee(path, res.status, jwt, identite))) {
+      const expiree = expirerSession(jwt);
+      if (expiree) throw expiree;
+    }
     throw new ApiError(message, res.status, detail);
   }
   return (await res.json()) as T;
+}
+
+// ─── LA SESSION QUI EXPIRE PENDANT QUE L'ONGLET VIT ─────────────────────────
+//
+// Un JWT dure sept jours ; un onglet de tableau de bord, bien plus. Passé
+// l'échéance, la Reine traite le JWT comme ABSENT — c'est sa règle, et elle
+// est juste. Mais côté écran, « absent » voulait dire l'ancien chemin, en
+// silence :
+//
+//   · « 404 projet inconnu » sur SON PROPRE projet — les engagements ont la
+//     forme de l'inexistence pour qui n'y a pas droit (ADR 0007), et un jeton
+//     de ruche seul n'a pas droit à un projet qui appartient à un compte ;
+//   · 401 sur `createProject`, qui prend la porte du compte dès qu'un JWT est
+//     rangé ;
+//   · et pendant ce temps, la barre du haut affichait toujours le nom de la
+//     personne. Chaque geste échouait, et l'écran ne disait jamais pourquoi.
+//
+// ─── LE REFUS NE SUFFIT PAS À CONCLURE : ON DEMANDE À LA REINE ───────────────
+//
+// Un 404 peut être vrai (le projet d'autrui, une tâche disparue) et un 401 peut
+// viser le jeton de RUCHE, pas le compte. Deviner l'un de l'autre sur la forme
+// du refus, c'est déconnecter quelqu'un pour une faute qui n'est pas la
+// sienne. On repose donc la seule question qui tranche — `/api/auth/me`, que la
+// Reine juge sur le JWT SEUL — avec l'identité même qui vient d'échouer :
+//
+//   · refusée (401, ou 404 : le compte n'existe plus) → la session est morte.
+//     Le JWT est purgé, l'écran est prévenu (`surSessionExpiree`) et l'appel
+//     échoue en le DISANT : « Session expirée — reconnectez-vous » ;
+//   · acceptée → le refus d'origine était vrai, il remonte intact ;
+//   · injoignable, 5xx → on ne sait pas. Inconnu reste inconnu : on ne purge
+//     rien, le refus d'origine remonte.
+//
+// ─── CE QU'ON NE FAIT JAMAIS : REJOUER SANS LE COMPTE ────────────────────────
+//
+// La tentation serait de relancer l'appel au jeton de ruche seul, « pour que
+// ça marche ». Sur `createProject`, cela fabriquerait un projet ORPHELIN, que
+// la personne ne possède pas et dont elle ne pourrait ni lire le code ni
+// admettre quiconque — exactement le défaut que `/api/projects/user` a fermé.
+// L'appel échoue, la personne se reconnecte, et c'est ELLE qui refait le geste.
+
+/** Le JWT que CET appel a présenté — pas celui du stockage, qui a pu changer depuis. */
+function jwtPorte(identite: Record<string, string>): string | null {
+  const bearer = identite.authorization;
+  return bearer?.startsWith('Bearer ') ? bearer.slice(7) : null;
+}
+
+/**
+ * Ce refus peut-il venir d'une session morte ?
+ *
+ * Seuls deux refus en ont la forme : 401, et 404 sur une route de projet ou de
+ * tâche (la forme de l'inexistence des engagements). `/api/auth/login` et
+ * `/register` en sont exclues : leur 401 dit « identifiants invalides », et le
+ * transformer en « session expirée » mentirait à qui se trompe de mot de passe.
+ */
+function refusDeSession(path: string, statut: number): boolean {
+  if (path.startsWith('/api/auth/')) return false;
+  if (statut === 401) return true;
+  return statut === 404 && (path.startsWith('/api/projects/') || path.startsWith('/api/tasks/'));
+}
+
+/**
+ * Vérifications en vol, par JWT. Dix panneaux qui échouent ensemble ne doivent
+ * pas poser dix fois la même question à la Reine : sans ce partage, un seul
+ * JWT périmé déclenchait autant de `/api/auth/me` que d'appels en échec.
+ */
+const verifications = new Map<string, Promise<boolean>>();
+
+/**
+ * Le dernier « vivante » de la Reine, et quand. Un vrai 404 (une tâche
+ * disparue qu'un panneau interroge en boucle) ne doit pas DOUBLER chaque
+ * requête contre la limite REST par IP : la réponse vaut quelques secondes.
+ * Borné à un JWT et à `VIVANTE_MS` — une session qui meurt juste après est
+ * reconnue au premier refus suivant, pas perdue.
+ */
+let derniereVivante: { jwt: string; a: number } | null = null;
+const VIVANTE_MS = 10_000;
+
+/** Vrai si la Reine confirme que la session de CET appel est morte. */
+async function sessionRefusee(
+  path: string,
+  statut: number,
+  jwt: string,
+  identite: Record<string, string>,
+): Promise<boolean> {
+  // `/api/auth/me` EST l'oracle : son propre refus n'a pas à être revérifié.
+  if (path === '/api/auth/me') return statut === 401 || statut === 404;
+  if (!refusDeSession(path, statut)) return false;
+  // Déjà tranché pendant que cet appel était en route : la session est morte
+  // (purgée, marque posée — ici ou dans un autre onglet), ou une AUTRE session
+  // a pris sa place, et son refus d'origine remonte tel quel.
+  const courant = getJwt();
+  if (courant !== jwt) return courant === null && sessionEstExpiree();
+  if (derniereVivante?.jwt === jwt && Date.now() - derniereVivante.a < VIVANTE_MS) return false;
+  const enVol = verifications.get(jwt);
+  if (enVol) return enVol;
+  // Le rappel passe par `api()` avec la MÊME identité : la garde de
+  // `tests/dashboard-contrat-compte.test.tsx` s'applique donc à lui aussi, et
+  // son refus déclenche lui-même `expirerSession` (idempotent, voir plus bas).
+  const verification = api<AuthUser>('/api/auth/me', undefined, identite).then(
+    () => {
+      derniereVivante = { jwt, a: Date.now() };
+      return false;
+    },
+    (e: unknown) => e instanceof SessionExpireeError,
+  );
+  verifications.set(jwt, verification);
+  try {
+    return await verification;
+  } finally {
+    verifications.delete(jwt);
+  }
+}
+
+/**
+ * L'échec d'un appel dont la session est morte. C'est une `ApiError` 401 comme
+ * une autre — chaque écran qui affiche `e.message` dit donc déjà la bonne
+ * chose — mais elle se reconnaît, pour qui doit la distinguer.
+ */
+export class SessionExpireeError extends ApiError {
+  constructor() {
+    super(tNow('Session expirée — reconnectez-vous', 'Session expired — sign in again'), 401);
+    this.name = 'SessionExpireeError';
+  }
+}
+
+const ecouteursSession = new Set<() => void>();
+
+/**
+ * La marque « session expirée, pas encore résolue » — dans le STOCKAGE, à côté
+ * du JWT, et non dans la mémoire du module.
+ *
+ * ─── POURQUOI PAS UNE VARIABLE ───────────────────────────────────────────────
+ *
+ * Le JWT vit dans `localStorage`, que tous les onglets partagent ; une
+ * variable de module, elle, est à UN onglet. Première version : l'onglet A
+ * constatait l'expiration, purgeait le JWT commun et levait SON drapeau.
+ * L'onglet B, drapeau baissé et JWT disparu, affichait toujours le nom de la
+ * personne — et son « + Projet » prenait la porte du jeton de ruche : un
+ * projet ORPHELIN, créé en silence, exactement ce que ce module interdit. La
+ * garde vit donc là où vit ce qu'elle protège : chaque onglet la LIT au moment
+ * du geste, sans dépendre d'un évènement qui pourrait arriver après le clic.
+ */
+const CLE_SESSION_EXPIREE = 'hive.jwt.expiree';
+
+/**
+ * Purge la session morte, pose la marque et prévient l'écran — UNE fois.
+ *
+ * Idempotent parce que la vérification passe elle-même par `api()` : l'appel
+ * d'origine et son rappel concluent tous deux. Et on ne purge que le JWT qui a
+ * échoué : si la personne s'est reconnectée entre-temps (un autre onglet), le
+ * nouveau JWT n'a rien fait pour mériter d'être effacé — et l'appel rend alors
+ * `null` : son refus d'origine remonte, au lieu d'annoncer « session expirée »
+ * à une session qui vit.
+ */
+function expirerSession(jwt: string): SessionExpireeError | null {
+  const courant = getJwt();
+  if (courant === jwt) {
+    clearJwt();
+    localStorage.setItem(CLE_SESSION_EXPIREE, '1');
+    for (const ecouteur of ecouteursSession) ecouteur();
+  } else if (courant !== null) {
+    return null;
+  }
+  return new SessionExpireeError();
+}
+
+/**
+ * S'abonner à l'expiration de la session — celle que CET onglet constate, et
+ * celle qu'un AUTRE onglet a constatée (l'évènement `storage` ne part que vers
+ * les autres onglets, d'où les deux sources). Rend la désinscription.
+ *
+ * `reprise` : un AUTRE onglet a levé la marque (reconnexion, ou « Continuer
+ * sans compte »). La garde de `gardeSession` tombe ici aussi, puisqu'elle lit
+ * le stockage commun ; sans ce rappel, le bandeau de cet onglet continuait
+ * d'affirmer « aucun n'est rejoué sans compte » pendant que « + Projet »
+ * repartait au jeton de ruche — l'écran disait l'inverse de ce qu'il faisait.
+ */
+export function surSessionExpiree(ecouteur: () => void, reprise?: () => void): () => void {
+  const ailleurs = (e: StorageEvent) => {
+    if (e.key !== CLE_SESSION_EXPIREE) return;
+    if (e.newValue !== null) ecouteur();
+    else reprise?.();
+  };
+  ecouteursSession.add(ecouteur);
+  window.addEventListener('storage', ailleurs);
+  return () => {
+    ecouteursSession.delete(ecouteur);
+    window.removeEventListener('storage', ailleurs);
+  };
+}
+
+/**
+ * Un AUTRE onglet a changé le JWT : connexion, déconnexion, purge. Sans ça,
+ * la barre de cet onglet gardait un nom que plus rien ne porte.
+ */
+export function surJwtAilleurs(ecouteur: () => void): () => void {
+  const ailleurs = (e: StorageEvent) => {
+    if (e.key === JWT_KEY) ecouteur();
+  };
+  window.addEventListener('storage', ailleurs);
+  return () => window.removeEventListener('storage', ailleurs);
+}
+
+/**
+ * La session a-t-elle expiré, sans que la personne se soit reconnectée ni ait
+ * choisi de continuer sans compte — dans cet onglet ou dans un autre ? Tant
+ * que oui, les créations qui attribuent un propriétaire (`createProject`,
+ * `importerDepotGithub`) refusent sans rien envoyer : voir `gardeSession`.
+ */
+export function sessionEstExpiree(): boolean {
+  return localStorage.getItem(CLE_SESSION_EXPIREE) !== null;
+}
+
+/** « Continuer sans compte » : un choix EXPLICITE, qui rend la porte du jeton. */
+export function oublierSessionExpiree(): void {
+  localStorage.removeItem(CLE_SESSION_EXPIREE);
+}
+
+/**
+ * La garde des gestes qui FONT NAÎTRE un projet. Session tout juste expirée :
+ * le JWT est purgé, et sans elle le geste suivant — le même bouton, dans la
+ * même fenêtre encore ouverte, ou dans un autre onglet — partirait au jeton de
+ * ruche seul et ferait naître en silence un projet ORPHELIN, que la personne
+ * croirait à elle. On refuse sans rien envoyer, jusqu'à ce qu'elle se
+ * reconnecte ou choisisse de continuer sans compte (`oublierSessionExpiree`).
+ */
+function gardeSession(): Promise<never> | null {
+  return sessionEstExpiree() ? Promise.reject(new SessionExpireeError()) : null;
 }
 
 export interface NewTaskInput {
@@ -210,6 +438,8 @@ export function createProject(input: {
   description?: string;
   visibility?: 'public' | 'private';
 }): Promise<Project> {
+  const refus = gardeSession();
+  if (refus) return refus;
   if (getJwt()) {
     return apiCompte<Project>('/api/projects/user', {
       method: 'POST',
@@ -407,6 +637,9 @@ export function fetchDepotsGithub(q = ''): Promise<DepotsGithub> {
  * doit être adopté — ce qui était le seul comportement possible jusqu'ici.
  */
 export function importerDepotGithub(fullName: string): Promise<{ projet: Project }> {
+  // Même garde que `createProject` : un import sans le compte naîtrait orphelin.
+  const refus = gardeSession();
+  if (refus) return refus;
   return apiCompte<{ projet: Project }>('/api/github/import', {
     method: 'POST',
     body: JSON.stringify({ fullName }),
@@ -1327,11 +1560,39 @@ export function postReview(
   taskId: string,
   state: ReviewVerdict | null,
   clientId?: string,
+  raison?: string,
 ): Promise<{ taskId: string; state: ReviewVerdict | null }> {
   return api<{ taskId: string; state: ReviewVerdict | null }>(`/api/tasks/${taskId}/review`, {
     method: 'POST',
-    body: JSON.stringify({ state, ...(clientId ? { clientId } : {}) }),
+    body: JSON.stringify({
+      state,
+      ...(clientId ? { clientId } : {}),
+      // Jamais jointe à un effacement : le serveur la refuserait (400).
+      ...(raison && state !== null ? { raison } : {}),
+    }),
   });
+}
+
+/** La critique figée d'une correction (voir `blocCritique`, brood.ts). */
+export interface CritiqueReprise {
+  source: 'contre_revue' | 'revue_humaine' | 'evaluator';
+  objections: string[];
+  raisons: string[];
+  noteHumaine?: string;
+}
+
+/**
+ * Ce qu'une tâche a reçu comme critique : la raison du verdict humain courant
+ * et la critique transmise aux reprises depuis la tentative `tentative` (la
+ * première à l'avoir reçue ; les suivantes la gardent jusqu'à une nouvelle
+ * correction).
+ */
+export function fetchCritique(taskId: string): Promise<{
+  taskId: string;
+  raisonRevue: string | null;
+  reprise: { tentative: number | null; ts: number; critique: CritiqueReprise } | null;
+}> {
+  return api(`/api/tasks/${encodeURIComponent(taskId)}/critique`);
 }
 
 // ─── Comptes utilisateurs (JWT — indépendant du token de ruche) ──────────────
@@ -1390,6 +1651,8 @@ export function enTetesRuche(): Record<string, string> {
 
 export function saveJwt(token: string): void {
   localStorage.setItem(JWT_KEY, token);
+  // Une nouvelle session clôt l'expiration de la précédente.
+  oublierSessionExpiree();
 }
 
 export function clearJwt(): void {
@@ -1530,7 +1793,11 @@ export function authLogin(email: string, password: string): Promise<{ token: str
   });
 }
 
-/** Profil de la session courante (401 → ApiError, le JWT est alors périmé). */
+/**
+ * Profil de la session courante. Un refus (401, ou 404 : compte disparu) purge
+ * le JWT et prévient l'écran — c'est `api()` qui le fait, pour cet appel comme
+ * pour les autres ; l'échec est alors une `SessionExpireeError`.
+ */
 export function authMe(): Promise<AuthUser> {
   return apiCompte<AuthUser>('/api/auth/me');
 }
@@ -1949,6 +2216,8 @@ export function fetchMonTableau(): Promise<MonTableau> {
 export interface FeedHandlers {
   onState: (snapshot: StateSnapshot) => void;
   onEvent: (event: HiveEvent) => void;
+  /** Un morceau de sortie en direct d'un agent (éphémère, jamais rejoué). */
+  onSortie?: (taskId: string, nodeId: string, sortie: string) => void;
   /**
    * `connected` : le socket est ouvert **et** le hub a accepté le jeton.
    * `meta.authError` : fermeture 4401 « token invalide » — le champ Jeton ne
@@ -2126,6 +2395,10 @@ export function connectFeed(handlers: FeedHandlers): HiveFeed {
       } else if (msg.type === 'event') {
         if (enAttente) enAttente.push(msg.event);
         else livrer(msg.event);
+      } else if (msg.type === 'task_output') {
+        // Le direct n'est ni rangé ni rejoué (`task_output`) : il passe tout
+        // de suite, rattrapage ou pas.
+        handlers.onSortie?.(msg.taskId, msg.nodeId, msg.sortie);
       }
     };
 

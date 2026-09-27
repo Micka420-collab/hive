@@ -50,11 +50,12 @@ export const MERGE_TESTS_MS = 5 * 60_000;
  * Une commande de la livraison locale qui parle au dépôt DISTANT : le
  * `ls-remote` avant les tests, la poussée après — deux par merge.
  *
- * `GCM_INTERACTIVE=Never` (`envTransportGit`) ferme la porte qu'on connaît ;
- * ce plafond ferme les autres — un serveur qui accepte la connexion puis se
- * tait, un assistant d'identifiants qu'on n'a pas prévu. Sans lui, le job de
- * merge et son clone resteraient pris jusqu'au redémarrage du nœud, pendant
- * que le hub conclurait « issue inconnue » à son propre délai. Deux minutes :
+ * `GCM_INTERACTIVE=Never` et `ssh` en mode lot (`envGitHote`) ferment les
+ * portes qu'on connaît ; ce plafond ferme les autres — un serveur qui accepte
+ * la connexion puis se tait, un assistant d'identifiants qu'on n'a pas
+ * prévu. Sans lui, le job de merge et son clone resteraient pris jusqu'au
+ * redémarrage du nœud, pendant que le hub conclurait « issue inconnue » à son
+ * propre délai. Deux minutes :
  * un `ls-remote` rend en une seconde, et une poussée de mission n'envoie que
  * ce que le dépôt n'a pas déjà.
  */

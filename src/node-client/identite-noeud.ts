@@ -37,8 +37,10 @@
  *      Et un disque en lecture seule doit dégrader — pas tuer le nœud.
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { randomUUID } from 'node:crypto';
+import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import { connect, createServer, type Server } from 'node:net';
+import os from 'node:os';
 import path from 'node:path';
 import { ID_PATTERN } from '../shared/protocol.js';
 
@@ -138,4 +140,121 @@ export function rangerCle(racine: string, cle: string): void {
   } catch {
     // voir ci-dessus : dégrader, pas tuer
   }
+}
+
+/**
+ * Le verrou de l'identité : une socket locale que CE processus écoute, nommée
+ * par une empreinte du chemin ABSOLU de l'atelier — un tube nommé sous
+ * Windows.
+ *
+ * HORS de l'atelier, jamais dedans : l'atelier vit dans le dossier de la ruche,
+ * qu'on copie et sauvegarde, et une socket y fait échouer ce qui la croise
+ * (`fs.cpSync` s'arrête net sur elle). Elle va dans `XDG_RUNTIME_DIR`, propre à
+ * l'utilisateur et en 0700, sinon dans le dossier temporaire — propre à
+ * l'utilisateur sous macOS et Windows. Compromis nommé : sur un Linux sans
+ * session (`/tmp` partagé), un autre compte local peut poser le fichier avant
+ * le nœud et l'empêcher de démarrer ; il ne peut ni le faire ramasser ni
+ * prendre son identité.
+ */
+export function cheminVerrou(
+  racine: string,
+  env: NodeJS.ProcessEnv = process.env,
+  plateforme: NodeJS.Platform = process.platform,
+): string {
+  const empreinte = createHash('sha256').update(path.resolve(racine)).digest('hex').slice(0, 16);
+  if (plateforme === 'win32') return `\\\\.\\pipe\\hive-noeud-${empreinte}`;
+  const dossier = env.XDG_RUNTIME_DIR?.trim() || os.tmpdir();
+  return path.join(dossier, `hive-noeud-${empreinte}.sock`);
+}
+
+/** Écoute `chemin` : `pris`, `occupe` (déjà écouté ou laissé là), ou `erreur`. */
+function ecouter(
+  chemin: string,
+): Promise<{ issue: 'pris'; serveur: Server } | { issue: 'occupe' | 'erreur' }> {
+  return new Promise((resolve) => {
+    const serveur = createServer((s) => s.destroy());
+    serveur.once('error', (e: NodeJS.ErrnoException) =>
+      resolve({ issue: e.code === 'EADDRINUSE' ? 'occupe' : 'erreur' }),
+    );
+    serveur.listen(chemin, () => {
+      // Le verrou ne doit pas, à lui seul, garder le nœud en vie.
+      serveur.unref();
+      resolve({ issue: 'pris', serveur });
+    });
+  });
+}
+
+/** Quelqu'un écoute-t-il `chemin` ? Une socket laissée par un mort refuse la connexion. */
+function ecoute(chemin: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const c = connect(chemin);
+    c.once('connect', () => {
+      c.destroy();
+      resolve(true);
+    });
+    c.once('error', () => resolve(false));
+  });
+}
+
+/** Ce que rend `occuperIdentite`. */
+export type Occupation =
+  | { occupee: true }
+  | {
+      occupee: false;
+      /** Rend le verrou (un banc) ; la mort du processus le rend d'elle-même. */
+      liberer: () => void;
+    };
+
+/**
+ * Prend l'identité du nœud pour CE processus — ou rend `occupee` si un AUTRE
+ * processus vivant la tient déjà : ce second lancement ne doit alors pas
+ * démarrer.
+ *
+ * ─── DEUX PROCESSUS, UNE IDENTITÉ, ET UN RAMASSAGE QUI TUE LE VOISIN ─────────
+ *
+ * Le ramassage du démarrage (`ramasserRestes`) supprime tout conteneur à
+ * l'étiquette de ce nœud, en tenant qu'aucun n'est à un processus vivant. Un
+ * `npm run node` lancé deux fois par erreur (même nom, donc même atelier,
+ * donc même identité) cassait cette hypothèse : le second tuait les agents en
+ * cours du premier. Et le laisser tourner sans ramasser ne fermait rien : le
+ * premier, tué puis relancé, aurait ramassé les conteneurs du second, qui
+ * portent la même étiquette. Deux processus sous une identité se disputent
+ * de toute façon la ruche : le second refuse de démarrer.
+ *
+ * ─── UN VERROU QUE L'OS REND, PAS UN PID ─────────────────────────────────────
+ *
+ * Un pid inscrit dans un fichier survit à son processus : après un kill -9,
+ * un programme sans rapport qui hérite du même pid faisait croire, à chaque
+ * démarrage, à un nœud déjà là — ramassage sauté, pour de bon. Une socket
+ * écoutée meurt avec son processus : le noyau ferme l'écoute, une connexion
+ * est refusée, et le fichier resté là est repris. Sous Windows, le tube nommé
+ * disparaît avec son processus.
+ *
+ * Un verrou impossible à poser (système de fichiers sans sockets, disque
+ * refusé) ne tue pas le nœud : c'est la machine de quelqu'un d'autre. Compromis
+ * nommé : deux lancements à la même milliseconde sur une socket morte peuvent
+ * tous deux la reprendre — le cas fermé est le second lancement d'un nœud
+ * déjà au travail.
+ */
+export async function occuperIdentite(
+  racine: string,
+  chemin: string = cheminVerrou(racine),
+): Promise<Occupation> {
+  let r = await ecouter(chemin);
+  if (r.issue === 'occupe') {
+    if (await ecoute(chemin)) return { occupee: true };
+    // Une socket laissée par un processus mort : la reprendre.
+    try {
+      unlinkSync(chemin);
+    } catch {
+      // déjà partie
+    }
+    r = await ecouter(chemin);
+  }
+  if (r.issue === 'pris') {
+    const { serveur } = r;
+    return { occupee: false, liberer: () => serveur.close() };
+  }
+  // `occupe` au second essai : un lancement simultané l'a prise — elle est à lui.
+  return r.issue === 'occupe' ? { occupee: true } : { occupee: false, liberer: () => {} };
 }

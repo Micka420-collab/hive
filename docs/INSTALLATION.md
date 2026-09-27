@@ -510,21 +510,22 @@ Un outil d'installation n'est pas un outil de destruction —
 
 ### Où Hive écrit, exactement
 
-|                                  |                                                                                                                              |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `<installation>/.env`            | jetons et secrets                                                                                                            |
-| `<installation>/data/hive.db`    | la base, plus ses `-wal`, `-shm` et `.reine.lock`                                                                            |
-| `<installation>/data/rayons/`    | les miroirs des dépôts                                                                                                       |
-| `<installation>/.hive-work/`     | espaces de travail, clé du nœud, `cloudflared`, ponts MCP éphémères, branches de mission non poussées (`<nœud>/livraisons/`) |
-| `$TMPDIR/hive-merge-*`           | patchs d'une fusion — effacés à la fin de chacune                                                                            |
-| `$TMPDIR/hive-agent-preflight-*` | répertoires vides de sonde — effacés après chaque preflight                                                                  |
+|                                  |                                                                                                         |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `<installation>/.env`            | jetons et secrets                                                                                       |
+| `<installation>/data/hive.db`    | la base, plus ses `-wal`, `-shm` et `.reine.lock`                                                       |
+| `<installation>/data/rayons/`    | les miroirs des dépôts                                                                                  |
+| `<installation>/.hive-work/`     | espaces de travail, clé du nœud, `cloudflared`, branches de mission non poussées (`<nœud>/livraisons/`) |
+| `$TMPDIR/hive-merge-*`           | patchs d'une fusion — effacés à la fin de chacune                                                       |
+| `$TMPDIR/hive-agent-preflight-*` | répertoires vides de sonde — effacés après chaque preflight                                             |
+| `$TMPDIR/hive-pont-*`            | ponts MCP de délégation d'un nœud — effacés à son arrêt                                                 |
 
 Pas de service, pas d'entrée de registre, pas de fichier dans `/etc`, rien
 dans votre dossier personnel. Ce n'est pas une promesse en prose :
 [`tests/empreinte.test.ts`](../tests/empreinte.test.ts) relève les appels
 d'écriture réels de `src/` et **rougit** si l'un d'eux apparaît ailleurs.
 
-**Trois nuances, parce qu'elles vous concernent :**
+**Quelques nuances, parce qu'elles vous concernent :**
 
 - `$TMPDIR/hive-merge-*` : ces répertoires sont effacés à la fin de chaque
   fusion ; il n'en reste que si un processus a été tué au mauvais moment.
@@ -532,13 +533,37 @@ d'écriture réels de `src/` et **rougit** si l'un d'eux apparaît ailleurs.
 - `$TMPDIR/hive-agent-preflight-*` : le preflight utilise un répertoire vide
   pour ne jamais monter votre workspace ; il est supprimé dès que la sonde
   `--version` se termine.
-- `<installation>/.hive-work/tasks/<task-id>/.hive/` : le Worker y pose
-  temporairement le socket local et la configuration du pont MCP qui relie un
-  CLI à `hive_delegate` et `hive_wait_for_delegation_result`. Le pont est
-  authentifié pour cette seule tentative et ces fichiers sont supprimés avant
-  le calcul du diff ; ils ne doivent donc jamais apparaître dans une livraison.
+- `$TMPDIR/hive-pont-<pid>-*/` : le dossier privé (700) où un nœud pose le
+  socket local et la configuration du pont MCP qui relie un CLI à
+  `hive_delegate` et `hive_wait_for_delegation_result` — un sous-dossier par
+  tentative, authentifié pour elle seule et effacé à sa fin. Il vit hors de
+  `.hive-work` parce qu'un chemin de socket Unix est limité à 104–108 octets :
+  depuis un dossier profond, le pont ne pouvait plus s'ouvrir. Le dossier part
+  à l'arrêt du nœud — Ctrl-C, ou le SIGTERM d'un superviseur (`hive service`,
+  systemd, launchd, arrêt d'un conteneur) ; celui d'un nœud tué (`kill -9`, ou
+  sous Windows, où un SIGTERM tue net) reste jusqu'au prochain démarrage d'un
+  nœud de ce compte, qui le balaie.
+  Si `TMPDIR` lui-même est trop profond, le nœud le dit dès son démarrage.
+  Sous Windows, le pont écoute sur un pipe nommé `\\.\pipe\hive-pont-*`.
+  Rien de ce pont n'entre dans le répertoire de la tâche, donc dans un diff.
   Une image de bac personnalisée doit contenir `node` en plus du CLI : le
   preflight le vérifie pour Claude Code et Codex avant d'accepter le bac.
+- `<installation>/.hive-work/tasks/<task-id>.git` : le git dir **de la
+  ruche**, posé à côté de la tâche juste après le clone et effacé avec elle.
+  C'est par lui — jamais par le `.git` que l'agent a eu entre les mains — que
+  le nœud calcule le diff de revue et relit le dépôt pour les validations du
+  bac : un crochet, un filtre ou un `core.fsmonitor` écrit par l'agent dans
+  son dépôt ne s'exécute donc jamais sur votre machine, hors du bac.
+- **un dépôt privé par SSH** (`git@hôte:…`) : le nœud clone — et, pour une
+  livraison locale, liste et pousse — en mode lot
+  (`ssh -o BatchMode=yes`), sans jamais attendre une invite. La clé d'hôte
+  doit donc déjà figurer dans votre `~/.ssh/known_hosts`, et une clé à phrase
+  de passe doit être chargée dans votre agent ssh (`ssh-add`) — le nœud lui
+  transmet `SSH_AUTH_SOCK`, jamais à l'agent de codage. Le `core.sshCommand`
+  de votre configuration git globale ou système est conservé — le mode lot
+  lui est ajouté : sous Windows, un `core.sshCommand` qui désigne
+  `C:/Windows/System32/OpenSSH/ssh.exe` continue donc de servir l'agent ssh
+  de Windows. Celui d'un dépôt n'est jamais lu.
 - **si vous avez demandé un service**, son fichier vit dans votre dossier
   personnel — `~/.config/systemd/user/` sous Linux, `~/Library/LaunchAgents/`
   sous macOS. C'est la seule chose que Hive écrit là, elle est **opt-in**, et

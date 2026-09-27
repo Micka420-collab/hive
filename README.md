@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-6721%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-6984%20passing-F6C445?labelColor=17130C)
 ![Licence](https://img.shields.io/badge/licence-MIT-F6C445?labelColor=17130C)
 
 🇫🇷 Français · [🇬🇧 English](README.en.md) · [🌐 Site](https://micka420-collab.github.io/hive/) · [📚 Documentation](#-documentation)
@@ -145,7 +145,10 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
   - le coût et le temps modèle **déclarés par le CLI de l'agent** (Claude
     Code), avec leur couverture — « inconnu » quand rien n'est déclaré
     ([#455](https://github.com/Micka420-collab/hive/pull/455),
-    [#456](https://github.com/Micka420-collab/hive/pull/456)).
+    [#456](https://github.com/Micka420-collab/hive/pull/456)) ; Codex, lancé
+    en `codex exec --json`, déclare ses **jetons** d'entrée et de sortie, et
+    rien d'autre : ni coût, ni temps modèle, ni modèle exact — aucun coût
+    n'est déduit des jetons ([#481](https://github.com/Micka420-collab/hive/pull/481)).
 
 **Reste à prouver :**
 
@@ -153,8 +156,9 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
   Docker ou Podman (diff, tests, revue, correction, livraison Git) ;
 - le coût et le temps modèle sur un **vrai** run : la lecture de la
   déclaration de Claude Code suit le format documenté et est éprouvée contre
-  un faux binaire, pas encore contre le CLI réel ; Codex ne déclare encore
-  rien à Hive ;
+  un faux binaire, pas encore contre le CLI réel ; celle des jetons de Codex
+  est enregistrée sur le vrai codex-cli 0.156.0, mais contre un faux
+  fournisseur local, pas sur un vrai run payé ;
 - l'arrêt d'un nœud en **mode conteneur** et **sous Windows** : l'agent peut
   survivre à son nœud (conteneur lancé sans `--init`, `TerminateProcess` sous
   Windows), comme les merges et chantiers en cours et les sous-processus
@@ -174,10 +178,12 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
   jugé est celui que la Reine garde (sa dernière production) ; l'évaluation
   n'est `✔` que pour `accepted` avec les quatre validations vertes.
   `--workers 3` exige l'**essaim** : trois ouvrières réelles de deux
-  familles, des tâches indépendantes en parallèle, une délégation vers une
-  AUTRE ouvrière (il faut une ouvrière Claude Code ou Codex : seuls leurs
-  adaptateurs savent déléguer), une relecture par une autre famille ; la
-  reprise après objection et l'Evaluator sont dits, sans être exigés.
+  familles, des tâches indépendantes en parallèle, une délégation dont la
+  sous-tâche est rendue par un agent réel (il faut une ouvrière Claude Code
+  ou Codex : seuls leurs adaptateurs savent déléguer), une relecture par une
+  autre famille. Où la sous-tâche a tourné est dit, pas exigé : la Reine ne
+  l'épingle pas, et elle peut revenir à l'ouvrière même de sa tâche parente.
+  La reprise après objection et l'Evaluator sont dits, sans être exigés.
   `--exige-bac` exige un bac conteneur de chaque nœud qui exécute la
   mission (sous-tâches déléguées et relectures comprises), `--depot <url>`
   (un dépôt GitHub en https, et `HIVE_GITHUB_TOKEN` côté Reine, vérifiés
@@ -335,7 +341,7 @@ Toute IA de codage se branche via l'interface `AgentAdapter` :
 | `claude-code`  | `claude -p "<prompt>"` dans l'espace isolé.                                                                   |
 | `cursor`       | `cursor-agent -p --force --output-format stream-json -- "<prompt>"` — binaire réglable par `HIVE_CURSOR_BIN`. |
 | `cline`        | `cline --json --auto-approve true "<prompt>"` — binaire réglable par `HIVE_CLINE_BIN`.                        |
-| `codex`        | `codex exec "<prompt>"`                                                                                       |
+| `codex`        | `codex exec --json -- "<prompt>"` — jetons déclarés, coût inconnu (jamais tiré des jetons).                   |
 | `grok`         | `grok -p "<prompt>"` — l’agent CLI de xAI, Apache 2.0.                                                        |
 | `hermes-agent` | `hermes agent run --prompt "<prompt>"`                                                                        |
 | `custom`       | Le vôtre, via `HIVE_AGENT_CMD`.                                                                               |
@@ -355,7 +361,11 @@ ces verdicts. Au repos, une ouvrière ne dépense rien ; une relecture, elle, es
 une vraie tâche, que la ligne de démarrage compte. Une relecture n'est confiée
 qu'à sa famille : si celle-ci disparaît (ouvrière arrêtée, relance en
 `--une-ouvriere`), elle échoue au bout de cinq minutes, et le journal dit
-pourquoi. La première ouvrière garde le nom, le dossier et les `HIVE_MODELES`
+pourquoi. Une relecture qui tombe sans avis (famille absente, relecteur en
+échec, réponse vide) est relayée UNE fois par une autre famille indépendante
+du producteur si l'une est en ligne ; sinon l'Evaluator demande une revue
+humaine en écrivant « relecture impossible : <cause> ». Le producteur n'est
+jamais relancé pour la panne de son relecteur. La première ouvrière garde le nom, le dossier et les `HIVE_MODELES`
 d'avant ; les autres prennent `<nom>-<famille>`. Pour n'en lancer qu'une :
 `npm run ruche -- --une-ouvriere`, ou `HIVE_AGENT` dans `.env`.
 
@@ -378,6 +388,13 @@ de sa tâche lorsque le fournisseur et l’image ont passé le preflight. **Le
 réseau reste ouvert** : un agent de codage doit joindre l'API de son modèle.
 Sans moteur de conteneurs, posez `HIVE_ISOLEMENT=exige` — le nœud refusera de
 travailler à découvert.
+
+L'image par défaut, `localhost/hive-agent:local` (Claude Code, Codex, Cline), se
+construit sur chaque nœud par `npm run bac:image` ; Hive ne la télécharge
+jamais. Le nœud retient le premier moteur dont le preflight passe (image
+présente, agent exécutable) et dit pourquoi les autres sont écartés. Chaque
+conteneur porte l'étiquette de son nœud : relancé après un arrêt brutal, le
+nœud supprime ceux qu'il avait laissés.
 
 Dans le bac, l'agent a un HOME éphémère : la session de `claude login` ou de
 `codex login` n'y entre pas. Hive y transmet **par leur nom** les identifiants

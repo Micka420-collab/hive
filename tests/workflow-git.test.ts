@@ -40,8 +40,13 @@
 // SEPT défauts consignés dans `src/node-client/workspace.ts` (deux corrigés
 // depuis par #475, retournés en gardes : `collectDiff`) — fichier tenu par un
 // autre lot au moment où ce banc s'écrit — dont un qui déborde sur
-// `merge-runner.ts` (`mergedDiff`, le binaire). Ils sont CONSIGNÉS, pas
-// cachés, et chacun est nommé sur place :
+// `merge-runner.ts` (`mergedDiff`, le binaire). Ils ont été CONSIGNÉS, pas
+// cachés, et chacun est nommé sur place. QUATRE sont corrigés depuis, par le
+// git dir de la ruche (`src/node-client/git-hote.ts`) — l'attente de Git
+// Credential Manager, l'invite `ssh`, le travail indexé ou committé par
+// l'agent, le dépôt cassé qui faisait remonter git jusqu'au checkout du
+// membre — et leurs bancs sont redevenus des gardes. Les trois autres — la
+// branche absente, le binaire, le serveur qui se tait — restent consignés :
 //
 //   · `it.fails` quand le défaut se mesure en une seconde : le banc est VERT
 //     tant que le défaut est là, et ROUGIT le jour de la correction — il
@@ -79,7 +84,8 @@ import type { AgentAdapter } from '../src/adapters/index.js';
 import { HiveNodeClient } from '../src/node-client/client.js';
 import { runMerge } from '../src/node-client/merge-runner.js';
 import type { MergeDiff, MergeRunResult } from '../src/node-client/merge-runner.js';
-import { cloneRepo, envTransportGit, prepareWorkspace } from '../src/node-client/workspace.js';
+import { envGitHote } from '../src/node-client/git-hote.js';
+import { cloneRepo, prepareWorkspace } from '../src/node-client/workspace.js';
 import { createServer } from '../src/orchestrator/server.js';
 import type { MergeResultMsg } from '../src/shared/protocol.js';
 import type { HiveEvent, StateSnapshot, Task, TaskResult } from '../src/shared/types.js';
@@ -372,7 +378,7 @@ describe('identifiants Git invalides — l’échec est RAPIDE, et il REMONTE', 
   // leur copie de l'environnement de clone, et une copie se nettoie seule.
   // Tout ceci vaut pour HTTP(S) ; SSH est un autre défaut, consigné plus bas.
   //
-  // ─── DÉFAUT CORRIGÉ SOUS WINDOWS — l'environnement de transport (#476) ────
+  // ─── DÉFAUT CORRIGÉ SOUS WINDOWS — Git Credential Manager ─────────────────
   //
   // Mesuré sur la CI Windows (run 36287712655) : les deux clones sans
   // identifiants restaient EN ATTENTE, la tâche de bout en bout « running ».
@@ -382,17 +388,18 @@ describe('identifiants Git invalides — l’échec est RAPIDE, et il REMONTE', 
   // étaient donc consignés en `fails` sur la CI Windows (et `skip` sur un poste
   // de bureau, où GCM aurait ouvert une vraie fenêtre).
   //
-  // #476 a réuni les deux environnements de clone en un seul,
-  // `envTransportGit()`, qui pose `GCM_INTERACTIVE=Never` comme `miroir.ts` :
-  // la CI Windows les a vus rougir (run 36308334514, « attendu en échec, mais
-  // passé »). La bascule est retirée : ce sont des GARDES sur les trois
-  // systèmes, et un poste de bureau n'ouvre plus de fenêtre.
+  // #476 puis #483 ont réuni tous les git de l'hôte — clone, merge, livraison
+  // — derrière un seul environnement, `envGitHote()` (git-hote.ts), qui pose
+  // `GCM_INTERACTIVE=Never` comme `miroir.ts` : la CI Windows les a vus rougir
+  // (run 36308334514, « attendu en échec, mais passé »). La bascule est
+  // retirée : ce sont des GARDES sur les trois systèmes, et un poste de bureau
+  // n'ouvre plus de fenêtre.
 
   // Et la ligne elle-même, vérifiée sur les TROIS systèmes : ces bancs ne
   // rougissent sans elle que là où GCM est installé — sous Linux et macOS,
   // la retirer passait inaperçu.
-  it('l’environnement de transport met Git Credential Manager en non-interactif', () => {
-    expect(envTransportGit()).toMatchObject({ GCM_INTERACTIVE: 'Never', GIT_TERMINAL_PROMPT: '0' });
+  it('l’environnement git de l’hôte met Git Credential Manager en non-interactif', () => {
+    expect(envGitHote()).toMatchObject({ GCM_INTERACTIVE: 'Never', GIT_TERMINAL_PROMPT: '0' });
   });
 
   /** Les deux portes de clone du nœud. */
@@ -440,7 +447,7 @@ describe('identifiants Git invalides — l’échec est RAPIDE, et il REMONTE', 
     expect(issue.etat === 'rejetee' ? issue.motif : '').not.toContain(secret);
   });
 
-  // ─── DÉFAUT CONSIGNÉ — workspace.ts, les deux environnements : SSH ────────
+  // ─── SSH — corrigé (git-hote.ts : `GIT_SSH_COMMAND`, mode lot) ────────────
   //
   // `GIT_TERMINAL_PROMPT=0` ne gouverne que les invites de GIT. Par SSH
   // (`ssh://…`, `git@hôte:…` — la forme la plus courante d'un dépôt privé, et
@@ -450,28 +457,30 @@ describe('identifiants Git invalides — l’échec est RAPIDE, et il REMONTE', 
   // connecting (yes/no/[fingerprint])? » et attend jusqu'à ce qu'on le tue ;
   // sans terminal, « Host key verification failed. » en 31 ms. Une clé à
   // phrase de passe fait pareil — et les deux environnements de clone
-  // retirent `SSH_AUTH_SOCK`, donc l'agent ssh du membre ne peut pas la
-  // fournir à sa place.
+  // retiraient `SSH_AUTH_SOCK`, donc l'agent ssh du membre ne pouvait pas la
+  // fournir à sa place (il passe désormais, vers git seulement).
   //
-  // Le juste : `ssh` en mode lot (`-o BatchMode=yes`, par `GIT_SSH_COMMAND`
-  // ou `core.sshCommand`) — plus aucune invite, un refus lisible. Le banc met
+  // Le juste, posé : `ssh` en mode lot (`-o BatchMode=yes`, par
+  // `GIT_SSH_COMMAND`) — plus aucune invite, un refus lisible. Le banc met
   // un FAUX `ssh` en tête du PATH (les deux environnements de clone
   // transmettent PATH) : il note ses arguments et refuse comme le vrai. Ni
   // sshd, ni terminal, ni attente. POSIX seulement : ce faux `ssh` est un
   // script `sh`.
   it.each(PORTES)(
     '%s, par SSH : ssh doit tourner en mode lot — ni invite de clé d’hôte, ni phrase de passe',
-    { fails: true, skip: process.platform === 'win32' },
+    { skip: process.platform === 'win32' },
     async (_porte, cloner) => {
       const faux = mkdtempSync(path.join(racine, 'faux-ssh-'));
       const trace = path.join(faux, 'arguments.txt');
       writeFileSync(
         path.join(faux, 'ssh'),
-        `#!/bin/sh\nprintf '%s\\n' "$@" > '${trace}'\necho 'Host key verification failed.' >&2\nexit 255\n`,
+        `#!/bin/sh\nprintf '%s\\n' "$@" "agent=$SSH_AUTH_SOCK" > '${trace}'\necho 'Host key verification failed.' >&2\nexit 255\n`,
         { mode: 0o755 },
       );
       const pathAvant = process.env.PATH;
+      const agentAvant = process.env.SSH_AUTH_SOCK;
       process.env.PATH = `${faux}${path.delimiter}${pathAvant ?? ''}`;
+      process.env.SSH_AUTH_SOCK = path.join(faux, 'agent.sock');
       try {
         const dossier = mkdtempSync(path.join(racine, 'ssh-'));
         const issue = await issueSous(
@@ -483,11 +492,16 @@ describe('identifiants Git invalides — l’échec est RAPIDE, et il REMONTE', 
           etat: 'rejetee',
           motif: expect.stringMatching(/Host key verification failed/),
         });
-        // …mais sans mode lot : sous un terminal, le vrai aurait attendu.
+        // …et en mode lot : sous un terminal, sans lui, le vrai aurait attendu.
         expect(readFileSync(trace, 'utf8')).toMatch(/BatchMode=yes/);
+        // L'agent ssh du membre atteint `ssh` (git, côté hôte) : c'est ce qui
+        // fait servir une clé à phrase de passe en mode lot.
+        expect(readFileSync(trace, 'utf8')).toContain(`agent=${process.env.SSH_AUTH_SOCK}`);
       } finally {
         if (pathAvant === undefined) delete process.env.PATH;
         else process.env.PATH = pathAvant;
+        if (agentAvant === undefined) delete process.env.SSH_AUTH_SOCK;
+        else process.env.SSH_AUTH_SOCK = agentAvant;
       }
     },
   );
@@ -766,16 +780,20 @@ describe('fichier non suivi — ce que l’agent laisse doit arriver ENTIER à l
     }
   });
 
-  // ─── DÉFAUT CORRIGÉ — workspace.ts, `collectDiff` (#475) ─────────────────
+  // ─── DÉFAUT CORRIGÉ — `collectDiff` compare au commit de DÉPART ──────────
   //
-  // Le diff se calculait entre l'INDEX et l'arbre de travail : tout ce que
-  // l'agent avait lui-même mis en index (`git add`) ou committé sur sa branche
-  // `hive/<id>` en sortait. Mesuré : diff VIDE dans les deux cas — le travail
-  // perdu, et la tâche déclarée réussie avec rien.
+  // Le diff se calculait entre l'INDEX de la tâche et son arbre de travail.
+  // Tout ce que l'agent avait lui-même mis en index (`git add`) ou committé
+  // sur sa branche `hive/<id>` en sortait donc. Mesuré : diff VIDE dans les
+  // deux cas — le travail perdu, la tâche déclarée réussie avec rien.
   //
-  // #475 compare au commit de départ du clone (`Workspace.baseSha`), épinglé
-  // avant l'agent : les deux bancs, consignés ici en `it.fails`, ont rougi le
-  // jour de la correction et sont retournés en `it` — des GARDES désormais.
+  // #475 puis #483 l'ont corrigé chacun : le diff se calcule contre le commit
+  // de départ du clone (`Workspace.baseSha`), épinglé avant l'agent, et par le
+  // git dir de la ruche, dont HEAD reste sur ce commit (git-hote.ts). Les deux
+  // bancs, consignés ici en `it.fails`, sont des GARDES désormais. Claude Code
+  // (`acceptEdits`, sans Bash) et Codex (`.git` en lecture seule dans son bac)
+  // ne le peuvent pas aujourd'hui ; un agent `custom`, Cursor ou Cline le
+  // peuvent.
   it('une modification que l’agent a mise en index (`git add`) doit rester dans le diff', async () => {
     const a = amont('mis-en-index', { 'app.txt': 'bonjour\n' });
     const ws = await prepareWorkspace(travail, tache('mis-en-index'), a.url);
@@ -903,10 +921,10 @@ describe('changement concurrent — l’amont bouge sous l’espace de travail',
     await expect(ws.collectDiff()).rejects.toThrow();
   });
 
-  // ─── DÉFAUT CONSIGNÉ, ET IL TOUCHE À LA SÉCURITÉ — workspace.ts, `collectDiff`
+  // ─── CORRIGÉ, ET IL TOUCHAIT À LA SÉCURITÉ — `collectDiff` (git-hote.ts) ───
   //
-  // `collectDiff` lance `git add --all --intent-to-add` puis `git diff` DEPUIS
-  // le cwd de la tâche, sans épingler son dépôt. Or le `workRoot` par défaut —
+  // `collectDiff` lançait `git add --all --intent-to-add` puis `git diff`
+  // DEPUIS le cwd de la tâche, sans épingler son dépôt. Or le `workRoot` par défaut —
   // `.hive-work/<nom>`, relatif au répertoire courant (client.ts, main.ts,
   // join.ts) — vit DANS le checkout du membre quand il lance son nœud de là.
   // Que l'agent casse le dépôt de sa tâche, et git en cherche un autre :
@@ -920,10 +938,15 @@ describe('changement concurrent — l’amont bouge sous l’espace de travail',
   //     y inscrit la suppression de chaque fichier suivi. Une écriture hors du
   //     bac, par git, côté hôte.
   //
-  // Le juste : le diff ÉCHOUE, et rien hors de la tâche n'est lu ni touché —
-  // épingler le dépôt (`GIT_DIR=<cwd>/.git`, `GIT_WORK_TREE=<cwd>`, ou
-  // `GIT_CEILING_DIRECTORIES`) et vérifier que `.git` est bien le répertoire
-  // que le clone a créé.
+  // Le juste, posé : rien hors de la tâche n'est lu ni touché. Toute commande
+  // d'après l'agent passe `--git-dir=<registre de la ruche>` et
+  // `--work-tree=<tâche>` : git ne cherche plus de dépôt, il n'en trouve donc
+  // pas d'autre. Le `.git` de la tâche n'est plus lu que pour ses OBJETS, en
+  // lecture seule — jamais sa configuration ni ses crochets, et rien n'est
+  // écrit hors du registre. Retiré ou remplacé, ses objets manquent, et le
+  // diff ÉCHOUE, visiblement. (Un lien vers un dépôt qui CONTIENT le commit de
+  // départ rendrait le diff calculable avec ces objets-là — lus, jamais
+  // exécutés ni modifiés ; ce n'est pas le cas mesuré ici.)
   it.each<[string, (cwd: string, membre: string) => void]>([
     [
       'son `.git` retiré',
@@ -939,7 +962,6 @@ describe('changement concurrent — l’amont bouge sous l’espace de travail',
     ],
   ])(
     'l’agent casse le dépôt de sa tâche (%s) : le diff doit ÉCHOUER, sans lire ni toucher le checkout du membre autour',
-    { fails: true },
     async (cas, casser) => {
       const a = amont(`casse-${cas.length}`, { 'app.txt': 'bonjour\n' });
       // Le checkout du membre, là où il a lancé son nœud : un changement

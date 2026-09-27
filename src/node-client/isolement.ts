@@ -75,6 +75,13 @@ export const CPU_MAX = '2';
 
 /** Point de montage du répertoire de tâche À L'INTÉRIEUR du bac. */
 export const MONTAGE = '/hive/tache';
+/**
+ * Point de montage, dans le bac, du dossier du pont de délégation de la tâche
+ * (`rendez-vous-pont.ts`) : son socket et sa configuration MCP, en LECTURE
+ * SEULE. Hors de `MONTAGE` : le socket ne vit plus dans le répertoire de la
+ * tâche, dont la profondeur dépassait la limite d'un chemin de socket Unix.
+ */
+export const MONTAGE_PONT = '/hive/pont';
 /** HOME éphémère du CLI dans un conteneur ; jamais le chemin de l'hôte. */
 export const HOME_CONTENEUR = '/tmp/hive-home';
 
@@ -99,13 +106,31 @@ export const VARIABLES_CHEMIN_HOTE: readonly string[] = [
 ];
 
 /**
- * Image utilisée par les moteurs de conteneurs.
+ * Image utilisée par les moteurs de conteneurs quand l'opérateur n'en nomme pas.
  *
- * Cette image de base ne contient pas les CLI d'agents. Le preflight doit
- * vérifier leur présence dans l'image choisie via HIVE_ISOLEMENT_IMAGE ;
- * seul le workspace est monté, jamais l'installation de l'agent sur l'hôte.
+ * ─── UNE IMAGE PAR DÉFAUT QUI NE PORTAIT AUCUN AGENT ─────────────────────────
+ *
+ * Le défaut était `docker.io/library/node:20-slim` : Node 20 en fin de vie, et
+ * AUCUNE CLI d'agent dedans. Le preflight de `claude` ou `codex` y échouait
+ * donc toujours ; le niveau conteneur était inatteignable pour un vrai agent
+ * sur le chemin par défaut, et le message disait « agent absent » — l'humain
+ * réinstallait un agent bien présent sur sa machine.
+ *
+ * Le défaut est désormais l'image que le dépôt sait construire
+ * (`docker/agents/Dockerfile` : Node 24, Claude Code, Codex, Cline, uid 1000),
+ * construite SUR LE NŒUD par `COMMANDE_IMAGE`. Rien n'est publié ni signé par
+ * Hive : aucun registre tiers n'entre dans la chaîne de confiance par défaut.
+ *
+ * Le préfixe `localhost/` n'est pas décoratif. Sans lui, Docker lirait
+ * `hive-agent:local` comme `docker.io/library/hive-agent:local` et irait le
+ * chercher sur le Hub ; avec lui, les deux moteurs rangent et retrouvent l'image
+ * sous le même nom, et une image absente n'est JAMAIS téléchargée d'ailleurs
+ * (voir `preparerImage`, qui la fait construire au lieu de la tirer).
  */
-export const IMAGE_DEFAUT = 'docker.io/library/node:20-slim';
+export const IMAGE_DEFAUT = 'localhost/hive-agent:local';
+
+/** Ce qui construit `IMAGE_DEFAUT` depuis un clone du dépôt. */
+export const COMMANDE_IMAGE = 'npm run bac:image';
 
 /** Image réellement demandée par l'opérateur, sans valeur vide trompeuse. */
 export function imageDepuisEnv(env: NodeJS.ProcessEnv = process.env): string {
@@ -120,6 +145,15 @@ export interface Fournisseur {
   installation: string;
   /** Ce qu'il garantit réellement — jamais une promesse ronde. */
   garanties: string[];
+  /**
+   * Podman : le MOTEUR tourne-t-il sans root ? Appris au preflight de lui-même
+   * (`podman info`, voir `preparerIdentite`), pas de l'UID de l'hôte : un
+   * podman-remote vers une machine rootful (`podman machine set --rootful`,
+   * `CONTAINER_HOST`) refuse `--userns=keep-id`, quel que soit l'UID du nœud.
+   * Absent : le moteur n'a pas été interrogé, ou n'a rien dit — l'UID de l'hôte
+   * en décide, comme pour un Podman local.
+   */
+  rootless?: boolean;
 }
 
 /**
@@ -239,24 +273,88 @@ export interface OptionsEnveloppe {
   image?: string;
   /** Identifiant numérique sous lequel exécuter. Défaut : non privilégié. */
   uid?: number;
+  /** Groupe numérique sous lequel exécuter. Défaut : celui du nœud (voir `identiteNonPrivilegiee`). */
+  gid?: number;
+  /**
+   * Le nœud et la tâche qui possèdent le conteneur, posés en ÉTIQUETTES
+   * (`ETIQUETTE_NOEUD`, `ETIQUETTE_TACHE`). Ce ne sont pas des secrets : ce sont
+   * des identifiants que le hub affiche déjà. Voir `ramasserConteneurs`.
+   */
+  noeud?: string;
+  tache?: string;
   /**
    * Bubblewrap seulement : où l'hôte cherche les commandes (voir
    * `installationHote`). Défaut : l'hôte réel. Un banc le fixe pour que les
    * arguments ne dépendent pas des agents installés sur sa machine.
    */
   hote?: ContexteHote;
+  /**
+   * Dossier HÔTE du pont de délégation de CETTE tâche, monté seul et en
+   * LECTURE SEULE à `MONTAGE_PONT`. Se connecter à un socket n'écrit rien sur
+   * le système de fichiers : la lecture seule suffit (mesuré sous bubblewrap),
+   * et l'agent ne peut ni effacer ni remplacer le socket. Absent : la commande
+   * n'a pas de pont, rien n'est monté.
+   */
+  pont?: string;
 }
 
 /**
  * L'atelier créé par Hive appartient à l'utilisateur qui a lancé le nœud.
  * Reprendre systématiquement 1000 casse donc l'écriture dans le volume sur les
  * runners et les postes où cet utilisateur a un autre UID. On reprend son UID
- * quand il est non privilégié ; un nœud lancé en root reste explicitement
- * abaissé à 1000.
+ * — et son GID, pas une copie de l'UID : sur un runner GitHub, `runner` est
+ * 1001 dans un groupe primaire qui n'est pas 1001 — quand il est non
+ * privilégié ; un nœud lancé en root reste explicitement abaissé à 1000:1000.
  */
-function uidNonPrivilegie(): number {
+function identiteNonPrivilegiee(): { uid: number; gid: number; rootless: boolean } {
   const uid = typeof process.getuid === 'function' ? process.getuid() : undefined;
-  return typeof uid === 'number' && uid > 0 ? uid : 1000;
+  const gid = typeof process.getgid === 'function' ? process.getgid() : undefined;
+  if (typeof uid === 'number' && uid > 0) {
+    return { uid, gid: typeof gid === 'number' && gid > 0 ? gid : uid, rootless: true };
+  }
+  return { uid: 1000, gid: 1000, rootless: false };
+}
+
+/** Podman rootless — selon le moteur s'il l'a dit, sinon selon l'UID du nœud. */
+function keepId(fournisseur: Fournisseur): boolean {
+  return (
+    fournisseur.nom === 'podman' && (fournisseur.rootless ?? identiteNonPrivilegiee().rootless)
+  );
+}
+
+/** Étiquette de conteneur : le nœud qui l'a lancé. Voir `ramasserConteneurs`. */
+export const ETIQUETTE_NOEUD = 'hive.noeud';
+/** Étiquette de conteneur : la tâche qu'il exécute, pour qui inspecte à la main. */
+export const ETIQUETTE_TACHE = 'hive.tache';
+
+/**
+ * Tout ce que le bac d'un nœud transmet à une exécution — une seule forme,
+ * partagée par les adaptateurs, le merge et le client. Elle était recopiée en
+ * quatre endroits sous la forme `{ fournisseur; variables; image }`, et
+ * l'ajout des étiquettes aurait fait quatre endroits où en oublier une.
+ */
+export interface BacExecution {
+  fournisseur: Fournisseur;
+  /** Image ayant passé le preflight agent-aware. */
+  image: string;
+  /** Noms — jamais valeurs — des variables à transmettre dans le bac. */
+  variables: readonly string[];
+  /** Le nœud propriétaire (étiquette `ETIQUETTE_NOEUD`). */
+  noeud?: string;
+  /** La tâche en cours (étiquette `ETIQUETTE_TACHE`). */
+  tache?: string;
+}
+
+/** Les options d'enveloppe d'une exécution dans le bac, sur le répertoire `cwdHote`. */
+export function optionsEnveloppe(bac: BacExecution, cwdHote: string): OptionsEnveloppe {
+  return {
+    fournisseur: bac.fournisseur,
+    cwdHote,
+    variables: bac.variables,
+    image: bac.image,
+    ...(bac.noeud ? { noeud: bac.noeud } : {}),
+    ...(bac.tache ? { tache: bac.tache } : {}),
+  };
 }
 
 export interface Enveloppe {
@@ -295,16 +393,39 @@ function enveloppeConteneur(
   const volumeSource = /^[A-Za-z]:[\\/]/.test(opts.cwdHote)
     ? opts.cwdHote.replaceAll('\\', '/')
     : opts.cwdHote;
-  const uid = opts.uid ?? uidNonPrivilegie();
+  const hote = identiteNonPrivilegiee();
+  const uid = opts.uid ?? hote.uid;
+  const gid = opts.gid ?? hote.gid;
   const args = [
     'run',
     '--rm',
     // Pas de TTY, pas d'entrée interactive : l'agent est piloté par argv.
     '--interactive=false',
+    // ─── UN VRAI PID 1, QUI RELAIE LES SIGNAUX ET RAMASSE LES ZOMBIES ───────
+    //
+    // Sans `--init`, l'agent EST le PID 1 du conteneur, et le noyau n'y livre
+    // aucun signal que le processus n'a pas explicitement capté : le SIGTERM
+    // qu'un délai ou une annulation envoie au client `docker run` (qui le
+    // relaie) ne tuait pas un `node` qui ne l'écoute pas. Le conteneur survivait
+    // à sa tâche.
+    '--init',
+    // L'image a été vérifiée présente au démarrage (`preparerImage`). Une image
+    // retirée depuis fait échouer la tâche net, au lieu d'un téléchargement
+    // silencieux pris sur son délai — ou tiré d'un registre que personne n'a
+    // choisi.
+    '--pull=never',
+    // Le propriétaire, lisible par le moteur : un nœud tué (kill -9, panne)
+    // laisse un conteneur que `docker run --rm` ne supprimera jamais, puisque
+    // son client est mort. Le nœud relancé le retrouve par cette étiquette.
+    ...(opts.noeud ? [`--label=${ETIQUETTE_NOEUD}=${opts.noeud}`] : []),
+    ...(opts.tache ? [`--label=${ETIQUETTE_TACHE}=${opts.tache}`] : []),
 
     // ── Ce qui est visible ─────────────────────────────────────────────────
-    // LE SEUL montage. Pas de $HOME, pas de ~/.ssh, pas de socket de démon.
+    // LE SEUL montage inscriptible. Pas de $HOME, pas de ~/.ssh, pas de socket
+    // de démon — seulement, en lecture seule, le pont de la tâche s'il y en a
+    // un (jamais sous Windows : `raisonPontMcpDansBac` y écarte le bac).
     `--volume=${volumeSource}:${MONTAGE}:rw`,
+    ...(opts.pont ? [`--volume=${opts.pont}:${MONTAGE_PONT}:ro`] : []),
     `--workdir=${MONTAGE}`,
     // Racine en lecture seule : un agent ne réécrit pas son propre système.
     '--read-only',
@@ -316,7 +437,17 @@ function enveloppeConteneur(
     '--cap-drop=ALL',
     // Bloque setuid : même en trouvant un binaire privilégié, pas d'élévation.
     '--security-opt=no-new-privileges',
-    `--user=${uid}:${uid}`,
+    // ─── PODMAN ROOTLESS : L'UID DU NŒUD, PAS UN SUBUID ─────────────────────
+    //
+    // Sans `--userns=keep-id`, Podman rootless mappe l'UID 0 du conteneur sur
+    // l'utilisateur et tout autre UID sur une plage subordonnée : `--user=1001`
+    // y devient un subuid étranger, qui ne peut écrire ni dans le répertoire de
+    // la tâche ni sur la socket du pont MCP (0600). `keep-id` fait coïncider
+    // l'UID du conteneur avec celui du nœud. Un nœud root, lui, n'a aucune
+    // identité non privilégiée à garder : il garde l'abaissement explicite à
+    // 1000:1000, sans `keep-id`.
+    ...(keepId(opts.fournisseur) ? ['--userns=keep-id'] : []),
+    `--user=${uid}:${gid}`,
 
     // ── Ce qui est borné ───────────────────────────────────────────────────
     // Une bombe à fork n'emporte pas la machine du membre.
@@ -337,6 +468,128 @@ function enveloppeConteneur(
 
   args.push(opts.image ?? IMAGE_DEFAUT, bin, ...argsAgent);
   return { bin: opts.fournisseur.bin, args };
+}
+
+/**
+ * Ce que le CLIENT d'un moteur lit de l'hôte pour joindre son moteur.
+ *
+ * ─── L'ENVIRONNEMENT ÉPURÉ DE LA TÂCHE EST CELUI DE L'AGENT, PAS DU MOTEUR ───
+ *
+ * `podman run` recevait l'environnement épuré de la tâche (`buildSandboxEnv` :
+ * ni HOME, ni session). Or Podman rootless range ses images sous le HOME et sa
+ * session sous `XDG_RUNTIME_DIR`, et Docker suit `DOCKER_HOST` (Docker rootless,
+ * Colima, contexte) : le preflight, lancé avec l'environnement du nœud, trouvait
+ * le moteur ; la tâche, lancée sans, pouvait ne pas le trouver. Un bac annoncé,
+ * puis chaque tâche en échec d'infra.
+ *
+ * `XDG_DATA_HOME` et `XDG_CONFIG_HOME` déplacent ce magasin et sa
+ * configuration quand ils sont posés : sans eux, la tâche cherchait les images
+ * ailleurs que le preflight.
+ *
+ * Ces variables vont au CLIENT, jamais au conteneur : seule `--env=NOM` fait
+ * traverser une variable, pour les noms que le bac autorise, et `HOME` y est
+ * posé explicitement sur `HOME_CONTENEUR` (voir `VARIABLES_CHEMIN_HOTE`).
+ * Bubblewrap, lui, TRANSMET son environnement à l'agent : il n'en reçoit rien
+ * de plus.
+ */
+const VARIABLES_MOTEUR: readonly string[] = [
+  'HOME',
+  'XDG_RUNTIME_DIR',
+  'XDG_DATA_HOME',
+  'XDG_CONFIG_HOME',
+  'DBUS_SESSION_BUS_ADDRESS',
+  'DOCKER_HOST',
+  'DOCKER_CONTEXT',
+  'DOCKER_CONFIG',
+  // Un `DOCKER_HOST=tcp://…:2376` ne se joint qu'avec ses certificats.
+  'DOCKER_TLS_VERIFY',
+  'DOCKER_CERT_PATH',
+  'CONTAINER_HOST',
+  'CONTAINER_CONNECTION',
+  'CONTAINERS_CONF',
+  'CONTAINERS_STORAGE_CONF',
+  // Sous Windows, le client Docker et la connexion de la machine Podman se
+  // rangent sous le profil : sans eux, le client ne trouve pas son moteur.
+  'USERPROFILE',
+  'APPDATA',
+  'LOCALAPPDATA',
+  'PROGRAMDATA',
+];
+
+/**
+ * Ce que le client d'un moteur lit pour TÉLÉCHARGER une image : le proxy
+ * d'entreprise, le fichier d'authentification du registre, les autorités de
+ * certification. Podman rootless tire l'image dans le processus client : sans
+ * eux, une image nommée ne se téléchargeait plus derrière un proxy.
+ *
+ * AU `pull` SEULEMENT, ni à la tâche ni aux preflights : une tâche ne
+ * télécharge rien (`--pull=never`), et Podman fait traverser par défaut les
+ * variables de proxy de son client jusque dans le conteneur (`--http-proxy`) —
+ * un proxy à identifiants aurait rejoint l'environnement de l'agent sans que
+ * le bac l'ait autorisé. Un `pull` ne lance aucun conteneur.
+ */
+const VARIABLES_TELECHARGEMENT: readonly string[] = [
+  'HTTP_PROXY',
+  'HTTPS_PROXY',
+  'NO_PROXY',
+  'http_proxy',
+  'https_proxy',
+  'no_proxy',
+  'REGISTRY_AUTH_FILE',
+  'SSL_CERT_FILE',
+  'SSL_CERT_DIR',
+];
+
+/**
+ * L'environnement du client d'un moteur de conteneurs pour les ÉPREUVES du
+ * démarrage (inspection, téléchargement, preflight, ramassage).
+ *
+ * ─── LE PREFLIGHT VOYAIT PLUS QUE LA TÂCHE ───────────────────────────────────
+ *
+ * Les épreuves lançaient le client avec presque tout l'environnement de l'hôte
+ * (`envSonde` ne retire que les secrets) ; la tâche, avec la liste
+ * `VARIABLES_MOTEUR`. Tout réglage du moteur hors de cette liste faisait
+ * passer le preflight et échouer chaque tâche. Les deux partent maintenant de
+ * la MÊME règle, `envDuLanceur`, sur la même base système que
+ * `buildSandboxEnv` : ce que le preflight trouve, la tâche le trouve. Seul le
+ * `pull` en reçoit plus (`envTelechargement`), qu'aucune tâche ne fait.
+ */
+export function envMoteur(
+  fournisseur: Fournisseur,
+  envHote: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  const base: NodeJS.ProcessEnv = {};
+  for (const nom of ['PATH', 'SYSTEMROOT', 'SYSTEMDRIVE']) {
+    if (envHote[nom] !== undefined) base[nom] = envHote[nom];
+  }
+  return envDuLanceur(fournisseur, base, envHote);
+}
+
+/** `envMoteur`, plus ce que lit un téléchargement (`VARIABLES_TELECHARGEMENT`). */
+export function envTelechargement(
+  fournisseur: Fournisseur,
+  envHote: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  const env = envMoteur(fournisseur, envHote);
+  for (const nom of VARIABLES_TELECHARGEMENT) {
+    if (envHote[nom] !== undefined) env[nom] = envHote[nom];
+  }
+  return env;
+}
+
+/** L'environnement du processus qui lance le bac : celui de la tâche, plus ce que le moteur lit. */
+export function envDuLanceur(
+  fournisseur: Fournisseur,
+  envTache: NodeJS.ProcessEnv,
+  envHote: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  if (fournisseur.bin === 'bwrap') return envTache;
+  const env: NodeJS.ProcessEnv = { ...envTache };
+  for (const nom of VARIABLES_MOTEUR) {
+    const valeur = envHote[nom];
+    if (valeur !== undefined) env[nom] = valeur;
+  }
+  return env;
 }
 
 /**
@@ -440,6 +693,8 @@ function enveloppeBwrap(
     '--bind',
     opts.cwdHote,
     MONTAGE,
+    // Le pont de la tâche, en LECTURE SEULE (voir `OptionsEnveloppe.pont`).
+    ...(opts.pont ? ['--ro-bind', opts.pont, MONTAGE_PONT] : []),
     '--chdir',
     MONTAGE,
 
@@ -718,35 +973,59 @@ export function sonder(bin: string, timeoutMs = 4_000): Promise<boolean> {
   });
 }
 
-/** Le premier fournisseur disponible, dans l'ordre de préférence. */
-export async function trouverFournisseur(): Promise<Fournisseur | null> {
+/**
+ * TOUS les moteurs qui répondent à `--version`, dans l'ordre de préférence.
+ *
+ * Répondre à `--version` ne prouve pas grand-chose : `docker --version` réussit
+ * démon arrêté, et masquait alors un bubblewrap parfaitement utilisable. Le
+ * nœud éprouve donc chaque candidat, dans l'ordre, et garde le premier dont le
+ * preflight passe (`preparerBac`) — pas le premier qui répond.
+ */
+export async function trouverFournisseurs(): Promise<Fournisseur[]> {
+  const presents: Fournisseur[] = [];
   for (const f of FOURNISSEURS) {
-    if (await sonder(f.bin)) return f;
+    if (await sonder(f.bin)) presents.push(f);
   }
-  return null;
+  return presents;
 }
 
 export interface ResultatPreflightAgent {
   executable: boolean;
   motif: string;
+  /** Une image nommée absente, non téléchargée (`preparerImage` avec `tirer: false`). */
+  imageAbsente?: true;
+  /** Le moteur tel que l'épreuve l'a appris (`Fournisseur.rootless`), à garder pour la suite. */
+  fournisseur?: Fournisseur;
 }
 
 /** Ce qu'a rendu une commande d'épreuve lancée dans le bac. */
 type IssueEpreuve =
   | { issue: 'impossible' | 'erreur' | 'expiree' }
-  | { issue: 'sortie'; code: number | null; erreurs: string };
+  | { issue: 'sortie'; code: number | null; erreurs: string; sortie: string };
+
+/** Ce qu'une épreuve garde de ses flux, borné : 2 Kio d'erreurs, 64 Kio de sortie. */
+const ERREURS_MAX = 2_048;
+const SORTIE_MAX = 64 * 1024;
 
 /**
- * Lance une commande enveloppée — sans aucun secret dans l'environnement — et
- * rend son issue. `garderErreurs` garde le début de la sortie d'erreur : c'est
- * là que le moteur dit pourquoi il n'a pas pu ouvrir le bac. Pour l'agent, elle
- * reste ignorée : un petit-enfant qui la garderait ouverte retiendrait la fin.
+ * Lance une commande — sans aucun secret dans l'environnement — et rend son
+ * issue. `garderErreurs` garde le début de la sortie d'erreur : c'est là que le
+ * moteur dit pourquoi il n'a pas pu ouvrir le bac. `garderSortie` garde la
+ * sortie standard (les identifiants que rend `ps -q`). Pour un agent sous
+ * bubblewrap, les deux restent ignorées : un petit-enfant qui garderait un tube
+ * ouvert retiendrait la fin. Sous un moteur de conteneurs, l'arrêt du conteneur
+ * emporte tout son espace de processus, et le client ferme ses flux avec lui.
  */
 function eprouver(
   lance: Enveloppe,
-  cwd: string,
-  timeoutMs: number,
-  garderErreurs: boolean,
+  opts: {
+    cwd: string;
+    timeoutMs: number;
+    garderErreurs?: boolean;
+    garderSortie?: boolean;
+    /** Défaut : l'hôte sans ses secrets. Un moteur de conteneurs reçoit `envMoteur`. */
+    env?: NodeJS.ProcessEnv;
+  },
 ): Promise<IssueEpreuve> {
   return new Promise((resolve) => {
     let fini = false;
@@ -758,24 +1037,32 @@ function eprouver(
     let enfant;
     try {
       enfant = spawn(lance.bin, lance.args, {
-        cwd,
+        cwd: opts.cwd,
         shell: false,
         windowsHide: true,
-        stdio: ['ignore', 'ignore', garderErreurs ? 'pipe' : 'ignore'],
-        env: envSonde(process.env),
+        stdio: [
+          'ignore',
+          opts.garderSortie ? 'pipe' : 'ignore',
+          opts.garderErreurs ? 'pipe' : 'ignore',
+        ],
+        env: opts.env ?? envSonde(process.env),
       });
     } catch {
       finir({ issue: 'impossible' });
       return;
     }
     let erreurs = '';
+    let sortie = '';
     enfant.stderr?.on('data', (c: Buffer) => {
-      if (erreurs.length < 2_048) erreurs += c.toString();
+      if (erreurs.length < ERREURS_MAX) erreurs += c.toString();
+    });
+    enfant.stdout?.on('data', (c: Buffer) => {
+      if (sortie.length < SORTIE_MAX) sortie += c.toString();
     });
     const minuteur = setTimeout(() => {
       enfant.kill();
       finir({ issue: 'expiree' });
-    }, timeoutMs);
+    }, opts.timeoutMs);
     minuteur.unref?.();
     enfant.on('error', () => {
       clearTimeout(minuteur);
@@ -783,9 +1070,25 @@ function eprouver(
     });
     enfant.on('close', (code) => {
       clearTimeout(minuteur);
-      finir({ issue: 'sortie', code, erreurs });
+      finir({ issue: 'sortie', code, erreurs, sortie });
     });
   });
+}
+
+/** La première ligne non vide d'une sortie d'erreur, bornée, pour la citer. */
+function premiereLigne(erreurs: string): string {
+  return (
+    erreurs
+      .split('\n')
+      .map((l) => l.trim())
+      .find((l) => l.length > 0) ?? ''
+  ).slice(0, 200);
+}
+
+/** « (« … ») » quand le moteur a dit quelque chose, rien sinon. */
+function citation(erreurs: string): string {
+  const dit = premiereLigne(erreurs);
+  return dit ? ` (« ${dit} »)` : '';
 }
 
 /**
@@ -793,7 +1096,7 @@ function eprouver(
  *
  * ─── « AGENT ABSENT », QUAND C'ÉTAIT BUBBLEWRAP QUI NE DÉMARRAIT PAS ─────────
  *
- * `trouverFournisseur` retient bubblewrap sur `bwrap --version`, qui répond
+ * `trouverFournisseurs` retient bubblewrap sur `bwrap --version`, qui répond
  * même quand le noyau lui refuse les espaces de noms utilisateur — le cas
  * d'Ubuntu 24.04 d'origine (`kernel.apparmor_restrict_unprivileged_userns=1`),
  * mesuré sur le runner `ubuntu-latest` de la CI. Le preflight de l'agent
@@ -809,11 +1112,14 @@ async function bacVideRefuse(
   cwd: string,
   timeoutMs: number,
 ): Promise<string | null> {
-  const r = await eprouver(envelopper('true', [], options), cwd, timeoutMs, true);
+  const r = await eprouver(envelopper('true', [], options), {
+    cwd,
+    timeoutMs,
+    garderErreurs: true,
+  });
   if (r.issue === 'sortie' && r.code === 0) return null;
-  const dit = r.issue === 'sortie' ? (r.erreurs.trim().split('\n')[0] ?? '').slice(0, 200) : '';
   return (
-    `bubblewrap n'ouvre pas même un bac vide sur cet hôte${dit ? ` (« ${dit} »)` : ''} — ` +
+    `bubblewrap n'ouvre pas même un bac vide sur cet hôte${r.issue === 'sortie' ? citation(r.erreurs) : ''} — ` +
     'sous Ubuntu, la cause habituelle est la restriction des espaces de noms utilisateur ' +
     '(kernel.apparmor_restrict_unprivileged_userns=1)'
   );
@@ -840,7 +1146,17 @@ export async function sonderAgentDansBac(
     } catch {
       return echec(`preflight impossible via ${fournisseur.nom}`);
     }
-    const r = await eprouver(lance, probeCwd, timeoutMs, false);
+    // Un conteneur dit sur sa sortie d'erreur pourquoi il n'a pas démarré
+    // (`--init` sans binaire d'init, montage refusé, exécutable introuvable) :
+    // la citer vaut mieux que « absent », qui envoyait réinstaller l'agent.
+    const conteneur = fournisseur.bin !== 'bwrap';
+    const r = await eprouver(lance, {
+      cwd: probeCwd,
+      timeoutMs,
+      garderErreurs: conteneur,
+      // Le client du moteur voit ICI ce qu'il verra pour la tâche.
+      ...(conteneur ? { env: envMoteur(fournisseur) } : {}),
+    });
     if (r.issue === 'impossible') return echec(`preflight impossible via ${fournisseur.nom}`);
     if (r.issue === 'expiree') return echec(`preflight de l'agent expiré via ${fournisseur.nom}`);
     if (r.issue !== 'sortie') {
@@ -848,12 +1164,332 @@ export async function sonderAgentDansBac(
     }
     if (r.code === 0)
       return { executable: true, motif: `agent « ${binAgent} » exécutable dans le bac` };
-    const bac =
-      fournisseur.bin === 'bwrap' ? await bacVideRefuse(options, probeCwd, timeoutMs) : null;
-    return echec(bac ?? `agent « ${binAgent} » absent ou non exécutable dans le bac`);
+    const bac = conteneur ? null : await bacVideRefuse(options, probeCwd, timeoutMs);
+    return echec(
+      bac ?? `agent « ${binAgent} » absent ou non exécutable dans le bac${citation(r.erreurs)}`,
+    );
   } finally {
     if (cwdHote === undefined) rmSync(probeCwd, { recursive: true, force: true });
   }
+}
+
+/** Le délai d'un `image inspect` : une lecture locale, que seul un moteur injoignable fait durer. */
+export const INSPECTION_MAX_MS = 15_000;
+/** Le délai d'un téléchargement d'image : quelques centaines de Mo, sur une ligne ordinaire. */
+export const TELECHARGEMENT_MAX_MS = 10 * 60_000;
+
+/**
+ * Ce que disent Docker (« No such image », « No such object » avant la 20.10)
+ * et Podman (« image not known », « failed to find image ») d'une image absente.
+ *
+ * ─── PAS DE « NOT FOUND » NU ─────────────────────────────────────────────────
+ *
+ * `not found` et `does not exist` figuraient ici. Or un moteur qui ne se joint
+ * pas le dit souvent avec ces mots — `context "typo": context not found`, une
+ * couche introuvable du stockage — et le nœud envoyait alors RECONSTRUIRE une
+ * image peut-être présente (ou en tirait une), en taisant la vraie panne. Tout
+ * ce qui n'est pas l'absence de l'image va à la branche « injoignable », qui
+ * cite le moteur.
+ */
+const IMAGE_ABSENTE_RE = /no such image|no such object|image not known|failed to find image/i;
+
+/** La commande qui construit `IMAGE_DEFAUT` dans CE moteur. */
+export function commandeImage(fournisseur: Fournisseur): string {
+  return `${COMMANDE_IMAGE}${fournisseur.nom === 'docker' ? ' -- --moteur docker' : ''}`;
+}
+
+/** Ce qu'un moteur dit d'une image : là, absente, ou rien d'exploitable. */
+export type EtatImage =
+  { etat: 'presente' } | { etat: 'absente' } | { etat: 'injoignable'; motif: string };
+
+/**
+ * `image inspect`, sans rien lancer ni télécharger. Partagé par le nœud
+ * (`preparerImage`), le docteur et l'installeur : les trois jugent l'image par
+ * la même question, et un « prêt » affiché ne peut plus contredire le nœud.
+ */
+export async function inspecterImage(
+  fournisseur: Fournisseur,
+  image: string,
+  timeoutMs = INSPECTION_MAX_MS,
+): Promise<EtatImage> {
+  const r = await eprouver(
+    { bin: fournisseur.bin, args: ['image', 'inspect', '--format', '{{.Id}}', image] },
+    { cwd: tmpdir(), timeoutMs, garderErreurs: true, env: envMoteur(fournisseur) },
+  );
+  if (r.issue === 'sortie' && r.code === 0) return { etat: 'presente' };
+  if (r.issue !== 'sortie') {
+    return {
+      etat: 'injoignable',
+      motif: `${fournisseur.nom} ne répond pas (inspection de l'image ${r.issue})`,
+    };
+  }
+  // Démon arrêté, socket refusée, contexte inconnu, stockage illisible : le
+  // moteur répond à `--version` mais ne sait rien dire de ses images.
+  if (!IMAGE_ABSENTE_RE.test(r.erreurs)) {
+    return { etat: 'injoignable', motif: `${fournisseur.nom} injoignable${citation(r.erreurs)}` };
+  }
+  return { etat: 'absente' };
+}
+
+/**
+ * Le premier moteur PRÊT pour `image`, dans l'ordre donné — bubblewrap n'a pas
+ * d'image, il l'est d'office — et le premier où elle est absente.
+ *
+ * C'est la règle du nœud (`choisirMoteur`) sans le preflight de l'agent : le
+ * docteur et l'installeur ne peuvent plus annoncer « ✔ docker » sur la seule
+ * foi d'un `--version` ou d'un `info`, quand le nœud écartera ce moteur faute
+ * d'image et se repliera en processus.
+ */
+export async function moteurPret(
+  moteurs: readonly Fournisseur[],
+  image: string,
+  inspecter: typeof inspecterImage = inspecterImage,
+): Promise<{ pret: Fournisseur | null; absente: Fournisseur | null }> {
+  let absente: Fournisseur | null = null;
+  for (const f of moteurs) {
+    if (f.bin === 'bwrap') return { pret: f, absente };
+    const r = await inspecter(f, image);
+    if (r.etat === 'presente') return { pret: f, absente };
+    if (r.etat === 'absente') absente ??= f;
+  }
+  return { pret: null, absente };
+}
+
+/**
+ * L'image est-elle là, dans CE moteur — et sinon, pourquoi ? Rend un motif qui
+ * distingue les trois pannes que le preflight confondait.
+ *
+ * ─── « AGENT ABSENT », QUAND C'ÉTAIT L'IMAGE — OU LE MOTEUR ─────────────────
+ *
+ * Le preflight lançait directement `<moteur> run <image> <agent> --version`
+ * sous 30 s. Une image absente déclenchait alors un téléchargement COMPRIS dans
+ * ces 30 s : au premier démarrage, il expirait, et le nœud disait « agent
+ * absent ». Un démon Docker arrêté donnait le même message. Et chaque moteur a
+ * son propre magasin d'images : l'image construite par Docker n'existe pas pour
+ * Podman.
+ *
+ * On inspecte donc d'abord, sans rien lancer. Absente, l'image par défaut
+ * n'est JAMAIS tirée d'un registre (voir `IMAGE_DEFAUT`) : le motif donne la
+ * commande qui la construit. Une image nommée par l'opérateur est téléchargée
+ * sous son PROPRE délai, annoncé à l'humain avant de commencer — sauf
+ * `tirer: false`, qui rend `imageAbsente` : le nœud cherche d'abord si un
+ * AUTRE moteur l'a déjà (`choisirMoteur`) avant d'en tirer une copie. L'épreuve
+ * de l'agent qui suit (`--pull=never`) ne mesure plus que l'agent.
+ */
+export async function preparerImage(
+  fournisseur: Fournisseur,
+  image: string,
+  opts: {
+    informer?: (ligne: string) => void;
+    inspectionMs?: number;
+    telechargementMs?: number;
+    /** Défaut : oui. `false` : une image nommée absente n'est pas téléchargée. */
+    tirer?: boolean;
+  } = {},
+): Promise<ResultatPreflightAgent> {
+  const echec = (motif: string): ResultatPreflightAgent => ({ executable: false, motif });
+  const inspection = await inspecterImage(fournisseur, image, opts.inspectionMs);
+  if (inspection.etat === 'presente') {
+    return preparerIdentite(fournisseur, image, opts, `image présente dans ${fournisseur.nom}`);
+  }
+  if (inspection.etat === 'injoignable') return echec(inspection.motif);
+  if (image === IMAGE_DEFAUT) {
+    return echec(
+      `image absente de ${fournisseur.nom} — construisez-la depuis un clone du dépôt : ` +
+        commandeImage(fournisseur),
+    );
+  }
+  if (opts.tirer === false) {
+    return {
+      executable: false,
+      motif: `image ${image} absente de ${fournisseur.nom}`,
+      imageAbsente: true,
+    };
+  }
+  const delai = opts.telechargementMs ?? TELECHARGEMENT_MAX_MS;
+  (opts.informer ?? console.log)(
+    `   Téléchargement de l'image ${image} via ${fournisseur.nom} ` +
+      `(jusqu'à ${Math.round(delai / 60_000)} min)…`,
+  );
+  const tirage = await eprouver(
+    { bin: fournisseur.bin, args: ['pull', image] },
+    { cwd: tmpdir(), timeoutMs: delai, garderErreurs: true, env: envTelechargement(fournisseur) },
+  );
+  if (tirage.issue === 'sortie' && tirage.code === 0) {
+    return preparerIdentite(fournisseur, image, opts, `image téléchargée dans ${fournisseur.nom}`);
+  }
+  if (tirage.issue === 'expiree') {
+    return echec(
+      `téléchargement de l'image toujours en cours après ${Math.round(delai / 60_000)} min — ` +
+        `terminez-le (${fournisseur.bin} pull ${image}) puis relancez le nœud`,
+    );
+  }
+  return echec(
+    `image introuvable pour ${fournisseur.nom}${tirage.issue === 'sortie' ? citation(tirage.erreurs) : ''}`,
+  );
+}
+
+/** Au-delà de ce délai, une préparation silencieuse se dit : l'humain ne voit plus un nœud figé. */
+const PREPARATION_ANNONCEE_MS = 3_000;
+
+/**
+ * Podman rootless : prépare, UNE fois par image, la copie de ses couches à
+ * l'UID du nœud — hors du délai du preflight de l'agent.
+ *
+ * ─── LE PREMIER `--userns=keep-id` COPIE L'IMAGE ─────────────────────────────
+ *
+ * Sans montages à identifiants traduits, Podman rootless réécrit la propriété
+ * de chaque couche pour l'espace de noms de `keep-id` au premier lancement,
+ * puis la garde en cache. Mesuré en CI (Podman 4.9, image des agents) : plus
+ * que les 30 s du preflight de l'agent, qui expirait — « preflight expiré »,
+ * repli en processus, et un nœud qui ne s'isolait qu'au démarrage SUIVANT. La
+ * préparation se fait donc ici, sous le délai d'un téléchargement ; elle est
+ * annoncée si elle dure. Une autre panne que l'expiration n'est pas jugée ici :
+ * le preflight de l'agent, qui suit, la dira avec les mots du moteur.
+ *
+ * ─── LE MÊME BAC QUE LA TÂCHE, PAS UN `run` NU ───────────────────────────────
+ *
+ * La préparation lançait `run --rm --userns=keep-id <image> true` : l'image —
+ * nommée par l'opérateur, pas encore jugée — tournait une fois avec les
+ * capacités, sans `no-new-privileges` ni racine en lecture seule. Elle passe
+ * maintenant par `envelopper`, comme le preflight et la tâche : le seul
+ * lancement qui précède le preflight a exactement les murs du bac. *
+ * ─── ROOTLESS SELON LE MOTEUR, PAS SELON L'HÔTE ──────────────────────────────
+ *
+ * `keep-id` suivait l'UID du nœud. Or un podman-remote vers une machine
+ * rootful (macOS, Windows, `CONTAINER_HOST`) le refuse — « keep-id is only
+ * supported in rootless mode » : chaque preflight échouait, et un poste qui
+ * s'isolait avant retombait en processus. Le moteur est interrogé ici, une
+ * fois ; ce qu'il dit voyage avec le moteur retenu (`fournisseur` du résultat)
+ * jusqu'aux preflights et aux tâches.
+ */
+async function preparerIdentite(
+  moteur: Fournisseur,
+  image: string,
+  opts: { informer?: (ligne: string) => void; telechargementMs?: number },
+  motif: string,
+): Promise<ResultatPreflightAgent> {
+  if (moteur.nom !== 'podman') return { executable: true, motif };
+  const rootless = await moteurRootless(moteur);
+  const fournisseur = rootless === null ? moteur : { ...moteur, rootless };
+  const appris = rootless === null ? {} : { fournisseur };
+  if (!keepId(fournisseur)) return { executable: true, motif, ...appris };
+  const delai = opts.telechargementMs ?? TELECHARGEMENT_MAX_MS;
+  const annonce = setTimeout(
+    () =>
+      (opts.informer ?? console.log)(
+        `   Préparation de l'image ${image} pour l'UID de ce nœud (podman --userns=keep-id, ` +
+          `une fois par image, jusqu'à ${Math.round(delai / 60_000)} min)…`,
+      ),
+    PREPARATION_ANNONCEE_MS,
+  );
+  annonce.unref?.();
+  // Un dossier vide et jetable : rien de l'hôte n'a à être visible.
+  const vide = mkdtempSync(join(tmpdir(), 'hive-keep-id-'));
+  try {
+    const r = await eprouver(
+      envelopper('true', [], { fournisseur, cwdHote: vide, variables: [], image }),
+      { cwd: vide, timeoutMs: delai, env: envMoteur(fournisseur) },
+    );
+    if (r.issue === 'expiree') {
+      return {
+        executable: false,
+        motif:
+          `préparation de l'image pour l'UID de ce nœud toujours en cours après ` +
+          `${Math.round(delai / 60_000)} min (podman --userns=keep-id) — relancez le nœud`,
+      };
+    }
+    return { executable: true, motif, ...appris };
+  } finally {
+    clearTimeout(annonce);
+    rmSync(vide, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Le moteur Podman tourne-t-il sans root ? Sa propre réponse
+ * (`podman info`) — `null` s'il ne la donne pas : on ne l'invente pas.
+ */
+async function moteurRootless(fournisseur: Fournisseur): Promise<boolean | null> {
+  const r = await eprouver(
+    {
+      bin: fournisseur.bin,
+      args: ['info', '--format', '{{.Host.Security.Rootless}}'],
+    },
+    {
+      cwd: tmpdir(),
+      timeoutMs: INSPECTION_MAX_MS,
+      garderSortie: true,
+      env: envMoteur(fournisseur),
+    },
+  );
+  if (r.issue !== 'sortie' || r.code !== 0) return null;
+  const dit = r.sortie.trim();
+  return dit === 'true' ? true : dit === 'false' ? false : null;
+}
+
+/**
+ * Supprime les conteneurs qu'un lancement PRÉCÉDENT de ce nœud a laissés.
+ *
+ * ─── UN NŒUD TUÉ LAISSAIT SON AGENT TOURNER ──────────────────────────────────
+ *
+ * `--rm` ne supprime un conteneur qu'à la fin de son client `docker run`. Un
+ * nœud tué net (kill -9, panne de courant, OOM) emporte le client, pas le
+ * conteneur : l'agent continuait d'écrire dans l'atelier et de dépenser des
+ * crédits, pendant que la Reine rendait la tâche à un autre nœud. Deux agents
+ * sur une tâche, dont un que plus personne ne regarde.
+ *
+ * Chaque conteneur porte l'étiquette de son nœud (`ETIQUETTE_NOEUD`) ; l'identité
+ * d'un nœud survit à son redémarrage (`identiteStable`). Au démarrage, AVANT de
+ * prendre du travail, le nœud supprime donc tout conteneur qui porte la sienne :
+ * aucun ne peut être à lui et légitime, puisqu'il n'a encore rien lancé.
+ *
+ * Les lancements du démarrage lui-même — la préparation `keep-id` (`true`),
+ * les preflights (`--version`) — ne portent pas d'étiquette, et c'est voulu :
+ * ils finissent d'eux-mêmes, et `--rm` est tenu par le moteur (démon Docker,
+ * `conmon` de Podman), pas par le client qu'un kill -9 emporterait. Seul un
+ * agent au travail survit à son nœud.
+ *
+ * Rend les identifiants supprimés, `injoignable` quand le client répond mais
+ * pas son moteur, ou un motif quand le moteur n'a pas pu dire ou supprimer.
+ */
+export async function ramasserConteneurs(
+  fournisseur: Fournisseur,
+  noeud: string,
+  timeoutMs = INSPECTION_MAX_MS,
+): Promise<{ supprimes: string[] } | { injoignable: string } | { motif: string }> {
+  if (fournisseur.bin === 'bwrap') return { supprimes: [] }; // `--die-with-parent`
+  const cwd = tmpdir();
+  const liste = await eprouver(
+    {
+      bin: fournisseur.bin,
+      args: ['ps', '--all', '--quiet', `--filter=label=${ETIQUETTE_NOEUD}=${noeud}`],
+    },
+    { cwd, timeoutMs, garderErreurs: true, garderSortie: true, env: envMoteur(fournisseur) },
+  );
+  if (liste.issue !== 'sortie') {
+    return {
+      motif: `${fournisseur.nom} n'a pas listé les conteneurs de ce nœud (${liste.issue})`,
+    };
+  }
+  if (liste.code !== 0) {
+    // Le client a répondu, son moteur non (démon arrêté, Docker Desktop
+    // éteint) : pas une panne à signaler en rouge à chaque démarrage.
+    return { injoignable: `${fournisseur.nom} injoignable${citation(liste.erreurs)}` };
+  }
+  const ids = [...new Set(liste.sortie.split(/\s+/).filter((id) => /^[0-9a-f]{12,64}$/.test(id)))];
+  if (ids.length === 0) return { supprimes: [] };
+  const rm = await eprouver(
+    { bin: fournisseur.bin, args: ['rm', '--force', ...ids] },
+    { cwd, timeoutMs, garderErreurs: true, env: envMoteur(fournisseur) },
+  );
+  if (rm.issue !== 'sortie' || rm.code !== 0) {
+    const dit = rm.issue === 'sortie' ? citation(rm.erreurs) : ` (${rm.issue})`;
+    return {
+      motif: `${fournisseur.nom} n'a pas supprimé ${ids.length} conteneur(s) orphelin(s)${dit}`,
+    };
+  }
+  return { supprimes: ids };
 }
 
 /**

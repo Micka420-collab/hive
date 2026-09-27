@@ -33,7 +33,14 @@ describe('chronologieDepuisEvenements — les phases d’une tâche', () => {
       terminee: true,
     });
     expect(c.tentatives).toEqual([
-      { issue: 'reussie', dureeWorkerMs: 2_900, dureeModeleMs: null, coutUsd: null },
+      {
+        issue: 'reussie',
+        dureeWorkerMs: 2_900,
+        dureeModeleMs: null,
+        coutUsd: null,
+        jetonsEntree: null,
+        jetonsSortie: null,
+      },
     ]);
   });
 
@@ -74,6 +81,20 @@ describe('chronologieDepuisEvenements — les phases d’une tâche', () => {
       ev(200, 'contre_expertise', { possible: false }),
     ]);
     expect(impossible.revueMs, 'une revue impossible n’a pas de durée').toBeNull();
+  });
+
+  it('UNE RELECTURE DE SECOURS PROLONGE LA FENÊTRE : le temps de la relecture tombée compte', () => {
+    // La première relectrice tombe sans avis, une famille neuve relaie
+    // (`secours`). Traiter le relais comme un nouveau lancement effaçait les
+    // 600 ms perdues avec la relectrice tombée : la revue paraissait plus
+    // courte qu'elle ne l'a été.
+    const c = chronologieDepuisEvenements(0, [
+      ev(1_000, 'task_done', { nodeId: 'n1', durationMs: 800 }),
+      ev(1_100, 'contre_expertise', { possible: true }),
+      ev(1_700, 'contre_expertise', { possible: true, secours: true }),
+      ev(2_000, 'contre_expertise_verdict', {}),
+    ]);
+    expect(c.revueMs).toBe(900);
   });
 
   it('UN RENVOI DE L’EVALUATOR EST UNE CORRECTION, PAS UN ÉCHEC DU WORKER', () => {
@@ -133,6 +154,24 @@ describe('chronologieDepuisEvenements — les phases d’une tâche', () => {
     expect(c.dureeModele).toEqual({ total: 2_200, declarees: 2, tentatives: 3 });
     expect(c.coutFournisseur).toMatchObject({ declarees: 2, tentatives: 3 });
     expect(c.coutFournisseur !== 'inconnu' && c.coutFournisseur.total).toBeCloseTo(0.04, 10);
+  });
+
+  it('LES JETONS DÉCLARÉS (CODEX) SONT SOMMÉS AVEC LEUR COUVERTURE — aucun coût n’en est tiré', () => {
+    const c = chronologieDepuisEvenements(0, [
+      ev(1, 'task_retry', {
+        durationMs: 1_000,
+        fournisseur: { source: 'codex', jetonsEntree: 4_448, jetonsSortie: 104 },
+      }),
+      ev(2, 'task_done', {
+        durationMs: 2_000,
+        fournisseur: { source: 'codex', jetonsEntree: 1_234, jetonsSortie: 56 },
+      }),
+    ]);
+    expect(c.jetonsEntree).toEqual({ total: 5_682, declarees: 2, tentatives: 2 });
+    expect(c.jetonsSortie).toEqual({ total: 160, declarees: 2, tentatives: 2 });
+    // Codex ne déclare ni coût ni temps modèle : ils restent inconnus.
+    expect(c.coutFournisseur).toBe('inconnu');
+    expect(c.dureeModele).toBe('inconnu');
   });
 
   it('UNE DÉCLARATION ILLISIBLE NE DÉCLARE RIEN — coût négatif, texte, forme fausse', () => {

@@ -28,7 +28,15 @@ import { CODE, legendeCodes } from './codes-sortie.js';
 import { MODE_SECRET, ecrireAtomique } from './ecriture-atomique.js';
 import { assistant } from './installer-assistant.js';
 import { detectBestAgent } from './node-client/agent-detect.js';
-import { decider, modeDepuisEnv, trouverFournisseur } from './node-client/isolement.js';
+import {
+  commandeImage,
+  decider,
+  IMAGE_DEFAUT,
+  imageDepuisEnv,
+  modeDepuisEnv,
+  moteurPret,
+  trouverFournisseurs,
+} from './node-client/isolement.js';
 import {
   NODE_MIN,
   PORT_DEFAUT,
@@ -236,18 +244,31 @@ async function main(): Promise<void> {
   //
   // La ligne d'attente s'efface d'elle-même : le pas définitif, avec sa durée,
   // prend exactement sa place.
+  // L'image que le nœud utilisera : celle du `.env` existant, sinon le défaut.
+  const imageVisee = imageDepuisEnv({
+    HIVE_ISOLEMENT_IMAGE: existant.get('HIVE_ISOLEMENT_IMAGE') ?? process.env.HIVE_ISOLEMENT_IMAGE,
+  });
   const sondes = Promise.all([
     portVise === null ? Promise.resolve(false) : portLibre(portVise),
     espaceLibreGo(),
     detectBestAgent().catch(() => null),
-    modeDepuisEnv(process.env) === 'off' ? Promise.resolve(null) : trouverFournisseur(),
+    // Un moteur qui répond sans l'image des agents est un moteur que le nœud
+    // écartera : l'accueil annonçait « ✔ docker », le nœud se repliait en
+    // processus. Même règle que le nœud et le docteur (`moteurPret`).
+    modeDepuisEnv(process.env) === 'off'
+      ? Promise.resolve({ pret: null, absente: null })
+      : trouverFournisseurs().then((m) => moteurPret(m, imageVisee)),
   ]);
   // `caps`, pas `t.caps` : `--json` et `--non-interactive` retirent
   // l'interactivité même sur un vrai terminal, et une animation au milieu d'une
   // sortie machine la rendrait inanalysable.
-  const [libre, go, agentDetecte, fournisseur] = caps.interactif
+  const [libre, go, agentDetecte, bac] = caps.interactif
     ? await t.patienter('Vérifications', sondes)
     : await sondes;
+  const fournisseur = bac.pret;
+  // L'image par défaut, absente de tout moteur : la commande qui la construit.
+  const aConstruire =
+    !fournisseur && bac.absente && imageVisee === IMAGE_DEFAUT ? commandeImage(bac.absente) : null;
 
   const agent = agentDetecte && agentDetecte.agent !== 'shell' ? agentDetecte.label : null;
   const isolement = decider(modeDepuisEnv(process.env), fournisseur);
@@ -271,13 +292,15 @@ async function main(): Promise<void> {
     agent
       ? { etat: 'fait', libelle: 'Agent de codage', valeur: agent }
       : { etat: 'avenir', libelle: 'Agent de codage', valeur: 'aucun — mode simulé, sûr' },
-    {
-      etat: isolement.isole ? 'fait' : 'avenir',
-      libelle: 'Bac à sable',
-      valeur: isolement.isole
-        ? (fournisseur?.nom ?? 'actif')
-        : 'aucun moteur — sandbox de processus',
-    },
+    aConstruire
+      ? { etat: 'alerte', libelle: 'Bac à sable', valeur: `image à construire : ${aConstruire}` }
+      : {
+          etat: isolement.isole ? 'fait' : 'avenir',
+          libelle: 'Bac à sable',
+          valeur: isolement.isole
+            ? (fournisseur?.nom ?? 'actif')
+            : 'aucun moteur — sandbox de processus',
+        },
   ];
 
   // ─── LE RAIL, ICI AUSSI ────────────────────────────────────────────────────

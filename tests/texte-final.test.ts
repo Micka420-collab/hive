@@ -12,7 +12,8 @@
 //     et trois erreurs d'API réelles du CLI (dont deux 400 différents) ;
 //   · `codex-relecture.*` : codex-cli 0.156.0 (`codex exec`), branché sur un
 //     faux fournisseur Responses, avec la VRAIE consigne de critique
-//     (`consigneDeCritique`) — stderr et stdout gardés séparés.
+//     (`consigneDeCritique`) — stderr et stdout gardés séparés, en sortie
+//     humaine et en `--json` (`codex-relecture.json.*`, ce que Hive lance).
 //
 // Assainies seulement : chemins de travail remplacés, listes d'outils et de
 // commandes de la ligne `init` réduites aux noms publics. Aucun octet de la
@@ -349,25 +350,28 @@ describe.skipIf(process.platform === 'win32')(
     });
 
     it(
-      'CODEX : la sortie standard seule — la consigne répétée sur stderr n’y entre pas',
+      'CODEX : le dernier message du flux `--json` — la consigne n’entre ni dans la réponse, ni dans les logs',
       { timeout: 15_000 },
       async () => {
         // Le faux `codex` fait ce que fait codex-cli 0.156.0 avec un prompt en
         // argument : il lit d'abord stdin JUSQU'À SA FIN (« Reading additional
         // input from stdin… »). Avec un tube laissé ouvert, il ne répondait
         // jamais — ce cas restait pendu jusqu'au délai de garde de 15 minutes.
+        // Il rejoue l'enregistrement du MODE demandé : `--json` → le flux
+        // d'événements, sinon la sortie humaine, consigne répétée comprise.
         const dossier = dossierJetable();
-        const stderr = path.join(FIXTURES, 'codex-relecture.stderr.txt');
-        const stdout = path.join(FIXTURES, 'codex-relecture.stdout.txt');
+        const enregistrement = (mode: string, flux: string) =>
+          JSON.stringify(path.join(FIXTURES, `codex-relecture.${mode}${flux}`));
         fauxBinaire(
           dossier,
           'codex',
           [
             "const fs = require('node:fs');",
+            "const json = process.argv.includes('--json');",
             "process.stdin.on('data', () => undefined);",
             "process.stdin.on('end', () => {",
-            `  process.stderr.write(fs.readFileSync(${JSON.stringify(stderr)}));`,
-            `  process.stdout.write(fs.readFileSync(${JSON.stringify(stdout)}));`,
+            `  process.stderr.write(fs.readFileSync(json ? ${enregistrement('json.', 'stderr.txt')} : ${enregistrement('', 'stderr.txt')}));`,
+            `  process.stdout.write(fs.readFileSync(json ? ${enregistrement('json.', 'stdout.jsonl')} : ${enregistrement('', 'stdout.txt')}));`,
             '});',
           ].join('\n'),
         );
@@ -376,8 +380,11 @@ describe.skipIf(process.platform === 'win32')(
 
         expect(r.success, r.logs).toBe(true);
         expect(r.finalText).toBe('valide');
-        // Le piège est bien dans les logs : la consigne, répétée, dit « conteste ».
-        expect(r.logs).toContain('« valide » ou « conteste »');
+        // Le piège du mode humain — la consigne répétée, qui dit « conteste » —
+        // n'est plus dans les logs ; le flux y entre rendu, jamais brut.
+        expect(r.logs).not.toContain('« valide » ou « conteste »');
+        expect(r.logs).not.toContain('{"type"');
+        expect(r.logs).toContain('┊ codex : valide');
       },
     );
 

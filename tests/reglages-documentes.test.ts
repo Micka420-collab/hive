@@ -53,6 +53,9 @@ const DU_SYSTEME = new Set([
   'APPDATA',
   'LOCALAPPDATA',
   'XDG_CONFIG_HOME',
+  // Posée par la session (pam_systemd) : le dossier privé où le nœud range le
+  // verrou de son identité (`cheminVerrou`).
+  'XDG_RUNTIME_DIR',
   'SYSTEMDRIVE',
   'SYSTEMROOT',
   'TMPDIR',
@@ -68,6 +71,9 @@ const DU_SYSTEME = new Set([
   'TERM_PROGRAM',
   'WT_SESSION',
   'CI',
+  // Posé par l'agent ssh de la session du membre ; le nœud le relaie à git
+  // côté hôte (src/node-client/git-hote.ts), il ne se règle pas.
+  'SSH_AUTH_SOCK',
 ]);
 
 /** Chaque réglage lu quelque part dans `src/`, et le fichier qui le lit. */

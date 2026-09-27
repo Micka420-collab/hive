@@ -51,7 +51,6 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import type { SimpleGit } from 'simple-git';
 import { argvDe } from '../shared/chantier.js';
 import { jugerCommandeTest } from '../shared/commande-test.js';
 import { jugerPreparation } from '../shared/preparation.js';
@@ -72,8 +71,10 @@ import type {
   ValidationKey,
   ValidationsBac,
 } from '../shared/validations-bac.js';
-import type { Fournisseur } from './isolement.js';
+import type { BacExecution } from './isolement.js';
 import { runProc } from './merge-runner.js';
+import { gitHote } from './git-hote.js';
+import type { DepotEpingle } from './git-hote.js';
 import { buildSandboxEnv, retirerFichiersIgnores } from './workspace.js';
 
 /** Délai de chaque commande de validation — celui des tests d'un merge. */
@@ -87,28 +88,39 @@ export interface OptionsValidation {
   /** Répertoire de la tâche, tel que l'agent l'a laissé. */
   cwd: string;
   /**
-   * Le dépôt cloné et son commit de base (`Workspace.baseSha`) ; `null` sans
-   * dépôt ou sans commit — rien n'est alors déclaré.
+   * Le dépôt cloné, ÉPINGLÉ sur le registre de la ruche (`Workspace.depot`),
+   * et son commit de base (`Workspace.baseSha`) ; `null` sans dépôt ou sans
+   * commit — rien n'est alors déclaré. Jamais le `.git` de la tâche : ces
+   * git tournent sur l'hôte APRÈS l'agent, qui a pu y poser crochets,
+   * moniteur et filtres (`git-hote.ts`).
    */
-  depot: { git: SimpleGit; baseSha: string } | null;
+  depot: { depot: DepotEpingle; baseSha: string } | null;
   /** Le bac du nœud ; absent, RIEN ne tourne (`sans_bac`). */
-  bac?: { fournisseur: Fournisseur; variables: readonly string[]; image: string };
+  bac?: BacExecution;
   /** Le signal de la tâche : une annulation arrête aussi ses validations. */
   signal?: AbortSignal;
   /** Une ligne de progrès, relayée au hub pendant que les commandes tournent. */
   surEtape?: (ligne: string) => void;
   /** Délai de chaque commande (défaut `DELAI_VALIDATION_MS`). */
   delaiMs?: number;
+  /**
+   * Le caviardage du nœud (`shared/caviardage.ts`), appliqué à la sortie ENTIÈRE
+   * de chaque commande AVANT qu'on n'en garde la fin (`extraitDe`) : l'extrait
+   * part au hub, et une coupe faite avant laisserait la moitié d'une clé qu'un
+   * test aurait imprimée — lue dans un fichier où l'agent l'avait écrite.
+   */
+  caviarder?: (texte: string) => string;
 }
 
 /** Lit un fichier du commit de base ; `null` s'il n'y existe pas. */
 async function fichierDeBase(
-  git: SimpleGit,
+  depot: DepotEpingle,
   baseSha: string,
   fichier: string,
 ): Promise<string | null> {
   try {
-    return await git.show([`${baseSha}:${fichier}`]);
+    // `cat-file blob` : les octets du commit, sans filtre ni `textconv`.
+    return await gitHote(['cat-file', 'blob', `${baseSha}:${fichier}`], depot);
   } catch {
     return null;
   }
@@ -138,9 +150,12 @@ function manifeste(texte: string | null): unknown {
  * production de l'avoir réécrit à chaque tâche. Un `.npmrc` ignoré n'est pas
  * vu ici — il est retiré avant le lancement.
  */
-async function npmrcModifie(git: SimpleGit, baseSha: string): Promise<boolean> {
-  await git.raw(['add', '--all', '--intent-to-add']);
-  const modifies = await git.diff(['--name-only', baseSha, '--', '.npmrc']);
+async function npmrcModifie(depot: DepotEpingle, baseSha: string): Promise<boolean> {
+  await gitHote(['add', '--all', '--intent-to-add'], depot);
+  const modifies = await gitHote(
+    ['diff', '--no-ext-diff', '--no-textconv', '--name-only', baseSha, '--', '.npmrc'],
+    depot,
+  );
   return modifies.trim() !== '';
 }
 
@@ -150,7 +165,7 @@ async function npmrcModifie(git: SimpleGit, baseSha: string): Promise<boolean> {
  */
 export async function validerProduction(opts: OptionsValidation): Promise<ValidationsBac> {
   const { depot, cwd } = opts;
-  const base = depot ? await fichierDeBase(depot.git, depot.baseSha, 'package.json') : null;
+  const base = depot ? await fichierDeBase(depot.depot, depot.baseSha, 'package.json') : null;
   const produit = fichierDeTravail(cwd, 'package.json');
   const plan = planDeValidation(scriptsDe(manifeste(base)), scriptsDe(manifeste(produit)));
   const rapport = (controles: Record<ValidationKey, ControleBac>): ValidationsBac => ({
@@ -162,16 +177,15 @@ export async function validerProduction(opts: OptionsValidation): Promise<Valida
     // `.npmrc` règle la façon dont npm lance un script (`script-shell`…) et
     // d'où il installe (`registry`). Réécrit par la production, il jugerait
     // à la place des scripts : même règle que pour eux.
-    if (depot && (await npmrcModifie(depot.git, depot.baseSha))) {
+    if (depot && (await npmrcModifie(depot.depot, depot.baseSha))) {
       return rapport(manquantes(plan, 'npmrc_reecrit'));
     }
     return rapport(await lancerLePlan(plan, opts, manifeste(produit)));
   } catch (err) {
     // Un défaut du nœud, pas du projet : dit tel quel dans l'extrait, pour
     // qu'on le trouve — et surtout pas pris pour un verdict.
-    return rapport(
-      manquantes(plan, 'interrompue', err instanceof Error ? err.message : String(err)),
-    );
+    const message = err instanceof Error ? err.message : String(err);
+    return rapport(manquantes(plan, 'interrompue', opts.caviarder?.(message) ?? message));
   }
 }
 
@@ -214,14 +228,17 @@ async function lancerLePlan(
   // installées par l'agent, `.npmrc` ignoré, sorties de build) disparaît
   // AVANT tout lancement — y compris pour un projet sans dépendances, dont
   // les scripts trouveraient sinon `node_modules/.bin` en tête du PATH.
-  await retirerFichiersIgnores(depot.git);
+  await retirerFichiersIgnores(depot.depot);
 
   // Le bac ne relaie que `CI` : les variables de l'agent (sa clé d'API) ne
   // sont de toute façon pas dans `env`, et rien d'autre n'a à traverser.
   const env = { ...buildSandboxEnv(cwd), CI: 'true' };
   const bac = { ...opts.bac, variables: ['CI'] };
-  const lancer = (argv: string[], delaiMs: number) =>
-    runProc(argv, cwd, env, delaiMs, opts.signal, bac);
+  const caviarder = opts.caviarder ?? ((texte: string) => texte);
+  const lancer = async (argv: string[], delaiMs: number) => {
+    const r = await runProc(argv, cwd, env, delaiMs, opts.signal, bac);
+    return { ...r, output: caviarder(r.output) };
+  };
 
   // npm se lance-t-il DANS CE BAC ? Sans cette sonde, un bac qui ne voit pas
   // npm rendrait quatre `code 1` — le moteur qui échoue à exécuter l'invité

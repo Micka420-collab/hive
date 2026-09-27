@@ -398,6 +398,11 @@ export function formatMs(ms: number): string {
   return ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${ms} ms`;
 }
 
+/** Un compte de jetons déclaré, groupé à la façon de la langue (« 12 345 »). */
+export function direJetons(jetons: number, lang: 'fr' | 'en'): string {
+  return new Intl.NumberFormat(lang === 'fr' ? 'fr-FR' : 'en-US').format(jetons);
+}
+
 /** Montant déclaré, en dollars US — jusqu'à quatre décimales pour les petits coûts. */
 export function direUsd(montant: number, lang: 'fr' | 'en'): string {
   return new Intl.NumberFormat(lang === 'fr' ? 'fr-FR' : 'en-US', {

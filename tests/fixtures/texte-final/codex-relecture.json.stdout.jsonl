@@ -1,0 +1,5 @@
+{"type":"thread.started","thread_id":"01a0e1e0-d44a-7933-b72c-6a99e61687b1"}
+{"type":"item.completed","item":{"id":"item_0","type":"error","message":"Model metadata for `modele-de-test` not found. Defaulting to fallback metadata; this can degrade performance and cause issues."}}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"valide"}}
+{"type":"turn.completed","usage":{"input_tokens":1234,"cached_input_tokens":1024,"cache_write_input_tokens":0,"output_tokens":56,"reasoning_output_tokens":12}}

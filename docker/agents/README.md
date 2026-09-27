@@ -5,14 +5,27 @@ reproductible, vérifier et lancer dans un conteneur : **Claude Code**, **Codex*
 et **Cline**. Elle est distincte de `docker/atelier`, qui sert uniquement au
 bureau Chromium/VNC.
 
-Construire et vérifier localement :
+C’est l’image **par défaut** du bac à sable conteneur
+(`localhost/hive-agent:local`). Hive ne la publie ni ne la télécharge : chaque
+nœud la construit, avec le moteur qu’il utilisera.
 
 ```bash
-docker build -f docker/agents/Dockerfile -t hive-agent:local .
-docker run --rm hive-agent:local claude --version
-docker run --rm hive-agent:local codex --version
-docker run --rm hive-agent:local cline --version
+npm run bac:image                      # podman s’il répond, sinon docker
+npm run bac:image -- --moteur docker   # un moteur précis
 ```
+
+Vérifier à la main :
+
+```bash
+podman run --rm localhost/hive-agent:local claude --version
+podman run --rm localhost/hive-agent:local codex --version
+podman run --rm localhost/hive-agent:local cline --version
+```
+
+Chaque moteur a son propre magasin d’images : construite par Docker, l’image
+n’existe pas pour Podman. Au démarrage, le nœud éprouve les moteurs dans l’ordre
+(podman, docker, bubblewrap) et garde le premier dont le preflight passe ; une
+image absente se dit « absente », avec cette commande, et jamais « agent absent ».
 
 Les versions sont épinglées dans `docker/agents/package.json`, et **tout l’arbre
 de leurs dépendances** dans `docker/agents/package-lock.json` (versions et

@@ -43,11 +43,20 @@ import path from 'node:path';
 import { DEFAULT_TOKEN } from './shared/types.js';
 import type { Releve } from './shared/doctor.js';
 import { RUCHE_COMPLETE } from './shared/doctor.js';
-import { portDepuisEnv } from './shared/port.js';
+import { adresseLocale, hoteDeConnexion, portDepuisEnv } from './shared/port.js';
 import { gardiennesDepuisEnv } from './shared/reglages.js';
 import { modeRunnerDepuisEnv } from './orchestrator/essaim-runner.js';
 import { detectBestAgent } from './node-client/agent-detect.js';
-import { FOURNISSEURS } from './node-client/isolement.js';
+import {
+  commandeImage,
+  FOURNISSEURS,
+  IMAGE_DEFAUT,
+  imageDepuisEnv,
+  inspecterImage,
+  moteurPret,
+  type EtatImage,
+  type Fournisseur,
+} from './node-client/isolement.js';
 import { envSonde } from './node-client/agent-detect.js';
 import { SECRET_JWT_INTERDIT, secretJwtDepuisEnv } from './orchestrator/auth.js';
 
@@ -105,25 +114,6 @@ function permissions(chemin: string, plateforme: string): number | null {
   }
 }
 
-/**
- * L'adresse à laquelle SONDER une ruche qui écoute sur `hote`.
- *
- * `0.0.0.0` veut dire « toutes les interfaces » : c'est une adresse d'ÉCOUTE,
- * pas une adresse à laquelle se connecter. S'y adresser échoue selon les
- * plateformes, et le docteur conclurait « rien ne répond » sur une ruche qui
- * tourne très bien. On sonde donc la boucle locale, qui fait partie de « toutes
- * les interfaces ».
- *
- * Tout autre hôte est repris tel quel : une ruche liée à une adresse précise ne
- * se sonde pas ailleurs.
- *
- * Extraite pour être TESTABLE : la loupe a montré que ce ternaire, enfoui dans
- * `relever`, pouvait être retourné sans qu'aucun test ne bouge.
- */
-export function hoteDeSondage(hote: string): string {
-  return hote === '0.0.0.0' ? '127.0.0.1' : hote;
-}
-
 /** Le port est-il libre ? On essaie de l'écouter — la seule réponse honnête. */
 export async function portLibre(port: number, hote = '127.0.0.1'): Promise<boolean> {
   return new Promise((resolve) => {
@@ -153,7 +143,9 @@ export async function portTenuParNous(
 ): Promise<boolean | null> {
   const arret = AbortSignal.timeout(delaiMs);
   try {
-    const r = await fetch(`http://${hote}:${port}/api/health`, { signal: arret });
+    // `adresseLocale` et non un gabarit : `http://::1:7777` n'est pas une URL.
+    // `fetch` la refusait, et une ruche liée à `::` passait pour « pas nous ».
+    const r = await fetch(`${adresseLocale(hote, port).http}/api/health`, { signal: arret });
     if (!r.ok) return false;
     const corps = (await r.json()) as { ok?: unknown };
     return corps.ok === true;
@@ -191,7 +183,7 @@ export async function wsRepond(
     const minuteur = setTimeout(() => finir(null), delaiMs);
     let ws: InstanceType<typeof WebSocket>;
     try {
-      ws = new WebSocket(`ws://${hote}:${port}/ws`);
+      ws = new WebSocket(adresseLocale(hote, port).ws);
     } catch {
       clearTimeout(minuteur);
       finir(null);
@@ -365,10 +357,38 @@ const lanceurReel: LanceurDeSonde = async (bin, args) => {
 export async function isolementDisponible(
   lancer: LanceurDeSonde = lanceurReel,
 ): Promise<string | null> {
+  return (await moteursJoignables(lancer))[0]?.nom ?? null;
+}
+
+/** Tous les moteurs RÉELLEMENT joignables, dans l'ordre de préférence. */
+async function moteursJoignables(lancer: LanceurDeSonde = lanceurReel): Promise<Fournisseur[]> {
+  const joignables: Fournisseur[] = [];
   for (const f of FOURNISSEURS) {
-    if (await lancer(f.bin, [SONDE_ISOLEMENT])) return f.nom;
+    if (await lancer(f.bin, [SONDE_ISOLEMENT])) joignables.push(f);
   }
-  return null;
+  return joignables;
+}
+
+/**
+ * L'image que le nœud utiliserait (`imageDepuisEnv`), cherchée par la MÊME
+ * règle que lui (`moteurPret`) dans les moteurs joignables — `null` s'il n'y
+ * en a aucun. Voir le diagnostic `isolement`.
+ */
+export async function imageDuBac(
+  env: NodeJS.ProcessEnv,
+  moteurs: readonly Fournisseur[],
+  inspecter: (f: Fournisseur, image: string) => Promise<EtatImage> = (f, image) =>
+    inspecterImage(f, image, 5_000),
+): Promise<Releve['imageBac']> {
+  if (moteurs.length === 0) return null;
+  const image = imageDepuisEnv(env);
+  const { pret, absente } = await moteurPret(moteurs, image, inspecter);
+  return {
+    image,
+    dans: pret?.nom ?? null,
+    absenteDe: absente?.nom ?? null,
+    construire: !pret && absente && image === IMAGE_DEFAUT ? commandeImage(absente) : null,
+  };
 }
 
 /**
@@ -391,7 +411,7 @@ export async function relever(
   // autre port que celui où elle écoute enverrait chercher une panne inventée.
   const port = portDepuisEnv(env);
   const hote = env.HIVE_HOST ?? '127.0.0.1';
-  const sondage = hoteDeSondage(hote);
+  const sondage = hoteDeConnexion(hote);
 
   const envPresent = existsSync(lieux.env);
   const libre = await portLibre(port, sondage);
@@ -405,6 +425,8 @@ export async function relever(
   const basePresente = existsSync(lieux.base);
   const jeton = env.HIVE_TOKEN ?? '';
   const moteur = await moteurManquant();
+  // Sondés UNE fois : le nom du premier et l'image du bac en découlent.
+  const joignables = await moteursJoignables().catch((): Fournisseur[] => []);
 
   return {
     nodeMajeur: Number(process.versions.node.split('.')[0] ?? 0),
@@ -468,7 +490,13 @@ export async function relever(
     agent: await detecter(env)
       .then((a) => (a.agent === 'shell' ? null : a.agent))
       .catch(() => null),
-    isolement: await isolementDisponible().catch(() => null),
+    isolement: joignables[0]?.nom ?? null,
+    // Une inspection qui plante n'est ni « présente » ni « absente » : inconnue.
+    imageBac: await imageDuBac(env, joignables).catch(() =>
+      joignables.length === 0
+        ? null
+        : { image: imageDepuisEnv(env), dans: null, absenteDe: null, construire: null },
+    ),
     wsJoignable: ws,
     reglages: {
       // MÊMES règles que la ruche : un docteur qui annonce autre chose que ce

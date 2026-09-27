@@ -73,15 +73,20 @@ const { register } = await import('tsx/esm/api');
 register();
 
 const {
+  DELAI_ANNONCE_REINE_MS,
+  adresseAnnoncee,
   annonceOuvrieres,
+  attendLaReine,
   decouperLignes,
   entreesAbsentes,
+  envDePiece,
   largeurEtiquettes,
   pieces,
   planOuvrieres,
   portAnnonce,
   prefixe,
   reliquat,
+  silenceDeLaReine,
   veutOuvriere,
   voeuDepuisArgv,
 } = await import('../src/shared/demarrage.ts');
@@ -191,16 +196,29 @@ function brancher(flux, etiquette, vers) {
   });
 }
 
-for (const p of liste) {
+// ─── CEUX QUI REJOIGNENT LA REINE ATTENDENT QU'ELLE DISE OÙ ELLE EST ─────────
+//
+// Les ouvrières et l'écran partaient avec la Reine, sans rien savoir d'elle :
+// ils visaient `:7777` quel que soit son port. Ils ne démarrent plus qu'à son
+// annonce, avec l'adresse qu'elle a réellement ouverte — la décision, pure,
+// vit dans `demarrage.ts` (`attendLaReine`, `adresseAnnoncee`, `envDePiece`).
+// Une Reine qui meurt avant d'annoncer emporte la ruche comme avant : personne
+// n'est lancé vers une adresse qui n'existe pas.
+const aLAnnonce = liste.filter(attendLaReine);
+
+function lancer(p, reine) {
+  // Une ouvrière de l'essaim par agent reçoit SA famille, son nom, sa
+  // concurrence ; toute pièce qui rejoint la Reine reçoit son adresse. Posés
+  // par-dessus l'environnement, donc au-dessus du `.env` que l'ouvrière
+  // chargera sans jamais écraser ce qu'elle a reçu.
+  const pose = envDePiece(p, reine);
   const enfant = spawn(p.bin, [...p.argv], {
     cwd: RACINE,
     shell: false,
     windowsHide: true,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    // Une ouvrière de l'essaim par agent reçoit SA famille, son nom, sa
-    // concurrence : posés par-dessus l'environnement, donc au-dessus du `.env`
-    // qu'elle chargera sans jamais écraser ce qu'elle a reçu.
-    env: p.env ? { ...process.env, ...p.env } : process.env,
+    // La Reine seule reçoit un canal IPC : c'est par lui qu'elle s'annonce.
+    stdio: p.reine === 'annonce' ? ['ignore', 'pipe', 'pipe', 'ipc'] : ['ignore', 'pipe', 'pipe'],
+    env: pose ? { ...process.env, ...pose } : process.env,
   });
   const etiquette = prefixe(p.nom, largeur);
   brancher(enfant.stdout, etiquette, process.stdout);
@@ -237,7 +255,31 @@ for (const p of liste) {
     arreter(code === 0 ? 1 : (code ?? 1));
   });
 
+  if (p.reine === 'annonce') {
+    enfant.on('message', (message) => {
+      const adresse = adresseAnnoncee(message);
+      if (adresse === null || onFerme) return;
+      // `splice` vide la file : une seconde annonce ne relance personne.
+      for (const q of aLAnnonce.splice(0)) lancer(q, adresse);
+    });
+  }
+
   enfants.push(enfant);
+}
+
+for (const p of liste) if (!attendLaReine(p)) lancer(p, null);
+
+// ─── UNE ATTENTE SANS FIN SE DIT ──────────────────────────────────────────────
+//
+// Une Reine vivante qui ne s'annonce jamais laisserait ouvrières et écran non
+// lancés sans une ligne (`silenceDeLaReine`, qui dit pourquoi). Le minuteur ne
+// tranche rien, il nomme ceux qui attendent ; `unref` : il ne retient pas un
+// lanceur qui s'arrête.
+if (aLAnnonce.length > 0) {
+  differer(() => {
+    const message = silenceDeLaReine(aLAnnonce, onFerme);
+    if (message !== null) console.error(message);
+  }, DELAI_ANNONCE_REINE_MS).unref();
 }
 
 /** Emporte tout le monde, une seule fois, puis rend le code demandé. */
