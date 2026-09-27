@@ -214,6 +214,14 @@ export interface NodeClientOptions {
    * et celle qui oublierait le réglage pousserait sans consentement.
    */
   pousseLivraisons?: boolean;
+  /**
+   * Appelée à CHAQUE inscription dans la ruche (reconnexions comprises), avec
+   * l'empreinte publique que la Reine a remise — `null` si elle n'en envoie
+   * pas. C'est ce qui permet à une machine qui se signale sur le réseau local
+   * (`decouverte-noeud.ts`, `Signalement`) de se dire membre de SA ruche.
+   * Une exception levée ici n'atteint jamais la boucle du nœud.
+   */
+  surInscription?: (faits: { ruche: string | null }) => void;
 }
 
 /**
@@ -889,6 +897,11 @@ export class HiveNodeClient {
         this.startHeartbeat();
         this.log(`enregistré dans la ruche (nodeId=${msg.nodeId.slice(0, 8)}…)`);
         this.proposerRequisitionCredentialsSiBesoin();
+        try {
+          this.opts.surInscription?.({ ruche: msg.ruche ?? null });
+        } catch (err) {
+          this.log(`signalement réseau : ${err instanceof Error ? err.message : String(err)}`);
+        }
         break;
       case 'assign_task':
         void this.runTask(

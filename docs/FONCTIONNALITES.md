@@ -416,6 +416,54 @@ npm run cli -- exclure node-…  # sa clé ne vaut plus rien, sa connexion est c
 > coupe la connexion de la vraie machine — mais si votre token a fuité, changez-le
 > plutôt que de compter sur l'exclusion.
 
+### La machine d'à côté, sans billet à copier (réseau local)
+
+Quand la machine à ajouter est sur le **même réseau local**, pas besoin de
+s'envoyer un billet à soi-même. Deux réglages, **éteints par défaut** :
+
+1. **Sur la ruche** — `HIVE_DECOUVERTE=1` (et `HIVE_HOST=0.0.0.0`, sinon aucune
+   machine ne pourra la joindre ; `hive doctor` le signale). Elle écoute les
+   machines qui se signalent en mDNS (`_hive._tcp`).
+2. **Sur la machine** — `hive join --decouvrable` (ou `HIVE_DECOUVRABLE=1`).
+   Elle se signale, et affiche un **code d'appariement** :
+
+   ```
+   🐝 Cette machine se signale sur le réseau local : « portable-camille »
+      Linux · Claude Code, Codex · 2 places
+      (rien d’autre n’est diffusé : ni version, ni chemin, ni clé)
+      🔑 Code d'appariement : K7Q2-9XMP
+   ```
+
+3. **Dans le tableau de bord** — **Inviter** → « Sur votre réseau local » →
+   **Rejoindre**, puis recopiez le code. La machine échange son billet contre sa
+   clé et apparaît parmi les ouvrières.
+
+<p align="center">
+  <img src="images/decouverte-reseau.png" width="420" alt="Modale Inviter — « Sur votre réseau local » : la machine portable-de-camille (Linux, Claude Code et Codex, 2 places) attend ; le code affiché sur elle est saisi, bouton Accueillir.">
+  <img src="images/decouverte-reseau-accueillie.png" width="420" alt="Après Accueillir : « portable-de-camille a accepté l’offre », et la machine figure parmi celles déjà dans cette ruche.">
+  <img src="images/decouverte-reseau.mobile.png" width="210" alt="La même liste sur un téléphone : la machine en attente et son bouton Rejoindre, sans défilement horizontal.">
+</p>
+
+Ce qui rend ce raccourci sûr :
+
+|                                  |                                                                                                                                           |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| **Rien n'est diffusé en trop**   | nom, système, familles d'agents connectés, places, état (libre / membre) et l'empreinte publique de la ruche d'un membre — c'est tout     |
+| **Jamais d'entrée sans le code** | le code n'existe que sur l'écran de la machine : une ruche voisine qui l'entend ne peut pas se l'approprier                               |
+| **Le billet voyage scellé**      | chiffré sous le code (AES-256-GCM, clé PBKDF2) ; un imposteur qui recevrait l'offre ne l'ouvre pas, un témoin du réseau non plus          |
+| **Cinq essais par code**         | au cinquième refus, la machine en tire un nouveau ; un billet qui n'a pas été ouvert est révoqué sur-le-champ, et il expire en 10 minutes |
+| **La même porte ensuite**        | le billet s'échange par `POST /api/rejoindre`, comme n'importe quel billet — clé propre au nœud, révocable                                |
+
+L'empreinte de la ruche (`abcd-efgh-jkmn`) est affichée dans le tableau de bord
+**et** par la machine quand elle reçoit l'offre : comparez-les, comme on compare
+l'empreinte d'un hôte SSH. Une machine membre qui se signale dit de quelle
+ruche elle est ; la vôtre la montre « déjà dans cette ruche ».
+
+> Limites, dites franchement : IPv4 seulement ; mDNS ne franchit pas un routeur
+> (un seul segment réseau) ; un pare-feu qui bloque le port UDP 5353 ou le port
+> d'accueil de la machine empêche la découverte — le tableau de bord le dit
+> (« machine injoignable ») et le billet reste le chemin de repli.
+
 ### Se connecter depuis l'extérieur
 
 Par défaut, la ruche n'est joignable que sur le réseau local. Pour un ami

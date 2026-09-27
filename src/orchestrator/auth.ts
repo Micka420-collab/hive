@@ -3,6 +3,7 @@
 // middleware d'authentification.
 
 import { timingSafeEqual, randomBytes, createHmac, pbkdf2Sync } from 'node:crypto';
+import { base32Crockford } from '../shared/empreinte-ruche.js';
 
 const JWT_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 jours
 
@@ -71,6 +72,40 @@ const SECRET_EPHEMERE = randomBytes(32).toString('base64url');
  */
 function secretCourant(): string {
   return secretJwtDepuisEnv() || SECRET_EPHEMERE;
+}
+
+/**
+ * L'empreinte de la ruche dont `secret` est le secret de session
+ * (`shared/empreinte-ruche.ts` dit pourquoi PBKDF2, et pourquoi 60 bits).
+ *
+ * Coûteuse PAR CONSTRUCTION (≈ 50 ms) : `empreinteDeRuche` la calcule une fois
+ * et la garde. Exportée pour les bancs, qui en fabriquent pour d'autres ruches.
+ */
+export function deriverEmpreinte(secret: string): string {
+  const octets = pbkdf2Sync(secret, 'hive/empreinte-ruche/v1', 100_000, 8, 'sha256');
+  return base32Crockford(octets).slice(0, 12);
+}
+
+/** La dernière empreinte calculée, et le secret dont elle vient. */
+let empreinteCalculee: { secret: string; empreinte: string } | null = null;
+
+/**
+ * L'empreinte PUBLIQUE de cette ruche (`shared/empreinte-ruche.ts`) — celle que
+ * ses membres diffusent sur le réseau local et qu'elle leur remet à
+ * l'inscription.
+ *
+ * Dérivée du secret courant, donc stable d'un redémarrage à l'autre, et
+ * recalculée seulement si le secret change : elle coûte 100 000 itérations de
+ * PBKDF2, et chaque inscription de nœud la lit. En simulation, le secret est
+ * tiré à chaque processus — l'empreinte d'une démo change donc à chaque
+ * relance, ce qui est exact : ce n'est plus la même ruche.
+ */
+export function empreinteDeRuche(): string {
+  const secret = secretCourant();
+  if (empreinteCalculee?.secret !== secret) {
+    empreinteCalculee = { secret, empreinte: deriverEmpreinte(secret) };
+  }
+  return empreinteCalculee.empreinte;
 }
 
 // ─── Hachage des mots de passe (PBKDF2, sans dépendance native) ───────────────

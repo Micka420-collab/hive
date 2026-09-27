@@ -67,6 +67,7 @@ function releveAvec(reglages: { cle: string; valeur: string }[]): Releve {
     wsJoignable: true,
     reglages: { runner: 'off', bindPublic: false, gardiennes: 'strict', corsOuvert: false },
     espace: { octetsLibres: 40 * 1024 * 1024 * 1024, inscriptible: true },
+    decouverte: { ruche: false, machine: false, ecouteLocale: true },
   };
 }
 
