@@ -9362,6 +9362,23 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
                 rejectDelegation('task_id_duplique', 'identifiant enfant déjà utilisé');
                 break;
               }
+              const child = store.getTask(deja.childTaskId);
+              const result = store.resultsForTask(deja.childTaskId).at(-1);
+              const enfantTermine = child?.status === 'done' || child?.status === 'failed';
+              // Un enfant terminé SANS résultat — annulé par un humain, annulé
+              // avec le sous-arbre d'un ancêtre terminé, ou échoué faute
+              // d'agent — ne produira plus jamais de `delegation_result`.
+              // L'accuser de nouveau laissait le parent attendre jusqu'à
+              // l'expiration de son budget : c'est le cas d'une tentative
+              // relancée par l'Evaluator qui rejoue son identifiant stable
+              // après la clôture de son sous-arbre. Le refus dit quoi faire.
+              if (enfantTermine && !result) {
+                rejectDelegation(
+                  'enfant_termine',
+                  'sous-tâche déjà terminée sans résultat — délègue-la sous un nouvel identifiant',
+                );
+                break;
+              }
               send(ws, {
                 type: 'delegation_accepted',
                 requestId: msg.requestId,
@@ -9374,9 +9391,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
               // parent attendre un événement qui ne sera plus produit : le
               // résultat terminal est déjà durable dans `results`, on le
               // retransmet donc sur le même socket après l'autorisation.
-              const child = store.getTask(deja.childTaskId);
-              const result = store.resultsForTask(deja.childTaskId).at(-1);
-              if (child && result && (child.status === 'done' || child.status === 'failed')) {
+              if (result && enfantTermine) {
                 send(ws, {
                   type: 'delegation_result',
                   parentTaskId: deja.parentTaskId,

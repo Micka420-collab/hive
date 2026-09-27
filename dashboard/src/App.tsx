@@ -305,6 +305,7 @@ export function App() {
             'delegation_replayed',
             'delegation_rejected',
             'delegation_result',
+            'delegation_cancelled',
             'task_requeued',
             'task_retry',
             'node_online',

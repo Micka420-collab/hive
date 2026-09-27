@@ -27,6 +27,40 @@ function raisonDelegation(events: DelegationEvent[], taskId: string): string | n
   return typeof event?.payload.reason === 'string' ? event.payload.reason : null;
 }
 
+/**
+ * Une sous-tâche annulée avec le sous-arbre d'un ancêtre terminé porte le même
+ * badge « échouée » que n'importe quel échec. Sans cette ligne, l'opérateur
+ * chercherait une panne qui n'a pas eu lieu : c'est son destinataire qui avait
+ * fini. Le texte est reconstruit ici depuis le code typé du journal.
+ */
+function annulationDelegation(
+  events: DelegationEvent[],
+  taskId: string,
+  t: ReturnType<typeof useT>,
+): string | null {
+  const event = events.find(
+    (candidate) =>
+      candidate.type === 'delegation_cancelled' && candidate.payload.childTaskId === taskId,
+  );
+  if (!event) return null;
+  const ancetre =
+    typeof event.payload.ancestorTaskId === 'string' ? event.payload.ancestorTaskId : '?';
+  switch (event.payload.reason) {
+    case 'ancestor_done':
+      return t(
+        `Annulée : ${ancetre} a abouti sans attendre ce résultat.`,
+        `Cancelled: ${ancetre} finished without waiting for this result.`,
+      );
+    case 'ancestor_failed':
+      return t(
+        `Annulée : ${ancetre} a échoué, plus personne n’attendait ce résultat.`,
+        `Cancelled: ${ancetre} failed, nobody was waiting for this result any more.`,
+      );
+    default:
+      return t(`Annulée avec ${ancetre}.`, `Cancelled along with ${ancetre}.`);
+  }
+}
+
 function budgetDelegation(record: DelegationRecord | null, t: ReturnType<typeof useT>): string {
   if (!record) {
     return t(
@@ -357,6 +391,7 @@ export function TaskDrawer({ task, nodes, horloge, refreshTick = 0, onClose }: P
             >
               {delegation.graph.map((node) => {
                 const reason = raisonDelegation(delegation.events, node.taskId);
+                const annulation = annulationDelegation(delegation.events, node.taskId, t);
                 const record = node.parentTaskId
                   ? (delegation.delegations.find(
                       (candidate) => candidate.childTaskId === node.taskId,
@@ -393,6 +428,14 @@ export function TaskDrawer({ task, nodes, horloge, refreshTick = 0, onClose }: P
                       </p>
                     )}
                     {reason && <p className="delegation-tree-reason">{reason}</p>}
+                    {annulation && (
+                      <p
+                        className="delegation-tree-reason"
+                        data-testid={`delegation-cancelled-${node.taskId}`}
+                      >
+                        {annulation}
+                      </p>
+                    )}
                   </li>
                 );
               })}

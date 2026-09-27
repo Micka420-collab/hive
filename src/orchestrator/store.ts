@@ -3066,14 +3066,50 @@ export class HiveStore {
    * Récupération au démarrage : les tâches assigned/running d'un précédent
    * process sont orphelines → elles repartent en ready ; tous les nœuds
    * repartent offline (ils se ré-enregistreront via WebSocket).
+   *
+   * L'HORLOGE DE L'HÉBERGEUR SE FERME D'ABORD. Au démarrage plus aucune tâche
+   * n'est en vol, donc aucune session ne doit rester ouverte : une session
+   * ouverte est facturée jusqu'à `now` à chaque lecture, et l'orpheline
+   * compterait toute la panne de la Reine comme du temps consommé — de quoi
+   * pousser un projet Cloud en « bloqué ». Chaque session se clôt au DERNIER
+   * SIGNE DE VIE que la Reine a enregistré pour elle :
+   *   - orpheline : le dernier battement de son nœud (ou sa dernière
+   *     transition, si elle est plus récente) — jamais l'heure du redémarrage,
+   *     qui facturerait la panne ;
+   *   - tâche déjà sortie du vol mais dont la session courait encore (Reine
+   *     d'avant la fermeture à l'interruption) : sa dernière transition,
+   *     l'instant où la session aurait dû se clore.
+   * Lu AVANT la requalification, qui réécrit `updatedAt`. Une session dont la
+   * tâche a disparu reste à `pruneHorlogeHote`, qui l'efface sans la facturer.
    */
   recoverOrphanTasks(now = Date.now()): Task[] {
-    const orphans = this.tasksByStatus('assigned', 'running');
-    for (const t of orphans) {
-      this.patchTask(t.id, { status: 'ready', assignedNodeId: null }, now);
-    }
-    this.db.prepare("UPDATE nodes SET status = 'offline'").run();
-    return orphans;
+    const recuperer = this.db.transaction((): Task[] => {
+      const sessions = this.db
+        .prepare(
+          `SELECT h.taskId, t.status, t.updatedAt, n.lastSeen
+             FROM horloge_hote h
+             JOIN tasks t ON t.id = h.taskId
+             LEFT JOIN nodes n ON n.id = t.assignedNodeId`,
+        )
+        .all() as Array<{
+        taskId: string;
+        status: TaskStatus;
+        updatedAt: number;
+        lastSeen: number | null;
+      }>;
+      for (const s of sessions) {
+        const enVol = s.status === 'assigned' || s.status === 'running';
+        const signeDeVie = enVol ? Math.max(s.updatedAt, s.lastSeen ?? 0) : s.updatedAt;
+        this.fermerHorlogeHote(s.taskId, Math.min(now, signeDeVie));
+      }
+      const orphans = this.tasksByStatus('assigned', 'running');
+      for (const t of orphans) {
+        this.patchTask(t.id, { status: 'ready', assignedNodeId: null }, now);
+      }
+      this.db.prepare("UPDATE nodes SET status = 'offline'").run();
+      return orphans;
+    });
+    return recuperer();
   }
 
   // ─── Résultats ─────────────────────────────────────────────────────────────
@@ -3789,7 +3825,15 @@ export class HiveStore {
       .run(s.taskId, s.projectId, s.startedAt, 'hote');
   }
 
-  /** Clôt la session : ajoute sa durée au solde du projet, puis l'efface. */
+  /**
+   * Clôt la session : ajoute sa durée au solde du projet, puis l'efface.
+   *
+   * Un arrêt daté AVANT le départ (horloge murale qui recule, dernier battement
+   * d'un nœud antérieur à l'assignation) clôt au départ : zéro facturé. Le
+   * refuser laissait la session OUVERTE, et `depenseHorlogeHote` la comptait
+   * jusqu'à `now` à chaque lecture — une durée négative évitée contre une
+   * facture sans fin. `fermerSession` garde son refus pour qui l'appelle nu.
+   */
   fermerHorlogeHote(taskId: string, stoppedAt: number): boolean {
     const row = this.db
       .prepare('SELECT taskId, projectId, startedAt FROM horloge_hote WHERE taskId = ?')
@@ -3803,7 +3847,7 @@ export class HiveStore {
         startedAt: row.startedAt,
         stoppedAt: null,
       },
-      stoppedAt,
+      Math.max(stoppedAt, row.startedAt),
     );
     if (!close || close.stoppedAt === null) return false;
     const ajoute = close.stoppedAt - close.startedAt;
@@ -5818,7 +5862,7 @@ export class HiveStore {
     const rows = this.db
       .prepare(
         `SELECT * FROM events
-         WHERE type IN ('delegation_created', 'delegation_replayed', 'delegation_rejected', 'delegation_result')
+         WHERE type IN ('delegation_created', 'delegation_replayed', 'delegation_rejected', 'delegation_result', 'delegation_cancelled')
            AND (json_extract(payload, '$.rootTaskId') = ? OR json_extract(payload, '$.parentTaskId') = ?)
          ORDER BY id`,
       )

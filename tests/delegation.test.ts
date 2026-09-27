@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  descendantsEnVol,
   jugerDelegation,
   LIMITES_DELEGATION_DEFAUT,
   type DemandeDelegation,
@@ -116,5 +117,35 @@ describe('délégation Hive bornée', () => {
       root(),
     ]);
     expect(verdict).toMatchObject({ ok: true, plan: { title: 'Titre', prompt: 'Mission' } });
+  });
+});
+
+describe('descendants en vol d’une tâche qui se termine', () => {
+  // root ─┬─ a (done) ─┬─ a1 (running)
+  //       │            └─ a2 (done)
+  //       ├─ b (ready)
+  //       └─ c (failed)
+  const graphe: NoeudDelegation[] = [
+    root({ status: 'done' }),
+    root({ taskId: 'a', parentTaskId: 'root', depth: 1, status: 'done' }),
+    root({ taskId: 'b', parentTaskId: 'root', depth: 1, status: 'ready' }),
+    root({ taskId: 'c', parentTaskId: 'root', depth: 1, status: 'failed' }),
+    root({ taskId: 'a1', parentTaskId: 'a', depth: 2, status: 'running' }),
+    root({ taskId: 'a2', parentTaskId: 'a', depth: 2, status: 'done' }),
+  ];
+
+  it('traverse les descendants terminés et ne rend que ceux en vol, parents avant enfants', () => {
+    // Entrée volontairement désordonnée : la fonction ne suppose pas l'ordre
+    // du store. Le petit-enfant `a1` vole sous un enfant FINI — c'est lui
+    // qu'un arrêt à la première génération laisserait orphelin.
+    expect(descendantsEnVol([...graphe].reverse(), 'root').map((n) => n.taskId)).toEqual([
+      'b',
+      'a1',
+    ]);
+  });
+
+  it('ne remonte jamais : le sous-arbre d’un enfant exclut son parent et ses frères', () => {
+    expect(descendantsEnVol(graphe, 'a').map((n) => n.taskId)).toEqual(['a1']);
+    expect(descendantsEnVol(graphe, 'b')).toEqual([]);
   });
 });

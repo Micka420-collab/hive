@@ -48,6 +48,8 @@ Le compose pose `HIVE_TRUST_PROXY=uniquelocal` : la Queen croit le `X-Forwarded-
 
 `GET /api/edition` doit répondre `{ "edition": "cloud", "factureHorlogeHote": true }`.
 
+**Ce que l'horloge facture.** Une session s'ouvre quand la Queen assigne une tâche (ou ré-adopte celle qu'un nœud revenu porte encore) et se ferme quand la tentative s'arrête : résultat, annulation, refus du nœud, nœud perdu, redémarrage de la Queen. Une tentative interrompue est facturée pour le temps qu'elle a réellement occupé l'hébergeur, jusqu'au dernier instant où la Queen l'a vue vivante : ni la panne de la Queen, ni le délai de détection d'un nœud muet, ni l'attente en file ne sont décomptés. Quand une tâche se termine (aboutie, échouée ou annulée), ses sous-tâches déléguées encore en vol sont annulées avec elle, et leur horloge s'arrête au même instant.
+
 Sans `HIVE_WEBHOOK_SECRET`, **la Queen Cloud refuse de démarrer**. Ce n'est pas un oubli : tourner sans webhook, c'est facturer des heures que Stripe ne pourra jamais activer.
 
 ## 3. Stripe

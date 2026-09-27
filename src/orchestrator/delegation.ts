@@ -152,3 +152,40 @@ export function jugerDelegation(
     },
   };
 }
+
+/**
+ * Pourquoi un descendant délégué est annulé : l'état terminal que vient
+ * d'atteindre l'un de ses ANCÊTRES. Codes anglais snake_case, comme tous les
+ * faits persistés du journal — le texte est reconstruit à l'affichage.
+ */
+export type CauseAnnulationDelegation = 'ancestor_done' | 'ancestor_failed' | 'ancestor_cancelled';
+
+/**
+ * Les descendants ENCORE EN VOL de `taskId` dans son graphe, parents avant
+ * enfants.
+ *
+ * Un enfant délégué n'a qu'un destinataire : la tâche qui l'a demandé. Quand
+ * elle devient terminale, plus personne n'attend son résultat — ni celui de
+ * sa propre descendance. Le parcours traverse donc AUSSI les descendants déjà
+ * terminés : un petit-enfant en vol sous un enfant fini reste orphelin, et
+ * c'est lui que l'arrêt à la première génération oublierait.
+ *
+ * Seules les arêtes du graphe comptent : une tâche liée par `dependsOn` n'est
+ * pas une descendante (la cascade des dépendances vit dans le scheduler), et
+ * une tâche indépendante n'y figure jamais.
+ */
+export function descendantsEnVol(
+  graphe: readonly NoeudDelegation[],
+  taskId: string,
+): NoeudDelegation[] {
+  const sousArbre = new Set([taskId]);
+  const enVol: NoeudDelegation[] = [];
+  // Tri stable par profondeur : un parent est toujours vu avant ses enfants,
+  // donc un seul passage suffit (graphe borné par `maxDescendantsPerRoot`).
+  for (const noeud of [...graphe].sort((a, b) => a.depth - b.depth)) {
+    if (noeud.parentTaskId === null || !sousArbre.has(noeud.parentTaskId)) continue;
+    sousArbre.add(noeud.taskId);
+    if (noeud.status !== 'done' && noeud.status !== 'failed') enVol.push(noeud);
+  }
+  return enVol;
+}
