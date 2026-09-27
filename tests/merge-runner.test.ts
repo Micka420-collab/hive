@@ -139,6 +139,24 @@ describe('merge-runner (git réel)', () => {
     }
   });
 
+  it('l’entrée de la commande de test est FERMÉE : un outil qui la lit ne pend pas', async () => {
+    // Personne n'écrit sur l'entrée d'une commande de test. Laissée en tube
+    // ouvert, un outil qui la lit jusqu'au bout attendait le délai dur, puis
+    // était compté en échec — le même défaut que `codex exec` (voir exec.ts).
+    const res = await runMerge({
+      repoDir,
+      diffs: [{ taskId: 'ta', diff: patchA }],
+      testCommand: [
+        'node',
+        '-e',
+        'process.stdin.resume(); process.stdin.on("end", () => process.exit(0))',
+      ],
+      timeoutMs: 5_000,
+    });
+    expect(res.testsRun).toBe(true);
+    expect(res.testsPassed, res.logs).toBe(true);
+  });
+
   it('ne lance pas les tests en présence de conflits', async () => {
     const res = await runMerge({
       repoDir,

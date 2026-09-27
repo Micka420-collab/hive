@@ -15,7 +15,12 @@ describe('requisition-env', () => {
   it('mappe Seedance et agents courants', () => {
     expect(nomEnvDepuisLibelle('Clé Seedance')).toBe('SEEDANCE_API_KEY');
     expect(nomEnvDepuisLibelle('Clé Anthropic')).toBe('ANTHROPIC_API_KEY');
-    expect(nomEnvDepuisLibelle('Clé OpenAI (Codex)')).toBe('OPENAI_API_KEY');
+    // Codex ne lit QUE CODEX_API_KEY (codex-rs/login) : la réquisition du nœud
+    // Codex et sa forme générique y mènent ; une clé OpenAI sans Codex, non.
+    expect(nomEnvDepuisLibelle('Clé OpenAI (Codex)')).toBe('CODEX_API_KEY');
+    expect(nomEnvDepuisLibelle('Identifiants agent (codex)')).toBe('CODEX_API_KEY');
+    expect(nomEnvDepuisLibelle('Clé OpenAI')).toBe('OPENAI_API_KEY');
+    expect(FOURNISSEURS_CLE.find((f) => f.id === 'openai')?.envVar).toBe('CODEX_API_KEY');
     expect(nomEnvDepuisLibelle('Clé ou session Anthropic (Claude Code)')).toBe('ANTHROPIC_API_KEY');
     expect(nomEnvDepuisLibelle('Clé ou session Cursor')).toBe('CURSOR_API_KEY');
     expect(nomEnvDepuisLibelle('Clé OpenRouter')).toBe('OPENROUTER_API_KEY');

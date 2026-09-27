@@ -1,10 +1,20 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AgentAdapter } from '../src/adapters/index.js';
 import { runCommand } from '../src/adapters/exec.js';
+import { agentCredentialEnv } from '../src/node-client/agent-detect.js';
 import { HiveNodeClient } from '../src/node-client/client.js';
 import {
   fournisseurParNom,
@@ -12,6 +22,7 @@ import {
   sonderAgentDansBac,
   type Fournisseur,
 } from '../src/node-client/isolement.js';
+import { buildSandboxEnv } from '../src/node-client/workspace.js';
 import { createServer } from '../src/orchestrator/server.js';
 
 const imageDemandee = process.env.HIVE_ISOLEMENT_IMAGE?.trim() || '';
@@ -284,5 +295,251 @@ describe('isolement — intégration runtime réel', () => {
       }
     },
     120_000,
+  );
+});
+
+// ─── BUBBLEWRAP : LE BAC SANS DÉMON, SUR L'AGENT QUE LE MEMBRE A INSTALLÉ ───
+//
+// Mesuré sur un hôte Linux réel (bubblewrap seul, ni Docker ni Podman) : le
+// preflight passait pour `git` et échouait pour `claude`, `codex`,
+// `cursor-agent` et `node` — tous installés sous `$HOME`, que le bac ne montait
+// pas. Le nœud retombait en sandbox de processus. Et dans le bac, `TMPDIR`
+// pointait vers un chemin de l'hôte absent (`mktemp` rendait 1), `HOME` aussi.
+//
+// Ces bancs lancent le VRAI bubblewrap sur une VRAIE installation fabriquée
+// sous un HOME : un agent `#!/usr/bin/env node` (comme Codex, comme `npm`),
+// atteint par un lien du PATH (comme `~/.local/bin/claude`). La CI Linux
+// installe bubblewrap et pose `HIVE_BWRAP_REQUIS=1` : là, un bubblewrap absent
+// ou bloqué fait ÉCHOUER le banc au lieu de le sauter en silence.
+
+const bwrapRequis = process.env.HIVE_BWRAP_REQUIS === '1';
+
+function bwrapDisponible(): Fournisseur | null {
+  if (process.platform !== 'linux') return null;
+  try {
+    // `--version` répond même quand les espaces de noms utilisateur sont
+    // refusés (AppArmor d'Ubuntu 24.04) : on éprouve un vrai lancement.
+    execFileSync('bwrap', ['--ro-bind', '/', '/', '--unshare-all', '--', 'true'], {
+      stdio: 'ignore',
+      timeout: 8_000,
+    });
+    return fournisseurParNom('bubblewrap');
+  } catch {
+    return null;
+  }
+}
+
+const bwrap = bwrapDisponible();
+
+/** Ce que l'agent factice constate, de l'intérieur du bac. */
+interface Constat {
+  cwd: string;
+  home: string | null;
+  homeInscriptible: boolean;
+  tmpdir: string | null;
+  mktemp: boolean;
+  tache: string | null;
+  temp: string | null;
+  maisonVisible: boolean;
+  jeton: string | null;
+  hive: string | null;
+}
+
+/**
+ * Installe un agent comme le fait un installeur natif : la version réelle sous
+ * `~/.local/share`, un lien dans `~/.local/bin`. Il écrit son constat dans la
+ * tâche, et le HOME porte un secret qui ne doit JAMAIS être visible.
+ */
+function installerAgentFactice(racine: string): { maison: string; bin: string } {
+  const maison = path.join(racine, 'maison');
+  const version = path.join(maison, '.local/share/agent-factice/versions/1.0.0/agent-factice');
+  mkdirSync(path.dirname(version), { recursive: true });
+  writeFileSync(
+    version,
+    [
+      '#!/usr/bin/env node',
+      "const fs = require('node:fs');",
+      "const os = require('node:os');",
+      "const path = require('node:path');",
+      'const e = process.env;',
+      'let homeInscriptible = false;',
+      "try { fs.writeFileSync(path.join(e.HOME, '.session'), 'x'); homeInscriptible = true; } catch {}",
+      'let mktemp = false;',
+      "try { fs.rmSync(fs.mkdtempSync(path.join(os.tmpdir(), 'x-')), { recursive: true }); mktemp = true; } catch {}",
+      'const constat = {',
+      '  cwd: process.cwd(), home: e.HOME ?? null, homeInscriptible,',
+      '  tmpdir: e.TMPDIR ?? null, mktemp, tache: e.HIVE_TASK_CWD ?? null, temp: e.TEMP ?? null,',
+      `  maisonVisible: fs.existsSync(${JSON.stringify(path.join(maison, 'secret-du-membre'))}),`,
+      '  jeton: e.CLAUDE_CODE_OAUTH_TOKEN ?? null, hive: e.HIVE_TOKEN ?? null,',
+      '};',
+      "fs.writeFileSync('/hive/tache/constat.json', JSON.stringify(constat));",
+      "console.log('agent-factice ' + (process.argv[2] ?? 'a travaillé'));",
+    ].join('\n'),
+  );
+  chmodSync(version, 0o755);
+  writeFileSync(path.join(maison, 'secret-du-membre'), 'clé SSH, session, .env…\n');
+  const bin = path.join(maison, '.local/bin');
+  mkdirSync(bin, { recursive: true });
+  symlinkSync(version, path.join(bin, 'agent-factice'));
+  return { maison, bin };
+}
+
+const constatAttendu: Constat = {
+  cwd: '/hive/tache',
+  home: '/tmp/hive-home',
+  homeInscriptible: true,
+  tmpdir: '/tmp',
+  mktemp: true,
+  tache: '/hive/tache',
+  temp: null,
+  maisonVisible: false,
+  jeton: 'sk-ant-oat01-jeton-factice',
+  hive: null,
+};
+
+describe('isolement — intégration bubblewrap réelle', () => {
+  let racine = '';
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    if (racine) rmSync(racine, { recursive: true, force: true, maxRetries: 3 });
+    racine = '';
+  });
+
+  /** Un hôte dont le HOME porte l'agent, sur le PATH par son lien. */
+  function hote(): { maison: string } {
+    // `realpath` : le preflight compare des chemins réels.
+    racine = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'hive-bwrap-')));
+    const { maison, bin } = installerAgentFactice(racine);
+    vi.stubEnv('HOME', maison);
+    vi.stubEnv('PATH', `${bin}${path.delimiter}${process.env.PATH ?? ''}`);
+    vi.stubEnv('CLAUDE_CODE_OAUTH_TOKEN', constatAttendu.jeton ?? '');
+    vi.stubEnv('HIVE_TOKEN', 'jeton-de-ruche-qui-ne-doit-jamais-entrer');
+    return { maison };
+  }
+
+  it.skipIf(!bwrap && !bwrapRequis)(
+    'le preflight trouve l’agent installé dans le HOME, et le Node du pont MCP',
+    async () => {
+      expect(bwrap, 'HIVE_BWRAP_REQUIS=1 exige un bubblewrap qui démarre').not.toBeNull();
+      hote();
+      for (const binaire of ['agent-factice', 'node']) {
+        const r = await sonderAgentDansBac(bwrap!, binaire);
+        expect(r.executable, `${binaire} : ${r.motif}`).toBe(true);
+      }
+      const absent = await sonderAgentDansBac(bwrap!, 'hive-agent-inexistant');
+      expect(absent.executable).toBe(false);
+    },
+    60_000,
+  );
+
+  it.skipIf(!bwrap && !bwrapRequis)(
+    'l’agent s’exécute dans le seul workspace, avec un HOME, un TMPDIR et son jeton — rien de l’hôte',
+    async () => {
+      expect(bwrap, 'HIVE_BWRAP_REQUIS=1 exige un bubblewrap qui démarre').not.toBeNull();
+      hote();
+      const workspace = path.join(racine, 'travail/tasks/t-1');
+      mkdirSync(workspace, { recursive: true });
+      // L'environnement RÉEL d'une tâche Claude Code : `HOME` de l'hôte compris,
+      // que le bac doit remplacer, et le jeton, qu'il doit laisser passer.
+      const variables = agentCredentialEnv('claude-code');
+      const r = await runCommand(
+        'agent-factice',
+        ['dans le bac'],
+        {
+          cwd: workspace,
+          env: buildSandboxEnv(workspace, variables),
+          attempt: 1,
+          signal: new AbortController().signal,
+          onProgress: () => {},
+          bac: { fournisseur: bwrap!, image: 'sans objet pour bubblewrap', variables },
+        },
+        30_000,
+      );
+      expect(r.success, r.logs).toBe(true);
+      expect(r.logs.trim()).toBe('agent-factice dans le bac');
+      const constat = JSON.parse(
+        readFileSync(path.join(workspace, 'constat.json'), 'utf8'),
+      ) as Constat;
+      expect(constat).toEqual(constatAttendu);
+    },
+    60_000,
+  );
+
+  it.skipIf(!bwrap && !bwrapRequis)(
+    'fait traverser bubblewrap au chemin Worker → tâche, avec les variables du nœud',
+    async () => {
+      // Le banc précédent éprouve `runCommand` seul. Celui-ci passe par un
+      // orchestrateur réel et `HiveNodeClient` : `keepEnv` et `bac` sont ceux
+      // que `main.ts` transmet, et `runTask` construit l'environnement.
+      expect(bwrap, 'HIVE_BWRAP_REQUIS=1 exige un bubblewrap qui démarre').not.toBeNull();
+      hote();
+      const token = 'jeton-sandbox-worker-bwrap-long';
+      const server = await createServer({
+        port: 0,
+        host: '127.0.0.1',
+        token,
+        corsOrigins: ['http://localhost:5173'],
+        dbPath: path.join(racine, 'hive.db'),
+        simulation: false,
+        tickMs: 20,
+      });
+      const adapter: AgentAdapter = {
+        name: 'agent-factice',
+        async run(_task, ctx) {
+          const r = await runCommand('agent-factice', [], ctx, 30_000);
+          if (!r.success) return r;
+          const constat = readFileSync(path.join(ctx.cwd, 'constat.json'), 'utf8');
+          return { ...r, logs: constat, subAgents: [] };
+        },
+      };
+      const variables = agentCredentialEnv('claude-code');
+      const client = new HiveNodeClient({
+        url: `ws://127.0.0.1:${server.port}/ws`,
+        token,
+        name: 'worker-bwrap-reel',
+        ownerName: 'integration',
+        agentType: 'custom',
+        nodeId: 'worker-bwrap-reel',
+        maxConcurrency: 1,
+        workRoot: path.join(racine, 'work'),
+        adapter,
+        quiet: true,
+        keepEnv: variables,
+        bac: { fournisseur: bwrap!, image: 'sans objet pour bubblewrap', variables },
+      });
+      client.start();
+      const attendre = async (condition: () => boolean, message: string): Promise<void> => {
+        const limite = Date.now() + 30_000;
+        while (Date.now() < limite) {
+          if (condition()) return;
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+        throw new Error(message);
+      };
+      try {
+        await attendre(
+          () => server.store.listNodes().some((n) => n.id === 'worker-bwrap-reel'),
+          'le Worker ne rejoint pas la ruche',
+        );
+        const projet = server.store.createProject({ name: 'Mission bubblewrap' });
+        const tache = server.store.createTask({
+          projectId: projet.id,
+          title: 'Prouver le bac bubblewrap du Worker',
+          prompt: 'écrire le constat du contexte d’exécution',
+        });
+        server.store.patchTask(tache.id, { status: 'ready' });
+        await attendre(
+          () => server.store.getTask(tache.id)?.status === 'done',
+          'la tâche bubblewrap ne se termine pas',
+        );
+        const resultat = server.store.resultsForTask(tache.id).at(-1);
+        expect(resultat?.success, resultat?.logs).toBe(true);
+        expect(JSON.parse(resultat?.logs ?? '{}')).toEqual(constatAttendu);
+      } finally {
+        client.stop();
+        await server.stop();
+      }
+    },
+    60_000,
   );
 });

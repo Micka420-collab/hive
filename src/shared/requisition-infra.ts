@@ -41,17 +41,22 @@ export type RequisitionDepuisInfra =
  * Propose une réquisition HITL quand l'échec infra est débloquable par
  * l'humain. Credentials d'abord (sinon un log « clé absente » + ENOENT
  * ouvrirait un hint binaire). `null` → failover classique.
+ *
+ * `sessionsHote` vaut faux quand l'agent tourne dans un bac : sa session
+ * `~/.claude` ne l'y suit pas, et la réquisition doit nommer la clé à poser au
+ * lieu de conclure « rien ne manque » sur la foi d'un dossier qu'il ne voit pas.
  */
 export function requisitionDepuisEchecInfra(
   agentType: AgentType | string,
   logs: string,
   taskTitle: string,
   env: NodeJS.ProcessEnv = process.env,
+  opts: { sessionsHote?: boolean } = {},
 ): RequisitionDepuisInfra | null {
   const titre = taskTitle.trim().slice(0, 80) || 'tâche en cours';
 
   if (estEchecCredential(logs)) {
-    const proactive = requisitionSiCredentialsManquantes(agentType as AgentType, env);
+    const proactive = requisitionSiCredentialsManquantes(agentType as AgentType, env, opts);
     if (proactive) {
       return {
         genre: 'cle_api',

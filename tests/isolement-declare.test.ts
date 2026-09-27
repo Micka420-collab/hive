@@ -13,7 +13,13 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { annonce, codeDuBac, isolementDeclareDe, type Bac } from '../src/node-client/bac.js';
+import {
+  annonce,
+  codeDuBac,
+  sessionsHoteDuMode,
+  isolementDeclareDe,
+  type Bac,
+} from '../src/node-client/bac.js';
 import { HiveNodeClient } from '../src/node-client/client.js';
 import { decider, IMAGE_DEFAUT, type Fournisseur } from '../src/node-client/isolement.js';
 import { createServer, type HiveServer } from '../src/orchestrator/server.js';
@@ -38,6 +44,7 @@ function bacDe(mode: 'off' | 'auto' | 'exige', fournisseur: Fournisseur | null):
     lignes: annonce(decision, fournisseur),
     refuse: decision.refuse,
     codeSortie: codeDuBac(decision.refuse),
+    sessionsHote: sessionsHoteDuMode(mode),
   };
 }
 

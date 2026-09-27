@@ -68,7 +68,7 @@ describe('la garde ne change RIEN au comportement de la réquisition', () => {
 
   it('mais un agent connu SANS identifiants en ouvre bien une', () => {
     const req = requisitionSiCredentialsManquantes('codex', {}, { plateforme: 'linux' });
-    expect(req, 'codex sans OPENAI_API_KEY devrait réclamer une clé').not.toBeNull();
+    expect(req, 'codex sans CODEX_API_KEY devrait réclamer une clé').not.toBeNull();
     expect(req?.genre).toBe('cle_api');
   });
 });

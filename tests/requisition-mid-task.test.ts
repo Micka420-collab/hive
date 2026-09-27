@@ -114,8 +114,9 @@ describe('réquisition mid-task — boucle B/C/D', () => {
     });
     expect(rep.status).toBe(200);
     const repBody = (await rep.json()) as { envVar?: string };
-    expect(repBody.envVar).toBe('OPENAI_API_KEY');
-    delete process.env.OPENAI_API_KEY;
+    // La seule variable que `codex exec` lit : la Chambre pose CELLE-LÀ.
+    expect(repBody.envVar).toBe('CODEX_API_KEY');
+    delete process.env.CODEX_API_KEY;
 
     const deadlineDone = Date.now() + 12_000;
     while (Date.now() < deadlineDone) {

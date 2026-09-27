@@ -40,7 +40,10 @@ import type { ExecutionUsage, IsolementDeclare, Task } from '../shared/types.js'
 import { runMerge, runProc } from './merge-runner.js';
 import { lancerVraiment, poserOutil } from './pose-runner.js';
 import { buildSandboxEnv, cloneRepo, prepareWorkspace } from './workspace.js';
-import { requisitionDepuisEchecInfra } from '../shared/requisition-infra.js';
+import {
+  requisitionDepuisEchecInfra,
+  type RequisitionDepuisInfra,
+} from '../shared/requisition-infra.js';
 import { motifRefusPresence, refuseParPresence } from '../shared/presence-noeud.js';
 import type { Fournisseur } from './isolement.js';
 import type { Workspace } from './workspace.js';
@@ -850,10 +853,28 @@ export class HiveNodeClient {
     // agent qu'elle ne connaît pas.
     const agent = this.opts.agentType;
     if (!estAgentType(agent)) return;
-    const req = requisitionSiCredentialsManquantes(agent);
+    // Dans un bac, la session de l'hôte (`~/.claude`…) n'atteint pas l'agent :
+    // elle ne compte plus, et la réquisition nomme le jeton à poser.
+    const req = requisitionSiCredentialsManquantes(agent, process.env, {
+      sessionsHote: !this.opts.bac,
+    });
     if (!req) return;
     this.requisitionCredentialEnvoyee = true;
     this.ouvrirRequisition(req.genre, req.libelle, req.detail);
+  }
+
+  /**
+   * La réquisition qu'appelle un échec d'INFRA de l'agent — ou `null`.
+   *
+   * Un seul appel pour la tâche et pour sa reprise. Dans un bac, la session de
+   * l'hôte (`~/.claude`…) n'atteint pas l'agent : elle ne compte plus, et la
+   * réquisition nomme le jeton à poser au lieu d'une demande générique qui ne
+   * nomme rien.
+   */
+  private requisitionApresEchecInfra(logs: string, titre: string): RequisitionDepuisInfra | null {
+    return requisitionDepuisEchecInfra(this.opts.agentType, logs, titre, process.env, {
+      sessionsHote: !this.opts.bac,
+    });
   }
 
   /**
@@ -1024,7 +1045,7 @@ export class HiveNodeClient {
       usage = executionUsageDepuis(usageBefore, capturerExecutionUsage());
       // Échec d'INFRASTRUCTURE : réquisition mid-task si credentials, sinon failover.
       if (!result.success && result.infra) {
-        const req = requisitionDepuisEchecInfra(this.opts.agentType, result.logs, task.title);
+        const req = this.requisitionApresEchecInfra(result.logs, task.title);
         if (req && workspace && !this.attenteRequisition) {
           conserverWorkspace = true;
           this.attenteRequisition = {
@@ -1193,7 +1214,7 @@ export class HiveNodeClient {
           : rawResult;
       usage = executionUsageDepuis(usageBefore, capturerExecutionUsage());
       if (!result.success && result.infra) {
-        const encore = requisitionDepuisEchecInfra(this.opts.agentType, result.logs, task.title);
+        const encore = this.requisitionApresEchecInfra(result.logs, task.title);
         if (encore?.genre === 'binaire') {
           this.attenteRequisition = {
             ...attente,
