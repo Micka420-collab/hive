@@ -4289,6 +4289,24 @@ async function monterReine(
     },
     async (req, reply) => {
       if (!authorized(req)) return reject(reply);
+      // UN COMPTE PRÉSENTÉ MAIS REFUSÉ N'EST PAS « SANS COMPTE ».
+      //
+      // Un JWT expiré était lu comme absent, et l'import rendait 201 avec un
+      // projet ORPHELIN : la personne croyait avoir connecté SON dépôt, qu'elle
+      // ne pouvait ensuite ni lire ni partager — et aucun échec n'avertissait
+      // l'écran que sa session était morte. `/api/projects/user` refuse déjà
+      // ainsi. Seul un BEARER compte : un `Authorization: Basic …` qu'un proxy
+      // d'authentification HTTP laisse passer n'est pas un compte Hive, et le
+      // refuser fermait l'import à qui n'en a pas. La CLI sans `HIVE_JWT` reste
+      // donc orpheline, comme avant ; la CLI avec un `HIVE_JWT` expiré est
+      // désormais refusée — d'où `detail`, que la CLI imprime tel quel.
+      if (req.headers.authorization?.startsWith('Bearer ') && !authorizedUser(req)) {
+        return reply.code(401).send({
+          error: 'Non authentifié',
+          detail:
+            'Session expirée ou invalide — reconnectez-vous (tableau de bord) ou renouvelez HIVE_JWT (CLI).',
+        });
+      }
       if (!jetonGithub) return sansJeton(reply);
       let depot;
       try {

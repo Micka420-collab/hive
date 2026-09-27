@@ -438,6 +438,15 @@ h3 {
   max-width: 72rem;
 }
 
+/* Session expirée : le bandeau porte ses deux issues (se reconnecter, ou
+   continuer sans compte), côte à côte avec la phrase qui explique. */
+.mc-session-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
 .conn {
   display: inline-flex;
   align-items: center;
@@ -1486,6 +1495,15 @@ h3 {
 
 .modal-close:hover {
   color: var(--text);
+}
+
+/* Une information, pas une faute : même gabarit que l'erreur, sans le rouge. */
+.modal-note {
+  background: color-mix(in srgb, var(--amber) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--amber) 35%, transparent);
+  border-radius: var(--r-sm);
+  padding: 8px 12px;
+  margin: 0 0 12px;
 }
 
 .modal-error {

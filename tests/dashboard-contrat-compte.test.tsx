@@ -57,7 +57,9 @@ import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
 import {
   ApiError,
+  SessionExpireeError,
   addTasks,
+  authLogin,
   authMe,
   authRegister,
   clearJwt,
@@ -65,7 +67,12 @@ import {
   creerPartage,
   fetchIssues,
   fetchLivraisons,
+  fetchPulse,
   fetchReport,
+  importerDepotGithub,
+  getJwt,
+  oublierSessionExpiree,
+  surSessionExpiree,
   lancerChantier,
   lancerWorkflowGithub,
   prendreIssue,
@@ -100,6 +107,10 @@ vi.hoisted(() => {
   };
   vi.stubGlobal('localStorage', stockage());
   vi.stubGlobal('sessionStorage', stockage());
+  // `surSessionExpiree` écoute aussi les AUTRES onglets (`storage`) : il lui
+  // faut une fenêtre où s'abonner. Une cible d'évènements nue suffit — rien
+  // ici ne joue un second onglet, c'est `session-expiree-ecran` qui le fait.
+  vi.stubGlobal('window', new EventTarget());
 });
 
 const TOKEN = 'jeton-contrat-compte-assez-long';
@@ -530,6 +541,176 @@ describe('le tableau de bord connecté engage SON projet, par les vraies fonctio
     expect(envois.at(-1)?.entetes.authorization, 'le JWT expiré est bien parti').toBe(
       `Bearer ${expire}`,
     );
+  });
+
+  // ─── LA SESSION QUI MEURT PENDANT QUE L'ONGLET VIT ─────────────────────────
+  //
+  // Le cas d'à côté le montre : un JWT expiré ne RETIRE rien sur un projet
+  // orphelin. Mais sur le projet d'un compte, il rendait « 404 projet
+  // inconnu » à son propriétaire, et `createProject` répondait 401 — sans que
+  // l'écran dise jamais « reconnectez-vous ». La scène rendue vit dans
+  // `session-expiree-ecran.test.tsx` ; ici, la RÈGLE, par les vraies fonctions.
+  it('UNE SESSION MORTE EST DITE — et seule la Reine peut la déclarer morte', async () => {
+    const projet = await projetDuProprietaire('Projet dont la session meurt');
+    let annonces = 0;
+    const desabonner = surSessionExpiree(() => {
+      annonces += 1;
+    });
+    const verifications = (): number => envois.filter((e) => e.chemin === '/api/auth/me').length;
+    // Une minute passe : un « vivante » qu'un test voisin aurait obtenu pour
+    // le même JWT ne vaut plus (`VIVANTE_MS`), et la question repart vraiment.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.now() + 60_000);
+    try {
+      // 1. Un 404 VRAI — le projet d'autrui, compte vivant — reste un 404, et
+      //    la session reste. On a demandé à la Reine, elle a dit « vivante ».
+      saveJwt(voisin.jwt);
+      expect(await refus(addTasks(projet, [{ title: 'Intrusion', prompt: 'x' }]))).toEqual({
+        status: 404,
+        message: 'projet inconnu',
+      });
+      expect(verifications(), 'le 404 n’a pas été revérifié').toBe(1);
+      expect(getJwt(), 'un 404 vrai a purgé une session vivante').toBe(voisin.jwt);
+      //    Le même 404 dans la foulée — un panneau qui interroge en boucle — ne
+      //    redemande pas : la réponse « vivante » vaut quelques secondes, au
+      //    lieu de doubler chaque requête contre la limite REST.
+      expect((await refus(addTasks(projet, [{ title: 'Encore', prompt: 'x' }]))).status).toBe(404);
+      expect(verifications(), 'un « vivante » tout frais a été redemandé').toBe(1);
+
+      // 2. Un 401 du JETON DE RUCHE n'est pas une faute du compte.
+      saveJwt(proprietaire.jwt);
+      saveToken('mauvais-jeton-de-ruche-assez-long');
+      expect((await refus(fetchPulse())).message).toContain('token invalide');
+      expect(getJwt(), 'un jeton de ruche faux a déconnecté le compte').toBe(proprietaire.jwt);
+      saveToken(TOKEN);
+
+      // 3. Une Reine muette ne dit RIEN de la session : inconnu reste inconnu.
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(Date.now() + 8 * 24 * 60 * 60 * 1000);
+      const fetchDuBanc = globalThis.fetch;
+      vi.stubGlobal('fetch', (entree: string | URL | Request, init?: RequestInit) =>
+        entree === '/api/auth/me'
+          ? Promise.reject(new TypeError('Failed to fetch'))
+          : fetchDuBanc(entree, init),
+      );
+      try {
+        expect((await refus(addTasks(projet, [{ title: 'x', prompt: 'x' }]))).status).toBe(404);
+      } finally {
+        vi.stubGlobal('fetch', fetchDuBanc);
+      }
+      expect(getJwt(), 'une panne réseau a purgé la session').toBe(proprietaire.jwt);
+      expect(annonces).toBe(0);
+
+      // 3 bis. Une connexion RATÉE, JWT mort encore rangé (la Reine était
+      //    injoignable au montage, la barre offre « Se connecter ») : son 401
+      //    dit « identifiants invalides ». Le revérifier en « session expirée »
+      //    mentirait à qui s'est trompé de mot de passe — `/api/auth/` est exclu.
+      const questionsAvant = verifications();
+      const mauvais = await authLogin(proprietaire.email, 'pas-le-bon-mot-de-passe').then(
+        () => null,
+        (e: unknown) => e,
+      );
+      expect(mauvais).toBeInstanceOf(ApiError);
+      expect(mauvais, 'un mot de passe faux annoncé comme une expiration').not.toBeInstanceOf(
+        SessionExpireeError,
+      );
+      expect((mauvais as ApiError).status).toBe(401);
+      expect((mauvais as ApiError).message).toBe('Email ou mot de passe incorrect');
+      expect(verifications(), 'une connexion ratée a été revérifiée').toBe(questionsAvant);
+      expect(annonces).toBe(0);
+      expect(getJwt()).toBe(proprietaire.jwt);
+
+      // 4. Le JWT a expiré (l'horloge a passé ses sept jours) : l'engagement
+      //    sur SON projet échoue en le DISANT, et l'écran est prévenu une fois.
+      const echec = await addTasks(projet, [{ title: 'Après expiration', prompt: 'x' }]).then(
+        () => null,
+        (e: unknown) => e,
+      );
+      expect(echec).toBeInstanceOf(SessionExpireeError);
+      expect(echec).toBeInstanceOf(ApiError);
+      expect((echec as ApiError).status).toBe(401);
+      expect(getJwt(), 'le JWT mort est resté rangé').toBeNull();
+      expect(annonces).toBe(1);
+
+      // 5. Et rien n'est rejoué sans le compte : ni la création, ni en silence.
+      const projetsAvant = server.store.listProjects().length;
+      const envoisAvant = envois.length;
+      await expect(createProject({ name: 'Projet orphelin par erreur' })).rejects.toBeInstanceOf(
+        SessionExpireeError,
+      );
+      //    L'import d'un dépôt fait naître un projet lui aussi : même garde.
+      await expect(importerDepotGithub('micka/orphelin-par-erreur')).rejects.toBeInstanceOf(
+        SessionExpireeError,
+      );
+      expect(envois.slice(envoisAvant), 'la création est partie sans le compte').toEqual([]);
+      expect(server.store.listProjects()).toHaveLength(projetsAvant);
+
+      // 6. « Continuer sans compte » est un choix EXPLICITE, et lui seul rend
+      //    la porte du jeton — le mode sans compte annoncé, rien de plus.
+      oublierSessionExpiree();
+      expect((await createProject({ name: 'Choisi sans compte' })).ownerId).toBeNull();
+
+      // 7. Reconnecté : le même geste aboutit, et le projet est à la personne.
+      saveJwt((await authLogin(proprietaire.email, MOT_DE_PASSE)).token);
+      const refait = await createProject({ name: 'Projet refait' });
+      expect(refait.ownerId).toBe(proprietaire.id);
+    } finally {
+      vi.useRealTimers();
+      desabonner();
+    }
+  });
+
+  // Dix panneaux qui échouent ensemble posent UNE question à la Reine. Les
+  // réponses de `/api/auth/me` sont retenues jusqu'à ce que chaque appel
+  // d'origine ait reçu son refus : sans le partage des vérifications en vol,
+  // chacun partirait donc poser la sienne, et le compte le verrait.
+  it('DES REFUS GROUPÉS NE POSENT QU’UNE QUESTION — la vérification en vol est partagée', async () => {
+    const projet = await projetDuProprietaire('Projet aux refus groupés');
+    let annonces = 0;
+    const desabonner = surSessionExpiree(() => {
+      annonces += 1;
+    });
+    const N = 5;
+    let refusRecus = 0;
+    let lacher: () => void = () => {};
+    const tousRefuses = new Promise<void>((r) => {
+      lacher = r;
+    });
+    const fetchDuBanc = globalThis.fetch;
+    vi.stubGlobal('fetch', async (entree: string | URL | Request, init?: RequestInit) => {
+      if (entree === '/api/auth/me') {
+        await tousRefuses;
+        // Le temps que chaque appel d'origine lise son corps et arrive à la
+        // vérification — borné, la question est déjà partie.
+        await new Promise((r) => setTimeout(r, 50));
+        return fetchDuBanc(entree, init);
+      }
+      const res = await fetchDuBanc(entree, init);
+      if (entree === `/api/projects/${projet}/tasks` && ++refusRecus === N) lacher();
+      return res;
+    });
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.now() + 8 * 24 * 60 * 60 * 1000);
+    try {
+      const echecs = await Promise.all(
+        Array.from({ length: N }, (_, i) =>
+          addTasks(projet, [{ title: `Groupé ${i}`, prompt: 'x' }]).then(
+            () => null,
+            (e: unknown) => e,
+          ),
+        ),
+      );
+      for (const echec of echecs) expect(echec).toBeInstanceOf(SessionExpireeError);
+      expect(
+        envois.filter((e) => e.chemin === '/api/auth/me'),
+        'chaque refus a reposé la question',
+      ).toHaveLength(1);
+      expect(annonces, 'l’écran est prévenu une fois, pas une par refus').toBe(1);
+    } finally {
+      vi.stubGlobal('fetch', fetchDuBanc);
+      vi.useRealTimers();
+      desabonner();
+    }
   });
 
   it('UN LIEN DE PARTAGE PART SEUL — un lien révoqué ne s’ouvre pas chez son hôte', async () => {
