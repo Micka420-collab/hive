@@ -5,7 +5,9 @@ import { defineConfig } from 'vite';
 // (`HIVE_HTTP`) à celle que sa Reine a annoncée en ouvrant son port ; sinon,
 // le défaut d'une ruche locale. Écrite en dur, elle envoyait l'écran d'une
 // ruche à `HIVE_PORT=7911` vers :7777 — une page qui s'affiche, et dont
-// chaque appel échoue.
+// chaque appel échoue. Un `HIVE_HTTP` exporté à la main — la variable de la CLI
+// (`src/cli.ts`), même sens : l'URL de la Reine — est suivi lui aussi, par
+// exemple sous `--ecran-seul` : l'écran relaie vers la ruche que la CLI vise.
 const reine = process.env.HIVE_HTTP ?? 'http://localhost:7777';
 
 // Dashboard Hive : servi en dev par Vite (proxy → orchestrateur local), et en

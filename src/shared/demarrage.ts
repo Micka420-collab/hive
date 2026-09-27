@@ -256,7 +256,10 @@ export interface AnnonceReine {
 export function adresseAnnoncee(message: unknown): AdresseRuche | null {
   const a = message as Partial<AnnonceReine> | null | undefined;
   if (a?.type !== 'reine-en-ligne' || typeof a.hote !== 'string') return null;
-  if (typeof a.port !== 'number' || !Number.isInteger(a.port) || a.port < 1) return null;
+  // Les bornes de `portDepuisEnv`, moins le 0 : une fois ouvert, un port n'est
+  // plus « au hasard », et hors de [1, 65535] ce n'est pas une adresse.
+  if (typeof a.port !== 'number' || !Number.isInteger(a.port)) return null;
+  if (a.port < 1 || a.port > 65_535) return null;
   return adresseLocale(a.hote, a.port);
 }
 

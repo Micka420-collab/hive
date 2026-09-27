@@ -729,6 +729,8 @@ describe('CEUX QUI REJOIGNENT LA REINE PARTENT À SON ANNONCE, VERS SON VRAI POR
       { type: 'reine-en-ligne', hote: '127.0.0.1', port: 0 },
       { type: 'reine-en-ligne', hote: '127.0.0.1', port: '40253' },
       { type: 'reine-en-ligne', hote: '127.0.0.1', port: 402.5 },
+      // Hors des bornes d'un port : l'URL qu'on en tirerait n'ouvre rien.
+      { type: 'reine-en-ligne', hote: '127.0.0.1', port: 65_536 },
     ]) {
       expect(adresseAnnoncee(message), JSON.stringify(message)).toBeNull();
     }

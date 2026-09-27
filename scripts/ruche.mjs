@@ -267,6 +267,22 @@ function lancer(p, reine) {
 
 for (const p of liste) if (!attendLaReine(p)) lancer(p, null);
 
+// ─── UNE ATTENTE SANS FIN SE DIT ──────────────────────────────────────────────
+//
+// La Reine s'annonce dans la foulée de son `listen` : ce silence n'arrive pas
+// aujourd'hui. Mais une Reine vivante qui ne s'annonce JAMAIS — un refactor de
+// `orchestrator/main.ts` qui perd le `process.send` — laisserait ouvrières et
+// écran non lancés sans une ligne : une ruche qui a l'air de tourner et n'a
+// personne pour travailler. Le minuteur ne tranche rien, il nomme ceux qui
+// attendent ; `unref` : il ne retient pas un lanceur qui s'arrête.
+if (aLAnnonce.length > 0) {
+  differer(() => {
+    if (onFerme || aLAnnonce.length === 0) return;
+    const qui = aLAnnonce.map((q) => q.nom).join(', ');
+    console.error(`  ⚠  La Reine ne s'est pas annoncée après 30 s : ${qui} attendent toujours.`);
+  }, 30_000).unref();
+}
+
 /** Emporte tout le monde, une seule fois, puis rend le code demandé. */
 function arreter(code) {
   if (onFerme) return;
