@@ -62,6 +62,7 @@ function evaluation(provenance: ValidationProvenance): EvaluationResult {
       build: 'missing',
       lint: 'failed',
       validationProvenance: provenance,
+      crossReviewPending: 0,
       crossReview: {
         source: 'hive_counter_review',
         taskId: 't1',

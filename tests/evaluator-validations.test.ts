@@ -15,6 +15,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   evaluate,
+  type CrossReviewEvidence,
   type EvaluatorInput,
   type ProvenanceBac,
   type ValidationEvidence,
@@ -59,6 +60,33 @@ const elu = tally(
   })),
 );
 
+// Depuis #460, `accepted` tient à UNE contre-revue favorable d'une autre
+// famille que le producteur — le consensus du Parlement n'est plus qu'un
+// signal. Le verdict qui accepte en porte donc une, comme la ruche la rangerait.
+const relueParCodex: CrossReviewEvidence = {
+  source: 'hive_counter_review',
+  taskId: 'task-1',
+  resultId: 7,
+  status: 'applied',
+  decision: 'appliquer',
+  reviewers: [
+    {
+      relectureTaskId: 'review-1',
+      reviewerNodeId: 'n2',
+      reviewerAgent: 'codex',
+      producerAgent: 'claude-code',
+      decision: 'appliquer',
+      reason: '',
+      recordedAt: 1,
+    },
+  ],
+  objections: [],
+  reviewerCount: 1,
+  contestingReviewers: 0,
+  approvingReviewers: 1,
+  recordedAt: 1,
+};
+
 const juger = (validation: ValidationEvidence, extra: Partial<EvaluatorInput> = {}) =>
   evaluate({
     taskId: 'task-1',
@@ -73,12 +101,15 @@ const juger = (validation: ValidationEvidence, extra: Partial<EvaluatorInput> = 
 
 describe('Evaluator — les validations du bac Hive', () => {
   it('accepte sur des validations du bac, et dit que c’est le bac qui a parlé', () => {
-    const verdict = juger({
-      tests: 'passed',
-      typecheck: 'not_applicable',
-      build: 'not_applicable',
-      lint: 'passed',
-    });
+    const verdict = juger(
+      {
+        tests: 'passed',
+        typecheck: 'not_applicable',
+        build: 'not_applicable',
+        lint: 'passed',
+      },
+      { crossReview: relueParCodex },
+    );
     expect(verdict.decision).toBe('accepted');
     expect(verdict.evidence).toMatchObject({
       tests: 'passed',
