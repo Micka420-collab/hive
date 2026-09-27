@@ -41,6 +41,18 @@
 // la base, pas dans l'API : c'est la table que la Balance, les phéromones et
 // le Genome relisent.
 //
+// CE QUE « AU PLUS UNE » PROUVE ICI, ET CE QU'IL NE PROUVE PAS. Un seul nœud,
+// des tâches courtes : aucun résultat TARDIF n'atteint jamais la Reine — le
+// nœud tait ses envois tant qu'il est déconnecté, et abandonne à la
+// reconnexion une tâche réaffectée. La garde de la Reine contre un résultat
+// périmé (`stale_assignment`) n'est donc pas atteinte par ces pannes ; elle
+// est éprouvée à part (`tests/scheduler.test.ts`). Ce que le compte PEUT
+// attraper ici, c'est un résultat rangé à moitié — un succès écrit, son
+// `done` pas encore — qu'une panne remet en file : c'est la fenêtre que
+// ferme la transaction de `Scheduler.enUnSeulGeste`, et que
+// `tests/resultat-tout-ou-rien.test.ts` force à coup sûr, là où le verrou de C
+// ne tombe dedans que par hasard.
+//
 // ─── CHAQUE PANNE PROUVE QU'ELLE A MORDU ─────────────────────────────────────
 //
 // Un banc de panne qui passe parce que la panne est tombée à côté ne prouve
@@ -111,11 +123,12 @@ const VERROUILLEUR = [
 const MODULE_SQLITE = createRequire(import.meta.url).resolve('better-sqlite3');
 
 /**
- * Le gel de D : plus que le silence toléré des deux côtés (`NODE_TIMEOUT_MS`),
- * plus un battement — la veille du nœud ne regarde qu'à chaque battement —,
- * plus une marge. Calculé depuis les constantes réelles : si on les relève un
- * jour, le gel suit, et le banc continue de faire renoncer les deux côtés au
- * lieu de passer à côté.
+ * Le pire délai de renoncement de D : le silence toléré des deux côtés
+ * (`NODE_TIMEOUT_MS`), plus un battement — la veille du nœud ne regarde qu'à
+ * chaque battement —, plus une marge. Le gel dure jusqu'aux deux renoncements
+ * constatés ; cette borne dit seulement quand conclure qu'ils ne viendront
+ * pas. Calculée depuis les constantes réelles : si on les relève un jour, le
+ * banc attend d'autant, au lieu de rougir à tort.
  */
 const GEL_MS = NODE_TIMEOUT_MS + HEARTBEAT_INTERVAL_MS + 2_000;
 
@@ -321,6 +334,11 @@ function statuts(banc: Banc, ids: readonly string[]): Map<string, string> {
   return new Map(lignes.map((l) => [l.id, l.status]));
 }
 
+/** Les nœuds que la Reine a tenus pour morts faute de battement (D). */
+function mortsFauteDeBattement(banc: Banc): number {
+  return evenements(banc, 'node_offline').filter((e) => e.reason === 'heartbeat_timeout').length;
+}
+
 function evenements(banc: Banc, type: string): Record<string, unknown>[] {
   return lire<{ payload: string }>(banc, 'SELECT payload FROM events WHERE type = ?', type).map(
     (e) => JSON.parse(e.payload) as Record<string, unknown>,
@@ -428,12 +446,21 @@ interface Relais {
  * retenue, sans être prolongée vers la Reine : sinon celle-ci la fermerait
  * au bout de ses 5 s d'authentification, et le gel fuirait.
  *
+ * Une FERMETURE ne traverse pas le gel non plus. Quand la veille du nœud
+ * abandonne (`terminate`), une vraie coupure ne porte ni FIN ni RST jusqu'à
+ * la Reine : elle garde sa socket, muette, et doit découvrir SEULE que le nœud
+ * est parti — c'est ce qu'on éprouve. Relayer la fermeture l'aurait
+ * prévenue. Au dégel, le bout survivant d'une paire rompue reçoit ce que son
+ * pair lui renverrait alors : une fin de connexion.
+ *
  * `unpipe` en plus de `pause` : un `pipe` reprend sa source tout seul au
  * prochain `drain`, et le gel fuirait par là.
  */
 async function ouvrirRelais(cible: number): Promise<Relais> {
   let gele = false;
   const paires = new Set<[net.Socket, net.Socket]>();
+  /** Paires dont un bout s'est fermé PENDANT le gel : l'autre attend le dégel. */
+  const rompues = new Set<[net.Socket, net.Socket]>();
   const retenues = new Set<net.Socket>();
 
   const relier = (client: net.Socket): void => {
@@ -442,9 +469,14 @@ async function ouvrirRelais(cible: number): Promise<Relais> {
     paires.add(paire);
     amont.on('error', () => undefined);
     const fin = (): void => {
+      if (gele) {
+        rompues.add(paire);
+        return;
+      }
       client.destroy();
       amont.destroy();
       paires.delete(paire);
+      rompues.delete(paire);
     };
     client.on('close', fin);
     amont.on('close', fin);
@@ -479,7 +511,10 @@ async function ouvrirRelais(cible: number): Promise<Relais> {
     },
     degeler() {
       gele = false;
+      for (const paire of rompues) for (const s of paire) s.destroy();
+      rompues.clear();
       for (const [a, b] of paires) {
+        if (a.destroyed || b.destroyed) continue;
         a.pipe(b);
         b.pipe(a);
       }
@@ -552,11 +587,13 @@ describe.runIf(POSIX)('reprise après panne — vrais processus, vraie base', ()
       {},
       'VERROU PRIS',
     );
-    // La panne a mordu : du travail était en vol quand le verrou est tombé.
+    // La panne a mordu : du travail était EN VOL — confié à un nœud, pas
+    // seulement « pas fini » — quand le verrou est tombé. Une tâche `ready`
+    // ne tient rien que le verrou puisse bousculer.
     const auVerrou = statuts(banc, ids);
     noter(banc, 'banc', `statuts au verrou : ${JSON.stringify([...auVerrou.values()])}\n`);
-    const enCours = [...auVerrou.values()].filter((s) => s !== 'done');
-    expect(enCours.length, 'le verrou est tombé sur une mission déjà finie').toBeGreaterThan(0);
+    const enVolAuVerrou = [...auVerrou.values()].filter((s) => s === 'running' || s === 'assigned');
+    expect(enVolAuVerrou.length, 'le verrou est tombé sans travail en vol').toBeGreaterThan(0);
     await attendre(
       () => banc.journal.join('').includes('VERROU RENDU'),
       'le verrou n’a jamais été rendu',
@@ -591,15 +628,26 @@ describe.runIf(POSIX)('reprise après panne — vrais processus, vraie base', ()
     const ids = await creerMission(banc, 'panne D');
     await enVol(banc, ids);
 
+    const mortsAvant = mortsFauteDeBattement(banc);
+    const journalAvant = banc.journal.length;
     relais.geler();
-    await new Promise((r) => setTimeout(r, GEL_MS));
-    // Les deux côtés ont renoncé PENDANT le gel — sinon le banc n'a rien gelé
-    // qui compte. La Reine : nœud tenu pour mort faute de battement, travail
-    // remis en file. Le nœud : sa veille a quitté la connexion muette.
-    const morts = evenements(banc, 'node_offline').filter((e) => e.reason === 'heartbeat_timeout');
-    expect(morts.length, 'la Reine n’a jamais tenu le nœud pour mort').toBeGreaterThan(0);
-    expect(banc.journal.join(''), 'la veille du nœud n’a jamais renoncé').toContain(
-      'hub muet depuis',
+    // Les deux côtés renoncent PENDANT le gel — sinon le banc n'a rien gelé qui
+    // compte. La Reine : nœud tenu pour mort faute de battement, travail remis
+    // en file. Le nœud : sa veille a quitté la connexion muette. ATTENDUS, pas
+    // constatés au bout d'un sommeil fixe : la veille du nœud ne regarde qu'à
+    // chaque battement, et sa ligne traverse un tube — sur une machine chargée,
+    // un constat à l'instant ne laisserait que quelques secondes de marge. Le
+    // gel dure donc jusqu'aux DEUX renoncements, au plus `GEL_MS` et une marge.
+    const reineARenonce = (): boolean => mortsFauteDeBattement(banc) > mortsAvant;
+    const noeudARenonce = (): boolean =>
+      banc.journal.slice(journalAvant).join('').includes('hub muet depuis');
+    await attendre(
+      () => reineARenonce() && noeudARenonce(),
+      () =>
+        `gel sans renoncement — Reine : ${reineARenonce() ? 'oui' : 'jamais tenu le nœud pour mort'}, ` +
+        `nœud : ${noeudARenonce() ? 'oui' : 'sa veille n’a jamais renoncé'}`,
+      GEL_MS + 15_000,
+      banc,
     );
     relais.degeler();
 

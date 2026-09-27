@@ -39,11 +39,11 @@
 // l'agent par le banc lui-même.
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
 import { lancerBorneTuyaute, reprendreTous } from './harnais-processus.js';
@@ -71,10 +71,18 @@ const SUPERVISEUR =
   "enfant.on('exit', (code, signal) => console.log(`SORTIE ${code} ${signal}`));\n" +
   'setInterval(() => {}, 60_000);\n';
 
-/** L'agent : il dit qui il est, puis travaille « pour toujours ». */
+/**
+ * L'agent : il dit qui il est, puis travaille « pour toujours ».
+ *
+ * Un FICHIER PAR AGENT, nommé par son pid, et vide : le nom apparaît d'un coup
+ * avec le fichier. Un fichier UNIQUE réécrit par chaque agent laisserait une
+ * fenêtre (la troncature d'un `writeFileSync` concurrent) où le banc lirait
+ * '', donc le pid 0 — et il ne surveillerait de toute façon qu'UN agent.
+ */
 const AGENT =
   "import { writeFileSync } from 'node:fs';\n" +
-  'writeFileSync(process.argv[2], String(process.pid));\n' +
+  "import path from 'node:path';\n" +
+  'writeFileSync(path.join(process.argv[2], String(process.pid)), "");\n' +
   'setInterval(() => {}, 60_000);\n';
 
 /**
@@ -98,11 +106,19 @@ function vivant(pid: number): boolean {
   }
 }
 
-/** Scrute une condition jusqu'à l'échéance — l'asynchrone s'ATTEND, il ne s'affirme pas. */
-async function scruter(condition: () => boolean, quoi: string, echeanceMs: number): Promise<void> {
+/**
+ * Scrute une condition jusqu'à l'échéance — l'asynchrone s'ATTEND, il ne
+ * s'affirme pas. Le message est calculé À L'ÉCHÉANCE : il porte la sortie du
+ * nœud telle qu'elle est au moment de l'échec, pas au moment de l'appel.
+ */
+async function scruter(
+  condition: () => boolean,
+  quoi: () => string,
+  echeanceMs: number,
+): Promise<void> {
   const depart = Date.now();
   while (!condition()) {
-    if (Date.now() - depart > echeanceMs) throw new Error(`échéance : ${quoi}`);
+    if (Date.now() - depart > echeanceMs) throw new Error(`échéance : ${quoi()}`);
     await new Promise((r) => setTimeout(r, 100));
   }
 }
@@ -122,7 +138,11 @@ describe.runIf(POSIX)('le nœud — SIGTERM, le signal des superviseurs', () => 
   let base = '';
   let adminToken = '';
 
-  beforeAll(async () => {
+  // UNE RUCHE PAR PORTE. Partagée, la tâche de la première porte — remise en
+  // file (`ws_closed`) quand son nœud s'arrête — partirait chez le nœud de la
+  // seconde, qui ferait alors tourner DEUX agents : le banc dépendrait de
+  // l'ordre de ses cas.
+  beforeEach(async () => {
     racine = mkdtempSync(path.join(os.tmpdir(), 'ruche-arret-'));
     server = await createServer({
       port: 0,
@@ -146,7 +166,7 @@ describe.runIf(POSIX)('le nœud — SIGTERM, le signal des superviseurs', () => 
     adminToken = ((await auth.json()) as { token: string }).token;
   });
 
-  afterAll(async () => {
+  afterEach(async () => {
     await server.stop();
     rmSync(racine, { recursive: true, force: true });
   });
@@ -186,7 +206,8 @@ describe.runIf(POSIX)('le nœud — SIGTERM, le signal des superviseurs', () => 
     '$nom : SIGTERM annule l’agent en cours et sort en 0',
     async (porte) => {
       const dossier = mkdtempSync(path.join(racine, 'noeud-'));
-      const pidAgent = path.join(dossier, 'agent.pid');
+      const pidsAgents = path.join(dossier, 'agents');
+      mkdirSync(pidsAgents);
       const agent = path.join(dossier, 'agent.mjs');
       const superviseur = path.join(dossier, 'superviseur.mjs');
       writeFileSync(agent, AGENT, 'utf8');
@@ -194,7 +215,7 @@ describe.runIf(POSIX)('le nœud — SIGTERM, le signal des superviseurs', () => 
       // `HIVE_AGENT_CMD` est découpé sur les espaces, sans shell (§ 5.1) : un
       // chemin qui en porterait casserait la commande AVANT le signal, et le
       // banc échouerait sur une cause qui n'est pas la sienne.
-      for (const morceau of [process.execPath, agent, pidAgent]) {
+      for (const morceau of [process.execPath, agent, pidsAgents]) {
         expect(morceau, 'chemin avec espace : HIVE_AGENT_CMD le couperait').not.toMatch(/\s/);
       }
 
@@ -204,7 +225,7 @@ describe.runIf(POSIX)('le nœud — SIGTERM, le signal des superviseurs', () => 
       Object.assign(env, propre, {
         HIVE_AGENT: 'custom',
         // Le prompt, que `custom` ajoute en dernier argument, est ignoré.
-        HIVE_AGENT_CMD: `${process.execPath} ${agent} ${pidAgent}`,
+        HIVE_AGENT_CMD: `${process.execPath} ${agent} ${pidsAgents}`,
         HIVE_WORKDIR: path.join(dossier, 'travail'),
         HIVE_ISOLEMENT: 'off',
         HIVE_NODE_NAME: `arret-${path.basename(dossier)}`,
@@ -242,29 +263,37 @@ describe.runIf(POSIX)('le nœud — SIGTERM, le signal des superviseurs', () => 
       });
       expect(creation.status, 'la ruche a refusé la tâche').toBe(201);
 
+      const agents = (): number[] => readdirSync(pidsAgents).map(Number);
       await scruter(
-        () => existsSync(pidAgent) && readFileSync(pidAgent, 'utf8').length > 0,
-        `l’agent n’a jamais démarré :\n${sortie}`,
+        () => agents().length > 0,
+        () => `l’agent n’a jamais démarré :\n${sortie}`,
         45_000,
-      ).catch((e: Error) => {
-        throw new Error(`${e.message}\n${sortie}`);
-      });
-      const agentPid = Number(readFileSync(pidAgent, 'utf8'));
+      );
+      // Une ruche, un nœud, une tâche : UN agent. Deux diraient qu'une tâche
+      // d'ailleurs s'est invitée, et le banc ne mesurerait plus ce qu'il dit.
+      const lances = agents();
+      expect(lances, `un seul agent attendu :\n${sortie}`).toHaveLength(1);
       const noeudPid = pidNoeud();
       expect(noeudPid, `le superviseur n’a pas dit le pid du nœud :\n${sortie}`).toBeTypeOf(
         'number',
       );
-      expect(vivant(agentPid), 'l’agent doit tourner avant le signal').toBe(true);
+      expect(lances.filter(vivant), 'l’agent doit tourner avant le signal').toEqual(lances);
 
       // Le NŒUD seul, comme `ruche.mjs` — voir l'en-tête.
       process.kill(noeudPid as number, 'SIGTERM');
-      await scruter(() => finNoeud() !== undefined, `le nœud ignore SIGTERM :\n${sortie}`, 15_000);
+      await scruter(
+        () => finNoeud() !== undefined,
+        () => `le nœud ignore SIGTERM :\n${sortie}`,
+        15_000,
+      );
 
       // L'agent D'ABORD : c'est lui, l'enjeu. Un nœud mort en silence se
       // relance ; un agent orphelin, personne ne sait qu'il tourne encore.
+      // Relu APRÈS le signal : un agent lancé entre-temps compte aussi.
       await scruter(
-        () => !vivant(agentPid),
-        `l’agent ${agentPid} a survécu à son nœud — orphelin, il travaille pour personne :\n${sortie}`,
+        () => !agents().some(vivant),
+        () =>
+          `l’agent ${agents().filter(vivant).join(', ')} a survécu à son nœud — orphelin, il travaille pour personne :\n${sortie}`,
         5_000,
       );
       expect(
