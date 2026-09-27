@@ -601,6 +601,25 @@ describe('le tableau de bord connecté engage SON projet, par les vraies fonctio
       expect(getJwt(), 'une panne réseau a purgé la session').toBe(proprietaire.jwt);
       expect(annonces).toBe(0);
 
+      // 3 bis. Une connexion RATÉE, JWT mort encore rangé (la Reine était
+      //    injoignable au montage, la barre offre « Se connecter ») : son 401
+      //    dit « identifiants invalides ». Le revérifier en « session expirée »
+      //    mentirait à qui s'est trompé de mot de passe — `/api/auth/` est exclu.
+      const questionsAvant = verifications();
+      const mauvais = await authLogin(proprietaire.email, 'pas-le-bon-mot-de-passe').then(
+        () => null,
+        (e: unknown) => e,
+      );
+      expect(mauvais).toBeInstanceOf(ApiError);
+      expect(mauvais, 'un mot de passe faux annoncé comme une expiration').not.toBeInstanceOf(
+        SessionExpireeError,
+      );
+      expect((mauvais as ApiError).status).toBe(401);
+      expect((mauvais as ApiError).message).toBe('Email ou mot de passe incorrect');
+      expect(verifications(), 'une connexion ratée a été revérifiée').toBe(questionsAvant);
+      expect(annonces).toBe(0);
+      expect(getJwt()).toBe(proprietaire.jwt);
+
       // 4. Le JWT a expiré (l'horloge a passé ses sept jours) : l'engagement
       //    sur SON projet échoue en le DISANT, et l'écran est prévenu une fois.
       const echec = await addTasks(projet, [{ title: 'Après expiration', prompt: 'x' }]).then(

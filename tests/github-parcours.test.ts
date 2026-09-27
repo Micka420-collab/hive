@@ -506,11 +506,19 @@ describe('connecter un dépôt depuis un COMPTE', () => {
       vi.useRealTimers();
     }
     expect(res.status).toBe(401);
+    // Le refus dit quoi faire : la CLI imprime le corps tel quel.
+    expect(((await res.json()) as { detail?: string }).detail).toContain('HIVE_JWT');
     expect(server2.store.listProjects(), 'un projet orphelin est né').toHaveLength(avant);
-    // Le même dépôt, par la voie CLI (jeton de ruche seul) : orphelin, comme avant.
+    // Le même dépôt, par la voie CLI (jeton de ruche seul) : orphelin, comme
+    // avant — y compris derrière un proxy à authentification HTTP Basic, dont
+    // l'en-tête `Authorization` n'est pas un compte Hive présenté.
     const cli = await fetch(`${base2}/api/github/import`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-hive-token': TOKEN },
+      headers: {
+        'content-type': 'application/json',
+        'x-hive-token': TOKEN,
+        authorization: `Basic ${Buffer.from('proxy:secret').toString('base64')}`,
+      },
       body: JSON.stringify({ fullName }),
     });
     expect(cli.status).toBe(201);

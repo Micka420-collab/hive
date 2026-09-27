@@ -148,6 +148,8 @@ describe('une session qui expire pendant que l’onglet vit — l’écran le di
   const envois: Envoi[] = [];
   /** Les routes que la « Reine » ne sert pas, le temps d'un test : une panne. */
   const muettes = new Set<string>();
+  /** Les refus de ces pannes, une fois réglés : de quoi attendre leur fin, pas une horloge. */
+  const pannes: Promise<unknown>[] = [];
   let racine: Root | null = null;
   let conteneur: HTMLElement | null = null;
 
@@ -168,7 +170,11 @@ describe('une session qui expire pendant que l’onglet vit — l’écran le di
     vi.stubGlobal('fetch', (entree: string | URL | Request, init?: RequestInit) => {
       if (typeof entree === 'string' && entree.startsWith('/api/')) {
         envois.push({ methode: init?.method ?? 'GET', chemin: entree });
-        if (muettes.has(entree)) return Promise.reject(new TypeError('Failed to fetch'));
+        if (muettes.has(entree)) {
+          const panne = Promise.reject(new TypeError('Failed to fetch'));
+          pannes.push(panne.catch(() => undefined));
+          return panne;
+        }
         return fetchNatif(`${base}${entree}`, init);
       }
       return Promise.reject(new Error(`fetch hors de la Reine : ${String(entree)}`));
@@ -185,6 +191,7 @@ describe('une session qui expire pendant que l’onglet vit — l’écran le di
     location.hash = '';
     localStorage.clear();
     muettes.clear();
+    pannes.length = 0;
     flux.rappels = null;
   });
 
@@ -405,6 +412,53 @@ describe('une session qui expire pendant que l’onglet vit — l’écran le di
     expect(nomAffiche(), 'la barre affiche encore un compte mort').toBeNull();
   });
 
+  // L'onglet A lève la marque — « Continuer sans compte », puis une
+  // reconnexion. La garde tombe ICI aussi (elle lit le stockage commun) : le
+  // bandeau qui l'annonce doit tomber avec elle, sans quoi il affirmerait
+  // « aucun n'est rejoué sans compte » au-dessus d'un « + Projet » qui part
+  // au jeton de ruche. Et la fenêtre ouverte par l'expiration ne doit pas
+  // resurgir d'elle-même au clic suivant sur « Déconnexion ».
+  it('L’AUTRE ONGLET LÈVE LA MARQUE — le bandeau tombe avec la garde, la fenêtre ne resurgit pas', async () => {
+    const email = 'marque-levee@ruche.test';
+    await ouvrirSession(email, 'Marque Levée');
+    await monter('#/projets');
+    await attendre(() => nomAffiche() === 'Marque Levée', 'le nom du compte dans la barre');
+
+    // L'onglet A constate l'expiration.
+    localStorage.removeItem('hive.jwt');
+    localStorage.setItem('hive.jwt.expiree', '1');
+    act(() => {
+      window.dispatchEvent(new StorageEvent('storage', { key: 'hive.jwt', newValue: null }));
+      window.dispatchEvent(new StorageEvent('storage', { key: 'hive.jwt.expiree', newValue: '1' }));
+    });
+    await attendre(() => bandeau() !== null, 'le bandeau « Session expirée »');
+    const connexion = dialogue('Connexion');
+    if (!connexion) throw new Error('l’expiration n’a pas ouvert la fenêtre de connexion');
+
+    // L'onglet A choisit « Continuer sans compte » : la marque est levée.
+    localStorage.removeItem('hive.jwt.expiree');
+    act(() => {
+      window.dispatchEvent(
+        new StorageEvent('storage', { key: 'hive.jwt.expiree', newValue: null }),
+      );
+    });
+    await attendre(() => bandeau() === null, 'la chute du bandeau, la garde levée ailleurs');
+
+    // Puis l'onglet A se reconnecte : le nom revient ici.
+    const { token } = await authLogin(email, MOT_DE_PASSE);
+    saveJwt(token);
+    act(() => {
+      window.dispatchEvent(new StorageEvent('storage', { key: 'hive.jwt', newValue: token }));
+    });
+    await attendre(() => nomAffiche() === 'Marque Levée', 'le nom, reconnecté ailleurs');
+    expect(dialogue('Connexion'), 'la fenêtre survit sous un compte connecté').toBeUndefined();
+
+    // « Déconnexion » ici : la barre rend « Se connecter », sans fenêtre surgie.
+    cliquer(bouton(document, 'Déconnexion'));
+    await attendre(() => nomAffiche() === null, 'la déconnexion');
+    expect(dialogue('Connexion'), 'la fenêtre de connexion a surgi d’elle-même').toBeUndefined();
+  });
+
   it('UN JWT MORT DEPUIS LA DERNIÈRE VISITE — le bandeau dès l’ouverture', async () => {
     await ouvrirSession('retour-de-vacances@ruche.test', 'Retour');
     // L'onglet est rouvert neuf jours plus tard : c'est la restauration du
@@ -423,12 +477,14 @@ describe('une session qui expire pendant que l’onglet vit — l’écran le di
     const jwt = getJwt();
     muettes.add('/api/auth/me');
     await monter('#/ruche');
-    await attendre(
-      () => envois.some((e) => e.chemin === '/api/auth/me'),
-      'la question posée au montage',
-    );
+    await attendre(() => pannes.length > 0, 'la question posée au montage');
+    // La panne réglée, tout ce qui en découle (`api()`, `authMe`, le `catch`
+    // de `demanderSession`) n'est que microtâches, sans réseau ni minuterie :
+    // elles sont TOUTES vidées avant la tâche suivante. Une purge qui en
+    // sortirait est donc déjà faite quand on regarde — aucune course à l'horloge.
     await act(async () => {
-      await new Promise((r) => setTimeout(r, 50));
+      await Promise.all(pannes);
+      await new Promise((r) => setTimeout(r, 0));
     });
     // Une panne ne dit rien de la session : rien n'est purgé, rien n'est annoncé.
     expect(getJwt(), 'une panne a purgé une session vivante').toBe(jwt);

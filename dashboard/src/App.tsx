@@ -527,10 +527,14 @@ export function App() {
   // prévenir.
   useEffect(
     () =>
-      surSessionExpiree(() => {
-        setUser(null);
-        setRetourSession(location.hash || '#/ruche');
-      }),
+      surSessionExpiree(
+        () => {
+          setUser(null);
+          setRetourSession(location.hash || '#/ruche');
+        },
+        // Levée ailleurs : le bandeau tombe avec la garde qu'il annonçait.
+        () => setRetourSession(null),
+      ),
     [],
   );
 

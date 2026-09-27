@@ -46,6 +46,14 @@ export function AccountPanel({ user, onUser, sessionExpiree = false }: Props) {
     if (sessionExpiree) setOpen(true);
   }, [sessionExpiree]);
 
+  // Une session revenue par un AUTRE chemin (reconnexion dans un autre onglet)
+  // referme la fenêtre ouverte par l'expiration : sans ça, `open` restait vrai
+  // sous la branche « connecté », et la fenêtre « Connexion » surgissait
+  // d'elle-même au clic suivant sur « Déconnexion ».
+  useEffect(() => {
+    if (user) setOpen(false);
+  }, [user]);
+
   useEffect(() => {
     if (user) return;
     const ouvrir = () => setOpen(true);

@@ -3822,9 +3822,17 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // projet ORPHELIN : la personne croyait avoir connecté SON dépôt, qu'elle
       // ne pouvait ensuite ni lire ni partager — et aucun échec n'avertissait
       // l'écran que sa session était morte. `/api/projects/user` refuse déjà
-      // ainsi ; la voie CLI, qui n'envoie aucun Bearer, reste orpheline.
-      if (req.headers.authorization !== undefined && !authorizedUser(req)) {
-        return reply.code(401).send({ error: 'Non authentifié' });
+      // ainsi. Seul un BEARER compte : un `Authorization: Basic …` qu'un proxy
+      // d'authentification HTTP laisse passer n'est pas un compte Hive, et le
+      // refuser fermait l'import à qui n'en a pas. La CLI sans `HIVE_JWT` reste
+      // donc orpheline, comme avant ; la CLI avec un `HIVE_JWT` expiré est
+      // désormais refusée — d'où `detail`, que la CLI imprime tel quel.
+      if (req.headers.authorization?.startsWith('Bearer ') && !authorizedUser(req)) {
+        return reply.code(401).send({
+          error: 'Non authentifié',
+          detail:
+            'Session expirée ou invalide — reconnectez-vous (tableau de bord) ou renouvelez HIVE_JWT (CLI).',
+        });
       }
       if (!jetonGithub) return sansJeton(reply);
       let depot;

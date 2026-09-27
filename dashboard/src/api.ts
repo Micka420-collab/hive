@@ -335,10 +335,18 @@ function expirerSession(jwt: string): SessionExpireeError | null {
  * S'abonner à l'expiration de la session — celle que CET onglet constate, et
  * celle qu'un AUTRE onglet a constatée (l'évènement `storage` ne part que vers
  * les autres onglets, d'où les deux sources). Rend la désinscription.
+ *
+ * `reprise` : un AUTRE onglet a levé la marque (reconnexion, ou « Continuer
+ * sans compte »). La garde de `gardeSession` tombe ici aussi, puisqu'elle lit
+ * le stockage commun ; sans ce rappel, le bandeau de cet onglet continuait
+ * d'affirmer « aucun n'est rejoué sans compte » pendant que « + Projet »
+ * repartait au jeton de ruche — l'écran disait l'inverse de ce qu'il faisait.
  */
-export function surSessionExpiree(ecouteur: () => void): () => void {
+export function surSessionExpiree(ecouteur: () => void, reprise?: () => void): () => void {
   const ailleurs = (e: StorageEvent) => {
-    if (e.key === CLE_SESSION_EXPIREE && e.newValue !== null) ecouteur();
+    if (e.key !== CLE_SESSION_EXPIREE) return;
+    if (e.newValue !== null) ecouteur();
+    else reprise?.();
   };
   ecouteursSession.add(ecouteur);
   window.addEventListener('storage', ailleurs);
