@@ -82,6 +82,12 @@ afterAll(() => {
 });
 
 interface Essai {
+  /**
+   * UN projet par banc. Les bancs partagent le dépôt d'origine : sous
+   * `--sequence.shuffle`, un numéro de branche qui dépendrait des livraisons
+   * d'un voisin (ou de ses poussées) ne vaudrait qu'à une place de l'ordre.
+   */
+  projectId: string;
   diffs: MergeDiff[];
   pousser?: boolean;
   consentie?: boolean;
@@ -96,7 +102,7 @@ async function livrer(e: Essai) {
   const clone = path.join(racine, 'merges', `m${++compteur}`);
   await cloneRepo(clone, e.url ?? pathToFileURL(origine).href);
   const demande: DemandeLivraisonLocale = {
-    projectId: 'p',
+    projectId: e.projectId,
     pousser: e.pousser ?? false,
     provenance: e.diffs.map((d, i) => ({
       taskId: d.taskId,
@@ -105,7 +111,7 @@ async function livrer(e: Essai) {
     })),
     ...(e.forcage ? { forcage: e.forcage } : {}),
   };
-  const depotLocal = e.depotLocal ?? path.join(racine, 'livraisons', 'p.git');
+  const depotLocal = e.depotLocal ?? path.join(racine, 'livraisons', `${e.projectId}.git`);
   const res = await runMerge({
     repoDir: clone,
     diffs: e.diffs,
@@ -125,6 +131,7 @@ const git = (dir: string) => simpleGit({ baseDir: dir });
 describe('la livraison d’une mission (git réel, clone superficiel)', () => {
   it('commite l’arbre INTÉGRÉ — pas ce que les tests ont écrit après', async () => {
     const { res, depotLocal } = await livrer({
+      projectId: 'arbre',
       diffs: [
         { taskId: 'ta', diff: patchA },
         { taskId: 'tb', diff: patchB },
@@ -141,13 +148,13 @@ describe('la livraison d’une mission (git réel, clone superficiel)', () => {
     expect(res.logs, res.logs).toContain('livraison : ✔');
     expect(res.livraison).toMatchObject({
       etat: 'commitee',
-      branche: 'hive/mission-p-1',
+      branche: 'hive/mission-arbre-1',
       poussee: 'non_demandee',
     });
     if (res.livraison?.etat !== 'commitee') throw new Error(res.logs);
     const d = git(depotLocal);
     // La branche a SURVÉCU au clone : elle est dans le dépôt durable du nœud.
-    expect((await d.raw(['rev-parse', 'refs/heads/hive/mission-p-1'])).trim()).toBe(
+    expect((await d.raw(['rev-parse', 'refs/heads/hive/mission-arbre-1'])).trim()).toBe(
       res.livraison.commit,
     );
     const contenu = await d.raw(['show', `${res.livraison.commit}:${FILE}`]);
@@ -157,13 +164,14 @@ describe('la livraison d’une mission (git réel, clone superficiel)', () => {
     const fichiers = (await d.raw(['ls-tree', '--name-only', res.livraison.commit])).split('\n');
     expect(fichiers).toContain('nouveau.txt');
     expect(fichiers).not.toContain('trace.log');
-    // La branche principale du dépôt du projet n'a pas bougé, et rien n'y est poussé.
+    // Rien n'est poussé vers le dépôt du projet sans qu'on l'ait demandé.
     const distantes = await git(origine).raw(['for-each-ref', '--format=%(refname)']);
-    expect(distantes).not.toContain('hive/mission');
+    expect(distantes).not.toContain('hive/mission-arbre');
   });
 
   it('porte des trailers que git relit, et l’identité de la ruche', async () => {
     const { res, depotLocal } = await livrer({
+      projectId: 'trailers',
       diffs: [{ taskId: 'ta', diff: patchA }],
       forcage: 'relu à la main',
     });
@@ -180,7 +188,7 @@ describe('la livraison d’une mission (git réel, clone superficiel)', () => {
       .split('\n');
     expect(parses).toEqual(
       expect.arrayContaining([
-        'Hive-Mission: p',
+        'Hive-Mission: trailers',
         'Hive-Task: ta',
         'Hive-Result: ta 1',
         'Hive-Evaluator: ta accepted',
@@ -188,7 +196,7 @@ describe('la livraison d’une mission (git réel, clone superficiel)', () => {
         'Hive-Tests: non-lances',
       ]),
     );
-    expect(message).toContain('Hive — mission p');
+    expect(message).toContain('Hive — mission trailers');
     const auteur = (
       await d.raw(['log', '-1', '--format=%an <%ae>|%cn', res.livraison.commit])
     ).trim();
@@ -202,13 +210,14 @@ describe('la livraison d’une mission (git réel, clone superficiel)', () => {
     // Une livraison n°7 poussée par un autre nœud, que celui-ci n'a jamais vue.
     const autre = path.join(racine, 'autre-noeud');
     await cloneRepo(autre, origine);
-    await git(autre).raw(['push', '--quiet', 'origin', 'HEAD:refs/heads/hive/mission-p-7']);
-    const { res } = await livrer({ diffs: [{ taskId: 'tb', diff: patchB }] });
-    expect(res.livraison).toMatchObject({ etat: 'commitee', branche: 'hive/mission-p-8' });
+    await git(autre).raw(['push', '--quiet', 'origin', 'HEAD:refs/heads/hive/mission-num-7']);
+    const { res } = await livrer({ projectId: 'num', diffs: [{ taskId: 'tb', diff: patchB }] });
+    expect(res.livraison).toMatchObject({ etat: 'commitee', branche: 'hive/mission-num-8' });
   });
 
   it('ne pousse pas sans le consentement du nœud — et dit comment l’accorder', async () => {
     const { res, depotLocal } = await livrer({
+      projectId: 'sans-consentement',
       diffs: [{ taskId: 'ta', diff: patchA }],
       pousser: true,
       consentie: false,
@@ -230,6 +239,7 @@ describe('la livraison d’une mission (git réel, clone superficiel)', () => {
   it('pousse la branche — et elle seule — quand c’est demandé ET consenti', async () => {
     const avant = (await git(origine).raw(['rev-parse', 'HEAD'])).trim();
     const { res } = await livrer({
+      projectId: 'pousse',
       diffs: [{ taskId: 'ta', diff: patchA }],
       pousser: true,
       consentie: true,
@@ -252,11 +262,11 @@ describe('la livraison d’une mission (git réel, clone superficiel)', () => {
     );
     chmodSync(crochet, 0o755);
     const { res, depotLocal } = await livrer({
+      projectId: 'crochet',
       diffs: [{ taskId: 'ta', diff: patchA }],
       pousser: true,
       consentie: true,
       url: pathToFileURL(refusant).href,
-      depotLocal: path.join(racine, 'livraisons', 'refus.git'),
     });
     expect(res.livraison).toMatchObject({ etat: 'commitee', poussee: 'echec' });
     if (res.livraison?.etat !== 'commitee') throw new Error(res.logs);
@@ -271,6 +281,7 @@ describe('la livraison d’une mission (git réel, clone superficiel)', () => {
   it('un conflit ne livre RIEN : une intégration partielle n’est pas la mission', async () => {
     const depotLocal = path.join(racine, 'livraisons', 'conflit.git');
     const { res } = await livrer({
+      projectId: 'conflit',
       diffs: [
         { taskId: 'ta', diff: patchA },
         { taskId: 'tc', diff: patchC },
@@ -288,6 +299,7 @@ describe('la livraison d’une mission (git réel, clone superficiel)', () => {
   it('des tests rouges ne livrent rien, et le disent', async () => {
     const depotLocal = path.join(racine, 'livraisons', 'rouge.git');
     const { res } = await livrer({
+      projectId: 'rouge',
       diffs: [{ taskId: 'ta', diff: patchA }],
       testCommand: ['node', '-e', 'process.exit(1)'],
       depotLocal,
@@ -343,7 +355,7 @@ describe('la livraison d’une mission (git réel, clone superficiel)', () => {
       diffs: [{ taskId: 'ta', diff: patchA }],
       livraison: {
         demande: {
-          projectId: 'p',
+          projectId: 'provenance',
           pousser: false,
           provenance: [{ taskId: 'autre', resultId: 1, decision: 'accepted' }],
         },

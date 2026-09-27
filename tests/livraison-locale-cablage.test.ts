@@ -397,8 +397,24 @@ describe('livraison locale — ce qu’une vraie ouvrière ne sait pas mal faire
     return { ws, recus };
   }
 
+  /**
+   * Ce nœud, et LUI SEUL en ligne. Sous `--sequence.shuffle`, un voisin
+   * resté connecté serait choisi à sa place — ou manquerait au banc qui
+   * comptait sur lui : chaque banc pose donc sa propre prémisse.
+   */
+  async function seul(nodeId: string, pousseLivraisons?: boolean) {
+    for (const ws of sockets.splice(0)) ws.close();
+    const n = await noeud(nodeId, pousseLivraisons);
+    await attendre(async () => {
+      const etat = (await (await fetch(`${base}/api/state`, { headers })).json()) as StateSnapshot;
+      const enLigne = etat.nodes.filter((x) => x.status === 'online').map((x) => x.id);
+      return enLigne.length === 1 && enLigne[0] === nodeId;
+    });
+    return n;
+  }
+
   it('un nœud qui IGNORE la demande (version antérieure) ne passe pas pour une livraison', async () => {
-    const n = await noeud('n-ancien');
+    const n = await seul('n-ancien');
     const { project } = mission(server, '/depot/fictif-2', [['fb', 'diff']]);
     const res = await poster(base, `/api/projects/${project.id}/livraison-locale`, {});
     expect(res.status).toBe(202);
@@ -438,7 +454,8 @@ describe('livraison locale — ce qu’une vraie ouvrière ne sait pas mal faire
   });
 
   it('pousser sans ouvrière consentante est refusé AVANT tout travail, avec la marche à suivre', async () => {
-    // L'ouvrière en ligne (celle du banc précédent) n'a pas consenti.
+    // Une ouvrière en ligne, qui n'a pas consenti.
+    await seul('n-sans-consentement');
     const { project } = mission(server, '/depot/fictif', [['fa', 'diff']]);
     const res = await poster(base, `/api/projects/${project.id}/livraison-locale`, {
       pousser: true,
@@ -450,9 +467,7 @@ describe('livraison locale — ce qu’une vraie ouvrière ne sait pas mal faire
   });
 
   it('un nœud qui REFUSE n’a rien commité ; un nœud qui se TAIT, la ruche n’en sait rien', async () => {
-    // Les nœuds des bancs précédents s'en vont : celui-ci doit être choisi.
-    for (const ws of sockets.splice(0)) ws.close();
-    const n = await noeud('n-muet');
+    const n = await seul('n-muet');
     const { project } = mission(server, '/depot/fictif-3', [['fc', 'diff']]);
     const chemin = `/api/projects/${project.id}/livraison-locale`;
     const depart = async (): Promise<string> => {
