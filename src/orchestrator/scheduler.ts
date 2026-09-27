@@ -1307,13 +1307,10 @@ export class Scheduler {
       return { ok: false, error: 'plafond de dépense atteint pour ce projet — course refusée' };
     }
     // Sting Detector : une course ne contourne JAMAIS la prévention des
-    // éditions concurrentes — même garde que l'assignation automatique.
-    const clash = this.activesEditrices().find(
-      (t) =>
-        t.projectId === task.projectId &&
-        t.id !== taskId &&
-        analyzePair(task, t).severity === 'high',
-    );
+    // éditions concurrentes — même garde que l'assignation automatique,
+    // littéralement : la même fonction, sur les mêmes tâches actives (celles
+    // qui ÉDITENT : une relecture en vol n'en est pas, voir `activesEditrices`).
+    const clash = this.conflitFortActif(task, this.activesEditrices());
     if (clash) {
       return {
         ok: false,
@@ -1889,6 +1886,51 @@ export class Scheduler {
       .filter((t) => this.store.relectureDe(t.id) === null);
   }
 
+  /**
+   * `ancetre` est-elle un ancêtre de `taskId` dans le graphe de délégation ?
+   *
+   * Un parent qui délègue reste `running` : il ATTEND le résultat de son
+   * enfant. Or il décrit forcément ce qu'il délègue — donc les mêmes chemins —
+   * et le Sting Detector y voyait un conflit FORT. Différer l'enfant jusqu'à la
+   * fin du parent était un interblocage : le parent n'obtenait sa réponse
+   * qu'en épuisant son budget. Le différer n'évite d'ailleurs aucun conflit :
+   * chacun travaille dans son atelier, et c'est le parent qui reçoit le diff
+   * de l'enfant. Consulté seulement sur un conflit fort déjà constaté : le
+   * chemin ordinaire ne paie aucune lecture.
+   */
+  private estAncetre(ancetre: string, taskId: string): boolean {
+    // `vus` borne la remontée même sur un graphe corrompu : la profondeur
+    // légitime est déjà plafonnée par `LIMITES_DELEGATION_DEFAUT.maxDepth`.
+    const vus = new Set<string>();
+    let lien = this.store.getDelegation(taskId);
+    while (lien && !vus.has(lien.parentTaskId)) {
+      if (lien.parentTaskId === ancetre) return true;
+      vus.add(lien.parentTaskId);
+      lien = this.store.getDelegation(lien.parentTaskId);
+    }
+    return false;
+  }
+
+  /**
+   * La tâche active avec laquelle `task` est en conflit FORT (Sting
+   * Detector), hors de ses propres ancêtres de délégation (`estAncetre`) — ou
+   * `undefined`.
+   *
+   * UNE garde pour l'assignation automatique ET pour la course : deux copies
+   * avaient déjà divergé — la course refusait l'enfant délégué que
+   * l'assignation lançait, alors que son commentaire promettait « la même
+   * garde ». Une seule fonction ne peut plus diverger d'elle-même.
+   */
+  private conflitFortActif(task: Task, actives: readonly Task[]): Task | undefined {
+    return actives.find(
+      (t) =>
+        t.projectId === task.projectId &&
+        t.id !== task.id &&
+        analyzePair(task, t).severity === 'high' &&
+        !this.estAncetre(t.id, task.id),
+    );
+  }
+
   /** ready → assigned sur le nœud online le moins chargé qui a encore de la capacité. */
   private assignReadyTasks(now = Date.now()): void {
     // Balance : le livre avance AVANT toute décision, pour que la lecture
@@ -1950,16 +1992,9 @@ export class Scheduler {
       // Sting Detector : ne pas lancer une tâche en conflit FORT (même fichier)
       // avec une tâche déjà active du même projet. On la diffère jusqu'à ce que
       // l'autre se termine — prévention des conflits d'édition concurrents.
-      // Une relecture n'édite rien : voir `activesEditrices`.
-      const clash =
-        lien === null
-          ? activeNow.find(
-              (t) =>
-                t.projectId === task.projectId &&
-                t.id !== task.id &&
-                analyzePair(task, t).severity === 'high',
-            )
-          : undefined;
+      // Une relecture n'édite rien : voir `activesEditrices`. Un enfant délégué
+      // n'attend pas derrière ses propres ancêtres : voir `conflitFortActif`.
+      const clash = lien === null ? this.conflitFortActif(task, activeNow) : undefined;
       if (clash) {
         if (!this.deferredByConflict.has(task.id)) {
           this.deferredByConflict.add(task.id);

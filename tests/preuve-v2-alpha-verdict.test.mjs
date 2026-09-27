@@ -7,6 +7,7 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  jugerLivraison,
   jugerV2Alpha,
   missionReelleProuvee,
   productionRetenue,
@@ -55,7 +56,12 @@ const complet = () => ({
     dureeModele: { total: 6_500, declarees: 1, tentatives: 1 },
     coutFournisseur: { total: 0.0421, declarees: 1, tentatives: 1 },
   },
-  evaluation: { decision: 'human_review_required', canMerge: false },
+  evaluation: {
+    decision: 'accepted',
+    canMerge: false,
+    reasons: ['résultat réussi, Gardiennes propres, validations vertes et consensus atteint'],
+    evidence: { tests: 'passed', typecheck: 'passed', build: 'passed', lint: 'passed' },
+  },
   genome: {
     lignes: [
       { modele: 'sonnet', categorie: 'code', rendus: 1, modelesExacts: ['claude-sonnet-4-5'] },
@@ -85,7 +91,49 @@ describe('preuve V2 Alpha — le verdict', () => {
       '1 rendu(s) rangé(s) sous « sonnet » (exact : claude-sonnet-4-5)',
     );
     expect(etat(v, 'G').detail).toContain('classement de 2 modèle(s)');
+    expect(etat(v, 'Evaluator').detail).toBe(
+      'décision « accepted » · tests ✔ typecheck ✔ build ✔ lint ✔, fusion après geste humain',
+    );
     expect(missionReelleProuvee(v)).toBe(true);
+  });
+
+  it('UNE DÉCISION N’EST PAS UNE ACCEPTATION — seul `accepted` avec quatre validations vertes est prouvé', () => {
+    const avec = (evaluation) => {
+      const f = complet();
+      f.evaluation = evaluation;
+      return etat(jugerV2Alpha(f), 'Evaluator');
+    };
+    const vertes = { tests: 'passed', typecheck: 'passed', build: 'passed', lint: 'passed' };
+
+    // L'Evaluator dit lui-même qu'il lui manque une preuve : on ne conclut pas.
+    expect(
+      avec({
+        decision: 'human_review_required',
+        reasons: ['aucune inspection indépendante des Gardiennes disponible'],
+        evidence: {},
+      }),
+    ).toEqual({
+      critere: 'Evaluator',
+      libelle: 'Évaluation',
+      etat: 'inconnu',
+      detail:
+        'décision « human_review_required » · tests ? typecheck ? build ? lint ? — ' +
+        'aucune inspection indépendante des Gardiennes disponible',
+    });
+    expect(
+      avec({ decision: 'additional_test_required', evidence: { ...vertes, lint: 'missing' } }).etat,
+    ).toBe('inconnu');
+    // `accepted` avec une validation absente n'est pas le fait exigé.
+    expect(avec({ decision: 'accepted', evidence: { ...vertes, build: 'missing' } }).etat).toBe(
+      'inconnu',
+    );
+    // Le travail jugé insuffisant contredit le critère.
+    expect(avec({ decision: 'correction_required', evidence: vertes }).etat).toBe('echec');
+    expect(avec({ decision: 'rejected', evidence: {} }).etat).toBe('echec');
+    expect(avec({ decision: 'accepted', evidence: { ...vertes, tests: 'failed' } })).toMatchObject({
+      etat: 'echec',
+      detail: expect.stringContaining('tests ✘'),
+    });
   });
 
   it('UN AGENT SIMULÉ EST UN ÉCHEC — la mission réelle n’est pas prouvée', () => {
@@ -124,6 +172,79 @@ describe('preuve V2 Alpha — le verdict', () => {
     const muet = complet();
     delete muet.noeud.isolement;
     expect(etat(jugerV2Alpha(muet), 'A-bac').etat).toBe('inconnu');
+
+    // « conteneur » sans moteur : la déclaration que `isolementDeclareDe` refuse de faire.
+    const sansMoteur = complet();
+    sansMoteur.noeud.isolement = { niveau: 'conteneur' };
+    expect(etat(jugerV2Alpha(sansMoteur), 'A-bac').etat).toBe('inconnu');
+  });
+
+  it('LE BAC EST CELUI DE CHAQUE NŒUD QUI A EXÉCUTÉ — un relecteur hors du bac contredit le critère', () => {
+    const f = complet();
+    const relecteur = { id: 'n2', name: 'relectrice', agentType: 'codex' };
+    f.executants = [f.noeud, { ...relecteur, isolement: { niveau: 'processus' } }];
+    expect(etat(jugerV2Alpha(f), 'A-bac')).toMatchObject({
+      etat: 'echec',
+      detail: 'relectrice « processus » seulement — pas un conteneur',
+    });
+    expect(missionReelleProuvee(jugerV2Alpha(f), { exigeBac: true })).toBe(false);
+
+    f.executants = [f.noeud, { id: 'n-disparu' }];
+    expect(etat(jugerV2Alpha(f), 'A-bac')).toMatchObject({
+      etat: 'inconnu',
+      detail: 'n-disparu : bac non déclaré, ou « conteneur » sans moteur',
+    });
+
+    f.executants = [
+      f.noeud,
+      { ...relecteur, isolement: { niveau: 'conteneur', fournisseur: 'bubblewrap' } },
+    ];
+    expect(etat(jugerV2Alpha(f), 'A-bac')).toMatchObject({
+      etat: 'prouve',
+      detail: 'conteneur déclaré par chaque nœud : poste (podman), relectrice (bubblewrap)',
+    });
+
+    f.executants = [];
+    expect(etat(jugerV2Alpha(f), 'A-bac').etat).toBe('inconnu');
+  });
+
+  it('SOUS --exige-bac, LA MISSION RÉELLE EXIGE UN BAC PROUVÉ — sans, elle ne l’exige pas', () => {
+    const muet = complet();
+    delete muet.noeud.isolement;
+    const v = jugerV2Alpha(muet);
+
+    expect(missionReelleProuvee(v)).toBe(true);
+    expect(missionReelleProuvee(v, { exigeBac: true })).toBe(false);
+    expect(missionReelleProuvee(jugerV2Alpha(complet()), { exigeBac: true })).toBe(true);
+  });
+
+  it('LA LIVRAISON GIT : RIEN DEMANDÉ EST INCONNU, UNE PR SANS COMMIT N’EST PAS TRAÇABLE', () => {
+    expect(jugerLivraison(null)).toMatchObject({ critere: 'Git', etat: 'inconnu' });
+    expect(jugerLivraison([])).toMatchObject({ etat: 'echec' });
+    expect(
+      jugerLivraison([
+        {
+          taskId: 't1',
+          status: 201,
+          corps: { pr: 7, branche: 'hive/t1', commitSha: 'abcdef0123' },
+        },
+      ]),
+    ).toEqual({
+      critere: 'Git',
+      libelle: 'Livraison Git',
+      etat: 'prouve',
+      detail: 'PR #7 (hive/t1 @ abcdef0)',
+    });
+    expect(
+      jugerLivraison([
+        { taskId: 't1', status: 201, corps: { pr: 7, branche: 'hive/t1', commitSha: '' } },
+      ]).etat,
+    ).toBe('echec');
+    expect(
+      jugerLivraison([
+        { taskId: 't1', status: 503, corps: { error: 'HIVE_GITHUB_TOKEN absent' }, texte: '' },
+      ]),
+    ).toMatchObject({ etat: 'echec', detail: 't1 non livrée (503) : HIVE_GITHUB_TOKEN absent' });
   });
 
   it('CE QUI N’EST PAS DÉCLARÉ RESTE INCONNU — jamais prouvé par défaut', () => {
@@ -156,6 +277,31 @@ describe('preuve V2 Alpha — le verdict', () => {
     expect(etat(v, 'E').etat).toBe('inconnu');
   });
 
+  it('APRÈS UNE REPRISE, LE ROUTAGE ET LE GENOME SONT CEUX DE LA PRODUCTION RETENUE — pas de la première', () => {
+    const f = complet();
+    // Première tentative sur n0 (opus), reprise par n1 (sonnet) : c'est n1 qui a produit.
+    f.routage = {
+      affectations: [
+        { nodeId: 'n0', modele: 'opus', raisonModele: [{ modele: 'opus' }] },
+        {
+          nodeId: 'n1',
+          modele: 'sonnet',
+          raisonModele: [{ modele: 'sonnet' }, { modele: 'opus' }],
+        },
+      ],
+    };
+    const v = jugerV2Alpha(f);
+
+    expect(etat(v, 'G').detail).toBe('« sonnet », classement de 2 modèle(s) consigné');
+    expect(etat(v, 'E').detail).toContain('sous « sonnet »');
+
+    f.routage = { affectations: [{ nodeId: 'n0', modele: 'opus', raisonModele: [] }] };
+    expect(etat(jugerV2Alpha(f), 'G')).toMatchObject({
+      etat: 'inconnu',
+      detail: 'aucune affectation consignée pour le nœud qui a produit',
+    });
+  });
+
   it('UNE COUVERTURE PARTIELLE SE LIT « AU MOINS »', () => {
     const f = complet();
     f.chronologie.coutFournisseur = { total: 0.5, declarees: 1, tentatives: 3 };
@@ -164,7 +310,7 @@ describe('preuve V2 Alpha — le verdict', () => {
     );
   });
 
-  it('LA PRODUCTION RETENUE EST LA DERNIÈRE RÉUSSIE — pas la première', () => {
+  it('LA PRODUCTION RETENUE EST LA DERNIÈRE — celle que la Reine livre, pas la dernière réussie', () => {
     expect(
       productionRetenue([
         { success: true, diff: 'a' },
@@ -172,7 +318,51 @@ describe('preuve V2 Alpha — le verdict', () => {
         { success: true, diff: 'c' },
       ])?.diff,
     ).toBe('c');
+    expect(
+      productionRetenue([
+        { success: true, diff: 'a' },
+        { success: false, diff: 'b' },
+      ])?.diff,
+      'une réussite antérieure ne remplace pas la dernière tentative',
+    ).toBe('b');
     expect(productionRetenue(null)).toBeNull();
+    expect(productionRetenue([])).toBeNull();
+  });
+
+  it('CONTESTÉE, REPRISE, PUIS ÉCHOUÉE : LE TRAVAIL N’EST PAS PRODUIT — la réussite d’avant a été renvoyée', () => {
+    // Une objection renvoie la première production en correction ; la reprise
+    // échoue jusqu'à épuiser les tentatives. La Reine ne livrera pas la
+    // production contestée (`/api/livraison` prend le DERNIER résultat) : la
+    // preuve ne doit pas la déclarer produite.
+    const f = complet();
+    f.resultats = [
+      { nodeId: 'n1', success: true, diff: DIFF },
+      { nodeId: 'n1', success: false, diff: '' },
+    ];
+    f.tache.status = 'failed';
+    f.evaluation = {
+      decision: 'rejected',
+      evidence: {},
+      reasons: ['le dernier résultat a échoué'],
+    };
+    const v = jugerV2Alpha(f);
+
+    expect(etat(v, 'A-diff')).toMatchObject({
+      etat: 'echec',
+      detail:
+        'dernière tentative échouée (tâche failed) : la production réussie antérieure ' +
+        'n’est plus celle que la Reine garde',
+    });
+    expect(missionReelleProuvee(v, { exigeBac: true })).toBe(false);
+
+    // Une dernière production réussie sur une tâche qui n'est pas `done`
+    // n'est pas non plus celle que la Reine garde.
+    const pasDone = complet();
+    pasDone.tache.status = 'ready';
+    expect(etat(jugerV2Alpha(pasDone), 'A-diff')).toMatchObject({
+      etat: 'echec',
+      detail: 'dernière production réussie, mais tâche ready',
+    });
   });
 
   it('LE RAPPORT DIT CHAQUE CRITÈRE SUR UNE LIGNE, AVEC SON SIGNE', () => {
@@ -185,5 +375,12 @@ describe('preuve V2 Alpha — le verdict', () => {
     expect(lignes[0]).toMatch(/^✘ A-agent\s+Agent réel — /);
     expect(lignes[2]).toMatch(/^\? A-bac\s+Bac à sable — /);
     expect(lignes.at(-1)).toMatch(/^✔ Evaluator/);
+    // Un identifiant plus long que les autres élargit la colonne au lieu de la casser.
+    expect(
+      rapportV2Alpha([
+        { critere: 'B', libelle: 'b', etat: 'prouve', detail: 'x' },
+        { critere: 'Délégation', libelle: 'd', etat: 'echec', detail: 'y' },
+      ]).split('\n'),
+    ).toEqual(['✔ B          b — x', '✘ Délégation d — y']);
   });
 });
