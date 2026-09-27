@@ -28,6 +28,7 @@
 
 import type { Inspection } from './gardiennes.js';
 import { signatureOf, type Verdict as ParliamentVerdict } from './parliament.js';
+import { relecteurIndependant } from '../shared/contre-expertise.js';
 import type { TaskResult } from '../shared/types.js';
 
 export const VERSION_EVALUATOR = 1;
@@ -65,13 +66,18 @@ export interface ValidationProvenance {
 /** Avis individuel d'un Worker distinct sur la production relue. */
 export interface CrossReviewVote {
   relectureTaskId: string;
+  /**
+   * Le nœud qui a RENDU l'avis, et sa famille — l'expéditeur du résultat de
+   * relecture, pas le relecteur choisi au lancement : une relecture remise en
+   * file peut changer de mains (voir `noterVerdict`, server.ts).
+   */
   reviewerNodeId: string;
   reviewerAgent: string;
   /**
    * Famille d'agent qui a PRODUIT le résultat relu, telle que consignée avec
-   * l'avis (`producteur`). Sans elle, l'indépendance du relecteur serait une
-   * supposition : c'est ce champ qui permet à l'Evaluator de la VÉRIFIER
-   * plutôt que de croire le module qui a choisi les relecteurs.
+   * l'avis (`producteur`). Avec l'auteur réel de l'avis, c'est ce qui permet à
+   * l'Evaluator de VÉRIFIER l'indépendance plutôt que de croire le module qui
+   * a choisi les relecteurs.
    */
   producerAgent: string;
   decision: 'appliquer' | 'ameliorer';
@@ -317,17 +323,24 @@ export function evaluate(input: EvaluatorInput): EvaluationResult {
     return result(input.taskId, 'human_review_required', false, false, reasons, evidence);
   }
 
-  // L'indépendance se VÉRIFIE avis par avis, contre la famille consignée du
-  // producteur : un avis favorable de la même famille relit ses propres angles
-  // morts, et ne compte pas — même si le statut agrégé dit `applied`.
+  // L'indépendance se VÉRIFIE avis par avis, entre l'auteur RÉEL de l'avis et
+  // la famille consignée du producteur, avec la règle même qui a choisi les
+  // relecteurs : un avis favorable de la même famille relit ses propres angles
+  // morts, celui du `shell` simulé n'en est pas un — aucun ne compte, même si
+  // le statut agrégé dit `applied`.
   const independants = crossReview.reviewers.filter(
-    (vote) => vote.decision === 'appliquer' && vote.reviewerAgent !== vote.producerAgent,
+    (vote) =>
+      vote.decision === 'appliquer' && relecteurIndependant(vote.reviewerAgent, vote.producerAgent),
   );
   if (independants.length === 0) {
+    // Le motif ne désigne pas UNE cause qu'il ne connaît pas : sans avis,
+    // « aucun second modèle en ligne » et « relecture échouée » se
+    // ressemblent d'ici, et renvoyer l'opérateur brancher un agent déjà
+    // branché l'enverrait chercher la mauvaise panne.
     reasons.push(
       crossReview.reviewerCount > 0
-        ? 'les avis favorables viennent de la famille d’agent qui a produit : ce n’est pas une relecture indépendante'
-        : 'aucune contre-revue d’une autre famille d’agent n’est rattachée à ce résultat : branchez un second agent, ou tranchez en revue humaine',
+        ? 'les avis favorables viennent de la famille d’agent qui a produit, ou d’un agent simulé : ce n’est pas une relecture indépendante'
+        : 'aucune contre-revue d’une autre famille d’agent n’a rendu d’avis sur ce résultat (aucun second modèle en ligne à son arrivée, ou relecture échouée) : tranchez en revue humaine — un rejet relance la production, relue si un agent d’une autre famille est en ligne',
     );
     return result(input.taskId, 'human_review_required', false, false, reasons, evidence);
   }

@@ -70,8 +70,14 @@ function raisonRetrySaute(code: unknown, t: Translate): string {
       return t('une tâche dépendante a déjà avancé', 'a dependent task has already moved on');
     case 'stale_result':
       return t('une production plus récente existe', 'a newer production exists');
+    // Une tâche ÉCHOUÉE est terminée, mais pas `done` : c'est le retry
+    // ordinaire qui la relance, jamais la correction de l'Evaluator. Dire
+    // « pas terminée » d'une tâche en échec contredirait son propre statut.
     case 'task_not_done':
-      return t('la tâche n’est pas (ou plus) terminée', 'the task is not (or no longer) done');
+      return t(
+        'la tâche n’est pas « terminée avec succès » (échouée : relancez-la par le retry ordinaire)',
+        'the task is not “completed successfully” (failed: relaunch it with the ordinary retry)',
+      );
     case 'unknown_task':
       return t('tâche inconnue', 'unknown task');
     case 'invalid_result_id':

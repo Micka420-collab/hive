@@ -49,6 +49,7 @@ import type { Domaine, TraceePheromone } from './pheromones.js';
 import { analyzePair } from './sting-detector.js';
 import type { HiveStore, NodeProfile } from './store.js';
 import { assignationProductionAutorisee } from '../shared/agent-production.js';
+import { relecteurIndependant } from '../shared/contre-expertise.js';
 import { concurrenceEffective, lireTemperature, FENETRE_MS, TYPES_THERMO } from './thermo.js';
 import type { BandeThermo } from './thermo.js';
 
@@ -808,6 +809,13 @@ export class Scheduler {
    */
   private renifler(task: Task, result: Omit<TaskResult, 'nodeId'>): Inspection | null {
     if (this.modeGardiennesDe(task) === 'off' || !result.success) return null;
+    // Une RELECTURE ne prétend rien faire entrer dans le rayon : elle rend un
+    // avis, et un avis ne modifie aucun fichier. Reniflée comme une production,
+    // elle était déclarée creuse (`empty_diff` : son titre et sa consigne
+    // portent la promesse de la production relue) — en `strict`, chaque
+    // contre-revue était refusée, re-tentée puis `failed` sans jamais rendre
+    // d'avis, et `accepted` devenait hors d'atteinte sur un dépôt git.
+    if (this.store.relectureDe(task.id)) return null;
     return inspecter({
       titre: task.title,
       prompt: task.prompt,
@@ -1702,6 +1710,13 @@ export class Scheduler {
       this.signalerPlafond(task.projectId, decision);
       if (decision === 'bloque' && this.opts.balance?.mode === 'strict') continue;
       const charge = (n: HiveNode): number => n.running + (extra.get(n.id) ?? 0);
+      // Une RELECTURE remise en file (échec, refus du relecteur choisi,
+      // déconnexion) garde sa raison d'être : un modèle d'une AUTRE famille que
+      // le producteur. Sans cette garde, le premier nœud libre la reprenait —
+      // souvent le producteur lui-même, qui relisait alors son propre diff.
+      // Aucun relecteur indépendant libre : elle attend en file, et l'Evaluator
+      // la compte en vol plutôt que d'accepter sans elle.
+      const relecture = this.store.relectureDe(task.id);
       const eligibles = this.store
         .listNodes()
         .filter(
@@ -1710,6 +1725,7 @@ export class Scheduler {
             assignationProductionAutorisee(n.agentType, {
               simulation: this.opts.simulation,
             }) &&
+            (relecture === null || relecteurIndependant(n.agentType, relecture.producteurAgent)) &&
             // Thermorégulation : sous ventilation, la capacité de chaque nœud
             // est réduite par le facteur en vigueur (plancher 1 — la ruche ne
             // s'arrête pas, elle ralentit).

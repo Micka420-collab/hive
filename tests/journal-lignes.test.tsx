@@ -234,4 +234,15 @@ describe('une correction de l’Evaluator ne se lit pas comme un échec', () => 
     expect(ligne(dom)).toContain('Evaluator correction not retried');
     expect(ligne(dom)).toContain('a delivery is already open');
   });
+
+  it('UN REJET SUR UNE TÂCHE ÉCHOUÉE NE LA DIT PAS « PAS TERMINÉE »', async () => {
+    // Un humain rejette une tâche en échec : la correction de l'Evaluator ne
+    // part pas (`task_not_done`), parce que c'est le retry ordinaire qui la
+    // relance. La ligne doit le dire, pas nier un statut terminal.
+    const dom = await monter(
+      evenement('evaluator_retry_skipped', { taskId: 'tache-ratee', reason: 'task_not_done' }),
+    );
+    expect(ligne(dom)).not.toContain('pas (ou plus) terminée');
+    expect(ligne(dom)).toContain('retry ordinaire');
+  });
 });

@@ -24,8 +24,10 @@ const validations = {
 /**
  * Contre-revue telle que le store l'agrège. Le producteur est `claude-code` ;
  * les relecteurs viennent par défaut de deux AUTRES familles, comme
- * `choisirCritiques` les choisit — `relecteurs` permet de simuler le cas qu'il
- * n'est pas censé produire.
+ * `choisirCritiques` les choisit. `relecteurs` fixe l'AUTEUR réel de chaque
+ * avis : une relecture remise en file, ou courue à la main, peut être rendue
+ * par un autre nœud que celui qu'on avait choisi — y compris de la famille qui
+ * a produit.
  */
 const crossReview = (
   order: Array<'appliquer' | 'ameliorer'>,
@@ -122,6 +124,11 @@ describe('Evaluator indépendant', () => {
     expect(verdict.decision).toBe('human_review_required');
     expect(verdict.canMerge).toBe(false);
     expect(verdict.reasons.join(' ')).toContain('autre famille');
+    // Sans avis, l'Evaluator ne sait pas SI le second modèle manquait ou si sa
+    // relecture a échoué : le motif nomme les deux plutôt que d'envoyer
+    // l'opérateur brancher un agent peut-être déjà branché.
+    expect(verdict.reasons.join(' ')).toContain('relecture échouée');
+    expect(verdict.reasons.join(' ')).not.toContain('branchez un second agent');
     // Le Parlement n'est plus une condition : l'invoquer serait mentir sur
     // ce qui manque réellement.
     expect(verdict.reasons.join(' ')).not.toContain('quorum');
@@ -222,6 +229,24 @@ describe('Evaluator indépendant', () => {
     expect(verdict.decision).toBe('human_review_required');
     expect(verdict.canMerge).toBe(false);
     expect(verdict.reasons.join(' ')).toContain('famille d’agent qui a produit');
+  });
+
+  it('un avis favorable du `shell` simulé ne vaut pas relecture indépendante', () => {
+    // Le `shell` ne lance aucun modèle : son « valide » est un texte fabriqué.
+    // `choisirCritiques` ne le choisit jamais ; l'Evaluator applique la même
+    // règle à l'auteur réel de l'avis.
+    const verdict = evaluate({
+      taskId: 'task-1',
+      taskStatus: 'done',
+      results: [result()],
+      inspection: clean,
+      validation: validations,
+      humanReview: 'approved',
+      crossReview: crossReview(['appliquer'], ['shell']),
+    });
+    expect(verdict.decision).toBe('human_review_required');
+    expect(verdict.canMerge).toBe(false);
+    expect(verdict.reasons.join(' ')).toContain('agent simulé');
   });
 
   it('n accepte pas sur le premier avis favorable tant qu une relecture est en vol', () => {
