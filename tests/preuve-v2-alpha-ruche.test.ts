@@ -111,10 +111,13 @@ const rendu = (diff: string, logs = 'ok'): AdapterResult => ({
   fournisseur: { source: 'claude-code', coutUsd: 0.0123, dureeApiMs: 1_500 },
 });
 
+// L'avis d'une relectrice est sa RÉPONSE FINALE (`finalText`), comme un vrai
+// adaptateur la rend : la Reine ne lit plus un verdict dans les logs bruts.
 const avis = (texte: string): AdapterResult => ({
   success: true,
   diff: '',
   logs: texte,
+  finalText: texte,
   subAgents: [],
 });
 
