@@ -26,6 +26,36 @@ describe('connecteurs — bout en bout à travers la Reine', () => {
   let jetonAdmin = '';
   let jetonMembre = '';
   let projet = '';
+  let catalogueInitial: { connecteurs: Array<{ id: string; actif: boolean }> } = {
+    connecteurs: [],
+  };
+
+  /**
+   * Chaque test pose lui-même ce dont il a besoin : le tamis de la CI rejoue
+   * la suite dans des ordres mélangés, tests d'un même fichier compris. Poser
+   * et autoriser sont idempotents.
+   */
+  const poserSecretsWebhook = async (): Promise<void> => {
+    for (const [envVar, valeur] of [
+      [ENV_WEBHOOK_URL, urlRecepteur],
+      [ENV_WEBHOOK_SECRET, SECRET],
+    ] as const) {
+      const r = await fetch(`${base}/api/connecteurs/webhook/secrets`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...compte(jetonAdmin) },
+        body: JSON.stringify({ envVar, valeur }),
+      });
+      expect(r.status).toBe(200);
+    }
+  };
+  const autoriserWebhook = async (): Promise<void> => {
+    const r = await fetch(`${base}/api/projects/${projet}/connecteurs/webhook/autoriser`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...compte(jetonAdmin) },
+      body: JSON.stringify({ portees: ['notification'] }),
+    });
+    expect(r.status).toBe(200);
+  };
 
   const jeton = { 'x-hive-token': TOKEN };
   const compte = (t: string) => ({ authorization: `Bearer ${t}` });
@@ -81,6 +111,11 @@ describe('connecteurs — bout en bout à travers la Reine', () => {
     };
     projet = server.store.createProject({ name: 'Projet', ownerId: moi.id }).id;
     server.store.addMember(projet, moi.id, 'owner');
+    // Le catalogue AVANT toute pose : le seul moment où l'état dormant se lit
+    // sans dépendre de l'ordre des tests (le tamis de la CI les mélange).
+    catalogueInitial = (await (
+      await fetch(`${base}/api/connecteurs`, { headers: compte(jetonAdmin) })
+    ).json()) as { connecteurs: Array<{ id: string; actif: boolean }> };
   });
 
   afterAll(async () => {
@@ -99,21 +134,12 @@ describe('connecteurs — bout en bout à travers la Reine', () => {
     expect(admin.status).toBe(200);
     const j = (await admin.json()) as { connecteurs: Array<{ id: string; actif: boolean }> };
     expect(j.connecteurs.map((c) => c.id).sort()).toEqual(['slack', 'webhook']);
-    expect(j.connecteurs.find((c) => c.id === 'webhook')?.actif).toBe(false);
+    // Dormant tant qu'aucun secret n'est posé (relevé au démarrage).
+    expect(catalogueInitial.connecteurs.find((c) => c.id === 'webhook')?.actif).toBe(false);
   });
 
   it('poser les secrets rend le webhook actif — sans jamais renvoyer la valeur', async () => {
-    for (const [envVar, valeur] of [
-      [ENV_WEBHOOK_URL, urlRecepteur],
-      [ENV_WEBHOOK_SECRET, SECRET],
-    ] as const) {
-      const r = await fetch(`${base}/api/connecteurs/webhook/secrets`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', ...compte(jetonAdmin) },
-        body: JSON.stringify({ envVar, valeur }),
-      });
-      expect(r.status).toBe(200);
-    }
+    await poserSecretsWebhook();
     const cat = (await (
       await fetch(`${base}/api/connecteurs`, { headers: compte(jetonAdmin) })
     ).json()) as {
@@ -127,6 +153,7 @@ describe('connecteurs — bout en bout à travers la Reine', () => {
   });
 
   it('autoriser puis tester ENVOIE réellement un corps signé, et le journalise', async () => {
+    await poserSecretsWebhook();
     recus = [];
     const autoriser = await fetch(`${base}/api/projects/${projet}/connecteurs/webhook/autoriser`, {
       method: 'POST',
@@ -143,9 +170,12 @@ describe('connecteurs — bout en bout à travers la Reine', () => {
     expect(test.status).toBe(200);
     expect((await test.json()) as { envoye: boolean }).toMatchObject({ envoye: true });
 
-    // Le récepteur a reçu un corps, et sa signature est valide.
-    expect(recus.length).toBe(1);
-    const recu = recus[0]!;
+    // Le récepteur a reçu CE corps (un relais d'un autre test peut arriver à
+    // côté : on cherche le fait de test), et sa signature est valide.
+    const recu = recus.find(
+      (r) => (JSON.parse(r.body) as { titre: string }).titre === 'Test de connecteur',
+    )!;
+    expect(recu).toBeDefined();
     expect(JSON.parse(recu.body).kind).toBe('decision');
     const verdict = verifierSignature({
       charge: recu.body,
@@ -169,6 +199,8 @@ describe('connecteurs — bout en bout à travers la Reine', () => {
   });
 
   it('révoquer coupe le connecteur pour le projet', async () => {
+    await poserSecretsWebhook();
+    await autoriserWebhook();
     const del = await fetch(`${base}/api/projects/${projet}/connecteurs/webhook`, {
       method: 'DELETE',
       headers: compte(jetonAdmin),
@@ -185,12 +217,8 @@ describe('connecteurs — bout en bout à travers la Reine', () => {
     // Le relais `task_reviewed` → `decision` passe par le hub APRÈS l'émission
     // (différé d'un tour) : le récepteur la voit sans qu'aucun « test » ne
     // soit demandé. Le titre de la tâche l'accompagne.
-    const autoriser = await fetch(`${base}/api/projects/${projet}/connecteurs/webhook/autoriser`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', ...compte(jetonAdmin) },
-      body: JSON.stringify({ portees: ['notification'] }),
-    });
-    expect(autoriser.status).toBe(200);
+    await poserSecretsWebhook();
+    await autoriserWebhook();
     recus = [];
     const tache = server.store.createTask({
       projectId: projet,
@@ -214,6 +242,7 @@ describe('connecteurs — bout en bout à travers la Reine', () => {
   });
 
   it('refuse à la pose une URL de webhook qui n’est pas http(s)', async () => {
+    await poserSecretsWebhook();
     const r = await fetch(`${base}/api/connecteurs/webhook/secrets`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...compte(jetonAdmin) },
