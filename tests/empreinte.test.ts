@@ -669,6 +669,11 @@ describe('LA GARDE : aucune écriture ne s’ajoute en douce hors de l’inventa
     // banc ne pouvait donc toucher (0 % de couverture), pour un module éprouvé.
     'src/node-client/identite-noeud.ts': '<workdir>/join — identifiant et clé du nœud',
     'src/node-client/merge-runner.ts': 'os.tmpdir()/hive-merge-* — effacé en finally',
+    'src/node-client/livraison-locale.ts':
+      '<workdir>/<nœud>/livraisons/<projet>.git — le dépôt nu où survivent les branches ' +
+      'de mission non poussées. Déclaré dans `empreinte()` comme contenu nommé de ' +
+      '« travail » : c’est la seule chose d’ici qui ne se refait pas. Le message de ' +
+      'commit s’écrit dans le `.git` du clone jetable, jamais dans `os.tmpdir()`.',
     'src/node-client/isolement.ts':
       'os.tmpdir()/hive-agent-preflight-* — répertoire vide, effacé après la sonde',
     'src/node-client/workspace.ts': '<workdir>/<nom> et son .tmp voisin',

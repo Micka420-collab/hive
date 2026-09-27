@@ -84,12 +84,24 @@ export function buildSandboxEnv(cwd: string, keepEnv: string[] = []): NodeJS.Pro
 }
 
 /**
- * Clone superficiel d'un dépôt dans `dir`, avec la même protection de transport
- * que les clones de tâches : GIT_ALLOW_PROTOCOL neutralise `ext::` (RCE), pas de
- * prompt de terminal, environnement épuré. `dir` doit être vide/inexistant.
+ * L'environnement de TRANSPORT git du nœud : ce qui parle au dépôt distant.
+ *
+ * GIT_ALLOW_PROTOCOL restreint les transports autorisés : neutralise le
+ * transport `ext::` de git (exécution de commande arbitraire = RCE), en plus de
+ * la validation du repoUrl côté hub. GIT_TERMINAL_PROMPT=0 : des identifiants
+ * refusés échouent tout de suite au lieu d'attendre une saisie que personne ne
+ * fera. On repart d'un environnement épuré (sans variables d'éditeur, que
+ * simple-git refuse) : seuls PATH/HOME et les variables système passent — HOME
+ * porte la configuration git de l'opérateur, donc ses assistants
+ * d'identifiants.
+ *
+ * UN SEUL ENDROIT, parce que la livraison POUSSE avec exactement les
+ * identifiants qui ont servi au clone : deux copies de cet environnement —
+ * il y en avait déjà deux, ici même — finiraient par ne plus ouvrir les mêmes
+ * portes, et « le clone passe, la poussée non » se chercherait longtemps.
  */
-export async function cloneRepo(dir: string, repoUrl: string): Promise<void> {
-  const cloneEnv: NodeJS.ProcessEnv = {
+export function envTransportGit(): NodeJS.ProcessEnv {
+  return {
     PATH: process.env.PATH,
     HOME: process.env.HOME,
     USERPROFILE: process.env.USERPROFILE,
@@ -98,7 +110,14 @@ export async function cloneRepo(dir: string, repoUrl: string): Promise<void> {
     GIT_ALLOW_PROTOCOL: 'http:https:git:ssh:file',
     GIT_TERMINAL_PROMPT: '0',
   };
-  await simpleGit().env(cloneEnv).clone(repoUrl, dir, ['--depth', '1']);
+}
+
+/**
+ * Clone superficiel d'un dépôt dans `dir`, avec la même protection de transport
+ * que les clones de tâches (`envTransportGit`). `dir` doit être vide/inexistant.
+ */
+export async function cloneRepo(dir: string, repoUrl: string): Promise<void> {
+  await simpleGit().env(envTransportGit()).clone(repoUrl, dir, ['--depth', '1']);
 }
 
 export async function prepareWorkspace(
@@ -133,22 +152,8 @@ export async function prepareWorkspace(
   let git: SimpleGit | null = null;
   let branch: string | null = null;
   if (repoUrl) {
-    // GIT_ALLOW_PROTOCOL restreint les transports autorisés : neutralise le
-    // transport `ext::` de git (exécution de commande arbitraire = RCE), en plus
-    // de la validation du repoUrl côté hub. On repart d'un environnement épuré
-    // (sans variables d'éditeur, que simple-git refuse) : seuls PATH/HOME et les
-    // variables système passent. Le clone exige un répertoire vide, il précède
-    // donc toute écriture dans cwd.
-    const cloneEnv: NodeJS.ProcessEnv = {
-      PATH: process.env.PATH,
-      HOME: process.env.HOME,
-      USERPROFILE: process.env.USERPROFILE,
-      SYSTEMROOT: process.env.SYSTEMROOT,
-      SYSTEMDRIVE: process.env.SYSTEMDRIVE,
-      GIT_ALLOW_PROTOCOL: 'http:https:git:ssh:file',
-      GIT_TERMINAL_PROMPT: '0',
-    };
-    await simpleGit().env(cloneEnv).clone(repoUrl, cwd, ['--depth', '1']);
+    // Le clone exige un répertoire vide, il précède donc toute écriture dans cwd.
+    await cloneRepo(cwd, repoUrl);
     git = simpleGit({ baseDir: cwd });
     // Une tâche = une branche isolée. Jamais de travail direct sur main (§5.2).
     branch = task.branch ?? `hive/${task.id}`;

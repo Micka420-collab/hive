@@ -1319,3 +1319,54 @@
   color: var(--muted);
   overflow-wrap: anywhere;
 }
+
+/* ─── La livraison d'une mission sur une branche git ─────────────────────── */
+
+.pj-mission {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+
+.pj-pousser {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex: 1 1 100%;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.pj-forcer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.pj-forcer .pj-conf-list {
+  flex: 1 1 100%;
+}
+
+/* La gravité se VOIT : une branche gardée sur l'ouvrière alors qu'on
+   demandait de pousser n'est pas un succès vert (cf. `phraseDeLivraison`). */
+.pj-mission-ok {
+  margin: 0;
+  color: var(--green);
+  overflow-wrap: anywhere;
+}
+
+.pj-mission-avertissement {
+  margin: 0;
+  color: var(--amber);
+  overflow-wrap: anywhere;
+}
+
+.pj-mission-echec {
+  margin: 0;
+  color: var(--red, #a8402a);
+  overflow-wrap: anywhere;
+}

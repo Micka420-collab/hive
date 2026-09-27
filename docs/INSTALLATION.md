@@ -488,14 +488,14 @@ Un outil d'installation n'est pas un outil de destruction —
 
 ### Où Hive écrit, exactement
 
-|                                  |                                                                     |
-| -------------------------------- | ------------------------------------------------------------------- |
-| `<installation>/.env`            | jetons et secrets                                                   |
-| `<installation>/data/hive.db`    | la base, plus ses `-wal` et `-shm`                                  |
-| `<installation>/data/rayons/`    | les miroirs des dépôts                                              |
-| `<installation>/.hive-work/`     | espaces de travail, clé du nœud, `cloudflared`, ponts MCP éphémères |
-| `$TMPDIR/hive-merge-*`           | patchs d'une fusion — effacés à la fin de chacune                   |
-| `$TMPDIR/hive-agent-preflight-*` | répertoires vides de sonde — effacés après chaque preflight         |
+|                                  |                                                                                                                              |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `<installation>/.env`            | jetons et secrets                                                                                                            |
+| `<installation>/data/hive.db`    | la base, plus ses `-wal` et `-shm`                                                                                           |
+| `<installation>/data/rayons/`    | les miroirs des dépôts                                                                                                       |
+| `<installation>/.hive-work/`     | espaces de travail, clé du nœud, `cloudflared`, ponts MCP éphémères, branches de mission non poussées (`<nœud>/livraisons/`) |
+| `$TMPDIR/hive-merge-*`           | patchs d'une fusion — effacés à la fin de chacune                                                                            |
+| `$TMPDIR/hive-agent-preflight-*` | répertoires vides de sonde — effacés après chaque preflight                                                                  |
 
 Pas de service, pas d'entrée de registre, pas de fichier dans `/etc`, rien
 dans votre dossier personnel. Ce n'est pas une promesse en prose :

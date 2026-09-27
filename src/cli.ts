@@ -12,6 +12,8 @@
 //   npm run cli -- events [sinceId]                   journal d'événements
 //   npm run cli -- merge <projectId>                  plan d'intégration (Honeycomb Merge)
 //   npm run cli -- merge-run <projectId> [cmd test…]  exécuter réellement le merge sur un nœud
+//   npm run cli -- livrer-local <projectId> [--pousser] [cmd test…]
+//                                                     commiter la mission sur hive/mission-<id>-<n>
 //   npm run cli -- replay [sinceId]                   time-lapse (rejeu du journal)
 //   npm run cli -- waggle                             classement des contributeurs (nectar)
 //   npm run cli -- consensus <taskId>                 vote des agents sur le résultat
@@ -61,6 +63,8 @@ import {
   lignesWaggle,
 } from './shared/cli-rendu.js';
 import { decouperMergeArgv } from './shared/preparation.js';
+import { decouperLivraisonArgv } from './shared/livraison-locale.js';
+import type { RapportLivraisonLocale } from './shared/livraison-locale.js';
 import type { HiveEvent, StateSnapshot, Task } from './shared/types.js';
 import { envSonde } from './node-client/agent-detect.js';
 
@@ -357,6 +361,41 @@ interface MergeResult {
   testsRun: boolean;
   testsPassed: boolean | null;
   preparedOk?: boolean | null;
+  livraison?: RapportLivraisonLocale;
+}
+
+/** Attend le résultat du merge `mergeId`, ou `null` à l'échéance. */
+async function attendreMerge(
+  projectId: string,
+  mergeId: string,
+  delaiMs: number,
+): Promise<MergeResult | null> {
+  const deadline = Date.now() + delaiMs;
+  while (Date.now() < deadline) {
+    const { result } = await api<{ result: MergeResult | null }>(
+      `/api/projects/${projectId}/merge/result`,
+    );
+    if (result && result.mergeId === mergeId) return result;
+    await new Promise((r) => setTimeout(r, 1_000));
+  }
+  return null;
+}
+
+/** Ce que le merge a donné, en deux lignes et la liste des conflits. */
+function afficherMerge(result: MergeResult): void {
+  const verdict = result.conflicts.length
+    ? `⚠ ${result.conflicts.length} conflit(s)`
+    : // L'environnement en échec n'est pas un test rouge : les tests n'ont
+      // pas tourné, et le code n'est pas en cause.
+      result.preparedOk === false
+      ? '⚠ environnement non préparé — tests non lancés'
+      : result.testsRun
+        ? result.testsPassed
+          ? '✔ tests OK'
+          : '✘ tests échoués'
+        : '✔ appliqué (sans tests)';
+  console.log(`  ${verdict} — ${result.applied.length} diff(s) appliqué(s)`);
+  for (const c of result.conflicts) console.log(`  ⚠ ${c.taskId} : ${c.reason}`);
 }
 
 /** Déclenche l'exécution réelle du merge sur un nœud, puis attend le résultat. */
@@ -370,30 +409,73 @@ async function cmdMergeRun(projectId: string, queue: string[]): Promise<void> {
   console.log(
     `\n🐝 Merge lancé (${run.mergeId.slice(0, 8)}…) sur ${run.nodeId.slice(0, 8)}… — ordre : ${run.order.join(' → ')}`,
   );
-  const deadline = Date.now() + 120_000;
-  while (Date.now() < deadline) {
-    const { result } = await api<{ result: MergeResult | null }>(
-      `/api/projects/${projectId}/merge/result`,
-    );
-    if (result && result.mergeId === run.mergeId) {
-      const verdict = result.conflicts.length
-        ? `⚠ ${result.conflicts.length} conflit(s)`
-        : // L'environnement en échec n'est pas un test rouge : les tests n'ont
-          // pas tourné, et le code n'est pas en cause.
-          result.preparedOk === false
-          ? '⚠ environnement non préparé — tests non lancés'
-          : result.testsRun
-            ? result.testsPassed
-              ? '✔ tests OK'
-              : '✘ tests échoués'
-            : '✔ appliqué (sans tests)';
-      console.log(`  ${verdict} — ${result.applied.length} diff(s) appliqué(s)`);
-      for (const c of result.conflicts) console.log(`  ⚠ ${c.taskId} : ${c.reason}`);
-      return;
-    }
-    await new Promise((r) => setTimeout(r, 1_000));
+  const result = await attendreMerge(projectId, run.mergeId, 120_000);
+  if (result) afficherMerge(result);
+  else
+    console.log('  (timeout — résultat non revenu ; réessayez `merge-run` ou vérifiez le nœud.)');
+}
+
+/**
+ * Livre la mission SANS GitHub : merge sur un nœud, puis commit sur
+ * `hive/mission-<projectId>-<n>` dans le dépôt du projet. `--pousser` la pousse
+ * vers le dépôt avec les identifiants git du nœud — s'il y a consenti. Rien
+ * n'est fusionné sur la branche principale.
+ */
+async function cmdLivrerLocal(projectId: string, queue: string[]): Promise<void> {
+  const { pousser, forcer, reste } = decouperLivraisonArgv(queue);
+  const corps = {
+    ...decouperMergeArgv(reste),
+    ...(pousser ? { pousser } : {}),
+    ...(forcer ? { forcer } : {}),
+  };
+  const run = await api<{ mergeId: string; noeud: string; order: string[]; forcees: string[] }>(
+    `/api/projects/${projectId}/livraison-locale`,
+    { method: 'POST', body: JSON.stringify(corps) },
+  );
+  console.log(
+    `\n🐝 Livraison lancée (${run.mergeId.slice(0, 8)}…) sur « ${run.noeud} » — ordre : ${run.order.join(' → ')}`,
+  );
+  if (run.forcees.length > 0) {
+    console.log(`  ⚠ Evaluator outrepassé pour ${run.forcees.join(', ')} — geste journalisé.`);
   }
-  console.log('  (timeout — résultat non revenu ; réessayez `merge-run` ou vérifiez le nœud.)');
+  // Une préparation et des tests peuvent prendre des minutes : on attend
+  // autant que le hub, qui déclare le merge orphelin au bout de dix.
+  const result = await attendreMerge(projectId, run.mergeId, 10 * 60_000 + 15_000);
+  if (!result) {
+    console.log(
+      `  (timeout — relisez le résultat plus tard : GET /api/projects/${projectId}/merge/result)`,
+    );
+    process.exitCode = 1;
+    return;
+  }
+  afficherMerge(result);
+  const l = result.livraison;
+  if (l?.etat === 'inconnue') {
+    console.log(`\n? Issue inconnue : ${l.motif}\n`);
+    process.exitCode = 1;
+    return;
+  }
+  if (!l || l.etat === 'non_commitee') {
+    console.log(`\n✘ Rien n’est commité : ${l?.motif ?? 'le hub n’a rendu aucun rapport'}\n`);
+    process.exitCode = 1;
+    return;
+  }
+  console.log(`\n✔ ${l.branche} — commit ${l.commit.slice(0, 12)}, sur le nœud « ${run.noeud} »`);
+  const ici = `livraisons/${projectId}.git`;
+  if (l.poussee === 'poussee') {
+    console.log(
+      '  Poussée vers le dépôt du projet. Rien n’est fusionné : relisez, puis fusionnez.\n',
+    );
+  } else if (l.poussee === 'non_demandee') {
+    console.log(
+      `  Rangée sur ce nœud, dans ${ici} (sous son répertoire de travail).\n` +
+        `  Pour la pousser : relancez avec --pousser, ou sur le nœud : git -C <…>/${ici} push origin ${l.branche}\n`,
+    );
+  } else {
+    console.log(`  ⚠ Non poussée — ${l.motif ?? 'sans motif'}`);
+    console.log(`  La branche reste rangée sur le nœud, dans ${ici}.\n`);
+    process.exitCode = 1;
+  }
 }
 
 /** Barre compacte des tâches par statut, réutilisant les badges d'affichage. */
@@ -1815,6 +1897,7 @@ try {
   else if (cmd === 'events') await cmdEvents(a1);
   else if (cmd === 'merge' && a1) await cmdMerge(a1);
   else if (cmd === 'merge-run' && a1) await cmdMergeRun(a1, process.argv.slice(4));
+  else if (cmd === 'livrer-local' && a1) await cmdLivrerLocal(a1, process.argv.slice(4));
   else if (cmd === 'replay') await cmdReplay(a1);
   else if (cmd === 'waggle') await cmdWaggle();
   else if (cmd === 'consensus' && a1) await cmdConsensus(a1);
@@ -1845,7 +1928,7 @@ try {
   else if (cmd === 'revoquer' && a1) await cmdRevoquerBillet(a1);
   else {
     console.log(
-      'Usage : npm run cli -- <state | mind ["<requête>"] | stings <projectId> | plan "<brief>" [heuristic|llm] | brief <projectId> "<brief>" | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | merge <projectId> | merge-run <projectId> [cmd test…] | replay [sinceId] | waggle | consensus <taskId> | doctor [chemin] [--json] | desinstaller [chemin] [--oui] [--json] | service <install|status|logs|uninstall> [--systeme] | sauvegarde [chemin] [--garder=N] [--vers=D] [--json] | mode [off|propose|gouverne|plein] [projectId] [--oui] | ghost | shift | pulse | report <projectId> | ask "<question>" [projectId] | race <taskId> [facteur] | races | invite [urlWS] [--uses N] [--hours H] [--insecure] | tunnel [--uses N] | cloudflare [--install | --setup <hote>] | github [filtre] | github-import <owner/repo> | livrer <taskId> [base] | fusionner <projectId> <pr> [squash|merge|rebase] | conseil <projectId> [question] | conseil-voir <sessionId> | conseils | membres | exclure <nodeId> | revoquer <billetId>>',
+      'Usage : npm run cli -- <state | mind ["<requête>"] | stings <projectId> | plan "<brief>" [heuristic|llm] | brief <projectId> "<brief>" | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | merge <projectId> | merge-run <projectId> [cmd test…] | livrer-local <projectId> [--pousser] [--forcer="raison"] [cmd test…] | replay [sinceId] | waggle | consensus <taskId> | doctor [chemin] [--json] | desinstaller [chemin] [--oui] [--json] | service <install|status|logs|uninstall> [--systeme] | sauvegarde [chemin] [--garder=N] [--vers=D] [--json] | mode [off|propose|gouverne|plein] [projectId] [--oui] | ghost | shift | pulse | report <projectId> | ask "<question>" [projectId] | race <taskId> [facteur] | races | invite [urlWS] [--uses N] [--hours H] [--insecure] | tunnel [--uses N] | cloudflare [--install | --setup <hote>] | github [filtre] | github-import <owner/repo> | livrer <taskId> [base] | fusionner <projectId> <pr> [squash|merge|rebase] | conseil <projectId> [question] | conseil-voir <sessionId> | conseils | membres | exclure <nodeId> | revoquer <billetId>>',
     );
     process.exitCode = 1;
   }

@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-6092%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-6134%20passing-F6C445?labelColor=17130C)
 ![Licence](https://img.shields.io/badge/licence-MIT-F6C445?labelColor=17130C)
 
 🇫🇷 Français · [🇬🇧 English](README.en.md) · [🌐 Site](https://micka420-collab.github.io/hive/) · [📚 Documentation](#-documentation)
@@ -319,6 +319,7 @@ travailler à découvert.
 | `npm run node`                                | Un nœud membre                                                                                |
 | `npm run cli -- doctor`                       | **Le docteur** — 13 causes de panne, et la commande qui répare                                |
 | `npm run preuve:v2-alpha -- --racine . --oui` | **La preuve V2 Alpha** — une vraie mission confiée à un vrai agent, jugée critère par critère |
+| `npm run cli -- livrer-local <projet>`        | **Livrer sans GitHub** — la mission commitée sur `hive/mission-<projet>-<n>` (`--pousser`)    |
 | `npm run cli -- sauvegarde`                   | Sauvegarde SQLite par `VACUUM INTO`                                                           |
 | `npm run cli -- service`                      | Installer la ruche en service (systemd · launchd · tâche planifiée)                           |
 | `npm test`                                    | La suite complète (vitest) — le compte vit dans le badge, en un seul endroit                  |

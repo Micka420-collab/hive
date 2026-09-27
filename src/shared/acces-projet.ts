@@ -150,6 +150,28 @@ export function peutEngager(projet: ProjetAcces, lecteur: Lecteur, dejaMembre: b
 }
 
 /**
+ * Cette personne peut-elle RÉGLER ce projet — décider de ce qu'il accepte sans
+ * qu'on le lui redemande ?
+ *
+ * ─── POURQUOI ENGAGER NE SUFFIT PAS ──────────────────────────────────────────
+ *
+ * Le niveau d'autonomie (`plein` + dépôt inscrit : la ruche fusionne seule),
+ * les bornes du Garde-Fous, le plafond de dépense, l'horizon, et le geste de
+ * passer outre l'Evaluator ne créent pas de travail : ils décident de ce que le
+ * projet s'autorise ensuite. Un membre qui ajoute des tâches n'a pas, pour
+ * autant, à lever le plafond que le propriétaire a posé, ni à rendre la ruche
+ * libre de fusionner sur son dépôt.
+ *
+ * Reste le PROPRIÉTAIRE, ou l'administrateur de la ruche (il tient la machine
+ * et le fichier SQLite : le lui refuser ne protégerait personne). Le jeton de
+ * ruche ne règle qu'un projet orphelin — la frontière d'`ouvertAuJetonDeRuche`,
+ * tenue par l'appelant, qui sait seul si le jeton a été présenté.
+ */
+export function peutRegler(projet: ProjetAcces, lecteur: Lecteur): boolean {
+  return lecteur.voitTout || estProprietaire(projet, lecteur);
+}
+
+/**
  * Ce projet n'appartient-il qu'à la ruche elle-même ?
  *
  * ─── POURQUOI CETTE QUESTION EXISTE ──────────────────────────────────────────

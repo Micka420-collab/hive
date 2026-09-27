@@ -13,8 +13,15 @@
 // `node_modules` que celle-ci installe se retrouveraient dans ce qu'on soumet à
 // la revue humaine.
 //
-// Sûr par construction : ne fait NI commit NI push (jamais de merge auto sur main).
-// Le résultat (diff cumulé + verdict tests) remonte pour revue humaine.
+// Sans demande de livraison : ne fait NI commit NI push (jamais de merge auto
+// sur main). Le résultat (diff cumulé + verdict tests) remonte pour revue
+// humaine, et le clone est jeté.
+//
+// AVEC une demande de livraison (`livraison`, décidée par un humain au hub,
+// Evaluator écouté) : l'arbre intégré est capturé AVANT la préparation, puis
+// commité sur `hive/mission-<projectId>-<n>` si — et seulement si — tout s'est
+// appliqué et que ni la préparation ni les tests n'ont échoué. Jamais sur la
+// branche principale, jamais de poussée forcée (`livraison-locale.ts`).
 
 import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -26,6 +33,9 @@ import { jugerPreparation } from '../shared/preparation.js';
 import { LanceurIndisponible, resoudreLanceur } from '../lanceur-reel.js';
 import { envelopper } from './isolement.js';
 import type { Fournisseur } from './isolement.js';
+import { commiterMission } from './livraison-locale.js';
+import type { LivraisonDuNoeud } from './livraison-locale.js';
+import type { RapportDuNoeud } from '../shared/livraison-locale.js';
 import { buildSandboxEnv } from './workspace.js';
 
 export interface MergeDiff {
@@ -73,6 +83,8 @@ export interface MergeRunOptions {
    */
   prepareTimeoutMs?: number;
   signal?: AbortSignal;
+  /** Commiter le résultat intégré sur une branche de mission (cf. en-tête). */
+  livraison?: LivraisonDuNoeud;
 }
 
 export interface MergeRunResult {
@@ -95,6 +107,8 @@ export interface MergeRunResult {
    */
   preparedOk: boolean | null;
   logs: string;
+  /** Ce qu'est devenue la livraison demandée ; absent si aucune ne l'était. */
+  livraison?: RapportDuNoeud;
 }
 
 const OUTPUT_CAP = 512 * 1024;
@@ -247,6 +261,16 @@ export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
     await git.raw(['add', '--all', '--intent-to-add']);
     const mergedDiff = await git.diff();
 
+    // L'ARBRE À LIVRER, figé MAINTENANT : après, la préparation installe ses
+    // dépendances et les tests écrivent leurs traces dans cette même copie.
+    // Capturé plus tard, le commit livrerait `node_modules` — ou le fichier
+    // qu'un test aurait réécrit — sous le nom de la mission.
+    let arbre: string | null = null;
+    if (opts.livraison && conflicts.length === 0 && mergedDiff.trim()) {
+      await git.raw(['add', '--all']);
+      arbre = (await git.raw(['write-tree'])).trim();
+    }
+
     let testsRun = false;
     let testsPassed: boolean | null = null;
     let preparedOk: boolean | null = null;
@@ -306,6 +330,18 @@ export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
       }
     }
 
+    const livraison = opts.livraison
+      ? await livrerSiIntegre(opts.livraison, opts.repoDir, opts.testCommand, {
+          applied,
+          conflicts,
+          arbre,
+          preparedOk,
+          testsRun,
+          testsPassed,
+        })
+      : undefined;
+    if (livraison) logs.push(ligneDeLivraison(livraison));
+
     return {
       applied,
       conflicts,
@@ -314,8 +350,72 @@ export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
       testsPassed,
       preparedOk,
       logs: logs.join('\n'),
+      ...(livraison ? { livraison } : {}),
     };
   } finally {
     rmSync(patchDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
+}
+
+/**
+ * La livraison n'a lieu que sur une intégration COMPLÈTE et non contredite.
+ *
+ * Chaque refus porte son motif : un merge demandé « avec livraison » qui
+ * rendrait un simple « appliqué » laisserait croire qu'une branche existe.
+ */
+async function livrerSiIntegre(
+  livraison: LivraisonDuNoeud,
+  repoDir: string,
+  testCommand: readonly string[] | undefined,
+  etat: {
+    applied: readonly string[];
+    conflicts: readonly { taskId: string }[];
+    arbre: string | null;
+    preparedOk: boolean | null;
+    testsRun: boolean;
+    testsPassed: boolean | null;
+  },
+): Promise<RapportDuNoeud> {
+  const refus = (motif: string): RapportDuNoeud => ({ etat: 'non_commitee', motif });
+  // Une branche de mission ne livre pas une intégration PARTIELLE : elle se
+  // lirait comme « la mission », il y manquerait des tâches.
+  if (etat.conflicts.length > 0) {
+    return refus(
+      `${etat.conflicts.length} tâche(s) en conflit : une intégration partielle n’est pas livrée`,
+    );
+  }
+  if (etat.arbre === null) return refus('rien à livrer : les diffs intégrés sont vides');
+  if (etat.preparedOk === false) {
+    return refus('environnement non préparé, tests non lancés : rien n’est commité');
+  }
+  if (etat.testsPassed === false) return refus('tests en échec : rien n’est commité');
+  // Les trailers diront « ces tâches, ces résultats » : ils doivent nommer
+  // EXACTEMENT ce qui a été appliqué, ni plus ni moins.
+  const annoncees = livraison.demande.provenance.map((p) => p.taskId);
+  const memes =
+    annoncees.length === etat.applied.length &&
+    new Set(annoncees).size === annoncees.length &&
+    annoncees.every((id) => etat.applied.includes(id));
+  if (!memes) {
+    return refus('provenance incomplète : elle ne nomme pas exactement les tâches intégrées');
+  }
+  return commiterMission({
+    cloneDir: repoDir,
+    arbre: etat.arbre,
+    livraison,
+    tests:
+      etat.testsRun && testCommand ? { lances: true, commande: testCommand } : { lances: false },
+  });
+}
+
+/** La ligne du journal de merge qui dit ce qu'est devenue la livraison. */
+function ligneDeLivraison(r: RapportDuNoeud): string {
+  if (r.etat === 'non_commitee') return `livraison : ✘ non commitée — ${r.motif}`;
+  const poussee: Record<typeof r.poussee, string> = {
+    non_demandee: 'gardée sur ce nœud',
+    poussee: 'poussée vers le dépôt',
+    refusee: `non poussée — ${r.motif ?? ''}`,
+    echec: `poussée en échec — ${r.motif ?? ''}`,
+  };
+  return `livraison : ✔ ${r.branche} (${r.commit.slice(0, 12)}), ${poussee[r.poussee]}`;
 }

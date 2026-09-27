@@ -39,7 +39,9 @@ import { HEARTBEAT_INTERVAL_MS, NODE_TIMEOUT_MS } from '../shared/types.js';
 import type { ExecutionUsage, IsolementDeclare, Task } from '../shared/types.js';
 import { runMerge, runProc } from './merge-runner.js';
 import { lancerVraiment, poserOutil } from './pose-runner.js';
-import { buildSandboxEnv, cloneRepo, prepareWorkspace } from './workspace.js';
+import { buildSandboxEnv, cloneRepo, envTransportGit, prepareWorkspace } from './workspace.js';
+import { motifLave } from './livraison-locale.js';
+import { pousseeConsentie } from '../shared/livraison-locale.js';
 import { requisitionDepuisEchecInfra } from '../shared/requisition-infra.js';
 import { motifRefusPresence, refuseParPresence } from '../shared/presence-noeud.js';
 import type { Fournisseur } from './isolement.js';
@@ -124,6 +126,15 @@ export interface NodeClientOptions {
   silenceMaxMs?: number;
   /** Cadence des pings de vie vers le hub (ms). Défaut : `HEARTBEAT_INTERVAL_MS`. */
   pingMs?: number;
+  /**
+   * L'opérateur consent-il à POUSSER les branches de mission avec les
+   * identifiants git de cette machine ? Défaut : `HIVE_LIVRAISON_POUSSER=1`.
+   *
+   * Lu ICI, et non par chacun des deux points d'entrée (`main.ts`, `join.ts`) :
+   * c'est la même raison que Night Shift. Deux lectures finissent par diverger,
+   * et celle qui oublierait le réglage pousserait sans consentement.
+   */
+  pousseLivraisons?: boolean;
 }
 
 /**
@@ -643,6 +654,9 @@ export class HiveNodeClient {
         // Le bac à sable où les tâches tourneront — redit à CHAQUE inscription :
         // le hub efface une déclaration qui n'est pas répétée.
         ...(this.opts.isolement ? { isolement: this.opts.isolement } : {}),
+        // Le consentement à pousser, dit au hub pour qu'il CHOISISSE un nœud
+        // consentant. La garde, elle, reste ici (`runMergeJob`).
+        ...(this.pousseLivraisons() ? { pousseLivraisons: true } : {}),
       });
     });
 
@@ -1280,10 +1294,33 @@ export class HiveNodeClient {
   }
 
   // ─── Merge (Honeycomb Merge, Palier 3) ───────────────────────────────────
+  /** Consentement de l'opérateur à pousser (cf. `NodeClientOptions.pousseLivraisons`). */
+  private pousseLivraisons(): boolean {
+    return this.opts.pousseLivraisons ?? pousseeConsentie(process.env);
+  }
+
+  /**
+   * Le dépôt DURABLE des livraisons d'un projet sur ce nœud.
+   *
+   * `projectId` est validé (ID_PATTERN) par le protocole ; le confinement sous
+   * `<workRoot>/livraisons` est la seconde barrière, au plus près de l'écriture
+   * — même règle que le répertoire d'une tâche (`prepareWorkspace`).
+   */
+  private depotDeLivraisons(projectId: string): string {
+    const racine = path.resolve(this.workRoot, 'livraisons');
+    const depot = path.resolve(racine, `${projectId}.git`);
+    if (!depot.startsWith(racine + path.sep)) {
+      throw new Error(`projet hors du répertoire des livraisons : ${projectId}`);
+    }
+    return depot;
+  }
+
   /**
    * Exécute un merge demandé par le hub : clone le dépôt, applique les diffs dans
    * l'ordre (conflits git réels détectés), lance éventuellement les tests, et
-   * remonte le résultat. Ne commit ni ne push jamais (revue humaine).
+   * remonte le résultat. Sans demande de livraison, ne commit ni ne push
+   * (revue humaine) ; avec, commite la mission sur sa branche et ne la pousse
+   * que si l'opérateur de CE nœud y a consenti.
    */
   private async runMergeJob(msg: AssignMergeMsg): Promise<void> {
     // Anti-doublon : un hub qui réémet le même mergeId ne doit pas lancer deux
@@ -1360,6 +1397,16 @@ export class HiveNodeClient {
         // Le bac à sable du nœud suit le merge : la commande de test exécute du
         // code du dépôt, au même titre qu'un agent.
         ...(this.opts.bac ? { bac: this.opts.bac } : {}),
+        ...(msg.livraison
+          ? {
+              livraison: {
+                demande: msg.livraison,
+                depotLocal: this.depotDeLivraisons(msg.livraison.projectId),
+                pousseeConsentie: this.pousseLivraisons(),
+                envTransport: envTransportGit(),
+              },
+            }
+          : {}),
       });
       this.send({
         type: 'merge_result',
@@ -1371,12 +1418,16 @@ export class HiveNodeClient {
         testsPassed: result.testsPassed,
         preparedOk: result.preparedOk,
         logs: result.logs.slice(0, LIMITS.log),
+        ...(result.livraison ? { livraison: result.livraison } : {}),
       });
       this.log(
         `merge ${msg.mergeId.slice(0, 8)} : ${result.applied.length} appliqué(s), ${result.conflicts.length} conflit(s)`,
       );
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      // LAVÉ : un clone refusé cite l'URL du dépôt, identifiants compris quand
+      // ils y sont écrits — et ce texte part au hub, donc à tout l'écran.
+      const brut = err instanceof Error ? err.message : String(err);
+      const message = motifLave(brut);
       this.send({
         type: 'merge_result',
         mergeId: msg.mergeId,
@@ -1386,6 +1437,9 @@ export class HiveNodeClient {
         testsRun: false,
         testsPassed: null,
         logs: `[nœud] échec du merge : ${message}`,
+        ...(msg.livraison
+          ? { livraison: { etat: 'non_commitee', motif: motifLave(`échec du merge : ${brut}`) } }
+          : {}),
       });
       this.log(`✘ merge ${msg.mergeId.slice(0, 8)} : ${message}`);
     } finally {

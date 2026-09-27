@@ -127,6 +127,54 @@ step — **the tests are not run** and the report says "environment not prepared
 A `✘ tests red` would have sent you hunting for a regression in code that is
 perfectly fine.
 
+## 🌿 Delivering without GitHub — one mission, one branch
+
+GitHub delivery opens one pull request **per task**, with the host's key. A
+project on GitLab, Gitea, a bare repository on a home server — or a repository
+on the host's disk — is delivered differently: the **whole** mission, integrated
+by a worker, committed to **one** branch of the project repository.
+
+```bash
+npm run cli -- livrer-local <projectId>                       # commit, keep the branch on the worker
+npm run cli -- livrer-local <projectId> --pousser -- --tester npm test
+npm run cli -- livrer-local <projectId> --forcer="read by hand"      # override the Evaluator
+# or "Deliver the mission" in ⬡ Projects, under "What the delivered work becomes"
+```
+
+- **The branch** is `hive/mission-<projectId>-<n>`, `n` following the highest
+  one already taken — on the worker or in the repository. The commit is the
+  **integrated** tree, frozen before preparation and tests: no `node_modules`,
+  nothing a test rewrote. The main branch is never touched.
+- **Provenance travels in the commit**, as trailers git reads back
+  (`git log --format='%(trailers)'`): `Hive-Task`, `Hive-Result` (the exact
+  integrated result, `inconnu` when it has none), `Hive-Evaluator` (the verdict
+  at delivery time), `Hive-Evaluator-Forced` (the reason for an override),
+  `Hive-Tests`.
+- **Nothing is committed** when a task conflicts (a partial integration is not
+  the mission), when preparation fails or when tests are red — and the report
+  says so. If the worker goes silent on the way (disconnection, timeout), the
+  report says **"unknown outcome"** rather than "nothing committed": it may have
+  committed, and even pushed, before disappearing.
+- **The Evaluator guards the door**, as for GitHub delivery: a task in
+  `correction_required` or `rejected` stops the mission. The owner (or an
+  administrator, or the hive token on an ownerless project) may override it by
+  giving a reason; the act is logged (`evaluator_overridden`). A project member
+  does not deliver.
+- **Without `--pousser`**, the branch is kept on the worker, in
+  `livraisons/<projectId>.git` under its work directory (a bare repository whose
+  `origin` is the project repository, credentials stripped): `git fetch` from
+  that path, or `git -C … push origin hive/mission-…` on the worker.
+- **With `--pousser`**, the worker pushes to the project repository with **its
+  own** git credentials — the ones used to clone —, never forced, never another
+  branch. It only does so if its operator started it with
+  `HIVE_LIVRAISON_POUSSER=1`: the repository and the diff come from the hub, and
+  the hive token sits on every member machine. And only the host asks for it
+  (hive token or administrator account): the operator consented for the hive,
+  not for every owner of a registered project. With no consenting worker the
+  request is refused **before** any work, with that fix spelled out. A refusal
+  from the remote comes back stripped of any credential, and the branch stays on
+  the worker.
+
 ## 👑 The Queen replies — talking to the hive
 
 Every member (project owner and node holder alike) can ask the hive questions

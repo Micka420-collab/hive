@@ -142,6 +142,20 @@ export function laverIdentifiants(url: string | null): string | null {
 }
 
 /**
+ * Retire les identifiants de TOUTE URL qui traîne dans un texte libre.
+ *
+ * `laverIdentifiants` lave une URL qu'on tient ; un message d'erreur de git en
+ * CONTIENT, au milieu d'une phrase (« fatal: unable to access
+ * 'https://user:ghp_…@hote/depot/' »). Git masque parfois lui-même, pas
+ * toujours, et pas dans toutes ses versions : un échec de poussée remonté tel
+ * quel au hub diffuserait le jeton du nœud à tout le tableau de bord. Tout ce
+ * qui précède l'arobase d'un « schéma://…@ » part, remplacé par `***`.
+ */
+export function laverIdentifiantsDuTexte(texte: string): string {
+  return texte.replace(/([A-Za-z][A-Za-z0-9+.-]*:\/\/)[^/?#\s@'"]+@/g, '$1***@');
+}
+
+/**
  * L'instantané tel que l'essaim le reçoit : le même, sans les identifiants des
  * dépôts. Construit de NOUVEAUX objets — l'instantané du magasin n'est pas
  * touché.

@@ -4,7 +4,7 @@
 // temps réel via le snapshot WS reçu en props.
 
 import { useEffect, useMemo, useState } from 'react';
-import { nomDeLivraison, suffixeEnVol, verdictDesTests } from './projets-rendu';
+import { nomDeLivraison, suffixeEnVol } from './projets-rendu';
 import {
   addTasks,
   admettreMembre,
@@ -20,7 +20,6 @@ import {
   fetchMembresProjet,
   fetchMergePlan,
   fetchPartages,
-  fetchMergeResult,
   fetchProjetsOuverts,
   fetchReport,
   importerDepotGithub,
@@ -42,7 +41,6 @@ import type {
   IssueConseil,
   IssueVue,
   LivraisonVue,
-  MergeRunResult,
   NewTaskInput,
   PartageCree,
   PlanResponse,
@@ -58,6 +56,9 @@ import { OnboardingEssaim } from '../OnboardingEssaim';
 import { GardeFous } from '../GardeFous';
 import { Honeycomb, useApiPoll } from './shared';
 import type { ViewProps } from './shared';
+import { argv, useSuiviMerge } from './suivi-merge';
+import { LivraisonMission } from './LivraisonMission';
+import { MergeReport } from './MergeReport';
 import { sansIdentifiants } from '../../../src/shared/projet-public';
 import type { Project, Task, TaskStatus } from '../../../src/shared/types';
 import './projets.css';
@@ -290,72 +291,8 @@ function QueenBee({ projects }: { projects: Project[] }) {
 
 // ─── Plan de merge Honeycomb : analyse + exécution réelle suivie ─────────────
 
-const MERGE_POLL_MS = 3_000; // suivi d'une action utilisateur, borné à 2 min
+/** Suivi d'une action utilisateur (cf. `useSuiviMerge`), borné à 2 min. */
 const MERGE_TIMEOUT_MS = 120_000;
-
-type RunState =
-  | { phase: 'idle' }
-  | { phase: 'starting' }
-  | { phase: 'polling'; mergeId: string; since: number }
-  | { phase: 'done'; result: MergeRunResult }
-  | { phase: 'timeout' }
-  | { phase: 'error'; message: string };
-
-function MergeReport({
-  result,
-  taskTitles,
-}: {
-  result: MergeRunResult;
-  taskTitles: Map<string, string>;
-}) {
-  const t = useT();
-  // L'ENVIRONNEMENT EN ÉCHEC N'EST PAS UN TEST ROUGE. Les tests n'ont alors pas
-  // tourné du tout : afficher « tests non lancés » sans dire pourquoi enverrait
-  // chercher une régression dans du code qui va très bien.
-  const envRate = result.preparedOk === false;
-  // Les CINQ issues vivent dans `verdictDesTests`, pure et éprouvée : ce
-  // message est lu pour décider de fusionner, et son mutant le plus grave
-  // annonce « ✔ tests verts » sur une suite rouge.
-  const tests = verdictDesTests(result, t);
-  return (
-    <div className="pj-merge-report">
-      <p>
-        <strong>{result.applied.length}</strong> {t('diff(s) appliqué(s),', 'diff(s) applied,')}{' '}
-        <strong>{result.conflicts.length}</strong> {t('conflit(s)', 'conflict(s)')} — {tests}
-      </p>
-      {envRate && (
-        <p className="panel-error">
-          {t(
-            'L’installation des dépendances a échoué sur le nœud : le code n’est pas en cause. Vérifiez son accès réseau, puis le fichier de verrouillage du dépôt.',
-            'Dependency installation failed on the node: the code is not at fault. Check its network access, then the repository lockfile.',
-          )}
-        </p>
-      )}
-      {result.applied.length > 0 && (
-        <ul className="pj-applied">
-          {result.applied.map((id) => (
-            <li key={id}>✔ {taskTitles.get(id) ?? id}</li>
-          ))}
-        </ul>
-      )}
-      {result.conflicts.length > 0 && (
-        <ul className="pj-conf-list">
-          {result.conflicts.map((c) => (
-            <li key={c.taskId}>
-              <strong>{taskTitles.get(c.taskId) ?? c.taskId}</strong> — {c.reason}
-            </li>
-          ))}
-        </ul>
-      )}
-      {result.logs && (
-        <details className="pj-report-detail">
-          <summary>{t('Journal du merge', 'Merge log')}</summary>
-          <pre className="code-block scroll">{result.logs}</pre>
-        </details>
-      )}
-    </div>
-  );
-}
 
 function MergePanel({
   project,
@@ -372,44 +309,16 @@ function MergePanel({
   const [testCmd, setTestCmd] = useState('');
   const [prepCmd, setPrepCmd] = useState('');
   const [confirming, setConfirming] = useState(false);
-  const [run, setRun] = useState<RunState>({ phase: 'idle' });
+  // Suivi du merge lancé : relevé toutes les 3 s, abandon après 2 min.
+  const { suivi: run, lancer } = useSuiviMerge(project.id, MERGE_TIMEOUT_MS);
   const busyRun = run.phase === 'starting' || run.phase === 'polling';
 
   const launch = () => {
     setConfirming(false);
-    setRun({ phase: 'starting' });
-    const argv = (s: string) => (s.trim() ? s.trim().split(/\s+/) : undefined);
-    runMerge(project.id, { testCommand: argv(testCmd), prepareCommand: argv(prepCmd) })
-      .then((start) => setRun({ phase: 'polling', mergeId: start.mergeId, since: Date.now() }))
-      .catch((e: unknown) => setRun({ phase: 'error', message: errMsg(e) }));
+    lancer(() =>
+      runMerge(project.id, { testCommand: argv(testCmd), prepareCommand: argv(prepCmd) }),
+    );
   };
-
-  // Suivi du merge lancé : relevé toutes les 3 s, abandon après 2 min.
-  useEffect(() => {
-    if (run.phase !== 'polling') return;
-    const { mergeId, since } = run;
-    let alive = true;
-    const id = window.setInterval(() => {
-      if (Date.now() - since > MERGE_TIMEOUT_MS) {
-        window.clearInterval(id);
-        if (alive) setRun({ phase: 'timeout' });
-        return;
-      }
-      fetchMergeResult(project.id)
-        .then(({ result }) => {
-          if (!alive || !result || result.mergeId !== mergeId) return;
-          window.clearInterval(id);
-          setRun({ phase: 'done', result });
-        })
-        .catch(() => {
-          /* relevé raté : on retente au prochain battement */
-        });
-    }, MERGE_POLL_MS);
-    return () => {
-      alive = false;
-      window.clearInterval(id);
-    };
-  }, [run, project.id]);
 
   return (
     <section className="pj-sub">
@@ -1599,7 +1508,13 @@ export function IssuesProjet({ project }: { project: Project }) {
  *
  * EXPORTÉ POUR ÊTRE RENDU EN TEST — même raison que `IssuesProjet`.
  */
-export function LivraisonsProjet({ project }: { project: Project }) {
+export function LivraisonsProjet({
+  project,
+  taskTitles,
+}: {
+  project: Project;
+  taskTitles?: Map<string, string>;
+}) {
   const t = useT();
   const [livraisons, setLivraisons] = useState<LivraisonVue[] | null>(null);
   const [chargement, setChargement] = useState(false);
@@ -1688,6 +1603,11 @@ export function LivraisonsProjet({ project }: { project: Project }) {
           ))}
         </ul>
       )}
+
+      {/* Sans GitHub : la mission ENTIÈRE, commitée sur une branche du dépôt.
+          Un composant à part — il suit son merge en scrutant la Reine, et ce
+          panneau-ci ne sonde jamais (quota GitHub de l'hôte). */}
+      <LivraisonMission project={project} taskTitles={taskTitles} />
     </div>
   );
 }
@@ -1838,7 +1758,7 @@ function ProjectCard({
           et ce qu'il devient. Les deux lisent chez GitHub, donc les deux
           attendent qu'on le demande — voir plus haut. */}
       <IssuesProjet project={project} />
-      <LivraisonsProjet project={project} />
+      <LivraisonsProjet project={project} taskTitles={taskTitles} />
 
       {/* Le Conseil en dernier : c'est une lecture de délibération, pas un
           geste. Il ne s'affiche que si ce projet a délibéré. */}
