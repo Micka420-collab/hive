@@ -176,6 +176,7 @@ beforeEach(() => {
   dossier = mkdtempSync(path.join(os.tmpdir(), 'hive-faux-moteur-'));
 });
 afterEach(() => {
+  vi.restoreAllMocks();
   rmSync(dossier, { recursive: true, force: true });
 });
 
@@ -245,6 +246,42 @@ describe.skipIf(!surPosix)('preparerImage — trois pannes, trois motifs', () =>
     expect(r.executable).toBe(false);
     expect(r.motif).toMatch(/toujours en cours/);
     expect(r.motif).toContain('pull ghcr.io/x/agent:1');
+  });
+
+  it('Podman rootless prépare l’image à l’UID du nœud AVANT le preflight de l’agent, et le dit si ça dure', async () => {
+    // Le premier `--userns=keep-id` copie les couches de l'image : mesuré en CI,
+    // plus que les 30 s du preflight de l'agent, qui expirait.
+    vi.spyOn(process, 'getuid').mockReturnValue(1001);
+    const { moteur, appels } = fauxMoteur(
+      'podman',
+      `'image inspect') echo sha256:abc ;;\n'run --rm') sleep 4 ;;`,
+    );
+    const dit: string[] = [];
+    const r = await preparerImage(moteur, IMAGE_DEFAUT, { informer: (l) => dit.push(l) });
+    expect(r).toEqual({ executable: true, motif: 'image présente dans podman' });
+    expect(appels()[1]).toBe(`run --rm --pull=never --userns=keep-id ${IMAGE_DEFAUT} true`);
+    expect(dit.join('\n')).toMatch(/pour l'UID de ce nœud \(podman --userns=keep-id/);
+  }, 15_000);
+
+  it('une préparation keep-id qui n’aboutit pas se dit « en cours », pas « agent absent »', async () => {
+    vi.spyOn(process, 'getuid').mockReturnValue(1001);
+    const { moteur } = fauxMoteur(
+      'podman',
+      `'image inspect') echo sha256:abc ;;\n'run --rm') sleep 5 ;;`,
+    );
+    const r = await preparerImage(moteur, IMAGE_DEFAUT, {
+      informer: () => {},
+      telechargementMs: 200,
+    });
+    expect(r.executable).toBe(false);
+    expect(r.motif).toMatch(/toujours en cours .*podman --userns=keep-id/);
+  });
+
+  it('Docker, lui, n’a rien à préparer', async () => {
+    vi.spyOn(process, 'getuid').mockReturnValue(1001);
+    const { moteur, appels } = fauxMoteur('docker', `'image inspect') echo sha256:abc ;;`);
+    expect((await preparerImage(moteur, IMAGE_DEFAUT)).executable).toBe(true);
+    expect(appels()).toHaveLength(1);
   });
 
   it('un démon arrêté se dit injoignable, en citant le moteur', async () => {

@@ -134,9 +134,11 @@ describe('isolement — les arguments d’un conteneur', () => {
     const { args } = enveloppe(PODMAN);
     expect(args.some((a) => a.startsWith('--user='))).toBe(true);
     expect(args).not.toContain('--user=0:0');
-    const uid =
-      typeof process.getuid === 'function' && process.getuid() > 0 ? process.getuid() : 1000;
-    expect(args).toContain(`--user=${uid}:${uid}`);
+    // Le GID est celui du nœud, pas une copie de l'UID : sous macOS, 501:20.
+    const racine = typeof process.getuid !== 'function' || process.getuid() === 0;
+    const uid = racine ? 1000 : process.getuid!();
+    const gid = racine ? 1000 : process.getgid!() || uid;
+    expect(args).toContain(`--user=${uid}:${gid}`);
   });
 
   it('borne mémoire, processus et CPU', () => {

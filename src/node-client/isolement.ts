@@ -411,7 +411,7 @@ function enveloppeConteneur(
     // la tâche ni sur la socket du pont MCP (0600). `keep-id` fait coïncider
     // l'UID du conteneur avec celui du nœud. Podman le refuse en root (il n'y a
     // rien à garder) : un nœud root garde l'abaissement explicite à 1000.
-    ...(opts.fournisseur.bin === 'podman' && hote.rootless ? ['--userns=keep-id'] : []),
+    ...(opts.fournisseur.nom === 'podman' && hote.rootless ? ['--userns=keep-id'] : []),
     `--user=${uid}:${gid}`,
 
     // ── Ce qui est borné ───────────────────────────────────────────────────
@@ -1094,7 +1094,7 @@ export async function preparerImage(
     { cwd, timeoutMs: opts.inspectionMs ?? INSPECTION_MAX_MS, garderErreurs: true },
   );
   if (inspection.issue === 'sortie' && inspection.code === 0) {
-    return { executable: true, motif: `image présente dans ${fournisseur.nom}` };
+    return preparerIdentite(fournisseur, image, opts, `image présente dans ${fournisseur.nom}`);
   }
   if (inspection.issue !== 'sortie') {
     return echec(`${fournisseur.nom} ne répond pas (inspection de l'image ${inspection.issue})`);
@@ -1120,7 +1120,7 @@ export async function preparerImage(
     { cwd, timeoutMs: delai, garderErreurs: true },
   );
   if (tirage.issue === 'sortie' && tirage.code === 0) {
-    return { executable: true, motif: `image téléchargée dans ${fournisseur.nom}` };
+    return preparerIdentite(fournisseur, image, opts, `image téléchargée dans ${fournisseur.nom}`);
   }
   if (tirage.issue === 'expiree') {
     return echec(
@@ -1131,6 +1131,62 @@ export async function preparerImage(
   return echec(
     `image introuvable pour ${fournisseur.nom}${tirage.issue === 'sortie' ? citation(tirage.erreurs) : ''}`,
   );
+}
+
+/** Au-delà de ce délai, une préparation silencieuse se dit : l'humain ne voit plus un nœud figé. */
+const PREPARATION_ANNONCEE_MS = 3_000;
+
+/**
+ * Podman rootless : prépare, UNE fois par image, la copie de ses couches à
+ * l'UID du nœud — hors du délai du preflight de l'agent.
+ *
+ * ─── LE PREMIER `--userns=keep-id` COPIE L'IMAGE ─────────────────────────────
+ *
+ * Sans montages à identifiants traduits, Podman rootless réécrit la propriété
+ * de chaque couche pour l'espace de noms de `keep-id` au premier lancement,
+ * puis la garde en cache. Mesuré en CI (Podman 4.9, image des agents) : plus
+ * que les 30 s du preflight de l'agent, qui expirait — « preflight expiré »,
+ * repli en processus, et un nœud qui ne s'isolait qu'au démarrage SUIVANT. La
+ * préparation se fait donc ici, sous le délai d'un téléchargement ; elle est
+ * annoncée si elle dure. Une autre panne que l'expiration n'est pas jugée ici :
+ * le preflight de l'agent, qui suit, la dira avec les mots du moteur.
+ */
+async function preparerIdentite(
+  fournisseur: Fournisseur,
+  image: string,
+  opts: { informer?: (ligne: string) => void; telechargementMs?: number },
+  motif: string,
+): Promise<ResultatPreflightAgent> {
+  if (fournisseur.nom !== 'podman' || !identiteNonPrivilegiee().rootless) {
+    return { executable: true, motif };
+  }
+  const delai = opts.telechargementMs ?? TELECHARGEMENT_MAX_MS;
+  const annonce = setTimeout(
+    () =>
+      (opts.informer ?? console.log)(
+        `   Préparation de l'image ${image} pour l'UID de ce nœud (podman --userns=keep-id, ` +
+          `une fois par image, jusqu'à ${Math.round(delai / 60_000)} min)…`,
+      ),
+    PREPARATION_ANNONCEE_MS,
+  );
+  annonce.unref?.();
+  const r = await eprouver(
+    {
+      bin: fournisseur.bin,
+      args: ['run', '--rm', '--pull=never', '--userns=keep-id', image, 'true'],
+    },
+    { cwd: tmpdir(), timeoutMs: delai },
+  );
+  clearTimeout(annonce);
+  if (r.issue === 'expiree') {
+    return {
+      executable: false,
+      motif:
+        `préparation de l'image pour l'UID de ce nœud toujours en cours après ` +
+        `${Math.round(delai / 60_000)} min (podman --userns=keep-id) — relancez le nœud`,
+    };
+  }
+  return { executable: true, motif };
 }
 
 /**

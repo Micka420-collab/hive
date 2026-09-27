@@ -106,7 +106,8 @@ describe('isolement — intégration runtime réel', () => {
       const absent = await sonderAgentDansBac(runtime!, 'hive-agent-inexistant', image);
       expect(absent.executable).toBe(false);
     },
-    120_000,
+    // Sous Podman rootless, le premier `keep-id` copie l'image (`preparerImage`).
+    300_000,
   );
 
   it.skipIf(!runtime || !imageDemandee)(

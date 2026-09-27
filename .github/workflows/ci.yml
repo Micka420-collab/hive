@@ -707,11 +707,18 @@ jobs:
             podman run --rm --init --pull=never hive-agent:ci true
           fi
 
+      # Deux lancements, dans cet ordre, et pas en parallèle : le premier
+      # `--userns=keep-id` copie les couches de l'image à l'UID du runner
+      # (`preparerImage`, éprouvé par le premier banc), et Podman tient son
+      # stockage verrouillé pendant ce temps — les sondes du scénario V2
+      # (`podman info`, 8 s) expireraient derrière lui.
       - name: Preflight Hive réel de l’image agent-aware (Podman rootless)
         env:
           HIVE_ISOLEMENT_IMAGE: hive-agent:ci
           HIVE_TEST_MOTEUR: podman
-        run: npm test -- --run tests/isolement-runtime.integration.test.ts tests/v2-alpha-scenario.test.ts
+        run: |
+          npm test -- --run tests/isolement-runtime.integration.test.ts
+          npm test -- --run tests/v2-alpha-scenario.test.ts
 
       - name: Arrêter
         if: always()
