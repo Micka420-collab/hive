@@ -235,6 +235,45 @@ describe('deux dialogues empilés : seul celui du dessus écoute', () => {
   });
 });
 
+describe('la pile ne donne le clavier qu’à un dialogue À L’ÉCRAN', () => {
+  // Un crochet appelé au niveau d'une vue toujours montée (la Chambre le
+  // faisait) entre dans la pile sans dialogue ouvert. Au sommet, il gardait
+  // le clavier pour un conteneur absent : le dialogue réellement ouvert
+  // dessous ne fermait plus sur Échap et ne gardait plus Tab.
+  function SansDialogue({ onClose }: { onClose: () => void }) {
+    useDialog<HTMLDivElement>(onClose);
+    return <p>une vue, pas de dialogue ouvert</p>;
+  }
+
+  it('UN CROCHET SANS CONTENEUR MONTÉ AU-DESSUS NE VOLE NI ÉCHAP NI TAB', () => {
+    const fermer = vi.fn();
+    const fantome = vi.fn();
+    function Page() {
+      const [vue, setVue] = useState(false);
+      return (
+        <>
+          <Dialogue nom="tiroir" onClose={fermer}>
+            <button onClick={() => setVue(true)}>tiroir-début</button>
+            <button>tiroir-fin</button>
+          </Dialogue>
+          {vue && <SansDialogue onClose={fantome} />}
+        </>
+      );
+    }
+    const dom = monter(<Page />);
+    // La vue monte APRÈS le tiroir : son crochet se pose au-dessus de lui.
+    act(() => par(dom, 'tiroir-début').click());
+
+    focaliser(par(dom, 'tiroir-fin'));
+    expect(taper('Tab'), 'Tab sort du tiroir').toBe(true);
+    expect(document.activeElement?.textContent).toBe('tiroir-début');
+
+    taper('Escape');
+    expect(fermer, 'le tiroir ouvert ne ferme plus sur Échap').toHaveBeenCalledTimes(1);
+    expect(fantome, 'Échap est allé à un dialogue qui n’est pas à l’écran').not.toHaveBeenCalled();
+  });
+});
+
 describe('« Inviter » est un dialogue comme les autres', () => {
   // Il fermait sur Échap avec son propre écouteur, sans rien faire du focus.
   beforeEach(() => {

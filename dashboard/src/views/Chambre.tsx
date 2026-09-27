@@ -10,6 +10,7 @@
 
 import './chambre.css';
 import { useEffect, useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import {
   ajouterHorizon,
   appliquerMotif,
@@ -129,6 +130,49 @@ function CheminConstate({
   );
 }
 
+/**
+ * Le cadre d'un dialogue de la Chambre, dans un composant À LUI — la règle de
+ * `CadreInvitation` (InvitePanel.tsx) : `useDialog` agit au montage et au
+ * démontage, il doit vivre le temps de l'OUVERTURE, pas celui de la vue.
+ *
+ * Appelé au niveau de la vue, toujours montée, le crochet prenait place dans
+ * la pile des dialogues dès l'arrivée sur la page, dialogue ouvert ou non :
+ * le dialogue du secret ne fermait plus sur Échap et laissait Tab filer sous
+ * le voile, un tiroir ouvert AVANT d'entrer dans la Chambre perdait le
+ * clavier, et aucun des deux dialogues ne recevait le focus ni ne le rendait.
+ *
+ * Le clic s'arrête au cadre, comme dans les autres dialogues : il remontait
+ * jusqu'au voile, qui ferme — cliquer dans le champ du secret refermait le
+ * dialogue du secret.
+ */
+function DialogueChambre({
+  classe,
+  titreId,
+  onClose,
+  children,
+}: {
+  classe: string;
+  titreId: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const ref = useDialog<HTMLDivElement>(onClose);
+  return (
+    <Voile onClose={onClose}>
+      <div
+        ref={ref}
+        className={classe}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titreId}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {children}
+      </div>
+    </Voile>
+  );
+}
+
 function evenementsDuNoeud(events: HiveEvent[], nodeId: string, tasks: Task[]): HiveEvent[] {
   const taskIds = new Set(tasks.map((t) => t.id));
   return events
@@ -209,8 +253,6 @@ export default function Chambre({
     setGrantSecret('');
     setGrantEnvVar('');
   };
-  const grantDialogRef = useDialog<HTMLDivElement>(fermerGrant);
-  const motifConfirmRef = useDialog<HTMLDivElement>(() => setMotifConfirm(null));
 
   const rafraichir = () => {
     if (!nodeId) return;
@@ -1486,192 +1528,178 @@ export default function Chambre({
       </div>
 
       {grantReq || grantCatalogue ? (
-        <Voile onClose={fermerGrant}>
-          <div
-            ref={grantDialogRef}
-            className="ch-grant-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="ch-grant-titre"
-          >
-            <h3 id="ch-grant-titre">
-              {grantCatalogue
-                ? t('Ajouter une clé API', 'Add an API key')
-                : t('Accorder la clé', 'Grant the key')}
-            </h3>
-            <p className="ch-silence">{grantCatalogue?.libelle ?? grantReq!.libelle}</p>
-            {grantCatalogue?.hint ? (
-              <p className="ch-silence muted-text">{grantCatalogue.hint}</p>
-            ) : null}
-            <p className="ch-silence muted-text">
-              {t(
-                'Écrit sur la Queen (.env) — jamais en base ni sur le journal. Mono-machine : le nœud local recharge ce fichier à la reprise. Nœud distant / Cursor sur une autre machine : posez aussi la clé sur CE poste (CURSOR_API_KEY, etc.) — la Queen ne pousse pas de secrets aux ouvrières.',
-                'Written on the Queen (.env) — never in the DB or journal. Single-machine: the local node reloads this file on resume. Remote node / Cursor on another machine: also set the key on THAT host (CURSOR_API_KEY, etc.) — the Queen never pushes secrets to workers.',
-              )}
-            </p>
-            <label className="ch-grant-field">
-              <span>{t('Variable .env Queen', 'Queen .env variable')}</span>
-              <input
-                type="text"
-                value={grantEnvVar}
-                onChange={(e) => {
-                  // Réquisition HITL : le nom est dérivé du libellé (serveur
-                  // refuse tout autre). Catalogue « Autre » : libre.
-                  if (grantReq) return;
-                  setGrantEnvVar(e.target.value);
-                }}
-                readOnly={Boolean(grantReq)}
-                aria-readonly={grantReq ? true : undefined}
-                autoComplete="off"
-                spellCheck={false}
-                placeholder={grantCatalogue && !grantCatalogue.envVar ? 'GROQ_API_KEY' : undefined}
-              />
-            </label>
-            <p className="ch-silence muted-text">
-              {grantReq
+        <DialogueChambre classe="ch-grant-dialog" titreId="ch-grant-titre" onClose={fermerGrant}>
+          <h3 id="ch-grant-titre">
+            {grantCatalogue
+              ? t('Ajouter une clé API', 'Add an API key')
+              : t('Accorder la clé', 'Grant the key')}
+          </h3>
+          <p className="ch-silence">{grantCatalogue?.libelle ?? grantReq!.libelle}</p>
+          {grantCatalogue?.hint ? (
+            <p className="ch-silence muted-text">{grantCatalogue.hint}</p>
+          ) : null}
+          <p className="ch-silence muted-text">
+            {t(
+              'Écrit sur la Queen (.env) — jamais en base ni sur le journal. Mono-machine : le nœud local recharge ce fichier à la reprise. Nœud distant / Cursor sur une autre machine : posez aussi la clé sur CE poste (CURSOR_API_KEY, etc.) — la Queen ne pousse pas de secrets aux ouvrières.',
+              'Written on the Queen (.env) — never in the DB or journal. Single-machine: the local node reloads this file on resume. Remote node / Cursor on another machine: also set the key on THAT host (CURSOR_API_KEY, etc.) — the Queen never pushes secrets to workers.',
+            )}
+          </p>
+          <label className="ch-grant-field">
+            <span>{t('Variable .env Queen', 'Queen .env variable')}</span>
+            <input
+              type="text"
+              value={grantEnvVar}
+              onChange={(e) => {
+                // Réquisition HITL : le nom est dérivé du libellé (serveur
+                // refuse tout autre). Catalogue « Autre » : libre.
+                if (grantReq) return;
+                setGrantEnvVar(e.target.value);
+              }}
+              readOnly={Boolean(grantReq)}
+              aria-readonly={grantReq ? true : undefined}
+              autoComplete="off"
+              spellCheck={false}
+              placeholder={grantCatalogue && !grantCatalogue.envVar ? 'GROQ_API_KEY' : undefined}
+            />
+          </label>
+          <p className="ch-silence muted-text">
+            {grantReq
+              ? t(
+                  'Nom fixé par le libellé de la réquisition — non modifiable (évite d’écraser HIVE_*).',
+                  'Name fixed by the requisition label — not editable (avoids overwriting HIVE_*).',
+                )
+              : grantCatalogue && !grantCatalogue.envVar
                 ? t(
-                    'Nom fixé par le libellé de la réquisition — non modifiable (évite d’écraser HIVE_*).',
-                    'Name fixed by the requisition label — not editable (avoids overwriting HIVE_*).',
+                    'Choisissez un nom UPPER_SNAKE (hors préfixe HIVE_).',
+                    'Pick an UPPER_SNAKE name (not HIVE_*).',
                   )
-                : grantCatalogue && !grantCatalogue.envVar
-                  ? t(
-                      'Choisissez un nom UPPER_SNAKE (hors préfixe HIVE_).',
-                      'Pick an UPPER_SNAKE name (not HIVE_*).',
-                    )
-                  : null}
-            </p>
-            <label className="ch-grant-field">
-              <span>{t('Clé (secret)', 'Key (secret)')}</span>
-              <input
-                type="password"
-                value={grantSecret}
-                onChange={(e) => setGrantSecret(e.target.value)}
-                autoComplete="off"
-              />
-            </label>
-            <div className="ch-grant-actions">
-              <button type="button" className="btn ghost" onClick={fermerGrant}>
-                {t('Annuler', 'Cancel')}
-              </button>
-              <button
-                type="button"
-                className="btn primary"
-                disabled={
-                  busyCle ||
-                  busyReqId === (grantReq?.id ?? '') ||
-                  grantSecret.trim() === '' ||
-                  grantEnvVar.trim() === ''
-                }
-                aria-busy={busyCle || busyReqId === (grantReq?.id ?? '')}
-                onClick={() => {
-                  const secret = grantSecret;
-                  const envVar = grantEnvVar.trim();
-                  if (grantCatalogue) {
-                    setBusyCle(true);
-                    setErrCles(null);
-                    void poserQueenCle({
-                      secret,
-                      envVar,
-                      libelle: grantCatalogue.libelle,
-                    })
-                      .then((r) => {
-                        setStatusCles(t(`Clé posée · ${r.envVar}`, `Key saved · ${r.envVar}`));
-                        fermerGrant();
-                        void fetchQueenCles().then((res) => {
-                          setFournisseursCle(res.fournisseurs);
-                          const map: Record<string, boolean> = {};
-                          for (const p of res.presence) map[p.id] = p.presente;
-                          setPresenceCle(map);
-                        });
-                      })
-                      .catch((e) => {
-                        setErrCles(e instanceof Error ? e.message : String(e));
-                      })
-                      .finally(() => setBusyCle(false));
-                    return;
-                  }
-                  if (!grantReq) return;
-                  setBusyReqId(grantReq.id);
-                  setErrHitl(null);
-                  void repondreRequisition(grantReq.id, 'accordee', {
+                : null}
+          </p>
+          <label className="ch-grant-field">
+            <span>{t('Clé (secret)', 'Key (secret)')}</span>
+            <input
+              type="password"
+              value={grantSecret}
+              onChange={(e) => setGrantSecret(e.target.value)}
+              autoComplete="off"
+            />
+          </label>
+          <div className="ch-grant-actions">
+            <button type="button" className="btn ghost" onClick={fermerGrant}>
+              {t('Annuler', 'Cancel')}
+            </button>
+            <button
+              type="button"
+              className="btn primary"
+              disabled={
+                busyCle ||
+                busyReqId === (grantReq?.id ?? '') ||
+                grantSecret.trim() === '' ||
+                grantEnvVar.trim() === ''
+              }
+              aria-busy={busyCle || busyReqId === (grantReq?.id ?? '')}
+              onClick={() => {
+                const secret = grantSecret;
+                const envVar = grantEnvVar.trim();
+                if (grantCatalogue) {
+                  setBusyCle(true);
+                  setErrCles(null);
+                  void poserQueenCle({
                     secret,
-                    envVar: envVar || undefined,
+                    envVar,
+                    libelle: grantCatalogue.libelle,
                   })
-                    .then(() => {
-                      setStatusHitl(t('Accordée', 'Granted'));
+                    .then((r) => {
+                      setStatusCles(t(`Clé posée · ${r.envVar}`, `Key saved · ${r.envVar}`));
                       fermerGrant();
-                      rafraichir();
+                      void fetchQueenCles().then((res) => {
+                        setFournisseursCle(res.fournisseurs);
+                        const map: Record<string, boolean> = {};
+                        for (const p of res.presence) map[p.id] = p.presente;
+                        setPresenceCle(map);
+                      });
                     })
                     .catch((e) => {
-                      setErrHitl(e instanceof Error ? e.message : String(e));
+                      setErrCles(e instanceof Error ? e.message : String(e));
                     })
-                    .finally(() => setBusyReqId(null));
-                }}
-              >
-                {busyCle || busyReqId === (grantReq?.id ?? '')
-                  ? t('…', '…')
-                  : grantCatalogue
-                    ? t('Enregistrer', 'Save')
-                    : t('Accorder', 'Grant')}
-              </button>
-            </div>
+                    .finally(() => setBusyCle(false));
+                  return;
+                }
+                if (!grantReq) return;
+                setBusyReqId(grantReq.id);
+                setErrHitl(null);
+                void repondreRequisition(grantReq.id, 'accordee', {
+                  secret,
+                  envVar: envVar || undefined,
+                })
+                  .then(() => {
+                    setStatusHitl(t('Accordée', 'Granted'));
+                    fermerGrant();
+                    rafraichir();
+                  })
+                  .catch((e) => {
+                    setErrHitl(e instanceof Error ? e.message : String(e));
+                  })
+                  .finally(() => setBusyReqId(null));
+              }}
+            >
+              {busyCle || busyReqId === (grantReq?.id ?? '')
+                ? t('…', '…')
+                : grantCatalogue
+                  ? t('Enregistrer', 'Save')
+                  : t('Accorder', 'Grant')}
+            </button>
           </div>
-        </Voile>
+        </DialogueChambre>
       ) : null}
 
       {motifConfirm && poste?.projectId ? (
-        <Voile onClose={() => setMotifConfirm(null)}>
-          <div
-            ref={motifConfirmRef}
-            className="ch-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="ch-motif-confirm-titre"
-          >
-            <h3 id="ch-motif-confirm-titre">{t('Appliquer le motif ?', 'Apply motif?')}</h3>
-            <p>
-              {langCode === 'en' ? motifConfirm.libelleEn : motifConfirm.libelleFr}
-              {' · '}
-              {motifConfirm.etapes.length} {t('tâches chaînées', 'chained tasks')}
-            </p>
-            <ol className="ch-motif-etapes">
-              {motifConfirm.etapes.map((e) => (
-                <li key={e.id}>{langCode === 'en' ? e.titreEn : e.titreFr}</li>
-              ))}
-            </ol>
-            <div className="ch-dialog-actions">
-              <button type="button" className="btn ghost" onClick={() => setMotifConfirm(null)}>
-                {t('Annuler', 'Cancel')}
-              </button>
-              <button
-                type="button"
-                className="btn primary"
-                disabled={busyMotif === motifConfirm.id}
-                onClick={() => {
-                  const pid = poste.projectId!;
-                  setBusyMotif(motifConfirm.id);
-                  setErrMotif(null);
-                  void appliquerMotif(pid, motifConfirm.id, { lang: langCode })
-                    .then((r) => {
-                      const n = r.taskIds?.length ?? 0;
-                      setStatusMotif(
-                        t(`Motif appliqué · ${n} tâches`, `Motif applied · ${n} tasks`),
-                      );
-                      setMotifConfirm(null);
-                      setFiltre('pause');
-                      rafraichir();
-                    })
-                    .catch((e) => {
-                      setErrMotif(e instanceof Error ? e.message : String(e));
-                    })
-                    .finally(() => setBusyMotif(null));
-                }}
-              >
-                {t('Confirmer', 'Confirm')}
-              </button>
-            </div>
+        <DialogueChambre
+          classe="ch-dialog"
+          titreId="ch-motif-confirm-titre"
+          onClose={() => setMotifConfirm(null)}
+        >
+          <h3 id="ch-motif-confirm-titre">{t('Appliquer le motif ?', 'Apply motif?')}</h3>
+          <p>
+            {langCode === 'en' ? motifConfirm.libelleEn : motifConfirm.libelleFr}
+            {' · '}
+            {motifConfirm.etapes.length} {t('tâches chaînées', 'chained tasks')}
+          </p>
+          <ol className="ch-motif-etapes">
+            {motifConfirm.etapes.map((e) => (
+              <li key={e.id}>{langCode === 'en' ? e.titreEn : e.titreFr}</li>
+            ))}
+          </ol>
+          <div className="ch-dialog-actions">
+            <button type="button" className="btn ghost" onClick={() => setMotifConfirm(null)}>
+              {t('Annuler', 'Cancel')}
+            </button>
+            <button
+              type="button"
+              className="btn primary"
+              disabled={busyMotif === motifConfirm.id}
+              onClick={() => {
+                const pid = poste.projectId!;
+                setBusyMotif(motifConfirm.id);
+                setErrMotif(null);
+                void appliquerMotif(pid, motifConfirm.id, { lang: langCode })
+                  .then((r) => {
+                    const n = r.taskIds?.length ?? 0;
+                    setStatusMotif(t(`Motif appliqué · ${n} tâches`, `Motif applied · ${n} tasks`));
+                    setMotifConfirm(null);
+                    setFiltre('pause');
+                    rafraichir();
+                  })
+                  .catch((e) => {
+                    setErrMotif(e instanceof Error ? e.message : String(e));
+                  })
+                  .finally(() => setBusyMotif(null));
+              }}
+            >
+              {t('Confirmer', 'Confirm')}
+            </button>
           </div>
-        </Voile>
+        </DialogueChambre>
       ) : null}
     </div>
   );

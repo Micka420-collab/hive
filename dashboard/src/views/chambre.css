@@ -1,7 +1,15 @@
 /* Chambre — fidèle à la maquette produit (miel / crème, poste ouvrière ADR 0010).
    Pas de thème sombre Delos. Absences = silence. */
 
-.ch-view {
+/* La palette de la Chambre, posée sur CHAQUE racine de ses surfaces — la vue,
+   et ses deux dialogues. Ceux-ci passent par `Voile`, qui les monte à la racine
+   du document : hors de `.ch-view`, un `--ch-…` ne se résolvait jamais, et le
+   dialogue du secret s'affichait sans fond ni bordure, transparent sur le
+   voile. Un nouveau dialogue de la Chambre s'ajoute à cette liste
+   (garde : tests/dashboard-feuilles.test.ts, « surfaces portées »). */
+.ch-view,
+.ch-grant-dialog,
+.ch-dialog {
   --ch-creme: #fdf8f0;
   --ch-papier: #fffdf8;
   --ch-miel: #f2b441;
@@ -11,7 +19,9 @@
   --ch-ligne: color-mix(in srgb, var(--ch-miel) 28%, #e8dfd0);
   --ch-ombre: 0 10px 28px color-mix(in srgb, var(--ch-encre) 6%, transparent);
   --ch-rayon: 12px;
+}
 
+.ch-view {
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -1063,13 +1073,12 @@ button.ch-lien-chemin:focus-visible {
   max-width: 100%;
 }
 
-/* Les jetons GLOBAUX, pas ceux de `.ch-view` : ce dialogue passe par `Voile`,
-   qui le monte à la racine du document. Hors de `.ch-view`, un `--ch-…` ne se
-   résout jamais — c'est pourquoi il lisait `--ch-cream`/`--ch-honey`, deux
-   jetons que personne n'a posés, et vivait de leurs seuls replis. */
+/* Il lisait `--ch-cream`/`--ch-honey`, deux jetons que personne n'a posés, et
+   vivait de leurs seuls replis : la crème et le miel de la palette, que la
+   racine du dialogue porte désormais (voir `.ch-view` en tête de feuille). */
 .ch-dialog {
-  background: var(--panel);
-  border: 1px solid var(--miel);
+  background: var(--ch-creme);
+  border: 1px solid var(--ch-miel);
   border-radius: 12px;
   padding: 1rem 1.25rem;
   max-width: 28rem;

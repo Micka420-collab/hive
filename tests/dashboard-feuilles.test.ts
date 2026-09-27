@@ -2,7 +2,7 @@
 //
 // ─── POURQUOI CE FICHIER ─────────────────────────────────────────────────────
 //
-// `tsc`, ESLint et Vitest ne lisent pas une cascade CSS. Cinq défauts y
+// `tsc`, ESLint et Vitest ne lisent pas une cascade CSS. Six défauts y
 // vivaient donc en paix, tous visibles à l'écran et tous invisibles à la CI :
 //
 //   · QUINZE jetons lus sans jamais avoir été posés (`var(--text-muted, #aaa)`,
@@ -18,7 +18,11 @@
 //     à la main, règle par règle — le tiroir, les modales, le graphe d'essaim
 //     et presque toutes les transitions y avaient échappé ;
 //   · `.mc-sidebar-brand` déclarée DEUX fois, en ligne puis en colonne, parce
-//     que la marque et le nom qu'elle contient portaient la même classe.
+//     que la marque et le nom qu'elle contient portaient la même classe ;
+//   · le dialogue du secret de la Chambre, monté par `Voile` hors de
+//     `.ch-view`, lisait des jetons `--ch-…` qui n'existent QUE dans `.ch-view` :
+//     sans fond ni bordure, il flottait transparent sur le voile. La garde 1
+//     ne pouvait pas le voir — le jeton était bien posé, mais ailleurs.
 //
 // Chaque garde ci-dessous rougissait sur l'arbre d'avant ce lot. Les cas
 // « LE RELEVÉ TROUVE… » et « …ET CETTE FEUILLE-LÀ » passaient déjà : ils ne
@@ -302,5 +306,86 @@ describe('la marque de la barre', () => {
     );
     expect(declarees.length).toBe(1);
     expect(declarations(declarees[0]?.corps ?? '').get('flex-direction')).toBeUndefined();
+  });
+});
+
+// ─── 6. UN DIALOGUE MONTÉ PAR `Voile` NE LIT PAS LES JETONS D'UNE VUE ────────
+
+describe('les dialogues portés hors de leur vue', () => {
+  // `Voile` monte chaque modale à la racine du document (ui.tsx) : elle n'est
+  // plus la descendante de sa vue. Un jeton posé sur la RACINE d'une vue
+  // (`.ch-view { --ch-papier: … }`) n'y existe donc pas, et la déclaration qui
+  // le lit tombe à sa valeur initiale — fond transparent, aucune bordure.
+  //
+  // Le relevé est statique, donc approché : les classes écrites en dur dans un
+  // `<Voile>` — ou dans un composant qui rend `<Voile>` (ses `className` et un
+  // `classe="…"` passé en prop) — sont celles d'une surface portée. Une règle
+  // dont TOUTES les classes en sont ne peut lire qu'un jeton de `:root`, ou
+  // un jeton qu'une règle portée pose elle-même (une vue qui reprend sa palette
+  // sur la racine de ses dialogues).
+  const sources = fichiers()
+    .filter((f) => f.endsWith('.tsx'))
+    .map((f) => sansCommentaires(lire(f)));
+
+  /** `Voile`, et chaque composant dont le corps rend un `<Voile>`. */
+  const porteurs = new Set(['Voile']);
+  for (const src of sources) {
+    for (const m of src.matchAll(
+      /function (\w+)\([\s\S]*?(?=\n(?:export )?(?:default )?function |$)/g,
+    )) {
+      if (m[1] !== undefined && m[1] !== 'Voile' && m[0].includes('<Voile')) porteurs.add(m[1]);
+    }
+  }
+
+  /** Les classes écrites entre `<Porteur …>` et `</Porteur>`, plus le voile lui-même. */
+  const portees = new Set(['modal-backdrop']);
+  for (const src of sources) {
+    for (const porteur of porteurs) {
+      for (const ouvre of src.matchAll(new RegExp(`<${porteur}[\\s>]`, 'g'))) {
+        const ferme = src.indexOf(`</${porteur}>`, ouvre.index);
+        if (ferme < 0) continue; // `<Porteur … />` : rien d'écrit dedans ici.
+        for (const m of src.slice(ouvre.index, ferme).matchAll(/(?:className|classe)="([^"]+)"/g)) {
+          for (const classe of (m[1] ?? '').split(/\s+/)) portees.add(classe);
+        }
+      }
+    }
+  }
+
+  const aplatir = (regles: Regle[]): Regle[] =>
+    regles.flatMap((r) => (r.enfants !== undefined ? aplatir(r.enfants) : [r]));
+  const regles = fichiers()
+    .filter((f) => f.endsWith('.css'))
+    .flatMap((f) => aplatir(analyser(sansCommentaires(lire(f)))).map((r) => ({ ...r, f })));
+  const posesPar = (r: Regle): string[] =>
+    [...(r.corps ?? '').matchAll(/(?:^|[{;\s])(--[\w-]+)\s*:/g)].map((m) => m[1] ?? '');
+  const portee = (selecteur: string): boolean => {
+    const classes = [...selecteur.matchAll(/\.([\w-]+)/g)].map((m) => m[1] ?? '');
+    return classes.length > 0 && classes.every((c) => portees.has(c));
+  };
+
+  const globaux = new Set(
+    regles.filter((r) => selecteurs(r).some((s) => s.startsWith(':root'))).flatMap(posesPar),
+  );
+  const reposes = new Set(regles.filter((r) => selecteurs(r).some(portee)).flatMap(posesPar));
+
+  it('LE RELEVÉ TROUVE LES SURFACES PORTÉES — sinon la garde est creuse', () => {
+    for (const classe of ['modal', 'modal-backdrop', 'ch-grant-dialog', 'ch-dialog']) {
+      expect(portees.has(classe), `« ${classe} » n'est plus vue comme portée par \`Voile\``).toBe(
+        true,
+      );
+    }
+    expect(globaux.has('--panel'), 'les jetons de `:root` ne sont plus relevés').toBe(true);
+  });
+
+  it('AUCUNE RÈGLE D’UNE SURFACE PORTÉE NE LIT UN JETON RESTÉ DANS SA VUE', () => {
+    const fautes = regles.flatMap((r) => {
+      const vises = selecteurs(r).filter(portee);
+      if (vises.length === 0) return [];
+      return [...(r.corps ?? '').matchAll(/var\(\s*(--[\w-]+)/g)]
+        .map((m) => m[1] ?? '')
+        .filter((jeton) => !globaux.has(jeton) && !reposes.has(jeton))
+        .map((jeton) => `${r.f} « ${vises.join(', ')} » lit ${jeton}`);
+    });
+    expect(fautes, `jetons introuvables hors de leur vue : ${fautes.join(' · ')}`).toEqual([]);
   });
 });

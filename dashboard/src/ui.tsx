@@ -38,6 +38,19 @@ function tabulables(conteneur: HTMLElement): HTMLElement[] {
  */
 const pileDialogues: RefObject<HTMLElement | null>[] = [];
 
+/**
+ * Le sommet, c'est le plus récent dont le conteneur est À L'ÉCRAN. Un crochet
+ * monté sans son dialogue (appelé au niveau d'une vue toujours montée, comme
+ * la Chambre le faisait) garderait sinon le clavier pour un conteneur absent :
+ * le dialogue réellement ouvert dessous perdait Échap et Tab.
+ */
+function sommetDeLaPile(): RefObject<HTMLElement | null> | undefined {
+  for (let i = pileDialogues.length - 1; i >= 0; i--) {
+    if (pileDialogues[i]?.current?.isConnected) return pileDialogues[i];
+  }
+  return undefined;
+}
+
 /** Tab au BORD du dialogue : on reboucle sur l'autre bord au lieu de sortir. */
 function garderLeFocus(e: globalThis.KeyboardEvent, conteneur: HTMLElement): void {
   const liste = tabulables(conteneur);
@@ -97,7 +110,7 @@ export function useDialog<T extends HTMLElement>(
     pileDialogues.push(ref);
 
     const onKey = (e: globalThis.KeyboardEvent) => {
-      if (pileDialogues.at(-1) !== ref) return;
+      if (sommetDeLaPile() !== ref) return;
       if (e.key === 'Escape') closeRef.current();
       if (e.key === 'Tab' && !e.defaultPrevented && ref.current) garderLeFocus(e, ref.current);
     };
@@ -162,8 +175,10 @@ export function Voile({ onClose, children }: { onClose: () => void; children: Re
 // ─── CE QUE FAIT LE FILET ───────────────────────────────────────────────────
 //
 // Sous une VUE, il borne la panne à la vue : la barre et l'en-tête restent, on
-// peut aller ailleurs, et l'écran dit ce qui s'est passé. Sous l'APPLICATION
-// (main.tsx), il remplace la page blanche par la même explication.
+// peut aller ailleurs, et l'écran dit ce qui s'est passé. Aller ailleurs — une
+// autre vue, ou une autre fiche de la même — réarme le filet (`adresse`). Sous
+// l'APPLICATION (main.tsx), il remplace la page blanche par la même
+// explication.
 //
 // Deux gestes, parce que les deux causes ne se soignent pas pareil.
 // « Réessayer » rend la vue une seconde fois — assez pour une donnée qui a
@@ -177,16 +192,37 @@ export function Voile({ onClose, children }: { onClose: () => void; children: Re
 interface EtatFilet {
   erreur: Error | null;
   essais: number;
+  /** L'adresse pour laquelle `erreur` a été constatée. */
+  adresse: string | undefined;
 }
 
-export class FiletDeSecurite extends Component<
-  { portee: 'vue' | 'application'; children: ReactNode },
-  EtatFilet
-> {
-  override state: EtatFilet = { erreur: null, essais: 0 };
+interface ProprietesFilet {
+  portee: 'vue' | 'application';
+  /**
+   * Ce qu'affiche le filet, À LA FICHE PRÈS (`vue/id`) : quand elle change, une
+   * panne constatée ailleurs est oubliée. Pas une `key` : elle remonterait la
+   * vue SAINE à chaque fiche ouverte (relectures, onglet, défilement perdus)
+   * pour réarmer un filet qui n'a rien rattrapé.
+   */
+  adresse?: string;
+  children: ReactNode;
+}
+
+export class FiletDeSecurite extends Component<ProprietesFilet, EtatFilet> {
+  override state: EtatFilet = { erreur: null, essais: 0, adresse: this.props.adresse };
 
   static getDerivedStateFromError(erreur: unknown): Partial<EtatFilet> {
     return { erreur: erreur instanceof Error ? erreur : new Error(String(erreur)) };
+  }
+
+  // Avant le rendu, pas après (`componentDidUpdate`) : la panne d'une fiche ne
+  // s'affiche pas, même le temps d'une image, sur la fiche suivante.
+  static getDerivedStateFromProps(
+    props: ProprietesFilet,
+    etat: EtatFilet,
+  ): Partial<EtatFilet> | null {
+    if (props.adresse === etat.adresse) return null;
+    return { adresse: props.adresse, erreur: null, essais: 0 };
   }
 
   override render() {
