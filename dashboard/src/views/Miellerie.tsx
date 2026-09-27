@@ -1247,8 +1247,8 @@ export default function Miellerie({
               maxLength={1_000}
               onChange={(e) => setRaison(e.target.value)}
               placeholder={t(
-                'raison (facultative) — transmise à la correction',
-                'reason (optional) — passed to the correction',
+                'raison (facultative) — jointe au verdict ; sur un rejet, transmise à la correction',
+                'reason (optional) — kept with the verdict; on a rejection, passed to the correction',
               )}
               aria-label={t('Raison du verdict', 'Verdict reason')}
             />

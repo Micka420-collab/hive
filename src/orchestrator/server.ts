@@ -1349,8 +1349,16 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     }
     return null;
   };
-  const critiqueEnCours = (taskId: string): CritiqueReprise | null =>
-    bornerCritique(derniereReprise(taskId)?.payload.critique);
+  const critiqueEnCours = (
+    taskId: string,
+  ): { critique: CritiqueReprise; visee: number | null } | null => {
+    const reprise = derniereReprise(taskId);
+    const critique = bornerCritique(reprise?.payload.critique);
+    const visee = reprise?.payload.attempt;
+    return critique
+      ? { critique, visee: typeof visee === 'number' && Number.isSafeInteger(visee) ? visee : null }
+      : null;
+  };
 
   /**
    * La raison jointe au verdict humain ACTUEL, relue dans le journal : elle
@@ -1410,8 +1418,15 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   ): {
     hiveContext: string;
     echecs: number;
-    /** La critique réellement jointe — absente si rien n'a tenu ou rien n'existait. */
-    critique?: CritiqueReprise;
+    /**
+     * La critique de la reprise : `jointe` avec le nombre d'objections que
+     * l'ouvrière lira vraiment, ou `perdue` quand même son ossature ne tenait
+     * pas dans le budget — un fait que l'appelant journalise, comme un refus
+     * du Cerveau. Absente quand il n'y avait rien à transmettre.
+     */
+    critique?:
+      | { etat: 'jointe'; figee: CritiqueReprise; objections: number }
+      | { etat: 'perdue'; figee: CritiqueReprise };
     refusCerveau?: string;
   } => {
     // ─── UN SEUL BUDGET, DÉCOMPTÉ BLOC APRÈS BLOC ────────────────────────────
@@ -1446,10 +1461,15 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     // La critique qui a rouvert la tâche : SA raison d'être, donc avant les
     // leçons d'échec. Seulement sur une reprise (`attempts > 0`) — une
     // première tentative n'a rien à corriger, et le journal n'est pas relu.
-    const critiqueFigee = task.attempts > 0 ? critiqueEnCours(task.id) : null;
-    const critique = retenir(
-      critiqueFigee ? blocCritique(critiqueFigee, task.attempts + 1, part(BUDGET_CRITIQUE)) : '',
-    );
+    const enCours = task.attempts > 0 ? critiqueEnCours(task.id) : null;
+    const critique = enCours
+      ? blocCritique(
+          enCours.critique,
+          { tentative: task.attempts + 1, visee: enCours.visee },
+          part(BUDGET_CRITIQUE),
+        )
+      : null;
+    const blocDeCritique = retenir(critique?.bloc ?? '');
 
     // Couveuse : les leçons des échecs précédents viennent ensuite (le plus
     // spécifique d'abord). Le nom du nœud fautif est résolu ici — la table
@@ -1496,11 +1516,17 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // dernier, il n'aurait plus de place les jours où une tâche a beaucoup
       // échoué — c'est-à-dire exactement les jours où ses invariants comptent
       // le plus.
-      hiveContext: [savoir, critique, lecons, souvenirs, horizon, veille]
+      hiveContext: [savoir, blocDeCritique, lecons, souvenirs, horizon, veille]
         .filter(Boolean)
         .join('\n\n'),
       echecs: lecons ? echecs.length : 0,
-      ...(critique && critiqueFigee ? { critique: critiqueFigee } : {}),
+      ...(enCours && critique
+        ? {
+            critique: critique.bloc
+              ? { etat: 'jointe', figee: enCours.critique, objections: critique.objections }
+              : { etat: 'perdue', figee: enCours.critique },
+          }
+        : {}),
       // Un refus ne se tait pas. Il veut dire que les invariants ne tenaient
       // pas dans le budget, donc que l'ouvrière va travailler SANS eux ;
       // l'appelant journalise. Rendre '' sans le dire serait la panne
@@ -1744,17 +1770,30 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // Couveuse : la ré-assignation d'une tâche déjà échouée est journalisée
       // ici seulement (payload de faits typés, texte reconstruit à l'affichage).
       if (echecs > 0) emitEvent('brood_context', { taskId: task.id, nodeId, echecs });
-      // La critique d'une correction, jointe : des faits comptés, jamais son
-      // texte (déjà au journal dans `task_retry`). Absente du contexte — rien
-      // n'a tenu dans le budget —, elle ne s'annonce pas.
-      if (critique) {
+      // La critique d'une correction : des faits comptés, jamais son texte
+      // (déjà au journal dans `task_retry`). Jointe, on dit combien
+      // d'objections l'ouvrière lira VRAIMENT — la queue tombe sous budget.
+      // Perdue (le cadre et le Cerveau ont tout pris), l'ouvrière refait la
+      // production contestée sans savoir pourquoi : ça se journalise, comme
+      // un refus du Cerveau, sinon c'est la panne que ce lot existe à fermer.
+      if (critique?.etat === 'jointe') {
         emitEvent('critique_context', {
           taskId: task.id,
           nodeId,
           attempt: task.attempts + 1,
-          source: critique.source,
-          objections: critique.objections.length,
-          noteHumaine: critique.noteHumaine !== undefined,
+          source: critique.figee.source,
+          objections: critique.objections,
+          objectionsFigees: critique.figee.objections.length,
+          noteHumaine: critique.figee.noteHumaine !== undefined,
+        });
+      } else if (critique?.etat === 'perdue') {
+        emitEvent('critique_refus', {
+          taskId: task.id,
+          nodeId,
+          attempt: task.attempts + 1,
+          source: critique.figee.source,
+          objectionsFigees: critique.figee.objections.length,
+          motif: 'budget',
         });
       }
       const contexte = [cadre, hiveContext].filter(Boolean).join('\n\n');

@@ -57,6 +57,8 @@ const INSTINCT = new Set([
   'brood_context',
   // La critique jointe à une correction : la Couveuse des productions contestées.
   'critique_context',
+  // … et celle que le budget a évincée : la reprise aveugle, qui doit se voir.
+  'critique_refus',
 ]);
 
 /**

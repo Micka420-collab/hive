@@ -384,11 +384,31 @@ const EVENTS: Record<string, Meta> = {
         p.noteHumaine === true
           ? t(', avec la raison de l’humain', ', with the human’s reason')
           : '';
+      // `objections` = ce que l'ouvrière a LU ; `objectionsFigees` = ce que
+      // la correction avait relevé. L'écart, c'est la queue tombée au budget.
+      const figees = typeof p.objectionsFigees === 'number' ? p.objectionsFigees : null;
+      const tronquee = figees !== null && figees > Number(p.objections ?? 0);
+      const sur = tronquee
+        ? { fr: ` (sur ${String(figees)} relevées)`, en: ` (of ${String(figees)} raised)` }
+        : { fr: '', en: '' };
       return t(
-        `critique : ${short(p.taskId)} repart (essai ${String(p.attempt ?? '?')}) avec ${qui} — ${String(p.objections ?? 0)} objection(s)${note}`,
-        `critique: ${short(p.taskId)} restarts (attempt ${String(p.attempt ?? '?')}) with ${qui} — ${String(p.objections ?? 0)} objection(s)${note}`,
+        `critique : ${short(p.taskId)} repart (essai ${String(p.attempt ?? '?')}) avec ${qui} — ${String(p.objections ?? 0)} objection(s)${sur.fr}${note}`,
+        `critique: ${short(p.taskId)} restarts (attempt ${String(p.attempt ?? '?')}) with ${qui} — ${String(p.objections ?? 0)} objection(s)${sur.en}${note}`,
       );
     },
+  },
+  // La critique que le budget a évincée : la tentative repart SANS savoir ce
+  // qu'on reprochait à la précédente. Un avertissement, comme un refus du
+  // Cerveau — c'est précisément la reprise aveugle que la critique existe à
+  // empêcher.
+  critique_refus: {
+    icon: '⚠',
+    cls: 'warn',
+    text: (p, t) =>
+      t(
+        `critique perdue : ${short(p.taskId)} repart (essai ${String(p.attempt ?? '?')}) sans les ${String(p.objectionsFigees ?? '?')} objection(s) de la correction — budget de contexte épuisé`,
+        `critique dropped: ${short(p.taskId)} restarts (attempt ${String(p.attempt ?? '?')}) without the correction’s ${String(p.objectionsFigees ?? '?')} objection(s) — context budget exhausted`,
+      ),
   },
   // La Balance, geste « borner ». Trois faits typés — `projectId`, des entiers,
   // un booléen — et AUCUNE phrase persistée : le bilingue est reconstruit ici

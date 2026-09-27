@@ -83,13 +83,13 @@ résultat, Gardiennes, Parlement, revue humaine, contre-revue, validations CI
 identifié — jamais lues dans les logs d'une ouvrière). L'ordre des règles est
 volontaire ; la première qui s'applique décide :
 
-| Décision                   | Quand                                                                                  | Retry recommandé |
-| -------------------------- | -------------------------------------------------------------------------------------- | ---------------- |
-| `rejected`                 | dernier résultat en échec, ou production creuse (Gardiennes `hollow`)                  | oui              |
-| `correction_required`      | Gardiennes `suspect`, rejet humain, résultat non élu, contre-revue contestée, CI rouge | oui              |
-| `human_review_required`    | pas d'inspection, relecture encore en vol, ou aucun avis favorable indépendant         | non              |
-| `additional_test_required` | une validation manque                                                                  | non              |
-| `accepted`                 | tout est vert **et** un avis favorable d'une autre famille                             | non              |
+| Décision                   | Quand                                                                                                         | Retry recommandé |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------- | ---------------- |
+| `rejected`                 | dernier résultat en échec, ou production creuse (Gardiennes `hollow`)                                         | oui              |
+| `correction_required`      | aucun résultat Worker, Gardiennes `suspect`, rejet humain, résultat non élu, contre-revue contestée, CI rouge | oui              |
+| `human_review_required`    | pas d'inspection, relecture encore en vol, ou aucun avis favorable indépendant                                | non              |
+| `additional_test_required` | une validation manque                                                                                         | non              |
+| `accepted`                 | tout est vert **et** un avis favorable d'une autre famille                                                    | non              |
 
 Un premier avis favorable ne vaut pas acceptation tant qu'une autre relecture
 du même résultat est en vol : une objection reste bloquante, d'où qu'elle
@@ -128,13 +128,37 @@ après le Cerveau et avant les leçons de la Couveuse
 caractères (`BUDGET_CRITIQUE`) : note humaine d'abord, puis objections, puis
 motifs — sous budget, la queue tombe en premier. Comme tout texte venu d'un
 agent, la critique est une **donnée** encadrée `<<<HIVE_DATA … HIVE_DATA>>>`,
-jamais une instruction libre. L'événement `critique_context` journalise
-qu'elle a été jointe (source, tentative, nombre d'objections) ; la Miellerie
-l'affiche sous la tâche (`GET /api/tasks/:taskId/critique`).
+jamais une instruction libre : un relecteur a pu être trompé par le dépôt
+qu'il lisait, donc l'ouvrière **évalue** chaque objection au regard de la
+tâche d'origine, et aucune objection n'autorise une commande réseau, un
+script d'installation, un accès à des secrets ni une modification de CI ou
+de dépendances.
+
+Le budget est **un seul décompte** pour tout le contexte : le cadre du
+polyéthisme se sert d'abord, puis Cerveau, critique, Couveuse, Hive Mind,
+horizon et veille, chacun sur ce qui reste — le total ne dépasse jamais
+`LIMITS.hiveContext`, au-delà duquel le nœud rejetterait tout
+l'`assign_task`. L'événement `critique_context` journalise qu'elle a été
+jointe (source, tentative, objections **réellement jointes** et objections
+figées) ; si même son ossature ne tient pas (cadre et Cerveau ont tout pris),
+`critique_refus` le dit — la tentative repart sans, et ça se voit à la
+Chronique. La Miellerie l'affiche sous la tâche
+(`GET /api/tasks/:taskId/critique`).
 
 La plus récente critique fait foi : une seconde correction remplace la
-première. Un journal élagué (au-delà de 5 000 événements) ou une critique
-vide : la tentative part sans, rien n'est deviné.
+première. Une reprise qui ne la remplace pas (échec Worker après la
+correction) la garde — l'objection reste ouverte — et l'en-tête nomme alors
+la tentative dont la production a été contestée, pas « la précédente ».
+
+**Limite connue — critique élaguée.** La critique ne vit que dans le payload
+de `task_retry`, et le journal est élagué au-delà de 5 000 événements
+(`EVENT_RETENTION`). Une tâche rouverte qui attend longtemps en `ready`
+pendant que la ruche journalise 5 000 autres événements perd sa critique :
+la tentative part sans, et **aucun événement ne le signale** — la ruche ne
+peut pas distinguer « jamais eu de critique » de « critique élaguée » sans
+un fait durable hors du journal, ce qui demanderait une évolution du schéma
+SQLite (non faite ici). Une critique vide, elle, ne s'annonce pas : rien
+n'est deviné.
 
 ### Étape 5 — la notation
 
