@@ -201,6 +201,65 @@ describe('la livraison appartient au nœud assigné', () => {
     expect(result?.mergedDiff).toBe('VRAI');
   });
 
+  it('MERGE : un REFUS forgé par un nœud non assigné ne clôt pas en échec le merge d’un autre', async () => {
+    // Le refus (`refused`) était jugé AVANT la garde d'appartenance : n'importe
+    // quel nœud qui connaissait le `mergeId` pouvait clore le merge d'un autre
+    // en `merge_failed`, et le vrai résultat tombait ensuite dans le vide
+    // (« inconnu du hub »). Depuis qu'un clone refusé passe lui aussi par
+    // `refused`, ce chemin porte de vrais échecs : il suit la même garde.
+    const srv = await ruche();
+    const a = await noeud(srv, 'node-a');
+    await attendre(async () =>
+      (await lire<{ nodes: { status: string }[] }>(srv, '/api/state')).nodes.some(
+        (n) => n.status === 'online',
+      ),
+    );
+    const projet = srv.store.createProject({
+      name: 'Intégration',
+      repoUrl: 'file:///tmp/depot-fantome',
+    });
+    srv.store.createTask({ id: 'w1', projectId: projet.id, title: 'w1', prompt: 'p' });
+    srv.store.patchTask('w1', { status: 'done' });
+    srv.store.insertResult({
+      taskId: 'w1',
+      nodeId: 'seed',
+      success: true,
+      diff: 'diff --git a/x b/x',
+      logs: '',
+      durationMs: 1,
+      subAgents: [],
+    });
+    const run = await poster(srv, `/api/projects/${projet.id}/merge/run`);
+    expect(run.status).toBe(202);
+    const { mergeId } = (await run.json()) as { mergeId: string };
+
+    const b = await noeud(srv, 'node-b');
+    const vide = {
+      type: 'merge_result',
+      mergeId,
+      applied: [],
+      conflicts: [],
+      mergedDiff: '',
+      testsRun: false,
+      testsPassed: null,
+      logs: '',
+    };
+    b.ws.send(JSON.stringify({ ...vide, refused: 'échec forgé' }));
+    await attendre(() => refusee(b));
+    const resultat = () =>
+      lire<{ result: { applied: string[]; refused?: string } | null }>(
+        srv,
+        `/api/projects/${projet.id}/merge/result`,
+      );
+    expect((await resultat()).result, 'le refus de l’imposteur ne clôt rien').toBeNull();
+
+    a.ws.send(JSON.stringify({ ...vide, applied: ['w1'], mergedDiff: 'VRAI' }));
+    await attendre(async () => (await resultat()).result !== null);
+    const { result } = await resultat();
+    expect(result?.applied, 'le vrai assigné livre encore').toEqual(['w1']);
+    expect(result?.refused).toBeUndefined();
+  });
+
   it('CHANTIER : un nœud non assigné ne pose pas le résultat d’un autre, et ne consomme pas le pending', async () => {
     const srv = await ruche();
     const depot = await depotLocal();

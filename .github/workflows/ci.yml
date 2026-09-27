@@ -198,6 +198,32 @@ jobs:
           fi
           echo "✔ $outil"
 
+      # ─── BUBBLEWRAP : LE BAC SANS DÉMON, EXERCÉ POUR DE VRAI ────────────────
+      #
+      # `tests/isolement-runtime.integration.test.ts` lance le vrai bubblewrap
+      # sur un agent installé dans un HOME, comme sur le poste d'un membre. Sans
+      # bubblewrap, ces bancs seraient SAUTÉS — donc verts et sans objet, comme
+      # ceux du fichier de service ci-dessus. D'où `HIVE_BWRAP_REQUIS=1` : sur
+      # cette jambe, un bubblewrap absent ou bloqué fait ÉCHOUER le banc.
+      #
+      # Ubuntu 24.04 restreint les espaces de noms utilisateur non privilégiés
+      # par AppArmor, et `bwrap --version` répond quand même : on éprouve un vrai
+      # lancement, et on ne lève la restriction que s'il échoue (même geste que
+      # la CI de Codex, `.github/actions/setup-ci`).
+      - name: Installer bubblewrap (bac à sable Linux)
+        if: runner.os == 'Linux'
+        run: |
+          set -e
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends bubblewrap
+          if ! bwrap --ro-bind / / --unshare-all -- true 2>/dev/null; then
+            echo "bwrap refusé par la restriction des espaces de noms : on la lève pour ce runner"
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          bwrap --ro-bind / / --unshare-all -- true
+          bwrap --version
+          echo "HIVE_BWRAP_REQUIS=1" >> "$GITHUB_ENV"
+
       - name: Tests (vitest, unitaires + e2e)
         # `HIVE_VITEST_FORKS` est VIDE sur push et sur PR : `inputs.forks`
         # n'existe que pour un déclenchement manuel, et une chaîne vide laisse

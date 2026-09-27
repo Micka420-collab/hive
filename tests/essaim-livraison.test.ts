@@ -8,7 +8,9 @@
 //   · une production non relue ne devient jamais une pull request ;
 //   · une PR déjà ouverte n'est pas rouverte à chaque cycle ;
 //   · sans jeton, rien n'est tenté ;
-//   · un refus de GitHub est rangé avec son motif, pas retenté en boucle.
+//   · un refus de GitHub est rangé avec son motif, pas retenté en boucle ;
+//   · ce que l'Evaluator arrête sur les routes humaines ne part pas non plus
+//     par la voie autonome — ni livré, ni fusionné.
 
 import { createServer as createHttp } from 'node:http';
 import type { Server } from 'node:http';
@@ -184,8 +186,18 @@ describe('la ruche livre toute seule', () => {
     return { base: `http://127.0.0.1:${server.port}`, srv: server, faux: gh };
   }
 
-  /** Un projet gouvernable, avec dépôt connu et une production RELUE. */
-  function projetLivrable(srv: HiveServer, opts: { approuvee?: boolean } = {}): string {
+  /**
+   * Un projet gouvernable, avec dépôt connu et une production RELUE.
+   *
+   * `verdict` : les Gardiennes jugent cette production. Elle vient alors d'une
+   * ouvrière qui n'est PAS gouvernante : un verdict sur une gouvernante
+   * changerait sa caste, et la ruche resterait inerte pour une autre raison
+   * que celle qu'un test veut prouver.
+   */
+  function projetLivrable(
+    srv: HiveServer,
+    opts: { approuvee?: boolean; verdict?: 'hollow' | 'suspect' } = {},
+  ): string {
     const p = srv.store.createProject({
       name: 'Ruche autonome',
       repoUrl: 'https://github.com/moi/projet.git',
@@ -214,15 +226,27 @@ describe('la ruche livre toute seule', () => {
     }
     const t = srv.store.createTask({ projectId: p, title: 'Passer a à 2', prompt: 'fais-le' });
     srv.store.patchTask(t.id, { status: 'done' });
-    srv.store.insertResult({
+    const auteur = opts.verdict ? 'ouvriere-jugee' : 'gouv-0';
+    const resultId = srv.store.insertResult({
       taskId: t.id,
-      nodeId: 'gouv-0',
+      nodeId: auteur,
       success: true,
       diff: DIFF,
       logs: 'ok',
       durationMs: 10,
       subAgents: [],
     });
+    if (opts.verdict) {
+      srv.store.enregistrerInspection({
+        resultId: typeof resultId === 'number' ? resultId : 0,
+        taskId: t.id,
+        nodeId: auteur,
+        verdict: opts.verdict,
+        score: 80,
+        applique: true,
+        griefs: [],
+      });
+    }
     if (opts.approuvee !== false) srv.store.setTaskReview(t.id, 'approved');
     return p;
   }
@@ -415,8 +439,37 @@ describe('la ruche livre toute seule', () => {
    * le second dans un test le mettrait hors de sa fenêtre — et le test ne
    * prouverait plus rien.
    */
-  function prOuverte(srv: HiveServer, p: string, pr = 7): void {
+  function prOuverte(
+    srv: HiveServer,
+    p: string,
+    opts: { pr?: number; revue?: 'approved' | 'rejected' } = {},
+  ): void {
+    const pr = opts.pr ?? 7;
     const t = srv.store.createTask({ projectId: p, title: 'déjà livrée', prompt: 'x' });
+    // Une VRAIE production derrière la pull request : l'Evaluator la juge avant
+    // toute fusion, et une tâche sans résultat, il la renvoie en correction.
+    // Inspectée « clean » par les Gardiennes : sans inspection, l'Evaluator
+    // s'arrête à « revue humaine requise » avant même de lire un rejet humain.
+    srv.store.patchTask(t.id, { status: 'done' });
+    const resultId = srv.store.insertResult({
+      taskId: t.id,
+      nodeId: 'gouv-1',
+      success: true,
+      diff: DIFF,
+      logs: 'ok',
+      durationMs: 10,
+      subAgents: [],
+    });
+    srv.store.enregistrerInspection({
+      resultId: typeof resultId === 'number' ? resultId : 0,
+      taskId: t.id,
+      nodeId: 'gouv-1',
+      verdict: 'clean',
+      score: 0,
+      applique: false,
+      griefs: [],
+    });
+    srv.store.setTaskReview(t.id, opts.revue ?? 'approved');
     srv.store.setLivraison({
       taskId: t.id,
       projectId: p,
@@ -464,6 +517,46 @@ describe('la ruche livre toute seule', () => {
     expect(l?.motif).toMatch(/fusion refusée/i);
     // …et elle ne se représente plus comme « à fusionner ».
     expect(srv.store.listLivraisons(p, 'ouverte')).toEqual([]);
+  });
+
+  it('CE QUE L’EVALUATOR REJETTE NE PART PAS PAR LA VOIE AUTONOME — même approuvé', async () => {
+    // La route humaine rend 409 sur une production creuse ; la ruche en
+    // « gouverne » l'ouvrait quand même, avec la clé GitHub de l'hôte, parce
+    // qu'elle ne lisait que la revue humaine.
+    const { base, srv, faux } = await demarrer();
+    const p = projetLivrable(srv, { verdict: 'hollow' });
+    const tache = srv.store.listTasks(p).find((t) => srv.store.resultsForTask(t.id).length > 0)!;
+    const evaluation = (await (
+      await fetch(`${base}/api/tasks/${tache.id}/evaluation`, { headers })
+    ).json()) as { decision: string };
+    expect(evaluation.decision, 'le banc : l’Evaluator rejette').toBe('rejected');
+    await regler(base, p, 'gouverne');
+    await new Promise((r) => setTimeout(r, 600));
+    expect(faux.appels.some((a) => a.chemin.endsWith('/pulls'))).toBe(false);
+    expect(srv.store.listLivraisons(p)).toEqual([]);
+    // Et la ruche ne s'acharne pas sur un pas que le runner refuserait : elle
+    // ne compte pas cette production parmi celles à livrer.
+    const vue = (await (await fetch(`${base}/api/projects/${p}/essaim`, { headers })).json()) as {
+      decision: { pas: string };
+    };
+    expect(vue.decision.pas).not.toBe('livrer');
+    expect(vue.decision.pas, 'le banc : la ruche gouverne bien').not.toBe('inerte');
+  });
+
+  it('EN PLEIN ESSAIM, UNE PR QUE L’EVALUATOR ARRÊTE NE SE FUSIONNE PAS', async () => {
+    // Revue humaine rejetée APRÈS la livraison : « correction_required ». La
+    // fusion humaine rend 409 ; la voie autonome fusionnait.
+    const { base, srv, faux } = await demarrer();
+    const p = projetLivrable(srv, { approuvee: false });
+    prOuverte(srv, p, { revue: 'rejected' });
+    await regler(base, p, 'plein', true);
+    await new Promise((r) => setTimeout(r, 600));
+    expect(faux.appels.some((a) => a.chemin.endsWith('/merge'))).toBe(false);
+    expect(srv.store.listLivraisons(p, 'ouverte')).toHaveLength(1);
+    const vue = (await (await fetch(`${base}/api/projects/${p}/essaim`, { headers })).json()) as {
+      decision: { pas: string };
+    };
+    expect(vue.decision.pas).not.toBe('fusionner');
   });
 
   it('un projet SANS dépôt ne livre pas', async () => {

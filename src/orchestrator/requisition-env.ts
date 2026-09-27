@@ -40,10 +40,13 @@ export const FOURNISSEURS_CLE: readonly FournisseurCle[] = Object.freeze([
     hintEn: 'IA planner and Queen chat',
   },
   {
+    // CODEX_API_KEY, et non OPENAI_API_KEY : c'est la seule variable que
+    // `codex exec` lit (codex-rs/login). Une clé OpenAI posée sous l'autre nom
+    // s'afficherait « présente » et n'authentifierait aucune tâche.
     id: 'openai',
     libelleFr: 'OpenAI (Codex)',
     libelleEn: 'OpenAI (Codex)',
-    envVar: 'OPENAI_API_KEY',
+    envVar: 'CODEX_API_KEY',
     hintFr: 'Agent Codex sur les nœuds',
     hintEn: 'Codex agent on nodes',
   },
@@ -88,8 +91,10 @@ const CATALOGUE_ENV: Record<string, string> = {
   seedance: 'SEEDANCE_API_KEY',
   'clé openai': 'OPENAI_API_KEY',
   'cle openai': 'OPENAI_API_KEY',
-  'clé openai (codex)': 'OPENAI_API_KEY',
-  'cle openai (codex)': 'OPENAI_API_KEY',
+  // La réquisition que le nœud Codex ouvre : son détail dit « posez
+  // CODEX_API_KEY », et la Chambre refuse tout autre nom que celui dérivé ici.
+  'clé openai (codex)': 'CODEX_API_KEY',
+  'cle openai (codex)': 'CODEX_API_KEY',
   'clé ou session anthropic (claude code)': 'ANTHROPIC_API_KEY',
   'cle ou session anthropic (claude code)': 'ANTHROPIC_API_KEY',
   'clé anthropic': 'ANTHROPIC_API_KEY',
@@ -114,7 +119,9 @@ const CATALOGUE_ENV: Record<string, string> = {
 const INDICES_ENV: Array<{ re: RegExp; nom: string }> = [
   { re: /seedance/, nom: 'SEEDANCE_API_KEY' },
   { re: /openrouter|queen\s*bee/, nom: 'OPENROUTER_API_KEY' },
-  { re: /openai|codex/, nom: 'OPENAI_API_KEY' },
+  // Codex AVANT OpenAI : « Identifiants agent (codex) » vise l'agent Codex.
+  { re: /codex/, nom: 'CODEX_API_KEY' },
+  { re: /openai/, nom: 'OPENAI_API_KEY' },
   { re: /anthropic|claude/, nom: 'ANTHROPIC_API_KEY' },
   { re: /\bcursor\b/, nom: 'CURSOR_API_KEY' },
   { re: /\bxai\b|grok/, nom: 'XAI_API_KEY' },

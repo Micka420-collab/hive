@@ -85,7 +85,7 @@
   font-size: 0.72rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--mute, #7a7164);
+  color: var(--faint);
   flex: none;
 }
 
@@ -113,11 +113,11 @@
   font-weight: 650;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--mute, #7a7164);
+  color: var(--faint);
 }
 
 .ry-presences-chemin {
-  font-family: var(--font-mono, ui-monospace, monospace);
+  font-family: var(--mono);
   font-size: 0.78rem;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -511,7 +511,7 @@
   margin-left: auto;
   font-size: 0.72rem;
   letter-spacing: 0.04em;
-  color: var(--mute, #7a7164);
+  color: var(--faint);
   white-space: nowrap;
 }
 
@@ -749,6 +749,6 @@
 .ry-sg-erreur {
   margin: 0;
   font-size: 12.5px;
-  color: var(--danger, #b45309);
+  color: var(--red);
   line-height: 1.4;
 }

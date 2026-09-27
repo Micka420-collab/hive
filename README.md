@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-6092%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-6433%20passing-F6C445?labelColor=17130C)
 ![Licence](https://img.shields.io/badge/licence-MIT-F6C445?labelColor=17130C)
 
 🇫🇷 Français · [🇬🇧 English](README.en.md) · [🌐 Site](https://micka420-collab.github.io/hive/) · [📚 Documentation](#-documentation)
@@ -67,9 +67,12 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
 
 - **Installation et démarrage.** Installeur une-commande (Linux, macOS,
   Windows) essayé en CI jusqu'à une ruche qui répond, un invité qui rejoint par
-  billet et une tâche exécutée. `npm run ruche` lance la Reine, l'ouvrière et
-  l'écran ; la Reine et l'ouvrière tournent chacune dans un seul processus, ce
+  billet et une tâche exécutée. `npm run ruche` lance la Reine, les ouvrières et
+  l'écran ; la Reine et chaque ouvrière tournent dans un seul processus, ce
   qui garantit un arrêt propre ([#443](https://github.com/Micka420-collab/hive/pull/443)).
+  Dès que deux familles d'agent sont installées, c'est une ouvrière par
+  famille : la contre-expertise croisée est sur le chemin par défaut
+  ([#466](https://github.com/Micka420-collab/hive/pull/466)).
 - **Reprise après panne**, mesurée avec de vrais processus :
   - `kill -9` de la Reine ou d'un nœud en pleine mission ;
   - base verrouillée par un autre processus ;
@@ -82,10 +85,15 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
 - **Sécurité** :
   - les identifiants des dépôts privés ne sortent plus vers l'essaim
     ([#435](https://github.com/Micka420-collab/hive/pull/435)) ;
-  - sur une ruche exposée, le premier compte (administrateur) exige le jeton
-    de ruche ([#440](https://github.com/Micka420-collab/hive/pull/440)) ;
+  - le premier compte (administrateur) exige le jeton de ruche
+    ([#440](https://github.com/Micka420-collab/hive/pull/440)), sur toute
+    ruche, proxy local compris ;
   - derrière un proxy, chaque client garde ses compteurs anti-abus
-    (`HIVE_TRUST_PROXY`, [#439](https://github.com/Micka420-collab/hive/pull/439)).
+    (`HIVE_TRUST_PROXY`, [#439](https://github.com/Micka420-collab/hive/pull/439)) ;
+  - le jeton de ruche n'engage plus le projet d'autrui ; livrer et fusionner
+    avec la clé GitHub de l'hôte exigent de répondre du projet et du dépôt, et
+    l'Evaluator arrête ce qu'il rejette, sur la voie humaine comme autonome
+    ([#467](https://github.com/Micka420-collab/hive/pull/467)).
 - **Bac à sable.** Preflight Docker, Podman et bubblewrap. L'image
   `docker/agents` embarque Claude Code, Codex et Cline, sondés dans le
   preflight durci de Hive (racine en lecture seule, `/tmp` noexec, uid non
@@ -125,12 +133,28 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
 - l'apprentissage : le routing apprend toujours des seules contre-visites ;
   y faire entrer les autres faits du registre Genome est une décision de
   pondération, pas encore prise ;
+- une contre-expertise croisée sur un vrai run : une ouvrière par famille est
+  éprouvée avec de vrais processus et de faux agents, pas encore avec Claude
+  Code relu par Codex ;
 - la démonstration V2 Alpha de bout en bout — elle tient désormais en une
-  commande sur une ruche qui a un vrai agent authentifié :
+  commande sur une ruche qui a de vrais agents authentifiés :
   `npm run preuve:v2-alpha -- --racine . --oui` confie une petite mission,
-  puis dit pour chaque critère ce que la Reine a réellement consigné
-  (`✔` prouvé, `?` inconnu, `✘` échec). Sans `--oui`, rien n'est créé : la
-  mission consomme des crédits de l'agent.
+  attend qu'elle soit **réglée** (contre-revue rendue, aucun retry de
+  l'Evaluator en attente), puis dit pour chaque critère ce que la Reine a
+  réellement consigné (`✔` prouvé, `?` inconnu, `✘` échec). Le travail
+  jugé est celui que la Reine garde (sa dernière production) ; l'évaluation
+  n'est `✔` que pour `accepted` avec les quatre validations vertes.
+  `--workers 3` exige l'**essaim** : trois ouvrières réelles de deux
+  familles, des tâches indépendantes en parallèle, une délégation vers une
+  AUTRE ouvrière (il faut une ouvrière Claude Code ou Codex : seuls leurs
+  adaptateurs savent déléguer), une relecture par une autre famille ; la
+  reprise après objection et l'Evaluator sont dits, sans être exigés.
+  `--exige-bac` exige un bac conteneur de chaque nœud qui exécute la
+  mission (sous-tâches déléguées et relectures comprises), `--depot <url>`
+  (un dépôt GitHub en https, et `HIVE_GITHUB_TOKEN` côté Reine, vérifiés
+  avant de dépenser) livre chaque production en pull request, sous-tâches
+  déléguées comprises. Sans `--oui`, rien n'est créé : la mission consomme
+  des crédits des agents.
 
 L'adaptateur `shell` reste une **simulation** : sans agent réel installé, les
 diffs produits sont factices, et l'installeur comme la Reine le disent.
@@ -227,7 +251,8 @@ Community (`HIVE_EDITION=community`, c'est le défaut) :
 npm run ruche
 ```
 
-Ouvrez **http://localhost:7777**. Un jeton, un nœud local, l'écran.
+Ouvrez **http://localhost:7777**. Un jeton, une ouvrière par agent installé,
+l'écran. Une seule ouvrière : `npm run ruche -- --une-ouvriere`.
 
 Les actions d'intendance qui créent ou révoquent des accès (inviter, émettre un
 billet, consulter ou exclure un nœud) exigent une session de compte
@@ -289,6 +314,19 @@ s'il ne trouve aucun agent — et il le dit. `HIVE_AGENT` force le choix.
 Votre abonnement Claude suffit, sans clé d'API :
 **[docs/WINDOWS-CLAUDE.md](docs/WINDOWS-CLAUDE.md)**.
 
+**Plusieurs agents installés, plusieurs ouvrières.** Dès que la machine porte
+deux familles d'agent réelles (Claude Code, Codex, Cursor…), `npm run ruche`
+lance une ouvrière par famille, chacune à une tâche à la fois : chaque
+production est relue par les AUTRES familles, jusqu'à deux — Claude Code, Codex
+et Cursor, c'est deux relectures par production —, et l'Aiguillage apprend de
+ces verdicts. Au repos, une ouvrière ne dépense rien ; une relecture, elle, est
+une vraie tâche, que la ligne de démarrage compte. Une relecture n'est confiée
+qu'à sa famille : si celle-ci disparaît (ouvrière arrêtée, relance en
+`--une-ouvriere`), elle échoue au bout de cinq minutes, et le journal dit
+pourquoi. La première ouvrière garde le nom, le dossier et les `HIVE_MODELES`
+d'avant ; les autres prennent `<nom>-<famille>`. Pour n'en lancer qu'une :
+`npm run ruche -- --une-ouvriere`, ou `HIVE_AGENT` dans `.env`.
+
 Pour un agent conteneurisé, le nom logique doit être exécutable dans l’image
 choisie. Un CLI installé sur l’hôte ou une session ouverte dans l’hôte ne prouve
 pas que l’agent est disponible dans le conteneur. Hive refuse ce niveau lorsque
@@ -309,22 +347,32 @@ réseau reste ouvert** : un agent de codage doit joindre l'API de son modèle.
 Sans moteur de conteneurs, posez `HIVE_ISOLEMENT=exige` — le nœud refusera de
 travailler à découvert.
 
+Dans le bac, l'agent a un HOME éphémère : la session de `claude login` ou de
+`codex login` n'y entre pas. Hive y transmet **par leur nom** les identifiants
+sans navigateur — `CLAUDE_CODE_OAUTH_TOKEN` (`claude setup-token`) ou
+`ANTHROPIC_API_KEY` pour Claude Code, `CODEX_API_KEY` pour Codex (qui ignore
+`OPENAI_API_KEY`) — et aucune sonde ne les reçoit. Avec une session mais sans ces
+variables, `auto` revient à la sandbox de processus et `exige` refuse, en nommant
+la variable à poser. Bubblewrap monte en lecture seule l'installation de l'agent
+et de Node, jamais le HOME.
+
 ## 🛠️ Commandes
 
-| Commande                                      | Effet                                                                                         |
-| --------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `npm run ruche`                               | **Tout en une commande** — Reine + ouvrière + écran                                           |
-| `npm run demo`                                | Démo complète (orchestrateur + 2 nœuds + projet)                                              |
-| `npm run dev`                                 | Orchestrateur seul                                                                            |
-| `npm run node`                                | Un nœud membre                                                                                |
-| `npm run cli -- doctor`                       | **Le docteur** — 13 causes de panne, et la commande qui répare                                |
-| `npm run preuve:v2-alpha -- --racine . --oui` | **La preuve V2 Alpha** — une vraie mission confiée à un vrai agent, jugée critère par critère |
-| `npm run cli -- sauvegarde`                   | Sauvegarde SQLite par `VACUUM INTO`                                                           |
-| `npm run cli -- service`                      | Installer la ruche en service (systemd · launchd · tâche planifiée)                           |
-| `npm test`                                    | La suite complète (vitest) — le compte vit dans le badge, en un seul endroit                  |
-| `npm run fusionner`                           | Porte la branche sur `main` en **avance rapide** — sans commit de fusion                      |
-| `npm run lint`                                | ESLint + Prettier — zéro erreur exigé                                                         |
-| `npm run loupe`                               | **La loupe** — le code neuf est-il défendu par ses tests ?                                    |
+| Commande                                      | Effet                                                                                                                                                                         |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run ruche`                               | **Tout en une commande** — Reine + une ouvrière par agent installé + écran                                                                                                    |
+| `npm run ruche -- --une-ouvriere`             | Une seule ouvrière, même si plusieurs agents sont installés                                                                                                                   |
+| `npm run demo`                                | Démo complète (orchestrateur + 2 nœuds + projet)                                                                                                                              |
+| `npm run dev`                                 | Orchestrateur seul                                                                                                                                                            |
+| `npm run node`                                | Un nœud membre                                                                                                                                                                |
+| `npm run cli -- doctor`                       | **Le docteur** — 13 causes de panne, et la commande qui répare                                                                                                                |
+| `npm run preuve:v2-alpha -- --racine . --oui` | **La preuve V2 Alpha** — une vraie mission confiée à un vrai agent, jugée critère par critère une fois réglée ; `--workers 3` pour l'essaim, `--exige-bac` pour exiger le bac |
+| `npm run cli -- sauvegarde`                   | Sauvegarde SQLite par `VACUUM INTO`                                                                                                                                           |
+| `npm run cli -- service`                      | Installer la ruche en service (systemd · launchd · tâche planifiée)                                                                                                           |
+| `npm test`                                    | La suite complète (vitest) — le compte vit dans le badge, en un seul endroit                                                                                                  |
+| `npm run fusionner`                           | Porte la branche sur `main` en **avance rapide** — sans commit de fusion                                                                                                      |
+| `npm run lint`                                | ESLint + Prettier — zéro erreur exigé                                                                                                                                         |
+| `npm run loupe`                               | **La loupe** — le code neuf est-il défendu par ses tests ?                                                                                                                    |
 
 ## 📚 Documentation
 

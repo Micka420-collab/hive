@@ -10,6 +10,7 @@ import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { randomBytes, randomUUID } from 'node:crypto';
 import net, { type Server, type Socket } from 'node:net';
 import path from 'node:path';
+import { SECRETS_JAMAIS_SONDES } from '../node-client/agent-detect.js';
 import { MONTAGE } from '../node-client/isolement.js';
 import type {
   AdapterContext,
@@ -94,18 +95,21 @@ export interface DelegationBridge {
   close(): Promise<void>;
 }
 
-/** Source autonome exécutée par le `node --eval` du serveur MCP stdio. */
+/**
+ * Source autonome exécutée par le `node --eval` du serveur MCP stdio.
+ *
+ * Le serveur MCP local n'appelle aucun fournisseur : il ne garde AUCUN secret
+ * Hive ou de modèle, même si le CLI parent a dû les garder dans son env. Sa
+ * liste est `SECRETS_JAMAIS_SONDES` elle-même, injectée ici — elle en était une
+ * copie à la main, et une copie se laisse distancer : `CLAUDE_CODE_OAUTH_TOKEN`
+ * et `CODEX_API_KEY`, les jetons qu'un bac reçoit, n'y étaient pas.
+ */
 export const DELEGATION_BRIDGE_SOURCE = String.raw`
 const net = require('node:net');
 
-// Le serveur MCP local n'appelle aucun fournisseur et ne reçoit donc aucun
-// secret Hive ou de modèle, même si le CLI parent a dû les garder dans son env.
-for (const secret of [
-  'HIVE_TOKEN', 'HIVE_JWT_SECRET', 'HIVE_INVITE', 'HIVE_GITHUB_TOKEN',
-  'HIVE_WEBHOOK_SECRET', 'GITHUB_TOKEN', 'ANTHROPIC_API_KEY',
-  'ANTHROPIC_AUTH_TOKEN', 'OPENAI_API_KEY', 'XAI_API_KEY', 'CURSOR_API_KEY',
-  'QUEEN_BEE_API_KEY', 'OPENROUTER_API_KEY',
-]) delete process.env[secret];
+for (const secret of [${SECRETS_JAMAIS_SONDES.map((nom) => `'${nom}'`).join(', ')}]) {
+  delete process.env[secret];
+}
 
 const endpoint = process.argv[1];
 const token = process.argv[2];

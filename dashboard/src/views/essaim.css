@@ -160,7 +160,7 @@
 /* Badge ⚔ : le nœud a un drone en vol dans une course (Drone Wars). */
 .es-race-badge {
   margin-right: 6px;
-  color: var(--accent, #9d5605);
+  color: var(--honey);
   animation: es-race-pulse 1.6s ease-in-out infinite;
 }
 
@@ -1164,7 +1164,7 @@
   font-size: 11.5px;
   padding: 4px 8px;
   border-radius: 5px;
-  background: var(--bg-3, rgba(27, 23, 18, 0.04));
+  background: var(--panel-2);
 }
 
 .ga-liste li.hollow .ga-v {

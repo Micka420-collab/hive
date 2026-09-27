@@ -98,7 +98,13 @@ if (bac.refuse) {
 // et deux sondages successifs coûteraient deux fois pour la même réponse. Il
 // sert ensuite à deux choses très différentes — le conseil au refus juste en
 // dessous, et le constat envoyé au hub à l'inscription.
-const etatsOutils = await diagnostiquerAgents();
+//
+// Les sessions de l'hôte (`~/.claude`…) n'atteignent pas un bac : quand le
+// mode y CONTRAINT l'agent (`exige`), le constat ne les compte pas, sans quoi le
+// hub afficherait « prêt » un poste dont chaque tâche échouerait « non
+// authentifié ». La règle est celle de TOUS les agents, pas du seul retenu —
+// voir `Bac.sessionsHote`.
+const etatsOutils = await diagnostiquerAgents({ sessionsHote: bac.sessionsHote });
 
 // ─── PRÉSENCE SANS PRODUCTION ───────────────────────────────────────────────
 //

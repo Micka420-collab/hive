@@ -39,6 +39,8 @@ import type { Echelon, ObservationGardeFou, RangGardeFou } from './garde-fou.js'
 // tests/security-invariants.test.ts.
 import { CacheProjets, GrandLivre, jugerPlafond, LOT_GRAND_LIVRE } from './balance.js';
 import type { DecisionPlafond } from './balance.js';
+import { ancetreEchoue, descendantsEnVol } from './delegation.js';
+import type { CauseAnnulationDelegation } from './delegation.js';
 import { createRace, enlistDrones, recordDroneResult, runningDrones } from './drone-wars.js';
 import type { DroneRace } from './drone-wars.js';
 import { inspecter } from './gardiennes.js';
@@ -49,6 +51,7 @@ import type { Domaine, TraceePheromone } from './pheromones.js';
 import { analyzePair } from './sting-detector.js';
 import type { HiveStore, NodeProfile } from './store.js';
 import { assignationProductionAutorisee } from '../shared/agent-production.js';
+import { relecteurIndependant } from '../shared/contre-expertise.js';
 import { concurrenceEffective, lireTemperature, FENETRE_MS, TYPES_THERMO } from './thermo.js';
 import type { BandeThermo } from './thermo.js';
 
@@ -70,6 +73,27 @@ const INTERVALLE_SAUVEGARDE_LIVRE_MS = 10_000;
  * chaude…) ne confirmaient jamais rien et la ruche restait froide.
  */
 const TICKS_CONFIRMATION_THERMO = 2;
+
+/**
+ * Combien de temps une contre-expertise attend une famille relectrice ABSENTE
+ * — aucun nœud de cette famille en ligne — avant d'échouer, dite.
+ *
+ * Une relecture ne part qu'à SA famille (voir `assignReadyTasks`). Sans borne,
+ * une famille disparue pour de bon — ouvrière ajoutée tombée, redémarrage en
+ * `--une-ouvriere` ou avec `HIVE_AGENT`, CLI désinstallé — laissait la
+ * relecture prête à jamais : aucun événement, une contre-revue « en vol »
+ * pour toujours, et personne pour dire pourquoi.
+ *
+ * Cinq minutes, et pas `NODE_TIMEOUT_MS` (15 s) : le compteur part du PREMIER
+ * constat de CE processus, donc d'un redémarrage de la ruche au plus tôt, et
+ * une ouvrière met plus de 15 s à revenir sur une machine chargée — sondes
+ * `--version` à 4 s par agent comprises. Échouer une relecture parce que son
+ * relecteur redémarrait, c'est perdre un avis qui serait arrivé.
+ */
+export const ATTENTE_RELECTEUR_ABSENT_MS = 5 * 60_000;
+
+/** Le lien d'une tâche de relecture vers ce qu'elle juge (`contre_expertises`). */
+type LienRelecture = NonNullable<ReturnType<HiveStore['relectureDe']>>;
 
 export interface SchedulerOptions {
   maxAttempts?: number;
@@ -143,6 +167,7 @@ export type EvaluationRetryOutcome =
         | 'invalid_result_id'
         | 'stale_result'
         | 'dependent_progressed'
+        | 'ancestor_failed'
         | 'delivery_exists'
         | 'attempts_exhausted';
       task?: Task;
@@ -155,6 +180,14 @@ export class Scheduler {
   private readonly recentRejections = new Map<string, number>();
   /** Tâches actuellement différées pour cause de conflit (Sting Detector) — dédup des events. */
   private readonly deferredByConflict = new Set<string>();
+  /**
+   * Relecture → instant du PREMIER constat que sa famille relectrice est
+   * absente. Dédup de l'événement d'attente, et départ de
+   * `ATTENTE_RELECTEUR_ABSENT_MS`. Élaguée à chaque passe : une entrée
+   * survivant à une relecture sortie de la file ferait échouer sans délai
+   * celle qui y revient.
+   */
+  private readonly relecturesSansRelecteur = new Map<string, number>();
   /** taskId → nombre de refus « infra » (token-failover) — borne les allers-retours. */
   private readonly infraRejects = new Map<string, number>();
   /**
@@ -233,7 +266,11 @@ export class Scheduler {
     this.opts.onEvent?.(event);
   }
 
-  /** À appeler une fois au démarrage : requalifie les tâches orphelines d'un crash. */
+  /**
+   * À appeler une fois au démarrage : requalifie les tâches orphelines d'un
+   * crash. Le store clôt au passage chaque session d'horloge de l'hébergeur à
+   * son dernier signe de vie — la panne de la Reine n'est facturée à personne.
+   */
   recoverAtBoot(): void {
     const orphans = this.store.recoverOrphanTasks();
     for (const t of orphans) {
@@ -538,6 +575,10 @@ export class Scheduler {
       // travail vivant sans le tuer.
       if (task.assignedNodeId !== nodeId || task.status !== 'running') {
         this.store.patchTask(taskId, { status: 'running', assignedNodeId: nodeId }, now);
+        // L'hébergeur travaille de nouveau pour elle : la perte l'avait close,
+        // la ré-adoption la rouvre (idempotent si elle n'avait jamais fermé).
+        // Sans elle, tout le reste de la tentative échapperait à la facture.
+        this.store.ouvrirHorlogeHote(task.projectId, taskId, now);
         this.emit('task_readopted', { taskId, nodeId });
       }
     }
@@ -549,6 +590,8 @@ export class Scheduler {
         // (promotion d'un autre drone), la tâche n'est requalifiée que si la
         // course s'éteint. Jamais de requeue pendant que des drones volent.
         if (this.dropDrone(task.id, nodeId, 'reconcile_orphan', now)) continue;
+        // Le nœud est revenu SANS elle : la tentative s'est arrêtée avec lui.
+        this.store.fermerHorlogeHote(task.id, now);
         this.store.patchTask(task.id, { status: 'ready', assignedNodeId: null }, now);
         this.emit('task_requeued', { taskId: task.id, nodeId, reason: 'reconcile_orphan' });
       }
@@ -572,8 +615,16 @@ export class Scheduler {
    * Retire un drone d'une course (perte d'infrastructure : blip, zombie…).
    * Retourne true si la tâche était bien dans une course où ce nœud volait —
    * l'appelant ne doit alors PAS appliquer sa requalification générique.
+   * `vuVivantA` : dernier instant où ce drone a été vu vivant — c'est là que
+   * s'arrête l'horloge si la course s'éteint avec lui.
    */
-  private dropDrone(taskId: string, nodeId: string, reason: string, now: number): boolean {
+  private dropDrone(
+    taskId: string,
+    nodeId: string,
+    reason: string,
+    now: number,
+    vuVivantA = now,
+  ): boolean {
     const race = this.races.get(taskId);
     if (!race || !race.drones.some((d) => d.nodeId === nodeId && d.status === 'running')) {
       return false;
@@ -588,6 +639,7 @@ export class Scheduler {
     }
     if (decision.outcome === 'all_failed') {
       this.races.delete(taskId);
+      this.store.fermerHorlogeHote(taskId, vuVivantA);
       this.store.patchTask(taskId, { status: 'ready', assignedNodeId: null }, now);
       this.emit('task_requeued', { taskId, nodeId, reason: 'drone_all_lost' });
     } else if (task.assignedNodeId === nodeId) {
@@ -636,6 +688,7 @@ export class Scheduler {
       }
       if (decision.outcome === 'all_failed') {
         this.races.delete(taskId);
+        this.store.fermerHorlogeHote(taskId, now);
         this.store.patchTask(taskId, { status: 'ready', assignedNodeId: null }, now);
         this.emit('task_requeued', { taskId, nodeId, reason: 'drone_all_rejected' });
         this.promoteAndAssign(now);
@@ -648,6 +701,9 @@ export class Scheduler {
     const task = this.store.getTask(taskId);
     if (!task || task.assignedNodeId !== nodeId) return;
     if (task.status !== 'assigned' && task.status !== 'running') return;
+    // La session s'ouvrait à l'assignation et survivait au refus : un refus
+    // Night Shift (cooldown jusqu'à 24 h) facturait toute l'attente en file.
+    this.store.fermerHorlogeHote(taskId, now);
     this.store.patchTask(taskId, { status: 'ready', assignedNodeId: null }, now);
     this.recentRejections.set(`${taskId}:${nodeId}`, now + cooldown);
     this.emit('task_rejected', { taskId, nodeId, reason, ...(infra ? { infra: true } : {}) });
@@ -662,6 +718,7 @@ export class Scheduler {
         this.store.patchTask(taskId, { status: 'failed', assignedNodeId: null }, now);
         this.emit('task_failed', { taskId, reason: 'no_working_agent', infraRejects: count });
         this.infraRejects.delete(taskId);
+        this.fermerSousArbre(taskId, 'ancestor_failed', now);
         this.promoteAndAssign(now); // propager l'échec en cascade aux dépendantes
         return;
       }
@@ -689,16 +746,29 @@ export class Scheduler {
     }
   }
 
-  /** Déconnexion (WS fermé) ou heartbeat expiré : offline + réaffectation des tâches actives. */
-  nodeDisconnected(nodeId: string, reason: string, now = Date.now()): void {
+  /**
+   * Déconnexion (WS fermé) ou heartbeat expiré : offline + réaffectation des
+   * tâches actives.
+   *
+   * `vuVivantA` : le dernier instant où la Reine a vu ce nœud vivant — c'est là
+   * que s'arrête l'horloge de l'hébergeur de ses tentatives, qui sont facturées
+   * pour le temps qu'elles ont réellement occupé. Un socket fermé s'interrompt
+   * MAINTENANT (défaut) ; un nœud fauché s'est tu à son dernier battement, et
+   * les NODE_TIMEOUT_MS qu'il faut au tick pour s'en apercevoir ne sont du
+   * temps consommé par personne. La tâche requalifiée rouvrira une session
+   * neuve à sa prochaine assignation (ou à sa ré-adoption) : l'attente en file
+   * n'occupe aucun hébergeur.
+   */
+  nodeDisconnected(nodeId: string, reason: string, now = Date.now(), vuVivantA = now): void {
     const node = this.store.getNode(nodeId);
     if (!node || node.status === 'offline') return;
     this.store.setNodeStatus(nodeId, 'offline');
     this.emit('node_offline', { nodeId, name: node.name, reason });
     // Drone Wars d'abord : une course qui continue promeut un nouveau primaire
     // (la tâche change d'assigné et n'est PAS requalifiée par la boucle suivante).
-    this.failDronesOfNode(nodeId, now);
+    this.failDronesOfNode(nodeId, now, vuVivantA);
     for (const task of this.store.activeTasksOfNode(nodeId)) {
+      this.store.fermerHorlogeHote(task.id, vuVivantA);
       this.store.patchTask(task.id, { status: 'ready', assignedNodeId: null }, now);
       this.emit('task_requeued', { taskId: task.id, nodeId, reason });
     }
@@ -808,6 +878,13 @@ export class Scheduler {
    */
   private renifler(task: Task, result: Omit<TaskResult, 'nodeId'>): Inspection | null {
     if (this.modeGardiennesDe(task) === 'off' || !result.success) return null;
+    // Une RELECTURE ne prétend rien faire entrer dans le rayon : elle rend un
+    // avis, et un avis ne modifie aucun fichier. Reniflée comme une production,
+    // elle était déclarée creuse (`empty_diff` : son titre et sa consigne
+    // portent la promesse de la production relue) — en `strict`, chaque
+    // contre-revue était refusée, re-tentée puis `failed` sans jamais rendre
+    // d'avis, et `accepted` devenait hors d'atteinte sur un dépôt git.
+    if (this.store.relectureDe(task.id)) return null;
     return inspecter({
       titre: task.title,
       prompt: task.prompt,
@@ -947,13 +1024,17 @@ export class Scheduler {
         ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
       });
       // Hive Mind : la tâche réussie laisse un souvenir réutilisable par la ruche.
+      // Ce que l'agent a RÉPONDU, quand son CLI le déclare : les logs d'un flux
+      // stream-json commencent par la ligne `init` (dossier de travail, session,
+      // outils), et le souvenir n'aurait gardé qu'elle — pas un mot de réponse.
       this.store.recordMemory({
         projectId: task.projectId,
         taskId: task.id,
         title: task.title,
-        content: summarizeTask(task.title, task.prompt, result.logs),
+        content: summarizeTask(task.title, task.prompt, result.finalText ?? result.logs),
       });
       this.emit('memory_recorded', { taskId: task.id, projectId: task.projectId });
+      this.fermerSousArbre(task.id, 'ancestor_done', Date.now());
     } else {
       const attempts = task.attempts + 1;
       // Bornée ici aussi, en plus de l'entrée (`isInt(m.durationMs, 0, …)`,
@@ -986,8 +1067,11 @@ export class Scheduler {
           ...(result.usage ? { usage: result.usage } : {}),
           ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
         });
+        this.fermerSousArbre(task.id, 'ancestor_failed', Date.now());
       } else {
         // Échec → réessai : la tâche repart en ready, une autre ouvrière la prendra.
+        // Ses enfants délégués, eux, continuent : la tentative suivante peut
+        // les retrouver par rejeu de leur identifiant stable.
         this.store.patchTask(task.id, { status: 'ready', attempts, assignedNodeId: null });
         this.emit('task_retry', {
           taskId: task.id,
@@ -1008,8 +1092,9 @@ export class Scheduler {
    * Remet en file une production terminée que l'Evaluator a jugée à corriger.
    *
    * La demande est liée au `resultId` exact : une ancienne décision ne peut
-   * pas rouvrir une production plus récente. La tâche doit encore être `done`
-   * et ses dépendantes doivent être restées `pending`, sinon rouvrir ce nœud
+   * pas rouvrir une production plus récente. La tâche doit encore être `done`,
+   * ses dépendantes doivent être restées `pending` et aucun de ses ancêtres
+   * délégués ne doit avoir échoué (ou été annulé), sinon rouvrir ce nœud
    * rendrait le graphe incohérent. Le passage à `ready` est unique et le même
    * budget `maxAttempts` que les échecs Worker borne la boucle.
    */
@@ -1041,6 +1126,12 @@ export class Scheduler {
     const dependents = this.store.tasksDependingOn(task.id);
     if (dependents.some((dependent) => dependent.status !== 'pending')) {
       return { ok: false, reason: 'dependent_progressed', task };
+    }
+    // Un enfant délégué n'a qu'un destinataire : sous un ancêtre échoué, la
+    // correction ne serait lue par personne, et la rouvrir remettrait en vol —
+    // et à la facture — ce que la clôture du sous-arbre a justement arrêté.
+    if (ancetreEchoue(this.store.listDelegationGraph(task.id), task.id)) {
+      return { ok: false, reason: 'ancestor_failed', task };
     }
     if (task.attempts >= this.maxAttempts) {
       return { ok: false, reason: 'attempts_exhausted', task };
@@ -1077,28 +1168,105 @@ export class Scheduler {
 
   /**
    * Annulation demandée par un humain : la tâche passe `failed` immédiatement
-   * (le nœud est prévenu par le serveur via `cancel_task`) et ses dépendantes
-   * échouent en cascade. Sans effet si la tâche est déjà terminée.
+   * (le nœud est prévenu par le serveur via `cancel_task`), ses descendants
+   * délégués encore en vol sont annulés avec elle et ses dépendantes échouent
+   * en cascade. Sans effet si la tâche est déjà terminée.
    */
   cancelTask(taskId: string, reason = 'cancelled', now = Date.now()): Task | undefined {
     const task = this.store.getTask(taskId);
     if (!task) return undefined;
     if (task.status === 'done' || task.status === 'failed') return task;
+    const patched = this.annulerEnVol(task, reason, now);
+    this.fermerSousArbre(taskId, 'ancestor_cancelled', now);
+    this.promoteAndAssign(now);
+    return patched;
+  }
+
+  /**
+   * Annule UNE tâche encore en vol, sans relancer l'assignation : le ou les
+   * nœuds qui la portent sont prévenus, son horloge d'hébergeur s'arrête, elle
+   * passe `failed` et `task_cancelled` est journalisé. L'annulation humaine et
+   * la clôture d'un sous-arbre délégué passent TOUTES DEUX par ici : deux
+   * portes, c'est une porte qu'on oublie de garder — et l'horloge l'a prouvé,
+   * elle ne se fermait que sur le chemin du résultat.
+   */
+  private annulerEnVol(task: Task, reason: string, now: number): Task | undefined {
     // Drone Wars : annuler TOUS les drones encore en vol, pas seulement le primaire.
-    const race = this.races.get(taskId);
+    const race = this.races.get(task.id);
     if (race) {
-      for (const droneId of runningDrones(race)) this.opts.onCancel?.(droneId, taskId, reason);
-      this.races.delete(taskId);
+      for (const droneId of runningDrones(race)) this.opts.onCancel?.(droneId, task.id, reason);
+      this.races.delete(task.id);
     } else if (task.assignedNodeId) {
       // Mono : le nœud assigné est prévenu ici aussi — la notification vit dans
       // le scheduler, pas dans chaque appelant (symétrie course/mono).
-      this.opts.onCancel?.(task.assignedNodeId, taskId, reason);
+      this.opts.onCancel?.(task.assignedNodeId, task.id, reason);
     }
+    // Une tentative interrompue est facturée pour le temps qu'elle a occupé
+    // l'hébergeur, pas un instant de plus : sans cette ligne, `depenseHorlogeHote`
+    // comptait la session jusqu'à `now` à chaque lecture, jusqu'à l'élagage.
+    this.store.fermerHorlogeHote(task.id, now);
+    // Une tâche terminale n'est plus jamais réévaluée : ses entrées dans les
+    // mémoires par tâche ne seraient plus purgées par personne.
+    this.infraRejects.delete(task.id);
+    this.deferredByConflict.delete(task.id);
     const nodeId = task.assignedNodeId;
-    const patched = this.store.patchTask(taskId, { status: 'failed', assignedNodeId: null }, now);
-    this.emit('task_cancelled', { taskId, reason, ...(nodeId ? { nodeId } : {}) });
-    this.promoteAndAssign(now);
+    const patched = this.store.patchTask(task.id, { status: 'failed', assignedNodeId: null }, now);
+    this.emit('task_cancelled', { taskId: task.id, reason, ...(nodeId ? { nodeId } : {}) });
     return patched;
+  }
+
+  /**
+   * Une tâche vient d'atteindre un état TERMINAL : chacun de ses descendants
+   * délégués ENCORE EN VOL est annulé. Un enfant délégué n'a qu'un
+   * destinataire, la tâche qui l'a demandé ; terminée (aboutie, échouée ou
+   * annulée), elle n'attend plus rien. Sans cette clôture l'enfant continuait —
+   * son nœud travaillait pour rien, son horloge tournait, et un petit-enfant
+   * encore en file partait sur une ouvrière libre. La cascade de `dependsOn`
+   * ne pouvait pas le voir : un enfant délégué en a `[]`.
+   *
+   * Une seule exception, et seulement quand la tâche a ABOUTI : un enfant que
+   * l'Evaluator a rouvert après qu'il a livré garde sa correction (voir
+   * `descendantsEnVol`). Échouée ou annulée, la tâche ne sera jamais rouverte :
+   * cette correction n'aurait plus de lecteur, elle est annulée avec le reste.
+   *
+   * Le POURQUOI est un fait typé, `delegation_cancelled`, émis AVANT la
+   * transition qu'il cause (motif `guard_refused`) ; la transition elle-même
+   * reste le `task_cancelled` que la Chronique, le registre et le rejeu lisent
+   * déjà. Borné par construction : `maxDescendantsPerRoot` par racine.
+   *
+   * Pas d'appel depuis la cascade des dépendances : une tâche `pending` n'a
+   * jamais tourné, elle n'a donc jamais délégué.
+   *
+   * Rend les identifiants annulés : une passe d'assignation qui ferme un
+   * sous-arbre en cours de route (`relecteurAbsent`) les tient encore pour
+   * prêts dans son instantané, et les réassignerait `failed`.
+   */
+  private fermerSousArbre(
+    taskId: string,
+    cause: CauseAnnulationDelegation,
+    now: number,
+  ): readonly string[] {
+    const graphe = this.store.listDelegationGraph(taskId);
+    const orphelins = descendantsEnVol(graphe, taskId, cause, (id) =>
+      // En vol ET déjà porteur d'un résultat retenu : l'Evaluator l'a rouvert
+      // après sa livraison (seul chemin de `done` vers la file).
+      this.store.aUnResultatRetenu(id),
+    );
+    for (const noeud of orphelins) {
+      const descendant = this.store.getTask(noeud.taskId);
+      if (!descendant) continue;
+      this.emit('delegation_cancelled', {
+        childTaskId: noeud.taskId,
+        parentTaskId: noeud.parentTaskId,
+        rootTaskId: noeud.rootTaskId,
+        depth: noeud.depth,
+        ancestorTaskId: taskId,
+        reason: cause,
+        ...(descendant.assignedNodeId ? { nodeId: descendant.assignedNodeId } : {}),
+      });
+      this.annulerEnVol(descendant, cause, now);
+    }
+    return orphelins.map((noeud) => noeud.taskId);
   }
 
   // ─── Drone Wars : redondance compétitive (opt-in, par tâche) ────────────────
@@ -1125,6 +1293,17 @@ export class Scheduler {
         error: `tâche ${task.status} — une course ne se lance que sur une tâche prête (ready)`,
       };
     }
+    // Une contre-expertise ne se court pas. Sa valeur est d'être lue par une
+    // famille PRÉCISE, et la course enrôle n'importe qui — le producteur
+    // d'abord, libre puisqu'il vient de rendre : Claude relirait Claude, et
+    // le verdict serait consigné sous le nom de Codex. Une relecture qui
+    // attend se débloque en rendant sa famille à la ruche, pas en la courant.
+    if (this.store.relectureDe(taskId)) {
+      return {
+        ok: false,
+        error: 'contre-expertise — elle ne part qu’à sa famille relectrice, pas en course',
+      };
+    }
     // Balance : une course est la dépense la plus LOURDE de la ruche (la même
     // tâche confiée à N nœuds à la fois). Refus symétrique de la porte
     // d'assignation — sinon le geste explicite serait un contournement du
@@ -1137,15 +1316,10 @@ export class Scheduler {
       return { ok: false, error: 'plafond de dépense atteint pour ce projet — course refusée' };
     }
     // Sting Detector : une course ne contourne JAMAIS la prévention des
-    // éditions concurrentes — même garde que l'assignation automatique.
-    const clash = this.store
-      .tasksByStatus('assigned', 'running')
-      .find(
-        (t) =>
-          t.projectId === task.projectId &&
-          t.id !== taskId &&
-          analyzePair(task, t).severity === 'high',
-      );
+    // éditions concurrentes — même garde que l'assignation automatique,
+    // littéralement : la même fonction, sur les mêmes tâches actives (celles
+    // qui ÉDITENT : une relecture en vol n'en est pas, voir `activesEditrices`).
+    const clash = this.conflitFortActif(task, this.activesEditrices());
     if (clash) {
       return {
         ok: false,
@@ -1249,7 +1423,9 @@ export class Scheduler {
       // replay.
       ...(modeleParDrone[primary] ? { modele: modeleParDrone[primary] } : {}),
     });
-    this.store.ouvrirHorlogeHote(assigned.projectId, assigned.id, Date.now());
+    // L'instant de l'assignation, celui que porte `updatedAt` : ouverture et
+    // clôture de la session se lisent sur la même horloge que la transition.
+    this.store.ouvrirHorlogeHote(assigned.projectId, assigned.id, now);
     // Chaque drone reçoit SON modèle élu (la course diversifie les agents).
     for (const droneId of launch) this.opts.onAssign?.(droneId, assigned, modeleParDrone[droneId]);
     return { ok: true, drones: launch };
@@ -1341,14 +1517,16 @@ export class Scheduler {
         this.emit('drone_cancelled', { taskId: task.id, nodeId: loser });
         this.opts.onCancel?.(loser, task.id, 'course de drones perdue');
       }
-      // Hive Mind : même parité que le circuit normal — la victoire laisse un souvenir.
+      // Hive Mind : même parité que le circuit normal — la victoire laisse un
+      // souvenir, fait de la réponse finale quand il y en a une.
       this.store.recordMemory({
         projectId: task.projectId,
         taskId: task.id,
         title: task.title,
-        content: summarizeTask(task.title, task.prompt, result.logs),
+        content: summarizeTask(task.title, task.prompt, result.finalText ?? result.logs),
       });
       this.emit('memory_recorded', { taskId: task.id, projectId: task.projectId });
+      this.fermerSousArbre(task.id, 'ancestor_done', now);
       this.promoteAndAssign(now);
       return true;
     }
@@ -1389,6 +1567,7 @@ export class Scheduler {
         ...(result.usage ? { usage: result.usage } : {}),
         ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
       });
+      this.fermerSousArbre(task.id, 'ancestor_failed', now);
     } else {
       this.store.patchTask(task.id, { status: 'ready', attempts, assignedNodeId: null });
       this.emit('task_retry', {
@@ -1453,8 +1632,10 @@ export class Scheduler {
    * tâche en ready SANS brûler de tentative (perte d'infrastructure, pas d'échec
    * de l'agent).
    */
-  private failDronesOfNode(nodeId: string, now: number): void {
-    for (const taskId of [...this.races.keys()]) this.dropDrone(taskId, nodeId, 'node_lost', now);
+  private failDronesOfNode(nodeId: string, now: number, vuVivantA: number): void {
+    for (const taskId of [...this.races.keys()]) {
+      this.dropDrone(taskId, nodeId, 'node_lost', now, vuVivantA);
+    }
   }
 
   // ─── Interne ───────────────────────────────────────────────────────────────
@@ -1632,6 +1813,144 @@ export class Scheduler {
     return classerEchelons(echelonsPermis({ min, max }), this.antecedentsGardeFou());
   }
 
+  /**
+   * La famille relectrice de cette relecture est-elle ABSENTE — aucun nœud en
+   * ligne pour la lire ? Vrai : la relecture ne part pas à cette passe.
+   *
+   * ─── ATTENDRE SE DIT, ET S'ARRÊTE ────────────────────────────────────────
+   *
+   * Saturée, la famille reviendra d'elle-même : la relecture attend son tour,
+   * sans bruit, comme toute tâche. ABSENTE, rien ne garantit qu'elle revienne
+   * — une ouvrière ajoutée est facultative (`scripts/ruche.mjs`), et un
+   * redémarrage en `--une-ouvriere` ne la relance pas. Deux faits donc :
+   *
+   *   · au premier constat, `contre_expertise_review_waiting` — UNE fois,
+   *     motif `deferredByConflict` : le journal dit qui l'on attend ;
+   *   · au-delà de `ATTENTE_RELECTEUR_ABSENT_MS`, la relecture ÉCHOUE, dite
+   *     par `task_failed` et par `contre_expertise_review_failed`
+   *     (`terminal`, motif `relecteur_absent`) : les deux faits que le hub
+   *     émet déjà pour une relecture qui échoue en rendant son résultat.
+   *
+   * Échouer, pas réaffecter : une AUTRE famille n'est pas un remplaçant.
+   * `choisirCritiques` a déjà confié la production à une relectrice par
+   * famille en ligne, jusqu'à `RELECTEURS_PAR_PRODUCTION` ; lui en donner une
+   * seconde lecture, c'est une contre-revue qui compte deux relectrices là où
+   * un seul modèle a lu (`crossReviewForResult`). Une famille revenue à temps
+   * reprend la relecture, quel que soit son nœud.
+   *
+   * Cet échec est une transition terminale comme les autres : il ferme le
+   * sous-arbre délégué de la relecture (`fermerSousArbre`) — un relecteur
+   * tombé a pu déléguer avant de tomber, et ses enfants n'auraient plus de
+   * destinataire. Les descendants annulés entrent dans `fermees`, que la
+   * passe en cours consulte avant d'assigner.
+   */
+  private relecteurAbsent(
+    task: Task,
+    lien: LienRelecture,
+    noeuds: readonly HiveNode[],
+    now: number,
+    fermees: Set<string>,
+  ): boolean {
+    if (noeuds.some((n) => n.status === 'online' && n.agentType === lien.relecteurAgent)) {
+      this.relecturesSansRelecteur.delete(task.id);
+      return false;
+    }
+    const depuis = this.relecturesSansRelecteur.get(task.id);
+    if (depuis === undefined) {
+      this.relecturesSansRelecteur.set(task.id, now);
+      this.emit('contre_expertise_review_waiting', {
+        taskId: lien.productionTaskId,
+        relecture: task.id,
+        relecteur: lien.relecteurAgent,
+        reviewerNodeId: lien.relecteurNodeId,
+        delaiMs: ATTENTE_RELECTEUR_ABSENT_MS,
+      });
+      return true;
+    }
+    if (now - depuis < ATTENTE_RELECTEUR_ABSENT_MS) return true;
+
+    this.relecturesSansRelecteur.delete(task.id);
+    // Terminale, elle n'est plus jamais réévaluée : ses refus d'infrastructure
+    // ne seraient plus purgés par personne (même règle qu'`annulerEnVol`).
+    this.infraRejects.delete(task.id);
+    this.store.patchTask(task.id, { status: 'failed', assignedNodeId: null }, now);
+    this.emit('task_failed', { taskId: task.id, reason: 'relecteur_absent' });
+    for (const id of this.fermerSousArbre(task.id, 'ancestor_failed', now)) fermees.add(id);
+    // Le `resultId` du lancement, comme le hub le joint à ses propres échecs
+    // de relecture : il dit QUELLE tentative de la production perd son avis.
+    const resultId = this.store.eventForRelecture(task.id)?.payload.resultId;
+    this.emit('contre_expertise_review_failed', {
+      taskId: lien.productionTaskId,
+      ...(typeof resultId === 'number' && Number.isSafeInteger(resultId) ? { resultId } : {}),
+      relecture: task.id,
+      relecteur: lien.relecteurAgent,
+      terminal: true,
+      attempt: task.attempts,
+      motif: 'relecteur_absent',
+    });
+    return true;
+  }
+
+  /**
+   * Les tâches actives qui ÉDITENT — celles que le Sting Detector sérialise.
+   *
+   * Une relecture n'en est pas : elle rend un verdict sur un diff qu'elle CITE
+   * (`consigneDeCritique`), et un fichier cité n'est pas un fichier touché. La
+   * compter, c'était sérialiser les relectrices d'une même production — leurs
+   * consignes citent les mêmes fichiers — et retenir toute production du
+   * projet qui les cite aussi, le temps d'une relecture qui ne modifie rien.
+   */
+  private activesEditrices(): Task[] {
+    return this.store
+      .tasksByStatus('assigned', 'running')
+      .filter((t) => this.store.relectureDe(t.id) === null);
+  }
+
+  /**
+   * `ancetre` est-elle un ancêtre de `taskId` dans le graphe de délégation ?
+   *
+   * Un parent qui délègue reste `running` : il ATTEND le résultat de son
+   * enfant. Or il décrit forcément ce qu'il délègue — donc les mêmes chemins —
+   * et le Sting Detector y voyait un conflit FORT. Différer l'enfant jusqu'à la
+   * fin du parent était un interblocage : le parent n'obtenait sa réponse
+   * qu'en épuisant son budget. Le différer n'évite d'ailleurs aucun conflit :
+   * chacun travaille dans son atelier, et c'est le parent qui reçoit le diff
+   * de l'enfant. Consulté seulement sur un conflit fort déjà constaté : le
+   * chemin ordinaire ne paie aucune lecture.
+   */
+  private estAncetre(ancetre: string, taskId: string): boolean {
+    // `vus` borne la remontée même sur un graphe corrompu : la profondeur
+    // légitime est déjà plafonnée par `LIMITES_DELEGATION_DEFAUT.maxDepth`.
+    const vus = new Set<string>();
+    let lien = this.store.getDelegation(taskId);
+    while (lien && !vus.has(lien.parentTaskId)) {
+      if (lien.parentTaskId === ancetre) return true;
+      vus.add(lien.parentTaskId);
+      lien = this.store.getDelegation(lien.parentTaskId);
+    }
+    return false;
+  }
+
+  /**
+   * La tâche active avec laquelle `task` est en conflit FORT (Sting
+   * Detector), hors de ses propres ancêtres de délégation (`estAncetre`) — ou
+   * `undefined`.
+   *
+   * UNE garde pour l'assignation automatique ET pour la course : deux copies
+   * avaient déjà divergé — la course refusait l'enfant délégué que
+   * l'assignation lançait, alors que son commentaire promettait « la même
+   * garde ». Une seule fonction ne peut plus diverger d'elle-même.
+   */
+  private conflitFortActif(task: Task, actives: readonly Task[]): Task | undefined {
+    return actives.find(
+      (t) =>
+        t.projectId === task.projectId &&
+        t.id !== task.id &&
+        analyzePair(task, t).severity === 'high' &&
+        !this.estAncetre(t.id, task.id),
+    );
+  }
+
   /** ready → assigned sur le nœud online le moins chargé qui a encore de la capacité. */
   private assignReadyTasks(now = Date.now()): void {
     // Balance : le livre avance AVANT toute décision, pour que la lecture
@@ -1641,7 +1960,7 @@ export class Scheduler {
     // Tâches déjà actives, enrichie au fil de la passe : une tâche qu'on vient
     // d'assigner doit être prise en compte pour la détection de conflit des
     // suivantes (sinon deux tâches ready mutuellement conflictuelles passeraient).
-    const activeNow = this.store.tasksByStatus('assigned', 'running');
+    const activeNow = this.activesEditrices();
     // Drones non-primaires en vol : charge invisible du store, à additionner.
     const extra = this.droneLoad();
     // Phéromones : calculées au plus UNE fois par passe, et seulement si un
@@ -1671,16 +1990,38 @@ export class Scheduler {
       antecedents ??= this.antecedentsAiguillage();
       return antecedents;
     };
-    for (const task of this.store.tasksByStatus('ready')) {
+    // ─── LES RELECTURES D'ABORD ────────────────────────────────────────────
+    // Une relecture achève un travail DÉJÀ payé ; une production prête est une
+    // dépense neuve. En file par date de création, une relecture passait
+    // derrière toutes les productions plus anciennes — sur une mission de dix
+    // tâches, les contre-revues (et les corrections de l'Evaluator qu'elles
+    // déclenchent) s'entassaient en fin de mission. Le tri est STABLE : l'ordre
+    // de création tient dans chaque groupe. Pas de famine possible : une
+    // production n'ouvre qu'au plus `RELECTEURS_PAR_PRODUCTION` relectures.
+    const pretes = this.store
+      .tasksByStatus('ready')
+      .map((task) => ({ task, lien: this.store.relectureDe(task.id) }))
+      .sort((a, b) => Number(b.lien !== null) - Number(a.lien !== null));
+    if (this.relecturesSansRelecteur.size > 0) {
+      const enFile = new Set(pretes.map((p) => p.task.id));
+      for (const id of this.relecturesSansRelecteur.keys()) {
+        if (!enFile.has(id)) this.relecturesSansRelecteur.delete(id);
+      }
+    }
+    // `pretes` est un instantané : une relecture qui échoue à cette passe
+    // (`relecteurAbsent`) annule ses descendants délégués, que l'instantané
+    // tient encore pour prêts. Sans ce registre, la suite de la boucle
+    // réassignerait une tâche `failed` — les relectures passent en tête, leurs
+    // descendants après.
+    const fermees = new Set<string>();
+    for (const { task, lien } of pretes) {
+      if (fermees.has(task.id)) continue;
       // Sting Detector : ne pas lancer une tâche en conflit FORT (même fichier)
       // avec une tâche déjà active du même projet. On la diffère jusqu'à ce que
       // l'autre se termine — prévention des conflits d'édition concurrents.
-      const clash = activeNow.find(
-        (t) =>
-          t.projectId === task.projectId &&
-          t.id !== task.id &&
-          analyzePair(task, t).severity === 'high',
-      );
+      // Une relecture n'édite rien : voir `activesEditrices`. Un enfant délégué
+      // n'attend pas derrière ses propres ancêtres : voir `conflitFortActif`.
+      const clash = lien === null ? this.conflitFortActif(task, activeNow) : undefined;
       if (clash) {
         if (!this.deferredByConflict.has(task.id)) {
           this.deferredByConflict.add(task.id);
@@ -1702,14 +2043,35 @@ export class Scheduler {
       this.signalerPlafond(task.projectId, decision);
       if (decision === 'bloque' && this.opts.balance?.mode === 'strict') continue;
       const charge = (n: HiveNode): number => n.running + (extra.get(n.id) ?? 0);
-      const eligibles = this.store
-        .listNodes()
+      const noeuds = this.store.listNodes();
+      // ─── UNE RELECTURE NE CHANGE PAS DE FAMILLE ──────────────────────────
+      // Une contre-expertise vaut par la famille qui la lit : un modèle
+      // DIFFÉRENT du producteur (`choisirCritiques`). La file ne le savait
+      // pas : revenue en file — relecteur saturé qui refuse, ou déconnecté —,
+      // elle partait au premier nœud libre, souvent le PRODUCTEUR, qui relisait
+      // alors son propre travail sous le nom d'une autre famille. Seule SA
+      // famille la prend donc — n'importe quel nœud de celle-ci : le verdict
+      // est attribué au nœud qui le rend (serveur, `task_result`).
+      //
+      // Et ce nœud doit rester INDÉPENDANT du producteur (`relecteurIndependant`,
+      // la même règle que le choix des relecteurs et le décompte de
+      // l'Evaluator) : la famille désignée l'est par construction, la garde
+      // tient même pour un lien qui ne le serait pas. Aucun relecteur
+      // indépendant libre : la relecture attend en file, et l'Evaluator la
+      // compte en vol plutôt que d'accepter sans elle.
+      //
+      // Une famille ABSENTE ne se laisse pas attendre en silence : voir
+      // `relecteurAbsent`.
+      if (lien !== null && this.relecteurAbsent(task, lien, noeuds, now, fermees)) continue;
+      const eligibles = noeuds
         .filter(
           (n) =>
+            (lien === null || n.agentType === lien.relecteurAgent) &&
             n.status === 'online' &&
             assignationProductionAutorisee(n.agentType, {
               simulation: this.opts.simulation,
             }) &&
+            (lien === null || relecteurIndependant(n.agentType, lien.producteurAgent)) &&
             // Thermorégulation : sous ventilation, la capacité de chaque nœud
             // est réduite par le facteur en vigueur (plancher 1 — la ruche ne
             // s'arrête pas, elle ralentit).
@@ -1821,17 +2183,20 @@ export class Scheduler {
             }
           : {}),
       });
-      this.store.ouvrirHorlogeHote(assigned.projectId, assigned.id, Date.now());
+      this.store.ouvrirHorlogeHote(assigned.projectId, assigned.id, now);
       // Le modèle élu part avec la tâche : le nœud le passera à `--model`.
       this.opts.onAssign?.(node.id, assigned, route?.modele);
-      activeNow.push(assigned); // les tâches suivantes tiennent compte de celle-ci
+      // Les tâches suivantes tiennent compte de celle-ci — si elle édite.
+      if (lien === null) activeNow.push(assigned);
     }
   }
 
   /** Nœud sans heartbeat depuis plus de `nodeTimeoutMs` → offline + réaffectation. */
   private reapDeadNodes(now: number): void {
     for (const node of this.store.staleNodes(now - this.nodeTimeoutMs)) {
-      this.nodeDisconnected(node.id, 'heartbeat_timeout', now);
+      // Le nœud s'est tu à son dernier battement : ses tentatives s'arrêtent
+      // là, pas à l'instant où ce tick s'en aperçoit.
+      this.nodeDisconnected(node.id, 'heartbeat_timeout', now, node.lastSeen ?? now);
     }
     // Purge des cooldowns de refus expirés (borne la taille de la map).
     for (const [key, until] of this.recentRejections) {

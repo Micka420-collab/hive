@@ -11,6 +11,7 @@ import path from 'node:path';
 import WebSocket from 'ws';
 import { getAdapter } from '../adapters/index.js';
 import type { AdapterResult, AgentAdapter } from '../adapters/index.js';
+import { borneTexteFinal } from '../adapters/texte-final.js';
 import {
   agentBinairePresent,
   estAgentType,
@@ -34,13 +35,18 @@ import type {
   DelegationResultMsg,
   OutilConstate,
   PoserOutilMsg,
+  TaskResultMsg,
 } from '../shared/protocol.js';
 import { HEARTBEAT_INTERVAL_MS, NODE_TIMEOUT_MS } from '../shared/types.js';
 import type { ExecutionUsage, IsolementDeclare, Task } from '../shared/types.js';
 import { runMerge, runProc } from './merge-runner.js';
 import { lancerVraiment, poserOutil } from './pose-runner.js';
 import { buildSandboxEnv, cloneRepo, prepareWorkspace } from './workspace.js';
-import { requisitionDepuisEchecInfra } from '../shared/requisition-infra.js';
+import {
+  requisitionDepuisEchecInfra,
+  type RequisitionDepuisInfra,
+} from '../shared/requisition-infra.js';
+import { texteDEchec } from '../shared/texte-d-echec.js';
 import { motifRefusPresence, refuseParPresence } from '../shared/presence-noeud.js';
 import type { Fournisseur } from './isolement.js';
 import type { Workspace } from './workspace.js';
@@ -60,6 +66,26 @@ const DELEGATION_RESPONSE_TIMEOUT_MS = 15_000;
  * une marge, tout en restant borné par le plafond de transport accepté.
  */
 const DELEGATION_RESULT_GRACE_MS = 5 * 60_000;
+
+/**
+ * Ce que l'adaptateur a DÉCLARÉ, tel que `task_result` le transporte : la
+ * déclaration fournisseur et le texte final, reborné ici comme le diff et les
+ * logs : le hub ABANDONNE un texte trop long (protocol.ts), mieux vaut lui en
+ * envoyer la fin — là où l'agent conclut — que rien.
+ *
+ * Un seul endroit pour les deux chemins d'envoi — l'exécution ET la reprise
+ * après réquisition. La reprise recopiait les champs à la main, et avait
+ * oublié `fournisseur` : une tâche reprise perdait son coût déclaré.
+ */
+function declarationsDuResultat(
+  result: AdapterResult,
+): Pick<TaskResultMsg, 'fournisseur' | 'finalText'> {
+  const finalText = result.finalText === undefined ? undefined : borneTexteFinal(result.finalText);
+  return {
+    ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
+    ...(finalText ? { finalText } : {}),
+  };
+}
 
 export interface NodeClientOptions {
   /** URL WebSocket de l'orchestrateur, ex. ws://localhost:7777/ws */
@@ -850,10 +876,31 @@ export class HiveNodeClient {
     // agent qu'elle ne connaît pas.
     const agent = this.opts.agentType;
     if (!estAgentType(agent)) return;
-    const req = requisitionSiCredentialsManquantes(agent);
+    // Dans un bac, la session de l'hôte (`~/.claude`…) n'atteint pas l'agent :
+    // elle ne compte plus, et la réquisition nomme le jeton à poser.
+    const req = requisitionSiCredentialsManquantes(agent, process.env, {
+      sessionsHote: !this.opts.bac,
+    });
     if (!req) return;
     this.requisitionCredentialEnvoyee = true;
     this.ouvrirRequisition(req.genre, req.libelle, req.detail);
+  }
+
+  /**
+   * La réquisition qu'appelle un échec d'INFRA de l'agent — ou `null`.
+   *
+   * Un seul appel pour la tâche et pour sa reprise. Dans un bac, la session de
+   * l'hôte (`~/.claude`…) n'atteint pas l'agent : elle ne compte plus, et la
+   * réquisition nomme le jeton à poser au lieu d'une demande générique qui ne
+   * nomme rien.
+   *
+   * `texte` est ce que l'échec DIT (`texteDEchec`), jamais les logs bruts : la
+   * ligne `init` du stream-json porte `apiKeySource` à chaque exécution.
+   */
+  private requisitionApresEchecInfra(texte: string, titre: string): RequisitionDepuisInfra | null {
+    return requisitionDepuisEchecInfra(this.opts.agentType, texte, titre, process.env, {
+      sessionsHote: !this.opts.bac,
+    });
   }
 
   /**
@@ -1023,8 +1070,14 @@ export class HiveNodeClient {
           : rawResult;
       usage = executionUsageDepuis(usageBefore, capturerExecutionUsage());
       // Échec d'INFRASTRUCTURE : réquisition mid-task si credentials, sinon failover.
+      // Le genre se lit sur ce que l'échec DIT, pas sur les logs bruts : la
+      // ligne `init` du stream-json porte `apiKeySource`, et un simple 429 y
+      // ouvrait une réquisition d'identifiants (shared/texte-d-echec.ts).
       if (!result.success && result.infra) {
-        const req = requisitionDepuisEchecInfra(this.opts.agentType, result.logs, task.title);
+        const req = this.requisitionApresEchecInfra(
+          texteDEchec(result.logs, result.finalText),
+          task.title,
+        );
         if (req && workspace && !this.attenteRequisition) {
           conserverWorkspace = true;
           this.attenteRequisition = {
@@ -1076,7 +1129,7 @@ export class HiveNodeClient {
         durationMs: Date.now() - started,
         subAgents: result.subAgents.slice(0, LIMITS.subAgents),
         ...(usage ? { usage } : {}),
-        ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
+        ...declarationsDuResultat(result),
       });
       this.log(`${result.success ? '✔' : '✘'} ${task.title}`);
     } catch (err) {
@@ -1193,7 +1246,10 @@ export class HiveNodeClient {
           : rawResult;
       usage = executionUsageDepuis(usageBefore, capturerExecutionUsage());
       if (!result.success && result.infra) {
-        const encore = requisitionDepuisEchecInfra(this.opts.agentType, result.logs, task.title);
+        const encore = this.requisitionApresEchecInfra(
+          texteDEchec(result.logs, result.finalText),
+          task.title,
+        );
         if (encore?.genre === 'binaire') {
           this.attenteRequisition = {
             ...attente,
@@ -1229,6 +1285,7 @@ export class HiveNodeClient {
         durationMs: Date.now() - started,
         subAgents: result.subAgents.slice(0, LIMITS.subAgents),
         ...(usage ? { usage } : {}),
+        ...declarationsDuResultat(result),
       });
       this.log(`${result.success ? '✔' : '✘'} ${task.title} (reprise)`);
     } catch (err) {
@@ -1377,6 +1434,12 @@ export class HiveNodeClient {
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      // `refused`, là aussi : ce merge n'a PAS EU LIEU (clone refusé —
+      // identifiants, dépôt introuvable, réseau — ou `runMerge` qui a jeté).
+      // Sans lui, le hub rangeait `applied: [], conflicts: []` en
+      // `merge_completed`, et l'écran lisait « 0 diff(s) appliqué(s), 0
+      // conflit(s) » : un succès vide, la cause enfouie dans un journal replié
+      // (mesuré de bout en bout : tests/workflow-git.test.ts).
       this.send({
         type: 'merge_result',
         mergeId: msg.mergeId,
@@ -1386,6 +1449,7 @@ export class HiveNodeClient {
         testsRun: false,
         testsPassed: null,
         logs: `[nœud] échec du merge : ${message}`,
+        refused: 'échec du merge sur le nœud',
       });
       this.log(`✘ merge ${msg.mergeId.slice(0, 8)} : ${message}`);
     } finally {

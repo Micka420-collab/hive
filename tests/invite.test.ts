@@ -7,6 +7,7 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { decodeInvite, encodeInvite, isWsUrl } from '../src/shared/invite.js';
 import {
+  AGENT_TYPES,
   agentCredentialEnv,
   detectAllAgents,
   detectBestAgent,
@@ -70,7 +71,11 @@ describe('invite (encode/décode)', () => {
 });
 
 describe('détection d’agent', () => {
-  const KNOWN = new Set(['claude-code', 'codex', 'shell']);
+  // « Connus » : les agents que la ruche sait décrire (`AGENT_TYPES`). La liste
+  // écrite à la main ici datait de l'époque à deux agents, et rougissait sur
+  // toute machine qui porte Cursor, Cline ou Grok — la détection y avait
+  // pourtant raison.
+  const KNOWN = new Set<string>(AGENT_TYPES);
 
   it('propose toujours le shell simulé et ne retourne que des agents connus', async () => {
     const all = await detectAllAgents();
@@ -134,7 +139,7 @@ describe("flux complet d'invitation", () => {
     const base = `http://127.0.0.1:${server.port}`;
     const auth = await fetch(`${base}/api/auth/register`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-hive-token': TOKEN },
       body: JSON.stringify({
         email: 'admin@hive.test',
         password: 'mot-de-passe-test',

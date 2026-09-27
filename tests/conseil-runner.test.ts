@@ -53,11 +53,10 @@ function juge(type: 'soutien' | 'arret', force = 8): string {
   return `Vérifié.\nHIVE_AVIS ${JSON.stringify({ type, force, raison: 'r' })}`;
 }
 
-const resultat = (r: Partial<ResultatOuvriere> & { logs: string }): ResultatOuvriere => ({
+const resultat = (r: Partial<ResultatOuvriere> & { finalText: string }): ResultatOuvriere => ({
   nodeId: 'n1',
   agentType: 'claude-code',
   success: true,
-  diff: '',
   ...r,
 });
 
@@ -101,7 +100,7 @@ describe('dépouiller un tour', () => {
     const a = avancerConseil(
       dep,
       store.getSession(s.id)!,
-      retourner(s.id, (i) => resultat({ logs: propose(`idée-${i}`) })),
+      retourner(s.id, (i) => resultat({ finalText: propose(`idée-${i}`) })),
     );
     expect(a.propositions).toBeGreaterThanOrEqual(4);
     expect(a.tourClos).toBe(true);
@@ -112,7 +111,7 @@ describe('dépouiller un tour', () => {
     avancerConseil(
       dep,
       store.getSession(s.id)!,
-      retourner(s.id, () => resultat({ logs: propose('x') })),
+      retourner(s.id, () => resultat({ finalText: propose('x') })),
     );
     expect(store.listPropositions(s.id)).toHaveLength(avant);
   });
@@ -125,7 +124,9 @@ describe('dépouiller un tour', () => {
       dep,
       store.getSession(s.id)!,
       retourner(s.id, (i) =>
-        i === 0 ? resultat({ logs: '', success: false }) : resultat({ logs: propose(`i-${i}`) }),
+        i === 0
+          ? resultat({ finalText: '', success: false })
+          : resultat({ finalText: propose(`i-${i}`) }),
       ),
     );
     expect(a.tourClos).toBe(true);
@@ -137,7 +138,7 @@ describe('dépouiller un tour', () => {
     const a = avancerConseil(
       dep,
       store.getSession(s.id)!,
-      retourner(s.id, () => resultat({ logs: 'bla bla' })),
+      retourner(s.id, () => resultat({ finalText: 'bla bla' })),
     );
     expect(a.tourClos).toBe(true);
     expect(store.listPropositions(s.id)).toHaveLength(0);
@@ -148,7 +149,7 @@ describe('dépouiller un tour', () => {
     const s = ouvrirConseil(dep, { projectId });
     const taches = store.tachesADepouiller(s.id);
     const partiel = new Map<string, ResultatOuvriere | null>();
-    partiel.set(taches[0]!.taskId, resultat({ logs: propose('seule') }));
+    partiel.set(taches[0]!.taskId, resultat({ finalText: propose('seule') }));
     const a = avancerConseil(dep, store.getSession(s.id)!, partiel);
     expect(a.tourClos).toBe(false);
     expect(a.verdict).toBeNull();
@@ -162,7 +163,7 @@ describe('l’enchaînement des tours', () => {
     avancerConseil(
       dep,
       store.getSession(s.id)!,
-      retourner(s.id, (i) => resultat({ logs: propose(`idée-${i}`) })),
+      retourner(s.id, (i) => resultat({ finalText: propose(`idée-${i}`) })),
     );
 
     const session = store.getSession(s.id)!;
@@ -186,8 +187,8 @@ describe('l’enchaînement des tours', () => {
       store.getSession(s.id)!,
       retourner(s.id, (i) =>
         i === 0
-          ? resultat({ logs: propose('la bonne idée'), nodeId: 'auteur' })
-          : resultat({ logs: 'rien' }),
+          ? resultat({ finalText: propose('la bonne idée'), nodeId: 'auteur' })
+          : resultat({ finalText: 'rien' }),
       ),
     );
     expect(store.listPropositions(s.id)).toHaveLength(1);
@@ -197,7 +198,7 @@ describe('l’enchaînement des tours', () => {
       dep,
       store.getSession(s.id)!,
       retourner(s.id, (i) =>
-        resultat({ logs: juge('soutien'), nodeId: `verif-${i}`, agentType: familles[i % 3]! }),
+        resultat({ finalText: juge('soutien'), nodeId: `verif-${i}`, agentType: familles[i % 3]! }),
       ),
     );
 
@@ -215,7 +216,7 @@ describe('l’enchaînement des tours', () => {
       dep,
       store.getSession(s.id)!,
       retourner(s.id, (i) =>
-        i === 0 ? resultat({ logs: propose('douteuse') }) : resultat({ logs: 'rien' }),
+        i === 0 ? resultat({ finalText: propose('douteuse') }) : resultat({ finalText: 'rien' }),
       ),
     );
     avancerConseil(
@@ -223,7 +224,7 @@ describe('l’enchaînement des tours', () => {
       store.getSession(s.id)!,
       retourner(s.id, (i) =>
         resultat({
-          logs: i === 0 ? juge('arret') : juge('soutien'),
+          finalText: i === 0 ? juge('arret') : juge('soutien'),
           nodeId: `v-${i}`,
           agentType: ['codex', 'hermes', 'claude-code'][i % 3]!,
         }),
@@ -249,7 +250,7 @@ describe('une session finit TOUJOURS par se clore', () => {
           resultat({
             // À chaque tour de nouvelles idées, et des avis toujours partagés :
             // le pire cas pour la convergence.
-            logs:
+            finalText:
               role === 'exploration'
                 ? propose(`t${session.tour}-${i}`)
                 : juge(i % 2 ? 'soutien' : 'arret'),
@@ -269,7 +270,7 @@ describe('une session finit TOUJOURS par se clore', () => {
     avancerConseil(
       dep,
       store.getSession(s.id)!,
-      retourner(s.id, () => resultat({ logs: 'rien' })),
+      retourner(s.id, () => resultat({ finalText: 'rien' })),
     );
     expect(store.getSession(s.id)?.etat).toBe('clos');
     const avant = store.listTasks(projectId).length;
@@ -283,7 +284,7 @@ describe('une session finit TOUJOURS par se clore', () => {
     avancerConseil(
       dep,
       store.getSession(s.id)!,
-      retourner(s.id, () => resultat({ logs: 'rien' })),
+      retourner(s.id, () => resultat({ finalText: 'rien' })),
     );
     expect(store.sessionsOuvertes().map((x) => x.id)).not.toContain(s.id);
   });
@@ -297,7 +298,7 @@ describe('l’élagage', () => {
     avancerConseil(
       dep,
       store.getSession(close.id)!,
-      retourner(close.id, () => resultat({ logs: 'rien' })),
+      retourner(close.id, () => resultat({ finalText: 'rien' })),
     );
     const ouverte = ouvrirConseil(dep, { projectId });
 
@@ -314,7 +315,7 @@ describe('l’élagage', () => {
       avancerConseil(
         dep,
         store.getSession(s.id)!,
-        retourner(s.id, () => resultat({ logs: 'rien' })),
+        retourner(s.id, () => resultat({ finalText: 'rien' })),
       );
       ids.push(s.id);
     }
@@ -329,13 +330,13 @@ describe('l’élagage', () => {
       dep,
       store.getSession(s.id)!,
       retourner(s.id, (i) =>
-        i === 0 ? resultat({ logs: propose('x') }) : resultat({ logs: 'rien' }),
+        i === 0 ? resultat({ finalText: propose('x') }) : resultat({ finalText: 'rien' }),
       ),
     );
     avancerConseil(
       dep,
       store.getSession(s.id)!,
-      retourner(s.id, () => resultat({ logs: juge('soutien') })),
+      retourner(s.id, () => resultat({ finalText: juge('soutien') })),
     );
     expect(store.listPropositions(s.id).length).toBeGreaterThan(0);
 

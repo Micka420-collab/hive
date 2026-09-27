@@ -172,7 +172,7 @@ describe('la porte des amis, ruche allumée', () => {
     });
     const auth = await fetch(`http://127.0.0.1:${server.port}/api/auth/register`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-hive-token': TOKEN },
       body: JSON.stringify({
         email: 'admin@hive.test',
         password: 'mot-de-passe-test',

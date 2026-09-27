@@ -172,6 +172,22 @@ Aucun test de la suite n'a rougi lors du resserrement, et c'est précisément
 pourquoi `tests/engagement-projet.test.ts` a été écrit : une garde qu'aucun test
 ne voit mordre est une garde qu'on retirera un jour sans s'en apercevoir.
 
+Et aucun test n'a vu ce que le resserrement cassait : le tableau de bord
+**connecté**. Son `api()` n'envoyait que le jeton de ruche, alors que
+`createProject` attribue le projet à la session — le propriétaire recevait donc
+« 404 projet inconnu » sur les huit engagements de son propre projet, `addTasks`
+en tête, juste après l'avoir créé. Les bancs du serveur choisissent leurs
+en-têtes, ceux de l'écran bouchonnent `fetch` : le défaut vivait entre les deux.
+`api()` joint désormais le JWT à chaque appel — sauf la lecture par lien de
+partage, qui part avec le lien SEUL : ni compte ni jeton de ruche, sinon un lien
+révoqué s'ouvrirait encore chez son hôte. `tests/dashboard-contrat-compte.test.tsx`
+fait passer les vraies fonctions de l'écran devant une vraie Reine.
+
+Ce que cela ne règle pas encore : une session qui expire pendant que l'onglet
+reste ouvert. L'écran ne purge le JWT qu'au montage ; d'ici là il part périmé,
+la Reine le traite comme absent, et la personne retrouve le 404 sur son projet
+(ou un 401 à la création) sans qu'on lui dise de se reconnecter.
+
 ## Première étape livrée : les capacités globales
 
 La séparation a maintenant franchi la frontière des opérations globales qui
@@ -190,3 +206,55 @@ Le tableau de bord signe ces appels avec le JWT de la session. La CLI accepte
 également `HIVE_JWT` pour ses commandes d'intendance ; les nœuds continuent
 d'utiliser leur clé dédiée pour rejoindre la ruche. Les lectures de présence et
 de projet qui ne changent pas l'état restent derrière leur contrat existant.
+
+## Deuxième étape livrée : toute route qui engage, et ce qu'on RÈGLE
+
+La décision tenait sur quatre routes ; un relevé complet en a trouvé dix-sept
+autres qui engageaient encore un projet par le seul jeton de ruche — fabriques,
+motifs, livraison et fusion (avec le jeton GitHub de l'hôte), revue humaine,
+annulation, course, ingestion de CI, nouvelle tentative, et les réglages. Elles
+passent toutes par la même règle, appliquée au projet de la tâche quand la route
+vise une tâche. `tests/engagement-projet.test.ts` les énumère, et un banc refuse
+toute route d'écriture de l'espace projet qu'il ne connaît pas.
+
+Deux portes de compte qui LISAIENT au lieu d'ENGAGER (sauvegardes, restauration,
+retouche du Rayon : tout inscrit passait sur un projet public) prennent la règle
+de l'engagement.
+
+**Régler n'est pas engager.** Le niveau d'autonomie (`plein` + dépôt inscrit :
+la ruche fusionne seule), les bornes du Garde-Fous, le plafond de dépense et
+l'horizon décident de ce que le projet s'autorise ensuite. Ils sont réservés à
+qui en RÉPOND : le propriétaire ou un administrateur (action `regler_autonomie`
+de la matrice), ou le jeton de ruche sur un projet orphelin. Un membre qui y
+travaille reçoit un 403 qui dit à qui s'adresser — il sait déjà que le projet
+existe.
+
+**Décider n'est pas engager non plus.** La revue humaine (approuvée, elle ouvre
+la livraison autonome), l'annulation, la livraison et la fusion disent ce que
+devient un travail déjà fait : même porte que les réglages. La raison est
+précise : être membre ne prouve pas qu'on a été admis. `peutRejoindre` ouvre
+tout projet public au premier compte venu, et un inconnu inscrit à l'instant
+livrait puis fusionnait ainsi, avec la clé GitHub de l'hôte, sur la vitrine
+d'autrui. Ce qu'un membre inscrit tout seul peut encore ENGAGER (des tâches)
+reste une décision d'hôte ouverte.
+
+**La clé GitHub de l'hôte obéit à l'hôte.** Livrer, fusionner, et régler la
+ruche à `gouverne` ou plus (elle livre alors seule) écrivent avec
+`HIVE_GITHUB_TOKEN`. Il faut donc, en plus de répondre du projet, parler au nom
+de l'hôte — le jeton de ruche ou un compte administrateur — et répondre de
+CHAQUE projet qui tient le même dépôt. Sans la première condition, un inconnu
+créait son propre projet sur un dépôt de l'hôte et y livrait ; sans la seconde,
+le jeton créait un projet orphelin sur le dépôt d'un propriétaire (un `.git` en
+moins suffit) et rouvrait au jeton un dépôt qu'un propriétaire lui avait soustrait.
+
+**L'Evaluator est écouté au moment de livrer — sur les deux voies.** Livraison
+et fusion rendent 409 quand il demande une correction ou rejette la production ;
+la ruche autonome ne livre ni ne fusionne ces productions-là, et une pull
+request dont la tâche a disparu ne se fusionne pas sans forçage. Passer outre
+demande une raison (`forcer: { raison }`, CLI `--forcer="…"`), et l'événement
+`evaluator_overridden` garde qui, pourquoi, et contre quel verdict — en faits
+typés, sans recopier les raisons de l'Evaluator, qui peuvent citer un agent.
+
+Enfin, le premier compte (futur administrateur) exige le jeton de ruche sur
+TOUTE ruche : l'adresse d'écoute ne disait pas qui parle, et un proxy posé sur
+la même machine relayait Internet par la boucle locale.

@@ -58,4 +58,18 @@ describe('horloge — le magasin additionne, l’agent n’écrit rien', () => {
     store.close();
     rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
   });
+
+  // Un arrêt daté AVANT le départ arrive vraiment : horloge murale qui
+  // recule, dernier battement d'un nœud antérieur à l'assignation qu'il n'a
+  // jamais confirmée. Refuser de le fermer laissait la session OUVERTE — donc
+  // facturée jusqu'à `now` à chaque lecture, sans fin. On ne facture rien de
+  // négatif, et rien de fantôme : zéro, et la session est close.
+  it('fermer avant le départ clôt à zéro — la session ne reste jamais ouverte', async () => {
+    const { HiveStore } = await import('../src/orchestrator/store.js');
+    const store = new HiveStore(':memory:');
+    store.ouvrirHorlogeHote('p1', 't1', T0);
+    expect(store.fermerHorlogeHote('t1', T0 - 1)).toBe(true);
+    expect(store.depenseHorlogeHote('p1', T0 + 60_000)).toBe(0);
+    store.close();
+  });
 });

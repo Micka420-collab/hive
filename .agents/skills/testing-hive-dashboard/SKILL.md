@@ -15,7 +15,10 @@ cd <repo> && npm run ruche             # queen (7777) + local worker node + Vite
 `npm run ruche` runs all three processes with prefixed logs (`reine`, `ouvrière`, `écran`).
 Run it backgrounded and tail the log file — the `ouvrière` lines are where agent detection
 is printed (e.g. `Agent utilisé   : Claude Code`), which is often the thing under test.
-Variants: `-- --sans-ecran`, `-- --sans-noeud`, `-- --ecran-seul`.
+Variants: `-- --sans-ecran`, `-- --sans-noeud`, `-- --ecran-seul`, `-- --une-ouvriere`.
+With two or more real agent CLIs installed, it starts one worker per agent family instead
+(`ouvrière claude-code`, `ouvrière codex`…, one task at a time each) and says so in one
+banner line; `-- --une-ouvriere` or `HIVE_AGENT` in `.env` keeps a single `ouvrière`.
 
 Configuration is read from a root `.env` (do not print or commit its values). Keys that matter
 for testing: `HIVE_PORT`, `HIVE_HOST` (default `127.0.0.1`), `HIVE_TOKEN`, `HIVE_SIMULATION`,
@@ -55,9 +58,23 @@ Beware: the top bar has `backdrop-filter`, which makes it the containing block f
 off-screen (previously measured at y = -129). A quick objective check in the console:
 `document.querySelector('.modal').getBoundingClientRect()` vs `innerHeight`/`innerWidth`.
 
-Escape-to-close comes from `useDialog` (or a local handler in `InvitePanel`). It was missing
-on `OpenAlexPanel` until it was wired up; a new overlay that forgets `useDialog` closes on the
-backdrop and the × but not on Escape, so verify per-modal rather than assuming.
+Escape-to-close, the Tab focus trap (Tab from the last control wraps to the first) and focus
+restore on close all come from `useDialog` — every overlay uses it, `InvitePanel` and the two
+Chambre dialogs (API key, motif confirmation) included. Only the topmost dialog that is on screen
+handles the keyboard. The hook must live in a component that mounts WITH its dialog
+(`CadreInvitation`, `DialogueChambre`): called at view level it registered while no dialog was
+open, and the Chambre's key dialog lost Escape and Tab. It was missing on `OpenAlexPanel` until
+it was wired up; a new overlay that forgets `useDialog` closes on the backdrop and the × but not
+on Escape, and lets Tab wander behind the backdrop, so verify per-modal rather than assuming.
+Also click inside each dialog (a field, its text): only a click on the backdrop itself may close
+it — the Chambre dialogs used to close when you clicked into the secret field.
+
+A view that throws while rendering (or whose lazy chunk fails to load) shows a "Cette vue est
+tombée en panne" card inside the view area, with Retry and Reload; the sidebar stays usable, and
+moving to another view or another item of the same view (`#/projets/<id>`) clears it. A failed
+poll shows its message with a "Réessayer" button and the time of the last attempt; while the
+retry is in flight the button is `aria-disabled` (never `disabled`), so keyboard focus stays on
+it.
 
 ## Window sizing for responsive checks
 

@@ -211,7 +211,7 @@ describe('réquisition si credentials manquantes', () => {
     expect(requisitionSiCredentialsManquantes('custom', {})).toBeNull();
   });
 
-  it('codex sans OPENAI_API_KEY → réquisition cle_api', () => {
+  it('codex sans CODEX_API_KEY ni session → réquisition cle_api', () => {
     const r = requisitionSiCredentialsManquantes('codex', {});
     expect(r?.genre).toBe('cle_api');
     expect(r?.libelle).toMatch(/OpenAI/i);

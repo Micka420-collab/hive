@@ -14,6 +14,9 @@ import {
   neutraliserDelimiteur,
   tronquerChamp,
 } from '../shared/donnees-non-fiables.js';
+// Partagés avec le nœud, qui classe ses échecs d'infrastructure sur la même
+// règle (shared/texte-d-echec.ts).
+import { MOTIF_ANSI, texteDEchec } from '../shared/texte-d-echec.js';
 
 /** Longueur maximale d'une ligne d'extrait (au-delà : tronquée, '…' final). */
 const LIGNE_MAX = 200;
@@ -26,11 +29,6 @@ const JOINT = ' ⏎ ';
 
 /** Lignes qui « sentent » l'erreur : privilégiées dans l'extrait. */
 const MOTIF_ERREUR = /error|erreur|échec|failed|exception|traceback|assert/i;
-
-// Séquences d'échappement ANSI (couleurs, curseur…) : bruit de terminal qui
-// n'apprend rien à l'ouvrière suivante — retirées avant toute analyse.
-// eslint-disable-next-line no-control-regex
-const MOTIF_ANSI = /\u001B\[[0-9;?]*[A-Za-z]/g;
 
 // ─── Contrat anti-injection : bloc de DONNÉES délimité ──────────────────────
 //
@@ -70,6 +68,8 @@ export interface EchecPrecedent {
   nodeName: string;
   /** Logs bruts remontés par le nœud (peuvent contenir de l'ANSI). */
   logs: string;
+  /** Réponse finale déclarée par le CLI, quand le journal l'a encore. */
+  finalText?: string;
   /** Horodatage du résultat (ms epoch) — ordonne les leçons. */
   createdAt: number;
 }
@@ -149,7 +149,8 @@ export function leconsDesEchecs(echecs: EchecPrecedent[], maxChars: number): str
       .map((e) => ({
         tentative: e.attempt,
         noeud: nettoyerNom(e.nodeName),
-        extrait: neutraliserDelimiteur(extraitDesLogs(e.logs)) || '(aucun log)',
+        extrait:
+          neutraliserDelimiteur(extraitDesLogs(texteDEchec(e.logs, e.finalText))) || '(aucun log)',
       })),
     maxChars,
     moinsImportante: 'premiere',

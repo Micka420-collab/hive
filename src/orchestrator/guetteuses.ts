@@ -116,7 +116,10 @@ export function leurreTouche(cheminBrut: string): Leurre | null {
 
 /** Un passage repéré au trou de vol. */
 export interface Passage {
-  /** L'adresse d'où ça venait. Derrière un proxy, ce sera celle du proxy. */
+  /**
+   * L'adresse d'où ça venait — celle du client quand HIVE_TRUST_PROXY nomme le
+   * proxy, celle du proxy sinon. Sert au décompte ; `/api/guet` ne la sert pas.
+   */
   source: string;
   chemin: string;
   appat: Appat;

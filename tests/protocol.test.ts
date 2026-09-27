@@ -275,6 +275,35 @@ describe('parseClientMessage', () => {
     ).toHaveLength(8);
   });
 
+  it('transporte le texte final, et abandonne un texte malformé SANS perdre le résultat', () => {
+    // Le texte final est ce que la contre-expertise et le Conseil lisent. Un
+    // texte illisible ne doit jamais coûter la production du Worker : il est
+    // abandonné, et son absence se voit (« aucune réponse finale »).
+    const resultat = (finalText: unknown) =>
+      parseClientMessage(
+        JSON.stringify({
+          type: 'task_result',
+          taskId: 't-texte',
+          success: true,
+          diff: '',
+          logs: '',
+          durationMs: 12,
+          subAgents: [],
+          finalText,
+        }),
+      );
+    expect(resultat('conteste\n- une objection')).toMatchObject({
+      type: 'task_result',
+      finalText: 'conteste\n- une objection',
+    });
+    expect(resultat('x'.repeat(LIMITS.finalText))).toHaveProperty('finalText');
+    for (const faux of ['x'.repeat(LIMITS.finalText + 1), '   \n ', 42, { texte: 'valide' }]) {
+      const msg = resultat(faux);
+      expect(msg?.type, String(faux).slice(0, 20)).toBe('task_result');
+      expect(msg).not.toHaveProperty('finalText');
+    }
+  });
+
   it('accepte task_reject et register avec activeTasks, rejette les invalides', () => {
     expect(
       parseClientMessage(JSON.stringify({ type: 'task_reject', taskId: 't1', reason: 'sature' }))

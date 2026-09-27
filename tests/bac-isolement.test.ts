@@ -26,6 +26,7 @@ import {
   binaireDansBac,
   binaireMcpDansBac,
   codeDuBac,
+  sessionsHoteDuMode,
   deciderAvecPreflight,
   optionBac,
   preparerBac,
@@ -56,6 +57,7 @@ function bacDe(mode: 'off' | 'auto' | 'exige', fournisseur: Fournisseur | null):
     refuse: decision.refuse,
     // La VRAIE règle, pas une copie : c'est tout l'objet de `codeDuBac`.
     codeSortie: codeDuBac(decision.refuse),
+    sessionsHote: sessionsHoteDuMode(mode),
   };
 }
 
@@ -322,6 +324,18 @@ describe('LE REFUS DE BAC À SABLE A SON PROPRE CODE DE SORTIE', () => {
     // l'argument passé est bien la décision.
     const s = source('bac.ts');
     expect(s, 'le code du bac doit venir de la règle').toContain('codeDuBac(decision.refuse)');
+  });
+
+  it('LE REFUS S’ATTEINT DÉSORMAIS SOUS BANC — « exige » sans moteur, par `preparerBac`', async () => {
+    // `preparerBac` reçoit ses sondes (`OutilsBac`) : l'état refusant ne demande
+    // plus une machine SANS moteur. La garde de source ci-dessus reste — elle
+    // juge l'argument passé à la règle, celle-ci juge ce que le nœud rend.
+    const bac = await preparerBac({ HIVE_ISOLEMENT: 'exige' }, 'claude-code', {
+      trouver: async () => null,
+    });
+    expect(bac.refuse).toBe(true);
+    expect(bac.codeSortie).toBe(CODE.REFUS_SECURITE);
+    expect(bac.lignes.join('\n')).toContain('HIVE_ISOLEMENT=exige');
   });
 
   it('AUCUN CHEMIN DE DÉMARRAGE N’ÉCRIT SON CODE À LA MAIN', () => {

@@ -21,11 +21,13 @@
 // `Buffer[]`. Ne mesurer que la première laisserait passer, par la fragmentation,
 // exactement ce qu'on borne — et l'attaquant choisit sa fragmentation.
 
+import { randomBytes } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
+import { connect } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import WebSocket from 'ws';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { LIMITS, octetsDe } from '../src/shared/protocol.js';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
@@ -131,5 +133,185 @@ describe('sur le vrai serveur', () => {
       token: 'un-jeton-qui-ne-vaut-rien-mais-court',
     });
     expect(await envoyer(normal)).toBe(4401);
+  });
+});
+
+// ─── COMBIEN D'INCONNUS À LA FOIS ────────────────────────────────────────────
+//
+// La taille d'un message d'inconnu est bornée ; leur NOMBRE ne l'était pas. Une
+// boucle qui ouvre des sockets sans jamais parler tenait un descripteur et trois
+// minuteurs chacune, cinq secondes durant, sans aucune identité. Le hub borne
+// désormais les sockets ANONYMES par client et en tout (`WS_ATTENTE_PAR_CLIENT`
+// = 16, `WS_ATTENTE_MAX` = 256) ; une socket authentifiée ne compte plus.
+//
+// Les clients se distinguent par `X-Forwarded-For`, la Reine faisant confiance
+// à la boucle locale : c'est le montage derrière Caddy, et c'est lui qui prouve
+// que le plafond « par client » vise le CLIENT — pas le proxy, qui verrait sans
+// cela tout le monde partager un seul compteur.
+describe('le nombre de sockets anonymes est borné — par client et en tout', () => {
+  let server: HiveServer;
+  let dir: string;
+  const TOKEN = 'jeton-ws-attente-suffisamment-long';
+  const ouvertes: WebSocket[] = [];
+
+  // UNE REINE PAR TEST. Le décompte des inconnus vit dans le hub, et une
+  // socket fermée côté client n'en sort qu'au passage de sa fermeture côté
+  // serveur : partager la Reine ferait dépendre chaque test des restes du
+  // précédent — et `tamis-ordres` rejoue ces tests dans tous les ordres.
+  beforeEach(async () => {
+    dir = mkdtempSync(path.join(os.tmpdir(), 'hive-wsattente-'));
+    server = await createServer({
+      port: 0,
+      host: '127.0.0.1',
+      token: TOKEN,
+      corsOrigins: ['http://localhost:5173'],
+      dbPath: path.join(dir, 'hive.db'),
+      simulation: false,
+      tickMs: 60_000,
+      trustProxy: 'loopback',
+    });
+  });
+
+  afterEach(async () => {
+    for (const ws of ouvertes.splice(0)) ws.terminate();
+    await server.stop();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  /**
+   * Ouvre une socket muette au nom de `client` ; rend-la une fois ouverte, avec
+   * la promesse de son code de fermeture.
+   */
+  const muette = (client: string): Promise<{ ws: WebSocket; fermee: Promise<number> }> =>
+    new Promise((resolve, reject) => {
+      const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`, {
+        headers: { 'x-forwarded-for': client },
+      });
+      ouvertes.push(ws);
+      const fermee = new Promise<number>((r) => ws.once('close', (code) => r(code)));
+      ws.once('open', () => resolve({ ws, fermee }));
+      ws.once('error', reject);
+    });
+
+  /** Le code de fermeture, ou `'ouverte'` si la socket tient encore après `ms`. */
+  const issue = (fermee: Promise<number>, ms = 1_000): Promise<number | 'ouverte'> =>
+    Promise.race([fermee, new Promise<'ouverte'>((r) => setTimeout(() => r('ouverte'), ms))]);
+
+  it('LA 17e SOCKET MUETTE D’UN MÊME CLIENT EST REFUSÉE — pas celle d’un autre client', async () => {
+    const a = '203.0.113.10';
+    await Promise.all(Array.from({ length: 16 }, () => muette(a)));
+    const dixSeptieme = await muette(a);
+    // 4429 fait écho au 429 HTTP : ce n'est pas l'identité qui manque, c'est la place.
+    expect(await issue(dixSeptieme.fermee), 'le 17e inconnu du même client').toBe(4429);
+
+    // B passe par le MÊME proxy : un plafond par socket de pair l'aurait
+    // refusé avec A. Il passe la garde — et c'est son jeton faux qui le ferme.
+    const b = await muette('203.0.113.20');
+    b.ws.send(JSON.stringify({ type: 'subscribe', token: 'pas-le-bon-jeton-du-tout' }));
+    expect(await issue(b.fermee), 'un autre client derrière le même proxy').toBe(4401);
+  });
+
+  it('UNE SOCKET QUI S’AUTHENTIFIE LIBÈRE SA PLACE', async () => {
+    const c = '203.0.113.30';
+    const seize = await Promise.all(Array.from({ length: 16 }, () => muette(c)));
+    const premiere = seize[0]!;
+    const abonnee = new Promise<void>((r) =>
+      premiere.ws.on('message', (d) => {
+        if ((JSON.parse(d.toString()) as { type: string }).type === 'state') r();
+      }),
+    );
+    premiere.ws.send(JSON.stringify({ type: 'subscribe', token: TOKEN }));
+    await abonnee;
+    // Le tableau de bord abonné reste ouvert, mais il ne compte plus parmi les
+    // inconnus : la place qu'il occupait est rendue.
+    const suivante = await muette(c);
+    expect(await issue(suivante.fermee), 'la place rendue par l’authentification').toBe('ouverte');
+    expect(await issue(premiere.fermee, 50), 'le tableau de bord authentifié reste').toBe(
+      'ouverte',
+    );
+  });
+
+  it('AU-DELÀ DE 256 INCONNUS EN TOUT, MÊME UN CLIENT NEUF ATTEND', async () => {
+    // Seize clients distincts, chacun à son propre plafond : c'est le plafond
+    // GLOBAL qui mord, pas celui du client. Par lots de 64 : 256 poignées de
+    // main lancées d'un coup débordent la file d'attente TCP de Windows
+    // (ECONNREFUSED), et le banc mesurerait le noyau, pas le hub. Pas plus
+    // lent non plus : les premières doivent encore attendre leur identité
+    // (5 s) quand la 257e arrive.
+    for (let lot = 0; lot < 4; lot += 1) {
+      await Promise.all(
+        Array.from({ length: 64 }, (_, i) =>
+          muette(`198.51.100.${lot * 4 + Math.floor(i / 16) + 1}`),
+        ),
+      );
+    }
+    const neuf = await muette('192.0.2.77');
+    expect(await issue(neuf.fermee), 'le 257e inconnu, d’un client jamais vu').toBe(4429);
+  }, 20_000);
+
+  it('EN IPv6, UN CLIENT EST UN /64 — pas une adresse qu’il choisit', async () => {
+    // Un hôte IPv6 reçoit d'ordinaire un /64 entier. Compté à l'adresse, il
+    // ouvrait 16 sockets sur chacune, et seize adresses de son préfixe
+    // remplissaient les 256 places de tout le monde.
+    const prefixe = '2001:db8:1:2';
+    await Promise.all(Array.from({ length: 16 }, (_, i) => muette(`${prefixe}::${i + 1}`)));
+    const dixSeptieme = await muette(`${prefixe}:ffff::1`);
+    expect(await issue(dixSeptieme.fermee), 'la 17e du même /64').toBe(4429);
+    // L'écriture longue du même préfixe est le même client.
+    const longue = await muette('2001:0db8:0001:0002:0:0:0:99');
+    expect(await issue(longue.fermee), 'le même /64, autrement écrit').toBe(4429);
+    // Le /64 voisin est un autre client : il passe la garde, et c'est son
+    // jeton faux qui le ferme.
+    const voisin = await muette('2001:db8:1:3::1');
+    voisin.ws.send(JSON.stringify({ type: 'subscribe', token: 'pas-le-bon-jeton-du-tout' }));
+    expect(await issue(voisin.fermee), 'un autre /64').toBe(4401);
+  });
+
+  it('UNE SOCKET REFUSÉE NE FAIT PAS TOMBER UNE EXCEPTION DANS LA REINE', async () => {
+    // La socket refusée (4429) rendait la main AVANT que l'écouteur d'erreur
+    // soit posé. Une trame invalide pendant la fermeture — ici non masquée —
+    // devenait une exception non rattrapée, déclenchable par n'importe qui.
+    const nonRattrapees: unknown[] = [];
+    const temoin = (e: unknown): void => {
+      nonRattrapees.push(e);
+    };
+    process.on('uncaughtException', temoin);
+    try {
+      const x = '203.0.113.40';
+      await Promise.all(Array.from({ length: 16 }, () => muette(x)));
+      const brute = connect(server.port, '127.0.0.1');
+      const recu: Buffer[] = [];
+      const poignee = new Promise<void>((resolve, reject) => {
+        brute.on('data', (morceau: Buffer) => {
+          recu.push(morceau);
+          if (Buffer.concat(recu).includes('\r\n\r\n')) resolve();
+        });
+        brute.on('error', reject);
+      });
+      brute.write(
+        [
+          'GET /ws HTTP/1.1',
+          `Host: 127.0.0.1:${server.port}`,
+          'Upgrade: websocket',
+          'Connection: Upgrade',
+          `Sec-WebSocket-Key: ${randomBytes(16).toString('base64')}`,
+          'Sec-WebSocket-Version: 13',
+          `X-Forwarded-For: ${x}`,
+          '',
+          '',
+        ].join('\r\n'),
+      );
+      await poignee;
+      expect(Buffer.concat(recu).toString('latin1'), 'le banc : la montée a lieu').toMatch(
+        /^HTTP\/1\.1 101/,
+      );
+      // Une trame texte NON MASQUÉE : un client n'a pas le droit d'en envoyer.
+      brute.write(Buffer.from([0x81, 0x02, 0x68, 0x69]));
+      await new Promise((r) => setTimeout(r, 300));
+      brute.destroy();
+      expect(nonRattrapees, 'une exception non rattrapée est tombée dans la Reine').toEqual([]);
+    } finally {
+      process.off('uncaughtException', temoin);
+    }
   });
 });

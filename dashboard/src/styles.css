@@ -71,6 +71,13 @@
   /* Le miel vif : REMPLISSAGE uniquement. Du texte posé dessus = encre. */
   --miel: #f6c445;
   --miel-2: #e08a14;
+  /* Le rouge de REMPLISSAGE, pendant de `--miel` : la pastille « critique »
+     posée sur l'encre de la barre. `--red` est un rouge de TEXTE pour la
+     crème — sur l'encre il tombe à 3:1 et la pastille s'y noierait. La règle
+     du miel vaut ici aussi : du texte posé dessus = encre (5,1:1) ; le blanc
+     n'y faisait que 3,6:1. Ce jeton était lu (`var(--rouge, …)`) sans avoir
+     jamais été posé. */
+  --rouge: #e5573f;
   --thermo-froide: var(--blue);
   --thermo-normale: var(--green);
   --thermo-chaude: var(--orange);
@@ -87,6 +94,28 @@
 
 * {
   box-sizing: border-box;
+}
+
+/* ─── LE MOUVEMENT RÉDUIT, UNE FOIS POUR TOUTES ──────────────────────────────
+   Vingt-quatre `@keyframes` et des dizaines de `transition` vivent dans ces
+   feuilles, et la garde `prefers-reduced-motion` était posée À LA MAIN, règle
+   par règle : le tiroir, les modales, les pastilles « en cours », le graphe
+   d'essaim et presque toutes les transitions y avaient échappé. Une garde
+   qu'il faut penser à recopier est oubliée au prochain ajout — celle-ci
+   couvre aussi les animations qui n'existent pas encore.
+
+   Une durée QUASI NULLE plutôt que `animation: none` : l'élément saute à son
+   état FINAL (un fondu `both` finit opaque, pas invisible), et `animationend` /
+   `transitionend` partent toujours pour qui les attendrait. Les gardes locales
+   restent : elles disent, là où elles sont, ce que chaque écran préfère. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 html,
@@ -281,7 +310,10 @@ h3 {
   transform: scale(0.98);
 }
 
-.btn:disabled {
+/* `aria-disabled` : éteint à l'œil et au lecteur d'écran, mais GARDE le focus
+   (voir `EchecSondage`, views/shared.tsx). */
+.btn:disabled,
+.btn[aria-disabled='true'] {
   opacity: 0.5;
   cursor: default;
 }
@@ -382,20 +414,20 @@ h3 {
 }
 
 .token-input-err {
-  border-color: color-mix(in srgb, var(--danger, #c44) 70%, var(--border));
+  border-color: color-mix(in srgb, var(--red) 70%, var(--border));
   color: var(--text);
 }
 
 .token-input-err:focus {
-  border-color: var(--danger, #c44);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger, #c44) 22%, transparent);
+  border-color: var(--red);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--red) 22%, transparent);
 }
 
 .mc-token-banner {
   margin: 0;
   padding: 10px 18px;
-  background: color-mix(in srgb, var(--danger, #c44) 12%, var(--panel));
-  border-bottom: 1px solid color-mix(in srgb, var(--danger, #c44) 35%, var(--border));
+  background: color-mix(in srgb, var(--red) 12%, var(--panel));
+  border-bottom: 1px solid color-mix(in srgb, var(--red) 35%, var(--border));
   color: var(--text);
   font-size: 13.5px;
   line-height: 1.45;
@@ -1260,6 +1292,29 @@ h3 {
   padding: 20px;
 }
 
+/* ─── LE VERRE SANS FLOU ─────────────────────────────────────────────────────
+   Trois surfaces seulement sont en verre : `.topbar`, `.hero-progress` et
+   `.modal-backdrop`. Leur fond est LÉGÈREMENT transparent parce que le flou
+   rend illisible ce qui passe dessous. Qu'un navigateur ignore
+   `backdrop-filter` (ancien moteur, flou coupé par le système ou la
+   politique de l'entreprise), et il ne reste que la transparence : le texte
+   des vues qui défilent sous la barre se lit À TRAVERS elle, et la page
+   derrière une modale reste presque nette.
+
+   Sans flou, pas de verre : chacune reprend un fond opaque. Le voile d'une
+   modale reste un voile, mais assez sombre pour que la page ne se lise plus
+   sous le dialogue. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .topbar,
+  .hero-progress {
+    background: var(--panel);
+  }
+
+  .modal-backdrop {
+    background: rgba(20, 18, 16, 0.72);
+  }
+}
+
 /* Une modale plus HAUTE que la fenêtre débordait par le haut et par le bas :
    son contenu (la commande d'invitation, les actions de création) devenait
    inatteignable, sans barre de défilement puisque le voile est en `fixed`.
@@ -1524,6 +1579,14 @@ h3 {
   color: var(--red, #a8402a);
   font-size: 12px;
   margin: 4px 0;
+}
+
+/* Posée à même une carte — qui n'a pas de marge intérieure, chaque bloc gère
+   la sienne —, la phrase collait au bord gauche, sous un en-tête aligné à
+   16 px. Et elle porte désormais un bouton « Réessayer » : collé au bord, il
+   avait l'air de déborder de la carte. */
+.card > .panel-error {
+  margin: 10px 16px;
 }
 
 .panel-count.warn {
@@ -2198,7 +2261,12 @@ h3 {
   box-shadow: inset 0 0 0 1px rgba(246, 196, 69, 0.28);
 }
 
-.mc-sidebar-brand {
+/* Le nom écrit — « Hive » au-dessus de « Mission Control » — À CÔTÉ du logo.
+   Cette colonne portait la même classe que la marque qui la contient, et la
+   règle s'appliquait donc aux DEUX : la marque entière passait en colonne, et
+   le logo se posait au-dessus du nom au lieu d'à côté. Un nom à elle, une
+   règle à elle. */
+.mc-sidebar-nom {
   display: flex;
   flex-direction: column;
   gap: 1px;
@@ -2350,10 +2418,13 @@ h3 {
    critique ») vit sur l'`aria-label` du badge, pas ici : une pastille qui ne
    parle qu'en pixels ne dit rien à qui écoute la page. */
 .mc-nav-badge--critique {
-  /* Plein + halo : la seule des trois à porter un contour lumineux. */
-  background: var(--rouge, #e5573f);
-  color: #fff;
-  box-shadow: 0 0 0 2px rgba(229, 87, 63, 0.35);
+  /* Plein + halo : la seule des trois à porter un contour lumineux. Le chiffre
+     est à l'ENCRE, pas en blanc : blanc sur ce rouge = 3,6:1, sous le 4,5:1
+     qu'exige un texte de 10 px — la pastille la plus urgente était la moins
+     lisible des trois. */
+  background: var(--rouge);
+  color: var(--encre);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--rouge) 35%, transparent);
 }
 .mc-nav-badge--attention {
   /* Plein, sans halo — c'est l'aspect du badge historique. */
@@ -2362,9 +2433,11 @@ h3 {
 }
 .mc-nav-badge--info {
   /* Creux : fond transparent, cerné d'un trait. Se distingue des deux autres
-     même en niveaux de gris. */
+     même en niveaux de gris. Transparent veut dire posé sur l'ENCRE : le
+     chiffre prend donc le gris de la barre (`--sur-encre`, 5,9:1), pas
+     `--muted`, un gris pour la crème qui ne faisait que 3,2:1 ici. */
   background: transparent;
-  color: var(--muted);
+  color: var(--sur-encre);
   border: 1px solid var(--border-2);
 }
 
@@ -2395,6 +2468,47 @@ h3 {
   position: sticky;
   top: 0;
   z-index: 20;
+}
+
+/* ─── ALLER AU CONTENU ───────────────────────────────────────────────────────
+   Le premier arrêt de la touche Tab. Sans lui, chaque arrivée au clavier
+   traversait les treize cases de la barre et toute la barre du haut avant la
+   première ligne de la vue. Invisible à la souris, il glisse dans l'écran dès
+   qu'il a le focus — un lien qu'on ne voit pas quand on le traverse ne sert à
+   personne. */
+.mc-evitement {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 60;
+  padding: 8px 14px;
+  border-radius: var(--r-sm);
+  background: var(--miel);
+  color: var(--encre);
+  font-weight: 600;
+  text-decoration: none;
+  transform: translateY(-200%);
+}
+
+.mc-evitement:focus {
+  transform: none;
+  outline: 2px solid var(--encre);
+  outline-offset: 2px;
+}
+
+/* Le repère `main` de chaque vue : il reprend exactement la place que la vue
+   occupait seule dans `.mc-body` (colonne qui s'étire), pour que l'envelopper
+   ne déplace rien. Il reçoit le focus du lien d'évitement ; un cadre autour de
+   toute la vue n'apprendrait rien, la tabulation suivante dit où l'on est. */
+.mc-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.mc-main:focus {
+  outline: none;
 }
 
 .mc-view {
@@ -2447,6 +2561,61 @@ h3 {
   .mc-view-loading::before {
     animation: none;
   }
+}
+
+/* ─── UNE VUE EN PANNE (`FiletDeSecurite`, ui.tsx) ─────────────────────────── */
+.mc-panne {
+  max-width: 560px;
+  margin: 56px auto;
+  padding: 24px 26px;
+  border: 1px solid color-mix(in srgb, var(--red) 35%, var(--border));
+  border-radius: var(--r);
+  background: var(--panel);
+}
+
+.mc-panne h2 {
+  font-size: 18px;
+  margin-bottom: 8px;
+}
+
+.mc-panne p {
+  margin: 0 0 10px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.mc-panne-detail {
+  display: block;
+  margin: 0 0 14px;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: var(--panel-2);
+  color: var(--red);
+  font-family: var(--mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.mc-panne-gestes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* ─── UN SONDAGE EN ÉCHEC (`EchecSondage`, views/shared.tsx) ───────────────── */
+.btn.echec-sondage-relance {
+  margin-left: 6px;
+  padding: 2px 9px;
+  border-radius: 7px;
+  font-size: 11.5px;
+  vertical-align: baseline;
+}
+
+.echec-sondage-quand {
+  margin-left: 6px;
+  color: var(--muted);
+  font-size: 11.5px;
+  white-space: nowrap;
 }
 
 .mc-ruche-stats {
@@ -2546,7 +2715,7 @@ h3 {
 }
 
 .autonomie-pulse-flag--halte {
-  color: var(--danger, #b45309);
+  color: var(--red);
 }
 
 /* Ruche vide : une seule composition centrée — pas de zéros autour. */
@@ -2793,9 +2962,11 @@ button.mc-cell:focus-visible {
     justify-content: center;
     padding: 9px 4px;
   }
+  /* Le NOM entier, pas ses deux lignes : une colonne vide resterait un
+     élément de la marque, et son écart de 10 px ferait déborder le logo du
+     rail de 62 px. */
   .mc-nav-label,
-  .mc-sidebar-word,
-  .mc-sidebar-product {
+  .mc-sidebar-nom {
     display: none;
   }
   .mc-nav-icon {

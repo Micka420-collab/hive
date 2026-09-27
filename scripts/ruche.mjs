@@ -1,9 +1,15 @@
 // LA RUCHE, EN UNE COMMANDE.
 //
-//   npm run ruche                  la Reine + une ouvrière + l'écran
-//   npm run ruche -- --sans-ecran   un serveur : pas de Vite
-//   npm run ruche -- --sans-noeud   observer sans exécuter
-//   npm run ruche -- --ecran-seul   l'écran seul, hub déjà lancé ailleurs
+//   npm run ruche                    la Reine + les ouvrières + l'écran
+//   npm run ruche -- --sans-ecran     un serveur : pas de Vite
+//   npm run ruche -- --sans-noeud     observer sans exécuter
+//   npm run ruche -- --ecran-seul     l'écran seul, hub déjà lancé ailleurs
+//   npm run ruche -- --une-ouvriere   une seule ouvrière, même si plusieurs
+//                                     agents sont installés
+//
+// Les ouvrières : une par famille d'agent réelle détectée (Claude Code,
+// Codex, Cursor…) dès qu'il y en a deux — c'est ce qui permet la relecture
+// croisée. Une seule sinon. Voir `planOuvrieres` dans `demarrage.ts`.
 //
 // ─── CE QUE CE FICHIER FAIT, ET CE QU'IL NE FAIT PAS ────────────────────────
 //
@@ -32,6 +38,7 @@ import { spawn } from 'node:child_process';
 // déclarées, et `no-undef` a raison de le dire.
 import { setTimeout as differer } from 'node:timers';
 import { existsSync, readFileSync } from 'node:fs';
+import { hostname } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 // `parseEnv` est LE lecteur de `.env` de Node — celui-là même qui sert à
@@ -66,13 +73,16 @@ const { register } = await import('tsx/esm/api');
 register();
 
 const {
+  annonceOuvrieres,
   decouperLignes,
   entreesAbsentes,
   largeurEtiquettes,
   pieces,
+  planOuvrieres,
   portAnnonce,
   prefixe,
   reliquat,
+  veutOuvriere,
   voeuDepuisArgv,
 } = await import('../src/shared/demarrage.ts');
 
@@ -91,7 +101,8 @@ const {
 // On LIT donc le `.env`, sans le CHARGER : `loadEnvFile` poserait le jeton, le
 // secret de session et les clés d'API dans l'environnement de ce processus, que
 // TOUS les enfants héritent — l'écran Vite compris, qui n'a rien à en faire. Le
-// lanceur n'a besoin que d'un numéro de port.
+// lanceur n'a besoin que d'un numéro de port, et de ce qui décide combien
+// d'ouvrières lancer (`HIVE_AGENT`, `HIVE_NODE_NAME`, `HIVE_WORKDIR`…).
 let envFichier = {};
 try {
   envFichier = parseEnv(readFileSync(path.join(RACINE, '.env'), 'utf8'));
@@ -100,11 +111,30 @@ try {
   // elle-même ce qui manque. Ce n'est pas au lanceur de refuser de lancer.
 }
 
-const liste = pieces(
-  process.execPath,
-  voeuDepuisArgv(process.argv.slice(2)),
-  portAnnonce(envFichier),
-);
+const argv = process.argv.slice(2);
+const voeu = voeuDepuisArgv(argv);
+
+// ─── UNE OUVRIÈRE PAR AGENT : SONDER ICI, UNE FOIS ───────────────────────────
+//
+// La décision vit dans `planOuvrieres`, pure et éprouvée ; ici il ne reste que
+// l'impur — le nom de la machine et la sonde des binaires. La fusion garde la
+// règle de `portAnnonce` : l'environnement au-dessus du `.env`. La sonde, elle,
+// lance chaque binaire avec l'environnement de CE processus, qui ne porte aucun
+// secret du `.env` (voir `envSonde`).
+const envFusionne = { ...envFichier, ...process.env };
+const plan = veutOuvriere(voeu)
+  ? await planOuvrieres({
+      argv,
+      env: envFusionne,
+      hote: hostname(),
+      detecter: async () => {
+        const { detectAllAgents } = await import('../src/node-client/agent-detect.ts');
+        return detectAllAgents(envFusionne);
+      },
+    })
+  : undefined;
+
+const liste = pieces(process.execPath, voeu, portAnnonce(envFichier), plan);
 
 // ─── Ce qui manque se dit AVANT de lancer quoi que ce soit ────────────────────
 //
@@ -133,6 +163,7 @@ console.log('  🐝  La ruche démarre');
 console.log('');
 for (const p of liste) console.log(`      ${p.nom.padEnd(largeur)}  ${p.role}`);
 console.log('');
+for (const l of annonceOuvrieres(plan)) console.log(`      ${l}`);
 console.log('      ^C arrête tout.');
 console.log('');
 
@@ -166,7 +197,10 @@ for (const p of liste) {
     shell: false,
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: process.env,
+    // Une ouvrière de l'essaim par agent reçoit SA famille, son nom, sa
+    // concurrence : posés par-dessus l'environnement, donc au-dessus du `.env`
+    // qu'elle chargera sans jamais écraser ce qu'elle a reçu.
+    env: p.env ? { ...process.env, ...p.env } : process.env,
   });
   const etiquette = prefixe(p.nom, largeur);
   brancher(enfant.stdout, etiquette, process.stdout);
@@ -182,8 +216,20 @@ for (const p of liste) {
   // Une ruche dont le hub est mort n'est pas une ruche à moitié : c'est un nœud
   // qui reconnecte dans le vide et un écran qui affiche des données périmées.
   // Laisser survivre les deux autres, c'est laisser croire que ça tourne.
+  //
+  // Une seule exception, et elle se DIT : l'ouvrière qu'un essaim par agent a
+  // AJOUTÉE (`facultative`). La ruche d'avant — la Reine, la première ouvrière,
+  // l'écran — tourne toujours sans elle ; l'emporter, c'était casser une ruche
+  // qui marchait pour une ouvrière que personne n'avait demandée. Voir
+  // `OuvriereAgent.ajoutee`.
   enfant.on('exit', (code, signal) => {
     if (onFerme) return;
+    if (p.facultative) {
+      console.error(
+        `${etiquette}✘ arrêtée (${signal ?? `code ${String(code)}`}) — la ruche continue sans elle.`,
+      );
+      return;
+    }
     console.error('');
     console.error(
       `${etiquette}✘ arrêté (${signal ?? `code ${String(code)}`}) — la ruche s'arrête.`,

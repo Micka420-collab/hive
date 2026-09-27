@@ -101,11 +101,50 @@ export function clearPartage(): void {
   }
 }
 
-/** fetch authentifié qui lève une ApiError lisible sur réponse non-OK. */
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
+/**
+ * fetch authentifié qui lève une ApiError lisible sur réponse non-OK.
+ *
+ * ─── LE COMPTE PART AVEC CHAQUE APPEL, PAS SEULEMENT AVEC CERTAINS ──────────
+ *
+ * Cette fonction n'envoyait que le jeton de ruche. Depuis l'ADR 0007, un acte
+ * qui ENGAGE un projet appartenant à un compte — créer des tâches, lancer un
+ * merge, prendre une issue, reprendre une livraison, lancer un chantier ou un
+ * workflow — exige ce compte : le jeton, que toute machine membre détient, n'y
+ * suffit plus. Et `createProject` attribue le projet à la session dès qu'il y
+ * en a une. Résultat : la personne connectée recevait « 404 projet inconnu »
+ * sur SON projet, à commencer par `addTasks` juste après sa création.
+ *
+ * Joindre le JWT à chaque appel est sûr parce que le serveur l'AJOUTE sans
+ * rien retirer : un engagement essaie le compte, puis le jeton sur un projet
+ * orphelin ; les lectures gardées par `lectureProjetPermise` acceptent encore
+ * le jeton en premier (celles du Rayon, elles, exigeaient déjà le compte ou un
+ * lien). Sans session rien ne change, et un JWT périmé est traité par la Reine
+ * comme absent. La CLI fait déjà ainsi (`HIVE_JWT`, `src/cli.ts`).
+ *
+ * ⚠ CE QUE ÇA NE RÈGLE PAS : une session qui expire PENDANT que l'onglet vit.
+ * `App` ne purge le JWT qu'au montage ; d'ici là il part périmé, et « traité
+ * comme absent » veut dire l'ancien chemin — 404 sur un projet qui a un
+ * propriétaire, 401 sur `createProject`, qui choisit la porte du compte dès
+ * qu'un JWT est rangé. Ce n'est pas un défaut nouveau, mais c'est le même
+ * silence : l'écran croit la personne connectée et ne lui dit pas de se
+ * reconnecter. Il reste à traiter.
+ *
+ * `path` est TOUJOURS une route de la Reine (`/api/…`, même origine) : cette
+ * identité ne part jamais chez un tiers. La garde de
+ * `tests/dashboard-contrat-compte.test.tsx` le vérifie à chaque appel.
+ *
+ * `identite` n'existe que pour UNE exception : la lecture par lien de partage
+ * (`apiLecture`), qui part avec le lien SEUL. Retirer cette valeur par défaut
+ * rouvre le 404 ; le même banc le rejoue contre une vraie Reine.
+ */
+async function api<T>(
+  path: string,
+  init?: RequestInit,
+  identite: Record<string, string> = enTetesRuche(),
+): Promise<T> {
   const res = await fetch(path, {
     ...init,
-    headers: { 'content-type': 'application/json', 'x-hive-token': getToken(), ...init?.headers },
+    headers: { 'content-type': 'application/json', ...identite, ...init?.headers },
   });
   if (!res.ok) {
     let message = tNow(`Erreur ${res.status}`, `Error ${res.status}`);
@@ -614,7 +653,8 @@ export interface VerdictGuet {
   sources: number;
   appats: string[];
   conseil: string;
-  derniers: { source: string; chemin: string; appat: string; quand: number }[];
+  /** Sans l'adresse de chaque passage : l'orchestrateur la garde pour lui (`/api/guet`). */
+  derniers: { chemin: string; appat: string; quand: number }[];
 }
 
 export function fetchGuet(): Promise<VerdictGuet> {
@@ -1063,6 +1103,12 @@ export interface MergeRunResult {
    */
   preparedOk?: boolean | null;
   logs: string;
+  /**
+   * Présent quand le merge n'a PAS EU LIEU — refusé, clone impossible, nœud
+   * perdu — et c'est sa raison. Sans lui, un échec se lisait « 0 diff(s)
+   * appliqué(s), 0 conflit(s) » : un succès vide.
+   */
+  refused?: string;
 }
 
 /** Dernier résultat de merge d'un projet (null tant qu'aucun n'a abouti). */
@@ -1140,12 +1186,6 @@ export function getJwt(): string | null {
 }
 
 /**
- * Les en-têtes qui disent « je suis de la ruche » : le jeton, et le compte s'il
- * y en a un. Pour les rares appels qui gardent leur propre `fetch` (ils lisent
- * eux-mêmes la réponse) mais qui visent une route réservée — sans eux, la route
- * répond 401 et le panneau croit à une panne.
- */
-/**
  * Où est passé le temps d'une tâche : phases relues dans le journal (cf.
  * `src/shared/chronologie-tache.ts`) ; latence du modèle et coût fournisseur
  * « inconnu ».
@@ -1176,6 +1216,13 @@ export function fetchGenome(): Promise<RegistreGenome> {
   return api<RegistreGenome>('/api/genome');
 }
 
+/**
+ * Les en-têtes qui disent « je suis de la ruche » : le jeton, et le compte s'il
+ * y en a un. C'est l'identité que `api()` joint à CHAQUE appel ; elle est
+ * exportée pour les rares appels qui gardent leur propre `fetch` (ils lisent
+ * eux-mêmes la réponse) — sans elle, une route réservée répond 401 ou 404 et
+ * le panneau croit à une panne.
+ */
 export function enTetesRuche(): Record<string, string> {
   const jwt = getJwt();
   return { 'x-hive-token': getToken(), ...(jwt ? { authorization: `Bearer ${jwt}` } : {}) };
@@ -1329,18 +1376,20 @@ export function authMe(): Promise<AuthUser> {
 }
 
 /**
- * Appel signé par le COMPTE, pas par la ruche.
+ * Appel qui EXIGE le COMPTE, pas seulement la ruche.
  *
  * Le jeton de ruche est distribué à chaque nœud membre : s'en servir comme
  * preuve d'administration donnerait les pleins pouvoirs à toute machine qui
- * butine. Le serveur le refuse déjà (401) ; ce helper existe pour qu'aucun
- * appel d'intendance ne parte sans le JWT et n'aille se cogner à ce refus.
+ * butine. Le serveur le refuse (401).
+ *
+ * `api()` joint désormais le JWT à tout appel : ce helper n'ajoute donc plus
+ * d'en-tête. Il NOMME la porte au point d'appel — une route qu'aucun lien de
+ * partage n'ouvre, et qui ne doit jamais glisser vers `apiLecture`. C'est ce
+ * nom que `tests/partage-endpoint.test.ts` vérifie sur la retouche et les
+ * liens.
  */
 function apiCompte<T>(path: string, init?: RequestInit): Promise<T> {
-  return api<T>(path, {
-    ...init,
-    headers: { authorization: `Bearer ${getJwt() ?? ''}`, ...init?.headers },
-  });
+  return api<T>(path, init);
 }
 
 /**
@@ -1358,15 +1407,25 @@ function apiCompte<T>(path: string, init?: RequestInit): Promise<T> {
  * Ce helper n'est utilisé QUE par les lectures que le serveur a déclarées
  * accessibles à un lien. Un appel d'écriture qui passerait par ici recevrait
  * 401 côté serveur — la retouche, elle, exige un compte, et c'est le point.
+ *
+ * ─── AVEC UN LIEN, LE LIEN PART SEUL ────────────────────────────────────────
+ *
+ * Le JWT et le jeton de ruche vivent dans `localStorage`, commun à tous les
+ * onglets ; le lien, dans l'onglet qui l'a ouvert. Le serveur essaie le lien
+ * d'abord, puis une autre porte : le COMPTE pour les lectures du Rayon
+ * (`projetLisible`), le JETON DE RUCHE pour le rapport d'avancement. Joindre
+ * l'une ou l'autre au lien ferait qu'un lien révoqué ou expiré retomberait en
+ * silence sur les droits de ce navigateur. L'hôte qui vérifie son propre lien
+ * avant de l'envoyer le verrait s'ouvrir — alors que chez l'invité il ne mène
+ * nulle part, et l'écran `Partage` ne dirait jamais « ce lien ne donne accès à
+ * rien ». La vue du porteur ne demande rien d'autre au serveur : `main.tsx`
+ * l'aiguille avant `App`, sans flux ni relevé à la ruche. C'est la seule
+ * identité que `api()` ne choisit pas lui-même.
  */
 function apiLecture<T>(path: string, init?: RequestInit): Promise<T> {
   const jeton = getPartage();
-  return api<T>(path, {
-    ...init,
-    headers: jeton
-      ? { 'x-hive-partage': jeton, ...init?.headers }
-      : { authorization: `Bearer ${getJwt() ?? ''}`, ...init?.headers },
-  });
+  if (!jeton) return api<T>(path, init);
+  return api<T>(path, init, { 'x-hive-partage': jeton });
 }
 
 // ─── Les issues, et ce que devient le travail livré ─────────────────────────

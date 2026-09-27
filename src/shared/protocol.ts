@@ -42,6 +42,14 @@ export const LIMITS = {
   prompt: 100_000,
   log: 512 * 1024,
   diff: 1024 * 1024,
+  /**
+   * Texte FINAL d'un agent (sa réponse, pas ses logs — `adapters/texte-final.ts`).
+   * 8 000 caractères couvrent le plus long texte qu'un lecteur y cherche : une
+   * ligne `HIVE_PROPOSITION` du Conseil (titre 120 + corps 2 000 + 5 sources de
+   * 500, soit ~4,7 k avant échappement) et un verdict de relecture (20
+   * objections de 300). Au-delà, c'est de la prose que personne ne lit.
+   */
+  finalText: 8_000,
   subAgents: 32,
   /** Fichiers ouverts constatés (présence Rayon) dans un task_update. */
   presences: 16,
@@ -66,6 +74,19 @@ export const LIMITS = {
   delegationCostMicros: 1_000_000_000,
   delegationResourceUnits: 1_000,
 } as const;
+
+/**
+ * La ligne qui remplace le MILIEU d'un texte final trop long (`borneTexteFinal`).
+ *
+ * Écrite sur le nœud, lue sur le hub : c'est le seul moyen pour le hub de SAVOIR
+ * qu'une réponse n'a pas été lue en entier. Sans elle, une relecture dont le
+ * « conteste » était tombé dans la coupe se lisait sur ce qui restait — et une
+ * « entrée valide » dans la prose de sa fin l'APPROUVAIT (`lireAvis`).
+ *
+ * Un agent peut l'écrire lui-même : il n'y gagne rien, `lireAvis` n'en devient
+ * que plus exigeant.
+ */
+export const COUPURE_TEXTE_FINAL = '[… texte final coupé en son milieu …]';
 
 export const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
@@ -215,6 +236,13 @@ export interface TaskResultMsg {
   usage?: ExecutionUsage;
   /** Déclaration du CLI de l'agent (coût, temps modèle), jamais estimée. */
   fournisseur?: UsageFournisseur;
+  /**
+   * La réponse FINALE de l'agent, telle que son CLI la déclare — jamais un
+   * extrait de `logs`. C'est ce que lisent la contre-expertise et le Conseil.
+   * Absente quand le CLI n'en rend pas, ou quand le nœud précède ce contrat :
+   * le lecteur le dit alors, il ne se rabat pas sur les logs.
+   */
+  finalText?: string;
 }
 
 /**
@@ -329,8 +357,12 @@ export interface MergeResultMsg {
   preparedOk?: boolean | null;
   logs: string;
   /**
-   * Merge REFUSÉ par le nœud (ex. Night Shift : hors heures de service) : le
-   * hub le traite en échec explicite (merge_failed), jamais en succès vide.
+   * Merge qui n'a PAS EU LIEU, et pourquoi : REFUSÉ par le nœud (Night Shift,
+   * commande jugée) ou AVORTÉ avant tout résultat (clone impossible —
+   * identifiants, dépôt introuvable, réseau). Le hub le traite en échec
+   * explicite (merge_failed), jamais en succès vide, et garde les `logs` du
+   * nœud : c'est là qu'est la cause. Le hub le pose aussi quand il clôt le
+   * merge lui-même (nœud déconnecté, délai dépassé).
    */
   refused?: string;
 }
@@ -667,6 +699,17 @@ export function usageFournisseurDepuis(v: unknown): UsageFournisseur | undefined
   return Object.keys(usage).length > 1 ? usage : undefined;
 }
 
+/**
+ * Le texte final d'un résultat. Même règle que la déclaration fournisseur : un
+ * texte malformé (pas une chaîne, vide, trop long) est ABANDONNÉ, le message
+ * reste. Rejeter tout le `task_result` perdrait la production du Worker pour
+ * un champ qui ne sert qu'à la relire — et son absence, elle, se voit : la
+ * contre-expertise la journalise comme une relecture SANS AVIS, motif écrit.
+ */
+function texteFinalDepuis(v: unknown): string | undefined {
+  return typeof v === 'string' && v.trim() !== '' && v.length <= LIMITS.finalText ? v : undefined;
+}
+
 /** Snapshot présence Rayon — toolUseId Claude peut dépasser ID_PATTERN. */
 function isPresences(v: unknown): v is PresenceFichier[] {
   if (!Array.isArray(v) || v.length > LIMITS.presences) return false;
@@ -883,6 +926,7 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
         (m.usage === undefined || isExecutionUsage(m.usage))
       ) {
         const fournisseur = usageFournisseurDepuis(m.fournisseur);
+        const finalText = texteFinalDepuis(m.finalText);
         return {
           type: 'task_result',
           taskId: m.taskId,
@@ -893,6 +937,7 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
           subAgents: m.subAgents,
           ...(m.usage !== undefined ? { usage: m.usage } : {}),
           ...(fournisseur ? { fournisseur } : {}),
+          ...(finalText !== undefined ? { finalText } : {}),
         };
       }
       return null;

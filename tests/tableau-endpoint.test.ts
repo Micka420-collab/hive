@@ -68,7 +68,7 @@ describe('tableau de bord personnel', () => {
   const inscrire = async (base: string, email: string): Promise<string> => {
     const r = await fetch(`${base}/api/auth/register`, {
       method: 'POST',
-      headers: json,
+      headers: { ...json, 'x-hive-token': TOKEN },
       body: JSON.stringify({ email, password: MDP, displayName: 'Testeur' }),
     });
     return ((await r.json()) as { token: string }).token;

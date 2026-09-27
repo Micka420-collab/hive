@@ -493,6 +493,25 @@ describe('la carte d’une ouvrière : ce qu’elle porte en vol', () => {
     expect(bac('ruche-muette')?.textContent).toBe('bac · non déclaré');
     expect(bac('ruche-muette')?.className).toContain('muted-text');
   });
+
+  it('PROFILS MODÈLES INDISPONIBLES : LA BANDE LE DIT, ET SE RELIT D’UN CLIC', async () => {
+    // La seule bande d'échec de l'Essaim sans « Réessayer » : on attendait
+    // trente secondes l'intervalle suivant pour revoir les modèles des cartes.
+    vi.mocked(fetchWorkers)
+      .mockRejectedValueOnce(new Error('HTTP 503'))
+      .mockResolvedValue({ workers: [] } as never);
+    const dom = await monter([noeud()]);
+    const bande = dom.querySelector('.es-workers-error');
+    expect(bande?.textContent).toContain('Profils modèles indisponibles');
+    const relance = bande?.querySelector<HTMLButtonElement>('.echec-sondage-relance');
+    expect(relance, 'aucun geste pour relire les profils').toBeTruthy();
+
+    const avant = vi.mocked(fetchWorkers).mock.calls.length;
+    await act(async () => relance?.click());
+    await act(async () => {});
+    expect(vi.mocked(fetchWorkers).mock.calls.length, 'le clic n’a rien relu').toBe(avant + 1);
+    expect(dom.querySelector('.es-workers-error'), 'la bande reste après relecture').toBeNull();
+  });
 });
 
 describe('l’Aiguillage inactif se dit — avec le geste qui l’allume', () => {

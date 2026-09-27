@@ -21,6 +21,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { simpleGit } from 'simple-git';
+import { ENTREE_FERMEE } from '../adapters/exec.js';
 import { jugerCommandeTest } from '../shared/commande-test.js';
 import { jugerPreparation } from '../shared/preparation.js';
 import { LanceurIndisponible, resoudreLanceur } from '../lanceur-reel.js';
@@ -172,6 +173,9 @@ export function runProc(
       shell: false, // jamais d'interprétation shell (contrainte §5.1)
       windowsHide: true,
       signal,
+      // Personne n'écrit sur l'entrée d'une commande de test : ouverte, un
+      // outil qui la lit jusqu'au bout attendrait le délai dur (voir exec.ts).
+      stdio: ENTREE_FERMEE,
     });
     const cap = (c: Buffer): void => {
       if (output.length < OUTPUT_CAP) output += c.toString();

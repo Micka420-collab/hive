@@ -1102,6 +1102,21 @@ interface ResultatRow {
   durationMs: number;
 }
 
+/**
+ * Rattache à chaque ligne de `results` son texte final relu du journal, et
+ * retire l'`id` qui n'a servi qu'à la jointure : la forme rendue aux lecteurs
+ * ne change que d'un champ optionnel.
+ */
+function avecTexteFinal<T extends { id: number }>(
+  lignes: readonly T[],
+  textes: ReadonlyMap<number, string>,
+): Array<Omit<T, 'id'> & { finalText?: string }> {
+  return lignes.map(({ id, ...reste }) => {
+    const finalText = textes.get(id);
+    return finalText === undefined ? reste : { ...reste, finalText };
+  });
+}
+
 function rowToResultatBalance(r: ResultatRow): ResultatBalance {
   return {
     id: r.id,
@@ -2275,13 +2290,23 @@ export class HiveStore {
     return out;
   }
 
+  /**
+   * Pose le statut d'une fabrique DE CE PROJET.
+   *
+   * Le projet fait partie de la clé : une fabrique d'un autre projet est
+   * « inconnue » ici, exactement comme une qui n'existe pas. Sans lui, la garde
+   * de la route (qui juge le projet de l'URL) ne disait rien de la fabrique
+   * qu'on modifiait.
+   */
   poserStatutFabrique(
+    projectId: string,
     id: string,
     statut: StatutFabrique,
     now = Date.now(),
   ): { ok: true } | { ok: false; motif: MotifRefusFabrique } {
-    const row = this.db.prepare('SELECT id, statut FROM fabriques WHERE id = ?').get(id) as
-      { id: string; statut: string } | undefined;
+    const row = this.db
+      .prepare('SELECT id, statut FROM fabriques WHERE id = ? AND projectId = ?')
+      .get(id, projectId) as { id: string; statut: string } | undefined;
     if (!row) return { ok: false, motif: 'inconnue' };
     if (row.statut === 'mergee' || row.statut === 'refusee') {
       return { ok: false, motif: 'deja_close' };
@@ -3066,14 +3091,50 @@ export class HiveStore {
    * Récupération au démarrage : les tâches assigned/running d'un précédent
    * process sont orphelines → elles repartent en ready ; tous les nœuds
    * repartent offline (ils se ré-enregistreront via WebSocket).
+   *
+   * L'HORLOGE DE L'HÉBERGEUR SE FERME D'ABORD. Au démarrage plus aucune tâche
+   * n'est en vol, donc aucune session ne doit rester ouverte : une session
+   * ouverte est facturée jusqu'à `now` à chaque lecture, et l'orpheline
+   * compterait toute la panne de la Reine comme du temps consommé — de quoi
+   * pousser un projet Cloud en « bloqué ». Chaque session se clôt au DERNIER
+   * SIGNE DE VIE que la Reine a enregistré pour elle :
+   *   - orpheline : le dernier battement de son nœud (ou sa dernière
+   *     transition, si elle est plus récente) — jamais l'heure du redémarrage,
+   *     qui facturerait la panne ;
+   *   - tâche déjà sortie du vol mais dont la session courait encore (Reine
+   *     d'avant la fermeture à l'interruption) : sa dernière transition,
+   *     l'instant où la session aurait dû se clore.
+   * Lu AVANT la requalification, qui réécrit `updatedAt`. Une session dont la
+   * tâche a disparu reste à `pruneHorlogeHote`, qui l'efface sans la facturer.
    */
   recoverOrphanTasks(now = Date.now()): Task[] {
-    const orphans = this.tasksByStatus('assigned', 'running');
-    for (const t of orphans) {
-      this.patchTask(t.id, { status: 'ready', assignedNodeId: null }, now);
-    }
-    this.db.prepare("UPDATE nodes SET status = 'offline'").run();
-    return orphans;
+    const recuperer = this.db.transaction((): Task[] => {
+      const sessions = this.db
+        .prepare(
+          `SELECT h.taskId, t.status, t.updatedAt, n.lastSeen
+             FROM horloge_hote h
+             JOIN tasks t ON t.id = h.taskId
+             LEFT JOIN nodes n ON n.id = t.assignedNodeId`,
+        )
+        .all() as Array<{
+        taskId: string;
+        status: TaskStatus;
+        updatedAt: number;
+        lastSeen: number | null;
+      }>;
+      for (const s of sessions) {
+        const enVol = s.status === 'assigned' || s.status === 'running';
+        const signeDeVie = enVol ? Math.max(s.updatedAt, s.lastSeen ?? 0) : s.updatedAt;
+        this.fermerHorlogeHote(s.taskId, Math.min(now, signeDeVie));
+      }
+      const orphans = this.tasksByStatus('assigned', 'running');
+      for (const t of orphans) {
+        this.patchTask(t.id, { status: 'ready', assignedNodeId: null }, now);
+      }
+      this.db.prepare("UPDATE nodes SET status = 'offline'").run();
+      return orphans;
+    });
+    return recuperer();
   }
 
   // ─── Résultats ─────────────────────────────────────────────────────────────
@@ -3112,6 +3173,33 @@ export class HiveStore {
           taskId: res.taskId,
           nodeId: res.nodeId,
           ...res.usage,
+        },
+        now,
+      );
+    }
+    // ─── LE TEXTE FINAL : RANGÉ LÀ OÙ UN LECTEUR DIFFÉRÉ L'ATTEND, PAS AILLEURS ─
+    //
+    // Même voie que la mesure locale juste au-dessus — le journal, relié au
+    // `resultId` exact, sans migration de `results`. Mais PAS pour tous les
+    // résultats : chaque événement rangé raccourcit d'autant la fenêtre de
+    // EVENT_RETENTION où vivent d'autres preuves (lancements de contre-
+    // expertise, CI), et un succès ordinaire n'a aucun lecteur DIFFÉRÉ de son
+    // texte final — la contre-expertise le lit en direct, sur le message.
+    //
+    // Deux lecteurs le relisent plus tard, et eux seuls justifient la ligne :
+    //   · les ÉCHECS — Couveuse, leçons croisées, dérive (`texteDEchec`) ;
+    //   · les éclaireuses que le Conseil n'a pas encore dépouillées : il lit
+    //     leur réponse au tick suivant, depuis la base.
+    // Hors fenêtre du journal, le texte n'existe plus : ses lecteurs retombent
+    // sur ce qu'ils savent faire sans lui, jamais sur une invention.
+    if (res.finalText && (!res.success || this.eclaireuseAttendue(res.taskId))) {
+      this.appendEvent(
+        'worker_final_text',
+        {
+          resultId,
+          taskId: res.taskId,
+          nodeId: res.nodeId,
+          finalText: res.finalText.slice(-LIMITS.finalText),
         },
         now,
       );
@@ -3244,6 +3332,20 @@ export class HiveStore {
     return info.changes;
   }
 
+  /**
+   * La tâche a-t-elle déjà produit un résultat RETENU (`success = 1`) ? Un
+   * résultat retenu l'a menée à `done` — pour un enfant délégué, c'est le
+   * résultat terminal que son parent a reçu. Lecture bornée par l'index
+   * `idx_results_task`, sans charger ni diff ni logs.
+   */
+  aUnResultatRetenu(taskId: string): boolean {
+    return (
+      this.db
+        .prepare('SELECT 1 FROM results WHERE taskId = ? AND success = 1 LIMIT 1')
+        .get(taskId) !== undefined
+    );
+  }
+
   resultsForTask(taskId: string): TaskResult[] {
     const rows = this.db
       .prepare('SELECT * FROM results WHERE taskId = ? ORDER BY id')
@@ -3260,6 +3362,42 @@ export class HiveStore {
       subAgents: JSON.parse(r.subAgents) as SubAgent[],
       ...(usages.get(r.id) ? { usage: usages.get(r.id) } : {}),
     }));
+  }
+
+  /**
+   * Textes finaux rangés par `insertResult`, relus par `resultId` exact.
+   * Seuls les résultats encore dans la fenêtre du journal en ont un.
+   */
+  textesFinauxPour(resultIds: readonly number[]): Map<number, string> {
+    const ids = [...new Set(resultIds.filter((id) => Number.isSafeInteger(id) && id > 0))];
+    if (ids.length === 0) return new Map();
+    const placeholders = ids.map(() => '?').join(', ');
+    const rows = this.db
+      .prepare(
+        `SELECT json_extract(payload, '$.resultId') AS resultId,
+                json_extract(payload, '$.finalText') AS finalText
+           FROM events
+          WHERE type = 'worker_final_text'
+            AND json_extract(payload, '$.resultId') IN (${placeholders})
+          ORDER BY id`,
+      )
+      .all(...ids) as Array<{ resultId: unknown; finalText: unknown }>;
+    const out = new Map<number, string>();
+    for (const r of rows) {
+      if (typeof r.resultId === 'number' && typeof r.finalText === 'string' && r.finalText !== '') {
+        out.set(r.resultId, r.finalText);
+      }
+    }
+    return out;
+  }
+
+  /** Vrai si le Conseil attend encore la réponse de cette tâche (éclaireuse). */
+  private eclaireuseAttendue(taskId: string): boolean {
+    return (
+      this.db
+        .prepare('SELECT 1 FROM conseil_taches WHERE taskId = ? AND depouille = 0')
+        .get(taskId) !== undefined
+    );
   }
 
   /** Mesures reliées aux résultats exacts, relues depuis les événements bornés. */
@@ -3335,12 +3473,13 @@ export class HiveStore {
    */
   listFailedResultsForTask(
     taskId: string,
-  ): Array<{ nodeId: string; logs: string; createdAt: number }> {
-    return this.db
+  ): Array<{ nodeId: string; logs: string; createdAt: number; finalText?: string }> {
+    const rows = this.db
       .prepare(
-        'SELECT nodeId, logs, createdAt FROM results WHERE taskId = ? AND success = 0 ORDER BY createdAt, id',
+        'SELECT id, nodeId, logs, createdAt FROM results WHERE taskId = ? AND success = 0 ORDER BY createdAt, id',
       )
-      .all(taskId) as Array<{ nodeId: string; logs: string; createdAt: number }>;
+      .all(taskId) as Array<{ id: number; nodeId: string; logs: string; createdAt: number }>;
+    return avecTexteFinal(rows, this.textesFinauxPour(rows.map((r) => r.id)));
   }
 
   /**
@@ -3570,11 +3709,12 @@ export class HiveStore {
     logs: string;
     success: boolean;
     createdAt: number;
+    finalText?: string;
   }> {
-    return this.db
+    const rows = this.db
       .prepare(
-        `SELECT COALESCE(g.verdict, 'clean') AS verdict, r.diff AS diff, r.logs AS logs,
-                r.success AS success, r.createdAt AS createdAt
+        `SELECT r.id AS id, COALESCE(g.verdict, 'clean') AS verdict, r.diff AS diff,
+                r.logs AS logs, r.success AS success, r.createdAt AS createdAt
            FROM results r
            LEFT JOIN gardiennes g ON g.resultId = r.id
           ORDER BY r.id DESC LIMIT ?`,
@@ -3582,6 +3722,7 @@ export class HiveStore {
       .all(limit)
       .map((row) => {
         const r = row as {
+          id: number;
           verdict: string;
           diff: string | null;
           logs: string | null;
@@ -3589,6 +3730,7 @@ export class HiveStore {
           createdAt: number;
         };
         return {
+          id: r.id,
           verdict: r.verdict,
           diff: r.diff ?? '',
           logs: r.logs ?? '',
@@ -3596,6 +3738,9 @@ export class HiveStore {
           createdAt: r.createdAt,
         };
       });
+    // Seuls les échecs ont une signature, donc un texte final à relire.
+    const echecs = rows.filter((r) => !r.success).map((r) => r.id);
+    return avecTexteFinal(rows, this.textesFinauxPour(echecs));
   }
 
   /**
@@ -3789,7 +3934,15 @@ export class HiveStore {
       .run(s.taskId, s.projectId, s.startedAt, 'hote');
   }
 
-  /** Clôt la session : ajoute sa durée au solde du projet, puis l'efface. */
+  /**
+   * Clôt la session : ajoute sa durée au solde du projet, puis l'efface.
+   *
+   * Un arrêt daté AVANT le départ (horloge murale qui recule, dernier battement
+   * d'un nœud antérieur à l'assignation) clôt au départ : zéro facturé. Le
+   * refuser laissait la session OUVERTE, et `depenseHorlogeHote` la comptait
+   * jusqu'à `now` à chaque lecture — une durée négative évitée contre une
+   * facture sans fin. `fermerSession` garde son refus pour qui l'appelle nu.
+   */
   fermerHorlogeHote(taskId: string, stoppedAt: number): boolean {
     const row = this.db
       .prepare('SELECT taskId, projectId, startedAt FROM horloge_hote WHERE taskId = ?')
@@ -3803,7 +3956,7 @@ export class HiveStore {
         startedAt: row.startedAt,
         stoppedAt: null,
       },
-      stoppedAt,
+      Math.max(stoppedAt, row.startedAt),
     );
     if (!close || close.stoppedAt === null) return false;
     const ajoute = close.stoppedAt - close.startedAt;
@@ -4053,13 +4206,21 @@ export class HiveStore {
     taskId: string;
     logs: string;
     createdAt: number;
+    finalText?: string;
   }> {
-    return this.db
+    const rows = this.db
       .prepare(
-        `SELECT nodeId, taskId, logs, createdAt FROM results
+        `SELECT id, nodeId, taskId, logs, createdAt FROM results
          WHERE success = 0 ORDER BY id DESC LIMIT ?`,
       )
-      .all(limit) as Array<{ nodeId: string; taskId: string; logs: string; createdAt: number }>;
+      .all(limit) as Array<{
+      id: number;
+      nodeId: string;
+      taskId: string;
+      logs: string;
+      createdAt: number;
+    }>;
+    return avecTexteFinal(rows, this.textesFinauxPour(rows.map((r) => r.id)));
   }
 
   setBudget(
@@ -5681,6 +5842,11 @@ export class HiveStore {
       const relecture = payload.relecture;
       const reviewerNodeId = payload.reviewerNodeId;
       const reviewerAgent = payload.relecteur;
+      // `producteur` voyage avec chaque avis depuis que la contre-expertise
+      // existe (bien avant `reviewerNodeId`) : un avis sans lui n'est pas un
+      // avis de cette ruche, et l'Evaluator ne pourrait pas en vérifier
+      // l'indépendance.
+      const producerAgent = payload.producteur;
       const objections = payload.objections;
       if (
         payload.source !== 'hive_counter_review' ||
@@ -5693,6 +5859,8 @@ export class HiveStore {
         reviewerNodeId.length === 0 ||
         typeof reviewerAgent !== 'string' ||
         reviewerAgent.length === 0 ||
+        typeof producerAgent !== 'string' ||
+        producerAgent.length === 0 ||
         !Array.isArray(objections) ||
         objections.some((objection) => typeof objection !== 'string')
       ) {
@@ -5709,6 +5877,7 @@ export class HiveStore {
         relectureTaskId: relecture,
         reviewerNodeId,
         reviewerAgent,
+        producerAgent,
         decision,
         reason: boundedObjections[0] ?? '',
         recordedAt: row.ts,
@@ -5818,7 +5987,7 @@ export class HiveStore {
     const rows = this.db
       .prepare(
         `SELECT * FROM events
-         WHERE type IN ('delegation_created', 'delegation_replayed', 'delegation_rejected', 'delegation_result')
+         WHERE type IN ('delegation_created', 'delegation_replayed', 'delegation_rejected', 'delegation_result', 'delegation_cancelled')
            AND (json_extract(payload, '$.rootTaskId') = ? OR json_extract(payload, '$.parentTaskId') = ?)
          ORDER BY id`,
       )

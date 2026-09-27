@@ -186,6 +186,112 @@ describe('sérialisation par l’ordonnanceur', () => {
     }
   });
 
+  it('UN ENFANT DÉLÉGUÉ N’EST JAMAIS DIFFÉRÉ DERRIÈRE SES ANCÊTRES — ils l’attendent', () => {
+    // Le parent décrit ce qu'il délègue, donc les mêmes fichiers : conflit
+    // FORT. Le différer jusqu'à la fin du parent, qui attend son résultat,
+    // était un interblocage. Une voisine sans lien reste, elle, différée.
+    const { store, scheduler, assigned, events } = setup();
+    try {
+      for (const n of ['n1', 'n2', 'n3', 'n4']) scheduler.registerNode(profile(n));
+      const p = store.createProject({ name: 'P' });
+      store.createTask({
+        id: 'parent',
+        projectId: p.id,
+        title: 'Parent',
+        prompt: 'délègue la création de src/double.ts, attends son résultat',
+      });
+      scheduler.tick();
+      store.patchTask('parent', { status: 'running' });
+      const deleguer = (parentTaskId: string, childTaskId: string) =>
+        store.createDelegatedTask({
+          childTaskId,
+          parentTaskId,
+          title: `Enfant ${childTaskId}`,
+          prompt: 'crée src/double.ts et son test',
+          durationMs: 60_000,
+          costMicros: 100_000,
+          resourceUnits: 1,
+        });
+
+      expect(deleguer('parent', 'enfant').ok).toBe(true);
+      scheduler.tick();
+      expect(store.getTask('enfant')?.status, 'l’enfant part malgré le conflit').toBe('assigned');
+
+      // Deux générations : le petit-enfant n'attend ni son parent ni sa racine.
+      store.patchTask('enfant', { status: 'running' });
+      expect(deleguer('enfant', 'petit-enfant').ok).toBe(true);
+      store.createTask({
+        id: 'voisine',
+        projectId: p.id,
+        title: 'Voisine',
+        prompt: 'modifier src/double.ts',
+      });
+      scheduler.tick();
+      expect(store.getTask('petit-enfant')?.status).toBe('assigned');
+      expect(store.getTask('voisine')?.status, 'sans lien de délégation, la garde tient').toBe(
+        'ready',
+      );
+      expect(
+        events.filter((e) => e.type === 'task_conflict_deferred').map((e) => e.payload.taskId),
+      ).toEqual(['voisine']);
+      expect(assigned.map((a) => a.taskId)).toEqual(['parent', 'enfant', 'petit-enfant']);
+    } finally {
+      store.close();
+    }
+  });
+
+  it('UNE COURSE SUR UN ENFANT DÉLÉGUÉ SUIT LA MÊME GARDE — son parent ne la bloque pas, une voisine si', () => {
+    // La course ne contourne jamais le Sting Detector ; elle ne doit pas non
+    // plus être PLUS stricte que l'assignation automatique qui, elle, lance
+    // l'enfant malgré le parent qui l'attend.
+    const { store, scheduler } = setup();
+    try {
+      for (const n of ['n1', 'n2', 'n3']) scheduler.registerNode(profile(n));
+      const p = store.createProject({ name: 'P' });
+      store.createTask({
+        id: 'parent',
+        projectId: p.id,
+        title: 'Parent',
+        prompt: 'délègue la création de src/double.ts, attends son résultat',
+      });
+      scheduler.tick();
+      store.patchTask('parent', { status: 'running' });
+      const enfant = (childTaskId: string) =>
+        store.createDelegatedTask({
+          childTaskId,
+          parentTaskId: 'parent',
+          title: `Enfant ${childTaskId}`,
+          prompt: 'crée src/double.ts et son test',
+          durationMs: 60_000,
+          costMicros: 100_000,
+          resourceUnits: 1,
+        });
+      expect(enfant('enfant').ok).toBe(true);
+      // Prête mais pas encore partie (toutes les ouvrières étaient occupées) :
+      // c'est là qu'un humain lance une course à la main.
+      store.patchTask('enfant', { status: 'ready' });
+
+      expect(scheduler.startRace('enfant', 2), 'le parent attend : la course part').toMatchObject({
+        ok: true,
+      });
+
+      // Une tâche SANS lien de délégation en conflit fort : refusée, comme avant.
+      store.createTask({
+        id: 'voisine',
+        projectId: p.id,
+        title: 'Voisine',
+        prompt: 'modifier src/double.ts',
+      });
+      store.patchTask('voisine', { status: 'ready' });
+      expect(scheduler.startRace('voisine', 2)).toEqual({
+        ok: false,
+        error: expect.stringContaining('en conflit fort avec la tâche active'),
+      });
+    } finally {
+      store.close();
+    }
+  });
+
   it('laisse tourner en parallèle deux tâches en conflit seulement faible', () => {
     const { store, scheduler, assigned } = setup();
     try {

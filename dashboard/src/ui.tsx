@@ -2,7 +2,7 @@
 // progression, hooks d'accessibilité pour les overlays (dialog), et le geste
 // irréversible.
 
-import { useEffect, useRef, useState } from 'react';
+import { Component, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { KeyboardEvent, ReactNode, RefObject } from 'react';
 import type { TaskStatus } from '../../src/shared/types';
@@ -11,11 +11,80 @@ import { useLang, useT } from './i18n';
 import type { Translate, UiLang } from './i18n';
 
 /**
+ * Ce que Tab peut atteindre dans un dialogue. Les éléments éteints, cachés,
+ * inertes, ou rangés dans un `<details>` fermé (hors de son `<summary>`) n'en
+ * sont pas : les compter ferait « boucler » depuis un élément que le
+ * navigateur saute, et la tabulation sortirait du dialogue par ce trou.
+ */
+const TABULABLES =
+  'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), summary, [contenteditable]:not([contenteditable="false"]), [tabindex]';
+
+function tabulables(conteneur: HTMLElement): HTMLElement[] {
+  return [...conteneur.querySelectorAll<HTMLElement>(TABULABLES)].filter((el) => {
+    // L'ATTRIBUT, pas la propriété `tabIndex` : sa valeur par défaut d'un
+    // `<summary>` ou d'un `contenteditable` varie d'un moteur à l'autre.
+    const retire = Number(el.getAttribute('tabindex') ?? '0') < 0;
+    if (retire || el.closest('[hidden], [inert]')) return false;
+    const replie = el.closest('details:not([open])');
+    return !replie || el.closest('summary')?.parentElement === replie;
+  });
+}
+
+/**
+ * Les dialogues ouverts, du plus ancien au plus récent. Seul le SOMMET écoute
+ * le clavier : chaque dialogue pose son écouteur sur `window`, et sans cette
+ * pile, un Tab dans le dialogue du dessus serait « rapatrié » par celui du
+ * dessous, et un Échap fermerait les deux d'un coup.
+ */
+const pileDialogues: RefObject<HTMLElement | null>[] = [];
+
+/**
+ * Le sommet, c'est le plus récent dont le conteneur est À L'ÉCRAN. Un crochet
+ * monté sans son dialogue (appelé au niveau d'une vue toujours montée, comme
+ * la Chambre le faisait) garderait sinon le clavier pour un conteneur absent :
+ * le dialogue réellement ouvert dessous perdait Échap et Tab.
+ */
+function sommetDeLaPile(): RefObject<HTMLElement | null> | undefined {
+  for (let i = pileDialogues.length - 1; i >= 0; i--) {
+    if (pileDialogues[i]?.current?.isConnected) return pileDialogues[i];
+  }
+  return undefined;
+}
+
+/** Tab au BORD du dialogue : on reboucle sur l'autre bord au lieu de sortir. */
+function garderLeFocus(e: globalThis.KeyboardEvent, conteneur: HTMLElement): void {
+  const liste = tabulables(conteneur);
+  // Rien à atteindre : le conteneur lui-même, plutôt qu'une fuite.
+  const premier = liste[0] ?? conteneur;
+  const dernier = liste.at(-1) ?? conteneur;
+  const actif = document.activeElement;
+  const dehors = !(actif instanceof Node) || !conteneur.contains(actif);
+  const auBord = e.shiftKey ? actif === premier || actif === conteneur : actif === dernier;
+  // À l'intérieur et loin du bord : le navigateur avance tout seul.
+  if (!dehors && !auBord) return;
+  e.preventDefault();
+  (e.shiftKey ? dernier : premier).focus();
+}
+
+/**
  * Accessibilité d'un overlay (tiroir/modale) :
  *  - ferme sur Échap ;
  *  - déplace le focus dans l'overlay à l'ouverture ;
+ *  - GARDE le focus dedans : Tab depuis le dernier élément revient au premier,
+ *    Maj+Tab depuis le premier repart du dernier ;
  *  - restaure le focus sur l'élément déclencheur à la fermeture.
  * Retourne un ref à poser sur le conteneur (avec role="dialog" aria-modal).
+ *
+ * ─── POURQUOI LA GARDE, EN PLUS DU FOCUS QUI ENTRE ──────────────────────────
+ *
+ * `aria-modal="true"` annonce au lecteur d'écran que le reste de la page est
+ * hors d'atteinte. Or la touche Tab, elle, n'en savait rien : du dernier
+ * bouton de la modale, elle repartait dans la barre de navigation CACHÉE sous
+ * le voile. On tabulait alors à l'aveugle dans une page qu'on ne voit plus, et
+ * le dialogue mentait sur ce qu'il promettait.
+ *
+ * Un Tab déjà PRIS par l'élément focalisé (`defaultPrevented` — un éditeur de
+ * code qui indente) n'est pas détourné.
  *
  * `focusInitial` désigne l'élément à focaliser à l'ouverture quand le premier
  * focusable du DOM n'est pas le bon point de départ : dans un panneau de
@@ -38,13 +107,21 @@ export function useDialog<T extends HTMLElement>(
       focusInitial?.current ??
       el?.querySelector<HTMLElement>('input, textarea, button, [tabindex]:not([tabindex="-1"])');
     (focusable ?? el)?.focus();
+    pileDialogues.push(ref);
 
-    const onKey = (e: KeyboardEvent | globalThis.KeyboardEvent) => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (sommetDeLaPile() !== ref) return;
       if (e.key === 'Escape') closeRef.current();
+      if (e.key === 'Tab' && !e.defaultPrevented && ref.current) garderLeFocus(e, ref.current);
     };
     window.addEventListener('keydown', onKey);
     return () => {
       window.removeEventListener('keydown', onKey);
+      // Par identité, pas `pop()` : le dialogue du dessous peut se fermer le
+      // premier (sa vue est démontée), et retirer le sommet à sa place
+      // laisserait le clavier à un dialogue qui n'existe plus.
+      const i = pileDialogues.indexOf(ref);
+      if (i >= 0) pileDialogues.splice(i, 1);
       trigger?.focus?.(); // restaure le focus au déclencheur
     };
   }, []);
@@ -78,6 +155,142 @@ export function Voile({ onClose, children }: { onClose: () => void; children: Re
       {children}
     </div>,
     document.body,
+  );
+}
+
+// ─── LE FILET SOUS UNE VUE — et sous l'application entière ───────────────────
+//
+// ─── LA PANNE ───────────────────────────────────────────────────────────────
+//
+// Aucune frontière d'erreur n'existait. Or quand un rendu jette et que rien ne
+// le rattrape, React DÉMONTE TOUTE LA RACINE : il ne restait qu'un `#root`
+// vide, sans barre, sans voyant, sans un mot. Deux causes ordinaires y
+// menaient :
+//
+//   · une vue qui lit un champ absent d'une réponse (un orchestrateur plus
+//     ancien, un relevé à moitié rempli) ;
+//   · un morceau paresseux qui ne se charge plus — la ruche a été mise à jour
+//     pendant que l'onglet restait ouvert, et les noms de fichiers ont changé.
+//
+// ─── CE QUE FAIT LE FILET ───────────────────────────────────────────────────
+//
+// Sous une VUE, il borne la panne à la vue : la barre et l'en-tête restent, on
+// peut aller ailleurs, et l'écran dit ce qui s'est passé. Aller ailleurs — une
+// autre vue, ou une autre fiche de la même — réarme le filet (`adresse`). Sous
+// l'APPLICATION (main.tsx), il remplace la page blanche par la même
+// explication.
+//
+// Deux gestes, parce que les deux causes ne se soignent pas pareil.
+// « Réessayer » rend la vue une seconde fois — assez pour une donnée qui a
+// changé depuis. Mais `React.lazy` garde en mémoire l'import qui a échoué : un
+// morceau introuvable le restera jusqu'au rechargement. D'où « Recharger la
+// page », qui va chercher la version courante.
+//
+// Un nouvel essai qui retombe dans la même panne AFFICHE son compte : sinon le
+// clic ne changerait rien à l'écran, et on ne saurait pas s'il a eu lieu.
+
+interface EtatFilet {
+  erreur: Error | null;
+  essais: number;
+  /** L'adresse pour laquelle `erreur` a été constatée. */
+  adresse: string | undefined;
+}
+
+interface ProprietesFilet {
+  portee: 'vue' | 'application';
+  /**
+   * Ce qu'affiche le filet, À LA FICHE PRÈS (`vue/id`) : quand elle change, une
+   * panne constatée ailleurs est oubliée. Pas une `key` : elle remonterait la
+   * vue SAINE à chaque fiche ouverte (relectures, onglet, défilement perdus)
+   * pour réarmer un filet qui n'a rien rattrapé.
+   */
+  adresse?: string;
+  children: ReactNode;
+}
+
+export class FiletDeSecurite extends Component<ProprietesFilet, EtatFilet> {
+  override state: EtatFilet = { erreur: null, essais: 0, adresse: this.props.adresse };
+
+  static getDerivedStateFromError(erreur: unknown): Partial<EtatFilet> {
+    return { erreur: erreur instanceof Error ? erreur : new Error(String(erreur)) };
+  }
+
+  // Avant le rendu, pas après (`componentDidUpdate`) : la panne d'une fiche ne
+  // s'affiche pas, même le temps d'une image, sur la fiche suivante.
+  static getDerivedStateFromProps(
+    props: ProprietesFilet,
+    etat: EtatFilet,
+  ): Partial<EtatFilet> | null {
+    if (props.adresse === etat.adresse) return null;
+    return { adresse: props.adresse, erreur: null, essais: 0 };
+  }
+
+  override render() {
+    const { erreur, essais } = this.state;
+    if (erreur === null) return this.props.children;
+    return (
+      <EcranEnPanne
+        portee={this.props.portee}
+        erreur={erreur}
+        essais={essais}
+        onReessayer={() => this.setState({ erreur: null, essais: essais + 1 })}
+      />
+    );
+  }
+}
+
+function EcranEnPanne({
+  portee,
+  erreur,
+  essais,
+  onReessayer,
+}: {
+  portee: 'vue' | 'application';
+  erreur: Error;
+  essais: number;
+  onReessayer: () => void;
+}) {
+  const t = useT();
+  return (
+    <section className="card mc-panne" role="alert">
+      <h2>
+        {portee === 'vue'
+          ? t('Cette vue est tombée en panne', 'This view crashed')
+          : t('Mission Control est tombé en panne', 'Mission Control crashed')}
+      </h2>
+      <p>
+        {portee === 'vue'
+          ? t(
+              'Le reste de Mission Control répond : la barre de gauche mène aux autres vues.',
+              'The rest of Mission Control still answers: the sidebar leads to the other views.',
+            )
+          : t(
+              'La ruche, elle, continue de tourner : seul cet écran s’est arrêté.',
+              'The hive itself keeps running: only this screen stopped.',
+            )}{' '}
+        {t(
+          'Si la panne suit une mise à jour de la ruche, recharger la page va chercher la nouvelle version.',
+          'If this follows a hive update, reloading the page fetches the new version.',
+        )}
+      </p>
+      {essais > 0 && (
+        <p>
+          {t(
+            `Toujours en panne après ${essais} ${essais > 1 ? 'nouveaux essais' : 'nouvel essai'}.`,
+            `Still failing after ${essais} retr${essais > 1 ? 'ies' : 'y'}.`,
+          )}
+        </p>
+      )}
+      <code className="mc-panne-detail">{erreur.message || erreur.name}</code>
+      <div className="mc-panne-gestes">
+        <button type="button" className="btn primary" onClick={onReessayer}>
+          {t('Réessayer', 'Retry')}
+        </button>
+        <button type="button" className="btn" onClick={() => location.reload()}>
+          {t('Recharger la page', 'Reload the page')}
+        </button>
+      </div>
+    </section>
   );
 }
 

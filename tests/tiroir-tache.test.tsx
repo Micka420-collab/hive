@@ -309,6 +309,59 @@ describe('le tiroir — le graphe de délégation réel', () => {
     expect(dom.textContent).toContain('terminée');
   });
 
+  it('dit POURQUOI un enfant a été annulé avec le sous-arbre de son ancêtre', async () => {
+    // Le badge seul dirait « échouée » : l'opérateur chercherait une panne qui
+    // n'a pas eu lieu. Le fait typé du journal dit que le destinataire avait fini.
+    const enfant = (taskId: string, parentTaskId: string, depth: number) => ({
+      taskId,
+      rootTaskId: 'tache-du-tiroir',
+      parentTaskId,
+      depth,
+      status: 'failed' as const,
+      origine: 'hive' as const,
+    });
+    const annulee = (id: number, childTaskId: string, reason: string) => ({
+      id,
+      ts: id,
+      type: 'delegation_cancelled',
+      payload: { childTaskId, ancestorTaskId: 'tache-du-tiroir', reason },
+    });
+    vi.mocked(fetchDelegationGraph).mockResolvedValue({
+      taskId: 'tache-du-tiroir',
+      rootTaskId: 'tache-du-tiroir',
+      graph: [
+        {
+          taskId: 'tache-du-tiroir',
+          rootTaskId: 'tache-du-tiroir',
+          parentTaskId: null,
+          depth: 0,
+          status: 'done',
+          origine: 'hive',
+        },
+        enfant('enfant-1', 'tache-du-tiroir', 1),
+        enfant('enfant-2', 'tache-du-tiroir', 1),
+        enfant('petit-enfant', 'enfant-1', 2),
+      ],
+      delegations: [],
+      events: [
+        annulee(1, 'enfant-1', 'ancestor_done'),
+        annulee(2, 'enfant-2', 'ancestor_failed'),
+        annulee(3, 'petit-enfant', 'ancestor_cancelled'),
+      ],
+    });
+    const dom = await monter(<TaskDrawer task={tache('done')} nodes={NOEUDS} onClose={() => {}} />);
+    await act(async () => {});
+    const ligne = (id: string) =>
+      dom.querySelector(`[data-testid="delegation-cancelled-${id}"]`)?.textContent;
+    expect(ligne('enfant-1')).toBe('Annulée : tache-du-tiroir a abouti sans attendre ce résultat.');
+    expect(ligne('enfant-2')).toBe(
+      'Annulée : tache-du-tiroir a échoué, plus personne n’attendait ce résultat.',
+    );
+    expect(ligne('petit-enfant')).toBe('Annulée avec tache-du-tiroir.');
+    // La racine n'a été annulée par personne : aucune ligne à son nom.
+    expect(ligne('tache-du-tiroir')).toBeUndefined();
+  });
+
   it('expose une erreur de lecture au lieu de simuler un graphe vide', async () => {
     vi.mocked(fetchDelegationGraph).mockRejectedValue(new Error('route absente'));
     const dom = await monter(

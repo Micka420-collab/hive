@@ -212,7 +212,18 @@ export const SECRETS_JAMAIS_SONDES: readonly string[] = [
   // `--version` s'affiche sans authentification.
   'ANTHROPIC_API_KEY',
   'ANTHROPIC_AUTH_TOKEN',
+  // Le jeton d'ABONNEMENT (`claude setup-token`) : c'est lui qu'un bac reçoit
+  // à la place de la session `~/.claude`, qu'il ne monte pas. Il vaut
+  // l'abonnement entier — la même garde que la clé, au moins.
+  'CLAUDE_CODE_OAUTH_TOKEN',
   'OPENAI_API_KEY',
+  // La clé que `codex exec` lit réellement (codex-rs/login, `CODEX_API_KEY`).
+  'CODEX_API_KEY',
+  // L'autre identifiant sans navigateur de Codex (jeton d'accès personnel ou
+  // JWT d'identité d'agent, codex-rs/login `CODEX_ACCESS_TOKEN`). Aucun agent
+  // ne le reçoit — il n'est dans aucune liste transmise —, mais un `codex`
+  // homonyme sondé l'hériterait du nœud : il part, comme les autres.
+  'CODEX_ACCESS_TOKEN',
   'XAI_API_KEY',
   'CURSOR_API_KEY',
   'QUEEN_BEE_API_KEY',
@@ -428,19 +439,35 @@ export async function detectBestAgent(
  * (clé API). Sans elles, la sandbox épurée empêcherait `claude`/`codex` de
  * s'authentifier. L'adaptateur `shell` simulé ne reçoit rien (isolation totale).
  * Les secrets restent locaux au nœud — jamais transmis au hub.
+ *
+ * Ce sont des NOMS : la sandbox de processus copie leurs valeurs, un bac les
+ * fait hériter sans jamais les écrire en argument. Les dossiers de
+ * configuration ne servent que HORS bac — dedans, le HOME est éphémère (voir
+ * `VARIABLES_CHEMIN_HOTE`), et seuls les jetons nommés authentifient l'agent.
  */
 export function agentCredentialEnv(agent: AgentType): string[] {
   if (agent === 'shell') return [];
   const configDirs = ['HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'XDG_CONFIG_HOME'];
   if (agent === 'claude-code') {
-    return [...configDirs, 'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL'];
+    // CLAUDE_CODE_OAUTH_TOKEN : l'abonnement sans navigateur (`claude setup-token`).
+    return [
+      ...configDirs,
+      'ANTHROPIC_API_KEY',
+      'ANTHROPIC_AUTH_TOKEN',
+      'ANTHROPIC_BASE_URL',
+      'CLAUDE_CODE_OAUTH_TOKEN',
+    ];
   }
   if (agent === 'cursor') {
     // CURSOR_API_KEY pour les scripts ; ~/.cursor porte la session login.
     return [...configDirs, 'CURSOR_API_KEY'];
   }
   if (agent === 'codex') {
-    return [...configDirs, 'OPENAI_API_KEY', 'OPENAI_BASE_URL'];
+    // CODEX_API_KEY : la clé que `codex exec` lit sans session `codex login`.
+    // OPENAI_API_KEY reste transmise (un fournisseur déclaré dans la config de
+    // Codex peut la nommer), mais elle n'AUTHENTIFIE pas `codex exec` : voir
+    // `requisitionSiCredentialsManquantes`.
+    return [...configDirs, 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'CODEX_API_KEY'];
   }
   if (agent === 'grok') {
     // `XAI_API_KEY` pour l'authentification sans navigateur ; `GROK_HOME` parce
@@ -487,6 +514,14 @@ export type RequisitionCredential = {
  * Si l'agent détecté ne peut pas s'authentifier localement, propose une
  * réquisition (ADR 0010). Le secret ne transite jamais : l'humain configure
  * le poste ou accorde depuis la Chambre (Queen / Intendance).
+ *
+ * ─── UNE SESSION DE L'HÔTE N'EST PAS UN IDENTIFIANT DANS LE BAC ─────────────
+ *
+ * `~/.claude`, `~/.codex`, `~/.cursor` et `~/.grok` sont des dossiers de l'HÔTE. Un bac
+ * (conteneur ou bubblewrap) donne à l'agent un HOME éphémère et ne monte jamais
+ * celui du membre : la session ouverte par `claude login` n'y entre pas. Avec
+ * `sessionsHote: false` — l'agent tourne dans un bac —, seules comptent les clés
+ * passées par leur NOM, et le détail dit laquelle poser.
  */
 export function requisitionSiCredentialsManquantes(
   agent: AgentType,
@@ -494,57 +529,88 @@ export function requisitionSiCredentialsManquantes(
   opts: {
     existe?: (chemin: string) => boolean;
     plateforme?: string;
+    /** Les dossiers de session de l'hôte sont-ils visibles de l'agent ? Faux dans un bac. */
+    sessionsHote?: boolean;
   } = {},
 ): RequisitionCredential | null {
   const existe = opts.existe ?? existsSync;
   const plateforme = opts.plateforme ?? process.platform;
+  const sessionsHote = opts.sessionsHote ?? true;
   if (agent === 'shell' || agent === 'custom') return null;
 
   const maison = (plateforme === 'win32' ? env.USERPROFILE : env.HOME)?.trim();
   const p = plateforme === 'win32' ? path.win32 : path.posix;
+  const cle = (nom: string): boolean => Boolean((env[nom] ?? '').trim());
+  const session = (dossier: string): boolean => sessionsHote && existe(dossier);
+  const horsDuBac = (dossier: string, aPoser: string): string =>
+    `Dans le bac à sable, la session ${dossier} de l’hôte est invisible : posez ${aPoser} ` +
+    'dans le .env de ce nœud.';
 
   if (agent === 'claude-code') {
-    if ((env.ANTHROPIC_API_KEY ?? '').trim()) return null;
-    if ((env.ANTHROPIC_AUTH_TOKEN ?? '').trim()) return null;
-    if (maison && existe(p.join(maison, '.claude'))) return null;
+    if (cle('ANTHROPIC_API_KEY') || cle('ANTHROPIC_AUTH_TOKEN')) return null;
+    if (cle('CLAUDE_CODE_OAUTH_TOKEN')) return null;
+    if (maison && session(p.join(maison, '.claude'))) return null;
     return {
       genre: 'cle_api',
       libelle: 'Clé ou session Anthropic (Claude Code)',
-      detail:
-        'ANTHROPIC_API_KEY absente et aucun dossier ~/.claude détecté sur ce poste. ' +
-        'Connectez-vous avec `claude login` localement, ou accordez une clé depuis la Chambre.',
+      detail: sessionsHote
+        ? 'ANTHROPIC_API_KEY absente et aucun dossier ~/.claude détecté sur ce poste. ' +
+          'Connectez-vous avec `claude login` localement, posez CLAUDE_CODE_OAUTH_TOKEN ' +
+          '(`claude setup-token`), ou accordez une clé depuis la Chambre.'
+        : horsDuBac(
+            '~/.claude',
+            'CLAUDE_CODE_OAUTH_TOKEN (jeton d’abonnement : `claude setup-token`) ou ANTHROPIC_API_KEY',
+          ),
     };
   }
 
   if (agent === 'cursor') {
-    if ((env.CURSOR_API_KEY ?? '').trim()) return null;
-    if (maison && existe(p.join(maison, '.cursor'))) return null;
+    if (cle('CURSOR_API_KEY')) return null;
+    if (maison && session(p.join(maison, '.cursor'))) return null;
     return {
       genre: 'cle_api',
       libelle: 'Clé ou session Cursor',
-      detail:
-        'CURSOR_API_KEY absente et aucun dossier ~/.cursor détecté sur ce poste. ' +
-        'Connectez-vous avec `agent login` localement, ou posez CURSOR_API_KEY.',
+      detail: sessionsHote
+        ? 'CURSOR_API_KEY absente et aucun dossier ~/.cursor détecté sur ce poste. ' +
+          'Connectez-vous avec `agent login` localement, ou posez CURSOR_API_KEY.'
+        : horsDuBac('~/.cursor', 'CURSOR_API_KEY'),
     };
   }
 
+  // ─── CODEX : CODEX_API_KEY OU LA SESSION `codex login`, ET RIEN D'AUTRE ────
+  //
+  // `codex exec` s'authentifie par CODEX_API_KEY, sinon par le `auth.json` que
+  // `codex login` écrit dans ~/.codex (codex-rs/login, `load_auth`). Il ne lit
+  // JAMAIS OPENAI_API_KEY : le fournisseur OpenAI intégré n'a pas de variable
+  // de clé (`env_key: None`). La compter faisait dire « clé présente » à un
+  // poste dont chaque tâche Codex échouait en 401 — dans le bac comme dehors.
+  //
+  // `CODEX_HOME` n'est pas regardé : il n'est pas dans les variables transmises
+  // à l'agent, qui cherche donc sa session sous le HOME, là où on la cherche.
   if (agent === 'codex') {
-    if ((env.OPENAI_API_KEY ?? '').trim()) return null;
+    if (cle('CODEX_API_KEY')) return null;
+    if (maison && session(p.join(maison, '.codex', 'auth.json'))) return null;
     return {
       genre: 'cle_api',
       libelle: 'Clé OpenAI (Codex)',
-      detail: 'OPENAI_API_KEY absente sur ce nœud — l’agent ne pourra pas s’authentifier.',
+      detail: sessionsHote
+        ? 'CODEX_API_KEY absente et aucune session `codex login` (~/.codex/auth.json) sur ' +
+          'ce poste. Connectez-vous avec `codex login` localement, ou posez CODEX_API_KEY — ' +
+          '`codex exec` ignore OPENAI_API_KEY.'
+        : horsDuBac('~/.codex', 'CODEX_API_KEY (`codex exec` ignore OPENAI_API_KEY)'),
     };
   }
 
   if (agent === 'grok') {
-    if ((env.XAI_API_KEY ?? '').trim()) return null;
+    if (cle('XAI_API_KEY')) return null;
     const grokHome = (env.GROK_HOME ?? (maison ? p.join(maison, '.grok') : '')).trim();
-    if (grokHome && existe(grokHome)) return null;
+    if (grokHome && session(grokHome)) return null;
     return {
       genre: 'cle_api',
       libelle: 'Clé xAI ou session Grok',
-      detail: 'XAI_API_KEY absente et aucune session Grok locale (~/.grok) détectée sur ce poste.',
+      detail: sessionsHote
+        ? 'XAI_API_KEY absente et aucune session Grok locale (~/.grok) détectée sur ce poste.'
+        : horsDuBac('~/.grok', 'XAI_API_KEY'),
     };
   }
 

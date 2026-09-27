@@ -37,7 +37,7 @@ describe('réquisition mid-task — boucle B/C/D', () => {
     const base = `http://127.0.0.1:${server.port}`;
     const auth = await fetch(`${base}/api/auth/register`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-hive-token': TOKEN },
       body: JSON.stringify({
         email: 'admin@hive.test',
         password: 'mot-de-passe-test',
@@ -76,7 +76,16 @@ describe('réquisition mid-task — boucle B/C/D', () => {
             infra: true,
           };
         }
-        return { success: true, diff: 'diff ok', logs: 'ok', subAgents: [] };
+        // La reprise rend ce que l'adaptateur a DÉCLARÉ, comme une exécution
+        // ordinaire : elle recopiait les champs à la main, et en perdait.
+        return {
+          success: true,
+          diff: 'diff ok',
+          logs: 'ok',
+          subAgents: [],
+          fournisseur: { source: 'codex', coutUsd: 0.25 },
+          finalText: 'Garde ajoutée après la reprise',
+        };
       },
     };
 
@@ -114,8 +123,9 @@ describe('réquisition mid-task — boucle B/C/D', () => {
     });
     expect(rep.status).toBe(200);
     const repBody = (await rep.json()) as { envVar?: string };
-    expect(repBody.envVar).toBe('OPENAI_API_KEY');
-    delete process.env.OPENAI_API_KEY;
+    // La seule variable que `codex exec` lit : la Chambre pose CELLE-LÀ.
+    expect(repBody.envVar).toBe('CODEX_API_KEY');
+    delete process.env.CODEX_API_KEY;
 
     const deadlineDone = Date.now() + 12_000;
     while (Date.now() < deadlineDone) {
@@ -123,6 +133,17 @@ describe('réquisition mid-task — boucle B/C/D', () => {
       await new Promise((r) => setTimeout(r, 80));
     }
     expect(server.store.getTask(taskId)?.status).toBe('done');
+    const fait = server.store
+      .listEvents(0, 500)
+      .find((e) => e.type === 'task_done' && e.payload.taskId === taskId);
+    expect(fait?.payload.fournisseur, 'coût déclaré perdu à la reprise').toEqual({
+      source: 'codex',
+      coutUsd: 0.25,
+    });
+    // Le texte final a voyagé lui aussi : le souvenir Hive Mind en est fait.
+    expect(server.store.listMemories().find((m) => m.taskId === taskId)?.content).toContain(
+      'Garde ajoutée après la reprise',
+    );
   });
 
   it('infra ENOENT → réquisition binaire avec taskId ; accordee → tâche done', async () => {
@@ -140,7 +161,7 @@ describe('réquisition mid-task — boucle B/C/D', () => {
     const base = `http://127.0.0.1:${server.port}`;
     const auth = await fetch(`${base}/api/auth/register`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-hive-token': TOKEN },
       body: JSON.stringify({
         email: 'admin@hive.test',
         password: 'mot-de-passe-test',
@@ -252,5 +273,76 @@ describe('réquisition mid-task — boucle B/C/D', () => {
       await new Promise((r) => setTimeout(r, 80));
     }
     expect(server.store.getTask(taskId)?.status).toBe('done');
+  });
+
+  it('un 429 de Claude Code n’ouvre PAS de réquisition d’identifiants : réaffectation', async () => {
+    // La ligne `init` du stream-json porte `"apiKeySource"` à chaque exécution.
+    // Lu sur les logs bruts, `ECHEC_CREDENTIAL_RE` y voyait une clé en cause :
+    // une limite de débit ouvrait une réquisition d'identifiants, et la tâche
+    // restait en pause devant un humain qui n'avait rien à accorder. Le genre se
+    // lit sur ce que l'échec DIT (shared/texte-d-echec.ts).
+    dir = mkdtempSync(path.join(os.tmpdir(), 'hive-req-429-'));
+    server = await createServer({
+      port: 0,
+      host: '127.0.0.1',
+      token: TOKEN,
+      corsOrigins: ['http://localhost:5173'],
+      dbPath: path.join(dir, 'hive.db'),
+      envPath: path.join(dir, '.env'),
+      simulation: true,
+      tickMs: 60,
+    });
+    const projet = server.store.createProject({ name: 'Req 429' });
+    const taskId = server.store.createTask({
+      projectId: projet.id,
+      title: 'Débit',
+      prompt: 'w',
+    }).id;
+
+    const init = JSON.stringify({
+      type: 'system',
+      subtype: 'init',
+      session_id: 's',
+      apiKeySource: 'ANTHROPIC_API_KEY',
+    });
+    const adapter: AgentAdapter = {
+      name: 'claude-429',
+      async run() {
+        return {
+          success: false,
+          diff: '',
+          logs: `${init}\n${JSON.stringify({ type: 'result', is_error: true, result: 'API Error: 429' })}`,
+          finalText: 'API Error: 429 rate_limit_error',
+          subAgents: [],
+          infra: true,
+        };
+      },
+    };
+    client = new HiveNodeClient({
+      url: `ws://127.0.0.1:${server.port}/ws`,
+      token: TOKEN,
+      name: 'noeud-429',
+      ownerName: 'test',
+      agentType: 'claude-code',
+      maxConcurrency: 1,
+      workRoot: path.join(dir, 'work'),
+      adapter,
+      quiet: true,
+    });
+    client.start();
+    server.store.patchTask(taskId, { status: 'ready' });
+
+    const deadline = Date.now() + 12_000;
+    let rejet: unknown;
+    while (Date.now() < deadline && rejet === undefined) {
+      rejet = server.store
+        .listEvents(0, 500)
+        .find((e) => e.type === 'task_rejected' && e.payload.taskId === taskId)?.payload;
+      if (rejet === undefined) await new Promise((r) => setTimeout(r, 60));
+    }
+    expect(rejet, 'la tâche doit être réaffectée').toMatchObject({ infra: true });
+    expect(
+      server.store.listerRequisitions({ statut: 'ouverte' }).filter((r) => r.taskId === taskId),
+    ).toEqual([]);
   });
 });

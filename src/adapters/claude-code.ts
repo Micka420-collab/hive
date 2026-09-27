@@ -15,6 +15,7 @@ import {
 import { createDeclarationFournisseurTracker } from './fournisseur-parser.js';
 import { createPresenceTracker } from './presence-parser.js';
 import { createSubAgentTracker } from './subagent-parser.js';
+import { texteFinalStreamJson } from './texte-final.js';
 import type { AdapterContext, AdapterResult, AgentAdapter } from './index.js';
 
 const CLAUDE_TIMEOUT_MS = 15 * 60_000;
@@ -113,6 +114,9 @@ export function createClaudeCodeAdapter(
             if (presences) ctx.onProgress({ presences });
           },
           CLAUDE_TIMEOUT_MS,
+          // La réponse finale vit dans la ligne `result` du flux — pas dans
+          // les logs, où elle n'est qu'une chaîne échappée (texte-final.ts).
+          texteFinalStreamJson,
         );
         // La liste finale accompagne le résultat (dernier état des sous-agents).
         const fournisseur = declaration.declaration();

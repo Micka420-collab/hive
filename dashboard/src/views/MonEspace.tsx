@@ -23,7 +23,7 @@ import { fetchMonTableau } from '../api';
 import type { Alerte, Gravite, MonTableau, ProjetRendu } from '../api';
 import { useT } from '../i18n';
 import type { Translate } from '../i18n';
-import { useApiPoll } from './shared';
+import { EchecSondage, useApiPoll } from './shared';
 import type { ViewProps } from './shared';
 import './monespace.css';
 import { PourquoiHive } from '../PourquoiHive';
@@ -199,7 +199,7 @@ function Espace({
           <h2>
             <span className="marque" aria-hidden="true" /> {t('Mon espace', 'My space')}
           </h2>
-          <p className="panel-error">{poll.error}</p>
+          <EchecSondage sondage={poll} />
         </section>
       </div>
     );

@@ -5,9 +5,11 @@
 // LA CHAMBRE, À L'ÉCRAN — onglets identité, filtres missions, lien Rayon.
 
 import { act } from 'react';
+import type { ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setLang } from '../dashboard/src/i18n';
+import { useDialog } from '../dashboard/src/ui';
 import type { ChambrePoste } from '../dashboard/src/api';
 import type { ViewProps } from '../dashboard/src/views/shared';
 import type { StateSnapshot } from '../src/shared/types';
@@ -160,6 +162,10 @@ afterEach(() => {
   conteneur?.remove();
   racine = null;
   conteneur = null;
+  // Des cas forcent `document.activeElement` (happy-dom ne pose pas toujours
+  // le focus où on le veut). On RETIRE la surcharge : la « restaurer » par un
+  // getter figé sur `body` laissait les cas suivants sans aucun focus réel.
+  Reflect.deleteProperty(document, 'activeElement');
 });
 
 async function monter(
@@ -767,10 +773,6 @@ describe('Chambre à l’écran', () => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     });
     expect(onNavigate).not.toHaveBeenCalled();
-    Object.defineProperty(document, 'activeElement', {
-      configurable: true,
-      get: () => document.body,
-    });
   });
 
   it('Échap ne quitte pas si le focus est dans l’iframe Atelier', async () => {
@@ -787,11 +789,6 @@ describe('Chambre à l’écran', () => {
     });
     expect(onNavigate).not.toHaveBeenCalled();
     iframe.remove();
-    // Restaurer activeElement (happy-dom).
-    Object.defineProperty(document, 'activeElement', {
-      configurable: true,
-      get: () => document.body,
-    });
   });
 
   it('un blip fetchChambre ne vide pas un poste déjà chargé', async () => {
@@ -923,5 +920,188 @@ describe('Chambre à l’écran', () => {
     )!;
     await cliquer(terminees);
     expect(terminees.getAttribute('aria-pressed')).toBe('true');
+  });
+});
+
+// ─── LES DEUX DIALOGUES DE LA CHAMBRE TIENNENT LE CLAVIER ────────────────────
+//
+// La Chambre appelait `useDialog` au niveau de la VUE, montée en permanence :
+// ses deux crochets entraient dans la pile des dialogues dès l'arrivée sur la
+// page, dialogue ouvert ou non, et celui du motif s'y tenait au sommet. Le
+// dialogue de clé API — celui où l'on colle un secret — ne fermait plus sur
+// Échap et laissait Tab filer sous le voile ; un tiroir ouvert AVANT d'entrer
+// dans la Chambre perdait de même le clavier. Et comme le crochet agissait au
+// montage de la vue, aucun des deux dialogues ne recevait le focus ni ne le
+// rendait en se fermant.
+//
+// Un clic DANS ces deux dialogues remontait en outre jusqu'au voile, qui
+// ferme : cliquer dans le champ du secret refermait le dialogue du secret.
+
+describe('les dialogues de la Chambre', () => {
+  /** Une touche, tapée là où est le focus ; rend `true` si un écouteur l'a prise. */
+  function taper(touche: 'Tab' | 'Escape', maj = false): boolean {
+    const ev = new KeyboardEvent('keydown', {
+      key: touche,
+      shiftKey: maj,
+      bubbles: true,
+      cancelable: true,
+    });
+    act(() => {
+      (document.activeElement ?? document.body).dispatchEvent(ev);
+    });
+    return ev.defaultPrevented;
+  }
+
+  const bouton = (dom: ParentNode, libelle: string): HTMLButtonElement => {
+    const b = [...dom.querySelectorAll('button')].find((x) =>
+      (x.textContent ?? '').includes(libelle),
+    );
+    expect(b, `« ${libelle} » introuvable`).toBeTruthy();
+    return b as HTMLButtonElement;
+  };
+
+  /** Intégrations → Clés API → « Ajouter », le focus posé sur le déclencheur. */
+  async function ouvrirCle(dom: HTMLElement): Promise<HTMLButtonElement> {
+    await cliquer(dom.querySelector('#ch-tab-integrations')!);
+    await act(async () => {});
+    const ajouter = bouton(dom, 'Ajouter');
+    act(() => ajouter.focus());
+    await cliquer(ajouter);
+    expect(
+      document.querySelector('.ch-grant-dialog'),
+      'le dialogue de clé ne s’ouvre pas',
+    ).toBeTruthy();
+    return ajouter;
+  }
+
+  it('LE DIALOGUE DE CLÉ PREND LE FOCUS, FERME SUR ÉCHAP, ET LE REND', async () => {
+    const onNavigate = vi.fn();
+    const dom = await monter(onNavigate);
+    const ajouter = await ouvrirCle(dom);
+    const dialogue = document.querySelector('.ch-grant-dialog');
+    expect(dialogue?.contains(document.activeElement), 'le focus est resté sous le voile').toBe(
+      true,
+    );
+
+    taper('Escape');
+    expect(
+      document.querySelector('.ch-grant-dialog'),
+      'Échap ne ferme plus le dialogue',
+    ).toBeNull();
+    expect(
+      onNavigate,
+      'Échap a quitté la Chambre au lieu de fermer le dialogue',
+    ).not.toHaveBeenCalled();
+    expect(document.activeElement, 'le focus n’est pas revenu à « Ajouter »').toBe(ajouter);
+  });
+
+  it('TAB RESTE DANS LE DIALOGUE DE CLÉ', async () => {
+    const dom = await monter();
+    await ouvrirCle(dom);
+    const dialogue = document.querySelector<HTMLElement>('.ch-grant-dialog')!;
+    const variable = dialogue.querySelector<HTMLInputElement>('input[type="text"]')!;
+    // « Enregistrer » est éteint tant que le secret est vide : le dernier
+    // arrêt réel de Tab est « Annuler ».
+    const annuler = bouton(dialogue, 'Annuler');
+
+    act(() => annuler.focus());
+    expect(taper('Tab'), 'Tab sort du dialogue du secret').toBe(true);
+    expect(document.activeElement).toBe(variable);
+
+    expect(taper('Tab', true), 'Maj+Tab sort du dialogue du secret').toBe(true);
+    expect(document.activeElement).toBe(annuler);
+  });
+
+  it('UN CLIC DANS LE DIALOGUE DE CLÉ NE LE FERME PAS — seul le voile ferme', async () => {
+    const dom = await monter();
+    await ouvrirCle(dom);
+    const secret = document.querySelector<HTMLInputElement>(
+      '.ch-grant-dialog input[type="password"]',
+    );
+    await cliquer(secret!);
+    expect(
+      document.querySelector('.ch-grant-dialog'),
+      'cliquer dans le champ du secret a refermé le dialogue',
+    ).toBeTruthy();
+
+    await cliquer(document.querySelector('.modal-backdrop')!);
+    expect(document.querySelector('.ch-grant-dialog'), 'le voile ne ferme plus').toBeNull();
+  });
+
+  it('LE DIALOGUE DU MOTIF PREND LE FOCUS, FERME SUR ÉCHAP, ET LE REND', async () => {
+    vi.mocked(fetchMotifs).mockResolvedValue({
+      motifs: [
+        {
+          id: 'm1',
+          domaine: 'revue',
+          libelleFr: 'Revue courte',
+          libelleEn: 'Short review',
+          etapes: [{ id: 'e1', titreFr: 'a', titreEn: 'a' }],
+        },
+      ],
+    });
+    const onNavigate = vi.fn();
+    const dom = await monter(onNavigate);
+    await cliquer(dom.querySelector('#ch-tab-integrations')!);
+    await act(async () => {});
+    const appliquer = bouton(dom, 'Appliquer');
+    act(() => appliquer.focus());
+    await cliquer(appliquer);
+
+    const dialogue = document.querySelector('.ch-dialog');
+    expect(dialogue, 'la confirmation du motif ne s’ouvre pas').toBeTruthy();
+    expect(dialogue?.contains(document.activeElement), 'le focus est resté sous le voile').toBe(
+      true,
+    );
+    await cliquer(dialogue!.querySelector('ol')!);
+    expect(
+      document.querySelector('.ch-dialog'),
+      'un clic dans la confirmation l’a fermée',
+    ).toBeTruthy();
+
+    taper('Escape');
+    expect(document.querySelector('.ch-dialog')).toBeNull();
+    expect(onNavigate).not.toHaveBeenCalled();
+    expect(document.activeElement, 'le focus n’est pas revenu à « Appliquer »').toBe(appliquer);
+  });
+
+  it('UN TIROIR OUVERT AVANT D’ENTRER DANS LA CHAMBRE GARDE LE CLAVIER', async () => {
+    // Le tiroir d'une tâche survit à un changement de vue : on l'ouvre, puis
+    // « Précédent » ramène sur `#/chambre/<id>`. La Chambre monte SOUS lui.
+    function Tiroir({ onClose, children }: { onClose: () => void; children: ReactNode }) {
+      const ref = useDialog<HTMLDivElement>(onClose);
+      return (
+        <div ref={ref} role="dialog" aria-modal="true" aria-label="tiroir">
+          {children}
+        </div>
+      );
+    }
+    const fermer = vi.fn();
+    const hote = document.createElement('div');
+    document.body.appendChild(hote);
+    const racineTiroir = createRoot(hote);
+    try {
+      act(() =>
+        racineTiroir.render(
+          <Tiroir onClose={fermer}>
+            <button>tiroir-début</button>
+            <button>tiroir-fin</button>
+          </Tiroir>,
+        ),
+      );
+      const onNavigate = vi.fn();
+      await monter(onNavigate);
+
+      act(() => bouton(hote, 'tiroir-fin').focus());
+      expect(taper('Tab'), 'Tab sort du tiroir').toBe(true);
+      expect(document.activeElement?.textContent).toBe('tiroir-début');
+
+      taper('Escape');
+      expect(fermer, 'le tiroir ne ferme plus sur Échap').toHaveBeenCalledTimes(1);
+      expect(onNavigate).not.toHaveBeenCalled();
+    } finally {
+      act(() => racineTiroir.unmount());
+      hote.remove();
+    }
   });
 });

@@ -344,7 +344,7 @@ describe('endpoints de la Balance', () => {
   it('T3 — avec un Bearer JWT valide, `definiPar` porte la trace de l’opérateur', async () => {
     const inscription = await fetch(`${base}/api/auth/register`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-hive-token': TOKEN },
       body: JSON.stringify({
         email: 'apicultrice@ruche.test',
         password: 'motdepasse-assez-long',
@@ -363,14 +363,26 @@ describe('endpoints de la Balance', () => {
     const definiPar = server.store.getBudget(projet.id)?.definiPar;
     expect(typeof definiPar).toBe('string');
     expect(definiPar).not.toBe('');
-    // `definiPar` est une TRACE, pas une autorisation : la garde reste le token
-    // du hub, et un JWT seul ne suffit pas.
+    // `definiPar` est une TRACE, pas une autorisation : la garde est celle des
+    // RÉGLAGES (propriétaire ou administrateur, ou le jeton sur un orphelin).
+    // L'apicultrice, premier compte, administre la ruche ; une passante, qui ne
+    // répond pas de ce projet orphelin, ne le règle pas avec son seul compte.
+    const passante = await fetch(`${base}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        email: 'passante@ruche.test',
+        password: 'motdepasse-assez-long',
+        displayName: 'Passante',
+      }),
+    });
+    const { token: jetonPassante } = (await passante.json()) as { token: string };
     const sansJeton = await fetch(`${base}/api/projects/${projet.id}/balance`, {
       method: 'PUT',
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${jetonPassante}` },
       body: JSON.stringify({ plafondMs: 2_000 }),
     });
-    expect(sansJeton.status).toBe(401);
+    expect(sansJeton.status).toBe(404);
     expect(server.store.getBudget(projet.id)?.plafondMs).toBe(1_000);
   });
 

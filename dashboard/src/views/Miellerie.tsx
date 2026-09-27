@@ -19,7 +19,7 @@ import type { EvaluationResult } from '../../../src/orchestrator/evaluator.js';
 import { t as tNow, useT } from '../i18n';
 import type { Translate } from '../i18n';
 import { activateProps, formatMs, modalOpen, StatusBadge } from '../ui';
-import { getReview, Honeycomb, setReview, useApiPoll, useReviewTick } from './shared';
+import { EchecSondage, getReview, Honeycomb, setReview, useApiPoll, useReviewTick } from './shared';
 import type { ReviewState, ViewProps } from './shared';
 import './miellerie.css';
 
@@ -579,10 +579,18 @@ export function EvaluationPanel({
               'La qualité est acceptée ; la fusion reste un geste humain explicite.',
               'Quality accepted; merging remains an explicit human action.',
             )
-          : t(
-              'Aucune autorisation de fusion automatique : les preuves manquantes restent à produire.',
-              'No automatic merge authorization: missing evidence must still be produced.',
-            )}
+          : evaluation.decision === 'accepted'
+            ? // Acceptée sans approbation humaine : il ne MANQUE aucune preuve,
+              // il manque l'humain. Dire « preuves manquantes » l'enverrait
+              // chercher une validation qui est déjà là.
+              t(
+                'Qualité acceptée ; la fusion attend l’approbation humaine.',
+                'Quality accepted; merging awaits human approval.',
+              )
+            : t(
+                'Aucune autorisation de fusion automatique : les preuves manquantes restent à produire.',
+                'No automatic merge authorization: missing evidence must still be produced.',
+              )}
       </p>
     </div>
   );
@@ -1213,9 +1221,10 @@ export default function Miellerie({
 
               <h3 className="mi-sub">{t('Conflits Sting', 'Sting conflicts')}</h3>
               {conflictsPoll.error ? (
-                <p className="panel-error">
-                  {t('Conflits indisponibles :', 'Conflicts unavailable:')} {conflictsPoll.error}
-                </p>
+                <EchecSondage
+                  sondage={conflictsPoll}
+                  avant={t('Conflits indisponibles :', 'Conflicts unavailable:')}
+                />
               ) : sting === null ? (
                 <p className="muted-text">{t('Analyse des dards…', 'Analyzing the stingers…')}</p>
               ) : sting.length === 0 ? (
@@ -1351,15 +1360,24 @@ export default function Miellerie({
         {merge.step === 'error' && <p className="panel-error">{merge.message}</p>}
         {merge.step === 'done' && (
           <div className="mi-merge-result">
-            <p>
-              {merge.result.applied.length} {t('branche(s) appliquée(s)', 'branch(es) applied')} ·{' '}
-              {merge.result.conflicts.length} {t('conflit(s)', 'conflict(s)')} ·{' '}
-              {merge.result.testsRun
-                ? merge.result.testsPassed
-                  ? 'tests ✔'
-                  : 'tests ✘'
-                : t('tests non lancés', 'tests not run')}
-            </p>
+            {/* Un merge qui n'a PAS EU LIEU (refus, clone impossible, nœud
+                perdu) se dit comme tel — pas « 0 branche(s) appliquée(s) ».
+                Même règle que le rapport de `Projets.tsx`. */}
+            {merge.result.refused ? (
+              <p className="panel-error">
+                {t('Merge non effectué :', 'Merge not performed:')} {merge.result.refused}
+              </p>
+            ) : (
+              <p>
+                {merge.result.applied.length} {t('branche(s) appliquée(s)', 'branch(es) applied')} ·{' '}
+                {merge.result.conflicts.length} {t('conflit(s)', 'conflict(s)')} ·{' '}
+                {merge.result.testsRun
+                  ? merge.result.testsPassed
+                    ? 'tests ✔'
+                    : 'tests ✘'
+                  : t('tests non lancés', 'tests not run')}
+              </p>
+            )}
             {merge.result.conflicts.length > 0 && (
               <ul className="mi-plan-conflicts">
                 {merge.result.conflicts.map((c, i) => (
@@ -1370,7 +1388,7 @@ export default function Miellerie({
               </ul>
             )}
             {merge.result.logs && (
-              <details className="mi-merge-logs">
+              <details className="mi-merge-logs" open={Boolean(merge.result.refused)}>
                 <summary>{t('Logs du merge', 'Merge logs')}</summary>
                 <pre className="code-block scroll">{merge.result.logs}</pre>
               </details>
