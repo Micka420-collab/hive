@@ -176,9 +176,14 @@ describe('livraison locale — une vraie ouvrière, un vrai dépôt', () => {
   });
 
   it('commite la mission sur sa branche, la pousse, et le dit partout', async () => {
-    const { project, resultIds } = mission(server, depot.nu, [
-      ['wa', depot.patchA],
-      ['wb', depot.patchB],
+    // Un dépôt À ELLE : pousser exige de répondre de chaque projet qui tient
+    // le dépôt (`depot_tenu_ailleurs`), et les bancs voisins posent sur
+    // `depot.nu` des projets qui ont un propriétaire. Sous
+    // `--sequence.shuffle`, passés avant, ils lui refusaient la poussée.
+    const propre = await origine(path.join(dir, 'depot-pousse'));
+    const { project, resultIds } = mission(server, propre.nu, [
+      ['wa', propre.patchA],
+      ['wb', propre.patchB],
     ]);
     const res = await poster(base, `/api/projects/${project.id}/livraison-locale`, {
       pousser: true,
@@ -197,7 +202,7 @@ describe('livraison locale — une vraie ouvrière, un vrai dépôt', () => {
     if (result.livraison?.etat !== 'commitee') throw new Error(result.logs);
 
     // Dans le DÉPÔT DU PROJET : la branche, et la provenance exacte.
-    const nu = simpleGit({ baseDir: depot.nu });
+    const nu = simpleGit({ baseDir: propre.nu });
     expect((await nu.raw(['rev-parse', result.livraison.branche])).trim()).toBe(
       result.livraison.commit,
     );
