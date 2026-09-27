@@ -72,7 +72,7 @@ const DU_SYSTEME = new Set([
   'WT_SESSION',
   'CI',
   // Posé par l'agent ssh de la session du membre ; le nœud le relaie à git
-  // côté hôte (src/node-client/git-hote.ts), il ne se règle pas.
+  // côté hôte (src/shared/git-protege.ts), il ne se règle pas.
   'SSH_AUTH_SOCK',
 ]);
 

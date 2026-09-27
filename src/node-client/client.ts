@@ -1736,6 +1736,10 @@ export class HiveNodeClient {
     this.log(
       `merge ${msg.mergeId.slice(0, 8)}… : clone + intégration de ${msg.diffs.length} diff(s)`,
     );
+    // Ce que le merge renvoie part au hub, donc à tout l'écran : caviardé ICI,
+    // comme le chemin d'une tâche (#489) — la commande de test exécute le code
+    // du dépôt, qui peut imprimer une clé lue sur cette machine.
+    const caviardeur = this.caviardeurDuNoeud();
     try {
       rmSync(dir, rmOpts);
       mkdirSync(path.dirname(dir), { recursive: true });
@@ -1748,6 +1752,7 @@ export class HiveNodeClient {
         // Le bac à sable du nœud suit le merge : la commande de test exécute du
         // code du dépôt, au même titre qu'un agent.
         ...this.optionBacTache(),
+        caviarder: (texte) => caviardeur.texte(texte),
         ...(msg.livraison
           ? {
               livraison: {
@@ -1766,7 +1771,7 @@ export class HiveNodeClient {
         mergeId: msg.mergeId,
         applied: result.applied,
         conflicts: result.conflicts,
-        mergedDiff: result.mergedDiff.slice(0, LIMITS.diff),
+        mergedDiff: caviardeur.diff(result.mergedDiff).slice(0, LIMITS.diff),
         testsRun: result.testsRun,
         testsPassed: result.testsPassed,
         preparedOk: result.preparedOk,
@@ -1796,7 +1801,7 @@ export class HiveNodeClient {
         mergedDiff: '',
         testsRun: false,
         testsPassed: null,
-        logs: `[nœud] échec du merge : ${message}`,
+        logs: caviardeur.texte(`[nœud] échec du merge : ${message}`),
         refused: 'échec du merge sur le nœud',
         ...(msg.livraison
           ? { livraison: { etat: 'non_commitee', motif: motifLave(`échec du merge : ${brut}`) } }
@@ -1862,6 +1867,10 @@ export class HiveNodeClient {
     }
 
     this.activeChantiers.add(msg.chantierId);
+    // La sortie d'un chantier part au hub comme les logs d'une tâche : le
+    // script déclaré exécute le code du dépôt. Caviardée ICI (#489), ENTIÈRE,
+    // avant toute coupe — une coupe d'abord laisserait la moitié d'une clé.
+    const caviardeur = this.caviardeurDuNoeud();
     // chantierId est validé (ID_PATTERN) par le protocole → sûr en chemin.
     const dir = path.join(
       this.workRoot,
@@ -1907,15 +1916,12 @@ export class HiveNodeClient {
       }
 
       const env = buildSandboxEnv(dir);
+      const lancer = async (argv: string[], delaiMs: number) => {
+        const r = await runProc(argv, dir, env, delaiMs, undefined, this.optionBacTache().bac);
+        return { ...r, output: caviardeur.texte(r.output) };
+      };
       if (msg.prepareCommand && msg.prepareCommand.length > 0) {
-        const prep = await runProc(
-          msg.prepareCommand,
-          dir,
-          env,
-          CHANTIER_PREPARATION_MS,
-          undefined,
-          this.optionBacTache().bac,
-        );
+        const prep = await lancer(msg.prepareCommand, CHANTIER_PREPARATION_MS);
         // ET SI ELLE ÉCHOUE, ON NE LANCE PAS. Un `npm run test` sur un clone
         // sans `node_modules` échoue pour une raison qui n'a rien à voir avec
         // le code, et le remonter comme un échec de chantier enverrait l'hôte
@@ -1938,14 +1944,7 @@ export class HiveNodeClient {
         }
       }
 
-      const { code, output } = await runProc(
-        argvDe(msg.nom),
-        dir,
-        env,
-        CHANTIER_EXECUTION_MS,
-        undefined,
-        this.optionBacTache().bac,
-      );
+      const { code, output } = await lancer(argvDe(msg.nom), CHANTIER_EXECUTION_MS);
       this.send({
         type: 'chantier_result',
         chantierId: msg.chantierId,
@@ -1962,7 +1961,7 @@ export class HiveNodeClient {
         chantierId: msg.chantierId,
         nom: msg.nom,
         code: null,
-        sortie: `[nœud] échec du chantier : ${message}`,
+        sortie: caviardeur.texte(`[nœud] échec du chantier : ${message}`),
         ok: false,
       });
       this.log(`✘ chantier « ${msg.nom} » : ${message}`);

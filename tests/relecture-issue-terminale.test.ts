@@ -222,7 +222,11 @@ describe('une contre-revue qui tombe aboutit toujours à une issue visible', () 
     const verdict = await evaluation(srv, production);
     expect(verdict.decision).toBe('human_review_required');
     expect(verdict.retryRecommended).toBe(false);
-    expect(verdict.reasons).toEqual([`relecture impossible : ${String(impossible?.cause)}`]);
+    // Aucune preuve non plus : la personne qui tranche le lit dans le même verdict.
+    expect(verdict.reasons).toEqual([
+      `relecture impossible : ${String(impossible?.cause)}`,
+      expect.stringMatching(/^preuves manquantes : tests/),
+    ]);
 
     await new Promise((r) => setTimeout(r, 300));
     producteurIntact(srv, production, producteur);
@@ -542,6 +546,11 @@ describe('une contre-revue qui tombe aboutit toujours à une issue visible', () 
       taskId: production,
       source: 'evaluator',
       decision: 'correction_required',
+      // Et elle porte l'objection de codex au producteur relancé.
+      critique: {
+        source: 'contre_revue',
+        objections: [expect.stringContaining('le jeton vide passe')],
+      },
     });
     await new Promise((r) => setTimeout(r, 300));
     expect(evenements(srv, 'task_retry').filter((e) => e.taskId === production)).toHaveLength(1);

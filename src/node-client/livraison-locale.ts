@@ -72,8 +72,8 @@ import type {
 } from '../shared/livraison-locale.js';
 import { laverIdentifiants, laverIdentifiantsDuTexte } from '../shared/projet-public.js';
 import { LIMITS } from '../shared/protocol.js';
-import { EchecGitHote, commandeSshDuMembre, gitHote } from './git-hote.js';
-import type { DepotEpingle, IdentiteCommit } from './git-hote.js';
+import { EchecGitHote, commandeSshDuMembre, gitHote } from '../shared/git-protege.js';
+import type { DepotEpingle, IdentiteCommit } from '../shared/git-protege.js';
 
 /**
  * L'identité des commits de mission : la RUCHE, pas l'opérateur du nœud.

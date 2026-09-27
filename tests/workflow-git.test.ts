@@ -84,7 +84,7 @@ import type { AgentAdapter } from '../src/adapters/index.js';
 import { HiveNodeClient } from '../src/node-client/client.js';
 import { runMerge } from '../src/node-client/merge-runner.js';
 import type { MergeDiff, MergeRunResult } from '../src/node-client/merge-runner.js';
-import { envGitHote } from '../src/node-client/git-hote.js';
+import { envGitHote } from '../src/shared/git-protege.js';
 import { cloneRepo, prepareWorkspace } from '../src/node-client/workspace.js';
 import { createServer } from '../src/orchestrator/server.js';
 import type { MergeResultMsg } from '../src/shared/protocol.js';
@@ -389,8 +389,8 @@ describe('identifiants Git invalides — l’échec est RAPIDE, et il REMONTE', 
   // de bureau, où GCM aurait ouvert une vraie fenêtre).
   //
   // #476 puis #483 ont réuni tous les git de l'hôte — clone, merge, livraison
-  // — derrière un seul environnement, `envGitHote()` (git-hote.ts), qui pose
-  // `GCM_INTERACTIVE=Never` comme `miroir.ts` : la CI Windows les a vus rougir
+  // — derrière un seul environnement, `envGitHote()` (git-protege.ts), commun
+  // au nœud et au miroir de la Reine, qui pose `GCM_INTERACTIVE=Never` : la CI Windows les a vus rougir
   // (run 36308334514, « attendu en échec, mais passé »). La bascule est
   // retirée : ce sont des GARDES sur les trois systèmes, et un poste de bureau
   // n'ouvre plus de fenêtre.
@@ -399,7 +399,13 @@ describe('identifiants Git invalides — l’échec est RAPIDE, et il REMONTE', 
   // rougissent sans elle que là où GCM est installé — sous Linux et macOS,
   // la retirer passait inaperçu.
   it('l’environnement git de l’hôte met Git Credential Manager en non-interactif', () => {
-    expect(envGitHote()).toMatchObject({ GCM_INTERACTIVE: 'Never', GIT_TERMINAL_PROMPT: '0' });
+    expect(envGitHote()).toMatchObject({
+      GCM_INTERACTIVE: 'Never',
+      GIT_TERMINAL_PROMPT: '0',
+      // Sans liste, git accepte `ext::` — une commande arbitraire en guise de
+      // transport — partout où la validation du repoUrl viendrait à manquer.
+      GIT_ALLOW_PROTOCOL: 'http:https:git:ssh:file',
+    });
   });
 
   /** Les deux portes de clone du nœud. */
@@ -447,7 +453,7 @@ describe('identifiants Git invalides — l’échec est RAPIDE, et il REMONTE', 
     expect(issue.etat === 'rejetee' ? issue.motif : '').not.toContain(secret);
   });
 
-  // ─── SSH — corrigé (git-hote.ts : `GIT_SSH_COMMAND`, mode lot) ────────────
+  // ─── SSH — corrigé (git-protege.ts : `GIT_SSH_COMMAND`, mode lot) ────────────
   //
   // `GIT_TERMINAL_PROMPT=0` ne gouverne que les invites de GIT. Par SSH
   // (`ssh://…`, `git@hôte:…` — la forme la plus courante d'un dépôt privé, et

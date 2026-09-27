@@ -58,30 +58,37 @@ describe('endpoint du Plein Essaim', () => {
     return srv.store.createProject({ name: 'Ruche', ...(repoUrl ? { repoUrl } : {}) }).id;
   }
 
-  /** `n` ouvrières irréprochables et en ligne : de quoi gouverner. */
+  /**
+   * `n` ouvrières irréprochables et en ligne : de quoi gouverner. En UNE
+   * transaction, comme chaque préparation lourde de ce banc : sous Windows,
+   * chaque écriture isolée paie son `fsync`, et ces dizaines d'écritures
+   * rendaient le banc sensible à la charge de la machine.
+   */
   function gouvernantes(srv: HiveServer, n: number): void {
-    for (let i = 0; i < n; i++) {
-      const id = `gouv-${i}`;
-      srv.store.registerNode({
-        nodeId: id,
-        name: id,
-        ownerName: 'test',
-        agentType: 'shell',
-        maxConcurrency: 1,
-      });
-      srv.store.setNodeStatus(id, 'online');
-      for (let k = 0; k < SEUIL_BUTINEUSE; k++) {
-        srv.store.enregistrerInspection({
-          resultId: i * 1000 + k + 1,
-          taskId: `T${i}-${k}`,
+    srv.store.enTransaction(() => {
+      for (let i = 0; i < n; i++) {
+        const id = `gouv-${i}`;
+        srv.store.registerNode({
           nodeId: id,
-          verdict: 'clean',
-          score: 0,
-          applique: false,
-          griefs: [],
+          name: id,
+          ownerName: 'test',
+          agentType: 'shell',
+          maxConcurrency: 1,
         });
+        srv.store.setNodeStatus(id, 'online');
+        for (let k = 0; k < SEUIL_BUTINEUSE; k++) {
+          srv.store.enregistrerInspection({
+            resultId: i * 1000 + k + 1,
+            taskId: `T${i}-${k}`,
+            nodeId: id,
+            verdict: 'clean',
+            score: 0,
+            applique: false,
+            griefs: [],
+          });
+        }
       }
-    }
+    });
   }
 
   const lire = async (base: string, id: string): Promise<ReponseEssaim> =>
@@ -197,17 +204,19 @@ describe('endpoint du Plein Essaim', () => {
     const p = projet(srv);
     gouvernantes(srv, 2);
     // La MÊME erreur sur trois nœuds différents.
-    for (const n of ['a', 'b', 'c']) {
-      srv.store.insertResult({
-        taskId: `t-${n}`,
-        nodeId: n,
-        success: false,
-        diff: '',
-        logs: 'Error: connexion refusée sur le port 5432',
-        durationMs: 10,
-        subAgents: [],
-      });
-    }
+    srv.store.enTransaction(() => {
+      for (const n of ['a', 'b', 'c']) {
+        srv.store.insertResult({
+          taskId: `t-${n}`,
+          nodeId: n,
+          success: false,
+          diff: '',
+          logs: 'Error: connexion refusée sur le port 5432',
+          durationMs: 10,
+          subAgents: [],
+        });
+      }
+    });
     const e = await lire(base, p);
     expect(e.lecons.length).toBeGreaterThan(0);
     expect(e.lecons[0]?.noeuds).toBe(3);
@@ -218,17 +227,19 @@ describe('endpoint du Plein Essaim', () => {
     const { base, srv } = await demarrer();
     const p = projet(srv, 'https://github.com/moi/projet.git');
     gouvernantes(srv, 2);
-    for (const n of ['a', 'b', 'c']) {
-      srv.store.insertResult({
-        taskId: `t-${n}`,
-        nodeId: n,
-        success: false,
-        diff: '',
-        logs: 'TypeError: config is not a function',
-        durationMs: 10,
-        subAgents: [],
-      });
-    }
+    srv.store.enTransaction(() => {
+      for (const n of ['a', 'b', 'c']) {
+        srv.store.insertResult({
+          taskId: `t-${n}`,
+          nodeId: n,
+          success: false,
+          diff: '',
+          logs: 'TypeError: config is not a function',
+          durationMs: 10,
+          subAgents: [],
+        });
+      }
+    });
     await regler(base, p, 'plein', true);
     const e = await lire(base, p);
     expect(e.decision.pas).toBe('corriger');
@@ -279,30 +290,32 @@ describe('endpoint — La Dérive arrête la ruche', () => {
     return { base: `http://127.0.0.1:${server.port}`, srv: server };
   }
 
-  /** Deux gouvernantes éprouvées, en ligne. */
+  /** Deux gouvernantes éprouvées, en ligne — en une transaction (un `fsync`). */
   function gouvernantes2(srv: HiveServer): void {
-    for (let i = 0; i < 2; i++) {
-      const id = `g-${i}`;
-      srv.store.registerNode({
-        nodeId: id,
-        name: id,
-        ownerName: 'test',
-        agentType: 'shell',
-        maxConcurrency: 1,
-      });
-      srv.store.setNodeStatus(id, 'online');
-      for (let k = 0; k < SEUIL_BUTINEUSE; k++) {
-        srv.store.enregistrerInspection({
-          resultId: 900000 + i * 1000 + k,
-          taskId: `G${i}-${k}`,
+    srv.store.enTransaction(() => {
+      for (let i = 0; i < 2; i++) {
+        const id = `g-${i}`;
+        srv.store.registerNode({
           nodeId: id,
-          verdict: 'clean',
-          score: 0,
-          applique: false,
-          griefs: [],
+          name: id,
+          ownerName: 'test',
+          agentType: 'shell',
+          maxConcurrency: 1,
         });
+        srv.store.setNodeStatus(id, 'online');
+        for (let k = 0; k < SEUIL_BUTINEUSE; k++) {
+          srv.store.enregistrerInspection({
+            resultId: 900000 + i * 1000 + k,
+            taskId: `G${i}-${k}`,
+            nodeId: id,
+            verdict: 'clean',
+            score: 0,
+            applique: false,
+            griefs: [],
+          });
+        }
       }
-    }
+    });
   }
 
   it('un cliquet de complexité réel halte la ruche', async () => {
@@ -315,29 +328,31 @@ describe('endpoint — La Dérive arrête la ruche', () => {
     }).id;
     gouvernantes2(srv);
 
-    for (let i = 0; i < 40; i++) {
-      const resultId = srv.store.insertResult({
-        taskId: `t${i}`,
-        nodeId: 'g-0',
-        success: true,
-        // 30 ajouts, zéro suppression : chaque diff est défendable.
-        diff: ['diff --git a/f.ts b/f.ts', '--- a/f.ts', '+++ b/f.ts', '@@ -1,0 +1,30 @@']
-          .concat(Array.from({ length: 30 }, (_, k) => `+ligne ${k}`))
-          .join('\n'),
-        logs: 'ok',
-        durationMs: 100,
-        subAgents: [],
-      });
-      srv.store.enregistrerInspection({
-        resultId,
-        taskId: `t${i}`,
-        nodeId: 'g-0',
-        verdict: 'clean',
-        score: 0,
-        applique: false,
-        griefs: [],
-      });
-    }
+    srv.store.enTransaction(() => {
+      for (let i = 0; i < 40; i++) {
+        const resultId = srv.store.insertResult({
+          taskId: `t${i}`,
+          nodeId: 'g-0',
+          success: true,
+          // 30 ajouts, zéro suppression : chaque diff est défendable.
+          diff: ['diff --git a/f.ts b/f.ts', '--- a/f.ts', '+++ b/f.ts', '@@ -1,0 +1,30 @@']
+            .concat(Array.from({ length: 30 }, (_, k) => `+ligne ${k}`))
+            .join('\n'),
+          logs: 'ok',
+          durationMs: 100,
+          subAgents: [],
+        });
+        srv.store.enregistrerInspection({
+          resultId,
+          taskId: `t${i}`,
+          nodeId: 'g-0',
+          verdict: 'clean',
+          score: 0,
+          applique: false,
+          griefs: [],
+        });
+      }
+    });
 
     await fetch(`${base}/api/projects/${p}/essaim`, {
       method: 'POST',
@@ -379,29 +394,31 @@ describe('endpoint — La Dérive arrête la ruche', () => {
     const { base, srv } = await demarrer();
     const p = srv.store.createProject({ name: 'Ruche' }).id;
     gouvernantes2(srv);
-    for (let i = 0; i < 40; i++) {
-      const resultId = srv.store.insertResult({
-        taskId: `s${i}`,
-        nodeId: 'g-0',
-        success: true,
-        diff: ['diff --git a/f.ts b/f.ts', '--- a/f.ts', '+++ b/f.ts', '@@ -1,10 +1,10 @@']
-          .concat(Array.from({ length: 10 }, (_, k) => `+neuf ${k}`))
-          .concat(Array.from({ length: 6 }, (_, k) => `-vieux ${k}`))
-          .join('\n'),
-        logs: 'ok',
-        durationMs: 100,
-        subAgents: [],
-      });
-      srv.store.enregistrerInspection({
-        resultId,
-        taskId: `s${i}`,
-        nodeId: 'g-0',
-        verdict: 'clean',
-        score: 0,
-        applique: false,
-        griefs: [],
-      });
-    }
+    srv.store.enTransaction(() => {
+      for (let i = 0; i < 40; i++) {
+        const resultId = srv.store.insertResult({
+          taskId: `s${i}`,
+          nodeId: 'g-0',
+          success: true,
+          diff: ['diff --git a/f.ts b/f.ts', '--- a/f.ts', '+++ b/f.ts', '@@ -1,10 +1,10 @@']
+            .concat(Array.from({ length: 10 }, (_, k) => `+neuf ${k}`))
+            .concat(Array.from({ length: 6 }, (_, k) => `-vieux ${k}`))
+            .join('\n'),
+          logs: 'ok',
+          durationMs: 100,
+          subAgents: [],
+        });
+        srv.store.enregistrerInspection({
+          resultId,
+          taskId: `s${i}`,
+          nodeId: 'g-0',
+          verdict: 'clean',
+          score: 0,
+          applique: false,
+          griefs: [],
+        });
+      }
+    });
     await fetch(`${base}/api/projects/${p}/essaim`, {
       method: 'POST',
       headers,

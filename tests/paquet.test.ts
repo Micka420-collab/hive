@@ -8,7 +8,9 @@
 // JAMAIS. On ne demande pas ça à quelqu'un qui rend un service.
 //
 // La cartographie des imports a montré qu'un nœud n'atteint, à l'exécution,
-// que DEUX paquets : `ws` et `simple-git`. Tout le reste se répartit en
+// que DEUX paquets : `ws` et `simple-git`. Depuis, tout git lancé par la
+// ruche passe par sa propre porte (`shared/git-protege.ts`) — le nœud d'abord
+// (#483), puis le miroir de la Reine : il n'en reste qu'UN. Le reste se répartit en
 // paquets de navigateur (bundlés par Vite, jamais chargés par Node) et en
 // paquets d'orchestrateur (Fastify, SQLite) qu'un nœud ne touche pas.
 //
@@ -43,10 +45,11 @@ const opt = Object.keys(paquet.optionalDependencies ?? {});
 const dev = Object.keys(paquet.devDependencies ?? {});
 
 describe('ce qu’un nœud membre télécharge', () => {
-  it('SEULEMENT `ws` ET `simple-git` — rien d’autre n’est atteint à l’exécution', () => {
+  it('SEULEMENT `ws` — rien d’autre n’est atteint à l’exécution', () => {
     // Vérifié par cartographie des imports depuis `join.ts` et `main.ts` :
-    // la fermeture transitive n'atteint que ces deux paquets.
-    expect([...deps].sort()).toEqual(['simple-git', 'ws']);
+    // la fermeture transitive n'atteint que ce paquet. `simple-git` ne sert
+    // plus qu'aux bancs, qui fabriquent leurs dépôts avec.
+    expect([...deps].sort()).toEqual(['ws']);
   });
 
   it('AUCUN PAQUET DE NAVIGATEUR dans les dépendances d’exécution', () => {

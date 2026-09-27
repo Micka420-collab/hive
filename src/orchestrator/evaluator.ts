@@ -352,21 +352,6 @@ export function evaluate(input: EvaluatorInput): EvaluationResult {
     reasons.push(`validation ${failedValidation} en échec${suffixeSource}`);
     return result(input.taskId, 'correction_required', false, true, reasons, evidence);
   }
-  // ─── UNE RELECTURE IMPOSSIBLE APPELLE L'HUMAIN, PAS LE PRODUCTEUR ────────
-  //
-  // Avant les preuves manquantes et les tests non applicables, et c'est
-  // voulu : aucune CI ne fera jamais
-  // `accepted` sans avis indépendant, et « tests supplémentaires requis »
-  // enverrait l'opérateur chercher une preuve qui ne débloquerait rien. La
-  // relecture est tombée, secours compris : c'est une personne qui tranche,
-  // et le motif dit POURQUOI personne d'autre ne le fera. Pas de relance
-  // (`retryRecommended` faux) : le producteur n'est pour rien dans la panne
-  // de son relecteur. Une CI en échec, elle, reste une faute du producteur —
-  // d'où la place, après elle.
-  if (input.crossReviewImpossible && crossReview.reviewerCount === 0 && crossReviewPending === 0) {
-    reasons.push(`relecture impossible : ${input.crossReviewImpossible}`);
-    return result(input.taskId, 'human_review_required', false, false, reasons, evidence);
-  }
   // ─── MANQUANTE ET NON APPLICABLE NE SONT PAS LA MÊME ABSENCE ──────────────
   //
   // `missing` : la preuve devrait exister et n'existe pas (aucun producteur,
@@ -381,8 +366,9 @@ export function evaluate(input: EvaluatorInput): EvaluationResult {
   // demande, et l'Evaluator le dit au lieu de conclure.
   const bac =
     input.validationProvenance?.source === 'hive_sandbox' ? input.validationProvenance : null;
+  const preuvesAbsentes: string[] = [];
   if (missingValidation.length > 0) {
-    reasons.push(
+    preuvesAbsentes.push(
       `preuves manquantes : ${missingValidation.join(', ')}` +
         (suffixeSource || ' (aucun producteur de preuve : ni bac Hive, ni CI GitHub)'),
     );
@@ -390,25 +376,41 @@ export function evaluate(input: EvaluatorInput): EvaluationResult {
     // une panne : le motif dit comment en obtenir un, sinon l'opérateur
     // reste devant un « manquant » sans issue.
     if (bac && missingValidation.some((key) => bac.details[key].raison === 'sans_bac')) {
-      reasons.push(
+      preuvesAbsentes.push(
         `le nœud ${bac.nodeId} n’a pas de bac à sable : le code d’un agent ne tourne pas ` +
           'sur l’hôte nu — installez podman, docker ou bubblewrap (HIVE_ISOLEMENT=auto ' +
           'les trouve au démarrage du nœud), ou apportez la CI GitHub',
       );
     }
-    return result(input.taskId, 'additional_test_required', false, false, reasons, evidence);
-  }
-  if (validation.tests === 'not_applicable') {
+  } else if (validation.tests === 'not_applicable') {
     // Deux absences différentes : un projet npm sans script « test », et un
     // projet que Hive ne sait pas lire (cargo, pytest…) — lui dire de
     // « déclarer un script test » serait faux.
-    reasons.push(
+    preuvesAbsentes.push(
       bac?.details.tests.raison === 'sans_manifeste'
         ? `aucun package.json à la base du dépôt${suffixeSource} : le bac ne lit que les ` +
             'scripts npm, et ne sait pas lancer les tests de ce projet — apportez la CI GitHub'
         : `le projet ne déclare aucun test${suffixeSource} : sans test, rien ne prouve le ` +
             'comportement — déclarez un script « test », ou apportez la CI GitHub',
     );
+  }
+  // ─── UNE RELECTURE IMPOSSIBLE APPELLE L'HUMAIN, PAS LE PRODUCTEUR ────────
+  //
+  // Avant les preuves absentes, et c'est voulu : aucune CI ne fera jamais
+  // `accepted` sans avis indépendant, et « tests supplémentaires requis »
+  // enverrait l'opérateur chercher une preuve qui ne débloquerait rien. La
+  // relecture est tombée, secours compris : c'est une personne qui tranche,
+  // et le motif dit POURQUOI personne d'autre ne le fera. Pas de relance
+  // (`retryRecommended` faux) : le producteur n'est pour rien dans la panne
+  // de son relecteur. Une CI en échec, elle, reste une faute du producteur —
+  // d'où la place, après elle. Les preuves absentes SUIVENT le motif : la
+  // personne qui approuve doit lire qu'aucun test n'a tourné, et pourquoi.
+  if (input.crossReviewImpossible && crossReview.reviewerCount === 0 && crossReviewPending === 0) {
+    reasons.push(`relecture impossible : ${input.crossReviewImpossible}`, ...preuvesAbsentes);
+    return result(input.taskId, 'human_review_required', false, false, reasons, evidence);
+  }
+  if (preuvesAbsentes.length > 0) {
+    reasons.push(...preuvesAbsentes);
     return result(input.taskId, 'additional_test_required', false, false, reasons, evidence);
   }
   if (crossReviewPending > 0) {
