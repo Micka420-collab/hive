@@ -22,6 +22,7 @@
 //   injoignable ; sans butoir, le nœud reste bloqué sans jamais répondre.
 
 import { ENTREE_FERMEE } from '../adapters/exec.js';
+import { LanceurIndisponible, resoudreLanceur } from '../lanceur-reel.js';
 import { lancerArbre } from '../shared/arbre-processus.js';
 import { POSE_DELAI_MS } from '../shared/butoirs-noeud.js';
 import { direRefusPose, jugerPose } from '../shared/pose-outil.js';
@@ -61,9 +62,19 @@ export interface OutilsPose {
 export const lancerVraiment: Lanceur = (bin, args) =>
   new Promise<Lancement>((resolve) => {
     let sortie = '';
+    // Sous Windows, `npm` est `npm.cmd`, qu'un `spawn` sans shell ne lance pas
+    // (ENOENT) : toute pose y échouait. Même résolution que les merges.
+    let lance: { bin: string; args: string[] };
+    try {
+      lance = resoudreLanceur(bin, args);
+    } catch (e) {
+      if (!(e instanceof LanceurIndisponible)) throw e;
+      resolve({ code: null, sortie: `\n[hive] ${e.motif}` });
+      return;
+    }
     const enfant = lancerArbre(
-      bin,
-      args,
+      lance.bin,
+      lance.args,
       { cwd: process.cwd(), env: process.env, stdio: ENTREE_FERMEE },
       { delaiMs: POSE_DELAI_MS },
       (fin) => {
