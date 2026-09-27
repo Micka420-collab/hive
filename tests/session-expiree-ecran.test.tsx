@@ -92,6 +92,7 @@ const fenetre = await vi.hoisted(async () => {
     'KeyboardEvent',
     'FocusEvent',
     'InputEvent',
+    'StorageEvent',
   ] as const;
   for (const nom of pretes) {
     vi.stubGlobal(nom, (w as unknown as Record<string, unknown>)[nom]);
@@ -99,14 +100,29 @@ const fenetre = await vi.hoisted(async () => {
   return w;
 });
 
+/** Les rappels que l'`App` a confiés au flux — pour jouer une reconnexion. */
+const flux = vi.hoisted(() => ({ rappels: null as FeedHandlers | null }));
+
 vi.mock('../dashboard/src/api', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   // Le flux temps réel ne porte que le jeton de ruche : il n'a rien à dire de
-  // la session, et un vrai WebSocket survivrait au banc.
-  connectFeed: vi.fn(() => ({ close: () => {} })),
+  // la session, et un vrai WebSocket survivrait au banc. On garde ses rappels :
+  // une reconnexion est un moment où l'écran redemande la session.
+  connectFeed: vi.fn((rappels: FeedHandlers) => {
+    flux.rappels = rappels;
+    return { close: () => {} };
+  }),
 }));
 
-import { authLogin, authRegister, createProject, saveJwt, saveToken } from '../dashboard/src/api';
+import {
+  authLogin,
+  authRegister,
+  createProject,
+  getJwt,
+  saveJwt,
+  saveToken,
+} from '../dashboard/src/api';
+import type { FeedHandlers } from '../dashboard/src/api';
 import { App } from '../dashboard/src/App';
 import { setLang } from '../dashboard/src/i18n';
 import { laisserFinirLesVuesParesseuses } from './aide/vues-paresseuses';
@@ -130,6 +146,8 @@ describe('une session qui expire pendant que l’onglet vit — l’écran le di
   let dir: string;
   let proprietaireId = '';
   const envois: Envoi[] = [];
+  /** Les routes que la « Reine » ne sert pas, le temps d'un test : une panne. */
+  const muettes = new Set<string>();
   let racine: Root | null = null;
   let conteneur: HTMLElement | null = null;
 
@@ -150,6 +168,7 @@ describe('une session qui expire pendant que l’onglet vit — l’écran le di
     vi.stubGlobal('fetch', (entree: string | URL | Request, init?: RequestInit) => {
       if (typeof entree === 'string' && entree.startsWith('/api/')) {
         envois.push({ methode: init?.method ?? 'GET', chemin: entree });
+        if (muettes.has(entree)) return Promise.reject(new TypeError('Failed to fetch'));
         return fetchNatif(`${base}${entree}`, init);
       }
       return Promise.reject(new Error(`fetch hors de la Reine : ${String(entree)}`));
@@ -165,6 +184,8 @@ describe('une session qui expire pendant que l’onglet vit — l’écran le di
     conteneur = null;
     location.hash = '';
     localStorage.clear();
+    muettes.clear();
+    flux.rappels = null;
   });
 
   afterAll(async () => {
@@ -216,6 +237,33 @@ describe('une session qui expire pendant que l’onglet vit — l’écran le di
     document.querySelector('.mc-account-name')?.textContent ?? null;
 
   const bandeau = (): HTMLElement | null => document.querySelector('.mc-session-banner');
+
+  /** Un compte neuf, connecté par l'écran : son JWT est rangé. */
+  const ouvrirSession = async (email: string, nom: string): Promise<void> => {
+    setLang('fr');
+    saveToken(TOKEN);
+    await authRegister(email, MOT_DE_PASSE, nom);
+    saveJwt((await authLogin(email, MOT_DE_PASSE)).token);
+  };
+
+  /** L'`App`, montée pour de vrai sur la vue `hash`. */
+  const monter = async (hash: string): Promise<void> => {
+    location.hash = hash;
+    conteneur = document.createElement('div');
+    document.body.appendChild(conteneur);
+    racine = createRoot(conteneur);
+    await act(async () => racine?.render(<App />));
+  };
+
+  /** « + Projet », un nom, « Lancer » — et rend la fenêtre, restée ouverte. */
+  const lancerUnProjet = (nom: string): HTMLElement => {
+    cliquer(bouton(document, '+ Projet'));
+    const f = dialogue('Nouveau projet');
+    if (!f) throw new Error('la fenêtre « Nouveau projet » ne s’est pas ouverte');
+    saisir(f.querySelector('input[type="text"]') as HTMLInputElement, nom);
+    cliquer(bouton(f, 'Lancer le butinage'));
+    return f;
+  };
 
   it('LA SESSION MORTE EST DITE, AUCUN PROJET ORPHELIN NE NAÎT, ET LA RECONNEXION RAMÈNE À LA VUE', async () => {
     setLang('fr');
@@ -311,5 +359,84 @@ describe('une session qui expire pendant que l’onglet vit — l’écran le di
     // Le geste refait par la personne aboutit — et le projet est bien À ELLE.
     const nouveau = await createProject({ name: 'Projet refait après reconnexion' });
     expect(nouveau.ownerId).toBe(proprietaireId);
+  });
+
+  // ─── DEUX ONGLETS, UN SEUL STOCKAGE ────────────────────────────────────────
+  //
+  // Le JWT vit dans `localStorage`, commun aux onglets. Première version :
+  // l'onglet A constatait l'expiration et purgeait ce JWT commun, mais la garde
+  // anti-orphelin était une variable de SON module. L'onglet B — nom toujours
+  // affiché, aucun bandeau — prenait alors la porte du jeton de ruche au
+  // premier « + Projet » : un projet orphelin, créé en silence. Un banc ne
+  // monte qu'une copie du module ; l'autre onglet est donc joué par ce qu'il
+  // laisse DANS LE STOCKAGE (le JWT purgé, la marque posée), puis par les
+  // évènements `storage` que le navigateur délivre aux onglets voisins.
+  it('UN AUTRE ONGLET A VU LA SESSION MOURIR — celui-ci ne crée rien sans compte, et le dit', async () => {
+    await ouvrirSession('deux-onglets@ruche.test', 'Deux Onglets');
+    await monter('#/projets');
+    await attendre(() => nomAffiche() === 'Deux Onglets', 'le nom du compte dans la barre');
+    const projetsAvant = server.store.listProjects().length;
+
+    // L'onglet A conclut à l'expiration. Ses évènements ne sont pas encore
+    // arrivés ici : la garde doit tenir PAR LE STOCKAGE, au moment du clic.
+    localStorage.removeItem('hive.jwt');
+    localStorage.setItem('hive.jwt.expiree', '1');
+    const envoisAvant = envois.length;
+    const fenetre = lancerUnProjet('Projet de l’onglet B');
+    await attendre(
+      () => (fenetre.querySelector('.modal-error')?.textContent ?? '') !== '',
+      'le refus du geste',
+    );
+    expect(fenetre.querySelector('.modal-error')?.textContent).toBe(
+      'Session expirée — reconnectez-vous',
+    );
+    expect(
+      envois.slice(envoisAvant).filter((e) => e.methode === 'POST'),
+      'un geste est parti sans le compte',
+    ).toEqual([]);
+    expect(server.store.listProjects(), 'un projet orphelin est né').toHaveLength(projetsAvant);
+
+    // Les évènements de l'onglet A arrivent : la barre et le bandeau suivent.
+    act(() => {
+      window.dispatchEvent(new StorageEvent('storage', { key: 'hive.jwt', newValue: null }));
+      window.dispatchEvent(new StorageEvent('storage', { key: 'hive.jwt.expiree', newValue: '1' }));
+    });
+    await attendre(() => bandeau() !== null, 'le bandeau « Session expirée »');
+    expect(nomAffiche(), 'la barre affiche encore un compte mort').toBeNull();
+  });
+
+  it('UN JWT MORT DEPUIS LA DERNIÈRE VISITE — le bandeau dès l’ouverture', async () => {
+    await ouvrirSession('retour-de-vacances@ruche.test', 'Retour');
+    // L'onglet est rouvert neuf jours plus tard : c'est la restauration du
+    // montage qui découvre la mort, et elle doit trouver l'écran abonné.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.now() + HUIT_JOURS);
+    await monter('#/sante');
+    await attendre(() => bandeau() !== null, 'le bandeau « Session expirée »');
+    expect(nomAffiche()).toBeNull();
+    expect(getJwt(), 'le JWT mort est purgé').toBeNull();
+    expect(dialogue('Connexion'), 'la fenêtre de connexion s’ouvre').toBeDefined();
+  });
+
+  it('UNE REINE INJOIGNABLE AU MONTAGE NE DÉCONNECTE PERSONNE — et le nom revient avec elle', async () => {
+    await ouvrirSession('reine-muette@ruche.test', 'Patiente');
+    const jwt = getJwt();
+    muettes.add('/api/auth/me');
+    await monter('#/ruche');
+    await attendre(
+      () => envois.some((e) => e.chemin === '/api/auth/me'),
+      'la question posée au montage',
+    );
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    // Une panne ne dit rien de la session : rien n'est purgé, rien n'est annoncé.
+    expect(getJwt(), 'une panne a purgé une session vivante').toBe(jwt);
+    expect(bandeau(), 'une panne annoncée comme une expiration').toBeNull();
+
+    // La Reine revient — le flux se reconnecte — et l'écran redemande.
+    muettes.clear();
+    act(() => flux.rappels?.onStatus(true));
+    await attendre(() => nomAffiche() === 'Patiente', 'le nom, la Reine revenue');
   });
 });

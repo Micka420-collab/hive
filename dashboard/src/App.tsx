@@ -17,6 +17,8 @@ import {
   getToken,
   oublierSessionExpiree,
   saveToken,
+  sessionEstExpiree,
+  surJwtAilleurs,
   surSessionExpiree,
 } from './api';
 import type { AuthUser } from './api';
@@ -276,8 +278,12 @@ export function App() {
   const [showNewProject, setShowNewProject] = useState(false);
   const [user, setUser] = useState<AuthUser | null>(null);
   // La vue (`#/…`) où la session est morte ; `null` tant qu'elle vit. Voir
-  // « LA SESSION QUI EXPIRE, DITE À L'ÉCRAN » plus bas.
-  const [retourSession, setRetourSession] = useState<string | null>(null);
+  // « LA SESSION QUI EXPIRE, DITE À L'ÉCRAN » plus bas. Une marque restée d'un
+  // chargement précédent s'affiche dès le montage : sans bandeau, « + Projet »
+  // refuserait sans que rien à l'écran ne dise pourquoi ni quoi faire.
+  const [retourSession, setRetourSession] = useState<string | null>(() =>
+    sessionEstExpiree() ? location.hash || '#/ruche' : null,
+  );
   const [refreshTick, setRefreshTick] = useState(0);
   const reviewTick = useReviewTick();
   const lang = useLang();
@@ -286,6 +292,25 @@ export function App() {
   // par référence, sinon il resterait sur celle du premier rendu (null).
   const userRef = useRef<AuthUser | null>(null);
   userRef.current = user;
+
+  // Session utilisateur (JWT) : demandée à la Reine quand un JWT est rangé.
+  // Un JWT refusé est purgé par `api()` et annoncé (« LA SESSION QUI EXPIRE,
+  // DITE À L'ÉCRAN »). Une Reine injoignable, elle, ne dit RIEN de la session :
+  // on garde le JWT (le purger déconnectait quiconque ouvrait l'écran pendant
+  // un redémarrage de la Reine) et on REDEMANDE à chaque reconnexion du flux —
+  // sinon la barre offrait « Se connecter » pour la durée de l'onglet, alors
+  // que chaque appel partait avec le compte.
+  const demanderSession = useCallback((memeSiConnue: boolean) => {
+    if (!getJwt() || (userRef.current && !memeSiConnue)) return;
+    authMe()
+      .then((u) => {
+        setUser(u);
+        setRetourSession(null);
+      })
+      .catch(() => {
+        /* refus : déjà traité par `api()` ; panne : inconnu, rien à purger */
+      });
+  }, []);
   // Coalescence des invalidations : une rafale d'événements → 1 re-fetch/s max.
   const refreshTimer = useRef<number | undefined>(undefined);
   // La cible du lien d'évitement (voir plus bas).
@@ -366,6 +391,7 @@ export function App() {
         // À CHAQUE (re)connexion : ré-hydrater les revues — les task_reviewed
         // émis pendant une coupure ne sont jamais rejoués par le serveur.
         if (up) {
+          demanderSession(false);
           // Le snapshot courant ne rejoue pas les événements manqués : les
           // tiroirs et vues qui lisent une API doivent donc repartir d'une
           // lecture après chaque reconnexion réussie.
@@ -386,7 +412,7 @@ export function App() {
       }
       feed.close();
     };
-  }, [feedKey]);
+  }, [feedKey, demanderSession]);
 
   // ─── Navigation par hash ────────────────────────────────────────────────────
   useEffect(() => {
@@ -508,23 +534,20 @@ export function App() {
     [],
   );
 
-  // Session utilisateur (JWT) : restaurée au montage si un jeton est présent.
-  // Un JWT refusé est purgé par `api()` et annoncé par l'abonnement ci-dessus.
-  // Une Reine injoignable, elle, ne dit RIEN de la session : on garde le JWT
-  // (le purger déconnectait quiconque ouvrait l'écran pendant un redémarrage
-  // de la Reine), et la barre reste sans nom jusqu'au prochain chargement.
-  useEffect(() => {
-    if (!getJwt()) return;
-    let alive = true;
-    authMe()
-      .then((u) => alive && setUser(u))
-      .catch(() => {
-        /* refus : déjà traité par `api()` ; panne : inconnu, rien à purger */
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
+  // Restaurée au montage (voir `demanderSession`).
+  useEffect(() => demanderSession(false), [demanderSession]);
+
+  // Un AUTRE onglet a changé le JWT. Déconnecté là-bas : plus de nom ici, sans
+  // quoi « + Projet » partirait sans compte sous un nom affiché. Connecté
+  // là-bas : on redemande qui, même si un nom est déjà affiché.
+  useEffect(
+    () =>
+      surJwtAilleurs(() => {
+        if (getJwt()) demanderSession(true);
+        else setUser(null);
+      }),
+    [demanderSession],
+  );
 
   /** Ce que rapporte le panneau de compte : connexion, déconnexion, reconnexion. */
   const changerDeCompte = (u: AuthUser | null) => {

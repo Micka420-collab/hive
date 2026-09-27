@@ -29,7 +29,7 @@ import type { Server } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
 
@@ -483,6 +483,40 @@ describe('connecter un dépôt depuis un COMPTE', () => {
   it('LE DÉPÔT CONNECTÉ APPARTIENT À CELLE QUI L’A CONNECTÉ', async () => {
     const projet = await connecter('connecte-appartient');
     expect(projet.ownerId).toBe(idMembre2);
+  });
+
+  it('UN COMPTE EXPIRÉ N’IMPORTE PAS EN ORPHELIN — 401, et aucun projet ne naît', async () => {
+    // Le JWT est lu comme ABSENT une fois ses sept jours passés. L'import en
+    // concluait « voie CLI » et rendait 201 avec un projet orphelin : la
+    // personne croyait avoir connecté SON dépôt, et l'écran n'apprenait jamais
+    // que sa session était morte. Un Bearer présenté puis refusé est un refus.
+    const fullName = 'micka/import-session-expiree';
+    declarerDepot(fullName);
+    const avant = server2.store.listProjects().length;
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.now() + 8 * 24 * 60 * 60 * 1000);
+    let res: Response;
+    try {
+      res = await fetch(`${base2}/api/github/import`, {
+        method: 'POST',
+        headers: commeMembre(),
+        body: JSON.stringify({ fullName }),
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(res.status).toBe(401);
+    expect(server2.store.listProjects(), 'un projet orphelin est né').toHaveLength(avant);
+    // Le même dépôt, par la voie CLI (jeton de ruche seul) : orphelin, comme avant.
+    const cli = await fetch(`${base2}/api/github/import`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-hive-token': TOKEN },
+      body: JSON.stringify({ fullName }),
+    });
+    expect(cli.status).toBe(201);
+    expect(
+      ((await cli.json()) as { projet: { ownerId: string | null } }).projet.ownerId,
+    ).toBeNull();
   });
 
   it('…ET ELLE PEUT S’EN SERVIR TOUT DE SUITE, sans passer par une adoption', async () => {

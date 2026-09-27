@@ -69,6 +69,7 @@ import {
   fetchLivraisons,
   fetchPulse,
   fetchReport,
+  importerDepotGithub,
   getJwt,
   oublierSessionExpiree,
   surSessionExpiree,
@@ -106,6 +107,10 @@ vi.hoisted(() => {
   };
   vi.stubGlobal('localStorage', stockage());
   vi.stubGlobal('sessionStorage', stockage());
+  // `surSessionExpiree` écoute aussi les AUTRES onglets (`storage`) : il lui
+  // faut une fenêtre où s'abonner. Une cible d'évènements nue suffit — rien
+  // ici ne joue un second onglet, c'est `session-expiree-ecran` qui le fait.
+  vi.stubGlobal('window', new EventTarget());
 });
 
 const TOKEN = 'jeton-contrat-compte-assez-long';
@@ -552,6 +557,10 @@ describe('le tableau de bord connecté engage SON projet, par les vraies fonctio
       annonces += 1;
     });
     const verifications = (): number => envois.filter((e) => e.chemin === '/api/auth/me').length;
+    // Une minute passe : un « vivante » qu'un test voisin aurait obtenu pour
+    // le même JWT ne vaut plus (`VIVANTE_MS`), et la question repart vraiment.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.now() + 60_000);
     try {
       // 1. Un 404 VRAI — le projet d'autrui, compte vivant — reste un 404, et
       //    la session reste. On a demandé à la Reine, elle a dit « vivante ».
@@ -562,6 +571,11 @@ describe('le tableau de bord connecté engage SON projet, par les vraies fonctio
       });
       expect(verifications(), 'le 404 n’a pas été revérifié').toBe(1);
       expect(getJwt(), 'un 404 vrai a purgé une session vivante').toBe(voisin.jwt);
+      //    Le même 404 dans la foulée — un panneau qui interroge en boucle — ne
+      //    redemande pas : la réponse « vivante » vaut quelques secondes, au
+      //    lieu de doubler chaque requête contre la limite REST.
+      expect((await refus(addTasks(projet, [{ title: 'Encore', prompt: 'x' }]))).status).toBe(404);
+      expect(verifications(), 'un « vivante » tout frais a été redemandé').toBe(1);
 
       // 2. Un 401 du JETON DE RUCHE n'est pas une faute du compte.
       saveJwt(proprietaire.jwt);
@@ -605,6 +619,10 @@ describe('le tableau de bord connecté engage SON projet, par les vraies fonctio
       await expect(createProject({ name: 'Projet orphelin par erreur' })).rejects.toBeInstanceOf(
         SessionExpireeError,
       );
+      //    L'import d'un dépôt fait naître un projet lui aussi : même garde.
+      await expect(importerDepotGithub('micka/orphelin-par-erreur')).rejects.toBeInstanceOf(
+        SessionExpireeError,
+      );
       expect(envois.slice(envoisAvant), 'la création est partie sans le compte').toEqual([]);
       expect(server.store.listProjects()).toHaveLength(projetsAvant);
 
@@ -618,6 +636,59 @@ describe('le tableau de bord connecté engage SON projet, par les vraies fonctio
       const refait = await createProject({ name: 'Projet refait' });
       expect(refait.ownerId).toBe(proprietaire.id);
     } finally {
+      vi.useRealTimers();
+      desabonner();
+    }
+  });
+
+  // Dix panneaux qui échouent ensemble posent UNE question à la Reine. Les
+  // réponses de `/api/auth/me` sont retenues jusqu'à ce que chaque appel
+  // d'origine ait reçu son refus : sans le partage des vérifications en vol,
+  // chacun partirait donc poser la sienne, et le compte le verrait.
+  it('DES REFUS GROUPÉS NE POSENT QU’UNE QUESTION — la vérification en vol est partagée', async () => {
+    const projet = await projetDuProprietaire('Projet aux refus groupés');
+    let annonces = 0;
+    const desabonner = surSessionExpiree(() => {
+      annonces += 1;
+    });
+    const N = 5;
+    let refusRecus = 0;
+    let lacher: () => void = () => {};
+    const tousRefuses = new Promise<void>((r) => {
+      lacher = r;
+    });
+    const fetchDuBanc = globalThis.fetch;
+    vi.stubGlobal('fetch', async (entree: string | URL | Request, init?: RequestInit) => {
+      if (entree === '/api/auth/me') {
+        await tousRefuses;
+        // Le temps que chaque appel d'origine lise son corps et arrive à la
+        // vérification — borné, la question est déjà partie.
+        await new Promise((r) => setTimeout(r, 50));
+        return fetchDuBanc(entree, init);
+      }
+      const res = await fetchDuBanc(entree, init);
+      if (entree === `/api/projects/${projet}/tasks` && ++refusRecus === N) lacher();
+      return res;
+    });
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.now() + 8 * 24 * 60 * 60 * 1000);
+    try {
+      const echecs = await Promise.all(
+        Array.from({ length: N }, (_, i) =>
+          addTasks(projet, [{ title: `Groupé ${i}`, prompt: 'x' }]).then(
+            () => null,
+            (e: unknown) => e,
+          ),
+        ),
+      );
+      for (const echec of echecs) expect(echec).toBeInstanceOf(SessionExpireeError);
+      expect(
+        envois.filter((e) => e.chemin === '/api/auth/me'),
+        'chaque refus a reposé la question',
+      ).toHaveLength(1);
+      expect(annonces, 'l’écran est prévenu une fois, pas une par refus').toBe(1);
+    } finally {
+      vi.stubGlobal('fetch', fetchDuBanc);
       vi.useRealTimers();
       desabonner();
     }

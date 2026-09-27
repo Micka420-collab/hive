@@ -3816,6 +3816,16 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     },
     async (req, reply) => {
       if (!authorized(req)) return reject(reply);
+      // UN COMPTE PRÉSENTÉ MAIS REFUSÉ N'EST PAS « SANS COMPTE ».
+      //
+      // Un JWT expiré était lu comme absent, et l'import rendait 201 avec un
+      // projet ORPHELIN : la personne croyait avoir connecté SON dépôt, qu'elle
+      // ne pouvait ensuite ni lire ni partager — et aucun échec n'avertissait
+      // l'écran que sa session était morte. `/api/projects/user` refuse déjà
+      // ainsi ; la voie CLI, qui n'envoie aucun Bearer, reste orpheline.
+      if (req.headers.authorization !== undefined && !authorizedUser(req)) {
+        return reply.code(401).send({ error: 'Non authentifié' });
+      }
       if (!jetonGithub) return sansJeton(reply);
       let depot;
       try {
