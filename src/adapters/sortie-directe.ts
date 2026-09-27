@@ -127,6 +127,11 @@ export function createSortieDirecte(
     stderr: { ligneEnCours: '', debordement: false },
   };
   let attente = '';
+  // Le poids de `attente`, tenu au fil de l'eau : le recalculer à chaque ligne
+  // (4 Kio mesurés par ligne, même une fois le morceau plein) coûtait ~1,7 s
+  // de boucle d'événements pour 50 Mio de lignes courtes — la boucle qui porte
+  // aussi les battements de cœur du nœud.
+  let octetsEnAttente = 0;
   let omis = 0;
   let annuler: (() => void) | null = null;
   let fini = false;
@@ -134,9 +139,20 @@ export function createSortieDirecte(
   const empiler = (ligne: string): void => {
     // `- 1` : le retour à la ligne compte aussi — sans lui, une ligne tronquée
     // pile au budget ne tenait jamais, même seule, et partait « omise ».
+    const poids = octets(ligne) + 1;
+    // Morceau plein : la ligne n'y entrera pas, inutile de la borner. Bornée,
+    // elle pèse au moins `min(poids, budgetLignes - 3)` (une troncature perd au
+    // plus 3 octets d'un caractère coupé) ; `- 4` garde une marge.
+    if (octetsEnAttente + Math.min(poids, budgetLignes - 4) > budgetLignes) {
+      omis += poids;
+      return;
+    }
     const bornee = ligneBornee(ligne, budgetLignes - 1) + '\n';
-    if (octets(attente) + octets(bornee) <= budgetLignes) attente += bornee;
-    else omis += octets(ligne) + 1;
+    const poidsBorne = octets(bornee);
+    if (octetsEnAttente + poidsBorne <= budgetLignes) {
+      attente += bornee;
+      octetsEnAttente += poidsBorne;
+    } else omis += poids;
   };
 
   const delai = (): number =>
@@ -153,6 +169,7 @@ export function createSortieDirecte(
     const annonce = omis > 0 ? `[… ${omis} octets omis]\n` : '';
     const morceau = annonce + attente;
     attente = '';
+    octetsEnAttente = 0;
     omis = 0;
     cadence.dernierDepart = horloge.maintenant();
     emettre(morceau);

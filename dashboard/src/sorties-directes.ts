@@ -18,8 +18,17 @@
 // qui n'y est plus vivante : un écran déconnecté au moment de `task_done` n'a
 // jamais reçu l'événement, et garderait sinon cette console pour toujours.
 //
-// Module PUR : la transition rend `prev` lui-même quand rien ne change, pour
-// que React n'y voie pas de nouvel état (même contrat que `differees.ts`).
+// Les transitions sont PURES : elles rendent `prev` lui-même quand rien ne
+// change (même contrat que `differees.ts`).
+//
+// ─── POURQUOI UN MAGASIN, PAS UN ÉTAT D'`App` ───────────────────────────────
+//
+// Gardés dans l'état d'`App`, chaque morceau re-rendait TOUT le tableau de
+// bord — quatre fois par seconde et par tâche en cours, tiroir ouvert ou non
+// (dix tâches : quarante rendus de la racine par seconde). Seule la console de
+// la tâche OUVERTE lit ces tampons : `creerMagasinSorties` les garde hors de
+// React, et prévient les seuls abonnés de la tâche touchée
+// (`useSyncExternalStore`, dans `ConsoleDirecte.tsx`).
 
 import type { Task } from '../../src/shared/types';
 
@@ -106,4 +115,47 @@ export function garderVivantes<T>(
   const suite = { ...prev };
   for (const id of mortes) delete suite[id];
   return suite;
+}
+
+/**
+ * Les tampons de toutes les tâches, hors de l'état React. Chaque transition
+ * passe par les fonctions pures ci-dessus ; un abonné n'est prévenu que si SA
+ * tâche a changé — et `lire` rend alors une nouvelle référence, jamais sinon.
+ */
+export interface MagasinSorties {
+  lire(taskId: string): SortieTache | undefined;
+  abonner(taskId: string, prevenir: () => void): () => void;
+  ajouter(taskId: string, nodeId: string, texte: string): void;
+  oublier(taskId: string): void;
+  garderVivantes(tasks: readonly Pick<Task, 'id' | 'status'>[]): void;
+}
+
+export function creerMagasinSorties(): MagasinSorties {
+  let etat: SortiesDirectes = {};
+  const abonnes = new Map<string, Set<() => void>>();
+  const passer = (suite: SortiesDirectes): void => {
+    if (suite === etat) return;
+    const avant = etat;
+    etat = suite;
+    const touchees = new Set([...Object.keys(avant), ...Object.keys(suite)]);
+    for (const id of touchees) {
+      if (avant[id] === suite[id]) continue;
+      for (const prevenir of abonnes.get(id) ?? []) prevenir();
+    }
+  };
+  return {
+    lire: (taskId) => etat[taskId],
+    abonner(taskId, prevenir) {
+      const ensemble = abonnes.get(taskId) ?? new Set();
+      ensemble.add(prevenir);
+      abonnes.set(taskId, ensemble);
+      return () => {
+        ensemble.delete(prevenir);
+        if (ensemble.size === 0) abonnes.delete(taskId);
+      };
+    },
+    ajouter: (taskId, nodeId, texte) => passer(ajouterSortie(etat, taskId, nodeId, texte)),
+    oublier: (taskId) => passer(oublierTache(etat, taskId)),
+    garderVivantes: (tasks) => passer(garderVivantes(etat, tasks)),
+  };
 }

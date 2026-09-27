@@ -840,8 +840,11 @@ export class Scheduler {
         ...(presences !== undefined ? { presences } : {}),
       });
     }
-    // APRÈS la garde de statut : un morceau arrivé derrière le résultat (tâche
-    // close, réaffectée) ne rouvre pas une console que l'écran vient de vider.
+    // APRÈS la garde de statut : un morceau arrivé derrière le résultat d'une
+    // tâche close, ou réaffectée à un AUTRE nœud, ne rouvre pas une console que
+    // l'écran vient de vider. Relancée sur le MÊME nœud, la tâche est de
+    // nouveau « assignée » ici : c'est le nœud qui tait le morceau posthume de
+    // la tentative précédente (garde d'exécution de `progresVersHub`).
     if (sortie) this.opts.onSortie?.(taskId, nodeId, sortie);
   }
 

@@ -42,11 +42,15 @@ const VALEUR_SECRETE_MIN = 8;
 
 /**
  * Formats LITTÉRAUX de jetons : un préfixe réservé par l'émetteur (GitHub,
- * OpenAI/Anthropic `sk-`, xAI). Version LARGE, pour le texte : c'est l'union
- * que le journal de l'ouvrière applique depuis toujours, insensible à la casse.
+ * OpenAI/Anthropic `sk-`, xAI), et la forme d'un JWT (`eyJ….….…`) — celle des
+ * jetons de session que les agents rangent dans leur HOME (`~/.codex/auth.json`
+ * d'une connexion ChatGPT) : un `cat` de ce fichier dans un appel d'outil
+ * partirait sinon en clair vers chaque écran. Version LARGE, pour le texte :
+ * insensible à la casse. Pas dans `JETONS_REELS` : un diff porte des JWT de
+ * fixture légitimes.
  */
 const JETONS_LITTERAUX =
-  /\bgh[pousr]_[A-Za-z0-9_-]+\b|\bgithub_pat_[A-Za-z0-9_]+\b|\bsk-[A-Za-z0-9_-]+\b|\bxai-[A-Za-z0-9_-]+\b/;
+  /\bgh[pousr]_[A-Za-z0-9_-]+\b|\bgithub_pat_[A-Za-z0-9_]+\b|\bsk-[A-Za-z0-9_-]+\b|\bxai-[A-Za-z0-9_-]+\b|\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+/;
 
 /**
  * Les mêmes formats, version STRICTE, pour ce qui sera réutilisé tel quel (les
@@ -64,13 +68,21 @@ const JETONS_REELS =
  * Formes d'AFFECTATION : `Bearer …`, `password=…`, `API_KEY: …`, identifiants
  * dans une URL. Justes dans une sortie d'outil, ravageuses dans un diff où
  * `token: string` et `` `https://${user}:${pass}@…` `` sont du code légitime.
+ *
+ * La valeur s'arrête aux guillemets et à la barre oblique inverse : les logs
+ * et le texte final sont RELUS par des machines — le JSON d'une erreur
+ * (`shared/texte-d-echec.ts`), le `HIVE_PROPOSITION {…}` d'une éclaireuse
+ * (`orchestrator/eclaireuse.ts`). Un remplacement qui avalait le `"` fermant
+ * (« par Basic auth"} ») rendait la ligne illisible : la proposition, ou le
+ * veto d'un `HIVE_AVIS`, disparaissait sans un mot. La barre oblique, parce
+ * que dans du JSON échappé le guillemet d'une chaîne est précédé d'un `\`.
  */
 const AFFECTATIONS =
-  /\b(?:Bearer|Basic)\s+[^\s,;]+|\b(?:token|secret|password|api[_-]?key)\s*[=:]\s*[^\s,;]+|\b(?:HIVE_TOKEN|[A-Z0-9_]*(?:API_KEY|SECRET|PASSWORD|PRIVATE_KEY))\s*[=:]\s*[^\s,;]+|https?:\/\/[^\s/@]+:[^\s/@]+@[^\s,;]+/;
+  /\b(?:Bearer|Basic)\s+[^\s,;"'\\]+|\b(?:token|secret|password|api[_-]?key)\s*[=:]\s*[^\s,;"'\\]+|\b(?:HIVE_TOKEN|[A-Z0-9_]*(?:API_KEY|SECRET|PASSWORD|PRIVATE_KEY))\s*[=:]\s*[^\s,;"'\\]+|https?:\/\/[^\s/@"'\\]+:[^\s/@"'\\]+@[^\s,;"'\\]+/;
 
 /**
- * Les motifs connus de la ruche, tous ensemble : ce que le journal de
- * l'ouvrière applique depuis toujours (l'union est textuellement la même).
+ * Les motifs connus de la ruche, tous ensemble — ceux qu'applique aussi le
+ * journal de l'ouvrière, côté hub.
  */
 export const SECRET_DANS_TEXTE = new RegExp(
   `(?:${JETONS_LITTERAUX.source}|${AFFECTATIONS.source})`,
@@ -83,19 +95,51 @@ export const SECRET_DANS_TEXTE = new RegExp(
  * autres variables transmises à l'agent — `HOME`, `APPDATA`, `*_BASE_URL`,
  * `GROK_HOME` — sont des chemins et des adresses : les caviarder effacerait
  * chaque chemin des logs sans rien protéger.
+ *
+ * Le DERNIER segment du nom décide, pas une sous-chaîne : `GIT_AUTHOR_EMAIL`
+ * (AUTH…), `SSH_AUTH_SOCK`, `GIT_ASKPASS`, `PASSWORD_STORE_DIR` ne sont pas
+ * des identifiants. Qu'un membre les ajoute à `HIVE_KEEP_ENV`, et leur valeur
+ * — une adresse, un nom d'auteur — devenait `[secret]` jusque dans les lignes
+ * AJOUTÉES du diff livré : le correctif changeait de contenu.
  */
-const NOM_DE_SECRET = /KEY|TOKEN|SECRET|PASS|CREDENTIAL|AUTH/i;
+const NOM_DE_SECRET =
+  /(?:^|_)(?:API_?KEY|KEY|TOKEN|SECRET|PASSWORD|PASSWD|PASS|PAT|CREDENTIALS?|AUTH)(?:_\d+)?$/i;
 
 /** Les valeurs des variables d'identification d'un environnement d'agent. */
 export function valeursSecretes(env: Readonly<Record<string, string | undefined>>): string[] {
   return Object.entries(env).flatMap(([nom, valeur]) =>
-    NOM_DE_SECRET.test(nom) && typeof valeur === 'string' ? [valeur] : [],
+    NOM_DE_SECRET.test(nom) && typeof valeur === 'string' ? formesDuSecret(valeur) : [],
   );
 }
 
+/**
+ * Les formes sous lesquelles une valeur peut réapparaître dans une sortie :
+ *   · telle quelle ;
+ *   · ÉCHAPPÉE en JSON (`\n`, `\"`) — le stream-json de Claude ou de Cursor
+ *     recopie un `tool_result` en chaîne JSON : une clé PEM ou un compte de
+ *     service JSON transmis par `HIVE_KEEP_ENV` n'y est jamais égal à la valeur ;
+ *   · ligne par ligne, pour une valeur sur plusieurs lignes — les morceaux en
+ *     direct se coupent ENTRE les lignes, une clé PEM peut donc chevaucher
+ *     deux morceaux (les lignes trop courtes tombent sous `VALEUR_SECRETE_MIN`).
+ */
+function formesDuSecret(valeur: string): string[] {
+  const echappee = JSON.stringify(valeur).slice(1, -1);
+  const lignes = valeur.includes('\n') ? valeur.split(/\r?\n/).map((l) => l.trim()) : [];
+  return [...new Set([valeur, echappee, ...lignes])];
+}
+
 export interface Caviardeur {
-  /** Logs, sortie en direct, texte final : valeurs exactes + tous les motifs. */
+  /** Logs, sortie en direct, noms, raisons : valeurs exactes + tous les motifs. */
   texte(s: string): string;
+  /**
+   * Le texte FINAL de l'agent : valeurs exactes, bords coupés, jetons réels —
+   * pas les motifs d'affectation. Ce texte n'est pas qu'affiché : le hub le
+   * relit (le `HIVE_PROPOSITION {…}` d'une éclaireuse, le `HIVE_AVIS {…}` d'un
+   * conseil, la réponse qu'une tâche parente intègre). « par Basic auth »
+   * devenu « par [secret] » change ce qu'a dit l'agent, sans rien protéger :
+   * une vraie clé transmise y est caviardée par sa valeur exacte.
+   */
+  reponse(s: string): string;
   /**
    * Du texte qui sera RÉUTILISÉ tel quel (le prompt d'une délégation, qu'un
    * autre agent exécutera) : valeurs exactes + jetons réels (`JETONS_REELS`)
@@ -130,12 +174,10 @@ export function creerCaviardeur(valeurs: readonly string[]): Caviardeur {
     return sortie;
   };
   const code = (s: string): string => valeursExactes(s).replace(JETONS_REELS, SECRET_CAVIARDE);
+  const bords = (s: string): string => finMasquee(bordsCoupes(valeursExactes(s), secrets), secrets);
   return {
-    texte: (s) =>
-      finMasquee(bordsCoupes(valeursExactes(s), secrets), secrets).replace(
-        SECRET_DANS_TEXTE,
-        SECRET_CAVIARDE,
-      ),
+    texte: (s) => bords(s).replace(SECRET_DANS_TEXTE, SECRET_CAVIARDE),
+    reponse: (s) => bords(s).replace(JETONS_REELS, SECRET_CAVIARDE),
     code,
     diff: (s) => lignesAjoutees(s, code),
   };

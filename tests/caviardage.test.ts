@@ -10,7 +10,9 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { runCommand } from '../src/adapters/exec.js';
 import { borneTexteFinal } from '../src/adapters/texte-final.js';
+import { lireAvis, lireProposition } from '../src/orchestrator/eclaireuse.js';
 import { analyserRustine, appliquerRustine } from '../src/orchestrator/rustine.js';
 import {
   creerCaviardeur,
@@ -18,6 +20,7 @@ import {
   SECRET_CAVIARDE,
   valeursSecretes,
 } from '../src/shared/caviardage.js';
+import { texteDEchec } from '../src/shared/texte-d-echec.js';
 
 const CLE = 'cle-du-fournisseur-inconnu-0123456789';
 
@@ -37,6 +40,32 @@ describe('valeursSecretes — les variables d’identification, pas les chemins'
       }).sort(),
     ).toEqual(['a-1', 'a-2', 'a-3', 'a-4']);
   });
+
+  it('lit le DERNIER segment du nom : un auteur Git ou une socket SSH ne sont pas des secrets', () => {
+    expect(
+      valeursSecretes({
+        GIT_AUTHOR_NAME: 'Claude Code (Opus 5.5)',
+        GIT_AUTHOR_EMAIL: 'noreply@anthropic.com',
+        SSH_AUTH_SOCK: '/run/user/1000/ssh-agent.sock',
+        GIT_ASKPASS: '/usr/lib/git-core/askpass',
+        PASSWORD_STORE_DIR: '/home/membre/.password-store',
+        AWS_SECRET_ACCESS_KEY: 'a-5',
+        GH_PAT: 'a-6',
+        OPENAI_API_KEY_2: 'a-7',
+      }).sort(),
+    ).toEqual(['a-5', 'a-6', 'a-7']);
+  });
+
+  it('une clé sur plusieurs lignes est reconnue échappée en JSON, et ligne par ligne', () => {
+    const pem =
+      '-----BEGIN KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\nk4Zp0q1w2e3r4t5y6u7i8o9p\n-----END KEY-----';
+    const c = creerCaviardeur(valeursSecretes({ SERVICE_PRIVATE_KEY: pem }));
+    // Le stream-json de Claude recopie le fichier en chaîne JSON.
+    const journal = JSON.stringify({ type: 'tool_result', content: `cat cle.pem\n${pem}` });
+    expect(c.texte(journal)).not.toMatch(/MIIEvQ|k4Zp0q/);
+    // Et un morceau en direct peut s'arrêter entre deux lignes de la clé.
+    expect(c.texte('k4Zp0q1w2e3r4t5y6u7i8o9p\n')).toBe(`${SECRET_CAVIARDE}\n`);
+  });
 });
 
 describe('creerCaviardeur — texte', () => {
@@ -55,6 +84,13 @@ describe('creerCaviardeur — texte', () => {
     expect(sortie).not.toMatch(/ghp_|eyJ|motdepasse/);
   });
 
+  it('un JWT de session (`~/.codex/auth.json` lu par un outil) ne part pas en clair', () => {
+    const jwt = 'eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJtZW1icmUifQ.c2lnbmF0dXJlLWR1LWpldG9u';
+    expect(creerCaviardeur([]).texte(`{"access_token":"${jwt}"}`)).toBe(
+      `{"access_token":"${SECRET_CAVIARDE}"}`,
+    );
+  });
+
   it('ignore une « valeur » trop courte pour être un identifiant', () => {
     expect(creerCaviardeur(['1', 'true']).texte('exit 1 : true')).toBe('exit 1 : true');
   });
@@ -70,6 +106,78 @@ describe('creerCaviardeur — texte', () => {
     const sortie = creerCaviardeur([CLE]).texte(coupee);
     expect(sortie).not.toContain(CLE.slice(0, 20));
     expect(sortie).toBe(`… ${SECRET_CAVIARDE}${MARQUE_LIGNE_TRONQUEE}`);
+  });
+});
+
+// Le hub RELIT ce que le nœud caviarde : le texte final d'une éclaireuse
+// (`HIVE_PROPOSITION {…}`, `HIVE_AVIS {…}`) et les enregistrements d'erreur JSON
+// des logs (`texteDEchec`). Un remplacement qui avale un `"` fermant rend la
+// ligne illisible — la proposition, ou un veto, disparaît sans un mot.
+describe('creerCaviardeur — ce que le hub relit reste lisible', () => {
+  const meta = { id: 'p-1', eclaireuse: 'e-1', famille: 'claude', tour: 1 };
+
+  it('une proposition qui parle de « Basic auth » est toujours lue, et intacte', () => {
+    const finalText =
+      'HIVE_PROPOSITION {"titre":"Auth","corps":"Remplacer le login par Basic auth","qualite":7,"sources":[]}';
+    const lue = lireProposition(creerCaviardeur([CLE]).reponse(finalText), meta);
+    expect(lue?.corps).toBe('Remplacer le login par Basic auth');
+  });
+
+  it('un avis qui dit « Bearer token » est toujours lu — un veto reste un veto', () => {
+    const finalText = 'HIVE_AVIS {"type":"arret","force":6,"raison":"pas de Bearer token"}';
+    const lu = lireAvis(creerCaviardeur([CLE]).reponse(finalText), {
+      propositionId: 'p-1',
+      eclaireuse: 'e-2',
+      famille: 'codex',
+      tour: 1,
+    });
+    expect(lu?.type).toBe('arret');
+  });
+
+  it('un enregistrement d’erreur JSON des logs reste un JSON valide, sa valeur caviardée', () => {
+    const logs = '{"type":"error","message":"requires Basic dXNlcjpwYXNz"}\n';
+    const caviarde = creerCaviardeur([]).texte(logs);
+    expect(JSON.parse(caviarde.trim())).toEqual({ type: 'error', message: 'requires [secret]' });
+    expect(texteDEchec(caviarde)).toContain('requires [secret]');
+    // Même échappé dans une chaîne JSON, le guillemet de la chaîne survit.
+    const echappe = JSON.stringify({ log: 'Authorization: Bearer abc"def' });
+    expect(() => JSON.parse(creerCaviardeur([]).texte(echappe))).not.toThrow();
+  });
+});
+
+describe('runCommand — les logs du résultat ne coupent jamais une ligne entre deux flux', () => {
+  it('une lecture de stderr au milieu d’une clé écrite sur stdout ne la fend pas', async () => {
+    const dossier = mkdtempSync(path.join(tmpdir(), 'hive-caviardage-flux-'));
+    try {
+      const script = path.join(dossier, 'agent.js');
+      // La clé part en deux écritures de stdout, une ligne de stderr entre les
+      // deux — et assez espacées pour que le nœud les lise séparément.
+      writeFileSync(
+        script,
+        "'use strict';\n" +
+          `process.stdout.write('cle=${CLE.slice(0, 15)}');\n` +
+          "setTimeout(() => process.stderr.write('bruit de stderr\\n'), 80);\n" +
+          `setTimeout(() => process.stdout.write('${CLE.slice(15)} fin\\n'), 160);\n`,
+      );
+      const r = await runCommand(
+        process.execPath,
+        [script],
+        {
+          cwd: dossier,
+          env: { ...process.env },
+          attempt: 1,
+          signal: new AbortController().signal,
+          onProgress: () => {},
+        },
+        10_000,
+      );
+      expect(r.logs).toContain(`cle=${CLE} fin`);
+      const caviarde = creerCaviardeur([CLE]).texte(r.logs);
+      expect(caviarde).not.toContain(CLE.slice(0, 15));
+      expect(caviarde).not.toContain(CLE.slice(15));
+    } finally {
+      rmSync(dossier, { recursive: true, force: true });
+    }
   });
 });
 
@@ -160,9 +268,13 @@ describe('creerCaviardeur — les bords qu’une coupe laisse d’un secret', ()
     const tete = 'a'.repeat(2_000 - 20) + CLE;
     const texte = tete + 'b'.repeat(20_000) + CLE + 'c'.repeat(5_000);
     const borne = borneTexteFinal(texte) ?? '';
-    const sortie = creerCaviardeur([CLE]).texte(borne);
-    expect(sortie).not.toContain(CLE.slice(0, 20));
-    expect(sortie).not.toContain(CLE.slice(-15));
+    for (const sortie of [
+      creerCaviardeur([CLE]).texte(borne),
+      creerCaviardeur([CLE]).reponse(borne),
+    ]) {
+      expect(sortie).not.toContain(CLE.slice(0, 20));
+      expect(sortie).not.toContain(CLE.slice(-15));
+    }
   });
 
   it('en tête d’une fenêtre qui a commencé au milieu d’une clé', () => {

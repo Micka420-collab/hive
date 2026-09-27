@@ -20,6 +20,7 @@ import type { HiveEvent, HiveNode, Task } from '../src/shared/types';
 import { setLang } from '../dashboard/src/i18n';
 import {
   ajouterSortie,
+  creerMagasinSorties,
   garderVivantes,
   oublierTache,
   SORTIE_ECRAN_MAX_OCTETS,
@@ -161,17 +162,56 @@ const tache = (status: Task['status']): Task => ({
   updatedAt: 0,
 });
 
+describe('le magasin des sorties — un morceau ne dérange que SA tâche', () => {
+  // Gardés dans l'état d'App, les tampons re-rendaient tout le tableau de bord
+  // à chaque morceau de chaque tâche. Le magasin ne prévient que les abonnés
+  // de la tâche touchée, et ne change la référence d'aucune autre.
+  it('ajouter, oublier, garder les vivantes : seuls les abonnés touchés sont prévenus', () => {
+    const magasin = creerMagasinSorties();
+    let a = 0;
+    let b = 0;
+    magasin.abonner('a', () => (a += 1));
+    const desabonnerB = magasin.abonner('b', () => (b += 1));
+    magasin.ajouter('b', 'n1', 'b0\n');
+    const avantB = magasin.lire('b');
+
+    magasin.ajouter('a', 'n1', 'a1\n');
+    expect([a, b]).toEqual([1, 1]);
+    expect(magasin.lire('b')).toBe(avantB);
+
+    magasin.oublier('inconnue');
+    magasin.ajouter('a', 'n1', '');
+    expect([a, b]).toEqual([1, 1]);
+
+    magasin.garderVivantes([{ id: 'a', status: 'running' }]);
+    expect([a, b]).toEqual([1, 2]);
+    expect(magasin.lire('b')).toBeUndefined();
+
+    desabonnerB();
+    magasin.ajouter('b', 'n1', 'b1\n');
+    expect(b).toBe(2);
+  });
+});
+
 describe('le tiroir de tâche — la console tant que la tâche vit', () => {
   const noeuds: HiveNode[] = [];
 
   it('une tâche EN COURS montre sa sortie en direct', async () => {
-    const sortie = ajouterSortie({}, 't1', 'n1', 'lecture de src/ruche.ts\n').t1;
+    const magasin = creerMagasinSorties();
+    magasin.ajouter('t1', 'n1', 'lecture de src/ruche.ts\n');
     const dom = await monter(
-      <TaskDrawer task={tache('running')} nodes={noeuds} sortie={sortie} onClose={() => {}} />,
+      <TaskDrawer
+        task={tache('running')}
+        nodes={noeuds}
+        magasinSorties={magasin}
+        onClose={() => {}}
+      />,
     );
-    expect(dom.querySelector('[data-testid="console-directe"]')?.textContent).toContain(
-      'lecture de src/ruche.ts',
-    );
+    const console_ = () => dom.querySelector('[data-testid="console-directe"]');
+    expect(console_()?.textContent).toContain('lecture de src/ruche.ts');
+    // Un morceau de plus : la console abonnée se met à jour d'elle-même.
+    await act(async () => magasin.ajouter('t1', 'n1', 'écriture de src/rayon.ts\n'));
+    expect(console_()?.textContent).toContain('écriture de src/rayon.ts');
   });
 
   it('en cours mais encore muette : la console attend, elle ne disparaît pas', async () => {

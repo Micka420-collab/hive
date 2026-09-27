@@ -10,6 +10,7 @@ import { texteDEchec } from '../shared/texte-d-echec.js';
 import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from '../shared/types.js';
 import type { AdapterContext, AdapterResult } from './index.js';
 import { cadenceDe, createSortieDirecte } from './sortie-directe.js';
+import type { FluxSortie } from './sortie-directe.js';
 import { borneTexteFinal, createTexteFinalTracker } from './texte-final.js';
 import type { LecteurEvenementFinal } from './texte-final.js';
 
@@ -184,6 +185,26 @@ function executer(
       cadenceDe(ctx.onProgress),
     );
     let output = '';
+    // Les logs du résultat reçoivent des lignes ENTIÈRES, flux par flux — comme
+    // la sortie en direct. Versées lecture par lecture, stdout et stderr
+    // s'entrelaçaient au milieu d'une ligne : une clé coupée par une lecture de
+    // stderr (`sk-live-ab<ligne de stderr>cd…`) n'était plus égale à sa valeur,
+    // et le caviardage du nœud la laissait partir en deux moitiés. Une ligne
+    // sans fin est versée quand elle atteint le plafond : c'est la seule coupe
+    // qui reste possible, au-delà de 512 Kio d'un seul tenant.
+    const enCours: Record<FluxSortie, string> = { stdout: '', stderr: '' };
+    const verser = (flux: FluxSortie, s: string): void => {
+      const texte = enCours[flux] + s;
+      const fin = texte.length >= OUTPUT_CAP ? texte.length - 1 : texte.lastIndexOf('\n');
+      enCours[flux] = texte.slice(fin + 1);
+      if (fin >= 0 && output.length < OUTPUT_CAP) output += texte.slice(0, fin + 1);
+    };
+    const viderLignes = (): void => {
+      for (const flux of ['stdout', 'stderr'] as const) {
+        if (enCours[flux] !== '' && output.length < OUTPUT_CAP) output += enCours[flux];
+        enCours[flux] = '';
+      }
+    };
     let tampon = '';
     // Fin de la sortie standard seule, pour `'sortie-standard'` : stdout et
     // stderr sont MÊLÉS dans `output`, et plafonnés — Codex écrit sa réponse
@@ -195,7 +216,7 @@ function executer(
     child.stdout?.setEncoding('utf8');
     child.stderr?.setEncoding('utf8');
     child.stdout?.on('data', (s: string) => {
-      if (output.length < OUTPUT_CAP) output += s;
+      verser('stdout', s);
       direct.ecrire(s);
       if (texteFinal === 'sortie-standard') {
         sortieStandard = (sortieStandard + s).slice(-2 * LIMITS.finalText);
@@ -209,12 +230,13 @@ function executer(
       }
     });
     child.stderr?.on('data', (s: string) => {
-      if (output.length < OUTPUT_CAP) output += s;
+      verser('stderr', s);
       direct.ecrire(s, 'stderr');
     });
 
     const timeout = setTimeout(() => {
       tue = true;
+      viderLignes();
       output += `\n[hive] timeout après ${opts.timeoutMs} ms — processus tué`;
       child.kill();
     }, opts.timeoutMs);
@@ -223,6 +245,7 @@ function executer(
     child.on('error', (err) => {
       clearTimeout(timeout);
       direct.terminer();
+      viderLignes();
       // Le binaire n'a pas pu être lancé (absent, non exécutable) : échec d'infra.
       resolve({
         success: false,
@@ -238,6 +261,7 @@ function executer(
       // Avant le `resolve` : un morceau parti après le résultat serait ignoré
       // par le hub, et ressusciterait une console déjà vidée à l'écran.
       direct.terminer();
+      viderLignes();
       if (parLigne && tampon.trim()) parLigne(tampon); // dernière ligne sans \n final
       // Un processus TUÉ n'a pas conclu : ce qu'il avait écrit n'est pas sa
       // réponse finale, et le lire comme tel ferait juger une phrase coupée.

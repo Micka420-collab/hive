@@ -24,8 +24,12 @@ import { setLang, useLang, useT } from './i18n';
 import { InvitePanel } from './InvitePanel';
 import { NewProjectModal } from './NewProjectModal';
 import { TaskDrawer } from './TaskDrawer';
-import { ajouterSortie, FINS_D_EXECUTION, garderVivantes, oublierTache } from './sorties-directes';
-import type { SortiesDirectes } from './sorties-directes';
+import {
+  creerMagasinSorties,
+  FINS_D_EXECUTION,
+  garderVivantes,
+  oublierTache,
+} from './sorties-directes';
 import { transitionDifferees } from './differees';
 import { annoncesDepuisEvenements } from './horloge-vue';
 import {
@@ -267,7 +271,8 @@ export function App() {
   const [snapshot, setSnapshot] = useState<StateSnapshot>(EMPTY);
   const [events, setEvents] = useState<HiveEvent[]>([]);
   const [agentsByTask, setAgentsByTask] = useState<Record<string, SubAgent[]>>({});
-  const [sorties, setSorties] = useState<SortiesDirectes>({});
+  // Hors de l'état React : un morceau ne re-rend que la console qui l'affiche.
+  const [magasinSorties] = useState(creerMagasinSorties);
   const [deferred, setDeferred] = useState<Set<string>>(() => new Set());
   const [connected, setConnected] = useState(false);
   const [tokenAuthError, setTokenAuthError] = useState(false);
@@ -297,11 +302,10 @@ export function App() {
         setSnapshot(snap);
         // Un `task_done` manqué pendant une coupure ne viderait jamais ces
         // états : l'instantané, lui, dit toujours quelles tâches vivent.
-        setSorties((prev) => garderVivantes(prev, snap.tasks));
+        magasinSorties.garderVivantes(snap.tasks);
         setAgentsByTask((prev) => garderVivantes(prev, snap.tasks));
       },
-      onSortie: (taskId, nodeId, sortie) =>
-        setSorties((prev) => ajouterSortie(prev, taskId, nodeId, sortie)),
+      onSortie: (taskId, nodeId, sortie) => magasinSorties.ajouter(taskId, nodeId, sortie),
       onEvent: (ev) => {
         setEvents((prev) => [...prev.slice(-499), ev]);
         // Tout événement de fin de tâche / merge / conflit invalide les vues qui fetchent.
@@ -351,7 +355,7 @@ export function App() {
           setAgentsByTask((prev) => ({ ...prev, [taskId]: subAgents }));
         } else if (FINS_D_EXECUTION.includes(ev.type)) {
           setAgentsByTask((prev) => oublierTache(prev, taskId));
-          setSorties((prev) => oublierTache(prev, taskId));
+          magasinSorties.oublier(taskId);
         }
         // La transition vit dans `differees.ts`, PUR — la loupe l'avait rendue
         // SANS TEST tant qu'elle était enfouie ici. Rendre `prev` lui-même
@@ -385,7 +389,7 @@ export function App() {
       }
       feed.close();
     };
-  }, [feedKey]);
+  }, [feedKey, magasinSorties]);
 
   // ─── Navigation par hash ────────────────────────────────────────────────────
   useEffect(() => {
@@ -765,7 +769,7 @@ export function App() {
           nodes={snapshot.nodes}
           horloge={annonces.get(openTask.id)}
           refreshTick={refreshTick}
-          sortie={sorties[openTask.id]}
+          magasinSorties={magasinSorties}
           onClose={() => setOpenTaskId(null)}
         />
       )}

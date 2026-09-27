@@ -18,7 +18,7 @@ import {
   requisitionSiCredentialsManquantes,
 } from './agent-detect.js';
 import type { AgentType } from './agent-detect.js';
-import { creerCaviardeur, valeursSecretes } from '../shared/caviardage.js';
+import { creerCaviardeur, SECRET_CAVIARDE, valeursSecretes } from '../shared/caviardage.js';
 import type { Caviardeur } from '../shared/caviardage.js';
 import { argvDe, jugerChantier } from '../shared/chantier.js';
 import { jugerCommandeTest } from '../shared/commande-test.js';
@@ -89,6 +89,24 @@ function morceauCaviarde(sortie: string): string {
 }
 
 /**
+ * Un champ caviardé, ramené sous la borne que le protocole lui impose.
+ *
+ * `Caviardeur.texte` peut ALLONGER : un motif plus court que `[secret]`
+ * (`sk-v1`, `token=1`, `Basic x`) devient huit caractères. Or les adaptateurs
+ * coupent déjà un nom de sous-agent PILE à `LIMITS.name` : caviardé, il la
+ * dépassait, `isSubAgents` refusait le `task_result` ENTIER, et le hub fermait
+ * la socket du nœud — résultat perdu, alors que le nœud le croyait livré. La
+ * coupe recule au début d'un `[secret]` qu'elle traverserait : une moitié de
+ * marque ne dit plus qu'un secret était là.
+ */
+function borneApresCaviardage(s: string, max: number): string {
+  if (s.length <= max) return s;
+  const marque = s.lastIndexOf(SECRET_CAVIARDE, max - 1);
+  const coupe = marque >= 0 && marque + SECRET_CAVIARDE.length > max ? marque : max;
+  return s.slice(0, coupe);
+}
+
+/**
  * Ce que l'adaptateur a DÉCLARÉ, tel que `task_result` le transporte : la
  * déclaration fournisseur et le texte final, reborné ici comme le diff et les
  * logs : le hub ABANDONNE un texte trop long (protocol.ts), mieux vaut lui en
@@ -103,11 +121,12 @@ function declarationsDuResultat(
   caviardeur: Caviardeur,
 ): Pick<TaskResultMsg, 'fournisseur' | 'finalText'> {
   // Caviardé AVANT d'être borné : la borne garde la fin, et une clé coupée
-  // par elle ne serait plus reconnue.
+  // par elle ne serait plus reconnue. `reponse`, pas `texte` : le hub RELIT ce
+  // texte (proposition d'éclaireuse, avis de conseil — voir `Caviardeur`).
   const finalText =
     result.finalText === undefined
       ? undefined
-      : borneTexteFinal(caviardeur.texte(result.finalText));
+      : borneTexteFinal(caviardeur.reponse(result.finalText));
   return {
     ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
     ...(finalText ? { finalText } : {}),
@@ -1014,7 +1033,10 @@ export class HiveNodeClient {
     sousAgents: readonly SubAgent[],
     caviardeur: Caviardeur,
   ): SubAgent[] {
-    return sousAgents.map((a) => ({ ...a, name: caviardeur.texte(a.name) }));
+    return sousAgents.map((a) => ({
+      ...a,
+      name: borneApresCaviardage(caviardeur.texte(a.name), LIMITS.name),
+    }));
   }
 
   private delegationCaviardee(
@@ -1022,10 +1044,14 @@ export class HiveNodeClient {
     input: WorkerDelegationInput,
     caviardeur: Caviardeur,
   ): Promise<WorkerDelegationOutcome> {
+    // Reborné seulement si l'agent avait respecté la borne : une demande DÉJÀ
+    // trop longue doit rester refusée (`invalid_request`), pas tronquée en douce.
+    const champ = (v: string, max: number): string =>
+      v.length <= max ? borneApresCaviardage(caviardeur.texte(v), max) : caviardeur.texte(v);
     return this.requestDelegation(taskId, {
       ...input,
-      title: caviardeur.texte(input.title),
-      reason: caviardeur.texte(input.reason),
+      title: champ(input.title, LIMITS.title),
+      reason: champ(input.reason, LIMITS.delegationReason),
       prompt: caviardeur.code(input.prompt),
     });
   }

@@ -19,10 +19,18 @@
 //   · COPIER : tout le tampon, par le module commun (repli http compris) ;
 //   · REPLIER : couper les lignes longues ou défiler de côté.
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
 import { copierTexte } from './copier';
 import { useT } from './i18n';
-import type { SortieTache } from './sorties-directes';
+import type { MagasinSorties, SortieTache } from './sorties-directes';
 
 /** Distance au bas (px) sous laquelle on considère la console « en bas ». */
 const SEUIL_BAS_PX = 24;
@@ -46,6 +54,32 @@ export function texteDeConsole(sortie: SortieTache): string {
 
 interface Props {
   sortie: SortieTache | undefined;
+}
+
+/**
+ * La console de la tâche `taskId`, abonnée au magasin pour CETTE tâche seule :
+ * un morceau d'une autre tâche ne re-rend rien ici, et un morceau de celle-ci
+ * ne re-rend que la console — pas le tiroir, pas le tableau de bord.
+ */
+export function ConsoleDeTache({
+  magasin,
+  taskId,
+  enCours,
+}: {
+  magasin: MagasinSorties | undefined;
+  taskId: string;
+  /** Tâche assignée ou en cours : la console attend, même encore muette. */
+  enCours: boolean;
+}) {
+  const abonner = useCallback(
+    (prevenir: () => void) => magasin?.abonner(taskId, prevenir) ?? (() => {}),
+    [magasin, taskId],
+  );
+  const sortie = useSyncExternalStore(abonner, () => magasin?.lire(taskId));
+  // Tant qu'une sortie reste gardée, elle s'affiche : elle est vidée à la fin
+  // de vie de la tâche, où l'onglet « Logs » prend le relais.
+  if (!enCours && !sortie) return null;
+  return <ConsoleDirecte sortie={sortie} />;
 }
 
 export function ConsoleDirecte({ sortie }: Props) {

@@ -9,9 +9,13 @@
 //   · elle n'entre JAMAIS au journal (élagué par nombre : une exécution bavarde
 //     effacerait l'histoire de la ruche) ;
 //   · logs, diff et texte final rangés par la Reine sont caviardés aussi ;
-//   · un morceau arrivé après le résultat n'est pas relayé ;
+//   · un morceau arrivé après le résultat n'est pas relayé (ici, c'est la
+//     garde d'exécution du NŒUD qui le tait : l'échec est relancé aussitôt
+//     sur ce même nœud, la tâche est déjà réassignée quand il arrive) ;
 //   · ce que l'agent écrit d'autre et que le nœud relaie — noms de sous-agents,
-//     demande de délégation — part caviardé lui aussi.
+//     demande de délégation — part caviardé lui aussi, et reste sous les bornes
+//     du protocole : un nom PILE à sa borne qu'un `[secret]` allongeait faisait
+//     refuser le `task_result` entier (socket fermée, résultat perdu).
 //
 // Le faux agent est un script lancé par `process.execPath` (ni shebang ni
 // chmod : le banc tourne sur les trois OS de la CI) et il ATTEND un fichier
@@ -27,6 +31,7 @@ import { runCommand } from '../src/adapters/exec.js';
 import type { WorkerDelegationOutcome } from '../src/adapters/index.js';
 import { HiveNodeClient } from '../src/node-client/client.js';
 import { createServer, type HiveServer } from '../src/orchestrator/server.js';
+import { LIMITS } from '../src/shared/protocol.js';
 
 const JETON = 'jeton-sortie-directe-suffisamment-long';
 const NOM_CLE = 'HIVE_BANC_SORTIE_API_KEY';
@@ -121,10 +126,19 @@ describe('la sortie en direct — d’un vrai processus jusqu’à l’écran, c
           // Ce que l'agent déclare d'autre, et que le nœud relaie : un
           // sous-agent nommé d'après la clé, une délégation qui la recopie.
           const sousAgent = { id: 'sa-1', name: `lit ${CLE}`, status: 'running' as const };
-          ctx.onProgress({ subAgents: [sousAgent] });
+          // Coupé PILE à la borne par l'adaptateur (subagent-parser.ts), et
+          // finissant par un motif plus court que `[secret]`.
+          const nomBorne = 'Explorer le module de paiement '.repeat(5).slice(0, LIMITS.name - 6);
+          const sousAgentBorne = {
+            id: 'sa-2',
+            name: `${nomBorne} sk-v1`,
+            status: 'running' as const,
+          };
+          ctx.onProgress({ subAgents: [sousAgent, sousAgentBorne] });
+          const raison = `vérifier avec ${CLE} `;
           delegation = await ctx.delegate?.({
             childTaskId: 'enfant-sortie',
-            reason: `vérifier avec ${CLE}`,
+            reason: raison + 'x'.repeat(LIMITS.delegationReason - raison.length - 6) + ' sk-v1',
             title: `Enfant ${CLE}`,
             prompt: `Utilise la clé ${CLE} pour lire l'API.`,
             durationMs: 60_000,
@@ -137,7 +151,7 @@ describe('la sortie en direct — d’un vrai processus jusqu’à l’écran, c
           setTimeout(() => ctx.onProgress({ sortie: 'morceau posthume\n' }), 300);
           return {
             ...r,
-            subAgents: [sousAgent],
+            subAgents: [sousAgent, sousAgentBorne],
             diff: `@@ -0,0 +1 @@\n+const cle = '${CLE}';\n`,
           };
         },
@@ -187,6 +201,10 @@ describe('la sortie en direct — d’un vrai processus jusqu’à l’écran, c
     expect(journal).not.toContain(CLE);
 
     const [resultat] = s.store.resultsForTask(t.id);
+    // Le nom borné a été ramené sous sa borne — le résultat est arrivé.
+    const nomRecu = resultat?.subAgents.find((a) => a.id === 'sa-2')?.name ?? '';
+    expect(nomRecu.length).toBeLessThanOrEqual(LIMITS.name);
+    expect(nomRecu).not.toContain('sk-v1');
     expect(resultat?.logs).toContain('export CLE=[secret]');
     expect(resultat?.diff).toBe("@@ -0,0 +1 @@\n+const cle = '[secret]';\n");
     expect(JSON.stringify(resultat)).not.toContain(CLE);
