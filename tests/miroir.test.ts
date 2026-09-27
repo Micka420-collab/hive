@@ -13,9 +13,11 @@
 // garantie peut être établie, et sans lui la moitié du module pur ne sert à
 // rien : on aurait fermé la porte d'entrée en laissant la fenêtre ouverte.
 
+import { execFileSync } from 'node:child_process';
 import {
   lstatSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   symlinkSync,
@@ -53,7 +55,12 @@ const liensPossibles = ((): boolean => {
     rmSync(bac, { recursive: true, force: true });
   }
 })();
-import { Miroir, RayonIndisponible } from '../src/orchestrator/miroir.js';
+import {
+  FENETRE_RAFRAICHISSEMENT_MS,
+  Miroir,
+  RayonIndisponible,
+} from '../src/orchestrator/miroir.js';
+import { envGitHote } from '../src/shared/git-protege.js';
 import { TAILLE_MAX_FICHIER } from '../src/shared/rayon.js';
 
 /** Le motif du refus, ou 'PASSÉ' si la lecture a abouti. */
@@ -317,15 +324,26 @@ describe('LE MIROIR NE PEUT PAS ATTENDRE INDÉFINIMENT DES IDENTIFIANTS', () => 
   // La règle était écrite ; son câblage ne couvrait que POSIX. Cette garde
   // vérifie les DEUX verrous, pour que le prochain qui « nettoie »
   // l'environnement de git voie rouge plutôt que de rendre le hub bloquant.
+  //
+  // Ces verrous vivent désormais dans la porte COMMUNE au nœud et à la Reine
+  // (`shared/git-protege.ts`) : on vérifie que le miroir passe par elle, et
+  // ce qu'elle pose.
 
-  /** La source SANS ses commentaires — sinon la prose ci-dessus la ferait passer. */
-  const sourceNue = ((): string =>
-    readFileSync(new URL('../src/orchestrator/miroir.ts', import.meta.url), 'utf8')
+  /** Une source SANS ses commentaires — sinon la prose la ferait passer. */
+  const sourceNue = (relatif: string): string =>
+    readFileSync(new URL(relatif, import.meta.url), 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '')
-      .replace(/^\s*\/\/.*$/gm, ''))();
+      .replace(/^\s*\/\/.*$/gm, '');
+  const miroirNu = sourceNue('../src/orchestrator/miroir.ts');
+  const porteNue = sourceNue('../src/shared/git-protege.ts');
+
+  it('le miroir ne lance git QUE par la porte commune', () => {
+    expect(miroirNu).toMatch(/from '\.\.\/shared\/git-protege\.js'/);
+    expect(miroirNu).not.toMatch(/simple-git|node:child_process/);
+  });
 
   it('l’invite de terminal est coupée', () => {
-    expect(sourceNue).toMatch(/GIT_TERMINAL_PROMPT:\s*'0'/);
+    expect(envGitHote().GIT_TERMINAL_PROMPT).toBe('0');
   });
 
   it('LA CONFIGURATION MACHINE N’EST PAS COUPÉE EN BLOC', () => {
@@ -337,18 +355,150 @@ describe('LE MIROIR NE PEUT PAS ATTENDRE INDÉFINIMENT DES IDENTIFIANTS', () => 
     //
     // Ce test empêche d'y revenir : on met le composant fautif en
     // non-interactif, on ne coupe pas la configuration entière.
-    expect(sourceNue).not.toMatch(/GIT_CONFIG_NOSYSTEM/);
+    expect(envGitHote()).not.toHaveProperty('GIT_CONFIG_NOSYSTEM');
+    expect(porteNue).not.toMatch(/GIT_CONFIG_NOSYSTEM/);
   });
 
   it('et l’assistant lui-même est mis en non-interactif', () => {
-    expect(sourceNue).toMatch(/GCM_INTERACTIVE:\s*'Never'/);
+    expect(envGitHote().GCM_INTERACTIVE).toBe('Never');
   });
 
   it('AUCUN assistant d’identifiants n’est CONFIGURÉ — on coupe la source, on ne la remplace pas', () => {
-    // simple-git bloque `credential.helper` par configuration, et il a raison :
-    // un assistant peut désigner n'importe quel binaire. Le jour où quelqu'un
-    // débloquerait ça avec `allowUnsafeCredentialHelper`, ce test le dirait.
-    expect(sourceNue).not.toMatch(/allowUnsafeCredentialHelper/);
-    expect(sourceNue).not.toMatch(/credential\.helper/);
+    // Un assistant peut désigner n'importe quel binaire : le jour où
+    // quelqu'un en configurerait un pour faire taire l'invite, ce test le dirait.
+    expect(porteNue).not.toMatch(/credential\.helper/);
+    expect(miroirNu).not.toMatch(/credential\.helper/);
+  });
+});
+
+describe('LE MIROIR N’EXÉCUTE RIEN QUE LE DÉPÔT APPORTE — clone, fetch et reset', () => {
+  // ─── LE TROU QUE #483 AVAIT FERMÉ CÔTÉ NŒUD, ET PAS ICI ────────────────────
+  //
+  // Un `core.hooksPath` RELATIF dans la configuration GLOBALE de l'hôte
+  // (`.githooks`, `.husky` — un réglage courant) se résout contre l'ARBRE du
+  // dépôt. Le miroir clonait, récupérait et réinitialisait avec les réglages
+  // de la machine tels quels : le `post-checkout` que le DÉPÔT apporte dans
+  // `.githooks/` tournait sur la machine de la Reine, et `fetch`/`reset` y
+  // lançaient `reference-transaction` (reproduit sur git 2.53). Même chemin
+  // pour un filtre que la machine définit et que le `.gitattributes` du dépôt
+  // nomme. Le banc pose ces réglages dans un HOME à lui, ARME le piège avec un `git clone` naïf,
+  // puis exige qu'aucune sentinelle ne naisse du miroir, à aucun des trois
+  // gestes.
+  const CROCHETS = ['post-checkout', 'reference-transaction', 'post-index-change'];
+  let racine: string;
+  let amont: string;
+  let sentinelles: string;
+  let home: string;
+  const avant = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+
+  const pourSh = (p: string): string => p.split(path.sep).join('/');
+  const git = (cwd: string, ...args: string[]): string =>
+    execFileSync(
+      'git',
+      [
+        '-c',
+        'user.email=banc@hive.local',
+        '-c',
+        'user.name=Banc Hive',
+        '-c',
+        'commit.gpgsign=false',
+        ...args,
+      ],
+      { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+    );
+  const declenchees = (): string[] => readdirSync(sentinelles).sort();
+
+  beforeAll(() => {
+    racine = mkdtempSync(path.join(os.tmpdir(), 'hive-miroir-crochets-'));
+    sentinelles = path.join(racine, 'sentinelles');
+    mkdirSync(sentinelles);
+    amont = path.join(racine, 'amont');
+    mkdirSync(path.join(amont, '.githooks'), { recursive: true });
+    git(amont, 'init', '-q');
+    for (const nom of CROCHETS) {
+      const trace = pourSh(path.join(sentinelles, nom));
+      writeFileSync(
+        path.join(amont, '.githooks', nom),
+        `#!/bin/sh\necho piege >> '${trace}'\nexit 0\n`,
+        { mode: 0o755 },
+      );
+    }
+    writeFileSync(path.join(amont, 'README.md'), 'version 1\n');
+    // Un filtre que le dépôt NOMME et que la machine DÉFINIT (plus bas).
+    writeFileSync(path.join(amont, '.gitattributes'), '*.txt filter=piege\n');
+    writeFileSync(path.join(amont, 'donnees.txt'), 'octets du dépôt\n');
+    git(amont, 'add', '--all');
+    // Sous Windows, le bit exécutable ne se lit pas sur le disque.
+    git(amont, 'update-index', '--chmod=+x', ...CROCHETS.map((n) => `.githooks/${n}`));
+    git(amont, 'commit', '-q', '-m', 'base');
+
+    // La configuration GLOBALE de l'hôte : un HOME neuf, lu par le git du
+    // banc ET par celui du miroir (l'environnement transmet HOME).
+    home = path.join(racine, 'home');
+    mkdirSync(home);
+    const filtre = `echo piege >> '${pourSh(path.join(sentinelles, 'filtre'))}'; cat`;
+    for (const [cle, valeur] of Object.entries({
+      'core.hooksPath': '.githooks',
+      'filter.piege.smudge': filtre,
+      'filter.piege.clean': filtre,
+    })) {
+      execFileSync('git', ['config', '--file', path.join(home, '.gitconfig'), cle, valeur]);
+    }
+    process.env.HOME = home;
+    if (process.platform === 'win32') process.env.USERPROFILE = home;
+  });
+
+  afterAll(() => {
+    for (const [cle, valeur] of Object.entries(avant)) {
+      if (valeur === undefined) delete process.env[cle];
+      else process.env[cle] = valeur;
+    }
+    rmSync(racine, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  });
+
+  it('aucun crochet du dépôt ne tourne sur la Reine', async () => {
+    // Le piège armé : un clone naïf, sous la même configuration, le déclenche.
+    git(racine, 'clone', '-q', amont, path.join(racine, 'temoin'));
+    expect(declenchees(), 'le piège est armé : git naïf le déclenche').toEqual(
+      expect.arrayContaining(['post-checkout', 'filtre']),
+    );
+    rmSync(sentinelles, { recursive: true, force: true });
+    mkdirSync(sentinelles);
+
+    const miroir = new Miroir(path.join(racine, 'rayons'));
+    await miroir.rafraichir('p', amont, 1_000);
+    expect(declenchees(), 'le clone du miroir n’a rien lancé').toEqual([]);
+    expect((await miroir.lire('p', 'README.md')).contenu).toBe('version 1\n');
+    expect((await miroir.lire('p', 'donnees.txt')).contenu).toBe('octets du dépôt\n');
+
+    // Le rafraîchissement : `fetch` puis `reset --hard`, hors de la fenêtre.
+    // Le commit du banc dans l'amont lance, lui, les crochets : on l'oublie.
+    writeFileSync(path.join(amont, 'README.md'), 'version 2\n');
+    git(amont, 'commit', '-q', '-am', 'suite');
+    rmSync(sentinelles, { recursive: true, force: true });
+    mkdirSync(sentinelles);
+    await miroir.rafraichir('p', amont, 1_000 + FENETRE_RAFRAICHISSEMENT_MS + 1);
+    expect((await miroir.lire('p', 'README.md')).contenu, 'le miroir a suivi').toBe('version 2\n');
+    expect(declenchees(), 'ni fetch ni reset n’ont rien lancé').toEqual([]);
+  });
+
+  it('un miroir d’avant, cloné sans ces précautions, est refait plutôt que repris', async () => {
+    // Un clone d'une version précédente : extrait sans `info/attributes`, avec
+    // ce que l'`init.templateDir` de l'hôte y avait mis. C'est un cache — on
+    // le refait, on ne tente pas de le réparer.
+    const racineRayons = path.join(racine, 'rayons-anciens');
+    const ancien = path.join(racineRayons, 'q');
+    mkdirSync(racineRayons);
+    git(racine, 'clone', '-q', amont, ancien);
+    rmSync(sentinelles, { recursive: true, force: true });
+    mkdirSync(sentinelles);
+
+    const miroir = new Miroir(racineRayons);
+    await miroir.rafraichir('q', amont, FENETRE_RAFRAICHISSEMENT_MS + 1);
+    expect(declenchees(), 'le miroir refait n’a rien lancé').toEqual([]);
+    expect(readFileSync(path.join(ancien, '.git', 'info', 'attributes'), 'utf8')).toBe(
+      '* -filter\n',
+    );
+    expect((await miroir.lire('q', 'donnees.txt')).contenu).toBe('octets du dépôt\n');
   });
 });

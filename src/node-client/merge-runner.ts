@@ -41,8 +41,9 @@ import type { BacExecution } from './isolement.js';
 import { composerMission, garderMission } from './livraison-locale.js';
 import type { LivraisonDuNoeud, MissionComposee } from './livraison-locale.js';
 import type { RapportDuNoeud } from '../shared/livraison-locale.js';
-import { commitDeDepart, diffContreBase, epinglerClone, gitHote } from './git-hote.js';
-import type { DepotEpingle } from './git-hote.js';
+import { gitHote } from '../shared/git-protege.js';
+import type { DepotEpingle } from '../shared/git-protege.js';
+import { commitDeDepart, diffContreBase, epinglerClone } from './git-hote.js';
 import { buildSandboxEnv } from './workspace.js';
 
 export interface MergeDiff {
@@ -90,6 +91,13 @@ export interface MergeRunOptions {
    */
   prepareTimeoutMs?: number;
   signal?: AbortSignal;
+  /**
+   * Le caviardage du nœud (`shared/caviardage.ts`), appliqué à la sortie
+   * ENTIÈRE de la préparation et des tests AVANT qu'on n'en garde le début :
+   * ces logs partent au hub, et une coupe faite avant laisserait la moitié
+   * d'une clé qu'un test aurait imprimée (même règle que `validations-bac.ts`).
+   */
+  caviarder?: (texte: string) => string;
   /** Commiter le résultat intégré sur une branche de mission (cf. en-tête). */
   livraison?: LivraisonDuNoeud;
 }
@@ -463,6 +471,7 @@ export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
     if (conflicts.length === 0 && (opts.prepareCommand?.length || opts.testCommand?.length)) {
       // Environnement épuré : le hub n'accède à AUCUN secret local du nœud.
       const env = buildSandboxEnv(opts.repoDir);
+      const caviarder = opts.caviarder ?? ((texte: string) => texte);
       try {
         // LA PRÉPARATION D'ABORD — c'est tout l'intérêt : sans elle, `npm test`
         // sur un clone frais échoue faute de `node_modules`.
@@ -479,7 +488,7 @@ export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
           logs.push(
             `environnement : ${preparedOk ? '✔ préparé' : `✘ préparation en échec (code ${code})`}`,
           );
-          logs.push(output.slice(0, 4000));
+          logs.push(caviarder(output).slice(0, 4000));
         }
 
         // ET SI ELLE ÉCHOUE, ON NE TESTE PAS. Une installation qui n'aboutit
@@ -504,7 +513,7 @@ export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
           );
           testsPassed = code === 0;
           logs.push(`tests : ${testsPassed ? '✔ OK' : `✘ échec (code ${code})`}`);
-          logs.push(output.slice(0, 4000));
+          logs.push(caviarder(output).slice(0, 4000));
         }
       } finally {
         rmSync(`${opts.repoDir}.tmp`, {

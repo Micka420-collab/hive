@@ -443,7 +443,11 @@ describe('Evaluator — relecture impossible', () => {
       crossReviewImpossible: CAUSE,
     });
     expect(verdict.decision).toBe('human_review_required');
-    expect(verdict.reasons).toEqual([`relecture impossible : ${CAUSE}`]);
+    // Sans preuve, la personne qui tranche lit aussi qu'aucun test n'a tourné.
+    expect(verdict.reasons).toEqual([
+      `relecture impossible : ${CAUSE}`,
+      'preuves manquantes : tests, typecheck, build, lint (aucun producteur de preuve : ni bac Hive, ni CI GitHub)',
+    ]);
     expect(verdict.retryRecommended).toBe(false);
     expect(verdict.canMerge).toBe(false);
     expect(verdict.evidence.crossReviewImpossible).toBe(CAUSE);

@@ -183,6 +183,43 @@ describe('Evaluator — les validations du bac Hive', () => {
     expect(verdict.reasons[1]).toContain('podman, docker ou bubblewrap');
   });
 
+  // Une relecture impossible appelle l'humain AVANT les preuves absentes —
+  // mais celui qui approuve doit lire, dans le même verdict, qu'aucun test
+  // n'a tourné : sinon « revue humaine » se lit comme « il ne manque qu'un
+  // avis ».
+  const CAUSE = 'codex a échoué (3 tentative(s))';
+
+  it('relecture impossible SANS BAC : l’humain lit aussi que rien n’a tourné, et pourquoi', () => {
+    const sansBac = (script: string) => ({ raison: 'sans_bac', script }) as const;
+    const verdict = juger(
+      { tests: 'missing', typecheck: 'not_applicable', build: 'not_applicable', lint: 'missing' },
+      {
+        validationProvenance: {
+          ...bac,
+          details: { ...bac.details, tests: sansBac('test'), lint: sansBac('lint') },
+        },
+        crossReviewImpossible: CAUSE,
+      },
+    );
+    expect(verdict.decision).toBe('human_review_required');
+    expect(verdict.retryRecommended).toBe(false);
+    expect(verdict.reasons[0]).toBe(`relecture impossible : ${CAUSE}`);
+    expect(verdict.reasons[1]).toBe('preuves manquantes : tests, lint (bac Hive du nœud n1)');
+    expect(verdict.reasons[2]).toContain('le nœud n1 n’a pas de bac à sable');
+  });
+
+  it('relecture impossible, projet SANS TEST : le motif le dit aussi', () => {
+    const verdict = juger(
+      { tests: 'not_applicable', typecheck: 'passed', build: 'passed', lint: 'passed' },
+      { crossReviewImpossible: CAUSE },
+    );
+    expect(verdict.decision).toBe('human_review_required');
+    expect(verdict.reasons).toEqual([
+      `relecture impossible : ${CAUSE}`,
+      expect.stringContaining('le projet ne déclare aucun test (bac Hive du nœud n1)'),
+    ]);
+  });
+
   it('un manquant bloque, même entouré de verts et de non applicables', () => {
     const verdict = juger({
       tests: 'passed',

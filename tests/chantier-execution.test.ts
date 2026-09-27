@@ -794,3 +794,151 @@ describe('LE PROTOCOLE — un chantier déclenche un clone et un `npm run` chez 
     });
   });
 });
+
+describe('CE QUE LE NŒUD RENVOIE D’UN CHANTIER OU D’UN MERGE EST CAVIARDÉ AU NŒUD', () => {
+  // Le chemin d'une tâche caviarde tout ce qui part au hub (#489). Un chantier
+  // et la commande de test d'un merge exécutent eux aussi le code du dépôt —
+  // qui peut imprimer une clé que l'agent y a écrite, et c'est la valeur même
+  // que le nœud transmet à ses agents. Leur sortie repart au hub, donc à tout
+  // l'écran : caviardée au nœud, ENTIÈRE, avant toute coupe.
+  const NOM_CLE = 'HIVE_BANC_CHANTIER_API_KEY';
+  const CLE = 'cle-du-banc-chantier-que-nul-ne-doit-lire-0123456789';
+  /** Plus de 4000 caractères avant la clé : la coupe d'un merge tombe DEDANS. */
+  const AVANT_COUPE = 4_000 - 20;
+  const FUITE = `process.stdout.write('x'.repeat(${AVANT_COUPE}) + 'export CLE=${CLE}\\n');\n`;
+
+  let dossier: string | null = null;
+  let hub: WebSocketServer | null = null;
+  let client: HiveNodeClient | null = null;
+
+  afterEach(async () => {
+    await client?.stop();
+    client = null;
+    await new Promise<void>((r) => (hub ? hub.close(() => r()) : r()));
+    hub = null;
+    delete process.env[NOM_CLE];
+    if (dossier) rmSync(dossier, { recursive: true, force: true, maxRetries: 3 });
+    dossier = null;
+  });
+
+  /** Un dépôt dont le script `test` imprime la clé — écrite là par un agent. */
+  async function depotQuiFuit(): Promise<string> {
+    const { simpleGit } = await import('simple-git');
+    const origine = path.join(dossier!, 'origine');
+    mkdirSync(origine);
+    writeFileSync(
+      path.join(origine, 'package.json'),
+      JSON.stringify({ name: 'fuite', scripts: { test: 'node fuite.js' } }),
+    );
+    writeFileSync(path.join(origine, 'fuite.js'), FUITE);
+    const g = simpleGit({ baseDir: origine });
+    await g.init();
+    await g.addConfig('user.email', 't@example.com');
+    await g.addConfig('user.name', 'T');
+    await g.addConfig('commit.gpgsign', 'false');
+    await g.add('.');
+    await g.commit('initial');
+    return origine;
+  }
+
+  /** Un hub qui envoie `demande` au nœud, et rend le résultat qu'il reçoit. */
+  async function renvoi(demande: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const recus: Record<string, unknown>[] = [];
+    hub = new WebSocketServer({ port: 0, host: '127.0.0.1' });
+    await new Promise<void>((r) => hub!.once('listening', () => r()));
+    const port = (hub.address() as { port: number }).port;
+    hub.on('connection', (ws) => {
+      ws.on('message', (d) => {
+        const m = JSON.parse(d.toString()) as Record<string, unknown>;
+        recus.push(m);
+        if (m.type !== 'register') return;
+        ws.send(JSON.stringify({ type: 'registered', nodeId: 'faux' }));
+        ws.send(JSON.stringify(demande));
+      });
+    });
+    process.env[NOM_CLE] = CLE;
+    client = new HiveNodeClient({
+      url: `ws://127.0.0.1:${port}`,
+      token: TOKEN,
+      name: 'caviardage',
+      ownerName: 'test',
+      agentType: 'shell',
+      maxConcurrency: 1,
+      workRoot: path.join(dossier!, 'work'),
+      keepEnv: [NOM_CLE],
+      adapter: {
+        name: 'noop',
+        async run() {
+          return { success: true, diff: '', logs: '', subAgents: [] };
+        },
+      },
+      quiet: true,
+    });
+    await client.start();
+    const attendu = demande.type === 'assign_chantier' ? 'chantier_result' : 'merge_result';
+    const fin = Date.now() + 120_000;
+    while (Date.now() < fin) {
+      const r = recus.find((m) => m.type === attendu);
+      if (r) return r;
+      await new Promise((r2) => setTimeout(r2, 50));
+    }
+    throw new Error('le nœud n’a rendu aucun résultat');
+  }
+
+  it('la sortie d’un chantier', { timeout: 180_000 }, async () => {
+    dossier = mkdtempSync(path.join(os.tmpdir(), 'hive-caviardage-chantier-'));
+    const repoUrl = await depotQuiFuit();
+    const r = await renvoi({ type: 'assign_chantier', chantierId: 'fuite1', repoUrl, nom: 'test' });
+    expect(r.code, String(r.sortie)).toBe(0);
+    expect(String(r.sortie)).toContain('export CLE=[secret]');
+    expect(JSON.stringify(r)).not.toContain(CLE);
+  });
+
+  it(
+    'la sortie des tests d’un merge, coupée APRÈS caviardage, et son diff',
+    {
+      timeout: 180_000,
+    },
+    async () => {
+      dossier = mkdtempSync(path.join(os.tmpdir(), 'hive-caviardage-merge-'));
+      const repoUrl = await depotQuiFuit();
+      // Le diff d'une tâche qui recopie la clé : il revient dans le diff cumulé.
+      const diff =
+        'diff --git a/cle.js b/cle.js\nnew file mode 100644\n--- /dev/null\n+++ b/cle.js\n' +
+        `@@ -0,0 +1 @@\n+module.exports = '${CLE}';\n`;
+      const r = await renvoi({
+        type: 'assign_merge',
+        mergeId: 'fuite2',
+        repoUrl,
+        diffs: [{ taskId: 't1', diff }],
+        testCommand: ['node', 'fuite.js'],
+      });
+      expect(r.applied, String(r.logs)).toEqual(['t1']);
+      expect(r.testsRun).toBe(true);
+      expect(String(r.logs)).toContain('export CLE=[secret]');
+      // Coupée d'abord, la sortie gardait le début de la clé.
+      expect(String(r.logs)).not.toContain(CLE.slice(0, 16));
+      expect(String(r.mergedDiff)).toContain("+module.exports = '[secret]';");
+      expect(JSON.stringify(r)).not.toContain(CLE);
+    },
+  );
+
+  it.each(['assign_chantier', 'assign_merge'])(
+    'l’échec d’un %s, qui cite ce qu’il n’a pas pu cloner',
+    { timeout: 180_000 },
+    async (type) => {
+      dossier = mkdtempSync(path.join(os.tmpdir(), 'hive-caviardage-echec-'));
+      // Le message de git recopie le chemin — ici, le jeton de ruche du nœud.
+      const repoUrl = path.join(dossier, 'absent', TOKEN);
+      const r = await renvoi(
+        type === 'assign_chantier'
+          ? { type, chantierId: 'echec1', repoUrl, nom: 'test' }
+          : { type, mergeId: 'echec2', repoUrl, diffs: [{ taskId: 't1', diff: 'x' }] },
+      );
+      const texte = String(r.sortie ?? r.logs);
+      expect(texte).toMatch(/échec du (chantier|merge)/);
+      expect(texte).toContain('[secret]');
+      expect(JSON.stringify(r)).not.toContain(TOKEN);
+    },
+  );
+});

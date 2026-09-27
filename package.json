@@ -46,7 +46,6 @@
     "prepare": "npm run build:node"
   },
   "dependencies": {
-    "simple-git": "^3.36.0",
     "ws": "^8.21.0"
   },
   "optionalDependencies": {
@@ -83,6 +82,7 @@
     "prettier": "^3.9.4",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
+    "simple-git": "^3.36.0",
     "tsx": "^4.23.0",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.63.0",

@@ -73,8 +73,8 @@ import type {
 } from '../shared/validations-bac.js';
 import type { BacExecution } from './isolement.js';
 import { runProc } from './merge-runner.js';
-import { gitHote } from './git-hote.js';
-import type { DepotEpingle } from './git-hote.js';
+import { gitHote } from '../shared/git-protege.js';
+import type { DepotEpingle } from '../shared/git-protege.js';
 import { buildSandboxEnv, retirerFichiersIgnores } from './workspace.js';
 
 /** Délai de chaque commande de validation — celui des tests d'un merge. */

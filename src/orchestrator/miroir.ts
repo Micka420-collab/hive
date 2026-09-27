@@ -31,7 +31,7 @@
 
 import { existsSync, promises as fs } from 'node:fs';
 import path from 'node:path';
-import { simpleGit } from 'simple-git';
+import { commandeSshDuMembre, gitHote } from '../shared/git-protege.js';
 import {
   TAILLE_MAX_FICHIER,
   cheminDemande,
@@ -75,74 +75,14 @@ export class RayonIndisponible extends Error {
 }
 
 /**
- * L'environnement d'un `git` lancé par le hub.
- *
- * Épuré comme celui des nœuds, et pour la même raison : le processus enfant
- * n'a aucune raison de voir les secrets du hub. `GIT_TERMINAL_PROMPT=0` est
- * indispensable — sans lui, un dépôt privé sans identifiants fait ATTENDRE git
- * sur une invite de mot de passe que personne ne lira jamais, et la requête
- * HTTP reste ouverte jusqu'à son délai d'expiration.
+ * `info/attributes` du git dir du miroir — il PRIME sur tout `.gitattributes`
+ * de l'arbre (gitattributes(5)). Le dépôt NOMME des filtres ; la machine de
+ * la Reine peut en DÉFINIR (Git for Windows inscrit `filter.lfs`) : sans
+ * cette ligne, l'extraction lançait ce programme parce que le dépôt le
+ * désignait. Le miroir montre les octets du dépôt — un fichier LFS s'y lit
+ * comme son pointeur, jamais téléchargé.
  */
-function envGit(): NodeJS.ProcessEnv {
-  return {
-    PATH: process.env.PATH,
-    HOME: process.env.HOME,
-    USERPROFILE: process.env.USERPROFILE,
-    SYSTEMROOT: process.env.SYSTEMROOT,
-    SYSTEMDRIVE: process.env.SYSTEMDRIVE,
-    GIT_ALLOW_PROTOCOL: 'http:https:git:ssh:file',
-    GIT_TERMINAL_PROMPT: '0',
-    // ─── LA PORTE QUE `GIT_TERMINAL_PROMPT=0` NE FERME PAS ────────────────────
-    //
-    // Le commentaire ci-dessus a raison sur le fond, et son câblage ne couvrait
-    // que POSIX. `GIT_TERMINAL_PROMPT` gouverne l'invite du TERMINAL. Sous
-    // Windows, la configuration système inscrit `credential.helper=manager` —
-    // Git Credential Manager — qui ne lit pas cette variable et attend sur sa
-    // propre interface, indéfiniment.
-    //
-    // Ça s'est vu au millième près : trois tests lisant un dépôt inatteignable
-    // ont bloqué à 30 008, 30 019 et 30 009 ms sur la CI Windows. Le plafond,
-    // pas une lenteur. `GCM_INTERACTIVE=Never` le fait échouer au lieu
-    // d'attendre, et les trois blocages ont disparu.
-    //
-    // ─── ET CE QUE J'AI ESSAYÉ AVANT, QUI ÉTAIT TROP BRUTAL ───────────────────
-    //
-    // `GIT_CONFIG_NOSYSTEM=1` supprimait bien l'assistant… et tout le reste de
-    // la configuration machine avec lui, dont `core.symlinks=true` que Git for
-    // Windows y règle. Le clone aplatissait alors les liens symboliques, et les
-    // trois gardes du miroir contre l'évasion par lien ne vérifiaient plus
-    // rien. C'est l'assertion posée pour ça — « le clone a APLATI le lien
-    // symbolique » — qui l'a dit, et c'est exactement ce qu'on lui demandait.
-    //
-    // On ne coupe donc PAS la configuration machine : on met le seul composant
-    // fautif en non-interactif. Et pas via `credential.helper=` en
-    // configuration : simple-git le bloque, à raison — un assistant peut
-    // désigner n'importe quel binaire.
-    GCM_INTERACTIVE: 'Never',
-  };
-}
-
-/**
- * LE MIROIR MONTRE LE CODE TEL QU'IL EST DANS LE DÉPÔT.
- *
- * Sous Windows, `core.autocrlf` vaut `true` par défaut : git réécrit les fins
- * de ligne à la sortie. Le miroir servirait alors un code que le dépôt ne
- * contient pas — un octet de plus par ligne.
- *
- * Ce n'est pas cosmétique. L'Aperçu inline feuilles et scripts en comparant des
- * CHAÎNES ; la lecture de diff travaille ligne à ligne ; et une empreinte
- * calculée sur ce contenu changerait selon le système de l'hôte. **Deux ruches
- * sur le même dépôt ne verraient pas le même code.**
- *
- * Découvert en ouvrant la CI Windows : le test du miroir a rendu
- * « export const a = 1;\r\n » là où le dépôt contient « \n ».
- *
- * Passé en `-c` plutôt qu'en variable d'environnement : `simple-git` bloque
- * `GIT_CONFIG_COUNT` par défaut (`allowUnsafeConfigEnvCount`), et cette
- * protection-là est bonne — on ne la désactive pas pour un réglage qu'une
- * option porte très bien.
- */
-const CONFIG_GIT = ['core.autocrlf=false'];
+const ATTRIBUTS_MIROIR = '* -filter\n';
 
 /**
  * Le miroir des dépôts, un répertoire par projet.
@@ -197,22 +137,62 @@ export class Miroir {
     return travail;
   }
 
+  /**
+   * Clone ou rafraîchit, par la porte commune (`shared/git-protege.ts`) :
+   * aucun crochet — pas même ceux qu'un `core.hooksPath` global relatif ferait
+   * lire dans l'arbre —, aucun moniteur, transport borné, jamais d'invite.
+   *
+   * Le clone se fait SANS extraction, et c'est ce qui laisse poser
+   * `info/attributes` avant que le moindre fichier ne sorte ; `--template=`
+   * vide : aucun crochet ni fichier d'un `init.templateDir` de l'hôte. Le
+   * git dir n'est alors écrit que par git et par nous. `core.autocrlf=false`
+   * est ÉCRIT dans sa configuration : sous Windows, git réécrirait sinon les
+   * fins de ligne, et le miroir servirait un code que le dépôt ne contient
+   * pas — un octet de plus par ligne, et deux ruches sur le même dépôt ne
+   * verraient pas le même code (vu sur la CI Windows :
+   * « export const a = 1;\r\n »).
+   *
+   * Un miroir sans `info/attributes` vient d'une version qui clonait sans ces
+   * précautions : c'est un cache, on le refait plutôt que de le réparer.
+   *
+   * `fetch` puis `reset --hard` : le miroir n'a pas de travail local à
+   * préserver, et un `pull` qui tomberait sur un rebase amont resterait
+   * bloqué sur un conflit que personne n'est là pour résoudre.
+   */
   private async faireRafraichir(projectId: string, repoUrl: string): Promise<void> {
     const dir = this.dossier(projectId);
-    if (this.existe(projectId)) {
-      // `fetch` puis `reset --hard` : le miroir n'a pas de travail local à
-      // préserver, et un `pull` qui tomberait sur un rebase amont resterait
-      // bloqué sur un conflit que personne n'est là pour résoudre.
-      const git = simpleGit({ baseDir: dir, config: CONFIG_GIT }).env(envGit());
-      await git.fetch(['--depth', '1', 'origin']);
-      const tete = (await git.raw(['symbolic-ref', '--short', 'HEAD'])).trim() || 'HEAD';
-      await git.raw(['reset', '--hard', `origin/${tete}`]);
-      return;
+    const depot = { gitDir: path.join(dir, '.git'), workTree: dir };
+    const attributs = path.join(depot.gitDir, 'info', 'attributes');
+    // La racine d'abord : `commandeSshDuMembre` y lance git, et un cwd absent
+    // la ferait retomber sur `ssh` au premier clone.
+    await fs.mkdir(this.racine, { recursive: true });
+    const ssh = await commandeSshDuMembre(this.racine);
+    if (this.existe(projectId) && existsSync(attributs)) {
+      await gitHote(['fetch', '--depth', '1', 'origin'], depot, { ssh });
+    } else {
+      await fs.rm(dir, { recursive: true, force: true });
+      await gitHote(
+        [
+          'clone',
+          '--depth',
+          '1',
+          '--no-tags',
+          '--no-checkout',
+          '--template=',
+          '--config',
+          'core.autocrlf=false',
+          '--',
+          repoUrl,
+          dir,
+        ],
+        this.racine,
+        { ssh },
+      );
+      await fs.mkdir(path.dirname(attributs), { recursive: true });
+      await fs.writeFile(attributs, ATTRIBUTS_MIROIR);
     }
-    await fs.mkdir(path.dirname(dir), { recursive: true });
-    await simpleGit({ config: CONFIG_GIT })
-      .env(envGit())
-      .clone(repoUrl, dir, ['--depth', '1', '--no-tags']);
+    const tete = (await gitHote(['symbolic-ref', '--short', 'HEAD'], depot)).trim() || 'HEAD';
+    await gitHote(['reset', '--hard', `origin/${tete}`], depot);
   }
 
   /**

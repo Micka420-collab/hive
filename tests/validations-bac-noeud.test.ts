@@ -27,19 +27,38 @@ import {
 } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { simpleGit } from 'simple-git';
 import { resoudreLanceur } from '../src/lanceur-reel.js';
 import { GRACE_ARRET_MS } from '../src/node-client/merge-runner.js';
 import { poserRegistre } from '../src/node-client/git-hote.js';
-import type { DepotEpingle } from '../src/node-client/git-hote.js';
+import type { DepotEpingle } from '../src/shared/git-protege.js';
 import { validerProduction } from '../src/node-client/validations-bac.js';
 import { prepareWorkspace } from '../src/node-client/workspace.js';
 import type { Fournisseur } from '../src/node-client/isolement.js';
+import { creerCaviardeur } from '../src/shared/caviardage.js';
 import { fauxBac as fauxBacDe } from './fixtures/faux-bac.js';
 import type { Task } from '../src/shared/types.js';
 
 const dossiers: string[] = [];
+
+/**
+ * `runProc` réel, sauf quand un cas pose `piege.erreur` : le lancement jette
+ * alors — la panne du NŒUD que `validerProduction` rend en `interrompue`.
+ */
+const piege = vi.hoisted(() => ({ erreur: null as Error | null }));
+vi.mock('../src/node-client/merge-runner.js', async (original) => {
+  const vrai = await original<typeof import('../src/node-client/merge-runner.js')>();
+  return {
+    ...vrai,
+    runProc: (...args: Parameters<typeof vrai.runProc>) =>
+      piege.erreur ? Promise.reject(piege.erreur) : vrai.runProc(...args),
+  };
+});
+
+afterEach(() => {
+  piege.erreur = null;
+});
 
 afterEach(() => {
   for (const d of dossiers.splice(0)) rmSync(d, { recursive: true, force: true, maxRetries: 3 });
@@ -434,6 +453,24 @@ describe.runIf(POSIX)('validerProduction — ce que la base déclare, lancé dan
     const rapport = await valider(dir, { signal: ctrl.signal });
 
     expect(rapport.controles.tests).toMatchObject({ etat: 'missing', raison: 'annule' });
+    expect(existsSync(path.join(dir, 'test.ran'))).toBe(false);
+  }, 30_000);
+});
+
+describe('validerProduction — une panne du nœud se dit, caviardée', () => {
+  it('le message d’une exception part au hub sans le jeton de ruche qu’il cite', async () => {
+    // L'extrait `interrompue` recopie le message tel quel « pour qu'on le
+    // trouve » — et il part au hub comme les logs (#489). Un message de
+    // lancement peut citer un chemin ou un argument qui porte un secret.
+    const JETON = 'jeton-de-ruche-du-banc-assez-long-0123456789';
+    const dir = await depot({ 'package.json': manifeste({ test: marque('test') }) });
+    piege.erreur = new Error(`spawn refusé : /srv/${JETON}/npm`);
+
+    const rapport = await valider(dir, { caviarder: creerCaviardeur([JETON]).texte });
+
+    expect(rapport.controles.tests).toMatchObject({ etat: 'missing', raison: 'interrompue' });
+    expect(rapport.controles.tests.extrait).toContain('spawn refusé : /srv/[secret]/npm');
+    expect(JSON.stringify(rapport)).not.toContain(JETON);
     expect(existsSync(path.join(dir, 'test.ran'))).toBe(false);
   }, 30_000);
 });

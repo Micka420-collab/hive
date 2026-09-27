@@ -27,15 +27,9 @@ import { mkdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { CLONE_MS } from '../shared/butoirs-noeud.js';
 import type { Task } from '../shared/types.js';
-import {
-  EchecGitHote,
-  commandeSshDuMembre,
-  commitDeDepart,
-  diffContreBase,
-  gitHote,
-  poserRegistre,
-} from './git-hote.js';
-import type { DepotEpingle } from './git-hote.js';
+import { EchecGitHote, commandeSshDuMembre, gitHote } from '../shared/git-protege.js';
+import type { DepotEpingle } from '../shared/git-protege.js';
+import { commitDeDepart, diffContreBase, poserRegistre } from './git-hote.js';
 
 export interface Workspace {
   /** Répertoire de travail isolé de la tâche. */

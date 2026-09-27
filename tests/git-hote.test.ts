@@ -45,7 +45,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { EchecGitHote, gitHote } from '../src/node-client/git-hote.js';
+import { EchecGitHote, gitHote } from '../src/shared/git-protege.js';
 import { runMerge } from '../src/node-client/merge-runner.js';
 import { cloneRepo, prepareWorkspace } from '../src/node-client/workspace.js';
 import type { Task } from '../src/shared/types.js';
@@ -443,6 +443,14 @@ const VECTEURS_MACHINE: Record<string, VecteurMachine> = {
   },
   'un `diff.external` global': {
     machine: () => ({ 'diff.external': trace('diff-external-machine') }),
+    arbre: () => ({}),
+  },
+  'un `core.fsmonitor` global': {
+    // Le registre n'en a pas ; la configuration du membre, si. Le moniteur
+    // tournerait à chaque `add` sur l'arbre de la tâche.
+    machine: () => ({
+      'core.fsmonitor': pourSh(script(path.join(racine, 'moniteur-machine'), 'fsmonitor-machine')),
+    }),
     arbre: () => ({}),
   },
 };
