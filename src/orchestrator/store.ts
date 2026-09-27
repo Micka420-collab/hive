@@ -3665,6 +3665,31 @@ export class HiveStore {
     return row.id;
   }
 
+  /**
+   * Les productions RÉUSSIES d'un nœud rendues depuis `depuis`, les plus
+   * récentes d'abord, bornées — la matière de la qualité d'un Worker. Plan
+   * couvrant sur `idx_results_recent` : ni diff ni journaux ne sont ouverts
+   * (même raison que `listResultsForPheromones`).
+   */
+  productionsDuNoeud(
+    nodeId: string,
+    depuis: number,
+    limite = 100,
+  ): Array<{ resultId: number; taskId: string }> {
+    const rows = this.db
+      .prepare(
+        `SELECT id, taskId FROM results INDEXED BY idx_results_recent
+          WHERE createdAt >= ? AND nodeId = ? AND success = 1
+          ORDER BY createdAt DESC, id DESC LIMIT ?`,
+      )
+      .all(
+        Number.isFinite(depuis) ? depuis : Number.MAX_SAFE_INTEGER,
+        nodeId,
+        Math.max(1, Math.min(limite, 500)),
+      ) as Array<{ id: number; taskId: string }>;
+    return rows.map((r) => ({ resultId: r.id, taskId: r.taskId }));
+  }
+
   /** Id du dernier résultat inséré (0 si la table est vide). */
   lastResultId(): number {
     const row = this.db.prepare('SELECT MAX(id) AS id FROM results').get() as { id: number | null };

@@ -6,6 +6,7 @@ import { Component, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { KeyboardEvent, ReactNode, RefObject } from 'react';
 import type { TaskStatus } from '../../src/shared/types';
+import type { SommeDeclaree } from '../../src/shared/declaration-fournisseur';
 import type { BandeThermo, Domaine } from './api';
 import { useLang, useT } from './i18n';
 import type { Translate, UiLang } from './i18n';
@@ -401,6 +402,30 @@ export function formatMs(ms: number): string {
 /** Un compte de jetons déclaré, groupé à la façon de la langue (« 12 345 »). */
 export function direJetons(jetons: number, lang: 'fr' | 'en'): string {
   return new Intl.NumberFormat(lang === 'fr' ? 'fr-FR' : 'en-US').format(jetons);
+}
+
+/**
+ * Une somme DÉCLARÉE par les CLI des agents, dite avec sa couverture.
+ *
+ * C'est la seule forme sous laquelle un coût déclaré devient un chiffre de
+ * tête : « ≥ » dès qu'une tentative s'est tue, et « 3/5 tentatives
+ * déclarées » à côté — jamais un total nu qu'on lirait comme une facture, et
+ * jamais extrapolé à la tentative muette. Sans aucune déclaration :
+ * « inconnu », sans couverture à dire.
+ */
+export function direSommeDeclaree(
+  s: SommeDeclaree | 'inconnu',
+  rendu: (v: number) => string,
+  t: Translate,
+): { valeur: string; couverture: string | null } {
+  if (s === 'inconnu') return { valeur: t('inconnu', 'unknown'), couverture: null };
+  return {
+    valeur: `${s.declarees < s.tentatives ? '≥ ' : ''}${rendu(s.total)}`,
+    couverture: t(
+      `${s.declarees}/${s.tentatives} tentative(s) déclarée(s)`,
+      `${s.declarees}/${s.tentatives} attempt(s) declared`,
+    ),
+  };
 }
 
 /** Montant déclaré, en dollars US — jusqu'à quatre décimales pour les petits coûts. */

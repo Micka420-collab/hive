@@ -448,3 +448,59 @@ describe('les lignes de la contre-revue disent où elle en est', () => {
     });
   }
 });
+
+describe('les décisions se lisent comme des décisions — jamais par leur type brut', () => {
+  // Ces lignes nourrissent aussi le fil des décisions de l'accueil
+  // (`ligneDuJournal`) : un type brut y serait une décision illisible.
+  const cas: Array<[string, string, Record<string, unknown>, 'fr' | 'en', string]> = [
+    [
+      'le modèle commandé',
+      'task_assigned',
+      { taskId: 'tache-1234abcd', nodeId: 'noeud-5678efgh', modele: 'opus', categorie: 'code' },
+      'fr',
+      'tache-12 → nœud noeud-56 · modèle opus (code)',
+    ],
+    [
+      'une affectation sans modèle reste courte',
+      'task_assigned',
+      { taskId: 'tache-1234abcd', nodeId: 'noeud-5678efgh' },
+      'fr',
+      'tache-12 → nœud noeud-56',
+    ],
+    [
+      'le verdict humain',
+      'task_reviewed',
+      { taskId: 'tache-1234abcd', state: 'approved' },
+      'fr',
+      'revue humaine : approuvée (tache-12)',
+    ],
+    [
+      'une revue effacée',
+      'task_reviewed',
+      { taskId: 'tache-1234abcd', state: null },
+      'en',
+      'human review cleared (tache-12)',
+    ],
+    [
+      'un verdict passé outre',
+      'evaluator_overridden',
+      { taskId: 'tache-1234abcd', decision: 'human_review_required', geste: 'livrer' },
+      'fr',
+      'verdict de l’Evaluator (human_review_required) passé outre pour livrer (tache-12)',
+    ],
+    [
+      'un Conseil tranché sans piste',
+      'council_decided',
+      { sessionId: 's1', propositionId: null, titre: null },
+      'fr',
+      'Conseil tranché : aucune piste retenue',
+    ],
+  ];
+  for (const [nom, type, payload, lang, attendu] of cas) {
+    it(`${nom.toUpperCase()} (${lang})`, async () => {
+      setLang(lang);
+      const dom = await monter(evenement(type, payload));
+      expect(ligne(dom)).toBe(attendu);
+    });
+  }
+});

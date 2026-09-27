@@ -327,6 +327,76 @@
   margin-top: 2px;
 }
 
+/* Le rapport de mission : les chiffres de tête (toujours avec leur
+   couverture), puis une ligne par tâche. Le tableau défile seul : une carte
+   projet étroite ne doit pas élargir la page. */
+.mission-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.mission-panel h4 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.mission-kpi {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px;
+}
+
+.mission-kpi dt {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.mission-kpi dd {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+}
+
+.mission-couverture,
+.mission-meta,
+.mission-fenetre {
+  color: var(--faint);
+  font-size: 11px;
+}
+
+.mission-meta {
+  display: block;
+}
+
+.mission-defile {
+  overflow-x: auto;
+}
+
+.mission-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.mission-table th,
+.mission-table td {
+  padding: 4px 6px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+}
+
+.mission-table thead th {
+  color: var(--muted);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 /* ─── Sous-panneaux (plan de merge, conflits Sting) ────────────────────── */
 
 .pj-sub {

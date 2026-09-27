@@ -207,6 +207,26 @@ describe('les liens de partage', () => {
       expect(parCompte.contributingNodes).toEqual(['noeud-temoin']);
     });
 
+    it('UN PARTAGE NE MONTRE PAS LE RAPPORT DE MISSION — même demandé', async () => {
+      // Le rapport de mission nomme les modèles, cite les motifs de
+      // l'Evaluator (qui peuvent citer l'objection d'un agent) et dit ce que
+      // la mission a coûté : ce n'est pas « voir l'avancement ». Un compte,
+      // lui, le lit — c'est bien le lien qu'on restreint.
+      const parLien = (await (
+        await fetch(`${base}/api/projects/${projetA}/report?detail=mission`, {
+          headers: { 'x-hive-partage': lien },
+        })
+      ).json()) as { total: number; mission?: unknown };
+      const parCompte = (await (
+        await fetch(`${base}/api/projects/${projetA}/report?detail=mission`, {
+          headers: { authorization: `Bearer ${jetonReine}`, 'x-hive-token': TOKEN },
+        })
+      ).json()) as { mission?: { taches: unknown[] } };
+      expect(typeof parLien.total).toBe('number');
+      expect(parLien).not.toHaveProperty('mission');
+      expect(parCompte.mission?.taches).toHaveLength(1);
+    });
+
     it('l’avancement d’un AUTRE projet reste fermé', async () => {
       // Le lien vaut pour UN projet. Sans cette vérification, `voir_avancement`
       // deviendrait un droit de lecture sur toute la ruche.

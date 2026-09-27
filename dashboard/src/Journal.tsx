@@ -153,11 +153,18 @@ const EVENTS: Record<string, Meta> = {
   task_assigned: {
     icon: '◈',
     cls: 'info',
-    text: (p, t) =>
-      t(
+    // Le modèle COMMANDÉ, quand l'Aiguillage en a choisi un : c'est la
+    // décision que la ligne rapporte. Sa raison complète (le classement figé)
+    // se lit dans le tiroir de la tâche — trop longue pour une ligne.
+    text: (p, t) => {
+      const base = t(
         `${short(p.taskId)} → nœud ${short(p.nodeId)}`,
         `${short(p.taskId)} → node ${short(p.nodeId)}`,
-      ),
+      );
+      if (typeof p.modele !== 'string' || p.modele === '') return base;
+      const categorie = typeof p.categorie === 'string' ? ` (${p.categorie})` : '';
+      return `${base} · ${t('modèle', 'model')} ${p.modele}${categorie}`;
+    },
   },
   task_started: {
     icon: '▶',
@@ -214,6 +221,46 @@ const EVENTS: Record<string, Meta> = {
       // Balance dès que la tâche aboutit.
       return ms === null ? base : `${base} — ${t(`${ms} en reprise`, `${ms} of rework`)}`;
     },
+  },
+  // Le verdict HUMAIN de la Miellerie. `state: null` efface une revue : un
+  // geste aussi, dit comme tel plutôt que par le type brut.
+  task_reviewed: {
+    icon: '✍',
+    cls: 'info',
+    text: (p, t) =>
+      p.state === 'approved'
+        ? t(
+            `revue humaine : approuvée (${short(p.taskId)})`,
+            `human review: approved (${short(p.taskId)})`,
+          )
+        : p.state === 'rejected'
+          ? t(
+              `revue humaine : rejetée (${short(p.taskId)})`,
+              `human review: rejected (${short(p.taskId)})`,
+            )
+          : t(
+              `revue humaine effacée (${short(p.taskId)})`,
+              `human review cleared (${short(p.taskId)})`,
+            ),
+  },
+  // Un humain passe outre l'Evaluator pour livrer ou fusionner. La raison vit
+  // dans le payload ; la ligne dit le geste et le verdict contourné.
+  evaluator_overridden: {
+    icon: '⚑',
+    cls: 'warn',
+    text: (p, t) =>
+      t(
+        `verdict de l’Evaluator (${String(p.decision ?? '?')}) passé outre pour ${String(p.geste ?? '?')} (${short(p.taskId)})`,
+        `Evaluator verdict (${String(p.decision ?? '?')}) overridden to ${String(p.geste ?? '?')} (${short(p.taskId)})`,
+      ),
+  },
+  council_decided: {
+    icon: '⚔',
+    cls: 'info',
+    text: (p, t) =>
+      typeof p.titre === 'string' && p.titre !== ''
+        ? t(`Conseil tranché : « ${p.titre} »`, `Council settled: “${p.titre}”`)
+        : t('Conseil tranché : aucune piste retenue', 'Council settled: no path kept'),
   },
   evaluator_retry_skipped: {
     icon: '⊘',
@@ -705,6 +752,21 @@ const EVENTS: Record<string, Meta> = {
   },
 };
 
+/**
+ * La ligne d'un événement, telle que le Journal la dit — icône, classe et
+ * texte bilingue reconstruit depuis les champs typés du payload. Exportée
+ * pour que le fil des décisions de l'accueil parle EXACTEMENT comme le
+ * Journal : deux traductions d'un même fait finiraient par se contredire.
+ */
+export function ligneDuJournal(
+  ev: HiveEvent,
+  t: Translate,
+): { icon: string; cls: string; text: string } {
+  const meta = EVENTS[ev.type];
+  if (!meta) return { icon: '•', cls: 'muted', text: ev.type };
+  return { icon: meta.icon, cls: meta.cls, text: meta.text(ev.payload, t) };
+}
+
 export function Journal({ events }: { events: HiveEvent[] }) {
   const t = useT();
   return (
@@ -720,17 +782,13 @@ export function Journal({ events }: { events: HiveEvent[] }) {
           .slice(-40)
           .reverse()
           .map((ev) => {
-            const meta = EVENTS[ev.type] ?? {
-              icon: '•',
-              cls: 'muted',
-              text: () => ev.type,
-            };
+            const ligne = ligneDuJournal(ev, t);
             return (
-              <li key={ev.id} className={`jrow ${meta.cls}`}>
+              <li key={ev.id} className={`jrow ${ligne.cls}`}>
                 <span className="jicon" aria-hidden="true">
-                  {meta.icon}
+                  {ligne.icon}
                 </span>
-                <span className="jtext">{meta.text(ev.payload, t)}</span>
+                <span className="jtext">{ligne.text}</span>
                 <time className="jtime">{new Date(ev.ts).toLocaleTimeString()}</time>
               </li>
             );

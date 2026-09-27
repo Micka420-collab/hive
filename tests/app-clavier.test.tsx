@@ -48,6 +48,8 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   connectFeed: vi.fn(() => ({ close: () => {} })),
   fetchPulse: vi.fn(() => Promise.resolve(null)),
+  // Le cockpit de l'accueil (Ruche) : échoue sans ouvrir de socket.
+  fetchCockpit: vi.fn(() => Promise.reject(new Error('cockpit hors de ce banc'))),
   fetchReviews: vi.fn(() => Promise.resolve({ reviews: {} })),
   authMe: vi.fn(() => Promise.reject(new Error('pas de compte simulé'))),
   fetchRayon: vi.fn(() => Promise.resolve({ chemin: '', entrees: [] })),
