@@ -23,6 +23,7 @@ import { HiveStore } from '../src/orchestrator/store.js';
 import { projeterWorkers } from '../src/orchestrator/workers.js';
 import { affectationsDepuisEvenements } from '../src/shared/routage-vue.js';
 import type { Suite } from '../src/orchestrator/polyethisme.js';
+import type { TaskResult } from '../src/shared/types.js';
 
 const profile = (name: string, modeles?: string[]) => ({
   name,
@@ -476,5 +477,109 @@ describe('Aiguillage câblé — la boucle principale de l’ordonnanceur', () =
       enVol: 0,
       moyenne: 0.5,
     });
+  });
+
+  /** Ce que rend une tentative qui plante : CLI en erreur, délai dépassé, exception. */
+  const plantage = (taskId: string): Omit<TaskResult, 'nodeId'> => ({
+    taskId,
+    success: false,
+    diff: '',
+    logs: '[hive] timeout après 300000 ms — processus tué',
+    durationMs: 5,
+    subAgents: [],
+  });
+  /** Les modèles commandés à une tâche, dans l'ordre de ses affectations. */
+  const commandes = (taskId: string): (string | undefined)[] =>
+    assignations.filter((a) => a.taskId === taskId).map((a) => a.modele);
+  const derniereAffectation = (taskId: string) =>
+    store
+      .listEvents()
+      .filter((event) => event.type === 'task_assigned' && event.payload.taskId === taskId)
+      .at(-1)?.payload;
+
+  it('UN MODÈLE QUI A PLANTÉ SUR UNE TÂCHE N’EST PAS RÉ-ÉLU POUR SES REPRISES — et son échec n’est pas une note', () => {
+    // Une ouvrière déclare deux modèles, dont un cassé (alias mal saisi, modèle
+    // retiré). Jamais jugés, les deux sont « à explorer » (+∞) et le nom
+    // départage : fable, le cassé, est élu. Son plantage renvoie la tâche en
+    // file — hors vol, sans verdict, fable redevenait +∞ et prenait les TROIS
+    // tentatives, puis celles de chaque tâche suivante du même genre.
+    const n = scheduler.registerNode(profile('seule', ['fable', 'opus']));
+    const t = tacheCode('Ajoute le composant Ruche');
+    scheduler.tick(5_000);
+    expect(commandes(t)).toEqual(['fable']);
+
+    scheduler.handleTaskResult(n.id, plantage(t));
+
+    expect(store.getTask(t)?.status, 'la reprise part aussitôt').toBe('assigned');
+    expect(commandes(t), 'la reprise part sur l’autre modèle déclaré').toEqual(['fable', 'opus']);
+    const reprise = derniereAffectation(t);
+    expect(reprise?.modelesEcartes, 'la raison dit quel modèle a été écarté').toEqual(['fable']);
+    expect(
+      (reprise?.raisonModele as { modele: string }[] | undefined)?.map((r) => r.modele),
+      'le modèle écarté ne concourt plus pour cette tâche',
+    ).toEqual(['opus']);
+
+    scheduler.handleTaskResult(n.id, { ...plantage(t), success: true, diff: 'diff' });
+    expect(store.getTask(t)?.status).toBe('done');
+
+    // Décision : un plantage n'est PAS un essai loyal. Rien n'est appris — une
+    // tâche neuve du même genre essaie encore fable, jamais jugé. Son propre
+    // plantage n'efface pas l'écart d'une tâche rendue.
+    expect(store.observationsAiguillage(), 'aucune observation à récompense nulle').toEqual([]);
+    const autre = tacheCode('Ajoute le composant Alvéole');
+    scheduler.tick(6_000);
+    expect(commandes(autre), 'une tâche neuve n’hérite pas de l’écart').toEqual(['fable']);
+    scheduler.handleTaskResult(n.id, plantage(autre));
+    scheduler.handleTaskResult(n.id, { ...plantage(autre), success: true, diff: 'diff' });
+    expect(commandes(autre)).toEqual(['fable', 'opus']);
+
+    // Une correction demandée par l'Evaluator rouvre la tâche rendue : c'est
+    // une reprise de CETTE tâche, fable reste écarté.
+    const resultId = store.resultsForTask(t).at(-1)?.resultId ?? 0;
+    expect(
+      scheduler.retryFromEvaluator({ taskId: t, resultId, decision: 'correction_required' }).ok,
+    ).toBe(true);
+    expect(commandes(t), 'la correction ne repart pas sur fable').toEqual([
+      'fable',
+      'opus',
+      'opus',
+    ]);
+  });
+
+  it('UN REFUS D’INFRASTRUCTURE ÉCARTE LE MODÈLE COMMANDÉ — un refus de saturation, non', () => {
+    // Le CLI de fable répond « quota » : le nœud refuse (`infra`) et la tâche
+    // revenait sur fable à l'expiration du cooldown, jusqu'à échouer « aucun
+    // agent fonctionnel » quand opus, sur le même nœud, fonctionnait.
+    const n = scheduler.registerNode(profile('seule', ['fable', 'opus']));
+    const t = tacheCode('Ajoute le composant Ruche');
+    scheduler.tick(5_000);
+    // Saturé : fable n'a pas tourné, il n'a rien prouvé — il reste élu.
+    scheduler.rejectTask(n.id, t, 'noeud_sature', false, 5_000);
+    scheduler.tick(9_000);
+    expect(commandes(t)).toEqual(['fable', 'fable']);
+
+    scheduler.rejectTask(n.id, t, 'agent indisponible (auth/quota)', true, 9_000);
+    scheduler.tick(13_000);
+
+    expect(commandes(t), 'la tâche repart sur opus, pas sur fable').toEqual([
+      'fable',
+      'fable',
+      'opus',
+    ]);
+  });
+
+  it('SANS AUTRE MODÈLE, LA REPRISE PART QUAND MÊME — l’écart ne fait jamais attendre une tâche', () => {
+    // L'unique modèle a planté : l'écarter laisserait la tâche prête sans
+    // porteur, à jamais. Il est re-tenté, comme avant, et la raison ne prétend
+    // rien avoir écarté.
+    const n = scheduler.registerNode(profile('seule', ['fable']));
+    const t = tacheCode('Ajoute le composant Ruche');
+    scheduler.tick(5_000);
+
+    scheduler.handleTaskResult(n.id, plantage(t));
+
+    expect(store.getTask(t)?.status).toBe('assigned');
+    expect(commandes(t)).toEqual(['fable', 'fable']);
+    expect(derniereAffectation(t)).not.toHaveProperty('modelesEcartes');
   });
 });

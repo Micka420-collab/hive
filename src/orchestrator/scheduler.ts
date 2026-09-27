@@ -15,9 +15,8 @@ import {
   aiguillerNoeuds,
   antecedentsDuVecu,
   categoriser,
-  choisirModele,
 } from './aiguillage.js';
-import type { Antecedent } from './aiguillage.js';
+import type { Antecedent, Rang } from './aiguillage.js';
 // L'Agent Garde-Fous : élire, PAR PROJET opt-in, l'échelon de garde-fous et
 // gouverner la sévérité des Gardiennes de la production. Module PUR — le scheduler
 // lui donne les antécédents et pose l'échelon élu. Projet non opt-in ⇒ repli sur
@@ -153,6 +152,26 @@ export class Scheduler {
   private readonly nodeTimeoutMs: number;
   /** clé `taskId:nodeId` → timestamp d'expiration du cooldown de refus. */
   private readonly recentRejections = new Map<string, number>();
+  /**
+   * taskId → modèles qui ont ÉCHOUÉ sur cette tâche (plantage, délai, erreur du
+   * CLI, refus d'infrastructure, production refusée par les Gardiennes) :
+   * l'Aiguillage les écarte de ses reprises (`aiguillerNoeuds`, `echoues`).
+   *
+   * Le pendant de `recentRejections` pour le MODÈLE : un modèle cassé, jamais
+   * jugé donc à `+∞`, revenait en tête à chaque reprise — une tâche en file
+   * n'est plus une élection en vol — et brûlait les trois tentatives de chaque
+   * tâche de son genre. Décision produit : l'écart vaut pour CETTE tâche
+   * seulement et n'entre JAMAIS dans les antécédents — un plantage n'est pas
+   * un essai loyal ; la qualité s'apprend des contre-visites, comme avant.
+   *
+   * Une correction demandée par l'Evaluator ou par un humain rouvre une tâche
+   * `done` : c'est une reprise comme une autre, l'écart tient donc jusque-là.
+   * Il n'est oublié qu'avec la tâche — échouée pour de bon, annulée ou élaguée
+   * (`elaguerModelesEchoues`). En MÉMOIRE, comme les courses : un redémarrage
+   * l'oublie, et coûte au pire une tentative de plus sur le modèle déjà tombé,
+   * bornée par `maxAttempts`.
+   */
+  private readonly modelesEchoues = new Map<string, Set<string>>();
   /** Tâches actuellement différées pour cause de conflit (Sting Detector) — dédup des events. */
   private readonly deferredByConflict = new Set<string>();
   /** taskId → nombre de refus « infra » (token-failover) — borne les allers-retours. */
@@ -628,6 +647,7 @@ export class Scheduler {
       const { race: updated, decision } = recordDroneResult(race, nodeId, false);
       this.races.set(taskId, updated);
       this.recentRejections.set(`${taskId}:${nodeId}`, now + cooldown);
+      if (infra) this.ecarterModele(taskId, race.modeleParDrone?.[nodeId]);
       this.emit('drone_rejected', { taskId, nodeId, reason });
       const task = this.store.getTask(taskId);
       if (!task || task.status === 'done' || task.status === 'failed') {
@@ -648,6 +668,13 @@ export class Scheduler {
     const task = this.store.getTask(taskId);
     if (!task || task.assignedNodeId !== nodeId) return;
     if (task.status !== 'assigned' && task.status !== 'running') return;
+    // Le CLI lancé avec le modèle commandé a buté sur l'infrastructure (auth,
+    // quota, binaire) : ce modèle est écarté des reprises de cette tâche — un
+    // quota épuisé est souvent celui d'UN modèle. Si c'est l'agent entier qui
+    // est en panne, ses autres modèles tombent de même, l'écart retombe sur le
+    // concours complet et le compte `infraRejects` conclut comme avant. Un refus
+    // de saturation ou de service n'a rien lancé : le modèle reste en lice.
+    if (infra) this.ecarterModele(taskId, this.store.modeleAiguillageDe(taskId));
     this.store.patchTask(taskId, { status: 'ready', assignedNodeId: null }, now);
     this.recentRejections.set(`${taskId}:${nodeId}`, now + cooldown);
     this.emit('task_rejected', { taskId, nodeId, reason, ...(infra ? { infra: true } : {}) });
@@ -955,6 +982,10 @@ export class Scheduler {
       });
       this.emit('memory_recorded', { taskId: task.id, projectId: task.projectId });
     } else {
+      // Le modèle commandé à CETTE tentative a échoué (la production creuse
+      // refusée compte comme un échec d'agent, cf. plus haut) : écarté des
+      // reprises. Lu avant la réassignation, qui effacera ou remplacera la ligne.
+      this.ecarterModele(task.id, this.store.modeleAiguillageDe(task.id));
       const attempts = task.attempts + 1;
       // Bornée ici aussi, en plus de l'entrée (`isInt(m.durationMs, 0, …)`,
       // protocol.ts) : aucune durée négative n'entre dans le journal, quel que
@@ -1205,21 +1236,32 @@ export class Scheduler {
       now,
     );
     if (!assigned) return { ok: false, error: 'tâche introuvable' };
-    // L'Aiguillage : le modèle élu par CHAQUE drone, sur ses propres modeles. La
-    // course n'est PAS restreinte (elle maximise la diversité d'agents) — on note
-    // seulement, pour re-poser le modèle du VAINQUEUR quand il gagnera. Le modèle
-    // du primaire est posé DÈS MAINTENANT : tant que la course court, la tâche
-    // compte comme une élection en vol (borne du troupeau).
+    // L'Aiguillage : le modèle élu par CHAQUE drone, sur ses propres modeles —
+    // hors ceux qui ont déjà échoué sur cette tâche, comme dans la boucle
+    // principale. La course n'est PAS restreinte (elle maximise la diversité
+    // d'agents) — on note seulement, pour re-poser le modèle du VAINQUEUR quand
+    // il gagnera. Le modèle du primaire est posé DÈS MAINTENANT : tant que la
+    // course court, la tâche compte comme une élection en vol (borne du
+    // troupeau). Le classement de chaque drone est la RAISON de son modèle,
+    // figée comme dans `task_assigned` : sans elle, le tiroir ne pouvait pas
+    // dire pourquoi un drone non primaire avait lancé le modèle qui a gagné.
     const categorie = categoriser(task.title, task.prompt);
     const antecedents = this.antecedentsAiguillage();
+    const echoues = this.modelesEchoues.get(taskId);
     const noeuds = new Map(this.store.listNodes().map((n) => [n.id, n]));
     const modeleParDrone: Record<string, string> = {};
+    const raisons: Record<string, Rang[]> = {};
+    const ecartes = new Set<string>();
     for (const droneId of launch) {
-      const modeles = noeuds.get(droneId)?.modeles;
-      const elu = modeles ? choisirModele(categorie, modeles, antecedents) : null;
-      if (elu) modeleParDrone[droneId] = elu;
+      const noeud = noeuds.get(droneId);
+      const route = noeud ? aiguillerNoeuds(categorie, [noeud], antecedents, echoues) : null;
+      if (!route) continue;
+      modeleParDrone[droneId] = route.modele;
+      raisons[droneId] = route.rang.slice(0, 4);
+      for (const m of route.ecartes) ecartes.add(m);
     }
-    if (Object.keys(modeleParDrone).length > 0) race.modeleParDrone = modeleParDrone;
+    const aiguillee = Object.keys(modeleParDrone).length > 0;
+    if (aiguillee) race.modeleParDrone = modeleParDrone;
     if (modeleParDrone[primary]) {
       this.store.poserModeleAiguillage(taskId, modeleParDrone[primary], now);
     } else this.store.effacerModeleAiguillage(taskId);
@@ -1236,7 +1278,14 @@ export class Scheduler {
       taskId,
       factor: race.factor,
       drones: launch,
-      ...(Object.keys(modeleParDrone).length > 0 ? { modeles: modeleParDrone } : {}),
+      ...(aiguillee
+        ? {
+            modeles: modeleParDrone,
+            categorie,
+            raisons,
+            versionAiguillage: VERSION_AIGUILLAGE,
+          }
+        : {}),
     });
     this.emit('task_assigned', {
       taskId,
@@ -1246,8 +1295,19 @@ export class Scheduler {
       // prétend pas prouver le modèle choisi par le CLI : cette preuve reste
       // attachée au résultat du nœud. Sans ce fait, Mission Control devrait
       // recroiser une table latérale et l'événement perdrait sa valeur de
-      // replay.
-      ...(modeleParDrone[primary] ? { modele: modeleParDrone[primary] } : {}),
+      // replay. La raison suit la forme de la boucle principale, pour se lire
+      // de même (`routage-vue.ts`).
+      ...(modeleParDrone[primary]
+        ? {
+            modele: modeleParDrone[primary],
+            categorie,
+            raisonModele: raisons[primary],
+            versionAiguillage: VERSION_AIGUILLAGE,
+          }
+        : {}),
+      // Fait de la TÂCHE, pas du primaire : les modèles écartés de la course,
+      // quel que soit le drone qui les offrait.
+      ...(ecartes.size > 0 ? { modelesEcartes: [...ecartes].sort() } : {}),
     });
     this.store.ouvrirHorlogeHote(assigned.projectId, assigned.id, Date.now());
     // Chaque drone reçoit SON modèle élu (la course diversifie les agents).
@@ -1301,6 +1361,9 @@ export class Scheduler {
     this.races.set(task.id, updated);
     const resultId = this.store.insertResult({ ...result, nodeId, success: retenu });
     if (inspection) this.rangerInspection(inspection, resultId, task.id, nodeId, refusee);
+    // Parité avec la voie mono : le modèle de ce drone a échoué sur la tâche —
+    // si la course s'éteint, la reprise ne le ré-élira pas.
+    if (!retenu) this.ecarterModele(task.id, race.modeleParDrone?.[nodeId]);
 
     if (decision.outcome === 'won') {
       this.races.delete(task.id);
@@ -1336,7 +1399,14 @@ export class Scheduler {
         ...(result.usage ? { usage: result.usage } : {}),
         ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
       });
-      this.emit('drone_won', { taskId: task.id, nodeId, cancelled: decision.cancel.length });
+      // Le modèle du VAINQUEUR, fait consigné là où il se décide : le tiroir
+      // et la Chronique nomment le modèle qui a gagné sans recroiser la course.
+      this.emit('drone_won', {
+        taskId: task.id,
+        nodeId,
+        cancelled: decision.cancel.length,
+        ...(modeleVainqueur ? { modele: modeleVainqueur } : {}),
+      });
       for (const loser of decision.cancel) {
         this.emit('drone_cancelled', { taskId: task.id, nodeId: loser });
         this.opts.onCancel?.(loser, task.id, 'course de drones perdue');
@@ -1354,8 +1424,14 @@ export class Scheduler {
     }
 
     if (decision.outcome === 'pending') {
-      // Ce drone a échoué mais d'autres volent encore : la course continue.
-      this.emit('drone_failed', { taskId: task.id, nodeId });
+      // Ce drone a échoué mais d'autres volent encore : la course continue. Sa
+      // déclaration voyage avec le fait, comme sur `task_retry` : le registre
+      // Genome compte cette tentative rendue sous le modèle de CE drone.
+      this.emit('drone_failed', {
+        taskId: task.id,
+        nodeId,
+        ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
+      });
       if (task.assignedNodeId === nodeId) this.promoteNextDrone(updated, task.id, now);
       return true;
     }
@@ -1723,11 +1799,13 @@ export class Scheduler {
       // ceux qui offrent le meilleur modèle pour le genre de la tâche. `null`
       // (aucun éligible ne déclare de modèle) ⇒ NO-OP : on garde la liste et
       // l'ordonnancement d'avant, phéromones comprises. La sous-liste préserve
-      // l'ordre de charge, donc le départage plus bas reste inchangé.
+      // l'ordre de charge, donc le départage plus bas reste inchangé. Une
+      // reprise écarte les modèles qui ont déjà échoué sur cette tâche.
       const route = aiguillerNoeuds(
         categoriser(task.title, task.prompt),
         eligibles,
         lireAntecedents(),
+        this.modelesEchoues.get(task.id),
       );
       const candidats = route ? route.noeuds : eligibles;
       let node = candidats[0];
@@ -1813,11 +1891,15 @@ export class Scheduler {
         // Le tampon de version dit sous quel calcul cette raison a été prise :
         // relue après un changement de taxonomie ou de format, elle ne se lit
         // pas avec les règles d'après (cf. `VERSION_AIGUILLAGE`).
+        // `modelesEcartes` : ceux qui ont échoué sur cette tâche et ne
+        // concouraient donc pas — sans lui, la raison d'une reprise tairait
+        // pourquoi un modèle offert manque au classement.
         ...(route
           ? {
               categorie: categoriser(task.title, task.prompt),
               raisonModele: route.rang.slice(0, 4),
               versionAiguillage: VERSION_AIGUILLAGE,
+              ...(route.ecartes.length > 0 ? { modelesEcartes: route.ecartes } : {}),
             }
           : {}),
       });
@@ -1836,6 +1918,32 @@ export class Scheduler {
     // Purge des cooldowns de refus expirés (borne la taille de la map).
     for (const [key, until] of this.recentRejections) {
       if (until <= now) this.recentRejections.delete(key);
+    }
+  }
+
+  /** Écarte `modele` des reprises de cette tâche (cf. `modelesEchoues`). Sans modèle commandé : rien. */
+  private ecarterModele(taskId: string, modele: string | null | undefined): void {
+    if (!modele) return;
+    this.elaguerModelesEchoues();
+    const echoues = this.modelesEchoues.get(taskId) ?? new Set<string>();
+    echoues.add(modele);
+    this.modelesEchoues.set(taskId, echoues);
+  }
+
+  /**
+   * Oublie les écarts des tâches qui ne seront plus jamais reprises : échouées
+   * pour de bon (annulation comprise) ou élaguées (`pruneTasks`). Une tâche
+   * `done` garde les siens, puisqu'une correction peut la rouvrir. Appelé au
+   * moment d'écarter, jamais au tick : la lecture — par clé primaire, des seules
+   * tâches citées — est payée par un échec, pas par la ruche au repos, et la
+   * carte reste bornée par la rétention des tâches.
+   */
+  private elaguerModelesEchoues(): void {
+    if (this.modelesEchoues.size === 0) return;
+    const statuts = this.store.taskStatuses([...this.modelesEchoues.keys()]);
+    for (const taskId of this.modelesEchoues.keys()) {
+      const statut = statuts.get(taskId);
+      if (statut === undefined || statut === 'failed') this.modelesEchoues.delete(taskId);
     }
   }
 }

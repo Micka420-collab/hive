@@ -519,27 +519,42 @@ export function choisirModele(
  * garde alors exactement son ordonnancement d'avant, sans rien restreindre ni
  * enregistrer. `eligibles` est supposé déjà filtré ET trié par l'appelant ; la
  * sous-liste rendue préserve cet ordre.
+ *
+ * `echoues` : les modèles qui ont déjà échoué sur CETTE tâche (plantage, délai,
+ * erreur du CLI — cf. `Scheduler.modelesEchoues`). Ils sont retirés du concours
+ * tant qu'il reste un autre modèle, et rendus dans `ecartes` pour que la raison
+ * le dise. Sans ce retrait, un modèle cassé, jamais jugé donc à `+∞`, était
+ * ré-élu à chaque reprise : il brûlait toutes les tentatives de chaque tâche de
+ * son genre. Si TOUS ont échoué, ils concourent de nouveau, comme avant : un
+ * écart qui laisserait la tâche sans porteur la ferait attendre à jamais — la
+ * même famine que l'union sur les seuls éligibles tue déjà. L'échec ne touche
+ * JAMAIS aux antécédents : un plantage n'est pas un essai loyal, il n'a rien
+ * dit de la qualité du modèle.
  */
 export function aiguillerNoeuds<N extends { readonly modeles?: readonly string[] | null }>(
   categorie: Categorie,
   eligibles: readonly N[],
   antecedents: Map<string, Antecedent>,
-): { modele: string; noeuds: N[]; rang: Rang[] } | null {
+  echoues: ReadonlySet<string> = new Set(),
+): { modele: string; noeuds: N[]; rang: Rang[]; ecartes: string[] } | null {
   // Un `Set` déduplique par CONSTRUCTION : le même modèle offert par deux nœuds
   // ne doit compter qu'une fois pour `classer`, sinon le total du genre est
   // doublé et le bonus d'exploration faussé. Aucun prédicat de dédup à part —
   // c'est la structure qui le tient, pas une ligne qu'on pourrait muter seule.
   const union = new Set<string>();
   for (const n of eligibles) for (const m of n.modeles ?? []) union.add(m);
+  const restants = [...union].filter((m) => !echoues.has(m));
+  const enLice = restants.length > 0 ? restants : [...union];
   // On CLASSE une seule fois : le premier est l'élu, et le classement entier
   // est la RAISON du choix — celle que Mission Control montrera (« pourquoi ce
   // modèle »). Recalculer un second classement pour l'explication le ferait
   // diverger du choix ; c'est le même `Rang[]` qui décide et qui s'explique.
   // Union vide (aucun éligible ne déclare de modèle) : `rang` est vide, l'élu
   // est `null`, et ce `null` EST le no-op — l'appelant garde son ordonnancement.
-  const rang = classer(categorie, [...union], antecedents);
+  const rang = classer(categorie, enLice, antecedents);
   const modele = rang[0]?.modele ?? null;
   if (modele === null) return null;
   const noeuds = eligibles.filter((n) => (n.modeles ?? []).includes(modele));
-  return { modele, noeuds, rang };
+  const ecartes = [...union].filter((m) => !enLice.includes(m)).sort();
+  return { modele, noeuds, rang, ecartes };
 }

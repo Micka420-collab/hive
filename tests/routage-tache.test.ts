@@ -116,6 +116,31 @@ describe('affectationsDepuisEvenements — la raison, telle que le journal la ga
     expect(v2?.versionAiguillage).toBe(2);
     expect(v2?.raisonModele.map((l) => [l.modele, l.enVol])).toEqual([['opus', 1]]);
   });
+
+  it('UNE COURSE S’ATTACHE À L’AFFECTATION DE SES DRONES — et une victoire d’avant ce fait retombe sur le modèle commandé', () => {
+    const [course, reprise] = affectationsDepuisEvenements([
+      ev(1, 'drone_race_started', {
+        taskId: 't',
+        drones: ['n1', 'n2'],
+        modeles: { n1: 'fable', n2: 'opus' },
+        versionAiguillage: 2,
+        raisons: { n2: [{ modele: 'opus', essais: 1, enVol: 0, moyenne: 1, score: 1 }] },
+      }),
+      ev(2, 'task_assigned', { taskId: 't', nodeId: 'n1', modele: 'fable' }),
+      // Un `drone_won` antérieur au modèle du vainqueur : le modèle commandé
+      // au drone par la course, pas un modèle deviné.
+      ev(3, 'drone_won', { taskId: 't', nodeId: 'n2' }),
+      // Une course dont l'affectation suivante n'est pas l'un de ses drones
+      // (journal élagué entre les deux) : elle ne s'y attache pas.
+      ev(4, 'drone_race_started', { taskId: 't', drones: ['n7'] }),
+      ev(5, 'task_assigned', { taskId: 't', nodeId: 'n1', modelesEcartes: ['fable', 3] }),
+    ]);
+    expect(course?.critereNoeud).toBe('course_de_drones');
+    expect(course?.course?.vainqueur).toEqual({ nodeId: 'n2', modele: 'opus' });
+    expect(course?.course?.drones[1]?.raisonModele.map((l) => l.modele)).toEqual(['opus']);
+    expect(reprise).toMatchObject({ course: null, critereNoeud: 'moins_charge' });
+    expect(reprise?.modelesEcartes, 'un nom illisible est ignoré').toEqual(['fable']);
+  });
 });
 
 describe('/api/tasks/:id/routage — sur une vraie Reine', () => {

@@ -29,9 +29,13 @@
 //      DERNIÈRE production rendue. Un avis qui prouve le modèle exact
 //      (`producteurModele`) l'emporte sur le modèle commandé.
 //
-// LIMITE CONNUE : dans une course de drones, `task_assigned` ne porte que le
-// modèle du primaire. Une victoire d'un autre drone n'est donc attribuée à
-// aucun modèle — mieux vaut un rendu manquant qu'un rendu mal rangé.
+// UNE COURSE DE DRONES, C'EST UNE AFFECTATION PAR DRONE. `task_assigned` n'y
+// nomme que le primaire ; le modèle de chaque drone vient du
+// `drone_race_started` qui le précède. Chaque drone rend compte de SON issue,
+// une seule fois : la victoire (`task_done`) au modèle du vainqueur — primaire
+// ou non —, l'échec d'un drone pendant que d'autres volent (`drone_failed` sans
+// motif) en reprise, son refus en refus, sa perte (`drone_failed` motivé) ou
+// son annulation après la victoire d'un autre en interruption.
 //
 // Le module est pur : il replie des événements déjà journalisés. Il ne touche
 // ni au routing, ni à la récompense de l'Aiguillage.
@@ -49,6 +53,10 @@ export const TYPES_REGISTRE_GENOME = [
   'task_rejected',
   'task_requeued',
   'task_cancelled',
+  'drone_race_started',
+  'drone_failed',
+  'drone_rejected',
+  'drone_cancelled',
   'contre_expertise_verdict',
   'task_reviewed',
 ] as const;
@@ -59,7 +67,7 @@ export interface FaitsGenome {
   affectations: number;
   /** Le Worker a rendu un résultat accepté par l'ordonnanceur. */
   rendus: number;
-  /** Le Worker a échoué et la tâche a été relancée. */
+  /** Le Worker a échoué et la tâche a continué : relancée, ou course encore en vol. */
   reprises: number;
   /** Le Worker a échoué sur la dernière tentative autorisée. */
   echecs: number;
@@ -121,6 +129,15 @@ interface Production {
 
 interface EtatTache {
   courante: (Production & { nodeId: string | null }) | null;
+  /**
+   * Course portée par l'affectation en cours : la production de chaque drone
+   * dont l'issue n'est pas encore comptée. `null` hors course. Un drone en sort
+   * au premier fait qui le concerne — une perte suivie de la remise en file
+   * de la tâche ne se compte pas deux fois.
+   */
+  drones: Map<string, Production> | null;
+  /** Drones du dernier `drone_race_started`, pour l'affectation qui le suit. */
+  dronesEnAttente: Map<string, Production>;
   derniere: Production | null;
   revue: 'approved' | 'rejected' | null;
 }
@@ -164,6 +181,20 @@ function mediane(valeurs: readonly number[]): number | null {
 
 function texte(valeur: unknown): string | null {
   return typeof valeur === 'string' && valeur.length > 0 ? valeur : null;
+}
+
+/** Les drones d'un `drone_race_started`, chacun avec le modèle qui lui a été commandé. */
+function dronesDe(p: Record<string, unknown>, categorie: Categorie): Map<string, Production> {
+  const modeles =
+    typeof p.modeles === 'object' && p.modeles !== null
+      ? (p.modeles as Record<string, unknown>)
+      : {};
+  const drones = new Map<string, Production>();
+  for (const brut of Array.isArray(p.drones) ? p.drones : []) {
+    const nodeId = texte(brut);
+    if (nodeId !== null) drones.set(nodeId, { modele: texte(modeles[nodeId]), categorie });
+  }
+  return drones;
 }
 
 function figer(acc: Accumulateur): FaitsGenome {
@@ -225,25 +256,48 @@ export function registreGenomeDepuisEvenements(
     if (taskId === null) continue;
     const categorie = categorieDe(taskId);
     if (categorie === null) continue;
-    let etat = taches.get(taskId);
-    if (!etat) {
-      etat = { courante: null, derniere: null, revue: null };
-      taches.set(taskId, etat);
-    }
+    const etat: EtatTache = taches.get(taskId) ?? {
+      courante: null,
+      drones: null,
+      dronesEnAttente: new Map(),
+      derniere: null,
+      revue: null,
+    };
+    taches.set(taskId, etat);
     const courante = etat.courante;
     const nodeId = texte(p.nodeId);
-    // Une issue Worker ne vaut que pour l'affectation en cours sur CE nœud.
-    const issueDeLaCourante = courante !== null && (nodeId === null || nodeId === courante.nodeId);
+    // L'affectation dont parle une issue Worker : en course, celle du drone
+    // qui la rend, s'il n'a pas déjà rendu compte ; sinon la courante, sur CE
+    // nœud seulement.
+    const issue: Production | null = etat.drones
+      ? ((nodeId === null ? null : etat.drones.get(nodeId)) ?? null)
+      : courante !== null && (nodeId === null || nodeId === courante.nodeId)
+        ? courante
+        : null;
+    // Une issue de TÂCHE clôt l'affectation ; le drone qui l'a rendue a compté.
+    const solder = (): void => {
+      etat.courante = null;
+      if (nodeId !== null) etat.drones?.delete(nodeId);
+    };
 
     switch (ev.type) {
+      case 'drone_race_started': {
+        etat.dronesEnAttente = dronesDe(p, categorie);
+        break;
+      }
       case 'task_assigned': {
         etat.courante = { modele: texte(p.modele), categorie, nodeId };
-        accumulateur(etat.courante).faits.affectations += 1;
+        const drones = etat.dronesEnAttente;
+        etat.dronesEnAttente = new Map();
+        etat.drones = nodeId !== null && drones.has(nodeId) ? drones : null;
+        for (const affectee of etat.drones ? etat.drones.values() : [etat.courante]) {
+          accumulateur(affectee).faits.affectations += 1;
+        }
         break;
       }
       case 'task_done': {
-        if (!issueDeLaCourante) break;
-        const acc = accumulateur(courante);
+        if (!issue) break;
+        const acc = accumulateur(issue);
         acc.faits.rendus += 1;
         const duree = p.durationMs;
         if (typeof duree === 'number' && Number.isFinite(duree) && duree >= 0) {
@@ -251,8 +305,8 @@ export function registreGenomeDepuisEvenements(
         }
         consignerDeclaration(acc, p);
         solderRevue(etat);
-        etat.derniere = { modele: courante.modele, categorie: courante.categorie };
-        etat.courante = null;
+        etat.derniere = { modele: issue.modele, categorie: issue.categorie };
+        solder();
         break;
       }
       case 'task_retry': {
@@ -262,30 +316,47 @@ export function registreGenomeDepuisEvenements(
           etat.revue = null;
           break;
         }
-        if (!issueDeLaCourante) break;
-        accumulateur(courante).faits.reprises += 1;
-        consignerDeclaration(accumulateur(courante), p);
-        etat.courante = null;
+        if (!issue) break;
+        accumulateur(issue).faits.reprises += 1;
+        consignerDeclaration(accumulateur(issue), p);
+        solder();
         break;
       }
       case 'task_failed': {
-        if (!issueDeLaCourante) break;
-        accumulateur(courante).faits.echecs += 1;
-        consignerDeclaration(accumulateur(courante), p);
-        etat.courante = null;
+        if (!issue) break;
+        accumulateur(issue).faits.echecs += 1;
+        consignerDeclaration(accumulateur(issue), p);
+        solder();
         break;
       }
       case 'task_rejected': {
-        if (!issueDeLaCourante) break;
-        accumulateur(courante).faits.refus += 1;
-        etat.courante = null;
+        if (!issue) break;
+        accumulateur(issue).faits.refus += 1;
+        solder();
         break;
       }
       case 'task_requeued':
       case 'task_cancelled': {
-        if (!issueDeLaCourante) break;
-        accumulateur(courante).faits.interrompues += 1;
-        etat.courante = null;
+        if (!issue) break;
+        accumulateur(issue).faits.interrompues += 1;
+        solder();
+        break;
+      }
+      // Le sort d'UN drone, la course continuant (ou venant d'être gagnée par
+      // un autre) : il ne clôt pas l'affectation de la tâche.
+      case 'drone_failed':
+      case 'drone_rejected':
+      case 'drone_cancelled': {
+        if (!issue || !etat.drones || nodeId === null) break;
+        const acc = accumulateur(issue);
+        if (ev.type === 'drone_rejected') acc.faits.refus += 1;
+        else if (ev.type === 'drone_cancelled' || texte(p.reason) !== null) {
+          acc.faits.interrompues += 1;
+        } else {
+          acc.faits.reprises += 1;
+          consignerDeclaration(acc, p);
+        }
+        etat.drones.delete(nodeId);
         break;
       }
       case 'contre_expertise_verdict': {

@@ -196,6 +196,50 @@ describe('registre Genome', () => {
     });
   });
 
+  it('une course : une affectation par drone, et chaque drone rend compte de SON issue, une fois', () => {
+    const registre = registreGenomeDepuisEvenements(
+      [
+        ev('drone_race_started', {
+          taskId: 't1',
+          drones: ['n1', 'n2', 'n3'],
+          modeles: { n1: 'alpha', n2: 'beta', n3: 'gamma' },
+        }),
+        ev('task_assigned', { taskId: 't1', nodeId: 'n1', modele: 'alpha' }),
+        ev('drone_rejected', { taskId: 't1', nodeId: 'n3', reason: 'noeud_sature' }),
+        // Le primaire rend un échec pendant que beta vole encore.
+        ev('drone_failed', {
+          taskId: 't1',
+          nodeId: 'n1',
+          fournisseur: { source: 'claude-code', coutUsd: 0.01 },
+        }),
+        // beta est perdu (nœud tombé) : la course s'éteint, la tâche revient en
+        // file au nom de beta — une perte déjà comptée, pas une seconde.
+        ev('drone_failed', { taskId: 't1', nodeId: 'n2', reason: 'node_lost' }),
+        ev('task_requeued', { taskId: 't1', nodeId: 'n2', reason: 'drone_all_lost' }),
+        // La reprise, hors course.
+        ev('task_assigned', { taskId: 't1', nodeId: 'n2', modele: 'beta' }),
+        ev('task_done', { taskId: 't1', nodeId: 'n2', durationMs: 30 }),
+      ],
+      categorieDe,
+    );
+
+    expect(
+      registre.lignes.map((l) => [
+        l.modele,
+        l.affectations,
+        l.rendus,
+        l.reprises,
+        l.refus,
+        l.interrompues,
+      ]),
+    ).toEqual([
+      ['alpha', 1, 0, 1, 0, 0],
+      ['beta', 2, 1, 0, 0, 1],
+      ['gamma', 1, 0, 0, 1, 0],
+    ]);
+    expect(registre.lignes[0]?.coutFournisseur).toMatchObject({ declarees: 1, tentatives: 1 });
+  });
+
   it('trie par nom sans classer, et signale une fenêtre tronquée', () => {
     const evenements = [
       ev('task_assigned', { taskId: 't2', nodeId: 'n1', modele: 'zeta' }),

@@ -313,6 +313,24 @@ describe('aiguillerNoeuds — du modèle élu aux nœuds qui savent le faire tou
     expect(route?.modele, 'seul un modèle atteignable est élu').toBe('fable');
     expect(route?.noeuds.map((n) => n.id)).toEqual(['n1']);
   });
+
+  it('ÉCARTE LES MODÈLES QUI ONT ÉCHOUÉ SUR LA TÂCHE — tant qu’il en reste un autre, et sans rien apprendre', () => {
+    const memoire = new Map<string, Antecedent>();
+    const eligibles = [noeud('n1', ['fable', 'opus']), noeud('n2', ['grok'])];
+    // `sonnet` a échoué mais n'est offert par aucun éligible : il n'était pas
+    // en lice, la raison ne prétend pas l'avoir écarté.
+    const route = aiguillerNoeuds('code', eligibles, memoire, new Set(['grok', 'fable', 'sonnet']));
+    expect(route?.modele).toBe('opus');
+    expect(route?.noeuds.map((n) => n.id)).toEqual(['n1']);
+    expect(route?.rang.map((r) => r.modele)).toEqual(['opus']);
+    expect(route?.ecartes, 'triés, pour une raison reproductible').toEqual(['fable', 'grok']);
+    expect(memoire.size, 'un échec n’est pas un antécédent').toBe(0);
+
+    // Tous ont échoué : ils concourent de nouveau, plutôt que de laisser la
+    // tâche sans porteur — et rien n'est dit écarté.
+    const repli = aiguillerNoeuds('code', [noeud('n1', ['fable'])], memoire, new Set(['fable']));
+    expect(repli).toMatchObject({ modele: 'fable', ecartes: [] });
+  });
 });
 
 describe('injecterEnVol — le troupeau borné : le +∞ s’éteint au premier lancement', () => {

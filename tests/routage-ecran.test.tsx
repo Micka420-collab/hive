@@ -63,7 +63,9 @@ describe('le panneau « Pourquoi ce Worker, ce modèle »', () => {
           { modele: 'opus', essais: 3, enVol: 0, moyenne: 1, score: 1.9, aExplorer: false },
           { modele: 'grok', essais: 0, enVol: 0, moyenne: null, score: null, aExplorer: true },
         ],
+        modelesEcartes: [],
         pheromone: null,
+        course: null,
         critereNoeud: 'porteur_du_modele',
       },
     ]);
@@ -93,7 +95,9 @@ describe('le panneau « Pourquoi ce Worker, ce modèle »', () => {
           { modele: 'opus', essais: 4, enVol: 1, moyenne: 1, score: 1.7, aExplorer: false },
           { modele: 'grok', essais: 0, enVol: 5, moyenne: null, score: 0.8, aExplorer: true },
         ],
+        modelesEcartes: [],
         pheromone: null,
+        course: null,
         critereNoeud: 'porteur_du_modele',
       },
     ]);
@@ -118,7 +122,9 @@ describe('le panneau « Pourquoi ce Worker, ce modèle »', () => {
         categorie: null,
         versionAiguillage: null,
         raisonModele: [],
+        modelesEcartes: [],
         pheromone: null,
+        course: null,
         critereNoeud: 'moins_charge',
       },
     ]);
@@ -127,6 +133,95 @@ describe('le panneau « Pourquoi ce Worker, ce modèle »', () => {
     expect(dom.querySelector('[data-testid="routage-worker"]')?.textContent).toContain(
       'le moins chargé',
     );
+  });
+
+  it('UNE COURSE GAGNÉE PAR UN AUTRE DRONE QUE LE PRIMAIRE : LE PANNEAU NOMME LE VAINQUEUR, SON MODÈLE, SA RAISON', async () => {
+    // L'affectation ne nomme que le primaire (n-aaa, fable). Le panneau
+    // montrait donc fable pour une production faite par zzz avec opus.
+    const dom = await monter([
+      {
+        eventId: 2,
+        ts: 2,
+        nodeId: 'n-aaa',
+        modele: 'fable',
+        categorie: 'code',
+        versionAiguillage: 2,
+        raisonModele: [
+          { modele: 'fable', essais: 0, enVol: 0, moyenne: null, score: null, aExplorer: true },
+        ],
+        modelesEcartes: ['grok'],
+        pheromone: null,
+        course: {
+          drones: [
+            {
+              nodeId: 'n-aaa',
+              modele: 'fable',
+              raisonModele: [
+                {
+                  modele: 'fable',
+                  essais: 0,
+                  enVol: 0,
+                  moyenne: null,
+                  score: null,
+                  aExplorer: true,
+                },
+              ],
+            },
+            {
+              nodeId: 'n-zzz',
+              modele: 'opus',
+              raisonModele: [
+                { modele: 'opus', essais: 3, enVol: 0, moyenne: 1, score: 1.9, aExplorer: false },
+              ],
+            },
+          ],
+          vainqueur: { nodeId: 'n-zzz', modele: 'opus' },
+        },
+        critereNoeud: 'course_de_drones',
+      },
+    ]);
+    const worker = dom.querySelector('[data-testid="routage-worker"]')?.textContent;
+    expect(worker).toContain('zzz');
+    expect(worker).toContain('vainqueur d’une course de 2 drones');
+    expect(dom.querySelector('[data-testid="routage-modele"]')?.textContent).toContain('opus');
+    const lignes = [...dom.querySelectorAll('.routage-rang tbody tr')];
+    expect(
+      lignes.map((l) => l.querySelector('td')?.textContent),
+      'le classement du vainqueur',
+    ).toEqual(['opus']);
+    expect(dom.querySelector('[data-testid="routage-course"]')?.textContent).toContain(
+      'n-aaa (fable) · zzz (opus)',
+    );
+    expect(dom.querySelector('[data-testid="routage-ecartes"]')?.textContent).toContain(
+      'Écarté pour cette tâche après un échec : grok',
+    );
+  });
+
+  it('UN VAINQUEUR SANS MODÈLE DÉCLARÉ N’HÉRITE PAS DE CELUI DU PRIMAIRE', async () => {
+    const dom = await monter([
+      {
+        eventId: 2,
+        ts: 2,
+        nodeId: 'n-aaa',
+        modele: 'fable',
+        categorie: 'code',
+        versionAiguillage: 2,
+        raisonModele: [],
+        modelesEcartes: [],
+        pheromone: null,
+        course: {
+          drones: [
+            { nodeId: 'n-aaa', modele: 'fable', raisonModele: [] },
+            { nodeId: 'n-zzz', modele: null, raisonModele: [] },
+          ],
+          vainqueur: { nodeId: 'n-zzz', modele: null },
+        },
+        critereNoeud: 'course_de_drones',
+      },
+    ]);
+    expect(dom.querySelector('[data-testid="routage-worker"]')?.textContent).toContain('zzz');
+    expect(dom.querySelector('[data-testid="routage-modele"]')).toBeNull();
+    expect(dom.querySelector('[data-testid="routage-sans-modele"]')).toBeTruthy();
   });
 
   it('PAS ENCORE AFFECTÉE : LE PANNEAU LE DIT', async () => {
