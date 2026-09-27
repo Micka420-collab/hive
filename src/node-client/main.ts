@@ -12,7 +12,7 @@ import { libelleAgent } from '../shared/agent-libelle.js';
 import { demarrageNoeudAutorise, messageRefusShellProduction } from '../shared/agent-production.js';
 import { conseilDemarrage, constatsPourLeHub, diagnostiquerAgents } from './connexion.js';
 import { entreeEnRuche } from '../shared/presence-noeud.js';
-import { HiveNodeClient } from './client.js';
+import { HiveNodeClient, arreterSurSignaux } from './client.js';
 import { isolementDeclareDe, optionBac, preparerBac } from './bac.js';
 import { parseModeles } from './modeles.js';
 import { createInterface } from 'node:readline/promises';
@@ -204,29 +204,9 @@ console.log(
     : '🐝 Nœud Hive démarré — Ctrl+C pour quitter la ruche.',
 );
 
-// ─── SIGINT ET SIGTERM : LE MÊME ARRÊT ──────────────────────────────────────
-//
-// Seul SIGINT était écouté. Or SIGINT n'arrive que d'un terminal (Ctrl+C) : ce
-// qui SUPERVISE un nœud envoie SIGTERM — `npm run ruche` à l'arrêt
-// (`scripts/ruche.mjs`, au seul pid de l'ouvrière), systemd, launchd, un
-// `kill` nu. Sans gestionnaire, SIGTERM tuait le nœud net, sans `stop()` :
-// aucune tâche annulée. Et là où personne ne balaie le groupe du nœud —
-// `ruche.mjs`, un `kill` —, l'agent en cours lui SURVIVAIT, orphelin, à écrire
-// dans l'espace de travail et à brûler le quota de l'agent pour une tâche que
-// la Reine remettait déjà en file ailleurs.
-//
-// `stop()` annule chaque tâche active, et l'annulation envoie son SIGTERM à
-// l'agent SYNCHRONEMENT (le `signal` passé à `spawn`, `exec.ts`) : il part
-// avant notre `exit`. Même règle dans `join.ts` ;
-// `tests/noeud-arret-signal.test.ts` éprouve les deux portes sur de vrais
-// processus.
-for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-  process.on(signal, () => {
-    console.log('\nDéconnexion de la ruche…');
-    client.stop();
-    process.exit(0);
-  });
-}
+// SIGTERM comme SIGINT — le signal des superviseurs ; pourquoi, et ses limites :
+// `arreterSurSignaux` (client.ts).
+arreterSurSignaux(client);
 
 // Dernier recours : un imprévu ne doit pas tuer le nœud en silence et perdre la
 // reconnexion. On journalise et on laisse le client continuer/reconnecter.

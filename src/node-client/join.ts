@@ -17,7 +17,7 @@ import { isolementDeclareDe, optionBac, preparerBac } from './bac.js';
 import { parseModeles } from './modeles.js';
 import { CODE } from '../codes-sortie.js';
 import { libelleAgent } from '../shared/agent-libelle.js';
-import { HiveNodeClient } from './client.js';
+import { HiveNodeClient, arreterSurSignaux } from './client.js';
 import { decodeInvite } from '../shared/invite.js';
 import { decoderBillet, encoderBillet, jugerTransport, urlHttpDeRuche } from '../shared/acces.js';
 import type { Billet } from '../shared/acces.js';
@@ -286,16 +286,8 @@ async function main(): Promise<void> {
   client.start();
   console.log('\n✔ Nœud démarré — vous butinez pour la ruche. Ctrl+C pour quitter.\n');
 
-  // SIGTERM comme SIGINT : c'est le signal des superviseurs et d'un `kill`
-  // nu. Sans lui, l'agent en cours survivait au nœud — voir `main.ts`, qui
-  // porte la même règle et son pourquoi.
-  for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-    process.on(signal, () => {
-      console.log('\nDéconnexion de la ruche…');
-      client.stop();
-      process.exit(0);
-    });
-  }
+  // SIGTERM comme SIGINT — même arrêt que `npm run node` : `arreterSurSignaux`.
+  arreterSurSignaux(client);
   process.on('uncaughtException', (err) => console.error('[hive] exception non catchée :', err));
   process.on('unhandledRejection', (reason) => console.error('[hive] rejet non géré :', reason));
 }
