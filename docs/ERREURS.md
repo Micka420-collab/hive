@@ -15348,6 +15348,23 @@ l'audit était exacte à l'instant où elle a été prise, et cet instant n'exis
 jamais dans une ruche qui tourne. La carte avait raison ; l'audit qui la
 corrigeait avait tort.
 
+### Et la décision prise sur ce chiffre a été appliquée — puis mesurée
+
+« Garder FULL » ne gardait rien : c'était CHANGER la ruche. Posé tel quel, le
+prix est tombé tout de suite, parce que FULL paie un fsync à chaque COMMIT :
+
+```
+démo simulée (8 tâches, strace)   NORMAL : 11 fsync, 0,28 s   FULL : 389 fsync, 3,35 s
+bancs à base fichier, sur disque  NORMAL : 14,1 s             FULL : 32,7 s
+jambe Windows de la CI            main : 2 min 26              FULL : 9 min 33, 3 bancs hors délai
+```
+
+La ruche garde donc NORMAL — ce qu'elle a toujours eu —, mais ÉCRIT dans le
+store au lieu d'être hérité. En WAL, NORMAL ne perd rien quand le processus
+meurt ; seule une coupure du système peut emporter les derniers COMMIT, et la
+base reste cohérente. Une décision prise sur une prémisse fausse n'est pas une
+décision : c'est une question qu'on repose, chiffres en main.
+
 Pourquoi ça a échappé : on a mesuré une VALEUR, pas un ÉTAT. Un pragma se lit
 comme une constante, et celui-ci dépend du mode du journal, qui dépend de la
 première écriture. Les trois autres réglages, eux, étaient justes pour une

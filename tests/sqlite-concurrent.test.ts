@@ -11,7 +11,7 @@
 // Trois faits, chacun là où il vit :
 //
 //   1. les quatre réglages du store, relus APRÈS une écriture et une
-//      réouverture — c'est là que `synchronous` retombait en NORMAL ;
+//      réouverture — l'état où `synchronous` avait trompé une lecture ;
 //   2. un écrivain concurrent (un autre FIL, parce que better-sqlite3 est
 //      synchrone) fait ATTENDRE le store au lieu de le faire échouer ;
 //   3. deux ordonnanceurs sur la même base ne confient jamais une tâche à deux
@@ -42,8 +42,8 @@ const reglages = (store: HiveStore) => {
   };
 };
 
-/** `synchronous` : 2 = FULL. Les trois autres, en clair. */
-const ATTENDUS = { journal_mode: 'wal', synchronous: 2, foreign_keys: 1, busy_timeout: 5000 };
+/** `synchronous` : 1 = NORMAL. Les trois autres, en clair. */
+const ATTENDUS = { journal_mode: 'wal', synchronous: 1, foreign_keys: 1, busy_timeout: 5000 };
 
 describe('SQLite à deux connexions, sur un fichier WAL', () => {
   let dir: string;
@@ -66,10 +66,12 @@ describe('SQLite à deux connexions, sur un fichier WAL', () => {
   });
 
   it('les quatre réglages tiennent APRÈS une écriture et une réouverture', () => {
-    // Lus à l'ouverture d'une base neuve, ils étaient tous « bons » — c'est
-    // ainsi qu'un audit a conclu à FULL. Mais better-sqlite3 est compilé avec
-    // `SQLITE_DEFAULT_WAL_SYNCHRONOUS=1` : la première écriture en WAL faisait
-    // tomber `synchronous` à 1, et chaque réouverture partait de 1.
+    // Lu à l'ouverture d'une base neuve, `synchronous` valait 2 — c'est ainsi
+    // qu'un audit a conclu à FULL. Mais better-sqlite3 est compilé avec
+    // `SQLITE_DEFAULT_WAL_SYNCHRONOUS=1` : la première écriture en WAL le
+    // faisait tomber à 1, et chaque réouverture partait de 1. Ces valeurs
+    // étaient déjà celles de la ruche, par défauts de COMPILATION ; ce banc
+    // rougit le jour où une dépendance les change sans que Hive l'ait écrit.
     const premier = ouvrir();
     premier.createProject({ name: 'une écriture, pour passer en WAL pour de vrai' });
     expect(reglages(premier), 'après la première écriture').toEqual(ATTENDUS);

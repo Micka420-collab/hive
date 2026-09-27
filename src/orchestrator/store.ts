@@ -1478,16 +1478,21 @@ export class HiveStore {
     // Seul `journal_mode` était posé. Les trois autres valaient ce que le BUILD
     // de better-sqlite3 décidait (`deps/defines.gypi`, `lib/database.js`) :
     // une montée de version qui changerait un défaut aurait désarmé une garde
-    // sans qu'une ligne de Hive bouge.
+    // sans qu'une ligne de Hive bouge. Aucun des trois ne change la conduite ;
+    // ils la rendent écrite.
     //
-    //   • `synchronous = FULL` — un COMMIT est sur le disque avant de rendre la
-    //     main. C'est le SEUL qui change la conduite : le build pose
-    //     `SQLITE_DEFAULT_WAL_SYNCHRONOUS=1`, et la base retombait en NORMAL dès
-    //     sa première écriture en WAL (mesuré : 2 à l'ouverture d'une base
-    //     neuve, 1 après la première écriture et à chaque réouverture). En
-    //     NORMAL, une coupure de courant emporte les dernières transactions
-    //     validées : une tâche livrée redevient « prête » et repart. Décision :
-    //     la durabilité d'abord ; le prix est un fsync par COMMIT.
+    //   • `synchronous = NORMAL` — ce que la base a TOUJOURS eu en marche : le
+    //     build pose `SQLITE_DEFAULT_WAL_SYNCHRONOUS=1`, et elle passait en
+    //     NORMAL dès sa première écriture en WAL (mesuré : 2 à l'ouverture
+    //     d'une base neuve, 1 après la première écriture et à chaque
+    //     réouverture). En WAL, NORMAL ne perd RIEN quand le processus meurt ;
+    //     seule une coupure de courant ou un plantage du système peut emporter
+    //     les dernières transactions validées, et la base reste cohérente.
+    //     FULL fermerait cette fenêtre au prix d'un fsync par COMMIT — essayé
+    //     et mesuré (docs/ERREURS.md § 9 novemoctogicenties) : 35 fois plus de
+    //     fsync sur la démo, et la jambe Windows de la CI passée de 2 min 26 à
+    //     9 min 33, trois bancs hors délai. Une ruche qui rame partout pour
+    //     une fenêtre qu'une coupure seule ouvre : pas ce prix-là.
     //   • `foreign_keys = ON` — les `REFERENCES` du schéma sont appliquées.
     //     SQLite nu les ignore ; seul le défaut de compilation les armait.
     //   • `busy_timeout = 5000` — un écrivain concurrent fait ATTENDRE jusqu'à
@@ -1495,9 +1500,10 @@ export class HiveStore {
     //     `sqlite3` ouvert à la main).
     //
     // Posés avant le schéma, et relus par tests/sqlite-concurrent.test.ts APRÈS
-    // une écriture et une réouverture — là où le défaut WAL avait menti.
+    // une écriture et une réouverture — là où le défaut WAL avait trompé la
+    // lecture d'un audit.
     this.db.pragma('journal_mode = WAL');
-    this.db.pragma('synchronous = FULL');
+    this.db.pragma('synchronous = NORMAL');
     this.db.pragma('foreign_keys = ON');
     this.db.pragma('busy_timeout = 5000');
     this.db.exec(SCHEMA);

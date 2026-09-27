@@ -113,6 +113,12 @@ describe('GET /api/chambre/:nodeId', () => {
       title: 'Tâche terminée',
       prompt: 'prompt',
     });
+    // TERMINÉE pour de vrai, dans le même tour synchrone. Laissée `pending`,
+    // elle était promue puis assignée à `n-journal` par le tick (60 ms) dès
+    // que le `fetch` rendait la main : `task_ready` et `task_assigned`
+    // entraient au journal, 4 entrées au lieu de 2 — l'intermittent des
+    // ordres mélangés et de Windows.
+    srv.store.patchTask(historicalTask.id, { status: 'failed', attempts: 1 });
     srv.store.insertResult({
       taskId: historicalTask.id,
       nodeId: 'n-journal',
