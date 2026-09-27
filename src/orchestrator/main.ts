@@ -4,6 +4,7 @@
 import { annonceSimulation } from '../shared/annonce-simulation.js';
 import type { AnnonceReine } from '../shared/demarrage.js';
 import { chargerEnvQueen } from '../shared/env-queen.js';
+import { adresseLocale } from '../shared/port.js';
 import { lireConfianceProxy } from '../shared/proxy-confiance.js';
 
 try {
@@ -65,8 +66,12 @@ const config = loadConfigFromEnv();
 const server = await createServer(config);
 
 console.log('🐝 Hive — orchestrateur (Queen) en ligne');
-console.log(`   Dashboard : ${server.url}`);
-console.log(`   WebSocket : ws://${config.host}:${server.port}/ws`);
+// L'adresse où SE CONNECTER, pas celle d'écoute : sur `HIVE_HOST=` vide ou
+// `::`, le gabarit brut imprimait `ws://:7777/ws` — une URL que personne ne
+// peut ouvrir. Même règle que celle que reçoivent les ouvrières du lanceur.
+const adresse = adresseLocale(config.host, server.port);
+console.log(`   Dashboard : ${adresse.http}`);
+console.log(`   WebSocket : ${adresse.ws}`);
 console.log(`   Base      : ${config.dbPath}`);
 if (config.simulation) console.log(`   ${annonceSimulation(config.token)}`);
 if (confianceProxy.valeur !== false) {

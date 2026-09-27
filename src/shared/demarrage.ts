@@ -268,6 +268,31 @@ export function attendLaReine(p: Piece): boolean {
   return p.reine === 'HIVE_URL' || p.reine === 'HIVE_HTTP';
 }
 
+/** Combien de temps le lanceur laisse la Reine s'annoncer avant de le DIRE. */
+export const DELAI_ANNONCE_REINE_MS = 30_000;
+
+/**
+ * Ce que le lanceur imprime quand la Reine ne s'est toujours pas annoncée — ou
+ * `null` s'il n'y a rien à dire : la ruche s'arrête déjà, ou tout le monde est
+ * parti.
+ *
+ * Ce silence n'arrive pas aujourd'hui : la Reine s'annonce dans la foulée de
+ * son `listen`. Mais une Reine vivante qui ne s'annonce JAMAIS — un refactor de
+ * `orchestrator/main.ts` qui perd le `process.send` — laisserait ouvrières et
+ * écran non lancés sans une ligne : une ruche qui a l'air de tourner et n'a
+ * personne pour travailler. Ce message est la seule issue visible de ce cas ;
+ * sorti du `.mjs` pour qu'un test tienne qu'il nomme ceux qui attendent.
+ */
+export function silenceDeLaReine(
+  enAttente: readonly Pick<Piece, 'nom'>[],
+  onFerme: boolean,
+): string | null {
+  if (onFerme || enAttente.length === 0) return null;
+  const qui = enAttente.map((q) => q.nom).join(', ');
+  const secondes = DELAI_ANNONCE_REINE_MS / 1_000;
+  return `  ⚠  La Reine ne s'est pas annoncée après ${String(secondes)} s : ${qui} attendent toujours.`;
+}
+
 /**
  * Les variables posées pour une pièce au moment de la lancer : les siennes, et,
  * si elle rejoint la Reine, l'adresse que celle-ci a annoncée.

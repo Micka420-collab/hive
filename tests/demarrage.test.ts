@@ -40,6 +40,7 @@ import {
   portAnnonce,
   prefixe,
   reliquat,
+  silenceDeLaReine,
   veutOuvriere,
   voeuDepuisArgv,
 } from '../src/shared/demarrage.js';
@@ -715,6 +716,31 @@ describe('CEUX QUI REJOIGNENT LA REINE PARTENT À SON ANNONCE, VERS SON VRAI POR
     expect(annonce('::1')?.http).toBe('http://[::1]:40253');
     // Un hôte précis est repris TEL QUEL : la ruche n'écoute que là.
     expect(annonce('192.168.1.10')?.http).toBe('http://192.168.1.10:40253');
+    // Une ligne `HIVE_HOST=` laissée VIDE : la Reine écoute partout et annonce
+    // `''`. Reprise telle quelle, elle donnait `ws://:40253/ws` — une URL que
+    // le client de l'ouvrière refuse au démarrage, et la ruche tombait.
+    expect(annonce('')?.ws).toBe('ws://127.0.0.1:40253/ws');
+    // `::` sous ses autres graphies est la même adresse d'écoute.
+    for (const partout of ['::0', '0:0:0:0:0:0:0:0', '[::]']) {
+      expect(annonce(partout)?.ws, partout).toBe('ws://[::1]:40253/ws');
+    }
+    // Et chaque adresse rendue est une URL que le client accepte.
+    for (const hote of ['', '0.0.0.0', '::', '::1', '[::1]', '192.168.1.10']) {
+      const a = annonce(hote);
+      expect(() => new URL(a?.ws ?? ''), hote).not.toThrow();
+      expect(() => new URL(a?.http ?? ''), hote).not.toThrow();
+    }
+  });
+
+  it('UNE REINE QUI SE TAIT SE DIT — en nommant ceux qui l’attendent', () => {
+    // La seule issue visible d'une Reine vivante qui ne s'annonce jamais :
+    // sans cette ligne, une ruche sans ouvrière et sans écran, en silence.
+    expect(silenceDeLaReine([{ nom: 'ouvrière claude-code' }, { nom: 'écran' }], false)).toBe(
+      "  ⚠  La Reine ne s'est pas annoncée après 30 s : ouvrière claude-code, écran attendent toujours.",
+    );
+    // Rien à dire : la ruche s'arrête déjà, ou tout le monde est parti.
+    expect(silenceDeLaReine([{ nom: 'écran' }], true)).toBeNull();
+    expect(silenceDeLaReine([], false)).toBeNull();
   });
 
   it('CE QUI N’EST PAS SON ANNONCE N’EST PAS UNE ADRESSE', () => {

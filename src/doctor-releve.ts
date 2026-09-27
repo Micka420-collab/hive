@@ -43,7 +43,7 @@ import path from 'node:path';
 import { DEFAULT_TOKEN } from './shared/types.js';
 import type { Releve } from './shared/doctor.js';
 import { RUCHE_COMPLETE } from './shared/doctor.js';
-import { hoteDeConnexion, portDepuisEnv } from './shared/port.js';
+import { adresseLocale, hoteDeConnexion, portDepuisEnv } from './shared/port.js';
 import { gardiennesDepuisEnv } from './shared/reglages.js';
 import { modeRunnerDepuisEnv } from './orchestrator/essaim-runner.js';
 import { detectBestAgent } from './node-client/agent-detect.js';
@@ -134,7 +134,9 @@ export async function portTenuParNous(
 ): Promise<boolean | null> {
   const arret = AbortSignal.timeout(delaiMs);
   try {
-    const r = await fetch(`http://${hote}:${port}/api/health`, { signal: arret });
+    // `adresseLocale` et non un gabarit : `http://::1:7777` n'est pas une URL.
+    // `fetch` la refusait, et une ruche liée à `::` passait pour « pas nous ».
+    const r = await fetch(`${adresseLocale(hote, port).http}/api/health`, { signal: arret });
     if (!r.ok) return false;
     const corps = (await r.json()) as { ok?: unknown };
     return corps.ok === true;
@@ -172,7 +174,7 @@ export async function wsRepond(
     const minuteur = setTimeout(() => finir(null), delaiMs);
     let ws: InstanceType<typeof WebSocket>;
     try {
-      ws = new WebSocket(`ws://${hote}:${port}/ws`);
+      ws = new WebSocket(adresseLocale(hote, port).ws);
     } catch {
       clearTimeout(minuteur);
       finir(null);

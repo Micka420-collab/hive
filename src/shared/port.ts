@@ -22,6 +22,8 @@
 // premier changement — c'est exactement la faute qu'on répare. La règle vit ici,
 // et les deux la LISENT au lieu de la réécrire.
 
+import { isIPv6 } from 'node:net';
+
 /** Le port de la ruche quand personne n'en demande d'autre. */
 export const PORT_PAR_DEFAUT = 7777;
 
@@ -66,6 +68,20 @@ export function portDepuisEnv(env: NodeJS.ProcessEnv = process.env): number {
  * donc la boucle locale de la même famille, qui fait partie de « toutes les
  * interfaces ».
  *
+ * La chaîne VIDE aussi : c'est une ligne `HIVE_HOST=` laissée vide, et
+ * Fastify (via Node) écoute alors sur toutes les interfaces — `::` en double
+ * pile, ou `0.0.0.0` sans IPv6. Reprise telle quelle, elle donnait
+ * `ws://:7777/ws` : une URL invalide, une ouvrière qui meurt au démarrage, et
+ * la ruche entière emportée avec elle. `127.0.0.1` répond dans les deux cas.
+ *
+ * `::` s'écrit de plusieurs façons (`::0`, `0:0:0:0:0:0:0:0`, `[::]`) : on la
+ * reconnaît par sa forme CANONIQUE — celle que rend l'analyseur d'URL — plutôt
+ * que par une liste d'orthographes qui en oublierait une. Les crochets d'un
+ * hôte recopié d'une URL tombent au passage : `adresseLocale` les remet, et
+ * `listen` n'en veut pas. Les graphies exotiques de `0.0.0.0` (`0`, `0.0`)
+ * restent tenues pour des hôtes précis : personne ne les écrit dans un `.env`,
+ * et les reconnaître coûterait un analyseur IPv4 pour un cas imaginé.
+ *
  * Tout autre hôte est repris tel quel : une ruche liée à une adresse précise
  * ne se joint pas ailleurs.
  *
@@ -73,9 +89,10 @@ export function portDepuisEnv(env: NodeJS.ProcessEnv = process.env): number {
  * `relever` (le docteur), pouvait être retourné sans qu'aucun test ne bouge.
  */
 export function hoteDeConnexion(hote: string): string {
-  if (hote === '0.0.0.0') return '127.0.0.1';
-  if (hote === '::') return '::1';
-  return hote;
+  const nu = hote.startsWith('[') && hote.endsWith(']') ? hote.slice(1, -1) : hote;
+  if (nu === '' || nu === '0.0.0.0') return '127.0.0.1';
+  if (isIPv6(nu) && new URL(`http://[${nu}]`).hostname === '[::]') return '::1';
+  return nu;
 }
 
 /** Où joindre une ruche : son origine HTTP (l'écran, la CLI) et son WebSocket (les ouvrières). */

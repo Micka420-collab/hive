@@ -73,6 +73,7 @@ const { register } = await import('tsx/esm/api');
 register();
 
 const {
+  DELAI_ANNONCE_REINE_MS,
   adresseAnnoncee,
   annonceOuvrieres,
   attendLaReine,
@@ -85,6 +86,7 @@ const {
   portAnnonce,
   prefixe,
   reliquat,
+  silenceDeLaReine,
   veutOuvriere,
   voeuDepuisArgv,
 } = await import('../src/shared/demarrage.ts');
@@ -269,18 +271,15 @@ for (const p of liste) if (!attendLaReine(p)) lancer(p, null);
 
 // ─── UNE ATTENTE SANS FIN SE DIT ──────────────────────────────────────────────
 //
-// La Reine s'annonce dans la foulée de son `listen` : ce silence n'arrive pas
-// aujourd'hui. Mais une Reine vivante qui ne s'annonce JAMAIS — un refactor de
-// `orchestrator/main.ts` qui perd le `process.send` — laisserait ouvrières et
-// écran non lancés sans une ligne : une ruche qui a l'air de tourner et n'a
-// personne pour travailler. Le minuteur ne tranche rien, il nomme ceux qui
-// attendent ; `unref` : il ne retient pas un lanceur qui s'arrête.
+// Une Reine vivante qui ne s'annonce jamais laisserait ouvrières et écran non
+// lancés sans une ligne (`silenceDeLaReine`, qui dit pourquoi). Le minuteur ne
+// tranche rien, il nomme ceux qui attendent ; `unref` : il ne retient pas un
+// lanceur qui s'arrête.
 if (aLAnnonce.length > 0) {
   differer(() => {
-    if (onFerme || aLAnnonce.length === 0) return;
-    const qui = aLAnnonce.map((q) => q.nom).join(', ');
-    console.error(`  ⚠  La Reine ne s'est pas annoncée après 30 s : ${qui} attendent toujours.`);
-  }, 30_000).unref();
+    const message = silenceDeLaReine(aLAnnonce, onFerme);
+    if (message !== null) console.error(message);
+  }, DELAI_ANNONCE_REINE_MS).unref();
 }
 
 /** Emporte tout le monde, une seule fois, puis rend le code demandé. */
