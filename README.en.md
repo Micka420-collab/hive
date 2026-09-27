@@ -197,11 +197,14 @@ Your Claude subscription is enough, no API key:
 **Several agents installed, several workers.** As soon as the machine has two
 real agent families (Claude Code, Codex, Cursor…), `npm run ruche` starts one
 worker per family, each running one task at a time: every production is
-reviewed by ANOTHER family, and the router learns from those verdicts. An idle
-worker spends nothing; a review, though, is a real task. The first worker keeps
-its previous name, folder and `HIVE_MODELES`; the others take
-`<name>-<family>`. To start only one: `npm run ruche -- --une-ouvriere`, or
-`HIVE_AGENT` in `.env`.
+reviewed by the OTHER families, up to two — with Claude Code, Codex and Cursor,
+that is two reviews per production — and the router learns from those
+verdicts. An idle worker spends nothing; a review, though, is a real task, and
+the startup line counts them. A review only goes to its family: if that family
+disappears (worker stopped, restart with `--une-ouvriere`), the review fails
+after five minutes and the journal says why. The first worker keeps its
+previous name, folder and `HIVE_MODELES`; the others take `<name>-<family>`. To
+start only one: `npm run ruche -- --une-ouvriere`, or `HIVE_AGENT` in `.env`.
 
 ## 🔒 Security
 

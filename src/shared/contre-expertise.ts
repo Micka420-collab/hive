@@ -128,6 +128,16 @@ export interface Choix {
 export const AGENTS_SANS_AVIS: readonly string[] = ['shell'];
 
 /**
+ * Combien de relecteurs une production reçoit au plus — le défaut de
+ * `choisirCritiques`, et donc le prix réel d'une ruche à plusieurs familles.
+ *
+ * Exporté parce que ce prix se DIT ailleurs : la ligne de démarrage de
+ * `npm run ruche` (`annonceOuvrieres`) annonce combien de relectures chaque
+ * production coûte. Un 2 recopié là-bas mentirait le jour où celui-ci change.
+ */
+export const RELECTEURS_PAR_PRODUCTION = 2;
+
+/**
  * Qui doit relire cette production.
  *
  * `combien` est un plafond, pas un objectif : mieux vaut une critique d'un
@@ -137,7 +147,7 @@ export const AGENTS_SANS_AVIS: readonly string[] = ['shell'];
 export function choisirCritiques(
   production: Production,
   candidats: readonly Candidat[],
-  combien = 2,
+  combien = RELECTEURS_PAR_PRODUCTION,
 ): Choix | Refus {
   const utilisables = candidats.filter(
     (c) =>

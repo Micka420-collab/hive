@@ -959,18 +959,14 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
    *
    * ─── CE QUE CETTE FONCTION FAIT, ET CE QU'ELLE NE FAIT PAS ─────────────────
    *
-   * Elle DÉCIDE et elle ANNONCE. Elle ne lance pas la relecture.
+   * Elle DÉCIDE, elle ANNONCE, et elle met les relectures en FILE. Elle ne
+   * choisit pas le nœud qui les exécute : c'est le planificateur, qui ne les
+   * confie qu'à leur famille relectrice (`assignReadyTasks`).
    *
-   * Lancer demanderait de confier un prompt à un nœud PRÉCIS, et ce chemin
-   * n'existe aujourd'hui qu'à l'intérieur de `scheduler.startRace` — lié à une
-   * tâche existante et à une course. Le poser proprement est une pièce
-   * d'orchestration à part entière, pas un ajout de trois lignes ici.
-   *
-   * Ce qui est livré est tout de même utile seul : au moment où une production
-   * entre en revue, le journal dit « codex peut la relire » ou « aucun second
-   * modèle en ligne ». C'est exactement l'information qui manque au relecteur
-   * humain devant la Miellerie — et sans elle, personne ne sait qu'il existe
-   * un avis à demander.
+   * Au moment où une production entre en revue, le journal dit « codex la
+   * relit » ou « aucun second modèle en ligne ». C'est exactement
+   * l'information qui manque au relecteur humain devant la Miellerie — et sans
+   * elle, personne ne sait qu'il existe un avis à demander.
    *
    * Le REFUS est journalisé lui aussi. « Aucun second modèle » est une
    * information : tue, elle se confondrait avec « personne n'a rien trouvé ».
@@ -1035,11 +1031,13 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     // dupliqué toutes ces gardes, et c'est en dupliquant les gardes qu'on
     // finit par en oublier une.
     //
-    // Elle est posée directement en `assigned` sur un nœud PRÉCIS, sans passer
-    // par la file : le planificateur choisit le nœud le moins chargé, or ici
-    // l'identité du nœud est TOUT le propos — un autre modèle, pas n'importe
-    // lequel. C'est exactement ce que fait `scheduler.startRace`, et on
-    // réutilise son geste plutôt que d'en écrire un autre.
+    // Et par la même FILE. Elle était posée ici en `assigned` sur le nœud
+    // choisi, sans regarder s'il avait de la place : à une tâche à la fois par
+    // ouvrière (`npm run ruche` à plusieurs familles), le relecteur est
+    // souvent occupé, et chaque relecture revenait en `noeud_sature` — un
+    // refus journalisé, 3 s de refroidissement, puis la file quand même. La
+    // file sait désormais qu'une relecture a une famille (`assignReadyTasks`),
+    // et la sert AVANT les productions : ce raccourci n'avait plus d'objet.
     const lancees: string[] = [];
     for (const relecteur of choix.relecteurs) {
       const relecture = store.createTask({
@@ -1047,9 +1045,10 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         title: `Contre-expertise — ${champSurUneLigne(production.titre, 120)}`,
         prompt: consigneDeCritique(production),
       });
-      // Le lien AVANT l'assignation : si le résultat revenait entre les deux,
-      // il serait traité comme une production ordinaire et repartirait en
-      // contre-expertise. La fenêtre est étroite ; elle n'a pas à exister.
+      // Le lien AVANT toute assignation : sans lui, la file la confierait au
+      // premier nœud libre, et son résultat serait traité comme une production
+      // ordinaire — relu à son tour. La tâche naît `pending` : rien ne la
+      // prend avant la passe du planificateur, plus bas.
       store.inscrireRelecture({
         relectureTaskId: relecture.id,
         productionTaskId: taskId,
@@ -1057,14 +1056,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         relecteurAgent: relecteur.agentType,
         producteurAgent: production.agentType,
       });
-      const assignee = store.patchTask(relecture.id, {
-        status: 'assigned',
-        assignedNodeId: relecteur.nodeId,
-      });
-      if (assignee) {
-        envoyerTache(relecteur.nodeId, assignee);
-        lancees.push(relecture.id);
-      }
+      lancees.push(relecture.id);
     }
 
     emitEvent('contre_expertise', {
@@ -1077,6 +1069,9 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       relecteurs: choix.relecteurs.map((r) => r.nom),
       relectures: lancees,
     });
+    // APRÈS l'annonce : le lancement précède l'assignation dans le journal, et
+    // `eventForRelecture` le retrouve pour toute relecture déjà en vol.
+    scheduler.tick();
   };
 
   /**
@@ -9267,17 +9262,37 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
             const lienRelecture = pris ? store.relectureDe(msg.taskId) : null;
             if (lienRelecture) {
               const relecture = store.getTask(msg.taskId);
-              if (msg.success && relecture?.status === 'done') {
+              // ─── LE VERDICT EST CELUI DU NŒUD QUI LE REND ────────────────
+              //
+              // Le lien désigne une FAMILLE et le nœud choisi au lancement ;
+              // le planificateur peut confier la relecture à un autre nœud de
+              // la même famille. Le verdict est donc rangé sous le nœud qui
+              // le rend — le fait, constaté ici — et seulement si ce nœud est
+              // bien de la famille désignée. Sinon, ce n'est pas un avis : une
+              // relecture ré-adoptée par un nœud du producteur (`reconcileNode`
+              // reprend toute tâche qu'un nœud déclare exécuter, et une
+              // relecture partie chez le producteur avant la garde de famille
+              // peut revenir ainsi) serait Claude relisant Claude, consigné
+              // sous le nom de Codex.
+              const livreur = store.getNode(nodeId)?.agentType;
+              const avisValable = livreur === lienRelecture.relecteurAgent;
+              if (msg.success && relecture?.status === 'done' && avisValable) {
                 // Le texte du relecteur est une DONNÉE : `lireAvis` le
                 // neutralise et le borne avant qu'il n'atteigne un événement
                 // lu par un humain. Un verdict illisible compte comme
                 // CONTESTÉ, mais seulement après une production de relecture
                 // effectivement terminée.
-                noterVerdict(msg.taskId, lienRelecture, `${msg.logs ?? ''}\n${msg.diff ?? ''}`);
-              } else if (!msg.success) {
+                noterVerdict(
+                  msg.taskId,
+                  { ...lienRelecture, relecteurNodeId: nodeId },
+                  `${msg.logs ?? ''}\n${msg.diff ?? ''}`,
+                );
+              } else if (!msg.success || !avisValable) {
                 // Un échec intermédiaire repart en file avec la relecture : il
                 // ne constitue pas un avis. Le rendre explicite évite que
                 // l'absence de vote ressemble à une approbation silencieuse.
+                // Un avis rendu par une autre famille est terminal : la
+                // relecture est close, et personne ne la relira.
                 const lancement = store.eventForRelecture(msg.taskId);
                 const resultId = lancement?.payload.resultId;
                 emitEvent('contre_expertise_review_failed', {
@@ -9287,8 +9302,11 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
                     : {}),
                   relecture: msg.taskId,
                   relecteur: lienRelecture.relecteurAgent,
-                  terminal: relecture?.status === 'failed',
+                  terminal: relecture?.status === 'failed' || relecture?.status === 'done',
                   attempt: relecture?.attempts ?? 0,
+                  ...(avisValable
+                    ? {}
+                    : { motif: 'famille_non_designee', livreur: livreur ?? null }),
                 });
               }
             } else if (pris && msg.success && (msg.diff ?? '').trim() !== '') {

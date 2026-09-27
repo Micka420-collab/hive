@@ -40,6 +40,7 @@ import {
   veutOuvriere,
   voeuDepuisArgv,
 } from '../src/shared/demarrage.js';
+import { RELECTEURS_PAR_PRODUCTION } from '../src/shared/contre-expertise.js';
 import { PORT_PAR_DEFAUT } from '../src/shared/port.js';
 
 const RACINE = fileURLToPath(new URL('..', import.meta.url));
@@ -528,6 +529,19 @@ describe('UNE OUVRIÈRE PAR AGENT DÉTECTÉ — la relecture croisée sur le che
     expect(ouvrieres[0]?.env.HIVE_WORKDIR, 'la première garde le sien').toBeUndefined();
   });
 
+  it('`HIVE_WORKDIR=` VIDE est un dossier pour le nœud — les ajoutées en reçoivent un à elles', async () => {
+    // Le nœud lit `HIVE_WORKDIR ?? …` : vide, c'est la racine courante, pas
+    // l'absence. Lu ici comme absent, l'ajoutée ne recevait rien, rechargeait
+    // le même `HIVE_WORKDIR=` depuis le `.env`, et toutes les ouvrières
+    // partageaient UN `node-id.txt` : un seul nœud inscrit, dont la famille
+    // changeait à chaque inscription — et aucune relecture croisée.
+    const ouvrieres = ouvrieresDe(
+      await planPour(['claude-code', 'codex', 'cursor'], { HIVE_WORKDIR: '' }),
+    );
+    expect(ouvrieres.slice(1).map((o) => o.env.HIVE_WORKDIR)).toEqual(['codex', 'cursor']);
+    expect(ouvrieres[0]?.env.HIVE_WORKDIR, 'la première garde le sien').toBeUndefined();
+  });
+
   it('`HIVE_MODELES` NE VA QU’À LA PREMIÈRE — et les ajoutées le reçoivent VIDE, pas absent', async () => {
     // Les modèles déclarés sont ceux de l'agent qui tournait seul. Transmis à
     // Codex, `claude-opus-5` finirait en `codex --model claude-opus-5`.
@@ -603,12 +617,29 @@ describe('UNE OUVRIÈRE PAR AGENT — ce que le lanceur en fait', () => {
     expect(ligne).toContain('Claude Code, Codex');
     expect(ligne, 'au repos, rien ne se paie — et il faut le dire').toContain('aucun crédit');
     expect(ligne, 'la façon d’y renoncer').toContain(`npm run ruche -- ${DRAPEAU_UNE_OUVRIERE}`);
+    expect(ligne, 'deux familles : une relecture par production').toContain(
+      'relue par une autre famille (une tâche de relecture en plus)',
+    );
     expect(reste, 'sans HIVE_MODELES, une seule ligne').toEqual([]);
 
     const avecModeles = annonceOuvrieres(
       await planPour(['claude-code', 'codex'], { HIVE_MODELES: 'claude-opus-5' }),
     );
     expect(avecModeles[1]).toContain('HIVE_MODELES ne vaut que pour Claude Code');
+  });
+
+  it('LE PRIX EST COMPTÉ : trois familles, c’est DEUX relectures par production', async () => {
+    // `choisirCritiques` prend un relecteur par autre famille en ligne, jusqu'à
+    // `RELECTEURS_PAR_PRODUCTION`. « Relue par une autre famille » annonçait
+    // une relecture là où Claude Code, Codex et Cursor en lancent deux : trois
+    // exécutions d'agent par tâche, sur la seule ligne écrite pour le dire.
+    const trois = annonceOuvrieres(await planPour(['claude-code', 'codex', 'cursor']));
+    expect(trois[0]).toContain('relue par 2 autres familles (2 tâches de relecture en plus)');
+    // Le plafond tient : une quatrième famille n'ajoute pas de relecture.
+    const quatre = annonceOuvrieres(
+      await planPour(['claude-code', 'codex', 'cursor', 'hermes-agent']),
+    );
+    expect(quatre[0]).toContain(`relue par ${RELECTEURS_PAR_PRODUCTION} autres familles`);
   });
 
   it('UNE SEULE OUVRIÈRE NE S’ANNONCE PAS — c’est ce que la ruche faisait déjà', async () => {

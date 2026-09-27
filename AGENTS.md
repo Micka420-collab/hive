@@ -39,9 +39,12 @@ non-obvious caveats are captured below.
 - With two or more real agent CLIs on the machine (e.g. `claude` and `codex`),
   `npm run ruche` starts one worker per agent family instead, each pinned to
   its agent at one task at a time (log prefixes `ouvrière claude-code`,
-  `ouvrière codex`…), so every production gets a cross-family review.
-  `-- --une-ouvriere` or `HIVE_AGENT` in `.env` keeps a single worker. Idle
-  workers spend no credits.
+  `ouvrière codex`…), so every production is reviewed by the other families
+  (up to two reviews per production, each a real agent run; the banner line
+  counts them). `-- --une-ouvriere` or `HIVE_AGENT` in `.env` keeps a single
+  worker. Idle workers spend no credits. A review only goes to its reviewer
+  family; if that family stays offline for five minutes the review fails with
+  `contre_expertise_review_failed` (`motif: relecteur_absent`).
 - With no AI coding CLI installed, the worker auto-selects `Shell (simulé)` — tasks
   still dispatch and complete but produced diffs are fake. That is sufficient to
   exercise the platform end-to-end; install Claude Code (`npm i -g

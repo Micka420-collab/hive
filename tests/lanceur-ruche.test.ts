@@ -292,7 +292,7 @@ describe('le lanceur de la ruche — vie et mort', () => {
     },
     60_000,
   );
-  it.runIf(LINUX)(
+  it.runIf(POSIX)(
     'DEUX AGENTS INSTALLÉS, DEUX OUVRIÈRES — chacune SON agent, SON identité, une tâche ; l’ajoutée tombe seule',
     async () => {
       // ─── CE QUE `demarrage.test.ts` NE PEUT PAS PROUVER ────────────────────
@@ -309,9 +309,12 @@ describe('le lanceur de la ruche — vie et mort', () => {
       // partir d'ici. Le PATH ne contient QU'EUX : un vrai Cursor installé sur
       // la machine du banc ne doit pas s'inviter dans la ruche.
       //
-      // Linux seulement : c'est `/proc/<pid>/environ` qui désigne, sans
-      // deviner, le processus de l'ouvrière Codex parmi trois `node` au même
-      // argv. La composition, elle, est éprouvée partout par `demarrage.test.ts`.
+      // POSIX, comme tout ce fichier — sauf UN geste : abattre l'ouvrière
+      // Codex. C'est `/proc/<pid>/environ` qui la désigne, sans deviner, parmi
+      // trois `node` au même argv, et `/proc` n'existe que sous Linux. Ailleurs
+      // le banc s'arrête au ^C, après l'inscription : le câblage (chaque
+      // ouvrière reçoit SON environnement) est ce qui risque de différer d'un
+      // système à l'autre, et il est éprouvé sur les deux.
       const faux = mkdtempSync(path.join(tmpdir(), 'ruche-agents-'));
       aNettoyer.push(faux);
       for (const bin of ['claude', 'codex']) {
@@ -334,14 +337,26 @@ describe('le lanceur de la ruche — vie et mort', () => {
         HIVE_AGENT_CMD: '',
       });
 
-      const r = await jouerRuche(['--sans-ecran'], env, [
-        { marqueur: '[banc] enregistré', geste: () => undefined },
-        {
-          marqueur: '[banc-codex] enregistré',
-          geste: (pid) => process.kill(pidOuvriere(pid, 'codex'), 'SIGKILL'),
-        },
-        { marqueur: 'la ruche continue sans elle', geste: (pid) => process.kill(pid, 'SIGINT') },
-      ]);
+      const arreter = (pid: number): void => {
+        process.kill(pid, 'SIGINT');
+      };
+      const r = await jouerRuche(
+        ['--sans-ecran'],
+        env,
+        LINUX
+          ? [
+              { marqueur: '[banc] enregistré', geste: () => undefined },
+              {
+                marqueur: '[banc-codex] enregistré',
+                geste: (pid) => process.kill(pidOuvriere(pid, 'codex'), 'SIGKILL'),
+              },
+              { marqueur: 'la ruche continue sans elle', geste: arreter },
+            ]
+          : [
+              { marqueur: '[banc] enregistré', geste: () => undefined },
+              { marqueur: '[banc-codex] enregistré', geste: arreter },
+            ],
+      );
 
       expect(r.sortie).toContain('Une ouvrière par agent détecté (Claude Code, Codex)');
       // Chacune fait tourner SA famille : la preuve que `HIVE_AGENT` lui parvient.

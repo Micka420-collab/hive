@@ -52,6 +52,7 @@
 import path from 'node:path';
 import { libelleAgent } from './agent-libelle.js';
 import { estAgentSimule } from './agent-production.js';
+import { RELECTEURS_PAR_PRODUCTION } from './contre-expertise.js';
 import { PORT_PAR_DEFAUT, portDepuisEnv } from './port.js';
 
 /** Un membre de l'essaim à démarrer. */
@@ -358,8 +359,17 @@ export type PlanOuvrieres =
  * que `.gitignore` écarte. `<dossier>-<famille>` à côté, c'était, sur le
  * `HIVE_WORKDIR=./.hive-work` de `.env.example`, un `.hive-work-codex` à la
  * racine du dépôt : suivi par git, et oublié par la désinstallation avec
- * l'identité qu'il porte. Un nœud ne touche que `node-id.txt` et `tasks/`
- * sous sa racine : une famille logée à côté de ces deux-là ne marche sur rien.
+ * l'identité qu'il porte. Sous sa racine, un nœud n'écrit que `node-id.txt`,
+ * `tasks/`, `merges/` et `chantiers/` (`client.ts`) : aucun nom de famille
+ * (`claude-code`, `codex`, `cursor`…) ne tombe sur l'un d'eux, donc une
+ * famille logée à côté ne marche sur rien.
+ *
+ * « Fixé » au sens du nœud, pas de la vérité : `HIVE_WORKDIR=` VIDE est un
+ * dossier pour lui (`??`, `node-client/main.ts`) — la racine courante. Le lire
+ * ici comme absent laissait les ajoutées sans dossier propre : toutes
+ * retombaient sur le même `node-id.txt`, s'inscrivaient sous le MÊME nœud, et
+ * la ruche ne voyait plus qu'une famille pendant que la bannière en annonçait
+ * trois.
  *
  * ─── `HIVE_MODELES` N'EST QU'À LA PREMIÈRE ───────────────────────────────────
  *
@@ -374,8 +384,8 @@ export type PlanOuvrieres =
  *
  * Une ouvrière n'appelle son agent que pour une tâche assignée ; au repos elle
  * n'envoie que ses battements au hub. Ce qui se paie, ce sont les relectures :
- * chaque production est relue par une autre famille, et une relecture est une
- * vraie tâche.
+ * chaque production est relue par chacune des autres familles, jusqu'à
+ * `RELECTEURS_PAR_PRODUCTION`, et une relecture est une vraie tâche.
  *
  * ─── TROIS FAÇONS D'EN GARDER UNE ────────────────────────────────────────────
  *
@@ -408,7 +418,7 @@ export async function planOuvrieres(entree: {
   const dossier = env.HIVE_WORKDIR;
   const ajoutee = (agent: string): Record<string, string> => ({
     HIVE_NODE_NAME: `${nom}-${agent}`,
-    ...(dossier ? { HIVE_WORKDIR: path.join(dossier, agent) } : {}),
+    ...(dossier !== undefined ? { HIVE_WORKDIR: path.join(dossier, agent) } : {}),
     HIVE_MODELES: '',
   });
   return {
@@ -433,13 +443,24 @@ export async function planOuvrieres(entree: {
  * Une seule ouvrière, c'est ce que la ruche faisait déjà, et le nœud dit
  * lui-même quel agent il emploie. Ce qui CHANGE se dit en une ligne, avec son
  * prix et la façon d'y renoncer ; ce qui ne change pas n'ajoute pas de bruit.
+ *
+ * Le prix est COMPTÉ, pas résumé : `choisirCritiques` prend un relecteur par
+ * autre famille en ligne, jusqu'à `RELECTEURS_PAR_PRODUCTION`. Sur Claude Code,
+ * Codex et Cursor, c'est DEUX relectures par production — trois exécutions
+ * d'agent là où il y en avait une. « Relue par une autre famille » disait la
+ * moitié de la facture, sur la seule ligne écrite pour l'annoncer.
  */
 export function annonceOuvrieres(plan: PlanOuvrieres | undefined): string[] {
   if (plan?.mode !== 'par-agent') return [];
   const familles = plan.ouvrieres.map((o) => libelleAgent(o.agent)).join(', ');
+  const relectures = Math.min(RELECTEURS_PAR_PRODUCTION, plan.ouvrieres.length - 1);
+  const relue =
+    relectures === 1
+      ? 'une autre famille (une tâche de relecture en plus)'
+      : `${relectures} autres familles (${relectures} tâches de relecture en plus)`;
   const lignes = [
     `Une ouvrière par agent détecté (${familles}) : une tâche à la fois chacune, ` +
-      'chaque production relue par une autre famille, aucun crédit dépensé au repos. ' +
+      `chaque production relue par ${relue}, aucun crédit dépensé au repos. ` +
       `Une seule : npm run ruche -- ${DRAPEAU_UNE_OUVRIERE}`,
   ];
   if (plan.modelesDeclaresPar !== null) {

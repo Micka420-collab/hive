@@ -299,9 +299,13 @@ Votre abonnement Claude suffit, sans clé d'API :
 **Plusieurs agents installés, plusieurs ouvrières.** Dès que la machine porte
 deux familles d'agent réelles (Claude Code, Codex, Cursor…), `npm run ruche`
 lance une ouvrière par famille, chacune à une tâche à la fois : chaque
-production est relue par une AUTRE famille, et l'Aiguillage apprend de ces
-verdicts. Au repos, une ouvrière ne dépense rien ; une relecture, elle, est une
-vraie tâche. La première garde le nom, le dossier et les `HIVE_MODELES`
+production est relue par les AUTRES familles, jusqu'à deux — Claude Code, Codex
+et Cursor, c'est deux relectures par production —, et l'Aiguillage apprend de
+ces verdicts. Au repos, une ouvrière ne dépense rien ; une relecture, elle, est
+une vraie tâche, que la ligne de démarrage compte. Une relecture n'est confiée
+qu'à sa famille : si celle-ci disparaît (ouvrière arrêtée, relance en
+`--une-ouvriere`), elle échoue au bout de cinq minutes, et le journal dit
+pourquoi. La première ouvrière garde le nom, le dossier et les `HIVE_MODELES`
 d'avant ; les autres prennent `<nom>-<famille>`. Pour n'en lancer qu'une :
 `npm run ruche -- --une-ouvriere`, ou `HIVE_AGENT` dans `.env`.
 
