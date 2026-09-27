@@ -30,19 +30,29 @@ Tu es l'opérateur. Tes clients paient **toi** (Stripe), pas GitHub.
 3. Clone, `.env` depuis `.env.example`, puis au minimum :
 
 ```
-HIVE_EDITION=cloud
+HIVE_DOMAIN=hive.example.com
 HIVE_TOKEN=<32+ caractères>
 HIVE_JWT_SECRET=<64 hex>
 HIVE_WEBHOOK_SECRET=<secret du webhook Stripe>
 HIVE_PUBLIC_URL=wss://hive.example.com/ws
 HIVE_CORS_ORIGIN=https://hive.example.com
-HIVE_BALANCE=strict
 ```
 
-4. Dans `docker/Caddyfile.cloud`, remplace `hive.example.com`.
-5. `docker compose -f docker-compose.cloud.yml up -d`
+4. `docker compose -f docker-compose.cloud.yml up -d --wait`
+
+`HIVE_EDITION=cloud` et `HIVE_BALANCE=strict` sont posés par le compose : inutile de les écrire. `HIVE_DOMAIN` est le nom que Caddy sert, et dont il obtient le certificat Let's Encrypt tout seul. Il vit dans `.env` et **pas** dans `docker/Caddyfile.cloud` : ce fichier est suivi par git, et l'éditer faisait tomber la prochaine mise à jour (`git pull`) en conflit. Sans `HIVE_DOMAIN`, compose refuse de démarrer et dit quoi écrire. `HIVE_CORS_ORIGIN` doit nommer l'adresse HTTPS du tableau de bord : sans elle, l'écran servi par ce domaine voit sa connexion WebSocket refusée (4403).
 
 Caddy termine TLS. La Queen n'écoute **pas** sur Internet directement : seulement le réseau Docker, derrière Caddy.
+
+### Le compose ne démarre aucune ouvrière
+
+`docker compose -f docker-compose.cloud.yml up` démarre Caddy et une **Reine** — pas de machine qui travaille. Les ouvrières font tourner les agents de codage avec les identifiants de LEUR machine, et les enfermer dans ce serveur leur donnerait une maison sans clés. Une ouvrière rejoint par billet : le bouton **Inviter** de la barre du haut du tableau de bord en compose un (il annonce `HIVE_PUBLIC_URL`), et la machine qui travaille lance
+
+```sh
+npx github:Micka420-collab/hive join hive2_votre-billet
+```
+
+Tant qu'aucune n'est venue, les tâches attendent, et l'écran le dit.
 
 Le compose pose `HIVE_TRUST_PROXY=uniquelocal` : la Queen croit le `X-Forwarded-For` que Caddy lui transmet depuis le réseau privé de Docker, et chaque client garde **son** compteur anti-abus (débit, échecs de connexion, inscriptions, entrées par billet). Sans ce réglage, tous les clients auraient l'IP de Caddy et un seul compteur : un client qui s'acharne bloquerait tout le monde. Proxy hors Docker sur la même machine : `loopback`. `true` et un nombre de sauts (`1`) sont refusés : ni l'un ni l'autre ne vérifie que le pair est bien le proxy, et tout client joignable en direct pourrait choisir son IP. Une valeur refusée arrête la Queen au démarrage (code 2), avec la liste des valeurs acceptées — plutôt que de la laisser tourner avec un seul compteur pour tous les clients.
 
@@ -71,10 +81,39 @@ Un process = une Queen = une base. Pour un deuxième client : un second compose 
 
 Les slugs sont jugés par `jugerSlug` : minuscules, pas de `..`, pas de chemin. `cheminBaseLocataire(racine, slug)` refuse tout ce qui sortirait du dossier.
 
-## 5. Ce qui n'est pas encore branché
+## 5. Mettre à jour, et sauvegarder d'abord
+
+Les versions sont étiquetées (`vX.Y.Z`) ; ce qui change d'une version à l'autre et comment monter est dans [`RELEASING.md`](RELEASING.md). Il n'y a **pas d'image publiée** : l'image se construit sur le serveur, depuis le dépôt. Mettre à jour, c'est donc tirer le code et reconstruire.
+
+**D'abord la sauvegarde**, dans le volume, puis hors du serveur :
+
+```sh
+docker compose -f docker-compose.cloud.yml exec ruche node dist/cli.js sauvegarde
+docker compose -f docker-compose.cloud.yml cp ruche:/app/data/sauvegardes ./sauvegardes
+docker compose -f docker-compose.cloud.yml cp ruche:/app/data/queen.env ./queen.env.sauvegarde
+```
+
+La première ligne copie la base par `VACUUM INTO` (jamais un `cp` à chaud : il perd les écritures récentes, voir [`INSTALLATION.md`](INSTALLATION.md#sauvegarder-la-base)). La deuxième la sort du volume. La troisième garde les clés d'API posées depuis la Chambre, qui vivent dans le volume (le fichier naît avec la première clé : sans clé posée, la commande le dit, et il n'y a rien à garder) — c'est un fichier de **secrets** : rangez-le comme tel. Gardez aussi `.env`.
+
+**Puis la montée** :
+
+```sh
+git fetch --tags && git checkout vX.Y.Z      # ou : git pull --ff-only
+docker compose -f docker-compose.cloud.yml pull caddy
+docker compose -f docker-compose.cloud.yml build --pull ruche
+docker compose -f docker-compose.cloud.yml up -d --wait
+```
+
+`pull caddy` rafraîchit l'image de Caddy ; `build --pull` reconstruit la Reine sur une base Node à jour (correctifs de sécurité de Debian compris). Le volume `hive-cloud-donnees` n'est pas touché : la nouvelle Reine rouvre la même base. La CI l'éprouve à chaque PR, de la dernière étiquette à l'arbre proposé, sur un même volume (travail `montee`).
+
+## 6. Ce qui n'est pas encore branché
 
 - Le **Checkout Stripe hébergé** depuis le tableau de bord (lien à coller depuis Stripe).
 - Le **provisionnement automatique de VPS** (le fournisseur livré est manuel : instructions + billet).
-- Un **compte npm** / image GHCR officielle.
+- Un **compte npm**. Pas d'image GHCR officielle non plus, et c'est une décision : l'image se construit chez l'opérateur, depuis le dépôt qu'il a sous les yeux.
+
+## 7. Ce que la CI prouve, à chaque PR
+
+Le travail `cloud` de `.github/workflows/ci.yml` démarre ce compose tel que livré — le vrai Caddy, sur ce Caddyfile-ci — avec `HIVE_DOMAIN=hive.localhost` : un nom local, que Caddy sert avec son autorité interne. Il vérifie que compose refuse sans `HIVE_DOMAIN`, que la Reine refuse sans `HIVE_WEBHOOK_SECRET`, que `:80` redirige vers HTTPS, que `/api/edition` répond `cloud` sous un certificat vérifié, que la Reine n'est pas joignable en direct, puis lance deux clients dans deux conteneurs (deux adresses) : l'un s'acharne sous des `X-Forwarded-For` forgés jusqu'au 429, l'autre garde son compteur et reçoit l'état de la ruche par WebSocket. Le déroulé est dans `scripts/essai-conteneurs.mjs` et `scripts/sonde-cloud.mjs`.
 
 Le logiciel pour encaisser et borner est là. Les identifiants Stripe et le domaine sont les tiens.

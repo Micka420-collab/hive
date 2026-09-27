@@ -300,6 +300,7 @@ hive tasks.
 | **[docs/ETAPES.md](docs/ETAPES.md)**                         | The project's real state against its own promises (FR)     |
 | **[docs/MODELE-ECONOMIQUE.md](docs/MODELE-ECONOMIQUE.md)**   | Quotas, subscriptions, what is billed (FR)                 |
 | **[CHANGELOG.md](CHANGELOG.md)**                             | What changed, version by version                           |
+| **[docs/RELEASING.md](docs/RELEASING.md)**                   | Versions, tags, upgrading without losing anything (FR)     |
 
 Most of the deep documentation is in French, as is the codebase's commentary.
 `docs/FEATURES.en.md` is the English reference.

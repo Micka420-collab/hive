@@ -278,6 +278,22 @@ describe('la version affichée est celle du paquet', () => {
       paquet.version,
     );
   });
+
+  it('et CHAQUE `vX.Y.Z` de la page aussi — le pied de page n’était gardé par rien', () => {
+    // La version est écrite deux fois : l'en-tête, gardé ci-dessus, et le
+    // pied de page (« © 2026 Hive · v0.3.0 · MIT »), que rien ne relisait.
+    // Au premier changement de version (0.3.0 → 0.4.0, première étiquette),
+    // il fallait s'en souvenir : c'est exactement ce qui s'oublie. La règle
+    // de publication est dans `docs/RELEASING.md`.
+    const paquet = JSON.parse(
+      readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+    ) as { version: string };
+    const citees = [...vitrine.matchAll(/\bv(\d+\.\d+\.\d+)\b/g)].map((m) => m[1]);
+    expect(citees.length, 'aucune version citée — la garde ne regarde rien').toBeGreaterThan(1);
+    for (const v of citees) {
+      expect(v, `la vitrine cite v${v}, le paquet est en ${paquet.version}`).toBe(paquet.version);
+    }
+  });
 });
 
 describe('le badge « palier » ne diverge pas entre les langues', () => {

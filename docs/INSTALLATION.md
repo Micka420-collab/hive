@@ -379,9 +379,63 @@ votre machine.
 ## Dans un conteneur
 
 ```sh
-cp .env.example .env    # posez-y votre HIVE_TOKEN
-docker compose up -d
+cp .env.example .env    # posez-y HIVE_TOKEN et HIVE_JWT_SECRET
+docker compose up -d --wait
 ```
+
+Le tableau de bord est alors sur `http://127.0.0.1:7777`. Le `.env` peut être
+celui d'une ruche posée sur l'hôte : ce qui décrit le conteneur (adresse
+d'écoute, port, base, fichier de clés) est reposé par `docker-compose.yml`, qui
+prime. Pour publier sur un autre port de l'hôte, changez la partie gauche de
+`ports` (`127.0.0.1:8080:7777`), pas `HIVE_PORT`.
+
+### Le compose démarre une Reine — pas d'ouvrière
+
+`docker compose up` ne démarre **aucune machine qui travaille**. Les ouvrières
+font tourner les agents de codage (Claude Code, Codex, Cursor…) avec les
+identifiants de leur machine ; les enfermer dans le conteneur de la Reine leur
+donnerait une maison sans clés. Sans ouvrière, les tâches attendent, et l'écran
+le dit. Pour en rattacher une :
+
+- **sur cette machine**, depuis le dépôt (Node 24) — le nœud lit le même `.env`,
+  dont `HIVE_URL=ws://localhost:7777/ws` vise justement le port publié :
+
+  ```sh
+  npm ci
+  npm run node
+  ```
+
+- **depuis une autre machine** : le port n'est publié que sur la boucle locale,
+  il faut donc une adresse que l'autre machine peut joindre. `npm run cli --
+tunnel`, lancé sur cet hôte depuis le dépôt, en ouvre une chiffrée sans
+  toucher au pare-feu et imprime le billet à transmettre ; Hive Cloud la donne
+  derrière Caddy ([`CLOUD.md`](CLOUD.md)). L'autre machine lance alors
+  `npx github:Micka420-collab/hive join hive2_…` (voir
+  [Rejoindre la ruche d'un ami](#rejoindre-la-ruche-dun-ami)).
+
+### Mettre à jour
+
+L'image se construit ici, depuis le dépôt : il n'y a pas d'image publiée à
+tirer. Sauvegardez d'abord — la base, puis les clés posées depuis la Chambre,
+qui vivent dans le volume (ce fichier naît avec la première clé : sans clé
+posée, la troisième commande n'a rien à copier) :
+
+```sh
+docker compose exec ruche node dist/cli.js sauvegarde
+docker compose cp ruche:/app/data/sauvegardes ./sauvegardes
+docker compose cp ruche:/app/data/queen.env ./queen.env.sauvegarde
+```
+
+Puis :
+
+```sh
+git pull --ff-only                  # ou : git fetch --tags && git checkout vX.Y.Z
+docker compose build --pull ruche
+docker compose up -d --wait
+```
+
+Le volume `hive-donnees` n'est pas touché : la nouvelle Reine rouvre la même
+base. Le détail, les versions et le retour arrière : [`RELEASING.md`](RELEASING.md).
 
 L'image est en **Node 24 sur Debian slim**, pas sur Alpine : `better-sqlite3`
 publie des binaires prébuilts pour la glibc, pas pour la musl d'Alpine. Sur
@@ -391,7 +445,10 @@ meurt sur `ERR_MODULE_NOT_FOUND`. C'est la panne que Node 24 a supprimée côté
 poste de travail ; on ne la réintroduit pas ici.
 
 Le **bureau de recette** (écran, CDP, outils) est un profil à part :
-[`docs/ATELIER.md`](ATELIER.md). Il ne remplace pas `HIVE_ISOLEMENT`.
+[`docs/ATELIER.md`](ATELIER.md). Il ne remplace pas `HIVE_ISOLEMENT`. Avec une
+Reine en conteneur, on l'allume **depuis l'hôte**
+(`docker compose --profile atelier up -d atelier`) : `HIVE_ATELIER=auto` et le
+bouton « Allumer l'atelier » ne valent que pour une Reine lancée sur l'hôte.
 
 Ce que `docker-compose.yml` décide pour vous, et pourquoi :
 
@@ -399,15 +456,9 @@ Ce que `docker-compose.yml` décide pour vous, et pourquoi :
   Linux, Docker écrit ses règles directement dans netfilter, **en amont de la
   plupart des pare-feu** : un `ports: - '7777:7777'` ouvre la ruche sur
   Internet sans que `ufw status` le montre. Pour l'ouvrir vraiment, il y a
-  `hive tunnel`, ou — si tu vends l'hébergement — **Hive Cloud** :
-  `docker compose -f docker-compose.cloud.yml up -d` (TLS via Caddy, voir
-  [`docs/CLOUD.md`](CLOUD.md)).
-
-Community (0 €, chez soi) et Cloud (payant, sur TES serveurs) partagent le
-même image Docker. Seuls l'édition, le secret de webhook et le reverse proxy
-changent.
-`hive tunnel` — chiffré et révocable ;
-
+  `hive tunnel` — chiffré et révocable —, ou, si tu vends l'hébergement,
+  **Hive Cloud** : `docker compose -f docker-compose.cloud.yml up -d` (TLS via
+  Caddy, voir [`docs/CLOUD.md`](CLOUD.md)) ;
 - **les secrets viennent d'un fichier**, jamais de la ligne de commande : un
   `docker run -e HIVE_TOKEN=…` se lit dans le `ps` de n'importe quel compte de
   la machine ;
@@ -415,10 +466,21 @@ changent.
   l'a éteint est un logiciel qu'on ne contrôle pas ;
 - **le conteneur ne tourne pas en root**, son système de fichiers est en
   lecture seule sauf le volume de données, et toutes les capacités sont
-  retirées.
+  retirées ;
+- **un vrai PID 1** (`init: true`) : la Reine lance git pour le Rayon, et un
+  init ramasse les orphelins que `node` laisserait s'empiler.
+
+Community (0 €, chez soi) et Cloud (payant, sur TES serveurs) partagent la
+même image Docker. Seuls l'édition, le secret de webhook et le reverse proxy
+changent.
 
 La CI **construit l'image et y démarre la ruche** à chaque PR — un Dockerfile
-qu'on ne construit jamais est une promesse que rien n'exerce.
+qu'on ne construit jamais est une promesse que rien n'exerce. Elle fait aussi
+tourner ce compose comme un opérateur : `up --wait` depuis un `.env` copié de
+l'exemple, puis un compte, un projet, une clé de la Chambre et le code du
+projet relus après `docker compose restart`, après un `kill -9` de la Reine
+depuis l'hôte (relevée par `unless-stopped`) et après `down` puis `up`
+(travail `compose`, `scripts/essai-conteneurs.mjs`).
 
 ---
 

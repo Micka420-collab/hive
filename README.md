@@ -458,6 +458,7 @@ sont coupés aussi pour les tâches de la ruche.
 | **[docs/ETAPES.md](docs/ETAPES.md)**                         | L'état réel du projet face à ses propres promesses       |
 | **[docs/MODELE-ECONOMIQUE.md](docs/MODELE-ECONOMIQUE.md)**   | Quotas, abonnements, ce qui est facturé                  |
 | **[CHANGELOG.md](CHANGELOG.md)**                             | Ce qui a changé, version par version                     |
+| **[docs/RELEASING.md](docs/RELEASING.md)**                   | Versions, étiquettes, mettre à jour sans rien perdre     |
 
 ## 🤝 Contribuer
 

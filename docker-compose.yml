@@ -1,6 +1,18 @@
 # Hive — une ruche qui redémarre toute seule, sur une machine qu'on n'ouvre pas.
 #
-#     docker compose up -d
+#     cp .env.example .env   # puis HIVE_TOKEN et HIVE_JWT_SECRET
+#     docker compose up -d --wait
+#
+# ─── CE QUE CE FICHIER DÉMARRE — ET CE QU'IL NE DÉMARRE PAS ─────────────────
+#
+# UNE REINE, et aucune ouvrière. Les ouvrières font tourner les agents de
+# codage (Claude Code, Codex, Cursor…) avec les identifiants de LEUR machine :
+# les mettre dans ce conteneur leur donnerait une maison sans clés. Une ruche
+# en compose attend donc qu'une machine la rejoigne — celle-ci, depuis le
+# dépôt (`HIVE_URL=ws://127.0.0.1:7777/ws npm run node`), ou une autre, par un
+# billet (`docker compose exec ruche node dist/cli.js invite`, ou `tunnel`).
+# Tant qu'aucune n'est venue, les tâches attendent, et l'écran le dit.
+# Le détail : `docs/INSTALLATION.md`, « Dans un conteneur ».
 #
 # ─── CE QUE CE FICHIER DÉCIDE, ET POURQUOI ──────────────────────────────────
 #
@@ -28,11 +40,38 @@ services:
     ports:
       - '127.0.0.1:7777:7777'
 
+    # ─── UN VRAI PID 1 DEVANT LA REINE ──────────────────────────────────────
+    #
+    # La Reine lance git (le miroir du Rayon), et git lance ses propres aides
+    # (`git-remote-https`). Un orphelin est rattaché au PID 1 de l'espace de
+    # noms — ici `node`, qui ne ramasse personne : les zombies s'empilaient.
+    # `init: true` place l'init de Docker devant, qui les ramasse et transmet
+    # les signaux. Quand la Reine meurt, il meurt avec elle : le conteneur
+    # s'arrête, et `unless-stopped` le relance.
+    init: true
+
     # Les secrets viennent d'un fichier, jamais de la ligne de commande : un
     # `docker run -e HIVE_TOKEN=…` se lit dans `ps` de n'importe quel compte de
     # la machine. C'est la contrainte §5.1 du projet, appliquée ici.
     env_file:
       - .env
+
+    # ─── CE QUE `.env` NE DOIT PAS DÉCIDER ──────────────────────────────────
+    #
+    # `env_file` PRIME sur les `ENV` de l'image. Or le `.env` qu'on obtient par
+    # `cp .env.example .env` — ou par l'installeur — décrit une ruche posée SUR
+    # L'HÔTE : `HIVE_HOST=127.0.0.1`, un `HIVE_PORT` parfois déplacé, un
+    # `HIVE_DB` en chemin de l'hôte. Dans le conteneur, le premier faisait
+    # écouter la Reine sur SA boucle locale : la sonde de santé (lancée dedans)
+    # la disait saine, et la redirection de port ne trouvait personne. Ces
+    # quatre valeurs décrivent la forme du CONTENEUR ; `environment` prime sur
+    # `env_file`, elles sont donc posées ici. Pour un autre port sur l'hôte,
+    # changez la partie gauche de `ports`, pas `HIVE_PORT`.
+    environment:
+      HIVE_HOST: 0.0.0.0
+      HIVE_PORT: 7777
+      HIVE_DB: /app/data/hive.db
+      HIVE_ENV_FILE: /app/data/queen.env
 
     volumes:
       # La mémoire de la ruche. Un volume nommé, pas un montage de dossier :
@@ -70,7 +109,12 @@ services:
   #
   #     docker compose --profile atelier up -d atelier
   #
-  # Voir docs/ATELIER.md. La Queen peut poser HIVE_ATELIER=auto et POST /api/atelier/demarrer.
+  # Voir docs/ATELIER.md. `HIVE_ATELIER=auto` (le bouton « Allumer l'atelier »,
+  # POST /api/atelier/demarrer) ne vaut que pour une Reine lancée SUR L'HÔTE :
+  # la Reine de ce conteneur n'a ni le client `docker` ni la socket du démon
+  # — et elle ne les aura pas, ce serait lui donner l'hôte entier. Elle ne
+  # voit pas non plus le démon d'outils, publié sur la boucle locale de
+  # l'hôte. Ici, on allume l'atelier depuis l'hôte, par la commande ci-dessus.
   atelier:
     profiles: [atelier]
     build:
@@ -78,6 +122,9 @@ services:
       dockerfile: docker/atelier/Dockerfile
     image: hive-atelier:local
     restart: unless-stopped
+    # Chromium lance une nuée de processus ; le script d'entrée (PID 1) ne
+    # ramasse pas ceux qui deviennent orphelins. Même raison que la ruche.
+    init: true
     environment:
       DISPLAY: ':99'
     volumes:
