@@ -83,7 +83,8 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
   détecte la connexion morte par ping/pong au lieu d'attendre TCP
   ([#437](https://github.com/Micka420-collab/hive/pull/437)). Arrêté par
   SIGTERM (`npm run ruche`, systemd, `kill`), le nœud annule ses agents en
-  cours au lieu de les laisser tourner orphelins.
+  cours au lieu de les laisser tourner orphelins
+  ([#468](https://github.com/Micka420-collab/hive/pull/468)).
 
 - **Sécurité** :
   - les identifiants des dépôts privés ne sortent plus vers l'essaim
