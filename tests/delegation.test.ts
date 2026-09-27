@@ -120,7 +120,7 @@ describe('délégation Hive bornée', () => {
   });
 });
 
-describe('descendants en vol d’une tâche qui se termine', () => {
+describe('descendants orphelins d’une tâche qui se termine', () => {
   // root ─┬─ a (done) ─┬─ a1 (running)
   //       │            └─ a2 (done)
   //       ├─ b (ready)
@@ -138,14 +138,25 @@ describe('descendants en vol d’une tâche qui se termine', () => {
     // Entrée volontairement désordonnée : la fonction ne suppose pas l'ordre
     // du store. Le petit-enfant `a1` vole sous un enfant FINI — c'est lui
     // qu'un arrêt à la première génération laisserait orphelin.
-    expect(descendantsEnVol([...graphe].reverse(), 'root').map((n) => n.taskId)).toEqual([
-      'b',
-      'a1',
-    ]);
+    const orphelins = descendantsEnVol([...graphe].reverse(), 'root', () => false);
+    expect(orphelins.map((n) => n.taskId)).toEqual(['b', 'a1']);
   });
 
   it('ne remonte jamais : le sous-arbre d’un enfant exclut son parent et ses frères', () => {
-    expect(descendantsEnVol(graphe, 'a').map((n) => n.taskId)).toEqual(['a1']);
-    expect(descendantsEnVol(graphe, 'b')).toEqual([]);
+    expect(descendantsEnVol(graphe, 'a', () => false).map((n) => n.taskId)).toEqual(['a1']);
+    expect(descendantsEnVol(graphe, 'b', () => false)).toEqual([]);
+  });
+
+  it('épargne un enfant rouvert après livraison, et la descendance qui travaille pour lui', () => {
+    // `b` a livré, puis l'Evaluator l'a rouvert : sa correction lui appartient,
+    // et `b1`, qu'il vient de déléguer, attend SON résultat — pas celui de root.
+    const avecCorrection = [
+      ...graphe,
+      root({ taskId: 'b1', parentTaskId: 'b', depth: 2, status: 'running' }),
+    ];
+    const rouverts = new Set(['b']);
+    expect(
+      descendantsEnVol(avecCorrection, 'root', (id) => rouverts.has(id)).map((n) => n.taskId),
+    ).toEqual(['a1']);
   });
 });

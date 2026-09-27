@@ -1169,7 +1169,8 @@ export class Scheduler {
 
   /**
    * Une tâche vient d'atteindre un état TERMINAL : chacun de ses descendants
-   * délégués ENCORE EN VOL est annulé. Un enfant délégué n'a qu'un
+   * délégués ENCORE EN VOL est annulé — sauf un enfant que l'Evaluator a rouvert
+   * après qu'il a livré (voir `descendantsEnVol`). Un enfant délégué n'a qu'un
    * destinataire, la tâche qui l'a demandé ; terminée (aboutie, échouée ou
    * annulée), elle n'attend plus rien. Sans cette clôture l'enfant continuait —
    * son nœud travaillait pour rien, son horloge tournait, et un petit-enfant
@@ -1185,7 +1186,12 @@ export class Scheduler {
    * jamais tourné, elle n'a donc jamais délégué.
    */
   private fermerSousArbre(taskId: string, cause: CauseAnnulationDelegation, now: number): void {
-    for (const noeud of descendantsEnVol(this.store.listDelegationGraph(taskId), taskId)) {
+    const orphelins = descendantsEnVol(this.store.listDelegationGraph(taskId), taskId, (id) =>
+      // En vol ET déjà porteur d'un résultat retenu : l'Evaluator l'a rouvert
+      // après sa livraison (seul chemin de `done` vers la file).
+      this.store.aUnResultatRetenu(id),
+    );
+    for (const noeud of orphelins) {
       const descendant = this.store.getTask(noeud.taskId);
       if (!descendant) continue;
       this.emit('delegation_cancelled', {

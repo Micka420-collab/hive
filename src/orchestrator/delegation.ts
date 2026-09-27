@@ -161,14 +161,24 @@ export function jugerDelegation(
 export type CauseAnnulationDelegation = 'ancestor_done' | 'ancestor_failed' | 'ancestor_cancelled';
 
 /**
- * Les descendants ENCORE EN VOL de `taskId` dans son graphe, parents avant
- * enfants.
+ * Les descendants ORPHELINS de `taskId` — encore en vol, et dont plus personne
+ * n'attend le résultat —, parents avant enfants.
  *
  * Un enfant délégué n'a qu'un destinataire : la tâche qui l'a demandé. Quand
  * elle devient terminale, plus personne n'attend son résultat — ni celui de
  * sa propre descendance. Le parcours traverse donc AUSSI les descendants déjà
  * terminés : un petit-enfant en vol sous un enfant fini reste orphelin, et
  * c'est lui que l'arrêt à la première génération oublierait.
+ *
+ * UNE EXCEPTION, ET ELLE N'EST PAS UN CONFORT. Un enfant qui a déjà LIVRÉ son
+ * résultat à son parent, puis que l'Evaluator a rouvert après une contre-revue
+ * contestée, n'est plus le travail en attente de ce parent : c'est la
+ * correction que la ruche a exigée de SA production. L'annuler avec l'ancêtre
+ * effaçait la décision de l'Evaluator, et la tentative suivante du parent —
+ * rouverte à son tour — rejouait l'identifiant stable pour relire l'avis
+ * contesté au lieu d'attendre la correction. Le scénario V2 Alpha l'a montré,
+ * au gré d'une course entre les deux. `rouvertApresLivraison` désigne ces
+ * enfants : ni eux, ni la descendance qui travaille pour eux ne sont touchés.
  *
  * Seules les arêtes du graphe comptent : une tâche liée par `dependsOn` n'est
  * pas une descendante (la cascade des dépendances vit dans le scheduler), et
@@ -177,15 +187,19 @@ export type CauseAnnulationDelegation = 'ancestor_done' | 'ancestor_failed' | 'a
 export function descendantsEnVol(
   graphe: readonly NoeudDelegation[],
   taskId: string,
+  rouvertApresLivraison: (taskId: string) => boolean,
 ): NoeudDelegation[] {
-  const sousArbre = new Set([taskId]);
-  const enVol: NoeudDelegation[] = [];
+  // Les tâches dont les enfants n'ont plus de destinataire vivant.
+  const sansDestinataire = new Set([taskId]);
+  const orphelins: NoeudDelegation[] = [];
   // Tri stable par profondeur : un parent est toujours vu avant ses enfants,
   // donc un seul passage suffit (graphe borné par `maxDescendantsPerRoot`).
   for (const noeud of [...graphe].sort((a, b) => a.depth - b.depth)) {
-    if (noeud.parentTaskId === null || !sousArbre.has(noeud.parentTaskId)) continue;
-    sousArbre.add(noeud.taskId);
-    if (noeud.status !== 'done' && noeud.status !== 'failed') enVol.push(noeud);
+    if (noeud.parentTaskId === null || !sansDestinataire.has(noeud.parentTaskId)) continue;
+    const termine = noeud.status === 'done' || noeud.status === 'failed';
+    if (!termine && rouvertApresLivraison(noeud.taskId)) continue;
+    sansDestinataire.add(noeud.taskId);
+    if (!termine) orphelins.push(noeud);
   }
-  return enVol;
+  return orphelins;
 }

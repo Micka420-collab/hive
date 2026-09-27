@@ -3280,6 +3280,20 @@ export class HiveStore {
     return info.changes;
   }
 
+  /**
+   * La tâche a-t-elle déjà produit un résultat RETENU (`success = 1`) ? Un
+   * résultat retenu l'a menée à `done` — pour un enfant délégué, c'est le
+   * résultat terminal que son parent a reçu. Lecture bornée par l'index
+   * `idx_results_task`, sans charger ni diff ni logs.
+   */
+  aUnResultatRetenu(taskId: string): boolean {
+    return (
+      this.db
+        .prepare('SELECT 1 FROM results WHERE taskId = ? AND success = 1 LIMIT 1')
+        .get(taskId) !== undefined
+    );
+  }
+
   resultsForTask(taskId: string): TaskResult[] {
     const rows = this.db
       .prepare('SELECT * FROM results WHERE taskId = ? ORDER BY id')

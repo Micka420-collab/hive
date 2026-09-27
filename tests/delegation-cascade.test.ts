@@ -222,6 +222,50 @@ describe('clôture du sous-arbre délégué à la transition terminale', () => {
     expect(store.getTask('enfant-2')?.status).not.toBe('failed');
   });
 
+  it('un enfant rouvert par l’Evaluator APRÈS avoir livré garde sa correction', () => {
+    // La course que le scénario V2 Alpha a révélée : l'enfant livre, le parent
+    // reprend son travail, une contre-revue conteste l'enfant et l'Evaluator le
+    // rouvre — puis le parent aboutit. La correction exigée n'est pas le
+    // travail en attente du parent ; l'annuler effaçait la décision de
+    // l'Evaluator, et la tentative suivante du parent relisait l'avis contesté.
+    for (const nom of ['a', 'b', 'c']) scheduler.registerNode(profil(nom), T);
+    creerPrete('parent', T);
+    scheduler.tick(T);
+    scheduler.handleTaskUpdate(noeudDe('parent'), 'parent');
+    deleguer('parent', 'enfant');
+    scheduler.tick(T);
+    scheduler.handleTaskResult(noeudDe('enfant'), resultat('enfant', true));
+    const livre = store.resultsForTask('enfant').at(-1);
+    const rouvert = scheduler.retryFromEvaluator({
+      taskId: 'enfant',
+      resultId: livre?.resultId ?? -1,
+      decision: 'correction_required',
+    });
+    expect(rouvert.ok).toBe(true);
+    scheduler.tick(T);
+    // La correction délègue à son tour : ce petit-enfant attend l'ENFANT.
+    deleguer('enfant', 'petit-enfant');
+    scheduler.tick(T);
+    // Et un second enfant que le parent n'a jamais entendu, lui, est orphelin.
+    deleguer('parent', 'enfant-2');
+    scheduler.tick(T);
+    expect(store.getTask('enfant')?.status).toBe('assigned');
+    expect(store.getTask('petit-enfant')?.status).toBe('assigned');
+    expect(store.getTask('enfant-2')?.status).toBe('ready');
+    annulations = [];
+    events = [];
+
+    scheduler.handleTaskResult(noeudDe('parent'), resultat('parent', true));
+
+    expect(store.getTask('enfant')?.status).toBe('assigned');
+    expect(store.getTask('petit-enfant')?.status).toBe('assigned');
+    expect(store.getTask('enfant-2')?.status).toBe('failed');
+    expect(annulations).toEqual([]);
+    expect(
+      events.filter((e) => e.type === 'delegation_cancelled').map((e) => e.payload.childTaskId),
+    ).toEqual(['enfant-2']);
+  });
+
   it('aucun agent fonctionnel : l’échec d’infrastructure du parent ferme aussi son sous-arbre', () => {
     const a = scheduler.registerNode(profil('a', 2), T);
     creerPrete('parent', T);
