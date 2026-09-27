@@ -433,6 +433,61 @@ const EVENTS: Record<string, Meta> = {
         `brood chamber: ${short(p.taskId)} restarts with the lessons of ${String(p.echecs ?? '?')} failure(s)`,
       ),
   },
+  // Les leçons que le budget a évincées (cadre, Cerveau et critique ont tout
+  // pris) : la tentative repart sans savoir comment les précédentes ont
+  // échoué. Un avertissement, comme `critique_refus`.
+  brood_refus: {
+    icon: '⚠',
+    cls: 'warn',
+    text: (p, t) =>
+      t(
+        `couveuse muette : ${short(p.taskId)} repart (essai ${String(p.attempt ?? '?')}) sans les leçons de ${String(p.echecs ?? '?')} échec(s) — budget de contexte épuisé`,
+        `brood chamber silenced: ${short(p.taskId)} restarts (attempt ${String(p.attempt ?? '?')}) without the lessons of ${String(p.echecs ?? '?')} failure(s) — context budget exhausted`,
+      ),
+  },
+  // La critique jointe à une correction. Le payload ne porte que des faits
+  // comptés : le TEXTE des objections vit dans `task_retry`, et la Miellerie
+  // le montre sous la tâche (`/api/tasks/:taskId/critique`).
+  critique_context: {
+    icon: '◦',
+    cls: 'info',
+    text: (p, t) => {
+      const qui =
+        p.source === 'revue_humaine'
+          ? t('le rejet humain', 'the human rejection')
+          : p.source === 'contre_revue'
+            ? t('la contre-revue', 'the counter-review')
+            : t('l’Evaluator', 'the Evaluator');
+      const note =
+        p.noteHumaine === true
+          ? t(', avec la raison de l’humain', ', with the human’s reason')
+          : '';
+      // `objections` = ce que l'ouvrière a LU ; `objectionsFigees` = ce que
+      // la correction avait relevé. L'écart, c'est la queue tombée au budget.
+      const figees = typeof p.objectionsFigees === 'number' ? p.objectionsFigees : null;
+      const tronquee = figees !== null && figees > Number(p.objections ?? 0);
+      const sur = tronquee
+        ? { fr: ` (sur ${String(figees)} relevées)`, en: ` (of ${String(figees)} raised)` }
+        : { fr: '', en: '' };
+      return t(
+        `critique : ${short(p.taskId)} repart (essai ${String(p.attempt ?? '?')}) avec ${qui} — ${String(p.objections ?? 0)} objection(s)${sur.fr}${note}`,
+        `critique: ${short(p.taskId)} restarts (attempt ${String(p.attempt ?? '?')}) with ${qui} — ${String(p.objections ?? 0)} objection(s)${sur.en}${note}`,
+      );
+    },
+  },
+  // La critique que le budget a évincée : la tentative repart SANS savoir ce
+  // qu'on reprochait à la précédente. Un avertissement, comme un refus du
+  // Cerveau — c'est précisément la reprise aveugle que la critique existe à
+  // empêcher.
+  critique_refus: {
+    icon: '⚠',
+    cls: 'warn',
+    text: (p, t) =>
+      t(
+        `critique perdue : ${short(p.taskId)} repart (essai ${String(p.attempt ?? '?')}) sans les ${String(p.objectionsFigees ?? '?')} objection(s) de la correction — budget de contexte épuisé`,
+        `critique dropped: ${short(p.taskId)} restarts (attempt ${String(p.attempt ?? '?')}) without the correction’s ${String(p.objectionsFigees ?? '?')} objection(s) — context budget exhausted`,
+      ),
+  },
   // La Balance, geste « borner ». Trois faits typés — `projectId`, des entiers,
   // un booléen — et AUCUNE phrase persistée : le bilingue est reconstruit ici
   // depuis les champs, exactement comme `thermo_shift`. `formatDuree` est

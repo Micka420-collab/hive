@@ -248,6 +248,7 @@ describe('livrer, puis fusionner', () => {
       taskId: t.id,
       resultId: resultat?.resultId ?? -1,
       decision: 'correction_required',
+      critique: null,
     });
     expect(retry).toMatchObject({ ok: false, reason: 'delivery_exists' });
     const enCours = server.store.getLivraison(t.id);

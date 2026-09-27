@@ -45,12 +45,23 @@ const FAMILIES: { id: Family; fr: string; en: string }[] = [
 ];
 
 /**
- * Instinct de ruche : les trois comportements adaptatifs de l'essaim
- * (phéromones de routage, thermorégulation, couveuse). Ils ne relèvent ni du
- * cycle de vie d'une tâche ni de celui d'un nœud — ils méritent leur filtre.
+ * Instinct de ruche : les comportements adaptatifs de l'essaim (phéromones
+ * de routage, thermorégulation, couveuse et critique transmise). Ils ne
+ * relèvent ni du cycle de vie d'une tâche ni de celui d'un nœud — ils méritent
+ * leur filtre.
  * Testé AVANT les préfixes : `thermo_shift` n'est pas un événement de tâche.
  */
-const INSTINCT = new Set(['pheromone_route', 'thermo_shift', 'brood_context']);
+const INSTINCT = new Set([
+  'pheromone_route',
+  'thermo_shift',
+  'brood_context',
+  // … ses leçons évincées par le budget : un échec oublié, qui doit se voir.
+  'brood_refus',
+  // La critique jointe à une correction : la Couveuse des productions contestées.
+  'critique_context',
+  // … et celle que le budget a évincée : la reprise aveugle, qui doit se voir.
+  'critique_refus',
+]);
 
 /**
  * La Balance, geste « borner » : alerte de seuil, plafond atteint, plafond posé

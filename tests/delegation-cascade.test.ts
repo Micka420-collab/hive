@@ -243,6 +243,7 @@ describe('clôture du sous-arbre délégué à la transition terminale', () => {
       taskId: 'enfant',
       resultId: livre?.resultId ?? -1,
       decision: 'correction_required',
+      critique: null,
     });
     expect(rouvert.ok).toBe(true);
     scheduler.tick(T);
@@ -346,6 +347,7 @@ describe('clôture du sous-arbre délégué à la transition terminale', () => {
         taskId,
         resultId: livre?.resultId ?? -1,
         decision: 'correction_required',
+        critique: null,
       });
       expect(retry, taskId).toMatchObject({ ok: false, reason: 'ancestor_failed' });
       expect(store.getTask(taskId)?.status, taskId).toBe('done');

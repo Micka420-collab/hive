@@ -120,6 +120,8 @@ function readLocalReviews(): Record<string, ReviewState> {
 interface OutboxEntry {
   state: ReviewState | null;
   base: ReviewState | null;
+  /** La raison jointe au geste : rejouée avec lui, sinon le rejet arriverait muet. */
+  raison?: string;
 }
 
 function readUnsynced(): Record<string, OutboxEntry> {
@@ -198,7 +200,7 @@ export function hydrateReviews(map: Record<string, ReviewState>, seq?: number): 
     }
     if (entry.state === null) delete serverReviews[taskId];
     else serverReviews[taskId] = entry.state;
-    enqueuePost(taskId, entry.state, entry.base);
+    enqueuePost(taskId, entry.state, entry.base, entry.raison);
   }
   notifyReviewChange();
 }
@@ -253,16 +255,27 @@ export function getReview(taskId: string): ReviewState | null {
 }
 
 /** Enfile un POST de revue sérialisé par tâche, avec suivi unsynced + rejeu WS. */
-function enqueuePost(taskId: string, state: ReviewState | null, base: ReviewState | null): void {
+function enqueuePost(
+  taskId: string,
+  state: ReviewState | null,
+  base: ReviewState | null,
+  raison?: string,
+): void {
   // Tant que le serveur n'a pas confirmé, le verdict est « non synchronisé ».
   const unsynced = readUnsynced();
-  unsynced[taskId] = { state, base };
+  unsynced[taskId] = { state, base, ...(raison ? { raison } : {}) };
   writeUnsynced(unsynced);
 
   locallyPending.add(taskId);
   const prev = postChains.get(taskId) ?? Promise.resolve();
   const next = prev
-    .then(() => postReview(taskId, state, reviewClientId()))
+    // Sans raison, la forme d'appel d'avant : trois arguments, pas un
+    // quatrième `undefined` que rien ne porte.
+    .then(() =>
+      raison === undefined
+        ? postReview(taskId, state, reviewClientId())
+        : postReview(taskId, state, reviewClientId(), raison),
+    )
     .then(
       () => {
         const m = readUnsynced();
@@ -308,7 +321,11 @@ function enqueuePost(taskId: string, state: ReviewState | null, base: ReviewStat
   });
 }
 
-export function setReview(taskId: string, state: ReviewState | null): void {
+/**
+ * `raison` : facultative, jointe au verdict (jamais à un effacement). Sur un
+ * rejet qui relance la tâche, le serveur la transmet à la tentative suivante.
+ */
+export function setReview(taskId: string, state: ReviewState | null, raison?: string): void {
   // `base` = verdict serveur connu AVANT ce geste : capturé pour détecter, au
   // rejeu éventuel de l'outbox, qu'un autre opérateur a statué entre-temps.
   const base = getReview(taskId);
@@ -319,7 +336,7 @@ export function setReview(taskId: string, state: ReviewState | null): void {
   else local[taskId] = state;
   localStorage.setItem(REVIEW_KEY, JSON.stringify(local));
   notifyReviewChange();
-  enqueuePost(taskId, state, base);
+  enqueuePost(taskId, state, base, state === null ? undefined : raison?.trim() || undefined);
 }
 
 /** Nombre de tâches terminées non revues (badge sidebar + compteurs). */
