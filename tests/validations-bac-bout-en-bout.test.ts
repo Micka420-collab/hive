@@ -36,12 +36,15 @@ const JETON = 'jeton-validations-bac-suffisamment-long';
 
 let serveur: HiveServer | null = null;
 let client: HiveNodeClient | null = null;
+let relectrice: HiveNodeClient | null = null;
 let dossier = '';
 const dossiers: string[] = [];
 
 afterEach(async () => {
   client?.stop();
   client = null;
+  relectrice?.stop();
+  relectrice = null;
   await serveur?.stop();
   serveur = null;
   if (dossier) rmSync(dossier, { recursive: true, force: true, maxRetries: 3 });
@@ -121,8 +124,35 @@ const agentDuBanc: AgentAdapter = {
   },
 };
 
-async function demarrer(bac: ReturnType<typeof fauxBac> | undefined): Promise<{
+/**
+ * La relectrice d'une AUTRE famille (`codex`) : elle rend son avis par le texte
+ * final, comme un vrai adaptateur (#462 — la Reine ne lit un verdict que là).
+ * Elle ne reçoit que des contre-expertises : à charge égale, la file sert
+ * d'abord `ouvriere-bac` (départage par nom), et la relectrice est occupée
+ * pendant que la production suivante part.
+ */
+const relectriceDuBanc: AgentAdapter = {
+  name: 'relectrice',
+  run(task) {
+    if (!task.title.startsWith('Contre-expertise')) {
+      throw new Error(`la relectrice a reçu une production : ${task.title}`);
+    }
+    return Promise.resolve({
+      success: true,
+      diff: '',
+      logs: 'relu',
+      finalText: 'valide',
+      subAgents: [],
+    });
+  },
+};
+
+async function demarrer(
+  bac: ReturnType<typeof fauxBac> | undefined,
+  avecRelectrice = false,
+): Promise<{
   s: HiveServer;
+  evaluer: (tacheId: string) => Promise<{ decision: string; reasons: string[] }>;
   baseSha: string;
   produire: (
     title: string,
@@ -168,6 +198,25 @@ async function demarrer(bac: ReturnType<typeof fauxBac> | undefined): Promise<{
     () => s.store.listNodes().some((n) => n.id === 'noeud-bac' && n.status === 'online'),
     'le nœud ne rejoint pas la ruche',
   );
+  if (avecRelectrice) {
+    relectrice = new HiveNodeClient({
+      url: `ws://127.0.0.1:${serveur.port}/ws`,
+      token: JETON,
+      name: 'relectrice-codex',
+      ownerName: 'banc',
+      agentType: 'codex',
+      nodeId: 'relectrice-codex',
+      maxConcurrency: 1,
+      workRoot: path.join(dossier, 'relecture'),
+      adapter: relectriceDuBanc,
+      quiet: true,
+    });
+    relectrice.start();
+    await attendre(
+      () => s.store.listNodes().some((n) => n.id === 'relectrice-codex' && n.status === 'online'),
+      'la relectrice ne rejoint pas la ruche',
+    );
+  }
   const projet = s.store.createProject({ name: 'Projet local', repoUrl: depot });
   const base = `http://127.0.0.1:${s.port}`;
   const headers = { 'x-hive-token': JETON };
@@ -196,14 +245,19 @@ async function demarrer(bac: ReturnType<typeof fauxBac> | undefined): Promise<{
     };
     return { tacheId: tache.id, resultat, preuves, evaluation };
   };
-  return { s, baseSha, produire };
+  const evaluer = async (tacheId: string) => {
+    const reponse = await fetch(`${base}/api/tasks/${tacheId}/evaluation`, { headers });
+    expect(reponse.status).toBe(200);
+    return (await reponse.json()) as { decision: string; reasons: string[] };
+  };
+  return { s, baseSha, produire, evaluer };
 }
 
 describe('validations du bac — du nœud producteur jusqu’à l’Evaluator', () => {
   it.runIf(process.platform !== 'win32')(
     'RANGÉES AVEC LE RÉSULTAT EXACT, LUES PAR L’EVALUATOR, JAMAIS PRÊTÉES À CE QUI N’A RIEN À JUGER',
     async () => {
-      const { baseSha, produire } = await demarrer(fauxBac(dossiers));
+      const { s, baseSha, produire, evaluer } = await demarrer(fauxBac(dossiers), true);
 
       // ─── UNE PRODUCTION QUI TIENT SES TESTS ───────────────────────────────
       const saine = await produire('Sécuriser feature.js');
@@ -233,11 +287,23 @@ describe('validations du bac — du nœud producteur jusqu’à l’Evaluator', 
           resultId: saine.resultat?.resultId,
         },
       });
-      // `accepted` demande en plus un consensus élu (et, avec #460, une
-      // contre-revue favorable) : ce banc s'arrête à ce que les validations
-      // décident — elles ne bloquent plus.
-      expect(saine.evaluation.decision).not.toBe('additional_test_required');
       expect(saine.evaluation.reasons.join(' · ')).not.toContain('preuves manquantes');
+      // Le bout du chemin : sans GitHub, les validations du bac et UNE
+      // contre-revue favorable d'une autre famille (#460) suffisent à
+      // `accepted` — ce qu'aucune production locale ne pouvait atteindre.
+      await attendre(
+        () =>
+          s.store
+            .listEvents(0, 1000)
+            .some(
+              (e) => e.type === 'contre_expertise_verdict' && e.payload.taskId === saine.tacheId,
+            ),
+        'la relectrice codex n’a pas rendu son avis',
+      );
+      const acceptee = await evaluer(saine.tacheId);
+      expect(acceptee.decision, acceptee.reasons.join(' · ')).toBe('accepted');
+      expect(acceptee.reasons).toContain('validations : bac Hive du nœud noeud-bac');
+      expect(acceptee.reasons.join(' · ')).toContain('contre-revue favorable de codex');
 
       // ─── UNE PRODUCTION QUI CASSE SES TESTS ───────────────────────────────
       const cassee = await produire('Casser feature.js');
