@@ -307,14 +307,24 @@ qui ne va pas. Un thermomètre qui ne propose rien ne sert qu'à nommer la peine
 ### « Une autre Reine tient déjà cette base »
 
 Une seule Reine par base : deux s'assigneraient les mêmes tâches, et la seconde
-requalifierait au démarrage les travaux en vol de la première. La Reine pose donc
-`data/hive.db.reine.lock` en démarrant et le rend en s'arrêtant.
+requalifierait au démarrage les travaux en vol de la première. La Reine tient
+donc un verrou sur `data/hive.db.reine.lock` tant qu'elle tourne.
 
-Après un arrêt brutal (processus tué, coupure de courant), le verrou reste : la
-Reine suivante le reprend d'elle-même quand elle peut **prouver** qu'il est
-périmé — même machine et processus disparu, ou machine redémarrée depuis. Sinon
-elle refuse de démarrer et affiche le chemin du verrou : s'il n'y a vraiment
-aucune autre Reine sur cette base, supprimez ce fichier.
+Ce verrou appartient au **système** : il tombe de lui-même quand la Reine
+s'arrête, de quelque façon qu'elle s'arrête — arrêt propre, processus tué,
+coupure de courant, conteneur détruit puis recréé. Il n'y a rien à nettoyer
+après un arrêt brutal, et le fichier reste en place d'un démarrage à l'autre :
+c'est normal.
+
+Si ce message s'affiche, une Reine tourne **vraiment** sur cette base, et il dit
+laquelle (pid et machine). Arrêtez-la, ou donnez à la nouvelle une autre base
+(`HIVE_DB`). Avec Docker, c'est en général une Reine lancée sur l'hôte alors que
+le conteneur tourne sur le même dossier `data/`, ou deux services sur le même
+volume. Supprimer le fichier n'arrêterait pas l'autre Reine : elle continuerait
+d'écrire, et la vôtre démarrerait à côté.
+
+Seul « Le verrou de Reine est illisible » (le fichier a été remplacé par autre
+chose) demande de le supprimer : il est recréé au démarrage suivant.
 
 ---
 

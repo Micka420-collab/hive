@@ -15,7 +15,8 @@
 //   2. un écrivain concurrent (un autre FIL, parce que better-sqlite3 est
 //      synchrone) fait ATTENDRE le store au lieu de le faire échouer ;
 //   3. deux ordonnanceurs sur la même base ne confient jamais une tâche à deux
-//      nœuds — la lecture `ready` de l'un est périmée quand il réclame.
+//      nœuds — la lecture `ready` de l'un est périmée quand il réclame, au
+//      tick comme au départ d'une course.
 
 import { once } from 'node:events';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -24,7 +25,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { Worker } from 'node:worker_threads';
 import type Database from 'better-sqlite3';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Scheduler } from '../src/orchestrator/scheduler.js';
 import { HiveStore } from '../src/orchestrator/store.js';
 
@@ -42,8 +43,8 @@ const reglages = (store: HiveStore) => {
   };
 };
 
-/** `synchronous` : 1 = NORMAL. Les trois autres, en clair. */
-const ATTENDUS = { journal_mode: 'wal', synchronous: 1, foreign_keys: 1, busy_timeout: 5000 };
+/** `synchronous` : 2 = FULL. Les trois autres, en clair. */
+const ATTENDUS = { journal_mode: 'wal', synchronous: 2, foreign_keys: 1, busy_timeout: 5000 };
 
 describe('SQLite à deux connexions, sur un fichier WAL', () => {
   let dir: string;
@@ -68,10 +69,10 @@ describe('SQLite à deux connexions, sur un fichier WAL', () => {
   it('les quatre réglages tiennent APRÈS une écriture et une réouverture', () => {
     // Lu à l'ouverture d'une base neuve, `synchronous` valait 2 — c'est ainsi
     // qu'un audit a conclu à FULL. Mais better-sqlite3 est compilé avec
-    // `SQLITE_DEFAULT_WAL_SYNCHRONOUS=1` : la première écriture en WAL le
-    // faisait tomber à 1, et chaque réouverture partait de 1. Ces valeurs
-    // étaient déjà celles de la ruche, par défauts de COMPILATION ; ce banc
-    // rougit le jour où une dépendance les change sans que Hive l'ait écrit.
+    // `SQLITE_DEFAULT_WAL_SYNCHRONOUS=1` : sans réglage écrit, la première
+    // écriture en WAL le faisait tomber à 1 (NORMAL), et chaque réouverture
+    // partait de 1. Ce banc lit donc là où le défaut trompait : FULL, posé par
+    // le store, doit TENIR après une écriture et après une réouverture.
     const premier = ouvrir();
     premier.createProject({ name: 'une écriture, pour passer en WAL pour de vrai' });
     expect(reglages(premier), 'après la première écriture').toEqual(ATTENDUS);
@@ -95,13 +96,20 @@ describe('SQLite à deux connexions, sur un fichier WAL', () => {
     // Un AUTRE fil tient le verrou d'écriture du même fichier pendant 400 ms.
     // Dans le même fil, c'est impossible à jouer : better-sqlite3 est
     // synchrone, et le store bloquerait le fil qui devait rendre le verrou.
+    //
+    // Les 400 ms partent du SIGNAL du fil principal, envoyé après le départ de
+    // son chrono — pas du message « tenu ». Sinon, une livraison de message
+    // lente (CI chargée, ordre mélangé) rognait l'attente mesurée, et le banc
+    // rougissait alors que `busy_timeout` avait fait son travail.
     const TENU_MS = 400;
+    const top = new Int32Array(new SharedArrayBuffer(4));
     const ecrivain = new Worker(
       `const { parentPort, workerData } = require('node:worker_threads');
        const Database = require(workerData.module);
        const db = new Database(workerData.chemin);
        db.exec('BEGIN IMMEDIATE');
        parentPort.postMessage('tenu');
+       Atomics.wait(new Int32Array(workerData.top), 0, 0);
        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, workerData.tenuMs);
        db.exec('COMMIT');
        db.close();`,
@@ -111,12 +119,15 @@ describe('SQLite à deux connexions, sur un fichier WAL', () => {
           module: createRequire(import.meta.url).resolve('better-sqlite3'),
           chemin: dbPath,
           tenuMs: TENU_MS,
+          top: top.buffer,
         },
       },
     );
     try {
       await once(ecrivain, 'message');
       const debut = performance.now();
+      Atomics.store(top, 0, 1);
+      Atomics.notify(top, 0);
       // Avec `busy_timeout = 0`, cette ligne lèverait aussitôt
       // « database is locked ».
       store.appendEvent('essai_concurrence', { note: 'écrit pendant que l’autre fil tient' });
@@ -186,6 +197,53 @@ describe('SQLite à deux connexions, sur un fichier WAL', () => {
     }
     // Et l'entrelacement a bien eu lieu : les DEUX Reines ont réclamé.
     expect(new Set(envois.map((e) => e.reine))).toEqual(new Set(['A', 'B']));
+  });
+
+  it('une COURSE ne part pas avec une tâche réclamée entre sa lecture et sa réclamation', () => {
+    // `startRace` lit la tâche `ready`, puis dresse la liste des nœuds
+    // candidats, puis réclame. La Reine B passe PENDANT cette liste : quand A
+    // réclame, sa lecture est périmée. Une réclamation sans condition
+    // arracherait la tâche au nœud de B et l'enverrait en course à d'autres.
+    const baseA = ouvrir();
+    const baseB = ouvrir();
+    const now = Date.now();
+    const noeuds = ['n1', 'n2'].map((name) => {
+      const n = baseA.registerNode({
+        name,
+        ownerName: 'test',
+        agentType: 'shell',
+        maxConcurrency: 1,
+      });
+      baseA.setNodeStatus(n.id, 'online');
+      baseA.touchNode(n.id, now);
+      return n;
+    });
+    const projet = baseA.createProject({ name: 'Projet partagé' });
+    const tache = baseA.createTask({ projectId: projet.id, title: 'Course', prompt: 'p' });
+    baseA.patchTask(tache.id, { status: 'ready' });
+    const prisParB = noeuds[1]?.id as string;
+
+    const listerNoeuds = baseA.listNodes.bind(baseA);
+    vi.spyOn(baseA, 'listNodes').mockImplementationOnce(() => {
+      baseB.reclamerTache({
+        taskId: tache.id,
+        attendu: 'ready',
+        nodeId: prisParB,
+        branch: `hive/${tache.id}`,
+      });
+      return listerNoeuds();
+    });
+    const envois: string[] = [];
+    const reineA = new Scheduler(baseA, {
+      simulation: true,
+      onAssign: (nodeId) => envois.push(nodeId),
+    });
+
+    const course = reineA.startRace(tache.id, 2, now);
+
+    expect(course.ok, 'la course est partie avec la tâche de B').toBe(false);
+    expect(envois, 'aucun drone ne doit recevoir la tâche').toEqual([]);
+    expect(baseB.getTask(tache.id)).toMatchObject({ status: 'assigned', assignedNodeId: prisParB });
   });
 
   it('une réclamation échoue si la tâche n’est plus dans le statut lu, sans rien écrire', () => {

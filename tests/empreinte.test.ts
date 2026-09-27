@@ -680,8 +680,8 @@ describe('LA GARDE : aucune écriture ne s’ajoute en douce hors de l’inventa
       '« service » — donc dans `hive desinstaller`.',
     'src/orchestrator/store.ts': '<données> — le dossier de la base SQLite',
     'src/orchestrator/verrou-reine.ts':
-      '<base>.reine.lock — le verrou de la Reine, à côté de la base, rendu à ' +
-      'l’arrêt. Déclaré dans `empreinte()` parmi le contenu de la clé « base ».',
+      '<données> — le dossier de la base, pour y poser <base>.reine.lock, le ' +
+      'verrou de la Reine. Déclaré dans `empreinte()` parmi le contenu de la clé « base ».',
     'src/sauvegarde-reelle.ts':
       '<données>/sauvegardes — les copies de la base. Écrites par `VACUUM INTO` ' +
       'sous un nom `.part`, publiées par un renommage atomique, et élaguées à un ' +

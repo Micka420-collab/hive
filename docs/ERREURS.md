@@ -15348,7 +15348,7 @@ l'audit était exacte à l'instant où elle a été prise, et cet instant n'exis
 jamais dans une ruche qui tourne. La carte avait raison ; l'audit qui la
 corrigeait avait tort.
 
-### Et la décision prise sur ce chiffre a été appliquée — puis mesurée
+### Et la décision prise sur ce chiffre a été appliquée — puis mesurée, puis mal lue
 
 « Garder FULL » ne gardait rien : c'était CHANGER la ruche. Posé tel quel, le
 prix est tombé tout de suite, parce que FULL paie un fsync à chaque COMMIT :
@@ -15359,11 +15359,26 @@ bancs à base fichier, sur disque  NORMAL : 14,1 s             FULL : 32,7 s
 jambe Windows de la CI            main : 2 min 26              FULL : 9 min 33, 3 bancs hors délai
 ```
 
-La ruche garde donc NORMAL — ce qu'elle a toujours eu —, mais ÉCRIT dans le
-store au lieu d'être hérité. En WAL, NORMAL ne perd rien quand le processus
-meurt ; seule une coupure du système peut emporter les derniers COMMIT, et la
-base reste cohérente. Une décision prise sur une prémisse fausse n'est pas une
-décision : c'est une question qu'on repose, chiffres en main.
+Une première réponse a été de revenir à NORMAL, chiffres en main, en signalant
+l'écart. Deux relectures l'ont refusée, et elles avaient raison : la prémisse
+de la décision était fausse, pas son intention — « la durabilité d'abord » — et
+une décision qui repose sur une prémisse fausse se REPOSE à celui qui l'a prise,
+elle ne se renverse pas seul. Surtout, le prix avait été mesuré en bloc. Séparé,
+il ne tenait plus :
+
+```
+une base neuve (le schéma, ~80 CREATE)   autocommit : 525 ms   une transaction : 70 ms
+un COMMIT en régime                      NORMAL : 0,02 ms      FULL : 6 ms
+le banc listReviewsFor (2 400 COMMIT)    FULL : 18,5 s         corpus en une transaction : 0,17 s
+```
+
+La moitié de la facture était le schéma, posé instruction par instruction : une
+base neuve payait quatre-vingts fsync avant de servir quoi que ce soit — à chaque
+démarrage d'une Reine neuve et à chaque banc qui en ouvre une. L'autre venait
+de corpus de test écrits ligne à ligne. Ni l'un ni l'autre n'est le prix de
+FULL : c'est le prix d'écrire sans transaction. La ruche tourne donc en FULL,
+comme décidé, avec le schéma en UNE transaction ; le coût qui reste est le vrai,
+un fsync par COMMIT en régime, et il est chiffré dans le store.
 
 Pourquoi ça a échappé : on a mesuré une VALEUR, pas un ÉTAT. Un pragma se lit
 comme une constante, et celui-ci dépend du mode du journal, qui dépend de la
@@ -15374,4 +15389,6 @@ dépôt.
 > **Règle** — un réglage d'exécution se mesure dans l'état où il agit : sur la
 > connexion qui travaille, après une écriture, et après une réouverture. Ce
 > qu'il doit valoir s'écrit dans le code, pas dans les défauts d'une dépendance,
-> et un banc le relit dans ce même état (`tests/sqlite-concurrent.test.ts`).
+> et un banc le relit dans ce même état (`tests/sqlite-concurrent.test.ts`). Et
+> un coût qui fait reculer une décision se DÉCOMPOSE d'abord : ce qui revient au
+> réglage, ce qui revient à la façon d'écrire.

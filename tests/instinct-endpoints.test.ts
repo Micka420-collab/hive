@@ -94,9 +94,18 @@ describe('endpoints de l’instinct de ruche', () => {
     const projet = server.store.createProject({ name: 'P' });
     // 300 tâches dont 2 seulement sont citées par des résultats : la route ne
     // doit jamais déplier la table tasks pour n'en garder que 0,7 %.
-    for (let i = 0; i < 300; i++) {
-      server.store.createTask({ projectId: projet.id, title: `bruit ${i}`, prompt: 'blabla' });
-    }
+    //
+    // Le bruit s'écrit en UNE transaction : le store tourne en
+    // `synchronous = FULL`, et 300 COMMIT isolés payaient 300 fsync — plusieurs
+    // secondes sur un disque réel, pour un corpus qui n'est pas ce qu'on mesure.
+    const connexion = (
+      server.store as unknown as { db: { transaction(fn: () => void): () => void } }
+    ).db;
+    connexion.transaction(() => {
+      for (let i = 0; i < 300; i++) {
+        server.store.createTask({ projectId: projet.id, title: `bruit ${i}`, prompt: 'blabla' });
+      }
+    })();
     const citees = [0, 1].map((i) =>
       server.store.createTask({
         projectId: projet.id,

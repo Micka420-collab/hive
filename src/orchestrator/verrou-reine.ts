@@ -18,312 +18,265 @@
 // Les réclamations `→ assigned` sont EN PLUS conditionnelles
 // (`store.reclamerTache`) : la ceinture sous les bretelles. Mais aucune
 // condition d'UPDATE ne rattrape le vol du démarrage — c'est pour lui qu'on
-// interdit, plutôt que de rendre chaque écriture concurrente-sûre.
+// interdit, plutôt que de rendre chaque écriture concurrente-sûre. La revue
+// séquence par séquence est dans docs/adr/0012-une-seule-reine-par-base.md.
 //
-// ─── LE VERROU ──────────────────────────────────────────────────────────────
+// ─── LE VERROU : TENU PAR LE SYSTÈME, JAMAIS DEVINÉ ─────────────────────────
 //
-// `<base>.reine.lock`, À CÔTÉ de la base, créé en exclusif (`wx` : l'OS refuse
-// de le créer s'il existe) et portant `{ pid, hote, demarrage, depuis }`.
-// Rendu par `stop()`. Un processus tué (SIGKILL, OOM, coupure de courant) le
-// laisse derrière lui : il est alors PÉRIMÉ, et la Reine suivante le reprend
-// si — et seulement si — elle peut le PROUVER (`jugerVerrou`).
+// `<base>.reine.lock` est une toute petite base SQLite, À CÔTÉ de la base. La
+// Reine y inscrit qui elle est (pid, hôte, depuis), puis y garde une
+// transaction d'écriture OUVERTE (`BEGIN IMMEDIATE`) toute sa vie. Le verrou
+// d'octets que SQLite pose pour cette transaction (fcntl sous POSIX,
+// LockFileEx sous Windows) appartient au SYSTÈME, et le système le rend quand
+// le processus meurt, de quelque façon qu'il meure : SIGKILL, OOM, coupure de
+// courant, conteneur détruit. Une seconde Reine qui tente la même transaction
+// reçoit `SQLITE_BUSY` et refuse de démarrer, en lisant dans le fichier le nom
+// de celle qui tient la base.
 //
-// Tout le reste REFUSE, avec le chemin à supprimer : un pid vivant, un autre
-// hôte (on ne peut rien y vérifier — deux conteneurs qui partagent un volume
-// en sont le cas réel), un verrou illisible. On ne devine pas qu'une Reine
-// est morte : on le dit à l'humain.
+// Une première version jugeait au contraire un fichier de pid « périmé si… »
+// (pid vivant, même hôte, même démarrage du système). Chaque indice y mentait
+// quelque part — deux relectures l'ont montré sur le code, pas en théorie : un
+// recalage d'horloge faisait passer une Reine VIVANTE pour redémarrée (hors
+// Linux, l'instant de démarrage se déduit de l'horloge), un conteneur recréé
+// après un `kill` changeait de nom d'hôte et refusait à jamais, deux espaces
+// de pid qui partagent un nom d'hôte prenaient le pid 1 de l'autre pour le
+// leur, et Windows recycle vite un pid mort. Le système, lui, SAIT qui tient
+// un verrou : on ne lui fait plus deviner.
 //
-// ─── LE COMPROMIS ASSUMÉ ────────────────────────────────────────────────────
+// Pourquoi SQLite : Node n'expose ni `flock` ni `LockFileEx`, et better-sqlite3
+// est déjà là, qui pose ces verrous du système pour son propre compte. Ce
+// fichier n'a pas d'autre rôle que de les porter.
 //
-// Deux Reines qui démarrent à la même microseconde devant un verrou PÉRIMÉ
-// peuvent toutes deux le reprendre : relire puis supprimer n'est pas atomique.
-// Un verrou du noyau (`flock`) fermerait cette fenêtre, mais Node n'en offre
-// aucun sans module natif. La fenêtre est de l'ordre de la microseconde, et ce
-// qu'elle laisserait passer, les réclamations conditionnelles le rattrapent.
+// ─── TROIS RÈGLES, ET CE QUI CASSE SI ON EN LÂCHE UNE ───────────────────────
+//
+//   • On ne SUPPRIME jamais le fichier. Une Reine qui l'aurait ouvert juste
+//     avant la suppression tiendrait un verrou sur un fichier disparu, et la
+//     suivante en créerait un neuf à la même place : deux Reines. Après un
+//     arrêt propre il reste, vide de tout nom.
+//   • On ne l'ouvre JAMAIS par `fs` dans le processus de la Reine. Sous POSIX,
+//     fermer N'IMPORTE QUEL descripteur d'un fichier rend TOUS les verrous
+//     fcntl du processus sur ce fichier. SQLite s'en garde pour ses propres
+//     connexions, pas pour un `readFileSync` : mesuré, un seul suffit à
+//     laisser entrer une seconde Reine. Les AUTRES processus (`hive
+//     desinstaller`) ne comptent pas — ces verrous sont par processus.
+//   • Une base partagée entre MACHINES (NFS, SMB) n'a pas de verrou fiable.
+//     Elle n'a pas de base fiable non plus : SQLite exclut le mode WAL sur un
+//     système de fichiers réseau. Ce verrou ne promet rien de plus.
 
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { mkdirSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import Database from 'better-sqlite3';
+import { RefusDemarrage } from '../shared/amorce.js';
 
-/** Ce que le verrou dit de la Reine qui le tient. */
+/** Ce que le verrou dit de la Reine qui le tient — pour le message, jamais pour décider. */
 export interface TenantVerrou {
   pid: number;
   hote: string;
-  /** Identité du démarrage du système (`demarrageDuSysteme`). */
-  demarrage: string;
-  /** Instant de la prise, en ISO — pour le message, jamais pour décider. */
+  /** Instant de la prise, en ISO. */
   depuis: string;
-}
-
-/** Pourquoi un verrou est jugé périmé — dit à l'humain, jamais deviné. */
-export type RaisonPeremption =
-  /** Même hôte, même démarrage, et le pid ne répond plus. */
-  | 'processus-mort'
-  /** Le pid est le NÔTRE, sans que ce processus tienne le verrou. */
-  | 'meme-pid'
-  /** Le pid est celui de notre PARENT. */
-  | 'pid-parent'
-  /** Le système a redémarré depuis la prise : aucun processus d'alors ne vit. */
-  | 'systeme-redemarre';
-
-export type JugementVerrou =
-  | { genre: 'perime'; tenant: TenantVerrou; raison: RaisonPeremption }
-  | { genre: 'tenu'; tenant: TenantVerrou }
-  | { genre: 'ailleurs'; tenant: TenantVerrou }
-  | { genre: 'illisible' };
-
-/** Les faits de CE processus, dont le jugement a besoin. */
-export interface FaitsIci {
-  pid: number;
-  ppid: number;
-  hote: string;
-  demarrage: string;
-  vivant: (pid: number) => boolean;
 }
 
 export interface VerrouReine {
   readonly chemin: string;
-  /** Le verrou périmé qui a été repris pour démarrer, s'il y en avait un. */
-  readonly reprise: { tenant: TenantVerrou; raison: RaisonPeremption } | null;
-  /** Rend le verrou. Idempotent ; ne supprime jamais le verrou d'un autre. */
+  /**
+   * La Reine précédente, si elle s'est arrêtée SANS rendre la base (tuée,
+   * coupée net) : son nom était encore inscrit. `null` après un arrêt propre.
+   */
+  readonly precedente: TenantVerrou | null;
+  /** Rend le verrou. Idempotent. */
   liberer(): void;
 }
 
-/**
- * Tolérance entre deux lectures d'un même démarrage, hors Linux. L'instant de
- * démarrage y est DÉDUIT (`maintenant − os.uptime()`), donc il bouge avec les
- * corrections d'horloge : deux minutes absorbent un recalage NTP ordinaire.
- * Trop serré, un recalage ferait croire à un redémarrage — et reprendre le
- * verrou d'une Reine vivante.
- */
-const TOLERANCE_DEMARRAGE_MS = 120_000;
+/** Une inscription, avec le jeton qui distingue CETTE prise de toute autre. */
+interface Inscription extends TenantVerrou {
+  jeton: string;
+}
+
+const TABLE_TENANT =
+  'CREATE TABLE IF NOT EXISTS tenant (' +
+  'pid INTEGER NOT NULL, hote TEXT NOT NULL, depuis TEXT NOT NULL, jeton TEXT NOT NULL)';
 
 /**
- * Les verrous que CE processus tient. Sans ce registre, le pid du verrou égal
- * au nôtre ne se distinguerait pas de deux Reines dans un même processus.
+ * Les connexions qui TIENNENT un verrou, retenues ici jusqu'à `liberer()`.
+ * better-sqlite3 ferme une connexion que le ramasse-miettes collecte : sans
+ * cette référence, un appelant qui laisserait tomber le `VerrouReine` rendrait
+ * le verrou au ramasse-miettes suivant, sans un mot. Mesuré : une connexion
+ * sans référence était déjà fermée au premier sondage, avant tout `gc()` forcé.
  */
-const DETENUS = new Set<string>();
+const TENUES = new Set<Database.Database>();
 
-/** `<base>.reine.lock`, en absolu : la libération vise le même fichier que la prise. */
+/** `<base>.reine.lock`, en absolu : la même base, le même verrou, d'où qu'on la nomme. */
 export function cheminVerrouReine(dbPath: string): string {
   return `${path.resolve(dbPath)}.reine.lock`;
 }
 
 /**
- * L'identité du démarrage du système.
- *
- * Linux la donne exactement (`boot_id`, le même dans tous les conteneurs d'un
- * hôte, neuf à chaque démarrage du noyau). Ailleurs, on la déduit de
- * l'horloge et de `os.uptime()`, préfixée `~` pour que la comparaison sache
- * qu'elle est approchée.
+ * Prend le verrou de la base, ou REFUSE avec un message qui dit quoi faire.
+ * `:memory:` n'a rien à partager : pas de verrou, `null`.
  */
-export function demarrageDuSysteme(): string {
+export function prendreVerrouReine(dbPath: string): VerrouReine | null {
+  if (dbPath === ':memory:') return null;
+  const chemin = cheminVerrouReine(dbPath);
+  // Le dossier de la base peut ne pas exister encore (premier démarrage) : le
+  // verrou est pris AVANT que le store ne le crée.
+  mkdirSync(path.dirname(chemin), { recursive: true });
+  // `timeout: 0` : une Reine ne fait pas la queue derrière une autre, elle refuse.
+  const db = new Database(chemin, { timeout: 0 });
   try {
-    const id = readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim();
-    if (id.length > 0) return id;
-  } catch {
-    // Pas Linux, ou /proc fermé : on retombe sur l'instant déduit.
-  }
-  return `~${Math.round(Date.now() - os.uptime() * 1000)}`;
-}
-
-/** La forme d'un `boot_id` Linux ; tout le reste n'est pas une identité exacte. */
-const BOOT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-/** Un instant de démarrage déduit, `~` puis des millisecondes. */
-const DEMARRAGE_APPROCHE = /^~\d+$/;
-
-/**
- * Deux identités de démarrage désignent-elles le MÊME démarrage ?
- *
- * Dans le doute, OUI. « Pas le même » fait reprendre le verrou ; « le même »
- * laisse seulement la main au test du pid. Se tromper dans le premier sens
- * lancerait deux Reines ; dans le second, on refuse et on dit quoi supprimer.
- */
-function memeDemarrage(a: string, b: string): boolean {
-  if (a === b) return true;
-  // Deux `boot_id` différents : le noyau a redémarré, c'est une preuve.
-  if (BOOT_ID.test(a) && BOOT_ID.test(b)) return false;
-  if (DEMARRAGE_APPROCHE.test(a) && DEMARRAGE_APPROCHE.test(b)) {
-    return Math.abs(Number(a.slice(1)) - Number(b.slice(1))) <= TOLERANCE_DEMARRAGE_MS;
-  }
-  // Un exact contre un approché, ou une valeur abîmée : on ne sait pas
-  // comparer — donc le même.
-  return true;
-}
-
-/** Relit un verrou. Un champ manquant ou faux rend tout le verrou illisible. */
-function lireTenant(brut: string): TenantVerrou | null {
-  let lu: unknown;
-  try {
-    lu = JSON.parse(brut);
-  } catch {
-    return null;
-  }
-  if (typeof lu !== 'object' || lu === null) return null;
-  const o = lu as Record<string, unknown>;
-  // `pid > 0` n'est pas une coquetterie : `process.kill(0, 0)` vise le GROUPE
-  // du processus et `kill(-1, 0)` tous ceux qu'on peut atteindre — les deux
-  // « répondent », et un verrou abîmé passerait pour tenu à jamais.
-  if (typeof o.pid !== 'number' || !Number.isSafeInteger(o.pid) || o.pid <= 0) return null;
-  if (typeof o.hote !== 'string' || typeof o.demarrage !== 'string') return null;
-  if (typeof o.depuis !== 'string') return null;
-  return { pid: o.pid, hote: o.hote, demarrage: o.demarrage, depuis: o.depuis };
-}
-
-/**
- * Le jugement, PUR : le contenu du verrou, les faits d'ici, et si CE processus
- * le tient déjà. L'ordre des questions est celui de la preuve la plus forte.
- *
- * Le pid égal au nôtre ou à celui de notre parent vaut « périmé » : un
- * redémarrage redonne volontiers le même numéro (la Reine d'un conteneur est
- * de nouveau pid 1 ; un service relancé au démarrage retombe près de son
- * ancien numéro, et le shell ou `npm` qui nous lance peut l'avoir pris).
- * PostgreSQL fait la même exception dans `CreateLockFile` (miscinit.c).
- */
-export function jugerVerrou(brut: string, ici: FaitsIci, tenuIci: boolean): JugementVerrou {
-  const tenant = lireTenant(brut);
-  if (tenant === null) return { genre: 'illisible' };
-  if (tenant.hote !== ici.hote) return { genre: 'ailleurs', tenant };
-  if (tenant.pid === ici.pid) {
-    return tenuIci ? { genre: 'tenu', tenant } : { genre: 'perime', tenant, raison: 'meme-pid' };
-  }
-  if (!memeDemarrage(tenant.demarrage, ici.demarrage)) {
-    return { genre: 'perime', tenant, raison: 'systeme-redemarre' };
-  }
-  if (tenant.pid === ici.ppid) return { genre: 'perime', tenant, raison: 'pid-parent' };
-  if (ici.vivant(tenant.pid)) return { genre: 'tenu', tenant };
-  return { genre: 'perime', tenant, raison: 'processus-mort' };
-}
-
-/** Le refus, en clair : qui tient la base, pourquoi c'est interdit, quoi faire. */
-function direRefusVerrou(
-  jugement: Exclude<JugementVerrou, { genre: 'perime' }>,
-  dbPath: string,
-  chemin: string,
-): string {
-  // Le chemin seul, sans commande : `rm` n'existe pas sous cmd.exe, et une
-  // citation POSIX serait fausse sous PowerShell.
-  const supprimer = `     ${chemin}`;
-  if (jugement.genre === 'illisible') {
-    return (
-      `\n✘ Verrou de Reine illisible : ${chemin}\n\n` +
-      '  Il ne dit ni quel processus tient la base, ni depuis quand : on ne le\n' +
-      '  reprend pas à l’aveugle.\n\n' +
-      `  → Si aucune Reine ne tourne sur ${dbPath}, supprimez-le :\n${supprimer}\n`
-    );
-  }
-  const { tenant } = jugement;
-  const qui = `pid ${tenant.pid} sur « ${tenant.hote} », depuis ${tenant.depuis}`;
-  const pourquoi =
-    '  Deux Reines sur une même base s’assigneraient les mêmes tâches, et la\n' +
-    '  seconde requalifierait au démarrage les travaux en vol de la première.\n\n';
-  if (jugement.genre === 'ailleurs') {
-    return (
-      `\n✘ Cette base est tenue par une Reine d’une AUTRE machine (${qui}) :\n` +
-      `     ${dbPath}\n\n${pourquoi}` +
-      '  D’ici, impossible de vérifier que cette Reine est arrêtée.\n\n' +
-      `  → Si elle l’est, supprimez le verrou :\n${supprimer}\n`
-    );
-  }
-  return (
-    `\n✘ Une autre Reine tient déjà cette base (${qui}) :\n` +
-    `     ${dbPath}\n\n${pourquoi}` +
-    '  → Arrêtez l’autre Reine, ou donnez à celle-ci une autre base (HIVE_DB).\n' +
-    `  → Si aucune Reine ne tourne (le pid ${tenant.pid} est un autre programme),\n` +
-    `    supprimez le verrou :\n${supprimer}\n`
-  );
-}
-
-/** Une ligne de journal pour le verrou périmé repris — un démarrage qui l'a fait le dit. */
-export function direRepriseVerrou(reprise: NonNullable<VerrouReine['reprise']>): string {
-  const pourquoi: Record<RaisonPeremption, string> = {
-    'processus-mort': 'ce processus n’existe plus',
-    'meme-pid': 'ce pid est désormais le nôtre',
-    'pid-parent': 'ce pid est désormais celui de notre parent',
-    'systeme-redemarre': 'le système a redémarré depuis',
-  };
-  const { tenant, raison } = reprise;
-  return (
-    `[hive] verrou de Reine périmé repris : pid ${tenant.pid}, pris le ${tenant.depuis} — ` +
-    `${pourquoi[raison]}. La Reine précédente s’est arrêtée sans le rendre.`
-  );
-}
-
-function pidVivant(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
+    const precedente = tenir(db, dbPath, chemin);
+    TENUES.add(db);
+    return { chemin, precedente, liberer: () => rendre(db) };
   } catch (err) {
-    // EPERM : le processus existe, il appartient à un autre compte. Vivant.
-    return (err as NodeJS.ErrnoException).code === 'EPERM';
-  }
-}
-
-function lireSiPresent(chemin: string): string | null {
-  try {
-    return readFileSync(chemin, 'utf8');
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    db.close();
     throw err;
   }
 }
 
 /**
- * Prend le verrou de la base, ou REFUSE avec un message qui dit quoi faire.
- * `:memory:` n'a rien à partager : pas de verrou, `null`.
+ * S'inscrit puis TIENT : rend la Reine précédente restée inscrite, ou `null`.
  *
- * Trois essais : un verrou périmé se supprime puis se recrée, et une autre
- * Reine peut s'intercaler entre les deux — on rejuge alors le SIEN.
+ * Inscrire demande un COMMIT, et un COMMIT rend le verrou ; on le reprend
+ * aussitôt, et on vérifie que l'inscription lue est bien la NÔTRE. Une Reine
+ * glissée entre ce COMMIT et ce BEGIN l'aurait remplacée par la sienne : on
+ * se réinscrit, et c'est elle qui trouve le verrou tenu. Trois passes : la
+ * première inscrit, la deuxième tient, la troisième absorbe une telle course.
  */
-export function prendreVerrouReine(dbPath: string): VerrouReine | null {
-  if (dbPath === ':memory:') return null;
-  const chemin = cheminVerrouReine(dbPath);
-  const ici: FaitsIci = {
+function tenir(db: Database.Database, dbPath: string, chemin: string): TenantVerrou | null {
+  const moi: Inscription = {
     pid: process.pid,
-    ppid: process.ppid,
     hote: os.hostname(),
-    demarrage: demarrageDuSysteme(),
-    vivant: pidVivant,
-  };
-  const contenu = JSON.stringify({
-    pid: ici.pid,
-    hote: ici.hote,
-    demarrage: ici.demarrage,
     depuis: new Date().toISOString(),
-  } satisfies TenantVerrou);
-  // Le dossier de la base peut ne pas exister encore (premier démarrage) : le
-  // verrou est pris AVANT que le store ne le crée.
-  mkdirSync(path.dirname(chemin), { recursive: true });
-
-  let reprise: VerrouReine['reprise'] = null;
-  for (let essai = 0; essai < 3; essai++) {
-    try {
-      writeFileSync(chemin, contenu, { flag: 'wx' });
-      DETENUS.add(chemin);
-      return {
-        chemin,
-        reprise,
-        liberer: () => {
-          if (!DETENUS.delete(chemin)) return;
-          // On ne supprime que NOTRE verrou : s'il a été remplacé (un humain
-          // l'a effacé, une autre Reine l'a pris), il n'est plus à nous.
-          if (lireSiPresent(chemin) === contenu) rmSync(chemin, { force: true });
-        },
-      };
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+    jeton: randomUUID(),
+  };
+  let precedente: TenantVerrou | null = null;
+  try {
+    for (let passe = 0; passe < 3; passe++) {
+      if (!commencer(db)) throw new RefusDemarrage(direTenue(lireInscription(db), moi, dbPath));
+      db.exec(TABLE_TENANT);
+      const lue = lireInscription(db);
+      if (lue?.jeton === moi.jeton) return precedente;
+      if (passe === 0 && lue) precedente = { pid: lue.pid, hote: lue.hote, depuis: lue.depuis };
+      db.prepare('DELETE FROM tenant').run();
+      db.prepare('INSERT INTO tenant (pid, hote, depuis, jeton) VALUES (?, ?, ?, ?)').run(
+        moi.pid,
+        moi.hote,
+        moi.depuis,
+        moi.jeton,
+      );
+      db.exec('COMMIT');
     }
-    const brut = lireSiPresent(chemin);
-    if (brut === null) continue; // rendu entre-temps : on retente la prise
-    const jugement = jugerVerrou(brut, ici, DETENUS.has(chemin));
-    if (jugement.genre !== 'perime') throw new Error(direRefusVerrou(jugement, dbPath, chemin));
-    reprise = { tenant: jugement.tenant, raison: jugement.raison };
-    // Relu juste avant de supprimer : si une autre Reine l'a déjà remplacé
-    // par le sien, ce n'est plus le verrou qu'on a jugé.
-    if (lireSiPresent(chemin) === brut) rmSync(chemin, { force: true });
+  } catch (err) {
+    const code = codeSqlite(err);
+    if (code === 'SQLITE_NOTADB' || code === 'SQLITE_CORRUPT') {
+      throw new RefusDemarrage(direIllisible(dbPath, chemin));
+    }
+    throw err;
   }
-  throw new Error(
-    `\n✘ Le verrou de Reine ${chemin} a changé de main pendant le démarrage — ` +
-      'une autre Reine démarre en même temps sur cette base. Réessayez quand elle aura fini.\n',
+  throw new RefusDemarrage(direTenue(null, moi, dbPath));
+}
+
+/** `BEGIN IMMEDIATE`, ou `false` si une autre connexion tient déjà la base. */
+function commencer(db: Database.Database): boolean {
+  try {
+    db.exec('BEGIN IMMEDIATE');
+    return true;
+  } catch (err) {
+    if (codeSqlite(err) === 'SQLITE_BUSY') return false;
+    throw err;
+  }
+}
+
+/**
+ * L'inscription, ou `null` si personne n'est (encore) inscrit.
+ *
+ * Hors transaction, cette lecture prend un verrou PARTAGÉ : compatible avec
+ * la transaction d'écriture que la Reine en place garde ouverte. Ce qui la
+ * ferait échouer — la table pas encore créée, la Reine en place qui valide
+ * son inscription à cet instant — laisse le nom inconnu, jamais inventé.
+ */
+function lireInscription(db: Database.Database): Inscription | null {
+  let ligne: unknown;
+  try {
+    ligne = db.prepare('SELECT pid, hote, depuis, jeton FROM tenant LIMIT 1').get();
+  } catch {
+    return null;
+  }
+  if (typeof ligne !== 'object' || ligne === null) return null;
+  const { pid, hote, depuis, jeton } = ligne as Record<string, unknown>;
+  if (typeof pid !== 'number' || typeof hote !== 'string') return null;
+  if (typeof depuis !== 'string' || typeof jeton !== 'string') return null;
+  return { pid, hote, depuis, jeton };
+}
+
+/**
+ * Rend le verrou : efface l'inscription, valide, ferme. Effacée AVANT de
+ * rendre, pour qu'un arrêt propre ne laisse aucun nom — la Reine suivante ne
+ * dira pas « arrêtée sans rendre la base » à tort.
+ */
+function rendre(db: Database.Database): void {
+  if (!db.open) return;
+  try {
+    db.prepare('DELETE FROM tenant').run();
+    db.exec('COMMIT');
+  } catch (err) {
+    // Le verrou tombe quand même à la fermeture : seul le nom resterait, et la
+    // Reine suivante annoncerait à tort un arrêt brutal. On le dit ici.
+    console.warn(
+      `[hive] verrou de Reine rendu, mais son inscription n’a pu être effacée : ${String(err)}`,
+    );
+  } finally {
+    db.close();
+    TENUES.delete(db);
+  }
+}
+
+function codeSqlite(err: unknown): string | undefined {
+  return err instanceof Database.SqliteError ? err.code : undefined;
+}
+
+const POURQUOI_UNE_SEULE =
+  '  Deux Reines sur une même base s’assigneraient les mêmes tâches, et la\n' +
+  '  seconde requalifierait au démarrage les travaux en vol de la première.\n\n';
+
+/** Le refus quand la base est tenue : qui la tient, pourquoi c'est interdit, quoi faire. */
+function direTenue(tenant: Inscription | null, moi: Inscription, dbPath: string): string {
+  // Personne d'inscrit, ou NOUS encore : une autre Reine est au milieu de sa
+  // prise. Son nom n'est pas encore lisible, et on ne l'invente pas.
+  if (tenant === null || tenant.jeton === moi.jeton) {
+    return (
+      '\n✘ Une autre Reine démarre en ce moment sur cette base :\n' +
+      `     ${dbPath}\n\n${POURQUOI_UNE_SEULE}` +
+      '  → Laissez-la finir de démarrer, ou donnez à celle-ci une autre base (HIVE_DB).\n'
+    );
+  }
+  return (
+    `\n✘ Une autre Reine tient déjà cette base (pid ${tenant.pid} sur « ${tenant.hote} », ` +
+    `depuis ${tenant.depuis}) :\n     ${dbPath}\n\n${POURQUOI_UNE_SEULE}` +
+    '  Ce verrou est tenu par le système pour un processus VIVANT : il tombe de\n' +
+    '  lui-même dès que ce processus s’arrête, de quelque façon qu’il s’arrête.\n\n' +
+    '  → Arrêtez l’autre Reine, ou donnez à celle-ci une autre base (HIVE_DB).\n'
+  );
+}
+
+/** Le refus quand le fichier n'est pas un verrou de Reine. */
+function direIllisible(dbPath: string, chemin: string): string {
+  // Le chemin seul, sans commande : `rm` n'existe pas sous cmd.exe, et une
+  // citation POSIX serait fausse sous PowerShell.
+  return (
+    `\n✘ Le verrou de Reine est illisible :\n     ${chemin}\n\n` +
+    '  Ce n’est pas le petit fichier SQLite que la Reine y tient : elle ne peut\n' +
+    '  ni y lire qui tient la base, ni la tenir.\n\n' +
+    `  → Si aucune Reine ne tourne sur ${dbPath}, supprimez-le : il sera recréé.\n`
+  );
+}
+
+/** La ligne de journal d'un démarrage qui suit un arrêt brutal. */
+export function direArretBrutal(precedente: TenantVerrou): string {
+  return (
+    `[hive] la Reine précédente (pid ${precedente.pid} sur « ${precedente.hote} », ` +
+    `depuis ${precedente.depuis}) s’est arrêtée sans rendre la base — tuée ou coupée net. ` +
+    'Le système a rendu son verrou avec elle ; ses travaux en vol vont être requalifiés.'
   );
 }

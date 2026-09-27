@@ -18,7 +18,7 @@
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
@@ -617,6 +617,43 @@ describe('la contre-expertise est annoncée à chaque production', () => {
     // Et il y arrive comme une DONNÉE : un diff hostile ne devient pas une
     // consigne du seul fait qu'il traverse la ruche.
     expect(prompt, 'la production doit être encapsulée').toContain('HIVE_DATA');
+  });
+
+  it('UNE RELECTURE PRISE ENTRE-TEMPS N’EST PAS ARRACHÉE', { timeout: 40_000 }, async () => {
+    // La relecture naît `pending`, se lie à sa production, puis se RÉCLAME
+    // pour son relecteur — conditionnellement, par la même porte que le tick.
+    // Un autre écrivain qui l'aurait prise entre le lien et la réclamation
+    // garde sa prise : sans condition, la ruche écrasait son assignation et
+    // envoyait la même relecture à un second nœud.
+    const srv = await ruche();
+    const produits = await noeud(srv, 'producteur', 'claude-code');
+    await noeud(srv, 'relecteur', 'codex');
+    const intrus = srv.store.registerNode({
+      name: 'intrus',
+      ownerName: 'test',
+      agentType: 'codex',
+      maxConcurrency: 1,
+    });
+    // Hors ligne : il ne prend ni la production au tick, ni la place du relecteur.
+    srv.store.setNodeStatus(intrus.id, 'offline');
+    const inscrire = srv.store.inscrireRelecture.bind(srv.store);
+    vi.spyOn(srv.store, 'inscrireRelecture').mockImplementationOnce((lien) => {
+      inscrire(lien);
+      srv.store.reclamerTache({
+        taskId: lien.relectureTaskId,
+        attendu: 'pending',
+        nodeId: intrus.id,
+        branch: null,
+      });
+    });
+
+    await produire(srv, produits, 'diff --git a/x b/x\n+const a = 1;');
+    const annonce = (await attendreEvt(srv, 'contre_expertise')) as
+      { possible?: boolean; relectures?: string[] } | undefined;
+    expect(annonce?.possible, 'la contre-expertise devait être possible').toBe(true);
+    expect(annonce?.relectures, 'une relecture déjà prise a été relancée').toEqual([]);
+    const relecture = srv.store.listTasks().find((t) => t.title.startsWith('Contre-expertise —'));
+    expect(relecture).toMatchObject({ status: 'assigned', assignedNodeId: intrus.id });
   });
 
   it('LE VERDICT REVIENT, avec ses objections', { timeout: 40_000 }, async () => {

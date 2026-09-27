@@ -1,146 +1,89 @@
 // Le verrou de la Reine : UNE seule Reine par base.
 //
-// ─── TROIS ÉTAGES, DU PLUS PUR AU PLUS RÉEL ─────────────────────────────────
+// ─── DEUX ÉTAGES, TOUS DEUX RÉELS ───────────────────────────────────────────
 //
-//   1. le JUGEMENT, pur : un contenu de verrou et les faits d'ici donnent
-//      « tenu », « périmé » (et pourquoi), « ailleurs » ou « illisible » ;
-//   2. la PRISE, sur un vrai disque et contre un VRAI processus vivant puis
-//      mort — `process.kill(pid, 0)` ne se simule pas honnêtement ;
-//   3. la REINE : une seconde `createServer` sur la même base est refusée
+//   1. la PRISE, sur un vrai disque, contre de VRAIS processus : le verrou est
+//      tenu par le système, et c'est un autre processus qui le constate — un
+//      verrou fcntl ne se simule pas honnêtement dans le processus qui le tient ;
+//   2. la REINE : une seconde `createServer` sur la même base est refusée
 //      AVANT d'avoir touché aux travaux en vol de la première. C'est le
 //      défaut que le verrou existe pour empêcher — rejoué, pas supposé.
+//
+// ─── UNE RÈGLE POUR CE FICHIER ──────────────────────────────────────────────
+//
+// Le verrou ne se lit jamais par `fs` tant qu'il est tenu dans CE processus :
+// sous POSIX, fermer un descripteur du fichier rendrait le verrou (cf. l'en-tête
+// de verrou-reine.ts). On le lit par SQLite, ou depuis un autre processus.
 
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer as serveurTcp } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import Database from 'better-sqlite3';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createServer } from '../src/orchestrator/server.js';
 import type { ServerConfig } from '../src/orchestrator/server.js';
-import {
-  cheminVerrouReine,
-  demarrageDuSysteme,
-  jugerVerrou,
-  prendreVerrouReine,
-} from '../src/orchestrator/verrou-reine.js';
-import type { FaitsIci, JugementVerrou } from '../src/orchestrator/verrou-reine.js';
+import { cheminVerrouReine, prendreVerrouReine } from '../src/orchestrator/verrou-reine.js';
+import type { TenantVerrou } from '../src/orchestrator/verrou-reine.js';
 import { empreinte } from '../src/shared/empreinte.js';
 
-describe('le jugement d’un verrou — pur', () => {
-  // Deux `boot_id` Linux : seule cette forme vaut preuve d'un redémarrage.
-  const BOOT_ACTUEL = '8b1f1c2e-5d3a-4c6b-9e7f-0a1b2c3d4e5f';
-  const BOOT_PRECEDENT = '3c9d2e1f-7a6b-4d5c-8e9f-1a2b3c4d5e6f';
-  const ICI: FaitsIci = {
-    pid: 4242,
-    ppid: 4200,
-    hote: 'ruche-ici',
-    demarrage: BOOT_ACTUEL,
-    vivant: () => true,
-  };
-  const verrou = (champs: Record<string, unknown>): string =>
-    JSON.stringify({
-      pid: 777,
-      hote: 'ruche-ici',
-      demarrage: BOOT_ACTUEL,
-      depuis: '2026-09-27T00:00:00.000Z',
-      ...champs,
-    });
-  const genre = (j: JugementVerrou): string =>
-    j.genre === 'perime' ? `perime:${j.raison}` : j.genre;
+const RACINE = fileURLToPath(new URL('..', import.meta.url));
 
-  const CAS: {
-    nom: string;
-    brut: string;
-    ici?: Partial<FaitsIci>;
-    tenuIci?: boolean;
-    attendu: string;
-  }[] = [
-    { nom: 'un pid vivant, ici, depuis ce démarrage', brut: verrou({}), attendu: 'tenu' },
-    {
-      nom: 'un pid qui ne répond plus',
-      brut: verrou({}),
-      ici: { vivant: () => false },
-      attendu: 'perime:processus-mort',
-    },
-    {
-      // Deux boot_id Linux différents : aucun processus d'alors ne vit, même
-      // si un autre porte aujourd'hui ce numéro.
-      nom: 'le système a redémarré — même si le pid répond',
-      brut: verrou({ demarrage: BOOT_PRECEDENT }),
-      attendu: 'perime:systeme-redemarre',
-    },
-    {
-      nom: 'notre propre pid, sans que ce processus tienne le verrou',
-      brut: verrou({ pid: 4242 }),
-      attendu: 'perime:meme-pid',
-    },
-    {
-      nom: 'notre propre pid, et ce processus TIENT le verrou : deux Reines ici',
-      brut: verrou({ pid: 4242 }),
-      tenuIci: true,
-      attendu: 'tenu',
-    },
-    { nom: 'le pid de notre parent', brut: verrou({ pid: 4200 }), attendu: 'perime:pid-parent' },
-    {
-      // Rien ne s'y vérifie : un pid mort ICI ne dit rien de LÀ-BAS.
-      nom: 'un autre hôte, même avec un pid mort ici',
-      brut: verrou({ hote: 'une-autre-machine' }),
-      ici: { vivant: () => false },
-      attendu: 'ailleurs',
-    },
-    {
-      nom: 'démarrages approchés à une minute : le même',
-      brut: verrou({ demarrage: '~1000060000' }),
-      ici: { demarrage: '~1000000000' },
-      attendu: 'tenu',
-    },
-    {
-      nom: 'démarrages approchés à une heure : redémarré',
-      brut: verrou({ demarrage: '~1003600000' }),
-      ici: { demarrage: '~1000000000' },
-      attendu: 'perime:systeme-redemarre',
-    },
-    {
-      // Le doute ne fait JAMAIS reprendre : il rend la main au test du pid.
-      nom: 'démarrage approché illisible : dans le doute, le même',
-      brut: verrou({ demarrage: '~abc' }),
-      ici: { demarrage: '~1000000000' },
-      attendu: 'tenu',
-    },
-    {
-      // Une valeur qui n'a pas la forme d'un `boot_id` ne prouve rien.
-      nom: 'démarrage exact abîmé : dans le doute, le même',
-      brut: verrou({ demarrage: 'pas-un-boot-id' }),
-      attendu: 'tenu',
-    },
-    {
-      nom: 'un exact contre un approché : dans le doute, le même',
-      brut: verrou({ demarrage: BOOT_ACTUEL }),
-      ici: { demarrage: '~1000000000' },
-      attendu: 'tenu',
-    },
-    { nom: 'pas du JSON', brut: '{"pid": 7', attendu: 'illisible' },
-    {
-      // `process.kill(0, 0)` viserait le GROUPE : un pid 0 « répondrait » à jamais.
-      nom: 'pid 0',
-      brut: verrou({ pid: 0 }),
-      attendu: 'illisible',
-    },
-    { nom: 'pid négatif', brut: verrou({ pid: -1 }), attendu: 'illisible' },
-    { nom: 'pid non entier', brut: verrou({ pid: 7.5 }), attendu: 'illisible' },
-    { nom: 'pid en chaîne', brut: verrou({ pid: '777' }), attendu: 'illisible' },
-    { nom: 'hôte absent', brut: verrou({ hote: undefined }), attendu: 'illisible' },
-    { nom: 'un tableau', brut: '[777]', attendu: 'illisible' },
-  ];
+/**
+ * Ce qu'un AUTRE processus constate du verrou : `libre`, ou le code SQLite
+ * de son refus. C'est le seul témoin qui compte — le système tient un verrou
+ * pour un processus, et ce processus-ci ne peut pas se le refuser à lui-même.
+ */
+function sonder(chemin: string): string {
+  return execFileSync(
+    process.execPath,
+    [
+      '-e',
+      `const Database = require('better-sqlite3');
+       const db = new Database(process.argv[1], { timeout: 0 });
+       try { db.exec('BEGIN IMMEDIATE'); db.exec('ROLLBACK'); console.log('libre'); }
+       catch (e) { console.log(e.code); }
+       finally { db.close(); }`,
+      chemin,
+    ],
+    { cwd: RACINE, encoding: 'utf8' },
+  ).trim();
+}
 
-  it.each(CAS)('$nom → $attendu', ({ brut, ici, tenuIci, attendu }) => {
-    expect(genre(jugerVerrou(brut, { ...ICI, ...ici }, tenuIci ?? false))).toBe(attendu);
-  });
-});
+/** L'inscription du verrou, lue par SQLite (jamais par `fs`, cf. l'en-tête). */
+function inscription(chemin: string): TenantVerrou | undefined {
+  const db = new Database(chemin, { readonly: true });
+  try {
+    return db.prepare('SELECT pid, hote, depuis FROM tenant').get() as TenantVerrou | undefined;
+  } finally {
+    db.close();
+  }
+}
 
-describe('la prise du verrou — sur un vrai disque', () => {
+/** Laisse une inscription comme la laisserait une Reine tuée net : écrite, et plus tenue. */
+function laisserInscription(chemin: string, tenant: TenantVerrou): void {
+  mkdirSync(path.dirname(chemin), { recursive: true });
+  const db = new Database(chemin);
+  try {
+    db.exec(
+      'CREATE TABLE tenant (pid INTEGER NOT NULL, hote TEXT NOT NULL, depuis TEXT NOT NULL, jeton TEXT NOT NULL)',
+    );
+    db.prepare('INSERT INTO tenant VALUES (?, ?, ?, ?)').run(
+      tenant.pid,
+      tenant.hote,
+      tenant.depuis,
+      'jeton-d-une-reine-morte',
+    );
+  } finally {
+    db.close();
+  }
+}
+
+describe('le verrou, tenu par le système — sur un vrai disque', () => {
   let dir: string;
   let dbPath: string;
   let chemin: string;
@@ -154,56 +97,79 @@ describe('la prise du verrou — sur un vrai disque', () => {
   });
 
   afterEach(() => {
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
   });
 
-  /** Un verrou « de cette machine, depuis ce démarrage », au pid choisi. */
-  const poser = (champs: Record<string, unknown>): string => {
-    const brut = JSON.stringify({
-      pid: 777,
-      hote: os.hostname(),
-      demarrage: demarrageDuSysteme(),
-      depuis: '2026-09-27T00:00:00.000Z',
-      ...champs,
-    });
-    mkdirSync(path.dirname(chemin), { recursive: true });
-    writeFileSync(chemin, brut);
-    return brut;
-  };
-
-  it('pose le verrou À CÔTÉ de la base, et le rend', () => {
+  it('pose le verrou À CÔTÉ de la base, s’y inscrit, et le rend sans supprimer le fichier', () => {
     const verrou = prendreVerrouReine(dbPath);
     expect(verrou?.chemin).toBe(`${path.resolve(dbPath)}.reine.lock`);
-    expect(verrou?.reprise).toBeNull();
-    const lu = JSON.parse(readFileSync(chemin, 'utf8')) as { pid: number; hote: string };
-    expect(lu.pid).toBe(process.pid);
-    expect(lu.hote).toBe(os.hostname());
+    expect(verrou?.precedente).toBeNull();
+    expect(inscription(chemin)).toMatchObject({ pid: process.pid, hote: os.hostname() });
+    expect(sonder(chemin), 'un autre processus doit trouver la base tenue').toBe('SQLITE_BUSY');
 
     verrou?.liberer();
-    expect(existsSync(chemin), 'rendu à l’arrêt').toBe(false);
+    expect(sonder(chemin), 'rendu à l’arrêt').toBe('libre');
+    // Le fichier RESTE : le supprimer ouvrirait la porte à deux Reines (une
+    // sur l'ancien fichier, une sur le neuf). Un arrêt propre n'y laisse aucun nom.
+    expect(existsSync(chemin)).toBe(true);
+    expect(inscription(chemin)).toBeUndefined();
+
     // Idempotent : un second `liberer` ne lève pas, et la base se reprend.
     verrou?.liberer();
     const encore = prendreVerrouReine(dbPath);
-    expect(encore).not.toBeNull();
+    expect(encore?.precedente, 'un arrêt propre n’est pas un arrêt brutal').toBeNull();
     encore?.liberer();
   });
 
-  it('deux Reines dans CE processus : la seconde est refusée', () => {
+  it('deux Reines dans CE processus : la seconde est refusée, et son refus ne lâche pas la première', () => {
     const premiere = prendreVerrouReine(dbPath);
-    const avant = readFileSync(chemin, 'utf8');
-    expect(() => prendreVerrouReine(dbPath)).toThrow(/Une autre Reine tient déjà cette base/);
-    expect(readFileSync(chemin, 'utf8'), 'le refus a touché au verrou').toBe(avant);
+    expect(() => prendreVerrouReine(dbPath)).toThrow(
+      new RegExp(`Une autre Reine tient déjà cette base \\(pid ${process.pid} `),
+    );
+    // La seconde a ouvert puis fermé sa connexion au MÊME fichier. Sous POSIX,
+    // une fermeture mal faite rendrait le verrou de la première : un autre
+    // processus doit encore la trouver tenue.
+    expect(sonder(chemin)).toBe('SQLITE_BUSY');
     premiere?.liberer();
+    expect(sonder(chemin)).toBe('libre');
   });
 
-  it('un processus VIVANT tient la base ; mort, son verrou se reprend', async () => {
-    const autre = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
-      stdio: 'ignore',
-    });
+  it('un processus VIVANT tient la base ; tué net, le système rend son verrou', async () => {
+    // Une vraie Reine d'un autre processus : elle prend le verrou par le vrai
+    // module, puis vit. Rien ici ne regarde une horloge, un nom d'hôte ou un
+    // pid pour décider — un recalage d'horloge ne peut donc pas la déloger.
+    //
+    // Elle ne GARDE pas l'objet rendu, et force un ramasse-miettes : better-
+    // sqlite3 ferme une connexion collectée, et le verrou doit tenir quand même
+    // — c'est au module de la retenir, pas à chaque appelant d'y penser.
+    const script = path.join(dir, 'tenir.mjs');
+    writeFileSync(
+      script,
+      `import { prendreVerrouReine } from ${JSON.stringify(
+        pathToFileURL(path.join(RACINE, 'src', 'orchestrator', 'verrou-reine.ts')).href,
+      )};
+       prendreVerrouReine(process.argv[2]);
+       globalThis.gc();
+       process.stdout.write('tenu\\n');
+       setInterval(() => {}, 60_000);`,
+    );
+    const autre: ChildProcess = spawn(
+      process.execPath,
+      ['--expose-gc', '--import', 'tsx', script, dbPath],
+      {
+        cwd: RACINE,
+        stdio: ['ignore', 'pipe', 'inherit'],
+      },
+    );
     try {
-      await once(autre, 'spawn');
-      const pid = autre.pid as number;
-      const brut = poser({ pid });
+      let sortie = '';
+      autre.stdout?.setEncoding('utf8');
+      autre.stdout?.on('data', (morceau: string) => (sortie += morceau));
+      const fin = Date.now() + 15_000;
+      while (!sortie.includes('tenu') && Date.now() < fin && autre.exitCode === null) {
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      expect(sortie, 'l’autre Reine n’a pas pris le verrou').toContain('tenu');
 
       let refus = '';
       try {
@@ -212,54 +178,59 @@ describe('la prise du verrou — sur un vrai disque', () => {
         refus = (err as Error).message;
       }
       expect(refus).toMatch(/Une autre Reine tient déjà cette base/);
-      expect(refus).toContain(`pid ${pid}`);
-      // Le message dit QUOI supprimer si l'humain sait qu'aucune Reine ne tourne.
-      expect(refus).toContain(chemin);
-      expect(readFileSync(chemin, 'utf8'), 'un refus ne touche pas au verrou').toBe(brut);
+      // Le message NOMME le processus et la base : l'humain sait quoi arrêter.
+      expect(refus).toContain(`pid ${autre.pid as number}`);
+      expect(refus).toContain(dbPath);
     } finally {
       autre.kill('SIGKILL');
       if (autre.exitCode === null && autre.signalCode === null) await once(autre, 'exit');
     }
 
-    // Tué sans rendre son verrou : exactement l'arrêt brutal d'une Reine.
+    // Tuée sans rien rendre — exactement l'arrêt brutal d'une Reine. Personne
+    // n'a effacé son nom ; c'est le système qui a rendu son verrou.
     const verrou = prendreVerrouReine(dbPath);
-    expect(verrou?.reprise?.raison).toBe('processus-mort');
-    expect(verrou?.reprise?.tenant.pid).toBe(autre.pid);
-    const lu = JSON.parse(readFileSync(chemin, 'utf8')) as { pid: number };
-    expect(lu.pid).toBe(process.pid);
+    expect(verrou?.precedente?.pid).toBe(autre.pid);
+    expect(inscription(chemin)?.pid).toBe(process.pid);
+    verrou?.liberer();
+  }, 30_000);
+
+  // ─── CE QU'UN FICHIER DE PID « PÉRIMÉ SI… » REFUSAIT À TORT ────────────────
+  //
+  // Une inscription restée derrière une Reine morte se reprend TOUJOURS : ce
+  // qu'elle dit de l'hôte ou du pid ne décide de rien, puisque personne ne
+  // tient plus le verrou.
+  it.each<{ nom: string; tenant: () => TenantVerrou }>([
+    {
+      // Docker : le nom d'hôte est l'id du conteneur, et la Reine y est pid 1.
+      // Recréé après un `kill`, le conteneur ne porte plus le même nom — le
+      // verrou jugé « d'une autre machine » refusait à chaque redémarrage.
+      nom: 'un conteneur recréé : autre nom d’hôte, pid 1',
+      tenant: () => ({ pid: 1, hote: 'b7c1e04f9a2d', depuis: '2026-09-27T00:00:00.000Z' }),
+    },
+    {
+      // Windows recycle vite un pid mort : un pid VIVANT ne prouve rien.
+      nom: 'un pid recyclé, vivant aujourd’hui',
+      tenant: () => ({
+        pid: process.ppid,
+        hote: os.hostname(),
+        depuis: '2026-09-27T00:00:00.000Z',
+      }),
+    },
+  ])('une Reine morte laisse la base reprenable — $nom', ({ tenant }) => {
+    const laisse = tenant();
+    laisserInscription(chemin, laisse);
+    const verrou = prendreVerrouReine(dbPath);
+    expect(verrou?.precedente).toEqual(laisse);
     verrou?.liberer();
   });
 
-  it('notre propre pid, laissé par une incarnation précédente, se reprend', () => {
-    // La Reine d'un conteneur relancé est de nouveau pid 1 : son ancien verrou
-    // porte NOTRE numéro, et aucun processus vivant ne peut le partager.
-    poser({ pid: process.pid });
-    const verrou = prendreVerrouReine(dbPath);
-    expect(verrou?.reprise?.raison).toBe('meme-pid');
-    verrou?.liberer();
-  });
-
-  it('refuse un verrou illisible ou d’une autre machine, sans y toucher', () => {
+  it('refuse un fichier qui n’est pas un verrou de Reine, sans y toucher', () => {
     mkdirSync(path.dirname(chemin), { recursive: true });
-    for (const [brut, motif] of [
-      ['ceci n’est pas un verrou', /Verrou de Reine illisible/],
-      [
-        JSON.stringify({ pid: 777, hote: 'ailleurs', demarrage: 'x', depuis: 'y' }),
-        /AUTRE machine/,
-      ],
-    ] as const) {
-      writeFileSync(chemin, brut);
-      expect(() => prendreVerrouReine(dbPath)).toThrow(motif);
-      expect(readFileSync(chemin, 'utf8')).toBe(brut);
-    }
-  });
-
-  it('ne supprime jamais un verrou qui n’est plus le sien', () => {
-    const verrou = prendreVerrouReine(dbPath);
-    // Un humain l'a effacé, une autre Reine a pris la place : ce n'est plus le nôtre.
-    writeFileSync(chemin, 'le verrou d’une autre');
-    verrou?.liberer();
-    expect(readFileSync(chemin, 'utf8')).toBe('le verrou d’une autre');
+    const brut = 'ceci n’est pas un verrou';
+    writeFileSync(chemin, brut);
+    expect(() => prendreVerrouReine(dbPath)).toThrow(/Le verrou de Reine est illisible/);
+    // Aucune connexion ne reste ouverte : le relire par `fs` ne rend rien à personne.
+    expect(readFileSync(chemin, 'utf8')).toBe(brut);
   });
 
   it('`:memory:` n’a rien à partager : pas de verrou', () => {
@@ -301,7 +272,8 @@ describe('la Reine : une seconde sur la même base est refusée', () => {
   });
 
   afterEach(() => {
-    rmSync(dir, { recursive: true, force: true });
+    vi.restoreAllMocks();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
   });
 
   it('refusée AVANT d’avoir requalifié les travaux en vol de la première', async () => {
@@ -334,9 +306,10 @@ describe('la Reine : une seconde sur la même base est refusée', () => {
       await premiere.stop();
     }
 
-    // Arrêtée, elle a rendu le verrou : la suivante démarre, et c'est ELLE,
-    // seule, qui requalifie ce qui était en vol.
-    expect(existsSync(cheminVerrouReine(dbPath))).toBe(false);
+    // Arrêtée, elle a rendu le verrou sans y laisser son nom : la suivante
+    // démarre, et c'est ELLE, seule, qui requalifie ce qui était en vol.
+    expect(sonder(cheminVerrouReine(dbPath))).toBe('libre');
+    expect(inscription(cheminVerrouReine(dbPath))).toBeUndefined();
     const suivante = await createServer(config());
     try {
       expect(suivante.store.tasksByStatus('ready')).toHaveLength(1);
@@ -345,16 +318,28 @@ describe('la Reine : une seconde sur la même base est refusée', () => {
     }
   });
 
-  it('un démarrage RATÉ rend le verrou et referme la base', async () => {
+  it('après une Reine tuée net, la suivante démarre seule — et le DIT', async () => {
+    laisserInscription(cheminVerrouReine(dbPath), {
+      pid: 1,
+      hote: 'b7c1e04f9a2d',
+      depuis: '2026-09-27T00:00:00.000Z',
+    });
+    const avertissements = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const reine = await createServer(config());
+    await reine.stop();
+    expect(avertissements.mock.calls.map((appel) => String(appel[0])).join('\n')).toMatch(
+      /Reine précédente \(pid 1 sur « b7c1e04f9a2d »[^)]*\) s’est arrêtée sans rendre la base/,
+    );
+  });
+
+  it('un démarrage RATÉ referme la base et rend le verrou', async () => {
     const occupant = serveurTcp();
     await new Promise<void>((ok) => occupant.listen(0, '127.0.0.1', ok));
     try {
       const { port } = occupant.address() as { port: number };
       await expect(createServer(config(port))).rejects.toThrow(/EADDRINUSE/);
       // Gardé, le verrou tiendrait la base au nom d'un démarrage mort.
-      expect(existsSync(cheminVerrouReine(dbPath)), 'verrou laissé par un démarrage raté').toBe(
-        false,
-      );
+      expect(sonder(cheminVerrouReine(dbPath)), 'verrou gardé par un démarrage raté').toBe('libre');
       // SQLite efface le `-wal` quand la DERNIÈRE connexion se ferme : sa
       // présence ici dit qu'un démarrage mort garde la base ouverte — et sous
       // Windows, le dossier ne se supprimerait plus.
