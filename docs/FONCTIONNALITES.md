@@ -76,6 +76,12 @@ l'API GitHub aurait exigé le **jeton de l'hôte** — montrer le code à une ab
 dépenserait pour elle un droit qui n'est pas le sien. **`.git` n'est jamais
 servi** : il contient `config`, donc l'URL distante, donc les identifiants du
 dépôt privé ; ni `.env`, `.npmrc`, `id_rsa` et les extensions de clés.
+Le miroir montre les **octets que le dépôt stocke** : aucun filtre ni
+conversion du `.gitattributes` (fins de ligne, `$Id$`, encodage) n'est
+appliqué, et **un fichier Git LFS apparaît comme son pointeur** (quelques
+lignes `version … oid sha256:… size …`), jamais téléchargé — dans l'arbre comme
+dans l'Aperçu. Un dépôt encore vide donne un Rayon vide ; si la branche par
+défaut de l'amont change, le miroir est recloné sur la nouvelle.
 
 **La retouche ne s'enregistre pas — elle se propose.** Le miroir est une copie
 jetable : y écrire donnerait l'illusion d'avoir corrigé quelque chose, jusqu'au
