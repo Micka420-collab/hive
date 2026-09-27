@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   codexMcpOverrides,
   createDelegationBridge,
+  definitionsOutilsDelegation,
   HIVE_DELEGATE_TOOL,
   HIVE_WAIT_TOOL,
   writeClaudeMcpConfig,
@@ -14,6 +15,7 @@ import {
 } from '../src/adapters/delegation-bridge.js';
 import { fournisseurParNom } from '../src/node-client/isolement.js';
 import { RendezVousPont } from '../src/node-client/rendez-vous-pont.js';
+import { LIMITES_DELEGATION_DEFAUT } from '../src/shared/limites-delegation.js';
 
 function mcpResponseLine(child: ChildProcessWithoutNullStreams): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
@@ -128,6 +130,9 @@ describe('pont MCP de délégation Worker → CLI', () => {
     const listed = await mcpResponseLine(child);
     const tools = (listed.result as { tools: Array<{ name: string }> }).tools;
     expect(tools.map((tool) => tool.name)).toEqual([HIVE_DELEGATE_TOOL, HIVE_WAIT_TOOL]);
+    // Le serveur MCP autonome sert la définition canonique, octet pour octet :
+    // le texte que lit le modèle ne peut pas dériver des bornes appliquées.
+    expect(tools).toEqual(definitionsOutilsDelegation());
 
     sendMcp(child, {
       jsonrpc: '2.0',
@@ -206,7 +211,32 @@ describe('pont MCP de délégation Worker → CLI', () => {
     expect(contentValue(await mcpResponseLine(child))).toMatchObject({
       ok: false,
       code: 'arguments_invalid',
+      // Le champ fautif, nommé : « arguments invalides » ne disait pas lequel.
+      message: expect.stringContaining('durationMs'),
     });
+  });
+
+  it('l’outil dit ses bornes, le format de l’identifiant et ce que valent les préférences', () => {
+    const L = LIMITES_DELEGATION_DEFAUT;
+    const [delegue] = definitionsOutilsDelegation();
+    const schema = delegue!.inputSchema as {
+      properties: Record<string, { pattern?: string; maximum?: number; description: string }>;
+    };
+    for (const borne of [
+      `au plus ${L.maxDepth} niveaux`,
+      `${L.maxChildrenPerParent} enfants par parent`,
+      `${L.maxDescendantsPerRoot} descendants par racine`,
+      `durée ≤ ${L.maxDurationMs} ms`,
+      `coût ≤ ${L.maxCostMicros} micro-USD`,
+      `ressources ≤ ${L.maxResourceUnits} unités (compte abstrait`,
+      'CUMULÉS par racine',
+    ]) {
+      expect(delegue!.description).toContain(borne);
+    }
+    expect(schema.properties.childTaskId!.pattern).toBe('^[A-Za-z0-9_-]{1,64}$');
+    expect(schema.properties.durationMs!.maximum).toBe(L.maxDurationMs);
+    expect(schema.properties.costMicros!.description).toContain('micro-USD');
+    expect(schema.properties.preferredModel!.description).toContain('départage seulement');
   });
 
   it('vit dans le rendez-vous privé du nœud, et le quitte sans rien laisser', async () => {

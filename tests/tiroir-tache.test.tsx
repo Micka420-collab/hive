@@ -45,12 +45,25 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
     }),
   ),
   fetchRace: vi.fn(() => Promise.resolve({ race: null, victory: null })),
+  fetchConsigneRoutage: vi.fn(() =>
+    Promise.resolve({ taskId: 'tache-du-tiroir', consigne: null, definiPar: null, majA: null }),
+  ),
+  poserConsigneRoutage: vi.fn((taskId: string, consigne: unknown) =>
+    Promise.resolve({ taskId, consigne, definiPar: null, majA: 1, effet: 'immediat' }),
+  ),
   cancelTask: vi.fn(() => Promise.resolve()),
   raceTask: vi.fn(() => Promise.resolve({ drones: [] })),
 }));
 vi.mock('../dashboard/src/CodeEditor', () => ({ default: () => null }));
 
-import { cancelTask, fetchDelegationGraph, fetchRace, fetchResults } from '../dashboard/src/api';
+import {
+  cancelTask,
+  fetchConsigneRoutage,
+  fetchDelegationGraph,
+  fetchRace,
+  fetchResults,
+  poserConsigneRoutage,
+} from '../dashboard/src/api';
 import { TaskDrawer } from '../dashboard/src/TaskDrawer';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -302,7 +315,7 @@ describe('le tiroir — le graphe de délégation réel', () => {
     expect(dom.textContent).toContain('enfant-1');
     expect(dom.textContent).toContain('parent : tache-du-tiroir');
     expect(dom.textContent).toContain('isoler les tests de sécurité');
-    expect(dom.textContent).toContain('Budget demandé : 60.0 s · coût 42 µ · ressources 1');
+    expect(dom.textContent).toContain('Budget réservé : 60.0 s · coût 42 µUSD · ressources 1');
     expect(dom.textContent).toContain(
       'Dernière exécution mesurée : 1.3 s · processus Worker : 15 ms CPU · 4.0 MiB RSS · coût fournisseur non mesuré',
     );
@@ -340,6 +353,7 @@ describe('le tiroir — le graphe de délégation réel', () => {
         },
         enfant('enfant-1', 'tache-du-tiroir', 1),
         enfant('enfant-2', 'tache-du-tiroir', 1),
+        enfant('enfant-3', 'tache-du-tiroir', 1),
         enfant('petit-enfant', 'enfant-1', 2),
       ],
       delegations: [],
@@ -347,6 +361,7 @@ describe('le tiroir — le graphe de délégation réel', () => {
         annulee(1, 'enfant-1', 'ancestor_done'),
         annulee(2, 'enfant-2', 'ancestor_failed'),
         annulee(3, 'petit-enfant', 'ancestor_cancelled'),
+        annulee(4, 'enfant-3', 'root_cost_budget_exhausted'),
       ],
     });
     const dom = await monter(<TaskDrawer task={tache('done')} nodes={NOEUDS} onClose={() => {}} />);
@@ -358,6 +373,9 @@ describe('le tiroir — le graphe de délégation réel', () => {
       'Annulée : tache-du-tiroir a échoué, plus personne n’attendait ce résultat.',
     );
     expect(ligne('petit-enfant')).toBe('Annulée avec tache-du-tiroir.');
+    expect(ligne('enfant-3')).toBe(
+      'Annulée : la dépense déclarée de l’arbre de tache-du-tiroir a atteint son budget coût.',
+    );
     // La racine n'a été annulée par personne : aucune ligne à son nom.
     expect(ligne('tache-du-tiroir')).toBeUndefined();
   });
@@ -544,5 +562,93 @@ describe('la course en vol compte les drones QUI TOURNENT', () => {
     );
 
     expect(enVol(dom), 'une course tranchée s’annonce encore en vol').toBe('');
+  });
+});
+
+describe('le tiroir — l’enveloppe de la racine et la consigne de l’opérateur', () => {
+  const EN_LIGNE: HiveNode[] = [{ ...NOEUDS[0]!, status: 'online' } as HiveNode];
+
+  it('dit ce que l’arbre a réservé, et une dépense au coût inconnu comme un plancher', async () => {
+    vi.mocked(fetchDelegationGraph).mockResolvedValue({
+      taskId: 'tache-du-tiroir',
+      rootTaskId: 'tache-du-tiroir',
+      graph: [
+        {
+          taskId: 'tache-du-tiroir',
+          rootTaskId: 'tache-du-tiroir',
+          parentTaskId: null,
+          depth: 0,
+          status: 'running',
+          origine: 'hive',
+        },
+      ],
+      delegations: [],
+      events: [],
+      enveloppe: {
+        limites: {
+          maxDepth: 3,
+          maxChildrenPerParent: 4,
+          maxDescendantsPerRoot: 16,
+          maxDurationMs: 1_800_000,
+          maxCostMicros: 5_000_000,
+          maxResourceUnits: 4,
+          maxTitleChars: 160,
+          maxPromptChars: 16_000,
+        },
+        reserve: { durationMs: 60_000, costMicros: 42, resourceUnits: 1 },
+        depense: { micros: 1_200, tentatives: 3, sansCout: 1 },
+        coutEpuise: false,
+      },
+    });
+    const dom = await monter(
+      <TaskDrawer task={tache('running')} nodes={NOEUDS} onClose={() => {}} />,
+    );
+    await act(async () => {});
+    const ligne = dom.querySelector('[data-testid="delegation-enveloppe"]')?.textContent ?? '';
+    expect(ligne).toContain('42 / 5000000 µUSD · 1 / 4 unités');
+    // Deux tentatives déclarées sur trois : « au moins », jamais une somme complète.
+    expect(ligne).toContain(
+      'Dépense déclarée : au moins 1200 µUSD — 1 tentative(s) sur 3 sans coût déclaré (inconnu, pas zéro).',
+    );
+  });
+
+  it('se lit « forcée par l’opérateur », et dit quand aucune ouvrière en ligne ne la satisfait', async () => {
+    vi.mocked(fetchConsigneRoutage).mockResolvedValueOnce({
+      taskId: 'tache-du-tiroir',
+      consigne: { agent: 'codex' },
+      definiPar: null,
+      majA: 1,
+    });
+    const dom = await monter(
+      <TaskDrawer task={tache('ready')} nodes={EN_LIGNE} onClose={() => {}} />,
+    );
+    await act(async () => {});
+    const texte = (id: string) => dom.querySelector(`[data-testid="${id}"]`)?.textContent;
+    expect(texte('consigne-routage-actuelle')).toBe(
+      'Forcée par l’opérateur — agent imposé : codex.',
+    );
+    // La seule ouvrière en ligne est `shell` : la tâche attendra, et l'écran le dit.
+    expect(texte('consigne-routage-insatisfaite')).toContain('Aucune ouvrière en ligne');
+  });
+
+  it('pose la consigne choisie parmi les ouvrières connues', async () => {
+    vi.mocked(poserConsigneRoutage).mockClear();
+    const dom = await monter(
+      <TaskDrawer task={tache('ready')} nodes={EN_LIGNE} onClose={() => {}} />,
+    );
+    await act(async () => {});
+    const exclure = dom.querySelector<HTMLInputElement>(
+      '[data-testid="consigne-routage"] fieldset input[type="checkbox"]',
+    );
+    await act(async () => exclure?.click());
+    await act(async () =>
+      dom.querySelector<HTMLButtonElement>('[data-testid="consigne-poser"]')?.click(),
+    );
+    expect(vi.mocked(poserConsigneRoutage)).toHaveBeenCalledWith('tache-du-tiroir', {
+      sansAgents: ['shell'],
+    });
+    expect(dom.querySelector('[data-testid="consigne-routage-actuelle"]')?.textContent).toBe(
+      'Forcée par l’opérateur — agents exclus : shell.',
+    );
   });
 });

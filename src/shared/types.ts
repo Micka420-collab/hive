@@ -30,6 +30,13 @@ export interface HiveNode {
   maxConcurrency: number;
   /** Nombre de tâches actives (assigned/running) — toujours dérivé des tâches, jamais stocké. */
   running: number;
+  /**
+   * Parmi `running`, les parents qui attendent un enfant délégué encore en vol :
+   * ils ne comptent pas dans la concurrence du nœud (`slotsOccupes`), sans quoi
+   * un arbre de délégation pouvait s'interbloquer sur sa propre ouvrière.
+   * Dérivé comme `running` ; absent quand aucun parent n'attend.
+   */
+  enAttente?: number;
   status: NodeStatus;
   lastSeen: number | null;
   /**

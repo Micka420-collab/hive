@@ -210,6 +210,9 @@ import {
 } from './abonnement.js';
 import type { Abonnement, EtatAbonnement } from './abonnement.js';
 import { categoriser, type Categorie } from './aiguillage.js';
+import { budgetCoutEpuise, reserveRacine } from './delegation.js';
+import { LIMITES_DELEGATION_DEFAUT } from '../shared/limites-delegation.js';
+import { lireConsigneRoutage, type ConsigneRoutage } from '../shared/consigne-routage.js';
 import { evenementDepuisStripe } from './nuage.js';
 import {
   ETATS as ETATS_SERVEUR,
@@ -1387,6 +1390,48 @@ async function monterReine(
   }
 
   /**
+   * Un enfant délégué vient d'être ANNULÉ alors que son parent l'attend
+   * encore : le parent l'apprend tout de suite, avec la raison.
+   *
+   * Une annulation ne produit aucun résultat, donc aucun `delegation_result`
+   * — et l'agent parent, bloqué dans `hive_wait_for_delegation_result`,
+   * attendait jusqu'à l'échéance de son attente (le budget de l'enfant plus
+   * cinq minutes de grâce), pour lire « résultat absent » sans savoir
+   * pourquoi. Une issue d'échec explicite, sans résultat rangé (`resultId`
+   * absent), lui dit quoi faire ensuite.
+   *
+   * Seulement quand le parent est encore en vol : une clôture de sous-arbre
+   * (`ancestor_*`) part d'un parent déjà terminal, qui n'attend plus rien.
+   */
+  function prevenirParentDeLAnnulation(annulation: Readonly<Record<string, unknown>>): void {
+    const { taskId, reason } = annulation;
+    if (typeof taskId !== 'string') return;
+    const lien = store.getDelegation(taskId);
+    if (!lien || lien.origine !== 'hive') return;
+    const parent = store.getTask(lien.parentTaskId);
+    if (!parent?.assignedNodeId) return;
+    if (parent.status !== 'assigned' && parent.status !== 'running') return;
+    const socket = nodeSockets.get(parent.assignedNodeId);
+    if (!socket) return;
+    const motif =
+      reason === 'root_cost_budget_exhausted'
+        ? `budget coût de la racine épuisé (${LIMITES_DELEGATION_DEFAUT.maxCostMicros} µUSD de ` +
+          'dépense déclarée) — plus aucune sous-tâche sous cette racine : termine avec ce que tu as'
+        : typeof reason === 'string' && reason.length > 0
+          ? reason
+          : 'annulée';
+    send(socket, {
+      type: 'delegation_result',
+      parentTaskId: lien.parentTaskId,
+      childTaskId: lien.childTaskId,
+      success: false,
+      diff: '',
+      logs: `[hive] sous-tâche annulée : ${champSurUneLigne(motif, LIMITS.delegationReason)}`,
+      durationMs: 0,
+    });
+  }
+
+  /**
    * Une relecture vient de se clore SANS avis (`contre_expertise_review_failed`,
    * `terminal`) : la contre-revue de ce résultat doit ABOUTIR quand même.
    *
@@ -2178,6 +2223,7 @@ async function monterReine(
       // absente, agent qui ne démarre nulle part, annulation) : même suite
       // que pour celles que le hub clôt en recevant leur résultat.
       if (event.type === 'contre_expertise_review_failed') reprendreContreRevue(event.payload);
+      if (event.type === 'task_cancelled') prevenirParentDeLAnnulation(event.payload);
     },
     // Relais pur, ni journal ni `stateDirty` : l'état de la ruche n'a pas
     // changé, seul l'écran de la tâche a du texte de plus.
@@ -8876,12 +8922,120 @@ async function monterReine(
         .filter((node) => node.parentTaskId !== null)
         .map((node) => store.getDelegation(node.taskId))
         .filter((delegation): delegation is NonNullable<typeof delegation> => delegation !== null);
+      // L'enveloppe de la racine, telle que `jugerDelegation` la tient :
+      // plafonds, réservations de tout l'arbre, dépense DÉCLARÉE — un
+      // plancher dès qu'une tentative n'a déclaré aucun coût (`sansCout`).
+      const depense = store.depenseDeclareeRacine(rootTaskId);
       return {
         taskId: task.id,
         rootTaskId,
         graph,
         delegations,
         events: store.listDelegationEvents(rootTaskId),
+        enveloppe: {
+          limites: { ...LIMITES_DELEGATION_DEFAUT },
+          reserve: reserveRacine(graph, rootTaskId),
+          depense,
+          coutEpuise: budgetCoutEpuise(depense),
+        },
+      };
+    },
+  );
+
+  // ─── LA CONSIGNE DE ROUTAGE D'UNE TÂCHE (shared/consigne-routage.ts) ──────
+  //
+  // Lire : la même porte que les autres lectures d'une tâche. Poser : une
+  // DÉCISION sur le sort d'un travail, comme la revue et l'annulation — le
+  // propriétaire ou un administrateur (`decisionTache`), le jeton sur un
+  // projet orphelin. Un membre qui s'est inscrit tout seul sur une vitrine
+  // n'impose pas le modèle que la ruche paiera.
+  app.get<{ Params: { taskId: string } }>(
+    '/api/tasks/:taskId/consigne-routage',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['taskId'],
+          properties: { taskId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      if (!store.getTask(req.params.taskId)) {
+        return reply.code(404).send({ error: 'tâche inconnue' });
+      }
+      const rangee = store.consigneRoutage(req.params.taskId);
+      return {
+        taskId: req.params.taskId,
+        consigne: rangee?.consigne ?? null,
+        definiPar: rangee?.definiPar ?? null,
+        majA: rangee?.majA ?? null,
+      };
+    },
+  );
+
+  app.put<{ Params: { taskId: string }; Body: { consigne: unknown } }>(
+    '/api/tasks/:taskId/consigne-routage',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['taskId'],
+          properties: { taskId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+        body: {
+          type: 'object',
+          required: ['consigne'],
+          additionalProperties: false,
+          // La FORME fine (noms, bornes, contradictions) est jugée par
+          // `lireConsigneRoutage`, qui dit pourquoi elle refuse.
+          properties: { consigne: { type: ['object', 'null'] } },
+        },
+      },
+    },
+    async (req, reply) => {
+      const task = decisionTache(req, reply, req.params.taskId);
+      if (!task) return reply;
+      // Une relecture suit la famille que la contre-expertise lui a désignée :
+      // une consigne dessus ne pourrait que la contredire, ou la laisser
+      // attendre un relecteur qui ne viendra plus.
+      if (store.relectureDe(task.id) !== null) {
+        return reply.code(409).send({
+          error: 'une relecture suit la famille désignée par la contre-expertise — pas de consigne',
+        });
+      }
+      let consigne: ConsigneRoutage | null = null;
+      if (req.body.consigne !== null) {
+        const lue = lireConsigneRoutage(req.body.consigne);
+        if (!lue.ok) return reply.code(400).send({ error: lue.motif });
+        consigne = lue.consigne;
+      }
+      const definiPar = authorizedUser(req) ? ((req as AuthRequest).userId ?? null) : null;
+      const now = Date.now();
+      store.poserConsigneRoutage(task.id, consigne, definiPar, now);
+      emitEvent('routage_consigne', {
+        taskId: task.id,
+        consigne,
+        ...(definiPar ? { definiPar } : {}),
+      });
+      stateDirty = true;
+      // Une tâche qui attendait une consigne désormais levée — ou qu'une
+      // consigne neuve rend portable — part à la passe suivante, pas au
+      // prochain tick de fond.
+      scheduler.tick();
+      return {
+        taskId: task.id,
+        consigne,
+        definiPar,
+        majA: consigne ? now : null,
+        // Une tâche déjà partie garde son porteur : la consigne vaut pour la
+        // PROCHAINE affectation. Le dire évite de croire le travail en cours
+        // re-routé.
+        effet:
+          task.status === 'assigned' || task.status === 'running'
+            ? 'prochaine_affectation'
+            : 'immediat',
       };
     },
   );

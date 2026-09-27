@@ -48,8 +48,16 @@ import { CacheProjets, GrandLivre, jugerPlafond, LOT_GRAND_LIVRE } from './balan
 import type { DecisionPlafond } from './balance.js';
 import { bornerCritique } from './brood.js';
 import type { CritiqueReprise } from './brood.js';
-import { ancetreEchoue, descendantsEnVol } from './delegation.js';
+import {
+  ancetreEchoue,
+  budgetCoutEpuise,
+  descendantsEnVol,
+  direDepense,
+  slotsOccupes,
+} from './delegation.js';
 import type { CauseAnnulationDelegation } from './delegation.js';
+import { offreSousConsigne } from '../shared/consigne-routage.js';
+import { LIMITES_DELEGATION_DEFAUT } from '../shared/limites-delegation.js';
 import { createRace, enlistDrones, recordDroneResult, runningDrones } from './drone-wars.js';
 import type { DroneRace } from './drone-wars.js';
 import { inspecter } from './gardiennes.js';
@@ -184,6 +192,7 @@ export type EvaluationRetryOutcome =
         | 'stale_result'
         | 'dependent_progressed'
         | 'ancestor_failed'
+        | 'root_cost_budget_exhausted'
         | 'delivery_exists'
         | 'attempts_exhausted';
       task?: Task;
@@ -218,6 +227,14 @@ export class Scheduler {
   private readonly modelesEchoues = new Map<string, Set<string>>();
   /** Tâches actuellement différées pour cause de conflit (Sting Detector) — dédup des events. */
   private readonly deferredByConflict = new Set<string>();
+  /**
+   * Tâches qui attendent parce que la consigne de l'opérateur écarte tous les
+   * nœuds en ligne qui pourraient les porter — dédup de
+   * `task_consigne_deferred`, motif `deferredByConflict`. Sans ce fait, une
+   * consigne qui épingle une famille absente laissait la tâche en file sans
+   * que rien ne dise pourquoi.
+   */
+  private readonly differeesParConsigne = new Set<string>();
   /**
    * Relecture → instant du PREMIER constat que sa famille relectrice est
    * absente. Dédup de l'événement d'attente, et départ de
@@ -1240,6 +1257,9 @@ export class Scheduler {
           });
         }
       }
+      // APRÈS la transition : une reprise qui vient de repartir en file est
+      // encore en vol, et l'enveloppe épuisée l'arrête avec le reste.
+      this.tenirBudgetCoutRacine(task.id, result.fournisseur?.coutUsd, Date.now());
     });
     this.promoteAndAssign();
     return true;
@@ -1298,6 +1318,12 @@ export class Scheduler {
     // et à la facture — ce que la clôture du sous-arbre a justement arrêté.
     if (ancetreEchoue(this.store.listDelegationGraph(task.id), task.id)) {
       return { ok: false, reason: 'ancestor_failed', task };
+    }
+    // Une correction est une dépense neuve : sous une racine dont la dépense
+    // déclarée a atteint l'enveloppe, plus rien ne repart — la même porte que
+    // la création d'un enfant (`jugerDelegation`).
+    if (this.budgetCoutEpuiseSous(task.id)) {
+      return { ok: false, reason: 'root_cost_budget_exhausted', task };
     }
     if (task.attempts >= this.maxAttempts) {
       return { ok: false, reason: 'attempts_exhausted', task };
@@ -1387,12 +1413,98 @@ export class Scheduler {
     this.apresCommit(() => {
       this.infraRejects.delete(task.id);
       this.deferredByConflict.delete(task.id);
+      this.differeesParConsigne.delete(task.id);
     });
     const nodeId = task.assignedNodeId;
     const patched = this.store.patchTask(task.id, { status: 'failed', assignedNodeId: null }, now);
     this.emit('task_cancelled', { taskId: task.id, reason, ...(nodeId ? { nodeId } : {}) });
     this.relectureCloseSansAvis(task, 'annulee');
     return patched;
+  }
+
+  /**
+   * Les préférences qu'une tâche PARENTE a déclarées pour cet enfant délégué
+   * (`hive_delegate`), ou `null` — tâche racine, relecture, ou aucune
+   * préférence dite. Lues à chaque passe par clé primaire, comme `relectureDe`.
+   */
+  private preferenceDelegation(taskId: string): { agent?: string; modele?: string } | null {
+    const lien = this.store.getDelegation(taskId);
+    if (!lien || lien.origine !== 'hive') return null;
+    if (!lien.preferredAgent && !lien.preferredModel) return null;
+    return {
+      ...(lien.preferredAgent ? { agent: lien.preferredAgent } : {}),
+      ...(lien.preferredModel ? { modele: lien.preferredModel } : {}),
+    };
+  }
+
+  /** La racine de `taskId` a-t-elle épuisé son enveloppe coût ? Faux hors délégation. */
+  private budgetCoutEpuiseSous(taskId: string): boolean {
+    const lien = this.store.getDelegation(taskId);
+    if (!lien || lien.origine !== 'hive') return false;
+    return budgetCoutEpuise(this.store.depenseDeclareeRacine(lien.rootTaskId));
+  }
+
+  /**
+   * Tient l'enveloppe COÛT de l'arbre de `taskId`, à chaque tentative qu'un de
+   * ses enfants délégués vient de rendre — dans la transaction du résultat.
+   *
+   * La dépense est celle que les CLI DÉCLARENT (`depenses_delegation`, rangée
+   * par `insertResult` juste avant). Quand elle atteint le plafond de la
+   * racine, chaque descendant encore en vol est annulé avec un motif typé
+   * (`delegation_cancelled`, `root_cost_budget_exhausted`) : rien de ce que
+   * l'arbre lancerait encore n'a de budget pour être payé. La racine, elle,
+   * continue : c'est la tâche de l'opérateur, son propre coût n'est pas dans
+   * l'enveloppe de ses enfants. `jugerDelegation` refuse ensuite tout nouvel
+   * enfant, et `retryFromEvaluator` toute correction.
+   *
+   * `delegation_budget_exhausted` est émis UNE fois : par la tentative dont le
+   * coût fait franchir le plafond. Une tentative au coût inconnu ne le fait
+   * jamais franchir — Hive n'invente pas de montant —, mais le fait compte
+   * celles-là à part (`sansCout`) : la dépense réelle est au moins celle dite.
+   */
+  private tenirBudgetCoutRacine(taskId: string, coutUsd: number | undefined, now: number): void {
+    const lien = this.store.getDelegation(taskId);
+    if (!lien || lien.origine !== 'hive') return;
+    const depense = this.store.depenseDeclareeRacine(lien.rootTaskId);
+    if (!budgetCoutEpuise(depense)) return;
+    const graphe = this.store.listDelegationGraph(lien.rootTaskId);
+    const enVol = descendantsEnVol(
+      graphe,
+      lien.rootTaskId,
+      'root_cost_budget_exhausted',
+      () => false,
+    );
+    const cetteTentative =
+      typeof coutUsd === 'number' && Number.isFinite(coutUsd) && coutUsd >= 0
+        ? Math.round(coutUsd * 1_000_000)
+        : 0;
+    const budgetMicros = LIMITES_DELEGATION_DEFAUT.maxCostMicros;
+    if (depense.micros - cetteTentative < budgetMicros) {
+      this.emit('delegation_budget_exhausted', {
+        rootTaskId: lien.rootTaskId,
+        taskId,
+        depenseMicros: depense.micros,
+        budgetMicros,
+        tentatives: depense.tentatives,
+        sansCout: depense.sansCout,
+        annulees: enVol.length,
+      });
+    }
+    for (const noeud of enVol) {
+      const descendant = this.store.getTask(noeud.taskId);
+      if (!descendant) continue;
+      this.emit('delegation_cancelled', {
+        childTaskId: noeud.taskId,
+        parentTaskId: noeud.parentTaskId,
+        rootTaskId: noeud.rootTaskId,
+        depth: noeud.depth,
+        ancestorTaskId: lien.rootTaskId,
+        reason: 'root_cost_budget_exhausted',
+        depense: direDepense(depense),
+        ...(descendant.assignedNodeId ? { nodeId: descendant.assignedNodeId } : {}),
+      });
+      this.annulerEnVol(descendant, 'root_cost_budget_exhausted', now);
+    }
   }
 
   /**
@@ -1509,10 +1621,13 @@ export class Scheduler {
     // La charge des drones non-primaires n'existe pas dans le store : on
     // l'ajoute ici pour ne pas enrôler des nœuds déjà saturés par une course.
     const extra = this.droneLoad();
-    const charge = (n: HiveNode): number => n.running + (extra.get(n.id) ?? 0);
+    const charge = (n: HiveNode): number => slotsOccupes(n) + (extra.get(n.id) ?? 0);
     // L'OFFRE, charge ignorée, puis sa part libre : l'écart des modèles tombés
-    // se décide contre la première, comme dans la boucle principale.
-    const offre = this.store.listNodes().filter(
+    // se décide contre la première, comme dans la boucle principale. La
+    // consigne de l'opérateur la restreint d'abord : une course diversifie les
+    // agents, elle ne franchit pas une exclusion (`offreSousConsigne`).
+    const consigne = this.store.consigneRoutage(taskId)?.consigne ?? null;
+    const offreBrute = this.store.listNodes().filter(
       (n) =>
         n.status === 'online' &&
         // LA MÊME GARDE QUE `tick` — elle manquait ici, et « présence sans
@@ -1534,6 +1649,7 @@ export class Scheduler {
         }) &&
         (this.recentRejections.get(`${taskId}:${n.id}`) ?? 0) <= now,
     );
+    const offre = offreSousConsigne(offreBrute, consigne);
     const libres = offre
       .filter(
         (n) =>
@@ -1563,7 +1679,9 @@ export class Scheduler {
         libres.length > 0
           ? 'les nœuds libres n’offrent que des modèles qui ont déjà planté sur cette tâche — ' +
             'course refusée, la reprise attend un porteur sain'
-          : 'aucun nœud disponible pour la course';
+          : consigne && offre.length === 0 && offreBrute.length > 0
+            ? 'aucun nœud en ligne ne respecte la consigne de routage de l’opérateur — course refusée'
+            : 'aucun nœud disponible pour la course';
       return { ok: false, error };
     }
 
@@ -1652,6 +1770,8 @@ export class Scheduler {
       // quel que soit le nœud qui les offrait, et ceux qu'un drone re-lance.
       ...(reprise.ecartes.length > 0 ? { modelesEcartes: reprise.ecartes } : {}),
       ...(readmis.length > 0 ? { modelesReadmis: readmis } : {}),
+      // Forcée par l'opérateur : la consigne a restreint les drones enrôlés.
+      ...(consigne ? { consigneOperateur: consigne } : {}),
     });
     // L'instant de l'assignation, celui que porte `updatedAt` : ouverture et
     // clôture de la session se lisent sur la même horloge que la transition.
@@ -1708,7 +1828,7 @@ export class Scheduler {
     // L'état de la course EN MÉMOIRE, les annulations des perdants et
     // l'assignation suivante attendent le COMMIT : un ROLLBACK ne laisse ni
     // course tranchée que la base n'a jamais vue, ni perdant annulé pour rien.
-    this.enUnSeulGeste(() => {
+    const trancher = (): void => {
       this.apresCommit(() => this.races.set(task.id, updated));
       const resultId = this.store.insertResult({ ...result, nodeId, success: retenu });
       if (inspection) this.rangerInspection(inspection, resultId, task.id, nodeId, refusee);
@@ -1838,6 +1958,12 @@ export class Scheduler {
         });
       }
       this.apresCommit(() => this.promoteAndAssign(now));
+    };
+    this.enUnSeulGeste(() => {
+      trancher();
+      // Après l'arbitrage, comme sur la voie mono : chaque drone rendu a coûté,
+      // et une course encore en vol s'arrête avec l'enveloppe épuisée.
+      this.tenirBudgetCoutRacine(task.id, result.fournisseur?.coutUsd, now);
     });
     return true;
   }
@@ -2327,7 +2453,7 @@ export class Scheduler {
       const decision = this.decisionPlafond(task.projectId);
       this.signalerPlafond(task.projectId, decision);
       if (decision === 'bloque' && this.opts.balance?.mode === 'strict') continue;
-      const charge = (n: HiveNode): number => n.running + (extra.get(n.id) ?? 0);
+      const charge = (n: HiveNode): number => slotsOccupes(n) + (extra.get(n.id) ?? 0);
       const noeuds = this.store.listNodes();
       // ─── UNE RELECTURE NE CHANGE PAS DE FAMILLE ──────────────────────────
       // Une contre-expertise vaut par la famille qui la lit : un modèle
@@ -2351,7 +2477,7 @@ export class Scheduler {
       // L'OFFRE pour cette tâche : les nœuds qui pourraient la porter, charge
       // ignorée. C'est contre elle que se décide l'écart des modèles tombés
       // (`repriseHorsEchecs`) : un porteur sain seulement occupé se libérera.
-      const offre = noeuds.filter(
+      const offreBrute = noeuds.filter(
         (n) =>
           (lien === null || n.agentType === lien.relecteurAgent) &&
           n.status === 'online' &&
@@ -2362,6 +2488,27 @@ export class Scheduler {
           // Ne pas ré-assigner aussitôt une tâche que ce nœud vient de refuser.
           (this.recentRejections.get(`${task.id}:${n.id}`) ?? 0) <= now,
       );
+      // ─── LA CONSIGNE DE L'OPÉRATEUR, AVANT TOUT CHOIX ────────────────────
+      // Une exclusion DURE (`offreSousConsigne`) : ni l'Aiguillage, ni l'écart
+      // des modèles tombés, ni la préférence d'une tâche parente ne la
+      // franchissent. Une relecture n'en a pas : sa famille est déjà imposée
+      // par la contre-expertise, et la route refuse d'y en poser une.
+      const consigne =
+        lien === null ? (this.store.consigneRoutage(task.id)?.consigne ?? null) : null;
+      const offre = offreSousConsigne(offreBrute, consigne);
+      if (consigne && offre.length === 0 && offreBrute.length > 0) {
+        // Des nœuds pourraient la porter, la consigne les écarte tous : la
+        // tâche attend — et le dit une fois, au lieu de rester muette en file.
+        if (!this.differeesParConsigne.has(task.id)) {
+          this.differeesParConsigne.add(task.id);
+          this.emit('task_consigne_deferred', { taskId: task.id, consigne });
+        }
+        continue;
+      }
+      this.differeesParConsigne.delete(task.id);
+      // Les préférences de la tâche PARENTE, pour un enfant délégué : un
+      // départage entre ex æquo, plus bas — jamais une exclusion.
+      const preference = lien === null ? this.preferenceDelegation(task.id) : null;
       const eligibles = offre
         .filter(
           (n) =>
@@ -2386,6 +2533,7 @@ export class Scheduler {
         categoriser(task.title, task.prompt),
         reprise.eligibles,
         lireAntecedents(),
+        preference?.modele,
       );
       const candidats = route ? route.noeuds : reprise.eligibles;
       let node = candidats[0];
@@ -2398,7 +2546,19 @@ export class Scheduler {
       // Départage phéromones SUR LES CANDIDATS restreints par l'Aiguillage : un
       // nœud écarté parce qu'il n'offre pas le modèle élu ne doit pas revenir par
       // la porte des phéromones.
-      const exAequo = candidats.filter((n) => charge(n) === chargeMin);
+      let exAequo = candidats.filter((n) => charge(n) === chargeMin);
+      // La famille préférée par la tâche parente départage les ex æquo à
+      // charge minimale, AVANT les phéromones : c'est une intention dite, les
+      // phéromones un signal appris. Elle ne départage que ce qui est à égalité
+      // — le moins chargé reste le moins chargé.
+      const preferes = preference?.agent
+        ? exAequo.filter((n) => n.agentType === preference.agent)
+        : [];
+      const departageAgent = preferes.length > 0 && preferes.length < exAequo.length;
+      if (departageAgent) {
+        exAequo = preferes;
+        node = preferes[0] ?? node;
+      }
       if (exAequo.length >= 2) {
         const domaine = this.cacheDomaines.domaine(task);
         const elu = meilleurNoeud(
@@ -2491,6 +2651,24 @@ export class Scheduler {
         // exploration neuve.
         ...(reprise.ecartes.length > 0 ? { modelesEcartes: reprise.ecartes } : {}),
         ...(route && echoues?.has(route.modele) ? { modelesReadmis: [route.modele] } : {}),
+        // Forcée par l'opérateur : la consigne telle qu'elle a restreint CE
+        // choix. Le classement ci-dessus reste celui de l'Aiguillage, sur les
+        // modèles qu'elle laissait en jeu — aucun score n'en est touché.
+        ...(consigne ? { consigneOperateur: consigne } : {}),
+        // Ce que la tâche parente préférait, et ce que cette préférence a
+        // réellement départagé (`departage` vide : lue, sans effet — il n'y
+        // avait pas d'égalité à trancher, ou l'élu n'était pas disponible).
+        ...(preference
+          ? {
+              preference: {
+                ...preference,
+                departage: [
+                  ...(route?.departageParPreference ? ['modele'] : []),
+                  ...(departageAgent ? ['agent'] : []),
+                ],
+              },
+            }
+          : {}),
       });
       this.store.ouvrirHorlogeHote(assigned.projectId, assigned.id, now);
       // Le modèle élu part avec la tâche : le nœud le passera à `--model`.

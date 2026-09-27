@@ -14,7 +14,8 @@ import type { Suite } from './polyethisme.js';
 import type { MetierCycle } from './metier.js';
 import type { HiveEvent } from '../shared/types.js';
 import { projeterJournalOuvrier } from './journal-ouvriere.js';
-import { LIMITES_DELEGATION_DEFAUT, type LimitesDelegation } from './delegation.js';
+import { slotsOccupes } from './delegation.js';
+import { LIMITES_DELEGATION_DEFAUT, type LimitesDelegation } from '../shared/limites-delegation.js';
 
 /** Identité humaine constatée par la Reine, distincte du nœud technique. */
 export interface WorkerIdentitySnapshot {
@@ -268,7 +269,9 @@ export function projeterWorkers(
       status: node.status,
       running: node.running,
       maxConcurrency: node.maxConcurrency,
-      slotsLibres: Math.max(0, node.maxConcurrency - node.running),
+      // Un parent qui attend ses enfants a relâché sa place (`slotsOccupes`) :
+      // la carte dit ce que l'ordonnanceur voit, pas plus de places prises.
+      slotsLibres: Math.max(0, node.maxConcurrency - slotsOccupes(node)),
       autonomie: { delegation: { ...LIMITES_DELEGATION_DEFAUT } },
       currentTasks: activeTasks
         .filter(

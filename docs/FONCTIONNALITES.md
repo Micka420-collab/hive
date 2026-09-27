@@ -338,6 +338,37 @@ Le protocole complet — seuils du Conseil, règles de l'Evaluator, portes de
 retry, issues d'un désaccord — est dans
 **[PROTOCOLE-CRITIQUE.md](PROTOCOLE-CRITIQUE.md)**.
 
+## 🌳 Délégation — un Worker confie une sous-tâche
+
+Un Worker Claude Code ou Codex peut confier une sous-tâche bornée à un autre
+Worker, par deux outils MCP : `hive_delegate`, puis
+`hive_wait_for_delegation_result`. Les bornes sont écrites dans la description
+même de l'outil, et chaque refus nomme celle qui a été franchie et ce qui
+reste :
+
+- au plus **3 niveaux** sous la tâche racine, **4 enfants** par parent,
+  **16 descendants** par racine (enfants terminés compris) ;
+- des budgets **cumulés par racine** — chaque enfant réserve sa part, qui ne se
+  rend pas : **30 min**, **5 000 000 µUSD** (5 USD du coût _déclaré_ par le CLI
+  de l'agent) et **4 unités** de ressources (un compte abstrait : rien n'est
+  mesuré derrière).
+
+Quand la dépense déclarée de l'arbre atteint son budget coût, plus aucun enfant
+n'est admis, aucune correction ne repart, et ceux en vol sont annulés — chacun
+avec sa raison, que le parent qui l'attend reçoit tout de suite. Une tentative
+sans coût déclaré n'est jamais comptée pour zéro : le tiroir de la tâche dit
+« au moins ». Un parent qui attend ses enfants **relâche sa place** sur son
+ouvrière : un arbre ne s'interbloque plus sur un poste plein.
+
+`preferredAgent` / `preferredModel` ne font que **départager des ex æquo** —
+l'Aiguillage garde le dernier mot, et la raison du choix dit si la préférence a
+compté. L'**opérateur**, lui, peut forcer : dans le tiroir d'une tâche, la
+**consigne de routage** impose ou exclut une famille d'agent ou un modèle
+(propriétaire du projet ou administrateur). C'est une exclusion dure, que ni
+les préférences ni une course de drones ne franchissent ; l'affectation est
+consignée « forcée par l'opérateur », et aucun score appris n'est touché. Si
+aucune ouvrière en ligne ne la satisfait, la tâche attend et le journal le dit.
+
 ## 🛡️ Sting Detector — prévention de conflits (Palier 2)
 
 Deux tâches qui pourraient tourner **en même temps** (aucun ordre de dépendance

@@ -378,9 +378,11 @@ export class HiveNodeClient {
   private readonly rendezVous = new RendezVousPont();
 
   /**
-   * Arma la seule limite d'exécution actuellement consommée côté Worker.
-   * `costMicros` et `resourceUnits` restent transportés comme faits demandés
-   * jusqu'à ce que les adaptateurs sachent les mesurer réellement.
+   * Arme la seule limite d'exécution que le Worker peut tenir pendant la
+   * tentative : la durée. Le coût, lui, n'est connu qu'à la fin — le CLI le
+   * DÉCLARE avec son résultat —, et c'est la Reine qui tient l'enveloppe coût
+   * de l'arbre (`tenirBudgetCoutRacine`). `resourceUnits` est un compte
+   * abstrait, sans mesure derrière : transporté, jamais appliqué ici.
    */
   private startDelegationBudget(
     budget: DelegationBudget | undefined,
@@ -671,6 +673,25 @@ export class HiveNodeClient {
       this.completedDelegationResults.delete(oldest);
       this.clearAcceptedDelegation(oldest);
     }
+  }
+
+  /**
+   * Les tâches actives de ce nœud qui attendent un enfant délégué encore en
+   * vol : admis par la Reine (`acceptedDelegations`), résultat pas encore reçu.
+   *
+   * La même règle que la Reine (`enAttente`, compté par le store) : un parent
+   * dont un enfant vole ne tient pas de place. Sans elle, une ouvrière à deux
+   * places portait la racine et son enfant, refusait le petit-enfant
+   * (`noeud_sature`), et l'arbre attendait sa propre expiration.
+   */
+  private parentsEnAttente(): number {
+    const parents = new Set<string>();
+    for (const [childTaskId, accepted] of this.acceptedDelegations) {
+      if (!this.active.has(accepted.parentTaskId)) continue;
+      if (this.completedDelegationResults.has(childTaskId)) continue;
+      parents.add(accepted.parentTaskId);
+    }
+    return parents.size;
   }
 
   private clearAcceptedDelegation(childTaskId: string): void {
@@ -1225,7 +1246,10 @@ export class HiveNodeClient {
       return;
     }
     if (this.active.has(task.id)) return; // assignation dupliquée : déjà en cours
-    if (this.active.size >= this.opts.maxConcurrency) {
+    // Un parent qui attend son enfant délégué a RELÂCHÉ sa place : la Reine ne
+    // le compte plus (`slotsOccupes`), le guichet non plus — sinon ce nœud
+    // refuserait justement l'enfant que son parent attend (`parentsEnAttente`).
+    if (this.active.size - this.parentsEnAttente() >= this.opts.maxConcurrency) {
       // Nœud saturé : on REFUSE l'assignation (task_reject) plutôt que de la
       // marquer en échec — sinon on brûlerait une tentative sans rien exécuter,
       // ce qui pourrait faire échouer définitivement une tâche jamais lancée.

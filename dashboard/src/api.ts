@@ -15,6 +15,8 @@ export type { DecisionConseil, Desaccord, EntreeWarRoom } from '../../src/shared
 import type { WorkerSnapshot } from '../../src/orchestrator/workers.js';
 import type { JournalOuvriere } from '../../src/orchestrator/journal-ouvriere.js';
 import type { RapportLivraisonLocale } from '../../src/shared/livraison-locale.js';
+import type { ConsigneRoutage } from '../../src/shared/consigne-routage.js';
+import type { LimitesDelegation } from '../../src/shared/limites-delegation.js';
 import type {
   EvaluationResult,
   ValidationEvidence,
@@ -736,17 +738,55 @@ export interface DelegationEvent {
   payload: Record<string, unknown>;
 }
 
+/**
+ * L'enveloppe de la racine, telle que la Reine la tient : plafonds cumulés,
+ * réservations de tout l'arbre, dépense DÉCLARÉE (un plancher dès que
+ * `depense.sansCout > 0`). Absente d'une Reine d'avant les budgets par racine.
+ */
+export interface EnveloppeDelegation {
+  limites: LimitesDelegation;
+  reserve: { durationMs: number; costMicros: number; resourceUnits: number };
+  depense: { micros: number; tentatives: number; sansCout: number };
+  coutEpuise: boolean;
+}
+
 export interface TaskDelegationGraph {
   taskId: string;
   rootTaskId: string;
   graph: DelegationGraphNode[];
   delegations: DelegationRecord[];
   events: DelegationEvent[];
+  enveloppe?: EnveloppeDelegation;
 }
 
 /** Lecture authentifiée du graphe et de l’activité de délégation réelle. */
 export function fetchDelegationGraph(taskId: string): Promise<TaskDelegationGraph> {
   return api<TaskDelegationGraph>(`/api/tasks/${encodeURIComponent(taskId)}/delegation`);
+}
+
+/** La consigne de routage de l'opérateur sur une tâche (`null` : aucune). */
+export interface ConsigneRoutageRangee {
+  taskId: string;
+  consigne: ConsigneRoutage | null;
+  definiPar: string | null;
+  majA: number | null;
+  /** À la pose seulement : une tâche déjà partie garde son porteur. */
+  effet?: 'immediat' | 'prochaine_affectation';
+}
+
+export function fetchConsigneRoutage(taskId: string): Promise<ConsigneRoutageRangee> {
+  return api<ConsigneRoutageRangee>(`/api/tasks/${encodeURIComponent(taskId)}/consigne-routage`);
+}
+
+/** Pose — ou lève, avec `null` — la consigne : propriétaire ou administrateur. */
+export function poserConsigneRoutage(
+  taskId: string,
+  consigne: ConsigneRoutage | null,
+): Promise<ConsigneRoutageRangee> {
+  return api<ConsigneRoutageRangee>(`/api/tasks/${encodeURIComponent(taskId)}/consigne-routage`, {
+    method: 'PUT',
+    body: JSON.stringify({ consigne }),
+  });
 }
 
 export interface Memory {

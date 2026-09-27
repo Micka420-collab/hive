@@ -437,6 +437,13 @@ export interface Rang {
   /** Moyenne des seuls verdicts reçus ; 0 sans verdict (jamais `NaN`). */
   moyenne: number;
   score: number;
+  /**
+   * Le modèle que la tâche PARENTE a dit préférer (délégation). Présent sur sa
+   * seule ligne : c'est la trace que la préférence a été lue — et, si cette
+   * ligne est en tête alors qu'un ex æquo la précédait par le nom, qu'elle a
+   * départagé.
+   */
+  preferee?: true;
 }
 
 /**
@@ -529,7 +536,13 @@ export function aiguillerNoeuds<N extends { readonly modeles?: readonly string[]
   categorie: Categorie,
   eligibles: readonly N[],
   antecedents: Map<string, Antecedent>,
-): { modele: string; noeuds: N[]; rang: Rang[] } | null {
+  /**
+   * Le modèle préféré par une tâche parente (délégation), s'il y en a un :
+   * un DÉPARTAGE entre ex æquo au meilleur score, jamais une exclusion levée —
+   * un modèle absent des éligibles, ou moins bien classé, n'y gagne rien.
+   */
+  preferenceModele?: string,
+): { modele: string; noeuds: N[]; rang: Rang[]; departageParPreference: boolean } | null {
   // Un `Set` déduplique par CONSTRUCTION : le même modèle offert par deux nœuds
   // ne doit compter qu'une fois pour `classer`, sinon le total du genre est
   // doublé et le bonus d'exploration faussé. Aucun prédicat de dédup à part —
@@ -542,11 +555,38 @@ export function aiguillerNoeuds<N extends { readonly modeles?: readonly string[]
   // diverger du choix ; c'est le même `Rang[]` qui décide et qui s'explique.
   // Union vide (aucun éligible ne déclare de modèle) : `rang` est vide, l'élu
   // est `null`, et ce `null` EST le no-op — l'appelant garde son ordonnancement.
-  const rang = classer(categorie, [...union], antecedents);
+  const classement = classer(categorie, [...union], antecedents);
+  const { rang, departageParPreference } = departagerParPreference(classement, preferenceModele);
   const modele = rang[0]?.modele ?? null;
   if (modele === null) return null;
   const noeuds = eligibles.filter((n) => (n.modeles ?? []).includes(modele));
-  return { modele, noeuds, rang };
+  return { modele, noeuds, rang, departageParPreference };
+}
+
+/**
+ * La préférence d'une tâche parente, appliquée au seul endroit où elle a le
+ * droit de peser : l'ÉGALITÉ au meilleur score. `classer` départage les ex
+ * æquo par le nom — un ordre arbitraire mais reproductible ; la préférence le
+ * remplace, et seulement lui. Le classement reste celui que l'Aiguillage a
+ * calculé : aucune note ne bouge, la ligne préférée est seulement remontée
+ * parmi ses égales, et marquée (`preferee`) pour que la raison le dise.
+ */
+function departagerParPreference(
+  rang: Rang[],
+  preferenceModele: string | undefined,
+): { rang: Rang[]; departageParPreference: boolean } {
+  const index = preferenceModele ? rang.findIndex((l) => l.modele === preferenceModele) : -1;
+  if (index < 0) return { rang, departageParPreference: false };
+  const marque = rang.map((l, i) => (i === index ? { ...l, preferee: true as const } : l));
+  const tete = marque[0];
+  const preferee = marque[index];
+  if (index === 0 || !tete || !preferee || preferee.score !== tete.score) {
+    return { rang: marque, departageParPreference: false };
+  }
+  return {
+    rang: [preferee, ...marque.filter((_, i) => i !== index)],
+    departageParPreference: true,
+  };
 }
 
 // ─── La reprise d'une tâche : sans les modèles qui y ont planté ───────────────
