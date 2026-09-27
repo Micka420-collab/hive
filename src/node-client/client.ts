@@ -1450,6 +1450,8 @@ export class HiveNodeClient {
       // Étiquetés comme la tâche : un nœud tué pendant ses validations laisse
       // des conteneurs que son redémarrage doit ramasser (`ramasserConteneurs`).
       ...this.optionBacTache(taskId),
+      // Leurs extraits partent au hub comme les logs : caviardés au nœud (#489).
+      caviarder: (texte) => this.caviardeurDuNoeud().texte(texte),
       signal: ctrl.signal,
       surEtape: (log) => this.send({ type: 'task_update', taskId, status: 'running', log }),
     });

@@ -103,6 +103,13 @@ export interface OptionsValidation {
   surEtape?: (ligne: string) => void;
   /** Délai de chaque commande (défaut `DELAI_VALIDATION_MS`). */
   delaiMs?: number;
+  /**
+   * Le caviardage du nœud (`shared/caviardage.ts`), appliqué à la sortie ENTIÈRE
+   * de chaque commande AVANT qu'on n'en garde la fin (`extraitDe`) : l'extrait
+   * part au hub, et une coupe faite avant laisserait la moitié d'une clé qu'un
+   * test aurait imprimée — lue dans un fichier où l'agent l'avait écrite.
+   */
+  caviarder?: (texte: string) => string;
 }
 
 /** Lit un fichier du commit de base ; `null` s'il n'y existe pas. */
@@ -177,9 +184,8 @@ export async function validerProduction(opts: OptionsValidation): Promise<Valida
   } catch (err) {
     // Un défaut du nœud, pas du projet : dit tel quel dans l'extrait, pour
     // qu'on le trouve — et surtout pas pris pour un verdict.
-    return rapport(
-      manquantes(plan, 'interrompue', err instanceof Error ? err.message : String(err)),
-    );
+    const message = err instanceof Error ? err.message : String(err);
+    return rapport(manquantes(plan, 'interrompue', opts.caviarder?.(message) ?? message));
   }
 }
 
@@ -228,8 +234,11 @@ async function lancerLePlan(
   // sont de toute façon pas dans `env`, et rien d'autre n'a à traverser.
   const env = { ...buildSandboxEnv(cwd), CI: 'true' };
   const bac = { ...opts.bac, variables: ['CI'] };
-  const lancer = (argv: string[], delaiMs: number) =>
-    runProc(argv, cwd, env, delaiMs, opts.signal, bac);
+  const caviarder = opts.caviarder ?? ((texte: string) => texte);
+  const lancer = async (argv: string[], delaiMs: number) => {
+    const r = await runProc(argv, cwd, env, delaiMs, opts.signal, bac);
+    return { ...r, output: caviarder(r.output) };
+  };
 
   // npm se lance-t-il DANS CE BAC ? Sans cette sonde, un bac qui ne voit pas
   // npm rendrait quatre `code 1` — le moteur qui échoue à exécuter l'invité
