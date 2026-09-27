@@ -470,6 +470,12 @@ export interface AssignTaskMsg {
   modele?: string;
   /** Budget persistant de l'enfant ; absent pour une tâche racine ou une revue. */
   delegationBudget?: DelegationBudget;
+  /**
+   * La tâche est une RELECTURE (contre-expertise, `store.relectureDe`) : le
+   * nœud le dit à son adaptateur (`AdapterContext.role`), qui peut lancer son
+   * agent sans droit d'écriture. Absent : une production.
+   */
+  relecture?: true;
 }
 
 export interface CancelTaskMsg {
@@ -1342,7 +1348,9 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
       if (m.delegationBudget !== undefined && !isDelegationBudget(m.delegationBudget)) {
         return null;
       }
+      if (m.relecture !== undefined && m.relecture !== true) return null;
       const msg: AssignTaskMsg = { type: 'assign_task', task: m.task };
+      if (m.relecture === true) msg.relecture = true;
       if (m.repoUrl !== undefined) msg.repoUrl = (m.repoUrl as string | null) ?? null;
       if (m.hiveContext !== undefined) msg.hiveContext = m.hiveContext;
       if (m.modele !== undefined) msg.modele = m.modele;

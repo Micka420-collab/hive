@@ -9,6 +9,7 @@
 // sans ses outils de délégation, sans un mot. Ce banc tient ce fil-là ;
 // le montage lui-même est éprouvé par tests/isolement.test.ts.
 
+import { realpathSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AdapterContext, AdapterResult } from '../src/adapters/index.js';
 import { fournisseurParNom, MONTAGE } from '../src/node-client/isolement.js';
@@ -109,8 +110,17 @@ describe('codex : le bac de Hive décide du bac de Codex', () => {
       const adaptateur = createCodexAdapter('jeton-de-banc-assez-long');
       await adaptateur.run({ id: 't-1', prompt: 'x' } as never, contexte(false));
       await adaptateur.run({ id: 't-2', prompt: 'x' } as never, contexte(false));
+      const depot = JSON.stringify(realpathSync(process.cwd()));
       expect(sondes.map((s) => s[1])).toEqual([
-        ['sandbox', '-c', 'sandbox_mode="workspace-write"', '--', 'true'],
+        [
+          'sandbox',
+          '-c',
+          'sandbox_mode="workspace-write"',
+          '-c',
+          `projects={${depot}={trust_level="untrusted"}}`,
+          '--',
+          'true',
+        ],
       ]);
       expect(appels).toHaveLength(2);
       expect(appels[0]?.[1]).toContain('workspace-write');

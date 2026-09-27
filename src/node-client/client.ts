@@ -351,6 +351,7 @@ export class HiveNodeClient {
     hiveContext?: string;
     modele?: string;
     delegationBudget?: DelegationBudget;
+    relecture: boolean;
     workspace: Workspace;
     started: number;
     ctrl: AbortController;
@@ -896,6 +897,7 @@ export class HiveNodeClient {
           msg.hiveContext,
           msg.modele,
           msg.delegationBudget,
+          msg.relecture === true,
         );
         break;
       case 'assign_merge':
@@ -1196,6 +1198,7 @@ export class HiveNodeClient {
     hiveContext?: string,
     modele?: string,
     delegationBudget?: DelegationBudget,
+    relecture = false,
   ): Promise<void> {
     // Défense en profondeur : l'id sert à construire des chemins locaux — on ne
     // fait pas confiance au hub (anti path-traversal si le hub était compromis).
@@ -1305,6 +1308,7 @@ export class HiveNodeClient {
         // le passera à son CLI (`--model`). Absent ⇒ modèle par défaut de l'agent.
         ...(modele ? { modele } : {}),
         ...this.optionBacTache(task.id),
+        ...(relecture ? { role: 'relecture' as const } : {}),
         delegate: (input) => this.delegationCaviardee(task.id, input, caviardeur),
         waitForDelegationResult: (childTaskId) =>
           this.waitForDelegationResult(task.id, childTaskId, ctrl.signal),
@@ -1339,6 +1343,7 @@ export class HiveNodeClient {
             hiveContext,
             modele,
             delegationBudget,
+            relecture,
             workspace,
             started,
             ctrl,
@@ -1469,6 +1474,7 @@ export class HiveNodeClient {
       hiveContext,
       modele,
       delegationBudget,
+      relecture,
       workspace,
       started,
       ctrl,
@@ -1527,6 +1533,7 @@ export class HiveNodeClient {
         signal: ctrl.signal,
         ...(modele ? { modele } : {}),
         ...this.optionBacTache(task.id),
+        ...(relecture ? { role: 'relecture' as const } : {}),
         delegate: (input) => this.delegationCaviardee(task.id, input, caviardeur),
         waitForDelegationResult: (childTaskId) =>
           this.waitForDelegationResult(task.id, childTaskId, ctrl.signal),

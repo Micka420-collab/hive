@@ -23,12 +23,18 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { argvCodex, createCodexAdapter, executionCodex } from '../src/adapters/codex.js';
+import {
+  argvCodex,
+  bacWindowsDeclare,
+  createCodexAdapter,
+  executionCodex,
+} from '../src/adapters/codex.js';
 import { createLecteurFluxCodex } from '../src/adapters/flux-codex.js';
 import type { AdapterContext } from '../src/adapters/index.js';
 import { fournisseurParNom, MONTAGE } from '../src/node-client/isolement.js';
@@ -94,25 +100,47 @@ describe('argvCodex : le mode suit le bac de Hive', () => {
   });
 });
 
-describe('le lecteur du flux : un tour conclu sans aucun correctif appliqué est un échec', () => {
-  const lire = (nom: string, code: number) => {
-    const lecteur = createLecteurFluxCodex();
+describe('le lecteur du flux : un tour conclu où rien ne s’est écrit sous le bac de Codex', () => {
+  const lire = (nom: string, bacCodexEnEcriture = true) => {
+    const lecteur = createLecteurFluxCodex({ bacCodexEnEcriture });
     for (const l of readFileSync(path.join(FIXTURES, nom), 'utf8').split('\n')) lecteur.lire(l);
-    return lecteur.bilan(code, false);
+    return lecteur.bilan(0, false);
   };
 
-  it('LE BAC CASSÉ (enregistré) : sortie en 0, correctif `failed` → bilan dit', () => {
-    expect(lire('bac-casse.json.stdout.jsonl', 0)).toBe(
-      "codex : échec — tour conclu sans qu'aucun correctif s'applique (1 en échec) : le bac de Codex n'a pas laissé écrire, rien n'a été produit",
-    );
+  it.each(['bac-casse.json.stdout.jsonl', 'bac-casse-commande.json.stdout.jsonl'])(
+    'LE BAC CASSÉ (enregistré, %s) : sortie en 0, correctif `failed`, aucune commande → bilan dit',
+    (nom) => {
+      expect(lire(nom)).toBe(
+        "codex : échec — tour conclu sans que rien ne s'écrive (1 correctif(s) en échec, aucun appliqué, aucune commande réussie) : le bac de Codex n'a rien laissé faire, rien n'a été produit",
+      );
+    },
+  );
+
+  it.each(['rattrape-dossier.json.stdout.jsonl', 'rattrape-lecture-seule.json.stdout.jsonl'])(
+    'UN CORRECTIF RATÉ DANS UN BAC SAIN, RATTRAPÉ PAR UNE COMMANDE (enregistré, %s) : une réussite',
+    (nom) => {
+      expect(lire(nom)).toBeUndefined();
+    },
+  );
+
+  it('DANS LE BAC DE HIVE (pas de bac Codex en écriture), la règle ne s’applique pas', () => {
+    expect(lire('bac-casse.json.stdout.jsonl', false)).toBeUndefined();
+    // Le défaut est le même : sans option, aucun bilan de ce genre.
+    const lecteur = createLecteurFluxCodex();
+    for (const l of readFileSync(path.join(FIXTURES, 'bac-casse.json.stdout.jsonl'), 'utf8').split(
+      '\n',
+    )) {
+      lecteur.lire(l);
+    }
+    expect(lecteur.bilan(0, false)).toBeUndefined();
   });
 
   it('une RELECTURE (aucun correctif tenté) reste une réussite', () => {
-    expect(lire('relecture-outil.json.stdout.jsonl', 0)).toBeUndefined();
+    expect(lire('relecture-outil.json.stdout.jsonl')).toBeUndefined();
   });
 
   it('un correctif en échec puis un appliqué : le travail a eu lieu, pas de bilan', () => {
-    const lecteur = createLecteurFluxCodex();
+    const lecteur = createLecteurFluxCodex({ bacCodexEnEcriture: true });
     const correctif = (status: string) =>
       JSON.stringify({
         type: 'item.completed',
@@ -127,6 +155,38 @@ describe('le lecteur du flux : un tour conclu sans aucun correctif appliqué est
     }
     expect(lecteur.bilan(0, false)).toBeUndefined();
   });
+
+  it('une commande en ÉCHEC ne lève pas le doute : seule une commande réussie le fait', () => {
+    const lecteur = createLecteurFluxCodex({ bacCodexEnEcriture: true });
+    for (const e of [
+      { type: 'item.completed', item: { type: 'file_change', changes: [], status: 'failed' } },
+      {
+        type: 'item.completed',
+        item: { type: 'command_execution', command: 'x', exit_code: 1, status: 'failed' },
+      },
+      { type: 'turn.completed', usage: { input_tokens: 1, output_tokens: 1 } },
+    ]) {
+      lecteur.lire(JSON.stringify(e));
+    }
+    expect(lecteur.bilan(0, false)).toContain('sans que rien ne s');
+  });
+});
+
+describe('bacWindowsDeclare : le bac Windows de Codex, lu dans son config.toml', () => {
+  it.each([
+    ['[windows]\nsandbox = "unelevated"\n', true],
+    ["[windows]\nsandbox = 'elevated'\n", true],
+    ['[features]\nexperimental_windows_sandbox = true\n', true],
+    ['[features]\nelevated_windows_sandbox = true\n', true],
+    ['[features]\nenable_experimental_windows_sandbox = true\n', true],
+    ['', false],
+    ['[windows]\nsandbox = "mxc"\n', false],
+    ['sandbox = "unelevated"\n', false],
+    ['[profiles.x]\n[windows.y]\nsandbox = "unelevated"\n', false],
+    ['[features]\nexperimental_windows_sandbox = false\n', false],
+  ])('%j → %s', (texte, attendu) => {
+    expect(bacWindowsDeclare(texte)).toBe(attendu);
+  });
 });
 
 /**
@@ -137,6 +197,7 @@ describe('le lecteur du flux : un tour conclu sans aucun correctif appliqué est
 function fauxCodex(
   scenario: string,
   sonde: { code: number; stderr?: string },
+  cwd?: string,
 ): { ctx: AdapterContext; temoin: string } {
   const dossier = dossierJetable();
   const temoin = path.join(dossier, 'exec-lance');
@@ -152,7 +213,8 @@ function fauxCodex(
       `  process.stderr.write(${JSON.stringify(sonde.stderr ?? '')});`,
       `  process.exit(${sonde.code});`,
       '}',
-      `fs.writeFileSync(${JSON.stringify(temoin)}, JSON.stringify(process.argv.slice(2)));`,
+      // Le cwd que Codex voit — celui que rend le noyau, liens résolus.
+      `fs.writeFileSync(${JSON.stringify(temoin)}, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }));`,
       `process.stderr.write(fs.readFileSync(${chemin('json.stderr.txt')}));`,
       `setTimeout(() => process.stdout.write(fs.readFileSync(${chemin('json.stdout.jsonl')})), 50);`,
     ].join('\n'),
@@ -161,7 +223,7 @@ function fauxCodex(
   return {
     temoin,
     ctx: {
-      cwd: dossier,
+      cwd: cwd ?? dossier,
       env: { PATH: `${dossier}${path.delimiter}${process.env.PATH ?? ''}` },
       attempt: 1,
       signal: new AbortController().signal,
@@ -217,9 +279,7 @@ describe.skipIf(process.platform === 'win32')(
         expect(existsSync(temoin)).toBe(true);
         expect(r.success).toBe(false);
         expect(r.infra).toBeUndefined();
-        expect(texteDEchec(r.logs, r.finalText)).toContain(
-          "tour conclu sans qu'aucun correctif s'applique",
-        );
+        expect(texteDEchec(r.logs, r.finalText)).toContain("tour conclu sans que rien ne s'écrive");
       },
     );
 
@@ -243,9 +303,90 @@ describe.skipIf(process.platform === 'win32')(
         const { ctx, temoin } = fauxCodex('relecture-outil', { code: 0 });
         const r = await createCodexAdapter(TOKEN).run(tache('Relis'), ctx);
         expect(r.success, r.logs).toBe(true);
-        const argv = JSON.parse(readFileSync(temoin, 'utf8')) as string[];
+        const { argv } = JSON.parse(readFileSync(temoin, 'utf8')) as { argv: string[] };
         expect(argv.slice(0, 4)).toEqual(['exec', '--json', '--sandbox', 'workspace-write']);
       },
     );
+
+    it.each(['rattrape-dossier', 'rattrape-lecture-seule'])(
+      'UN CORRECTIF RATÉ PUIS RATTRAPÉ PAR UNE COMMANDE (enregistré, %s) : la production réussit',
+      { timeout: 15_000 },
+      async (scenario) => {
+        const { ctx } = fauxCodex(scenario, { code: 0 });
+        const r = await createCodexAdapter(TOKEN).run(tache('Create hello.txt'), ctx);
+        expect(r.success, r.logs).toBe(true);
+      },
+    );
+
+    it(
+      'UNE RELECTURE DITE PAR LE HUB tourne en `read-only`, et un refus d’écrire n’y est pas un échec',
+      { timeout: 15_000 },
+      async () => {
+        const { ctx, temoin } = fauxCodex('lecture-seule', { code: 0 });
+        const r = await createCodexAdapter(TOKEN).run(tache('Relis'), {
+          ...ctx,
+          role: 'relecture',
+        });
+        expect(r.success, r.logs).toBe(true);
+        const { argv } = JSON.parse(readFileSync(temoin, 'utf8')) as { argv: string[] };
+        expect(argv.slice(2, 4)).toEqual(['--sandbox', 'read-only']);
+      },
+    );
+
+    it(
+      'UN CWD DERRIÈRE UN LIEN (macOS : /var → /private/var) : la clé `untrusted` est le cwd que Codex voit',
+      { timeout: 15_000 },
+      async () => {
+        const reel = dossierJetable();
+        const lien = path.join(dossierJetable(), 'lien');
+        symlinkSync(reel, lien);
+        const { ctx, temoin } = fauxCodex('relecture-outil', { code: 0 }, lien);
+        await createCodexAdapter(TOKEN).run(tache('Relis'), ctx);
+        const vu = JSON.parse(readFileSync(temoin, 'utf8')) as { argv: string[]; cwd: string };
+        expect(vu.cwd).toBe(realpathSync(reel));
+        // Codex ne cherche que SON cwd (canonique puis tel quel) : une clé
+        // posée sur le lien ne le couvrirait pas, et l'auto-confiance reviendrait.
+        expect(vu.argv).toContain(`projects={${JSON.stringify(vu.cwd)}={trust_level="untrusted"}}`);
+        expect(vu.argv.join(' ')).not.toContain(lien);
+      },
+    );
+
+    it.runIf(process.platform === 'linux')(
+      'CODEX ABSENT : la sonde rend l’échec de LANCEMENT de l’exécuteur (infra), pas un bac cassé',
+      { timeout: 15_000 },
+      async () => {
+        const vide = dossierJetable();
+        const r = await createCodexAdapter(TOKEN).run(tache('Create hello.txt'), {
+          cwd: vide,
+          env: { PATH: vide },
+          attempt: 1,
+          signal: new AbortController().signal,
+          onProgress: () => undefined,
+        });
+        expect(r.success).toBe(false);
+        expect(r.infra).toBe(true);
+        expect(r.logs).toContain('échec du lancement de « codex »');
+        expect(r.logs).not.toContain('le bac de Codex');
+      },
+    );
+  },
+);
+
+describe.runIf(process.platform === 'win32')(
+  'Windows : le bac de Codex, dit avant de payer',
+  () => {
+    it('SANS [windows] sandbox, une production échoue AVANT l’agent, remède compris', async () => {
+      const maison = dossierJetable();
+      const r = await createCodexAdapter(TOKEN).run(tache('Create hello.txt'), {
+        cwd: dossierJetable(),
+        env: { USERPROFILE: maison, PATH: '' },
+        attempt: 1,
+        signal: new AbortController().signal,
+        onProgress: () => undefined,
+      });
+      expect(r.success).toBe(false);
+      expect(r.infra).toBeUndefined();
+      expect(r.logs).toContain('[windows] sandbox = "unelevated"');
+    });
   },
 );
