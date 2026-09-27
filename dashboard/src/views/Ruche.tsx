@@ -2,6 +2,7 @@
 // miel du projet courant, file d'attente et journal condensé.
 
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { AccesWarRoom } from '../AccesWarRoom';
 import { AutonomiePulse } from '../AutonomiePulse';
 import { useLang, useT } from '../i18n';
 import { Journal } from '../Journal';
@@ -26,6 +27,7 @@ export default function Ruche({
   onOpenTask,
   onNewProject,
   onNavigate,
+  refreshTick,
 }: ViewProps) {
   const t = useT();
   const lang = useLang();
@@ -99,6 +101,9 @@ export default function Ruche({
             projets={snapshot.projects.map((p) => ({ id: p.id, name: p.name }))}
             onNavigate={onNavigate}
           />
+          {/* Juste sous l'autonomie : ce que la ruche fait seule, puis ce sur
+              quoi ses IA ne sont pas d'accord et qui attend un humain. */}
+          <AccesWarRoom refreshTick={refreshTick} onNavigate={(v) => onNavigate(v)} />
 
           <main className="layout">
             <section className="col-main">

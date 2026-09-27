@@ -326,4 +326,24 @@ describe('la coquille de l’App — les survivantes du balayage du soir', () =>
       'Le nectar arrive — aucune production à revoir.',
     );
   });
+
+  it('LA WAR ROOM A SA CASE, SA TOUCHE, ET NE S’AFFICHE QUE SUR SA ROUTE', async () => {
+    // Une vue sans case ni touche est une vue qu'on ne trouve pas : le
+    // cockpit y mène, mais la barre aussi. Les deux sens de la ligne de
+    // routage, comme pour les autres vues : absente ailleurs, présente chez
+    // elle.
+    const accueil = await monter();
+    expect(celluleNav(accueil, 'War Room').title).toBe('War Room (touche w)');
+    expect(accueil.querySelector('.wr-view'), 'la War Room vit sous l’accueil').toBeNull();
+
+    act(() => racine?.unmount());
+    location.hash = '#/warroom';
+    const salle = await monter();
+    for (let i = 0; i < 50 && !salle.querySelector('.wr-view'); i++) {
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 20));
+      });
+    }
+    expect(salle.querySelector('.wr-view'), 'la route de la War Room l’affiche').not.toBeNull();
+  });
 });

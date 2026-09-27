@@ -5415,6 +5415,13 @@ export class HiveStore {
    * tout en gardant `contre_visites` ferait apprendre le modèle courant à la
    * place du producteur historique. Les preuves conservées sont bornées par
    * `CORPUS_AIGUILLAGE`, comme la lecture qu'elles servent.
+   *
+   * La DÉCISION HUMAINE COURANTE de chaque Conseil encore rangé est gardée de
+   * même (`council_decided`, cf. `shared/war-room.ts`). C'est un geste humain,
+   * pas une trace machine : l'élaguer ferait dire « à trancher » à un conseil
+   * que quelqu'un a déjà tranché, et laisserait trancher à nouveau comme si de
+   * rien n'était. Bornée par `pruneConseils` : une par session conservée, et
+   * la protection tombe avec la session.
    */
   pruneEvents(maxKeep: number): number {
     const cutoff = this.lastEventId() - Math.max(0, maxKeep);
@@ -5463,6 +5470,16 @@ export class HiveStore {
                 type = 'worker_usage'
                 AND json_extract(payload, '$.resultId') IN (
                   SELECT id FROM results ORDER BY id DESC LIMIT ?
+                )
+              )
+              OR (
+                type = 'council_decided'
+                AND json_extract(payload, '$.sessionId') IN (SELECT id FROM conseil_sessions)
+                AND id = (
+                  SELECT MAX(d.id)
+                    FROM events d
+                   WHERE d.type = 'council_decided'
+                     AND json_extract(d.payload, '$.sessionId') = json_extract(events.payload, '$.sessionId')
                 )
               )
             )`,

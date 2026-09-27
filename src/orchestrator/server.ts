@@ -66,6 +66,15 @@ import { cheminEnvQueen } from '../shared/env-queen.js';
 import { affectationsDepuisEvenements } from '../shared/routage-vue.js';
 import { TYPES_CHRONOLOGIE, chronologieDepuisEvenements } from '../shared/chronologie-tache.js';
 import {
+  JUSTIFICATION_MAX,
+  TYPES_WAR_ROOM,
+  dernieresDecisions,
+  desaccordsNonResolus,
+  entreesWarRoom,
+  sujetDe,
+} from '../shared/war-room.js';
+import type { AuteurDecision, DecisionConseil } from '../shared/war-room.js';
+import {
   registreGenomeDepuisEvenements,
   TYPES_REGISTRE_GENOME,
 } from '../shared/registre-genome.js';
@@ -5329,6 +5338,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   /** Les conseils récents, du plus récent au plus ancien. */
   app.get('/api/conseils', async (req, reply) => {
     if (!authorized(req)) return reject(reply);
+    const decisions = decisionsConseils();
     return {
       conseils: store.listSessions().map((s) => ({
         id: s.id,
@@ -5339,9 +5349,272 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         issue: s.issue,
         createdAt: s.createdAt,
         closedAt: s.closedAt,
+        decision: decisions.get(s.id) ?? null,
       })),
     };
   });
+
+  /**
+   * Les décisions humaines COURANTES, par Conseil, relues dans le journal.
+   *
+   * Pas de table : la décision est un FAIT daté, et le journal est l'endroit où
+   * la ruche range ses faits datés (règle 2 : aucune migration). Ce qui la rend
+   * durable malgré l'élagage du journal, c'est `pruneEvents`, qui garde la
+   * dernière décision de chaque session encore rangée — la décision vit donc
+   * exactement aussi longtemps que le Conseil qu'elle tranche.
+   */
+  function decisionsConseils(): Map<string, DecisionConseil> {
+    return dernieresDecisions(
+      entreesWarRoom(store.evenementsParTypes(['council_decided'], EVENT_RETENTION)),
+    );
+  }
+
+  /**
+   * Qui pose un geste : le COMPTE quand la requête en présente un valide, sinon
+   * l'aveu que le jeton de ruche ne désigne personne. Le nom est FIGÉ au geste —
+   * un compte renommé plus tard n'a pas à réécrire qui a tranché ce jour-là.
+   * Jamais l'email : il identifie une personne hors de la ruche.
+   */
+  const auteurDuGeste = (req: FastifyRequest): AuteurDecision => {
+    if (!authorizedUser(req)) return { genre: 'jeton_de_ruche' };
+    const userId = (req as AuthRequest).userId!;
+    return { genre: 'compte', userId, nom: store.getUserById(userId)?.displayName ?? null };
+  };
+
+  /**
+   * TRANCHER un conseil clos — « il propose, vous tranchez », enfin rangé.
+   *
+   * ─── CE QUE CE GESTE FAIT, ET CE QU'IL NE FAIT PAS ─────────────────────────
+   *
+   * Il CONSIGNE : `council_decided`, avec la piste retenue (ou aucune), la
+   * justification, et qui a tranché. Il ne crée aucune tâche et ne touche à
+   * aucun dépôt — le Conseil reste une proposition, et la décision, le fait
+   * qu'un humain l'a lue et s'est prononcé. Transformer la décision en travail
+   * resterait un geste à part (Queen Bee, ou le Plein Essaim pour qui l'a
+   * allumé) : un second moteur de décision ici doublerait celui du Conseil.
+   *
+   * ─── LES TROIS REFUS ───────────────────────────────────────────────────────
+   *
+   *   · un conseil qui délibère encore (409) : son verdict peut changer, et
+   *     trancher une lecture instantanée, c'est trancher sur un chiffre qui n'a
+   *     pas fini de bouger ;
+   *   · une piste qui n'appartient pas à CE conseil (400) ;
+   *   · une vue périmée (409) : revenir sur une décision exige de nommer celle
+   *     qu'on remplace (`precedente`), comme la revue exige `expectedUpdatedAt`
+   *     — deux opérateurs qui tranchent en même temps ne s'écrasent pas en
+   *     silence. Le contrôle et l'écriture sont SYNCHRONES, sans `await` entre
+   *     eux : aucune autre requête ne peut s'intercaler.
+   *
+   * La porte est celle de l'OUVERTURE (ADR 0007) : trancher engage le projet
+   * autant que réunir le conseil. Un refus a la forme exacte de l'inexistence.
+   */
+  app.post<{
+    Params: { sessionId: string };
+    Body: { propositionId: string | null; justification: string; precedente?: number | null };
+  }>(
+    '/api/conseil/:sessionId/decision',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['sessionId'],
+          properties: { sessionId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+        body: {
+          type: 'object',
+          required: ['propositionId', 'justification'],
+          additionalProperties: false,
+          properties: {
+            propositionId: { type: ['string', 'null'], minLength: 1, maxLength: LIMITS.id },
+            justification: { type: 'string', minLength: 1, maxLength: JUSTIFICATION_MAX },
+            precedente: { type: ['integer', 'null'], minimum: 1 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      // Qui n'a RIEN de valide n'apprend pas si le conseil existe.
+      if (!authorizedUser(req) && !authorized(req)) return reject(reply);
+      const session = store.getSession(req.params.sessionId);
+      const permis =
+        session !== null &&
+        (session.projectId === null
+          ? authorized(req)
+          : engagementProjetPermis(req, session.projectId) === 'permis');
+      if (!session || !permis) return reply.code(404).send({ error: 'conseil inconnu' });
+      if (session.etat !== 'clos') {
+        return reply.code(409).send({
+          code: 'conseil_en_cours',
+          error: 'le conseil délibère encore — on tranche sur un verdict clos',
+        });
+      }
+      // Une ligne, bornée : la justification est relue par des humains, et
+      // peut-être un jour jointe à un prompt — elle n'y entrera pas brute.
+      const justification = champSurUneLigne(req.body.justification.trim(), JUSTIFICATION_MAX);
+      if (!justification.trim()) {
+        return reply.code(400).send({ code: 'justification_vide', error: 'justification vide' });
+      }
+      let titre: string | null = null;
+      if (req.body.propositionId !== null) {
+        const piste = store
+          .listPropositions(session.id)
+          .find((p) => p.id === req.body.propositionId);
+        if (!piste) {
+          return reply.code(400).send({
+            code: 'proposition_inconnue',
+            error: 'cette piste n’appartient pas à ce conseil',
+          });
+        }
+        titre = piste.titre;
+      }
+      const courante = decisionsConseils().get(session.id) ?? null;
+      if ((courante?.id ?? null) !== (req.body.precedente ?? null)) {
+        return reply.code(409).send({
+          code: 'decision_perimee',
+          error: 'la décision a changé depuis votre lecture — relisez le conseil',
+          decision: courante,
+        });
+      }
+      emitEvent('council_decided', {
+        sessionId: session.id,
+        projectId: session.projectId,
+        issue: session.issue,
+        propositionId: req.body.propositionId,
+        titre,
+        justification,
+        par: auteurDuGeste(req),
+        ...(courante ? { remplace: courante.id } : {}),
+      });
+      return reply.code(201).send(vueSession(session.id));
+    },
+  );
+
+  // ─── La War Room ─────────────────────────────────────────────────────────
+
+  /**
+   * Le fil des désaccords : Conseil, contre-expertise, renvois de l'Evaluator,
+   * revues humaines et décisions — relus dans le journal, EN LECTURE SEULE.
+   *
+   * ─── POURQUOI UNE ROUTE, ET PAS LE FLUX DU TABLEAU DE BORD ─────────────────
+   *
+   * Le flux WebSocket ne garde que les 500 derniers événements de l'onglet, et
+   * rien d'avant son ouverture. Un désaccord d'hier — un Conseil à égalité, une
+   * contestation dont le renvoi a été refusé — y serait invisible, alors que
+   * c'est précisément ce qui attend un humain. La route relit le journal
+   * retenu ; ce qu'elle ne voit plus, elle le DIT (`journalElague`).
+   *
+   * ─── LES DEUX PORTES ───────────────────────────────────────────────────────
+   *
+   * Sur un projet : celle des lectures de projet (`lectureProjetPermise`),
+   * refus à la forme de l'inexistence. Sur toute la ruche : le jeton de ruche,
+   * comme `/api/events` — qui rend déjà ces mêmes lignes à ce même porteur.
+   *
+   * Les titres de tâches et les questions de Conseil sont JOINTS ici : le
+   * snapshot du tableau de bord est borné, et un fil qui ne saurait nommer que
+   * des identifiants ne se lit pas.
+   */
+  app.get<{ Querystring: { projectId?: string; taskId?: string; limite?: number } }>(
+    '/api/war-room',
+    {
+      schema: {
+        querystring: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id },
+            taskId: { type: 'string', minLength: 1, maxLength: LIMITS.id },
+            limite: { type: 'integer', minimum: 0, maximum: 500 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const { projectId, taskId } = req.query;
+      const limite = req.query.limite ?? 150;
+      if (projectId === undefined) {
+        if (!authorized(req)) return reject(reply);
+      } else if (!lectureProjetPermise(req, projectId) || !store.getProject(projectId)) {
+        if (!authorizedUser(req) && !authorized(req)) return reject(reply);
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const tache = taskId === undefined ? null : store.getTask(taskId);
+      if (taskId !== undefined && (!tache || (projectId && tache.projectId !== projectId))) {
+        return reply.code(404).send({ error: 'tâche inconnue' });
+      }
+
+      // Rattacher chaque entrée à son projet : par la tâche, ou par la session
+      // de Conseil. Une décision porte son projet (figé au geste) ; les autres
+      // faits du Conseil passent par la session rangée. Ce qu'on ne sait plus
+      // rattacher (session élaguée) reste dans le fil de la ruche, pas dans
+      // celui d'un projet qu'on devinerait.
+      const projetsDesTaches = new Map<string, string | null>();
+      const projetDeTache = (id: string): string | null => {
+        let projet = projetsDesTaches.get(id);
+        if (projet === undefined) {
+          projet = store.getTask(id)?.projectId ?? null;
+          projetsDesTaches.set(id, projet);
+        }
+        return projet;
+      };
+      const sessions = store.listSessions(200);
+      const projetsDesSessions = new Map(sessions.map((s) => [s.id, s.projectId]));
+      const entrees = entreesWarRoom(store.evenementsParTypes(TYPES_WAR_ROOM, EVENT_RETENTION));
+      const retenues = entrees.filter((e) => {
+        const sujet = sujetDe(e);
+        if (tache) return sujet.genre === 'tache' && sujet.taskId === tache.id;
+        if (projectId === undefined) return true;
+        if (sujet.genre === 'tache') return projetDeTache(sujet.taskId) === projectId;
+        const projet =
+          e.genre === 'conseil_decide' && e.projectId !== null
+            ? e.projectId
+            : (projetsDesSessions.get(sujet.sessionId) ?? null);
+        return projet === projectId;
+      });
+
+      // Les désaccords se calculent sur TOUT le fil retenu, jamais sur la
+      // fenêtre affichée : une contestation plus ancienne que les `limite`
+      // dernières lignes attend toujours quelqu'un.
+      const desaccords = desaccordsNonResolus(
+        retenues,
+        tache ? [] : sessions.filter((s) => projectId === undefined || s.projectId === projectId),
+        decisionsConseils(),
+      );
+      const fil = limite === 0 ? [] : retenues.slice(-limite);
+
+      const taches: Record<string, { titre: string; projectId: string }> = {};
+      const conseils: Record<string, { question: string; projectId: string | null }> = {};
+      const joindre = (sujet: ReturnType<typeof sujetDe>): void => {
+        if (sujet.genre === 'tache') {
+          const t = store.getTask(sujet.taskId);
+          if (t) taches[t.id] = { titre: t.title, projectId: t.projectId };
+        } else {
+          const s = store.getSession(sujet.sessionId);
+          if (s) conseils[s.id] = { question: s.question, projectId: s.projectId };
+        }
+      };
+      for (const e of fil) joindre(sujetDe(e));
+      for (const d of desaccords) {
+        joindre(
+          d.genre === 'tache'
+            ? { genre: 'tache', taskId: d.taskId }
+            : { genre: 'conseil', sessionId: d.sessionId },
+        );
+      }
+
+      return {
+        projectId: projectId ?? null,
+        taskId: tache?.id ?? null,
+        entrees: fil,
+        tronque: retenues.length > fil.length,
+        desaccords,
+        taches,
+        conseils,
+        // Ce fil n'est pas toute l'histoire quand le journal a déjà perdu des
+        // lignes : le dire, plutôt qu'un fil court qui aurait l'air complet.
+        journalElague: store.journalElague(),
+      };
+    },
+  );
 
   /**
    * Vue d'un conseil. Le verdict est RECALCULÉ à la lecture par le module pur
@@ -5412,6 +5685,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         };
       }),
       retenue: verdict.retenue?.proposition.id ?? null,
+      decision: decisionsConseils().get(s.id) ?? null,
     };
   }
 

@@ -1,0 +1,260 @@
+/* War Room (préfixe wr-) — le fil des désaccords entre IA, et ce qui attend
+   un humain. Réutilise card, panel-head, btn, panel-error, muted-text et les
+   jetons :root de styles.css ; le panneau du Conseil garde ses classes pj-cs-
+   (projets.css), puisque c'est le MÊME composant que sur la carte projet.
+
+   Le ton d'une ligne est porté par un filet à gauche, jamais par un fond
+   criard : une objection doit se voir sans que tout le fil crie. */
+
+.wr-view {
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.wr-tete {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 16px 18px;
+}
+
+.wr-tete-texte {
+  min-width: 0;
+  max-width: 44rem;
+}
+
+.wr-tete h2 {
+  margin: 0 0 4px;
+  font-family: var(--titre);
+  font-size: 20px;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  color: var(--text);
+}
+
+.wr-tete p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.wr-filtre {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.wr-filtre select {
+  min-width: 14rem;
+  padding: 6px 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.wr-conseil {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px;
+}
+
+.wr-conseil-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* ─── Ce qui attend quelqu'un ─────────────────────────────────────────────── */
+
+.wr-desaccords > .muted-text,
+.wr-fil-carte > .muted-text,
+.wr-fil-carte > .panel-error {
+  margin: 0;
+  padding: 12px 16px;
+}
+
+.wr-compte {
+  min-width: 22px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--panel-3);
+  font-family: var(--mono);
+  font-size: 12px;
+  text-align: center;
+  color: var(--text);
+}
+
+.wr-desaccords-liste {
+  list-style: none;
+  margin: 0;
+  padding: 10px 16px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wr-desaccord {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px 12px;
+  background: var(--panel-2);
+  border-radius: var(--r-sm);
+  border-left: 3px solid var(--amber);
+}
+
+.wr-desaccord p {
+  margin: 0;
+}
+
+.wr-desaccord-titre {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.wr-desaccord-pourquoi {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.wr-objections {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--amber);
+}
+
+.wr-desaccord-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ─── Le fil ──────────────────────────────────────────────────────────────── */
+
+.wr-puce {
+  font-size: 12px;
+}
+
+.wr-aveu {
+  margin: 10px 16px 0;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: var(--panel-2);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.wr-fil {
+  list-style: none;
+  margin: 0;
+  padding: 8px 16px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.wr-entree {
+  display: grid;
+  grid-template-columns: 22px 11.5rem minmax(0, 14rem) minmax(0, 1fr);
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 8px;
+  border-left: 2px solid var(--border-2);
+  font-size: 12.5px;
+}
+
+.wr-icone {
+  text-align: center;
+}
+
+.wr-heure {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--faint);
+  white-space: nowrap;
+}
+
+.wr-sujet {
+  min-width: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--gold);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wr-sujet:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.wr-sujet:disabled {
+  color: var(--text);
+  cursor: default;
+}
+
+.wr-texte {
+  min-width: 0;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.wr-ton-accord {
+  border-left-color: var(--green);
+}
+
+.wr-ton-objection {
+  border-left-color: var(--amber);
+}
+
+.wr-ton-objection .wr-texte {
+  color: var(--amber);
+}
+
+.wr-ton-decision {
+  border-left-color: var(--honey);
+  background: color-mix(in srgb, var(--miel) 8%, transparent);
+}
+
+.wr-ton-discret .wr-texte {
+  color: var(--muted);
+}
+
+.wr-tronque {
+  margin: 0;
+  padding: 0 16px 12px;
+  font-size: 12px;
+}
+
+@media (max-width: 720px) {
+  .wr-view {
+    padding: 12px 16px;
+  }
+
+  .wr-entree {
+    grid-template-columns: 22px minmax(0, 1fr);
+  }
+
+  .wr-heure,
+  .wr-sujet,
+  .wr-texte {
+    grid-column: 2;
+  }
+}

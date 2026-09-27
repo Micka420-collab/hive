@@ -6,6 +6,8 @@ import { t as tNow } from './i18n';
 import { parseServerMessage } from '../../src/shared/protocol';
 import type { HiveEvent, Project, StateSnapshot, Task, TaskResult } from '../../src/shared/types';
 import type { Graphe } from '../../src/shared/cerveau-graphe.js';
+import type { DecisionConseil, Desaccord, EntreeWarRoom } from '../../src/shared/war-room.js';
+export type { DecisionConseil, Desaccord, EntreeWarRoom } from '../../src/shared/war-room.js';
 import type { WorkerSnapshot } from '../../src/orchestrator/workers.js';
 import type { JournalOuvriere } from '../../src/orchestrator/journal-ouvriere.js';
 import type {
@@ -216,6 +218,12 @@ export interface SessionConseil {
   danses: DanseConseil[];
   /** L'identifiant de la danse retenue, ou `null` si rien n'a convergé. */
   retenue: string | null;
+  /**
+   * La décision humaine COURANTE, ou `null` tant que personne n'a tranché.
+   * OPTIONNELLE : une Reine d'avant ce lot ne la rend pas — l'écran le lit
+   * comme « pas de décision », ce qui est exactement ce qu'elle savait.
+   */
+  decision?: DecisionConseil | null;
 }
 
 export interface ConseilResume {
@@ -227,6 +235,7 @@ export interface ConseilResume {
   issue: IssueConseil | null;
   createdAt: number;
   closedAt?: number | null;
+  decision?: DecisionConseil | null;
 }
 
 export function fetchConseils(): Promise<{ conseils: ConseilResume[] }> {
@@ -235,6 +244,64 @@ export function fetchConseils(): Promise<{ conseils: ConseilResume[] }> {
 
 export function fetchConseil(sessionId: string): Promise<SessionConseil> {
   return api<SessionConseil>(`/api/conseil/${encodeURIComponent(sessionId)}`);
+}
+
+// Réunir et trancher ENGAGENT le projet (ADR 0007) : sur un projet qui a un
+// propriétaire, la Reine exige le COMPTE, et c'est aussi le compte qu'elle
+// inscrit comme auteur de la décision. D'où `enTetesRuche()` — le jeton ET le
+// compte s'il y en a un. Sans lui, la personne connectée recevrait « projet
+// inconnu » sur son propre projet, et sa décision serait rangée anonyme.
+
+/** Réunit un Conseil sur un projet. 409 si un conseil y délibère déjà. */
+export function reunirConseil(projectId: string, question: string): Promise<SessionConseil> {
+  const q = question.trim();
+  return api<SessionConseil>(`/api/projects/${encodeURIComponent(projectId)}/conseil`, {
+    method: 'POST',
+    headers: enTetesRuche(),
+    body: JSON.stringify(q ? { question: q } : {}),
+  });
+}
+
+/**
+ * Tranche un Conseil clos. `precedente` nomme la décision qu'on remplace
+ * (`null` pour la première) : 409 si quelqu'un a tranché entre-temps.
+ */
+export function trancherConseil(
+  sessionId: string,
+  decision: { propositionId: string | null; justification: string; precedente: number | null },
+): Promise<SessionConseil> {
+  return api<SessionConseil>(`/api/conseil/${encodeURIComponent(sessionId)}/decision`, {
+    method: 'POST',
+    headers: enTetesRuche(),
+    body: JSON.stringify(decision),
+  });
+}
+
+/** Le fil de la War Room (cf. `src/shared/war-room.ts`). */
+export interface VueWarRoom {
+  projectId: string | null;
+  taskId: string | null;
+  /** Du plus ancien au plus récent, bornées à `limite`. */
+  entrees: EntreeWarRoom[];
+  /** Vrai quand des entrées plus anciennes existent au-delà de `limite`. */
+  tronque: boolean;
+  desaccords: Desaccord[];
+  taches: Record<string, { titre: string; projectId: string }>;
+  conseils: Record<string, { question: string; projectId: string | null }>;
+  /** Le journal a déjà perdu des lignes : ce fil n'est pas toute l'histoire. */
+  journalElague: boolean;
+}
+
+export function fetchWarRoom(
+  filtre: { projectId?: string | null; taskId?: string | null; limite?: number } = {},
+): Promise<VueWarRoom> {
+  const q = new URLSearchParams();
+  if (filtre.projectId) q.set('projectId', filtre.projectId);
+  if (filtre.taskId) q.set('taskId', filtre.taskId);
+  if (filtre.limite !== undefined) q.set('limite', String(filtre.limite));
+  const qs = q.toString();
+  // Lecture de projet : le compte ouvre les projets qui ont un propriétaire.
+  return api<VueWarRoom>(`/api/war-room${qs ? `?${qs}` : ''}`, { headers: enTetesRuche() });
 }
 
 // ─── Connecter un dépôt GitHub ──────────────────────────────────────────────

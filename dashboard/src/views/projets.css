@@ -1199,6 +1199,99 @@
   overflow-wrap: anywhere;
 }
 
+/* Réunir et trancher : les deux gestes du panneau. Le formulaire se lit comme
+   la rangée de merge (même champ, même bouton) — un geste de plus sur la
+   carte, pas un écran de plus. */
+.pj-cs-reunir,
+.pj-cs-trancher,
+.pj-cs-decision {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  background: var(--panel-2);
+  border-radius: var(--r-sm);
+}
+
+.pj-cs-avis {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--gold);
+}
+
+.pj-cs-marque-decision {
+  flex-shrink: 0;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.pj-cs-tranche {
+  color: var(--green);
+}
+
+/* « À trancher » attend quelqu'un : la couleur de l'objection, pas de l'échec. */
+.pj-cs-a-trancher {
+  color: var(--amber);
+  font-weight: 600;
+}
+
+.pj-cs-trancher-tete,
+.pj-cs-decision-tete,
+.pj-cs-decision-choix {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.pj-cs-decision {
+  border-left: 2px solid var(--green);
+}
+
+.pj-cs-decision-pourquoi {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.pj-cs-decision .btn {
+  align-self: flex-start;
+}
+
+.pj-cs-choix {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  font-size: 12px;
+}
+
+.pj-cs-choix legend {
+  margin-bottom: 3px;
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.pj-cs-justification {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  resize: vertical;
+}
+
+.pj-cs-justification:focus {
+  outline: none;
+  border-color: var(--amber);
+}
+
 /* ─── Les issues et les livraisons ────────────────────────────────────────── */
 
 .pj-sub-vide,
