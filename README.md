@@ -389,6 +389,13 @@ réseau reste ouvert** : un agent de codage doit joindre l'API de son modèle.
 Sans moteur de conteneurs, posez `HIVE_ISOLEMENT=exige` — le nœud refusera de
 travailler à découvert.
 
+L'image par défaut, `localhost/hive-agent:local` (Claude Code, Codex, Cline), se
+construit sur chaque nœud par `npm run bac:image` ; Hive ne la télécharge
+jamais. Le nœud retient le premier moteur dont le preflight passe (image
+présente, agent exécutable) et dit pourquoi les autres sont écartés. Chaque
+conteneur porte l'étiquette de son nœud : relancé après un arrêt brutal, le
+nœud supprime ceux qu'il avait laissés.
+
 Dans le bac, l'agent a un HOME éphémère : la session de `claude login` ou de
 `codex login` n'y entre pas. Hive y transmet **par leur nom** les identifiants
 sans navigateur — `CLAUDE_CODE_OAUTH_TOKEN` (`claude setup-token`) ou

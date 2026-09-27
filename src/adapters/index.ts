@@ -53,7 +53,7 @@ export type WorkerDelegationResult =
     }
   | { ok: false; code: string; message: string };
 
-import type { Fournisseur } from '../node-client/isolement.js';
+import type { BacExecution } from '../node-client/isolement.js';
 import type { ReservationPont } from '../node-client/rendez-vous-pont.js';
 
 export interface AdapterContext {
@@ -96,13 +96,7 @@ export interface AdapterContext {
    * sandbox de processus (voir `isolement.ts` pour ce que cela protège, et
    * surtout pour ce que cela ne protège pas).
    */
-  bac?: {
-    fournisseur: Fournisseur;
-    /** Image ayant passé le preflight agent-aware. */
-    image: string;
-    /** Noms — jamais valeurs — des variables à transmettre dans le bac. */
-    variables: readonly string[];
-  };
+  bac?: BacExecution;
 }
 
 export interface AdapterResult {

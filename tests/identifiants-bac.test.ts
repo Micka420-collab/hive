@@ -41,7 +41,6 @@ import {
   requisitionSiCredentialsManquantes,
 } from '../src/node-client/agent-detect.js';
 import {
-  deciderAvecPreflight,
   isolementDeclareDe,
   optionBac,
   preparerBac,
@@ -266,7 +265,8 @@ describe('LE BAC NE S’ANNONCE PAS QUAND L’AGENT N’Y SERAIT PAS AUTHENTIFI�
   function machine(fournisseur: Fournisseur, existe: (chemin: string) => boolean = sessionClaude) {
     const sondes: string[] = [];
     const outils: OutilsBac = {
-      trouver: async () => fournisseur,
+      moteurs: async () => [fournisseur],
+      preparerImage: async () => ({ executable: true, motif: 'image présente' }),
       sonderAgent: async (_f, bin) => {
         sondes.push(bin);
         return { executable: true, motif: `agent « ${bin} » exécutable dans le bac` };
@@ -275,6 +275,17 @@ describe('LE BAC NE S’ANNONCE PAS QUAND L’AGENT N’Y SERAIT PAS AUTHENTIFI�
       plateforme: 'linux',
     };
     return { outils, sondes };
+  }
+
+  /** La même machine, où l'agent manque au bac. */
+  function sansAgent(fournisseur: Fournisseur): OutilsBac {
+    return {
+      ...machine(fournisseur).outils,
+      sonderAgent: async (_f, bin) => ({
+        executable: false,
+        motif: `agent « ${bin} » absent ou non exécutable dans le bac`,
+      }),
+    };
   }
 
   it('« auto » + session de l’hôte seule : repli ANNONCÉ, qui nomme le jeton à poser', async () => {
@@ -332,10 +343,12 @@ describe('LE BAC NE S’ANNONCE PAS QUAND L’AGENT N’Y SERAIT PAS AUTHENTIFI�
     expect(preflight).toContain('exécutable dans le bac');
     expect(preflight).not.toContain('image');
 
-    const echec = deciderAvecPreflight('auto', BWRAP, 'docker.io/library/node:20-slim', {
-      executable: false,
-      motif: 'agent « claude » absent ou non exécutable dans le bac',
-    });
+    const echec = await preparerBac(
+      { HOME: MAISON, ANTHROPIC_API_KEY: 'sk-x' },
+      'claude-code',
+      sansAgent(BWRAP),
+    );
+    expect(echec.decision.motif).toContain('absent');
     expect(echec.decision.motif).not.toContain('image');
   });
 
@@ -347,10 +360,11 @@ describe('LE BAC NE S’ANNONCE PAS QUAND L’AGENT N’Y SERAIT PAS AUTHENTIFI�
       outils,
     );
     expect(bac.lignes.find((l) => l.includes('Preflight'))).toContain('(image hive-agent:local)');
-    const echec = deciderAvecPreflight('auto', PODMAN, 'hive-agent:local', {
-      executable: false,
-      motif: 'agent absent',
-    });
+    const echec = await preparerBac(
+      { HOME: MAISON, ANTHROPIC_API_KEY: 'sk-x', HIVE_ISOLEMENT_IMAGE: 'hive-agent:local' },
+      'claude-code',
+      sansAgent(PODMAN),
+    );
     expect(echec.decision.motif).toContain('(image hive-agent:local)');
   });
 
@@ -393,7 +407,7 @@ describe('LE CONSTAT DU POSTE JUGE CHAQUE AGENT AVEC SA RÈGLE, PAS CELLE DE L�
   /** Poste en présence seule : aucun CLI, bubblewrap là, une session `claude login`. */
   async function posteEnPresence(env: NodeJS.ProcessEnv) {
     const outils: OutilsBac = {
-      trouver: async () => BWRAP,
+      moteurs: async () => [BWRAP],
       sonderAgent: async (_f, bin) => ({ executable: true, motif: `« ${bin} » exécutable` }),
       existe: sessionClaude,
       plateforme: 'linux',

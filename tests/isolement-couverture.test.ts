@@ -143,7 +143,7 @@ describe('le merge, nommément', () => {
 
   it('la commande de test d’un merge est enveloppée quand le nœud a un bac', () => {
     expect(MERGE).toContain('envelopper(');
-    expect(MERGE, 'le clone est le répertoire monté').toContain('cwdHote: cwd');
+    expect(MERGE, 'le clone est le répertoire monté').toContain('optionsEnveloppe(bac, cwd)');
   });
 
   it('le client transmet SON bac au merge — sinon l’option ne sert à rien', () => {
@@ -152,6 +152,6 @@ describe('le merge, nommément', () => {
       'utf8',
     );
     const corps = CLIENT.slice(CLIENT.indexOf('runMerge({'));
-    expect(corps.slice(0, 400)).toContain('this.opts.bac');
+    expect(corps.slice(0, 400)).toContain('this.optionBacTache()');
   });
 });

@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import {
   chmodSync,
   mkdtempSync,
@@ -19,16 +19,30 @@ import { runCommand } from '../src/adapters/exec.js';
 import { agentCredentialEnv } from '../src/node-client/agent-detect.js';
 import { HiveNodeClient } from '../src/node-client/client.js';
 import {
+  COMMANDE_IMAGE,
+  envelopper,
+  ETIQUETTE_NOEUD,
   fournisseurParNom,
   IMAGE_DEFAUT,
+  preparerImage,
+  ramasserConteneurs,
   sonderAgentDansBac,
   type Fournisseur,
 } from '../src/node-client/isolement.js';
 import { buildSandboxEnv } from '../src/node-client/workspace.js';
+import { preparerBac } from '../src/node-client/bac.js';
 import { createServer } from '../src/orchestrator/server.js';
 import { FAUX_CLAUDE_MCP } from './aide/faux-claude-mcp.js';
 
 const imageDemandee = process.env.HIVE_ISOLEMENT_IMAGE?.trim() || '';
+/**
+ * Sélecteur RÉSERVÉ AUX BANCS : le job image de la CI passe ce fichier une fois
+ * par moteur (`HIVE_TEST_MOTEUR=docker`, puis `podman`). Sans lui, un runner qui
+ * a l'image dans les deux magasins n'exercerait jamais que le premier — c'est
+ * ainsi que Podman n'avait jamais tourné. La production, elle, choisit par
+ * preflight (`preparerBac`).
+ */
+const moteurImpose = process.env.HIVE_TEST_MOTEUR?.trim() || '';
 
 function runtimeDisponible(): Fournisseur | null {
   // Docker Desktop on the hosted Windows runner exposes the CLI but does not
@@ -36,7 +50,7 @@ function runtimeDisponible(): Fournisseur | null {
   // real integration lane active on Unix hosts and report Windows as
   // unavailable instead of turning infrastructure limits into a false failure.
   if (process.platform === 'win32') return null;
-  for (const nom of ['podman', 'docker']) {
+  for (const nom of moteurImpose ? [moteurImpose] : ['podman', 'docker']) {
     try {
       execFileSync(nom, ['--version'], { stdio: 'ignore', timeout: 4_000 });
       execFileSync(nom, ['info'], { stdio: 'ignore', timeout: 8_000 });
@@ -61,30 +75,76 @@ function runtimeDisponible(): Fournisseur | null {
 
 const runtime = runtimeDisponible();
 
+/**
+ * Le job image de la CI construit l'image par défaut par `npm run bac:image`
+ * et pose ce drapeau : le chemin de l'opérateur — construire, puis démarrer
+ * SANS HIVE_ISOLEMENT_IMAGE — y est alors éprouvé par la vraie décision de
+ * production (`preparerBac`), avec les vrais moteurs du runner.
+ */
+const imageDefautConstruite = process.env.HIVE_TEST_IMAGE_DEFAUT === '1';
+
 describe('isolement — intégration runtime réel', () => {
-  it.skipIf(!runtime && !imageDemandee)(
+  it.skipIf(!imageDefautConstruite || !moteurImpose)(
+    'la production retient le moteur qui a l’image par défaut, par son preflight',
+    async () => {
+      // L'environnement du NŒUD, sans HIVE_ISOLEMENT_IMAGE : l'image par
+      // défaut. Une clé factice nommée suffit (elle n'est jamais utilisée :
+      // `--version` ne parle à aucun modèle) ; `exige` fait d'un repli un échec.
+      const bac = await preparerBac(
+        { PATH: process.env.PATH, HIVE_ISOLEMENT: 'exige', ANTHROPIC_API_KEY: 'sk-ci-factice' },
+        'claude-code',
+        { informer: () => {} },
+      );
+      expect(bac.image).toBe(IMAGE_DEFAUT);
+      expect(bac.refuse, bac.lignes.join('\n')).toBe(false);
+      // Sur la jambe Docker, Podman (installé sur le runner) n'a pas encore
+      // l'image : il est écarté, et c'est Docker qui isole. Sur la jambe
+      // Podman, il l'a reçue, et il passe en premier.
+      expect(bac.fournisseur?.nom, bac.lignes.join('\n')).toBe(moteurImpose);
+    },
+    300_000,
+  );
+
+  it.skipIf(!runtime && !imageDemandee && !moteurImpose)(
     'exécute réellement le preflight dans Docker/Podman',
     async () => {
-      expect(runtime, 'HIVE_ISOLEMENT_IMAGE exige un runtime Docker/Podman actif').not.toBeNull();
+      expect(
+        runtime,
+        'HIVE_ISOLEMENT_IMAGE ou HIVE_TEST_MOTEUR exige un runtime Docker/Podman actif',
+      ).not.toBeNull();
 
-      // Le chemin par défaut vérifie le contrat minimal de l’image Node. La
-      // jambe CI qui construit l’image agent-aware pose HIVE_ISOLEMENT_IMAGE :
+      // La jambe CI qui construit l’image agent-aware pose HIVE_ISOLEMENT_IMAGE :
       // elle exerce alors les vrais binaires que le Worker lancera, pas une
       // simple commande `docker run` indépendante de Hive. Chaque CLI intégré
       // à `docker/agents/Dockerfile` doit figurer ici : c'est ce preflight
       // durci (racine en lecture seule, /tmp noexec, uid non privilégié) qui
       // prouve qu'un Worker pourra réellement le lancer.
       const image = imageDemandee || IMAGE_DEFAUT;
+      const pret = await preparerImage(runtime!, image, { informer: () => {} });
+      if (!imageDemandee && !pret.executable) {
+        // Sans image demandée, l'image PAR DÉFAUT est celle que le nœud
+        // construit (`npm run bac:image`) : absente ici, le vrai moteur doit le
+        // DIRE — pas « agent absent », pas un téléchargement tenté.
+        expect(pret.motif).toContain(`image absente de ${runtime!.nom}`);
+        expect(pret.motif).toContain(COMMANDE_IMAGE);
+        return;
+      }
+      expect(pret.executable, `${image} dans ${runtime!.nom}: ${pret.motif}`).toBe(true);
+      // Le vrai Podman du runner (rootless) le dit de lui-même, et c'est ce
+      // moteur appris — pas l'UID de l'hôte — qui décide de `keep-id` ensuite.
+      if (runtime!.nom === 'podman') expect(pret.fournisseur?.rootless).toBe(true);
+      const moteur = pret.fournisseur ?? runtime!;
       const binaires = imageDemandee ? ['claude', 'codex', 'cline'] : ['node'];
       for (const binaire of binaires) {
-        const resultat = await sonderAgentDansBac(runtime!, binaire, image);
+        const resultat = await sonderAgentDansBac(moteur, binaire, image);
         expect(resultat.executable, `${binaire} dans ${image}: ${resultat.motif}`).toBe(true);
       }
 
-      const absent = await sonderAgentDansBac(runtime!, 'hive-agent-inexistant', image);
+      const absent = await sonderAgentDansBac(moteur, 'hive-agent-inexistant', image);
       expect(absent.executable).toBe(false);
     },
-    120_000,
+    // Sous Podman rootless, le premier `keep-id` copie l'image (`preparerImage`).
+    300_000,
   );
 
   it.skipIf(!runtime || !imageDemandee)(
@@ -295,6 +355,61 @@ describe('isolement — intégration runtime réel', () => {
         client.stop();
         await server.stop();
         rmSync(root, { recursive: true, force: true, maxRetries: 3 });
+      }
+    },
+    120_000,
+  );
+
+  it.skipIf(!runtime || !imageDemandee)(
+    'un nœud tué laisse son conteneur ; relancé, il le retrouve par son étiquette et le supprime',
+    async () => {
+      // Le trou exact : `--rm` meurt avec le client `docker run`. On lance donc
+      // un vrai conteneur étiqueté, on tue son client comme un nœud tué net
+      // (SIGKILL : aucun relais de signal possible), on constate que le
+      // conteneur SURVIT — sans quoi ce banc ne prouverait rien —, puis le
+      // ramassage du démarrage le supprime.
+      if (!runtime || !imageDemandee) return;
+      const noeud = `node-ramassage-${process.pid}-${Date.now()}`;
+      const atelier = mkdtempSync(path.join(os.tmpdir(), 'hive-ramassage-'));
+      const lance = envelopper('sleep', ['300'], {
+        fournisseur: runtime,
+        cwdHote: atelier,
+        variables: [],
+        image: imageDemandee,
+        noeud,
+        tache: 'tache-orpheline',
+      });
+      const client = spawn(lance.bin, lance.args, { stdio: 'ignore' });
+      const etiquetes = (): string[] =>
+        execFileSync(
+          runtime.bin,
+          ['ps', '--all', '--quiet', `--filter=label=${ETIQUETTE_NOEUD}=${noeud}`],
+          { encoding: 'utf8', timeout: 15_000 },
+        )
+          .split(/\s+/)
+          .filter(Boolean);
+      try {
+        const limite = Date.now() + 60_000;
+        while (etiquetes().length === 0) {
+          if (Date.now() > limite) throw new Error('le conteneur étiqueté ne démarre pas');
+          await new Promise((r) => setTimeout(r, 250));
+        }
+        client.kill('SIGKILL');
+        await new Promise((r) => client.once('close', r));
+        await new Promise((r) => setTimeout(r, 1_000));
+        expect(etiquetes(), 'le conteneur doit survivre à son client tué').toHaveLength(1);
+
+        const r = await ramasserConteneurs(runtime, noeud);
+        expect(r).toMatchObject({ supprimes: [expect.any(String)] });
+        expect(etiquetes(), 'plus rien ne porte l’étiquette de ce nœud').toEqual([]);
+      } finally {
+        client.kill('SIGKILL');
+        try {
+          for (const id of etiquetes()) execFileSync(runtime.bin, ['rm', '--force', id]);
+        } catch {
+          // déjà supprimé
+        }
+        rmSync(atelier, { recursive: true, force: true, maxRetries: 3 });
       }
     },
     120_000,

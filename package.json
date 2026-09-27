@@ -40,6 +40,7 @@
     "couverture": "vitest run --coverage",
     "fusionner": "sh scripts/fusionner.sh",
     "ruche": "node scripts/ruche.mjs",
+    "bac:image": "node scripts/image-agents.mjs",
     "format": "prettier --write .",
     "build:node": "tsc -p tsconfig.build.json",
     "prepare": "npm run build:node"

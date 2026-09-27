@@ -26,6 +26,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as agentWindows from '../src/shared/agent-windows.js';
 import {
   CPU_MAX,
+  ETIQUETTE_NOEUD,
+  ETIQUETTE_TACHE,
   FOURNISSEURS,
   HOME_CONTENEUR,
   IMAGE_DEFAUT,
@@ -157,9 +159,11 @@ describe('isolement — les arguments d’un conteneur', () => {
     const { args } = enveloppe(PODMAN);
     expect(args.some((a) => a.startsWith('--user='))).toBe(true);
     expect(args).not.toContain('--user=0:0');
-    const uid =
-      typeof process.getuid === 'function' && process.getuid() > 0 ? process.getuid() : 1000;
-    expect(args).toContain(`--user=${uid}:${uid}`);
+    // Le GID est celui du nœud, pas une copie de l'UID : sous macOS, 501:20.
+    const racine = typeof process.getuid !== 'function' || process.getuid() === 0;
+    const uid = racine ? 1000 : process.getuid!();
+    const gid = racine ? 1000 : process.getgid!() || uid;
+    expect(args).toContain(`--user=${uid}:${gid}`);
   });
 
   it('borne mémoire, processus et CPU', () => {
@@ -234,12 +238,90 @@ describe('isolement — les arguments d’un conteneur', () => {
     expect(args).toContain('; rm -rf / --volume=/:/hote');
   });
 
-  it('docker et podman partagent la même grammaire', () => {
+  it('docker et podman partagent la même grammaire — au `keep-id` de Podman rootless près', () => {
     const p = enveloppe(PODMAN);
     const d = enveloppe(DOCKER);
-    expect(p.args).toEqual(d.args);
+    expect(p.args.filter((a) => a !== '--userns=keep-id')).toEqual(d.args);
     expect(p.bin).toBe('podman');
     expect(d.bin).toBe('docker');
+  });
+});
+
+describe('isolement — l’identité dans le conteneur', () => {
+  // ─── PODMAN ROOTLESS ÉCRIVAIT SOUS UN SUBUID ÉTRANGER ─────────────────────
+  //
+  // `--user=${uid}:${uid}` sans `--userns=keep-id` : sous Podman rootless, cet
+  // UID du conteneur tombe dans la plage subordonnée de l'utilisateur, pas sur
+  // lui. Le répertoire de la tâche et la socket du pont MCP (0600), qui
+  // appartiennent au nœud, n'étaient pas inscriptibles. Et le GID copiait
+  // l'UID : faux sur un runner GitHub (1001 dans un autre groupe primaire).
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function sous(uid: number, gid: number): void {
+    vi.spyOn(process, 'getuid').mockReturnValue(uid);
+    vi.spyOn(process, 'getgid').mockReturnValue(gid);
+  }
+
+  it.skipIf(process.platform === 'win32')(
+    'un nœud non root : Podman garde son UID (`keep-id`), et le GID est le sien',
+    () => {
+      sous(1001, 118);
+      const p = enveloppe(PODMAN).args;
+      const d = enveloppe(DOCKER).args;
+      expect(p).toContain('--userns=keep-id');
+      expect(p).toContain('--user=1001:118');
+      // Docker rootful n'a pas d'espace de noms utilisateur : `keep-id` y est inconnu.
+      expect(d).not.toContain('--userns=keep-id');
+      expect(d).toContain('--user=1001:118');
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'un nœud root : abaissé à 1000:1000, et sans `keep-id` que Podman refuse en root',
+    () => {
+      sous(0, 0);
+      const p = enveloppe(PODMAN).args;
+      expect(p).not.toContain('--userns=keep-id');
+      expect(p).toContain('--user=1000:1000');
+    },
+  );
+});
+
+describe('isolement — un conteneur qui survit à son nœud', () => {
+  // Un nœud tué laissait tourner son conteneur, sans nom ni étiquette pour le
+  // retrouver ; et l'agent, PID 1 sans `--init`, ignorait le SIGTERM relayé.
+  it('pose un vrai PID 1 et refuse tout téléchargement silencieux, AVANT l’image', () => {
+    for (const f of [PODMAN, DOCKER]) {
+      const { args } = enveloppe(f);
+      const image = args.indexOf(IMAGE_DEFAUT);
+      expect(args.indexOf('--init'), f.nom).toBeGreaterThan(0);
+      expect(args.indexOf('--init'), f.nom).toBeLessThan(image);
+      expect(args.indexOf('--pull=never'), f.nom).toBeGreaterThan(0);
+      expect(args.indexOf('--pull=never'), f.nom).toBeLessThan(image);
+    }
+  });
+
+  it('étiquette le conteneur à son nœud et à sa tâche — côté moteur, jamais côté agent', () => {
+    const { args } = envelopper('claude', ['-p', 'x'], {
+      fournisseur: DOCKER,
+      cwdHote: CWD,
+      variables: [],
+      noeud: 'node-42',
+      tache: 'tache-7',
+    });
+    const image = args.indexOf(IMAGE_DEFAUT);
+    const noeud = args.indexOf(`--label=${ETIQUETTE_NOEUD}=node-42`);
+    const tache = args.indexOf(`--label=${ETIQUETTE_TACHE}=tache-7`);
+    expect(noeud).toBeGreaterThan(0);
+    expect(tache).toBeGreaterThan(0);
+    expect(Math.max(noeud, tache)).toBeLessThan(image);
+  });
+
+  it('sans propriétaire connu, aucune étiquette vide', () => {
+    const { args } = enveloppe(PODMAN);
+    expect(args.filter((a) => a.startsWith('--label='))).toEqual([]);
   });
 });
 

@@ -13,7 +13,7 @@ import path from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { agentCredentialEnv, detectAllAgents } from './agent-detect.js';
 import { resoudreAgentAuDemarrage } from './choisir-agent.js';
-import { isolementDeclareDe, optionBac, preparerBac } from './bac.js';
+import { isolementDeclareDe, optionBac, preparerBac, reprendreIdentite } from './bac.js';
 import { parseModeles } from './modeles.js';
 import { CODE } from '../codes-sortie.js';
 import { libelleAgent } from '../shared/agent-libelle.js';
@@ -182,6 +182,16 @@ async function main(): Promise<void> {
   const maxConcurrency = bornerConcurrence(process.env.HIVE_MAX_CONCURRENCY);
   const nodeId = identiteStable(workRoot);
 
+  // L'identité prise, et ce qu'un lancement précédent de ce nœud a laissé
+  // tourner supprimé — même geste que `main.ts`, AVANT le preflight et avant
+  // un éventuel refus. Voir `reprendreIdentite`.
+  const reprise = await reprendreIdentite(process.env, nodeId, workRoot);
+  if (reprise.occupee) {
+    console.error(`✘ Ce nœud ne démarre pas : ${reprise.message}\n`);
+    process.exit(CODE.ERREUR);
+  }
+  for (const l of reprise.lignes) console.log(l);
+
   // Toujours afficher l'URL RÉELLE de connexion, jamais masquée par le libellé :
   // c'est là que part le token, l'utilisateur doit pouvoir la vérifier.
   console.log(`\n🐝 Connexion à : ${url}${label ? `  (« ${label} »)` : ''}`);
@@ -253,7 +263,9 @@ async function main(): Promise<void> {
   // confiance à celui qui leur a envoyé le billet. La décision passe
   // maintenant par le même `bac.ts` que `main.ts` — un seul code, donc plus
   // de dérive possible entre les deux chemins de démarrage.
-  const bac = await preparerBac(process.env, detected.agent);
+  const bac = await preparerBac(process.env, detected.agent, {
+    moteurs: async () => reprise.moteurs,
+  });
   for (const l of bac.lignes) console.log(l);
   if (bac.refuse) {
     console.error('✘ Ce nœud ne démarre pas.\n');

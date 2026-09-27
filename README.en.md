@@ -233,6 +233,12 @@ directory. **The network stays open**: a coding agent must reach its model's
 API. Without a container engine, set `HIVE_ISOLEMENT=exige` — the node will
 refuse to work in the open.
 
+The default image, `localhost/hive-agent:local` (Claude Code, Codex, Cline), is
+built on each node with `npm run bac:image`; Hive never downloads it. The node
+keeps the first engine whose preflight passes (image present, agent runnable)
+and says why the others were skipped. Every container carries its node's label:
+restarted after a hard stop, the node removes the ones it left behind.
+
 Inside the sandbox the agent gets an ephemeral HOME: a `claude login` or
 `codex login` session does not reach it. Hive forwards the headless credentials
 **by name** — `CLAUDE_CODE_OAUTH_TOKEN` (`claude setup-token`) or

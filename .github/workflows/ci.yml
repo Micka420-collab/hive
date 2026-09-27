@@ -640,8 +640,16 @@ jobs:
 
       # Image distincte du bureau Atelier : elle contient les CLI que le
       # preflight du Worker doit trouver dans le conteneur, pas sur l'hôte.
+      #
+      # Construite par la commande que le nœud donne à l'opérateur
+      # (`npm run bac:image`), sous le nom par défaut (`IMAGE_DEFAUT`) : sans
+      # cela, le chemin qu'emprunte l'opérateur — construire, puis démarrer
+      # sans HIVE_ISOLEMENT_IMAGE — ne tournait jamais en CI. `hive-agent:ci`
+      # en est un second nom, pour les bancs qui nomment l'image.
       - name: Construire l'image agent-aware
-        run: docker build -f docker/agents/Dockerfile -t hive-agent:ci .
+        run: |
+          npm run bac:image -- --moteur docker
+          docker tag localhost/hive-agent:local hive-agent:ci
 
       - name: Vérifier les CLI agent-aware dans leur image
         run: |
@@ -659,6 +667,8 @@ jobs:
           trap 'rm -rf "$probe"' EXIT
           docker run --rm \
             --interactive=false \
+            --init \
+            --pull=never \
             --volume="$probe:/hive/tache:rw" \
             --workdir=/hive/tache \
             --read-only \
@@ -676,10 +686,50 @@ jobs:
       # ensuite le même preflight que le Worker Hive, avec l’image construite
       # et le vrai moteur du runner. Sans cette étape, une divergence entre la
       # détection et l’exécution pourrait rester verte.
-      - name: Preflight Hive réel de l’image agent-aware
+      - name: Preflight Hive réel de l’image agent-aware (Docker)
         env:
           HIVE_ISOLEMENT_IMAGE: hive-agent:ci
+          HIVE_TEST_MOTEUR: docker
+          HIVE_TEST_IMAGE_DEFAUT: '1'
         run: npm test -- --run tests/isolement-runtime.integration.test.ts tests/v2-alpha-scenario.test.ts
+
+      # ─── PODMAN ROOTLESS, EXERCÉ POUR DE VRAI ─────────────────────────────
+      #
+      # Le banc choisissait « le moteur qui a l'image » : Docker, toujours.
+      # Podman n'avait donc jamais tourné, et son défaut de fond (`--user` sans
+      # `--userns=keep-id` : un subuid étranger qui ne peut écrire ni dans
+      # l'atelier ni sur la socket du pont MCP) n'avait jamais pu se voir. La
+      # même image passe ici dans le magasin de Podman, et `HIVE_TEST_MOTEUR`
+      # impose Podman aux mêmes bancs : preflight, écriture dans l'atelier,
+      # chemin Worker → tâche, ramassage des conteneurs orphelins, mission V2.
+      - name: Podman reçoit la même image
+        run: |
+          set -e
+          podman --version
+          docker save hive-agent:ci localhost/hive-agent:local | podman load
+          podman image inspect localhost/hive-agent:local --format '{{.Id}}'
+          podman image inspect hive-agent:ci --format '{{.Id}}'
+          # `--init` exige un binaire d'init sur l'hôte (catatonit) : l'absence
+          # ferait échouer chaque preflight, en le disant.
+          if ! podman run --rm --init --pull=never hive-agent:ci true; then
+            sudo apt-get update -qq
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends catatonit
+            podman run --rm --init --pull=never hive-agent:ci true
+          fi
+
+      # Deux lancements, dans cet ordre, et pas en parallèle : le premier
+      # `--userns=keep-id` copie les couches de l'image à l'UID du runner
+      # (`preparerImage`, éprouvé par le premier banc), et Podman tient son
+      # stockage verrouillé pendant ce temps — les sondes du scénario V2
+      # (`podman info`, 8 s) expireraient derrière lui.
+      - name: Preflight Hive réel de l’image agent-aware (Podman rootless)
+        env:
+          HIVE_ISOLEMENT_IMAGE: hive-agent:ci
+          HIVE_TEST_MOTEUR: podman
+          HIVE_TEST_IMAGE_DEFAUT: '1'
+        run: |
+          npm test -- --run tests/isolement-runtime.integration.test.ts
+          npm test -- --run tests/v2-alpha-scenario.test.ts
 
       - name: Arrêter
         if: always()

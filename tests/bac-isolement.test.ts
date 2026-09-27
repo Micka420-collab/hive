@@ -27,13 +27,18 @@ import {
   binaireMcpDansBac,
   codeDuBac,
   sessionsHoteDuMode,
-  deciderAvecPreflight,
   optionBac,
   preparerBac,
   raisonPontMcpDansBac,
   type Bac,
+  type OutilsBac,
 } from '../src/node-client/bac.js';
-import { decider, IMAGE_DEFAUT, type Fournisseur } from '../src/node-client/isolement.js';
+import {
+  decider,
+  IMAGE_DEFAUT,
+  type BacExecution,
+  type Fournisseur,
+} from '../src/node-client/isolement.js';
 import { CODE } from '../src/codes-sortie.js';
 
 const source = (chemin: string): string =>
@@ -46,6 +51,16 @@ const PODMAN: Fournisseur = {
   installation: 'https://podman.io/docs/installation',
   garanties: ['seul le répertoire de la tâche est visible'],
 };
+
+/** Des moteurs qui répondent, une image présente, et aucun agent dedans. */
+function machineSansAgent(moteurs: Fournisseur[]): OutilsBac {
+  return {
+    moteurs: async () => moteurs,
+    preparerImage: async () => ({ executable: true, motif: 'image présente' }),
+    sonderAgent: async (_f, bin) => ({ executable: false, motif: `agent « ${bin} » absent` }),
+    plateforme: 'linux',
+  };
+}
 
 function bacDe(mode: 'off' | 'auto' | 'exige', fournisseur: Fournisseur | null): Bac {
   const decision = decider(mode, fournisseur);
@@ -127,36 +142,51 @@ describe('le refus, et ce qui part au client', () => {
     expect(codex).toMatch(/Windows.*pont MCP local/i);
     expect(raisonPontMcpDansBac('claude-code', 'linux')).toBeNull();
     expect(raisonPontMcpDansBac('shell', 'win32')).toBeNull();
-
-    const auto = deciderAvecPreflight('auto', PODMAN, 'image:test', {
-      executable: false,
-      motif: claude!,
-    });
-    expect(auto.decision).toMatchObject({ isole: false, refuse: false, niveau: 'processus' });
-    expect(auto.decision.motif).toContain('non isolée du disque');
-
-    const exige = deciderAvecPreflight('exige', PODMAN, 'image:test', {
-      executable: false,
-      motif: claude!,
-    });
-    expect(exige.decision).toMatchObject({ isole: false, refuse: true, niveau: 'aucun' });
   });
 
-  it('« auto » se replie explicitement si l’agent manque dans l’image', () => {
-    const r = deciderAvecPreflight('auto', PODMAN, 'image:test', {
-      executable: false,
-      motif: 'agent absent',
-    });
+  it('sous Windows, le pont MCP fait revenir « auto » au processus et refuser « exige », sans preflight', async () => {
+    const sondes: string[] = [];
+    const outils: OutilsBac = {
+      moteurs: async () => [PODMAN],
+      preparerImage: async () => {
+        sondes.push('image');
+        return { executable: true, motif: 'image présente' };
+      },
+      sonderAgent: async (_f, bin) => {
+        sondes.push(bin);
+        return { executable: true, motif: 'exécutable' };
+      },
+      plateforme: 'win32',
+    };
+    const env = { ANTHROPIC_API_KEY: 'sk-x', HIVE_ISOLEMENT_IMAGE: 'image:test' };
+    const auto = await preparerBac(env, 'claude-code', outils);
+    expect(auto.decision).toMatchObject({ isole: false, refuse: false, niveau: 'processus' });
+    expect(auto.decision.motif).toMatch(/Windows.*pont MCP local/i);
+    expect(auto.decision.motif).toContain('non isolée du disque');
+
+    const exige = await preparerBac({ ...env, HIVE_ISOLEMENT: 'exige' }, 'claude-code', outils);
+    expect(exige.decision).toMatchObject({ isole: false, refuse: true, niveau: 'aucun' });
+    // Aucun moteur n'y changerait rien : rien n'est lancé.
+    expect(sondes).toEqual([]);
+  });
+
+  it('« auto » se replie explicitement si l’agent manque dans l’image', async () => {
+    const r = await preparerBac(
+      { ANTHROPIC_API_KEY: 'sk-x', HIVE_ISOLEMENT_IMAGE: 'image:test' },
+      'claude-code',
+      machineSansAgent([PODMAN]),
+    );
     expect(r.fournisseur).toBeNull();
     expect(r.decision).toMatchObject({ refuse: false, niveau: 'processus', isole: false });
     expect(r.decision.motif).toMatch(/repli explicite.*non isolée du disque/i);
   });
 
-  it('« exige » refuse si le moteur existe mais pas l’agent dans l’image', () => {
-    const r = deciderAvecPreflight('exige', PODMAN, 'image:test', {
-      executable: false,
-      motif: 'agent absent',
-    });
+  it('« exige » refuse si le moteur existe mais pas l’agent dans l’image', async () => {
+    const r = await preparerBac(
+      { ANTHROPIC_API_KEY: 'sk-x', HIVE_ISOLEMENT_IMAGE: 'image:test', HIVE_ISOLEMENT: 'exige' },
+      'claude-code',
+      machineSansAgent([PODMAN]),
+    );
     expect(r.fournisseur).toBeNull();
     expect(r.decision).toMatchObject({ refuse: true, niveau: 'aucun', isole: false });
     expect(r.decision.motif).toContain('image:test');
@@ -183,9 +213,7 @@ describe('le refus, et ce qui part au client', () => {
     // authentifié échoue en boucle, ce qui ressemble à une panne
     // d'infrastructure et se diagnostique très mal.
     const variables = ['HOME', 'ANTHROPIC_API_KEY'];
-    const option = optionBac(bacDe('auto', PODMAN), variables) as {
-      bac: { fournisseur: Fournisseur; variables: string[]; image: string };
-    };
+    const option = optionBac(bacDe('auto', PODMAN), variables) as { bac: BacExecution };
     expect(option.bac.fournisseur.nom).toBe('podman');
     expect(option.bac.variables).toEqual(variables);
   });
@@ -232,9 +260,7 @@ describe('le refus, et ce qui part au client', () => {
     // Sinon une mutation ultérieure du `keepEnv` changerait, à distance et
     // sans le dire, ce que le conteneur laisse entrer.
     const variables = ['HOME'];
-    const option = optionBac(bacDe('auto', PODMAN), variables) as {
-      bac: { variables: string[]; image: string };
-    };
+    const option = optionBac(bacDe('auto', PODMAN), variables) as { bac: BacExecution };
     variables.push('SECRET_AJOUTE_APRES_COUP');
     expect(option.bac.variables).toEqual(['HOME']);
   });
@@ -245,7 +271,7 @@ describe('le refus, et ce qui part au client', () => {
       'HIVE_TOKEN',
       'HIVE_JWT_SECRET',
       'ANTHROPIC_API_KEY',
-    ]) as { bac: { variables: string[] } };
+    ]) as { bac: BacExecution };
     expect(option.bac.variables).toEqual(['HOME', 'ANTHROPIC_API_KEY']);
   });
 });
@@ -331,7 +357,7 @@ describe('LE REFUS DE BAC À SABLE A SON PROPRE CODE DE SORTIE', () => {
     // plus une machine SANS moteur. La garde de source ci-dessus reste — elle
     // juge l'argument passé à la règle, celle-ci juge ce que le nœud rend.
     const bac = await preparerBac({ HIVE_ISOLEMENT: 'exige' }, 'claude-code', {
-      trouver: async () => null,
+      moteurs: async () => [],
     });
     expect(bac.refuse).toBe(true);
     expect(bac.codeSortie).toBe(CODE.REFUS_SECURITE);

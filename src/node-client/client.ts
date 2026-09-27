@@ -53,7 +53,7 @@ import {
 } from '../shared/requisition-infra.js';
 import { texteDEchec } from '../shared/texte-d-echec.js';
 import { motifRefusPresence, refuseParPresence } from '../shared/presence-noeud.js';
-import type { Fournisseur } from './isolement.js';
+import type { BacExecution } from './isolement.js';
 import { balayerPontsOrphelins, RendezVousPont } from './rendez-vous-pont.js';
 import type { Workspace } from './workspace.js';
 import type {
@@ -140,7 +140,7 @@ export interface NodeClientOptions {
    * nœud n'a pas à découvrir podman sur la machine de qui fait tourner la
    * suite. C'est le même motif que `adapter`.
    */
-  bac?: { fournisseur: Fournisseur; variables: readonly string[]; image: string };
+  bac?: BacExecution;
   /**
    * Le bac à sable DÉCLARÉ au hub à l'inscription (`isolementDeclareDe`).
    * Affichage seulement ; absent, le hub dit « non déclaré ».
@@ -991,6 +991,22 @@ export class HiveNodeClient {
   }
 
   /**
+   * L'option `bac` d'une exécution, ÉTIQUETÉE à ce nœud (et à la tâche quand il
+   * y en a une) — ou rien, hors bac.
+   *
+   * L'étiquette du nœud est son identité STABLE (`opts.nodeId`, celle que
+   * `main.ts` et `join.ts` relisent au redémarrage pour `ramasserRestes`), pas
+   * celle qu'un hub aurait attribuée : un nœud tué doit retrouver ses
+   * conteneurs sous le nom qu'il connaîtra au prochain lancement.
+   */
+  private optionBacTache(tache?: string): { bac?: BacExecution } {
+    const bac = this.opts.bac;
+    if (!bac) return {};
+    const noeud = this.opts.nodeId ?? this.nodeId;
+    return { bac: { ...bac, ...(noeud ? { noeud } : {}), ...(tache ? { tache } : {}) } };
+  }
+
+  /**
    * Politique Night Shift, parsée SANS jamais lever : une HIVE_SHIFT malformée
    * ne doit pas transformer une assignation en exception muette (tâche restée
    * « assigned » en otage côté hub) — on refuse proprement à la place.
@@ -1154,7 +1170,7 @@ export class HiveNodeClient {
         // Le modèle choisi par l'Aiguillage, s'il en a envoyé un : l'adaptateur
         // le passera à son CLI (`--model`). Absent ⇒ modèle par défaut de l'agent.
         ...(modele ? { modele } : {}),
-        ...(this.opts.bac ? { bac: this.opts.bac } : {}),
+        ...this.optionBacTache(task.id),
         delegate: (input) => this.requestDelegation(task.id, input),
         waitForDelegationResult: (childTaskId) =>
           this.waitForDelegationResult(task.id, childTaskId, ctrl.signal),
@@ -1373,7 +1389,7 @@ export class HiveNodeClient {
         attempt: task.attempts + 1,
         signal: ctrl.signal,
         ...(modele ? { modele } : {}),
-        ...(this.opts.bac ? { bac: this.opts.bac } : {}),
+        ...this.optionBacTache(task.id),
         delegate: (input) => this.requestDelegation(task.id, input),
         waitForDelegationResult: (childTaskId) =>
           this.waitForDelegationResult(task.id, childTaskId, ctrl.signal),
@@ -1599,7 +1615,7 @@ export class HiveNodeClient {
         ...(msg.testCommand ? { testCommand: msg.testCommand } : {}),
         // Le bac à sable du nœud suit le merge : la commande de test exécute du
         // code du dépôt, au même titre qu'un agent.
-        ...(this.opts.bac ? { bac: this.opts.bac } : {}),
+        ...this.optionBacTache(),
         ...(msg.livraison
           ? {
               livraison: {
@@ -1766,7 +1782,7 @@ export class HiveNodeClient {
           env,
           CHANTIER_PREPARATION_MS,
           undefined,
-          this.opts.bac ? this.opts.bac : undefined,
+          this.optionBacTache().bac,
         );
         // ET SI ELLE ÉCHOUE, ON NE LANCE PAS. Un `npm run test` sur un clone
         // sans `node_modules` échoue pour une raison qui n'a rien à voir avec
@@ -1796,7 +1812,7 @@ export class HiveNodeClient {
         env,
         CHANTIER_EXECUTION_MS,
         undefined,
-        this.opts.bac ? this.opts.bac : undefined,
+        this.optionBacTache().bac,
       );
       this.send({
         type: 'chantier_result',
