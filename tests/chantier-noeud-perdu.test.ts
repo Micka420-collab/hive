@@ -169,9 +169,11 @@ async function journal(): Promise<HiveEvent[]> {
 
 /** Les poses exigent un compte : le premier inscrit administre la ruche. */
 async function entetesAdmin(): Promise<Record<string, string>> {
+  // Le premier compte se crée avec le jeton de la ruche (#467) : sans lui,
+  // l'inscription d'amorçage est refusée et la pose répond 401.
   const auth = await fetch(`${base}/api/auth/register`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers,
     body: JSON.stringify({
       email: 'admin@hive.test',
       password: 'mot-de-passe-test',
