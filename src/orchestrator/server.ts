@@ -1872,8 +1872,10 @@ async function monterReine(
     reason: string,
     logsDuNoeud?: string,
     // Ce que le hub SAIT de la livraison : un nœud qui a refusé n'a rien
-    // commité ; un nœud qui s'est tu a pu le faire, et même pousser.
-    livraisonConnue: 'non_commitee' | 'inconnue' = 'inconnue',
+    // commité — et son propre motif, lavé chez lui, dit mieux pourquoi que le
+    // code du refus ; un nœud qui s'est tu a pu commiter, et même pousser.
+    livraisonConnue:
+      'inconnue' | Extract<RapportLivraisonLocale, { etat: 'non_commitee' }> = 'inconnue',
   ): void => {
     const pending = pendingMerges.get(mergeId);
     if (!pending) return;
@@ -1882,8 +1884,8 @@ async function monterReine(
     // une branche lirait « merge en échec » et devrait deviner le reste.
     const livraison: RapportLivraisonLocale | undefined = !pending.livraison
       ? undefined
-      : livraisonConnue === 'non_commitee'
-        ? { etat: 'non_commitee', motif: `merge refusé par le nœud : ${reason}` }
+      : livraisonConnue !== 'inconnue'
+        ? livraisonConnue
         : {
             etat: 'inconnue',
             motif:
@@ -10892,7 +10894,15 @@ async function monterReine(
             // échec explicite — jamais consigné comme un merge « réussi » vide.
             // Et le nœud qui refuse n'a rien commité : sa livraison le dit.
             if (msg.refused) {
-              failMerge(msg.mergeId, msg.refused, msg.logs, 'non_commitee');
+              // Un refus est `non_commitee` quoi que le nœud prétende d'autre.
+              failMerge(
+                msg.mergeId,
+                msg.refused,
+                msg.logs,
+                msg.livraison?.etat === 'non_commitee'
+                  ? msg.livraison
+                  : { etat: 'non_commitee', motif: `merge refusé par le nœud : ${msg.refused}` },
+              );
               break;
             }
             // La livraison demandée revient avec son rapport — ou son absence
