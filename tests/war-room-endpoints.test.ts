@@ -60,6 +60,7 @@ interface VueConseil {
 interface Vue {
   projectId: string | null;
   taskId: string | null;
+  famille: string | null;
   entrees: EntreeWarRoom[];
   tronque: boolean;
   desaccords: Desaccord[];
@@ -507,7 +508,13 @@ describe('la War Room relit les vrais producteurs', () => {
     }
   }
 
-  const rendre = (ws: WebSocket, taskId: string, diff: string, logs: string): void =>
+  const rendre = (
+    ws: WebSocket,
+    taskId: string,
+    diff: string,
+    logs: string,
+    { muet = false }: { muet?: boolean } = {},
+  ): void =>
     ws.send(
       JSON.stringify({
         type: 'task_result',
@@ -516,12 +523,16 @@ describe('la War Room relit les vrais producteurs', () => {
         diff,
         logs,
         // Le texte final, comme un vrai adaptateur : la Reine ne lit le
-        // verdict d'une relecture que là (#462), jamais dans les logs.
-        finalText: logs,
+        // verdict d'une relecture que là (#462), jamais dans les logs. Un
+        // relecteur MUET (CLI qui ne déclare rien) n'en rend pas.
+        ...(muet ? {} : { finalText: logs }),
         durationMs: 5,
         subAgents: [],
       }),
     );
+
+  const evenement = (type: string, taskId: string) =>
+    server.store.listEvents(0, 1000).some((e) => e.type === type && e.payload.taskId === taskId);
 
   it(
     'UNE CONTESTATION SANS RENVOI POSSIBLE ATTEND UN HUMAIN — et une revue la tranche',
@@ -610,4 +621,131 @@ describe('la War Room relit les vrais producteurs', () => {
       expect(plusTard.desaccords, 'une contestation tranchée ne ressuscite pas').toEqual([]);
     },
   );
+  it(
+    'UN REJET HUMAIN DONT LE RENVOI EST REFUSÉ EST DIT, SANS ÊTRE « À TRANCHER » — l’humain a tranché',
+    { timeout: 40_000 },
+    async () => {
+      // Avant la `source` du refus, la War Room lisait ce refus comme celui
+      // d'une contre-revue : « la contre-expertise conteste cette
+      // production », en tête des désaccords, pour toujours — ni approuver
+      // contre son avis ni rejeter à nouveau (même refus) ne le levait.
+      const produits = await noeud('producteur', 'claude-code');
+      const tache = server.store.createTask({ projectId, title: 'Ajouter une garde', prompt: 'p' });
+      server.store.patchTask(tache.id, { status: 'ready' });
+      await attendre(() => produits.length > 0, 'l’assignation du producteur');
+      rendre(sockets[0]!, tache.id, 'diff --git a/auth.ts b/auth.ts\n+if (!jeton) return;', 'ok');
+      await attendre(() => server.store.getTask(tache.id)?.status === 'done', 'la production');
+      server.store.patchTask(tache.id, { attempts: MAX_ATTEMPTS });
+
+      const revue = await fetch(`${base}/api/tasks/${tache.id}/review`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ state: 'rejected', raison: 'le jeton vide passe encore' }),
+      });
+      expect(revue.status).toBe(200);
+      expect(evenement('evaluator_retry_skipped', tache.id), 'le banc : le renvoi refusé').toBe(
+        true,
+      );
+
+      const vue = (await (await lireWarRoom(`?projectId=${projectId}`)).json()) as Vue;
+      expect(vue.desaccords, 'un rejet humain n’attend personne').toEqual([]);
+      expect(vue.entrees.slice(-2)).toEqual([
+        expect.objectContaining({
+          genre: 'revue_humaine',
+          etat: 'rejected',
+          raison: 'le jeton vide passe encore',
+        }),
+        expect.objectContaining({
+          genre: 'renvoi_refuse',
+          raison: 'attempts_exhausted',
+          source: 'revue_humaine',
+        }),
+      ]);
+    },
+  );
+
+  it(
+    'UNE RELECTURE IMPOSSIBLE EST AU FIL ET ATTEND UN HUMAIN — la revue qu’elle demande la lève (#484)',
+    { timeout: 40_000 },
+    async () => {
+      const produits = await noeud('producteur', 'claude-code');
+      const relus = await noeud('relecteur', 'codex');
+      const tache = server.store.createTask({ projectId, title: 'Ajouter une garde', prompt: 'p' });
+      server.store.patchTask(tache.id, { status: 'ready' });
+      await attendre(() => produits.length > 0, 'l’assignation du producteur');
+      rendre(sockets[0]!, tache.id, 'diff --git a/auth.ts b/auth.ts\n+if (!jeton) return;', 'ok');
+      await attendre(() => relus.length > 0, 'la relecture du second modèle');
+      // Le relecteur termine SANS réponse finale : aucun avis, aucune autre
+      // famille pour le secours — la contre-revue est impossible.
+      rendre(sockets[1]!, relus[0]!.task!.id, '', 'rien à dire', { muet: true });
+      await attendre(
+        () => evenement('contre_expertise_impossible', tache.id),
+        'l’impossibilité consignée',
+      );
+
+      const vue = (await (await lireWarRoom(`?projectId=${projectId}`)).json()) as Vue;
+      expect(vue.desaccords).toEqual([
+        expect.objectContaining({ genre: 'relecture_impossible', taskId: tache.id }),
+      ]);
+      const impossible = vue.entrees.find((e) => e.genre === 'contre_impossible');
+      expect(impossible).toMatchObject({ taskId: tache.id, relecteur: 'codex' });
+      expect(impossible?.genre === 'contre_impossible' && impossible.cause).toBeTruthy();
+
+      // Le filtre ne montre qu'une voix — et ne cache JAMAIS ce qui attend.
+      const relectures = (await (
+        await lireWarRoom(`?projectId=${projectId}&famille=relecture`)
+      ).json()) as Vue;
+      expect(relectures.famille).toBe('relecture');
+      expect(relectures.entrees.map((e) => e.genre)).toEqual(
+        expect.arrayContaining(['contre_expertise', 'contre_echec', 'contre_impossible']),
+      );
+      const humaines = (await (
+        await lireWarRoom(`?projectId=${projectId}&famille=humain`)
+      ).json()) as Vue;
+      expect(humaines.entrees).toEqual([]);
+      expect(humaines.desaccords, 'le filtre ne cache pas ce qui attend').toHaveLength(1);
+      expect((await lireWarRoom('?famille=inventee')).status).toBe(400);
+
+      // La revue humaine que l'Evaluator demande la lève.
+      const revue = await fetch(`${base}/api/tasks/${tache.id}/review`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ state: 'approved' }),
+      });
+      expect(revue.status).toBe(200);
+      const apres = (await (await lireWarRoom(`?projectId=${projectId}`)).json()) as Vue;
+      expect(apres.desaccords).toEqual([]);
+    },
+  );
+
+  it('UN FORÇAGE DE L’EVALUATOR EST UNE DÉCISION HUMAINE, NOMMÉE à la lecture', async () => {
+    // Le forçage ne consigne que l'identifiant du compte (`passageEvaluator`) :
+    // la route joint son nom, et le jeton de ruche reste un aveu.
+    const jwt = await inscrire('ada@exemple.invalid', 'Ada');
+    const { id: userId } = (await (
+      await fetch(`${base}/api/auth/me`, { headers: { authorization: `Bearer ${jwt}` } })
+    ).json()) as { id: string };
+    expect(userId, 'le banc : l’identifiant du compte').toBeTruthy();
+    const tache = server.store.createTask({ projectId, title: 'Livrer la garde', prompt: 'p' });
+    for (const parUserId of [userId, null]) {
+      server.store.appendEvent('evaluator_overridden', {
+        taskId: tache.id,
+        projectId,
+        geste: 'livraison',
+        resultId: 3,
+        decision: 'correction_required',
+        raison: 'correctif urgent, relu à la main',
+        parUserId,
+      });
+    }
+    const vue = (await (await lireWarRoom(`?projectId=${projectId}&famille=humain`)).json()) as Vue;
+    expect(vue.entrees).toEqual([
+      expect.objectContaining({
+        genre: 'evaluator_force',
+        decision: 'correction_required',
+        par: { genre: 'compte', userId, nom: 'Ada' },
+      }),
+      expect.objectContaining({ genre: 'evaluator_force', par: { genre: 'jeton_de_ruche' } }),
+    ]);
+  });
 });

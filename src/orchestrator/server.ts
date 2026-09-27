@@ -74,14 +74,22 @@ import { cheminEnvQueen } from '../shared/env-queen.js';
 import { affectationsDepuisEvenements, TYPES_ROUTAGE } from '../shared/routage-vue.js';
 import { TYPES_CHRONOLOGIE, chronologieDepuisEvenements } from '../shared/chronologie-tache.js';
 import {
+  FAMILLES_WAR_ROOM,
   JUSTIFICATION_MAX,
+  RAISON_REVUE_MAX,
   TYPES_WAR_ROOM,
   dernieresDecisions,
   desaccordsNonResolus,
   entreesWarRoom,
+  familleDe,
   sujetDe,
 } from '../shared/war-room.js';
-import type { AuteurDecision, DecisionConseil } from '../shared/war-room.js';
+import type {
+  AuteurDecision,
+  DecisionConseil,
+  EntreeWarRoom,
+  FamilleWarRoom,
+} from '../shared/war-room.js';
 import {
   registreGenomeDepuisEvenements,
   TYPES_REGISTRE_GENOME,
@@ -698,13 +706,15 @@ const BUDGET_CERVEAU = 3_000;
  * production contestée. Plus petite que la Couveuse — huit objections d'une
  * ligne et une note humaine y tiennent ; au-delà, la queue tombe.
  */
-const BUDGET_CRITIQUE = 2_000;
+export const BUDGET_CRITIQUE = 2_000;
 /**
  * La raison qu'un humain peut joindre à son verdict de revue. Elle part telle
  * quelle dans le contexte de la correction : bornée comme ce qu'elle nourrit
- * (`BORNES_CRITIQUE.note`, brood.ts).
+ * (`BORNES_CRITIQUE.note`, brood.ts), et relue à cette même borne par la War
+ * Room (`RAISON_REVUE_MAX`) — `tests/protocole-debat.test.ts` tient les trois
+ * égales.
  */
-const MAX_RAISON_REVUE = 1_000;
+const MAX_RAISON_REVUE = RAISON_REVUE_MAX;
 
 /** Limitation de débit REST : fenêtre et nombre maximal de requêtes /api par IP. */
 const REST_RATE_WINDOW_MS = 10_000;
@@ -1382,6 +1392,9 @@ async function monterReine(
         taskId,
         resultId,
         reason: retry.reason,
+        // Le geste dont le renvoi a été refusé : la War Room n'ouvre un
+        // désaccord que pour une contestation restée sans suite.
+        source: 'contre_revue',
       });
     }
   }
@@ -6734,8 +6747,23 @@ async function monterReine(
   // ─── La War Room ─────────────────────────────────────────────────────────
 
   /**
-   * Le fil des désaccords : Conseil, contre-expertise, renvois de l'Evaluator,
-   * revues humaines et décisions — relus dans le journal, EN LECTURE SEULE.
+   * Le nom du compte qui a forcé l'Evaluator, joint à la LECTURE : le forçage
+   * ne consigne que `parUserId` (`passageEvaluator`), et un identifiant ne se
+   * lit pas. Contrairement à la décision de Conseil, ce nom n'est donc pas
+   * figé au geste — c'est le nom courant du compte. Un compte supprimé reste
+   * « un compte sans nom », jamais le jeton de ruche : quelqu'un s'était bien
+   * identifié.
+   */
+  const nommerAuteur = (e: EntreeWarRoom): EntreeWarRoom =>
+    e.genre === 'evaluator_force' && e.par.genre === 'compte'
+      ? { ...e, par: { ...e.par, nom: store.getUserById(e.par.userId)?.displayName ?? null } }
+      : e;
+
+  /**
+   * Le fil des désaccords : Conseil, contre-expertise (relectures impossibles
+   * comprises), renvois de l'Evaluator, revues humaines, forçages de
+   * l'Evaluator et décisions — relus dans le journal, EN LECTURE SEULE.
+   * `famille` n'en montre qu'une voix (`FAMILLES_WAR_ROOM`).
    *
    * ─── POURQUOI UNE ROUTE, ET PAS LE FLUX DU TABLEAU DE BORD ─────────────────
    *
@@ -6755,7 +6783,9 @@ async function monterReine(
    * snapshot du tableau de bord est borné, et un fil qui ne saurait nommer que
    * des identifiants ne se lit pas.
    */
-  app.get<{ Querystring: { projectId?: string; taskId?: string; limite?: number } }>(
+  app.get<{
+    Querystring: { projectId?: string; taskId?: string; limite?: number; famille?: FamilleWarRoom };
+  }>(
     '/api/war-room',
     {
       schema: {
@@ -6766,12 +6796,13 @@ async function monterReine(
             projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id },
             taskId: { type: 'string', minLength: 1, maxLength: LIMITS.id },
             limite: { type: 'integer', minimum: 0, maximum: 500 },
+            famille: { type: 'string', enum: [...FAMILLES_WAR_ROOM] },
           },
         },
       },
     },
     async (req, reply) => {
-      const { projectId, taskId } = req.query;
+      const { projectId, taskId, famille } = req.query;
       const limite = req.query.limite ?? 150;
       if (projectId === undefined) {
         if (!authorized(req)) return reject(reply);
@@ -6836,7 +6867,12 @@ async function monterReine(
               }
             : null,
       );
-      const fil = limite === 0 ? [] : retenues.slice(-limite);
+      // La famille ne filtre que ce qui est MONTRÉ, et AVANT la fenêtre : les
+      // 150 dernières décisions humaines, pas les décisions humaines parmi
+      // les 150 dernières lignes. Les désaccords, eux, viennent d'être lus
+      // sur tout le fil — un filtre ne cache jamais ce qui attend quelqu'un.
+      const montrees = famille ? retenues.filter((e) => familleDe(e) === famille) : retenues;
+      const fil = limite === 0 ? [] : montrees.slice(-limite).map(nommerAuteur);
 
       const taches: Record<string, { titre: string; projectId: string }> = {};
       const conseils: Record<string, { question: string; projectId: string | null }> = {};
@@ -6852,17 +6888,18 @@ async function monterReine(
       for (const e of fil) joindre(sujetDe(e));
       for (const d of desaccords) {
         joindre(
-          d.genre === 'tache'
-            ? { genre: 'tache', taskId: d.taskId }
-            : { genre: 'conseil', sessionId: d.sessionId },
+          d.genre === 'conseil'
+            ? { genre: 'conseil', sessionId: d.sessionId }
+            : { genre: 'tache', taskId: d.taskId },
         );
       }
 
       return {
         projectId: projectId ?? null,
         taskId: tache?.id ?? null,
+        famille: famille ?? null,
         entrees: fil,
-        tronque: retenues.length > fil.length,
+        tronque: montrees.length > fil.length,
         desaccords,
         taches,
         conseils,
@@ -8998,6 +9035,9 @@ async function monterReine(
               taskId: task.id,
               resultId: latest.resultId,
               reason: retry.reason,
+              // Un rejet HUMAIN : l'humain a tranché, la correction n'a pas
+              // suivi — la War Room le dit sans le compter « à trancher ».
+              source: 'revue_humaine',
             });
           }
         }

@@ -409,6 +409,7 @@ describe('trancher un conseil clos', () => {
 const vue = (over: Partial<VueWarRoom> = {}): VueWarRoom => ({
   projectId: null,
   taskId: null,
+  famille: null,
   entrees: [],
   tronque: false,
   desaccords: [],
@@ -451,6 +452,7 @@ describe('la War Room', () => {
             taskId: 't-1',
             resultId: 8,
             raison: 'attempts_exhausted',
+            source: 'contre_revue',
           },
         ],
         taches: { 't-1': { titre: 'Ajouter une garde', projectId: 'p-1' } },
@@ -481,14 +483,20 @@ describe('la War Room', () => {
   it('CLIQUER UNE TÂCHE MONTRE SON DÉBAT ENTIER', async () => {
     vi.mocked(fetchWarRoom).mockResolvedValue(
       vue({
-        entrees: [{ genre: 'revue_humaine', id: 1, ts: 1, taskId: 't-1', etat: 'rejected' }],
+        entrees: [
+          { genre: 'revue_humaine', id: 1, ts: 1, taskId: 't-1', etat: 'rejected', raison: null },
+        ],
         taches: { 't-1': { titre: 'Ajouter une garde', projectId: 'p-1' } },
       }),
     );
     const dom = await rendre(<WarRoom {...props()} />);
-    expect(fetchWarRoom).toHaveBeenLastCalledWith({ projectId: null, taskId: null });
+    expect(fetchWarRoom).toHaveBeenLastCalledWith({ projectId: null, taskId: null, famille: null });
     await cliquer(dom.querySelector('.wr-sujet'));
-    expect(fetchWarRoom).toHaveBeenLastCalledWith({ projectId: null, taskId: 't-1' });
+    expect(fetchWarRoom).toHaveBeenLastCalledWith({
+      projectId: null,
+      taskId: 't-1',
+      famille: null,
+    });
   });
 
   it('UNE WAR ROOM ILLISIBLE LE DIT', async () => {
@@ -571,7 +579,14 @@ describe('la War Room', () => {
         ],
         entrees: [
           { genre: 'conseil_ouvert', id: 1, ts: 1, sessionId: 'cs-elague' },
-          { genre: 'revue_humaine', id: 2, ts: 2, taskId: 't-disparue', etat: 'approved' },
+          {
+            genre: 'revue_humaine',
+            id: 2,
+            ts: 2,
+            taskId: 't-disparue',
+            etat: 'approved',
+            raison: null,
+          },
         ],
         // Ni la tâche disparue ni le conseil élagué ne sont joints.
         taches: { 't-ancienne': { titre: 'Une vieille tâche', projectId: 'p-1' } },
@@ -595,7 +610,16 @@ describe('la War Room', () => {
         ? Promise.reject(new ApiError('tâche inconnue', 404))
         : Promise.resolve(
             vue({
-              entrees: [{ genre: 'revue_humaine', id: 1, ts: 1, taskId: 't-1', etat: 'approved' }],
+              entrees: [
+                {
+                  genre: 'revue_humaine',
+                  id: 1,
+                  ts: 1,
+                  taskId: 't-1',
+                  etat: 'approved',
+                  raison: null,
+                },
+              ],
               taches: { 't-1': { titre: 'Ajouter une garde', projectId: 'p-1' } },
             }),
           ),
@@ -604,7 +628,7 @@ describe('la War Room', () => {
     await cliquer(dom.querySelector('.wr-sujet'));
     expect(dom.textContent).toContain('War Room indisponible');
     await cliquer(bouton(dom, 'Retirer le filtre de tâche'));
-    expect(fetchWarRoom).toHaveBeenLastCalledWith({ projectId: null, taskId: null });
+    expect(fetchWarRoom).toHaveBeenLastCalledWith({ projectId: null, taskId: null, famille: null });
     expect(dom.textContent).not.toContain('War Room indisponible');
   });
 
@@ -649,6 +673,56 @@ describe('l’accès depuis la Ruche', () => {
     expect(acces()).not.toContain('aucun');
   });
 
+  it('UNE RELECTURE IMPOSSIBLE ATTEND UN HUMAIN, et chaque voix se filtre sans cacher ce qui attend', async () => {
+    const impossible = {
+      genre: 'relecture_impossible' as const,
+      taskId: 't-1',
+      resultId: 8,
+      cause: 'la relecture confiée à codex a été annulée',
+      depuis: 1_000,
+    };
+    vi.mocked(fetchWarRoom).mockImplementation((filtre = {}) =>
+      Promise.resolve(
+        vue({
+          famille: filtre.famille ?? null,
+          desaccords: [impossible],
+          entrees:
+            filtre.famille === 'humain'
+              ? [
+                  {
+                    genre: 'revue_humaine',
+                    id: 2,
+                    ts: 2,
+                    taskId: 't-1',
+                    etat: 'rejected',
+                    raison: 'le jeton vide passe encore',
+                  },
+                ]
+              : [],
+          taches: { 't-1': { titre: 'Ajouter une garde', projectId: 'p-1' } },
+        }),
+      ),
+    );
+    const naviguer = vi.fn();
+    const dom = await rendre(<WarRoom {...props({ onNavigate: naviguer })} />);
+    const desaccords = () => dom.querySelector('.wr-desaccords')?.textContent ?? '';
+    expect(desaccords()).toContain('Personne n’a pu relire cette production');
+    expect(desaccords()).toContain('la relecture confiée à codex a été annulée');
+    await cliquer(bouton(dom, 'Revoir en Miellerie'));
+    expect(naviguer).toHaveBeenLastCalledWith('miellerie', 't-1');
+
+    await cliquer(bouton(dom, 'Décisions humaines'));
+    expect(fetchWarRoom).toHaveBeenLastCalledWith({
+      projectId: null,
+      taskId: null,
+      famille: 'humain',
+    });
+    expect(bouton(dom, 'Décisions humaines').getAttribute('aria-pressed')).toBe('true');
+    expect(dom.querySelector('.wr-fil')?.textContent).toContain('« le jeton vide passe encore »');
+    // Le filtre ne touche que le fil : ce qui attend reste en tête.
+    expect(desaccords()).toContain('Personne n’a pu relire cette production');
+  });
+
   it('« JE N’AI PAS PU LIRE » N’EST PAS « AUCUN »', async () => {
     vi.mocked(fetchWarRoom).mockRejectedValue(new Error('Erreur 401'));
     const dom = await rendre(<AccesWarRoom refreshTick={0} onNavigate={() => {}} />);
@@ -662,11 +736,122 @@ describe('les lignes du fil', () => {
   const t = (fr: string) => fr;
   it('un code de refus inconnu est rendu TEL QUEL, jamais traduit au hasard', () => {
     const l = direEntree(
-      { genre: 'renvoi_refuse', id: 1, ts: 1, taskId: 't', resultId: null, raison: 'code_futur' },
+      {
+        genre: 'renvoi_refuse',
+        id: 1,
+        ts: 1,
+        taskId: 't',
+        resultId: null,
+        raison: 'code_futur',
+        source: null,
+      },
       t,
       (n) => n,
     );
     expect(l.texte).toContain('code_futur');
+  });
+
+  it('CHAQUE REFUS DU SCHEDULER A SA PHRASE — aucun code brut pour un refus connu', () => {
+    for (const raison of [
+      'attempts_exhausted',
+      'delivery_exists',
+      'dependent_progressed',
+      'stale_result',
+      'task_not_done',
+      'ancestor_failed',
+      'invalid_result_id',
+      'unknown_task',
+    ]) {
+      const l = direEntree(
+        {
+          genre: 'renvoi_refuse',
+          id: 1,
+          ts: 1,
+          taskId: 't',
+          resultId: null,
+          raison,
+          source: 'contre_revue',
+        },
+        t,
+        (n) => n,
+      );
+      expect(l.texte, raison).not.toContain(raison);
+    }
+  });
+
+  it('UN REJET HUMAIN SANS CORRECTION SE DIT COMME TEL, pas comme une contestation', () => {
+    const l = direEntree(
+      {
+        genre: 'renvoi_refuse',
+        id: 1,
+        ts: 1,
+        taskId: 't',
+        resultId: 8,
+        raison: 'attempts_exhausted',
+        source: 'revue_humaine',
+      },
+      t,
+      (n) => n,
+    );
+    expect(l).toMatchObject({ ton: 'objection' });
+    expect(l.texte).toContain('Rejet humain sans correction');
+    expect(l.texte).toContain('la production reste rejetée');
+  });
+
+  it('LA RELECTURE IMPOSSIBLE, LE FORÇAGE ET LE DEMANDEUR D’UNE CORRECTION SE LISENT', () => {
+    const impossible = direEntree(
+      {
+        genre: 'contre_impossible',
+        id: 1,
+        ts: 1,
+        taskId: 't',
+        resultId: 8,
+        relecteur: 'codex',
+        cause: 'aucune autre famille en ligne',
+      },
+      t,
+      (n) => n,
+    );
+    // L'arbitre qui manque n'est pas un avis favorable.
+    expect(impossible).toMatchObject({ ton: 'objection' });
+    expect(impossible.texte).toContain('revue humaine requise');
+    expect(impossible.texte).toContain('aucune autre famille en ligne');
+
+    const force = direEntree(
+      {
+        genre: 'evaluator_force',
+        id: 2,
+        ts: 2,
+        taskId: 't',
+        resultId: 8,
+        geste: 'fusion',
+        decision: 'correction_required',
+        raison: 'correctif urgent',
+        par: { genre: 'compte', userId: 'u-1', nom: 'Ada' },
+      },
+      t,
+      (n) => n,
+    );
+    expect(force).toMatchObject({ ton: 'decision' });
+    expect(force.texte).toContain('Ada');
+    expect(force.texte).toContain('« correctif urgent »');
+
+    const renvoi = direEntree(
+      {
+        genre: 'renvoi_evaluator',
+        id: 3,
+        ts: 3,
+        taskId: 't',
+        resultId: 8,
+        decision: 'correction_required',
+        tentative: 2,
+        maxTentatives: 3,
+        demandePar: 'contre_revue',
+      },
+      t,
+      (n) => n,
+    );
+    expect(renvoi.texte).toContain('à la demande de la contre-expertise');
   });
 
   it('les éclaireuses sont NOMMÉES, et un signal d’arrêt est une objection', () => {

@@ -16,6 +16,9 @@ import {
   dernieresDecisions,
   desaccordsNonResolus,
   entreesWarRoom,
+  familleDe,
+  FAMILLES_WAR_ROOM,
+  RAISON_REVUE_MAX,
   TYPES_WAR_ROOM,
 } from '../src/shared/war-room.js';
 import type { SessionPourDesaccord, TacheRangee } from '../src/shared/war-room.js';
@@ -92,6 +95,14 @@ describe('le fil : chaque producteur est lu', () => {
         terminal: true,
         attempt: 3,
       }),
+      ev('contre_expertise_impossible', {
+        taskId: 't-1',
+        resultId: 7,
+        relecture: 'r-2',
+        relecteur: 'hermes-agent',
+        producteur: 'claude-code',
+        cause: 'aucune autre famille en ligne pour un secours',
+      }),
       ev('task_retry', {
         taskId: 't-1',
         source: 'evaluator',
@@ -101,6 +112,15 @@ describe('le fil : chaque producteur est lu', () => {
         maxAttempts: 3,
       }),
       ev('evaluator_retry_skipped', { taskId: 't-1', resultId: 8, reason: 'attempts_exhausted' }),
+      ev('evaluator_overridden', {
+        taskId: 't-1',
+        projectId: 'p-1',
+        geste: 'fusion',
+        resultId: 8,
+        decision: 'correction_required',
+        raison: 'correctif urgent',
+        parUserId: 'u-1',
+      }),
       ev('task_reviewed', { taskId: 't-1', state: 'approved' }),
     ]);
 
@@ -114,8 +134,10 @@ describe('le fil : chaque producteur est lu', () => {
       'contre_expertise',
       'contre_verdict',
       'contre_echec',
+      'contre_impossible',
       'renvoi_evaluator',
       'renvoi_refuse',
+      'evaluator_force',
       'revue_humaine',
     ]);
     // Chaque type lu est aussi un type DEMANDÉ au journal : un type lu mais
@@ -130,11 +152,53 @@ describe('le fil : chaque producteur est lu', () => {
       'contre_expertise',
       'contre_expertise_verdict',
       'contre_expertise_review_failed',
+      'contre_expertise_impossible',
       'task_retry',
       'evaluator_retry_skipped',
+      'evaluator_overridden',
       'task_reviewed',
     ]);
     expect(new Set(TYPES_WAR_ROOM)).toEqual(lus);
+    // Et chaque entrée a UNE voix : le filtre de l'écran ne perd personne.
+    expect(new Set(fil.map(familleDe))).toEqual(new Set(FAMILLES_WAR_ROOM));
+  });
+
+  it('QUI A DEMANDÉ LA CORRECTION, ET CE QUE L’HUMAIN A ÉCRIT, SONT LUS', () => {
+    const [renvoi, refus, revue, force] = entreesWarRoom([
+      ev('task_retry', {
+        taskId: 't-1',
+        source: 'evaluator',
+        resultId: 7,
+        decision: 'correction_required',
+        critique: { source: 'revue_humaine', objections: [], raisons: ['r'] },
+      }),
+      ev('evaluator_retry_skipped', {
+        taskId: 't-1',
+        resultId: 8,
+        reason: 'attempts_exhausted',
+        source: 'revue_humaine',
+      }),
+      ev('task_reviewed', { taskId: 't-1', state: 'rejected', raison: 'x'.repeat(5_000) }),
+      ev('evaluator_overridden', {
+        taskId: 't-1',
+        geste: 'livraison',
+        decision: null,
+        raison: 'relu à la main',
+        parUserId: null,
+      }),
+    ]);
+    expect(renvoi).toMatchObject({ genre: 'renvoi_evaluator', demandePar: 'revue_humaine' });
+    expect(refus).toMatchObject({ genre: 'renvoi_refuse', source: 'revue_humaine' });
+    expect(revue?.genre === 'revue_humaine' && revue.raison?.length).toBe(RAISON_REVUE_MAX);
+    // `parUserId: null` est l'aveu du jeton de ruche, pas un auteur illisible.
+    expect(force).toMatchObject({ genre: 'evaluator_force', par: { genre: 'jeton_de_ruche' } });
+    // Une source inventée reste inconnue, jamais devinée.
+    const [inconnu] = entreesWarRoom([
+      ev('evaluator_retry_skipped', { taskId: 't', reason: 'stale_result', source: 'humeur' }),
+    ]);
+    expect(inconnu).toMatchObject({ source: null });
+    // Sans cause, une impossibilité ne dit rien à l'humain qu'elle appelle.
+    expect(entreesWarRoom([ev('contre_expertise_impossible', { taskId: 't' })])).toEqual([]);
   });
 
   it('UNE REPRISE APRÈS PANNE DE WORKER N’EST PAS UN DÉSACCORD', () => {
@@ -334,6 +398,57 @@ describe('les désaccords en suspens', () => {
     expect(avec({ dernierResultId: 9, revueA: null }), 'une production plus récente').toBe(0);
     // Une tâche que la Reine ne connaît plus ne se revoit plus : elle
     // n'attendrait personne, pour toujours.
+    expect(avec(null), 'tâche disparue').toBe(0);
+  });
+
+  it('UN REJET HUMAIN SANS CORRECTION N’EST PAS À TRANCHER — un refus sans source, si', () => {
+    const refus = (source?: string) =>
+      desaccordsNonResolus(
+        entreesWarRoom([
+          ev('task_reviewed', { taskId: 't-1', state: 'rejected' }),
+          ev('evaluator_retry_skipped', {
+            taskId: 't-1',
+            resultId: 8,
+            reason: 'attempts_exhausted',
+            ...(source ? { source } : {}),
+          }),
+        ]),
+        [],
+      ).length;
+    expect(refus('revue_humaine'), 'l’humain a déjà tranché').toBe(0);
+    expect(refus('contre_revue')).toBe(1);
+    // Journal antérieur à la `source` : inconnu, donc montré plutôt que tu.
+    expect(refus()).toBe(1);
+  });
+
+  it('UNE RELECTURE IMPOSSIBLE ATTEND LA REVUE HUMAINE QU’ELLE DEMANDE', () => {
+    const impossible = ev(
+      'contre_expertise_impossible',
+      { taskId: 't-1', resultId: 8, relecteur: 'codex', cause: 'plus aucune famille' },
+      5_000,
+    );
+    expect(desaccordsNonResolus(entreesWarRoom([impossible]), [])).toEqual([
+      {
+        genre: 'relecture_impossible',
+        taskId: 't-1',
+        resultId: 8,
+        cause: 'plus aucune famille',
+        depuis: 5_000,
+      },
+    ]);
+    // Une revue humaine qui pose un verdict la lève ; un nouvel essai aussi.
+    for (const apres of [
+      ev('task_reviewed', { taskId: 't-1', state: 'approved' }),
+      ev('task_retry', { taskId: 't-1', source: 'evaluator', resultId: 8, decision: 'rejected' }),
+    ]) {
+      expect(desaccordsNonResolus(entreesWarRoom([impossible, apres]), [])).toEqual([]);
+    }
+    // Faits rangés : un verdict COURANT tranche, même posé pendant la relecture.
+    const avec = (rangee: TacheRangee | null): number =>
+      desaccordsNonResolus(entreesWarRoom([impossible]), [], new Map(), () => rangee).length;
+    expect(avec({ dernierResultId: 8, revueA: null })).toBe(1);
+    expect(avec({ dernierResultId: 8, revueA: 4_000 }), 'verdict posé avant').toBe(0);
+    expect(avec({ dernierResultId: 9, revueA: null }), 'production plus récente').toBe(0);
     expect(avec(null), 'tâche disparue').toBe(0);
   });
 

@@ -10,8 +10,18 @@ import {
 } from '../../src/shared/protocol';
 import type { HiveEvent, Project, StateSnapshot, Task, TaskResult } from '../../src/shared/types';
 import type { Graphe } from '../../src/shared/cerveau-graphe.js';
-import type { DecisionConseil, Desaccord, EntreeWarRoom } from '../../src/shared/war-room.js';
-export type { DecisionConseil, Desaccord, EntreeWarRoom } from '../../src/shared/war-room.js';
+import type {
+  DecisionConseil,
+  Desaccord,
+  EntreeWarRoom,
+  FamilleWarRoom,
+} from '../../src/shared/war-room.js';
+export type {
+  DecisionConseil,
+  Desaccord,
+  EntreeWarRoom,
+  FamilleWarRoom,
+} from '../../src/shared/war-room.js';
 import type { WorkerSnapshot } from '../../src/orchestrator/workers.js';
 import type { JournalOuvriere } from '../../src/orchestrator/journal-ouvriere.js';
 import type { RapportLivraisonLocale } from '../../src/shared/livraison-locale.js';
@@ -555,9 +565,11 @@ export function trancherConseil(
 export interface VueWarRoom {
   projectId: string | null;
   taskId: string | null;
+  /** La seule voix montrée, `null` pour toutes. Ne filtre jamais `desaccords`. */
+  famille: FamilleWarRoom | null;
   /** Du plus ancien au plus récent, bornées à `limite`. */
   entrees: EntreeWarRoom[];
-  /** Vrai quand des entrées plus anciennes existent au-delà de `limite`. */
+  /** Vrai quand des entrées plus anciennes (de cette famille) existent au-delà de `limite`. */
   tronque: boolean;
   desaccords: Desaccord[];
   taches: Record<string, { titre: string; projectId: string }>;
@@ -567,11 +579,17 @@ export interface VueWarRoom {
 }
 
 export function fetchWarRoom(
-  filtre: { projectId?: string | null; taskId?: string | null; limite?: number } = {},
+  filtre: {
+    projectId?: string | null;
+    taskId?: string | null;
+    famille?: FamilleWarRoom | null;
+    limite?: number;
+  } = {},
 ): Promise<VueWarRoom> {
   const q = new URLSearchParams();
   if (filtre.projectId) q.set('projectId', filtre.projectId);
   if (filtre.taskId) q.set('taskId', filtre.taskId);
+  if (filtre.famille) q.set('famille', filtre.famille);
   if (filtre.limite !== undefined) q.set('limite', String(filtre.limite));
   const qs = q.toString();
   // Lecture de projet : le compte ouvre les projets qui ont un propriétaire.
