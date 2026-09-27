@@ -13,7 +13,7 @@ import { demarrageNoeudAutorise, messageRefusShellProduction } from '../shared/a
 import { conseilDemarrage, constatsPourLeHub, diagnostiquerAgents } from './connexion.js';
 import { entreeEnRuche } from '../shared/presence-noeud.js';
 import { HiveNodeClient } from './client.js';
-import { isolementDeclareDe, optionBac, preparerBac } from './bac.js';
+import { bacActif, isolementDeclareDe, optionBac, preparerBac } from './bac.js';
 import { parseModeles } from './modeles.js';
 import { createInterface } from 'node:readline/promises';
 
@@ -98,7 +98,11 @@ if (bac.refuse) {
 // et deux sondages successifs coûteraient deux fois pour la même réponse. Il
 // sert ensuite à deux choses très différentes — le conseil au refus juste en
 // dessous, et le constat envoyé au hub à l'inscription.
-const etatsOutils = await diagnostiquerAgents();
+//
+// Dans un bac, les sessions de l'hôte (`~/.claude`…) n'atteignent pas l'agent :
+// le constat de clé ne les compte donc pas, sans quoi le hub afficherait
+// « prêt » un poste dont chaque tâche échouerait « non authentifié ».
+const etatsOutils = await diagnostiquerAgents({ sessionsHote: !bacActif(bac) });
 
 // ─── PRÉSENCE SANS PRODUCTION ───────────────────────────────────────────────
 //

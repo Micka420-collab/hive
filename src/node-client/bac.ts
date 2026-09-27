@@ -24,6 +24,7 @@
 // et le réseau traverse toujours, parce qu'un agent de codage doit joindre
 // l'API de son modèle.
 
+import { existsSync } from 'node:fs';
 import {
   constat,
   decider,
@@ -34,7 +35,7 @@ import {
   type Fournisseur,
 } from './isolement.js';
 import { CODE, type CodeSortie } from '../codes-sortie.js';
-import type { AgentType } from './agent-detect.js';
+import { requisitionSiCredentialsManquantes, type AgentType } from './agent-detect.js';
 import type { IsolementDeclare } from '../shared/types.js';
 import { variablesAgentSansSecrets } from './workspace.js';
 
@@ -148,6 +149,35 @@ export function raisonPontMcpDansBac(
   return `bac conteneurisé indisponible pour ${agent} sous Windows : le pont MCP local du CLI n'est pas partageable`;
 }
 
+/**
+ * Où le preflight a cherché l'agent, pour le dire à l'humain.
+ *
+ * Un conteneur cherche dans son IMAGE ; bubblewrap n'en a pas — il remonte
+ * l'installation de l'hôte en lecture seule. Lui prêter « (image
+ * docker.io/library/node:20-slim) » envoyait l'humain corriger une image que
+ * rien n'utilise.
+ */
+function lieuDuBac(fournisseur: Fournisseur, image: string): string {
+  return fournisseur.bin === 'bwrap' ? '' : ` (image ${image})`;
+}
+
+/** Le bac est écarté : `auto` le dit et se replie, `exige` refuse. */
+function sansBac(
+  mode: ReturnType<typeof modeDepuisEnv>,
+  motif: string,
+): { decision: Decision; fournisseur: null } {
+  return {
+    fournisseur: null,
+    decision: {
+      ...decider(mode, null),
+      motif:
+        mode === 'exige'
+          ? `HIVE_ISOLEMENT=exige : ${motif} — ce nœud refuse de travailler.`
+          : `${motif} — repli explicite vers la sandbox de processus, non isolée du disque.`,
+    },
+  };
+}
+
 export function deciderAvecPreflight(
   mode: ReturnType<typeof modeDepuisEnv>,
   fournisseur: Fournisseur,
@@ -155,38 +185,86 @@ export function deciderAvecPreflight(
   resultat: Awaited<ReturnType<typeof sonderAgentDansBac>>,
 ): { decision: Decision; fournisseur: Fournisseur | null } {
   if (resultat.executable) return { decision: decider(mode, fournisseur), fournisseur };
-  return {
-    fournisseur: null,
-    decision: {
-      ...decider(mode, null),
-      motif:
-        mode === 'exige'
-          ? `HIVE_ISOLEMENT=exige : ${resultat.motif} (image ${image}) — ce nœud refuse de travailler.`
-          : `${resultat.motif} (image ${image}) — repli explicite vers la sandbox de processus, non isolée du disque.`,
-    },
+  return sansBac(mode, `${resultat.motif}${lieuDuBac(fournisseur, image)}`);
+}
+
+/** Ce que `preparerBac` consulte sur la machine — injectable pour les bancs. */
+export interface OutilsBac {
+  /** Le moteur disponible. Défaut : la sonde réelle (`--version`). */
+  trouver?: () => Promise<Fournisseur | null>;
+  /** Le preflight d'un binaire dans le bac. Défaut : le vrai, qui le lance. */
+  sonderAgent?: (
+    fournisseur: Fournisseur,
+    bin: string,
+    image: string,
+  ) => ReturnType<typeof sonderAgentDansBac>;
+  /** Un dossier de session existe-t-il ? Défaut : le disque. */
+  existe?: (chemin: string) => boolean;
+  plateforme?: NodeJS.Platform;
+}
+
+/**
+ * La seule façon qu'a cet agent de s'authentifier est-elle une session de
+ * l'HÔTE, que le bac ne monte pas ? Rend alors ce qu'il faut poser, sinon `null`.
+ *
+ * ─── LE NŒUD DISAIT « CONTENEUR », ET CHAQUE TÂCHE ÉCHOUAIT ──────────────────
+ *
+ * `~/.claude` comptait comme identifiant. Or le bac donne à l'agent un HOME
+ * éphémère et ne monte jamais celui du membre : la session de `claude login` n'y
+ * entre pas. Le nœud annonçait donc un vrai bac à sable, puis chaque tâche
+ * échouait « non authentifié » — un échec d'INFRA, réaffecté, en boucle.
+ *
+ * Le cas visé est exact : une clé nommée passe (rien à dire) ; aucune session
+ * ni clé nulle part, la sandbox de processus ne ferait pas mieux — le bac reste,
+ * et la réquisition nomme la variable. Seule la session de l'hôte, qui marche
+ * DEHORS et pas DEDANS, justifie de renoncer au bac.
+ */
+function sessionHoteSeule(
+  agent: AgentType,
+  env: NodeJS.ProcessEnv,
+  outils: Pick<OutilsBac, 'existe' | 'plateforme'> = {},
+): string | null {
+  const opts = {
+    existe: outils.existe ?? existsSync,
+    ...(outils.plateforme ? { plateforme: outils.plateforme } : {}),
   };
+  const dansLeBac = requisitionSiCredentialsManquantes(agent, env, {
+    ...opts,
+    sessionsHote: false,
+  });
+  if (!dansLeBac) return null;
+  const surLHote = requisitionSiCredentialsManquantes(agent, env, { ...opts, sessionsHote: true });
+  return surLHote ? null : dansLeBac.detail;
 }
 
 export async function preparerBac(
   env: NodeJS.ProcessEnv = process.env,
   agent?: AgentType,
+  outils: OutilsBac = {},
 ): Promise<Bac> {
   const mode = modeDepuisEnv(env);
   const image = imageDepuisEnv(env);
-  let fournisseur = mode === 'off' ? null : await trouverFournisseur();
+  const sonderAgent = outils.sonderAgent ?? sonderAgentDansBac;
+  let fournisseur = mode === 'off' ? null : await (outils.trouver ?? trouverFournisseur)();
   let decision = decider(mode, fournisseur);
   let preflight: string | null = null;
   const binAgent = agent ? binaireDansBac(agent, env) : null;
 
-  if (fournisseur && binAgent) {
-    const motifPont = agent ? raisonPontMcpDansBac(agent) : null;
+  // Les identifiants AVANT le preflight : c'est gratuit (aucun `spawn`), et si
+  // l'agent ne peut pas s'authentifier dans le bac, l'éprouver dedans ne dirait
+  // rien d'utile.
+  const perdus = fournisseur && agent ? sessionHoteSeule(agent, env, outils) : null;
+  if (fournisseur && perdus) {
+    ({ decision, fournisseur } = sansBac(mode, perdus));
+  } else if (fournisseur && binAgent) {
+    const motifPont = agent ? raisonPontMcpDansBac(agent, outils.plateforme) : null;
     let resultat = motifPont
       ? { executable: false, motif: motifPont }
-      : await sonderAgentDansBac(fournisseur, binAgent, image);
+      : await sonderAgent(fournisseur, binAgent, image);
     if (!motifPont) {
       const binPont = agent ? binaireMcpDansBac(agent) : null;
       if (resultat.executable && binPont) {
-        const pont = await sonderAgentDansBac(fournisseur, binPont, image);
+        const pont = await sonderAgent(fournisseur, binPont, image);
         if (!pont.executable) {
           resultat = {
             executable: false,
@@ -195,11 +273,11 @@ export async function preparerBac(
         }
       }
     }
-    preflight = resultat.motif;
+    preflight = `${resultat.motif}${lieuDuBac(fournisseur, image)}`;
     ({ decision, fournisseur } = deciderAvecPreflight(mode, fournisseur, image, resultat));
   }
   const lignes = annonce(decision, fournisseur);
-  if (preflight && fournisseur) lignes.splice(1, 0, `   Preflight : ${preflight} (image ${image})`);
+  if (preflight && fournisseur) lignes.splice(1, 0, `   Preflight : ${preflight}`);
   return {
     decision,
     fournisseur,
@@ -222,11 +300,21 @@ export async function preparerBac(
  * `processus` : cwd et environnement épurés, rien de plus, et l'écran le dit.
  */
 export function isolementDeclareDe(bac: Bac): IsolementDeclare {
-  if (bac.decision.isole && bac.fournisseur) {
+  if (bacActif(bac)) {
     return { niveau: 'conteneur', fournisseur: bac.fournisseur.nom };
   }
   // Sans moteur, « conteneur » serait un mensonge : on retombe sur ce qui tourne.
   return { niveau: bac.decision.niveau === 'conteneur' ? 'processus' : bac.decision.niveau };
+}
+
+/**
+ * Les tâches de ce nœud tourneront-elles dans un bac ? La décision ET le moteur
+ * doivent le dire ensemble — une seule réponse, pour l'option passée au client,
+ * pour ce qui est déclaré au hub, et pour savoir si une session de l'hôte
+ * compte encore comme identifiant.
+ */
+export function bacActif(bac: Bac): bac is Bac & { fournisseur: Fournisseur } {
+  return bac.decision.isole && bac.fournisseur !== null;
 }
 
 /**
@@ -242,7 +330,7 @@ export function optionBac(
 ):
   | { bac: { fournisseur: Fournisseur; variables: string[]; image: string } }
   | Record<string, never> {
-  if (!bac.decision.isole || !bac.fournisseur) return {};
+  if (!bacActif(bac)) return {};
   return {
     bac: {
       fournisseur: bac.fournisseur,

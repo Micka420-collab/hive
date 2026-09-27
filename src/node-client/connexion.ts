@@ -40,6 +40,12 @@ export interface OutilsConnexion {
   env?: NodeJS.ProcessEnv;
   existe?: (chemin: string) => boolean;
   plateforme?: string;
+  /**
+   * Les sessions de l'hôte (`~/.claude`…) comptent-elles ? Faux quand les tâches
+   * tournent dans un bac : il ne les monte pas, et une clé « présente » sur la foi
+   * d'un dossier que l'agent ne verra jamais serait un constat faux envoyé au hub.
+   */
+  sessionsHote?: boolean;
 }
 
 /**
@@ -65,6 +71,7 @@ function etatCle(agent: AgentType, env: NodeJS.ProcessEnv, outils: OutilsConnexi
   const manque = requisitionSiCredentialsManquantes(agent, env, {
     ...(outils.existe ? { existe: outils.existe } : {}),
     ...(outils.plateforme ? { plateforme: outils.plateforme } : {}),
+    ...(outils.sessionsHote !== undefined ? { sessionsHote: outils.sessionsHote } : {}),
   });
   return manque === null ? 'presente' : 'absente';
 }

@@ -11,6 +11,17 @@
 // « isolé ✓ » sans dire que le réseau reste ouvert ferait prendre un risque à
 // quelqu'un qui croit ne pas en prendre.
 
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as agentWindows from '../src/shared/agent-windows.js';
 import {
@@ -22,11 +33,15 @@ import {
   MODES,
   MONTAGE,
   PROCESSUS_MAX,
+  VARIABLES_CHEMIN_HOTE,
   constat,
   decider,
   envelopper,
   fournisseurParNom,
+  installationHote,
   modeDepuisEnv,
+  racineDePaquet,
+  type ContexteHote,
 } from '../src/node-client/isolement.js';
 import type { Fournisseur } from '../src/node-client/isolement.js';
 import { runCommand, runCommandStreaming } from '../src/adapters/exec.js';
@@ -36,12 +51,20 @@ const DOCKER = fournisseurParNom('docker') as Fournisseur;
 const BWRAP = fournisseurParNom('bubblewrap') as Fournisseur;
 const CWD = '/home/membre/.hive/taches/t-42';
 
+/**
+ * Un hôte où rien n'est installé hors du système : les arguments de bubblewrap
+ * ne dépendent alors pas des agents présents sur la machine qui fait tourner
+ * le banc. Ceux qui éprouvent l'installation fabriquent la leur.
+ */
+const HOTE_NU: ContexteHote = { chemin: '', interdits: [] };
+
 /** Enveloppe d'une commande d'agent typique. */
 function enveloppe(f: Fournisseur, variables: string[] = ['ANTHROPIC_API_KEY']) {
   return envelopper('claude', ['-p', 'corriger le bug'], {
     fournisseur: f,
     cwdHote: CWD,
     variables,
+    hote: HOTE_NU,
   });
 }
 
@@ -237,6 +260,231 @@ describe('isolement — bubblewrap', () => {
     expect(i).toBeGreaterThan(0);
     expect(args.slice(i + 1)).toEqual(['claude', '-p', 'corriger le bug']);
   });
+
+  it('dit au processus OÙ il est : HOME éphémère, TMPDIR et tâche DANS le bac', () => {
+    // Ces trois variables pointaient vers des chemins de l'HÔTE que le bac ne
+    // monte pas : `mktemp` y rendait 1, et l'agent n'avait aucun HOME où écrire.
+    const { args } = enveloppe(BWRAP);
+    const poses = new Map<string, string>();
+    args.forEach((a, i) => {
+      if (a === '--setenv') poses.set(args[i + 1]!, args[i + 2]!);
+    });
+    expect(Object.fromEntries(poses)).toEqual({
+      HOME: HOME_CONTENEUR,
+      TMPDIR: '/tmp',
+      HIVE_TASK_CWD: MONTAGE,
+    });
+    // Le HOME existe réellement, et dans le tmpfs : effacé à l'arrêt.
+    expect(args.indexOf('--dir')).toBeGreaterThan(args.indexOf('--tmpfs'));
+    expect(args[args.indexOf('--dir') + 1]).toBe(HOME_CONTENEUR);
+  });
+
+  it('AUCUN chemin de l’hôte ne traverse — TEMP, TMP, et les dossiers de session', () => {
+    const { args } = enveloppe(BWRAP);
+    const retires = args.flatMap((a, i) => (a === '--unsetenv' ? [args[i + 1]] : []));
+    for (const v of ['TEMP', 'TMP', ...VARIABLES_CHEMIN_HOTE.filter((x) => x !== 'HOME')]) {
+      expect(retires, v).toContain(v);
+    }
+    // `GROK_HOME` en est : la session de navigateur de Grok est un dossier de
+    // l'hôte, que le bac ne monte pas.
+    expect(retires).toContain('GROK_HOME');
+  });
+
+  it('les outils ordinaires y trouvent leur /etc — sans jamais /etc/shadow', () => {
+    const { args } = enveloppe(BWRAP);
+    for (const f of [
+      '/etc/passwd',
+      '/etc/group',
+      '/etc/hosts',
+      '/etc/nsswitch.conf',
+      '/etc/alternatives',
+    ]) {
+      const i = args.indexOf(f);
+      expect(args[i - 1], f).toBe('--ro-bind-try');
+      expect(args[i + 1], f).toBe(f);
+    }
+    expect(args.join(' ')).not.toContain('shadow');
+    expect(args.join(' ')).not.toMatch(/--bind(-try)? \/etc/);
+  });
+
+  it('aucune valeur secrète n’entre dans argv, même quand l’environnement en porte', () => {
+    // bubblewrap fait HÉRITER l'environnement de la tâche : ses clés n'ont
+    // aucune raison de passer par `--setenv`, où `ps` les lirait.
+    vi.stubEnv('CLAUDE_CODE_OAUTH_TOKEN', 'sk-ant-oat01-ne-doit-pas-fuir');
+    vi.stubEnv('CODEX_API_KEY', 'sk-codex-ne-doit-pas-fuir');
+    try {
+      const { args } = envelopper('claude', ['-p', 'x'], {
+        fournisseur: BWRAP,
+        cwdHote: CWD,
+        variables: ['CLAUDE_CODE_OAUTH_TOKEN', 'CODEX_API_KEY'],
+        hote: HOTE_NU,
+      });
+      expect(args.join(' ')).not.toContain('ne-doit-pas-fuir');
+      expect(args).not.toContain('CLAUDE_CODE_OAUTH_TOKEN');
+      expect(args).not.toContain('CODEX_API_KEY');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});
+
+// ─── BUBBLEWRAP ET L'AGENT QUE LE MEMBRE A RÉELLEMENT INSTALLÉ ───────────────
+//
+// Mesuré sur un hôte réel : le preflight bubblewrap passait pour `git` et
+// échouait pour `claude`, `codex`, `cursor-agent` et `node`, tous installés
+// sous `$HOME` que le bac ne montait pas. Ces bancs fabriquent de VRAIES
+// installations (fichiers, liens, préfixe Node) et regardent ce qui est monté.
+// Bubblewrap n'existe que sous Linux ; les liens symboliques de Windows
+// exigent des droits que le runner n'a pas.
+describe.skipIf(process.platform === 'win32')('isolement — bubblewrap monte l’installation', () => {
+  let racine = '';
+  afterEach(() => {
+    if (racine) rmSync(racine, { recursive: true, force: true });
+    racine = '';
+  });
+
+  /** Un exécutable réel, au chemin demandé. */
+  const executable = (chemin: string, contenu = '#!/bin/sh\nexit 0\n'): string => {
+    mkdirSync(path.dirname(chemin), { recursive: true });
+    writeFileSync(chemin, contenu);
+    chmodSync(chemin, 0o755);
+    return chemin;
+  };
+  const lien = (cible: string, chemin: string): void => {
+    mkdirSync(path.dirname(chemin), { recursive: true });
+    symlinkSync(cible, chemin);
+  };
+  // `realpath` : sous macOS, le dossier temporaire est un lien vers /private.
+  const hoteFactice = (): string =>
+    (racine = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'hive-hote-'))));
+
+  it('installeur natif : la version installée, et le lien du PATH recréé — pas ~/.local/bin', () => {
+    const maison = path.join(hoteFactice(), 'home');
+    const version = executable(path.join(maison, '.local/share/agent/versions/1.0.0'));
+    lien(version, path.join(maison, '.local/bin/agent'));
+    executable(path.join(maison, '.local/bin/autre-outil'));
+
+    const r = installationHote('agent', {
+      chemin: path.join(maison, '.local/bin'),
+      interdits: [maison],
+    });
+    expect(r.racines).toEqual([path.join(maison, '.local/share/agent/versions')]);
+    expect(r.liens).toEqual([{ lien: path.join(maison, '.local/bin/agent'), cible: version }]);
+    // Le reste de ~/.local/bin n'est PAS monté : le lien suffit au nom logique.
+    expect(r.racines.some((d) => d.endsWith('.local/bin'))).toBe(false);
+  });
+
+  it('paquet npm : le PAQUET entier (binaire natif compris), et le préfixe de Node', () => {
+    const prefixe = path.join(hoteFactice(), 'node');
+    executable(path.join(prefixe, 'bin/node'));
+    const lanceur = executable(
+      path.join(prefixe, 'lib/node_modules/@openai/codex/bin/codex.js'),
+      '#!/usr/bin/env node\n',
+    );
+    lien('../lib/node_modules/@openai/codex/bin/codex.js', path.join(prefixe, 'bin/codex'));
+
+    const r = installationHote('codex', { chemin: path.join(prefixe, 'bin'), interdits: [] });
+    // `bin/` pour `node` lui-même, `lib/` pour npm et les CLI globaux — et le
+    // paquet de Codex, dessous, n'est pas monté deux fois.
+    expect(r.racines).toEqual([path.join(prefixe, 'bin'), path.join(prefixe, 'lib')]);
+    // `bin/codex` est déjà visible dans le préfixe monté : rien à recréer.
+    expect(r.liens).toEqual([]);
+    expect(racineDePaquet(lanceur)).toBe(path.join(prefixe, 'lib/node_modules/@openai/codex'));
+  });
+
+  it('le `node` du PATH vient avec toute commande : pont MCP, `#!/usr/bin/env node`', () => {
+    const base = hoteFactice();
+    executable(path.join(base, 'nvm/versions/node/v24/bin/node'));
+    lien(path.join(base, 'nvm/versions/node/v24/bin/node'), path.join(base, 'bin/node'));
+    executable(path.join(base, 'outils/agent'));
+
+    const r = installationHote('agent', {
+      chemin: [path.join(base, 'bin'), path.join(base, 'outils')].join(path.delimiter),
+      interdits: [],
+    });
+    // Ce préfixe n'a pas de `lib/` : une racine absente n'est pas montée
+    // (`--ro-bind` refuserait de démarrer).
+    expect(r.racines).toEqual([
+      path.join(base, 'outils'),
+      path.join(base, 'nvm/versions/node/v24/bin'),
+    ]);
+    expect(r.liens).toEqual([
+      {
+        lien: path.join(base, 'bin/node'),
+        cible: path.join(base, 'nvm/versions/node/v24/bin/node'),
+      },
+    ]);
+  });
+
+  it('JAMAIS le HOME, ni un de ses parents : la commande reste invisible', () => {
+    // Un binaire posé à même le HOME donnerait le HOME entier comme racine —
+    // clés SSH comprises. On préfère un preflight qui échoue et le dit.
+    const maison = path.join(hoteFactice(), 'home');
+    executable(path.join(maison, 'agent'));
+    const r = installationHote('agent', { chemin: maison, interdits: [maison] });
+    expect(r.racines).toEqual([]);
+  });
+
+  it('jamais l’installation de Hive ni le répertoire des tâches', () => {
+    const hive = path.join(hoteFactice(), 'hive');
+    executable(path.join(hive, 'agent'));
+    const tache = path.join(hive, '.hive-work/n/tasks/t-1');
+    mkdirSync(tache, { recursive: true });
+    const { args } = envelopper('agent', [], {
+      fournisseur: BWRAP,
+      cwdHote: tache,
+      variables: [],
+      hote: { chemin: hive, interdits: [] },
+    });
+    // Le seul montage de `hive` est la tâche elle-même, sur le point de montage.
+    expect(args.filter((a) => a.startsWith(hive))).toEqual([tache]);
+  });
+
+  it('une entrée relative du PATH ne résout rien — elle viserait le cwd de Hive', () => {
+    const base = hoteFactice();
+    executable(path.join(base, 'agent'));
+    // Relative au cwd du banc, cette entrée ATTEINT l'agent : seule la règle
+    // « jamais d'entrée relative » l'empêche d'être résolue et montée.
+    const relative = path.relative(process.cwd(), base);
+    expect(path.isAbsolute(relative)).toBe(false);
+    expect(installationHote('agent', { chemin: relative, interdits: [] })).toEqual({
+      racines: [],
+      liens: [],
+    });
+  });
+
+  it('ce que le système monte déjà n’est pas remonté', () => {
+    // `/bin/sh` existe sur tout hôte POSIX ; sa vraie place est sous /usr ou /bin.
+    const r = installationHote('sh', { chemin: '/bin:/usr/bin', interdits: [] });
+    expect(r.racines).toEqual([]);
+    expect(r.liens).toEqual([]);
+  });
+
+  it('l’enveloppe monte ce qu’elle a trouvé, en LECTURE SEULE, et lance le NOM logique', () => {
+    const maison = path.join(hoteFactice(), 'home');
+    const version = executable(path.join(maison, '.local/share/agent/versions/1.0.0'));
+    lien(version, path.join(maison, '.local/bin/agent'));
+    const { args } = envelopper('agent', ['--version'], {
+      fournisseur: BWRAP,
+      cwdHote: CWD,
+      variables: [],
+      hote: { chemin: path.join(maison, '.local/bin'), interdits: [maison] },
+    });
+    const dossier = path.join(maison, '.local/share/agent/versions');
+    const i = args.indexOf(dossier);
+    expect(args.slice(i - 1, i + 2)).toEqual(['--ro-bind', dossier, dossier]);
+    // Monté APRÈS le tmpfs de /tmp : une installation sous /tmp resterait visible.
+    expect(i).toBeGreaterThan(args.indexOf('--tmpfs'));
+    const j = args.indexOf('--symlink');
+    expect(args.slice(j, j + 3)).toEqual([
+      '--symlink',
+      version,
+      path.join(maison, '.local/bin/agent'),
+    ]);
+    // Toujours un seul chemin inscriptible.
+    expect(args.filter((a) => a === '--bind')).toHaveLength(1);
+    expect(args.slice(args.indexOf('--') + 1)).toEqual(['agent', '--version']);
+  });
 });
 
 describe('isolement — ne jamais prétendre plus qu’on ne fait', () => {
@@ -405,6 +653,27 @@ describe('isolement — câblage : l’enveloppe atteint vraiment le spawn', () 
     expect(r.logs).toContain('--cap-drop=ALL');
     expect(lignes.join('\n')).toContain('--read-only');
   });
+
+  it.each(['classique', 'flux'] as const)(
+    'l’entrée de l’agent est FERMÉE : un CLI qui lit stdin jusqu’au bout ne bloque pas — %s',
+    async (mode) => {
+      // `codex exec` ajoute au prompt ce qu'il lit sur une entrée qui n'est pas
+      // un terminal, jusqu'à la fin de fichier. Un tube ouvert que Hive
+      // n'écrit jamais le laissait attendre jusqu'au délai dur : 15 minutes par
+      // tâche. Ce faux agent fait exactement la même lecture.
+      const lecteur = [
+        '-e',
+        "process.stdin.resume(); process.stdin.on('end', () => console.log('fin-de-l-entree'));",
+      ];
+      const r =
+        mode === 'classique'
+          ? await runCommand(process.execPath, lecteur, ctx(), 5_000)
+          : await runCommandStreaming(process.execPath, lecteur, ctx(), () => {}, 5_000);
+      expect(r.logs).not.toContain('timeout');
+      expect(r.success, r.logs).toBe(true);
+      expect(r.logs.trim()).toBe('fin-de-l-entree');
+    },
+  );
 
   it('le secret passe par son NOM, jusque dans le processus lancé', async () => {
     const r = await runCommand(

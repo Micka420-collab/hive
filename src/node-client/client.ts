@@ -850,7 +850,11 @@ export class HiveNodeClient {
     // agent qu'elle ne connaît pas.
     const agent = this.opts.agentType;
     if (!estAgentType(agent)) return;
-    const req = requisitionSiCredentialsManquantes(agent);
+    // Dans un bac, la session de l'hôte (`~/.claude`…) n'atteint pas l'agent :
+    // elle ne compte plus, et la réquisition nomme le jeton à poser.
+    const req = requisitionSiCredentialsManquantes(agent, process.env, {
+      sessionsHote: !this.opts.bac,
+    });
     if (!req) return;
     this.requisitionCredentialEnvoyee = true;
     this.ouvrirRequisition(req.genre, req.libelle, req.detail);
@@ -1024,7 +1028,13 @@ export class HiveNodeClient {
       usage = executionUsageDepuis(usageBefore, capturerExecutionUsage());
       // Échec d'INFRASTRUCTURE : réquisition mid-task si credentials, sinon failover.
       if (!result.success && result.infra) {
-        const req = requisitionDepuisEchecInfra(this.opts.agentType, result.logs, task.title);
+        const req = requisitionDepuisEchecInfra(
+          this.opts.agentType,
+          result.logs,
+          task.title,
+          process.env,
+          { sessionsHote: !this.opts.bac },
+        );
         if (req && workspace && !this.attenteRequisition) {
           conserverWorkspace = true;
           this.attenteRequisition = {
@@ -1193,7 +1203,13 @@ export class HiveNodeClient {
           : rawResult;
       usage = executionUsageDepuis(usageBefore, capturerExecutionUsage());
       if (!result.success && result.infra) {
-        const encore = requisitionDepuisEchecInfra(this.opts.agentType, result.logs, task.title);
+        const encore = requisitionDepuisEchecInfra(
+          this.opts.agentType,
+          result.logs,
+          task.title,
+          process.env,
+          { sessionsHote: !this.opts.bac },
+        );
         if (encore?.genre === 'binaire') {
           this.attenteRequisition = {
             ...attente,

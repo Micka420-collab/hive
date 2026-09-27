@@ -761,6 +761,8 @@ describe('LA GARDE : aucune écriture ne s’ajoute en douce hors de l’inventa
       'src/cyber-hive/anti-trace-v2.ts':
         'compose les chemins des traces système uniquement en mode réel explicitement activé',
       'src/desinstallation.ts': 'construit le contexte du relevé — il CHERCHE, il n’écrit pas',
+      'src/node-client/isolement.ts':
+        'construit le contexte de bubblewrap — il lit le HOME pour REFUSER de le monter, il n’écrit pas',
       'src/service-reel.ts': 'construit le contexte du service — le chemin vient du module pur',
     };
     const avec = sources()

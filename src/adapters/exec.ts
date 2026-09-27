@@ -22,6 +22,20 @@ const OUTPUT_CAP = 512 * 1024;
 const DEFAULT_TIMEOUT_MS = 5 * 60_000;
 
 /**
+ * L'agent est piloté par argv : son entrée standard est FERMÉE (`/dev/null`).
+ *
+ * ─── UNE ENTRÉE OUVERTE QUE PERSONNE N'ÉCRIT, C'EST UNE ATTENTE SANS FIN ─────
+ *
+ * Le défaut de `spawn` est un tube que Hive n'écrit ni ne ferme jamais. Or
+ * `codex exec` AJOUTE au prompt ce qu'il lit sur une entrée qui n'est pas un
+ * terminal, jusqu'à la fin de fichier (codex-rs/exec, « Reading additional input
+ * from stdin... ») : mesuré avec codex-cli 0.156.0, la tâche restait bloquée
+ * jusqu'au délai dur — 15 minutes par tâche Codex, dans le bac comme dehors.
+ * Claude Code, lui, perdait 3 s à attendre une entrée qui ne venait pas.
+ */
+const ENTREE_FERMEE: ['ignore', 'pipe', 'pipe'] = ['ignore', 'pipe', 'pipe'];
+
+/**
  * Motifs signalant un échec d'INFRASTRUCTURE de l'agent (auth/quota/crédit) plutôt
  * qu'un échec de la tâche. Sert au token-failover : la tâche est réaffectée à un
  * autre nœud plutôt que de brûler une tentative. Volontairement large ; un faux
@@ -30,7 +44,11 @@ const DEFAULT_TIMEOUT_MS = 5 * 60_000;
 const INFRA_FAILURE_RE =
   /unauthor|authentication|not logged in|forbidden|\b401\b|\b403\b|\b429\b|quota|rate.?limit|insufficient|out of credit|billing|api[_ -]?key|invalid.{0,12}key|login|sign in|subscription/i;
 
-/** Le bac résout le même nom logique que son preflight, jamais un chemin hôte. */
+/**
+ * Le bac reçoit le même nom logique que son preflight, jamais un chemin hôte :
+ * c'est l'enveloppe qui le résout — dans l'image pour un conteneur, sur l'hôte
+ * monté en lecture seule pour bubblewrap (`installationHote`).
+ */
 function preparerCommande(bin: string, args: string[], ctx: AdapterContext) {
   const [binReel = bin, ...avant] = ctx.bac
     ? [bin]
@@ -66,6 +84,7 @@ export function runCommand(
       shell: false, // jamais d'interprétation shell (contrainte §5.1)
       windowsHide: true,
       signal: ctx.signal,
+      stdio: ENTREE_FERMEE,
     });
 
     let output = '';
@@ -129,6 +148,7 @@ export function runCommandStreaming(
       shell: false, // jamais d'interprétation shell (contrainte §5.1)
       windowsHide: true,
       signal: ctx.signal,
+      stdio: ENTREE_FERMEE,
     });
 
     let output = '';
