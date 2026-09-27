@@ -46,6 +46,20 @@ export const MERGE_PREPARATION_MS = 10 * 60_000;
 /** La commande de test d'un merge. */
 export const MERGE_TESTS_MS = 5 * 60_000;
 
+/**
+ * Une commande de la livraison locale qui parle au dépôt DISTANT : le
+ * `ls-remote` avant les tests, la poussée après — deux par merge.
+ *
+ * `GCM_INTERACTIVE=Never` (`envTransportGit`) ferme la porte qu'on connaît ;
+ * ce plafond ferme les autres — un serveur qui accepte la connexion puis se
+ * tait, un assistant d'identifiants qu'on n'a pas prévu. Sans lui, le job de
+ * merge et son clone resteraient pris jusqu'au redémarrage du nœud, pendant
+ * que le hub conclurait « issue inconnue » à son propre délai. Deux minutes :
+ * un `ls-remote` rend en une seconde, et une poussée de mission n'envoie que
+ * ce que le dépôt n'a pas déjà.
+ */
+export const DELAI_RESEAU_MS = 2 * 60_000;
+
 /** Une pose d'outil. Une installation plus longue que ça a un vrai problème. */
 export const POSE_DELAI_MS = 10 * 60_000;
 
@@ -56,9 +70,12 @@ export const POSE_DELAI_MS = 10 * 60_000;
  */
 export const MARGE_RETOUR_NOEUD_MS = 5 * 60_000;
 
-/** Au-delà, le hub déclare perdu un merge sans résultat : clone, préparation, tests. */
+/**
+ * Au-delà, le hub déclare perdu un merge sans résultat : clone, préparation,
+ * tests — et les deux appels au dépôt distant d'une livraison locale.
+ */
 export const MERGE_TIMEOUT_MS =
-  CLONE_MS + MERGE_PREPARATION_MS + MERGE_TESTS_MS + MARGE_RETOUR_NOEUD_MS;
+  CLONE_MS + MERGE_PREPARATION_MS + MERGE_TESTS_MS + 2 * DELAI_RESEAU_MS + MARGE_RETOUR_NOEUD_MS;
 
 /** Au-delà, le hub déclare perdu un chantier sans résultat : clone, préparation, script. */
 export const CHANTIER_TIMEOUT_MS =

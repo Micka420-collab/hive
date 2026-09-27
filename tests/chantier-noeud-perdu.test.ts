@@ -52,6 +52,9 @@ import {
   CHANTIER_EXECUTION_MS,
   CHANTIER_PREPARATION_MS,
   CLONE_MS,
+  DELAI_RESEAU_MS,
+  MERGE_PREPARATION_MS,
+  MERGE_TESTS_MS,
   POSE_DELAI_MS,
 } from '../src/shared/butoirs-noeud.js';
 import { PAQUETS } from '../src/shared/connexion-agent.js';
@@ -421,5 +424,47 @@ describe('les chantiers et les poses d’un nœud qui se déconnecte', () => {
     expect(v?.ok).toBe(false);
     expect(v?.sortie).toContain('délai dépassé');
     expect(await attendre(poseClose), 'la pose d’un nœud muet n’a jamais expiré').toBe(true);
+  });
+
+  it('UN MERGE DE LIVRAISON CHEZ UN NŒUD MUET : pas perdu avant ses bornes — les deux appels au dépôt distant compris', async () => {
+    // Le nœud a le droit de cloner, préparer, tester, puis — livraison
+    // locale — d'appeler deux fois le dépôt du projet (`ls-remote`, poussée),
+    // chacun sous `DELAI_RESEAU_MS`. Un délai du hub qui oublie ces deux
+    // appels déclare perdue une livraison qui pousse encore.
+    const srv = await ruche(50);
+    await inscrire(srv, 'noeud-muet');
+    const projet = srv.store.createProject({ name: 'muet', repoUrl: await depotLocal() });
+    srv.store.createTask({ id: 'a-livrer', projectId: projet.id, title: 't', prompt: 'p' });
+    srv.store.patchTask('a-livrer', { status: 'done' });
+    srv.store.insertResult({
+      taskId: 'a-livrer',
+      nodeId: 'banc',
+      success: true,
+      diff: 'diff --git a/x.md b/x.md\nnew file mode 100644\n--- /dev/null\n+++ b/x.md\n@@ -0,0 +1 @@\n+x\n',
+      logs: '',
+      durationMs: 1,
+      subAgents: [],
+    });
+
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const t0 = Date.now();
+    const res = await fetch(`${base}/api/projects/${projet.id}/livraison-locale`, {
+      method: 'POST',
+      headers,
+      body: '{}',
+    });
+    expect(res.status, await res.clone().text()).toBe(202);
+    const { mergeId } = (await res.json()) as { mergeId: string };
+    const perdu = async () =>
+      (await journal()).some((e) => e.type === 'merge_failed' && e.payload.mergeId === mergeId);
+
+    // Quatre minutes au-delà des bornes du nœud, comme pour le chantier.
+    const bornes = CLONE_MS + MERGE_PREPARATION_MS + MERGE_TESTS_MS + 2 * DELAI_RESEAU_MS;
+    vi.setSystemTime(t0 + bornes + 4 * 60_000);
+    await new Promise((r) => setTimeout(r, 400));
+    expect(await perdu(), 'une livraison encore en droit de pousser a été abandonnée').toBe(false);
+
+    vi.setSystemTime(t0 + 2 * 3_600_000);
+    expect(await attendre(perdu), 'le merge d’un nœud muet n’a jamais expiré').toBe(true);
   });
 });

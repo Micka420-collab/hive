@@ -59,6 +59,7 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { simpleGit } from 'simple-git';
+import { DELAI_RESEAU_MS } from '../shared/butoirs-noeud.js';
 import {
   CONSENTEMENT_POUSSEE,
   brancheDeMission,
@@ -96,19 +97,6 @@ const IDENTITE_RUCHE = {
  * soit GARDÉE.
  */
 const REF_TRANSIT = 'refs/hive/livraison';
-
-/**
- * Le plafond d'une commande qui parle au dépôt DISTANT (`ls-remote`, `push`).
- *
- * `GCM_INTERACTIVE=Never` (`envTransportGit`) ferme la porte qu'on connaît ;
- * ce plafond ferme les autres — un serveur qui accepte la connexion puis se
- * tait, un assistant d'identifiants qu'on n'a pas prévu. Sans lui, le job de
- * merge et son clone resteraient pris jusqu'au redémarrage du nœud, pendant
- * que le hub conclurait « issue inconnue » à son propre délai. Deux minutes :
- * un `ls-remote` rend en une seconde, et une poussée de mission n'envoie que
- * ce que le dépôt n'a pas déjà.
- */
-const DELAI_RESEAU_MS = 2 * 60_000;
 
 /** Ce que le nœud apporte à une livraison, en plus de la demande du hub. */
 export interface LivraisonDuNoeud {
