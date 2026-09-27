@@ -3,18 +3,17 @@
 // ─── LE MANQUE QUE CE BANC COMBLE ─────────────────────────────────────────────
 //
 // Une fusion confiée à un nœud vit dans `pendingMerges` jusqu'à ce que ce nœud
-// réponde. Si sa connexion tombe entre-temps, personne ne répondra JAMAIS :
+// réponde. Si sa connexion tombe entre-temps, la réponse peut ne jamais venir :
 // `/merge/result` resterait `null` pour toujours, et l'entrée fuirait en
-// mémoire. Le serveur ferme donc les fusions du partant à la fermeture du
-// socket (`server.ts`, `abandonnerTravauxDuNoeud`, appelé par le gestionnaire
-// `ws.on('close')` — les chantiers et les poses y passent aussi, voir
-// `chantier-noeud-perdu.test.ts`).
+// mémoire. Le serveur donne donc une issue aux fusions du partant à la
+// fermeture du socket (`server.ts`, `abandonnerTravauxDuNoeud`, appelé par le
+// gestionnaire `ws.on('close')` — les chantiers et les poses y passent aussi,
+// voir `chantier-noeud-perdu.test.ts`). Une issue « contact perdu », pas le
+// dernier mot : si le MÊME nœud revient rendre sa fusion, elle compte.
 //
-// Cette boucle tient sur une seule comparaison :
+// Le tri tient sur une seule comparaison :
 //
-//     for (const [mergeId, p] of pendingMerges) {
-//       if (p.nodeId === nodeId) failMerge(mergeId, reason);
-//     }
+//     [...travaux].filter(([, p]) => p.nodeId === nodeId && !p.contactPerdu)
 //
 // ─── CE QUI A ÉTÉ MESURÉ AVANT D'ÉCRIRE CE FICHIER ────────────────────────────
 //
@@ -217,5 +216,45 @@ describe('la fusion d’un nœud qui se déconnecte', () => {
     // ce délai laisse largement le temps au dégât de se produire.
     await new Promise((r) => setTimeout(r, 500));
     expect(await resultat(projetZ), 'la fusion d’un nœud resté connecté a été tuée').toBeNull();
+  });
+
+  it('SI LE NŒUD REVIENT, SA FUSION COMPTE — l’issue « contact perdu » n’était pas le dernier mot', async () => {
+    // Le nœud ne s'arrête pas quand sa socket tombe : il finit sa fusion et la
+    // rend sur la connexion suivante. L'écarter jetait un vrai merge — diffs
+    // appliqués, tests lancés — pour un échec que le hub n'avait pas vu.
+    const wsA = await inscrire('a-ouvriere');
+    const projet = projetFusionnable('alpha');
+    const lance = await fetch(`${base}/api/projects/${projet}/merge/run`, {
+      method: 'POST',
+      headers,
+      body: '{}',
+    });
+    const { mergeId } = (await lance.json()) as { mergeId: string };
+
+    wsA.close();
+    await attendre(async () => (await resultat(projet)) !== null, 5_000);
+
+    const retour = await inscrire('a-ouvriere');
+    envoyer(retour, {
+      type: 'merge_result',
+      mergeId,
+      applied: ['t-alpha'],
+      conflicts: [],
+      mergedDiff: '',
+      testsRun: true,
+      testsPassed: true,
+      logs: 'fusion finie après le blip',
+    });
+
+    const rendu = await attendre(
+      async () => (await resultat(projet))?.logs === 'fusion finie après le blip',
+      5_000,
+    );
+    expect(rendu, 'la vraie fusion du nœud revenu a été écartée').toBe(true);
+    expect(await resultat(projet)).toMatchObject({
+      mergeId,
+      applied: ['t-alpha'],
+      testsPassed: true,
+    });
   });
 });

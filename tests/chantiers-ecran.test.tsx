@@ -291,7 +291,7 @@ describe('l’écran des Chantiers', () => {
     const perdu: VerdictChantier = {
       nom: 'test',
       code: null,
-      sortie: '[hub] chantier interrompu : nœud déconnecté',
+      sortie: '[hub] chantier sans résultat : nœud déconnecté — issue inconnue',
       ok: false,
     };
     vi.mocked(fetchVerdictChantier).mockResolvedValue({ resultat: perdu });
@@ -301,7 +301,12 @@ describe('l’écran des Chantiers', () => {
       id: 40,
       ts: 40,
       type: 'chantier_failed',
-      payload: { projectId: 'p2', nom: 'test', code: null, reason: 'nœud déconnecté' },
+      payload: {
+        projectId: 'p2',
+        nom: 'test',
+        code: null,
+        reason: 'nœud déconnecté — issue inconnue',
+      },
     };
     await rendre(projets, [ailleurs]);
     expect(vi.mocked(fetchVerdictChantier).mock.calls.length).toBe(lectures);

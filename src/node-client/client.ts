@@ -17,12 +17,8 @@ import {
   requisitionSiCredentialsManquantes,
 } from './agent-detect.js';
 import type { AgentType } from './agent-detect.js';
-import {
-  argvDe,
-  CHANTIER_EXECUTION_MS,
-  CHANTIER_PREPARATION_MS,
-  jugerChantier,
-} from '../shared/chantier.js';
+import { argvDe, jugerChantier } from '../shared/chantier.js';
+import { CHANTIER_EXECUTION_MS, CHANTIER_PREPARATION_MS } from '../shared/butoirs-noeud.js';
 import { jugerCommandeTest } from '../shared/commande-test.js';
 import { jugerPreparation } from '../shared/preparation.js';
 import { isOnShift, minutesUntilOpen, nightShiftFromEnv } from '../shared/night-shift.js';

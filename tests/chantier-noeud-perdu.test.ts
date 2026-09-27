@@ -25,6 +25,18 @@
 // travail d'un AUTRE nœud survit au départ d'un voisin, et le hub n'abandonne
 // pas un chantier que le nœud a encore le droit de faire tourner.
 //
+// ─── ET UNE ISSUE QUI N'EST PAS LE DERNIER MOT ───────────────────────────────
+//
+// La première version de ce correctif CLOSAIT l'entrée à la fermeture du
+// socket. Or le nœud n'arrête rien quand sa socket tombe : il finit son
+// travail et le rend sur la connexion suivante, quelques secondes plus tard
+// après un blip. Ce vrai résultat était alors écarté comme orphelin, et
+// l'écran gardait un échec que la Reine avait inventé — mesuré sur un vrai
+// serveur : verdict `ok: false` « nœud déconnecté », journal
+// `chantier_result_ignored`, alors que le nœud rendait `ok: true`. L'issue dit
+// donc « issue inconnue », et le résultat du MÊME nœud, s'il revient, la
+// remplace ; celui d'un autre nœud, jamais.
+//
 // Rien n'est simulé côté Reine : de vrais sockets sur un vrai serveur, qui
 // reçoivent vraiment leur `assign_chantier` / `poser_outil` et se taisent.
 
@@ -36,9 +48,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
-import { CHANTIER_EXECUTION_MS, CHANTIER_PREPARATION_MS } from '../src/shared/chantier.js';
+import {
+  CHANTIER_EXECUTION_MS,
+  CHANTIER_PREPARATION_MS,
+  CLONE_MS,
+  POSE_DELAI_MS,
+} from '../src/shared/butoirs-noeud.js';
 import { PAQUETS } from '../src/shared/connexion-agent.js';
-import { POSE_DELAI_MS } from '../src/shared/pose-outil.js';
 import type { ChantierResultMsg } from '../src/shared/protocol.js';
 import type { HiveEvent } from '../src/shared/types.js';
 
@@ -212,7 +228,10 @@ describe('les chantiers et les poses d’un nœud qui se déconnecte', () => {
     expect(v?.code).toBeNull();
     // Le nœud n'a rien REFUSÉ, il a disparu : les deux appellent des gestes opposés.
     expect(v?.refused).toBeUndefined();
+    // Et il ne prétend pas savoir comment le travail a fini : il a perdu le
+    // contact, rien de plus.
     expect(v?.sortie).toContain('nœud déconnecté');
+    expect(v?.sortie).toContain('issue inconnue');
 
     const echec = (await journal()).find(
       (e) => e.type === 'chantier_failed' && e.payload.chantierId === chantierId,
@@ -222,7 +241,7 @@ describe('les chantiers et les poses d’un nœud qui se déconnecte', () => {
       projectId: projet.id,
       nodeId: 'a-ouvriere',
       nom: 'test',
-      reason: 'nœud déconnecté',
+      reason: expect.stringMatching(/^nœud déconnecté — issue inconnue/),
     });
   });
 
@@ -260,17 +279,96 @@ describe('les chantiers et les poses d’un nœud qui se déconnecte', () => {
 
     const fin = async () =>
       (await journal()).find(
-        (e) => e.type === 'outil_pose_interrompue' && e.payload.poseId === poseId,
+        (e) => e.type === 'outil_pose_sans_reponse' && e.payload.poseId === poseId,
       );
     expect(await attendre(async () => (await fin()) !== undefined)).toBe(true);
     expect((await fin())?.payload).toMatchObject({
       nodeId: 'noeud-poseur',
       outilId: INSTALLABLE,
-      reason: 'nœud déconnecté',
+      reason: expect.stringMatching(/^nœud déconnecté — issue inconnue/),
     });
   });
 
-  it('UN NŒUD CONNECTÉ MAIS MUET : chantier et pose expirent — jamais avant ses propres bornes', async () => {
+  it('LE NŒUD QUI REVIENT REND SON VRAI RÉSULTAT — il remplace l’issue provisoire, un autre nœud ne le peut pas', async () => {
+    // `a-ouvriere` passe première par le nom : chantier et pose vont à elle.
+    const srv = await ruche(10_000);
+    const admin = await entetesAdmin();
+    const { ws: autre } = await inscrire(srv, 'z-autre');
+    const { ws, recus } = await inscrire(srv, 'a-ouvriere');
+    const projet = srv.store.createProject({ name: 'alpha', repoUrl: await depotLocal() });
+    const { chantierId, nodeId } = await lancerChantier(projet.id);
+    expect(nodeId).toBe('a-ouvriere');
+    const poseId = await poser('a-ouvriere', admin);
+    expect(await attendre(async () => recus.some((m) => m.type === 'poser_outil'))).toBe(true);
+
+    // Le blip : la socket tombe, l'issue provisoire est publiée.
+    ws.close();
+    expect(await attendre(async () => (await verdict(projet.id))?.ok === false)).toBe(true);
+
+    const chantierRendu = {
+      type: 'chantier_result',
+      chantierId,
+      nom: 'test',
+      code: 0,
+      sortie: 'tests verts',
+      ok: true,
+    };
+    const poseRendue = {
+      type: 'pose_result',
+      poseId,
+      outilId: INSTALLABLE,
+      code: 0,
+      sortie: 'posé',
+      ok: true,
+    };
+
+    // UN AUTRE nœud ne rend pas ce travail à sa place, contact perdu ou non.
+    // (Ses deux messages partent sur la même socket, dans l'ordre : une fois
+    // la pose écartée, le chantier l'a été avant elle.)
+    autre.send(JSON.stringify(chantierRendu));
+    autre.send(JSON.stringify(poseRendue));
+    const ecarteeDeLAutre = (e: HiveEvent): boolean =>
+      (e.type === 'outil_pose_usurpee' || e.type === 'outil_pose_ignoree') &&
+      e.payload.nodeId === 'z-autre';
+    expect(await attendre(async () => (await journal()).some(ecarteeDeLAutre))).toBe(true);
+    expect((await verdict(projet.id))?.ok, 'un autre nœud a écrit ce verdict').toBe(false);
+
+    // Le MÊME nœud revient — sa veille le reconnecte — et rend ce qu'il a fini.
+    const { ws: retour } = await inscrire(srv, 'a-ouvriere');
+    retour.send(JSON.stringify(chantierRendu));
+    retour.send(JSON.stringify(poseRendue));
+
+    expect(
+      await attendre(async () => (await verdict(projet.id))?.ok === true),
+      'le vrai résultat du nœud revenu a été écarté — l’échec inventé est resté',
+    ).toBe(true);
+    const v = await verdict(projet.id);
+    expect(v).toMatchObject({ chantierId, code: 0, sortie: 'tests verts' });
+    const evs = await journal();
+    expect(
+      evs.some((e) => e.type === 'chantier_completed' && e.payload.chantierId === chantierId),
+      'le journal n’annonce pas le vrai verdict — l’écran ne le relira pas',
+    ).toBe(true);
+    expect(
+      evs.some(
+        (e) =>
+          e.type === 'outil_pose_rendue' &&
+          e.payload.poseId === poseId &&
+          e.payload.nodeId === 'a-ouvriere',
+      ),
+      'la vraie issue de la pose a été écartée',
+    ).toBe(true);
+    // Accepté par le chemin ordinaire : rien d'écarté venant du nœud revenu.
+    expect(
+      evs.some(
+        (e) =>
+          (e.type === 'chantier_result_ignored' || e.type === 'outil_pose_ignoree') &&
+          e.payload.nodeId === 'a-ouvriere',
+      ),
+    ).toBe(false);
+  });
+
+  it('UN NŒUD CONNECTÉ MAIS MUET : chantier et pose expirent — jamais avant ses bornes plus une marge de retour', async () => {
     // ─── LE CAS QU'AUCUNE FERMETURE NE TRAHIT ────────────────────────────────
     //
     // Le socket reste ouvert, les pings reviennent, et rien ne revient jamais.
@@ -287,22 +385,27 @@ describe('les chantiers et les poses d’un nœud qui se déconnecte', () => {
     const poseId = await poser('noeud-muet', admin);
     const poseClose = async () =>
       (await journal()).some(
-        (e) => e.type === 'outil_pose_interrompue' && e.payload.poseId === poseId,
+        (e) => e.type === 'outil_pose_sans_reponse' && e.payload.poseId === poseId,
       );
 
     // L'AUTRE SENS D'ABORD. Aux bornes du nœud lui-même — butoir
-    // d'installation pour une pose, préparation plus exécution pour un
-    // chantier — il a encore le droit de tourner : le hub ne doit pas
-    // l'abandonner. Un délai copié sur celui des merges (dix minutes)
-    // échouerait ici. Quelques tours de tick à chaque borne.
-    vi.setSystemTime(t0 + POSE_DELAI_MS);
+    // d'installation pour une pose ; clone, préparation puis exécution pour un
+    // chantier — il a encore le droit de tourner, et son résultat doit encore
+    // voyager : le hub ne doit pas l'abandonner. On sonde QUATRE MINUTES AU-DELÀ
+    // de ces bornes, pas pile dessus : l'expiration est stricte (`>`), et une
+    // sonde posée sur la borne laisserait passer un délai du hub ÉGAL à celle
+    // du nœud, sans aucune marge pour le retour. Un délai sans marge, ou copié
+    // sur l'ancien délai des merges (dix minutes), échoue ici. Quelques tours
+    // de tick à chaque sonde.
+    const auDela = 4 * 60_000;
+    vi.setSystemTime(t0 + POSE_DELAI_MS + auDela);
     await new Promise((r) => setTimeout(r, 400));
-    expect(await poseClose(), 'une pose encore en droit de tourner a été abandonnée').toBe(false);
-    vi.setSystemTime(t0 + CHANTIER_PREPARATION_MS + CHANTIER_EXECUTION_MS);
+    expect(await poseClose(), 'une pose encore en droit de revenir a été abandonnée').toBe(false);
+    vi.setSystemTime(t0 + CLONE_MS + CHANTIER_PREPARATION_MS + CHANTIER_EXECUTION_MS + auDela);
     await new Promise((r) => setTimeout(r, 400));
     expect(
       await verdict(projet.id),
-      'un chantier encore en droit de tourner a été abandonné',
+      'un chantier encore en droit de revenir a été abandonné',
     ).toBeNull();
 
     // Deux heures plus tard, plus rien n'est en droit de tourner.

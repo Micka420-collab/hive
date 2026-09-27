@@ -407,6 +407,29 @@ export interface StateMsg {
   dernierEvenementId: number;
 }
 
+/**
+ * Le code de fermeture d'un tableau de bord trop lent : son tampon d'envoi, sur
+ * la Reine, a dépassé la borne de la diffusion. Distinct de tous les autres
+ * (4408 fait écho au 408 HTTP : le client n'a pas suivi) pour que ni l'écran
+ * ni l'opérateur qui lit ses journaux ne le confondent avec un jeton refusé
+ * (4401) ou un message trop gros (4413). Ici, et pas dans la seule Reine :
+ * l'écran le lit pour dire POURQUOI il est hors ligne, et pour ne pas se
+ * reconnecter plus vite qu'il ne sait lire.
+ */
+export const CODE_TABLEAU_TROP_LENT = 4408;
+
+/**
+ * Les types que la Reine range au journal SANS JAMAIS les diffuser.
+ *
+ * `worker_usage` n'est pas une nouvelle : c'est la mesure d'une exécution,
+ * rangée au journal par `store.insertResult` pour ne pas migrer la table des
+ * résultats, et relue avec eux. Le direct ne la porte donc pas ; un rattrapage
+ * qui la livrerait ferait dépendre ce que montre le Journal de l'historique de
+ * connexion de l'onglet. Le rattrapage la lit — ses ids comptent pour voir un
+ * trou — mais ne la livre pas.
+ */
+export const EVENEMENTS_NON_DIFFUSES: ReadonlySet<string> = new Set(['worker_usage']);
+
 export interface EventMsg {
   type: 'event';
   event: HiveEvent;

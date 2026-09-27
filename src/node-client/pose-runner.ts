@@ -22,7 +22,8 @@
 //   injoignable ; sans butoir, le nœud reste bloqué sans jamais répondre.
 
 import { spawn } from 'node:child_process';
-import { direRefusPose, jugerPose, POSE_DELAI_MS } from '../shared/pose-outil.js';
+import { POSE_DELAI_MS } from '../shared/butoirs-noeud.js';
+import { direRefusPose, jugerPose } from '../shared/pose-outil.js';
 import type { PoseResultMsg, PoserOutilMsg } from '../shared/protocol.js';
 
 /** Au-delà, on tronque : c'est une trace, pas un journal complet. */

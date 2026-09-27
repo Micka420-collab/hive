@@ -21,6 +21,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { simpleGit } from 'simple-git';
+import { MERGE_PREPARATION_MS, MERGE_TESTS_MS } from '../shared/butoirs-noeud.js';
 import { jugerCommandeTest } from '../shared/commande-test.js';
 import { jugerPreparation } from '../shared/preparation.js';
 import { LanceurIndisponible, resoudreLanceur } from '../lanceur-reel.js';
@@ -261,7 +262,7 @@ export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
             opts.prepareCommand,
             opts.repoDir,
             env,
-            opts.prepareTimeoutMs ?? 10 * 60_000,
+            opts.prepareTimeoutMs ?? MERGE_PREPARATION_MS,
             opts.signal,
             opts.bac,
           );
@@ -288,7 +289,7 @@ export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
             opts.testCommand,
             opts.repoDir,
             env,
-            opts.timeoutMs ?? 5 * 60_000,
+            opts.timeoutMs ?? MERGE_TESTS_MS,
             opts.signal,
             opts.bac,
           );

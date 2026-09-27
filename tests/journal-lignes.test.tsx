@@ -172,3 +172,41 @@ describe('la course annonce les drones QUI VOLENT, pas le facteur demandé', () 
     expect(ligne(dom), 'la ligne anglaise annonce le facteur').not.toContain('7 drone(s)');
   });
 });
+
+describe('une perte de contact se lit comme telle — ni échec constaté, ni type brut', () => {
+  // ─── POURQUOI CES LIGNES ONT UN BANC ─────────────────────────────────────
+  //
+  // Quand un nœud perd le contact, la Reine publie une issue PROVISOIRE : elle
+  // ne sait pas comment le travail a fini, et le dit. Avant ces lignes, le
+  // Journal affichait `chantier_failed` ou le type brut de la pose — l'écran
+  // des chantiers relisait bien son verdict, mais l'humain qui regardait le
+  // journal lisait un identifiant, ou un échec qu'on n'avait pas vu.
+  it('UN CHANTIER SANS RÉSULTAT DIT SA CAUSE — pas « en échec (code null) »', async () => {
+    const dom = await monter(
+      evenement('chantier_failed', {
+        projectId: 'p1',
+        chantierId: 'c1',
+        nom: 'test',
+        code: null,
+        reason: 'nœud déconnecté — issue inconnue',
+      }),
+    );
+    expect(ligne(dom)).toContain('chantier « test » sans résultat');
+    expect(ligne(dom), 'la cause — l’issue inconnue — n’est pas dite').toContain('issue inconnue');
+    expect(ligne(dom), 'une perte de contact se lit comme un échec').not.toContain('en échec');
+  });
+
+  it('UNE POSE SANS RÉPONSE NOMME L’OUTIL ET LE NŒUD — pas son type brut', async () => {
+    const dom = await monter(
+      evenement('outil_pose_sans_reponse', {
+        poseId: 'pos-1',
+        nodeId: 'noeud-poseur',
+        outilId: 'codex',
+        reason: 'délai dépassé',
+      }),
+    );
+    expect(ligne(dom), 'la pose s’affiche en type brut').not.toContain('outil_pose_sans_reponse');
+    expect(ligne(dom)).toContain('pose de codex sans réponse du nœud noeud-po');
+    expect(ligne(dom)).toContain('délai dépassé');
+  });
+});

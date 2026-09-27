@@ -3,7 +3,11 @@
 // localement ; en mode simulation, la valeur par défaut suffit.
 
 import { t as tNow } from './i18n';
-import { parseServerMessage } from '../../src/shared/protocol';
+import {
+  CODE_TABLEAU_TROP_LENT,
+  EVENEMENTS_NON_DIFFUSES,
+  parseServerMessage,
+} from '../../src/shared/protocol';
 import type { HiveEvent, Project, StateSnapshot, Task, TaskResult } from '../../src/shared/types';
 import type { Graphe } from '../../src/shared/cerveau-graphe.js';
 import type { WorkerSnapshot } from '../../src/orchestrator/workers.js';
@@ -1734,8 +1738,20 @@ export interface FeedHandlers {
    * `connected` : le socket est ouvert **et** le hub a accepté le jeton.
    * `meta.authError` : fermeture 4401 « token invalide » — le champ Jeton ne
    * correspond pas à `HIVE_TOKEN` de l'orchestrateur.
+   * `meta.tropLent` : fermeture `CODE_TABLEAU_TROP_LENT` — cet écran lisait
+   * moins vite que la Reine n'écrivait ; il se reconnecte seul.
    */
-  onStatus: (connected: boolean, meta?: { authError?: boolean; reason?: string }) => void;
+  onStatus: (
+    connected: boolean,
+    meta?: { authError?: boolean; tropLent?: boolean; reason?: string },
+  ) => void;
+  /**
+   * Le rattrapage a trouvé un TROU : `manquants` événements émis pendant la
+   * coupure étaient déjà élagués par la Reine (elle ne garde que ses derniers
+   * événements). Le trou ne se comble plus ; il se DIT, pour que le Journal ne
+   * passe pas pour complet.
+   */
+  onJournalIncomplet?: (manquants: number) => void;
 }
 
 export interface HiveFeed {
@@ -1748,8 +1764,18 @@ export interface HiveFeed {
  */
 const PAGE_RATTRAPAGE = 1000;
 
-function fetchEvenementsDepuis(depuis: number): Promise<HiveEvent[]> {
-  return api<HiveEvent[]>(`/api/events?since=${depuis}&limit=${PAGE_RATTRAPAGE}`);
+/**
+ * Ce qu'une page de rattrapage peut prendre. Sans borne, une lecture qui ne
+ * revenait pas — un proxy qui garde la réponse, des connexions HTTP toutes
+ * prises par d'autres longues requêtes — laissait l'écran « connecté », son
+ * instantané à jour, et TOUT le direct retenu derrière elle : un Journal gelé
+ * sans un mot. Au-delà, la lecture échoue et prend le chemin de tout échec de
+ * rattrapage.
+ */
+const RATTRAPAGE_DELAI_MS = 30_000;
+
+function fetchEvenementsDepuis(depuis: number, signal: AbortSignal): Promise<HiveEvent[]> {
+  return api<HiveEvent[]>(`/api/events?since=${depuis}&limit=${PAGE_RATTRAPAGE}`, { signal });
 }
 
 /**
@@ -1771,9 +1797,11 @@ function fetchEvenementsDepuis(depuis: number): Promise<HiveEvent[]> {
  * journalise PUIS diffuse dans le même tour synchrone : les ids arrivent
  * croissants, et un id déjà dépassé a déjà été livré.
  *
- * Limite, dite : le journal ne garde que ses derniers événements
+ * Limite, DITE à l'écran : le journal ne garde que ses derniers événements
  * (`EVENT_RETENTION` côté Reine). Une coupure plus longue laisse un trou que
- * personne ne peut combler.
+ * personne ne peut combler — mais qui se VOIT : les ids du journal se suivent
+ * sans trou sauf là où la Reine a élagué, et le rattrapage le signale
+ * (`onJournalIncomplet`) au lieu de présenter la fin comme toute l'histoire.
  */
 export function connectFeed(handlers: FeedHandlers): HiveFeed {
   let ws: WebSocket | null = null;
@@ -1782,6 +1810,11 @@ export function connectFeed(handlers: FeedHandlers): HiveFeed {
   let timer: number | undefined;
   /** Tant que le hub n'a pas renvoyé d'`state`, on n'est pas vraiment connecté. */
   let authentifie = false;
+  /**
+   * La connexion a SERVI : premier instantané reçu et journal rattrapé. Seule
+   * une connexion saine ramène le recul à une seconde (voir `onclose`).
+   */
+  let sain = false;
   /**
    * Le dernier événement livré — ou, avant le tout premier, celui que reflétait
    * le premier instantané. `null` tant qu'aucune connexion n'a abouti.
@@ -1794,17 +1827,33 @@ export function connectFeed(handlers: FeedHandlers): HiveFeed {
     // Le même événement peut venir du rattrapage ET du direct : une fois suffit.
     if (curseur !== null && ev.id <= curseur) return;
     curseur = ev.id;
-    handlers.onEvent(ev);
+    // Le curseur avance, mais ce que le direct ne porte jamais reste tu.
+    if (!EVENEMENTS_NON_DIFFUSES.has(ev.type)) handlers.onEvent(ev);
   };
 
   const rattraper = async (socket: WebSocket, depuis: number): Promise<void> => {
     let apres = depuis;
+    /** Le prochain id du journal : un id plus grand dit un trou élagué. */
+    let attendu = depuis + 1;
     try {
       for (;;) {
-        const page = await fetchEvenementsDepuis(apres);
+        const ctrl = new AbortController();
+        const butoir = window.setTimeout(() => ctrl.abort(), RATTRAPAGE_DELAI_MS);
+        let page: HiveEvent[];
+        try {
+          page = await fetchEvenementsDepuis(apres, ctrl.signal);
+        } finally {
+          window.clearTimeout(butoir);
+        }
         // Une autre connexion a pris la main, ou l'écran a fermé le flux.
         if (closed || socket !== ws) return;
-        for (const ev of page) livrer(ev);
+        let manquants = 0;
+        for (const ev of page) {
+          if (ev.id > attendu) manquants += ev.id - attendu;
+          attendu = ev.id + 1;
+          livrer(ev);
+        }
+        if (manquants > 0) handlers.onJournalIncomplet?.(manquants);
         const fin = page.at(-1)?.id;
         // Une page qui n'avance pas arrête la boucle : sans ça, un serveur qui
         // ignorerait `since` la ferait tourner pour toujours.
@@ -1813,24 +1862,26 @@ export function connectFeed(handlers: FeedHandlers): HiveFeed {
       }
     } catch {
       // Livrer le direct maintenant rendrait le trou définitif. On referme :
-      // la reconnexion, avec son recul, retentera depuis le même curseur.
+      // la reconnexion retentera depuis le même curseur — et comme cette
+      // connexion n'a jamais été saine, son recul grandit à chaque échec.
       if (!closed && socket === ws) socket.close();
       return;
     }
     const direct = enAttente ?? [];
     enAttente = null;
+    sain = true;
     for (const ev of direct) livrer(ev);
   };
 
   const open = (): void => {
     if (closed) return;
     authentifie = false;
+    sain = false;
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const socket = new WebSocket(`${proto}://${location.host}/ws`);
     ws = socket;
 
     socket.onopen = () => {
-      retryMs = 1_000;
       // Pas encore `onStatus(true)` : le hub peut fermer en 4401 juste après
       // le `subscribe`. On attend le premier `state` (ou on signale l'échec).
       socket.send(JSON.stringify({ type: 'subscribe', token: getToken() }));
@@ -1853,6 +1904,7 @@ export function connectFeed(handlers: FeedHandlers): HiveFeed {
             // journal reparti de zéro (base remplacée) : l'ancien curseur ne
             // désigne plus rien, et le garder ferait taire tout ce qui suit.
             curseur = reprise;
+            sain = true;
           }
         }
         handlers.onState(msg.snapshot);
@@ -1866,14 +1918,24 @@ export function connectFeed(handlers: FeedHandlers): HiveFeed {
       // Le direct retenu est dans le journal : le prochain rattrapage le relira.
       enAttente = null;
       const authError = ev.code === 4401 || /token invalide/i.test(ev.reason ?? '');
+      const tropLent = ev.code === CODE_TABLEAU_TROP_LENT;
       handlers.onStatus(false, {
         authError,
+        ...(tropLent ? { tropLent } : {}),
         ...(ev.reason ? { reason: ev.reason } : {}),
       });
-      if (!closed) {
-        timer = window.setTimeout(open, retryMs);
-        retryMs = Math.min(retryMs * 2, 15_000);
-      }
+      if (closed) return;
+      // ─── LE RECUL NE REPART D'UNE SECONDE QU'APRÈS UNE CONNEXION QUI A SERVI ─
+      //
+      // Remis à zéro à chaque OUVERTURE, il bouclait à 1 Hz sur un rattrapage
+      // qui échoue toujours : chaque tour, un instantané complet, une relecture
+      // de toutes les vues, un voyant qui clignote — et assez de requêtes pour
+      // épuiser le quota REST de l'adresse, donc faire échouer le rattrapage
+      // suivant. Un jeton refusé bouclait de même. Et un écran coupé pour
+      // lenteur ne se reconnecte pas plus vite qu'il ne sait lire.
+      if (sain && !tropLent) retryMs = 1_000;
+      timer = window.setTimeout(open, retryMs);
+      retryMs = Math.min(retryMs * 2, 15_000);
     };
   };
 
