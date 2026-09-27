@@ -1702,10 +1702,18 @@ export class Scheduler {
       this.signalerPlafond(task.projectId, decision);
       if (decision === 'bloque' && this.opts.balance?.mode === 'strict') continue;
       const charge = (n: HiveNode): number => n.running + (extra.get(n.id) ?? 0);
+      // ─── UNE RELECTURE NE CHANGE PAS DE RELECTEUR ────────────────────────
+      // Le verdict d'une contre-expertise est attribué au relecteur que le lien
+      // désigne (`noterVerdict`), et l'Aiguillage en apprend. Revenue en file —
+      // relecteur saturé qui refuse, ou déconnecté —, elle partait au premier
+      // nœud libre : souvent le PRODUCTEUR, qui relisait alors son propre
+      // travail sous le nom d'une autre famille. Elle attend donc SON relecteur.
+      const relecteur = this.store.relectureDe(task.id)?.relecteurNodeId;
       const eligibles = this.store
         .listNodes()
         .filter(
           (n) =>
+            (relecteur === undefined || n.id === relecteur) &&
             n.status === 'online' &&
             assignationProductionAutorisee(n.agentType, {
               simulation: this.opts.simulation,

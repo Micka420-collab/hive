@@ -193,8 +193,10 @@ export async function assistant(ctx: ContexteAssistant): Promise<{ arrets: numbe
     return { arrets };
   }
   for (const a of projet.avertissements) bloc(constatEnroule({ etat: 'alerte', libelle: a }, caps));
+  // `npm run ruche`, pas `npm run dev` : `dev` ne lance que la Reine, et un
+  // projet créé sur une ruche sans ouvrière n'est exécuté par personne.
   bloc([
-    '  Une fois la ruche démarrée (« npm run dev »), créez-le avec :',
+    '  Une fois la ruche démarrée (« npm run ruche »), créez-le avec :',
     '',
     `      ${projet.commande}`,
   ]);

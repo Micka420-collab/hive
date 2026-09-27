@@ -34,8 +34,24 @@
 // composition — donc la partie où l'on se trompe de chemin ou d'ordre —
 // vérifiable sans démarrer un serveur, sur les trois plateformes, depuis
 // n'importe laquelle.
+//
+// ─── UNE OUVRIÈRE PAR AGENT, ET POURQUOI C'EST LE DÉFAUT ────────────────────
+//
+// Un nœud fait tourner UN agent. La ruche d'une commande ne lançait donc
+// qu'une famille — Claude Code, sur une machine qui porte aussi Codex et
+// Cursor — et la contre-expertise, qui exige un modèle DIFFÉRENT en ligne
+// (`choisirCritiques`), rendait son refus à chaque production : aucune
+// relecture croisée, aucun verdict, et un Aiguillage qui n'apprend jamais
+// rien, puisqu'il n'apprend QUE des verdicts. Ce qui distingue une ruche d'un
+// agent seul était éteint sur le chemin par défaut.
+//
+// Dès que la machine porte deux familles RÉELLES ou plus, `planOuvrieres`
+// compose donc une ouvrière par famille. Sa documentation dit ce que chacune
+// reçoit, et les trois façons de revenir à une seule.
 
 import path from 'node:path';
+import { libelleAgent } from './agent-libelle.js';
+import { estAgentSimule } from './agent-production.js';
 import { PORT_PAR_DEFAUT, portDepuisEnv } from './port.js';
 
 /** Un membre de l'essaim à démarrer. */
@@ -48,6 +64,19 @@ export interface Piece {
   readonly argv: readonly string[];
   /** Ce qu'on en attend, dit à l'humain au démarrage. */
   readonly role: string;
+  /**
+   * Les variables posées pour CE processus, par-dessus l'environnement hérité.
+   * Absent : il hérite tel quel — le cas de toute pièce qui n'est pas une
+   * ouvrière de l'essaim par agent.
+   */
+  readonly env?: Readonly<Record<string, string>>;
+  /**
+   * Vraie pour une ouvrière AJOUTÉE par l'essaim par agent : sa mort se dit,
+   * et n'emporte pas la ruche (voir `OuvriereAgent.ajoutee`). Absente partout
+   * ailleurs, où la règle du lanceur tient : la mort d'un seul emporte les
+   * autres.
+   */
+  readonly facultative?: boolean;
 }
 
 /** Ce qu'on veut démarrer. Tout est facultatif : le défaut est « tout ». */
@@ -100,13 +129,20 @@ export const ENTREES = {
  * `node` est `process.execPath` chez l'appelant : le Node qui tourne DÉJÀ. Pas
  * celui du PATH, qui peut être un autre — et pas un shim, donc lançable sans
  * interpréteur sur les trois plateformes.
+ *
+ * `plan` absent, ou `une` : l'ouvrière unique d'avant, qui choisit son agent
+ * elle-même. `par-agent` : une ouvrière par famille, dans l'ordre du plan.
  */
-export function pieces(noeud: string, voeu: Voeu = {}, port: number = PORT_PAR_DEFAUT): Piece[] {
-  const tout = voeu.hub === undefined && voeu.noeud === undefined && voeu.ecran === undefined;
-  const veut = (q: boolean | undefined): boolean => (tout ? true : q === true);
+export function pieces(
+  noeud: string,
+  voeu: Voeu = {},
+  port: number = PORT_PAR_DEFAUT,
+  plan?: PlanOuvrieres,
+): Piece[] {
+  const veut = (cle: keyof Voeu): boolean => voeuVeut(voeu, cle);
 
   const liste: Piece[] = [];
-  if (veut(voeu.hub)) {
+  if (veut('hub')) {
     liste.push({
       nom: 'reine',
       bin: noeud,
@@ -121,7 +157,18 @@ export function pieces(noeud: string, voeu: Voeu = {}, port: number = PORT_PAR_D
           : `projets, tâches, journal · http://127.0.0.1:${port}`,
     });
   }
-  if (veut(voeu.noeud)) {
+  if (veut('noeud') && plan?.mode === 'par-agent') {
+    for (const o of plan.ouvrieres) {
+      liste.push({
+        nom: `ouvrière ${o.agent}`,
+        bin: noeud,
+        argv: [SCRIPTS.lanceur, ENTREES.noeud],
+        role: `exécute le travail avec ${libelleAgent(o.agent)}`,
+        env: o.env,
+        ...(o.ajoutee ? { facultative: true } : {}),
+      });
+    }
+  } else if (veut('noeud')) {
     liste.push({
       nom: 'ouvrière',
       bin: noeud,
@@ -129,7 +176,7 @@ export function pieces(noeud: string, voeu: Voeu = {}, port: number = PORT_PAR_D
       role: 'exécute le travail avec votre agent',
     });
   }
-  if (veut(voeu.ecran)) {
+  if (veut('ecran')) {
     liste.push({
       nom: 'écran',
       bin: noeud,
@@ -214,6 +261,196 @@ export function voeuDepuisArgv(argv: readonly string[]): Voeu {
   return v;
 }
 
+/** Le vœu demande-t-il cette pièce ? Un vœu VIDE les demande toutes. */
+function voeuVeut(voeu: Voeu, cle: keyof Voeu): boolean {
+  const tout = voeu.hub === undefined && voeu.noeud === undefined && voeu.ecran === undefined;
+  return tout || voeu[cle] === true;
+}
+
+/**
+ * Faut-il des ouvrières ? La question que le lanceur pose AVANT de sonder les
+ * agents : une ruche lancée sans nœud n'a aucune raison de lancer un
+ * `--version` sur chaque agent connu.
+ */
+export function veutOuvriere(voeu: Voeu): boolean {
+  return voeuVeut(voeu, 'noeud');
+}
+
+/**
+ * Le drapeau qui ramène la ruche à UNE ouvrière — le comportement d'avant.
+ * Soustractif, comme les autres : il retire des ouvrières, il n'ajoute rien.
+ */
+export const DRAPEAU_UNE_OUVRIERE = '--une-ouvriere';
+
+/** Une ouvrière de l'essaim par agent : sa famille, et ce qu'on lui pose. */
+export interface OuvriereAgent {
+  /** La famille d'agent (`claude-code`, `codex`…) qu'elle fait tourner. */
+  readonly agent: string;
+  /** Les variables posées dans SON environnement, par-dessus l'hérité. */
+  readonly env: Readonly<Record<string, string>>;
+  /**
+   * Fausse pour la PREMIÈRE famille — l'ouvrière que la ruche lançait déjà
+   * seule —, vraie pour chacune de celles qu'on ajoute à côté.
+   *
+   * La mort d'une ajoutée n'emporte pas la ruche, et c'est une décision, pas
+   * une indulgence : sous `HIVE_ISOLEMENT=exige`, une famille absente de
+   * l'image fait REFUSER son nœud au démarrage. Emporter la ruche pour ça,
+   * c'est casser, chez qui exige un bac, la ruche d'une famille qui marchait
+   * hier — pour une ouvrière qu'il n'a jamais demandée. La première, elle,
+   * garde la règle d'avant : sans elle, la ruche n'a plus rien de ce qu'on lui
+   * connaissait.
+   */
+  readonly ajoutee: boolean;
+}
+
+/** Pourquoi la ruche garde une seule ouvrière. */
+export type MotifUneOuvriere =
+  /** `HIVE_AGENT` fixe l'agent : l'opérateur a choisi, on ne sonde même pas. */
+  | 'agent-fixe'
+  /** `HIVE_AGENT_CMD` : une commande libre, qui prime sur toute détection. */
+  | 'commande'
+  /** `--une-ouvriere`, demandé sur la ligne de commande. */
+  | 'drapeau'
+  /** Moins de deux familles réelles : il n'y a rien à croiser. */
+  | 'une-famille';
+
+/** Les ouvrières que la ruche lancera — une forme FERMÉE, pas deux champs à tenir d'accord. */
+export type PlanOuvrieres =
+  | { readonly mode: 'une'; readonly motif: MotifUneOuvriere }
+  | {
+      readonly mode: 'par-agent';
+      readonly ouvrieres: readonly OuvriereAgent[];
+      /** La famille à qui va `HIVE_MODELES`, ou `null` si l'opérateur n'en déclare pas. */
+      readonly modelesDeclaresPar: string | null;
+    };
+
+/**
+ * Une ouvrière par famille d'agent réelle, ou une seule — et pourquoi.
+ *
+ * `env` est la FUSION du `.env` et de l'environnement, l'environnement
+ * au-dessus : la règle de `portAnnonce`, et pour la même raison — chaque
+ * ouvrière chargera le `.env` sans jamais écraser ce qu'elle a reçu.
+ *
+ * ─── CE QUE CHAQUE OUVRIÈRE REÇOIT, ET CE QUI CASSE SANS ─────────────────────
+ *
+ *   · `HIVE_AGENT`, sa famille. La détection est faite ici, une fois ; deux
+ *     ouvrières qui détecteraient chacune pour soi retiendraient la MÊME
+ *     famille — l'ordre de préférence —, et l'essaim ne croiserait rien.
+ *   · `HIVE_MAX_CONCURRENCY=1`. Le défaut (2) — ou la valeur du `.env` — était
+ *     écrit pour UNE ouvrière ; trois familles à deux tâches chacune, c'est
+ *     six agents de front sur une machine qui en menait deux.
+ *
+ * ─── LA PREMIÈRE GARDE SON IDENTITÉ ──────────────────────────────────────────
+ *
+ * Elle ne reçoit ni nom, ni dossier, ni modèles : exactement ceux d'hier. Or
+ * l'identité d'un nœud vit dans son dossier (`identiteStable(workRoot)`) :
+ * lui en changer, c'était laisser un fantôme « hors ligne » dans la ruche et
+ * repartir d'une réputation vierge.
+ *
+ * Les AJOUTÉES prennent `<nom>-<famille>` — le nom étant celui que le nœud se
+ * donnerait (`HIVE_NODE_NAME`, sinon la machine). Leur dossier se déduit de ce
+ * nom (`.hive-work/<nom>`), donc distinct ; quand l'opérateur a fixé
+ * `HIVE_WORKDIR`, elles prennent `<dossier>/<famille>`. Chacune garde ainsi
+ * SA identité d'un démarrage à l'autre.
+ *
+ * DEDANS, et pas à côté : c'est le dossier que l'opérateur a désigné pour le
+ * travail de Hive — celui que la désinstallation relève (`empreinte.ts`) et
+ * que `.gitignore` écarte. `<dossier>-<famille>` à côté, c'était, sur le
+ * `HIVE_WORKDIR=./.hive-work` de `.env.example`, un `.hive-work-codex` à la
+ * racine du dépôt : suivi par git, et oublié par la désinstallation avec
+ * l'identité qu'il porte. Un nœud ne touche que `node-id.txt` et `tasks/`
+ * sous sa racine : une famille logée à côté de ces deux-là ne marche sur rien.
+ *
+ * ─── `HIVE_MODELES` N'EST QU'À LA PREMIÈRE ───────────────────────────────────
+ *
+ * Les modèles déclarés sont ceux d'UN agent : celui qui tournait seul, donc
+ * la première famille. Les déclarer pour Codex ferait élire `claude-opus-5`
+ * sur un nœud qui le passerait à `codex --model` — un échec à chaque tâche.
+ * Les ajoutées reçoivent donc un `HIVE_MODELES` VIDE, et vide POSÉ :
+ * `loadEnvFile` n'écrase jamais une variable présente, même vide (mesuré), là
+ * où une variable absente lui laisserait rendre celle du `.env`.
+ *
+ * ─── AU REPOS, ELLES NE COÛTENT RIEN ─────────────────────────────────────────
+ *
+ * Une ouvrière n'appelle son agent que pour une tâche assignée ; au repos elle
+ * n'envoie que ses battements au hub. Ce qui se paie, ce sont les relectures :
+ * chaque production est relue par une autre famille, et une relecture est une
+ * vraie tâche.
+ *
+ * ─── TROIS FAÇONS D'EN GARDER UNE ────────────────────────────────────────────
+ *
+ * `HIVE_AGENT` (l'opérateur a choisi son agent), `HIVE_AGENT_CMD` (une
+ * commande libre prime sur toute détection), `--une-ouvriere`. Toutes trois
+ * se lisent AVANT de sonder : `detecter` lance un binaire par agent connu, et
+ * ne sert à rien quand la réponse est déjà donnée.
+ */
+export async function planOuvrieres(entree: {
+  readonly argv: readonly string[];
+  readonly env: NodeJS.ProcessEnv;
+  /** Le nom de la machine (`os.hostname()` chez l'appelant). */
+  readonly hote: string;
+  /** Les agents présents (`detectAllAgents`), dans l'ordre de préférence. */
+  readonly detecter: () => Promise<readonly string[]>;
+}): Promise<PlanOuvrieres> {
+  const { argv, env, hote, detecter } = entree;
+  if ((env.HIVE_AGENT ?? '').trim()) return { mode: 'une', motif: 'agent-fixe' };
+  if ((env.HIVE_AGENT_CMD ?? '').trim()) return { mode: 'une', motif: 'commande' };
+  if (argv.includes(DRAPEAU_UNE_OUVRIERE)) return { mode: 'une', motif: 'drapeau' };
+
+  // Le `shell` simulé n'est pas une famille : il ne relit personne
+  // (`AGENTS_SANS_AVIS`) et ne produit que de faux diffs.
+  const familles = (await detecter()).filter((a) => !estAgentSimule(a));
+  const [premiere] = familles;
+  if (premiere === undefined || familles.length < 2) return { mode: 'une', motif: 'une-famille' };
+
+  // Le nom que le nœud se donnerait lui-même — la règle de `node-client/main.ts`.
+  const nom = env.HIVE_NODE_NAME ?? hote;
+  const dossier = env.HIVE_WORKDIR;
+  const ajoutee = (agent: string): Record<string, string> => ({
+    HIVE_NODE_NAME: `${nom}-${agent}`,
+    ...(dossier ? { HIVE_WORKDIR: path.join(dossier, agent) } : {}),
+    HIVE_MODELES: '',
+  });
+  return {
+    mode: 'par-agent',
+    modelesDeclaresPar: (env.HIVE_MODELES ?? '').trim() ? premiere : null,
+    ouvrieres: familles.map((agent) => ({
+      agent,
+      ajoutee: agent !== premiere,
+      env: {
+        HIVE_AGENT: agent,
+        HIVE_MAX_CONCURRENCY: '1',
+        ...(agent === premiere ? {} : ajoutee(agent)),
+      },
+    })),
+  };
+}
+
+/**
+ * Ce que la ruche dit de ses ouvrières au démarrage — rien quand il n'y en a
+ * qu'une.
+ *
+ * Une seule ouvrière, c'est ce que la ruche faisait déjà, et le nœud dit
+ * lui-même quel agent il emploie. Ce qui CHANGE se dit en une ligne, avec son
+ * prix et la façon d'y renoncer ; ce qui ne change pas n'ajoute pas de bruit.
+ */
+export function annonceOuvrieres(plan: PlanOuvrieres | undefined): string[] {
+  if (plan?.mode !== 'par-agent') return [];
+  const familles = plan.ouvrieres.map((o) => libelleAgent(o.agent)).join(', ');
+  const lignes = [
+    `Une ouvrière par agent détecté (${familles}) : une tâche à la fois chacune, ` +
+      'chaque production relue par une autre famille, aucun crédit dépensé au repos. ' +
+      `Une seule : npm run ruche -- ${DRAPEAU_UNE_OUVRIERE}`,
+  ];
+  if (plan.modelesDeclaresPar !== null) {
+    lignes.push(
+      `HIVE_MODELES ne vaut que pour ${libelleAgent(plan.modelesDeclaresPar)} : ` +
+        'ce sont les modèles d’un seul agent.',
+    );
+  }
+  return lignes;
+}
+
 /**
  * Le préfixe d'une ligne de sortie, aligné sur la plus longue étiquette.
  *
@@ -252,15 +489,16 @@ export function largeurEtiquettes(liste: readonly Piece[]): number {
  * « Hors d'atteinte du banc » est presque toujours « au mauvais endroit »
  * (§ 2 quaterdecies). La présence sur le disque se passe en ARGUMENT : la
  * décision devient pure, et le cas « un fichier manque » s'éprouve pour rien.
+ *
+ * Chaque fichier n'est nommé qu'UNE fois : les ouvrières d'un essaim par agent
+ * partagent le même lanceur, et le message ne doit pas le répéter par famille.
  */
 export function entreesAbsentes(
   liste: readonly Piece[],
   estPresent: (fichier: string) => boolean,
 ): string[] {
-  return liste
-    .map((p) => p.argv[0])
-    .filter((f): f is string => f !== undefined)
-    .filter((f) => !estPresent(f));
+  const entrees = new Set(liste.map((p) => p.argv[0]).filter((f) => f !== undefined));
+  return [...entrees].filter((f) => !estPresent(f));
 }
 
 /** Ce qu'un morceau de flux libère de lignes ENTIÈRES, et ce qu'il laisse en tampon. */

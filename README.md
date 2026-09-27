@@ -67,9 +67,11 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
 
 - **Installation et démarrage.** Installeur une-commande (Linux, macOS,
   Windows) essayé en CI jusqu'à une ruche qui répond, un invité qui rejoint par
-  billet et une tâche exécutée. `npm run ruche` lance la Reine, l'ouvrière et
-  l'écran ; la Reine et l'ouvrière tournent chacune dans un seul processus, ce
+  billet et une tâche exécutée. `npm run ruche` lance la Reine, les ouvrières et
+  l'écran ; la Reine et chaque ouvrière tournent dans un seul processus, ce
   qui garantit un arrêt propre ([#443](https://github.com/Micka420-collab/hive/pull/443)).
+  Dès que deux familles d'agent sont installées, c'est une ouvrière par
+  famille : la contre-expertise croisée est sur le chemin par défaut.
 - **Reprise après panne**, mesurée avec de vrais processus :
   - `kill -9` de la Reine ou d'un nœud en pleine mission ;
   - base verrouillée par un autre processus ;
@@ -125,6 +127,9 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
 - l'apprentissage : le routing apprend toujours des seules contre-visites ;
   y faire entrer les autres faits du registre Genome est une décision de
   pondération, pas encore prise ;
+- une contre-expertise croisée sur un vrai run : une ouvrière par famille est
+  éprouvée avec de vrais processus et de faux agents, pas encore avec Claude
+  Code relu par Codex ;
 - la démonstration V2 Alpha de bout en bout — elle tient désormais en une
   commande sur une ruche qui a un vrai agent authentifié :
   `npm run preuve:v2-alpha -- --racine . --oui` confie une petite mission,
@@ -227,7 +232,8 @@ Community (`HIVE_EDITION=community`, c'est le défaut) :
 npm run ruche
 ```
 
-Ouvrez **http://localhost:7777**. Un jeton, un nœud local, l'écran.
+Ouvrez **http://localhost:7777**. Un jeton, une ouvrière par agent installé,
+l'écran. Une seule ouvrière : `npm run ruche -- --une-ouvriere`.
 
 Les actions d'intendance qui créent ou révoquent des accès (inviter, émettre un
 billet, consulter ou exclure un nœud) exigent une session de compte
@@ -289,6 +295,15 @@ s'il ne trouve aucun agent — et il le dit. `HIVE_AGENT` force le choix.
 Votre abonnement Claude suffit, sans clé d'API :
 **[docs/WINDOWS-CLAUDE.md](docs/WINDOWS-CLAUDE.md)**.
 
+**Plusieurs agents installés, plusieurs ouvrières.** Dès que la machine porte
+deux familles d'agent réelles (Claude Code, Codex, Cursor…), `npm run ruche`
+lance une ouvrière par famille, chacune à une tâche à la fois : chaque
+production est relue par une AUTRE famille, et l'Aiguillage apprend de ces
+verdicts. Au repos, une ouvrière ne dépense rien ; une relecture, elle, est une
+vraie tâche. La première garde le nom, le dossier et les `HIVE_MODELES`
+d'avant ; les autres prennent `<nom>-<famille>`. Pour n'en lancer qu'une :
+`npm run ruche -- --une-ouvriere`, ou `HIVE_AGENT` dans `.env`.
+
 Pour un agent conteneurisé, le nom logique doit être exécutable dans l’image
 choisie. Un CLI installé sur l’hôte ou une session ouverte dans l’hôte ne prouve
 pas que l’agent est disponible dans le conteneur. Hive refuse ce niveau lorsque
@@ -313,7 +328,8 @@ travailler à découvert.
 
 | Commande                                      | Effet                                                                                         |
 | --------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `npm run ruche`                               | **Tout en une commande** — Reine + ouvrière + écran                                           |
+| `npm run ruche`                               | **Tout en une commande** — Reine + une ouvrière par agent installé + écran                    |
+| `npm run ruche -- --une-ouvriere`             | Une seule ouvrière, même si plusieurs agents sont installés                                   |
 | `npm run demo`                                | Démo complète (orchestrateur + 2 nœuds + projet)                                              |
 | `npm run dev`                                 | Orchestrateur seul                                                                            |
 | `npm run node`                                | Un nœud membre                                                                                |

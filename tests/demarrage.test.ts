@@ -21,17 +21,23 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { detectAllAgents, detectBestAgent } from '../src/node-client/agent-detect.js';
 import {
+  DRAPEAU_UNE_OUVRIERE,
   ENTREES,
   type Piece,
+  type PlanOuvrieres,
   SCRIPTS,
+  annonceOuvrieres,
   decouperLignes,
   entreesAbsentes,
   largeurEtiquettes,
   pieces,
+  planOuvrieres,
   portAnnonce,
   prefixe,
   reliquat,
+  veutOuvriere,
   voeuDepuisArgv,
 } from '../src/shared/demarrage.js';
 import { PORT_PAR_DEFAUT } from '../src/shared/port.js';
@@ -348,6 +354,13 @@ describe('CE QUI MANQUE SE DIT AVANT DE LANCER', () => {
     const liste: Piece[] = [{ nom: 'vide', bin: '/n', argv: [], role: 'pour le banc' }];
     expect(entreesAbsentes(liste, () => false)).toEqual([]);
   });
+
+  it('un lanceur PARTAGÉ par plusieurs ouvrières n’est nommé qu’une fois', () => {
+    // Trois ouvrières, un seul `scripts/lancer.mjs` : le message qui dit quoi
+    // réinstaller ne doit pas le répéter par famille.
+    const liste = [piece('reine', 'l.mjs'), piece('ouvrière a', 'l.mjs'), piece('écran', 'v.js')];
+    expect(entreesAbsentes(liste, () => false)).toEqual(['l.mjs', 'v.js']);
+  });
 });
 
 describe('LE PRÉFIXAGE PAR LIGNE, MORCEAU PAR MORCEAU', () => {
@@ -382,5 +395,227 @@ describe('LE PRÉFIXAGE PAR LIGNE, MORCEAU PAR MORCEAU', () => {
     // L'autre moitié de la même garde. Sans elle, chaque processus laisserait
     // une ligne vide préfixée derrière lui — trois pièces, trois faux départs.
     expect(reliquat('')).toEqual([]);
+  });
+});
+
+// ─── UNE OUVRIÈRE PAR AGENT DÉTECTÉ ────────────────────────────────────────────
+//
+// Une machine qui porte Claude Code, Codex et Cursor lançait UNE ouvrière :
+// aucune relecture croisée n'était possible (`choisirCritiques` exige un autre
+// modèle en ligne), donc aucun verdict, donc un Aiguillage qui n'apprenait
+// rien. Ces bancs tiennent la composition qui l'ouvre — et les trois portes qui
+// la referment.
+
+/** Une sonde qui ne répond « présent » que pour ces binaires. */
+const sondeDe =
+  (...presents: string[]) =>
+  async (argv: readonly string[]): Promise<boolean> =>
+    presents.includes(path.basename(argv[0] ?? ''));
+
+/** Le plan d'une machine qui porte ces agents, sous cet environnement. */
+async function planPour(
+  agents: readonly string[],
+  env: NodeJS.ProcessEnv = {},
+  argv: readonly string[] = [],
+): Promise<PlanOuvrieres> {
+  return planOuvrieres({ argv, env, hote: 'poste', detecter: async () => agents });
+}
+
+/** Les ouvrières d'un plan par agent — le banc échoue s'il n'en est pas un. */
+function ouvrieresDe(plan: PlanOuvrieres) {
+  if (plan.mode !== 'par-agent') throw new Error(`une seule ouvrière (${plan.motif})`);
+  return plan.ouvrieres;
+}
+
+describe('UNE OUVRIÈRE PAR AGENT DÉTECTÉ — la relecture croisée sur le chemin par défaut', () => {
+  it('DEUX FAMILLES RÉELLES : une ouvrière chacune, SA famille épinglée, une tâche à la fois', async () => {
+    const ouvrieres = ouvrieresDe(await planPour(['claude-code', 'codex', 'cursor', 'shell']));
+    expect(ouvrieres.map((o) => o.agent)).toEqual(['claude-code', 'codex', 'cursor']);
+    for (const o of ouvrieres) {
+      // Épinglée : deux ouvrières qui détecteraient chacune pour soi
+      // retiendraient la même famille, et l'essaim ne croiserait rien.
+      expect(o.env.HIVE_AGENT, o.agent).toBe(o.agent);
+      expect(o.env.HIVE_MAX_CONCURRENCY, o.agent).toBe('1');
+    }
+  });
+
+  it('LE SHELL SIMULÉ N’EST PAS UNE FAMILLE — une famille réelle et lui, c’est UNE ouvrière', async () => {
+    // Le shell ne relit personne et ne produit que de faux diffs : lui donner
+    // une ouvrière annoncerait une relecture croisée qui n'aura jamais lieu.
+    expect(await planPour(['claude-code', 'shell'])).toEqual({ mode: 'une', motif: 'une-famille' });
+    expect(await planPour(['shell'])).toEqual({ mode: 'une', motif: 'une-famille' });
+  });
+
+  it('LES TROIS PORTES DE SORTIE — et aucune ne sonde les binaires', async () => {
+    // Quand l'opérateur a répondu, lancer un `--version` par agent connu ne
+    // sert à rien : la sonde n'est même pas appelée.
+    const cas: Array<[NodeJS.ProcessEnv, string[], string]> = [
+      [{ HIVE_AGENT: 'codex' }, [], 'agent-fixe'],
+      [{ HIVE_AGENT_CMD: 'aider --yes' }, [], 'commande'],
+      [{}, [DRAPEAU_UNE_OUVRIERE], 'drapeau'],
+    ];
+    for (const [env, argv, motif] of cas) {
+      let sondee = false;
+      const plan = await planOuvrieres({
+        argv,
+        env,
+        hote: 'poste',
+        detecter: async () => {
+          sondee = true;
+          return ['claude-code', 'codex'];
+        },
+      });
+      expect(plan, motif).toEqual({ mode: 'une', motif });
+      expect(sondee, `${motif} : la sonde a tourné pour rien`).toBe(false);
+    }
+  });
+
+  it('UN `HIVE_AGENT` VIDE N’EST PAS UN CHOIX — il ne ferme pas l’essaim', async () => {
+    // `HIVE_AGENT=` laissé vide dans un `.env` est l'absence de réponse, comme
+    // le lit le nœud lui-même (`resoudreAgentAuDemarrage` fait `.trim()`).
+    const plan = await planPour(['claude-code', 'codex'], { HIVE_AGENT: '  ', HIVE_AGENT_CMD: '' });
+    expect(plan.mode).toBe('par-agent');
+  });
+
+  it('LA PREMIÈRE OUVRIÈRE EST CELLE QUI TOURNAIT SEULE — même agent que la détection hors TTY', async () => {
+    // L'identité d'un nœud vit dans son dossier ; la première ouvrière garde
+    // nom et dossier. Elle doit donc faire tourner l'agent que le nœud unique
+    // aurait retenu, sinon l'historique de Claude passerait à Codex.
+    const sonde = sondeDe('codex', 'claude');
+    const env = { HOME: '' } as NodeJS.ProcessEnv;
+    const plan = await planOuvrieres({
+      argv: [],
+      env,
+      hote: 'poste',
+      detecter: () => detectAllAgents(env, sonde, 'linux', () => false),
+    });
+    const seul = await detectBestAgent(env, sonde, 'linux', () => false);
+    expect(ouvrieresDe(plan)[0]?.agent).toBe(seul.agent);
+  });
+
+  it('LA PREMIÈRE GARDE SON IDENTITÉ ; les ajoutées prennent `<nom>-<famille>`', async () => {
+    const [premiere, ...ajoutees] = ouvrieresDe(await planPour(['claude-code', 'codex', 'cursor']));
+    // Ni nom, ni dossier, ni modèles : exactement ceux d'hier. Un nom neuf,
+    // c'était un fantôme « hors ligne » et une réputation repartie de zéro.
+    expect(premiere?.ajoutee).toBe(false);
+    expect(Object.keys(premiere?.env ?? {}).sort()).toEqual(['HIVE_AGENT', 'HIVE_MAX_CONCURRENCY']);
+
+    expect(ajoutees.map((o) => o.ajoutee)).toEqual([true, true]);
+    // Le nom que le nœud se donnerait (la machine, ici), suffixé : deux
+    // ajoutées ne peuvent pas se confondre, ni se confondre avec la première.
+    expect(ajoutees.map((o) => o.env.HIVE_NODE_NAME)).toEqual(['poste-codex', 'poste-cursor']);
+    // Sans `HIVE_WORKDIR`, le nœud déduit son dossier de son NOM : des noms
+    // distincts suffisent, et le poser ici recopierait la règle du nœud.
+    for (const o of ajoutees) expect(o.env.HIVE_WORKDIR, o.agent).toBeUndefined();
+  });
+
+  it('`HIVE_NODE_NAME` fixé : c’est LUI la base, pas la machine', async () => {
+    const ouvrieres = ouvrieresDe(
+      await planPour(['claude-code', 'codex'], { HIVE_NODE_NAME: 'atelier' }),
+    );
+    expect(ouvrieres[1]?.env.HIVE_NODE_NAME).toBe('atelier-codex');
+  });
+
+  it('`HIVE_WORKDIR` fixé : les ajoutées travaillent DEDANS, jamais à côté', async () => {
+    // À côté, le `HIVE_WORKDIR=./.hive-work` de `.env.example` donnait un
+    // `.hive-work-codex` à la racine du dépôt : hors de `.gitignore`, hors de
+    // ce que la désinstallation relève — une identité de nœud laissée derrière.
+    // Dedans, tout le travail de Hive reste là où l'opérateur l'a mis.
+    const ouvrieres = ouvrieresDe(
+      await planPour(['claude-code', 'codex'], { HIVE_WORKDIR: path.join('.', '.hive-work') }),
+    );
+    expect(ouvrieres[1]?.env.HIVE_WORKDIR).toBe(path.join('.hive-work', 'codex'));
+    expect(ouvrieres[0]?.env.HIVE_WORKDIR, 'la première garde le sien').toBeUndefined();
+  });
+
+  it('`HIVE_MODELES` NE VA QU’À LA PREMIÈRE — et les ajoutées le reçoivent VIDE, pas absent', async () => {
+    // Les modèles déclarés sont ceux de l'agent qui tournait seul. Transmis à
+    // Codex, `claude-opus-5` finirait en `codex --model claude-opus-5`.
+    //
+    // VIDE et non absent : `loadEnvFile` n'écrase jamais une variable
+    // présente, même vide — une variable ABSENTE, il la remplirait depuis le
+    // `.env`, et les modèles de Claude reviendraient à Codex par la fenêtre.
+    const plan = await planPour(['claude-code', 'codex'], { HIVE_MODELES: 'claude-opus-5' });
+    const [premiere, codex] = ouvrieresDe(plan);
+    expect(premiere?.env).not.toHaveProperty('HIVE_MODELES');
+    expect(codex?.env).toHaveProperty('HIVE_MODELES', '');
+    expect(plan.mode === 'par-agent' && plan.modelesDeclaresPar).toBe('claude-code');
+
+    const sans = await planPour(['claude-code', 'codex']);
+    expect(sans.mode === 'par-agent' && sans.modelesDeclaresPar).toBeNull();
+  });
+});
+
+describe('UNE OUVRIÈRE PAR AGENT — ce que le lanceur en fait', () => {
+  it('UNE PIÈCE PAR OUVRIÈRE, nommée par sa famille, entre la Reine et l’écran', async () => {
+    const plan = await planPour(['claude-code', 'codex']);
+    const liste = pieces(NODE, {}, PORT_PAR_DEFAUT, plan);
+    expect(liste.map((p) => p.nom)).toEqual([
+      'reine',
+      'ouvrière claude-code',
+      'ouvrière codex',
+      'écran',
+    ]);
+    for (const p of liste.filter((x) => x.nom.startsWith('ouvrière'))) {
+      expect(p.argv, p.nom).toEqual([SCRIPTS.lanceur, ENTREES.noeud]);
+      expect(p.env?.HIVE_AGENT, `${p.nom} : sa famille ne lui parvient pas`).toBe(
+        p.nom.replace('ouvrière ', ''),
+      );
+    }
+    expect(liste.find((p) => p.nom === 'ouvrière codex')?.role).toContain('Codex');
+  });
+
+  it('SEULE L’AJOUTÉE EST FACULTATIVE — la Reine, la première, l’écran emportent toujours la ruche', async () => {
+    const liste = pieces(NODE, {}, PORT_PAR_DEFAUT, await planPour(['claude-code', 'codex']));
+    expect(liste.filter((p) => p.facultative === true).map((p) => p.nom)).toEqual([
+      'ouvrière codex',
+    ]);
+  });
+
+  it('UNE OUVRIÈRE, c’est la pièce d’avant — sans environnement posé', async () => {
+    // L'ouvrière unique choisit son agent elle-même, comme hier : rien ne doit
+    // s'être glissé dans son environnement.
+    const liste = pieces(NODE, {}, PORT_PAR_DEFAUT, await planPour(['claude-code']));
+    const ouvriere = liste.find((p) => p.nom === 'ouvrière');
+    expect(ouvriere).toBeDefined();
+    expect(ouvriere?.env).toBeUndefined();
+    expect(ouvriere?.facultative).toBeUndefined();
+  });
+
+  it('`--sans-noeud` L’EMPORTE SUR LE PLAN — et le lanceur ne sonde même pas', async () => {
+    const plan = await planPour(['claude-code', 'codex']);
+    const voeu = voeuDepuisArgv(['--sans-noeud']);
+    expect(pieces(NODE, voeu, PORT_PAR_DEFAUT, plan).map((p) => p.nom)).toEqual(['reine', 'écran']);
+    expect(veutOuvriere(voeu)).toBe(false);
+    expect(veutOuvriere(voeuDepuisArgv(['--ecran-seul']))).toBe(false);
+    expect(veutOuvriere(voeuDepuisArgv([]))).toBe(true);
+    expect(veutOuvriere(voeuDepuisArgv(['--sans-ecran']))).toBe(true);
+  });
+
+  it('LES ÉTIQUETTES S’ALIGNENT sur la plus longue famille', async () => {
+    const liste = pieces(NODE, {}, PORT_PAR_DEFAUT, await planPour(['claude-code', 'codex']));
+    const l = largeurEtiquettes(liste);
+    expect(new Set(liste.map((p) => [...prefixe(p.nom, l)].length)).size).toBe(1);
+  });
+
+  it('LA LIGNE QUI LE DIT : les familles, le prix, et comment n’en garder qu’une', async () => {
+    const [ligne, ...reste] = annonceOuvrieres(await planPour(['claude-code', 'codex']));
+    expect(ligne).toContain('Claude Code, Codex');
+    expect(ligne, 'au repos, rien ne se paie — et il faut le dire').toContain('aucun crédit');
+    expect(ligne, 'la façon d’y renoncer').toContain(`npm run ruche -- ${DRAPEAU_UNE_OUVRIERE}`);
+    expect(reste, 'sans HIVE_MODELES, une seule ligne').toEqual([]);
+
+    const avecModeles = annonceOuvrieres(
+      await planPour(['claude-code', 'codex'], { HIVE_MODELES: 'claude-opus-5' }),
+    );
+    expect(avecModeles[1]).toContain('HIVE_MODELES ne vaut que pour Claude Code');
+  });
+
+  it('UNE SEULE OUVRIÈRE NE S’ANNONCE PAS — c’est ce que la ruche faisait déjà', async () => {
+    expect(annonceOuvrieres(await planPour(['claude-code']))).toEqual([]);
+    expect(
+      annonceOuvrieres(await planPour(['claude-code', 'codex'], {}, [DRAPEAU_UNE_OUVRIERE])),
+    ).toEqual([]);
+    expect(annonceOuvrieres(undefined)).toEqual([]);
   });
 });

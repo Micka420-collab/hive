@@ -36,6 +36,12 @@ non-obvious caveats are captured below.
   `ouvrière`, `écran`): Queen `:7777`, a local worker node, and the Vite dashboard
   `:5173`. Open `http://localhost:5173`. Variants: `-- --sans-ecran`,
   `-- --sans-noeud`, `-- --ecran-seul`. `^C` stops all three.
+- With two or more real agent CLIs on the machine (e.g. `claude` and `codex`),
+  `npm run ruche` starts one worker per agent family instead, each pinned to
+  its agent at one task at a time (log prefixes `ouvrière claude-code`,
+  `ouvrière codex`…), so every production gets a cross-family review.
+  `-- --une-ouvriere` or `HIVE_AGENT` in `.env` keeps a single worker. Idle
+  workers spend no credits.
 - With no AI coding CLI installed, the worker auto-selects `Shell (simulé)` — tasks
   still dispatch and complete but produced diffs are fake. That is sufficient to
   exercise the platform end-to-end; install Claude Code (`npm i -g

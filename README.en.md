@@ -131,7 +131,8 @@ Community (`HIVE_EDITION=community`, the default):
 npm run ruche
 ```
 
-Open **http://localhost:7777**. One token, one local node, the screen.
+Open **http://localhost:7777**. One token, one worker per installed agent, the
+screen. A single worker: `npm run ruche -- --une-ouvriere`.
 
 Administrative actions that create or revoke access (inviting, issuing a
 ticket, listing or excluding a node) require an administrator account session.
@@ -193,6 +194,15 @@ only when it finds no agent — and it says so. `HIVE_AGENT` forces the choice.
 Your Claude subscription is enough, no API key:
 **[docs/WINDOWS-CLAUDE.md](docs/WINDOWS-CLAUDE.md)** (FR).
 
+**Several agents installed, several workers.** As soon as the machine has two
+real agent families (Claude Code, Codex, Cursor…), `npm run ruche` starts one
+worker per family, each running one task at a time: every production is
+reviewed by ANOTHER family, and the router learns from those verdicts. An idle
+worker spends nothing; a review, though, is a real task. The first worker keeps
+its previous name, folder and `HIVE_MODELES`; the others take
+`<name>-<family>`. To start only one: `npm run ruche -- --une-ouvriere`, or
+`HIVE_AGENT` in `.env`.
+
 ## 🔒 Security
 
 - **Zero `shell: true`** — every execution goes through `spawn(bin, argv, { shell: false })`.
@@ -211,7 +221,8 @@ refuse to work in the open.
 
 | Command                                       | Effect                                                                                                                                                              |
 | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `npm run ruche`                               | **Everything in one command** — Queen + worker + screen                                                                                                             |
+| `npm run ruche`                               | **Everything in one command** — Queen + one worker per installed agent + screen                                                                                     |
+| `npm run ruche -- --une-ouvriere`             | A single worker, even when several agents are installed                                                                                                             |
 | `npm run demo`                                | Full demo (orchestrator + 2 nodes + project)                                                                                                                        |
 | `npm run dev`                                 | Orchestrator only                                                                                                                                                   |
 | `npm run node`                                | A member node                                                                                                                                                       |
