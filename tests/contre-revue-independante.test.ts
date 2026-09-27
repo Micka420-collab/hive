@@ -37,7 +37,7 @@ interface Assignation {
 interface Noeud {
   ws: WebSocket;
   recues: Assignation[];
-  /** Envoie un `task_result` au nom de CE nœud. */
+  /** Envoie un `task_result` au nom de CE nœud — son texte est aussi sa réponse finale. */
   rendre: (taskId: string, success: boolean, logs: string) => void;
 }
 
@@ -99,6 +99,8 @@ describe('la contre-revue reste indépendante quand une relecture change de main
     // L'inscription est asynchrone : la tâche suivante ne doit pas partir
     // avant que le nœud existe, sinon l'ordre d'assignation devient aléatoire.
     await attendre(() => srv.store.getNode(nodeId)?.status === 'online', 'nœud non inscrit');
+    // L'avis voyage dans `finalText`, la réponse finale de l'agent : le hub ne
+    // lit plus un verdict dans les logs bruts (`noterVerdict`).
     const rendre = (taskId: string, success: boolean, logs: string): void =>
       ws.send(
         JSON.stringify({
@@ -107,6 +109,7 @@ describe('la contre-revue reste indépendante quand une relecture change de main
           success,
           diff: '',
           logs,
+          finalText: logs,
           durationMs: 5,
           subAgents: [],
         }),
