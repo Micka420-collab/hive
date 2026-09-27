@@ -286,11 +286,16 @@ async function main(): Promise<void> {
   client.start();
   console.log('\n✔ Nœud démarré — vous butinez pour la ruche. Ctrl+C pour quitter.\n');
 
-  process.on('SIGINT', () => {
-    console.log('\nDéconnexion de la ruche…');
-    client.stop();
-    process.exit(0);
-  });
+  // SIGTERM comme SIGINT : c'est le signal des superviseurs et d'un `kill`
+  // nu. Sans lui, l'agent en cours survivait au nœud — voir `main.ts`, qui
+  // porte la même règle et son pourquoi.
+  for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+    process.on(signal, () => {
+      console.log('\nDéconnexion de la ruche…');
+      client.stop();
+      process.exit(0);
+    });
+  }
   process.on('uncaughtException', (err) => console.error('[hive] exception non catchée :', err));
   process.on('unhandledRejection', (reason) => console.error('[hive] rejet non géré :', reason));
 }

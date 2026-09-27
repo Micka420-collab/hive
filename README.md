@@ -60,7 +60,7 @@ carte Notion distingue le code présent de la preuve de bout en bout.
 
 ## État réel du projet
 
-Mis à jour le 26 septembre 2026. Tout ce qui suit est fusionné sur `main`,
+Mis à jour le 27 septembre 2026. Tout ce qui suit est fusionné sur `main`,
 avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes.
 
 **Prouvé :**
@@ -70,14 +70,20 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
   billet et une tâche exécutée. `npm run ruche` lance la Reine, l'ouvrière et
   l'écran ; la Reine et l'ouvrière tournent chacune dans un seul processus, ce
   qui garantit un arrêt propre ([#443](https://github.com/Micka420-collab/hive/pull/443)).
-- **Reprise après panne**, mesurée avec de vrais processus :
+- **Reprise après panne**, rejouée à chaque CI (Linux, macOS) sur de vrais
+  processus — une Reine, un nœud, une base sur disque
+  (`tests/resilience-processus.test.ts`) :
   - `kill -9` de la Reine ou d'un nœud en pleine mission ;
-  - base verrouillée par un autre processus ;
-  - réseau gelé ou chemin réseau mort.
+  - base verrouillée 8 s par un autre processus ;
+  - réseau gelé au-delà du délai de vie.
 
-  Les tâches reprennent, aucun résultat n'est compté deux fois. Le nœud détecte une
-  connexion morte par ping/pong au lieu d'attendre TCP
-  ([#437](https://github.com/Micka420-collab/hive/pull/437)).
+  Chaque tâche finit avec exactement un succès rangé : aucun résultat n'est
+  compté deux fois. Un chemin réseau mort sans fermeture est éprouvé sur le
+  vrai client et de vraies sockets (`tests/noeud-veille.test.ts`) : le nœud
+  détecte la connexion morte par ping/pong au lieu d'attendre TCP
+  ([#437](https://github.com/Micka420-collab/hive/pull/437)). Arrêté par
+  SIGTERM (`npm run ruche`, systemd, `kill`), le nœud annule ses agents en
+  cours au lieu de les laisser tourner orphelins.
 
 - **Sécurité** :
   - les identifiants des dépôts privés ne sortent plus vers l'essaim
