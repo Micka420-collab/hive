@@ -26,6 +26,7 @@ import type { Task } from '../shared/types.js';
 import { cheminsNatifs } from '../node-client/agent-detect.js';
 import { assertRealExecutionAllowed, runCommand } from './exec.js';
 import { texteNonOption } from './prompt-argv.js';
+import { texteFinalCline } from './texte-final.js';
 import type { AdapterContext, AdapterResult, AgentAdapter } from './index.js';
 
 const CLINE_TIMEOUT_MS = 30 * 60_000;
@@ -73,7 +74,15 @@ export function createClineAdapter(token = process.env.HIVE_TOKEN ?? DEFAULT_TOK
       // à l'invité Linux ; le runtime du bac doit donc recevoir `cline`.
       const bin = ctx.bac ? 'cline' : binaireCline(process.env, process.platform, existsSync);
       ctx.onProgress({ log: `${bin} --json --auto-approve démarré` });
-      const result = await runCommand(bin, argvCline(task.prompt), ctx, CLINE_TIMEOUT_MS);
+      // `--json` rend une ligne `run_result` dont `text` est la réponse finale
+      // (cline/cline, apps/cli/src/runtime/run-agent.ts).
+      const result = await runCommand(
+        bin,
+        argvCline(task.prompt),
+        ctx,
+        CLINE_TIMEOUT_MS,
+        texteFinalCline,
+      );
       // `subAgents: []` : Cline rend bien du JSON par lignes, mais rien dans sa
       // documentation ne décrit un événement de sous-agent qu'on saurait lire.
       // En annoncer serait en inventer — le catalogue déclare donc

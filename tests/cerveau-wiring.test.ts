@@ -628,14 +628,16 @@ describe('la contre-expertise est annoncée à chaque production', () => {
     const a = await attendreAssignation(relus);
     expect(a, 'aucune relecture lancée').toBeDefined();
 
-    // Le relecteur rend son avis, en texte libre — comme un vrai modèle.
+    // Le relecteur rend son avis, en texte libre — comme un vrai modèle, dans sa
+    // RÉPONSE FINALE (`finalText`), pas dans ses logs.
     (sockets[1] as WebSocket).send(
       JSON.stringify({
         type: 'task_result',
         taskId: a?.task?.id,
         success: true,
         diff: '',
-        logs: 'conteste\n- le cas du jeton vide n’est pas traité',
+        logs: '',
+        finalText: 'conteste\n- le cas du jeton vide n’est pas traité',
         durationMs: 5,
         subAgents: [],
       }),
@@ -697,7 +699,8 @@ describe('la contre-expertise est annoncée à chaque production', () => {
           taskId: relectureHermes?.task?.id,
           success: true,
           diff: '',
-          logs: 'conteste\n- le cas limite n’est pas traité',
+          logs: '',
+          finalText: 'conteste\n- le cas limite n’est pas traité',
           durationMs: 5,
           subAgents: [],
         }),
@@ -730,7 +733,8 @@ describe('la contre-expertise est annoncée à chaque production', () => {
           taskId: relectureCodex?.task?.id,
           success: true,
           diff: '',
-          logs: 'valide',
+          logs: '',
+          finalText: 'valide',
           durationMs: 5,
           subAgents: [],
         }),
@@ -793,7 +797,8 @@ describe('la contre-expertise est annoncée à chaque production', () => {
           taskId: a?.task?.id,
           success: true,
           diff: 'diff --git a/note.md b/note.md\n+une remarque',
-          logs: 'valide',
+          logs: '',
+          finalText: 'valide',
           durationMs: 5,
           subAgents: [],
         }),

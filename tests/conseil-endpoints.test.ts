@@ -152,7 +152,9 @@ describe('lire un conseil', () => {
       nodeId: noeud.id,
       success: true,
       diff: '',
-      logs: 'HIVE_PROPOSITION {"titre":"Une idée","corps":"un corps","qualite":9,"sources":["https://exemple.com/a"]}',
+      logs: '',
+      finalText:
+        'HIVE_PROPOSITION {"titre":"Une idée","corps":"un corps","qualite":9,"sources":["https://exemple.com/a"]}',
       durationMs: 10,
       subAgents: [],
     });
@@ -209,7 +211,11 @@ describe('lire un conseil', () => {
         nodeId: noeud.id,
         success: true,
         diff: '',
-        logs: 'HIVE_PROPOSITION {"titre":"Le scrutin vit","corps":"preuve","qualite":8,"sources":["https://exemple.com/s"]}',
+        logs: '',
+        // La réponse FINALE de l'éclaireuse : c'est elle que le scrutin relit
+        // au journal, jamais les logs (conseil-runner.ts).
+        finalText:
+          'HIVE_PROPOSITION {"titre":"Le scrutin vit","corps":"preuve","qualite":8,"sources":["https://exemple.com/s"]}',
         durationMs: 10,
         subAgents: [],
       });

@@ -156,6 +156,12 @@ export interface TaskResult {
   usage?: ExecutionUsage;
   /** Déclaration du CLI de l'agent, quand il en fait une. */
   fournisseur?: UsageFournisseur;
+  /**
+   * La réponse finale de l'agent, bornée (`LIMITS.finalText`) — jamais un
+   * extrait de `logs`. Relue depuis le journal, elle n'existe que dans sa
+   * fenêtre (voir `HiveStore.insertResult`).
+   */
+  finalText?: string;
 }
 
 /** Entrée du journal d'événements — base du futur Time-Lapse Replay (palier 3). */

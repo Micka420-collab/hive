@@ -256,11 +256,39 @@ export function agreger(avis: readonly Avis[]): Verdict {
  * que personne ne va vérifier. Un verdict qu'on n'a pas su lire devient donc
  * une CONTESTATION, dont l'unique objection est qu'on n'a pas su le lire.
  * L'humain regardera — c'est tout ce qu'on demande.
+ *
+ * ─── CE QU'ON LIT : LA RÉPONSE FINALE, JAMAIS LES LOGS ───────────────────────
+ *
+ * `texte` est le `finalText` du résultat — ce que le CLI déclare comme réponse
+ * (adapters/texte-final.ts). On lisait `logs + diff`, et c'était lire ailleurs
+ * que là où le relecteur parle :
+ *
+ *   · Codex répète le prompt sur stderr, et le prompt de critique contient
+ *     « valide » ou « conteste » : `conteste` l'emportait, TOUJOURS ;
+ *   · le stream-json de Claude Code échappe les retours à la ligne : aucune
+ *     objection « - … » n'était une ligne, AUCUNE n'était retenue ;
+ *   · une ligne retirée du diff (« - ancien code ») devenait une objection.
+ *
+ * Pas de texte final (CLI qui n'en déclare pas, nœud antérieur à ce contrat) :
+ * même règle que l'illisible, avec son motif propre — on ne se rabat pas sur
+ * les logs, puisque c'est précisément là que la lecture était fausse.
  */
 /** Au-delà, ce n'est plus une liste d'objections, c'est un déversement. */
 const OBJECTIONS_MAX = 20;
 
-export function lireAvis(nodeId: string, agentType: string, texte: string): Avis {
+export function lireAvis(nodeId: string, agentType: string, texte: string | undefined): Avis {
+  if (texte === undefined) {
+    return {
+      nodeId,
+      agentType,
+      valide: false,
+      objections: [
+        'Aucune réponse finale : le nœud relecteur n’a transmis aucun texte final ' +
+          '(CLI qui n’en déclare pas, ou nœud antérieur à ce contrat — mettez-le à jour). ' +
+          'Compté comme contesté — un avis absent ne vaut pas un feu vert.',
+      ],
+    };
+  }
   const objections: string[] = [];
   for (const ligne of texte.split(/\r?\n/)) {
     // `[\s\S]` et non `.` : en JavaScript, `.` ne traverse PAS U+2028 ni

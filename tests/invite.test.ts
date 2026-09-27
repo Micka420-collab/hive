@@ -7,6 +7,7 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { decodeInvite, encodeInvite, isWsUrl } from '../src/shared/invite.js';
 import {
+  AGENT_TYPES,
   agentCredentialEnv,
   detectAllAgents,
   detectBestAgent,
@@ -70,7 +71,11 @@ describe('invite (encode/décode)', () => {
 });
 
 describe('détection d’agent', () => {
-  const KNOWN = new Set(['claude-code', 'codex', 'shell']);
+  // Les agents CONNUS sont ceux que la ruche sait décrire — `AGENT_TYPES`, pas
+  // une liste recopiée ici : figée à trois noms, elle faisait rougir ce banc sur
+  // toute machine où Cursor, Cline ou Grok sont installés, alors que la
+  // détection rendait exactement ce qu'elle doit.
+  const KNOWN = new Set<string>(AGENT_TYPES);
 
   it('propose toujours le shell simulé et ne retourne que des agents connus', async () => {
     const all = await detectAllAgents();

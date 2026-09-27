@@ -68,7 +68,7 @@
 // est le seul à toucher au monde.
 
 import { champSurUneLigne } from '../shared/donnees-non-fiables.js';
-import { lignesDeLogs } from './brood.js';
+import { lignesDeLogs, texteDEchec } from './brood.js';
 import { SOLITUDE_JOURS } from './derive.js';
 import type { Derive } from './derive.js';
 import { horizonDepasseBudgetTaches } from './horizon.js';
@@ -170,9 +170,14 @@ const MOTIF_ERREUR = /error|erreur|échec|echec|failed|exception|traceback|asser
  * la forme de l'erreur. Sans cette normalisation, « TypeError at line 42 » et
  * « TypeError at line 87 » seraient deux leçons distinctes vues une fois
  * chacune — c'est-à-dire aucune leçon.
+ *
+ * La ligne est cherchée dans ce que l'échec DIT (`texteDEchec`), jamais dans
+ * les événements JSON d'un flux : leurs clés (`is_error`, `compact_error`)
+ * répondaient à `MOTIF_ERREUR`, et des pannes sans rapport partageaient la
+ * même signature `{"type":"…` — une fausse leçon systémique à trois nœuds.
  */
-export function signatureEchec(logs: string): string {
-  const lignes = lignesDeLogs(logs);
+export function signatureEchec(logs: string, finalText?: string): string {
+  const lignes = lignesDeLogs(texteDEchec(logs, finalText));
   const candidates = lignes.filter((l) => MOTIF_ERREUR.test(l));
   const ligne = candidates[0] ?? lignes[lignes.length - 1] ?? '';
   const normalisee = ligne
@@ -191,6 +196,8 @@ export interface EchecObserve {
   nodeId: string;
   taskId: string;
   logs: string;
+  /** Réponse finale déclarée par le CLI, quand le journal l'a encore. */
+  finalText?: string;
   createdAt: number;
 }
 
@@ -232,7 +239,7 @@ export function leconsCroisees(echecs: readonly EchecObserve[], max = MAX_LECONS
   const parSignature = new Map<string, Accu>();
 
   for (const e of echecs) {
-    const signature = signatureEchec(e.logs);
+    const signature = signatureEchec(e.logs, e.finalText);
     if (signature === '') continue;
     const a = parSignature.get(signature) ?? {
       noeuds: new Set<string>(),
@@ -248,7 +255,7 @@ export function leconsCroisees(echecs: readonly EchecObserve[], max = MAX_LECONS
     // du code, pas celui d'il y a trois semaines.
     if (e.createdAt >= a.vueA) {
       a.vueA = e.createdAt;
-      a.extrait = champSurUneLigne(extraitCourt(e.logs), MAX_EXTRAIT);
+      a.extrait = champSurUneLigne(extraitCourt(texteDEchec(e.logs, e.finalText)), MAX_EXTRAIT);
     }
     parSignature.set(signature, a);
   }

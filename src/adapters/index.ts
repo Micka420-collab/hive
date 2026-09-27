@@ -115,6 +115,14 @@ export interface AdapterResult {
    * Absent quand il ne déclare rien — jamais estimé par Hive.
    */
   fournisseur?: UsageFournisseur;
+  /**
+   * La réponse FINALE de l'agent, lue là où SON CLI la déclare (ligne
+   * `result` du stream-json, `run_result` de Cline, sortie standard de Codex) —
+   * jamais un extrait de `logs`. Bornée par `borneTexteFinal`. Absente quand le
+   * CLI n'en rend pas, ou quand le processus a été tué avant de conclure.
+   * Voir `texte-final.ts`.
+   */
+  finalText?: string;
 }
 
 export interface AgentAdapter {
