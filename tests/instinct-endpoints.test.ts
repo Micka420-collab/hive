@@ -155,12 +155,6 @@ describe('endpoints de l’instinct de ruche', () => {
     // fsync par COMMIT depuis #479 — a pris plus que les 3 s du TTL : la
     // mémoïsation avait expiré, légitimement, et le banc lisait le recalcul.
     vi.useFakeTimers({ toFake: ['Date'] });
-    // L'horloge de la Reine GELÉE (seulement `Date`) : la mémoïsation dure 3 s,
-    // et le banc éprouve qu'elle SERT, pas qu'elle expire. Sur le runner
-    // Windows, une écriture en `synchronous = FULL` puis trois requêtes ont
-    // dépassé les 3 s : le TTL expirait entre deux lectures et le banc
-    // rougissait sur la lenteur de la machine, pas sur le code.
-    vi.useFakeTimers({ toFake: ['Date'] });
     const premier = await lire();
     expect(premier).toHaveLength(1);
     expect(premier[0]).toMatchObject({ nodeId: 'n1', domaine: 'api', reussites: 2 });
