@@ -6,7 +6,7 @@
 import './reine.css';
 import { useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
-import { getToken } from '../api';
+import { enTetesRuche } from '../api';
 import { AtelierRecette } from '../AtelierRecette';
 import { extrairePiece } from '../reine-extraire';
 import {
@@ -56,10 +56,13 @@ async function askQueen(
 ): Promise<ChatResponse> {
   const res = await fetch('/api/chat', {
     method: 'POST',
+    // La même identité que `api()` : le jeton, et le compte s'il y en a un. Un
+    // `fetch` gardé à part ne doit pas devenir la seule porte qui oublie qui
+    // appelle.
     headers: {
       'content-type': 'application/json',
       accept: 'text/event-stream',
-      'x-hive-token': getToken(),
+      ...enTetesRuche(),
     },
     body: JSON.stringify({
       message,

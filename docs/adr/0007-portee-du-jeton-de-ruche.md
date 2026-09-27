@@ -172,6 +172,16 @@ Aucun test de la suite n'a rougi lors du resserrement, et c'est précisément
 pourquoi `tests/engagement-projet.test.ts` a été écrit : une garde qu'aucun test
 ne voit mordre est une garde qu'on retirera un jour sans s'en apercevoir.
 
+Et aucun test n'a vu ce que le resserrement cassait : le tableau de bord
+**connecté**. Son `api()` n'envoyait que le jeton de ruche, alors que
+`createProject` attribue le projet à la session — le propriétaire recevait donc
+« 404 projet inconnu » sur les huit engagements de son propre projet, `addTasks`
+en tête, juste après l'avoir créé. Les bancs du serveur choisissent leurs
+en-têtes, ceux de l'écran bouchonnent `fetch` : le défaut vivait entre les deux.
+`api()` joint désormais le JWT à chaque appel (le lien de partage excepté), et
+`tests/dashboard-contrat-compte.test.tsx` fait passer les vraies fonctions de
+l'écran devant une vraie Reine.
+
 ## Première étape livrée : les capacités globales
 
 La séparation a maintenant franchi la frontière des opérations globales qui
