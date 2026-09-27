@@ -103,4 +103,40 @@ describe('le registre Genome — sur une vraie Reine, après de vraies exécutio
 
     expect((await fetch(`${base}/api/genome`)).status).toBe(401);
   });
+
+  it('UN JOURNAL ÉLAGUÉ REND UNE FENÊTRE TRONQUÉE — même loin de la borne de lecture', async () => {
+    // L'élagage garde les 5 000 derniers événements de TOUS types. Les faits
+    // Genome en sortent donc bien avant que leurs seuls types remplissent la
+    // borne de lecture : « tronquée » ne se déclenchait qu'à 5 000 faits lus,
+    // et l'écran présentait un registre amputé comme complet.
+    dossier = mkdtempSync(path.join(os.tmpdir(), 'genome-elague-'));
+    serveur = await createServer({
+      port: 0,
+      host: '127.0.0.1',
+      token: JETON,
+      corsOrigins: ['http://localhost:5173'],
+      dbPath: path.join(dossier, 'hive.db'),
+      simulation: true,
+      tickMs: 3_600_000,
+    });
+    const s = serveur;
+    const p = s.store.createProject({ name: 'P' });
+    const t = s.store.createTask({ projectId: p.id, title: 'Implémenter', prompt: 'endpoint' });
+    for (let i = 0; i < 4; i++) {
+      s.store.appendEvent('task_assigned', { taskId: t.id, nodeId: 'n1', modele: 'm' }, 1_000 + i);
+    }
+    const lire = async (): Promise<RegistreGenome> =>
+      (await (
+        await fetch(`http://127.0.0.1:${s.port}/api/genome`, {
+          headers: { 'x-hive-token': JETON },
+        })
+      ).json()) as RegistreGenome;
+
+    expect((await lire()).fenetre.tronquee, 'rien n’a encore été élagué').toBe(false);
+
+    expect(s.store.pruneEvents(2), 'l’élagage retire des événements').toBeGreaterThan(0);
+    const registre = await lire();
+    expect(registre.fenetre.evenements, 'loin de la borne de lecture').toBeLessThan(5_000);
+    expect(registre.fenetre.tronquee, 'des faits plus anciens manquent').toBe(true);
+  });
 });

@@ -58,9 +58,10 @@ describe('le panneau « Pourquoi ce Worker, ce modèle »', () => {
         nodeId: 'n-zzz',
         modele: 'opus',
         categorie: 'code',
+        versionAiguillage: 2,
         raisonModele: [
-          { modele: 'opus', essais: 3, moyenne: 1, score: 1.9, aExplorer: false },
-          { modele: 'grok', essais: 0, moyenne: null, score: null, aExplorer: true },
+          { modele: 'opus', essais: 3, enVol: 0, moyenne: 1, score: 1.9, aExplorer: false },
+          { modele: 'grok', essais: 0, enVol: 0, moyenne: null, score: null, aExplorer: true },
         ],
         pheromone: null,
         critereNoeud: 'porteur_du_modele',
@@ -79,6 +80,34 @@ describe('le panneau « Pourquoi ce Worker, ce modèle »', () => {
     expect(lignes[1]?.textContent).not.toMatch(/0\.00/);
   });
 
+  it('UN MODÈLE JAMAIS JUGÉ MAIS EN VOL EST « À EXPLORER (n EN VOL) » — jamais « n essais, moyenne 0 »', async () => {
+    const dom = await monter([
+      {
+        eventId: 1,
+        ts: 1,
+        nodeId: 'n-zzz',
+        modele: 'opus',
+        categorie: 'code',
+        versionAiguillage: 2,
+        raisonModele: [
+          { modele: 'opus', essais: 4, enVol: 1, moyenne: 1, score: 1.7, aExplorer: false },
+          { modele: 'grok', essais: 0, enVol: 5, moyenne: null, score: 0.8, aExplorer: true },
+        ],
+        pheromone: null,
+        critereNoeud: 'porteur_du_modele',
+      },
+    ]);
+    const [opus, grok] = [...dom.querySelectorAll('.routage-rang tbody tr')];
+    expect(grok?.textContent).toContain('à explorer (5 en vol)');
+    expect(grok?.textContent, 'aucune moyenne pour un modèle jamais jugé').not.toMatch(/0\.00/);
+    // Le jugé et l'en-vol côte à côte : la moyenne est celle des verdicts.
+    expect(opus?.textContent).toContain('4 + 1 en vol');
+    expect(opus?.textContent).toContain('1.00');
+    expect(dom.querySelector('[data-testid="routage-version"]')?.textContent).toContain(
+      'Aiguillage v2',
+    );
+  });
+
   it('SANS MODÈLE DÉCLARÉ, LE PANNEAU LE DIT — pas de justification inventée', async () => {
     const dom = await monter([
       {
@@ -87,6 +116,7 @@ describe('le panneau « Pourquoi ce Worker, ce modèle »', () => {
         nodeId: 'n-zzz',
         modele: null,
         categorie: null,
+        versionAiguillage: null,
         raisonModele: [],
         pheromone: null,
         critereNoeud: 'moins_charge',

@@ -245,6 +245,17 @@ function NodeCard({
                   reputation?.essais && reputation.essais > 0
                     ? ` · Worker: ${reputation.essais} · ${Math.round((reputation.moyenne ?? 0) * 100)}%`
                     : '';
+                // Élections lancées, pas encore jugées : elles pèsent déjà sur le
+                // score du routing, jamais sur les essais ni la moyenne. `?? 0` :
+                // une Reine plus ancienne n'envoie pas ce compte. Le compte est
+                // celui de la RUCHE (toute tâche active commandée à ce modèle,
+                // sur n'importe quel nœud), et le libellé le dit : sur la carte
+                // d'une ouvrière au repos, « 3 en vol » tout court se lirait
+                // comme trois tâches à elle.
+                const enVol = Object.values(model.categories).reduce(
+                  (total, preuve) => total + (preuve.enVol ?? 0),
+                  0,
+                );
                 return (
                   <li
                     key={model.modele}
@@ -254,7 +265,12 @@ function NodeCard({
                     <span className="es-model-name">{model.modele}</span>
                     <span className="es-model-proof">
                       {observes.length === 0
-                        ? t('à explorer', 'explore')
+                        ? enVol > 0
+                          ? t(
+                              `à explorer (${enVol} en vol dans la ruche)`,
+                              `explore (${enVol} in flight hive-wide)`,
+                            )
+                          : t('à explorer', 'explore')
                         : `${observes.length} ${t('cat.', 'cats.')} · ${essais} ${t('essais', 'trials')} · ${Math.round((moyenne ?? 0) * 100)}%${preuveWorker}`}
                     </span>
                   </li>
@@ -828,6 +844,14 @@ export default function Essaim({ snapshot, agentsByTask, refreshTick, onNavigate
     workers.error === null && workers.data
       ? new Map(workers.data.workers.map((worker) => [worker.id, worker]))
       : null;
+  // L'Aiguillage n'élit un modèle que parmi ceux que déclarent les ouvrières
+  // en ligne : si aucune n'en déclare, chaque tâche part à la moins chargée,
+  // sans choix de modèle ni vécu à apprendre. Un fonctionnement par défaut
+  // qu'on ne voit nulle part se lit comme « le routing ne marche pas » — on le
+  // dit, avec le geste qui l'allume.
+  const aiguillageInactif =
+    online > 0 &&
+    !snapshot.nodes.some((n) => n.status === 'online' && (n.modeles?.length ?? 0) > 0);
 
   return (
     <div className="mc-view es-view">
@@ -861,6 +885,17 @@ export default function Essaim({ snapshot, agentsByTask, refreshTick, onNavigate
                   />
                 ))}
               </div>
+            )}
+            {aiguillageInactif && (
+              <p
+                className="muted-text es-aiguillage-inactif"
+                data-testid="essaim-aiguillage-inactif"
+              >
+                {t(
+                  'Aiguillage inactif : aucune ouvrière en ligne ne déclare de modèle. Chaque tâche part à la moins chargée, sans choix de modèle. Pour l’activer : HIVE_MODELES=… (les modèles que ce compte peut appeler) dans le .env du nœud, puis relancer le nœud.',
+                  'Routing inactive: no online worker declares a model. Each task goes to the least loaded worker, with no model choice. To turn it on: HIVE_MODELES=… (the models this account can call) in the node’s .env, then restart the node.',
+                )}
+              </p>
             )}
             {workers.error && (
               <p className="panel-error es-workers-error">

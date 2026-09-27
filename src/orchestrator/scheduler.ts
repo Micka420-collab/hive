@@ -11,11 +11,11 @@ import type { PresenceFichier } from '../shared/presence.js';
 // lit ni n'écrit rien ; le scheduler lui donne les antécédents et enregistre le
 // modèle choisi. Absence de modèles déclarés ⇒ `null` ⇒ aucun changement.
 import {
+  VERSION_AIGUILLAGE,
   aiguillerNoeuds,
+  antecedentsDuVecu,
   categoriser,
   choisirModele,
-  injecterEnVol,
-  replierAntecedents,
 } from './aiguillage.js';
 import type { Antecedent } from './aiguillage.js';
 // L'Agent Garde-Fous : élire, PAR PROJET opt-in, l'échelon de garde-fous et
@@ -1582,26 +1582,12 @@ export class Scheduler {
    * d'assignation) ; la course de drones, elle, n'en a besoin qu'une fois.
    */
   private antecedentsAiguillage(): Map<string, Antecedent> {
-    const antecedents = replierAntecedents(
-      this.store.observationsAiguillage().map((o) => ({
-        categorie: categoriser(o.title, o.prompt),
-        // Une contre-revue porte le modèle réellement commandé au résultat
-        // (`modeleExact`). Revenir au modèle posé sur la tâche reste nécessaire
-        // pour les verdicts historiques qui n'ont pas cette preuve, mais dès
-        // qu'elle existe elle doit gouverner l'apprentissage : une réassignation
-        // peut avoir remplacé `aiguillage_modeles` depuis la production relue.
-        modele: o.modeleExact ?? o.modele,
-        suite: o.suite,
-      })),
+    // Le repli canonique, partagé avec `/api/workers` : le modèle PROUVÉ gouverne
+    // l'apprentissage dès qu'il existe (cf. `antecedentsDuVecu`).
+    return antecedentsDuVecu(
+      this.store.observationsAiguillage(),
+      this.store.electionsEnVolAiguillage(),
     );
-    injecterEnVol(
-      antecedents,
-      this.store.electionsEnVolAiguillage().map((e) => ({
-        categorie: categoriser(e.title, e.prompt),
-        modele: e.modele,
-      })),
-    );
-    return antecedents;
   }
 
   /**
@@ -1824,10 +1810,14 @@ export class Scheduler {
         // (route === null) — on n'invente pas une justification. Bornée aux
         // quatre premiers : le classement entier peut être long, l'élu et ses
         // poursuivants immédiats suffisent à la lecture.
+        // Le tampon de version dit sous quel calcul cette raison a été prise :
+        // relue après un changement de taxonomie ou de format, elle ne se lit
+        // pas avec les règles d'après (cf. `VERSION_AIGUILLAGE`).
         ...(route
           ? {
               categorie: categoriser(task.title, task.prompt),
               raisonModele: route.rang.slice(0, 4),
+              versionAiguillage: VERSION_AIGUILLAGE,
             }
           : {}),
       });

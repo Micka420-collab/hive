@@ -177,6 +177,63 @@ describe('GET /api/workers', () => {
     });
   });
 
+  it('LA ROUTE LIT LES ÉLECTIONS EN VOL, COMME L’ORDONNANCEUR', async () => {
+    // Le banc « la vue Workers montre le classement qui a décidé » recopie
+    // l'appel de la route : il éprouve `projeterWorkers`, pas CE câblage-ci.
+    // Une route qui ne passerait plus les élections en vol (`enVol: []`)
+    // montrerait de nouveau un score que le routing ne calcule pas — un
+    // modèle déjà élu, lu « +∞, à explorer, rien en vol ».
+    const base = await demarrer();
+    server!.store.registerNode({
+      nodeId: 'worker-vol',
+      name: 'poste-vol',
+      ownerName: 'micka',
+      agentType: 'claude-code',
+      maxConcurrency: 2,
+      modeles: ['claude-sonnet'],
+    });
+    const project = server!.store.createProject({ name: 'Projet en vol' });
+    const task = server!.store.createTask({
+      id: 'task-en-vol',
+      projectId: project.id,
+      title: 'Implémenter endpoint',
+      prompt: 'ajouter la route',
+    });
+    // Élue, lancée, pas encore relue : une élection EN VOL, sans verdict.
+    server!.store.poserModeleAiguillage(task.id, 'claude-sonnet', 10);
+    server!.store.patchTask(task.id, { status: 'running', assignedNodeId: 'worker-vol' });
+
+    const response = await fetch(`${base}/api/workers`, { headers });
+    const body = (await response.json()) as {
+      workers: Array<{
+        modeles?: Array<{
+          modele: string;
+          categories: Record<
+            string,
+            {
+              essais: number;
+              enVol: number;
+              moyenne: number | null;
+              score: number | null;
+              exploration: boolean;
+            }
+          >;
+        }>;
+      }>;
+    };
+
+    expect(response.status).toBe(200);
+    const code = body.workers[0]?.modeles?.[0]?.categories.code;
+    expect(code, 'l’élection en vol n’atteint pas la vue').toMatchObject({
+      essais: 0,
+      enVol: 1,
+      moyenne: null,
+      exploration: true,
+    });
+    // En vol, le score est FINI : l'élection pèse déjà comme un essai à zéro.
+    expect(Number.isFinite(code?.score), `score ${String(code?.score)}`).toBe(true);
+  });
+
   it('expose le travail actif sans divulguer le prompt', async () => {
     const base = await demarrer();
     server!.store.registerNode({

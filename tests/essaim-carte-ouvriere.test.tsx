@@ -494,3 +494,72 @@ describe('la carte d’une ouvrière : ce qu’elle porte en vol', () => {
     expect(bac('ruche-muette')?.className).toContain('muted-text');
   });
 });
+
+describe('l’Aiguillage inactif se dit — avec le geste qui l’allume', () => {
+  // Sans modèle déclaré par une ouvrière EN LIGNE, l'Aiguillage ne choisit
+  // rien : chaque tâche part à la moins chargée. C'est le défaut d'une ruche
+  // fraîche, et rien ne le disait — l'opérateur ne pouvait pas distinguer
+  // « routing éteint » de « routing qui ne marche pas ».
+  const avis = (dom: HTMLElement) =>
+    dom.querySelector<HTMLElement>('[data-testid="essaim-aiguillage-inactif"]');
+
+  it('AUCUNE OUVRIÈRE EN LIGNE NE DÉCLARE DE MODÈLE : L’AVIS LE DIT, ET NOMME HIVE_MODELES', async () => {
+    const dom = await monter([
+      noeud({ id: 'n-a', name: 'ruche-a' }),
+      // Un porteur HORS LIGNE n'aiguille rien : l'ordonnanceur ne le voit pas.
+      noeud({ id: 'n-b', name: 'ruche-b', status: 'offline', modeles: ['opus'] }),
+    ]);
+    expect(avis(dom), 'l’Aiguillage éteint ne se dit nulle part').not.toBeNull();
+    expect(avis(dom)?.textContent).toContain('Aiguillage inactif');
+    expect(avis(dom)?.textContent, 'le geste qui l’allume est nommé').toContain('HIVE_MODELES');
+  });
+
+  it('UNE OUVRIÈRE EN LIGNE DÉCLARE UN MODÈLE : PAS D’AVIS', async () => {
+    const dom = await monter([
+      noeud({ id: 'n-a', name: 'ruche-a' }),
+      noeud({ id: 'n-b', name: 'ruche-b', modeles: ['opus'] }),
+    ]);
+    expect(avis(dom)).toBeNull();
+  });
+
+  it('PERSONNE EN LIGNE : PAS D’AVIS — il n’y a rien à aiguiller', async () => {
+    const dom = await monter([noeud({ status: 'offline' })]);
+    expect(avis(dom)).toBeNull();
+  });
+
+  it('UN MODÈLE SANS VERDICT MAIS EN VOL EST « À EXPLORER (n EN VOL DANS LA RUCHE) »', async () => {
+    // Le compte vient de toute la ruche, pas de cette ouvrière : sans « dans
+    // la ruche », une carte au repos affirmerait porter des tâches qu'une
+    // autre fait tourner.
+    const preuve = (enVol: number) => ({
+      essais: 0,
+      enVol,
+      moyenne: null,
+      score: enVol > 0 ? 0 : null,
+      exploration: true,
+    });
+    const worker = {
+      ...noeud({ modeles: ['alpha'] }),
+      slotsLibres: 3,
+      modeles: [
+        {
+          modele: 'alpha',
+          categories: {
+            ideation: preuve(0),
+            code: preuve(2),
+            correction: preuve(1),
+            refactorisation: preuve(0),
+            test: preuve(0),
+            documentation: preuve(0),
+            autre: preuve(0),
+          },
+        },
+      ],
+    } as unknown as WorkerSnapshot;
+    vi.mocked(fetchWorkers).mockResolvedValue({ workers: [worker] });
+
+    const dom = await monter([noeud({ modeles: ['alpha'] })]);
+    const modele = carte(dom, 'ruche-nord').querySelector('.es-model.exploration');
+    expect(modele?.textContent).toContain('à explorer (3 en vol dans la ruche)');
+  });
+});

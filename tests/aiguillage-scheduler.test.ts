@@ -20,6 +20,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Scheduler } from '../src/orchestrator/scheduler.js';
 import { HiveStore } from '../src/orchestrator/store.js';
+import { projeterWorkers } from '../src/orchestrator/workers.js';
+import { affectationsDepuisEvenements } from '../src/shared/routage-vue.js';
 import type { Suite } from '../src/orchestrator/polyethisme.js';
 
 const profile = (name: string, modeles?: string[]) => ({
@@ -378,5 +380,101 @@ describe('Aiguillage câblé — la boucle principale de l’ordonnanceur', () =
       nOpus.id,
     );
     expect(task?.assignedNodeId, 'et grok neuf ne rafle plus').not.toBe(nGrok.id);
+  });
+  /** Une élection EN VOL : tâche « code » active, modèle commandé, aucun verdict. */
+  function enVol(modele: string): void {
+    const t = store.createTask({
+      projectId: store.createProject({ name: 'vol' }).id,
+      title: 'Ajoute un endpoint',
+      prompt: 'implémente la fonction',
+    }).id;
+    store.poserModeleAiguillage(t, modele, 100);
+    store.patchTask(t, { status: 'running' });
+  }
+
+  it('LA RAISON FIGÉE DIT « À EXPLORER » POUR UN MODÈLE JAMAIS JUGÉ — ses élections en vol comptées à part', () => {
+    // Le troupeau borné, relu comme Mission Control le relit. grok n'a aucun
+    // verdict mais cinq élections en vol : la raison disait « 5 essais,
+    // moyenne 0 », et le tiroir montrait un modèle mauvais là où la ruche ne
+    // sait encore rien de lui.
+    vecu('opus', 'appliquer', 8);
+    for (let i = 0; i < 5; i++) enVol('grok');
+    scheduler.registerNode(profile('n-opus', ['opus']));
+    scheduler.registerNode(profile('n-grok', ['grok']));
+    const t = tacheCode('Ajoute le composant Ruche');
+
+    scheduler.tick(5_000);
+
+    const evenements = store
+      .listEvents()
+      .filter((event) => event.type === 'task_assigned' && event.payload.taskId === t);
+    const [affectation] = affectationsDepuisEvenements(evenements);
+    expect(affectation?.raisonModele.find((l) => l.modele === 'grok')).toEqual({
+      modele: 'grok',
+      essais: 0,
+      enVol: 5,
+      moyenne: null,
+      score: expect.any(Number) as number,
+      aExplorer: true,
+    });
+    expect(affectation?.raisonModele.find((l) => l.modele === 'opus')).toMatchObject({
+      essais: 8,
+      enVol: 0,
+      moyenne: 1,
+      aExplorer: false,
+    });
+    expect(affectation?.versionAiguillage, 'la raison dit sous quel calcul elle a été prise').toBe(
+      2,
+    );
+  });
+
+  it('LA VUE WORKERS MONTRE LE CLASSEMENT QUI A DÉCIDÉ — modèle prouvé, élections en vol, rivaux', () => {
+    // `/api/workers` repliait les verdicts sous le modèle COMMANDÉ et classait
+    // chaque modèle SEUL : Essaim montrait fable « 1 essai, 100 % » et opus
+    // « 3 essais, 50 % » quand l'ordonnanceur classait opus (2 essais, 0,75)
+    // devant fable (2 essais, 0,5). Une seule ouvrière déclare les deux
+    // modèles : l'union des éligibles EST son ensemble déclaré, et la raison
+    // figée par l'ordonnanceur doit être, ligne à ligne, ce que la vue montre.
+    vecuAvecModeleExact('opus', 'opus', 'appliquer', 1);
+    vecuAvecModeleExact('opus', 'fable', 'refaire', 1);
+    vecuAvecModeleExact('opus', 'opus', 'ameliorer', 1);
+    vecuAvecModeleExact('fable', 'fable', 'appliquer', 1);
+    enVol('opus');
+    scheduler.registerNode(profile('seule', ['fable', 'opus']));
+    const [worker] = projeterWorkers(store.listNodes(), {
+      verdicts: store.observationsAiguillage(),
+      enVol: store.electionsEnVolAiguillage(),
+    });
+    const t = tacheCode('Ajoute le composant Ruche');
+
+    scheduler.tick(5_000);
+
+    const raison = store
+      .listEvents()
+      .find((event) => event.type === 'task_assigned' && event.payload.taskId === t)?.payload
+      .raisonModele as
+      | { modele: string; essais: number; enVol: number; moyenne: number; score: number }[]
+      | undefined;
+    expect(raison?.map((r) => r.modele).sort()).toEqual(['fable', 'opus']);
+    for (const r of raison ?? []) {
+      const vue = worker?.modeles?.find((m) => m.modele === r.modele)?.categories.code;
+      expect(vue, `${r.modele} : la vue diverge du classement qui a décidé`).toEqual({
+        essais: r.essais,
+        enVol: r.enVol,
+        moyenne: r.moyenne,
+        score: r.score,
+        exploration: false,
+      });
+    }
+    expect(raison?.find((r) => r.modele === 'opus')).toMatchObject({
+      essais: 2,
+      enVol: 1,
+      moyenne: 0.75,
+    });
+    expect(raison?.find((r) => r.modele === 'fable')).toMatchObject({
+      essais: 2,
+      enVol: 0,
+      moyenne: 0.5,
+    });
   });
 });

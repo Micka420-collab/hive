@@ -1,11 +1,13 @@
 import {
   CATEGORIES,
+  antecedentsDuVecu,
   categoriser,
   classer,
-  replierAntecedents,
   recompenseDe,
   type Categorie,
-  type Observation,
+  type ElectionEnVol,
+  type Rang,
+  type VerdictAiguillage,
 } from './aiguillage.js';
 import type { HiveNode, Task, TaskStatus } from '../shared/types.js';
 import type { Suite } from './polyethisme.js';
@@ -82,18 +84,29 @@ export interface WorkerReputationSnapshot {
 /**
  * Preuve disponible pour un modèle déclaré par une ouvrière.
  *
- * `score` est le score UCB de l'Aiguillage quand le modèle a déjà un vécu.
- * Un modèle inconnu reste explicitement à explorer : `null` n'est jamais
- * transformé en zéro, car « inconnu » et « mauvais » ne sont pas le même fait.
+ * Chaque case est une ligne du `classer` de l'Aiguillage, sur les MÊMES
+ * antécédents que l'ordonnanceur (`antecedentsDuVecu` : modèle prouvé,
+ * élections en vol) et parmi les modèles déclarés par CE Worker — le calcul
+ * exact d'une course de drones sur ce poste. L'assignation ordinaire classe
+ * l'union des Workers éligibles : quand d'autres déclarent d'autres modèles,
+ * son bonus d'exploration diffère, jamais les essais ni la moyenne.
+ *
+ * Un modèle jamais jugé reste explicitement à explorer : `moyenne: null` n'est
+ * jamais transformé en zéro, car « inconnu » et « mauvais » ne sont pas le même
+ * fait. `score` est `null` seulement quand il est infini (ni jugé, ni en vol).
  */
 export interface ModeleWorkerSnapshot {
   modele: string;
   categories: Record<
     Categorie,
     {
+      /** Verdicts reçus sur ce genre. */
       essais: number;
+      /** Élections lancées et pas encore jugées : pèsent sur le score, pas sur la moyenne. */
+      enVol: number;
       moyenne: number | null;
       score: number | null;
+      /** Aucun verdict reçu : l'Aiguillage l'explore avant de prétendre le connaître. */
       exploration: boolean;
     }
   >;
@@ -142,12 +155,20 @@ export interface WorkerCurrentTask {
   updatedAt: number;
 }
 
-type LigneObservation = Pick<Observation, 'modele' | 'suite'> & {
-  title: string;
-  prompt: string;
+type LigneObservation = VerdictAiguillage & {
+  /** Worker qui a produit le résultat relu, quand le lien est encore prouvé. */
   nodeId?: string;
-  modeleExact?: string;
 };
+
+/**
+ * Le vécu de l'Aiguillage tel que l'ordonnanceur le relit : les verdicts ET
+ * les élections en vol. Les deux sont nécessaires pour montrer les scores sur
+ * lesquels il décide réellement.
+ */
+export interface VecuAiguillage {
+  verdicts: readonly LigneObservation[];
+  enVol: readonly ElectionEnVol[];
+}
 
 function reputationDe(lignes: readonly LigneObservation[]): WorkerReputationSnapshot {
   let appliquer = 0;
@@ -206,10 +227,12 @@ function reputationParCategorieDe(
   return resultat;
 }
 
-const scoreDe = (rang: ReturnType<typeof classer>[number]) => ({
+const scoreDe = (rang: Rang): ModeleWorkerSnapshot['categories'][Categorie] => ({
   essais: rang.essais,
+  enVol: rang.enVol,
   moyenne: rang.essais > 0 ? rang.moyenne : null,
-  score: rang.essais > 0 && Number.isFinite(rang.score) ? rang.score : null,
+  // `+∞` (ni jugé, ni en vol) n'a pas de JSON : `null`, jamais un nombre inventé.
+  score: Number.isFinite(rang.score) ? rang.score : null,
   exploration: rang.essais === 0,
 });
 
@@ -221,7 +244,7 @@ const scoreDe = (rang: ReturnType<typeof classer>[number]) => ({
  */
 export function projeterWorkers(
   nodes: readonly HiveNode[],
-  lignes: readonly LigneObservation[],
+  vecu: VecuAiguillage,
   activeTasks: readonly Pick<
     Task,
     'id' | 'title' | 'status' | 'assignedNodeId' | 'attempts' | 'branch' | 'updatedAt'
@@ -229,17 +252,13 @@ export function projeterWorkers(
   identites: ReadonlyMap<string, WorkerIdentitySnapshot> = new Map(),
   historiques: ReadonlyMap<string, readonly WorkerHistorySnapshot[]> = new Map(),
 ): WorkerSnapshot[] {
-  const antecedents = replierAntecedents(
-    lignes.map((ligne) => ({
-      categorie: categoriser(ligne.title, ligne.prompt),
-      modele: ligne.modele,
-      suite: ligne.suite,
-    })),
-  );
+  const antecedents = antecedentsDuVecu(vecu.verdicts, vecu.enVol);
 
   return nodes.map((node) => {
-    const modeles = node.modeles?.slice().sort((a, b) => a.localeCompare(b));
-    const lignesDuWorker = lignes.filter((ligne) => ligne.nodeId === node.id);
+    // Dédupliqués comme l'union de `aiguillerNoeuds` : un modèle déclaré deux
+    // fois compterait double dans le total du genre, donc dans le bonus.
+    const modeles = node.modeles && [...new Set(node.modeles)].sort((a, b) => a.localeCompare(b));
+    const lignesDuWorker = vecu.verdicts.filter((ligne) => ligne.nodeId === node.id);
     const projection: WorkerSnapshot = {
       id: node.id,
       name: node.name,
@@ -278,13 +297,21 @@ export function projeterWorkers(
     };
 
     if (modeles && modeles.length > 0) {
+      // Classés ENSEMBLE, genre par genre, comme `classer` le fait pour une
+      // élection : le bonus d'exploration dépend du total du genre sur tous
+      // les modèles en lice. Classé seul, chaque modèle recevait le bonus d'un
+      // genre où il n'aurait eu aucun rival — un score que le routing ne
+      // calcule jamais.
+      const classements = CATEGORIES.map(
+        (categorie) => [categorie, classer(categorie, modeles, antecedents)] as const,
+      );
       projection.modeles = modeles.map((modele) => ({
         modele,
         categories: Object.fromEntries(
-          CATEGORIES.map((categorie) => {
-            const rang = classer(categorie, [modele], antecedents)[0]!;
-            return [categorie, scoreDe(rang)];
-          }),
+          classements.map(([categorie, rang]) => [
+            categorie,
+            scoreDe(rang.find((r) => r.modele === modele)!),
+          ]),
         ) as ModeleWorkerSnapshot['categories'],
         reputation: reputationDe(lignesDuWorker.filter((ligne) => ligne.modeleExact === modele)),
       }));

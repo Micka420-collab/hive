@@ -9,6 +9,8 @@
 //   2. DE BOUT EN BOUT : un vrai nœud qui déclare des modèles les voit apparaître
 //      dans l'état de la ruche — la preuve que `opts.modeles` traverse bien le
 //      register jusqu'au store.
+//   3. LE RETRAIT : le même nœud qui revient SANS modèles (l'opérateur a ôté
+//      `HIVE_MODELES`) n'en porte plus — la ruche cesse de lui en commander.
 
 import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
@@ -223,5 +225,100 @@ describe('un nœud SANS modèle rejoint quand même la ruche', () => {
     // Et il ne prétend rien : pas de liste vide qui se ferait passer pour une
     // déclaration.
     expect(noeud?.modeles ?? []).toEqual([]);
+  });
+});
+
+describe('un nœud RETIRE ses modèles en revenant sans les déclarer', () => {
+  // ─── LE DÉFAUT ─────────────────────────────────────────────────────────────
+  //
+  // Le store traitait l'ABSENCE de `modeles` comme « ne touche à rien » (la
+  // règle de la plateforme). Or le client les redit à chaque inscription :
+  // leur absence ne peut vouloir dire qu'une chose, l'opérateur a ôté
+  // `HIVE_MODELES`. La ruche gardait pourtant l'ancienne liste POUR TOUJOURS,
+  // et continuait de commander `--model` à un nœud qui ne l'offrait plus.
+  //
+  // Et `[]` n'est PAS la porte : le protocole refuse une liste vide (voir le
+  // banc au-dessus), inscription comprise. Le retrait passe par l'absence.
+
+  const TOKEN = 'jeton-retrait-modeles-long';
+  const NODE_ID = 'noeud-qui-retire-ses-modeles';
+  let dir: string;
+  let server: HiveServer;
+  const clients: HiveNodeClient[] = [];
+
+  beforeAll(async () => {
+    dir = mkdtempSync(path.join(os.tmpdir(), 'hive-retrait-'));
+    server = await createServer({
+      port: 0,
+      host: '127.0.0.1',
+      token: TOKEN,
+      corsOrigins: ['http://localhost:5173'],
+      dbPath: path.join(dir, 'hive.db'),
+      simulation: false,
+      tickMs: 10_000,
+    });
+  }, 30_000);
+
+  afterAll(async () => {
+    for (const c of clients) c.stop();
+    await server.stop();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  });
+
+  function demarrer(modeles?: string[]): HiveNodeClient {
+    const client = new HiveNodeClient({
+      url: `ws://127.0.0.1:${server.port}/ws`,
+      token: TOKEN,
+      name: 'ouvriere-qui-retire',
+      ownerName: 'test',
+      agentType: 'shell',
+      maxConcurrency: 1,
+      workRoot: path.join(dir, 'work'),
+      nodeId: NODE_ID,
+      adapter: {
+        name: 'noop',
+        async run() {
+          return { success: true, diff: '', logs: 'ok', subAgents: [] };
+        },
+      },
+      quiet: true,
+      ...(modeles ? { modeles } : {}),
+    });
+    clients.push(client);
+    client.start();
+    return client;
+  }
+
+  async function attendreNoeud(
+    predicat: (n: HiveNode) => boolean,
+    message: string,
+  ): Promise<HiveNode> {
+    const base = `http://127.0.0.1:${server.port}`;
+    const headers = { 'x-hive-token': TOKEN };
+    const deadline = Date.now() + 8_000;
+    while (Date.now() < deadline) {
+      const s = (await (await fetch(`${base}/api/state`, { headers })).json()) as StateSnapshot;
+      const noeud = s.nodes.find((n) => n.id === NODE_ID);
+      if (noeud && predicat(noeud)) return noeud;
+      await new Promise((r) => setTimeout(r, 80));
+    }
+    throw new Error(message);
+  }
+
+  it('SANS HIVE_MODELES AU RETOUR, LA DÉCLARATION D’AVANT EST EFFACÉE', async () => {
+    const premier = demarrer(['claude-opus-5', 'claude-fable-5']);
+    await attendreNoeud(
+      (n) => n.status === 'online' && n.modeles?.length === 2,
+      'la première inscription ne déclare pas ses modèles',
+    );
+    premier.stop();
+    await attendreNoeud((n) => n.status === 'offline', 'le nœud ne passe pas hors ligne');
+
+    demarrer();
+    const revenu = await attendreNoeud(
+      (n) => n.status === 'online',
+      'le nœud ne revient pas en ligne sans modèles',
+    );
+    expect(revenu.modeles, 'une déclaration retirée survit à la ré-inscription').toBeUndefined();
   });
 });

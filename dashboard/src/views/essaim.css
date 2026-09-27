@@ -251,6 +251,12 @@
   margin: 0 14px 12px;
 }
 
+/* Aiguillage inactif : un constat et le geste qui l'allume, pas une erreur. */
+.es-aiguillage-inactif {
+  margin: 0 14px 12px;
+  font-size: 12px;
+}
+
 /* Le chip d'agentType est informatif, pas cliquable. */
 .es-chip {
   cursor: default;

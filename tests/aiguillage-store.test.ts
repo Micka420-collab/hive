@@ -300,12 +300,20 @@ describe('HiveStore — les modèles déclarés d’un nœud (ce que l’Aiguill
     expect(store.getNode('n1')?.modeles).toEqual(['b', 'c']);
   });
 
-  it('UNE RÉ-INSCRIPTION SANS MODÈLES N’EFFACE PAS ce qu’on savait', () => {
-    // Même règle que `plateforme` : un client d'une version antérieure qui se
-    // reconnecte sans déclarer ne doit pas effacer une liste déjà apprise.
+  it('UNE RÉ-INSCRIPTION SANS MODÈLES RETIRE la déclaration — la règle du bac, pas celle de la plateforme', () => {
+    // Ce banc disait l'inverse (« même règle que `plateforme` : ne rien
+    // effacer »), et c'était le défaut : le client redit ses modèles à CHAQUE
+    // inscription, donc leur absence est un retrait (`HIVE_MODELES` ôté). Garder
+    // la liste faisait commander `--model` à un nœud qui ne l'offrait plus —
+    // pour toujours, puisqu'aucune autre voie ne permettait de la retirer. Même
+    // un client d'avant l'Aiguillage y gagne : il ignorerait le modèle commandé,
+    // et son verdict serait appris sous un modèle qu'il n'a pas fait tourner.
     store.registerNode({ ...base, nodeId: 'n1', modeles: ['a', 'b'] });
     store.registerNode({ ...base, nodeId: 'n1' });
-    expect(store.getNode('n1')?.modeles).toEqual(['a', 'b']);
+    expect(store.getNode('n1')?.modeles, 'une déclaration retirée survit').toBeUndefined();
+    // Et la redéclaration suivante repart de zéro, sans reliquat.
+    store.registerNode({ ...base, nodeId: 'n1', modeles: ['c'] });
+    expect(store.getNode('n1')?.modeles).toEqual(['c']);
   });
 });
 
