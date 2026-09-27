@@ -9,6 +9,7 @@ import { LIMITS } from '../shared/protocol.js';
 import { texteDEchec } from '../shared/texte-d-echec.js';
 import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from '../shared/types.js';
 import type { AdapterContext, AdapterResult } from './index.js';
+import { createSortieDirecte } from './sortie-directe.js';
 import { borneTexteFinal, createTexteFinalTracker } from './texte-final.js';
 import type { LecteurEvenementFinal } from './texte-final.js';
 
@@ -164,6 +165,16 @@ function executer(
       stdio: ENTREE_FERMEE,
     });
 
+    // Stdout part AUSSI en direct, borné et cadencé (sortie-directe.ts) : c'est
+    // ici, au seul `spawn` des adaptateurs, que tous les agents réels
+    // l'obtiennent d'un coup. Le caviardage, lui, est l'affaire du nœud.
+    const direct = createSortieDirecte((sortie) => {
+      try {
+        ctx.onProgress({ sortie });
+      } catch {
+        /* le départ vit dans un minuteur : une exception y tuerait le nœud */
+      }
+    });
     let output = '';
     let tampon = '';
     // Fin de la sortie standard seule, pour `'sortie-standard'` : stdout et
@@ -177,6 +188,7 @@ function executer(
     child.stderr?.setEncoding('utf8');
     child.stdout?.on('data', (s: string) => {
       if (output.length < OUTPUT_CAP) output += s;
+      direct.ecrire(s);
       if (texteFinal === 'sortie-standard') {
         sortieStandard = (sortieStandard + s).slice(-2 * LIMITS.finalText);
       }
@@ -201,6 +213,7 @@ function executer(
 
     child.on('error', (err) => {
       clearTimeout(timeout);
+      direct.terminer();
       // Le binaire n'a pas pu être lancé (absent, non exécutable) : échec d'infra.
       resolve({
         success: false,
@@ -213,6 +226,9 @@ function executer(
 
     child.on('close', (code) => {
       clearTimeout(timeout);
+      // Avant le `resolve` : un morceau parti après le résultat serait ignoré
+      // par le hub, et ressusciterait une console déjà vidée à l'écran.
+      direct.terminer();
       if (parLigne && tampon.trim()) parLigne(tampon); // dernière ligne sans \n final
       // Un processus TUÉ n'a pas conclu : ce qu'il avait écrit n'est pas sa
       // réponse finale, et le lire comme tel ferait juger une phrase coupée.

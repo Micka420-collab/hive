@@ -1711,6 +1711,10 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       broadcastEvent({ type: 'event', event });
       stateDirty = true;
     },
+    // Relais pur, ni journal ni `stateDirty` : l'état de la ruche n'a pas
+    // changé, seul l'écran de la tâche a du texte de plus.
+    onSortie: (taskId, nodeId, sortie) =>
+      broadcastEvent({ type: 'task_output', taskId, nodeId, sortie }),
   });
 
   /**
@@ -9819,7 +9823,14 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
             if (msg.onShift !== undefined) nodeOnShift.set(nodeId, msg.onShift);
             break;
           case 'task_update':
-            scheduler.handleTaskUpdate(nodeId, msg.taskId, msg.subAgents, msg.log, msg.presences);
+            scheduler.handleTaskUpdate(
+              nodeId,
+              msg.taskId,
+              msg.subAgents,
+              msg.log,
+              msg.presences,
+              msg.sortie,
+            );
             break;
           case 'task_result': {
             // ─── LE HUB SAVAIT DIRE NON, ET NE LE DISAIT JAMAIS ──────────────

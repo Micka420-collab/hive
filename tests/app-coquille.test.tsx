@@ -327,3 +327,71 @@ describe('la coquille de l’App — les survivantes du balayage du soir', () =>
     );
   });
 });
+
+describe('la sortie en direct — du flux au tiroir, et vidée quand la tâche ne vit plus', () => {
+  const tache = (status: 'running' | 'done') => ({
+    id: 'tache-en-direct',
+    projectId: 'p-1',
+    title: 'Écrire le rayon',
+    prompt: 'écris',
+    status,
+    dependsOn: [],
+    assignedNodeId: 'noeud-1',
+    result: null,
+    branch: null,
+    attempts: 1,
+    createdAt: 1,
+    updatedAt: 1,
+  });
+  const instantane = (status: 'running' | 'done') =>
+    ({
+      projects: [
+        {
+          id: 'p-1',
+          name: 'Rucher',
+          repoUrl: null,
+          description: null,
+          visibility: 'private',
+          ownerId: null,
+          createdAt: 1,
+        },
+      ],
+      nodes: [],
+      tasks: [tache(status)],
+      tasksTotal: 1,
+    }) as never;
+
+  it('UN MORCEAU REÇU S’AFFICHE ; UNE FIN DE VIE — MÊME MANQUÉE — LE VIDE', async () => {
+    let poignees: FeedHandlers | null = null;
+    vi.mocked(connectFeed).mockImplementation((h: FeedHandlers) => {
+      poignees = h;
+      return { close: () => {} };
+    });
+    const dom = await monter();
+    const h = poignees as unknown as FeedHandlers;
+    await act(async () => h.onState(instantane('running')));
+    await laisserFinirLesVuesParesseuses();
+    const ligne = [...dom.querySelectorAll('.queue li')].find((li) =>
+      li.textContent?.includes('Écrire le rayon'),
+    ) as HTMLElement;
+    await act(async () => ligne.click());
+    const console_ = () => dom.querySelector('[data-testid="console-directe"]');
+
+    await act(async () => h.onSortie?.('tache-en-direct', 'noeud-1', 'lecture de rayon.ts\n'));
+    expect(console_()?.textContent).toContain('lecture de rayon.ts');
+
+    // Fin de vie reçue : la sortie est oubliée (la tâche vit encore dans
+    // l'instantané, la console attend donc de nouveau).
+    await act(async () =>
+      h.onEvent({ id: 9, ts: 1, type: 'task_requeued', payload: { taskId: 'tache-en-direct' } }),
+    );
+    expect(console_()?.textContent).not.toContain('lecture de rayon.ts');
+
+    // Fin de vie MANQUÉE (coupure) : l'instantané suivant dit `done`, la
+    // sortie reçue entre-temps ne survit pas.
+    await act(async () => h.onSortie?.('tache-en-direct', 'noeud-1', 'encore\n'));
+    expect(console_()?.textContent).toContain('encore');
+    await act(async () => h.onState(instantane('done')));
+    expect(console_()).toBeNull();
+  });
+});

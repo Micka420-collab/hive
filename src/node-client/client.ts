@@ -10,7 +10,7 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import WebSocket from 'ws';
 import { getAdapter } from '../adapters/index.js';
-import type { AdapterResult, AgentAdapter } from '../adapters/index.js';
+import type { AdapterProgress, AdapterResult, AgentAdapter } from '../adapters/index.js';
 import { borneTexteFinal } from '../adapters/texte-final.js';
 import {
   agentBinairePresent,
@@ -18,6 +18,8 @@ import {
   requisitionSiCredentialsManquantes,
 } from './agent-detect.js';
 import type { AgentType } from './agent-detect.js';
+import { creerCaviardeur, valeursSecretes } from '../shared/caviardage.js';
+import type { Caviardeur } from '../shared/caviardage.js';
 import { argvDe, jugerChantier } from '../shared/chantier.js';
 import { jugerCommandeTest } from '../shared/commande-test.js';
 import { jugerPreparation } from '../shared/preparation.js';
@@ -79,8 +81,14 @@ const DELEGATION_RESULT_GRACE_MS = 5 * 60_000;
  */
 function declarationsDuResultat(
   result: AdapterResult,
+  caviardeur: Caviardeur,
 ): Pick<TaskResultMsg, 'fournisseur' | 'finalText'> {
-  const finalText = result.finalText === undefined ? undefined : borneTexteFinal(result.finalText);
+  // Caviardé AVANT d'être borné : la borne garde la fin, et une clé coupée
+  // par elle ne serait plus reconnue.
+  const finalText =
+    result.finalText === undefined
+      ? undefined
+      : borneTexteFinal(caviardeur.texte(result.finalText));
   return {
     ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
     ...(finalText ? { finalText } : {}),
@@ -953,6 +961,52 @@ export class HiveNodeClient {
     };
   }
 
+  /**
+   * Le caviardeur d'une exécution : les VALEURS des variables d'identification
+   * transmises à l'agent (`keepEnv`), plus le jeton de ruche du nœud. Ce sont
+   * exactement les secrets que l'agent peut avoir sous les yeux — et donc
+   * recracher dans sa sortie, ses logs, son diff ou sa réponse.
+   *
+   * Lu de `process.env` au moment de l'exécution, comme `buildSandboxEnv` :
+   * les deux voient les mêmes valeurs. Les secrets de la ruche que
+   * `buildSandboxEnv` retire de `keepEnv` restent caviardés ici — en trop,
+   * jamais en moins.
+   */
+  private caviardeurDuNoeud(): Caviardeur {
+    const env = Object.fromEntries(
+      (this.opts.keepEnv ?? []).map((nom): [string, string | undefined] => [nom, process.env[nom]]),
+    );
+    return creerCaviardeur([...valeursSecretes(env), this.opts.token]);
+  }
+
+  /**
+   * Le progrès d'un adaptateur, tel qu'il part au hub : texte caviardé ici, sur
+   * la machine qui porte les secrets — le hub, lui, relaie la sortie en direct
+   * à chaque écran de la ruche.
+   */
+  private progresVersHub(
+    taskId: string,
+    ctrl: AbortController,
+    caviardeur: Caviardeur,
+  ): (p: AdapterProgress) => void {
+    return (p) => {
+      // Seule l'exécution EN COURS parle pour la tâche : un minuteur oublié
+      // par un adaptateur fini écrirait sinon dans la console de la tentative
+      // suivante (même tâche, même nœud — le hub ne peut pas les distinguer).
+      if (this.active.get(taskId) !== ctrl) return;
+      const sortie = p.sortie ? caviardeur.texte(p.sortie).slice(0, LIMITS.sortie) : '';
+      this.send({
+        type: 'task_update',
+        taskId,
+        status: 'running',
+        ...(p.subAgents ? { subAgents: p.subAgents } : {}),
+        ...(p.presences ? { presences: p.presences } : {}),
+        ...(p.log ? { log: caviardeur.texte(p.log).slice(0, LIMITS.log) } : {}),
+        ...(sortie ? { sortie } : {}),
+      });
+    };
+  }
+
   // ─── Exécution d'une tâche ───────────────────────────────────────────────
   private async runTask(
     task: Task,
@@ -1008,6 +1062,7 @@ export class HiveNodeClient {
     const ctrl = new AbortController();
     this.active.set(task.id, ctrl);
     const started = Date.now();
+    const caviardeur = this.caviardeurDuNoeud();
     let budgetExceeded = false;
     let budgetTimer: NodeJS.Timeout | null = null;
     let usage: ExecutionUsage | undefined;
@@ -1049,16 +1104,7 @@ export class HiveNodeClient {
         delegate: (input) => this.requestDelegation(task.id, input),
         waitForDelegationResult: (childTaskId) =>
           this.waitForDelegationResult(task.id, childTaskId, ctrl.signal),
-        onProgress: (p) => {
-          this.send({
-            type: 'task_update',
-            taskId: task.id,
-            status: 'running',
-            ...(p.subAgents ? { subAgents: p.subAgents } : {}),
-            ...(p.presences ? { presences: p.presences } : {}),
-            ...(p.log ? { log: p.log } : {}),
-          });
-        },
+        onProgress: this.progresVersHub(task.id, ctrl, caviardeur),
       });
       if (budgetTimer) {
         clearTimeout(budgetTimer);
@@ -1124,12 +1170,13 @@ export class HiveNodeClient {
         type: 'task_result',
         taskId: task.id,
         success: result.success,
-        diff: diff.slice(0, LIMITS.diff),
-        logs: result.logs.slice(0, LIMITS.log),
+        // Caviardés AVANT d'être tronqués (voir `declarationsDuResultat`).
+        diff: caviardeur.diff(diff).slice(0, LIMITS.diff),
+        logs: caviardeur.texte(result.logs).slice(0, LIMITS.log),
         durationMs: Date.now() - started,
         subAgents: result.subAgents.slice(0, LIMITS.subAgents),
         ...(usage ? { usage } : {}),
-        ...declarationsDuResultat(result),
+        ...declarationsDuResultat(result, caviardeur),
       });
       this.log(`${result.success ? '✔' : '✘'} ${task.title}`);
     } catch (err) {
@@ -1143,7 +1190,7 @@ export class HiveNodeClient {
         logs:
           budgetExceeded && delegationBudget
             ? `[nœud] budget de durée dépassé (${delegationBudget.durationMs} ms)`
-            : `[nœud] exception : ${message}`,
+            : caviardeur.texte(`[nœud] exception : ${message}`),
         durationMs: Date.now() - started,
         subAgents: [],
         ...(usage ? { usage } : {}),
@@ -1197,6 +1244,7 @@ export class HiveNodeClient {
 
     this.attenteRequisition = null;
     this.log(`↻ reprise de ${task.title} après réquisition accordée`);
+    let caviardeur = this.caviardeurDuNoeud();
     let budgetExceeded = false;
     let budgetTimer: NodeJS.Timeout | null = null;
     let usage: ExecutionUsage | undefined;
@@ -1208,6 +1256,9 @@ export class HiveNodeClient {
         /* pas de .env local */
       }
       workspace.env = buildSandboxEnv(workspace.cwd, this.opts.keepEnv ?? []);
+      // Relu APRÈS le `.env` : la réquisition accordée vient peut-être d'y
+      // poser la clé — c'est elle, désormais, qu'il faut taire.
+      caviardeur = this.caviardeurDuNoeud();
       const taskForAgent = hiveContext
         ? { ...task, prompt: composeAgentPrompt(hiveContext, task.prompt) }
         : task;
@@ -1225,16 +1276,7 @@ export class HiveNodeClient {
         delegate: (input) => this.requestDelegation(task.id, input),
         waitForDelegationResult: (childTaskId) =>
           this.waitForDelegationResult(task.id, childTaskId, ctrl.signal),
-        onProgress: (p) => {
-          this.send({
-            type: 'task_update',
-            taskId: task.id,
-            status: 'running',
-            ...(p.subAgents ? { subAgents: p.subAgents } : {}),
-            ...(p.presences ? { presences: p.presences } : {}),
-            ...(p.log ? { log: p.log } : {}),
-          });
-        },
+        onProgress: this.progresVersHub(task.id, ctrl, caviardeur),
       });
       if (budgetTimer) {
         clearTimeout(budgetTimer);
@@ -1280,12 +1322,13 @@ export class HiveNodeClient {
         type: 'task_result',
         taskId: task.id,
         success: result.success,
-        diff: diff.slice(0, LIMITS.diff),
-        logs: result.logs.slice(0, LIMITS.log),
+        // Caviardés AVANT d'être tronqués (voir `declarationsDuResultat`).
+        diff: caviardeur.diff(diff).slice(0, LIMITS.diff),
+        logs: caviardeur.texte(result.logs).slice(0, LIMITS.log),
         durationMs: Date.now() - started,
         subAgents: result.subAgents.slice(0, LIMITS.subAgents),
         ...(usage ? { usage } : {}),
-        ...declarationsDuResultat(result),
+        ...declarationsDuResultat(result, caviardeur),
       });
       this.log(`${result.success ? '✔' : '✘'} ${task.title} (reprise)`);
     } catch (err) {
@@ -1299,7 +1342,7 @@ export class HiveNodeClient {
         logs:
           budgetExceeded && delegationBudget
             ? `[nœud] budget de durée dépassé (${delegationBudget.durationMs} ms)`
-            : `[nœud] reprise après réquisition : ${message}`,
+            : caviardeur.texte(`[nœud] reprise après réquisition : ${message}`),
         durationMs: Date.now() - started,
         subAgents: [],
         ...(usage ? { usage } : {}),

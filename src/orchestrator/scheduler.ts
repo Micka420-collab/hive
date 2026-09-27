@@ -107,6 +107,13 @@ export interface SchedulerOptions {
   /** Appelé pour chaque événement journalisé — le serveur le diffuse au dashboard. */
   onEvent?: (event: HiveEvent) => void;
   /**
+   * Un morceau de sortie EN DIRECT d'un nœud légitime pour cette tâche : le
+   * serveur le relaie aux tableaux de bord, SANS le journaliser (voir
+   * `TaskUpdateMsg.sortie`). Même autorité que le progrès journalisé : le
+   * nœud assigné, ou un drone encore en course.
+   */
+  onSortie?: (taskId: string, nodeId: string, sortie: string) => void;
+  /**
    * Balance : 'off' (le grand livre ne tourne pas du tout), 'observation'
    * (il pèse, se tient à jour et SIGNALE les franchissements, sans jamais rien
    * bloquer — défaut), 'strict' (au plafond, il cesse d'assigner de nouvelles
@@ -782,6 +789,7 @@ export class Scheduler {
     subAgents?: SubAgent[],
     log?: string,
     presences?: PresenceFichier[],
+    sortie?: string,
   ): void {
     const task = this.store.getTask(taskId);
     // Mise à jour pour une tâche inconnue ou réaffectée ailleurs : ignorée —
@@ -804,6 +812,7 @@ export class Scheduler {
             ...(presences !== undefined ? { presences } : {}),
           });
         }
+        if (sortie) this.opts.onSortie?.(taskId, nodeId, sortie);
       }
       return;
     }
@@ -831,6 +840,9 @@ export class Scheduler {
         ...(presences !== undefined ? { presences } : {}),
       });
     }
+    // APRÈS la garde de statut : un morceau arrivé derrière le résultat (tâche
+    // close, réaffectée) ne rouvre pas une console que l'écran vient de vider.
+    if (sortie) this.opts.onSortie?.(taskId, nodeId, sortie);
   }
 
   /** Mode des Gardiennes en vigueur. Défaut `consultatif` — jamais contraignant. */

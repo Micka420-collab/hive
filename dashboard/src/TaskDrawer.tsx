@@ -17,6 +17,8 @@ import { direAnnonce, direDuree } from '../../src/shared/horloge-chantier';
 import { verdictAnnonce } from './horloge-vue';
 import { RoutageTache } from './RoutageTache';
 import { ChronologieTache } from './ChronologieTache';
+import { ConsoleDirecte } from './ConsoleDirecte';
+import type { SortieTache } from './sorties-directes';
 import type { VueHorloge } from './horloge-vue';
 
 function raisonDelegation(events: DelegationEvent[], taskId: string): string | null {
@@ -165,10 +167,12 @@ interface Props {
   horloge?: VueHorloge;
   /** Incrémenté par App quand un événement persistant peut modifier le graphe. */
   refreshTick?: number;
+  /** La sortie en direct de l'agent, gardée par App (`sorties-directes.ts`). */
+  sortie?: SortieTache;
   onClose: () => void;
 }
 
-export function TaskDrawer({ task, nodes, horloge, refreshTick = 0, onClose }: Props) {
+export function TaskDrawer({ task, nodes, horloge, refreshTick = 0, sortie, onClose }: Props) {
   const t = useT();
   const lang = useLang();
   const [results, setResults] = useState<TaskResult[] | null>(null);
@@ -507,6 +511,15 @@ export function TaskDrawer({ task, nodes, horloge, refreshTick = 0, onClose }: P
 
         <h3>Prompt</h3>
         <pre className="code-block">{task.prompt}</pre>
+
+        {/*
+          Pendant l'exécution — et tant qu'App garde une sortie : elle est
+          vidée à la fin de vie de la tâche, où l'onglet « Logs » prend le
+          relais avec le log complet.
+        */}
+        {(task.status === 'assigned' || task.status === 'running' || sortie) && (
+          <ConsoleDirecte sortie={sortie} />
+        )}
 
         {last && (
           <>

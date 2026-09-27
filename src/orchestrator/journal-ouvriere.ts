@@ -1,3 +1,4 @@
+import { SECRET_CAVIARDE, SECRET_DANS_TEXTE } from '../shared/caviardage.js';
 import { champSurUneLigne } from '../shared/donnees-non-fiables.js';
 import type { HiveEvent } from '../shared/types.js';
 
@@ -58,12 +59,8 @@ const NUMBER_FIELDS = new Set([
 
 const BOOLEAN_FIELDS = new Set(['infra', 'conteste', 'applique', 'possible']);
 
-/** Credentials commonly emitted by command line tools or repository URLs. */
-const SECRET_VALUE =
-  /(?:\bgh[pousr]_[A-Za-z0-9_-]+\b|\bgithub_pat_[A-Za-z0-9_]+\b|\bsk-[A-Za-z0-9_-]+\b|\bxai-[A-Za-z0-9_-]+\b|\b(?:Bearer|Basic)\s+[^\s,;]+|\b(?:token|secret|password|api[_-]?key)\s*[=:]\s*[^\s,;]+|\b(?:HIVE_TOKEN|[A-Z0-9_]*(?:API_KEY|SECRET|PASSWORD|PRIVATE_KEY))\s*[=:]\s*[^\s,;]+|https?:\/\/[^\s/@]+:[^\s/@]+@[^\s,;]+)/gi;
-
 function safeText(value: string): string {
-  return champSurUneLigne(value, 240).replace(SECRET_VALUE, '[secret]');
+  return champSurUneLigne(value, 240).replace(SECRET_DANS_TEXTE, SECRET_CAVIARDE);
 }
 
 function safeType(value: string): string {

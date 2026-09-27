@@ -17,7 +17,14 @@ export interface AdapterProgress {
   subAgents?: SubAgent[];
   /** Snapshot des fichiers ouverts constatés (ADR 0010). */
   presences?: PresenceFichier[];
+  /** Jalon lisible (« claude -p démarré ») : journalisé par le hub. */
   log?: string;
+  /**
+   * Un morceau de la sortie standard de l'agent, EN DIRECT (sortie-directe.ts :
+   * ≤ 4 Kio, ≤ 4 par seconde). Éphémère : le hub le relaie aux écrans sans le
+   * journaliser — voir `TaskUpdateMsg.sortie`.
+   */
+  sortie?: string;
 }
 
 /** Demande bornée qu'un Worker peut transmettre à la Queen pour un enfant. */

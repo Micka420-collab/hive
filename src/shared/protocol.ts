@@ -50,6 +50,12 @@ export const LIMITS = {
    * objections de 300). Au-delà, c'est de la prose que personne ne lit.
    */
   finalText: 8_000,
+  /**
+   * Un morceau de sortie EN DIRECT (`adapters/sortie-directe.ts` : 4 Kio
+   * UTF-8, donc au plus 4 096 caractères). Le nœud reborne après caviardage,
+   * qui peut allonger un jeton court en `[secret]`.
+   */
+  sortie: 4 * 1024,
   subAgents: 32,
   /** Fichiers ouverts constatés (présence Rayon) dans un task_update. */
   presences: 16,
@@ -222,6 +228,15 @@ export interface TaskUpdateMsg {
    */
   presences?: PresenceFichier[];
   log?: string;
+  /**
+   * Un morceau de la sortie standard de l'agent, caviardé PAR LE NŒUD
+   * (`shared/caviardage.ts`) avant l'envoi. ÉPHÉMÈRE : le hub le relaie aux
+   * tableaux de bord (`task_output`) sans l'écrire au journal. Quatre morceaux
+   * par seconde journalisés, c'était 3 600 événements pour une tâche de quinze
+   * minutes — et le journal est élagué PAR NOMBRE (`EVENT_RETENTION`) : une
+   * seule exécution bavarde aurait effacé l'histoire de la ruche.
+   */
+  sortie?: string;
 }
 
 export interface TaskResultMsg {
@@ -434,6 +449,18 @@ export interface EventMsg {
   event: HiveEvent;
 }
 
+/**
+ * La sortie en direct d'une tâche, relayée aux tableaux de bord. Jamais
+ * journalisée, donc jamais rejouée : un écran qui se reconnecte reprend le
+ * flux là où il en est, et le log complet arrive avec le résultat.
+ */
+export interface TaskOutputMsg {
+  type: 'task_output';
+  taskId: string;
+  nodeId: string;
+  sortie: string;
+}
+
 export interface ErrorMsg {
   type: 'error';
   message: string;
@@ -574,6 +601,7 @@ export type ServerMessage =
   | CancelTaskMsg
   | StateMsg
   | EventMsg
+  | TaskOutputMsg
   | ErrorMsg
   | RequisitionAckMsg
   | DelegationAcceptedMsg
@@ -590,6 +618,7 @@ const SERVER_MESSAGE_TYPES = new Set([
   'cancel_task',
   'state',
   'event',
+  'task_output',
   'error',
   'requisition_ack',
   'delegation_accepted',
@@ -905,12 +934,14 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
         m.status === 'running' &&
         (m.subAgents === undefined || isSubAgents(m.subAgents)) &&
         (m.presences === undefined || isPresences(m.presences)) &&
-        (m.log === undefined || isStrAllowEmpty(m.log, LIMITS.log))
+        (m.log === undefined || isStrAllowEmpty(m.log, LIMITS.log)) &&
+        (m.sortie === undefined || isStr(m.sortie, LIMITS.sortie))
       ) {
         const msg: TaskUpdateMsg = { type: 'task_update', taskId: m.taskId, status: 'running' };
         if (m.subAgents !== undefined) msg.subAgents = m.subAgents as SubAgent[];
         if (m.presences !== undefined) msg.presences = m.presences as PresenceFichier[];
         if (m.log !== undefined) msg.log = m.log as string;
+        if (m.sortie !== undefined) msg.sortie = m.sortie as string;
         return msg;
       }
       return null;
@@ -1209,6 +1240,12 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
       if (m.usage !== undefined) msg.usage = m.usage as ExecutionUsage;
       return msg;
     }
+    case 'task_output':
+      // Du texte d'agent pour un écran : validé comme ce qu'un nœud a le droit
+      // d'envoyer, pour qu'un hub bavard ne fasse pas gonfler la console.
+      return isId(m.taskId) && isId(m.nodeId) && isStr(m.sortie, LIMITS.sortie)
+        ? { type: 'task_output', taskId: m.taskId, nodeId: m.nodeId, sortie: m.sortie }
+        : null;
     case 'requisition_result':
       return isId(m.id) && (m.statut === 'accordee' || m.statut === 'refusee')
         ? { type: 'requisition_result', id: m.id, statut: m.statut }
