@@ -80,7 +80,7 @@ describe('le relais OpenAlex — réservé à la ruche', () => {
   it('UN COMPTE CONNECTÉ L’OUVRE AUSSI — sans le jeton de ruche', async () => {
     const inscription = await fetch(`${base}/api/auth/register`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-hive-token': JETON },
       body: JSON.stringify({
         email: 'chercheuse@exemple.fr',
         password: 'Une-phrase-de-passe-solide-42',

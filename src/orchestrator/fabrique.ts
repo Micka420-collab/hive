@@ -113,6 +113,7 @@ export function marquerFabriquesMergeesApresFusion(
       taskId?: string | null;
     }[];
     poserStatutFabrique(
+      projectId: string,
       id: string,
       statut: StatutFabrique,
     ): { ok: true } | { ok: false; motif: MotifRefusFabrique };
@@ -124,7 +125,7 @@ export function marquerFabriquesMergeesApresFusion(
   for (const f of store.listerFabriques(projectId)) {
     if (f.statut !== 'proposee' && f.statut !== 'en_revue') continue;
     if (f.taskId && f.taskId !== taskId) continue;
-    if (store.poserStatutFabrique(f.id, 'mergee').ok) n += 1;
+    if (store.poserStatutFabrique(projectId, f.id, 'mergee').ok) n += 1;
   }
   return n;
 }

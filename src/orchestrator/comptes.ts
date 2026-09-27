@@ -66,14 +66,21 @@ export type Role = (typeof ROLES)[number];
  *
  * Nommées par l'ACTE, pas par la route : une permission attachée à une URL
  * devient fausse au premier renommage, et personne ne s'en aperçoit.
+ *
+ * ─── UNE ACTION QU'AUCUNE ROUTE NE CONSULTE EST UNE PROMESSE FAUSSE ─────────
+ *
+ * La matrice déclarait aussi `voir_ses_projets`, `creer_projet` et
+ * `gerer_abonnements`, et aucune route ne les lisait : on croyait les
+ * abonnements réservés, ils ne l'étaient par personne. Les deux premières
+ * étaient accordées à TOUS les rôles — les consulter n'aurait rien refusé —, et
+ * aucune route ne gère d'abonnement. Elles sont retirées plutôt que câblées à
+ * vide. `regler_autonomie`, elle, est consultée : c'est la porte des réglages
+ * d'un projet (`proprieteProjetPermise`, server.ts), avec la propriété.
  */
 export const ACTIONS = [
-  'voir_ses_projets',
-  'creer_projet',
   'regler_autonomie',
   'voir_tous_les_projets',
   'gerer_membres',
-  'gerer_abonnements',
   'gerer_serveurs',
   'changer_role',
 ] as const;
@@ -88,14 +95,11 @@ export type Action = (typeof ACTIONS)[number];
  * défaut.
  */
 const MATRICE: Record<Role, readonly Action[]> = {
-  membre: ['voir_ses_projets', 'creer_projet', 'regler_autonomie'],
+  membre: ['regler_autonomie'],
   admin: [
-    'voir_ses_projets',
-    'creer_projet',
     'regler_autonomie',
     'voir_tous_les_projets',
     'gerer_membres',
-    'gerer_abonnements',
     'gerer_serveurs',
     'changer_role',
   ],
@@ -180,39 +184,39 @@ export function modeInscriptionDepuisEnv(env: NodeJS.ProcessEnv = process.env): 
  * installée avec `HIVE_INSCRIPTION=fermee` serait définitivement inutilisable,
  * sans aucun moyen de créer son premier administrateur.
  *
- * ─── MAIS PAS AU PREMIER VENU, QUAND LA RUCHE EST EXPOSÉE ──────────────────
+ * ─── MAIS JAMAIS AU PREMIER VENU ───────────────────────────────────────────
  *
- * Le premier compte devient ADMIN (`roleALaCreation`). Sur une ruche qui
- * n'écoute que la boucle locale, « le premier venu » est quelqu'un qui a déjà
- * la machine : l'amorce ne donne rien de plus. Sur une ruche EXPOSÉE — Cloud
- * derrière Caddy, serveur posé avec `HIVE_HOST=0.0.0.0`, partage LAN —,
- * quiconque appelait `/api/auth/register` avant l'hôte prenait
- * l'administration de la ruche : la fenêtre entre le démarrage et la première
- * inscription de l'hôte était une escalade de privilèges ouverte à Internet.
+ * Le premier compte devient ADMIN (`roleALaCreation`). Quiconque appelait
+ * `/api/auth/register` avant l'hôte prenait donc l'administration de la ruche.
+ * La première garde n'exigeait une preuve que sur une ruche EXPOSÉE, jugée par
+ * l'adresse d'ÉCOUTE — et c'était le mauvais fait : le montage documenté du
+ * Cloud hors Docker (Caddy sur la même machine, Reine sur 127.0.0.1) écoute la
+ * boucle locale et reçoit pourtant Internet. Mesuré : une requête relayée,
+ * `X-Forwarded-For: 203.0.113.7`, sans jeton → `200 {role:'admin'}`.
  *
- * On exige alors la preuve que l'hôte est bien l'hôte, SANS nouveau secret :
- * le jeton de ruche (`HIVE_TOKEN`), que l'installeur affiche et que le tableau
- * de bord réclame de toute façon pour fonctionner. La règle « ni mot de passe
- * par défaut, ni route secrète » tient : rien n'est ajouté, on demande ce que
+ * On ne devine donc plus la topologie : l'amorce exige TOUJOURS la preuve que
+ * l'hôte est bien l'hôte, SANS nouveau secret — le jeton de ruche
+ * (`HIVE_TOKEN`), que l'installeur affiche et que le tableau de bord réclame de
+ * toute façon pour fonctionner. Ses deux appelants réels l'envoient déjà (le
+ * tableau de bord, `scripts/essai-entree.mjs`). La règle « ni mot de passe par
+ * défaut, ni route secrète » tient : rien n'est ajouté, on demande ce que
  * l'hôte a déjà.
  */
 export function inscriptionPermise(opts: {
   mode: ModeInscription;
   comptesExistants: number;
   billetValide?: boolean;
-  /** La ruche écoute-t-elle au-delà de la boucle locale ? */
-  exposee?: boolean;
   /** L'appelant a-t-il présenté le jeton de ruche ? */
   jetonDeRuche?: boolean;
 }): { permise: boolean; motif: string } {
   if (opts.comptesExistants === 0) {
-    if (opts.exposee === true && opts.jetonDeRuche !== true) {
+    if (opts.jetonDeRuche !== true) {
       return {
         permise: false,
         motif:
-          'premier compte d’une ruche exposée : il deviendra administrateur, présentez donc ' +
-          'le jeton de la ruche (HIVE_TOKEN, affiché par l’installeur — champ « Jeton » du ' +
-          'tableau de bord, ou en-tête x-hive-token)',
+          'premier compte de la ruche : il deviendra administrateur, présentez donc le jeton ' +
+          'de la ruche (HIVE_TOKEN, affiché par l’installeur — champ « Jeton » du tableau de ' +
+          'bord, ou en-tête x-hive-token)',
       };
     }
     return { permise: true, motif: 'premier compte de la ruche' };

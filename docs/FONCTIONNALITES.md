@@ -41,12 +41,13 @@ effacées ne reviennent pas.
 **L'Intendance** exige un COMPTE administrateur, jamais le seul jeton de ruche :
 celui-ci est distribué à chaque nœud membre, et s'en servir comme preuve
 donnerait les pleins pouvoirs à toute machine qui butine. Le premier compte créé
-est administrateur, et le dernier ne peut pas se retirer. Sur une ruche
-**exposée** (écoute hors boucle locale : Cloud, `HIVE_HOST=0.0.0.0`), la
-création de ce premier compte exige le jeton de ruche — sans quoi le premier
-venu d'Internet deviendrait administrateur. Ce n'est pas une entorse à la règle
-précédente : avant le premier compte, aucun billet n'a pu être frappé (frapper
-exige un administrateur), donc seul l'hôte détient le jeton.
+est administrateur, et le dernier ne peut pas se retirer. La création de ce
+premier compte exige **toujours** le jeton de ruche — sans quoi le premier venu
+deviendrait administrateur. Toujours, et pas seulement sur une ruche qui écoute
+hors boucle locale : un proxy posé sur la même machine relaie Internet par la
+boucle locale, et l'adresse d'écoute ne dit pas qui parle. Ce n'est pas une
+entorse à la règle précédente : avant le premier compte, aucun billet n'a pu
+être frappé (frapper exige un administrateur), donc seul l'hôte détient le jeton.
 
 Les décisions de revue sont **partagées entre tous les opérateurs** (stockées
 côté orchestrateur, synchronisées en temps réel via WebSocket ; repli

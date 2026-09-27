@@ -139,7 +139,7 @@ describe("flux complet d'invitation", () => {
     const base = `http://127.0.0.1:${server.port}`;
     const auth = await fetch(`${base}/api/auth/register`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-hive-token': TOKEN },
       body: JSON.stringify({
         email: 'admin@hive.test',
         password: 'mot-de-passe-test',

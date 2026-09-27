@@ -2275,13 +2275,23 @@ export class HiveStore {
     return out;
   }
 
+  /**
+   * Pose le statut d'une fabrique DE CE PROJET.
+   *
+   * Le projet fait partie de la clé : une fabrique d'un autre projet est
+   * « inconnue » ici, exactement comme une qui n'existe pas. Sans lui, la garde
+   * de la route (qui juge le projet de l'URL) ne disait rien de la fabrique
+   * qu'on modifiait.
+   */
   poserStatutFabrique(
+    projectId: string,
     id: string,
     statut: StatutFabrique,
     now = Date.now(),
   ): { ok: true } | { ok: false; motif: MotifRefusFabrique } {
-    const row = this.db.prepare('SELECT id, statut FROM fabriques WHERE id = ?').get(id) as
-      { id: string; statut: string } | undefined;
+    const row = this.db
+      .prepare('SELECT id, statut FROM fabriques WHERE id = ? AND projectId = ?')
+      .get(id, projectId) as { id: string; statut: string } | undefined;
     if (!row) return { ok: false, motif: 'inconnue' };
     if (row.statut === 'mergee' || row.statut === 'refusee') {
       return { ok: false, motif: 'deja_close' };

@@ -119,7 +119,10 @@ describe('le parcours complet sur une vraie Reine', () => {
     const base = `http://127.0.0.1:${serveur.port}`;
     const inscription = await fetch(`${base}/api/auth/register`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        'x-hive-token': 'jeton-env-queen-suffisamment-long',
+      },
       body: JSON.stringify({
         email: 'hote@exemple.fr',
         password: 'Une-phrase-de-passe-solide-42',

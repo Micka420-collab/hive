@@ -57,7 +57,7 @@ describe('endpoint des comptes', () => {
   const inscrire = (base: string, email: string, password = MDP): Promise<Response> =>
     fetch(`${base}/api/auth/register`, {
       method: 'POST',
-      headers: json,
+      headers: { ...json, 'x-hive-token': TOKEN },
       body: JSON.stringify({ email, password, displayName: 'Testeur' }),
     });
 

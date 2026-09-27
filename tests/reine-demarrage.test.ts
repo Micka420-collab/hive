@@ -159,4 +159,36 @@ describe('la Reine — démarrage, bannière, arrêt', () => {
     },
     60_000,
   );
+
+  it('UNE CONFIANCE DE PROXY REFUSÉE ARRÊTE LE DÉMARRAGE — et dit quoi écrire', async () => {
+    // `HIVE_TRUST_PROXY=1` venait du `.env.example` de #439. La Reine
+    // démarrait avec une ligne ⚠, sans confiance : derrière Caddy, tous les
+    // clients partageaient alors le compteur du proxy. Elle s'arrête avant
+    // d'ouvrir le port, code 2 comme une dépendance manquante.
+    const cwd = dossier();
+    const proc = lancerBorneTuyaute(process.execPath, [TSX, MAIN], {
+      cwd,
+      env: envReine({ HIVE_DB: path.join(cwd, 'ruche.db'), HIVE_TRUST_PROXY: '1' }),
+    });
+    let sortie = '';
+    proc.stdout.on('data', (m: Buffer) => (sortie += m.toString('utf8')));
+    proc.stderr.on('data', (m: Buffer) => (sortie += m.toString('utf8')));
+    const code = await new Promise<number | null>((resoudre, rejeter) => {
+      const boucher = setTimeout(() => {
+        tuerGroupe(proc);
+        rejeter(new Error(`la Reine ne s'est pas arrêtée :\n${sortie}`));
+      }, 45_000);
+      boucher.unref?.();
+      proc.on('error', rejeter);
+      proc.on('close', (c) => {
+        clearTimeout(boucher);
+        resoudre(c);
+      });
+    });
+    expect(code, sortie).toBe(2);
+    expect(sortie).toMatch(/ne démarre pas/);
+    expect(sortie).toMatch(/nombre de sauts/);
+    expect(sortie, 'le refus doit dire quoi écrire').toMatch(/loopback/);
+    expect(sortie, 'la Reine a ouvert son port quand même').not.toContain('en ligne');
+  }, 60_000);
 });

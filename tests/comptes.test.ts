@@ -9,6 +9,9 @@
 //   3. La porte d'entrée résiste à la force brute ET ne dit pas qui est
 //      inscrit — deux propriétés distinctes, chacune indispensable.
 
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   ACTIONS,
@@ -48,10 +51,27 @@ describe('comptes — les rôles', () => {
     }
   });
 
-  it('un membre peut travailler sur ses propres projets', () => {
-    expect(peut('membre', 'voir_ses_projets')).toBe(true);
-    expect(peut('membre', 'creer_projet')).toBe(true);
+  it('un membre peut régler SES projets — la propriété fait le reste', () => {
+    // `regler_autonomie` est le rôle ; la propriété du projet est vérifiée à
+    // côté (`peutRegler`, `proprieteProjetPermise`). Retirer l'action au membre
+    // retirerait à chaque propriétaire le réglage de son propre projet.
     expect(peut('membre', 'regler_autonomie')).toBe(true);
+  });
+
+  it('AUCUNE ACTION DÉCLARÉE QUE LE SERVEUR NE CONSULTE PAS', () => {
+    // `voir_ses_projets`, `creer_projet` et `gerer_abonnements` étaient
+    // déclarées et jamais lues : on croyait les abonnements réservés, ils ne
+    // l'étaient par personne. Une action de la matrice doit être NOMMÉE par
+    // une garde du serveur (`exige(…)`, `peut(…)`), sinon elle ne promet rien.
+    const serveur = readFileSync(
+      path.join(path.dirname(fileURLToPath(import.meta.url)), '../src/orchestrator/server.ts'),
+      'utf8',
+    );
+    for (const action of ACTIONS) {
+      expect(serveur, `« ${action} » déclarée, jamais consultée`).toMatch(
+        new RegExp(`(?:exige|peut)\\([^)]*'${action}'\\)`),
+      );
+    }
   });
 
   it('un admin peut tout ce qui est déclaré', () => {
@@ -147,11 +167,11 @@ describe('comptes — personne ne se promeut soi-même', () => {
 });
 
 describe('comptes — l’inscription', () => {
-  it('le PREMIER compte passe toujours, même « fermée »', () => {
+  it('le PREMIER compte passe toujours, même « fermée » — avec le jeton de ruche', () => {
     // Sans ça, une ruche installée avec HIVE_INSCRIPTION=fermee serait
     // définitivement inutilisable : aucun moyen de créer son admin.
     for (const mode of INSCRIPTIONS) {
-      const r = inscriptionPermise({ mode, comptesExistants: 0 });
+      const r = inscriptionPermise({ mode, comptesExistants: 0, jetonDeRuche: true });
       expect(r.permise, mode).toBe(true);
     }
   });

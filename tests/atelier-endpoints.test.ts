@@ -44,7 +44,7 @@ describe('GET /api/atelier', () => {
     srv = await createServer(cfg(':memory:'));
     const auth = await fetch(`${srv.url}/api/auth/register`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-hive-token': TOKEN },
       body: JSON.stringify({
         email: 'admin@hive.test',
         password: 'mot-de-passe-test',

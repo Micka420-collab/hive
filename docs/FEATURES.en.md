@@ -39,7 +39,11 @@ erased data does not come back.
 **Stewardship** requires an administrator ACCOUNT, never the hive token alone:
 that token is handed to every member node, and using it as proof would give full
 powers to any machine that forages. The first account created is an
-administrator, and the last one cannot step down.
+administrator, and the last one cannot step down. Creating that first account
+**always** requires the hive token — otherwise whoever came first would become
+administrator. Always, not only on a hive listening beyond loopback: a proxy on
+the same machine relays the Internet through loopback, so the listening address
+does not say who is talking.
 
 Review decisions are **shared across all operators** (stored on the
 orchestrator, synced in real time over WebSocket; offline localStorage

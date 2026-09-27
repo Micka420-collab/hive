@@ -154,7 +154,7 @@ describe('connecter un dépôt GitHub à la ruche, de bout en bout', () => {
   const inscrire = async (email: string): Promise<string> => {
     const res = await fetch(`${base}/api/auth/register`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-hive-token': TOKEN },
       body: JSON.stringify({ email, password: 'motdepasse-assez-long-42', displayName: 'Abeille' }),
     });
     return ((await res.json()) as { token?: string }).token ?? '';
@@ -425,7 +425,7 @@ describe('connecter un dépôt depuis un COMPTE', () => {
     // le défaut et le test passerait pour de mauvaises raisons.
     await fetch(`${base2}/api/auth/register`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-hive-token': TOKEN },
       body: JSON.stringify({
         email: 'admin@ghc.test',
         password: 'motdepasse-assez-long-42',
@@ -434,7 +434,7 @@ describe('connecter un dépôt depuis un COMPTE', () => {
     });
     const r = await fetch(`${base2}/api/auth/register`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-hive-token': TOKEN },
       body: JSON.stringify({
         email: 'lea@ghc.test',
         password: 'motdepasse-assez-long-42',

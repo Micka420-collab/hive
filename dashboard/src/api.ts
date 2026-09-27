@@ -653,7 +653,8 @@ export interface VerdictGuet {
   sources: number;
   appats: string[];
   conseil: string;
-  derniers: { source: string; chemin: string; appat: string; quand: number }[];
+  /** Sans l'adresse de chaque passage : l'orchestrateur la garde pour lui (`/api/guet`). */
+  derniers: { chemin: string; appat: string; quand: number }[];
 }
 
 export function fetchGuet(): Promise<VerdictGuet> {

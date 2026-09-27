@@ -1,15 +1,20 @@
-// Le premier compte d'une ruche EXPOSÉE — celui qui devient administrateur —
-// exige le jeton de ruche.
+// Le premier compte d'une ruche — celui qui devient administrateur — exige le
+// jeton de ruche. TOUJOURS.
 //
 // ─── LE DÉFAUT QUE CES BANCS FERMENT ─────────────────────────────────────────
 //
 // Le premier compte créé devient admin (`roleALaCreation`), sans autre preuve.
-// Sur une ruche qui écoute au-delà de la boucle locale (Cloud derrière Caddy,
-// serveur posé avec HIVE_HOST=0.0.0.0, partage LAN), quiconque appelait
+// Sur une ruche joignable au-delà de la machine, quiconque appelait
 // `/api/auth/register` avant l'hôte prenait l'administration de la ruche.
 //
-// Les bancs d'intégration parlent à une vraie Reine qui écoute sur 0.0.0.0 —
-// donc exposée — et qu'on joint par 127.0.0.1.
+// La première garde (#440) n'exigeait le jeton que sur une ruche EXPOSÉE, jugée
+// par son adresse d'ÉCOUTE. Or le montage documenté du Cloud hors Docker pose
+// Caddy sur la même machine et la Reine sur 127.0.0.1 : elle écoute la boucle
+// locale et reçoit Internet. Mesuré : `X-Forwarded-For: 203.0.113.7`, sans
+// jeton → `200 {role:'admin'}`. L'amorce ne devine donc plus la topologie.
+//
+// Les bancs d'intégration parlent à une vraie Reine, sur 0.0.0.0 (exposée) et
+// sur 127.0.0.1 derrière un proxy local déclaré (`trustProxy: 'loopback'`).
 
 import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
@@ -20,37 +25,26 @@ import { createServer, type HiveServer } from '../src/orchestrator/server.js';
 
 const JETON = 'jeton-amorcage-suffisamment-long';
 
-describe('inscriptionPermise — l’amorce d’une ruche exposée', () => {
-  it('EXPOSÉE ET SANS JETON : le premier compte est refusé, et le motif dit quoi présenter', () => {
-    const porte = inscriptionPermise({ mode: 'ouverte', comptesExistants: 0, exposee: true });
+describe('inscriptionPermise — l’amorce exige le jeton de ruche', () => {
+  it('SANS JETON : le premier compte est refusé, et le motif dit quoi présenter', () => {
+    const porte = inscriptionPermise({ mode: 'ouverte', comptesExistants: 0 });
     expect(porte.permise).toBe(false);
     expect(porte.motif).toMatch(/HIVE_TOKEN/);
+    expect(inscriptionPermise({ mode: 'fermee', comptesExistants: 0 }).permise).toBe(false);
   });
 
-  it('EXPOSÉE AVEC LE JETON : le premier compte passe, même inscriptions fermées', () => {
+  it('AVEC LE JETON : le premier compte passe, même inscriptions fermées', () => {
     for (const mode of ['ouverte', 'sur_invitation', 'fermee'] as const) {
       expect(
-        inscriptionPermise({ mode, comptesExistants: 0, exposee: true, jetonDeRuche: true })
-          .permise,
+        inscriptionPermise({ mode, comptesExistants: 0, jetonDeRuche: true }).permise,
         mode,
       ).toBe(true);
     }
   });
 
-  it('BOUCLE LOCALE : rien ne change — le premier venu a déjà la machine', () => {
-    expect(inscriptionPermise({ mode: 'fermee', comptesExistants: 0 }).permise).toBe(true);
-    expect(
-      inscriptionPermise({ mode: 'ouverte', comptesExistants: 0, exposee: false }).permise,
-    ).toBe(true);
-  });
-
   it('LES COMPTES SUIVANTS NE DEMANDENT PAS LE JETON — seule l’amorce est gardée', () => {
-    expect(
-      inscriptionPermise({ mode: 'ouverte', comptesExistants: 1, exposee: true }).permise,
-    ).toBe(true);
-    expect(
-      inscriptionPermise({ mode: 'sur_invitation', comptesExistants: 1, exposee: true }).permise,
-    ).toBe(false);
+    expect(inscriptionPermise({ mode: 'ouverte', comptesExistants: 1 }).permise).toBe(true);
+    expect(inscriptionPermise({ mode: 'sur_invitation', comptesExistants: 1 }).permise).toBe(false);
   });
 });
 
@@ -64,7 +58,10 @@ describe('l’amorce sur une vraie Reine', () => {
     if (dossier) rmSync(dossier, { recursive: true, force: true });
   });
 
-  async function reine(host: string): Promise<{ base: string; serveur: HiveServer }> {
+  async function reine(
+    host: string,
+    trustProxy: false | string = false,
+  ): Promise<{ base: string; serveur: HiveServer }> {
     dossier = mkdtempSync(path.join(os.tmpdir(), 'amorcage-'));
     serveur = await createServer({
       port: 0,
@@ -74,6 +71,7 @@ describe('l’amorce sur une vraie Reine', () => {
       dbPath: path.join(dossier, 'hive.db'),
       simulation: false,
       tickMs: 60_000,
+      trustProxy,
     });
     return { base: `http://127.0.0.1:${serveur.port}`, serveur };
   }
@@ -113,9 +111,32 @@ describe('l’amorce sur une vraie Reine', () => {
     expect(((await membre.json()) as { role: string }).role).toBe('membre');
   });
 
-  it('RUCHE EN BOUCLE LOCALE : l’amorce reste sans jeton, comme avant', async () => {
+  it('PROXY SUR LA MÊME MACHINE : une Reine en boucle locale ne donne pas l’administration à Internet', async () => {
+    // Le montage Cloud hors Docker : Caddy sur la machine, Reine sur 127.0.0.1,
+    // HIVE_TRUST_PROXY=loopback. La requête d'un inconnu arrive par la boucle
+    // locale, avec son adresse dans X-Forwarded-For.
+    const { base, serveur: s } = await reine('127.0.0.1', 'loopback');
+    const relaye = await inscrire(base, 'intrus@exemple.fr', {
+      'x-forwarded-for': '203.0.113.7',
+    });
+    expect(relaye.status, 'un inconnu relayé par le proxy local').toBe(403);
+    expect(s.store.countUsers(), 'un compte a été créé malgré le refus').toBe(0);
+
+    const hote = await inscrire(base, 'hote@exemple.fr', {
+      'x-forwarded-for': '198.51.100.4',
+      'x-hive-token': JETON,
+    });
+    expect(hote.status).toBe(200);
+    expect(((await hote.json()) as { role: string }).role).toBe('admin');
+  });
+
+  it('BOUCLE LOCALE SANS PROXY : l’amorce exige le jeton aussi — la Reine ne devine plus', async () => {
+    // Personne ne peut savoir, depuis la Reine, si un proxy relaie la boucle
+    // locale sans qu'on le lui ait dit. Ses deux appelants réels (tableau de
+    // bord, essai d'entrée) présentent déjà le jeton.
     const { base } = await reine('127.0.0.1');
-    const hote = await inscrire(base, 'hote@exemple.fr');
+    expect((await inscrire(base, 'hote@exemple.fr')).status).toBe(403);
+    const hote = await inscrire(base, 'hote@exemple.fr', { 'x-hive-token': JETON });
     expect(hote.status).toBe(200);
     expect(((await hote.json()) as { role: string }).role).toBe('admin');
   });

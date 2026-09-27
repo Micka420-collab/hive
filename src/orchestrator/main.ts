@@ -13,6 +13,25 @@ try {
   // Fichier illisible : les valeurs par défaut / variables d'environnement s'appliquent.
 }
 
+// ─── UNE CONFIANCE REFUSÉE ARRÊTE LE DÉMARRAGE ───────────────────────────────
+//
+// `HIVE_TRUST_PROXY=true`, un nombre de sauts (`1`), une faute de frappe : la
+// Reine n'accorde aucune de ces confiances (`shared/proxy-confiance.ts`). Elle
+// démarrait quand même, avec une ligne ⚠ dans le journal — et derrière Caddy,
+// tous les clients partageaient alors l'IP du proxy : débit REST, verrou des
+// connexions ratées, plafond des sockets /ws anonymes. Un seul client bruyant
+// bloquait tout le monde, et la seule trace était une ligne qu'on ne relit
+// pas. Celui qui a écrit la variable voulait une confiance : on lui dit
+// laquelle écrire, AVANT d'ouvrir le port.
+const confianceProxy = lireConfianceProxy(process.env.HIVE_TRUST_PROXY);
+if (confianceProxy.refus !== null) {
+  // Écrit PUIS quitté : vers un tuyau (un service, un banc), l'écriture peut
+  // être asynchrone, et `exit` immédiat perdrait la seule ligne qui explique.
+  const message = `\n✘ L'orchestrateur ne démarre pas : ${confianceProxy.refus}\n\n`;
+  await new Promise<void>((ecrit) => process.stderr.write(message, () => ecrit()));
+  process.exit(2);
+}
+
 // ─── L'orchestrateur est chargé DYNAMIQUEMENT, et ce n'est pas un détail ─────
 //
 // Fastify et better-sqlite3 sont des `optionalDependencies` : un ami qui veut
@@ -49,10 +68,7 @@ console.log(`   Dashboard : ${server.url}`);
 console.log(`   WebSocket : ws://${config.host}:${server.port}/ws`);
 console.log(`   Base      : ${config.dbPath}`);
 if (config.simulation) console.log(`   ${annonceSimulation(config.token)}`);
-const confianceProxy = lireConfianceProxy(process.env.HIVE_TRUST_PROXY);
-if (confianceProxy.refus !== null) {
-  console.log(`   ⚠ ${confianceProxy.refus}`);
-} else if (confianceProxy.valeur !== false) {
+if (confianceProxy.valeur !== false) {
   console.log(`   IP client  : X-Forwarded-For cru depuis ${String(confianceProxy.valeur)}`);
 }
 

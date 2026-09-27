@@ -84,7 +84,6 @@ afterEach(() => {
 
 /** Un passage sur un leurre — `i` distingue les chemins pour qu'on les compte. */
 const passage = (i: number) => ({
-  source: '203.0.113.7',
   chemin: `/leurre-${i}`,
   appat: 'env',
   quand: 1_700_000_000_000 + i * 1_000,
