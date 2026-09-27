@@ -458,6 +458,10 @@ describe.skipIf(process.platform === 'win32')(
         return existsSync(f) ? readFileSync(f, 'utf8') : undefined;
       };
 
+      // Racine de travail COURTE : le pont de délégation de l'adaptateur ouvre
+      // un socket Unix dans le dossier de la tâche, et refuse un chemin de plus
+      // de 100 caractères — le tmpdir de macOS (/var/folders/…) les dépasse.
+      const travail = mkdtempSync('/tmp/hv-');
       const pathAvant = process.env.PATH;
       process.env.PATH = `${faux}${path.delimiter}${pathAvant ?? ''}`;
       const client = new HiveNodeClient({
@@ -467,7 +471,7 @@ describe.skipIf(process.platform === 'win32')(
         ownerName: 'test',
         agentType: 'claude-code',
         maxConcurrency: 1,
-        workRoot: path.join(dir!, 'work'),
+        workRoot: travail,
         adapter: createClaudeCodeAdapter(TOKEN),
         quiet: true,
       });
@@ -499,6 +503,7 @@ describe.skipIf(process.platform === 'win32')(
       } finally {
         client.stop();
         process.env.PATH = pathAvant;
+        rmSync(travail, { recursive: true, force: true, maxRetries: 3 });
       }
     }, 30_000);
   },
