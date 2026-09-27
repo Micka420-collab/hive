@@ -37,8 +37,20 @@
 //
 // Le SIGTERM vise le NŒUD SEUL, comme `ruche.mjs` : frapper le groupe tuerait
 // l'agent par le banc lui-même.
+//
+// ─── L'ARBRE, ET WINDOWS ─────────────────────────────────────────────────────
+//
+// L'agent de ce banc lance un PETIT-ENFANT et IGNORE SIGTERM — la forme d'un
+// agent réel qui lance ses outils, et d'un runner mal élevé. L'annulation ne
+// visait que l'agent : son SIGTERM tombait dans le vide, et le petit-enfant
+// n'en recevait aucun. Tout l'arbre doit partir (`arbre-processus.ts`).
+//
+// Sous Windows, `npm run ruche` tuait ses ouvrières par `kill('SIGTERM')`,
+// c'est-à-dire `TerminateProcess` : aucun `stop()`, des agents orphelins. Elle
+// leur envoie désormais l'ordre d'arrêt par leur canal IPC (`ORDRE_ARRET`). Le
+// dernier cas l'éprouve sur les TROIS systèmes — c'est le seul chemin d'arrêt
+// propre sous Windows, et c'est là qu'il doit se voir.
 
-import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -46,7 +58,12 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
-import { lancerBorneTuyaute, reprendreTous } from './harnais-processus.js';
+import {
+  lancerBorneTuyaute,
+  processusVivant,
+  reprendreTous,
+  retenirPid,
+} from './harnais-processus.js';
 
 const RACINE = fileURLToPath(new URL('..', import.meta.url));
 const LANCER = path.join(RACINE, 'scripts', 'lancer.mjs');
@@ -62,49 +79,51 @@ afterEach(() => reprendreTous());
  * Le superviseur : lance la commande reçue en argument, dit le pid de son
  * enfant, dit comment il finit — et reste en vie, comme `ruche.mjs` le temps
  * de son arrêt.
+ *
+ * Avec `ORDRE_PAR_CANAL` (un chemin), il ouvre un canal IPC vers son enfant,
+ * comme `ruche.mjs` vers ses ouvrières, et y envoie l'ordre d'arrêt dès que ce
+ * fichier paraît : c'est ainsi que le banc le déclenche sans signal, donc sur
+ * les trois systèmes.
  */
 const SUPERVISEUR =
   "import { spawn } from 'node:child_process';\n" +
+  "import { existsSync } from 'node:fs';\n" +
   'const [bin, ...args] = process.argv.slice(2);\n' +
-  "const enfant = spawn(bin, args, { stdio: 'inherit' });\n" +
+  'const declencheur = process.env.ORDRE_PAR_CANAL;\n' +
+  'const enfant = spawn(bin, args, {\n' +
+  "  stdio: declencheur ? ['inherit', 'inherit', 'inherit', 'ipc'] : 'inherit',\n" +
+  '});\n' +
   'console.log(`NOEUD ${enfant.pid}`);\n' +
   "enfant.on('exit', (code, signal) => console.log(`SORTIE ${code} ${signal}`));\n" +
+  'if (declencheur) {\n' +
+  '  const guet = setInterval(() => {\n' +
+  '    if (!existsSync(declencheur)) return;\n' +
+  '    clearInterval(guet);\n' +
+  "    enfant.send({ type: 'arret' });\n" +
+  '  }, 100);\n' +
+  '}\n' +
   'setInterval(() => {}, 60_000);\n';
 
 /**
- * L'agent : il dit qui il est, puis travaille « pour toujours ».
+ * L'agent : il dit qui il est, lance un PETIT-ENFANT qui dit qui IL est, ignore
+ * SIGTERM, puis travaille « pour toujours ».
  *
- * Un FICHIER PAR AGENT, nommé par son pid, et vide : le nom apparaît d'un coup
- * avec le fichier. Un fichier UNIQUE réécrit par chaque agent laisserait une
- * fenêtre (la troncature d'un `writeFileSync` concurrent) où le banc lirait
+ * Un FICHIER PAR PROCESSUS, nommé par son pid, et vide : le nom apparaît d'un
+ * coup avec le fichier. Un fichier UNIQUE réécrit par chaque agent laisserait
+ * une fenêtre (la troncature d'un `writeFileSync` concurrent) où le banc lirait
  * '', donc le pid 0 — et il ne surveillerait de toute façon qu'UN agent.
  */
+const PETIT =
+  "require('node:fs').writeFileSync(require('node:path').join(process.argv[1], " +
+  "'petit-' + process.pid), ''); setInterval(() => {}, 60_000);";
 const AGENT =
+  "import { spawn } from 'node:child_process';\n" +
   "import { writeFileSync } from 'node:fs';\n" +
   "import path from 'node:path';\n" +
-  'writeFileSync(path.join(process.argv[2], String(process.pid)), "");\n' +
+  'writeFileSync(path.join(process.argv[2], `agent-${process.pid}`), "");\n' +
+  `spawn(process.execPath, ['-e', ${JSON.stringify(PETIT)}, process.argv[2]], { stdio: 'inherit' });\n` +
+  "process.on('SIGTERM', () => {});\n" +
   'setInterval(() => {}, 60_000);\n';
-
-/**
- * Vrai tant que le processus existe ET n'est pas un zombie.
- *
- * `kill(pid, 0)` seul répondrait « vivant » pour un zombie : un agent mort
- * que personne n'a encore ramassé. C'est l'init qui ramasse l'orphelin, et
- * il n'est pas tenu de le faire à la milliseconde — `ps` dit l'état exact.
- */
-function vivant(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-  } catch {
-    return false;
-  }
-  try {
-    const etat = execFileSync('ps', ['-o', 'stat=', '-p', String(pid)], { encoding: 'utf8' });
-    return etat.trim() !== '' && !etat.trim().startsWith('Z');
-  } catch {
-    return false; // `ps` sort en 1 quand le pid n'existe plus
-  }
-}
 
 /**
  * Scrute une condition jusqu'à l'échéance — l'asynchrone s'ATTEND, il ne
@@ -132,16 +151,31 @@ interface Porte {
   preparer: () => Promise<{ args: string[]; env: NodeJS.ProcessEnv }>;
 }
 
-describe.runIf(POSIX)('le nœud — SIGTERM, le signal des superviseurs', () => {
+/**
+ * Les pid qu'un agent et ses petits-enfants ont écrits, relus À CHAQUE appel :
+ * un agent lancé entre-temps compte aussi. Chacun est retenu pour le filet —
+ * chef de son propre groupe, un agent orphelin échappe au balayage du groupe
+ * du superviseur (`retenirPid`).
+ */
+function arbreDesAgents(dossier: string): { agents: number[]; petits: number[] } {
+  const noms = readdirSync(dossier);
+  const lire = (prefixe: string): number[] =>
+    noms.filter((n) => n.startsWith(`${prefixe}-`)).map((n) => Number(n.slice(prefixe.length + 1)));
+  const arbre = { agents: lire('agent'), petits: lire('petit') };
+  for (const pid of [...arbre.agents, ...arbre.petits]) retenirPid(pid);
+  return arbre;
+}
+
+describe('le nœud — SIGTERM, le signal des superviseurs, et l’ordre de la ruche', () => {
   let server: HiveServer;
   let racine: string;
   let base = '';
   let adminToken = '';
 
-  // UNE RUCHE PAR PORTE. Partagée, la tâche de la première porte — remise en
-  // file (`ws_closed`) quand son nœud s'arrête — partirait chez le nœud de la
-  // seconde, qui ferait alors tourner DEUX agents : le banc dépendrait de
-  // l'ordre de ses cas.
+  // UNE RUCHE PAR CAS. Partagée, la tâche du premier cas — remise en file
+  // (`ws_closed`) quand son nœud s'arrête — partirait chez le nœud du second,
+  // qui ferait alors tourner DEUX agents : le banc dépendrait de l'ordre de
+  // ses cas.
   beforeEach(async () => {
     racine = mkdtempSync(path.join(os.tmpdir(), 'ruche-arret-'));
     server = await createServer({
@@ -169,18 +203,19 @@ describe.runIf(POSIX)('le nœud — SIGTERM, le signal des superviseurs', () => 
 
   afterEach(async () => {
     await server.stop();
-    rmSync(racine, { recursive: true, force: true });
+    rmSync(racine, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   });
 
+  const PORTE_NODE: Porte = {
+    nom: 'npm run node',
+    entree: 'src/node-client/main.ts',
+    preparer: async () => ({
+      args: [],
+      env: { HIVE_URL: `ws://127.0.0.1:${server.port}/ws`, HIVE_TOKEN: TOKEN },
+    }),
+  };
   const PORTES: Porte[] = [
-    {
-      nom: 'npm run node',
-      entree: 'src/node-client/main.ts',
-      preparer: async () => ({
-        args: [],
-        env: { HIVE_URL: `ws://127.0.0.1:${server.port}/ws`, HIVE_TOKEN: TOKEN },
-      }),
-    },
+    PORTE_NODE,
     {
       nom: 'hive join',
       entree: 'src/node-client/join.ts',
@@ -203,108 +238,137 @@ describe.runIf(POSIX)('le nœud — SIGTERM, le signal des superviseurs', () => 
     },
   ];
 
-  it.each(PORTES)(
-    '$nom : SIGTERM annule l’agent en cours et sort en 0',
-    async (porte) => {
-      const dossier = mkdtempSync(path.join(racine, 'noeud-'));
-      const pidsAgents = path.join(dossier, 'agents');
-      mkdirSync(pidsAgents);
-      const agent = path.join(dossier, 'agent.mjs');
-      const superviseur = path.join(dossier, 'superviseur.mjs');
-      writeFileSync(agent, AGENT, 'utf8');
-      writeFileSync(superviseur, SUPERVISEUR, 'utf8');
-      // `HIVE_AGENT_CMD` est découpé sur les espaces, sans shell (§ 5.1) : un
-      // chemin qui en porterait casserait la commande AVANT le signal, et le
-      // banc échouerait sur une cause qui n'est pas la sienne.
-      for (const morceau of [process.execPath, agent, pidsAgents]) {
-        expect(morceau, 'chemin avec espace : HIVE_AGENT_CMD le couperait').not.toMatch(/\s/);
-      }
+  /**
+   * Un nœud réel, sous superviseur, au travail sur UNE tâche ; `arreter` le
+   * frappe comme le fait son superviseur réel ; le banc constate ensuite que
+   * le nœud est sorti en 0 et que tout l'arbre de l'agent est parti.
+   */
+  async function arreterEnPleinTravail(
+    porte: Porte,
+    arreter: (ctx: { noeud: number; declencheur: string }) => void,
+    parCanal: boolean,
+  ): Promise<void> {
+    const dossier = mkdtempSync(path.join(racine, 'noeud-'));
+    const pidsAgents = path.join(dossier, 'agents');
+    mkdirSync(pidsAgents);
+    const agent = path.join(dossier, 'agent.mjs');
+    const superviseur = path.join(dossier, 'superviseur.mjs');
+    const declencheur = path.join(dossier, 'arret');
+    writeFileSync(agent, AGENT, 'utf8');
+    writeFileSync(superviseur, SUPERVISEUR, 'utf8');
+    // `HIVE_AGENT_CMD` est découpé sur les espaces, sans shell (§ 5.1) : un
+    // chemin qui en porterait casserait la commande AVANT l'arrêt, et le banc
+    // échouerait sur une cause qui n'est pas la sienne.
+    for (const morceau of [process.execPath, agent, pidsAgents]) {
+      expect(morceau, 'chemin avec espace : HIVE_AGENT_CMD le couperait').not.toMatch(/\s/);
+    }
 
-      const { args, env: propre } = await porte.preparer();
-      const env: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: '1' };
-      for (const cle of Object.keys(env)) if (cle.startsWith('HIVE_')) delete env[cle];
-      Object.assign(env, propre, {
-        HIVE_AGENT: 'custom',
-        // Le prompt, que `custom` ajoute en dernier argument, est ignoré.
-        HIVE_AGENT_CMD: `${process.execPath} ${agent} ${pidsAgents}`,
-        HIVE_WORKDIR: path.join(dossier, 'travail'),
-        HIVE_ISOLEMENT: 'off',
-        HIVE_NODE_NAME: `arret-${path.basename(dossier)}`,
-      });
+    const { args, env: propre } = await porte.preparer();
+    const env: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: '1' };
+    for (const cle of Object.keys(env)) if (cle.startsWith('HIVE_')) delete env[cle];
+    Object.assign(env, propre, {
+      HIVE_AGENT: 'custom',
+      // Le prompt, que `custom` ajoute en dernier argument, est ignoré.
+      HIVE_AGENT_CMD: `${process.execPath} ${agent} ${pidsAgents}`,
+      HIVE_WORKDIR: path.join(dossier, 'travail'),
+      HIVE_ISOLEMENT: 'off',
+      HIVE_NODE_NAME: `arret-${path.basename(dossier)}`,
+      ...(parCanal ? { ORDRE_PAR_CANAL: declencheur } : {}),
+    });
 
-      // cwd = le dossier jetable : les deux portes lisent le `.env` du
-      // répertoire courant, et celui du dépôt n'a rien à faire dans ce banc.
-      const proc = lancerBorneTuyaute(
-        process.execPath,
-        [superviseur, process.execPath, LANCER, porte.entree, ...args],
-        { cwd: dossier, env },
-      );
-      let sortie = '';
-      proc.stdout.on('data', (m: Buffer) => (sortie += m.toString('utf8')));
-      proc.stderr.on('data', (m: Buffer) => (sortie += m.toString('utf8')));
-      const pidNoeud = (): number | undefined => {
-        const m = /^NOEUD (\d+)$/m.exec(sortie);
-        return m ? Number(m[1]) : undefined;
-      };
-      const finNoeud = (): string | undefined => /^SORTIE (\S+ \S+)$/m.exec(sortie)?.[1];
+    // cwd = le dossier jetable : les deux portes lisent le `.env` du
+    // répertoire courant, et celui du dépôt n'a rien à faire dans ce banc.
+    const proc = lancerBorneTuyaute(
+      process.execPath,
+      [superviseur, process.execPath, LANCER, porte.entree, ...args],
+      { cwd: dossier, env },
+    );
+    let sortie = '';
+    proc.stdout.on('data', (m: Buffer) => (sortie += m.toString('utf8')));
+    proc.stderr.on('data', (m: Buffer) => (sortie += m.toString('utf8')));
+    const pidNoeud = (): number | undefined => {
+      const m = /^NOEUD (\d+)\r?$/m.exec(sortie);
+      return m ? Number(m[1]) : undefined;
+    };
+    const finNoeud = (): string | undefined => /^SORTIE (\S+ \S+)\r?$/m.exec(sortie)?.[1];
 
-      // Une tâche, par la vraie route : le hub l'assigne au seul nœud présent.
-      const entetes = { 'content-type': 'application/json', 'x-hive-token': TOKEN };
-      const projet = (await (
-        await fetch(`${base}/api/projects`, {
-          method: 'POST',
-          headers: entetes,
-          body: JSON.stringify({ name: `Arrêt ${porte.nom}` }),
-        })
-      ).json()) as { id: string };
-      const creation = await fetch(`${base}/api/projects/${projet.id}/tasks`, {
+    // Une tâche, par la vraie route : le hub l'assigne au seul nœud présent.
+    const entetes = { 'content-type': 'application/json', 'x-hive-token': TOKEN };
+    const projet = (await (
+      await fetch(`${base}/api/projects`, {
         method: 'POST',
         headers: entetes,
-        body: JSON.stringify({ tasks: [{ title: 'travail sans fin', prompt: 'attendre' }] }),
-      });
-      expect(creation.status, 'la ruche a refusé la tâche').toBe(201);
+        body: JSON.stringify({ name: `Arrêt ${porte.nom}` }),
+      })
+    ).json()) as { id: string };
+    const creation = await fetch(`${base}/api/projects/${projet.id}/tasks`, {
+      method: 'POST',
+      headers: entetes,
+      body: JSON.stringify({ tasks: [{ title: 'travail sans fin', prompt: 'attendre' }] }),
+    });
+    expect(creation.status, 'la ruche a refusé la tâche').toBe(201);
 
-      const agents = (): number[] => readdirSync(pidsAgents).map(Number);
-      await scruter(
-        () => agents().length > 0,
-        () => `l’agent n’a jamais démarré :\n${sortie}`,
-        45_000,
-      );
-      // Une ruche, un nœud, une tâche : UN agent. Deux diraient qu'une tâche
-      // d'ailleurs s'est invitée, et le banc ne mesurerait plus ce qu'il dit.
-      const lances = agents();
-      expect(lances, `un seul agent attendu :\n${sortie}`).toHaveLength(1);
-      const noeudPid = pidNoeud();
-      expect(noeudPid, `le superviseur n’a pas dit le pid du nœud :\n${sortie}`).toBeTypeOf(
-        'number',
-      );
-      expect(lances.filter(vivant), 'l’agent doit tourner avant le signal').toEqual(lances);
+    // L'agent ET son petit-enfant : c'est l'arbre entier qu'on attend.
+    await scruter(
+      () => {
+        const a = arbreDesAgents(pidsAgents);
+        return a.agents.length > 0 && a.petits.length > 0;
+      },
+      () => `l’agent et son petit-enfant n’ont jamais démarré :\n${sortie}`,
+      90_000,
+    );
+    // Une ruche, un nœud, une tâche : UN agent. Deux diraient qu'une tâche
+    // d'ailleurs s'est invitée, et le banc ne mesurerait plus ce qu'il dit.
+    const lances = arbreDesAgents(pidsAgents);
+    expect(lances.agents, `un seul agent attendu :\n${sortie}`).toHaveLength(1);
+    const tous = (): number[] => {
+      const a = arbreDesAgents(pidsAgents);
+      return [...a.agents, ...a.petits];
+    };
+    expect(tous().filter(processusVivant), 'l’arbre doit tourner avant l’arrêt').toEqual(tous());
+    const noeud = pidNoeud();
+    expect(noeud, `le superviseur n’a pas dit le pid du nœud :\n${sortie}`).toBeTypeOf('number');
 
+    arreter({ noeud: noeud as number, declencheur });
+    await scruter(
+      () => finNoeud() !== undefined,
+      () => `le nœud n’a pas entendu l’arrêt :\n${sortie}`,
+      30_000,
+    );
+
+    // L'arbre D'ABORD : c'est lui, l'enjeu. Un nœud mort en silence se
+    // relance ; un agent orphelin, personne ne sait qu'il tourne encore.
+    // Relu APRÈS l'arrêt : un processus lancé entre-temps compte aussi.
+    await scruter(
+      () => !tous().some(processusVivant),
+      () =>
+        `${tous().filter(processusVivant).join(', ')} a survécu à son nœud — orphelin, il ` +
+        `travaille pour personne :\n${sortie}`,
+      10_000,
+    );
+    expect(
+      finNoeud(),
+      `un arrêt demandé n’est pas une mort par signal — le nœud ne l’a pas traité :\n${sortie}`,
+    ).toBe('0 null');
+    expect(sortie, 'l’arrêt doit se dire, pas seulement se produire').toContain(
+      'Déconnexion de la ruche…',
+    );
+  }
+
+  it.runIf(POSIX).each(PORTES)(
+    '$nom : SIGTERM emporte l’agent en cours et sa descendance, et sort en 0',
+    async (porte) => {
       // Le NŒUD seul, comme `ruche.mjs` — voir l'en-tête.
-      process.kill(noeudPid as number, 'SIGTERM');
-      await scruter(
-        () => finNoeud() !== undefined,
-        () => `le nœud ignore SIGTERM :\n${sortie}`,
-        15_000,
-      );
-
-      // L'agent D'ABORD : c'est lui, l'enjeu. Un nœud mort en silence se
-      // relance ; un agent orphelin, personne ne sait qu'il tourne encore.
-      // Relu APRÈS le signal : un agent lancé entre-temps compte aussi.
-      await scruter(
-        () => !agents().some(vivant),
-        () =>
-          `l’agent ${agents().filter(vivant).join(', ')} a survécu à son nœud — orphelin, il travaille pour personne :\n${sortie}`,
-        5_000,
-      );
-      expect(
-        finNoeud(),
-        `un arrêt demandé n’est pas une mort par signal — le nœud n’écoute pas SIGTERM :\n${sortie}`,
-      ).toBe('0 null');
-      expect(sortie, 'l’arrêt doit se dire, pas seulement se produire').toContain(
-        'Déconnexion de la ruche…',
-      );
+      await arreterEnPleinTravail(porte, ({ noeud }) => process.kill(noeud, 'SIGTERM'), false);
     },
-    90_000,
+    150_000,
   );
+
+  it('l’ordre de la ruche par le canal IPC emporte l’arbre de l’agent — sur les trois systèmes', async () => {
+    await arreterEnPleinTravail(
+      PORTE_NODE,
+      ({ declencheur }) => writeFileSync(declencheur, ''),
+      true,
+    );
+  }, 150_000);
 });

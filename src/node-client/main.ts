@@ -3,8 +3,7 @@
 // Le membre garde le contrôle : rien ne s'exécute sans lancer ce client.
 
 import os from 'node:os';
-import path from 'node:path';
-import { bornerConcurrence, identiteStable } from './identite-noeud.js';
+import { bornerConcurrence, identiteStable, racineDeTravailParDefaut } from './identite-noeud.js';
 import {
   agentCredentialEnv,
   inventaireAgents,
@@ -105,8 +104,7 @@ if (refusAgent) {
 // Même défaut que `HiveNodeClient` (client.ts) : calculé ICI pour pouvoir
 // lire/écrire l'identité stable AVANT de construire le client.
 const name = process.env.HIVE_NODE_NAME ?? os.hostname();
-const workRoot =
-  process.env.HIVE_WORKDIR ?? path.join('.hive-work', name.replace(/[^A-Za-z0-9_-]+/g, '_'));
+const workRoot = process.env.HIVE_WORKDIR ?? racineDeTravailParDefaut(name);
 
 // L'identité survit au redémarrage — même mécanisme que `join.ts`
 // (`identite-noeud.ts`). Sans elle, chaque lancement de `npm run node`

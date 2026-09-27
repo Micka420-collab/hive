@@ -10,6 +10,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { argvAgent } from '../shared/agent-windows.js';
+import { emporterArbre } from '../shared/arbre-processus.js';
 
 /**
  * Les agents dont la ruche connaît la FORME des identifiants.
@@ -614,7 +615,8 @@ const lancerStatut: LanceurStatut = (commande, argsStatut) =>
     enfant.stdout?.on('data', lire);
     enfant.stderr?.on('data', lire);
     const minuteur = setTimeout(() => {
-      tuerArbre(enfant.pid);
+      // La commande de statut ET ses descendants (`arbre-processus.ts`).
+      emporterArbre(enfant, 'SIGKILL');
       finir(null);
     }, STATUT_MAX_MS);
     minuteur.unref?.();
@@ -627,28 +629,6 @@ const lancerStatut: LanceurStatut = (commande, argsStatut) =>
       finir({ code, sortie });
     });
   });
-
-/**
- * Tue une commande de statut ET ses descendants : le groupe entier sous POSIX
- * (elle en est la cheffe, `detached`), l'arbre par `taskkill /T` sous Windows.
- */
-function tuerArbre(pid: number | undefined): void {
-  if (pid === undefined) return;
-  try {
-    if (process.platform === 'win32') {
-      spawn('taskkill', ['/T', '/F', '/PID', String(pid)], {
-        stdio: 'ignore',
-        shell: false,
-        windowsHide: true,
-        env: envSonde(process.env),
-      });
-    } else {
-      process.kill(-pid, 'SIGKILL');
-    }
-  } catch {
-    // déjà parti
-  }
-}
 
 /** Aucune commande lancée : la session reste inconnue. Le défaut d'une sonde injectée. */
 const statutMuet: LanceurStatut = () => Promise.resolve(null);

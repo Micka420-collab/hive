@@ -74,6 +74,8 @@ register();
 
 const {
   DELAI_ANNONCE_REINE_MS,
+  ORDRE_ARRET,
+  aUnCanal,
   adresseAnnoncee,
   annonceNonConnectes,
   annonceOuvrieres,
@@ -93,6 +95,7 @@ const {
   veutOuvriere,
   voeuDepuisArgv,
 } = await import('../src/shared/demarrage.ts');
+const { GRACE_ARRET_MS, emporterArbre } = await import('../src/shared/arbre-processus.ts');
 
 // ─── OÙ LA RUCHE ÉCOUTE, ET COMMENT ON LE SAIT AVANT ELLE ────────────────────
 //
@@ -183,6 +186,9 @@ for (const l of annonceNonConnectes(nonConnectes)) console.log(`      ${l}`);
 console.log('      ^C arrête tout.');
 console.log('');
 
+/** Windows n'a ni signaux qu'un gestionnaire reçoive, ni groupes de processus. */
+const WINDOWS = process.platform === 'win32';
+
 /** Les enfants vivants, pour pouvoir tous les emporter. */
 const enfants = [];
 let onFerme = false;
@@ -231,8 +237,9 @@ function lancer(p, reine) {
     cwd: RACINE,
     shell: false,
     windowsHide: true,
-    // La Reine seule reçoit un canal IPC : c'est par lui qu'elle s'annonce.
-    stdio: p.reine === 'annonce' ? ['ignore', 'pipe', 'pipe', 'ipc'] : ['ignore', 'pipe', 'pipe'],
+    // Un canal IPC pour la Reine (elle s'y annonce) et les ouvrières : c'est
+    // par lui qu'elles reçoivent l'ordre d'arrêt sous Windows (`arreter`).
+    stdio: aUnCanal(p) ? ['ignore', 'pipe', 'pipe', 'ipc'] : ['ignore', 'pipe', 'pipe'],
     env: pose ? { ...process.env, ...pose } : process.env,
   });
   const etiquette = prefixe(p.nom, largeur);
@@ -328,15 +335,50 @@ function arreter(code) {
   // `process.exitCode` fait porter le bon code à la sortie naturelle ; le
   // minuteur ne reste que comme coup de grâce si un tuyau retient la boucle.
   process.exitCode = code;
-  for (const e of enfants) {
-    // `kill` sur un processus déjà mort est sans effet et ne jette pas ; on ne
-    // filtre donc pas, pour ne pas risquer d'en oublier un.
-    e.kill('SIGTERM');
-  }
+  for (const e of enfants) demanderArret(e);
   // On laisse une seconde aux serveurs pour libérer leurs ports. Sans ce délai,
   // le démarrage suivant peut échouer sur « port occupé » — une panne qu'on ne
   // relie pas à un ^C de la veille.
-  differer(() => process.exit(code), 1_000).unref();
+  //
+  // Sous Windows, la grâce des ouvrières d'abord (`GRACE_ARRET_MS` : leurs
+  // agents, arrêtés, ont ce temps pour finir) ; puis ce qui vit encore — une
+  // pièce qui démarrait et n'écoutait pas encore son canal — part comme un
+  // ARBRE, jamais comme un seul processus : ses agents avec elle.
+  differer(
+    () => {
+      if (WINDOWS) for (const e of enfants) emporterArbre(e, 'SIGKILL');
+      process.exit(code);
+    },
+    WINDOWS ? GRACE_ARRET_MS + 1_000 : 1_000,
+  ).unref();
+}
+
+/**
+ * Demande à UNE pièce de s'arrêter, comme elle sait l'entendre.
+ *
+ * POSIX : SIGTERM, que la Reine et l'ouvrière traitent (`shutdown`,
+ * `arreterSurSignaux`) ; `kill` sur un processus déjà mort est sans effet et
+ * ne jette pas.
+ *
+ * WINDOWS : `kill('SIGTERM')` y est un `TerminateProcess` — la pièce mourait
+ * sans qu'aucune ligne de son code ne tourne, et les agents d'une ouvrière lui
+ * survivaient, orphelins. La Reine et les ouvrières reçoivent donc l'ordre
+ * d'arrêt par leur canal (`ORDRE_ARRET`) ; l'écran, qui n'en comprend aucun,
+ * part aussitôt avec sa descendance (`taskkill /T`, le service esbuild de Vite
+ * compris). Un ordre qui ne passe pas vaut la même chose.
+ */
+function demanderArret(e) {
+  if (!WINDOWS) {
+    e.kill('SIGTERM');
+    return;
+  }
+  if (!e.connected) {
+    emporterArbre(e, 'SIGKILL');
+    return;
+  }
+  e.send(ORDRE_ARRET, (erreur) => {
+    if (erreur) emporterArbre(e, 'SIGKILL');
+  });
 }
 
 for (const signal of ['SIGINT', 'SIGTERM']) {

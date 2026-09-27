@@ -42,6 +42,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { connect, createServer, type Server } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { segmentSur } from '../shared/noms-windows.js';
 import { ID_PATTERN } from '../shared/protocol.js';
 
 /** Ce qu'on accepte de mener de front quand rien n'est demandé. */
@@ -65,6 +66,23 @@ export function bornerConcurrence(brut: string | undefined): number {
   return Number.isInteger(n)
     ? Math.min(Math.max(n, CONCURRENCE_MIN), CONCURRENCE_MAX)
     : CONCURRENCE_PAR_DEFAUT;
+}
+
+/**
+ * La racine de travail d'un nœud qui n'a pas reçu `HIVE_WORKDIR` :
+ * `.hive-work/<nom>`, le nom tiré de `HIVE_NODE_NAME` ou de la machine.
+ *
+ * UNE copie, pour `main.ts` et `client.ts`, qui la recalculaient chacun : c'est
+ * dans ce dossier que vit l'identité (`identiteStable`), et deux calculs qui
+ * divergent un jour donneraient au nœud deux identités — un fantôme « hors
+ * ligne » dans la ruche.
+ *
+ * Le nom est NETTOYÉ (`[A-Za-z0-9_-]`) puis rendu sûr sous Windows
+ * (`segmentSur`) : un poste nommé `aux`, `nul` ou `com1` y désignait un
+ * périphérique, et le nœud ne pouvait créer ni son dossier ni son identité.
+ */
+export function racineDeTravailParDefaut(nom: string): string {
+  return path.join('.hive-work', segmentSur(nom.replace(/[^A-Za-z0-9_-]+/g, '_')));
 }
 
 /** Où l'identité du nœud est mémorisée. */

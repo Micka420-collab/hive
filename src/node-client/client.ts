@@ -21,12 +21,14 @@ import type { AgentType } from './agent-detect.js';
 import { binaireMcpDansBac } from './bac.js';
 import { creerCaviardeur, SECRET_CAVIARDE, valeursSecretes } from '../shared/caviardage.js';
 import type { Caviardeur } from '../shared/caviardage.js';
+import { arbresEteints, GRACE_ARRET_MS } from '../shared/arbre-processus.js';
 import { argvDe, jugerChantier } from '../shared/chantier.js';
 import { CHANTIER_EXECUTION_MS, CHANTIER_PREPARATION_MS } from '../shared/butoirs-noeud.js';
 import { jugerCommandeTest } from '../shared/commande-test.js';
 import { jugerPreparation } from '../shared/preparation.js';
 import { isOnShift, minutesUntilOpen, nightShiftFromEnv } from '../shared/night-shift.js';
 import type { NightShiftPolicy } from '../shared/night-shift.js';
+import { estOrdreArret } from '../shared/demarrage.js';
 import { plateformeDepuis } from '../shared/machine.js';
 import { laverIdentifiantsDuTexte } from '../shared/projet-public.js';
 import { ID_PATTERN, LIMITS, parseServerMessage } from '../shared/protocol.js';
@@ -52,6 +54,8 @@ import type { ExecutionUsage, IsolementDeclare, SubAgent, Task } from '../shared
 import { runMerge, runProc } from './merge-runner.js';
 import { lancerVraiment, poserOutil } from './pose-runner.js';
 import { buildSandboxEnv, cloneRepo, prepareWorkspace } from './workspace.js';
+import { racineDeTravailParDefaut } from './identite-noeud.js';
+import { segmentSur } from '../shared/noms-windows.js';
 import { motifLave } from './livraison-locale.js';
 import { pousseeConsentie } from '../shared/livraison-locale.js';
 import {
@@ -226,42 +230,58 @@ export function composeAgentPrompt(hiveContext: string | undefined, prompt: stri
 }
 
 /**
- * SIGINT ET SIGTERM : LE MÊME ARRÊT, pour les deux portes du nœud (`main.ts`,
- * `join.ts`). Une seule copie : ces deux portes ont déjà divergé plus d'une fois.
+ * SIGINT, SIGTERM, SIGHUP ET L'ORDRE DE LA RUCHE : LE MÊME ARRÊT, pour les deux
+ * portes du nœud (`main.ts`, `join.ts`). Une seule copie : ces deux portes ont
+ * déjà divergé plus d'une fois.
  *
  * SIGINT n'arrive que d'un terminal (Ctrl+C) ; ce qui SUPERVISE un nœud envoie
- * SIGTERM — `npm run ruche` à l'arrêt (`scripts/ruche.mjs`, au seul pid de
- * l'ouvrière), systemd, launchd, un `kill` nu. Sans gestionnaire, SIGTERM tuait
- * le nœud net, sans `stop()`, et là où personne ne balaie son groupe l'agent en
- * cours lui SURVIVAIT, orphelin, pour une tâche que la Reine remettait déjà en
- * file ailleurs. `stop()` annule chaque tâche active, et l'annulation envoie son
- * SIGTERM à l'agent SYNCHRONEMENT (le `signal` passé à `spawn`, `exec.ts`) : il
- * part avant notre `exit`. `tests/noeud-arret-signal.test.ts` l'éprouve sur les
- * deux portes, en vrais processus.
+ * SIGTERM — `npm run ruche` à l'arrêt (`scripts/ruche.mjs`), systemd, launchd,
+ * un `kill` nu. Sans gestionnaire, SIGTERM tuait le nœud net, sans `stop()`,
+ * et l'agent en cours lui SURVIVAIT, orphelin, pour une tâche que la Reine
+ * remettait déjà en file ailleurs (#468). SIGHUP, c'est le terminal qu'on
+ * ferme : Node le laisse tuer le processus — même sous `nohup`, dont il rétablit
+ * le défaut au démarrage (mesuré) —, et les agents, chefs de leur propre groupe
+ * (`arbre-processus.ts`), ne le reçoivent plus avec lui. Il arrête donc le nœud
+ * comme les deux autres.
  *
- * CE QUE ÇA NE COUVRE PAS ENCORE, et il faut le savoir avant de s'y fier :
- *   - Windows : `kill('SIGTERM')` y est un TerminateProcess, aucun gestionnaire
- *     ne tourne ;
- *   - le mode conteneur : l'annulation atteint le client `docker run`, pas
- *     l'agent, PID 1 du conteneur sans `--init` (isolement.ts) — et `codex
- *     exec` n'écoute que SIGINT ;
- *   - les petits-enfants d'un agent, et les merges et chantiers, que `stop()`
- *     n'annule pas.
+ * L'ORDRE DE LA RUCHE (`ORDRE_ARRET`, par le canal IPC) : sous Windows,
+ * `kill('SIGTERM')` est un `TerminateProcess` — aucun gestionnaire ne tourne,
+ * et c'est ainsi que la ruche arrêtait ses ouvrières. Elle leur envoie
+ * désormais cet ordre, qui prend ce chemin-ci.
+ *
+ * `stop()` annule chaque tâche, merge et chantier : leurs ARBRES reçoivent
+ * l'arrêt aussitôt (`lancerArbre`). On leur laisse la grâce d'en finir —
+ * `docker run` relaie à son conteneur — puis le nœud sort, et ce qui tourne
+ * encore est abattu avec lui (`arbresEteints`, reprise à la sortie).
+ * `tests/noeud-arret-signal.test.ts` l'éprouve en vrais processus, petits-
+ * enfants compris : SIGTERM sur les deux portes (POSIX), l'ordre de la ruche
+ * sur les trois systèmes.
+ *
+ * CE QUE ÇA NE COUVRE PAS : un `kill -9` du nœud — voir l'en-tête
+ * d'`arbre-processus.ts`.
  *
  * `finally` : si `stop()` levait, le nœud sort QUAND MÊME — un arrêt demandé
- * qui laisserait tourner le nœud serait pire que l'orphelin.
+ * qui laisserait tourner le nœud serait pire que l'orphelin. Un second signal
+ * pendant la grâce ne l'abrège pas : Ctrl+C sous `npm run ruche` en envoie
+ * deux (le terminal, puis le lanceur).
  */
 export function arreterSurSignaux(client: Pick<HiveNodeClient, 'stop'>): void {
-  for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-    process.on(signal, () => {
-      console.log('\nDéconnexion de la ruche…');
-      try {
-        client.stop();
-      } finally {
-        process.exit(0);
-      }
-    });
-  }
+  let enCours = false;
+  const arreter = (): void => {
+    if (enCours) return;
+    enCours = true;
+    console.log('\nDéconnexion de la ruche…');
+    try {
+      client.stop();
+    } finally {
+      const sortir = (): void => process.exit(0);
+      void arbresEteints(GRACE_ARRET_MS).then(sortir, sortir);
+    }
+  };
+  for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) process.on(signal, arreter);
+  process.on('message', (message: unknown) => {
+    if (estOrdreArret(message)) arreter();
+  });
 }
 
 export class HiveNodeClient {
@@ -338,9 +358,14 @@ export class HiveNodeClient {
   >();
   /** Un enfant peut finir avant que l'adaptateur n'appelle l'attente. */
   private readonly completedDelegationResults = new Map<string, WorkerDelegationResult>();
-  /** Merges en cours (par mergeId) — anti-doublon si le hub réémet le même id. */
-  private readonly activeMerges = new Set<string>();
-  private readonly activeChantiers = new Set<string>();
+  /**
+   * Merges et chantiers en cours (par id) — anti-doublon si le hub réémet le
+   * même id, et de quoi les ANNULER : `stop()` n'arrêtait que les tâches, et
+   * la commande de test d'un merge ou le script d'un chantier survivait au
+   * nœud, descendance comprise.
+   */
+  private readonly activeMerges = new Map<string, AbortController>();
+  private readonly activeChantiers = new Map<string, AbortController>();
   private heartbeatTimer: NodeJS.Timeout | null = null;
   /** Évite de spammer la Chambre à chaque reconnexion WebSocket. */
   private requisitionCredentialEnvoyee = false;
@@ -416,8 +441,7 @@ export class HiveNodeClient {
   constructor(private readonly opts: NodeClientOptions) {
     this.adapter = opts.adapter ?? getAdapter(opts.agentType);
     this.nodeId = opts.nodeId ?? null;
-    this.workRoot =
-      opts.workRoot ?? path.join('.hive-work', opts.name.replace(/[^A-Za-z0-9_-]+/g, '_'));
+    this.workRoot = opts.workRoot ?? racineDeTravailParDefaut(opts.name);
   }
 
   /** Rejoint la ruche (et retente sans fin tant que stop() n'est pas appelé). */
@@ -471,6 +495,8 @@ export class HiveNodeClient {
     this.closed = true;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     for (const ctrl of this.active.values()) ctrl.abort();
+    for (const ctrl of this.activeMerges.values()) ctrl.abort();
+    for (const ctrl of this.activeChantiers.values()) ctrl.abort();
     this.rejectPendingDelegations('client arrêté');
     this.stopHeartbeat();
     this.arreterVeille();
@@ -1666,7 +1692,7 @@ export class HiveNodeClient {
    */
   private depotDeLivraisons(projectId: string): string {
     const racine = path.resolve(this.workRoot, 'livraisons');
-    const depot = path.resolve(racine, `${projectId}.git`);
+    const depot = path.resolve(racine, `${segmentSur(projectId)}.git`);
     if (!depot.startsWith(racine + path.sep)) {
       throw new Error(`projet hors du répertoire des livraisons : ${projectId}`);
     }
@@ -1732,12 +1758,14 @@ export class HiveNodeClient {
       this.log(`✘ merge ${msg.mergeId.slice(0, 8)}… : ${refus.v.motif}`);
       return;
     }
-    this.activeMerges.add(msg.mergeId);
-    // mergeId est validé (ID_PATTERN) par le protocole → sûr comme composant de chemin.
+    const annulation = new AbortController();
+    this.activeMerges.set(msg.mergeId, annulation);
+    // mergeId est validé (ID_PATTERN) par le protocole → sans séparateur ni
+    // remontée ; `segmentSur` écarte les noms que Windows réserve (`aux`…).
     const dir = path.join(
       this.workRoot,
       'merges',
-      this.nodeId ? `${msg.mergeId}-${this.nodeId.slice(0, 8)}` : msg.mergeId,
+      segmentSur(this.nodeId ? `${msg.mergeId}-${this.nodeId.slice(0, 8)}` : msg.mergeId),
     );
     const rmOpts = { recursive: true, force: true, maxRetries: 10, retryDelay: 100 } as const;
     this.log(
@@ -1760,6 +1788,7 @@ export class HiveNodeClient {
         // code du dépôt, au même titre qu'un agent.
         ...this.optionBacTache(),
         caviarder: (texte) => caviardeur.texte(texte),
+        signal: annulation.signal,
         ...(msg.livraison
           ? {
               livraison: {
@@ -1873,16 +1902,18 @@ export class HiveNodeClient {
       }
     }
 
-    this.activeChantiers.add(msg.chantierId);
+    const annulation = new AbortController();
+    this.activeChantiers.set(msg.chantierId, annulation);
     // La sortie d'un chantier part au hub comme les logs d'une tâche : le
     // script déclaré exécute le code du dépôt. Caviardée ICI (#489), ENTIÈRE,
     // avant toute coupe — une coupe d'abord laisserait la moitié d'une clé.
     const caviardeur = this.caviardeurDuNoeud();
-    // chantierId est validé (ID_PATTERN) par le protocole → sûr en chemin.
+    // chantierId est validé (ID_PATTERN) par le protocole → sans séparateur
+    // ni remontée ; `segmentSur` écarte les noms que Windows réserve.
     const dir = path.join(
       this.workRoot,
       'chantiers',
-      this.nodeId ? `${msg.chantierId}-${this.nodeId.slice(0, 8)}` : msg.chantierId,
+      segmentSur(this.nodeId ? `${msg.chantierId}-${this.nodeId.slice(0, 8)}` : msg.chantierId),
     );
     const rmOpts = { recursive: true, force: true, maxRetries: 10, retryDelay: 100 } as const;
     this.log(`chantier « ${msg.nom} » : clone puis lancement`);
@@ -1924,7 +1955,14 @@ export class HiveNodeClient {
 
       const env = buildSandboxEnv(dir);
       const lancer = async (argv: string[], delaiMs: number) => {
-        const r = await runProc(argv, dir, env, delaiMs, undefined, this.optionBacTache().bac);
+        const r = await runProc(
+          argv,
+          dir,
+          env,
+          delaiMs,
+          annulation.signal,
+          this.optionBacTache().bac,
+        );
         return { ...r, output: caviardeur.texte(r.output) };
       };
       if (msg.prepareCommand && msg.prepareCommand.length > 0) {

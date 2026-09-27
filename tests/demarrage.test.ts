@@ -27,7 +27,9 @@ import {
   ENTREES,
   type Piece,
   type PlanOuvrieres,
+  ORDRE_ARRET,
   SCRIPTS,
+  aUnCanal,
   adresseAnnoncee,
   annonceNonConnectes,
   annonceOuvrieres,
@@ -36,6 +38,7 @@ import {
   derniereLigne,
   entreesAbsentes,
   envDePiece,
+  estOrdreArret,
   largeurEtiquettes,
   pieces,
   planOuvrieres,
@@ -884,5 +887,36 @@ describe('la mort d’une pièce — la Reine emporte la ruche, une ouvrière no
     ]);
     expect(ligne).toMatch(/^⚠ Cursor est installé mais non connecté/);
     expect(ligne).toContain('Aucune ouvrière ne le fait travailler.');
+  });
+});
+
+describe('L’ORDRE D’ARRÊT — le seul arrêt propre d’une pièce sous Windows', () => {
+  // Sous Windows, `kill('SIGTERM')` est un `TerminateProcess` : la Reine et
+  // l'ouvrière mouraient sans qu'une ligne de leur code tourne, et les agents
+  // d'une ouvrière lui survivaient. Elles reçoivent l'ordre par leur canal ;
+  // `tests/noeud-arret-signal.test.ts` l'éprouve de bout en bout.
+  it('la Reine et CHAQUE ouvrière ont un canal ; l’écran, qui n’en comprend aucun, non', async () => {
+    const liste = pieces(NODE, {}, PORT_PAR_DEFAUT, await planPour(['claude-code', 'codex']));
+    const avecCanal = liste.filter(aUnCanal).map((p) => p.nom);
+    expect(avecCanal).toEqual(['reine', 'ouvrière claude-code', 'ouvrière codex']);
+    expect(liste.filter((p) => !aUnCanal(p)).map((p) => p.nom)).toEqual(['écran']);
+    // Une ouvrière seule, sans Reine lancée ici, l'a aussi : le lanceur est
+    // toujours celui qui l'arrête.
+    expect(pieces(NODE, { noeud: true }).every(aUnCanal)).toBe(true);
+  });
+
+  it('seul l’ordre d’arrêt est un ordre d’arrêt — l’annonce de la Reine n’en est pas un', () => {
+    expect(estOrdreArret(ORDRE_ARRET)).toBe(true);
+    expect(estOrdreArret({ type: 'arret' })).toBe(true);
+    for (const message of [
+      undefined,
+      null,
+      'arret',
+      { type: 'reine-en-ligne', hote: '127.0.0.1', port: 7777 },
+      { type: 'ARRET' },
+      {},
+    ]) {
+      expect(estOrdreArret(message), JSON.stringify(message)).toBe(false);
+    }
   });
 });
