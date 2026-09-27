@@ -255,6 +255,16 @@ these variables, `auto` falls back to the process sandbox and `exige` refuses,
 naming the variable to set. Bubblewrap mounts the agent's and Node's
 installation read-only, never the HOME.
 
+Claude Code runs nothing a task's repository brings: Hive launches it with
+`--setting-sources user`, `--settings '{"disableAllHooks":true}'` and
+`--strict-mcp-config`, so the project's hooks, `.mcp.json` servers and settings
+`env` block no longer apply — without them `claude -p` ran them unasked, and a
+repository `ANTHROPIC_BASE_URL` received the member's key. The repository's
+`CLAUDE.md` and `.claude/rules` are re-read by Hive as bounded plain data
+appended to the system prompt; the task log says so. Deliberate trade-off:
+outside the sandbox, the member's **own** hooks and MCP servers are off too for
+hive tasks.
+
 ## 🛠️ Commands
 
 | Command                                       | Effect                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |

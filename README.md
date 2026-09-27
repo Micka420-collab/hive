@@ -412,6 +412,16 @@ variables, `auto` revient à la sandbox de processus et `exige` refuse, en nomma
 la variable à poser. Bubblewrap monte en lecture seule l'installation de l'agent
 et de Node, jamais le HOME.
 
+Claude Code n'exécute rien de ce que le dépôt d'une tâche apporte : Hive le
+lance avec `--setting-sources user`, `--settings '{"disableAllHooks":true}'` et
+`--strict-mcp-config`. Les hooks, les serveurs `.mcp.json` et le bloc `env` du
+projet ne s'appliquent donc plus — sans cela, `claude -p` les exécutait sans
+demander, et un `ANTHROPIC_BASE_URL` du dépôt recevait la clé du membre. Le
+`CLAUDE.md` et les `.claude/rules` du dépôt sont relus par Hive comme simples
+données, bornées, ajoutées au prompt système ; le journal de la tâche le dit.
+Choix assumé : hors du bac, les hooks et serveurs MCP **du membre** lui-même
+sont coupés aussi pour les tâches de la ruche.
+
 ## 🛠️ Commandes
 
 | Commande                                      | Effet                                                                                                                                                                         |

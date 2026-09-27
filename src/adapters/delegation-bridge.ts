@@ -449,6 +449,17 @@ export function writeClaudeMcpConfig(bridge: DelegationBridge): void {
   });
 }
 
+/**
+ * Écrit les consignes du dépôt (`consignes-depot.ts`) à côté de la
+ * configuration MCP : même dossier privé, même effacement, même montage en
+ * lecture seule dans le bac. Rend le chemin tel que le CLI le voit.
+ */
+export function writeClaudeConsignes(bridge: DelegationBridge, texte: string): string {
+  const nom = 'consignes.md';
+  writeFileSync(path.join(bridge.dossier, nom), texte, { encoding: 'utf8', mode: 0o600 });
+  return path.join(path.dirname(bridge.childConfigPath), nom);
+}
+
 /** Overrides TOML `-c` consommés par Codex pour le même serveur stdio. */
 export function codexMcpOverrides(bridge: DelegationBridge): string[] {
   const toml = (value: unknown): string => JSON.stringify(value);
