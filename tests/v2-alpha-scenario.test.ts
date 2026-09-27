@@ -313,7 +313,7 @@ describe('V2 Alpha — mission locale vérifiable', () => {
 
   it(
     'exécute une production réelle, corrige après contre-revue et rend les preuves Git/CI lisibles',
-    { timeout: 90_000 },
+    { timeout: 150_000 },
     async () => {
       const root = mkdtempSync(path.join(os.tmpdir(), 'hive-v2-alpha-'));
       const repo = await depotFixture(root);
@@ -401,9 +401,15 @@ describe('V2 Alpha — mission locale vérifiable', () => {
         'les trois Workers ne sont pas en ligne',
       );
 
+      // Dans un bac (le job image de la CI), une production lance les quatre
+      // scripts que le dépôt déclare (`npm run` ×4) — et celle-ci attend en
+      // plus son enfant délégué, qui lance les siens. C'est une dizaine de
+      // secondes de plus : la borne de vivacité suit le travail.
+      const PRODUCTION_MS = 45_000;
       await attendre(
         () => server.store.getTask(task.id)?.status === 'done',
         'la production Worker n’est pas terminée',
+        PRODUCTION_MS,
       );
       const first = server.store.resultsForTask(task.id).at(-1);
       expect(first?.success).toBe(true);
@@ -424,6 +430,29 @@ describe('V2 Alpha — mission locale vérifiable', () => {
             (event) => event.type === 'worker_usage' && event.payload.resultId === first?.resultId,
           ),
       ).toBe(true);
+      // Avec un bac, le producteur y a lancé les quatre scripts que le dépôt
+      // déclare. Sans bac, il n'a RIEN lancé sur l'hôte — et le dit. Dans les
+      // deux cas, la preuve est rangée avec CE résultat, avant toute PR.
+      expect(server.store.latestValidation(task.id, first?.resultId ?? -1)).toMatchObject(
+        bac
+          ? {
+              validation: { tests: 'passed', typecheck: 'passed', build: 'passed', lint: 'passed' },
+              provenance: { source: 'hive_sandbox', nodeId: 'v2-claude-code' },
+            }
+          : {
+              validation: {
+                tests: 'missing',
+                typecheck: 'missing',
+                build: 'missing',
+                lint: 'missing',
+              },
+              provenance: {
+                source: 'hive_sandbox',
+                nodeId: 'v2-claude-code',
+                details: { tests: { raison: 'sans_bac', script: 'test' } },
+              },
+            },
+      );
 
       await attendre(
         () =>
@@ -469,6 +498,7 @@ describe('V2 Alpha — mission locale vérifiable', () => {
       await attendre(
         () => server.store.resultsForTask(task.id).length >= 2,
         'le retry Evaluator n’a pas produit une seconde tentative',
+        PRODUCTION_MS,
       );
       const second = server.store.resultsForTask(task.id).at(-1);
       expect(second?.resultId).not.toBe(first?.resultId);

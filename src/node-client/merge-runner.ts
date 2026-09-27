@@ -16,7 +16,8 @@
 // Sûr par construction : ne fait NI commit NI push (jamais de merge auto sur main).
 // Le résultat (diff cumulé + verdict tests) remonte pour revue humaine.
 
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -25,6 +26,7 @@ import { ENTREE_FERMEE } from '../adapters/exec.js';
 import { MERGE_PREPARATION_MS, MERGE_TESTS_MS } from '../shared/butoirs-noeud.js';
 import { jugerCommandeTest } from '../shared/commande-test.js';
 import { jugerPreparation } from '../shared/preparation.js';
+import type { Arret } from '../shared/validations-bac.js';
 import { LanceurIndisponible, resoudreLanceur } from '../lanceur-reel.js';
 import { envelopper } from './isolement.js';
 import type { Fournisseur } from './isolement.js';
@@ -102,6 +104,92 @@ export interface MergeRunResult {
 const OUTPUT_CAP = 512 * 1024;
 
 /**
+ * Le temps laissé à une commande ARRÊTÉE pour mourir, puis à ses tubes pour se
+ * fermer une fois qu'elle est sortie.
+ *
+ * Deux secondes : assez pour que `docker run` relaie un SIGTERM à son
+ * conteneur, trop peu pour qu'un orphelin tienne une tâche. Au-delà, la
+ * commande est tenue pour finie, que ses descendants aient lâché la sortie ou
+ * non — c'est ce qui fait de `timeoutMs` une BORNE, et pas un souhait.
+ */
+export const GRACE_ARRET_MS = 2_000;
+
+/**
+ * La sortie d'une commande, bornée : son DÉBUT et sa FIN, jamais le milieu.
+ *
+ * Garder seulement le début, comme avant, perdait ce qui compte le plus dans
+ * une suite bavarde : le résumé des échecs, que les runners impriment en
+ * DERNIER. Les validations du bac n'en remontent que la fin (`extraitDe`), les
+ * merges que le début (`slice(0, 4000)`) — chacun trouve ici ce qu'il lit.
+ */
+function sortieBornee(moitie = OUTPUT_CAP / 2): {
+  ajouter: (morceau: string) => void;
+  texte: () => string;
+} {
+  let debut = '';
+  let fin = '';
+  let omis = 0;
+  return {
+    ajouter(morceau) {
+      const place = moitie - debut.length;
+      if (place > 0) {
+        debut += morceau.slice(0, place);
+        morceau = morceau.slice(place);
+      }
+      fin += morceau;
+      // Élaguer par paliers, pas à chaque morceau : une recopie de la fin par
+      // morceau coûterait O(taille × morceaux) sur une sortie de centaines de Mo.
+      if (fin.length > 2 * moitie) {
+        omis += fin.length - moitie;
+        fin = fin.slice(-moitie);
+      }
+    },
+    texte() {
+      const queue = fin.slice(-moitie);
+      const total = omis + fin.length - queue.length;
+      return total > 0 ? `${debut}\n[hive] … ${total} caractères omis …\n${queue}` : debut + queue;
+    },
+  };
+}
+
+/**
+ * Emporte une commande ET sa descendance.
+ *
+ * Tuer le seul enfant direct ne suffit pas, et c'était une borne qui n'en
+ * était pas une : `npm run test` lance un shell, qui lance le runner, qui
+ * lance parfois un serveur. `child.kill()` n'atteint que npm ; le reste
+ * survit, garde les tubes de sortie ouverts, et `close` n'arrive jamais — la
+ * tâche qui attend ce `close` pour rendre son résultat reste pendue, et le
+ * nœud finit saturé (`noeud_sature`) sans plus rien prendre.
+ *
+ *   · POSIX : l'enfant est lancé `detached`, donc chef de son GROUPE de
+ *     processus ; `kill(-pid)` atteint tout le groupe d'un coup ;
+ *   · Windows : `taskkill /T` suit l'arbre des parents. SYNCHRONE, parce que
+ *     le répertoire de la tâche est effacé juste après, et qu'un dossier qui
+ *     est le `cwd` d'un processus vivant ne s'efface pas (même leçon que
+ *     `scripts/essai-entree.mjs`).
+ *
+ * Un descendant qui quitte le groupe (`setsid`) échappe à ceci ; la grâce de
+ * `runProc` borne quand même l'attente.
+ */
+function emporterArbre(child: ChildProcess, signal: NodeJS.Signals): void {
+  if (!child.pid) return;
+  try {
+    if (process.platform === 'win32') {
+      spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
+        shell: false,
+        stdio: 'ignore',
+        windowsHide: true,
+      });
+    } else {
+      process.kill(-child.pid, signal);
+    }
+  } catch {
+    // Déjà mort, ou groupe déjà vide : il n'y a rien à arrêter.
+  }
+}
+
+/**
  * Lance une commande (argv) dans un cwd, sans shell, sortie plafonnée, timeout dur.
  * L'environnement est ÉPURÉ (aucun secret du nœud transmis à l'enfant — cf. revue
  * sécurité Palier 3) : seuls PATH/variables système + un TEMP dédié passent.
@@ -111,6 +199,20 @@ const OUTPUT_CAP = 512 * 1024;
  * de `npm` en `npm.cmd` sous Windows et l'enveloppe de bac à sable. En écrire
  * une seconde version aurait fait deux endroits où oublier l'isolement, et le
  * premier oubli de ce genre est déjà raconté trois lignes plus bas.
+ *
+ * `arret` dit quand le code ne vient PAS de la commande — délai dépassé,
+ * lancement impossible, annulation. Les validations du bac en ont besoin :
+ * un `code: 1` fabriqué ici n'est pas un verdict sur la production, et le
+ * confondre avec un vrai échec enverrait corriger du code qui va bien.
+ *
+ * ─── LA BORNE TIENT, MÊME CONTRE LES DESCENDANTS ─────────────────────────────
+ *
+ * La promesse se résout au plus tard `timeoutMs + 2 × GRACE_ARRET_MS` après le
+ * lancement, quoi que fasse la commande : au délai (ou à l'annulation), tout
+ * son ARBRE reçoit SIGTERM, puis SIGKILL après la grâce ; et une commande
+ * sortie dont un descendant tient encore la sortie est tenue pour finie après
+ * la grâce. Attendre `close` seul pendait sans fin sur un `serveur &` oublié,
+ * un runner qui ignore SIGTERM, ou — sous Windows — n'importe quel script.
  */
 export function runProc(
   cmd: string[],
@@ -119,10 +221,10 @@ export function runProc(
   timeoutMs: number,
   signal?: AbortSignal,
   bac?: { fournisseur: Fournisseur; variables: readonly string[]; image: string },
-): Promise<{ code: number | null; output: string }> {
+): Promise<{ code: number | null; output: string; arret?: Arret }> {
   return new Promise((resolve) => {
     const [bin, ...args] = cmd;
-    let output = '';
+    const sortie = sortieBornee();
     // ISOLEMENT — même enveloppe que les adaptateurs de tâches. Ce chemin n'y
     // passait pas, et c'était le trou le plus embarrassant : la commande de
     // test d'un merge exécute du code fourni par le dépôt, exactement comme un
@@ -162,40 +264,96 @@ export function runProc(
         // verdict de test. Un bug qui se présente comme un résultat est le pire
         // des deux.
         if (e instanceof LanceurIndisponible) {
-          resolve({ code: 1, output: `${output}\n[hive] ${e.motif}` });
+          resolve({ code: 1, output: `\n[hive] ${e.motif}`, arret: 'lancement' });
           return;
         }
         throw e;
       }
+    }
+    if (signal?.aborted) {
+      resolve({ code: 1, output: '\n[hive] annulée avant le lancement', arret: 'annule' });
+      return;
     }
     const child = spawn(lance.bin, lance.args, {
       cwd,
       env,
       shell: false, // jamais d'interprétation shell (contrainte §5.1)
       windowsHide: true,
-      signal,
+      // Chef de son groupe de processus, pour que `emporterArbre` atteigne
+      // toute la descendance d'un seul `kill(-pid)`. Sans objet sous Windows,
+      // où `detached` ouvrirait une console à part.
+      detached: process.platform !== 'win32',
       // Personne n'écrit sur l'entrée d'une commande de test : ouverte, un
       // outil qui la lit jusqu'au bout attendrait le délai dur (voir exec.ts).
+      // Et pas de `signal` ici : l'annulation passe par `arreter('annule')`,
+      // qui emporte tout l'arbre — celui de `spawn` ne tuerait que l'enfant.
       stdio: ENTREE_FERMEE,
     });
-    const cap = (c: Buffer): void => {
-      if (output.length < OUTPUT_CAP) output += c.toString();
+    let fini = false;
+    let sortiLe = false;
+    let arret: Arret | undefined;
+    const minuteurs: NodeJS.Timeout[] = [];
+    const plus = (ms: number, geste: () => void): void => {
+      const m = setTimeout(geste, ms);
+      m.unref?.();
+      minuteurs.push(m);
     };
-    child.stdout?.on('data', cap);
-    child.stderr?.on('data', cap);
-    const to = setTimeout(() => {
-      output += `\n[hive] timeout après ${timeoutMs} ms — processus tué`;
-      child.kill();
-    }, timeoutMs);
-    to.unref?.();
+    const terminer = (code: number | null, note = ''): void => {
+      if (fini) return;
+      fini = true;
+      for (const m of minuteurs) clearTimeout(m);
+      signal?.removeEventListener('abort', surAnnulation);
+      // Un orphelin peut encore écrire : on ne l'écoute plus, et les tubes ne
+      // retiennent plus la boucle d'événements du nœud.
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      const fin = arret === 'delai' ? `\n[hive] timeout après ${timeoutMs} ms — processus tué` : '';
+      resolve({ code, output: sortie.texte() + note + fin, ...(arret ? { arret } : {}) });
+    };
+    const arreter = (motif: Arret): void => {
+      if (fini || arret) return;
+      // Déjà sortie d'elle-même : son code est un vrai verdict, on le garde.
+      if (sortiLe) {
+        terminer(child.exitCode);
+        return;
+      }
+      arret = motif;
+      // SIGTERM d'abord : `docker run` le relaie à son conteneur, un runner
+      // propre se ferme. Ce qui l'ignore est tué à la fin de la grâce, et la
+      // promesse se résout de toute façon une grâce plus tard.
+      emporterArbre(child, 'SIGTERM');
+      plus(GRACE_ARRET_MS, () => {
+        emporterArbre(child, 'SIGKILL');
+        plus(GRACE_ARRET_MS, () => terminer(child.exitCode));
+      });
+    };
+    const surAnnulation = (): void => arreter('annule');
+    signal?.addEventListener('abort', surAnnulation, { once: true });
+    plus(timeoutMs, () => arreter('delai'));
+    child.stdout?.setEncoding('utf8');
+    child.stderr?.setEncoding('utf8');
+    child.stdout?.on('data', sortie.ajouter);
+    child.stderr?.on('data', sortie.ajouter);
     child.on('error', (e) => {
-      clearTimeout(to);
-      resolve({ code: 1, output: `${output}\n[hive] échec du lancement : ${e.message}` });
+      arret ??= signal?.aborted ? 'annule' : 'lancement';
+      terminer(1, `\n[hive] échec du lancement : ${e.message}`);
     });
-    child.on('close', (code) => {
-      clearTimeout(to);
-      resolve({ code, output });
+    child.on('exit', () => {
+      sortiLe = true;
+      // La commande est finie ; ce qu'elle a laissé tourner derrière elle n'a
+      // plus de propriétaire. Sous POSIX, son groupe l'identifie encore — sous
+      // Windows, son pid est libéré et pourrait déjà nommer un inconnu : on
+      // n'y tue rien, on cesse seulement d'attendre.
+      if (process.platform !== 'win32') emporterArbre(child, 'SIGKILL');
+      plus(GRACE_ARRET_MS, () =>
+        terminer(
+          child.exitCode,
+          '\n[hive] la sortie est restée ouverte après la fin de la commande : ' +
+            'un processus qu’elle a lancé la tenait',
+        ),
+      );
     });
+    child.on('close', (code) => terminer(code));
   });
 }
 

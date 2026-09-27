@@ -16,11 +16,13 @@ import {
 } from '../api';
 import type { Conflict, MergePlan, MergeRunResult, Verdict } from '../api';
 import type { EvaluationResult } from '../../../src/orchestrator/evaluator.js';
+import { VALIDATION_KEYS } from '../../../src/shared/validations-bac';
 import { t as tNow, useT } from '../i18n';
 import type { Translate } from '../i18n';
 import { activateProps, formatMs, modalOpen, StatusBadge } from '../ui';
 import { EchecSondage, getReview, Honeycomb, setReview, useApiPoll, useReviewTick } from './shared';
 import type { ReviewState, ViewProps } from './shared';
+import { resumeProvenance, texteControle } from './validations-rendu';
 import './miellerie.css';
 
 // ─── Aides pures ─────────────────────────────────────────────────────────────
@@ -484,10 +486,13 @@ export function EvaluationPanel({
     crossReview.contestingReviewers
   } ${t('à corriger', 'contesting')}`;
   const provenance = evaluation.evidence.validationProvenance;
-  const provenanceSummary = provenance
-    ? `${provenance.source} · ${provenance.depot} · PR #${provenance.pr} · ${provenance.branch} · ${provenance.commitSha.slice(0, 8)}`
-    : t('missing', 'missing');
-  const canRecordCi = !provenance && Boolean(taskId && resultId !== undefined && resultId !== null);
+  const provenanceSummary = provenance ? resumeProvenance(provenance, t) : t('missing', 'missing');
+  // La CI reste demandable après le bac ET après une première lecture : la
+  // plus récente preuve gouverne, et une CI lue pendant qu'elle tournait doit
+  // pouvoir être relue une fois finie. La Reine refuse de ranger un
+  // instantané sans verdict (`ci_running`, `ci_without_verdict`) : relire ne
+  // peut pas effacer les verdicts du bac.
+  const canRecordCi = Boolean(taskId && resultId !== undefined && resultId !== null);
   const recordCi = async () => {
     if (!taskId || resultId === undefined || resultId === null || ciState === 'loading') return;
     setCiState('loading');
@@ -530,12 +535,31 @@ export function EvaluationPanel({
           </dd>
         </div>
         <div>
-          <dt>{t('Provenance CI', 'CI provenance')}</dt>
+          <dt>{t('Provenance des validations', 'Validation provenance')}</dt>
           <dd className="mono" data-testid="mi-validation-provenance">
             {provenanceSummary}
           </dd>
         </div>
       </dl>
+      {provenance?.source === 'hive_sandbox' && (
+        <ul className="mi-controles" data-testid="mi-validation-details">
+          {VALIDATION_KEYS.map((cle) => {
+            const detail = provenance.details[cle];
+            return (
+              <li key={cle} data-etat={evaluation.evidence[cle]}>
+                <span className="mono">{cle}</span> · {evaluation.evidence[cle]} ·{' '}
+                {texteControle(detail, t)}
+                {detail.extrait && evaluation.evidence[cle] !== 'passed' && (
+                  <details>
+                    <summary>{t('fin de la sortie', 'end of output')}</summary>
+                    <pre className="code-block scroll">{detail.extrait}</pre>
+                  </details>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
       {canRecordCi && (
         <div className="mi-ci-action">
           <button

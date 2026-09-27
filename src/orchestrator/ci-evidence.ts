@@ -3,14 +3,9 @@
 // cette fonction pure décide uniquement ce que chaque nom de contrôle prouve.
 
 import type { Controle } from '../shared/retour.js';
-import type { ValidationEvidence, ValidationState, ValidationProvenance } from './evaluator.js';
-
-export const VALIDATION_KEYS = ['tests', 'typecheck', 'build', 'lint'] as const;
-export type ValidationKey = (typeof VALIDATION_KEYS)[number];
-
-export interface CiValidationRecord extends ValidationProvenance {
-  validation: ValidationEvidence;
-}
+import { VALIDATION_KEYS } from '../shared/validations-bac.js';
+import type { ValidationKey, ValidationState } from '../shared/validations-bac.js';
+import type { ValidationEvidence } from './evaluator.js';
 
 const motifs: Record<ValidationKey, readonly RegExp[]> = {
   tests: [/\btest(?:s|ing)?\b/, /\bvitest\b/, /\bjest\b/, /\be2e\b/, /\bspec(?:s)?\b/],
@@ -46,4 +41,21 @@ export function validationsDepuisControles(controles: readonly Controle[]): Vali
     build: etat(controles, 'build'),
     lint: etat(controles, 'lint'),
   };
+}
+
+/**
+ * Les familles dont un contrôle TOURNE ENCORE.
+ *
+ * Un instantané de CI en cours n'est pas un verdict : rangé, il dirait
+ * `missing` pour ce qui n'a pas fini, et — la preuve la plus récente
+ * gouvernant — effacerait les verdicts que le bac Hive avait déjà rendus pour
+ * ce résultat. La route d'ingestion refuse donc de ranger tant qu'une famille
+ * attend encore, et le dit.
+ */
+export function famillesEnCours(controles: readonly Controle[]): ValidationKey[] {
+  return VALIDATION_KEYS.filter((cle) =>
+    controles.some(
+      (controle) => controle.statut !== 'completed' && concerne(nomNormalise(controle.nom), cle),
+    ),
+  );
 }

@@ -291,8 +291,8 @@ import { buildMergePlan } from './honeycomb.js';
 import { tally, signatureOf } from './parliament.js';
 import type { Ballot } from './parliament.js';
 import { evaluate, missingCrossReviewEvidence } from './evaluator.js';
-import type { EvaluationDecision, ValidationProvenance } from './evaluator.js';
-import { validationsDepuisControles } from './ci-evidence.js';
+import type { EvaluationDecision } from './evaluator.js';
+import { famillesEnCours, validationsDepuisControles } from './ci-evidence.js';
 import { CacheDomaines, domaineDeTache, replierTraces } from './pheromones.js';
 import type { Domaine, TraceePheromone } from './pheromones.js';
 import { anthropicLlm, anthropicLlmStream, llmPlannerAvailable, planBrief } from './planner.js';
@@ -317,6 +317,7 @@ import { buildWaggleBoard } from './waggle.js';
 import { lireVersionRuche } from './version-lue.js';
 import { commandeDePose } from '../shared/pose-outil.js';
 import { marcheASuivre, poseDepuis, versionDeclaree } from '../shared/version-ruche.js';
+import { VALIDATION_KEYS } from '../shared/validations-bac.js';
 
 /**
  * La racine du dépôt, vue depuis le code COMPILÉ (`dist/orchestrator/`).
@@ -1999,7 +2000,7 @@ async function monterReine(
   const evaluationPour = (task: Task) => {
     const results = store.resultsForTask(task.id);
     const latest = results[results.length - 1];
-    const ci = latest?.resultId ? store.latestCiValidation(task.id, latest.resultId) : null;
+    const preuve = latest?.resultId ? store.latestValidation(task.id, latest.resultId) : null;
     const crossReview = latest
       ? latest.resultId
         ? (store.crossReviewForResult(task.id, latest.resultId) ??
@@ -2028,21 +2029,8 @@ async function monterReine(
         ...(inspection ? { inspection } : {}),
         consensus: tally(ballots),
         humanReview: store.getTaskReview(task.id)?.state ?? null,
-        ...(ci
-          ? {
-              validation: ci.validation,
-              validationProvenance: {
-                source: ci.source,
-                taskId: ci.taskId,
-                projectId: ci.projectId,
-                resultId: ci.resultId,
-                depot: ci.depot,
-                pr: ci.pr,
-                branch: ci.branch,
-                commitSha: ci.commitSha,
-                recordedAt: ci.recordedAt,
-              } satisfies ValidationProvenance,
-            }
+        ...(preuve
+          ? { validation: preuve.validation, validationProvenance: preuve.provenance }
           : {}),
         ...(crossReview ? { crossReview } : {}),
         crossReviewPending,
@@ -7974,10 +7962,11 @@ async function monterReine(
   );
 
   // Evaluator indépendant : compose les faits déjà produits par les
-  // Gardiennes, le Parlement et la revue humaine. Les validations CI restent
+  // Gardiennes, le Parlement et la revue humaine. Les validations restent
   // explicitement absentes tant qu'aucun producteur de preuves ne les a
-  // enregistrées ; les logs d'un Worker ne sont jamais interprétés comme une
-  // validation.
+  // enregistrées — le bac Hive à la réception du résultat, ou la CI GitHub
+  // ingérée ci-dessous ; les logs d'un Worker ne sont jamais interprétés comme
+  // une validation.
   app.get<{ Params: { taskId: string } }>(
     '/api/tasks/:taskId/evaluation',
     {
@@ -8100,9 +8089,37 @@ async function monterReine(
         });
       }
 
+      // ─── UN INSTANTANÉ SANS VERDICT NE REMPLACE PAS UNE PREUVE ─────────────
+      //
+      // La preuve la plus récente gouverne, entière. Ranger une CI qui tourne
+      // encore, ou une PR dont aucun contrôle ne se lit comme tests, typecheck,
+      // build ou lint, rangerait quatre `missing` par-dessus les verdicts du bac
+      // Hive — un inconnu écrasant un connu. On refuse, on dit pourquoi, et la
+      // preuve précédente reste ; le bouton de Mission Control reste offert pour
+      // relire quand la CI a fini.
+      const enCours = famillesEnCours(faits.controles);
+      if (enCours.length > 0) {
+        return reply.code(409).send({
+          code: 'ci_running',
+          families: enCours,
+          error:
+            `la CI GitHub tourne encore (${enCours.join(', ')}) : rien n’est rangé — ` +
+            'relancez la lecture quand elle a fini',
+        });
+      }
       const validation = validationsDepuisControles(faits.controles);
+      if (VALIDATION_KEYS.every((cle) => validation[cle] === 'missing')) {
+        return reply.code(409).send({
+          code: 'ci_without_verdict',
+          error:
+            'aucun contrôle de la PR ne se lit comme tests, typecheck, build ou lint : ' +
+            'rien n’est rangé, la preuve précédente reste',
+        });
+      }
       const recordedAt = Date.now();
-      emitEvent('ci_validation_recorded', {
+      // Le même événement que les validations du bac, distingué par sa
+      // source : `store.latestValidation` lit la plus récente des deux.
+      emitEvent('validation_recorded', {
         source: 'github_pull_request',
         taskId: task.id,
         projectId: task.projectId,
@@ -10080,6 +10097,7 @@ async function monterReine(
               ...(msg.usage ? { usage: msg.usage } : {}),
               ...(msg.fournisseur ? { fournisseur: msg.fournisseur } : {}),
               ...(msg.finalText !== undefined ? { finalText: msg.finalText } : {}),
+              ...(msg.validations ? { validations: msg.validations } : {}),
             });
             if (!pris) {
               send(ws, {

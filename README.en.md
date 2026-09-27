@@ -70,7 +70,13 @@ Shots of the running app (`npm run ruche`), not mockups.
    before launching.
 2. **The AIs work in parallel.** Each task goes to a member's computer, in an
    isolated folder. You watch progress live.
-3. **You validate, then it merges.** Nothing passes without your say-so.
+3. **You validate, then it merges.** Nothing passes without your say-so. After
+   a successful production, the worker runs the `test`, `typecheck`, `build`
+   and `lint` scripts the repository declared **before** the change (nothing,
+   if the change touched the scripts), on the base plus the diff, in its
+   sandbox — podman, docker or bubblewrap; without one, agent code never runs
+   on the bare host and the screen says so. The Evaluator counts them like
+   GitHub CI and always says which one spoke (“Hive sandbox” or “GitHub CI”).
 4. **You open a worker’s station.** Hive view → node sheet → **Open workstation**
    (Chambre): baptismal name, **observed** files, Atelier noVNC, requisitions —
    never inventing what isn’t there. Detail:
