@@ -42,8 +42,9 @@ without your say-so. **The code and the keys stay on your machines.**
 ## 🖥 The interface
 
 Shots of the running app (`npm run ruche`), not mockups.
-Every view, desktop and mobile, is re-shot in one command on a lab hive:
-`npm run captures` ([docs/CAPTURES.md](docs/CAPTURES.md), FR).
+Every view of the navigation bar, the Chambre and a task drawer, desktop and
+mobile, are re-shot in one command on a lab hive: `npm run captures`
+([docs/CAPTURES.md](docs/CAPTURES.md), FR).
 
 <p align="center">
   <img src="docs/images/vitrine.png" width="840" alt="Hive landing page — cream paper, honey accent, hexagons.">
@@ -211,21 +212,21 @@ refuse to work in the open.
 
 ## 🛠️ Commands
 
-| Command                                       | Effect                                                                                                                                                              |
-| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `npm run ruche`                               | **Everything in one command** — Queen + worker + screen                                                                                                             |
-| `npm run demo`                                | Full demo (orchestrator + 2 nodes + project)                                                                                                                        |
-| `npm run dev`                                 | Orchestrator only                                                                                                                                                   |
-| `npm run node`                                | A member node                                                                                                                                                       |
-| `npm run cli -- doctor`                       | **The doctor** — 13 failure causes, each with the fixing command                                                                                                    |
-| `npm run preuve:v2-alpha -- --racine . --oui` | **The V2 Alpha proof** — one real mission handed to a real agent, judged criterion by criterion (nothing is created without `--oui`: it spends the agent's credits) |
-| `npm run captures`                            | **The screenshots** — every Mission Control view, desktop and mobile, on a lab hive (needs `npx playwright install --only-shell chromium` once)                     |
-| `npm run cli -- sauvegarde`                   | SQLite backup via `VACUUM INTO`                                                                                                                                     |
-| `npm run cli -- service`                      | Install the hive as a service (systemd · launchd · scheduled task)                                                                                                  |
-| `npm test`                                    | The full suite (vitest) — the count lives in the badge, in one place                                                                                                |
-| `npm run fusionner`                           | Fast-forwards the branch onto `main` — no merge commit                                                                                                              |
-| `npm run lint`                                | ESLint + Prettier — zero errors required                                                                                                                            |
-| `npm run loupe`                               | **The magnifier** — is new code defended by its own tests?                                                                                                          |
+| Command                                       | Effect                                                                                                                                                                   |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `npm run ruche`                               | **Everything in one command** — Queen + worker + screen                                                                                                                  |
+| `npm run demo`                                | Full demo (orchestrator + 2 nodes + project)                                                                                                                             |
+| `npm run dev`                                 | Orchestrator only                                                                                                                                                        |
+| `npm run node`                                | A member node                                                                                                                                                            |
+| `npm run cli -- doctor`                       | **The doctor** — 13 failure causes, each with the fixing command                                                                                                         |
+| `npm run preuve:v2-alpha -- --racine . --oui` | **The V2 Alpha proof** — one real mission handed to a real agent, judged criterion by criterion (nothing is created without `--oui`: it spends the agent's credits)      |
+| `npm run captures`                            | **The screenshots** — every navigation-bar view, the Chambre and a drawer, desktop and mobile, on a lab hive (needs `npx playwright install --only-shell chromium` once) |
+| `npm run cli -- sauvegarde`                   | SQLite backup via `VACUUM INTO`                                                                                                                                          |
+| `npm run cli -- service`                      | Install the hive as a service (systemd · launchd · scheduled task)                                                                                                       |
+| `npm test`                                    | The full suite (vitest) — the count lives in the badge, in one place                                                                                                     |
+| `npm run fusionner`                           | Fast-forwards the branch onto `main` — no merge commit                                                                                                                   |
+| `npm run lint`                                | ESLint + Prettier — zero errors required                                                                                                                                 |
+| `npm run loupe`                               | **The magnifier** — is new code defended by its own tests?                                                                                                               |
 
 ## 📚 Documentation
 

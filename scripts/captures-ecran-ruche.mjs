@@ -28,8 +28,9 @@
 // y lire), l'environnement est reconstruit sur liste blanche, et l'ouvrière ne
 // part qu'APRÈS que la Reine a dit sur quel port elle écoute.
 //
-// L'écran est celui que la Reine sert elle-même (`dashboard/dist`), c'est-à-dire
-// celui d'une ruche installée : la construction revient au coureur.
+// L'écran n'est pas son affaire : le coureur le construit dans le dossier
+// jetable et le fournit lui-même au navigateur — `dashboard/dist`, que sert
+// peut-être la ruche de l'opérateur depuis ce même dépôt, n'est pas touché.
 //
 // ─── CHARGÉ APRÈS TSX, JAMAIS AVANT ──────────────────────────────────────────
 //
@@ -182,13 +183,22 @@ function frapper(proc, signal) {
   }
 }
 
-/** Attend la fin d'un processus, bornée ; rend `true` s'il est bien mort. */
+/**
+ * Attend la fin d'un processus, bornée ; rend `true` s'il est bien mort.
+ *
+ * Le minuteur de la borne est ANNULÉ dès que le processus meurt : laissé armé,
+ * il retenait la boucle — donc la sortie du coureur — jusqu'à cinq secondes
+ * après un arrêt pourtant déjà fini.
+ */
 async function attendreFin(proc, ms) {
   if (proc.exitCode !== null || proc.signalCode !== null) return true;
+  let minuteur;
   return Promise.race([
     new Promise((resoudre) => proc.once('exit', () => resoudre(true))),
-    patienter(ms).then(() => false),
-  ]);
+    new Promise((resoudre) => {
+      minuteur = setTimeout(() => resoudre(false), ms);
+    }),
+  ]).finally(() => clearTimeout(minuteur));
 }
 
 /** Les 200 dernières lignes des deux processus — ce qu'on montre quand ça casse. */
@@ -215,82 +225,129 @@ function journalBorne() {
  * `lancer` est remplaçable pour que le banc passe par son harnais de processus
  * (qui reprend tout en `afterEach`, même quand un test échoue) ; le coureur
  * garde le défaut. Rend `{ http, ws, port, entetes, noeudId, journal, arreter }`.
+ *
+ * ─── L'ARRÊT EST REMIS AVANT LE PREMIER PROCESSUS ───────────────────────────
+ *
+ * `enregistrer(arreter)` est appelé AVANT que la Reine ne parte. Le coureur y
+ * range l'arrêt parmi ce qu'il rend sur ^C, et c'est la seule place qui tienne :
+ * rangé au RETOUR de cette fonction, il manquait pendant tout le démarrage —
+ * une à trois secondes d'ordinaire, jusqu'à deux minutes sur une machine
+ * chargée. Un ^C tombé là effaçait le dossier, fermait le navigateur, et
+ * laissait la Reine (puis l'ouvrière) tourner : elles sont dans leur propre
+ * groupe, le ^C du terminal ne les atteint pas. Mesuré en revue, trois fois sur
+ * trois : une Reine orpheline, toujours à l'écoute, dans un dossier effacé, à
+ * 100 % d'un cœur. `tests/captures-ecran.test.mjs` l'arrête en plein
+ * démarrage, à chacune des deux étapes.
+ *
+ * Arrêtée, la ruche ne lance plus RIEN : un processus démarré après l'arrêt
+ * serait un orphelin par construction. Les deux attentes du démarrage lâchent
+ * aussitôt, au lieu de guetter jusqu'à leur échéance une ruche qu'on a tuée.
  */
-export async function lancerRucheIsolee({ racine, dossier, lancer = lancerEnGroupe }) {
+export async function lancerRucheIsolee({
+  racine,
+  dossier,
+  lancer = lancerEnGroupe,
+  enregistrer = () => {},
+}) {
   const jeton = tirage();
   const env = envIsole(process.env, { dossier, jeton, secret: tirage() });
   const journal = journalBorne();
   const vivants = [];
+  const abandon = new AbortController();
+
+  // Une seule promesse d'arrêt, que chacun attend : le ^C du coureur et le
+  // `catch` ci-dessous arrivent ensemble, et le second ne doit pas rendre la
+  // main — donc laisser effacer le dossier — avant que le premier ait fini.
+  let arret = null;
+  const arreter = () =>
+    (arret ??= (async () => {
+      abandon.abort(new Error('ruche de laboratoire arrêtée pendant son démarrage'));
+      // SIGTERM d'abord : la Reine ferme alors sa base proprement, et le dossier
+      // jetable s'efface sans « fichier occupé » sous Windows. SIGKILL ensuite,
+      // pour ce qui n'a pas voulu partir — et on attend encore qu'il soit
+      // mort : le coureur efface le dossier juste après.
+      for (const p of vivants) frapper(p, 'SIGTERM');
+      const morts = await Promise.all(vivants.map((p) => attendreFin(p, 5_000)));
+      const tetus = vivants.filter((_, i) => !morts[i]);
+      for (const p of tetus) frapper(p, 'SIGKILL');
+      await Promise.all(tetus.map((p) => attendreFin(p, 2_000)));
+    })());
+  enregistrer(arreter);
 
   // Les chemins de `pieces` sont relatifs à la racine du dépôt, et nos enfants
   // tournent AILLEURS : on résout le lanceur ici. Le point d'entrée, lui, est
   // résolu par `scripts/lancer.mjs` contre sa propre racine.
   const demarrer = (voeu, envPiece) => {
+    abandon.signal.throwIfAborted();
     const [piece] = pieces(process.execPath, voeu);
     const [lanceur, ...reste] = piece.argv;
     const proc = lancer(piece.bin, [path.join(racine, lanceur), ...reste], {
       cwd: dossier,
       env: envPiece,
     });
-    journal.brancher(proc, piece.nom);
+    // Rangé AVANT tout `await` : un arrêt qui tombe ensuite le voit.
     vivants.push(proc);
+    journal.brancher(proc, piece.nom);
     return proc;
-  };
-
-  let arrete = false;
-  const arreter = async () => {
-    if (arrete) return;
-    arrete = true;
-    // SIGTERM d'abord : la Reine ferme alors sa base proprement, et le dossier
-    // jetable s'efface sans « fichier occupé » sous Windows. SIGKILL ensuite,
-    // pour ce qui n'a pas voulu partir.
-    for (const p of vivants) frapper(p, 'SIGTERM');
-    const morts = await Promise.all(vivants.map((p) => attendreFin(p, 5_000)));
-    vivants.forEach((p, i) => {
-      if (!morts[i]) frapper(p, 'SIGKILL');
-    });
   };
 
   try {
     const reine = demarrer({ hub: true }, env);
-    const adresse = await attendreAdresse(reine, journal);
+    const adresse = await attendreAdresse(reine, journal, abandon.signal);
     const entetes = { 'x-hive-token': jeton };
     demarrer({ noeud: true }, { ...env, HIVE_URL: adresse.ws });
-    const noeudId = await attendreOuvriere(adresse.http, entetes, journal);
+    const noeudId = await attendreOuvriere(adresse.http, entetes, journal, abandon.signal);
     return { ...adresse, entetes, noeudId, journal: journal.texte, arreter };
   } catch (e) {
     await arreter();
-    throw e;
+    // Arrêtée de l'extérieur : c'est CETTE raison qu'on rend, pas l'« operation
+    // was aborted » anonyme de l'attente qu'elle a interrompue.
+    throw abandon.signal.aborted ? abandon.signal.reason : e;
   }
 }
 
-/** Lit la sortie de la Reine jusqu'à son adresse ; échoue si elle meurt ou se tait. */
-function attendreAdresse(reine, journal, patienceMs = 60_000) {
+/**
+ * Lit la sortie de la Reine jusqu'à son adresse ; échoue si elle meurt, se
+ * tait, ou si la ruche est arrêtée entre-temps.
+ *
+ * Une fois l'adresse lue, le lecteur se DÉBRANCHE : resté en place, il
+ * accumulait toute la sortie de la Reine pendant l'exécution entière, et
+ * repassait deux expressions régulières sur un texte qui ne cessait de grandir.
+ */
+function attendreAdresse(reine, journal, signal, patienceMs = 60_000) {
   return new Promise((resoudre, rejeter) => {
     let lu = '';
+    const finir = (erreur, adresse) => {
+      clearTimeout(minuteur);
+      reine.stdout.off('data', lire);
+      reine.off('exit', mort);
+      signal.removeEventListener('abort', surAbandon);
+      if (erreur) rejeter(erreur);
+      else resoudre(adresse);
+    };
     const minuteur = setTimeout(() => {
-      rejeter(
+      finir(
         new Error(
           `la Reine n'a pas annoncé son adresse en ${patienceMs / 1000} s\n${journal.texte()}`,
         ),
       );
     }, patienceMs);
-    reine.stdout.on('data', (bout) => {
+    const lire = (bout) => {
       lu += bout;
       const adresse = adresseAnnoncee(lu);
-      if (adresse) {
-        clearTimeout(minuteur);
-        resoudre(adresse);
-      }
-    });
-    reine.once('exit', (code, signal) => {
-      clearTimeout(minuteur);
-      rejeter(
+      if (adresse) finir(null, adresse);
+    };
+    const mort = (code, sig) => {
+      finir(
         new Error(
-          `la Reine s'est arrêtée au démarrage (${signal ?? `code ${code}`})\n${journal.texte()}`,
+          `la Reine s'est arrêtée au démarrage (${sig ?? `code ${code}`})\n${journal.texte()}`,
         ),
       );
-    });
+    };
+    const surAbandon = () => finir(signal.reason);
+    reine.stdout.on('data', lire);
+    reine.once('exit', mort);
+    signal.addEventListener('abort', surAbandon, { once: true });
   });
 }
 
@@ -303,15 +360,16 @@ async function demander(base, chemin, options = {}) {
   return texte === '' ? null : JSON.parse(texte);
 }
 
-async function attendreOuvriere(base, entetes, journal, patienceMs = 60_000) {
+async function attendreOuvriere(base, entetes, journal, signal, patienceMs = 60_000) {
   const fin = Date.now() + patienceMs;
   while (Date.now() < fin) {
-    const etat = await demander(base, '/api/state', { headers: entetes }).catch(() => null);
+    signal.throwIfAborted();
+    const etat = await demander(base, '/api/state', { headers: entetes, signal }).catch(() => null);
     const noeud = (etat?.nodes ?? []).find(
       (n) => n?.name === NOM_OUVRIERE && n?.status === 'online',
     );
     if (noeud) return noeud.id;
-    await patienter(250);
+    await patienter(250, undefined, { signal });
   }
   throw new Error(
     `l'ouvrière ${NOM_OUVRIERE} n'est pas en ligne après ${patienceMs / 1000} s\n${journal.texte()}`,

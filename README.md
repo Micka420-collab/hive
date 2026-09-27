@@ -138,8 +138,9 @@ diffs produits sont factices, et l'installeur comme la Reine le disent.
 ## 🖥 L'interface
 
 Captures de l'écran réel (`npm run ruche`), pas de maquettes.
-Chaque vue, sur bureau et sur mobile, se rephotographie en une commande sur une
-ruche de laboratoire : `npm run captures` ([docs/CAPTURES.md](docs/CAPTURES.md)).
+Chaque vue de la barre, la Chambre et un tiroir de tâche, sur bureau et sur
+mobile, se rephotographient en une commande sur une ruche de laboratoire :
+`npm run captures` ([docs/CAPTURES.md](docs/CAPTURES.md)).
 
 <p align="center">
   <img src="docs/images/vitrine.png" width="840" alt="Vitrine Hive — page d'accueil crème, miel en accent, hexagones.">
@@ -313,21 +314,21 @@ travailler à découvert.
 
 ## 🛠️ Commandes
 
-| Commande                                      | Effet                                                                                            |
-| --------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `npm run ruche`                               | **Tout en une commande** — Reine + ouvrière + écran                                              |
-| `npm run demo`                                | Démo complète (orchestrateur + 2 nœuds + projet)                                                 |
-| `npm run dev`                                 | Orchestrateur seul                                                                               |
-| `npm run node`                                | Un nœud membre                                                                                   |
-| `npm run cli -- doctor`                       | **Le docteur** — 13 causes de panne, et la commande qui répare                                   |
-| `npm run preuve:v2-alpha -- --racine . --oui` | **La preuve V2 Alpha** — une vraie mission confiée à un vrai agent, jugée critère par critère    |
-| `npm run captures`                            | **Les captures** — chaque vue de Mission Control, bureau et mobile, sur une ruche de laboratoire |
-| `npm run cli -- sauvegarde`                   | Sauvegarde SQLite par `VACUUM INTO`                                                              |
-| `npm run cli -- service`                      | Installer la ruche en service (systemd · launchd · tâche planifiée)                              |
-| `npm test`                                    | La suite complète (vitest) — le compte vit dans le badge, en un seul endroit                     |
-| `npm run fusionner`                           | Porte la branche sur `main` en **avance rapide** — sans commit de fusion                         |
-| `npm run lint`                                | ESLint + Prettier — zéro erreur exigé                                                            |
-| `npm run loupe`                               | **La loupe** — le code neuf est-il défendu par ses tests ?                                       |
+| Commande                                      | Effet                                                                                                              |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `npm run ruche`                               | **Tout en une commande** — Reine + ouvrière + écran                                                                |
+| `npm run demo`                                | Démo complète (orchestrateur + 2 nœuds + projet)                                                                   |
+| `npm run dev`                                 | Orchestrateur seul                                                                                                 |
+| `npm run node`                                | Un nœud membre                                                                                                     |
+| `npm run cli -- doctor`                       | **Le docteur** — 13 causes de panne, et la commande qui répare                                                     |
+| `npm run preuve:v2-alpha -- --racine . --oui` | **La preuve V2 Alpha** — une vraie mission confiée à un vrai agent, jugée critère par critère                      |
+| `npm run captures`                            | **Les captures** — chaque vue de la barre, la Chambre et un tiroir, bureau et mobile, sur une ruche de laboratoire |
+| `npm run cli -- sauvegarde`                   | Sauvegarde SQLite par `VACUUM INTO`                                                                                |
+| `npm run cli -- service`                      | Installer la ruche en service (systemd · launchd · tâche planifiée)                                                |
+| `npm test`                                    | La suite complète (vitest) — le compte vit dans le badge, en un seul endroit                                       |
+| `npm run fusionner`                           | Porte la branche sur `main` en **avance rapide** — sans commit de fusion                                           |
+| `npm run lint`                                | ESLint + Prettier — zéro erreur exigé                                                                              |
+| `npm run loupe`                               | **La loupe** — le code neuf est-il défendu par ses tests ?                                                         |
 
 ## 📚 Documentation
 

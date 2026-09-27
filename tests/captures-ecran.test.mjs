@@ -9,14 +9,19 @@
 // qu'une image le montre :
 //
 //   · l'effacement — le coureur efface ses captures précédentes ; pointé sur
-//     `docs/images`, il ne doit toucher à RIEN d'autre ;
-//   · la sortie — dans le dépôt, et ignorée par git par défaut ;
+//     `docs/images`, il ne doit toucher à RIEN d'autre, et tout ce qu'il nomme,
+//     il sait l'effacer ;
+//   · la sortie — dans le dépôt, et ignorée par git par défaut ; la sélection
+//     `--vues` qui refait la série publiée ;
+//   · l'écran — servi depuis le dossier jetable, sans jamais en sortir ;
 //   · l'isolement — ni les secrets ni les `HIVE_*` de la machine n'entrent
 //     dans la ruche photographiée ;
 //   · l'adresse — un port choisi par le système, que l'ouvrière doit apprendre
 //     de la Reine, pas deviner ;
 //   · la ruche elle-même — une vraie Reine et une vraie ouvrière, montées,
-//     remplies par l'API et démontées comme le coureur le fait.
+//     remplies par l'API et démontées comme le coureur le fait ;
+//   · l'arrêt en plein démarrage — le ^C qui tombe pendant que la Reine ou
+//     l'ouvrière démarre ne laisse personne derrière lui.
 //
 // En `.mjs`, comme les autres bancs de `scripts/*.mjs` : ces modules n'ont pas
 // de déclarations de types (cf. `premier-quart-heure.test.mjs`).
@@ -32,8 +37,10 @@ import {
   MANIFESTE,
   SORTIE_PAR_DEFAUT,
   estNotreCapture,
+  fichierDeLEcran,
   nomCapture,
   optionsDepuisArgv,
+  vueRetenue,
 } from '../scripts/captures-ecran-sortie.mjs';
 import {
   NOM_OUVRIERE,
@@ -76,14 +83,28 @@ describe('où vont les captures', () => {
     }
   });
 
-  it('par défaut : le français, dans captures-ecran/fr', () => {
+  it('CE QU’IL NOMME, IL SAIT L’EFFACER — un nom de vue hors motif n’est jamais écrit', () => {
+    // Le nom vient de la page. Accepté par `nomCapture` et inconnu
+    // d'`estNotreCapture`, il ferait une image que plus aucune exécution
+    // n'efface : la capture périmée que l'effacement existe pour empêcher.
+    for (const vue of ['war_room', 'Ruche', 'mémoire', 'ruche/x', 'ruche?x=1', '']) {
+      expect(() => nomCapture(vue, 'bureau'), vue).toThrow(/hors motif/);
+    }
+    for (const vue of ['ruche', 'chambre-en-vol', 'monespace', 'v2']) {
+      for (const f of FORMATS) expect(estNotreCapture(nomCapture(vue, f.nom)), vue).toBe(true);
+    }
+  });
+
+  it('par défaut : le français, dans captures-ecran/fr, toutes les vues', () => {
     expect(optionsDepuisArgv([], RACINE)).toEqual({
       langue: 'fr',
       sortie: path.join(RACINE, SORTIE_PAR_DEFAUT, 'fr'),
+      vues: null,
     });
     expect(optionsDepuisArgv(['--langue', 'en'], RACINE)).toEqual({
       langue: 'en',
       sortie: path.join(RACINE, SORTIE_PAR_DEFAUT, 'en'),
+      vues: null,
     });
     expect(optionsDepuisArgv(['--sortie', 'docs/images/captures'], RACINE).sortie).toBe(
       path.join(RACINE, 'docs', 'images', 'captures'),
@@ -93,6 +114,19 @@ describe('où vont les captures', () => {
   it('LA SORTIE RESTE DANS LE DÉPÔT — ni au-dessus, ni ailleurs, ni la racine elle-même', () => {
     for (const hors of ['..', '../ailleurs', path.join(os.tmpdir(), 'captures'), '.']) {
       expect(optionsDepuisArgv(['--sortie', hors], RACINE).erreur, hors).toMatch(/DANS le dépôt/);
+    }
+  });
+
+  it('--vues RETIENT une vue (tous formats) ou une image (un format) — et rien d’autre', () => {
+    const { vues } = optionsDepuisArgv(['--vues', 'ruche.bureau, essaim'], RACINE);
+    expect(vues).toEqual(['ruche.bureau', 'essaim']);
+    expect(vueRetenue(vues, 'ruche', 'bureau')).toBe(true);
+    expect(vueRetenue(vues, 'ruche', 'mobile')).toBe(false);
+    expect(vueRetenue(vues, 'essaim', 'mobile')).toBe(true);
+    expect(vueRetenue(vues, 'miellerie', 'bureau')).toBe(false);
+    expect(vueRetenue(null, 'miellerie', 'bureau'), 'sans --vues : tout').toBe(true);
+    for (const fautive of ['ruche.tablette', 'war_room', 'ruche,', 'Ruche.bureau']) {
+      expect(optionsDepuisArgv(['--vues', fautive], RACINE).erreur, fautive).toMatch(/--vues/);
     }
   });
 
@@ -112,6 +146,17 @@ describe('où vont les captures', () => {
       { cwd: RACINE, shell: false },
     );
     expect(r.status, 'git ne l’ignore pas').toBe(0);
+  });
+
+  it('L’ÉCRAN SERVI RESTE DANS LE DOSSIER JETABLE — `/` est index.html, `..` ne remonte pas', () => {
+    const ecran = path.join(os.tmpdir(), 'hive-captures-x', 'ecran');
+    expect(fichierDeLEcran(ecran, 'http://127.0.0.1:41873/')).toBe(path.join(ecran, 'index.html'));
+    expect(fichierDeLEcran(ecran, 'http://127.0.0.1:41873/assets/Chambre-a1.js')).toBe(
+      path.join(ecran, 'assets', 'Chambre-a1.js'),
+    );
+    for (const hors of ['/..%2F..%2Fetc%2Fpasswd', '/assets/..%2F..%2F..%2Fsecret', '/%E0%A4%A']) {
+      expect(fichierDeLEcran(ecran, `http://127.0.0.1:41873${hors}`), hors).toBeNull();
+    }
   });
 });
 
@@ -191,6 +236,68 @@ describe('la ruche de laboratoire — ce qui y entre', () => {
     const dependances = taches.flatMap((t) => t.dependsOn ?? []);
     expect(dependances).not.toContain(marquees[0].id);
   });
+});
+
+describe('la ruche de laboratoire — arrêtée en plein démarrage', () => {
+  let dossier = '';
+
+  afterEach(() => {
+    reprendreTous();
+    if (dossier) rmSync(dossier, { recursive: true, force: true, maxRetries: 3 });
+    dossier = '';
+  });
+
+  // Le ^C du coureur arrive par `enregistrer` — c'est ce que le coureur range
+  // parmi ce qu'il rend. Rangé au RETOUR de `lancerRucheIsolee`, il manquait
+  // pendant tout le démarrage : mesuré en revue, une Reine orpheline, à
+  // l'écoute, dans un dossier effacé. Joué ici aux deux étapes : la Reine qui
+  // démarre, puis l'ouvrière qui rejoint.
+  it.each([
+    ['pendant que la Reine démarre', 1],
+    ['pendant que l’ouvrière rejoint', 2],
+  ])(
+    'ARRÊTÉE %s : le démarrage échoue en le disant, et AUCUN processus ne survit',
+    async (_etape, rang) => {
+      dossier = mkdtempSync(path.join(os.tmpdir(), 'captures-arret-'));
+      const lances = [];
+      let arreter = null;
+      let atteindre = () => {};
+      const atteint = new Promise((resoudre) => (atteindre = resoudre));
+      const lancer = (bin, argv, options) => {
+        const proc = lancerBorneTuyaute(bin, argv, options);
+        lances.push(proc);
+        if (lances.length === rang) atteindre();
+        return proc;
+      };
+
+      const issue = lancerRucheIsolee({
+        racine: RACINE,
+        dossier,
+        lancer,
+        enregistrer: (a) => (arreter = a),
+      }).then(
+        () => null,
+        (e) => e,
+      );
+      await atteint;
+      expect(arreter, 'l’arrêt est remis AVANT le premier processus').toBeTypeOf('function');
+      await arreter();
+
+      const erreur = await issue;
+      expect(erreur, 'le démarrage interrompu échoue').toBeInstanceOf(Error);
+      expect(erreur.message).toMatch(/arrêtée pendant son démarrage/);
+      expect(lances, 'rien n’est lancé après l’arrêt').toHaveLength(rang);
+      for (const p of lances) {
+        expect(p.exitCode !== null || p.signalCode !== null, `pid ${p.pid} encore vivant`).toBe(
+          true,
+        );
+        // Le GROUPE entier, pas seulement sa tête (POSIX : `kill(-pid, 0)` le
+        // sonde sans le frapper).
+        if (process.platform !== 'win32') expect(() => process.kill(-p.pid, 0)).toThrow();
+      }
+    },
+    120_000,
+  );
 });
 
 describe('la ruche de laboratoire — lancée pour de vrai', () => {

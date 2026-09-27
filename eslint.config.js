@@ -30,11 +30,14 @@ export default tseslint.config(
       // `fetch` est natif depuis Node 18 et le dépôt exige Node 24 — le déclarer
       // ici est un constat, pas une permission. `scripts/essai-parcours.mjs` s'en
       // sert pour interroger la ruche que l'installation vient de démarrer.
+      // `AbortController`, natif lui aussi : `captures-ecran-ruche.mjs` s'en sert
+      // pour interrompre un démarrage qu'on arrête en route.
       globals: {
         console: 'readonly',
         process: 'readonly',
         URL: 'readonly',
         fetch: 'readonly',
+        AbortController: 'readonly',
       },
     },
   },
