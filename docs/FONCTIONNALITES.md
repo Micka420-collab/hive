@@ -205,6 +205,52 @@ npm run cli -- livrer-local <projectId> --forcer="relu à la main"   # passer ou
   refus du dépôt distant remonte lavé de tout identifiant, et la branche reste
   rangée sur l'ouvrière.
 
+## ⟲ Missions rejouables — le Time Travel
+
+Le Time-Lapse de la Chronique **remonte** le temps ; une mission rejouable se
+**rejoue**. Une mission est un épisode d'activité d'un projet : elle s'ouvre
+quand une tâche naît sur un projet qui n'avait plus rien en vol, et se clôt
+quand plus rien n'y vole (relectures comprises). La Reine prend alors un
+**instantané** à chaque bord — plan et graphe des tâches, prompts, modèles
+(commandés, déclarés, offerts), politique de routage et **version du Genome**
+(son empreinte et ses antécédents), niveau d'autonomie, garde-fous, artefacts
+(branches, pull requests, branche de mission), décisions typées. Aucune raison
+humaine, aucune objection, aucun identifiant n'y entre.
+
+```bash
+GET  /api/projects/<id>/missions                      # les missions, résumées
+GET  /api/projects/<id>/missions/<missionId>          # les deux instantanés
+POST /api/projects/<id>/missions/<missionId>/rejouer  # {modele?, politiqueRoutage?, autonomie?}
+GET  /api/projects/<rejeu>/rejeu/comparaison          # source contre rejeu
+# ou « Missions · Time Travel » dans ⬡ Projets
+```
+
+- **Rejouer** crée un projet NEUF sur le même dépôt (donc des branches et des
+  bacs neufs), recrée le plan de début — ni les relectures ni les délégations,
+  que le rejeu refera lui-même — et lui impose, au choix : un **modèle** (les
+  tâches attendent un nœud qui l'offre, et le disent : `rejeu_modele_absent`),
+  une **politique de routage** (`apprise` : le vécu d'aujourd'hui ; `figee` :
+  le Genome figé au début de la mission ; `neutre` : aucun vécu) et un **niveau
+  d'autonomie**. C'est un réglage : propriétaire ou administrateur.
+- **Rien d'irréversible ne part d'un rejeu.** Pull request, fusion, commit de
+  mission, poussée, workflow GitHub — et la ruche autonome — sont **simulés** :
+  rangés (une fois), journalisés (`rejeu_action_simulee`), jamais exécutés.
+  Seul un humain connecté avec un **compte** peut en valider un, en renvoyant
+  la demande avec `validerRejeu: true` ; le jeton de ruche, que chaque machine
+  porte, ne valide jamais.
+- **La comparaison** met côte à côte le résultat, le coût déclaré (avec sa
+  couverture), le temps modèle, le temps des ouvrières, la durée, les tests,
+  les relectures, les revues humaines et les décisions. Elle ne calcule que sur
+  du déclaré : un côté muet rend l'écart **inconnu**, une mission en vol est
+  dite **provisoire**, un journal élagué pendant la mission est dit
+  **incomplet**. Une tâche annulée y a son propre statut, distinct d'un échec
+  — dans la frise de la Chronique aussi.
+
+<p>
+  <img src="images/missions-rejeu-comparaison.png" alt="Un projet de rejeu : bandeau « actions irréversibles simulées » et comparaison mission source contre rejeu" width="350">
+  <img src="images/missions-rejeu-formulaire-mobile.png" alt="Le formulaire de rejeu sur téléphone : modèle, routage, autonomie, et l’avertissement que les effets seront simulés" width="254">
+</p>
+
 ## 👑 La Reine répond — parler à la ruche
 
 Chaque membre (donneur d'ordre comme porteur de nœud) peut interroger la ruche

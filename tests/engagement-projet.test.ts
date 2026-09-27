@@ -40,6 +40,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { instantaneDe } from '../src/orchestrator/missions.js';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
 
@@ -52,6 +53,7 @@ interface Cible {
   fabrique: string;
   motifPerso: string;
   sauvegarde: string;
+  mission: string;
 }
 
 interface Acte {
@@ -65,6 +67,8 @@ interface Acte {
   refus: 'projet' | 'tache';
   /** Faux : la route exige un COMPTE, le jeton seul n'y ouvre jamais rien. */
   jeton?: false;
+  /** Le statut d'un acte réussi, quand ce n'est pas 200 (une création : 201). */
+  succes?: number;
 }
 
 const p = (suite: string) => (c: Cible) => `/api/projects/${c.projet}/${suite}`;
@@ -332,6 +336,18 @@ const REGLAGES: readonly Acte[] = [
     corps: () => ({ kind: 'fait', texte: 'le site est en ligne' }),
     refus: 'projet',
   },
+  {
+    // Un rejeu hérite du dépôt, des garde-fous et d'un niveau d'autonomie :
+    // c'est un RÉGLAGE, pas un engagement — même si ses effets irréversibles
+    // sont ensuite simulés.
+    nom: 'missions/:missionId/rejouer',
+    methode: 'POST',
+    route: '/api/projects/:projectId/missions/:missionId/rejouer',
+    url: (c) => `/api/projects/${c.projet}/missions/${c.mission}/rejouer`,
+    corps: () => ({ autonomie: 'off' }),
+    refus: 'projet',
+    succes: 201,
+  },
 ];
 
 /**
@@ -369,6 +385,7 @@ describe('ADR 0007 — le jeton de ruche n’engage plus le projet d’autrui', 
     fabrique: 'fabrique-qui-nexiste-pas',
     motifPerso: 'motif-qui-nexiste-pas',
     sauvegarde: 'sauvegarde-qui-nexiste-pas',
+    mission: 'mission-qui-nexiste-pas',
   };
 
   const inscrire = async (
@@ -443,7 +460,13 @@ describe('ADR 0007 — le jeton de ruche n’engage plus le projet d’autrui', 
       patch: 'diff --git a/x b/x\n+y',
     }).id;
     if (!fabrique.ok || !motif.ok) throw new Error('garniture du projet impossible');
-    return { projet, tache, fabrique: fabrique.id, motifPerso: motif.id, sauvegarde };
+    // Une mission rangée, avec un VRAI instantané de début : rejouer doit
+    // pouvoir réussir, sans quoi la garde ne serait éprouvée que sur des refus.
+    const mission = `mission-${projet}`;
+    const ouverture = { id: mission, ouverteA: 0, closeA: null, depuisEvenement: 0 };
+    const debut = instantaneDe(s, s.getProject(projet)!, ouverture, 'debut', Date.now());
+    s.ouvrirMission({ ...ouverture, projectId: projet, debut: JSON.stringify(debut) });
+    return { projet, tache, fabrique: fabrique.id, motifPerso: motif.id, sauvegarde, mission };
   };
 
   beforeAll(async () => {
@@ -596,9 +619,11 @@ describe('ADR 0007 — le jeton de ruche n’engage plus le projet d’autrui', 
           ['l’administratrice', jetonReine],
         ] as const) {
           const r = await tenter(possede, acte, compte(t));
-          expect(r.status, `${acte.nom} par ${qui}`).toBe(200);
+          expect(r.status, `${acte.nom} par ${qui}`).toBe(acte.succes ?? 200);
         }
-        expect((await tenter(orphelin, acte, jeton)).status, `${acte.nom} (orphelin)`).toBe(200);
+        expect((await tenter(orphelin, acte, jeton)).status, `${acte.nom} (orphelin)`).toBe(
+          acte.succes ?? 200,
+        );
       }
     });
 

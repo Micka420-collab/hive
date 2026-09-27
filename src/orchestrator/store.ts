@@ -10,6 +10,7 @@ import { LIMITS } from '../shared/protocol.js';
 import type { OutilConstate } from '../shared/protocol.js';
 import { LIMITE_TACHES_INSTANTANE, NIVEAUX_ISOLEMENT } from '../shared/types.js';
 import type { Partage } from '../shared/partage.js';
+import type { AntecedentFige } from '../shared/mission-rejouable.js';
 import type { GenreSauvegarde, Sauvegarde, SauvegardeResume } from '../shared/sauvegardes.js';
 import { libelleEtape } from '../shared/sauvegardes.js';
 import { CORPUS_AIGUILLAGE } from './aiguillage.js';
@@ -1033,6 +1034,66 @@ CREATE TABLE IF NOT EXISTS motifs_projet (
   creeA     INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_motifs_projet ON motifs_projet(projectId, creeA DESC);
+
+-- ─── Les MISSIONS REJOUABLES (src/shared/mission-rejouable.ts) ─────────────
+--
+-- Trois tables NEUVES et LATÉRALES (règle 2 : aucune migration, aucune
+-- colonne sur une table existante). Une base d'avant les gagne vides à
+-- l'ouverture, et n'y perd rien.
+--
+-- missions : un épisode d'activité d'un projet, et ses DEUX instantanés
+-- (JSON, format versionné). Le début est écrit à l'ouverture, en même temps
+-- que la ligne ; la fin, une seule fois, à la clôture. Pas de REFERENCES vers
+-- projects, à dessein : une clé étrangère ferait échouer la suppression d'un
+-- projet qui a eu des missions — c'est l'élagueur qui retire les orphelines.
+--
+-- rejeux : marque un projet comme le REJEU d'une mission. C'est cette marque
+-- que relisent l'ordonnanceur (modèle et routage imposés) et toutes les
+-- portes des actions irréversibles (simulées, jamais exécutées sans humain).
+-- Le Genome FIGÉ y est recopié à la création (politique « figee ») : le
+-- routage d'un rejeu en vol ne doit pas dépendre de la survie de l'instantané
+-- source à l'élagage.
+--
+-- rejeux_actions : ce qu'un rejeu a demandé d'irréversible, et ce qui en a
+-- été fait (simulée, ou validée par un humain). UNIQUE : une ruche autonome
+-- qui redemande à chaque cycle la même livraison n'en range qu'une.
+--
+-- BORNE D'ÉLAGAGE (règle 3), dans le MÊME changement : pruneMissions — les
+-- lignes dont le projet a disparu, puis les plus vieilles missions de chaque
+-- projet au-delà d'un plafond (sauf celles qu'un rejeu compare encore), puis
+-- les actions au-delà d'un plafond par projet.
+CREATE TABLE IF NOT EXISTS missions (
+  id              TEXT PRIMARY KEY,
+  projectId       TEXT NOT NULL,
+  ouverteA        INTEGER NOT NULL,
+  closeA          INTEGER,
+  depuisEvenement INTEGER NOT NULL,
+  debut           TEXT NOT NULL,
+  fin             TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_missions_projet ON missions(projectId, ouverteA DESC);
+
+CREATE TABLE IF NOT EXISTS rejeux (
+  projectId     TEXT PRIMARY KEY,
+  missionSource TEXT NOT NULL,
+  projetSource  TEXT NOT NULL,
+  surcharges    TEXT NOT NULL,
+  genomeFige    TEXT,
+  creePar       TEXT,
+  creeA         INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_rejeux_source ON rejeux(missionSource);
+
+CREATE TABLE IF NOT EXISTS rejeux_actions (
+  id        INTEGER PRIMARY KEY AUTOINCREMENT,
+  projectId TEXT NOT NULL,
+  genre     TEXT NOT NULL,
+  cible     TEXT NOT NULL,
+  issue     TEXT NOT NULL CHECK (issue IN ('simulee', 'validee')),
+  parUserId TEXT,
+  creeA     INTEGER NOT NULL,
+  UNIQUE (projectId, genre, cible, issue)
+);
 `;
 
 interface ProjectRow {
@@ -1136,6 +1197,41 @@ function rowToResultatBalance(r: ResultatRow): ResultatBalance {
     success: r.success === 1,
     durationMs: r.durationMs,
   };
+}
+
+/**
+ * Une mission telle qu'elle est RANGÉE : ses deux instantanés sont du JSON
+ * brut, relu par `lireInstantane` (format versionné, lecture défensive).
+ */
+export interface MissionRangee {
+  id: string;
+  projectId: string;
+  ouverteA: number;
+  closeA: number | null;
+  /** Dernier événement AVANT l'ouverture : le journal de la mission commence après. */
+  depuisEvenement: number;
+  debut: string;
+  fin: string | null;
+}
+
+/** La marque de rejeu d'un projet. Les surcharges sont relues champ par champ. */
+export interface RejeuRange {
+  projectId: string;
+  missionSource: string;
+  projetSource: string;
+  surcharges: { modele?: string; politiqueRoutage?: string; autonomie?: string };
+  /** Le Genome de l'instantané source, recopié pour la politique `figee`. */
+  genomeFige: AntecedentFige[] | null;
+  creePar: string | null;
+  creeA: number;
+}
+
+export interface ActionRejeuRangee {
+  genre: string;
+  cible: string;
+  issue: 'simulee' | 'validee';
+  parUserId: string | null;
+  creeA: number;
 }
 
 /**
@@ -6414,6 +6510,354 @@ export class HiveStore {
       .prepare('SELECT state, updatedAt FROM reviews WHERE taskId = ?')
       .get(taskId) as { state: 'approved' | 'rejected'; updatedAt: number } | undefined;
     return row ?? null;
+  }
+
+  // ─── Les missions rejouables (src/shared/mission-rejouable.ts) ─────────────
+
+  /** La mission OUVERTE d'un projet (il n'y en a jamais qu'une), ou `null`. */
+  missionOuverte(projectId: string): MissionRangee | null {
+    const row = this.db
+      .prepare(
+        'SELECT * FROM missions WHERE projectId = ? AND closeA IS NULL ORDER BY ouverteA DESC LIMIT 1',
+      )
+      .get(projectId) as MissionRangee | undefined;
+    return row ?? null;
+  }
+
+  getMission(id: string): MissionRangee | null {
+    const row = this.db.prepare('SELECT * FROM missions WHERE id = ?').get(id) as
+      MissionRangee | undefined;
+    return row ?? null;
+  }
+
+  /** Les missions d'un projet, de la plus récente à la plus ancienne. */
+  listMissions(projectId: string, limite = 50): MissionRangee[] {
+    return this.db
+      .prepare('SELECT * FROM missions WHERE projectId = ? ORDER BY ouverteA DESC, id LIMIT ?')
+      .all(projectId, Math.max(1, Math.min(limite, 200))) as MissionRangee[];
+  }
+
+  /**
+   * Ouvre une mission AVEC son instantané de début, en une écriture.
+   *
+   * Conditionnelle : si une mission est déjà ouverte sur ce projet (deux
+   * créations de tâches rapprochées ont chacune programmé une ouverture), la
+   * seconde ne fait rien et rend `false` — « une seule mission ouverte par
+   * projet » tient par la base, pas par la chance de l'ordonnancement.
+   */
+  ouvrirMission(m: {
+    id: string;
+    projectId: string;
+    ouverteA: number;
+    depuisEvenement: number;
+    debut: string;
+  }): boolean {
+    return this.enTransaction(() => {
+      if (this.missionOuverte(m.projectId)) return false;
+      this.db
+        .prepare(
+          `INSERT INTO missions (id, projectId, ouverteA, closeA, depuisEvenement, debut, fin)
+           VALUES (?, ?, ?, NULL, ?, ?, NULL)`,
+        )
+        .run(m.id, m.projectId, m.ouverteA, m.depuisEvenement, m.debut);
+      return true;
+    });
+  }
+
+  /** Clôt une mission avec son instantané de fin — une seule fois. */
+  cloreMission(id: string, closeA: number, fin: string): boolean {
+    const info = this.db
+      .prepare('UPDATE missions SET closeA = ?, fin = ? WHERE id = ? AND closeA IS NULL')
+      .run(closeA, fin, id);
+    return info.changes > 0;
+  }
+
+  /** Tâches encore EN VOL d'un projet (productions comme relectures). */
+  compterTachesVivantes(projectId: string): number {
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM tasks
+          WHERE projectId = ? AND status IN ('pending', 'ready', 'assigned', 'running')`,
+      )
+      .get(projectId) as { n: number };
+    return row.n;
+  }
+
+  /** La naissance de la plus ancienne tâche en vol d'un projet, ou `null`. */
+  naissanceDesVivantes(projectId: string): number | null {
+    const row = this.db
+      .prepare(
+        `SELECT MIN(createdAt) AS a FROM tasks
+          WHERE projectId = ? AND status IN ('pending', 'ready', 'assigned', 'running')`,
+      )
+      .get(projectId) as { a: number | null };
+    return row.a;
+  }
+
+  /**
+   * Les tâches d'une mission : celles du projet nées depuis son ouverture, dans
+   * l'ordre de création. Bornée (le plan d'un instantané l'est aussi).
+   */
+  tachesDeMission(projectId: string, depuis: number, limite = 1_000): Task[] {
+    return (
+      this.db
+        .prepare(
+          `SELECT * FROM tasks WHERE projectId = ? AND createdAt >= ?
+            ORDER BY createdAt, id LIMIT ?`,
+        )
+        .all(projectId, depuis, limite) as TaskRow[]
+    ).map(rowToTask);
+  }
+
+  /** Parmi ces tâches, celles qui sont des relectures ou des délégations. */
+  rolesDesTaches(taskIds: readonly string[]): { relectures: Set<string>; deleguees: Set<string> } {
+    const relectures = new Set<string>();
+    const deleguees = new Set<string>();
+    for (let i = 0; i < taskIds.length; i += 500) {
+      const lot = taskIds.slice(i, i + 500);
+      const marques = lot.map(() => '?').join(', ');
+      for (const r of this.db
+        .prepare(
+          `SELECT relectureTaskId AS id FROM contre_expertises WHERE relectureTaskId IN (${marques})`,
+        )
+        .all(...lot) as Array<{ id: string }>) {
+        relectures.add(r.id);
+      }
+      for (const r of this.db
+        .prepare(`SELECT childTaskId AS id FROM task_delegations WHERE childTaskId IN (${marques})`)
+        .all(...lot) as Array<{ id: string }>) {
+        deleguees.add(r.id);
+      }
+    }
+    return { relectures, deleguees };
+  }
+
+  /**
+   * Le journal d'une mission : les événements de ces types, postérieurs à
+   * `depuisId`, qui visent ce projet ou l'une de ses tâches. En ordre
+   * chronologique, borné.
+   */
+  evenementsDeMission(
+    projectId: string,
+    depuisId: number,
+    types: readonly string[],
+    limite = 10_000,
+  ): HiveEvent[] {
+    if (types.length === 0) return [];
+    const marques = types.map(() => '?').join(', ');
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM events
+          WHERE id > ? AND type IN (${marques})
+            AND (json_extract(CASE WHEN json_valid(payload) THEN payload ELSE '{}' END, '$.projectId') = ?
+              OR json_extract(CASE WHEN json_valid(payload) THEN payload ELSE '{}' END, '$.taskId')
+                 IN (SELECT id FROM tasks WHERE projectId = ?))
+          ORDER BY id LIMIT ?`,
+      )
+      .all(
+        depuisId,
+        ...types,
+        projectId,
+        projectId,
+        Math.max(1, Math.min(limite, 10_000)),
+      ) as EventRow[];
+    const evenements: HiveEvent[] = [];
+    for (const row of rows) {
+      try {
+        evenements.push({
+          id: row.id,
+          ts: row.ts,
+          type: row.type,
+          payload: JSON.parse(row.payload) as Record<string, unknown>,
+        });
+      } catch {
+        // Payload illisible : ignoré, jamais deviné.
+      }
+    }
+    return evenements;
+  }
+
+  /** Le dernier événement journalisé STRICTEMENT avant `ts` (0 : aucun). */
+  dernierEvenementAvant(ts: number): number {
+    const row = this.db.prepare('SELECT MAX(id) AS id FROM events WHERE ts < ?').get(ts) as {
+      id: number | null;
+    };
+    return row.id ?? 0;
+  }
+
+  /**
+   * Le journal couvre-t-il encore tout ce qui suit `depuisId` ? Faux dès que
+   * l'élagage a emporté un événement postérieur — l'instantané le dira.
+   */
+  journalCouvre(depuisId: number): boolean {
+    if (!this.journalElague()) return true;
+    const row = this.db.prepare('SELECT MIN(id) AS id FROM events').get() as { id: number | null };
+    // Journal vide après élagage : rien de ce qui suit `depuisId` n'est garanti.
+    return row.id !== null && row.id <= depuisId + 1;
+  }
+
+  /** Marque un projet comme le rejeu d'une mission. */
+  inscrireRejeu(r: RejeuRange): void {
+    this.db
+      .prepare(
+        `INSERT INTO rejeux (projectId, missionSource, projetSource, surcharges, genomeFige, creePar, creeA)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        r.projectId,
+        r.missionSource,
+        r.projetSource,
+        JSON.stringify(r.surcharges),
+        r.genomeFige ? JSON.stringify(r.genomeFige) : null,
+        r.creePar,
+        r.creeA,
+      );
+  }
+
+  /** La marque de rejeu d'un projet, ou `null` : un projet ordinaire. */
+  rejeuDuProjet(projectId: string): RejeuRange | null {
+    const row = this.db.prepare('SELECT * FROM rejeux WHERE projectId = ?').get(projectId) as
+      | (Omit<RejeuRange, 'surcharges' | 'genomeFige'> & {
+          surcharges: string;
+          genomeFige: string | null;
+        })
+      | undefined;
+    if (!row) return null;
+    let surcharges: Record<string, unknown> = {};
+    try {
+      const brut = JSON.parse(row.surcharges) as unknown;
+      if (typeof brut === 'object' && brut !== null && !Array.isArray(brut)) {
+        surcharges = brut as Record<string, unknown>;
+      }
+    } catch {
+      // Illisible : aucune surcharge — le rejeu reste un rejeu (simulé), sans plus.
+    }
+    let genomeFige: AntecedentFige[] | null = null;
+    try {
+      const brut = row.genomeFige === null ? null : (JSON.parse(row.genomeFige) as unknown);
+      if (Array.isArray(brut)) {
+        genomeFige = brut.filter(
+          (a): a is AntecedentFige =>
+            typeof a === 'object' &&
+            a !== null &&
+            typeof (a as AntecedentFige).cle === 'string' &&
+            typeof (a as AntecedentFige).essais === 'number' &&
+            typeof (a as AntecedentFige).recompenseTotale === 'number',
+        );
+      }
+    } catch {
+      // Illisible : `null` — l'ordonnanceur le dit (le rejeu figé attend).
+    }
+    return {
+      ...row,
+      genomeFige,
+      surcharges: {
+        ...(typeof surcharges.modele === 'string' ? { modele: surcharges.modele } : {}),
+        ...(typeof surcharges.politiqueRoutage === 'string'
+          ? { politiqueRoutage: surcharges.politiqueRoutage }
+          : {}),
+        ...(typeof surcharges.autonomie === 'string' ? { autonomie: surcharges.autonomie } : {}),
+      },
+    };
+  }
+
+  /** Les projets qui rejouent une mission. */
+  rejeuxDeMission(missionId: string): string[] {
+    return (
+      this.db
+        .prepare('SELECT projectId FROM rejeux WHERE missionSource = ? ORDER BY creeA, projectId')
+        .all(missionId) as Array<{ projectId: string }>
+    ).map((r) => r.projectId);
+  }
+
+  /**
+   * Range une action irréversible d'un rejeu. Rend `true` si elle est NEUVE :
+   * une demande répétée (la ruche autonome redemande à chaque cycle) n'est
+   * rangée — et journalisée — qu'une fois.
+   */
+  enregistrerActionRejeu(
+    a: { projectId: string; genre: string; cible: string; issue: 'simulee' | 'validee' },
+    parUserId: string | null,
+    now = Date.now(),
+  ): boolean {
+    const info = this.db
+      .prepare(
+        `INSERT OR IGNORE INTO rejeux_actions (projectId, genre, cible, issue, parUserId, creeA)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(a.projectId, a.genre, a.cible, a.issue, parUserId, now);
+    return info.changes > 0;
+  }
+
+  /** Cette action de rejeu est-elle déjà rangée (simulée ou validée) ? */
+  actionRejeuRangee(projectId: string, genre: string, cible: string): boolean {
+    return (
+      this.db
+        .prepare(
+          'SELECT 1 FROM rejeux_actions WHERE projectId = ? AND genre = ? AND cible = ? LIMIT 1',
+        )
+        .get(projectId, genre, cible) !== undefined
+    );
+  }
+
+  /** Les actions irréversibles d'un rejeu, dans l'ordre où elles ont été demandées. */
+  actionsDuRejeu(projectId: string, limite = 200): ActionRejeuRangee[] {
+    return this.db
+      .prepare(
+        `SELECT genre, cible, issue, parUserId, creeA FROM rejeux_actions
+          WHERE projectId = ? ORDER BY id LIMIT ?`,
+      )
+      .all(projectId, Math.max(1, Math.min(limite, 1_000))) as ActionRejeuRangee[];
+  }
+
+  /**
+   * La borne des trois tables des missions (règle 3).
+   *
+   *   · une ligne dont le projet a disparu ne désigne plus rien ;
+   *   · au-delà de `parProjet` missions, les plus vieilles partent — SAUF
+   *     celles qu'un rejeu encore rangé compare : sa comparaison dirait
+   *     « source élaguée » alors que l'humain la regarde ;
+   *   · les actions d'un rejeu au-delà de `parProjet * 10` partent, les plus
+   *     anciennes d'abord.
+   */
+  pruneMissions(parProjet: number): number {
+    return this.enTransaction(() => {
+      let n = 0;
+      n += this.db
+        .prepare('DELETE FROM rejeux WHERE projectId NOT IN (SELECT id FROM projects)')
+        .run().changes;
+      n += this.db
+        .prepare('DELETE FROM rejeux_actions WHERE projectId NOT IN (SELECT id FROM projects)')
+        .run().changes;
+      n += this.db
+        .prepare(
+          `DELETE FROM missions
+            WHERE projectId NOT IN (SELECT id FROM projects)
+              AND id NOT IN (SELECT missionSource FROM rejeux)`,
+        )
+        .run().changes;
+      n += this.db
+        .prepare(
+          `DELETE FROM missions WHERE id IN (
+             SELECT id FROM (
+               SELECT id, ROW_NUMBER() OVER (PARTITION BY projectId ORDER BY ouverteA DESC, id) AS rang
+                 FROM missions
+             ) WHERE rang > ?
+           ) AND id NOT IN (SELECT missionSource FROM rejeux)`,
+        )
+        .run(Math.max(1, parProjet)).changes;
+      n += this.db
+        .prepare(
+          `DELETE FROM rejeux_actions WHERE id IN (
+             SELECT id FROM (
+               SELECT id, ROW_NUMBER() OVER (PARTITION BY projectId ORDER BY id DESC) AS rang
+                 FROM rejeux_actions
+             ) WHERE rang > ?
+           )`,
+        )
+        .run(Math.max(1, parProjet) * 10).changes;
+      return n;
+    });
   }
 
   // ─── Snapshot ──────────────────────────────────────────────────────────────

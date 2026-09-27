@@ -188,6 +188,49 @@ npm run cli -- livrer-local <projectId> --forcer="read by hand"      # override 
   from the remote comes back stripped of any credential, and the branch stays on
   the worker.
 
+## ⟲ Replayable missions — Time Travel
+
+The Chronicle's Time-Lapse **rewinds** time; a replayable mission is
+**replayed**. A mission is an activity episode of a project: it opens when a
+task is born on a project with nothing in flight, and closes when nothing flies
+any more (reviews included). The Queen takes a **snapshot** at each edge — plan
+and task graph, prompts, models (commanded, declared, offered), routing policy
+and **Genome version** (its fingerprint and history), autonomy level,
+guardrails, artifacts (branches, pull requests, mission branch), typed
+decisions. No human reason, no objection, no credential goes in.
+
+```bash
+GET  /api/projects/<id>/missions                      # missions, summarised
+GET  /api/projects/<id>/missions/<missionId>          # both snapshots
+POST /api/projects/<id>/missions/<missionId>/rejouer  # {modele?, politiqueRoutage?, autonomie?}
+GET  /api/projects/<replay>/rejeu/comparaison         # source vs replay
+# or "Missions · Time Travel" in ⬡ Projects
+```
+
+- **Replaying** creates a NEW project on the same repository (so fresh branches
+  and sandboxes), recreates the starting plan — not the reviews nor the
+  delegations, which the replay redoes itself — and imposes, as chosen: a
+  **model** (tasks wait for a node offering it, and say so:
+  `rejeu_modele_absent`), a **routing policy** (`apprise`: today's history;
+  `figee`: the Genome frozen at the mission's start; `neutre`: no history) and
+  an **autonomy level**. It is a setting: owner or administrator.
+- **Nothing irreversible leaves a replay.** Pull request, merge, mission
+  commit, push, GitHub workflow — and the autonomous hive — are **simulated**:
+  stored (once), journaled (`rejeu_action_simulee`), never executed. Only a
+  human signed in with an **account** can approve one, by resending the request
+  with `validerRejeu: true`; the hive token, which every machine carries, never
+  approves.
+- **The comparison** puts side by side the result, the declared cost (with its
+  coverage), model time, worker time, duration, tests, reviews, human reviews
+  and decisions. It computes on declared data only: a silent side makes the
+  delta **unknown**, a mission in flight is **provisional**, a log pruned during
+  the mission is **incomplete**. A cancelled task has its own status, distinct
+  from a failure — in the Chronicle's timeline too.
+
+<p>
+  <img src="images/missions-rejeu-comparaison-en.png" alt="A replay project: the “irreversible actions simulated” banner and the source-versus-replay comparison" width="350">
+</p>
+
 ## 👑 The Queen replies — talking to the hive
 
 Every member (project owner and node holder alike) can ask the hive questions

@@ -478,9 +478,12 @@ async function cmdLivrerLocal(projectId: string, queue: string[]): Promise<void>
   }
 }
 
-/** Barre compacte des tâches par statut, réutilisant les badges d'affichage. */
+/**
+ * Barre compacte des tâches par statut, réutilisant les badges d'affichage.
+ * L'annulée a son badge : le journal la distingue d'un échec, la frise aussi.
+ */
 function taskBar(tasks: TaskCounts): string {
-  return Object.entries(BADGE)
+  return Object.entries({ ...BADGE, cancelled: '⊘' })
     .map(([status, badge]) => `${badge}${tasks[status as keyof TaskCounts] ?? 0}`)
     .join(' ');
 }

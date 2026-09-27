@@ -22,6 +22,7 @@ import {
   aiguillerNoeuds,
   antecedentsDuVecu,
   categoriser,
+  porteursDuModele,
   repriseHorsEchecs,
 } from './aiguillage.js';
 import type { Antecedent, Rang } from './aiguillage.js';
@@ -218,6 +219,11 @@ export class Scheduler {
   private readonly modelesEchoues = new Map<string, Set<string>>();
   /** Tâches actuellement différées pour cause de conflit (Sting Detector) — dédup des events. */
   private readonly deferredByConflict = new Set<string>();
+  /**
+   * Tâches de rejeu dont le modèle imposé n'est offert par aucun nœud éligible
+   * — dit une fois (`rejeu_modele_absent`), comme un conflit différé.
+   */
+  private readonly rejeuxSansModele = new Set<string>();
   /**
    * Relecture → instant du PREMIER constat que sa famille relectrice est
    * absente. Dédup de l'événement d'attente, et départ de
@@ -1387,6 +1393,7 @@ export class Scheduler {
     this.apresCommit(() => {
       this.infraRejects.delete(task.id);
       this.deferredByConflict.delete(task.id);
+      this.rejeuxSansModele.delete(task.id);
     });
     const nodeId = task.assignedNodeId;
     const patched = this.store.patchTask(task.id, { status: 'failed', assignedNodeId: null }, now);
@@ -1551,7 +1558,17 @@ export class Scheduler {
     // n'est pas enrôlé tant qu'un autre la porte. Chaque drone est ensuite
     // aiguillé sur SA vue du nœud, privée de ces modèles.
     const echoues = this.modelesEchoues.get(taskId);
-    const reprise = repriseHorsEchecs(libres, offre, echoues);
+    // Un rejeu à modèle imposé : chaque drone lance CE modèle, ou ne vole pas —
+    // une course ne rouvre pas la porte que la boucle principale ferme.
+    const rejeu = this.routageRejeu(task.projectId);
+    if (rejeu === 'genome_illisible') {
+      return { ok: false, error: 'rejeu figé sans Genome lisible — course refusée' };
+    }
+    const reprise = repriseHorsEchecs(
+      rejeu?.modele ? porteursDuModele(libres, rejeu.modele) : libres,
+      rejeu?.modele ? porteursDuModele(offre, rejeu.modele) : offre,
+      echoues,
+    );
     const { race, launch } = enlistDrones(
       createRace(taskId, factor),
       reprise.eligibles.map((n) => ({ id: n.id, agentType: n.agentType })),
@@ -1587,7 +1604,7 @@ export class Scheduler {
     // figée comme dans `task_assigned` : sans elle, le tiroir ne pouvait pas
     // dire pourquoi un drone non primaire avait lancé le modèle qui a gagné.
     const categorie = categoriser(task.title, task.prompt);
-    const antecedents = this.antecedentsAiguillage();
+    const antecedents = rejeu?.antecedents ?? this.antecedentsAiguillage();
     const vues = new Map(reprise.eligibles.map((n) => [n.id, n]));
     const modeleParDrone: Record<string, string> = {};
     const raisons: Record<string, Rang[]> = {};
@@ -2020,6 +2037,40 @@ export class Scheduler {
    * chaque appel — les appelants qui le veulent stable le mémoïsent (la boucle
    * d'assignation) ; la course de drones, elle, n'en a besoin qu'une fois.
    */
+  /**
+   * Ce qu'un REJEU de mission impose au routage de ses tâches ; `null` pour un
+   * projet ordinaire — la ruche route alors exactement comme avant.
+   *
+   *   · `modele`      — le modèle imposé aux productions ;
+   *   · `antecedents` — le vécu que l'Aiguillage lit : AUCUN (`neutre`), ou le
+   *     Genome FIGÉ au début de la mission source (`figee`). Absent (`apprise`
+   *     ou non précisé) : le vécu d'aujourd'hui, comme toute tâche.
+   *
+   * Un rejeu `figee` dont le Genome recopié est illisible rend
+   * `genome_illisible` : ses tâches attendent. Retomber sur le vécu du jour
+   * ferait passer pour « rejouée sous l'ancien Genome » une mission qui ne
+   * l'a pas été.
+   */
+  private routageRejeu(
+    projectId: string,
+  ): { modele?: string; antecedents?: Map<string, Antecedent> } | 'genome_illisible' | null {
+    const rejeu = this.store.rejeuDuProjet(projectId);
+    if (!rejeu) return null;
+    const { modele, politiqueRoutage } = rejeu.surcharges;
+    let antecedents: Map<string, Antecedent> | undefined;
+    if (politiqueRoutage === 'neutre') antecedents = new Map();
+    if (politiqueRoutage === 'figee') {
+      if (!rejeu.genomeFige) return 'genome_illisible';
+      antecedents = new Map(
+        rejeu.genomeFige.map((a) => [
+          a.cle,
+          { essais: a.essais, recompenseTotale: a.recompenseTotale },
+        ]),
+      );
+    }
+    return { ...(modele ? { modele } : {}), ...(antecedents ? { antecedents } : {}) };
+  }
+
   private antecedentsAiguillage(): Map<string, Antecedent> {
     // Le repli canonique, partagé avec `/api/workers` : le modèle PROUVÉ gouverne
     // l'apprentissage dès qu'il existe (cf. `antecedentsDuVecu`).
@@ -2275,6 +2326,14 @@ export class Scheduler {
       antecedents ??= this.antecedentsAiguillage();
       return antecedents;
     };
+    // Le routage imposé par un rejeu, relu au plus une fois par projet et par
+    // passe : une lecture par clé primaire, et le Genome figé n'est déplié
+    // qu'une fois.
+    const rejeux = new Map<string, ReturnType<Scheduler['routageRejeu']>>();
+    const routageRejeu = (projectId: string): ReturnType<Scheduler['routageRejeu']> => {
+      if (!rejeux.has(projectId)) rejeux.set(projectId, this.routageRejeu(projectId));
+      return rejeux.get(projectId) ?? null;
+    };
     // ─── LES RELECTURES D'ABORD ────────────────────────────────────────────
     // Une relecture achève un travail DÉJÀ payé ; une production prête est une
     // dépense neuve. En file par date de création, une relecture passait
@@ -2382,11 +2441,31 @@ export class Scheduler {
       // (aucun éligible ne déclare de modèle) ⇒ NO-OP : on garde la liste et
       // l'ordonnancement d'avant, phéromones comprises. La sous-liste préserve
       // l'ordre de charge, donc le départage plus bas reste inchangé.
+      //
+      // UN REJEU DE MISSION pose ses propres règles (`routageRejeu`) : un modèle
+      // IMPOSÉ aux productions (jamais aux relectures, qui valent par une AUTRE
+      // famille que le producteur), et le vécu dont l'Aiguillage se nourrit —
+      // celui d'aujourd'hui, celui figé au début de la mission, ou aucun.
+      const rejeu = routageRejeu(task.projectId);
+      if (rejeu === 'genome_illisible') continue;
+      const imposé = lien === null ? rejeu?.modele : undefined;
       const route = aiguillerNoeuds(
         categoriser(task.title, task.prompt),
-        reprise.eligibles,
-        lireAntecedents(),
+        imposé ? porteursDuModele(reprise.eligibles, imposé) : reprise.eligibles,
+        rejeu?.antecedents ?? lireAntecedents(),
       );
+      // Modèle imposé qu'aucun porteur libre n'offre : la tâche ATTEND — partir
+      // sur un autre modèle fausserait la comparaison sans le dire. Si AUCUN
+      // nœud de l'offre (charge ignorée) ne le déclare, l'attente n'a pas de
+      // fin prévisible : elle le dit, une fois, plutôt que de rester muette.
+      if (imposé && !route) {
+        if (porteursDuModele(offre, imposé).length === 0 && !this.rejeuxSansModele.has(task.id)) {
+          this.rejeuxSansModele.add(task.id);
+          this.emit('rejeu_modele_absent', { taskId: task.id, modele: imposé });
+        }
+        continue;
+      }
+      this.rejeuxSansModele.delete(task.id);
       const candidats = route ? route.noeuds : reprise.eligibles;
       let node = candidats[0];
       if (!node) continue; // aucun nœud éligible pour CETTE tâche (essayer les suivantes)

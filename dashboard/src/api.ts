@@ -1915,6 +1915,66 @@ export function fetchLivraisons(projectId: string): Promise<{ livraisons: Livrai
   return api(`/api/projects/${encodeURIComponent(projectId)}/livraisons`);
 }
 
+// ─── Les missions rejouables et le Time Travel ──────────────────────────────
+
+export type {
+  ComparaisonMissions,
+  EcartDeclare,
+  PolitiqueRoutage,
+  ResumeMission,
+  SurchargesRejeu,
+} from '../../src/shared/mission-rejouable';
+import type {
+  ComparaisonMissions,
+  ResumeMission,
+  SurchargesRejeu,
+} from '../../src/shared/mission-rejouable';
+
+/** Une mission telle que `GET /api/projects/:id/missions` la liste. */
+export interface MissionVue {
+  id: string;
+  ouverteA: number;
+  closeA: number | null;
+  /** `null` : instantané d'une autre version, illisible — dit, pas deviné. */
+  tachesPlan: number | null;
+  rejouable: boolean;
+  manques: string[];
+  resume: ResumeMission | null;
+  /** Les projets de rejeu de cette mission que le lecteur peut ouvrir. */
+  rejeux: string[];
+}
+
+export interface RejeuVue {
+  missionSource: string;
+  projetSource: string | null;
+  surcharges: SurchargesRejeu;
+  creeA: number;
+  actions: Array<{ genre: string; cible: string; issue: 'simulee' | 'validee'; creeA: number }>;
+}
+
+export function fetchMissions(
+  projectId: string,
+): Promise<{ missions: MissionVue[]; rejeu: RejeuVue | null }> {
+  return api(`/api/projects/${encodeURIComponent(projectId)}/missions`);
+}
+
+/** Rejoue une mission dans un projet neuf ; ses actions irréversibles sont simulées. */
+export function rejouerMission(
+  projectId: string,
+  missionId: string,
+  surcharges: SurchargesRejeu,
+): Promise<{ projet: Project; taches: Array<{ id: string; title: string }> }> {
+  return api(
+    `/api/projects/${encodeURIComponent(projectId)}/missions/${encodeURIComponent(missionId)}/rejouer`,
+    { method: 'POST', body: JSON.stringify(surcharges) },
+  );
+}
+
+/** Mission source contre rejeu, sur les seules données déclarées. */
+export function fetchComparaisonRejeu(projectId: string): Promise<ComparaisonMissions> {
+  return api(`/api/projects/${encodeURIComponent(projectId)}/rejeu/comparaison`);
+}
+
 /** Reprend une livraison : la CI ou la revue redeviennent du travail. */
 export function reprendreLivraison(
   projectId: string,
