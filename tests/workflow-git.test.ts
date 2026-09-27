@@ -91,12 +91,26 @@ import type { MergeResultMsg } from '../src/shared/protocol.js';
 import type { HiveEvent, StateSnapshot, Task, TaskResult } from '../src/shared/types.js';
 
 /**
- * Ce que « vite » veut dire ici. Mesuré sous Linux : 20 à 45 ms pour un clone
- * refusé. Dix secondes laissent la marge d'un runner Windows chargé, et restent
- * très loin de ce qu'on veut attraper — une attente SANS FIN, qui ne finit
- * jamais, quel que soit le plafond.
+ * Le PLAFOND d'attente d'un échec qu'on veut rapide — pas sa mesure.
+ *
+ * Mesuré, un clone refusé : 20 à 45 ms sous Linux ; 0,6 à 4 s sur la CI
+ * Windows, où git passe par Git Credential Manager (un programme .NET lancé à
+ * chaque demande d'identifiants) ; bien plus sur un runner chargé. Run
+ * 36327132854 : le clone de `cloneRepo` y a fini en 8,2 s, avec la bonne
+ * raison, et celui de `prepareWorkspace` était encore en route au plafond
+ * d'alors — 10 s, taillé sur la durée ATTENDUE, qui faisait donc la course au
+ * vrai travail, et la perdait sous charge.
+ *
+ * Ce qu'on attrape est une attente SANS FIN — une invite que personne ne
+ * lira : n'importe quel plafond fini la voit, et `issueSous` rend la main dès
+ * que git a tranché. Large, il ne coûte donc rien quand tout va bien. Ce qui
+ * prouve la garde, c'est la RAISON de l'échec, pas le chronomètre. 30 s : ce
+ * que les bancs de bout en bout de ce fichier donnent à une tâche entière,
+ * clone compris — que ce même run a bouclée en 16,6 s.
  */
-const DELAI_ECHEC_RAPIDE_MS = 10_000;
+const DELAI_ECHEC_RAPIDE_MS = 30_000;
+/** Le délai d'un banc qui attend sous ce plafond : le plafond, et de quoi conclure. */
+const DELAI_BANC_ECHEC_RAPIDE_MS = 2 * DELAI_ECHEC_RAPIDE_MS;
 
 /** Identité et réglages des commits FABRIQUÉS par le banc — rien de la personne. */
 const REGLAGES_BANC = [
@@ -422,6 +436,7 @@ describe('identifiants Git invalides — l’échec est RAPIDE, et il REMONTE', 
 
   it.each(PORTES)(
     '%s : sans identifiants, git échoue sur-le-champ au lieu d’ouvrir une invite',
+    { timeout: DELAI_BANC_ECHEC_RAPIDE_MS },
     async (_porte, cloner) => {
       serveur.mode = 'identifiants';
       const dossier = mkdtempSync(path.join(racine, 'sans-identifiants-'));
@@ -433,25 +448,29 @@ describe('identifiants Git invalides — l’échec est RAPIDE, et il REMONTE', 
     },
   );
 
-  it('des identifiants FAUX dans l’URL : refus sur-le-champ, et le secret ne ressort pas dans la raison', async () => {
-    serveur.mode = 'identifiants';
-    const secret = 'jeton-perime-9f3c2a';
-    const avant = serveur.authentifications;
-    const url = serveur.url('prive').replace('http://', `http://marie:${secret}@`);
-    const issue = await issueSous(
-      prepareWorkspace(travail, tache('identifiants-faux'), url),
-      DELAI_ECHEC_RAPIDE_MS,
-    );
-    expect(issue).toMatchObject({
-      etat: 'rejetee',
-      motif: expect.stringMatching(/Authentication failed/),
-    });
-    // C'est bien un REFUS d'identifiants, pas leur absence : git les a envoyés.
-    expect(serveur.authentifications).toBeGreaterThan(avant);
-    // La raison part dans les journaux de la tâche, puis au hub et à l'écran :
-    // le mot de passe de l'URL ne doit pas voyager avec elle.
-    expect(issue.etat === 'rejetee' ? issue.motif : '').not.toContain(secret);
-  });
+  it(
+    'des identifiants FAUX dans l’URL : refus sur-le-champ, et le secret ne ressort pas dans la raison',
+    { timeout: DELAI_BANC_ECHEC_RAPIDE_MS },
+    async () => {
+      serveur.mode = 'identifiants';
+      const secret = 'jeton-perime-9f3c2a';
+      const avant = serveur.authentifications;
+      const url = serveur.url('prive').replace('http://', `http://marie:${secret}@`);
+      const issue = await issueSous(
+        prepareWorkspace(travail, tache('identifiants-faux'), url),
+        DELAI_ECHEC_RAPIDE_MS,
+      );
+      expect(issue).toMatchObject({
+        etat: 'rejetee',
+        motif: expect.stringMatching(/Authentication failed/),
+      });
+      // C'est bien un REFUS d'identifiants, pas leur absence : git les a envoyés.
+      expect(serveur.authentifications).toBeGreaterThan(avant);
+      // La raison part dans les journaux de la tâche, puis au hub et à l'écran :
+      // le mot de passe de l'URL ne doit pas voyager avec elle.
+      expect(issue.etat === 'rejetee' ? issue.motif : '').not.toContain(secret);
+    },
+  );
 
   // ─── SSH — corrigé (git-protege.ts : `GIT_SSH_COMMAND`, mode lot) ────────────
   //
@@ -474,7 +493,7 @@ describe('identifiants Git invalides — l’échec est RAPIDE, et il REMONTE', 
   // script `sh`.
   it.each(PORTES)(
     '%s, par SSH : ssh doit tourner en mode lot — ni invite de clé d’hôte, ni phrase de passe',
-    { skip: process.platform === 'win32' },
+    { skip: process.platform === 'win32', timeout: DELAI_BANC_ECHEC_RAPIDE_MS },
     async (_porte, cloner) => {
       const faux = mkdtempSync(path.join(racine, 'faux-ssh-'));
       const trace = path.join(faux, 'arguments.txt');
@@ -1007,31 +1026,35 @@ describe('changement concurrent — l’amont bouge sous l’espace de travail',
 // ─── 5. CLONE INTERROMPU ─────────────────────────────────────────────────────
 
 describe('clone interrompu', () => {
-  it('la connexion coupée en plein transfert : échec sur-le-champ, raison lisible — et la tentative suivante repart propre', async () => {
-    // Assez lourd pour que la coupure tombe EN PLEIN pack : des octets
-    // aléatoires ne se compressent pas.
-    amont('lourd', { 'LISEZMOI.md': '# Lourd\n', 'donnees.bin': randomBytes(256 * 1024) });
-    const t = tache('clone-coupe');
+  it(
+    'la connexion coupée en plein transfert : échec sur-le-champ, raison lisible — et la tentative suivante repart propre',
+    { timeout: DELAI_BANC_ECHEC_RAPIDE_MS },
+    async () => {
+      // Assez lourd pour que la coupure tombe EN PLEIN pack : des octets
+      // aléatoires ne se compressent pas.
+      amont('lourd', { 'LISEZMOI.md': '# Lourd\n', 'donnees.bin': randomBytes(256 * 1024) });
+      const t = tache('clone-coupe');
 
-    serveur.mode = 'coupe';
-    const coupe = await issueSous(
-      prepareWorkspace(travail, t, serveur.url('lourd')),
-      DELAI_ECHEC_RAPIDE_MS,
-    );
-    expect(coupe).toMatchObject({
-      etat: 'rejetee',
-      motif: expect.stringMatching(/early EOF|RPC failed|index-pack|transfer closed/),
-    });
+      serveur.mode = 'coupe';
+      const coupe = await issueSous(
+        prepareWorkspace(travail, t, serveur.url('lourd')),
+        DELAI_ECHEC_RAPIDE_MS,
+      );
+      expect(coupe).toMatchObject({
+        etat: 'rejetee',
+        motif: expect.stringMatching(/early EOF|RPC failed|index-pack|transfer closed/),
+      });
 
-    serveur.mode = 'normal';
-    const ws = await prepareWorkspace(travail, t, serveur.url('lourd'));
-    try {
-      expect(ws.branch).toBe('hive/clone-coupe');
-      expect(lireTexte(ws.cwd, 'LISEZMOI.md')).toBe('# Lourd\n');
-    } finally {
-      ws.cleanup();
-    }
-  });
+      serveur.mode = 'normal';
+      const ws = await prepareWorkspace(travail, t, serveur.url('lourd'));
+      try {
+        expect(ws.branch).toBe('hive/clone-coupe');
+        expect(lireTexte(ws.cwd, 'LISEZMOI.md')).toBe('# Lourd\n');
+      } finally {
+        ws.cleanup();
+      }
+    },
+  );
 
   it('les restes d’un clone TUÉ (nœud arrêté en plein clone) ne gênent pas la tentative suivante', async () => {
     const a = amont('restes', { 'LISEZMOI.md': '# Propre\n' });

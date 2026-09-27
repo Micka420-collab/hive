@@ -380,17 +380,24 @@ describe('isolement — intégration runtime réel', () => {
         tache: 'tache-orpheline',
       });
       const client = spawn(lance.bin, lance.args, { stdio: 'ignore' });
-      const etiquetes = (): string[] =>
+      const etiquetes = (...filtres: string[]): string[] =>
         execFileSync(
           runtime.bin,
-          ['ps', '--all', '--quiet', `--filter=label=${ETIQUETTE_NOEUD}=${noeud}`],
+          ['ps', '--all', '--quiet', `--filter=label=${ETIQUETTE_NOEUD}=${noeud}`, ...filtres],
           { encoding: 'utf8', timeout: 15_000 },
         )
           .split(/\s+/)
           .filter(Boolean);
       try {
+        // EN MARCHE, pas seulement CRÉÉ : `ps --all` liste le conteneur dès sa
+        // création, avant que le client l'ait démarré. Tué dans cette fenêtre,
+        // le client coupe sa requête de démarrage ; le démon Docker la tient
+        // pour un démarrage raté et, `--rm` oblige, SUPPRIME le conteneur
+        // (moby, `daemon/start.go`). Run 36327132854 : vu ~0,1 s après le
+        // lancement, disparu une seconde plus tard. Ce qu'un nœud tué laisse
+        // derrière lui, c'est un agent AU TRAVAIL : c'est lui qu'on attend.
         const limite = Date.now() + 60_000;
-        while (etiquetes().length === 0) {
+        while (etiquetes('--filter=status=running').length === 0) {
           if (Date.now() > limite) throw new Error('le conteneur étiqueté ne démarre pas');
           await new Promise((r) => setTimeout(r, 250));
         }
