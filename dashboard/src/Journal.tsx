@@ -327,13 +327,31 @@ const EVENTS: Record<string, Meta> = {
             )
           : t(`souvenir consigné (${short(p.taskId)})`, `memory recorded (${short(p.taskId)})`),
   },
+  // Retiré sur un rejet, ou quand l'approbation humaine qui SEULE le validait
+  // est effacée : plus rien ne le valide.
   memory_forgotten: {
     icon: '※',
     cls: 'warn',
     text: (p, t) =>
+      p.motif === 'approbation_retiree'
+        ? t(
+            `souvenir retiré : approbation humaine annulée (${short(p.taskId)})`,
+            `memory withdrawn: human approval undone (${short(p.taskId)})`,
+          )
+        : t(
+            `souvenir retiré : production rejetée (${short(p.taskId)})`,
+            `memory withdrawn: production rejected (${short(p.taskId)})`,
+          ),
+  },
+  // Une approbation humaine ne rachète pas une objection, une validation rouge
+  // ou un signal des Gardiennes : la ligne dit pourquoi rien n'est retenu.
+  memory_withheld: {
+    icon: '※',
+    cls: 'warn',
+    text: (p, t) =>
       t(
-        `souvenir retiré : production rejetée (${short(p.taskId)})`,
-        `memory withdrawn: production rejected (${short(p.taskId)})`,
+        `approuvée, mais pas retenue au Hive Mind : ${String(p.raison ?? '')} (${short(p.taskId)})`,
+        `approved, but not kept in the Hive Mind: ${String(p.raison ?? '')} (${short(p.taskId)})`,
       ),
   },
   conflict_detected: {

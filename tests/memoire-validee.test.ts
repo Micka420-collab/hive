@@ -22,6 +22,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import { dossierDe, lire } from '../src/cerveau-reel.js';
+import type { Fetcheur } from '../src/orchestrator/github.js';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
 
@@ -53,7 +54,7 @@ describe('la mémoire de la ruche suit le verdict, et le Cerveau apprend de tous
     dir = null;
   });
 
-  async function ruche(): Promise<HiveServer> {
+  async function ruche(githubFetcher?: Fetcheur): Promise<HiveServer> {
     dir = mkdtempSync(path.join(os.tmpdir(), 'hive-memoire-'));
     server = await createServer({
       port: 0,
@@ -63,9 +64,43 @@ describe('la mémoire de la ruche suit le verdict, et le Cerveau apprend de tous
       dbPath: path.join(dir, 'hive.db'),
       simulation: true,
       tickMs: 60,
+      ...(githubFetcher ? { githubFetcher } : {}),
     });
     return server;
   }
+
+  /** Une requête authentifiée à la Reine. */
+  const appel = (srv: HiveServer, chemin: string, corps: unknown): Promise<Response> =>
+    fetch(`http://127.0.0.1:${srv.port}${chemin}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-hive-token': TOKEN },
+      body: JSON.stringify(corps),
+    });
+
+  /** Une production réussie dont le bac dit les tests ROUGES. */
+  const rendreTestsRouges = (n: Noeud, taskId: string): void => {
+    const nonDeclare = { etat: 'not_applicable', raison: 'non_declare' } as const;
+    n.ws.send(
+      JSON.stringify({
+        type: 'task_result',
+        taskId,
+        success: true,
+        diff: DIFF,
+        logs: 'garde ajoutée',
+        finalText: 'garde ajoutée',
+        durationMs: 5,
+        subAgents: [],
+        validations: {
+          controles: {
+            tests: { etat: 'failed', raison: 'termine', script: 'test', code: 1 },
+            typecheck: nonDeclare,
+            build: nonDeclare,
+            lint: nonDeclare,
+          },
+        },
+      }),
+    );
+  };
 
   async function attendre(condition: () => boolean, message: string, ms = 6_000): Promise<void> {
     const fin = Date.now() + ms;
@@ -284,7 +319,12 @@ describe('la mémoire de la ruche suit le verdict, et le Cerveau apprend de tous
 
       expect(srv.store.countMemories(), 'un souvenir rejeté reste en mémoire').toBe(0);
       expect(evenements(srv, 'memory_forgotten', production)).toEqual([
-        { taskId: production, projectId: srv.store.getTask(production)?.projectId, resultId },
+        {
+          taskId: production,
+          projectId: srv.store.getTask(production)?.projectId,
+          resultId,
+          motif: 'rejet',
+        },
       ]);
       const [episode] = evenements(srv, 'cerveau_episode', production);
       expect(episode).toMatchObject({
@@ -310,27 +350,7 @@ describe('la mémoire de la ruche suit le verdict, et le Cerveau apprend de tous
       // après ne le rachète pas — les tests restent rouges.
       const srv = await ruche();
       const { producteur, relectrice, production } = await deuxFamilles(srv);
-      const nonDeclare = { etat: 'not_applicable', raison: 'non_declare' } as const;
-      producteur.ws.send(
-        JSON.stringify({
-          type: 'task_result',
-          taskId: production,
-          success: true,
-          diff: DIFF,
-          logs: 'garde ajoutée',
-          finalText: 'garde ajoutée',
-          durationMs: 5,
-          subAgents: [],
-          validations: {
-            controles: {
-              tests: { etat: 'failed', raison: 'termine', script: 'test', code: 1 },
-              typecheck: nonDeclare,
-              build: nonDeclare,
-              lint: nonDeclare,
-            },
-          },
-        }),
-      );
+      rendreTestsRouges(producteur, production);
       await attendre(
         () => evenements(srv, 'cerveau_episode', production).length > 0,
         'le rejet de l’Evaluator n’a rien appris au Cerveau',
@@ -362,6 +382,301 @@ describe('la mémoire de la ruche suit le verdict, et le Cerveau apprend de tous
       expect(evenements(srv, 'cerveau_episode', production), 'un rejet, un épisode').toHaveLength(
         1,
       );
+
+      // Un humain l'approuve quand même : 200, mais rien n'entre — et le
+      // journal dit pourquoi, au lieu de le laisser croire qu'il a enseigné.
+      expect(
+        (await appel(srv, `/api/tasks/${production}/review`, { state: 'approved' })).status,
+      ).toBe(200);
+      expect(srv.store.countMemories()).toBe(0);
+      expect(evenements(srv, 'memory_withheld', production)).toEqual([
+        {
+          taskId: production,
+          projectId: srv.store.getTask(production)?.projectId,
+          resultId,
+          decision: 'correction_required',
+          raison: expect.stringContaining('validation tests en échec'),
+        },
+      ]);
+    },
+  );
+
+  it(
+    'UNE OBJECTION ARRIVÉE APRÈS LE REJET DE L’EVALUATOR NE COMPTE PAS L’ÉCHEC DEUX FOIS',
+    { timeout: 30_000 },
+    async () => {
+      const srv = await ruche();
+      const { producteur, relectrice, production } = await deuxFamilles(srv);
+      rendreTestsRouges(producteur, production);
+      await attendre(
+        () => evenements(srv, 'cerveau_episode', production).length === 1,
+        'le rejet de l’Evaluator n’a rien appris au Cerveau',
+      );
+      relectrice.rendre(await relecture(srv, relectrice, production), {
+        success: true,
+        texte: 'conteste\n- le jeton vide passe encore la garde',
+      });
+      await attendre(
+        () => evenements(srv, 'contre_expertise_verdict', production).length === 1,
+        'l’avis n’est pas revenu',
+      );
+      expect(
+        evenements(srv, 'cerveau_episode', production).map((e) => e.source),
+        'une production rejetée, un épisode — quelle que soit la porte arrivée seconde',
+      ).toEqual(['rejet_evaluator']);
+    },
+  );
+
+  it(
+    'DEUX TÂCHES SANS RAPPORT AUX TESTS ROUGES NE FONT PAS UN MOTIF',
+    { timeout: 30_000 },
+    async () => {
+      // « validation tests en échec (bac Hive du nœud …) » est une phrase FIXE
+      // de l'Evaluator : signée telle quelle, elle fusionnait toutes les tâches
+      // aux tests rouges en une note, et la troisième ouvrait une fausse
+      // consolidation.
+      const srv = await ruche();
+      const { producteur, production } = await deuxFamilles(srv);
+      rendreTestsRouges(producteur, production);
+      await attendre(
+        () => evenements(srv, 'cerveau_episode', production).length === 1,
+        'premier rejet sans épisode',
+      );
+      const autre = srv.store.createTask({
+        projectId: srv.store.getTask(production)?.projectId as string,
+        title: 'Refondre le parseur CSV',
+        prompt: 'parseur',
+      });
+      srv.store.patchTask(autre.id, { status: 'ready' });
+      await attendre(
+        () => producteur.recues.some((a) => a.task?.id === autre.id),
+        'la seconde tâche n’a pas été confiée',
+      );
+      rendreTestsRouges(producteur, autre.id);
+      await attendre(
+        () => evenements(srv, 'cerveau_episode', autre.id).length === 1,
+        'second rejet sans épisode',
+      );
+      const [a] = evenements(srv, 'cerveau_episode', production);
+      const [b] = evenements(srv, 'cerveau_episode', autre.id);
+      expect(a?.note, 'deux échecs sans rapport partagent une note').not.toBe(b?.note);
+      expect([a?.recurrences, b?.recurrences]).toEqual([1, 1]);
+    },
+  );
+
+  it(
+    'UNE APPROBATION HUMAINE ANNULÉE RETIRE LE SOUVENIR QU’ELLE SEULE VALIDAIT',
+    { timeout: 30_000 },
+    async () => {
+      // Une ruche d'une seule famille : rien ne relit, l'humain tranche.
+      const srv = await ruche();
+      const producteur = await noeud(srv, 'aaa-seule', 'claude-code');
+      const projet = srv.store.createProject({ name: 'Seule' });
+      const t = srv.store.createTask({ projectId: projet.id, title: 'Garde', prompt: 'garde' });
+      srv.store.patchTask(t.id, { status: 'ready' });
+      await attendre(() => producteur.recues.some((a) => a.task?.id === t.id), 'rien reçu');
+      producteur.rendre(t.id, { success: true, diff: DIFF, texte: 'garde ajoutée' });
+      await attendre(() => srv.store.getTask(t.id)?.status === 'done', 'tâche non terminée');
+      expect(srv.store.countMemories()).toBe(0);
+
+      expect((await appel(srv, `/api/tasks/${t.id}/review`, { state: 'approved' })).status).toBe(
+        200,
+      );
+      expect(srv.store.countMemories()).toBe(1);
+      expect(evenements(srv, 'memory_recorded', t.id)[0]).toMatchObject({
+        source: 'revue_humaine',
+      });
+
+      // L'« annuler » de la Miellerie : plus rien ne valide ce souvenir.
+      expect((await appel(srv, `/api/tasks/${t.id}/review`, { state: null })).status).toBe(200);
+      expect(srv.store.countMemories(), 'un souvenir que plus rien ne valide').toBe(0);
+      expect(evenements(srv, 'memory_forgotten', t.id)).toEqual([
+        {
+          taskId: t.id,
+          projectId: projet.id,
+          resultId: srv.store.resultsForTask(t.id).at(-1)?.resultId,
+          motif: 'approbation_retiree',
+        },
+      ]);
+    },
+  );
+
+  it(
+    'UN SOUVENIR ÉCRIT AVANT LA MISE À JOUR SORT AU REJET, ET SON ÉPISODE S’ÉCRIT',
+    { timeout: 30_000 },
+    async () => {
+      // L'arriéré de la Miellerie : des tâches terminées dont la mémoire a été
+      // écrite à la simple réussite, sans proposition.
+      const srv = await ruche();
+      const projet = srv.store.createProject({ name: 'Arriéré' });
+      const t = srv.store.createTask({ projectId: projet.id, title: 'Garde', prompt: 'garde' });
+      srv.store.registerNode({
+        nodeId: 'n-ancien',
+        name: 'ancien',
+        ownerName: 'test',
+        agentType: 'claude-code',
+        maxConcurrency: 1,
+      });
+      const resultId = srv.store.insertResult({
+        taskId: t.id,
+        nodeId: 'n-ancien',
+        diff: DIFF,
+        logs: 'garde ajoutée',
+        success: true,
+        durationMs: 1,
+        subAgents: [],
+      });
+      srv.store.patchTask(t.id, { status: 'done' });
+      srv.store.recordMemory({
+        projectId: projet.id,
+        taskId: t.id,
+        title: 'Garde',
+        content: 'garde ajoutée',
+      });
+      expect(srv.store.souvenirPropose(t.id)).toBeNull();
+
+      const r = await appel(srv, `/api/tasks/${t.id}/review`, {
+        state: 'rejected',
+        raison: 'la garde oublie le jeton expiré',
+      });
+      expect(r.status).toBe(200);
+      expect(srv.store.countMemories(), 'le souvenir jamais validé est resté').toBe(0);
+      expect(evenements(srv, 'memory_forgotten', t.id)).toEqual([
+        { taskId: t.id, projectId: projet.id, resultId, motif: 'rejet' },
+      ]);
+      expect(evenements(srv, 'cerveau_episode', t.id)).toEqual([
+        expect.objectContaining({ source: 'rejet_evaluator', taskId: t.id, resultId }),
+      ]);
+    },
+  );
+
+  it(
+    'LA CI GITHUB EST LA PORTE QUI RETIENT — et une CI rouge retire le souvenir',
+    { timeout: 30_000 },
+    async () => {
+      // Avis favorable d'abord, CI ensuite : c'est l'ordre courant d'un projet
+      // sur GitHub, et aucun autre fait n'arrivera après la CI.
+      let checkRuns = [
+        {
+          name: 'CI · Tests · Typecheck · Build · Lint',
+          status: 'completed',
+          conclusion: 'success',
+        },
+      ];
+      const json = (v: unknown): Response =>
+        new Response(JSON.stringify(v), { headers: { 'content-type': 'application/json' } });
+      let branche = '';
+      const fetcheur: Fetcheur = async (url) => {
+        if (url.endsWith('/pulls/7')) {
+          return json({ state: 'open', merged: false, head: { sha: 'abc123', ref: branche } });
+        }
+        if (url.includes('/commits/abc123/check-runs')) return json({ check_runs: checkRuns });
+        if (url.endsWith('/pulls/7/reviews?per_page=100')) return json([]);
+        return new Response('{}', { status: 404 });
+      };
+      const avant = process.env.HIVE_GITHUB_TOKEN;
+      process.env.HIVE_GITHUB_TOKEN = 'jeton-github-de-test';
+      try {
+        const srv = await ruche(fetcheur);
+        const { producteur, relectrice, production } = await deuxFamilles(srv);
+        producteur.rendre(production, { success: true, diff: DIFF, texte: 'garde ajoutée' });
+        const lue = await relecture(srv, relectrice, production);
+        const resultId = srv.store.resultsForTask(production).at(-1)?.resultId as number;
+        relectrice.rendre(lue, { success: true, texte: 'valide' });
+        await attendre(
+          () => evenements(srv, 'contre_expertise_verdict', production).length === 1,
+          'l’avis n’est pas revenu',
+        );
+        expect(srv.store.countMemories(), 'retenue sans aucune preuve de tests').toBe(0);
+
+        branche = `hive/${production}`;
+        const projectId = srv.store.getTask(production)?.projectId as string;
+        srv.store.patchTask(production, { branch: branche });
+        srv.store.setLivraison({
+          taskId: production,
+          projectId,
+          depot: 'o/r',
+          pr: 7,
+          branche,
+          etat: 'ouverte',
+        });
+        srv.store.appendEvent('delivery_opened', {
+          taskId: production,
+          projectId,
+          pr: 7,
+          branch: branche,
+          commitSha: 'abc123',
+        });
+
+        const ci = `/api/tasks/${production}/evaluation/ci`;
+        expect((await appel(srv, ci, { resultId })).status).toBe(200);
+        expect(evenements(srv, 'memory_recorded', production)).toEqual([
+          { taskId: production, projectId, resultId, source: 'evaluator' },
+        ]);
+
+        checkRuns = [
+          {
+            name: 'CI · Tests · Typecheck · Build · Lint',
+            status: 'completed',
+            conclusion: 'failure',
+          },
+        ];
+        expect((await appel(srv, ci, { resultId })).status).toBe(200);
+        expect(srv.store.countMemories(), 'une CI rouge laisse le souvenir').toBe(0);
+        expect(evenements(srv, 'memory_forgotten', production)).toEqual([
+          { taskId: production, projectId, resultId, motif: 'rejet' },
+        ]);
+      } finally {
+        if (avant === undefined) delete process.env.HIVE_GITHUB_TOKEN;
+        else process.env.HIVE_GITHUB_TOKEN = avant;
+      }
+    },
+  );
+
+  it(
+    'LA CLÔTURE DE LA DERNIÈRE RELECTURE EN VOL RETIENT LA PRODUCTION',
+    { timeout: 30_000 },
+    async () => {
+      // Deux relectrices : l'avis favorable arrive pendant que la seconde relit
+      // encore (une objection resterait possible), puis la seconde tombe sans
+      // avis. Aucun autre fait n'arrivera : c'est sa clôture qui retient.
+      const srv = await ruche();
+      const producteur = await noeud(srv, 'aaa-producteur', 'claude-code', [MODELE]);
+      const codex = await noeud(srv, 'bbb-codex', 'codex');
+      const hermes = await noeud(srv, 'ccc-hermes', 'hermes-agent');
+      const projet = srv.store.createProject({ name: 'Ruche' });
+      const t = srv.store.createTask({ projectId: projet.id, title: 'Garde', prompt: 'garde' });
+      srv.store.patchTask(t.id, { status: 'ready' });
+      await attendre(() => producteur.recues.some((a) => a.task?.id === t.id), 'rien reçu');
+      producteur.rendre(t.id, { success: true, diff: DIFF, texte: 'garde ajoutée' });
+      const lueCodex = await relecture(srv, codex, t.id);
+      const lueHermes = await relecture(srv, hermes, t.id);
+      const resultId = srv.store.resultsForTask(t.id).at(-1)?.resultId as number;
+      preuvesVertes(srv, t.id, resultId);
+
+      codex.rendre(lueCodex, { success: true, texte: 'valide' });
+      await attendre(
+        () => evenements(srv, 'contre_expertise_verdict', t.id).length === 1,
+        'l’avis n’est pas revenu',
+      );
+      expect(srv.store.countMemories(), 'retenue pendant qu’une relecture est en vol').toBe(0);
+
+      // hermes échoue à chacun de ses essais.
+      for (let essai = 0; essai < 3; essai += 1) {
+        await attendre(
+          () => hermes.recues.filter((a) => a.task?.id === lueHermes).length > essai,
+          `essai ${essai + 1} de la relecture non reçu`,
+        );
+        hermes.rendre(lueHermes, { success: false, texte: 'panne du relecteur' });
+      }
+      await attendre(
+        () => evenements(srv, 'memory_recorded', t.id).length === 1,
+        'la production n’a jamais été retenue à la clôture de la dernière relecture',
+      );
+      expect(evenements(srv, 'memory_recorded', t.id)[0]).toMatchObject({
+        resultId,
+        source: 'evaluator',
+      });
     },
   );
 

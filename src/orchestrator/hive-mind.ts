@@ -19,8 +19,9 @@
 //
 // La réussite PROPOSE désormais le souvenir (`souvenirs_proposes`, store.ts) ;
 // il n'entre dans la mémoire qu'à l'acceptation de l'Evaluator ou à
-// l'approbation humaine, et un rejet l'en retire (`suiteSouvenir`). Une
-// relecture n'en propose aucun.
+// l'approbation humaine, et un rejet — ou le retrait de la seule approbation
+// qui le validait — l'en retire (`suiteSouvenir`). Une relecture n'en propose
+// aucun.
 
 import { blocDonnees, champSurUneLigne, tronquerChamp } from '../shared/donnees-non-fiables.js';
 import { LIMITS } from '../shared/protocol.js';
@@ -53,6 +54,27 @@ export interface ScoredMemory {
 export type IssueSouvenir = 'en_attente' | 'retenu' | 'rejete';
 
 /**
+ * QUI a validé un souvenir retenu — et donc ce qui peut le lui retirer.
+ *
+ *   · `evaluator`     — l'Evaluator a ACCEPTÉ la production : preuves vertes,
+ *                       Gardiennes propres, contre-revue indépendante favorable ;
+ *   · `revue_humaine` — un humain l'a approuvée là où l'Evaluator laissait la
+ *                       question ouverte.
+ *
+ * La distinction compte au RETRAIT (`suiteSouvenir`) : une preuve de
+ * l'Evaluator qui vieillit n'est pas un désaveu, une approbation humaine
+ * effacée en est un.
+ */
+export type ValidationSouvenir = 'evaluator' | 'revue_humaine';
+
+/** Le verdict courant sur le souvenir d'une production, et qui le valide. */
+export interface VerdictSouvenir {
+  readonly issue: IssueSouvenir;
+  /** `null` hors de `retenu` : personne ne valide ce qui n'est pas retenu. */
+  readonly validePar: ValidationSouvenir | null;
+}
+
+/**
  * Ce que le verdict COURANT dit du souvenir d'une production.
  *
  * ─── L'OBJECTION L'EMPORTE SUR L'APPROBATION ────────────────────────────────
@@ -61,7 +83,11 @@ export type IssueSouvenir = 'en_attente' | 'retenu' | 'rejete';
  * conteste une production approuvée la RELANCE (`relancerSiContreRevueInsuffisante`)
  * — l'approbation humaine est une condition de livraison, pas un contournement
  * d'une objection indépendante. Un souvenir retenu sur une production que la
- * ruche est en train de refaire enseignerait l'inverse de ce qu'elle fait.
+ * ruche est en train de refaire enseignerait l'inverse de ce qu'elle fait. Il
+ * en va de même d'une validation rouge, d'un signal suspect des Gardiennes ou
+ * d'un désaccord avec le Parlement : tout ce que l'Evaluator range en
+ * `correction_required` passe AVANT l'approbation — et la route de revue le
+ * dit (`memory_withheld`), pour que l'humain ne croie pas avoir enseigné.
  *
  * L'approbation humaine tranche en revanche ce que l'Evaluator laisse OUVERT :
  * aucun second modèle en ligne, relecture impossible, tests absents. C'est le
@@ -69,34 +95,46 @@ export type IssueSouvenir = 'en_attente' | 'retenu' | 'rejete';
  */
 export function verdictSouvenir(
   evaluation: Pick<EvaluationResult, 'decision' | 'evidence'>,
-): IssueSouvenir {
+): VerdictSouvenir {
   if (evaluation.decision === 'rejected' || evaluation.decision === 'correction_required') {
-    return 'rejete';
+    return { issue: 'rejete', validePar: null };
   }
-  return evaluation.decision === 'accepted' || evaluation.evidence.humanReview === 'approved'
-    ? 'retenu'
-    : 'en_attente';
+  if (evaluation.decision === 'accepted') return { issue: 'retenu', validePar: 'evaluator' };
+  return evaluation.evidence.humanReview === 'approved'
+    ? { issue: 'retenu', validePar: 'revue_humaine' }
+    : { issue: 'en_attente', validePar: null };
 }
 
 /**
- * L'issue suivante d'un souvenir, ou `null` quand rien ne change.
+ * L'issue suivante d'un souvenir, ou `null` quand rien ne change. `validePar`
+ * est ce qui a validé le souvenir RETENU (rangé avec lui), `null` sinon.
  *
- * ─── SEUL UN REJET RÉVOQUE UNE VALIDATION ───────────────────────────────────
+ * ─── UNE PREUVE QUI VIEILLIT NE RÉVOQUE PAS ; UN HUMAIN QUI SE DÉDIT, SI ────
  *
- * Un souvenir retenu ne redevient pas « en attente ». Le verdict se recalcule
- * sur des faits BORNÉS : les avis de contre-revue vivent dans le journal, que
- * `pruneEvents` élague ; relue des semaines plus tard, une production acceptée
- * redeviendrait « sans avis ». La retirer de la mémoire pour ça, ce serait
- * oublier un savoir validé parce que sa preuve a vieilli — et une approbation
- * humaine retirée n'est pas un rejet non plus. Seul un verdict qui REJETTE
- * retire un souvenir.
+ * Le verdict se recalcule sur des faits BORNÉS : les avis de contre-revue
+ * vivent dans le journal, que `pruneEvents` élague ; relue des semaines plus
+ * tard, une production acceptée redeviendrait « sans avis ». La retirer de la
+ * mémoire pour ça, ce serait oublier un savoir validé parce que sa preuve a
+ * vieilli : un souvenir que l'Evaluator a validé (ou d'origine inconnue, né
+ * avant ce registre) ne redevient donc pas « en attente ».
  *
- * Un rejet, lui, peut être défait (un humain efface son « non ») : l'issue
- * redevient ouverte, sans rien écrire — un rejet suivant sera un fait neuf.
+ * L'approbation humaine, elle, vit dans `reviews`, que rien n'élague sous une
+ * tâche terminée : si le verdict retombe à « en attente » sur un souvenir
+ * qu'elle SEULE validait, c'est qu'un humain l'a effacée exprès (l'« annuler »
+ * de la Miellerie). Plus rien ne valide ce souvenir : il sort de la mémoire.
+ *
+ * Un rejet peut être défait de même (un humain efface son « non ») : l'issue
+ * redevient ouverte.
  */
-export function suiteSouvenir(avant: IssueSouvenir, verdict: IssueSouvenir): IssueSouvenir | null {
+export function suiteSouvenir(
+  avant: IssueSouvenir,
+  verdict: IssueSouvenir,
+  validePar: ValidationSouvenir | null,
+): IssueSouvenir | null {
   if (verdict === avant) return null;
-  if (avant === 'retenu' && verdict === 'en_attente') return null;
+  if (avant === 'retenu' && verdict === 'en_attente') {
+    return validePar === 'revue_humaine' ? 'en_attente' : null;
+  }
   return verdict;
 }
 

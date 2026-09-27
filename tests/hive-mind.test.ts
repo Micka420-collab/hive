@@ -19,6 +19,8 @@ import {
   verdictSouvenir,
   type IssueSouvenir,
   type Memory,
+  type ValidationSouvenir,
+  type VerdictSouvenir,
 } from '../src/orchestrator/hive-mind.js';
 import type { EvaluationDecision } from '../src/orchestrator/evaluator.js';
 import { leconsDesEchecs } from '../src/orchestrator/brood.js';
@@ -369,7 +371,7 @@ describe('capture par le scheduler', () => {
       expect(store.souvenirPropose('ok1')).toEqual({ resultId, issue: 'en_attente' });
 
       // Validée, la production entre en mémoire — avec ce qu'elle avait proposé.
-      store.statuerSouvenir('ok1', resultId as number, 'retenu');
+      store.statuerSouvenir('ok1', resultId as number, PAR_EVALUATOR);
       expect(store.listMemories()[0]?.content).toContain('JWT');
 
       // Un échec ne propose aucun souvenir.
@@ -432,6 +434,12 @@ describe('capture par le scheduler', () => {
   });
 });
 
+/** Les trois verdicts qu'un banc du store a besoin de rendre. */
+const PAR_EVALUATOR: VerdictSouvenir = { issue: 'retenu', validePar: 'evaluator' };
+const PAR_HUMAIN: VerdictSouvenir = { issue: 'retenu', validePar: 'revue_humaine' };
+const EN_ATTENTE: VerdictSouvenir = { issue: 'en_attente', validePar: null };
+const REJETE: VerdictSouvenir = { issue: 'rejete', validePar: null };
+
 describe('le souvenir suit le verdict (store)', () => {
   function avecProposition(): { store: HiveStore; resultId: number } {
     const store = new HiveStore(':memory:');
@@ -459,9 +467,9 @@ describe('le souvenir suit le verdict (store)', () => {
   it('retenu → en mémoire ; rejeté → retiré ; UN SEUL changement rendu par bascule', () => {
     const { store, resultId } = avecProposition();
     try {
-      expect(store.statuerSouvenir('t', resultId, 'en_attente'), 'rien ne bouge').toBeNull();
+      expect(store.statuerSouvenir('t', resultId, EN_ATTENTE), 'rien ne bouge').toBeNull();
 
-      const retenu = store.statuerSouvenir('t', resultId, 'retenu', 1_000);
+      const retenu = store.statuerSouvenir('t', resultId, PAR_EVALUATOR, 1_000);
       expect(retenu).toMatchObject({ avant: 'en_attente', apres: 'retenu' });
       expect(retenu?.memoire).toMatchObject({
         taskId: 't',
@@ -470,12 +478,13 @@ describe('le souvenir suit le verdict (store)', () => {
       });
       expect(store.countMemories()).toBe(1);
       // Le même verdict relu par un second fait ne réécrit rien.
-      expect(store.statuerSouvenir('t', resultId, 'retenu')).toBeNull();
+      expect(store.statuerSouvenir('t', resultId, PAR_EVALUATOR)).toBeNull();
 
-      expect(store.statuerSouvenir('t', resultId, 'rejete')).toMatchObject({
+      expect(store.statuerSouvenir('t', resultId, REJETE)).toMatchObject({
         avant: 'retenu',
         apres: 'rejete',
         memoire: null,
+        oublie: true,
       });
       expect(store.countMemories()).toBe(0);
       expect(store.souvenirPropose('t')?.issue).toBe('rejete');
@@ -487,9 +496,113 @@ describe('le souvenir suit le verdict (store)', () => {
   it('une preuve qui vieillit ne retire pas un souvenir validé — seul un rejet le fait', () => {
     const { store, resultId } = avecProposition();
     try {
-      store.statuerSouvenir('t', resultId, 'retenu');
-      expect(store.statuerSouvenir('t', resultId, 'en_attente')).toBeNull();
+      store.statuerSouvenir('t', resultId, PAR_EVALUATOR);
+      expect(store.statuerSouvenir('t', resultId, EN_ATTENTE)).toBeNull();
       expect(store.countMemories()).toBe(1);
+    } finally {
+      store.close();
+    }
+  });
+
+  it('UNE APPROBATION HUMAINE EFFACÉE RETIRE LE SOUVENIR QU’ELLE SEULE VALIDAIT', () => {
+    // L'« annuler » de la Miellerie : plus rien ne valide ce souvenir.
+    const { store, resultId } = avecProposition();
+    try {
+      store.statuerSouvenir('t', resultId, PAR_HUMAIN);
+      expect(store.countMemories()).toBe(1);
+      expect(store.statuerSouvenir('t', resultId, EN_ATTENTE)).toMatchObject({
+        avant: 'retenu',
+        apres: 'en_attente',
+        oublie: true,
+      });
+      expect(store.countMemories()).toBe(0);
+    } finally {
+      store.close();
+    }
+  });
+
+  it('l’Evaluator qui accepte ensuite rend la validation plus forte que l’humain', () => {
+    // Approuvée d'abord, acceptée ensuite : effacer l'approbation ne retire
+    // plus un savoir que l'Evaluator a prouvé.
+    const { store, resultId } = avecProposition();
+    try {
+      store.statuerSouvenir('t', resultId, PAR_HUMAIN);
+      expect(store.statuerSouvenir('t', resultId, PAR_EVALUATOR), 'toujours retenu').toBeNull();
+      expect(store.statuerSouvenir('t', resultId, EN_ATTENTE)).toBeNull();
+      expect(store.countMemories()).toBe(1);
+    } finally {
+      store.close();
+    }
+  });
+
+  it('UN SOUVENIR ÉCRIT AVANT LE REGISTRE EST ADOPTÉ, ET UN REJET L’EN RETIRE', () => {
+    // Avant ce registre, la mémoire s'écrivait à la simple réussite, sans
+    // proposition : sans adoption, un rejet d'aujourd'hui ne trouvait rien à
+    // statuer et le souvenir jamais validé restait.
+    const store = new HiveStore(':memory:');
+    try {
+      const project = store.createProject({ name: 'P' });
+      store.createTask({ id: 'h', projectId: project.id, title: 'Auth', prompt: 'jwt' });
+      const resultId = store.insertResult({
+        taskId: 'h',
+        nodeId: 'n',
+        success: true,
+        diff: '',
+        logs: '',
+        durationMs: 1,
+        subAgents: [],
+      });
+      store.recordMemory({ projectId: project.id, taskId: 'h', title: 'Auth', content: 'jwt' });
+      expect(store.souvenirPropose('h')).toBeNull();
+
+      expect(store.adopterSouvenirHerite('h')).toBe(true);
+      expect(store.adopterSouvenirHerite('h'), 'une fois').toBe(false);
+      expect(store.souvenirPropose('h')).toEqual({ resultId, issue: 'retenu' });
+      // Qui l'avait validé, on ne le sait pas : une preuve absente ne le retire pas…
+      expect(store.statuerSouvenir('h', resultId, EN_ATTENTE)).toBeNull();
+      // … un rejet, si.
+      expect(store.statuerSouvenir('h', resultId, REJETE)).toMatchObject({ oublie: true });
+      expect(store.countMemories()).toBe(0);
+    } finally {
+      store.close();
+    }
+  });
+
+  it('LES SOUVENIRS LAISSÉS PAR DES RELECTURES AVANT LE REGISTRE SONT PURGÉS', () => {
+    const store = new HiveStore(':memory:');
+    try {
+      const project = store.createProject({ name: 'P' });
+      store.createTask({ id: 'prod', projectId: project.id, title: 'Garde', prompt: 'p' });
+      store.createTask({ id: 'relu', projectId: project.id, title: 'Relire', prompt: 'r' });
+      store.inscrireRelecture({
+        relectureTaskId: 'relu',
+        productionTaskId: 'prod',
+        relecteurNodeId: 'n',
+        relecteurAgent: 'codex',
+        producteurAgent: 'claude-code',
+      });
+      store.recordMemory({ projectId: project.id, taskId: 'prod', title: 'Garde', content: 'g' });
+      store.recordMemory({
+        projectId: project.id,
+        taskId: 'relu',
+        title: 'Relire',
+        content: 'valide',
+      });
+      expect(store.pruneMemories(100)).toBe(1);
+      expect(store.listMemories().map((m) => m.taskId)).toEqual(['prod']);
+    } finally {
+      store.close();
+    }
+  });
+
+  it('UN ÉCHEC, UNE PORTE : la première qui a versé l’épisode reste', () => {
+    const { store, resultId } = avecProposition();
+    try {
+      expect(store.episodeDeProduction('t', resultId)).toBeNull();
+      store.marquerEpisodeProduction('t', resultId, 'rejet_evaluator');
+      store.marquerEpisodeProduction('t', resultId, 'contre_revue');
+      expect(store.episodeDeProduction('t', resultId)).toBe('rejet_evaluator');
+      expect(store.episodeDeProduction('t', resultId + 1), 'une autre production').toBeNull();
     } finally {
       store.close();
     }
@@ -500,7 +613,7 @@ describe('le souvenir suit le verdict (store)', () => {
     // sur l'ancienne ne doit ni valider ni retirer celle d'aujourd'hui.
     const { store, resultId } = avecProposition();
     try {
-      expect(store.statuerSouvenir('t', resultId + 1, 'retenu')).toBeNull();
+      expect(store.statuerSouvenir('t', resultId + 1, PAR_EVALUATOR)).toBeNull();
       expect(store.countMemories()).toBe(0);
     } finally {
       store.close();
@@ -510,7 +623,7 @@ describe('le souvenir suit le verdict (store)', () => {
   it('la proposition ne survit pas à sa tâche ; le souvenir retenu, si', () => {
     const { store, resultId } = avecProposition();
     try {
-      store.statuerSouvenir('t', resultId, 'retenu');
+      store.statuerSouvenir('t', resultId, PAR_EVALUATOR);
       store.patchTask('t', { status: 'done' }, 0);
       expect(store.pruneTasks(1, 10)).toBe(1);
       expect(store.pruneSouvenirsProposes()).toBe(1);
@@ -529,24 +642,25 @@ describe('le souvenir suit le verdict (règle pure)', () => {
   ) => ({ decision, evidence: { humanReview } }) as Parameters<typeof verdictSouvenir>[0];
 
   it('l’Evaluator accepte, ou l’humain tranche ce que l’Evaluator laisse ouvert', () => {
-    expect(verdictSouvenir(evaluation('accepted'))).toBe('retenu');
-    expect(verdictSouvenir(evaluation('human_review_required', 'approved'))).toBe('retenu');
-    expect(verdictSouvenir(evaluation('additional_test_required', 'approved'))).toBe('retenu');
-    expect(verdictSouvenir(evaluation('human_review_required'))).toBe('en_attente');
-    expect(verdictSouvenir(evaluation('additional_test_required'))).toBe('en_attente');
+    expect(verdictSouvenir(evaluation('accepted'))).toEqual(PAR_EVALUATOR);
+    expect(verdictSouvenir(evaluation('accepted', 'approved'))).toEqual(PAR_EVALUATOR);
+    expect(verdictSouvenir(evaluation('human_review_required', 'approved'))).toEqual(PAR_HUMAIN);
+    expect(verdictSouvenir(evaluation('additional_test_required', 'approved'))).toEqual(PAR_HUMAIN);
+    expect(verdictSouvenir(evaluation('human_review_required'))).toEqual(EN_ATTENTE);
+    expect(verdictSouvenir(evaluation('additional_test_required'))).toEqual(EN_ATTENTE);
   });
 
   it('UN REJET DE L’EVALUATOR L’EMPORTE SUR UNE APPROBATION HUMAINE', () => {
     // La ruche relance déjà une production approuvée qu'une relectrice
     // conteste : un souvenir retenu enseignerait l'inverse de ce qu'elle fait.
-    expect(verdictSouvenir(evaluation('correction_required', 'approved'))).toBe('rejete');
-    expect(verdictSouvenir(evaluation('rejected', 'approved'))).toBe('rejete');
+    expect(verdictSouvenir(evaluation('correction_required', 'approved'))).toEqual(REJETE);
+    expect(verdictSouvenir(evaluation('rejected', 'approved'))).toEqual(REJETE);
   });
 
-  it('seul un rejet révoque une validation', () => {
+  it('un rejet révoque toute validation ; une attente, seulement celle d’un humain qui se dédit', () => {
     const issues: IssueSouvenir[] = ['en_attente', 'retenu', 'rejete'];
     const table = issues.flatMap((avant) =>
-      issues.map((verdict) => `${avant}→${verdict}=${suiteSouvenir(avant, verdict) ?? '·'}`),
+      issues.map((verdict) => `${avant}→${verdict}=${suiteSouvenir(avant, verdict, null) ?? '·'}`),
     );
     expect(table).toEqual([
       'en_attente→en_attente=·',
@@ -559,6 +673,10 @@ describe('le souvenir suit le verdict (règle pure)', () => {
       'rejete→retenu=retenu',
       'rejete→rejete=·',
     ]);
+    const validations: ValidationSouvenir[] = ['evaluator', 'revue_humaine'];
+    expect(
+      validations.map((par) => `${par}:${suiteSouvenir('retenu', 'en_attente', par) ?? '·'}`),
+    ).toEqual(['evaluator:·', 'revue_humaine:en_attente']);
   });
 });
 

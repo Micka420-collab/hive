@@ -315,17 +315,33 @@ nouvelle tâche, l'orchestrateur récupère les souvenirs les plus pertinents et
 travail déjà accompli.
 
 Une réussite déclarée par l'ouvrière ne suffit pas : le souvenir n'entre en
-mémoire que lorsque l'**Evaluator accepte** la production (contre-revue
-favorable d'une autre famille, validations vertes) ou qu'un **humain
-l'approuve** en revue — le seul chemin d'une ruche à une seule famille d'agent.
-Un rejet (objection d'une relectrice, CI rouge, rejet humain) l'en retire, et
-les relectures n'en laissent jamais. Le journal le dit : `memory_recorded` (avec
-qui a validé) et `memory_forgotten`.
+mémoire que lorsque l'**Evaluator accepte** la production ou qu'un **humain
+l'approuve** en revue. « Acceptée » exige tout à la fois : Gardiennes propres,
+**tests verts** venus d'un bac à sable (bubblewrap, podman ou docker sur le
+nœud) ou de la CI GitHub, et une contre-revue favorable d'une **autre famille
+d'agent**. Une production sans diff n'est jamais relue. Sur une installation
+par défaut — une seule famille, ni bac ni CI — le Hive Mind reste donc **vide
+tant qu'un humain n'approuve pas** les productions en revue.
+
+L'approbation humaine ne rachète pas une objection : objection d'une
+relectrice, validation rouge, signal suspect des Gardiennes ou désaccord avec le
+Parlement gardent le souvenir dehors, et le journal dit pourquoi
+(`memory_withheld`). Un rejet (objection, CI rouge, rejet humain) retire un
+souvenir retenu ; l'annulation de l'approbation humaine qui SEULE le validait
+aussi. Les relectures n'en laissent jamais. Le journal le dit :
+`memory_recorded` (avec qui a validé), `memory_forgotten` (avec pourquoi) et
+`memory_withheld`. Un souvenir écrit avant cette règle, à la simple réussite,
+est retiré de la même façon quand sa tâche est rejetée.
 
 Les échecs, eux, vont au **Cerveau** (dossier `cerveau/`, à côté de la base) :
 échec d'une ouvrière, objection d'une relectrice et rejet de l'Evaluator
 laissent chacun un _épisode_ attribué — agent, modèle commandé, nœud, tâche et
-résultat exacts.
+résultat exacts. Une production rejetée laisse un seul épisode, quelle que soit
+la porte arrivée la première. Un rejet de l'Evaluator se compte par tâche :
+deux tâches sans rapport aux tests rouges font deux épisodes, pas un motif. La
+ruche pose `serviLe` (dernier service) sur un épisode au plus une fois par jour
+quand il part vers une ouvrière ; les notes écrites à la main ne sont jamais
+réécrites.
 
 La récupération est **100 % hors-ligne** (scoring lexical type BM25, sans
 embeddings ni API), donc déterministe et sans coût. Le dashboard affiche un

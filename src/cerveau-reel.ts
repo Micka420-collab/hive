@@ -30,6 +30,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -172,14 +173,13 @@ export function ecrire(dossier: string, note: Note): string | null {
  * enverra l'ouvrière travailler sans ses invariants ; c'est pour ça que
  * `Selection.refus` est rendu, et pas seulement journalisé ici.
  *
- * ─── ET ELLE DIT CE QUI A SERVI ──────────────────────────────────────────────
+ * ─── ET ELLE DIT QUEL ÉPISODE A SERVI ────────────────────────────────────────
  *
  * `serviLe` était documenté « la dernière fois que cette note a servi », et
- * l'élagage se règle dessus — mais personne ne l'écrivait hors d'une
- * récurrence. Un épisode injecté chaque jour partait donc à 90 jours comme
- * s'il n'avait jamais été lu, et le Cerveau affichait « jamais servie » sur
- * des invariants transmis à chaque tâche. C'est ici que la note sert : c'est
- * donc ici qu'on l'écrit.
+ * l'élagage des épisodes se règle dessus — mais personne ne l'écrivait hors
+ * d'une récurrence. Un épisode injecté chaque jour partait donc à 90 jours
+ * comme s'il n'avait jamais été lu. C'est ici que la note sert : c'est donc
+ * ici qu'on l'écrit — sur les ÉPISODES seulement (`marquerServies`).
  */
 export function pourLaTache(
   dossier: string,
@@ -194,8 +194,18 @@ export function pourLaTache(
 }
 
 /**
- * Pose `serviLe` sur les notes qu'une tâche vient de RECEVOIR — au plus une
+ * Pose `serviLe` sur les ÉPISODES qu'une tâche vient de RECEVOIR — au plus une
  * écriture par note et par jour (UTC).
+ *
+ * ─── POURQUOI LES ÉPISODES SEULEMENT ─────────────────────────────────────────
+ *
+ * Ce sont les seules notes que `serviLe` protège : l'élagage ne touche jamais
+ * une règle (`aElaguer`). Les invariants, leçons et décisions s'écrivent à la
+ * main, dans Obsidian, dans le dossier dont `git diff` doit montrer ce que la
+ * ruche a APPRIS : y réécrire une ligne chaque jour sur chaque note servie en
+ * ferait du bruit — et une écriture concurrente d'un éditeur ouvert. Leur
+ * « jamais servie » à la vue Cerveau reste ce qu'il était ; le dire vrai
+ * demandera un fait hors du fichier, pas une réécriture de la note humaine.
  *
  * ─── POURQUOI LE JOUR, ET PAS L'INSTANT ──────────────────────────────────────
  *
@@ -215,18 +225,29 @@ export function pourLaTache(
 function marquerServies(dossier: string, notes: readonly Note[], maintenant: string): void {
   const jour = maintenant.slice(0, 10);
   for (const note of notes) {
-    if (note.serviLe?.slice(0, 10) === jour) continue;
+    if (note.genre !== 'episode' || note.serviLe?.slice(0, 10) === jour) continue;
     const c = cheminDe(dossier, note.id);
     if (c === null) continue;
     // Même garde que `lire` : un lien symbolique posé là depuis n'est pas
     // suivi, même pour une seule ligne.
     const st = lstatOuNull(c);
     if (st === null || !st.isFile()) continue;
+    // Écrite À CÔTÉ puis renommée : un lien symbolique glissé là entre la
+    // garde et l'écriture est REMPLACÉ, jamais suivi, et un lecteur (l'humain
+    // dans Obsidian, `lire` d'une tâche voisine) ne voit jamais une note à
+    // moitié écrite. Le suffixe n'est pas `.md` : `lire` l'ignore.
+    const temporaire = `${c}.${process.pid}.serviLe.tmp`;
     try {
       const marque = marquerServie(readFileSync(c, 'utf8'), maintenant);
-      if (marque !== null) writeFileSync(c, marque, 'utf8');
+      if (marque === null) continue;
+      writeFileSync(temporaire, marque, { encoding: 'utf8', flag: 'wx' });
+      renameSync(temporaire, c);
     } catch {
-      continue;
+      try {
+        rmSync(temporaire, { force: true });
+      } catch {
+        // Un reste de fichier temporaire ne prive personne : `lire` l'ignore.
+      }
     }
   }
 }

@@ -13,6 +13,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -337,35 +338,58 @@ describe('UNE NOTE QUI SERT LE DIT — `serviLe`', () => {
     expect(lire(d)[0]?.serviLe, 'le lendemain, si').toBe('2026-03-23T08:00:00.000Z');
   });
 
-  it('UNE NOTE ÉCRITE À LA MAIN GARDE SES OCTETS — seule la ligne `serviLe` apparaît', () => {
+  it('UN ÉPISODE ANNOTÉ À LA MAIN GARDE SES OCTETS — seule la ligne `serviLe` apparaît', () => {
     // Relire puis réécrire la note (`rendre(analyser(…))`) effacerait ce que le
-    // module ne lit pas — ici `aliases` et la mise en forme du corps —, chaque
-    // jour, sur chaque invariant transmis.
+    // module ne lit pas — ici `aliases` et la mise en forme du corps.
+    const d = path.join(bac(), 'cerveau');
+    mkdirSync(d, { recursive: true });
+    const avant = [
+      '---',
+      'genre: episode',
+      'titre: Lancer un processus',
+      'aliases: [shell, spawn]',
+      'creee: 2026-01-01T00:00:00.000Z',
+      '---',
+      '',
+      '## Ce qui a cassé',
+      '',
+      'Le processus lancé **sans shell** ne trouvait pas son binaire.',
+      '',
+    ].join('\n');
+    writeFileSync(path.join(d, 'ep-spawn.md'), avant, 'utf8');
+
+    pourLaTache(d, 'lancer un processus sans shell', 12_000, '2026-03-22T09:00:00.000Z');
+
+    expect(readFileSync(path.join(d, 'ep-spawn.md'), 'utf8')).toBe(
+      avant.replace(
+        'creee: 2026-01-01T00:00:00.000Z\n---',
+        'creee: 2026-01-01T00:00:00.000Z\nserviLe: 2026-03-22T09:00:00.000Z\n---',
+      ),
+    );
+    expect(readdirSync(d), 'aucun fichier temporaire laissé derrière').toEqual(['ep-spawn.md']);
+  });
+
+  it('UNE RÈGLE ÉCRITE À LA MAIN N’EST JAMAIS RÉÉCRITE — même servie', () => {
+    // `serviLe` ne protège que les épisodes de l'élagage. Réécrire chaque jour
+    // les invariants servis ferait du `git diff` du dossier un bruit quotidien,
+    // et une écriture concurrente de l'éditeur ouvert dans Obsidian.
     const d = path.join(bac(), 'cerveau');
     mkdirSync(d, { recursive: true });
     const avant = [
       '---',
       'genre: invariant',
       'titre: Jamais de shell',
-      'aliases: [shell, spawn]',
       'regle: TOUJOURS-SPAWN-SHELL-FALSE',
       '---',
-      '',
-      '## Pourquoi',
       '',
       'Toute exécution passe par **spawn**, sans shell.',
       '',
     ].join('\n');
     writeFileSync(path.join(d, 'shell-false.md'), avant, 'utf8');
 
-    pourLaTache(d, 'lancer un processus', 12_000, '2026-03-22T09:00:00.000Z');
-
-    expect(readFileSync(path.join(d, 'shell-false.md'), 'utf8')).toBe(
-      avant.replace(
-        'regle: TOUJOURS-SPAWN-SHELL-FALSE\n---',
-        'regle: TOUJOURS-SPAWN-SHELL-FALSE\nserviLe: 2026-03-22T09:00:00.000Z\n---',
-      ),
-    );
+    const { bloc } = pourLaTache(d, 'lancer un processus', 12_000, '2026-03-22T09:00:00.000Z');
+    expect(bloc, 'l’invariant doit avoir été servi').toContain('TOUJOURS-SPAWN-SHELL-FALSE');
+    expect(readFileSync(path.join(d, 'shell-false.md'), 'utf8')).toBe(avant);
   });
 
   it('UNE NOTE TOMBÉE DU BLOC N’EST PAS DITE SERVIE', () => {

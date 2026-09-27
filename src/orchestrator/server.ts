@@ -1576,14 +1576,24 @@ async function monterReine(
     // relectrice, attribué à la production relue — pas à la relectrice, qui
     // n'en est que le témoin. Un avis sans objection écrite n'apprend rien : il
     // ne pose rien (`enregistrerEpisode`, signature vide).
+    //
+    // Un échec, UNE porte : quand l'Evaluator a déjà rejeté cette production
+    // (tests rouges, Gardiennes dès la réception) et versé son épisode,
+    // l'objection arrivée ensuite raconte le même échec — la compter aussi
+    // doublerait la récurrence sous une seconde signature. Plusieurs
+    // relectrices qui contestent, elles, apportent chacune leurs objections.
     const production = store.getTask(lien.productionTaskId);
-    if (verdict.conteste && production) {
+    const dejaVerse =
+      exactResultId === undefined
+        ? null
+        : store.episodeDeProduction(lien.productionTaskId, exactResultId);
+    if (verdict.conteste && production && dejaVerse !== 'rejet_evaluator') {
       const nodeId = store
         .resultsForTask(lien.productionTaskId)
         .find((r) => r.resultId === exactResultId)?.nodeId;
       const modele = lancement?.payload.producteurModele;
       const objections = verdict.objections.join('\n');
-      verserEpisode(production, {
+      const verse = verserEpisode(production, {
         signature: signatureEchec(objections),
         detail: champSurUneLigne(objections, 800),
         origine: {
@@ -1595,6 +1605,9 @@ async function monterReine(
           ...(typeof modele === 'string' ? { modele } : {}),
         },
       });
+      if (verse && exactResultId !== undefined) {
+        store.marquerEpisodeProduction(lien.productionTaskId, exactResultId, 'contre_revue');
+      }
     }
     // AVANT la relance : elle efface la revue humaine et rouvre la tâche, et
     // le rejet doit être consigné sur la production qu'il vise.
@@ -1635,7 +1648,7 @@ async function monterReine(
   const verserEpisode = (
     task: Task,
     echec: { signature: string; detail: string; origine: OrigineEpisode },
-  ): void => {
+  ): boolean => {
     let ecrit: EpisodeEnregistre | null;
     try {
       ecrit = enregistrerEpisode(dossierCerveau, { ...echec, titre: task.title });
@@ -1643,9 +1656,9 @@ async function monterReine(
       console.error(
         `[hive] épisode du Cerveau non écrit : ${err instanceof Error ? err.message : err}`,
       );
-      return;
+      return false;
     }
-    if (ecrit === null) return; // Échec sans texte exploitable : rien à apprendre.
+    if (ecrit === null) return false; // Échec sans texte exploitable : rien à apprendre.
 
     // L'attribution entière — `taskId` compris — plus la note qu'elle a
     // écrite : le journal garde CHAQUE occurrence, là où la note ne garde que
@@ -1667,6 +1680,7 @@ async function monterReine(
         titre: task.title,
       });
     }
+    return true;
   };
 
   /**
@@ -1726,34 +1740,48 @@ async function monterReine(
    * sa revue humaine a été effacée par la reprise — la réévaluer ferait
    * accepter après coup une production que la ruche est en train de refaire.
    *
-   * L'issue elle-même est RANGÉE (`statuerSouvenir`) : un même rejet relu par
-   * cinq faits successifs n'écrit qu'un épisode.
+   * L'issue elle-même est RANGÉE (`statuerSouvenir`), et la porte qui a versé
+   * l'épisode aussi (`marquerEpisodeProduction`) : un même rejet relu par cinq
+   * faits successifs, défait puis redit, ou précédé d'une objection qui l'a
+   * déjà raconté, n'écrit qu'un épisode par production.
+   *
+   * Une tâche terminée AVANT ce registre n'a pas de proposition, mais peut
+   * avoir un souvenir écrit à la simple réussite : il est adopté ici, au
+   * premier fait qui la juge (`adopterSouvenirHerite`), pour qu'un rejet l'en
+   * retire comme les autres.
    */
   const statuerProduction = (taskId: string): void => {
-    const propose = store.souvenirPropose(taskId);
     const task = store.getTask(taskId);
-    if (!propose || task?.status !== 'done') return;
+    if (task?.status !== 'done') return;
+    const propose =
+      store.souvenirPropose(taskId) ??
+      (store.adopterSouvenirHerite(taskId) ? store.souvenirPropose(taskId) : null);
+    if (!propose) return;
     const { latest, evaluation } = evaluationPour(task);
     if (latest?.resultId !== propose.resultId) return;
-    const bascule = store.statuerSouvenir(taskId, propose.resultId, verdictSouvenir(evaluation));
+    const verdict = verdictSouvenir(evaluation);
+    const bascule = store.statuerSouvenir(taskId, propose.resultId, verdict);
     if (bascule === null) return;
 
     const fait = { taskId, projectId: task.projectId, resultId: propose.resultId };
     if (bascule.apres === 'retenu') {
-      emitEvent('memory_recorded', {
-        ...fait,
-        // Qui a validé : l'Evaluator, ou l'humain quand l'Evaluator laissait
-        // la question ouverte (`verdictSouvenir`).
-        source: evaluation.decision === 'accepted' ? 'evaluator' : 'revue_humaine',
-      });
+      // Qui a validé : l'Evaluator, ou l'humain quand l'Evaluator laissait la
+      // question ouverte (`verdictSouvenir`).
+      emitEvent('memory_recorded', { ...fait, source: verdict.validePar });
       return;
     }
-    if (bascule.avant === 'retenu') emitEvent('memory_forgotten', fait);
+    if (bascule.oublie) {
+      emitEvent('memory_forgotten', {
+        ...fait,
+        // Un rejet, ou l'approbation humaine effacée qui SEULE le validait.
+        motif: bascule.apres === 'rejete' ? 'rejet' : 'approbation_retiree',
+      });
+    }
     if (bascule.apres !== 'rejete') return;
     // Une contre-revue qui conteste a DÉJÀ versé son épisode, dans les mots de
-    // la relectrice (`noterVerdict`) : en verser un second ici compterait deux
-    // fois le même échec, sous deux signatures.
-    if (evaluation.evidence.crossReview.contestingReviewers > 0) return;
+    // la relectrice (`noterVerdict`) ; un rejet défait puis redit a déjà versé
+    // le sien. En verser un second compterait deux fois le même échec.
+    if (store.episodeDeProduction(taskId, propose.resultId) !== null) return;
     const agentType = store.getNode(latest.nodeId)?.agentType;
     const modele = store.modeleAiguillageDe(taskId);
     const critique = critiquePourRetry(taskId, evaluation, 'evaluator');
@@ -1764,8 +1792,19 @@ async function monterReine(
       ...critique.raisons,
       ...(critique.noteHumaine ? [critique.noteHumaine] : []),
     ].join('\n');
-    verserEpisode(task, {
-      signature: signatureEchec(texte),
+    // ─── UN MOTIF DE L'EVALUATOR N'EST PAS UNE PANNE ───────────────────────
+    //
+    // « validation tests en échec (bac Hive du nœud <n>) », « les Gardiennes
+    // ont rejeté une production creuse » : des phrases FIXES, identiques pour
+    // deux tâches qui n'ont rien en commun. Signées telles quelles, elles
+    // fusionnaient des échecs sans rapport en une seule note, et trois tâches
+    // aux tests rouges faisaient un faux « motif » à consolider — alors que
+    // le Cerveau promet que trois fois, c'est la MÊME panne. La signature est
+    // donc bornée à la tâche : ses rejets successifs (correction après
+    // correction) sont bien une récurrence ; ceux de sa voisine, non.
+    const signature = signatureEchec(texte);
+    const verse = verserEpisode(task, {
+      signature: signature === '' ? '' : `${signature} · tâche ${taskId}`,
       detail: champSurUneLigne(texte, 800),
       origine: {
         source: 'rejet_evaluator',
@@ -1776,6 +1815,7 @@ async function monterReine(
         ...(modele === null ? {} : { modele }),
       },
     });
+    if (verse) store.marquerEpisodeProduction(taskId, propose.resultId, 'rejet_evaluator');
   };
 
   /**
@@ -9142,6 +9182,27 @@ async function monterReine(
       // efface la revue et rouvre la tâche : après elle, il n'y aurait plus de
       // rejet à lire.
       statuerProduction(task.id);
+      if (req.body.state === 'approved') {
+        // Une approbation ne rachète pas une objection, une validation rouge
+        // ou un signal des Gardiennes (`verdictSouvenir`). Sans ce fait,
+        // l'humain qui approuve recevait un 200 et croyait avoir enseigné à
+        // la ruche : il lit ici pourquoi rien n'est entré au Hive Mind.
+        const { latest, evaluation } = evaluationPour(task);
+        const propose = store.souvenirPropose(task.id);
+        if (
+          propose !== null &&
+          propose.resultId === latest?.resultId &&
+          verdictSouvenir(evaluation).issue === 'rejete'
+        ) {
+          emitEvent('memory_withheld', {
+            taskId: task.id,
+            projectId: task.projectId,
+            resultId: propose.resultId,
+            decision: evaluation.decision,
+            raison: evaluation.reasons[0] ?? '',
+          });
+        }
+      }
       let retry: ReturnType<Scheduler['retryFromEvaluator']> | null = null;
       if (req.body.state === 'rejected') {
         const { latest, evaluation } = evaluationPour(task);
