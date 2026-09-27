@@ -217,6 +217,8 @@ export class Scheduler {
    */
   private readonly seuilsEmis = new Set<string>();
   private readonly alertesEmises = new Set<string>();
+  /** Suites retenues jusqu'au COMMIT d'`enUnSeulGeste` — `null` hors transaction. */
+  private suitesRetenues: (() => void)[] | null = null;
 
   constructor(
     private readonly store: HiveStore,
@@ -227,10 +229,43 @@ export class Scheduler {
     this.cacheProjets = new CacheProjets(opts.balance?.capaciteCacheProjets);
   }
 
-  /** Journalise la transition et la propage (dashboard, logs). */
+  /** Journalise la transition et la propage (dashboard, logs) — après le COMMIT, s'il y en a un. */
   private emit(type: string, payload: Record<string, unknown>): void {
     const event = this.store.appendEvent(type, payload);
-    this.opts.onEvent?.(event);
+    this.apresCommit(() => this.opts.onEvent?.(event));
+  }
+
+  /**
+   * Range un résultat EN UN SEUL GESTE : toutes ses écritures dans une
+   * transaction IMMEDIATE (`store.enTransaction`), tout le reste après.
+   *
+   * La ligne `results` (success = 1) et le statut `done` étaient deux
+   * autocommits. Une panne entre les deux — la base prise par un autre
+   * processus, `patchTask` qui lève SQLITE_BUSY après 5 s — laissait un succès
+   * rangé sur une tâche encore `running`. Le hub fermait alors la socket (1011),
+   * `nodeDisconnected` requalifiait la tâche, et elle se comptait DEUX fois
+   * (tests/resultat-tout-ou-rien.test.ts).
+   *
+   * Ce qui n'est pas la base attend le COMMIT (`apresCommit`) : la diffusion
+   * des événements (un tableau de bord ne voit jamais un `task_done` effacé par
+   * le ROLLBACK), l'état des courses en mémoire, les annulations envoyées aux
+   * nœuds, l'assignation suivante. Sur ROLLBACK, rien de tout cela n'a lieu.
+   */
+  private enUnSeulGeste(ecrire: () => void): void {
+    const suites: (() => void)[] = [];
+    this.suitesRetenues = suites;
+    try {
+      this.store.enTransaction(ecrire);
+    } finally {
+      this.suitesRetenues = null;
+    }
+    for (const suite of suites) suite();
+  }
+
+  /** Dans `enUnSeulGeste` : après le COMMIT, dans l'ordre. Ailleurs : tout de suite. */
+  private apresCommit(suite: () => void): void {
+    if (this.suitesRetenues) this.suitesRetenues.push(suite);
+    else suite();
   }
 
   /** À appeler une fois au démarrage : requalifie les tâches orphelines d'un crash. */
@@ -886,120 +921,124 @@ export class Scheduler {
       return false;
     }
 
-    this.store.fermerHorlogeHote(task.id, Date.now());
+    // Tout ce que ce résultat écrit part en UN seul geste : un succès rangé sans
+    // son `done` se compterait deux fois (voir enUnSeulGeste).
+    this.enUnSeulGeste(() => {
+      this.store.fermerHorlogeHote(task.id, Date.now());
 
-    // Présence Rayon : la tâche est finie → plus aucun fichier « ouvert ».
-    this.store.effacerPresencesTache(task.id);
-    this.store.effacerPresencesNoeud(nodeId);
+      // Présence Rayon : la tâche est finie → plus aucun fichier « ouvert ».
+      this.store.effacerPresencesTache(task.id);
+      this.store.effacerPresencesNoeud(nodeId);
 
-    // Un résultat (succès ou échec de tâche) est arrivé : l'agent a tourné, on
-    // oublie l'historique de refus infra pour cette tâche.
-    this.infraRejects.delete(task.id);
+      // Un résultat (succès ou échec de tâche) est arrivé : l'agent a tourné, on
+      // oublie l'historique de refus infra pour cette tâche.
+      this.apresCommit(() => this.infraRejects.delete(task.id));
 
-    // ─── Les Gardiennes : le contrôle d'entrée ────────────────────────────────
-    // Une production jugée CREUSE en mode `strict` est traitée EXACTEMENT comme
-    // un échec d'agent, et c'est tout l'intérêt du câblage : elle emprunte le
-    // circuit d'échec existant, donc elle ne nourrit
-    //   - ni le Hive Mind (recordMemory ne vit que dans la branche de succès),
-    //   - ni les phéromones (la ligne `results` est rangée avec success = 0,
-    //     donc le repli dépose −6 au lieu de +10),
-    //   - ni le nectar (aucun `task_done` n'est émis, et le Waggle Board ne
-    //     compte que ça),
-    //   - ni `utile` dans La Balance (sans succès retenu, `posteDe` impute la
-    //     tentative en `reprise` ou en `echec`, jamais en `utile`).
-    // Les quatre « ne nourrit pas » sont donc STRUCTURELS : aucun des quatre
-    // modules n'a été modifié, et aucun ne peut être oublié dans trois ans.
-    //
-    // RE-TENTER OU ÉCHOUER ? Re-tenter — mais sur le budget de tentatives
-    // EXISTANT (`attempts`, plafonné par MAX_ATTEMPTS), jamais sur un compteur
-    // à part. C'est la réponse à « une re-tentative infinie sur un agent cassé
-    // serait pire que le mal » : un agent qui rend trois productions creuses de
-    // suite épuise le même budget qu'un agent qui échoue trois fois, et la
-    // tâche finit `failed` proprement. Un compteur séparé aurait rouvert la
-    // porte à l'emballement ; échouer du premier coup aurait puni un incident
-    // (un `git add` oublié) aussi durement qu'une fraude répétée — alors qu'une
-    // deuxième tentative, elle, part sur un AUTRE nœud, avec les logs de la
-    // production refusée en leçon de Couveuse.
-    const inspection = this.renifler(task, result);
-    // Le REFUS suit l'échelon de garde-fous du projet (modeGardiennesDe), pas le
-    // seul mode global : un projet opt-in en « standard »/« strict » ferme la
-    // porte au creux, un projet en « leger » ne la ferme pas.
-    const refusee = inspection?.verdict === 'hollow' && this.modeGardiennesDe(task) === 'strict';
-    const retenu = result.success && !refusee;
-    const resultId = this.store.insertResult({ ...result, nodeId, success: retenu });
-    if (inspection) this.rangerInspection(inspection, resultId, task.id, nodeId, refusee);
+      // ─── Les Gardiennes : le contrôle d'entrée ────────────────────────────────
+      // Une production jugée CREUSE en mode `strict` est traitée EXACTEMENT comme
+      // un échec d'agent, et c'est tout l'intérêt du câblage : elle emprunte le
+      // circuit d'échec existant, donc elle ne nourrit
+      //   - ni le Hive Mind (recordMemory ne vit que dans la branche de succès),
+      //   - ni les phéromones (la ligne `results` est rangée avec success = 0,
+      //     donc le repli dépose −6 au lieu de +10),
+      //   - ni le nectar (aucun `task_done` n'est émis, et le Waggle Board ne
+      //     compte que ça),
+      //   - ni `utile` dans La Balance (sans succès retenu, `posteDe` impute la
+      //     tentative en `reprise` ou en `echec`, jamais en `utile`).
+      // Les quatre « ne nourrit pas » sont donc STRUCTURELS : aucun des quatre
+      // modules n'a été modifié, et aucun ne peut être oublié dans trois ans.
+      //
+      // RE-TENTER OU ÉCHOUER ? Re-tenter — mais sur le budget de tentatives
+      // EXISTANT (`attempts`, plafonné par MAX_ATTEMPTS), jamais sur un compteur
+      // à part. C'est la réponse à « une re-tentative infinie sur un agent cassé
+      // serait pire que le mal » : un agent qui rend trois productions creuses de
+      // suite épuise le même budget qu'un agent qui échoue trois fois, et la
+      // tâche finit `failed` proprement. Un compteur séparé aurait rouvert la
+      // porte à l'emballement ; échouer du premier coup aurait puni un incident
+      // (un `git add` oublié) aussi durement qu'une fraude répétée — alors qu'une
+      // deuxième tentative, elle, part sur un AUTRE nœud, avec les logs de la
+      // production refusée en leçon de Couveuse.
+      const inspection = this.renifler(task, result);
+      // Le REFUS suit l'échelon de garde-fous du projet (modeGardiennesDe), pas le
+      // seul mode global : un projet opt-in en « standard »/« strict » ferme la
+      // porte au creux, un projet en « leger » ne la ferme pas.
+      const refusee = inspection?.verdict === 'hollow' && this.modeGardiennesDe(task) === 'strict';
+      const retenu = result.success && !refusee;
+      const resultId = this.store.insertResult({ ...result, nodeId, success: retenu });
+      if (inspection) this.rangerInspection(inspection, resultId, task.id, nodeId, refusee);
 
-    if (retenu) {
-      this.store.patchTask(task.id, {
-        status: 'done',
-        result: {
-          success: true,
-          nodeId,
-          durationMs: result.durationMs,
-          ...(result.usage ? { usage: result.usage } : {}),
-        },
-      });
-      this.emit('task_done', {
-        taskId: task.id,
-        nodeId,
-        durationMs: result.durationMs,
-        ...(result.usage ? { usage: result.usage } : {}),
-        ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
-      });
-      // Hive Mind : la tâche réussie laisse un souvenir réutilisable par la ruche.
-      this.store.recordMemory({
-        projectId: task.projectId,
-        taskId: task.id,
-        title: task.title,
-        content: summarizeTask(task.title, task.prompt, result.logs),
-      });
-      this.emit('memory_recorded', { taskId: task.id, projectId: task.projectId });
-    } else {
-      const attempts = task.attempts + 1;
-      // Bornée ici aussi, en plus de l'entrée (`isInt(m.durationMs, 0, …)`,
-      // protocol.ts) : aucune durée négative n'entre dans le journal, quel que
-      // soit l'appelant. La Balance la reborne une troisième fois au repli.
-      const durationMs = Math.max(0, result.durationMs);
-      if (attempts >= this.maxAttempts) {
+      if (retenu) {
         this.store.patchTask(task.id, {
-          status: 'failed',
-          attempts,
-          assignedNodeId: null,
+          status: 'done',
           result: {
-            success: false,
+            success: true,
             nodeId,
             durationMs: result.durationMs,
             ...(result.usage ? { usage: result.usage } : {}),
           },
         });
-        // `durationMs` : le temps machine que cet échec a coûté. Purement
-        // ADDITIF — tous les lecteurs actuels lisent en défensif (`num(p, …)
-        // → 0` dans waggle.ts, idem pulse.ts) et n'en tiennent aucun compte.
-        // Sans lui, deux tentatives sur trois (MAX_ATTEMPTS = 3) pouvaient ne
-        // laisser AUCUNE trace de leur coût : une histoire économique
-        // définitivement perdue, jour après jour.
-        this.emit('task_failed', {
+        this.emit('task_done', {
           taskId: task.id,
           nodeId,
-          attempts,
-          durationMs,
+          durationMs: result.durationMs,
           ...(result.usage ? { usage: result.usage } : {}),
           ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
         });
+        // Hive Mind : la tâche réussie laisse un souvenir réutilisable par la ruche.
+        this.store.recordMemory({
+          projectId: task.projectId,
+          taskId: task.id,
+          title: task.title,
+          content: summarizeTask(task.title, task.prompt, result.logs),
+        });
+        this.emit('memory_recorded', { taskId: task.id, projectId: task.projectId });
       } else {
-        // Échec → réessai : la tâche repart en ready, une autre ouvrière la prendra.
-        this.store.patchTask(task.id, { status: 'ready', attempts, assignedNodeId: null });
-        this.emit('task_retry', {
-          taskId: task.id,
-          nodeId,
-          attempt: attempts,
-          maxAttempts: this.maxAttempts,
-          durationMs,
-          ...(result.usage ? { usage: result.usage } : {}),
-          ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
-        });
+        const attempts = task.attempts + 1;
+        // Bornée ici aussi, en plus de l'entrée (`isInt(m.durationMs, 0, …)`,
+        // protocol.ts) : aucune durée négative n'entre dans le journal, quel que
+        // soit l'appelant. La Balance la reborne une troisième fois au repli.
+        const durationMs = Math.max(0, result.durationMs);
+        if (attempts >= this.maxAttempts) {
+          this.store.patchTask(task.id, {
+            status: 'failed',
+            attempts,
+            assignedNodeId: null,
+            result: {
+              success: false,
+              nodeId,
+              durationMs: result.durationMs,
+              ...(result.usage ? { usage: result.usage } : {}),
+            },
+          });
+          // `durationMs` : le temps machine que cet échec a coûté. Purement
+          // ADDITIF — tous les lecteurs actuels lisent en défensif (`num(p, …)
+          // → 0` dans waggle.ts, idem pulse.ts) et n'en tiennent aucun compte.
+          // Sans lui, deux tentatives sur trois (MAX_ATTEMPTS = 3) pouvaient ne
+          // laisser AUCUNE trace de leur coût : une histoire économique
+          // définitivement perdue, jour après jour.
+          this.emit('task_failed', {
+            taskId: task.id,
+            nodeId,
+            attempts,
+            durationMs,
+            ...(result.usage ? { usage: result.usage } : {}),
+            ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
+          });
+        } else {
+          // Échec → réessai : la tâche repart en ready, une autre ouvrière la prendra.
+          this.store.patchTask(task.id, { status: 'ready', attempts, assignedNodeId: null });
+          this.emit('task_retry', {
+            taskId: task.id,
+            nodeId,
+            attempt: attempts,
+            maxAttempts: this.maxAttempts,
+            durationMs,
+            ...(result.usage ? { usage: result.usage } : {}),
+            ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
+          });
+        }
       }
-    }
+    });
     this.promoteAndAssign();
     return true;
   }
@@ -1298,110 +1337,118 @@ export class Scheduler {
       this.emit('result_ignored', { taskId: task.id, nodeId, reason: 'drone_not_in_race' });
       return false;
     }
-    this.races.set(task.id, updated);
-    const resultId = this.store.insertResult({ ...result, nodeId, success: retenu });
-    if (inspection) this.rangerInspection(inspection, resultId, task.id, nodeId, refusee);
+    // Tout ce que ce résultat écrit part en UN seul geste (voir enUnSeulGeste).
+    // L'état de la course EN MÉMOIRE, les annulations des perdants et
+    // l'assignation suivante attendent le COMMIT : un ROLLBACK ne laisse ni
+    // course tranchée que la base n'a jamais vue, ni perdant annulé pour rien.
+    this.enUnSeulGeste(() => {
+      this.apresCommit(() => this.races.set(task.id, updated));
+      const resultId = this.store.insertResult({ ...result, nodeId, success: retenu });
+      if (inspection) this.rangerInspection(inspection, resultId, task.id, nodeId, refusee);
 
-    if (decision.outcome === 'won') {
-      this.races.delete(task.id);
-      this.infraRejects.delete(task.id);
+      if (decision.outcome === 'won') {
+        this.apresCommit(() => {
+          this.races.delete(task.id);
+          this.infraRejects.delete(task.id);
+        });
+        this.store.fermerHorlogeHote(task.id, now);
+        this.store.patchTask(
+          task.id,
+          {
+            status: 'done',
+            assignedNodeId: nodeId,
+            result: {
+              success: true,
+              nodeId,
+              durationMs: result.durationMs,
+              ...(result.usage ? { usage: result.usage } : {}),
+            },
+          },
+          now,
+        );
+        // L'Aiguillage : c'est la production du VAINQUEUR que la contre-visite
+        // jugera — on re-pose SON modèle (écrase celui du primaire posé au départ).
+        // `won` précède toujours le verdict, donc la jointure lira le bon couple.
+        const modeleVainqueur = race.modeleParDrone?.[nodeId];
+        if (modeleVainqueur) {
+          this.store.poserModeleAiguillage(task.id, modeleVainqueur, now);
+        } else {
+          this.store.effacerModeleAiguillage(task.id);
+        }
+        this.emit('task_done', {
+          taskId: task.id,
+          nodeId,
+          durationMs: result.durationMs,
+          ...(result.usage ? { usage: result.usage } : {}),
+          ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
+        });
+        this.emit('drone_won', { taskId: task.id, nodeId, cancelled: decision.cancel.length });
+        for (const loser of decision.cancel) {
+          this.emit('drone_cancelled', { taskId: task.id, nodeId: loser });
+          this.apresCommit(() => this.opts.onCancel?.(loser, task.id, 'course de drones perdue'));
+        }
+        // Hive Mind : même parité que le circuit normal — la victoire laisse un souvenir.
+        this.store.recordMemory({
+          projectId: task.projectId,
+          taskId: task.id,
+          title: task.title,
+          content: summarizeTask(task.title, task.prompt, result.logs),
+        });
+        this.emit('memory_recorded', { taskId: task.id, projectId: task.projectId });
+        this.apresCommit(() => this.promoteAndAssign(now));
+        return;
+      }
+
+      if (decision.outcome === 'pending') {
+        // Ce drone a échoué mais d'autres volent encore : la course continue.
+        this.emit('drone_failed', { taskId: task.id, nodeId });
+        if (task.assignedNodeId === nodeId) this.promoteNextDrone(updated, task.id, now);
+        return;
+      }
+
+      // all_failed via un VRAI résultat : l'agent a tourné — tentative brûlée,
+      // circuit d'échec normal (retry ou failed définitif).
+      this.apresCommit(() => this.races.delete(task.id));
       this.store.fermerHorlogeHote(task.id, now);
-      this.store.patchTask(
-        task.id,
-        {
-          status: 'done',
-          assignedNodeId: nodeId,
+      this.emit('drone_all_failed', { taskId: task.id, drones: updated.drones.length });
+      const attempts = task.attempts + 1;
+      // Même enrichissement que le circuit mono : une course perdue coûte au
+      // moins aussi cher qu'une tentative solitaire, elle doit se peser pareil.
+      const durationMs = Math.max(0, result.durationMs);
+      if (attempts >= this.maxAttempts) {
+        this.store.patchTask(task.id, {
+          status: 'failed',
+          attempts,
+          assignedNodeId: null,
           result: {
-            success: true,
+            success: false,
             nodeId,
             durationMs: result.durationMs,
             ...(result.usage ? { usage: result.usage } : {}),
           },
-        },
-        now,
-      );
-      // L'Aiguillage : c'est la production du VAINQUEUR que la contre-visite
-      // jugera — on re-pose SON modèle (écrase celui du primaire posé au départ).
-      // `won` précède toujours le verdict, donc la jointure lira le bon couple.
-      const modeleVainqueur = race.modeleParDrone?.[nodeId];
-      if (modeleVainqueur) {
-        this.store.poserModeleAiguillage(task.id, modeleVainqueur, now);
-      } else {
-        this.store.effacerModeleAiguillage(task.id);
-      }
-      this.emit('task_done', {
-        taskId: task.id,
-        nodeId,
-        durationMs: result.durationMs,
-        ...(result.usage ? { usage: result.usage } : {}),
-        ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
-      });
-      this.emit('drone_won', { taskId: task.id, nodeId, cancelled: decision.cancel.length });
-      for (const loser of decision.cancel) {
-        this.emit('drone_cancelled', { taskId: task.id, nodeId: loser });
-        this.opts.onCancel?.(loser, task.id, 'course de drones perdue');
-      }
-      // Hive Mind : même parité que le circuit normal — la victoire laisse un souvenir.
-      this.store.recordMemory({
-        projectId: task.projectId,
-        taskId: task.id,
-        title: task.title,
-        content: summarizeTask(task.title, task.prompt, result.logs),
-      });
-      this.emit('memory_recorded', { taskId: task.id, projectId: task.projectId });
-      this.promoteAndAssign(now);
-      return true;
-    }
-
-    if (decision.outcome === 'pending') {
-      // Ce drone a échoué mais d'autres volent encore : la course continue.
-      this.emit('drone_failed', { taskId: task.id, nodeId });
-      if (task.assignedNodeId === nodeId) this.promoteNextDrone(updated, task.id, now);
-      return true;
-    }
-
-    // all_failed via un VRAI résultat : l'agent a tourné — tentative brûlée,
-    // circuit d'échec normal (retry ou failed définitif).
-    this.races.delete(task.id);
-    this.store.fermerHorlogeHote(task.id, now);
-    this.emit('drone_all_failed', { taskId: task.id, drones: updated.drones.length });
-    const attempts = task.attempts + 1;
-    // Même enrichissement que le circuit mono : une course perdue coûte au
-    // moins aussi cher qu'une tentative solitaire, elle doit se peser pareil.
-    const durationMs = Math.max(0, result.durationMs);
-    if (attempts >= this.maxAttempts) {
-      this.store.patchTask(task.id, {
-        status: 'failed',
-        attempts,
-        assignedNodeId: null,
-        result: {
-          success: false,
+        });
+        this.emit('task_failed', {
+          taskId: task.id,
           nodeId,
-          durationMs: result.durationMs,
+          attempts,
+          durationMs,
           ...(result.usage ? { usage: result.usage } : {}),
-        },
-      });
-      this.emit('task_failed', {
-        taskId: task.id,
-        nodeId,
-        attempts,
-        durationMs,
-        ...(result.usage ? { usage: result.usage } : {}),
-        ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
-      });
-    } else {
-      this.store.patchTask(task.id, { status: 'ready', attempts, assignedNodeId: null });
-      this.emit('task_retry', {
-        taskId: task.id,
-        nodeId,
-        attempt: attempts,
-        maxAttempts: this.maxAttempts,
-        durationMs,
-        ...(result.usage ? { usage: result.usage } : {}),
-        ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
-      });
-    }
-    this.promoteAndAssign(now);
+          ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
+        });
+      } else {
+        this.store.patchTask(task.id, { status: 'ready', attempts, assignedNodeId: null });
+        this.emit('task_retry', {
+          taskId: task.id,
+          nodeId,
+          attempt: attempts,
+          maxAttempts: this.maxAttempts,
+          durationMs,
+          ...(result.usage ? { usage: result.usage } : {}),
+          ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
+        });
+      }
+      this.apresCommit(() => this.promoteAndAssign(now));
+    });
     return true;
   }
 
