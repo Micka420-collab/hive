@@ -1632,6 +1632,31 @@ export class Scheduler {
     return classerEchelons(echelonsPermis({ min, max }), this.antecedentsGardeFou());
   }
 
+  /**
+   * `ancetre` est-elle un ancêtre de `taskId` dans le graphe de délégation ?
+   *
+   * Un parent qui délègue reste `running` : il ATTEND le résultat de son
+   * enfant. Or il décrit forcément ce qu'il délègue — donc les mêmes chemins —
+   * et le Sting Detector y voyait un conflit FORT. Différer l'enfant jusqu'à la
+   * fin du parent était un interblocage : le parent n'obtenait sa réponse
+   * qu'en épuisant son budget. Le différer n'évite d'ailleurs aucun conflit :
+   * chacun travaille dans son atelier, et c'est le parent qui reçoit le diff
+   * de l'enfant. Consulté seulement sur un conflit fort déjà constaté : le
+   * chemin ordinaire ne paie aucune lecture.
+   */
+  private estAncetre(ancetre: string, taskId: string): boolean {
+    // `vus` borne la remontée même sur un graphe corrompu : la profondeur
+    // légitime est déjà plafonnée par `LIMITES_DELEGATION_DEFAUT.maxDepth`.
+    const vus = new Set<string>();
+    let lien = this.store.getDelegation(taskId);
+    while (lien && !vus.has(lien.parentTaskId)) {
+      if (lien.parentTaskId === ancetre) return true;
+      vus.add(lien.parentTaskId);
+      lien = this.store.getDelegation(lien.parentTaskId);
+    }
+    return false;
+  }
+
   /** ready → assigned sur le nœud online le moins chargé qui a encore de la capacité. */
   private assignReadyTasks(now = Date.now()): void {
     // Balance : le livre avance AVANT toute décision, pour que la lecture
@@ -1679,7 +1704,8 @@ export class Scheduler {
         (t) =>
           t.projectId === task.projectId &&
           t.id !== task.id &&
-          analyzePair(task, t).severity === 'high',
+          analyzePair(task, t).severity === 'high' &&
+          !this.estAncetre(t.id, task.id),
       );
       if (clash) {
         if (!this.deferredByConflict.has(task.id)) {

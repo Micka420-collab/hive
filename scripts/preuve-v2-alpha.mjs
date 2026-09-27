@@ -1,43 +1,52 @@
-// LA PREUVE V2 ALPHA, SUR VOTRE RUCHE — une vraie mission, un vrai agent, et
+// LA PREUVE V2 ALPHA, SUR VOTRE RUCHE — une vraie mission, de vrais agents, et
 // un rapport critère par critère de ce que la Reine a réellement consigné.
 //
 //   npm run preuve:v2-alpha -- --racine <dossier de la ruche>          (état des lieux)
 //   npm run preuve:v2-alpha -- --racine <dossier de la ruche> --oui    (confie la mission)
 //
-// Options : `--patience <secondes>` (défaut 900).
+// Options :
+//   --patience <s>   attente maximale (900 s ; 1800 s avec --workers)
+//   --exige-bac      chaque nœud qui exécute la mission doit déclarer un bac
+//                    conteneur (podman, docker ou bubblewrap) — sinon ✘
+//   --workers <n>    l'ESSAIM : n ouvrières réelles de 2 familles au moins,
+//                    n tâches indépendantes et une qui délègue ; jugés en plus :
+//                    parallélisme, délégation, relecture croisée, reprise
+//   --depot <url>    la mission travaille sur ce dépôt distant, puis chaque
+//                    tâche est livrée en pull request (la Reine a besoin de
+//                    HIVE_GITHUB_TOKEN)
 //
 // ─── CE QUE CE SCRIPT PROUVE, ET CE QU'IL NE PROUVE PAS ─────────────────────
 //
-// Il confie une petite tâche (une fonction et son test) à une ouvrière dont
-// l'agent n'est pas une simulation, attend qu'elle finisse, puis relit par
-// l'API : la production, le routage, la chronologie, l'évaluation, le Genome,
-// la réputation. Chaque critère sort `✔ prouvé`, `? inconnu` ou `✘ échec`.
+// Il confie une petite tâche (une fonction et son test) — ou un lot, avec
+// `--workers` — à des ouvrières dont l'agent n'est pas une simulation, attend
+// que chaque production soit RÉGLÉE (contre-revue rendue, aucun retry de
+// l'Evaluator en attente), puis relit par l'API : la production, le routage,
+// la chronologie, l'évaluation, le Genome, la réputation, et le journal.
+// Chaque critère sort `✔ prouvé`, `? inconnu` ou `✘ échec`.
 //
 // Il ne prouve PAS la qualité du code produit, ni ce que la Reine ne peut pas
 // constater : l'agent, le bac à sable et le coût sont DÉCLARÉS par le nœud ou
 // par le CLI de l'agent, et le rapport le dit.
 //
-// Sans `--oui`, rien n'est créé : confier la mission fait travailler un vrai
-// agent, donc consomme des crédits de son compte.
+// Sans `--oui`, rien n'est créé : confier la mission fait travailler de vrais
+// agents, donc consomme des crédits de leurs comptes. C'est le seul drapeau
+// qui dépense.
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { setTimeout as attendre } from 'node:timers/promises';
 import { lireEnv } from './premier-quart-heure.mjs';
-import { racineDemandee } from './travail-fait.mjs';
-import { PATIENCE_S, menerLaPreuve } from './preuve-v2-alpha-pas.mjs';
-import { jugerV2Alpha, missionReelleProuvee, rapportV2Alpha } from './preuve-v2-alpha-verdict.mjs';
+import { argumentsDeLaPreuve, menerLaPreuve } from './preuve-v2-alpha-pas.mjs';
+import { conclurePreuve } from './preuve-v2-alpha-rapport.mjs';
 
 const OK = 0;
 const ECHEC = 1;
 const MAL_APPELE = 64;
 
-const argv = process.argv.slice(2);
-const racine = racineDemandee(argv);
-const creer = argv.includes('--oui');
-const iPatience = argv.indexOf('--patience');
-const patienceS = iPatience >= 0 ? Number(argv[iPatience + 1]) : PATIENCE_S;
+const USAGE =
+  'usage : npm run preuve:v2-alpha -- --racine <dossier de la ruche> [--oui] ' +
+  '[--patience <s>] [--exige-bac] [--workers <n>] [--depot <url>]';
 
 /** La vraie ruche, au-dessus de `fetch` ; une panne de transport devient un statut 0. */
 function rucheReelle(base, entetes) {
@@ -66,25 +75,25 @@ function rucheReelle(base, entetes) {
   return {
     instantane: () => demander('/api/state', { headers: entetes }),
     creerProjet: (corps) => poster('/api/projects', corps),
-    creerTache: (projetId, mission) =>
-      poster(`/api/projects/${encodeURIComponent(projetId)}/tasks`, { tasks: [mission] }),
+    creerTaches: (projetId, taches) =>
+      poster(`/api/projects/${encodeURIComponent(projetId)}/tasks`, { tasks: taches }),
+    livrer: (taskId) => poster('/api/livraison', { taskId }),
     lire: (chemin) => demander(chemin, { headers: entetes }),
     patienter: (ms) => attendre(ms),
   };
 }
 
 async function principal() {
-  if (racine === null || !Number.isFinite(patienceS) || patienceS <= 0) {
-    console.error(
-      'usage : npm run preuve:v2-alpha -- --racine <dossier de la ruche> [--oui] [--patience <s>]',
-    );
+  const options = argumentsDeLaPreuve(process.argv.slice(2));
+  if ('erreur' in options) {
+    console.error(`✘ ${options.erreur}\n${USAGE}`);
     return MAL_APPELE;
   }
   let env;
   try {
-    env = lireEnv(readFileSync(path.join(racine, '.env'), 'utf8'));
+    env = lireEnv(readFileSync(path.join(options.racine, '.env'), 'utf8'));
   } catch {
-    console.error(`✘ aucun .env lisible dans ${racine}`);
+    console.error(`✘ aucun .env lisible dans ${options.racine}`);
     return ECHEC;
   }
   const port = env.HIVE_PORT ?? '7777';
@@ -95,7 +104,7 @@ async function principal() {
   }
 
   const ruche = rucheReelle(`http://127.0.0.1:${port}`, { 'x-hive-token': jeton });
-  const issue = await menerLaPreuve(ruche, { creer, patienceS });
+  const issue = await menerLaPreuve(ruche, options);
   if (!issue.ok) {
     if (issue.plan) {
       console.log(`… ${issue.message}`);
@@ -105,18 +114,11 @@ async function principal() {
     return ECHEC;
   }
 
-  const verdicts = jugerV2Alpha(issue.faits);
-  console.log(`Preuve V2 Alpha — mission ${issue.taskId}\n`);
-  console.log(rapportV2Alpha(verdicts));
-  const reelle = missionReelleProuvee(verdicts);
-  console.log(
-    reelle
-      ? '\n✔ Mission réelle prouvée : un agent réel a produit le travail demandé.'
-      : '\n✘ Mission réelle NON prouvée — voir les lignes ✘ ci-dessus.',
-  );
+  const conclusion = conclurePreuve(issue, options);
+  console.log(conclusion.texte);
   // `process.exitCode`, jamais `process.exit()` : sous Windows, couper la
   // boucle avec un `fetch` en vol fait abandonner libuv (cf. essai-travail.mjs).
-  return reelle ? OK : ECHEC;
+  return conclusion.prouve ? OK : ECHEC;
 }
 
 process.exitCode = await principal();

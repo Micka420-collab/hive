@@ -14,11 +14,20 @@
 //      son CLI) — la Reine ne peut pas les constater chez lui.
 //   2. L'absence reste absence : rien n'est estimé, un critère sans fait est
 //      `inconnu`, jamais `prouve` par défaut.
+//
+// Et une troisième, qui tient la preuve à l'abri du hasard : un critère n'est
+// `prouve` que sur le fait EXACT qu'il nomme. Une décision de l'Evaluator
+// quelconque n'est pas une évaluation acceptée ; un bac déclaré par le seul
+// producteur ne dit rien du relecteur qui a lu le même code hors du bac.
 
 /** @typedef {'prouve' | 'inconnu' | 'echec'} Etat */
 /** @typedef {{ critere: string, libelle: string, etat: Etat, detail: string }} Verdict */
 
-const AGENTS_SIMULES = new Set(['shell']);
+/** L'adaptateur `shell` est une simulation : ni un agent, ni un relecteur. */
+export const AGENTS_SIMULES = new Set(['shell']);
+
+/** Les quatre validations que l'Evaluator exige pour `accepted`. */
+export const VALIDATIONS = ['tests', 'typecheck', 'build', 'lint'];
 
 /** Le résultat retenu : la production réussie la plus récente. */
 export function productionRetenue(resultats) {
@@ -33,9 +42,12 @@ const couverture = (s) =>
   s.declarees === s.tentatives ? '' : ` (${s.declarees}/${s.tentatives} tentatives déclarées)`;
 
 /**
+ * `executants` : chaque nœud qui a exécuté la mission (producteur et
+ * relecteurs, relus au journal) ; à défaut, le seul nœud producteur.
+ *
  * @param {{
- *   noeud?: any, tache?: any, resultats?: any[], routage?: any, chronologie?: any,
- *   evaluation?: any, genome?: any, workers?: any, attendu?: RegExp
+ *   noeud?: any, executants?: any[], tache?: any, resultats?: any[], routage?: any,
+ *   chronologie?: any, evaluation?: any, genome?: any, workers?: any, attendu?: RegExp
  * }} faits
  * @returns {Verdict[]}
  */
@@ -76,15 +88,8 @@ export function jugerV2Alpha(faits) {
     dire('A-diff', 'Travail produit', 'prouve', `diff de ${production.diff.length} signes`);
   }
 
-  const isolement = noeud?.isolement;
-  if (!isolement) {
-    dire('A-bac', 'Bac à sable', 'inconnu', 'le nœud n’a pas déclaré son bac à sable');
-  } else if (isolement.niveau === 'conteneur') {
-    const moteur = isolement.fournisseur ? ` (${isolement.fournisseur})` : '';
-    dire('A-bac', 'Bac à sable', 'prouve', `conteneur${moteur}, déclaré par le nœud`);
-  } else {
-    dire('A-bac', 'Bac à sable', 'echec', `« ${isolement.niveau} » seulement — pas un conteneur`);
-  }
+  const bac = jugerBac(faits.executants ?? (noeud ? [noeud] : []));
+  dire('A-bac', 'Bac à sable', bac.etat, bac.detail);
 
   // ─── B. Coût fournisseur ───────────────────────────────────────────────────
   const cout = faits.chronologie?.coutFournisseur;
@@ -138,10 +143,22 @@ export function jugerV2Alpha(faits) {
   }
 
   // ─── G. Routage expliqué (avant E : le Genome se lit sous le modèle élu) ──
-  const affectation = faits.routage?.affectations?.[0];
+  //
+  // L'affectation qui a PRODUIT : la dernière vers le nœud de la production
+  // retenue. La première raconterait une tentative que l'Evaluator a
+  // renvoyée, peut-être sur un autre nœud et un autre modèle.
+  const affectations = Array.isArray(faits.routage?.affectations) ? faits.routage.affectations : [];
+  const affectation = noeud ? affectations.findLast((a) => a?.nodeId === noeud.id) : undefined;
   const modele = affectation?.modele ?? null;
   if (!affectation) {
-    dire('G', 'Routage expliqué', 'inconnu', 'aucune affectation consignée');
+    dire(
+      'G',
+      'Routage expliqué',
+      'inconnu',
+      affectations.length > 0
+        ? 'aucune affectation consignée pour le nœud qui a produit'
+        : 'aucune affectation consignée',
+    );
   } else if (!modele) {
     dire(
       'G',
@@ -205,32 +222,136 @@ export function jugerV2Alpha(faits) {
   }
 
   // ─── L'Evaluator ───────────────────────────────────────────────────────────
-  const decision = faits.evaluation?.decision;
-  if (typeof decision === 'string' && decision.length > 0) {
-    dire(
-      'Evaluator',
-      'Évaluation',
-      'prouve',
-      `décision « ${decision} »${faits.evaluation.canMerge === false ? ', fusion non autorisée sans geste humain' : ''}`,
-    );
-  } else {
-    dire('Evaluator', 'Évaluation', 'inconnu', 'aucune décision rendue');
-  }
+  const evaluation = jugerEvaluation(faits.evaluation);
+  dire('Evaluator', 'Évaluation', evaluation.etat, evaluation.detail);
 
   return verdicts;
 }
 
-/** La mission réelle est-elle prouvée ? (agent réel ET travail produit) */
-export function missionReelleProuvee(verdicts) {
+/**
+ * Le bac à sable de CHAQUE nœud qui a exécuté la mission — producteur et
+ * relecteurs. Un relecteur est un agent lancé sur le même code : s'il tourne
+ * hors du bac, la mission n'a pas tourné dans un bac, quel que soit le
+ * producteur.
+ *
+ * `prouve` exige un conteneur ET son moteur : « conteneur » sans moteur est
+ * précisément la déclaration que `isolementDeclareDe` refuse de faire, donc
+ * un fait qu'on ne sait pas lire. Un `processus` l'emporte sur un inconnu :
+ * il suffit d'une exécution hors du bac pour que le critère soit contredit.
+ */
+export function jugerBac(executants) {
+  const nom = (n) => n?.name ?? n?.id ?? '?';
+  const liste = Array.isArray(executants) ? executants : [];
+  if (liste.length === 0) {
+    return { etat: 'inconnu', detail: 'aucune exécution consignée : aucun bac à juger' };
+  }
+  const nus = liste.filter((n) => n?.isolement && n.isolement.niveau !== 'conteneur');
+  if (nus.length > 0) {
+    const qui = nus.map((n) => `${nom(n)} « ${n.isolement.niveau} »`).join(', ');
+    return { etat: 'echec', detail: `${qui} seulement — pas un conteneur` };
+  }
+  const muets = liste.filter((n) => !n?.isolement?.fournisseur);
+  if (muets.length > 0) {
+    const qui = muets.map(nom).join(', ');
+    return {
+      etat: 'inconnu',
+      detail: `${qui} : bac non déclaré, ou « conteneur » sans moteur`,
+    };
+  }
+  if (liste.length === 1) {
+    return {
+      etat: 'prouve',
+      detail: `conteneur (${liste[0].isolement.fournisseur}), déclaré par le nœud`,
+    };
+  }
+  const qui = liste.map((n) => `${nom(n)} (${n.isolement.fournisseur})`).join(', ');
+  return { etat: 'prouve', detail: `conteneur déclaré par chaque nœud : ${qui}` };
+}
+
+const SIGNE_VALIDATION = { passed: '✔', failed: '✘' };
+
+/**
+ * `prouve` pour `accepted` avec les quatre validations passées — et pour rien
+ * d'autre. Une décision est un fait : `rejected` ou `correction_required` (ou
+ * une validation en échec) contredisent le critère ; `human_review_required`
+ * et `additional_test_required` sont l'Evaluator qui dit lui-même qu'il lui
+ * manque une preuve : on ne conclut pas à sa place.
+ */
+export function jugerEvaluation(evaluation) {
+  const decision = evaluation?.decision;
+  if (typeof decision !== 'string' || decision.length === 0) {
+    return { etat: 'inconnu', detail: 'aucune décision rendue' };
+  }
+  const etats = VALIDATIONS.map((k) => evaluation.evidence?.[k] ?? 'missing');
+  const validations = VALIDATIONS.map((k, i) => `${k} ${SIGNE_VALIDATION[etats[i]] ?? '?'}`);
+  const raison = Array.isArray(evaluation.reasons) && evaluation.reasons[0];
+  const dit = `décision « ${decision} » · ${validations.join(' ')}${raison ? ` — ${raison}` : ''}`;
+  if (decision === 'accepted' && etats.every((e) => e === 'passed')) {
+    const fusion = evaluation.canMerge === true ? '' : ', fusion après geste humain';
+    return { etat: 'prouve', detail: `décision « accepted » · ${validations.join(' ')}${fusion}` };
+  }
+  if (decision === 'rejected' || decision === 'correction_required' || etats.includes('failed')) {
+    return { etat: 'echec', detail: dit };
+  }
+  return { etat: 'inconnu', detail: dit };
+}
+
+/**
+ * La livraison Git, quand la mission a un dépôt (`--depot`).
+ *
+ * `livraisons` : une entrée par tâche confiée, telle que `POST /api/livraison`
+ * l'a rendue. Sans dépôt, rien n'a été demandé : c'est `inconnu`, pas un échec.
+ * Une PR sans numéro ou sans commit n'est pas une livraison traçable.
+ */
+export function jugerLivraison(livraisons) {
+  const verdict = (etat, detail) => ({ critere: 'Git', libelle: 'Livraison Git', etat, detail });
+  if (!Array.isArray(livraisons)) {
+    return verdict('inconnu', 'sans --depot, la mission n’a pas de dépôt : rien à livrer');
+  }
+  if (livraisons.length === 0) return verdict('echec', 'aucune tâche à livrer');
+  const tracee = (l) =>
+    (l?.status === 200 || l?.status === 201) &&
+    Number.isSafeInteger(l.corps?.pr) &&
+    l.corps.pr > 0 &&
+    typeof l.corps?.commitSha === 'string' &&
+    l.corps.commitSha.length > 0;
+  const ratee = livraisons.find((l) => !tracee(l));
+  if (ratee) {
+    const motif = ratee.corps?.error ?? ratee.texte ?? '';
+    return verdict(
+      'echec',
+      `${ratee.taskId} non livrée (${ratee.status})${motif ? ` : ${motif}` : ''}`,
+    );
+  }
+  return verdict(
+    'prouve',
+    livraisons
+      .map(
+        (l) => `PR #${l.corps.pr} (${l.corps.branche ?? '?'} @ ${l.corps.commitSha.slice(0, 7)})`,
+      )
+      .join(' · '),
+  );
+}
+
+/**
+ * La mission réelle est-elle prouvée ? Agent réel ET travail produit — et,
+ * sous `--exige-bac`, un bac conteneur pour chaque nœud qui l'a exécutée.
+ */
+export function missionReelleProuvee(verdicts, { exigeBac = false } = {}) {
   const etat = (c) => verdicts.find((v) => v.critere === c)?.etat;
-  return etat('A-agent') === 'prouve' && etat('A-diff') === 'prouve';
+  return (
+    etat('A-agent') === 'prouve' &&
+    etat('A-diff') === 'prouve' &&
+    (!exigeBac || etat('A-bac') === 'prouve')
+  );
 }
 
 const SIGNE = { prouve: '✔', inconnu: '?', echec: '✘' };
 
-/** Le rapport lisible, une ligne par critère. */
+/** Le rapport lisible, une ligne par critère, les identifiants alignés. */
 export function rapportV2Alpha(verdicts) {
+  const largeur = Math.max(9, ...verdicts.map((v) => v.critere.length));
   return verdicts
-    .map((v) => `${SIGNE[v.etat]} ${v.critere.padEnd(9)} ${v.libelle} — ${v.detail}`)
+    .map((v) => `${SIGNE[v.etat]} ${v.critere.padEnd(largeur)} ${v.libelle} — ${v.detail}`)
     .join('\n');
 }

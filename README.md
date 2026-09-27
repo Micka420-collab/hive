@@ -126,11 +126,18 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
   y faire entrer les autres faits du registre Genome est une décision de
   pondération, pas encore prise ;
 - la démonstration V2 Alpha de bout en bout — elle tient désormais en une
-  commande sur une ruche qui a un vrai agent authentifié :
+  commande sur une ruche qui a de vrais agents authentifiés :
   `npm run preuve:v2-alpha -- --racine . --oui` confie une petite mission,
-  puis dit pour chaque critère ce que la Reine a réellement consigné
-  (`✔` prouvé, `?` inconnu, `✘` échec). Sans `--oui`, rien n'est créé : la
-  mission consomme des crédits de l'agent.
+  attend qu'elle soit **réglée** (contre-revue rendue, aucun retry de
+  l'Evaluator en attente), puis dit pour chaque critère ce que la Reine a
+  réellement consigné (`✔` prouvé, `?` inconnu, `✘` échec). L'évaluation
+  n'est `✔` que pour `accepted` avec les quatre validations vertes.
+  `--workers 3` prouve l'**essaim** : trois ouvrières réelles de deux
+  familles, en parallèle, une délégation, une relecture par une autre
+  famille, une reprise après objection. `--exige-bac` exige un bac conteneur
+  de chaque nœud qui exécute la mission, `--depot <url>` livre chaque tâche
+  en pull request. Sans `--oui`, rien n'est créé : la mission consomme des
+  crédits des agents.
 
 L'adaptateur `shell` reste une **simulation** : sans agent réel installé, les
 diffs produits sont factices, et l'installeur comme la Reine le disent.
@@ -311,20 +318,20 @@ travailler à découvert.
 
 ## 🛠️ Commandes
 
-| Commande                                      | Effet                                                                                         |
-| --------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `npm run ruche`                               | **Tout en une commande** — Reine + ouvrière + écran                                           |
-| `npm run demo`                                | Démo complète (orchestrateur + 2 nœuds + projet)                                              |
-| `npm run dev`                                 | Orchestrateur seul                                                                            |
-| `npm run node`                                | Un nœud membre                                                                                |
-| `npm run cli -- doctor`                       | **Le docteur** — 13 causes de panne, et la commande qui répare                                |
-| `npm run preuve:v2-alpha -- --racine . --oui` | **La preuve V2 Alpha** — une vraie mission confiée à un vrai agent, jugée critère par critère |
-| `npm run cli -- sauvegarde`                   | Sauvegarde SQLite par `VACUUM INTO`                                                           |
-| `npm run cli -- service`                      | Installer la ruche en service (systemd · launchd · tâche planifiée)                           |
-| `npm test`                                    | La suite complète (vitest) — le compte vit dans le badge, en un seul endroit                  |
-| `npm run fusionner`                           | Porte la branche sur `main` en **avance rapide** — sans commit de fusion                      |
-| `npm run lint`                                | ESLint + Prettier — zéro erreur exigé                                                         |
-| `npm run loupe`                               | **La loupe** — le code neuf est-il défendu par ses tests ?                                    |
+| Commande                                      | Effet                                                                                                                                                                         |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run ruche`                               | **Tout en une commande** — Reine + ouvrière + écran                                                                                                                           |
+| `npm run demo`                                | Démo complète (orchestrateur + 2 nœuds + projet)                                                                                                                              |
+| `npm run dev`                                 | Orchestrateur seul                                                                                                                                                            |
+| `npm run node`                                | Un nœud membre                                                                                                                                                                |
+| `npm run cli -- doctor`                       | **Le docteur** — 13 causes de panne, et la commande qui répare                                                                                                                |
+| `npm run preuve:v2-alpha -- --racine . --oui` | **La preuve V2 Alpha** — une vraie mission confiée à un vrai agent, jugée critère par critère une fois réglée ; `--workers 3` pour l'essaim, `--exige-bac` pour exiger le bac |
+| `npm run cli -- sauvegarde`                   | Sauvegarde SQLite par `VACUUM INTO`                                                                                                                                           |
+| `npm run cli -- service`                      | Installer la ruche en service (systemd · launchd · tâche planifiée)                                                                                                           |
+| `npm test`                                    | La suite complète (vitest) — le compte vit dans le badge, en un seul endroit                                                                                                  |
+| `npm run fusionner`                           | Porte la branche sur `main` en **avance rapide** — sans commit de fusion                                                                                                      |
+| `npm run lint`                                | ESLint + Prettier — zéro erreur exigé                                                                                                                                         |
+| `npm run loupe`                               | **La loupe** — le code neuf est-il défendu par ses tests ?                                                                                                                    |
 
 ## 📚 Documentation
 
