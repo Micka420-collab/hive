@@ -719,6 +719,7 @@ export class Scheduler {
         this.emit('task_failed', { taskId, reason: 'no_working_agent', infraRejects: count });
         this.infraRejects.delete(taskId);
         this.fermerSousArbre(taskId, 'ancestor_failed', now);
+        this.relectureCloseSansAvis(task, 'aucun_agent_fonctionnel');
         this.promoteAndAssign(now); // propager l'échec en cascade aux dépendantes
         return;
       }
@@ -1212,6 +1213,7 @@ export class Scheduler {
     const nodeId = task.assignedNodeId;
     const patched = this.store.patchTask(task.id, { status: 'failed', assignedNodeId: null }, now);
     this.emit('task_cancelled', { taskId: task.id, reason, ...(nodeId ? { nodeId } : {}) });
+    this.relectureCloseSansAvis(task, 'annulee');
     return patched;
   }
 
@@ -1831,12 +1833,15 @@ export class Scheduler {
    *     (`terminal`, motif `relecteur_absent`) : les deux faits que le hub
    *     émet déjà pour une relecture qui échoue en rendant son résultat.
    *
-   * Échouer, pas réaffecter : une AUTRE famille n'est pas un remplaçant.
-   * `choisirCritiques` a déjà confié la production à une relectrice par
-   * famille en ligne, jusqu'à `RELECTEURS_PAR_PRODUCTION` ; lui en donner une
-   * seconde lecture, c'est une contre-revue qui compte deux relectrices là où
-   * un seul modèle a lu (`crossReviewForResult`). Une famille revenue à temps
-   * reprend la relecture, quel que soit son nœud.
+   * Échouer, pas réaffecter : cette relecture reste épinglée à SA famille.
+   * La confier ici à une autre, ce serait parfois donner une seconde lecture
+   * à une famille qui relit déjà ce résultat (`choisirCritiques` en a engagé
+   * une par famille en ligne, jusqu'à `RELECTEURS_PAR_PRODUCTION`) — une
+   * contre-revue qui compte deux relectrices là où un seul modèle a lu
+   * (`crossReviewForResult`). Une famille revenue à temps reprend la
+   * relecture, quel que soit son nœud. Le relais par une famille NEUVE est
+   * une relecture de secours distincte, décidée par le hub une fois la
+   * contre-revue sans avis ni relecture en vol (`suiteRelectureEchouee`).
    *
    * Cet échec est une transition terminale comme les autres : il ferme le
    * sous-arbre délégué de la relecture (`fermerSousArbre`) — un relecteur
@@ -1876,6 +1881,31 @@ export class Scheduler {
     this.store.patchTask(task.id, { status: 'failed', assignedNodeId: null }, now);
     this.emit('task_failed', { taskId: task.id, reason: 'relecteur_absent' });
     for (const id of this.fermerSousArbre(task.id, 'ancestor_failed', now)) fermees.add(id);
+    this.relectureCloseSansAvis(task, 'relecteur_absent', lien);
+    return true;
+  }
+
+  /**
+   * Une relecture vient de passer TERMINALE sans rendre d'avis : le fait
+   * `contre_expertise_review_failed` (`terminal`) le dit, avec son motif.
+   *
+   * C'est le déclencheur UNIQUE de la suite (relecture de secours, ou revue
+   * humaine nommée — `reprendreContreRevue`, server.ts). Chaque chemin qui
+   * clôt une relecture sans avis passe donc par ici : l'absence de famille,
+   * l'agent qui ne démarre sur aucun nœud (`aucun_agent_fonctionnel`),
+   * l'annulation. Un chemin qui l'oublierait laisserait la production en
+   * suspens sans un mot — le silence même que ce fait existe pour fermer.
+   *
+   * Émis APRÈS la transition : la suite relit les relectures en vol, et
+   * celle-ci ne doit plus en être. Sans effet sur une tâche qui n'est pas une
+   * relecture.
+   */
+  private relectureCloseSansAvis(
+    task: Task,
+    motif: 'relecteur_absent' | 'aucun_agent_fonctionnel' | 'annulee',
+    lien = this.store.relectureDe(task.id),
+  ): void {
+    if (!lien) return;
     // Le `resultId` du lancement, comme le hub le joint à ses propres échecs
     // de relecture : il dit QUELLE tentative de la production perd son avis.
     const resultId = this.store.eventForRelecture(task.id)?.payload.resultId;
@@ -1886,9 +1916,8 @@ export class Scheduler {
       relecteur: lien.relecteurAgent,
       terminal: true,
       attempt: task.attempts,
-      motif: 'relecteur_absent',
+      motif,
     });
-    return true;
   }
 
   /**

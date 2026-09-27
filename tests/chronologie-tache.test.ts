@@ -76,6 +76,20 @@ describe('chronologieDepuisEvenements — les phases d’une tâche', () => {
     expect(impossible.revueMs, 'une revue impossible n’a pas de durée').toBeNull();
   });
 
+  it('UNE RELECTURE DE SECOURS PROLONGE LA FENÊTRE : le temps de la relecture tombée compte', () => {
+    // La première relectrice tombe sans avis, une famille neuve relaie
+    // (`secours`). Traiter le relais comme un nouveau lancement effaçait les
+    // 600 ms perdues avec la relectrice tombée : la revue paraissait plus
+    // courte qu'elle ne l'a été.
+    const c = chronologieDepuisEvenements(0, [
+      ev(1_000, 'task_done', { nodeId: 'n1', durationMs: 800 }),
+      ev(1_100, 'contre_expertise', { possible: true }),
+      ev(1_700, 'contre_expertise', { possible: true, secours: true }),
+      ev(2_000, 'contre_expertise_verdict', {}),
+    ]);
+    expect(c.revueMs).toBe(900);
+  });
+
   it('UN RENVOI DE L’EVALUATOR EST UNE CORRECTION, PAS UN ÉCHEC DU WORKER', () => {
     // La boucle V2 : production réussie → contre-revue insuffisante → renvoi en
     // correction → seconde production. Le renvoi ne porte pas de durée Worker et

@@ -282,7 +282,9 @@ import {
   lireAvis,
   MOTIF_RELECTURE_SANS_TEXTE_FINAL,
   productionAContreExpertiser,
+  suiteRelectureEchouee,
 } from '../shared/contre-expertise.js';
+import type { Candidat, Production } from '../shared/contre-expertise.js';
 import { champSurUneLigne } from '../shared/donnees-non-fiables.js';
 import { buildHiveContext } from './hive-mind.js';
 import { buildMergePlan } from './honeycomb.js';
@@ -1052,15 +1054,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     // réaffecter la même tâche avant le retour d'une contre-revue tardive.
     const producteurModele = store.modeleAiguillageDe(taskId);
 
-    const choix = choisirCritiques(
-      production,
-      store.listNodes().map((n) => ({
-        nodeId: n.id,
-        nom: n.name,
-        agentType: n.agentType,
-        enLigne: n.status === 'online',
-      })),
-    );
+    const choix = choisirCritiques(production, candidatsRelecture());
 
     if (choix.genre === 'refus') {
       // « Aucun second modèle en ligne » est une INFORMATION. Tue, elle se
@@ -1078,23 +1072,57 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       return;
     }
 
-    // ─── LE LANCEMENT ────────────────────────────────────────────────────────
-    //
-    // Une tâche de relecture est une VRAIE tâche : elle passe par le même
-    // canal `assign_task` que le reste, donc par le même bac à sable, le même
-    // protocole, le même chemin de résultat. Inventer un second canal aurait
-    // dupliqué toutes ces gardes, et c'est en dupliquant les gardes qu'on
-    // finit par en oublier une.
-    //
-    // Et par la même FILE. Elle était posée ici en `assigned` sur le nœud
-    // choisi, sans regarder s'il avait de la place : à une tâche à la fois par
-    // ouvrière (`npm run ruche` à plusieurs familles), le relecteur est
-    // souvent occupé, et chaque relecture revenait en `noeud_sature` — un
-    // refus journalisé, 3 s de refroidissement, puis la file quand même. La
-    // file sait désormais qu'une relecture a une famille (`assignReadyTasks`),
-    // et la sert AVANT les productions : ce raccourci n'avait plus d'objet.
+    lancerRelectures(production, projectId, choix.relecteurs, {
+      ...(resultId !== undefined ? { resultId } : {}),
+      ...(producteurModele ? { producteurModele } : {}),
+    });
+    // APRÈS l'annonce : le lancement précède l'assignation dans le journal, et
+    // `eventForRelecture` le retrouve pour toute relecture déjà en vol.
+    scheduler.tick();
+  };
+
+  /** Les nœuds de la ruche, vus comme candidats à une relecture. */
+  function candidatsRelecture(): Candidat[] {
+    return store.listNodes().map((n) => ({
+      nodeId: n.id,
+      nom: n.name,
+      agentType: n.agentType,
+      enLigne: n.status === 'online',
+    }));
+  }
+
+  /**
+   * Met en FILE une relecture par relecteur, et l'annonce (`contre_expertise`).
+   *
+   * ─── LE LANCEMENT ────────────────────────────────────────────────────────
+   *
+   * Une tâche de relecture est une VRAIE tâche : elle passe par le même
+   * canal `assign_task` que le reste, donc par le même bac à sable, le même
+   * protocole, le même chemin de résultat. Inventer un second canal aurait
+   * dupliqué toutes ces gardes, et c'est en dupliquant les gardes qu'on
+   * finit par en oublier une.
+   *
+   * Et par la même FILE. Elle était posée ici en `assigned` sur le nœud
+   * choisi, sans regarder s'il avait de la place : à une tâche à la fois par
+   * ouvrière (`npm run ruche` à plusieurs familles), le relecteur est
+   * souvent occupé, et chaque relecture revenait en `noeud_sature` — un
+   * refus journalisé, 3 s de refroidissement, puis la file quand même. La
+   * file sait désormais qu'une relecture a une famille (`assignReadyTasks`),
+   * et la sert AVANT les productions : ce raccourci n'avait plus d'objet.
+   *
+   * UN lanceur pour le lancement ET le secours (`reprendreContreRevue`) :
+   * une relecture de secours est une relecture comme les autres — même
+   * consigne, même lien de famille, même filigrane `resultId` dans l'annonce,
+   * que `relecturesDuResultat` lit pour la compter avec les siennes.
+   */
+  function lancerRelectures(
+    production: Production,
+    projectId: string,
+    relecteurs: readonly Candidat[],
+    annonce: Record<string, unknown>,
+  ): void {
     const lancees: string[] = [];
-    for (const relecteur of choix.relecteurs) {
+    for (const relecteur of relecteurs) {
       const relecture = store.createTask({
         projectId,
         title: `Contre-expertise — ${champSurUneLigne(production.titre, 120)}`,
@@ -1103,31 +1131,26 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // Le lien AVANT toute assignation : sans lui, la file la confierait au
       // premier nœud libre, et son résultat serait traité comme une production
       // ordinaire — relu à son tour. La tâche naît `pending` : rien ne la
-      // prend avant la passe du planificateur, plus bas.
+      // prend avant une passe du planificateur.
       store.inscrireRelecture({
         relectureTaskId: relecture.id,
-        productionTaskId: taskId,
+        productionTaskId: production.taskId,
         relecteurNodeId: relecteur.nodeId,
         relecteurAgent: relecteur.agentType,
         producteurAgent: production.agentType,
       });
       lancees.push(relecture.id);
     }
-
     emitEvent('contre_expertise', {
-      taskId,
-      ...(resultId !== undefined ? { resultId } : {}),
-      ...(producteurModele ? { producteurModele } : {}),
+      taskId: production.taskId,
+      ...annonce,
       possible: true,
       producteur: production.agentType,
-      modeles: choix.modeles,
-      relecteurs: choix.relecteurs.map((r) => r.nom),
+      modeles: relecteurs.map((r) => r.agentType),
+      relecteurs: relecteurs.map((r) => r.nom),
       relectures: lancees,
     });
-    // APRÈS l'annonce : le lancement précède l'assignation dans le journal, et
-    // `eventForRelecture` le retrouve pour toute relecture déjà en vol.
-    scheduler.tick();
-  };
+  }
 
   /**
    * Les relectures lancées pour CE `resultId`. Les liens du store couvrent
@@ -1213,6 +1236,104 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         reason: retry.reason,
       });
     }
+  }
+
+  /**
+   * Une relecture vient de se clore SANS avis (`contre_expertise_review_failed`,
+   * `terminal`) : la contre-revue de ce résultat doit ABOUTIR quand même.
+   *
+   * ─── LE BLOCAGE SILENCIEUX QUE CETTE FONCTION FERME ────────────────────────
+   *
+   * Relecteur en échec au-delà de ses essais, sans réponse finale, famille
+   * absente au-delà de son délai, agent qui ne démarre nulle part : chaque
+   * cause journalisait son échec, puis plus rien. L'Evaluator voyait « sans
+   * avis » — la même chose que « aucun second modèle en ligne » —, aucune
+   * relecture ne repartait, personne n'était appelé. La production restait en
+   * suspens, et c'était au lecteur du journal de le deviner.
+   *
+   * ─── QUAND IL Y A QUELQUE CHOSE À FAIRE ─────────────────────────────────
+   *
+   * Seulement quand CE résultat est encore le dernier de la production (une
+   * tentative plus récente a sa propre contre-revue), qu'aucune autre
+   * relecture n'est en vol (elle peut encore rendre l'avis qui manque — sa
+   * propre clôture rappellera cette fonction), qu'aucun avis n'est arrivé
+   * (l'Evaluator tranche alors sur lui) et que l'impossibilité n'est pas déjà
+   * consignée. Lue sur les faits, pas sur un compteur : un second appel pour
+   * la même clôture ne fait rien.
+   *
+   * La suite elle-même — UN secours par une famille neuve, sinon la revue
+   * humaine nommée, jamais le producteur relancé — est décidée par
+   * `suiteRelectureEchouee`, pure. L'impossibilité est un FAIT consigné
+   * (`contre_expertise_impossible`) que l'Evaluator relit pour demander la
+   * revue humaine en disant pourquoi : un motif déduit à chaque lecture
+   * changerait avec les nœuds en ligne.
+   *
+   * ─── APPELÉE AU MILIEU D'UNE PASSE DU PLANIFICATEUR ─────────────────────
+   *
+   * Le planificateur émet ce fait en pleine passe d'assignation
+   * (`relecteurAbsent`). Cette fonction n'appelle donc JAMAIS le
+   * planificateur : le secours naît `pending`, et le tick suivant (au plus
+   * `tickMs`) le promeut et l'assigne. Le rappeler d'ici réentrerait dans une
+   * passe dont l'instantané des tâches prêtes est déjà pris.
+   */
+  function reprendreContreRevue(echec: Readonly<Record<string, unknown>>): void {
+    const { relecture: relectureTaskId, resultId } = echec;
+    if (echec.terminal !== true || typeof relectureTaskId !== 'string') return;
+    if (typeof resultId !== 'number' || !Number.isSafeInteger(resultId)) return;
+    const lien = store.relectureDe(relectureTaskId);
+    if (!lien) return;
+    const productionTaskId = lien.productionTaskId;
+    const latest = store.resultsForTask(productionTaskId).at(-1);
+    if (latest?.resultId !== resultId) return;
+    if (relecturesEnVol(productionTaskId, resultId) > 0) return;
+    if (store.crossReviewForResult(productionTaskId, resultId) !== null) return;
+    if (store.contreRevueImpossible(productionTaskId, resultId) !== null) return;
+
+    const relectures = relecturesDuResultat(productionTaskId, resultId);
+    const suite = suiteRelectureEchouee({
+      producteur: { nodeId: latest.nodeId, agentType: lien.producteurAgent },
+      candidats: candidatsRelecture(),
+      famillesEngagees: relectures
+        .map((id) => store.relectureDe(id)?.relecteurAgent)
+        .filter((agent): agent is string => agent !== undefined),
+      secoursDejaTente: relectures.some(
+        (id) => store.eventForRelecture(id)?.payload.secours === true,
+      ),
+      echec: { relecteur: lien.relecteurAgent, motif: echec.motif, tentatives: echec.attempt },
+    });
+
+    // La production est recomposée depuis le résultat RANGÉ, celui-là même
+    // qu'on relit — son modèle depuis le lien, consigné au lancement.
+    const ouverture =
+      suite.genre === 'secours'
+        ? productionAContreExpertiser(
+            store.getTask(productionTaskId),
+            { id: latest.nodeId, agentType: lien.producteurAgent },
+            latest.diff,
+            latest.logs,
+          )
+        : null;
+    if (suite.genre === 'secours' && ouverture) {
+      const producteurModele = store.eventForRelecture(relectureTaskId)?.payload.producteurModele;
+      lancerRelectures(ouverture.production, ouverture.projectId, [suite.relecteur], {
+        resultId,
+        ...(typeof producteurModele === 'string' ? { producteurModele } : {}),
+        secours: true,
+        relaie: relectureTaskId,
+      });
+      return;
+    }
+    emitEvent('contre_expertise_impossible', {
+      taskId: productionTaskId,
+      resultId,
+      relecture: relectureTaskId,
+      relecteur: lien.relecteurAgent,
+      producteur: lien.producteurAgent,
+      cause:
+        suite.genre === 'impossible'
+          ? suite.cause
+          : 'la production à relire n’existe plus : aucune relecture de secours possible',
+    });
   }
 
   /**
@@ -1710,6 +1831,10 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     onEvent: (event) => {
       broadcastEvent({ type: 'event', event });
       stateDirty = true;
+      // Le planificateur clôt lui aussi des relectures sans avis (famille
+      // absente, agent qui ne démarre nulle part, annulation) : même suite
+      // que pour celles que le hub clôt en recevant leur résultat.
+      if (event.type === 'contre_expertise_review_failed') reprendreContreRevue(event.payload);
     },
   });
 
@@ -1780,6 +1905,11 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       : null;
     const crossReviewPending =
       latest?.resultId !== undefined ? relecturesEnVol(task.id, latest.resultId) : 0;
+    // Lue seulement quand elle peut gouverner : sans avis, ni relecture en vol.
+    const crossReviewImpossible =
+      latest?.resultId !== undefined && !crossReview?.reviewerCount && crossReviewPending === 0
+        ? store.contreRevueImpossible(task.id, latest.resultId)
+        : null;
     const inspections = store.listInspections();
     const inspection = latest
       ? inspectionDeProduction(inspections, task.id, latest.nodeId, latest.resultId)
@@ -1818,6 +1948,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           : {}),
         ...(crossReview ? { crossReview } : {}),
         crossReviewPending,
+        ...(crossReviewImpossible ? { crossReviewImpossible } : {}),
       }),
     };
   };
@@ -9969,7 +10100,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
                 // texte, parce qu'il vaudrait même avec un texte.
                 const lancement = store.eventForRelecture(msg.taskId);
                 const resultId = lancement?.payload.resultId;
-                emitEvent('contre_expertise_review_failed', {
+                const echec = {
                   taskId: lienRelecture.productionTaskId,
                   ...(typeof resultId === 'number' && Number.isSafeInteger(resultId)
                     ? { resultId }
@@ -9984,7 +10115,11 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
                     : terminee
                       ? { motif: MOTIF_RELECTURE_SANS_TEXTE_FINAL }
                       : {}),
-                });
+                };
+                emitEvent('contre_expertise_review_failed', echec);
+                // Terminale, elle ne rendra plus d'avis : la contre-revue
+                // doit aboutir sans elle (secours, ou revue humaine nommée).
+                reprendreContreRevue(echec);
               }
             } else if (pris && msg.success && (msg.diff ?? '').trim() !== '') {
               signalerContreExpertise(msg.taskId, nodeId, msg.diff ?? '', msg.logs ?? '');

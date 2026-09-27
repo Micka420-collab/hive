@@ -262,3 +262,41 @@ describe('une correction de l’Evaluator ne se lit pas comme un échec', () => 
     });
   }
 });
+
+describe('une relecture impossible se lit comme un appel à l’humain', () => {
+  const impossible = evenement('contre_expertise_impossible', {
+    taskId: 'prod-1234abcd',
+    resultId: 3,
+    relecture: 'relu-5678',
+    relecteur: 'codex',
+    producteur: 'claude-code',
+    cause: 'codex a échoué (3 tentative(s))',
+  });
+
+  it('LA CAUSE ET LA REVUE HUMAINE SONT DITES', async () => {
+    const dom = await monter(impossible);
+    expect(ligne(dom)).toBe(
+      'relecture impossible (prod-123) : codex a échoué (3 tentative(s)) — revue humaine requise',
+    );
+  });
+
+  it('EN ANGLAIS, SANS PHRASE FRANÇAISE : le dernier relecteur est nommé', async () => {
+    setLang('en');
+    const dom = await monter(impossible);
+    expect(ligne(dom)).toBe(
+      'review impossible (prod-123), last reviewer codex — human review required',
+    );
+  });
+
+  it('LE RELAIS D’UNE FAMILLE NEUVE SE DISTINGUE D’UN LANCEMENT', async () => {
+    const dom = await monter(
+      evenement('contre_expertise', {
+        taskId: 'prod-1234abcd',
+        possible: true,
+        secours: true,
+        modeles: ['hermes-agent'],
+      }),
+    );
+    expect(ligne(dom)).toBe('relecture de secours de prod-123 confiée à hermes-agent');
+  });
+});

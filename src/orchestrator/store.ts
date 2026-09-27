@@ -5816,6 +5816,35 @@ export class HiveStore {
     return result;
   }
 
+  /**
+   * La cause consignée quand la contre-revue de CE résultat s'est révélée
+   * impossible (`contre_expertise_impossible`), ou `null`.
+   *
+   * Un fait du journal, comme les avis et les preuves CI : c'est au moment où
+   * la dernière relecture tombe que la cause est connue, et c'est là qu'elle
+   * est écrite. Relue à chaque verdict de l'Evaluator plutôt que redéduite de
+   * trois signaux (relectures échouées, secours tenté, nœuds en ligne) dont
+   * l'état a changé depuis.
+   */
+  contreRevueImpossible(taskId: string, resultId: number): string | null {
+    const row = this.db
+      .prepare(
+        `SELECT payload FROM events
+         WHERE type = 'contre_expertise_impossible'
+           AND json_extract(payload, '$.taskId') = ?
+           AND json_extract(payload, '$.resultId') = ?
+         ORDER BY id DESC LIMIT 1`,
+      )
+      .get(taskId, resultId) as { payload: string } | undefined;
+    if (!row) return null;
+    try {
+      const cause = (JSON.parse(row.payload) as Record<string, unknown>).cause;
+      return typeof cause === 'string' && cause.length > 0 ? champSurUneLigne(cause, 500) : null;
+    } catch {
+      return null;
+    }
+  }
+
   /** Résumé de toutes les contre-revues indépendantes d'un résultat exact. */
   crossReviewForResult(taskId: string, resultId: number): CrossReviewEvidence | null {
     const rows = this.db
