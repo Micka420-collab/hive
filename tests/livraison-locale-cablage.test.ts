@@ -595,7 +595,7 @@ describe('livraison locale — ce qu’une vraie ouvrière ne sait pas mal faire
     ).toBe(false);
   });
 
-  it('une branche rendue trop tard reste au journal — et la suivante ne reprend pas son numéro', async () => {
+  it('une branche rendue après une perte de contact compte — une branche orpheline reste au journal, et aucune ne se renumérote', async () => {
     const n = await seul('n-tardif');
     const { project } = mission(server, '/depot/fictif-7', [['fg', 'diff']]);
     const chemin = `/api/projects/${project.id}/livraison-locale`;
@@ -610,38 +610,60 @@ describe('livraison locale — ce qu’une vraie ouvrière ne sait pas mal faire
     // Le nœud se tait : la ruche conclut « inconnue »…
     n.ws.close();
     expect((await resultatDe(base, project.id, mergeId)).livraison?.etat).toBe('inconnue');
-    // …puis il revient et rend ce qu'il avait fait : la branche n°3.
+    // …puis il revient et rend ce qu'il avait fait : la branche n°3. Depuis
+    // #474, une perte de contact n'est qu'une issue PROVISOIRE : le résultat
+    // du MÊME nœud passe par le chemin ordinaire et la remplace.
     const retour = await noeud('n-tardif');
     const branche = `hive/mission-${project.id}-3`;
     const commit = 'c'.repeat(40);
-    retour.ws.send(
-      JSON.stringify({
-        type: 'merge_result',
-        mergeId,
-        applied: ['fg'],
-        conflicts: [],
-        mergedDiff: 'diff',
-        testsRun: false,
-        testsPassed: null,
-        logs: 'appliqué',
-        livraison: { etat: 'commitee', branche, commit, poussee: 'non_demandee' },
-      }),
-    );
-    // Le seul endroit où la ruche peut encore dire qu'une branche existe.
-    const ignore = await attendre(async () =>
+    const rendre = (id: string, branche: string, commit: string): void =>
+      retour.ws.send(
+        JSON.stringify({
+          type: 'merge_result',
+          mergeId: id,
+          applied: ['fg'],
+          conflicts: [],
+          mergedDiff: 'diff',
+          testsRun: false,
+          testsPassed: null,
+          logs: 'appliqué',
+          livraison: { etat: 'commitee', branche, commit, poussee: 'non_demandee' },
+        }),
+      );
+    rendre(mergeId, branche, commit);
+    const rendue = await attendre(async () => {
+      const r = await resultatDe(base, project.id, mergeId);
+      return r.livraison?.etat === 'commitee' ? r : null;
+    });
+    expect(rendue.livraison).toMatchObject({ branche, commit, poussee: 'non_demandee' });
+    const faits = await attendre(async () =>
       (await evenements(base)).find(
-        (e) => e.type === 'merge_result_ignored' && e.payload.mergeId === mergeId,
+        (e) => e.type === 'livraison_locale' && e.payload.mergeId === mergeId && e.payload.branche,
       ),
     );
-    expect(ignore.payload).toMatchObject({ branche, commit, poussee: 'non_demandee' });
-    // Et la livraison suivante part avec ce plancher : n°3 est pris.
+    expect(faits.payload).toMatchObject({ etat: 'commitee', branche, commit });
+
+    // Un résultat que la ruche ne connaît plus (délai passé, Reine redémarrée)
+    // est écarté — mais sa branche EXISTE : le journal est le seul endroit où
+    // la ruche peut encore le dire.
+    const orpheline = `hive/mission-${project.id}-5`;
+    rendre('merge-oublie-de-la-ruche', orpheline, 'd'.repeat(40));
+    const ignore = await attendre(async () =>
+      (await evenements(base)).find(
+        (e) =>
+          e.type === 'merge_result_ignored' && e.payload.mergeId === 'merge-oublie-de-la-ruche',
+      ),
+    );
+    expect(ignore.payload).toMatchObject({ branche: orpheline, poussee: 'non_demandee' });
+
+    // Et la livraison suivante part avec ce plancher : n°3 et n°5 sont pris.
     const suite = await poster(base, chemin, {});
     expect(suite.status).toBe(202);
     const { mergeId: idSuite } = (await suite.json()) as { mergeId: string };
     const recuSuite = await attendre(async () =>
       retour.recus.find((m) => m.type === 'assign_merge' && m.mergeId === idSuite),
     );
-    expect(recuSuite.livraison).toMatchObject({ numeroMin: 4 });
+    expect(recuSuite.livraison).toMatchObject({ numeroMin: 6 });
   });
 
   it('pousser sans ouvrière consentante est refusé AVANT tout travail, avec la marche à suivre', async () => {
