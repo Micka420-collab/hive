@@ -49,3 +49,18 @@ export const DEF_WEBHOOK: DefinitionConnecteur = Object.freeze({
     },
   ],
 });
+
+/**
+ * L'URL de destination est-elle une adresse `http(s)://` complète ? Le secret
+ * se pose en texte libre ; sans ce contrôle, une URL mal collée ne se
+ * révèlerait qu'au premier envoi, en `echec` au journal, loin de l'écran où
+ * l'humain l'a saisie.
+ */
+export function urlWebhookValide(brut: string): boolean {
+  try {
+    const url = new URL(brut);
+    return (url.protocol === 'https:' || url.protocol === 'http:') && url.hostname !== '';
+  } catch {
+    return false;
+  }
+}

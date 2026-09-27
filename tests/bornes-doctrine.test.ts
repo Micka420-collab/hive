@@ -111,6 +111,8 @@ const BORNÉES_PAR_L_HUMAIN: Record<string, string> = {
     'un solde clos par projet — 1:1 avec projects ; l’élaguer rendrait des heures au client',
   motifs_projet:
     'procédures perso créées depuis la Chambre — poignée par projet, jamais auto-générées',
+  connecteurs_projet:
+    'autorisation de connecteur par projet (src/connectors) — clé primaire (connecteurId, projectId), une poignée par projet, posée par l’humain et supprimée à la révocation ; jamais auto-générée',
 };
 
 /** Le corps de chaque méthode `prune*` du magasin, accolades suivies. */

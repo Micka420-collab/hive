@@ -359,6 +359,37 @@ npm run cli -- stings <projectId>            # conflits potentiels du projet
 # ou : GET /api/projects/:id/conflicts
 ```
 
+## 🔌 Connecteurs externes — webhook signé et Slack
+
+La ruche **pousse ses faits vers l'extérieur** — une production qui attend un
+verdict, une décision de revue, une tâche bloquée, une livraison fusionnée — et,
+pour Slack, **reçoit des approbations**. Tout se règle dans **Intendance →
+Connecteurs externes** (administrateur) :
+
+- **Activer** : poser le secret du connecteur. Il est écrit dans le `.env` de la
+  Reine (comme les clés d'API), **jamais en base, jamais envoyé à un nœud, jamais
+  relu** — l'écran n'en montre que la présence.
+- **Autoriser par projet** : un connecteur ne fait **rien** pour un projet qui
+  ne l'a pas autorisé. On accorde des **portées** dans un ensemble fermé
+  (`lecture`, `notification`, `approbation`, `action`), bornées par le **mode**
+  du connecteur : un connecteur en lecture seule ne peut jamais approuver.
+- **Tester** : envoie un fait de test et dit **l'issue réelle** (un récepteur
+  en 500 n'est pas « envoyé »).
+- **Journal** : chaque appel extérieur — réussi, raté ou refusé — laisse une
+  ligne : qui, quel acte, quelle portée, quel résultat, et l'empreinte SHA-256
+  de la charge **caviardée** (jamais la charge en clair). 90 jours.
+
+**Webhook générique** : un `POST` JSON signé HMAC (en-tête `X-Hive-Signature`,
+`t=…,v1=…`) vers l'URL que vous posez. Il ne reçoit rien.
+
+**Slack** : le jeton de bot (`xoxb-…`, scope `chat:write`) poste dans les
+**canaux inscrits** (par ID : `C0…`). Le jeton d'app (`xapp-…`) ouvre le
+**Socket Mode** — la seule voie entrante, sans URL publique. Un bouton
+« Approuver » / « Rejeter » n'est appliqué que si le projet a accordé
+`approbation` **et** que le canal **et** l'usager (`U0…`) sont inscrits ; listes
+vides = personne. Il rejoint **la même revue** que la Miellerie — jamais une
+autorité nouvelle.
+
 ## 🤝 Inviter un ami (connecter son IA en 30 s)
 
 1. **Vous (hôte)** — lancez l'orchestrateur avec un vrai token (`npm run dev`),

@@ -178,15 +178,21 @@ export const EVENEMENTS_CONNECTEUR = [
 export type EvenementConnecteurKind = (typeof EVENEMENTS_CONNECTEUR)[number];
 
 /**
- * La portée qu'un événement sortant EXIGE. Poster une demande d'approbation
- * ouvre une boucle qui peut changer la ruche : elle exige `approbation`, pas la
- * simple `notification`. Les trois autres sont de la notification pure.
+ * La portée qu'un événement sortant EXIGE de CE connecteur. Une demande
+ * d'approbation postée par un connecteur `action` (Slack, boutons) ouvre une
+ * boucle qui peut changer la ruche : elle exige `approbation`, pas la simple
+ * `notification`. Postée par un connecteur `lecture_seule` (le webhook), elle
+ * n'ouvre RIEN — aucune voie de retour n'existe, la réponse passera par la
+ * Miellerie — : c'est alors une notification comme les trois autres.
  *
- * Un seul point de vérité : la garde d'émission et la garde de réception lisent
+ * Sans le mode, le webhook (qui ne peut porter que `notification`) ne pouvait
+ * JAMAIS pousser une demande d'approbation, alors que sa définition l'annonce.
+ *
+ * Un seul point de vérité : la garde d'émission et le bouton « tester » lisent
  * cette table, jamais leur propre idée de « quelle portée pour quoi ».
  */
-export function porteePourEvenement(kind: EvenementConnecteurKind): Portee {
-  return kind === 'demande_approbation' ? 'approbation' : 'notification';
+export function porteePourEvenement(kind: EvenementConnecteurKind, mode: ModeConnecteur): Portee {
+  return kind === 'demande_approbation' && mode === 'action' ? 'approbation' : 'notification';
 }
 
 /** Le fait typé qu'un connecteur reçoit à émettre. Le texte reste bilingue en aval. */

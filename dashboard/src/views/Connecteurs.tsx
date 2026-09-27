@@ -232,8 +232,12 @@ function AutorisationsProjet({
         const def = catalogue.find((c) => c.id === r.id);
         const actuelle = autorisations.find((a) => a.connecteurId === r.id);
         return (
+          // La clé porte le projet ET la version de l'autorisation : le
+          // formulaire s'initialise depuis `actuelle` au montage. Avec `r.id`
+          // seul, il gardait les cases du projet précédent, et restait vide
+          // quand l'autorisation arrivait après le premier rendu.
           <FormAutorisation
-            key={r.id}
+            key={`${projetId}:${r.id}:${actuelle?.majA ?? 0}`}
             resume={r}
             actif={def?.actif ?? false}
             actuelle={actuelle}
@@ -307,11 +311,12 @@ function FormAutorisation({
       .map((x) => x.trim())
       .filter(Boolean);
 
-  const agir = (p: Promise<unknown>, ok: string) => {
+  /** `ok` rend le message à afficher — le résultat d'un test dit s'il est vraiment parti. */
+  const agir = <R,>(p: Promise<R>, ok: (r: R) => string) => {
     setBusy(true);
     onMessage(null);
-    p.then(() => {
-      onMessage(ok);
+    p.then((r) => {
+      onMessage(ok(r));
       onChange();
     })
       .catch((e: unknown) => onMessage(e instanceof Error ? e.message : String(e)))
@@ -328,9 +333,25 @@ function FormAutorisation({
         portees: [...portees],
         ...(estSlack ? { canaux: decouper(canaux), usagers: decouper(usagers) } : {}),
       }),
-      t('Autorisation enregistrée.', 'Authorization saved.'),
+      () => t('Autorisation enregistrée.', 'Authorization saved.'),
     );
   };
+
+  // Le fait de test suit la portée accordée : un Slack qui n'a que les
+  // approbations teste une demande d'approbation (boutons), pas un résumé
+  // qu'il n'a pas le droit de poster.
+  const tester = () =>
+    agir(
+      testerConnecteurProjet(
+        projetId,
+        resume.id,
+        actuelle?.portees.includes('notification') ? 'resume_mission' : 'demande_approbation',
+      ),
+      (r) =>
+        r.envoye
+          ? t('Test envoyé (voir le journal).', 'Test sent (see the journal).')
+          : `${t('Rien n’est parti', 'Nothing was sent')} : ${r.motif ?? '?'}`,
+    );
 
   return (
     <div className="in-autorisation">
@@ -376,16 +397,7 @@ function FormAutorisation({
         <button type="button" disabled={busy} onClick={autoriser}>
           {actuelle ? t('Mettre à jour', 'Update') : t('Autoriser', 'Authorize')}
         </button>
-        <button
-          type="button"
-          disabled={busy || !actuelle}
-          onClick={() =>
-            agir(
-              testerConnecteurProjet(projetId, resume.id, 'resume_mission'),
-              t('Test envoyé (voir le journal).', 'Test sent (see the journal).'),
-            )
-          }
-        >
+        <button type="button" disabled={busy || !actuelle} onClick={tester}>
           {t('Tester', 'Test')}
         </button>
         <button
@@ -393,8 +405,7 @@ function FormAutorisation({
           className="danger"
           disabled={busy || !actuelle}
           onClick={() =>
-            agir(
-              revoquerConnecteurProjet(projetId, resume.id),
+            agir(revoquerConnecteurProjet(projetId, resume.id), () =>
               t('Connecteur révoqué pour ce projet.', 'Connector revoked for this project.'),
             )
           }

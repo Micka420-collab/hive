@@ -89,10 +89,18 @@ describe('validerPorteesDemandees replie et borne', () => {
 });
 
 describe('la portée exigée par un événement a un seul point de vérité', () => {
-  it('une demande d’approbation exige approbation ; le reste, notification', () => {
-    expect(porteePourEvenement('demande_approbation')).toBe('approbation');
-    expect(porteePourEvenement('decision')).toBe('notification');
-    expect(porteePourEvenement('blocage')).toBe('notification');
-    expect(porteePourEvenement('resume_mission')).toBe('notification');
+  it('chez un connecteur qui AGIT, une demande d’approbation exige approbation', () => {
+    expect(porteePourEvenement('demande_approbation', DEF_SLACK.mode)).toBe('approbation');
+    expect(porteePourEvenement('decision', DEF_SLACK.mode)).toBe('notification');
+    expect(porteePourEvenement('blocage', DEF_SLACK.mode)).toBe('notification');
+    expect(porteePourEvenement('resume_mission', DEF_SLACK.mode)).toBe('notification');
+  });
+
+  it('chez un connecteur en lecture seule, elle n’est qu’une notification — et reste accordable', () => {
+    // Le webhook ne peut porter QUE `notification` : si la demande d'approbation
+    // exigeait `approbation` chez lui aussi, elle ne partirait jamais.
+    const requise = porteePourEvenement('demande_approbation', DEF_WEBHOOK.mode);
+    expect(requise).toBe('notification');
+    expect(validerPortee(DEF_WEBHOOK, requise).ok).toBe(true);
   });
 });

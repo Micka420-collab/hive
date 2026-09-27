@@ -27,6 +27,14 @@ export const ENV_SLACK_BOT = 'SLACK_BOT_TOKEN';
 /** Le jeton d'app Slack (`xapp-…`) qui ouvre le Socket Mode entrant. */
 export const ENV_SLACK_APP = 'SLACK_APP_TOKEN';
 
+/**
+ * La forme d'un identifiant Slack de canal (`C…`, `G…`) ou d'usager (`U…`,
+ * `W…`) : majuscules et chiffres. L'inscription se fait par ID, parce que
+ * c'est l'ID — jamais le nom — qu'une interaction entrante porte ; un nom
+ * inscrit ne correspondrait à rien et refuserait tout, sans un mot.
+ */
+export const ID_SLACK_MOTIF = '^[A-Z][A-Z0-9]{2,31}$';
+
 export const DEF_SLACK: DefinitionConnecteur = Object.freeze({
   id: 'slack',
   libelleFr: 'Slack',

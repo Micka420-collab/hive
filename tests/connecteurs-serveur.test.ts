@@ -180,4 +180,64 @@ describe('connecteurs — bout en bout à travers la Reine', () => {
     ).json()) as { autorisations: unknown[] };
     expect(vue.autorisations.length).toBe(0);
   });
+
+  it('une revue humaine du tableau de bord part vers le connecteur (relais d’événement)', async () => {
+    // Le relais `task_reviewed` → `decision` passe par le hub APRÈS l'émission
+    // (différé d'un tour) : le récepteur la voit sans qu'aucun « test » ne
+    // soit demandé. Le titre de la tâche l'accompagne.
+    const autoriser = await fetch(`${base}/api/projects/${projet}/connecteurs/webhook/autoriser`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...compte(jetonAdmin) },
+      body: JSON.stringify({ portees: ['notification'] }),
+    });
+    expect(autoriser.status).toBe(200);
+    recus = [];
+    const tache = server.store.createTask({
+      projectId: projet,
+      title: 'Refondre le menu',
+      prompt: 'p',
+    });
+    server.store.patchTask(tache.id, { status: 'done' });
+    const revue = await fetch(`${base}/api/tasks/${tache.id}/review`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...compte(jetonAdmin) },
+      body: JSON.stringify({ state: 'approved' }),
+    });
+    expect(revue.status).toBe(200);
+    await expect
+      .poll(() => recus.map((r) => JSON.parse(r.body) as { kind: string; titre: string }))
+      .toContainEqual(expect.objectContaining({ kind: 'decision', taskId: tache.id }));
+    const decision = recus
+      .map((r) => JSON.parse(r.body) as { kind: string; titre: string })
+      .find((c) => c.kind === 'decision')!;
+    expect(decision.titre).toContain('Refondre le menu');
+  });
+
+  it('refuse à la pose une URL de webhook qui n’est pas http(s)', async () => {
+    const r = await fetch(`${base}/api/connecteurs/webhook/secrets`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...compte(jetonAdmin) },
+      body: JSON.stringify({ envVar: ENV_WEBHOOK_URL, valeur: 'file:///etc/passwd-assez-long' }),
+    });
+    expect(r.status).toBe(400);
+    expect(((await r.json()) as { error: string }).error).toBe('url_invalide');
+    // L'URL déjà posée n'a pas bougé.
+    expect(process.env[ENV_WEBHOOK_URL]).toBe(urlRecepteur);
+  });
+
+  it('les listes Slack s’inscrivent par ID — un nom de canal est refusé', async () => {
+    const r = await fetch(`${base}/api/projects/${projet}/connecteurs/slack/autoriser`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...compte(jetonAdmin) },
+      body: JSON.stringify({ portees: ['approbation'], canaux: ['#général'], usagers: ['U0123'] }),
+    });
+    expect(r.status).toBe(400);
+  });
+
+  it('un `limit` illisible sur le journal vaut la borne par défaut, pas un 500', async () => {
+    const r = await fetch(`${base}/api/connecteurs/journal?limit=abc`, {
+      headers: compte(jetonAdmin),
+    });
+    expect(r.status).toBe(200);
+  });
 });

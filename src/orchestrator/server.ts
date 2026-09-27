@@ -277,6 +277,8 @@ import {
   type EvenementConnecteurKind,
 } from '../connectors/contrat.js';
 import { HubConnecteurs, type ResultatRevueConnecteur } from './connecteurs.js';
+import { ENV_WEBHOOK_URL, urlWebhookValide } from '../connectors/webhook/definition.js';
+import { ID_SLACK_MOTIF } from '../connectors/slack/definition.js';
 import type { WsLike } from '../connectors/slack/client.js';
 import { conseilVeilleBrief } from './queen-veille.js';
 import {
@@ -512,6 +514,14 @@ export const REQUISITIONS_RETENTION_MS = 30 * 24 * 60 * 60_000;
  * borne, comme les événements et l'horizon.
  */
 export const CONNECTEURS_JOURNAL_RETENTION_MS = 90 * 24 * 60 * 60_000;
+
+/** Les seuls événements internes qui deviennent un fait pour les connecteurs. */
+const TYPES_RELAYES_CONNECTEURS: ReadonlySet<string> = new Set([
+  'task_done',
+  'task_reviewed',
+  'task_failed',
+  'delivery_merged',
+]);
 
 /** Horizon ledger — faits/hypothèses datés ; élagage comme le journal. */
 export const HORIZON_RETENTION_MS = 90 * 24 * 60 * 60_000;
@@ -2586,51 +2596,93 @@ async function monterReine(
 
   /**
    * Un événement interne de la ruche → un fait pour les connecteurs, ou `null`
-   * si aucun connecteur n'a à en entendre parler. Fermé volontairement à trois
-   * types : une décision de revue, un blocage, une demande d'approbation
-   * explicite. Le reste du journal ne quitte pas la ruche.
+   * si aucun connecteur n'a à en entendre parler. Fermé volontairement à quatre
+   * types, un par fait que la carte nomme ; le reste du journal ne quitte pas
+   * la ruche :
+   *
+   *   · `task_done`       → demande d'approbation : la production attend un
+   *                         verdict humain (Miellerie, ou boutons Slack) ;
+   *   · `task_reviewed`   → décision (approuvée / rejetée) ;
+   *   · `task_failed`     → blocage : un humain doit regarder ;
+   *   · `delivery_merged` → résumé de mission : la production est livrée.
+   *
+   * Le PROJET est relu de la tâche (autorité), jamais pris du seul payload
+   * quand une tâche est nommée.
    */
   const evenementConnecteurDepuisEvent = (event: HiveEvent): EvenementConnecteur | null => {
-    // Le TYPE d'abord : seuls deux nous intéressent. Sans ce filtre en tête,
-    // chaque `task_progress` déclencherait un `getTask` pour rien.
-    if (event.type !== 'task_reviewed' && event.type !== 'task_failed') return null;
+    if (!TYPES_RELAYES_CONNECTEURS.has(event.type)) return null;
     const p = event.payload as Record<string, unknown>;
     const taskId = typeof p.taskId === 'string' ? p.taskId : undefined;
-    if (taskId === undefined) return null;
-    const projectId = store.getTask(taskId)?.projectId ?? null;
-    if (projectId === null) return null;
+    const task = taskId !== undefined ? store.getTask(taskId) : null;
+    if (event.type === 'delivery_merged') {
+      // Deux émetteurs : la fusion manuelle (projectId, sans tâche) et la
+      // livraison autonome (taskId, `fusionnee`). Une PR ouverte mais pas
+      // fusionnée n'est pas une mission livrée.
+      if (p.fusionnee === false) return null;
+      const projectId = task?.projectId ?? (typeof p.projectId === 'string' ? p.projectId : null);
+      if (projectId === null) return null;
+      const pr = typeof p.pr === 'number' ? ` #${p.pr}` : '';
+      return {
+        kind: 'resume_mission',
+        projectId,
+        titre: task ? `Production livrée — ${task.title}` : 'Production livrée',
+        corps: `Pull request${pr} fusionnée.`,
+        ...(taskId !== undefined ? { taskId } : {}),
+      };
+    }
+    if (!task || taskId === undefined) return null;
+    if (event.type === 'task_done') {
+      return {
+        kind: 'demande_approbation',
+        projectId: task.projectId,
+        titre: task.title,
+        corps: 'Production terminée — votre verdict est attendu (Miellerie).',
+        taskId,
+      };
+    }
     if (event.type === 'task_reviewed') {
       const etat = p.state === 'approved' || p.state === 'rejected' ? p.state : null;
       if (etat === null) return null;
       return {
         kind: 'decision',
-        projectId,
-        titre: etat === 'approved' ? 'Production approuvée' : 'Production rejetée',
+        projectId: task.projectId,
+        titre: `${etat === 'approved' ? 'Production approuvée' : 'Production rejetée'} — ${task.title}`,
+        ...(typeof p.raison === 'string' && p.raison !== ''
+          ? { corps: `Raison : ${p.raison}` }
+          : {}),
         taskId,
         etat,
       };
     }
+    if (event.type !== 'task_failed') return null;
     const raison = typeof p.reason === 'string' ? p.reason : 'échec';
     return {
       kind: 'blocage',
-      projectId,
-      titre: 'Tâche en échec',
+      projectId: task.projectId,
+      titre: `Tâche en échec — ${task.title}`,
       corps: `Motif : ${raison}`,
       taskId,
     };
   };
 
   // Câble le relais déclaré plus haut : à partir d'ici, chaque événement passe
-  // au hub. `notifier` ne bloque jamais le chemin d'émission (fire-and-forget).
+  // au hub. Différé d'un tour (`setImmediate`) : un événement peut être émis au
+  // milieu d'une transaction (#468) — la tâche relue, le journal écrit et le
+  // réseau touché le sont APRÈS le commit, jamais dedans. `notifier` ne bloque
+  // jamais le chemin d'émission (fire-and-forget, échec journalisé).
   relayerConnecteurs = (event: HiveEvent): void => {
-    const ev = evenementConnecteurDepuisEvent(event);
-    if (ev) {
+    // Le TYPE d'abord, synchrone : sans ce filtre, chaque `task_progress`
+    // (quatre par seconde et par tâche) programmerait un tour pour rien.
+    if (!TYPES_RELAYES_CONNECTEURS.has(event.type)) return;
+    setImmediate(() => {
+      const ev = evenementConnecteurDepuisEvent(event);
+      if (!ev) return;
       void hubConnecteurs.notifier(ev).catch((err: unknown) => {
         app.log.warn(
           `[connecteurs] notification échouée : ${err instanceof Error ? err.message : err}`,
         );
       });
-    }
+    });
   };
 
   // ─── HTTP (REST + dashboard) ───────────────────────────────────────────────
@@ -3705,6 +3757,15 @@ async function monterReine(
       if (!vs.ok) {
         return reply.code(400).send({ error: vs.motif, message: expliquerRefusSecret(vs.motif) });
       }
+      // L'URL du webhook est la seule « valeur » qui dit OÙ la Reine enverra ses
+      // faits : un `file:`, un `javascript:` ou une chaîne illisible ne ferait
+      // qu'échouer à chaque envoi, loin d'ici. Refusée à la pose, là où on voit.
+      if (spec.envVar === ENV_WEBHOOK_URL && !urlWebhookValide(vs.secret)) {
+        return reply.code(400).send({
+          error: 'url_invalide',
+          message: 'L’URL du webhook doit être une adresse http:// ou https:// complète.',
+        });
+      }
       try {
         poserCleQueenEnv(
           cheminEnvQueen,
@@ -3727,10 +3788,13 @@ async function monterReine(
   app.get('/api/connecteurs/journal', async (req, reply) => {
     if (!exige(req, reply, 'gerer_serveurs')) return reply;
     const q = req.query as { connecteurId?: string; limit?: string };
+    // `?limit=abc` rendait NaN, que SQLite refuse en LIMIT : un 500 pour une
+    // faute de frappe. Un nombre illisible vaut « la borne par défaut ».
+    const limit = Number.parseInt(q.limit ?? '', 10);
     return {
       journal: store.listerJournalConnecteurs({
         ...(typeof q.connecteurId === 'string' ? { connecteurId: q.connecteurId } : {}),
-        ...(q.limit ? { limit: Number(q.limit) } : {}),
+        ...(Number.isFinite(limit) ? { limit } : {}),
       }),
     };
   });
@@ -3778,8 +3842,20 @@ async function monterReine(
           additionalProperties: false,
           properties: {
             portees: { type: 'array', maxItems: 8, items: { type: 'string', maxLength: 32 } },
-            canaux: { type: 'array', maxItems: 64, items: { type: 'string', maxLength: 64 } },
-            usagers: { type: 'array', maxItems: 256, items: { type: 'string', maxLength: 64 } },
+            // Des IDs Slack (`C0…`, `G0…`, `U0…`, `W0…`), pas des noms : un
+            // `#général` ou un `@marie` ne correspond à AUCUN identifiant que
+            // Slack renvoie dans une interaction — l'inscrire ne ferait que
+            // refuser en silence chaque clic légitime.
+            canaux: {
+              type: 'array',
+              maxItems: 64,
+              items: { type: 'string', pattern: ID_SLACK_MOTIF },
+            },
+            usagers: {
+              type: 'array',
+              maxItems: 256,
+              items: { type: 'string', pattern: ID_SLACK_MOTIF },
+            },
             actif: { type: 'boolean' },
           },
         },
@@ -3877,12 +3953,18 @@ async function monterReine(
         return reply.code(404).send({ error: 'connecteur inconnu' });
       }
       const kind: EvenementConnecteurKind = req.body?.kind ?? 'resume_mission';
-      const resultat = await hubConnecteurs.tester(req.params.connecteurId, {
-        kind,
-        projectId: req.params.projectId,
-        titre: 'Test de connecteur',
-        corps: 'Émis depuis l’Intendance pour vérifier le connecteur.',
-      });
+      // Le journal dit QUI a déclenché l'appel : le compte, ou le jeton de ruche.
+      const qui = authorizedUser(req) ? `compte:${(req as AuthRequest).userId!}` : 'jeton_ruche';
+      const resultat = await hubConnecteurs.tester(
+        req.params.connecteurId,
+        {
+          kind,
+          projectId: req.params.projectId,
+          titre: 'Test de connecteur',
+          corps: 'Émis depuis l’Intendance pour vérifier le connecteur.',
+        },
+        qui,
+      );
       return { ok: true, ...resultat };
     },
   );

@@ -311,6 +311,35 @@ npm run cli -- stings <projectId>            # the project's potential conflicts
 # or: GET /api/projects/:id/conflicts
 ```
 
+## 🔌 External connectors — signed webhook and Slack
+
+The hive **pushes its facts outward** — a production awaiting a verdict, a
+review decision, a blocked task, a merged delivery — and, for Slack, **receives
+approvals**. Everything is set in **Stewardship → External connectors** (admin):
+
+- **Enable**: set the connector's secret. It is written to the Queen's `.env`
+  (like API keys), **never to the database, never sent to a node, never read
+  back** — the screen only shows that it is present.
+- **Authorize per project**: a connector does **nothing** for a project that has
+  not authorized it. Scopes come from a closed set (`lecture`, `notification`,
+  `approbation`, `action`), bounded by the connector's **mode**: a read-only
+  connector can never approve.
+- **Test**: sends a test fact and reports the **real outcome** (a receiver
+  answering 500 is not "sent").
+- **Journal**: every outside call — succeeded, failed or refused — leaves a
+  line: who, which act, which scope, which result, and the SHA-256 of the
+  **redacted** payload (never the payload itself). 90 days.
+
+**Generic webhook**: an HMAC-signed JSON `POST` (`X-Hive-Signature` header,
+`t=…,v1=…`) to the URL you set. It receives nothing.
+
+**Slack**: the bot token (`xoxb-…`, `chat:write` scope) posts to the **listed
+channels** (by ID: `C0…`). The app token (`xapp-…`) opens **Socket Mode** — the
+only inbound path, with no public URL. An "Approve" / "Reject" button is applied
+only if the project granted `approbation` **and** both the channel **and** the
+user (`U0…`) are listed; empty lists mean nobody. It joins **the same review**
+as the Honey House — never a new authority.
+
 ## 🤝 Invite a friend (connect their AI in 30 s)
 
 1. **You (host)** — start the orchestrator with a real token (`npm run dev`),

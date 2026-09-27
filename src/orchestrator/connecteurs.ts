@@ -22,7 +22,7 @@
 // pilote des faux ; la preuve Slack VIVE demande un atelier réel (hors machine).
 
 import { createHash } from 'node:crypto';
-import { creerCaviardeur } from '../shared/caviardage.js';
+import { creerCaviardeur, valeursSecretes, type Caviardeur } from '../shared/caviardage.js';
 import type { HiveStore } from './store.js';
 import {
   porteePourEvenement,
@@ -47,8 +47,10 @@ import {
 import { autoriserInteraction, extraireInteraction } from '../connectors/slack/interactions.js';
 
 /** Le verdict que le serveur rend quand le hub lui demande d'appliquer une revue. */
-export type ResultatRevueConnecteur =
-  'applique' | 'tache_inconnue' | 'non_terminal' | 'deja_livree';
+export type ResultatRevueConnecteur = 'applique' | 'tache_inconnue' | 'non_terminal';
+
+/** L'issue d'un envoi, telle que le bouton « tester » la rend à l'humain. */
+type IssueEnvoi = { readonly ok: true } | { readonly ok: false; readonly motif: string };
 
 export interface DepsHub {
   readonly store: HiveStore;
@@ -68,15 +70,15 @@ export interface DepsHub {
   readonly log?: (msg: string) => void;
 }
 
-/** Empreinte + aperçu CAVIARDÉS d'une charge — jamais le clair, jamais un secret. */
-function empreinteCaviardee(
-  charge: string,
-  secrets: readonly string[],
-): { chargeDigest: string; apercu: string } {
-  const caviardeur = creerCaviardeur(secrets);
-  const propre = caviardeur.texte(charge);
-  const chargeDigest = createHash('sha256').update(propre, 'utf8').digest('hex');
-  const apercu = propre.length <= 200 ? propre : `${propre.slice(0, 199)}…`;
+/**
+ * Empreinte + aperçu d'une charge DÉJÀ caviardée (`caviarderEvenement`) : ce
+ * qui est journalisé est exactement ce qui est parti — l'empreinte permet de
+ * rapprocher une entrée du journal du corps reçu par le récepteur, sans que la
+ * base garde le corps.
+ */
+function empreinte(charge: string): { chargeDigest: string; apercu: string } {
+  const chargeDigest = createHash('sha256').update(charge, 'utf8').digest('hex');
+  const apercu = charge.length <= 200 ? charge : `${charge.slice(0, 199)}…`;
   return { chargeDigest, apercu };
 }
 
@@ -102,10 +104,28 @@ export class HubConnecteurs {
     return (this.deps.env[nom] ?? '').trim();
   }
 
-  /** Les valeurs secrètes des connecteurs, pour les caviarder d'une charge. */
-  private secretsConnus(): string[] {
+  /**
+   * Le caviardeur de ce qui QUITTE la ruche : les valeurs des secrets des
+   * connecteurs (l'URL du webhook peut porter un jeton), celles des variables
+   * d'identification de l'env Queen (`HIVE_TOKEN`, clés d'API…), et les motifs
+   * de jetons connus. Un titre de tâche ou un motif d'échec est écrit par un
+   * humain ou un agent : rien ne garantit qu'il ne contient pas une clé collée
+   * par erreur — et Slack, lui, la garderait pour toujours.
+   */
+  private caviardeur(): Caviardeur {
     const noms = [ENV_WEBHOOK_SECRET, ENV_WEBHOOK_URL, ENV_SLACK_BOT, ENV_SLACK_APP];
-    return noms.map((n) => this.secret(n)).filter((v) => v.length > 0);
+    const connecteurs = noms.map((n) => this.secret(n)).filter((v) => v.length > 0);
+    return creerCaviardeur([...connecteurs, ...valeursSecretes(this.deps.env)]);
+  }
+
+  /** L'événement tel qu'il PEUT partir : titre et corps caviardés, le reste structurel. */
+  private caviarderEvenement(ev: EvenementConnecteur): EvenementConnecteur {
+    const c = this.caviardeur();
+    return {
+      ...ev,
+      titre: c.texte(ev.titre),
+      ...(ev.corps !== undefined ? { corps: c.texte(ev.corps) } : {}),
+    };
   }
 
   /** Un connecteur est ACTIF si tous ses secrets requis sont posés dans l'env Queen. */
@@ -122,23 +142,42 @@ export class HubConnecteurs {
    * silencieusement sauté : ce n'est pas un envoi raté, c'est un non-envoi.
    */
   async notifier(evenement: EvenementConnecteur): Promise<void> {
-    const requise = porteePourEvenement(evenement.kind);
+    const propre = this.caviarderEvenement(evenement);
     for (const def of listerDefinitions()) {
       if (!this.estActif(def.id)) continue;
       const autorisation = this.deps.store.lireAutorisationConnecteur(def.id, evenement.projectId);
       if (!autorisation || !autorisation.actif) continue;
+      const requise = porteePourEvenement(evenement.kind, def.mode);
       if (!autorisation.portees.includes(requise)) continue;
-      if (def.id === 'webhook') await this.envoyerWebhook(evenement, requise);
-      else if (def.id === 'slack') await this.envoyerSlack(evenement, requise, autorisation.canaux);
+      await this.envoyer(def.id, propre, requise, autorisation.canaux, 'ruche');
     }
   }
 
-  private async envoyerWebhook(evenement: EvenementConnecteur, portee: Portee): Promise<void> {
+  /** L'aiguillage par connecteur : un seul endroit sait quel envoi appartient à qui. */
+  private async envoyer(
+    connecteurId: string,
+    evenement: EvenementConnecteur,
+    portee: Portee,
+    canaux: readonly string[],
+    qui: string,
+  ): Promise<IssueEnvoi | null> {
+    if (connecteurId === 'webhook') return this.envoyerWebhook(evenement, portee, qui);
+    if (connecteurId === 'slack') return this.envoyerSlack(evenement, portee, canaux, qui);
+    return null;
+  }
+
+  private async envoyerWebhook(
+    evenement: EvenementConnecteur,
+    portee: Portee,
+    qui: string,
+  ): Promise<IssueEnvoi> {
     const url = this.secret(ENV_WEBHOOK_URL);
     const secret = this.secret(ENV_WEBHOOK_SECRET);
     const requete = construireRequeteWebhook({ url, secret, evenement, now: Date.now() });
-    const empreinte = empreinteCaviardee(requete.corps, this.secretsConnus());
+    const trace = empreinte(requete.corps);
     const res = await envoyerWebhook(requete, this.fetchWebhook);
+    // Le motif d'un échec réseau peut citer l'URL (et le jeton qu'elle porte).
+    const motif = res.ok ? undefined : this.caviardeur().texte(res.motif);
     this.deps.store.journaliserConnecteur({
       connecteurId: 'webhook',
       projectId: evenement.projectId,
@@ -146,20 +185,22 @@ export class HubConnecteurs {
       acte: evenement.kind,
       cible: evenement.taskId ?? null,
       resultat: res.ok ? 'ok' : 'echec',
-      qui: 'ruche',
-      apercu: res.ok ? empreinte.apercu : `${empreinte.apercu} — ${res.motif}`,
-      chargeDigest: empreinte.chargeDigest,
+      qui,
+      apercu: motif === undefined ? trace.apercu : `${trace.apercu} — ${motif}`,
+      chargeDigest: trace.chargeDigest,
     });
+    return motif === undefined ? { ok: true } : { ok: false, motif };
   }
 
   private async envoyerSlack(
     evenement: EvenementConnecteur,
     portee: Portee,
     canaux: readonly string[],
-  ): Promise<void> {
+    qui: string,
+  ): Promise<IssueEnvoi> {
     const token = this.secret(ENV_SLACK_BOT);
     const message = messagePourEvenement(evenement);
-    const empreinte = empreinteCaviardee(JSON.stringify(message), this.secretsConnus());
+    const trace = empreinte(JSON.stringify(message));
     // On poste dans CHAQUE canal inscrit : « configurés explicitement » vaut
     // pour l'envoi comme pour l'écoute. Aucun canal ⇒ rien n'est posté (et une
     // entrée `refuse` le dit, plutôt qu'un silence).
@@ -171,12 +212,13 @@ export class HubConnecteurs {
         acte: evenement.kind,
         cible: evenement.taskId ?? null,
         resultat: 'refuse',
-        qui: 'ruche',
+        qui,
         apercu: 'aucun canal configuré',
-        chargeDigest: empreinte.chargeDigest,
+        chargeDigest: trace.chargeDigest,
       });
-      return;
+      return { ok: false, motif: 'aucun canal configuré' };
     }
+    const echecs: string[] = [];
     for (const channel of canaux) {
       const res = await posterMessageSlack({ token, channel, message }, this.fetchSlack);
       this.deps.store.journaliserConnecteur({
@@ -186,11 +228,13 @@ export class HubConnecteurs {
         acte: evenement.kind,
         cible: evenement.taskId ?? null,
         resultat: res.ok ? 'ok' : 'echec',
-        qui: 'ruche',
-        apercu: res.ok ? `#${channel} ${empreinte.apercu}` : `#${channel} — ${res.motif}`,
-        chargeDigest: empreinte.chargeDigest,
+        qui,
+        apercu: res.ok ? `#${channel} ${trace.apercu}` : `#${channel} — ${res.motif}`,
+        chargeDigest: trace.chargeDigest,
       });
+      if (!res.ok) echecs.push(`#${channel} : ${res.motif}`);
     }
+    return echecs.length === 0 ? { ok: true } : { ok: false, motif: echecs.join(' ; ') };
   }
 
   /**
@@ -201,7 +245,10 @@ export class HubConnecteurs {
   async tester(
     connecteurId: string,
     evenement: EvenementConnecteur,
+    qui: string,
   ): Promise<{ envoye: boolean; motif?: string }> {
+    const def = definitionConnecteur(connecteurId);
+    if (!def) return { envoye: false, motif: 'connecteur inconnu' };
     if (!this.estActif(connecteurId)) return { envoye: false, motif: 'connecteur inactif' };
     const autorisation = this.deps.store.lireAutorisationConnecteur(
       connecteurId,
@@ -209,14 +256,16 @@ export class HubConnecteurs {
     );
     if (!autorisation || !autorisation.actif)
       return { envoye: false, motif: 'non autorisé sur ce projet' };
-    const portee = porteePourEvenement(evenement.kind);
+    const portee = porteePourEvenement(evenement.kind, def.mode);
     if (!autorisation.portees.includes(portee))
       return { envoye: false, motif: 'portée non accordée' };
-    if (connecteurId === 'webhook') await this.envoyerWebhook(evenement, portee);
-    else if (connecteurId === 'slack')
-      await this.envoyerSlack(evenement, portee, autorisation.canaux);
-    else return { envoye: false, motif: 'connecteur sans émission' };
-    return { envoye: true };
+    const propre = this.caviarderEvenement(evenement);
+    const issue = await this.envoyer(connecteurId, propre, portee, autorisation.canaux, qui);
+    // L'issue RÉELLE de l'envoi : un récepteur qui répond 500, un canal où le
+    // bot n'est pas invité, disent « échec » ici comme au journal — un bouton
+    // qui annoncerait « envoyé » sur un 500 ferait croire le connecteur prêt.
+    if (issue === null) return { envoye: false, motif: 'connecteur sans émission' };
+    return issue.ok ? { envoye: true } : { envoye: false, motif: issue.motif };
   }
 
   // ─── Socket Mode entrant (approbations Slack) ───────────────────────────────

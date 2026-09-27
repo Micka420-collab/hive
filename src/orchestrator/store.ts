@@ -1485,16 +1485,6 @@ function lireModeles(brut: string): string[] {
 }
 
 /**
- * Relit les constats d'outils. Tolérante comme `lireModeles`, et EXIGEANTE sur
- * la forme : une entrée dont un champ manque ou ment est écartée, pas
- * réparée. Un constat à moitié lu vaudrait un constat inventé.
- *
- * Le tri-état de la clé est reconstruit ici plutôt que recopié : `presente`,
- * `absente`, `inconnue` — tout le reste vaut `inconnue`, parce que « on ne
- * sait pas lire » est la seule réponse honnête à une valeur qu'on ne connaît
- * pas, et jamais « pas de clé ».
- */
-/**
  * Une liste JSON de chaînes, robuste à la corruption : une base éditée à la
  * main, une valeur non-tableau ou un élément non-chaîne rendent une liste vide
  * (ou l'ignorent), jamais une exception ni un accès inventé. Sert aux
@@ -1510,6 +1500,16 @@ function listeDeChaines(brut: string): string[] {
   }
 }
 
+/**
+ * Relit les constats d'outils. Tolérante comme `lireModeles`, et EXIGEANTE sur
+ * la forme : une entrée dont un champ manque ou ment est écartée, pas
+ * réparée. Un constat à moitié lu vaudrait un constat inventé.
+ *
+ * Le tri-état de la clé est reconstruit ici plutôt que recopié : `presente`,
+ * `absente`, `inconnue` — tout le reste vaut `inconnue`, parce que « on ne
+ * sait pas lire » est la seule réponse honnête à une valeur qu'on ne connaît
+ * pas, et jamais « pas de clé ».
+ */
 function lireOutils(brut: string): OutilConstate[] {
   try {
     const lus: unknown = JSON.parse(brut);
@@ -2871,32 +2871,6 @@ export class HiveStore {
       usagers: listeDeChaines(r.usagers),
       actif: r.actif !== 0,
       majA: r.majA,
-    }));
-  }
-
-  /**
-   * Les projets qui ont accordé une portée donnée à un connecteur ACTIF. Sert au
-   * fan-out sortant (qui doit recevoir cet événement ?) et à la boucle entrante
-   * (quel projet écoute des approbations Slack ?).
-   */
-  listerProjetsAutorisantConnecteur(
-    connecteurId: string,
-  ): Array<{ projectId: string; portees: string[]; canaux: string[]; usagers: string[] }> {
-    const rows = this.db
-      .prepare(
-        'SELECT projectId, portees, canaux, usagers FROM connecteurs_projet WHERE connecteurId = ? AND actif = 1',
-      )
-      .all(connecteurId) as Array<{
-      projectId: string;
-      portees: string;
-      canaux: string;
-      usagers: string;
-    }>;
-    return rows.map((r) => ({
-      projectId: r.projectId,
-      portees: listeDeChaines(r.portees),
-      canaux: listeDeChaines(r.canaux),
-      usagers: listeDeChaines(r.usagers),
     }));
   }
 
