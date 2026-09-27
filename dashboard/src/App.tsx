@@ -24,6 +24,7 @@ import { setLang, useLang, useT } from './i18n';
 import { InvitePanel } from './InvitePanel';
 import { NewProjectModal } from './NewProjectModal';
 import { TaskDrawer } from './TaskDrawer';
+import { VueEnPanne } from './VueEnPanne';
 import { transitionDifferees } from './differees';
 import { annoncesDepuisEvenements } from './horloge-vue';
 import {
@@ -548,6 +549,9 @@ export function App() {
             <li key={item.id}>
               <button
                 className={`mc-nav-cell${route.view === item.id ? ' active' : ''}`}
+                // L'identifiant de la vue, lisible sans dépendre de la langue :
+                // `npm run captures` nomme ses images d'après lui.
+                data-vue={item.id}
                 onClick={() => navigate(item.id)}
                 title={`${lang === 'fr' ? item.label : item.labelEn} (${t('touche', 'key')} ${item.key})`}
                 aria-current={route.view === item.id ? 'page' : undefined}
@@ -703,26 +707,51 @@ export function App() {
           </div>
         )}
 
-        <Suspense
-          fallback={
-            <div className="mc-view-loading">{t('Chargement de la vue…', 'Loading view…')}</div>
-          }
+        {/* Une vue qui tombe ne démonte plus que ELLE (cf. VueEnPanne.tsx) ; la
+            clé repart d'une frontière neuve à chaque vue. */}
+        <VueEnPanne
+          key={route.view}
+          repli={(erreur) => (
+            <div className="mc-view-panne" role="alert">
+              <p>
+                <strong>
+                  {t('Cette vue n’a pas pu s’afficher.', 'This view could not be displayed.')}
+                </strong>{' '}
+                {t(
+                  'Les autres vues restent ouvertes dans la barre. Si l’écran vient d’être mis à jour, rechargez la page.',
+                  'The other views are still available in the bar. If the dashboard was just updated, reload the page.',
+                )}
+              </p>
+              <p>
+                <code>{erreur.message}</code>
+              </p>
+              <button type="button" className="btn" onClick={() => location.reload()}>
+                {t('Recharger la page', 'Reload the page')}
+              </button>
+            </div>
+          )}
         >
-          {route.view === 'ruche' && <Ruche {...viewProps} />}
-          {route.view === 'miellerie' && <Miellerie {...viewProps} />}
-          {route.view === 'projets' && <Projets {...viewProps} />}
-          {route.view === 'essaim' && <Essaim {...viewProps} />}
-          {route.view === 'sante' && <Sante {...viewProps} />}
-          {route.view === 'chronique' && <Chronique {...viewProps} />}
-          {route.view === 'memoire' && <Memoire {...viewProps} />}
-          {route.view === 'reine' && <Reine {...viewProps} />}
-          {route.view === 'rayon' && <Rayon {...viewProps} />}
-          {route.view === 'monespace' && <MonEspace {...viewProps} />}
-          {route.view === 'intendance' && <Intendance {...viewProps} />}
-          {route.view === 'cerveau' && <Cerveau {...viewProps} />}
-          {route.view === 'chantiers' && <Chantiers {...viewProps} />}
-          {route.view === 'chambre' && <Chambre {...viewProps} />}
-        </Suspense>
+          <Suspense
+            fallback={
+              <div className="mc-view-loading">{t('Chargement de la vue…', 'Loading view…')}</div>
+            }
+          >
+            {route.view === 'ruche' && <Ruche {...viewProps} />}
+            {route.view === 'miellerie' && <Miellerie {...viewProps} />}
+            {route.view === 'projets' && <Projets {...viewProps} />}
+            {route.view === 'essaim' && <Essaim {...viewProps} />}
+            {route.view === 'sante' && <Sante {...viewProps} />}
+            {route.view === 'chronique' && <Chronique {...viewProps} />}
+            {route.view === 'memoire' && <Memoire {...viewProps} />}
+            {route.view === 'reine' && <Reine {...viewProps} />}
+            {route.view === 'rayon' && <Rayon {...viewProps} />}
+            {route.view === 'monespace' && <MonEspace {...viewProps} />}
+            {route.view === 'intendance' && <Intendance {...viewProps} />}
+            {route.view === 'cerveau' && <Cerveau {...viewProps} />}
+            {route.view === 'chantiers' && <Chantiers {...viewProps} />}
+            {route.view === 'chambre' && <Chambre {...viewProps} />}
+          </Suspense>
+        </VueEnPanne>
       </div>
 
       {openTask && (

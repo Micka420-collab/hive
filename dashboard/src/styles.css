@@ -2449,6 +2449,28 @@ h3 {
   }
 }
 
+/* La vue tombée (VueEnPanne.tsx) : à la place de la vue, pas de l'écran — la
+   barre et l'en-tête restent autour. */
+.mc-view-panne {
+  margin: 48px auto;
+  max-width: 44rem;
+  padding: 18px 22px;
+  border: 1px solid color-mix(in srgb, var(--danger, #c44) 35%, var(--border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--danger, #c44) 8%, var(--panel));
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.mc-view-panne p {
+  margin: 0 0 12px;
+}
+
+.mc-view-panne code {
+  overflow-wrap: anywhere;
+}
+
 .mc-ruche-stats {
   margin: 10px 22px 0;
   padding: 8px 12px;
