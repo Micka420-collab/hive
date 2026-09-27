@@ -155,16 +155,18 @@ describe('UNE SESSION DE L’HÔTE NE COMPTE PAS DANS LE BAC', () => {
   });
 
   it('Cursor et Grok : leur session de l’hôte reste dehors, elle aussi', () => {
-    const tout = (): boolean => true;
+    // `plateforme` fixée : sous Windows, le dossier personnel se lit dans
+    // USERPROFILE, et ce poste-ci n'a que HOME.
+    const hote = { existe: (): boolean => true, plateforme: 'linux' } as const;
     const grokHome = { HOME: MAISON, GROK_HOME: '/home/membre/.grok' };
-    expect(requisitionSiCredentialsManquantes('cursor', env, { existe: tout })).toBeNull();
-    expect(requisitionSiCredentialsManquantes('grok', grokHome, { existe: tout })).toBeNull();
+    expect(requisitionSiCredentialsManquantes('cursor', env, hote)).toBeNull();
+    expect(requisitionSiCredentialsManquantes('grok', grokHome, hote)).toBeNull();
     const cursor = requisitionSiCredentialsManquantes('cursor', env, {
-      existe: tout,
+      ...hote,
       sessionsHote: false,
     });
     const grok = requisitionSiCredentialsManquantes('grok', grokHome, {
-      existe: tout,
+      ...hote,
       sessionsHote: false,
     });
     expect(cursor?.detail).toContain('CURSOR_API_KEY');
