@@ -1,7 +1,7 @@
 import { lazy, StrictMode, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
-import { getPartage, savePartage } from './api';
+import { clearPartage, getPartage, savePartage } from './api';
 import { FiletDeSecurite } from './ui';
 import './styles.css';
 
@@ -43,6 +43,11 @@ function racine(): { partage: true; projectId: string } | { partage: false } {
   // Un jeton sans projet dans l'URL ne mène nulle part : on repart en ruche
   // ordinaire plutôt que d'afficher un écran vide qu'on ne sait pas expliquer.
   if (enMemoire && projectId !== '') return { partage: true, projectId };
+  // …et « ordinaire » veut dire SANS le lien. Un onglet est de la ruche ou du
+  // partage, jamais des deux : resté en mémoire, le lien ferait partir les
+  // lectures de `App` avec lui seul (`apiLecture`) — un rapport refusé, un
+  // Rayon en lecture seule sur les projets de la personne elle-même.
+  clearPartage();
   return { partage: false };
 }
 

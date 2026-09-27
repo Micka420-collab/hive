@@ -172,6 +172,22 @@ Aucun test de la suite n'a rougi lors du resserrement, et c'est précisément
 pourquoi `tests/engagement-projet.test.ts` a été écrit : une garde qu'aucun test
 ne voit mordre est une garde qu'on retirera un jour sans s'en apercevoir.
 
+Et aucun test n'a vu ce que le resserrement cassait : le tableau de bord
+**connecté**. Son `api()` n'envoyait que le jeton de ruche, alors que
+`createProject` attribue le projet à la session — le propriétaire recevait donc
+« 404 projet inconnu » sur les huit engagements de son propre projet, `addTasks`
+en tête, juste après l'avoir créé. Les bancs du serveur choisissent leurs
+en-têtes, ceux de l'écran bouchonnent `fetch` : le défaut vivait entre les deux.
+`api()` joint désormais le JWT à chaque appel — sauf la lecture par lien de
+partage, qui part avec le lien SEUL : ni compte ni jeton de ruche, sinon un lien
+révoqué s'ouvrirait encore chez son hôte. `tests/dashboard-contrat-compte.test.tsx`
+fait passer les vraies fonctions de l'écran devant une vraie Reine.
+
+Ce que cela ne règle pas encore : une session qui expire pendant que l'onglet
+reste ouvert. L'écran ne purge le JWT qu'au montage ; d'ici là il part périmé,
+la Reine le traite comme absent, et la personne retrouve le 404 sur son projet
+(ou un 401 à la création) sans qu'on lui dise de se reconnecter.
+
 ## Première étape livrée : les capacités globales
 
 La séparation a maintenant franchi la frontière des opérations globales qui
