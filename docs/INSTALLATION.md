@@ -502,7 +502,7 @@ dans votre dossier personnel. Ce n'est pas une promesse en prose :
 [`tests/empreinte.test.ts`](../tests/empreinte.test.ts) relève les appels
 d'écriture réels de `src/` et **rougit** si l'un d'eux apparaît ailleurs.
 
-**Trois nuances, parce qu'elles vous concernent :**
+**Quelques nuances, parce qu'elles vous concernent :**
 
 - `$TMPDIR/hive-merge-*` : ces répertoires sont effacés à la fin de chaque
   fusion ; il n'en reste que si un processus a été tué au mauvais moment.
@@ -517,6 +517,19 @@ d'écriture réels de `src/` et **rougit** si l'un d'eux apparaît ailleurs.
   le calcul du diff ; ils ne doivent donc jamais apparaître dans une livraison.
   Une image de bac personnalisée doit contenir `node` en plus du CLI : le
   preflight le vérifie pour Claude Code et Codex avant d'accepter le bac.
+- `<installation>/.hive-work/tasks/<task-id>.git` : le git dir **de la
+  ruche**, posé à côté de la tâche juste après le clone et effacé avec elle.
+  C'est par lui — jamais par le `.git` que l'agent a eu entre les mains — que
+  le nœud calcule le diff de revue : un crochet, un filtre ou un
+  `core.fsmonitor` écrit par l'agent dans son dépôt ne s'exécute donc jamais
+  sur votre machine, hors du bac.
+- **un dépôt privé par SSH** (`git@hôte:…`) : le nœud clone en mode lot
+  (`ssh -o BatchMode=yes`), sans jamais attendre une invite. La clé d'hôte
+  doit donc déjà figurer dans votre `~/.ssh/known_hosts`, et une clé à phrase
+  de passe doit être chargée dans votre agent ssh (`ssh-add`) — le nœud lui
+  transmet `SSH_AUTH_SOCK`, jamais à l'agent de codage. Un `core.sshCommand`
+  de votre configuration git est remplacé ; choisissez la clé d'un hôte dans
+  `~/.ssh/config`, que `ssh` lit toujours.
 - **si vous avez demandé un service**, son fichier vit dans votre dossier
   personnel — `~/.config/systemd/user/` sous Linux, `~/Library/LaunchAgents/`
   sous macOS. C'est la seule chose que Hive écrit là, elle est **opt-in**, et

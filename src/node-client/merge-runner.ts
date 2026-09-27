@@ -20,13 +20,13 @@ import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { simpleGit } from 'simple-git';
 import { ENTREE_FERMEE } from '../adapters/exec.js';
 import { jugerCommandeTest } from '../shared/commande-test.js';
 import { jugerPreparation } from '../shared/preparation.js';
 import { LanceurIndisponible, resoudreLanceur } from '../lanceur-reel.js';
 import { envelopper } from './isolement.js';
 import type { Fournisseur } from './isolement.js';
+import { commitDeDepart, diffContreBase, epinglerClone, gitHote } from './git-hote.js';
 import { buildSandboxEnv } from './workspace.js';
 
 export interface MergeDiff {
@@ -220,7 +220,13 @@ export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
     const verdict = jugerPreparation(opts.prepareCommand);
     if (!verdict.ok) throw new Error(`préparation refusée : ${verdict.motif}`);
   }
-  const git = simpleGit({ baseDir: opts.repoDir });
+  // Le clone vient du nœud et aucun code étranger n'y a tourné : son git dir
+  // est de confiance. On l'ÉPINGLE quand même (rien n'est cherché ailleurs), et
+  // les `.gitattributes` qu'un diff apporte ne déclenchent aucun filtre
+  // (git-hote.ts). La préparation et les tests, eux, tournent APRÈS le dernier
+  // git — ce qu'ils écrivent dans `.git` ne gouverne plus rien.
+  const depot = epinglerClone(opts.repoDir);
+  const base = await commitDeDepart(depot);
   const applied: string[] = [];
   const conflicts: { taskId: string; reason: string }[] = [];
   const logs: string[] = [];
@@ -236,20 +242,19 @@ export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
       writeFileSync(patchFile, diff.endsWith('\n') ? diff : `${diff}\n`);
       try {
         // Vérifie AVANT d'appliquer : échoue si le patch ne colle pas à l'état accumulé.
-        await git.raw(['apply', '--check', patchFile]);
+        await gitHote(['apply', '--check', patchFile], opts.repoDir, depot);
       } catch {
         conflicts.push({ taskId, reason: "le diff ne s'applique pas proprement (conflit)" });
         logs.push(`✘ ${taskId} : conflit d'application`);
         continue;
       }
-      await git.raw(['apply', patchFile]);
+      await gitHote(['apply', patchFile], opts.repoDir, depot);
       applied.push(taskId);
       logs.push(`✔ ${taskId} appliqué`);
     }
 
-    // Diff cumulé (nouveaux fichiers rendus visibles via --intent-to-add).
-    await git.raw(['add', '--all', '--intent-to-add']);
-    const mergedDiff = await git.diff();
+    // Diff cumulé contre la base du clone — créations ET suppressions.
+    const mergedDiff = await diffContreBase(depot, base);
 
     let testsRun = false;
     let testsPassed: boolean | null = null;

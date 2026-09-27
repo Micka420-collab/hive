@@ -2,7 +2,9 @@
 //
 // Ce que CE fichier fournit : un cwd dédié par tâche, un environnement épuré
 // (pas de HOME/USERPROFILE ni variables du membre), TEMP redirigé dans la
-// tâche, une branche git `hive/<taskId>` quand le projet a un dépôt.
+// tâche, une branche git `hive/<taskId>` quand le projet a un dépôt — et le
+// diff de revue, calculé par le git dir de la RUCHE, jamais par le `.git` que
+// l'agent a eu entre les mains (`git-hote.ts`).
 //
 // ─── CE N'EST PAS TOUT L'ISOLEMENT, ET CE COMMENTAIRE L'A CRU LONGTEMPS ──────
 //
@@ -23,14 +25,12 @@
 
 import { mkdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
-import { simpleGit } from 'simple-git';
-import type { SimpleGit } from 'simple-git';
 import type { Task } from '../shared/types.js';
+import { commitDeDepart, diffContreBase, gitHote, poserRegistre } from './git-hote.js';
 
 export interface Workspace {
   /** Répertoire de travail isolé de la tâche. */
   cwd: string;
-  git: SimpleGit | null;
   branch: string | null;
   /** Environnement épuré pour les processus enfants. */
   env: NodeJS.ProcessEnv;
@@ -84,21 +84,13 @@ export function buildSandboxEnv(cwd: string, keepEnv: string[] = []): NodeJS.Pro
 }
 
 /**
- * Clone superficiel d'un dépôt dans `dir`, avec la même protection de transport
- * que les clones de tâches : GIT_ALLOW_PROTOCOL neutralise `ext::` (RCE), pas de
- * prompt de terminal, environnement épuré. `dir` doit être vide/inexistant.
+ * Clone superficiel d'un dépôt dans `dir` (vide ou inexistant) — la même porte
+ * que le clone d'une tâche : environnement épuré, `ext::` neutralisé, aucune
+ * invite (ni de git, ni de GCM, ni de `ssh`). Voir `git-hote.ts`.
  */
 export async function cloneRepo(dir: string, repoUrl: string): Promise<void> {
-  const cloneEnv: NodeJS.ProcessEnv = {
-    PATH: process.env.PATH,
-    HOME: process.env.HOME,
-    USERPROFILE: process.env.USERPROFILE,
-    SYSTEMROOT: process.env.SYSTEMROOT,
-    SYSTEMDRIVE: process.env.SYSTEMDRIVE,
-    GIT_ALLOW_PROTOCOL: 'http:https:git:ssh:file',
-    GIT_TERMINAL_PROMPT: '0',
-  };
-  await simpleGit().env(cloneEnv).clone(repoUrl, dir, ['--depth', '1']);
+  // `--` : une URL qui commencerait par un tiret ne devient pas une option.
+  await gitHote(['clone', '--depth', '1', '--', repoUrl, dir], path.dirname(path.resolve(dir)));
 }
 
 export async function prepareWorkspace(
@@ -122,56 +114,50 @@ export async function prepareWorkspace(
   if (cwd !== tasksRoot && !cwd.startsWith(tasksRoot + path.sep)) {
     throw new Error(`chemin de tâche hors du répertoire de travail : ${task.id}`);
   }
+  // Le REGISTRE de la ruche (`git-hote.ts`) : le git dir que l'hôte lit, À
+  // CÔTÉ de la tâche comme son TEMP — hors de ce que le bac monte.
+  const registre = `${cwd}.git`;
   // Repartir d'un répertoire vierge à chaque tentative. maxRetries absorbe les
   // verrous transitoires de fichiers sous Windows (antivirus, handle git résiduel)
   // qui, sinon, feraient échouer la tâche à durée nulle et brûleraient un essai.
   const rmOpts = { recursive: true, force: true, maxRetries: 10, retryDelay: 100 } as const;
   rmSync(cwd, rmOpts);
   rmSync(`${cwd}.tmp`, rmOpts);
+  rmSync(registre, rmOpts);
   mkdirSync(cwd, { recursive: true });
 
-  let git: SimpleGit | null = null;
+  let diffDeTache: (() => Promise<string>) | null = null;
   let branch: string | null = null;
   if (repoUrl) {
-    // GIT_ALLOW_PROTOCOL restreint les transports autorisés : neutralise le
-    // transport `ext::` de git (exécution de commande arbitraire = RCE), en plus
-    // de la validation du repoUrl côté hub. On repart d'un environnement épuré
-    // (sans variables d'éditeur, que simple-git refuse) : seuls PATH/HOME et les
-    // variables système passent. Le clone exige un répertoire vide, il précède
-    // donc toute écriture dans cwd.
-    const cloneEnv: NodeJS.ProcessEnv = {
-      PATH: process.env.PATH,
-      HOME: process.env.HOME,
-      USERPROFILE: process.env.USERPROFILE,
-      SYSTEMROOT: process.env.SYSTEMROOT,
-      SYSTEMDRIVE: process.env.SYSTEMDRIVE,
-      GIT_ALLOW_PROTOCOL: 'http:https:git:ssh:file',
-      GIT_TERMINAL_PROMPT: '0',
-    };
-    await simpleGit().env(cloneEnv).clone(repoUrl, cwd, ['--depth', '1']);
-    git = simpleGit({ baseDir: cwd });
+    // Le clone exige un répertoire vide : il précède toute écriture dans cwd.
+    // Tout ce qui suit, jusqu'à `poserRegistre`, se passe AVANT l'agent, dans
+    // un dépôt que seul git a écrit.
+    await cloneRepo(cwd, repoUrl);
+    const depotDuClone = { gitDir: path.join(cwd, '.git'), workTree: cwd };
     // Une tâche = une branche isolée. Jamais de travail direct sur main (§5.2).
     branch = task.branch ?? `hive/${task.id}`;
-    await git.checkoutLocalBranch(branch);
+    await gitHote(['checkout', '-q', '-b', branch], cwd, depotDuClone);
+    const base = await commitDeDepart(depotDuClone);
+    const depot = await poserRegistre(cwd, registre, base);
+    diffDeTache = () => diffContreBase(depot, base);
   }
 
   const env = buildSandboxEnv(cwd, keepEnv);
 
   return {
     cwd,
-    git,
     branch,
     env,
     async collectDiff(): Promise<string> {
-      if (!git) return '';
-      // --intent-to-add rend les nouveaux fichiers visibles dans le diff.
-      await git.raw(['add', '--all', '--intent-to-add']);
-      return git.diff();
+      // Par le registre, jamais par le `.git` de la tâche : c'est l'agent qui
+      // l'a eu entre les mains (git-hote.ts).
+      return diffDeTache ? diffDeTache() : '';
     },
     cleanup(): void {
       try {
-        rmSync(cwd, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
-        rmSync(`${cwd}.tmp`, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+        rmSync(cwd, rmOpts);
+        rmSync(`${cwd}.tmp`, rmOpts);
+        rmSync(registre, rmOpts);
       } catch {
         // Fichier verrouillé (Windows) : le prochain run de la tâche nettoiera.
       }
