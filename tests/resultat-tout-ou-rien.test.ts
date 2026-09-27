@@ -34,7 +34,10 @@
 //   · une écriture qui échoue après le résultat rangé — la ligne `results`
 //     doit disparaître avec elle (tout ou rien) ;
 //   · la même chose dans une course de drones — où l'état EN MÉMOIRE de la
-//     course ne doit pas avancer non plus quand la base, elle, n'a rien gardé.
+//     course ne doit pas avancer non plus quand la base, elle, n'a rien gardé ;
+//   · et tout ce qui n'est pas la base attend le COMMIT : ni un enfant délégué
+//     annulé chez son nœud, ni un modèle écarté des reprises, pour un
+//     résultat que le ROLLBACK a effacé.
 
 import Database from 'better-sqlite3';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -172,6 +175,86 @@ describe('un résultat se range en une seule transaction (jamais deux succès)',
     expect(store.getTask(t.id)?.status).toBe('done');
     expect(succesRanges(t.id), 'la tâche a été comptée deux fois').toBe(1);
     constat();
+  });
+
+  it("un parent dont le résultat ne s'écrit pas n'annule PAS son enfant délégué chez son nœud", () => {
+    // L'annulation part au nœud de l'enfant (`cancel_task`) : envoyée avant
+    // le COMMIT, elle tuait un enfant que la base, après ROLLBACK, tient
+    // encore pour vivant — et que son parent, rejoué, attendra.
+    const annulations: string[] = [];
+    const sched = new Scheduler(store, {
+      simulation: true,
+      onCancel: (_nodeId, taskId) => annulations.push(taskId),
+    });
+    const p = store.createProject({ name: 'P' });
+    const parent = store.createTask({ projectId: p.id, title: 'parent', prompt: 'p' });
+    const a = sched.registerNode(profil('a'));
+    const c = sched.registerNode(profil('c'));
+    sched.tick();
+    sched.handleTaskUpdate(a.id, parent.id);
+    const creation = store.createDelegatedTask({
+      childTaskId: 'enfant',
+      parentTaskId: parent.id,
+      title: 'Sous-tâche',
+      prompt: 'Exécute ce lot borné.',
+      durationMs: 60_000,
+      costMicros: 100_000,
+      resourceUnits: 1,
+    });
+    expect(creation.ok).toBe(true);
+    sched.tick();
+    expect(store.getTask('enfant')?.assignedNodeId).toBe(c.id);
+    sched.handleTaskUpdate(c.id, 'enfant');
+
+    // Le parent aboutit ; la clôture de son sous-arbre bute sur la base.
+    const ecrire = store.patchTask.bind(store);
+    const espion = vi.spyOn(store, 'patchTask').mockImplementation((id, patch, now) => {
+      if (id === 'enfant' && patch.status === 'failed') throw disquePlein();
+      return ecrire(id, patch, now);
+    });
+    expect(() => sched.handleTaskResult(a.id, succes(parent.id))).toThrow();
+    expect(
+      espion.mock.results.some((r) => r.type === 'throw'),
+      "la panne n'a pas mordu",
+    ).toBe(true);
+
+    expect(annulations, 'un enfant vivant a été annulé chez son nœud').toEqual([]);
+    expect(store.getTask('enfant')?.status).toBe('running');
+    expect(store.getTask(parent.id)?.status).toBe('running');
+  });
+
+  it("un échec dont l'écriture échoue n'écarte pas son modèle des reprises", () => {
+    // L'écart vit EN MÉMOIRE : appliqué avant le COMMIT, il survivait au
+    // ROLLBACK — la tentative n'est pas comptée, mais son modèle, lui, était
+    // puni pour un échec que la ruche n'a pas gardé.
+    const commandes: (string | undefined)[] = [];
+    const sched = new Scheduler(store, {
+      simulation: true,
+      onAssign: (_nodeId, _task, modele) => commandes.push(modele),
+    });
+    const p = store.createProject({ name: 'P' });
+    const t = store.createTask({ projectId: p.id, title: 'T', prompt: 't' });
+    const profilModeles = { ...profil('n1'), modeles: ['fable', 'opus'] };
+    const n = sched.registerNode(profilModeles);
+    sched.tick();
+    expect(commandes).toEqual(['fable']);
+    sched.handleTaskUpdate(n.id, t.id);
+
+    const espion = vi.spyOn(store, 'patchTask').mockImplementationOnce(() => {
+      throw disquePlein();
+    });
+    expect(() =>
+      sched.handleTaskResult(n.id, { ...succes(t.id), success: false, logs: 'quota' }),
+    ).toThrow();
+    expect(espion.mock.results[0]?.type, "la panne n'a pas mordu").toBe('throw');
+    vi.restoreAllMocks();
+
+    // Ce que fait le hub ensuite : la socket tombe, le nœud revient.
+    sched.nodeDisconnected(n.id, 'ws_closed');
+    sched.registerNode({ ...profilModeles, nodeId: n.id });
+    sched.tick();
+    expect(store.getTask(t.id)?.attempts).toBe(0);
+    expect(commandes, 'le modèle d’un échec effacé a été écarté').toEqual(['fable', 'fable']);
   });
 
   it("course de drones : une écriture qui échoue n'avance ni la base ni la course", () => {

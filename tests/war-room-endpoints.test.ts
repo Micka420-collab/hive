@@ -319,6 +319,28 @@ describe('trancher un conseil', () => {
     expect(decisionsRangees()).toHaveLength(1);
   });
 
+  it('UN CONSEIL DE TOUTE LA RUCHE NE SE TRANCHE QU’AU JETON — un compte seul reçoit l’inexistence', async () => {
+    // Sans projet, le conseil n'a que la ruche pour propriétaire : son jeton.
+    await inscrire('reine@exemple.test', 'La Reine');
+    const jwt = await inscrire('ada@exemple.test', 'Ada');
+    server.store.creerSession({ id: 'conseil-ruche', question: 'Quel cap ?', version: 1 });
+    server.store.majSession('conseil-ruche', {
+      etat: 'clos',
+      issue: 'epuise',
+      motif: 'rien ne tient',
+      closedAt: Date.now(),
+    });
+    const corps = { propositionId: null, justification: 'rien' };
+    const compteSeul = await trancher('conseil-ruche', corps, {
+      'content-type': 'application/json',
+      authorization: `Bearer ${jwt}`,
+    });
+    expect(compteSeul.status).toBe(404);
+    expect(await compteSeul.json()).toEqual({ error: 'conseil inconnu' });
+    expect(decisionsRangees()).toHaveLength(0);
+    expect((await trancher('conseil-ruche', corps)).status).toBe(201);
+  });
+
   it('LA DÉCISION SURVIT À L’ÉLAGAGE DU JOURNAL — aussi longtemps que son conseil', async () => {
     // Élaguée avec le reste du journal, la décision ferait redire « à
     // trancher » à un conseil que quelqu'un a tranché, et laisserait trancher
@@ -370,6 +392,29 @@ describe('la War Room', () => {
     });
     expect(r.status).toBe(404);
     expect(await r.json()).toEqual({ error: 'projet inconnu' });
+    // Sans rien : 401 AVANT d'apprendre si le projet existe.
+    expect((await fetch(`${base}/api/war-room?projectId=${projectId}`)).status).toBe(401);
+  });
+
+  it('UN COMPTE SEUL LIT LE FIL DU PROJET PRIVÉ DONT IL RÉPOND — propriétaire comme membre', async () => {
+    // Le jeton de ruche n'est pas la seule porte : le propriétaire et les
+    // membres d'un projet lisent son fil avec leur SEUL compte.
+    await inscrire('reine@exemple.test', 'La Reine');
+    const jwtAda = await inscrire('ada@exemple.test', 'Ada');
+    const jwtBob = await inscrire('bob@exemple.test', 'Bob');
+    const ada = server.store.getUserByEmail('ada@exemple.test')!.id;
+    const prive = server.store.createProject({
+      name: 'Projet d’Ada',
+      visibility: 'private',
+      ownerId: ada,
+    });
+    server.store.addMember(prive.id, ada, 'owner');
+    server.store.addMember(prive.id, server.store.getUserByEmail('bob@exemple.test')!.id);
+    for (const jwt of [jwtAda, jwtBob]) {
+      const r = await lireWarRoom(`?projectId=${prive.id}`, { authorization: `Bearer ${jwt}` });
+      expect(r.status).toBe(200);
+      expect(((await r.json()) as Vue).projectId).toBe(prive.id);
+    }
   });
 
   it('UN CONSEIL À ÉGALITÉ ATTEND QUELQU’UN — et cesse d’attendre une fois tranché', async () => {

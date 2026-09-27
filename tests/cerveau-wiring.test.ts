@@ -620,12 +620,17 @@ describe('la contre-expertise est annoncée à chaque production', () => {
   });
 
   it('UNE RELECTURE PRISE ENTRE-TEMPS N’EST PAS ARRACHÉE', { timeout: 40_000 }, async () => {
-    // La relecture naît `pending`, se lie à sa production, puis attend la
-    // passe de la file, qui la réclame pour son relecteur — conditionnellement,
-    // par la même porte que toute prise (`reclamerTache`). Un autre écrivain
-    // qui l'a prise entre le lien et la passe garde sa prise : la file ne la
-    // réassigne pas, et le relecteur désigné ne la reçoit jamais — sans quoi la
-    // même relecture tournerait sur deux nœuds.
+    // La passe de la file LIT la relecture prête, puis la RÉCLAME pour son
+    // relecteur — conditionnellement, par la même porte que toute prise
+    // (`reclamerTache`). Un autre écrivain qui la prend ENTRE cette lecture et
+    // cette réclamation garde sa prise : la file ne la réassigne pas, et le
+    // relecteur désigné ne la reçoit jamais — sans quoi la même relecture
+    // tournerait sur deux nœuds.
+    //
+    // L'intrus s'interpose DANS la fenêtre, pas avant : pris avant la lecture,
+    // la file ne l'aurait même pas vue prête, et la condition de la
+    // réclamation n'aurait rien eu à refuser (mesuré : le banc restait vert
+    // sans `AND status = ?`).
     const srv = await ruche();
     const produits = await noeud(srv, 'producteur', 'claude-code');
     const relues = await noeud(srv, 'relecteur', 'codex');
@@ -637,15 +642,15 @@ describe('la contre-expertise est annoncée à chaque production', () => {
     });
     // Hors ligne : il ne prend ni la production au tick, ni la place du relecteur.
     srv.store.setNodeStatus(intrus.id, 'offline');
-    const inscrire = srv.store.inscrireRelecture.bind(srv.store);
-    vi.spyOn(srv.store, 'inscrireRelecture').mockImplementationOnce((lien) => {
-      inscrire(lien);
-      srv.store.reclamerTache({
-        taskId: lien.relectureTaskId,
-        attendu: 'pending',
-        nodeId: intrus.id,
-        branch: null,
-      });
+    const reclamer = srv.store.reclamerTache.bind(srv.store);
+    let interpose = false;
+    vi.spyOn(srv.store, 'reclamerTache').mockImplementation((reclamation, now) => {
+      const visee = srv.store.getTask(reclamation.taskId);
+      if (!interpose && visee?.title.startsWith('Contre-expertise —')) {
+        interpose = true;
+        srv.store.patchTask(visee.id, { status: 'assigned', assignedNodeId: intrus.id });
+      }
+      return reclamer(reclamation, now);
     });
 
     await produire(srv, produits, 'diff --git a/x b/x\n+const a = 1;');
@@ -655,6 +660,7 @@ describe('la contre-expertise est annoncée à chaque production', () => {
     const relecture = srv.store.listTasks().find((t) => t.title.startsWith('Contre-expertise —'));
     // Plusieurs passes de la file (tick de 60 ms) : aucune ne doit la reprendre.
     await new Promise((r) => setTimeout(r, 600));
+    expect(interpose, 'la file n’a jamais tenté de réclamer la relecture').toBe(true);
     expect(srv.store.getTask(relecture?.id as string)).toMatchObject({
       status: 'assigned',
       assignedNodeId: intrus.id,

@@ -654,7 +654,11 @@ describe('livraison locale — ce qu’une vraie ouvrière ne sait pas mal faire
           e.type === 'merge_result_ignored' && e.payload.mergeId === 'merge-oublie-de-la-ruche',
       ),
     );
-    expect(ignore.payload).toMatchObject({ branche: orpheline, poussee: 'non_demandee' });
+    expect(ignore.payload).toMatchObject({
+      branche: orpheline,
+      commit: 'd'.repeat(40),
+      poussee: 'non_demandee',
+    });
 
     // Et la livraison suivante part avec ce plancher : n°3 et n°5 sont pris.
     const suite = await poster(base, chemin, {});
