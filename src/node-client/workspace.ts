@@ -25,6 +25,7 @@ import { mkdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { simpleGit } from 'simple-git';
 import type { SimpleGit } from 'simple-git';
+import { CLONE_MS } from '../shared/butoirs-noeud.js';
 import type { Task } from '../shared/types.js';
 
 export interface Workspace {
@@ -87,8 +88,23 @@ export function buildSandboxEnv(cwd: string, keepEnv: string[] = []): NodeJS.Pro
  * Clone superficiel d'un dépôt dans `dir`, avec la même protection de transport
  * que les clones de tâches : GIT_ALLOW_PROTOCOL neutralise `ext::` (RCE), pas de
  * prompt de terminal, environnement épuré. `dir` doit être vide/inexistant.
+ *
+ * ─── BORNÉ, PARCE QUE LE HUB COMPTE DESSUS ─────────────────────────────────
+ *
+ * Ce clone ouvre chaque merge et chaque chantier, et il n'avait aucun butoir :
+ * un dépôt qui accepte la connexion puis se tait laissait le travail pendre
+ * chez le nœud, sans résultat, pendant que le hub — qui dérive ses délais des
+ * butoirs du nœud (`butoirs-noeud.ts`) — ne pouvait que DEVINER sa durée. Au-delà
+ * de `delaiMs`, git est TUÉ (le plugin d'annulation de simple-git), et le
+ * travail échoue en le disant. Un `Promise.race` rendrait la main en laissant
+ * le processus pendre derrière.
+ *
+ * Limite, dite : c'est le processus LANCÉ qui est tué. Sous Windows, où le `git`
+ * du PATH est d'ordinaire un lanceur, le vrai git peut lui survivre jusqu'à ce
+ * que le dépôt ferme (mesuré, `tests/clone-borne.test.ts`) — la limite de tout
+ * `child.kill()` du nœud. Le travail, lui, échoue à l'heure partout.
  */
-export async function cloneRepo(dir: string, repoUrl: string): Promise<void> {
+export async function cloneRepo(dir: string, repoUrl: string, delaiMs = CLONE_MS): Promise<void> {
   const cloneEnv: NodeJS.ProcessEnv = {
     PATH: process.env.PATH,
     HOME: process.env.HOME,
@@ -98,7 +114,15 @@ export async function cloneRepo(dir: string, repoUrl: string): Promise<void> {
     GIT_ALLOW_PROTOCOL: 'http:https:git:ssh:file',
     GIT_TERMINAL_PROMPT: '0',
   };
-  await simpleGit().env(cloneEnv).clone(repoUrl, dir, ['--depth', '1']);
+  const butoir = AbortSignal.timeout(delaiMs);
+  try {
+    await simpleGit({ abort: butoir }).env(cloneEnv).clone(repoUrl, dir, ['--depth', '1']);
+  } catch (err) {
+    if (!butoir.aborted) throw err;
+    const duree =
+      delaiMs >= 60_000 ? `${Math.round(delaiMs / 60_000)} min` : `${Math.ceil(delaiMs / 1000)} s`;
+    throw new Error(`clone abandonné après ${duree} — dépôt injoignable ou muet`, { cause: err });
+  }
 }
 
 export async function prepareWorkspace(

@@ -429,6 +429,85 @@ const EVENTS: Record<string, Meta> = {
         `recovery: ${String(p.requeued)} task(s) requeued`,
       ),
   },
+  // ─── Chantiers et poses : le journal EST leur réponse ─────────────────────
+  //
+  // L'écran d'une pose promet « la machine répondra dans le journal », et
+  // celui des chantiers relit son verdict quand le journal annonce une issue.
+  // Affichées en type brut, ces issues étaient là sans se lire — la perte de
+  // contact comprise, qui n'est PAS un échec constaté : sa cause le dit.
+  chantier_started: {
+    icon: '▶',
+    cls: 'run',
+    text: (p, t) =>
+      t(
+        `chantier « ${String(p.nom)} » lancé → nœud ${short(p.nodeId)}`,
+        `chantier “${String(p.nom)}” started → node ${short(p.nodeId)}`,
+      ),
+  },
+  chantier_completed: {
+    icon: '●',
+    cls: 'done',
+    text: (p, t) => t(`chantier « ${String(p.nom)} » réussi`, `chantier “${String(p.nom)}” passed`),
+  },
+  chantier_failed: {
+    icon: '✘',
+    cls: 'fail',
+    text: (p, t) => {
+      const nom = String(p.nom);
+      if (typeof p.reason === 'string') {
+        return t(
+          `chantier « ${nom} » sans résultat : ${p.reason}`,
+          `chantier “${nom}” without result: ${p.reason}`,
+        );
+      }
+      if (typeof p.refused === 'string') {
+        return t(
+          `chantier « ${nom} » refusé : ${p.refused}`,
+          `chantier “${nom}” refused: ${p.refused}`,
+        );
+      }
+      return t(
+        `chantier « ${nom} » en échec (code ${String(p.code)})`,
+        `chantier “${nom}” failed (code ${String(p.code)})`,
+      );
+    },
+  },
+  outil_pose_demandee: {
+    icon: '⇣',
+    cls: 'info',
+    text: (p, t) =>
+      t(
+        `pose de ${String(p.outilId)} demandée → nœud ${short(p.nodeId)}`,
+        `install of ${String(p.outilId)} requested → node ${short(p.nodeId)}`,
+      ),
+  },
+  outil_pose_rendue: {
+    icon: '⇣',
+    cls: 'info',
+    text: (p, t) => {
+      const outil = String(p.outilId);
+      if (p.ok === true) {
+        return t(
+          `${outil} posé sur le nœud ${short(p.nodeId)}`,
+          `${outil} installed on node ${short(p.nodeId)}`,
+        );
+      }
+      const pourquoi = typeof p.refuse === 'string' ? p.refuse : `code ${String(p.code)}`;
+      return t(
+        `pose de ${outil} en échec : ${pourquoi}`,
+        `install of ${outil} failed: ${pourquoi}`,
+      );
+    },
+  },
+  outil_pose_sans_reponse: {
+    icon: '⊘',
+    cls: 'warn',
+    text: (p, t) =>
+      t(
+        `pose de ${String(p.outilId)} sans réponse du nœud ${short(p.nodeId)} : ${String(p.reason)}`,
+        `install of ${String(p.outilId)}: no answer from node ${short(p.nodeId)}: ${String(p.reason)}`,
+      ),
+  },
 };
 
 export function Journal({ events }: { events: HiveEvent[] }) {

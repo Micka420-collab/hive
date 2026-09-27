@@ -268,6 +268,10 @@ export function App() {
   const [deferred, setDeferred] = useState<Set<string>>(() => new Set());
   const [connected, setConnected] = useState(false);
   const [tokenAuthError, setTokenAuthError] = useState(false);
+  /** Coupé pour lenteur (`CODE_TABLEAU_TROP_LENT`) : le voyant dit pourquoi. */
+  const [tropLent, setTropLent] = useState(false);
+  /** Événements perdus à l'élagage pendant une coupure — dit, jamais comblé. */
+  const [journalElague, setJournalElague] = useState(0);
   const [token, setTokenState] = useState(getToken());
   const [feedKey, setFeedKey] = useState(0);
   const [route, setRoute] = useState(parseHash);
@@ -355,16 +359,19 @@ export function App() {
         // quand rien ne change est le contrat : même référence, pas de rendu.
         setDeferred((prev) => transitionDifferees(prev, ev.type, taskId) as Set<string>);
       },
+      onJournalIncomplet: (manquants) => setJournalElague((n) => n + manquants),
       onStatus: (up, meta) => {
         setConnected(up);
+        setTropLent(!up && meta?.tropLent === true);
         if (up) setTokenAuthError(false);
         else if (meta?.authError) setTokenAuthError(true);
-        // À CHAQUE (re)connexion : ré-hydrater les revues — les task_reviewed
-        // émis pendant une coupure ne sont jamais rejoués par le serveur.
+        // À CHAQUE (re)connexion : ré-hydrater les revues. Le flux rejoue les
+        // task_reviewed manqués (`connectFeed`), mais seulement dans la limite
+        // de ce que le journal a gardé — la table des revues n'oublie rien.
         if (up) {
-          // Le snapshot courant ne rejoue pas les événements manqués : les
-          // tiroirs et vues qui lisent une API doivent donc repartir d'une
-          // lecture après chaque reconnexion réussie.
+          // Les événements rattrapés passent par `onEvent` comme le direct,
+          // mais toutes les vues qui lisent une API n'écoutent pas un type
+          // d'événement : elles repartent d'une lecture à chaque reconnexion.
           setRefreshTick((t) => t + 1);
           const seq = beginReviewHydration();
           fetchReviews()
@@ -705,9 +712,23 @@ export function App() {
                 </span>
               );
             })()}
-            <span className={connected ? 'conn online' : 'conn offline'}>
+            <span
+              className={connected ? 'conn online' : 'conn offline'}
+              title={
+                tropLent
+                  ? t(
+                      'Cet écran lisait moins vite que la Reine n’écrivait : elle l’a coupé pour borner sa mémoire. Il se reconnecte seul, puis rattrape le journal.',
+                      'This screen read slower than the Queen wrote: she cut it to bound her memory. It reconnects on its own, then catches up the journal.',
+                    )
+                  : undefined
+              }
+            >
               <span className="conn-dot" />
-              {connected ? t('connecté', 'connected') : t('hors ligne', 'offline')}
+              {connected
+                ? t('connecté', 'connected')
+                : tropLent
+                  ? t('hors ligne — écran trop lent', 'offline — screen too slow')
+                  : t('hors ligne', 'offline')}
             </span>
           </div>
         </header>
@@ -719,6 +740,20 @@ export function App() {
                 'Jeton de ruche refusé — collez dans le champ « Jeton » (en haut à droite) la valeur exacte de HIVE_TOKEN depuis le fichier .env de l’orchestrateur. Ce n’est pas le jeton GitHub.',
                 'Hive token rejected — paste the exact HIVE_TOKEN from the orchestrator’s .env into the Token field (top right). This is not the GitHub token.',
               )}
+            </p>
+          </div>
+        )}
+
+        {journalElague > 0 && (
+          <div className="mc-token-banner" role="status">
+            <p>
+              {t(
+                `Journal incomplet : ${journalElague} événement(s) émis pendant une coupure étaient déjà élagués par la Reine — le Journal ne les montrera pas. L’état affiché, lui, est à jour.`,
+                `Incomplete journal: ${journalElague} event(s) emitted during a disconnection had already been pruned by the Queen — the Journal will not show them. The displayed state is up to date.`,
+              )}{' '}
+              <button className="btn ghost" onClick={() => setJournalElague(0)}>
+                {t('Compris', 'Got it')}
+              </button>
             </p>
           </div>
         )}

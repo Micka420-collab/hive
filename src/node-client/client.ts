@@ -19,6 +19,7 @@ import {
 } from './agent-detect.js';
 import type { AgentType } from './agent-detect.js';
 import { argvDe, jugerChantier } from '../shared/chantier.js';
+import { CHANTIER_EXECUTION_MS, CHANTIER_PREPARATION_MS } from '../shared/butoirs-noeud.js';
 import { jugerCommandeTest } from '../shared/commande-test.js';
 import { jugerPreparation } from '../shared/preparation.js';
 import { isOnShift, minutesUntilOpen, nightShiftFromEnv } from '../shared/night-shift.js';
@@ -1561,7 +1562,7 @@ export class HiveNodeClient {
           msg.prepareCommand,
           dir,
           env,
-          10 * 60_000,
+          CHANTIER_PREPARATION_MS,
           undefined,
           this.opts.bac ? this.opts.bac : undefined,
         );
@@ -1591,7 +1592,7 @@ export class HiveNodeClient {
         argvDe(msg.nom),
         dir,
         env,
-        15 * 60_000,
+        CHANTIER_EXECUTION_MS,
         undefined,
         this.opts.bac ? this.opts.bac : undefined,
       );

@@ -35,7 +35,7 @@ afterEach(async () => {
   if (dossier) rmSync(dossier, { recursive: true, force: true });
 });
 
-async function reine(): Promise<HiveServer> {
+async function reine(vieMs = VIE_MS): Promise<HiveServer> {
   dossier = mkdtempSync(path.join(os.tmpdir(), 'reine-veille-'));
   serveur = await createServer({
     port: 0,
@@ -45,7 +45,7 @@ async function reine(): Promise<HiveServer> {
     dbPath: path.join(dossier, 'hive.db'),
     simulation: false,
     tickMs: 60_000,
-    wsVieMs: VIE_MS,
+    wsVieMs: vieMs,
   });
   return serveur;
 }
@@ -128,4 +128,90 @@ describe('la veille des sockets côté Reine', () => {
     expect(await avant(ecranFerme, 50), 'la veille a coupé un tableau de bord vivant').toBe(false);
     expect(s.store.listNodes().find((n) => n.id === 'noeud-vivant')?.status).toBe('online');
   });
+});
+
+/** Crée un projet par l'API : un événement au journal, et l'état sali. */
+async function creerProjet(s: HiveServer, nom: string): Promise<void> {
+  const r = await fetch(`http://127.0.0.1:${s.port}/api/projects`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-hive-token': JETON },
+    body: JSON.stringify({ name: nom }),
+  });
+  expect(r.status).toBe(201);
+}
+
+describe('la diffusion aux tableaux de bord', () => {
+  it('L’INSTANTANÉ DIT JUSQU’OÙ IL REFLÈTE LE JOURNAL — le point de reprise d’un écran', async () => {
+    // Sans ce point, un écran qui n'a encore vu passer AUCUN événement ne sait
+    // pas d'où rattraper après une coupure : tout ce qui s'y est passé
+    // manquerait à son journal, pour toujours.
+    const s = await reine(60_000);
+    await creerProjet(s, 'avant');
+    const recus: Record<string, unknown>[] = [];
+    const ws = new WebSocket(`ws://127.0.0.1:${s.port}/ws`);
+    clients.push(ws);
+    ws.on('message', (d) => recus.push(JSON.parse(d.toString()) as Record<string, unknown>));
+    await new Promise<void>((r) => ws.once('open', () => r()));
+    ws.send(JSON.stringify({ type: 'subscribe', token: JETON }));
+    const fin = Date.now() + 2_000;
+    while (Date.now() < fin && !recus.some((m) => m.type === 'state')) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    const etat = recus.find((m) => m.type === 'state');
+    const reprise = s.store.lastEventId();
+    expect(reprise).toBeGreaterThan(0);
+    expect(etat?.dernierEvenementId, 'l’instantané ne dit pas où il en est du journal').toBe(
+      reprise,
+    );
+
+    // Ce que l'écran relira à son retour : exactement ce qui a suivi ce point.
+    await creerProjet(s, 'apres');
+    const r = await fetch(`http://127.0.0.1:${s.port}/api/events?since=${String(reprise)}`, {
+      headers: { 'x-hive-token': JETON },
+    });
+    const suite = (await r.json()) as { id: number; type: string }[];
+    expect(suite.map((e) => e.type)).toEqual(['project_created']);
+    expect(suite[0]?.id).toBe(reprise + 1);
+  });
+
+  it(
+    'UN TABLEAU DE BORD VIVANT MAIS TROP LENT EST COUPÉ EN 4408 — celui qui lit reste',
+    { timeout: 60_000 },
+    async () => {
+      // ─── LE CAS QUE LA VEILLE NE VOIT PAS ────────────────────────────────
+      //
+      // Un écran qui répond encore mais ne LIT plus assez vite : chaque
+      // instantané s'empilait dans son tampon d'envoi, dans la mémoire de la
+      // Reine, sans borne. La veille est réglée longue ici — ce banc éprouve la
+      // lenteur, pas la mort : un client en pause ne lit plus ses pings, et
+      // une veille courte le couperait avant la borne, pour une autre raison.
+      const s = await reine(60_000);
+      // Un instantané lourd, environ 2 Mo : de longs prompts dans la fenêtre.
+      const projet = s.store.createProject({ name: 'lourd' });
+      const prompt = 'x'.repeat(80_000);
+      for (let i = 0; i < 25; i++) {
+        s.store.createTask({ id: `lourde-${String(i)}`, projectId: projet.id, title: 't', prompt });
+      }
+      const lent = await ouvrir(s.port, { type: 'subscribe', token: JETON }, 'state', true);
+      const vif = await ouvrir(s.port, { type: 'subscribe', token: JETON }, 'state', true);
+
+      // Le lent cesse de LIRE : côté Reine, son tampon ne se vide plus. Le
+      // noyau en absorbe d'abord quelques mégaoctets ; seize instantanés en
+      // poussent assez pour dépasser n'importe quel tampon de système.
+      lent.ws.pause();
+      for (let i = 0; i < 16; i++) {
+        await creerProjet(s, `p${String(i)}`);
+        await new Promise((r) => setTimeout(r, 300));
+      }
+      // Il relit ce qui s'est empilé : si la Reine l'a coupé, la fermeture
+      // est au bout de son tampon.
+      lent.ws.resume();
+      const code = await Promise.race([
+        lent.fermee,
+        new Promise<null>((r) => setTimeout(() => r(null), 15_000)),
+      ]);
+      expect(code, 'la Reine a laissé grossir sans borne le tampon d’un écran lent').toBe(4408);
+      expect(await avant(vif.fermee, 50), 'la borne a coupé un écran qui lisait').toBe(false);
+    },
+  );
 });
