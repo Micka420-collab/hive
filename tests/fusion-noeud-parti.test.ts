@@ -6,12 +6,14 @@
 // réponde. Si sa connexion tombe entre-temps, personne ne répondra JAMAIS :
 // `/merge/result` resterait `null` pour toujours, et l'entrée fuirait en
 // mémoire. Le serveur ferme donc les fusions du partant à la fermeture du
-// socket (`server.ts`, gestionnaire `ws.on('close')`).
+// socket (`server.ts`, `abandonnerTravauxDuNoeud`, appelé par le gestionnaire
+// `ws.on('close')` — les chantiers et les poses y passent aussi, voir
+// `chantier-noeud-perdu.test.ts`).
 //
 // Cette boucle tient sur une seule comparaison :
 //
-//     for (const [mergeId, pending] of pendingMerges) {
-//       if (pending.nodeId === nodeId) failMerge(mergeId, 'nœud déconnecté');
+//     for (const [mergeId, p] of pendingMerges) {
+//       if (p.nodeId === nodeId) failMerge(mergeId, reason);
 //     }
 //
 // ─── CE QUI A ÉTÉ MESURÉ AVANT D'ÉCRIRE CE FICHIER ────────────────────────────

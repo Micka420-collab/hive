@@ -22,14 +22,11 @@
 //   injoignable ; sans butoir, le nœud reste bloqué sans jamais répondre.
 
 import { spawn } from 'node:child_process';
-import { direRefusPose, jugerPose } from '../shared/pose-outil.js';
+import { direRefusPose, jugerPose, POSE_DELAI_MS } from '../shared/pose-outil.js';
 import type { PoseResultMsg, PoserOutilMsg } from '../shared/protocol.js';
 
 /** Au-delà, on tronque : c'est une trace, pas un journal complet. */
 export const POSE_SORTIE_MAX = 512 * 1024;
-
-/** Dix minutes. Une installation plus longue que ça a un vrai problème. */
-export const POSE_DELAI_MS = 10 * 60_000;
 
 export interface Lancement {
   /** Code de sortie, ou `null` si le processus n'a jamais démarré. */

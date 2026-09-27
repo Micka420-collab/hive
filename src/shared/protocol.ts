@@ -395,6 +395,16 @@ export interface CancelTaskMsg {
 export interface StateMsg {
   type: 'state';
   snapshot: StateSnapshot;
+  /**
+   * Le dernier événement du journal que cet instantané reflète.
+   *
+   * C'est le point de reprise d'un tableau de bord : sans lui, un écran qui
+   * n'avait encore vu passer AUCUN événement — une ruche calme, un portable qui
+   * se met en veille — ne savait pas d'où rattraper à son retour, et tout ce
+   * qui s'était passé pendant la coupure manquait au journal pour toujours.
+   * Lu dans le même tour que l'instantané : les deux décrivent le même instant.
+   */
+  dernierEvenementId: number;
 }
 
 export interface EventMsg {

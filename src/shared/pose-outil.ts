@@ -28,6 +28,16 @@
 import { OUTILS } from './catalogue-outils.js';
 import { PAQUETS } from './connexion-agent.js';
 
+/**
+ * Dix minutes : le butoir d'une pose chez le nœud. Une installation plus
+ * longue que ça a un vrai problème.
+ *
+ * Ici, et pas dans le lanceur du nœud, parce que le hub en DÉRIVE le délai
+ * au-delà duquel il déclare une pose perdue : deux copies du même nombre
+ * auraient dérivé l'une de l'autre.
+ */
+export const POSE_DELAI_MS = 10 * 60_000;
+
 /** Pourquoi une pose n'aura pas lieu. */
 export type MotifRefusPose =
   /** L'identifiant ne figure pas au catalogue de CETTE machine. */

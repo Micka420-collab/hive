@@ -1742,7 +1742,39 @@ export interface HiveFeed {
   close(): void;
 }
 
-/** Connexion WebSocket auto-reconnectante au flux d'état de la ruche. */
+/**
+ * Une page du journal, après l'événement `depuis`. 1000 est le plafond de la
+ * route : une page pleine veut dire qu'il en reste peut-être d'autres.
+ */
+const PAGE_RATTRAPAGE = 1000;
+
+function fetchEvenementsDepuis(depuis: number): Promise<HiveEvent[]> {
+  return api<HiveEvent[]>(`/api/events?since=${depuis}&limit=${PAGE_RATTRAPAGE}`);
+}
+
+/**
+ * Connexion WebSocket auto-reconnectante au flux d'état de la ruche.
+ *
+ * ─── L'ÉTAT SE RESYNCHRONISAIT, LE JOURNAL NON ──────────────────────────────
+ *
+ * Chaque connexion commence par un instantané complet : l'état se rattrape
+ * tout seul. Le journal, lui, ne se rattrapait pas — un événement émis pendant
+ * une coupure (onglet en veille, Wi-Fi qui décroche, Reine redémarrée) n'était
+ * jamais rejoué, et le Journal, les tiroirs et l'horloge des chantiers
+ * racontaient une histoire trouée sans le savoir. La route `?since=` existait ;
+ * personne ne l'appelait.
+ *
+ * Désormais chaque événement du journal est livré à `onEvent` UNE fois, dans
+ * l'ordre de ses ids. À la reconnexion, le flux relit le journal depuis le
+ * dernier événement livré ; le direct reçu pendant ce rattrapage attend son
+ * tour. Le dédoublonnage tient sur UN nombre, `curseur`, parce que la Reine
+ * journalise PUIS diffuse dans le même tour synchrone : les ids arrivent
+ * croissants, et un id déjà dépassé a déjà été livré.
+ *
+ * Limite, dite : le journal ne garde que ses derniers événements
+ * (`EVENT_RETENTION` côté Reine). Une coupure plus longue laisse un trou que
+ * personne ne peut combler.
+ */
 export function connectFeed(handlers: FeedHandlers): HiveFeed {
   let ws: WebSocket | null = null;
   let closed = false;
@@ -1750,33 +1782,89 @@ export function connectFeed(handlers: FeedHandlers): HiveFeed {
   let timer: number | undefined;
   /** Tant que le hub n'a pas renvoyé d'`state`, on n'est pas vraiment connecté. */
   let authentifie = false;
+  /**
+   * Le dernier événement livré — ou, avant le tout premier, celui que reflétait
+   * le premier instantané. `null` tant qu'aucune connexion n'a abouti.
+   */
+  let curseur: number | null = null;
+  /** Le direct reçu PENDANT un rattrapage, livré après lui. `null` hors rattrapage. */
+  let enAttente: HiveEvent[] | null = null;
+
+  const livrer = (ev: HiveEvent): void => {
+    // Le même événement peut venir du rattrapage ET du direct : une fois suffit.
+    if (curseur !== null && ev.id <= curseur) return;
+    curseur = ev.id;
+    handlers.onEvent(ev);
+  };
+
+  const rattraper = async (socket: WebSocket, depuis: number): Promise<void> => {
+    let apres = depuis;
+    try {
+      for (;;) {
+        const page = await fetchEvenementsDepuis(apres);
+        // Une autre connexion a pris la main, ou l'écran a fermé le flux.
+        if (closed || socket !== ws) return;
+        for (const ev of page) livrer(ev);
+        const fin = page.at(-1)?.id;
+        // Une page qui n'avance pas arrête la boucle : sans ça, un serveur qui
+        // ignorerait `since` la ferait tourner pour toujours.
+        if (page.length < PAGE_RATTRAPAGE || fin === undefined || fin <= apres) break;
+        apres = fin;
+      }
+    } catch {
+      // Livrer le direct maintenant rendrait le trou définitif. On referme :
+      // la reconnexion, avec son recul, retentera depuis le même curseur.
+      if (!closed && socket === ws) socket.close();
+      return;
+    }
+    const direct = enAttente ?? [];
+    enAttente = null;
+    for (const ev of direct) livrer(ev);
+  };
 
   const open = (): void => {
     if (closed) return;
     authentifie = false;
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    ws = new WebSocket(`${proto}://${location.host}/ws`);
+    const socket = new WebSocket(`${proto}://${location.host}/ws`);
+    ws = socket;
 
-    ws.onopen = () => {
+    socket.onopen = () => {
       retryMs = 1_000;
       // Pas encore `onStatus(true)` : le hub peut fermer en 4401 juste après
       // le `subscribe`. On attend le premier `state` (ou on signale l'échec).
-      ws?.send(JSON.stringify({ type: 'subscribe', token: getToken() }));
+      socket.send(JSON.stringify({ type: 'subscribe', token: getToken() }));
     };
 
-    ws.onmessage = (e: MessageEvent) => {
+    socket.onmessage = (e: MessageEvent) => {
       const msg = parseServerMessage(typeof e.data === 'string' ? e.data : '');
       if (!msg) return;
       if (msg.type === 'state') {
         if (!authentifie) {
           authentifie = true;
           handlers.onStatus(true);
+          const reprise = msg.dernierEvenementId;
+          if (curseur !== null && reprise > curseur) {
+            // Le journal a avancé pendant la coupure : on relit ce qui manque.
+            enAttente = [];
+            void rattraper(socket, curseur);
+          } else {
+            // Premier contact — l'instantané est à jour, rien à relire — ou
+            // journal reparti de zéro (base remplacée) : l'ancien curseur ne
+            // désigne plus rien, et le garder ferait taire tout ce qui suit.
+            curseur = reprise;
+          }
         }
         handlers.onState(msg.snapshot);
-      } else if (msg.type === 'event') handlers.onEvent(msg.event);
+      } else if (msg.type === 'event') {
+        if (enAttente) enAttente.push(msg.event);
+        else livrer(msg.event);
+      }
     };
 
-    ws.onclose = (ev: CloseEvent) => {
+    socket.onclose = (ev: CloseEvent) => {
+      // Le direct retenu est dans le journal : le prochain rattrapage le relira.
+      enAttente = null;
       const authError = ev.code === 4401 || /token invalide/i.test(ev.reason ?? '');
       handlers.onStatus(false, {
         authError,

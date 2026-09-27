@@ -83,7 +83,13 @@ import {
   peutRejoindre,
   peutVoirMembres,
 } from '../shared/acces-projet.js';
-import { argvDe, chantiersDe, jugerChantier } from '../shared/chantier.js';
+import {
+  argvDe,
+  CHANTIER_EXECUTION_MS,
+  CHANTIER_PREPARATION_MS,
+  chantiersDe,
+  jugerChantier,
+} from '../shared/chantier.js';
 import { Miroir, RayonIndisponible } from './miroir.js';
 import { LONGUEUR_MAX_CHEMIN, TAILLE_MAX_FICHIER } from '../shared/rayon.js';
 import { construireRetouche } from '../shared/retouche.js';
@@ -308,7 +314,7 @@ import { projeterJournalOuvrier } from './journal-ouvriere.js';
 import { lireTemperature, FENETRE_MS as FENETRE_THERMO_MS, TYPES_THERMO } from './thermo.js';
 import { buildWaggleBoard } from './waggle.js';
 import { lireVersionRuche } from './version-lue.js';
-import { commandeDePose } from '../shared/pose-outil.js';
+import { commandeDePose, POSE_DELAI_MS } from '../shared/pose-outil.js';
 import { marcheASuivre, poseDepuis, versionDeclaree } from '../shared/version-ruche.js';
 
 /**
@@ -359,6 +365,32 @@ const WS_MSG_PER_SEC = 100;
  * coder : le pong fait partie du protocole WebSocket.
  */
 const WS_VIE_MS = 30_000;
+
+/**
+ * Ce qu'un tableau de bord peut laisser s'accumuler dans son tampon d'envoi,
+ * sur le serveur, avant d'être coupé (octets).
+ *
+ * La veille ci-dessus coupe les MORTS ; elle ne voit pas un vivant trop lent.
+ * Un onglet qui répond aux pings mais lit moins vite que la Reine n'écrit —
+ * lien saturé, machine à genoux — recevait quand même un instantané complet
+ * tous les quarts de seconde, et chaque envoi s'empilait dans SON tampon, dans
+ * la mémoire du hub, sans aucune borne.
+ *
+ * 4 Mio, soit plusieurs instantanés d'avance : un écran qui décroche un
+ * instant rattrape sans être coupé. Au-delà, la socket est fermée en
+ * `CODE_TABLEAU_TROP_LENT` — l'écran se reconnecte, repart d'un instantané
+ * frais et rattrape le journal par `/api/events?since=`. Rien n'est perdu :
+ * seul le retard l'est.
+ */
+const TAMPON_TABLEAU_MAX = 4 * 1024 * 1024;
+
+/**
+ * Le code de fermeture d'un tableau de bord trop lent. Distinct de tous les
+ * autres (4408 fait écho au 408 HTTP : le client n'a pas suivi) pour qu'un
+ * opérateur qui lit ses journaux ne le confonde ni avec un jeton refusé
+ * (4401) ni avec un message trop gros (4413).
+ */
+const CODE_TABLEAU_TROP_LENT = 4408;
 
 /** Nombre d'événements conservés dans le journal (les plus anciens sont purgés). */
 const EVENT_RETENTION = 5_000;
@@ -555,6 +587,25 @@ const PLAFOND_MAX_MS = 10 * 365 * 24 * 3_600_000;
 
 /** Un merge sans résultat au-delà de ce délai est déclaré échoué (orphelin). */
 const MERGE_TIMEOUT_MS = 10 * 60_000;
+
+/**
+ * Ce que le hub accorde à un nœud, au-delà de ses propres bornes, pour rendre
+ * un résultat : le transport, et le clone, qui n'a pas de butoir.
+ */
+const MARGE_RETOUR_NOEUD_MS = 5 * 60_000;
+
+/**
+ * Un chantier sans résultat au-delà de ce délai est déclaré échoué (orphelin).
+ *
+ * DÉRIVÉ des bornes du nœud, jamais choisi à côté : plus court, le hub
+ * déclarerait perdu un chantier qui tourne encore ; sans délai du tout, un nœud
+ * connecté mais qui ne rendra jamais laissait `/chantiers/result` sur le verdict
+ * PRÉCÉDENT, pour toujours — et l'entrée en mémoire à vie.
+ */
+const CHANTIER_TIMEOUT_MS = CHANTIER_PREPARATION_MS + CHANTIER_EXECUTION_MS + MARGE_RETOUR_NOEUD_MS;
+
+/** Une pose sans résultat au-delà de ce délai est déclarée échouée — même raisonnement. */
+const POSE_TIMEOUT_MS = POSE_DELAI_MS + MARGE_RETOUR_NOEUD_MS;
 
 /**
  * Couveuse : part du hiveContext réservée aux leçons des échecs précédents
@@ -914,19 +965,47 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
    */
   const instantaneEssaim = () => instantanePourEssaim(store.getSnapshot());
 
-  const broadcastState = (): void => {
-    if (dashboardSockets.size === 0) return;
-    const raw = JSON.stringify({
-      type: 'state',
-      snapshot: instantaneEssaim(),
-    } satisfies ServerMessage);
+  /**
+   * L'état tel qu'un tableau de bord le reçoit : l'instantané, et le point du
+   * journal qu'il reflète (`StateMsg.dernierEvenementId`). Lus dans le même
+   * tour synchrone : aucun événement ne peut se glisser entre les deux.
+   */
+  const messageEtat = (): ServerMessage => ({
+    type: 'state',
+    snapshot: instantaneEssaim(),
+    dernierEvenementId: store.lastEventId(),
+  });
+
+  /**
+   * Envoie un message déjà sérialisé à chaque tableau de bord — la seule porte
+   * de la diffusion, et c'est donc ici que vit sa borne.
+   *
+   * Un écran dont le tampon d'envoi dépasse `TAMPON_TABLEAU_MAX` est fermé au
+   * lieu d'être servi : lui écrire encore ferait grossir la mémoire du hub au
+   * rythme de sa lenteur. Il sort de la diffusion TOUT DE SUITE — sa fermeture
+   * n'aboutit qu'une fois son tampon lu ou le délai de fermeture de `ws`
+   * écoulé, et d'ici là rien ne doit plus s'y empiler.
+   */
+  const diffuser = (raw: string): void => {
     for (const ws of dashboardSockets) {
-      if (ws.readyState === ws.OPEN) ws.send(raw);
+      if (ws.readyState !== ws.OPEN) continue;
+      if (ws.bufferedAmount > TAMPON_TABLEAU_MAX) {
+        dashboardSockets.delete(ws);
+        ws.close(CODE_TABLEAU_TROP_LENT, 'tableau de bord trop lent : tampon d’envoi saturé');
+        continue;
+      }
+      ws.send(raw);
     }
   };
 
+  const broadcastState = (): void => {
+    if (dashboardSockets.size === 0) return;
+    diffuser(JSON.stringify(messageEtat()));
+  };
+
   const broadcastEvent = (event: ServerMessage): void => {
-    for (const ws of dashboardSockets) send(ws, event);
+    if (dashboardSockets.size === 0) return;
+    diffuser(JSON.stringify(event));
   };
 
   /** Événement émis par le serveur lui-même (création de projet/tâches). */
@@ -1647,6 +1726,99 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       logs: `[hub] merge interrompu : ${reason}`,
     });
     emitEvent('merge_failed', { projectId: pending.projectId, mergeId, reason });
+  };
+
+  /**
+   * La même clôture pour un chantier : un verdict d'échec EXPLICITE, rangé là
+   * où l'écran le relit, et l'événement qui le fait savoir.
+   *
+   * ─── LE SILENCE QUE CECI FERME ───────────────────────────────────────────
+   *
+   * Seuls les merges étaient clos à la perte d'un nœud. Un chantier confié à
+   * une ouvrière qui tombait restait dans `pendingChantiers` pour toujours :
+   * `/chantiers/result` rendait le verdict PRÉCÉDENT, ou `null`, et personne
+   * n'apprenait jamais que le travail demandé n'aurait pas de réponse. Un
+   * geste sans issue visible — et une entrée en mémoire à vie.
+   *
+   * `code: null` (aucun processus vu) et pas de `refused` : le nœud n'a rien
+   * refusé, il a disparu. La cause est dans la sortie, préfixée `[hub]` comme
+   * celle d'un merge interrompu — c'est la Reine qui parle, pas le dépôt.
+   */
+  const failChantier = (chantierId: string, reason: string): void => {
+    const pending = pendingChantiers.get(chantierId);
+    if (!pending) return;
+    pendingChantiers.delete(chantierId);
+    chantierResults.set(pending.projectId, {
+      type: 'chantier_result',
+      chantierId,
+      nom: pending.nom,
+      code: null,
+      sortie: `[hub] chantier interrompu : ${reason}`,
+      ok: false,
+    });
+    emitEvent('chantier_failed', {
+      projectId: pending.projectId,
+      chantierId,
+      nodeId: pending.nodeId,
+      nom: pending.nom,
+      code: null,
+      reason,
+    });
+  };
+
+  /**
+   * Et pour une pose d'outil. Elle n'a pas de « dernier résultat » à relire :
+   * sa réponse arrive PAR LE JOURNAL — c'est ce que l'écran promet à l'humain
+   * qui a cliqué. Une pose perdue y écrit donc sa fin, sous un nom qui ne se
+   * confond pas avec `outil_pose_rendue` : le nœud, lui, n'a rien rendu.
+   */
+  const failPose = (poseId: string, reason: string): void => {
+    const pose = pendingPoses.get(poseId);
+    if (!pose) return;
+    pendingPoses.delete(poseId);
+    emitEvent('outil_pose_interrompue', {
+      poseId,
+      nodeId: pose.nodeId,
+      outilId: pose.outilId,
+      reason,
+    });
+  };
+
+  /**
+   * Tout ce qu'un nœud portait hors des tâches — merges, chantiers, poses — et
+   * qui ne reviendra pas. Les tâches sont requalifiées par l'ordonnanceur
+   * (`nodeDisconnected`) ; ceci est le pendant pour le reste, en UN endroit,
+   * pour qu'un prochain type de travail confié ne puisse pas être oublié comme
+   * les chantiers et les poses l'avaient été.
+   */
+  const abandonnerTravauxDuNoeud = (nodeId: string, reason: string): void => {
+    for (const [mergeId, p] of pendingMerges) {
+      if (p.nodeId === nodeId) failMerge(mergeId, reason);
+    }
+    for (const [id, p] of pendingChantiers) {
+      if (p.nodeId === nodeId) failChantier(id, reason);
+    }
+    for (const [poseId, p] of pendingPoses) {
+      if (p.nodeId === nodeId) failPose(poseId, reason);
+    }
+  };
+
+  /**
+   * Les mêmes travaux, orphelins par l'ÂGE : un nœud connecté mais muet — ou
+   * remplacé par une reconnexion qui a perdu le fil — ne rendra rien non plus,
+   * et sa socket ne se fermera peut-être jamais.
+   */
+  const expirerTravaux = (now: number): void => {
+    const delai = 'délai dépassé';
+    for (const [mergeId, p] of pendingMerges) {
+      if (now - p.startedAt > MERGE_TIMEOUT_MS) failMerge(mergeId, delai);
+    }
+    for (const [id, p] of pendingChantiers) {
+      if (now - p.startedAt > CHANTIER_TIMEOUT_MS) failChantier(id, delai);
+    }
+    for (const [poseId, p] of pendingPoses) {
+      if (now - p.demandeeA > POSE_TIMEOUT_MS) failPose(poseId, delai);
+    }
   };
 
   // Reprise après redémarrage : les tâches running orphelines repartent en ready.
@@ -9151,7 +9323,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
             role = 'dashboard';
             clearTimeout(authTimer);
             dashboardSockets.add(ws);
-            send(ws, { type: 'state', snapshot: instantaneEssaim() });
+            send(ws, messageEtat());
           } else {
             ws.close(4401, 'authentification requise');
           }
@@ -9633,11 +9805,10 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         nodeSockets.delete(nodeId);
         nodeOnShift.delete(nodeId);
         scheduler.nodeDisconnected(nodeId, 'ws_closed');
-        // Un merge confié à ce nœud ne reviendra jamais : le déclarer échoué
-        // (sinon /merge/result resterait null et l'entrée fuirait).
-        for (const [mergeId, pending] of pendingMerges) {
-          if (pending.nodeId === nodeId) failMerge(mergeId, 'nœud déconnecté');
-        }
+        // Un merge, un chantier ou une pose confiés à ce nœud ne reviendront
+        // jamais : les déclarer échoués, avec leur cause (sinon leur résultat
+        // resterait `null` ou périmé, et l'entrée fuirait).
+        abandonnerTravauxDuNoeud(nodeId, 'nœud déconnecté');
         stateDirty = true;
       }
       if (role === 'dashboard') dashboardSockets.delete(ws);
@@ -9987,10 +10158,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       for (const [ip, h] of apiHits) {
         if (h.resetAt <= now) apiHits.delete(ip);
       }
-      // Merges orphelins (nœud muet au-delà du délai) → échec, pas de blocage.
-      for (const [mergeId, pending] of pendingMerges) {
-        if (now - pending.startedAt > MERGE_TIMEOUT_MS) failMerge(mergeId, 'délai dépassé');
-      }
+      // Travaux orphelins (nœud muet au-delà du délai) → échec, pas de blocage.
+      expirerTravaux(now);
     } catch (err) {
       console.error(`[hive] erreur de tick : ${err instanceof Error ? err.message : err}`);
     }

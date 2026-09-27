@@ -356,12 +356,13 @@ export function App() {
         setConnected(up);
         if (up) setTokenAuthError(false);
         else if (meta?.authError) setTokenAuthError(true);
-        // À CHAQUE (re)connexion : ré-hydrater les revues — les task_reviewed
-        // émis pendant une coupure ne sont jamais rejoués par le serveur.
+        // À CHAQUE (re)connexion : ré-hydrater les revues. Le flux rejoue les
+        // task_reviewed manqués (`connectFeed`), mais seulement dans la limite
+        // de ce que le journal a gardé — la table des revues n'oublie rien.
         if (up) {
-          // Le snapshot courant ne rejoue pas les événements manqués : les
-          // tiroirs et vues qui lisent une API doivent donc repartir d'une
-          // lecture après chaque reconnexion réussie.
+          // Les événements rattrapés passent par `onEvent` comme le direct,
+          // mais toutes les vues qui lisent une API n'écoutent pas un type
+          // d'événement : elles repartent d'une lecture à chaque reconnexion.
           setRefreshTick((t) => t + 1);
           const seq = beginReviewHydration();
           fetchReviews()

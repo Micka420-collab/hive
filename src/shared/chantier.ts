@@ -157,6 +157,18 @@ export function nature(nom: string): Nature {
 export const NOM_MAX = 100;
 
 /**
+ * Les butoirs d'un chantier chez le nœud : la préparation (une installation
+ * peut pendre sur un registre injoignable), puis le script lui-même.
+ *
+ * Ici, et pas en dur dans le nœud, parce que le hub en DÉRIVE le délai au-delà
+ * duquel il déclare un chantier perdu. Deux copies du même nombre auraient
+ * dérivé : un nœud autorisé à tourner plus longtemps que le hub n'attend verrait
+ * son vrai résultat écarté comme orphelin.
+ */
+export const CHANTIER_PREPARATION_MS = 10 * 60_000;
+export const CHANTIER_EXECUTION_MS = 15 * 60_000;
+
+/**
  * Un nom de script utilisable.
  *
  * ─── POURQUOI CETTE VALIDATION EXISTE MÊME AVEC `shell: false` ───────────────

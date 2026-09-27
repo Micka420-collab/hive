@@ -34,7 +34,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { setLang } from '../dashboard/src/i18n';
 import type { Chantier, VerdictChantier, Workflow } from '../dashboard/src/api';
 import type { ViewProps } from '../dashboard/src/views/shared';
-import type { StateSnapshot } from '../src/shared/types';
+import type { HiveEvent, StateSnapshot } from '../src/shared/types';
 
 // ─── LE BOUCHON EST COMPLET, ET C'EST OBLIGATOIRE ────────────────────────────
 //
@@ -132,14 +132,20 @@ async function monter(projets = [projet('p1', 'Rucher')]): Promise<HTMLElement> 
   conteneur = document.createElement('div');
   document.body.appendChild(conteneur);
   racine = createRoot(conteneur);
+  await rendre(projets, []);
+  return conteneur;
+}
+
+/** (Re)rend l'écran avec ce journal-là — ce que fait App à chaque événement reçu. */
+async function rendre(projets: ReturnType<typeof projet>[], events: HiveEvent[]): Promise<void> {
   const props = {
     snapshot: instantane(projets),
+    events,
     selectedId: projets[0]?.id ?? null,
     onNavigate: vi.fn(),
   } as unknown as ViewProps;
   await act(async () => racine?.render(<Chantiers {...props} />));
   await act(async () => {});
-  return conteneur;
 }
 
 /**
@@ -210,7 +216,7 @@ describe('l’écran des Chantiers', () => {
 
   it('PENDANT L’ENVOI, le bouton le DIT et ne se reclique pas', async () => {
     // `enCours === c.nom` : c'est le SEUL retour que l'écran donne entre le clic
-    // et le verdict, qui arrive une seconde et demie plus tard. Inversé, il dit
+    // et le verdict, qui n'arrive qu'à la fin du chantier. Inversé, il dit
     // « Envoi… » au repos et « Lancer » pendant l'envoi — un utilisateur
     // reclique sur ce qui est déjà parti.
     const { promesse, resoudre } = enSuspens();
@@ -267,6 +273,49 @@ describe('l’écran des Chantiers', () => {
       avecSortie.querySelector('pre.ch-sortie')?.textContent,
       'la sortie du chantier ne s’affiche pas',
     ).toBe('3 échecs');
+  });
+
+  it('LE VERDICT S’AFFICHE QUAND LE JOURNAL ANNONCE L’ISSUE — même celle d’un chantier perdu', async () => {
+    // ─── CE QUE L'ÉCRAN FAISAIT ─────────────────────────────────────────────
+    //
+    // Il repassait chercher le verdict UNE fois, une seconde et demie après le
+    // clic. Un vrai `npm test` dure plus longtemps ; un chantier perdu avec son
+    // nœud ne finit jamais de lui-même. Dans les deux cas l'écran gardait le
+    // verdict d'avant, et l'échec — pourtant consigné par la Reine — restait
+    // invisible là où l'humain l'attendait.
+    const projets = [projet('p1', 'Rucher')];
+    const dom = await monter(projets);
+    expect(dom.querySelector('.ch-verdict'), 'un verdict s’affiche avant toute issue').toBeNull();
+    const lectures = vi.mocked(fetchVerdictChantier).mock.calls.length;
+
+    const perdu: VerdictChantier = {
+      nom: 'test',
+      code: null,
+      sortie: '[hub] chantier interrompu : nœud déconnecté',
+      ok: false,
+    };
+    vi.mocked(fetchVerdictChantier).mockResolvedValue({ resultat: perdu });
+
+    // L'issue d'un chantier d'un AUTRE projet ne concerne pas cet écran.
+    const ailleurs: HiveEvent = {
+      id: 40,
+      ts: 40,
+      type: 'chantier_failed',
+      payload: { projectId: 'p2', nom: 'test', code: null, reason: 'nœud déconnecté' },
+    };
+    await rendre(projets, [ailleurs]);
+    expect(vi.mocked(fetchVerdictChantier).mock.calls.length).toBe(lectures);
+
+    const issue: HiveEvent = {
+      ...ailleurs,
+      id: 41,
+      payload: { ...ailleurs.payload, projectId: 'p1' },
+    };
+    await rendre(projets, [ailleurs, issue]);
+    const verdict = dom.querySelector('.ch-verdict');
+    expect(verdict, 'l’échec consigné par la Reine n’atteint pas l’écran').not.toBeNull();
+    expect(verdict?.textContent).toContain('échoué');
+    expect(dom.querySelector('pre.ch-sortie')?.textContent).toContain('nœud déconnecté');
   });
 });
 
