@@ -4,10 +4,11 @@
 // Tout vient de `/api/genome`, un repli du journal retenu. L'écran ne note ni
 // ne classe : les lignes sortent par nom de modèle, chaque fait dans sa
 // colonne. Une affectation sans modèle déclaré n'est rangée sous aucun modèle.
-// Coût et temps modèle sont ce que DÉCLARE le CLI de l'agent : « ≥ » quand une
-// tentative s'est tue, « inconnu » sans aucune déclaration — jamais estimés.
+// Coût, temps modèle et jetons sont ce que DÉCLARE le CLI de l'agent : « ≥ »
+// quand une tentative s'est tue, « inconnu » sans aucune déclaration — jamais
+// estimés, et le coût jamais tiré des jetons.
 
-import { direUsd, formatMs } from './ui';
+import { direJetons, direUsd, formatMs } from './ui';
 import { useLang, useT } from './i18n';
 import type { SommeDeclaree } from '../../src/shared/declaration-fournisseur';
 import type { RegistreGenome as Registre } from '../../src/shared/registre-genome';
@@ -85,6 +86,8 @@ export function RegistreGenome({ registre, erreur }: Props) {
                 <th scope="col">{t('Durée méd.', 'Median time')}</th>
                 <th scope="col">{t('Temps modèle', 'Model time')}</th>
                 <th scope="col">{t('Coût déclaré', 'Declared cost')}</th>
+                <th scope="col">{t('Jetons entrée', 'Input tokens')}</th>
+                <th scope="col">{t('Jetons sortie', 'Output tokens')}</th>
               </tr>
             </thead>
             <tbody>
@@ -130,6 +133,8 @@ export function RegistreGenome({ registre, erreur }: Props) {
                   <td>{l.dureeMedianeMs === null ? '—' : formatMs(l.dureeMedianeMs)}</td>
                   {declaree(l.dureeModele, formatMs)}
                   {declaree(l.coutFournisseur, (v) => direUsd(v, lang))}
+                  {declaree(l.jetonsEntree, (v) => direJetons(v, lang))}
+                  {declaree(l.jetonsSortie, (v) => direJetons(v, lang))}
                 </tr>
               ))}
             </tbody>
@@ -147,8 +152,8 @@ export function RegistreGenome({ registre, erreur }: Props) {
             </span>
           )}
           {t(
-            `Lu sur ${registre.fenetre.evenements} événement(s) du journal retenu. Aucun classement : le routing apprend des seules contre-visites. Coût et temps modèle : ce que déclare le CLI de l’agent, jamais estimés — « ≥ » quand une tentative n’a rien déclaré.`,
-            `Read from ${registre.fenetre.evenements} retained journal event(s). No ranking: routing learns from counter-reviews only. Cost and model time: what the agent CLI declares, never estimated — “≥” when an attempt declared nothing.`,
+            `Lu sur ${registre.fenetre.evenements} événement(s) du journal retenu. Aucun classement : le routing apprend des seules contre-visites. Coût, temps modèle et jetons : ce que déclare le CLI de l’agent, jamais estimés — « ≥ » quand une tentative n’a rien déclaré ; aucun coût n’est tiré des jetons.`,
+            `Read from ${registre.fenetre.evenements} retained journal event(s). No ranking: routing learns from counter-reviews only. Cost, model time and tokens: what the agent CLI declares, never estimated — “≥” when an attempt declared nothing; no cost is derived from tokens.`,
           )}
           {registre.fenetre.tronquee && (
             <span data-testid="genome-tronque">

@@ -1,0 +1,9 @@
+{"type":"thread.started","thread_id":"01a0e1e0-d7d7-7ac2-a201-343e04b364bc"}
+{"type":"item.completed","item":{"id":"item_0","type":"error","message":"Model metadata for `modele-de-test` not found. Defaulting to fallback metadata; this can degrade performance and cause issues."}}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_1","type":"reasoning","text":"Je cherche où l’API key est lue avant l’appel de facturation."}}
+{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"Je lis la gestion de l’API key et du login dans src/."}}
+{"type":"item.started","item":{"id":"item_3","type":"command_execution","command":"/bin/bash -lc 'grep -rn api_key src'","aggregated_output":"","exit_code":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_3","type":"command_execution","command":"/bin/bash -lc 'grep -rn api_key src'","aggregated_output":"src/auth.ts:1:export function facturer(api_key?: string) {\nsrc/auth.ts:2:  if (!api_key) throw new Error(\"login requis\");\nsrc/auth.ts:3:  return api_key.length;\n","exit_code":0,"status":"completed"}}
+{"type":"error","message":"{\"error\":{\"message\":\"Invalid 'input[4].output': string too long. Expected a string with maximum length 10485760.\",\"type\":\"invalid_request_error\",\"code\":\"string_above_max_length\"}}"}
+{"type":"turn.failed","error":{"message":"{\"error\":{\"message\":\"Invalid 'input[4].output': string too long. Expected a string with maximum length 10485760.\",\"type\":\"invalid_request_error\",\"code\":\"string_above_max_length\"}}"}}

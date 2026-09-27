@@ -58,6 +58,31 @@ function estEnregistrementDErreur(ligne: string): boolean {
 }
 
 /**
+ * Début de chaque ligne de journal que HIVE écrit en rendant lisible un
+ * événement d'un flux structuré — la narration d'un agent, pas son échec.
+ *
+ * ─── POURQUOI UNE MARQUE ─────────────────────────────────────────────────────
+ *
+ * Codex tourne en `--json` (adapters/flux-codex.ts) : son flux n'entre pas BRUT
+ * dans les logs, il y entre RENDU, une ligne lisible par événement. Rendu, un
+ * événement ne commence plus par `{"` — la règle de `texteDEchec` l'aurait
+ * donc pris pour une phrase de l'échec. Or ces lignes disent ce que l'agent a
+ * PENSÉ, DIT et LANCÉ : une tâche qui parle d'« API key » y écrit « API key »,
+ * son `grep api_key` aussi, et tout échec de Codex redevenait une panne
+ * d'identifiants — le mal que ce module répare pour le stream-json, revenu
+ * par l'autre porte. La marque rend à ces lignes leur nature d'événement.
+ *
+ * La raison d'un tour en ÉCHEC, elle, est rendue SANS marque : c'est l'échec
+ * lui-même, au même titre que les enregistrements d'erreur des autres flux
+ * (`estEnregistrementDErreur`).
+ *
+ * `┊` et pas un préfixe ASCII : aucun CLI n'ouvre une ligne de diagnostic par
+ * ce caractère, et un marqueur `[codex]` aurait rejoint `[hive]`, que la règle
+ * doit GARDER (délai de garde, échec du lancement).
+ */
+export const MARQUE_NARRATION = '┊';
+
+/**
  * Ce qu'un échec DIT à un humain — ses logs, sans les événements d'un flux
  * structuré, et la réponse finale de l'agent quand ces événements la cachaient.
  *
@@ -85,16 +110,20 @@ function estEnregistrementDErreur(ligne: string): boolean {
  * est l'échec lui-même — souvent sa SEULE ligne utile. La retirer faisait
  * tomber la signature sur une bannière, commune à toutes les pannes du CLI.
  *
- * Ce qui reste — stderr, marqueurs `[hive]` (délai de garde…), sortie en texte
- * des autres CLI — est ce que l'échec dit à un humain. Si des événements ont
- * été retirés, la parole de l'agent était DEDANS : on la rend en y ajoutant
- * son texte final. Sans événement retiré (Codex, CLI en texte), les logs
- * contiennent déjà la sortie standard, et l'ajouter la doublerait.
+ * Une ligne qui commence par `MARQUE_NARRATION` est le MÊME événement, rendu
+ * lisible par Hive (Codex) : retirée au même titre.
+ *
+ * Ce qui reste — stderr, marqueurs `[hive]` (délai de garde…), erreurs d'un
+ * flux, sortie en texte des autres CLI — est ce que l'échec dit à un humain.
+ * Si des événements ont été retirés, la parole de l'agent était DEDANS : on la
+ * rend en y ajoutant son texte final. Sans événement retiré (CLI en texte),
+ * les logs contiennent déjà la sortie standard, et l'ajouter la doublerait.
  */
 export function texteDEchec(logs: string, finalText?: string): string {
   const lignes = logs.split('\n');
   const humaines = lignes.filter((l) => {
     const brute = l.replace(MOTIF_ANSI, '').trim();
+    if (brute.startsWith(MARQUE_NARRATION)) return false;
     return !brute.startsWith('{"') || estEnregistrementDErreur(brute);
   });
   const texte = humaines.join('\n');

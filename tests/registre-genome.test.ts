@@ -44,6 +44,8 @@ describe('registre Genome', () => {
         dureeMedianeMs: 1_200,
         coutFournisseur: 'inconnu',
         dureeModele: 'inconnu',
+        jetonsEntree: 'inconnu',
+        jetonsSortie: 'inconnu',
         modelesExacts: [],
       },
     ]);
@@ -86,6 +88,29 @@ describe('registre Genome', () => {
       10,
     );
     expect(ligne?.modelesExacts).toEqual(['claude-sonnet-4-5-20250929']);
+  });
+
+  it('somme les jetons que Codex déclare, avec leur couverture — son coût reste inconnu', () => {
+    const registre = registreGenomeDepuisEvenements(
+      [
+        ev('task_assigned', { taskId: 't1', nodeId: 'n1', modele: 'gpt-5.6-luna' }),
+        ev('task_retry', {
+          taskId: 't1',
+          nodeId: 'n1',
+          fournisseur: { source: 'codex', jetonsEntree: 4_448, jetonsSortie: 104 },
+        }),
+        ev('task_assigned', { taskId: 't1', nodeId: 'n1', modele: 'gpt-5.6-luna' }),
+        // Tentative muette (tour en échec : Codex n'émet pas de `turn.completed`).
+        ev('task_failed', { taskId: 't1', nodeId: 'n1', attempts: 2 }),
+      ],
+      categorieDe,
+    );
+
+    const [ligne] = registre.lignes;
+    expect(ligne?.jetonsEntree).toEqual({ total: 4_448, declarees: 1, tentatives: 2 });
+    expect(ligne?.jetonsSortie).toEqual({ total: 104, declarees: 1, tentatives: 2 });
+    expect(ligne?.coutFournisseur).toBe('inconnu');
+    expect(ligne?.dureeModele).toBe('inconnu');
   });
 
   it('attribue la reprise au modèle en cours et la correction à la dernière production', () => {

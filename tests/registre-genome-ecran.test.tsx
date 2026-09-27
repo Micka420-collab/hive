@@ -49,6 +49,8 @@ const faits = (over: Partial<FaitsGenome> = {}): FaitsGenome => ({
   dureeMedianeMs: null,
   coutFournisseur: 'inconnu',
   dureeModele: 'inconnu',
+  jetonsEntree: 'inconnu',
+  jetonsSortie: 'inconnu',
   modelesExacts: [],
   ...over,
 });
@@ -97,6 +99,8 @@ describe('registre Genome — écran', () => {
       '1.5 s',
       'inconnu',
       'inconnu',
+      'inconnu',
+      'inconnu',
     ]);
     expect(c.querySelector('[data-testid="genome-sans-modele"]')).toBeNull();
     expect(c.querySelector('[data-testid="genome-tronque"]')).toBeNull();
@@ -131,6 +135,34 @@ describe('registre Genome — écran', () => {
     expect(cellules[9]?.textContent).toMatch(/^≥ 0,07\s\$US$/);
     expect(cellules[9]?.getAttribute('title')).toBe(
       '2/3 tentative(s) déclarée(s) par le CLI de l’agent',
+    );
+  });
+
+  it('dit les jetons que Codex déclare — et laisse son coût inconnu, jamais tiré d’eux', () => {
+    const c = monter({
+      lignes: [
+        {
+          modele: 'gpt-5.6-luna',
+          categorie: 'code',
+          ...faits({
+            affectations: 2,
+            rendus: 2,
+            jetonsEntree: { total: 12_345, declarees: 2, tentatives: 2 },
+            jetonsSortie: { total: 208, declarees: 1, tentatives: 2 },
+          }),
+        },
+      ],
+      sansModele: faits(),
+      fenetre: { evenements: 6, depuis: 1, tronquee: false },
+    });
+    const cellules = [...c.querySelectorAll('[data-testid="genome-ligne"] td')];
+
+    expect(cellules[8]?.textContent).toBe('inconnu');
+    expect(cellules[9]?.textContent).toBe('inconnu');
+    expect(cellules[10]?.textContent).toMatch(/^12\s345$/);
+    expect(cellules[11]?.textContent).toBe('≥ 208');
+    expect(cellules[11]?.getAttribute('title')).toBe(
+      '1/2 tentative(s) déclarée(s) par le CLI de l’agent',
     );
   });
 

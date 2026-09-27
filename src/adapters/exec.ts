@@ -80,16 +80,42 @@ function preparerCommande(bin: string, args: string[], ctx: AdapterContext) {
 /**
  * D'où vient la réponse FINALE du processus — voir `texte-final.ts`.
  *
- *   · `'sortie-standard'` : la réponse EST la sortie standard (Codex, et les CLI
- *     en texte par la convention des outils sans écran : stdout rend, stderr
+ *   · `'sortie-standard'` : la réponse EST la sortie standard (les CLI en texte,
+ *     par la convention des outils sans écran : stdout rend, stderr
  *     diagnostique) ;
  *   · une fonction : la sortie standard est du JSON par lignes, et la fonction
  *     reconnaît l'événement final (stream-json, Cline).
  *
  * Absente : le processus ne déclare aucune réponse, `finalText` reste absent.
- * C'est le cas du shell : une commande n'est pas un agent qui répond.
+ * C'est le cas du shell : une commande n'est pas un agent qui répond. Un flux
+ * lu en entier (`LecteurFlux`) porte sa propre réponse.
  */
 export type SourceTexteFinal = 'sortie-standard' | LecteurEvenementFinal;
+
+/**
+ * Une sortie standard que l'adaptateur lit EN ENTIER : un flux d'événements
+ * dont il connaît chaque type (Codex `--json`, `flux-codex.ts`).
+ *
+ * ─── CE QUI LE DISTINGUE D'UN `LecteurEvenementFinal` ────────────────────────
+ *
+ * Le stream-json de Claude Code entre BRUT dans les logs, et `texteDEchec` en
+ * retire les événements : le lecteur n'y cherche que la ligne finale. Un flux
+ * lu en entier n'y entre JAMAIS brut — chaque ligne y entre RENDUE, lisible
+ * pour l'écran et les Gardiennes, narration marquée (`MARQUE_NARRATION`) et
+ * erreurs en clair. C'est cette forme que lisent ensuite tous les lecteurs
+ * d'un échec, au nœud comme au hub, par la même règle (`texteDEchec`).
+ */
+export interface LecteurFlux {
+  /**
+   * Une ligne de stdout, dans l'ordre d'arrivée. Rend ce que les logs en
+   * gardent — sa forme lisible, sur une ou plusieurs lignes —, ou `undefined`
+   * pour la taire. Ne lève jamais : une ligne illisible se dit, elle ne casse
+   * pas la lecture des suivantes.
+   */
+  lire(ligne: string): string | undefined;
+  /** La réponse finale déclarée par le flux, déjà bornée (`borneTexteFinal`). */
+  texte(): string | undefined;
+}
 
 /**
  * Lance un binaire avec ses arguments dans le cwd isolé de la tâche.
@@ -122,6 +148,20 @@ export function runCommandStreaming(
 }
 
 /**
+ * Comme runCommand, pour une sortie standard lue EN ENTIER par `flux` : les
+ * logs gardent ce qu'il en rend, la réponse finale est la sienne.
+ */
+export function runCommandFlux(
+  bin: string,
+  args: string[],
+  ctx: AdapterContext,
+  flux: LecteurFlux,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+): Promise<AdapterResult> {
+  return executer(bin, args, ctx, { timeoutMs, flux });
+}
+
+/**
  * Le seul `spawn` des adaptateurs. `runCommand` et `runCommandStreaming` en
  * étaient deux copies ; la seconde avait appris à lire ligne à ligne, pas la
  * première — et c'est la première que Cursor et Cline employaient pour un flux
@@ -135,22 +175,12 @@ function executer(
     timeoutMs: number;
     onLine?: (line: string) => void;
     texteFinal?: SourceTexteFinal;
+    flux?: LecteurFlux;
   },
 ): Promise<AdapterResult> {
   const lance = preparerCommande(bin, args, ctx);
-  const { texteFinal } = opts;
+  const { texteFinal, flux } = opts;
   const suivi = typeof texteFinal === 'function' ? createTexteFinalTracker(texteFinal) : undefined;
-  const parLigne =
-    opts.onLine || suivi
-      ? (line: string): void => {
-          try {
-            opts.onLine?.(line);
-          } catch {
-            /* parseur tolérant : on ignore */
-          }
-          suivi?.feed(line);
-        }
-      : undefined;
 
   return new Promise((resolve) => {
     const child = spawn(lance.bin, lance.args, {
@@ -165,18 +195,35 @@ function executer(
     });
 
     let output = '';
+    const consigner = (s: string): void => {
+      if (output.length < OUTPUT_CAP) output += s;
+    };
     let tampon = '';
     // Fin de la sortie standard seule, pour `'sortie-standard'` : stdout et
-    // stderr sont MÊLÉS dans `output`, et plafonnés — Codex écrit sa réponse
-    // tout à la fin, après des centaines de kilo-octets de stderr.
+    // stderr sont MÊLÉS dans `output`, et plafonnés — un CLI en texte écrit sa
+    // réponse tout à la fin, après des centaines de kilo-octets de stderr.
     let sortieStandard = '';
     let tue = false;
+    const parLigne =
+      opts.onLine || suivi || flux
+        ? (line: string): void => {
+            try {
+              opts.onLine?.(line);
+            } catch {
+              /* parseur tolérant : on ignore */
+            }
+            suivi?.feed(line);
+            // Un flux lu en entier entre dans les logs RENDU, jamais brut.
+            const rendue = flux?.lire(line);
+            if (rendue !== undefined) consigner(`${rendue}\n`);
+          }
+        : undefined;
     // Décodage UTF-8 AU FIL DES MORCEAUX : un caractère accentué coupé entre
     // deux lectures devenait deux « � », jusque dans la ligne `result`.
     child.stdout?.setEncoding('utf8');
     child.stderr?.setEncoding('utf8');
     child.stdout?.on('data', (s: string) => {
-      if (output.length < OUTPUT_CAP) output += s;
+      if (!flux) consigner(s);
       if (texteFinal === 'sortie-standard') {
         sortieStandard = (sortieStandard + s).slice(-2 * LIMITS.finalText);
       }
@@ -188,9 +235,7 @@ function executer(
         tampon = tampon.slice(idx + 1);
       }
     });
-    child.stderr?.on('data', (s: string) => {
-      if (output.length < OUTPUT_CAP) output += s;
-    });
+    child.stderr?.on('data', consigner);
 
     const timeout = setTimeout(() => {
       tue = true;
@@ -220,7 +265,7 @@ function executer(
         ? undefined
         : texteFinal === 'sortie-standard'
           ? borneTexteFinal(sortieStandard)
-          : suivi?.texte();
+          : (flux ?? suivi)?.texte();
       // Échec dont le TEXTE évoque un problème d'auth/quota → infra
       // (réaffectation). Pas les logs bruts : voir `INFRA_FAILURE_RE`.
       const infra = code !== 0 && INFRA_FAILURE_RE.test(texteDEchec(output, finalText));

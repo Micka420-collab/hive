@@ -303,7 +303,7 @@ Toute IA de codage se branche via l'interface `AgentAdapter` :
 | `claude-code`  | `claude -p "<prompt>"` dans l'espace isolé.                                                                   |
 | `cursor`       | `cursor-agent -p --force --output-format stream-json -- "<prompt>"` — binaire réglable par `HIVE_CURSOR_BIN`. |
 | `cline`        | `cline --json --auto-approve true "<prompt>"` — binaire réglable par `HIVE_CLINE_BIN`.                        |
-| `codex`        | `codex exec "<prompt>"`                                                                                       |
+| `codex`        | `codex exec --json -- "<prompt>"` — jetons déclarés, coût inconnu (jamais tiré des jetons).                   |
 | `grok`         | `grok -p "<prompt>"` — l’agent CLI de xAI, Apache 2.0.                                                        |
 | `hermes-agent` | `hermes agent run --prompt "<prompt>"`                                                                        |
 | `custom`       | Le vôtre, via `HIVE_AGENT_CMD`.                                                                               |

@@ -48,7 +48,12 @@ const base: Chronologie = {
   terminee: false,
   dureeModele: 'inconnu',
   coutFournisseur: 'inconnu',
+  jetonsEntree: 'inconnu',
+  jetonsSortie: 'inconnu',
 };
+
+/** Une tentative sans rien de déclaré. */
+const muette = { dureeModeleMs: null, coutUsd: null, jetonsEntree: null, jetonsSortie: null };
 
 async function monter(c: Chronologie): Promise<HTMLElement> {
   vi.mocked(fetchChronologie).mockResolvedValue({ taskId: 't', chronologie: c });
@@ -68,8 +73,8 @@ describe('le panneau « Où est passé le temps »', () => {
     const dom = await monter({
       ...base,
       tentatives: [
-        { issue: 'reussie', dureeWorkerMs: 2_000, dureeModeleMs: null, coutUsd: null },
-        { issue: 'reussie', dureeWorkerMs: 3_000, dureeModeleMs: null, coutUsd: null },
+        { issue: 'reussie', dureeWorkerMs: 2_000, ...muette },
+        { issue: 'reussie', dureeWorkerMs: 3_000, ...muette },
       ],
       dureeWorkerTotaleMs: 5_000,
       corrections: 1,
@@ -100,6 +105,22 @@ describe('le panneau « Où est passé le temps »', () => {
     expect(phase(dom, 'modele')).toContain('inconnue');
     expect(phase(dom, 'cout')).toContain('inconnu');
     expect(phase(dom, 'cout')).toContain('jamais estimé');
+    expect(phase(dom, 'jetons-entree')).toBe('inconnus — l’agent ne les déclare pas');
+    expect(phase(dom, 'jetons-sortie')).toBe('inconnus — l’agent ne les déclare pas');
+  });
+
+  it('DES JETONS DÉCLARÉS SANS COÛT (CODEX) : les jetons dits, le coût jamais tiré d’eux', async () => {
+    const dom = await monter({
+      ...base,
+      jetonsEntree: { total: 4_448, declarees: 1, tentatives: 2 },
+      jetonsSortie: { total: 104, declarees: 1, tentatives: 2 },
+    });
+    expect(phase(dom, 'jetons-entree')).toMatch(/^≥ 4\s448 — 1\/2 tentative\(s\) déclarée\(s\)$/);
+    expect(phase(dom, 'jetons-sortie')).toBe('≥ 104 — 1/2 tentative(s) déclarée(s)');
+    expect(phase(dom, 'cout')).toBe(
+      'inconnu — jamais estimé, ni depuis le temps, ni depuis les jetons',
+    );
+    expect(phase(dom, 'modele')).toContain('inconnue');
   });
 
   it('CE QUE LE CLI DÉCLARE EST DIT TEL QUEL, ET SA SOURCE AVEC', async () => {

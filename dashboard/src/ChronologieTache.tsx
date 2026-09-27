@@ -1,10 +1,12 @@
 // « Où est passé le temps » d'une tâche — phases relues dans le journal.
 //
 // Une phase dont un bord manque n'est pas affichée comme zéro : elle est tue
-// (pas encore arrivée) ou dite « en cours ». La latence du modèle distant et le
-// coût fournisseur viennent de ce que le CLI de l'agent DÉCLARE : le panneau
-// les dit tels quels, avec « ≥ » et leur couverture quand une tentative s'est
-// tue, et INCONNUS sans aucune déclaration — jamais déduits du temps Worker.
+// (pas encore arrivée) ou dite « en cours ». La latence du modèle distant, le
+// coût fournisseur et les jetons viennent de ce que le CLI de l'agent DÉCLARE :
+// le panneau les dit tels quels, avec « ≥ » et leur couverture quand une
+// tentative s'est tue, et INCONNUS sans aucune déclaration — jamais déduits du
+// temps Worker, et le coût jamais tiré des jetons (Codex déclare ses jetons,
+// pas son coût : la ligne du coût reste « inconnu »).
 
 import { useEffect, useState } from 'react';
 import { fetchChronologie } from './api';
@@ -14,7 +16,7 @@ import type {
   ChronologieTache as Chronologie,
   SommeDeclaree,
 } from '../../src/shared/chronologie-tache';
-import { direUsd } from './ui';
+import { direJetons, direUsd } from './ui';
 
 interface Props {
   taskId: string;
@@ -136,14 +138,34 @@ export function ChronologieTache({ taskId, cle }: Props) {
             {c.coutFournisseur === 'inconnu' ? (
               <dd className="muted">
                 {t(
-                  'inconnu — jamais estimé depuis le temps',
-                  'unknown — never estimated from time',
+                  'inconnu — jamais estimé, ni depuis le temps, ni depuis les jetons',
+                  'unknown — never estimated, from time or from tokens',
                 )}
               </dd>
             ) : (
               <dd>{declare(c.coutFournisseur, direUsd(c.coutFournisseur.total, lang))}</dd>
             )}
           </div>
+          {(
+            [
+              ['jetons-entree', t('Jetons d’entrée', 'Input tokens'), c.jetonsEntree],
+              ['jetons-sortie', t('Jetons de sortie', 'Output tokens'), c.jetonsSortie],
+            ] as const
+          ).map(([phase, libelle, somme]) => (
+            <div key={phase} data-phase={phase}>
+              <dt>{libelle}</dt>
+              {somme === 'inconnu' ? (
+                <dd className="muted">
+                  {t(
+                    'inconnus — l’agent ne les déclare pas',
+                    'unknown — the agent does not declare them',
+                  )}
+                </dd>
+              ) : (
+                <dd>{declare(somme, direJetons(somme.total, lang))}</dd>
+              )}
+            </div>
+          ))}
         </dl>
       )}
     </section>
