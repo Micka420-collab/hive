@@ -659,6 +659,8 @@ jobs:
           trap 'rm -rf "$probe"' EXIT
           docker run --rm \
             --interactive=false \
+            --init \
+            --pull=never \
             --volume="$probe:/hive/tache:rw" \
             --workdir=/hive/tache \
             --read-only \
@@ -676,9 +678,39 @@ jobs:
       # ensuite le même preflight que le Worker Hive, avec l’image construite
       # et le vrai moteur du runner. Sans cette étape, une divergence entre la
       # détection et l’exécution pourrait rester verte.
-      - name: Preflight Hive réel de l’image agent-aware
+      - name: Preflight Hive réel de l’image agent-aware (Docker)
         env:
           HIVE_ISOLEMENT_IMAGE: hive-agent:ci
+          HIVE_TEST_MOTEUR: docker
+        run: npm test -- --run tests/isolement-runtime.integration.test.ts tests/v2-alpha-scenario.test.ts
+
+      # ─── PODMAN ROOTLESS, EXERCÉ POUR DE VRAI ─────────────────────────────
+      #
+      # Le banc choisissait « le moteur qui a l'image » : Docker, toujours.
+      # Podman n'avait donc jamais tourné, et son défaut de fond (`--user` sans
+      # `--userns=keep-id` : un subuid étranger qui ne peut écrire ni dans
+      # l'atelier ni sur la socket du pont MCP) n'avait jamais pu se voir. La
+      # même image passe ici dans le magasin de Podman, et `HIVE_TEST_MOTEUR`
+      # impose Podman aux mêmes bancs : preflight, écriture dans l'atelier,
+      # chemin Worker → tâche, ramassage des conteneurs orphelins, mission V2.
+      - name: Podman reçoit la même image
+        run: |
+          set -e
+          podman --version
+          docker save hive-agent:ci | podman load
+          podman image inspect hive-agent:ci --format '{{.Id}}'
+          # `--init` exige un binaire d'init sur l'hôte (catatonit) : l'absence
+          # ferait échouer chaque preflight, en le disant.
+          if ! podman run --rm --init --pull=never hive-agent:ci true; then
+            sudo apt-get update -qq
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends catatonit
+            podman run --rm --init --pull=never hive-agent:ci true
+          fi
+
+      - name: Preflight Hive réel de l’image agent-aware (Podman rootless)
+        env:
+          HIVE_ISOLEMENT_IMAGE: hive-agent:ci
+          HIVE_TEST_MOTEUR: podman
         run: npm test -- --run tests/isolement-runtime.integration.test.ts tests/v2-alpha-scenario.test.ts
 
       - name: Arrêter

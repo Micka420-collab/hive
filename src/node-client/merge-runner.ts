@@ -25,8 +25,8 @@ import { ENTREE_FERMEE } from '../adapters/exec.js';
 import { jugerCommandeTest } from '../shared/commande-test.js';
 import { jugerPreparation } from '../shared/preparation.js';
 import { LanceurIndisponible, resoudreLanceur } from '../lanceur-reel.js';
-import { envelopper } from './isolement.js';
-import type { Fournisseur } from './isolement.js';
+import { envDuLanceur, envelopper, optionsEnveloppe } from './isolement.js';
+import type { BacExecution } from './isolement.js';
 import { buildSandboxEnv } from './workspace.js';
 
 export interface MergeDiff {
@@ -61,7 +61,7 @@ export interface MergeRunOptions {
    * empêchait bien un agent de sortir de son bac, pendant que la commande de
    * test d'un merge s'exécutait à côté, sur l'hôte nu.
    */
-  bac?: { fournisseur: Fournisseur; variables: readonly string[]; image: string };
+  bac?: BacExecution;
   /** Délai max de la commande de test (défaut 5 min). */
   timeoutMs?: number;
   /**
@@ -117,7 +117,7 @@ export function runProc(
   env: NodeJS.ProcessEnv,
   timeoutMs: number,
   signal?: AbortSignal,
-  bac?: { fournisseur: Fournisseur; variables: readonly string[]; image: string },
+  bac?: BacExecution,
 ): Promise<{ code: number | null; output: string }> {
   return new Promise((resolve) => {
     const [bin, ...args] = cmd;
@@ -136,12 +136,7 @@ export function runProc(
     // plateforme — c'est l'hôte qui est Windows, pas l'invité.
     let lance: { bin: string; args: string[] };
     if (bac) {
-      lance = envelopper(bin ?? '', args, {
-        fournisseur: bac.fournisseur,
-        cwdHote: cwd,
-        variables: bac.variables,
-        image: bac.image,
-      });
+      lance = envelopper(bin ?? '', args, optionsEnveloppe(bac, cwd));
     } else {
       try {
         lance = resoudreLanceur(bin ?? '', args);
@@ -169,7 +164,8 @@ export function runProc(
     }
     const child = spawn(lance.bin, lance.args, {
       cwd,
-      env,
+      // Le client du moteur lit sa configuration sur l'hôte (voir `envDuLanceur`).
+      env: bac ? envDuLanceur(bac.fournisseur, env) : env,
       shell: false, // jamais d'interprétation shell (contrainte §5.1)
       windowsHide: true,
       signal,

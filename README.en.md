@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-6433%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-6463%20passing-F6C445?labelColor=17130C)
 ![License](https://img.shields.io/badge/license-MIT-F6C445?labelColor=17130C)
 
 [🇫🇷 Français](README.md) · 🇬🇧 English · [🌐 Site](https://micka420-collab.github.io/hive/?lang=en) · [📚 Documentation](#-documentation)
@@ -219,6 +219,12 @@ With **podman**, **docker** or **bubblewrap**, the agent only sees its own task
 directory. **The network stays open**: a coding agent must reach its model's
 API. Without a container engine, set `HIVE_ISOLEMENT=exige` — the node will
 refuse to work in the open.
+
+The default image, `localhost/hive-agent:local` (Claude Code, Codex, Cline), is
+built on each node with `npm run bac:image`; Hive never downloads it. The node
+keeps the first engine whose preflight passes (image present, agent runnable)
+and says why the others were skipped. Every container carries its node's label:
+restarted after a hard stop, the node removes the ones it left behind.
 
 Inside the sandbox the agent gets an ephemeral HOME: a `claude login` or
 `codex login` session does not reach it. Hive forwards the headless credentials

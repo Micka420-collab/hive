@@ -13,7 +13,7 @@ import { demarrageNoeudAutorise, messageRefusShellProduction } from '../shared/a
 import { conseilDemarrage, constatsPourLeHub, diagnostiquerAgents } from './connexion.js';
 import { entreeEnRuche } from '../shared/presence-noeud.js';
 import { HiveNodeClient } from './client.js';
-import { isolementDeclareDe, optionBac, preparerBac } from './bac.js';
+import { isolementDeclareDe, optionBac, preparerBac, ramasserRestes } from './bac.js';
 import { parseModeles } from './modeles.js';
 import { createInterface } from 'node:readline/promises';
 
@@ -169,6 +169,10 @@ const workRoot =
 // mintait un nouvel id et laissait le précédent affiché « hors ligne »
 // pour toujours dans le dashboard : un fantôme par redémarrage.
 const nodeId = identiteStable(workRoot);
+
+// Ce qu'un lancement précédent de CE nœud a laissé tourner dans son moteur
+// (kill -9, panne) — supprimé AVANT de prendre du travail. Voir `ramasserRestes`.
+for (const l of await ramasserRestes(bac, nodeId)) console.log(l);
 
 const client = new HiveNodeClient({
   url: process.env.HIVE_URL ?? 'ws://localhost:7777/ws',

@@ -13,7 +13,7 @@ import path from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { agentCredentialEnv, detectAllAgents } from './agent-detect.js';
 import { resoudreAgentAuDemarrage } from './choisir-agent.js';
-import { isolementDeclareDe, optionBac, preparerBac } from './bac.js';
+import { isolementDeclareDe, optionBac, preparerBac, ramasserRestes } from './bac.js';
 import { parseModeles } from './modeles.js';
 import { CODE } from '../codes-sortie.js';
 import { libelleAgent } from '../shared/agent-libelle.js';
@@ -262,6 +262,9 @@ async function main(): Promise<void> {
     // coûté l'absence totale de bac à sable sur celui-ci.
     process.exit(bac.codeSortie);
   }
+  // Les conteneurs qu'un lancement précédent de ce nœud a laissés — même
+  // geste que `main.ts`, avant de prendre du travail.
+  for (const l of await ramasserRestes(bac, nodeId)) console.log(l);
 
   const client = new HiveNodeClient({
     url,

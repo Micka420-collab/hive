@@ -4,7 +4,7 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { argvAgent } from '../shared/agent-windows.js';
-import { envelopper } from '../node-client/isolement.js';
+import { envDuLanceur, envelopper, optionsEnveloppe } from '../node-client/isolement.js';
 import { LIMITS } from '../shared/protocol.js';
 import { texteDEchec } from '../shared/texte-d-echec.js';
 import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from '../shared/types.js';
@@ -61,20 +61,19 @@ const INFRA_FAILURE_RE =
  * c'est l'enveloppe qui le résout — dans l'image pour un conteneur, sur l'hôte
  * monté en lecture seule pour bubblewrap (`installationHote`).
  */
-function preparerCommande(bin: string, args: string[], ctx: AdapterContext) {
-  const [binReel = bin, ...avant] = ctx.bac
-    ? [bin]
-    : argvAgent(bin, process.env, process.platform, existsSync);
-  const argsReels = [...avant, ...args];
-
-  return ctx.bac
-    ? envelopper(binReel, argsReels, {
-        fournisseur: ctx.bac.fournisseur,
-        cwdHote: ctx.cwd,
-        variables: ctx.bac.variables,
-        image: ctx.bac.image,
-      })
-    : { bin: binReel, args: argsReels };
+function preparerCommande(
+  bin: string,
+  args: string[],
+  ctx: AdapterContext,
+): { bin: string; args: string[]; env: NodeJS.ProcessEnv } {
+  if (ctx.bac) {
+    return {
+      ...envelopper(bin, args, optionsEnveloppe(ctx.bac, ctx.cwd)),
+      env: envDuLanceur(ctx.bac.fournisseur, ctx.env),
+    };
+  }
+  const [binReel = bin, ...avant] = argvAgent(bin, process.env, process.platform, existsSync);
+  return { bin: binReel, args: [...avant, ...args], env: ctx.env };
 }
 
 /**
@@ -155,7 +154,7 @@ function executer(
   return new Promise((resolve) => {
     const child = spawn(lance.bin, lance.args, {
       cwd: ctx.cwd,
-      env: ctx.env,
+      env: lance.env,
       shell: false, // jamais d'interprétation shell (contrainte §5.1)
       windowsHide: true,
       signal: ctx.signal,

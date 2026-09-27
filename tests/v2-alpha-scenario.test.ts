@@ -35,7 +35,10 @@ const imageDemandee = process.env.HIVE_ISOLEMENT_IMAGE?.trim() ?? '';
 function bacDepuisEnv():
   { fournisseur: Fournisseur; image: string; variables: string[] } | undefined {
   if (!imageDemandee || process.platform === 'win32') return undefined;
-  for (const nom of ['podman', 'docker']) {
+  // `HIVE_TEST_MOTEUR` : le même sélecteur réservé aux bancs que
+  // `tests/isolement-runtime.integration.test.ts`.
+  const impose = process.env.HIVE_TEST_MOTEUR?.trim();
+  for (const nom of impose ? [impose] : ['podman', 'docker']) {
     try {
       execFileSync(nom, ['--version'], { stdio: 'ignore', timeout: 4_000 });
       execFileSync(nom, ['info'], { stdio: 'ignore', timeout: 8_000 });
