@@ -154,9 +154,10 @@ describe.runIf(POSIX)('le nœud — SIGTERM, le signal des superviseurs', () => 
       tickMs: 200,
     });
     base = `http://127.0.0.1:${server.port}`;
+    // Le premier compte ne se crée qu'avec le jeton de ruche (#467).
     const auth = await fetch(`${base}/api/auth/register`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-hive-token': TOKEN },
       body: JSON.stringify({
         email: 'admin@hive.test',
         password: 'mot-de-passe-test',
