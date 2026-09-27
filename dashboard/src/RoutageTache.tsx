@@ -13,6 +13,7 @@
 
 import { useEffect, useState } from 'react';
 import { fetchRoutage } from './api';
+import { ExperienceTache } from './ExperienceTache';
 import { useT } from './i18n';
 import type { HiveNode } from '../../src/shared/types';
 import type { AffectationVue, LigneRaison } from '../../src/shared/routage-vue';
@@ -200,6 +201,7 @@ export function RoutageTache({ taskId, cle, nodes }: Props) {
               )}
             </p>
           )}
+          {derniere.experience && <ExperienceTache experience={derniere.experience} />}
         </>
       )}
     </section>

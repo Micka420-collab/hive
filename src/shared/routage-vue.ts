@@ -18,6 +18,13 @@
 //     mesure) — même quand des élections en vol ont déjà éteint son infini ;
 //   · un payload illisible est ignoré, jamais deviné.
 //
+// Un dernier fait dit ce que l'ouvrière a LU de l'expérience voisine :
+// `experience_context` (ou `experience_refus`, quand le budget l'a évincée),
+// émis juste après l'affectation — les contextes similaires du graphe
+// d'expérience (`shared/graphe-experience.ts`). Ce sont des CORRÉLATIONS :
+// elles expliquent ce que l'ouvrière savait, jamais pourquoi le modèle a été
+// choisi — l'Aiguillage ne les lit pas.
+//
 // La raison se lit selon la version du calcul qui l'a prise
 // (`versionAiguillage`, cf. `VERSION_AIGUILLAGE`). Depuis la v2, chaque ligne
 // sépare les verdicts reçus (`essais`) des élections en vol (`enVol`). Avant,
@@ -32,6 +39,8 @@ export const TYPES_ROUTAGE = [
   'pheromone_route',
   'drone_race_started',
   'drone_won',
+  'experience_context',
+  'experience_refus',
 ] as const;
 
 /** Une ligne du classement qui a décidé du modèle. */
@@ -71,6 +80,34 @@ export interface CourseVue {
   vainqueur: { nodeId: string; modele: string | null } | null;
 }
 
+/** Une tâche voisine que le graphe d'expérience a rapprochée, en faits typés. */
+export interface SimilaireVue {
+  taskId: string;
+  /** Le titre que l'ouvrière a lu ; `null` si le fait ne le porte pas. */
+  titre: string | null;
+  /** `null` quand le fait ne le dit pas : jamais « ce projet » par défaut. */
+  projectId: string | null;
+  /** Du projet de la tâche ; `null` (inconnu) quand le fait ne le dit pas. */
+  memeProjet: boolean | null;
+  categorie: boolean;
+  fichiers: string[];
+  erreurs: number;
+  rendue: boolean;
+  validee: boolean;
+  contestee: boolean;
+  tentativesEchouees: number;
+  modeles: string[];
+  lecons: number;
+}
+
+/** Ce que l'ouvrière a reçu du graphe d'expérience à cette affectation. */
+export interface ExperienceVue {
+  /** `perdue` : il y avait des contextes, le budget du prompt les a évincés. */
+  etat: 'jointe' | 'perdue';
+  portee: 'projet' | 'ruche' | null;
+  similaires: SimilaireVue[];
+}
+
 export interface AffectationVue {
   eventId: number;
   ts: number;
@@ -92,6 +129,8 @@ export interface AffectationVue {
   pheromone: { domaine: string; score: number } | null;
   /** `null` hors course de drones. */
   course: CourseVue | null;
+  /** Absente quand rien ne ressemblait à la tâche (ou avant ce fait). */
+  experience?: ExperienceVue;
   critereNoeud: CritereNoeud;
 }
 
@@ -143,6 +182,43 @@ function dronesDepuis(p: Record<string, unknown>): DroneVue[] {
   }));
 }
 
+const vrai = (v: unknown): boolean => v === true;
+const entierNaturel = (v: unknown): number =>
+  typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 ? v : 0;
+
+/** Un contexte similaire relu ; sans `taskId` lisible, il est ignoré. */
+function similaireDepuis(brut: unknown): SimilaireVue | null {
+  const s = objet(brut);
+  const taskId = texte(s.taskId);
+  if (taskId === null) return null;
+  return {
+    taskId,
+    titre: texte(s.titre),
+    projectId: texte(s.projectId),
+    memeProjet: typeof s.memeProjet === 'boolean' ? s.memeProjet : null,
+    categorie: vrai(s.categorie),
+    fichiers: textes(s.fichiers),
+    erreurs: entierNaturel(s.erreurs),
+    rendue: vrai(s.rendue),
+    validee: vrai(s.validee),
+    contestee: vrai(s.contestee),
+    tentativesEchouees: entierNaturel(s.tentativesEchouees),
+    modeles: textes(s.modeles),
+    lecons: entierNaturel(s.lecons),
+  };
+}
+
+function experienceDepuis(e: HiveEvent): ExperienceVue {
+  const p = e.payload;
+  return {
+    etat: e.type === 'experience_refus' ? 'perdue' : 'jointe',
+    portee: p.portee === 'projet' || p.portee === 'ruche' ? p.portee : null,
+    similaires: Array.isArray(p.similaires)
+      ? p.similaires.map(similaireDepuis).filter((x): x is SimilaireVue => x !== null)
+      : [],
+  };
+}
+
 /**
  * Les affectations d'une tâche, de la plus ancienne à la plus récente.
  *
@@ -179,6 +255,14 @@ export function affectationsDepuisEvenements(evenements: readonly HiveEvent[]): 
       if (course && drone) {
         course.vainqueur = { nodeId: drone.nodeId, modele: texte(p.modele) ?? drone.modele };
       }
+      continue;
+    }
+    if (e.type === 'experience_context' || e.type === 'experience_refus') {
+      // Émis à l'envoi, juste APRÈS l'affectation qu'il éclaire. Une course
+      // l'émet une fois par drone, pour la même tâche et le même graphe : le
+      // premier suffit.
+      const derniere = affectations.at(-1);
+      if (derniere && !derniere.experience) derniere.experience = experienceDepuis(e);
       continue;
     }
     if (e.type !== 'task_assigned') continue;

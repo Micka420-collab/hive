@@ -1129,6 +1129,19 @@ h3 {
 .routage-rang tr.elu td {
   font-weight: 600;
 }
+/* Ce que l'ouvrière a lu du graphe d'expérience (ExperienceTache.tsx). */
+.routage-experience {
+  margin-top: 0.6rem;
+  font-size: 0.85rem;
+}
+.routage-experience p {
+  margin: 0 0 0.3rem;
+}
+.routage-similaires {
+  margin: 0;
+  padding-left: 1.1rem;
+  overflow-wrap: anywhere;
+}
 .delegation-panel {
   margin-top: 18px;
   padding-top: 14px;

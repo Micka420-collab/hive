@@ -150,6 +150,78 @@ describe('affectationsDepuisEvenements — la raison, telle que le journal la ga
   });
 });
 
+describe('ce que l’ouvrière a lu du graphe d’expérience, relu avec l’affectation', () => {
+  // Ce que la vue rend ; le journal porte en plus le `score`, qu'elle n'affiche pas.
+  const similaire = {
+    taskId: 'voisine',
+    titre: 'Une voisine',
+    projectId: 'p',
+    memeProjet: true,
+    categorie: true,
+    fichiers: ['src/a.ts'],
+    erreurs: 0,
+    rendue: true,
+    validee: false,
+    contestee: true,
+    tentativesEchouees: 1,
+    modeles: ['opus'],
+    lecons: 2,
+  };
+
+  it('S’ATTACHE À L’AFFECTATION QU’IL SUIT — une fois, même quand une course l’émet par drone', () => {
+    const [a, b] = affectationsDepuisEvenements([
+      // Avant toute affectation : il n'éclaire rien, il est ignoré.
+      ev(1, 'experience_context', { taskId: 't', similaires: [{ taskId: 'orpheline' }] }),
+      ev(2, 'task_assigned', { taskId: 't', nodeId: 'n1' }),
+      ev(3, 'experience_context', {
+        taskId: 't',
+        nodeId: 'n1',
+        portee: 'projet',
+        similaires: [{ ...similaire, score: 3 }],
+      }),
+      ev(4, 'experience_context', { taskId: 't', nodeId: 'n2', portee: 'ruche', similaires: [] }),
+      ev(5, 'task_assigned', { taskId: 't', nodeId: 'n1' }),
+      ev(6, 'experience_refus', {
+        taskId: 't',
+        portee: 'autre-chose',
+        motif: 'budget',
+        similaires: [{ taskId: 'x', erreurs: -3, fichiers: 'pas une liste' }, 42, {}],
+      }),
+    ]);
+    expect(a?.experience).toEqual({ etat: 'jointe', portee: 'projet', similaires: [similaire] });
+    // Perdue au budget : dite telle quelle ; un champ illisible retombe sur
+    // l'absence (0, [], faux), une portée inconnue sur `null`, jamais devinée.
+    expect(b?.experience).toEqual({
+      etat: 'perdue',
+      portee: null,
+      similaires: [
+        {
+          taskId: 'x',
+          titre: null,
+          projectId: null,
+          memeProjet: null,
+          categorie: false,
+          fichiers: [],
+          erreurs: 0,
+          rendue: false,
+          validee: false,
+          contestee: false,
+          tentativesEchouees: 0,
+          modeles: [],
+          lecons: 0,
+        },
+      ],
+    });
+  });
+
+  it('SANS CE FAIT, RIEN — pas une expérience vide inventée', () => {
+    const [a] = affectationsDepuisEvenements([
+      ev(1, 'task_assigned', { taskId: 't', nodeId: 'n' }),
+    ]);
+    expect(a?.experience).toBeUndefined();
+  });
+});
+
 describe('/api/tasks/:id/routage — sur une vraie Reine', () => {
   const JETON = 'jeton-routage-suffisamment-long';
   let serveur: HiveServer | null = null;

@@ -1170,6 +1170,10 @@ export class Scheduler {
         this.emit('task_done', {
           taskId: task.id,
           nodeId,
+          // La production que ce fait clôt, nommée là où elle naît : sans elle,
+          // un avis ou une validation portant ce `resultId` ne se rattachait à
+          // aucune issue du journal (graphe d'expérience, `supersedes`).
+          resultId,
           durationMs: result.durationMs,
           ...(result.usage ? { usage: result.usage } : {}),
           ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
@@ -1218,6 +1222,7 @@ export class Scheduler {
           this.emit('task_failed', {
             taskId: task.id,
             nodeId,
+            resultId,
             attempts,
             durationMs,
             ...(result.usage ? { usage: result.usage } : {}),
@@ -1232,6 +1237,7 @@ export class Scheduler {
           this.emit('task_retry', {
             taskId: task.id,
             nodeId,
+            resultId,
             attempt: attempts,
             maxAttempts: this.maxAttempts,
             durationMs,
@@ -1752,6 +1758,7 @@ export class Scheduler {
         this.emit('task_done', {
           taskId: task.id,
           nodeId,
+          resultId,
           durationMs: result.durationMs,
           ...(result.usage ? { usage: result.usage } : {}),
           ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
@@ -1819,6 +1826,7 @@ export class Scheduler {
         this.emit('task_failed', {
           taskId: task.id,
           nodeId,
+          resultId,
           attempts,
           durationMs,
           ...(result.usage ? { usage: result.usage } : {}),
@@ -1830,6 +1838,7 @@ export class Scheduler {
         this.emit('task_retry', {
           taskId: task.id,
           nodeId,
+          resultId,
           attempt: attempts,
           maxAttempts: this.maxAttempts,
           durationMs,

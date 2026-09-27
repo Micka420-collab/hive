@@ -61,6 +61,9 @@ const INSTINCT = new Set([
   'critique_context',
   // … et celle que le budget a évincée : la reprise aveugle, qui doit se voir.
   'critique_refus',
+  // Le graphe d'expérience joint à une affectation, et ce que le budget en a évincé.
+  'experience_context',
+  'experience_refus',
 ]);
 
 /**
