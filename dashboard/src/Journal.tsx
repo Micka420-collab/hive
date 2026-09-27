@@ -615,6 +615,30 @@ const EVENTS: Record<string, Meta> = {
             `${String(p.relecteur ?? '?')} approves ${short(p.taskId)}`,
           ),
   },
+  // La rétention du journal se raconte (`shared/retention-journal.ts`) : une
+  // ligne par passe qui retire quelque chose. Le plafond y est nommé à part,
+  // avec les preuves de tâches ENCORE OUVERTES qu'il a prises — le seul motif
+  // qui prive une décision à venir de son dossier, et que l'opérateur doit
+  // pouvoir lire sans ouvrir le payload.
+  journal_elagage: {
+    icon: '✂',
+    cls: 'muted',
+    text: (p, t) => {
+      const motifs = (p.parMotif ?? {}) as Record<string, unknown>;
+      const n = (m: string): number => (typeof motifs[m] === 'number' ? (motifs[m] as number) : 0);
+      const preuves = n('orpheline') + n('echue');
+      const plafond = n('plafond_close') + n('plafond_vivante');
+      const base = t(
+        `journal élagué : ${n('trace')} trace(s), ${preuves} preuve(s) de tâches closes ou disparues`,
+        `journal pruned: ${n('trace')} trace(s), ${preuves} proof(s) of closed or deleted tasks`,
+      );
+      if (plafond === 0) return base;
+      return t(
+        `${base} — plafond atteint : ${plafond} preuve(s) retirée(s), dont ${n('plafond_vivante')} de tâches encore ouvertes`,
+        `${base} — cap reached: ${plafond} proof(s) removed, ${n('plafond_vivante')} of them from still-open tasks`,
+      );
+    },
+  },
   boot_recovery: {
     icon: '⟲',
     cls: 'info',

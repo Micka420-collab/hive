@@ -338,6 +338,30 @@ Le protocole complet — seuils du Conseil, règles de l'Evaluator, portes de
 retry, issues d'un désaccord — est dans
 **[PROTOCOLE-CRITIQUE.md](PROTOCOLE-CRITIQUE.md)**.
 
+## 📜 Le journal garde ses preuves
+
+Tout ce que la ruche fait passe par son **journal**, et le journal est borné.
+Deux familles d'événements n'y vivent pas le même temps :
+
+- les **traces** (progrès d'agent, nœuds, Conseils, gestes d'accès) : les
+  **5 000 derniers** événements, que les écrans rattrapent en direct et que la
+  Chronique, le Pulse, le Waggle et le Ghost replient ;
+- les **preuves** d'une tâche — CI et bac, relectures croisées et leurs
+  verdicts, revue humaine, renvois et critiques, raison du routing, faits du
+  registre Genome, provenance d'une livraison, mesure du Worker — vivent **avec
+  leur tâche** : tant que la ruche peut encore en décider quelque chose (en
+  vol, en attente d'une revue, d'une livraison ou d'une fusion), aucune nuit de
+  bavardage ne les efface ; close (échouée, fusionnée, rejetée sans nouvel
+  essai), elle les garde **trente jours** ; disparue, elle ne garde rien.
+
+Un **plafond de 50 000 lignes** borne le tout en dernier recours : il retire
+d'abord les preuves des tâches closes les plus anciennes, puis celles des tâches
+ouvertes restées le plus longtemps inactives — **tâche par tâche**, jamais la
+moitié d'un dossier. Chaque passe qui retire quelque chose l'écrit au Journal
+(« journal élagué : … », le plafond nommé à part) et le compte par type ; le
+registre Genome ne se dit « tronqué » que si des faits d'une tâche encore
+connue ont réellement disparu.
+
 ## 🛡️ Sting Detector — prévention de conflits (Palier 2)
 
 Deux tâches qui pourraient tourner **en même temps** (aucun ordre de dépendance

@@ -291,6 +291,29 @@ npm run cli -- mind                         # recent memories
 # or: GET /api/hive-mind?q=…
 ```
 
+## 📜 The journal keeps its proofs
+
+Everything the hive does goes through its **journal**, and the journal is
+bounded. Two families of events do not live there for the same time:
+
+- **traces** (agent progress, nodes, Councils, access gestures): the **last
+  5,000** events, which screens catch up on live and which the Chronicle,
+  Pulse, Waggle and Ghost fold;
+- a task's **proofs** — CI and sandbox checks, cross-reviews and their
+  verdicts, human review, retries and critiques, routing reason, Genome register
+  facts, delivery provenance, Worker measurement — live **with their task**:
+  while the hive can still decide something about it (in flight, waiting for a
+  review, a delivery or a merge), no night of chatter erases them; once closed
+  (failed, merged, rejected with no new attempt) it keeps them for **thirty
+  days**; once deleted, it keeps nothing.
+
+A **50,000-row cap** bounds everything as a last resort: it first removes the
+proofs of the longest-closed tasks, then those of the open tasks idle the
+longest — **one whole task at a time**, never half a dossier. Every pass that
+removes something writes it to the Journal (“journal pruned: …”, with the cap
+named apart) and counts it by type; the Genome register only calls itself
+“truncated” when facts of a still-known task have really gone.
+
 ## 🛡️ Sting Detector — conflict prevention
 
 Two tasks that could run **at the same time** (no dependency ordering between

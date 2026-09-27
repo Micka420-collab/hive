@@ -163,15 +163,16 @@ première. Une reprise qui ne la remplace pas (échec Worker après la
 correction) la garde — l'objection reste ouverte — et l'en-tête nomme alors
 la tentative dont la production a été contestée, pas « la précédente ».
 
-**Limite connue — critique élaguée.** La critique ne vit que dans le payload
-de `task_retry`, et le journal est élagué au-delà de 5 000 événements
-(`EVENT_RETENTION`). Une tâche rouverte qui attend longtemps en `ready`
-pendant que la ruche journalise 5 000 autres événements perd sa critique :
-la tentative part sans, et **aucun événement ne le signale** — la ruche ne
-peut pas distinguer « jamais eu de critique » de « critique élaguée » sans
-un fait durable hors du journal, ce qui demanderait une évolution du schéma
-SQLite (non faite ici). Une critique vide, elle, ne s'annonce pas : rien
-n'est deviné.
+**La critique survit à l'attente.** Elle ne vit que dans le payload de
+`task_retry`, et `task_retry` est une **preuve** que la rétention du journal
+garde avec sa tâche (`src/shared/retention-journal.ts`) : une tâche rouverte
+qui attend longtemps en `ready` garde sa critique, quel que soit le nombre
+d'événements journalisés entre-temps — l'ancienne limite (élaguée au-delà de
+5 000 événements, sans que rien le signale) est levée. Seul le plafond dur du
+journal, en dernier recours, peut encore retirer le dossier d'une tâche
+ouverte : il le fait tâche entière, et le **dit** au Journal
+(`journal_elagage`, preuves de tâches encore ouvertes comptées à part). Une
+critique vide, elle, ne s'annonce pas : rien n'est deviné.
 
 ### Étape 5 — la notation
 
