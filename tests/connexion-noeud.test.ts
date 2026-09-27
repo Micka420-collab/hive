@@ -20,7 +20,11 @@ import { libelleAgent } from '../src/shared/agent-libelle.js';
 /** Un poste : quels binaires, quel environnement. Rien n'est touché sur disque. */
 function poste(opts: { binaires?: AgentType[]; env?: NodeJS.ProcessEnv } = {}) {
   return {
-    agentsPresents: () => Promise.resolve(opts.binaires ?? []),
+    // Session « inconnue » : le CLI n'a rien dit, le dossier décide — ici aucun.
+    agentsPresents: () =>
+      Promise.resolve(
+        (opts.binaires ?? []).map((agent) => ({ agent, session: 'inconnue' as const })),
+      ),
     env: opts.env ?? {},
     // Aucun dossier de session locale : sans cela, un `~/.claude` présent sur
     // la machine du banc ferait passer la clé pour présente.

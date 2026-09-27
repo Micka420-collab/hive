@@ -8,9 +8,9 @@ import { libelleAgent } from '../shared/agent-libelle.js';
 import {
   type AgentType,
   type DetectedAgent,
+  type InventaireAgents,
   type Sonde,
-  detectAllAgents,
-  detectBestAgent,
+  inventaireAgents,
   labelPour,
 } from './agent-detect.js';
 
@@ -68,6 +68,13 @@ export async function resoudreAgentAuDemarrage(opts: {
   stdinEstTty?: boolean;
   /** Pose une question et rend la saisie (readline). Absente hors TTY. */
   demander?: (question: string) => Promise<string>;
+  /**
+   * L'inventaire déjà fait par l'appelant (`main.ts`, `join.ts`). Chaque passe
+   * relance la commande de statut de chaque CLI : quatre passes par démarrage,
+   * c'était quatre fois le coût — et des passes qui pouvaient se contredire
+   * (un statut expiré dans l'une, « non connecté » dans la suivante).
+   */
+  inventaire?: InventaireAgents;
 }): Promise<DetectedAgent> {
   const env = opts.env ?? process.env;
   const force = (env.HIVE_AGENT ?? '').trim();
@@ -76,8 +83,12 @@ export async function resoudreAgentAuDemarrage(opts: {
     return { agent, label: labelPour(agent) };
   }
 
-  const tous = await detectAllAgents(env, opts.sonder, opts.plateforme, opts.existe);
+  // UNE passe : le premier utilisable est le préféré (la règle de
+  // `detectBestAgent` — même ordre, même filtre).
+  const { tous } =
+    opts.inventaire ?? (await inventaireAgents(env, opts.sonder, opts.plateforme, opts.existe));
   const reels = agentsReels(tous);
+  const prefere = tous[0] ?? 'shell';
 
   if (
     !fautDemanderChoixAgent({
@@ -88,11 +99,10 @@ export async function resoudreAgentAuDemarrage(opts: {
     }) ||
     !opts.demander
   ) {
-    return detectBestAgent(env, opts.sonder, opts.plateforme, opts.existe);
+    return { agent: prefere, label: labelPour(prefere) };
   }
 
-  const defaut = (await detectBestAgent(env, opts.sonder, opts.plateforme, opts.existe)).agent;
-  const defautReel = reels.includes(defaut) ? defaut : reels[0]!;
+  const defautReel = reels.includes(prefere) ? prefere : reels[0]!;
   const indexDefaut = reels.indexOf(defautReel) + 1;
 
   console.log(`\n${menuChoixAgent(reels)}`);

@@ -72,12 +72,11 @@ export interface Piece {
    */
   readonly env?: Readonly<Record<string, string>>;
   /**
-   * Vraie pour une ouvrière AJOUTÉE par l'essaim par agent : sa mort se dit,
-   * et n'emporte pas la ruche (voir `OuvriereAgent.ajoutee`). Absente partout
-   * ailleurs, où la règle du lanceur tient : la mort d'un seul emporte les
-   * autres.
+   * Vraie pour toute ouvrière : sa mort se dit, avec sa dernière phrase, et
+   * n'emporte la ruche que si c'était la DERNIÈRE (`suiteDUneMort`). Absente
+   * pour la Reine et l'écran, dont la mort emporte tout.
    */
-  readonly facultative?: boolean;
+  readonly ouvriere?: true;
   /**
    * Son lien à la Reine que CETTE ruche lance (`LienReine`). Absent : aucune
    * Reine n'est lancée ici, et la pièce démarre aussitôt avec ce qu'elle a.
@@ -193,7 +192,7 @@ export function pieces(
         argv: [SCRIPTS.lanceur, ENTREES.noeud],
         role: `exécute le travail avec ${libelleAgent(o.agent)}`,
         env: o.env,
-        ...(o.ajoutee ? { facultative: true } : {}),
+        ouvriere: true,
         ...rejoint('HIVE_URL'),
       });
     }
@@ -203,6 +202,7 @@ export function pieces(
       bin: noeud,
       argv: [SCRIPTS.lanceur, ENTREES.noeud],
       role: 'exécute le travail avec votre agent',
+      ouvriere: true,
       ...rejoint('HIVE_URL'),
     });
   }
@@ -415,15 +415,9 @@ export interface OuvriereAgent {
   readonly env: Readonly<Record<string, string>>;
   /**
    * Fausse pour la PREMIÈRE famille — l'ouvrière que la ruche lançait déjà
-   * seule —, vraie pour chacune de celles qu'on ajoute à côté.
-   *
-   * La mort d'une ajoutée n'emporte pas la ruche, et c'est une décision, pas
-   * une indulgence : sous `HIVE_ISOLEMENT=exige`, une famille absente de
-   * l'image fait REFUSER son nœud au démarrage. Emporter la ruche pour ça,
-   * c'est casser, chez qui exige un bac, la ruche d'une famille qui marchait
-   * hier — pour une ouvrière qu'il n'a jamais demandée. La première, elle,
-   * garde la règle d'avant : sans elle, la ruche n'a plus rien de ce qu'on lui
-   * connaissait.
+   * seule, qui garde son nom et son dossier —, vraie pour chacune de celles
+   * qu'on ajoute à côté (voir « LA PREMIÈRE GARDE SON IDENTITÉ »). Sa mort,
+   * elle, suit la règle de TOUTES les ouvrières : `suiteDUneMort`.
    */
   readonly ajoutee: boolean;
 }
@@ -594,6 +588,82 @@ export function annonceOuvrieres(plan: PlanOuvrieres | undefined): string[] {
     );
   }
   return lignes;
+}
+
+/**
+ * Ce que la ruche dit des agents installés qu'elle ne fait PAS travailler :
+ * leur CLI se dit non connecté (`inventaireAgents`). Sans ces lignes, la
+ * bannière taisait une famille que l'opérateur sait installée — il la
+ * chercherait dans Mission Control, puis dans le code.
+ */
+export function annonceNonConnectes(
+  nonConnectes: readonly { readonly detail: string }[],
+): string[] {
+  return nonConnectes.map((n) => `⚠ ${n.detail} Aucune ouvrière ne le fait travailler.`);
+}
+
+/** Ce que le lanceur fait quand un de ses enfants meurt sans qu'on l'ait arrêté. */
+export type SuiteDUneMort =
+  | { readonly arreter: false; readonly message: string }
+  | { readonly arreter: true; readonly code: number; readonly message: string };
+
+/**
+ * La mort d'une pièce : la ruche continue-t-elle, et que dit-elle ?
+ *
+ * ─── UNE OUVRIÈRE QUI REFUSE EMPORTAIT LA RUCHE ──────────────────────────────
+ *
+ * Mesuré pendant la preuve V2 Alpha, sous `HIVE_ISOLEMENT=exige` : l'ouvrière
+ * Claude Code refuse de démarrer (code 5 — dans le bac, la session `~/.claude`
+ * de l'hôte est invisible), et le lanceur arrêtait la Reine ET les ouvrières
+ * Codex et Cursor, qui venaient de s'inscrire. Une ruche entière perdue pour
+ * une ouvrière qui avait dit exactement quoi faire.
+ *
+ * La règle est désormais la même pour toutes les ouvrières : celle qui meurt
+ * se dit, avec sa dernière phrase (le motif et le remède, que ses propres
+ * lignes noient au milieu de celles des autres), et la ruche continue tant
+ * qu'il en reste une. Elle s'arrête, en code NON NUL, quand la Reine meurt —
+ * sans elle rien ne tourne — ou quand plus AUCUNE ouvrière ne reste : une
+ * ruche sans bras n'est pas un succès pour un superviseur. L'écran garde la
+ * règle d'avant. Un ^C, lui, n'arrive jamais ici : il arrête tout, en 0.
+ */
+export function suiteDUneMort(mort: {
+  readonly piece: Pick<Piece, 'ouvriere'>;
+  readonly code: number | null;
+  readonly signal: string | null;
+  /** Les ouvrières encore vivantes ou pas encore lancées, sans celle-ci. */
+  readonly ouvrieresRestantes: number;
+  /** Sa dernière ligne non vide sur la sortie d'erreur, ou `null`. */
+  readonly derniere: string | null;
+}): SuiteDUneMort {
+  const issue = mort.signal ?? `code ${String(mort.code)}`;
+  const dit = mort.derniere ? ` — « ${mort.derniere} »` : '';
+  // Une sortie en 0 qu'on n'a pas demandée n'est pas un succès de ruche.
+  const code = mort.code === 0 ? 1 : (mort.code ?? 1);
+  if (!mort.piece.ouvriere) {
+    return { arreter: true, code, message: `✘ arrêté (${issue})${dit} — la ruche s'arrête.` };
+  }
+  if (mort.ouvrieresRestantes > 0) {
+    return {
+      arreter: false,
+      message:
+        `✘ arrêtée (${issue})${dit} — la ruche continue sans elle ` +
+        `(${String(mort.ouvrieresRestantes)} ouvrière(s) en place).`,
+    };
+  }
+  return {
+    arreter: true,
+    code,
+    message: `✘ arrêtée (${issue})${dit} — plus aucune ouvrière : la ruche s'arrête.`,
+  };
+}
+
+/** La dernière ligne non vide d'un lot — ce qu'un processus a dit en dernier. */
+export function derniereLigne(lignes: readonly string[], avant: string | null): string | null {
+  for (let i = lignes.length - 1; i >= 0; i--) {
+    const l = (lignes[i] ?? '').trim();
+    if (l !== '') return l.slice(0, 400);
+  }
+  return avant;
 }
 
 /**

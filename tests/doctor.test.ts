@@ -46,6 +46,7 @@ const SAINE: Releve = {
   base: { presente: true, integre: true, inscriptible: true },
   dashboardConstruit: true,
   agent: 'claude-code',
+  agentsNonConnectes: [],
   isolement: 'podman',
   imageBac: {
     image: 'localhost/hive-agent:local',
@@ -88,6 +89,7 @@ describe('LES DEUX RÈGLES QUI PORTENT TOUT LE MODULE', () => {
       base: { presente: true, integre: false, inscriptible: true },
       dashboardConstruit: false,
       agent: null,
+      agentsNonConnectes: [],
       isolement: null,
       imageBac: null,
       wsJoignable: false,

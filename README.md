@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-6996%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-7025%20passing-F6C445?labelColor=17130C)
 ![Licence](https://img.shields.io/badge/licence-MIT-F6C445?labelColor=17130C)
 
 🇫🇷 Français · [🇬🇧 English](README.en.md) · [🌐 Site](https://micka420-collab.github.io/hive/) · [📚 Documentation](#-documentation)
@@ -367,7 +367,14 @@ du producteur si l'une est en ligne ; sinon l'Evaluator demande une revue
 humaine en écrivant « relecture impossible : <cause> ». Le producteur n'est
 jamais relancé pour la panne de son relecteur. La première ouvrière garde le nom, le dossier et les `HIVE_MODELES`
 d'avant ; les autres prennent `<nom>-<famille>`. Pour n'en lancer qu'une :
-`npm run ruche -- --une-ouvriere`, ou `HIVE_AGENT` dans `.env`.
+`npm run ruche -- --une-ouvriere`, ou `HIVE_AGENT` dans `.env`. Un agent
+installé mais non connecté — sa propre commande de statut le dit
+(`claude auth status`, `cursor-agent status`, `codex login status`) et aucune
+clé n'est posée — n'a pas d'ouvrière : la ruche et `hive doctor` le disent,
+avec la commande qui le connecte. Une ouvrière qui tombe ou refuse de démarrer
+n'arrête plus la ruche : le lanceur cite sa dernière phrase (la raison et le
+remède), et ne s'arrête, en code non nul, que si la Reine meurt ou qu'il ne
+reste aucune ouvrière. `^C` arrête toujours tout.
 
 Pour un agent conteneurisé, le nom logique doit être exécutable dans l’image
 choisie. Un CLI installé sur l’hôte ou une session ouverte dans l’hôte ne prouve

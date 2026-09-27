@@ -59,6 +59,7 @@ const RELEVE_QUELCONQUE: Releve = {
   base: { presente: false, integre: false, inscriptible: false },
   dashboardConstruit: false,
   agent: 'shell',
+  agentsNonConnectes: [],
   isolement: 'aucun',
   imageBac: null,
   wsJoignable: false,

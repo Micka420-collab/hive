@@ -3,10 +3,11 @@
 // Claude Code ou son Codex et on choisit le bon adaptateur.
 //
 // Sécurité : sondage par spawn(bin, ['--version'], { shell:false }) — jamais
-// d'interprétation shell. On ne fait que constater la présence du binaire.
+// d'interprétation shell. On constate la présence du binaire, puis ce que le
+// CLI dit de sa session (`sessionDeLAgent`) : installé n'est pas connecté.
 
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { argvAgent } from '../shared/agent-windows.js';
 
@@ -320,7 +321,12 @@ function probeBin(
  */
 export type Sonde = (argv: readonly string[]) => Promise<boolean>;
 
-/** Résout le premier binaire présent parmi les candidats d'un agent. */
+/**
+ * Résout le premier binaire présent parmi les candidats d'un agent, et rend la
+ * commande qui a répondu — `null` si aucune. La commande sert ensuite à lui
+ * demander s'il est connecté (`sessionDeLAgent`) : le MÊME binaire que celui
+ * qu'on a trouvé, pas un homonyme cherché ailleurs.
+ */
 async function firstPresent(
   bins: string[],
   sonder: Sonde,
@@ -328,7 +334,7 @@ async function firstPresent(
   env: NodeJS.ProcessEnv,
   existe: (chemin: string) => boolean,
   signature?: string,
-): Promise<boolean> {
+): Promise<readonly string[] | null> {
   // Signature : uniquement pour le binaire générique `agent` (CLI Cursor), et
   // uniquement avec la sonde réelle. `cursor-agent` est déjà un nom unique —
   // lui exiger « cursor » dans `--version` casserait une install parfaitement
@@ -341,13 +347,13 @@ async function firstPresent(
   for (const bin of bins) {
     const check = checkPour(bin);
     for (const candidate of candidates(bin, plateforme)) {
-      if (await check([candidate])) return true;
+      if (await check([candidate])) return [candidate];
     }
     // Le PATH n'a rien donné : l'agent peut vivre à un endroit connu qu'il
     // n'expose qu'au shell de connexion (voir `cheminsNatifs`). On ne sonde que
     // ce qui existe — lancer un chemin absent ne dirait rien de plus.
     for (const chemin of cheminsNatifs(bin, env, plateforme)) {
-      if (existe(chemin) && (await check([chemin]))) return true;
+      if (existe(chemin) && (await check([chemin]))) return [chemin];
     }
     // ─── LE SHIM `.cmd`, CONTOURNÉ PAR LE HAUT ─────────────────────────────
     //
@@ -379,9 +385,403 @@ async function firstPresent(
     // a-t-il trouvé quelque chose ? ». Elle en est un proxy, et c'est ce proxy
     // qui rend le mutant indistinguable.
     const parNode = argvAgent(bin, env, plateforme, existe);
-    if (parNode.length > 1 && (await check(parNode))) return true;
+    if (parNode.length > 1 && (await check(parNode))) return parNode;
   }
-  return false;
+  return null;
+}
+
+// ─── INSTALLÉ N'EST PAS CONNECTÉ ─────────────────────────────────────────────
+//
+// La preuve V2 Alpha a lancé une ouvrière Cursor — annoncée, inscrite, comptée
+// parmi les « ouvrières réelles » — sur une machine où `cursor-agent status`
+// répondait « Not logged in ». Deux raccourcis s'additionnaient : la détection
+// ne demandait que `--version`, et les identifiants comptaient le DOSSIER
+// `~/.cursor`, que le CLI crée dès son installation. Chaque tâche confiée à
+// cette ouvrière aurait échoué « non authentifié ».
+//
+// Chaque CLI qui en a une répond ici à SA commande de statut : locale, sans
+// saisie, sans rien dépenser — mesurées le 27 septembre 2026 sur les CLI
+// installés :
+//
+//     claude auth status              → JSON, `"loggedIn": true|false` (code 0|1)
+//     cursor-agent status --format json → JSON, `"isAuthenticated": false` (code 0 !)
+//     codex login status              → « Logged in using ChatGPT » (0) | « Not logged in » (1)
+//
+// Cursor rend 0 non connecté : le code ne dit rien, seule la réponse compte.
+// Une réponse qu'on ne sait pas lire — sous-commande inconnue d'un CLI plus
+// ancien, délai dépassé, binaire qui plante — vaut « inconnue », et l'agent
+// garde la règle d'avant (le dossier de session) : on ne retire un agent que
+// sur SA parole, jamais sur une supposition, sans quoi une mise à jour du CLI
+// suffirait à vider une ruche qui marchait.
+
+/** Ce que le CLI dit de sa propre session. */
+export type EtatSession = 'connectee' | 'non_connectee' | 'inconnue';
+
+/** Le délai d'une commande de statut : trop lente, elle ne dit rien (`inconnue`). */
+export const STATUT_MAX_MS = 5_000;
+
+interface Statut {
+  /** Les arguments de la commande de statut, ajoutés à la commande trouvée. */
+  readonly args: readonly string[];
+  /** Ce que disent son code et sa sortie (stdout et stderr mêlés). */
+  readonly lire: (code: number | null, sortie: string) => EtatSession;
+  /** La commande, telle qu'on la cite à l'humain. */
+  readonly commande: string;
+  /** Le geste qui connecte, puis la clé qui en dispense. */
+  readonly connecter: string;
+  readonly cle: string;
+  /**
+   * La première version du CLI qui connaît la commande de statut. Avant elle,
+   * le CLI la prend pour autre chose — voir `STATUTS['claude-code']` — et on
+   * ne la lance pas : la session reste `inconnue`.
+   */
+  readonly versionMin?: readonly [number, number, number];
+  /** Vrai quand la commande de statut ne dirait rien d'utile ici (voir Codex). */
+  readonly sansObjet?: (env: NodeJS.ProcessEnv) => boolean;
+}
+
+/** `x.y.z` lu dans une sortie de `--version` est-il au moins `min` ? Illisible : non. */
+export function versionAuMoins(sortie: string, min: readonly [number, number, number]): boolean {
+  const m = /(\d+)\.(\d+)\.(\d+)/.exec(sortie);
+  if (!m) return false;
+  const v = [Number(m[1]), Number(m[2]), Number(m[3])];
+  for (let i = 0; i < 3; i++) {
+    if (v[i]! !== min[i]) return v[i]! > min[i]!;
+  }
+  return true;
+}
+
+/**
+ * Le fournisseur de modèle que Codex utilisera, s'il n'est pas celui d'OpenAI.
+ *
+ * ─── « NOT LOGGED IN », SUR UN CODEX QUI TOURNE TRÈS BIEN ───────────────────
+ *
+ * `codex login status` ne parle que des identifiants OPENAI. Un Codex branché
+ * sur un autre fournisseur (`model_provider = "ollama"`, Azure, un fournisseur
+ * déclaré) répond « Not logged in » et code 1 — et travaille pourtant, sans
+ * session ni CODEX_API_KEY. Le prendre au mot retirait de la ruche un agent
+ * qui marchait, et `HIVE_AGENT=codex` refusait de démarrer. Sa parole ne vaut
+ * donc que sur le fournisseur par défaut ; ailleurs, elle est `inconnue`.
+ *
+ * On lit la configuration EFFECTIVE, comme Codex : `$CODEX_HOME/config.toml`
+ * (défaut `~/.codex`), `model_provider` à la racine, ou celui du profil que
+ * désigne `profile`. Une lecture de lignes suffit à ces deux clés ; un fichier
+ * absent ou illisible, c'est le fournisseur par défaut.
+ */
+export function fournisseurCodexTiers(env: NodeJS.ProcessEnv): string | null {
+  const maison = (env.HOME ?? env.USERPROFILE ?? '').trim();
+  const dossier = (env.CODEX_HOME ?? '').trim() || (maison ? path.join(maison, '.codex') : '');
+  if (!dossier) return null;
+  let texte: string;
+  try {
+    texte = readFileSync(path.join(dossier, 'config.toml'), 'utf8');
+  } catch {
+    return null;
+  }
+  const valeur = (l: string, cle: string): string | undefined =>
+    new RegExp(`^\\s*${cle}\\s*=\\s*["']([^"']+)["']`).exec(l)?.[1];
+  let section = '';
+  const racine: Record<string, string> = {};
+  const profils: Record<string, string> = {};
+  for (const ligne of texte.split(/\r?\n/)) {
+    const entete = /^\s*\[([^\]]+)\]\s*$/.exec(ligne);
+    if (entete) {
+      section = entete[1]!.trim();
+      continue;
+    }
+    const fournisseur = valeur(ligne, 'model_provider');
+    if (section === '') {
+      if (fournisseur) racine.model_provider = fournisseur;
+      const profil = valeur(ligne, 'profile');
+      if (profil) racine.profile = profil;
+    } else if (fournisseur && section.startsWith('profiles.')) {
+      profils[section.slice('profiles.'.length).replace(/^["']|["']$/g, '')] = fournisseur;
+    }
+  }
+  const effectif = (racine.profile && profils[racine.profile]) ?? racine.model_provider;
+  return effectif && effectif !== 'openai' ? effectif : null;
+}
+
+/** Un booléen du premier objet JSON de la sortie — `null` s'il n'y est pas. */
+function champBooleen(sortie: string, champ: string): boolean | null {
+  const debut = sortie.indexOf('{');
+  const fin = sortie.lastIndexOf('}');
+  if (debut < 0 || fin < debut) return null;
+  try {
+    const v = (JSON.parse(sortie.slice(debut, fin + 1)) as Record<string, unknown>)[champ];
+    return typeof v === 'boolean' ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+const selon = (connecte: boolean | null): EtatSession =>
+  connecte === null ? 'inconnue' : connecte ? 'connectee' : 'non_connectee';
+
+const STATUTS: Partial<Record<AgentType, Statut>> = {
+  'claude-code': {
+    args: ['auth', 'status'],
+    lire: (_code, sortie) => selon(champBooleen(sortie, 'loggedIn')),
+    commande: 'claude auth status',
+    // ─── AVANT 2.1.40, `auth status` EST UN PROMPT FACTURÉ ────────────────────
+    //
+    // Le sous-commande `auth` est apparue en 2.1.40 — mesuré le 27 septembre
+    // 2026 sur les paquets npm, HOME vide : 2.1.38 et 2.1.39 répondent « Not
+    // logged in · Please run /login », 2.1.40 rend le JSON. Avant, `claude auth
+    // status` lance le mode `--print` avec « auth status » pour prompt : un
+    // appel au modèle, payé par un membre connecté, à chaque sonde. On lit donc
+    // d'abord `--version`, et en dessous on ne demande rien.
+    versionMin: [2, 1, 40],
+    connecter: '`claude login` (ou `claude setup-token` → CLAUDE_CODE_OAUTH_TOKEN)',
+    cle: 'ANTHROPIC_API_KEY',
+  },
+  cursor: {
+    args: ['status', '--format', 'json'],
+    lire: (_code, sortie) => selon(champBooleen(sortie, 'isAuthenticated')),
+    commande: 'cursor-agent status',
+    connecter: '`cursor-agent login`',
+    cle: 'CURSOR_API_KEY',
+  },
+  codex: {
+    args: ['login', 'status'],
+    lire: (code, sortie) =>
+      /\bnot logged in\b/i.test(sortie)
+        ? 'non_connectee'
+        : code === 0 && /\blogged in\b/i.test(sortie)
+          ? 'connectee'
+          : 'inconnue',
+    commande: 'codex login status',
+    sansObjet: (env) => fournisseurCodexTiers(env) !== null,
+    connecter: '`codex login`',
+    cle: 'CODEX_API_KEY (`codex exec` ignore OPENAI_API_KEY)',
+  },
+};
+
+/** Ce qu'on dit d'un agent installé que son CLI dit non connecté — `null` s'il n'a pas de statut. */
+export function phraseNonConnecte(agent: AgentType): string | null {
+  const s = STATUTS[agent];
+  if (!s) return null;
+  return (
+    `${labelPour(agent)} est installé mais non connecté (\`${s.commande}\` le dit) : ` +
+    `${s.connecter}, ou posez ${s.cle} dans le .env de ce nœud.`
+  );
+}
+
+/**
+ * Comment on lance une commande de statut : la commande trouvée, les arguments
+ * du statut — rend le code et la sortie, ou `null` si elle n'a rien rendu
+ * (introuvable, plantée, délai dépassé).
+ */
+export type LanceurStatut = (
+  commande: readonly string[],
+  argsStatut: readonly string[],
+) => Promise<{ code: number | null; sortie: string } | null>;
+
+/**
+ * Le lanceur réel. Même garde que la sonde de présence : aucun secret dans
+ * l'environnement (`envSonde`) — la session vit dans le HOME, que l'on garde,
+ * et une clé posée se juge sans rien lancer. La sortie de `claude auth status`
+ * nomme le compte : elle est bornée, lue pour UN booléen, jamais écrite nulle part.
+ */
+const lancerStatut: LanceurStatut = (commande, argsStatut) =>
+  new Promise((resolve) => {
+    let fini = false;
+    const finir = (r: { code: number | null; sortie: string } | null): void => {
+      if (fini) return;
+      fini = true;
+      resolve(r);
+    };
+    let enfant;
+    let sortie = '';
+    try {
+      const [bin, ...avant] = commande;
+      enfant = spawn(bin ?? '', [...avant, ...argsStatut], {
+        shell: false,
+        windowsHide: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: envSonde(process.env),
+        // Son PROPRE groupe (POSIX) : `cursor-agent` est un script qui lance
+        // Node, et tuer le seul script laissait le petit-enfant finir seul.
+        detached: process.platform !== 'win32',
+      });
+    } catch {
+      finir(null);
+      return;
+    }
+    const lire = (bout: Buffer): void => {
+      if (sortie.length < 8_192) sortie += bout.toString();
+    };
+    enfant.stdout?.on('data', lire);
+    enfant.stderr?.on('data', lire);
+    const minuteur = setTimeout(() => {
+      tuerArbre(enfant.pid);
+      finir(null);
+    }, STATUT_MAX_MS);
+    minuteur.unref?.();
+    enfant.on('error', () => {
+      clearTimeout(minuteur);
+      finir(null);
+    });
+    enfant.on('close', (code) => {
+      clearTimeout(minuteur);
+      finir({ code, sortie });
+    });
+  });
+
+/**
+ * Tue une commande de statut ET ses descendants : le groupe entier sous POSIX
+ * (elle en est la cheffe, `detached`), l'arbre par `taskkill /T` sous Windows.
+ */
+function tuerArbre(pid: number | undefined): void {
+  if (pid === undefined) return;
+  try {
+    if (process.platform === 'win32') {
+      spawn('taskkill', ['/T', '/F', '/PID', String(pid)], {
+        stdio: 'ignore',
+        shell: false,
+        windowsHide: true,
+        env: envSonde(process.env),
+      });
+    } else {
+      process.kill(-pid, 'SIGKILL');
+    }
+  } catch {
+    // déjà parti
+  }
+}
+
+/** Aucune commande lancée : la session reste inconnue. Le défaut d'une sonde injectée. */
+const statutMuet: LanceurStatut = () => Promise.resolve(null);
+
+/** Ce que le CLI trouvé dit de sa session. */
+export async function sessionDeLAgent(
+  agent: AgentType,
+  commande: readonly string[],
+  lancer: LanceurStatut = lancerStatut,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<EtatSession> {
+  const statut = STATUTS[agent];
+  if (!statut || statut.sansObjet?.(env)) return 'inconnue';
+  if (statut.versionMin) {
+    const v = await lancer(commande, ['--version']);
+    if (!v || v.code !== 0 || !versionAuMoins(v.sortie, statut.versionMin)) return 'inconnue';
+  }
+  const r = await lancer(commande, statut.args);
+  return r === null ? 'inconnue' : statut.lire(r.code, r.sortie);
+}
+
+/** Un agent dont le binaire répond, et ce que son CLI dit de sa session. */
+export interface AgentPresent {
+  readonly agent: AgentType;
+  readonly session: EtatSession;
+}
+
+/**
+ * Cet agent est-il installé mais NON CONNECTÉ — son CLI le dit, et aucune clé
+ * n'en dispense ? Rend alors ce qu'il faut faire, sinon `null`.
+ */
+export function nonConnecte(p: AgentPresent, env: NodeJS.ProcessEnv): string | null {
+  if (p.session !== 'non_connectee') return null;
+  return requisitionSiCredentialsManquantes(p.agent, env, { session: p.session })?.detail ?? null;
+}
+
+/** Les outils de détection, injectables ensemble (voir `detectBestAgent`). */
+interface OutilsDetection {
+  sonder: Sonde;
+  plateforme: string;
+  env: NodeJS.ProcessEnv;
+  existe: (chemin: string) => boolean;
+  statut: LanceurStatut | undefined;
+}
+
+/**
+ * Tous les agents dont le binaire répond, avec leur session — dans l'ordre de
+ * préférence. Une sonde INJECTÉE (bancs) ne lance aucune commande de statut
+ * par défaut : même règle que la signature de `firstPresent`, le banc décide.
+ */
+async function constater(o: OutilsDetection, premierUtilisable = false): Promise<AgentPresent[]> {
+  const lancer = o.statut ?? (o.sonder === probeBin ? lancerStatut : statutMuet);
+  const presents: AgentPresent[] = [];
+  for (const probe of PROBES) {
+    const commande = await firstPresent(
+      probe.bins,
+      o.sonder,
+      o.plateforme,
+      o.env,
+      o.existe,
+      probe.signature,
+    );
+    if (!commande) continue;
+    const p = {
+      agent: probe.agent,
+      session: await sessionDeLAgent(probe.agent, commande, lancer, o.env),
+    };
+    presents.push(p);
+    if (premierUtilisable && !nonConnecte(p, o.env)) break;
+  }
+  return presents;
+}
+
+/** Les agents présents, avec leur session — pour le constat envoyé au hub (`connexion.ts`). */
+export function constaterAgents(
+  env: NodeJS.ProcessEnv = process.env,
+  sonder: Sonde = probeBin,
+  plateforme: string = process.platform,
+  existe: (chemin: string) => boolean = existsSync,
+  statut?: LanceurStatut,
+): Promise<AgentPresent[]> {
+  return constater({ env, sonder, plateforme, existe, statut });
+}
+
+/** Ce que la détection rend : les agents qu'on peut employer, et ceux qu'on écarte en le disant. */
+export interface InventaireAgents {
+  /** Utilisables, dans l'ordre de préférence : `custom` en tête s'il est demandé, `shell` en dernier. */
+  readonly tous: AgentType[];
+  /** Installés, mais leur CLI se dit non connecté et aucune clé n'en dispense : ni choisis, ni annoncés. */
+  readonly nonConnectes: { readonly agent: AgentType; readonly detail: string }[];
+  /** Tous les binaires présents, avec leur session — le constat envoyé au hub (`connexion.ts`). */
+  readonly presents: AgentPresent[];
+}
+
+/**
+ * L'inventaire des agents : UNE passe de sondes, dont on tire à la fois ce qui
+ * travaille et ce qu'on écarte — le nœud, la ruche et le docteur disent ainsi
+ * pourquoi un agent installé n'a pas d'ouvrière.
+ */
+export async function inventaireAgents(
+  env: NodeJS.ProcessEnv = process.env,
+  sonder: Sonde = probeBin,
+  plateforme: string = process.platform,
+  existe: (chemin: string) => boolean = existsSync,
+  statut?: LanceurStatut,
+): Promise<InventaireAgents> {
+  const tous: AgentType[] = [];
+  const nonConnectes: { agent: AgentType; detail: string }[] = [];
+  if ((env.HIVE_AGENT_CMD ?? '').trim()) tous.push('custom');
+  const presents = await constater({ env, sonder, plateforme, existe, statut });
+  for (const p of presents) {
+    const detail = nonConnecte(p, env);
+    if (detail) nonConnectes.push({ agent: p.agent, detail });
+    else tous.push(p.agent);
+  }
+  tous.push('shell');
+  return { tous, nonConnectes, presents };
+}
+
+/**
+ * Un nœud à qui l'on IMPOSE un agent non connecté (`HIVE_AGENT`) ne démarre
+ * pas — rend pourquoi, sinon `null`. Il s'inscrirait comme une ouvrière de cet
+ * agent, la Reine lui confierait du travail, et chaque tâche échouerait « non
+ * authentifié » : mieux vaut un refus qui nomme le remède (`main.ts`, `join.ts`).
+ */
+export function refusNonConnecte(agent: AgentType, inventaire: InventaireAgents): string | null {
+  const n = inventaire.nonConnectes.find((x) => x.agent === agent);
+  return n ? `${n.detail} (HIVE_AGENT=${agent} l’impose à ce nœud.)` : null;
+}
+
+/** Les lignes qui disent, au démarrage d'un nœud, quels agents installés sont écartés. */
+export function lignesNonConnectes(inventaire: InventaireAgents): string[] {
+  return inventaire.nonConnectes.map((n) => `   Non connecté    : ${n.detail}`);
 }
 
 export interface DetectedAgent {
@@ -419,18 +819,19 @@ export async function detectBestAgent(
   sonder: Sonde = probeBin,
   plateforme: string = process.platform,
   existe: (chemin: string) => boolean = existsSync,
+  statut?: LanceurStatut,
 ): Promise<DetectedAgent> {
   // Choix explicite du membre : une commande libre (n'importe quelle IA CLI) via
   // HIVE_AGENT_CMD prime sur la détection automatique.
   if ((env.HIVE_AGENT_CMD ?? '').trim()) {
     return { agent: 'custom', label: labelPour('custom') };
   }
-  for (const probe of PROBES) {
-    if (await firstPresent(probe.bins, sonder, plateforme, env, existe, probe.signature)) {
-      return { agent: probe.agent, label: probe.label };
-    }
-  }
-  return { agent: 'shell', label: labelPour('shell') };
+  // S'arrête au premier UTILISABLE : un Cursor non connecté cède la place au
+  // Codex connecté qui le suit, sans qu'on sonde ceux d'après.
+  const presents = await constater({ env, sonder, plateforme, existe, statut }, true);
+  const retenu = presents.find((p) => !nonConnecte(p, env));
+  const agent = retenu?.agent ?? 'shell';
+  return { agent, label: labelPour(agent) };
 }
 
 /**
@@ -531,20 +932,31 @@ export function requisitionSiCredentialsManquantes(
     plateforme?: string;
     /** Les dossiers de session de l'hôte sont-ils visibles de l'agent ? Faux dans un bac. */
     sessionsHote?: boolean;
+    /**
+     * Ce que le CLI a dit de sa session (`sessionDeLAgent`). Connue, elle
+     * l'emporte sur le dossier : `~/.cursor` existe dès l'installation, connecté
+     * ou non. Inconnue (défaut), le dossier décide, comme avant.
+     */
+    session?: EtatSession;
   } = {},
 ): RequisitionCredential | null {
   const existe = opts.existe ?? existsSync;
   const plateforme = opts.plateforme ?? process.platform;
   const sessionsHote = opts.sessionsHote ?? true;
+  const constatee = opts.session ?? 'inconnue';
   if (agent === 'shell' || agent === 'custom') return null;
 
   const maison = (plateforme === 'win32' ? env.USERPROFILE : env.HOME)?.trim();
   const p = plateforme === 'win32' ? path.win32 : path.posix;
   const cle = (nom: string): boolean => Boolean((env[nom] ?? '').trim());
-  const session = (dossier: string): boolean => sessionsHote && existe(dossier);
+  const session = (dossier: string): boolean =>
+    sessionsHote && (constatee === 'inconnue' ? existe(dossier) : constatee === 'connectee');
   const horsDuBac = (dossier: string, aPoser: string): string =>
     `Dans le bac à sable, la session ${dossier} de l’hôte est invisible : posez ${aPoser} ` +
     'dans le .env de ce nœud.';
+  // Le CLI s'est dit non connecté : c'est ce qu'on répète, avec son remède.
+  const ditNonConnecte =
+    sessionsHote && constatee === 'non_connectee' ? phraseNonConnecte(agent) : null;
 
   if (agent === 'claude-code') {
     if (cle('ANTHROPIC_API_KEY') || cle('ANTHROPIC_AUTH_TOKEN')) return null;
@@ -553,14 +965,16 @@ export function requisitionSiCredentialsManquantes(
     return {
       genre: 'cle_api',
       libelle: 'Clé ou session Anthropic (Claude Code)',
-      detail: sessionsHote
-        ? 'ANTHROPIC_API_KEY absente et aucun dossier ~/.claude détecté sur ce poste. ' +
-          'Connectez-vous avec `claude login` localement, posez CLAUDE_CODE_OAUTH_TOKEN ' +
-          '(`claude setup-token`), ou accordez une clé depuis la Chambre.'
-        : horsDuBac(
-            '~/.claude',
-            'CLAUDE_CODE_OAUTH_TOKEN (jeton d’abonnement : `claude setup-token`) ou ANTHROPIC_API_KEY',
-          ),
+      detail:
+        ditNonConnecte ??
+        (sessionsHote
+          ? 'ANTHROPIC_API_KEY absente et aucun dossier ~/.claude détecté sur ce poste. ' +
+            'Connectez-vous avec `claude login` localement, posez CLAUDE_CODE_OAUTH_TOKEN ' +
+            '(`claude setup-token`), ou accordez une clé depuis la Chambre.'
+          : horsDuBac(
+              '~/.claude',
+              'CLAUDE_CODE_OAUTH_TOKEN (jeton d’abonnement : `claude setup-token`) ou ANTHROPIC_API_KEY',
+            )),
     };
   }
 
@@ -570,10 +984,12 @@ export function requisitionSiCredentialsManquantes(
     return {
       genre: 'cle_api',
       libelle: 'Clé ou session Cursor',
-      detail: sessionsHote
-        ? 'CURSOR_API_KEY absente et aucun dossier ~/.cursor détecté sur ce poste. ' +
-          'Connectez-vous avec `agent login` localement, ou posez CURSOR_API_KEY.'
-        : horsDuBac('~/.cursor', 'CURSOR_API_KEY'),
+      detail:
+        ditNonConnecte ??
+        (sessionsHote
+          ? 'CURSOR_API_KEY absente et aucun dossier ~/.cursor détecté sur ce poste. ' +
+            'Connectez-vous avec `agent login` localement, ou posez CURSOR_API_KEY.'
+          : horsDuBac('~/.cursor', 'CURSOR_API_KEY')),
     };
   }
 
@@ -593,11 +1009,13 @@ export function requisitionSiCredentialsManquantes(
     return {
       genre: 'cle_api',
       libelle: 'Clé OpenAI (Codex)',
-      detail: sessionsHote
-        ? 'CODEX_API_KEY absente et aucune session `codex login` (~/.codex/auth.json) sur ' +
-          'ce poste. Connectez-vous avec `codex login` localement, ou posez CODEX_API_KEY — ' +
-          '`codex exec` ignore OPENAI_API_KEY.'
-        : horsDuBac('~/.codex', 'CODEX_API_KEY (`codex exec` ignore OPENAI_API_KEY)'),
+      detail:
+        ditNonConnecte ??
+        (sessionsHote
+          ? 'CODEX_API_KEY absente et aucune session `codex login` (~/.codex/auth.json) sur ' +
+            'ce poste. Connectez-vous avec `codex login` localement, ou posez CODEX_API_KEY — ' +
+            '`codex exec` ignore OPENAI_API_KEY.'
+          : horsDuBac('~/.codex', 'CODEX_API_KEY (`codex exec` ignore OPENAI_API_KEY)')),
     };
   }
 
@@ -617,7 +1035,7 @@ export function requisitionSiCredentialsManquantes(
   return null;
 }
 
-/** Liste tous les agents détectés (pour information / diagnostic). */
+/** Liste tous les agents UTILISABLES — un agent non connecté n'y est pas (`inventaireAgents`). */
 export async function detectAllAgents(
   env: NodeJS.ProcessEnv = process.env,
   // Même couture que `detectBestAgent`, et pour la même raison : sans elle,
@@ -625,16 +1043,9 @@ export async function detectAllAgents(
   sonder: Sonde = probeBin,
   plateforme: string = process.platform,
   existe: (chemin: string) => boolean = existsSync,
+  statut?: LanceurStatut,
 ): Promise<AgentType[]> {
-  const found: AgentType[] = [];
-  if ((env.HIVE_AGENT_CMD ?? '').trim()) found.push('custom');
-  for (const probe of PROBES) {
-    if (await firstPresent(probe.bins, sonder, plateforme, env, existe, probe.signature)) {
-      found.push(probe.agent);
-    }
-  }
-  found.push('shell');
-  return found;
+  return (await inventaireAgents(env, sonder, plateforme, existe, statut)).tous;
 }
 
 /**
@@ -654,7 +1065,7 @@ export async function agentBinairePresent(
   if (agent === 'shell' || agent === 'custom') return true;
   const probe = PROBES.find((p) => p.agent === agent);
   if (!probe) return false;
-  return firstPresent(
+  const commande = await firstPresent(
     probe.bins,
     opts.sonder ?? probeBin,
     opts.plateforme ?? process.platform,
@@ -662,4 +1073,5 @@ export async function agentBinairePresent(
     opts.existe ?? existsSync,
     probe.signature,
   );
+  return commande !== null;
 }

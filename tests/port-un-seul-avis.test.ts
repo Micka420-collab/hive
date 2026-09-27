@@ -29,6 +29,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import type { InventaireAgents } from '../src/node-client/agent-detect.js';
 import { describe, expect, it } from 'vitest';
 import { loadConfigFromEnv } from '../src/orchestrator/server.js';
 import { relever } from '../src/doctor-releve.js';
@@ -84,7 +85,8 @@ describe('LE DOCTEUR ET LA RUCHE NE PEUVENT PAS DIVERGER', () => {
   // Une racine jetable par fichier : le relevé lit le disque, il lui faut un
   // endroit à lui. Aucun `.env` dedans — on ne veut mesurer QUE le port.
   const racine = mkdtempSync(path.join(os.tmpdir(), 'hive-port-'));
-  const sansAgent = (): Promise<{ agent: string }> => Promise.resolve({ agent: 'shell' });
+  const sansAgent = (): Promise<InventaireAgents> =>
+    Promise.resolve({ tous: ['shell'], nonConnectes: [], presents: [] });
 
   const VALEURS = ['', '   ', 'sept-mille', '7777.5', '-1', '70000', '3000', undefined];
 

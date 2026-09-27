@@ -247,7 +247,7 @@ describe('UNE SESSION DE L’HÔTE NE COMPTE PAS DANS LE BAC', () => {
   it('le constat envoyé au hub ne dit pas « clé présente » sur la foi d’une session invisible', async () => {
     const poste = (sessionsHote: boolean) =>
       diagnostiquerAgents({
-        agentsPresents: async () => ['claude-code'],
+        agentsPresents: async () => [{ agent: 'claude-code', session: 'inconnue' }],
         env,
         existe: sessionClaude,
         plateforme: 'linux',
@@ -393,7 +393,7 @@ describe('LE BAC NE S’ANNONCE PAS QUAND L’AGENT N’Y SERAIT PAS AUTHENTIFI�
     const bac = await preparerBac(env, 'codex', outils);
     expect(bac.decision.isole).toBe(true);
     const etats = await diagnostiquerAgents({
-      agentsPresents: async () => ['codex'],
+      agentsPresents: async () => [{ agent: 'codex', session: 'inconnue' }],
       env,
       existe: () => false,
       plateforme: 'linux',
@@ -439,7 +439,10 @@ describe('LE CONSTAT DU POSTE JUGE CHAQUE AGENT AVEC SA RÈGLE, PAS CELLE DE L�
 
   it('main.ts passe au diagnostic la règle du poste, pas le bac de l’agent retenu', () => {
     const main = readFileSync(new URL('../src/node-client/main.ts', import.meta.url), 'utf8');
-    expect(main).toMatch(/diagnostiquerAgents\(\{\s*sessionsHote:\s*bac\.sessionsHote\s*\}\)/);
+    // L'inventaire de la passe unique voyage avec : le constat n'en refait pas.
+    expect(main).toMatch(
+      /diagnostiquerAgents\(\{\s*sessionsHote:\s*bac\.sessionsHote,\s*agentsPresents:\s*async \(\) => inventaire\.presents,?\s*\}\)/,
+    );
   });
 });
 

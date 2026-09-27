@@ -42,7 +42,11 @@ non-obvious caveats are captured below.
   `ouvrière codex`…), so every production is reviewed by the other families
   (up to two reviews per production, each a real agent run; the banner line
   counts them). `-- --une-ouvriere` or `HIVE_AGENT` in `.env` keeps a single
-  worker. Idle workers spend no credits. A review only goes to its reviewer
+  worker. An installed CLI whose own status command says it is not signed in
+  (and no key is set) gets no worker; the banner and `hive doctor` say so. A
+  worker that exits (e.g. a `HIVE_ISOLEMENT=exige` refusal, code 5) is reported
+  with its last stderr line and the hive keeps running; it stops non-zero only
+  when the Queen dies or no worker is left. Idle workers spend no credits. A review only goes to its reviewer
   family; if that family stays offline for five minutes the review fails with
   `contre_expertise_review_failed` (`motif: relecteur_absent`). When the last
   review of a result ends without a verdict and no other review of it gave

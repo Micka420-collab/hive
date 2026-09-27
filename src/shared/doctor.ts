@@ -156,7 +156,12 @@ export interface Releve {
   dashboardConstruit: boolean;
   /** Agent de codage détecté, ou `null` si aucun. */
   agent: string | null;
-  /** Runtime d'isolement détecté (`docker`, `podman`), ou `null` si aucun. */
+  /**
+   * Les agents installés que leur CLI dit non connectés, sans clé posée
+   * (`inventaireAgents`) : aucune ouvrière ne les fera travailler.
+   */
+  agentsNonConnectes: readonly { readonly agent: string; readonly detail: string }[];
+  /** Le moteur d'isolement préféré qui répond (`podman`, `docker`, `bubblewrap`), ou `null`. */
   isolement: string | null;
   /**
    * L'image du bac dans les moteurs qui répondent — `null` quand aucun ne
@@ -595,15 +600,28 @@ function dashboard(r: Releve): Diagnostic {
 }
 
 function agent(r: Releve): Diagnostic {
-  return r.agent !== null
-    ? { cle: 'agent', gravite: 'ok', constat: `agent détecté : ${r.agent}`, reparation: null }
-    : {
-        cle: 'agent',
-        gravite: 'risque',
-        constat: 'aucun agent de codage détecté — ce nœud ne pourra rien produire',
-        reparation:
-          'installez claude-code ou codex, ou fixez HIVE_AGENT=shell pour un nœud de test',
-      };
+  // Un agent installé mais non connecté se DIT : taire Cursor parce qu'il n'a
+  // pas d'ouvrière laisserait l'opérateur le chercher dans Mission Control.
+  const ecartes = r.agentsNonConnectes;
+  const nonConnectes = ecartes.map((n) => `${n.agent} non connecté`).join(', ');
+  const remede = ecartes.length > 0 ? ecartes.map((n) => n.detail).join(' ') : null;
+  if (r.agent !== null) {
+    return {
+      cle: 'agent',
+      gravite: 'ok',
+      constat: `agent détecté : ${r.agent}${nonConnectes ? ` · ${nonConnectes}` : ''}`,
+      reparation: remede,
+    };
+  }
+  return {
+    cle: 'agent',
+    gravite: 'risque',
+    constat: nonConnectes
+      ? `aucun agent de codage connecté (${nonConnectes}) — ce nœud ne pourra rien produire`
+      : 'aucun agent de codage détecté — ce nœud ne pourra rien produire',
+    reparation:
+      remede ?? 'installez claude-code ou codex, ou fixez HIVE_AGENT=shell pour un nœud de test',
+  };
 }
 
 function isolement(r: Releve): Diagnostic {
@@ -616,10 +634,12 @@ function isolement(r: Releve): Diagnostic {
       // Desktop pas démarré, un démon arrêté. Le relevé, qui sonde
       // maintenant `info` et non `--version`, ne distingue pas les deux ; le
       // constat ne doit donc affirmer que ce qu'il sait — aucun bac à sable
-      // ne RÉPOND — et la réparation couvre les deux causes.
+      // ne RÉPOND — et la réparation couvre les deux causes. Bubblewrap y
+      // figure : il est sondé comme le nœud l'éprouve (un bac vide), et sous
+      // Linux c'est le bac le plus léger à obtenir.
       constat: 'aucun bac à sable ne répond — les agents tourneront sans conteneur',
       reparation:
-        'démarrez le service (Docker Desktop, `systemctl start docker`) ou installez podman (sans démon, sans root)',
+        'démarrez le service (Docker Desktop, `systemctl start docker`), installez podman (sans démon, sans root) ou, sous Linux, bubblewrap',
     };
   }
   // ─── UN MOTEUR QUI RÉPOND N'EST PAS UN BAC PRÊT ──────────────────────────
@@ -631,10 +651,13 @@ function isolement(r: Releve): Diagnostic {
   // (`moteurPret`) : l'image doit être dans un moteur.
   const img = r.imageBac;
   if (img?.dans) {
+    // Bubblewrap n'a pas d'image : il monte le système de l'hôte en lecture
+    // seule. Lui prêter celle du bac enverrait chercher une image qui n'existe pas.
+    const image = img.dans === 'bubblewrap' ? 'sans image' : `image ${img.image}`;
     return {
       cle: 'isolement',
       gravite: 'ok',
-      constat: `bac à sable disponible : ${img.dans} (image ${img.image})`,
+      constat: `bac à sable disponible : ${img.dans} (${image})`,
       reparation: null,
     };
   }

@@ -185,10 +185,29 @@ export function argumentsDeLaPreuve(argv) {
   };
 }
 
-/** Les ouvrières en ligne dont l'agent n'est pas une simulation. */
+/**
+ * Le nœud a-t-il constaté lui-même que SON agent n'est pas connecté — binaire
+ * là, ni clé ni session ? C'est son constat d'inscription (`outils`), un fait
+ * enregistré là où il naît. Un nœud d'aujourd'hui ne démarre plus dans cet état
+ * (`refusNonConnecte`) ; un nœud d'une version d'avant, si.
+ */
+function agentNonConnecte(n) {
+  const outils = Array.isArray(n?.outils) ? n.outils : [];
+  return outils.some(
+    (o) => o?.agent === n.agentType && o?.binaire === true && o?.cle === 'absente',
+  );
+}
+
+/**
+ * Les ouvrières en ligne dont l'agent n'est pas une simulation — ni un agent
+ * que son nœud dit non connecté : la preuve V2 Alpha comptait une ouvrière
+ * Cursor dont chaque tâche aurait échoué « non authentifié ».
+ */
 export function ouvrieresReelles(instantane) {
   const noeuds = Array.isArray(instantane?.nodes) ? instantane.nodes : [];
-  return noeuds.filter((n) => n?.status === 'online' && !AGENTS_SIMULES.has(n?.agentType));
+  return noeuds.filter(
+    (n) => n?.status === 'online' && !AGENTS_SIMULES.has(n?.agentType) && !agentNonConnecte(n),
+  );
 }
 
 /**

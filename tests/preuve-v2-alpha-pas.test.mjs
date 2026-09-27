@@ -614,6 +614,21 @@ describe('preuve V2 Alpha — la séquence', () => {
     ).toEqual(['n-reel']);
     expect(ouvrieresReelles(null)).toEqual([]);
   });
+
+  it('UNE OUVRIÈRE DONT LE NŒUD DIT SON AGENT NON CONNECTÉ N’EST PAS RÉELLE', () => {
+    // La preuve V2 Alpha comptait « preuve-v2-cursor (cursor) » parmi ses
+    // ouvrières réelles, alors que `cursor-agent status` disait « Not logged in ».
+    const cursor = {
+      id: 'n-cursor',
+      name: 'poste-cursor',
+      agentType: 'cursor',
+      status: 'online',
+      outils: [{ agent: 'cursor', binaire: true, cle: 'absente' }],
+    };
+    // Le constat d'un AUTRE agent du poste ne compte pas : seul le sien.
+    const reel = { ...NOEUD_REEL, outils: [{ agent: 'cursor', binaire: true, cle: 'absente' }] };
+    expect(ouvrieresReelles({ nodes: [cursor, reel] }).map((n) => n.id)).toEqual(['n-reel']);
+  });
 });
 
 describe('preuve V2 Alpha — les arguments', () => {

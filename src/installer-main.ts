@@ -35,7 +35,7 @@ import {
   imageDepuisEnv,
   modeDepuisEnv,
   moteurPret,
-  trouverFournisseurs,
+  moteursJoignables,
 } from './node-client/isolement.js';
 import {
   NODE_MIN,
@@ -254,10 +254,11 @@ async function main(): Promise<void> {
     detectBestAgent().catch(() => null),
     // Un moteur qui répond sans l'image des agents est un moteur que le nœud
     // écartera : l'accueil annonçait « ✔ docker », le nœud se repliait en
-    // processus. Même règle que le nœud et le docteur (`moteurPret`).
+    // processus. Même règle que le nœud et le docteur (`moteurPret`), sur les
+    // moteurs que le docteur juge joignables — la même question à chacun.
     modeDepuisEnv(process.env) === 'off'
       ? Promise.resolve({ pret: null, absente: null })
-      : trouverFournisseurs().then((m) => moteurPret(m, imageVisee)),
+      : moteursJoignables().then((m) => moteurPret(m, imageVisee)),
   ]);
   // `caps`, pas `t.caps` : `--json` et `--non-interactive` retirent
   // l'interactivité même sur un vrai terminal, et une animation au milieu d'une

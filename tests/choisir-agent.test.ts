@@ -130,4 +130,18 @@ describe('resoudreAgentAuDemarrage', () => {
     expect(vu.agent).toBe('claude-code');
     expect(demander).not.toHaveBeenCalled();
   });
+
+  it('L’INVENTAIRE FOURNI EST LU, PAS REFAIT — une passe de sondes par démarrage', async () => {
+    // Chaque passe relance la commande de statut de chaque CLI ; `main.ts` en
+    // faisait jusqu'à quatre, qui pouvaient se contredire.
+    const sonder = vi.fn(sonde);
+    const vu = await resoudreAgentAuDemarrage({
+      env: {},
+      sonder,
+      stdinEstTty: false,
+      inventaire: { tous: ['codex', 'shell'], nonConnectes: [], presents: [] },
+    });
+    expect(vu.agent).toBe('codex');
+    expect(sonder).not.toHaveBeenCalled();
+  });
 });

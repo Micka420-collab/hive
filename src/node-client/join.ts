@@ -11,7 +11,12 @@
 import os from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline/promises';
-import { agentCredentialEnv, detectAllAgents } from './agent-detect.js';
+import {
+  agentCredentialEnv,
+  inventaireAgents,
+  lignesNonConnectes,
+  refusNonConnecte,
+} from './agent-detect.js';
 import { resoudreAgentAuDemarrage } from './choisir-agent.js';
 import { isolementDeclareDe, optionBac, preparerBac, reprendreIdentite } from './bac.js';
 import { parseModeles } from './modeles.js';
@@ -172,11 +177,19 @@ async function main(): Promise<void> {
           }
         }
       : undefined;
+  // UNE passe de sondes pour tout le démarrage — voir `main.ts`.
+  const inventaire = await inventaireAgents();
   const detected = await resoudreAgentAuDemarrage({
     stdinEstTty: Boolean(process.stdin.isTTY && process.stdout.isTTY),
     demander: demanderAgent,
+    inventaire,
   });
-  const allAgents = await detectAllAgents();
+  const allAgents = inventaire.tous;
+  const refusAgent = refusNonConnecte(detected.agent, inventaire);
+  if (refusAgent) {
+    console.error(`✘ Ce nœud ne démarre pas : ${refusAgent}\n`);
+    process.exit(CODE.PREREQUIS);
+  }
 
   const workRoot = process.env.HIVE_WORKDIR ?? path.join('.hive-work', 'join');
   const maxConcurrency = bornerConcurrence(process.env.HIVE_MAX_CONCURRENCY);
@@ -201,6 +214,7 @@ async function main(): Promise<void> {
   const avertissement = avertissementTransport(jugerTransport(url));
   if (avertissement) console.log(avertissement);
   console.log(`   Agents détectés : ${allAgents.map((a) => libelleAgent(a)).join(', ')}`);
+  for (const l of lignesNonConnectes(inventaire)) console.log(l);
   console.log(`   Agent utilisé   : ${detected.label}`);
   const motAgent = annonceAgent(detected.agent, allAgents);
   if (motAgent) console.log(motAgent);
@@ -268,7 +282,7 @@ async function main(): Promise<void> {
   });
   for (const l of bac.lignes) console.log(l);
   if (bac.refuse) {
-    console.error('✘ Ce nœud ne démarre pas.\n');
+    console.error(`✘ Ce nœud ne démarre pas : ${bac.decision.motif}\n`);
     // Voir `main.ts` : le code du refus vient de la décision, pas d'un `1`
     // recopié — c'est le duplicata entre les deux chemins qui avait déjà
     // coûté l'absence totale de bac à sable sur celui-ci.

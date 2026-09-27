@@ -161,7 +161,8 @@ export function combienPilotables(outils: readonly OutilDuNoeud[]): number {
 const PHRASES: Readonly<Record<VerdictConnexion, readonly [string, string]>> = Object.freeze({
   pret: ['prêt', 'ready'],
   binaire_manquant: ['clé posée, commande absente', 'key set, command missing'],
-  cle_manquante: ['installé, clé absente', 'installed, key missing'],
+  // Ni clé posée ni session : le CLI lui-même le dit (`sessionDeLAgent`).
+  cle_manquante: ['installé, non connecté', 'installed, not signed in'],
   rien: ['absent de cette machine', 'not on this machine'],
   cle_inconnue: ['présent, clé non lisible', 'present, key unreadable'],
 });
