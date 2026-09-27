@@ -2177,6 +2177,123 @@ export function revoquerBillet(billetId: string): Promise<{ ok: boolean }> {
   });
 }
 
+// ─── Les CONNECTEURS externes (src/connectors) ──────────────────────────────
+//
+// Le catalogue + la pose des secrets sont ADMIN (poser un jeton écrit dans
+// l'env de l'hôte) ; autoriser/tester par projet suivent qui répond du projet.
+// La valeur d'un secret ne revient JAMAIS : `presente` est un booléen.
+
+export type PorteeConnecteur = 'lecture' | 'notification' | 'approbation' | 'action';
+
+export interface SecretConnecteur {
+  envVar: string;
+  libelleFr: string;
+  libelleEn: string;
+  hintFr: string;
+  hintEn: string;
+  requis: boolean;
+  presente: boolean;
+}
+
+export interface ConnecteurCatalogue {
+  id: string;
+  libelleFr: string;
+  libelleEn: string;
+  hintFr: string;
+  hintEn: string;
+  mode: 'lecture_seule' | 'action';
+  portees: PorteeConnecteur[];
+  actif: boolean;
+  secrets: SecretConnecteur[];
+}
+
+export interface AutorisationConnecteur {
+  connecteurId: string;
+  portees: PorteeConnecteur[];
+  canaux: string[];
+  usagers: string[];
+  actif: boolean;
+  majA: number;
+}
+
+export interface EntreeJournalConnecteur {
+  id: string;
+  connecteurId: string;
+  projectId: string | null;
+  portee: string;
+  acte: string;
+  cible: string | null;
+  resultat: 'ok' | 'echec' | 'refuse';
+  qui: string;
+  apercu: string;
+  chargeDigest: string;
+  creeA: number;
+}
+
+export interface ConnecteurProjetResume {
+  id: string;
+  libelleFr: string;
+  libelleEn: string;
+  mode: 'lecture_seule' | 'action';
+  portees: PorteeConnecteur[];
+  actif: boolean;
+}
+
+export function fetchConnecteurs(): Promise<{ connecteurs: ConnecteurCatalogue[] }> {
+  return apiCompte('/api/connecteurs');
+}
+
+export function poserSecretConnecteur(
+  connecteurId: string,
+  envVar: string,
+  valeur: string,
+): Promise<{ ok: boolean; envVar: string; actif: boolean }> {
+  return apiCompte(`/api/connecteurs/${encodeURIComponent(connecteurId)}/secrets`, {
+    method: 'POST',
+    body: JSON.stringify({ envVar, valeur }),
+  });
+}
+
+export function fetchConnecteursProjet(projectId: string): Promise<{
+  autorisations: AutorisationConnecteur[];
+  journal: EntreeJournalConnecteur[];
+  connecteurs: ConnecteurProjetResume[];
+}> {
+  return apiCompte(`/api/projects/${encodeURIComponent(projectId)}/connecteurs`);
+}
+
+export function autoriserConnecteurProjet(
+  projectId: string,
+  connecteurId: string,
+  corps: { portees: PorteeConnecteur[]; canaux?: string[]; usagers?: string[]; actif?: boolean },
+): Promise<{ ok: boolean; portees: PorteeConnecteur[] }> {
+  return apiCompte(
+    `/api/projects/${encodeURIComponent(projectId)}/connecteurs/${encodeURIComponent(connecteurId)}/autoriser`,
+    { method: 'POST', body: JSON.stringify(corps) },
+  );
+}
+
+export function revoquerConnecteurProjet(
+  projectId: string,
+  connecteurId: string,
+): Promise<{ ok: boolean; revoque: boolean }> {
+  return apiCompte(
+    `/api/projects/${encodeURIComponent(projectId)}/connecteurs/${encodeURIComponent(connecteurId)}`,
+    { method: 'DELETE' },
+  );
+}
+
+export function testerConnecteurProjet(
+  projectId: string,
+  connecteurId: string,
+  kind?: 'resume_mission' | 'decision' | 'blocage' | 'demande_approbation',
+): Promise<{ ok: boolean; envoye: boolean; motif?: string }> {
+  return apiCompte(
+    `/api/projects/${encodeURIComponent(projectId)}/connecteurs/${encodeURIComponent(connecteurId)}/test`,
+    { method: 'POST', body: JSON.stringify(kind ? { kind } : {}) },
+  );
+}
+
 // ─── Mon tableau de bord ────────────────────────────────────────────────────
 // Un seul appel : l'écran doit pouvoir dire d'un bloc « voici ce qui va vous
 // coûter quelque chose si vous ne faites rien ». Enchaîner une requête par

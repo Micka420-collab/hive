@@ -14,7 +14,7 @@ import { randomUUID, timingSafeEqual } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { WebSocketServer } from 'ws';
+import { WebSocketServer, WebSocket as WsClient } from 'ws';
 import type { WebSocket } from 'ws';
 import type { IncomingMessage } from 'node:http';
 import {
@@ -266,6 +266,18 @@ import {
   validerSecretRequisition,
 } from './requisition-env.js';
 import { nomEnvDepuisLibelle } from '../shared/nom-env.js';
+import {
+  listerDefinitions as listerConnecteurs,
+  definitionConnecteur,
+} from '../connectors/registre.js';
+import {
+  validerPorteesDemandees,
+  expliquerRefusPortee,
+  type EvenementConnecteur,
+  type EvenementConnecteurKind,
+} from '../connectors/contrat.js';
+import { HubConnecteurs, type ResultatRevueConnecteur } from './connecteurs.js';
+import type { WsLike } from '../connectors/slack/client.js';
 import { conseilVeilleBrief } from './queen-veille.js';
 import {
   CORPUS_GARDIENNES,
@@ -491,6 +503,15 @@ export const PRESENCES_RETENTION_MS = 60 * 60_000;
  * doit rester visible.
  */
 export const REQUISITIONS_RETENTION_MS = 30 * 24 * 60 * 60_000;
+
+/**
+ * Journal des connecteurs externes : 90 jours. Une trace d'audit d'appels
+ * extérieurs (qui a approuvé quoi, quel webhook a été poussé) doit survivre
+ * assez longtemps pour répondre « que s'est-il passé la semaine dernière ? »,
+ * mais elle GROSSIT SOUS LA MACHINE (une ligne par appel) : elle a donc sa
+ * borne, comme les événements et l'horizon.
+ */
+export const CONNECTEURS_JOURNAL_RETENTION_MS = 90 * 24 * 60 * 60_000;
 
 /** Horizon ledger — faits/hypothèses datés ; élagage comme le journal. */
 export const HORIZON_RETENTION_MS = 90 * 24 * 60 * 60_000;
@@ -1133,10 +1154,17 @@ async function monterReine(
     diffuser(JSON.stringify(event));
   };
 
+  // Relais vers les connecteurs externes, câblé plus bas une fois le hub prêt
+  // (il dépend de l'évaluateur et du scheduler, définis après). Avant ça, un
+  // no-op : les tout premiers événements du démarrage n'ont aucun connecteur à
+  // prévenir, et un connecteur dormant (défaut) ne fait rien de toute façon.
+  let relayerConnecteurs: (event: HiveEvent) => void = () => {};
+
   /** Événement émis par le serveur lui-même (création de projet/tâches). */
   const emitEvent = (type: string, payload: Record<string, unknown>): void => {
     const event = store.appendEvent(type, payload);
     broadcastEvent({ type: 'event', event });
+    relayerConnecteurs(event);
     stateDirty = true;
   };
 
@@ -2173,6 +2201,7 @@ async function monterReine(
     onAssign: (nodeId, task, modele) => envoyerTache(nodeId, task, modele),
     onEvent: (event) => {
       broadcastEvent({ type: 'event', event });
+      relayerConnecteurs(event);
       stateDirty = true;
       // Le planificateur clôt lui aussi des relectures sans avis (famille
       // absente, agent qui ne démarre nulle part, annulation) : même suite
@@ -2472,6 +2501,136 @@ async function monterReine(
         ...(crossReviewImpossible ? { crossReviewImpossible } : {}),
       }),
     };
+  };
+
+  // ─── La revue humaine, chemin CANONIQUE unique ──────────────────────────────
+  //
+  // Un verdict humain — approuvé ouvre la livraison autonome, rejeté relance la
+  // tâche — s'applique EXACTEMENT de la même façon quelle qu'en soit la source :
+  // le tableau de bord (route `/review`) ou une approbation Slack (hub des
+  // connecteurs). Ce qui diffère, c'est l'AUTORISATION (un compte qui répond du
+  // projet, vs un connecteur à qui l'hôte a accordé la portée `approbation` et
+  // dont le canal + l'usager sont inscrits) ; l'APPLICATION, elle, est une, ici.
+  // Sans ce point unique, Slack aurait sa propre copie de « poser le verdict,
+  // relancer si rejet », et les deux dérivéraient. « Jamais une autorité
+  // nouvelle » se tient parce que la porte est commune, pas parce qu'on la copie.
+  const appliquerRevueHumaine = (
+    task: Task,
+    state: 'approved' | 'rejected' | null,
+    opts: { clientId?: string; raison?: string } = {},
+  ): { retry: ReturnType<Scheduler['retryFromEvaluator']> | null } => {
+    store.setTaskReview(task.id, state);
+    emitEvent('task_reviewed', {
+      taskId: task.id,
+      state,
+      ...(opts.clientId ? { clientId: opts.clientId } : {}),
+      ...(opts.raison ? { raison: opts.raison } : {}),
+    });
+    let retry: ReturnType<Scheduler['retryFromEvaluator']> | null = null;
+    if (state === 'rejected') {
+      const { latest, evaluation } = evaluationPour(task);
+      if (
+        latest?.resultId !== undefined &&
+        evaluation.retryRecommended &&
+        (evaluation.decision === 'correction_required' || evaluation.decision === 'rejected')
+      ) {
+        retry = scheduler.retryFromEvaluator({
+          taskId: task.id,
+          resultId: latest.resultId,
+          decision: evaluation.decision,
+          critique: critiquePourRetry(task.id, evaluation, 'revue_humaine'),
+        });
+        if (retry.ok) {
+          stateDirty = true;
+        } else {
+          emitEvent('evaluator_retry_skipped', {
+            taskId: task.id,
+            resultId: latest.resultId,
+            reason: retry.reason,
+          });
+        }
+      }
+    }
+    return { retry };
+  };
+
+  // ─── Les connecteurs externes (src/connectors) ──────────────────────────────
+  //
+  // Un hub unique parle au monde extérieur (webhook, Slack) et écoute la seule
+  // voie ouverte (approbations Slack via Socket Mode). Dormant par défaut : sans
+  // secret dans l'env Queen, `estActif` est faux, aucun jeton n'est créé ni
+  // propagé, et le fan-out ne coûte que deux comparaisons. Le rappel
+  // `appliquerRevue` REND la main au chemin canonique ci-dessus, après avoir
+  // vérifié que la tâche existe et qu'elle est terminée — jamais une pré-revue.
+  const appliquerRevuePourConnecteur = (
+    taskId: string,
+    verdict: 'approved' | 'rejected',
+  ): ResultatRevueConnecteur => {
+    const task = store.getTask(taskId);
+    if (!task) return 'tache_inconnue';
+    if (task.status !== 'done' && task.status !== 'failed') return 'non_terminal';
+    appliquerRevueHumaine(task, verdict, { raison: 'approbation Slack' });
+    return 'applique';
+  };
+  const hubConnecteurs = new HubConnecteurs({
+    store,
+    env: process.env,
+    appliquerRevue: appliquerRevuePourConnecteur,
+    // Le Socket Mode Slack s'ouvre avec le paquet `ws` déjà présent (aucune
+    // dépendance ajoutée). Cast : l'API de `ws` couvre `WsLike` (send/close/on).
+    wsFactory: (url) => new WsClient(url) as unknown as WsLike,
+    log: (m) => {
+      app.log.info(m);
+    },
+  });
+
+  /**
+   * Un événement interne de la ruche → un fait pour les connecteurs, ou `null`
+   * si aucun connecteur n'a à en entendre parler. Fermé volontairement à trois
+   * types : une décision de revue, un blocage, une demande d'approbation
+   * explicite. Le reste du journal ne quitte pas la ruche.
+   */
+  const evenementConnecteurDepuisEvent = (event: HiveEvent): EvenementConnecteur | null => {
+    // Le TYPE d'abord : seuls deux nous intéressent. Sans ce filtre en tête,
+    // chaque `task_progress` déclencherait un `getTask` pour rien.
+    if (event.type !== 'task_reviewed' && event.type !== 'task_failed') return null;
+    const p = event.payload as Record<string, unknown>;
+    const taskId = typeof p.taskId === 'string' ? p.taskId : undefined;
+    if (taskId === undefined) return null;
+    const projectId = store.getTask(taskId)?.projectId ?? null;
+    if (projectId === null) return null;
+    if (event.type === 'task_reviewed') {
+      const etat = p.state === 'approved' || p.state === 'rejected' ? p.state : null;
+      if (etat === null) return null;
+      return {
+        kind: 'decision',
+        projectId,
+        titre: etat === 'approved' ? 'Production approuvée' : 'Production rejetée',
+        taskId,
+        etat,
+      };
+    }
+    const raison = typeof p.reason === 'string' ? p.reason : 'échec';
+    return {
+      kind: 'blocage',
+      projectId,
+      titre: 'Tâche en échec',
+      corps: `Motif : ${raison}`,
+      taskId,
+    };
+  };
+
+  // Câble le relais déclaré plus haut : à partir d'ici, chaque événement passe
+  // au hub. `notifier` ne bloque jamais le chemin d'émission (fire-and-forget).
+  relayerConnecteurs = (event: HiveEvent): void => {
+    const ev = evenementConnecteurDepuisEvent(event);
+    if (ev) {
+      void hubConnecteurs.notifier(ev).catch((err: unknown) => {
+        app.log.warn(
+          `[connecteurs] notification échouée : ${err instanceof Error ? err.message : err}`,
+        );
+      });
+    }
   };
 
   // ─── HTTP (REST + dashboard) ───────────────────────────────────────────────
@@ -3472,6 +3631,259 @@ async function monterReine(
       }
       emitEvent('queen_cle_posee', { envVar: nom, libelle });
       return { ok: true, envVar: nom };
+    },
+  );
+
+  // ─── Connecteurs externes (src/connectors) ──────────────────────────────────
+  //
+  // Deux étages : GLOBAL (le catalogue + la pose des secrets + le journal
+  // complet) réservé à l'administrateur — poser un jeton écrit dans l'env de
+  // l'hôte, distribué à personne mais posé chez la Reine —, et PAR PROJET
+  // (autoriser, révoquer, tester, lire) réglé par qui répond du projet. Le
+  // secret ne transite JAMAIS par ces routes en lecture : présence booléenne.
+
+  /** Catalogue des connecteurs, présence de leurs secrets, et état actif. */
+  app.get('/api/connecteurs', async (req, reply) => {
+    if (!exige(req, reply, 'gerer_serveurs')) return reply;
+    return {
+      connecteurs: listerConnecteurs().map((def) => ({
+        id: def.id,
+        libelleFr: def.libelleFr,
+        libelleEn: def.libelleEn,
+        hintFr: def.hintFr,
+        hintEn: def.hintEn,
+        mode: def.mode,
+        portees: def.porteesPossibles,
+        actif: hubConnecteurs.estActif(def.id),
+        secrets: def.secrets.map((s) => ({
+          envVar: s.envVar,
+          libelleFr: s.libelleFr,
+          libelleEn: s.libelleEn,
+          hintFr: s.hintFr,
+          hintEn: s.hintEn,
+          requis: s.requis,
+          // Présence seule, jamais la valeur — même doctrine que le catalogue de clés.
+          presente: (process.env[s.envVar] ?? '').trim() !== '',
+        })),
+      })),
+    };
+  });
+
+  /** Pose un secret d'un connecteur dans l'env Queen (jamais en base, jamais au nœud). */
+  app.post<{ Params: { connecteurId: string }; Body: { envVar: string; valeur: string } }>(
+    '/api/connecteurs/:connecteurId/secrets',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['connecteurId'],
+          properties: { connecteurId: { type: 'string', minLength: 1, maxLength: 64 } },
+        },
+        body: {
+          type: 'object',
+          required: ['envVar', 'valeur'],
+          additionalProperties: false,
+          properties: {
+            envVar: { type: 'string', minLength: 1, maxLength: 64 },
+            valeur: { type: 'string', minLength: 1, maxLength: 512 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      // Écrit un secret dans l'env de l'hôte : administrateur exigé, comme les clés.
+      if (!exige(req, reply, 'gerer_serveurs')) return reply;
+      const def = definitionConnecteur(req.params.connecteurId);
+      if (!def) return reply.code(404).send({ error: 'connecteur inconnu' });
+      // Le nom vient du REGISTRE, pas de l'utilisateur : on n'accepte que les
+      // env déclarés par ce connecteur. Rien d'autre ne peut être posé ici — le
+      // garde `estEnvQueenAutorisee` (clés arbitraires) ne s'applique pas, car
+      // ces noms sont nôtres, pas choisis par l'appelant.
+      const spec = def.secrets.find((s) => s.envVar === req.body.envVar);
+      if (!spec) return reply.code(400).send({ error: 'env_inconnu' });
+      const vs = validerSecretRequisition(req.body.valeur);
+      if (!vs.ok) {
+        return reply.code(400).send({ error: vs.motif, message: expliquerRefusSecret(vs.motif) });
+      }
+      try {
+        poserCleQueenEnv(
+          cheminEnvQueen,
+          spec.envVar,
+          vs.secret,
+          `Secret du connecteur ${def.id} (posé depuis l’Intendance)`,
+        );
+        process.env[spec.envVar] = vs.secret;
+      } catch {
+        return reply.code(500).send({ error: 'ecriture_env' });
+      }
+      // Un jeton d'app Slack fraîchement posé ⇒ le Socket Mode peut s'ouvrir.
+      void hubConnecteurs.demarrer();
+      emitEvent('connecteur_secret_pose', { connecteurId: def.id, envVar: spec.envVar });
+      return { ok: true, envVar: spec.envVar, actif: hubConnecteurs.estActif(def.id) };
+    },
+  );
+
+  /** Le journal append-only de tous les connecteurs (administrateur). */
+  app.get('/api/connecteurs/journal', async (req, reply) => {
+    if (!exige(req, reply, 'gerer_serveurs')) return reply;
+    const q = req.query as { connecteurId?: string; limit?: string };
+    return {
+      journal: store.listerJournalConnecteurs({
+        ...(typeof q.connecteurId === 'string' ? { connecteurId: q.connecteurId } : {}),
+        ...(q.limit ? { limit: Number(q.limit) } : {}),
+      }),
+    };
+  });
+
+  /** Les autorisations de connecteurs d'un projet, et son journal (lecture). */
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/connecteurs',
+    async (req, reply) => {
+      const lecture = lectureProjetPermise(req, req.params.projectId);
+      if (lecture !== 'permis') return refuserProjet(reply, lecture);
+      return {
+        autorisations: store.listerAutorisationsProjet(req.params.projectId),
+        journal: store.listerJournalConnecteurs({ projectId: req.params.projectId, limit: 100 }),
+        connecteurs: listerConnecteurs().map((d) => ({
+          id: d.id,
+          libelleFr: d.libelleFr,
+          libelleEn: d.libelleEn,
+          mode: d.mode,
+          portees: d.porteesPossibles,
+          actif: hubConnecteurs.estActif(d.id),
+        })),
+      };
+    },
+  );
+
+  /** Accorde un connecteur + portées (+ canaux/usagers Slack) à un projet (réglage). */
+  app.post<{
+    Params: { projectId: string; connecteurId: string };
+    Body: { portees: string[]; canaux?: string[]; usagers?: string[]; actif?: boolean };
+  }>(
+    '/api/projects/:projectId/connecteurs/:connecteurId/autoriser',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId', 'connecteurId'],
+          properties: {
+            projectId: { type: 'string', minLength: 1, maxLength: 64 },
+            connecteurId: { type: 'string', minLength: 1, maxLength: 64 },
+          },
+        },
+        body: {
+          type: 'object',
+          required: ['portees'],
+          additionalProperties: false,
+          properties: {
+            portees: { type: 'array', maxItems: 8, items: { type: 'string', maxLength: 32 } },
+            canaux: { type: 'array', maxItems: 64, items: { type: 'string', maxLength: 64 } },
+            usagers: { type: 'array', maxItems: 256, items: { type: 'string', maxLength: 64 } },
+            actif: { type: 'boolean' },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const reglage = proprieteProjetPermise(req, req.params.projectId);
+      if (reglage !== 'permis') return refuserReglage(reply, reglage);
+      const def = definitionConnecteur(req.params.connecteurId);
+      if (!def) return reply.code(404).send({ error: 'connecteur inconnu' });
+      const vp = validerPorteesDemandees(def, req.body.portees);
+      if (!vp.ok) {
+        return reply.code(400).send({ error: vp.motif, message: expliquerRefusPortee(vp.motif) });
+      }
+      store.autoriserConnecteur({
+        connecteurId: def.id,
+        projectId: req.params.projectId,
+        portees: vp.portees,
+        ...(req.body.canaux ? { canaux: req.body.canaux } : {}),
+        ...(req.body.usagers ? { usagers: req.body.usagers } : {}),
+        ...(req.body.actif !== undefined ? { actif: req.body.actif } : {}),
+      });
+      // Un projet qui vient d'ouvrir l'écoute d'approbations ⇒ (re)démarrer le socket.
+      void hubConnecteurs.demarrer();
+      emitEvent('connecteur_autorise', {
+        connecteurId: def.id,
+        projectId: req.params.projectId,
+        portees: vp.portees,
+      });
+      return { ok: true, connecteurId: def.id, portees: vp.portees };
+    },
+  );
+
+  /** Révoque un connecteur sur un projet (réglage). Idempotent. */
+  app.delete<{ Params: { projectId: string; connecteurId: string } }>(
+    '/api/projects/:projectId/connecteurs/:connecteurId',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId', 'connecteurId'],
+          properties: {
+            projectId: { type: 'string', minLength: 1, maxLength: 64 },
+            connecteurId: { type: 'string', minLength: 1, maxLength: 64 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const reglage = proprieteProjetPermise(req, req.params.projectId);
+      if (reglage !== 'permis') return refuserReglage(reply, reglage);
+      const partie = store.revoquerConnecteur(req.params.connecteurId, req.params.projectId);
+      if (partie) {
+        emitEvent('connecteur_revoque', {
+          connecteurId: req.params.connecteurId,
+          projectId: req.params.projectId,
+        });
+      }
+      return { ok: true, revoque: partie };
+    },
+  );
+
+  /** Envoie un fait de test à travers UN connecteur autorisé sur ce projet (réglage). */
+  app.post<{
+    Params: { projectId: string; connecteurId: string };
+    Body: { kind?: EvenementConnecteurKind };
+  }>(
+    '/api/projects/:projectId/connecteurs/:connecteurId/test',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId', 'connecteurId'],
+          properties: {
+            projectId: { type: 'string', minLength: 1, maxLength: 64 },
+            connecteurId: { type: 'string', minLength: 1, maxLength: 64 },
+          },
+        },
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            kind: {
+              type: 'string',
+              enum: ['resume_mission', 'decision', 'blocage', 'demande_approbation'],
+            },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const reglage = proprieteProjetPermise(req, req.params.projectId);
+      if (reglage !== 'permis') return refuserReglage(reply, reglage);
+      if (!definitionConnecteur(req.params.connecteurId)) {
+        return reply.code(404).send({ error: 'connecteur inconnu' });
+      }
+      const kind: EvenementConnecteurKind = req.body?.kind ?? 'resume_mission';
+      const resultat = await hubConnecteurs.tester(req.params.connecteurId, {
+        kind,
+        projectId: req.params.projectId,
+        titre: 'Test de connecteur',
+        corps: 'Émis depuis l’Intendance pour vérifier le connecteur.',
+      });
+      return { ok: true, ...resultat };
     },
   );
 
@@ -8966,42 +9378,13 @@ async function monterReine(
           });
         }
       }
-      store.setTaskReview(task.id, req.body.state);
-      emitEvent('task_reviewed', {
-        taskId: task.id,
-        state: req.body.state,
+      // Chemin CANONIQUE, partagé avec l'approbation Slack : poser le verdict,
+      // relancer si rejet. La trace `evaluator_retry_skipped` d'un rejet resté
+      // sans correction (essais épuisés, livraison déjà ouverte…) y vit aussi.
+      const { retry } = appliquerRevueHumaine(task, req.body.state, {
         ...(req.body.clientId ? { clientId: req.body.clientId } : {}),
         ...(raison ? { raison } : {}),
       });
-      let retry: ReturnType<Scheduler['retryFromEvaluator']> | null = null;
-      if (req.body.state === 'rejected') {
-        const { latest, evaluation } = evaluationPour(task);
-        if (
-          latest?.resultId !== undefined &&
-          evaluation.retryRecommended &&
-          (evaluation.decision === 'correction_required' || evaluation.decision === 'rejected')
-        ) {
-          retry = scheduler.retryFromEvaluator({
-            taskId: task.id,
-            resultId: latest.resultId,
-            decision: evaluation.decision,
-            critique: critiquePourRetry(task.id, evaluation, 'revue_humaine'),
-          });
-          if (retry.ok) {
-            stateDirty = true;
-          } else {
-            // Même trace que le retry automatique de la contre-revue : Mission
-            // Control ne lit pas cette réponse, et un rejet humain resté sans
-            // correction (essais épuisés, livraison déjà ouverte…) ne doit pas
-            // se confondre avec une correction en route.
-            emitEvent('evaluator_retry_skipped', {
-              taskId: task.id,
-              resultId: latest.resultId,
-              reason: retry.reason,
-            });
-          }
-        }
-      }
       const saved = store.getTaskReview(task.id);
       return {
         taskId: task.id,
@@ -10895,6 +11278,10 @@ async function monterReine(
   // l'exige ; la branche qu'elle protège n'est pas jouable.
   const port = typeof address === 'object' && address !== null ? address.port : config.port;
 
+  // Ouvre le Socket Mode Slack SI un jeton d'app est posé (sinon no-op). En
+  // arrière-plan : une connexion sortante ne doit pas retarder l'écoute REST.
+  void hubConnecteurs.demarrer();
+
   // ─── WebSocket temps réel ──────────────────────────────────────────────────
   /**
    * Vérifie la clé propre d'un nœud.
@@ -12049,6 +12436,7 @@ async function monterReine(
       store.prunePresences(PRESENCES_RETENTION_MS);
       // Réquisitions closes trop vieilles (les ouvertes restent).
       store.pruneRequisitions(REQUISITIONS_RETENTION_MS);
+      store.pruneConnecteursJournal(CONNECTEURS_JOURNAL_RETENTION_MS);
       store.pruneFabriques(REQUISITIONS_RETENTION_MS);
       store.pruneHorizon(HORIZON_RETENTION_MS);
       // L'annonce est la moitié PÉRISSABLE du couple : `pruneResults` vide des
@@ -12207,6 +12595,9 @@ async function monterReine(
     clearInterval(tickTimer);
     clearInterval(flushTimer);
     clearInterval(elagageTimer);
+    // Coupe le Socket Mode Slack et sa reconnexion AVANT de fermer le reste :
+    // un socket laissé ouvert relancerait une connexion pendant l'arrêt.
+    hubConnecteurs.fermer();
     for (const client of wss.clients) client.terminate();
     await new Promise<void>((resolve) => wss.close(() => resolve()));
     await app.close();

@@ -56,7 +56,7 @@ interface Cible {
 
 interface Acte {
   nom: string;
-  methode: 'GET' | 'POST' | 'PUT';
+  methode: 'GET' | 'POST' | 'PUT' | 'DELETE';
   /** Le chemin de la route, tel que server.ts le déclare. */
   route: string;
   url: (c: Cible) => string;
@@ -330,6 +330,34 @@ const REGLAGES: readonly Acte[] = [
     route: '/api/projects/:projectId/horizon',
     url: p('horizon'),
     corps: () => ({ kind: 'fait', texte: 'le site est en ligne' }),
+    refus: 'projet',
+  },
+  {
+    // Accorder un connecteur externe + ses portées à un projet est un RÉGLAGE :
+    // il décide de ce que le projet laisse partir vers l'extérieur (Slack,
+    // webhook) et de qui peut approuver depuis Slack. Propriétaire ou admin.
+    nom: 'connecteurs/:id/autoriser',
+    methode: 'POST',
+    route: '/api/projects/:projectId/connecteurs/:connecteurId/autoriser',
+    url: p('connecteurs/webhook/autoriser'),
+    corps: () => ({ portees: ['notification'] }),
+    refus: 'projet',
+  },
+  {
+    nom: 'connecteurs/:id (révoquer)',
+    methode: 'DELETE',
+    route: '/api/projects/:projectId/connecteurs/:connecteurId',
+    url: p('connecteurs/webhook'),
+    refus: 'projet',
+  },
+  {
+    // Émettre un fait de test à travers un connecteur touche le monde extérieur
+    // au nom du projet : même porte que l'autorisation.
+    nom: 'connecteurs/:id/test',
+    methode: 'POST',
+    route: '/api/projects/:projectId/connecteurs/:connecteurId/test',
+    url: p('connecteurs/webhook/test'),
+    corps: () => ({}),
     refus: 'projet',
   },
 ];
