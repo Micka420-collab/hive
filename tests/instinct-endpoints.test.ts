@@ -6,7 +6,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
@@ -45,6 +45,7 @@ describe('endpoints de l’instinct de ruche', () => {
   });
 
   afterEach(async () => {
+    vi.useRealTimers();
     await server.stop();
     rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
   });
@@ -148,6 +149,18 @@ describe('endpoints de l’instinct de ruche', () => {
         }
       ).traces;
 
+    // L'horloge de la Reine est GELÉE pour toute la fenêtre : le banc éprouve
+    // la mémoïsation, pas la vitesse du disque. Sur la CI Windows (run
+    // 36312988135), écrire le troisième résultat — `synchronous = FULL`, un
+    // fsync par COMMIT depuis #479 — a pris plus que les 3 s du TTL : la
+    // mémoïsation avait expiré, légitimement, et le banc lisait le recalcul.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    // L'horloge de la Reine GELÉE (seulement `Date`) : la mémoïsation dure 3 s,
+    // et le banc éprouve qu'elle SERT, pas qu'elle expire. Sur le runner
+    // Windows, une écriture en `synchronous = FULL` puis trois requêtes ont
+    // dépassé les 3 s : le TTL expirait entre deux lectures et le banc
+    // rougissait sur la lenteur de la machine, pas sur le code.
+    vi.useFakeTimers({ toFake: ['Date'] });
     const premier = await lire();
     expect(premier).toHaveLength(1);
     expect(premier[0]).toMatchObject({ nodeId: 'n1', domaine: 'api', reussites: 2 });
