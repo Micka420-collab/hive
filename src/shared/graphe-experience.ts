@@ -58,7 +58,9 @@
 //
 // Ce qui appartient à la RUCHE plutôt qu'à un projet — une ouvrière, un modèle,
 // une signature d'erreur, une leçon du Cerveau — n'entre dans le graphe d'un
-// projet que par un fait DE CE PROJET.
+// projet que par un fait DE CE PROJET. Et ce qu'on y joint depuis le Cerveau
+// n'y entre que par son id : le titre d'une note parle de toute la ruche
+// (voir `nomDeNote`).
 //
 // ─── NE RIEN DUPLIQUER ───────────────────────────────────────────────────────
 //
@@ -320,6 +322,20 @@ export function projeterGrapheExperience(
   /** Les productions dont le modèle est déjà attribué (déclaré ou commandé). */
   const modelesAttribues = new Set<string>();
   const titresNotes = new Map(sources.notes.map((n) => [n.id, n.titre]));
+  /**
+   * Le titre d'une note du Cerveau, dans la portée de la RUCHE seulement.
+   *
+   * Filtrer les événements avant le repli ne couvre pas ce qu'on JOINT depuis
+   * le Cerveau, qui appartient à toute la ruche. Le titre d'un épisode est
+   * celui de la DERNIÈRE tâche qui a rencontré la panne, de n'importe quel
+   * projet (`enregistrerEpisode`) : nommer l'erreur ainsi dans le graphe de A
+   * afficherait le titre d'une tâche de B à qui ne lit que A. Et les titres
+   * des leçons et décisions écrites ne se lisent qu'avec la permission du
+   * Cerveau (`/api/admin/cerveau`). Dans la portée d'un projet, ces nœuds
+   * restent donc nommés par leur id — l'écran compose le reste.
+   */
+  const nomDeNote = (titre: string | undefined): string | null =>
+    portee.genre === 'ruche' ? (titre ?? null) : null;
   /** Ce que la portée a retenu du journal — la lecture ne parle que d'elle. */
   let retenus = 0;
   let depuis: number | null = null;
@@ -706,7 +722,7 @@ export function projeterGrapheExperience(
         const erreur = poser({
           id: `error:${note}`,
           genre: 'error',
-          libelle: titresNotes.get(note) ?? null,
+          libelle: nomDeNote(titresNotes.get(note)),
           projectId: null,
           nature: 'fait',
           provenance,
@@ -791,7 +807,7 @@ export function projeterGrapheExperience(
         ? {
             id: `decision:note:${note.id}`,
             genre: 'decision',
-            libelle: note.titre,
+            libelle: nomDeNote(note.titre),
             projectId: null,
             nature: 'lecon_validee',
             provenance,
@@ -800,7 +816,7 @@ export function projeterGrapheExperience(
         : {
             id: `lesson:note:${note.id}`,
             genre: 'lesson',
-            libelle: note.titre,
+            libelle: nomDeNote(note.titre),
             projectId: null,
             nature: 'lecon_validee',
             provenance,

@@ -96,7 +96,8 @@ export function libelleNoeud(n: NoeudExperience, t: Traduire): string {
           );
     // Le titre d'un épisode est celui de la DERNIÈRE tâche qui a rencontré
     // la panne (`enregistrerEpisode`) : « vue sur », jamais « erreur X », qui
-    // ferait croire que l'erreur porte le nom d'une tâche.
+    // ferait croire que l'erreur porte le nom d'une tâche. Dans le graphe
+    // d'un projet, il n'arrive pas (`nomDeNote`) : la signature seule.
     case 'error':
       return n.libelle === null
         ? t(
@@ -104,12 +105,31 @@ export function libelleNoeud(n: NoeudExperience, t: Traduire): string {
             `error signature ${n.id.slice('error:'.length)}`,
           )
         : t(`erreur vue sur « ${n.libelle} »`, `error seen on “${n.libelle}”`);
+    // Une note du Cerveau sans titre : le graphe d'un projet ne le porte pas
+    // (le Cerveau se lit avec sa propre permission) — son id, dit comme tel.
+    // « Aucune piste retenue » est le fait d'un CONSEIL, jamais d'une note.
     case 'decision':
-      return n.libelle ?? t('aucune piste retenue', 'no option retained');
+      return (
+        n.libelle ??
+        (n.origine === 'cerveau'
+          ? t(`décision du Cerveau ${noteDe(n)}`, `Brain decision ${noteDe(n)}`)
+          : t('aucune piste retenue', 'no option retained'))
+      );
+    case 'lesson':
+      return (
+        n.libelle ??
+        (n.origine === 'cerveau'
+          ? t(`leçon du Cerveau ${noteDe(n)}`, `Brain lesson ${noteDe(n)}`)
+          : n.id)
+      );
     default:
       return n.libelle ?? n.id;
   }
 }
+
+/** L'id de la note du Cerveau qui porte un nœud (`lesson:note:<id>`). */
+const noteDe = (n: NoeudExperience): string =>
+  n.provenance.source === 'cerveau' ? n.provenance.noteId : n.id;
 
 /** La relation, lue de `de` vers `vers` : « A — produite par → B ». */
 export function libelleRelation(r: Relation, t: Traduire): string {

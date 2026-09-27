@@ -63,9 +63,15 @@ export function ExperienceTache({ experience }: { experience: ExperienceVue }) {
         </p>
       ) : (
         <ul className="routage-similaires">
-          {experience.similaires.map((s) => (
-            <li key={s.taskId}>
-              <span>{s.titre ?? s.taskId.slice(0, 8)}</span>{' '}
+          {experience.similaires.map((s, i) => (
+            // Une voisine d'un autre projet n'a pas d'id ici : la position
+            // dans le fait, figé, est une clé stable.
+            <li key={s.taskId ?? `autre-${i}`}>
+              <span>
+                {s.titre ??
+                  s.taskId?.slice(0, 8) ??
+                  t('une tâche d’un autre projet', 'a task from another project')}
+              </span>{' '}
               <span className="muted">{traits(s)}</span>
             </li>
           ))}

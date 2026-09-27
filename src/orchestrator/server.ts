@@ -2352,6 +2352,12 @@ async function monterReine(
       // l'explication du routage (`routage-vue.ts`), figé à l'affectation
       // comme la raison du modèle. Perdues au budget, elles se journalisent
       // aussi : un `''` muet ferait croire que rien ne ressemblait à la tâche.
+      //
+      // Fédérée, une voisine peut venir d'un AUTRE projet. Ce fait-ci est rangé
+      // sous la tâche de A, et tout lecteur de A le relit (tiroir, Chronique) :
+      // il n'y porte ni l'id, ni le projet, ni le titre de la voisine — ses
+      // faits restent chez B. Ce qui reste (`memeProjet: false`, les traits
+      // communs, l'issue comptée) dit ce que l'ouvrière a lu sans le recopier.
       if (experience) {
         emitEvent(experience.etat === 'jointe' ? 'experience_context' : 'experience_refus', {
           taskId: task.id,
@@ -2359,10 +2365,14 @@ async function monterReine(
           portee: porteeExperience,
           ...(experience.etat === 'perdue' ? { motif: 'budget' } : {}),
           similaires: experience.similaires.map((c) => ({
-            taskId: c.taskId,
-            projectId: c.projectId,
-            memeProjet: c.projectId === task.projectId,
-            titre: champSurUneLigne(c.titre, LIMITS.title),
+            ...(c.projectId === task.projectId
+              ? {
+                  taskId: c.taskId,
+                  projectId: c.projectId,
+                  memeProjet: true,
+                  titre: champSurUneLigne(c.titre, LIMITS.title),
+                }
+              : { memeProjet: false }),
             score: c.score,
             categorie: c.communs.categorie,
             fichiers: c.communs.fichiers,

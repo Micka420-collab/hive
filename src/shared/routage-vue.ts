@@ -82,7 +82,8 @@ export interface CourseVue {
 
 /** Une tâche voisine que le graphe d'expérience a rapprochée, en faits typés. */
 export interface SimilaireVue {
-  taskId: string;
+  /** `null` pour une voisine d'un AUTRE projet : le fait ne la nomme pas. */
+  taskId: string | null;
   /** Le titre que l'ouvrière a lu ; `null` si le fait ne le porte pas. */
   titre: string | null;
   /** `null` quand le fait ne le dit pas : jamais « ce projet » par défaut. */
@@ -186,16 +187,22 @@ const vrai = (v: unknown): boolean => v === true;
 const entierNaturel = (v: unknown): number =>
   typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 ? v : 0;
 
-/** Un contexte similaire relu ; sans `taskId` lisible, il est ignoré. */
+/**
+ * Un contexte similaire relu. Sans `taskId` lisible, il est ignoré — sauf
+ * quand le fait dit `memeProjet: false` : une voisine d'un autre projet n'est
+ * jamais nommée sous la tâche (ses faits restent chez son projet), et elle a
+ * pourtant été lue par l'ouvrière.
+ */
 function similaireDepuis(brut: unknown): SimilaireVue | null {
   const s = objet(brut);
   const taskId = texte(s.taskId);
-  if (taskId === null) return null;
+  const memeProjet = typeof s.memeProjet === 'boolean' ? s.memeProjet : null;
+  if (taskId === null && memeProjet !== false) return null;
   return {
     taskId,
     titre: texte(s.titre),
     projectId: texte(s.projectId),
-    memeProjet: typeof s.memeProjet === 'boolean' ? s.memeProjet : null,
+    memeProjet,
     categorie: vrai(s.categorie),
     fichiers: textes(s.fichiers),
     erreurs: entierNaturel(s.erreurs),

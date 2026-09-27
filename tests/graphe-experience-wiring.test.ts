@@ -16,7 +16,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
-import { idEpisode } from '../src/cerveau-reel.js';
+import { dossierDe, ecrire, idEpisode } from '../src/cerveau-reel.js';
 import { signatureEchec } from '../src/orchestrator/essaim.js';
 import { createServer, loadConfigFromEnv } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
@@ -219,7 +219,23 @@ describe('le graphe d’expérience arrive jusqu’à l’ouvrière', () => {
       const [fait] = evenements(srv, 'experience_context', tache);
       expect(fait?.payload.portee).toBe('ruche');
       const similaires = fait?.payload.similaires as Array<Record<string, unknown>>;
-      expect(similaires.find((s) => s.taskId === 'passe-b')?.memeProjet).toBe(false);
+      // Rangé sous la tâche de A, relu par tout lecteur de A : la voisine de B
+      // y est dite « autre projet », jamais nommée — ni id, ni projet, ni titre.
+      const autre = similaires.find((s) => s.memeProjet === false);
+      expect(autre).toBeDefined();
+      expect(autre).not.toHaveProperty('taskId');
+      expect(autre).not.toHaveProperty('projectId');
+      expect(autre).not.toHaveProperty('titre');
+      const brut = JSON.stringify(fait?.payload);
+      for (const deB of ['TITRE-DU-PROJET-B', 'passe-b']) expect(brut).not.toContain(deB);
+      // Le tiroir la relit quand même : l'ouvrière l'a lue.
+      const r = await fetch(`http://127.0.0.1:${srv.port}/api/tasks/${tache}/routage`, {
+        headers: { 'x-hive-token': TOKEN },
+      });
+      const { affectations } = (await r.json()) as { affectations: AffectationVue[] };
+      expect(affectations[0]?.experience?.similaires).toContainEqual(
+        expect.objectContaining({ taskId: null, memeProjet: false, titre: null }),
+      );
     },
   );
 
@@ -365,6 +381,19 @@ describe('les routes du graphe d’expérience gardent la frontière', () => {
     });
     server.store.patchTask('voisine-a', { status: 'done' });
     server.store.appendEvent('task_done', { taskId: 'voisine-a', nodeId: 'n', resultId: 7_003 });
+    // A a aussi rencontré la panne de B. Le Cerveau en garde UNE note, que
+    // `enregistrerEpisode` retitre avec la dernière tâche tombée — celle de B ;
+    // et une leçon écrite à la main la cite. Ni l'un ni l'autre titre ne se lit
+    // avec le seul droit de lire A.
+    server.store.appendEvent('cerveau_episode', { taskId: 'passe-a', note: 'ep-partage' });
+    const dossier = dossierDe(path.join(dir, 'hive.db'));
+    const creee = new Date().toISOString();
+    for (const n of [
+      { id: 'ep-partage', genre: 'episode', titre: 'Réparer TITRE-DU-PROJET-B', corps: 'x' },
+      { id: 'lecon-partage', genre: 'lecon', titre: 'LECON-DU-CERVEAU', corps: '[[ep-partage]]' },
+    ] as const) {
+      expect(ecrire(dossier, { ...n, etiquettes: [], creee, recurrences: 1 })).not.toBeNull();
+    }
   });
 
   afterAll(async () => {
@@ -390,6 +419,20 @@ describe('les routes du graphe d’expérience gardent la frontière', () => {
       for (const n of vue.noeuds) expect(Number.isFinite(n.provenance.date)).toBe(true);
     }
     // Le nœud de B n'existe pas dans le graphe de A : il n'est pas « caché », il est absent.
+    // Et aucun texte de B n'y arrive par le Cerveau : l'erreur partagée et la
+    // leçon qui la cite y sont, nommées par leur id seul.
+    const brut = await (await lire(`/api/projects/${projetA}/experience`, compte(proprio))).text();
+    expect(brut).toContain('error:ep-partage');
+    expect(brut).toContain('lesson:note:lecon-partage');
+    for (const cache of ['TITRE-DU-PROJET-B', 'LECON-DU-CERVEAU', 'passe-b', projetB]) {
+      expect(brut, cache).not.toContain(cache);
+    }
+    const voisinageErreur = await lire(
+      `/api/projects/${projetA}/experience?noeud=${encodeURIComponent('error:ep-partage')}`,
+      compte(proprio),
+    );
+    expect(voisinageErreur.status).toBe(200);
+    expect(await voisinageErreur.text()).not.toContain('TITRE-DU-PROJET-B');
     const r = await lire(
       `/api/projects/${projetA}/experience?noeud=${encodeURIComponent('task:passe-b')}`,
       compte(proprio),
@@ -440,6 +483,10 @@ describe('les routes du graphe d’expérience gardent la frontière', () => {
     const vue = (await r.json()) as { portee: string; similaires: Array<{ taskId: string }> };
     expect(vue.portee).toBe('ruche');
     expect(vue.similaires.map((s) => s.taskId).sort()).toEqual(['passe-b', 'voisine-a']);
+    // La ruche, elle, nomme ce que le Cerveau sait : c'est sa permission.
+    const tout = await (await lire('/api/admin/experience', compte(admin))).text();
+    expect(tout).toContain('TITRE-DU-PROJET-B');
+    expect(tout).toContain('LECON-DU-CERVEAU');
     expect((await lire('/api/admin/experience', compte(proprio))).status).toBe(403);
     // Le jeton de ruche se recopie sur chaque machine membre : il ne vaut pas
     // « voir tous les projets ».

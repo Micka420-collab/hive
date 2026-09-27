@@ -316,9 +316,10 @@ describe('FAITS, CORRÉLATIONS ET LEÇONS VALIDÉES restent séparés', () => {
   });
 
   it('une leçon ÉCRITE dans le Cerveau est validée ; un épisode ne l’est jamais', () => {
+    // Dans le graphe d'un projet, nommée par son id seul (voir l'isolement).
     expect(noeud(g, 'lesson:note:lecon-jeton')).toMatchObject({
       nature: 'lecon_validee',
-      libelle: 'Toujours rafraîchir le jeton',
+      libelle: null,
       provenance: { source: 'cerveau', noteId: 'lecon-jeton' },
     });
     expect(arete(g, 'lesson:note:lecon-jeton', 'derived_from', 'error:ep-aaa')?.nature).toBe(
@@ -326,7 +327,11 @@ describe('FAITS, CORRÉLATIONS ET LEÇONS VALIDÉES restent séparés', () => {
     );
     // L'épisode est la MATIÈRE d'une leçon, pas une leçon : il nomme l'erreur.
     expect(g.noeuds.some((n) => n.id.includes('note:ep-aaa'))).toBe(false);
-    expect(noeud(g, 'error:ep-aaa')?.libelle).toBe('Le jeton expire');
+    expect(noeud(g, 'error:ep-aaa')?.libelle).toBeNull();
+    // Dans la portée de la ruche, les titres du Cerveau nomment ses nœuds.
+    const ruche = projeterGrapheExperience(sources(), RUCHE);
+    expect(noeud(ruche, 'error:ep-aaa')?.libelle).toBe('Le jeton expire');
+    expect(noeud(ruche, 'lesson:note:lecon-jeton')?.libelle).toBe('Toujours rafraîchir le jeton');
     // Sans date lisible : rien, et c'est compté — jamais daté d'office.
     expect(noeud(g, 'lesson:note:lecon-sans-date')).toBeUndefined();
     expect(g.lecture.notesSansDate).toBe(1);
@@ -420,6 +425,35 @@ describe('ISOLEMENT PAR DÉFAUT, FÉDÉRATION SUR DEMANDE', () => {
     expect(noeud(g, 'task:tB1')).toBeUndefined();
     // Les ouvrières et modèles n'entrent que par un fait de A.
     expect(noeud(g, 'worker:n1')?.provenance).toMatchObject({ evenementId: 7 });
+  });
+
+  it('isolé, le graphe de A ne porte AUCUN texte de B — pas même par une note du Cerveau', () => {
+    // La forme de production : le Cerveau garde UNE note par signature, et
+    // `enregistrerEpisode` la retitre avec la DERNIÈRE tâche qui a échoué
+    // ainsi — ici celle de B, qui retombe sur la même panne après A. Et une
+    // décision écrite à la main cite cette erreur : son titre ne se lit
+    // qu'avec la permission du Cerveau.
+    const titreB = 'SECRET-PROJET-B rachat Acme';
+    const notes: Note[] = [
+      ...NOTES.filter((n) => n.id !== 'ep-aaa'),
+      note({ id: 'ep-aaa', genre: 'episode', titre: titreB, corps: 'x' }),
+      note({ id: 'dec-jeton', genre: 'decision', titre: 'DECISION-ADMIN', corps: '[[ep-aaa]]' }),
+    ];
+    const journal = [
+      ...JOURNAL,
+      ev(30, 'task_retry', { taskId: 'tB1', nodeId: 'n1', resultId: 21, attempt: 2 }),
+      ev(31, 'cerveau_episode', { taskId: 'tB1', note: 'ep-aaa', recurrences: 3 }),
+    ];
+    const brut = JSON.stringify(projeterGrapheExperience(sources(journal, notes), seul(A)));
+    for (const deB of [titreB, TACHES.tB1!.titre, 'Projet B', B, 'tB1']) {
+      expect(brut, deB).not.toContain(deB);
+    }
+    for (const reserve of ['DECISION-ADMIN', 'Toujours rafraîchir le jeton']) {
+      expect(brut, reserve).not.toContain(reserve);
+    }
+    // … et la ruche, elle, les nomme : c'est la même projection, pas un oubli.
+    const ruche = JSON.stringify(projeterGrapheExperience(sources(journal, notes), RUCHE));
+    for (const nomme of [titreB, 'DECISION-ADMIN']) expect(ruche).toContain(nomme);
   });
 
   it('fédéré, la même erreur réunit les deux projets, datée de sa première apparition', () => {

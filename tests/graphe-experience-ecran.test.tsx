@@ -211,6 +211,10 @@ describe('le panneau « Graphe d’expérience » de la Mémoire', () => {
     expect(voisinage).not.toMatch(/répar/i);
     expect(voisinage).toContain('leçon validée');
     expect(voisinage).toContain('note lecon-jeton');
+    // Le graphe d'un projet ne porte pas les titres du Cerveau : l'écran dit
+    // l'id, sous son nom de genre — jamais « aucune piste retenue ».
+    expect(voisinage).toContain('leçon du Cerveau lecon-jeton');
+    expect(dom.querySelector('.exp-centre')?.textContent).toContain('signature d’erreur ep-jeton');
     // Suivre un lien : la production qui a suivi l'erreur, d'un clic — elle
     // devient le centre, et son voisinage est relu.
     const lien = [...dom.querySelectorAll('.exp-arete button')].find((b) =>
@@ -263,10 +267,12 @@ describe('le tiroir dit ce que l’ouvrière a lu de l’expérience voisine', (
     return conteneur;
   }
 
+  // La forme que la Reine journalise pour une voisine d'un AUTRE projet : ni
+  // id, ni projet, ni titre — ses faits restent chez son projet.
   const voisine = {
-    taskId: 'voisine-1',
-    titre: 'Corriger la connexion',
-    projectId: 'pb',
+    taskId: null,
+    titre: null,
+    projectId: null,
     memeProjet: false,
     categorie: true,
     fichiers: ['src/auth.ts'],
@@ -286,8 +292,7 @@ describe('le tiroir dit ce que l’ouvrière a lu de l’expérience voisine', (
     const bloc = dom.querySelector('[data-testid="routage-experience"]')?.textContent ?? '';
     expect(bloc).toContain('des corrélations, pas la raison du choix');
     expect(bloc).toContain('Fédérée par l’hôte');
-    expect(bloc).toContain('Corriger la connexion');
-    expect(bloc).toContain('un autre projet');
+    expect(bloc).toContain('une tâche d’un autre projet');
     expect(bloc).toContain('1 signature(s) d’erreur en commun');
     expect(bloc).toContain('fichiers en commun : src/auth.ts');
     expect(bloc).toContain('modèles : opus');

@@ -339,7 +339,10 @@ Trois natures ne se confondent jamais : les **faits** (le journal), les
 **corrélations** (« ces deux tâches nomment les mêmes fichiers », « la réussite
 a suivi cette erreur ») et les **leçons validées** (une note écrite dans le
 Cerveau, un souvenir Hive Mind validé). Une corrélation n'est jamais rangée
-comme un fait, et ne devient jamais une règle.
+comme un fait, et ne devient jamais une règle. Les souvenirs Hive Mind validés
+n'y entrent que lorsque le journal nomme QUI les a validés (l'Evaluator ou un
+humain) : tant que le cycle de vie de la mémoire (PR #495) n'est pas fusionné,
+aucun souvenir ne porte ce fait, et seules les leçons du Cerveau apparaissent.
 
 À chaque affectation, les tâches passées qui **ressemblent** à la nouvelle —
 mêmes signatures d'erreur, mêmes fichiers nommés, même catégorie — sont jointes
@@ -356,8 +359,17 @@ Reine :
 HIVE_EXPERIENCE_PORTEE=ruche   # défaut : projet
 ```
 
+Fédérée, l'ouvrière de A lit aussi les titres, fichiers et modèles des tâches
+voisines des autres projets. Le journal de A, lui, ne les recopie pas : le
+tiroir dit « une tâche d'un autre projet », sans son id, son projet ni son
+titre.
+
 La vue 🧠 **Mémoire** montre le graphe d'un projet (liste et voisinage d'un
-nœud) ; « Toute la ruche » est réservée aux administrateurs.
+nœud) ; « Toute la ruche » est réservée aux administrateurs. Le graphe d'un
+projet nomme les erreurs, les leçons et les décisions du Cerveau par leur
+seul id : leurs titres parlent de toute la ruche (celui d'une erreur est le
+titre de la dernière tâche qui l'a rencontrée, de n'importe quel projet), et
+ne se lisent que dans « Toute la ruche ».
 
 ![Le graphe d'expérience d'un projet : une tâche, ses liens datés et sourcés, et ses contextes similaires marqués « corrélations »](images/graphe-experience.bureau.png)
 

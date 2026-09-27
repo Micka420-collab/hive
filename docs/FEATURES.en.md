@@ -305,6 +305,9 @@ Three kinds of knowledge never mix: **facts** (the journal), **correlations**
 ("these two tasks name the same files", "success followed this error") and
 **validated lessons** (a note written in the Brain, a validated Hive Mind
 memory). A correlation is never stored as a fact, and never becomes a rule.
+Validated Hive Mind memories only enter when the journal names WHO validated
+them (the Evaluator or a human): until the memory lifecycle (PR #495) is
+merged, no memory carries that fact, and only Brain lessons appear.
 
 On every assignment, past tasks that **resemble** the new one — same error
 signatures, same named files, same category — are attached to the worker's
@@ -320,8 +323,15 @@ Cross-project federation is a host setting, in the Queen's `.env`:
 HIVE_EXPERIENCE_PORTEE=ruche   # default: projet
 ```
 
+Federated, project A's worker also reads the titles, files and models of
+similar tasks from other projects. A's journal does not copy them: the drawer
+says "a task from another project", without its id, project or title.
+
 The 🧠 **Memory** view shows a project's graph (list and a node's
-neighbourhood); "The whole hive" is reserved to administrators.
+neighbourhood); "The whole hive" is reserved to administrators. A project's
+graph names Brain errors, lessons and decisions by id only: their titles speak
+for the whole hive (an error's title is the title of the last task that hit
+it, from any project), and are only readable under "The whole hive".
 
 ![A project's experience graph: a task, its dated and sourced links, and its similar contexts marked as correlations](images/graphe-experience.bureau.png)
 

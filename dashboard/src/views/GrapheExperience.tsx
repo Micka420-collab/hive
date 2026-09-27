@@ -75,7 +75,12 @@ export function GrapheExperience({ projects, user, refreshTick, onOpenTask }: Pr
         setListe(v);
         setErreur(null);
       })
-      .catch((e: unknown) => vivant && setErreur(e instanceof Error ? e.message : String(e)));
+      .catch((e: unknown) => {
+        if (!vivant) return;
+        // Pas d'ancienne liste à côté de l'erreur : elle passerait pour la réponse.
+        setListe(null);
+        setErreur(e instanceof Error ? e.message : String(e));
+      });
     return () => {
       vivant = false;
     };
@@ -97,10 +102,14 @@ export function GrapheExperience({ projects, user, refreshTick, onOpenTask }: Pr
     };
   }, [portee, noeud, refreshTick]);
 
+  // L'ancienne portée ne reste pas affichée sous la nouvelle le temps de la
+  // lecture : un graphe de A lu comme celui de la ruche serait un mensonge.
   const choisirPortee = (valeur: string) => {
     setChoix(valeur);
     setNoeud(null);
     setGenre(null);
+    setListe(null);
+    setErreur(null);
   };
 
   const total = liste ? Object.values(liste.comptes.parGenre).reduce((s, n) => s + n, 0) : 0;
