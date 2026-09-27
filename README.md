@@ -138,6 +138,8 @@ diffs produits sont factices, et l'installeur comme la Reine le disent.
 ## 🖥 L'interface
 
 Captures de l'écran réel (`npm run ruche`), pas de maquettes.
+Chaque vue, sur bureau et sur mobile, se rephotographie en une commande sur une
+ruche de laboratoire : `npm run captures` ([docs/CAPTURES.md](docs/CAPTURES.md)).
 
 <p align="center">
   <img src="docs/images/vitrine.png" width="840" alt="Vitrine Hive — page d'accueil crème, miel en accent, hexagones.">
@@ -311,20 +313,21 @@ travailler à découvert.
 
 ## 🛠️ Commandes
 
-| Commande                                      | Effet                                                                                         |
-| --------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `npm run ruche`                               | **Tout en une commande** — Reine + ouvrière + écran                                           |
-| `npm run demo`                                | Démo complète (orchestrateur + 2 nœuds + projet)                                              |
-| `npm run dev`                                 | Orchestrateur seul                                                                            |
-| `npm run node`                                | Un nœud membre                                                                                |
-| `npm run cli -- doctor`                       | **Le docteur** — 13 causes de panne, et la commande qui répare                                |
-| `npm run preuve:v2-alpha -- --racine . --oui` | **La preuve V2 Alpha** — une vraie mission confiée à un vrai agent, jugée critère par critère |
-| `npm run cli -- sauvegarde`                   | Sauvegarde SQLite par `VACUUM INTO`                                                           |
-| `npm run cli -- service`                      | Installer la ruche en service (systemd · launchd · tâche planifiée)                           |
-| `npm test`                                    | La suite complète (vitest) — le compte vit dans le badge, en un seul endroit                  |
-| `npm run fusionner`                           | Porte la branche sur `main` en **avance rapide** — sans commit de fusion                      |
-| `npm run lint`                                | ESLint + Prettier — zéro erreur exigé                                                         |
-| `npm run loupe`                               | **La loupe** — le code neuf est-il défendu par ses tests ?                                    |
+| Commande                                      | Effet                                                                                            |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `npm run ruche`                               | **Tout en une commande** — Reine + ouvrière + écran                                              |
+| `npm run demo`                                | Démo complète (orchestrateur + 2 nœuds + projet)                                                 |
+| `npm run dev`                                 | Orchestrateur seul                                                                               |
+| `npm run node`                                | Un nœud membre                                                                                   |
+| `npm run cli -- doctor`                       | **Le docteur** — 13 causes de panne, et la commande qui répare                                   |
+| `npm run preuve:v2-alpha -- --racine . --oui` | **La preuve V2 Alpha** — une vraie mission confiée à un vrai agent, jugée critère par critère    |
+| `npm run captures`                            | **Les captures** — chaque vue de Mission Control, bureau et mobile, sur une ruche de laboratoire |
+| `npm run cli -- sauvegarde`                   | Sauvegarde SQLite par `VACUUM INTO`                                                              |
+| `npm run cli -- service`                      | Installer la ruche en service (systemd · launchd · tâche planifiée)                              |
+| `npm test`                                    | La suite complète (vitest) — le compte vit dans le badge, en un seul endroit                     |
+| `npm run fusionner`                           | Porte la branche sur `main` en **avance rapide** — sans commit de fusion                         |
+| `npm run lint`                                | ESLint + Prettier — zéro erreur exigé                                                            |
+| `npm run loupe`                               | **La loupe** — le code neuf est-il défendu par ses tests ?                                       |
 
 ## 📚 Documentation
 
@@ -333,6 +336,7 @@ travailler à découvert.
 | **[docs/INSTALLATION.md](docs/INSTALLATION.md)**             | Installer, désinstaller, service, conteneur, sauvegardes |
 | **[docs/CLOUD.md](docs/CLOUD.md)**                           | Community 0 € vs Cloud payant sur tes serveurs           |
 | **[docs/ATELIER.md](docs/ATELIER.md)**                       | Bureau de recette : écran, CDP, outils                   |
+| **[docs/CAPTURES.md](docs/CAPTURES.md)**                     | Les captures de Mission Control, et comment les refaire  |
 | **[docs/WINDOWS-CLAUDE.md](docs/WINDOWS-CLAUDE.md)**         | Tourner seul sous Windows avec son abonnement Claude     |
 | **[docs/PROTECTION-BRANCHE.md](docs/PROTECTION-BRANCHE.md)** | Protéger `main` : les réglages exacts, et pourquoi       |
 | **[docs/FONCTIONNALITES.md](docs/FONCTIONNALITES.md)**       | Chaque partie en détail, avec ses arbitrages             |

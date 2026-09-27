@@ -42,6 +42,8 @@ without your say-so. **The code and the keys stay on your machines.**
 ## 🖥 The interface
 
 Shots of the running app (`npm run ruche`), not mockups.
+Every view, desktop and mobile, is re-shot in one command on a lab hive:
+`npm run captures` ([docs/CAPTURES.md](docs/CAPTURES.md), FR).
 
 <p align="center">
   <img src="docs/images/vitrine.png" width="840" alt="Hive landing page — cream paper, honey accent, hexagons.">
@@ -217,6 +219,7 @@ refuse to work in the open.
 | `npm run node`                                | A member node                                                                                                                                                       |
 | `npm run cli -- doctor`                       | **The doctor** — 13 failure causes, each with the fixing command                                                                                                    |
 | `npm run preuve:v2-alpha -- --racine . --oui` | **The V2 Alpha proof** — one real mission handed to a real agent, judged criterion by criterion (nothing is created without `--oui`: it spends the agent's credits) |
+| `npm run captures`                            | **The screenshots** — every Mission Control view, desktop and mobile, on a lab hive (needs `npx playwright install --only-shell chromium` once)                     |
 | `npm run cli -- sauvegarde`                   | SQLite backup via `VACUUM INTO`                                                                                                                                     |
 | `npm run cli -- service`                      | Install the hive as a service (systemd · launchd · scheduled task)                                                                                                  |
 | `npm test`                                    | The full suite (vitest) — the count lives in the badge, in one place                                                                                                |
@@ -226,18 +229,19 @@ refuse to work in the open.
 
 ## 📚 Documentation
 
-| File                                                         | What's in it                                            |
-| ------------------------------------------------------------ | ------------------------------------------------------- |
-| **[docs/FEATURES.en.md](docs/FEATURES.en.md)**               | Each part in detail, with its trade-offs                |
-| **[docs/INSTALLATION.md](docs/INSTALLATION.md)**             | Install, uninstall, service, container, backups (FR)    |
-| **[docs/CLOUD.md](docs/CLOUD.md)**                           | Community free vs Cloud paid on your servers            |
-| **[docs/ATELIER.md](docs/ATELIER.md)**                       | Acceptance desktop: screen, CDP, tools (FR)             |
-| **[docs/WINDOWS-CLAUDE.md](docs/WINDOWS-CLAUDE.md)**         | Running solo on Windows with a Claude subscription (FR) |
-| **[docs/PROTECTION-BRANCHE.md](docs/PROTECTION-BRANCHE.md)** | Protecting `main`: the exact settings, and why (FR)     |
-| **[docs/ERREURS.md](docs/ERREURS.md)**                       | The error journal — by lesson, with the rules (FR)      |
-| **[docs/ETAPES.md](docs/ETAPES.md)**                         | The project's real state against its own promises (FR)  |
-| **[docs/MODELE-ECONOMIQUE.md](docs/MODELE-ECONOMIQUE.md)**   | Quotas, subscriptions, what is billed (FR)              |
-| **[CHANGELOG.md](CHANGELOG.md)**                             | What changed, version by version                        |
+| File                                                         | What's in it                                               |
+| ------------------------------------------------------------ | ---------------------------------------------------------- |
+| **[docs/FEATURES.en.md](docs/FEATURES.en.md)**               | Each part in detail, with its trade-offs                   |
+| **[docs/INSTALLATION.md](docs/INSTALLATION.md)**             | Install, uninstall, service, container, backups (FR)       |
+| **[docs/CLOUD.md](docs/CLOUD.md)**                           | Community free vs Cloud paid on your servers               |
+| **[docs/ATELIER.md](docs/ATELIER.md)**                       | Acceptance desktop: screen, CDP, tools (FR)                |
+| **[docs/CAPTURES.md](docs/CAPTURES.md)**                     | Mission Control screenshots, and how to re-shoot them (FR) |
+| **[docs/WINDOWS-CLAUDE.md](docs/WINDOWS-CLAUDE.md)**         | Running solo on Windows with a Claude subscription (FR)    |
+| **[docs/PROTECTION-BRANCHE.md](docs/PROTECTION-BRANCHE.md)** | Protecting `main`: the exact settings, and why (FR)        |
+| **[docs/ERREURS.md](docs/ERREURS.md)**                       | The error journal — by lesson, with the rules (FR)         |
+| **[docs/ETAPES.md](docs/ETAPES.md)**                         | The project's real state against its own promises (FR)     |
+| **[docs/MODELE-ECONOMIQUE.md](docs/MODELE-ECONOMIQUE.md)**   | Quotas, subscriptions, what is billed (FR)                 |
+| **[CHANGELOG.md](CHANGELOG.md)**                             | What changed, version by version                           |
 
 Most of the deep documentation is in French, as is the codebase's commentary.
 `docs/FEATURES.en.md` is the English reference.
