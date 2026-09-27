@@ -304,17 +304,35 @@ export function evaluate(input: EvaluatorInput): EvaluationResult {
   // restent affichés tels quels, jamais comptés verts. Les TESTS, eux, ne sont
   // jamais dispensés : sans test, rien ne prouve que le code fait ce qu'on lui
   // demande, et l'Evaluator le dit au lieu de conclure.
+  const bac =
+    input.validationProvenance?.source === 'hive_sandbox' ? input.validationProvenance : null;
   if (missingValidation.length > 0) {
     reasons.push(
       `preuves manquantes : ${missingValidation.join(', ')}` +
         (suffixeSource || ' (aucun producteur de preuve : ni bac Hive, ni CI GitHub)'),
     );
+    // Sans bac, le nœud n'a rien lancé — et c'est un choix de sécurité, pas
+    // une panne : le motif dit comment en obtenir un, sinon l'opérateur
+    // reste devant un « manquant » sans issue.
+    if (bac && missingValidation.some((key) => bac.details[key].raison === 'sans_bac')) {
+      reasons.push(
+        `le nœud ${bac.nodeId} n’a pas de bac à sable : le code d’un agent ne tourne pas ` +
+          'sur l’hôte nu — installez podman, docker ou bubblewrap (HIVE_ISOLEMENT=auto ' +
+          'les trouve au démarrage du nœud), ou apportez la CI GitHub',
+      );
+    }
     return result(input.taskId, 'additional_test_required', false, false, reasons, evidence);
   }
   if (validation.tests === 'not_applicable') {
+    // Deux absences différentes : un projet npm sans script « test », et un
+    // projet que Hive ne sait pas lire (cargo, pytest…) — lui dire de
+    // « déclarer un script test » serait faux.
     reasons.push(
-      `le projet ne déclare aucun test${suffixeSource} : sans test, rien ne prouve le ` +
-        'comportement — déclarez un script « test », ou apportez la CI GitHub',
+      bac?.details.tests.raison === 'sans_manifeste'
+        ? `aucun package.json à la base du dépôt${suffixeSource} : le bac ne lit que les ` +
+            'scripts npm, et ne sait pas lancer les tests de ce projet — apportez la CI GitHub'
+        : `le projet ne déclare aucun test${suffixeSource} : sans test, rien ne prouve le ` +
+            'comportement — déclarez un script « test », ou apportez la CI GitHub',
     );
     return result(input.taskId, 'additional_test_required', false, false, reasons, evidence);
   }

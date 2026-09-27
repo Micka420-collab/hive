@@ -7,23 +7,45 @@
 //
 // Les cas qui comptent le plus sont ceux où RIEN ne doit tourner : une
 // production qui réécrit son script de test, ou `.npmrc`, ne se juge pas
-// elle-même ; un bac où npm ne se lance pas ne rend pas quatre faux échecs.
+// elle-même ; un bac où npm ne se lance pas ne rend pas quatre faux échecs ;
+// un nœud SANS bac ne lance pas sur l'hôte nu du code écrit par l'agent.
+//
+// ─── LE BAC DE CE BANC ───────────────────────────────────────────────────────
+//
+// Les validations ne tournent que dans un bac : ce banc passe par le faux
+// moteur de `fixtures/faux-bac.ts` (POSIX), tout le reste est réel.
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { simpleGit } from 'simple-git';
 import { resoudreLanceur } from '../src/lanceur-reel.js';
+import { GRACE_ARRET_MS } from '../src/node-client/merge-runner.js';
 import { validerProduction } from '../src/node-client/validations-bac.js';
+import { prepareWorkspace } from '../src/node-client/workspace.js';
 import type { Fournisseur } from '../src/node-client/isolement.js';
+import { fauxBac as fauxBacDe } from './fixtures/faux-bac.js';
+import type { Task } from '../src/shared/types.js';
 
 const dossiers: string[] = [];
 
 afterEach(() => {
   for (const d of dossiers.splice(0)) rmSync(d, { recursive: true, force: true, maxRetries: 3 });
 });
+
+const POSIX = process.platform !== 'win32';
+
+const fauxBac = () => fauxBacDe(dossiers);
 
 /** Une commande `node -e` qui laisse une trace, puis sort avec `code`. */
 const marque = (nom: string, code = 0): string =>
@@ -49,10 +71,51 @@ async function depot(fichiers: Record<string, string>): Promise<string> {
 const manifeste = (scripts: Record<string, string>, extra: Record<string, unknown> = {}): string =>
   JSON.stringify({ name: 'fixture', version: '1.0.0', private: true, scripts, ...extra });
 
-const valider = (dir: string, extra: Partial<Parameters<typeof validerProduction>[0]> = {}) =>
-  validerProduction({ cwd: dir, git: simpleGit({ baseDir: dir }), ...extra });
+const baseDe = async (dir: string): Promise<string> =>
+  (await simpleGit({ baseDir: dir }).revparse(['HEAD'])).trim();
 
-describe('validerProduction — ce que la base déclare, lancé dans le répertoire produit', () => {
+/**
+ * Valide `dir` comme le nœud : base ÉPINGLÉE avant que l'agent ne touche à
+ * rien (`baseSha`, sinon HEAD maintenant), dans le faux bac sauf avis contraire.
+ */
+const valider = async (
+  dir: string,
+  extra: Partial<Parameters<typeof validerProduction>[0]> & { baseSha?: string } = {},
+) => {
+  const { baseSha, ...reste } = extra;
+  return validerProduction({
+    cwd: dir,
+    depot: { git: simpleGit({ baseDir: dir }), baseSha: baseSha ?? (await baseDe(dir)) },
+    bac: fauxBac(),
+    ...reste,
+  });
+};
+
+describe('validerProduction — sans bac, rien ne tourne sur l’hôte', () => {
+  it('le code de l’agent ne s’exécute pas hors d’un bac : sans_bac, et rien n’a tourné', async () => {
+    const dir = await depot({
+      'package.json': manifeste({ test: marque('test'), lint: marque('lint') }),
+    });
+    writeFileSync(path.join(dir, 'feature.js'), 'module.exports = 1;\n');
+
+    const rapport = await validerProduction({
+      cwd: dir,
+      depot: { git: simpleGit({ baseDir: dir }), baseSha: await baseDe(dir) },
+    });
+
+    expect(rapport.controles.tests).toEqual({
+      etat: 'missing',
+      raison: 'sans_bac',
+      script: 'test',
+    });
+    expect(rapport.controles.lint).toEqual({ etat: 'missing', raison: 'sans_bac', script: 'lint' });
+    expect(rapport.controles.build).toEqual({ etat: 'not_applicable', raison: 'non_declare' });
+    expect(existsSync(path.join(dir, 'test.ran'))).toBe(false);
+    expect(existsSync(path.join(dir, 'lint.ran'))).toBe(false);
+  }, 30_000);
+});
+
+describe.runIf(POSIX)('validerProduction — ce que la base déclare, lancé dans le bac', () => {
   it('lance les scripts déclarés et rend un constat par validation', async () => {
     const dir = await depot({
       'package.json': manifeste({
@@ -62,7 +125,7 @@ describe('validerProduction — ce que la base déclare, lancé dans le réperto
       }),
     });
     writeFileSync(path.join(dir, 'feature.js'), 'module.exports = 1;\n');
-    const sha = (await simpleGit({ baseDir: dir }).revparse(['HEAD'])).trim();
+    const sha = await baseDe(dir);
     const etapes: string[] = [];
 
     const rapport = await valider(dir, { surEtape: (l) => etapes.push(l) });
@@ -85,19 +148,82 @@ describe('validerProduction — ce que la base déclare, lancé dans le réperto
     expect(etapes.some((l) => l.startsWith('validation tests : passed'))).toBe(true);
   }, 30_000);
 
-  it('ne lance pas un script de test que la production a réécrit', async () => {
+  // Trois façons de réécrire son juge. La deuxième et la troisième passaient :
+  // le garde ne comparait que le script choisi et ses crochets pre/post, alors
+  // que `test` peut appeler `npm run unit`, et que `npm ci` lance `prepare`
+  // avant tout — après le calcul du diff, qui n'en montre qu'une ligne.
+  it.each<[string, Record<string, string>, Record<string, string>]>([
+    ['le script lui-même', { test: marque('base', 1) }, { test: marque('reecrit', 0) }],
+    [
+      'un script qu’il appelle',
+      { test: 'npm run unit', unit: marque('base', 1) },
+      { test: 'npm run unit', unit: marque('reecrit', 0) },
+    ],
+    [
+      'un script de cycle de vie ajouté',
+      { test: marque('base', 1) },
+      { test: marque('base', 1), prepare: marque('reecrit', 0) },
+    ],
+  ])(
+    'ne lance rien quand la production a réécrit %s',
+    async (_cas, avant, apres) => {
+      const dir = await depot({ 'package.json': manifeste(avant) });
+      writeFileSync(path.join(dir, 'package.json'), manifeste(apres));
+
+      const rapport = await valider(dir);
+
+      expect(rapport.controles.tests).toEqual({
+        etat: 'missing',
+        raison: 'declaration_reecrite',
+        script: 'test',
+      });
+      expect(existsSync(path.join(dir, 'reecrit.ran'))).toBe(false);
+      expect(existsSync(path.join(dir, 'base.ran'))).toBe(false);
+    },
+    30_000,
+  );
+
+  it('une réécriture COMMITTÉE par l’agent reste une réécriture — la base est celle du clone', async () => {
+    // L'agent committe : HEAD bouge. Relue à HEAD, la « base » était le commit
+    // de l'agent, son script réécrit passait pour la déclaration du projet,
+    // et `baseSha` nommait ce commit-là.
     const dir = await depot({ 'package.json': manifeste({ test: marque('base', 1) }) });
+    const base = await baseDe(dir);
+    const git = simpleGit({ baseDir: dir });
     writeFileSync(path.join(dir, 'package.json'), manifeste({ test: marque('reecrit', 0) }));
+    await git.add('package.json');
+    await git.commit('agent');
+    writeFileSync(path.join(dir, 'feature.js'), 'module.exports = 1;\n');
+
+    const rapport = await valider(dir, { baseSha: base });
+
+    expect(rapport.baseSha).toBe(base);
+    expect(rapport.controles.tests).toMatchObject({
+      etat: 'missing',
+      raison: 'declaration_reecrite',
+    });
+    expect(existsSync(path.join(dir, 'reecrit.ran'))).toBe(false);
+  }, 30_000);
+
+  it('ce que git ignore ne juge pas : un node_modules/.bin planté par l’agent est retiré', async () => {
+    // Projet SANS dépendances : aucune réinstallation n'aurait remplacé ce
+    // dossier, et `npm run` met `node_modules/.bin` en tête du PATH — le
+    // `node` de l'agent rendait 0 à la place du vrai.
+    const dir = await depot({
+      'package.json': manifeste({ test: 'node test.js' }),
+      'test.js': 'process.exit(1)\n',
+      '.gitignore': 'node_modules\n',
+    });
+    const cale = path.join(dir, 'node_modules', '.bin', 'node');
+    mkdirSync(path.dirname(cale), { recursive: true });
+    writeFileSync(cale, '#!/bin/sh\nexit 0\n');
+    chmodSync(cale, 0o755);
+    writeFileSync(path.join(dir, 'feature.js'), 'module.exports = 1;\n');
 
     const rapport = await valider(dir);
 
-    expect(rapport.controles.tests).toEqual({
-      etat: 'missing',
-      raison: 'declaration_reecrite',
-      script: 'test',
-    });
-    expect(existsSync(path.join(dir, 'reecrit.ran'))).toBe(false);
-    expect(existsSync(path.join(dir, 'base.ran'))).toBe(false);
+    expect(rapport.controles.tests).toMatchObject({ etat: 'failed', raison: 'termine', code: 1 });
+    expect(existsSync(cale)).toBe(false);
   }, 30_000);
 
   it('ne lance rien quand la production réécrit .npmrc', async () => {
@@ -114,29 +240,41 @@ describe('validerProduction — ce que la base déclare, lancé dans le réperto
     expect(existsSync(path.join(dir, 'test.ran'))).toBe(false);
   }, 30_000);
 
-  // POSIX seulement : sous Windows, `cmd.exe` rend 1 pour une commande
-  // inconnue — limite consignée sur `controleApresLancement`.
-  it.skipIf(process.platform === 'win32')(
-    '127 : un outil introuvable n’est pas un verdict sur la production',
-    async () => {
-      const dir = await depot({
-        'package.json': manifeste({ test: 'outil-que-personne-n-a-installe --run' }),
-      });
+  it('.npmrc intact mais extrait en CRLF (autocrlf) : pas une réécriture', async () => {
+    // Le défaut de Git pour Windows : `core.autocrlf=true` extrait en CRLF un
+    // blob en LF. La comparaison d'octets accusait CHAQUE production d'un
+    // dépôt à `.npmrc` d'avoir réécrit celui-ci.
+    const origine = await depot({
+      'package.json': manifeste({ test: marque('test') }),
+      '.npmrc': 'engine-strict=true\nfund=false\n',
+    });
+    const racine = mkdtempSync(path.join(os.tmpdir(), 'hive-validations-crlf-'));
+    dossiers.push(racine);
+    const dir = path.join(racine, 'clone');
+    await simpleGit().clone(origine, dir, ['--depth', '1', '-c', 'core.autocrlf=true']);
+    expect(readFileSync(path.join(dir, '.npmrc'), 'utf8')).toContain('\r\n');
+    writeFileSync(path.join(dir, 'feature.js'), 'module.exports = 1;\n');
 
-      const rapport = await valider(dir);
+    const rapport = await valider(dir);
 
-      expect(rapport.controles.tests).toMatchObject({
-        etat: 'missing',
-        raison: 'outil_introuvable',
-        code: 127,
-      });
-    },
-    30_000,
-  );
+    expect(rapport.controles.tests).toMatchObject({ etat: 'passed', raison: 'termine' });
+  }, 30_000);
+
+  it('127 : un outil introuvable n’est pas un verdict sur la production', async () => {
+    const dir = await depot({
+      'package.json': manifeste({ test: 'outil-que-personne-n-a-installe --run' }),
+    });
+
+    const rapport = await valider(dir);
+
+    expect(rapport.controles.tests).toMatchObject({
+      etat: 'missing',
+      raison: 'outil_introuvable',
+      code: 127,
+    });
+  }, 30_000);
 
   it('délai dépassé : missing — la commande est arrêtée, son verdict reste inconnu', async () => {
-    // Une attente courte : sous Windows, tuer npm ne tue pas le script qu'il a
-    // lancé, et la sortie ne se ferme qu'avec lui.
     const dir = await depot({
       'package.json': manifeste({ lint: 'node -e "setTimeout(() => {}, 5000)"' }),
     });
@@ -145,6 +283,23 @@ describe('validerProduction — ce que la base déclare, lancé dans le réperto
 
     expect(rapport.controles.lint).toMatchObject({ etat: 'missing', raison: 'delai' });
   }, 30_000);
+
+  it('le délai TIENT contre ce que le script laisse tourner derrière lui', async () => {
+    // `serveur &` : npm sort, le serveur garde la sortie ouverte. L'ancien
+    // code attendait sa mort — ici 30 s, ailleurs jamais — avant de rendre le
+    // résultat de la tâche.
+    const dir = await depot({
+      'package.json': manifeste({
+        test: 'node -e "setTimeout(() => {}, 30000)" & node -e "process.exit(0)"',
+      }),
+    });
+    const debut = Date.now();
+
+    const rapport = await valider(dir, { delaiMs: 1_500 });
+
+    expect(Date.now() - debut).toBeLessThan(1_500 + 2 * GRACE_ARRET_MS + 8_000);
+    expect(rapport.controles.tests).toMatchObject({ etat: 'passed', code: 0 });
+  }, 60_000);
 
   it('des dépendances sans lockfile : rien ne tourne, et le node_modules de l’agent n’est pas cru', async () => {
     const dir = await depot({
@@ -235,7 +390,7 @@ describe('validerProduction — ce que la base déclare, lancé dans le réperto
       garanties: [],
     };
 
-    const rapport = await valider(dir, { bac: { fournisseur, variables: [], image: 'aucune' } });
+    const rapport = await valider(dir, { bac: { fournisseur, variables: [], image: 'hive-banc' } });
 
     expect(rapport.controles.tests).toMatchObject({ etat: 'missing', raison: 'npm_indisponible' });
     expect(rapport.controles.lint).toMatchObject({ etat: 'missing', raison: 'npm_indisponible' });
@@ -247,7 +402,7 @@ describe('validerProduction — ce que la base déclare, lancé dans le réperto
     dossiers.push(dir);
     writeFileSync(path.join(dir, 'package.json'), manifeste({ test: marque('test') }));
 
-    const rapport = await validerProduction({ cwd: dir, git: null });
+    const rapport = await validerProduction({ cwd: dir, depot: null, bac: fauxBac() });
 
     expect(rapport.baseSha).toBeUndefined();
     for (const controle of Object.values(rapport.controles)) {
@@ -265,5 +420,51 @@ describe('validerProduction — ce que la base déclare, lancé dans le réperto
 
     expect(rapport.controles.tests).toMatchObject({ etat: 'missing', raison: 'annule' });
     expect(existsSync(path.join(dir, 'test.ran'))).toBe(false);
+  }, 30_000);
+});
+
+describe('prepareWorkspace — la base épinglée, et le diff qui en part', () => {
+  it('ce que l’agent committe ou indexe reste dans le diff, et la base ne bouge pas', async () => {
+    // `git diff` nu compare l'arbre à l'INDEX : un fichier que l'agent avait
+    // `git add` ou committé disparaissait du diff — de la revue, de la
+    // livraison et du merge —, et HEAD relu après coup nommait son commit.
+    const origine = await depot({ 'README.md': '# projet\n' });
+    const base = await baseDe(origine);
+    const racine = mkdtempSync(path.join(os.tmpdir(), 'hive-validations-ws-'));
+    dossiers.push(racine);
+    const tache: Task = {
+      id: 'tache-base',
+      projectId: 'p',
+      title: 'Base épinglée',
+      prompt: 'x',
+      status: 'assigned',
+      dependsOn: [],
+      assignedNodeId: 'n',
+      result: null,
+      branch: null,
+      attempts: 0,
+      createdAt: 0,
+      updatedAt: 0,
+    };
+    const ws = await prepareWorkspace(racine, tache, origine);
+    try {
+      const git = simpleGit({ baseDir: ws.cwd });
+      await git.addConfig('user.email', 'agent@hive.test');
+      await git.addConfig('user.name', 'Agent');
+      await git.addConfig('commit.gpgsign', 'false');
+      writeFileSync(path.join(ws.cwd, 'committe.js'), 'module.exports = 1;\n');
+      await git.add('committe.js');
+      await git.commit('agent');
+      writeFileSync(path.join(ws.cwd, 'indexe.js'), 'module.exports = 2;\n');
+      await git.add('indexe.js');
+      writeFileSync(path.join(ws.cwd, 'nouveau.js'), 'module.exports = 3;\n');
+
+      const diff = await ws.collectDiff();
+
+      expect(ws.baseSha).toBe(base);
+      for (const f of ['committe.js', 'indexe.js', 'nouveau.js']) expect(diff).toContain(f);
+    } finally {
+      ws.cleanup();
+    }
   }, 30_000);
 });

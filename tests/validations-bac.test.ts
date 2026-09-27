@@ -38,8 +38,9 @@ const SCRIPTS = {
 };
 
 describe('planDeValidation — le projet déclare, à sa base', () => {
-  it('lance les quatre scripts déclarés et inchangés', () => {
-    const plan = planDeValidation(SCRIPTS, { ...SCRIPTS, format: 'prettier --write .' });
+  it('lance les quatre scripts déclarés et inchangés — l’ordre des clés ne compte pas', () => {
+    const { lint, ...reste } = SCRIPTS;
+    const plan = planDeValidation(SCRIPTS, { lint, ...reste });
     expect(plan).toEqual({
       tests: { genre: 'lancer', script: 'test' },
       typecheck: { genre: 'lancer', script: 'typecheck' },
@@ -79,17 +80,34 @@ describe('planDeValidation — le projet déclare, à sa base', () => {
     });
   });
 
+  // LE BLOC ENTIER, pas le seul script choisi : `test` peut appeler un autre
+  // script, et `npm ci` lance `prepare`/`postinstall` avant les validations.
+  // Un script « sans rapport » ajouté compte aussi — décider qu'il l'est
+  // serait deviner ce qu'il déclenche.
   it.each([
     ['le script lui-même', { ...SCRIPTS, test: 'true' }],
     ['un crochet pre ajouté', { ...SCRIPTS, pretest: 'node triche.js' }],
     ['un crochet post ajouté', { ...SCRIPTS, posttest: 'node triche.js' }],
     ['le script supprimé', { typecheck: 'tsc', build: 'vite build', lint: 'eslint .' }],
-  ])('une production qui réécrit son juge (%s) n’est pas lancée : missing', (_cas, production) => {
-    expect(planDeValidation(SCRIPTS, production).tests).toEqual({
-      genre: 'constat',
-      controle: { etat: 'missing', raison: 'declaration_reecrite', script: 'test' },
-    });
-  });
+    [
+      'un script qu’il appelle',
+      { ...SCRIPTS, test: 'npm run unit', unit: 'true' },
+      { ...SCRIPTS, test: 'npm run unit', unit: 'vitest run' },
+    ],
+    ['un script de cycle de vie ajouté', { ...SCRIPTS, prepare: 'node triche.js' }],
+    ['un script quelconque ajouté', { ...SCRIPTS, format: 'prettier --write .' }],
+  ])(
+    'une production qui réécrit ses scripts (%s) n’est pas lancée : missing',
+    (_cas, production, base: Record<string, string> = SCRIPTS) => {
+      const plan = planDeValidation(base, production);
+      for (const cle of ['tests', 'typecheck', 'build', 'lint'] as const) {
+        expect(plan[cle]).toMatchObject({
+          genre: 'constat',
+          controle: { etat: 'missing', raison: 'declaration_reecrite' },
+        });
+      }
+    },
+  );
 
   it('un package.json supprimé ou illisible par la production réécrit tout ce qui était déclaré', () => {
     const plan = planDeValidation(SCRIPTS, null);
@@ -203,6 +221,7 @@ describe('ce qui traverse le réseau et le journal', () => {
     ],
     ['un vert sans code 0', { tests: { etat: 'passed', raison: 'termine', code: 1 } }],
     ['un rouge avec code 0', { lint: { etat: 'failed', raison: 'termine', code: 0 } }],
+    ['un rouge sans le code qui le fonde', { lint: { etat: 'failed', raison: 'termine' } }],
     ['une raison inconnue', { tests: { etat: 'missing', raison: 'parce_que' } }],
     [
       'un nom de script qui est un drapeau',

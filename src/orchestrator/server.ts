@@ -286,7 +286,7 @@ import { buildMergePlan } from './honeycomb.js';
 import { tally, signatureOf } from './parliament.js';
 import type { Ballot } from './parliament.js';
 import { evaluate, missingCrossReviewEvidence } from './evaluator.js';
-import { validationsDepuisControles } from './ci-evidence.js';
+import { famillesEnCours, validationsDepuisControles } from './ci-evidence.js';
 import { CacheDomaines, domaineDeTache, replierTraces } from './pheromones.js';
 import type { Domaine, TraceePheromone } from './pheromones.js';
 import { anthropicLlm, anthropicLlmStream, llmPlannerAvailable, planBrief } from './planner.js';
@@ -309,6 +309,7 @@ import { buildWaggleBoard } from './waggle.js';
 import { lireVersionRuche } from './version-lue.js';
 import { commandeDePose } from '../shared/pose-outil.js';
 import { marcheASuivre, poseDepuis, versionDeclaree } from '../shared/version-ruche.js';
+import { VALIDATION_KEYS } from '../shared/validations-bac.js';
 
 /**
  * La racine du dépôt, vue depuis le code COMPILÉ (`dist/orchestrator/`).
@@ -7302,7 +7303,33 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         });
       }
 
+      // ─── UN INSTANTANÉ SANS VERDICT NE REMPLACE PAS UNE PREUVE ─────────────
+      //
+      // La preuve la plus récente gouverne, entière. Ranger une CI qui tourne
+      // encore, ou une PR dont aucun contrôle ne se lit comme tests, typecheck,
+      // build ou lint, rangerait quatre `missing` par-dessus les verdicts du bac
+      // Hive — un inconnu écrasant un connu. On refuse, on dit pourquoi, et la
+      // preuve précédente reste ; le bouton de Mission Control reste offert pour
+      // relire quand la CI a fini.
+      const enCours = famillesEnCours(faits.controles);
+      if (enCours.length > 0) {
+        return reply.code(409).send({
+          code: 'ci_running',
+          families: enCours,
+          error:
+            `la CI GitHub tourne encore (${enCours.join(', ')}) : rien n’est rangé — ` +
+            'relancez la lecture quand elle a fini',
+        });
+      }
       const validation = validationsDepuisControles(faits.controles);
+      if (VALIDATION_KEYS.every((cle) => validation[cle] === 'missing')) {
+        return reply.code(409).send({
+          code: 'ci_without_verdict',
+          error:
+            'aucun contrôle de la PR ne se lit comme tests, typecheck, build ou lint : ' +
+            'rien n’est rangé, la preuve précédente reste',
+        });
+      }
       const recordedAt = Date.now();
       // Le même événement que les validations du bac, distingué par sa
       // source : `store.latestValidation` lit la plus récente des deux.

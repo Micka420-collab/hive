@@ -1016,10 +1016,12 @@ export class HiveNodeClient {
           });
         },
       });
-      if (budgetTimer) {
-        clearTimeout(budgetTimer);
-        budgetTimer = null;
-      }
+      // LE BUDGET COURT ENCORE : le minuteur n'est levé qu'au `finally`. Les
+      // validations du bac comptent dans la durée d'un enfant délégué — son
+      // parent ne l'attend que `durationMs` plus une grâce, et des
+      // validations hors budget (jusqu'à une demi-heure) lui feraient lire
+      // « résultat absent » pour un enfant qui a réussi. À l'échéance, le
+      // signal arrête les validations en cours (`annule`) et le résultat part.
       const result =
         budgetExceeded && delegationBudget
           ? this.resultAfterDelegationBudget(rawResult, delegationBudget)
@@ -1134,7 +1136,10 @@ export class HiveNodeClient {
     if (!result.success || result.diff !== '' || diff.trim() === '') return undefined;
     const validations = await validerProduction({
       cwd: workspace.cwd,
-      git: workspace.git,
+      depot:
+        workspace.git && workspace.baseSha
+          ? { git: workspace.git, baseSha: workspace.baseSha }
+          : null,
       ...(this.opts.bac ? { bac: this.opts.bac } : {}),
       signal: ctrl.signal,
       surEtape: (log) => this.send({ type: 'task_update', taskId, status: 'running', log }),
@@ -1221,10 +1226,12 @@ export class HiveNodeClient {
           });
         },
       });
-      if (budgetTimer) {
-        clearTimeout(budgetTimer);
-        budgetTimer = null;
-      }
+      // LE BUDGET COURT ENCORE : le minuteur n'est levé qu'au `finally`. Les
+      // validations du bac comptent dans la durée d'un enfant délégué — son
+      // parent ne l'attend que `durationMs` plus une grâce, et des
+      // validations hors budget (jusqu'à une demi-heure) lui feraient lire
+      // « résultat absent » pour un enfant qui a réussi. À l'échéance, le
+      // signal arrête les validations en cours (`annule`) et le résultat part.
       const result =
         budgetExceeded && delegationBudget
           ? this.resultAfterDelegationBudget(rawResult, delegationBudget)

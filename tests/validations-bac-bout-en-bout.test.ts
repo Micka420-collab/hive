@@ -10,26 +10,34 @@
 // GitHub restait `additional_test_required` pour toujours : aucune preuve ne
 // pouvait exister pour lui.
 //
-// Et à l'inverse : un diff que l'adaptateur fournit lui-même (l'agent simulé
-// n'écrit rien sur le disque) n'est JAMAIS validé — le bac jugerait la base,
-// pas la production, et prêterait ses verts à un diff qu'il n'a pas vu.
+// Et à l'inverse, RIEN n'est validé — aucune `validation_recorded` — pour :
 //
-// Ce banc n'importe que des modules qui existaient avant le lot : sur l'ancien
-// code, il rougit parce que la preuve n'arrive pas — pas faute d'un import.
+//   · un diff que l'adaptateur fournit lui-même (l'agent simulé n'écrit rien
+//     sur le disque) : le bac jugerait la base, pas la production ;
+//   · une production en échec : l'échec est déjà le verdict ;
+//   · une production sans diff : il n'y a rien à juger.
+//
+// Et un nœud SANS bac range bien ses validations — `missing`, raison
+// `sans_bac` — sans avoir rien lancé : l'Evaluator dit comment en obtenir un.
+//
+// Le bac du premier cas est le faux moteur de `fixtures/faux-bac.ts` (POSIX).
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { simpleGit } from 'simple-git';
+import type { AgentAdapter } from '../src/adapters/index.js';
 import { HiveNodeClient } from '../src/node-client/client.js';
 import { createServer, type HiveServer } from '../src/orchestrator/server.js';
+import { fauxBac } from './fixtures/faux-bac.js';
 
 const JETON = 'jeton-validations-bac-suffisamment-long';
 
 let serveur: HiveServer | null = null;
 let client: HiveNodeClient | null = null;
 let dossier = '';
+const dossiers: string[] = [];
 
 afterEach(async () => {
   client?.stop();
@@ -38,6 +46,7 @@ afterEach(async () => {
   serveur = null;
   if (dossier) rmSync(dossier, { recursive: true, force: true, maxRetries: 3 });
   dossier = '';
+  for (const d of dossiers.splice(0)) rmSync(d, { recursive: true, force: true, maxRetries: 3 });
 });
 
 async function attendre(condition: () => boolean, message: string): Promise<void> {
@@ -49,7 +58,10 @@ async function attendre(condition: () => boolean, message: string): Promise<void
   throw new Error(message);
 }
 
-/** Le projet : ses tests passent si et seulement si `secure` vaut `true`. */
+/**
+ * Le projet : ses tests passent si et seulement si `secure` vaut `true`. Son
+ * lint laisse une trace — ce qui dit, sans bac, que rien n'a tourné.
+ */
 async function depotDuProjet(racine: string): Promise<{ depot: string; baseSha: string }> {
   const depot = path.join(racine, 'depot');
   mkdirSync(path.join(depot, 'src'), { recursive: true });
@@ -62,7 +74,7 @@ async function depotDuProjet(racine: string): Promise<{ depot: string; baseSha: 
       private: true,
       scripts: {
         test: `node -e "process.exit(require('./src/feature.js').secure === true ? 0 : 1)"`,
-        lint: 'node -e "process.exit(0)"',
+        lint: `node -e "require('node:fs').writeFileSync('../lint.ran', '')"`,
       },
     }),
   );
@@ -76,131 +88,210 @@ async function depotDuProjet(racine: string): Promise<{ depot: string; baseSha: 
   return { depot, baseSha: (await git.revparse(['HEAD'])).trim() };
 }
 
-describe('validations du bac — du nœud producteur jusqu’à l’Evaluator', () => {
-  it('RANGÉES AVEC LE RÉSULTAT EXACT, LUES PAR L’EVALUATOR, JAMAIS PRÊTÉES À UN DIFF SIMULÉ', async () => {
-    dossier = mkdtempSync(path.join(os.tmpdir(), 'validations-bac-e2e-'));
-    const { depot, baseSha } = await depotDuProjet(dossier);
-    serveur = await createServer({
-      port: 0,
-      host: '127.0.0.1',
-      token: JETON,
-      corsOrigins: ['http://localhost:5173'],
-      dbPath: path.join(dossier, 'hive.db'),
-      simulation: false,
-      tickMs: 40,
-    });
-    client = new HiveNodeClient({
-      url: `ws://127.0.0.1:${serveur.port}/ws`,
-      token: JETON,
-      name: 'ouvriere-bac',
-      ownerName: 'banc',
-      agentType: 'claude-code',
-      nodeId: 'noeud-bac',
-      maxConcurrency: 1,
-      workRoot: path.join(dossier, 'travail'),
-      adapter: {
-        name: 'banc',
-        async run(task, ctx) {
-          // L'agent « simulé » rend un diff à lui, sans rien écrire.
-          if (task.title.startsWith('Simuler')) {
-            return {
-              success: true,
-              diff: 'diff --git a/src/feature.js b/src/feature.js\n+module.exports = { secure: true };',
-              logs: 'simulé',
-              subAgents: [],
-            };
-          }
-          // « Casser » écrit une valeur que les tests refusent — mais un VRAI
-          // diff : sans diff, il n'y a rien à valider.
-          const secure = task.title.startsWith('Sécuriser') ? 'true' : "'presque'";
-          writeFileSync(
-            path.join(ctx.cwd, 'src', 'feature.js'),
-            `module.exports = { secure: ${secure} };\n`,
-          );
-          return { success: true, diff: '', logs: 'feature.js réécrit', subAgents: [] };
-        },
-      },
-      quiet: true,
-    });
-    client.start();
-    const s = serveur;
-    await attendre(
-      () => s.store.listNodes().some((n) => n.id === 'noeud-bac' && n.status === 'online'),
-      'le nœud ne rejoint pas la ruche',
-    );
-    const projet = s.store.createProject({ name: 'Projet local', repoUrl: depot });
-    const base = `http://127.0.0.1:${s.port}`;
-    const headers = { 'x-hive-token': JETON };
-    const produire = async (title: string) => {
-      const tache = s.store.createTask({
-        projectId: projet.id,
-        title,
-        prompt: 'Rendre src/feature.js sûr : exporter secure à true, comme le vérifient les tests.',
-      });
-      s.store.patchTask(tache.id, { status: 'ready' });
-      await attendre(() => s.store.getTask(tache.id)?.status === 'done', `${title} : pas terminée`);
-      const resultat = s.store.resultsForTask(tache.id).at(-1);
-      const preuves = s.store.evenementsDeTache(tache.id, ['validation_recorded']);
-      const reponse = await fetch(`${base}/api/tasks/${tache.id}/evaluation`, { headers });
-      expect(reponse.status).toBe(200);
-      const evaluation = (await reponse.json()) as {
-        decision: string;
-        reasons: string[];
-        evidence: Record<string, unknown> & {
-          validationProvenance?: Record<string, unknown>;
-        };
+/**
+ * L'agent du banc, selon le titre de la tâche : il écrit (ou non) dans le
+ * répertoire, et rend un succès ou un échec.
+ */
+const agentDuBanc: AgentAdapter = {
+  name: 'banc',
+  async run(task, ctx) {
+    // L'agent « simulé » rend un diff à lui, sans rien écrire.
+    if (task.title.startsWith('Simuler')) {
+      return {
+        success: true,
+        diff: 'diff --git a/src/feature.js b/src/feature.js\n+module.exports = { secure: true };',
+        logs: 'simulé',
+        subAgents: [],
       };
-      return { resultat, preuves, evaluation };
-    };
+    }
+    // Une relecture : rien d'écrit, donc rien à juger.
+    if (task.title.startsWith('Relire')) {
+      return { success: true, diff: '', logs: 'rien à changer', subAgents: [] };
+    }
+    // « Casser » écrit une valeur que les tests refusent — mais un VRAI diff :
+    // sans diff, il n'y a rien à valider. « Échouer » écrit aussi, puis
+    // échoue : l'échec est déjà le verdict.
+    const secure = task.title.startsWith('Sécuriser') ? 'true' : "'presque'";
+    writeFileSync(
+      path.join(ctx.cwd, 'src', 'feature.js'),
+      `module.exports = { secure: ${secure} };\n`,
+    );
+    const succes = !task.title.startsWith('Échouer');
+    return { success: succes, diff: '', logs: 'feature.js réécrit', subAgents: [] };
+  },
+};
 
-    // ─── UNE PRODUCTION QUI TIENT SES TESTS ─────────────────────────────────
-    const saine = await produire('Sécuriser feature.js');
-    expect(saine.resultat?.diff).toContain('secure: true');
-    expect(saine.preuves).toHaveLength(1);
-    expect(saine.preuves[0]?.payload).toMatchObject({
-      source: 'hive_sandbox',
-      resultId: saine.resultat?.resultId,
-      nodeId: 'noeud-bac',
-      baseSha,
-      validation: {
+async function demarrer(bac: ReturnType<typeof fauxBac> | undefined): Promise<{
+  s: HiveServer;
+  baseSha: string;
+  produire: (
+    title: string,
+    attendu?: 'done' | 'resultat',
+  ) => Promise<{
+    tacheId: string;
+    resultat: ReturnType<HiveServer['store']['resultsForTask']>[number] | undefined;
+    preuves: ReturnType<HiveServer['store']['evenementsDeTache']>;
+    evaluation: {
+      decision: string;
+      reasons: string[];
+      evidence: Record<string, unknown> & { validationProvenance?: Record<string, unknown> };
+    };
+  }>;
+}> {
+  dossier = mkdtempSync(path.join(os.tmpdir(), 'validations-bac-e2e-'));
+  const { depot, baseSha } = await depotDuProjet(dossier);
+  serveur = await createServer({
+    port: 0,
+    host: '127.0.0.1',
+    token: JETON,
+    corsOrigins: ['http://localhost:5173'],
+    dbPath: path.join(dossier, 'hive.db'),
+    simulation: false,
+    tickMs: 40,
+  });
+  client = new HiveNodeClient({
+    url: `ws://127.0.0.1:${serveur.port}/ws`,
+    token: JETON,
+    name: 'ouvriere-bac',
+    ownerName: 'banc',
+    agentType: 'claude-code',
+    nodeId: 'noeud-bac',
+    maxConcurrency: 1,
+    workRoot: path.join(dossier, 'travail'),
+    adapter: agentDuBanc,
+    quiet: true,
+    ...(bac ? { bac } : {}),
+  });
+  client.start();
+  const s = serveur;
+  await attendre(
+    () => s.store.listNodes().some((n) => n.id === 'noeud-bac' && n.status === 'online'),
+    'le nœud ne rejoint pas la ruche',
+  );
+  const projet = s.store.createProject({ name: 'Projet local', repoUrl: depot });
+  const base = `http://127.0.0.1:${s.port}`;
+  const headers = { 'x-hive-token': JETON };
+  const produire = async (title: string, attendu: 'done' | 'resultat' = 'done') => {
+    const tache = s.store.createTask({
+      projectId: projet.id,
+      title,
+      prompt: 'Rendre src/feature.js sûr : exporter secure à true, comme le vérifient les tests.',
+    });
+    s.store.patchTask(tache.id, { status: 'ready' });
+    await attendre(
+      () =>
+        attendu === 'done'
+          ? s.store.getTask(tache.id)?.status === 'done'
+          : s.store.resultsForTask(tache.id).length > 0,
+      `${title} : pas de ${attendu === 'done' ? 'fin' : 'résultat'}`,
+    );
+    const resultat = s.store.resultsForTask(tache.id).at(-1);
+    const preuves = s.store.evenementsDeTache(tache.id, ['validation_recorded']);
+    const reponse = await fetch(`${base}/api/tasks/${tache.id}/evaluation`, { headers });
+    expect(reponse.status).toBe(200);
+    const evaluation = (await reponse.json()) as {
+      decision: string;
+      reasons: string[];
+      evidence: Record<string, unknown> & { validationProvenance?: Record<string, unknown> };
+    };
+    return { tacheId: tache.id, resultat, preuves, evaluation };
+  };
+  return { s, baseSha, produire };
+}
+
+describe('validations du bac — du nœud producteur jusqu’à l’Evaluator', () => {
+  it.runIf(process.platform !== 'win32')(
+    'RANGÉES AVEC LE RÉSULTAT EXACT, LUES PAR L’EVALUATOR, JAMAIS PRÊTÉES À CE QUI N’A RIEN À JUGER',
+    async () => {
+      const { baseSha, produire } = await demarrer(fauxBac(dossiers));
+
+      // ─── UNE PRODUCTION QUI TIENT SES TESTS ───────────────────────────────
+      const saine = await produire('Sécuriser feature.js');
+      expect(saine.resultat?.diff).toContain('secure: true');
+      expect(saine.preuves).toHaveLength(1);
+      expect(saine.preuves[0]?.payload).toMatchObject({
+        source: 'hive_sandbox',
+        resultId: saine.resultat?.resultId,
+        nodeId: 'noeud-bac',
+        baseSha,
+        validation: {
+          tests: 'passed',
+          typecheck: 'not_applicable',
+          build: 'not_applicable',
+          lint: 'passed',
+        },
+        details: { tests: { raison: 'termine', script: 'test', code: 0 } },
+      });
+      expect(saine.evaluation.evidence).toMatchObject({
         tests: 'passed',
         typecheck: 'not_applicable',
         build: 'not_applicable',
         lint: 'passed',
-      },
-      details: { tests: { raison: 'termine', script: 'test', code: 0 } },
-    });
-    expect(saine.evaluation.evidence).toMatchObject({
-      tests: 'passed',
-      typecheck: 'not_applicable',
-      build: 'not_applicable',
-      lint: 'passed',
-      validationProvenance: {
-        source: 'hive_sandbox',
-        nodeId: 'noeud-bac',
-        resultId: saine.resultat?.resultId,
-      },
-    });
-    expect(saine.evaluation.decision).not.toBe('additional_test_required');
-    expect(saine.evaluation.reasons.join(' · ')).not.toContain('preuves manquantes');
+        validationProvenance: {
+          source: 'hive_sandbox',
+          nodeId: 'noeud-bac',
+          resultId: saine.resultat?.resultId,
+        },
+      });
+      // `accepted` demande en plus un consensus élu (et, avec #460, une
+      // contre-revue favorable) : ce banc s'arrête à ce que les validations
+      // décident — elles ne bloquent plus.
+      expect(saine.evaluation.decision).not.toBe('additional_test_required');
+      expect(saine.evaluation.reasons.join(' · ')).not.toContain('preuves manquantes');
 
-    // ─── UNE PRODUCTION QUI CASSE SES TESTS ─────────────────────────────────
-    const cassee = await produire('Casser feature.js');
-    expect(cassee.preuves[0]?.payload).toMatchObject({
-      resultId: cassee.resultat?.resultId,
-      validation: { tests: 'failed', lint: 'passed' },
-      details: { tests: { raison: 'termine', code: 1 } },
+      // ─── UNE PRODUCTION QUI CASSE SES TESTS ───────────────────────────────
+      const cassee = await produire('Casser feature.js');
+      expect(cassee.preuves[0]?.payload).toMatchObject({
+        resultId: cassee.resultat?.resultId,
+        validation: { tests: 'failed', lint: 'passed' },
+        details: { tests: { raison: 'termine', code: 1 } },
+      });
+      expect(cassee.evaluation.decision).toBe('correction_required');
+      expect(cassee.evaluation.reasons).toContain(
+        'validation tests en échec (bac Hive du nœud noeud-bac)',
+      );
+
+      // ─── CE QUI N'A RIEN À JUGER ──────────────────────────────────────────
+      const simulee = await produire('Simuler feature.js');
+      expect(simulee.resultat?.diff).toContain('secure: true');
+      expect(simulee.preuves, 'aucun vert prêté à un diff simulé').toHaveLength(0);
+      expect(simulee.evaluation.evidence).toMatchObject({ tests: 'missing' });
+      expect(simulee.evaluation.evidence).not.toHaveProperty('validationProvenance');
+
+      const relue = await produire('Relire feature.js');
+      expect(relue.resultat?.diff).toBe('');
+      expect(relue.preuves, 'rien à juger sans diff').toHaveLength(0);
+
+      // En dernier : ses tentatives suivantes peuvent encore occuper le nœud.
+      const echouee = await produire('Échouer sur feature.js', 'resultat');
+      expect(echouee.resultat?.success).toBe(false);
+      expect(echouee.preuves, 'l’échec est déjà le verdict').toHaveLength(0);
+    },
+    120_000,
+  );
+
+  it('UN NŒUD SANS BAC NE LANCE RIEN — il le range, et l’Evaluator dit comment en obtenir un', async () => {
+    const { produire } = await demarrer(undefined);
+
+    const saine = await produire('Sécuriser feature.js');
+
+    expect(saine.preuves).toHaveLength(1);
+    expect(saine.preuves[0]?.payload).toMatchObject({
+      source: 'hive_sandbox',
+      resultId: saine.resultat?.resultId,
+      validation: {
+        tests: 'missing',
+        typecheck: 'not_applicable',
+        build: 'not_applicable',
+        lint: 'missing',
+      },
+      details: { tests: { raison: 'sans_bac', script: 'test' } },
     });
-    expect(cassee.evaluation.decision).toBe('correction_required');
-    expect(cassee.evaluation.reasons).toContain(
-      'validation tests en échec (bac Hive du nœud noeud-bac)',
+    // Le lint du projet laisse une trace à côté du dépôt : il n'a pas tourné.
+    expect(existsSync(path.join(dossier, 'travail', 'tasks', 'lint.ran'))).toBe(false);
+    expect(saine.evaluation.decision).toBe('additional_test_required');
+    expect(saine.evaluation.reasons.join(' · ')).toContain(
+      'n’a pas de bac à sable : le code d’un agent ne tourne pas sur l’hôte nu',
     );
-
-    // ─── UN DIFF QUE LE BAC N'A PAS VU ──────────────────────────────────────
-    const simulee = await produire('Simuler feature.js');
-    expect(simulee.resultat?.diff).toContain('secure: true');
-    expect(simulee.preuves, 'aucun vert prêté à un diff simulé').toHaveLength(0);
-    expect(simulee.evaluation.evidence).toMatchObject({ tests: 'missing' });
-    expect(simulee.evaluation.evidence).not.toHaveProperty('validationProvenance');
-  }, 90_000);
+  }, 60_000);
 });

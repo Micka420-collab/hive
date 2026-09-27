@@ -1,8 +1,10 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import WebSocket from 'ws';
+import { simpleGit } from 'simple-git';
 import { afterEach, describe, expect, it } from 'vitest';
+import { fauxBac } from './fixtures/faux-bac.js';
 import type { AgentAdapter, WorkerDelegationResult } from '../src/adapters/index.js';
 import { HiveNodeClient } from '../src/node-client/client.js';
 import { createServer } from '../src/orchestrator/server.js';
@@ -17,12 +19,15 @@ describe('délégation Worker → enfant en conditions réelles', () => {
   let tempDir: string | null = null;
   const clients: HiveNodeClient[] = [];
 
+  const dossiers: string[] = [];
+
   afterEach(async () => {
     for (const client of clients.splice(0)) client.stop();
     if (server) await server.stop();
     server = null;
     if (tempDir) rmSync(tempDir, { recursive: true, force: true });
     tempDir = null;
+    for (const d of dossiers.splice(0)) rmSync(d, { recursive: true, force: true });
   });
 
   it(
@@ -449,6 +454,139 @@ describe('délégation Worker → enfant en conditions réelles', () => {
       const child = server.store.getTask('budget-child');
       expect(child?.status).toBe('failed');
       expect(server.store.resultsForTask('budget-child').at(-1)?.success).toBe(false);
+    },
+  );
+
+  // ─── LES VALIDATIONS DU BAC COMPTENT DANS LE BUDGET DE L'ENFANT ──────────
+  //
+  // Le parent n'attend un enfant que `durationMs` plus une grâce. Le minuteur
+  // du budget était levé dès le retour de l'agent : les validations du bac
+  // tournaient ensuite hors de toute borne (jusqu'à une demi-heure), et le
+  // parent lisait « résultat de délégation absent » pour un enfant qui avait
+  // réussi. Ici, la suite de tests du projet dure une minute ; le budget de
+  // l'enfant, 2,5 s.
+  it.runIf(process.platform !== 'win32')(
+    'un enfant dont les validations débordent son budget rend quand même son résultat à temps',
+    { timeout: 60_000 },
+    async () => {
+      tempDir = mkdtempSync(path.join(os.tmpdir(), 'hive-delegation-validations-'));
+      const depot = path.join(tempDir, 'depot');
+      mkdirSync(depot, { recursive: true });
+      writeFileSync(
+        path.join(depot, 'package.json'),
+        JSON.stringify({
+          name: 'lent',
+          version: '1.0.0',
+          scripts: { test: 'node -e "setTimeout(() => {}, 60000)"' },
+        }),
+      );
+      const git = simpleGit({ baseDir: depot });
+      await git.init();
+      await git.addConfig('user.email', 'banc@hive.test');
+      await git.addConfig('user.name', 'Banc Hive');
+      await git.addConfig('commit.gpgsign', 'false');
+      await git.add('.');
+      await git.commit('base');
+
+      server = await createServer({
+        port: 0,
+        host: '127.0.0.1',
+        token: TOKEN,
+
+        dbPath: path.join(tempDir, 'hive.db'),
+        simulation: false,
+        corsOrigins: ['http://localhost:5173'],
+        tickMs: 20,
+      });
+      const project = server.store.createProject({ name: 'Budget et bac', repoUrl: depot });
+      server.store.createTask({
+        id: 'bac-parent',
+        projectId: project.id,
+        title: 'Parent',
+        prompt: 'attendre l’enfant',
+      });
+      server.store.patchTask('bac-parent', { status: 'ready' });
+
+      let childOutcome: WorkerDelegationResult | null = null;
+      const parentAdapter: AgentAdapter = {
+        name: 'bac-parent',
+        async run(_task, ctx) {
+          if (!ctx.delegate || !ctx.waitForDelegationResult) {
+            throw new Error('capacités de délégation absentes');
+          }
+          const admitted = await ctx.delegate({
+            childTaskId: 'bac-child',
+            reason: 'produire sous budget',
+            title: 'Enfant produit',
+            prompt: 'écrire un fichier',
+            durationMs: 2_500,
+            costMicros: 1,
+            resourceUnits: 1,
+          });
+          if (!admitted.ok) {
+            return { success: false, diff: '', logs: admitted.message, subAgents: [] };
+          }
+          childOutcome = await ctx.waitForDelegationResult('bac-child');
+          return { success: true, diff: '', logs: 'enfant attendu', subAgents: [] };
+        },
+      };
+      const childAdapter: AgentAdapter = {
+        name: 'bac-child',
+        run(_task, ctx) {
+          // Un vrai diff, écrit tout de suite : l'agent tient son budget.
+          writeFileSync(path.join(ctx.cwd, 'nouveau.js'), 'module.exports = 1;\n');
+          return Promise.resolve({ success: true, diff: '', logs: 'écrit', subAgents: [] });
+        },
+      };
+      const parentClient = new HiveNodeClient({
+        url: `ws://127.0.0.1:${server.port}/ws`,
+        token: TOKEN,
+        name: 'bac-parent-node',
+        ownerName: 'e2e',
+        agentType: 'claude-code',
+        maxConcurrency: 1,
+        workRoot: path.join(tempDir, 'parent'),
+        adapter: parentAdapter,
+        quiet: true,
+      });
+      const childClient = new HiveNodeClient({
+        url: `ws://127.0.0.1:${server.port}/ws`,
+        token: TOKEN,
+        name: 'bac-child-node',
+        ownerName: 'e2e',
+        agentType: 'codex',
+        maxConcurrency: 1,
+        workRoot: path.join(tempDir, 'child'),
+        adapter: childAdapter,
+        quiet: true,
+        bac: fauxBac(dossiers),
+      });
+      clients.push(parentClient, childClient);
+      // Le parent d'abord : sinon le nœud de l'enfant pourrait prendre la
+      // tâche parente, et rien ne serait délégué.
+      parentClient.start();
+      const s = server;
+      const avant = Date.now() + 10_000;
+      while (s.store.getTask('bac-parent')?.status !== 'running' && Date.now() < avant) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      childClient.start();
+
+      // Budget (2,5 s) + deux grâces d'arrêt + une marge : bien avant la fin
+      // de la suite de tests (60 s), bien avant le délai d'une validation (5 min).
+      const deadline = Date.now() + 20_000;
+      while (childOutcome === null && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      const outcome = childOutcome as WorkerDelegationResult | null;
+      if (outcome === null) throw new Error('le résultat de l’enfant n’est pas arrivé à temps');
+      expect(outcome).toMatchObject({ ok: true, success: true });
+      const resultat = server.store.resultsForTask('bac-child').at(-1);
+      expect(resultat?.diff).toContain('nouveau.js');
+      // La validation arrêtée par le budget ne se fait pas passer pour un verdict.
+      expect(
+        server.store.latestValidation('bac-child', resultat?.resultId ?? -1)?.validation.tests,
+      ).toBe('missing');
     },
   );
 });

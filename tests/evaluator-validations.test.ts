@@ -105,6 +105,53 @@ describe('Evaluator — les validations du bac Hive', () => {
     expect(verdict.reasons[0]).toContain('le projet ne déclare aucun test (bac Hive du nœud n1)');
   });
 
+  it('un projet que le bac ne sait pas lire n’est pas invité à « déclarer un script test »', () => {
+    // Sans package.json à la base (cargo, pytest…), le bac ne lit rien : le
+    // motif le dit, au lieu d'une consigne fausse pour ce projet.
+    const sansManifeste = { raison: 'sans_manifeste' } as const;
+    const verdict = juger(
+      {
+        tests: 'not_applicable',
+        typecheck: 'not_applicable',
+        build: 'not_applicable',
+        lint: 'not_applicable',
+      },
+      {
+        validationProvenance: {
+          ...bac,
+          details: {
+            tests: sansManifeste,
+            typecheck: sansManifeste,
+            build: sansManifeste,
+            lint: sansManifeste,
+          },
+        },
+      },
+    );
+    expect(verdict.decision).toBe('additional_test_required');
+    expect(verdict.reasons[0]).toContain(
+      'aucun package.json à la base du dépôt (bac Hive du nœud n1)',
+    );
+    expect(verdict.reasons.join(' · ')).not.toContain('déclarez un script');
+  });
+
+  it('sans bac, le motif dit comment en obtenir un — pas seulement « manquant »', () => {
+    const sansBac = (script: string) => ({ raison: 'sans_bac', script }) as const;
+    const verdict = juger(
+      { tests: 'missing', typecheck: 'not_applicable', build: 'not_applicable', lint: 'missing' },
+      {
+        validationProvenance: {
+          ...bac,
+          details: { ...bac.details, tests: sansBac('test'), lint: sansBac('lint') },
+        },
+      },
+    );
+    expect(verdict.decision).toBe('additional_test_required');
+    expect(verdict.reasons[0]).toBe('preuves manquantes : tests, lint (bac Hive du nœud n1)');
+    expect(verdict.reasons[1]).toContain('le nœud n1 n’a pas de bac à sable');
+    expect(verdict.reasons[1]).toContain('podman, docker ou bubblewrap');
+  });
+
   it('un manquant bloque, même entouré de verts et de non applicables', () => {
     const verdict = juger({
       tests: 'passed',

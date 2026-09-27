@@ -26,9 +26,22 @@
 // « À sa base » n'est pas un détail : l'agent écrit dans le même répertoire, y
 // compris dans `package.json`. S'il remplace `"test": "vitest run"` par
 // `"test": "true"`, le bac rendrait un vert qui ne prouve rien — la production
-// se jugerait elle-même. Une déclaration que la production a modifiée (le
-// script, ou les crochets `pre`/`post` que `npm run` enchaîne avec lui) n'est
-// donc PAS lancée : elle reste `missing`, raison `declaration_reecrite`.
+// se jugerait elle-même. Dès que la production a modifié le bloc `scripts`,
+// AUCUNE validation n'est donc lancée : elles restent `missing`, raison
+// `declaration_reecrite`. Le bloc ENTIER, pas le seul script choisi : `test`
+// peut appeler `npm run unit`, et `npm ci` lance `prepare`/`postinstall`
+// avant tout le reste — une ligne ajoutée là réécrit le juge après le calcul
+// du diff, sans que le diff ne montre autre chose que cette ligne.
+//
+// ─── ET SEULEMENT DANS UN BAC ────────────────────────────────────────────────
+//
+// Ces commandes exécutent du code que l'agent a écrit. Sur un nœud sans bac à
+// sable (niveau `processus`), elles tourneraient sur l'hôte nu, réseau et
+// disque ouverts — alors que la production elle-même n'y exécutait rien :
+// Claude Code n'y a que `acceptEdits`, Codex son bac en lecture seule. La
+// vérification aurait plus de pouvoir que ce qu'elle vérifie. Sans bac, rien
+// ne tourne : les validations restent `missing`, raison `sans_bac`, et l'écran
+// dit comment en obtenir un (podman, docker ou bubblewrap).
 //
 // ─── QUATRE ÉTATS, ET CE QUE CHACUN DIT À L'EVALUATOR ────────────────────────
 //
@@ -73,10 +86,12 @@ export const ETATS_PAR_RAISON = {
   non_declare: ['not_applicable'],
   /** `test` est le script d'échec par défaut de `npm init` : aucun test déclaré. */
   test_par_defaut: ['not_applicable'],
-  /** La production a modifié le script ou ses crochets `pre`/`post`. */
+  /** La production a modifié le bloc `scripts` de `package.json`. */
   declaration_reecrite: ['missing'],
   /** La production a modifié `.npmrc`, qui règle comment npm lance un script. */
   npmrc_reecrit: ['missing'],
+  /** Le nœud n'a pas de bac à sable : du code d'agent ne tourne pas sur l'hôte nu. */
+  sans_bac: ['missing'],
   /** `npm` ne se lance pas dans le bac de ce nœud. */
   npm_indisponible: ['missing'],
   /** Des dépendances déclarées, et aucun lockfile pour les installer à l'identique. */
@@ -165,6 +180,16 @@ const constat = (etat: ValidationState, raison: RaisonControle, script?: string)
   controle: { etat, raison, ...(script ? { script } : {}) },
 });
 
+/** Deux blocs `scripts` identiques, à l'ordre des clés près. */
+function memesScripts(a: Scripts, b: Scripts | null): boolean {
+  if (b === null) return false;
+  const cles = Object.keys(a);
+  return (
+    cles.length === Object.keys(b).length &&
+    cles.every((nom) => Object.prototype.hasOwnProperty.call(b, nom) && a[nom] === b[nom])
+  );
+}
+
 /**
  * Le plan de validation d'une production, validation par validation.
  *
@@ -177,6 +202,12 @@ export function planDeValidation(
   production: Scripts | null,
 ): Record<ValidationKey, Etape> {
   const plan = {} as Record<ValidationKey, Etape>;
+  // UN SEUL SCRIPT CHANGÉ SUFFIT, quel qu'il soit : `npm run test` enchaîne
+  // `pretest`/`posttest`, un script peut en appeler un autre (`npm run unit`),
+  // et `npm ci` lance les scripts de cycle de vie (`prepare`, `postinstall`)
+  // avant les validations. Suivre ces chaînes script par script serait
+  // deviner ; comparer le bloc entier ne l'est pas.
+  const reecrit = base !== null && !memesScripts(base, production);
   for (const cle of VALIDATION_KEYS) {
     if (base === null) {
       plan[cle] = constat('not_applicable', 'sans_manifeste');
@@ -193,12 +224,6 @@ export function planDeValidation(
       plan[cle] = constat('not_applicable', 'test_par_defaut', script);
       continue;
     }
-    // `npm run test` enchaîne `pretest`, `test` puis `posttest` : les trois
-    // font partie de ce qui juge. Un seul modifié suffit à ce que la
-    // production ait réécrit son propre juge.
-    const reecrit = [`pre${script}`, script, `post${script}`].some(
-      (nom) => base[nom] !== production?.[nom],
-    );
     plan[cle] = reecrit
       ? constat('missing', 'declaration_reecrite', script)
       : { genre: 'lancer', script };
@@ -276,11 +301,11 @@ export function extraitDe(sortie: string): { extrait?: string } {
  * pas que la production est fausse. Le classer `failed` enverrait l'agent
  * corriger du code qui va très bien ; c'est donc `missing`.
  *
- * LIMITE CONNUE, SOUS WINDOWS : `cmd.exe` rend 1, pas 127, pour une commande
- * inconnue — un outil introuvable s'y lit donc `failed`. Lire son message pour
- * le distinguer dépendrait de la langue du système ; c'est l'une des raisons
- * pour lesquelles le bac reconstruit les dépendances depuis le lockfile avant
- * de lancer quoi que ce soit.
+ * Le 127 est fiable parce que les validations ne tournent QUE dans un bac, et
+ * qu'un bac est toujours Linux — conteneur, ou bubblewrap. Sous Windows,
+ * `cmd.exe` rendrait 1 pour une commande inconnue, un outil manquant s'y
+ * lirait `failed` ; ce cas ne peut pas se présenter, puisqu'un nœud sans bac
+ * ne lance rien (`sans_bac`).
  */
 export function controleApresLancement(p: {
   script: string;
@@ -340,7 +365,12 @@ export function controleDepuis(v: unknown): ControleBac | null {
   if (c.code !== undefined && !entier(c.code, Number.MIN_SAFE_INTEGER)) return null;
   if (c.dureeMs !== undefined && !entier(c.dureeMs, 0)) return null;
   if (c.extrait !== undefined && typeof c.extrait !== 'string') return null;
-  if (raison === 'termine' && (etat === 'passed') !== (c.code === 0)) return null;
+  if (
+    raison === 'termine' &&
+    (typeof c.code !== 'number' || (etat === 'passed') !== (c.code === 0))
+  ) {
+    return null;
+  }
   return {
     etat,
     raison,

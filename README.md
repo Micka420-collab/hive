@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-6148%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-6171%20passing-F6C445?labelColor=17130C)
 ![Licence](https://img.shields.io/badge/licence-MIT-F6C445?labelColor=17130C)
 
 🇫🇷 Français · [🇬🇧 English](README.en.md) · [🌐 Site](https://micka420-collab.github.io/hive/) · [📚 Documentation](#-documentation)
@@ -98,10 +98,13 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
   et contre-revue exacte, visibles dans Mission Control.
 - **Validations sans GitHub.** Après une production réussie, le nœud lance
   dans son bac les scripts `test`, `typecheck`, `build` et `lint` que le dépôt
-  déclarait **avant** la production (jamais une commande que la production a
-  réécrite). L'Evaluator les compte comme la CI GitHub, et Mission Control dit
-  toujours laquelle a parlé : « bac Hive » ou « CI GitHub ». Un script que le
-  projet ne déclare pas est « non applicable », jamais vert.
+  déclarait **avant** la production (rien, si la production a touché aux
+  scripts), sur la base plus le diff — ce que git ignore est retiré d'abord.
+  L'Evaluator les compte comme la CI GitHub, et Mission Control dit toujours
+  laquelle a parlé : « bac Hive » ou « CI GitHub ». Un script que le projet ne
+  déclare pas est « non applicable », jamais vert. **Il faut un bac** (podman,
+  docker ou bubblewrap) : sans lui, le code de l'agent ne tourne pas sur l'hôte
+  nu, et l'écran le dit. `accepted` demande en plus la relecture croisée.
 - **Mission Control explique ce qu'il a fait**, depuis le journal, sans rien
   recalculer ni estimer :
   - pourquoi ce Worker et ce modèle : le classement de l'Aiguillage figé à

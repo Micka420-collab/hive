@@ -40,8 +40,10 @@ export function resumeProvenance(provenance: ValidationProvenance, t: Traduire):
  *
  * Chaque raison a SA phrase, et la table est exhaustive : TypeScript refuse une
  * raison ajoutée sans texte. Les raisons qui ne sont pas des verdicts le disent
- * — « le code de la production n'est pas en cause » — pour que personne ne
- * parte corriger du code à cause d'un bac mal préparé.
+ * — « verdict inconnu » — sans pour autant blanchir la production : une
+ * installation qui échoue ou un outil introuvable peuvent venir du nœud
+ * (réseau, registre) comme d'un lockfile ou d'une dépendance que la
+ * production a cassés. La phrase nomme les deux, et le relecteur tranche.
  */
 export function texteControle(detail: DetailControle, t: Traduire): string {
   const commande = detail.script ? `npm run ${detail.script}` : t('la commande', 'the command');
@@ -74,6 +76,11 @@ export function texteControle(detail: DetailControle, t: Traduire): string {
         'la production a modifié .npmrc, qui règle la façon dont npm lance les scripts : non lancé',
         'the production changed .npmrc, which controls how npm runs scripts: not run',
       );
+    case 'sans_bac':
+      return t(
+        'non lancé : ce nœud n’a pas de bac à sable, et le code d’un agent ne tourne pas sur l’hôte nu — installez podman, docker ou bubblewrap (HIVE_ISOLEMENT=auto les trouve au démarrage du nœud)',
+        'not run: this node has no sandbox, and agent code does not run on the bare host — install podman, docker or bubblewrap (HIVE_ISOLEMENT=auto finds them when the node starts)',
+      );
     case 'npm_indisponible':
       return t(
         'npm ne se lance pas dans le bac de ce nœud : le code de la production n’est pas en cause',
@@ -86,8 +93,8 @@ export function texteControle(detail: DetailControle, t: Traduire): string {
       );
     case 'preparation_echouee':
       return t(
-        'l’installation depuis le lockfile a échoué : le code de la production n’est pas en cause',
-        'installing from the lockfile failed: the production’s code is not at fault',
+        'l’installation depuis le lockfile a échoué, verdict inconnu — le nœud (réseau, registre) ou un lockfile que la production a désaccordé : voir la fin de la sortie',
+        'installing from the lockfile failed, verdict unknown — the node (network, registry) or a lockfile the production put out of sync: see the end of the output',
       );
     case 'delai':
       return t(
@@ -95,7 +102,10 @@ export function texteControle(detail: DetailControle, t: Traduire): string {
         `${commande} stopped: time limit exceeded, verdict unknown`,
       );
     case 'annule':
-      return t('non lancé : la tâche a été annulée', 'not run: the task was cancelled');
+      return t(
+        'arrêté ou non lancé : la tâche a été annulée, ou son budget de délégation a expiré — verdict inconnu',
+        'stopped or not run: the task was cancelled, or its delegation budget ran out — verdict unknown',
+      );
     case 'lancement':
       return t(
         `${commande} n’a pas pu être lancé dans le bac`,
@@ -108,8 +118,8 @@ export function texteControle(detail: DetailControle, t: Traduire): string {
       );
     case 'outil_introuvable':
       return t(
-        `${commande} → ${code} : un outil du script est introuvable dans le bac — ce n’est pas un verdict sur la production`,
-        `${commande} → ${code}: a tool the script needs is missing from the sandbox — not a verdict on the production`,
+        `${commande} → ${code} : un outil du script est introuvable dans le bac, verdict inconnu — outil que ce bac n’a pas, ou dépendance que la production a retirée`,
+        `${commande} → ${code}: a tool the script needs is missing from the sandbox, verdict unknown — a tool this sandbox lacks, or a dependency the production removed`,
       );
     case 'interrompue':
       return t(

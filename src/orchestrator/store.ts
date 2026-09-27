@@ -5604,7 +5604,9 @@ export class HiveStore {
    * état par état de deux sources, qui afficherait une provenance que la
    * moitié des états n'a pas. En pratique le bac range la sienne à la
    * réception du résultat, et une CI ingérée ensuite pour ce même résultat la
-   * remplace : le geste humain le plus récent a le dernier mot.
+   * remplace : le geste humain le plus récent a le dernier mot. La route
+   * d'ingestion ne range jamais une CI qui tourne encore ni une PR sans
+   * contrôle lisible — un inconnu n'écrase pas un connu.
    *
    * Les preuves vivent dans le journal d'événements : aucune seconde table ne
    * pourrait rester alignée avec les résultats élagués. Toute charge persistée

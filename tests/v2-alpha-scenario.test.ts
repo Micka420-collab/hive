@@ -399,10 +399,10 @@ describe('V2 Alpha — mission locale vérifiable', () => {
         'les trois Workers ne sont pas en ligne',
       );
 
-      // Une production lance désormais, dans son bac, les quatre scripts que le
-      // dépôt déclare (`npm run` ×4) — et celle-ci attend en plus son enfant
-      // délégué, qui lance les siens. Sur un runner Windows chargé, c'est une
-      // dizaine de secondes de plus : la borne de vivacité suit le travail.
+      // Dans un bac (le job image de la CI), une production lance les quatre
+      // scripts que le dépôt déclare (`npm run` ×4) — et celle-ci attend en
+      // plus son enfant délégué, qui lance les siens. C'est une dizaine de
+      // secondes de plus : la borne de vivacité suit le travail.
       const PRODUCTION_MS = 45_000;
       await attendre(
         () => server.store.getTask(task.id)?.status === 'done',
@@ -428,12 +428,29 @@ describe('V2 Alpha — mission locale vérifiable', () => {
             (event) => event.type === 'worker_usage' && event.payload.resultId === first?.resultId,
           ),
       ).toBe(true);
-      // Le producteur a lancé, dans son bac, les quatre scripts que le dépôt
-      // déclare : la preuve est rangée avec CE résultat, avant toute PR.
-      expect(server.store.latestValidation(task.id, first?.resultId ?? -1)).toMatchObject({
-        validation: { tests: 'passed', typecheck: 'passed', build: 'passed', lint: 'passed' },
-        provenance: { source: 'hive_sandbox', nodeId: 'v2-claude-code' },
-      });
+      // Avec un bac, le producteur y a lancé les quatre scripts que le dépôt
+      // déclare. Sans bac, il n'a RIEN lancé sur l'hôte — et le dit. Dans les
+      // deux cas, la preuve est rangée avec CE résultat, avant toute PR.
+      expect(server.store.latestValidation(task.id, first?.resultId ?? -1)).toMatchObject(
+        bac
+          ? {
+              validation: { tests: 'passed', typecheck: 'passed', build: 'passed', lint: 'passed' },
+              provenance: { source: 'hive_sandbox', nodeId: 'v2-claude-code' },
+            }
+          : {
+              validation: {
+                tests: 'missing',
+                typecheck: 'missing',
+                build: 'missing',
+                lint: 'missing',
+              },
+              provenance: {
+                source: 'hive_sandbox',
+                nodeId: 'v2-claude-code',
+                details: { tests: { raison: 'sans_bac', script: 'test' } },
+              },
+            },
+      );
 
       await attendre(
         () =>

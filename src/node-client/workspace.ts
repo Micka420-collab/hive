@@ -32,6 +32,16 @@ export interface Workspace {
   cwd: string;
   git: SimpleGit | null;
   branch: string | null;
+  /**
+   * Le commit CLONÉ, épinglé avant que l'agent ne touche à rien ; `null` sans
+   * dépôt, ou pour un dépôt sans commit.
+   *
+   * Pas « HEAD au moment où on le demande » : l'agent écrit dans ce dépôt, et
+   * un `git commit` de sa part déplace HEAD. Relu après coup, HEAD nommerait
+   * le commit de l'agent comme « base » — et ce qu'il y a committé
+   * disparaîtrait du diff comme des déclarations que le bac compare.
+   */
+  baseSha: string | null;
   /** Environnement épuré pour les processus enfants. */
   env: NodeJS.ProcessEnv;
   /** Diff des modifications, pour revue humaine (vide sans dépôt git). */
@@ -51,21 +61,24 @@ const SECRETS_INTERDITS_AGENT = new Set([
 ]);
 
 /**
- * Retire les dépendances installées dans le répertoire d'une tâche.
+ * Retire du répertoire d'une tâche tout ce que git IGNORE — `node_modules`,
+ * sorties de build, `.env`, et ce qu'un `.git/info/exclude` cacherait.
  *
- * Les validations du bac repartent du lockfile plutôt que du `node_modules`
- * que l'agent a laissé — hors du diff, donc hors de la vue de tout relecteur.
- * L'écriture vit ICI parce que ce fichier est celui qui possède le répertoire
- * de tâche : l'inventaire de ce que Hive écrit sur la machine d'un membre
- * (`empreinte.ts`) reste vrai sans une entrée de plus.
+ * Les validations du bac jugent la BASE plus le DIFF, exactement ce qu'une
+ * livraison ou un merge appliquera. Un fichier ignoré n'est dans aucun des
+ * deux : c'est l'environnement que l'agent s'est fabriqué, hors de la vue de
+ * tout relecteur. Un `node_modules/.bin/node` qui rend 0, laissé par l'agent
+ * dans un projet sans dépendances, faisait passer des tests qui échouent
+ * partout ailleurs — `npm run` met ce dossier en tête du PATH.
+ *
+ * Les fichiers SUIVIS ne bougent pas (`-X` ne vise que les ignorés), et le
+ * diff a déjà été calculé : rien de ce qui est livré ne change. L'écriture vit
+ * ICI parce que ce fichier possède le répertoire de tâche : l'inventaire de ce
+ * que Hive écrit sur la machine d'un membre (`empreinte.ts`) reste vrai.
  */
-export function retirerDependancesInstallees(cwd: string): void {
-  rmSync(path.join(cwd, 'node_modules'), {
-    recursive: true,
-    force: true,
-    maxRetries: 5,
-    retryDelay: 100,
-  });
+export async function retirerFichiersIgnores(git: SimpleGit): Promise<void> {
+  // `-ff` : aussi les dépôts imbriqués ignorés ; `-d` : les dossiers entiers.
+  await git.raw(['clean', '-ffdX']);
 }
 
 export function variablesAgentSansSecrets(variables: readonly string[]): string[] {
@@ -150,6 +163,7 @@ export async function prepareWorkspace(
 
   let git: SimpleGit | null = null;
   let branch: string | null = null;
+  let baseSha: string | null = null;
   if (repoUrl) {
     // GIT_ALLOW_PROTOCOL restreint les transports autorisés : neutralise le
     // transport `ext::` de git (exécution de commande arbitraire = RCE), en plus
@@ -171,6 +185,11 @@ export async function prepareWorkspace(
     // Une tâche = une branche isolée. Jamais de travail direct sur main (§5.2).
     branch = task.branch ?? `hive/${task.id}`;
     await git.checkoutLocalBranch(branch);
+    try {
+      baseSha = (await git.revparse(['HEAD'])).trim();
+    } catch {
+      // Dépôt cloné sans aucun commit : il n'y a pas de base à épingler.
+    }
   }
 
   const env = buildSandboxEnv(cwd, keepEnv);
@@ -179,12 +198,16 @@ export async function prepareWorkspace(
     cwd,
     git,
     branch,
+    baseSha,
     env,
     async collectDiff(): Promise<string> {
       if (!git) return '';
       // --intent-to-add rend les nouveaux fichiers visibles dans le diff.
       await git.raw(['add', '--all', '--intent-to-add']);
-      return git.diff();
+      // CONTRE LA BASE ÉPINGLÉE, pas contre l'index : `git diff` nu compare
+      // l'arbre à l'index, et perdait en silence ce que l'agent avait
+      // `git add` ou committé — absent de la revue, de la livraison, du merge.
+      return baseSha ? git.diff([baseSha]) : git.diff();
     },
     cleanup(): void {
       try {

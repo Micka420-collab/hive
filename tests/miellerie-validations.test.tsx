@@ -131,7 +131,7 @@ describe('panneau Evaluator — la provenance des validations', () => {
     expect(parTestId(vue, 'mi-fetch-ci'), 'la CI reste demandable après le bac').not.toBeNull();
   });
 
-  it('CI GitHub : la PR et son commit, sans constats du bac ni second appel CI', () => {
+  it('CI GitHub : la PR et son commit, sans constats du bac — et la CI reste relisible', () => {
     const vue = monter(
       evaluation({
         source: 'github_pull_request',
@@ -150,7 +150,9 @@ describe('panneau Evaluator — la provenance des validations', () => {
       'CI GitHub · o/r · PR #9 · hive/t1 · abcdef12',
     );
     expect(parTestId(vue, 'mi-validation-details')).toBeNull();
-    expect(parTestId(vue, 'mi-fetch-ci')).toBeNull();
+    // Une CI lue pendant qu'elle tournait doit pouvoir être relue une fois
+    // finie : sans le bouton, il n'y avait plus aucun moyen de rafraîchir.
+    expect(parTestId(vue, 'mi-fetch-ci'), 'la CI reste relisible').not.toBeNull();
   });
 
   it('chaque raison a sa phrase, dans les deux langues', () => {

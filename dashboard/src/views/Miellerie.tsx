@@ -487,11 +487,12 @@ export function EvaluationPanel({
   } ${t('à corriger', 'contesting')}`;
   const provenance = evaluation.evidence.validationProvenance;
   const provenanceSummary = provenance ? resumeProvenance(provenance, t) : t('missing', 'missing');
-  // La CI reste demandable après le bac : ce sont deux preuves distinctes, et
-  // la plus récente gouverne — une CI ingérée remplace celle du bac.
-  const canRecordCi =
-    provenance?.source !== 'github_pull_request' &&
-    Boolean(taskId && resultId !== undefined && resultId !== null);
+  // La CI reste demandable après le bac ET après une première lecture : la
+  // plus récente preuve gouverne, et une CI lue pendant qu'elle tournait doit
+  // pouvoir être relue une fois finie. La Reine refuse de ranger un
+  // instantané sans verdict (`ci_running`, `ci_without_verdict`) : relire ne
+  // peut pas effacer les verdicts du bac.
+  const canRecordCi = Boolean(taskId && resultId !== undefined && resultId !== null);
   const recordCi = async () => {
     if (!taskId || resultId === undefined || resultId === null || ciState === 'loading') return;
     setCiState('loading');
