@@ -19,9 +19,14 @@
 //     `OPENAI_API_KEY`, et envoie `CODEX_API_KEY` ;
 //   · ces jetons valent l'abonnement entier : jamais sondés, jamais dans argv,
 //     jamais dans le pont MCP.
+//
+// Codex a SA session de l'hôte, lui aussi : le `auth.json` que `codex login`
+// écrit dans ~/.codex (codex-rs/login, `load_auth`). Elle n'était pas modélisée,
+// et OPENAI_API_KEY — que `codex exec` ne lit pas — comptait comme clé : un
+// poste sous bubblewrap gardait le bac, puis chaque tâche Codex rendait 401.
 
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -43,7 +48,7 @@ import {
   type OutilsBac,
 } from '../src/node-client/bac.js';
 import { HiveNodeClient } from '../src/node-client/client.js';
-import { diagnostiquerAgents } from '../src/node-client/connexion.js';
+import { conseilDemarrage, diagnostiquerAgents } from '../src/node-client/connexion.js';
 import { fournisseurParNom, type Fournisseur } from '../src/node-client/isolement.js';
 import { requisitionDepuisEchecInfra } from '../src/shared/requisition-infra.js';
 import { CODE } from '../src/codes-sortie.js';
@@ -53,6 +58,9 @@ const PODMAN = fournisseurParNom('podman') as Fournisseur;
 const MAISON = '/home/membre';
 /** Le poste a ouvert une session `claude login` — et rien d'autre. */
 const sessionClaude = (chemin: string): boolean => chemin === path.posix.join(MAISON, '.claude');
+/** Le poste a ouvert une session `codex login` — et rien d'autre. */
+const sessionCodex = (chemin: string): boolean =>
+  chemin === path.posix.join(MAISON, '.codex', 'auth.json');
 
 describe('LES JETONS SANS NAVIGATEUR TRAVERSENT LE BAC PAR LEUR NOM', () => {
   it('Claude Code reçoit CLAUDE_CODE_OAUTH_TOKEN, Codex reçoit CODEX_API_KEY', () => {
@@ -66,10 +74,13 @@ describe('LES JETONS SANS NAVIGATEUR TRAVERSENT LE BAC PAR LEUR NOM', () => {
   it('ils valent un abonnement : AUCUNE sonde ne les reçoit', () => {
     expect(SECRETS_JAMAIS_SONDES).toContain('CLAUDE_CODE_OAUTH_TOKEN');
     expect(SECRETS_JAMAIS_SONDES).toContain('CODEX_API_KEY');
+    // Transmis à personne, mais un `codex` homonyme sondé l'hériterait du nœud.
+    expect(SECRETS_JAMAIS_SONDES).toContain('CODEX_ACCESS_TOKEN');
     const sonde = envSonde({
       PATH: '/usr/bin',
       CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-abonnement',
       CODEX_API_KEY: 'sk-codex',
+      CODEX_ACCESS_TOKEN: 'at-codex',
     });
     expect(sonde).toEqual({ PATH: '/usr/bin' });
   });
@@ -152,6 +163,53 @@ describe('UNE SESSION DE L’HÔTE NE COMPTE PAS DANS LE BAC', () => {
     ).toBeNull();
     const sans = requisitionSiCredentialsManquantes('codex', {}, { sessionsHote: false });
     expect(sans?.detail).toContain('CODEX_API_KEY');
+  });
+
+  it('la session `codex login` compte dehors, pas dans le bac', () => {
+    const opts = { existe: sessionCodex, plateforme: 'linux' } as const;
+    expect(requisitionSiCredentialsManquantes('codex', env, opts)).toBeNull();
+    const dansLeBac = requisitionSiCredentialsManquantes('codex', env, {
+      ...opts,
+      sessionsHote: false,
+    });
+    // Le libellé ne bouge pas : la Chambre le traduit en CODEX_API_KEY.
+    expect(dansLeBac?.libelle).toBe('Clé OpenAI (Codex)');
+    expect(dansLeBac?.detail).toContain('~/.codex');
+    expect(dansLeBac?.detail).toContain('CODEX_API_KEY');
+    // Un dossier ~/.codex sans `auth.json` (config seule) n'est pas une session.
+    const configSeule = (c: string): boolean => c === path.posix.join(MAISON, '.codex');
+    expect(
+      requisitionSiCredentialsManquantes('codex', env, {
+        existe: configSeule,
+        plateforme: 'linux',
+      }),
+    ).not.toBeNull();
+  });
+
+  it('OPENAI_API_KEY n’authentifie PAS Codex — `codex exec` ne la lit pas', () => {
+    // codex-rs/login `load_auth` : CODEX_API_KEY, puis la session ; le
+    // fournisseur OpenAI intégré n'a pas de variable de clé (`env_key: None`).
+    for (const sessionsHote of [true, false]) {
+      const req = requisitionSiCredentialsManquantes(
+        'codex',
+        { HOME: MAISON, OPENAI_API_KEY: 'sk-openai' },
+        { existe: () => false, plateforme: 'linux', sessionsHote },
+      );
+      expect(req, `sessionsHote=${sessionsHote}`).not.toBeNull();
+      expect(req?.detail).toContain('CODEX_API_KEY');
+    }
+  });
+
+  it('le 401 de Codex en pleine tâche nomme CODEX_API_KEY, pas une demande générique', () => {
+    const req = requisitionDepuisEchecInfra(
+      'codex',
+      'ERROR: 401 Unauthorized — Missing bearer',
+      'Écrire le module',
+      { HOME: MAISON, OPENAI_API_KEY: 'sk-openai' },
+      { sessionsHote: false },
+    );
+    expect(req?.libelle).toBe('Clé OpenAI (Codex)');
+    expect(req?.detail).toContain('CODEX_API_KEY');
   });
 
   it('Cursor et Grok : leur session de l’hôte reste dehors, elle aussi', () => {
@@ -295,6 +353,80 @@ describe('LE BAC NE S’ANNONCE PAS QUAND L’AGENT N’Y SERAIT PAS AUTHENTIFI�
     });
     expect(echec.decision.motif).toContain('(image hive-agent:local)');
   });
+
+  it('Codex, session `codex login` seule : « auto » revient au processus, en nommant CODEX_API_KEY', async () => {
+    const { outils, sondes } = machine(BWRAP, sessionCodex);
+    const bac = await preparerBac({ HOME: MAISON }, 'codex', outils);
+    expect(bac.decision).toMatchObject({ isole: false, niveau: 'processus', refuse: false });
+    expect(bac.decision.motif).toContain('CODEX_API_KEY');
+    expect(isolementDeclareDe(bac)).toEqual({ niveau: 'processus' });
+    expect(sondes).toEqual([]);
+  });
+
+  it('Codex, session seule, « exige » : le nœud REFUSE, et dit quoi poser', async () => {
+    const { outils } = machine(BWRAP, sessionCodex);
+    const bac = await preparerBac({ HOME: MAISON, HIVE_ISOLEMENT: 'exige' }, 'codex', outils);
+    expect(bac.refuse).toBe(true);
+    expect(bac.codeSortie).toBe(CODE.REFUS_SECURITE);
+    expect(bac.decision.motif).toContain('CODEX_API_KEY');
+  });
+
+  it('Codex avec la seule OPENAI_API_KEY : le bac reste — et le hub lit « clé absente »', async () => {
+    // Ni dedans ni dehors elle n'authentifie `codex exec` : sortir du bac ne
+    // réparerait rien. Le bac tient, et le constat ne ment pas.
+    const env = { HOME: MAISON, OPENAI_API_KEY: 'sk-openai' };
+    const { outils } = machine(BWRAP, () => false);
+    const bac = await preparerBac(env, 'codex', outils);
+    expect(bac.decision.isole).toBe(true);
+    const etats = await diagnostiquerAgents({
+      agentsPresents: async () => ['codex'],
+      env,
+      existe: () => false,
+      plateforme: 'linux',
+      sessionsHote: bac.sessionsHote,
+    });
+    expect(etats.find((e) => e.agent === 'codex')?.cle).toBe('absente');
+  });
+});
+
+describe('LE CONSTAT DU POSTE JUGE CHAQUE AGENT AVEC SA RÈGLE, PAS CELLE DE L’AGENT RETENU', () => {
+  /** Poste en présence seule : aucun CLI, bubblewrap là, une session `claude login`. */
+  async function posteEnPresence(env: NodeJS.ProcessEnv) {
+    const outils: OutilsBac = {
+      trouver: async () => BWRAP,
+      sonderAgent: async (_f, bin) => ({ executable: true, motif: `« ${bin} » exécutable` }),
+      existe: sessionClaude,
+      plateforme: 'linux',
+    };
+    const bac = await preparerBac(env, 'shell', outils);
+    const etats = await diagnostiquerAgents({
+      agentsPresents: async () => [],
+      env,
+      existe: sessionClaude,
+      plateforme: 'linux',
+      sessionsHote: bac.sessionsHote,
+    });
+    return { bac, etats };
+  }
+
+  it('« auto » : la session compte — installé, Claude Code reviendrait au processus, où elle sert', async () => {
+    const { bac, etats } = await posteEnPresence({ HOME: MAISON });
+    // Le bac de l'agent RETENU (`shell`) tient ; ce n'est pas lui qui juge.
+    expect(bac.decision.isole).toBe(true);
+    expect(etats.find((e) => e.agent === 'claude-code')?.cle).toBe('presente');
+    expect(conseilDemarrage(etats)).toContain('Claude Code');
+  });
+
+  it('« exige » : la session ne compte pas — installé, Claude Code ferait refuser le nœud', async () => {
+    const { etats } = await posteEnPresence({ HOME: MAISON, HIVE_ISOLEMENT: 'exige' });
+    expect(etats.find((e) => e.agent === 'claude-code')?.cle).toBe('absente');
+    expect(conseilDemarrage(etats)).toBeNull();
+  });
+
+  it('main.ts passe au diagnostic la règle du poste, pas le bac de l’agent retenu', () => {
+    const main = readFileSync(new URL('../src/node-client/main.ts', import.meta.url), 'utf8');
+    expect(main).toMatch(/diagnostiquerAgents\(\{\s*sessionsHote:\s*bac\.sessionsHote\s*\}\)/);
+  });
 });
 
 describe('LE NŒUD DANS UN BAC RÉCLAME LE JETON, PAS UN `claude login`', () => {
@@ -305,8 +437,17 @@ describe('LE NŒUD DANS UN BAC RÉCLAME LE JETON, PAS UN `claude login`', () => 
     racine = '';
   });
 
-  it('à l’inscription, la réquisition nomme CLAUDE_CODE_OAUTH_TOKEN malgré ~/.claude', async () => {
-    // Le poste a une session `claude login` — hors bac, rien ne manquerait.
+  /**
+   * Un nœud Claude Code DANS un bac, face à un hub minimal. Le poste a une
+   * session `claude login` et aucune clé : hors bac, rien ne manquerait. Rend
+   * la première réquisition que `attendue` retient ; `apresInscription` peut
+   * assigner une tâche.
+   */
+  async function premiereRequisition(
+    adapter: AgentAdapter,
+    attendue: (msg: Record<string, unknown>) => boolean,
+    apresInscription: (envoyer: (msg: unknown) => void) => void = () => {},
+  ): Promise<Record<string, unknown>> {
     racine = mkdtempSync(path.join(os.tmpdir(), 'hive-identifiants-bac-'));
     const maison = path.join(racine, 'maison');
     mkdirSync(path.join(maison, '.claude'), { recursive: true });
@@ -321,18 +462,16 @@ describe('LE NŒUD DANS UN BAC RÉCLAME LE JETON, PAS UN `claude login`', () => 
       hub.on('connection', (ws) => {
         ws.on('message', (brut) => {
           const msg = JSON.parse(String(brut)) as Record<string, unknown>;
-          if (msg.type === 'register')
+          if (msg.type === 'register') {
             ws.send(JSON.stringify({ type: 'registered', nodeId: 'n-bac' }));
-          if (msg.type === 'requisition_open') resolve(msg);
+            apresInscription((m) => ws.send(JSON.stringify(m)));
+          }
+          if (msg.type === 'requisition_open' && attendue(msg)) resolve(msg);
         });
       });
     });
     await new Promise<void>((resolve) => hub.once('listening', () => resolve()));
     const { port } = hub.address() as { port: number };
-    const adapter: AgentAdapter = {
-      name: 'claude-code',
-      run: async () => ({ success: true, diff: '', logs: '', subAgents: [] }),
-    };
     const client = new HiveNodeClient({
       url: `ws://127.0.0.1:${port}/ws`,
       token: 'jeton-de-ruche-suffisamment-long',
@@ -348,15 +487,63 @@ describe('LE NŒUD DANS UN BAC RÉCLAME LE JETON, PAS UN `claude login`', () => 
     });
     try {
       client.start();
-      const msg = await requisition;
-      expect(msg).toMatchObject({
-        genre: 'cle_api',
-        libelle: 'Clé ou session Anthropic (Claude Code)',
-      });
-      expect(String(msg.detail)).toContain('CLAUDE_CODE_OAUTH_TOKEN');
+      return await requisition;
     } finally {
       client.stop();
       await new Promise<void>((resolve) => hub.close(() => resolve()));
     }
+  }
+
+  it('à l’inscription, la réquisition nomme CLAUDE_CODE_OAUTH_TOKEN malgré ~/.claude', async () => {
+    const adapter: AgentAdapter = {
+      name: 'claude-code',
+      run: async () => ({ success: true, diff: '', logs: '', subAgents: [] }),
+    };
+    const msg = await premiereRequisition(adapter, (m) => m.taskId === undefined);
+    expect(msg).toMatchObject({
+      genre: 'cle_api',
+      libelle: 'Clé ou session Anthropic (Claude Code)',
+    });
+    expect(String(msg.detail)).toContain('CLAUDE_CODE_OAUTH_TOKEN');
+  }, 15_000);
+
+  it('en pleine tâche, le « Not logged in » du bac réclame aussi le jeton — pas une demande générique', async () => {
+    // Sans le bac pris en compte ICI, la session de l'hôte faisait conclure
+    // « rien ne manque », et la réquisition retombait sur « Identifiants agent
+    // (claude-code) », qui ne nomme aucune variable.
+    const adapter: AgentAdapter = {
+      name: 'claude-code',
+      run: async () => ({
+        success: false,
+        diff: '',
+        logs: 'Not logged in · Please run /login',
+        subAgents: [],
+        infra: true,
+      }),
+    };
+    const tache = {
+      id: 't-bac-1',
+      projectId: 'p',
+      title: 'Écrire le module',
+      prompt: 'écrire',
+      status: 'assigned',
+      dependsOn: [],
+      attempts: 0,
+      createdAt: 1,
+      updatedAt: 1,
+      assignedNodeId: 'n-bac',
+      branch: null,
+    };
+    const msg = await premiereRequisition(
+      adapter,
+      (m) => m.taskId === tache.id,
+      (envoyer) => envoyer({ type: 'assign_task', task: tache, repoUrl: null }),
+    );
+    expect(msg).toMatchObject({
+      genre: 'cle_api',
+      libelle: 'Clé ou session Anthropic (Claude Code)',
+    });
+    expect(String(msg.detail)).toContain('CLAUDE_CODE_OAUTH_TOKEN');
+    expect(String(msg.detail)).toContain('Écrire le module');
   }, 15_000);
 });

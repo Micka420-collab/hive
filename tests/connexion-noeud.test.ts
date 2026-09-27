@@ -102,7 +102,7 @@ describe('le diagnostic croise les deux sources', () => {
   });
 
   it('chaque agent est jugé avec SA clé, jamais celle d’un autre', async () => {
-    const etats = await diagnostiquerAgents(poste({ env: { OPENAI_API_KEY: 'sk-de-banc' } }));
+    const etats = await diagnostiquerAgents(poste({ env: { CODEX_API_KEY: 'sk-de-banc' } }));
     expect(etats.find((e) => e.agent === 'codex')!.cle).toBe('presente');
     expect(etats.find((e) => e.agent === 'claude-code')!.cle).toBe('absente');
     expect(etats.find((e) => e.agent === 'grok')!.cle).toBe('absente');
@@ -118,7 +118,7 @@ describe('le diagnostic croise les deux sources', () => {
     const etats = await diagnostiquerAgents(
       poste({
         binaires: ['codex'],
-        env: { OPENAI_API_KEY: 'sk-a', ANTHROPIC_API_KEY: 'sk-b' },
+        env: { CODEX_API_KEY: 'sk-a', ANTHROPIC_API_KEY: 'sk-b' },
       }),
     );
     expect(etats[0]!.agent).toBe('codex');

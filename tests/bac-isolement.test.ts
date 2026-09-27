@@ -26,6 +26,7 @@ import {
   binaireDansBac,
   binaireMcpDansBac,
   codeDuBac,
+  sessionsHoteDuMode,
   deciderAvecPreflight,
   optionBac,
   preparerBac,
@@ -56,6 +57,7 @@ function bacDe(mode: 'off' | 'auto' | 'exige', fournisseur: Fournisseur | null):
     refuse: decision.refuse,
     // La VRAIE règle, pas une copie : c'est tout l'objet de `codeDuBac`.
     codeSortie: codeDuBac(decision.refuse),
+    sessionsHote: sessionsHoteDuMode(mode),
   };
 }
 

@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-6092%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-6141%20passing-F6C445?labelColor=17130C)
 ![License](https://img.shields.io/badge/license-MIT-F6C445?labelColor=17130C)
 
 [🇫🇷 Français](README.md) · 🇬🇧 English · [🌐 Site](https://micka420-collab.github.io/hive/?lang=en) · [📚 Documentation](#-documentation)
@@ -206,6 +206,15 @@ With **podman**, **docker** or **bubblewrap**, the agent only sees its own task
 directory. **The network stays open**: a coding agent must reach its model's
 API. Without a container engine, set `HIVE_ISOLEMENT=exige` — the node will
 refuse to work in the open.
+
+Inside the sandbox the agent gets an ephemeral HOME: a `claude login` or
+`codex login` session does not reach it. Hive forwards the headless credentials
+**by name** — `CLAUDE_CODE_OAUTH_TOKEN` (`claude setup-token`) or
+`ANTHROPIC_API_KEY` for Claude Code, `CODEX_API_KEY` for Codex (which ignores
+`OPENAI_API_KEY`) — and no probe ever receives them. With a session but none of
+these variables, `auto` falls back to the process sandbox and `exige` refuses,
+naming the variable to set. Bubblewrap mounts the agent's and Node's
+installation read-only, never the HOME.
 
 ## 🛠️ Commands
 

@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-6092%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-6141%20passing-F6C445?labelColor=17130C)
 ![Licence](https://img.shields.io/badge/licence-MIT-F6C445?labelColor=17130C)
 
 🇫🇷 Français · [🇬🇧 English](README.en.md) · [🌐 Site](https://micka420-collab.github.io/hive/) · [📚 Documentation](#-documentation)
@@ -308,6 +308,15 @@ de sa tâche lorsque le fournisseur et l’image ont passé le preflight. **Le
 réseau reste ouvert** : un agent de codage doit joindre l'API de son modèle.
 Sans moteur de conteneurs, posez `HIVE_ISOLEMENT=exige` — le nœud refusera de
 travailler à découvert.
+
+Dans le bac, l'agent a un HOME éphémère : la session de `claude login` ou de
+`codex login` n'y entre pas. Hive y transmet **par leur nom** les identifiants
+sans navigateur — `CLAUDE_CODE_OAUTH_TOKEN` (`claude setup-token`) ou
+`ANTHROPIC_API_KEY` pour Claude Code, `CODEX_API_KEY` pour Codex (qui ignore
+`OPENAI_API_KEY`) — et aucune sonde ne les reçoit. Avec une session mais sans ces
+variables, `auto` revient à la sandbox de processus et `exige` refuse, en nommant
+la variable à poser. Bubblewrap monte en lecture seule l'installation de l'agent
+et de Node, jamais le HOME.
 
 ## 🛠️ Commandes
 

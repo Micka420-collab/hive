@@ -31,9 +31,11 @@ const DEFAULT_TIMEOUT_MS = 5 * 60_000;
  * terminal, jusqu'à la fin de fichier (codex-rs/exec, « Reading additional input
  * from stdin... ») : mesuré avec codex-cli 0.156.0, la tâche restait bloquée
  * jusqu'au délai dur — 15 minutes par tâche Codex, dans le bac comme dehors.
- * Claude Code, lui, perdait 3 s à attendre une entrée qui ne venait pas.
+ * Claude Code, lui, perdait 3 s à attendre une entrée qui ne venait pas. Les
+ * commandes de test et de préparation d'un merge (`runProc`) suivent la même
+ * règle, pour la même raison.
  */
-const ENTREE_FERMEE: ['ignore', 'pipe', 'pipe'] = ['ignore', 'pipe', 'pipe'];
+export const ENTREE_FERMEE: ['ignore', 'pipe', 'pipe'] = ['ignore', 'pipe', 'pipe'];
 
 /**
  * Motifs signalant un échec d'INFRASTRUCTURE de l'agent (auth/quota/crédit) plutôt

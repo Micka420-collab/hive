@@ -40,7 +40,10 @@ import type { ExecutionUsage, IsolementDeclare, Task } from '../shared/types.js'
 import { runMerge, runProc } from './merge-runner.js';
 import { lancerVraiment, poserOutil } from './pose-runner.js';
 import { buildSandboxEnv, cloneRepo, prepareWorkspace } from './workspace.js';
-import { requisitionDepuisEchecInfra } from '../shared/requisition-infra.js';
+import {
+  requisitionDepuisEchecInfra,
+  type RequisitionDepuisInfra,
+} from '../shared/requisition-infra.js';
 import { motifRefusPresence, refuseParPresence } from '../shared/presence-noeud.js';
 import type { Fournisseur } from './isolement.js';
 import type { Workspace } from './workspace.js';
@@ -861,6 +864,20 @@ export class HiveNodeClient {
   }
 
   /**
+   * La réquisition qu'appelle un échec d'INFRA de l'agent — ou `null`.
+   *
+   * Un seul appel pour la tâche et pour sa reprise. Dans un bac, la session de
+   * l'hôte (`~/.claude`…) n'atteint pas l'agent : elle ne compte plus, et la
+   * réquisition nomme le jeton à poser au lieu d'une demande générique qui ne
+   * nomme rien.
+   */
+  private requisitionApresEchecInfra(logs: string, titre: string): RequisitionDepuisInfra | null {
+    return requisitionDepuisEchecInfra(this.opts.agentType, logs, titre, process.env, {
+      sessionsHote: !this.opts.bac,
+    });
+  }
+
+  /**
    * Politique Night Shift, parsée SANS jamais lever : une HIVE_SHIFT malformée
    * ne doit pas transformer une assignation en exception muette (tâche restée
    * « assigned » en otage côté hub) — on refuse proprement à la place.
@@ -1028,13 +1045,7 @@ export class HiveNodeClient {
       usage = executionUsageDepuis(usageBefore, capturerExecutionUsage());
       // Échec d'INFRASTRUCTURE : réquisition mid-task si credentials, sinon failover.
       if (!result.success && result.infra) {
-        const req = requisitionDepuisEchecInfra(
-          this.opts.agentType,
-          result.logs,
-          task.title,
-          process.env,
-          { sessionsHote: !this.opts.bac },
-        );
+        const req = this.requisitionApresEchecInfra(result.logs, task.title);
         if (req && workspace && !this.attenteRequisition) {
           conserverWorkspace = true;
           this.attenteRequisition = {
@@ -1203,13 +1214,7 @@ export class HiveNodeClient {
           : rawResult;
       usage = executionUsageDepuis(usageBefore, capturerExecutionUsage());
       if (!result.success && result.infra) {
-        const encore = requisitionDepuisEchecInfra(
-          this.opts.agentType,
-          result.logs,
-          task.title,
-          process.env,
-          { sessionsHote: !this.opts.bac },
-        );
+        const encore = this.requisitionApresEchecInfra(result.logs, task.title);
         if (encore?.genre === 'binaire') {
           this.attenteRequisition = {
             ...attente,

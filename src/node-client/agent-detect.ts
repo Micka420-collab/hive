@@ -219,6 +219,11 @@ export const SECRETS_JAMAIS_SONDES: readonly string[] = [
   'OPENAI_API_KEY',
   // La clé que `codex exec` lit réellement (codex-rs/login, `CODEX_API_KEY`).
   'CODEX_API_KEY',
+  // L'autre identifiant sans navigateur de Codex (jeton d'accès personnel ou
+  // JWT d'identité d'agent, codex-rs/login `CODEX_ACCESS_TOKEN`). Aucun agent
+  // ne le reçoit — il n'est dans aucune liste transmise —, mais un `codex`
+  // homonyme sondé l'hériterait du nœud : il part, comme les autres.
+  'CODEX_ACCESS_TOKEN',
   'XAI_API_KEY',
   'CURSOR_API_KEY',
   'QUEEN_BEE_API_KEY',
@@ -459,6 +464,9 @@ export function agentCredentialEnv(agent: AgentType): string[] {
   }
   if (agent === 'codex') {
     // CODEX_API_KEY : la clé que `codex exec` lit sans session `codex login`.
+    // OPENAI_API_KEY reste transmise (un fournisseur déclaré dans la config de
+    // Codex peut la nommer), mais elle n'AUTHENTIFIE pas `codex exec` : voir
+    // `requisitionSiCredentialsManquantes`.
     return [...configDirs, 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'CODEX_API_KEY'];
   }
   if (agent === 'grok') {
@@ -509,7 +517,7 @@ export type RequisitionCredential = {
  *
  * ─── UNE SESSION DE L'HÔTE N'EST PAS UN IDENTIFIANT DANS LE BAC ─────────────
  *
- * `~/.claude`, `~/.cursor` et `~/.grok` sont des dossiers de l'HÔTE. Un bac
+ * `~/.claude`, `~/.codex`, `~/.cursor` et `~/.grok` sont des dossiers de l'HÔTE. Un bac
  * (conteneur ou bubblewrap) donne à l'agent un HOME éphémère et ne monte jamais
  * celui du membre : la session ouverte par `claude login` n'y entre pas. Avec
  * `sessionsHote: false` — l'agent tourne dans un bac —, seules comptent les clés
@@ -569,14 +577,27 @@ export function requisitionSiCredentialsManquantes(
     };
   }
 
+  // ─── CODEX : CODEX_API_KEY OU LA SESSION `codex login`, ET RIEN D'AUTRE ────
+  //
+  // `codex exec` s'authentifie par CODEX_API_KEY, sinon par le `auth.json` que
+  // `codex login` écrit dans ~/.codex (codex-rs/login, `load_auth`). Il ne lit
+  // JAMAIS OPENAI_API_KEY : le fournisseur OpenAI intégré n'a pas de variable
+  // de clé (`env_key: None`). La compter faisait dire « clé présente » à un
+  // poste dont chaque tâche Codex échouait en 401 — dans le bac comme dehors.
+  //
+  // `CODEX_HOME` n'est pas regardé : il n'est pas dans les variables transmises
+  // à l'agent, qui cherche donc sa session sous le HOME, là où on la cherche.
   if (agent === 'codex') {
-    if (cle('OPENAI_API_KEY') || cle('CODEX_API_KEY')) return null;
+    if (cle('CODEX_API_KEY')) return null;
+    if (maison && session(p.join(maison, '.codex', 'auth.json'))) return null;
     return {
       genre: 'cle_api',
       libelle: 'Clé OpenAI (Codex)',
-      detail:
-        'CODEX_API_KEY et OPENAI_API_KEY absentes sur ce nœud — l’agent ne pourra pas ' +
-        's’authentifier. `codex exec` lit CODEX_API_KEY.',
+      detail: sessionsHote
+        ? 'CODEX_API_KEY absente et aucune session `codex login` (~/.codex/auth.json) sur ' +
+          'ce poste. Connectez-vous avec `codex login` localement, ou posez CODEX_API_KEY — ' +
+          '`codex exec` ignore OPENAI_API_KEY.'
+        : horsDuBac('~/.codex', 'CODEX_API_KEY (`codex exec` ignore OPENAI_API_KEY)'),
     };
   }
 

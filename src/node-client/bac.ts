@@ -77,6 +77,26 @@ export interface Bac {
    * dérive garantie — c'est ce que dit l'en-tête de ce fichier.
    */
   codeSortie: CodeSortie;
+  /**
+   * Une session de l'hôte (`~/.claude`, `~/.codex`…) authentifie-t-elle encore
+   * un agent de CE poste ? C'est la question du constat envoyé au hub, posée
+   * pour TOUS les agents — pas seulement celui que le nœud a retenu.
+   *
+   * ─── LA DÉCISION D'UN AGENT NE VAUT PAS POUR LES AUTRES ─────────────────────
+   *
+   * Le constat jugeait chaque agent avec le bac de l'agent RETENU. En présence
+   * seule (`shell`), bubblewrap restait retenu sans preflight : `~/.claude` ne
+   * comptait plus, et le poste taisait « la clé de Claude Code est déjà là » —
+   * alors qu'une fois installé, Claude Code, n'ayant que cette session, serait
+   * revenu à la sandbox de processus, où elle sert.
+   *
+   * La règle vaut pour tout agent : en `auto`, une session seule fait revenir
+   * l'agent à la sandbox de processus (`sessionHoteSeule`) — elle compte ; en
+   * `exige`, elle fait refuser le nœud — elle ne compte pas ; en `off`, rien
+   * n'est isolé — elle compte. Les tâches de l'agent retenu, elles, se jugent
+   * avec son bac réel (`sessionsHote: !bac` dans le client).
+   */
+  sessionsHote: boolean;
 }
 
 /**
@@ -106,6 +126,14 @@ export function annonce(decision: Decision, fournisseur: Fournisseur | null): st
  */
 export function codeDuBac(refuse: boolean): CodeSortie {
   return refuse ? CODE.REFUS_SECURITE : CODE.SUCCES;
+}
+
+/**
+ * `Bac.sessionsHote` selon le mode — exporté pour la même raison que
+ * `codeDuBac` : un banc qui fabrique un `Bac` éprouve la règle, pas sa copie.
+ */
+export function sessionsHoteDuMode(mode: ReturnType<typeof modeDepuisEnv>): boolean {
+  return mode !== 'exige';
 }
 
 /**
@@ -288,6 +316,7 @@ export async function preparerBac(
     // contraire.
     refuse: decision.refuse,
     codeSortie: codeDuBac(decision.refuse),
+    sessionsHote: sessionsHoteDuMode(mode),
   };
 }
 
@@ -309,11 +338,10 @@ export function isolementDeclareDe(bac: Bac): IsolementDeclare {
 
 /**
  * Les tâches de ce nœud tourneront-elles dans un bac ? La décision ET le moteur
- * doivent le dire ensemble — une seule réponse, pour l'option passée au client,
- * pour ce qui est déclaré au hub, et pour savoir si une session de l'hôte
- * compte encore comme identifiant.
+ * doivent le dire ensemble — une seule réponse, pour l'option passée au client
+ * et pour ce qui est déclaré au hub.
  */
-export function bacActif(bac: Bac): bac is Bac & { fournisseur: Fournisseur } {
+function bacActif(bac: Bac): bac is Bac & { fournisseur: Fournisseur } {
   return bac.decision.isole && bac.fournisseur !== null;
 }
 

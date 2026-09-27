@@ -46,6 +46,7 @@ import {
   constants,
   existsSync,
   mkdtempSync,
+  readdirSync,
   realpathSync,
   rmSync,
   statSync,
@@ -562,14 +563,41 @@ export function racineDePaquet(fichier: string): string {
 
 /**
  * Node se range en préfixe : `bin/node`, et `lib/node_modules` pour npm, npx et
- * les CLI installés globalement. Monter le seul `bin/` laisserait `npm` en lien
- * mort. On ne monte pas le préfixe entier : `etc/npmrc` peut porter un jeton de
+ * les CLI installés globalement, que `bin/` atteint par des liens.
+ *
+ * ─── LE FICHIER `node`, JAMAIS SON DOSSIER ───────────────────────────────────
+ *
+ * Monter `bin/` et `lib/` entiers supposait un préfixe DÉDIÉ à Node (nvm, une
+ * archive). Or `n` avec `N_PREFIX=~/.local`, ou une archive dépliée dans
+ * `~/.local`, range `node` dans `~/.local/bin` — à côté de tous les scripts
+ * personnels du membre —, et `lib/` à côté de ses paquets Python : les deux
+ * entraient dans le bac.
+ *
+ * On monte donc le fichier `node` seul, `lib/node_modules` seul, et on recrée
+ * dans le bac les seuls liens de `bin/` qui pointent DEDANS : `npm`, `npx`,
+ * `corepack`, les CLI globaux. Un autre fichier de `bin/` n'y entre pas, pas
+ * même son nom. Jamais le préfixe entier : `etc/npmrc` peut porter un jeton de
  * registre, et aucun outil du bac n'en a besoin.
  */
-function racinesDeNode(noeud: string): string[] {
+function installationDeNode(noeud: string): InstallationHote {
   const bin = path.dirname(noeud);
-  if (path.basename(bin) !== 'bin') return [bin];
-  return [bin, path.join(path.dirname(bin), 'lib')];
+  const modules =
+    path.basename(bin) === 'bin' ? reel(path.join(path.dirname(bin), 'lib', 'node_modules')) : null;
+  if (!modules) return { racines: [noeud], liens: [] };
+  let noms: string[] = [];
+  try {
+    // Trié : l'ordre des arguments ne dépend pas de celui du système de fichiers.
+    noms = readdirSync(bin).sort();
+  } catch {
+    // `bin/` illisible : `node` seul, sans npm — le preflight dira le reste.
+  }
+  const liens: InstallationHote['liens'] = [];
+  for (const nom of noms) {
+    const lien = path.join(bin, nom);
+    const cible = reel(lien);
+    if (cible && cible !== lien && sousOuEgal(cible, modules)) liens.push({ lien, cible });
+  }
+  return { racines: [noeud, modules], liens };
 }
 
 /**
@@ -599,7 +627,13 @@ export function installationHote(
     const trouve = surLePath(commande, contexte.chemin);
     const fichier = trouve ? reel(trouve) : null;
     if (!trouve || !fichier) continue;
-    candidates.push(...(commande === 'node' ? racinesDeNode(fichier) : [racineDePaquet(fichier)]));
+    if (commande === 'node') {
+      const node = installationDeNode(fichier);
+      candidates.push(...node.racines);
+      liens.push(...node.liens);
+    } else {
+      candidates.push(racineDePaquet(fichier));
+    }
     if (trouve !== fichier) liens.push({ lien: trouve, cible: fichier });
   }
 
@@ -617,11 +651,18 @@ export function installationHote(
     racines.push(racine);
   }
   // Un lien posé dans un dossier déjà monté y est déjà — et bubblewrap ne
-  // saurait pas l'écrire sur un montage en lecture seule.
+  // saurait pas l'écrire sur un montage en lecture seule. Un même lien (celui
+  // d'un CLI global, vu par l'agent ET par Node) n'est écrit qu'une fois :
+  // bubblewrap refuserait de le recréer.
   const visibles = [...SYSTEME_MONTE, ...racines];
+  const poses = new Set<string>();
   return {
     racines,
-    liens: liens.filter(({ lien }) => !visibles.some((v) => sousOuEgal(path.dirname(lien), v))),
+    liens: liens.filter(({ lien }) => {
+      if (poses.has(lien) || visibles.some((v) => sousOuEgal(path.dirname(lien), v))) return false;
+      poses.add(lien);
+      return true;
+    }),
   };
 }
 
@@ -690,8 +731,96 @@ export interface ResultatPreflightAgent {
   motif: string;
 }
 
+/** Ce qu'a rendu une commande d'épreuve lancée dans le bac. */
+type IssueEpreuve =
+  | { issue: 'impossible' | 'erreur' | 'expiree' }
+  | { issue: 'sortie'; code: number | null; erreurs: string };
+
+/**
+ * Lance une commande enveloppée — sans aucun secret dans l'environnement — et
+ * rend son issue. `garderErreurs` garde le début de la sortie d'erreur : c'est
+ * là que le moteur dit pourquoi il n'a pas pu ouvrir le bac. Pour l'agent, elle
+ * reste ignorée : un petit-enfant qui la garderait ouverte retiendrait la fin.
+ */
+function eprouver(
+  lance: Enveloppe,
+  cwd: string,
+  timeoutMs: number,
+  garderErreurs: boolean,
+): Promise<IssueEpreuve> {
+  return new Promise((resolve) => {
+    let fini = false;
+    const finir = (issue: IssueEpreuve): void => {
+      if (fini) return;
+      fini = true;
+      resolve(issue);
+    };
+    let enfant;
+    try {
+      enfant = spawn(lance.bin, lance.args, {
+        cwd,
+        shell: false,
+        windowsHide: true,
+        stdio: ['ignore', 'ignore', garderErreurs ? 'pipe' : 'ignore'],
+        env: envSonde(process.env),
+      });
+    } catch {
+      finir({ issue: 'impossible' });
+      return;
+    }
+    let erreurs = '';
+    enfant.stderr?.on('data', (c: Buffer) => {
+      if (erreurs.length < 2_048) erreurs += c.toString();
+    });
+    const minuteur = setTimeout(() => {
+      enfant.kill();
+      finir({ issue: 'expiree' });
+    }, timeoutMs);
+    minuteur.unref?.();
+    enfant.on('error', () => {
+      clearTimeout(minuteur);
+      finir({ issue: 'erreur' });
+    });
+    enfant.on('close', (code) => {
+      clearTimeout(minuteur);
+      finir({ issue: 'sortie', code, erreurs });
+    });
+  });
+}
+
+/**
+ * Bubblewrap ouvre-t-il un bac VIDE ici ? Rend le motif s'il ne le peut pas.
+ *
+ * ─── « AGENT ABSENT », QUAND C'ÉTAIT BUBBLEWRAP QUI NE DÉMARRAIT PAS ─────────
+ *
+ * `trouverFournisseur` retient bubblewrap sur `bwrap --version`, qui répond
+ * même quand le noyau lui refuse les espaces de noms utilisateur — le cas
+ * d'Ubuntu 24.04 d'origine (`kernel.apparmor_restrict_unprivileged_userns=1`),
+ * mesuré sur le runner `ubuntu-latest` de la CI. Le preflight de l'agent
+ * échouait alors, et le nœud disait « agent absent » : l'humain réinstallait
+ * un agent bien présent, et `exige` refusait pour une cause fausse.
+ *
+ * On relance donc le MÊME bac avec `true`, que le système monté fournit :
+ * s'il échoue aussi, c'est le bac et non l'agent — et bubblewrap dit lui-même
+ * pourquoi sur sa sortie d'erreur, qu'on cite plutôt que de la deviner.
+ */
+async function bacVideRefuse(
+  options: OptionsEnveloppe,
+  cwd: string,
+  timeoutMs: number,
+): Promise<string | null> {
+  const r = await eprouver(envelopper('true', [], options), cwd, timeoutMs, true);
+  if (r.issue === 'sortie' && r.code === 0) return null;
+  const dit = r.issue === 'sortie' ? (r.erreurs.trim().split('\n')[0] ?? '').slice(0, 200) : '';
+  return (
+    `bubblewrap n'ouvre pas même un bac vide sur cet hôte${dit ? ` (« ${dit} »)` : ''} — ` +
+    'sous Ubuntu, la cause habituelle est la restriction des espaces de noms utilisateur ' +
+    '(kernel.apparmor_restrict_unprivileged_userns=1)'
+  );
+}
+
 /** Vérifie le nom logique de l'agent dans le bac qui exécutera les tâches. */
-export function sonderAgentDansBac(
+export async function sonderAgentDansBac(
   fournisseur: Fournisseur,
   binAgent: string,
   image = IMAGE_DEFAUT,
@@ -702,63 +831,29 @@ export function sonderAgentDansBac(
   // would expose `.env`, state, and source files to an agent probe that never
   // needs them; use an empty disposable directory by default.
   const probeCwd = cwdHote ?? mkdtempSync(join(tmpdir(), 'hive-agent-preflight-'));
-  const ownedCwd = cwdHote === undefined;
-  let lance: Enveloppe;
+  const options: OptionsEnveloppe = { fournisseur, cwdHote: probeCwd, variables: [], image };
+  const echec = (motif: string): ResultatPreflightAgent => ({ executable: false, motif });
   try {
-    lance = envelopper(binAgent, ['--version'], {
-      fournisseur,
-      cwdHote: probeCwd,
-      variables: [],
-      image,
-    });
-  } catch {
-    if (ownedCwd) rmSync(probeCwd, { recursive: true, force: true });
-    return Promise.resolve({
-      executable: false,
-      motif: `preflight impossible via ${fournisseur.nom}`,
-    });
-  }
-
-  return new Promise((resolve) => {
-    let fini = false;
-    const finir = (executable: boolean, motif: string): void => {
-      if (fini) return;
-      fini = true;
-      if (ownedCwd) rmSync(probeCwd, { recursive: true, force: true });
-      resolve({ executable, motif });
-    };
-    let enfant;
+    let lance: Enveloppe;
     try {
-      enfant = spawn(lance.bin, lance.args, {
-        cwd: probeCwd,
-        shell: false,
-        windowsHide: true,
-        stdio: 'ignore',
-        env: envSonde(process.env),
-      });
+      lance = envelopper(binAgent, ['--version'], options);
     } catch {
-      finir(false, `preflight impossible via ${fournisseur.nom}`);
-      return;
+      return echec(`preflight impossible via ${fournisseur.nom}`);
     }
-    const minuteur = setTimeout(() => {
-      enfant.kill();
-      finir(false, `preflight de l'agent expiré via ${fournisseur.nom}`);
-    }, timeoutMs);
-    minuteur.unref?.();
-    enfant.on('error', () => {
-      clearTimeout(minuteur);
-      finir(false, `agent « ${binAgent} » non exécutable via ${fournisseur.nom}`);
-    });
-    enfant.on('close', (code) => {
-      clearTimeout(minuteur);
-      finir(
-        code === 0,
-        code === 0
-          ? `agent « ${binAgent} » exécutable dans le bac`
-          : `agent « ${binAgent} » absent ou non exécutable dans le bac`,
-      );
-    });
-  });
+    const r = await eprouver(lance, probeCwd, timeoutMs, false);
+    if (r.issue === 'impossible') return echec(`preflight impossible via ${fournisseur.nom}`);
+    if (r.issue === 'expiree') return echec(`preflight de l'agent expiré via ${fournisseur.nom}`);
+    if (r.issue !== 'sortie') {
+      return echec(`agent « ${binAgent} » non exécutable via ${fournisseur.nom}`);
+    }
+    if (r.code === 0)
+      return { executable: true, motif: `agent « ${binAgent} » exécutable dans le bac` };
+    const bac =
+      fournisseur.bin === 'bwrap' ? await bacVideRefuse(options, probeCwd, timeoutMs) : null;
+    return echec(bac ?? `agent « ${binAgent} » absent ou non exécutable dans le bac`);
+  } finally {
+    if (cwdHote === undefined) rmSync(probeCwd, { recursive: true, force: true });
+  }
 }
 
 /**

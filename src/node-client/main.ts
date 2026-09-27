@@ -13,7 +13,7 @@ import { demarrageNoeudAutorise, messageRefusShellProduction } from '../shared/a
 import { conseilDemarrage, constatsPourLeHub, diagnostiquerAgents } from './connexion.js';
 import { entreeEnRuche } from '../shared/presence-noeud.js';
 import { HiveNodeClient } from './client.js';
-import { bacActif, isolementDeclareDe, optionBac, preparerBac } from './bac.js';
+import { isolementDeclareDe, optionBac, preparerBac } from './bac.js';
 import { parseModeles } from './modeles.js';
 import { createInterface } from 'node:readline/promises';
 
@@ -99,10 +99,12 @@ if (bac.refuse) {
 // sert ensuite à deux choses très différentes — le conseil au refus juste en
 // dessous, et le constat envoyé au hub à l'inscription.
 //
-// Dans un bac, les sessions de l'hôte (`~/.claude`…) n'atteignent pas l'agent :
-// le constat de clé ne les compte donc pas, sans quoi le hub afficherait
-// « prêt » un poste dont chaque tâche échouerait « non authentifié ».
-const etatsOutils = await diagnostiquerAgents({ sessionsHote: !bacActif(bac) });
+// Les sessions de l'hôte (`~/.claude`…) n'atteignent pas un bac : quand le
+// mode y CONTRAINT l'agent (`exige`), le constat ne les compte pas, sans quoi le
+// hub afficherait « prêt » un poste dont chaque tâche échouerait « non
+// authentifié ». La règle est celle de TOUS les agents, pas du seul retenu —
+// voir `Bac.sessionsHote`.
+const etatsOutils = await diagnostiquerAgents({ sessionsHote: bac.sessionsHote });
 
 // ─── PRÉSENCE SANS PRODUCTION ───────────────────────────────────────────────
 //

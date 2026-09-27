@@ -41,6 +41,7 @@ import {
   installationHote,
   modeDepuisEnv,
   racineDePaquet,
+  sonderAgentDansBac,
   type ContexteHote,
 } from '../src/node-client/isolement.js';
 import type { Fournisseur } from '../src/node-client/isolement.js';
@@ -374,22 +375,62 @@ describe.skipIf(process.platform === 'win32')('isolement — bubblewrap monte l�
     expect(r.racines.some((d) => d.endsWith('.local/bin'))).toBe(false);
   });
 
-  it('paquet npm : le PAQUET entier (binaire natif compris), et le préfixe de Node', () => {
+  it('paquet npm : le PAQUET entier (binaire natif compris), et Node avec ses CLI globaux', () => {
     const prefixe = path.join(hoteFactice(), 'node');
-    executable(path.join(prefixe, 'bin/node'));
+    const node = executable(path.join(prefixe, 'bin/node'));
     const lanceur = executable(
       path.join(prefixe, 'lib/node_modules/@openai/codex/bin/codex.js'),
       '#!/usr/bin/env node\n',
     );
     lien('../lib/node_modules/@openai/codex/bin/codex.js', path.join(prefixe, 'bin/codex'));
+    const npm = executable(path.join(prefixe, 'lib/node_modules/npm/bin/npm-cli.js'));
+    lien('../lib/node_modules/npm/bin/npm-cli.js', path.join(prefixe, 'bin/npm'));
 
     const r = installationHote('codex', { chemin: path.join(prefixe, 'bin'), interdits: [] });
-    // `bin/` pour `node` lui-même, `lib/` pour npm et les CLI globaux — et le
+    // Le fichier `node`, et `lib/node_modules` pour npm et les CLI globaux — le
     // paquet de Codex, dessous, n'est pas monté deux fois.
-    expect(r.racines).toEqual([path.join(prefixe, 'bin'), path.join(prefixe, 'lib')]);
-    // `bin/codex` est déjà visible dans le préfixe monté : rien à recréer.
-    expect(r.liens).toEqual([]);
+    expect(r.racines).toEqual([node, path.join(prefixe, 'lib/node_modules')]);
+    // Les liens de `bin/` vers ces paquets sont recréés — une fois chacun,
+    // même celui de Codex, que l'agent ET Node désignent.
+    expect(r.liens).toEqual([
+      { lien: path.join(prefixe, 'bin/codex'), cible: lanceur },
+      { lien: path.join(prefixe, 'bin/npm'), cible: npm },
+    ]);
     expect(racineDePaquet(lanceur)).toBe(path.join(prefixe, 'lib/node_modules/@openai/codex'));
+  });
+
+  it('Node rangé dans ~/.local/bin : ni les scripts voisins, ni ~/.local/lib n’entrent', () => {
+    // `n` avec N_PREFIX=~/.local, ou une archive dépliée dans ~/.local : le
+    // préfixe de Node est celui de TOUS les outils personnels du membre.
+    const maison = path.join(hoteFactice(), 'home');
+    const local = path.join(maison, '.local');
+    const node = executable(path.join(local, 'bin/node'));
+    const npm = executable(path.join(local, 'lib/node_modules/npm/bin/npm-cli.js'));
+    lien('../lib/node_modules/npm/bin/npm-cli.js', path.join(local, 'bin/npm'));
+    executable(path.join(local, 'bin/script-perso-avec-jeton'));
+    lien(path.join(local, 'bin/script-perso-avec-jeton'), path.join(local, 'bin/raccourci'));
+    mkdirSync(path.join(local, 'lib/python3.12/site-packages'), { recursive: true });
+    const agent = executable(path.join(local, 'share/agent/versions/1.0.0'));
+    lien(agent, path.join(local, 'bin/agent'));
+
+    const r = installationHote('agent', {
+      chemin: path.join(local, 'bin'),
+      interdits: [maison],
+    });
+    expect(r.racines).toEqual([
+      node,
+      path.join(local, 'lib/node_modules'),
+      path.join(local, 'share/agent/versions'),
+    ]);
+    const monte = (chemin: string): boolean => r.racines.some((d) => chemin.startsWith(d));
+    expect(monte(path.join(local, 'bin/script-perso-avec-jeton'))).toBe(false);
+    expect(monte(path.join(local, 'lib/python3.12'))).toBe(false);
+    // Seuls les liens vers Node et l'agent sont recréés — pas le raccourci
+    // vers un script personnel.
+    expect(r.liens).toEqual([
+      { lien: path.join(local, 'bin/agent'), cible: agent },
+      { lien: path.join(local, 'bin/npm'), cible: npm },
+    ]);
   });
 
   it('le `node` du PATH vient avec toute commande : pont MCP, `#!/usr/bin/env node`', () => {
@@ -402,11 +443,11 @@ describe.skipIf(process.platform === 'win32')('isolement — bubblewrap monte l�
       chemin: [path.join(base, 'bin'), path.join(base, 'outils')].join(path.delimiter),
       interdits: [],
     });
-    // Ce préfixe n'a pas de `lib/` : une racine absente n'est pas montée
-    // (`--ro-bind` refuserait de démarrer).
+    // Ce préfixe n'a pas de `lib/node_modules` : le fichier `node` seul — une
+    // racine absente n'est pas montée (`--ro-bind` refuserait de démarrer).
     expect(r.racines).toEqual([
       path.join(base, 'outils'),
-      path.join(base, 'nvm/versions/node/v24/bin'),
+      path.join(base, 'nvm/versions/node/v24/bin/node'),
     ]);
     expect(r.liens).toEqual([
       {
@@ -486,6 +527,62 @@ describe.skipIf(process.platform === 'win32')('isolement — bubblewrap monte l�
     expect(args.slice(args.indexOf('--') + 1)).toEqual(['agent', '--version']);
   });
 });
+
+// ─── UN BUBBLEWRAP QUI NE DÉMARRE PAS N'EST PAS UN AGENT ABSENT ─────────────
+//
+// `bwrap --version` répond même quand le noyau lui refuse les espaces de noms
+// (Ubuntu 24.04 d'origine : c'est ce qu'a mesuré le runner de la CI). Le
+// preflight disait alors « agent absent ». Un faux `bwrap` en tête de PATH joue
+// les deux hôtes : celui qui ne démarre rien, et celui qui démarre tout sauf un
+// agent qui manque. Script POSIX : pas sous Windows, où bubblewrap n'existe pas.
+describe.skipIf(process.platform === 'win32')(
+  'isolement — le preflight nomme le vrai coupable',
+  () => {
+    let dossier = '';
+    afterEach(() => {
+      vi.unstubAllEnvs();
+      if (dossier) rmSync(dossier, { recursive: true, force: true });
+      dossier = '';
+    });
+
+    /** Pose un `bwrap` factice en tête de PATH. */
+    function fauxBwrap(script: string): void {
+      dossier = mkdtempSync(path.join(os.tmpdir(), 'hive-faux-bwrap-'));
+      const bin = path.join(dossier, 'bwrap');
+      writeFileSync(bin, `#!/bin/sh\n${script}\n`);
+      chmodSync(bin, 0o755);
+      vi.stubEnv('PATH', `${dossier}${path.delimiter}${process.env.PATH ?? ''}`);
+    }
+
+    it('bubblewrap refusé par le noyau : le motif le dit, et cite bubblewrap', async () => {
+      fauxBwrap('echo "bwrap: setting up uid map: Permission denied" >&2\nexit 1');
+      const r = await sonderAgentDansBac(BWRAP, 'claude', IMAGE_DEFAUT, undefined, 10_000);
+      expect(r.executable).toBe(false);
+      expect(r.motif).toContain("bubblewrap n'ouvre pas même un bac vide");
+      expect(r.motif).toContain('« bwrap: setting up uid map: Permission denied »');
+      expect(r.motif).toContain('kernel.apparmor_restrict_unprivileged_userns');
+      expect(r.motif).not.toContain('absent');
+    });
+
+    it('bubblewrap qui démarre : un agent qui manque reste « absent »', async () => {
+      // Lance ce qui suit « -- », comme le vrai : `true` réussit, l'agent non.
+      fauxBwrap('while [ "$1" != "--" ]; do shift; done\nshift\nexec "$@"');
+      const r = await sonderAgentDansBac(
+        BWRAP,
+        'hive-agent-inexistant',
+        IMAGE_DEFAUT,
+        undefined,
+        10_000,
+      );
+      expect(r).toEqual({
+        executable: false,
+        motif: 'agent « hive-agent-inexistant » absent ou non exécutable dans le bac',
+      });
+      const ok = await sonderAgentDansBac(BWRAP, 'true', IMAGE_DEFAUT, undefined, 10_000);
+      expect(ok.executable, ok.motif).toBe(true);
+    });
+  },
+);
 
 describe('isolement — ne jamais prétendre plus qu’on ne fait', () => {
   it('même au meilleur niveau, dit ce qui passe encore', () => {
