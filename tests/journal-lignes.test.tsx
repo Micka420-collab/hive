@@ -448,3 +448,34 @@ describe('les lignes de la contre-revue disent où elle en est', () => {
     });
   }
 });
+
+describe('la suppression d’un projet se lit au journal', () => {
+  // C'est le SEUL fait qui reste d'un projet supprimé : son propre journal est
+  // parti avec lui. Une ligne muette (le type brut) effacerait donc la dernière
+  // trace lisible — le nom, et ce qui est parti.
+  it('LE NOM ET LES TÂCHES EFFACÉES SONT DITS', async () => {
+    setLang('fr');
+    const dom = await monter(
+      evenement('project_deleted', {
+        projectId: 'p-1',
+        name: 'Site vitrine',
+        annulees: 0,
+        effaces: { projects: 1, tasks: 3, events: 12 },
+      }),
+    );
+    expect(ligne(dom)).toBe('projet « Site vitrine » supprimé (3 tâche(s) effacée(s))');
+  });
+
+  it('un bilan illisible ne fait dire AUCUN chiffre — un bilan sans tâches dit zéro', async () => {
+    setLang('en');
+    const sans = await monter(evenement('project_deleted', { projectId: 'p-1', name: 'Site' }));
+    expect(ligne(sans)).toBe('project “Site” deleted');
+    await act(async () => racine?.unmount());
+    conteneur?.remove();
+    // Les tables vides sont omises du bilan : `tasks` absent = aucune tâche.
+    const vide = await monter(
+      evenement('project_deleted', { projectId: 'p-1', name: 'Site', effaces: { projects: 1 } }),
+    );
+    expect(ligne(vide)).toBe('project “Site” deleted (0 task(s) erased)');
+  });
+});

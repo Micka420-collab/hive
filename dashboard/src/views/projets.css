@@ -1463,3 +1463,46 @@
   color: var(--red, #a8402a);
   overflow-wrap: anywhere;
 }
+
+/* ─── Supprimer le projet ─────────────────────────────────────────────────
+   En bas de carte, séparé par un filet rouge : le seul geste qui emporte tout
+   ne se confond pas avec l'équipe ou les liens juste au-dessus. */
+.pj-suppression {
+  border-top: 1px dashed var(--red);
+  padding-top: 10px;
+}
+
+.pj-suppression-dit {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.pj-suppression-envol p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--amber);
+}
+
+.pj-suppression-envol ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  /* Des titres de tâches : du texte d'utilisateur, qui ne pousse rien. */
+  overflow-wrap: anywhere;
+}
+
+/* Ce qui vient de partir se DIT, en tête de la liste. */
+.pj-supprime {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  border-left: 3px solid var(--red);
+}
+
+.pj-supprime p {
+  margin: 0;
+  flex: 1 1 32ch;
+  overflow-wrap: anywhere;
+}

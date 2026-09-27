@@ -136,6 +136,27 @@ const EVENTS: Record<string, Meta> = {
     cls: 'info',
     text: (p, t) => t(`projet « ${String(p.name ?? '')} »`, `project “${String(p.name ?? '')}”`),
   },
+  // Le seul fait qui survit à un projet supprimé : son journal est parti avec
+  // lui. Le nom et le compte des tâches effacées, rien d'autre — le détail par
+  // table reste dans le payload, pour qui l'audite. Le bilan ne porte que les
+  // tables NON vides : `tasks` absent d'un bilan lu veut dire zéro ; un bilan
+  // illisible, lui, ne fait dire aucun chiffre.
+  project_deleted: {
+    icon: '✕',
+    cls: 'warn',
+    text: (p, t) => {
+      const nom = String(p.name ?? '');
+      if (typeof p.effaces !== 'object' || p.effaces === null) {
+        return t(`projet « ${nom} » supprimé`, `project “${nom}” deleted`);
+      }
+      const taches = (p.effaces as Record<string, unknown>).tasks;
+      const n = typeof taches === 'number' ? taches : 0;
+      return t(
+        `projet « ${nom} » supprimé (${n} tâche(s) effacée(s))`,
+        `project “${nom}” deleted (${n} task(s) erased)`,
+      );
+    },
+  },
   task_created: {
     icon: '+',
     cls: 'muted',

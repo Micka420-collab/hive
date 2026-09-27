@@ -114,6 +114,29 @@ export class Miroir {
   }
 
   /**
+   * Efface le miroir d'un projet SUPPRIMÉ. Rend `absent` s'il n'y avait rien
+   * sur le disque ; lève si le disque refuse (l'appelant le dit).
+   *
+   * Un rafraîchissement en vol est ATTENDU d'abord : effacer sous un `git
+   * clone` qui écrit encore laisserait le clone recréer le répertoire juste
+   * après — un miroir orphelin, que plus aucune route ne désigne et que rien
+   * n'effacerait. Aucun rafraîchissement ne peut partir ensuite : les routes
+   * du Rayon vérifient le projet puis appellent `rafraichir` sans rien
+   * attendre entre les deux, et le projet n'existe déjà plus en base.
+   *
+   * `maxRetries` : sous Windows, un antivirus ou un `git` qui se termine tient
+   * parfois un fichier du pack une fraction de seconde (motif `workspace.ts`).
+   */
+  async effacer(projectId: string): Promise<'efface' | 'absent'> {
+    await this.enVol.get(projectId)?.catch(() => undefined);
+    this.dernier.delete(projectId);
+    const dir = this.dossier(projectId);
+    if (!existsSync(dir)) return 'absent';
+    await fs.rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    return 'efface';
+  }
+
+  /**
    * Met le miroir à jour, ou le crée. Au plus une fois par fenêtre.
    *
    * `--depth 1` : on montre le code TEL QU'IL EST, pas son histoire. L'histoire

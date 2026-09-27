@@ -1486,6 +1486,118 @@ function rowToNode(row: NodeRowBrut): HiveNode {
   return node;
 }
 
+// ─── CE QU'UN PROJET POSSÈDE, TABLE PAR TABLE ────────────────────────────────
+//
+// La liste de ce que `effacerProjet` retire, DANS L'ORDRE où il le retire.
+// L'ordre n'est pas cosmétique, il a deux raisons :
+//
+//   · `foreign_keys = ON` (voir le constructeur) : `annonces_duree` référence
+//     `tasks`, et `tasks`, `essaim`, `garde_fous`, `abonnements`, `fabriques`,
+//     `horizon_ledger`, `motifs_projet` référencent `projects`. Effacer le
+//     parent d'abord ferait échouer TOUTE la transaction.
+//   · les sous-requêtes relisent `tasks` et `conseil_sessions` : ce qui s'y
+//     rattache part AVANT elles, sinon plus rien ne dirait à qui c'était.
+//
+// Le JOURNAL passe en premier, pour la même raison : un événement ne connaît sa
+// tâche que par un identifiant, et cet identifiant ne désigne plus rien une fois
+// `tasks` vidée. Il part s'il nomme le projet, une de ses tâches (sous toutes
+// les clés qui portent un identifiant de tâche — un fait de délégation n'a pas
+// de `taskId`, il a `childTaskId`), une de ses séances de Conseil, ou une
+// réquisition ouverte pendant une de ses tâches. On n'efface PAS sur un texte
+// qui « ressemble » : un identifiant de tâche peut être court (`socle`, `tests`)
+// et un motif ou une catégorie porter le même mot — seules les clés qui
+// DÉSIGNENT une tâche comptent.
+//
+// `budgets` n'est pas ici : son unique `DELETE` est celui de `setBudget`, que
+// `effacerProjet` appelle (verrou de tests/security-invariants.test.ts — aucune
+// autre suppression sur cette table, nulle part).
+//
+// ⚠ UNE TABLE NOUVELLE QUI PORTE `projectId`, un identifiant de tâche, de
+// séance ou de résultat DOIT entrer ici : tests/suppression-projet.test.ts
+// relit le schéma et rougit tant qu'elle n'y est pas — sinon, supprimer un
+// projet laisserait ses lignes derrière lui, pour toujours.
+const TACHES_DU_PROJET = 'SELECT id FROM tasks WHERE projectId = @p';
+const SEANCES_DU_PROJET = 'SELECT id FROM conseil_sessions WHERE projectId = @p';
+const CLES_DE_TACHE = [
+  'taskId',
+  'parentTaskId',
+  'childTaskId',
+  'rootTaskId',
+  'productionTaskId',
+  'relectureTaskId',
+  'ancestorTaskId',
+]
+  .map((cle) => `'${cle}'`)
+  .join(', ');
+const EFFACEMENT_PROJET = [
+  [
+    'events',
+    `json_extract(payload, '$.projectId') = @p
+      OR json_extract(payload, '$.sessionId') IN (${SEANCES_DU_PROJET})
+      OR EXISTS (
+        SELECT 1 FROM json_each(events.payload) j
+         WHERE j.key IN (${CLES_DE_TACHE}) AND j.value IN (${TACHES_DU_PROJET})
+      )
+      OR (
+        type IN ('requisition_ouverte', 'requisition_reponse')
+        AND json_extract(payload, '$.id') IN (
+          SELECT id FROM requisitions WHERE taskId IN (${TACHES_DU_PROJET})
+        )
+      )`,
+  ],
+  ['requisitions', `taskId IN (${TACHES_DU_PROJET})`],
+  ['presences_rayon', `taskId IN (${TACHES_DU_PROJET})`],
+  ['conseil_avis', `sessionId IN (${SEANCES_DU_PROJET})`],
+  ['conseil_propositions', `sessionId IN (${SEANCES_DU_PROJET})`],
+  ['conseil_taches', `sessionId IN (${SEANCES_DU_PROJET}) OR taskId IN (${TACHES_DU_PROJET})`],
+  ['conseil_plans', `projectId = @p OR sessionId IN (${SEANCES_DU_PROJET})`],
+  ['conseil_sessions', 'projectId = @p'],
+  ['gardiennes', `taskId IN (${TACHES_DU_PROJET})`],
+  ['sauvegardes', `projectId = @p OR taskId IN (${TACHES_DU_PROJET})`],
+  ['memories', `projectId = @p OR taskId IN (${TACHES_DU_PROJET})`],
+  ['results', `taskId IN (${TACHES_DU_PROJET})`],
+  ['reviews', `taskId IN (${TACHES_DU_PROJET})`],
+  [
+    'task_delegations',
+    `childTaskId IN (${TACHES_DU_PROJET}) OR parentTaskId IN (${TACHES_DU_PROJET})
+      OR rootTaskId IN (${TACHES_DU_PROJET})`,
+  ],
+  [
+    'contre_expertises',
+    `relectureTaskId IN (${TACHES_DU_PROJET}) OR productionTaskId IN (${TACHES_DU_PROJET})`,
+  ],
+  ['contre_visites', `productionTaskId IN (${TACHES_DU_PROJET})`],
+  ['aiguillage_modeles', `taskId IN (${TACHES_DU_PROJET})`],
+  ['garde_fou_echelons', `taskId IN (${TACHES_DU_PROJET})`],
+  ['garde_fou_exigences', `productionTaskId IN (${TACHES_DU_PROJET})`],
+  ['annonces_duree', `taskId IN (${TACHES_DU_PROJET})`],
+  ['taches_issue', `projectId = @p OR taskId IN (${TACHES_DU_PROJET})`],
+  ['livraisons', `projectId = @p OR taskId IN (${TACHES_DU_PROJET})`],
+  ['horloge_hote', `projectId = @p OR taskId IN (${TACHES_DU_PROJET})`],
+  ['fabriques', 'projectId = @p'],
+  ['tasks', 'projectId = @p'],
+  ['horizon_ledger', 'projectId = @p'],
+  ['motifs_projet', 'projectId = @p'],
+  ['partages', 'projectId = @p'],
+  ['project_members', 'projectId = @p'],
+  ['essaim', 'projectId = @p'],
+  ['garde_fous', 'projectId = @p'],
+  ['abonnements', 'projectId = @p'],
+  ['serveurs', 'projectId = @p'],
+  ['horloge_soldes', 'projectId = @p'],
+  ['balance_ledger_cache', 'projectId = @p'],
+] as const;
+
+/** Une table dont `effacerProjet` retire les lignes d'un projet. */
+export type TableDUnProjet = (typeof EFFACEMENT_PROJET)[number][0] | 'budgets' | 'projects';
+
+/**
+ * Ce qu'effacer un projet a retiré, TABLE PAR TABLE — une entrée par table
+ * visitée, zéro compris : un bilan qui omettrait les tables vides ne dirait pas
+ * si elles ont été vues.
+ */
+export type BilanEffacement = Readonly<Record<TableDUnProjet, number>>;
+
 export class HiveStore {
   private readonly db: Database.Database;
   /**
@@ -1728,6 +1840,53 @@ export class HiveStore {
          ORDER BY pm.joinedAt DESC`,
       )
       .all(userId) as (ProjectMember & { projectName: string })[];
+  }
+
+  // ─── Supprimer un projet ───────────────────────────────────────────────────
+  /**
+   * Efface un projet ET tout ce qu'il possède, en UNE transaction : tout part,
+   * ou rien. Rend le bilan table par table, ou `null` si le projet n'existe pas
+   * (rien n'est alors touché).
+   *
+   * ─── SUPPRIMER, PAS ARCHIVER — DÉCISION DU PROPRIÉTAIRE ─────────────────────
+   *
+   * Un projet supprimé n'existe plus nulle part dans la base : ni ses tâches,
+   * ni leurs résultats, ni son journal, ni ce que la ruche en avait appris
+   * (mémoires du Hive Mind, observations de l'Aiguillage, verdicts). Seul
+   * survit l'événement d'audit `project_deleted`, posé par l'appelant APRÈS
+   * cette cascade, dans la même transaction (`Scheduler.supprimerProjet`).
+   *
+   * ─── CE QU'ELLE NE FAIT PAS, ET QUI LE FAIT ──────────────────────────────────
+   *
+   * Elle ne juge pas si la suppression est PERMISE (la garde de la route), ni
+   * si du travail tourne encore (le planificateur annule d'abord ce qui est en
+   * vol ; la route refuse ce qui ne s'annule pas). Elle ne touche pas au disque
+   * (le miroir du Rayon, `Miroir.effacer`) ni aux machines des ouvrières.
+   *
+   * ─── CE QU'ELLE NE PEUT PAS ATTEINDRE ────────────────────────────────────────
+   *
+   * Une ligne qui ne dit plus à quel projet elle appartient. `pruneTasks`
+   * efface des tâches sans effacer leurs `results` (allégés, gardés) : ceux-là
+   * ne portent qu'un `taskId` qui ne désigne plus rien, et aucune jointure ne
+   * les rattache à un projet. Ils étaient déjà orphelins avant la suppression.
+   */
+  effacerProjet(projectId: string): BilanEffacement | null {
+    return this.enTransaction(() => {
+      if (!this.getProject(projectId)) return null;
+      const bilan = {} as Record<TableDUnProjet, number>;
+      for (const [table, ou] of EFFACEMENT_PROJET) {
+        bilan[table] = this.db
+          .prepare(`DELETE FROM ${table} WHERE ${ou}`)
+          .run({ p: projectId }).changes;
+      }
+      // Le plafond part par SON chemin (`setBudget(…, null)`), le seul DELETE
+      // de `budgets` du dépôt ; le cache de la porte est invalidé par le
+      // planificateur, dans le même geste.
+      bilan.budgets = this.getBudget(projectId) ? 1 : 0;
+      this.setBudget(projectId, null);
+      bilan.projects = this.db.prepare('DELETE FROM projects WHERE id = ?').run(projectId).changes;
+      return bilan;
+    });
   }
 
   // ─── Nœuds ─────────────────────────────────────────────────────────────────
@@ -5660,7 +5819,8 @@ export class HiveStore {
    *
    * `events.id` est AUTOINCREMENT : `sqlite_sequence` garde le plus grand id
    * JAMAIS attribué, suppressions comprises, et les ids ne sont jamais
-   * réutilisés. Seul `pruneEvents` supprime des événements ; il en manque donc
+   * réutilisés. Seuls `pruneEvents` et la suppression d'un projet
+   * (`effacerProjet`) suppriment des événements ; il en manque donc
    * exactement quand plus d'ids ont été attribués qu'il ne reste de lignes.
    * Un fait que tout repli du journal (registre Genome) doit dire : ce qu'il
    * compte n'est plus toute l'histoire de la ruche.

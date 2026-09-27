@@ -3093,6 +3093,18 @@ button.mc-cell:focus-visible {
   padding: 4px 10px;
 }
 
+.geste-irr-saisie {
+  font: inherit;
+  font-family: var(--mono);
+  padding: 4px 8px;
+  border: 1px solid var(--red);
+  border-radius: var(--r-sm);
+  background: var(--panel);
+  color: var(--text);
+  /* Même borne que la question : un nom long ne pousse rien hors de l'écran. */
+  max-width: 24ch;
+}
+
 .btn.geste-irr-oui {
   border-color: var(--red);
   color: var(--red);

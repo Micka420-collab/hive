@@ -109,6 +109,19 @@ token: it carries two acts only (see progress, read code), applies to **one**
 project, expires (7 days by default, 90 at most) and is revoked one at a time
 without touching the others.
 
+**Deleting a project** is done at the bottom of its card in the Projects view —
+or with `DELETE /api/projects/<id>`. It is a **deletion**, not an archive:
+tasks, results, journal, Hive Mind memories, share links, members and the code
+mirror leave the Queen. Only one audit line remains, `project_deleted` (who,
+when, which name, how many rows). Only the owner and an administrator can do it
+— the hive token, on an ownerless project only — and the confirmation requires
+**retyping the project's name**. Running tasks make the deletion refused (the
+list is shown); asking again with `force=true` cancels them first. A merge, a
+chantier or a delivery in flight, an autonomy cycle, an active subscription
+or a machine still at the provider refuse it even when forced: those cannot be
+cancelled. Workers clean up their own workspaces; a mission branch delivered on
+a node stays there.
+
 ## 📦 The environment — the agent installs what it needs
 
 `npm test` on a fresh clone fails for want of `node_modules`. The merge

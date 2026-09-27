@@ -7547,6 +7547,155 @@ async function monterReine(
     },
   );
 
+  // ─── SUPPRIMER UN PROJET ────────────────────────────────────────────────────
+  //
+  // La ruche savait créer un projet, pas s'en défaire : un projet de test, un
+  // dépôt importé par erreur, restaient pour toujours sur l'écran de tout le
+  // monde. DÉCISION DU PROPRIÉTAIRE : SUPPRIMER, PAS ARCHIVER. Un projet
+  // supprimé n'existe plus nulle part — tâches, résultats, journal, mémoires,
+  // liens, miroir du Rayon — sauf l'événement d'audit `project_deleted` (qui,
+  // quand, quel nom, combien de lignes).
+  //
+  // ─── LA GARDE : RÉPONDRE DU PROJET ──────────────────────────────────────────
+  //
+  // `proprieteProjetPermise` : le propriétaire ou un administrateur ; le jeton
+  // de ruche sur un projet ORPHELIN seulement (il en est le propriétaire, ADR
+  // 0007). Un membre reçoit 403 — il sait que le projet existe ; un étranger,
+  // le 404 de l'inexistence ; l'anonyme, 401.
+  //
+  // ─── CE QUI TOURNE ENCORE ───────────────────────────────────────────────────
+  //
+  // Une tâche en vol (`assigned`, `running`) occupe une ouvrière : on ne la
+  // coupe pas sans le dire. Refus 409 avec la liste, SAUF `force=true`, qui
+  // les annule d'abord (les ouvrières reçoivent `cancel_task`). Une tâche
+  // seulement en file n'occupe personne : elle part avec le projet.
+  //
+  // Ce qui NE S'ANNULE PAS refuse même forcé : un merge ou un chantier sur une
+  // ouvrière (le protocole n'a pas de message pour l'arrêter — son résultat
+  // reviendrait pour un projet disparu), une livraison dont l'appel GitHub est
+  // en vol, un cycle d'autonomie qui délibère encore. Tous sont bornés dans le
+  // temps : on attend qu'ils finissent. Et l'HÉBERGEMENT payant (abonnement
+  // actif, machine qui existe encore chez le fournisseur) refuse aussi :
+  // effacer la ligne `serveurs` d'une machine qui existe encore perdrait la
+  // seule trace de ce qu'on paie, et personne ne saurait plus l'effacer.
+  //
+  // ─── CE QUI N'EST PAS EFFACÉ ICI ────────────────────────────────────────────
+  //
+  // Les machines des ouvrières : chaque tâche y nettoie son propre atelier, et
+  // une branche de mission livrée sur un nœud (`livraisons/<projet>.git`) y
+  // reste — elle est à l'opérateur de ce nœud. Les sauvegardes de la base
+  // (`hive sauvegarde`) prises AVANT la suppression contiennent encore le
+  // projet : c'est leur raison d'être.
+  const travailNonAnnulable = (projectId: string): Record<string, unknown> | null => {
+    const abonnement = store.getAbonnement(projectId);
+    const machines = store
+      .listServeurs()
+      .filter((s) => s.projectId === projectId && s.etat !== 'supprime');
+    if (abonnement?.etat === 'actif' || abonnement?.etat === 'impaye' || machines.length > 0) {
+      return {
+        code: 'hebergement_actif',
+        error: 'ce projet a un abonnement ou une machine encore en service',
+        conseil:
+          'Résiliez l’abonnement et faites supprimer ses machines (Intendance → Les machines), ' +
+          'puis supprimez le projet.',
+        abonnement: abonnement?.etat ?? null,
+        machines: machines.length,
+      };
+    }
+    const enVol = {
+      merges: [...pendingMerges.values()].filter((m) => m.projectId === projectId).length,
+      chantiers: [...pendingChantiers.values()].filter((c) => c.projectId === projectId).length,
+      livraisons: store.listLivraisons(projectId, ETAT_LIVRAISON_EN_COURS).length,
+      autonomie: cadencier.suivi(projectId).enVol ? 1 : 0,
+    };
+    if (Object.values(enVol).every((n) => n === 0)) return null;
+    return {
+      code: 'travail_non_annulable',
+      error: 'un merge, un chantier, une livraison ou un cycle d’autonomie tourne sur ce projet',
+      conseil: `Attendez qu’il se termine (un merge rend la main en ${Math.round(
+        MERGE_TIMEOUT_MS / 60_000,
+      )} min au plus), puis recommencez : ceux-là ne s’annulent pas.`,
+      ...enVol,
+    };
+  };
+
+  app.delete<{ Params: { projectId: string }; Querystring: { force?: boolean } }>(
+    '/api/projects/:projectId',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId'],
+          properties: { projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+        querystring: {
+          type: 'object',
+          additionalProperties: false,
+          properties: { force: { type: 'boolean' } },
+        },
+      },
+    },
+    async (req, reply) => {
+      const droit = proprieteProjetPermise(req, req.params.projectId);
+      if (droit !== 'permis') return refuserReglage(reply, droit);
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+
+      // AUCUN `await` d'ici à la suppression : entre la vérification et
+      // l'effacement, rien d'autre ne tourne — pas de tâche assignée entre
+      // les deux, pas de merge lancé entre les deux.
+      const bloque = travailNonAnnulable(project.id);
+      if (bloque) return reply.code(409).send(bloque);
+      const enVol = store
+        .tasksByStatus('assigned', 'running')
+        .filter((t) => t.projectId === project.id);
+      if (enVol.length > 0 && req.query.force !== true) {
+        return reply.code(409).send({
+          code: 'taches_en_vol',
+          error: `${enVol.length} tâche(s) tournent encore sur ce projet`,
+          conseil:
+            'Annulez-les, ou redemandez la suppression avec force=true : elles seront ' +
+            'annulées (les ouvrières sont prévenues), puis le projet supprimé.',
+          taches: enVol.map((t) => ({
+            id: t.id,
+            title: t.title,
+            status: t.status,
+            nodeId: t.assignedNodeId,
+          })),
+        });
+      }
+
+      // Une TRACE (qui a supprimé), jamais une autorisation : la garde est
+      // au-dessus. Sans compte, le jeton de ruche sur un orphelin — `null`.
+      const parUserId = authorizedUser(req) ? ((req as AuthRequest).userId ?? null) : null;
+      const supprime = scheduler.supprimerProjet(project, parUserId);
+      if (!supprime) return reply.code(404).send({ error: 'projet inconnu' });
+      // Ce que la Reine tient EN MÉMOIRE sur ce projet : le dernier merge et le
+      // dernier chantier rendus (diffs et journaux compris), le suivi du
+      // cadencier. Rien de tout cela ne se viderait sinon avant un redémarrage.
+      mergeResults.delete(project.id);
+      chantierResults.delete(project.id);
+      cadencier.oublier(project.id);
+      stateDirty = true;
+
+      // Le disque APRÈS le COMMIT : un miroir qui résiste n'annule pas une
+      // suppression déjà rangée — il se DIT, dans la réponse et sur la sortie
+      // de la Reine (`app.log` est muet : `logger: false`), avec le dossier que
+      // l'hôte effacera à la main.
+      let miroir: 'efface' | 'absent' | 'echec';
+      try {
+        miroir = await rayons.effacer(project.id);
+      } catch (err) {
+        miroir = 'echec';
+        console.error(
+          `[hive] miroir du Rayon non effacé, à retirer à la main : ${rayons.dossier(project.id)}` +
+            ` (${err instanceof Error ? err.message : String(err)})`,
+        );
+      }
+      return { supprime: true, projectId: project.id, name: project.name, ...supprime, miroir };
+    },
+  );
+
   // Queen Bee (Palier 2) : propose un DAG de tâches à partir d'un brief en
   // langage naturel. Sans effet de bord — la sortie est destinée à être revue,
   // ajustée, puis envoyée via POST /api/projects/:id/tasks. Découpage heuristique

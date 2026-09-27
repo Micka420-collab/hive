@@ -58,7 +58,7 @@ import { summarizeTask } from './hive-mind.js';
 import { CacheDomaines, meilleurNoeud, replierTraces } from './pheromones.js';
 import type { Domaine, TraceePheromone } from './pheromones.js';
 import { analyzePair } from './sting-detector.js';
-import type { HiveStore, NodeProfile } from './store.js';
+import type { BilanEffacement, HiveStore, NodeProfile } from './store.js';
 import { assignationProductionAutorisee } from '../shared/agent-production.js';
 import { relecteurIndependant } from '../shared/contre-expertise.js';
 import { concurrenceEffective, lireTemperature, FENETRE_MS, TYPES_THERMO } from './thermo.js';
@@ -1351,6 +1351,98 @@ export class Scheduler {
     this.fermerSousArbre(taskId, 'ancestor_cancelled', now);
     this.promoteAndAssign(now);
     return patched;
+  }
+
+  /**
+   * Un humain SUPPRIME un projet (`DELETE /api/projects/:id`) : son travail en
+   * vol est annulé, ses lignes effacées (`store.effacerProjet`) et le fait
+   * d'audit `project_deleted` journalisé — EN UN SEUL GESTE. Rend `null` si le
+   * projet n'existe pas (rien n'est touché).
+   *
+   * ─── POURQUOI ICI, ET PAS DANS LA ROUTE ─────────────────────────────────────
+   *
+   * Parce que l'annulation vit ici (`annulerEnVol`, la seule porte : nœuds
+   * prévenus, courses, horloge) et que `cancelTask` ne convient PAS : il relance
+   * l'assignation aussitôt. L'ouvrière libérée aurait alors reçu une tâche
+   * `ready` du projet même qu'on efface — un travail parti pour un projet qui
+   * n'existe plus. Ici, l'assignation ne repart qu'APRÈS le COMMIT, quand plus
+   * rien du projet ne reste à assigner.
+   *
+   * Le COMMIT couvre tout : annulations, cascade, fait d'audit. Les nœuds ne
+   * reçoivent `cancel_task` qu'ensuite (`apresCommit`) — une panne au milieu
+   * ne laisse ni projet à moitié effacé, ni ouvrière arrêtée pour rien.
+   *
+   * ─── LA MÉMOIRE, DANS LE MÊME GESTE ─────────────────────────────────────────
+   *
+   * Le plafond (`budgets`) part avec le projet : le cache de la porte est donc
+   * invalidé ici — la règle de `setPlafond`, tenue aussi sur ce chemin. Le
+   * grand livre oublie son solde, et les mémoires par tâche celles des tâches
+   * disparues, qui ne seraient plus purgées par personne.
+   */
+  supprimerProjet(
+    projet: { id: string; name: string },
+    parUserId: string | null,
+    now = Date.now(),
+  ): { annulees: number; effaces: Partial<BilanEffacement>; lignes: number } | null {
+    const issue: { annulees: number; effaces: Partial<BilanEffacement>; lignes: number }[] = [];
+    this.enUnSeulGeste(() => {
+      if (!this.store.getProject(projet.id)) return;
+      const enVol = this.store
+        .tasksByStatus('assigned', 'running')
+        .filter((t) => t.projectId === projet.id);
+      for (const t of enVol) this.annulerEnVol(t, 'project_deleted', now);
+      const bilan = this.store.effacerProjet(projet.id);
+      if (!bilan) return;
+      // APRÈS la cascade, qui efface le journal du projet : c'est le seul fait
+      // qui lui survit. Des comptes, jamais un contenu — le nom, parce qu'un
+      // audit qui ne dirait pas QUEL projet est parti ne servirait à rien.
+      // Les tables vides sont omises : le fait reste court.
+      const faits = {
+        annulees: enVol.length,
+        effaces: Object.fromEntries(Object.entries(bilan).filter(([, n]) => n > 0)),
+        lignes: Object.values(bilan).reduce((total, n) => total + n, 0),
+      };
+      this.emit('project_deleted', {
+        projectId: projet.id,
+        name: projet.name,
+        ...(parUserId ? { parUserId } : {}),
+        ...faits,
+      });
+      issue.push(faits);
+    });
+    const rendu = issue[0];
+    if (!rendu) return null;
+    this.budgets = null;
+    this.seuilsEmis.delete(projet.id);
+    this.alertesEmises.delete(projet.id);
+    this.livre.oublier(projet.id);
+    this.oublierTachesDisparues();
+    this.promoteAndAssign(now);
+    return rendu;
+  }
+
+  /**
+   * Retire des mémoires par tâche celles dont la tâche n'existe plus. Appelé
+   * après une suppression de projet : une tâche en file (`pending`, `ready`)
+   * n'y est pas annulée, elle disparaît — et ces cartes ne se vident qu'à
+   * l'assignation ou à l'échec, qui n'arriveront plus.
+   */
+  private oublierTachesDisparues(): void {
+    const cles = new Set([
+      ...this.infraRejects.keys(),
+      ...this.deferredByConflict,
+      ...this.relecturesSansRelecteur.keys(),
+      ...this.modelesEchoues.keys(),
+    ]);
+    if (cles.size === 0) return;
+    const connues = this.store.taskStatuses([...cles]);
+    for (const taskId of cles) {
+      if (connues.has(taskId)) continue;
+      this.infraRejects.delete(taskId);
+      this.deferredByConflict.delete(taskId);
+      this.relecturesSansRelecteur.delete(taskId);
+      this.modelesEchoues.delete(taskId);
+    }
   }
 
   /**

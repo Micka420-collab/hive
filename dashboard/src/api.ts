@@ -1707,6 +1707,81 @@ export function adopterProjet(projectId: string): Promise<{ adopted: boolean }> 
   return apiCompte<{ adopted: boolean }>(`/api/projects/${projectId}/adopter`, { method: 'POST' });
 }
 
+/** Ce qu'une suppression de projet a fait, tel que la Reine le rend. */
+export interface ProjetSupprime {
+  supprime: true;
+  projectId: string;
+  name: string;
+  /** Tâches en vol annulées d'abord (`force`). */
+  annulees: number;
+  /** Lignes effacées, par table — seulement celles qui en avaient. */
+  effaces: Record<string, number>;
+  lignes: number;
+  /** Le miroir du Rayon : effacé, il n'y en avait pas, ou le disque a refusé. */
+  miroir: 'efface' | 'absent' | 'echec';
+}
+
+/**
+ * Le refus d'une suppression, avec ce que l'écran doit pouvoir LIRE.
+ *
+ * `code` distingue ce que l'humain peut lever lui-même en forçant
+ * (`taches_en_vol` : les annuler d'abord) de ce qu'il faut attendre
+ * (`travail_non_annulable`) ou régler ailleurs (`hebergement_actif`). Proposer
+ * « forcer » sur ces deux-là promettrait un geste que la Reine refusera.
+ */
+export class RefusSuppression extends ApiError {
+  constructor(
+    message: string,
+    status: number,
+    readonly code?: string,
+    readonly taches: readonly { id: string; title: string; status: string }[] = [],
+  ) {
+    super(message, status);
+    this.name = 'RefusSuppression';
+  }
+}
+
+/**
+ * Supprime un projet — pour de bon, sauf l'événement d'audit. `force` annule
+ * d'abord ses tâches en vol.
+ *
+ * Son propre `fetch` (motif `livrerLocalement`) : le refus 409 porte la liste
+ * des tâches qui tournent, que `api()` réduirait à une phrase.
+ */
+export async function supprimerProjet(
+  projectId: string,
+  opts: { force?: boolean } = {},
+): Promise<ProjetSupprime> {
+  const refus = gardeSession();
+  if (refus) return refus;
+  const res = await fetch(
+    `/api/projects/${encodeURIComponent(projectId)}${opts.force ? '?force=true' : ''}`,
+    { method: 'DELETE', headers: enTetesRuche() },
+  );
+  let corps: Record<string, unknown> = {};
+  try {
+    corps = (await res.json()) as Record<string, unknown>;
+  } catch {
+    /* corps non-JSON : le statut parlera seul */
+  }
+  if (!res.ok) {
+    const texte = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
+    const { message } = messageApi(
+      {
+        ...(texte(corps.error) ? { error: texte(corps.error) } : {}),
+        ...(texte(corps.message) ? { message: texte(corps.message) } : {}),
+        ...(texte(corps.conseil) ? { detail: texte(corps.conseil) } : {}),
+      },
+      res.status,
+    );
+    const taches = Array.isArray(corps.taches)
+      ? (corps.taches as { id: string; title: string; status: string }[])
+      : [];
+    throw new RefusSuppression(message, res.status, texte(corps.code), taches);
+  }
+  return corps as unknown as ProjetSupprime;
+}
+
 export function admettreMembre(
   projectId: string,
   userId: string,
