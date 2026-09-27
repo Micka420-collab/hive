@@ -56,7 +56,7 @@ describe('serveurs — provisionnement automatique', () => {
     // Le premier compte est admin.
     const rep = await fetch(`${base}/api/auth/register`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-hive-token': TOKEN },
       body: JSON.stringify({ email: 'chef@x.fr', password: MDP, displayName: 'Chef' }),
     });
     const { token } = (await rep.json()) as { token: string };
@@ -316,7 +316,7 @@ describe('serveurs — l’administration', () => {
     const creer = async (email: string): Promise<string> => {
       const r = await fetch(`${base}/api/auth/register`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', 'x-hive-token': TOKEN },
         body: JSON.stringify({ email, password: MDP, displayName: 'Testeur' }),
       });
       return ((await r.json()) as { token: string }).token;

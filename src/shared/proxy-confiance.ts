@@ -14,14 +14,23 @@
 // `trustProxy: true` croit N'IMPORTE QUEL `X-Forwarded-For`. Sur une Reine
 // joignable en direct, un client écrirait l'IP qu'il veut dans cet en-tête et
 // changerait de compteur à chaque requête : le limiteur deviendrait décoratif.
-// La confiance se donne donc à des ADRESSES — celles du proxy —, ou à un
-// nombre de sauts quand on sait exactement combien il y en a. `true` est
+// La confiance se donne donc à des ADRESSES — celles du proxy. `true` est
 // refusé, et un refus ne relâche rien : on retombe sur « aucune confiance ».
+//
+// ─── POURQUOI UN NOMBRE DE SAUTS EST REFUSÉ LUI AUSSI ────────────────────────
+//
+// « Croire les n premiers sauts » ne regarde jamais QUI parle : le premier saut
+// est la socket, et la socket d'un client joignable en direct est le client
+// lui-même. Avec `1`, il suffisait donc d'écrire `X-Forwarded-For` pour changer
+// de compteur à chaque requête. Mesuré sur une Reine liée à une adresse LAN :
+// 60 connexions ratées, un X-Forwarded-For tournant — jamais de 429 avec `1`,
+// un 429 à la 21e sans réglage ou avec `loopback`. Fastify (5.12) ferme lui-même
+// ce chemin pour la même raison : un nombre n'y fait plus confiance à personne.
+// Seule une confiance par ADRESSE vérifie que le pair est bien le proxy.
 //
 // ─── CE QUI EST ACCEPTÉ ──────────────────────────────────────────────────────
 //
 //   (vide), 0, false, off, non   → aucune confiance (défaut : exposition directe)
-//   1 … 10                       → ce nombre de sauts de proxy
 //   liste séparée par virgules   → IP, CIDR, ou plages nommées de proxy-addr :
 //                                  loopback, linklocal, uniquelocal
 //
@@ -30,7 +39,7 @@
 
 import { isIP } from 'node:net';
 
-export type ConfianceProxy = false | number | string;
+export type ConfianceProxy = false | string;
 
 export interface LectureConfianceProxy {
   /** Ce que Fastify recevra en `trustProxy`. `false` quand rien n'est accordé. */
@@ -42,7 +51,6 @@ export interface LectureConfianceProxy {
 const AUCUNE = new Set(['', '0', 'false', 'off', 'non', 'no']);
 const TOUT = new Set(['true', 'yes', 'oui', 'on', '*', 'all', 'tout']);
 const PLAGES_NOMMEES = new Set(['loopback', 'linklocal', 'uniquelocal']);
-const SAUTS_MAX = 10;
 
 function jetonValide(jeton: string): boolean {
   if (PLAGES_NOMMEES.has(jeton)) return true;
@@ -64,16 +72,18 @@ export function lireConfianceProxy(brut: string | undefined): LectureConfiancePr
       valeur: false,
       refus:
         `HIVE_TRUST_PROXY=${brut?.trim()} ferait croire le X-Forwarded-For de n'importe quel ` +
-        'client : nommez le proxy (loopback, uniquelocal, une IP ou un CIDR) ou son nombre de ' +
-        'sauts. Aucune confiance accordée en attendant.',
+        'client : nommez le proxy (loopback, uniquelocal, une IP ou un CIDR). Aucune confiance ' +
+        'accordée en attendant.',
     };
   }
   if (/^\d+$/.test(texte)) {
-    const sauts = Number(texte);
-    if (sauts >= 1 && sauts <= SAUTS_MAX) return { valeur: sauts, refus: null };
     return {
       valeur: false,
-      refus: `HIVE_TRUST_PROXY=${texte} : un nombre de sauts va de 1 à ${SAUTS_MAX}. Aucune confiance accordée.`,
+      refus:
+        `HIVE_TRUST_PROXY=${texte} : un nombre de sauts n'est plus accepté — il ferait croire le ` +
+        'X-Forwarded-For de tout client joignable en direct. Valeurs acceptées : loopback (proxy ' +
+        'sur la même machine), uniquelocal (réseau privé, Docker), linklocal, une IP ou un CIDR ' +
+        '(plusieurs séparés par des virgules), ou vide. Aucune confiance accordée en attendant.',
     };
   }
   const jetons = texte
@@ -90,17 +100,4 @@ export function lireConfianceProxy(brut: string | undefined): LectureConfiancePr
     };
   }
   return { valeur: jetons.join(','), refus: null };
-}
-
-/**
- * La forme que Fastify accepte. Un nombre de sauts devient la fonction
- * qu'emploie `proxy-addr` pour un nombre : on croit les `n` premiers sauts
- * comptés depuis la socket. (Les types de Fastify n'acceptent pas le nombre
- * directement.)
- */
-export function confiancePourFastify(
-  valeur: ConfianceProxy,
-): boolean | string | ((adresse: string, saut: number) => boolean) {
-  if (typeof valeur === 'number') return (_adresse: string, saut: number) => saut < valeur;
-  return valeur;
 }

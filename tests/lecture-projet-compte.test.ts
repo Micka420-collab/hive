@@ -34,8 +34,24 @@ import type { HiveServer } from '../src/orchestrator/server.js';
 
 const TOKEN = 'jeton-lecture-suffisamment-long-42';
 
-/** Les lectures projet auxquelles ce lot ouvre la porte du compte. */
-const LECTURES = ['merge', 'merge/result', 'conflicts', 'balance', 'essaim', 'abonnement'];
+/**
+ * Les lectures projet auxquelles ce lot ouvre la porte du compte.
+ *
+ * Les quatre dernières n'avaient QUE le jeton de ruche : le propriétaire, venu
+ * avec son seul compte, recevait 401 sur le rapport de son propre projet.
+ */
+const LECTURES = [
+  'merge',
+  'merge/result',
+  'conflicts',
+  'balance',
+  'essaim',
+  'abonnement',
+  'report',
+  'fabriques',
+  'horizon',
+  'motifs/perso',
+];
 
 describe('lire un projet avec un COMPTE, sans le jeton de ruche', () => {
   let server: HiveServer;
@@ -46,9 +62,11 @@ describe('lire un projet avec un COMPTE, sans le jeton de ruche', () => {
   let projet = '';
 
   const inscrire = async (email: string): Promise<{ token: string; id: string }> => {
+    // Le jeton de ruche accompagne l'inscription : il est exigé du PREMIER
+    // compte (futur administrateur), et sans effet sur les suivants.
     const r = await fetch(`${base}/api/auth/register`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-hive-token': TOKEN },
       body: JSON.stringify({ email, password: 'motdepasse-assez-long-42', displayName: email }),
     });
     const { token } = (await r.json()) as { token: string };
@@ -104,12 +122,18 @@ describe('lire un projet avec un COMPTE, sans le jeton de ruche', () => {
     }
   });
 
-  it('UN TIERS NE LIT PAS LE PROJET PRIVÉ D’AUTRUI', async () => {
+  it('UN TIERS NE LIT PAS LE PROJET PRIVÉ D’AUTRUI — et le refus a la forme de l’inexistence', async () => {
     // L'ouverture ne doit ouvrir qu'à qui a affaire au projet : sinon on aurait
     // remplacé une incohérence par une fuite.
+    //
+    // 404, pas 401 : le tiers a présenté un compte VALIDE. Lui répondre
+    // « token invalide » avec la marche à suivre du HIVE_TOKEN le faisait
+    // chercher une panne de jeton qui n'existait pas ; et les octets sont ceux
+    // d'un projet qui n'existe pas, comme pour un engagement refusé.
     for (const chemin of LECTURES) {
       const res = await parCompte(jetonTiers, chemin);
-      expect(res.status, `${chemin} laisse passer un tiers`).toBe(401);
+      expect(res.status, `${chemin} laisse passer un tiers`).toBe(404);
+      expect(await res.text(), chemin).toBe(JSON.stringify({ error: 'projet inconnu' }));
     }
   });
 

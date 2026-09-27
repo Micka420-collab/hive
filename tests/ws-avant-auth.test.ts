@@ -133,3 +133,112 @@ describe('sur le vrai serveur', () => {
     expect(await envoyer(normal)).toBe(4401);
   });
 });
+
+// ─── COMBIEN D'INCONNUS À LA FOIS ────────────────────────────────────────────
+//
+// La taille d'un message d'inconnu est bornée ; leur NOMBRE ne l'était pas. Une
+// boucle qui ouvre des sockets sans jamais parler tenait un descripteur et trois
+// minuteurs chacune, cinq secondes durant, sans aucune identité. Le hub borne
+// désormais les sockets ANONYMES par client et en tout (`WS_ATTENTE_PAR_CLIENT`
+// = 16, `WS_ATTENTE_MAX` = 256) ; une socket authentifiée ne compte plus.
+//
+// Les clients se distinguent par `X-Forwarded-For`, la Reine faisant confiance
+// à la boucle locale : c'est le montage derrière Caddy, et c'est lui qui prouve
+// que le plafond « par client » vise le CLIENT — pas le proxy, qui verrait sans
+// cela tout le monde partager un seul compteur.
+describe('le nombre de sockets anonymes est borné — par client et en tout', () => {
+  let server: HiveServer;
+  let dir: string;
+  const TOKEN = 'jeton-ws-attente-suffisamment-long';
+  const ouvertes: WebSocket[] = [];
+
+  beforeAll(async () => {
+    dir = mkdtempSync(path.join(os.tmpdir(), 'hive-wsattente-'));
+    server = await createServer({
+      port: 0,
+      host: '127.0.0.1',
+      token: TOKEN,
+      corsOrigins: ['http://localhost:5173'],
+      dbPath: path.join(dir, 'hive.db'),
+      simulation: false,
+      tickMs: 60_000,
+      trustProxy: 'loopback',
+    });
+  });
+
+  afterAll(async () => {
+    for (const ws of ouvertes.splice(0)) ws.terminate();
+    await server.stop();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  /**
+   * Ouvre une socket muette au nom de `client` ; rend-la une fois ouverte, avec
+   * la promesse de son code de fermeture.
+   */
+  const muette = (client: string): Promise<{ ws: WebSocket; fermee: Promise<number> }> =>
+    new Promise((resolve, reject) => {
+      const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`, {
+        headers: { 'x-forwarded-for': client },
+      });
+      ouvertes.push(ws);
+      const fermee = new Promise<number>((r) => ws.once('close', (code) => r(code)));
+      ws.once('open', () => resolve({ ws, fermee }));
+      ws.once('error', reject);
+    });
+
+  /** Le code de fermeture, ou `'ouverte'` si la socket tient encore après `ms`. */
+  const issue = (fermee: Promise<number>, ms = 1_000): Promise<number | 'ouverte'> =>
+    Promise.race([fermee, new Promise<'ouverte'>((r) => setTimeout(() => r('ouverte'), ms))]);
+
+  const liberer = (): void => {
+    for (const ws of ouvertes.splice(0)) ws.terminate();
+  };
+
+  it('LA 17e SOCKET MUETTE D’UN MÊME CLIENT EST REFUSÉE — pas celle d’un autre client', async () => {
+    const a = '203.0.113.10';
+    await Promise.all(Array.from({ length: 16 }, () => muette(a)));
+    const dixSeptieme = await muette(a);
+    // 4429 fait écho au 429 HTTP : ce n'est pas l'identité qui manque, c'est la place.
+    expect(await issue(dixSeptieme.fermee), 'le 17e inconnu du même client').toBe(4429);
+
+    // B passe par le MÊME proxy : un plafond par socket de pair l'aurait
+    // refusé avec A. Il passe la garde — et c'est son jeton faux qui le ferme.
+    const b = await muette('203.0.113.20');
+    b.ws.send(JSON.stringify({ type: 'subscribe', token: 'pas-le-bon-jeton-du-tout' }));
+    expect(await issue(b.fermee), 'un autre client derrière le même proxy').toBe(4401);
+    liberer();
+  });
+
+  it('UNE SOCKET QUI S’AUTHENTIFIE LIBÈRE SA PLACE', async () => {
+    const c = '203.0.113.30';
+    const seize = await Promise.all(Array.from({ length: 16 }, () => muette(c)));
+    const premiere = seize[0]!;
+    const abonnee = new Promise<void>((r) =>
+      premiere.ws.on('message', (d) => {
+        if ((JSON.parse(d.toString()) as { type: string }).type === 'state') r();
+      }),
+    );
+    premiere.ws.send(JSON.stringify({ type: 'subscribe', token: TOKEN }));
+    await abonnee;
+    // Le tableau de bord abonné reste ouvert, mais il ne compte plus parmi les
+    // inconnus : la place qu'il occupait est rendue.
+    const suivante = await muette(c);
+    expect(await issue(suivante.fermee), 'la place rendue par l’authentification').toBe('ouverte');
+    expect(await issue(premiere.fermee, 50), 'le tableau de bord authentifié reste').toBe(
+      'ouverte',
+    );
+    liberer();
+  });
+
+  it('AU-DELÀ DE 256 INCONNUS EN TOUT, MÊME UN CLIENT NEUF ATTEND', async () => {
+    // Seize clients distincts, chacun à son propre plafond : c'est le plafond
+    // GLOBAL qui mord, pas celui du client.
+    await Promise.all(
+      Array.from({ length: 256 }, (_, i) => muette(`198.51.100.${Math.floor(i / 16) + 1}`)),
+    );
+    const neuf = await muette('192.0.2.77');
+    expect(await issue(neuf.fermee), 'le 257e inconnu, d’un client jamais vu').toBe(4429);
+    liberer();
+  }, 20_000);
+});

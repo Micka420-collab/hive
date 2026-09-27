@@ -39,7 +39,7 @@ describe('énumération d’adresses par l’inscription', () => {
   const inscrire = (email: string) =>
     fetch(`${base}/api/auth/register`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-hive-token': TOKEN },
       body: JSON.stringify({
         email,
         password: 'motdepasse-assez-long-42',
@@ -108,7 +108,7 @@ describe('énumération d’adresses par l’inscription', () => {
       for (let i = 0; i < 10; i++) {
         const res = await fetch(`http://127.0.0.1:${frais.port}/api/auth/register`, {
           method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          headers: { 'content-type': 'application/json', 'x-hive-token': TOKEN },
           body: JSON.stringify({
             email: `collegue${i}@atelier.test`,
             password: 'motdepasse-assez-long-42',

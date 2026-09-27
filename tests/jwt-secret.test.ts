@@ -180,7 +180,7 @@ describe('le secret de session — le démarrage', () => {
     const { base } = await demarrer({ secret: SECRET });
     const rep = await fetch(`${base}/api/auth/register`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-hive-token': TOKEN },
       body: JSON.stringify({ email: 'chef@x.fr', password: MDP, displayName: 'Chef' }),
     });
     expect(rep.status).toBe(200);
@@ -218,7 +218,7 @@ describe('le secret de session — la contrefaçon', () => {
     const chef = (await (
       await fetch(`${base}/api/auth/register`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', 'x-hive-token': TOKEN },
         body: JSON.stringify({ email: 'chef@x.fr', password: MDP, displayName: 'Chef' }),
       })
     ).json()) as { token: string };

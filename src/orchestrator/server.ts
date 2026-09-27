@@ -4,6 +4,7 @@
 // simulation), limite de taille des corps, validation de toutes les entrées.
 
 import cors from '@fastify/cors';
+import proxyAddr from '@fastify/proxy-addr';
 import fastifyStatic from '@fastify/static';
 import Fastify from 'fastify';
 import type { FastifyReply, FastifyRequest } from 'fastify';
@@ -14,6 +15,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 import type { WebSocket } from 'ws';
+import type { IncomingMessage } from 'node:http';
 import {
   hashPassword,
   verifyPassword,
@@ -26,7 +28,7 @@ import { shellForce } from '../shared/agent-production.js';
 import { calibrer, estimerDuree, resteEstime } from '../shared/horloge-chantier.js';
 import type { Calibration } from '../shared/horloge-chantier.js';
 import { encodeInvite, isWsUrl } from '../shared/invite.js';
-import { boucleLocale, inviteInjoignable } from '../shared/joignable.js';
+import { inviteInjoignable } from '../shared/joignable.js';
 import { portDepuisEnv } from '../shared/port.js';
 import { gardiennesDepuisEnv } from '../shared/reglages.js';
 import { editionDepuisEnv, secretWebhookExige } from '../shared/edition.js';
@@ -69,17 +71,14 @@ import {
   registreGenomeDepuisEvenements,
   TYPES_REGISTRE_GENOME,
 } from '../shared/registre-genome.js';
-import {
-  confiancePourFastify,
-  lireConfianceProxy,
-  type ConfianceProxy,
-} from '../shared/proxy-confiance.js';
+import { lireConfianceProxy, type ConfianceProxy } from '../shared/proxy-confiance.js';
 import {
   ouvertAuJetonDeRuche,
   peutAdmettre,
   peutAdopter,
   peutEngager,
   peutLireCode,
+  peutRegler,
   peutRejoindre,
   peutVoirMembres,
 } from '../shared/acces-projet.js';
@@ -286,7 +285,7 @@ import { buildMergePlan } from './honeycomb.js';
 import { tally, signatureOf } from './parliament.js';
 import type { Ballot } from './parliament.js';
 import { evaluate, missingCrossReviewEvidence } from './evaluator.js';
-import type { ValidationProvenance } from './evaluator.js';
+import type { EvaluationDecision, ValidationProvenance } from './evaluator.js';
 import { validationsDepuisControles } from './ci-evidence.js';
 import { CacheDomaines, domaineDeTache, replierTraces } from './pheromones.js';
 import type { Domaine, TraceePheromone } from './pheromones.js';
@@ -359,6 +358,23 @@ const WS_MSG_PER_SEC = 100;
  * coder : le pong fait partie du protocole WebSocket.
  */
 const WS_VIE_MS = 30_000;
+
+/**
+ * Sockets /ws encore ANONYMES tolérées en même temps, par client et en tout.
+ *
+ * Avant d'avoir parlé, une socket ne coûte presque rien à ouvrir et quelque
+ * chose à tenir : un descripteur, trois minuteurs, cinq secondes de fenêtre
+ * d'authentification. Rien ne bornait leur NOMBRE — une boucle d'ouvertures
+ * sans un seul message occupait le hub sans jamais présenter d'identité.
+ *
+ * Un client légitime s'authentifie dans la milliseconde : même une machine qui
+ * relance trois ouvrières et deux tableaux de bord après un redémarrage de la
+ * Reine reste loin de 16 sockets en attente. Le plafond global borne ce que
+ * mille adresses ensemble peuvent tenir ; celui par client empêche une seule
+ * de l'épuiser pour les autres. Une socket authentifiée ne compte plus.
+ */
+const WS_ATTENTE_PAR_CLIENT = 16;
+const WS_ATTENTE_MAX = 256;
 
 /** Nombre d'événements conservés dans le journal (les plus anciens sont purgés). */
 const EVENT_RETENTION = 5_000;
@@ -1732,7 +1748,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   const app = Fastify({
     bodyLimit: 1024 * 1024,
     logger: false,
-    trustProxy: confiancePourFastify(config.trustProxy ?? false),
+    trustProxy: config.trustProxy ?? false,
   });
 
   // Un corps VIDE annoncé en JSON vaut « pas de corps », pas une erreur.
@@ -2075,21 +2091,29 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
    * l'essaim lit le plan de merge, la balance et les tâches de n'importe quel
    * projet. Trancher cela change le contrat du produit — c'est une décision
    * d'hôte, pas un correctif qu'on glisse dans un lot.
+   *
+   * ─── UN COMPTE REFUSÉ N'EST PAS UN « JETON INVALIDE » ──────────────────────
+   *
+   * Le refus rendait 401 « token invalide » avec la marche à suivre du
+   * HIVE_TOKEN — à quelqu'un qui venait de présenter un compte VALIDE. Il
+   * cherchait donc une panne de jeton qui n'existait pas. Le verdict a
+   * maintenant les trois issues de l'engagement : 401 pour qui n'est personne,
+   * 404 (la forme de l'inexistence) pour un compte qui n'a pas affaire au
+   * projet.
    */
-  const lectureProjetPermise = (req: FastifyRequest, projectId: string): boolean => {
-    if (authorized(req)) return true;
-    if (!authorizedUser(req)) return false;
+  const lectureProjetPermise = (req: FastifyRequest, projectId: string): VerdictProjet => {
+    if (authorized(req)) return 'permis';
+    if (!authorizedUser(req)) return 'anonyme';
     const projet = store.getProject(projectId);
-    if (!projet) return false;
-    return peutLireCode(
-      projet,
-      lecteurDe(req),
-      store.estMembre(projectId, (req as AuthRequest).userId!),
-    );
+    if (!projet) return 'absent';
+    const moi = (req as AuthRequest).userId!;
+    return peutLireCode(projet, lecteurDe(req), store.estMembre(projectId, moi))
+      ? 'permis'
+      : 'absent';
   };
 
   /** Trois issues, et le refus ne doit pas dire laquelle. */
-  type VerdictEngagement = 'permis' | 'anonyme' | 'absent';
+  type VerdictProjet = 'permis' | 'anonyme' | 'absent';
 
   /**
    * Un ENGAGEMENT de projet est-il permis à cet appelant ? (ADR 0007, tranché)
@@ -2125,7 +2149,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
    * une ouverture. Le déséquilibre est assumé et écrit : c'est l'écriture qui a
    * des conséquences.
    */
-  const engagementProjetPermis = (req: FastifyRequest, projectId: string): VerdictEngagement => {
+  const engagementProjetPermis = (req: FastifyRequest, projectId: string): VerdictProjet => {
     // Qui n'a RIEN de valide n'a pas à apprendre si le projet existe : c'est le
     // seul cas qui mérite « jeton invalide », et il est indépendant du projet.
     const compte = authorizedUser(req);
@@ -2143,7 +2167,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   };
 
   /**
-   * Le refus d'un engagement, DE LA FORME EXACTE DE L'INEXISTENCE.
+   * Le refus d'une lecture ou d'un engagement, DE LA FORME EXACTE DE
+   * L'INEXISTENCE.
    *
    * C'est la convention du dépôt (`peutVoirMembres`, ADR 0005), et elle vaut
    * ici pour la même raison : un « 403 » poli sur un projet qu'on ne possède
@@ -2154,8 +2179,72 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
    * Le 401 est réservé à qui n'a présenté aucune identité valide : là, le refus
    * ne dit rien du projet, il dit que l'appelant n'est personne.
    */
-  const refuserEngagement = (reply: FastifyReply, verdict: VerdictEngagement): FastifyReply =>
+  const refuserProjet = (reply: FastifyReply, verdict: VerdictProjet): FastifyReply =>
     verdict === 'anonyme' ? reject(reply) : reply.code(404).send({ error: 'projet inconnu' });
+
+  /**
+   * Un RÉGLAGE de projet est-il permis à cet appelant ? (`peutRegler`)
+   *
+   * Autonomie, Garde-Fous, plafond de dépense, horizon, et passer outre
+   * l'Evaluator : ce qui décide de ce que le projet s'autorise ensuite. Il faut
+   * d'abord pouvoir ENGAGER le projet (sinon le refus garde la forme de
+   * l'inexistence), puis en répondre : propriétaire ou administrateur, par
+   * l'action `regler_autonomie` de la matrice — ou, sur un projet orphelin, le
+   * jeton de ruche, qui EST son propriétaire (ADR 0007).
+   *
+   * `reserve` : l'appelant a affaire au projet (il le lit, il y crée des
+   * tâches) mais n'en répond pas. Il SAIT que le projet existe : lui rendre un
+   * 404 le ferait chercher une panne inexistante, d'où un 403 qui dit à qui
+   * s'adresser.
+   */
+  const proprieteProjetPermise = (
+    req: FastifyRequest,
+    projectId: string,
+  ): VerdictProjet | 'reserve' => {
+    const engagement = engagementProjetPermis(req, projectId);
+    if (engagement !== 'permis') return engagement;
+    const projet = store.getProject(projectId);
+    if (!projet) return 'absent';
+    const moi = roleDe(req);
+    if (moi && peut(moi.role, 'regler_autonomie') && peutRegler(projet, lecteurDe(req))) {
+      return 'permis';
+    }
+    if (ouvertAuJetonDeRuche(projet) && authorized(req)) return 'permis';
+    return 'reserve';
+  };
+
+  const refuserReglage = (reply: FastifyReply, verdict: VerdictProjet | 'reserve'): FastifyReply =>
+    verdict === 'reserve'
+      ? reply.code(403).send({
+          error: 'réglage réservé au propriétaire du projet ou à un administrateur de la ruche',
+        })
+      : refuserProjet(reply, verdict);
+
+  /**
+   * Une TÂCHE qu'on peut engager, ou pourquoi pas.
+   *
+   * Les gestes sur une tâche — revue, annulation, course, ingestion de CI,
+   * nouvelle tentative, livraison — engagent son PROJET : ils se gardaient par
+   * le seul jeton de ruche, donc s'ouvraient sur le projet de n'importe qui dès
+   * qu'on en connaissait un identifiant de tâche. La règle a un seul
+   * propriétaire, `engagementProjetPermis`, appliquée au projet de la tâche.
+   *
+   * Une tâche inconnue passe par la même garde avec un projet introuvable :
+   * l'anonyme reçoit 401 AVANT d'apprendre si elle existe, et la tâche d'autrui
+   * rend les mêmes octets qu'une tâche qui n'existe pas.
+   */
+  const engagementTache = (
+    req: FastifyRequest,
+    taskId: string,
+  ): { verdict: 'permis'; task: Task } | { verdict: 'anonyme' | 'absent' } => {
+    const task = store.getTask(taskId);
+    const verdict = engagementProjetPermis(req, task?.projectId ?? '');
+    if (verdict === 'permis' && task) return { verdict, task };
+    return { verdict: verdict === 'anonyme' ? 'anonyme' : 'absent' };
+  };
+
+  const refuserTache = (reply: FastifyReply, verdict: 'anonyme' | 'absent'): FastifyReply =>
+    verdict === 'anonyme' ? reject(reply) : reply.code(404).send({ error: 'tâche inconnue' });
 
   app.get('/api/health', async () => ({ ok: true }));
 
@@ -2675,7 +2764,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   app.get<{ Params: { projectId: string } }>(
     '/api/projects/:projectId/fabriques',
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
+      const lecture = lectureProjetPermise(req, req.params.projectId);
+      if (lecture !== 'permis') return refuserProjet(reply, lecture);
       if (!store.getProject(req.params.projectId)) {
         return reply.code(404).send({ error: 'projet inconnu' });
       }
@@ -2711,11 +2801,9 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
       const projectId = req.params.projectId;
-      if (!store.getProject(projectId)) {
-        return reply.code(404).send({ error: 'projet inconnu' });
-      }
+      const permis = engagementProjetPermis(req, projectId);
+      if (permis !== 'permis') return refuserProjet(reply, permis);
       const { promptFabrique, validerGenreFabrique } = await import('./fabrique.js');
       const g = validerGenreFabrique(req.body.genre);
       if (!g.ok) return reply.code(400).send({ error: g.motif });
@@ -2762,8 +2850,12 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
-      const v = store.poserStatutFabrique(req.params.id, req.body.statut);
+      const permis = engagementProjetPermis(req, req.params.projectId);
+      if (permis !== 'permis') return refuserProjet(reply, permis);
+      // La fabrique est cherchée DANS le projet de l'URL : sans cela, un droit
+      // sur un projet orphelin suffisait à clore la fabrique de n'importe quel
+      // autre projet, pourvu qu'on en connaisse l'identifiant.
+      const v = store.poserStatutFabrique(req.params.projectId, req.params.id, req.body.statut);
       if (!v.ok) {
         const code = v.motif === 'inconnue' ? 404 : 409;
         return reply.code(code).send({ error: v.motif });
@@ -2792,7 +2884,9 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
+      // Un JUGEMENT, rien n'est écrit : la porte des lectures.
+      const lecture = lectureProjetPermise(req, req.params.projectId);
+      if (lecture !== 'permis') return refuserProjet(reply, lecture);
       if (!store.getProject(req.params.projectId)) {
         return reply.code(404).send({ error: 'projet inconnu' });
       }
@@ -2813,7 +2907,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   app.get<{ Params: { projectId: string } }>(
     '/api/projects/:projectId/horizon',
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
+      const lecture = lectureProjetPermise(req, req.params.projectId);
+      if (lecture !== 'permis') return refuserProjet(reply, lecture);
       if (!store.getProject(req.params.projectId)) {
         return reply.code(404).send({ error: 'projet inconnu' });
       }
@@ -2843,7 +2938,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
+      const reglage = proprieteProjetPermise(req, req.params.projectId);
+      if (reglage !== 'permis') return refuserReglage(reply, reglage);
       const v = store.ajouterHorizon(
         req.params.projectId,
         req.body.kind,
@@ -2890,10 +2986,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
-      if (!store.getProject(req.params.projectId)) {
-        return reply.code(404).send({ error: 'projet inconnu' });
-      }
+      const permis = engagementProjetPermis(req, req.params.projectId);
+      if (permis !== 'permis') return refuserProjet(reply, permis);
       const { appliquerMotif } = await import('./motifs.js');
       const lang = req.body?.lang === 'en' ? 'en' : 'fr';
       const v = appliquerMotif(req.params.motifId, lang, req.body?.corps);
@@ -2923,7 +3017,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   app.get<{ Params: { projectId: string } }>(
     '/api/projects/:projectId/motifs/perso',
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
+      const lecture = lectureProjetPermise(req, req.params.projectId);
+      if (lecture !== 'permis') return refuserProjet(reply, lecture);
       if (!store.getProject(req.params.projectId)) {
         return reply.code(404).send({ error: 'projet inconnu' });
       }
@@ -2955,11 +3050,9 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
       const projectId = req.params.projectId;
-      if (!store.getProject(projectId)) {
-        return reply.code(404).send({ error: 'projet inconnu' });
-      }
+      const permis = engagementProjetPermis(req, projectId);
+      if (permis !== 'permis') return refuserProjet(reply, permis);
       const { expliquerRefusMotifPerso } = await import('./motifs.js');
       const v = store.creerMotifProjet(projectId, req.body.libelle, req.body.etapes);
       if (!v.ok) {
@@ -2972,11 +3065,9 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   app.post<{ Params: { projectId: string; motifId: string } }>(
     '/api/projects/:projectId/motifs/perso/:motifId/appliquer',
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
       const projectId = req.params.projectId;
-      if (!store.getProject(projectId)) {
-        return reply.code(404).send({ error: 'projet inconnu' });
-      }
+      const permis = engagementProjetPermis(req, projectId);
+      if (permis !== 'permis') return refuserProjet(reply, permis);
       const m = store.lireMotifProjet(req.params.motifId);
       if (!m || m.projectId !== projectId) {
         return reply.code(404).send({ error: 'inconnu' });
@@ -3027,13 +3118,14 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       if (!isValidEmail(email)) return reply.status(400).send({ error: 'Email invalide' });
 
       // L'inscription peut être fermée ou sur invitation. Le PREMIER compte
-      // passe toujours : sinon une ruche installée en « fermée » serait
-      // définitivement inutilisable, sans moyen de créer son administrateur.
+      // passe quel que soit le mode — sinon une ruche installée en « fermée »
+      // n'aurait jamais d'administrateur —, mais jamais sans le jeton de ruche :
+      // l'adresse d'écoute ne dit pas qui parle (un proxy sur la même machine
+      // relaie Internet par la boucle locale). Cf. `inscriptionPermise`.
       const comptes = store.countUsers();
       const porte = inscriptionPermise({
         mode: modeInscription,
         comptesExistants: comptes,
-        exposee: !boucleLocale(config.host),
         jetonDeRuche: authorized(req),
       });
       if (!porte.permise) return reply.status(403).send({ error: porte.motif });
@@ -3686,7 +3778,89 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     );
   };
 
-  app.post<{ Body: { taskId: string; base?: string } }>(
+  /**
+   * Les verdicts de l'Evaluator qui ARRÊTENT une livraison ou une fusion.
+   *
+   * Deux seulement, et ce sont les deux où quelqu'un a DIT non : une preuve
+   * indépendante (Gardiennes, contre-revue, CI, revue humaine) demande une
+   * correction, ou la production est rejetée. `human_review_required` et
+   * `additional_test_required` disent qu'une preuve MANQUE — ce n'est pas un
+   * refus, et l'humain qui livre est justement celui qui relit.
+   */
+  const VERDICTS_BLOQUANTS: ReadonlySet<EvaluationDecision> = new Set<EvaluationDecision>([
+    'correction_required',
+    'rejected',
+  ]);
+
+  /** Schéma du geste qui passe outre : la raison est OBLIGATOIRE, elle est journalisée. */
+  const SCHEMA_FORCER = {
+    type: 'object',
+    required: ['raison'],
+    additionalProperties: false,
+    properties: { raison: { type: 'string', minLength: 3, maxLength: 500, pattern: '\\S' } },
+  } as const;
+
+  /**
+   * L'Evaluator laisse-t-il partir cette production ? Répond et rend la
+   * réponse s'il l'arrête ; rend `null` si le geste peut continuer.
+   *
+   * ─── CE QUI MANQUAIT ───────────────────────────────────────────────────────
+   *
+   * La livraison ouvrait une pull request pour tout dernier résultat réussi,
+   * et la fusion fusionnait sans lire l'évaluation : une production que les
+   * Gardiennes jugeaient creuse, qu'une contre-revue contestait ou que la CI
+   * rendait rouge partait sur le dépôt du propriétaire exactement comme une
+   * production acceptée. L'Evaluator rendait un verdict que personne n'écoutait
+   * au seul moment où il comptait.
+   *
+   * ─── POURQUOI UN REFUS QU'ON PEUT FORCER, ET PAR QUI ───────────────────────
+   *
+   * Le verdict peut se tromper, et la décision finale reste humaine. Mais
+   * passer outre est un RÉGLAGE du projet, pas un engagement : il faut en
+   * répondre (`proprieteProjetPermise` — propriétaire, administrateur, ou le
+   * jeton sur un projet orphelin), dire pourquoi (`forcer.raison`), et le geste
+   * est journalisé (`evaluator_overridden` : qui, pourquoi, contre quel
+   * verdict) AVANT d'agir — une livraison forcée qui échoue ensuite reste un
+   * choix qu'on retrouve.
+   */
+  const refusEvaluator = (
+    req: FastifyRequest,
+    reply: FastifyReply,
+    task: Task,
+    geste: 'livraison' | 'fusion',
+    forcer: { raison: string } | undefined,
+  ): FastifyReply | null => {
+    const { latest, evaluation } = evaluationPour(task);
+    if (!VERDICTS_BLOQUANTS.has(evaluation.decision)) return null;
+    if (!forcer) {
+      return reply.code(409).send({
+        code: 'evaluator_blocks',
+        error: `l’Evaluator a rendu « ${evaluation.decision} » sur cette production`,
+        decision: evaluation.decision,
+        raisons: evaluation.reasons,
+        conseil:
+          'Faites corriger la production (rejet dans la Miellerie, ou POST ' +
+          `/api/tasks/${task.id}/evaluation/retry), puis recommencez. Le propriétaire du ` +
+          'projet ou un administrateur peut passer outre en renvoyant la demande avec ' +
+          '« forcer: { raison } » (CLI : --forcer="raison") — le geste est journalisé.',
+      });
+    }
+    const droit = proprieteProjetPermise(req, task.projectId);
+    if (droit !== 'permis') return refuserReglage(reply, droit);
+    emitEvent('evaluator_overridden', {
+      taskId: task.id,
+      projectId: task.projectId,
+      geste,
+      resultId: latest?.resultId ?? null,
+      decision: evaluation.decision,
+      raisons: evaluation.reasons,
+      raison: forcer.raison,
+      parUserId: (req as AuthRequest).userId ?? null,
+    });
+    return null;
+  };
+
+  app.post<{ Body: { taskId: string; base?: string; forcer?: { raison: string } } }>(
     '/api/livraison',
     {
       schema: {
@@ -3697,16 +3871,19 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           properties: {
             taskId: { type: 'string', minLength: 1, maxLength: 200 },
             base: { type: 'string', minLength: 1, maxLength: 200 },
+            forcer: SCHEMA_FORCER,
           },
         },
       },
     },
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
+      // Livrer ouvre une PR avec le jeton GitHub de l'HÔTE, au nom du projet :
+      // c'est un engagement, gardé comme les autres (ADR 0007).
+      const acces = engagementTache(req, req.body.taskId);
+      if (acces.verdict !== 'permis') return refuserTache(reply, acces.verdict);
       if (!jetonGithub) return sansJeton(reply);
 
-      const task = store.getTask(req.body.taskId);
-      if (!task) return reply.code(404).send({ error: 'tâche inconnue' });
+      const task = acces.task;
       const projet = store.getProject(task.projectId);
       const depot = depotDepuisUrl(projet?.repoUrl ?? null);
       if (!depot) {
@@ -3728,6 +3905,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       if (typeof dernier.resultId !== 'number') {
         return reply.code(409).send({ error: 'production sans identifiant' });
       }
+      const refus = refusEvaluator(req, reply, task, 'livraison', req.body.forcer);
+      if (refus) return refus;
       const noeud = store.getNode(dernier.nodeId);
       const inspection = inspectionDeProduction(
         store.listInspections(),
@@ -3849,7 +4028,14 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
    * ni un runner, ni une réaction à un résultat de tâche. Elle existe pour
    * qu'un humain qui a relu puisse conclure sans quitter la ruche.
    */
-  app.post<{ Body: { projectId: string; pr: number; methode?: 'merge' | 'squash' | 'rebase' } }>(
+  app.post<{
+    Body: {
+      projectId: string;
+      pr: number;
+      methode?: 'merge' | 'squash' | 'rebase';
+      forcer?: { raison: string };
+    };
+  }>(
     '/api/livraison/fusion',
     {
       schema: {
@@ -3861,12 +4047,14 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
             projectId: { type: 'string', minLength: 1, maxLength: 200 },
             pr: { type: 'integer', minimum: 1 },
             methode: { type: 'string', enum: ['merge', 'squash', 'rebase'] },
+            forcer: SCHEMA_FORCER,
           },
         },
       },
     },
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
+      const permis = engagementProjetPermis(req, req.body.projectId);
+      if (permis !== 'permis') return refuserProjet(reply, permis);
       if (!jetonGithub) return sansJeton(reply);
       const depot = depotDepuisUrl(store.getProject(req.body.projectId)?.repoUrl ?? null);
       if (!depot) return reply.code(404).send({ error: 'projet sans dépôt GitHub' });
@@ -3887,7 +4075,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // place sur une PR qu'on n'a pas écrite.
       const nôtre = store
         .listLivraisons(req.body.projectId)
-        .some((l) => l.etat === 'ouverte' && l.pr === req.body.pr && l.depot === depot);
+        .find((l) => l.etat === 'ouverte' && l.pr === req.body.pr && l.depot === depot);
       if (!nôtre) {
         return reply.code(409).send({
           error: 'cette pull request n’a pas été ouverte par la ruche',
@@ -3895,6 +4083,13 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
             'La ruche ne fusionne que ce qu’elle a livré. Pour les autres pull requests, ' +
             'passez par GitHub — c’est votre dépôt, pas le sien.',
         });
+      }
+      // Le verdict est relu AU MOMENT de fusionner : la CI ingérée, une
+      // contre-revue ou une revue humaine arrivées après la livraison comptent.
+      const tacheLivree = store.getTask(nôtre.taskId);
+      if (tacheLivree) {
+        const refus = refusEvaluator(req, reply, tacheLivree, 'fusion', req.body.forcer);
+        if (refus) return refus;
       }
 
       try {
@@ -4181,7 +4376,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   app.get<{ Params: { projectId: string } }>(
     '/api/projects/:projectId/essaim',
     async (req, reply) => {
-      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
+      const lecture = lectureProjetPermise(req, req.params.projectId);
+      if (lecture !== 'permis') return refuserProjet(reply, lecture);
       if (!store.getProject(req.params.projectId)) {
         return reply.code(404).send({ error: 'projet inconnu' });
       }
@@ -4240,7 +4436,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   app.get<{ Params: { projectId: string }; Querystring: { limit?: string } }>(
     '/api/projects/:projectId/essaim/cycles',
     async (req, reply) => {
-      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
+      const lecture = lectureProjetPermise(req, req.params.projectId);
+      if (lecture !== 'permis') return refuserProjet(reply, lecture);
       if (!store.getProject(req.params.projectId)) {
         return reply.code(404).send({ error: 'projet inconnu' });
       }
@@ -4271,6 +4468,11 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
    * `depotInscrit` est l'autorisation de fusionner, donnée UNE FOIS pour ce
    * dépôt. Elle est distincte du niveau, et les deux sont exigées ensemble pour
    * qu'une fusion parte (essaim.ts, `deciderPas`).
+   *
+   * RÉSERVÉ À QUI RÉPOND DU PROJET (`proprieteProjetPermise`). Le jeton de
+   * ruche seul, que chaque machine membre détient, suffisait : n'importe quelle
+   * abeille pouvait régler `plein` + dépôt inscrit sur le projet d'autrui, et la
+   * ruche fusionnait ensuite toute seule sur son dépôt.
    */
   app.post<{
     Params: { projectId: string };
@@ -4291,7 +4493,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
+      const reglage = proprieteProjetPermise(req, req.params.projectId);
+      if (reglage !== 'permis') return refuserReglage(reply, reglage);
       const projet = store.getProject(req.params.projectId);
       if (!projet) return reply.code(404).send({ error: 'projet inconnu' });
 
@@ -4341,7 +4544,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   app.get<{ Params: { projectId: string } }>(
     '/api/projects/:projectId/garde-fou',
     async (req, reply) => {
-      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
+      const lecture = lectureProjetPermise(req, req.params.projectId);
+      if (lecture !== 'permis') return refuserProjet(reply, lecture);
       if (!store.getProject(req.params.projectId)) {
         return reply.code(404).send({ error: 'projet inconnu' });
       }
@@ -4385,10 +4589,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
-      if (!store.getProject(req.params.projectId)) {
-        return reply.code(404).send({ error: 'projet inconnu' });
-      }
+      const reglage = proprieteProjetPermise(req, req.params.projectId);
+      if (reglage !== 'permis') return refuserReglage(reply, reglage);
       store.setGardeFou(
         req.params.projectId,
         { actif: req.body.actif, borneMin: req.body.borneMin, borneMax: req.body.borneMax },
@@ -4926,7 +5128,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   app.get<{ Params: { projectId: string } }>(
     '/api/projects/:projectId/abonnement',
     async (req, reply) => {
-      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
+      const lecture = lectureProjetPermise(req, req.params.projectId);
+      if (lecture !== 'permis') return refuserProjet(reply, lecture);
       if (!store.getProject(req.params.projectId)) {
         return reply.code(404).send({ error: 'projet inconnu' });
       }
@@ -5286,7 +5489,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     },
     async (req, reply) => {
       const permis = engagementProjetPermis(req, req.params.projectId);
-      if (permis !== 'permis') return refuserEngagement(reply, permis);
+      if (permis !== 'permis') return refuserProjet(reply, permis);
       const project = store.getProject(req.params.projectId);
       if (!project) return reply.code(404).send({ error: 'projet inconnu' });
       // Un seul conseil à la fois par projet : deux conseils concurrents
@@ -5687,12 +5890,22 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   });
 
   /**
-   * Ce que les guetteuses ont vu. Réservé à l'hôte : c'est un renseignement
-   * sur qui s'intéresse à sa ruche.
+   * Ce que les guetteuses ont vu : un niveau, des chemins, des appâts.
+   *
+   * ─── CE QUE LE COMMENTAIRE PROMETTAIT, ET CE QUE LA GARDE TENAIT ──────────
+   *
+   * Il disait « réservé à l'hôte » ; la garde est le jeton de ruche, que chaque
+   * machine membre détient. Et la réponse portait l'ADRESSE de chaque passage —
+   * qui s'intéresse à la ruche, lisible par tout l'essaim. On ne ferme pas le
+   * panneau (il sert à chacun de savoir qu'on sonde la ruche, et le nombre
+   * d'adresses distinctes suffit à le dire) : on cesse d'envoyer les adresses,
+   * que l'écran n'affichait d'ailleurs pas. Elles restent en mémoire, où elles
+   * servent au décompte.
    */
   app.get('/api/guet', async (req, reply) => {
     if (!authorized(req)) return reply.status(401).send({ error: 'Non autorisé' });
-    return reply.send({ ...guet.verdict(Date.now()), derniers: guet.derniers() });
+    const derniers = guet.derniers().map(({ chemin, appat, quand }) => ({ chemin, appat, quand }));
+    return reply.send({ ...guet.verdict(Date.now()), derniers });
   });
 
   app.get('/api/pulse', async (req, reply) => {
@@ -5865,7 +6078,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
+      const lecture = lectureProjetPermise(req, req.params.projectId);
+      if (lecture !== 'permis') return refuserProjet(reply, lecture);
       const project = store.getProject(req.params.projectId);
       if (!project) return reply.code(404).send({ error: 'projet inconnu' });
       const balance = scheduler.balance;
@@ -5935,12 +6149,14 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
+      const reglage = proprieteProjetPermise(req, req.params.projectId);
+      if (reglage !== 'permis') return refuserReglage(reply, reglage);
       const project = store.getProject(req.params.projectId);
       if (!project) return reply.code(404).send({ error: 'projet inconnu' });
       // `definiPar` est une TRACE (qui a serré la vis), jamais une
-      // autorisation : la garde reste le token du hub. Si un Bearer JWT valide
-      // accompagne la requête, on sait QUI ; sinon `null`, et c'est très bien.
+      // autorisation : la garde est `proprieteProjetPermise`. Si un Bearer JWT
+      // valide accompagne la requête, on sait QUI ; sinon `null` — le jeton de
+      // ruche sur un projet orphelin —, et c'est très bien.
       const definiPar = authorizedUser(req) ? ((req as AuthRequest).userId ?? null) : null;
       // Le geste humain est journalisé AVANT d'être appliqué : `setPlafond`
       // relance l'assignation dans la foulée et peut donc émettre un
@@ -6225,8 +6441,9 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      // DEUX PORTES. Le jeton de ruche (membres de l'essaim, CLI) — ou un lien
-      // de partage portant `voir_avancement`.
+      // TROIS PORTES. Celles des autres lectures (`lectureProjetPermise` : le
+      // jeton de ruche, ou un compte qui a affaire au projet) — ou un lien de
+      // partage portant `voir_avancement`.
       //
       // CET ACTE ÉTAIT DÉCLARÉ ET INUTILISABLE. `ACTES_PARTAGES` l'annonce
       // depuis le premier jour, et AUCUNE route ne le consultait : les trois
@@ -6234,14 +6451,17 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // « voir l'avancement » ne montrait donc jamais d'avancement — on
       // promettait au porteur une chose qu'on ne lui donnait pas.
       //
-      // L'ordre compte : le refus d'un appelant sans droit reste `reject`, le
-      // même que le projet existe ou non. Chercher le projet d'abord sert
-      // seulement à juger le lien, jamais à répondre.
+      // L'ordre compte : le refus d'un appelant sans droit ne dépend pas de
+      // l'existence du projet. Chercher le projet d'abord sert seulement à
+      // juger le lien, jamais à répondre.
       const project = store.getProject(req.params.projectId);
       const parPartage = project
         ? partagePermet(req, project.id, 'voir_avancement')
         : { ok: false as const };
-      if (!parPartage.ok && !authorized(req)) return reject(reply);
+      if (!parPartage.ok) {
+        const lecture = lectureProjetPermise(req, req.params.projectId);
+        if (lecture !== 'permis') return refuserProjet(reply, lecture);
+      }
       if (!project) return reply.code(404).send({ error: 'projet inconnu' });
       const rapport = buildProjectReport(project, store.listTasks(project.id));
       if (!parPartage.ok) return rapport;
@@ -6293,7 +6513,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     },
     async (req, reply) => {
       const permis = engagementProjetPermis(req, req.params.projectId);
-      if (permis !== 'permis') return refuserEngagement(reply, permis);
+      if (permis !== 'permis') return refuserProjet(reply, permis);
       const project = store.getProject(req.params.projectId);
       if (!project) return reply.code(404).send({ error: 'projet inconnu' });
 
@@ -6373,7 +6593,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
+      const lecture = lectureProjetPermise(req, req.params.projectId);
+      if (lecture !== 'permis') return refuserProjet(reply, lecture);
       const project = store.getProject(req.params.projectId);
       if (!project) return reply.code(404).send({ error: 'projet inconnu' });
       return { conflicts: detectConflicts(store.listTasks(project.id)) };
@@ -6395,7 +6616,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
+      const lecture = lectureProjetPermise(req, req.params.projectId);
+      if (lecture !== 'permis') return refuserProjet(reply, lecture);
       const project = store.getProject(req.params.projectId);
       if (!project) return reply.code(404).send({ error: 'projet inconnu' });
       const tasks = store.listTasks(project.id);
@@ -6458,7 +6680,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     },
     async (req, reply) => {
       const permis = engagementProjetPermis(req, req.params.projectId);
-      if (permis !== 'permis') return refuserEngagement(reply, permis);
+      if (permis !== 'permis') return refuserProjet(reply, permis);
       const project = store.getProject(req.params.projectId);
       if (!project) return reply.code(404).send({ error: 'projet inconnu' });
       if (!project.repoUrl) {
@@ -6631,7 +6853,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // jeton de ruche. `projetLisible` exige un COMPTE, ce qui fermerait cette
       // liste à la CLI et à un script — or lire les chantiers d'un projet est
       // exactement ce qu'un script fait avant d'en lancer un.
-      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
+      const lecture = lectureProjetPermise(req, req.params.projectId);
+      if (lecture !== 'permis') return refuserProjet(reply, lecture);
       const project = store.getProject(req.params.projectId);
       if (!project) return reply.code(404).send({ error: 'projet inconnu' });
       if (!(await assurerMiroir(project, reply))) return reply;
@@ -6667,7 +6890,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     },
     async (req, reply) => {
       const permis = engagementProjetPermis(req, req.params.projectId);
-      if (permis !== 'permis') return refuserEngagement(reply, permis);
+      if (permis !== 'permis') return refuserProjet(reply, permis);
       const project = store.getProject(req.params.projectId);
       if (!project) return reply.code(404).send({ error: 'projet inconnu' });
       if (!project.repoUrl) {
@@ -6788,7 +7011,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   app.get<{ Params: { projectId: string } }>(
     '/api/projects/:projectId/workflows',
     async (req, reply) => {
-      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
+      const lecture = lectureProjetPermise(req, req.params.projectId);
+      if (lecture !== 'permis') return refuserProjet(reply, lecture);
       const project = store.getProject(req.params.projectId);
       if (!project) return reply.code(404).send({ error: 'projet inconnu' });
       if (!jetonGithub) return sansJeton(reply);
@@ -6809,7 +7033,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   app.get<{ Params: { projectId: string }; Querystring: { workflowId?: string } }>(
     '/api/projects/:projectId/workflows/runs',
     async (req, reply) => {
-      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
+      const lecture = lectureProjetPermise(req, req.params.projectId);
+      if (lecture !== 'permis') return refuserProjet(reply, lecture);
       const project = store.getProject(req.params.projectId);
       if (!project) return reply.code(404).send({ error: 'projet inconnu' });
       if (!jetonGithub) return sansJeton(reply);
@@ -6853,7 +7078,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     },
     async (req, reply) => {
       const permis = engagementProjetPermis(req, req.params.projectId);
-      if (permis !== 'permis') return refuserEngagement(reply, permis);
+      if (permis !== 'permis') return refuserProjet(reply, permis);
       const project = store.getProject(req.params.projectId);
       if (!project) return reply.code(404).send({ error: 'projet inconnu' });
       if (!jetonGithub) return sansJeton(reply);
@@ -6902,7 +7127,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   app.get<{ Params: { projectId: string } }>(
     '/api/projects/:projectId/chantiers/result',
     async (req, reply) => {
-      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
+      const lecture = lectureProjetPermise(req, req.params.projectId);
+      if (lecture !== 'permis') return refuserProjet(reply, lecture);
       return reply.send({ resultat: chantierResults.get(req.params.projectId) ?? null });
     },
   );
@@ -6920,7 +7146,8 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!lectureProjetPermise(req, req.params.projectId)) return reject(reply);
+      const lecture = lectureProjetPermise(req, req.params.projectId);
+      if (lecture !== 'permis') return refuserProjet(reply, lecture);
       if (!store.getProject(req.params.projectId)) {
         return reply.code(404).send({ error: 'projet inconnu' });
       }
@@ -7092,9 +7319,9 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
-      const task = store.getTask(req.params.taskId);
-      if (!task) return reply.code(404).send({ error: 'tâche inconnue' });
+      const acces = engagementTache(req, req.params.taskId);
+      if (acces.verdict !== 'permis') return refuserTache(reply, acces.verdict);
+      const task = acces.task;
       // Pas de pré-approbation : on ne juge un diff qu'une fois la tâche
       // terminée (409 comme /cancel pour les conflits d'état). L'effacement
       // (null) reste permis quel que soit le statut — toujours sûr.
@@ -7238,9 +7465,9 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
-      const task = store.getTask(req.params.taskId);
-      if (!task) return reply.code(404).send({ error: 'tâche inconnue' });
+      const acces = engagementTache(req, req.params.taskId);
+      if (acces.verdict !== 'permis') return refuserTache(reply, acces.verdict);
+      const task = acces.task;
 
       const results = store.resultsForTask(task.id);
       const latest = results[results.length - 1];
@@ -7375,9 +7602,9 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
-      const task = store.getTask(req.params.taskId);
-      if (!task) return reply.code(404).send({ error: 'tâche inconnue' });
+      const acces = engagementTache(req, req.params.taskId);
+      if (acces.verdict !== 'permis') return refuserTache(reply, acces.verdict);
+      const task = acces.task;
       const { latest, evaluation } = evaluationPour(task);
       if (
         !latest?.resultId ||
@@ -7434,8 +7661,9 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
-      const started = scheduler.startRace(req.params.taskId, req.body.factor ?? 3);
+      const acces = engagementTache(req, req.params.taskId);
+      if (acces.verdict !== 'permis') return refuserTache(reply, acces.verdict);
+      const started = scheduler.startRace(acces.task.id, req.body.factor ?? 3);
       if (!started.ok) {
         const code = started.error.includes('inconnue')
           ? 404
@@ -7498,9 +7726,9 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
-      const task = store.getTask(req.params.taskId);
-      if (!task) return reply.code(404).send({ error: 'tâche inconnue' });
+      const acces = engagementTache(req, req.params.taskId);
+      if (acces.verdict !== 'permis') return refuserTache(reply, acces.verdict);
+      const task = acces.task;
       if (task.status === 'done' || task.status === 'failed') {
         return reply.code(409).send({ error: `tâche déjà ${task.status}` });
       }
@@ -7562,7 +7790,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     },
     async (req, reply) => {
       const permis = engagementProjetPermis(req, req.params.projectId);
-      if (permis !== 'permis') return refuserEngagement(reply, permis);
+      if (permis !== 'permis') return refuserProjet(reply, permis);
       if (!jetonGithub) return reply.code(503).send({ error: SANS_JETON_GITHUB });
 
       const rangees = store.listLivraisons(req.params.projectId);
@@ -7636,7 +7864,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     },
     async (req, reply) => {
       const permis = engagementProjetPermis(req, req.params.projectId);
-      if (permis !== 'permis') return refuserEngagement(reply, permis);
+      if (permis !== 'permis') return refuserProjet(reply, permis);
       if (!jetonGithub) return reply.code(503).send({ error: SANS_JETON_GITHUB });
 
       const rangee = store.getLivraison(req.params.taskId);
@@ -7746,7 +7974,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     },
     async (req, reply) => {
       const permis = engagementProjetPermis(req, req.params.projectId);
-      if (permis !== 'permis') return refuserEngagement(reply, permis);
+      if (permis !== 'permis') return refuserProjet(reply, permis);
       const project = store.getProject(req.params.projectId);
       if (!project) return reply.code(404).send({ error: 'projet inconnu' });
 
@@ -7790,7 +8018,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     },
     async (req, reply) => {
       const permis = engagementProjetPermis(req, req.params.projectId);
-      if (permis !== 'permis') return refuserEngagement(reply, permis);
+      if (permis !== 'permis') return refuserProjet(reply, permis);
       const project = store.getProject(req.params.projectId);
       if (!project) return reply.code(404).send({ error: 'projet inconnu' });
 
@@ -7927,7 +8155,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     },
     async (req, reply) => {
       const permis = engagementProjetPermis(req, req.params.projectId);
-      if (permis !== 'permis') return refuserEngagement(reply, permis);
+      if (permis !== 'permis') return refuserProjet(reply, permis);
       const project = store.getProject(req.params.projectId);
       if (!project) return reply.code(404).send({ error: 'projet inconnu' });
 
@@ -8382,12 +8610,17 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       // RETOUCHER N'EST PAS LIRE. Un porteur de lien de partage lit ; il ne
       // fabrique pas de travail pour l'essaim. On exige donc un COMPTE, et
       // `projetLisible` n'est pas la bonne garde ici.
+      //
+      // Et un compte qui peut LIRE ne suffit pas davantage : sur un projet
+      // PUBLIC, `peutLireCode` laisse passer tout inscrit, qui créait ainsi
+      // une tâche sur le projet d'autrui — le même inscrit recevait 404 sur
+      // POST /tasks. La garde est celle de l'engagement (`peutEngager`).
       if (!authorizedUser(req)) return reply.status(401).send({ error: 'Non authentifié' });
       const userId = (req as AuthRequest).userId!;
       const project = store.getProject(req.params.projectId);
       if (
         !project ||
-        !peutLireCode(project, lecteurDe(req), store.estMembre(req.params.projectId, userId))
+        !peutEngager(project, lecteurDe(req), store.estMembre(req.params.projectId, userId))
       ) {
         return reply.code(404).send({ error: 'projet inconnu' });
       }
@@ -8470,11 +8703,13 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       },
     },
     async (req, reply) => {
-      if (!authorizedUser(req) && !authorized(req)) {
-        return reply.status(401).send({ error: 'Non authentifié' });
-      }
-      const project = projetLisible(req, reply);
-      if (!project) return reply;
+      // ÉCRIRE UNE SAUVEGARDE ENGAGE LE PROJET : son patch finit dans le prompt
+      // d'une tâche à la restauration. La garde était `projetLisible` — un
+      // lien de partage, ou tout compte sur un projet PUBLIC, suffisait.
+      const permis = engagementProjetPermis(req, req.params.projectId);
+      if (permis !== 'permis') return refuserProjet(reply, permis);
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
       if (!libelleManuelValide(req.body.label)) {
         return reply.code(400).send({ error: 'libellé invalide' });
       }
@@ -8505,11 +8740,11 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   app.post<{ Params: { projectId: string; sauvegardeId: string } }>(
     '/api/projects/:projectId/sauvegardes/:sauvegardeId/restaurer',
     async (req, reply) => {
-      if (!authorizedUser(req) && !authorized(req)) {
-        return reply.status(401).send({ error: 'Non authentifié' });
-      }
-      const project = projetLisible(req, reply);
-      if (!project) return reply;
+      // Restaurer CRÉE UNE TÂCHE : même garde que POST /tasks.
+      const permis = engagementProjetPermis(req, req.params.projectId);
+      if (permis !== 'permis') return refuserProjet(reply, permis);
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
       const s = store.getSauvegarde(req.params.sauvegardeId);
       if (!s || s.projectId !== project.id) {
         return reply.code(404).send({ error: 'sauvegarde introuvable' });
@@ -8959,6 +9194,42 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     maxPayload: LIMITS.message,
   });
 
+  /**
+   * L'IP du client d'une connexion /ws — LA MÊME que `req.ip` pour le REST.
+   *
+   * Une montée en WebSocket ne passe pas par Fastify : `req.ip` n'existe pas
+   * ici. Lire la socket donnerait l'adresse du PROXY derrière Caddy, et le
+   * plafond « par client » redeviendrait un seul compteur pour tout le monde —
+   * le défaut que HIVE_TRUST_PROXY a fermé côté REST. On applique donc la même
+   * confiance, compilée par la même bibliothèque que Fastify (`proxy-addr`).
+   */
+  const confianceWs = config.trustProxy
+    ? proxyAddr.compile(config.trustProxy.split(',').map((v) => v.trim()))
+    : null;
+  const ipDuClient = (req: IncomingMessage): string =>
+    confianceWs ? proxyAddr(req, confianceWs) : (req.socket.remoteAddress ?? '');
+
+  /** Le décompte des sockets anonymes (cf. `WS_ATTENTE_PAR_CLIENT`). */
+  const attente = {
+    total: 0,
+    parClient: new Map<string, number>(),
+    entrer(client: string): boolean {
+      const n = this.parClient.get(client) ?? 0;
+      if (this.total >= WS_ATTENTE_MAX || n >= WS_ATTENTE_PAR_CLIENT) return false;
+      this.total += 1;
+      this.parClient.set(client, n + 1);
+      return true;
+    },
+    sortir(client: string): void {
+      this.total -= 1;
+      const n = (this.parClient.get(client) ?? 1) - 1;
+      // La carte ne garde que les clients qui ATTENDENT : sans ce ménage, elle
+      // grossirait d'une entrée par adresse jamais revue.
+      if (n <= 0) this.parClient.delete(client);
+      else this.parClient.set(client, n);
+    },
+  };
+
   wss.on('connection', (ws, req) => {
     // Connexions navigateur : l'origine doit être autorisée (dashboard servi
     // par l'orchestrateur lui-même, ou origine listée dans HIVE_CORS_ORIGIN).
@@ -8970,6 +9241,22 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
         return;
       }
     }
+
+    // Le plafond des sockets anonymes, AVANT tout minuteur : une socket refusée
+    // ici n'a rien à nettoyer. 4429 fait écho au 429 HTTP, distinct du 4401
+    // « authentification requise » : ce n'est pas l'identité qui manque, c'est
+    // la place.
+    const client = ipDuClient(req);
+    if (!attente.entrer(client)) {
+      ws.close(4429, 'trop de connexions en attente d’authentification');
+      return;
+    }
+    let enAttente = true;
+    const sortirDAttente = (): void => {
+      if (!enAttente) return;
+      enAttente = false;
+      attente.sortir(client);
+    };
 
     let role: 'unknown' | 'node' | 'dashboard' = 'unknown';
     let nodeId: string | null = null;
@@ -9103,6 +9390,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
             if (verdict === 'cle' && msg.nodeId) store.toucherCleNoeud(msg.nodeId);
             role = 'node';
             clearTimeout(authTimer);
+            sortirDAttente();
             const node = scheduler.registerNode({
               nodeId: msg.nodeId,
               name: msg.name,
@@ -9150,6 +9438,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
             }
             role = 'dashboard';
             clearTimeout(authTimer);
+            sortirDAttente();
             dashboardSockets.add(ws);
             send(ws, { type: 'state', snapshot: instantaneEssaim() });
           } else {
@@ -9627,6 +9916,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
 
     ws.on('close', () => {
       clearTimeout(authTimer);
+      sortirDAttente();
       clearInterval(budgetTimer);
       clearInterval(veille);
       if (role === 'node' && nodeId !== null && nodeSockets.get(nodeId) === ws) {

@@ -190,3 +190,35 @@ Le tableau de bord signe ces appels avec le JWT de la session. La CLI accepte
 également `HIVE_JWT` pour ses commandes d'intendance ; les nœuds continuent
 d'utiliser leur clé dédiée pour rejoindre la ruche. Les lectures de présence et
 de projet qui ne changent pas l'état restent derrière leur contrat existant.
+
+## Deuxième étape livrée : toute route qui engage, et ce qu'on RÈGLE
+
+La décision tenait sur quatre routes ; un relevé complet en a trouvé dix-sept
+autres qui engageaient encore un projet par le seul jeton de ruche — fabriques,
+motifs, livraison et fusion (avec le jeton GitHub de l'hôte), revue humaine,
+annulation, course, ingestion de CI, nouvelle tentative, et les réglages. Elles
+passent toutes par la même règle, appliquée au projet de la tâche quand la route
+vise une tâche. `tests/engagement-projet.test.ts` les énumère, et un banc refuse
+toute route d'écriture de l'espace projet qu'il ne connaît pas.
+
+Deux portes de compte qui LISAIENT au lieu d'ENGAGER (sauvegardes, restauration,
+retouche du Rayon : tout inscrit passait sur un projet public) prennent la règle
+de l'engagement.
+
+**Régler n'est pas engager.** Le niveau d'autonomie (`plein` + dépôt inscrit :
+la ruche fusionne seule), les bornes du Garde-Fous, le plafond de dépense et
+l'horizon décident de ce que le projet s'autorise ensuite. Ils sont réservés à
+qui en RÉPOND : le propriétaire ou un administrateur (action `regler_autonomie`
+de la matrice), ou le jeton de ruche sur un projet orphelin. Un membre qui y
+travaille reçoit un 403 qui dit à qui s'adresser — il sait déjà que le projet
+existe.
+
+**L'Evaluator est écouté au moment de livrer.** Livraison et fusion rendent 409
+quand il demande une correction ou rejette la production. Passer outre est un
+réglage : même porte, une raison obligatoire (`forcer: { raison }`, CLI
+`--forcer="…"`), et l'événement `evaluator_overridden` garde qui, pourquoi, et
+contre quel verdict.
+
+Enfin, le premier compte (futur administrateur) exige le jeton de ruche sur
+TOUTE ruche : l'adresse d'écoute ne disait pas qui parle, et un proxy posé sur
+la même machine relayait Internet par la boucle locale.

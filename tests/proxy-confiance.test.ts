@@ -18,7 +18,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createServer, type HiveServer } from '../src/orchestrator/server.js';
-import { confiancePourFastify, lireConfianceProxy } from '../src/shared/proxy-confiance.js';
+import { lireConfianceProxy } from '../src/shared/proxy-confiance.js';
 
 describe('lireConfianceProxy — ce que HIVE_TRUST_PROXY accorde', () => {
   it('RIEN PAR DÉFAUT — absent, vide ou « non » ne font confiance à personne', () => {
@@ -35,11 +35,18 @@ describe('lireConfianceProxy — ce que HIVE_TRUST_PROXY accorde', () => {
     }
   });
 
-  it('un nombre de sauts de 1 à 10, et rien au-delà', () => {
-    expect(lireConfianceProxy('1')).toEqual({ valeur: 1, refus: null });
-    expect(lireConfianceProxy('10')).toEqual({ valeur: 10, refus: null });
-    expect(lireConfianceProxy('11').valeur).toBe(false);
-    expect(lireConfianceProxy('11').refus).toMatch(/de 1 à 10/);
+  it('UN NOMBRE DE SAUTS EST REFUSÉ — et le refus dit ce qui est accepté', () => {
+    // « Croire les n premiers sauts » ne regarde jamais qui parle : le premier
+    // saut est la socket, donc le client lui-même quand il est joignable en
+    // direct. Fastify 5.12 ferme ce chemin pour la même raison.
+    for (const brut of ['1', '2', '10', '11']) {
+      const lu = lireConfianceProxy(brut);
+      expect(lu.valeur, brut).toBe(false);
+      expect(lu.refus, brut).toMatch(/nombre de sauts n'est plus accepté/);
+      expect(lu.refus, brut).toMatch(/loopback/);
+      expect(lu.refus, brut).toMatch(/uniquelocal/);
+      expect(lu.refus, brut).toMatch(/CIDR/);
+    }
   });
 
   it('des IP, des CIDR et les plages nommées de proxy-addr', () => {
@@ -60,15 +67,6 @@ describe('lireConfianceProxy — ce que HIVE_TRUST_PROXY accorde', () => {
       expect(lu.refus, brut).not.toBeNull();
     }
   });
-
-  it('un nombre de sauts devient la fonction de proxy-addr : on croit les n premiers', () => {
-    const f = confiancePourFastify(2);
-    expect(typeof f).toBe('function');
-    const croire = f as (adresse: string, saut: number) => boolean;
-    expect([0, 1, 2].map((saut) => croire('10.0.0.1', saut))).toEqual([true, true, false]);
-    expect(confiancePourFastify('loopback')).toBe('loopback');
-    expect(confiancePourFastify(false)).toBe(false);
-  });
 });
 
 describe('les compteurs anti-abus derrière un proxy — une vraie Reine', () => {
@@ -83,7 +81,9 @@ describe('les compteurs anti-abus derrière un proxy — une vraie Reine', () =>
     if (dossier) rmSync(dossier, { recursive: true, force: true });
   });
 
-  async function reine(trustProxy: false | string): Promise<HiveServer> {
+  async function reine(
+    trustProxy: ReturnType<typeof lireConfianceProxy>['valeur'],
+  ): Promise<HiveServer> {
     dossier = mkdtempSync(path.join(os.tmpdir(), 'proxy-confiance-'));
     serveur = await createServer({
       port: 0,
@@ -125,6 +125,18 @@ describe('les compteurs anti-abus derrière un proxy — une vraie Reine', () =>
     expect(await marteler(port, '203.0.113.10', PLAFOND + 1)).toBe(429);
     // Changer d'en-tête ne suffit pas à repartir de zéro : c'est la socket qui compte.
     expect(await marteler(port, '198.51.100.99', 1), 'l’en-tête forgé a été cru').toBe(429);
+  });
+
+  it('HIVE_TRUST_PROXY=1 NE REND PLUS LE X-FORWARDED-FOR D’UN CLIENT DIRECT CRÉDIBLE', async () => {
+    // Le défaut mesuré : avec un nombre de sauts, le client direct écrivait son
+    // IP dans l'en-tête et changeait de compteur à chaque requête — le limiteur
+    // devenait décoratif. La valeur passe par le MÊME chemin que l'env.
+    const { port } = await reine(lireConfianceProxy('1').valeur);
+    expect(await marteler(port, '203.0.113.10', PLAFOND + 1)).toBe(429);
+    expect(
+      await marteler(port, '198.51.100.99', 1),
+      'un en-tête forgé a changé de compteur sous HIVE_TRUST_PROXY=1',
+    ).toBe(429);
   });
 
   it('UNE CONFIANCE ACCORDÉE À UN AUTRE RÉSEAU NE PROFITE PAS À UN PAIR QUI N’EN EST PAS', async () => {

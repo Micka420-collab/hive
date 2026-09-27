@@ -44,7 +44,7 @@ HIVE_BALANCE=strict
 
 Caddy termine TLS. La Queen n'écoute **pas** sur Internet directement : seulement le réseau Docker, derrière Caddy.
 
-Le compose pose `HIVE_TRUST_PROXY=uniquelocal` : la Queen croit le `X-Forwarded-For` que Caddy lui transmet depuis le réseau privé de Docker, et chaque client garde **son** compteur anti-abus (débit, échecs de connexion, inscriptions, entrées par billet). Sans ce réglage, tous les clients auraient l'IP de Caddy et un seul compteur : un client qui s'acharne bloquerait tout le monde. Proxy hors Docker sur la même machine : `loopback`. Ne jamais mettre `true` (refusé) : tout client pourrait alors choisir son IP.
+Le compose pose `HIVE_TRUST_PROXY=uniquelocal` : la Queen croit le `X-Forwarded-For` que Caddy lui transmet depuis le réseau privé de Docker, et chaque client garde **son** compteur anti-abus (débit, échecs de connexion, inscriptions, entrées par billet). Sans ce réglage, tous les clients auraient l'IP de Caddy et un seul compteur : un client qui s'acharne bloquerait tout le monde. Proxy hors Docker sur la même machine : `loopback`. `true` et un nombre de sauts (`1`) sont refusés au démarrage — aucune confiance n'est alors accordée : ni l'un ni l'autre ne vérifie que le pair est bien le proxy, et tout client joignable en direct pourrait choisir son IP.
 
 `GET /api/edition` doit répondre `{ "edition": "cloud", "factureHorlogeHote": true }`.
 

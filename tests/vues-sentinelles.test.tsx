@@ -485,8 +485,8 @@ describe('les sentinelles du balayage du soir', () => {
       appats: ['/.env'],
       conseil: 'Ne rien exposer de plus.',
       derniers: [
-        { source: '203.0.113.7', chemin: '/.env', appat: 'env', quand: 1_700_000_000_000 },
-        { source: '203.0.113.7', chemin: '/.git/config', appat: 'git', quand: 1_700_000_001_000 },
+        { chemin: '/.env', appat: 'env', quand: 1_700_000_000_000 },
+        { chemin: '/.git/config', appat: 'git', quand: 1_700_000_001_000 },
       ],
     } as never);
     const avec = await monter(

@@ -46,7 +46,7 @@ describe('les liens de partage', () => {
   const inscrire = async (email: string): Promise<string> => {
     const res = await fetch(`${base}/api/auth/register`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-hive-token': TOKEN },
       body: JSON.stringify({ email, password: 'motdepasse-assez-long-42', displayName: 'Abeille' }),
     });
     return ((await res.json()) as { token?: string }).token ?? '';

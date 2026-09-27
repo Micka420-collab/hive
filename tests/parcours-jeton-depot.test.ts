@@ -58,7 +58,7 @@ describe('le trajet complet d’un dépôt à URL porteuse de secret', () => {
   const inscrire = async (email: string): Promise<{ token: string; id: string }> => {
     const r = await fetch(`${base}/api/auth/register`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-hive-token': TOKEN },
       body: JSON.stringify({ email, password: 'motdepasse-assez-long-42', displayName: email }),
     });
     const { token } = (await r.json()) as { token: string };

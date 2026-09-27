@@ -101,10 +101,25 @@ describe('HiveStore — fabriques', () => {
     expect(o.ok).toBe(true);
     if (!o.ok) return;
     expect(store.listerFabriques(p.id)).toHaveLength(1);
-    expect(store.poserStatutFabrique(o.id, 'mergee')).toEqual({ ok: true });
-    expect(store.poserStatutFabrique(o.id, 'refusee')).toEqual({
+    expect(store.poserStatutFabrique(p.id, o.id, 'mergee')).toEqual({ ok: true });
+    expect(store.poserStatutFabrique(p.id, o.id, 'refusee')).toEqual({
       ok: false,
       motif: 'deja_close',
     });
+  });
+
+  it('LA FABRIQUE D’UN AUTRE PROJET EST INCONNUE ICI — le projet fait partie de la clé', () => {
+    // La route juge le projet de l'URL ; sans le projet dans la clé, un droit
+    // sur un projet suffisait à clore la fabrique d'un autre.
+    const store = new HiveStore(':memory:');
+    const p = store.createProject({ name: 'P' });
+    const autre = store.createProject({ name: 'Autre' });
+    const o = store.ouvrirFabrique(p.id, 'script_npm', 'Outillage', { nomScript: 'outil:x' });
+    if (!o.ok) throw new Error('fabrique non ouverte');
+    expect(store.poserStatutFabrique(autre.id, o.id, 'refusee')).toEqual({
+      ok: false,
+      motif: 'inconnue',
+    });
+    expect(store.listerFabriques(p.id)[0]?.statut).toBe('proposee');
   });
 });

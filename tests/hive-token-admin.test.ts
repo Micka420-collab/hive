@@ -43,7 +43,7 @@ describe('frontière HIVE_TOKEN / administration', () => {
     const register = async (email: string): Promise<string> => {
       const res = await fetch(`${base}/api/auth/register`, {
         method: 'POST',
-        headers: json,
+        headers: { ...json, 'x-hive-token': TOKEN },
         body: JSON.stringify({ email, password: 'mot-de-passe-test', displayName: email }),
       });
       expect(res.status).toBe(200);

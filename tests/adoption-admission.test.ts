@@ -50,7 +50,7 @@ describe('adopter un projet orphelin, y admettre des ouvrières', () => {
   const inscrire = async (email: string): Promise<{ token: string; id: string }> => {
     const res = await fetch(`${base}/api/auth/register`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-hive-token': TOKEN },
       body: JSON.stringify({ email, password: 'motdepasse-assez-long-42', displayName: email }),
     });
     const j = (await res.json()) as { token?: string };
@@ -322,7 +322,7 @@ describe('créer un projet, et pouvoir s’en servir', () => {
   const inscrire = async (email: string): Promise<string> => {
     const res = await fetch(`${base}/api/auth/register`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-hive-token': TOKEN },
       body: JSON.stringify({ email, password: 'motdepasse-assez-long-42', displayName: email }),
     });
     return ((await res.json()) as { token?: string }).token ?? '';

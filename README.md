@@ -82,8 +82,9 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
 - **Sécurité** :
   - les identifiants des dépôts privés ne sortent plus vers l'essaim
     ([#435](https://github.com/Micka420-collab/hive/pull/435)) ;
-  - sur une ruche exposée, le premier compte (administrateur) exige le jeton
-    de ruche ([#440](https://github.com/Micka420-collab/hive/pull/440)) ;
+  - le premier compte (administrateur) exige le jeton de ruche
+    ([#440](https://github.com/Micka420-collab/hive/pull/440)), sur toute
+    ruche, proxy local compris ;
   - derrière un proxy, chaque client garde ses compteurs anti-abus
     (`HIVE_TRUST_PROXY`, [#439](https://github.com/Micka420-collab/hive/pull/439)).
 - **Bac à sable.** Preflight Docker, Podman et bubblewrap. L'image

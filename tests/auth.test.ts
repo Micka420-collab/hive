@@ -92,18 +92,22 @@ describe('isValidEmail', () => {
   });
 });
 
+const JETON_AUTH = 'jeton-auth-suffisamment-long';
+
 describe('flux HTTP register → login → me', () => {
   let server: HiveServer;
   let dir: string;
   let base: string;
-  const headers = { 'content-type': 'application/json' };
+  // Le jeton de ruche accompagne chaque appel : le PREMIER compte (futur
+  // administrateur) l'exige, et il est sans effet sur le reste.
+  const headers = { 'content-type': 'application/json', 'x-hive-token': JETON_AUTH };
 
   beforeAll(async () => {
     dir = mkdtempSync(path.join(os.tmpdir(), 'hive-auth-'));
     server = await createServer({
       port: 0,
       host: '127.0.0.1',
-      token: 'jeton-auth-suffisamment-long',
+      token: JETON_AUTH,
       corsOrigins: ['http://localhost:5173'],
       dbPath: path.join(dir, 'hive.db'),
       simulation: false,
