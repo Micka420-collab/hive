@@ -348,18 +348,29 @@ export function useReviewTick(): number {
 export interface Poll<T> {
   data: T | null;
   error: string | null;
+  /** Relit TOUT DE SUITE, sans attendre l'intervalle. */
   refresh: () => void;
+  /** `true` entre un `refresh()` et la réponse de la lecture qu'il a lancée. */
+  relance: boolean;
+  /** Heure (ms) du dernier échec ; `null` dès qu'une lecture réussit. */
+  echecA: number | null;
 }
 
 export function useApiPoll<T>(fetcher: () => Promise<T>, intervalMs: number, tick = 0): Poll<T> {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [relance, setRelance] = useState(false);
+  const [echecA, setEchecA] = useState<number | null>(null);
   const fetcherRef = useRef(fetcher);
   fetcherRef.current = fetcher;
   const [manual, setManual] = useState(0);
 
   useEffect(() => {
     let alive = true;
+    // `relance` retombe à la PREMIÈRE réponse de cet effet — celle de la
+    // lecture qu'un `refresh()` vient de lancer. Les lectures d'un effet
+    // précédent ne la touchent plus (`alive`), et les suivantes la trouvent
+    // déjà fausse : React ignore un état inchangé.
     const load = () => {
       fetcherRef
         .current()
@@ -367,9 +378,17 @@ export function useApiPoll<T>(fetcher: () => Promise<T>, intervalMs: number, tic
           if (alive) {
             setData(d);
             setError(null);
+            setEchecA(null);
+            setRelance(false);
           }
         })
-        .catch((e) => alive && setError(messageDeSondage(e)));
+        .catch((e) => {
+          if (alive) {
+            setError(messageDeSondage(e));
+            setEchecA(Date.now());
+            setRelance(false);
+          }
+        });
     };
     load();
     const id = window.setInterval(() => {
@@ -381,8 +400,65 @@ export function useApiPoll<T>(fetcher: () => Promise<T>, intervalMs: number, tic
     };
   }, [intervalMs, tick, manual]);
 
-  const refresh = useCallback(() => setManual((m) => m + 1), []);
-  return { data, error, refresh };
+  const refresh = useCallback(() => {
+    setRelance(true);
+    setManual((m) => m + 1);
+  }, []);
+  return { data, error, refresh, relance, echecA };
+}
+
+// ─── L'ÉCHEC D'UN SONDAGE, DIT ET RATTRAPABLE ────────────────────────────────
+//
+// Un sondage en échec s'affichait en une phrase rouge, et c'était tout. On
+// pouvait lire « la ruche n'a pas répondu », relancer l'orchestrateur… puis
+// attendre l'intervalle suivant — trente secondes, parfois deux minutes —
+// sans aucun moyen de dire « maintenant ». `refresh()` existait déjà : aucun
+// écran ne l'offrait.
+//
+// Le bouton ne suffit pas seul. Un orchestrateur arrêté refuse la connexion en
+// quelques millisecondes : le clic, l'échec et le retour du bouton tiennent
+// dans une image, et l'écran ne change pas. On ne saurait pas si le clic a eu
+// lieu. D'où l'HEURE du dernier essai, qui bouge à chaque échec : elle prouve
+// que la ruche a bien été rappelée, et dit quand.
+//
+// Le paragraphe garde la classe que chaque écran lui donnait (`classe`) : le
+// bouton et l'heure suivent le message DANS ce paragraphe, et chaque écran
+// garde sa mise en page.
+
+/** Ce qu'`EchecSondage` lit d'un sondage — un `Poll` entier convient. */
+type SondageRelancable = Pick<Poll<unknown>, 'error' | 'refresh' | 'relance' | 'echecA'>;
+
+export function EchecSondage({
+  sondage,
+  avant,
+  classe = 'panel-error',
+}: {
+  sondage: SondageRelancable;
+  /** Ce qui précède le message — « Plan indisponible : », « relevé figé : ». */
+  avant?: string;
+  classe?: string;
+}) {
+  const t = useT();
+  if (sondage.error === null) return null;
+  return (
+    <p className={classe}>
+      {avant !== undefined && `${avant} `}
+      {sondage.error}
+      <button
+        type="button"
+        className="btn ghost echec-sondage-relance"
+        onClick={sondage.refresh}
+        disabled={sondage.relance}
+      >
+        {sondage.relance ? t('Nouvel essai…', 'Retrying…') : t('Réessayer', 'Retry')}
+      </button>
+      {sondage.echecA !== null && (
+        <span className="echec-sondage-quand">
+          {t('dernier essai à', 'last attempt at')} {timeShort(sondage.echecA)}
+        </span>
+      )}
+    </p>
+  );
 }
 
 // ─── Rayon de miel : une alvéole hexagonale par tâche ────────────────────────

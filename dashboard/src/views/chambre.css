@@ -50,7 +50,7 @@
 
 .ch-brand-hive {
   margin: 0;
-  font-family: var(--font-display, 'Bricolage Grotesque', Georgia, serif);
+  font-family: var(--titre);
   font-size: 1.55rem;
   font-weight: 700;
   letter-spacing: -0.02em;
@@ -168,7 +168,7 @@
 }
 
 .ch-hitl-titre {
-  font-family: var(--font-display, 'Bricolage Grotesque', Georgia, serif);
+  font-family: var(--titre);
   font-size: 1.05rem;
   font-weight: 700;
 }
@@ -262,7 +262,7 @@
   text-transform: uppercase;
   letter-spacing: 0.12em;
   color: var(--ch-mute);
-  font-family: var(--font-display, 'Bricolage Grotesque', Georgia, serif);
+  font-family: var(--titre);
 }
 
 .ch-identite {
@@ -380,7 +380,7 @@
 .ch-nom {
   margin: 0 0 6px;
   font-size: clamp(1.55rem, 2.4vw, 2rem);
-  font-family: var(--font-display, 'Bricolage Grotesque', Georgia, serif);
+  font-family: var(--titre);
   font-weight: 700;
   letter-spacing: -0.02em;
   line-height: 1.15;
@@ -553,7 +553,7 @@
 .ch-bapteme-label input {
   padding: 6px 8px;
   border-radius: 6px;
-  border: 1px solid var(--ch-bordure, #e0d2b6);
+  border: 1px solid var(--ch-ligne);
 }
 .ch-metier-form {
   margin-top: 14px;
@@ -604,7 +604,7 @@
 .ch-outil {
   display: inline-block;
   min-width: 3.2em;
-  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-family: var(--mono);
   font-size: 0.72rem;
   font-weight: 600;
   color: color-mix(in srgb, var(--ch-miel-fonce) 50%, var(--ch-encre));
@@ -709,7 +709,7 @@
   letter-spacing: 0.06em;
   background: color-mix(in srgb, var(--ch-miel) 55%, white);
   color: var(--ch-encre);
-  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-family: var(--mono);
 }
 
 .ch-badge-read {
@@ -769,7 +769,7 @@ button.ch-lien-chemin:focus-visible {
 .ch-log-detail {
   font-size: 0.75rem;
   color: var(--ch-mute);
-  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-family: var(--mono);
 }
 
 .ch-log-time {
@@ -912,7 +912,7 @@ button.ch-lien-chemin:focus-visible {
   text-transform: uppercase;
   letter-spacing: 0.12em;
   color: var(--ch-mute);
-  font-family: var(--font-display, 'Bricolage Grotesque', Georgia, serif);
+  font-family: var(--titre);
 }
 
 .ch-ordi-actions {
@@ -955,7 +955,7 @@ button.ch-lien-chemin:focus-visible {
   border-top: 1px solid var(--ch-ligne);
   font-size: 0.72rem;
   color: var(--ch-mute);
-  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-family: var(--mono);
 }
 
 .ch-err {
@@ -1001,7 +1001,7 @@ button.ch-lien-chemin:focus-visible {
 .ch-grant-field input {
   padding: 8px 10px;
   font-size: 0.9rem;
-  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-family: var(--mono);
   border: 1px solid var(--ch-ligne);
   border-radius: 8px;
   background: #fff;
@@ -1063,9 +1063,13 @@ button.ch-lien-chemin:focus-visible {
   max-width: 100%;
 }
 
+/* Les jetons GLOBAUX, pas ceux de `.ch-view` : ce dialogue passe par `Voile`,
+   qui le monte à la racine du document. Hors de `.ch-view`, un `--ch-…` ne se
+   résout jamais — c'est pourquoi il lisait `--ch-cream`/`--ch-honey`, deux
+   jetons que personne n'a posés, et vivait de leurs seuls replis. */
 .ch-dialog {
-  background: var(--ch-cream, #fdf8f0);
-  border: 1px solid var(--ch-honey, #f2b441);
+  background: var(--panel);
+  border: 1px solid var(--miel);
   border-radius: 12px;
   padding: 1rem 1.25rem;
   max-width: 28rem;

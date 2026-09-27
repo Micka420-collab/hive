@@ -16,7 +16,7 @@ import type { Ghost, HivePulse, ThermoState } from '../api';
 import { useT } from '../i18n';
 import { activateProps, BANDE_LABEL, BANDES, formatMs } from '../ui';
 import { CarteBalance } from './Balance';
-import { Sparkline, timeShort, useApiPoll } from './shared';
+import { EchecSondage, Sparkline, timeShort, useApiPoll } from './shared';
 import type { ViewProps } from './shared';
 import type { StateSnapshot } from '../../../src/shared/types';
 import './essaim.css';
@@ -213,7 +213,7 @@ export default function Sante({ snapshot, refreshTick, onOpenTask }: ViewProps) 
               : `${t('dernier relevé à', 'last reading at')} ${timeShort(lastReading)}`}
           </span>
         </header>
-        {pulse.error && <p className="panel-error">{pulse.error}</p>}
+        <EchecSondage sondage={pulse} />
         {pulse.data ? (
           <PulseTiles pulse={pulse.data} />
         ) : (
@@ -245,11 +245,7 @@ export default function Sante({ snapshot, refreshTick, onOpenTask }: ViewProps) 
           {thermo.data ? (
             <>
               <ThermoGauge thermo={thermo.data} />
-              {thermo.error && (
-                <p className="panel-error">
-                  {t('relevé figé :', 'reading frozen:')} {thermo.error}
-                </p>
-              )}
+              <EchecSondage sondage={thermo} avant={t('relevé figé :', 'reading frozen:')} />
             </>
           ) : (
             <p className="empty pad">
@@ -284,7 +280,7 @@ export default function Sante({ snapshot, refreshTick, onOpenTask }: ViewProps) 
             </span>
           )}
         </header>
-        {ghost.error && <p className="panel-error">{ghost.error}</p>}
+        <EchecSondage sondage={ghost} />
         {!report && !ghost.error && (
           <p className="empty pad">
             <span className="marque" aria-hidden="true" />{' '}

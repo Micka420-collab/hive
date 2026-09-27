@@ -8,7 +8,7 @@ import { fetchMemories } from '../api';
 import type { Memory } from '../api';
 import { useT } from '../i18n';
 import { OpenAlexPanel } from '../OpenAlexPanel';
-import { timeShort, useApiPoll } from './shared';
+import { EchecSondage, timeShort, useApiPoll } from './shared';
 import type { ViewProps } from './shared';
 import './chronique.css';
 
@@ -61,7 +61,6 @@ export default function Memoire({ snapshot, onOpenTask, refreshTick }: ViewProps
   const page = search ?? recent.data;
   const memories = page?.memories ?? [];
   const total = page?.total ?? null;
-  const error = searchError ?? (search ? null : recent.error);
 
   return (
     <div className="mc-view ch-view ch-memoire">
@@ -115,7 +114,14 @@ export default function Memoire({ snapshot, onOpenTask, refreshTick }: ViewProps
             </button>
           </p>
         )}
-        {error && <p className="panel-error ch-mem-note">{error}</p>}
+        {/* Deux échecs, deux remèdes. Une RECHERCHE ratée se relance d'Entrée,
+            depuis le champ juste au-dessus. Les RÉCENTS sont un sondage : on
+            offre de le relire tout de suite, sans attendre sa minute. */}
+        {searchError ? (
+          <p className="panel-error ch-mem-note">{searchError}</p>
+        ) : (
+          !search && <EchecSondage sondage={recent} classe="panel-error ch-mem-note" />
+        )}
 
         <ul className="ch-mem-list">
           {memories.map((m) => (

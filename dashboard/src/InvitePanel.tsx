@@ -2,12 +2,39 @@
 // affiche la commande prête à copier, avec les étapes pour l'ami. L'ami colle
 // la commande, son agent IA est détecté automatiquement, il rejoint la ruche.
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import type { ReactNode } from 'react';
 import { fetchInvite } from './api';
 import type { InviteResponse } from './api';
 import { useT } from './i18n';
-import { Voile } from './ui';
+import { useDialog, Voile } from './ui';
 import { copierTexte } from './copier';
+
+/**
+ * Le cadre du dialogue, dans un composant À LUI : `useDialog` agit au montage
+ * et au démontage, il doit donc vivre le temps de l'OUVERTURE — pas celui du
+ * bouton « Inviter », monté en permanence dans la barre du haut.
+ *
+ * C'est ce qui manquait : ce dialogue fermait sur Échap avec son propre
+ * écouteur, mais n'y faisait pas entrer le focus, ne l'y gardait pas, et ne le
+ * rendait pas au bouton en se fermant — le seul du tableau de bord à laisser
+ * tabuler dans la page cachée sous son voile.
+ */
+function CadreInvitation({ onClose, children }: { onClose: () => void; children: ReactNode }) {
+  const ref = useDialog<HTMLDivElement>(onClose);
+  return (
+    <div
+      ref={ref}
+      className="modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="invite-title"
+      onClick={(e) => e.stopPropagation()}
+    >
+      {children}
+    </div>
+  );
+}
 
 export function InvitePanel() {
   const t = useT();
@@ -46,16 +73,6 @@ export function InvitePanel() {
     if (!invite) void generate();
   };
 
-  // Fermeture au clavier (Échap) quand la modale est ouverte.
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open]);
-
   const copy = async () => {
     if (commande === null) return;
     // Le repli pour les contextes non sécurisés (http LAN) vit dans `copier.ts`
@@ -86,13 +103,7 @@ export function InvitePanel() {
 
       {open && (
         <Voile onClose={() => setOpen(false)}>
-          <div
-            className="modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="invite-title"
-            onClick={(e) => e.stopPropagation()}
-          >
+          <CadreInvitation onClose={() => setOpen(false)}>
             <header className="modal-head">
               <h2 id="invite-title">
                 <span className="marque" aria-hidden="true" />{' '}
@@ -219,7 +230,7 @@ export function InvitePanel() {
                 </p>
               )}
             </details>
-          </div>
+          </CadreInvitation>
         </Voile>
       )}
     </>

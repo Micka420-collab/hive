@@ -56,7 +56,7 @@ import { BalanceProjet, CarteDevis } from './Balance';
 import { PleinEssaim } from '../PleinEssaim';
 import { OnboardingEssaim } from '../OnboardingEssaim';
 import { GardeFous } from '../GardeFous';
-import { Honeycomb, useApiPoll } from './shared';
+import { EchecSondage, Honeycomb, useApiPoll } from './shared';
 import type { ViewProps } from './shared';
 import { sansIdentifiants } from '../../../src/shared/projet-public';
 import type { Project, Task, TaskStatus } from '../../../src/shared/types';
@@ -423,11 +423,7 @@ function MergePanel({
           </span>
         )}
       </header>
-      {planPoll.error && (
-        <p className="panel-error">
-          {t('Plan indisponible :', 'Plan unavailable:')} {planPoll.error}
-        </p>
-      )}
+      <EchecSondage sondage={planPoll} avant={t('Plan indisponible :', 'Plan unavailable:')} />
       {!plan && !planPoll.error && (
         <p className="muted-text">{t('Analyse des diffs…', 'Analyzing diffs…')}</p>
       )}
@@ -570,11 +566,10 @@ function ConflictsPanel({
         <h4>{t('Conflits Sting', 'Sting conflicts')}</h4>
         {conflicts && <span className="panel-count">{conflicts.length}</span>}
       </header>
-      {poll.error && (
-        <p className="panel-error">
-          {t('Détection indisponible :', 'Detection unavailable:')} {poll.error}
-        </p>
-      )}
+      <EchecSondage
+        sondage={poll}
+        avant={t('Détection indisponible :', 'Detection unavailable:')}
+      />
       {!conflicts && !poll.error && (
         <p className="muted-text">{t('Inspection des dards…', 'Inspecting the stingers…')}</p>
       )}
@@ -1764,11 +1759,10 @@ function ProjectCard({
         </code>
       )}
 
-      {reportPoll.error && (
-        <p className="panel-error">
-          {t('Rapport indisponible :', 'Report unavailable:')} {reportPoll.error}
-        </p>
-      )}
+      <EchecSondage
+        sondage={reportPoll}
+        avant={t('Rapport indisponible :', 'Report unavailable:')}
+      />
       {report && (
         <>
           <div className="pj-progress">

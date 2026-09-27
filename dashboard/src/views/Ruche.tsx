@@ -100,7 +100,10 @@ export default function Ruche({
             onNavigate={onNavigate}
           />
 
-          <main className="layout">
+          {/* Un `div`, plus un `main` : le repère principal est posé par la
+              coquille autour de CHAQUE vue (App.tsx). Deux `main` imbriqués
+              brouillent la carte que le lecteur d'écran dresse de la page. */}
+          <div className="layout">
             <section className="col-main">
               <div className="card swarm-hero">
                 <div
@@ -246,7 +249,7 @@ export default function Ruche({
 
               <Journal events={events} />
             </aside>
-          </main>
+          </div>
         </>
       )}
     </div>

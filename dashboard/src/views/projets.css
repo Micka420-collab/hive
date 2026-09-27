@@ -575,7 +575,7 @@
 }
 .essaim-pas--inerte,
 .essaim-pas--repos {
-  border-left-color: var(--dim, #6b6152);
+  border-left-color: var(--muted);
   background: rgba(107, 97, 82, 0.07);
 }
 .essaim-pas--plafond,
@@ -692,7 +692,7 @@
   padding: 6px 14px;
   border-radius: 7px;
   border: 1px solid var(--border-2, #e0d2b6);
-  background: var(--chip, #efe7d7);
+  background: var(--panel-3);
   color: var(--muted, #6f6555);
   font-family: inherit;
   font-size: 13px;
@@ -753,7 +753,7 @@
 .essaim-lecon-portee {
   flex-shrink: 0;
   min-width: 92px;
-  color: var(--dim, #6b6152);
+  color: var(--muted);
   font-family: var(--mono, monospace);
   font-size: 11.5px;
 }
@@ -789,7 +789,7 @@
   background: rgba(224, 138, 20, 0.1);
 }
 .essaim-echantillon {
-  color: var(--dim, #6b6152);
+  color: var(--muted);
   font-weight: 400;
   text-transform: none;
   letter-spacing: 0;

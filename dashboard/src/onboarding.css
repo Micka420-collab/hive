@@ -1,9 +1,16 @@
+/* ─── LES JETONS QUE CETTE FEUILLE LISAIT SANS QUE PERSONNE LES POSE ─────────
+   `--border-subtle`, `--surface-raised`, `--text-muted`, `--accent` : aucun
+   n'a jamais été défini. Chaque règle vivait donc de son REPLI — et ces replis
+   étaient ceux d'un thème SOMBRE : filet #333, fond blanc à 3 %, texte #aaa.
+   Sur la crème, l'indice d'une étape tombait à 2,08:1 (AA en exige 4,5), le
+   cadre disparaissait. La feuille lit maintenant les jetons de `styles.css`,
+   et `tests/dashboard-feuilles.test.ts` refuse tout `var(--x)` jamais posé. */
 .onboarding-essaim {
   margin: 1rem 0 1.25rem;
   padding: 1rem 1.1rem;
-  border: 1px solid var(--border-subtle, #333);
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: var(--surface-raised, rgba(255, 255, 255, 0.03));
+  background: var(--panel);
 }
 
 .onboarding-entete {
@@ -28,7 +35,7 @@
   display: flex;
   gap: 0.6rem;
   padding: 0.45rem 0;
-  border-bottom: 1px solid var(--border-subtle, #2a2a2a);
+  border-bottom: 1px solid var(--border);
 }
 
 .onboarding-etapes li:last-child {
@@ -56,7 +63,7 @@
 .onboarding-hint {
   margin: 0.25rem 0 0;
   font-size: 0.85rem;
-  color: var(--text-muted, #aaa);
+  color: var(--muted);
 }
 
 .onboarding-pret {
@@ -67,8 +74,8 @@
 .pourquoi-hive {
   margin: 1rem 0;
   padding: 1rem;
-  border-left: 3px solid var(--accent, #c9a227);
-  background: var(--surface-raised, rgba(255, 255, 255, 0.02));
+  border-left: 3px solid var(--miel);
+  background: var(--panel);
 }
 
 .pourquoi-hive h3 {

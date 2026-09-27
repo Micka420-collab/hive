@@ -19,7 +19,7 @@ import type { EvaluationResult } from '../../../src/orchestrator/evaluator.js';
 import { t as tNow, useT } from '../i18n';
 import type { Translate } from '../i18n';
 import { activateProps, formatMs, modalOpen, StatusBadge } from '../ui';
-import { getReview, Honeycomb, setReview, useApiPoll, useReviewTick } from './shared';
+import { EchecSondage, getReview, Honeycomb, setReview, useApiPoll, useReviewTick } from './shared';
 import type { ReviewState, ViewProps } from './shared';
 import './miellerie.css';
 
@@ -1213,9 +1213,10 @@ export default function Miellerie({
 
               <h3 className="mi-sub">{t('Conflits Sting', 'Sting conflicts')}</h3>
               {conflictsPoll.error ? (
-                <p className="panel-error">
-                  {t('Conflits indisponibles :', 'Conflicts unavailable:')} {conflictsPoll.error}
-                </p>
+                <EchecSondage
+                  sondage={conflictsPoll}
+                  avant={t('Conflits indisponibles :', 'Conflicts unavailable:')}
+                />
               ) : sting === null ? (
                 <p className="muted-text">{t('Analyse des dards…', 'Analyzing the stingers…')}</p>
               ) : sting.length === 0 ? (

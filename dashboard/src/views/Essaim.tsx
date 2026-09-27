@@ -24,7 +24,7 @@ import { libelleAgent } from '../../../src/shared/agent-libelle';
 import { libelleMetier } from '../../../src/orchestrator/metier';
 import { activateProps, DOMAINE_LABEL, formatMs, ProgressBar } from '../ui';
 import { nomConstate, useBaptemes } from '../useBaptemes';
-import { timeShort, useApiPoll } from './shared';
+import { EchecSondage, timeShort, useApiPoll } from './shared';
 import type { ViewProps } from './shared';
 import type { HiveNode, StateSnapshot, SubAgent, Task } from '../../../src/shared/types';
 import './essaim.css';
@@ -934,7 +934,7 @@ export default function Essaim({ snapshot, agentsByTask, refreshTick, onNavigate
                 </span>
               )}
             </header>
-            {waggle.error && <p className="panel-error">{waggle.error}</p>}
+            <EchecSondage sondage={waggle} />
             {!board && !waggle.error && (
               <p className="empty pad">{t('Lecture de la danse…', 'Reading the dance…')}</p>
             )}

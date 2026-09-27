@@ -42,8 +42,8 @@ import type {
 import { useT } from '../i18n';
 import type { Translate } from '../i18n';
 import { GesteIrreversible } from '../ui';
-import { timeShort, useApiPoll } from './shared';
-import type { ViewProps } from './shared';
+import { EchecSondage, timeShort, useApiPoll } from './shared';
+import type { Poll, ViewProps } from './shared';
 import './intendance.css';
 
 /** Libellés des états. Le mot brut de la base ne se montre pas à un humain. */
@@ -139,17 +139,8 @@ function Salle({ moiId, refreshTick }: { moiId: string; refreshTick: number }) {
 
   return (
     <div className="view in-view">
-      <SectionServeurs
-        data={serveurs.data}
-        error={serveurs.error}
-        onChanged={() => serveurs.refresh()}
-      />
-      <SectionMembres
-        data={membres.data}
-        error={membres.error}
-        moiId={moiId}
-        onChanged={() => membres.refresh()}
-      />
+      <SectionServeurs sondage={serveurs} />
+      <SectionMembres sondage={membres} moiId={moiId} />
       {/* Les CLÉS après les COMPTES, et surtout distinctes d'eux : un compte
           est une personne qui se connecte, une clé est une machine qui
           butine. Les confondre ferait révoquer l'un en croyant retirer
@@ -175,24 +166,20 @@ function Refus({ titre, texte, action }: { titre: string; texte: string; action:
 
 // ─── Les serveurs ────────────────────────────────────────────────────────────
 
-function SectionServeurs({
-  data,
-  error,
-  onChanged,
-}: {
-  data: IntendanceServeurs | null;
-  error: string | null;
-  onChanged: () => void;
-}) {
+// Le SONDAGE entier, pas ses morceaux : une section en échec offre de relire
+// (`EchecSondage`), et ce geste a besoin de `refresh` et de son état autant
+// que du message.
+function SectionServeurs({ sondage }: { sondage: Poll<IntendanceServeurs> }) {
   const t = useT();
+  const { data, refresh: onChanged } = sondage;
 
-  if (error) {
+  if (sondage.error) {
     return (
       <section className="card">
         <h2>
           <span className="marque" aria-hidden="true" /> {t('Les machines', 'Machines')}
         </h2>
-        <p className="panel-error">{error}</p>
+        <EchecSondage sondage={sondage} />
       </section>
     );
   }
@@ -514,7 +501,7 @@ export function SectionCles({ refreshTick }: { refreshTick: number }) {
         )}
       </header>
 
-      {cles.error && <p className="panel-error">{cles.error}</p>}
+      <EchecSondage sondage={cles} />
       {erreur && <p className="panel-error">{erreur}</p>}
 
       {cles.data && (
@@ -614,28 +601,19 @@ export function SectionCles({ refreshTick }: { refreshTick: number }) {
   );
 }
 
-function SectionMembres({
-  data,
-  error,
-  moiId,
-  onChanged,
-}: {
-  data: IntendanceMembres | null;
-  error: string | null;
-  moiId: string;
-  onChanged: () => void;
-}) {
+function SectionMembres({ sondage, moiId }: { sondage: Poll<IntendanceMembres>; moiId: string }) {
   const t = useT();
   const [erreur, setErreur] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const { data, refresh: onChanged } = sondage;
 
-  if (error) {
+  if (sondage.error) {
     return (
       <section className="card">
         <h2>
           <span className="marque" aria-hidden="true" /> {t('Les comptes', 'Accounts')}
         </h2>
-        <p className="panel-error">{error}</p>
+        <EchecSondage sondage={sondage} />
       </section>
     );
   }
