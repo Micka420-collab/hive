@@ -6385,9 +6385,15 @@ async function monterReine(
       const limite = req.query.limite ?? 150;
       if (projectId === undefined) {
         if (!authorized(req)) return reject(reply);
-      } else if (!lectureProjetPermise(req, projectId) || !store.getProject(projectId)) {
-        if (!authorizedUser(req) && !authorized(req)) return reject(reply);
-        return reply.code(404).send({ error: 'projet inconnu' });
+      } else {
+        // Un VERDICT, pas un booléen (#467) : « absent » est une chaîne non
+        // vide, et `!verdict` laissait n'importe quel compte lire le fil d'un
+        // projet privé qui ne le regarde pas.
+        const lecture = lectureProjetPermise(req, projectId);
+        if (lecture === 'anonyme') return reject(reply);
+        if (lecture !== 'permis' || !store.getProject(projectId)) {
+          return reply.code(404).send({ error: 'projet inconnu' });
+        }
       }
       const tache = taskId === undefined ? null : store.getTask(taskId);
       if (taskId !== undefined && (!tache || (projectId && tache.projectId !== projectId))) {
