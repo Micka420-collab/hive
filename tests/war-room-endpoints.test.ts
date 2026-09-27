@@ -169,6 +169,17 @@ describe('trancher un conseil', () => {
     expect(decisionsRangees()).toHaveLength(0);
   });
 
+  it('UNE JUSTIFICATION TROP LONGUE EST REFUSÉE, jamais tronquée en silence', async () => {
+    // Le schéma compte en points de code, l'écran en unités UTF-16 : 600
+    // émojis passent l'un et dépassent l'autre. Tronquée, la raison d'un
+    // humain perdrait sa fin — ou garderait une demi-paire de substitution.
+    const { id, pistes } = await conseilClos();
+    const r = await trancher(id, { propositionId: pistes[0], justification: '🐝'.repeat(600) });
+    expect(r.status).toBe(400);
+    expect(((await r.json()) as { code: string }).code).toBe('justification_trop_longue');
+    expect(decisionsRangees()).toHaveLength(0);
+  });
+
   it('UNE JUSTIFICATION FAITE D’ESPACES N’EST PAS UNE JUSTIFICATION', async () => {
     const { id, pistes } = await conseilClos();
     const r = await trancher(id, { propositionId: pistes[0], justification: '   \n  ' });
@@ -485,6 +496,21 @@ describe('la War Room relit les vrais producteurs', () => {
       expect(seule.taskId).toBe(tache.id);
       expect(seule.entrees.every((e) => 'taskId' in e && e.taskId === tache.id)).toBe(true);
 
+      // LE JOURNAL TOURNE, LA CONTESTATION RESTE. `task_progress` s'écrit à
+      // chaque ligne de log d'agent : 5 000 événements passent en quelques
+      // heures, et une contestation levée pendant la nuit disparaissait avant
+      // le matin — la ruche disait alors « aucun désaccord ».
+      const elaguer = (): void => {
+        for (let i = 0; i < 30; i++) server.store.appendEvent('task_progress', { i });
+        server.store.pruneEvents(10);
+      };
+      elaguer();
+      const elague = (await (await lireWarRoom(`?projectId=${projectId}`)).json()) as Vue;
+      expect(elague.journalElague).toBe(true);
+      expect(elague.desaccords, 'la contestation a survécu à l’élagage').toEqual([
+        expect.objectContaining({ genre: 'tache', taskId: tache.id, raison: 'attempts_exhausted' }),
+      ]);
+
       // Un humain tranche par la revue — approuver, c'est trancher aussi.
       const revue = await fetch(`${base}/api/tasks/${tache.id}/review`, {
         method: 'POST',
@@ -495,6 +521,16 @@ describe('la War Room relit les vrais producteurs', () => {
       const apres = (await (await lireWarRoom(`?projectId=${projectId}`)).json()) as Vue;
       expect(apres.desaccords).toEqual([]);
       expect(apres.entrees.at(-1)).toMatchObject({ genre: 'revue_humaine', etat: 'approved' });
+
+      // La revue qui l'a tranchée sort à son tour du journal ; le refus, lui,
+      // y reste. La contestation ne revient pas : la revue est RANGÉE.
+      elaguer();
+      expect(
+        server.store.listEvents(0, 1000).some((e) => e.type === 'task_reviewed'),
+        'le banc : la revue doit être élaguée',
+      ).toBe(false);
+      const plusTard = (await (await lireWarRoom(`?projectId=${projectId}`)).json()) as Vue;
+      expect(plusTard.desaccords, 'une contestation tranchée ne ressuscite pas').toEqual([]);
     },
   );
 });

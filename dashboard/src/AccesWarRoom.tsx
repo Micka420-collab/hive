@@ -25,7 +25,10 @@ export function AccesWarRoom({
 }) {
   const t = useT();
   const poll = useApiPoll(() => fetchWarRoom({ limite: 0 }), 60_000, refreshTick);
-  const n = poll.data?.desaccords.length ?? null;
+  // L'ERREUR fait foi : `useApiPoll` garde la dernière réponse quand une
+  // lecture échoue, et un compte d'il y a dix minutes relu sous un jeton
+  // révoqué se lirait encore « aucun » alors que l'on ne sait plus rien.
+  const n = poll.error ? null : (poll.data?.desaccords.length ?? null);
 
   const etat =
     n === null

@@ -1289,7 +1289,12 @@ type Choix = { genre: 'piste'; id: string } | { genre: 'aucune' };
  *
  * Revenir sur une décision est permis, mais NOMMÉ : le formulaire retient la
  * décision qu'il remplace, et la Reine refuse (409) si quelqu'un a tranché
- * entre-temps. Deux opérateurs ne s'écrasent pas en silence.
+ * entre-temps. Deux opérateurs ne s'écrasent pas en silence — et le refus ne
+ * se tait pas non plus : l'écran relit la décision de l'autre, et DIT que la
+ * vôtre n'a pas été consignée. Sans cet avis, deux décisions signées « jeton
+ * de ruche » se ressemblent assez pour croire la sienne rangée. Le choix et la
+ * raison refusés sont gardés : « Revoir la décision » les reprend tels quels,
+ * avec la bonne décision à remplacer.
  */
 function TrancherConseil({
   session,
@@ -1308,6 +1313,8 @@ function TrancherConseil({
   const [justification, setJustification] = useState('');
   const [occupe, setOccupe] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
+  /** La décision que la Reine a refusée (409) parce qu'une autre est passée avant. */
+  const [refusee, setRefusee] = useState<{ choix: Choix; justification: string } | null>(null);
 
   if (!session.closedAt) {
     return (
@@ -1334,16 +1341,26 @@ function TrancherConseil({
             : `${t('Piste retenue :', 'Path retained:')} ${decision.titre ?? decision.propositionId}`}
         </p>
         <p className="pj-cs-decision-pourquoi">« {decision.justification} »</p>
+        {refusee && (
+          <p className="panel-error" role="alert">
+            {t(
+              'Votre décision n’a pas été consignée : quelqu’un a tranché entre-temps — c’est la sienne ci-dessus. Si vous maintenez la vôtre, « Revoir la décision » la reprend telle que vous l’aviez écrite.',
+              'Your decision was not recorded: someone settled in the meantime — theirs is above. If you stand by yours, “Revise the decision” brings it back as you wrote it.',
+            )}
+          </p>
+        )}
         <button
           className="btn ghost"
           onClick={() => {
             setPrecedente(decision.id);
             setChoix(
-              decision.propositionId === null
-                ? { genre: 'aucune' }
-                : { genre: 'piste', id: decision.propositionId },
+              refusee?.choix ??
+                (decision.propositionId === null
+                  ? { genre: 'aucune' }
+                  : { genre: 'piste', id: decision.propositionId }),
             );
-            setJustification('');
+            setJustification(refusee?.justification ?? '');
+            setRefusee(null);
             setErreur(null);
             setRevoir(true);
           }}
@@ -1358,6 +1375,7 @@ function TrancherConseil({
     if (!choix || !justification.trim()) return;
     setOccupe(true);
     setErreur(null);
+    setRefusee(null);
     try {
       const s = await trancherConseil(session.id, {
         propositionId: choix.genre === 'piste' ? choix.id : null,
@@ -1369,8 +1387,10 @@ function TrancherConseil({
     } catch (e) {
       setErreur(errMsg(e));
       // Quelqu'un a tranché entre-temps : on relit, pour que l'écran montre
-      // SA décision plutôt que la nôtre, refusée.
+      // SA décision plutôt que la nôtre — et l'on garde la nôtre, refusée,
+      // pour le dire et pouvoir la reprendre.
       if (e instanceof ApiError && e.status === 409) {
+        setRefusee({ choix, justification });
         fetchConseil(session.id)
           .then((s) => {
             setRevoir(false);
@@ -1392,10 +1412,14 @@ function TrancherConseil({
         void trancher();
       }}
     >
+      {/* Ce que la décision NE FAIT PAS se dit ici, au moment du geste : elle
+          est un enregistrement. Le Plein Essaim, lui, planifie depuis le
+          verdict du Conseil — « Aucune » ne retire pas une piste qu'il aurait
+          déjà transformée en tâches. */}
       <p className="pj-cs-trancher-tete">
         {t(
-          'Le Conseil propose, vous tranchez. Votre décision est rangée avec votre nom et votre raison.',
-          'The Council proposes, you settle. Your decision is recorded with your name and your reason.',
+          'Le Conseil propose, vous tranchez. Votre décision est rangée avec votre nom et votre raison. Elle ne crée ni n’annule aucune tâche : si le Plein Essaim est allumé sur ce projet, il suit le verdict du Conseil, pas cette décision.',
+          'The Council proposes, you settle. Your decision is recorded with your name and your reason. It creates and cancels no task: if the Full Swarm is on for this project, it follows the Council’s verdict, not this decision.',
         )}
       </p>
       <fieldset className="pj-cs-choix" disabled={occupe}>

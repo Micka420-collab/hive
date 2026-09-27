@@ -289,6 +289,10 @@ describe('trancher un conseil clos', () => {
     const dom = await rendre(<Projets {...props()} />);
     await deplier(dom);
 
+    // Un enregistrement, pas un ordre : le formulaire le dit au moment du geste.
+    expect(dom.querySelector('.pj-cs-trancher-tete')?.textContent).toContain(
+      'ne crée ni n’annule aucune tâche',
+    );
     const envoi = bouton(dom, 'Consigner la décision')!;
     expect(envoi.disabled, 'sans choix ni raison, rien ne part').toBe(true);
     const radios = [...dom.querySelectorAll<HTMLInputElement>('.pj-cs-choix input')];
@@ -350,6 +354,42 @@ describe('trancher un conseil clos', () => {
     expect(trancherConseil).toHaveBeenCalledWith('cs-1', {
       propositionId: null,
       justification: 'rien ne tient finalement',
+      precedente: 42,
+    });
+  });
+
+  it('LE REFUS (409) SE DIT — la décision de l’autre s’affiche, la vôtre n’est pas perdue', async () => {
+    // Deux décisions signées « jeton de ruche » se ressemblent : sans avis,
+    // l'opérateur refusé croirait la sienne rangée.
+    vi.mocked(fetchConseils).mockResolvedValue({ conseils: [resume()] } as never);
+    vi.mocked(fetchConseil)
+      .mockResolvedValueOnce(session())
+      .mockResolvedValue(
+        session({ decision: decision({ justification: 'la raison d’un AUTRE' }) }),
+      );
+    vi.mocked(trancherConseil).mockRejectedValue(
+      new ApiError('la décision a changé depuis votre lecture — relisez le conseil', 409),
+    );
+    const dom = await rendre(<Projets {...props()} />);
+    await deplier(dom);
+    await cocher(dom.querySelectorAll<HTMLInputElement>('.pj-cs-choix input')[0]);
+    await saisir(dom.querySelector<HTMLTextAreaElement>('.pj-cs-justification')!, 'ma raison');
+    await consigner(dom);
+
+    const rangee = dom.querySelector('[data-testid="pj-cs-decision"]')?.textContent ?? '';
+    expect(rangee, 'la décision en place est celle de l’autre').toContain('la raison d’un AUTRE');
+    expect(rangee, 'le refus est dit').toContain('n’a pas été consignée');
+
+    // La reprendre : le choix et la raison refusés reviennent, et la décision
+    // à remplacer est la bonne.
+    await cliquer(bouton(dom, 'Revoir la décision'));
+    expect(dom.querySelector<HTMLTextAreaElement>('.pj-cs-justification')?.value).toBe('ma raison');
+    expect(dom.querySelectorAll<HTMLInputElement>('.pj-cs-choix input')[0]?.checked).toBe(true);
+    vi.mocked(trancherConseil).mockResolvedValue(session({ decision: decision({ id: 43 }) }));
+    await consigner(dom);
+    expect(trancherConseil).toHaveBeenLastCalledWith('cs-1', {
+      propositionId: 'prop-a',
+      justification: 'ma raison',
       precedente: 42,
     });
   });
@@ -457,6 +497,117 @@ describe('la War Room', () => {
     expect(dom.textContent).toContain('War Room indisponible');
   });
 
+  it('CHANGER DE PROJET REPLIE LE CONSEIL DU PROJET D’AVANT — on ne tranche pas A sous B', async () => {
+    const deuxProjets = {
+      ...snapshot,
+      projects: [
+        { id: 'p-1', name: 'Un', repoUrl: null, createdAt: 1 },
+        { id: 'p-2', name: 'Deux', repoUrl: null, createdAt: 2 },
+      ],
+    } as unknown as StateSnapshot;
+    vi.mocked(fetchConseils).mockResolvedValue({
+      conseils: [
+        resume({ id: 'cs-1', question: 'Question du projet UN' }),
+        resume({ id: 'cs-2', question: 'Question du projet DEUX', projectId: 'p-2' }),
+      ],
+    } as never);
+    vi.mocked(fetchConseil).mockImplementation((id: string) =>
+      Promise.resolve(
+        id === 'cs-1'
+          ? session({ danses: [danse('prop-1', 'Piste du projet UN')] })
+          : session({ id: 'cs-2', projectId: 'p-2', danses: [danse('prop-2', 'Piste DEUX')] }),
+      ),
+    );
+    vi.mocked(fetchWarRoom).mockImplementation((q) =>
+      Promise.resolve(
+        vue({
+          projectId: q?.projectId ?? null,
+          desaccords:
+            q?.projectId == null
+              ? [{ genre: 'conseil', sessionId: 'cs-2', issue: 'depart', depuis: 1 }]
+              : [],
+          conseils: { 'cs-2': { question: 'Question du projet DEUX', projectId: 'p-2' } },
+        }),
+      ),
+    );
+    const naviguer = vi.fn();
+    const monter = (selectedId: string | null) => (
+      <WarRoom {...props({ snapshot: deuxProjets, selectedId, onNavigate: naviguer })} />
+    );
+    const dom = await rendre(monter('p-1'));
+    await cliquer(dom.querySelector('.wr-conseil .pj-cs-question'));
+    expect(dom.querySelector('.wr-conseil')?.textContent).toContain('Piste du projet UN');
+
+    await act(async () => racine?.render(monter('p-2')));
+    await act(async () => {});
+    const panneau = dom.querySelector('.wr-conseil')?.textContent ?? '';
+    expect(panneau).toContain('Question du projet DEUX');
+    expect(panneau, 'le conseil de A reste ouvert sous B').not.toContain('Piste du projet UN');
+    expect(dom.querySelector('.wr-conseil .pj-cs-trancher')).toBeNull();
+
+    // Depuis toute la ruche, « Trancher » mène au projet du conseil et le
+    // déplie LÀ — le bon conseil, sous le bon projet.
+    await act(async () => racine?.render(monter(null)));
+    await act(async () => {});
+    await cliquer(bouton(dom.querySelector('.wr-desaccords')!, 'Trancher'));
+    expect(naviguer).toHaveBeenLastCalledWith('warroom', 'p-2', { replace: true });
+    await act(async () => racine?.render(monter('p-2')));
+    await act(async () => {});
+    expect(dom.querySelector('.wr-conseil .pj-cs-detail')?.textContent).toContain('Piste DEUX');
+  });
+
+  it('CE QUE LA REINE NE CONNAÎT PLUS SE LIT, MAIS NE SE CLIQUE PAS', async () => {
+    vi.mocked(fetchWarRoom).mockResolvedValue(
+      vue({
+        desaccords: [
+          {
+            genre: 'tache',
+            taskId: 't-ancienne',
+            resultId: 3,
+            raison: 'delivery_exists',
+            objections: [],
+            depuis: 1,
+          },
+        ],
+        entrees: [
+          { genre: 'conseil_ouvert', id: 1, ts: 1, sessionId: 'cs-elague' },
+          { genre: 'revue_humaine', id: 2, ts: 2, taskId: 't-disparue', etat: 'approved' },
+        ],
+        // Ni la tâche disparue ni le conseil élagué ne sont joints.
+        taches: { 't-ancienne': { titre: 'Une vieille tâche', projectId: 'p-1' } },
+      }),
+    );
+    const naviguer = vi.fn();
+    const dom = await rendre(<WarRoom {...props({ onNavigate: naviguer })} />);
+    const sujets = [...dom.querySelectorAll<HTMLButtonElement>('.wr-sujet')];
+    expect(sujets.map((b) => b.disabled)).toEqual([true, true]);
+
+    // Hors de l'instantané, la Miellerie choisirait en silence une AUTRE
+    // tâche : le bouton ne s'offre pas, et l'écran dit pourquoi.
+    const desaccords = dom.querySelector('.wr-desaccords')!;
+    expect(bouton(desaccords as HTMLElement, 'Revoir en Miellerie')).toBeUndefined();
+    expect(desaccords.textContent).toContain('hors de l’instantané');
+  });
+
+  it('UN FILTRE DE TÂCHE EN ERREUR RESTE RETIRABLE', async () => {
+    vi.mocked(fetchWarRoom).mockImplementation((q) =>
+      q?.taskId
+        ? Promise.reject(new ApiError('tâche inconnue', 404))
+        : Promise.resolve(
+            vue({
+              entrees: [{ genre: 'revue_humaine', id: 1, ts: 1, taskId: 't-1', etat: 'approved' }],
+              taches: { 't-1': { titre: 'Ajouter une garde', projectId: 'p-1' } },
+            }),
+          ),
+    );
+    const dom = await rendre(<WarRoom {...props()} />);
+    await cliquer(dom.querySelector('.wr-sujet'));
+    expect(dom.textContent).toContain('War Room indisponible');
+    await cliquer(bouton(dom, 'Retirer le filtre de tâche'));
+    expect(fetchWarRoom).toHaveBeenLastCalledWith({ projectId: null, taskId: null });
+    expect(dom.textContent).not.toContain('War Room indisponible');
+  });
+
   it('UN PROJET CHOISI MONTE LE PANNEAU DU CONSEIL — le même que la carte projet', async () => {
     vi.mocked(fetchWarRoom).mockResolvedValue(vue({ projectId: 'p-1' }));
     const dom = await rendre(<WarRoom {...props({ selectedId: 'p-1' })} />);
@@ -483,6 +634,19 @@ describe('l’accès depuis la Ruche', () => {
     expect(acces.textContent).toContain('2 désaccord(s) à trancher');
     await cliquer(acces);
     expect(naviguer).toHaveBeenCalledWith('warroom');
+  });
+
+  it('UN ÉCHEC APRÈS UNE LECTURE RÉUSSIE NE GARDE PAS L’ANCIEN COMPTE', async () => {
+    // Le jeton révoqué, la Reine qui redémarre : le dernier « aucun » lu
+    // n'est plus une information.
+    vi.mocked(fetchWarRoom).mockResolvedValueOnce(vue()).mockRejectedValue(new Error('Erreur 401'));
+    const dom = await rendre(<AccesWarRoom refreshTick={0} onNavigate={() => {}} />);
+    const acces = () => dom.querySelector('[data-testid="acces-war-room"]')?.textContent ?? '';
+    expect(acces()).toContain('aucun désaccord en suspens');
+    await act(async () => racine?.render(<AccesWarRoom refreshTick={1} onNavigate={() => {}} />));
+    await act(async () => {});
+    expect(acces()).toContain('état inconnu');
+    expect(acces()).not.toContain('aucun');
   });
 
   it('« JE N’AI PAS PU LIRE » N’EST PAS « AUCUN »', async () => {

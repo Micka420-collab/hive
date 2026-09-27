@@ -18,7 +18,7 @@ import {
   entreesWarRoom,
   TYPES_WAR_ROOM,
 } from '../src/shared/war-room.js';
-import type { SessionPourDesaccord } from '../src/shared/war-room.js';
+import type { SessionPourDesaccord, TacheRangee } from '../src/shared/war-room.js';
 import type { HiveEvent } from '../src/shared/types.js';
 
 let prochain = 1;
@@ -313,6 +313,28 @@ describe('les désaccords en suspens', () => {
     const relance = ev('contre_expertise', { taskId: 't-1', resultId: 9, possible: true });
     expect(desaccordsNonResolus(entreesWarRoom([refus, renvoi]), [])).toEqual([]);
     expect(desaccordsNonResolus(entreesWarRoom([refus, relance]), [])).toEqual([]);
+  });
+
+  it('LES FAITS RANGÉS TRANCHENT AUSSI — le journal élagué a pu perdre la revue ou le nouvel essai', () => {
+    // Le refus survit à l'élagage (pruneEvents le garde), pas forcément ce
+    // qui l'a levé : sans les tables rangées, une contestation tranchée il y
+    // a une semaine redeviendrait « à trancher ».
+    const fil = entreesWarRoom([
+      ev(
+        'evaluator_retry_skipped',
+        { taskId: 't-1', resultId: 8, reason: 'attempts_exhausted' },
+        5_000,
+      ),
+    ]);
+    const avec = (rangee: TacheRangee | null): number =>
+      desaccordsNonResolus(fil, [], new Map(), () => rangee).length;
+    expect(avec({ dernierResultId: 8, revueA: null }), 'rien ne l’a levée').toBe(1);
+    expect(avec({ dernierResultId: 8, revueA: 6_000 }), 'verdict humain après le refus').toBe(0);
+    expect(avec({ dernierResultId: 8, revueA: 4_000 }), 'verdict antérieur au refus').toBe(1);
+    expect(avec({ dernierResultId: 9, revueA: null }), 'une production plus récente').toBe(0);
+    // Une tâche que la Reine ne connaît plus ne se revoit plus : elle
+    // n'attendrait personne, pour toujours.
+    expect(avec(null), 'tâche disparue').toBe(0);
   });
 
   it('LE PLUS ANCIEN D’ABORD : celui qui attend depuis le plus longtemps', () => {

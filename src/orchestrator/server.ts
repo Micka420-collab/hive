@@ -5448,9 +5448,22 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
           error: 'le conseil délibère encore — on tranche sur un verdict clos',
         });
       }
-      // Une ligne, bornée : la justification est relue par des humains, et
-      // peut-être un jour jointe à un prompt — elle n'y entrera pas brute.
-      const justification = champSurUneLigne(req.body.justification.trim(), JUSTIFICATION_MAX);
+      // Mesurée comme l'écran la mesure (unités UTF-16, le `maxLength` d'un
+      // textarea) : le schéma compte en points de code, et 600 émojis y
+      // passent. Tronquer en silence la raison d'un humain — ou couper une
+      // paire de substitution en deux — serait pire qu'un refus.
+      const brute = req.body.justification.trim();
+      if (brute.length > JUSTIFICATION_MAX) {
+        return reply.code(400).send({
+          code: 'justification_trop_longue',
+          error: `justification trop longue (${JUSTIFICATION_MAX} caractères au plus)`,
+        });
+      }
+      // Une ligne : la justification est relue par des humains, et peut-être
+      // un jour jointe à un prompt — elle n'y entrera pas brute. Sans
+      // troncature : la longueur est déjà vérifiée, et `champSurUneLigne`
+      // n'allonge jamais.
+      const justification = champSurUneLigne(brute, JUSTIFICATION_MAX);
       if (!justification.trim()) {
         return reply.code(400).send({ code: 'justification_vide', error: 'justification vide' });
       }
@@ -5573,11 +5586,20 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
 
       // Les désaccords se calculent sur TOUT le fil retenu, jamais sur la
       // fenêtre affichée : une contestation plus ancienne que les `limite`
-      // dernières lignes attend toujours quelqu'un.
+      // dernières lignes attend toujours quelqu'un. Ce qui l'a levée se relit
+      // AUSSI dans les tables rangées : le journal élagué peut avoir perdu la
+      // revue ou le nouvel essai, pas le refus (gardé par `pruneEvents`).
       const desaccords = desaccordsNonResolus(
         retenues,
         tache ? [] : sessions.filter((s) => projectId === undefined || s.projectId === projectId),
         decisionsConseils(),
+        (id) =>
+          store.getTask(id)
+            ? {
+                dernierResultId: store.dernierResultatDe(id),
+                revueA: store.getTaskReview(id)?.updatedAt ?? null,
+              }
+            : null,
       );
       const fil = limite === 0 ? [] : retenues.slice(-limite);
 

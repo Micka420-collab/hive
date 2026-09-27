@@ -324,11 +324,13 @@ export function App() {
             'thermo_shift',
             // Le Conseil et la War Room : un conseil réuni, clos ou tranché par
             // un AUTRE opérateur, un renvoi refusé qui laisse une contestation
-            // en suspens — les panneaux qui le montrent se relisent.
+            // en suspens, la revue humaine qui la lève — les panneaux qui le
+            // montrent se relisent.
             'council_opened',
             'council_closed',
             'council_decided',
             'evaluator_retry_skipped',
+            'task_reviewed',
           ].includes(ev.type)
         ) {
           if (refreshTimer.current === undefined) {

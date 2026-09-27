@@ -405,6 +405,20 @@ export type Desaccord =
       depuis: number;
     };
 
+/**
+ * Ce que la Reine a RANGÉ d'une tâche, hors du journal — donc à l'abri de son
+ * élagage. Le refus de renvoi qui ouvre une contestation est gardé par
+ * `pruneEvents` tant que sa tâche existe ; la revue humaine ou le nouvel essai
+ * qui l'ont levée, eux, peuvent être sortis du journal. Sans ces faits rangés,
+ * une contestation tranchée il y a une semaine redeviendrait « à trancher ».
+ */
+export interface TacheRangee {
+  /** Dernier résultat rangé de la tâche, `null` sans résultat. */
+  dernierResultId: number | null;
+  /** Instant du verdict humain courant (Miellerie), `null` sans verdict. */
+  revueA: number | null;
+}
+
 /** Une session telle que le serveur la range — le strict nécessaire. */
 export interface SessionPourDesaccord {
   id: string;
@@ -427,11 +441,19 @@ export interface SessionPourDesaccord {
  * PART (`council_decided` seul). La fenêtre de lecture du fil est bornée : la
  * décision d'un vieux conseil encore rangé peut en être sortie, et ce conseil
  * redeviendrait « à trancher » alors que quelqu'un l'a tranché.
+ *
+ * `tacheRangee` applique la même règle aux faits RANGÉS, pour la même raison
+ * (voir `TacheRangee`) : un verdict humain posé APRÈS le refus tranche, un
+ * résultat plus récent que la production contestée la rend caduque. Et une
+ * tâche que la Reine ne connaît plus (`null`) n'attend plus personne : la
+ * Miellerie refuserait de la revoir, le désaccord ne se trancherait jamais.
+ * Sans elle (module pur éprouvé seul), le fil seul fait foi.
  */
 export function desaccordsNonResolus(
   entrees: readonly EntreeWarRoom[],
   sessions: readonly SessionPourDesaccord[],
   decisions: ReadonlyMap<string, DecisionConseil> = dernieresDecisions(entrees),
+  tacheRangee?: (taskId: string) => TacheRangee | null,
 ): Desaccord[] {
   const desaccords: Desaccord[] = [];
 
@@ -453,6 +475,20 @@ export function desaccordsNonResolus(
     }
   }
   for (const refus of enSuspens.values()) {
+    if (tacheRangee) {
+      const rangee = tacheRangee(refus.taskId);
+      if (!rangee) continue;
+      // Strictement APRÈS : à la milliseconde près, le fil (ordonné par id)
+      // tranche déjà les cas frais ; ici on ne lève que ce qui est sûr.
+      if (rangee.revueA !== null && rangee.revueA > refus.ts) continue;
+      if (
+        refus.resultId !== null &&
+        rangee.dernierResultId !== null &&
+        rangee.dernierResultId !== refus.resultId
+      ) {
+        continue;
+      }
+    }
     const objections = new Set<string>();
     for (const e of entrees) {
       if (

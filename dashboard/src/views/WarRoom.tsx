@@ -54,15 +54,19 @@ export default function WarRoom({
   const [tacheId, setTacheId] = useState<string | null>(null);
   // Le conseil à déplier : tenu ICI, au-dessus du fil, pour survivre au
   // changement de projet qu'un clic depuis la vue de la ruche provoque. Un
-  // objet neuf à chaque clic : recliquer le même conseil le redéplie.
-  const [focus, setFocus] = useState<{ sessionId: string } | null>(null);
+  // objet neuf à chaque clic : recliquer le même conseil le redéplie. Il porte
+  // SON projet, et n'est remis qu'au panneau de ce projet-là : un conseil
+  // déplié sous le projet d'à côté, formulaire de décision compris, ferait
+  // trancher le conseil de A en croyant trancher celui de B.
+  const [focus, setFocus] = useState<{ sessionId: string; projectId: string } | null>(null);
+  const focusIci = focus && focus.projectId === projetId ? focus : null;
   const [reunion, setReunion] = useState(false);
   const conseilRef = useRef<HTMLElement | null>(null);
 
   // Trancher se fait dans le panneau du Conseil : on y amène le regard.
   useEffect(() => {
-    if (focus && projetId) conseilRef.current?.scrollIntoView?.({ block: 'start' });
-  }, [focus, projetId]);
+    if (focusIci) conseilRef.current?.scrollIntoView?.({ block: 'start' });
+  }, [focusIci]);
 
   const projets = useMemo(
     () => [...snapshot.projects].sort((a, b) => b.createdAt - a.createdAt),
@@ -80,9 +84,13 @@ export default function WarRoom({
   const choisirProjet = (id: string | null): void => {
     setTacheId(null);
     setReunion(false);
+    setFocus(null);
     onNavigate('warroom', id ?? undefined, { replace: true });
   };
 
+  // La clé est le PROJET : changer de projet remonte un panneau neuf. Sans
+  // elle, React garde l'état du panneau à la même place — le conseil déplié,
+  // le choix coché, la raison tapée — sous la liste d'un autre projet.
   const panneauConseil = projetId ? (
     <section className="card wr-conseil" ref={conseilRef}>
       <div className="wr-conseil-actions">
@@ -91,11 +99,12 @@ export default function WarRoom({
         </button>
       </div>
       <ConseilProjet
+        key={projetId}
         projectId={projetId}
         refreshTick={refreshTick}
         reunion={reunion}
         onReunionFin={() => setReunion(false)}
-        focus={focus}
+        focus={focusIci}
       />
     </section>
   ) : null;
@@ -137,8 +146,8 @@ export default function WarRoom({
         tacheVivante={(id) => tachesVivantes.has(id)}
         onTache={setTacheId}
         onConseil={(sessionId, projectId) => {
-          setFocus({ sessionId });
-          if (projectId && projectId !== projetId) choisirProjet(projectId);
+          if (projectId !== projetId) choisirProjet(projectId);
+          setFocus({ sessionId, projectId });
         }}
         milieu={panneauConseil}
         onOpenTask={onOpenTask}
@@ -166,7 +175,8 @@ function FilWarRoom({
   nomNoeud: (nodeId: string) => string;
   tacheVivante: (taskId: string) => boolean;
   onTache: (taskId: string | null) => void;
-  onConseil: (sessionId: string, projectId: string | null) => void;
+  /** Ouvre un conseil sous SON projet — seul un conseil encore rangé en a un. */
+  onConseil: (sessionId: string, projectId: string) => void;
   onOpenTask: (taskId: string) => void;
   onRevoir: (taskId: string) => void;
   /** Le panneau du Conseil : entre ce qui attend quelqu'un et le fil. */
@@ -205,6 +215,14 @@ function FilWarRoom({
             </p>
           ) : (
             <p className="muted-text">{t('Lecture du journal…', 'Reading the journal…')}</p>
+          )}
+          {/* Le filtre reste retirable ICI aussi : une tâche que la Reine ne
+              connaît plus rend 404, et sans ce bouton la vue resterait
+              coincée sur son erreur jusqu'à un changement de projet. */}
+          {tacheId && (
+            <button className="btn ghost wr-puce" onClick={() => onTache(null)}>
+              {t('Retirer le filtre de tâche', 'Clear the task filter')} ✕
+            </button>
           )}
         </section>
         {milieu}
@@ -290,22 +308,36 @@ function FilWarRoom({
                   <time className="wr-heure" dateTime={new Date(e.ts).toISOString()}>
                     {new Date(e.ts).toLocaleString()}
                   </time>
+                  {/* Un sujet que la Reine ne connaît plus (tâche ou conseil
+                      élagué : le serveur ne l'a pas joint) reste LU mais ne se
+                      clique pas — filtrer dessus rendrait 404, l'ouvrir ne
+                      montrerait rien. Un bouton qui ne fait rien ment. */}
                   {sujet.genre === 'tache' ? (
                     <button
                       className="wr-sujet"
-                      title={t('Voir tout le débat de cette tâche', 'See this task’s whole debate')}
+                      title={
+                        vue.taches[sujet.taskId]
+                          ? t('Voir tout le débat de cette tâche', 'See this task’s whole debate')
+                          : t('Cette tâche n’existe plus', 'This task no longer exists')
+                      }
                       onClick={() => onTache(sujet.taskId)}
-                      disabled={tacheId === sujet.taskId}
+                      disabled={tacheId === sujet.taskId || !vue.taches[sujet.taskId]}
                     >
                       {titreTache(sujet.taskId)}
                     </button>
                   ) : (
                     <button
                       className="wr-sujet wr-sujet-conseil"
-                      title={t('Ouvrir ce Conseil', 'Open this Council')}
-                      onClick={() =>
-                        onConseil(sujet.sessionId, vue.conseils[sujet.sessionId]?.projectId ?? null)
+                      title={
+                        vue.conseils[sujet.sessionId]
+                          ? t('Ouvrir ce Conseil', 'Open this Council')
+                          : t('Ce Conseil n’est plus conservé', 'This Council is no longer kept')
                       }
+                      disabled={!vue.conseils[sujet.sessionId]?.projectId}
+                      onClick={() => {
+                        const projet = vue.conseils[sujet.sessionId]?.projectId;
+                        if (projet) onConseil(sujet.sessionId, projet);
+                      }}
                     >
                       {question(sujet.sessionId)}
                     </button>
@@ -346,12 +378,13 @@ function DesaccordLigne({
   titreTache: (taskId: string) => string;
   projetDuConseil: (sessionId: string) => string | null;
   tacheVivante: (taskId: string) => boolean;
-  onConseil: (sessionId: string, projectId: string | null) => void;
+  onConseil: (sessionId: string, projectId: string) => void;
   onOpenTask: (taskId: string) => void;
   onRevoir: (taskId: string) => void;
 }) {
   const depuis = new Date(d.depuis).toLocaleString();
   if (d.genre === 'conseil') {
+    const projet = projetDuConseil(d.sessionId);
     return (
       <li className="wr-desaccord wr-desaccord-conseil">
         <p className="wr-desaccord-titre">
@@ -364,7 +397,8 @@ function DesaccordLigne({
         <div className="wr-desaccord-actions">
           <button
             className="btn"
-            onClick={() => onConseil(d.sessionId, projetDuConseil(d.sessionId))}
+            disabled={!projet}
+            onClick={() => projet && onConseil(d.sessionId, projet)}
           >
             {t('Trancher', 'Settle')}
           </button>
@@ -391,18 +425,27 @@ function DesaccordLigne({
           ))}
         </ul>
       )}
-      <div className="wr-desaccord-actions">
-        <button className="btn" onClick={() => onRevoir(d.taskId)}>
-          {t('Revoir en Miellerie', 'Review in the Honey House')}
-        </button>
-        {/* Le tiroir ne s'ouvre que sur une tâche que le snapshot connaît :
-            un bouton qui ne fait rien serait pire qu'un bouton absent. */}
-        {tacheVivante(d.taskId) && (
+      {/* La Miellerie et le tiroir ne travaillent que sur les tâches que
+          l'instantané du tableau de bord connaît (les plus récentes, bornées).
+          Hors de lui, la Miellerie sélectionnerait EN SILENCE une autre tâche
+          — et l'on revoirait la mauvaise production. Mieux vaut le dire. */}
+      {tacheVivante(d.taskId) ? (
+        <div className="wr-desaccord-actions">
+          <button className="btn" onClick={() => onRevoir(d.taskId)}>
+            {t('Revoir en Miellerie', 'Review in the Honey House')}
+          </button>
           <button className="btn ghost" onClick={() => onOpenTask(d.taskId)}>
             {t('Ouvrir la tâche', 'Open the task')}
           </button>
-        )}
-      </div>
+        </div>
+      ) : (
+        <p className="muted-text">
+          {t(
+            'Tâche hors de l’instantané du tableau de bord (seules les plus récentes y sont) : la Miellerie ne peut pas l’ouvrir d’ici.',
+            'Task outside the dashboard snapshot (only the most recent are in it): the Honey House cannot open it from here.',
+          )}
+        </p>
+      )}
     </li>
   );
 }
