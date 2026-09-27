@@ -44,8 +44,18 @@
 //
 //   · la fermeture d'un pont efface son sous-dossier (delegation-bridge.ts) ;
 //   · l'arrêt du nœud (`HiveNodeClient.stop`) efface le dossier entier ;
-//   · un `kill -9`, un SIGTERM sans arrêt poli n'effacent rien — le démarrage
-//     suivant d'un nœud de ce compte balaie les dossiers dont le pid est mort.
+//   · un `kill -9`, un SIGTERM (`hive service`, systemd, launchd, arrêt d'un
+//     conteneur : les binaires du nœud n'appellent `stop()` que sur SIGINT)
+//     n'effacent rien — le démarrage suivant d'un nœud de ce compte balaie les
+//     dossiers dont le pid est mort.
+//
+// Ce balayage SUPPOSE un seul espace de pids pour tous les nœuds d'un compte
+// qui partagent ce dossier temporaire : `kill(pid, 0)` ne voit que le sien. Deux
+// nœuds du même compte dans deux espaces de pids distincts (conteneurs, bac)
+// mais sur le MÊME `/tmp` monté se croiraient morts l'un l'autre, et le
+// démarrage de l'un effacerait le rendez-vous de l'autre en pleine tâche.
+// Configuration qu'aucun lanceur de Hive ne produit — le bac monte son propre
+// `/tmp` — ; qui la monte donne à chaque nœud son propre TMPDIR.
 //
 // ─── LA LIMITE QUI RESTE, ET QU'ON DIT ───────────────────────────────────────
 //
@@ -78,12 +88,14 @@ function dossierTemporaire(): string {
 }
 
 /**
- * `sizeof(sun_path)` : la longueur maximale, en OCTETS, d'un chemin de socket
- * Unix. Au-delà, libuv refuse l'écoute (`listen EINVAL`, mesuré sous Node 24 :
- * 108 octets passent sous Linux, 119 échouent). macOS et les BSD s'arrêtent à
- * 104.
+ * La longueur maximale, en OCTETS, d'un chemin de socket Unix qu'on ose ouvrir.
+ * Au-delà, libuv refuse l'écoute (`listen EINVAL`) — et l'échec partirait en
+ * panne générique au lieu du motif nommé. Linux : `sizeof(sun_path)` = 108,
+ * MESURÉ sous Node 24 (108 octets passent, 109 échouent). macOS et les BSD :
+ * `sun_path` fait 104 octets, NUL final compris selon le noyau — non mesuré ici,
+ * donc 103, la borne qui tient dans les deux lectures.
  */
-const LIMITE_SUN_PATH = process.platform === 'linux' ? 108 : 104;
+const LIMITE_SUN_PATH = process.platform === 'linux' ? 108 : 103;
 
 /**
  * Le chemin d'un socket de pont ne tient pas dans `sun_path` : une cause

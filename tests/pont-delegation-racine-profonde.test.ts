@@ -176,5 +176,28 @@ describe.skipIf(process.platform === 'win32')(
         'un chemin trop long n’est pas une panne d’identifiants',
       ).toEqual([]);
     }, 40_000);
+
+    it('un TMPDIR trop profond ne trouble pas un nœud dont l’agent n’ouvre aucun pont', () => {
+      racine = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'hive-test-pont-shell-')));
+      const tmpProfond = path.join(racine, 'tmp-du-membre-'.padEnd(120, 't'));
+      mkdirSync(tmpProfond, { recursive: true });
+      vi.stubEnv('TMPDIR', tmpProfond);
+      const journal = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+      vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      // Aucune ruche n'écoute : seul compte ce que le DÉMARRAGE dit.
+      client = new HiveNodeClient({
+        url: 'ws://127.0.0.1:9/ws',
+        token: TOKEN,
+        name: 'ouvriere-shell',
+        ownerName: 'test',
+        agentType: 'shell',
+        maxConcurrency: 1,
+        workRoot: path.join(racine, 'work'),
+        quiet: false,
+      });
+      client.start();
+      const lignes = journal.mock.calls.map((a) => String(a[0]));
+      expect(lignes.some((l) => l.includes('socket du pont de délégation'))).toBe(false);
+    });
   },
 );

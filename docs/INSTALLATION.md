@@ -517,7 +517,9 @@ d'écriture réels de `src/` et **rougit** si l'un d'eux apparaît ailleurs.
   tentative, authentifié pour elle seule et effacé à sa fin. Il vit hors de
   `.hive-work` parce qu'un chemin de socket Unix est limité à 104–108 octets :
   depuis un dossier profond, le pont ne pouvait plus s'ouvrir. Le dossier part
-  à l'arrêt du nœud ; celui d'un nœud tué est balayé à son prochain démarrage.
+  à l'arrêt du nœud par Ctrl-C ; celui d'un nœud tué, ou arrêté par SIGTERM
+  (`hive service`, systemd, launchd, arrêt d'un conteneur), reste jusqu'au
+  prochain démarrage d'un nœud de ce compte, qui le balaie.
   Si `TMPDIR` lui-même est trop profond, le nœud le dit dès son démarrage.
   Sous Windows, le pont écoute sur un pipe nommé `\\.\pipe\hive-pont-*`.
   Rien de ce pont n'entre dans le répertoire de la tâche, donc dans un diff.

@@ -18,6 +18,7 @@ import {
   requisitionSiCredentialsManquantes,
 } from './agent-detect.js';
 import type { AgentType } from './agent-detect.js';
+import { binaireMcpDansBac } from './bac.js';
 import { argvDe, jugerChantier } from '../shared/chantier.js';
 import { jugerCommandeTest } from '../shared/commande-test.js';
 import { jugerPreparation } from '../shared/preparation.js';
@@ -329,9 +330,14 @@ export class HiveNodeClient {
    * Les ponts de délégation, au démarrage : balayer ce qu'un nœud tué a laissé
    * (un `kill -9` n'appelle pas `stop()`), et DIRE tout de suite si aucun pont
    * ne pourra s'ouvrir ici — plutôt qu'à la première tâche Claude Code ou Codex.
+   * L'alerte ne vise que les agents qui ouvrent un pont (`binaireMcpDansBac`,
+   * la même source que le preflight du bac) : à un nœud shell ou Gemini, un
+   * TMPDIR profond ne coûte rien, et l'en avertir serait un faux signal.
    */
   private preparerRendezVous(): void {
     for (const reste of balayerPontsOrphelins()) this.log(`pont orphelin effacé : ${reste}`);
+    const agent = this.opts.agentType;
+    if (!estAgentType(agent) || binaireMcpDansBac(agent) === null) return;
     const alerte = this.rendezVous.alerte();
     if (alerte) this.log(`⚠ ${alerte}`);
   }

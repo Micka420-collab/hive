@@ -309,8 +309,8 @@ export function empreinte(ctx: Contexte): Emplacement[] {
       retirable: true,
       consequence:
         'rien, sauf pour un nœud EN COURS : sa tâche Claude Code ou Codex perdrait son ' +
-        'pont. Le dossier est effacé à l’arrêt du nœud ; celui d’un nœud tué est balayé ' +
-        'par le démarrage suivant.',
+        'pont. Le dossier est effacé à l’arrêt du nœud par Ctrl-C ; celui d’un nœud tué ou ' +
+        'arrêté par SIGTERM (service, conteneur) est balayé par le démarrage suivant.',
     },
   ];
 }
