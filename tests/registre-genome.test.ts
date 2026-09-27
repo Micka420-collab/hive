@@ -196,6 +196,89 @@ describe('registre Genome', () => {
     });
   });
 
+  it('une course : une affectation par drone, et chaque drone rend compte de SON issue, une fois', () => {
+    const registre = registreGenomeDepuisEvenements(
+      [
+        ev('drone_race_started', {
+          taskId: 't1',
+          drones: ['n1', 'n2', 'n3'],
+          modeles: { n1: 'alpha', n2: 'beta', n3: 'gamma' },
+        }),
+        ev('task_assigned', { taskId: 't1', nodeId: 'n1', modele: 'alpha' }),
+        ev('drone_rejected', { taskId: 't1', nodeId: 'n3', reason: 'noeud_sature' }),
+        // Le primaire rend un échec pendant que beta vole encore.
+        ev('drone_failed', {
+          taskId: 't1',
+          nodeId: 'n1',
+          fournisseur: { source: 'claude-code', coutUsd: 0.01 },
+        }),
+        // beta est perdu (nœud tombé) : la course s'éteint, la tâche revient en
+        // file au nom de beta — une perte déjà comptée, pas une seconde.
+        ev('drone_failed', { taskId: 't1', nodeId: 'n2', reason: 'node_lost' }),
+        ev('task_requeued', { taskId: 't1', nodeId: 'n2', reason: 'drone_all_lost' }),
+        // La reprise, hors course.
+        ev('task_assigned', { taskId: 't1', nodeId: 'n2', modele: 'beta' }),
+        ev('task_done', { taskId: 't1', nodeId: 'n2', durationMs: 30 }),
+      ],
+      categorieDe,
+    );
+
+    expect(
+      registre.lignes.map((l) => [
+        l.modele,
+        l.affectations,
+        l.rendus,
+        l.reprises,
+        l.refus,
+        l.interrompues,
+      ]),
+    ).toEqual([
+      ['alpha', 1, 0, 1, 0, 0],
+      ['beta', 2, 1, 0, 0, 1],
+      ['gamma', 1, 0, 0, 1, 0],
+    ]);
+    expect(registre.lignes[0]?.coutFournisseur).toMatchObject({ declarees: 1, tentatives: 1 });
+  });
+
+  it('une course arrêtée d’un bloc — reprise au boot, annulation humaine : chaque drone encore en vol est interrompu, une fois', () => {
+    // Ces faits de TÂCHE ne nomment aucun drone (boot) ou le seul primaire
+    // (annulation) : sans ce solde, les drones gardaient une affectation sans
+    // issue, et une reprise au boot n'interrompait plus personne.
+    const course = (taskId: string) => [
+      ev('drone_race_started', {
+        taskId,
+        drones: ['n1', 'n2'],
+        modeles: { n1: 'alpha', n2: 'beta' },
+      }),
+      ev('task_assigned', { taskId, nodeId: 'n1', modele: 'alpha' }),
+    ];
+    const lignes = (evenements: HiveEvent[]) =>
+      registreGenomeDepuisEvenements(evenements, categorieDe).lignes.map((l) => [
+        l.modele,
+        l.affectations,
+        l.interrompues,
+      ]);
+
+    expect(
+      lignes([...course('t1'), ev('task_requeued', { taskId: 't1', reason: 'boot_recovery' })]),
+    ).toEqual([
+      ['alpha', 1, 1],
+      ['beta', 1, 1],
+    ]);
+    expect(
+      lignes([
+        ...course('t1'),
+        ev('drone_failed', { taskId: 't1', nodeId: 'n2', reason: 'node_lost' }),
+        ev('task_cancelled', { taskId: 't1', nodeId: 'n1', reason: 'cancelled' }),
+        // Un fait tardif d'un drone déjà soldé ne compte pas une seconde fois.
+        ev('drone_cancelled', { taskId: 't1', nodeId: 'n2' }),
+      ]),
+    ).toEqual([
+      ['alpha', 1, 1],
+      ['beta', 1, 1],
+    ]);
+  });
+
   it('trie par nom sans classer, et signale une fenêtre tronquée', () => {
     const evenements = [
       ev('task_assigned', { taskId: 't2', nodeId: 'n1', modele: 'zeta' }),

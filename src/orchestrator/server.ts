@@ -66,7 +66,7 @@ import { jugerCommandeTest } from '../shared/commande-test.js';
 import { jugerPreparation } from '../shared/preparation.js';
 import { instantanePourEssaim, laverIdentifiants, vuePublique } from '../shared/projet-public.js';
 import { cheminEnvQueen } from '../shared/env-queen.js';
-import { affectationsDepuisEvenements } from '../shared/routage-vue.js';
+import { affectationsDepuisEvenements, TYPES_ROUTAGE } from '../shared/routage-vue.js';
 import { TYPES_CHRONOLOGIE, chronologieDepuisEvenements } from '../shared/chronologie-tache.js';
 import {
   registreGenomeDepuisEvenements,
@@ -7739,10 +7739,7 @@ async function monterReine(
       if (!store.getTask(req.params.taskId)) {
         return reply.code(404).send({ error: 'tâche inconnue' });
       }
-      const evenements = store.evenementsDeTache(req.params.taskId, [
-        'task_assigned',
-        'pheromone_route',
-      ]);
+      const evenements = store.evenementsDeTache(req.params.taskId, TYPES_ROUTAGE);
       return { taskId: req.params.taskId, affectations: affectationsDepuisEvenements(evenements) };
     },
   );

@@ -108,7 +108,11 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
   recalculer ni estimer :
   - pourquoi ce Worker et ce modèle : le classement de l'Aiguillage figé à
     l'instant du choix ([#449](https://github.com/Micka420-collab/hive/pull/449),
-    [#450](https://github.com/Micka420-collab/hive/pull/450)) ;
+    [#450](https://github.com/Micka420-collab/hive/pull/450)) — y compris le
+    drone vainqueur d'une course et son modèle, et le modèle qui a planté sur
+    une tâche : écarté de ses reprises tant qu'un autre nœud de la ruche peut
+    la porter (la reprise attend qu'il se libère), re-tenté et dit tel quel
+    sinon, jamais compté comme une note ;
   - où est passé le temps : attente, démarrage, exécution, reprises,
     corrections, revue ([#451](https://github.com/Micka420-collab/hive/pull/451)) ;
   - la réputation d'un Worker par catégorie de tâche, « inconnue » là où il

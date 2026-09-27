@@ -485,6 +485,11 @@ export function classer(
  * tourner ? `null` si la liste est vide — l'appelant retombe alors sur son
  * comportement d'avant (le nœud choisit lui-même), plutôt que sur un modèle
  * inventé.
+ *
+ * La forme la plus courte de la règle, gardée comme référence de la doctrine
+ * (bancs, `docs/ETAPES.md`). L'ordonnanceur, lui, passe par `aiguillerNoeuds`
+ * — la course comme la boucle principale — parce qu'il lui faut aussi le
+ * classement entier, qui est la RAISON du choix, et les porteurs de l'élu.
  */
 export function choisirModele(
   categorie: Categorie,
@@ -542,4 +547,83 @@ export function aiguillerNoeuds<N extends { readonly modeles?: readonly string[]
   if (modele === null) return null;
   const noeuds = eligibles.filter((n) => (n.modeles ?? []).includes(modele));
   return { modele, noeuds, rang };
+}
+
+// ─── La reprise d'une tâche : sans les modèles qui y ont planté ───────────────
+//
+// Un modèle qui a planté sur une tâche (délai, erreur du CLI, refus
+// d'infrastructure — cf. `Scheduler.modelesEchoues`) n'est pas ré-élu pour ses
+// reprises : jamais jugé, donc à `+∞`, il revenait en tête et brûlait toutes
+// les tentatives. Et ce plantage n'entre JAMAIS dans les antécédents : ce
+// n'était pas un essai loyal, il ne dit rien de la qualité du modèle.
+//
+// Tout le parti pris tient dans CONTRE QUOI l'écart se décide : l'OFFRE de la
+// ruche pour cette tâche — les nœuds qui pourraient la porter, charge ignorée —
+// et non les seuls éligibles du tick. Décidé contre les libres, « tous les
+// modèles offerts ont échoué » devenait vrai dès que le porteur sain était
+// occupé, ou que l'alternative était un nœud sans modèle déclaré : le modèle
+// tombé reprenait les trois tentatives, et la tâche échouait pour de bon à côté
+// d'une ouvrière saine — justement sur une ruche chargée, là où les reprises
+// s'accumulent. La charge passe ; une reprise l'attend comme toute tâche en file.
+
+/** Ce que l'Aiguillage lit d'un nœud : les modèles qu'il déclare savoir lancer. */
+type NoeudOffrant = { readonly modeles?: readonly string[] | null };
+
+/**
+ * Les nœuds qui portent encore la tâche SANS un modèle qui y a planté, chacun
+ * privé de ces modèles. Un nœud qui n'offrait QUE des modèles tombés n'en porte
+ * plus : gardé sans modèle, il lancerait son défaut — peut-être celui-là même.
+ * Un nœud qui ne déclare aucun modèle reste porteur : son défaut est inconnu,
+ * pas tombé.
+ */
+function porteursHorsEchecs<N extends NoeudOffrant>(
+  noeuds: readonly N[],
+  echoues: ReadonlySet<string>,
+): N[] {
+  const porteurs: N[] = [];
+  for (const n of noeuds) {
+    const modeles = n.modeles ?? [];
+    const restants = modeles.filter((m) => !echoues.has(m));
+    if (modeles.length === 0) porteurs.push(n);
+    else if (restants.length > 0) porteurs.push({ ...n, modeles: restants });
+  }
+  return porteurs;
+}
+
+/**
+ * La reprise d'une tâche : les éligibles à soumettre à `aiguillerNoeuds`, et
+ * les modèles de l'offre que la raison dira écartés.
+ *
+ * `offre` : les nœuds qui pourraient porter la tâche, CHARGE IGNORÉE (en ligne,
+ * autorisés à produire, hors cooldown de refus pour elle) ; `eligibles` en est
+ * la part libre, filtrée et triée par l'appelant — l'ordre est préservé.
+ *
+ * Tant qu'un nœud de l'offre porte la tâche sans modèle tombé, les modèles
+ * tombés sont écartés : les éligibles sont réduits à leurs porteurs, et la
+ * liste rendue peut être VIDE — la tâche attend alors qu'un porteur se libère.
+ * Plus aucun porteur dans toute l'offre (une ruche à modèle unique) : les
+ * modèles tombés concourent de nouveau, et c'est à l'appelant de dire qu'il en
+ * re-commande un — sans quoi la tâche attendrait à jamais.
+ *
+ * Un nœud qui a REFUSÉ cette tâche n'est pas dans l'offre, par choix : il a dit
+ * lui-même qu'il ne la prendrait pas maintenant, et un nœud hors service peut
+ * le dire pour vingt-quatre heures (Night Shift). L'attendre bloquerait la
+ * reprise des heures durant quand une ouvrière est libre ; on accepte qu'un
+ * refus de saturation de quelques secondes laisse passer une ré-admission,
+ * dite comme telle.
+ */
+export function repriseHorsEchecs<N extends NoeudOffrant>(
+  eligibles: readonly N[],
+  offre: readonly NoeudOffrant[],
+  echoues: ReadonlySet<string> | undefined,
+): { eligibles: N[]; ecartes: string[] } {
+  if (!echoues || echoues.size === 0 || porteursHorsEchecs(offre, echoues).length === 0) {
+    return { eligibles: [...eligibles], ecartes: [] };
+  }
+  // Un `Set` : le même modèle offert par deux nœuds n'est nommé qu'une fois.
+  const offerts = new Set(offre.flatMap((n) => n.modeles ?? []));
+  return {
+    eligibles: porteursHorsEchecs(eligibles, echoues),
+    ecartes: [...offerts].filter((m) => echoues.has(m)).sort(),
+  };
 }
