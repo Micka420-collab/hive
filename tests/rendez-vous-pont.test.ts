@@ -68,6 +68,25 @@ describe('rendez-vous des ponts de délégation', () => {
     );
   });
 
+  it('un TMPDIR relatif donne quand même un socket ABSOLU — le CLI le résout depuis la tâche', () => {
+    // Le serveur MCP enfant part dans le dossier de la tâche : un socket
+    // relatif y pointerait ailleurs (ENOENT), et Claude Code tournerait sans
+    // les outils de délégation sans rien dire.
+    const dossier = tmpDuBanc();
+    const relatif = path.relative(process.cwd(), dossier);
+    expect(path.isAbsolute(relatif)).toBe(false);
+    for (const v of ['TMPDIR', 'TEMP', 'TMP']) vi.stubEnv(v, relatif);
+    const rdv = new RendezVousPont();
+    try {
+      const pont = rdv.reserver();
+      expect(path.isAbsolute(pont.dossier), pont.dossier).toBe(true);
+      expect(pont.dossier.startsWith(dossier + path.sep), pont.dossier).toBe(true);
+      if (process.platform !== 'win32') expect(path.isAbsolute(pont.extremite)).toBe(true);
+    } finally {
+      rdv.fermer();
+    }
+  });
+
   it.skipIf(process.platform === 'win32')(
     'un dossier temporaire trop profond est dit AVANT toute création, avec sa cause',
     () => {

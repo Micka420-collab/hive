@@ -33,7 +33,7 @@ export function createCodexAdapter(token = process.env.HIVE_TOKEN ?? DEFAULT_TOK
       ctx.onProgress({ log: 'codex exec démarré' });
       let bridge: DelegationBridge | undefined;
       try {
-        if (ctx.delegate && ctx.waitForDelegationResult) {
+        if (ctx.delegate && ctx.waitForDelegationResult && ctx.rendezVous) {
           bridge = await createDelegationBridge(ctx, task.id);
         }
         // `--` avant le prompt : sans lui, un prompt commençant par un tiret est

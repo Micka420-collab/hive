@@ -66,6 +66,18 @@ const NOM_SOCKET = 's';
 const GABARIT_MKDTEMP = 'XXXXXX';
 
 /**
+ * Le dossier temporaire du système, TOUJOURS absolu. `os.tmpdir()` rend TMPDIR
+ * tel quel : un `TMPDIR=tmp` relatif donnerait un socket relatif, que le
+ * serveur MCP enfant — lancé par le CLI dans le dossier de la TÂCHE — résoudrait
+ * ailleurs (ENOENT : Claude Code tournerait sans les outils de délégation, sans
+ * rien dire), comme les sources des montages du bac ; et la mesure `sun_path`
+ * porterait sur un chemin qui n'est pas celui qu'on ouvre.
+ */
+function dossierTemporaire(): string {
+  return path.resolve(tmpdir());
+}
+
+/**
  * `sizeof(sun_path)` : la longueur maximale, en OCTETS, d'un chemin de socket
  * Unix. Au-delà, libuv refuse l'écoute (`listen EINVAL`, mesuré sous Node 24 :
  * 108 octets passent sous Linux, 119 échouent). macOS et les BSD s'arrêtent à
@@ -106,7 +118,7 @@ function motifTropLong(racine: string): string | null {
   return (
     `chemin du socket du pont de délégation trop long : ${octets} octets, au-delà des ` +
     `${LIMITE_SUN_PATH} qu'un socket Unix accepte sur ${process.platform} — le dossier temporaire du ` +
-    `système (${tmpdir()}) est trop profond. Raccourcissez TMPDIR (par exemple ` +
+    `système (${dossierTemporaire()}) est trop profond. Raccourcissez TMPDIR (par exemple ` +
     'TMPDIR=/tmp) puis relancez le nœud : sans pont, aucune tâche Claude Code ni Codex ' +
     'ne peut démarrer ici.'
   );
@@ -149,7 +161,7 @@ function processusVivant(pid: number): boolean {
  * qu'effacer le rendez-vous d'un nœud en plein travail.
  */
 export function balayerPontsOrphelins(): string[] {
-  const dossierTemp = tmpdir();
+  const dossierTemp = dossierTemporaire();
   const nom = new RegExp(`^${PREFIXE_PONT}(\\d+)-[A-Za-z0-9]{${GABARIT_MKDTEMP.length}}$`);
   let entrees: string[];
   try {
@@ -228,6 +240,6 @@ export class RendezVousPont implements ReservationPont {
 
   /** Le chemin qu'aurait le dossier du nœud, suffixe `mkdtemp` compris. */
   private gabarit(): string {
-    return path.join(tmpdir(), `${PREFIXE_PONT}${process.pid}-${GABARIT_MKDTEMP}`);
+    return path.join(dossierTemporaire(), `${PREFIXE_PONT}${process.pid}-${GABARIT_MKDTEMP}`);
   }
 }

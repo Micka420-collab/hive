@@ -48,12 +48,13 @@ afterEach(async () => {
   await server?.stop();
   server = null;
   vi.unstubAllEnvs();
+  vi.restoreAllMocks();
   if (racine) rmSync(racine, { recursive: true, force: true, maxRetries: 3 });
   racine = '';
 });
 
 /** Une ruche réelle, un faux `claude` en tête de PATH, et un nœud Claude Code. */
-async function noeudClaude(workRoot: string): Promise<HiveServer> {
+async function noeudClaude(workRoot: string, quiet = true): Promise<HiveServer> {
   server = await createServer({
     port: 0,
     host: '127.0.0.1',
@@ -78,7 +79,7 @@ async function noeudClaude(workRoot: string): Promise<HiveServer> {
     maxConcurrency: 1,
     workRoot,
     adapter: createClaudeCodeAdapter(TOKEN),
-    quiet: true,
+    quiet,
   });
   client.start();
   return server;
@@ -123,7 +124,7 @@ describe.skipIf(process.platform === 'win32')(
   'le pont de délégation d’un nœud ne dépend pas de sa racine de travail',
   () => {
     it('une racine de plus de 120 caractères mène une tâche Claude Code jusqu’au pont', async () => {
-      racine = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'hive-pont-profond-')));
+      racine = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'hive-test-pont-profond-')));
       // Délibérément PROFONDE : la tâche vivra sous
       // `<racine>/<130 car.>/tasks/<id>-<nœud>`, bien au-delà de tout sun_path.
       const workRoot = path.join(racine, 'projets-du-membre-'.padEnd(130, 'x'));
@@ -147,14 +148,21 @@ describe.skipIf(process.platform === 'win32')(
     }, 40_000);
 
     it('un TMPDIR trop profond fait échouer la tâche EN LE DISANT — jamais en panne d’agent', async () => {
-      racine = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'hive-pont-tmpdir-')));
+      racine = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'hive-test-pont-tmpdir-')));
       // Le seul cas où le chemin du socket peut encore dépasser la limite
       // AF_UNIX : c'est le dossier temporaire lui-même qui est trop long.
       const tmpProfond = path.join(racine, 'tmp-du-membre-'.padEnd(120, 't'));
       mkdirSync(tmpProfond, { recursive: true });
       vi.stubEnv('TMPDIR', tmpProfond);
+      const journal = vi.spyOn(console, 'log').mockImplementation(() => undefined);
 
-      const srv = await noeudClaude(path.join(racine, 'work'));
+      const srv = await noeudClaude(path.join(racine, 'work'), false);
+      // Dit dès le DÉMARRAGE du nœud, avant toute tâche : l'opérateur n'a pas à
+      // attendre un premier échec pour apprendre que TMPDIR est en cause.
+      const alertes = journal.mock.calls.map((a) => String(a[0])).filter((l) => l.includes('⚠'));
+      expect(alertes.some((l) => /socket du pont de délégation trop long.*TMPDIR/s.test(l))).toBe(
+        true,
+      );
       const { tache, resultat } = await premierResultat(srv);
 
       // Un RÉSULTAT d'échec, pas un `task_reject` : la tâche n'est pas

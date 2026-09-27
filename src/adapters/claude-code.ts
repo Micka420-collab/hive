@@ -86,9 +86,11 @@ export function createClaudeCodeAdapter(
       const declaration = createDeclarationFournisseurTracker('claude-code');
       let bridge: DelegationBridge | undefined;
       try {
-        // Sans les deux capacités, aucun faux outil n'est injecté dans le CLI.
-        // En exécution via HiveNodeClient elles sont toujours fournies ensemble.
-        if (ctx.delegate && ctx.waitForDelegationResult) {
+        // Sans les trois capacités, aucun faux outil n'est injecté dans le CLI.
+        // En exécution via HiveNodeClient elles sont toujours fournies ensemble ;
+        // un contexte partiel n'entre pas dans le pont pour y échouer en panne
+        // d'« infrastructure » (`capacités de délégation absentes`).
+        if (ctx.delegate && ctx.waitForDelegationResult && ctx.rendezVous) {
           bridge = await createDelegationBridge(ctx, task.id);
           writeClaudeMcpConfig(bridge);
         }
