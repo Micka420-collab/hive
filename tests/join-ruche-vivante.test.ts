@@ -52,7 +52,12 @@ interface Issue {
 function lancerJoin(
   billet: string,
   workdir: string,
-  opts: { marqueur?: string; avantArret?: () => Promise<void> } = {},
+  opts: {
+    marqueur?: string;
+    avantArret?: () => Promise<void>;
+    /** Réglages `HIVE_*` en plus du socle — ce qu'un ami aurait mis dans son `.env`. */
+    reglages?: Record<string, string>;
+  } = {},
 ): Promise<Issue> {
   return new Promise((resoudre, rejeter) => {
     const env: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: '1' };
@@ -60,6 +65,7 @@ function lancerJoin(
     env.HIVE_AGENT = 'shell';
     env.HIVE_WORKDIR = workdir;
     env.HIVE_ISOLEMENT = 'off';
+    Object.assign(env, opts.reglages);
 
     // `lancerBorne` : le nœud reste adressable en GROUPE, et le harnais le
     // reprend même si ce banc n'y parvient pas (§ 2 duovicies du carnet).
@@ -244,6 +250,44 @@ describe('la porte des amis, ruche allumée', () => {
       expect(second.sortie).toContain('Déconnexion de la ruche…');
       expect(ARRET_PROPRE, `sortie :\n${second.sortie}`).toContain(second.code);
     }
+  }, 90_000);
+
+  it('HIVE_MODELES PASSE AUSSI PAR LA PORTE DES AMIS — déclaré, puis retiré', async () => {
+    // `join.ts` ne lisait pas `HIVE_MODELES` : seul `main.ts` le transmettait.
+    // Un nœud rejoint ne pouvait donc rien déclarer, et l'avis « Aiguillage
+    // inactif » d'Essaim, qui nomme ce réglage comme l'interrupteur, restait
+    // affiché sur une ruche d'invités quoi qu'on mette dans le `.env`. Le
+    // retrait est éprouvé sur la même porte : la ré-inscription sans la ligne
+    // EFFACE la déclaration — la règle du store, qui suppose que CHAQUE chemin
+    // de démarrage redit ses modèles.
+    const billet = await creerBillet();
+    const w = nid();
+    const ceNoeud = () => {
+      const nodeId = readFileSync(path.join(w, 'node-id.txt'), 'utf8').trim();
+      return server.store.listNodes().find((n) => n.id === nodeId);
+    };
+
+    await lancerJoin(billet, w, {
+      marqueur: 'vous butinez pour la ruche',
+      reglages: { HIVE_MODELES: 'claude-opus-5, claude-fable-5' },
+      avantArret: () =>
+        scruter(
+          () => ceNoeud()?.modeles?.join(',') === 'claude-opus-5,claude-fable-5',
+          'le nœud rejoint ne déclare pas les modèles de HIVE_MODELES',
+        ),
+    });
+
+    // Même nid, clé mémorisée, la ligne ôtée : la déclaration doit tomber. Le
+    // prédicat ne peut devenir vrai que par une ré-inscription — seul
+    // `registerNode` efface la ligne des modèles.
+    await lancerJoin(billet, w, {
+      marqueur: 'vous butinez pour la ruche',
+      avantArret: () =>
+        scruter(
+          () => ceNoeud() !== undefined && ceNoeud()?.modeles === undefined,
+          'la déclaration du nœud rejoint survit à sa ré-inscription sans HIVE_MODELES',
+        ),
+    });
   }, 90_000);
 
   it('UN BILLET ÉPUISÉ N’OUVRE PLUS RIEN — refus net, marche à suivre', async () => {

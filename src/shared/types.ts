@@ -40,8 +40,9 @@ export interface HiveNode {
   /**
    * Les modèles que ce nœud sait faire tourner (ex. `['claude-opus-5',
    * 'claude-fable-5']`), DÉCLARÉS à l'inscription. C'est ce que l'Aiguillage
-   * appris consomme pour choisir. Absent/vide : nœud d'avant l'Aiguillage ou
-   * agent à modèle unique — la ruche retombe sur son ordonnancement d'avant.
+   * appris consomme pour choisir. Absent/vide : nœud d'avant l'Aiguillage,
+   * agent à modèle unique ou déclaration retirée (inscription sans modèles) —
+   * la ruche retombe sur son ordonnancement d'avant.
    */
   modeles?: string[];
   /**

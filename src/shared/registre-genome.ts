@@ -92,7 +92,16 @@ export interface RegistreGenome {
   lignes: LigneGenome[];
   /** Affectations faites sans modèle déclaré, toutes catégories confondues. */
   sansModele: FaitsGenome;
-  /** Fenêtre réellement lue : le journal est borné par sa rétention. */
+  /**
+   * Fenêtre réellement lue : le journal est borné par sa rétention.
+   * `tronquee` : des faits plus anciens ONT PU manquer — la lecture a atteint
+   * sa borne, OU le journal a déjà été élagué. Le second cas est le courant :
+   * l'élagage garde les derniers événements de TOUS types, et les faits Genome
+   * en sortent bien avant que leurs seuls types remplissent la borne. Drapeau
+   * CONSERVATEUR : le type des événements élagués est perdu avec eux, donc un
+   * élagage qui n'a ôté que des battements de cœur l'allume aussi. L'écran dit
+   * « ont pu », jamais « sont » — inconnu reste inconnu.
+   */
   fenetre: { evenements: number; depuis: number | null; tronquee: boolean };
 }
 
@@ -173,12 +182,15 @@ function figer(acc: Accumulateur): FaitsGenome {
  * Replie le journal en registre. `categorieDe` rend la catégorie d'une tâche
  * encore connue, `null` sinon : un événement d'une tâche disparue est ignoré.
  * `borne` est la limite de lecture appliquée par l'appelant — l'atteindre
- * signale une fenêtre tronquée.
+ * signale une fenêtre tronquée. `journalElague` dit si le journal a déjà
+ * perdu des événements (`HiveStore.journalElague`) : un fait que les
+ * événements lus ne peuvent pas révéler, puisque ce sont les absents.
  */
 export function registreGenomeDepuisEvenements(
   evenements: readonly HiveEvent[],
   categorieDe: (taskId: string) => Categorie | null,
   borne = Number.POSITIVE_INFINITY,
+  journalElague = false,
 ): RegistreGenome {
   const parCle = new Map<string, { modele: string; categorie: Categorie; acc: Accumulateur }>();
   const sansModele = vide();
@@ -310,7 +322,7 @@ export function registreGenomeDepuisEvenements(
     fenetre: {
       evenements: evenements.length,
       depuis: ordonnes[0]?.ts ?? null,
-      tronquee: evenements.length >= borne,
+      tronquee: journalElague || evenements.length >= borne,
     },
   };
 }

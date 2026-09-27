@@ -2191,7 +2191,9 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
    *
    * La réponse réutilise les nœuds et l'historique de l'Aiguillage ; elle ne
    * crée ni identité parallèle ni score inventé. Un modèle sans vécu reste
-   * marqué comme « à explorer » par `projeterWorkers`.
+   * marqué comme « à explorer » par `projeterWorkers`. Le vécu est lu comme
+   * l'ordonnanceur le lit — verdicts ET élections en vol : sans les secondes,
+   * l'écran montrerait des scores sur lesquels le routing ne décide pas.
    */
   app.get('/api/workers', async (req, reply) => {
     if (!authorized(req)) return reject(reply);
@@ -2221,7 +2223,7 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     return {
       workers: projeterWorkers(
         nodes,
-        store.observationsAiguillage(),
+        { verdicts: store.observationsAiguillage(), enVol: store.electionsEnVolAiguillage() },
         store.tasksByStatus('assigned', 'running'),
         identites,
         historiques,
@@ -7010,7 +7012,12 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
       }
       return categories.get(taskId) ?? null;
     };
-    return registreGenomeDepuisEvenements(evenements, categorieDe, EVENT_RETENTION);
+    return registreGenomeDepuisEvenements(
+      evenements,
+      categorieDe,
+      EVENT_RETENTION,
+      store.journalElague(),
+    );
   });
 
   // Graphe de délégation borné : état des tâches + événements parent→raison→résultat.

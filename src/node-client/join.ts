@@ -14,6 +14,7 @@ import { createInterface } from 'node:readline/promises';
 import { agentCredentialEnv, detectAllAgents } from './agent-detect.js';
 import { resoudreAgentAuDemarrage } from './choisir-agent.js';
 import { isolementDeclareDe, optionBac, preparerBac } from './bac.js';
+import { parseModeles } from './modeles.js';
 import { CODE } from '../codes-sortie.js';
 import { libelleAgent } from '../shared/agent-libelle.js';
 import { HiveNodeClient } from './client.js';
@@ -272,6 +273,12 @@ async function main(): Promise<void> {
     workRoot,
     nodeId,
     keepEnv,
+    // Les modèles déclarés (`HIVE_MODELES`, lus du `.env` chargé en tête),
+    // comme `main.ts`. Cette porte-ci ne les lisait pas : un nœud rejoint ne
+    // pouvait RIEN déclarer, et l'avis « Aiguillage inactif » d'Essaim — qui
+    // nomme précisément ce réglage — y restait affiché pour toujours. La même
+    // dérive entre les deux chemins que celle du bac à sable ci-dessus.
+    modeles: parseModeles(process.env.HIVE_MODELES),
     ...optionBac(bac, keepEnv),
     isolement: isolementDeclareDe(bac),
   });

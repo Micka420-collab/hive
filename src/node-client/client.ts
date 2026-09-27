@@ -628,8 +628,10 @@ export class HiveNodeClient {
         // doit avoir une réponse à l'écran, pas une devinette (§ 6.2 — la
         // moitié des morsures de ce dépôt sont des morsures Windows).
         plateforme: plateformeDepuis(process.platform),
-        // Les modèles déclarés, s'il y en a. Absents : le hub n'invente rien et
-        // ordonnance comme avant l'Aiguillage (même règle que la plateforme).
+        // Les modèles déclarés, s'il y en a — redits à CHAQUE inscription, comme
+        // le bac à sable. Absents : le hub EFFACE toute déclaration d'avant et
+        // ordonnance comme avant l'Aiguillage. Jamais `[]` : le protocole refuse
+        // une liste vide, et un hub refuserait alors l'inscription entière.
         ...(this.opts.modeles && this.opts.modeles.length > 0
           ? { modeles: this.opts.modeles }
           : {}),

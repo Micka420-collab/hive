@@ -54,9 +54,12 @@ describe('affectationsDepuisEvenements — la raison, telle que le journal la ga
         raisonModele: [{ modele: 'grok', essais: 0, moyenne: 0, score: null }],
       }),
     ]);
+    // Raison sans tampon de version (v1) : combien de ses essais étaient en
+    // vol, elle ne le dit pas — `null`, jamais un 0 inventé.
     expect(a?.raisonModele[0]).toEqual({
       modele: 'grok',
       essais: 0,
+      enVol: null,
       moyenne: null,
       score: null,
       aExplorer: true,
@@ -96,6 +99,22 @@ describe('affectationsDepuisEvenements — la raison, telle que le journal la ga
     ]);
     expect(affectations.map((a) => a.nodeId)).toEqual(['n1', 'n2']);
     expect(affectations[0]?.raisonModele).toEqual([]);
+    // Depuis la v2, une ligne DOIT dire ses élections en vol : absente ou
+    // négative, la ligne est illisible — jamais lue comme « 0 en vol ».
+    const [v2] = affectationsDepuisEvenements([
+      ev(9, 'task_assigned', {
+        taskId: 't',
+        nodeId: 'n1',
+        versionAiguillage: 2,
+        raisonModele: [
+          { modele: 'opus', essais: 2, enVol: 1, moyenne: 1, score: 1.5 },
+          { modele: 'fable', essais: 2, moyenne: 0.5, score: 1.2 },
+          { modele: 'grok', essais: 0, enVol: -1, moyenne: 0, score: 0.4 },
+        ],
+      }),
+    ]);
+    expect(v2?.versionAiguillage).toBe(2);
+    expect(v2?.raisonModele.map((l) => [l.modele, l.enVol])).toEqual([['opus', 1]]);
   });
 });
 

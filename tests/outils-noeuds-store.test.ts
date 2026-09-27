@@ -140,13 +140,20 @@ describe('HiveStore — les outils constatés par un nœud', () => {
   it('LES CONSTATS N’EMPORTENT NI LA PLATEFORME NI LES MODÈLES', () => {
     // Trois tables latérales, trois écritures indépendantes. Une seule
     // instruction qui les mélangerait ferait perdre l'une en déclarant l'autre.
+    // Les modèles sont redits, comme le fait le client à chaque inscription :
+    // leur ABSENCE est un retrait (banc `aiguillage-store`), pas le sujet ici.
     const n = store.registerNode({
       ...PROFIL,
       plateforme: 'linux',
       modeles: ['claude-opus-5'],
       outils: constats,
     });
-    const relu = store.registerNode({ ...PROFIL, nodeId: n.id, outils: [constats[0]!] });
+    const relu = store.registerNode({
+      ...PROFIL,
+      nodeId: n.id,
+      modeles: ['claude-opus-5'],
+      outils: [constats[0]!],
+    });
     expect(relu.plateforme).toBe('linux');
     expect(relu.modeles).toEqual(['claude-opus-5']);
     expect(relu.outils).toEqual([constats[0]]);
