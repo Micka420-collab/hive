@@ -98,6 +98,11 @@ export function buildSandboxEnv(cwd: string, keepEnv: string[] = []): NodeJS.Pro
  * de `delaiMs`, git est TUÉ (le plugin d'annulation de simple-git), et le
  * travail échoue en le disant. Un `Promise.race` rendrait la main en laissant
  * le processus pendre derrière.
+ *
+ * Limite, dite : c'est le processus LANCÉ qui est tué. Sous Windows, où le `git`
+ * du PATH est d'ordinaire un lanceur, le vrai git peut lui survivre jusqu'à ce
+ * que le dépôt ferme (mesuré, `tests/clone-borne.test.ts`) — la limite de tout
+ * `child.kill()` du nœud. Le travail, lui, échoue à l'heure partout.
  */
 export async function cloneRepo(dir: string, repoUrl: string, delaiMs = CLONE_MS): Promise<void> {
   const cloneEnv: NodeJS.ProcessEnv = {
