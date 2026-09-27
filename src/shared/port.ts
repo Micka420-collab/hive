@@ -47,3 +47,51 @@ export function portDepuisEnv(env: NodeJS.ProcessEnv = process.env): number {
   if (!Number.isInteger(n) || n < 0 || n > 65_535) return PORT_PAR_DEFAUT;
   return n;
 }
+
+// ─── ET COMMENT LA JOINDRE DEPUIS CETTE MACHINE ─────────────────────────────
+//
+// Une adresse d'ÉCOUTE n'est pas toujours une adresse où se connecter. Deux
+// lecteurs en avaient besoin — le docteur qui sonde la ruche, le lanceur qui
+// dit à ses ouvrières et à son écran où elle est — et la règle vit ici, une
+// fois, pour la même raison que le port : écrite deux fois, elle divergerait.
+
+/**
+ * L'hôte auquel S'ADRESSER, depuis cette machine, pour joindre une ruche qui
+ * écoute sur `hote`.
+ *
+ * `0.0.0.0` et `::` veulent dire « toutes les interfaces » : ce sont des
+ * adresses d'écoute. S'y connecter échoue selon les plateformes (Windows
+ * refuse), et le docteur conclurait « rien ne répond » sur une ruche qui
+ * tourne très bien ; une ouvrière, elle, reconnecterait dans le vide. On vise
+ * donc la boucle locale de la même famille, qui fait partie de « toutes les
+ * interfaces ».
+ *
+ * Tout autre hôte est repris tel quel : une ruche liée à une adresse précise
+ * ne se joint pas ailleurs.
+ *
+ * Extraite pour être TESTABLE : la loupe a montré que ce ternaire, enfoui dans
+ * `relever` (le docteur), pouvait être retourné sans qu'aucun test ne bouge.
+ */
+export function hoteDeConnexion(hote: string): string {
+  if (hote === '0.0.0.0') return '127.0.0.1';
+  if (hote === '::') return '::1';
+  return hote;
+}
+
+/** Où joindre une ruche : son origine HTTP (l'écran, la CLI) et son WebSocket (les ouvrières). */
+export interface AdresseRuche {
+  readonly http: string;
+  readonly ws: string;
+}
+
+/**
+ * L'adresse d'une ruche qui écoute sur `hote:port`, vue de CETTE machine.
+ *
+ * Un littéral IPv6 va entre crochets : `ws://::1:7777/ws` n'est pas une URL,
+ * et le client WebSocket d'une ouvrière la refuserait au démarrage.
+ */
+export function adresseLocale(hote: string, port: number): AdresseRuche {
+  const h = hoteDeConnexion(hote);
+  const autorite = `${h.includes(':') ? `[${h}]` : h}:${port}`;
+  return { http: `http://${autorite}`, ws: `ws://${autorite}/ws` };
+}

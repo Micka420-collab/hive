@@ -283,12 +283,15 @@ describe('LES TROIS POINTS QUE LA LOUPE A DÉSIGNÉS', () => {
     // `0.0.0.0` est une adresse d'ÉCOUTE, pas une adresse à laquelle se
     // connecter : s'y adresser échoue selon les plateformes, et le docteur
     // conclurait « rien ne répond » sur une ruche qui tourne très bien.
-    const { hoteDeSondage } = await import('../src/doctor-releve.js');
-    expect(hoteDeSondage('0.0.0.0')).toBe('127.0.0.1');
+    // La règle vit dans `shared/port.ts` : le lanceur de la ruche la LIT aussi.
+    const { hoteDeConnexion } = await import('../src/shared/port.js');
+    expect(hoteDeConnexion('0.0.0.0')).toBe('127.0.0.1');
+    // `::` est la même adresse d'écoute, côté IPv6 : sa boucle locale est `::1`.
+    expect(hoteDeConnexion('::')).toBe('::1');
     // …et un hôte précis est repris TEL QUEL. Le retourner sonderait la boucle
     // locale d'une ruche liée ailleurs — et la déclarerait éteinte.
-    expect(hoteDeSondage('192.168.1.10')).toBe('192.168.1.10');
-    expect(hoteDeSondage('127.0.0.1')).toBe('127.0.0.1');
+    expect(hoteDeConnexion('192.168.1.10')).toBe('192.168.1.10');
+    expect(hoteDeConnexion('127.0.0.1')).toBe('127.0.0.1');
   });
 
   it('LE WEBSOCKET N’EST ESSAYÉ QUE SUR NOTRE RUCHE — et alors il conclut', async () => {

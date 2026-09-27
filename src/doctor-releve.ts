@@ -43,7 +43,7 @@ import path from 'node:path';
 import { DEFAULT_TOKEN } from './shared/types.js';
 import type { Releve } from './shared/doctor.js';
 import { RUCHE_COMPLETE } from './shared/doctor.js';
-import { portDepuisEnv } from './shared/port.js';
+import { hoteDeConnexion, portDepuisEnv } from './shared/port.js';
 import { gardiennesDepuisEnv } from './shared/reglages.js';
 import { modeRunnerDepuisEnv } from './orchestrator/essaim-runner.js';
 import { detectBestAgent } from './node-client/agent-detect.js';
@@ -103,25 +103,6 @@ function permissions(chemin: string, plateforme: string): number | null {
   } catch {
     return null;
   }
-}
-
-/**
- * L'adresse à laquelle SONDER une ruche qui écoute sur `hote`.
- *
- * `0.0.0.0` veut dire « toutes les interfaces » : c'est une adresse d'ÉCOUTE,
- * pas une adresse à laquelle se connecter. S'y adresser échoue selon les
- * plateformes, et le docteur conclurait « rien ne répond » sur une ruche qui
- * tourne très bien. On sonde donc la boucle locale, qui fait partie de « toutes
- * les interfaces ».
- *
- * Tout autre hôte est repris tel quel : une ruche liée à une adresse précise ne
- * se sonde pas ailleurs.
- *
- * Extraite pour être TESTABLE : la loupe a montré que ce ternaire, enfoui dans
- * `relever`, pouvait être retourné sans qu'aucun test ne bouge.
- */
-export function hoteDeSondage(hote: string): string {
-  return hote === '0.0.0.0' ? '127.0.0.1' : hote;
 }
 
 /** Le port est-il libre ? On essaie de l'écouter — la seule réponse honnête. */
@@ -391,7 +372,7 @@ export async function relever(
   // autre port que celui où elle écoute enverrait chercher une panne inventée.
   const port = portDepuisEnv(env);
   const hote = env.HIVE_HOST ?? '127.0.0.1';
-  const sondage = hoteDeSondage(hote);
+  const sondage = hoteDeConnexion(hote);
 
   const envPresent = existsSync(lieux.env);
   const libre = await portLibre(port, sondage);

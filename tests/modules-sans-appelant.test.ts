@@ -128,8 +128,6 @@ const MOITIES_ASSUMEES: Readonly<Record<string, string>> = {
     'plie l’état des nœuds pour l’en-tête ; l’en-tête ne le lit pas',
   'src/shared/outils-du-noeud.ts':
     'croise les constats d’un nœud avec le catalogue ; aucun écran ne l’affiche',
-  'src/shared/demarrage.ts':
-    'ce que « lancer la ruche » veut dire ; `ruche.mjs` ne passe pas par lui',
   'src/atelier/reveil.ts': 'crochets de réveil du conteneur ; rien ne les déclenche dans l’image',
 
   // Cyber Hive garde ces préparatifs séparés de ses flux dashboard actuels.

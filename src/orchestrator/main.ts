@@ -2,6 +2,7 @@
 
 // Statiques : ces modules n'ont aucune dépendance optionnelle (cf. plus bas).
 import { annonceSimulation } from '../shared/annonce-simulation.js';
+import type { AnnonceReine } from '../shared/demarrage.js';
 import { chargerEnvQueen } from '../shared/env-queen.js';
 import { lireConfianceProxy } from '../shared/proxy-confiance.js';
 
@@ -71,6 +72,17 @@ if (config.simulation) console.log(`   ${annonceSimulation(config.token)}`);
 if (confianceProxy.valeur !== false) {
   console.log(`   IP client  : X-Forwarded-For cru depuis ${String(confianceProxy.valeur)}`);
 }
+
+// ─── LE LANCEUR DE LA RUCHE ATTEND CE FAIT ───────────────────────────────────
+//
+// `npm run ruche` ne démarre ses ouvrières et son écran qu'à cette annonce, et
+// leur passe l'adresse qu'elle porte (`AnnonceReine`, `shared/demarrage.ts`).
+// Sans elle, ils visaient `:7777` quel que soit le port ouvert ici — et sur
+// `HIVE_PORT=0`, seul ce processus le connaît. Hors du lanceur, aucun canal
+// IPC : `process.send` est absent, et rien n'est dit. Le rappel avale l'erreur
+// d'un lanceur déjà parti : il n'y a plus personne à qui l'annoncer.
+const annonce: AnnonceReine = { type: 'reine-en-ligne', hote: config.host, port: server.port };
+process.send?.(annonce, undefined, undefined, () => undefined);
 
 let stopping = false;
 const shutdown = async (signal: string): Promise<void> => {
