@@ -132,7 +132,7 @@ npm run captures -- --sortie docs/images/captures --vues warroom,warroom-decisio
   <img src="images/captures/warroom-decisions.bureau.png" width="840" alt="War Room filtrée sur les décisions humaines : un Conseil tranché avec sa justification, une production approuvée, un rejet avec sa raison.">
 </p>
 <p align="center">
-  <img src="images/captures/ruche.bureau.png" width="840" alt="Mission Control, vue Ruche : 54 tâches terminées, l'accès à la War Room et ses désaccords, l'ouvrière et la relectrice (hors ligne).">
+  <img src="images/captures/ruche.bureau.png" width="840" alt="Mission Control, vue Ruche : 55 tâches terminées, l'accès à la War Room et ses désaccords, l'ouvrière et la relectrice (hors ligne).">
 </p>
 <p align="center">
   <img src="images/captures/miellerie.bureau.png" width="840" alt="Miellerie : la file de revue par projet, le diff, le verdict et la critique transmise.">
@@ -210,7 +210,7 @@ npm run captures -- --sortie docs/images/captures --vues warroom,warroom-decisio
   `attempts_exhausted`, quand un échec Worker fait échouer la tâche à sa
   troisième exécution. Consigné au protocole, laissé à une décision.
 - **La Chronique d'un onglet neuf est vide** sur une ruche qui a déjà
-  travaillé : « Rien pour l'instant » au-dessus de cinquante-sept tâches
+  travaillé : « Rien pour l'instant » au-dessus de plus de cinquante tâches
   terminées. Le rattrapage du journal (`/api/events`) ne sert qu'aux
   reconnexions. D'où la capture « en vol ». Le panneau « Journal » de la
   Ruche en dit autant (`ruche.mobile.png` : « Journal 0 — Rien pour
