@@ -221,10 +221,15 @@ describe('les liens de partage', () => {
         await fetch(`${base}/api/projects/${projetA}/report?detail=mission`, {
           headers: { authorization: `Bearer ${jetonReine}`, 'x-hive-token': TOKEN },
         })
-      ).json()) as { mission?: { taches: unknown[] } };
+      ).json()) as { mission?: { taches: Array<{ taskId: string }> } };
       expect(typeof parLien.total).toBe('number');
       expect(parLien).not.toHaveProperty('mission');
-      expect(parCompte.mission?.taches).toHaveLength(1);
+      // Comparé au magasin, pas à un compte écrit : d'autres tests de ce banc
+      // posent des tâches dans le projet A, et l'ordre des tests est tiré au
+      // sort par le tamis (`scripts/tamis-ordres.mjs`).
+      const attendues = server.store.listTasks(projetA).map((t) => t.id);
+      expect(attendues.length).toBeGreaterThan(0);
+      expect(parCompte.mission?.taches.map((l) => l.taskId).sort()).toEqual(attendues.sort());
     });
 
     it('l’avancement d’un AUTRE projet reste fermé', async () => {

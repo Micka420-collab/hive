@@ -7,11 +7,16 @@
 // mission est celle du tiroir de la tâche ; le sort d'une production
 // renvoyée en correction vient du journal ; une relecture impossible qu'un
 // humain a tranchée quitte le cockpit.
+//
+// Chaque test monte SA Reine et pose SES faits : le tamis des ordres
+// (`scripts/tamis-ordres.mjs`) rejoue ce banc dans un ordre tiré au sort, et
+// un test qui comptait les productions de son voisin n'éprouvait que l'ordre
+// où il avait été écrit.
 
 import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
 
@@ -30,7 +35,7 @@ describe('Mission Control — rapport de mission, bilan Worker, cockpit', () => 
   let base: string;
   let projet = '';
 
-  beforeAll(async () => {
+  beforeEach(async () => {
     dir = mkdtempSync(path.join(os.tmpdir(), 'hive-mission-'));
     server = await createServer({
       port: 0,
@@ -58,7 +63,7 @@ describe('Mission Control — rapport de mission, bilan Worker, cockpit', () => 
     projet = server.store.createProject({ name: 'Mission', repoUrl: 'file:///repo' }).id;
   });
 
-  afterAll(async () => {
+  afterEach(async () => {
     await server.stop();
     rmSync(dir, { recursive: true, force: true });
   });
@@ -126,6 +131,25 @@ describe('Mission Control — rapport de mission, bilan Worker, cockpit', () => 
     return { taskId: task.id, resultId };
   }
 
+  /**
+   * Une production de `prod` que l'Evaluator RENVOIE en correction : son sort
+   * vient du journal (`task_retry` de source `evaluator`, lié à son
+   * `resultId`), et la tâche retourne en file.
+   */
+  function productionCorrigee(titre: string): void {
+    const corrigee = productionAcceptee(titre);
+    server.store.appendEvent('task_retry', {
+      taskId: corrigee.taskId,
+      source: 'evaluator',
+      resultId: corrigee.resultId,
+      decision: 'correction_required',
+      attempt: 1,
+      maxAttempts: 3,
+      critique: { source: 'contre_revue', objections: ['incomplet'], raisons: [] },
+    });
+    server.store.patchTask(corrigee.taskId, { status: 'ready' });
+  }
+
   it('le rapport de mission dit la décision de l’Evaluator — celle du tiroir — et la dépense avec sa couverture', async () => {
     const acceptee = productionAcceptee('Écrire le module A', 0.4);
     const muette = productionAcceptee('Écrire le module B');
@@ -170,6 +194,8 @@ describe('Mission Control — rapport de mission, bilan Worker, cockpit', () => 
   });
 
   it('GET /api/workers porte l’économie de chaque Worker et la fenêtre lue', async () => {
+    productionAcceptee('Écrire le module A', 0.4);
+    productionAcceptee('Écrire le module B');
     const res = await fetch(`${base}/api/workers`, { headers });
     const body = (await res.json()) as {
       workers: Array<{
@@ -180,7 +206,7 @@ describe('Mission Control — rapport de mission, bilan Worker, cockpit', () => 
       fenetreEconomie: { tronquee: boolean };
     };
     const prod = body.workers.find((w) => w.id === 'prod');
-    expect(prod?.economie?.tentatives).toBeGreaterThanOrEqual(2);
+    expect(prod?.economie?.tentatives).toBe(2);
     expect(prod?.economie?.dureeMedianeMs).toBe(1_000);
     expect(prod?.modeles?.find((m) => m.modele === 'opus')?.economie?.tentatives).toBe(
       prod?.economie?.tentatives,
@@ -190,18 +216,9 @@ describe('Mission Control — rapport de mission, bilan Worker, cockpit', () => 
   });
 
   it('le bilan d’un Worker : la part ACCEPTÉE par l’Evaluator et son taux de correction', async () => {
-    // Une production renvoyée en correction : son sort vient du journal.
-    const corrigee = productionAcceptee('Écrire le module C');
-    server.store.appendEvent('task_retry', {
-      taskId: corrigee.taskId,
-      source: 'evaluator',
-      resultId: corrigee.resultId,
-      decision: 'correction_required',
-      attempt: 1,
-      maxAttempts: 3,
-      critique: { source: 'contre_revue', objections: ['incomplet'], raisons: [] },
-    });
-    server.store.patchTask(corrigee.taskId, { status: 'ready' });
+    productionAcceptee('Écrire le module A', 0.4);
+    productionAcceptee('Écrire le module B');
+    productionCorrigee('Écrire le module C');
 
     const res = await fetch(`${base}/api/workers/prod/bilan`, { headers });
     expect(res.status).toBe(200);
@@ -235,6 +252,8 @@ describe('Mission Control — rapport de mission, bilan Worker, cockpit', () => 
   });
 
   it('le cockpit : une relecture impossible alerte jusqu’à ce qu’un humain tranche', async () => {
+    productionAcceptee('Écrire le module A', 0.4);
+    productionCorrigee('Écrire le module C');
     const { taskId, resultId } = productionAcceptee('Écrire le module D');
     server.store.appendEvent('contre_expertise_impossible', {
       taskId,
@@ -261,7 +280,7 @@ describe('Mission Control — rapport de mission, bilan Worker, cockpit', () => 
     expect(avant.decisions.find((d) => d.evenement.type === 'task_retry')?.titre).toBe(
       'Écrire le module C',
     );
-    expect(avant.depense.tentatives).toBeGreaterThanOrEqual(4);
+    expect(avant.depense.tentatives).toBe(3);
     expect(avant.depense.coutFournisseur).toMatchObject({ total: 0.4, declarees: 1 });
 
     server.store.setTaskReview(taskId, 'approved');
