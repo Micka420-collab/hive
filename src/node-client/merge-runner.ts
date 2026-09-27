@@ -30,7 +30,6 @@ import type { ChildProcess } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { simpleGit } from 'simple-git';
 import { ENTREE_FERMEE } from '../adapters/exec.js';
 import { MERGE_PREPARATION_MS, MERGE_TESTS_MS } from '../shared/butoirs-noeud.js';
 import { jugerCommandeTest } from '../shared/commande-test.js';
@@ -42,6 +41,7 @@ import type { Fournisseur } from './isolement.js';
 import { composerMission, garderMission } from './livraison-locale.js';
 import type { LivraisonDuNoeud, MissionComposee } from './livraison-locale.js';
 import type { RapportDuNoeud } from '../shared/livraison-locale.js';
+import { commitDeDepart, diffContreBase, epinglerClone, gitHote } from './git-hote.js';
 import { buildSandboxEnv } from './workspace.js';
 
 export interface MergeDiff {
@@ -397,7 +397,15 @@ export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
     const verdict = jugerPreparation(opts.prepareCommand);
     if (!verdict.ok) throw new Error(`préparation refusée : ${verdict.motif}`);
   }
-  const git = simpleGit({ baseDir: opts.repoDir });
+  // Le clone vient du nœud et aucun code étranger n'y a tourné : son git dir
+  // est de confiance. On l'ÉPINGLE quand même (rien n'est cherché ailleurs), et
+  // les `.gitattributes` qu'un diff apporte ne choisissent aucun filtre — ceux
+  // du projet restent appliqués (git-hote.ts, `figerFiltres`). La préparation
+  // et les tests, eux, tournent APRÈS le dernier git — la livraison compose
+  // son commit AVANT eux (`composerMission`) : ce qu'ils écrivent dans `.git`
+  // ne gouverne plus rien.
+  const depot = await epinglerClone(opts.repoDir);
+  const base = await commitDeDepart(depot);
   const applied: string[] = [];
   const conflicts: { taskId: string; reason: string }[] = [];
   const logs: string[] = [];
@@ -417,20 +425,19 @@ export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
       writeFileSync(patchFile, diff.endsWith('\n') ? diff : `${diff}\n`);
       try {
         // Vérifie AVANT d'appliquer : échoue si le patch ne colle pas à l'état accumulé.
-        await git.raw(['apply', '--check', patchFile]);
+        await gitHote(['apply', '--check', patchFile], depot);
       } catch {
         conflicts.push({ taskId, reason: "le diff ne s'applique pas proprement (conflit)" });
         logs.push(`✘ ${taskId} : conflit d'application`);
         continue;
       }
-      await git.raw(['apply', patchFile]);
+      await gitHote(['apply', patchFile], depot);
       applied.push(taskId);
       logs.push(`✔ ${taskId} appliqué`);
     }
 
-    // Diff cumulé (nouveaux fichiers rendus visibles via --intent-to-add).
-    await git.raw(['add', '--all', '--intent-to-add']);
-    const mergedDiff = await git.diff();
+    // Diff cumulé contre la base du clone — créations ET suppressions.
+    const mergedDiff = await diffContreBase(depot, base);
 
     // L'ARBRE À LIVRER, figé MAINTENANT : après, la préparation installe ses
     // dépendances et les tests écrivent leurs traces dans cette même copie.
@@ -438,8 +445,8 @@ export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
     // qu'un test aurait réécrit — sous le nom de la mission.
     let arbre: string | null = null;
     if (opts.livraison && conflicts.length === 0 && mergedDiff.trim()) {
-      await git.raw(['add', '--all']);
-      arbre = (await git.raw(['write-tree'])).trim();
+      await gitHote(['add', '--all'], depot);
+      arbre = (await gitHote(['write-tree'], depot)).trim();
     }
     // LA MISSION SE COMPOSE ICI, pas après les tests : la préparation et les
     // tests exécutent le code du dépôt DANS ce clone, `.git` compris. Tout ce

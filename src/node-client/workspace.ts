@@ -2,7 +2,9 @@
 //
 // Ce que CE fichier fournit : un cwd dédié par tâche, un environnement épuré
 // (pas de HOME/USERPROFILE ni variables du membre), TEMP redirigé dans la
-// tâche, une branche git `hive/<taskId>` quand le projet a un dépôt.
+// tâche, une branche git `hive/<taskId>` quand le projet a un dépôt — et le
+// diff de revue, calculé par le git dir de la RUCHE, jamais par le `.git` que
+// l'agent a eu entre les mains (`git-hote.ts`).
 //
 // ─── CE N'EST PAS TOUT L'ISOLEMENT, ET CE COMMENTAIRE L'A CRU LONGTEMPS ──────
 //
@@ -23,15 +25,21 @@
 
 import { mkdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
-import { simpleGit } from 'simple-git';
-import type { SimpleGit } from 'simple-git';
 import { CLONE_MS } from '../shared/butoirs-noeud.js';
 import type { Task } from '../shared/types.js';
+import {
+  EchecGitHote,
+  commandeSshDuMembre,
+  commitDeDepart,
+  diffContreBase,
+  gitHote,
+  poserRegistre,
+} from './git-hote.js';
+import type { DepotEpingle } from './git-hote.js';
 
 export interface Workspace {
   /** Répertoire de travail isolé de la tâche. */
   cwd: string;
-  git: SimpleGit | null;
   branch: string | null;
   /**
    * Le commit CLONÉ, épinglé avant que l'agent ne touche à rien ; `null` sans
@@ -43,6 +51,12 @@ export interface Workspace {
    * disparaîtrait du diff comme des déclarations que le bac compare.
    */
   baseSha: string | null;
+  /**
+   * Le dépôt ÉPINGLÉ sur le registre de la ruche (`git-hote.ts`) — la SEULE
+   * porte par laquelle l'hôte relit ce dépôt après l'agent (diff, validations
+   * du bac) ; `null` sans dépôt.
+   */
+  depot: DepotEpingle | null;
   /** Environnement épuré pour les processus enfants. */
   env: NodeJS.ProcessEnv;
   /** Diff des modifications, pour revue humaine (vide sans dépôt git). */
@@ -63,7 +77,9 @@ const SECRETS_INTERDITS_AGENT = new Set([
 
 /**
  * Retire du répertoire d'une tâche tout ce que git IGNORE — `node_modules`,
- * sorties de build, `.env`, et ce qu'un `.git/info/exclude` cacherait.
+ * sorties de build, `.env`. Par le registre (`git-hote.ts`) : un
+ * `.git/info/exclude` que l'agent aurait écrit n'y est pas lu, et ce qu'il
+ * cacherait reste donc dans le diff, sous les yeux de la revue.
  *
  * Les validations du bac jugent la BASE plus le DIFF, exactement ce qu'une
  * livraison ou un merge appliquera. Un fichier ignoré n'est dans aucun des
@@ -77,9 +93,9 @@ const SECRETS_INTERDITS_AGENT = new Set([
  * ICI parce que ce fichier possède le répertoire de tâche : l'inventaire de ce
  * que Hive écrit sur la machine d'un membre (`empreinte.ts`) reste vrai.
  */
-export async function retirerFichiersIgnores(git: SimpleGit): Promise<void> {
+export async function retirerFichiersIgnores(depot: DepotEpingle): Promise<void> {
   // `-ff` : aussi les dépôts imbriqués ignorés ; `-d` : les dossiers entiers.
-  await git.raw(['clean', '-ffdX']);
+  await gitHote(['clean', '-ffdX'], depot);
 }
 
 export function variablesAgentSansSecrets(variables: readonly string[]): string[] {
@@ -153,8 +169,9 @@ export function envTransportGit(): NodeJS.ProcessEnv {
 }
 
 /**
- * Clone superficiel d'un dépôt dans `dir`, avec la même protection de transport
- * que les clones de tâches (`envTransportGit`). `dir` doit être vide/inexistant.
+ * Clone superficiel d'un dépôt dans `dir` (vide ou inexistant) — la même porte
+ * que le clone d'une tâche : environnement épuré, `ext::` neutralisé, aucune
+ * invite (ni de git, ni de GCM, ni de `ssh`). Voir `git-hote.ts`.
  *
  * ─── BORNÉ, PARCE QUE LE HUB COMPTE DESSUS ─────────────────────────────────
  *
@@ -162,8 +179,8 @@ export function envTransportGit(): NodeJS.ProcessEnv {
  * aucun butoir : un dépôt qui accepte la connexion puis se tait laissait le
  * travail pendre chez le nœud, sans résultat, pendant que le hub — qui dérive
  * ses délais des butoirs du nœud (`butoirs-noeud.ts`) — ne pouvait que DEVINER
- * sa durée. Au-delà de `delaiMs`, git est TUÉ (le plugin d'annulation de
- * simple-git), et le travail échoue en le disant. Un `Promise.race` rendrait la
+ * sa durée. Au-delà de `delaiMs`, git est TUÉ (le `timeout` d'`execFile`,
+ * `gitHote`), et le travail échoue en le disant. Un `Promise.race` rendrait la
  * main en laissant le processus pendre derrière.
  *
  * Limite, dite : c'est le processus LANCÉ qui est tué. Sous Windows, où le `git`
@@ -172,11 +189,16 @@ export function envTransportGit(): NodeJS.ProcessEnv {
  * `child.kill()` du nœud. Le travail, lui, échoue à l'heure partout.
  */
 export async function cloneRepo(dir: string, repoUrl: string, delaiMs = CLONE_MS): Promise<void> {
-  const butoir = AbortSignal.timeout(delaiMs);
+  const parent = path.dirname(path.resolve(dir));
+  // git crée lui-même les dossiers de `dir`, mais il se LANCE depuis `parent`
+  // (`gitHote`) : absent, le clone mourait en « spawn git ENOENT ».
+  mkdirSync(parent, { recursive: true });
+  const ssh = await commandeSshDuMembre(parent);
   try {
-    await simpleGit({ abort: butoir }).env(envTransportGit()).clone(repoUrl, dir, ['--depth', '1']);
+    // `--` : une URL qui commencerait par un tiret ne devient pas une option.
+    await gitHote(['clone', '--depth', '1', '--', repoUrl, dir], parent, { ssh, delaiMs });
   } catch (err) {
-    if (!butoir.aborted) throw err;
+    if (!(err instanceof EchecGitHote && err.delaiDepasse)) throw err;
     const duree =
       delaiMs >= 60_000 ? `${Math.round(delaiMs / 60_000)} min` : `${Math.ceil(delaiMs / 1000)} s`;
     throw new Error(`clone abandonné après ${duree} — dépôt injoignable ou muet`, { cause: err });
@@ -204,52 +226,54 @@ export async function prepareWorkspace(
   if (cwd !== tasksRoot && !cwd.startsWith(tasksRoot + path.sep)) {
     throw new Error(`chemin de tâche hors du répertoire de travail : ${task.id}`);
   }
+  // Le REGISTRE de la ruche (`git-hote.ts`) : le git dir que l'hôte lit, À
+  // CÔTÉ de la tâche comme son TEMP — hors de ce que le bac monte.
+  const registre = `${cwd}.git`;
   // Repartir d'un répertoire vierge à chaque tentative. maxRetries absorbe les
   // verrous transitoires de fichiers sous Windows (antivirus, handle git résiduel)
   // qui, sinon, feraient échouer la tâche à durée nulle et brûleraient un essai.
   const rmOpts = { recursive: true, force: true, maxRetries: 10, retryDelay: 100 } as const;
   rmSync(cwd, rmOpts);
   rmSync(`${cwd}.tmp`, rmOpts);
+  rmSync(registre, rmOpts);
   mkdirSync(cwd, { recursive: true });
 
-  let git: SimpleGit | null = null;
   let branch: string | null = null;
   let baseSha: string | null = null;
+  let depot: DepotEpingle | null = null;
   if (repoUrl) {
-    // Le clone exige un répertoire vide, il précède donc toute écriture dans cwd.
+    // Le clone exige un répertoire vide : il précède toute écriture dans cwd.
+    // Tout ce qui suit, jusqu'à `poserRegistre`, se passe AVANT l'agent, dans
+    // un dépôt que seul git a écrit.
     await cloneRepo(cwd, repoUrl);
-    git = simpleGit({ baseDir: cwd });
+    const depotDuClone = { gitDir: path.join(cwd, '.git'), workTree: cwd };
     // Une tâche = une branche isolée. Jamais de travail direct sur main (§5.2).
     branch = task.branch ?? `hive/${task.id}`;
-    await git.checkoutLocalBranch(branch);
-    try {
-      baseSha = (await git.revparse(['HEAD'])).trim();
-    } catch {
-      // Dépôt cloné sans aucun commit : il n'y a pas de base à épingler.
-    }
+    await gitHote(['checkout', '-q', '-b', branch], depotDuClone);
+    baseSha = await commitDeDepart(depotDuClone);
+    depot = await poserRegistre(cwd, registre, baseSha);
   }
 
   const env = buildSandboxEnv(cwd, keepEnv);
 
   return {
     cwd,
-    git,
     branch,
     baseSha,
+    depot,
     env,
     async collectDiff(): Promise<string> {
-      if (!git) return '';
-      // --intent-to-add rend les nouveaux fichiers visibles dans le diff.
-      await git.raw(['add', '--all', '--intent-to-add']);
-      // CONTRE LA BASE ÉPINGLÉE, pas contre l'index : `git diff` nu compare
-      // l'arbre à l'index, et perdait en silence ce que l'agent avait
-      // `git add` ou committé — absent de la revue, de la livraison, du merge.
-      return baseSha ? git.diff([baseSha]) : git.diff();
+      // Par le registre, jamais par le `.git` de la tâche : c'est l'agent qui
+      // l'a eu entre les mains (git-hote.ts). CONTRE LA BASE ÉPINGLÉE, pas
+      // contre l'index : ce que l'agent a `git add` ou committé reste dans la
+      // revue, la livraison et le merge.
+      return depot ? diffContreBase(depot, baseSha) : '';
     },
     cleanup(): void {
       try {
-        rmSync(cwd, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
-        rmSync(`${cwd}.tmp`, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+        rmSync(cwd, rmOpts);
+        rmSync(`${cwd}.tmp`, rmOpts);
+        rmSync(registre, rmOpts);
       } catch {
         // Fichier verrouillé (Windows) : le prochain run de la tâche nettoiera.
       }

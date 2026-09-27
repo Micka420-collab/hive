@@ -31,6 +31,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { simpleGit } from 'simple-git';
 import { resoudreLanceur } from '../src/lanceur-reel.js';
 import { GRACE_ARRET_MS } from '../src/node-client/merge-runner.js';
+import { poserRegistre } from '../src/node-client/git-hote.js';
+import type { DepotEpingle } from '../src/node-client/git-hote.js';
 import { validerProduction } from '../src/node-client/validations-bac.js';
 import { prepareWorkspace } from '../src/node-client/workspace.js';
 import type { Fournisseur } from '../src/node-client/isolement.js';
@@ -75,6 +77,18 @@ const baseDe = async (dir: string): Promise<string> =>
   (await simpleGit({ baseDir: dir }).revparse(['HEAD'])).trim();
 
 /**
+ * Le registre de la ruche sur `dir`, comme `prepareWorkspace` le pose
+ * (`git-hote.ts`) : les validations relisent le dépôt par LUI, jamais par le
+ * `.git` de la tâche. Posé ici au moment de valider — les dépôts du banc
+ * n'ont ni crochet ni filtre à tenir à l'écart.
+ */
+const registreDe = async (dir: string, base: string): Promise<DepotEpingle> => {
+  const registre = mkdtempSync(`${dir}.registre-`);
+  dossiers.push(registre);
+  return poserRegistre(dir, registre, base);
+};
+
+/**
  * Valide `dir` comme le nœud : base ÉPINGLÉE avant que l'agent ne touche à
  * rien (`baseSha`, sinon HEAD maintenant), dans le faux bac sauf avis contraire.
  */
@@ -83,9 +97,10 @@ const valider = async (
   extra: Partial<Parameters<typeof validerProduction>[0]> & { baseSha?: string } = {},
 ) => {
   const { baseSha, ...reste } = extra;
+  const base = baseSha ?? (await baseDe(dir));
   return validerProduction({
     cwd: dir,
-    depot: { git: simpleGit({ baseDir: dir }), baseSha: baseSha ?? (await baseDe(dir)) },
+    depot: { depot: await registreDe(dir, base), baseSha: base },
     bac: fauxBac(),
     ...reste,
   });
@@ -100,7 +115,7 @@ describe('validerProduction — sans bac, rien ne tourne sur l’hôte', () => {
 
     const rapport = await validerProduction({
       cwd: dir,
-      depot: { git: simpleGit({ baseDir: dir }), baseSha: await baseDe(dir) },
+      depot: { depot: await registreDe(dir, await baseDe(dir)), baseSha: await baseDe(dir) },
     });
 
     expect(rapport.controles.tests).toEqual({

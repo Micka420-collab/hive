@@ -1299,8 +1299,8 @@ export class HiveNodeClient {
     const validations = await validerProduction({
       cwd: workspace.cwd,
       depot:
-        workspace.git && workspace.baseSha
-          ? { git: workspace.git, baseSha: workspace.baseSha }
+        workspace.depot && workspace.baseSha
+          ? { depot: workspace.depot, baseSha: workspace.baseSha }
           : null,
       ...(this.opts.bac ? { bac: this.opts.bac } : {}),
       signal: ctrl.signal,

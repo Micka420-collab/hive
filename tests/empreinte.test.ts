@@ -689,6 +689,9 @@ describe('LA GARDE : aucune écriture ne s’ajoute en douce hors de l’inventa
       'os.tmpdir()/hive-pont-* — le rendez-vous 0700 des ponts d’un nœud, effacé ' +
       'à son arrêt ; celui d’un nœud tué est balayé au démarrage suivant',
     'src/node-client/workspace.ts': '<workdir>/<nom> et son .tmp voisin',
+    'src/node-client/git-hote.ts':
+      '<workdir>/tasks/<id>.git — le git dir de la ruche, voisin de la tâche et ' +
+      'effacé avec elle ; et `info/attributes` dans le git dir d’un clone de fusion',
     'src/orchestrator/miroir.ts': '<données>/rayons — les miroirs git',
     'src/service-reel.ts':
       'le fichier de service — unité systemd, LaunchAgent ou tâche planifiée. ' +

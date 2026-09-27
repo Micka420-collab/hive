@@ -270,9 +270,8 @@ describe('résilience', () => {
 
       // Une tâche = une branche isolée, jamais de travail sur main.
       expect(ws.branch).toBe('hive/tache-git');
-      expect(ws.git).not.toBeNull();
-      const branches = await ws.git?.branchLocal();
-      expect(branches?.current).toBe('hive/tache-git');
+      const branches = await simpleGit({ baseDir: ws.cwd }).branchLocal();
+      expect(branches.current).toBe('hive/tache-git');
 
       // Un fichier créé par « l'agent » apparaît dans le diff de revue.
       writeFileSync(path.join(ws.cwd, 'nouveau.txt'), 'contenu butiné\n');
