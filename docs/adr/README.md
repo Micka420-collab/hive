@@ -22,6 +22,8 @@ Un ADR ne se réécrit pas : il se remplace par un suivant qui le mentionne.
 | [0008](0008-l-atelier-un-bureau-pour-l-ouvriere.md)     | L'Atelier : un bureau que l'ouvrière peut allumer — cinq décisions de sécurité à trancher               | **proposé**         |
 | [0009](0009-evolution-fachon-dgm.md)                    | Évolution façon DGM : ce qu'on prend, ce qu'on refuse, ce qu'on diffère après la sortie                 | accepté (direction) |
 | [0010](0010-la-chambre-poste-ouvriere-baptisee.md)      | La Chambre : poste de travail d'une ouvrière baptisée (constaté, pas théâtre)                           | **accepté**         |
+| [0011](0011-la-ruche-coordonne-les-outils-ia.md)        | La ruche coordonne les outils IA déjà installés                                                         | **proposé**         |
+| [0012](0012-une-seule-reine-par-base.md)                | Une seule Reine par base : un verrou tenu par le système, porté par SQLite, jamais deviné               | accepté             |
 
 Les **0001 à 0006** viennent du lot 0 de `MISSION-ACCUEIL.md`. Le **0007** est
 venu ensuite, avec le partage par billets. Le **0008** n'est pas encore tranché :
@@ -29,6 +31,9 @@ il attend une validation humaine, et son statut le dit. Le **0009** acte les
 refus DGM et diffère la boucle. Le **0010** ouvre la Chambre : baptême Reine,
 métier de cycle, journal par ouvrière — statut **accepté** (lots 0–6 + UI ;
 lots 7–10 en consolidation).
+Le **0011** attend la décision humaine qu'il nomme. Le **0012** interdit deux
+Reines sur une base, et dit pourquoi un fichier de pid « périmé si… » a été
+écarté après deux relectures.
 
 Le **0005** a été accepté en dernier, et séparément : c'était le seul à demander
 de toucher à l'orchestrateur, ce que le §16 de la mission met hors périmètre.

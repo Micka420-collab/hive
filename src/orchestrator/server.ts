@@ -116,7 +116,7 @@ import type {
   MergeResultMsg,
   ServerMessage,
 } from '../shared/protocol.js';
-import { direManques, manquesDeDemarrage } from '../shared/amorce.js';
+import { RefusDemarrage, direManques, manquesDeDemarrage } from '../shared/amorce.js';
 import { DEFAULT_TOKEN } from '../shared/types.js';
 import type { HiveEvent, HiveNode, Project, Task } from '../shared/types.js';
 import { CORPUS_BALANCE, estimerCout, peserLaRuche, VERSION_BALANCE } from './balance.js';
@@ -301,6 +301,8 @@ import { detectConflicts } from './sting-detector.js';
 import { Scheduler } from './scheduler.js';
 import { ETAT_LIVRAISON_EN_COURS, HiveStore } from './store.js';
 import type { SessionRangee } from './store.js';
+import { direArretBrutal, prendreVerrouReine } from './verrou-reine.js';
+import type { VerrouReine } from './verrou-reine.js';
 import {
   projeterHistoriqueWorker,
   projeterWorkers,
@@ -866,19 +868,23 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
   // parcours, pas supposé.
   //
   // Le tri et la rédaction vivent dans `amorce.ts`, pur : on peut donc éprouver
-  // « qu'est-ce qui manque » sans démarrer un serveur.
+  // « qu'est-ce qui manque » sans démarrer un serveur. Et elles passent AVANT
+  // le verrou et la base : un démarrage refusé pour sa configuration ne crée
+  // ni l'un ni l'autre.
   const manques = manquesDeDemarrage({
     simulation: config.simulation,
     token: config.token,
     corsOrigins: config.corsOrigins,
     secretJwt: secretJwtDepuisEnv(),
   });
-  if (manques.length > 0) throw new Error(`\n${direManques(manques)}\n`);
+  if (manques.length > 0) throw new RefusDemarrage(`\n${direManques(manques)}\n`);
 
-  const edition = config.edition ?? 'community';
   const secretWebhookDemarrage = process.env.HIVE_WEBHOOK_SECRET ?? '';
-  if (secretWebhookExige(edition, config.simulation) && !secretWebhookDemarrage) {
-    throw new Error(
+  if (
+    secretWebhookExige(config.edition ?? 'community', config.simulation) &&
+    !secretWebhookDemarrage
+  ) {
+    throw new RefusDemarrage(
       'HIVE_EDITION=cloud refuse de démarrer sans HIVE_WEBHOOK_SECRET : ' +
         'sinon la ruche tournerait, facturerait des heures, et Stripe recevrait 401. ' +
         'Posez le secret du webhook (Stripe → Developers → Webhooks), ' +
@@ -886,7 +892,36 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     );
   }
 
-  const store = new HiveStore(config.dbPath);
+  // ─── UNE SEULE REINE PAR BASE (verrou-reine.ts) ────────────────────────────
+  //
+  // Pris AVANT d'ouvrir la base : une seconde Reine doit être refusée avant
+  // d'avoir écrit quoi que ce soit — son `recoverAtBoot` requalifierait les
+  // travaux en vol de la première.
+  //
+  // `createServer` possède le verrou ET la base : si le montage échoue, pour
+  // quelque raison que ce soit (port occupé, erreur SQL au démarrage), il
+  // referme la base PUIS rend le verrou — l'ordre de `stop()`. Rendu avant la
+  // fermeture, le verrou laisserait démarrer une Reine suivante sur une base
+  // encore ouverte ici.
+  const verrou = prendreVerrouReine(config.dbPath);
+  if (verrou?.precedente) console.warn(direArretBrutal(verrou.precedente));
+  let store: HiveStore | undefined;
+  try {
+    store = new HiveStore(config.dbPath);
+    return await monterReine(config, store, verrou);
+  } catch (err) {
+    store?.close();
+    verrou?.liberer();
+    throw err;
+  }
+}
+
+async function monterReine(
+  config: ServerConfig,
+  store: HiveStore,
+  verrou: VerrouReine | null,
+): Promise<HiveServer> {
+  const edition = config.edition ?? 'community';
   const cheminEnvQueen = config.envPath ?? path.join(process.cwd(), '.env');
 
   const contexteProjetAvecHorizon = (projectId: string, projet: Project): string => {
@@ -9503,7 +9538,16 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     },
   );
 
-  await app.listen({ port: config.port, host: config.host });
+  try {
+    await app.listen({ port: config.port, host: config.host });
+  } catch (err) {
+    // Port occupé : rien n'écoute encore, et aucune minuterie n'est partie
+    // (elles partent plus bas). On referme Fastify ; `createServer` referme
+    // ensuite la base et rend le verrou — sans quoi un démarrage mort gardait
+    // la base ouverte, et sous Windows un fichier ouvert ne se supprime pas.
+    await app.close();
+    throw err;
+  }
   const address = app.server.address();
   // loupe : équivalent — && → ||. Le repli `config.port` est INATTEIGNABLE
   // ici : `listen({ port, host })` rend toujours un `AddressInfo`, jamais une
@@ -10766,6 +10810,9 @@ export async function createServer(config: ServerConfig): Promise<HiveServer> {
     await new Promise<void>((resolve) => wss.close(() => resolve()));
     await app.close();
     store.close();
+    // APRÈS la fermeture de la base, jamais avant : rendu plus tôt, le verrou
+    // laisserait démarrer une Reine suivante pendant que celle-ci écrit encore.
+    verrou?.liberer();
   };
 
   return {

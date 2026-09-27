@@ -1488,8 +1488,44 @@ export class HiveStore {
       mkdirSync(path.dirname(path.resolve(dbPath)), { recursive: true });
     }
     this.db = new Database(dbPath);
+    // ─── LES QUATRE RÉGLAGES DE LA BASE, DITS ICI ET NON HÉRITÉS ─────────────
+    //
+    // Seul `journal_mode` était posé. Les trois autres valaient ce que le BUILD
+    // de better-sqlite3 décidait (`deps/defines.gypi`, `lib/database.js`) :
+    // une montée de version qui changerait un défaut aurait désarmé une garde
+    // sans qu'une ligne de Hive bouge.
+    //
+    //   • `synchronous = FULL` — la durabilité d'abord, décision du
+    //     propriétaire : un COMMIT rendu est sur le disque, même si la machine
+    //     s'éteint l'instant d'après (un résultat, une livraison, une
+    //     approbation). Ce n'était PAS le réglage en marche : le build pose
+    //     `SQLITE_DEFAULT_WAL_SYNCHRONOUS=1`, et la base tombait en NORMAL dès
+    //     sa première écriture en WAL, puis à chaque réouverture (mesuré ; cf.
+    //     docs/ERREURS.md § 9 novemoctogicenties). En NORMAL, une coupure de
+    //     courant pouvait emporter les dernières transactions validées.
+    //     Le prix est un fsync du WAL par COMMIT — mesuré sur disque réel :
+    //     0,02 ms en NORMAL, 6 ms en FULL. D'où le schéma ci-dessous, posé en
+    //     UNE transaction.
+    //   • `foreign_keys = ON` — les `REFERENCES` du schéma sont appliquées.
+    //     SQLite nu les ignore ; seul le défaut de compilation les armait.
+    //   • `busy_timeout = 5000` — un écrivain concurrent fait ATTENDRE jusqu'à
+    //     5 s au lieu d'échouer aussitôt en `SQLITE_BUSY` (sauvegarde en cours,
+    //     `sqlite3` ouvert à la main).
+    //
+    // Posés avant le schéma, et relus par tests/sqlite-concurrent.test.ts APRÈS
+    // une écriture et une réouverture — là où le défaut WAL avait trompé la
+    // lecture d'un audit.
     this.db.pragma('journal_mode = WAL');
-    this.db.exec(SCHEMA);
+    this.db.pragma('synchronous = FULL');
+    this.db.pragma('foreign_keys = ON');
+    this.db.pragma('busy_timeout = 5000');
+    // UNE transaction pour tout le schéma. En autocommit, chacun de ses
+    // quatre-vingts `CREATE … IF NOT EXISTS` validait seul : sous FULL, autant
+    // de fsync, et une base neuve coûtait 525 ms au lieu de 70 (mesuré sur
+    // disque réel) — à chaque démarrage d'une Reine neuve, à chaque banc qui
+    // en ouvre une. Tout-ou-rien, en prime : un démarrage interrompu ne laisse
+    // plus un schéma à moitié posé.
+    this.db.transaction(() => this.db.exec(SCHEMA))();
   }
 
   close(): void {
@@ -3088,9 +3124,48 @@ export class HiveStore {
   }
 
   /**
+   * RÉCLAME une tâche pour un nœud : `attendu → assigned`, en UNE instruction
+   * conditionnelle. Rend la tâche réclamée, ou `undefined` si elle n'est plus
+   * dans le statut où l'appelant l'a lue — introuvable, ou déjà prise.
+   *
+   * `patchTask` lit PUIS écrit, sans condition : sûr sous une seule Reine,
+   * puisque tout y est synchrone, et c'est `verrou-reine.ts` qui garantit
+   * qu'il n'y en a qu'une. Ceci est la ceinture sous les bretelles : si deux
+   * écrivains partageaient malgré tout la base, le second `UPDATE … WHERE
+   * status = ?` ne toucherait aucune ligne au lieu d'écraser l'assignation du
+   * premier — et la même tâche partait sur deux nœuds.
+   *
+   * N'écrit QUE les colonnes de la réclamation : réécrire la ligne entière,
+   * comme `patchTask`, reposerait des `attempts` lus avant qu'un autre
+   * écrivain ne les change.
+   */
+  reclamerTache(
+    reclamation: {
+      taskId: string;
+      attendu: Extract<TaskStatus, 'pending' | 'ready'>;
+      nodeId: string;
+      branch: string | null;
+    },
+    now = Date.now(),
+  ): Task | undefined {
+    const { taskId, attendu, nodeId, branch } = reclamation;
+    const row = this.db
+      .prepare(
+        `UPDATE tasks SET status = 'assigned', assignedNodeId = ?, branch = ?, updatedAt = ?
+         WHERE id = ? AND status = ? RETURNING *`,
+      )
+      .get(nodeId, branch, now, taskId, attendu) as TaskRow | undefined;
+    return row ? rowToTask(row) : undefined;
+  }
+
+  /**
    * Récupération au démarrage : les tâches assigned/running d'un précédent
    * process sont orphelines → elles repartent en ready ; tous les nœuds
    * repartent offline (ils se ré-enregistreront via WebSocket).
+   *
+   * « D'un précédent process » est une HYPOTHÈSE, et c'est le verrou de la
+   * Reine (`verrou-reine.ts`) qui la rend vraie : sans lui, une seconde Reine
+   * lancée sur la même base volerait ici les travaux en vol de la première.
    *
    * L'HORLOGE DE L'HÉBERGEUR SE FERME D'ABORD. Au démarrage plus aucune tâche
    * n'est en vol, donc aucune session ne doit rester ouverte : une session

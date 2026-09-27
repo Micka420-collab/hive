@@ -198,13 +198,20 @@ describe('index et plans de requête', () => {
     // La distinction compte, et elle a déjà servi ici : trois autres tests
     // tapaient les 30 000 ms AU MILLIÈME PRÈS, ce qui trahissait une attente
     // sans fin et non de la lenteur. On les a corrigés, pas rallongés.
+    //
+    // Le corpus s'écrit en UNE transaction : le store tourne en
+    // `synchronous = FULL`, et 2 400 COMMIT isolés payaient 2 400 fsync — 18 s
+    // sur un disque réel, là où ce banc veut un corpus, pas une endurance.
     const projet = store.createProject({ name: 'P' });
     const ids: string[] = [];
-    for (let i = 0; i < 1_200; i++) {
-      const t = store.createTask({ id: `t${i}`, projectId: projet.id, title: 'T', prompt: 'x' });
-      store.setTaskReview(t.id, i % 2 === 0 ? 'approved' : 'rejected');
-      ids.push(t.id);
-    }
+    const connexion = (store as unknown as { db: Database.Database }).db;
+    connexion.transaction(() => {
+      for (let i = 0; i < 1_200; i++) {
+        const t = store.createTask({ id: `t${i}`, projectId: projet.id, title: 'T', prompt: 'x' });
+        store.setTaskReview(t.id, i % 2 === 0 ? 'approved' : 'rejected');
+        ids.push(t.id);
+      }
+    })();
     // Découpage en lots de 900 : le cas > 999 variables liées est couvert.
     const cibles = ids.slice(0, 1_000);
     const verdicts = store.listReviewsFor(cibles);

@@ -1,6 +1,7 @@
 // Point d'entrée de l'orchestrateur : `npm run dev`.
 
 // Statiques : ces modules n'ont aucune dépendance optionnelle (cf. plus bas).
+import { RefusDemarrage } from '../shared/amorce.js';
 import { annonceSimulation } from '../shared/annonce-simulation.js';
 import { chargerEnvQueen } from '../shared/env-queen.js';
 import { lireConfianceProxy } from '../shared/proxy-confiance.js';
@@ -61,7 +62,14 @@ try {
 }
 
 const config = loadConfigFromEnv();
-const server = await createServer(config);
+// Un REFUS de démarrer (secret manquant, base déjà tenue par une autre Reine)
+// est un texte écrit pour l'humain : on l'imprime seul, code 1. Toute autre
+// erreur garde sa pile — c'est alors un défaut, et la pile sert à le trouver.
+const server = await createServer(config).catch((err: unknown) => {
+  if (!(err instanceof RefusDemarrage)) throw err;
+  console.error(err.message);
+  process.exit(1);
+});
 
 console.log('🐝 Hive — orchestrateur (Queen) en ligne');
 console.log(`   Dashboard : ${server.url}`);

@@ -108,6 +108,20 @@ export function manquesDeDemarrage(etat: EtatAmorce): readonly Manque[] {
 }
 
 /**
+ * Un refus de démarrer, rédigé pour l'humain : ce qui manque, qui tient déjà
+ * la base, quoi faire. Une classe distincte, pas une `Error` nue : `main.ts`
+ * l'imprime TEL QUEL et sort en code 1. Ce n'est pas un défaut du programme,
+ * et la pile de Node qu'il imprimait devant (la ligne source, `Error:`, trois
+ * cadres) noyait le seul texte qui disait quoi faire.
+ */
+export class RefusDemarrage extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RefusDemarrage';
+  }
+}
+
+/**
  * Les manques, dits d'un seul tenant.
  *
  * `« npm run install:hive » les pose tous` est rappelé À LA FIN : celui qui lit

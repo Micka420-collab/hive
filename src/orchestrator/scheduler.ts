@@ -1373,12 +1373,13 @@ export class Scheduler {
     // Le 1er drone devient le « primaire » suivi par le store (reap/reconcile) ;
     // les autres volent en plus — leurs résultats arrivent par le même canal.
     const primary = launch[0] as string;
-    const assigned = this.store.patchTask(
-      taskId,
-      { status: 'assigned', assignedNodeId: primary, branch: `hive/${taskId}` },
+    // Réclamation CONDITIONNELLE, comme au tick : la tâche a été lue `ready`
+    // plus haut, et on ne l'arrache pas à qui l'aurait prise entre-temps.
+    const assigned = this.store.reclamerTache(
+      { taskId, attendu: 'ready', nodeId: primary, branch: `hive/${taskId}` },
       now,
     );
-    if (!assigned) return { ok: false, error: 'tâche introuvable' };
+    if (!assigned) return { ok: false, error: 'tâche introuvable ou déjà réclamée' };
     // L'Aiguillage : le modèle élu par CHAQUE drone, sur ses propres modeles. La
     // course n'est PAS restreinte (elle maximise la diversité d'agents) — on note
     // seulement, pour re-poser le modèle du VAINQUEUR quand il gagnera. Le modèle
@@ -2118,9 +2119,12 @@ export class Scheduler {
           routePheromone = { domaine, score };
         }
       }
-      const assigned = this.store.patchTask(
-        task.id,
-        { status: 'assigned', assignedNodeId: node.id, branch: `hive/${task.id}` },
+      // Réclamation CONDITIONNELLE : la liste `ready` a été lue en début de
+      // passe, et `onAssign` (plus bas) rend la main au serveur entre deux
+      // tâches. Une tâche prise entre-temps n'est plus `ready` : la
+      // réclamation échoue et on passe, au lieu de l'envoyer à un second nœud.
+      const assigned = this.store.reclamerTache(
+        { taskId: task.id, attendu: 'ready', nodeId: node.id, branch: `hive/${task.id}` },
         now,
       );
       if (!assigned) continue;
