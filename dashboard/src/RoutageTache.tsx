@@ -8,7 +8,8 @@
 // part ; une absence de modèle déclaré est dite telle quelle, sans
 // justification inventée. Dans une course de drones, c'est le drone VAINQUEUR
 // qui répond — son nœud, son modèle, son classement —, pas le primaire que
-// nomme l'affectation ; et un modèle écarté après un échec sur la tâche est dit.
+// nomme l'affectation ; et un modèle écarté après un échec sur la tâche est
+// dit, comme celui qui y est re-tenté faute d'alternative.
 
 import { useEffect, useState } from 'react';
 import { fetchRoutage } from './api';
@@ -180,6 +181,14 @@ export function RoutageTache({ taskId, cle, nodes }: Props) {
               {t(
                 `Écarté pour cette tâche après un échec : ${derniere.modelesEcartes.join(', ')} — un plantage n’est pas une note, rien n’est appris.`,
                 `Set aside for this task after a failure: ${derniere.modelesEcartes.join(', ')} — a crash is not a grade, nothing is learned.`,
+              )}
+            </p>
+          )}
+          {derniere.modelesReadmis.length > 0 && (
+            <p className="muted" data-testid="routage-readmis">
+              {t(
+                `Déjà échoué sur cette tâche, re-tenté faute d’alternative dans la ruche : ${derniere.modelesReadmis.join(', ')}.`,
+                `Already failed on this task, retried for lack of an alternative in the hive: ${derniere.modelesReadmis.join(', ')}.`,
               )}
             </p>
           )}

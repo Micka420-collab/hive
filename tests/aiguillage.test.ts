@@ -21,6 +21,7 @@ import {
   moyenne,
   recompenseDe,
   replierAntecedents,
+  repriseHorsEchecs,
   scoreUCB,
   type Antecedent,
   type Observation,
@@ -313,23 +314,60 @@ describe('aiguillerNoeuds — du modèle élu aux nœuds qui savent le faire tou
     expect(route?.modele, 'seul un modèle atteignable est élu').toBe('fable');
     expect(route?.noeuds.map((n) => n.id)).toEqual(['n1']);
   });
+});
 
-  it('ÉCARTE LES MODÈLES QUI ONT ÉCHOUÉ SUR LA TÂCHE — tant qu’il en reste un autre, et sans rien apprendre', () => {
-    const memoire = new Map<string, Antecedent>();
-    const eligibles = [noeud('n1', ['fable', 'opus']), noeud('n2', ['grok'])];
-    // `sonnet` a échoué mais n'est offert par aucun éligible : il n'était pas
-    // en lice, la raison ne prétend pas l'avoir écarté.
-    const route = aiguillerNoeuds('code', eligibles, memoire, new Set(['grok', 'fable', 'sonnet']));
-    expect(route?.modele).toBe('opus');
-    expect(route?.noeuds.map((n) => n.id)).toEqual(['n1']);
-    expect(route?.rang.map((r) => r.modele)).toEqual(['opus']);
-    expect(route?.ecartes, 'triés, pour une raison reproductible').toEqual(['fable', 'grok']);
-    expect(memoire.size, 'un échec n’est pas un antécédent').toBe(0);
+describe('repriseHorsEchecs — un modèle qui a planté sur une tâche n’en reprend pas les tentatives', () => {
+  const noeud = (id: string, modeles?: string[]) => ({ id, modeles });
 
-    // Tous ont échoué : ils concourent de nouveau, plutôt que de laisser la
-    // tâche sans porteur — et rien n'est dit écarté.
-    const repli = aiguillerNoeuds('code', [noeud('n1', ['fable'])], memoire, new Set(['fable']));
-    expect(repli).toMatchObject({ modele: 'fable', ecartes: [] });
+  it('ÉCARTE LES MODÈLES TOMBÉS — chaque éligible en est privé, dans l’ordre de charge, et qui n’offrait qu’eux ne porte plus', () => {
+    const offre = [
+      noeud('n2', ['grok', 'opus']),
+      noeud('n1', ['fable', 'opus']),
+      noeud('n3', ['grok']),
+    ];
+    const reprise = repriseHorsEchecs(offre, offre, new Set(['grok', 'fable', 'mistral']));
+    expect(reprise.eligibles, 'n3, qui n’offrait que grok, ne porte plus la tâche').toEqual([
+      noeud('n2', ['opus']),
+      noeud('n1', ['opus']),
+    ]);
+    // `mistral` a planté, mais plus aucun nœud ne l'offre : il n'est pas dit
+    // écarté — rien, dans le classement, ne manque à cause de lui.
+    expect(reprise.ecartes, 'triés, pour une raison reproductible').toEqual(['fable', 'grok']);
+    expect(
+      aiguillerNoeuds('code', reprise.eligibles, new Map())?.rang.map((r) => r.modele),
+    ).toEqual(['opus']);
+  });
+
+  it('DÉCIDE CONTRE L’OFFRE, PAS CONTRE LES LIBRES — un porteur sain occupé fait attendre la reprise', () => {
+    // Seul le porteur de fable est libre ; celui d'opus travaille. Décidé
+    // contre les libres, « tout ce qui est offert a planté » ré-élisait fable
+    // jusqu'à épuiser les tentatives.
+    const a = noeud('a', ['fable']);
+    const reprise = repriseHorsEchecs([a], [a, noeud('b', ['opus'])], new Set(['fable']));
+    expect(reprise).toEqual({ eligibles: [], ecartes: ['fable'] });
+  });
+
+  it('UN NŒUD SANS MODÈLE DÉCLARÉ PORTE LA TÂCHE — son défaut est inconnu, pas tombé', () => {
+    const offre = [noeud('libre'), noeud('b', ['fable'])];
+    const reprise = repriseHorsEchecs(offre, offre, new Set(['fable']));
+    expect(reprise.eligibles.map((n) => n.id)).toEqual(['libre']);
+    expect(aiguillerNoeuds('code', reprise.eligibles, new Map()), 'aucun modèle à commander').toBe(
+      null,
+    );
+  });
+
+  it('PLUS AUCUN PORTEUR DANS TOUTE L’OFFRE — les modèles tombés concourent de nouveau, rien n’est dit écarté', () => {
+    // Une ruche à modèle unique : l'écarter ferait attendre la tâche à jamais.
+    // C'est à l'appelant de dire qu'il re-commande un modèle déjà tombé.
+    const offre = [noeud('seule', ['fable'])];
+    expect(repriseHorsEchecs(offre, offre, new Set(['fable']))).toEqual({
+      eligibles: offre,
+      ecartes: [],
+    });
+    expect(repriseHorsEchecs(offre, offre, undefined), 'rien n’a planté : rien ne change').toEqual({
+      eligibles: offre,
+      ecartes: [],
+    });
   });
 });
 

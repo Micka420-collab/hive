@@ -15,6 +15,7 @@ import {
   aiguillerNoeuds,
   antecedentsDuVecu,
   categoriser,
+  repriseHorsEchecs,
 } from './aiguillage.js';
 import type { Antecedent, Rang } from './aiguillage.js';
 // L'Agent Garde-Fous : élire, PAR PROJET opt-in, l'échelon de garde-fous et
@@ -155,7 +156,8 @@ export class Scheduler {
   /**
    * taskId → modèles qui ont ÉCHOUÉ sur cette tâche (plantage, délai, erreur du
    * CLI, refus d'infrastructure, production refusée par les Gardiennes) :
-   * l'Aiguillage les écarte de ses reprises (`aiguillerNoeuds`, `echoues`).
+   * l'Aiguillage les écarte de ses reprises tant qu'un autre nœud de la ruche
+   * porte la tâche (`repriseHorsEchecs`).
    *
    * Le pendant de `recentRejections` pour le MODÈLE : un modèle cassé, jamais
    * jugé donc à `+∞`, revenait en tête à chaque reprise — une tâche en file
@@ -165,11 +167,12 @@ export class Scheduler {
    * un essai loyal ; la qualité s'apprend des contre-visites, comme avant.
    *
    * Une correction demandée par l'Evaluator ou par un humain rouvre une tâche
-   * `done` : c'est une reprise comme une autre, l'écart tient donc jusque-là.
-   * Il n'est oublié qu'avec la tâche — échouée pour de bon, annulée ou élaguée
-   * (`elaguerModelesEchoues`). En MÉMOIRE, comme les courses : un redémarrage
-   * l'oublie, et coûte au pire une tentative de plus sur le modèle déjà tombé,
-   * bornée par `maxAttempts`.
+   * `done` : c'est une reprise comme une autre, l'écart tient donc jusque-là
+   * — sauf pour le modèle qui a écrit la production retenue, réintégré
+   * (`reintegrerModele`). Il n'est oublié qu'avec la tâche — échouée pour de
+   * bon, annulée ou élaguée (`elaguerModelesEchoues`). En MÉMOIRE, comme les
+   * courses : un redémarrage l'oublie, et coûte au pire une tentative de plus
+   * sur le modèle déjà tombé, bornée par `maxAttempts`.
    */
   private readonly modelesEchoues = new Map<string, Set<string>>();
   /** Tâches actuellement différées pour cause de conflit (Sting Detector) — dédup des events. */
@@ -957,6 +960,7 @@ export class Scheduler {
     if (inspection) this.rangerInspection(inspection, resultId, task.id, nodeId, refusee);
 
     if (retenu) {
+      this.reintegrerModele(task.id, this.store.modeleAiguillageDe(task.id));
       this.store.patchTask(task.id, {
         status: 'done',
         result: {
@@ -1186,46 +1190,63 @@ export class Scheduler {
     // La charge des drones non-primaires n'existe pas dans le store : on
     // l'ajoute ici pour ne pas enrôler des nœuds déjà saturés par une course.
     const extra = this.droneLoad();
-    const candidates = this.store
-      .listNodes()
+    const charge = (n: HiveNode): number => n.running + (extra.get(n.id) ?? 0);
+    // L'OFFRE, charge ignorée, puis sa part libre : l'écart des modèles tombés
+    // se décide contre la première, comme dans la boucle principale.
+    const offre = this.store.listNodes().filter(
+      (n) =>
+        n.status === 'online' &&
+        // LA MÊME GARDE QUE `tick` — elle manquait ici, et « présence sans
+        // production » l'a rendue nécessaire.
+        //
+        // Tant qu'un poste sans agent réel mourait avant de s'inscrire, aucun
+        // nœud simulé n'existait en production : la faille dormait. Depuis
+        // que ces machines REJOIGNENT la ruche, une course lancée à la main
+        // les aurait enrôlées, leur adaptateur `shell` aurait rendu un diff
+        // SIMULÉ, et la course l'aurait départagé contre du code réel. Un
+        // faux gagnant, dans la fonctionnalité dont tout l'objet est de
+        // départager.
+        //
+        // La garde suit la CONFIG DU SERVEUR, pas une opinion sur `shell` :
+        // en simulation assumée, les nœuds simulés courent — c'est la
+        // démonstration qu'on a demandée.
+        assignationProductionAutorisee(n.agentType, {
+          simulation: this.opts.simulation,
+        }) &&
+        (this.recentRejections.get(`${taskId}:${n.id}`) ?? 0) <= now,
+    );
+    const libres = offre
       .filter(
         (n) =>
-          n.status === 'online' &&
-          // LA MÊME GARDE QUE `tick` — elle manquait ici, et « présence sans
-          // production » l'a rendue nécessaire.
-          //
-          // Tant qu'un poste sans agent réel mourait avant de s'inscrire, aucun
-          // nœud simulé n'existait en production : la faille dormait. Depuis
-          // que ces machines REJOIGNENT la ruche, une course lancée à la main
-          // les aurait enrôlées, leur adaptateur `shell` aurait rendu un diff
-          // SIMULÉ, et la course l'aurait départagé contre du code réel. Un
-          // faux gagnant, dans la fonctionnalité dont tout l'objet est de
-          // départager.
-          //
-          // La garde suit la CONFIG DU SERVEUR, pas une opinion sur `shell` :
-          // en simulation assumée, les nœuds simulés courent — c'est la
-          // démonstration qu'on a demandée.
-          assignationProductionAutorisee(n.agentType, {
-            simulation: this.opts.simulation,
-          }) &&
           // Thermorégulation : une course MULTIPLIE la charge sur une ruche qui
           // souffre déjà — elle respecte donc la concurrence effective, comme
           // l'assignation automatique. Décision assumée : le geste explicite
           // choisit QUI travaille, jamais COMBIEN la ruche encaisse. Le
           // plancher de 1 par nœud garantit qu'une course reste possible même
           // en surchauffe.
-          n.running + (extra.get(n.id) ?? 0) <
-            concurrenceEffective(n.maxConcurrency, this.facteurThermo) &&
-          (this.recentRejections.get(`${taskId}:${n.id}`) ?? 0) <= now,
+          charge(n) < concurrenceEffective(n.maxConcurrency, this.facteurThermo),
       )
-      .sort(
-        (a, b) =>
-          a.running + (extra.get(a.id) ?? 0) - (b.running + (extra.get(b.id) ?? 0)) ||
-          a.name.localeCompare(b.name),
-      )
-      .map((n) => ({ id: n.id, agentType: n.agentType }));
-    const { race, launch } = enlistDrones(createRace(taskId, factor), candidates);
-    if (launch.length === 0) return { ok: false, error: 'aucun nœud disponible pour la course' };
+      .sort((a, b) => charge(a) - charge(b) || a.name.localeCompare(b.name));
+    // Une course lancée sur une reprise suit la même règle que la boucle
+    // principale : un nœud qui n'offre que des modèles tombés sur cette tâche
+    // n'est pas enrôlé tant qu'un autre la porte. Chaque drone est ensuite
+    // aiguillé sur SA vue du nœud, privée de ces modèles.
+    const echoues = this.modelesEchoues.get(taskId);
+    const reprise = repriseHorsEchecs(libres, offre, echoues);
+    const { race, launch } = enlistDrones(
+      createRace(taskId, factor),
+      reprise.eligibles.map((n) => ({ id: n.id, agentType: n.agentType })),
+    );
+    if (launch.length === 0) {
+      // Des nœuds libres, mais qui n'offrent que des modèles déjà tombés ici :
+      // le dire, plutôt qu'un « aucun nœud » que l'écran démentirait.
+      const error =
+        libres.length > 0
+          ? 'les nœuds libres n’offrent que des modèles qui ont déjà planté sur cette tâche — ' +
+            'course refusée, la reprise attend un porteur sain'
+          : 'aucun nœud disponible pour la course';
+      return { ok: false, error };
+    }
 
     // Le 1er drone devient le « primaire » suivi par le store (reap/reconcile) ;
     // les autres volent en plus — leurs résultats arrivent par le même canal.
@@ -1247,19 +1268,21 @@ export class Scheduler {
     // dire pourquoi un drone non primaire avait lancé le modèle qui a gagné.
     const categorie = categoriser(task.title, task.prompt);
     const antecedents = this.antecedentsAiguillage();
-    const echoues = this.modelesEchoues.get(taskId);
-    const noeuds = new Map(this.store.listNodes().map((n) => [n.id, n]));
+    const vues = new Map(reprise.eligibles.map((n) => [n.id, n]));
     const modeleParDrone: Record<string, string> = {};
     const raisons: Record<string, Rang[]> = {};
-    const ecartes = new Set<string>();
     for (const droneId of launch) {
-      const noeud = noeuds.get(droneId);
-      const route = noeud ? aiguillerNoeuds(categorie, [noeud], antecedents, echoues) : null;
+      const vue = vues.get(droneId);
+      const route = vue ? aiguillerNoeuds(categorie, [vue], antecedents) : null;
       if (!route) continue;
       modeleParDrone[droneId] = route.modele;
       raisons[droneId] = route.rang.slice(0, 4);
-      for (const m of route.ecartes) ecartes.add(m);
     }
+    // Les modèles tombés ici qu'un drone re-lance faute d'alternative dans la
+    // ruche : la course le dit, comme la boucle principale.
+    const readmis = [...new Set(Object.values(modeleParDrone))]
+      .filter((m) => echoues?.has(m))
+      .sort();
     const aiguillee = Object.keys(modeleParDrone).length > 0;
     if (aiguillee) race.modeleParDrone = modeleParDrone;
     if (modeleParDrone[primary]) {
@@ -1305,9 +1328,10 @@ export class Scheduler {
             versionAiguillage: VERSION_AIGUILLAGE,
           }
         : {}),
-      // Fait de la TÂCHE, pas du primaire : les modèles écartés de la course,
-      // quel que soit le drone qui les offrait.
-      ...(ecartes.size > 0 ? { modelesEcartes: [...ecartes].sort() } : {}),
+      // Faits de la TÂCHE, pas du primaire : les modèles écartés de la course,
+      // quel que soit le nœud qui les offrait, et ceux qu'un drone re-lance.
+      ...(reprise.ecartes.length > 0 ? { modelesEcartes: reprise.ecartes } : {}),
+      ...(readmis.length > 0 ? { modelesReadmis: readmis } : {}),
     });
     this.store.ouvrirHorlogeHote(assigned.projectId, assigned.id, Date.now());
     // Chaque drone reçoit SON modèle élu (la course diversifie les agents).
@@ -1387,6 +1411,7 @@ export class Scheduler {
       // jugera — on re-pose SON modèle (écrase celui du primaire posé au départ).
       // `won` précède toujours le verdict, donc la jointure lira le bon couple.
       const modeleVainqueur = race.modeleParDrone?.[nodeId];
+      this.reintegrerModele(task.id, modeleVainqueur);
       if (modeleVainqueur) {
         this.store.poserModeleAiguillage(task.id, modeleVainqueur, now);
       } else {
@@ -1778,36 +1803,44 @@ export class Scheduler {
       this.signalerPlafond(task.projectId, decision);
       if (decision === 'bloque' && this.opts.balance?.mode === 'strict') continue;
       const charge = (n: HiveNode): number => n.running + (extra.get(n.id) ?? 0);
-      const eligibles = this.store
-        .listNodes()
+      // L'OFFRE pour cette tâche : les nœuds qui pourraient la porter, charge
+      // ignorée. C'est contre elle que se décide l'écart des modèles tombés
+      // (`repriseHorsEchecs`) : un porteur sain seulement occupé se libérera.
+      const offre = this.store.listNodes().filter(
+        (n) =>
+          n.status === 'online' &&
+          assignationProductionAutorisee(n.agentType, {
+            simulation: this.opts.simulation,
+          }) &&
+          // Ne pas ré-assigner aussitôt une tâche que ce nœud vient de refuser.
+          (this.recentRejections.get(`${task.id}:${n.id}`) ?? 0) <= now,
+      );
+      const eligibles = offre
         .filter(
           (n) =>
-            n.status === 'online' &&
-            assignationProductionAutorisee(n.agentType, {
-              simulation: this.opts.simulation,
-            }) &&
             // Thermorégulation : sous ventilation, la capacité de chaque nœud
             // est réduite par le facteur en vigueur (plancher 1 — la ruche ne
             // s'arrête pas, elle ralentit).
-            charge(n) < concurrenceEffective(n.maxConcurrency, this.facteurThermo) &&
-            // Ne pas ré-assigner aussitôt une tâche que ce nœud vient de refuser.
-            (this.recentRejections.get(`${task.id}:${n.id}`) ?? 0) <= now,
+            charge(n) < concurrenceEffective(n.maxConcurrency, this.facteurThermo),
         )
         .sort((a, b) => charge(a) - charge(b) || a.name.localeCompare(b.name));
+      // Une reprise ne ré-élit pas un modèle qui a planté sur cette tâche tant
+      // qu'un autre nœud de l'offre la porte : les éligibles sont réduits à ses
+      // porteurs — vides si aucun n'est libre, et la tâche attend une place.
+      const echoues = this.modelesEchoues.get(task.id);
+      const reprise = repriseHorsEchecs(eligibles, offre, echoues);
       // ─── L'Aiguillage appris : le MODÈLE, avant le nœud ──────────────────
       // Parmi les éligibles (déjà filtrés par charge et triés), on restreint à
       // ceux qui offrent le meilleur modèle pour le genre de la tâche. `null`
       // (aucun éligible ne déclare de modèle) ⇒ NO-OP : on garde la liste et
       // l'ordonnancement d'avant, phéromones comprises. La sous-liste préserve
-      // l'ordre de charge, donc le départage plus bas reste inchangé. Une
-      // reprise écarte les modèles qui ont déjà échoué sur cette tâche.
+      // l'ordre de charge, donc le départage plus bas reste inchangé.
       const route = aiguillerNoeuds(
         categoriser(task.title, task.prompt),
-        eligibles,
+        reprise.eligibles,
         lireAntecedents(),
-        this.modelesEchoues.get(task.id),
       );
-      const candidats = route ? route.noeuds : eligibles;
+      const candidats = route ? route.noeuds : reprise.eligibles;
       let node = candidats[0];
       if (!node) continue; // aucun nœud éligible pour CETTE tâche (essayer les suivantes)
       // Phéromones : le critère principal « moins chargé » reste intact — elles
@@ -1891,17 +1924,23 @@ export class Scheduler {
         // Le tampon de version dit sous quel calcul cette raison a été prise :
         // relue après un changement de taxonomie ou de format, elle ne se lit
         // pas avec les règles d'après (cf. `VERSION_AIGUILLAGE`).
-        // `modelesEcartes` : ceux qui ont échoué sur cette tâche et ne
-        // concouraient donc pas — sans lui, la raison d'une reprise tairait
-        // pourquoi un modèle offert manque au classement.
         ...(route
           ? {
               categorie: categoriser(task.title, task.prompt),
               raisonModele: route.rang.slice(0, 4),
               versionAiguillage: VERSION_AIGUILLAGE,
-              ...(route.ecartes.length > 0 ? { modelesEcartes: route.ecartes } : {}),
             }
           : {}),
+        // Ce que la reprise a fait des modèles qui ont planté sur cette tâche.
+        // `modelesEcartes` : offerts par la ruche mais hors concours — sans
+        // lui, la raison tairait pourquoi un modèle offert manque au
+        // classement, y compris quand aucun modèle n'est commandé (un nœud
+        // sans modèle déclaré a pris la reprise). `modelesReadmis` : le modèle
+        // commandé était déjà tombé ici, re-tenté faute d'alternative dans
+        // toute la ruche — sans lui, son « à explorer » se lirait comme une
+        // exploration neuve.
+        ...(reprise.ecartes.length > 0 ? { modelesEcartes: reprise.ecartes } : {}),
+        ...(route && echoues?.has(route.modele) ? { modelesReadmis: [route.modele] } : {}),
       });
       this.store.ouvrirHorlogeHote(assigned.projectId, assigned.id, Date.now());
       // Le modèle élu part avec la tâche : le nœud le passera à `--model`.
@@ -1921,13 +1960,30 @@ export class Scheduler {
     }
   }
 
-  /** Écarte `modele` des reprises de cette tâche (cf. `modelesEchoues`). Sans modèle commandé : rien. */
+  /**
+   * Écarte `modele` des reprises de cette tâche (cf. `modelesEchoues`). Sans
+   * modèle commandé : rien.
+   */
   private ecarterModele(taskId: string, modele: string | null | undefined): void {
     if (!modele) return;
     this.elaguerModelesEchoues();
     const echoues = this.modelesEchoues.get(taskId) ?? new Set<string>();
     echoues.add(modele);
     this.modelesEchoues.set(taskId, echoues);
+  }
+
+  /**
+   * `modele` vient de rendre une production RETENUE sur cette tâche : il a
+   * prouvé qu'il y tourne, son écart tombe. Sans cela, le modèle qui a écrit
+   * la production — un drone rescapé d'une course où le même modèle a planté
+   * sur un autre nœud, ou l'unique modèle ré-admis — serait privé de la
+   * correction que l'Evaluator demanderait de SA production.
+   */
+  private reintegrerModele(taskId: string, modele: string | null | undefined): void {
+    const echoues = this.modelesEchoues.get(taskId);
+    if (!echoues || !modele) return;
+    echoues.delete(modele);
+    if (echoues.size === 0) this.modelesEchoues.delete(taskId);
   }
 
   /**

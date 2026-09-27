@@ -254,6 +254,80 @@ describe('Aiguillage câblé — la course de drones', () => {
     });
   });
 
+  it('UNE COURSE LANCÉE SUR UNE REPRISE ÉCARTE LE MODÈLE TOMBÉ — et son affectation le dit', () => {
+    const p = store.createProject({ name: 'P' });
+    const taskId = store.createTask({ projectId: p.id, title: 'critique', prompt: 'x' }).id;
+    store.patchTask(taskId, { status: 'ready' });
+    const a = scheduler.registerNode(profile('n-a', 'claude-code', ['fable', 'opus'])).id;
+    scheduler.tick(1_000);
+    expect(assignations).toEqual([{ nodeId: a, taskId, modele: 'fable' }]);
+    // Le CLI de fable bute sur son quota. Le nœud, en cooldown pour cette
+    // tâche, ne la reprend pas aussitôt : elle reste prête pour la course.
+    scheduler.rejectTask(a, taskId, 'agent indisponible (auth/quota)', true, 1_000);
+    expect(store.getTask(taskId)?.status).toBe('ready');
+
+    expect(scheduler.startRace(taskId, 2, 10_000)).toEqual({ ok: true, drones: [a] });
+
+    expect(assignations.at(-1), 'le drone part sur opus, pas sur fable').toEqual({
+      nodeId: a,
+      taskId,
+      modele: 'opus',
+    });
+    expect(fait('drone_race_started', taskId)?.raisons).toMatchObject({
+      [a]: [{ modele: 'opus' }],
+    });
+    const affectation = store
+      .listEvents()
+      .filter((event) => event.type === 'task_assigned' && event.payload.taskId === taskId)
+      .at(-1)?.payload;
+    expect(affectation?.modelesEcartes, 'la course dit ce qu’elle a écarté').toEqual(['fable']);
+  });
+
+  it('UNE COURSE DONT LES NŒUDS LIBRES N’OFFRENT QUE LE MODÈLE TOMBÉ EST REFUSÉE — et le refus dit pourquoi', () => {
+    const p = store.createProject({ name: 'P' });
+    const taskId = store.createTask({ projectId: p.id, title: 'critique', prompt: 'x' }).id;
+    store.patchTask(taskId, { status: 'ready' });
+    const a = scheduler.registerNode(profile('n-a', 'claude-code', ['fable'])).id;
+    // Le porteur sain d'opus est en ligne, mais plein.
+    const b = scheduler.registerNode(profile('n-b', 'codex', ['opus'])).id;
+    for (const titre of ['occupe-1', 'occupe-2']) {
+      const autre = store.createTask({ projectId: p.id, title: titre, prompt: 'x' }).id;
+      store.patchTask(autre, { status: 'assigned', assignedNodeId: b });
+    }
+    scheduler.tick(1_000);
+    scheduler.rejectTask(a, taskId, 'agent indisponible (auth/quota)', true, 1_000);
+
+    // Seul n-a est libre, et il n'offre que fable : l'enrôler relancerait le
+    // modèle qui vient de tomber, à côté d'un porteur sain qui se libérera.
+    expect(scheduler.startRace(taskId, 2, 10_000)).toEqual({
+      ok: false,
+      error: expect.stringContaining('déjà planté sur cette tâche'),
+    });
+    expect(store.getTask(taskId)?.status, 'la reprise reste prête pour opus').toBe('ready');
+  });
+
+  it('UN DRONE QUI ÉCHOUE PENDANT QUE D’AUTRES VOLENT : SA DÉCLARATION VA AU GENOME DE SON MODÈLE', () => {
+    const { taskId } = deuxDrones(['modele-a', 'modele-b']);
+    const started = scheduler.startRace(taskId, 2, 1_000);
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+    const [primaire] = started.drones as [string, string];
+    const fournisseur = { source: 'claude-code', coutUsd: 0.02 };
+
+    scheduler.handleTaskResult(primaire, { ...result(taskId, false), fournisseur });
+
+    expect(fait('drone_failed', taskId)).toMatchObject({ nodeId: primaire, fournisseur });
+    const genome = registreGenomeDepuisEvenements(
+      store.evenementsParTypes(TYPES_REGISTRE_GENOME, 5_000),
+      () => 'autre',
+    );
+    expect(genome.lignes.find((l) => l.modele === 'modele-a')).toMatchObject({
+      affectations: 1,
+      reprises: 1,
+      coutFournisseur: { total: 0.02, declarees: 1, tentatives: 1 },
+    });
+  });
+
   it('NO-OP : une course de nœuds SANS modèles n’enregistre aucune élection', () => {
     const { taskId } = deuxDrones(); // aucun modeles déclaré
     const started = scheduler.startRace(taskId, 2, 1_000);

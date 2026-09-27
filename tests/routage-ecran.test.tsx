@@ -64,6 +64,7 @@ describe('le panneau « Pourquoi ce Worker, ce modèle »', () => {
           { modele: 'grok', essais: 0, enVol: 0, moyenne: null, score: null, aExplorer: true },
         ],
         modelesEcartes: [],
+        modelesReadmis: [],
         pheromone: null,
         course: null,
         critereNoeud: 'porteur_du_modele',
@@ -82,6 +83,31 @@ describe('le panneau « Pourquoi ce Worker, ce modèle »', () => {
     expect(lignes[1]?.textContent).not.toMatch(/0\.00/);
   });
 
+  it('UN MODÈLE RE-TENTÉ FAUTE D’ALTERNATIVE : LE PANNEAU LE DIT — son « à explorer » ne tait pas le plantage', async () => {
+    const dom = await monter([
+      {
+        eventId: 1,
+        ts: 1,
+        nodeId: 'n-zzz',
+        modele: 'fable',
+        categorie: 'code',
+        versionAiguillage: 2,
+        raisonModele: [
+          { modele: 'fable', essais: 0, enVol: 0, moyenne: null, score: null, aExplorer: true },
+        ],
+        modelesEcartes: [],
+        modelesReadmis: ['fable'],
+        pheromone: null,
+        course: null,
+        critereNoeud: 'porteur_du_modele',
+      },
+    ]);
+    expect(dom.querySelector('[data-testid="routage-readmis"]')?.textContent).toContain(
+      'Déjà échoué sur cette tâche, re-tenté faute d’alternative dans la ruche : fable',
+    );
+    expect(dom.querySelector('[data-testid="routage-ecartes"]')).toBeNull();
+  });
+
   it('UN MODÈLE JAMAIS JUGÉ MAIS EN VOL EST « À EXPLORER (n EN VOL) » — jamais « n essais, moyenne 0 »', async () => {
     const dom = await monter([
       {
@@ -96,6 +122,7 @@ describe('le panneau « Pourquoi ce Worker, ce modèle »', () => {
           { modele: 'grok', essais: 0, enVol: 5, moyenne: null, score: 0.8, aExplorer: true },
         ],
         modelesEcartes: [],
+        modelesReadmis: [],
         pheromone: null,
         course: null,
         critereNoeud: 'porteur_du_modele',
@@ -123,6 +150,7 @@ describe('le panneau « Pourquoi ce Worker, ce modèle »', () => {
         versionAiguillage: null,
         raisonModele: [],
         modelesEcartes: [],
+        modelesReadmis: [],
         pheromone: null,
         course: null,
         critereNoeud: 'moins_charge',
@@ -150,6 +178,7 @@ describe('le panneau « Pourquoi ce Worker, ce modèle »', () => {
           { modele: 'fable', essais: 0, enVol: 0, moyenne: null, score: null, aExplorer: true },
         ],
         modelesEcartes: ['grok'],
+        modelesReadmis: [],
         pheromone: null,
         course: {
           drones: [
@@ -208,6 +237,7 @@ describe('le panneau « Pourquoi ce Worker, ce modèle »', () => {
         versionAiguillage: 2,
         raisonModele: [],
         modelesEcartes: [],
+        modelesReadmis: [],
         pheromone: null,
         course: {
           drones: [

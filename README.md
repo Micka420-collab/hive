@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-6103%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-6113%20passing-F6C445?labelColor=17130C)
 ![Licence](https://img.shields.io/badge/licence-MIT-F6C445?labelColor=17130C)
 
 🇫🇷 Français · [🇬🇧 English](README.en.md) · [🌐 Site](https://micka420-collab.github.io/hive/) · [📚 Documentation](#-documentation)
@@ -101,9 +101,10 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
   - pourquoi ce Worker et ce modèle : le classement de l'Aiguillage figé à
     l'instant du choix ([#449](https://github.com/Micka420-collab/hive/pull/449),
     [#450](https://github.com/Micka420-collab/hive/pull/450)) — y compris le
-    drone vainqueur d'une course et son modèle, et le modèle écarté d'une
-    tâche après un plantage (jamais ré-élu pour ses reprises, jamais compté
-    comme une note) ;
+    drone vainqueur d'une course et son modèle, et le modèle qui a planté sur
+    une tâche : écarté de ses reprises tant qu'un autre nœud de la ruche peut
+    la porter (la reprise attend qu'il se libère), re-tenté et dit tel quel
+    sinon, jamais compté comme une note ;
   - où est passé le temps : attente, démarrage, exécution, reprises,
     corrections, revue ([#451](https://github.com/Micka420-collab/hive/pull/451)) ;
   - la réputation d'un Worker par catégorie de tâche, « inconnue » là où il

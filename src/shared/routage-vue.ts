@@ -83,6 +83,12 @@ export interface AffectationVue {
   raisonModele: LigneRaison[];
   /** Modèles qui avaient déjà échoué sur la tâche, écartés de ce choix. */
   modelesEcartes: string[];
+  /**
+   * Modèles commandés alors qu'ils avaient déjà échoué sur la tâche : aucun
+   * autre nœud de la ruche ne la portait. Leur « à explorer » dans le
+   * classement ne dit rien de ce plantage, qui n'est pas une note.
+   */
+  modelesReadmis: string[];
   pheromone: { domaine: string; score: number } | null;
   /** `null` hors course de drones. */
   course: CourseVue | null;
@@ -200,6 +206,7 @@ export function affectationsDepuisEvenements(evenements: readonly HiveEvent[]): 
       versionAiguillage,
       raisonModele: raisonDepuis(p.raisonModele, versionAiguillage),
       modelesEcartes: textes(p.modelesEcartes),
+      modelesReadmis: textes(p.modelesReadmis),
       pheromone,
       course,
       critereNoeud: course

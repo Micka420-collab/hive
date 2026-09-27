@@ -35,7 +35,9 @@
 // une seule fois : la victoire (`task_done`) au modèle du vainqueur — primaire
 // ou non —, l'échec d'un drone pendant que d'autres volent (`drone_failed` sans
 // motif) en reprise, son refus en refus, sa perte (`drone_failed` motivé) ou
-// son annulation après la victoire d'un autre en interruption.
+// son annulation après la victoire d'un autre en interruption. Une course
+// arrêtée d'un bloc (reprise au boot, annulation humaine) interrompt chaque
+// drone encore en vol.
 //
 // Le module est pur : il replie des événements déjà journalisés. Il ne touche
 // ni au routing, ni à la récompense de l'Aiguillage.
@@ -337,6 +339,16 @@ export function registreGenomeDepuisEvenements(
       }
       case 'task_requeued':
       case 'task_cancelled': {
+        // En course, ce fait de TÂCHE arrête tous les drones encore en vol,
+        // qu'il n'en nomme aucun (reprise au boot) ou le seul primaire
+        // (annulation humaine) : chacun est interrompu, une fois. Sans ce
+        // solde, les autres gardaient une affectation sans issue.
+        if (etat.drones) {
+          for (const drone of etat.drones.values()) accumulateur(drone).faits.interrompues += 1;
+          etat.drones.clear();
+          etat.courante = null;
+          break;
+        }
         if (!issue) break;
         accumulateur(issue).faits.interrompues += 1;
         solder();

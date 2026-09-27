@@ -3805,6 +3805,10 @@ sa robustesse de la DIVERSITÉ des agents (décision Fable 5). On note seulement
   l'enrôlement (drone-wars reste pur), préservé au fil des `{ ...race }` ;
 - `startRace` : `choisirModele` par drone ; le modèle du PRIMAIRE est posé dès le
   départ — la course compte alors comme une élection en vol (borne du troupeau) ;
+  (depuis [#473](https://github.com/Micka420-collab/hive/pull/473), chaque drone
+  passe par `aiguillerNoeuds` sur son seul nœud, privé des modèles qui ont
+  planté sur la tâche — `repriseHorsEchecs` —, pour figer son classement dans
+  `drone_race_started` ; `choisirModele` reste la forme de référence de la règle)
 - `handleDroneResult 'won'` : on RE-pose le modèle du VAINQUEUR (écrase le
   primaire) — c'est SA production que la contre-visite jugera ;
 - `promoteNextDrone` : le producteur suivi change, l'élection en vol suit ;

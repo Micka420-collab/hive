@@ -133,13 +133,20 @@ describe('affectationsDepuisEvenements — la raison, telle que le journal la ga
       // Une course dont l'affectation suivante n'est pas l'un de ses drones
       // (journal élagué entre les deux) : elle ne s'y attache pas.
       ev(4, 'drone_race_started', { taskId: 't', drones: ['n7'] }),
-      ev(5, 'task_assigned', { taskId: 't', nodeId: 'n1', modelesEcartes: ['fable', 3] }),
+      ev(5, 'task_assigned', {
+        taskId: 't',
+        nodeId: 'n1',
+        modelesEcartes: ['fable', 3],
+        modelesReadmis: [null, 'grok'],
+      }),
     ]);
     expect(course?.critereNoeud).toBe('course_de_drones');
     expect(course?.course?.vainqueur).toEqual({ nodeId: 'n2', modele: 'opus' });
     expect(course?.course?.drones[1]?.raisonModele.map((l) => l.modele)).toEqual(['opus']);
     expect(reprise).toMatchObject({ course: null, critereNoeud: 'moins_charge' });
     expect(reprise?.modelesEcartes, 'un nom illisible est ignoré').toEqual(['fable']);
+    expect(reprise?.modelesReadmis).toEqual(['grok']);
+    expect(course?.modelesReadmis, 'absent, il reste absent').toEqual([]);
   });
 });
 
