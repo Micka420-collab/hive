@@ -239,6 +239,8 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
   rmSync(dossier, { recursive: true, force: true });
+  // Le verrou d'identité qu'un banc a pris vit hors du dossier : on l'efface.
+  if (surPosix) rmSync(cheminVerrou(dossier), { force: true });
 });
 
 /** Un faux moteur `nom` : `corps` est le `case "$1 $2"` du script. */
@@ -628,12 +630,17 @@ describe('occuperIdentite — un verrou que l’OS rend à la mort du processus'
     15_000,
   );
 
-  it('un atelier au chemin trop long pour une socket Unix verrouille dans le dossier temporaire', () => {
+  it('le verrou vit HORS de l’atelier, propre à l’utilisateur, un par atelier', () => {
+    // Posée dans l'atelier, la socket faisait échouer la copie du dossier de
+    // la ruche (`fs.cpSync` s'arrête sur elle) — mesuré par l'essai d'entrée.
+    const env = { XDG_RUNTIME_DIR: '/run/user/1001' };
+    const chemin = cheminVerrou('ruche/.hive-work/claude', env, 'linux');
+    expect(chemin).toMatch(/^\/run\/user\/1001\/hive-noeud-[0-9a-f]{16}\.sock$/);
+    expect(cheminVerrou(path.resolve('ruche/.hive-work/claude'), env, 'linux')).toBe(chemin);
+    expect(cheminVerrou('ruche/.hive-work/codex', env, 'linux')).not.toBe(chemin);
+    expect(path.dirname(cheminVerrou('x', {}, 'linux'))).toBe(os.tmpdir());
     const long = path.join(os.tmpdir(), 'x'.repeat(120));
-    const chemin = cheminVerrou(long, 'linux');
-    expect(Buffer.byteLength(chemin)).toBeLessThan(100);
-    expect(chemin).toBe(cheminVerrou(long, 'linux'));
-    expect(cheminVerrou(long, 'win32')).toMatch(/^\\\\\.\\pipe\\hive-noeud-[0-9a-f]{16}$/);
+    expect(cheminVerrou(long, {}, 'win32')).toMatch(/^\\\\\.\\pipe\\hive-noeud-[0-9a-f]{16}$/);
   });
 });
 

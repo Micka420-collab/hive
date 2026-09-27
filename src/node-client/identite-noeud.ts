@@ -143,22 +143,28 @@ export function rangerCle(racine: string, cle: string): void {
 }
 
 /**
- * Le verrou de l'identité : une socket locale que CE processus écoute. Dans
- * l'atelier quand le chemin tient dans la limite des sockets Unix (~104 octets
- * sous macOS), sinon dans le dossier temporaire sous une empreinte de
- * l'atelier ; un tube nommé sous Windows.
+ * Le verrou de l'identité : une socket locale que CE processus écoute, nommée
+ * par une empreinte du chemin ABSOLU de l'atelier — un tube nommé sous
+ * Windows.
+ *
+ * HORS de l'atelier, jamais dedans : l'atelier vit dans le dossier de la ruche,
+ * qu'on copie et sauvegarde, et une socket y fait échouer ce qui la croise
+ * (`fs.cpSync` s'arrête net sur elle). Elle va dans `XDG_RUNTIME_DIR`, propre à
+ * l'utilisateur et en 0700, sinon dans le dossier temporaire — propre à
+ * l'utilisateur sous macOS et Windows. Compromis nommé : sur un Linux sans
+ * session (`/tmp` partagé), un autre compte local peut poser le fichier avant
+ * le nœud et l'empêcher de démarrer ; il ne peut ni le faire ramasser ni
+ * prendre son identité.
  */
 export function cheminVerrou(
   racine: string,
+  env: NodeJS.ProcessEnv = process.env,
   plateforme: NodeJS.Platform = process.platform,
 ): string {
-  const absolue = path.resolve(racine);
-  const empreinte = createHash('sha256').update(absolue).digest('hex').slice(0, 16);
+  const empreinte = createHash('sha256').update(path.resolve(racine)).digest('hex').slice(0, 16);
   if (plateforme === 'win32') return `\\\\.\\pipe\\hive-noeud-${empreinte}`;
-  const dansAtelier = path.join(absolue, 'node.sock');
-  return Buffer.byteLength(dansAtelier) < 100
-    ? dansAtelier
-    : path.join(os.tmpdir(), `hive-noeud-${empreinte}.sock`);
+  const dossier = env.XDG_RUNTIME_DIR?.trim() || os.tmpdir();
+  return path.join(dossier, `hive-noeud-${empreinte}.sock`);
 }
 
 /** Écoute `chemin` : `pris`, `occupe` (déjà écouté ou laissé là), ou `erreur`. */
@@ -234,11 +240,6 @@ export async function occuperIdentite(
   racine: string,
   chemin: string = cheminVerrou(racine),
 ): Promise<Occupation> {
-  try {
-    mkdirSync(racine, { recursive: true });
-  } catch {
-    // l'écoute dira si le chemin est utilisable
-  }
   let r = await ecouter(chemin);
   if (r.issue === 'occupe') {
     if (await ecoute(chemin)) return { occupee: true };
