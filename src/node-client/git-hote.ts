@@ -105,8 +105,9 @@ import path from 'node:path';
  *   · `GIT_NO_LAZY_FETCH=1` : un objet manquant ne déclenche jamais de
  *     téléchargement depuis une commande locale (diff, add, apply).
  */
-export function envGitHote(ssh = 'ssh'): NodeJS.ProcessEnv {
+export function envGitHote(ssh = 'ssh', identite?: IdentiteCommit): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
+    ...identite,
     PATH: process.env.PATH,
     HOME: process.env.HOME,
     USERPROFILE: process.env.USERPROFILE,
@@ -120,6 +121,17 @@ export function envGitHote(ssh = 'ssh'): NodeJS.ProcessEnv {
   };
   if (process.env.SSH_AUTH_SOCK !== undefined) env.SSH_AUTH_SOCK = process.env.SSH_AUTH_SOCK;
   return env;
+}
+
+/**
+ * L'auteur d'un commit composé par le nœud (la livraison locale) : posé dans
+ * l'environnement, jamais lu d'une configuration — pas même celle du membre.
+ */
+export interface IdentiteCommit {
+  readonly GIT_AUTHOR_NAME: string;
+  readonly GIT_AUTHOR_EMAIL: string;
+  readonly GIT_COMMITTER_NAME: string;
+  readonly GIT_COMMITTER_EMAIL: string;
 }
 
 /**
@@ -175,8 +187,9 @@ const PROTECTIONS = [
  * registre lit les objets de la tâche : un FIFO que l'agent pose en guise
  * d'index de pack bloquait l'`open()` de git, et `collectDiff` ne rendait
  * jamais la main — la place de la tâche restait prise. Large : un `add` sur
- * un très gros arbre prend des secondes, pas des minutes. Le clone n'est pas
- * borné ICI : il passe son butoir (`CLONE_MS`, `butoirs-noeud.ts`).
+ * un très gros arbre prend des secondes, pas des minutes. Le clone et les
+ * appels au dépôt distant ne sont pas bornés ICI : chacun passe son butoir
+ * (`CLONE_MS`, `DELAI_RESEAU_MS` — `butoirs-noeud.ts`).
  */
 const DELAI_GIT_LOCAL_MS = 5 * 60_000;
 
@@ -210,11 +223,12 @@ export interface DepotEpingle {
 
 /**
  * Lance `git` sur l'hôte, sans shell, avec l'environnement et les protections
- * ci-dessus. `ou` : le répertoire d'un git SANS dépôt (clone, init), ou le
- * dépôt ÉPINGLÉ sur lequel travailler.
+ * ci-dessus. `ou` : le répertoire d'un git SANS dépôt (clone, init), un dépôt
+ * nu que SEUL le nœud a écrit (la livraison locale), ou le dépôt ÉPINGLÉ sur
+ * lequel travailler.
  *
  * `delaiMs` : par défaut `DELAI_GIT_LOCAL_MS` pour un dépôt épinglé, aucun
- * sinon — un appel réseau (le clone) nomme SON butoir
+ * sinon — un appel réseau (clone, `ls-remote`, poussée) nomme SON butoir
  * (`butoirs-noeud.ts`), que le hub compte.
  *
  * Un dépôt épinglé ne se lance JAMAIS depuis son arbre, mais depuis le
@@ -231,7 +245,7 @@ export interface DepotEpingle {
 export function gitHote(
   args: readonly string[],
   ou: string | DepotEpingle,
-  { delaiMs, ssh }: { delaiMs?: number; ssh?: string } = {},
+  { delaiMs, ssh, identite }: { delaiMs?: number; ssh?: string; identite?: IdentiteCommit } = {},
 ): Promise<string> {
   const local = typeof ou !== 'string';
   const delai = delaiMs ?? (local ? DELAI_GIT_LOCAL_MS : 0);
@@ -246,7 +260,7 @@ export function gitHote(
       [...PROTECTIONS, ...epingle, ...args],
       {
         cwd: local ? path.dirname(ou.workTree) : ou,
-        env: envGitHote(ssh),
+        env: envGitHote(ssh, identite),
         shell: false, // jamais d'interprétation shell (contrainte §5.1)
         windowsHide: true,
         encoding: 'utf8',

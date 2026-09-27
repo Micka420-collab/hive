@@ -551,10 +551,11 @@ d'écriture réels de `src/` et **rougit** si l'un d'eux apparaît ailleurs.
 - `<installation>/.hive-work/tasks/<task-id>.git` : le git dir **de la
   ruche**, posé à côté de la tâche juste après le clone et effacé avec elle.
   C'est par lui — jamais par le `.git` que l'agent a eu entre les mains — que
-  le nœud calcule le diff de revue : un crochet, un filtre ou un
-  `core.fsmonitor` écrit par l'agent dans son dépôt ne s'exécute donc jamais
-  sur votre machine, hors du bac.
-- **un dépôt privé par SSH** (`git@hôte:…`) : le nœud clone en mode lot
+  le nœud calcule le diff de revue et relit le dépôt pour les validations du
+  bac : un crochet, un filtre ou un `core.fsmonitor` écrit par l'agent dans
+  son dépôt ne s'exécute donc jamais sur votre machine, hors du bac.
+- **un dépôt privé par SSH** (`git@hôte:…`) : le nœud clone — et, pour une
+  livraison locale, liste et pousse — en mode lot
   (`ssh -o BatchMode=yes`), sans jamais attendre une invite. La clé d'hôte
   doit donc déjà figurer dans votre `~/.ssh/known_hosts`, et une clé à phrase
   de passe doit être chargée dans votre agent ssh (`ssh-add`) — le nœud lui

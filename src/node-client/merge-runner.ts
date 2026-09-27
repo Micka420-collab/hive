@@ -42,6 +42,7 @@ import { composerMission, garderMission } from './livraison-locale.js';
 import type { LivraisonDuNoeud, MissionComposee } from './livraison-locale.js';
 import type { RapportDuNoeud } from '../shared/livraison-locale.js';
 import { commitDeDepart, diffContreBase, epinglerClone, gitHote } from './git-hote.js';
+import type { DepotEpingle } from './git-hote.js';
 import { buildSandboxEnv } from './workspace.js';
 
 export interface MergeDiff {
@@ -453,7 +454,7 @@ export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
     // que git doit y lire — le parent, le commit — se lit tant que seuls
     // `clone` et `apply` y sont passés (en-tête de `livraison-locale.ts`).
     const composee = opts.livraison
-      ? await composerSiIntegrable(opts.livraison, opts.repoDir, transit, opts.testCommand, {
+      ? await composerSiIntegrable(opts.livraison, depot, transit, opts.testCommand, {
           applied,
           conflicts,
           arbre,
@@ -549,7 +550,7 @@ export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
  */
 async function composerSiIntegrable(
   livraison: LivraisonDuNoeud,
-  repoDir: string,
+  clone: DepotEpingle,
   transit: string,
   testCommand: readonly string[] | undefined,
   etat: {
@@ -578,7 +579,7 @@ async function composerSiIntegrable(
     return refus('provenance incomplète : elle ne nomme pas exactement les tâches intégrées');
   }
   return composerMission({
-    cloneDir: repoDir,
+    clone,
     arbre: etat.arbre,
     transit,
     livraison,

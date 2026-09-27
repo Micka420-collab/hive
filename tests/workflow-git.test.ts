@@ -84,7 +84,8 @@ import type { AgentAdapter } from '../src/adapters/index.js';
 import { HiveNodeClient } from '../src/node-client/client.js';
 import { runMerge } from '../src/node-client/merge-runner.js';
 import type { MergeDiff, MergeRunResult } from '../src/node-client/merge-runner.js';
-import { cloneRepo, envTransportGit, prepareWorkspace } from '../src/node-client/workspace.js';
+import { envGitHote } from '../src/node-client/git-hote.js';
+import { cloneRepo, prepareWorkspace } from '../src/node-client/workspace.js';
 import { createServer } from '../src/orchestrator/server.js';
 import type { MergeResultMsg } from '../src/shared/protocol.js';
 import type { HiveEvent, StateSnapshot, Task, TaskResult } from '../src/shared/types.js';
@@ -383,22 +384,22 @@ describe('identifiants Git invalides — l’échec est RAPIDE, et il REMONTE', 
   // identifiants restaient EN ATTENTE, la tâche de bout en bout « running ».
   // Git for Windows inscrit `credential.helper=manager`, et Git Credential
   // Manager n'obéit à `GIT_TERMINAL_PROMPT` que pour son invite de TERMINAL —
-  // pas pour sa fenêtre (son `BasicAuthentication.cs` consulte
-  // `GCM_INTERACTIVE` d'abord). Ces bancs étaient donc consignés en `fails`
-  // sur la CI Windows (et `skip` sur un poste de bureau, où GCM aurait ouvert
-  // une vraie fenêtre).
+  // pas pour sa fenêtre : il consulte `GCM_INTERACTIVE` d'abord. Ces bancs
+  // étaient donc consignés en `fails` sur la CI Windows (et `skip` sur un poste
+  // de bureau, où GCM aurait ouvert une vraie fenêtre).
   //
-  // #476 (`envTransportGit()`) et #483 (`envGitHote()`, git-hote.ts, par qui
-  // passent désormais les clones) posent `GCM_INTERACTIVE=Never` comme
-  // `miroir.ts` : la CI Windows les a vus rougir (run 36308334514, « attendu
-  // en échec, mais passé »). La bascule est retirée : ce sont des GARDES sur
-  // les trois systèmes, et un poste de bureau n'ouvre plus de fenêtre.
+  // #476 puis #483 ont réuni tous les git de l'hôte — clone, merge, livraison
+  // — derrière un seul environnement, `envGitHote()` (git-hote.ts), qui pose
+  // `GCM_INTERACTIVE=Never` comme `miroir.ts` : la CI Windows les a vus rougir
+  // (run 36308334514, « attendu en échec, mais passé »). La bascule est
+  // retirée : ce sont des GARDES sur les trois systèmes, et un poste de bureau
+  // n'ouvre plus de fenêtre.
 
   // Et la ligne elle-même, vérifiée sur les TROIS systèmes : ces bancs ne
   // rougissent sans elle que là où GCM est installé — sous Linux et macOS,
   // la retirer passait inaperçu.
-  it('l’environnement de transport met Git Credential Manager en non-interactif', () => {
-    expect(envTransportGit()).toMatchObject({ GCM_INTERACTIVE: 'Never', GIT_TERMINAL_PROMPT: '0' });
+  it('l’environnement git de l’hôte met Git Credential Manager en non-interactif', () => {
+    expect(envGitHote()).toMatchObject({ GCM_INTERACTIVE: 'Never', GIT_TERMINAL_PROMPT: '0' });
   });
 
   /** Les deux portes de clone du nœud. */

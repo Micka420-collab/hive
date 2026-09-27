@@ -132,46 +132,11 @@ export function buildSandboxEnv(cwd: string, keepEnv: string[] = []): NodeJS.Pro
 }
 
 /**
- * L'environnement de TRANSPORT git du nœud : ce qui parle au dépôt distant.
- *
- * GIT_ALLOW_PROTOCOL restreint les transports autorisés : neutralise le
- * transport `ext::` de git (exécution de commande arbitraire = RCE), en plus de
- * la validation du repoUrl côté hub. GIT_TERMINAL_PROMPT=0 : des identifiants
- * refusés échouent tout de suite au lieu d'attendre une saisie que personne ne
- * fera. On repart d'un environnement épuré (sans variables d'éditeur, que
- * simple-git refuse) : seuls PATH/HOME et les variables système passent — HOME
- * porte la configuration git de l'opérateur, donc ses assistants
- * d'identifiants.
- *
- * UN SEUL ENDROIT, parce que la livraison POUSSE avec exactement les
- * identifiants qui ont servi au clone : deux copies de cet environnement —
- * il y en avait déjà deux, ici même — finiraient par ne plus ouvrir les mêmes
- * portes, et « le clone passe, la poussée non » se chercherait longtemps.
- */
-export function envTransportGit(): NodeJS.ProcessEnv {
-  return {
-    PATH: process.env.PATH,
-    HOME: process.env.HOME,
-    USERPROFILE: process.env.USERPROFILE,
-    SYSTEMROOT: process.env.SYSTEMROOT,
-    SYSTEMDRIVE: process.env.SYSTEMDRIVE,
-    GIT_ALLOW_PROTOCOL: 'http:https:git:ssh:file',
-    GIT_TERMINAL_PROMPT: '0',
-    // `GIT_TERMINAL_PROMPT` ne gouverne que l'invite du TERMINAL. Sous
-    // Windows, Git Credential Manager ne la lit pas et attend sur sa propre
-    // fenêtre, indéfiniment — le miroir l'a mesuré au plafond près
-    // (`orchestrator/miroir.ts`). Ici, c'est plus grave qu'une requête lente :
-    // un dépôt public se clone sans identifiants, et c'est souvent la POUSSÉE
-    // d'une livraison qui les demande la première. Sans cette ligne, elle
-    // figerait le job de merge et son clone, que rien ne libérerait.
-    GCM_INTERACTIVE: 'Never',
-  };
-}
-
-/**
  * Clone superficiel d'un dépôt dans `dir` (vide ou inexistant) — la même porte
  * que le clone d'une tâche : environnement épuré, `ext::` neutralisé, aucune
- * invite (ni de git, ni de GCM, ni de `ssh`). Voir `git-hote.ts`.
+ * invite (ni de git, ni de GCM, ni de `ssh`). Voir `git-hote.ts` : c'est aussi
+ * l'environnement de la livraison locale, qui POUSSE avec exactement les
+ * identifiants qui ont servi au clone (`livraison-locale.ts`).
  *
  * ─── BORNÉ, PARCE QUE LE HUB COMPTE DESSUS ─────────────────────────────────
  *

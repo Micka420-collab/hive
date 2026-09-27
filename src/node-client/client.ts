@@ -44,7 +44,7 @@ import { HEARTBEAT_INTERVAL_MS, NODE_TIMEOUT_MS } from '../shared/types.js';
 import type { ExecutionUsage, IsolementDeclare, Task } from '../shared/types.js';
 import { runMerge, runProc } from './merge-runner.js';
 import { lancerVraiment, poserOutil } from './pose-runner.js';
-import { buildSandboxEnv, cloneRepo, envTransportGit, prepareWorkspace } from './workspace.js';
+import { buildSandboxEnv, cloneRepo, prepareWorkspace } from './workspace.js';
 import { motifLave } from './livraison-locale.js';
 import { pousseeConsentie } from '../shared/livraison-locale.js';
 import {
@@ -1609,7 +1609,6 @@ export class HiveNodeClient {
                 depotProjet: msg.repoUrl,
                 depotLocal: this.depotDeLivraisons(msg.livraison.projectId),
                 pousseeConsentie: this.pousseLivraisons(),
-                envTransport: envTransportGit(),
               },
             }
           : {}),

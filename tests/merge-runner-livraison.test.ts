@@ -24,7 +24,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { simpleGit } from 'simple-git';
 import { runMerge } from '../src/node-client/merge-runner.js';
 import type { MergeDiff } from '../src/node-client/merge-runner.js';
-import { cloneRepo, envTransportGit } from '../src/node-client/workspace.js';
+import { cloneRepo } from '../src/node-client/workspace.js';
 import { CONSENTEMENT_POUSSEE } from '../src/shared/livraison-locale.js';
 import type { DemandeLivraisonLocale } from '../src/shared/livraison-locale.js';
 
@@ -129,7 +129,6 @@ async function livrer(e: Essai) {
       depotProjet: url,
       depotLocal,
       pousseeConsentie: e.consentie ?? false,
-      envTransport: envTransportGit(),
     },
   });
   return { res, depotLocal, clone };
@@ -440,7 +439,6 @@ describe('la livraison d’une mission (git réel, clone superficiel)', () => {
         depotProjet: pathToFileURL(vide).href,
         depotLocal,
         pousseeConsentie: false,
-        envTransport: envTransportGit(),
       },
     });
     expect(res.livraison).toMatchObject({ etat: 'commitee', branche: 'hive/mission-v-1' });
@@ -464,7 +462,6 @@ describe('la livraison d’une mission (git réel, clone superficiel)', () => {
         depotProjet: pathToFileURL(origine).href,
         depotLocal: path.join(racine, 'livraisons', 'provenance.git'),
         pousseeConsentie: false,
-        envTransport: envTransportGit(),
       },
     });
     expect(res.livraison?.etat).toBe('non_commitee');
