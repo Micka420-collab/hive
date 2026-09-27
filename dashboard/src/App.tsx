@@ -23,6 +23,7 @@ import {
 } from './api';
 import type { AuthUser } from './api';
 import { AccountPanel, EVENT_OUVRIR_COMPTE } from './AccountPanel';
+import { ChoixDuTheme } from './ChoixDuTheme';
 import { setLang, useLang, useT } from './i18n';
 import { InvitePanel } from './InvitePanel';
 import { NewProjectModal } from './NewProjectModal';
@@ -747,6 +748,7 @@ export function App() {
             >
               {lang === 'fr' ? 'EN' : 'FR'}
             </button>
+            <ChoixDuTheme />
             <AccountPanel
               user={user}
               onUser={changerDeCompte}

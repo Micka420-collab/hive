@@ -85,7 +85,7 @@
   align-items: baseline;
   padding: 4px 8px;
   border-radius: 5px;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
 }
 
 .ch-row:hover {
@@ -127,7 +127,7 @@
 
 .ch-payload {
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: var(--fs-xs);
   color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -156,7 +156,11 @@
   gap: 10px;
   flex-wrap: wrap;
   padding: 8px 14px;
-  background: linear-gradient(90deg, rgba(224, 138, 20, 0.3), rgba(246, 196, 69, 0.16));
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--miel-2) 30%, transparent),
+    color-mix(in srgb, var(--miel) 16%, transparent)
+  );
   border-bottom: 1px solid var(--border-2);
   color: var(--gold);
   font-weight: 600;
@@ -198,7 +202,7 @@
 
 .ch-controls .btn {
   padding: 4px 10px;
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
 
 .ch-controls input[type='range'] {
@@ -216,7 +220,7 @@
 
 .ch-frame-pos {
   color: var(--faint);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
 }
 
 .ch-counts {
@@ -277,17 +281,17 @@
   border-radius: var(--r-sm);
   color: var(--text);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
 
 .ch-mem-search input:focus {
   outline: none;
   border-color: color-mix(in srgb, var(--miel) 45%, var(--border));
-  box-shadow: 0 0 0 3px rgba(246, 196, 69, 0.22);
+  box-shadow: 0 0 0 3px var(--focus-halo);
 }
 
 .ch-mem-note {
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   margin: 8px 14px 0;
   font-style: normal;
   line-height: 1.45;
@@ -336,7 +340,7 @@
   flex: 1;
   min-width: 0;
   color: var(--text);
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   letter-spacing: -0.01em;
 }
@@ -372,7 +376,7 @@
 .ch-mem-item p,
 .ch-mem-item .mind-content {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--fs-xs);
   line-height: 1.45;
   color: var(--muted);
   font-style: normal;
@@ -390,7 +394,7 @@
   background: none;
   border: none;
   padding: 0;
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   color: var(--blue);
   cursor: pointer;
 }

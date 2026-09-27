@@ -1,0 +1,498 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Les primitives du design system (`composants/*.tsx`).
+
+   UNIQUEMENT des jetons de styles.css : aucune couleur, aucune taille écrite
+   ici. C'est ce qui les fait suivre les deux thèmes sans une règle à elles, et
+   c'est ce que `tests/dashboard-contraste.test.ts` vérifie pour cette feuille.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Lu par un lecteur d'écran, absent de l'écran. */
+.ds-invisible {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ─── Champs ──────────────────────────────────────────────────────────────── */
+.ds-champ,
+.ds-groupe {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 14px;
+  min-width: 0;
+}
+
+.ds-groupe {
+  padding: 10px 12px 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+}
+
+.ds-champ-libelle {
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.ds-groupe > .ds-champ-libelle {
+  padding: 0 4px;
+}
+
+.ds-champ-requis {
+  color: var(--red);
+}
+
+.ds-controle {
+  width: 100%;
+  padding: 9px 12px;
+  background: var(--panel);
+  border: 1px solid var(--border-2);
+  border-radius: var(--r);
+  color: var(--text);
+  font-family: inherit;
+  font-size: var(--fs-md);
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.ds-controle::placeholder {
+  color: var(--faint);
+}
+
+.ds-controle:focus-visible {
+  outline: none;
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px var(--focus-halo);
+}
+
+.ds-controle:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.ds-controle--texte {
+  min-height: 88px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.ds-choix {
+  position: relative;
+  display: block;
+}
+
+.ds-controle--choix {
+  appearance: none;
+  padding-right: 34px;
+  cursor: pointer;
+}
+
+/* Le chevron : deux filets en L tournés, à la couleur du texte secondaire. */
+.ds-choix::after {
+  content: '';
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid var(--muted);
+  border-bottom: 1.5px solid var(--muted);
+  transform: translateY(-70%) rotate(45deg);
+  pointer-events: none;
+}
+
+.ds-champ-aide {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.ds-champ-erreur {
+  margin: 0;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--red);
+  line-height: 1.45;
+}
+
+.ds-champ-erreur:empty {
+  display: none;
+}
+
+.ds-champ--erreur .ds-controle {
+  border-color: var(--red);
+}
+
+/* ─── Onglets ─────────────────────────────────────────────────────────────── */
+.ds-onglets-rangee {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+}
+
+.ds-onglet {
+  position: relative;
+  padding: 8px 14px;
+  background: none;
+  border: none;
+  border-radius: var(--r-sm) var(--r-sm) 0 0;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ds-onglet:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--panel-2);
+}
+
+/* L'onglet ouvert se lit par un TRAIT, pas seulement par sa teinte. */
+.ds-onglet[aria-selected='true'] {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.ds-onglet[aria-selected='true']::after {
+  content: '';
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--miel);
+}
+
+.ds-onglet:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ds-onglet:focus-visible,
+.ds-onglets-panneau:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.ds-onglets-panneau {
+  padding: 14px 2px 2px;
+}
+
+/* ─── Info-bulle ──────────────────────────────────────────────────────────── */
+.ds-infobulle-ancre {
+  position: relative;
+  display: inline-flex;
+}
+
+.ds-infobulle {
+  position: absolute;
+  left: 50%;
+  z-index: 70;
+  width: max-content;
+  max-width: min(280px, 80vw);
+  padding: 6px 10px;
+  border-radius: var(--r-sm);
+  background: var(--text);
+  color: var(--bg);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  line-height: 1.4;
+  text-align: left;
+  box-shadow: var(--shadow);
+  transform: translateX(-50%);
+  /* Un fondu seul : `ds-apparition` animerait `transform` et écraserait le
+     centrage le temps de l'animation. */
+  animation: ds-fondu 0.14s ease both;
+}
+
+.ds-infobulle[hidden] {
+  display: none;
+}
+
+.ds-infobulle--haut {
+  bottom: calc(100% + 6px);
+}
+
+.ds-infobulle--bas {
+  top: calc(100% + 6px);
+}
+
+/* ─── Menu ────────────────────────────────────────────────────────────────── */
+.ds-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.ds-menu-liste {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 70;
+  min-width: 180px;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--panel);
+  border: 1px solid var(--border-2);
+  border-radius: var(--r);
+  box-shadow: var(--shadow-lg);
+  animation: ds-apparition 0.14s ease both;
+}
+
+.ds-menu-element {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+
+.ds-menu-element:hover,
+.ds-menu-element:focus {
+  outline: none;
+  background: var(--panel-2);
+}
+
+.ds-menu-element:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+.ds-menu-element[aria-disabled='true'] {
+  color: var(--faint);
+  cursor: not-allowed;
+}
+
+.ds-menu-coche {
+  width: 12px;
+  flex: none;
+  color: var(--honey);
+  font-size: var(--fs-2xs);
+  text-align: center;
+}
+
+/* ─── Toasts ──────────────────────────────────────────────────────────────── */
+.ds-toasts {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(380px, calc(100vw - 32px));
+  pointer-events: none;
+}
+
+.ds-toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--panel);
+  border: 1px solid var(--border-2);
+  border-left: 3px solid var(--blue);
+  border-radius: var(--r);
+  box-shadow: var(--shadow-lg);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+  pointer-events: auto;
+  animation: ds-apparition 0.18s ease both;
+}
+
+.ds-toast--succes {
+  border-left-color: var(--green);
+}
+
+.ds-toast--alerte {
+  border-left-color: var(--amber);
+}
+
+.ds-toast--erreur {
+  border-left-color: var(--red);
+}
+
+.ds-toast-ton {
+  flex: none;
+  font-weight: 600;
+  color: var(--blue);
+}
+
+.ds-toast--succes .ds-toast-ton {
+  color: var(--green);
+}
+
+.ds-toast--alerte .ds-toast-ton {
+  color: var(--amber);
+}
+
+.ds-toast--erreur .ds-toast-ton {
+  color: var(--red);
+}
+
+.ds-toast-message {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ds-toast-fermer {
+  flex: none;
+  padding: 0 4px;
+  background: none;
+  border: none;
+  border-radius: var(--r-sm);
+  color: var(--muted);
+  font-size: var(--fs-lg);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ds-toast-fermer:hover {
+  color: var(--text);
+}
+
+.ds-toast-fermer:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+/* ─── Squelette, vide, panne ──────────────────────────────────────────────── */
+.ds-squelette {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 0;
+}
+
+.ds-squelette-ligne {
+  display: block;
+  height: 12px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--panel-3) 0%, var(--panel-2) 50%, var(--panel-3) 100%);
+  background-size: 200% 100%;
+  animation: ds-lueur 1.4s ease-in-out infinite;
+}
+
+.ds-squelette-ligne:last-child {
+  width: 62%;
+}
+
+.ds-vide {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 28px 18px;
+  text-align: center;
+}
+
+.ds-vide-marque {
+  width: 18px;
+  height: 20px;
+  margin-bottom: 4px;
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  background: var(--panel-3);
+  box-shadow: inset 0 0 0 1px var(--border-2);
+}
+
+.ds-vide-titre {
+  margin: 0;
+  font-family: var(--titre);
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+.ds-vide-texte {
+  margin: 0;
+  max-width: 44ch;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.ds-vide-action {
+  margin-top: 8px;
+}
+
+.ds-erreur {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--red) 35%, var(--border));
+  border-radius: var(--r);
+  background: color-mix(in srgb, var(--red) 6%, var(--panel));
+}
+
+.ds-erreur-titre {
+  margin: 0;
+  font-weight: 600;
+  color: var(--red);
+}
+
+.ds-erreur-detail {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+@keyframes ds-apparition {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes ds-fondu {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes ds-lueur {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+/* Mode Contraste élevé : les fonds tombent, les surfaces flottantes gardent un
+   cadre pour dire où elles finissent. */
+@media (forced-colors: active) {
+  .ds-menu-liste,
+  .ds-toast,
+  .ds-infobulle {
+    border: 1px solid CanvasText;
+  }
+  .ds-onglet[aria-selected='true']::after {
+    background: Highlight;
+  }
+}

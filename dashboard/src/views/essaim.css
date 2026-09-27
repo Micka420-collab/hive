@@ -75,8 +75,8 @@
 
 .es-node-ouvre:hover,
 .es-node-ouvre:focus-visible {
-  border-color: color-mix(in srgb, #f2b441 70%, #9d5605);
-  box-shadow: 0 0 0 1px color-mix(in srgb, #f2b441 40%, transparent);
+  border-color: color-mix(in srgb, var(--miel) 70%, var(--honey));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--miel) 40%, transparent);
   outline: none;
 }
 
@@ -139,7 +139,7 @@
 }
 
 .es-race-drone {
-  font-size: 12px;
+  font-size: var(--fs-xs);
   padding: 1px 8px;
   border-radius: 999px;
   border: 1px solid var(--border);
@@ -182,7 +182,7 @@
 }
 
 .es-node-tech {
-  font-size: 12px;
+  font-size: var(--fs-xs);
   margin-top: -2px;
 }
 
@@ -191,7 +191,7 @@
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--muted);
 }
 
@@ -204,7 +204,7 @@
 
 .es-models-label {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -239,12 +239,12 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 11px;
+  font-size: var(--fs-2xs);
 }
 
 .es-model-proof {
   color: var(--faint);
-  font-size: 10px;
+  font-size: var(--fs-2xs);
 }
 
 .es-workers-error {
@@ -254,7 +254,7 @@
 /* Aiguillage inactif : un constat et le geste qui l'allume, pas une erreur. */
 .es-aiguillage-inactif {
   margin: 0 14px 12px;
-  font-size: 12px;
+  font-size: var(--fs-xs);
 }
 
 /* Le chip d'agentType est informatif, pas cliquable. */
@@ -275,7 +275,7 @@
 
 .es-load-txt {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--gold);
   white-space: nowrap;
 }
@@ -289,7 +289,7 @@
 
 .es-current-tasks-label {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -317,12 +317,12 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: var(--fs-xs);
 }
 
 .es-current-task-state {
   color: var(--faint);
-  font-size: 10px;
+  font-size: var(--fs-2xs);
 }
 
 .es-autonomy {
@@ -331,13 +331,13 @@
   gap: 2px;
   min-width: 0;
   color: var(--faint);
-  font-size: 10px;
+  font-size: var(--fs-2xs);
   line-height: 1.35;
 }
 
 .es-autonomy-label {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -351,7 +351,7 @@
 
 .es-history-label {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -371,7 +371,7 @@
   align-items: baseline;
   gap: 6px;
   min-width: 0;
-  font-size: 10px;
+  font-size: var(--fs-2xs);
 }
 
 .es-history-type {
@@ -392,7 +392,7 @@
 }
 
 .es-node-foot {
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   color: var(--faint);
 }
 
@@ -404,7 +404,7 @@
 }
 
 .es-agent-chip {
-  font-size: 10px;
+  font-size: var(--fs-2xs);
   padding: 1px 7px;
   border-radius: 10px;
   background: var(--panel-3);
@@ -417,7 +417,7 @@
 }
 
 .es-agents-none {
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   color: var(--faint);
 }
 
@@ -445,7 +445,11 @@
 
 .es-podium-slot.es-rank-1 {
   border-color: var(--honey);
-  background: linear-gradient(180deg, #fdf3dc, var(--panel-2));
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--miel) 14%, var(--panel)),
+    var(--panel-2)
+  );
   padding-bottom: 24px;
 }
 
@@ -460,18 +464,18 @@
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  font-size: 13px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   letter-spacing: -0.02em;
   line-height: 1;
   color: var(--text);
-  background: color-mix(in srgb, var(--miel) 55%, transparent);
+  background: var(--miel-fond);
   border: 1px solid color-mix(in srgb, var(--miel) 70%, var(--border));
 }
 
 .es-podium-name {
   font-weight: 600;
-  font-size: 12px;
+  font-size: var(--fs-xs);
   max-width: 120px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -479,7 +483,7 @@
 }
 
 .es-podium-score {
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   color: var(--gold);
 }
 
@@ -524,7 +528,7 @@
 
 .es-rank {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   color: var(--faint);
   text-align: right;
 }
@@ -534,7 +538,7 @@
   align-items: baseline;
   justify-content: space-between;
   gap: 8px;
-  font-size: 12px;
+  font-size: var(--fs-xs);
 }
 
 .es-nectar-name {
@@ -546,7 +550,7 @@
 
 .es-nectar-stats {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   color: var(--muted);
   white-space: nowrap;
 }
@@ -568,7 +572,7 @@
 
 .es-score {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--gold);
   white-space: nowrap;
 }
@@ -620,14 +624,14 @@
 }
 
 .es-thermo-value {
-  font-size: 30px;
+  font-size: var(--fs-4xl);
   font-weight: 700;
   line-height: 1;
   color: var(--band);
 }
 
 .es-thermo-band {
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   font-weight: 600;
   padding: 2px 8px;
   border-radius: var(--r-sm);
@@ -638,7 +642,7 @@
 }
 
 .es-thermo-hint {
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   color: var(--faint);
 }
 
@@ -675,7 +679,7 @@
   width: 3px;
   border-radius: 2px;
   background: var(--text);
-  box-shadow: 0 0 0 1px rgba(27, 23, 18, 0.3);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--bg) 70%, transparent);
   transform: translateX(-50%);
   transition: left 0.4s ease;
 }
@@ -683,7 +687,7 @@
 .es-thermo-scale {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  font-size: 10px;
+  font-size: var(--fs-2xs);
   color: var(--faint);
   text-align: center;
 }
@@ -698,32 +702,32 @@
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   padding-top: 4px;
   border-top: 1px solid var(--border);
 }
 
 .es-thermo-factor {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--gold);
 }
 
 .es-thermo-pending {
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   color: var(--amber);
 }
 
 .es-thermo-note {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--muted);
 }
 
 .es-thermo-signals {
   margin: 0;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   color: var(--faint);
 }
 
@@ -744,7 +748,7 @@
 
 .es-phero-name {
   font-weight: 600;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -772,7 +776,7 @@
   align-items: baseline;
   justify-content: space-between;
   gap: 8px;
-  font-size: 12px;
+  font-size: var(--fs-xs);
 }
 
 .es-phero-dom {
@@ -783,7 +787,7 @@
 
 .es-phero-stats {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--fs-2xs);
   color: var(--faint);
   white-space: nowrap;
 }
@@ -828,7 +832,7 @@
 
 .es-phero-score {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--fs-xs);
   white-space: nowrap;
 }
 
@@ -876,7 +880,7 @@
 }
 
 .es-ghost-icon {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   line-height: 1.5;
 }
 
@@ -887,19 +891,19 @@
 
 .es-ghost-kind {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--fs-2xs);
   color: var(--faint);
   margin-right: 6px;
 }
 
 .es-ghost-target {
   font-weight: 600;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
 }
 
 .es-ghost-detail {
   margin: 2px 0 0;
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--muted);
 }
 
@@ -907,7 +911,7 @@
   padding: 10px 14px;
   border-top: 1px solid var(--border);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   color: var(--faint);
 }
 
@@ -943,7 +947,7 @@
 
 .es-calm-text {
   margin: 0;
-  font-size: 15px;
+  font-size: var(--fs-lg);
   font-weight: 600;
   letter-spacing: -0.02em;
   color: var(--text);
@@ -991,7 +995,7 @@
 }
 
 .gu-icone {
-  font-size: 14px;
+  font-size: var(--fs-md);
   line-height: 1;
   color: var(--muted);
   flex: none;
@@ -999,7 +1003,7 @@
 
 .gu-chiffres {
   margin: 3px 0 0;
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--muted);
   font-style: normal;
 }
@@ -1008,7 +1012,7 @@
    quoi faire ne produit que de l'inquiétude, qu'on apprend à ignorer. */
 .gu-conseil {
   margin: 10px 0 0;
-  font-size: 13px;
+  font-size: var(--fs-sm);
   line-height: 1.5;
   font-style: normal;
 }
@@ -1029,7 +1033,7 @@
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
-  font-size: 11.5px;
+  font-size: var(--fs-xs);
   padding: 4px 8px;
   border-radius: var(--r-sm);
   background: color-mix(in srgb, var(--panel-3) 55%, transparent);
@@ -1043,7 +1047,7 @@
 
 .gu-note {
   margin: 10px 0 0;
-  font-size: 11.5px;
+  font-size: var(--fs-xs);
   color: var(--muted);
   line-height: 1.5;
   font-style: normal;
@@ -1057,7 +1061,7 @@
  * fait, alors que ces douze-là sont entrées dans le miel. */
 
 .ga-mode {
-  font-size: 11.5px;
+  font-size: var(--fs-xs);
   padding: 3px 9px;
   border-radius: var(--r-sm);
   border: 1px solid var(--border);
@@ -1102,14 +1106,14 @@
 }
 
 .ga-nombre {
-  font-size: 22px;
+  font-size: var(--fs-3xl);
   font-weight: 650;
   line-height: 1;
   letter-spacing: -0.03em;
 }
 
 .ga-libelle {
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   color: var(--muted);
   font-style: normal;
 }
@@ -1120,7 +1124,7 @@
   padding: 9px 12px;
   border-left: 2px solid color-mix(in srgb, var(--amber) 70%, var(--border));
   background: color-mix(in srgb, var(--amber) 8%, var(--panel));
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   line-height: 1.5;
   font-style: normal;
   border-radius: 0 var(--r-sm) var(--r-sm) 0;
@@ -1139,7 +1143,7 @@
   display: flex;
   align-items: baseline;
   gap: 7px;
-  font-size: 11.5px;
+  font-size: var(--fs-xs);
   padding: 3px 9px;
   border-radius: var(--r-sm);
   background: var(--panel-2);
@@ -1161,18 +1165,18 @@
   display: flex;
   align-items: baseline;
   gap: 9px;
-  font-size: 11.5px;
+  font-size: var(--fs-xs);
   padding: 4px 8px;
   border-radius: 5px;
   background: var(--panel-2);
 }
 
 .ga-liste li.hollow .ga-v {
-  color: #a8402a;
+  color: var(--red);
 }
 
 .ga-liste li.suspect .ga-v {
-  color: #b8770f;
+  color: var(--amber);
 }
 
 .ga-noeud {
@@ -1211,7 +1215,7 @@
 
 .es-poly-name {
   font-weight: 600;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1224,7 +1228,7 @@
   padding: 1px 8px;
   border-radius: 20px;
   border: 1px solid var(--border);
-  font-size: 10.5px;
+  font-size: var(--fs-2xs);
   font-weight: 700;
   white-space: nowrap;
 }
@@ -1248,7 +1252,7 @@
   flex-wrap: wrap;
   align-items: baseline;
   gap: 8px;
-  font-size: 11.5px;
+  font-size: var(--fs-xs);
   color: var(--muted);
 }
 
@@ -1264,19 +1268,19 @@
 }
 
 .es-poly-manque {
-  font-size: 10.5px;
+  font-size: var(--fs-2xs);
   color: var(--faint);
 }
 
 .es-poly-note {
   margin: 0;
   padding: 10px 14px 0;
-  font-size: 12px;
+  font-size: var(--fs-xs);
 }
 
 .es-poly-pied {
   margin: 0;
   padding: 0 14px 12px;
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   color: var(--faint);
 }

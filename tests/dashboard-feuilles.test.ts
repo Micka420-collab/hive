@@ -252,8 +252,12 @@ describe('le verre du tableau de bord a un repli', () => {
       const fond = fonds.get(s);
       expect(fond, `${s} n'a pas de fond de repli sans flou`).toBeTruthy();
       // Opaque (un jeton de surface), ou un voile assez dense pour que la
-      // page ne se lise plus au travers.
-      const alpha = /^rgba\([^)]*,\s*([\d.]+)\)$/.exec(fond ?? '')?.[1];
+      // page ne se lise plus au travers. Le voile est un JETON (`--voile-dense`,
+      // redéfini par le thème sombre) : on lit ce qu'il vaut dans le thème
+      // clair ; le thème sombre est jugé par tests/dashboard-contraste.test.ts.
+      const jeton = /^var\(\s*(--[\w-]+)\s*\)$/.exec(fond ?? '')?.[1];
+      const brut = jeton === undefined ? fond : (racine().get(jeton) ?? fond);
+      const alpha = /^rgba\([^)]*,\s*([\d.]+)\)$/.exec(brut ?? '')?.[1];
       if (alpha !== undefined) {
         expect(Number(alpha), `${s} : voile de repli trop clair`).toBeGreaterThanOrEqual(0.7);
       } else {
