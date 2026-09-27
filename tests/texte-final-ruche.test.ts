@@ -482,8 +482,11 @@ describe.skipIf(process.platform === 'win32')(
         srv.store.patchTask(t.id, { status: 'ready' });
 
         const seconde = await attendre(() => promptRecu(2), 15_000);
+        // Filtrée sur la TÂCHE : un poste sans identifiants Claude (la CI)
+        // ouvre aussi, dès l'enregistrement, une réquisition proactive sans
+        // tâche — elle ne dit rien de cet échec.
         expect(
-          srv.store.listerRequisitions({ statut: 'ouverte' }),
+          srv.store.listerRequisitions({ statut: 'ouverte' }).filter((r) => r.taskId === t.id),
           'un prompt trop long n’est pas une panne d’identifiants',
         ).toEqual([]);
         expect(seconde, 'aucune seconde tentative').toBeDefined();
