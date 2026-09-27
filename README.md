@@ -74,7 +74,7 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
   processus — une Reine, un nœud, une base sur disque
   (`tests/resilience-processus.test.ts`) :
   - `kill -9` de la Reine ou d'un nœud en pleine mission ;
-  - base verrouillée 8 s par un autre processus ;
+  - base verrouillée 15 s par un autre processus ;
   - réseau gelé au-delà du délai de vie.
 
   Chaque tâche y finit `done`, avec exactement un succès rangé. Qu'aucun

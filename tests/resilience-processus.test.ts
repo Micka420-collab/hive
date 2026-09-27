@@ -22,7 +22,7 @@
 //      MÊME port ;
 //   B. `kill -9` du nœud en pleine tâche, relancé avec le MÊME `HIVE_WORKDIR`
 //      (donc la même identité) ;
-//   C. un autre processus tient `BEGIN EXCLUSIVE` pendant 8 s — plus que le
+//   C. un autre processus tient `BEGIN EXCLUSIVE` pendant 15 s — trois fois le
 //      délai d'attente de better-sqlite3 (5 s) : la Reine prend de vrais
 //      `SQLITE_BUSY`, pas seulement une attente ;
 //   D. le chemin réseau GÈLE — un relais TCP cesse de transmettre sans rien
@@ -91,8 +91,25 @@ const SECRET = 'secret-de-session-du-banc-de-panne-assez-long';
 const TACHES = 6;
 const CONCURRENCE = 2;
 
-/** Le verrou de C : au-delà des 5 s d'attente par défaut de better-sqlite3. */
-const VERROU_MS = 8_000;
+/**
+ * Le délai d'attente de la Reine sur une base occupée : le `timeout` par défaut
+ * de better-sqlite3, que `HiveStore` ne change pas (`new Database(dbPath)`).
+ */
+const ATTENTE_SQLITE_MS = 5_000;
+
+/**
+ * Le verrou de C : TROIS FOIS ce délai, et pas « un peu plus ».
+ *
+ * Ces 5 s ne sont pas une durée d'horloge. Le gestionnaire d'attente de SQLite
+ * (`sqliteDefaultBusyCallback`) additionne les sommeils qu'il DEMANDE — 1, 2,
+ * 5… puis 100 ms — et rend SQLITE_BUSY quand leur somme atteint le délai, sans
+ * jamais regarder l'heure. Là où chaque sommeil déborde, l'attente réelle
+ * s'allonge d'autant. Mesuré sur la jambe macOS avec un verrou de 8 s : la
+ * Reine est restée retenue plus de 6 s, du premier résultat à la libération,
+ * sans jamais lever — son attente a survécu au verrou, et la panne n'a été
+ * qu'une attente. Sous Linux, la même attente dure 5,0 s d'horloge.
+ */
+const VERROU_MS = 3 * ATTENTE_SQLITE_MS;
 
 /**
  * Le processus qui tient le verrou de C — un AUTRE processus, comme le dit le
@@ -572,7 +589,7 @@ describe.runIf(POSIX)('reprise après panne — vrais processus, vraie base', ()
     expect(lire<{ id: string }>(banc, 'SELECT id FROM nodes')).toHaveLength(1);
   }, 150_000);
 
-  it('C. BASE VERROUILLÉE par un autre processus pendant 8 s — la mission finit quand même', async () => {
+  it(`C. BASE VERROUILLÉE par un autre processus pendant ${VERROU_MS / 1000} s — la mission finit quand même`, async () => {
     const banc = await nouveauBanc();
     await lancerReine(banc);
     await lancerNoeud(banc, `ws://127.0.0.1:${banc.port}/ws`);
@@ -602,8 +619,9 @@ describe.runIf(POSIX)('reprise après panne — vrais processus, vraie base', ()
     );
     // Et elle a mordu la REINE : une écriture au moins a pris `SQLITE_BUSY`
     // (« database is locked ») au lieu de seulement attendre — c'est ce que
-    // garantissent 8 s de verrou contre 5 s d'attente, avec un progrès de
-    // tâche journalisé à chaque étape (350 à 750 ms).
+    // garantit un verrou de trois fois le délai d'attente (voir `VERROU_MS`) :
+    // la première écriture bloquée, au plus un tick après le verrou, lève bien
+    // avant qu'il tombe, même quand les sommeils de SQLite débordent.
     //
     // ATTENDU, PAS CONSTATÉ À L'INSTANT. La Reine imprime ce message pendant
     // qu'une AUTRE écriture la retient jusqu'au `COMMIT` : better-sqlite3 est
