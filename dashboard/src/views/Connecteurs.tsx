@@ -159,6 +159,7 @@ function CarteConnecteur({
                 />
                 <button
                   type="button"
+                  className="btn ghost"
                   disabled={busy || (valeurs[s.envVar] ?? '').trim() === ''}
                   onClick={() => poser(s.envVar)}
                 >
@@ -394,15 +395,15 @@ function FormAutorisation({
         </div>
       )}
       <div className="in-autorisation-actions">
-        <button type="button" disabled={busy} onClick={autoriser}>
+        <button type="button" className="btn primary" disabled={busy} onClick={autoriser}>
           {actuelle ? t('Mettre à jour', 'Update') : t('Autoriser', 'Authorize')}
         </button>
-        <button type="button" disabled={busy || !actuelle} onClick={tester}>
+        <button type="button" className="btn ghost" disabled={busy || !actuelle} onClick={tester}>
           {t('Tester', 'Test')}
         </button>
         <button
           type="button"
-          className="danger"
+          className="btn ghost in-revoquer"
           disabled={busy || !actuelle}
           onClick={() =>
             agir(revoquerConnecteurProjet(projetId, resume.id), () =>

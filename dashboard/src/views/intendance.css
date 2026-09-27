@@ -367,7 +367,9 @@
   border: 1px solid var(--border);
   border-radius: var(--r-sm);
   padding: 12px;
-  margin-bottom: 10px;
+  /* Même retrait de 14 px que les clés juste au-dessus : sans lui, les
+     encadrés collaient au bord de la carte. */
+  margin: 0 14px 10px;
   background: var(--panel-2);
 }
 .in-connecteur-tete {
@@ -413,6 +415,9 @@
 .in-connecteur-secrets label {
   display: grid;
   gap: 3px;
+  /* Piste bornée à la carte : une piste `auto` prendrait la largeur minimale
+     du champ, et le bouton « remplacer » déborderait sur un téléphone. */
+  grid-template-columns: minmax(0, 1fr);
 }
 .in-secret-nom {
   font-size: 12px;
@@ -436,13 +441,16 @@
 }
 .in-secret-ligne input {
   flex: 1;
+  /* Sans `min-width: 0`, le champ garde sa largeur intrinsèque et pousse le
+     bouton hors de la carte sur un téléphone. */
+  min-width: 0;
   font-family: var(--mono);
   font-size: 12px;
 }
 .in-connecteurs-projet {
   margin-top: 14px;
   border-top: 1px solid var(--border);
-  padding-top: 10px;
+  padding: 10px 14px 12px;
 }
 .in-connecteurs-projet h3 {
   font-size: 13px;
@@ -494,11 +502,13 @@
 }
 .in-autorisation-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   margin-top: 8px;
 }
-.in-autorisation-actions .danger {
+.in-autorisation-actions .in-revoquer {
   color: var(--red);
+  border-color: var(--red);
 }
 .in-connecteurs-journal {
   list-style: none;
@@ -539,4 +549,7 @@
 .in-journal-apercu {
   color: var(--faint);
   font-size: 11px;
+  /* L'aperçu est du JSON d'une seule ligne : sans coupure, il élargit la page
+     au-delà de l'écran d'un téléphone. */
+  overflow-wrap: anywhere;
 }

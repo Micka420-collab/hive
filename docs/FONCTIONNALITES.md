@@ -390,6 +390,8 @@ Connecteurs externes** (administrateur) :
 vides = personne. Il rejoint **la même revue** que la Miellerie — jamais une
 autorité nouvelle.
 
+![Intendance → Connecteurs externes : activer, autoriser par projet, tester, journal](images/connecteurs-bureau.png)
+
 ## 🤝 Inviter un ami (connecter son IA en 30 s)
 
 1. **Vous (hôte)** — lancez l'orchestrateur avec un vrai token (`npm run dev`),

@@ -340,6 +340,8 @@ only if the project granted `approbation` **and** both the channel **and** the
 user (`U0…`) are listed; empty lists mean nobody. It joins **the same review**
 as the Honey House — never a new authority.
 
+![Stewardship → External connectors: enable, authorize per project, test, journal](images/connecteurs-bureau.png)
+
 ## 🤝 Invite a friend (connect their AI in 30 s)
 
 1. **You (host)** — start the orchestrator with a real token (`npm run dev`),
