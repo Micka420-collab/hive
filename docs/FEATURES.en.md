@@ -276,10 +276,36 @@ HIVE_PLANNER_MODEL=claude-haiku-4-5   # fast/economical default; opus for more f
 
 ## 🧬 Hive Mind — the hive learns
 
-The hive keeps a **shared memory**: every successful task leaves a _memory_
-(what was done + a log excerpt). Before assigning a new task, the orchestrator
-retrieves the most relevant memories and **injects them into the worker's
-prompt** — later tasks benefit from work already done.
+The hive keeps a **shared memory**: every **validated** production leaves a
+_memory_ (what was done + the agent's answer). Before assigning a new task, the
+orchestrator retrieves the most relevant memories and **injects them into the
+worker's prompt** — later tasks benefit from work already done.
+
+A success declared by the worker is not enough: the memory enters only when the
+**Evaluator accepts** the production or a **human approves** it in review.
+"Accepted" needs all of it at once: clean Guardians, **green tests** from a
+sandbox (bubblewrap, podman or docker on the node) or from GitHub CI, and a
+favorable review from **another agent family**. A production without a diff is
+never reviewed. So on a default install — one agent family, no sandbox, no CI —
+the Hive Mind stays **empty until a human approves** productions in review.
+
+A human approval does not override an objection: a reviewer's objection, a red
+validation, a suspicious Guardians signal or a Parliament mismatch keeps the
+memory out, and the log says why (`memory_withheld`). A rejection (objection,
+red CI, human rejection) withdraws a kept memory; so does undoing the human
+approval that alone validated it. Review tasks never leave one. The event log
+says so: `memory_recorded` (with who validated), `memory_forgotten` (with why)
+and `memory_withheld`. A memory recorded before this rule, at raw success, is
+withdrawn the same way when its task is rejected.
+
+Failures go to the **Brain** (the `cerveau/` folder next to the database): a
+worker failure, a reviewer's objection and an Evaluator rejection each leave an
+attributed _episode_ — agent, commanded model, node, exact task and result.
+One rejected production leaves one episode, whichever door comes first. An
+Evaluator rejection is counted per task: two unrelated tasks with red tests are
+two episodes, not a recurring pattern. The hive marks an episode `serviLe`
+(last used) at most once a day when it reaches a worker; hand-written notes are
+never rewritten.
 
 Retrieval is **100% offline** (BM25-style lexical scoring, no embeddings, no
 API), hence deterministic and free. The dashboard shows a live **Hive Mind

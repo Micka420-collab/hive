@@ -299,7 +299,9 @@ import { askConcierge, askConciergeStream, sousAgentsDepuisEvenements } from './
 import type { ConciergeContext } from './concierge.js';
 import { detectGhosts } from './ghost.js';
 import { dossierDe, elaguer, enregistrerEpisode, lire, pourLaTache } from '../cerveau-reel.js';
+import type { EpisodeEnregistre } from '../cerveau-reel.js';
 import { aConsolider } from '../shared/cerveau.js';
+import type { OrigineEpisode } from '../shared/cerveau.js';
 import { graphe } from '../shared/cerveau-graphe.js';
 import {
   agreger,
@@ -312,7 +314,7 @@ import {
 } from '../shared/contre-expertise.js';
 import type { Candidat, Production } from '../shared/contre-expertise.js';
 import { champSurUneLigne } from '../shared/donnees-non-fiables.js';
-import { buildHiveContext } from './hive-mind.js';
+import { buildHiveContext, verdictSouvenir } from './hive-mind.js';
 import { buildMergePlan } from './honeycomb.js';
 import { tally, signatureOf } from './parliament.js';
 import type { Ballot } from './parliament.js';
@@ -1219,24 +1221,6 @@ async function monterReine(
   };
 
   /**
-   * Verse un échec au Cerveau, et signale quand un motif devient mûr.
-   *
-   * ─── CE QUE LA RUCHE S'AUTORISE À ÉCRIRE, ET CE QU'ELLE NE S'AUTORISE PAS ──
-   *
-   * Elle écrit des ÉPISODES : « cette panne-ci a eu lieu, voilà à quoi elle
-   * ressemble, c'est la N-ième fois ». Elle n'écrit JAMAIS de règle.
-   *
-   * Ce n'est pas une limite technique, c'est le cœur du sujet. Rédiger une
-   * règle demande de comprendre POURQUOI, et une règle fausse coûte plus cher
-   * que pas de règle du tout — parce qu'elle est SUIVIE, et transmise à chaque
-   * tâche suivante par le budget de contexte. Une ruche qui se raconterait ses
-   * propres généralisations dériverait plus vite que celle qui n'apprend rien.
-   *
-   * Quand un motif atteint le seuil, on émet donc `cerveau_consolidation` :
-   * une PROPOSITION, visible à la Chronique, que quelqu'un transforme en règle
-   * s'il la comprend. La ruche accumule la matière ; l'humain écrit la loi.
-   */
-  /**
    * Dit si cette production PEUT être relue par un autre modèle, et par lequel.
    *
    * ─── CE QUE CETTE FONCTION FAIT, ET CE QU'ELLE NE FAIT PAS ─────────────────
@@ -1540,6 +1524,12 @@ async function monterReine(
       //
       // Différée hors de la passe : `retryFromEvaluator` rappelle le
       // planificateur, dont on peut être au milieu (voir plus bas).
+      //
+      // L'avis FAVORABLE, lui, attendait cette clôture pour valoir acceptation
+      // (une relecture en vol pouvait encore objecter) : c'est maintenant que
+      // la production peut être retenue. `statuerProduction` n'appelle pas le
+      // planificateur — synchrone, elle ne réentre dans aucune passe.
+      statuerProduction(productionTaskId);
       queueMicrotask(() => relancerSiContreRevueInsuffisante(productionTaskId, resultId));
       return;
     }
@@ -1655,25 +1645,105 @@ async function monterReine(
       visiteurNodeId: auteur.id,
       visiteurAgent: auteur.agentType,
     });
+
+    // ─── UNE OBJECTION EST UN ÉCHEC, ET LE CERVEAU L'APPREND ─────────────────
+    //
+    // Le Cerveau n'apprenait que des pannes qui se voient dans un code de
+    // sortie. Une production qu'une autre famille conteste est pourtant un
+    // échec — souvent le plus instructif, parce qu'il a passé l'ouvrière et
+    // ses tests. Un épisode PAR avis contestataire, dans les mots de la
+    // relectrice, attribué à la production relue — pas à la relectrice, qui
+    // n'en est que le témoin. Un avis sans objection écrite n'apprend rien : il
+    // ne pose rien (`enregistrerEpisode`, signature vide).
+    //
+    // Un échec, UNE porte : quand l'Evaluator a déjà rejeté cette production
+    // (tests rouges, Gardiennes dès la réception) et versé son épisode,
+    // l'objection arrivée ensuite raconte le même échec — la compter aussi
+    // doublerait la récurrence sous une seconde signature. Plusieurs
+    // relectrices qui contestent, elles, apportent chacune leurs objections.
+    const production = store.getTask(lien.productionTaskId);
+    const dejaVerse =
+      exactResultId === undefined
+        ? null
+        : store.episodeDeProduction(lien.productionTaskId, exactResultId);
+    if (verdict.conteste && production && dejaVerse !== 'rejet_evaluator') {
+      const nodeId = store
+        .resultsForTask(lien.productionTaskId)
+        .find((r) => r.resultId === exactResultId)?.nodeId;
+      const modele = lancement?.payload.producteurModele;
+      const objections = verdict.objections.join('\n');
+      const verse = verserEpisode(production, {
+        signature: signatureEchec(objections),
+        detail: champSurUneLigne(objections, 800),
+        origine: {
+          source: 'contre_revue',
+          taskId: lien.productionTaskId,
+          ...(exactResultId === undefined ? {} : { resultId: exactResultId }),
+          ...(nodeId === undefined ? {} : { nodeId }),
+          agentType: lien.producteurAgent,
+          ...(typeof modele === 'string' ? { modele } : {}),
+        },
+      });
+      if (verse && exactResultId !== undefined) {
+        store.marquerEpisodeProduction(lien.productionTaskId, exactResultId, 'contre_revue');
+      }
+    }
+    // AVANT la relance : elle efface la revue humaine et rouvre la tâche, et
+    // le rejet doit être consigné sur la production qu'il vise.
+    statuerProduction(lien.productionTaskId);
     if (exactResultId !== undefined) {
       relancerSiContreRevueInsuffisante(lien.productionTaskId, exactResultId);
     }
   };
 
-  const noterEchec = (taskId: string, logs: string, finalText: string | undefined): void => {
-    const task = store.getTask(taskId);
-    if (!task) return;
-    // Ce que l'échec DIT, pas les événements JSON de son flux (`texteDEchec`) :
-    // l'épisode prenait sinon pour détail la ligne d'initialisation du CLI.
-    const ecrit = enregistrerEpisode(dossierCerveau, {
-      signature: signatureEchec(logs, finalText),
-      titre: task.title,
-      detail: champSurUneLigne(texteDEchec(logs, finalText), 800),
-    });
-    if (ecrit === null) return; // Échec sans log exploitable : rien à apprendre.
+  /**
+   * Verse un échec au Cerveau, et signale quand un motif devient mûr.
+   *
+   * ─── CE QUE LA RUCHE S'AUTORISE À ÉCRIRE, ET CE QU'ELLE NE S'AUTORISE PAS ──
+   *
+   * Elle écrit des ÉPISODES : « cette panne-ci a eu lieu, voilà à quoi elle
+   * ressemble, c'est la N-ième fois ». Elle n'écrit JAMAIS de règle.
+   *
+   * Ce n'est pas une limite technique, c'est le cœur du sujet. Rédiger une
+   * règle demande de comprendre POURQUOI, et une règle fausse coûte plus cher
+   * que pas de règle du tout — parce qu'elle est SUIVIE, et transmise à chaque
+   * tâche suivante par le budget de contexte. Une ruche qui se raconterait ses
+   * propres généralisations dériverait plus vite que celle qui n'apprend rien.
+   *
+   * Quand un motif atteint le seuil, on émet donc `cerveau_consolidation` :
+   * une PROPOSITION, visible à la Chronique, que quelqu'un transforme en règle
+   * s'il la comprend. La ruche accumule la matière ; l'humain écrit la loi.
+   *
+   * ─── TROIS PORTES, UNE SEULE ÉCRITURE ──────────────────────────────────────
+   *
+   * L'échec d'une ouvrière (`noterEchec`), l'objection d'une relectrice
+   * (`noterVerdict`) et le rejet de l'Evaluator (`statuerProduction`) passent
+   * tous par ici, attribués : le journal garde chaque occurrence, la note la
+   * plus récente. Appelée APRÈS le geste qu'elle raconte, jamais dans une
+   * transaction : c'est une écriture de fichier. Et un disque qui refuse ne
+   * défait pas ce geste — une relecture rangée, une revue rendue — : il coûte
+   * un épisode, dit sur la sortie d'erreur.
+   */
+  const verserEpisode = (
+    task: Task,
+    echec: { signature: string; detail: string; origine: OrigineEpisode },
+  ): boolean => {
+    let ecrit: EpisodeEnregistre | null;
+    try {
+      ecrit = enregistrerEpisode(dossierCerveau, { ...echec, titre: task.title });
+    } catch (err) {
+      console.error(
+        `[hive] épisode du Cerveau non écrit : ${err instanceof Error ? err.message : err}`,
+      );
+      return false;
+    }
+    if (ecrit === null) return false; // Échec sans texte exploitable : rien à apprendre.
 
+    // L'attribution entière — `taskId` compris — plus la note qu'elle a
+    // écrite : le journal garde CHAQUE occurrence, là où la note ne garde que
+    // la dernière.
     emitEvent('cerveau_episode', {
-      taskId,
+      ...echec.origine,
       note: ecrit.id,
       recurrences: ecrit.recurrences,
       nouveau: ecrit.nouveau,
@@ -1689,6 +1759,142 @@ async function monterReine(
         titre: task.title,
       });
     }
+    return true;
+  };
+
+  /**
+   * L'échec d'une ouvrière, attribué à la tentative qui l'a rendu. `modele` est
+   * lu par l'appelant AVANT `handleTaskResult` (`modeleCommande`), qui remet la
+   * tâche en file et peut la réassigner aussitôt ; le `resultId`, lui, est celui
+   * que le scheduler vient de ranger.
+   */
+  const noterEchec = (
+    taskId: string,
+    nodeId: string,
+    modele: string | null,
+    logs: string,
+    finalText: string | undefined,
+  ): void => {
+    const task = store.getTask(taskId);
+    if (!task) return;
+    const resultId = store.resultsForTask(taskId).at(-1)?.resultId;
+    const agentType = store.getNode(nodeId)?.agentType;
+    // Ce que l'échec DIT, pas les événements JSON de son flux (`texteDEchec`) :
+    // l'épisode prenait sinon pour détail la ligne d'initialisation du CLI.
+    verserEpisode(task, {
+      signature: signatureEchec(logs, finalText),
+      detail: champSurUneLigne(texteDEchec(logs, finalText), 800),
+      origine: {
+        source: 'echec_worker',
+        taskId,
+        ...(resultId === undefined ? {} : { resultId }),
+        nodeId,
+        ...(agentType === undefined ? {} : { agentType }),
+        ...(modele === null ? {} : { modele }),
+      },
+    });
+  };
+
+  /**
+   * Le Hive Mind et le Cerveau suivent le verdict COURANT sur la production
+   * d'une tâche : c'est ici, et nulle part ailleurs, que ce verdict devient un
+   * souvenir retenu, un souvenir retiré, ou un épisode de rejet.
+   *
+   * ─── APPELÉE PAR CHAQUE FAIT QUE L'EVALUATOR LIT ──────────────────────────
+   *
+   * L'Evaluator ne range rien : il recompose son verdict à la demande, depuis
+   * des faits qui arrivent chacun par sa porte. Chaque porte qui en apporte un
+   * sur une production terminée appelle donc cette fonction : la réception du
+   * résultat (Gardiennes, bac, Parlement), l'avis d'une relectrice
+   * (`noterVerdict`), la clôture de la dernière relecture en vol
+   * (`reprendreContreRevue`), la CI GitHub, la revue humaine. Une porte oubliée
+   * ne perd rien pour toujours — le fait suivant rattrape —, mais elle retarde
+   * une validation, ou laisse un souvenir rejeté en mémoire jusque-là.
+   *
+   * ─── LA PRODUCTION JUGÉE EST CELLE QUI A PROPOSÉ ──────────────────────────
+   *
+   * Seulement quand la proposition vise encore le DERNIER résultat d'une tâche
+   * `done`. Une tâche rouverte (correction en route, nouvelle tentative) n'est
+   * plus jugée sur l'ancienne production : son rejet a déjà été consigné, et
+   * sa revue humaine a été effacée par la reprise — la réévaluer ferait
+   * accepter après coup une production que la ruche est en train de refaire.
+   *
+   * L'issue elle-même est RANGÉE (`statuerSouvenir`), et la porte qui a versé
+   * l'épisode aussi (`marquerEpisodeProduction`) : un même rejet relu par cinq
+   * faits successifs, défait puis redit, ou précédé d'une objection qui l'a
+   * déjà raconté, n'écrit qu'un épisode par production.
+   *
+   * Une tâche terminée AVANT ce registre n'a pas de proposition, mais peut
+   * avoir un souvenir écrit à la simple réussite : il est adopté ici, au
+   * premier fait qui la juge (`adopterSouvenirHerite`), pour qu'un rejet l'en
+   * retire comme les autres.
+   */
+  const statuerProduction = (taskId: string): void => {
+    const task = store.getTask(taskId);
+    if (task?.status !== 'done') return;
+    const propose =
+      store.souvenirPropose(taskId) ??
+      (store.adopterSouvenirHerite(taskId) ? store.souvenirPropose(taskId) : null);
+    if (!propose) return;
+    const { latest, evaluation } = evaluationPour(task);
+    if (latest?.resultId !== propose.resultId) return;
+    const verdict = verdictSouvenir(evaluation);
+    const bascule = store.statuerSouvenir(taskId, propose.resultId, verdict);
+    if (bascule === null) return;
+
+    const fait = { taskId, projectId: task.projectId, resultId: propose.resultId };
+    if (bascule.apres === 'retenu') {
+      // Qui a validé : l'Evaluator, ou l'humain quand l'Evaluator laissait la
+      // question ouverte (`verdictSouvenir`).
+      emitEvent('memory_recorded', { ...fait, source: verdict.validePar });
+      return;
+    }
+    if (bascule.oublie) {
+      emitEvent('memory_forgotten', {
+        ...fait,
+        // Un rejet, ou l'approbation humaine effacée qui SEULE le validait.
+        motif: bascule.apres === 'rejete' ? 'rejet' : 'approbation_retiree',
+      });
+    }
+    if (bascule.apres !== 'rejete') return;
+    // Une contre-revue qui conteste a DÉJÀ versé son épisode, dans les mots de
+    // la relectrice (`noterVerdict`) ; un rejet défait puis redit a déjà versé
+    // le sien. En verser un second compterait deux fois le même échec.
+    if (store.episodeDeProduction(taskId, propose.resultId) !== null) return;
+    const agentType = store.getNode(latest.nodeId)?.agentType;
+    const modele = store.modeleAiguillageDe(taskId);
+    const critique = critiquePourRetry(taskId, evaluation, 'evaluator');
+    // Les motifs d'abord, la note humaine en DERNIER : `signatureEchec` retient
+    // la première ligne qui ressemble à une erreur, sinon la dernière — le
+    // « pourquoi » d'un humain distingue deux rejets, pas son motif générique.
+    const texte = [
+      ...critique.raisons,
+      ...(critique.noteHumaine ? [critique.noteHumaine] : []),
+    ].join('\n');
+    // ─── UN MOTIF DE L'EVALUATOR N'EST PAS UNE PANNE ───────────────────────
+    //
+    // « validation tests en échec (bac Hive du nœud <n>) », « les Gardiennes
+    // ont rejeté une production creuse » : des phrases FIXES, identiques pour
+    // deux tâches qui n'ont rien en commun. Signées telles quelles, elles
+    // fusionnaient des échecs sans rapport en une seule note, et trois tâches
+    // aux tests rouges faisaient un faux « motif » à consolider — alors que
+    // le Cerveau promet que trois fois, c'est la MÊME panne. La signature est
+    // donc bornée à la tâche : ses rejets successifs (correction après
+    // correction) sont bien une récurrence ; ceux de sa voisine, non.
+    const signature = signatureEchec(texte);
+    const verse = verserEpisode(task, {
+      signature: signature === '' ? '' : `${signature} · tâche ${taskId}`,
+      detail: champSurUneLigne(texte, 800),
+      origine: {
+        source: 'rejet_evaluator',
+        taskId,
+        resultId: propose.resultId,
+        nodeId: latest.nodeId,
+        ...(agentType === undefined ? {} : { agentType }),
+        ...(modele === null ? {} : { modele }),
+      },
+    });
+    if (verse) store.marquerEpisodeProduction(taskId, propose.resultId, 'rejet_evaluator');
   };
 
   /**
@@ -9011,6 +9217,32 @@ async function monterReine(
         ...(req.body.clientId ? { clientId: req.body.clientId } : {}),
         ...(raison ? { raison } : {}),
       });
+      // Approuvée, la production entre au Hive Mind ; rejetée, elle en sort et
+      // son épisode s'écrit avec la raison de l'humain. AVANT la relance, qui
+      // efface la revue et rouvre la tâche : après elle, il n'y aurait plus de
+      // rejet à lire.
+      statuerProduction(task.id);
+      if (req.body.state === 'approved') {
+        // Une approbation ne rachète pas une objection, une validation rouge
+        // ou un signal des Gardiennes (`verdictSouvenir`). Sans ce fait,
+        // l'humain qui approuve recevait un 200 et croyait avoir enseigné à
+        // la ruche : il lit ici pourquoi rien n'est entré au Hive Mind.
+        const { latest, evaluation } = evaluationPour(task);
+        const propose = store.souvenirPropose(task.id);
+        if (
+          propose !== null &&
+          propose.resultId === latest?.resultId &&
+          verdictSouvenir(evaluation).issue === 'rejete'
+        ) {
+          emitEvent('memory_withheld', {
+            taskId: task.id,
+            projectId: task.projectId,
+            resultId: propose.resultId,
+            decision: evaluation.decision,
+            raison: evaluation.reasons[0] ?? '',
+          });
+        }
+      }
       let retry: ReturnType<Scheduler['retryFromEvaluator']> | null = null;
       if (req.body.state === 'rejected') {
         const { latest, evaluation } = evaluationPour(task);
@@ -9300,6 +9532,9 @@ async function monterReine(
         validation,
         recordedAt,
       });
+      // Une CI verte peut être la dernière preuve qui manquait à `accepted` ;
+      // une CI rouge rejette une production peut-être déjà retenue.
+      statuerProduction(task.id);
 
       const evaluation = evaluationPour(task).evaluation;
       return {
@@ -11268,6 +11503,10 @@ async function monterReine(
             //
             // Ce que le message dit ne révèle rien : le nœud connaît déjà le
             // `taskId` qu'il vient d'envoyer.
+            //
+            // Le modèle de CETTE tentative se lit avant : un échec la remet en
+            // file, et la réassignation qui suit réécrit l'Aiguillage.
+            const modeleTentative = scheduler.modeleCommande(msg.taskId, nodeId);
             const pris = scheduler.handleTaskResult(nodeId, {
               taskId: msg.taskId,
               success: msg.success,
@@ -11297,7 +11536,7 @@ async function monterReine(
             // gonflerait le compteur de récurrences d'une panne qui n'a pas eu
             // lieu deux fois, et le seuil de consolidation deviendrait faux.
             if (pris && !msg.success) {
-              noterEchec(msg.taskId, msg.logs ?? '', msg.finalText);
+              noterEchec(msg.taskId, nodeId, modeleTentative, msg.logs ?? '', msg.finalText);
             }
             if (pris) {
               const delegation = store.getDelegation(msg.taskId);
@@ -11430,6 +11669,11 @@ async function monterReine(
             } else if (pris && msg.success && (msg.diff ?? '').trim() !== '') {
               signalerContreExpertise(msg.taskId, nodeId, msg.diff ?? '', msg.logs ?? '');
             }
+            // Les Gardiennes, le bac et le Parlement ont parlé en même temps que
+            // le résultat : une production creuse, suspecte ou aux tests rouges
+            // est rejetée dès maintenant, et son épisode écrit. Rien à statuer
+            // pour une relecture, qui ne propose aucun souvenir.
+            if (pris && msg.success && !lienRelecture) statuerProduction(msg.taskId);
             break;
           }
           case 'task_reject': {
@@ -12129,6 +12373,10 @@ async function monterReine(
       // avec la table (règle 3), et placée APRÈS `pruneTasks` — une borne
       // référentielle ne nettoie que ce qui est déjà orphelin.
       store.pruneAiguillageModeles();
+      // Les souvenirs PROPOSÉS au Hive Mind : même borne, même place. Le
+      // souvenir retenu vit dans `memories`, qui a la sienne et survit à sa
+      // tâche.
+      store.pruneSouvenirsProposes();
       // L'Agent Garde-Fous : l'échelon posé par tâche et l'exigence par production
       // — deux bornes référentielles jumelles, câblées avec leurs tables (règle 3)
       // et placées APRÈS `pruneTasks`, comme celle de l'Aiguillage juste au-dessus.

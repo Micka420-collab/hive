@@ -140,7 +140,14 @@ describe('réquisition mid-task — boucle B/C/D', () => {
       source: 'codex',
       coutUsd: 0.25,
     });
-    // Le texte final a voyagé lui aussi : le souvenir Hive Mind en est fait.
+    // Le texte final a voyagé lui aussi : le souvenir Hive Mind en est fait —
+    // proposé à la réussite, il entre en mémoire à l'approbation humaine.
+    const revue = await fetch(`${base}/api/tasks/${taskId}/review`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ state: 'approved' }),
+    });
+    expect(revue.status).toBe(200);
     expect(server.store.listMemories().find((m) => m.taskId === taskId)?.content).toContain(
       'Garde ajoutée après la reprise',
     );

@@ -1083,6 +1083,60 @@ export class Scheduler {
   }
 
   /**
+   * Hive Mind : la production retenue PROPOSE un souvenir — elle ne l'écrit
+   * pas. Il n'entre dans la mémoire qu'une fois la production validée
+   * (acceptée par l'Evaluator, ou approuvée par un humain : `statuerProduction`,
+   * server.ts), parce qu'une réussite DÉCLARÉE n'est pas une réussite : la
+   * contre-revue, les tests ou l'humain peuvent encore la faire tomber, et un
+   * souvenir écrit trop tôt resterait dans les prompts voisins pendant des mois.
+   *
+   * Ce que l'agent a RÉPONDU, quand son CLI le déclare : les logs d'un flux
+   * stream-json commencent par la ligne `init` (dossier de travail, session,
+   * outils), et le souvenir n'aurait gardé qu'elle — pas un mot de réponse. Pris
+   * ICI, parce que c'est le seul instant où la réponse finale est en main : le
+   * journal ne la garde pas pour un succès (`insertResult`).
+   *
+   * Une RELECTURE n'en propose aucun : son texte est un verdict sur la
+   * production d'un autre (« valide », « conteste » et des objections), pas un
+   * savoir sur le projet. Rangé en souvenir, il revenait comme exemple dans le
+   * prompt des tâches dont le titre ressemblait à celui qu'il relisait.
+   */
+  private proposerSouvenir(
+    task: Task,
+    resultId: number,
+    result: Omit<TaskResult, 'nodeId'>,
+    now = Date.now(),
+  ): void {
+    if (this.store.relectureDe(task.id) !== null) return;
+    this.store.proposerSouvenir(
+      {
+        projectId: task.projectId,
+        taskId: task.id,
+        resultId,
+        title: task.title,
+        content: summarizeTask(task.title, task.prompt, result.finalText ?? result.logs),
+      },
+      now,
+    );
+  }
+
+  /**
+   * Le modèle que la Reine a COMMANDÉ pour la tentative que `nodeId` porte sur
+   * `taskId` : celui de ce drone dans une course, celui de l'Aiguillage sinon.
+   * `null` : aucun modèle commandé — le nœud a pris son défaut, et l'absence
+   * reste une absence.
+   *
+   * À lire AVANT `handleTaskResult` : un échec remet la tâche en file et la
+   * réassigne dans la foulée, et la ligne de l'Aiguillage dit alors le modèle
+   * de la tentative SUIVANTE.
+   */
+  modeleCommande(taskId: string, nodeId: string): string | null {
+    const race = this.races.get(taskId);
+    if (race) return race.modeleParDrone?.[nodeId] ?? null;
+    return this.store.modeleAiguillageDe(taskId);
+  }
+
+  /**
    * Résultat remonté par un nœud. Idempotence : un résultat pour une tâche
    * réaffectée, requalifiée ou déjà terminée est ignoré (et journalisé).
    */
@@ -1124,7 +1178,8 @@ export class Scheduler {
       // Une production jugée CREUSE en mode `strict` est traitée EXACTEMENT comme
       // un échec d'agent, et c'est tout l'intérêt du câblage : elle emprunte le
       // circuit d'échec existant, donc elle ne nourrit
-      //   - ni le Hive Mind (recordMemory ne vit que dans la branche de succès),
+      //   - ni le Hive Mind (proposerSouvenir ne vit que dans la branche de
+      //     succès — et le souvenir n'entre en mémoire qu'une fois validé),
       //   - ni les phéromones (la ligne `results` est rangée avec success = 0,
       //     donc le repli dépose −6 au lieu de +10),
       //   - ni le nectar (aucun `task_done` n'est émis, et le Waggle Board ne
@@ -1174,17 +1229,7 @@ export class Scheduler {
           ...(result.usage ? { usage: result.usage } : {}),
           ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
         });
-        // Hive Mind : la tâche réussie laisse un souvenir réutilisable par la ruche.
-        // Ce que l'agent a RÉPONDU, quand son CLI le déclare : les logs d'un flux
-        // stream-json commencent par la ligne `init` (dossier de travail, session,
-        // outils), et le souvenir n'aurait gardé qu'elle — pas un mot de réponse.
-        this.store.recordMemory({
-          projectId: task.projectId,
-          taskId: task.id,
-          title: task.title,
-          content: summarizeTask(task.title, task.prompt, result.finalText ?? result.logs),
-        });
-        this.emit('memory_recorded', { taskId: task.id, projectId: task.projectId });
+        this.proposerSouvenir(task, resultId, result);
         this.fermerSousArbre(task.id, 'ancestor_done', Date.now());
       } else {
         // Le modèle commandé à CETTE tentative a échoué (la production creuse
@@ -1768,15 +1813,9 @@ export class Scheduler {
           this.emit('drone_cancelled', { taskId: task.id, nodeId: loser });
           this.apresCommit(() => this.opts.onCancel?.(loser, task.id, 'course de drones perdue'));
         }
-        // Hive Mind : même parité que le circuit normal — la victoire laisse un
-        // souvenir, fait de la réponse finale quand il y en a une.
-        this.store.recordMemory({
-          projectId: task.projectId,
-          taskId: task.id,
-          title: task.title,
-          content: summarizeTask(task.title, task.prompt, result.finalText ?? result.logs),
-        });
-        this.emit('memory_recorded', { taskId: task.id, projectId: task.projectId });
+        // Hive Mind : même parité que le circuit normal — la victoire PROPOSE
+        // un souvenir, fait de la réponse finale quand il y en a une.
+        this.proposerSouvenir(task, resultId, result, now);
         this.fermerSousArbre(task.id, 'ancestor_done', now);
         this.apresCommit(() => this.promoteAndAssign(now));
         return;
