@@ -41,6 +41,7 @@ import type { BacExecution } from './isolement.js';
 import { composerMission, garderMission } from './livraison-locale.js';
 import type { LivraisonDuNoeud, MissionComposee } from './livraison-locale.js';
 import type { RapportDuNoeud } from '../shared/livraison-locale.js';
+import { marqueOmission } from '../shared/caviardage.js';
 import { gitHote } from '../shared/git-protege.js';
 import type { DepotEpingle } from '../shared/git-protege.js';
 import { commitDeDepart, diffContreBase, epinglerClone } from './git-hote.js';
@@ -161,7 +162,7 @@ function sortieBornee(moitie = OUTPUT_CAP / 2): {
     texte() {
       const queue = fin.slice(-moitie);
       const total = omis + fin.length - queue.length;
-      return total > 0 ? `${debut}\n[hive] … ${total} caractères omis …\n${queue}` : debut + queue;
+      return total > 0 ? debut + marqueOmission(total) + queue : debut + queue;
     },
   };
 }

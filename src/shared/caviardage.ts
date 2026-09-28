@@ -34,6 +34,33 @@ export const SECRET_CAVIARDE = '[secret]';
 export const MARQUE_LIGNE_TRONQUEE = ' …[ligne tronquée]';
 
 /**
+ * La ligne qui remplace le MILIEU d'une sortie de commande trop longue
+ * (`runProc`, `node-client/merge-runner.ts` : merge, chantier, validations du
+ * bac). Écrite ICI, lue ici : le caviardeur passe APRÈS la coupe, et une clé
+ * imprimée à cheval sur l'un de ses bords n'y est plus entière — son début
+ * avant la marque, ou sa fin après, partait au hub (le chantier remonte les
+ * 512 Kio, joint compris). `bordsCoupes` la traite donc comme
+ * `COUPURE_TEXTE_FINAL`.
+ */
+export function marqueOmission(omis: number): string {
+  return `\n[hive] … ${omis} caractères omis …\n`;
+}
+
+/** Un texte littéral, rendu inerte dans une expression régulière. */
+const litteral = (texte: string): string => texte.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * Les coupes au milieu d'un texte : un début de clé peut rester avant, une
+ * fin de clé après. La marque d'omission est DÉRIVÉE de `marqueOmission` (son
+ * seul `0` devient le nombre) : une copie écrite à la main ici, et un
+ * libellé changé dans l'autre seulement rouvrait la fuite sans un bruit. Un seul groupe capturant, qui englobe
+ * tout : `split` rend les coupes elles-mêmes aux indices impairs.
+ */
+const COUPURES = new RegExp(
+  `(${litteral(COUPURE_TEXTE_FINAL)}|${marqueOmission(0).split('0').map(litteral).join('\\d+')})`,
+);
+
+/**
  * Longueur minimale d'une valeur caviardée à l'identique. En dessous, une
  * « valeur secrète » (`1`, `true`, `abc`) ferait caviarder la moitié des logs
  * sans rien protéger : aucun identifiant réel n'est aussi court.
@@ -191,8 +218,9 @@ export function creerCaviardeur(valeurs: readonly string[]): Caviardeur {
  *     (≥ `VALEUR_SECRETE_MIN`), ou des identifiants d'URL coupés avant leur
  *     `@` (`https://moi:motdep…`) — le motif d'URL exige le `@` ;
  *   · de part et d'autre de `COUPURE_TEXTE_FINAL` (`borneTexteFinal`, que les
- *     adaptateurs appliquent AVANT que le nœud ne voie la réponse) : un début
- *     de clé avant, une FIN de clé après ;
+ *     adaptateurs appliquent AVANT que le nœud ne voie la réponse) et de la
+ *     marque d'omission de `runProc` (`marqueOmission`) : un début de clé
+ *     avant, une FIN de clé après ;
  *   · une fin de clé en tête du texte : la fenêtre de stdout que garde
  *     `adapters/exec.ts` commence où elle peut.
  */
@@ -202,12 +230,13 @@ function bordsCoupes(s: string, secrets: readonly string[]): string {
     .map((morceau, i, tous) => (i === tous.length - 1 ? morceau : debutMasque(morceau, secrets)))
     .join(MARQUE_LIGNE_TRONQUEE);
   return avantMarque
-    .split(COUPURE_TEXTE_FINAL)
+    .split(COUPURES)
     .map((morceau, i, tous) => {
+      if (i % 2 === 1) return morceau; // la coupe elle-même
       const apres = i === 0 ? morceau : finMasquee(morceau, secrets);
       return i === tous.length - 1 ? apres : debutMasque(apres, secrets);
     })
-    .join(COUPURE_TEXTE_FINAL);
+    .join('');
 }
 
 const IDENTIFIANTS_D_URL_COUPES = /(https?:\/\/)[^\s/@]+:[^\s/@]*(\s*)$/;

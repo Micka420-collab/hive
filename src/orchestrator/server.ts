@@ -106,6 +106,7 @@ import {
 import type { ProvenanceTache, RapportLivraisonLocale } from '../shared/livraison-locale.js';
 import { argvDe, chantiersDe, jugerChantier } from '../shared/chantier.js';
 import { CHANTIER_TIMEOUT_MS, MERGE_TIMEOUT_MS, POSE_TIMEOUT_MS } from '../shared/butoirs-noeud.js';
+import { EchecGitHote } from '../shared/git-protege.js';
 import { Miroir, RayonIndisponible } from './miroir.js';
 import { LONGUEUR_MAX_CHEMIN, TAILLE_MAX_FICHIER } from '../shared/rayon.js';
 import { construireRetouche } from '../shared/retouche.js';
@@ -10775,15 +10776,22 @@ async function monterReine(
     }
     try {
       await rayons.rafraichir(project.id, project.repoUrl);
-    } catch {
+    } catch (e) {
+      // Un amont muet (butoir du miroir atteint) ne se confond pas avec une
+      // URL fausse : l'un se corrige, l'autre s'attend.
+      const muet = e instanceof EchecGitHote && e.delaiDepasse;
       // Un amont injoignable n'efface pas ce qu'on a déjà : mieux vaut un code
-      // d'hier que pas de code du tout.
-      if (!rayons.existe(project.id)) {
-        reply.code(409).send({
-          error: 'le dépôt n’a pas pu être copié — vérifiez son URL et son accessibilité',
-        });
-        return false;
+      // d'hier que pas de code du tout — mais l'hôte le lit dans ses journaux.
+      if (rayons.existe(project.id)) {
+        app.log.warn({ projet: project.id, muet }, 'miroir non rafraîchi : dernière copie servie');
+        return true;
       }
+      reply.code(409).send({
+        error: muet
+          ? 'le dépôt n’a pas répondu à temps — réessayez dans quelques minutes'
+          : 'le dépôt n’a pas pu être copié — vérifiez son URL et son accessibilité',
+      });
+      return false;
     }
     return true;
   };

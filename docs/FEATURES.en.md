@@ -71,6 +71,14 @@ API would have required the **host's token** — showing the code to a bee would
 spend a right that is not hers. **`.git` is never served**: it holds `config`,
 hence the remote URL, hence the private repository's credentials; neither are
 `.env`, `.npmrc`, `id_rsa` or key extensions.
+The mirror shows **the bytes the repository stores**: no filter or
+`.gitattributes` conversion (line endings, `$Id$`, encoding) is applied, and
+**a Git LFS file appears as its pointer** (a few `version … oid sha256:… size …`
+lines), never downloaded — in the tree and in the Preview alike. A still-empty
+repository gives an empty Rayon; if the upstream default branch changes, the
+mirror is recloned on the new one — beside the old copy, which stays served
+until the new clone succeeds. An upstream whose `HEAD` points at no existing
+branch is reported as a failure, not as an empty repository.
 
 **An edit is not saved — it is proposed.** The mirror is a disposable copy;
 writing to it would give the illusion of having fixed something, until the next
