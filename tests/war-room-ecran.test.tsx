@@ -671,6 +671,16 @@ describe('l’accès depuis la Ruche', () => {
       vue({
         desaccords: [
           { genre: 'conseil', sessionId: 'a', issue: 'sans_quorum', depuis: 1 },
+          // Une contestation d'IA restée ouverte EST un désaccord : l'accès la
+          // compte à côté du Conseil, et seule la relecture impossible sort.
+          {
+            genre: 'tache',
+            taskId: 't-2',
+            resultId: 3,
+            raison: 'attempts_exhausted',
+            objections: ['le cas vide n’est pas traité'],
+            depuis: 500,
+          },
           {
             genre: 'relecture_impossible',
             taskId: 't-1',
@@ -683,7 +693,7 @@ describe('l’accès depuis la Ruche', () => {
     );
     const dom = await rendre(<AccesWarRoom refreshTick={0} onNavigate={() => {}} />);
     expect(dom.querySelector('[data-testid="acces-war-room"]')!.textContent).toContain(
-      '1 désaccord(s) à trancher',
+      '2 désaccord(s) à trancher',
     );
   });
 

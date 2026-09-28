@@ -235,6 +235,21 @@ describe('une correction de l’Evaluator ne se lit pas comme un échec', () => 
     expect(ligne(dom)).toContain('a delivery is already open');
   });
 
+  it('SOUS UNE ENVELOPPE COÛT ÉPUISÉE, LA LIGNE DIT LE BUDGET — pas le code brut', async () => {
+    // #496 : la correction est une dépense neuve, refusée sous une racine dont
+    // la dépense déclarée a atteint l'enveloppe. La raison vient de la table
+    // que la War Room partage (`direRaisonRefus`).
+    const dom = await monter(
+      evenement('evaluator_retry_skipped', {
+        taskId: 'tache-deleguee',
+        resultId: 5,
+        reason: 'root_cost_budget_exhausted',
+      }),
+    );
+    expect(ligne(dom)).toContain('le budget coût de la racine déléguée est épuisé');
+    expect(ligne(dom), 'le code brut est affiché').not.toContain('root_cost_budget_exhausted');
+  });
+
   it('UN REJET SUR UNE TÂCHE ÉCHOUÉE NE LA DIT PAS « PAS TERMINÉE »', async () => {
     // Un humain rejette une tâche en échec : la correction de l'Evaluator ne
     // part pas (`task_not_done`), parce que c'est le retry ordinaire qui la

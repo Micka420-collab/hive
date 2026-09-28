@@ -324,7 +324,7 @@ describe('les désaccords en suspens', () => {
     });
   });
 
-  it('LES TROIS REFUS QUI LAISSENT L’OBJECTION EN PLACE — et pas les autres', () => {
+  it('LES QUATRE REFUS QUI LAISSENT L’OBJECTION EN PLACE — et pas les autres', () => {
     const suspens = (reason: string) =>
       desaccordsNonResolus(
         entreesWarRoom([ev('evaluator_retry_skipped', { taskId: 't-1', resultId: 8, reason })]),
@@ -333,6 +333,9 @@ describe('les désaccords en suspens', () => {
     expect(suspens('attempts_exhausted')).toBe(1);
     expect(suspens('delivery_exists')).toBe(1);
     expect(suspens('dependent_progressed')).toBe(1);
+    // Plus rien ne repart sous une racine dont l'enveloppe coût est épuisée
+    // (#496) : l'objection reste en place, un humain tranche.
+    expect(suspens('root_cost_budget_exhausted')).toBe(1);
     // Une production plus récente existe : la contestation est caduque.
     expect(suspens('stale_result')).toBe(0);
     expect(suspens('task_not_done')).toBe(0);
