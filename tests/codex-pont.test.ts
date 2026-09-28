@@ -9,8 +9,10 @@
 // sans ses outils de délégation, sans un mot. Ce banc tient ce fil-là ;
 // le montage lui-même est éprouvé par tests/isolement.test.ts.
 
-import { realpathSync } from 'node:fs';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import type { AdapterContext, AdapterResult } from '../src/adapters/index.js';
 import { fournisseurParNom, MONTAGE } from '../src/node-client/isolement.js';
 import { RendezVousPont } from '../src/node-client/rendez-vous-pont.js';
@@ -39,6 +41,11 @@ vi.mock('../src/adapters/exec.js', async (importOriginal) => {
 const { createCodexAdapter } = await import('../src/adapters/codex.js');
 
 const rendezVous = new RendezVousPont();
+// Un Codex dont le bac Windows est déclaré : sous Windows, sans lui, l'adaptateur
+// échoue avant l'exécuteur (`bacWindowsDeclare`) — ce n'est pas le sujet ici.
+const codexHome = mkdtempSync(path.join(tmpdir(), 'hive-codex-pont-'));
+writeFileSync(path.join(codexHome, 'config.toml'), '[windows]\nsandbox = "unelevated"\n');
+afterAll(() => rmSync(codexHome, { recursive: true, force: true }));
 afterEach(() => {
   appels.length = 0;
   sondes.length = 0;
@@ -47,7 +54,7 @@ afterEach(() => {
 function contexte(avecPont: boolean): AdapterContext {
   return {
     cwd: process.cwd(),
-    env: {},
+    env: { CODEX_HOME: codexHome },
     attempt: 1,
     signal: new AbortController().signal,
     onProgress: () => undefined,
