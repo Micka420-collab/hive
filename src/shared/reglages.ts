@@ -35,7 +35,8 @@ export function gardiennesDepuisEnv(env: NodeJS.ProcessEnv = process.env): Gardi
 
 /**
  * D'où l'ouvrière d'un projet reçoit l'expérience des tâches voisines
- * (`shared/graphe-experience.ts`) : de son projet seul, ou de toute la ruche.
+ * (`shared/graphe-experience.ts`) : de son projet seul, ou aussi des projets
+ * publics de la ruche — jamais d'un projet privé autre que le sien.
  */
 export const PORTEES_EXPERIENCE = ['projet', 'ruche'] as const;
 export type PorteeExperience = (typeof PORTEES_EXPERIENCE)[number];

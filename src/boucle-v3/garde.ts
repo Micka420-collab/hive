@@ -161,6 +161,24 @@ export const SURFACES_SENSIBLES: readonly SurfaceSensible[] = [
     motif: /^src\/orchestrator\/(store|miroir)\.ts$/,
     pourquoi: 'où dorment revues humaines, comptes et jetons ; le clone git que la Reine tient',
   },
+  {
+    categorie: 'securite',
+    motif: /^src\/node-client\/configuration-inerte\.ts$/,
+    pourquoi:
+      'les hooks et plugins du dépôt que Cursor et Cline exécuteraient, écartés de l’arbre avant l’agent',
+  },
+  {
+    categorie: 'securite',
+    motif: /^src\/connectors\/|^src\/orchestrator\/connecteurs\.ts$/,
+    pourquoi:
+      'le seul endroit où la ruche parle à l’extérieur : secrets des connecteurs, caviardage de ce qui part, approbations Slack qui rejoignent la revue humaine',
+  },
+  {
+    categorie: 'securite',
+    motif: /^src\/shared\/graphe-experience\.ts$/,
+    pourquoi:
+      'le cloisonnement des projets dans le graphe d’expérience, et le cadrage de ce qu’il donne aux agents',
+  },
   // ─── Permissions : autonomie, fusion, partage ───────────────────────────────
   {
     categorie: 'permissions',
@@ -178,6 +196,29 @@ export const SURFACES_SENSIBLES: readonly SurfaceSensible[] = [
     categorie: 'permissions',
     motif: /^src\/shared\/(partage|invite|projet-public)\.ts$/,
     pourquoi: 'qui voit ou rejoint la ruche',
+  },
+  {
+    categorie: 'permissions',
+    motif: /^src\/orchestrator\/missions\.ts$|^src\/shared\/mission-rejouable\.ts$/,
+    pourquoi:
+      'la porte des actions irréversibles d’un rejeu (livraison, fusion, poussée, connecteurs) et ce qu’elle tient pour irréversible',
+  },
+  {
+    categorie: 'permissions',
+    motif: /^src\/orchestrator\/shadow-bench\.ts$/,
+    pourquoi:
+      'l’admission du banc d’ombre : actions externes refusées, ombre cantonnée à un bac isolé sans identifiants',
+  },
+  {
+    categorie: 'permissions',
+    motif: /^src\/node-client\/livraison-locale\.ts$/,
+    pourquoi: 'ce que la livraison locale pousse chez le membre — jamais en force',
+  },
+  {
+    categorie: 'permissions',
+    motif: /^src\/shared\/reglages\.ts$/,
+    pourquoi:
+      'les réglages risqués de l’hôte, lus une fois (Gardiennes, fédération de l’expérience entre projets)',
   },
   // ─── Secrets ────────────────────────────────────────────────────────────────
   {

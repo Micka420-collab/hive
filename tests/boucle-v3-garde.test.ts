@@ -122,6 +122,17 @@ describe('la porte des changements sensibles — ce qu’elle arrête', () => {
     ['src/node-client/cloudflare.ts', 'deploiement'],
     ['examples/deploiement-sans-ecran.sh', 'auto-execution'],
     ['docker/atelier/entrypoint.sh', 'auto-execution'],
+    // Les gardes que le train 5 a ajoutées à la ruche (#499 #501 #502 #512
+    // #516 #518) : les affaiblir passerait sans elles.
+    ['src/node-client/configuration-inerte.ts', 'securite'],
+    ['src/connectors/slack/definition.ts', 'securite'],
+    ['src/orchestrator/connecteurs.ts', 'securite'],
+    ['src/shared/graphe-experience.ts', 'securite'],
+    ['src/orchestrator/missions.ts', 'permissions'],
+    ['src/shared/mission-rejouable.ts', 'permissions'],
+    ['src/orchestrator/shadow-bench.ts', 'permissions'],
+    ['src/node-client/livraison-locale.ts', 'permissions'],
+    ['src/shared/reglages.ts', 'permissions'],
   ])('%s → %s', (chemin, categorie) => {
     const verdict = jugerDiff(modification(chemin));
     expect(verdict.etat).toBe('sensible');
