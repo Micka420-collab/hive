@@ -15,22 +15,22 @@
 Le dashboard (servi sur `:7777`) est une application complète de gestion de la
 ruche, navigable au clavier (touches **1-9**, `0`, `h`, `w`, `i`, `c`) via une sidebar alvéolaire :
 
-| Vue               | Ce qu'on y fait                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 🐝 **Ruche**      | Vue d'ensemble : Swarm View 2D/3D, KPIs, **pouls Plein Essaim** (niveau / pause / dérive → Projets), rayon de miel cliquable, file d'attente, journal.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| 👑 **Reine**      | Dialoguer avec la ruche dans **votre langue** : avancement, santé, classement, aide au cadrage de brief. **Flux SSE** (texte progressif), contexte multi-agents / Plein Essaim en lecture, tokens Anthropic, modes Chat / Plan / Autonomie / Sauvegardes, puce **Restaurer…**.                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| 🍯 **Miellerie**  | **Revoir ce que les IA ont produit** : diffs par fichier, logs, verdict du Parlement **et surface — deux agents allés au même endroit, ou pas**, approbation (a) ou rejet (x) au clavier, puis merge Honeycomb.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| ⬡ **Projets**     | Connecter un dépôt GitHub, rapports d'avancement, atelier brief→DAG (Queen Bee), plan et lancement de merge, conflits Sting, équipe, partage en lecture, Conseil des Éclaireuses.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| 🐝 **Rayon**      | **Le code du projet, lisible** : arbre de fichiers, éditeur coloré, aperçu du site produit, retouche → tâche (avec filet `avant_retouche`), et **timeline de sauvegardes** (voir le patch, restaurer ouvre une tâche).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| 🕺 **Essaim**     | Cartes des nœuds membres + Waggle Board (podium nectar).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| 💓 **Santé**      | Pouls de la ruche (débit, latences p50/p95, succès) + anomalies Ghost.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| 📜 **Chronique**  | Journal filtrable + Time-Lapse Replay (mode sépia « vous regardez le passé »).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| 🧠 **Mémoire**    | Recherche dans le savoir de la ruche (Hive Mind) + bibliothèque scientifique OpenAlex.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| 🏗 **Chantiers**   | **Les travaux que le dépôt DÉCLARE**, à un clic : ses scripts sur un nœud de la ruche, ses workflows sur GitHub. La ruche choisit dans cette liste et n'invente jamais une commande — et ce qui SORT de la machine porte la raison pour laquelle il faut un humain.                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| ⚔ **War Room**    | **Là où les IA se contredisent, et où vous tranchez** : Conseil, contre-expertise, renvois de l'Evaluator et revues humaines relus dans le journal, par projet et par tâche. En tête, les **désaccords non résolus** — un Conseil sans consensus que personne n'a tranché, une contestation dont le renvoi en correction n'a pas pu avoir lieu. Réunir un Conseil et le **trancher** (piste ou aucune, raison obligatoire, auteur rangé) se fait ici comme depuis la carte projet ; c'est la seule écriture de la vue. Accès direct depuis la Ruche.                                                                                                                                                            |
-| 🪪 **Mon espace** | Le tableau de bord d'une personne : ses projets, son quota, ses abonnements, ses machines — et ce qui réclame son attention, classé par urgence.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| 🖥 **Intendance**  | _Administrateurs seulement._ Les machines démarrées pour les abonnés, les comptes de la ruche, et **les clés** : qui a une clé de votre ruche, et de quoi la révoquer.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| 🧠 **Cerveau**    | _Administrateurs seulement._ Le savoir de la ruche en **graphe vivant**, à la manière d'Obsidian : les notes se repoussent, les liens les rapprochent, un halo respire sur ce qui a servi récemment. Un point **creux** n'a jamais servi — c'est du savoir stocké sans usage. Les liens morts sont listés mais **jamais dessinés** : les tracer vers le vide inventerait une note qui n'existe pas. Lecture seule. **S'explore** : recherche insensible aux accents, filtres par genre, filtre « dorment », zoom, déplacement, et une vue **liste** — un vrai tableau navigable au clavier, parce qu'un écran qui n'existerait qu'en pixels serait le seul endroit où `NO_COLOR` et `TERM=dumb` s'arrêteraient. |
+| Vue               | Ce qu'on y fait                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 🐝 **Ruche**      | Vue d'ensemble : Swarm View 2D/3D, KPIs dont la **dépense déclarée des dernières 24 h** (toujours avec sa couverture, « 3/5 tentatives déclarées » — jamais une facture ni une extrapolation), un bloc **Ce qui arrête la ruche** (aucune ouvrière en ligne, relecture qui attend une famille absente, refus d'infrastructure, relecture impossible sans décision humaine, projet arrêté par son plafond — chaque ligne mène au geste qui la lève), les **décisions récentes** (modèle commandé, contre-revue, renvois de l'Evaluator, revues humaines, Balance), **pouls Plein Essaim** (niveau / pause / dérive → Projets), rayon de miel cliquable, file d'attente, journal.                                                                                                 |
+| 👑 **Reine**      | Dialoguer avec la ruche dans **votre langue** : avancement, santé, classement, aide au cadrage de brief. **Flux SSE** (texte progressif), contexte multi-agents / Plein Essaim en lecture, tokens Anthropic, modes Chat / Plan / Autonomie / Sauvegardes, puce **Restaurer…**.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| 🍯 **Miellerie**  | **Revoir ce que les IA ont produit** : diffs par fichier, logs, verdict du Parlement **et surface — deux agents allés au même endroit, ou pas**, approbation (a) ou rejet (x) au clavier, puis merge Honeycomb.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ⬡ **Projets**     | Connecter un dépôt GitHub, rapports d'avancement, **rapport de mission** (par tâche : décision de l'Evaluator, contre-revue, reprises par source, temps et dépense déclarée avec sa couverture ; faits Genome de la mission — jamais par un lien de partage), atelier brief→DAG (Queen Bee), plan et lancement de merge, conflits Sting, équipe, partage en lecture, Conseil des Éclaireuses.                                                                                                                                                                                                                                                                                                                                                                                   |
+| 🐝 **Rayon**      | **Le code du projet, lisible** : arbre de fichiers, éditeur coloré, aperçu du site produit, retouche → tâche (avec filet `avant_retouche`), et **timeline de sauvegardes** (voir le patch, restaurer ouvre une tâche).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| 🕺 **Essaim**     | Cartes des nœuds membres — avec leur **économie** (coût et temps modèle déclarés avec leur couverture, durée médiane d'une réussite, par Worker et par modèle) — + Waggle Board (podium nectar). La fiche d'une ouvrière (Chambre) ajoute son **bilan** : la part de ses productions **acceptées par l'Evaluator** et son taux de correction, deux mesures séparées, « inconnues » sous trois productions jugées.                                                                                                                                                                                                                                                                                                                                                               |
+| 💓 **Santé**      | Pouls de la ruche (débit, latences p50/p95, succès) + anomalies Ghost.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| 📜 **Chronique**  | Journal filtrable + Time-Lapse Replay (mode sépia « vous regardez le passé »).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| 🧠 **Mémoire**    | Recherche dans le savoir de la ruche (Hive Mind) + bibliothèque scientifique OpenAlex.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| 🏗 **Chantiers**   | **Les travaux que le dépôt DÉCLARE**, à un clic : ses scripts sur un nœud de la ruche, ses workflows sur GitHub. La ruche choisit dans cette liste et n'invente jamais une commande — et ce qui SORT de la machine porte la raison pour laquelle il faut un humain.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ⚔ **War Room**    | **Là où les IA se contredisent, et où vous tranchez** : Conseil, contre-expertise (relectures impossibles comprises), renvois de l'Evaluator, revues humaines et forçages relus dans le journal, par projet et par tâche, filtrables par voix (Conseil, contre-expertise, Evaluator, décisions humaines). En tête, ce qui **attend quelqu'un** — un Conseil sans consensus que personne n'a tranché, une contestation dont le renvoi en correction n'a pas pu avoir lieu, une production que personne n'a pu relire. Protocole : [PROTOCOLE-DEBAT.md](PROTOCOLE-DEBAT.md). Réunir un Conseil et le **trancher** (piste ou aucune, raison obligatoire, auteur rangé) se fait ici comme depuis la carte projet ; c'est la seule écriture de la vue. Accès direct depuis la Ruche. |
+| 🪪 **Mon espace** | Le tableau de bord d'une personne : ses projets, son quota, ses abonnements, ses machines — et ce qui réclame son attention, classé par urgence.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| 🖥 **Intendance**  | _Administrateurs seulement._ Les machines démarrées pour les abonnés, les comptes de la ruche, et **les clés** : qui a une clé de votre ruche, et de quoi la révoquer.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| 🧠 **Cerveau**    | _Administrateurs seulement._ Le savoir de la ruche en **graphe vivant**, à la manière d'Obsidian : les notes se repoussent, les liens les rapprochent, un halo respire sur ce qui a servi récemment. Un point **creux** n'a jamais servi — c'est du savoir stocké sans usage. Les liens morts sont listés mais **jamais dessinés** : les tracer vers le vide inventerait une note qui n'existe pas. Lecture seule. **S'explore** : recherche insensible aux accents, filtres par genre, filtre « dorment », zoom, déplacement, et une vue **liste** — un vrai tableau navigable au clavier, parce qu'un écran qui n'existerait qu'en pixels serait le seul endroit où `NO_COLOR` et `TERM=dumb` s'arrêteraient.                                                                 |
 
 **Mon espace** répond à une seule question : _qu'est-ce qui va me coûter quelque
 chose si je ne fais rien aujourd'hui ?_ Les alertes passent donc avant les
@@ -76,6 +76,15 @@ l'API GitHub aurait exigé le **jeton de l'hôte** — montrer le code à une ab
 dépenserait pour elle un droit qui n'est pas le sien. **`.git` n'est jamais
 servi** : il contient `config`, donc l'URL distante, donc les identifiants du
 dépôt privé ; ni `.env`, `.npmrc`, `id_rsa` et les extensions de clés.
+Le miroir montre les **octets que le dépôt stocke** : aucun filtre ni
+conversion du `.gitattributes` (fins de ligne, `$Id$`, encodage) n'est
+appliqué, et **un fichier Git LFS apparaît comme son pointeur** (quelques
+lignes `version … oid sha256:… size …`), jamais téléchargé — dans l'arbre comme
+dans l'Aperçu. Un dépôt encore vide donne un Rayon vide ; si la branche par
+défaut de l'amont change, le miroir est recloné sur la nouvelle — à côté de
+l'ancienne copie, qui reste servie tant que le nouveau clone n'a pas réussi.
+Un amont dont le `HEAD` ne désigne aucune branche existante est signalé comme
+une panne, pas comme un dépôt vide.
 
 **La retouche ne s'enregistre pas — elle se propose.** Le miroir est une copie
 jetable : y écrire donnerait l'illusion d'avoir corrigé quelque chose, jusqu'au
@@ -122,6 +131,25 @@ Le jeton de partage n'est **pas** le jeton de ruche : il porte deux actes
 seulement (voir l'avancement, lire le code), vaut pour **un** projet, expire
 (7 jours par défaut, 90 au plus) et se révoque un par un sans toucher aux
 autres.
+
+**Supprimer un projet** se fait en bas de sa carte, dans la vue Projets — ou
+par `DELETE /api/projects/<id>`. C'est une **suppression**, pas un archivage :
+tâches, résultats, journal, mémoires du Hive Mind (et leurs propositions en
+attente), consignes de routage, dépenses de délégation, liens de partage,
+membres et miroir du code quittent la Reine. Il ne reste qu'une ligne d'audit,
+`project_deleted` (qui, quand, quel nom, combien de lignes), que l'élagage du
+journal épargne pour les 1 000 suppressions les plus récentes. Il faut un
+**compte** : le propriétaire, ou un administrateur (le seul pour un projet sans
+propriétaire) — le jeton de ruche seul ne supprime aucun projet (ADR 0007) — et
+la confirmation exige de **retaper le nom** du projet. Des tâches qui tournent font refuser la suppression (la liste est
+affichée) ; la redemander avec `force=true` les annule d'abord. Un merge, un
+chantier ou une livraison en vol, un cycle d'autonomie, un abonnement actif ou
+une machine encore chez le fournisseur la font refuser même forcée : ceux-là ne
+s'annulent pas. Les ateliers des ouvrières se nettoient chez elles ; une branche
+de mission livrée sur un nœud y reste. Les épisodes du Cerveau nés du projet
+(titre, objections, rejets de l'Evaluator) partent aussi ; les notes du Cerveau
+écrites à la main restent. Un épisode né d'un projet **privé** n'est jamais
+servi qu'aux tâches de ce projet.
 
 ## 📦 L'environnement — l'agent installe ce dont il a besoin
 
@@ -308,11 +336,40 @@ HIVE_PLANNER_MODEL=claude-haiku-4-5   # défaut rapide/économique ; opus pour +
 
 ## 🧩 Hive Mind — la ruche apprend (Palier 2)
 
-La ruche garde une **mémoire partagée** : chaque tâche réussie laisse un
-_souvenir_ (ce qui a été fait + un extrait des logs). Avant d'assigner une
+La ruche garde une **mémoire partagée** : chaque production **validée** laisse
+un _souvenir_ (ce qui a été fait + la réponse de l'agent). Avant d'assigner une
 nouvelle tâche, l'orchestrateur récupère les souvenirs les plus pertinents et
 **les injecte dans le prompt de l'ouvrière** — les tâches suivantes profitent du
 travail déjà accompli.
+
+Une réussite déclarée par l'ouvrière ne suffit pas : le souvenir n'entre en
+mémoire que lorsque l'**Evaluator accepte** la production ou qu'un **humain
+l'approuve** en revue. « Acceptée » exige tout à la fois : Gardiennes propres,
+**tests verts** venus d'un bac à sable (bubblewrap, podman ou docker sur le
+nœud) ou de la CI GitHub, et une contre-revue favorable d'une **autre famille
+d'agent**. Une production sans diff n'est jamais relue. Sur une installation
+par défaut — une seule famille, ni bac ni CI — le Hive Mind reste donc **vide
+tant qu'un humain n'approuve pas** les productions en revue.
+
+L'approbation humaine ne rachète pas une objection : objection d'une
+relectrice, validation rouge, signal suspect des Gardiennes ou désaccord avec le
+Parlement gardent le souvenir dehors, et le journal dit pourquoi
+(`memory_withheld`). Un rejet (objection, CI rouge, rejet humain) retire un
+souvenir retenu ; l'annulation de l'approbation humaine qui SEULE le validait
+aussi. Les relectures n'en laissent jamais. Le journal le dit :
+`memory_recorded` (avec qui a validé), `memory_forgotten` (avec pourquoi) et
+`memory_withheld`. Un souvenir écrit avant cette règle, à la simple réussite,
+est retiré de la même façon quand sa tâche est rejetée.
+
+Les échecs, eux, vont au **Cerveau** (dossier `cerveau/`, à côté de la base) :
+échec d'une ouvrière, objection d'une relectrice et rejet de l'Evaluator
+laissent chacun un _épisode_ attribué — agent, modèle commandé, nœud, tâche et
+résultat exacts. Une production rejetée laisse un seul épisode, quelle que soit
+la porte arrivée la première. Un rejet de l'Evaluator se compte par tâche :
+deux tâches sans rapport aux tests rouges font deux épisodes, pas un motif. La
+ruche pose `serviLe` (dernier service) sur un épisode au plus une fois par jour
+quand il part vers une ouvrière ; les notes écrites à la main ne sont jamais
+réécrites.
 
 La récupération est **100 % hors-ligne** (scoring lexical type BM25, sans
 embeddings ni API), donc déterministe et sans coût. Le dashboard affiche un
@@ -334,9 +391,86 @@ dans un bloc de données borné, **les objections, les motifs de l'Evaluator et
 la raison de l'humain** (champ facultatif à côté du bouton « Rejeter »). La
 Miellerie affiche sous chaque tâche la critique que sa tentative a reçue.
 
+Le relecteur termine par une ligne `HIVE_CRITIQUE` : des constats classés par
+**sévérité** (`bloquant`, `majeur`, `mineur`, `info`) et par **critère**
+(`correction`, `securite`, `tests`, `performance`, `lisibilite`,
+`conformite`), chacun avec sa preuve. Un constat bloquant ou majeur fait
+corriger ; une remarque mineure ou info ne relance jamais la production. La
+Miellerie et la War Room comptent les constats par critère.
+
 Le protocole complet — seuils du Conseil, règles de l'Evaluator, portes de
 retry, issues d'un désaccord — est dans
-**[PROTOCOLE-CRITIQUE.md](PROTOCOLE-CRITIQUE.md)**.
+**[PROTOCOLE-DEBAT.md](PROTOCOLE-DEBAT.md)**.
+
+## 📜 Le journal garde ses preuves
+
+Tout ce que la ruche fait passe par son **journal**, et le journal est borné.
+Deux familles d'événements n'y vivent pas le même temps :
+
+- les **traces** (progrès d'agent, nœuds, Conseils, gestes d'accès) : les
+  **5 000 derniers** événements, que les écrans rattrapent en direct et que la
+  Chronique, le Pulse, le Waggle et le Ghost replient ;
+- les **preuves** d'une tâche — CI et bac, relectures croisées et leurs
+  verdicts, revue humaine, renvois et critiques, raison du routing, faits du
+  registre Genome, provenance d'une livraison, mesure du Worker — vivent **avec
+  leur tâche** : tant que la ruche peut encore en décider quelque chose (en
+  vol, en attente d'une revue, d'une livraison ou d'une fusion), aucune nuit de
+  bavardage ne les efface ; close (échouée, fusionnée, rejetée sans nouvel
+  essai), elle les garde **trente jours** ; disparue, elle ne garde rien.
+
+Un **plafond de 50 000 lignes** borne le tout en dernier recours : il retire
+d'abord les preuves des tâches closes les plus anciennes, puis celles des tâches
+ouvertes restées le plus longtemps inactives — **tâche par tâche**, jamais la
+moitié d'un dossier. Si cela ne suffit pas (une tâche qui **boucle** —
+refusée puis réassignée toutes les trois secondes — a toujours une preuve
+récente), il **coupe** en tout dernier : d'abord les preuves qu'une plus
+récente du même type remplace, puis les plus anciennes. Le journal ne dépasse
+jamais le plafond. Chaque passe qui retire quelque chose l'écrit au Journal
+(« journal élagué : … », le plafond et la coupe nommés à part) et le compte
+par type ; le registre Genome ne se dit « tronqué » que si des faits d'une
+tâche encore connue ont pu disparaître (l'aveu est prudent : il peut le dire à
+tort, jamais taire une perte).
+
+**Limites connues.** Une tâche terminée qui attend encore une revue ou une
+livraison garde ses preuves tant qu'elle existe — mais la tâche elle-même est
+effacée trente jours après sa dernière mise à jour (`pruneTasks`), fusion ou
+non, sauf si une dépendante ou une délégation la retient. Et l'historique d'une
+délégation (`delegation_*`, rattaché à sa racine et non à une tâche) reste une
+trace : il ne vit que dans la fenêtre des 5 000 derniers événements.
+
+## 🌳 Délégation — un Worker confie une sous-tâche
+
+Un Worker Claude Code ou Codex peut confier une sous-tâche bornée à un autre
+Worker, par deux outils MCP : `hive_delegate`, puis
+`hive_wait_for_delegation_result`. Les bornes sont écrites dans la description
+même de l'outil, et chaque refus nomme celle qui a été franchie et ce qui
+reste :
+
+- au plus **3 niveaux** sous la tâche racine, **4 enfants** par parent,
+  **16 descendants** par racine (enfants terminés compris) ;
+- des budgets **cumulés par racine** — chaque enfant réserve sa part, qui ne se
+  rend pas : **30 min**, **5 000 000 µUSD** (5 USD du coût _déclaré_ par le CLI
+  de l'agent) et **4 unités** de ressources (un compte abstrait : rien n'est
+  mesuré derrière).
+
+Quand la dépense déclarée de l'arbre atteint son budget coût, plus aucun enfant
+n'est admis, aucune correction ne repart, et ceux en vol sont annulés — chacun
+avec sa raison, que le parent qui l'attend reçoit tout de suite — comme celui
+dont l'enfant a échoué sans rien rendre. Une tentative sans coût déclaré, ou
+interrompue avant d'avoir rendu (ouvrière perdue, annulation), n'est jamais
+comptée pour zéro : le tiroir de la tâche dit « au moins ». Un parent qui
+attend ses enfants **relâche sa place à son propre arbre** sur son ouvrière :
+un arbre ne s'interbloque plus sur un poste plein, et une autre racine ne se
+glisse pas dans cette place — `maxConcurrency` borne toujours le travail neuf.
+
+`preferredAgent` / `preferredModel` ne font que **départager des ex æquo** —
+l'Aiguillage garde le dernier mot, et la raison du choix dit si la préférence a
+compté. L'**opérateur**, lui, peut forcer : dans le tiroir d'une tâche, la
+**consigne de routage** impose ou exclut une famille d'agent ou un modèle
+(propriétaire du projet ou administrateur). C'est une exclusion dure, que ni
+les préférences ni une course de drones ne franchissent ; l'affectation est
+consignée « forcée par l'opérateur », et aucun score appris n'est touché. Si
+aucune ouvrière en ligne ne la satisfait, la tâche attend et le journal le dit.
 
 ## 🛡️ Sting Detector — prévention de conflits (Palier 2)
 

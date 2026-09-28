@@ -24,11 +24,13 @@ import {
   contexte,
   cout,
   liensDe,
+  marquerServie,
   nomFichier,
   pertinence,
   rendre,
   sante,
   selectionner,
+  servies,
   signature,
 } from '../src/shared/cerveau.js';
 
@@ -57,6 +59,46 @@ describe('LIRE ET ÉCRIRE UNE NOTE', () => {
     });
     const relu = analyser(n.id, rendre(n));
     expect(relu).toEqual(n);
+  });
+
+  it('L’ATTRIBUTION D’UN ÉPISODE FAIT L’ALLER-RETOUR — entière ou partielle', () => {
+    const complete = note({
+      id: 'ep-1',
+      genre: 'episode',
+      origine: {
+        source: 'rejet_evaluator',
+        taskId: 't-1',
+        resultId: 42,
+        nodeId: 'n-1',
+        agentType: 'claude-code',
+        modele: 'sonnet-4.6',
+      },
+    });
+    expect(analyser(complete.id, rendre(complete))).toEqual(complete);
+    // Un nœud sans modèle commandé n'en reçoit pas un par défaut : le champ
+    // reste absent, il ne devient ni `null` ni une chaîne vide.
+    const partielle = note({
+      id: 'ep-2',
+      genre: 'episode',
+      origine: { source: 'contre_revue', taskId: 't-2' },
+    });
+    expect(analyser(partielle.id, rendre(partielle))).toEqual(partielle);
+  });
+
+  it('UNE ATTRIBUTION ILLISIBLE EST ÉCARTÉE, PAS DEVINÉE', () => {
+    // L'en-tête s'édite à la main. Une source inconnue ne devient pas l'une des
+    // trois ; un identifiant de production qui n'est pas un entier positif n'est
+    // pas lu à moitié.
+    const lire = (lignes: string): Note | null =>
+      analyser('ep', `---\ngenre: episode\ntitre: t\n${lignes}\n---\ncorps`);
+    expect(lire('source: inventee\ntaskId: t-1')?.origine, 'source inconnue').toBeUndefined();
+    expect(lire('source: echec_worker')?.origine, 'sans tâche').toBeUndefined();
+    for (const brut of ['abc', '-3', '1.5', '0']) {
+      expect(
+        lire(`source: echec_worker\ntaskId: t-1\nresultId: ${brut}`)?.origine,
+        `resultId « ${brut} »`,
+      ).toEqual({ source: 'echec_worker', taskId: 't-1' });
+    }
   });
 
   it('un fichier qui n’est pas une note rend `null`, jamais une note à moitié', () => {
@@ -137,6 +179,67 @@ describe('LIRE ET ÉCRIRE UNE NOTE', () => {
     // il faut donc l'écarter explicitement : un lien vide dans le graphe
     // ferait un lien mort permanent que personne ne pourrait réparer.
     expect(liensDe('[[   ]] espaces'), 'un lien d’espaces n’est pas un lien').toEqual([]);
+  });
+});
+
+describe('SERVIR SANS RÉÉCRIRE — `marquerServie`', () => {
+  const quand = '2026-03-22T09:00:00.000Z';
+
+  it('AJOUTE la ligne juste avant la fermeture, sans toucher au reste', () => {
+    const avant = '---\ngenre: lecon\ntitre: t\ntags: [x]\n---\n\n# Corps\n';
+    expect(marquerServie(avant, quand)).toBe(
+      `---\ngenre: lecon\ntitre: t\ntags: [x]\nserviLe: ${quand}\n---\n\n# Corps\n`,
+    );
+  });
+
+  it('REMPLACE la ligne existante — toutes, puisque la dernière gagnait', () => {
+    const avant = '---\ngenre: lecon\nserviLe: 2020-01-01\n  serviLe : 2021-01-01\n---\ncorps';
+    const apres = marquerServie(avant, quand);
+    expect(apres).toBe(`---\ngenre: lecon\nserviLe: ${quand}\nserviLe: ${quand}\n---\ncorps`);
+    expect(analyser('x', apres ?? '')?.serviLe).toBe(quand);
+  });
+
+  it('GARDE les fins de ligne Windows d’une note écrite sous Windows', () => {
+    const avant = '---\r\ngenre: lecon\r\ntitre: t\r\n---\r\ncorps\r\n';
+    const apres = marquerServie(avant, quand);
+    expect(apres).toBe(`---\r\ngenre: lecon\r\ntitre: t\r\nserviLe: ${quand}\r\n---\r\ncorps\r\n`);
+    expect(analyser('x', apres ?? '')?.serviLe).toBe(quand);
+  });
+
+  it('ne répare pas ce qui n’est pas une note', () => {
+    expect(marquerServie('# juste du markdown', quand)).toBeNull();
+    expect(marquerServie('---\ngenre: lecon\njamais refermé', quand)).toBeNull();
+  });
+});
+
+describe('CE QUE LE BLOC PORTE VRAIMENT — `servies`', () => {
+  it('le préfixe des retenues qui a tenu dans l’enveloppe, et rien d’autre', () => {
+    const notes = ['a', 'b'].map((c) =>
+      note({ id: `ep-${c}`, genre: 'episode', titre: 'T', corps: c.repeat(400) }),
+    );
+    const selection = selectionner(notes, 'T', 1_000);
+    expect(selection.retenues).toHaveLength(2);
+    const bloc = contexte(selection, 1_000);
+    expect(servies(selection, bloc).map((n) => n.id)).toEqual(['ep-a']);
+    expect(servies(selection, contexte(selection, 10_000)).map((n) => n.id)).toEqual([
+      'ep-a',
+      'ep-b',
+    ]);
+    expect(servies(selection, ''), 'aucun bloc, aucune note servie').toEqual([]);
+  });
+
+  it('L’ATTRIBUTION NE VA PAS DANS LE PROMPT — c’est de la provenance, pas du savoir', () => {
+    const ep = note({
+      id: 'ep',
+      genre: 'episode',
+      titre: 'T',
+      corps: 'un fait',
+      origine: { source: 'echec_worker', taskId: 'TACHE-TEMOIN', nodeId: 'NOEUD-TEMOIN' },
+    });
+    const bloc = contexte(selectionner([ep], 'T', 10_000));
+    expect(bloc).toContain('un fait');
+    expect(bloc).not.toContain('TACHE-TEMOIN');
+    expect(bloc).not.toContain('NOEUD-TEMOIN');
   });
 });
 

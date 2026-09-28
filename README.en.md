@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-7073%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-7516%20passing-F6C445?labelColor=17130C)
 ![License](https://img.shields.io/badge/license-MIT-F6C445?labelColor=17130C)
 
 [🇫🇷 Français](README.md) · 🇬🇧 English · [🌐 Site](https://micka420-collab.github.io/hive/?lang=en) · [📚 Documentation](#-documentation)
@@ -44,7 +44,8 @@ without your say-so. **The code and the keys stay on your machines.**
 Shots of the running app (`npm run ruche`), not mockups.
 Every view of the navigation bar, the Chambre and a task drawer, desktop and
 mobile, are re-shot in one command on a lab hive: `npm run captures`
-([docs/CAPTURES.md](docs/CAPTURES.md), FR).
+([docs/CAPTURES.md](docs/CAPTURES.md), FR). Who settles what when the AIs
+disagree: [docs/PROTOCOLE-DEBAT.en.md](docs/PROTOCOLE-DEBAT.en.md).
 
 <p align="center">
   <img src="docs/images/vitrine.png" width="840" alt="Hive landing page — cream paper, honey accent, hexagons.">
@@ -60,6 +61,9 @@ mobile, are re-shot in one command on a lab hive: `npm run captures`
 </p>
 <p align="center">
   <img src="docs/images/dashboard-chambre.png" width="840" alt="Dashboard — Chambre worker station Capucine, Needs a decision banner, bee and flower.">
+</p>
+<p align="center">
+  <img src="docs/images/captures/warroom.bureau.png" width="840" alt="War Room — unresolved disagreements (a contest out of attempts, an impossible review, a Council to settle) and the thread's voices; protocol: docs/PROTOCOLE-DEBAT.en.md.">
 </p>
 <p align="center">
   <a href="docs/media/chambre-presentation-demo.mp4">Video — Chambre walkthrough (FR UI)</a>
@@ -238,7 +242,9 @@ still stops everything.
 With **podman**, **docker** or **bubblewrap**, the agent only sees its own task
 directory. **The network stays open**: a coding agent must reach its model's
 API. Without a container engine, set `HIVE_ISOLEMENT=exige` — the node will
-refuse to work in the open.
+refuse to work in the open. What CI proves, per OS and per sandbox (Linux,
+macOS, Windows × no sandbox, bubblewrap, Podman, Docker):
+[docs/INSTALLATION.md](docs/INSTALLATION.md), “Systèmes et bacs à sable” (FR).
 
 The default image, `localhost/hive-agent:local` (Claude Code, Codex, Cline), is
 built on each node with `npm run bac:image`; Hive never downloads it. The node
@@ -300,6 +306,7 @@ hive tasks.
 | **[docs/ETAPES.md](docs/ETAPES.md)**                         | The project's real state against its own promises (FR)     |
 | **[docs/MODELE-ECONOMIQUE.md](docs/MODELE-ECONOMIQUE.md)**   | Quotas, subscriptions, what is billed (FR)                 |
 | **[CHANGELOG.md](CHANGELOG.md)**                             | What changed, version by version                           |
+| **[docs/RELEASING.md](docs/RELEASING.md)**                   | Versions, tags, upgrading without losing anything (FR)     |
 
 Most of the deep documentation is in French, as is the codebase's commentary.
 `docs/FEATURES.en.md` is the English reference.

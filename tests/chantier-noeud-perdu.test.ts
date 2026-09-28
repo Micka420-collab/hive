@@ -426,6 +426,50 @@ describe('les chantiers et les poses d’un nœud qui se déconnecte', () => {
     expect(await attendre(poseClose), 'la pose d’un nœud muet n’a jamais expiré').toBe(true);
   });
 
+  it('UNE BORNE DU TICK QUI JETTE NE FIGE NI L’EXPIRATION NI LE CONSEIL', async () => {
+    // #527 : tout le tick tenait dans un seul `try`. Une borne qui jetait à
+    // chaque tour — une annonce de durée qui bloquait `pruneTasks` par sa clé
+    // étrangère — laissait pour toujours les travaux d'un nœud muet « en
+    // cours » et les Conseils sans dépouillement. Les deux premières bornes
+    // du tour jettent ici à chaque passage : la pose doit expirer quand même.
+    const srv = await ruche(50);
+    const admin = await entetesAdmin();
+    await inscrire(srv, 'noeud-muet');
+    const panne = (): never => {
+      throw new Error('borne en panne');
+    };
+    const bornes = [
+      vi.spyOn(srv.store, 'pruneMemories').mockImplementation(panne),
+      vi.spyOn(srv.store, 'pruneTasks').mockImplementation(panne),
+    ];
+    const conseils = vi.spyOn(srv.store, 'sessionsOuvertes');
+    const erreurs: string[] = [];
+    const sortie = vi.spyOn(console, 'error').mockImplementation((...a: unknown[]) => {
+      erreurs.push(a.map(String).join(' '));
+    });
+    try {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      const t0 = Date.now();
+      const poseId = await poser('noeud-muet', admin);
+      vi.setSystemTime(t0 + 2 * 3_600_000);
+      expect(
+        await attendre(async () =>
+          (await journal()).some(
+            (e) => e.type === 'outil_pose_sans_reponse' && e.payload.poseId === poseId,
+          ),
+        ),
+        'une borne en panne a figé l’expiration des travaux',
+      ).toBe(true);
+      expect(conseils, 'une borne en panne a figé le Conseil').toHaveBeenCalled();
+      for (const borne of bornes) expect(borne).toHaveBeenCalled();
+      // La panne se DIT, sous le nom de l'étape — pas une ligne anonyme.
+      expect(erreurs.some((e) => e.includes('(pruneTasks)'))).toBe(true);
+    } finally {
+      sortie.mockRestore();
+      for (const borne of bornes) borne.mockRestore();
+    }
+  });
+
   it('UN MERGE DE LIVRAISON CHEZ UN NŒUD MUET : pas perdu avant ses bornes — les deux appels au dépôt distant compris', async () => {
     // Le nœud a le droit de cloner, préparer, tester, puis — livraison
     // locale — d'appeler deux fois le dépôt du projet (`ls-remote`, poussée),

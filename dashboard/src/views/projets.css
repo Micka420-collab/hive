@@ -327,6 +327,76 @@
   margin-top: 2px;
 }
 
+/* Le rapport de mission : les chiffres de tête (toujours avec leur
+   couverture), puis une ligne par tâche. Le tableau défile seul : une carte
+   projet étroite ne doit pas élargir la page. */
+.mission-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.mission-panel h4 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.mission-kpi {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px;
+}
+
+.mission-kpi dt {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.mission-kpi dd {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+}
+
+.mission-couverture,
+.mission-meta,
+.mission-fenetre {
+  color: var(--faint);
+  font-size: 11px;
+}
+
+.mission-meta {
+  display: block;
+}
+
+.mission-defile {
+  overflow-x: auto;
+}
+
+.mission-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.mission-table th,
+.mission-table td {
+  padding: 4px 6px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+}
+
+.mission-table thead th {
+  color: var(--muted);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 /* ─── Sous-panneaux (plan de merge, conflits Sting) ────────────────────── */
 
 .pj-sub {
@@ -1461,5 +1531,48 @@
 .pj-mission-echec {
   margin: 0;
   color: var(--red, #a8402a);
+  overflow-wrap: anywhere;
+}
+
+/* ─── Supprimer le projet ─────────────────────────────────────────────────
+   En bas de carte, séparé par un filet rouge : le seul geste qui emporte tout
+   ne se confond pas avec l'équipe ou les liens juste au-dessus. */
+.pj-suppression {
+  border-top: 1px dashed var(--red);
+  padding-top: 10px;
+}
+
+.pj-suppression-dit {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.pj-suppression-envol p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--amber);
+}
+
+.pj-suppression-envol ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  /* Des titres de tâches : du texte d'utilisateur, qui ne pousse rien. */
+  overflow-wrap: anywhere;
+}
+
+/* Ce qui vient de partir se DIT, en tête de la liste. */
+.pj-supprime {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  border-left: 3px solid var(--red);
+}
+
+.pj-supprime p {
+  margin: 0;
+  flex: 1 1 32ch;
   overflow-wrap: anywhere;
 }

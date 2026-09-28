@@ -21,7 +21,9 @@
 // · délai borné — `npm install -g` peut pendre indéfiniment sur un registre
 //   injoignable ; sans butoir, le nœud reste bloqué sans jamais répondre.
 
-import { spawn } from 'node:child_process';
+import { ENTREE_FERMEE } from '../adapters/exec.js';
+import { LanceurIndisponible, resoudreLanceur } from '../lanceur-reel.js';
+import { lancerArbre } from '../shared/arbre-processus.js';
 import { POSE_DELAI_MS } from '../shared/butoirs-noeud.js';
 import { direRefusPose, jugerPose } from '../shared/pose-outil.js';
 import type { PoseResultMsg, PoserOutilMsg } from '../shared/protocol.js';
@@ -45,7 +47,14 @@ export interface OutilsPose {
 }
 
 /**
- * Le lanceur réel. `shell: false`, sortie plafonnée, délai borné.
+ * Le lanceur réel. `shell: false`, sortie plafonnée, délai borné — et l'ARBRE
+ * entier, pas le seul `npm` (`lancerArbre`, `shared/arbre-processus.ts`).
+ *
+ * `npm install -g` lance un `node`, qui lance les scripts `postinstall` du
+ * paquet. Tuer `npm` seul au délai laissait tourner le reste ; et un script
+ * qui laissait un descendant sur la sortie retenait `close` : la pose restait
+ * « en cours » jusqu'au butoir de dix minutes, pour une commande déjà finie.
+ * L'arbre est aussi RETENU : un nœud qui s'arrête l'emporte avec lui.
  *
  * Un `spawn` qui échoue à démarrer (ENOENT : npm absent) rend `code: null` et
  * dit pourquoi, plutôt que de laisser croire à un échec d'installation.
@@ -53,37 +62,41 @@ export interface OutilsPose {
 export const lancerVraiment: Lanceur = (bin, args) =>
   new Promise<Lancement>((resolve) => {
     let sortie = '';
-    let fini = false;
-    const rendre = (code: number | null, ajout = ''): void => {
-      if (fini) return;
-      fini = true;
-      resolve({ code, sortie: sortie + ajout });
-    };
-
-    const enfant = spawn(bin, [...args], {
-      shell: false, // jamais d'interprétation shell
-      windowsHide: true,
-    });
-
+    // Sous Windows, `npm` est `npm.cmd`, qu'un `spawn` sans shell ne lance pas
+    // (ENOENT) : toute pose y échouait. Même résolution que les merges.
+    let lance: { bin: string; args: string[] };
+    try {
+      lance = resoudreLanceur(bin, args);
+    } catch (e) {
+      if (!(e instanceof LanceurIndisponible)) throw e;
+      resolve({ code: null, sortie: `\n[hive] ${e.motif}` });
+      return;
+    }
+    const enfant = lancerArbre(
+      lance.bin,
+      lance.args,
+      { cwd: process.cwd(), env: process.env, stdio: ENTREE_FERMEE },
+      { delaiMs: POSE_DELAI_MS },
+      (fin) => {
+        if (fin.issue === 'sortie') resolve({ code: fin.code, sortie });
+        else if (fin.issue === 'arret') {
+          resolve({
+            code: null,
+            sortie: `${sortie}\n[hive] pose interrompue après ${POSE_DELAI_MS / 60_000} min`,
+          });
+        } else {
+          resolve({
+            code: null,
+            sortie: `${sortie}\n[hive] la commande n'a pas démarré : ${fin.erreur.message}`,
+          });
+        }
+      },
+    );
     const prendre = (c: Buffer): void => {
       if (sortie.length < POSE_SORTIE_MAX) sortie += c.toString();
     };
     enfant.stdout?.on('data', prendre);
     enfant.stderr?.on('data', prendre);
-
-    const butoir = setTimeout(() => {
-      enfant.kill('SIGKILL');
-      rendre(null, `\n[hive] pose interrompue après ${POSE_DELAI_MS / 60_000} min`);
-    }, POSE_DELAI_MS);
-
-    enfant.on('error', (e: Error) => {
-      clearTimeout(butoir);
-      rendre(null, `\n[hive] la commande n'a pas démarré : ${e.message}`);
-    });
-    enfant.on('close', (code) => {
-      clearTimeout(butoir);
-      rendre(code);
-    });
   });
 
 /**

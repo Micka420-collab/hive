@@ -56,6 +56,7 @@
  */
 
 import {
+  execFileSync,
   spawn,
   type ChildProcess,
   type ChildProcessByStdio,
@@ -198,6 +199,56 @@ export function reprendreTous(): void {
     }
   }
   vivants.clear();
+  // Seulement s'il vit encore : un pid mort a pu être rendu à un inconnu.
+  for (const pid of etrangers) {
+    if (!processusVivant(pid)) continue;
+    try {
+      process.kill(pid, 'SIGKILL');
+    } catch {
+      // parti entre-temps
+    }
+  }
+  etrangers.clear();
+}
+
+/**
+ * Vrai tant que le processus existe ET n'est pas un zombie.
+ *
+ * `kill(pid, 0)` seul répondrait « vivant » pour un zombie : un processus mort
+ * que personne n'a encore ramassé — l'init ramasse l'orphelin, et n'est pas
+ * tenu de le faire à la milliseconde. Sous POSIX, `ps` dit l'état exact ;
+ * Windows n'a pas de zombie, le signal 0 y suffit.
+ */
+export function processusVivant(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+  } catch {
+    return false;
+  }
+  if (!POSIX) return true;
+  try {
+    const etat = execFileSync('ps', ['-o', 'stat=', '-p', String(pid)], { encoding: 'utf8' });
+    return etat.trim() !== '' && !etat.trim().startsWith('Z');
+  } catch {
+    return false; // `ps` sort en 1 quand le pid n'existe plus
+  }
+}
+
+/** Les processus qu'un banc a vus naître HORS de ses groupes (voir `retenirPid`). */
+const etrangers = new Set<number>();
+
+/**
+ * Retient un processus que le banc n'a PAS lancé lui-même — l'agent d'un nœud
+ * sous test, son petit-enfant — pour que `reprendreTous` l'abatte aussi.
+ *
+ * Depuis que le nœud lance chaque agent comme chef de SON groupe
+ * (`src/shared/arbre-processus.ts`), le balayage du groupe d'un nœud ne les
+ * atteint plus : c'est tout l'objet du correctif. Un banc qui échoue — l'agent
+ * a survécu — laisserait donc l'orphelin tourner sur la machine. Retenu ici, il
+ * tombe avec le reste, quelle que soit la façon dont le test a fini.
+ */
+export function retenirPid(pid: number): void {
+  etrangers.add(pid);
 }
 
 /** Combien de groupes ce harnais retient encore — pour qu'un banc puisse le JUGER. */

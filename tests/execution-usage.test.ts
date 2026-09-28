@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { executionUsageDepuis } from '../src/node-client/execution-usage.js';
 import { HiveStore } from '../src/orchestrator/store.js';
+import { fenetreSeule } from './aide/journal-retenu.js';
 
 const usage = {
   userCpuMicros: 1_200,
@@ -44,6 +45,10 @@ describe('persistance de la mesure reliée au résultat', () => {
   it('relit la mesure depuis le journal sans modifier le schéma results', () => {
     const store = new HiveStore(':memory:');
     try {
+      // Une vraie tâche : la mesure est une preuve que la rétention du journal
+      // garde AVEC sa tâche — un résultat d'une tâche inconnue n'en a pas.
+      const projet = store.createProject({ name: 'P' });
+      store.createTask({ id: 'task-usage', projectId: projet.id, title: 'Mesurer', prompt: 'p' });
       const resultId = store.insertResult({
         taskId: 'task-usage',
         nodeId: 'worker-usage',
@@ -59,7 +64,7 @@ describe('persistance de la mesure reliée au résultat', () => {
       expect(store.listEvents().some((event) => event.type === 'worker_usage')).toBe(true);
 
       store.appendEvent('after_usage', { taskId: 'other' });
-      store.pruneEvents(1);
+      store.pruneEvents(fenetreSeule(1));
       expect(store.resultsForTask('task-usage')[0]?.usage).toEqual(usage);
     } finally {
       store.close();

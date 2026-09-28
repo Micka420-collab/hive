@@ -20,6 +20,20 @@ de bord (vue Reine), « Allumer l'atelier ». `POST /api/atelier/demarrer`.
 Sans Docker ni Podman : pas de bureau simulé. L'agent travaille en aveugle,
 et on le dit.
 
+### Une Reine en conteneur : l'atelier s'allume depuis l'hôte
+
+`HIVE_ATELIER=auto` et le bouton ne valent que pour une Reine lancée **sur
+l'hôte** (`npm run ruche`, un service). La Reine de `docker-compose.yml` lance
+`docker compose` pour allumer l'atelier — or son conteneur n'a ni le client
+`docker` ni la socket du démon, et ne les aura pas : les lui donner reviendrait
+à lui donner l'hôte entier. Elle ne voit pas non plus le démon d'outils, publié
+sur la boucle locale de l'HÔTE et non sur la sienne. Avec une Reine en
+conteneur, on l'allume donc à la main, sur l'hôte :
+
+```
+docker compose --profile atelier up -d atelier
+```
+
 ## Trois canaux
 
 | Canal   | Port (hôte, **127.0.0.1** seulement) | Rôle                                                       |

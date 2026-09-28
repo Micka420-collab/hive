@@ -30,7 +30,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { simpleGit } from 'simple-git';
 import { resoudreLanceur } from '../src/lanceur-reel.js';
-import { GRACE_ARRET_MS } from '../src/node-client/merge-runner.js';
+import { GRACE_ARRET_MS } from '../src/shared/arbre-processus.js';
 import { poserRegistre } from '../src/node-client/git-hote.js';
 import type { DepotEpingle } from '../src/shared/git-protege.js';
 import { validerProduction } from '../src/node-client/validations-bac.js';

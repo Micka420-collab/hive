@@ -27,7 +27,13 @@ import { decodeInvite } from '../shared/invite.js';
 import { decoderBillet, encoderBillet, jugerTransport, urlHttpDeRuche } from '../shared/acces.js';
 import type { Billet } from '../shared/acces.js';
 import { LIMITS } from '../shared/protocol.js';
-import { bornerConcurrence, identiteStable, lireCle, rangerCle } from './identite-noeud.js';
+import {
+  bornerConcurrence,
+  identiteStable,
+  lireCle,
+  rangerCle,
+  refusRacineDeTravail,
+} from './identite-noeud.js';
 import { annonceAgent, avertissementTransport } from './annonces-join.js';
 
 try {
@@ -192,6 +198,13 @@ async function main(): Promise<void> {
   }
 
   const workRoot = process.env.HIVE_WORKDIR ?? path.join('.hive-work', 'join');
+  // Une racine DONNÉE que Windows ne peut pas créer se refuse ici, en la
+  // nommant — plutôt qu'un `mkdir` qui échoue sur un périphérique (`refusRacineDeTravail`).
+  const refusRacine = refusRacineDeTravail(workRoot);
+  if (refusRacine) {
+    console.error(`✘ Ce nœud ne démarre pas : ${refusRacine}\n`);
+    process.exit(CODE.PREREQUIS);
+  }
   const maxConcurrency = bornerConcurrence(process.env.HIVE_MAX_CONCURRENCY);
   const nodeId = identiteStable(workRoot);
 

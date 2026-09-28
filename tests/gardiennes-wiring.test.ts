@@ -81,7 +81,7 @@ describe('Gardiennes : non-régression par rejeu de séquence', () => {
     expect(consultatif.annulations).toEqual(eteinte.annulations);
     expect(consultatif.taches).toEqual(eteinte.taches);
     // Les quatre robinets coulent EXACTEMENT comme avant : le résultat est
-    // rangé en succès (donc phéromone positive) et le souvenir est écrit.
+    // rangé en succès (donc phéromone positive) et le souvenir est proposé.
     expect(consultatif.resultats).toEqual(eteinte.resultats);
     expect(consultatif.souvenirs).toEqual(eteinte.souvenirs);
     expect(consultatif.souvenirs).toBe(1);
@@ -108,11 +108,12 @@ describe('Gardiennes : non-régression par rejeu de séquence', () => {
     expect(strict.types).not.toEqual(eteinte.types);
     expect(strict.assignations).not.toEqual(eteinte.assignations);
     expect(strict.taches).not.toEqual(eteinte.taches);
-    // Ce qui disparaît : la victoire et le souvenir. Ce qui apparaît : le refus.
+    // Ce qui disparaît : la victoire et le souvenir proposé. Ce qui apparaît :
+    // le refus.
     expect(eteinte.types).toContain('task_done');
-    expect(eteinte.types).toContain('memory_recorded');
+    expect(eteinte.souvenirs).toBe(1);
     expect(strict.types).not.toContain('task_done');
-    expect(strict.types).not.toContain('memory_recorded');
+    expect(strict.souvenirs).toBe(0);
     expect(strict.types).toContain('guard_refused');
     // Le refus est journalisé AVANT sa conséquence : la Chronique doit montrer
     // la cause, puis l'effet.
@@ -222,11 +223,12 @@ describe('Gardiennes : ce qu’un refus ne nourrit pas', () => {
     const p = plateau({ mode: 'strict' });
     expect(p.scheduler.handleTaskResult('n1', creuse('T1'))).toBe(true);
 
-    // 1) Hive Mind — la mémoire collective reste vierge. C'est la pollution la
-    //    plus durable des quatre : un souvenir creux est indistinguable d'un
-    //    vrai et sera réinjecté dans les prompts pendant des mois.
+    // 1) Hive Mind — la mémoire collective reste vierge, et rien n'y est même
+    //    PROPOSÉ. C'est la pollution la plus durable des quatre : un souvenir
+    //    creux est indistinguable d'un vrai et serait réinjecté dans les
+    //    prompts pendant des mois.
     expect(store.countMemories()).toBe(0);
-    expect(p.journal.filter((e) => e.type === 'memory_recorded')).toEqual([]);
+    expect(store.souvenirPropose('T1')).toBeNull();
 
     // 2) Phéromones — le résultat est rangé en ÉCHEC, donc le repli dépose −6
     //    au lieu de +10 : la ruche n'apprend pas à préférer l'ouvrière qui ment.
@@ -261,8 +263,9 @@ describe('Gardiennes : ce qu’un refus ne nourrit pas', () => {
     const p = plateau({ mode: 'consultatif' });
     expect(p.scheduler.handleTaskResult('n1', creuse('T1'))).toBe(true);
 
-    expect(store.countMemories()).toBe(1);
-    expect(p.journal.map((e) => e.type)).toContain('memory_recorded');
+    // Le souvenir est PROPOSÉ comme pour toute production retenue ; c'est
+    // l'Evaluator, qui lira ce verdict creux, qui le refusera.
+    expect(store.souvenirPropose('T1')).not.toBeNull();
     expect(store.listResultsForPheromones().map((r) => r.success)).toEqual([true]);
     expect(buildWaggleBoard(p.journal).totalTasksDone).toBe(1);
     expect(store.getTask('T1')?.status).toBe('done');
@@ -286,7 +289,7 @@ describe('Gardiennes : ce qu’un refus ne nourrit pas', () => {
     expect(lecturesProjet).toBe(0);
     expect(store.countInspections()).toBe(0);
     expect(store.getTask('T1')?.status).toBe('done');
-    expect(store.countMemories()).toBe(1);
+    expect(store.souvenirPropose('T1')).not.toBeNull();
   });
 
   it('une production HONNÊTE n’est jamais refusée, même en `strict`', () => {
@@ -304,7 +307,7 @@ describe('Gardiennes : ce qu’un refus ne nourrit pas', () => {
       p.scheduler.handleTaskResult('n1', resultat('T1', { success: true, diff, durationMs: 10 })),
     ).toBe(true);
     expect(store.getTask('T1')?.status).toBe('done');
-    expect(store.countMemories()).toBe(1);
+    expect(store.souvenirPropose('T1')).not.toBeNull();
     expect(p.journal.filter((e) => e.type === 'guard_refused')).toEqual([]);
     // Le verdict est quand même rangé : une campagne d'observation a besoin de
     // son dénominateur, sinon « 3 refus » ne veut rien dire.
@@ -508,7 +511,7 @@ describe('Gardiennes : une course ne contourne pas le trou de vol', () => {
     expect(store.getTask('T1')?.status).not.toBe('done');
     expect(journal.map((e) => e.type)).toContain('guard_refused');
     expect(journal.filter((e) => e.type === 'drone_won')).toEqual([]);
-    expect(store.countMemories()).toBe(0);
+    expect(store.souvenirPropose('T1')).toBeNull();
 
     // Le second rapporte du vrai nectar : lui gagne.
     const diff = [
@@ -523,7 +526,10 @@ describe('Gardiennes : une course ne contourne pas le trou de vol', () => {
     scheduler.handleTaskResult('n2', resultat('T1', { success: true, diff, durationMs: 20 }));
     expect(store.getTask('T1')?.status).toBe('done');
     expect(store.getTask('T1')?.assignedNodeId).toBe('n2');
-    expect(store.countMemories()).toBe(1);
+    // Le souvenir proposé est celui du VAINQUEUR, pas du drone creux.
+    expect(store.souvenirPropose('T1')?.resultId).toBe(
+      store.resultsForTask('T1').find((r) => r.nodeId === 'n2')?.resultId,
+    );
     // Deux inspections rangées : la refusée et l'acceptée.
     expect(store.listInspections().map((i) => i.applique)).toEqual([false, true]);
   });

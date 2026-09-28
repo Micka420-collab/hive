@@ -10,11 +10,24 @@ import {
 } from '../../src/shared/protocol';
 import type { HiveEvent, Project, StateSnapshot, Task, TaskResult } from '../../src/shared/types';
 import type { Graphe } from '../../src/shared/cerveau-graphe.js';
-import type { DecisionConseil, Desaccord, EntreeWarRoom } from '../../src/shared/war-room.js';
-export type { DecisionConseil, Desaccord, EntreeWarRoom } from '../../src/shared/war-room.js';
+import type { Constat } from '../../src/shared/critique-structuree.js';
+import type {
+  DecisionConseil,
+  Desaccord,
+  EntreeWarRoom,
+  FamilleWarRoom,
+} from '../../src/shared/war-room.js';
+export type {
+  DecisionConseil,
+  Desaccord,
+  EntreeWarRoom,
+  FamilleWarRoom,
+} from '../../src/shared/war-room.js';
 import type { WorkerSnapshot } from '../../src/orchestrator/workers.js';
 import type { JournalOuvriere } from '../../src/orchestrator/journal-ouvriere.js';
 import type { RapportLivraisonLocale } from '../../src/shared/livraison-locale.js';
+import type { ConsigneRoutage } from '../../src/shared/consigne-routage.js';
+import type { LimitesDelegation } from '../../src/shared/limites-delegation.js';
 import type {
   EvaluationResult,
   ValidationEvidence,
@@ -555,9 +568,11 @@ export function trancherConseil(
 export interface VueWarRoom {
   projectId: string | null;
   taskId: string | null;
+  /** La seule voix montrée, `null` pour toutes. Ne filtre jamais `desaccords`. */
+  famille: FamilleWarRoom | null;
   /** Du plus ancien au plus récent, bornées à `limite`. */
   entrees: EntreeWarRoom[];
-  /** Vrai quand des entrées plus anciennes existent au-delà de `limite`. */
+  /** Vrai quand des entrées plus anciennes (de cette famille) existent au-delà de `limite`. */
   tronque: boolean;
   desaccords: Desaccord[];
   taches: Record<string, { titre: string; projectId: string }>;
@@ -567,11 +582,17 @@ export interface VueWarRoom {
 }
 
 export function fetchWarRoom(
-  filtre: { projectId?: string | null; taskId?: string | null; limite?: number } = {},
+  filtre: {
+    projectId?: string | null;
+    taskId?: string | null;
+    famille?: FamilleWarRoom | null;
+    limite?: number;
+  } = {},
 ): Promise<VueWarRoom> {
   const q = new URLSearchParams();
   if (filtre.projectId) q.set('projectId', filtre.projectId);
   if (filtre.taskId) q.set('taskId', filtre.taskId);
+  if (filtre.famille) q.set('famille', filtre.famille);
   if (filtre.limite !== undefined) q.set('limite', String(filtre.limite));
   const qs = q.toString();
   // Lecture de projet : le compte ouvre les projets qui ont un propriétaire.
@@ -736,17 +757,57 @@ export interface DelegationEvent {
   payload: Record<string, unknown>;
 }
 
+/**
+ * L'enveloppe de la racine, telle que la Reine la tient : plafonds cumulés,
+ * réservations de tout l'arbre, dépense DÉCLARÉE (un plancher dès que
+ * `depense.sansCout > 0`). Absente d'une Reine d'avant les budgets par racine.
+ */
+export interface EnveloppeDelegation {
+  limites: LimitesDelegation;
+  reserve: { durationMs: number; costMicros: number; resourceUnits: number };
+  depense: { micros: number; tentatives: number; sansCout: number };
+  coutEpuise: boolean;
+}
+
 export interface TaskDelegationGraph {
   taskId: string;
   rootTaskId: string;
   graph: DelegationGraphNode[];
   delegations: DelegationRecord[];
   events: DelegationEvent[];
+  enveloppe?: EnveloppeDelegation;
 }
 
 /** Lecture authentifiée du graphe et de l’activité de délégation réelle. */
 export function fetchDelegationGraph(taskId: string): Promise<TaskDelegationGraph> {
   return api<TaskDelegationGraph>(`/api/tasks/${encodeURIComponent(taskId)}/delegation`);
+}
+
+/** La consigne de routage de l'opérateur sur une tâche (`null` : aucune). */
+export interface ConsigneRoutageRangee {
+  taskId: string;
+  consigne: ConsigneRoutage | null;
+  definiPar: string | null;
+  majA: number | null;
+  /** Faux pour une relecture : elle suit la famille désignée, aucune consigne ne s'y pose. */
+  applicable: boolean;
+  /** À la pose seulement : une tâche déjà partie garde son porteur. */
+  effet?: 'immediat' | 'prochaine_affectation';
+}
+
+export function fetchConsigneRoutage(taskId: string): Promise<ConsigneRoutageRangee> {
+  return api<ConsigneRoutageRangee>(`/api/tasks/${encodeURIComponent(taskId)}/consigne-routage`);
+}
+
+/** Pose — ou lève, avec `null` — la consigne : propriétaire ou administrateur. */
+export function poserConsigneRoutage(
+  taskId: string,
+  consigne: ConsigneRoutage | null,
+): Promise<ConsigneRoutageRangee> {
+  return api<ConsigneRoutageRangee>(`/api/tasks/${encodeURIComponent(taskId)}/consigne-routage`, {
+    method: 'PUT',
+    body: JSON.stringify({ consigne }),
+  });
 }
 
 export interface Memory {
@@ -1241,9 +1302,52 @@ export function fetchEssaim(projectId: string): Promise<EtatEssaimUi> {
   return api<EtatEssaimUi>(`/api/projects/${projectId}/essaim`);
 }
 
-/** Projection authentifiée des nœuds Worker et du vécu Aiguillage. */
-export function fetchWorkers(): Promise<{ workers: WorkerSnapshot[] }> {
-  return api<{ workers: WorkerSnapshot[] }>('/api/workers');
+export type { BilanEconomique, FenetreLue } from '../../src/shared/economie';
+export type { QualiteWorker } from '../../src/orchestrator/workers';
+import type { BilanEconomique, FenetreLue } from '../../src/shared/economie';
+import type { QualiteWorker } from '../../src/orchestrator/workers';
+
+/**
+ * Projection authentifiée des nœuds Worker et du vécu Aiguillage.
+ * `fenetreEconomie` : la fenêtre du journal d'où vient l'économie de chaque
+ * Worker — absente d'une Reine plus ancienne.
+ */
+export function fetchWorkers(): Promise<{
+  workers: WorkerSnapshot[];
+  fenetreEconomie?: FenetreLue;
+}> {
+  return api<{ workers: WorkerSnapshot[]; fenetreEconomie?: FenetreLue }>('/api/workers');
+}
+
+/** Le bilan d'un Worker pour sa fiche : économie par modèle et qualité jugée par l'Evaluator. */
+export interface BilanWorker {
+  nodeId: string;
+  economie: {
+    total: BilanEconomique;
+    parModele: Array<{ modele: string } & BilanEconomique>;
+  };
+  qualite: QualiteWorker;
+  fenetre: FenetreLue;
+}
+
+export function fetchBilanWorker(nodeId: string): Promise<BilanWorker> {
+  return api<BilanWorker>(`/api/workers/${encodeURIComponent(nodeId)}/bilan`);
+}
+
+export type { AlerteCockpit, DepenseRuche } from '../../src/orchestrator/cockpit';
+import type { AlerteCockpit, DepenseRuche } from '../../src/orchestrator/cockpit';
+
+/** Le cockpit de l'accueil : décisions récentes, dépense des dernières 24 h, arrêts en cours. */
+export interface Cockpit {
+  decisions: Array<{ evenement: HiveEvent; titre: string | null }>;
+  depense: DepenseRuche;
+  alertes: AlerteCockpit[];
+  /** Nombre total d'alertes — la liste est bornée. */
+  total: number;
+}
+
+export function fetchCockpit(): Promise<Cockpit> {
+  return api<Cockpit>('/api/cockpit');
 }
 
 export function fetchEssaimCycles(
@@ -1354,6 +1458,28 @@ export function fetchReplay(since = 0): Promise<ReplayResult> {
  */
 export function fetchReport(projectId: string): Promise<ProjectReport> {
   return apiLecture<ProjectReport>(`/api/projects/${projectId}/report`);
+}
+
+export type {
+  IssueRelecture,
+  LigneMission,
+  RapportMission,
+  SourceReprise,
+} from '../../src/orchestrator/project-report';
+import type { RapportMission } from '../../src/orchestrator/project-report';
+
+/**
+ * Le rapport de MISSION d'un projet : décision de l'Evaluator, contre-revue,
+ * reprises par source, temps et dépense déclarée par tâche, faits Genome.
+ * `mission` est absent pour un lien de partage — il montre l'avancement, pas
+ * qui travaille ni ce que ça coûte.
+ */
+export function fetchRapportMission(
+  projectId: string,
+): Promise<ProjectReport & { mission?: RapportMission }> {
+  return apiLecture<ProjectReport & { mission?: RapportMission }>(
+    `/api/projects/${encodeURIComponent(projectId)}/report?detail=mission`,
+  );
 }
 
 /** Honeycomb Merge : plan d'intégration (advisory) d'un projet. */
@@ -1579,6 +1705,8 @@ export interface CritiqueReprise {
   objections: string[];
   raisons: string[];
   noteHumaine?: string;
+  /** Les constats non bloquants (mineur, info) de la contre-revue, s'il y en avait. */
+  remarques?: Constat[];
 }
 
 /**
@@ -1705,6 +1833,87 @@ export function fetchMembresProjet(projectId: string): Promise<MembreProjet[]> {
  */
 export function adopterProjet(projectId: string): Promise<{ adopted: boolean }> {
   return apiCompte<{ adopted: boolean }>(`/api/projects/${projectId}/adopter`, { method: 'POST' });
+}
+
+/** Ce qu'une suppression de projet a fait, tel que la Reine le rend. */
+export interface ProjetSupprime {
+  supprime: true;
+  projectId: string;
+  name: string;
+  /** Tâches en vol annulées d'abord (`force`). */
+  annulees: number;
+  /** Lignes effacées, par table — seulement celles qui en avaient. */
+  effaces: Record<string, number>;
+  lignes: number;
+  /** Le miroir du Rayon : effacé, il n'y en avait pas, ou le disque a refusé. */
+  miroir: 'efface' | 'absent' | 'echec';
+  /**
+   * Les épisodes du Cerveau nés du projet (#527) : retirés (`episodes` en dit
+   * le nombre), ou le disque a refusé. Absent d'une Reine d'avant.
+   */
+  cerveau?: 'efface' | 'echec';
+  episodes?: number;
+}
+
+/**
+ * Le refus d'une suppression, avec ce que l'écran doit pouvoir LIRE.
+ *
+ * `code` distingue ce que l'humain peut lever lui-même en forçant
+ * (`taches_en_vol` : les annuler d'abord) de ce qu'il faut attendre
+ * (`travail_non_annulable`) ou régler ailleurs (`hebergement_actif`). Proposer
+ * « forcer » sur ces deux-là promettrait un geste que la Reine refusera.
+ */
+export class RefusSuppression extends ApiError {
+  constructor(
+    message: string,
+    status: number,
+    readonly code?: string,
+    readonly taches: readonly { id: string; title: string; status: string }[] = [],
+  ) {
+    super(message, status);
+    this.name = 'RefusSuppression';
+  }
+}
+
+/**
+ * Supprime un projet — pour de bon, sauf l'événement d'audit. `force` annule
+ * d'abord ses tâches en vol.
+ *
+ * Son propre `fetch` (motif `livrerLocalement`) : le refus 409 porte la liste
+ * des tâches qui tournent, que `api()` réduirait à une phrase.
+ */
+export async function supprimerProjet(
+  projectId: string,
+  opts: { force?: boolean } = {},
+): Promise<ProjetSupprime> {
+  const refus = gardeSession();
+  if (refus) return refus;
+  const res = await fetch(
+    `/api/projects/${encodeURIComponent(projectId)}${opts.force ? '?force=true' : ''}`,
+    { method: 'DELETE', headers: enTetesRuche() },
+  );
+  let corps: Record<string, unknown> = {};
+  try {
+    corps = (await res.json()) as Record<string, unknown>;
+  } catch {
+    /* corps non-JSON : le statut parlera seul */
+  }
+  if (!res.ok) {
+    const texte = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
+    const { message } = messageApi(
+      {
+        ...(texte(corps.error) ? { error: texte(corps.error) } : {}),
+        ...(texte(corps.message) ? { message: texte(corps.message) } : {}),
+        ...(texte(corps.conseil) ? { detail: texte(corps.conseil) } : {}),
+      },
+      res.status,
+    );
+    const taches = Array.isArray(corps.taches)
+      ? (corps.taches as { id: string; title: string; status: string }[])
+      : [];
+    throw new RefusSuppression(message, res.status, texte(corps.code), taches);
+  }
+  return corps as unknown as ProjetSupprime;
 }
 
 export function admettreMembre(
@@ -2231,9 +2440,11 @@ export interface FeedHandlers {
   ) => void;
   /**
    * Le rattrapage a trouvé un TROU : `manquants` événements émis pendant la
-   * coupure étaient déjà élagués par la Reine (elle ne garde que ses derniers
-   * événements). Le trou ne se comble plus ; il se DIT, pour que le Journal ne
-   * passe pas pour complet.
+   * coupure étaient déjà élagués par la Reine — sa rétention garde une fenêtre
+   * des derniers événements pour les traces, et sous elle les seules preuves
+   * des tâches qui comptent encore (`shared/retention-journal.ts`) : un curseur
+   * ancien traverse donc des preuves éparses, séparées de trous. Le trou ne se
+   * comble plus ; il se DIT, pour que le Journal ne passe pas pour complet.
    */
   onJournalIncomplet?: (manquants: number) => void;
 }

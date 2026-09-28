@@ -74,6 +74,27 @@ ENV HIVE_DB=/app/data/hive.db
 # la Reine les relit en démarrant (cf. `src/shared/env-queen.ts`).
 ENV HIVE_ENV_FILE=/app/data/queen.env
 
+# ─── GIT, PARCE QUE LA REINE LE LANCE ELLE-MÊME ─────────────────────────────
+#
+# Le Rayon montre le code d'un projet depuis un MIROIR que la Reine clone et
+# rafraîchit (`src/orchestrator/miroir.ts`, par la porte commune
+# `src/shared/git-protege.ts`). `slim` n'a pas git : dans l'image, chaque
+# lecture du code d'un projet rendait 409 « le dépôt n'a pas pu être copié »,
+# alors que la même Reine sur l'hôte le montrait — une panne propre au
+# conteneur, que rien n'exerçait.
+#
+# `ca-certificates` : git clone en HTTPS par libcurl, qui refuse tout
+# certificat sans magasin de racines. `--no-install-recommends` écarte ce que
+# git ne fait que suggérer (ssh, less, patch). Sans client ssh, un dépôt en
+# `git@…` reste illisible depuis ce conteneur — il n'y aurait de toute façon
+# aucune clé de membre pour l'ouvrir ; les dépôts HTTPS, eux, se lisent.
+#
+# AVANT le `npm ci` : cette couche ne change presque jamais, et Docker la garde
+# en cache au lieu de la refaire à chaque modification du verrou.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends git ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
 COPY package.json package-lock.json ./
 # `--omit=dev` retire TypeScript et Vite. Les dépendances OPTIONNELLES, elles,
 # sont gardées : `better-sqlite3` et Fastify en sont, et sans eux la ruche ne
@@ -172,4 +193,9 @@ EXPOSE 7777
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.HIVE_PORT||7777)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
+# `node` est le PID 1 d'un `docker run` nu, et le PID 1 d'un espace de noms
+# hérite des orphelins : les petits-enfants de git (`git-remote-https`) que la
+# Reine lance pour le miroir. Node ne les ramasse pas. Les deux compose posent
+# donc `init: true` (un vrai init devant la Reine) ; à la main, `docker run
+# --init`.
 CMD ["node", "dist/orchestrator/main.js"]

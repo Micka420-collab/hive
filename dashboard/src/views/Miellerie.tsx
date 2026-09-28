@@ -18,12 +18,18 @@ import {
 import type { Conflict, CritiqueReprise, MergePlan, MergeRunResult, Verdict } from '../api';
 import type { EvaluationResult } from '../../../src/orchestrator/evaluator.js';
 import { VALIDATION_KEYS } from '../../../src/shared/validations-bac';
+import {
+  compterParCritere,
+  constatBloquant,
+  texteConstat,
+} from '../../../src/shared/critique-structuree';
 import { t as tNow, useT } from '../i18n';
 import type { Translate } from '../i18n';
 import { activateProps, formatMs, modalOpen, StatusBadge } from '../ui';
 import { EchecSondage, getReview, Honeycomb, setReview, useApiPoll, useReviewTick } from './shared';
 import type { ReviewState, ViewProps } from './shared';
 import { resumeProvenance, texteControle } from './validations-rendu';
+import { direComptesCriteres, enteteConstat } from './critique-rendu';
 import './miellerie.css';
 
 // ─── Aides pures ─────────────────────────────────────────────────────────────
@@ -486,6 +492,13 @@ export function EvaluationPanel({
   )} · ${crossReview.approvingReviewers} ${t('favorable(s)', 'approving')} / ${
     crossReview.contestingReviewers
   } ${t('à corriger', 'contesting')}`;
+  // Les constats structurés (marqueur `HIVE_CRITIQUE`) sont montrés en
+  // entier ; leurs bloquants sont AUSSI des objections, rangées en ligne —
+  // la liste des objections ne garde donc que celles de la critique libre,
+  // sinon chaque constat bloquant se lirait deux fois.
+  const criteres = compterParCritere(crossReview.findings);
+  const textesConstats = new Set(crossReview.findings.map(texteConstat));
+  const objectionsLibres = crossReview.objections.filter((o) => !textesConstats.has(o));
   const provenance = evaluation.evidence.validationProvenance;
   const provenanceSummary = provenance ? resumeProvenance(provenance, t) : t('missing', 'missing');
   // La CI reste demandable après le bac ET après une première lecture : la
@@ -526,6 +539,14 @@ export function EvaluationPanel({
         <div>
           <dt>{t('Contre-revue', 'Cross-review')}</dt>
           <dd data-testid="mi-cross-review">{crossReviewSummary}</dd>
+        </div>
+        <div>
+          <dt>{t('Constats par critère', 'Findings by criterion')}</dt>
+          <dd data-testid="mi-cross-review-criteres">
+            {criteres.length > 0
+              ? direComptesCriteres(criteres, t)
+              : t('aucun constat structuré', 'no structured finding')}
+          </dd>
         </div>
         <div>
           <dt>{t('Retry Evaluator', 'Evaluator retry')}</dt>
@@ -589,9 +610,24 @@ export function EvaluationPanel({
           )}
         </div>
       )}
-      {crossReview.objections.length > 0 && (
+      {crossReview.findings.length > 0 && (
+        <ul className="mi-sting" data-testid="mi-cross-review-findings">
+          {crossReview.findings.map((constat, index) => (
+            <li
+              key={`${index}-${constat.preuve}`}
+              className={`mi-sting-item${constatBloquant(constat) ? ' high' : ''}`}
+              data-severite={constat.severite}
+            >
+              <span className="mi-sting-sev">{enteteConstat(constat, t)}</span>
+              <span>{constat.preuve}</span>
+              {constat.proposition && <span className="muted-text">→ {constat.proposition}</span>}
+            </li>
+          ))}
+        </ul>
+      )}
+      {objectionsLibres.length > 0 && (
         <ul className="mi-sting" data-testid="mi-cross-review-objections">
-          {crossReview.objections.slice(0, 3).map((objection, index) => (
+          {objectionsLibres.slice(0, 3).map((objection, index) => (
             <li key={`${index}-${objection}`} className="mi-sting-item high">
               {objection}
             </li>
@@ -711,6 +747,11 @@ function CritiqueTransmise({
             {reprise.critique.raisons.map((r, i) => (
               <li key={`r${i}`} className="muted-text">
                 Evaluator — {r}
+              </li>
+            ))}
+            {reprise.critique.remarques?.map((c, i) => (
+              <li key={`m${i}`} className="muted-text">
+                <strong>{t('remarque', 'remark')}</strong> ({enteteConstat(c, t)}) — {c.preuve}
               </li>
             ))}
           </ul>

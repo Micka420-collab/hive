@@ -15,7 +15,7 @@
 // On monte donc un serveur réel, on branche un nœud en WebSocket, on crée une
 // tâche, et on lit ce que le nœud reçoit.
 
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -98,9 +98,13 @@ describe('le Cerveau arrive jusqu’à l’ouvrière', () => {
     return recues;
   }
 
-  function creerTache(srv: HiveServer, prompt: string, titre = 'Une tâche'): string {
-    const projet = srv.store.createProject({ name: 'Ruche' });
-    const t = srv.store.createTask({ projectId: projet.id, title: titre, prompt });
+  function creerTache(
+    srv: HiveServer,
+    prompt: string,
+    titre = 'Une tâche',
+    projectId = srv.store.createProject({ name: 'Ruche' }).id,
+  ): string {
+    const t = srv.store.createTask({ projectId, title: titre, prompt });
     srv.store.patchTask(t.id, { status: 'ready' });
     return t.id;
   }
@@ -112,6 +116,17 @@ describe('le Cerveau arrive jusqu’à l’ouvrière', () => {
     }
     expect(recues.length, 'aucune assignation reçue').toBeGreaterThan(0);
     return recues[0] as Assignation;
+  }
+
+  /** L'assignation d'UNE tâche : une reprise d'une autre porte ses propres leçons. */
+  async function attendrePour(recues: Assignation[], taskId: string): Promise<Assignation> {
+    const fin = Date.now() + 15_000;
+    let a: Assignation | undefined;
+    while (Date.now() < fin && !(a = recues.find((r) => r.task?.id === taskId))) {
+      await new Promise((r) => setTimeout(r, 40));
+    }
+    expect(a, `aucune assignation reçue pour ${taskId}`).toBeDefined();
+    return a as Assignation;
   }
 
   const noteInvariant = [
@@ -221,7 +236,10 @@ describe('le Cerveau arrive jusqu’à l’ouvrière', () => {
       // « s'améliorer en se corrigeant ».
       const srv = await demarrer({});
       const recues = await brancherNoeud(srv, 'ouvriere-boucle');
-      const t1 = creerTache(srv, 'compiler le module natif', 'Première tâche');
+      // UN projet pour les deux tâches : un projet est privé par défaut, et
+      // l'épisode d'un projet privé ne sort pas de son projet (#527).
+      const projet = srv.store.createProject({ name: 'Ruche' }).id;
+      const t1 = creerTache(srv, 'compiler le module natif', 'Première tâche', projet);
       const a1 = await attendre(recues);
       expect(a1.task?.id).toBe(t1);
 
@@ -255,13 +273,91 @@ describe('le Cerveau arrive jusqu’à l’ouvrière', () => {
 
       // Une tâche SUIVANTE, sur le même sujet, doit recevoir cet épisode.
       recues.length = 0;
-      creerTache(srv, 'compiler le module natif encore', 'Deuxième tâche');
-      const a2 = await attendre(recues, 15_000);
+      srv.store.patchTask(t1, { status: 'failed' });
+      const t2 = creerTache(srv, 'compiler le module natif encore', 'Deuxième tâche', projet);
+      const a2 = await attendrePour(recues, t2);
       expect(a2.hiveContext, 'aucun contexte joint à la seconde tâche').toBeTruthy();
       expect(
         a2.hiveContext,
         'l’épisode écrit par la ruche ne revient pas dans le contexte suivant',
       ).toContain('MODULE_INTROUVABLE_SIGNATURE_UNIQUE');
+    },
+  );
+
+  it(
+    'L’ÉPISODE D’UN PROJET PRIVÉ NE SORT PAS DE SON PROJET — et part avec lui',
+    { timeout: 40_000 },
+    async () => {
+      // #527 : un épisode porte les mots d'un échec — ici un journal, ailleurs
+      // les objections d'un relecteur ou un rejet de l'Evaluator. Servi à toute
+      // la ruche, il faisait lire à un projet ce qu'un projet PRIVÉ avait
+      // produit, et survivait à sa suppression.
+      const srv = await demarrer({});
+      const recues = await brancherNoeud(srv, 'ouvriere-cloison');
+      const prive = srv.store.createProject({ name: 'Privé', visibility: 'private' }).id;
+      const voisin = srv.store.createProject({ name: 'Voisin', visibility: 'private' }).id;
+      const t1 = creerTache(srv, 'compiler le module natif', 'Tâche privée', prive);
+      await attendrePour(recues, t1);
+      const ws = sockets[sockets.length - 1] as WebSocket;
+      ws.send(
+        JSON.stringify({
+          type: 'task_result',
+          taskId: t1,
+          success: false,
+          diff: '',
+          logs: 'Error: SECRET_DU_PROJET_PRIVE lors de la compilation',
+          durationMs: 10,
+          subAgents: [],
+        }),
+      );
+      const fin = Date.now() + 10_000;
+      let episode: Record<string, unknown> | undefined;
+      while (!episode && Date.now() < fin) {
+        episode = srv.store.listEvents(0, 500).find((e) => e.type === 'cerveau_episode')?.payload;
+        if (!episode) await new Promise((r) => setTimeout(r, 50));
+      }
+      expect(episode, 'le banc : la ruche doit écrire l’épisode').toMatchObject({
+        projectId: prive,
+      });
+      srv.store.patchTask(t1, { status: 'failed' });
+
+      // Le voisin, sur le même sujet, ne le reçoit pas…
+      const t2 = creerTache(srv, 'compiler le module natif encore', 'Tâche voisine', voisin);
+      const a2 = await attendrePour(recues, t2);
+      expect(a2.hiveContext ?? '', 'l’épisode privé a fui').not.toContain('SECRET_DU_PROJET_PRIVE');
+      srv.store.patchTask(t2, { status: 'failed' });
+      // …le projet lui-même, si.
+      const t3 = creerTache(srv, 'compiler le module natif toujours', 'Tâche privée 2', prive);
+      const a3 = await attendrePour(recues, t3);
+      expect(a3.hiveContext, 'le projet a perdu sa propre leçon').toContain(
+        'SECRET_DU_PROJET_PRIVE',
+      );
+      srv.store.patchTask(t3, { status: 'failed' });
+
+      // Supprimer le projet (un COMPTE : le premier inscrit administre) retire
+      // l'épisode du dossier.
+      const base = `http://127.0.0.1:${srv.port}`;
+      const inscription = await fetch(`${base}/api/auth/register`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-hive-token': TOKEN },
+        body: JSON.stringify({
+          email: 'admin@hive.test',
+          password: 'mot-de-passe-assez-long-42',
+          displayName: 'Admin',
+        }),
+      });
+      const { token } = (await inscription.json()) as { token: string };
+      const r = await fetch(`${base}/api/projects/${prive}?force=true`, {
+        method: 'DELETE',
+        headers: { 'x-hive-token': TOKEN, authorization: `Bearer ${token}` },
+      });
+      expect(r.status, await r.clone().text()).toBe(200);
+      expect(await r.json()).toMatchObject({ cerveau: 'efface', episodes: 1 });
+      const dossier = path.join(dir ?? '', 'data', 'cerveau');
+      expect(
+        readdirSync(dossier).filter((f) => f.endsWith('.md')),
+        'l’épisode a survécu à son projet',
+      ).toEqual([]);
     },
   );
 
@@ -301,7 +397,7 @@ describe('le Cerveau arrive jusqu’à l’ouvrière', () => {
     const ws = sockets[sockets.length - 1] as WebSocket;
     const vues = new Set<string>();
 
-    creerTache(srv, 'compiler quelque chose de récalcitrant');
+    const tache = creerTache(srv, 'compiler quelque chose de récalcitrant');
 
     // La tâche est re-tentée : chaque assignation reçoit le MÊME échec, donc
     // la même signature, donc la même note incrémentée.
@@ -329,6 +425,10 @@ describe('le Cerveau arrive jusqu’à l’ouvrière', () => {
     const props = srv.store.listEvents(0, 500).filter((e) => e.type === 'cerveau_consolidation');
     expect(props.length, 'aucune consolidation proposée après trois échecs').toBeGreaterThan(0);
     expect(JSON.stringify(props[0]?.payload)).toMatch(/recurrences/);
+    // Le fait porte la tâche qui l'a mûri : c'est par elle que la suppression
+    // du projet le retrouve. Sans cette clé, le TITRE de la tâche survivait au
+    // projet dans le journal.
+    expect(props[0]?.payload).toMatchObject({ taskId: tache });
   });
 
   it('LE CONTEXTE RESTE DANS LE BUDGET DU PROTOCOLE', { timeout: 20_000 }, async () => {

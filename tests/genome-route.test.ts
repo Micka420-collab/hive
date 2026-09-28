@@ -10,6 +10,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { HiveNodeClient } from '../src/node-client/client.js';
 import { createServer, type HiveServer } from '../src/orchestrator/server.js';
 import type { RegistreGenome } from '../src/shared/registre-genome.js';
+import { TRENTE_JOURS_MS } from './aide/journal-retenu.js';
 
 const JETON = 'jeton-genome-suffisamment-long-pour-le-banc';
 
@@ -104,11 +105,12 @@ describe('le registre Genome — sur une vraie Reine, après de vraies exécutio
     expect((await fetch(`${base}/api/genome`)).status).toBe(401);
   });
 
-  it('UN JOURNAL ÉLAGUÉ REND UNE FENÊTRE TRONQUÉE — même loin de la borne de lecture', async () => {
-    // L'élagage garde les 5 000 derniers événements de TOUS types. Les faits
-    // Genome en sortent donc bien avant que leurs seuls types remplissent la
-    // borne de lecture : « tronquée » ne se déclenchait qu'à 5 000 faits lus,
-    // et l'écran présentait un registre amputé comme complet.
+  it('UNE FENÊTRE TRONQUÉE QUAND DES FAITS D’UNE TÂCHE CONNUE MANQUENT — pas quand seules des traces sont parties', async () => {
+    // L'élagage gardait les 5 000 derniers événements de TOUS types, et le
+    // registre ne pouvait qu'allumer « tronquée » dès la première ligne partie,
+    // faute de savoir ce qu'elle était. La rétention garde désormais les faits
+    // Genome avec leur tâche et compte, par type, ce qu'elle retire : le
+    // drapeau dit ce qui manque vraiment.
     dossier = mkdtempSync(path.join(os.tmpdir(), 'genome-elague-'));
     serveur = await createServer({
       port: 0,
@@ -125,6 +127,7 @@ describe('le registre Genome — sur une vraie Reine, après de vraies exécutio
     for (let i = 0; i < 4; i++) {
       s.store.appendEvent('task_assigned', { taskId: t.id, nodeId: 'n1', modele: 'm' }, 1_000 + i);
     }
+    for (let i = 0; i < 4; i++) s.store.appendEvent('node_online', { nodeId: 'n1' }, 2_000 + i);
     const lire = async (): Promise<RegistreGenome> =>
       (await (
         await fetch(`http://127.0.0.1:${s.port}/api/genome`, {
@@ -134,7 +137,15 @@ describe('le registre Genome — sur une vraie Reine, après de vraies exécutio
 
     expect((await lire()).fenetre.tronquee, 'rien n’a encore été élagué').toBe(false);
 
-    expect(s.store.pruneEvents(2), 'l’élagage retire des événements').toBeGreaterThan(0);
+    // Fenêtre de deux : les traces partent, les faits de la tâche ouverte restent.
+    const fenetre = { fenetre: 2, preuvesClosesMs: TRENTE_JOURS_MS, plafond: 1_000 };
+    expect(s.store.pruneEvents(fenetre).supprimes, 'des traces sont parties').toBe(2);
+    const intact = await lire();
+    expect(intact.lignes[0]?.affectations, 'les quatre affectations sont là').toBe(4);
+    expect(intact.fenetre.tronquee, 'aucun fait Genome n’a manqué').toBe(false);
+
+    // Le plafond, lui, prend le dossier de la tâche encore connue.
+    expect(s.store.pruneEvents({ ...fenetre, plafond: 2 }).parMotif.plafond_vivante).toBe(4);
     const registre = await lire();
     expect(registre.fenetre.evenements, 'loin de la borne de lecture').toBeLessThan(5_000);
     expect(registre.fenetre.tronquee, 'des faits plus anciens manquent').toBe(true);

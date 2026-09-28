@@ -309,10 +309,16 @@ function sinceValide(sinceId: string): number | null {
   return n;
 }
 
-async function cmdEvents(sinceId = '0'): Promise<void> {
-  const since = sinceValide(sinceId);
-  if (since === null) return;
-  const events = await api<HiveEvent[]>(`/api/events?since=${since}&limit=100`);
+async function cmdEvents(sinceId?: string): Promise<void> {
+  // Sans id, la Reine part du début de sa fenêtre de direct : « depuis 0 »
+  // rendrait les plus vieilles preuves qu'elle retient, pas l'activité récente.
+  let curseur = '';
+  if (sinceId !== undefined) {
+    const since = sinceValide(sinceId);
+    if (since === null) return;
+    curseur = `since=${since}&`;
+  }
+  const events = await api<HiveEvent[]>(`/api/events?${curseur}limit=100`);
   for (const ev of events) {
     console.log(
       `  #${ev.id} ${new Date(ev.ts).toLocaleTimeString()} ${ev.type} ${JSON.stringify(ev.payload)}`,

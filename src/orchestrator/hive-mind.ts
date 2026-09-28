@@ -1,14 +1,31 @@
-// Hive Mind v0 (Palier 2) : mémoire partagée de la ruche. Chaque tâche réussie
-// laisse un « souvenir » ; avant d'assigner une nouvelle tâche, on récupère les
-// souvenirs les plus pertinents et on les injecte dans son prompt.
+// Hive Mind v0 (Palier 2) : mémoire partagée de la ruche. Chaque production
+// VALIDÉE laisse un « souvenir » ; avant d'assigner une nouvelle tâche, on
+// récupère les souvenirs les plus pertinents et on les injecte dans son prompt.
 //
 // Récupération 100 % hors-ligne, sans embeddings ni API : scoring lexical de
 // type BM25 (TF pondéré par IDF sur le corpus). Suffisant et déterministe pour
 // un v0 ; un backend vectoriel pourra s'y substituer plus tard derrière la même
 // interface (rankMemories).
+//
+// ─── LA RUCHE N'APPREND QUE CE QUI A ÉTÉ VALIDÉ ─────────────────────────────
+//
+// Le souvenir s'écrivait dès que l'ouvrière DÉCLARAIT sa réussite — avant la
+// contre-revue, avant l'Evaluator, avant l'humain. Une production que la
+// relectrice contestait, que les tests faisaient tomber ou que l'humain
+// rejetait restait donc dans la mémoire, et revenait pendant des mois dans le
+// prompt des tâches voisines comme un exemple à suivre. Les relectures, elles,
+// y entraient comme des tâches ordinaires : « valide » ou « conteste » servis
+// en guise de savoir.
+//
+// La réussite PROPOSE désormais le souvenir (`souvenirs_proposes`, store.ts) ;
+// il n'entre dans la mémoire qu'à l'acceptation de l'Evaluator ou à
+// l'approbation humaine, et un rejet — ou le retrait de la seule approbation
+// qui le validait — l'en retire (`suiteSouvenir`). Une relecture n'en propose
+// aucun.
 
 import { blocDonnees, champSurUneLigne, tronquerChamp } from '../shared/donnees-non-fiables.js';
 import { LIMITS } from '../shared/protocol.js';
+import type { EvaluationResult } from './evaluator.js';
 
 /** Un souvenir : ce qu'a produit une tâche terminée, réutilisable par la ruche. */
 export interface Memory {
@@ -23,6 +40,102 @@ export interface Memory {
 export interface ScoredMemory {
   memory: Memory;
   score: number;
+}
+
+/**
+ * Où en est le souvenir proposé par une production.
+ *
+ *   · `en_attente` — ni validée, ni rejetée : relecture en vol, humain à venir ;
+ *   · `retenu`     — acceptée par l'Evaluator ou approuvée par un humain : le
+ *                    souvenir est dans la mémoire ;
+ *   · `rejete`     — l'Evaluator la rejette (un rejet humain en est un) : le
+ *                    souvenir n'y est pas, ou n'y est plus.
+ */
+export type IssueSouvenir = 'en_attente' | 'retenu' | 'rejete';
+
+/**
+ * QUI a validé un souvenir retenu — et donc ce qui peut le lui retirer.
+ *
+ *   · `evaluator`     — l'Evaluator a ACCEPTÉ la production : preuves vertes,
+ *                       Gardiennes propres, contre-revue indépendante favorable ;
+ *   · `revue_humaine` — un humain l'a approuvée là où l'Evaluator laissait la
+ *                       question ouverte.
+ *
+ * La distinction compte au RETRAIT (`suiteSouvenir`) : une preuve de
+ * l'Evaluator qui vieillit n'est pas un désaveu, une approbation humaine
+ * effacée en est un.
+ */
+export type ValidationSouvenir = 'evaluator' | 'revue_humaine';
+
+/** Le verdict courant sur le souvenir d'une production, et qui le valide. */
+export interface VerdictSouvenir {
+  readonly issue: IssueSouvenir;
+  /** `null` hors de `retenu` : personne ne valide ce qui n'est pas retenu. */
+  readonly validePar: ValidationSouvenir | null;
+}
+
+/**
+ * Ce que le verdict COURANT dit du souvenir d'une production.
+ *
+ * ─── L'OBJECTION L'EMPORTE SUR L'APPROBATION ────────────────────────────────
+ *
+ * C'est la règle que la ruche applique déjà ailleurs : une contre-revue qui
+ * conteste une production approuvée la RELANCE (`relancerSiContreRevueInsuffisante`)
+ * — l'approbation humaine est une condition de livraison, pas un contournement
+ * d'une objection indépendante. Un souvenir retenu sur une production que la
+ * ruche est en train de refaire enseignerait l'inverse de ce qu'elle fait. Il
+ * en va de même d'une validation rouge, d'un signal suspect des Gardiennes ou
+ * d'un désaccord avec le Parlement : tout ce que l'Evaluator range en
+ * `correction_required` passe AVANT l'approbation — et la route de revue le
+ * dit (`memory_withheld`), pour que l'humain ne croie pas avoir enseigné.
+ *
+ * L'approbation humaine tranche en revanche ce que l'Evaluator laisse OUVERT :
+ * aucun second modèle en ligne, relecture impossible, tests absents. C'est le
+ * cas d'une ruche d'une seule famille, où rien d'autre ne validerait jamais.
+ */
+export function verdictSouvenir(
+  evaluation: Pick<EvaluationResult, 'decision' | 'evidence'>,
+): VerdictSouvenir {
+  if (evaluation.decision === 'rejected' || evaluation.decision === 'correction_required') {
+    return { issue: 'rejete', validePar: null };
+  }
+  if (evaluation.decision === 'accepted') return { issue: 'retenu', validePar: 'evaluator' };
+  return evaluation.evidence.humanReview === 'approved'
+    ? { issue: 'retenu', validePar: 'revue_humaine' }
+    : { issue: 'en_attente', validePar: null };
+}
+
+/**
+ * L'issue suivante d'un souvenir, ou `null` quand rien ne change. `validePar`
+ * est ce qui a validé le souvenir RETENU (rangé avec lui), `null` sinon.
+ *
+ * ─── UNE PREUVE QUI VIEILLIT NE RÉVOQUE PAS ; UN HUMAIN QUI SE DÉDIT, SI ────
+ *
+ * Le verdict se recalcule sur des faits BORNÉS : les avis de contre-revue
+ * vivent dans le journal, que `pruneEvents` élague ; relue des semaines plus
+ * tard, une production acceptée redeviendrait « sans avis ». La retirer de la
+ * mémoire pour ça, ce serait oublier un savoir validé parce que sa preuve a
+ * vieilli : un souvenir que l'Evaluator a validé (ou d'origine inconnue, né
+ * avant ce registre) ne redevient donc pas « en attente ».
+ *
+ * L'approbation humaine, elle, vit dans `reviews`, que rien n'élague sous une
+ * tâche terminée : si le verdict retombe à « en attente » sur un souvenir
+ * qu'elle SEULE validait, c'est qu'un humain l'a effacée exprès (l'« annuler »
+ * de la Miellerie). Plus rien ne valide ce souvenir : il sort de la mémoire.
+ *
+ * Un rejet peut être défait de même (un humain efface son « non ») : l'issue
+ * redevient ouverte.
+ */
+export function suiteSouvenir(
+  avant: IssueSouvenir,
+  verdict: IssueSouvenir,
+  validePar: ValidationSouvenir | null,
+): IssueSouvenir | null {
+  if (verdict === avant) return null;
+  if (avant === 'retenu' && verdict === 'en_attente') {
+    return validePar === 'revue_humaine' ? 'en_attente' : null;
+  }
+  return verdict;
 }
 
 // Mots vides FR/EN : trop fréquents pour porter du sens, écartés de l'index.

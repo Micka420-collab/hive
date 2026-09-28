@@ -33,9 +33,10 @@ import {
   reunirConseil,
   revoquerPartage,
   runMerge,
+  supprimerProjet,
   trancherConseil,
 } from '../api';
-import { ApiError } from '../api';
+import { ApiError, RefusSuppression } from '../api';
 import type {
   AuthUser,
   BalanceState,
@@ -47,6 +48,7 @@ import type {
   PartageCree,
   PlanResponse,
   ProjetPublicVue,
+  ProjetSupprime,
   SessionConseil,
   StatutGithub,
 } from '../api';
@@ -56,6 +58,7 @@ import { BalanceProjet, CarteDevis } from './Balance';
 import { PleinEssaim } from '../PleinEssaim';
 import { OnboardingEssaim } from '../OnboardingEssaim';
 import { GardeFous } from '../GardeFous';
+import { RapportMission } from '../RapportMission';
 import { EchecSondage, Honeycomb, useApiPoll } from './shared';
 import type { ViewProps } from './shared';
 import { argv, useSuiviMerge } from './suivi-merge';
@@ -1976,6 +1979,119 @@ export function LivraisonsProjet({
   );
 }
 
+/** Un statut de tâche tel que le rend la Reine — relu, jamais supposé. */
+const estStatut = (s: string): s is TaskStatus => (STATUSES as readonly string[]).includes(s);
+
+/**
+ * Supprimer le projet — le seul geste de cette carte qui emporte TOUT.
+ *
+ * ─── POURQUOI LE NOM À RETAPER ───────────────────────────────────────────────
+ *
+ * Les autres gestes de la carte coupent UNE chose (un membre, un lien). Celui-ci
+ * efface des mois de travail — tâches, résultats, journal, mémoires, liens,
+ * miroir du code — et la Reine ne garde qu'une ligne d'audit. La question nomme
+ * le projet, et la confirmation exige de RETAPER ce nom (`saisie`).
+ *
+ * ─── LE REFUS SE LIT, IL NE S'AFFICHE PAS SEULEMENT ──────────────────────────
+ *
+ * Des tâches qui tournent font refuser la suppression (409). L'écran les NOMME,
+ * puis le même geste — réarmé, nom retapé — les annule d'abord (`force`). Ce
+ * que la Reine refuse même forcé (un merge en vol, un abonnement actif) se dit
+ * avec sa marche à suivre, et le geste reste la suppression simple : proposer
+ * de forcer promettrait ce qui sera refusé.
+ *
+ * Visible pour qui la Reine laissera faire : un COMPTE — le propriétaire, ou un
+ * administrateur (le seul pour un projet orphelin). Le jeton de ruche seul ne
+ * supprime aucun projet (#527) : sans compte, le geste n'est pas proposé.
+ * Cosmétique — la garde est à la Reine.
+ */
+export function SuppressionProjet({
+  project,
+  user,
+  onSupprime,
+}: {
+  project: Project;
+  user: AuthUser | null;
+  onSupprime: (fait: ProjetSupprime) => void;
+}) {
+  const t = useT();
+  const lang = useLang();
+  const [occupe, setOccupe] = useState(false);
+  const [erreur, setErreur] = useState<string | null>(null);
+  const [enVol, setEnVol] = useState<RefusSuppression['taches'] | null>(null);
+
+  // Le MÊME prédicat que la Reine (`suppressionProjetPermise`) : le
+  // propriétaire, ou un administrateur. Proposé à qui tient seulement le
+  // jeton, le geste ferait retaper le nom pour récolter un refus.
+  const peut = estAdmin(user) || (user !== null && project.ownerId === user.id);
+  if (!peut) return null;
+
+  const nom = project.name;
+  const forcer = enVol !== null && enVol.length > 0;
+  const agir = (p: Promise<ProjetSupprime>) => {
+    setOccupe(true);
+    setErreur(null);
+    p.then(onSupprime)
+      .catch((e: unknown) => {
+        const taches = e instanceof RefusSuppression && e.code === 'taches_en_vol' ? e.taches : [];
+        setEnVol(taches.length > 0 ? taches : null);
+        if (taches.length === 0) setErreur(errMsg(e));
+      })
+      .finally(() => setOccupe(false));
+  };
+
+  return (
+    <div className="pj-sub pj-suppression">
+      <div className="pj-sub-head">
+        <h4>{t('Supprimer le projet', 'Delete the project')}</h4>
+      </div>
+      <p className="pj-suppression-dit">
+        {t(
+          'Tâches, résultats, journal, mémoires, épisodes du Cerveau, liens de partage et miroir du code : tout part, sans retour. Seule une ligne d’audit reste. Les ateliers des ouvrières se nettoient chez elles ; les notes du Cerveau écrites à la main restent.',
+          'Tasks, results, journal, memories, Cerveau episodes, share links and the code mirror: everything goes, with no way back. Only one audit line remains. Workers clean up their own workspaces; the Cerveau notes written by hand stay.',
+        )}
+      </p>
+      {forcer && (
+        <div className="pj-suppression-envol">
+          <p>
+            {t(
+              `${enVol.length} tâche(s) tournent encore — la suppression les annulera d’abord :`,
+              `${enVol.length} task(s) still running — deleting will cancel them first:`,
+            )}
+          </p>
+          <ul>
+            {enVol.map((tache) => (
+              <li key={tache.id}>
+                {tache.title}
+                {estStatut(tache.status) && (
+                  <span className="pj-meta"> · {statusLabel(tache.status, lang)}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <GesteIrreversible
+        libelle={
+          forcer ? t('Annuler et supprimer…', 'Cancel and delete…') : t('Supprimer…', 'Delete…')
+        }
+        question={t(
+          `Supprimer « ${nom} » et tout ce qu’il contient ?`,
+          `Delete “${nom}” and everything in it?`,
+        )}
+        confirmer={t(
+          forcer ? 'Annuler et supprimer' : 'Supprimer',
+          forcer ? 'Cancel and delete' : 'Delete',
+        )}
+        saisie={nom}
+        disabled={occupe}
+        onConfirmer={() => agir(supprimerProjet(project.id, { force: forcer }))}
+      />
+      {erreur && <p className="panel-error">{erreur}</p>}
+    </div>
+  );
+}
+
 function ProjectCard({
   project,
   tasks,
@@ -1988,6 +2104,7 @@ function ProjectCard({
   onBalanceChange,
   onOpenTask,
   onNavigate,
+  onSupprime,
   user,
 }: {
   project: Project;
@@ -2003,6 +2120,7 @@ function ProjectCard({
   onBalanceChange: () => void;
   onOpenTask: ViewProps['onOpenTask'];
   onNavigate: ViewProps['onNavigate'];
+  onSupprime: (fait: ProjetSupprime) => void;
   user: AuthUser | null;
 }) {
   const t = useT();
@@ -2012,6 +2130,7 @@ function ProjectCard({
   const [showMerge, setShowMerge] = useState(false);
   const [showConflicts, setShowConflicts] = useState(false);
   const [showConseil, setShowConseil] = useState(false);
+  const [showMission, setShowMission] = useState(false);
 
   const contributors = report
     ? report.contributingNodes.map((id) => nodeNames.get(id) ?? id.slice(0, 8)).join(', ')
@@ -2172,7 +2291,22 @@ function ProjectCard({
         >
           {t('🔭 Réunir le Conseil', '🔭 Convene the Council')}
         </button>
+        <button
+          className="btn ghost"
+          aria-expanded={showMission}
+          data-testid="ouvrir-rapport-mission"
+          onClick={() => setShowMission((v) => !v)}
+        >
+          {t('📋 Rapport de mission', '📋 Mission report')}
+        </button>
       </div>
+
+      {/* Ce que chaque tâche a donné et ce que la mission a coûté : sur
+          demande, parce qu'il juge chaque production — la carte sonde déjà
+          l'avancement toutes les trente secondes. */}
+      {showMission && (
+        <RapportMission projectId={project.id} refreshTick={refreshTick} onOpenTask={onOpenTask} />
+      )}
 
       {showMerge && (
         <MergePanel project={project} taskTitles={taskTitles} refreshTick={refreshTick} />
@@ -2180,6 +2314,10 @@ function ProjectCard({
       {showConflicts && (
         <ConflictsPanel projectId={project.id} taskTitles={taskTitles} refreshTick={refreshTick} />
       )}
+
+      {/* En DERNIER, sous toutes les actions : le seul geste de la carte qui
+          emporte tout ne se trouve pas à côté de ceux qu'on fait tous les jours. */}
+      <SuppressionProjet project={project} user={user} onSupprime={onSupprime} />
     </article>
   );
 }
@@ -2196,11 +2334,26 @@ export default function Projets({
   user,
 }: ViewProps) {
   const t = useT();
+  // Le dernier projet supprimé depuis cet écran, et ceux à ne plus montrer :
+  // l'instantané de la Reine arrive un quart de seconde plus tard, et la carte
+  // d'un projet qui n'existe plus ne doit pas rester cliquable entre-temps.
+  const [suppression, setSuppression] = useState<ProjetSupprime | null>(null);
+  const [retires, setRetires] = useState<ReadonlySet<string>>(new Set());
   // Récents d'abord : la dernière alvéole créée est en tête de rayon.
   const recents = useMemo(
-    () => [...snapshot.projects].sort((a, b) => b.createdAt - a.createdAt),
-    [snapshot.projects],
+    () =>
+      snapshot.projects.filter((p) => !retires.has(p.id)).sort((a, b) => b.createdAt - a.createdAt),
+    [snapshot.projects, retires],
   );
+  // Une suppression RÉUSSIE se voit : un bandeau en tête de la liste, qui dit
+  // ce qui est parti, et le retour à la liste (plus de projet sélectionné dans
+  // l'adresse — la sélection désignerait un projet disparu).
+  const surSuppression = (fait: ProjetSupprime) => {
+    setSuppression(fait);
+    setRetires((avant) => new Set(avant).add(fait.projectId));
+    if (selectedId === fait.projectId) onNavigate('projets', undefined, { replace: true });
+    window.scrollTo?.({ top: 0 });
+  };
   const tasksByProject = useMemo(() => {
     const m = new Map<string, Task[]>();
     for (const task of snapshot.tasks) {
@@ -2227,6 +2380,40 @@ export default function Projets({
 
   return (
     <div className="mc-view pj-view">
+      {suppression && (
+        <section className="card pj-supprime" role="status">
+          <p>
+            {t(
+              `Projet « ${suppression.name} » supprimé — ${suppression.lignes} ligne(s) effacée(s)${
+                suppression.annulees > 0 ? `, ${suppression.annulees} tâche(s) annulée(s)` : ''
+              }. Il ne reste qu’une ligne d’audit au journal.`,
+              `Project “${suppression.name}” deleted — ${suppression.lignes} row(s) erased${
+                suppression.annulees > 0 ? `, ${suppression.annulees} task(s) cancelled` : ''
+              }. Only one audit line remains in the journal.`,
+            )}
+          </p>
+          {suppression.cerveau === 'echec' && (
+            <p className="panel-error">
+              {t(
+                'Les épisodes du Cerveau nés de ce projet n’ont pas pu être effacés : la console de la Reine nomme le dossier où les retirer à la main.',
+                'The Cerveau episodes born of this project could not be removed: the Queen’s console names the folder to clean by hand.',
+              )}
+            </p>
+          )}
+          {suppression.miroir === 'echec' && (
+            <p className="panel-error">
+              {t(
+                'Le miroir du code n’a pas pu être effacé du disque de la Reine : sa console nomme le dossier à retirer à la main.',
+                'The code mirror could not be removed from the Queen’s disk: her console names the folder to delete by hand.',
+              )}
+            </p>
+          )}
+          <button className="btn ghost" onClick={() => setSuppression(null)}>
+            {t('Fermer', 'Close')}
+          </button>
+        </section>
+      )}
+
       {/* Connecter un dépôt vient AVANT l'atelier : c'est le premier geste de
           quelqu'un qui arrive avec du code existant, alors que la Queen Bee
           s'adresse à qui part d'une idée. */}
@@ -2270,6 +2457,7 @@ export default function Projets({
               onBalanceChange={balance.refresh}
               onOpenTask={onOpenTask}
               onNavigate={onNavigate}
+              onSupprime={surSuppression}
               user={user}
             />
           ))}

@@ -48,8 +48,16 @@ import { CacheProjets, GrandLivre, jugerPlafond, LOT_GRAND_LIVRE } from './balan
 import type { DecisionPlafond } from './balance.js';
 import { bornerCritique } from './brood.js';
 import type { CritiqueReprise } from './brood.js';
-import { ancetreEchoue, descendantsEnVol } from './delegation.js';
+import {
+  ancetreEchoue,
+  budgetCoutEpuise,
+  descendantsEnVol,
+  direDepense,
+  slotsOccupes,
+} from './delegation.js';
 import type { CauseAnnulationDelegation } from './delegation.js';
+import { offreSousConsigne } from '../shared/consigne-routage.js';
+import { LIMITES_DELEGATION_DEFAUT } from '../shared/limites-delegation.js';
 import { createRace, enlistDrones, recordDroneResult, runningDrones } from './drone-wars.js';
 import type { DroneRace } from './drone-wars.js';
 import { inspecter } from './gardiennes.js';
@@ -58,7 +66,7 @@ import { summarizeTask } from './hive-mind.js';
 import { CacheDomaines, meilleurNoeud, replierTraces } from './pheromones.js';
 import type { Domaine, TraceePheromone } from './pheromones.js';
 import { analyzePair } from './sting-detector.js';
-import type { HiveStore, NodeProfile } from './store.js';
+import type { BilanEffacement, HiveStore, NodeProfile } from './store.js';
 import { assignationProductionAutorisee } from '../shared/agent-production.js';
 import { relecteurIndependant } from '../shared/contre-expertise.js';
 import { concurrenceEffective, lireTemperature, FENETRE_MS, TYPES_THERMO } from './thermo.js';
@@ -184,6 +192,7 @@ export type EvaluationRetryOutcome =
         | 'stale_result'
         | 'dependent_progressed'
         | 'ancestor_failed'
+        | 'root_cost_budget_exhausted'
         | 'delivery_exists'
         | 'attempts_exhausted';
       task?: Task;
@@ -218,6 +227,17 @@ export class Scheduler {
   private readonly modelesEchoues = new Map<string, Set<string>>();
   /** Tâches actuellement différées pour cause de conflit (Sting Detector) — dédup des events. */
   private readonly deferredByConflict = new Set<string>();
+  /**
+   * Tâches qui attendent parce que la consigne de l'opérateur écarte tous les
+   * nœuds en ligne qui pourraient les porter — dédup de
+   * `task_consigne_deferred`, motif `deferredByConflict`. Sans ce fait, une
+   * consigne qui épingle une famille absente laissait la tâche en file sans
+   * que rien ne dise pourquoi. La valeur est la consigne SÉRIALISÉE qui a
+   * différé la tâche : une consigne remplacée par une autre tout aussi
+   * insatisfiable se journalise à son tour — sinon le journal donnait encore
+   * l'ancienne pour raison.
+   */
+  private readonly differeesParConsigne = new Map<string, string>();
   /**
    * Relecture → instant du PREMIER constat que sa famille relectrice est
    * absente. Dédup de l'événement d'attente, et départ de
@@ -1083,6 +1103,60 @@ export class Scheduler {
   }
 
   /**
+   * Hive Mind : la production retenue PROPOSE un souvenir — elle ne l'écrit
+   * pas. Il n'entre dans la mémoire qu'une fois la production validée
+   * (acceptée par l'Evaluator, ou approuvée par un humain : `statuerProduction`,
+   * server.ts), parce qu'une réussite DÉCLARÉE n'est pas une réussite : la
+   * contre-revue, les tests ou l'humain peuvent encore la faire tomber, et un
+   * souvenir écrit trop tôt resterait dans les prompts voisins pendant des mois.
+   *
+   * Ce que l'agent a RÉPONDU, quand son CLI le déclare : les logs d'un flux
+   * stream-json commencent par la ligne `init` (dossier de travail, session,
+   * outils), et le souvenir n'aurait gardé qu'elle — pas un mot de réponse. Pris
+   * ICI, parce que c'est le seul instant où la réponse finale est en main : le
+   * journal ne la garde pas pour un succès (`insertResult`).
+   *
+   * Une RELECTURE n'en propose aucun : son texte est un verdict sur la
+   * production d'un autre (« valide », « conteste » et des objections), pas un
+   * savoir sur le projet. Rangé en souvenir, il revenait comme exemple dans le
+   * prompt des tâches dont le titre ressemblait à celui qu'il relisait.
+   */
+  private proposerSouvenir(
+    task: Task,
+    resultId: number,
+    result: Omit<TaskResult, 'nodeId'>,
+    now = Date.now(),
+  ): void {
+    if (this.store.relectureDe(task.id) !== null) return;
+    this.store.proposerSouvenir(
+      {
+        projectId: task.projectId,
+        taskId: task.id,
+        resultId,
+        title: task.title,
+        content: summarizeTask(task.title, task.prompt, result.finalText ?? result.logs),
+      },
+      now,
+    );
+  }
+
+  /**
+   * Le modèle que la Reine a COMMANDÉ pour la tentative que `nodeId` porte sur
+   * `taskId` : celui de ce drone dans une course, celui de l'Aiguillage sinon.
+   * `null` : aucun modèle commandé — le nœud a pris son défaut, et l'absence
+   * reste une absence.
+   *
+   * À lire AVANT `handleTaskResult` : un échec remet la tâche en file et la
+   * réassigne dans la foulée, et la ligne de l'Aiguillage dit alors le modèle
+   * de la tentative SUIVANTE.
+   */
+  modeleCommande(taskId: string, nodeId: string): string | null {
+    const race = this.races.get(taskId);
+    if (race) return race.modeleParDrone?.[nodeId] ?? null;
+    return this.store.modeleAiguillageDe(taskId);
+  }
+
+  /**
    * Résultat remonté par un nœud. Idempotence : un résultat pour une tâche
    * réaffectée, requalifiée ou déjà terminée est ignoré (et journalisé).
    */
@@ -1124,7 +1198,8 @@ export class Scheduler {
       // Une production jugée CREUSE en mode `strict` est traitée EXACTEMENT comme
       // un échec d'agent, et c'est tout l'intérêt du câblage : elle emprunte le
       // circuit d'échec existant, donc elle ne nourrit
-      //   - ni le Hive Mind (recordMemory ne vit que dans la branche de succès),
+      //   - ni le Hive Mind (proposerSouvenir ne vit que dans la branche de
+      //     succès — et le souvenir n'entre en mémoire qu'une fois validé),
       //   - ni les phéromones (la ligne `results` est rangée avec success = 0,
       //     donc le repli dépose −6 au lieu de +10),
       //   - ni le nectar (aucun `task_done` n'est émis, et le Waggle Board ne
@@ -1174,17 +1249,7 @@ export class Scheduler {
           ...(result.usage ? { usage: result.usage } : {}),
           ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
         });
-        // Hive Mind : la tâche réussie laisse un souvenir réutilisable par la ruche.
-        // Ce que l'agent a RÉPONDU, quand son CLI le déclare : les logs d'un flux
-        // stream-json commencent par la ligne `init` (dossier de travail, session,
-        // outils), et le souvenir n'aurait gardé qu'elle — pas un mot de réponse.
-        this.store.recordMemory({
-          projectId: task.projectId,
-          taskId: task.id,
-          title: task.title,
-          content: summarizeTask(task.title, task.prompt, result.finalText ?? result.logs),
-        });
-        this.emit('memory_recorded', { taskId: task.id, projectId: task.projectId });
+        this.proposerSouvenir(task, resultId, result);
         this.fermerSousArbre(task.id, 'ancestor_done', Date.now());
       } else {
         // Le modèle commandé à CETTE tentative a échoué (la production creuse
@@ -1240,6 +1305,9 @@ export class Scheduler {
           });
         }
       }
+      // APRÈS la transition : une reprise qui vient de repartir en file est
+      // encore en vol, et l'enveloppe épuisée l'arrête avec le reste.
+      this.tenirBudgetCoutRacine(task.id, result.fournisseur?.coutUsd, Date.now());
     });
     this.promoteAndAssign();
     return true;
@@ -1299,6 +1367,12 @@ export class Scheduler {
     if (ancetreEchoue(this.store.listDelegationGraph(task.id), task.id)) {
       return { ok: false, reason: 'ancestor_failed', task };
     }
+    // Une correction est une dépense neuve : sous une racine dont la dépense
+    // déclarée a atteint l'enveloppe, plus rien ne repart — la même porte que
+    // la création d'un enfant (`jugerDelegation`).
+    if (this.budgetCoutEpuiseSous(task.id)) {
+      return { ok: false, reason: 'root_cost_budget_exhausted', task };
+    }
     if (task.attempts >= this.maxAttempts) {
       return { ok: false, reason: 'attempts_exhausted', task };
     }
@@ -1354,6 +1428,98 @@ export class Scheduler {
   }
 
   /**
+   * Un humain SUPPRIME un projet (`DELETE /api/projects/:id`) : son travail en
+   * vol est annulé, ses lignes effacées (`store.effacerProjet`) et le fait
+   * d'audit `project_deleted` journalisé — EN UN SEUL GESTE. Rend `null` si le
+   * projet n'existe pas (rien n'est touché).
+   *
+   * ─── POURQUOI ICI, ET PAS DANS LA ROUTE ─────────────────────────────────────
+   *
+   * Parce que l'annulation vit ici (`annulerEnVol`, la seule porte : nœuds
+   * prévenus, courses, horloge) et que `cancelTask` ne convient PAS : il relance
+   * l'assignation aussitôt. L'ouvrière libérée aurait alors reçu une tâche
+   * `ready` du projet même qu'on efface — un travail parti pour un projet qui
+   * n'existe plus. Ici, l'assignation ne repart qu'APRÈS le COMMIT, quand plus
+   * rien du projet ne reste à assigner.
+   *
+   * Le COMMIT couvre tout : annulations, cascade, fait d'audit. Les nœuds ne
+   * reçoivent `cancel_task` qu'ensuite (`apresCommit`) — une panne au milieu
+   * ne laisse ni projet à moitié effacé, ni ouvrière arrêtée pour rien.
+   *
+   * ─── LA MÉMOIRE, DANS LE MÊME GESTE ─────────────────────────────────────────
+   *
+   * Le plafond (`budgets`) part avec le projet : le cache de la porte est donc
+   * invalidé ici — la règle de `setPlafond`, tenue aussi sur ce chemin. Le
+   * grand livre oublie son solde, et les mémoires par tâche celles des tâches
+   * disparues, qui ne seraient plus purgées par personne.
+   */
+  supprimerProjet(
+    projet: { id: string; name: string },
+    parUserId: string | null,
+    now = Date.now(),
+  ): { annulees: number; effaces: Partial<BilanEffacement>; lignes: number } | null {
+    const issue: { annulees: number; effaces: Partial<BilanEffacement>; lignes: number }[] = [];
+    this.enUnSeulGeste(() => {
+      if (!this.store.getProject(projet.id)) return;
+      const enVol = this.store
+        .tasksByStatus('assigned', 'running')
+        .filter((t) => t.projectId === projet.id);
+      for (const t of enVol) this.annulerEnVol(t, 'project_deleted', now);
+      const bilan = this.store.effacerProjet(projet.id);
+      if (!bilan) return;
+      // APRÈS la cascade, qui efface le journal du projet : c'est le seul fait
+      // qui lui survit. Des comptes, jamais un contenu — le nom, parce qu'un
+      // audit qui ne dirait pas QUEL projet est parti ne servirait à rien.
+      // Les tables vides sont omises : le fait reste court.
+      const faits = {
+        annulees: enVol.length,
+        effaces: Object.fromEntries(Object.entries(bilan).filter(([, n]) => n > 0)),
+        lignes: Object.values(bilan).reduce((total, n) => total + n, 0),
+      };
+      this.emit('project_deleted', {
+        projectId: projet.id,
+        name: projet.name,
+        ...(parUserId ? { parUserId } : {}),
+        ...faits,
+      });
+      issue.push(faits);
+    });
+    const rendu = issue[0];
+    if (!rendu) return null;
+    this.budgets = null;
+    this.seuilsEmis.delete(projet.id);
+    this.alertesEmises.delete(projet.id);
+    this.livre.oublier(projet.id);
+    this.oublierTachesDisparues();
+    this.promoteAndAssign(now);
+    return rendu;
+  }
+
+  /**
+   * Retire des mémoires par tâche celles dont la tâche n'existe plus. Appelé
+   * après une suppression de projet : une tâche en file (`pending`, `ready`)
+   * n'y est pas annulée, elle disparaît — et ces cartes ne se vident qu'à
+   * l'assignation ou à l'échec, qui n'arriveront plus.
+   */
+  private oublierTachesDisparues(): void {
+    const cles = new Set([
+      ...this.infraRejects.keys(),
+      ...this.deferredByConflict,
+      ...this.relecturesSansRelecteur.keys(),
+      ...this.modelesEchoues.keys(),
+    ]);
+    if (cles.size === 0) return;
+    const connues = this.store.taskStatuses([...cles]);
+    for (const taskId of cles) {
+      if (connues.has(taskId)) continue;
+      this.infraRejects.delete(taskId);
+      this.deferredByConflict.delete(taskId);
+      this.relecturesSansRelecteur.delete(taskId);
+      this.modelesEchoues.delete(taskId);
+    }
+  }
+
+  /**
    * Annule UNE tâche encore en vol, sans relancer l'assignation : le ou les
    * nœuds qui la portent sont prévenus, son horloge d'hébergeur s'arrête, elle
    * passe `failed` et `task_cancelled` est journalisé. L'annulation humaine et
@@ -1387,12 +1553,115 @@ export class Scheduler {
     this.apresCommit(() => {
       this.infraRejects.delete(task.id);
       this.deferredByConflict.delete(task.id);
+      this.differeesParConsigne.delete(task.id);
     });
     const nodeId = task.assignedNodeId;
     const patched = this.store.patchTask(task.id, { status: 'failed', assignedNodeId: null }, now);
     this.emit('task_cancelled', { taskId: task.id, reason, ...(nodeId ? { nodeId } : {}) });
     this.relectureCloseSansAvis(task, 'annulee');
     return patched;
+  }
+
+  /**
+   * Les préférences qu'une tâche PARENTE a déclarées pour cet enfant délégué
+   * (`hive_delegate`), ou `null` — tâche racine, relecture, ou aucune
+   * préférence dite. Lues à chaque passe par clé primaire, comme `relectureDe`.
+   */
+  private preferenceDelegation(taskId: string): { agent?: string; modele?: string } | null {
+    const lien = this.store.getDelegation(taskId);
+    if (!lien || lien.origine !== 'hive') return null;
+    if (!lien.preferredAgent && !lien.preferredModel) return null;
+    return {
+      ...(lien.preferredAgent ? { agent: lien.preferredAgent } : {}),
+      ...(lien.preferredModel ? { modele: lien.preferredModel } : {}),
+    };
+  }
+
+  /**
+   * La charge d'un nœud telle que `taskId` la voit : ses tâches actives, moins
+   * les parents de SON arbre qui y attendent un enfant (`slotsOccupes`), plus
+   * les drones non primaires que le store ignore (`extra`). Hors délégation,
+   * aucun parent n'est soustrait : une place relâchée ne sert qu'à l'arbre qui
+   * l'a relâchée.
+   */
+  private chargeVuePar(
+    taskId: string,
+    extra: ReadonlyMap<string, number>,
+  ): (n: HiveNode) => number {
+    const lien = this.store.getDelegation(taskId);
+    const attentes =
+      lien?.origine === 'hive' ? this.store.parentsEnAttenteSousRacine(lien.rootTaskId) : null;
+    return (n) => slotsOccupes(n, attentes?.get(n.id) ?? 0) + (extra.get(n.id) ?? 0);
+  }
+
+  /** La racine de `taskId` a-t-elle épuisé son enveloppe coût ? Faux hors délégation. */
+  private budgetCoutEpuiseSous(taskId: string): boolean {
+    const lien = this.store.getDelegation(taskId);
+    if (!lien || lien.origine !== 'hive') return false;
+    return budgetCoutEpuise(this.store.depenseDeclareeRacine(lien.rootTaskId));
+  }
+
+  /**
+   * Tient l'enveloppe COÛT de l'arbre de `taskId`, à chaque tentative qu'un de
+   * ses enfants délégués vient de rendre — dans la transaction du résultat.
+   *
+   * La dépense est celle que les CLI DÉCLARENT (`depenses_delegation`, rangée
+   * par `insertResult` juste avant). Quand elle atteint le plafond de la
+   * racine, chaque descendant encore en vol est annulé avec un motif typé
+   * (`delegation_cancelled`, `root_cost_budget_exhausted`) : rien de ce que
+   * l'arbre lancerait encore n'a de budget pour être payé. La racine, elle,
+   * continue : c'est la tâche de l'opérateur, son propre coût n'est pas dans
+   * l'enveloppe de ses enfants. `jugerDelegation` refuse ensuite tout nouvel
+   * enfant, et `retryFromEvaluator` toute correction.
+   *
+   * `delegation_budget_exhausted` est émis UNE fois : par la tentative dont le
+   * coût fait franchir le plafond. Une tentative au coût inconnu ne le fait
+   * jamais franchir — Hive n'invente pas de montant —, mais le fait compte
+   * celles-là à part (`sansCout`) : la dépense réelle est au moins celle dite.
+   */
+  private tenirBudgetCoutRacine(taskId: string, coutUsd: number | undefined, now: number): void {
+    const lien = this.store.getDelegation(taskId);
+    if (!lien || lien.origine !== 'hive') return;
+    const depense = this.store.depenseDeclareeRacine(lien.rootTaskId);
+    if (!budgetCoutEpuise(depense)) return;
+    const graphe = this.store.listDelegationGraph(lien.rootTaskId);
+    const enVol = descendantsEnVol(
+      graphe,
+      lien.rootTaskId,
+      'root_cost_budget_exhausted',
+      () => false,
+    );
+    const cetteTentative =
+      typeof coutUsd === 'number' && Number.isFinite(coutUsd) && coutUsd >= 0
+        ? Math.round(coutUsd * 1_000_000)
+        : 0;
+    const budgetMicros = LIMITES_DELEGATION_DEFAUT.maxCostMicros;
+    if (depense.micros - cetteTentative < budgetMicros) {
+      this.emit('delegation_budget_exhausted', {
+        rootTaskId: lien.rootTaskId,
+        taskId,
+        depenseMicros: depense.micros,
+        budgetMicros,
+        tentatives: depense.tentatives,
+        sansCout: depense.sansCout,
+        annulees: enVol.length,
+      });
+    }
+    for (const noeud of enVol) {
+      const descendant = this.store.getTask(noeud.taskId);
+      if (!descendant) continue;
+      this.emit('delegation_cancelled', {
+        childTaskId: noeud.taskId,
+        parentTaskId: noeud.parentTaskId,
+        rootTaskId: noeud.rootTaskId,
+        depth: noeud.depth,
+        ancestorTaskId: lien.rootTaskId,
+        reason: 'root_cost_budget_exhausted',
+        depense: direDepense(depense),
+        ...(descendant.assignedNodeId ? { nodeId: descendant.assignedNodeId } : {}),
+      });
+      this.annulerEnVol(descendant, 'root_cost_budget_exhausted', now);
+    }
   }
 
   /**
@@ -1508,11 +1777,13 @@ export class Scheduler {
     }
     // La charge des drones non-primaires n'existe pas dans le store : on
     // l'ajoute ici pour ne pas enrôler des nœuds déjà saturés par une course.
-    const extra = this.droneLoad();
-    const charge = (n: HiveNode): number => n.running + (extra.get(n.id) ?? 0);
+    const charge = this.chargeVuePar(taskId, this.droneLoad());
     // L'OFFRE, charge ignorée, puis sa part libre : l'écart des modèles tombés
-    // se décide contre la première, comme dans la boucle principale.
-    const offre = this.store.listNodes().filter(
+    // se décide contre la première, comme dans la boucle principale. La
+    // consigne de l'opérateur la restreint d'abord : une course diversifie les
+    // agents, elle ne franchit pas une exclusion (`offreSousConsigne`).
+    const consigne = this.store.consigneRoutage(taskId)?.consigne ?? null;
+    const offreBrute = this.store.listNodes().filter(
       (n) =>
         n.status === 'online' &&
         // LA MÊME GARDE QUE `tick` — elle manquait ici, et « présence sans
@@ -1534,6 +1805,7 @@ export class Scheduler {
         }) &&
         (this.recentRejections.get(`${taskId}:${n.id}`) ?? 0) <= now,
     );
+    const offre = offreSousConsigne(offreBrute, consigne);
     const libres = offre
       .filter(
         (n) =>
@@ -1563,7 +1835,9 @@ export class Scheduler {
         libres.length > 0
           ? 'les nœuds libres n’offrent que des modèles qui ont déjà planté sur cette tâche — ' +
             'course refusée, la reprise attend un porteur sain'
-          : 'aucun nœud disponible pour la course';
+          : consigne && offre.length === 0 && offreBrute.length > 0
+            ? 'aucun nœud en ligne ne respecte la consigne de routage de l’opérateur — course refusée'
+            : 'aucun nœud disponible pour la course';
       return { ok: false, error };
     }
 
@@ -1652,10 +1926,14 @@ export class Scheduler {
       // quel que soit le nœud qui les offrait, et ceux qu'un drone re-lance.
       ...(reprise.ecartes.length > 0 ? { modelesEcartes: reprise.ecartes } : {}),
       ...(readmis.length > 0 ? { modelesReadmis: readmis } : {}),
+      // Forcée par l'opérateur : la consigne a restreint les drones enrôlés.
+      ...(consigne ? { consigneOperateur: consigne } : {}),
     });
     // L'instant de l'assignation, celui que porte `updatedAt` : ouverture et
     // clôture de la session se lisent sur la même horloge que la transition.
     this.store.ouvrirHorlogeHote(assigned.projectId, assigned.id, now);
+    // Une tentative par drone : chacun peut dépenser (`depenses_delegation`).
+    for (const droneId of launch) this.store.ouvrirTentativeDelegation(assigned.id, droneId, now);
     // Chaque drone reçoit SON modèle élu (la course diversifie les agents).
     for (const droneId of launch) this.opts.onAssign?.(droneId, assigned, modeleParDrone[droneId]);
     return { ok: true, drones: launch };
@@ -1708,7 +1986,7 @@ export class Scheduler {
     // L'état de la course EN MÉMOIRE, les annulations des perdants et
     // l'assignation suivante attendent le COMMIT : un ROLLBACK ne laisse ni
     // course tranchée que la base n'a jamais vue, ni perdant annulé pour rien.
-    this.enUnSeulGeste(() => {
+    const trancher = (): void => {
       this.apresCommit(() => this.races.set(task.id, updated));
       const resultId = this.store.insertResult({ ...result, nodeId, success: retenu });
       if (inspection) this.rangerInspection(inspection, resultId, task.id, nodeId, refusee);
@@ -1768,15 +2046,9 @@ export class Scheduler {
           this.emit('drone_cancelled', { taskId: task.id, nodeId: loser });
           this.apresCommit(() => this.opts.onCancel?.(loser, task.id, 'course de drones perdue'));
         }
-        // Hive Mind : même parité que le circuit normal — la victoire laisse un
-        // souvenir, fait de la réponse finale quand il y en a une.
-        this.store.recordMemory({
-          projectId: task.projectId,
-          taskId: task.id,
-          title: task.title,
-          content: summarizeTask(task.title, task.prompt, result.finalText ?? result.logs),
-        });
-        this.emit('memory_recorded', { taskId: task.id, projectId: task.projectId });
+        // Hive Mind : même parité que le circuit normal — la victoire PROPOSE
+        // un souvenir, fait de la réponse finale quand il y en a une.
+        this.proposerSouvenir(task, resultId, result, now);
         this.fermerSousArbre(task.id, 'ancestor_done', now);
         this.apresCommit(() => this.promoteAndAssign(now));
         return;
@@ -1838,6 +2110,12 @@ export class Scheduler {
         });
       }
       this.apresCommit(() => this.promoteAndAssign(now));
+    };
+    this.enUnSeulGeste(() => {
+      trancher();
+      // Après l'arbitrage, comme sur la voie mono : chaque drone rendu a coûté,
+      // et une course encore en vol s'arrête avec l'enveloppe épuisée.
+      this.tenirBudgetCoutRacine(task.id, result.fournisseur?.coutUsd, now);
     });
     return true;
   }
@@ -2327,7 +2605,7 @@ export class Scheduler {
       const decision = this.decisionPlafond(task.projectId);
       this.signalerPlafond(task.projectId, decision);
       if (decision === 'bloque' && this.opts.balance?.mode === 'strict') continue;
-      const charge = (n: HiveNode): number => n.running + (extra.get(n.id) ?? 0);
+      const charge = this.chargeVuePar(task.id, extra);
       const noeuds = this.store.listNodes();
       // ─── UNE RELECTURE NE CHANGE PAS DE FAMILLE ──────────────────────────
       // Une contre-expertise vaut par la famille qui la lit : un modèle
@@ -2351,7 +2629,7 @@ export class Scheduler {
       // L'OFFRE pour cette tâche : les nœuds qui pourraient la porter, charge
       // ignorée. C'est contre elle que se décide l'écart des modèles tombés
       // (`repriseHorsEchecs`) : un porteur sain seulement occupé se libérera.
-      const offre = noeuds.filter(
+      const offreBrute = noeuds.filter(
         (n) =>
           (lien === null || n.agentType === lien.relecteurAgent) &&
           n.status === 'online' &&
@@ -2362,6 +2640,28 @@ export class Scheduler {
           // Ne pas ré-assigner aussitôt une tâche que ce nœud vient de refuser.
           (this.recentRejections.get(`${task.id}:${n.id}`) ?? 0) <= now,
       );
+      // ─── LA CONSIGNE DE L'OPÉRATEUR, AVANT TOUT CHOIX ────────────────────
+      // Une exclusion DURE (`offreSousConsigne`) : ni l'Aiguillage, ni l'écart
+      // des modèles tombés, ni la préférence d'une tâche parente ne la
+      // franchissent. Une relecture n'en a pas : sa famille est déjà imposée
+      // par la contre-expertise, et la route refuse d'y en poser une.
+      const consigne =
+        lien === null ? (this.store.consigneRoutage(task.id)?.consigne ?? null) : null;
+      const offre = offreSousConsigne(offreBrute, consigne);
+      if (consigne && offre.length === 0 && offreBrute.length > 0) {
+        // Des nœuds pourraient la porter, la consigne les écarte tous : la
+        // tâche attend — et le dit une fois, au lieu de rester muette en file.
+        const empreinte = JSON.stringify(consigne);
+        if (this.differeesParConsigne.get(task.id) !== empreinte) {
+          this.differeesParConsigne.set(task.id, empreinte);
+          this.emit('task_consigne_deferred', { taskId: task.id, consigne });
+        }
+        continue;
+      }
+      this.differeesParConsigne.delete(task.id);
+      // Les préférences de la tâche PARENTE, pour un enfant délégué : un
+      // départage entre ex æquo, plus bas — jamais une exclusion.
+      const preference = lien === null ? this.preferenceDelegation(task.id) : null;
       const eligibles = offre
         .filter(
           (n) =>
@@ -2386,6 +2686,7 @@ export class Scheduler {
         categoriser(task.title, task.prompt),
         reprise.eligibles,
         lireAntecedents(),
+        preference?.modele,
       );
       const candidats = route ? route.noeuds : reprise.eligibles;
       let node = candidats[0];
@@ -2398,7 +2699,19 @@ export class Scheduler {
       // Départage phéromones SUR LES CANDIDATS restreints par l'Aiguillage : un
       // nœud écarté parce qu'il n'offre pas le modèle élu ne doit pas revenir par
       // la porte des phéromones.
-      const exAequo = candidats.filter((n) => charge(n) === chargeMin);
+      let exAequo = candidats.filter((n) => charge(n) === chargeMin);
+      // La famille préférée par la tâche parente départage les ex æquo à
+      // charge minimale, AVANT les phéromones : c'est une intention dite, les
+      // phéromones un signal appris. Elle ne départage que ce qui est à égalité
+      // — le moins chargé reste le moins chargé.
+      const preferes = preference?.agent
+        ? exAequo.filter((n) => n.agentType === preference.agent)
+        : [];
+      const departageAgent = preferes.length > 0 && preferes.length < exAequo.length;
+      if (departageAgent) {
+        exAequo = preferes;
+        node = preferes[0] ?? node;
+      }
       if (exAequo.length >= 2) {
         const domaine = this.cacheDomaines.domaine(task);
         const elu = meilleurNoeud(
@@ -2491,8 +2804,27 @@ export class Scheduler {
         // exploration neuve.
         ...(reprise.ecartes.length > 0 ? { modelesEcartes: reprise.ecartes } : {}),
         ...(route && echoues?.has(route.modele) ? { modelesReadmis: [route.modele] } : {}),
+        // Forcée par l'opérateur : la consigne telle qu'elle a restreint CE
+        // choix. Le classement ci-dessus reste celui de l'Aiguillage, sur les
+        // modèles qu'elle laissait en jeu — aucun score n'en est touché.
+        ...(consigne ? { consigneOperateur: consigne } : {}),
+        // Ce que la tâche parente préférait, et ce que cette préférence a
+        // réellement départagé (`departage` vide : lue, sans effet — il n'y
+        // avait pas d'égalité à trancher, ou l'élu n'était pas disponible).
+        ...(preference
+          ? {
+              preference: {
+                ...preference,
+                departage: [
+                  ...(route?.departageParPreference ? ['modele'] : []),
+                  ...(departageAgent ? ['agent'] : []),
+                ],
+              },
+            }
+          : {}),
       });
       this.store.ouvrirHorlogeHote(assigned.projectId, assigned.id, now);
+      this.store.ouvrirTentativeDelegation(assigned.id, node.id, now);
       // Le modèle élu part avec la tâche : le nœud le passera à `--model`.
       this.opts.onAssign?.(node.id, assigned, route?.modele);
       // Les tâches suivantes tiennent compte de celle-ci — si elle édite.

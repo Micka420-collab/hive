@@ -46,6 +46,7 @@
 
 import type { Categorie } from '../orchestrator/aiguillage.js';
 import { declarationDe, sommeDeclaree } from './declaration-fournisseur.js';
+import { mediane } from './economie.js';
 import type { SommeDeclaree } from './declaration-fournisseur.js';
 import type { HiveEvent } from './types.js';
 
@@ -111,12 +112,14 @@ export interface RegistreGenome {
   /**
    * Fenêtre réellement lue : le journal est borné par sa rétention.
    * `tronquee` : des faits plus anciens ONT PU manquer — la lecture a atteint
-   * sa borne, OU le journal a déjà été élagué. Le second cas est le courant :
-   * l'élagage garde les derniers événements de TOUS types, et les faits Genome
-   * en sortent bien avant que leurs seuls types remplissent la borne. Drapeau
-   * CONSERVATEUR : le type des événements élagués est perdu avec eux, donc un
-   * élagage qui n'a ôté que des battements de cœur l'allume aussi. L'écran dit
-   * « ont pu », jamais « sont » — inconnu reste inconnu.
+   * sa borne, OU la rétention a retiré des faits Genome d'une tâche encore
+   * connue (`HiveStore.faitsElagues`). Les faits Genome sont des preuves : la
+   * rétention les garde avec leur tâche (`shared/retention-journal.ts`), et
+   * compte par type ce qu'elle retire — un élagage qui n'a ôté que des traces,
+   * ou les faits de tâches disparues (que ce registre ignore de toute façon),
+   * ne l'allume donc plus. Une perte dont le type est inconnu (avant ce compte,
+   * ou hors de la rétention) l'allume toujours. L'écran dit « ont pu », jamais
+   * « sont » — inconnu reste inconnu.
    */
   fenetre: { evenements: number; depuis: number | null; tronquee: boolean };
 }
@@ -192,15 +195,6 @@ function consignerDeclaration(acc: Accumulateur, payload: Record<string, unknown
   for (const m of declaration.modeles) acc.modelesExacts.add(m);
 }
 
-function mediane(valeurs: readonly number[]): number | null {
-  if (valeurs.length === 0) return null;
-  const triees = [...valeurs].sort((a, b) => a - b);
-  const milieu = Math.floor(triees.length / 2);
-  return triees.length % 2 === 1
-    ? triees[milieu]!
-    : Math.round((triees[milieu - 1]! + triees[milieu]!) / 2);
-}
-
 function texte(valeur: unknown): string | null {
   return typeof valeur === 'string' && valeur.length > 0 ? valeur : null;
 }
@@ -237,9 +231,10 @@ function figer(acc: Accumulateur): FaitsGenome {
  * Replie le journal en registre. `categorieDe` rend la catégorie d'une tâche
  * encore connue, `null` sinon : un événement d'une tâche disparue est ignoré.
  * `borne` est la limite de lecture appliquée par l'appelant — l'atteindre
- * signale une fenêtre tronquée. `journalElague` dit si le journal a déjà
- * perdu des événements (`HiveStore.journalElague`) : un fait que les
- * événements lus ne peuvent pas révéler, puisque ce sont les absents.
+ * signale une fenêtre tronquée. `journalElague` dit si la rétention a retiré
+ * des faits de ces types à une tâche encore connue (`HiveStore.faitsElagues`) :
+ * un fait que les événements lus ne peuvent pas révéler, puisque ce sont les
+ * absents.
  */
 export function registreGenomeDepuisEvenements(
   evenements: readonly HiveEvent[],

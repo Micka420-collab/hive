@@ -9,7 +9,10 @@
 // justification inventée. Dans une course de drones, c'est le drone VAINQUEUR
 // qui répond — son nœud, son modèle, son classement —, pas le primaire que
 // nomme l'affectation ; et un modèle écarté après un échec sur la tâche est
-// dit, comme celui qui y est re-tenté faute d'alternative.
+// dit, comme celui qui y est re-tenté faute d'alternative. Une affectation
+// contrainte par la consigne de l'opérateur se lit « forcée par l'opérateur » ;
+// la préférence d'une tâche parente est dite avec ce qu'elle a réellement
+// départagé — souvent rien, et c'est à dire aussi.
 
 import { useEffect, useState } from 'react';
 import { fetchRoutage } from './api';
@@ -73,6 +76,12 @@ export function RoutageTache({ taskId, cle, nodes }: Props) {
       return t(
         `départagé par les phéromones (domaine « ${a.pheromone.domaine} », score ${deux(a.pheromone.score)})`,
         `tie broken by pheromones (domain “${a.pheromone.domaine}”, score ${deux(a.pheromone.score)})`,
+      );
+    }
+    if (a.critereNoeud === 'preference_parent') {
+      return t(
+        'départagé par la famille que préférait la tâche parente',
+        'tie broken by the agent family the parent task preferred',
       );
     }
     if (a.critereNoeud === 'porteur_du_modele') {
@@ -158,7 +167,15 @@ export function RoutageTache({ taskId, cle, nodes }: Props) {
                   <tbody>
                     {vue.raisonModele.map((l) => (
                       <tr key={l.modele} className={l.modele === vue.modele ? 'elu' : undefined}>
-                        <td>{l.modele}</td>
+                        <td>
+                          {l.modele}
+                          {l.preferee && (
+                            <span className="muted">
+                              {' '}
+                              {t('(préféré par le parent)', '(preferred by the parent)')}
+                            </span>
+                          )}
+                        </td>
                         <td>{essais(l)}</td>
                         <td>{l.moyenne === null ? '—' : deux(l.moyenne)}</td>
                         <td>{score(l)}</td>
@@ -174,6 +191,31 @@ export function RoutageTache({ taskId, cle, nodes }: Props) {
                 'Aucun modèle déclaré par les nœuds éligibles : l’ouvrière choisit elle-même.',
                 'No model declared by eligible nodes: the worker picks its own.',
               )}
+            </p>
+          )}
+          {derniere.consigne && (
+            <p className="muted" data-testid="routage-consigne">
+              {t(
+                'Forcé par l’opérateur : sa consigne a restreint ce choix. Le classement reste celui de l’Aiguillage.',
+                'Forced by the operator: their constraint narrowed this choice. The ranking is still the router’s own.',
+              )}
+            </p>
+          )}
+          {derniere.preference && (
+            <p className="muted" data-testid="routage-preference">
+              {(() => {
+                const p = derniere.preference;
+                const voulu = [p.agent, p.modele].filter((x): x is string => x !== null).join(', ');
+                return p.departage.length > 0
+                  ? t(
+                      `Préférence de la tâche parente (${voulu}) : a départagé des ex æquo.`,
+                      `Parent task preference (${voulu}): broke a tie.`,
+                    )
+                  : t(
+                      `Préférence de la tâche parente (${voulu}) : lue, sans effet — rien à départager.`,
+                      `Parent task preference (${voulu}): read, no effect — nothing to break.`,
+                    );
+              })()}
             </p>
           )}
           {derniere.modelesEcartes.length > 0 && (

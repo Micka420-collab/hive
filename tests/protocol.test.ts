@@ -536,12 +536,21 @@ describe('parseServerMessage — validation des messages du hub (anti-traversal/
         task: validTask,
         repoUrl: null,
         delegationBudget: { durationMs: 60_000, costMicros: 42, resourceUnits: 1 },
+        delegationRootTaskId: 'racine-1',
       }),
     );
     expect(msg).toMatchObject({
       type: 'assign_task',
       delegationBudget: { durationMs: 60_000, costMicros: 42, resourceUnits: 1 },
+      delegationRootTaskId: 'racine-1',
     });
+    // La racine sert à un guichet qui construit des décisions locales : un
+    // identifiant malformé fait tomber tout le message, comme le reste.
+    expect(
+      parseServerMessage(
+        JSON.stringify({ type: 'assign_task', task: validTask, delegationRootTaskId: '../x' }),
+      ),
+    ).toBeNull();
   });
 
   it('rejette un budget enfant malformé dans assign_task', () => {
