@@ -1,7 +1,11 @@
-// Journal d'événements : flux temps réel, coloré et à icônes.
+// Journal d'événements : flux temps réel, coloré et à icônes, lu dans le
+// `Terminal` commun (recherche, niveaux, suivi, copie, plein écran).
 
+import { useMemo } from 'react';
 import type { HiveEvent } from '../../src/shared/types';
 import { VALIDATION_KEYS } from '../../src/shared/validations-bac';
+import { Terminal } from './composants';
+import type { LigneTerminal, NiveauTerminal } from './composants';
 import { useT } from './i18n';
 import type { Translate } from './i18n';
 import { bandeText, formatDuree } from './ui';
@@ -705,40 +709,79 @@ const EVENTS: Record<string, Meta> = {
   },
 };
 
+/**
+ * La SÉVÉRITÉ d'un événement, lue dans sa fiche (`EVENTS`) : la teinte que le
+ * journal lui donne depuis toujours — un échec est `fail`, une reprise `warn`
+ * — devient un niveau qu'on filtre. Un type inconnu reste un « détail » : on
+ * ne lui invente pas de gravité.
+ */
+const SEVERITE: Record<string, string> = {
+  fail: 'erreur',
+  warn: 'avertissement',
+  done: 'succes',
+  run: 'info',
+  info: 'info',
+  muted: 'detail',
+};
+
+function niveauxJournal(t: Translate): NiveauTerminal[] {
+  return [
+    { cle: 'erreur', libelle: t('erreurs', 'errors'), repere: '✘' },
+    { cle: 'avertissement', libelle: t('avertissements', 'warnings'), repere: '⚠' },
+    { cle: 'succes', libelle: t('réussites', 'successes'), repere: '●' },
+    { cle: 'info', libelle: t('informations', 'information'), repere: '◈' },
+    { cle: 'detail', libelle: t('détails', 'details'), repere: '·' },
+  ];
+}
+
+// Une ligne par événement, calculée une fois PAR LANGUE : un événement ne
+// change jamais, et le Terminal accroche à ces objets stables ses mesures et
+// son repère « nouvelles lignes ». Faiblement tenues : un événement que
+// l'écran oublie (il en garde 500) emporte sa ligne.
+const lignesParEvenement = new WeakMap<HiveEvent, { langue: string; ligne: LigneTerminal }>();
+
+function ligneDe(ev: HiveEvent, t: Translate, langue: string): LigneTerminal {
+  const connue = lignesParEvenement.get(ev);
+  if (connue && connue.langue === langue) return connue.ligne;
+  const meta = EVENTS[ev.type] ?? { icon: '•', cls: 'muted', text: () => ev.type };
+  const ligne: LigneTerminal = {
+    texte: meta.text(ev.payload, t),
+    niveau: SEVERITE[meta.cls] ?? 'detail',
+    horodatage: ev.ts,
+    icone: meta.icon,
+    classe: meta.cls,
+  };
+  lignesParEvenement.set(ev, { langue, ligne });
+  return ligne;
+}
+
+/**
+ * Le Journal de la ruche : TOUS les événements que l'écran garde, du plus
+ * ancien au plus récent, et le bas suivi comme dans un terminal — il n'en
+ * montrait que les 40 derniers, à l'envers, sans rien pour y chercher.
+ */
 export function Journal({ events }: { events: HiveEvent[] }) {
   const t = useT();
+  const langue = t('fr', 'en');
+  const lignes = useMemo(() => events.map((ev) => ligneDe(ev, t, langue)), [events, t, langue]);
+  const niveaux = useMemo(() => niveauxJournal(t), [t]);
   return (
-    <section className="card panel">
-      <header className="panel-head">
-        <h2>
-          <span className="marque" aria-hidden="true" /> {t('Journal', 'Journal')}
-        </h2>
-        <span className="panel-count">{events.length}</span>
-      </header>
-      <ul className="journal">
-        {[...events]
-          .slice(-40)
-          .reverse()
-          .map((ev) => {
-            const meta = EVENTS[ev.type] ?? {
-              icon: '•',
-              cls: 'muted',
-              text: () => ev.type,
-            };
-            return (
-              <li key={ev.id} className={`jrow ${meta.cls}`}>
-                <span className="jicon" aria-hidden="true">
-                  {meta.icon}
-                </span>
-                <span className="jtext">{meta.text(ev.payload, t)}</span>
-                <time className="jtime">{new Date(ev.ts).toLocaleTimeString()}</time>
-              </li>
-            );
-          })}
-        {events.length === 0 && (
-          <li className="empty">{t('Rien pour l’instant.', 'Nothing yet.')}</li>
-        )}
-      </ul>
+    <section className="card panel journal-panneau">
+      <Terminal
+        titre={
+          <>
+            <span className="marque" aria-hidden="true" /> {t('Journal', 'Journal')}{' '}
+            <span className="panel-count">{events.length}</span>
+          </>
+        }
+        lignes={lignes}
+        niveaux={niveaux}
+        vide={<span className="empty">{t('Rien pour l’instant.', 'Nothing yet.')}</span>}
+        heuresAuDepart
+        libelleHeure={t('Heure de l’événement', 'Event time')}
+        classes={{ zone: 'journal', ligne: 'jrow', texte: 'jtext', heure: 'jtime' }}
+        testId="journal"
+      />
     </section>
   );
 }

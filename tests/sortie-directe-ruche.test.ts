@@ -36,6 +36,15 @@ import { LIMITS } from '../src/shared/protocol.js';
 const JETON = 'jeton-sortie-directe-suffisamment-long';
 const NOM_CLE = 'HIVE_BANC_SORTIE_API_KEY';
 const CLE = 'cle-du-banc-que-nul-ne-doit-lire-0123456789';
+// Une clé sur PLUSIEURS lignes (une PEM) : caviardée, elle n'en fait plus
+// qu'une — et les niveaux des lignes qui la suivent doivent le savoir.
+const NOM_PEM = 'HIVE_BANC_SORTIE_PEM_KEY';
+const PEM = [
+  '-----BEGIN PRIVATE KEY-----',
+  'MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7',
+  'VJTUt9Us8cKjMzEfYyjiWA4R4/M2bS1GB4t7NXp98C3SC6dVMvDu',
+  '-----END PRIVATE KEY-----',
+].join('\n');
 
 let serveur: HiveServer | null = null;
 let client: HiveNodeClient | null = null;
@@ -50,6 +59,7 @@ afterEach(async () => {
   await serveur?.stop();
   serveur = null;
   delete process.env[NOM_CLE];
+  delete process.env[NOM_PEM];
   if (dossier) rmSync(dossier, { recursive: true, force: true, maxRetries: 3 });
 });
 
@@ -66,6 +76,7 @@ describe('la sortie en direct — d’un vrai processus jusqu’à l’écran, c
   it('ARRIVE PENDANT L’EXÉCUTION, SANS LA CLÉ, ET SANS ENTRER AU JOURNAL', async () => {
     dossier = mkdtempSync(path.join(os.tmpdir(), 'sortie-directe-ruche-'));
     process.env[NOM_CLE] = CLE;
+    process.env[NOM_PEM] = PEM;
     const agent = path.join(dossier, 'agent.js');
     const temoin = path.join(dossier, 'vu');
     // L'agent lit SA clé dans SON environnement (transmise par keepEnv) et la
@@ -77,6 +88,8 @@ describe('la sortie en direct — d’un vrai processus jusqu’à l’écran, c
         `const cle = process.env.${NOM_CLE};\n` +
         "process.stdout.write('lecture du dépôt\\n');\n" +
         "process.stdout.write('export CLE=' + cle + ' ghp_abcdefghij0123456789\\n');\n" +
+        `process.stdout.write(process.env.${NOM_PEM} + '\\n');\n` +
+        "process.stderr.write('npm WARN deprecated sur stderr\\n');\n" +
         `const t = setInterval(() => { if (!fs.existsSync(${JSON.stringify(temoin)})) return;\n` +
         "  clearInterval(t); process.stdout.write('réponse : ' + cle + '\\n');\n" +
         // Vivant au-delà d'un intervalle de cadence : ce dernier morceau part
@@ -119,7 +132,7 @@ describe('la sortie en direct — d’un vrai processus jusqu’à l’écran, c
       agentType: 'claude-code',
       maxConcurrency: 1,
       workRoot: path.join(dossier, 'travail'),
-      keepEnv: [NOM_CLE],
+      keepEnv: [NOM_CLE, NOM_PEM],
       adapter: {
         name: 'banc',
         async run(_task, ctx) {
@@ -148,7 +161,10 @@ describe('la sortie en direct — d’un vrai processus jusqu’à l’écran, c
           const r = await runCommand(process.execPath, [agent], ctx, 10_000, 'sortie-standard');
           fini = true;
           // Un morceau APRÈS la fin : le hub doit le laisser tomber.
-          setTimeout(() => ctx.onProgress({ sortie: 'morceau posthume\n' }), 300);
+          setTimeout(
+            () => ctx.onProgress({ sortie: [{ niveau: 'stdout', texte: 'morceau posthume\n' }] }),
+            300,
+          );
           return {
             ...r,
             subAgents: [sousAgent, sousAgentBorne],
@@ -192,6 +208,24 @@ describe('la sortie en direct — d’un vrai processus jusqu’à l’écran, c
     expect(vu).not.toContain('morceau posthume');
     // Rien de ce qu'a reçu l'écran — état, événements, sortie — ne porte la clé.
     expect(JSON.stringify(recus)).not.toContain(CLE);
+    expect(JSON.stringify(recus)).not.toContain('MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcw');
+
+    // CHAQUE LIGNE GARDE SON FLUX, recomptée APRÈS caviardage : la PEM de
+    // quatre lignes est devenue une, et la ligne de stderr qui la suit reste
+    // stderr — comptée avant, elle aurait glissé en stdout, ou le hub aurait
+    // refusé le morceau entier.
+    const niveauDe = new Map<string, string>();
+    for (const m of recus.filter((x) => x.type === 'task_output' && x.taskId === t.id)) {
+      const lignes = String(m.sortie).replace(/\n$/, '').split('\n');
+      const niveaux = (m.niveaux as Array<[string, number]>).flatMap(([n, k]) =>
+        Array.from({ length: k }, () => n),
+      );
+      expect(niveaux).toHaveLength(lignes.length);
+      lignes.forEach((l, i) => niveauDe.set(l, niveaux[i]!));
+    }
+    expect(niveauDe.get('lecture du dépôt')).toBe('stdout');
+    expect(niveauDe.get('[secret]')).toBe('stdout');
+    expect(niveauDe.get('npm WARN deprecated sur stderr')).toBe('stderr');
 
     // Le journal ne garde que les jalons : pas un octet de la sortie brute.
     const journal = JSON.stringify(

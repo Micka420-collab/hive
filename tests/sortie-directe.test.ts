@@ -241,7 +241,7 @@ describe('runCommand — tout agent réel diffuse sa sortie, stdout ET stderr', 
         signal: new AbortController().signal,
         onProgress: (p) => {
           if (p.sortie === undefined) return;
-          sorties.push(p.sortie);
+          sorties.push(p.sortie.map((b) => b.texte).join(''));
           if (sorties.join('').includes('exec: npm test')) writeFileSync(temoin, '');
         },
       },
@@ -298,7 +298,7 @@ describe('runCommand — tout agent réel diffuse sa sortie, stdout ET stderr', 
         signal: new AbortController().signal,
         onProgress: (p) => {
           if (p.sortie === undefined) return;
-          sorties.push(p.sortie);
+          sorties.push(p.sortie.map((b) => b.texte).join(''));
           if (sorties.join('').includes('Je relis la garde du jeton.')) writeFileSync(temoin, '');
         },
       },

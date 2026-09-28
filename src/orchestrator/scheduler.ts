@@ -6,6 +6,7 @@
 import { MAX_ATTEMPTS, NODE_TIMEOUT_MS } from '../shared/types.js';
 import type { HiveEvent, HiveNode, SubAgent, Task, TaskResult } from '../shared/types.js';
 import type { PresenceFichier } from '../shared/presence.js';
+import type { SegmentNiveau } from '../shared/niveaux-sortie.js';
 import { VALIDATION_KEYS } from '../shared/validations-bac.js';
 import type {
   DetailControle,
@@ -121,7 +122,12 @@ export interface SchedulerOptions {
    * `TaskUpdateMsg.sortie`). Même autorité que le progrès journalisé : le
    * nœud assigné, ou un drone encore en course.
    */
-  onSortie?: (taskId: string, nodeId: string, sortie: string) => void;
+  onSortie?: (
+    taskId: string,
+    nodeId: string,
+    sortie: string,
+    niveaux: SegmentNiveau[] | undefined,
+  ) => void;
   /**
    * Balance : 'off' (le grand livre ne tourne pas du tout), 'observation'
    * (il pèse, se tient à jour et SIGNALE les franchissements, sans jamais rien
@@ -875,6 +881,7 @@ export class Scheduler {
     log?: string,
     presences?: PresenceFichier[],
     sortie?: string,
+    niveaux?: SegmentNiveau[],
   ): void {
     const task = this.store.getTask(taskId);
     // Mise à jour pour une tâche inconnue ou réaffectée ailleurs : ignorée —
@@ -897,7 +904,7 @@ export class Scheduler {
             ...(presences !== undefined ? { presences } : {}),
           });
         }
-        if (sortie) this.opts.onSortie?.(taskId, nodeId, sortie);
+        if (sortie) this.opts.onSortie?.(taskId, nodeId, sortie, niveaux);
       }
       return;
     }
@@ -933,7 +940,7 @@ export class Scheduler {
     // l'écran vient de vider. Relancée sur le MÊME nœud, la tâche est de
     // nouveau « assignée » ici : c'est le nœud qui tait le morceau posthume de
     // la tentative précédente (garde d'exécution de `progresVersHub`).
-    if (sortie) this.opts.onSortie?.(taskId, nodeId, sortie);
+    if (sortie) this.opts.onSortie?.(taskId, nodeId, sortie, niveaux);
   }
 
   /** Mode des Gardiennes en vigueur. Défaut `consultatif` — jamais contraignant. */

@@ -9,51 +9,96 @@
 // le dit (« […] octets omis ») ; au-delà du plafond, l'écran évince le début
 // et le dit aussi. Le log complet arrive avec le résultat, onglet « Logs ».
 //
-// ─── LES QUATRE GESTES D'UN TERMINAL ────────────────────────────────────────
+// ─── LES GESTES, ET LES NIVEAUX ─────────────────────────────────────────────
 //
-//   · SUIVRE : la console colle au bas tant qu'on n'est pas remonté lire ;
-//     remonter la détache (sinon chaque morceau arracherait la ligne qu'on
-//     lit), revenir en bas — ou cocher « suivre » — la raccroche ;
-//   · CHERCHER : ne garder que les lignes qui contiennent le texte, et dire
-//     combien ;
-//   · COPIER : tout le tampon, par le module commun (repli http compris) ;
-//   · REPLIER : couper les lignes longues ou défiler de côté.
+// Chercher, suivre, copier, replier, plein écran : ceux du `Terminal`
+// commun (`composants/terminal.tsx`), les mêmes que le Journal. Le NIVEAU de
+// chaque ligne est celui que le nœud a lu à la source (`shared/niveaux-sortie.ts`) :
+// le flux (stdout, stderr), la gravité que le flux structuré de l'agent déclare
+// (erreur, avertissement), ou une ligne de Hive. Un nœud qui ne le dit pas
+// laisse ses lignes « niveau inconnu » — jamais rangées en stdout par défaut.
+//
+// L'heure d'une ligne est celle où CET écran a reçu son morceau : le nœud
+// n'horodate pas sa sortie, et l'écran ne le prétend pas.
 
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from 'react';
-import { copierTexte } from './copier';
+import { useCallback, useMemo, useSyncExternalStore } from 'react';
+import type { NiveauSortie } from '../../src/shared/niveaux-sortie';
+import { Terminal } from './composants';
+import type { LigneTerminal, NiveauTerminal } from './composants';
 import { useT } from './i18n';
-import type { MagasinSorties, SortieTache } from './sorties-directes';
+import type { Translate } from './i18n';
+import type { MagasinSorties, MorceauSortie, SortieTache } from './sorties-directes';
 
-/** Distance au bas (px) sous laquelle on considère la console « en bas ». */
-const SEUIL_BAS_PX = 24;
+/** Le niveau d'une ligne à l'écran : celui du nœud, ou l'aveu qu'il ne l'a pas dit. */
+type NiveauConsole = NiveauSortie | 'inconnu';
 
-/**
- * Le texte de la console. Une course de drones fait écrire plusieurs nœuds
- * dans la même tâche : un bandeau `── nœud … ──` sépare leurs sorties, sans
- * quoi leurs lignes s'entremêleraient sans qu'on sache qui dit quoi.
- */
-export function texteDeConsole(sortie: SortieTache): string {
-  const plusieurs = new Set(sortie.morceaux.map((m) => m.nodeId)).size > 1;
-  let precedent: string | null = null;
-  let texte = '';
-  for (const m of sortie.morceaux) {
-    if (plusieurs && m.nodeId !== precedent) texte += `── nœud ${m.nodeId.slice(0, 8)} ──\n`;
-    precedent = m.nodeId;
-    texte += m.texte.endsWith('\n') ? m.texte : `${m.texte}\n`;
-  }
-  return texte;
+/** Les niveaux dans l'ordre des filtres ; les absents du tampon n'en montrent pas. */
+function niveauxConsole(t: Translate): NiveauTerminal[] {
+  const n = (cle: NiveauConsole, libelle: string, repere: string): NiveauTerminal => ({
+    cle,
+    libelle,
+    repere,
+  });
+  return [
+    n('stdout', 'stdout', '›'),
+    n('stderr', 'stderr', '»'),
+    n('avertissement', t('avertissement de l’agent', 'agent warning'), '⚠'),
+    n('erreur', t('erreur de l’agent', 'agent error'), '✘'),
+    n('hive', 'Hive', '⬡'),
+    n('inconnu', t('niveau inconnu', 'unknown level'), '?'),
+  ];
 }
 
-interface Props {
-  sortie: SortieTache | undefined;
+// Les lignes d'un morceau, calculées UNE fois : un morceau ne change jamais,
+// et la console en reçoit quatre par seconde sur un tampon de 256 Kio. Des
+// objets stables aussi — le Terminal y accroche ses mesures et son repère
+// « nouvelles lignes ». Faiblement tenues : un morceau évincé les emporte.
+const lignesParMorceau = new WeakMap<MorceauSortie, readonly LigneTerminal[]>();
+const bandeauParMorceau = new WeakMap<MorceauSortie, LigneTerminal>();
+
+function lignesDuMorceau(m: MorceauSortie): readonly LigneTerminal[] {
+  const connues = lignesParMorceau.get(m);
+  if (connues) return connues;
+  const textes = m.texte.split('\n');
+  if (textes[textes.length - 1] === '') textes.pop();
+  const niveaux: NiveauConsole[] = [];
+  for (const [niveau, n] of m.niveaux ?? []) for (let i = 0; i < n; i += 1) niveaux.push(niveau);
+  const lignes = textes.map((texte, i): LigneTerminal => ({
+    texte,
+    niveau: niveaux[i] ?? 'inconnu',
+    horodatage: m.recu,
+  }));
+  lignesParMorceau.set(m, lignes);
+  return lignes;
+}
+
+/**
+ * Les lignes de la console. Une course de drones fait écrire plusieurs nœuds
+ * dans la même tâche : un bandeau `── nœud … ──` (une ligne de Hive) sépare
+ * leurs sorties, sans quoi leurs lignes s'entremêleraient sans qu'on sache qui
+ * dit quoi.
+ */
+export function lignesDeConsole(sortie: SortieTache): LigneTerminal[] {
+  const plusieurs = new Set(sortie.morceaux.map((m) => m.nodeId)).size > 1;
+  let precedent: string | null = null;
+  const out: LigneTerminal[] = [];
+  for (const m of sortie.morceaux) {
+    if (plusieurs && m.nodeId !== precedent) {
+      let bandeau = bandeauParMorceau.get(m);
+      if (!bandeau) {
+        bandeau = {
+          texte: `── nœud ${m.nodeId.slice(0, 8)} ──`,
+          niveau: 'hive',
+          horodatage: m.recu,
+        };
+        bandeauParMorceau.set(m, bandeau);
+      }
+      out.push(bandeau);
+    }
+    precedent = m.nodeId;
+    for (const l of lignesDuMorceau(m)) out.push(l);
+  }
+  return out;
 }
 
 /**
@@ -82,105 +127,31 @@ export function ConsoleDeTache({
   return <ConsoleDirecte sortie={sortie} />;
 }
 
-export function ConsoleDirecte({ sortie }: Props) {
+export function ConsoleDirecte({ sortie }: { sortie: SortieTache | undefined }) {
   const t = useT();
-  const [suivre, setSuivre] = useState(true);
-  const [replier, setReplier] = useState(true);
-  const [recherche, setRecherche] = useState('');
-  const [copie, setCopie] = useState<'ok' | 'echec' | null>(null);
-  const zone = useRef<HTMLPreElement>(null);
-
-  const texte = useMemo(() => (sortie ? texteDeConsole(sortie) : ''), [sortie]);
-  const filtre = recherche.trim().toLowerCase();
-  const lignes = useMemo(() => {
-    const toutes = texte.split('\n');
-    if (toutes[toutes.length - 1] === '') toutes.pop();
-    return filtre ? toutes.filter((l) => l.toLowerCase().includes(filtre)) : toutes;
-  }, [texte, filtre]);
-
-  // Après le rendu, AVANT la peinture : sinon chaque morceau clignoterait en
-  // haut puis sauterait en bas.
-  useLayoutEffect(() => {
-    const el = zone.current;
-    if (el && suivre) el.scrollTop = el.scrollHeight;
-  }, [lignes, suivre]);
-
-  useEffect(() => {
-    if (copie === null) return;
-    const minuteur = window.setTimeout(() => setCopie(null), 1500);
-    return () => window.clearTimeout(minuteur);
-  }, [copie]);
-
-  const auDefilement = () => {
-    const el = zone.current;
-    if (!el) return;
-    const enBas = el.scrollHeight - el.scrollTop - el.clientHeight <= SEUIL_BAS_PX;
-    if (enBas !== suivre) setSuivre(enBas);
-  };
-
-  const copier = async () => setCopie((await copierTexte(texte)) ? 'ok' : 'echec');
-
+  const lignes = useMemo(() => (sortie ? lignesDeConsole(sortie) : []), [sortie]);
+  const niveaux = useMemo(() => niveauxConsole(t), [t]);
   return (
-    <section className="console-directe" aria-labelledby="console-directe-titre">
-      <div className="editor-bar">
-        <h3 id="console-directe-titre" className="console-directe-titre">
-          {t('Sortie en direct', 'Live output')}
-        </h3>
-        <div className="editor-actions">
-          <input
-            type="search"
-            className="console-directe-recherche"
-            value={recherche}
-            onChange={(e) => setRecherche(e.target.value)}
-            placeholder={t('chercher…', 'search…')}
-            aria-label={t('Chercher dans la sortie', 'Search the output')}
-          />
-          <label className="toggle">
-            <input type="checkbox" checked={suivre} onChange={(e) => setSuivre(e.target.checked)} />
-            {t('suivre', 'follow')}
-          </label>
-          <label className="toggle">
-            <input
-              type="checkbox"
-              checked={replier}
-              onChange={(e) => setReplier(e.target.checked)}
-            />
-            {t('replier', 'wrap')}
-          </label>
-          <button className="chip" onClick={copier} disabled={texte === ''}>
-            {copie === 'ok'
-              ? t('✔ copié', '✔ copied')
-              : copie === 'echec'
-                ? t('copie impossible', 'copy failed')
-                : t('copier', 'copy')}
-          </button>
-        </div>
-      </div>
-      {sortie?.tronquee && (
-        <p className="muted-text" data-testid="console-directe-tronquee">
-          {t(
-            'Début évincé : l’écran garde les 256 derniers Kio. Le log complet arrive avec le résultat.',
-            'Beginning dropped: the screen keeps the last 256 KiB. The full log arrives with the result.',
-          )}
-        </p>
-      )}
-      {filtre && (
-        <p className="muted-text" role="status">
-          {t(`${lignes.length} ligne(s) trouvée(s)`, `${lignes.length} matching line(s)`)}
-        </p>
-      )}
-      <pre
-        ref={zone}
-        className={`code-block scroll console-directe-zone${replier ? ' replie' : ''}`}
-        data-testid="console-directe"
-        onScroll={auDefilement}
-        tabIndex={0}
-        aria-live="off"
-      >
-        {texte === ''
-          ? t('En attente de la sortie de l’agent…', 'Waiting for the agent’s output…')
-          : lignes.join('\n')}
-      </pre>
-    </section>
+    <div className="console-directe">
+      <Terminal
+        titre={t('Sortie en direct', 'Live output')}
+        lignes={lignes}
+        niveaux={niveaux}
+        vide={t('En attente de la sortie de l’agent…', 'Waiting for the agent’s output…')}
+        replierAuDepart
+        libelleHeure={t('Heure de réception par cet écran', 'Time this screen received it')}
+        testId="console-directe"
+        avis={
+          sortie?.tronquee && (
+            <p className="muted-text" data-testid="console-directe-tronquee">
+              {t(
+                'Début évincé : l’écran garde les 256 derniers Kio. Le log complet arrive avec le résultat.',
+                'Beginning dropped: the screen keeps the last 256 KiB. The full log arrives with the result.',
+              )}
+            </p>
+          )
+        }
+      />
+    </div>
   );
 }

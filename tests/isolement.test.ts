@@ -852,7 +852,9 @@ describe('isolement — câblage : l’enveloppe atteint vraiment le spawn', () 
       'claude',
       ['-p', 'test'],
       ctx({ fournisseur: ECHO, variables: [] }),
-      (l) => lignes.push(l),
+      (l) => {
+        lignes.push(l);
+      },
     );
     expect(r.logs).toContain('--cap-drop=ALL');
     expect(lignes.join('\n')).toContain('--read-only');
