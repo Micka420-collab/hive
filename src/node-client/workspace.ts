@@ -30,6 +30,8 @@ import type { Task } from '../shared/types.js';
 import { EchecGitHote, commandeSshDuMembre, gitHote } from '../shared/git-protege.js';
 import type { DepotEpingle } from '../shared/git-protege.js';
 import { commitDeDepart, diffContreBase, poserRegistre } from './git-hote.js';
+import { ecarterConfiguration, reserveDeConfiguration } from './configuration-inerte.js';
+import type { ConfigurationEcartee } from './configuration-inerte.js';
 
 export interface Workspace {
   /** Répertoire de travail isolé de la tâche. */
@@ -53,7 +55,17 @@ export interface Workspace {
   depot: DepotEpingle | null;
   /** Environnement épuré pour les processus enfants. */
   env: NodeJS.ProcessEnv;
-  /** Diff des modifications, pour revue humaine (vide sans dépôt git). */
+  /**
+   * La configuration d'agent du dépôt écartée de l'arbre pendant l'exécution
+   * (`configuration-inerte.ts`), relative à sa racine — vide s'il n'y avait
+   * rien à écarter. Le nœud le dit au journal de la tâche.
+   */
+  configurationEcartee: readonly string[];
+  /**
+   * Diff des modifications, pour revue humaine (vide sans dépôt git). Remet
+   * d'abord en place la configuration écartée : elle n'y paraît pas comme une
+   * suppression, et les validations qui suivent voient l'arbre entier.
+   */
   collectDiff(): Promise<string>;
   /** Supprime le répertoire de la tâche. */
   cleanup(): void;
@@ -173,6 +185,9 @@ export async function prepareWorkspace(
   // (démo/tests locaux) peuvent exécuter la MÊME tâche en parallèle (Drone
   // Wars) sans se détruire mutuellement le répertoire.
   instanceId = '',
+  // Les chemins du dépôt que le CLI de l'agent EXÉCUTERAIT sans interrupteur
+  // pour l'en empêcher (`AgentAdapter.configurationExecutee`).
+  configurationAgent: readonly string[] = [],
 ): Promise<Workspace> {
   const tasksRoot = path.resolve(workRoot, 'tasks');
   const dirName = instanceId ? `${task.id}-${instanceId}` : task.id;
@@ -195,11 +210,13 @@ export async function prepareWorkspace(
   rmSync(cwd, rmOpts);
   rmSync(`${cwd}.tmp`, rmOpts);
   rmSync(registre, rmOpts);
+  rmSync(reserveDeConfiguration(cwd), rmOpts);
   mkdirSync(cwd, { recursive: true });
 
   let branch: string | null = null;
   let baseSha: string | null = null;
   let depot: DepotEpingle | null = null;
+  let ecartee: ConfigurationEcartee | null = null;
   if (repoUrl) {
     // Le clone exige un répertoire vide : il précède toute écriture dans cwd.
     // Tout ce qui suit, jusqu'à `poserRegistre`, se passe AVANT l'agent, dans
@@ -211,6 +228,9 @@ export async function prepareWorkspace(
     await gitHote(['checkout', '-q', '-b', branch], depotDuClone);
     baseSha = await commitDeDepart(depotDuClone);
     depot = await poserRegistre(cwd, registre, baseSha);
+    // APRÈS le registre, qui copie l'index sans `--skip-worktree` ; AVANT
+    // l'agent, tant que le `.git` de la tâche n'a été écrit que par git.
+    ecartee = await ecarterConfiguration(depotDuClone, configurationAgent);
   }
 
   const env = buildSandboxEnv(cwd, keepEnv);
@@ -221,7 +241,9 @@ export async function prepareWorkspace(
     baseSha,
     depot,
     env,
+    configurationEcartee: ecartee?.chemins ?? [],
     async collectDiff(): Promise<string> {
+      ecartee?.remettre();
       // Par le registre, jamais par le `.git` de la tâche : c'est l'agent qui
       // l'a eu entre les mains (git-hote.ts). CONTRE LA BASE ÉPINGLÉE, pas
       // contre l'index : ce que l'agent a `git add` ou committé reste dans la
@@ -233,6 +255,7 @@ export async function prepareWorkspace(
         rmSync(cwd, rmOpts);
         rmSync(`${cwd}.tmp`, rmOpts);
         rmSync(registre, rmOpts);
+        rmSync(reserveDeConfiguration(cwd), rmOpts);
       } catch {
         // Fichier verrouillé (Windows) : le prochain run de la tâche nettoiera.
       }

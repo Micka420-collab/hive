@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-7073%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-7087%20passing-F6C445?labelColor=17130C)
 ![Licence](https://img.shields.io/badge/licence-MIT-F6C445?labelColor=17130C)
 
 🇫🇷 Français · [🇬🇧 English](README.en.md) · [🌐 Site](https://micka420-collab.github.io/hive/) · [📚 Documentation](#-documentation)
@@ -421,6 +421,16 @@ demander, et un `ANTHROPIC_BASE_URL` du dépôt recevait la clé du membre. Le
 données, bornées, ajoutées au prompt système ; le journal de la tâche le dit.
 Choix assumé : hors du bac, les hooks et serveurs MCP **du membre** lui-même
 sont coupés aussi pour les tâches de la ruche.
+
+Cursor et Cline n'ont pas de tel interrupteur : Cursor (`--force` vaut
+confiance du dossier) lance les hooks de `.cursor/hooks.json` et ceux, au format
+Claude, de `.claude/settings.json` et `.claude/settings.local.json` ; Cline lance
+ceux de `.clinerules/hooks/` et `.cline/hooks/` et charge `.cline/plugins/`
+comme du code. Le nœud écarte donc ces chemins de l'arbre de la tâche avant
+l'agent — sur tous les systèmes, bac ou pas — et les remet avant le diff : ils
+n'y apparaissent pas comme des suppressions, et `git checkout`/`reset --hard`
+ne les ressuscitent pas en cours de route. Le journal de la tâche le dit ; si
+l'écartement échoue, la tâche est refusée avant l'agent, raison à l'appui.
 
 ## 🛠️ Commandes
 

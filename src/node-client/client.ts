@@ -52,6 +52,7 @@ import type { ExecutionUsage, IsolementDeclare, SubAgent, Task } from '../shared
 import { runMerge, runProc } from './merge-runner.js';
 import { lancerVraiment, poserOutil } from './pose-runner.js';
 import { buildSandboxEnv, cloneRepo, prepareWorkspace } from './workspace.js';
+import { ConfigurationNonNeutralisable, noteConfigurationEcartee } from './configuration-inerte.js';
 import { motifLave } from './livraison-locale.js';
 import { pousseeConsentie } from '../shared/livraison-locale.js';
 import {
@@ -1267,6 +1268,7 @@ export class HiveNodeClient {
           // Isole le répertoire par nœud : deux drones d'une même course sur une
           // même machine (workRoot partagé) ne se marchent pas dessus.
           this.nodeId ? this.nodeId.slice(0, 8) : '',
+          this.adapter.configurationExecutee,
         );
       } catch (err) {
         // Le dépôt ne s'est pas cloné ICI (identifiants de ce nœud, réseau,
@@ -1277,17 +1279,30 @@ export class HiveNodeClient {
         // cite l'URL du dépôt, et part à tout l'écran. La DERNIÈRE ligne :
         // celle où git dit pourquoi (`fatal: …`), dans les 120 caractères
         // d'une raison de refus.
+        //
+        // Même refus quand la configuration d'agent du dépôt n'a pas pu être
+        // écartée (`configuration-inerte.ts`) : l'agent ne tourne pas avec des
+        // hooks à moitié neutralisés, et la raison dit lesquels.
         const brut = err instanceof Error ? err.message : String(err);
         const cause = motifLave(brut.trim().split('\n').at(-1) ?? brut);
+        const raison =
+          err instanceof ConfigurationNonNeutralisable ? cause : `clone impossible : ${cause}`;
         this.send({
           type: 'task_reject',
           taskId: task.id,
-          reason: `clone impossible : ${cause}`.slice(0, LIMITS.name),
+          reason: raison.slice(0, LIMITS.name),
           infra: true,
           avantAgent: true,
         });
-        this.log(`⇄ ${task.title} : clone impossible → réaffectation (${cause})`);
+        this.log(`⇄ ${task.title} : ${raison} → réaffectation`);
         return;
+      }
+      if (workspace.configurationEcartee.length > 0) {
+        this.progresVersHub(
+          task.id,
+          ctrl,
+          caviardeur,
+        )({ log: noteConfigurationEcartee(workspace.configurationEcartee) });
       }
       // Hive Mind : le contexte reçu du hub est préfixé au prompt pour l'agent.
       // On n'altère que la copie transmise à l'adaptateur (chemins/branche du

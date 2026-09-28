@@ -143,6 +143,14 @@ export interface AdapterResult {
 
 export interface AgentAdapter {
   name: string;
+  /**
+   * Les chemins du dépôt (relatifs à sa racine, séparés par `/`) dont ce CLI
+   * EXÉCUTE le contenu — hooks, plugins — sans option pour l'en empêcher. Le
+   * nœud les écarte de l'arbre avant l'agent et les remet avant le diff
+   * (`node-client/configuration-inerte.ts`). Absent : le CLI n'en exécute
+   * aucun, ou des drapeaux le lui interdisent (Claude Code, `claude-code.ts`).
+   */
+  configurationExecutee?: readonly string[];
   run(task: Task, ctx: AdapterContext): Promise<AdapterResult>;
 }
 

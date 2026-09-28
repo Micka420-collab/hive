@@ -588,6 +588,12 @@ d'écriture réels de `src/` et **rougit** si l'un d'eux apparaît ailleurs.
   le nœud calcule le diff de revue et relit le dépôt pour les validations du
   bac : un crochet, un filtre ou un `core.fsmonitor` écrit par l'agent dans
   son dépôt ne s'exécute donc jamais sur votre machine, hors du bac.
+- `<installation>/.hive-work/tasks/<task-id>.inerte` : pour Cursor et Cline,
+  qui n'ont pas d'option pour ignorer les hooks d'un projet, la configuration
+  d'agent du dépôt (`.cursor/hooks.json`, `.claude/settings*.json`,
+  `.clinerules/hooks`, `.cline/hooks`, `.cline/plugins`) attend ici pendant que
+  l'agent tourne, hors du bac, puis retourne dans la tâche avant le diff. Le
+  dossier est effacé avec la tâche.
 - **un dépôt privé par SSH** (`git@hôte:…`) : le nœud clone — et, pour une
   livraison locale, liste et pousse — en mode lot
   (`ssh -o BatchMode=yes`), sans jamais attendre une invite. La clé d'hôte
