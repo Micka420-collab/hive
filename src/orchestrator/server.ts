@@ -3376,6 +3376,11 @@ async function monterReine(
       };
     }
     if (!task || taskId === undefined) return null;
+    // Le banc d'ombre (#501) ne parle pas au monde extérieur : une ombre ne se
+    // livre ni ne se relit par un humain, et sa relecture non plus — une
+    // demande d'approbation pour elle ferait trancher ce qui ne se livrera
+    // jamais, et un « blocage » alerterait pour une tâche que personne n'attend.
+    if (store.ombreLieeA(taskId) !== null) return null;
     if (event.type === 'task_done') {
       // La liaison est relevée ICI, au moment où la demande part : la
       // production exacte et le verdict courant. Un clic qui ne les retrouve

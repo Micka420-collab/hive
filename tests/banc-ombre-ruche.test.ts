@@ -24,6 +24,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
+import { ENV_WEBHOOK_SECRET, ENV_WEBHOOK_URL } from '../src/connectors/webhook/definition.js';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
 import type { RegistreGenome } from '../src/shared/registre-genome.js';
@@ -77,7 +78,9 @@ describe('le banc d’ombre sur une vraie Reine', () => {
     expect(condition(), message).toBe(true);
   }
 
-  async function ruche(): Promise<HiveServer> {
+  async function ruche(
+    connecteurs?: Parameters<typeof createServer>[0]['connecteurs'],
+  ): Promise<HiveServer> {
     dir = mkdtempSync(path.join(os.tmpdir(), 'hive-banc-ombre-'));
     server = await createServer({
       port: 0,
@@ -85,8 +88,10 @@ describe('le banc d’ombre sur une vraie Reine', () => {
       token: TOKEN,
       corsOrigins: ['http://localhost:5173'],
       dbPath: path.join(dir, 'hive.db'),
+      envPath: path.join(dir, 'queen.env'),
       simulation: true,
       tickMs: 40,
+      ...(connecteurs ? { connecteurs } : {}),
     });
     return server;
   }
@@ -542,6 +547,60 @@ describe('le banc d’ombre sur une vraie Reine', () => {
       'la panne d’une ombre a été servie en leçon au projet',
     ).toEqual([]);
     expect(srv.store.ombreDe(s)?.ombre).toMatchObject({ succes: false, tests: null });
+  });
+
+  it('le banc ne parle pas au monde extérieur : aucun connecteur ne relaie l’ombre ni sa relecture (#499)', async () => {
+    const corps: string[] = [];
+    process.env[ENV_WEBHOOK_URL] = 'https://recepteur.invalid/hook';
+    process.env[ENV_WEBHOOK_SECRET] = 'secret-de-banc-assez-long';
+    try {
+      const srv = await ruche({
+        fetchWebhook: (_url, init) => {
+          corps.push(init.body);
+          return Promise.resolve({ ok: true, status: 200 });
+        },
+      });
+      const codex = await noeud(srv, 'n-codex', 'codex', ['codex-banc']);
+      const claude = await noeud(srv, 'n-claude', 'claude-code', ['opus-banc']);
+      const projet = srv.store.createProject({ name: 'Relais' });
+      srv.store.autoriserConnecteur({
+        connecteurId: 'webhook',
+        projectId: projet.id,
+        portees: ['notification'],
+      });
+      await regler(srv, projet.id, {
+        actif: true,
+        tauxPourMille: 1000,
+        executionsParJour: 5,
+        plafondCoutUsd: 1,
+      });
+      const t = tache(srv, projet.id, 'Ajouter une fonction somme');
+      const { noeud: producteur } = await recuePar([codex, claude], t);
+      produire(producteur, t, 'passed');
+      await attendre(() => srv.store.ombreDeOriginale(t) !== null, 'aucune ombre ouverte');
+      const s = srv.store.ombreDeOriginale(t)!.tacheOmbre;
+      // Témoin : la production ordinaire, elle, part au récepteur.
+      await attendre(() => corps.some((c) => c.includes(t)), 'l’originale n’a pas été relayée');
+      const { noeud: porteur } = await recuePar([codex, claude], s);
+      produire(porteur, s, 'failed');
+      await attendre(
+        () => srv.store.relecturesDeProduction(s).length > 0,
+        'l’ombre n’a pas de relecture',
+      );
+      const relecture = srv.store.relecturesDeProduction(s)[0]!;
+      const { noeud: relecteur } = await recuePar([codex, claude], relecture);
+      relire(relecteur, relecture, 'conteste\n- la somme ignore les négatifs');
+      await attendre(() => srv.store.getTask(relecture)?.status === 'done', 'relecture non close');
+      // Le relais est différé d'un tour (#468) : on laisse passer le suivant.
+      await new Promise((r) => setTimeout(r, 200));
+      expect(
+        corps.filter((c) => c.includes(s) || c.includes(relecture) || c.includes('Ombre — ')),
+        'le banc d’ombre a été relayé au monde extérieur',
+      ).toEqual([]);
+    } finally {
+      delete process.env[ENV_WEBHOOK_URL];
+      delete process.env[ENV_WEBHOOK_SECRET];
+    }
   });
 
   it('ÉTEINDRE ne demande rien d’autre : le budget rangé reste, et allumer l’exige', async () => {
