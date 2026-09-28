@@ -115,6 +115,12 @@ async function retaper(nom: string): Promise<void> {
 // ─── Les données ────────────────────────────────────────────────────────────
 
 const LEA: AuthUser = { id: 'u-lea', email: 'lea@ruche.test', displayName: 'Léa' };
+const REINE: AuthUser = {
+  id: 'u-reine',
+  email: 'reine@ruche.test',
+  displayName: 'Reine',
+  role: 'admin',
+};
 const projet = (ownerId: string | null): Project => ({
   id: 'p-site',
   name: 'Site vitrine',
@@ -175,7 +181,7 @@ describe('le dialogue avec la Reine', () => {
 
   it('UN REFUS QU’ON NE LÈVE PAS EN FORÇANT se dit — et ne propose pas de forcer', async () => {
     await monter(
-      <SuppressionProjet project={projet(null)} user={null} onSupprime={() => undefined} />,
+      <SuppressionProjet project={projet(null)} user={REINE} onSupprime={() => undefined} />,
     );
     reponses.push({
       statut: 409,
@@ -207,36 +213,37 @@ describe('le dialogue avec la Reine', () => {
     await act(async () => racine?.unmount());
     racine = undefined;
     conteneur?.remove();
-    // Le jeton de ruche, lui, répond d'un orphelin (ADR 0007) : sans compte, le
-    // geste y est proposé.
-    await monter(
-      <SuppressionProjet project={projet(null)} user={null} onSupprime={() => undefined} />,
-    );
+    // L'administrateur, lui, répond du projet d'autrui.
+    await monter(<SuppressionProjet project={autre} user={REINE} onSupprime={() => undefined} />);
     expect(texte()).toContain('Supprimer le projet');
   });
 
-  it('un orphelin n’est proposé à un COMPTE que s’il tient le jeton de ruche', async () => {
-    // La Reine n'ouvre un orphelin qu'au jeton de ruche. Un compte ordinaire
-    // sans jeton saisi voyait le geste, retapait le nom — et se faisait
-    // refuser. L'orphelin est aussi celui dont l'`ownerId` est vide : le même
-    // prédicat que la Reine (`ouvertAuJetonDeRuche`).
-    const remonter = async (): Promise<void> => {
+  it('UN ORPHELIN NE SE SUPPRIME QU’AVEC UN COMPTE ADMINISTRATEUR — le jeton de ruche ne suffit plus', async () => {
+    // Décision #527 : la Reine exige un COMPTE pour supprimer — le
+    // propriétaire, ou un administrateur, le seul pour un orphelin. Proposé au
+    // jeton seul ou à un compte ordinaire qui tient le jeton, le geste ferait
+    // retaper le nom pour récolter un 403. L'orphelin est aussi celui dont
+    // l'`ownerId` est vide.
+    const remonter = async (p: Project, user: AuthUser | null): Promise<void> => {
       await act(async () => racine?.unmount());
       racine = undefined;
       conteneur?.remove();
-      await monter(
-        <SuppressionProjet project={projet('')} user={LEA} onSupprime={() => undefined} />,
-      );
+      await monter(<SuppressionProjet project={p} user={user} onSupprime={() => undefined} />);
     };
-    localStorage.removeItem('hive.token');
-    await monter(
-      <SuppressionProjet project={projet(null)} user={LEA} onSupprime={() => undefined} />,
-    );
-    expect(texte(), 'sans jeton, le geste serait refusé').not.toContain('Supprimer le projet');
     try {
       saveToken('jeton-de-ruche-saisi');
-      await remonter();
-      expect(texte()).toContain('Supprimer le projet');
+      await monter(
+        <SuppressionProjet project={projet(null)} user={null} onSupprime={() => undefined} />,
+      );
+      expect(texte(), 'le jeton seul').not.toContain('Supprimer le projet');
+      await remonter(projet(''), null);
+      expect(texte(), 'le jeton seul, propriétaire vide').not.toContain('Supprimer le projet');
+      await remonter(projet(null), LEA);
+      expect(texte(), 'un compte ordinaire qui tient le jeton').not.toContain(
+        'Supprimer le projet',
+      );
+      await remonter(projet(''), REINE);
+      expect(texte(), 'l’administrateur').toContain('Supprimer le projet');
     } finally {
       localStorage.removeItem('hive.token');
     }

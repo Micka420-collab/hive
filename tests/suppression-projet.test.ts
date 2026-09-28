@@ -23,8 +23,8 @@
 //     les annule d'abord, ce qui refuse même forcé, le miroir du Rayon effacé du
 //     disque, et le fait d'audit — le seul qui reste.
 //
-// La garde des DEUX côtés (propriétaire, administratrice, jeton sur un orphelin
-// / membre, tiers, jeton sur le projet d'autrui, anonyme) vit avec toutes les
+// La garde des DEUX côtés (propriétaire, administratrice / membre, tiers,
+// jeton de ruche seul — même sur un orphelin —, anonyme) vit avec toutes les
 // autres dans tests/engagement-projet.test.ts.
 
 import Database from 'better-sqlite3';
@@ -475,10 +475,34 @@ describe('Scheduler.supprimerProjet — le travail en vol', () => {
 
 const TOKEN = 'jeton-de-ruche-suffisamment-long-42';
 
+/**
+ * Le compte qui supprime : le PREMIER inscrit, administrateur par amorçage
+ * (l'inscription d'amorçage exige le jeton). Le jeton de ruche seul ne
+ * supprime plus aucun projet (#527) — la garde vit dans
+ * tests/engagement-projet.test.ts.
+ */
+async function compteAdmin(base: string): Promise<{ entetes: Record<string, string>; id: string }> {
+  const inscription = await fetch(`${base}/api/auth/register`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-hive-token': TOKEN },
+    body: JSON.stringify({
+      email: 'admin@hive.test',
+      password: 'mot-de-passe-assez-long-42',
+      displayName: 'Admin',
+    }),
+  });
+  const { token } = (await inscription.json()) as { token: string };
+  const moi = (await (
+    await fetch(`${base}/api/auth/me`, { headers: { authorization: `Bearer ${token}` } })
+  ).json()) as { id: string };
+  return { entetes: { 'x-hive-token': TOKEN, authorization: `Bearer ${token}` }, id: moi.id };
+}
+
 describe('DELETE /api/projects/:projectId', () => {
   let server: HiveServer;
   let dir: string;
   let base: string;
+  let admin: { entetes: Record<string, string>; id: string };
 
   beforeAll(async () => {
     dir = mkdtempSync(path.join(os.tmpdir(), 'hive-suppr-route-'));
@@ -492,6 +516,7 @@ describe('DELETE /api/projects/:projectId', () => {
       tickMs: 60_000,
     });
     base = `http://127.0.0.1:${server.port}`;
+    admin = await compteAdmin(base);
   });
 
   afterAll(async () => {
@@ -502,7 +527,7 @@ describe('DELETE /api/projects/:projectId', () => {
   const supprimer = (projet: string, force = false): Promise<Response> =>
     fetch(`${base}/api/projects/${projet}${force ? '?force=true' : ''}`, {
       method: 'DELETE',
-      headers: { 'x-hive-token': TOKEN },
+      headers: admin.entetes,
     });
   /** Un projet de la ruche (orphelin : le jeton en répond), avec une tâche qui tourne. */
   const projetQuiTourne = (): { projet: string; tache: string; noeud: string } => {
@@ -678,8 +703,8 @@ describe('DELETE /api/projects/:projectId', () => {
       annulees: 0,
       effaces: { projects: 1, tasks: 1 },
     });
-    // Le jeton de ruche n'est le compte de personne : aucun auteur inventé.
-    expect(restes[0]?.payload).not.toHaveProperty('parUserId');
+    // L'auteur est le COMPTE qui a supprimé — la garde en exige un.
+    expect(restes[0]?.payload).toMatchObject({ parUserId: admin.id });
     // Et l'écran n'a plus de carte à montrer.
     const etat = (await (
       await fetch(`${base}/api/state`, { headers: { 'x-hive-token': TOKEN } })
@@ -691,7 +716,7 @@ describe('DELETE /api/projects/:projectId', () => {
     const { projet } = projetQuiTourne();
     const r = await fetch(`${base}/api/projects/${projet}?force=oui`, {
       method: 'DELETE',
-      headers: { 'x-hive-token': TOKEN },
+      headers: admin.entetes,
     });
     expect(r.status).toBe(400);
     expect(server.store.getProject(projet)).toBeDefined();
@@ -751,10 +776,10 @@ describe('ce qui ne s’annule pas refuse même forcé — lancé pour de vrai',
       ws.on('error', reject);
     });
 
-  const supprimerForce = (base: string, projet: string): Promise<Response> =>
+  const supprimerForce = async (base: string, projet: string): Promise<Response> =>
     fetch(`${base}/api/projects/${projet}?force=true`, {
       method: 'DELETE',
-      headers: { 'x-hive-token': TOKEN },
+      headers: (await compteAdmin(base)).entetes,
     });
   const post = (base: string, chemin: string, corps: unknown = {}): Promise<Response> =>
     fetch(`${base}${chemin}`, {
@@ -925,7 +950,7 @@ describe('un cycle d’autonomie en vol refuse même forcé', () => {
 
     const r = await fetch(`${base}/api/projects/${projet}?force=true`, {
       method: 'DELETE',
-      headers: { 'x-hive-token': TOKEN },
+      headers: (await compteAdmin(base)).entetes,
     });
 
     expect(r.status).toBe(409);

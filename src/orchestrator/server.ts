@@ -8143,12 +8143,15 @@ async function monterReine(
   // quand, quel nom, combien de lignes), que l'élagage du journal épargne
   // pour les `AUDITS_SUPPRESSION_CONSERVES` plus récents (`faitsRanges`).
   //
-  // ─── LA GARDE : RÉPONDRE DU PROJET ──────────────────────────────────────────
+  // ─── LA GARDE : UN COMPTE QUI RÉPOND DU PROJET ──────────────────────────────
   //
-  // `proprieteProjetPermise` : le propriétaire ou un administrateur ; le jeton
-  // de ruche sur un projet ORPHELIN seulement (il en est le propriétaire, ADR
-  // 0007). Un membre reçoit 403 — il sait que le projet existe ; un étranger,
-  // le 404 de l'inexistence ; l'anonyme, 401.
+  // `suppressionProjetPermise` : un COMPTE — le propriétaire, ou un
+  // administrateur de la ruche (le seul, donc, pour un projet orphelin). Le
+  // jeton de ruche seul ne supprime plus, même un orphelin (décision #527) :
+  // il se recopie sur chaque machine membre (ADR 0007), et un geste sans
+  // retour ne se laisse pas à tout l'essaim — il reçoit un 403 qui dit quel
+  // compte il faut. Un membre reçoit 403 aussi — il sait que le projet
+  // existe ; un étranger, le 404 de l'inexistence ; l'anonyme, 401.
   //
   // ─── CE QUI TOURNE ENCORE ───────────────────────────────────────────────────
   //
@@ -8184,6 +8187,22 @@ async function monterReine(
   // Enfin, une ouvrière qui avait fini JUSTE avant l'annulation rend encore son
   // résultat : la Reine l'écarte (`result_ignored`, tâche inconnue) et le
   // journal le dit — des identifiants seulement, aucun contenu du projet.
+  const suppressionProjetPermise = (
+    req: FastifyRequest,
+    projectId: string,
+  ): VerdictProjet | 'reserve' | 'compte_requis' => {
+    const droit = proprieteProjetPermise(req, projectId);
+    if (droit !== 'permis') return droit;
+    const projet = store.getProject(projectId);
+    const moi = roleDe(req);
+    const repond =
+      projet !== undefined &&
+      moi !== null &&
+      peut(moi.role, 'regler_autonomie') &&
+      peutRegler(projet, lecteurDe(req));
+    return repond ? 'permis' : 'compte_requis';
+  };
+
   const travailNonAnnulable = (projectId: string): Record<string, unknown> | null => {
     const abonnement = store.getAbonnement(projectId);
     const machines = store
@@ -8240,7 +8259,17 @@ async function monterReine(
       },
     },
     async (req, reply) => {
-      const droit = proprieteProjetPermise(req, req.params.projectId);
+      const droit = suppressionProjetPermise(req, req.params.projectId);
+      if (droit === 'compte_requis') {
+        return reply.code(403).send({
+          code: 'compte_requis',
+          error:
+            'la suppression d’un projet exige un compte : son propriétaire, ou un administrateur de la ruche',
+          conseil:
+            'Connectez-vous avec ce compte (le jeton de ruche seul ne supprime aucun projet), ' +
+            'puis recommencez.',
+        });
+      }
       if (droit !== 'permis') return refuserReglage(reply, droit);
       const project = store.getProject(req.params.projectId);
       if (!project) return reply.code(404).send({ error: 'projet inconnu' });
@@ -8270,7 +8299,7 @@ async function monterReine(
       }
 
       // Une TRACE (qui a supprimé), jamais une autorisation : la garde est
-      // au-dessus. Sans compte, le jeton de ruche sur un orphelin — `null`.
+      // au-dessus, et elle a exigé un compte.
       const parUserId = authorizedUser(req) ? ((req as AuthRequest).userId ?? null) : null;
       const supprime = scheduler.supprimerProjet(project, parUserId);
       if (!supprime) return reply.code(404).send({ error: 'projet inconnu' });
@@ -9693,7 +9722,9 @@ async function monterReine(
 
   // ─── LA CONSIGNE DE ROUTAGE D'UNE TÂCHE (shared/consigne-routage.ts) ──────
   //
-  // Lire : la même porte que les autres lectures d'une tâche. Poser : une
+  // Lire : la porte des lectures de son PROJET (`lectureProjetPermise`, par le
+  // projet de la tâche) — le jeton de ruche, ou un compte qui lit ce projet ;
+  // le refus a la forme de l'inexistence de la tâche. Poser : une
   // DÉCISION sur le sort d'un travail, comme la revue et l'annulation — le
   // propriétaire ou un administrateur (`decisionTache`), le jeton sur un
   // projet orphelin. Un membre qui s'est inscrit tout seul sur une vitrine
@@ -9710,10 +9741,10 @@ async function monterReine(
       },
     },
     async (req, reply) => {
-      if (!authorized(req)) return reject(reply);
-      if (!store.getTask(req.params.taskId)) {
-        return reply.code(404).send({ error: 'tâche inconnue' });
-      }
+      const task = store.getTask(req.params.taskId);
+      const lecture = lectureProjetPermise(req, task?.projectId ?? '');
+      if (lecture === 'anonyme') return reject(reply);
+      if (lecture !== 'permis' || !task) return refuserTache(reply, 'absent');
       const rangee = store.consigneRoutage(req.params.taskId);
       return {
         taskId: req.params.taskId,

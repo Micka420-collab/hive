@@ -18,7 +18,6 @@ import {
   fetchDepotsGithub,
   fetchStatutGithub,
   fetchMembresProjet,
-  getToken,
   fetchMergePlan,
   fetchPartages,
   fetchProjetsOuverts,
@@ -37,7 +36,7 @@ import {
   supprimerProjet,
   trancherConseil,
 } from '../api';
-import { ApiError, DEFAULT_TOKEN, RefusSuppression } from '../api';
+import { ApiError, RefusSuppression } from '../api';
 import type {
   AuthUser,
   BalanceState,
@@ -66,7 +65,6 @@ import { argv, useSuiviMerge } from './suivi-merge';
 import { LivraisonMission } from './LivraisonMission';
 import { MergeReport } from './MergeReport';
 import { sansIdentifiants } from '../../../src/shared/projet-public';
-import { ouvertAuJetonDeRuche } from '../../../src/shared/acces-projet';
 import { ISSUES_A_TRANCHER, JUSTIFICATION_MAX } from '../../../src/shared/war-room';
 import { LENTILLES, QUESTION_DEFAUT, TOURS_MAX } from '../../../src/orchestrator/conseil';
 import type { Project, Task, TaskStatus } from '../../../src/shared/types';
@@ -2002,9 +2000,9 @@ const estStatut = (s: string): s is TaskStatus => (STATUSES as readonly string[]
  * avec sa marche à suivre, et le geste reste la suppression simple : proposer
  * de forcer promettrait ce qui sera refusé.
  *
- * Visible pour qui la Reine laissera faire : le propriétaire, un administrateur,
- * ou qui TIENT le jeton de ruche (stocké dans ce navigateur) sur un projet
- * orphelin (ADR 0007).
+ * Visible pour qui la Reine laissera faire : un COMPTE — le propriétaire, ou un
+ * administrateur (le seul pour un projet orphelin). Le jeton de ruche seul ne
+ * supprime aucun projet (#527) : sans compte, le geste n'est pas proposé.
  * Cosmétique — la garde est à la Reine.
  */
 export function SuppressionProjet({
@@ -2022,14 +2020,10 @@ export function SuppressionProjet({
   const [erreur, setErreur] = useState<string | null>(null);
   const [enVol, setEnVol] = useState<RefusSuppression['taches'] | null>(null);
 
-  // Le MÊME prédicat que la Reine (`ouvertAuJetonDeRuche` : `null` ET chaîne
-  // vide), et un jeton de ruche TENU : sans compte, l'écran ne tourne que par
-  // lui ; avec un compte, seulement s'il a été saisi (pas la valeur par
-  // défaut). Sans cela, un compte ordinaire voyait « Supprimer… » sur tout
-  // orphelin, retapait le nom, et récoltait un refus de la Reine.
-  const jetonTenu = user === null || getToken() !== DEFAULT_TOKEN;
-  const orphelinTenu = ouvertAuJetonDeRuche(project) && jetonTenu;
-  const peut = estAdmin(user) || orphelinTenu || (Boolean(user) && project.ownerId === user?.id);
+  // Le MÊME prédicat que la Reine (`suppressionProjetPermise`) : le
+  // propriétaire, ou un administrateur. Proposé à qui tient seulement le
+  // jeton, le geste ferait retaper le nom pour récolter un refus.
+  const peut = estAdmin(user) || (user !== null && project.ownerId === user.id);
   if (!peut) return null;
 
   const nom = project.name;

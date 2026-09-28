@@ -138,10 +138,10 @@ tâches, résultats, journal, mémoires du Hive Mind (et leurs propositions en
 attente), consignes de routage, dépenses de délégation, liens de partage,
 membres et miroir du code quittent la Reine. Il ne reste qu'une ligne d'audit,
 `project_deleted` (qui, quand, quel nom, combien de lignes), que l'élagage du
-journal épargne pour les 1 000 suppressions les plus récentes. Seuls le
-propriétaire et un administrateur le peuvent — le jeton de ruche, sur un projet
-sans propriétaire seulement — et la confirmation exige de **retaper le nom** du
-projet. Des tâches qui tournent font refuser la suppression (la liste est
+journal épargne pour les 1 000 suppressions les plus récentes. Il faut un
+**compte** : le propriétaire, ou un administrateur (le seul pour un projet sans
+propriétaire) — le jeton de ruche seul ne supprime aucun projet (ADR 0007) — et
+la confirmation exige de **retaper le nom** du projet. Des tâches qui tournent font refuser la suppression (la liste est
 affichée) ; la redemander avec `force=true` les annule d'abord. Un merge, un
 chantier ou une livraison en vol, un cycle d'autonomie, un abonnement actif ou
 une machine encore chez le fournisseur la font refuser même forcée : ceux-là ne

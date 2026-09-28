@@ -753,11 +753,11 @@ describe('ADR 0007 — le jeton de ruche n’engage plus le projet d’autrui', 
     const orphelinNeuf = (): Cible =>
       garnir(server.store.createProject({ name: 'Orphelin à supprimer', ownerId: null }).id);
 
-    it('le propriétaire et l’administratrice suppriment ; le jeton supprime un orphelin', async () => {
+    it('le propriétaire et l’administratrice suppriment ; l’administratrice seule un orphelin', async () => {
       for (const [qui, cible, entetes] of [
         ['le propriétaire', possedeNeuf(), compte(jetonProprio)],
         ['l’administratrice', possedeNeuf(), compte(jetonReine)],
-        ['le jeton de ruche, sur un orphelin', orphelinNeuf(), jeton],
+        ['l’administratrice, sur un orphelin', orphelinNeuf(), compte(jetonReine)],
       ] as const) {
         const r = await tenter(cible, supprimer, entetes);
         expect(r.status, `${qui} (${await r.text()})`).toBe(200);
@@ -766,6 +766,24 @@ describe('ADR 0007 — le jeton de ruche n’engage plus le projet d’autrui', 
           `${qui} : le projet est resté`,
         ).toBeUndefined();
       }
+    });
+
+    it('LE JETON DE RUCHE SEUL NE SUPPRIME PLUS, MÊME UN ORPHELIN — un compte est exigé, et le refus le dit', async () => {
+      // Décision #527 : le jeton se recopie sur chaque machine membre (ADR
+      // 0007) ; un geste sans retour ne se laisse pas à tout l'essaim. Un
+      // compte ordinaire qui présente AUSSI le jeton ne répond pas pour autant
+      // d'un orphelin : seul un administrateur le fait.
+      const cible = orphelinNeuf();
+      for (const [qui, entetes] of [
+        ['le jeton seul', jeton],
+        ['un compte ordinaire avec le jeton', { ...compte(jetonTiers), ...jeton }],
+      ] as const) {
+        const r = await tenter(cible, supprimer, entetes);
+        expect(r.status, qui).toBe(403);
+        expect(((await r.json()) as { code: string }).code, qui).toBe('compte_requis');
+      }
+      expect(server.store.getProject(cible.projet), 'l’orphelin est parti').toBeDefined();
+      expect(server.store.getTask(cible.tache), 'une tâche est partie').toBeDefined();
     });
 
     it('UN MEMBRE NE SUPPRIME PAS — 403, même avec le jeton, et rien ne part', async () => {
@@ -810,6 +828,44 @@ describe('ADR 0007 — le jeton de ruche n’engage plus le projet d’autrui', 
       expect(rejoint.status, 'le banc : la vitrine se rejoint d’un clic').toBe(200);
       expect((await tenter(vitrine, supprimer, compte(passant.token))).status).toBe(403);
       expect(server.store.getProject(vitrine.projet)).toBeDefined();
+    });
+  });
+
+  describe('la LECTURE d’une consigne de routage', () => {
+    // #527 : la route disait « la même porte que les autres lectures », et
+    // n'ouvrait qu'au jeton de ruche — un compte lisait son propre projet
+    // partout ailleurs, et recevait 401 ici. Elle suit maintenant la porte
+    // des lectures du PROJET de la tâche (`lectureProjetPermise`).
+    const lire: Acte = {
+      nom: 'lire la consigne de routage',
+      methode: 'GET',
+      route: '/api/tasks/:taskId/consigne-routage',
+      url: (c) => `/api/tasks/${c.tache}/consigne-routage`,
+      refus: 'tache',
+    };
+
+    it('le jeton, le propriétaire, le membre — et tout compte sur un projet public', async () => {
+      for (const [qui, cible, entetes] of [
+        ['le jeton, sur un orphelin', orphelin, jeton],
+        ['le jeton, sur le projet d’autrui', possede, jeton],
+        ['le propriétaire, sans le jeton', possede, compte(jetonProprio)],
+        ['le membre, sans le jeton', possede, compte(jetonMembre)],
+        ['un tiers, sur un projet public', publique, compte(jetonTiers)],
+      ] as const) {
+        const r = await tenter(cible, lire, entetes);
+        expect(r.status, `${qui} (${await r.clone().text()})`).toBe(200);
+        expect(((await r.json()) as { taskId: string }).taskId, qui).toBe(cible.tache);
+      }
+    });
+
+    it('un tiers sur un projet privé : le refus de l’inexistence ; l’anonyme : 401', async () => {
+      const r = await tenter(possede, lire, compte(jetonTiers));
+      const absent = await tenter(fantome, lire, compte(jetonTiers));
+      expect(r.status).toBe(404);
+      expect(await r.text(), 'le refus trahit l’existence de la tâche').toBe(REFUS.tache);
+      expect(await absent.text()).toBe(REFUS.tache);
+      expect((await tenter(possede, lire, {})).status).toBe(401);
+      expect((await tenter(fantome, lire, jeton)).status, 'tâche inconnue au jeton').toBe(404);
     });
   });
 
