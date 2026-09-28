@@ -1,7 +1,7 @@
 {
   "name": "hive",
   "productName": "Hive",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "description": "Hive — l'application de bureau : la Reine, ses ouvrières et Mission Control dans une fenêtre.",
   "author": "Micka420-collab",
