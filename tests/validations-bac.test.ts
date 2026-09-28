@@ -8,6 +8,9 @@
 //   · le CONSTAT : seul un code rendu par la commande vaut verdict. Un délai,
 //     un outil introuvable (127), un signal ne sont pas des échecs de la
 //     production — les lire `failed` enverrait l'agent corriger du code sain ;
+//   · la PANNE DU BAC : un code ≠ 0 rendu sur une signature d'infrastructure
+//     (OOM, disque plein, DNS, démon), sans aucun échec de test lu, n'est pas
+//     un verdict — `missing`, raison `environnement` (G11a) ;
 //   · le PARSEUR : un rapport mal formé est abandonné, pas le résultat qui le
 //     porte, et un couple état/raison hors table n'entre jamais.
 //
@@ -23,6 +26,7 @@ import {
   controleApresLancement,
   controleDepuis,
   declareDesDependances,
+  panneEnvironnement,
   planDeValidation,
   preparationDepuisLockfile,
   validationsBacDepuis,
@@ -184,6 +188,60 @@ describe('controleApresLancement — ce qui est un verdict, et ce qui n’en est
   });
 });
 
+describe('panneEnvironnement — la panne du bac, jamais l’échec d’un test', () => {
+  it.each([
+    [
+      'memoire',
+      134,
+      'FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory',
+    ],
+    ['memoire', 1, 'Error: spawn ENOMEM'],
+    ['memoire', 1, 'fork: Cannot allocate memory'],
+    ['memoire', 137, '> vitest run\n\nKilled'],
+    ['disque', 1, 'Error: ENOSPC: no space left on device, write'],
+    ['disque', 1, 'cp: error writing: No space left on device'],
+    ['dns', 1, 'Error: getaddrinfo EAI_AGAIN registry.npmjs.org'],
+    ['dns', 1, 'curl: (6) Temporary failure in name resolution'],
+    ['demon', 125, 'docker: Cannot connect to the Docker daemon at unix:///var/run/docker.sock.'],
+    ['demon', 1, 'Error response from daemon: container is not running'],
+    ['affichage', 1, 'Error: cannot open display: :0'],
+  ])('%s — code %i : %j', (panne, code, sortie) => {
+    expect(panneEnvironnement(code, sortie)).toBe(panne);
+    expect(controleApresLancement({ script: 'test', code, dureeMs: 5, sortie })).toMatchObject({
+      etat: 'missing',
+      raison: 'environnement',
+      panne,
+      code,
+    });
+  });
+
+  // La signature ne se lit QUE sans échec de test lu : chaque runner courant
+  // qui imprime la sienne à côté d'un message d'infrastructure garde `failed`.
+  it.each([
+    ['assertion', 'Cannot allocate memory\nAssertionError [ERR_ASSERTION]: 1 == 2'],
+    ['vitest', 'ENOSPC\n Test Files  1 failed (1)\n      Tests  1 failed | 3 passed (4)'],
+    ['jest', 'FAIL src/a.test.js\nNo space left on device'],
+    ['mocha', 'EAI_AGAIN\n  2 passing\n  1 failing'],
+    ['node --test', '# tests 3\n# pass 2\n# fail 1\nCannot allocate memory'],
+    ['TAP', 'not ok 2 - lit le disque\nENOSPC'],
+    ['tsc', "src/a.ts(3,1): error TS2322: Type 'x'\nJavaScript heap out of memory"],
+    ['ESLint', '✖ 3 problems (3 errors, 0 warnings)\nENOMEM'],
+  ])('%s : un échec lu reste un verdict', (_runner, sortie) => {
+    expect(panneEnvironnement(1, sortie)).toBeNull();
+    expect(controleApresLancement({ script: 'test', code: 1, dureeMs: 5, sortie })).toMatchObject({
+      etat: 'failed',
+      raison: 'termine',
+    });
+  });
+
+  it('ni sur un code 0, ni « Killed » sans le SIGKILL qui l’accompagne, ni sur une adresse mal écrite', () => {
+    expect(panneEnvironnement(0, 'Cannot allocate memory')).toBeNull();
+    expect(panneEnvironnement(1, 'Killed')).toBeNull();
+    expect(panneEnvironnement(1, 'Error: getaddrinfo ENOTFOUND api.exemple.invalid')).toBeNull();
+    expect(panneEnvironnement(1, 'Cannot find module ./absent')).toBeNull();
+  });
+});
+
 describe('ce qui traverse le réseau et le journal', () => {
   const controle = (etat: ControleBac['etat'], extra: Partial<ControleBac> = {}): ControleBac =>
     etat === 'passed'
@@ -228,8 +286,32 @@ describe('ce qui traverse le réseau et le journal', () => {
       { build: { etat: 'missing', raison: 'delai', script: '--x' } },
     ],
     ['une validation absente', { typecheck: undefined }],
+    [
+      'une panne d’environnement qui ne dit pas laquelle',
+      { tests: { etat: 'missing', raison: 'environnement', script: 'test', code: 137 } },
+    ],
+    [
+      'une panne inconnue',
+      { tests: { etat: 'missing', raison: 'environnement', panne: 'lune', script: 'test' } },
+    ],
+    [
+      'une panne portée par une autre raison',
+      { build: { etat: 'missing', raison: 'delai', panne: 'memoire', script: 'build' } },
+    ],
   ])('refuse %s', (_cas, controles) => {
     expect(validationsBacDepuis(rapport(controles))).toBeNull();
+  });
+
+  it('une panne d’environnement traverse avec sa panne, et rien d’autre', () => {
+    const panne = {
+      etat: 'missing',
+      raison: 'environnement',
+      panne: 'disque',
+      script: 'build',
+      code: 1,
+      extrait: 'ENOSPC',
+    } as const;
+    expect(validationsBacDepuis(rapport({ build: panne }))?.controles.build).toEqual(panne);
   });
 
   it('refuse un commit de base qui n’en est pas un, et borne l’extrait par la fin', () => {

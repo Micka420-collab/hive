@@ -14,11 +14,24 @@
 // dépendance que les types — rien ne le tire vers le DOM.
 
 import type { ValidationProvenance } from '../../../src/orchestrator/evaluator';
-import type { DetailControle } from '../../../src/shared/validations-bac';
+import type { DetailControle, PanneEnvironnement } from '../../../src/shared/validations-bac';
 import { formatDuree } from '../ui';
 
 /** Traduire, tel que `useT` le rend : `t(fr, en)`. */
 export type Traduire = (fr: string, en: string) => string;
+
+/**
+ * Chaque panne du bac, dans les deux langues. `inconnue` n'arrive pas du
+ * réseau (`controleDepuis` exige la panne) : c'est le repli du typage.
+ */
+const PANNES: Record<PanneEnvironnement | 'inconnue', readonly [string, string]> = {
+  memoire: ['mémoire épuisée', 'out of memory'],
+  disque: ['disque plein', 'disk full'],
+  dns: ['DNS indisponible', 'DNS unavailable'],
+  demon: ['démon de conteneurs injoignable', 'container daemon unreachable'],
+  affichage: ['aucun affichage', 'no display'],
+  inconnue: ['panne non précisée', 'unspecified failure'],
+};
 
 /** Une ligne : quelle source, et à quoi elle est rattachée. */
 export function resumeProvenance(provenance: ValidationProvenance, t: Traduire): string {
@@ -121,6 +134,13 @@ export function texteControle(detail: DetailControle, t: Traduire): string {
         `${commande} → ${code} : un outil du script est introuvable dans le bac, verdict inconnu — outil que ce bac n’a pas, ou dépendance que la production a retirée`,
         `${commande} → ${code}: a tool the script needs is missing from the sandbox, verdict unknown — a tool this sandbox lacks, or a dependency the production removed`,
       );
+    case 'environnement': {
+      const [fr, en] = PANNES[detail.panne ?? 'inconnue'];
+      return t(
+        `${commande} → ${code} : le bac est tombé en panne pendant l’exécution (${fr}), verdict inconnu — la production n’est pas mise en cause : libérez la ressource sur ce nœud`,
+        `${commande} → ${code}: the sandbox failed while it ran (${en}), verdict unknown — the production is not blamed: free the resource on this node`,
+      );
+    }
     case 'interrompue':
       return t(
         'les validations ont été interrompues par une erreur du nœud',

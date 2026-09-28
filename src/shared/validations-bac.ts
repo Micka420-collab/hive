@@ -50,8 +50,9 @@
 //                        sur la production, qui demande une correction ;
 //   · `missing`        — la preuve DEVRAIT exister et n'existe pas : délai
 //                        dépassé, environnement non préparé, outil introuvable,
-//                        déclaration réécrite par la production. Jamais un
-//                        verdict : l'échec n'est pas imputable au code ;
+//                        panne du bac en cours de route (mémoire, disque, DNS,
+//                        démon), déclaration réécrite par la production. Jamais
+//                        un verdict : l'échec n'est pas imputable au code ;
 //   · `not_applicable` — le projet ne déclare pas cette commande. Ce n'est pas
 //                        un vert : l'Evaluator l'affiche tel quel, et ne le
 //                        laisse jamais tenir lieu de TESTS (voir evaluator.ts).
@@ -110,6 +111,12 @@ export const ETATS_PAR_RAISON = {
   outil_introuvable: ['missing'],
   /** Une erreur inattendue du nœud a interrompu les validations. */
   interrompue: ['missing'],
+  /**
+   * La commande a rendu un code ≠ 0 sur une panne du BAC — mémoire, disque,
+   * DNS, démon de conteneurs — reconnue à sa sortie, sans aucun échec de test
+   * lu (`panneEnvironnement`). `panne` dit laquelle.
+   */
+  environnement: ['missing'],
 } as const satisfies Record<string, readonly ValidationState[]>;
 
 export type RaisonControle = keyof typeof ETATS_PAR_RAISON;
@@ -139,9 +146,15 @@ export const ORDRE_DE_LANCEMENT: readonly ValidationKey[] = ['lint', 'typecheck'
 /** La fin de sortie qu'un constat transporte au plus. C'est une DONNÉE du dépôt. */
 export const EXTRAIT_MAX = 2_000;
 
+/** Les pannes du bac qu'une sortie de commande suffit à reconnaître. */
+export const PANNES_ENVIRONNEMENT = ['memoire', 'disque', 'dns', 'demon', 'affichage'] as const;
+export type PanneEnvironnement = (typeof PANNES_ENVIRONNEMENT)[number];
+
 /** Ce que le bac a constaté pour une validation, au-delà de son état. */
 export interface DetailControle {
   raison: RaisonControle;
+  /** La panne reconnue — présente avec la raison `environnement`, et seulement elle. */
+  panne?: PanneEnvironnement;
   /** Le script lancé — ou qui l'aurait été. Absent quand le projet n'en déclare pas. */
   script?: string;
   /** Code de sortie, quand un processus s'est terminé de lui-même. */
@@ -289,6 +302,103 @@ export function extraitDe(sortie: string): { extrait?: string } {
   return extrait ? { extrait } : {};
 }
 
+// ─── LES PANNES DU BAC, LUES DANS LA SORTIE ──────────────────────────────────
+//
+// Un code rendu par la commande vaut verdict — SAUF quand c'est le bac qui a
+// lâché pendant qu'elle tournait : le noyau tue le runner faute de mémoire
+// (137, « Killed »), Node rend l'âme sur « JavaScript heap out of memory », le
+// disque est plein, le DNS ne répond plus, le démon de conteneurs est tombé.
+// Lu `failed`, chacun de ces cas envoyait l'agent corriger du code juste, et
+// comptait une correction au modèle dans le Genome (`task_retry` source
+// `evaluator`, `registre-genome.ts`). Lu `missing`, raison `environnement`,
+// l'Evaluator répond « preuve manquante » : ni correction automatique, ni
+// faute au modèle, ni au Worker.
+//
+// LA TABLE NE SE LIT QUE SUR UN CODE ≠ 0 ET SANS ÉCHEC DE TEST LU — la règle
+// de SWE-bench, qui ne classe que ce que ses parseurs n'ont pas su lire. Un
+// test qui imprime « Cannot allocate memory » puis rate son assertion reste
+// `failed` : c'est son assertion qui parle. Et quand les deux se mêlent (un
+// runner qui compte « 1 failed » pour un worker tué), c'est l'échec qui
+// l'emporte — l'ancien comportement, pas un vert prêté à tort.
+//
+// Pourquoi une sortie maquillée ne gagne rien : `missing` BLOQUE toujours
+// `accepted`. Une production qui imprimerait une signature pour masquer son
+// échec échange une correction automatique contre une preuve manquante —
+// jamais contre un vert. De même, un vrai OOM causé par le code (une fuite)
+// n'est pas blanchi : il reste sans preuve, et l'extrait le montre.
+//
+// ─── D'OÙ VIENT LA TABLE ─────────────────────────────────────────────────────
+//
+// Adaptée de `INFRA_FAILURE_SIGNATURES` (swebench/harness/infra_failure.py,
+// v5.0.0) — MIT, Copyright (c) 2023 Carlos E Jimenez, John Yang, Alexander
+// Wettig, Shunyu Yao, Kexin Pei, Ofir Press, Karthik R Narasimhan. Seul le
+// niveau « environment » est repris : le niveau « ambiguous » (module
+// introuvable, aucun test collecté) peut venir de la production, il reste un
+// verdict. Écarts voulus : `^Killed$` exige le code 137 (le SIGKILL qui
+// l'accompagne) ; « Could not resolve host » et « Failed to launch » sont
+// retirés — une adresse mal écrite par l'agent les produit aussi —, seuls
+// `EAI_AGAIN` et « Temporary failure in name resolution » disent un DNS qui
+// ne répond pas ; ENOSPC, ENOMEM et le tas de Node sont ajoutés.
+
+/** Une signature : la panne, le motif, et le code qu'elle exige s'il y en a un. */
+const SIGNATURES_ENVIRONNEMENT: readonly {
+  panne: PanneEnvironnement;
+  motif: RegExp;
+  code?: number;
+}[] = [
+  {
+    panne: 'memoire',
+    motif: /JavaScript heap out of memory|Cannot allocate memory|OutOfMemoryError|\bENOMEM\b/,
+  },
+  // Le shell de npm écrit « Killed » quand le noyau abat son enfant (SIGKILL,
+  // 128 + 9) : le tueur d'OOM, dans un bac borné en mémoire.
+  { panne: 'memoire', motif: /^Killed$/m, code: 137 },
+  { panne: 'disque', motif: /No space left on device|\bENOSPC\b|Disk quota exceeded|\bEDQUOT\b/ },
+  { panne: 'dns', motif: /\bEAI_AGAIN\b|Temporary failure in name resolution/ },
+  {
+    panne: 'demon',
+    motif:
+      /Cannot connect to the Docker daemon|Error response from daemon|Cannot connect to Podman/,
+  },
+  {
+    panne: 'affichage',
+    motif:
+      /cannot open display|Missing X server|unable to open X display|Failed to connect to the bus/,
+  },
+];
+
+/**
+ * Ce qu'un runner imprime quand un TEST (ou un contrôle) a échoué : TAP et
+ * `node --test` (`not ok`, `# fail N`), les comptes de vitest, jest, mocha,
+ * playwright (« 1 failed », « 2 failing »), les lignes FAIL/×/✖ de jest,
+ * vitest, `node --test` et ESLint, une assertion, une erreur de `tsc`. La
+ * liste est volontairement large : un faux positif garde l'ancien `failed`,
+ * un faux négatif prêterait une panne à ce qui est un échec.
+ */
+const ECHECS_LUS: readonly RegExp[] = [
+  /^\s*not ok \d/m,
+  /^# fail [1-9]/m,
+  /\b[1-9]\d* (?:failed|failing)\b/,
+  /^\s*(?:FAIL|✗|×|✖)\s/m,
+  /AssertionError/,
+  /\berror TS\d+:/,
+];
+
+/**
+ * La panne du bac qu'une commande terminée sur `code` révèle, ou `null`.
+ *
+ * `null` dès qu'un échec de test se lit dans la sortie, même à côté d'une
+ * signature : un échec lu est un verdict. La première signature trouvée
+ * l'emporte, dans l'ordre de la table.
+ */
+export function panneEnvironnement(code: number, sortie: string): PanneEnvironnement | null {
+  if (code === 0 || ECHECS_LUS.some((motif) => motif.test(sortie))) return null;
+  const trouvee = SIGNATURES_ENVIRONNEMENT.find(
+    (s) => (s.code === undefined || s.code === code) && s.motif.test(sortie),
+  );
+  return trouvee?.panne ?? null;
+}
+
 /**
  * Le constat d'une commande lancée.
  *
@@ -306,6 +416,9 @@ export function extraitDe(sortie: string): { extrait?: string } {
  * `cmd.exe` rendrait 1 pour une commande inconnue, un outil manquant s'y
  * lirait `failed` ; ce cas ne peut pas se présenter, puisqu'un nœud sans bac
  * ne lance rien (`sans_bac`).
+ *
+ * Un code rendu sur une panne du bac, reconnue à la sortie sans échec de test
+ * lu, n'en est pas un non plus : `environnement` (`panneEnvironnement`).
  */
 export function controleApresLancement(p: {
   script: string;
@@ -324,6 +437,17 @@ export function controleApresLancement(p: {
     return {
       etat: 'missing',
       raison: 'outil_introuvable',
+      ...commun,
+      code: p.code,
+      ...extraitDe(p.sortie),
+    };
+  }
+  const panne = panneEnvironnement(p.code, p.sortie);
+  if (panne) {
+    return {
+      etat: 'missing',
+      raison: 'environnement',
+      panne,
       ...commun,
       code: p.code,
       ...extraitDe(p.sortie),
@@ -353,7 +477,8 @@ function estRaison(v: unknown): v is RaisonControle {
  * Même discipline que le reste du protocole : rien n'est recopié tel quel, et
  * un champ qu'on n'attend pas n'atteint ni le journal ni l'écran. Le couple
  * état/raison doit figurer dans `ETATS_PAR_RAISON`, et un verdict doit porter
- * le code qui le fonde — 0 pour `passed`, autre chose pour `failed`.
+ * le code qui le fonde — 0 pour `passed`, autre chose pour `failed`. Une
+ * panne n'accompagne que la raison `environnement`, qui en exige une.
  */
 export function controleDepuis(v: unknown): ControleBac | null {
   if (typeof v !== 'object' || v === null) return null;
@@ -365,6 +490,9 @@ export function controleDepuis(v: unknown): ControleBac | null {
   if (c.code !== undefined && !entier(c.code, Number.MIN_SAFE_INTEGER)) return null;
   if (c.dureeMs !== undefined && !entier(c.dureeMs, 0)) return null;
   if (c.extrait !== undefined && typeof c.extrait !== 'string') return null;
+  const panne = PANNES_ENVIRONNEMENT.find((p) => p === c.panne);
+  if (c.panne !== undefined && panne === undefined) return null;
+  if ((raison === 'environnement') !== (panne !== undefined)) return null;
   if (
     raison === 'termine' &&
     (typeof c.code !== 'number' || (etat === 'passed') !== (c.code === 0))
@@ -374,6 +502,7 @@ export function controleDepuis(v: unknown): ControleBac | null {
   return {
     etat,
     raison,
+    ...(panne ? { panne } : {}),
     ...(typeof c.script === 'string' ? { script: c.script } : {}),
     ...(typeof c.code === 'number' ? { code: c.code } : {}),
     ...(typeof c.dureeMs === 'number' ? { dureeMs: c.dureeMs } : {}),
