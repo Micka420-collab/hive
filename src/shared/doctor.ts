@@ -400,12 +400,14 @@ function moteur(r: Releve): Diagnostic {
         'npm install --include=optional   (rien à faire si cette machine ne doit faire tourner qu’un nœud : `hive node`)',
     };
   }
-  const pluriel = manquants.length > 1 ? 's' : '';
+  // « ne se charge pas », pas « introuvable » : sous une glibc trop vieille,
+  // le paquet est LÀ et c'est son binaire qui refuse de se charger.
+  const verbe = manquants.length > 1 ? 'ne se chargent pas' : 'ne se charge pas';
   return {
     cle: 'moteur',
     gravite: 'bloquant',
     constat:
-      `${manquants.join(', ')} introuvable${pluriel} — la ruche ne démarrera pas` +
+      `${manquants.join(', ')} ${verbe} — la ruche ne démarrera pas` +
       (r.moteur.raison === null ? '' : ` (${r.moteur.raison})`),
     reparation: remedeMoteur(r),
   };
