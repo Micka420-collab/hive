@@ -104,6 +104,31 @@ describe('Slack à travers la Reine — approbations et relais', () => {
     return { taskId: t.id, resultId };
   };
 
+  /**
+   * Une production arrivée par le VRAI chemin (`handleTaskResult`) : elle
+   * propose son souvenir au Hive Mind, que seul un verdict fera entrer.
+   */
+  const productionReelle = (titre: string): { taskId: string; resultId: number } => {
+    server.scheduler.registerNode({
+      nodeId: 'n-reel',
+      name: 'claude',
+      ownerName: 'banc',
+      agentType: 'claude-code',
+      maxConcurrency: 1,
+    });
+    const t = server.store.createTask({ projectId: projet, title: titre, prompt: 'x' });
+    server.store.patchTask(t.id, { status: 'running', assignedNodeId: 'n-reel' });
+    server.scheduler.handleTaskResult('n-reel', {
+      taskId: t.id,
+      success: true,
+      diff: DIFF,
+      logs: 'tests: 0 failed',
+      durationMs: 10,
+      subAgents: [],
+    });
+    return { taskId: t.id, resultId: server.store.dernierResultatDe(t.id)! };
+  };
+
   /** Le clic tel que Slack l'envoie, sur un bouton relevé dans un message posté. */
   const clic = (valeur: string, actionId = ACTION_APPROUVER, userId = APPROBATEUR): unknown => ({
     type: 'block_actions',
@@ -265,7 +290,7 @@ describe('Slack à travers la Reine — approbations et relais', () => {
   });
 
   it('« Approuver » sur une tâche terminée pose la revue par le chemin canonique', async () => {
-    const { taskId, resultId } = production('Approuvable');
+    const { taskId, resultId } = productionReelle('Approuvable');
     reponses = [];
     const apercu = await cliquer(clic(JSON.stringify({ t: taskId, r: resultId, v: null })), taskId);
     expect(apercu).toBe('approved — applique');
@@ -274,7 +299,24 @@ describe('Slack à travers la Reine — approbations et relais', () => {
     const revue = server.store
       .listEvents()
       .find((e) => e.type === 'task_reviewed' && e.payload.taskId === taskId);
-    expect(revue?.payload).toMatchObject({ state: 'approved', raison: 'approbation Slack' });
+    // La PROVENANCE est écrite au fait, jamais une raison inventée : un clic ne
+    // dit pas pourquoi, et une raison fabriquée entrait dans la critique, le
+    // Cerveau et l'écran comme si un humain l'avait écrite.
+    expect(revue?.payload).toMatchObject({
+      state: 'approved',
+      source: 'slack',
+      par: `slack:${APPROBATEUR}`,
+      parUserId: null,
+    });
+    expect(revue?.payload).not.toHaveProperty('raison');
+    // Le Hive Mind apprend d'une approbation humaine réelle, Slack compris :
+    // le chemin canonique statue la production (`statuerProduction`).
+    expect(
+      server.store
+        .listEvents()
+        .filter((e) => e.type === 'memory_recorded' && e.payload.taskId === taskId)
+        .map((e) => e.payload.source),
+    ).toEqual(['revue_humaine']);
     // Le cliqueur voit l'issue : le message est réécrit, ses boutons partent.
     await expect.poll(() => reponses.length).toBe(1);
     expect(reponses[0]).toMatchObject({ replace_original: true });
@@ -335,7 +377,12 @@ describe('Slack à travers la Reine — approbations et relais', () => {
     const revue = server.store
       .listEvents()
       .find((e) => e.type === 'task_reviewed' && e.payload.taskId === taskId);
-    expect(revue?.payload).toMatchObject({ state: 'rejected', raison: 'approbation Slack' });
+    expect(revue?.payload).toMatchObject({
+      state: 'rejected',
+      source: 'slack',
+      par: `slack:${APPROBATEUR}`,
+    });
+    expect(revue?.payload).not.toHaveProperty('raison');
     expect(server.store.getTask(taskId)?.attempts).toBe(1);
     expect(
       server.store
@@ -347,6 +394,23 @@ describe('Slack à travers la Reine — approbations et relais', () => {
             e.payload.taskId === taskId,
         ),
     ).toBe(true);
+  });
+
+  it('« Rejeter » sans reprise possible le DIT, comme un rejet de la Miellerie', async () => {
+    const { taskId, resultId } = production('Essais épuisés');
+    server.store.patchTask(taskId, { attempts: 99 });
+    const apercu = await cliquer(
+      clic(JSON.stringify({ t: taskId, r: resultId, v: null }), ACTION_REJETER),
+      taskId,
+    );
+    expect(apercu).toBe('rejected — applique');
+    expect(
+      server.store
+        .listEvents()
+        .filter((e) => e.type === 'evaluator_retry_skipped' && e.payload.taskId === taskId)
+        .map((e) => e.payload.source),
+    ).toEqual(['revue_humaine']);
+    expect(server.store.getTask(taskId)?.status).toBe('done');
   });
 
   it('un vrai `task_failed` part en blocage', async () => {

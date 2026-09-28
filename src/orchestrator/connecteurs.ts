@@ -84,6 +84,8 @@ export interface DepsHub {
     taskId: string,
     verdict: 'approved' | 'rejected',
     liaison: LiaisonApprobation,
+    /** Qui a cliqué : `slack:<U…>`, la provenance écrite au fait. */
+    par: string,
   ) => ResultatRevueConnecteur;
   /** `fetch` pour les webhooks sortants (défaut : global). */
   readonly fetchWebhook?: FetchLike;
@@ -490,7 +492,12 @@ export class HubConnecteurs {
       if (verdict.motif !== 'action_ignore') await this.repondreRefus(ex, projectId, verdict.motif);
       return;
     }
-    const resultat = this.deps.appliquerRevue(verdict.taskId, verdict.verdict, verdict.liaison);
+    const resultat = this.deps.appliquerRevue(
+      verdict.taskId,
+      verdict.verdict,
+      verdict.liaison,
+      `slack:${ex.userId}`,
+    );
     this.deps.store.journaliserConnecteur({
       connecteurId: 'slack',
       projectId,

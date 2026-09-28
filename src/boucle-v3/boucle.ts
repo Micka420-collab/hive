@@ -633,7 +633,8 @@ export async function menerLaBoucle(
       garde: j.garde,
       message:
         `ARRÊT à la porte — ${pourquoi.join(' ; ')}. Relisez la production ${idImpl} ` +
-        'dans la Miellerie et approuvez-la (ou refusez-la) : le geste est consigné au journal ' +
+        'dans la Miellerie, connecté avec un compte propriétaire ou administrateur, et ' +
+        'approuvez-la (ou refusez-la) : le geste est consigné au journal ' +
         `(task_reviewed). Puis relancez avec --oui --reprendre ${projetId}.` +
         (j.journalLu
           ? ''

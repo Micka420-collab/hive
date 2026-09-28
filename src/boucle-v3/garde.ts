@@ -48,7 +48,9 @@
 // La validation est la revue humaine de la Miellerie (`POST
 // /api/tasks/:taskId/review`, `task_reviewed` au journal) — un geste qui
 // existe, qui est gardé (`decisionTache` : qui répond du projet), et que la
-// boucle ne fait JAMAIS elle-même. Elle ne vaut que si le journal la montre
+// boucle ne fait JAMAIS elle-même. Elle ne vaut que posée par un COMPTE
+// propriétaire ou administrateur (`parUserId` au fait) : le jeton de ruche,
+// avec lequel la boucle travaille, ne valide pas sa propre production. Elle ne vaut que si le journal la montre
 // APRÈS la dernière production (`task_done`) : une nouvelle tentative efface
 // la revue (`retryFromEvaluator`), et une approbation d'une production
 // précédente ne couvre pas la suivante.
@@ -444,6 +446,14 @@ const chargeDe = (e: EvenementJournal): Record<string, unknown> =>
  * `revueCourante` : `evidence.humanReview` de l'Evaluator (l'état rangé).
  * Les DEUX doivent dire oui — l'état rangé ET le fait au journal, postérieur
  * à la dernière production. Un refus, d'où qu'il vienne, est un refus.
+ *
+ * Une APPROBATION, elle, ne vaut que d'un COMPTE qui répond du projet : le
+ * fait porte `parUserId`, que la Reine n'écrit que pour un propriétaire ou un
+ * administrateur jugé sur sa propre autorité (server.ts, `compteQuiRegle`).
+ * La boucle crée son projet au jeton de ruche — orphelin, donc ouvert au
+ * jeton —, et ce jeton est sur chaque machine de l'essaim : une revue passée
+ * au jeton (`parUserId: null`), ou un clic Slack, n'est pas la validation
+ * d'un humain qui répond de la ruche.
  */
 export function validationHumaine(
   taskId: string,
@@ -458,9 +468,12 @@ export function validationHumaine(
   // Sans `task_done` retenu, la production précède tout le journal restant —
   // donc la revue (élagage par les plus anciens, cf. l'en-tête).
   if (!revue || (production && revue.id < production.id)) return 'absente';
-  const etat = chargeDe(revue).state;
+  const { state: etat, parUserId } = chargeDe(revue);
   if (etat === 'rejected') return 'refusee';
-  return etat === 'approved' && revueCourante === 'approved' ? 'approuvee' : 'absente';
+  const parUnCompte = typeof parUserId === 'string' && parUserId !== '';
+  return etat === 'approved' && revueCourante === 'approved' && parUnCompte
+    ? 'approuvee'
+    : 'absente';
 }
 
 /** Une relecture d'une AUTRE famille que la productrice a-t-elle été rendue ? */

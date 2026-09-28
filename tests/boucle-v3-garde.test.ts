@@ -20,6 +20,9 @@
 //     ne vise plus rien ne protège plus rien.
 
 import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   SURFACES_SENSIBLES,
@@ -29,6 +32,7 @@ import {
   surfacesDe,
   validationHumaine,
 } from '../src/boucle-v3/garde.js';
+import { createServer } from '../src/orchestrator/server.js';
 import type {
   EtatGarde,
   RelectureCroisee,
@@ -283,10 +287,15 @@ describe('la décision : validation humaine au journal, refus sans appel', () =>
 
   const T = 'v3-abcdef12-implementation';
   const done = (id: number, taskId = T) => ({ id, type: 'task_done', payload: { taskId } });
-  const revue = (id: number, state: string | null, taskId = T) => ({
+  const revue = (
+    id: number,
+    state: string | null,
+    taskId = T,
+    provenance: Record<string, unknown> = { parUserId: 'proprietaire-1' },
+  ) => ({
     id,
     type: 'task_reviewed',
-    payload: { taskId, state },
+    payload: { taskId, state, ...provenance },
   });
 
   it('APPROUVÉE : au journal après la dernière production, ET dans l’état rangé', () => {
@@ -326,6 +335,27 @@ describe('la décision : validation humaine au journal, refus sans appel', () =>
     ).toBe('absente');
   });
 
+  it('UNE APPROBATION AU JETON DE RUCHE, ou depuis Slack, n’est pas la validation d’un compte', () => {
+    // La boucle travaille au jeton : son projet est orphelin, donc ouvert au
+    // jeton que chaque machine porte. Seul un compte qui répond du projet
+    // (`parUserId`, écrit par la Reine) valide.
+    for (const provenance of [
+      { parUserId: null },
+      {},
+      { parUserId: '' },
+      { source: 'slack', par: 'slack:U123', parUserId: null },
+    ]) {
+      expect(
+        validationHumaine(T, [done(1), revue(2, 'approved', T, provenance)], 'approved'),
+        JSON.stringify(provenance),
+      ).toBe('absente');
+    }
+    // Un REFUS, lui, vaut d'où qu'il vienne.
+    expect(
+      validationHumaine(T, [done(1), revue(2, 'rejected', T, { parUserId: null })], 'missing'),
+    ).toBe('refusee');
+  });
+
   it('UN REFUS, rangé ou au journal, est un refus', () => {
     expect(validationHumaine(T, [done(1)], 'rejected')).toBe('refusee');
     expect(validationHumaine(T, [done(1), revue(2, 'rejected')], 'missing')).toBe('refusee');
@@ -341,6 +371,59 @@ describe('la liste des surfaces', () => {
         suivis.some((f) => surfacesDe(f).some((t) => t.pourquoi === surface.pourquoi)),
         `aucun fichier du dépôt ne correspond à ${surface.motif.source}`,
       ).toBe(true);
+    }
+  });
+});
+
+describe('la Reine écrit QUI a validé — ce que la porte lit', () => {
+  it('`parUserId` ne nomme qu’un compte qui répond du projet ; le jeton, ou un inconnu qui le porte, écrit null', async () => {
+    const JETON = 'jeton-garde-revue-assez-long-42';
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'hive-garde-revue-'));
+    const srv = await createServer({
+      port: 0,
+      host: '127.0.0.1',
+      token: JETON,
+      corsOrigins: ['http://localhost:5173'],
+      dbPath: path.join(dir, 'hive.db'),
+      simulation: false,
+      tickMs: 60_000,
+    });
+    try {
+      const base = `http://127.0.0.1:${srv.port}`;
+      const hive = { 'content-type': 'application/json', 'x-hive-token': JETON };
+      const inscrire = async (email: string, avecJeton: boolean): Promise<string> => {
+        const r = await fetch(`${base}/api/auth/register`, {
+          method: 'POST',
+          headers: avecJeton ? hive : { 'content-type': 'application/json' },
+          body: JSON.stringify({ email, password: 'motdepasse-assez-long-42', displayName: email }),
+        });
+        return ((await r.json()) as { token: string }).token;
+      };
+      const admin = await inscrire('reine@ruche.test', true);
+      const inconnu = await inscrire('inconnu@ruche.test', false);
+      // Le projet de la boucle : créé au jeton, donc orphelin.
+      const p = srv.store.createProject({ name: 'Hive' }).id;
+      const revue = async (headers: Record<string, string>): Promise<unknown> => {
+        const t = srv.store.createTask({ projectId: p, title: 'x', prompt: 'x' });
+        srv.store.patchTask(t.id, { status: 'done' });
+        const r = await fetch(`${base}/api/tasks/${t.id}/review`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ state: 'approved' }),
+        });
+        expect(r.status, await r.clone().text()).toBe(200);
+        return srv.store.lastEventFor('task_reviewed', t.id)?.payload.parUserId;
+      };
+      expect(await revue(hive)).toBeNull();
+      expect(await revue({ ...hive, authorization: `Bearer ${inconnu}` })).toBeNull();
+      const parAdmin = await revue({
+        'content-type': 'application/json',
+        authorization: `Bearer ${admin}`,
+      });
+      expect(typeof parAdmin === 'string' && parAdmin !== '').toBe(true);
+    } finally {
+      await srv.stop();
+      rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
     }
   });
 });

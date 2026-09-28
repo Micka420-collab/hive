@@ -252,7 +252,7 @@ function laboratoire(
     /** Le geste humain de la Miellerie : l'état rangé ET le fait au journal. */
     revue(taskId: string, state: 'approved' | 'rejected') {
       revues.set(taskId, state);
-      emettre('task_reviewed', { taskId, state });
+      emettre('task_reviewed', { taskId, state, parUserId: 'proprietaire-1' });
     },
     /** Une nouvelle production de la tâche, arrivée après coup. */
     reproduire(taskId: string) {

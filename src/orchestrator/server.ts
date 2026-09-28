@@ -3573,15 +3573,32 @@ async function monterReine(
   // Sans ce point unique, Slack aurait sa propre copie de « poser le verdict,
   // relancer si rejet », et les deux dérivéraient. « Jamais une autorité
   // nouvelle » se tient parce que la porte est commune, pas parce qu'on la copie.
+  //
+  // ─── QUI A TRANCHÉ, ÉCRIT AU FAIT ───────────────────────────────────────────
+  //
+  // `task_reviewed` porte sa PROVENANCE, jamais une raison inventée :
+  //   · l'écran : `parUserId`, le compte qui répond du projet par sa propre
+  //     autorité (propriétaire ou administrateur, `compteQuiRegle`), ou `null`
+  //     quand la revue est passée au seul jeton de ruche — que chaque machine
+  //     de l'essaim porte. La boucle Hive → Hive n'accepte comme validation
+  //     humaine qu'une revue à `parUserId` (boucle-v3/garde.ts) ;
+  //   · Slack : `source: 'slack'` et `par: 'slack:<U…>'`, l'usager inscrit qui
+  //     a cliqué. Un clic ne dit pas POURQUOI : aucune `raison` — une raison
+  //     fabriquée entrait dans la critique de la tentative suivante, l'épisode
+  //     du Cerveau et l'écran de critique comme si un humain l'avait écrite.
   const appliquerRevueHumaine = (
     task: Task,
     state: 'approved' | 'rejected' | null,
+    provenance: { parUserId: string | null } | { source: 'slack'; par: string },
     opts: { clientId?: string; raison?: string } = {},
   ): { retry: ReturnType<Scheduler['retryFromEvaluator']> | null } => {
     store.setTaskReview(task.id, state);
     emitEvent('task_reviewed', {
       taskId: task.id,
       state,
+      ...('source' in provenance
+        ? { source: provenance.source, par: provenance.par, parUserId: null }
+        : { parUserId: provenance.parUserId }),
       ...(opts.clientId ? { clientId: opts.clientId } : {}),
       ...(opts.raison ? { raison: opts.raison } : {}),
     });
@@ -3663,6 +3680,7 @@ async function monterReine(
     taskId: string,
     verdict: 'approved' | 'rejected',
     liaison: LiaisonApprobation,
+    par: string,
   ): ResultatRevueConnecteur => {
     const task = store.getTask(taskId);
     if (!task) return 'tache_inconnue';
@@ -3671,7 +3689,7 @@ async function monterReine(
     if (store.dernierResultatDe(task.id) !== liaison.resultId || revueA !== liaison.revueA) {
       return 'perime';
     }
-    appliquerRevueHumaine(task, verdict, { raison: 'approbation Slack' });
+    appliquerRevueHumaine(task, verdict, { source: 'slack', par });
     return 'applique';
   };
   const hubConnecteurs = new HubConnecteurs({
@@ -4414,21 +4432,32 @@ async function monterReine(
       validation: valider === true ? validationDuCompte(req, projectId) : null,
     });
 
+  /**
+   * Le COMPTE qui répond de ce projet par sa propre autorité — propriétaire ou
+   * administrateur —, ou `null`. Jamais le jeton de ruche : sur un projet
+   * orphelin, la route passe au jeton, et un compte présenté à côté n'y gagne
+   * aucune autorité qu'il n'a pas.
+   */
+  const compteQuiRegle = (req: FastifyRequest, projectId: string): string | null => {
+    const moi = roleDe(req);
+    const projet = store.getProject(projectId);
+    if (!moi || !projet || !peut(moi.role, 'regler_autonomie')) return null;
+    return peutRegler(projet, lecteurDe(req)) ? moi.userId : null;
+  };
+
   /** Le compte qui répond du projet ET de son dépôt, ou `null` : jamais le jeton. */
   const validationDuCompte = (
     req: FastifyRequest,
     projectId: string,
   ): { userId: string } | null => {
-    const moi = roleDe(req);
-    const projet = store.getProject(projectId);
-    if (!moi || !projet || !peut(moi.role, 'regler_autonomie')) return null;
+    const userId = compteQuiRegle(req, projectId);
+    const depot = cleDepot(store.getProject(projectId)?.repoUrl ?? null);
+    if (userId === null) return null;
     const lecteur = lecteurDe(req);
-    if (!peutRegler(projet, lecteur)) return null;
-    const depot = cleDepot(projet.repoUrl);
     const jumeaux = depot
       ? store.listProjects().filter((p) => p.id !== projectId && cleDepot(p.repoUrl) === depot)
       : [];
-    return jumeaux.every((p) => peutRegler(p, lecteur)) ? { userId: moi.userId } : null;
+    return jumeaux.every((p) => peutRegler(p, lecteur)) ? { userId } : null;
   };
 
   /**
@@ -12207,10 +12236,15 @@ async function monterReine(
       // Chemin CANONIQUE, partagé avec l'approbation Slack : poser le verdict,
       // relancer si rejet. La trace `evaluator_retry_skipped` d'un rejet resté
       // sans correction (essais épuisés, livraison déjà ouverte…) y vit aussi.
-      const { retry } = appliquerRevueHumaine(task, req.body.state, {
-        ...(req.body.clientId ? { clientId: req.body.clientId } : {}),
-        ...(raison ? { raison } : {}),
-      });
+      const { retry } = appliquerRevueHumaine(
+        task,
+        req.body.state,
+        { parUserId: compteQuiRegle(req, task.projectId) },
+        {
+          ...(req.body.clientId ? { clientId: req.body.clientId } : {}),
+          ...(raison ? { raison } : {}),
+        },
+      );
       const saved = store.getTaskReview(task.id);
       return {
         taskId: task.id,
