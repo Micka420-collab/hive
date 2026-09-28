@@ -449,6 +449,55 @@ curl -X POST http://localhost:7777/api/projects/<project>/banc-ombre \
 Admission rules, budget, confidence and limits (FR):
 **[BANC-OMBRE.md](BANC-OMBRE.md)**.
 
+## 🕸️ Experience graph — linking what the hive went through
+
+The graph **links** facts that are already stored — journal, Brain, reviews,
+tests — without creating any: project, mission, task, worker, model version,
+decision, review, test, error, lesson and artifact, linked by `produced_by`,
+`reviewed_by`, `failed_with`, `fixed_by`, `validated_by`, `similar_to`,
+`derived_from` and `supersedes`. Every node and every link carries its
+**provenance** (the journal event id, or the Brain note) and its **date**. It is
+an in-memory projection, rebuilt on demand: no table.
+
+Three kinds of knowledge never mix: **facts** (the journal), **correlations**
+("these two tasks name the same files", "success followed this error") and
+**validated lessons** (a note written in the Brain, a validated Hive Mind
+memory). A correlation is never stored as a fact, and never becomes a rule.
+A Hive Mind memory only enters as a lesson when the journal names WHO
+validated it (the Evaluator or a human, `memory_recorded.source`): the
+worker's word alone does not make one.
+
+On every assignment, past tasks that **resemble** the new one — same error
+signatures, same named files, same category — are attached to the worker's
+prompt as **untrusted data**: title, shared traits, outcome, models, titles of
+linked lessons, never the content Hive Mind, the Brood chamber or the Brain
+already carry. A task's drawer shows them under "Why this Worker, this model" —
+correlations, not the reason for the choice.
+
+**Isolated by default**: a worker only receives its own project's experience.
+Cross-project federation is a host setting, in the Queen's `.env`:
+
+```bash
+HIVE_EXPERIENCE_PORTEE=ruche   # default: projet
+```
+
+Federated, project A's worker also reads the titles, files and models of
+similar tasks from other projects. A's journal does not copy them: the drawer
+says "a task from another project", without its id, project or title.
+
+The 🧠 **Memory** view shows a project's graph (list and a node's
+neighbourhood); "The whole hive" is reserved to administrators. A project's
+graph names Brain errors, lessons and decisions by id only: their titles speak
+for the whole hive (an error's title is the title of the last task that hit
+it, from any project), and are only readable under "The whole hive".
+
+![A project's experience graph: a task, its dated and sourced links, and its similar contexts marked as correlations](images/graphe-experience.bureau.png)
+
+```bash
+# GET /api/projects/:id/experience[?genre=task][&noeud=task:<id>]
+# GET /api/admin/experience            (administrator account)
+```
+
 ## 🛡️ Sting Detector — conflict prevention
 
 Two tasks that could run **at the same time** (no dependency ordering between

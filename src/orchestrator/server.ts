@@ -31,7 +31,11 @@ import type { Calibration } from '../shared/horloge-chantier.js';
 import { encodeInvite, isWsUrl } from '../shared/invite.js';
 import { inviteInjoignable } from '../shared/joignable.js';
 import { portDepuisEnv } from '../shared/port.js';
-import { gardiennesDepuisEnv } from '../shared/reglages.js';
+import {
+  gardiennesDepuisEnv,
+  porteeExperienceDepuisEnv,
+  type PorteeExperience,
+} from '../shared/reglages.js';
 import { editionDepuisEnv, secretWebhookExige } from '../shared/edition.js';
 import type { Edition } from '../shared/edition.js';
 import {
@@ -95,6 +99,25 @@ import {
   TYPES_REGISTRE_GENOME,
 } from '../shared/registre-genome.js';
 import { payloadDeBilan, type PolitiqueJournal } from '../shared/retention-journal.js';
+import {
+  blocExperience,
+  cibleDeTache,
+  compterExperience,
+  contextesSimilaires,
+  GENRES_NOEUD,
+  listerExperience,
+  projeterGrapheExperience,
+  TYPES_GRAPHE_EXPERIENCE,
+  voisinageExperience,
+} from '../shared/graphe-experience.js';
+import type {
+  ContexteSimilaire,
+  GenreNoeud,
+  GrapheExperience,
+  InfoTache,
+  PorteeGraphe,
+  SourcesGraphe,
+} from '../shared/graphe-experience.js';
 import { lireConfianceProxy, type ConfianceProxy } from '../shared/proxy-confiance.js';
 import {
   ouvertAuJetonDeRuche,
@@ -353,6 +376,7 @@ import {
   effacerEpisodesDuProjet,
   elaguer,
   enregistrerEpisode,
+  idEpisode,
   lire,
   pourLaTache,
 } from '../cerveau-reel.js';
@@ -848,6 +872,26 @@ const BUDGET_CERVEAU = 3_000;
  */
 export const BUDGET_CRITIQUE = 2_000;
 /**
+ * Ce que le graphe d'expérience peut prendre du contexte (`blocExperience`,
+ * shared/graphe-experience.ts) : trois contextes similaires d'une ligne JSON
+ * chacun. Servi AVANT Hive Mind — voir `construireHiveContext` — et c'est
+ * pourquoi il est petit : il ne doit pas affamer les souvenirs, seulement
+ * passer devant eux.
+ */
+const BUDGET_EXPERIENCE = 1_200;
+/** Contextes similaires joints à une ouvrière, au plus. */
+const SIMILAIRES_MAX = 3;
+/**
+ * Durée de vie de la projection du graphe d'expérience. Même raisonnement que
+ * `GARDIENNES_TTL_MS` : chaque affectation la consulte, et la relire du
+ * journal à chaque fois coûterait une lecture de 5 000 événements par tâche
+ * confiée. L'expérience des AUTRES tâches peut avoir trois secondes de retard ;
+ * celle de la tâche elle-même est relue fraîche (`experienceDe`).
+ */
+const GRAPHE_TTL_MS = 3_000;
+/** Nœuds d'une liste, et arêtes d'un voisinage, rendus par la route au plus. */
+const GRAPHE_LISTE_MAX = 200;
+/**
  * La raison qu'un humain peut joindre à son verdict de revue. Elle part telle
  * quelle dans le contexte de la correction : bornée comme ce qu'elle nourrit
  * (`BORNES_CRITIQUE.note`, brood.ts), et relue à cette même borne par la War
@@ -979,6 +1023,13 @@ export interface ServerConfig {
    * derrière un rappel bouchonné, et retirer ses gardes laissait la CI verte.
    */
   connecteurs?: { fetchSlack?: SlackFetch; fetchWebhook?: FetchLike; wsFactory?: WsFactory };
+  /**
+   * HIVE_EXPERIENCE_PORTEE : projet | ruche. D'où l'ouvrière d'un projet reçoit
+   * l'expérience des tâches voisines (`shared/graphe-experience.ts`). Défaut
+   * `projet` — l'isolement ; la fédération est une décision de l'hôte
+   * (`shared/reglages.ts`). Optionnel, comme les autres réglages.
+   */
+  porteeExperience?: PorteeExperience;
 }
 
 /**
@@ -1033,6 +1084,7 @@ export function loadConfigFromEnv(env: NodeJS.ProcessEnv = process.env): ServerC
         ? env.HIVE_POLYETHISME
         : 'consignes',
     edition: editionDepuisEnv(env),
+    porteeExperience: porteeExperienceDepuisEnv(env),
     ...(env.HIVE_PUBLIC_URL ? { publicUrl: env.HIVE_PUBLIC_URL } : {}),
   };
 }
@@ -2374,6 +2426,171 @@ async function monterReine(
     };
   };
 
+  // ─── LE GRAPHE D'EXPÉRIENCE : une projection, jamais une table ─────────────
+  //
+  // Le graphe se replie du journal et du Cerveau (`shared/graphe-experience.ts`).
+  // Ses SOURCES sont relues au plus toutes les `GRAPHE_TTL_MS`, et chaque
+  // portée demandée pendant ce temps est projetée une fois : N affectations
+  // dans la même seconde, une lecture du journal.
+  //
+  // La portée des OUVRIÈRES est un réglage de l'hôte (`HIVE_EXPERIENCE_PORTEE`,
+  // défaut : le projet seul). Les routes de lecture, elles, ne suivent pas ce
+  // réglage : celle d'un projet reste isolée à ce projet (le droit de lire A
+  // ne dit rien de B), celle de la ruche est réservée à qui voit tous les
+  // projets. Fédérer décide de ce que les ouvrières reçoivent, pas de ce que
+  // l'écran montre.
+  const porteeExperience: PorteeExperience = config.porteeExperience ?? 'projet';
+  let sourcesGraphe: {
+    calculeA: number;
+    sources: SourcesGraphe;
+    parPortee: Map<string, GrapheExperience>;
+  } | null = null;
+
+  const grapheExperience = (portee: PorteeGraphe): GrapheExperience => {
+    const now = Date.now();
+    if (!sourcesGraphe || now - sourcesGraphe.calculeA >= GRAPHE_TTL_MS) {
+      // Les faits d'une tâche, lus une fois par projection. Une RELECTURE
+      // n'est pas une tâche du graphe : elle y entre par son verdict
+      // (`contre_expertise_verdict`) sur la production qu'elle juge — la
+      // compter aussi comme tâche la ferait passer pour « similaire » à
+      // cette production, dont elle cite forcément les fichiers.
+      const infos = new Map<string, InfoTache | null>();
+      const tacheDe = (taskId: string): InfoTache | null => {
+        let info = infos.get(taskId);
+        if (info === undefined) {
+          const t = store.getTask(taskId);
+          info =
+            t && store.relectureDe(taskId) === null
+              ? {
+                  projectId: t.projectId,
+                  titre: t.title,
+                  categorie: categoriser(t.title, t.prompt),
+                  fichiers: cheminsPromis(t.title, t.prompt),
+                }
+              : null;
+          infos.set(taskId, info);
+        }
+        return info;
+      };
+      sourcesGraphe = {
+        calculeA: now,
+        sources: {
+          evenements: store.evenementsParTypes(TYPES_GRAPHE_EXPERIENCE, EVENT_RETENTION),
+          tacheDe,
+          nomProjet: (id) => store.getProject(id)?.name ?? null,
+          nomOuvriere: (id) => store.getNode(id)?.name ?? null,
+          notes: lire(dossierCerveau),
+          borne: EVENT_RETENTION,
+          journalElague: store.journalElague(),
+        },
+        parPortee: new Map(),
+      };
+    }
+    const memo = sourcesGraphe;
+    const cle = portee.genre === 'ruche' ? '*' : [...portee.projets].sort().join('\u0000');
+    let graphe = memo.parPortee.get(cle);
+    if (!graphe) {
+      graphe = projeterGrapheExperience(memo.sources, portee);
+      memo.parPortee.set(cle, graphe);
+    }
+    return graphe;
+  };
+
+  /**
+   * Les contextes similaires à joindre à une tâche, dans la portée réglée par
+   * l'hôte. Aucun pour une relecture : une relectrice juge UNE production, et
+   * lui souffler comment ont tourné les voisines serait l'influencer.
+   *
+   * ─── LES ERREURS DE LA TÂCHE ELLE-MÊME, RELUES FRAÎCHES ─────────────────
+   *
+   * C'est la signature d'erreur qui rapproche le mieux deux tâches, et c'est
+   * sur une REPRISE qu'elle compte. Or la reprise est confiée DANS
+   * `handleTaskResult` — l'ordonnanceur réaffecte avant de rendre la main —,
+   * donc AVANT que le hub ne verse l'épisode de cet échec (`noterEchec` vient
+   * après) : ni la projection mémoïsée ni même le journal ne le connaissent
+   * encore. La signature se recalcule donc depuis les résultats d'échec
+   * (`echecs`, déjà lus pour la Couveuse), par les deux mêmes fonctions que
+   * `enregistrerEpisode` — `signatureEchec`, puis `idEpisode` du texte rogné.
+   * Les épisodes que d'autres portes ont versés (un avis contesté, un rejet),
+   * eux, sont dans le journal avant la reprise qu'ils déclenchent.
+   */
+  const experienceDe = (
+    task: Task,
+    echecs: readonly { logs: string; finalText?: string }[],
+  ): ContexteSimilaire[] => {
+    if (store.relectureDe(task.id) !== null) return [];
+    const portee: PorteeGraphe =
+      porteeExperience === 'ruche'
+        ? { genre: 'ruche' }
+        : { genre: 'projets', projets: new Set([task.projectId]) };
+    const graphe = grapheExperience(portee);
+    const erreurs = new Set(cibleDeTache(graphe, task.id)?.erreurs ?? []);
+    for (const e of echecs) {
+      const signature = signatureEchec(e.logs, e.finalText).trim();
+      if (signature !== '') erreurs.add(`error:${idEpisode(signature)}`);
+    }
+    if (task.attempts > 0) {
+      for (const e of store.evenementsDeTache(task.id, ['cerveau_episode'], 50)) {
+        if (typeof e.payload.note === 'string' && e.payload.note !== '') {
+          erreurs.add(`error:${e.payload.note}`);
+        }
+      }
+    }
+    return contextesSimilaires(
+      graphe,
+      {
+        taskId: task.id,
+        categorie: categoriser(task.title, task.prompt),
+        fichiers: cheminsPromis(task.title, task.prompt),
+        erreurs: [...erreurs].sort(),
+      },
+      SIMILAIRES_MAX,
+    );
+  };
+
+  // ─── Le graphe d'expérience, lu ─────────────────────────────────────────
+  //
+  // Deux formes, pour un écran de liste et de voisinage (pas un canevas) :
+  // sans `noeud`, les nœuds les plus récents (d'un `genre`, ou de tous) ; avec
+  // `noeud`, ses arêtes, ses voisins et — pour une tâche — ses contextes
+  // similaires, calculés à la question et marqués `correlation`. L'en-tête
+  // dit la portée lue, le réglage de l'hôte pour les ouvrières, et la fenêtre
+  // du journal (`lecture.tronquee`). Réponses bornées : un graphe de mille
+  // tâches ne part pas entier dans une page.
+  const vueExperience = (
+    reply: FastifyReply,
+    graphe: GrapheExperience,
+    q: { noeud?: string; genre?: GenreNoeud },
+    portee: 'projet' | 'ruche',
+  ) => {
+    const entete = {
+      portee,
+      reglage: porteeExperience,
+      lecture: graphe.lecture,
+      comptes: compterExperience(graphe),
+    };
+    if (q.noeud === undefined) {
+      return { ...entete, noeuds: listerExperience(graphe, q.genre ?? null, GRAPHE_LISTE_MAX) };
+    }
+    const voisinage = voisinageExperience(graphe, q.noeud, GRAPHE_LISTE_MAX);
+    if (!voisinage) return reply.code(404).send({ error: 'nœud inconnu' });
+    const centre = voisinage.centre;
+    const cible = centre.genre === 'task' ? cibleDeTache(graphe, centre.id.slice(5)) : null;
+    return {
+      ...entete,
+      voisinage,
+      similaires: cible ? contextesSimilaires(graphe, cible, 5) : [],
+    };
+  };
+
+  const schemaExperience = {
+    type: 'object',
+    properties: {
+      noeud: { type: 'string', minLength: 1, maxLength: 400 },
+      genre: { type: 'string', enum: [...GENRES_NOEUD] },
+    },
+  } as const;
+
   /**
    * Contexte joint à `assign_task` : leçons de la Couveuse (tâche déjà échouée)
    * puis souvenirs du Hive Mind, dans le budget total LIMITS.hiveContext.
@@ -2409,6 +2626,12 @@ async function monterReine(
       | { etat: 'jointe'; figee: CritiqueReprise; objections: number }
       | { etat: 'perdue'; figee: CritiqueReprise };
     refusCerveau?: string;
+    /**
+     * Les contextes similaires du graphe d'expérience : `jointe` quand
+     * l'ouvrière les lira, `perdue` quand il y en avait mais que le budget
+     * était déjà pris. Absente quand rien ne ressemblait à la tâche.
+     */
+    experience?: { etat: 'jointe' | 'perdue'; similaires: ContexteSimilaire[] };
   } => {
     // ─── UN SEUL BUDGET, DÉCOMPTÉ BLOC APRÈS BLOC ────────────────────────────
     //
@@ -2472,8 +2695,22 @@ async function monterReine(
           )
         : '',
     );
+    // Le graphe d'expérience : COMMENT ont tourné les tâches qui ressemblent à
+    // celle-ci — mêmes fichiers nommés, mêmes signatures d'erreur. Après la
+    // Couveuse (l'échec de CETTE tâche reste le plus spécifique) et AVANT Hive
+    // Mind : un rapprochement par signature d'erreur vise plus juste qu'un
+    // rappel lexical, et ce bloc est petit (`BUDGET_EXPERIENCE`). Servi après
+    // les souvenirs, il tombait précisément sur les reprises — les jours où la
+    // Couveuse et la critique ont pris le budget, c'est-à-dire ceux où une
+    // erreur partagée compte le plus.
+    const similaires = experienceDe(task, echecs);
+    const experience = retenir(
+      similaires.length > 0
+        ? blocExperience(similaires, task.projectId, part(BUDGET_EXPERIENCE))
+        : '',
+    );
     // Hive Mind : souvenirs pertinents des tâches déjà réussies, dans le budget
-    // RESTANT après le Cerveau, la critique et la Couveuse.
+    // RESTANT après le Cerveau, la critique, la Couveuse et l'expérience.
     const souvenirs = retenir(
       buildHiveContext(
         store.searchMemories(
@@ -2506,7 +2743,7 @@ async function monterReine(
       // dernier, il n'aurait plus de place les jours où une tâche a beaucoup
       // échoué — c'est-à-dire exactement les jours où ses invariants comptent
       // le plus.
-      hiveContext: [savoir, blocDeCritique, lecons, souvenirs, horizon, veille]
+      hiveContext: [savoir, blocDeCritique, lecons, experience, souvenirs, horizon, veille]
         .filter(Boolean)
         .join('\n\n'),
       ...(echecs.length > 0
@@ -2524,6 +2761,9 @@ async function monterReine(
       // l'appelant journalise. Rendre '' sans le dire serait la panne
       // silencieuse que `selectionner` existe pour éviter.
       ...(refus === undefined ? {} : { refusCerveau: refus }),
+      ...(similaires.length > 0
+        ? { experience: { etat: experience ? 'jointe' : 'perdue', similaires } }
+        : {}),
     };
   };
 
@@ -2752,7 +2992,7 @@ async function monterReine(
       // premier : une consigne tronquée à moitié est pire qu'absente, alors
       // qu'un souvenir en moins n'est qu'un souvenir en moins.
       const cadre = construireCadre(task, nodeId);
-      const { hiveContext, couveuse, critique, refusCerveau } = construireHiveContext(
+      const { hiveContext, couveuse, critique, refusCerveau, experience } = construireHiveContext(
         task,
         cadre.length,
       );
@@ -2804,6 +3044,44 @@ async function monterReine(
           source: critique.figee.source,
           objectionsFigees: critique.figee.objections.length,
           motif: 'budget',
+        });
+      }
+      // Le graphe d'expérience : QUELLES tâches voisines l'ouvrière a lues, en
+      // faits typés (ids, titre borné, traits communs, issue) — le titre parce
+      // que c'est ce qu'elle a lu, rien de plus : ni prompt, ni sortie, ni
+      // leçon, qui restent chez leur propriétaire. C'est ce que relit
+      // l'explication du routage (`routage-vue.ts`), figé à l'affectation
+      // comme la raison du modèle. Perdues au budget, elles se journalisent
+      // aussi : un `''` muet ferait croire que rien ne ressemblait à la tâche.
+      //
+      // Fédérée, une voisine peut venir d'un AUTRE projet. Ce fait-ci est rangé
+      // sous la tâche de A, et tout lecteur de A le relit (tiroir, Chronique) :
+      // il n'y porte ni l'id, ni le projet, ni le titre de la voisine — ses
+      // faits restent chez B. Ce qui reste (`memeProjet: false`, les traits
+      // communs, l'issue comptée) dit ce que l'ouvrière a lu sans le recopier.
+      if (experience) {
+        emitEvent(experience.etat === 'jointe' ? 'experience_context' : 'experience_refus', {
+          taskId: task.id,
+          nodeId,
+          portee: porteeExperience,
+          ...(experience.etat === 'perdue' ? { motif: 'budget' } : {}),
+          similaires: experience.similaires.map((c) => ({
+            ...(c.projectId === task.projectId
+              ? {
+                  taskId: c.taskId,
+                  projectId: c.projectId,
+                  memeProjet: true,
+                  titre: champSurUneLigne(c.titre, LIMITS.title),
+                }
+              : { memeProjet: false }),
+            score: c.score,
+            categorie: c.communs.categorie,
+            fichiers: c.communs.fichiers,
+            erreurs: c.communs.erreurs.length,
+            ...c.issue,
+            modeles: c.modeles.slice(0, 3),
+            lecons: c.lecons.length,
+          })),
         });
       }
       const contexte = [cadre, hiveContext].filter(Boolean).join('\n\n');
@@ -8058,6 +8336,24 @@ async function monterReine(
     return { ...graphe(lire(dossierCerveau), Date.now()), dossier: dossierCerveau };
   });
 
+  /**
+   * Le graphe d'expérience de TOUTE la ruche — la vue fédérée.
+   *
+   * Réservée à `voir_tous_les_projets`, pour la même raison que le Cerveau :
+   * elle traverse les projets, et c'est la seule permission qui dise « cette
+   * personne les voit tous ». Elle ne dépend PAS du réglage de fédération : ce
+   * réglage décide de ce que reçoivent les ouvrières, et c'est justement ici
+   * que l'hôte voit ce que la fédération leur apporterait avant de l'ouvrir.
+   */
+  app.get<{ Querystring: { noeud?: string; genre?: GenreNoeud } }>(
+    '/api/admin/experience',
+    { schema: { querystring: schemaExperience } },
+    async (req, reply) => {
+      if (!exige(req, reply, 'voir_tous_les_projets')) return reply;
+      return vueExperience(reply, grapheExperience({ genre: 'ruche' }), req.query, 'ruche');
+    },
+  );
+
   app.get('/api/admin/membres', async (req, reply) => {
     if (!exige(req, reply, 'gerer_membres')) return reply;
     return {
@@ -10951,6 +11247,33 @@ async function monterReine(
       ombres,
     );
   });
+
+  // Le graphe d'UN projet — toujours isolé à ce projet, quel que soit le
+  // réglage de fédération : le droit de lire ce projet (`lectureProjetPermise`)
+  // ne dit rien des autres. Refus et inexistence rendent les mêmes octets.
+  app.get<{ Params: { projectId: string }; Querystring: { noeud?: string; genre?: GenreNoeud } }>(
+    '/api/projects/:projectId/experience',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId'],
+          properties: { projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+        querystring: schemaExperience,
+      },
+    },
+    async (req, reply) => {
+      const lecture = lectureProjetPermise(req, req.params.projectId);
+      if (lecture !== 'permis') return refuserProjet(reply, lecture);
+      if (!store.getProject(req.params.projectId)) return refuserProjet(reply, 'absent');
+      const graphe = grapheExperience({
+        genre: 'projets',
+        projets: new Set([req.params.projectId]),
+      });
+      return vueExperience(reply, graphe, req.query, 'projet');
+    },
+  );
 
   // Graphe de délégation borné : état des tâches + événements parent→raison→résultat.
   // La lecture ne déduit rien d'un état UI : elle relit les arêtes SQLite et le

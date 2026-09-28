@@ -609,6 +609,35 @@ const EVENTS: Record<string, Meta> = {
         `critique dropped: ${short(p.taskId)} restarts (attempt ${String(p.attempt ?? '?')}) without the correction’s ${String(p.objectionsFigees ?? '?')} objection(s) — context budget exhausted`,
       ),
   },
+  // Le graphe d'expérience : les tâches voisines que l'ouvrière a lues, en
+  // faits typés (le détail est sous « Pourquoi ce Worker » dans le tiroir).
+  // Des corrélations : la ligne le dit, elle ne les présente pas comme un
+  // savoir acquis.
+  experience_context: {
+    icon: '◦',
+    cls: 'info',
+    text: (p, t) => {
+      const n = Array.isArray(p.similaires) ? p.similaires.length : 0;
+      const ruche = p.portee === 'ruche' ? t(' (toute la ruche)', ' (the whole hive)') : '';
+      return t(
+        `expérience : ${short(p.taskId)} part avec ${n} contexte(s) similaire(s)${ruche} — des corrélations, pas des règles`,
+        `experience: ${short(p.taskId)} starts with ${n} similar context(s)${ruche} — correlations, not rules`,
+      );
+    },
+  },
+  // … et celle que le budget a évincée : un `''` muet ferait croire que rien
+  // ne ressemblait à la tâche.
+  experience_refus: {
+    icon: '⚠',
+    cls: 'warn',
+    text: (p, t) => {
+      const n = Array.isArray(p.similaires) ? p.similaires.length : 0;
+      return t(
+        `expérience perdue : ${short(p.taskId)} part sans ses ${n} contexte(s) similaire(s) — budget de contexte épuisé`,
+        `experience dropped: ${short(p.taskId)} starts without its ${n} similar context(s) — context budget exhausted`,
+      );
+    },
+  },
   // La Balance, geste « borner ». Trois faits typés — `projectId`, des entiers,
   // un booléen — et AUCUNE phrase persistée : le bilingue est reconstruit ici
   // depuis les champs, exactement comme `thermo_shift`. `formatDuree` est

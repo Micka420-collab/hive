@@ -419,6 +419,61 @@ curl -X POST http://localhost:7777/api/projects/<projet>/banc-ombre \
 Critères d'admission, budget, confiance et limites :
 **[BANC-OMBRE.md](BANC-OMBRE.md)**.
 
+## 🕸️ Graphe d'expérience — relier ce que la ruche a vécu
+
+Le graphe **relie** des faits déjà rangés — journal, Cerveau, revues, tests —
+sans en créer un seul : projet, mission, tâche, ouvrière, version de modèle,
+décision, revue, test, erreur, leçon et production, reliés par `produced_by`,
+`reviewed_by`, `failed_with`, `fixed_by`, `validated_by`, `similar_to`,
+`derived_from` et `supersedes`. Chaque nœud et chaque lien portent leur
+**provenance** (l'id de l'événement du journal, ou la note du Cerveau) et leur
+**date**. C'est une projection en mémoire, refaite à la demande : aucune table.
+
+Trois natures ne se confondent jamais : les **faits** (le journal), les
+**corrélations** (« ces deux tâches nomment les mêmes fichiers », « la réussite
+a suivi cette erreur ») et les **leçons validées** (une note écrite dans le
+Cerveau, un souvenir Hive Mind validé). Une corrélation n'est jamais rangée
+comme un fait, et ne devient jamais une règle. Un souvenir Hive Mind n'y entre
+comme leçon que lorsque le journal nomme QUI l'a validé (l'Evaluator ou un
+humain, `memory_recorded.source`) : la parole seule de l'ouvrière n'en fait
+pas une.
+
+À chaque affectation, les tâches passées qui **ressemblent** à la nouvelle —
+mêmes signatures d'erreur, mêmes fichiers nommés, même catégorie — sont jointes
+au prompt de l'ouvrière comme **données non fiables** : titre, traits communs,
+issue, modèles, titres des leçons liées, jamais le contenu que Hive Mind, la
+Couveuse ou le Cerveau portent déjà. Le tiroir d'une tâche les montre sous
+« Pourquoi ce Worker, ce modèle » — des corrélations, pas la raison du choix.
+
+**Isolé par défaut** : une ouvrière ne reçoit que l'expérience de son projet.
+La fédération entre projets est un réglage de l'hôte, dans le `.env` de la
+Reine :
+
+```bash
+HIVE_EXPERIENCE_PORTEE=ruche   # défaut : projet
+```
+
+Fédérée, l'ouvrière de A lit aussi les titres, fichiers et modèles des tâches
+voisines des autres projets. Le journal de A, lui, ne les recopie pas : le
+tiroir dit « une tâche d'un autre projet », sans son id, son projet ni son
+titre.
+
+La vue 🧠 **Mémoire** montre le graphe d'un projet (liste et voisinage d'un
+nœud) ; « Toute la ruche » est réservée aux administrateurs. Le graphe d'un
+projet nomme les erreurs, les leçons et les décisions du Cerveau par leur
+seul id : leurs titres parlent de toute la ruche (celui d'une erreur est le
+titre de la dernière tâche qui l'a rencontrée, de n'importe quel projet), et
+ne se lisent que dans « Toute la ruche ».
+
+![Le graphe d'expérience d'un projet : une tâche, ses liens datés et sourcés, et ses contextes similaires marqués « corrélations »](images/graphe-experience.bureau.png)
+
+![Le tiroir d'une tâche : l'expérience voisine que l'ouvrière a lue](images/graphe-experience-tiroir.bureau.png)
+
+```bash
+# GET /api/projects/:id/experience[?genre=task][&noeud=task:<id>]
+# GET /api/admin/experience            (compte administrateur)
+```
+
 ## ⚖️ Débat et critique — une objection atteint la correction
 
 Une production réussie est relue par un modèle d'une **autre famille** ; si le

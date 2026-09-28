@@ -1848,6 +1848,43 @@ export function fetchGenome(): Promise<RegistreGenome> {
 }
 
 /**
+ * Le graphe d'expérience (cf. `src/shared/graphe-experience.ts`), tel que la
+ * Reine le rend : l'en-tête (portée lue, réglage de l'hôte pour les ouvrières,
+ * fenêtre du journal, comptes du graphe ENTIER), puis soit une liste de nœuds,
+ * soit le voisinage d'un nœud avec — pour une tâche — ses contextes
+ * similaires, marqués `correlation`.
+ */
+export interface VueExperience {
+  portee: 'projet' | 'ruche';
+  reglage: PorteeExperience;
+  lecture: GrapheExperience['lecture'];
+  comptes: ComptesExperience;
+  noeuds?: NoeudExperience[];
+  voisinage?: Voisinage;
+  similaires?: ContexteSimilaire[];
+}
+
+/**
+ * Le graphe d'UN projet (isolé à ce projet, quel que soit le réglage), ou —
+ * `'ruche'` — celui de toute la ruche, réservé à un compte qui voit tous les
+ * projets (d'où `apiCompte`).
+ */
+export function fetchExperience(
+  portee: { projectId: string } | 'ruche',
+  question: { noeud?: string; genre?: GenreNoeud } = {},
+): Promise<VueExperience> {
+  const q = new URLSearchParams();
+  if (question.noeud !== undefined) q.set('noeud', question.noeud);
+  if (question.genre !== undefined) q.set('genre', question.genre);
+  const suite = q.toString() ? `?${q.toString()}` : '';
+  return portee === 'ruche'
+    ? apiCompte<VueExperience>(`/api/admin/experience${suite}`)
+    : api<VueExperience>(
+        `/api/projects/${encodeURIComponent(portee.projectId)}/experience${suite}`,
+      );
+}
+
+/**
  * Les en-têtes qui disent « je suis de la ruche » : le jeton, et le compte s'il
  * y en a un. C'est l'identité que `api()` joint à CHAQUE appel ; elle est
  * exportée pour les rares appels qui gardent leur propre `fetch` (ils lisent
@@ -2874,6 +2911,15 @@ import type { AffectationVue } from '../../src/shared/routage-vue';
 import type { ChronologieTache } from '../../src/shared/chronologie-tache';
 import type { RegistreGenome } from '../../src/shared/registre-genome';
 import type { MotifRefusOmbre } from '../../src/orchestrator/shadow-bench';
+import type {
+  ComptesExperience,
+  ContexteSimilaire,
+  GenreNoeud,
+  GrapheExperience,
+  NoeudExperience,
+  Voisinage,
+} from '../../src/shared/graphe-experience';
+import type { PorteeExperience } from '../../src/shared/reglages';
 export type { ProjetPublic as ProjetPublicVue } from '../../src/shared/projet-public';
 
 /**
