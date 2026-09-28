@@ -163,6 +163,14 @@ export interface SchedulerOptions {
    * aucune décision), ce que prouve le harnais de rejeu.
    */
   gardiennes?: { mode: ModeGardiennes };
+  /**
+   * Le nœud sait-il PROLONGER une livraison (`register.prolonge`) ? Une
+   * REPRISE (`reprises_livraison`) ne part que vers un tel nœud : un nœud plus
+   * ancien perdrait `assign_task.prolonger` et travaillerait sur la branche
+   * par défaut. Absent : aucun nœud ne le sait, et une reprise attend — en le
+   * disant (`reprise_sans_ouvriere`).
+   */
+  prolonge?: (nodeId: string) => boolean;
 }
 
 export type EvaluationRetryDecision = 'correction_required' | 'rejected';
@@ -218,6 +226,11 @@ export class Scheduler {
   private readonly modelesEchoues = new Map<string, Set<string>>();
   /** Tâches actuellement différées pour cause de conflit (Sting Detector) — dédup des events. */
   private readonly deferredByConflict = new Set<string>();
+  /**
+   * Reprises en attente d'un nœud qui sait les prolonger (`opts.prolonge`) —
+   * dédup de `reprise_sans_ouvriere`, motif `deferredByConflict`.
+   */
+  private readonly reprisesSansOuvriere = new Set<string>();
   /**
    * Relecture → instant du PREMIER constat que sa famille relectrice est
    * absente. Dédup de l'événement d'attente, et départ de
@@ -1387,6 +1400,7 @@ export class Scheduler {
     this.apresCommit(() => {
       this.infraRejects.delete(task.id);
       this.deferredByConflict.delete(task.id);
+      this.reprisesSansOuvriere.delete(task.id);
     });
     const nodeId = task.assignedNodeId;
     const patched = this.store.patchTask(task.id, { status: 'failed', assignedNodeId: null }, now);
@@ -1512,9 +1526,12 @@ export class Scheduler {
     const charge = (n: HiveNode): number => n.running + (extra.get(n.id) ?? 0);
     // L'OFFRE, charge ignorée, puis sa part libre : l'écart des modèles tombés
     // se décide contre la première, comme dans la boucle principale.
+    const prolonger = this.store.repriseDe(taskId) !== null;
     const offre = this.store.listNodes().filter(
       (n) =>
         n.status === 'online' &&
+        // Une reprise ne court que sur des nœuds qui savent la prolonger.
+        (!prolonger || this.opts.prolonge?.(n.id) === true) &&
         // LA MÊME GARDE QUE `tick` — elle manquait ici, et « présence sans
         // production » l'a rendue nécessaire.
         //
@@ -2120,6 +2137,27 @@ export class Scheduler {
    * destinataire. Les descendants annulés entrent dans `fermees`, que la
    * passe en cours consulte avant d'assigner.
    */
+  /**
+   * Une reprise dont aucun nœud en ligne ne sait prolonger la branche : le
+   * journal le dit UNE fois (`reprise_sans_ouvriere`), avec la marche à
+   * suivre ; le constat s'efface dès qu'un nœud capable est en ligne.
+   */
+  private signalerRepriseSansOuvriere(taskId: string, noeuds: readonly HiveNode[]): void {
+    const enLigne = noeuds.filter((n) => n.status === 'online');
+    if (enLigne.length === 0 || enLigne.some((n) => this.opts.prolonge?.(n.id) === true)) {
+      this.reprisesSansOuvriere.delete(taskId);
+      return;
+    }
+    if (this.reprisesSansOuvriere.has(taskId)) return;
+    this.reprisesSansOuvriere.add(taskId);
+    this.emit('reprise_sans_ouvriere', {
+      taskId,
+      conseil:
+        'Aucune ouvrière en ligne ne sait prolonger la branche d’une pull request : ' +
+        'mettez une ouvrière à jour, la reprise partira vers elle.',
+    });
+  }
+
   private relecteurAbsent(
     task: Task,
     lien: LienRelecture,
@@ -2363,6 +2401,14 @@ export class Scheduler {
       // Une famille ABSENTE ne se laisse pas attendre en silence : voir
       // `relecteurAbsent`.
       if (lien !== null && this.relecteurAbsent(task, lien, noeuds, now, fermees)) continue;
+      // ─── UNE REPRISE NE PART QUE VERS QUI SAIT LA PROLONGER ──────────────
+      // Un nœud d'avant ce contrat (`register.prolonge` absent) perdrait
+      // `assign_task.prolonger` en silence et clonerait la branche par défaut.
+      // S'il n'y a QUE de tels nœuds en ligne, la reprise attend — et le dit,
+      // une fois : une tâche `ready` que rien ne prend, sans un mot, est le
+      // pire des échecs.
+      const prolonger = this.store.repriseDe(task.id) !== null;
+      if (prolonger) this.signalerRepriseSansOuvriere(task.id, noeuds);
       // L'OFFRE pour cette tâche : les nœuds qui pourraient la porter, charge
       // ignorée. C'est contre elle que se décide l'écart des modèles tombés
       // (`repriseHorsEchecs`) : un porteur sain seulement occupé se libérera.
@@ -2370,6 +2416,7 @@ export class Scheduler {
         (n) =>
           (lien === null || n.agentType === lien.relecteurAgent) &&
           n.status === 'online' &&
+          (!prolonger || this.opts.prolonge?.(n.id) === true) &&
           assignationProductionAutorisee(n.agentType, {
             simulation: this.opts.simulation,
           }) &&

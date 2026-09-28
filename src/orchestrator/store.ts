@@ -5553,12 +5553,16 @@ export class HiveStore {
           .prepare(
             `UPDATE livraisons
                 SET etat = ?, motif = ?, majA = ?
-              WHERE depot = ? AND pr = ? AND taskId <> ? AND etat IN ('ouverte', 'echouee')`,
+              WHERE projectId = ? AND depot = ? AND pr = ? AND taskId <> ?
+                AND etat IN ('ouverte', 'echouee')`,
           )
           .run(
             ETAT_LIVRAISON_RELAYEE,
             `relayée par la reprise ${l.taskId}`,
             now,
+            // Le projet d'abord, comme la réservation : deux projets branchés
+            // sur le même dépôt ont chacun leurs lignes pour le même numéro.
+            l.projectId,
             l.depot,
             l.pr,
             l.taskId,

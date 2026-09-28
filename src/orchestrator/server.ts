@@ -337,7 +337,7 @@ import { buildTimeline } from './replay.js';
 import { detectConflicts } from './sting-detector.js';
 import { Scheduler } from './scheduler.js';
 import { ETAT_LIVRAISON_EN_COURS, ETAT_LIVRAISON_RELAYEE, HiveStore } from './store.js';
-import type { SessionRangee } from './store.js';
+import type { LivraisonRangee, RepriseLivraison, SessionRangee } from './store.js';
 import { direArretBrutal, prendreVerrouReine } from './verrou-reine.js';
 import type { VerrouReine } from './verrou-reine.js';
 import {
@@ -1061,6 +1061,10 @@ async function monterReine(
   // Les nœuds dont l'opérateur a consenti à POUSSER les branches de mission
   // (`register.pousseLivraisons`). Sert à choisir — la garde reste au nœud.
   const nodesQuiPoussent = new Set<string>();
+  // Les nœuds qui savent PROLONGER une livraison (`register.prolonge`) : seuls
+  // eux reçoivent une reprise ou une suite de mission — un nœud plus ancien
+  // perdrait `prolonger` et travaillerait loin de la branche de la PR.
+  const nodesQuiProlongent = new Set<string>();
   /** Chantiers partis vers un nœud et pas encore rendus. */
   const pendingChantiers = new Map<
     string,
@@ -2172,6 +2176,8 @@ async function monterReine(
     // Un message qui annonce un contrat que le code n'honore pas est un
     // mensonge lent. Ici les deux portes disent enfin la même chose.
     simulation: config.simulation || shellForce(process.env),
+    // Une reprise ne part que vers un nœud qui sait la prolonger (`register.prolonge`).
+    prolonge: (nodeId) => nodesQuiProlongent.has(nodeId),
     // Balance : le grand livre suit la table `results` et n'influence RIEN.
     balance: { mode: config.balance ?? 'observation' },
     factureHorlogeHote: edition === 'cloud',
@@ -2437,13 +2443,21 @@ async function monterReine(
    * — ses preuves (CI, contre-revue, Gardiennes) sont rangées par `resultId`,
    * elles la suivent. Introuvable : on juge tout, et l'appelant, qui compare
    * `latest.resultId`, voit que ce n'est pas celle qu'il demandait.
+   *
+   * `sansCI` : la production d'une livraison RELAYÉE par une reprise (même
+   * pull request, même branche) est jugée SANS sa preuve CI. Cette preuve
+   * visait une tête que la reprise a dépassée — c'est précisément la CI rouge
+   * que la reprise corrige, et la CI de la nouvelle tête appartient à la
+   * reprise. Tout le reste (Gardiennes, contre-revue, revue humaine) juge
+   * encore le travail d'origine, qui est TOUJOURS dans la PR (`arretDePR`).
    */
-  const evaluationPour = (task: Task, jugee?: number) => {
+  const evaluationPour = (task: Task, jugee?: number, sansCI = false) => {
     const tous = store.resultsForTask(task.id);
     const jusqua = jugee === undefined ? -1 : tous.findIndex((r) => r.resultId === jugee);
     const results = jusqua === -1 ? tous : tous.slice(0, jusqua + 1);
     const latest = results[results.length - 1];
-    const preuve = latest?.resultId ? store.latestValidation(task.id, latest.resultId) : null;
+    const preuve =
+      latest?.resultId && !sansCI ? store.latestValidation(task.id, latest.resultId) : null;
     const crossReview = latest
       ? latest.resultId
         ? (store.crossReviewForResult(task.id, latest.resultId) ??
@@ -4742,7 +4756,11 @@ async function monterReine(
    * celle-ci, et une production sans identifiant ne se juge pas : `decision:
    * null`, donc bloquant — un inconnu ne devient pas un « oui ».
    */
-  const verdictEvaluator = (task: Task | undefined, jugee?: number | null): ArretEvaluator => {
+  const verdictEvaluator = (
+    task: Task | undefined,
+    jugee?: number | null,
+    sansCI = false,
+  ): ArretEvaluator => {
     if (!task) {
       return {
         decision: null,
@@ -4750,7 +4768,7 @@ async function monterReine(
         resultId: jugee ?? null,
       };
     }
-    const { latest, evaluation } = evaluationPour(task, jugee ?? undefined);
+    const { latest, evaluation } = evaluationPour(task, jugee ?? undefined, sansCI);
     if (jugee !== undefined && (jugee === null || latest?.resultId !== jugee)) {
       return {
         decision: null,
@@ -4791,6 +4809,37 @@ async function monterReine(
   const arretEvaluator = (task: Task | undefined): ArretEvaluator | null => {
     const verdict = verdictEvaluator(task);
     return arrete(verdict) ? verdict : null;
+  };
+
+  /**
+   * L'Evaluator arrête-t-il la FUSION de cette pull request ? `null` s'il la
+   * laisse partir ; sinon le verdict qui l'arrête, et la tâche qui le porte.
+   *
+   * ─── UNE PR PORTE TOUT LE TRAVAIL DE SA LIGNÉE ────────────────────────────
+   *
+   * Une reprise AVANCE la branche de la PR qu'elle corrige : la ligne
+   * d'origine passe `relayee`, et la seule ligne vivante est celle de la
+   * reprise. Juger la PR sur elle seule jugerait le correctif, pas la PR — un
+   * rejet des Gardiennes, d'une contre-revue ou d'un humain sur le travail
+   * d'ORIGINE, toujours dans la branche, ne l'arrêterait plus, et la voie
+   * autonome fusionnerait ce qu'elle refusait la veille. Chaque ligne relayée
+   * de la même PR est donc rejugée — sans sa CI (`evaluationPour`, `sansCI`),
+   * que la reprise remplace par la preuve de la nouvelle tête.
+   *
+   * La ligne vivante est lue en PREMIER : c'est son verdict que l'écran dit
+   * d'abord, et le conseil (reprendre) vise sa tâche.
+   */
+  const arretDePR = (
+    vivante: LivraisonRangee,
+  ): { arret: ArretEvaluator; taskId: string } | null => {
+    const relayees = store
+      .listLivraisons(vivante.projectId, ETAT_LIVRAISON_RELAYEE)
+      .filter((l) => l.depot === vivante.depot && l.pr === vivante.pr);
+    for (const l of [vivante, ...relayees]) {
+      const verdict = verdictEvaluator(store.getTask(l.taskId), undefined, l !== vivante);
+      if (arrete(verdict)) return { arret: verdict, taskId: l.taskId };
+    }
+    return null;
   };
 
   /** Schéma du geste qui passe outre : la raison est OBLIGATOIRE, elle est journalisée. */
@@ -4855,20 +4904,26 @@ async function monterReine(
    * citer le texte d'un agent (l'objection d'une contre-revue), qui n'a rien à
    * faire dans un journal diffusé à tout le tableau de bord ; elles se relisent
    * sur GET /api/tasks/:taskId/evaluation.
+   *
+   * `arret` vient de l'appelant : une livraison juge SA production
+   * (`arretEvaluator`), une fusion juge toute la PR (`arretDePR`) — et la
+   * tâche arrêtée peut alors être la livraison d'origine qu'une reprise a
+   * relayée (`arreteePar`, dit dans le refus comme dans la trace de forçage).
    */
   const passageEvaluator = (
     req: FastifyRequest,
     reply: FastifyReply,
     cible: {
-      task: Task | undefined;
+      arret: { arret: ArretEvaluator; taskId: string } | null;
       taskId: string;
       projectId: string;
       geste: 'livraison' | 'fusion';
     },
     forcer: { raison: string } | undefined,
   ): { refus: FastifyReply } | { journaliser: () => void } => {
-    const arret = arretEvaluator(cible.task);
-    if (!arret) return { journaliser: () => undefined };
+    if (!cible.arret) return { journaliser: () => undefined };
+    const { arret, taskId: arreteePar } = cible.arret;
+    const autre = arreteePar !== cible.taskId ? { arreteePar } : {};
     if (!forcer) {
       return {
         refus: reply.code(409).send({
@@ -4879,6 +4934,7 @@ async function monterReine(
               : `l’Evaluator a rendu « ${arret.decision} » sur cette production`,
           decision: arret.decision,
           raisons: arret.raisons,
+          ...autre,
           conseil: conseilArret(cible.geste, cible.taskId, cible.projectId),
         }),
       };
@@ -4889,6 +4945,7 @@ async function monterReine(
           taskId: cible.taskId,
           projectId: cible.projectId,
           geste: cible.geste,
+          ...autre,
           resultId: arret.resultId,
           decision: arret.decision,
           raison: forcer.raison,
@@ -4946,10 +5003,16 @@ async function monterReine(
       if (typeof dernier.resultId !== 'number') {
         return reply.code(409).send({ error: 'production sans identifiant' });
       }
+      const arret = arretEvaluator(task);
       const passage = passageEvaluator(
         req,
         reply,
-        { task, taskId: task.id, projectId: task.projectId, geste: 'livraison' },
+        {
+          arret: arret ? { arret, taskId: task.id } : null,
+          taskId: task.id,
+          projectId: task.projectId,
+          geste: 'livraison',
+        },
         req.body.forcer,
       );
       if ('refus' in passage) return passage.refus;
@@ -5133,12 +5196,13 @@ async function monterReine(
       }
       // Le verdict est relu AU MOMENT de fusionner : la CI ingérée, une
       // contre-revue ou une revue humaine arrivées après la livraison comptent.
-      // Une tâche disparue n'est pas un feu vert (cf. `arretEvaluator`).
+      // Une tâche disparue n'est pas un feu vert (cf. `arretEvaluator`). Toute
+      // la PR est jugée, livraisons relayées comprises (`arretDePR`).
       const passage = passageEvaluator(
         req,
         reply,
         {
-          task: store.getTask(nôtre.taskId),
+          arret: arretDePR(nôtre),
           taskId: nôtre.taskId,
           projectId: req.body.projectId,
           geste: 'fusion',
@@ -5334,13 +5398,11 @@ async function monterReine(
 
   /**
    * Les pull requests ouvertes que la ruche peut fusionner d'elle-même : celles
-   * dont l'Evaluator laisse partir la production (cf. `arretEvaluator`). Les
+   * dont l'Evaluator laisse partir TOUT le travail (cf. `arretDePR`). Les
    * autres restent ouvertes et attendent un humain — une file, pas un arrêt.
    */
   const livraisonsAFusionner = (projectId: string) =>
-    store
-      .listLivraisons(projectId, 'ouverte')
-      .filter((l) => arretEvaluator(store.getTask(l.taskId)) === null);
+    store.listLivraisons(projectId, 'ouverte').filter((l) => arretDePR(l) === null);
 
   /** L'état de gouvernance d'un projet, et ce que la ruche ferait maintenant. */
   const etatEssaim = (projectId: string): EtatEssaim & { decision: Decision } => {
@@ -8267,6 +8329,22 @@ async function monterReine(
         },
       };
     }
+    // Le nœud qui tient la branche, mais d'avant ce contrat : il perdrait
+    // `suite` et ouvrirait une branche n+1 — l'inverse de ce qu'on demande.
+    if (suite && !nodesQuiProlongent.has(suite.nodeId)) {
+      return {
+        refus: {
+          code: 409,
+          corps: {
+            code: 'noeud_sans_prolongation',
+            error: `l’ouvrière ${suite.nodeId} tient la branche mais ne sait pas la prolonger`,
+            conseil:
+              'Mettez cette ouvrière à jour puis relancez-la, ou livrez sans prolonger : la ' +
+              'mission partira sur une nouvelle branche.',
+          },
+        },
+      };
+    }
     const node = disponibles.find(
       (n) =>
         (!suite || n.id === suite.nodeId) && (!livraison?.pousser || nodesQuiPoussent.has(n.id)),
@@ -8491,6 +8569,15 @@ async function monterReine(
       // la tête que le JOURNAL de la ruche lui connaît, sur le nœud qui la
       // tient — et le nœud refuse si le dépôt l'a vue bouger (commits humains).
       // Le plafond est celui des reprises, compté sur la branche.
+      //
+      // Compté sur le JOURNAL (`commitsDeMission`), donc borné par sa
+      // rétention (`pruneEvents`) : l'élagage des plus anciens commits d'une
+      // branche la recompte plus bas, et celui de tous la rend inconnue
+      // (`mission_inconnue`, refus visible). Le plafond borne donc les
+      // prolongations sur la fenêtre du journal, pas pour toujours. Compromis
+      // assumé : une livraison locale
+      // n'a pas de ligne `livraisons` où ranger sa lignée, et le journal est
+      // déjà la source de la tête que le nœud doit retrouver.
       let suite: DemandeLivraisonMission['suite'];
       if (req.body.prolonger !== undefined) {
         const branche = brancheDeMission(project.id, req.body.prolonger);
@@ -9642,6 +9729,103 @@ async function monterReine(
     return { taskId: l.taskId, depot: l.depot, pr: l.pr, etat: etatLivraison(faits), faits };
   };
 
+  // ─── LA LIGNÉE D'UNE REPRISE, ET SES DEUX BORNES ────────────────────────────
+  //
+  // La reprise prolonge la PR : sa lignée remonte à la PREMIÈRE livraison
+  // (`origine`), et c'est sur elle que tout se compte. Deux refus, avant de
+  // fabriquer quoi que ce soit :
+  //
+  //   · UNE reprise en vol à la fois. Deux reprises partiraient de la même
+  //     tête ; la seconde livrée trouverait la branche avancée par la
+  //     première, et travaillerait sur des faits périmés.
+  //   · un PLAFOND par livraison (`MAX_REPRISES_PAR_LIVRAISON`), réussies
+  //     ou non : une production que trois reprises n'ont pas réparée
+  //     attend un humain, pas une quatrième tentative.
+  //
+  // Lues du store seul, sans GitHub : la liste s'en sert pour ne pas offrir
+  // un bouton que la route refuserait (`reprenable`), la route pour refuser.
+
+  /**
+   * Une reprise est « en vol » tant qu'elle peut encore AVANCER la branche :
+   * elle travaille (ni `done` ni `failed`), sa livraison est réservée
+   * (`en_cours` — l'appel GitHub part), ou elle est `done` avec un diff
+   * livrable qui attend relecture ou livraison.
+   *
+   * Tout le reste est clos et ne bloque plus : `failed`, livrée (ouverte,
+   * échouée, relayée), ou `done` SANS diff — l'agent n'a rien changé, rien ne
+   * se livrera jamais, et l'attendre fermerait la PR à toute reprise.
+   *
+   * Une reprise `done` que l'Evaluator ARRÊTE reste en vol : elle se corrige
+   * (rejet, `evaluation/retry`) ou se livre en forçant, et une seconde partie
+   * de la même tête la doublerait. Le refus nomme alors ces deux sorties
+   * (`conseilRepriseEnVol`) — jamais « attendez » pour une tâche qui n'aboutira
+   * pas seule.
+   */
+  const repriseEnVol = (taskId: string): boolean => {
+    const t = store.getTask(taskId);
+    if (!t || t.status === 'failed') return false;
+    const livree = store.getLivraison(taskId);
+    if (livree) return livree.etat === ETAT_LIVRAISON_EN_COURS;
+    if (t.status !== 'done') return true;
+    const dernier = store.resultsForTask(taskId).at(-1);
+    return Boolean(dernier?.success && dernier.diff);
+  };
+
+  const conseilRepriseEnVol = (taskId: string): string => {
+    const t = store.getTask(taskId);
+    const arret = t?.status === 'done' && !store.getLivraison(taskId) ? arretEvaluator(t) : null;
+    return arret
+      ? `L’Evaluator arrête cette reprise (« ${arret.decision ?? 'sans verdict'} ») : elle ` +
+          'n’aboutira pas seule. Rejetez-la dans la Miellerie ou relancez-la (POST ' +
+          `/api/tasks/${taskId}/evaluation/retry), ou livrez-la en forçant (POST /api/livraison ` +
+          'avec « forcer: { raison } »).'
+      : 'Laissez-la aboutir — relue et livrée, elle avance la même branche.';
+  };
+
+  const bornesDeReprise = (
+    rangee: LivraisonRangee,
+  ):
+    | { origine: string; reprises: RepriseLivraison[] }
+    | { refus: Record<string, unknown> & { code: string; error: string } } => {
+    const origine = store.repriseDe(rangee.taskId)?.origine ?? rangee.taskId;
+    const reprises = store.reprisesDeLivraison(origine);
+    const enVol = reprises.find((r) => repriseEnVol(r.taskId));
+    if (enVol) {
+      return {
+        refus: {
+          code: 'reprise_en_vol',
+          error: `une reprise de cette pull request est déjà en cours (${enVol.taskId})`,
+          reprise: enVol.taskId,
+          conseil: conseilRepriseEnVol(enVol.taskId),
+        },
+      };
+    }
+    if (reprises.length >= MAX_REPRISES_PAR_LIVRAISON) {
+      return {
+        refus: {
+          code: 'plafond_reprises',
+          error: `cette livraison a déjà été reprise ${reprises.length} fois (plafond : ${MAX_REPRISES_PAR_LIVRAISON})`,
+          conseil:
+            `Corrigez à la main sur la branche ${rangee.branche}, ou fermez la pull request : ` +
+            'la ruche ne sait pas réparer cette production.',
+        },
+      };
+    }
+    return { origine, reprises };
+  };
+
+  /** `reprenable` d'une ligne de la liste, et pourquoi pas (`bornesDeReprise`). */
+  const repriseOfferte = (
+    l: LivraisonRangee,
+    etat: EtatLivraison,
+  ): { reprenable: boolean; nonReprenable?: string } => {
+    if (!reprenableSurLaBranche(etat)) return { reprenable: false };
+    const bornes = bornesDeReprise(l);
+    return 'refus' in bornes
+      ? { reprenable: false, nonReprenable: bornes.refus.error }
+      : { reprenable: true };
+  };
+
   app.get<{ Params: { projectId: string } }>(
     '/api/projects/:projectId/livraisons',
     {
@@ -9699,8 +9883,10 @@ async function monterReine(
             titre: tache?.title ?? '',
             dit: direEtat(vue.etat),
             // Ce qu'une reprise sait faire, pas tout ce qui demande du travail :
-            // un conflit n'offre pas le bouton (`reprenableSurLaBranche`).
-            reprenable: reprenableSurLaBranche(vue.etat),
+            // un conflit n'offre pas le bouton (`reprenableSurLaBranche`). Ni
+            // une reprise déjà en vol, ni un plafond atteint : le bouton
+            // n'offre pas ce que la route refuserait — il dit pourquoi.
+            ...repriseOfferte(l, vue.etat),
           });
         } catch (e) {
           // Une PR illisible (supprimée, dépôt transféré) ne doit pas rendre
@@ -9791,42 +9977,9 @@ async function monterReine(
         });
       }
 
-      // ─── LA LIGNÉE, ET SES DEUX BORNES ─────────────────────────────────────
-      //
-      // La reprise prolonge la PR : sa lignée remonte à la PREMIÈRE livraison
-      // (`origine`), et c'est sur elle que tout se compte. Deux refus, avant de
-      // fabriquer quoi que ce soit :
-      //
-      //   · UNE reprise en vol à la fois. Deux reprises partiraient de la même
-      //     tête ; la seconde livrée trouverait la branche avancée par la
-      //     première, et travaillerait sur des faits périmés.
-      //   · un PLAFOND par livraison (`MAX_REPRISES_PAR_LIVRAISON`), réussies
-      //     ou non : une production que trois reprises n'ont pas réparée
-      //     attend un humain, pas une quatrième tentative.
-      const lignee = store.repriseDe(rangee.taskId);
-      const origine = lignee?.origine ?? rangee.taskId;
-      const reprises = store.reprisesDeLivraison(origine);
-      const enVol = reprises.find((r) => {
-        const t = store.getTask(r.taskId);
-        return t !== undefined && t.status !== 'failed' && store.getLivraison(r.taskId) === null;
-      });
-      if (enVol) {
-        return reply.code(409).send({
-          code: 'reprise_en_vol',
-          error: `une reprise de cette pull request est déjà en cours (${enVol.taskId})`,
-          reprise: enVol.taskId,
-          conseil: 'Laissez-la aboutir — relue et livrée, elle avance la même branche.',
-        });
-      }
-      if (reprises.length >= MAX_REPRISES_PAR_LIVRAISON) {
-        return reply.code(409).send({
-          code: 'plafond_reprises',
-          error: `cette livraison a déjà été reprise ${reprises.length} fois (plafond : ${MAX_REPRISES_PAR_LIVRAISON})`,
-          conseil:
-            `Corrigez à la main sur la branche ${rangee.branche}, ou fermez la pull request : ` +
-            'la ruche ne sait pas réparer cette production.',
-        });
-      }
+      const bornes = bornesDeReprise(rangee);
+      if ('refus' in bornes) return reply.code(409).send(bornes.refus);
+      const { origine, reprises } = bornes;
       // La tête LUE maintenant, et la branche que la ruche a rangée : c'est
       // elle que l'ouvrière clonera, jamais un nom lu dans un texte de GitHub.
       const tete = vue.faits.commitSha ?? '';
@@ -11431,6 +11584,8 @@ async function monterReine(
             // sans `HIVE_LIVRAISON_POUSSER=1`) ne survit pas dans le hub.
             if (msg.pousseLivraisons === true) nodesQuiPoussent.add(node.id);
             else nodesQuiPoussent.delete(node.id);
+            if (msg.prolonge === true) nodesQuiProlongent.add(node.id);
+            else nodesQuiProlongent.delete(node.id);
             send(ws, { type: 'registered', nodeId: node.id });
             // Réconciliation : requalifier les tâches que le nœud ne fait plus
             // tourner (crash/redémarrage), et demander l'abandon de ses zombies
@@ -12061,6 +12216,7 @@ async function monterReine(
         nodeSockets.delete(nodeId);
         nodeOnShift.delete(nodeId);
         nodesQuiPoussent.delete(nodeId);
+        nodesQuiProlongent.delete(nodeId);
         scheduler.nodeDisconnected(nodeId, 'ws_closed');
         // Un merge, un chantier ou une pose confiés à ce nœud : une issue
         // visible tout de suite (sinon leur résultat resterait `null` ou

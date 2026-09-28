@@ -58,6 +58,7 @@ const gh = {
   controles: new Map<string, unknown[]>(),
   compteur: 0,
   nonServis: [] as string[],
+  fusions: [] as number[],
 };
 
 function reinitialiser(): void {
@@ -68,6 +69,7 @@ function reinitialiser(): void {
   gh.prs.clear();
   gh.controles.clear();
   gh.nonServis.length = 0;
+  gh.fusions.length = 0;
   gh.commits.set('c-socle', { fichiers: { 'LISEZMOI.md': 'bonjour\n' }, parents: [] });
   gh.refs.set('main', 'c-socle');
 }
@@ -190,6 +192,13 @@ function fauxGithub(): Server {
         });
       }
       if (m === 'GET' && /^\/pulls\/\d+\/reviews$/.test(p)) return rendre(200, []);
+      if (m === 'PUT' && (r = /^\/pulls\/(\d+)\/merge$/.exec(p))) {
+        const pr = gh.prs.get(Number(r[1]));
+        if (!pr) return rendre(404, { message: 'Not Found' });
+        pr.state = 'closed';
+        gh.fusions.push(Number(r[1]));
+        return rendre(200, { merged: true, sha: gh.refs.get(pr.head) });
+      }
       if (m === 'GET' && (r = /^\/commits\/([^/]+)\/check-runs$/.exec(p))) {
         return rendre(200, { check_runs: gh.controles.get(r[1]!) ?? [] });
       }
@@ -231,6 +240,9 @@ const DIFF_CORRECTION = [
 
 const CI_ROUGE = [
   { name: 'tests', status: 'completed', conclusion: 'failure', html_url: 'https://x/run/1' },
+];
+const CI_VERTE = [
+  { name: 'tests', status: 'completed', conclusion: 'success', html_url: 'https://x/run/2' },
 ];
 
 describe('reprendre une pull request rouge avance la MÊME branche', () => {
@@ -283,10 +295,14 @@ describe('reprendre une pull request rouge avance la MÊME branche', () => {
     else process.env.HIVE_GITHUB_API = avantApi;
   });
 
-  /** Une tâche terminée, porteuse de `diff`, comme la rendrait une ouvrière. */
+  /**
+   * Une tâche terminée, porteuse de `diff`, comme la rendrait une ouvrière —
+   * reniflée « clean » par les Gardiennes : sans inspection, l'Evaluator
+   * s'arrête à « revue humaine requise » avant même de lire la CI.
+   */
   const produire = (tache: Task, diff: string): void => {
     server.store.patchTask(tache.id, { status: 'done', assignedNodeId: 'noeud-banc' });
-    server.store.insertResult({
+    const resultId = server.store.insertResult({
       taskId: tache.id,
       nodeId: 'noeud-banc',
       success: true,
@@ -294,6 +310,15 @@ describe('reprendre une pull request rouge avance la MÊME branche', () => {
       logs: 'ok',
       durationMs: 10,
       subAgents: [],
+    });
+    server.store.enregistrerInspection({
+      resultId: typeof resultId === 'number' ? resultId : 0,
+      taskId: tache.id,
+      nodeId: 'noeud-banc',
+      verdict: 'clean',
+      score: 0,
+      applique: false,
+      griefs: [],
     });
   };
 
@@ -308,6 +333,14 @@ describe('reprendre une pull request rouge avance la MÊME branche', () => {
     fetch(`${base}/api/projects/${projet}/livraisons/${taskId}/reprendre`, {
       method: 'POST',
       headers: { 'x-hive-token': TOKEN },
+    });
+
+  /** Ingère la CI GitHub de la dernière production d'une tâche (`evaluation/ci`). */
+  const ingererCI = async (taskId: string): Promise<Response> =>
+    fetch(`${base}/api/tasks/${taskId}/evaluation/ci`, {
+      method: 'POST',
+      headers: hive,
+      body: JSON.stringify({ resultId: server.store.resultsForTask(taskId).at(-1)?.resultId }),
     });
 
   /** Livre une production d'origine et rend sa PR rouge. */
@@ -328,8 +361,13 @@ describe('reprendre une pull request rouge avance la MÊME branche', () => {
     return { pr, branche };
   };
 
-  /** Un nœud qui s'inscrit et note ce qu'on lui confie. */
-  async function noeud(): Promise<Array<Record<string, unknown>>> {
+  /**
+   * Un nœud qui s'inscrit et note ce qu'on lui confie. `prolonge: false` : un
+   * nœud d'avant le contrat, qui ne déclare pas savoir prolonger.
+   */
+  async function noeud({ prolonge = true, id = 'ouvriere-banc' } = {}): Promise<
+    Array<Record<string, unknown>>
+  > {
     const recues: Array<Record<string, unknown>> = [];
     const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
     sockets.push(ws);
@@ -345,15 +383,27 @@ describe('reprendre une pull request rouge avance la MÊME branche', () => {
       JSON.stringify({
         type: 'register',
         token: TOKEN,
-        name: 'ouvriere-banc',
+        name: id,
         ownerName: 'banc',
         agentType: 'claude-code',
         maxConcurrency: 1,
-        nodeId: 'ouvriere-banc',
+        nodeId: id,
+        ...(prolonge ? { prolonge: true } : {}),
       }),
     );
-    await attendre(() => server.store.getNode('ouvriere-banc') ?? undefined);
+    await attendre(() =>
+      server.store.getNode(id)?.status === 'online' ? server.store.getNode(id) : undefined,
+    );
     return recues;
+  }
+
+  /** La ligne d'une livraison, telle que la liste la montre. */
+  async function ligneDe(taskId: string): Promise<Record<string, unknown> | undefined> {
+    const r = await fetch(`${base}/api/projects/${projet}/livraisons`, {
+      headers: { 'x-hive-token': TOKEN },
+    });
+    const { livraisons } = (await r.json()) as { livraisons: Array<Record<string, unknown>> };
+    return livraisons.find((l) => l.taskId === taskId);
   }
 
   async function attendre<T>(lire: () => T | undefined, ms = 8_000): Promise<T | undefined> {
@@ -374,6 +424,12 @@ describe('reprendre une pull request rouge avance la MÊME branche', () => {
       const { pr, branche } = await livrerOrigine('t-origine');
       expect(branche).toBe('hive/t-origine');
       const teteAvant = gh.refs.get(branche)!;
+      // La CI rouge de l'origine est INGÉRÉE : c'est elle qui arrête sa PR.
+      const ciRouge = await ingererCI('t-origine');
+      expect(ciRouge.status, await ciRouge.clone().text()).toBe(200);
+      expect(
+        ((await ciRouge.json()) as { evaluation: { decision: string } }).evaluation.decision,
+      ).toBe('correction_required');
       const recues = await noeud();
 
       // 1. La reprise : une tâche, rattachée à la PR et à SA branche.
@@ -453,6 +509,32 @@ describe('reprendre une pull request rouge avance la MÊME branche', () => {
         code: 'livraison_relayee',
         porteePar: corps.tache.id,
       });
+
+      // ─── LA PREUVE CI DE LA NOUVELLE TÊTE APPARTIENT À LA REPRISE ─────────
+      // Sa provenance est `delivery_advanced` : sans elle, une PR reprise
+      // répondrait `delivery_provenance_missing` pour toujours.
+      gh.controles.set(teteApres, CI_VERTE);
+      const ciReprise = await ingererCI(corps.tache.id);
+      expect(ciReprise.status, await ciReprise.clone().text()).toBe(200);
+      expect(await ciReprise.json()).toMatchObject({
+        provenance: { pr, branch: branche, commitSha: teteApres },
+      });
+      // L'origine ne s'approprie pas une tête qu'elle n'a pas écrite.
+      const ciOrigine = await ingererCI('t-origine');
+      expect(ciOrigine.status).toBe(409);
+      expect(await ciOrigine.json()).toMatchObject({ code: 'provenance_mismatch' });
+
+      // ─── ET LA PR SE FUSIONNE ──────────────────────────────────────────────
+      // La CI rouge de l'origine visait la tête que la reprise a dépassée : elle
+      // n'arrête plus la PR (`arretDePR`, sans CI pour une ligne relayée).
+      const fusion = await fetch(`${base}/api/livraison/fusion`, {
+        method: 'POST',
+        headers: hive,
+        body: JSON.stringify({ projectId: projet, pr }),
+      });
+      expect(fusion.status, await fusion.clone().text()).toBe(200);
+      expect(gh.fusions).toEqual([pr]);
+      expect(server.store.getLivraison('t-origine')?.etat).toBe('fusionnee');
       expect(gh.nonServis).toEqual([]);
     },
   );
@@ -511,6 +593,11 @@ describe('reprendre une pull request rouge avance la MÊME branche', () => {
     const seconde = await reprendre('t-plafond');
     expect(seconde.status).toBe(409);
     expect(await seconde.json()).toMatchObject({ code: 'reprise_en_vol', reprise: tache.id });
+    // La liste n'offre pas le bouton que la route refuse — elle dit pourquoi.
+    expect(await ligneDe('t-plafond')).toMatchObject({
+      reprenable: false,
+      nonReprenable: expect.stringMatching(/déjà en cours/),
+    });
 
     // Les reprises ÉCHOUÉES comptent aussi : le plafond borne les tentatives.
     server.store.patchTask(tache.id, { status: 'failed' });
@@ -523,7 +610,71 @@ describe('reprendre une pull request rouge avance la MÊME branche', () => {
     expect(deTrop.status).toBe(409);
     expect(await deTrop.json()).toMatchObject({ code: 'plafond_reprises' });
     expect(server.store.reprisesDeLivraison('t-plafond')).toHaveLength(MAX_REPRISES_PAR_LIVRAISON);
+    expect(await ligneDe('t-plafond')).toMatchObject({
+      reprenable: false,
+      nonReprenable: expect.stringMatching(/plafond/),
+    });
   });
+
+  it(
+    'une reprise qui n’a RIEN produit ne ferme pas la PR aux suivantes — et elle compte',
+    { timeout: 30_000 },
+    async () => {
+      // L'agent n'a rien changé (CI instable, correctif déjà là) : rien ne se
+      // livrera jamais. La compter « en vol » fermait la PR à toute reprise,
+      // avec le conseil d'attendre ce qui n'arriverait pas.
+      reinitialiser();
+      await livrerOrigine('t-vide');
+      const premiere = await reprendre('t-vide');
+      expect(premiere.status).toBe(201);
+      const { tache } = (await premiere.json()) as { tache: Task };
+      produire(server.store.getTask(tache.id)!, '');
+      const l = await livrer(tache.id);
+      expect(l.status).toBe(409);
+      expect(server.store.getLivraison(tache.id)).toBeNull();
+
+      const seconde = await reprendre('t-vide');
+      expect(seconde.status, await seconde.clone().text()).toBe(201);
+      const { tache: suivante } = (await seconde.json()) as { tache: Task };
+      expect(server.store.reprisesDeLivraison('t-vide')).toHaveLength(2);
+      // Close pour les bancs qui suivent : elle n'a rien à faire ici.
+      server.store.patchTask(suivante.id, { status: 'failed' });
+    },
+  );
+
+  it(
+    'une reprise dont la livraison PART (`en_cours`) est encore en vol',
+    { timeout: 30_000 },
+    async () => {
+      // La réservation existe, l'appel GitHub n'est pas revenu : une seconde
+      // reprise clonerait une tête sur le point d'être dépassée.
+      reinitialiser();
+      const { branche } = await livrerOrigine('t-part');
+      const premiere = await reprendre('t-part');
+      const { tache } = (await premiere.json()) as { tache: Task };
+      produire(server.store.getTask(tache.id)!, DIFF_CORRECTION);
+      // Relue et REJETÉE, elle n'aboutira pas seule : le refus nomme les sorties.
+      server.store.setTaskReview(tache.id, 'rejected');
+      const arretee = await reprendre('t-part');
+      expect(arretee.status).toBe(409);
+      expect(await arretee.json()).toMatchObject({
+        code: 'reprise_en_vol',
+        conseil: expect.stringMatching(/evaluation\/retry.*forcer/s),
+      });
+      server.store.setTaskReview(tache.id, 'approved');
+      expect(
+        server.store.reserverLivraison({
+          taskId: tache.id,
+          projectId: projet,
+          depot: DEPOT,
+          branche,
+        }),
+      ).toBe(true);
+      const seconde = await reprendre('t-part');
+      expect(seconde.status).toBe(409);
+      expect(await seconde.json()).toMatchObject({ code: 'reprise_en_vol', reprise: tache.id });
+    },
+  );
 
   it('un conflit ne se reprend pas : il se DIT, avec quoi faire', { timeout: 30_000 }, async () => {
     reinitialiser();
@@ -540,4 +691,76 @@ describe('reprendre une pull request rouge avance la MÊME branche', () => {
     expect(corps.conseil).toMatch(/Update branch/);
     expect(server.store.listTasks(projet), 'aucune tâche fabriquée').toHaveLength(avant);
   });
+
+  it('le relais d’une PR reste dans SON projet, même sur un dépôt partagé', () => {
+    // Deux projets branchés sur le même dépôt ont chacun leurs lignes pour le
+    // même numéro : la reprise de l'un ne cache pas la PR de l'autre.
+    const autre = server.store.createProject({
+      name: 'Ruche jumelle',
+      repoUrl: `https://github.com/${DEPOT}.git`,
+      ownerId: null,
+    }).id;
+    const ligne = (taskId: string, projectId: string): void => {
+      server.store.createTask({ id: taskId, projectId, title: taskId, prompt: 'x' });
+      server.store.setLivraison({
+        taskId,
+        projectId,
+        depot: DEPOT,
+        pr: 99,
+        branche: 'hive/t-jumelle',
+        etat: 'ouverte',
+      });
+    };
+    ligne('t-jumelle-a', projet);
+    ligne('t-jumelle-b', autre);
+    server.store.createTask({ id: 'r-jumelle', projectId: projet, title: 'r', prompt: 'x' });
+    const commun = {
+      taskId: 'r-jumelle',
+      projectId: projet,
+      depot: DEPOT,
+      branche: 'hive/t-jumelle',
+    };
+    expect(server.store.reserverLivraison(commun)).toBe(true);
+    expect(
+      server.store.finaliserLivraisonEnCours({ ...commun, pr: 99, etat: 'ouverte', relaie: true }),
+    ).toBe(true);
+    expect(server.store.getLivraison('t-jumelle-a')?.etat).toBe('relayee');
+    expect(server.store.getLivraison('t-jumelle-b')?.etat).toBe('ouverte');
+  });
+
+  it(
+    'une reprise ne part pas vers une ouvrière qui ne sait pas prolonger — et le DIT',
+    { timeout: 30_000 },
+    async () => {
+      // Une ouvrière d'avant le contrat reconstruit `assign_task` champ par
+      // champ et perd `prolonger` : elle clonerait `main` sous un brief qui
+      // affirme le contraire. Le hub ne lui confie donc aucune reprise.
+      reinitialiser();
+      for (const t of server.store.listTasks(projet)) {
+        if (t.status !== 'done' && t.status !== 'failed') {
+          server.store.patchTask(t.id, { status: 'failed' });
+        }
+      }
+      await attendre(() =>
+        server.store.listNodes().every((n) => n.status !== 'online') ? true : undefined,
+      );
+      await livrerOrigine('t-ancienne');
+      const ancienne = await noeud({ prolonge: false, id: 'ouvriere-ancienne' });
+      const r = await reprendre('t-ancienne');
+      expect(r.status).toBe(201);
+      const { tache } = (await r.json()) as { tache: Task };
+      const signal = await attendre(
+        () => server.store.lastEventFor('reprise_sans_ouvriere', tache.id) ?? undefined,
+      );
+      expect(signal, 'une reprise qui attend le dit').toBeDefined();
+      expect(server.store.getTask(tache.id)?.status).toBe('ready');
+
+      const recente = await noeud({ id: 'ouvriere-recente' });
+      const assignation = await attendre(() =>
+        recente.find((m) => (m.task as Task).id === tache.id),
+      );
+      expect(assignation?.prolonger).toBe(true);
+      expect(ancienne.filter((m) => (m.task as Task).id === tache.id)).toEqual([]);
+    },
+  );
 });

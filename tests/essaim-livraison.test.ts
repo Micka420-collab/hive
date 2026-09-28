@@ -614,6 +614,59 @@ describe('la ruche livre toute seule', () => {
     expect(vue.decision.pas).not.toBe('fusionner');
   });
 
+  it('UNE REPRISE NE BLANCHIT PAS LE TRAVAIL D’ORIGINE : la PR entière est jugée', async () => {
+    // La reprise AVANCE la branche de la PR : l'origine passe `relayee`, et la
+    // seule ligne vivante est celle de la reprise — propre et approuvée. Le
+    // travail d'origine, que les Gardiennes jugent CREUX, est pourtant
+    // toujours dans la PR. Juger la reprise seule le fusionnait.
+    const { base, srv, faux } = await demarrer();
+    const p = projetLivrable(srv, { verdict: 'hollow' });
+    const origine = srv.store.listTasks(p).find((t) => t.title === 'Passer a à 2')!;
+    prOuverte(srv, p);
+    const reprise = srv.store.listTasks(p).find((t) => t.title === 'déjà livrée')!;
+    srv.store.setLivraison({
+      taskId: origine.id,
+      projectId: p,
+      depot: 'moi/projet',
+      pr: 7,
+      branche: `hive/${origine.id}`,
+      etat: 'relayee',
+    });
+    srv.store.inscrireReprise({
+      taskId: reprise.id,
+      origine: origine.id,
+      parent: origine.id,
+      projectId: p,
+      depot: 'moi/projet',
+      pr: 7,
+      branche: `hive/${origine.id}`,
+      tete: 'tete-pr',
+    });
+    const evaluation = (await (
+      await fetch(`${base}/api/tasks/${origine.id}/evaluation`, { headers })
+    ).json()) as { decision: string };
+    expect(evaluation.decision, 'le banc : l’Evaluator rejette l’origine').toBe('rejected');
+
+    await regler(base, p, 'plein', true);
+    await new Promise((r) => setTimeout(r, 600));
+    expect(faux.appels.some((a) => a.chemin.endsWith('/merge'))).toBe(false);
+    expect(srv.store.getLivraison(reprise.id)?.etat).toBe('ouverte');
+
+    // La route humaine aussi : 409, et elle NOMME la tâche qui arrête la PR.
+    const fusion = await fetch(`${base}/api/livraison/fusion`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ projectId: p, pr: 7 }),
+    });
+    expect(fusion.status).toBe(409);
+    expect(await fusion.json()).toMatchObject({
+      code: 'evaluator_blocks',
+      decision: 'rejected',
+      arreteePar: origine.id,
+    });
+    expect(faux.appels.some((a) => a.chemin.endsWith('/merge'))).toBe(false);
+  });
+
   it('un projet SANS dépôt ne livre pas', async () => {
     const { base, srv, faux } = await demarrer();
     const p = srv.store.createProject({ name: 'Sans dépôt' }).id;

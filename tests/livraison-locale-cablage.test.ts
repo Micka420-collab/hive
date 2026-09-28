@@ -561,6 +561,42 @@ describe('livraison locale — ce qu’une vraie ouvrière ne sait pas mal faire
     });
   });
 
+  it('PROLONGER exige l’ouvrière qui TIENT la branche, en ligne, et qui sait prolonger — sous plafond', async () => {
+    // Chaque refus part AVANT tout travail, avec sa raison : une suite confiée
+    // à un autre nœud refuserait après tout le merge, et un nœud d'avant le
+    // contrat perdrait `suite` et ouvrirait une branche n+1.
+    const n = await seul('n-vieux');
+    const { project } = mission(server, '/depot/fictif-prolonge', [['fp', 'diff']]);
+    const commitee = (numero: number, nodeId: string, commit: string): void => {
+      server.store.appendEvent('livraison_locale', {
+        etat: 'commitee',
+        projectId: project.id,
+        branche: `hive/mission-${project.id}-${numero}`,
+        nodeId,
+        commit,
+      });
+    };
+    const prolonger = async (numero: number) =>
+      (await (
+        await poster(base, `/api/projects/${project.id}/livraison-locale`, { prolonger: numero })
+      ).json()) as { code: string };
+
+    commitee(1, 'n-vieux', 'a'.repeat(40));
+    expect(await prolonger(1)).toMatchObject({ code: 'noeud_sans_prolongation' });
+
+    commitee(2, 'n-eteint', 'b'.repeat(40));
+    expect(await prolonger(2)).toMatchObject({ code: 'noeud_de_la_branche_absent' });
+
+    // Une livraison et trois prolongations : la quatrième se refuse.
+    for (const c of ['c', 'd', 'e', 'f']) commitee(3, 'n-vieux', c.repeat(40));
+    expect(await prolonger(3)).toMatchObject({ code: 'plafond_reprises' });
+
+    expect(
+      n.recus.filter((m) => m.type === 'assign_merge'),
+      'rien n’est parti',
+    ).toEqual([]);
+  });
+
   it('une livraison ne partage pas son projet : ni avec un merge d’essai, ni l’inverse', async () => {
     // `/merge/result` garde UN résultat par projet, et l'écran comme la CLI
     // attendent LEUR `mergeId` : un essai qui finirait après la livraison

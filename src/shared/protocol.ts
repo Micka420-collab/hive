@@ -187,6 +187,18 @@ export interface RegisterMsg {
    * identifiants de quelqu'un qui n'a rien accepté.
    */
   pousseLivraisons?: boolean;
+  /**
+   * Le nœud sait PROLONGER une livraison : cloner la branche d'une PR pour une
+   * reprise (`assign_task.prolonger`) et avancer une branche de mission
+   * (`suite` d'une livraison locale). Absent : un nœud d'avant ce contrat.
+   *
+   * Un tel nœud reconstruit `assign_task` champ par champ et PERD `prolonger`
+   * sans le dire : il clonerait la branche par défaut, l'agent travaillerait
+   * sans le travail d'origine sous un brief qui affirme le contraire, et un
+   * diff qui s'appliquerait par chance à la tête de la PR y avancerait une
+   * correction fausse. Le hub ne confie donc une reprise qu'à qui le déclare.
+   */
+  prolonge?: boolean;
 }
 
 /** Un constat brut sur un outil, tel que le nœud le voit. */
@@ -1089,6 +1101,10 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
         if (m.pousseLivraisons !== undefined) {
           if (typeof m.pousseLivraisons !== 'boolean') return null;
           msg.pousseLivraisons = m.pousseLivraisons;
+        }
+        if (m.prolonge !== undefined) {
+          if (typeof m.prolonge !== 'boolean') return null;
+          msg.prolonge = m.prolonge;
         }
         // Les constats d'outils : mêmes règles que les deux champs au-dessus.
         // Une liste mal formée est un client qui ment ou qui bogue, et les deux

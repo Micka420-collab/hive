@@ -803,6 +803,9 @@ export class HiveNodeClient {
         // Le consentement à pousser, dit au hub pour qu'il CHOISISSE un nœud
         // consentant. La garde, elle, reste ici (`runMergeJob`).
         ...(this.pousseLivraisons() ? { pousseLivraisons: true } : {}),
+        // Ce nœud sait cloner la branche d'une PR et prolonger une mission : sans
+        // cette déclaration, le hub ne lui confie aucune reprise (`prolonge`).
+        prolonge: true,
       });
     });
 
