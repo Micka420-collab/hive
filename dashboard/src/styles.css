@@ -613,8 +613,8 @@ h3 {
 
 /* La place de la vue avant le premier instantané (Liaison.tsx). */
 .mc-avant-etat {
-  max-width: 44rem;
-  padding: 24px 0;
+  max-width: 48rem;
+  padding: 24px 20px;
 }
 
 .conn {
