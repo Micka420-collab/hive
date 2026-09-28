@@ -1561,13 +1561,18 @@ CREATE INDEX IF NOT EXISTS idx_connecteurs_journal_creeA ON connecteurs_journal(
 -- source, et l'élagueur l'épargne comme il épargne la source.
 --
 -- rejeux_actions : ce qu'un rejeu a demandé d'irréversible, et ce qui en a
--- été fait (simulée, ou validée par un humain). UNIQUE : une ruche autonome
--- qui redemande à chaque cycle la même livraison n'en range qu'une.
+-- été fait (simulée, ou validée par un humain). Unique par validateur
+-- (idx_rejeux_actions_une, parUserId vide pour une simulation) : une ruche
+-- autonome qui redemande à chaque cycle la même livraison n'en range qu'une,
+-- mais un SECOND humain qui valide la même action est rangé à son nom — un
+-- UNIQUE sans lui taisait le second validateur.
 --
 -- BORNE D'ÉLAGAGE (règle 3), dans le MÊME changement : pruneMissions — les
 -- lignes dont le projet a disparu, puis les plus vieilles missions de chaque
 -- projet au-delà d'un plafond (sauf celles qu'un rejeu compare encore), puis
--- les actions au-delà d'un plafond par projet.
+-- les SIMULATIONS au-delà d'un plafond par projet — jamais une validation
+-- humaine, jamais la marque d'une livraison ou d'une fusion simulée (voir
+-- pruneMissions).
 CREATE TABLE IF NOT EXISTS missions (
   id              TEXT PRIMARY KEY,
   projectId       TEXT NOT NULL,
@@ -1598,9 +1603,10 @@ CREATE TABLE IF NOT EXISTS rejeux_actions (
   cible     TEXT NOT NULL,
   issue     TEXT NOT NULL CHECK (issue IN ('simulee', 'validee')),
   parUserId TEXT,
-  creeA     INTEGER NOT NULL,
-  UNIQUE (projectId, genre, cible, issue)
+  creeA     INTEGER NOT NULL
 );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_rejeux_actions_une
+  ON rejeux_actions(projectId, genre, cible, issue, IFNULL(parUserId, ''));
 
 CREATE TABLE IF NOT EXISTS missions_taches (
   missionId TEXT NOT NULL,
@@ -9076,8 +9082,16 @@ export class HiveStore {
    *     mission du rejeu lui-même) : la comparaison dirait « élaguée » — ou
    *     pire, comparerait une autre mission — alors que l'humain la regarde ;
    *   · l'appartenance d'une mission partie part avec elle ;
-   *   · les actions d'un rejeu au-delà de `parProjet * 10` partent, les plus
-   *     anciennes d'abord.
+   *   · les SIMULATIONS d'un rejeu au-delà de `parProjet * 10` partent, les
+   *     plus anciennes d'abord — et c'est tout ce qui part de son vivant :
+   *       - une validation humaine (`validee`) est le seul fait qui dit QUI a
+   *         laissé partir un effet réel ; elle reste tant que le projet vit ;
+   *       - la marque d'une livraison ou d'une fusion simulée (`livraison_pr`,
+   *         `fusion_pr`) est ce qui retire la production des « à livrer » de
+   *         la ruche autonome (`livraisonSimulee`, server.ts) : élaguée, la
+   *         ruche la re-simulerait, et le plafond la ré-élaguerait — une
+   *         boucle. Elles sont bornées par les productions et les PR du
+   *         projet lui-même, et partent avec lui.
    */
   pruneMissions(parProjet: number): number {
     return this.enTransaction(() => {
@@ -9116,6 +9130,7 @@ export class HiveStore {
              SELECT id FROM (
                SELECT id, ROW_NUMBER() OVER (PARTITION BY projectId ORDER BY id DESC) AS rang
                  FROM rejeux_actions
+                WHERE issue = 'simulee' AND genre NOT IN ('livraison_pr', 'fusion_pr')
              ) WHERE rang > ?
            )`,
         )

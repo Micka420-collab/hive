@@ -186,8 +186,40 @@ describe('la borne des missions', () => {
       { projectId: 'disparu', genre: 'workflow', cible: 'x', issue: 'simulee' },
       null,
     );
+    // Ce que le plafond ne touche JAMAIS de son vivant, rangé AVANT les 205
+    // simulations d'un autre rejeu : une validation humaine, et les marques qui
+    // retirent une production des « à livrer » (sans elles, la ruche autonome
+    // re-simulerait, le plafond ré-élaguerait — une boucle).
+    const rejeu2 = s.createProject({ name: 'Rejeu 2' }).id;
+    s.enregistrerActionRejeu(
+      { projectId: rejeu2, genre: 'workflow', cible: 'moi/site#1@main', issue: 'validee' },
+      'reine',
+    );
+    s.enregistrerActionRejeu(
+      { projectId: rejeu2, genre: 'livraison_pr', cible: 'moi/site:hive/b', issue: 'simulee' },
+      null,
+    );
+    s.enregistrerActionRejeu(
+      { projectId: rejeu2, genre: 'fusion_pr', cible: 'moi/site#7', issue: 'simulee' },
+      null,
+    );
+    for (let i = 0; i < 205; i++) {
+      s.enregistrerActionRejeu(
+        { projectId: rejeu2, genre: 'workflow', cible: `c${i}`, issue: 'simulee' },
+        null,
+      );
+    }
 
     s.pruneMissions(20);
+
+    const gardees = s.actionsDuRejeu(rejeu2, 1_000);
+    expect(gardees.slice(0, 3).map((a) => [a.genre, a.issue])).toEqual([
+      ['workflow', 'validee'],
+      ['livraison_pr', 'simulee'],
+      ['fusion_pr', 'simulee'],
+    ]);
+    expect(gardees, 'le plafond ne compte que les simulations élaguables').toHaveLength(203);
+    expect(s.actionRejeuRangee(rejeu2, 'livraison_pr', 'moi/site:hive/b')).toBe(true);
 
     const restantes = s.listMissions(p, 200).map((m) => m.id);
     expect(restantes).toHaveLength(21);
@@ -219,6 +251,21 @@ describe('la borne des missions', () => {
     expect(s.enregistrerActionRejeu(a, null)).toBe(false);
     expect(s.actionRejeuRangee('p', 'livraison_pr', 'moi/site:hive/t')).toBe(true);
     expect(s.actionsDuRejeu('p')).toHaveLength(1);
+    s.close();
+  });
+
+  it('chaque humain qui valide la même action est rangé à son nom', () => {
+    const s = new HiveStore(':memory:');
+    const a = {
+      projectId: 'p',
+      genre: 'livraison_pr',
+      cible: 'moi/site:hive/t',
+      issue: 'validee',
+    } as const;
+    expect(s.enregistrerActionRejeu(a, 'reine')).toBe(true);
+    expect(s.enregistrerActionRejeu(a, 'reine')).toBe(false);
+    expect(s.enregistrerActionRejeu(a, 'proprietaire')).toBe(true);
+    expect(s.actionsDuRejeu('p').map((x) => x.parUserId)).toEqual(['reine', 'proprietaire']);
     s.close();
   });
 });
