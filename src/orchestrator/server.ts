@@ -1604,7 +1604,11 @@ async function monterReine(
     // le recalcule pas ici, sous peine d'avoir deux définitions du « mûr ».
     for (const c of aConsolider(lire(dossierCerveau))) {
       if (!c.episodes.some((e) => e.id === ecrit.id)) continue;
+      // `taskId` n'est pas décoratif : c'est la clé par laquelle la
+      // suppression d'un projet (`EFFACEMENT_PROJET`) retrouve ce fait. Sans
+      // elle, le TITRE d'une tâche d'un projet supprimé survivait au journal.
       emitEvent('cerveau_consolidation', {
+        taskId,
         note: ecrit.id,
         recurrences: c.recurrences,
         titre: task.title,
@@ -7554,7 +7558,8 @@ async function monterReine(
   // monde. DÉCISION DU PROPRIÉTAIRE : SUPPRIMER, PAS ARCHIVER. Un projet
   // supprimé n'existe plus nulle part — tâches, résultats, journal, mémoires,
   // liens, miroir du Rayon — sauf l'événement d'audit `project_deleted` (qui,
-  // quand, quel nom, combien de lignes).
+  // quand, quel nom, combien de lignes), que l'élagage du journal épargne
+  // (`pruneEvents`).
   //
   // ─── LA GARDE : RÉPONDRE DU PROJET ──────────────────────────────────────────
   //
@@ -7586,6 +7591,17 @@ async function monterReine(
   // reste — elle est à l'opérateur de ce nœud. Les sauvegardes de la base
   // (`hive sauvegarde`) prises AVANT la suppression contiennent encore le
   // projet : c'est leur raison d'être.
+  //
+  // Le CERVEAU de la ruche non plus (`data/cerveau/*.md`) : un épisode y est une
+  // signature d'échec dédoublonnée pour TOUTE la ruche — son titre et un extrait
+  // du journal d'échec, sans lien de projet. C'est un savoir de la ruche, pas
+  // une ligne du projet : on ne sait pas l'en détacher sans effacer ce que
+  // d'autres projets ont appris. Le JOURNAL, lui, ne garde rien : les faits du
+  // Cerveau portent leur `taskId` et partent avec la cascade.
+  //
+  // Enfin, une ouvrière qui avait fini JUSTE avant l'annulation rend encore son
+  // résultat : la Reine l'écarte (`result_ignored`, tâche inconnue) et le
+  // journal le dit — des identifiants seulement, aucun contenu du projet.
   const travailNonAnnulable = (projectId: string): Record<string, unknown> | null => {
     const abonnement = store.getAbonnement(projectId);
     const machines = store
@@ -7609,12 +7625,18 @@ async function monterReine(
       autonomie: cadencier.suivi(projectId).enVol ? 1 : 0,
     };
     if (Object.values(enVol).every((n) => n === 0)) return null;
+    // La borne CITÉE est celle du bloqueur réel : un chantier a son propre
+    // butoir, et une livraison ou un cycle d'autonomie n'en ont pas qui soit
+    // chiffrable ici — mieux vaut ne rien promettre que promettre faux.
+    const butoirMs = Math.max(
+      enVol.merges > 0 ? MERGE_TIMEOUT_MS : 0,
+      enVol.chantiers > 0 ? CHANTIER_TIMEOUT_MS : 0,
+    );
+    const borne = butoirMs > 0 ? ` (${Math.ceil(butoirMs / 60_000)} min au plus)` : '';
     return {
       code: 'travail_non_annulable',
       error: 'un merge, un chantier, une livraison ou un cycle d’autonomie tourne sur ce projet',
-      conseil: `Attendez qu’il se termine (un merge rend la main en ${Math.round(
-        MERGE_TIMEOUT_MS / 60_000,
-      )} min au plus), puis recommencez : ceux-là ne s’annulent pas.`,
+      conseil: `Attendez qu’il se termine${borne}, puis recommencez : ceux-là ne s’annulent pas.`,
       ...enVol,
     };
   };
@@ -8694,6 +8716,14 @@ async function monterReine(
           .send({ error: 'aucun nœud en ligne et de service pour lancer ce chantier' });
       }
 
+      // RELU après les `await` (miroir, scripts, module) : une suppression du
+      // projet a pu se ranger pendant ce temps — elle ne voyait alors aucun
+      // chantier en vol. Confier le chantier quand même, c'était un travail
+      // parti pour un projet disparu, et un journal qui le renommait après sa
+      // cascade. Rien ne s'intercale entre cette relecture et l'envoi.
+      if (!store.getProject(project.id)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
       const chantierId = randomUUID();
       pendingChantiers.set(chantierId, {
         projectId: project.id,

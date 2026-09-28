@@ -30,13 +30,18 @@
 import Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer as createHttp } from 'node:http';
+import type { Server } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import WebSocket from 'ws';
+import { SEUIL_BUTINEUSE } from '../src/orchestrator/polyethisme.js';
 import { Scheduler } from '../src/orchestrator/scheduler.js';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
 import { HiveStore } from '../src/orchestrator/store.js';
+import { CHANTIER_TIMEOUT_MS } from '../src/shared/butoirs-noeud.js';
 import type { HiveEvent, Task } from '../src/shared/types.js';
 
 const profil = (name: string) => ({
@@ -353,6 +358,24 @@ describe('Scheduler.supprimerProjet — le travail en vol', () => {
     expect(store.getBudget(p.id)).toBeNull();
   });
 
+  it('LE FAIT D’AUDIT SURVIT À L’ÉLAGAGE DU JOURNAL — sinon le projet n’aurait jamais existé', () => {
+    // Le journal tourne en quelques heures sur une ruche occupée. La seule
+    // trace d'un projet supprimé ne doit pas partir avec : sans elle, plus
+    // rien ne dit qu'il a existé, ni qui l'a effacé, ni ce qui est parti.
+    const scheduler = new Scheduler(store);
+    const p = store.createProject({ name: 'Éphémère' });
+    scheduler.supprimerProjet(p, 'compte-7');
+    const retention = 50;
+    for (let i = 0; i <= retention; i++) store.appendEvent('thermo_shift', { i });
+
+    expect(store.pruneEvents(retention), 'le banc : l’élagage doit mordre').toBeGreaterThan(0);
+
+    const audit = store.listEvents(0, 10_000).filter((e) => e.type === 'project_deleted');
+    expect(audit.map((e) => e.payload)).toEqual([
+      expect.objectContaining({ projectId: p.id, name: 'Éphémère', parUserId: 'compte-7' }),
+    ]);
+  });
+
   it('un projet inconnu : `null`, aucune annulation, aucun fait', () => {
     const annulations: string[] = [];
     const scheduler = new Scheduler(store, { onCancel: (_n, taskId) => annulations.push(taskId) });
@@ -583,5 +606,241 @@ describe('DELETE /api/projects/:projectId', () => {
     });
     expect(r.status).toBe(400);
     expect(server.store.getProject(projet)).toBeDefined();
+  });
+});
+
+// ─── Ce qui ne s'annule pas, EN VRAI : un merge, un chantier, un cycle ───────
+//
+// Le banc au-dessus pose une livraison en vol à la main. Un merge, un chantier
+// ou un cycle d'autonomie, eux, ne vivent qu'EN MÉMOIRE de la Reine : on ne
+// peut les mettre en vol qu'en les lançant vraiment — un vrai socket d'ouvrière
+// qui reçoit son `assign_merge` / `assign_chantier` et se tait, un vrai cycle
+// d'autonomie suspendu sur un GitHub simulé qui ne répond pas encore. Chacun
+// doit refuser la suppression MÊME FORCÉE, avec son compte, et laisser le
+// projet entier : son résultat reviendrait sinon pour un projet disparu.
+
+describe('ce qui ne s’annule pas refuse même forcé — lancé pour de vrai', () => {
+  const dossiers: string[] = [];
+  const sockets: WebSocket[] = [];
+  let srv: HiveServer | null = null;
+
+  afterEach(async () => {
+    for (const ws of sockets.splice(0)) ws.close();
+    await srv?.stop();
+    srv = null;
+    for (const d of dossiers.splice(0)) {
+      rmSync(d, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    }
+  });
+
+  const demarrer = async (): Promise<{ srv: HiveServer; base: string }> => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'hive-suppr-vol-'));
+    dossiers.push(dir);
+    srv = await createServer({
+      port: 0,
+      host: '127.0.0.1',
+      token: TOKEN,
+      corsOrigins: ['http://localhost:5173'],
+      dbPath: path.join(dir, 'hive.db'),
+      simulation: false,
+      tickMs: 60_000,
+    });
+    return { srv, base: `http://127.0.0.1:${srv.port}` };
+  };
+
+  /** Une ouvrière connectée qui reçoit ce qu'on lui confie — et ne rend jamais rien. */
+  const ouvriereMuette = (port: number, nodeId: string): Promise<void> =>
+    new Promise((resolve, reject) => {
+      const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+      sockets.push(ws);
+      ws.on('open', () =>
+        ws.send(JSON.stringify({ type: 'register', token: TOKEN, nodeId, ...profil(nodeId) })),
+      );
+      ws.on('message', (d) => {
+        if ((JSON.parse(d.toString()) as { type?: string }).type === 'registered') resolve();
+      });
+      ws.on('error', reject);
+    });
+
+  const supprimerForce = (base: string, projet: string): Promise<Response> =>
+    fetch(`${base}/api/projects/${projet}?force=true`, {
+      method: 'DELETE',
+      headers: { 'x-hive-token': TOKEN },
+    });
+  const post = (base: string, chemin: string, corps: unknown = {}): Promise<Response> =>
+    fetch(`${base}${chemin}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-hive-token': TOKEN },
+      body: JSON.stringify(corps),
+    });
+
+  it('UN MERGE CONFIÉ À UNE OUVRIÈRE : 409 `merges: 1`, et le projet reste entier', async () => {
+    const { srv: s, base } = await demarrer();
+    await ouvriereMuette(s.port, 'muette-merge');
+    const projet = s.store.createProject({
+      name: 'Merge en vol',
+      repoUrl: 'https://github.com/o/r.git',
+    }).id;
+    const tache = s.store.createTask({ projectId: projet, title: 't', prompt: 'p' }).id;
+    s.store.patchTask(tache, { status: 'done' });
+    s.store.insertResult({
+      taskId: tache,
+      nodeId: 'seed',
+      success: true,
+      diff: 'diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n',
+      logs: '',
+      durationMs: 1,
+      subAgents: [],
+    });
+    const lance = await post(base, `/api/projects/${projet}/merge/run`);
+    expect(lance.status, 'le banc : le merge doit partir').toBe(202);
+
+    const r = await supprimerForce(base, projet);
+
+    expect(r.status).toBe(409);
+    expect(await r.json()).toMatchObject({ code: 'travail_non_annulable', merges: 1 });
+    expect(s.store.getProject(projet)).toBeDefined();
+    expect(s.store.getTask(tache)).toBeDefined();
+  });
+
+  it('UN CHANTIER CONFIÉ À UNE OUVRIÈRE : 409 `chantiers: 1`, et le projet reste entier', async () => {
+    const { srv: s, base } = await demarrer();
+    await ouvriereMuette(s.port, 'muette-chantier');
+    // Un vrai dépôt LOCAL qui déclare `test` : la Reine clone son miroir pour
+    // lire le `package.json` avant d'accepter le chantier — sans réseau.
+    const { simpleGit } = await import('simple-git');
+    const depot = mkdtempSync(path.join(os.tmpdir(), 'hive-suppr-depot-'));
+    dossiers.push(depot);
+    writeFileSync(
+      path.join(depot, 'package.json'),
+      JSON.stringify({ name: 'depot', scripts: { test: 'vitest run' } }),
+    );
+    const g = simpleGit({ baseDir: depot });
+    await g.init();
+    await g.addConfig('user.email', 't@example.com');
+    await g.addConfig('user.name', 'T');
+    await g.addConfig('commit.gpgsign', 'false');
+    await g.add('.');
+    await g.commit('initial');
+    const projet = s.store.createProject({ name: 'Chantier en vol', repoUrl: depot }).id;
+    const lance = await post(base, `/api/projects/${projet}/chantiers/test/run`);
+    expect(lance.status, 'le banc : le chantier doit partir').toBe(202);
+
+    const r = await supprimerForce(base, projet);
+
+    expect(r.status).toBe(409);
+    const corps = (await r.json()) as { code: string; chantiers: number; conseil: string };
+    expect(corps).toMatchObject({ code: 'travail_non_annulable', chantiers: 1 });
+    // La borne dite est celle du CHANTIER, pas celle d'un merge qui ne tourne pas.
+    expect(corps.conseil).toContain(`${Math.ceil(CHANTIER_TIMEOUT_MS / 60_000)} min`);
+    expect(s.store.getProject(projet)).toBeDefined();
+  });
+});
+
+describe('un cycle d’autonomie en vol refuse même forcé', () => {
+  let srv: HiveServer | null = null;
+  let dir: string | null = null;
+  let github: Server | null = null;
+  let liberer: (() => void) | null = null;
+  const avant: Record<string, string | undefined> = {};
+  const CLES = ['HIVE_RUNNER', 'HIVE_GITHUB_TOKEN', 'HIVE_GITHUB_API'] as const;
+
+  afterEach(async () => {
+    liberer?.();
+    liberer = null;
+    await srv?.stop();
+    srv = null;
+    await new Promise<void>((r) => (github ? github.close(() => r()) : r()));
+    github = null;
+    if (dir) rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+    dir = null;
+    for (const cle of CLES) {
+      if (avant[cle] === undefined) delete process.env[cle];
+      else process.env[cle] = avant[cle];
+    }
+  });
+
+  it('LA RUCHE LIVRE TOUTE SEULE : 409 `autonomie: 1` tant que GitHub n’a pas répondu', async () => {
+    // Un GitHub simulé qui RETIENT la première lecture : le cycle d'autonomie
+    // (le pas « livrer ») reste suspendu dessus, en vol, jusqu'à la libération.
+    let vu = false;
+    github = createHttp((req, rep) => {
+      req.resume();
+      vu = true;
+      liberer = () => {
+        rep.writeHead(500, { 'content-type': 'application/json' });
+        rep.end('{"message":"libéré par le banc"}');
+      };
+    });
+    await new Promise<void>((r) => github?.listen(0, '127.0.0.1', r));
+    const port = (github.address() as { port: number }).port;
+    for (const cle of CLES) avant[cle] = process.env[cle];
+    process.env.HIVE_RUNNER = 'on';
+    process.env.HIVE_GITHUB_TOKEN = 'jeton-github-simule';
+    process.env.HIVE_GITHUB_API = `http://127.0.0.1:${port}/api`;
+    dir = mkdtempSync(path.join(os.tmpdir(), 'hive-suppr-auto-'));
+    srv = await createServer({
+      port: 0,
+      host: '127.0.0.1',
+      token: TOKEN,
+      corsOrigins: ['http://localhost:5173'],
+      dbPath: path.join(dir, 'hive.db'),
+      simulation: false,
+      tickMs: 30,
+    });
+    const base = `http://127.0.0.1:${srv.port}`;
+
+    // Un projet GOUVERNABLE (deux ouvrières irréprochables en ligne) avec une
+    // production relue et approuvée : le pas décidé est « livrer ».
+    const projet = srv.store.createProject({
+      name: 'Autonome',
+      repoUrl: 'https://github.com/moi/projet.git',
+    }).id;
+    for (let i = 0; i < 2; i++) {
+      const id = `gouv-${i}`;
+      srv.store.registerNode({ nodeId: id, ...profil(id) });
+      srv.store.setNodeStatus(id, 'online');
+      for (let k = 0; k < SEUIL_BUTINEUSE; k++) {
+        srv.store.enregistrerInspection({
+          resultId: i * 1000 + k + 1,
+          taskId: `T${i}-${k}`,
+          nodeId: id,
+          verdict: 'clean',
+          score: 0,
+          applique: false,
+          griefs: [],
+        });
+      }
+    }
+    const t = srv.store.createTask({ projectId: projet, title: 'Passer a à 2', prompt: 'p' });
+    srv.store.patchTask(t.id, { status: 'done' });
+    srv.store.insertResult({
+      taskId: t.id,
+      nodeId: 'gouv-0',
+      success: true,
+      diff: 'diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-const a = 1;\n+const a = 2;',
+      logs: 'ok',
+      durationMs: 10,
+      subAgents: [],
+    });
+    srv.store.setTaskReview(t.id, 'approved');
+    const reglage = await fetch(`${base}/api/projects/${projet}/essaim`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-hive-token': TOKEN },
+      body: JSON.stringify({ niveau: 'gouverne', depotInscrit: false }),
+    });
+    expect(reglage.status, 'le banc : le niveau doit se poser').toBeLessThan(300);
+    const fin = Date.now() + 5_000;
+    while (!vu && Date.now() < fin) await new Promise((r) => setTimeout(r, 25));
+    expect(vu, 'le banc : le cycle doit être suspendu sur GitHub').toBe(true);
+
+    const r = await fetch(`${base}/api/projects/${projet}?force=true`, {
+      method: 'DELETE',
+      headers: { 'x-hive-token': TOKEN },
+    });
+
+    expect(r.status).toBe(409);
+    expect(await r.json()).toMatchObject({ code: 'travail_non_annulable', autonomie: 1 });
+    expect(srv.store.getProject(projet)).toBeDefined();
   });
 });

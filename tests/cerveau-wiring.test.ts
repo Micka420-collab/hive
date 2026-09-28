@@ -301,7 +301,7 @@ describe('le Cerveau arrive jusqu’à l’ouvrière', () => {
     const ws = sockets[sockets.length - 1] as WebSocket;
     const vues = new Set<string>();
 
-    creerTache(srv, 'compiler quelque chose de récalcitrant');
+    const tache = creerTache(srv, 'compiler quelque chose de récalcitrant');
 
     // La tâche est re-tentée : chaque assignation reçoit le MÊME échec, donc
     // la même signature, donc la même note incrémentée.
@@ -329,6 +329,10 @@ describe('le Cerveau arrive jusqu’à l’ouvrière', () => {
     const props = srv.store.listEvents(0, 500).filter((e) => e.type === 'cerveau_consolidation');
     expect(props.length, 'aucune consolidation proposée après trois échecs').toBeGreaterThan(0);
     expect(JSON.stringify(props[0]?.payload)).toMatch(/recurrences/);
+    // Le fait porte la tâche qui l'a mûri : c'est par elle que la suppression
+    // du projet le retrouve. Sans cette clé, le TITRE de la tâche survivait au
+    // projet dans le journal.
+    expect(props[0]?.payload).toMatchObject({ taskId: tache });
   });
 
   it('LE CONTEXTE RESTE DANS LE BUDGET DU PROTOCOLE', { timeout: 20_000 }, async () => {

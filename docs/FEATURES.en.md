@@ -113,14 +113,16 @@ without touching the others.
 or with `DELETE /api/projects/<id>`. It is a **deletion**, not an archive:
 tasks, results, journal, Hive Mind memories, share links, members and the code
 mirror leave the Queen. Only one audit line remains, `project_deleted` (who,
-when, which name, how many rows). Only the owner and an administrator can do it
+when, which name, how many rows), which journal pruning never removes. Only the owner and an administrator can do it
 — the hive token, on an ownerless project only — and the confirmation requires
 **retyping the project's name**. Running tasks make the deletion refused (the
 list is shown); asking again with `force=true` cancels them first. A merge, a
 chantier or a delivery in flight, an autonomy cycle, an active subscription
 or a machine still at the provider refuse it even when forced: those cannot be
 cancelled. Workers clean up their own workspaces; a mission branch delivered on
-a node stays there.
+a node stays there. The hive's Cerveau keeps what it learned from failures (one
+deduplicated signature for the whole hive: title and failure-log excerpt): that
+is shared knowledge, not a row of the project.
 
 ## 📦 The environment — the agent installs what it needs
 

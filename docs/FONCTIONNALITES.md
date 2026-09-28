@@ -127,7 +127,8 @@ autres.
 par `DELETE /api/projects/<id>`. C'est une **suppression**, pas un archivage :
 tâches, résultats, journal, mémoires du Hive Mind, liens de partage, membres et
 miroir du code quittent la Reine. Il ne reste qu'une ligne d'audit,
-`project_deleted` (qui, quand, quel nom, combien de lignes). Seuls le
+`project_deleted` (qui, quand, quel nom, combien de lignes), que l'élagage du
+journal n'efface jamais. Seuls le
 propriétaire et un administrateur le peuvent — le jeton de ruche, sur un projet
 sans propriétaire seulement — et la confirmation exige de **retaper le nom** du
 projet. Des tâches qui tournent font refuser la suppression (la liste est
@@ -135,7 +136,9 @@ affichée) ; la redemander avec `force=true` les annule d'abord. Un merge, un
 chantier ou une livraison en vol, un cycle d'autonomie, un abonnement actif ou
 une machine encore chez le fournisseur la font refuser même forcée : ceux-là ne
 s'annulent pas. Les ateliers des ouvrières se nettoient chez elles ; une branche
-de mission livrée sur un nœud y reste.
+de mission livrée sur un nœud y reste. Le Cerveau de la ruche garde ce qu'il a
+appris des échecs (une signature dédoublonnée pour toute la ruche : titre et
+extrait du journal d'échec) : c'est un savoir partagé, pas une ligne du projet.
 
 ## 📦 L'environnement — l'agent installe ce dont il a besoin
 

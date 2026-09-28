@@ -5879,6 +5879,13 @@ export class HiveStore {
    * (`contre_expertises.productionTaskId`) : compter toute tâche `done`
    * laisserait les relectures elles-mêmes, et les tâches jamais relues,
    * occuper la moitié des places et élaguer plus tôt que promis.
+   *
+   * Le fait d'AUDIT d'une suppression de projet (`project_deleted`) ne part
+   * JAMAIS. C'est tout ce qui reste d'un projet supprimé (décision du
+   * propriétaire : supprimer, pas archiver — sauf cette ligne) : l'élaguer au
+   * bout de quelques heures de journal ferait qu'il n'aurait jamais existé, ni
+   * personne pour l'avoir effacé. Borné par construction : une ligne par geste
+   * humain de suppression, sans contenu (des comptes et un nom).
    */
   pruneEvents(maxKeep: number): number {
     const cutoff = this.lastEventId() - Math.max(0, maxKeep);
@@ -5888,7 +5895,8 @@ export class HiveStore {
         `DELETE FROM events
           WHERE id <= ?
             AND NOT (
-              (
+              type = 'project_deleted'
+              OR (
                 type = 'contre_expertise_verdict'
               AND json_extract(payload, '$.source') = 'hive_counter_review'
               AND json_extract(payload, '$.resultId') IS NOT NULL

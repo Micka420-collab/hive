@@ -18,6 +18,7 @@ import {
   fetchDepotsGithub,
   fetchStatutGithub,
   fetchMembresProjet,
+  getToken,
   fetchMergePlan,
   fetchPartages,
   fetchProjetsOuverts,
@@ -36,7 +37,7 @@ import {
   supprimerProjet,
   trancherConseil,
 } from '../api';
-import { ApiError, RefusSuppression } from '../api';
+import { ApiError, DEFAULT_TOKEN, RefusSuppression } from '../api';
 import type {
   AuthUser,
   BalanceState,
@@ -64,6 +65,7 @@ import { argv, useSuiviMerge } from './suivi-merge';
 import { LivraisonMission } from './LivraisonMission';
 import { MergeReport } from './MergeReport';
 import { sansIdentifiants } from '../../../src/shared/projet-public';
+import { ouvertAuJetonDeRuche } from '../../../src/shared/acces-projet';
 import { ISSUES_A_TRANCHER, JUSTIFICATION_MAX } from '../../../src/shared/war-room';
 import { LENTILLES, QUESTION_DEFAUT, TOURS_MAX } from '../../../src/orchestrator/conseil';
 import type { Project, Task, TaskStatus } from '../../../src/shared/types';
@@ -2000,7 +2002,8 @@ const estStatut = (s: string): s is TaskStatus => (STATUSES as readonly string[]
  * de forcer promettrait ce qui sera refusé.
  *
  * Visible pour qui la Reine laissera faire : le propriétaire, un administrateur,
- * ou quiconque tient le jeton de ruche sur un projet orphelin (ADR 0007).
+ * ou qui TIENT le jeton de ruche (stocké dans ce navigateur) sur un projet
+ * orphelin (ADR 0007).
  * Cosmétique — la garde est à la Reine.
  */
 export function SuppressionProjet({
@@ -2018,7 +2021,14 @@ export function SuppressionProjet({
   const [erreur, setErreur] = useState<string | null>(null);
   const [enVol, setEnVol] = useState<RefusSuppression['taches'] | null>(null);
 
-  const peut = estAdmin(user) || project.ownerId === null || project.ownerId === user?.id;
+  // Le MÊME prédicat que la Reine (`ouvertAuJetonDeRuche` : `null` ET chaîne
+  // vide), et un jeton de ruche TENU : sans compte, l'écran ne tourne que par
+  // lui ; avec un compte, seulement s'il a été saisi (pas la valeur par
+  // défaut). Sans cela, un compte ordinaire voyait « Supprimer… » sur tout
+  // orphelin, retapait le nom, et récoltait un refus de la Reine.
+  const jetonTenu = user === null || getToken() !== DEFAULT_TOKEN;
+  const orphelinTenu = ouvertAuJetonDeRuche(project) && jetonTenu;
+  const peut = estAdmin(user) || orphelinTenu || (Boolean(user) && project.ownerId === user?.id);
   if (!peut) return null;
 
   const nom = project.name;
@@ -2042,8 +2052,8 @@ export function SuppressionProjet({
       </div>
       <p className="pj-suppression-dit">
         {t(
-          'Tâches, résultats, journal, mémoires, liens de partage et miroir du code : tout part, sans retour. Seule une ligne d’audit reste. Les ateliers des ouvrières se nettoient chez elles.',
-          'Tasks, results, journal, memories, share links and the code mirror: everything goes, with no way back. Only one audit line remains. Workers clean up their own workspaces.',
+          'Tâches, résultats, journal, mémoires, liens de partage et miroir du code : tout part, sans retour. Seule une ligne d’audit reste. Les ateliers des ouvrières se nettoient chez elles ; le Cerveau garde ce que la ruche a appris de ses échecs.',
+          'Tasks, results, journal, memories, share links and the code mirror: everything goes, with no way back. Only one audit line remains. Workers clean up their own workspaces; the Cerveau keeps what the hive learned from its failures.',
         )}
       </p>
       {forcer && (

@@ -22,6 +22,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { SuppressionProjet } from '../src/views/Projets';
 import { setLang } from '../src/i18n';
+import { saveToken } from '../src/api';
 import type { AuthUser, ProjetSupprime } from '../src/api';
 import type { Project } from '../../src/shared/types';
 
@@ -212,5 +213,32 @@ describe('le dialogue avec la Reine', () => {
       <SuppressionProjet project={projet(null)} user={null} onSupprime={() => undefined} />,
     );
     expect(texte()).toContain('Supprimer le projet');
+  });
+
+  it('un orphelin n’est proposé à un COMPTE que s’il tient le jeton de ruche', async () => {
+    // La Reine n'ouvre un orphelin qu'au jeton de ruche. Un compte ordinaire
+    // sans jeton saisi voyait le geste, retapait le nom — et se faisait
+    // refuser. L'orphelin est aussi celui dont l'`ownerId` est vide : le même
+    // prédicat que la Reine (`ouvertAuJetonDeRuche`).
+    const remonter = async (): Promise<void> => {
+      await act(async () => racine?.unmount());
+      racine = undefined;
+      conteneur?.remove();
+      await monter(
+        <SuppressionProjet project={projet('')} user={LEA} onSupprime={() => undefined} />,
+      );
+    };
+    localStorage.removeItem('hive.token');
+    await monter(
+      <SuppressionProjet project={projet(null)} user={LEA} onSupprime={() => undefined} />,
+    );
+    expect(texte(), 'sans jeton, le geste serait refusé').not.toContain('Supprimer le projet');
+    try {
+      saveToken('jeton-de-ruche-saisi');
+      await remonter();
+      expect(texte()).toContain('Supprimer le projet');
+    } finally {
+      localStorage.removeItem('hive.token');
+    }
   });
 });
