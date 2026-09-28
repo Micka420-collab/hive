@@ -369,6 +369,9 @@ export function App() {
             'delegation_cancelled',
             'delegation_budget_exhausted',
             'routage_consigne',
+            // Un commentaire de revue ancré posé ou retiré par un AUTRE
+            // opérateur : la Miellerie relit la liste (G06).
+            'revue_commentaire',
             'task_requeued',
             'task_retry',
             // Verdict humain persisté (émis APRÈS l'écriture) : la raison jointe
