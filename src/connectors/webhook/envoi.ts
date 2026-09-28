@@ -9,7 +9,13 @@ import type { RequeteWebhook } from './charge.js';
 /** Le `fetch` dont ce module a besoin — la forme minimale, pour l'injecter. */
 export type FetchLike = (
   url: string,
-  init: { method: string; headers: Record<string, string>; body: string; signal?: AbortSignal },
+  init: {
+    method: string;
+    headers: Record<string, string>;
+    body: string;
+    signal?: AbortSignal;
+    redirect?: 'manual';
+  },
 ) => Promise<{ ok: boolean; status: number }>;
 
 export type ResultatEnvoi =
@@ -30,12 +36,19 @@ export async function envoyerWebhook(
   const ctrl = new AbortController();
   const minuterie = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
+    // Une redirection n'est JAMAIS suivie : elle renverrait le corps signé, et
+    // ses en-têtes, vers une adresse que l'administrateur n'a pas posée (un
+    // autre hôte, `http://` en clair). Elle est un échec nommé.
     const res = await fetchImpl(requete.url, {
       method: 'POST',
       headers: requete.entetes,
       body: requete.corps,
       signal: ctrl.signal,
+      redirect: 'manual',
     });
+    if (res.status >= 300 && res.status < 400) {
+      return { ok: false, status: res.status, motif: `redirection refusée (statut ${res.status})` };
+    }
     return res.ok
       ? { ok: true, status: res.status }
       : { ok: false, status: res.status, motif: `statut ${res.status}` };

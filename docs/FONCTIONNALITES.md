@@ -694,7 +694,9 @@ Connecteurs externes** (administrateur) :
   il part avec son projet quand celui-ci est supprimé.
 
 **Webhook générique** : un `POST` JSON signé HMAC (en-tête `X-Hive-Signature`,
-`t=…,v1=…`) vers l'URL que vous posez. Il ne reçoit rien.
+`t=…,v1=…`) vers l'URL que vous posez — `https://`, ou `http://` vers la
+boucle locale seulement ; une redirection n'est jamais suivie. Il ne reçoit
+rien.
 
 **Slack** : le jeton de bot (`xoxb-…`, scope `chat:write`) poste dans les
 **canaux inscrits** (par ID : `C0…`) — et seulement parmi ceux que

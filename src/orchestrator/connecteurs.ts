@@ -31,7 +31,11 @@ import {
   type Portee,
 } from '../connectors/contrat.js';
 import { definitionConnecteur, listerDefinitions } from '../connectors/registre.js';
-import { ENV_WEBHOOK_SECRET, ENV_WEBHOOK_URL } from '../connectors/webhook/definition.js';
+import {
+  ENV_WEBHOOK_SECRET,
+  ENV_WEBHOOK_URL,
+  urlWebhookValide,
+} from '../connectors/webhook/definition.js';
 import { construireRequeteWebhook } from '../connectors/webhook/charge.js';
 import { envoyerWebhook, type FetchLike } from '../connectors/webhook/envoi.js';
 import {
@@ -243,6 +247,22 @@ export class HubConnecteurs {
   ): Promise<IssueEnvoi> {
     const url = this.secret(ENV_WEBHOOK_URL);
     const secret = this.secret(ENV_WEBHOOK_SECRET);
+    // La route de pose refuse déjà une telle URL ; une URL écrite à la main
+    // dans le `.env` passe par ici aussi : rien ne part en clair sur le réseau.
+    if (!urlWebhookValide(url)) {
+      const motif = 'URL refusée : https:// exigé (http:// seulement vers la boucle locale)';
+      this.deps.store.journaliserConnecteur({
+        connecteurId: 'webhook',
+        projectId: evenement.projectId,
+        portee,
+        acte: evenement.kind,
+        cible: evenement.taskId ?? null,
+        resultat: 'refuse',
+        qui,
+        apercu: motif,
+      });
+      return { ok: false, motif };
+    }
     const requete = construireRequeteWebhook({ url, secret, evenement, now: Date.now() });
     const trace = empreinte(requete.corps);
     const res = await envoyerWebhook(requete, this.fetchWebhook);
@@ -308,6 +328,8 @@ export class HubConnecteurs {
       return { ok: false, motif: 'aucun canal configuré' };
     }
     const echecs: string[] = [];
+    const caviardeur = this.caviardeur();
+    const motif = (brut: string): string => caviardeur.texte(brut).slice(0, 200);
     for (const channel of canaux) {
       // L'empreinte couvre le corps EXACT de la requête de CE canal.
       const trace = empreinte(corpsPostMessage(channel, message));
@@ -320,10 +342,12 @@ export class HubConnecteurs {
         cible: evenement.taskId ?? null,
         resultat: res.ok ? 'ok' : 'echec',
         qui,
-        apercu: res.ok ? `#${channel} ${trace.apercu}` : `#${channel} — ${res.motif}`,
+        // Le motif d'un échec vient de Slack (ou du réseau) : caviardé comme
+        // tout ce qui est journalisé.
+        apercu: res.ok ? `#${channel} ${trace.apercu}` : `#${channel} — ${motif(res.motif)}`,
         chargeDigest: trace.chargeDigest,
       });
-      if (!res.ok) echecs.push(`#${channel} : ${res.motif}`);
+      if (!res.ok) echecs.push(`#${channel} : ${motif(res.motif)}`);
     }
     return echecs.length === 0 ? { ok: true } : { ok: false, motif: echecs.join(' ; ') };
   }

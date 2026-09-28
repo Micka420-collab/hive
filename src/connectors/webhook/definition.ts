@@ -51,16 +51,27 @@ export const DEF_WEBHOOK: DefinitionConnecteur = Object.freeze({
 });
 
 /**
- * L'URL de destination est-elle une adresse `http(s)://` complète ? Le secret
- * se pose en texte libre ; sans ce contrôle, une URL mal collée ne se
- * révèlerait qu'au premier envoi, en `echec` au journal, loin de l'écran où
- * l'humain l'a saisie.
+ * L'URL de destination est-elle une adresse `https://` complète — ou `http://`
+ * vers la boucle locale seulement ? Le secret se pose en texte libre ; sans ce
+ * contrôle, une URL mal collée ne se révèlerait qu'au premier envoi, en
+ * `echec` au journal, loin de l'écran où l'humain l'a saisie. Et un corps
+ * signé qui part en clair sur le réseau — titres de tâches, décisions — se lit
+ * et se rejoue par quiconque est sur le chemin : `http://` ne vaut que pour un
+ * récepteur sur la même machine.
  */
 export function urlWebhookValide(brut: string): boolean {
   try {
     const url = new URL(brut);
-    return (url.protocol === 'https:' || url.protocol === 'http:') && url.hostname !== '';
+    if (url.hostname === '') return false;
+    if (url.protocol === 'https:') return true;
+    return url.protocol === 'http:' && estBoucle(url.hostname);
   } catch {
     return false;
   }
+}
+
+/** `localhost`, 127/8 ou `::1` : la même machine. */
+function estBoucle(hote: string): boolean {
+  const h = hote.toLowerCase().replace(/^\[|\]$/g, '');
+  return h === 'localhost' || h === '::1' || /^127(\.\d{1,3}){3}$/.test(h);
 }

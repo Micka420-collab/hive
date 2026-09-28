@@ -9,6 +9,7 @@ import {
   construireRequeteWebhook,
 } from '../src/connectors/webhook/charge.js';
 import { envoyerWebhook, type FetchLike } from '../src/connectors/webhook/envoi.js';
+import { urlWebhookValide } from '../src/connectors/webhook/definition.js';
 import type { EvenementConnecteur } from '../src/connectors/contrat.js';
 
 const EV: EvenementConnecteur = {
@@ -120,5 +121,45 @@ describe('envoyerWebhook', () => {
       expect(res.status).toBe(0);
       expect(res.motif).toContain('ECONNREFUSED');
     }
+  });
+});
+
+describe('où un webhook peut partir', () => {
+  it('https partout ; http seulement vers la boucle locale — jamais en clair sur le réseau', () => {
+    for (const bonne of [
+      'https://exemple.test/hook',
+      'http://127.0.0.1:8080/hook',
+      'http://localhost/hook',
+      'http://[::1]:9/hook',
+    ]) {
+      expect(urlWebhookValide(bonne), bonne).toBe(true);
+    }
+    for (const mauvaise of [
+      'http://exemple.test/hook',
+      'http://192.168.1.10/hook',
+      'http://127.0.0.1.exemple.test/hook',
+      'file:///etc/passwd',
+      'pas une url',
+    ]) {
+      expect(urlWebhookValide(mauvaise), mauvaise).toBe(false);
+    }
+  });
+
+  it('une REDIRECTION n’est jamais suivie : le corps signé ne part pas ailleurs', async () => {
+    let redirect: string | undefined;
+    const faux: FetchLike = async (_url, init) => {
+      redirect = init.redirect;
+      return { ok: false, status: 307 };
+    };
+    const req = construireRequeteWebhook({
+      url: 'https://exemple.test/hook',
+      secret: 's'.repeat(20),
+      evenement: EV,
+      now: 1,
+    });
+    const res = await envoyerWebhook(req, faux);
+    expect(redirect, 'fetch ne suit pas de lui-même').toBe('manual');
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.motif).toContain('redirection refusée');
   });
 });

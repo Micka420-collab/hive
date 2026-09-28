@@ -138,6 +138,51 @@ describe('HubConnecteurs — ce qui part vers l’extérieur', () => {
     );
   });
 
+  it('une URL http:// vers le réseau, posée À LA MAIN dans le .env, ne reçoit rien', async () => {
+    const h = new HubConnecteurs({
+      store,
+      env: { ...env, [ENV_WEBHOOK_URL]: 'http://recepteur.test/hook' } as NodeJS.ProcessEnv,
+      fetchWebhook,
+      appliquerRevue: () => 'applique',
+    });
+    const r = await h.tester('webhook', { kind: 'decision', projectId, titre: 'x' }, 'ruche');
+    expect(recus).toHaveLength(0);
+    expect(r.envoye).toBe(false);
+    expect(r.motif).toContain('https:// exigé');
+    expect(store.listerJournalConnecteurs({ projectId })[0]).toMatchObject({ resultat: 'refuse' });
+  });
+
+  it('le motif d’un échec Slack est caviardé au journal : Slack peut citer ce qu’on lui a envoyé', async () => {
+    store.autoriserConnecteur({
+      connecteurId: 'slack',
+      projectId,
+      portees: ['notification'],
+      canaux: ['C01'],
+    });
+    const h = new HubConnecteurs({
+      store,
+      env: {
+        ...env,
+        [ENV_SLACK_BOT]: 'xoxb-jeton-de-bot-du-banc-0042',
+        [ENV_SLACK_CANAUX]: 'C01',
+      } as NodeJS.ProcessEnv,
+      fetchSlack: async () => ({
+        status: 200,
+        json: async () => ({ ok: false, error: `invalid_auth (${JETON_RUCHE})` }),
+      }),
+      appliquerRevue: () => 'applique',
+    });
+    const r = await h.tester('slack', { kind: 'blocage', projectId, titre: 'x' }, 'ruche');
+    expect(r.envoye).toBe(false);
+    expect(JSON.stringify(r)).not.toContain(JETON_RUCHE);
+    const entree = store
+      .listerJournalConnecteurs({ projectId })
+      .find((e) => e.connecteurId === 'slack')!;
+    expect(entree.resultat).toBe('echec');
+    expect(entree.apercu).toContain('invalid_auth');
+    expect(entree.apercu).not.toContain(JETON_RUCHE);
+  });
+
   it('sans autorisation sur le projet, rien ne part — et le test dit pourquoi', async () => {
     store.revoquerConnecteur('webhook', projectId);
     await hub().notifier({ kind: 'decision', projectId, titre: 'x' });

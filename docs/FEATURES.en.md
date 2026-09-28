@@ -621,7 +621,8 @@ approvals**. Everything is set in **Stewardship → External connectors** (admin
   leaves with its project when that project is deleted.
 
 **Generic webhook**: an HMAC-signed JSON `POST` (`X-Hive-Signature` header,
-`t=…,v1=…`) to the URL you set. It receives nothing.
+`t=…,v1=…`) to the URL you set — `https://`, or `http://` to loopback only;
+a redirect is never followed. It receives nothing.
 
 **Slack**: the bot token (`xoxb-…`, `chat:write` scope) posts to the **listed
 channels** (by ID: `C0…`) — and only among those the **administrator** allows
