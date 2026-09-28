@@ -189,7 +189,7 @@ describe('un résultat se range en une seule transaction (jamais deux succès)',
     const p = store.createProject({ name: 'P' });
     const parent = store.createTask({ projectId: p.id, title: 'parent', prompt: 'p' });
     const a = sched.registerNode(profil('a'));
-    const c = sched.registerNode(profil('c'));
+    sched.registerNode(profil('c'));
     sched.tick();
     sched.handleTaskUpdate(a.id, parent.id);
     const creation = store.createDelegatedTask({
@@ -203,8 +203,10 @@ describe('un résultat se range en une seule transaction (jamais deux succès)',
     });
     expect(creation.ok).toBe(true);
     sched.tick();
-    expect(store.getTask('enfant')?.assignedNodeId).toBe(c.id);
-    sched.handleTaskUpdate(c.id, 'enfant');
+    // Le parent attend son enfant : sa place est relâchée (`slotsOccupes`), et
+    // l'enfant part sur le premier nœud libre par le nom — celui du parent.
+    expect(store.getTask('enfant')?.assignedNodeId).toBe(a.id);
+    sched.handleTaskUpdate(a.id, 'enfant');
 
     // Le parent aboutit ; la clôture de son sous-arbre bute sur la base.
     const ecrire = store.patchTask.bind(store);

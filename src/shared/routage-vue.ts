@@ -18,12 +18,19 @@
 //     mesure) — même quand des élections en vol ont déjà éteint son infini ;
 //   · un payload illisible est ignoré, jamais deviné.
 //
+// Deux faits disent ce qui a CONTRAINT le choix, au-delà de l'Aiguillage :
+// `consigneOperateur` — la consigne de l'opérateur, une exclusion dure, et le
+// choix se lit « forcé par l'opérateur » — et `preference` — ce qu'une tâche
+// parente préférait, avec ce que cette préférence a réellement départagé.
+// Aucun des deux ne réécrit le classement : il reste celui de l'Aiguillage.
+//
 // La raison se lit selon la version du calcul qui l'a prise
 // (`versionAiguillage`, cf. `VERSION_AIGUILLAGE`). Depuis la v2, chaque ligne
 // sépare les verdicts reçus (`essais`) des élections en vol (`enVol`). Avant,
 // `essais` mêlait les deux : ces raisons-là sont relues telles quelles, sans
 // prétendre savoir combien de leurs essais étaient en vol.
 
+import { lireConsigneRoutage, type ConsigneRoutage } from './consigne-routage.js';
 import type { HiveEvent } from './types.js';
 
 /** Les types que la projection relit : la route `/api/tasks/:id/routage` les demande tous. */
@@ -47,10 +54,21 @@ export interface LigneRaison {
   score: number | null;
   /** Jamais jugé : l'Aiguillage l'explore avant de prétendre le connaître. */
   aExplorer: boolean;
+  /** Le modèle que la tâche parente a dit préférer (délégation) ; absent sinon. */
+  preferee?: true;
 }
 
 /** Ce qui a départagé le nœud, dans l'ordre où l'ordonnanceur l'applique. */
-export type CritereNoeud = 'course_de_drones' | 'porteur_du_modele' | 'pheromones' | 'moins_charge';
+export type CritereNoeud =
+  'course_de_drones' | 'porteur_du_modele' | 'pheromones' | 'preference_parent' | 'moins_charge';
+
+/** Ce qu'une tâche parente préférait, et ce que la préférence a départagé. */
+export interface PreferenceVue {
+  agent: string | null;
+  modele: string | null;
+  /** Vide : lue, sans effet — aucune égalité à trancher, ou l'élu indisponible. */
+  departage: Array<'agent' | 'modele'>;
+}
 
 /** Un drone d'une course : son nœud, le modèle qui lui a été commandé, et pourquoi. */
 export interface DroneVue {
@@ -92,6 +110,13 @@ export interface AffectationVue {
   pheromone: { domaine: string; score: number } | null;
   /** `null` hors course de drones. */
   course: CourseVue | null;
+  /**
+   * La consigne de l'opérateur qui a restreint ce choix — « forcé par
+   * l'opérateur ». Absente quand il n'y en avait pas (ou qu'elle est illisible).
+   */
+  consigne?: ConsigneRoutage;
+  /** Absente hors délégation, ou quand la tâche parente n'a rien préféré. */
+  preference?: PreferenceVue;
   critereNoeud: CritereNoeud;
 }
 
@@ -122,7 +147,26 @@ function ligneDepuis(brut: unknown, version: number | null): LigneRaison | null 
     moyenne: aExplorer ? null : nombre(r.moyenne),
     score: nombre(r.score),
     aExplorer,
+    ...(r.preferee === true ? { preferee: true as const } : {}),
   };
+}
+
+/** La consigne d'une affectation ; illisible, elle n'est pas devinée. */
+function consigneDepuis(brut: unknown): ConsigneRoutage | null {
+  if (brut === undefined) return null;
+  const lue = lireConsigneRoutage(brut);
+  return lue.ok ? lue.consigne : null;
+}
+
+function preferenceDepuis(brut: unknown): PreferenceVue | null {
+  const p = objet(brut);
+  const agent = texte(p.agent);
+  const modele = texte(p.modele);
+  if (agent === null && modele === null) return null;
+  const departage = textes(p.departage).filter(
+    (d): d is 'agent' | 'modele' => d === 'agent' || d === 'modele',
+  );
+  return { agent, modele, departage };
 }
 
 function raisonDepuis(brut: unknown, version: number | null): LigneRaison[] {
@@ -197,6 +241,8 @@ export function affectationsDepuisEvenements(evenements: readonly HiveEvent[]): 
     const course = drones.some((d) => d.nodeId === nodeId) ? { drones, vainqueur: null } : null;
     const modele = texte(p.modele);
     const versionAiguillage = nombre(p.versionAiguillage);
+    const preference = preferenceDepuis(p.preference);
+    const consigne = consigneDepuis(p.consigneOperateur);
     affectations.push({
       eventId: e.id,
       ts: e.ts,
@@ -209,13 +255,17 @@ export function affectationsDepuisEvenements(evenements: readonly HiveEvent[]): 
       modelesReadmis: textes(p.modelesReadmis),
       pheromone,
       course,
+      ...(consigne ? { consigne } : {}),
+      ...(preference ? { preference } : {}),
       critereNoeud: course
         ? 'course_de_drones'
         : pheromone
           ? 'pheromones'
-          : modele
-            ? 'porteur_du_modele'
-            : 'moins_charge',
+          : preference?.departage.includes('agent')
+            ? 'preference_parent'
+            : modele
+              ? 'porteur_du_modele'
+              : 'moins_charge',
     });
   }
   return affectations;

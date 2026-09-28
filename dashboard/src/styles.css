@@ -1129,6 +1129,25 @@ h3 {
 .routage-rang tr.elu td {
   font-weight: 600;
 }
+.consigne-routage-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.8rem;
+  font-size: 0.85rem;
+}
+.consigne-routage-form fieldset {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.8rem;
+  margin: 0;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--border, rgba(127, 127, 127, 0.25));
+  border-radius: 6px;
+}
+.delegation-tree-budget.epuise {
+  color: var(--red);
+}
 .delegation-panel {
   margin-top: 18px;
   padding-top: 14px;

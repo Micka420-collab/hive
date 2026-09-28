@@ -18,6 +18,7 @@ import path from 'node:path';
 import { SECRETS_JAMAIS_SONDES } from '../node-client/agent-detect.js';
 import { MONTAGE_PONT } from '../node-client/isolement.js';
 import { CheminSocketTropLong } from '../node-client/rendez-vous-pont.js';
+import { FORMAT_ID_ENFANT, LIMITES_DELEGATION_DEFAUT } from '../shared/limites-delegation.js';
 import type { SubAgent } from '../shared/types.js';
 import type {
   AdapterContext,
@@ -32,13 +33,134 @@ const MAX_FRAME_BYTES = 512 * 1024;
 const MAX_ID_LENGTH = 64;
 const MAX_NAME_LENGTH = 120;
 const MAX_REASON_LENGTH = 1_000;
-const MAX_TITLE_LENGTH = 160;
-const MAX_PROMPT_LENGTH = 16_000;
+const MAX_TITLE_LENGTH = LIMITES_DELEGATION_DEFAUT.maxTitleChars;
+const MAX_PROMPT_LENGTH = LIMITES_DELEGATION_DEFAUT.maxPromptChars;
 const MAX_TEXT_LENGTH = 8_192;
 const MAX_RESULT_TEXT = 32 * 1024;
 
 export const HIVE_DELEGATE_TOOL = 'hive_delegate';
 export const HIVE_WAIT_TOOL = 'hive_wait_for_delegation_result';
+
+/**
+ * Les deux outils MCP tels que le modèle les LIT — la seule documentation de
+ * la délégation qu'il verra jamais.
+ *
+ * ─── POURQUOI LES BORNES SONT DANS LE TEXTE ──────────────────────────────────
+ *
+ * L'ancienne description tenait en une phrase : ni la profondeur, ni les
+ * quotas, ni le format de l'identifiant, ni ce que valent les budgets. Un
+ * agent les découvrait en se les prenant, un refus après l'autre — et il
+ * lisait `costMicros` « en micro-unités » sans savoir de quoi. Les bornes
+ * viennent de `LIMITES_DELEGATION_DEFAUT`, celles que la Reine applique : le
+ * texte ne peut pas dériver d'elles. Les préférences y sont dites pour ce
+ * qu'elles sont — un départage —, pas pour un choix qu'elles ne font pas.
+ *
+ * Bornée : ≈ 1 500 caractères pour les deux outils, envoyés une fois par
+ * session du CLI.
+ */
+export function definitionsOutilsDelegation(
+  limites = LIMITES_DELEGATION_DEFAUT,
+): Array<{ name: string; description: string; inputSchema: Record<string, unknown> }> {
+  const { maxDurationMs, maxCostMicros, maxResourceUnits } = limites;
+  return [
+    {
+      name: HIVE_DELEGATE_TOOL,
+      description:
+        'Délègue une sous-tâche bornée à un autre Worker Hive et rend son ADMISSION ' +
+        `(identifiant, profondeur), pas son résultat : attends-le ensuite avec ${HIVE_WAIT_TOOL}. ` +
+        `Bornes : au plus ${limites.maxDepth} niveaux sous la tâche racine, ` +
+        `${limites.maxChildrenPerParent} enfants par parent et ${limites.maxDescendantsPerRoot} ` +
+        'descendants par racine, enfants terminés compris. Budgets CUMULÉS par racine — chaque ' +
+        `enfant réserve sa part, jamais rendue : durée ≤ ${maxDurationMs} ms, coût ≤ ` +
+        `${maxCostMicros} micro-USD (coût DÉCLARÉ par le CLI de l’agent), ressources ≤ ` +
+        `${maxResourceUnits} unités (compte abstrait, rien n’est mesuré). Quand la dépense ` +
+        'déclarée de l’arbre atteint le budget coût, plus aucun enfant n’est admis et ceux en vol ' +
+        'sont annulés. Ton propre budget de durée court pendant que tu attends. Un refus nomme ' +
+        'la borne franchie et ce qui reste.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          childTaskId: {
+            type: 'string',
+            pattern: FORMAT_ID_ENFANT,
+            description:
+              'Identifiant stable, 1 à 64 caractères parmi A-Z a-z 0-9 _ - : le renvoyer rejoue ' +
+              'la même sous-tâche au lieu d’en créer une autre.',
+          },
+          reason: {
+            type: 'string',
+            maxLength: MAX_REASON_LENGTH,
+            description: 'Pourquoi tu délègues — journalisé pour l’opérateur.',
+          },
+          title: { type: 'string', maxLength: MAX_TITLE_LENGTH, description: 'Titre court.' },
+          prompt: {
+            type: 'string',
+            maxLength: MAX_PROMPT_LENGTH,
+            description: 'Instruction complète : l’enfant ne voit rien d’autre de ton contexte.',
+          },
+          durationMs: {
+            type: 'integer',
+            minimum: 0,
+            maximum: maxDurationMs,
+            description: `Durée réservée en ms, sur ${maxDurationMs} ms cumulées par racine.`,
+          },
+          costMicros: {
+            type: 'integer',
+            minimum: 0,
+            maximum: maxCostMicros,
+            description:
+              `Coût réservé en micro-USD (1 000 000 = 1 USD), sur ${maxCostMicros} cumulés ` +
+              'par racine.',
+          },
+          resourceUnits: {
+            type: 'integer',
+            minimum: 0,
+            maximum: maxResourceUnits,
+            description: `Unités de ressources, compte abstrait : ${maxResourceUnits} cumulées par racine.`,
+          },
+          preferredAgent: {
+            type: 'string',
+            maxLength: MAX_NAME_LENGTH,
+            description:
+              'Famille d’agent préférée (ex. claude-code, codex) : départage seulement entre ' +
+              'Workers à égalité, jamais une exclusion levée.',
+          },
+          preferredModel: {
+            type: 'string',
+            maxLength: MAX_NAME_LENGTH,
+            description: 'Modèle préféré : départage seulement entre modèles à égalité de score.',
+          },
+        },
+        required: [
+          'childTaskId',
+          'reason',
+          'title',
+          'prompt',
+          'durationMs',
+          'costMicros',
+          'resourceUnits',
+        ],
+      },
+    },
+    {
+      name: HIVE_WAIT_TOOL,
+      description:
+        'Attend le résultat terminal réel d’une sous-tâche Hive admise : réussie, échouée, ou ' +
+        'annulée avec sa raison. Bloque au plus le budget de durée de l’enfant plus cinq minutes.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          childTaskId: {
+            type: 'string',
+            pattern: FORMAT_ID_ENFANT,
+            description: 'Identifiant rendu par l’admission de la sous-tâche.',
+          },
+        },
+        required: ['childTaskId'],
+      },
+    },
+  ];
+}
 
 type BridgeSuccess = {
   type: 'result';
@@ -131,9 +253,15 @@ const MAX_FRAME_BYTES = 524288;
 const MAX_ID_LENGTH = 64;
 const MAX_NAME_LENGTH = 120;
 const MAX_REASON_LENGTH = 1000;
-const MAX_TITLE_LENGTH = 160;
-const MAX_PROMPT_LENGTH = 16000;
+const MAX_TITLE_LENGTH = ${MAX_TITLE_LENGTH};
+const MAX_PROMPT_LENGTH = ${MAX_PROMPT_LENGTH};
 const MAX_TEXT_LENGTH = 8192;
+const MAX_BUDGET = ${JSON.stringify({
+  durationMs: LIMITES_DELEGATION_DEFAUT.maxDurationMs,
+  costMicros: LIMITES_DELEGATION_DEFAUT.maxCostMicros,
+  resourceUnits: LIMITES_DELEGATION_DEFAUT.maxResourceUnits,
+})};
+const ID_ENFANT = new RegExp(${JSON.stringify(FORMAT_ID_ENFANT)});
 const SUPPORTED_PROTOCOL_VERSIONS = new Set(['2024-11-05', '2025-03-26', '2025-06-18']);
 const HIVE_DELEGATE_TOOL = 'hive_delegate';
 const HIVE_WAIT_TOOL = 'hive_wait_for_delegation_result';
@@ -222,38 +350,28 @@ if (!endpoint || !token || !parentTaskId) {
   };
 
   const text = (value, max = MAX_TEXT_LENGTH) => typeof value === 'string' && value.length > 0 && value.length <= max ? value : null;
-  const id = (value) => text(value);
+  const id = (value) => typeof value === 'string' && ID_ENFANT.test(value) ? value : null;
+  const entier = (value, max) => Number.isSafeInteger(value) && value >= 0 && value <= max;
+  // Le PREMIER champ fautif, nommé avec sa borne : « arguments invalides » ne
+  // disait pas lequel, et le modèle recommençait à l'aveugle.
+  const fauteDelegation = (args, input) => {
+    if (!input.childTaskId) return 'childTaskId : 1 à 64 caractères parmi A-Z a-z 0-9 _ -';
+    if (!input.reason) return 'reason : texte non vide de ' + MAX_REASON_LENGTH + ' caractères au plus';
+    if (!input.title) return 'title : texte non vide de ' + MAX_TITLE_LENGTH + ' caractères au plus';
+    if (!input.prompt) return 'prompt : texte non vide de ' + MAX_PROMPT_LENGTH + ' caractères au plus';
+    // La même borne que l'inputSchema annonce : au-delà, le guichet du nœud ne
+    // rendait qu'un « demande mal formée » sans champ ni borne.
+    for (const champ of ['durationMs', 'costMicros', 'resourceUnits']) {
+      if (!entier(input[champ], MAX_BUDGET[champ])) {
+        return champ + ' : entier de 0 à ' + MAX_BUDGET[champ] + ' (plafond cumulé par racine)';
+      }
+    }
+    if (args.preferredAgent !== undefined && !input.preferredAgent) return 'preferredAgent : texte non vide de ' + MAX_NAME_LENGTH + ' caractères au plus';
+    if (args.preferredModel !== undefined && !input.preferredModel) return 'preferredModel : texte non vide de ' + MAX_NAME_LENGTH + ' caractères au plus';
+    return null;
+  };
 
-  const definitions = [
-    {
-      name: HIVE_DELEGATE_TOOL,
-      description: 'Délègue une sous-tâche bornée à un Worker Hive et renvoie son admission.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          childTaskId: { type: 'string', description: 'Identifiant stable de la sous-tâche.' },
-          reason: { type: 'string', description: 'Raison opérationnelle de la délégation.' },
-          title: { type: 'string', description: 'Titre court de la sous-tâche.' },
-          prompt: { type: 'string', description: 'Instruction de la sous-tâche.' },
-          durationMs: { type: 'number', description: 'Budget de durée en millisecondes.' },
-          costMicros: { type: 'number', description: 'Budget de coût en micro-unités.' },
-          resourceUnits: { type: 'number', description: 'Budget de ressources.' },
-          preferredAgent: { type: 'string', description: 'Agent préféré, si pertinent.' },
-          preferredModel: { type: 'string', description: 'Modèle préféré, si pertinent.' },
-        },
-        required: ['childTaskId', 'reason', 'title', 'prompt', 'durationMs', 'costMicros', 'resourceUnits'],
-      },
-    },
-    {
-      name: HIVE_WAIT_TOOL,
-      description: 'Attend le résultat terminal réel d’une sous-tâche Hive admise.',
-      inputSchema: {
-        type: 'object',
-        properties: { childTaskId: { type: 'string', description: 'Identifiant de la sous-tâche.' } },
-        required: ['childTaskId'],
-      },
-    },
-  ];
+  const definitions = ${JSON.stringify(definitionsOutilsDelegation())};
 
   const result = (requestId, value, isError) => ({
     jsonrpc: '2.0',
@@ -270,13 +388,9 @@ if (!endpoint || !token || !parentTaskId) {
         ...(args.preferredAgent === undefined ? {} : { preferredAgent: text(args.preferredAgent, MAX_NAME_LENGTH) }),
         ...(args.preferredModel === undefined ? {} : { preferredModel: text(args.preferredModel, MAX_NAME_LENGTH) }),
       };
-      if (!input.childTaskId || !input.reason || !input.title || !input.prompt ||
-          !Number.isSafeInteger(input.durationMs) || input.durationMs < 0 ||
-          !Number.isSafeInteger(input.costMicros) || input.costMicros < 0 ||
-          !Number.isSafeInteger(input.resourceUnits) || input.resourceUnits < 0 ||
-          (args.preferredAgent !== undefined && !input.preferredAgent) ||
-          (args.preferredModel !== undefined && !input.preferredModel)) {
-        return result(requestId, { ok: false, code: 'arguments_invalid', message: 'arguments de délégation invalides' }, true);
+      const faute = fauteDelegation(args, input);
+      if (faute) {
+        return result(requestId, { ok: false, code: 'arguments_invalid', message: 'argument invalide — ' + faute }, true);
       }
       try {
         const value = await callParent('delegate', { input });
@@ -295,7 +409,7 @@ if (!endpoint || !token || !parentTaskId) {
     }
     if (name === HIVE_WAIT_TOOL) {
       const childTaskId = id(args && args.childTaskId);
-      if (!childTaskId) return result(requestId, { ok: false, code: 'arguments_invalid', message: 'childTaskId invalide' }, true);
+      if (!childTaskId) return result(requestId, { ok: false, code: 'arguments_invalid', message: 'childTaskId : 1 à 64 caractères parmi A-Z a-z 0-9 _ -' }, true);
       try {
         const value = await callParent('wait', { childTaskId });
         return result(requestId, value, value && value.ok === false);

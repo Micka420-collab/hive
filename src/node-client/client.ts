@@ -310,6 +310,12 @@ export class HiveNodeClient {
   }
 
   private readonly active = new Map<string, AbortController>();
+  /**
+   * La racine de délégation de chaque enfant actif (`delegationRootTaskId`) ;
+   * une tâche absente d'ici est sa propre racine. Oubliée avec ses délégations
+   * quand la tâche quitte son tour (`clearDelegationsForParent`).
+   */
+  private readonly racines = new Map<string, string>();
   /** Délégations en vol : bornées pour qu'un Worker ne crée pas une file locale infinie. */
   private readonly pendingDelegations = new Map<
     string,
@@ -378,9 +384,11 @@ export class HiveNodeClient {
   private readonly rendezVous = new RendezVousPont();
 
   /**
-   * Arma la seule limite d'exécution actuellement consommée côté Worker.
-   * `costMicros` et `resourceUnits` restent transportés comme faits demandés
-   * jusqu'à ce que les adaptateurs sachent les mesurer réellement.
+   * Arme la seule limite d'exécution que le Worker peut tenir pendant la
+   * tentative : la durée. Le coût, lui, n'est connu qu'à la fin — le CLI le
+   * DÉCLARE avec son résultat —, et c'est la Reine qui tient l'enveloppe coût
+   * de l'arbre (`tenirBudgetCoutRacine`). `resourceUnits` est un compte
+   * abstrait, sans mesure derrière : transporté, jamais appliqué ici.
    */
   private startDelegationBudget(
     budget: DelegationBudget | undefined,
@@ -673,6 +681,40 @@ export class HiveNodeClient {
     }
   }
 
+  /**
+   * Les tâches actives de ce nœud, dans l'arbre de `racine`, qui attendent un
+   * enfant délégué encore en vol : admis par la Reine (`acceptedDelegations`),
+   * résultat pas encore reçu.
+   *
+   * La même règle que la Reine (`parentsEnAttenteSousRacine`, store) : un
+   * parent dont un enfant vole ne tient pas de place POUR SON ARBRE. Sans elle,
+   * une ouvrière à deux places portait la racine et son enfant, refusait le
+   * petit-enfant (`noeud_sature`), et l'arbre attendait sa propre expiration.
+   * Pour les autres, il l'occupe : sinon chaque racine délégante laissait
+   * entrer la suivante, et `maxConcurrency` ne bornait plus rien.
+   *
+   * ─── UN ÉCART ASSUMÉ AVEC LA REINE ───────────────────────────────────────────
+   *
+   * La Reine lit le statut de l'enfant ; ce guichet, ses admissions locales. Une
+   * admission oubliée ici avant que l'enfant ne finisse — attente expirée,
+   * reconnexion, quota local — fait voir à la Reine une place que ce nœud
+   * refuse. L'écart est borné : il ne touche que les descendants de CET arbre,
+   * le refus (`noeud_sature`) ne brûle aucune tentative, et la Reine ne
+   * re-sollicite pas ce nœud pour cette tâche avant la fin du délai de refus
+   * (`recentRejections`). Le parent qui n'a plus d'admission ne peut plus
+   * attendre son enfant : il travaille, et tient sa place — le guichet a raison.
+   */
+  private parentsEnAttente(racine: string): number {
+    const parents = new Set<string>();
+    for (const [childTaskId, accepted] of this.acceptedDelegations) {
+      if (!this.active.has(accepted.parentTaskId)) continue;
+      if (this.completedDelegationResults.has(childTaskId)) continue;
+      if ((this.racines.get(accepted.parentTaskId) ?? accepted.parentTaskId) !== racine) continue;
+      parents.add(accepted.parentTaskId);
+    }
+    return parents.size;
+  }
+
   private clearAcceptedDelegation(childTaskId: string): void {
     const accepted = this.acceptedDelegations.get(childTaskId);
     if (!accepted) return;
@@ -681,11 +723,12 @@ export class HiveNodeClient {
   }
 
   /**
-   * Nettoie les enfants d'un parent qui vient de quitter son tour. Un Worker
-   * qui choisit de ne pas attendre un enfant ne doit pas laisser une entrée
-   * vivre jusqu'à la prochaine reconnexion du nœud.
+   * Nettoie les enfants d'un parent qui vient de quitter son tour — et sa
+   * racine (`racines`). Un Worker qui choisit de ne pas attendre un enfant ne
+   * doit pas laisser une entrée vivre jusqu'à la prochaine reconnexion du nœud.
    */
   private clearDelegationsForParent(parentTaskId: string): void {
+    this.racines.delete(parentTaskId);
     for (const [childTaskId, accepted] of this.acceptedDelegations) {
       if (accepted.parentTaskId !== parentTaskId) continue;
       const pending = this.pendingDelegationResults.get(childTaskId);
@@ -898,6 +941,7 @@ export class HiveNodeClient {
           msg.modele,
           msg.delegationBudget,
           msg.relecture === true,
+          msg.delegationRootTaskId,
         );
         break;
       case 'assign_merge':
@@ -1199,6 +1243,7 @@ export class HiveNodeClient {
     modele?: string,
     delegationBudget?: DelegationBudget,
     relecture = false,
+    delegationRootTaskId?: string,
   ): Promise<void> {
     // Défense en profondeur : l'id sert à construire des chemins locaux — on ne
     // fait pas confiance au hub (anti path-traversal si le hub était compromis).
@@ -1225,7 +1270,12 @@ export class HiveNodeClient {
       return;
     }
     if (this.active.has(task.id)) return; // assignation dupliquée : déjà en cours
-    if (this.active.size >= this.opts.maxConcurrency) {
+    // Un parent qui attend son enfant délégué a RELÂCHÉ sa place — pour SON
+    // arbre seulement : la Reine ne le compte plus pour lui (`slotsOccupes`),
+    // le guichet non plus — sinon ce nœud refuserait justement l'enfant que son
+    // parent attend (`parentsEnAttente`). Toute autre tâche le voit occuper.
+    const racine = delegationRootTaskId ?? task.id;
+    if (this.active.size - this.parentsEnAttente(racine) >= this.opts.maxConcurrency) {
       // Nœud saturé : on REFUSE l'assignation (task_reject) plutôt que de la
       // marquer en échec — sinon on brûlerait une tentative sans rien exécuter,
       // ce qui pourrait faire échouer définitivement une tâche jamais lancée.
@@ -1246,6 +1296,7 @@ export class HiveNodeClient {
 
     const ctrl = new AbortController();
     this.active.set(task.id, ctrl);
+    if (delegationRootTaskId) this.racines.set(task.id, delegationRootTaskId);
     const started = Date.now();
     const caviardeur = this.caviardeurDuNoeud();
     let budgetExceeded = false;

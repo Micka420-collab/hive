@@ -366,6 +366,8 @@ export function App() {
             'delegation_rejected',
             'delegation_result',
             'delegation_cancelled',
+            'delegation_budget_exhausted',
+            'routage_consigne',
             'task_requeued',
             'task_retry',
             // Verdict humain persisté (émis APRÈS l'écriture) : la raison jointe

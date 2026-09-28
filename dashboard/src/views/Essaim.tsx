@@ -331,11 +331,13 @@ function NodeCard({
                 {worker.autonomie.delegation.maxDescendantsPerRoot}
               </span>
               <span>
+                {t('Cumulés par racine', 'Cumulative per root')} ·{' '}
                 {formatMs(worker.autonomie.delegation.maxDurationMs)} ·{' '}
                 {worker.autonomie.delegation.maxCostMicros.toLocaleString(
                   lang === 'en' ? 'en-US' : 'fr-FR',
                 )}{' '}
-                µ · {worker.autonomie.delegation.maxResourceUnits} {t('unités', 'units')}
+                µUSD · {worker.autonomie.delegation.maxResourceUnits}{' '}
+                {t('unités (compte abstrait)', 'units (abstract count)')}
               </span>
             </>
           )}

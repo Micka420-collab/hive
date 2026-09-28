@@ -87,6 +87,13 @@ function raisonRetrySaute(code: unknown, t: Translate): string {
       );
     case 'stale_result':
       return t('une production plus récente existe', 'a newer production exists');
+    // Une correction est une dépense neuve : sous une racine dont la dépense
+    // déclarée a atteint l'enveloppe, plus rien ne repart.
+    case 'root_cost_budget_exhausted':
+      return t(
+        'le budget coût de la racine déléguée est épuisé',
+        'the delegated root’s cost budget is exhausted',
+      );
     // Une tâche ÉCHOUÉE est terminée, mais pas `done` : c'est le retry
     // ordinaire qui la relance, jamais la correction de l'Evaluator. Dire
     // « pas terminée » d'une tâche en échec contredirait son propre statut.
@@ -371,6 +378,47 @@ const EVENTS: Record<string, Meta> = {
         `différée (conflit avec ${short(p.conflictsWith)})`,
         `deferred (conflicts with ${short(p.conflictsWith)})`,
       ),
+  },
+  task_consigne_deferred: {
+    icon: '⏸',
+    cls: 'warn',
+    text: (p, t) =>
+      t(
+        `en attente (${short(p.taskId)}) : aucune ouvrière en ligne ne respecte la consigne de l’opérateur`,
+        `waiting (${short(p.taskId)}): no online worker satisfies the operator’s constraint`,
+      ),
+  },
+  routage_consigne: {
+    icon: '⚑',
+    cls: 'info',
+    text: (p, t) =>
+      p.consigne === null
+        ? t(
+            `consigne de routage levée (${short(p.taskId)})`,
+            `routing constraint lifted (${short(p.taskId)})`,
+          )
+        : t(
+            `consigne de routage posée (${short(p.taskId)})`,
+            `routing constraint set (${short(p.taskId)})`,
+          ),
+  },
+  // La dépense DÉCLARÉE d'un arbre délégué vient d'atteindre son enveloppe :
+  // le nombre d'enfants annulés, et les tentatives au coût inconnu — la
+  // dépense réelle est au moins celle-ci, jamais présentée comme complète.
+  delegation_budget_exhausted: {
+    icon: '$',
+    cls: 'fail',
+    text: (p, t) => {
+      const annulees = typeof p.annulees === 'number' ? p.annulees : 0;
+      const inconnues = typeof p.sansCout === 'number' ? p.sansCout : 0;
+      const base = t(
+        `budget coût épuisé sous ${short(p.rootTaskId)} : ${String(p.depenseMicros)} / ${String(p.budgetMicros)} µUSD déclarés, ${annulees} sous-tâche(s) annulée(s)`,
+        `cost budget exhausted under ${short(p.rootTaskId)}: ${String(p.depenseMicros)} / ${String(p.budgetMicros)} µUSD declared, ${annulees} child task(s) cancelled`,
+      );
+      return inconnues > 0
+        ? `${base} — ${t(`${inconnues} tentative(s) au coût inconnu`, `${inconnues} attempt(s) of unknown cost`)}`
+        : base;
+    },
   },
   result_ignored: {
     icon: '⊘',

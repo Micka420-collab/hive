@@ -352,6 +352,39 @@ a delegation holds it. And a delegation's history (`delegation_*`, tied to its
 root rather than to a task) stays a trace: it only lives in the window of the
 last 5,000 events.
 
+## 🌳 Delegation — a Worker hands off a sub-task
+
+A Claude Code or Codex Worker can hand a bounded sub-task to another Worker
+through two MCP tools: `hive_delegate`, then `hive_wait_for_delegation_result`.
+The bounds are written in the tool description itself, and every refusal names
+the bound it hit and what is left:
+
+- at most **3 levels** below the root task, **4 children** per parent,
+  **16 descendants** per root (finished children included);
+- budgets **cumulative per root** — each child reserves its share, never given
+  back: **30 min**, **5,000,000 µUSD** (5 USD of cost _declared_ by the agent's
+  CLI) and **4 resource units** (an abstract count: nothing is measured behind
+  it).
+
+When the tree's declared spend reaches its cost budget, no further child is
+admitted, no correction restarts, and the ones in flight are cancelled — each
+with its reason, which a waiting parent receives at once — as does a parent
+whose child failed without returning anything. An attempt with no declared
+cost, or interrupted before returning (lost worker, cancellation), never counts
+as zero: the task drawer says "at least". A parent waiting on its children
+**releases its slot to its own tree** on its worker: a tree no longer deadlocks
+on a full worker, and another root does not slip into that slot —
+`maxConcurrency` still bounds new work.
+
+`preferredAgent` / `preferredModel` only **break ties** — the router keeps the
+last word, and the recorded reason says whether the preference mattered. The
+**operator** can force instead: in a task's drawer, the **routing constraint**
+pins or excludes an agent family or a model (project owner or admin). It is a
+hard exclusion that neither preferences nor a drone race can cross; the
+assignment is recorded as "forced by the operator", and no learned score is
+touched. If no online worker satisfies it, the task waits and the journal says
+so.
+
 ## 🛡️ Sting Detector — conflict prevention
 
 Two tasks that could run **at the same time** (no dependency ordering between

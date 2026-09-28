@@ -86,14 +86,16 @@ import type {
   VerdictSouvenir,
 } from './hive-mind.js';
 import {
+  AUCUNE_DEPENSE,
   jugerDelegation,
   type DemandeDelegation,
-  type LimitesDelegation,
+  type DepenseDeclaree,
   type NoeudDelegation,
   type OrigineDelegation,
   type PlanDelegation,
   type VerdictDelegation,
 } from './delegation.js';
+import { lireConsigneRoutage, type ConsigneRoutage } from '../shared/consigne-routage.js';
 import type {
   HiveEvent,
   HiveNode,
@@ -619,6 +621,58 @@ CREATE TABLE IF NOT EXISTS aiguillage_modeles (
   modele  TEXT NOT NULL,
   choisiA INTEGER NOT NULL
 );
+
+-- La consigne de l'OPÉRATEUR sur le routage d'une tâche (shared/consigne-routage.ts) :
+-- familles ou modèles imposés, familles ou modèles exclus. UNE INTENTION
+-- HUMAINE, pas un calcul — la ligne absente EST « aucune consigne », comme
+-- pour « budgets » : pas de drapeau, pas de consigne vide déguisée.
+--
+-- Une table LATÉRALE clé-par-tâche et non une colonne « tasks » : la règle 2
+-- (aucune colonne sur une table existante, aucun ALTER) tient, et le résultat
+-- est le même — une valeur nullable par tâche, additive et idempotente
+-- (CREATE TABLE IF NOT EXISTS) sur une base déjà en service.
+--
+-- definiPar : userId du compte qui l'a posée, NULL pour le jeton de ruche. Une
+-- trace, pas une autorisation : la garde est celle des décisions sur une tâche.
+--
+-- BORNE (règle 3) : cascade de pruneTasks — la consigne part avec sa tâche.
+CREATE TABLE IF NOT EXISTS consignes_routage (
+  taskId    TEXT PRIMARY KEY,
+  consigne  TEXT NOT NULL,
+  definiPar TEXT,
+  majA      INTEGER NOT NULL
+);
+
+-- La dépense DÉCLARÉE de chaque tentative d'un enfant délégué — le seul fait
+-- qui manque pour tenir le budget coût d'un arbre. Le coût vivait déjà au
+-- journal (task_done / task_retry / task_failed), mais le journal s'élague PAR
+-- NOMBRE (EVENT_RETENTION) : sur une ruche occupée, la dépense d'un arbre
+-- encore en vol pouvait s'y effacer, et son budget se remplir tout seul.
+--
+-- Une ligne par TENTATIVE, ouverte à l'envoi au nœud (ouvrirTentativeDelegation,
+-- un drone de course compte pour une) et close par insertResult dans la même
+-- transaction que son résultat (resultId). Ouverte à l'envoi et non au
+-- résultat : une tentative interrompue SANS résultat — nœud perdu, annulation,
+-- enveloppe épuisée — a pu dépenser, et resterait sinon invisible. Elle garde
+-- resultId NULL et coutMicros NULL : inconnue, jamais zéro (voir
+-- DepenseDeclaree, delegation.ts).
+--
+-- BORNE (règle 3) : cascade de pruneTasks, par RACINE — elle ne part qu'avec
+-- l'arbre entier. Élaguée avec l'enfant, la dépense d'une racine encore
+-- vivante aurait baissé, et son budget avec.
+CREATE TABLE IF NOT EXISTS depenses_delegation (
+  id         INTEGER PRIMARY KEY,
+  rootTaskId TEXT NOT NULL,
+  taskId     TEXT NOT NULL,
+  nodeId     TEXT NOT NULL,
+  resultId   INTEGER UNIQUE,
+  coutMicros INTEGER,
+  creeA      INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_depenses_delegation_racine
+  ON depenses_delegation(rootTaskId, coutMicros);
+CREATE INDEX IF NOT EXISTS idx_depenses_delegation_tache
+  ON depenses_delegation(taskId, nodeId, resultId);
 
 -- L'Agent Garde-Fous : quel ÉCHELON de garde-fous a gouverné quelle tâche. Fait
 -- posé à l'assignation, clé par tâche, motif aiguillage_modeles au mot près
@@ -2947,8 +3001,69 @@ export class HiveStore {
         depth: row.depth,
         status: row.taskStatus,
         origine: row.origin,
+        budget: {
+          durationMs: row.durationMs,
+          costMicros: row.costMicros,
+          resourceUnits: row.resourceUnits,
+        },
       })),
     ];
+  }
+
+  /**
+   * La dépense déclarée de l'arbre de `rootTaskId` (voir `DepenseDeclaree`) :
+   * une lecture d'index, jamais le journal — qui s'élague par nombre.
+   *
+   * Une tentative ENCORE EN VOL (sans résultat, sa tâche toujours portée par
+   * ce nœud) n'est pas comptée : sa dépense n'est pas finie, elle n'est pas
+   * encore « inconnue ». Une tentative sans résultat dont la tâche a quitté ce
+   * nœud a été interrompue : comptée, au coût inconnu. Un drone non primaire
+   * d'une course vit sous l'assignation du primaire : il est lu interrompu
+   * tant qu'il vole — la dépense se dit alors « au moins », jamais moins.
+   */
+  depenseDeclareeRacine(rootTaskId: string): DepenseDeclaree {
+    const ligne = this.db
+      .prepare(
+        `SELECT COUNT(*) AS tentatives, COUNT(d.coutMicros) AS declarees,
+                COALESCE(SUM(d.coutMicros), 0) AS micros
+           FROM depenses_delegation d LEFT JOIN tasks t ON t.id = d.taskId
+          WHERE d.rootTaskId = ?
+            AND NOT (d.resultId IS NULL AND t.assignedNodeId = d.nodeId
+                     AND t.status IN ('assigned', 'running'))`,
+      )
+      .get(rootTaskId) as { tentatives: number; declarees: number; micros: number };
+    if (ligne.tentatives === 0) return { ...AUCUNE_DEPENSE };
+    return {
+      micros: ligne.micros,
+      tentatives: ligne.tentatives,
+      sansCout: ligne.tentatives - ligne.declarees,
+    };
+  }
+
+  /**
+   * Par nœud, les tâches ACTIVES de l'arbre de `rootTaskId` — la racine
+   * comprise — qui attendent un enfant délégué Hive encore en vol. Ce sont les
+   * places que cet arbre, et lui seul, peut reprendre (`slotsOccupes`,
+   * delegation.ts) : une autre tâche voit ces parents occuper leur place.
+   *
+   * Lu à la volée, comme `running` : le fait vit dans le statut des tâches et
+   * les arêtes du graphe, jamais dans un compteur qui pourrait dériver.
+   */
+  parentsEnAttenteSousRacine(rootTaskId: string): Map<string, number> {
+    const lignes = this.db
+      .prepare(
+        `SELECT t.assignedNodeId AS nodeId, COUNT(*) AS n FROM tasks t
+          WHERE t.assignedNodeId IS NOT NULL AND t.status IN ('assigned', 'running')
+            AND (t.id = ? OR t.id IN (SELECT childTaskId FROM task_delegations WHERE rootTaskId = ?))
+            AND EXISTS (
+              SELECT 1 FROM task_delegations d JOIN tasks enfant ON enfant.id = d.childTaskId
+               WHERE d.parentTaskId = t.id AND d.origin = 'hive'
+                 AND enfant.status NOT IN ('done', 'failed')
+            )
+          GROUP BY t.assignedNodeId`,
+      )
+      .all(rootTaskId, rootTaskId) as { nodeId: string; n: number }[];
+    return new Map(lignes.map((l) => [l.nodeId, l.n]));
   }
 
   getDelegation(taskId: string): DelegationRangee | null {
@@ -2964,21 +3079,27 @@ export class HiveStore {
   /**
    * Valide, crée la tâche enfant et range son arête dans UNE transaction.
    * Aucun enfant orphelin ne peut donc devenir visible au scheduler.
+   *
+   * Les budgets se jugent contre l'enveloppe de la RACINE : réservations de
+   * tout l'arbre et dépense déclarée sont relues ici, dans la même
+   * transaction que l'écriture de l'enfant (`jugerDelegation`).
    */
-  createDelegatedTask(
-    demande: DemandeDelegation,
-    limites?: Readonly<LimitesDelegation>,
-    now = Date.now(),
-  ): CreationDeleguee {
+  createDelegatedTask(demande: DemandeDelegation, now = Date.now()): CreationDeleguee {
     const tx = this.db.transaction((): CreationDeleguee => {
       const parent = this.getTask(demande.parentTaskId);
       const graphe = parent ? this.listDelegationGraph(parent.id) : [];
       if (this.getTask(demande.childTaskId)) {
         return { ok: false, code: 'task_id_duplique', motif: 'identifiant enfant déjà utilisé' };
       }
-      const verdict = limites
-        ? jugerDelegation(demande, graphe, limites)
-        : jugerDelegation(demande, graphe);
+      // La dépense est relue DANS la transaction, comme le graphe : deux
+      // demandes concurrentes ne peuvent pas passer toutes deux sous un
+      // plafond que la première a déjà fait franchir.
+      const depense = this.depenseDeclareeRacine(graphe[0]?.rootTaskId ?? demande.parentTaskId);
+      // Les bornes sont celles que tout le reste de la Reine tient
+      // (`LIMITES_DELEGATION_DEFAUT`) : l'enveloppe coût, son annulation et
+      // l'écran les relisent là — une borne injectée ici seulement ferait
+      // admettre ce que la clôture refuserait.
+      const verdict = jugerDelegation(demande, graphe, { depense });
       if (!verdict.ok) return verdict;
       if (!parent) {
         // `jugerDelegation` couvre déjà ce cas. Cette garde maintient le
@@ -3189,6 +3310,12 @@ export class HiveStore {
         const trous = lot.map(() => '?').join(', ');
         this.db.prepare(`DELETE FROM reviews WHERE taskId IN (${trous})`).run(...lot);
         this.db.prepare(`DELETE FROM task_delegations WHERE childTaskId IN (${trous})`).run(...lot);
+        this.db.prepare(`DELETE FROM consignes_routage WHERE taskId IN (${trous})`).run(...lot);
+        // Par RACINE : la dépense d'un arbre ne part qu'avec l'arbre entier
+        // (voir le schéma de depenses_delegation).
+        this.db
+          .prepare(`DELETE FROM depenses_delegation WHERE rootTaskId IN (${trous})`)
+          .run(...lot);
         partis += this.db.prepare(`DELETE FROM tasks WHERE id IN (${trous})`).run(...lot).changes;
       }
       return partis;
@@ -3421,6 +3548,58 @@ export class HiveStore {
 
   // ─── Résultats ─────────────────────────────────────────────────────────────
   /**
+   * Ouvre la ligne de dépense d'une tentative d'enfant délégué Hive, à l'envoi
+   * au nœud (voir le schéma de `depenses_delegation`). Une tâche sans arête
+   * Hive n'a pas d'enveloppe à tenir : rien n'est écrit.
+   */
+  ouvrirTentativeDelegation(taskId: string, nodeId: string, now: number): void {
+    this.db
+      .prepare(
+        `INSERT INTO depenses_delegation (rootTaskId, taskId, nodeId, creeA)
+         SELECT rootTaskId, childTaskId, ?, ? FROM task_delegations
+          WHERE childTaskId = ? AND origin = 'hive'`,
+      )
+      .run(nodeId, now, taskId);
+  }
+
+  /**
+   * Clôt la tentative que ce résultat termine — la dernière ouverte pour ce
+   * couple (tâche, nœud) — avec sa dépense déclarée, dans la transaction du
+   * résultat. Sans tentative ouverte (résultat rangé hors de l'ordonnanceur),
+   * la ligne naît ici, close.
+   *
+   * Le montant est converti UNE fois, ici, en micro-USD entiers : c'est l'unité
+   * du budget (`costMicros`), et une somme d'entiers ne dérive pas comme une
+   * somme de flottants. Un coût absent reste NULL — inconnu, jamais zéro.
+   */
+  private rangerDepenseDelegation(resultId: number, res: TaskResult, now: number): void {
+    const coutUsd = res.fournisseur?.coutUsd;
+    const coutMicros =
+      typeof coutUsd === 'number' && Number.isFinite(coutUsd) && coutUsd >= 0
+        ? Math.round(coutUsd * 1_000_000)
+        : null;
+    const ouverte = this.db
+      .prepare(
+        `SELECT id FROM depenses_delegation
+          WHERE taskId = ? AND nodeId = ? AND resultId IS NULL ORDER BY id DESC LIMIT 1`,
+      )
+      .get(res.taskId, res.nodeId) as { id: number } | undefined;
+    if (ouverte) {
+      this.db
+        .prepare('UPDATE depenses_delegation SET resultId = ?, coutMicros = ? WHERE id = ?')
+        .run(resultId, coutMicros, ouverte.id);
+      return;
+    }
+    this.db
+      .prepare(
+        `INSERT INTO depenses_delegation (rootTaskId, taskId, nodeId, resultId, coutMicros, creeA)
+         SELECT rootTaskId, childTaskId, ?, ?, ?, ? FROM task_delegations
+          WHERE childTaskId = ? AND origin = 'hive'`,
+      )
+      .run(res.nodeId, resultId, coutMicros, now, res.taskId);
+  }
+
+  /**
    * Range un résultat et rend son `results.id`. Le retour est ADDITIF (les
    * appelants qui l'ignoraient continuent de compiler) : il sert aux Gardiennes
    * à faire pointer leur verdict sur la production exacte qu'elles ont
@@ -3443,6 +3622,7 @@ export class HiveStore {
         now,
       );
     const resultId = Number(info.lastInsertRowid);
+    this.rangerDepenseDelegation(resultId, res, now);
     // Les colonnes historiques de `results` restent inchangées : la mesure
     // locale est un fait d'exécution borné, rangé dans le journal et relié au
     // résultat exact. Cela évite une migration SQLite tout en permettant sa
@@ -4960,6 +5140,50 @@ export class HiveStore {
    */
   effacerModeleAiguillage(taskId: string): void {
     this.db.prepare('DELETE FROM aiguillage_modeles WHERE taskId = ?').run(taskId);
+  }
+
+  /**
+   * La consigne de l'opérateur sur le routage d'une tâche, ou `null`.
+   *
+   * Relue au travers de `lireConsigneRoutage`, comme au réseau : une ligne
+   * illisible (base éditée à la main, version future) vaut « aucune consigne
+   * lisible » — la tâche route selon l'Aiguillage, jamais selon une consigne
+   * devinée.
+   */
+  consigneRoutage(
+    taskId: string,
+  ): { consigne: ConsigneRoutage; definiPar: string | null; majA: number } | null {
+    const row = this.db
+      .prepare('SELECT consigne, definiPar, majA FROM consignes_routage WHERE taskId = ?')
+      .get(taskId) as { consigne: string; definiPar: string | null; majA: number } | undefined;
+    if (!row) return null;
+    let brut: unknown;
+    try {
+      brut = JSON.parse(row.consigne);
+    } catch {
+      return null;
+    }
+    const lue = lireConsigneRoutage(brut);
+    return lue.ok ? { consigne: lue.consigne, definiPar: row.definiPar, majA: row.majA } : null;
+  }
+
+  /** Pose (ou lève, avec `null`) la consigne de routage d'une tâche. */
+  poserConsigneRoutage(
+    taskId: string,
+    consigne: ConsigneRoutage | null,
+    definiPar: string | null,
+    now = Date.now(),
+  ): void {
+    if (consigne === null) {
+      this.db.prepare('DELETE FROM consignes_routage WHERE taskId = ?').run(taskId);
+      return;
+    }
+    this.db
+      .prepare(
+        `INSERT OR REPLACE INTO consignes_routage (taskId, consigne, definiPar, majA)
+         VALUES (?, ?, ?, ?)`,
+      )
+      .run(taskId, JSON.stringify(consigne), definiPar, now);
   }
 
   /** Modèle choisi pour la tentative actuellement représentée par la tâche. */

@@ -296,6 +296,16 @@ const DECISIONS: readonly Acte[] = [
     url: (c) => `/api/tasks/${c.tache}/cancel`,
     refus: 'tache',
   },
+  {
+    // Imposer ou exclure le modèle qui fera le travail — donc celui que la
+    // ruche paiera : une décision sur le sort de la tâche, pas un engagement.
+    nom: 'tasks/:taskId/consigne-routage',
+    methode: 'PUT',
+    route: '/api/tasks/:taskId/consigne-routage',
+    url: (c) => `/api/tasks/${c.tache}/consigne-routage`,
+    corps: () => ({ consigne: null }),
+    refus: 'tache',
+  },
 ];
 
 /** Les actes qui RÈGLENT un projet : propriétaire ou administrateur. */
