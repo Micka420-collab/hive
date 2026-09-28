@@ -89,6 +89,23 @@ function git(cwd: string, ...args: string[]): string {
   });
 }
 
+/**
+ * git DANS la tâche, comme l'agent le lance : la configuration de la machine
+ * telle quelle. Sous Windows, le `core.autocrlf=true` du système a écrit le
+ * clone ; le forcer à `false` ici ferait voir chaque fichier modifié.
+ */
+function gitAgent(cwd: string, ...args: string[]): string {
+  return git(cwd, '-c', `core.autocrlf=${autocrlfDeLaMachine()}`, ...args);
+}
+
+function autocrlfDeLaMachine(): string {
+  try {
+    return execFileSync('git', ['config', '--get', 'core.autocrlf'], { encoding: 'utf8' }).trim();
+  } catch {
+    return 'false';
+  }
+}
+
 function ecrire(racine: string, relatif: string, contenu: string): void {
   const chemin = path.join(racine, ...relatif.split('/'));
   mkdirSync(path.dirname(chemin), { recursive: true });
@@ -291,17 +308,17 @@ describe('git ne les ressuscite pas pendant l’exécution', () => {
         (c) => !existsSync(path.join(ws.cwd, c)),
       );
     // Le `.git` de la tâche, comme l'agent le voit.
-    expect(git(ws.cwd, 'status', '--porcelain')).toBe('');
+    expect(gitAgent(ws.cwd, 'status', '--porcelain')).toBe('');
     writeFileSync(path.join(ws.cwd, 'src', 'a.txt'), 'modifié\n');
-    git(ws.cwd, 'checkout', '--', '.');
+    gitAgent(ws.cwd, 'checkout', '--', '.');
     expect(absents()).toBe(true);
-    git(ws.cwd, 'restore', '.');
+    gitAgent(ws.cwd, 'restore', '.');
     expect(absents()).toBe(true);
-    git(ws.cwd, 'reset', '-q', '--hard');
+    gitAgent(ws.cwd, 'reset', '-q', '--hard');
     expect(absents()).toBe(true);
     writeFileSync(path.join(ws.cwd, 'src', 'a.txt'), 'modifié\n');
-    git(ws.cwd, 'stash', '-q');
-    git(ws.cwd, 'stash', 'pop', '-q');
+    gitAgent(ws.cwd, 'stash', '-q');
+    gitAgent(ws.cwd, 'stash', 'pop', '-q');
     expect(absents()).toBe(true);
     expect(charger('cursor', ws.cwd)).toEqual([]);
     expect(charger('cline', ws.cwd)).toEqual([]);
