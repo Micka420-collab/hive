@@ -570,12 +570,20 @@ Ce qui fonde chaque case :
   de l'ordre par `scripts/ruche.mjs` sous Windows (canal IPC, `taskkill` de
   l'écran, balayage final) n'est éprouvé par aucun banc ;
 - **bubblewrap** : le vrai `bwrap`, sur un agent installé dans un HOME comme
-  chez un membre (`tests/isolement-runtime.integration.test.ts`). Sur la jambe
-  Linux, `HIVE_BWRAP_REQUIS=1` fait **échouer** le banc si bubblewrap manque,
-  au lieu de le sauter ;
+  chez un membre (`tests/isolement-runtime.integration.test.ts`), et le
+  **réseau filtré** de bout en bout — un programme hostile dans le bac ne
+  trouve la vraie clé dans aucun `/proc/*/environ`, se voit refuser un hôte
+  hors liste et le réseau local, et joint l'API par la passerelle du nœud
+  (`tests/reseau-bac.integration.test.ts`). Sur la jambe Linux,
+  `HIVE_BWRAP_REQUIS=1` fait **échouer** ces bancs si bubblewrap manque ou ne
+  filtre pas, au lieu de les sauter ;
 - **Podman et Docker sous Linux** : le job `image` construit l'image des agents
   (`npm run bac:image`) et y passe le preflight réel de Hive, une fois par
-  moteur — Docker du runner, puis Podman rootless (`--userns=keep-id`) ;
+  moteur — Docker du runner, puis Podman rootless (`--userns=keep-id`). Leur
+  réseau filtré (`--network=none`, socket du proxy monté) n'est éprouvé que
+  sur ses arguments (`tests/enveloppe-reseau.test.ts`) ; sur la machine du
+  membre, la sonde du nœud le mesure au démarrage et l'annonce (ligne
+  « Réseau : ») ;
 - **macOS avec un moteur** : les runners macOS n'en ont aucun. Le preflight
   décide sur la machine du membre, et le pont de délégation (un socket Unix
   dans le dossier monté) n'a jamais été éprouvé à travers la machine virtuelle
@@ -792,6 +800,9 @@ d'écriture réels de `src/` et **rougit** si l'un d'eux apparaît ailleurs.
   d'un nœud tué net (`kill -9`, ou sous Windows un `TerminateProcess` venu
   d'ailleurs) reste jusqu'au prochain démarrage d'un nœud de ce compte, qui le
   balaie.
+  Le même dossier porte, pour chaque tâche au réseau filtré, le socket de son
+  proxy et le relais `r.cjs` que le bac monte en lecture seule — effacés à la
+  fin de la tâche.
   Si `TMPDIR` lui-même est trop profond, le nœud le dit dès son démarrage.
   Sous Windows, le pont écoute sur un pipe nommé `\\.\pipe\hive-pont-*`.
   Rien de ce pont n'entre dans le répertoire de la tâche, donc dans un diff.
