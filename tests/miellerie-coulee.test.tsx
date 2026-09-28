@@ -47,6 +47,9 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   fetchResults: vi.fn(() => Promise.resolve([])),
   fetchConsensus: vi.fn(() => Promise.resolve(null)),
   fetchEvaluation: vi.fn(() => Promise.resolve(null)),
+  fetchCommentairesRevue: vi.fn(() =>
+    Promise.resolve({ taskId: '', resultId: null, max: 30, commentaires: [] }),
+  ),
   fetchCritique: vi.fn(() => Promise.resolve({ taskId: '', raisonRevue: null, reprise: null })),
   fetchConflicts: vi.fn(() => Promise.resolve({ conflicts: [] })),
   fetchMergePlan: vi.fn(() => new Promise(() => {})),

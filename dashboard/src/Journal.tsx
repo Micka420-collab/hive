@@ -220,20 +220,27 @@ const EVENTS: Record<string, Meta> = {
     icon: '✍',
     cls: 'info',
     text: (p, t) =>
-      p.state === 'approved'
+      // Une demande de changements (G06) est un rejet qui emporte des
+      // commentaires ancrés : le dire, avec leur nombre.
+      p.state === 'rejected' && typeof p.changements === 'object' && p.changements !== null
         ? t(
-            `revue humaine : approuvée (${short(p.taskId)})`,
-            `human review: approved (${short(p.taskId)})`,
+            `revue humaine : changements demandés, ${String((p.changements as Record<string, unknown>).commentaires ?? 0)} commentaire(s) de lignes (${short(p.taskId)})`,
+            `human review: changes requested, ${String((p.changements as Record<string, unknown>).commentaires ?? 0)} line comment(s) (${short(p.taskId)})`,
           )
-        : p.state === 'rejected'
+        : p.state === 'approved'
           ? t(
-              `revue humaine : rejetée (${short(p.taskId)})`,
-              `human review: rejected (${short(p.taskId)})`,
+              `revue humaine : approuvée (${short(p.taskId)})`,
+              `human review: approved (${short(p.taskId)})`,
             )
-          : t(
-              `revue humaine effacée (${short(p.taskId)})`,
-              `human review cleared (${short(p.taskId)})`,
-            ),
+          : p.state === 'rejected'
+            ? t(
+                `revue humaine : rejetée (${short(p.taskId)})`,
+                `human review: rejected (${short(p.taskId)})`,
+              )
+            : t(
+                `revue humaine effacée (${short(p.taskId)})`,
+                `human review cleared (${short(p.taskId)})`,
+              ),
   },
   // Un humain passe outre l'Evaluator pour livrer ou fusionner. La raison vit
   // dans le payload ; la ligne dit le geste et le verdict contourné.
@@ -420,6 +427,20 @@ const EVENTS: Record<string, Meta> = {
         `waiting (${short(p.taskId)}): no online worker satisfies the operator’s constraint`,
       ),
   },
+  revue_commentaire: {
+    icon: '✎',
+    cls: 'info',
+    text: (p, t) =>
+      p.action === 'retire'
+        ? t(
+            `commentaire de revue retiré (${short(p.taskId)})`,
+            `review comment removed (${short(p.taskId)})`,
+          )
+        : t(
+            `commentaire de revue posé sur des lignes (${short(p.taskId)})`,
+            `review comment added on lines (${short(p.taskId)})`,
+          ),
+  },
   routage_consigne: {
     icon: '⚑',
     cls: 'info',
@@ -580,9 +601,15 @@ const EVENTS: Record<string, Meta> = {
             ? t('la contre-revue', 'the counter-review')
             : t('l’Evaluator', 'the Evaluator');
       const note =
-        p.noteHumaine === true
+        (p.noteHumaine === true
           ? t(', avec la raison de l’humain', ', with the human’s reason')
-          : '';
+          : '') +
+        (typeof p.commentaires === 'number'
+          ? t(
+              `, ${p.commentaires} commentaire(s) de lignes sur ${String(p.commentairesFiges ?? p.commentaires)}`,
+              `, ${p.commentaires} line comment(s) of ${String(p.commentairesFiges ?? p.commentaires)}`,
+            )
+          : '');
       // `objections` = ce que l'ouvrière a LU ; `objectionsFigees` = ce que
       // la correction avait relevé. L'écart, c'est la queue tombée au budget.
       const figees = typeof p.objectionsFigees === 'number' ? p.objectionsFigees : null;
