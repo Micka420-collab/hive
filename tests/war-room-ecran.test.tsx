@@ -708,6 +708,8 @@ describe('l’accès depuis la Ruche', () => {
     const desaccords = () => dom.querySelector('.wr-desaccords')?.textContent ?? '';
     expect(desaccords()).toContain('Personne n’a pu relire cette production');
     expect(desaccords()).toContain('la relecture confiée à codex a été annulée');
+    // Aucun verdict de l'Evaluator n'est prêté : la War Room ne le lit pas.
+    expect(desaccords()).not.toContain('l’Evaluator demande');
     await cliquer(bouton(dom, 'Revoir en Miellerie'));
     expect(naviguer).toHaveBeenLastCalledWith('miellerie', 't-1');
 
@@ -798,6 +800,27 @@ describe('les lignes du fil', () => {
     expect(l.texte).toContain('la production reste rejetée');
   });
 
+  it('UN REJET HUMAIN D’UNE TÂCHE ÉCHOUÉE NE LA DIT PAS « PLUS TERMINÉE » — la phrase de la Chronique', () => {
+    // La route de revue accepte une tâche `failed` ; son rejet est refusé en
+    // `task_not_done`. La Chronique a appris à ne pas nier ce statut terminal ;
+    // la War Room avait sa propre table, et le niait encore.
+    const l = direEntree(
+      {
+        genre: 'renvoi_refuse',
+        id: 1,
+        ts: 1,
+        taskId: 't',
+        resultId: 8,
+        raison: 'task_not_done',
+        source: 'revue_humaine',
+      },
+      t,
+      (n) => n,
+    );
+    expect(l.texte).not.toContain('n’est plus terminée');
+    expect(l.texte).toContain('retry ordinaire');
+  });
+
   it('LA RELECTURE IMPOSSIBLE, LE FORÇAGE ET LE DEMANDEUR D’UNE CORRECTION SE LISENT', () => {
     const impossible = direEntree(
       {
@@ -814,7 +837,10 @@ describe('les lignes du fil', () => {
     );
     // L'arbitre qui manque n'est pas un avis favorable.
     expect(impossible).toMatchObject({ ton: 'objection' });
-    expect(impossible.texte).toContain('revue humaine requise');
+    expect(impossible.texte).toContain('aucun avis indépendant ne viendra');
+    // Le FAIT, pas un verdict que la War Room ne lit pas : une CI rouge sur le
+    // même résultat fait répondre `correction_required` à l'Evaluator.
+    expect(impossible.texte).not.toMatch(/revue humaine requise|Evaluator/);
     expect(impossible.texte).toContain('aucune autre famille en ligne');
 
     const force = direEntree(

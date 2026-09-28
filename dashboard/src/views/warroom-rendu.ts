@@ -45,23 +45,36 @@ export function direIssue(issue: IssueConseil, t: Traduire): string {
 }
 
 /**
- * Chaque refus de `retryFromEvaluator`, en mots. EXHAUSTIF par construction :
- * un refus ajouté au scheduler sans phrase ici ne compile pas — trois d'entre
- * eux (`ancestor_failed`, `invalid_result_id`, `unknown_task`) s'affichaient
- * en code brut faute d'avoir été listés.
+ * Chaque refus de `retryFromEvaluator`, en mots — la SEULE table : la War Room
+ * et la Chronique (`Journal.tsx`) la partagent. Deux tables disaient la même
+ * raison autrement (« déjà livrée » ici, « une livraison est déjà ouverte »
+ * là), et la copie de la War Room avait perdu une correction de la Chronique.
+ * EXHAUSTIVE par construction : un refus ajouté au scheduler sans phrase ici ne
+ * compile pas — trois d'entre eux (`ancestor_failed`, `invalid_result_id`,
+ * `unknown_task`) s'affichaient en code brut faute d'avoir été listés.
  */
 const RAISONS_REFUS: Record<RaisonRefusRenvoi, readonly [fr: string, en: string]> = {
   attempts_exhausted: ['essais épuisés', 'attempts exhausted'],
-  delivery_exists: ['la production est déjà livrée', 'the production is already delivered'],
+  delivery_exists: ['une livraison est déjà ouverte', 'a delivery is already open'],
   dependent_progressed: [
-    'des tâches dépendantes ont déjà avancé',
-    'dependent tasks already moved on',
+    'une tâche dépendante a déjà avancé',
+    'a dependent task has already moved on',
+  ],
+  // Même fait que le tiroir d'une tâche annulée avec son sous-arbre : un
+  // enfant délégué n'a qu'un destinataire, et une annulation compte comme un
+  // échec (`ancetreEchoue`).
+  ancestor_failed: [
+    'un ancêtre délégué a échoué (ou a été annulé) : plus personne n’attend cette correction',
+    'a delegated ancestor failed (or was cancelled): nobody is waiting for this correction any more',
   ],
   stale_result: ['une production plus récente existe', 'a newer production exists'],
-  task_not_done: ['la tâche n’est plus terminée', 'the task is no longer done'],
-  ancestor_failed: [
-    'une tâche parente déléguée a échoué — personne ne lirait la correction',
-    'a delegating parent task failed — nobody would read the correction',
+  // Une tâche ÉCHOUÉE est terminée, mais pas `done` : c'est le retry ordinaire
+  // qui la relance, jamais la correction de l'Evaluator — et un humain peut
+  // rejeter une tâche en échec. Dire « pas terminée » d'une tâche en échec
+  // contredirait son propre statut.
+  task_not_done: [
+    'la tâche n’est pas « terminée avec succès » (échouée : relancez-la par le retry ordinaire)',
+    'the task is not “completed successfully” (failed: relaunch it with the ordinary retry)',
   ],
   invalid_result_id: [
     'cette production n’appartient pas à la tâche',
@@ -233,12 +246,14 @@ export function direEntree(
             ),
       };
     case 'contre_impossible':
-      // L'arbitre qui manque n'est pas un avis favorable : le ton le dit, et
-      // la cause est celle que l'Evaluator cite à l'humain qu'il appelle.
+      // L'arbitre qui manque n'est pas un avis favorable : le ton le dit. La
+      // ligne dit le FAIT journalisé, jamais un verdict de l'Evaluator — la
+      // War Room ne le lit pas, et une règle antérieure (une CI rouge…) peut
+      // répondre autre chose que « revue humaine requise ».
       return {
         icone: '⊘',
         ton: 'objection',
-        texte: `${t('Relecture impossible — revue humaine requise', 'Review impossible — human review required')} : ${e.cause}`,
+        texte: `${t('Relecture impossible, secours compris — aucun avis indépendant ne viendra', 'Review impossible, fallback included — no independent opinion will come')} : ${e.cause}`,
       };
     case 'renvoi_evaluator': {
       const essai =

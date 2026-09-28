@@ -464,10 +464,13 @@ function DesaccordLigne({
           )}
         </>
       ) : (
+        // Le FAIT journalisé, pas un verdict : la War Room ne lit pas celui de
+        // l'Evaluator, qu'une règle antérieure (une CI rouge…) peut rendre
+        // autre que « revue humaine requise ».
         <p className="wr-desaccord-pourquoi">
           {t(
-            'Personne n’a pu relire cette production, secours compris : l’Evaluator demande une revue humaine —',
-            'Nobody could review this production, fallback included: the Evaluator asks for a human review —',
+            'Personne n’a pu relire cette production, secours compris — aucun avis indépendant ne viendra, seul un humain peut en tenir lieu :',
+            'Nobody could review this production, fallback included — no independent opinion will come, only a human can stand in for it:',
           )}{' '}
           {d.cause} ({depuis}).
         </p>
