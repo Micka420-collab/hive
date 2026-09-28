@@ -316,7 +316,11 @@ GET  /api/projects/<rejeu>/rejeu/comparaison          # source contre rejeu
   du déclaré : un côté muet rend l'écart **inconnu**, une mission en vol est
   dite **provisoire**, un journal élagué pendant la mission est dit
   **incomplet**. Une tâche annulée y a son propre statut, distinct d'un échec
-  — dans la frise de la Chronique aussi.
+  — dans la frise de la Chronique aussi. La lire exige aussi de lire le projet
+  **source** (`403 source_illisible` sinon) : elle montre le plan de la mission
+  source. Un projet source supprimé emporte ses instantanés, et la comparaison
+  dit `source_elaguee` ; les tâches que le rejeu a recopiées à sa création sont
+  les siennes et restent jusqu'à ce qu'on le supprime.
 
 <p>
   <img src="images/missions-rejeu-comparaison.png" alt="Un projet de rejeu : bandeau « actions irréversibles simulées » et comparaison mission source contre rejeu" width="350">

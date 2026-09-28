@@ -574,6 +574,49 @@ describe('les missions rejouables, de bout en bout', () => {
     expect(faux.appels).toEqual([]);
   });
 
+  it('LA COMPARAISON exige de LIRE la source, pas seulement le rejeu', async () => {
+    const { base, srv } = await demarrer();
+    const jetons: string[] = [];
+    for (const [email, avecJeton] of [
+      ['reine@ruche.test', true],
+      ['rejoueuse@ruche.test', false],
+    ] as const) {
+      const r = await fetch(`${base}/api/auth/register`, {
+        method: 'POST',
+        headers: avecJeton ? hive : { 'content-type': 'application/json' },
+        body: JSON.stringify({ email, password: 'motdepasse-assez-long-45', displayName: email }),
+      });
+      jetons.push(((await r.json()) as { token: string }).token);
+    }
+    const [admin, rejoueuse] = jetons as [string, string];
+    const moi = (await (
+      await fetch(`${base}/api/auth/me`, { headers: { authorization: `Bearer ${rejoueuse}` } })
+    ).json()) as { id: string };
+    // La source est le projet PRIVÉ de quelqu'un d'autre ; le rejeu est à elle.
+    const source = srv.store.createProject({ name: 'Privé', ownerId: 'quelqu-un-d-autre' }).id;
+    const p = srv.store.createProject({ name: 'Rejeu', ownerId: moi.id }).id;
+    srv.store.inscrireRejeu({
+      projectId: p,
+      missionSource: 'mission-source',
+      projetSource: source,
+      surcharges: {},
+      genomeFige: null,
+      creePar: moi.id,
+      creeA: Date.now(),
+    });
+    const lire = (jwt: string) =>
+      fetch(`${base}/api/projects/${p}/rejeu/comparaison`, {
+        headers: { authorization: `Bearer ${jwt}` },
+      });
+    const refus = await lire(rejoueuse);
+    expect(refus.status, await refus.clone().text()).toBe(403);
+    expect(await refus.json()).toMatchObject({ code: 'source_illisible' });
+    // L'administratrice lit la source : elle passe la porte (la mission, ici
+    // jamais rangée, dit alors pourquoi il n'y a rien à comparer).
+    const admise = await lire(admin);
+    expect(await admise.json()).toMatchObject({ code: 'source_elaguee' });
+  });
+
   it('LA RUCHE AUTONOME D’UN REJEU NE LIVRE JAMAIS : elle simule, une fois, et GitHub n’entend rien', async () => {
     const { base, srv, faux } = await demarrer({ runner: true });
     // Même décor que tests/essaim-livraison.test.ts : deux gouvernantes, une

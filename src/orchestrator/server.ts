@@ -9940,6 +9940,23 @@ async function monterReine(
       if (!store.getProject(req.params.projectId)) {
         return reply.code(404).send({ error: 'projet inconnu' });
       }
+      // La comparaison montre l'instantané de la mission SOURCE — son plan, ses
+      // titres, ses modèles : lire le rejeu ne suffit pas, il faut lire la
+      // source. Une source supprimée a emporté ses instantanés (effacement de
+      // projet) : la comparaison dit alors `source_elaguee`. Les tâches que le
+      // rejeu a recopiées à sa création, elles, sont les SIENNES et restent avec
+      // lui jusqu'à ce qu'on le supprime.
+      const source = store.rejeuDuProjet(req.params.projectId)?.projetSource ?? null;
+      if (
+        source !== null &&
+        store.getProject(source) &&
+        lectureProjetPermise(req, source) !== 'permis'
+      ) {
+        return reply.code(403).send({
+          code: 'source_illisible',
+          error: 'la mission source appartient à un projet que vous ne lisez pas',
+        });
+      }
       const r = comparaisonDuRejeu(store, req.params.projectId);
       if (r.ok) return reply.send(r.comparaison);
       const dit: Record<typeof r.code, [number, string]> = {

@@ -294,7 +294,11 @@ GET  /api/projects/<replay>/rejeu/comparaison         # source vs replay
   and decisions. It computes on declared data only: a silent side makes the
   delta **unknown**, a mission in flight is **provisional**, a log pruned during
   the mission is **incomplete**. A cancelled task has its own status, distinct
-  from a failure — in the Chronicle's timeline too.
+  from a failure — in the Chronicle's timeline too. Reading it requires read
+  access to the **source** project as well (`403 source_illisible` otherwise):
+  it shows the source mission's plan. When the source project is deleted, its
+  snapshots go with it and the comparison says `source_elaguee`; the tasks the
+  replay copied at creation belong to the replay and stay until it is deleted.
 
 <p>
   <img src="images/missions-rejeu-comparaison-en.png" alt="A replay project: the “irreversible actions simulated” banner and the source-versus-replay comparison" width="350">
