@@ -17,6 +17,8 @@ import type { StateSnapshot } from '../src/shared/types';
 vi.mock('../dashboard/src/api', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   fetchChambre: vi.fn(),
+  // La fiche Worker a son propre banc (fiche-worker-ecran) : ici, elle reste en lecture.
+  fetchFicheWorker: vi.fn(() => new Promise(() => {})),
   fetchMotifs: vi.fn(() => Promise.resolve({ motifs: [] })),
   fetchAtelier: vi.fn(() =>
     Promise.resolve({
