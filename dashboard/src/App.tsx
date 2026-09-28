@@ -599,6 +599,10 @@ export function App() {
     if (token === getToken()) return;
     saveToken(token);
     setTokenAuthError(false);
+    // Le nouvel essai repart de zéro : sans cela, la coupure de l'ANCIEN
+    // jeton ferait dire « la ruche ne répond pas » avant que le nouveau
+    // flux ait seulement répondu — le squelette est la vérité de ce moment.
+    setCoupeDepuis(null);
     setFeedKey((k) => k + 1);
   };
 

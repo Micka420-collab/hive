@@ -68,6 +68,12 @@ describe('lireLiaison — une décision fermée, à partir des faits', () => {
       { affichage: 'panne', cause: 'reseau' },
     ],
     [
+      // Local-first : `navigator.onLine` faux sans LAN, flux localhost vivant.
+      'rien reçu, appareil sans LAN mais flux jamais tombé : squelette, pas « pas de réseau »',
+      { instantaneRecu: false, horsReseauDepuis: 5 },
+      { affichage: 'squelette' },
+    ],
+    [
       'rien reçu, jeton refusé : la cause est le jeton',
       { instantaneRecu: false, coupeDepuis: 10, jetonRefuse: true },
       { affichage: 'panne', cause: 'jeton' },
@@ -87,6 +93,11 @@ describe('lireLiaison — une décision fermée, à partir des faits', () => {
       'appareil sans réseau : cause réseau, datée de la coupure du flux si elle existe',
       { coupeDepuis: 42, horsReseauDepuis: 40 },
       { affichage: 'vue', bandeau: { cause: 'reseau', depuis: 42 } },
+    ],
+    [
+      'appareil sans LAN mais flux vivant (ruche en localhost) : aucun bandeau « ne bouge plus »',
+      { horsReseauDepuis: 40 },
+      { affichage: 'vue', bandeau: null },
     ],
     [
       'jeton refusé après coup : son propre bandeau suffit, pas de second « hors ligne »',
@@ -216,7 +227,7 @@ describe('la coquille montée — la liaison se voit', () => {
     expect(dom.querySelector('.mc-hors-ligne'), 'le bandeau survit au retour').toBeNull();
   });
 
-  it('L’APPAREIL SANS RÉSEAU : dit comme tel, sans « Réessayer » inutile ; le retour rappelle la ruche', async () => {
+  it('L’APPAREIL SANS RÉSEAU : dit seulement quand le flux tombe, sans « Réessayer » inutile ; le retour rappelle la ruche', async () => {
     const dom = await monter();
     await act(async () => {
       flux().onState({ projects: [PROJET], nodes: [], tasks: [], tasksTotal: 0 } as never);
@@ -225,6 +236,11 @@ describe('la coquille montée — la liaison se voit', () => {
     await act(async () => {
       window.dispatchEvent(new Event('offline'));
     });
+    // Local-first : sans LAN, une ruche en localhost continue d'émettre. Le
+    // navigateur qui se dit hors ligne ne fige pas l'écran — le flux, si.
+    expect(dom.querySelector('.mc-hors-ligne'), 'un « hors ligne » sur un flux vivant').toBeNull();
+
+    await act(async () => flux().onStatus(false, { authError: false }));
     const bandeau = dom.querySelector('.mc-hors-ligne');
     expect(bandeau?.textContent).toContain('n’a plus de réseau');
     expect(
@@ -235,7 +251,16 @@ describe('la coquille montée — la liaison se voit', () => {
     await act(async () => {
       window.dispatchEvent(new Event('online'));
     });
-    expect(dom.querySelector('.mc-hors-ligne')).toBeNull();
     expect(reconnecter, 'le retour du réseau n’a pas rappelé la ruche').toHaveBeenCalledTimes(1);
+    await act(async () => flux().onStatus(true));
+    expect(dom.querySelector('.mc-hors-ligne')).toBeNull();
+  });
+
+  it('JETON REFUSÉ AVANT LE PREMIER ÉTAT : la panne le dit, sans « Réessayer » qui renverrait le même jeton', async () => {
+    const dom = await monter();
+    await act(async () => flux().onStatus(false, { authError: true }));
+    const alerte = (dom.querySelector('main') as HTMLElement).querySelector('[role="alert"]');
+    expect(alerte?.textContent).toContain('La ruche refuse ce jeton');
+    expect([...(alerte?.querySelectorAll('button') ?? [])].length).toBe(0);
   });
 });

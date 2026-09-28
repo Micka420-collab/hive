@@ -24,9 +24,10 @@
 //   · `squelette` — rien n'est encore arrivé, rien n'a encore échoué : on
 //     réserve la place, on ne dit pas « vide » ;
 //   · `panne`     — rien n'est arrivé ET la liaison a échoué : on dit pourquoi,
-//     avec « Réessayer » (jamais une vue vide à la place) ;
+//     avec « Réessayer » là où il peut réussir (jamais une vue vide à la place) ;
 //   · `vue`       — un instantané existe : la vue s'affiche, avec un bandeau
-//     si la liaison est coupée depuis (ce qu'on voit peut être périmé).
+//     si le FLUX est tombé depuis (ce qu'on voit peut être périmé) — jamais sur
+//     le seul `navigator.onLine`, faux sans LAN alors qu'une ruche locale émet.
 //
 // Le jeton refusé a déjà son bandeau (App.tsx) : on n'en empile pas un second
 // qui dirait « hors ligne » pour la même cause.
@@ -56,28 +57,26 @@ export type Liaison =
   | { affichage: 'vue'; bandeau: { cause: CauseCoupure; depuis: number } | null };
 
 export function lireLiaison(f: FaitsLiaison): Liaison {
+  // `horsReseauDepuis` NOMME une cause, il ne la CONSTATE pas. Hive est
+  // local-first : `navigator.onLine` est faux dès que l'appareil n'a plus de
+  // LAN — Wi-Fi coupée sur un portable qui fait tourner `npm run ruche` en
+  // localhost —, alors que le flux, lui, vit et bouge. Seule la chute du flux
+  // (`coupeDepuis`) dit que l'écran est figé ; le réseau de l'appareil dit
+  // seulement POURQUOI. Sans cette règle, le bandeau jurait « ne bouge plus »
+  // sur un écran qui bougeait.
+  const causeCoupure = (): CauseCoupure =>
+    f.horsReseauDepuis !== null ? 'reseau' : f.tropLent ? 'trop_lent' : 'ruche';
   if (!f.instantaneRecu) {
     if (f.jetonRefuse) return { affichage: 'panne', cause: 'jeton' };
-    if (f.horsReseauDepuis !== null) return { affichage: 'panne', cause: 'reseau' };
-    if (f.coupeDepuis !== null) return { affichage: 'panne', cause: 'ruche' };
-    return { affichage: 'squelette' };
+    if (f.coupeDepuis === null) return { affichage: 'squelette' };
+    // Coupé pour lenteur avant tout instantané : la ruche n'a rien dit, c'est
+    // tout ce que l'écran sait d'utile.
+    return { affichage: 'panne', cause: causeCoupure() === 'reseau' ? 'reseau' : 'ruche' };
   }
-  if (f.jetonRefuse) return { affichage: 'vue', bandeau: null };
+  if (f.jetonRefuse || f.coupeDepuis === null) return { affichage: 'vue', bandeau: null };
   // Le réseau de l'APPAREIL d'abord : c'est la cause que l'on peut réparer
   // soi-même, et « la ruche ne répond plus » y enverrait chercher à tort.
-  if (f.horsReseauDepuis !== null) {
-    return {
-      affichage: 'vue',
-      bandeau: { cause: 'reseau', depuis: f.coupeDepuis ?? f.horsReseauDepuis },
-    };
-  }
-  if (f.coupeDepuis !== null) {
-    return {
-      affichage: 'vue',
-      bandeau: { cause: f.tropLent ? 'trop_lent' : 'ruche', depuis: f.coupeDepuis },
-    };
-  }
-  return { affichage: 'vue', bandeau: null };
+  return { affichage: 'vue', bandeau: { cause: causeCoupure(), depuis: f.coupeDepuis } };
 }
 
 /**
@@ -178,9 +177,16 @@ export function AvantPremierEtat({
               'No state has arrived yet: this is not an empty hive. Check that the orchestrator is running (npm run ruche); the screen retries on its own.',
             ),
           };
+  // « Réessayer » seulement là où il peut réussir, comme au bandeau : sans
+  // réseau il échoue à coup sûr, et un jeton refusé serait renvoyé tel quel —
+  // c'est le champ « Jeton » qui répare, pas un nouvel appel.
   return (
     <div className="mc-view mc-avant-etat">
-      <ErrorState titre={titre} detail={detail} onReessayer={onReessayer} />
+      <ErrorState
+        titre={titre}
+        detail={detail}
+        onReessayer={liaison.cause === 'ruche' ? onReessayer : undefined}
+      />
     </div>
   );
 }
