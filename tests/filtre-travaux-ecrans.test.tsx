@@ -188,6 +188,26 @@ async function monter(
   return conteneur;
 }
 
+/** Re-rend la vue montée avec d'autres propriétés — un nouvel instantané du flux. */
+async function rerendre(
+  Vue: (p: ViewProps) => React.ReactNode,
+  over: Partial<ViewProps>,
+): Promise<void> {
+  const props = {
+    snapshot: instantane(TACHES),
+    events: [],
+    agentsByTask: {},
+    deferred: new Set(),
+    onOpenTask: () => {},
+    onNavigate: () => {},
+    refreshTick: 0,
+    user: null,
+    ...over,
+  } as unknown as ViewProps;
+  await act(async () => racine?.render(<Vue {...props} />));
+  await act(async () => {});
+}
+
 function champRecherche(dom: HTMLElement): HTMLInputElement {
   const champ = dom.querySelector<HTMLInputElement>('input[type="search"]');
   expect(champ, 'la barre de filtre est absente').toBeTruthy();
@@ -255,6 +275,21 @@ describe('Projets — la barre filtre les projets ET leurs tâches', () => {
     expect(cartes(dom)).toEqual([]);
   });
 
+  it('une ouvrière choisie puis PARTIE reste affichée dans le choix, pas « Toutes »', async () => {
+    const dom = await monter(Projets);
+    await saisir(choix(dom, 'Ouvrière'), 'n-codex');
+    expect(cartes(dom)).toEqual(['Rucher']);
+
+    // L'ouvrière quitte la ruche : ses tâches gardent son id, le filtre aussi.
+    await rerendre(Projets, {
+      snapshot: { ...instantane(TACHES), nodes: [NOEUDS[1]!] },
+    });
+    const select = choix(dom, 'Ouvrière');
+    expect(select.value, 'le choix retombe sur « Toutes » en filtrant toujours').toBe('n-codex');
+    expect(select.selectedOptions[0]?.textContent).toBe('n-codex (partie)');
+    expect(cartes(dom)).toEqual(['Rucher']);
+  });
+
   it('UN FILTRE QUI NE LAISSE RIEN LE DIT, et « Effacer » rend tout — focus compris', async () => {
     const dom = await monter(Projets);
     await saisir(champRecherche(dom), 'introuvable');
@@ -284,6 +319,25 @@ describe('Miellerie — le filtre resserre la file, jamais l’inspection', () =
     expect(lignes()).toEqual(['Cache Redis', 'Documenter le miel']);
     // La production inspectée n'est PAS dans le filtre, et elle reste à l'écran.
     expect(dom.querySelector('.mi-inspect h2')?.textContent).toBe('Réparer l’authentification');
+  });
+
+  it('la production inspectée hors filtre : « k » entre par le BAS de la file, « j » par le haut', async () => {
+    const allees: string[] = [];
+    const surNav = (_v: string, id?: string) => {
+      if (id) allees.push(id);
+    };
+    const dom = await monter(Miellerie, {
+      selectedId: 't-auth',
+      onNavigate: surNav,
+    } as Partial<ViewProps>);
+    await saisir(choix(dom, 'Ouvrière'), 'n-claude');
+    (document.activeElement as HTMLElement | null)?.blur();
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k' }));
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'j' }));
+    });
+    // File filtrée : [t-cache, t-doc] ; t-auth, inspectée, n'y est pas.
+    expect(allees).toEqual(['t-doc', 't-cache']);
   });
 
   it('une file vidée par le filtre ne se fait pas passer pour une file vide', async () => {
@@ -329,6 +383,28 @@ describe('Chantiers — lire, échouer, filtrer', () => {
     expect(fetchChantiers).toHaveBeenCalledTimes(2);
     expect(dom.querySelector('[role="alert"]')).toBeNull();
     expect(dom.textContent).toContain('vitest run');
+  });
+
+  it('UNE RELECTURE RATÉE GARDE LA LISTE LUE — figée, avec « Réessayer » au-dessus', async () => {
+    const dom = await monter(Chantiers);
+    expect(dom.textContent).toContain('vitest run');
+
+    // Une fin de chantier relit ; cette relecture-là échoue.
+    vi.mocked(fetchChantiers).mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    await rerendre(Chantiers, {
+      events: [
+        {
+          id: 9,
+          type: 'chantier_completed',
+          ts: 1,
+          payload: { projectId: 'p1' },
+        },
+      ],
+    } as unknown as Partial<ViewProps>);
+    expect(dom.textContent, 'le relevé ne se dit pas figé').toContain('relevé figé');
+    expect(dom.textContent, 'la liste déjà lue a disparu').toContain('vitest run');
+    expect(bouton(dom, 'Lancer'), '« Lancer » a disparu avec la liste').toBeTruthy();
+    expect(dom.textContent).not.toContain('Chantiers illisibles');
   });
 
   it('la nature trie scripts et workflows ; la recherche lit la commande', async () => {

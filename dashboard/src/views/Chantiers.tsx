@@ -42,6 +42,7 @@ import { useT } from '../i18n';
 import { FiltreTravaux } from './FiltreTravaux';
 import { FILTRE_VIDE, texteCorrespond } from './filtre-travaux';
 import type { FiltreTravaux as Filtre } from './filtre-travaux';
+import { EchecSondage } from './shared';
 import type { ViewProps } from './shared';
 import { messageDeSondage } from './sondage';
 import './chantiers.css';
@@ -281,7 +282,22 @@ export default function Chantiers({ snapshot, events, selectedId, onNavigate }: 
 
       <section className="ch-bloc">
         <h3>{t('Sur un nœud', 'On a node')}</h3>
-        {erreurLecture !== null ? (
+        {/* Une relecture ratée ne retire pas la liste déjà lue : le relevé
+            reste, figé, sous un avis qui le dit (règle de `EchecSondage`).
+            Chaque fin de chantier relit : un aléa réseau à ce moment-là
+            effaçait sinon les scripts et leurs « Lancer » jusqu'au clic. */}
+        {erreurLecture !== null && chantiers !== null && (
+          <EchecSondage
+            sondage={{
+              error: erreurLecture,
+              refresh: reessayer,
+              relance: relecture,
+              echecA: null,
+            }}
+            avant={t('relevé figé :', 'reading frozen:')}
+          />
+        )}
+        {erreurLecture !== null && chantiers === null ? (
           <ErrorState
             titre={t('Chantiers illisibles', 'Works unreadable')}
             detail={erreurLecture}

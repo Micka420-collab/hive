@@ -56,9 +56,21 @@ export function FiltreTravaux({
   const idCompte = useId();
   const idRecherche = useId();
   const actif = filtreActif(filtre);
-  const choix = (options: readonly OptionChoix[], tous: string): OptionChoix[] => [
+  // Le choix EN COURS reste toujours offert. Les options viennent des
+  // ouvrières inscrites À CET INSTANT : une ouvrière partie après avoir été
+  // choisie disparaissait de la liste, le `<select>` retombait sur « Toutes »
+  // pendant que le filtre, lui, cachait toujours tout le reste — un écran
+  // presque vide qui disait « aucun filtre ». On la garde, marquée partie.
+  const choix = (
+    options: readonly OptionChoix[],
+    tous: string,
+    courant: string | null,
+  ): OptionChoix[] => [
     { valeur: TOUS, libelle: tous },
     ...options,
+    ...(courant !== null && !options.some((o) => o.valeur === courant)
+      ? [{ valeur: courant, libelle: t(`${courant} (partie)`, `${courant} (gone)`) }]
+      : []),
   ];
   const valeur = (v: string | null) => v ?? TOUS;
   const lire = (v: string) => (v === TOUS ? null : v);
@@ -84,7 +96,7 @@ export function FiltreTravaux({
         {statuts && (
           <Select
             libelle={libelleStatut ?? t('Statut', 'Status')}
-            options={choix(statuts, t('Tous', 'All'))}
+            options={choix(statuts, t('Tous', 'All'), filtre.statut)}
             value={valeur(filtre.statut)}
             onChange={(e) => onChange({ ...filtre, statut: lire(e.target.value) })}
           />
@@ -92,7 +104,7 @@ export function FiltreTravaux({
         {familles && (
           <Select
             libelle={t('Famille d’agent', 'Agent family')}
-            options={choix(familles, t('Toutes', 'All'))}
+            options={choix(familles, t('Toutes', 'All'), filtre.famille)}
             value={valeur(filtre.famille)}
             onChange={(e) => onChange({ ...filtre, famille: lire(e.target.value) })}
           />
@@ -100,7 +112,7 @@ export function FiltreTravaux({
         {ouvrieres && (
           <Select
             libelle={t('Ouvrière', 'Worker')}
-            options={choix(ouvrieres, t('Toutes', 'All'))}
+            options={choix(ouvrieres, t('Toutes', 'All'), filtre.ouvriere)}
             value={valeur(filtre.ouvriere)}
             onChange={(e) => onChange({ ...filtre, ouvriere: lire(e.target.value) })}
           />

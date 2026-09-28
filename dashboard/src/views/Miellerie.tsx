@@ -950,8 +950,14 @@ export default function Miellerie({
       case 'j':
       case 'k': {
         if (defile.length === 0) return;
-        const idx = activeId ? defile.findIndex((t) => t.id === activeId) : 0;
-        const next = defile[(idx + (e.key === 'j' ? 1 : -1) + defile.length) % defile.length];
+        const idx = activeId ? defile.findIndex((t) => t.id === activeId) : -1;
+        // -1 : la production inspectée n'est pas dans la file (le filtre la
+        // cache, ou rien n'est choisi). `j` entre par le haut, `k` par le
+        // BAS — l'arithmétique modulo menait `k` à l'avant-dernière.
+        const next =
+          idx === -1
+            ? defile[e.key === 'j' ? 0 : defile.length - 1]
+            : defile[(idx + (e.key === 'j' ? 1 : -1) + defile.length) % defile.length];
         if (next) select(next.id);
         break;
       }
