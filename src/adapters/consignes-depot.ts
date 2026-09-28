@@ -131,6 +131,26 @@ export function configurationDuDepot(racine: string): string[] {
   });
 }
 
+/**
+ * La ligne de journal qui dit les fichiers de consignes de `sources` posés en
+ * LIEN symbolique, ou `undefined`. La relecture ne les suit pas, même vers un
+ * fichier du dépôt (`AGENTS.md -> CLAUDE.md` est courant) : sans cette ligne,
+ * les conventions du dépôt manquaient à l'agent sans que le journal en parle.
+ * Les noms sont ceux, fixes, de `sources` : rien du dépôt n'entre dans la ligne.
+ */
+export function noteLiensNonSuivis(racine: string, sources: SourcesConsignes): string | undefined {
+  const liens = sources.fichiers.flat().filter((relatif) => {
+    try {
+      return lstatSync(path.join(racine, relatif)).isSymbolicLink();
+    } catch {
+      return false;
+    }
+  });
+  return liens.length > 0
+    ? `consignes du dépôt NON reprises, car liens symboliques (Hive n'en suit aucun) : ${liens.join(', ')}`
+    : undefined;
+}
+
 /** `<base>/**\/*.md`, sans suivre de lien, dans un ordre stable, borné. */
 function reglesDuDepot(racine: string, base: string): string[] {
   if (!entreeSansLien(racine, base, 'dossier')) return [];

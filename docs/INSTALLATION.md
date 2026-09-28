@@ -314,13 +314,15 @@ son `.codex/config.toml`, ses crochets et ses règles ne sont jamais chargés,
 et Codex n'inscrit plus le répertoire de chaque tâche dans votre
 `config.toml`. Codex ne lit l'`AGENTS.md` que d'un dépôt de confiance : Hive
 le relit donc lui-même (celui de la racine, ou son `AGENTS.override.md`, sans
-suivre de lien, borné) et le transmet à Codex comme **simple donnée**, par
-`-c developer_instructions` — comme il le fait pour le `CLAUDE.md` de Claude
-Code ; le journal de la tâche le dit. Ceux des sous-dossiers, Codex les lit
-lui-même quand il y travaille. Contrepartie, dite : pour ces tâches-là, des
-`developer_instructions` posées dans votre propre `config.toml` sont
-remplacées ; votre `AGENTS.md` personnel (`~/.codex/AGENTS.md`) s'applique
-toujours.
+suivre de lien, borné) et le transmet à Codex comme **simple donnée**, en
+tête du prompt de la tâche — au même rang que Codex donne à l'`AGENTS.md` d'un
+dépôt de confiance, jamais au-dessus de la consigne — comme il le fait pour le
+`CLAUDE.md` de Claude Code ; le journal de la tâche le dit. Ceux des
+sous-dossiers, Codex les lit lui-même quand il y travaille. Votre propre
+configuration n'est pas touchée : vos `developer_instructions` et votre
+`AGENTS.md` personnel (`~/.codex/AGENTS.md`) s'appliquent toujours. Un
+`AGENTS.md` (ou `CLAUDE.md`) qui est un lien symbolique, même vers un fichier du
+dépôt, n'est pas repris : Hive ne suit aucun lien, et le journal le dit.
 
 ## Si quelque chose ne va pas
 

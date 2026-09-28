@@ -7,7 +7,12 @@
 import { DEFAULT_TOKEN } from '../shared/types.js';
 import type { Task } from '../shared/types.js';
 import { assertRealExecutionAllowed, runCommandStreaming } from './exec.js';
-import { CONSIGNES_CLAUDE, configurationDuDepot, consignesDuDepot } from './consignes-depot.js';
+import {
+  CONSIGNES_CLAUDE,
+  configurationDuDepot,
+  consignesDuDepot,
+  noteLiensNonSuivis,
+} from './consignes-depot.js';
 import {
   createDelegationBridge,
   resultatSansPont,
@@ -185,6 +190,8 @@ export function createClaudeCodeAdapter(
           consignesPath !== undefined,
         );
         if (note) ctx.onProgress({ log: note });
+        const liens = noteLiensNonSuivis(ctx.cwd, CONSIGNES_CLAUDE);
+        if (liens) ctx.onProgress({ log: liens });
         // --verbose est requis par Claude Code pour stream-json en mode -p.
         //
         // LE PROMPT EST EN DERNIER, DERRIÈRE `--`, ET CE N'EST PAS COSMÉTIQUE :

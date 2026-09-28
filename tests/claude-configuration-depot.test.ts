@@ -46,6 +46,7 @@ import {
   MAX_CONSIGNES,
   MAX_ENTREES,
   MAX_REGLES,
+  noteLiensNonSuivis,
 } from '../src/adapters/consignes-depot.js';
 import type { AdapterContext } from '../src/adapters/index.js';
 import { RendezVousPont } from '../src/node-client/rendez-vous-pont.js';
@@ -315,6 +316,20 @@ describe('la note du journal dit ce que le dépôt apportait', () => {
         'CLAUDE.md et .claude/rules relus comme simples données',
     );
   });
+
+  it.runIf(POSIX)(
+    'un CLAUDE.md en lien, même vers l’AGENTS.md du dépôt : non repris, et DIT',
+    () => {
+      const depot = dossierJetable();
+      ecrire(depot, 'AGENTS.md', 'conventions communes');
+      symlinkSync('AGENTS.md', path.join(depot, 'CLAUDE.md'));
+      expect(consignesDuDepot(depot, CONSIGNES_CLAUDE)).toBe('');
+      expect(noteLiensNonSuivis(depot, CONSIGNES_CLAUDE)).toBe(
+        "consignes du dépôt NON reprises, car liens symboliques (Hive n'en suit aucun) : CLAUDE.md",
+      );
+      expect(noteLiensNonSuivis(dossierJetable(), CONSIGNES_CLAUDE)).toBeUndefined();
+    },
+  );
 });
 
 describe.runIf(POSIX)('l’adaptateur réel contre un faux `claude` qui rend ce qu’il a reçu', () => {

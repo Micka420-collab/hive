@@ -5,8 +5,11 @@
 // déclarait de confiance tout seul et chargeait son `.codex/config.toml`
 // (crochets, serveurs MCP). Contrepartie : un dépôt `untrusted` ne livre plus
 // son `AGENTS.md` (codex-rs/core/src/agents_md.rs, `load_project_instructions`).
-// Hive le relit lui-même (`consignes-depot.ts`) et le passe par
-// `-c developer_instructions`, dans un bloc `blocDonnees`.
+// Hive le relit lui-même (`consignes-depot.ts`) et le met EN TÊTE DU PROMPT,
+// dans un bloc `blocDonnees` : au rang `user`, où Codex range lui-même
+// l'`AGENTS.md` d'un dépôt de confiance — jamais en message `developer`, qui
+// pèserait plus que la tâche et remplacerait les `developer_instructions` du
+// membre.
 //
 // Trois étages, comme pour Claude Code :
 //   · la relecture et l'argv, partout (CI comprise) ;
@@ -14,7 +17,8 @@
 //   · le VRAI binaire `codex`, contre une fausse Responses API locale et une
 //     fausse clé : d'abord l'argv sans reprise (l'`AGENTS.md` n'arrive PAS :
 //     la perte est réelle sur cette version), puis l'adaptateur (il arrive, en
-//     message `developer`, dans le bloc de données). Sans binaire (la CI), il
+//     message `user`, dans le bloc de données ; les `developer_instructions`
+//     du membre, elles, arrivent toujours). Sans binaire (la CI), il
 //     est ignoré, et le dit ; `HIVE_CODEX_REQUIS=1` le rend obligatoire.
 
 import { execFileSync } from 'node:child_process';
@@ -75,12 +79,9 @@ function lignesDuBloc(bloc: string): { fichier: string; contenu: string }[] {
     .map((l) => JSON.parse(l) as { fichier: string; contenu: string });
 }
 
-/** La valeur de `-c developer_instructions=…`, avant `--`, ou `undefined`. */
-function instructionsDe(argv: readonly string[]): string | undefined {
-  const options = argv.slice(0, argv.indexOf('--'));
-  const prefixe = 'developer_instructions=';
-  const i = options.findIndex((a, j) => options[j - 1] === '-c' && a.startsWith(prefixe));
-  return i >= 0 ? options[i]!.slice(prefixe.length) : undefined;
+/** Les options avant `--` : aucune ne doit porter les consignes du dépôt. */
+function optionsDe(argv: readonly string[]): string {
+  return argv.slice(0, argv.indexOf('--')).join('\n');
 }
 
 const tache = (prompt: string): Task => ({
@@ -153,22 +154,23 @@ describe('consignesDuDepot(CONSIGNES_CODEX) — ce que Codex lirait d’un dép�
   );
 });
 
-describe('argvCodex — les consignes passent par `-c developer_instructions`, jamais par la confiance', () => {
-  it('une chaîne TOML avant `--` ; le dépôt reste `untrusted` ; sans consignes, rien', () => {
+describe('argvCodex — les consignes vont en tête du prompt, jamais dans la configuration', () => {
+  it('derrière `--`, avant la tâche ; aucune option `-c` ; le dépôt reste `untrusted`', () => {
     const cwd = dossierJetable();
     const execution = executionCodex({ cwd });
     const consignes = `ligne "1"\nC:\\chemin\u007f fin`;
     const argv = argvCodex('fais', execution, undefined, undefined, consignes);
-    const valeur = instructionsDe(argv);
-    expect(valeur, 'avant `--`, derrière `-c`').toBeDefined();
-    // Une chaîne TOML de base est ici du JSON : même texte, une fois relu.
-    expect(JSON.parse(valeur!)).toBe(consignes);
-    // TOML interdit U+007F brut : Codex prendrait sinon la valeur comme texte brut.
-    expect(valeur).not.toContain('\u007f');
+    expect(argv.slice(-2)).toEqual(['--', `${consignes}\n\nfais`]);
+    // Ni `developer_instructions` (rang `developer`, et il remplacerait celles
+    // du membre), ni rien d'autre du bloc parmi les options.
+    expect(optionsDe(argv)).not.toContain('developer_instructions');
+    expect(optionsDe(argv)).not.toContain('ligne');
     expect(argv).toContain(`projects={${JSON.stringify(cwd)}={trust_level="untrusted"}}`);
-    expect(argv.slice(-2)).toEqual(['--', 'fais']);
-    expect(instructionsDe(argvCodex('fais', execution))).toBeUndefined();
-    expect(instructionsDe(argvCodex('fais', execution, undefined, undefined, ''))).toBeUndefined();
+    // Sans consignes, l'argv est exactement celui d'avant.
+    expect(argvCodex('fais', execution, undefined, undefined, '')).toEqual(
+      argvCodex('fais', execution),
+    );
+    expect(argvCodex('fais', execution).at(-1)).toBe('fais');
   });
 });
 
@@ -217,7 +219,7 @@ function fauxCodex(depot: string): { ctx: AdapterContext; constat: string; logs:
 
 describe.runIf(POSIX)('l’adaptateur réel contre un faux `codex` qui rend ce qu’il a reçu', () => {
   it(
-    'l’AGENTS.md du dépôt part en `developer_instructions`, dans le bloc, et le journal le dit',
+    'l’AGENTS.md du dépôt part en tête du prompt, dans le bloc, et le journal le dit',
     { timeout: 15_000 },
     async () => {
       const depot = dossierJetable();
@@ -226,10 +228,12 @@ describe.runIf(POSIX)('l’adaptateur réel contre un faux `codex` qui rend ce q
       const r = await createCodexAdapter(TOKEN).run(tache('fais'), ctx);
       expect(r.success, r.logs).toBe(true);
       const argv = JSON.parse(readFileSync(constat, 'utf8')) as string[];
-      const instructions = JSON.parse(instructionsDe(argv) ?? '""') as string;
-      expect(lignesDuBloc(instructions)).toEqual([
+      const prompt = argv.at(-1)!;
+      expect(lignesDuBloc(prompt)).toEqual([
         { fichier: 'AGENTS.md', contenu: 'MARQUEUR-AGENTS-DEPOT' },
       ]);
+      expect(prompt.endsWith('\n\nfais')).toBe(true);
+      expect(optionsDe(argv)).not.toContain('MARQUEUR-AGENTS-DEPOT');
       expect(argv.join(' ')).toContain('trust_level="untrusted"');
       expect(logs).toContain(
         'AGENTS.md du dépôt relu comme simple donnée (le dépôt reste non fiable pour Codex)',
@@ -237,14 +241,31 @@ describe.runIf(POSIX)('l’adaptateur réel contre un faux `codex` qui rend ce q
     },
   );
 
-  it('sans AGENTS.md : ni `developer_instructions`, ni note', { timeout: 15_000 }, async () => {
+  it('sans AGENTS.md : le prompt seul, et pas de note', { timeout: 15_000 }, async () => {
     const depot = dossierJetable();
     const { ctx, constat, logs } = fauxCodex(depot);
     const r = await createCodexAdapter(TOKEN).run(tache('fais'), ctx);
     expect(r.success, r.logs).toBe(true);
-    expect(instructionsDe(JSON.parse(readFileSync(constat, 'utf8')) as string[])).toBeUndefined();
+    expect((JSON.parse(readFileSync(constat, 'utf8')) as string[]).at(-1)).toBe('fais');
     expect(logs.some((l) => l.includes('AGENTS.md'))).toBe(false);
   });
+
+  it(
+    'un AGENTS.md en lien (même vers un fichier du dépôt) n’est pas repris, et le journal le DIT',
+    { timeout: 15_000 },
+    async () => {
+      const depot = dossierJetable();
+      ecrire(depot, 'CLAUDE.md', 'conventions communes');
+      symlinkSync('CLAUDE.md', path.join(depot, 'AGENTS.md'));
+      const { ctx, constat, logs } = fauxCodex(depot);
+      const r = await createCodexAdapter(TOKEN).run(tache('fais'), ctx);
+      expect(r.success, r.logs).toBe(true);
+      expect((JSON.parse(readFileSync(constat, 'utf8')) as string[]).at(-1)).toBe('fais');
+      expect(logs).toContain(
+        "consignes du dépôt NON reprises, car liens symboliques (Hive n'en suit aucun) : AGENTS.md",
+      );
+    },
+  );
 });
 
 // ─── LE VRAI BINAIRE ─────────────────────────────────────────────────────────
@@ -356,6 +377,8 @@ describe('le VRAI binaire `codex`, dépôt `untrusted`, avec une fausse clé', (
       const codexHome = path.join(maison, '.codex');
       const configuration = [
         'model_provider = "banc"',
+        // Les consignes du MEMBRE : aucun dépôt ne doit pouvoir les remplacer.
+        'developer_instructions = "MARQUEUR-DU-MEMBRE"',
         '[model_providers.banc]',
         'name = "banc"',
         `base_url = ${JSON.stringify(api.url)}`,
@@ -380,9 +403,9 @@ describe('le VRAI binaire `codex`, dépôt `untrusted`, avec une fausse clé', (
           if (p.log) logs.push(p.log);
         },
       };
-      const developpeur = (entrees: Entrees): string =>
+      const duRang = (entrees: Entrees, role: string): string =>
         entrees
-          .filter((e) => e.role === 'developer')
+          .filter((e) => e.role === role)
           .map((e) => e.texte)
           .join('\n');
       try {
@@ -406,11 +429,17 @@ describe('le VRAI binaire `codex`, dépôt `untrusted`, avec une fausse clé', (
         expect(r.success, r.logs).toBe(true);
         expect(r.finalText).toBe('FIN');
         expect(api.requetes.length).toBeGreaterThan(0);
-        const recu = developpeur(api.requetes[0]!);
+        const premiere = api.requetes[0]!;
+        // Au rang `user`, celui de l'AGENTS.md d'un dépôt de confiance —
+        // jamais au-dessus de la tâche.
+        const recu = duRang(premiere, 'user');
         expect(recu).toContain(OUVERTURE_DONNEES);
         expect(lignesDuBloc(recu)).toEqual([
           { fichier: 'AGENTS.md', contenu: 'MARQUEUR-AGENTS-DEPOT' },
         ]);
+        expect(duRang(premiere, 'developer')).not.toContain('MARQUEUR-AGENTS-DEPOT');
+        // Et les `developer_instructions` du membre tiennent toujours.
+        expect(duRang(premiere, 'developer')).toContain('MARQUEUR-DU-MEMBRE');
         expect(logs).toContain(
           'AGENTS.md du dépôt relu comme simple donnée (le dépôt reste non fiable pour Codex)',
         );
