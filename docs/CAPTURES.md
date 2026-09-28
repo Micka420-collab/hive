@@ -76,7 +76,9 @@ des avertissements.
 
 - **chaque case de la barre de navigation**, cliquée : la barre fait foi (la
   case dit sa vue, `data-vue`), une vue ajoutée demain est photographiée sans
-  toucher au script ;
+  toucher au script. Au format `mobile`, la barre est un tiroir : le script
+  l'ouvre par le ☰ avant chaque clic, puis photographie le tiroir ouvert
+  (`navigation.mobile.png`) ;
 - la **Chambre** de l'ouvrière et le **tiroir** de la tâche reprise ;
 - **en vol** : un lot est confié, la Ruche et la Chambre sont photographiées
   pendant que les sous-agents travaillent ;

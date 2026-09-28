@@ -27,7 +27,8 @@ non-obvious caveats are captured below.
   with random secrets if one is not already present; delete it to regenerate.
 - Auth: every API call needs an `x-hive-token` header. The dashboard reads the
   token from `localStorage` key `hive.token`, or you can type it into the masked
-  "token" input in the dashboard top bar (it persists). Without it `/api/state`
+  "token" input in the dashboard top bar or in Paramètres (`#/parametres`; the
+  only entry on phones) — it persists. Without it `/api/state`
   returns `{"error":"token invalide"}`.
 
 ### Running
