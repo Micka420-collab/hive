@@ -99,6 +99,12 @@ on:
 # lire Visual Studio 2026. Sous Node 24, `prebuild-install` trouve le binaire :
 # zéro compilation, 28 secondes, aucun outillage C++ nécessaire. Les deux
 # comportements ont été mesurés sur le MÊME commit, dans le run 210.
+#
+# Depuis `better-sqlite3` 13 (ADR 0013), le binaire est N-API et voyage DANS
+# le paquet npm (`prebuilds/<os>-<arch>.node`) : ni `prebuild-install`, ni
+# téléchargement, ni script d'installation. Le même fichier sert Node 24, la
+# CI, l'image et l'application de bureau (Electron). Le plancher reste 24 :
+# c'est celui de Hive (`NODE_MINIMUM`), plus seulement celui du binaire.
 env:
   NODE: '24'
 

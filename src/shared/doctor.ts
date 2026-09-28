@@ -130,10 +130,13 @@ export interface Releve {
    * personne ne voit passer — **si leur installation échoue, npm continue en
    * silence et sort en 0.**
    *
-   * `better-sqlite3` ne publie AUCUN binaire prébuilt : chaque installation le
-   * COMPILE. Sur une machine Windows sans outillage C++ — c'est-à-dire une
-   * machine Windows neuve — la compilation échoue, npm dit « added 247
-   * packages », et `hive start` meurt sur `ERR_MODULE_NOT_FOUND`.
+   * `better-sqlite3` ne publiait alors AUCUN binaire prébuilt : chaque
+   * installation le COMPILAIT. Sur une machine Windows sans outillage C++ —
+   * c'est-à-dire une machine Windows neuve — la compilation échouait, npm
+   * disait « added 247 packages », et `hive start` mourait sur
+   * `ERR_MODULE_NOT_FOUND`. Depuis la 13 (ADR 0013), le binaire N-API voyage
+   * dans le paquet npm ; reste `--omit=optional`, ou une plateforme sans
+   * binaire dans `prebuilds/`, pour réveiller ce relevé.
    *
    * Le docteur savait déjà que ça arrivait : `baseIntegre()` importe le module
    * PARESSEUSEMENT, en toutes lettres « pour que le docteur puisse tourner là
@@ -208,8 +211,11 @@ export interface Releve {
  * trouve aucun binaire pour cette ABI et retombe sur `node-gyp` — 42 lignes de
  * compilation sous Linux, et sous Windows un ÉCHEC : le `node-gyp` embarqué
  * dans npm 10 ne sait pas lire Visual Studio 2026, et npm 10 ne permet pas de
- * le remplacer. Sous Node 24, `prebuild-install` trouve le binaire de l'ABI :
- * zéro compilation, 28 secondes, aucun outillage C++ requis.
+ * le remplacer. Sous Node 24, `prebuild-install` trouvait le binaire de
+ * l'ABI : zéro compilation, 28 secondes, aucun outillage C++ requis. Depuis
+ * `better-sqlite3` 13 (N-API, binaires dans le paquet npm, ADR 0013), il n'y a
+ * plus d'ABI à viser : le plancher à 24 est celui de Hive, et non plus celui
+ * du binaire.
  *
  * Le plancher à 24 supprime donc une classe entière de pannes d'installation
  * plutôt que de la diagnostiquer — ce que faisait, faute de mieux, le
