@@ -312,10 +312,17 @@ s'y ouvrir. **Sans bac, Codex a besoin du sien**, et donc :
 Le dépôt de la tâche est **toujours** lancé comme non fiable (`untrusted`) :
 son `.codex/config.toml`, ses crochets et ses règles ne sont jamais chargés,
 et Codex n'inscrit plus le répertoire de chaque tâche dans votre
-`config.toml`. Contrepartie, dite : **l'`AGENTS.md` du dépôt n'atteint plus
-Codex** (Codex ne le lit que pour un dépôt de confiance). Ses conventions ne
-lui sont pas transmises tant que Hive ne les reprend pas comme simple donnée,
-comme il le fait déjà pour le `CLAUDE.md` de Claude Code.
+`config.toml`. Codex ne lit l'`AGENTS.md` que d'un dépôt de confiance : Hive
+le relit donc lui-même (celui de la racine, ou son `AGENTS.override.md`, sans
+suivre de lien, borné) et le transmet à Codex comme **simple donnée**, en
+tête du prompt de la tâche — au même rang que Codex donne à l'`AGENTS.md` d'un
+dépôt de confiance, jamais au-dessus de la consigne — comme il le fait pour le
+`CLAUDE.md` de Claude Code ; le journal de la tâche le dit. Ceux des
+sous-dossiers, Codex les lit lui-même quand il y travaille. Votre propre
+configuration n'est pas touchée : vos `developer_instructions` et votre
+`AGENTS.md` personnel (`~/.codex/AGENTS.md`) s'appliquent toujours. Un
+`AGENTS.md` (ou `CLAUDE.md`) qui est un lien symbolique, même vers un fichier du
+dépôt, n'est pas repris : Hive ne suit aucun lien, et le journal le dit.
 
 ## Si quelque chose ne va pas
 
@@ -747,6 +754,12 @@ d'écriture réels de `src/` et **rougit** si l'un d'eux apparaît ailleurs.
   le nœud calcule le diff de revue et relit le dépôt pour les validations du
   bac : un crochet, un filtre ou un `core.fsmonitor` écrit par l'agent dans
   son dépôt ne s'exécute donc jamais sur votre machine, hors du bac.
+- `<installation>/.hive-work/tasks/<task-id>.inerte` : pour Cursor et Cline,
+  qui n'ont pas d'option pour ignorer les hooks d'un projet, la configuration
+  d'agent du dépôt (`.cursor/hooks.json`, `.claude/settings*.json`,
+  `.clinerules/hooks`, `.cline/hooks`, `.cline/plugins`) attend ici pendant que
+  l'agent tourne, hors du bac, puis retourne dans la tâche avant le diff. Le
+  dossier est effacé avec la tâche.
 - **un dépôt privé par SSH** (`git@hôte:…`) : le nœud clone — et, pour une
   livraison locale, liste et pousse — en mode lot
   (`ssh -o BatchMode=yes`), sans jamais attendre une invite. La clé d'hôte
@@ -805,6 +818,19 @@ l'historique du shell de l'invité et dans sa table des processus — sur SA
 machine, pas sur le réseau ni chez l'hôte. Un billet à usage unique referme
 cette fenêtre dès l'entrée ; c'est le réglage à préférer pour inviter une seule
 personne.
+
+### Sur le même réseau local, sans billet
+
+Si la ruche écoute le réseau (`HIVE_DECOUVERTE=1`, `HIVE_HOST=0.0.0.0`), la
+machine à ajouter peut se signaler au lieu d'attendre un billet :
+
+```sh
+hive join --decouvrable        # ou : npm run join -- --decouvrable
+```
+
+Elle affiche un **code d'appariement** ; l'hôte clique **Inviter** → « Sur votre
+réseau local » → **Rejoindre** et le recopie. Détails et garanties :
+[FONCTIONNALITES.md](FONCTIONNALITES.md#la-machine-dà-côté-sans-billet-à-copier-réseau-local).
 
 ### Les réglages
 

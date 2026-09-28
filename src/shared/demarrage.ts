@@ -526,6 +526,18 @@ export type PlanOuvrieres =
  * `loadEnvFile` n'écrase jamais une variable présente, même vide (mesuré), là
  * où une variable absente lui laisserait rendre celle du `.env`.
  *
+ * ─── UNE SEULE SE SIGNALE SUR LE RÉSEAU LOCAL ────────────────────────────────
+ *
+ * `HIVE_DECOUVRABLE=1` dit la MACHINE sur le réseau local
+ * (`node-client/decouverte-noeud.ts`). Chaque ouvrière ouvrant sa propre
+ * annonce, sous son propre nom d'instance tiré au sort, la Reine voyait la
+ * même machine N fois — chacune se disant porteuse de tous les agents de la
+ * machine. Seule la première se signale donc : les ajoutées reçoivent
+ * `HIVE_DECOUVRABLE` VIDE (et vide posé, comme `HIVE_MODELES`). La première
+ * annonce les familles CONNECTÉES de la machine entière, ce qui est exact ;
+ * ses places sont les siennes (1) — un membre ne montre pas ses places à
+ * l'écran de la Reine, qui ne les lit que pour une machine libre.
+ *
  * ─── AU REPOS, ELLES NE COÛTENT RIEN ─────────────────────────────────────────
  *
  * Une ouvrière n'appelle son agent que pour une tâche assignée ; au repos elle
@@ -566,6 +578,8 @@ export async function planOuvrieres(entree: {
     HIVE_NODE_NAME: `${nom}-${agent}`,
     ...(dossier !== undefined ? { HIVE_WORKDIR: path.join(dossier, agent) } : {}),
     HIVE_MODELES: '',
+    // Vide et POSÉ, pour la même raison : voir « UNE SEULE SE SIGNALE ».
+    HIVE_DECOUVRABLE: '',
   });
   return {
     mode: 'par-agent',

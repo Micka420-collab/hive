@@ -300,6 +300,8 @@ describe('les types qui prouvent', () => {
       'contre_expertise_impossible',
       'evaluator_overridden',
       'delivery_opened',
+      // La provenance d'une reprise sur la même branche (#518).
+      'delivery_advanced',
       'critique_context',
       'brood_context',
       'worker_usage',

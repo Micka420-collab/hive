@@ -65,6 +65,7 @@ const RELEVE_QUELCONQUE: Releve = {
   wsJoignable: false,
   reglages: { runner: 'off', bindPublic: false, gardiennes: 'strict', corsOuvert: false },
   espace: { octetsLibres: 0, inscriptible: false },
+  decouverte: { ruche: false, machine: false, ecouteLocale: true },
 };
 const lire = (f: string): string => readFileSync(path.join(RACINE, f), 'utf8');
 

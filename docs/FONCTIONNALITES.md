@@ -55,6 +55,25 @@ côté orchestrateur, synchronisées en temps réel via WebSocket ; repli
 localStorage hors-ligne). « Couler le miel » n'intègre que les productions
 **approuvées** — le merge reste toujours un geste humain explicite.
 
+**Le compagnon.** Un petit animal habite le bas de la barre et résume la ruche
+d'un coup d'œil : il **se repose**, **travaille** (avec le nombre de tâches en
+cours), **s'agite** quand quelque chose attend un humain (une production à
+revoir, une alerte de Mon espace), **fait la fête** quelques secondes quand une
+livraison est acceptée, et devient gris avec un « ? » quand le flux est coupé —
+on ne sait alors pas ce que fait la ruche, et il ne l'invente pas. Il vit dans
+la barre, jamais au-dessus du contenu ; sous « réduire les animations » il ne
+bouge pas du tout. Un clic ouvre ses réglages : l'**abeille**, le **bourdon** ou
+l'**osmie**, ou **le vôtre** — une image PNG ou WebP de 150 Kio au plus, fixe ou
+en planche horizontale d'images, gardée dans ce navigateur pour ce compte (trois
+au plus, sous un plafond commun à tous les comptes du navigateur) et jamais
+envoyée à la ruche. Les octets décident : un SVG ou une page HTML
+renommés en `.png` sont refusés. « Ranger le compagnon » ne laisse qu'une
+alvéole pour le rappeler.
+
+![Les six états du compagnon : repos, au travail, un humain est attendu, livraison acceptée, flux coupé, et un compagnon apporté](images/compagnon-humeurs.png)
+
+![Les réglages du compagnon : les trois compagnons intégrés, un compagnon apporté et le formulaire pour apporter le vôtre](images/compagnon-reglages.png)
+
 ## 🐝 Le Rayon — voir le code, voir l'IA travailler
 
 Ce que les membres voyaient jusqu'ici, c'étaient des **tâches** : des titres,
@@ -135,8 +154,12 @@ autres.
 **Supprimer un projet** se fait en bas de sa carte, dans la vue Projets — ou
 par `DELETE /api/projects/<id>`. C'est une **suppression**, pas un archivage :
 tâches, résultats, journal, mémoires du Hive Mind (et leurs propositions en
-attente), consignes de routage, dépenses de délégation, liens de partage,
-membres et miroir du code quittent la Reine. Il ne reste qu'une ligne d'audit,
+attente), consignes de routage, dépenses de délégation, autorisations et
+journal des connecteurs externes, missions rejouables et leurs instantanés,
+comparaisons du banc d'ombre, liens de partage, membres et miroir du code
+quittent la Reine. Un rejeu de ce projet (un AUTRE projet) reste un rejeu —
+ses actions irréversibles restent simulées — et sa comparaison dit sa source
+absente. Il ne reste qu'une ligne d'audit,
 `project_deleted` (qui, quand, quel nom, combien de lignes), que l'élagage du
 journal épargne pour les 1 000 suppressions les plus récentes. Il faut un
 **compte** : le propriétaire, ou un administrateur (le seul pour un projet sans
@@ -186,6 +209,7 @@ ouvrière, commitée sur **une** branche du dépôt du projet.
 npm run cli -- livrer-local <projectId>                       # commite, garde la branche sur l'ouvrière
 npm run cli -- livrer-local <projectId> --pousser --preparer npm ci --tester npm test
 npm run cli -- livrer-local <projectId> --forcer="relu à la main"   # passer outre l'Evaluator
+npm run cli -- livrer-local <projectId> --prolonger=1         # corriger : avancer hive/mission-<projectId>-1
 # ou « Livrer la mission » dans ⬡ Projets, sous « Ce que devient le travail livré »
 ```
 
@@ -232,6 +256,77 @@ npm run cli -- livrer-local <projectId> --forcer="relu à la main"   # passer ou
   demande est refusée **avant** tout travail, avec cette marche à suivre. Un
   refus du dépôt distant remonte lavé de tout identifiant, et la branche reste
   rangée sur l'ouvrière.
+- **Corriger une mission livrée**, c'est la **prolonger** (`--prolonger=<n>`)
+  plutôt qu'ouvrir `hive/mission-<projectId>-<n+1>` : la ruche confie le merge
+  à l'ouvrière qui tient la branche, le nouveau commit a pour **unique parent**
+  la tête que le journal lui connaît (trailer `Hive-Suite`), et la branche
+  avance sans jamais être forcée. Si le dépôt porte sur cette branche des
+  commits que la ruche n'a pas livrés, rien n'est commité et le rapport le dit :
+  prolonger effacerait leur travail. Trois prolongations au plus par branche.
+  C'est la même règle que la reprise d'une pull request GitHub, qui fait
+  **avancer la branche de la PR** au lieu d'en ouvrir une seconde.
+
+## ⟲ Missions rejouables — le Time Travel
+
+Le Time-Lapse de la Chronique **remonte** le temps ; une mission rejouable se
+**rejoue**. Une mission est un épisode d'activité d'un projet : elle s'ouvre
+quand une tâche vit sur un projet qui n'avait plus rien en vol — à sa
+naissance, au plus tard à sa première affectation, ou quand une tâche finie
+est relancée — et se clôt quand plus rien n'y vole (relectures comprises). Ses
+tâches sont rangées une à une : une tâche relancée n'entraîne pas la mission
+précédente avec elle. La Reine prend alors un **instantané** à chaque bord —
+plan et graphe des tâches, prompts, modèles (commandés, déclarés, offerts),
+politique de routage et **version du Genome** (son empreinte et ses
+antécédents), niveau d'autonomie, garde-fous et plafond de dépense, artefacts
+(branches, pull requests, branche de mission), décisions typées. Une revue
+humaine ou une livraison qui tombe après la clôture re-prend l'instantané de
+fin. Aucune raison humaine, aucune objection, aucun identifiant n'y entre.
+
+```bash
+GET  /api/projects/<id>/missions                      # les missions, résumées
+GET  /api/projects/<id>/missions/<missionId>          # les deux instantanés
+POST /api/projects/<id>/missions/<missionId>/rejouer  # {modele?, politiqueRoutage?, autonomie?}
+GET  /api/projects/<rejeu>/rejeu/comparaison          # source contre rejeu
+# ou « Missions · Time Travel » dans ⬡ Projets
+```
+
+- **Rejouer** crée un projet NEUF sur le même dépôt (donc des branches et des
+  bacs neufs), recrée le plan de début — ni les relectures ni les délégations,
+  que le rejeu refera lui-même — et lui impose, au choix : un **modèle** (les
+  tâches attendent un nœud qui l'offre, et le disent : `rejeu_modele_absent`),
+  une **politique de routage** (`apprise` : le vécu d'aujourd'hui ; `figee` :
+  le Genome figé au début de la mission ; `neutre` : aucun vécu) et un **niveau
+  d'autonomie** — sous le **même plafond de dépense** que la source. C'est un
+  réglage : propriétaire ou administrateur.
+- **Rien d'irréversible ne part d'un rejeu.** Pull request, fusion, commit de
+  mission, poussée, workflow GitHub — et la ruche autonome — sont **simulés** :
+  rangés (une fois), journalisés (`rejeu_action_simulee`), jamais exécutés ; la
+  route répond `409 rejeu_simule` (rien n'est parti) et la ruche autonome passe
+  à autre chose. Seul un humain connecté avec un **compte qui répond du
+  rejeu** — son propriétaire ou un administrateur de la ruche, qui doit aussi
+  répondre de chaque projet tenant le même dépôt — peut en valider un : « Valider pour de vrai » à l'écran, `--valider-rejeu` en ligne de
+  commande (`livrer`, `livrer-local`, `fusionner`), ou `validerRejeu: true`
+  dans la demande ; le jeton de ruche, que chaque machine porte, ne valide
+  jamais. Les **connecteurs externes** (Slack, webhook) se taisent aussi : ce
+  qu'ils auraient envoyé d'un rejeu — un fait, ou le test de l'Intendance —
+  est rangé et journalisé de même, et aucun relais n'a de validation humaine.
+- **La comparaison** met côte à côte le résultat, le coût déclaré (avec sa
+  couverture), le temps modèle, le temps des ouvrières, la durée, les tests,
+  les relectures, les revues humaines et les décisions. Elle ne calcule que sur
+  du déclaré : un côté muet rend l'écart **inconnu**, une mission en vol est
+  dite **provisoire**, un journal élagué pendant la mission est dit
+  **incomplet**. Une tâche annulée y a son propre statut, distinct d'un échec
+  — dans la frise de la Chronique aussi. La lire exige aussi de lire le projet
+  **source** (`403 source_illisible` sinon) : elle montre le plan de la mission
+  source. Un projet source supprimé emporte ses instantanés, et la comparaison
+  dit `source_elaguee` ; les tâches que le rejeu a recopiées à sa création sont
+  les siennes et restent jusqu'à ce qu'on le supprime.
+
+<p>
+  <img src="images/missions-rejeu-comparaison.png" alt="Un projet de rejeu : bandeau « actions irréversibles simulées » et comparaison mission source contre rejeu" width="350">
+  <img src="images/rejeu-livraison-simulee.png" alt="Livrer la mission sur un projet de rejeu : livraison simulée et rangée, rien n’est commité, et le bouton « Valider pour de vrai »" width="350">
+  <img src="images/missions-rejeu-formulaire-mobile.png" alt="Le formulaire de rejeu sur téléphone : modèle, routage, autonomie, et l’avertissement que les effets seront simulés" width="254">
+</p>
 
 ## 👑 La Reine répond — parler à la ruche
 
@@ -382,6 +477,88 @@ npm run cli -- mind                          # souvenirs récents
 # ou : GET /api/hive-mind?q=…
 ```
 
+## 🌗 Le banc d'ombre — deux modèles, la même petite tâche
+
+L'Aiguillage n'apprend que de ce qu'il a choisi : deux modèles ne se mesurent
+jamais sur la même tâche. Le **banc d'ombre**, allumé projet par projet, fait
+rejouer une petite tâche testable, tirée au sort (5 % par défaut), par un
+**second modèle**, dans le bac isolé d'une ouvrière (bubblewrap ou conteneur,
+sans les identifiants de l'hôte). Cette ombre **ne se livre jamais** :
+ni livraison, ni merge, ni rapport. Les deux productions passent par les
+validations du bac, les Gardiennes, la contre-revue et l'Evaluator. **Les tests
+du projet** départagent, et la contre-revue ne pèse que sur la confiance.
+
+Le budget est exigé à l'allumage : un nombre d'ombres et un coût déclaré au
+plus par 24 h glissantes, une seule ombre en vol à la fois. Les comparaisons se
+lisent dans le registre Genome (provenance `shadow`) et **ne changent aucun
+poids du routing**, tant que leur pondération n'est pas choisie.
+
+```bash
+# ou le panneau « Banc d'ombre » dans ⬡ Projets
+curl -X POST http://localhost:7777/api/projects/<projet>/banc-ombre \
+  -H "x-hive-token: $HIVE_TOKEN" -H 'content-type: application/json' \
+  -d '{"actif": true, "executionsParJour": 3, "plafondCoutUsd": 1}'
+```
+
+Critères d'admission, budget, confiance et limites :
+**[BANC-OMBRE.md](BANC-OMBRE.md)**.
+
+## 🕸️ Graphe d'expérience — relier ce que la ruche a vécu
+
+Le graphe **relie** des faits déjà rangés — journal, Cerveau, revues, tests —
+sans en créer un seul : projet, mission, tâche, ouvrière, version de modèle,
+décision, revue, test, erreur, leçon et production, reliés par `produced_by`,
+`reviewed_by`, `failed_with`, `fixed_by`, `validated_by`, `similar_to`,
+`derived_from` et `supersedes`. Chaque nœud et chaque lien portent leur
+**provenance** (l'id de l'événement du journal, ou la note du Cerveau) et leur
+**date**. C'est une projection en mémoire, refaite à la demande : aucune table.
+
+Trois natures ne se confondent jamais : les **faits** (le journal), les
+**corrélations** (« ces deux tâches nomment les mêmes fichiers », « la réussite
+a suivi cette erreur ») et les **leçons validées** (une note écrite dans le
+Cerveau, un souvenir Hive Mind validé). Une corrélation n'est jamais rangée
+comme un fait, et ne devient jamais une règle. Un souvenir Hive Mind n'y entre
+comme leçon que lorsque le journal nomme QUI l'a validé (l'Evaluator ou un
+humain, `memory_recorded.source`) : la parole seule de l'ouvrière n'en fait
+pas une.
+
+À chaque affectation, les tâches passées qui **ressemblent** à la nouvelle —
+mêmes signatures d'erreur, mêmes fichiers nommés, même catégorie — sont jointes
+au prompt de l'ouvrière comme **données non fiables** : titre, traits communs,
+issue, modèles, titres des leçons liées, jamais le contenu que Hive Mind, la
+Couveuse ou le Cerveau portent déjà. Le tiroir d'une tâche les montre sous
+« Pourquoi ce Worker, ce modèle » — des corrélations, pas la raison du choix.
+
+**Isolé par défaut** : une ouvrière ne reçoit que l'expérience de son projet.
+La fédération entre projets est un réglage de l'hôte, dans le `.env` de la
+Reine :
+
+```bash
+HIVE_EXPERIENCE_PORTEE=ruche   # défaut : projet
+```
+
+Fédérée, l'ouvrière de A lit aussi les titres, fichiers et modèles des tâches
+voisines des autres projets **publics** : un projet privé ne sert jamais son
+expérience hors de lui (la règle des épisodes du Cerveau). Le journal de A, lui, ne les recopie pas : le
+tiroir dit « une tâche d'un autre projet », sans son id, son projet ni son
+titre.
+
+La vue 🧠 **Mémoire** montre le graphe d'un projet (liste et voisinage d'un
+nœud) ; « Toute la ruche » est réservée aux administrateurs. Le graphe d'un
+projet nomme les erreurs, les leçons et les décisions du Cerveau par leur
+seul id : leurs titres parlent de toute la ruche (celui d'une erreur est le
+titre de la dernière tâche qui l'a rencontrée, de n'importe quel projet), et
+ne se lisent que dans « Toute la ruche ».
+
+![Le graphe d'expérience d'un projet : une tâche, ses liens datés et sourcés, et ses contextes similaires marqués « corrélations »](images/graphe-experience.bureau.png)
+
+![Le tiroir d'une tâche : l'expérience voisine que l'ouvrière a lue](images/graphe-experience-tiroir.bureau.png)
+
+```bash
+# GET /api/projects/:id/experience[?genre=task][&noeud=task:<id>]
+# GET /api/admin/experience            (compte administrateur)
+```
+
 ## ⚖️ Débat et critique — une objection atteint la correction
 
 Une production réussie est relue par un modèle d'une **autre famille** ; si le
@@ -493,6 +670,53 @@ npm run cli -- stings <projectId>            # conflits potentiels du projet
 # ou : GET /api/projects/:id/conflicts
 ```
 
+## 🔌 Connecteurs externes — webhook signé et Slack
+
+La ruche **pousse ses faits vers l'extérieur** — une production qui attend un
+verdict, une décision de revue, une tâche bloquée, une livraison fusionnée — et,
+pour Slack, **reçoit des approbations**. Tout se règle dans **Intendance →
+Connecteurs externes** (administrateur) :
+
+- **Activer** : poser le secret du connecteur. Il est écrit dans le `.env` de la
+  Reine (comme les clés d'API), **jamais en base, jamais envoyé à un nœud, jamais
+  relu** — l'écran n'en montre que la présence.
+- **Autoriser par projet** : un connecteur ne fait **rien** pour un projet qui
+  ne l'a pas autorisé. On accorde des **portées** dans un ensemble fermé
+  (`lecture`, `notification`, `approbation`, `action`), bornées par le **mode**
+  du connecteur : un connecteur en lecture seule ne peut jamais approuver.
+- **Tester** : envoie un fait de test et dit **l'issue réelle** (un récepteur
+  en 500 n'est pas « envoyé ») ; un test par connecteur et par projet toutes
+  les 10 secondes au plus (`429` sinon).
+- **Journal** : chaque appel extérieur — réussi, raté ou refusé — laisse une
+  ligne : qui, quel acte, quelle portée, quel résultat, l'empreinte SHA-256 du
+  corps exact envoyé (caviardé au préalable) et un **aperçu caviardé d'au plus
+  200 caractères** — jamais un secret, jamais la charge entière. 90 jours, et
+  il part avec son projet quand celui-ci est supprimé.
+
+**Webhook générique** : un `POST` JSON signé HMAC (en-tête `X-Hive-Signature`,
+`t=…,v1=…`) vers l'URL que vous posez — `https://`, ou `http://` vers la
+boucle locale seulement ; une redirection n'est jamais suivie. Il ne reçoit
+rien.
+
+**Slack** : le jeton de bot (`xoxb-…`, scope `chat:write`) poste dans les
+**canaux inscrits** (par ID : `C0…`) — et seulement parmi ceux que
+l'**administrateur** permet (`SLACK_CANAUX`, IDs séparés par des virgules,
+posé dans l'Intendance) : un projet ne peut inscrire aucun autre canal, et sans
+cette liste Slack ne poste nulle part. Les canaux et usagers inscrits d'un
+projet, et son journal, ne se lisent que par son propriétaire ou un
+administrateur. Le jeton d'app (`xapp-…`) ouvre le
+**Socket Mode** — la seule voie entrante, sans URL publique. Un bouton
+« Approuver » / « Rejeter » n'est appliqué que si le projet a accordé
+`approbation` **et** que le canal **et** l'usager (`U0…`) sont inscrits ; listes
+vides = personne. Il rejoint **la même revue** que la Miellerie — jamais une
+autorité nouvelle ; le fait `task_reviewed` dit qu'il vient de Slack et de quel
+usager, sans raison inventée — et chaque bouton est lié à la production qu'il montre : un
+clic sur une tentative remplacée, ou sur un verdict changé depuis, est refusé
+comme périmé. Le cliqueur voit l'issue dans Slack. Sans jeton d'app, les
+demandes d'approbation partent **sans** boutons et renvoient à la Miellerie.
+
+![Intendance → Connecteurs externes : activer, autoriser par projet, tester, journal](images/connecteurs-bureau.png)
+
 ## 🤝 Inviter un ami (connecter son IA en 30 s)
 
 1. **Vous (hôte)** — lancez l'orchestrateur avec un vrai token (`npm run dev`),
@@ -512,7 +736,10 @@ npm run cli -- stings <projectId>            # conflits potentiels du projet
 
 2. **Votre ami** — récupère Hive, lance `npm install`, puis **colle la commande**.
    Son Claude Code / Codex est détecté automatiquement, et sa clé de nœud est
-   mémorisée pour les reconnexions.
+   mémorisée pour les reconnexions — avec l'adresse de la ruche : relancé plus
+   tard, `npm run join` sans rien derrière reprend sa place. La clé ne se
+   présente qu'à la ruche qui l'a délivrée ; le billet d'une autre ruche
+   s'échange normalement.
 
    ```bash
    npm run join -- hive2_eyJ2IjoyLCJ1cmwiOiJ3c3M6…
@@ -549,6 +776,62 @@ npm run cli -- exclure node-…  # sa clé ne vaut plus rien, sa connexion est c
 > passer pour une machine **déjà connue**. Ce geste-là ne passe pas inaperçu, il
 > coupe la connexion de la vraie machine — mais si votre token a fuité, changez-le
 > plutôt que de compter sur l'exclusion.
+
+### La machine d'à côté, sans billet à copier (réseau local)
+
+Quand la machine à ajouter est sur le **même réseau local**, pas besoin de
+s'envoyer un billet à soi-même. Deux réglages, **éteints par défaut** :
+
+1. **Sur la ruche** — `HIVE_DECOUVERTE=1` (et `HIVE_HOST=0.0.0.0`, sinon aucune
+   machine ne pourra la joindre ; `hive doctor` le signale). Elle écoute les
+   machines qui se signalent en mDNS (`_hive._tcp`).
+2. **Sur la machine** — `hive join --decouvrable` (ou `HIVE_DECOUVRABLE=1`).
+   Elle se signale, et affiche un **code d'appariement** :
+
+   ```
+   🐝 Cette machine se signale sur le réseau local : « portable-camille »
+      Linux · Claude Code, Codex · 2 places
+      (rien d’autre n’est diffusé : ni version, ni chemin, ni clé)
+      🔑 Code d'appariement : K7Q2-9XMP
+   ```
+
+3. **Dans le tableau de bord** — **Inviter** → « Sur votre réseau local » →
+   **Rejoindre**, puis recopiez le code. La machine échange son billet contre sa
+   clé et apparaît parmi les ouvrières. Elle mémorise sa clé et l'adresse de la
+   ruche : relancée (`hive join --decouvrable` ou à nu), elle reprend sa place
+   sans nouvel appariement.
+
+<p align="center">
+  <img src="images/decouverte-reseau.png" width="420" alt="Modale Inviter — « Sur votre réseau local » : la machine portable-de-camille (Linux, Claude Code et Codex, 2 places) attend ; le code affiché sur elle est saisi, bouton Accueillir.">
+  <img src="images/decouverte-reseau-accueillie.png" width="420" alt="Après Accueillir : « portable-de-camille a accepté l’offre » ; une fois inscrite, la machine se dit membre de cette ruche.">
+  <img src="images/decouverte-reseau.mobile.png" width="210" alt="La même liste sur un téléphone : la machine en attente et son bouton Rejoindre, sans défilement horizontal.">
+</p>
+
+Ce qui rend ce raccourci sûr :
+
+|                                  |                                                                                                                                                                                                             |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Rien n'est diffusé en trop**   | nom, système, familles d'agents connectés, places, état (libre / membre) et l'empreinte publique de la ruche d'un membre — c'est tout                                                                       |
+| **Jamais d'entrée sans le code** | le code n'existe que sur l'écran de la machine : une ruche voisine qui l'entend ne peut pas se l'approprier                                                                                                 |
+| **Le billet voyage scellé**      | chiffré sous le code (AES-256-GCM, clé PBKDF2) ; un imposteur qui recevrait l'offre ne l'ouvre pas, un témoin du réseau non plus                                                                            |
+| **Cinq essais par code**         | au cinquième refus, la machine en tire un nouveau ; un billet qui n'a pas été ouvert est révoqué sur-le-champ, et il expire en 10 minutes                                                                   |
+| **La même porte ensuite**        | le billet s'échange par `POST /api/rejoindre`, comme n'importe quel billet — clé propre au nœud, révocable                                                                                                  |
+| **Le seul segment de la ruche**  | la ruche n'offre qu'à une adresse privée de l'un de ses propres sous-réseaux — jamais la boucle ni l'adresse de métadonnées des nuages `169.254.169.254` : une source forgée ne la fait pas écrire ailleurs |
+
+L'empreinte de la ruche (`abcd-efgh-jkmn`) est affichée dans le tableau de bord
+**et** par la machine quand elle reçoit l'offre : comparez-les, comme on compare
+l'empreinte d'un hôte SSH. Elle est **tirée au sort** au premier démarrage et
+rangée dans la base de la ruche — jamais dérivée d'un secret : elle est
+diffusée, elle ne doit rien apprendre à personne. Une machine membre qui se
+signale dit de quelle ruche elle est ; la vôtre la montre « se disent membres
+de cette ruche » — une annonce, pas une preuve (l'empreinte se recopie) : seule
+la liste des ouvrières connectées fait foi.
+
+> Limites, dites franchement : IPv4 seulement ; mDNS ne franchit pas un routeur
+> (un seul segment réseau). Un pare-feu qui bloque le port UDP 5353 : la machine
+> **n'apparaît pas** dans la liste. Un pare-feu qui bloque le port d'accueil de
+> la machine : elle apparaît, mais **Rejoindre** répond « machine injoignable ».
+> Dans les deux cas, le billet reste le chemin de repli.
 
 ### Se connecter depuis l'extérieur
 

@@ -58,11 +58,13 @@ import { BalanceProjet, CarteDevis } from './Balance';
 import { PleinEssaim } from '../PleinEssaim';
 import { OnboardingEssaim } from '../OnboardingEssaim';
 import { GardeFous } from '../GardeFous';
+import { BancOmbre } from '../BancOmbre';
 import { RapportMission } from '../RapportMission';
-import { EchecSondage, Honeycomb, useApiPoll } from './shared';
+import { EchecSondage, Honeycomb, travailDesProjets, useApiPoll } from './shared';
 import type { ViewProps } from './shared';
 import { argv, useSuiviMerge } from './suivi-merge';
 import { LivraisonMission } from './LivraisonMission';
+import { MissionsProjet } from './MissionsRejeu';
 import { MergeReport } from './MergeReport';
 import { sansIdentifiants } from '../../../src/shared/projet-public';
 import { ISSUES_A_TRANCHER, JUSTIFICATION_MAX } from '../../../src/shared/war-room';
@@ -1966,6 +1968,11 @@ export function LivraisonsProjet({
                   </button>
                 )
               )}
+              {/* Pas de bouton que la Reine refuserait — mais pas de silence non
+                  plus : la raison (reprise en vol, plafond) se lit ici. */}
+              {!repris[l.taskId] && !l.reprenable && l.nonReprenable && (
+                <span className="pj-liv-repris">{l.nonReprenable}</span>
+              )}
             </li>
           ))}
         </ul>
@@ -2226,6 +2233,10 @@ function ProjectCard({
       {/* L'Agent Garde-Fous : le réglage appris du trou de vol, opt-in par projet,
           juste sous l'autonomie — les deux réglages « jusqu'où la ruche va seule ». */}
       <GardeFous projectId={project.id} />
+      {/* Le banc d'ombre : l'autre réglage qui fait dépenser la ruche sans clic
+          — une part des tâches rejouée par un second modèle, pour comparer.
+          Sous le Garde-Fous, avec lui dans « ce que la ruche s'autorise ». */}
+      <BancOmbre projectId={project.id} />
 
       {/* L'équipe, sous l'autonomie : « qui a le droit de voir ça » se pose
           après « qu'est-ce que ça fait ». C'est aussi le seul endroit d'où un
@@ -2242,6 +2253,10 @@ function ProjectCard({
           attendent qu'on le demande — voir plus haut. */}
       <IssuesProjet project={project} />
       <LivraisonsProjet project={project} taskTitles={taskTitles} />
+
+      {/* Les missions, APRÈS les livraisons : ce que le travail a donné, puis
+          comment le refaire autrement — et comparer. Lecture sur demande. */}
+      <MissionsProjet project={project} />
 
       {/* Le Conseil en dernier : c'est d'abord une lecture de délibération. Il
           ne s'affiche que si ce projet a délibéré — ou si l'on demande à le
@@ -2355,8 +2370,9 @@ export default function Projets({
     window.scrollTo?.({ top: 0 });
   };
   const tasksByProject = useMemo(() => {
+    // Le travail de chaque projet, sans les ombres du banc (`travailDesProjets`).
     const m = new Map<string, Task[]>();
-    for (const task of snapshot.tasks) {
+    for (const task of travailDesProjets(snapshot.tasks)) {
       const list = m.get(task.projectId);
       if (list) list.push(task);
       else m.set(task.projectId, [task]);

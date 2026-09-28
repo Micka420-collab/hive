@@ -51,6 +51,23 @@ orchestrator, synced in real time over WebSocket; offline localStorage
 fallback). "Pour the honey" only integrates **approved** productions — merging
 always remains an explicit human gesture.
 
+**The companion.** A small creature lives at the bottom of the sidebar and sums
+the hive up at a glance: it **rests**, **works** (with the number of running
+tasks), **fidgets** when something waits for a human (a production to review, a
+My space alert), **celebrates** for a few seconds when a delivery is accepted,
+and turns grey with a "?" when the live feed is down — nobody knows what the
+hive is doing then, and it does not make it up. It lives in the sidebar, never
+over the content; with "reduce motion" it does not move at all. A click opens
+its settings: the **honeybee**, the **bumblebee** or the **mason bee**, or
+**your own** — a PNG or WebP image of 150 KiB at most, still or a horizontal
+strip of frames, kept in this browser for this account (three at most, under a
+cap shared by every account on the browser) and never sent to the hive. The bytes decide: an SVG or an HTML page renamed `.png` is refused. "Put
+the companion away" leaves a single cell to bring it back.
+
+![The companion’s six states: resting, working, a human is awaited, delivery accepted, feed down, and a companion of your own](images/compagnon-humeurs.png)
+
+![The companion settings (French interface): the three built-in companions, one brought by the user, and the form to bring your own](images/compagnon-reglages.png)
+
 ## 🐝 The Comb — seeing the code, watching the AI work
 
 What members could see so far were **tasks**: titles, states, diffs. Never the
@@ -120,8 +137,11 @@ without touching the others.
 **Deleting a project** is done at the bottom of its card in the Projects view —
 or with `DELETE /api/projects/<id>`. It is a **deletion**, not an archive:
 tasks, results, journal, Hive Mind memories (and their pending proposals),
-routing constraints, delegation spend, share links, members and the code
-mirror leave the Queen. Only one audit line remains, `project_deleted` (who,
+routing constraints, delegation spend, external connector grants and journal,
+replayable missions and their snapshots, shadow-bench comparisons, share
+links, members and the code mirror leave the Queen. A replay of this project
+(ANOTHER project) stays a replay — its irreversible actions stay simulated —
+and its comparison says its source is gone. Only one audit line remains, `project_deleted` (who,
 when, which name, how many rows), which journal pruning spares for the 1,000
 most recent deletions. It takes an
 **account**: the owner, or an administrator (the only one for an ownerless
@@ -170,6 +190,7 @@ by a worker, committed to **one** branch of the project repository.
 npm run cli -- livrer-local <projectId>                       # commit, keep the branch on the worker
 npm run cli -- livrer-local <projectId> --pousser --preparer npm ci --tester npm test
 npm run cli -- livrer-local <projectId> --forcer="read by hand"      # override the Evaluator
+npm run cli -- livrer-local <projectId> --prolonger=1         # fix: advance hive/mission-<projectId>-1
 # or "Deliver the mission" in ⬡ Projects, under "What the delivered work becomes"
 ```
 
@@ -214,6 +235,75 @@ npm run cli -- livrer-local <projectId> --forcer="read by hand"      # override 
   request is refused **before** any work, with that fix spelled out. A refusal
   from the remote comes back stripped of any credential, and the branch stays on
   the worker.
+- **Fixing a delivered mission** means **extending** it (`--prolonger=<n>`)
+  instead of opening `hive/mission-<projectId>-<n+1>`: the hive hands the merge
+  to the worker that holds the branch, the new commit has the head the journal
+  knows as its **only parent** (`Hive-Suite` trailer), and the branch advances
+  without ever being forced. If the repository carries commits on that branch
+  that the hive did not deliver, nothing is committed and the report says so:
+  extending would erase their work. At most three extensions per branch. It is
+  the same rule as resuming a GitHub pull request, which **advances the PR's
+  branch** instead of opening a second one.
+
+## ⟲ Replayable missions — Time Travel
+
+The Chronicle's Time-Lapse **rewinds** time; a replayable mission is
+**replayed**. A mission is an activity episode of a project: it opens when a
+task is live on a project with nothing in flight — at its birth, at the latest
+at its first assignment, or when a finished task is retried — and closes when
+nothing flies any more (reviews included). Its tasks are recorded one by one: a
+retried task does not drag the previous mission along. The Queen takes a
+**snapshot** at each edge — plan and task graph, prompts, models (commanded,
+declared, offered), routing policy and **Genome version** (its fingerprint and
+history), autonomy level, guardrails and spending cap, artifacts (branches,
+pull requests, mission branch), typed decisions. A human review or a delivery
+that lands after closure retakes the end snapshot. No human reason, no
+objection, no credential goes in.
+
+```bash
+GET  /api/projects/<id>/missions                      # missions, summarised
+GET  /api/projects/<id>/missions/<missionId>          # both snapshots
+POST /api/projects/<id>/missions/<missionId>/rejouer  # {modele?, politiqueRoutage?, autonomie?}
+GET  /api/projects/<replay>/rejeu/comparaison         # source vs replay
+# or "Missions · Time Travel" in ⬡ Projects
+```
+
+- **Replaying** creates a NEW project on the same repository (so fresh branches
+  and sandboxes), recreates the starting plan — not the reviews nor the
+  delegations, which the replay redoes itself — and imposes, as chosen: a
+  **model** (tasks wait for a node offering it, and say so:
+  `rejeu_modele_absent`), a **routing policy** (`apprise`: today's history;
+  `figee`: the Genome frozen at the mission's start; `neutre`: no history) and
+  an **autonomy level** — under the **same spending cap** as the source. It is a
+  setting: owner or administrator.
+- **Nothing irreversible leaves a replay.** Pull request, merge, mission
+  commit, push, GitHub workflow — and the autonomous hive — are **simulated**:
+  stored (once), journaled (`rejeu_action_simulee`), never executed; the route
+  answers `409 rejeu_simule` (nothing left) and the autonomous hive moves on.
+  Only a human signed in with an **account that answers for the replay** —
+  its owner or a hive administrator, who must also answer for every project
+  holding the same repository — can approve one: “Validate for real” on
+  screen, `--valider-rejeu` on the command line (`livrer`,
+  `livrer-local`, `fusionner`), or `validerRejeu: true` in the request; the hive
+  token, which every machine carries, never approves. **External connectors**
+  (Slack, webhook) stay silent too: what they would have sent from a replay —
+  a fact, or the Stewardship test — is stored and journaled the same way, and
+  no relay can be approved by a human.
+- **The comparison** puts side by side the result, the declared cost (with its
+  coverage), model time, worker time, duration, tests, reviews, human reviews
+  and decisions. It computes on declared data only: a silent side makes the
+  delta **unknown**, a mission in flight is **provisional**, a log pruned during
+  the mission is **incomplete**. A cancelled task has its own status, distinct
+  from a failure — in the Chronicle's timeline too. Reading it requires read
+  access to the **source** project as well (`403 source_illisible` otherwise):
+  it shows the source mission's plan. When the source project is deleted, its
+  snapshots go with it and the comparison says `source_elaguee`; the tasks the
+  replay copied at creation belong to the replay and stay until it is deleted.
+
+<p>
+  <img src="images/missions-rejeu-comparaison-en.png" alt="A replay project: the “irreversible actions simulated” banner and the source-versus-replay comparison" width="350">
+  <img src="images/rejeu-livraison-simulee-en.png" alt="Delivering the mission on a replay project: delivery simulated and recorded, nothing committed, and the “Validate for real” button" width="350">
+</p>
 
 ## 👑 The Queen replies — talking to the hive
 
@@ -412,6 +502,82 @@ assignment is recorded as "forced by the operator", and no learned score is
 touched. If no online worker satisfies it, the task waits and the journal says
 so.
 
+## 🌗 The shadow bench — two models, the same small task
+
+The router only learns from what it chose: two models never meet on the same
+task. The **shadow bench**, enabled per project, has a small testable task,
+drawn by lot (5% by default), replayed by a **second model** in a worker's
+isolated sandbox (bubblewrap or a container, without the host credentials).
+That shadow is **never delivered**: no delivery, no merge, no
+report. Both productions go through the sandbox validations, the Gardiennes,
+the counter-review and the Evaluator. **The project's tests** decide, and the
+counter-review only sets the confidence.
+
+The budget is required to enable it: at most a number of shadows and a
+declared cost per rolling 24 h, one shadow in flight at a time. Comparisons are
+read in the Genome register (`shadow` provenance) and **change no routing
+weight** until their weighting is chosen.
+
+```bash
+# or the “Shadow bench” panel in ⬡ Projects
+curl -X POST http://localhost:7777/api/projects/<project>/banc-ombre \
+  -H "x-hive-token: $HIVE_TOKEN" -H 'content-type: application/json' \
+  -d '{"actif": true, "executionsParJour": 3, "plafondCoutUsd": 1}'
+```
+
+Admission rules, budget, confidence and limits (FR):
+**[BANC-OMBRE.md](BANC-OMBRE.md)**.
+
+## 🕸️ Experience graph — linking what the hive went through
+
+The graph **links** facts that are already stored — journal, Brain, reviews,
+tests — without creating any: project, mission, task, worker, model version,
+decision, review, test, error, lesson and artifact, linked by `produced_by`,
+`reviewed_by`, `failed_with`, `fixed_by`, `validated_by`, `similar_to`,
+`derived_from` and `supersedes`. Every node and every link carries its
+**provenance** (the journal event id, or the Brain note) and its **date**. It is
+an in-memory projection, rebuilt on demand: no table.
+
+Three kinds of knowledge never mix: **facts** (the journal), **correlations**
+("these two tasks name the same files", "success followed this error") and
+**validated lessons** (a note written in the Brain, a validated Hive Mind
+memory). A correlation is never stored as a fact, and never becomes a rule.
+A Hive Mind memory only enters as a lesson when the journal names WHO
+validated it (the Evaluator or a human, `memory_recorded.source`): the
+worker's word alone does not make one.
+
+On every assignment, past tasks that **resemble** the new one — same error
+signatures, same named files, same category — are attached to the worker's
+prompt as **untrusted data**: title, shared traits, outcome, models, titles of
+linked lessons, never the content Hive Mind, the Brood chamber or the Brain
+already carry. A task's drawer shows them under "Why this Worker, this model" —
+correlations, not the reason for the choice.
+
+**Isolated by default**: a worker only receives its own project's experience.
+Cross-project federation is a host setting, in the Queen's `.env`:
+
+```bash
+HIVE_EXPERIENCE_PORTEE=ruche   # default: projet
+```
+
+Federated, project A's worker also reads the titles, files and models of
+similar tasks from other **public** projects: a private project never serves
+its experience outside itself (the Cerveau episodes rule). A's journal does not copy them: the drawer
+says "a task from another project", without its id, project or title.
+
+The 🧠 **Memory** view shows a project's graph (list and a node's
+neighbourhood); "The whole hive" is reserved to administrators. A project's
+graph names Brain errors, lessons and decisions by id only: their titles speak
+for the whole hive (an error's title is the title of the last task that hit
+it, from any project), and are only readable under "The whole hive".
+
+![A project's experience graph: a task, its dated and sourced links, and its similar contexts marked as correlations](images/graphe-experience.bureau.png)
+
+```bash
+# GET /api/projects/:id/experience[?genre=task][&noeud=task:<id>]
+# GET /api/admin/experience            (administrator account)
+```
+
 ## 🛡️ Sting Detector — conflict prevention
 
 Two tasks that could run **at the same time** (no dependency ordering between
@@ -432,6 +598,50 @@ npm run cli -- stings <projectId>            # the project's potential conflicts
 # or: GET /api/projects/:id/conflicts
 ```
 
+## 🔌 External connectors — signed webhook and Slack
+
+The hive **pushes its facts outward** — a production awaiting a verdict, a
+review decision, a blocked task, a merged delivery — and, for Slack, **receives
+approvals**. Everything is set in **Stewardship → External connectors** (admin):
+
+- **Enable**: set the connector's secret. It is written to the Queen's `.env`
+  (like API keys), **never to the database, never sent to a node, never read
+  back** — the screen only shows that it is present.
+- **Authorize per project**: a connector does **nothing** for a project that has
+  not authorized it. Scopes come from a closed set (`lecture`, `notification`,
+  `approbation`, `action`), bounded by the connector's **mode**: a read-only
+  connector can never approve.
+- **Test**: sends a test fact and reports the **real outcome** (a receiver
+  answering 500 is not "sent"); at most one test per connector and project
+  every 10 seconds (`429` otherwise).
+- **Journal**: every outside call — succeeded, failed or refused — leaves a
+  line: who, which act, which scope, which result, the SHA-256 of the exact
+  request body sent (redacted beforehand) and a **redacted preview of at most
+  200 characters** — never a secret, never the full payload. 90 days, and it
+  leaves with its project when that project is deleted.
+
+**Generic webhook**: an HMAC-signed JSON `POST` (`X-Hive-Signature` header,
+`t=…,v1=…`) to the URL you set — `https://`, or `http://` to loopback only;
+a redirect is never followed. It receives nothing.
+
+**Slack**: the bot token (`xoxb-…`, `chat:write` scope) posts to the **listed
+channels** (by ID: `C0…`) — and only among those the **administrator** allows
+(`SLACK_CANAUX`, comma-separated IDs, set in Stewardship): a project cannot list
+any other channel, and without that list Slack posts nowhere. A project's listed
+channels and users, and its journal, are readable only by its owner or an
+administrator. The app token (`xapp-…`) opens **Socket Mode** — the
+only inbound path, with no public URL. An "Approve" / "Reject" button is applied
+only if the project granted `approbation` **and** both the channel **and** the
+user (`U0…`) are listed; empty lists mean nobody. It joins **the same review**
+as the Honey House — never a new authority; the `task_reviewed` fact says it
+came from Slack and which user, with no invented reason — and each button is bound to the
+production it shows: a click on an older attempt, or on a verdict changed since,
+is refused as stale. The clicker sees the outcome in Slack. Without the app
+token, approval requests are posted **without** buttons and point to the Honey
+House.
+
+![Stewardship → External connectors: enable, authorize per project, test, journal](images/connecteurs-bureau.png)
+
 ## 🤝 Invite a friend (connect their AI in 30 s)
 
 1. **You (host)** — start the orchestrator with a real token (`npm run dev`),
@@ -451,7 +661,9 @@ npm run cli -- stings <projectId>            # the project's potential conflicts
 
 2. **Your friend** — gets Hive, runs `npm install`, then **pastes the command**.
    Their Claude Code / Codex is auto-detected, and their node key is remembered
-   across restarts.
+   across restarts — together with the hive's address: a later bare
+   `npm run join` takes its place back. The key is only ever presented to the
+   hive that issued it; another hive's ticket is exchanged normally.
 
    ```bash
    npm run join -- hive2_eyJ2IjoyLCJ1cmwiOiJ3c3M6…
@@ -481,6 +693,49 @@ npm run cli -- exclure node-…  # their key becomes worthless, their socket is 
 
 > A removed member **cannot come back using the master token**: the refusal is
 > final, it does not fall back to the old door.
+
+### The machine next door, without copying a ticket (local network)
+
+When the machine to add is on the **same local network**, you do not need to
+send yourself a ticket. Two settings, **off by default**:
+
+1. **On the hive** — `HIVE_DECOUVERTE=1` (and `HIVE_HOST=0.0.0.0`, otherwise no
+   machine can reach it; `hive doctor` says so). It listens for machines that
+   announce themselves over mDNS (`_hive._tcp`).
+2. **On the machine** — `hive join --decouvrable` (or `HIVE_DECOUVRABLE=1`). It
+   announces itself and prints a **pairing code**, e.g. `K7Q2-9XMP`.
+3. **In the dashboard** — **Invite** → “On your local network” → **Join**, then
+   type the code. The machine trades its ticket for its key and shows up among
+   the workers. It remembers its key and the hive's address: restarted
+   (`hive join --decouvrable` or bare), it rejoins without a new pairing.
+
+<p align="center">
+  <img src="images/decouverte-reseau.png" width="420" alt="Invite dialog (French UI) — “On your local network”: the machine portable-de-camille (Linux, Claude Code and Codex, 2 slots) is waiting; the code shown on it is typed in, Welcome button.">
+</p>
+
+What keeps this shortcut safe:
+
+|                                 |                                                                                                                                                                                        |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Nothing extra broadcast**     | name, OS family, connected agent families, slots, state (free / member) and a member's public hive fingerprint — that's all                                                            |
+| **Never in without the code**   | the code only exists on the machine's screen: a neighbouring hive that hears it cannot claim it                                                                                        |
+| **The ticket travels sealed**   | encrypted under the code (AES-256-GCM, PBKDF2 key); an impostor receiving the offer cannot open it, nor can an eavesdropper                                                            |
+| **Five tries per code**         | on the fifth refusal the machine draws a new one; an unopened ticket is revoked at once, and it expires after 10 minutes                                                               |
+| **The same door afterwards**    | the ticket is exchanged through `POST /api/rejoindre` like any ticket — a per-node, revocable key                                                                                      |
+| **Only the hive's own segment** | the hive offers only to a private address on one of its own subnets — never loopback nor the cloud metadata address `169.254.169.254`: a forged source does not make it post elsewhere |
+
+The hive's fingerprint (`abcd-efgh-jkmn`) is shown in the dashboard **and** by
+the machine when it receives the offer: compare them, as you would an SSH host
+key. It is **drawn at random** on first start and stored in the hive's
+database — never derived from a secret, since it is broadcast. A member that
+announces itself says which hive it belongs to; this is a claim, not a proof
+(the fingerprint can be copied) — only the list of connected workers is
+authoritative.
+
+Limits: IPv4 only, one network segment (mDNS does not cross routers). A
+firewall blocking UDP 5353: the machine **does not appear** in the list. A
+firewall blocking the machine's offer port: it appears, but **Join** answers
+“machine unreachable”. Either way, the ticket stays the fallback.
 
 ### Connecting from outside
 

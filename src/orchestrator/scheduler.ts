@@ -22,9 +22,12 @@ import {
   aiguillerNoeuds,
   antecedentsDuVecu,
   categoriser,
+  injecterEnVol,
+  porteursDuModele,
   repriseHorsEchecs,
 } from './aiguillage.js';
-import type { Antecedent, Rang } from './aiguillage.js';
+import type { Antecedent, Bras, EtatDecision, Rang, VecuAiguillage } from './aiguillage.js';
+import type { Effort } from '../shared/effort.js';
 // L'Agent Garde-Fous : élire, PAR PROJET opt-in, l'échelon de garde-fous et
 // gouverner la sévérité des Gardiennes de la production. Module PUR — le scheduler
 // lui donne les antécédents et pose l'échelon élu. Projet non opt-in ⇒ repli sur
@@ -66,7 +69,8 @@ import { summarizeTask } from './hive-mind.js';
 import { CacheDomaines, meilleurNoeud, replierTraces } from './pheromones.js';
 import type { Domaine, TraceePheromone } from './pheromones.js';
 import { analyzePair } from './sting-detector.js';
-import type { BilanEffacement, HiveStore, NodeProfile } from './store.js';
+import { bacIsole } from './shadow-bench.js';
+import type { BilanEffacement, HiveStore, NodeProfile, TacheOmbre } from './store.js';
 import { assignationProductionAutorisee } from '../shared/agent-production.js';
 import { relecteurIndependant } from '../shared/contre-expertise.js';
 import { concurrenceEffective, lireTemperature, FENETRE_MS, TYPES_THERMO } from './thermo.js';
@@ -112,13 +116,26 @@ export const ATTENTE_RELECTEUR_ABSENT_MS = 5 * 60_000;
 /** Le lien d'une tâche de relecture vers ce qu'elle juge (`contre_expertises`). */
 type LienRelecture = NonNullable<ReturnType<HiveStore['relectureDe']>>;
 
+/** Où en était le choix du bras, figé dans l'affectation (cf. `EtatDecision`). */
+interface DecisionAiguillage {
+  etat: EtatDecision;
+  coutPondere: boolean;
+}
+
+/** Les efforts commandés par drone — seulement ceux qui en ont un. */
+function effortsDe(brasParDrone: Record<string, Bras>): Record<string, Effort> {
+  const efforts: Record<string, Effort> = {};
+  for (const [nodeId, b] of Object.entries(brasParDrone)) if (b.effort) efforts[nodeId] = b.effort;
+  return efforts;
+}
+
 export interface SchedulerOptions {
   maxAttempts?: number;
   nodeTimeoutMs?: number;
   /** Mode démo : autorise l'assignation aux nœuds shell/simulation. */
   simulation?: boolean;
   /** Appelé quand une tâche est assignée — le serveur pousse alors `assign_task` au nœud. */
-  onAssign?: (nodeId: string, task: Task, modele?: string) => void;
+  onAssign?: (nodeId: string, task: Task, modele?: string, effort?: Effort) => void;
   /** Appelé pour annuler le travail d'un nœud (drone perdant) — le serveur envoie `cancel_task`. */
   onCancel?: (nodeId: string, taskId: string, reason: string) => void;
   /** Appelé pour chaque événement journalisé — le serveur le diffuse au dashboard. */
@@ -171,6 +188,14 @@ export interface SchedulerOptions {
    * aucune décision), ce que prouve le harnais de rejeu.
    */
   gardiennes?: { mode: ModeGardiennes };
+  /**
+   * Le nœud sait-il PROLONGER une livraison (`register.prolonge`) ? Une
+   * REPRISE (`reprises_livraison`) ne part que vers un tel nœud : un nœud plus
+   * ancien perdrait `assign_task.prolonger` et travaillerait sur la branche
+   * par défaut. Absent : aucun nœud ne le sait, et une reprise attend — en le
+   * disant (`reprise_sans_ouvriere`).
+   */
+  prolonge?: (nodeId: string) => boolean;
 }
 
 export type EvaluationRetryDecision = 'correction_required' | 'rejected';
@@ -194,7 +219,8 @@ export type EvaluationRetryOutcome =
         | 'ancestor_failed'
         | 'root_cost_budget_exhausted'
         | 'delivery_exists'
-        | 'attempts_exhausted';
+        | 'attempts_exhausted'
+        | 'shadow_task';
       task?: Task;
     };
 
@@ -239,6 +265,17 @@ export class Scheduler {
    */
   private readonly differeesParConsigne = new Map<string, string>();
   /**
+   * Reprises en attente d'un nœud qui sait les prolonger (`opts.prolonge`) —
+   * dédup de `reprise_sans_ouvriere`, motif `deferredByConflict`.
+   */
+  private readonly reprisesSansOuvriere = new Set<string>();
+  /**
+   * Tâches de rejeu qui ne peuvent pas partir — modèle imposé offert par aucun
+   * nœud éligible, ou Genome figé illisible — dit une fois
+   * (`rejeu_modele_absent`, `rejeu_genome_illisible`), comme un conflit différé.
+   */
+  private readonly rejeuxSansModele = new Set<string>();
+  /**
    * Relecture → instant du PREMIER constat que sa famille relectrice est
    * absente. Dédup de l'événement d'attente, et départ de
    * `ATTENTE_RELECTEUR_ABSENT_MS`. Élaguée à chaque passe : une entrée
@@ -246,6 +283,13 @@ export class Scheduler {
    * celle qui y revient.
    */
   private readonly relecturesSansRelecteur = new Map<string, number>();
+  /**
+   * Ombre du banc (shadow-bench.ts) → instant du PREMIER constat qu'aucune
+   * ouvrière en ligne n'offre son modèle. Même motif et même délai que
+   * `relecturesSansRelecteur` : une ombre épinglée à un modèle disparu
+   * attendrait en file pour toujours, sans un mot.
+   */
+  private readonly ombresSansPorteur = new Map<string, number>();
   /** taskId → nombre de refus « infra » (token-failover) — borne les allers-retours. */
   private readonly infraRejects = new Map<string, number>();
   /**
@@ -357,6 +401,16 @@ export class Scheduler {
   private apresCommit(suite: () => void): void {
     if (this.suitesRetenues) this.suitesRetenues.push(suite);
     else suite();
+  }
+
+  /**
+   * Le budget de tentatives d'une tâche. Une OMBRE du banc n'en a qu'UNE : le
+   * banc compare la première production de l'originale à la première de
+   * l'ombre, et une reprise — nourrie de la Couveuse, sur un autre nœud —
+   * comparerait autre chose, en payant un appel de modèle de plus.
+   */
+  private maxAttemptsDe(task: Task): number {
+    return this.store.ombreDe(task.id) ? 1 : this.maxAttempts;
   }
 
   /**
@@ -1170,8 +1224,18 @@ export class Scheduler {
     // le résultat de N'IMPORTE quel drone enrôlé est arbitré par la course.
     const race = this.races.get(task.id);
     if (race) return this.handleDroneResult(race, task, nodeId, result);
+    // ─── LE BUDGET DU BANC D'OMBRE ─────────────────────────────────────────
+    // Une exécution qui sert une ombre (l'ombre, ou une de ses relectures) a
+    // coûté un vrai appel de modèle, que son résultat soit PRIS OU NON : une
+    // ombre remise en file par un nœud tombé, rejouée ailleurs, rend deux
+    // résultats et les deux ont été payés. Ne compter que le résultat pris
+    // laissait le plafond du projet se franchir sans le savoir. Compter un
+    // résultat de trop ne fait qu'arrêter le banc plus tôt — jamais dépenser plus.
+    const ombreServie = this.store.ombreLieeA(task.id);
+    const coutDeclare = result.fournisseur?.coutUsd ?? null;
     const active = task.status === 'assigned' || task.status === 'running';
     if (!active || task.assignedNodeId !== nodeId) {
+      if (ombreServie) this.store.consignerCoutOmbre(ombreServie, coutDeclare);
       this.emit('result_ignored', {
         taskId: task.id,
         nodeId,
@@ -1182,8 +1246,10 @@ export class Scheduler {
     }
 
     // Tout ce que ce résultat écrit part en UN seul geste : un succès rangé sans
-    // son `done` se compterait deux fois (voir enUnSeulGeste).
+    // son `done` se compterait deux fois (voir enUnSeulGeste). Le coût du banc
+    // en fait partie — rangé à part, une panne entre les deux le perdait.
     this.enUnSeulGeste(() => {
+      if (ombreServie) this.store.consignerCoutOmbre(ombreServie, coutDeclare);
       this.store.fermerHorlogeHote(task.id, Date.now());
 
       // Présence Rayon : la tâche est finie → plus aucun fichier « ouvert ».
@@ -1233,6 +1299,7 @@ export class Scheduler {
         // L'état des modèles écartés vit EN MÉMOIRE : il suit le COMMIT.
         const modeleRetenu = this.store.modeleAiguillageDe(task.id);
         this.apresCommit(() => this.reintegrerModele(task.id, modeleRetenu));
+        this.poserCout(task.id, result.fournisseur?.coutUsd);
         this.store.patchTask(task.id, {
           status: 'done',
           result: {
@@ -1245,11 +1312,20 @@ export class Scheduler {
         this.emit('task_done', {
           taskId: task.id,
           nodeId,
+          // La production que ce fait clôt, nommée là où elle naît : sans elle,
+          // un avis ou une validation portant ce `resultId` ne se rattachait à
+          // aucune issue du journal (graphe d'expérience, `supersedes`).
+          resultId,
           durationMs: result.durationMs,
           ...(result.usage ? { usage: result.usage } : {}),
           ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
         });
-        this.proposerSouvenir(task, resultId, result);
+        // Hive Mind : une production réussie PROPOSE un souvenir, retenu une fois
+        // validée (#495). Une OMBRE n'en propose aucun : sa production n'est le
+        // travail de personne (shadow-bench.ts), et la servir en contexte aux
+        // tâches suivantes ferait agir la ruche sur un code qu'elle ne livrera
+        // jamais.
+        if (!this.store.ombreDe(task.id)) this.proposerSouvenir(task, resultId, result);
         this.fermerSousArbre(task.id, 'ancestor_done', Date.now());
       } else {
         // Le modèle commandé à CETTE tentative a échoué (la production creuse
@@ -1262,7 +1338,7 @@ export class Scheduler {
         // protocol.ts) : aucune durée négative n'entre dans le journal, quel que
         // soit l'appelant. La Balance la reborne une troisième fois au repli.
         const durationMs = Math.max(0, result.durationMs);
-        if (attempts >= this.maxAttempts) {
+        if (attempts >= this.maxAttemptsDe(task)) {
           this.store.patchTask(task.id, {
             status: 'failed',
             attempts,
@@ -1283,6 +1359,7 @@ export class Scheduler {
           this.emit('task_failed', {
             taskId: task.id,
             nodeId,
+            resultId,
             attempts,
             durationMs,
             ...(result.usage ? { usage: result.usage } : {}),
@@ -1297,6 +1374,7 @@ export class Scheduler {
           this.emit('task_retry', {
             taskId: task.id,
             nodeId,
+            resultId,
             attempt: attempts,
             maxAttempts: this.maxAttempts,
             durationMs,
@@ -1341,6 +1419,10 @@ export class Scheduler {
     const now = input.now ?? Date.now();
     const task = this.store.getTask(input.taskId);
     if (!task) return { ok: false, reason: 'unknown_task' };
+    // Une ombre du banc est UN essai, jugé tel quel : la corriger, c'est
+    // comparer une seconde tentative guidée par la critique à la première de
+    // l'originale (`maxAttemptsDe`). Le refus est journalisé par l'appelant.
+    if (this.store.ombreDe(task.id)) return { ok: false, reason: 'shadow_task', task };
     if (task.status !== 'done') return { ok: false, reason: 'task_not_done', task };
     // Toute ligne de livraison est une décision historique : une livraison
     // échouée peut encore correspondre à une PR distante, et `pr: 0` marque
@@ -1554,6 +1636,8 @@ export class Scheduler {
       this.infraRejects.delete(task.id);
       this.deferredByConflict.delete(task.id);
       this.differeesParConsigne.delete(task.id);
+      this.reprisesSansOuvriere.delete(task.id);
+      this.rejeuxSansModele.delete(task.id);
     });
     const nodeId = task.assignedNodeId;
     const patched = this.store.patchTask(task.id, { status: 'failed', assignedNodeId: null }, now);
@@ -1753,6 +1837,12 @@ export class Scheduler {
         error: 'contre-expertise — elle ne part qu’à sa famille relectrice, pas en course',
       };
     }
+    // Une ombre du banc non plus : elle mesure UN modèle, choisi à sa création.
+    // La courir la confierait à plusieurs, et la comparaison annoncée ne
+    // mesurerait plus rien (shadow-bench.ts).
+    if (this.store.ombreDe(taskId)) {
+      return { ok: false, error: 'ombre du banc — elle mesure un seul modèle, pas en course' };
+    }
     // Balance : une course est la dépense la plus LOURDE de la ruche (la même
     // tâche confiée à N nœuds à la fois). Refus symétrique de la porte
     // d'assignation — sinon le geste explicite serait un contournement du
@@ -1782,10 +1872,13 @@ export class Scheduler {
     // se décide contre la première, comme dans la boucle principale. La
     // consigne de l'opérateur la restreint d'abord : une course diversifie les
     // agents, elle ne franchit pas une exclusion (`offreSousConsigne`).
+    const prolonger = this.store.repriseDe(taskId) !== null;
     const consigne = this.store.consigneRoutage(taskId)?.consigne ?? null;
     const offreBrute = this.store.listNodes().filter(
       (n) =>
         n.status === 'online' &&
+        // Une reprise ne court que sur des nœuds qui savent la prolonger.
+        (!prolonger || this.opts.prolonge?.(n.id) === true) &&
         // LA MÊME GARDE QUE `tick` — elle manquait ici, et « présence sans
         // production » l'a rendue nécessaire.
         //
@@ -1823,7 +1916,17 @@ export class Scheduler {
     // n'est pas enrôlé tant qu'un autre la porte. Chaque drone est ensuite
     // aiguillé sur SA vue du nœud, privée de ces modèles.
     const echoues = this.modelesEchoues.get(taskId);
-    const reprise = repriseHorsEchecs(libres, offre, echoues);
+    // Un rejeu à modèle imposé : chaque drone lance CE modèle, ou ne vole pas —
+    // une course ne rouvre pas la porte que la boucle principale ferme.
+    const rejeu = this.routageRejeu(task.projectId);
+    if (rejeu === 'genome_illisible') {
+      return { ok: false, error: 'rejeu figé sans Genome lisible — course refusée' };
+    }
+    const reprise = repriseHorsEchecs(
+      rejeu?.modele ? porteursDuModele(libres, rejeu.modele) : libres,
+      rejeu?.modele ? porteursDuModele(offre, rejeu.modele) : offre,
+      echoues,
+    );
     const { race, launch } = enlistDrones(
       createRace(taskId, factor),
       reprise.eligibles.map((n) => ({ id: n.id, agentType: n.agentType })),
@@ -1847,7 +1950,7 @@ export class Scheduler {
     // Réclamation CONDITIONNELLE, comme au tick : la tâche a été lue `ready`
     // plus haut, et on ne l'arrache pas à qui l'aurait prise entre-temps.
     const assigned = this.store.reclamerTache(
-      { taskId, attendu: 'ready', nodeId: primary, branch: `hive/${taskId}` },
+      { taskId, attendu: 'ready', nodeId: primary, branch: this.brancheDe(taskId) },
       now,
     );
     if (!assigned) return { ok: false, error: 'tâche introuvable ou déjà réclamée' };
@@ -1861,16 +1964,20 @@ export class Scheduler {
     // figée comme dans `task_assigned` : sans elle, le tiroir ne pouvait pas
     // dire pourquoi un drone non primaire avait lancé le modèle qui a gagné.
     const categorie = categoriser(task.title, task.prompt);
-    const antecedents = this.antecedentsAiguillage();
+    const antecedents = rejeu?.antecedents ?? this.antecedentsAiguillage();
     const vues = new Map(reprise.eligibles.map((n) => [n.id, n]));
     const modeleParDrone: Record<string, string> = {};
+    const brasParDrone: Record<string, Bras> = {};
     const raisons: Record<string, Rang[]> = {};
+    const decisions: Record<string, DecisionAiguillage> = {};
     for (const droneId of launch) {
       const vue = vues.get(droneId);
       const route = vue ? aiguillerNoeuds(categorie, [vue], antecedents) : null;
       if (!route) continue;
-      modeleParDrone[droneId] = route.modele;
+      modeleParDrone[droneId] = route.bras.modele;
+      brasParDrone[droneId] = route.bras;
       raisons[droneId] = route.rang.slice(0, 4);
+      decisions[droneId] = { etat: route.etat, coutPondere: route.coutPondere };
     }
     // Les modèles tombés ici qu'un drone re-lance faute d'alternative dans la
     // ruche : la course le dit, comme la boucle principale.
@@ -1878,10 +1985,11 @@ export class Scheduler {
       .filter((m) => echoues?.has(m))
       .sort();
     const aiguillee = Object.keys(modeleParDrone).length > 0;
-    if (aiguillee) race.modeleParDrone = modeleParDrone;
-    if (modeleParDrone[primary]) {
-      this.store.poserModeleAiguillage(taskId, modeleParDrone[primary], now);
-    } else this.store.effacerModeleAiguillage(taskId);
+    if (aiguillee) {
+      race.modeleParDrone = modeleParDrone;
+      race.brasParDrone = brasParDrone;
+    }
+    this.poserBras(taskId, brasParDrone[primary], now);
     // L'Agent Garde-Fous : l'échelon de garde-fous gouverne TOUTE la course (le
     // mode est PAR TÂCHE, pas par drone comme le modèle), donc on le pose UNE
     // FOIS pour la tâche — il vaudra pour le drone qui gagnera, sans re-pose.
@@ -1898,8 +2006,10 @@ export class Scheduler {
       ...(aiguillee
         ? {
             modeles: modeleParDrone,
+            efforts: effortsDe(brasParDrone),
             categorie,
             raisons,
+            decisions,
             versionAiguillage: VERSION_AIGUILLAGE,
           }
         : {}),
@@ -1914,11 +2024,13 @@ export class Scheduler {
       // recroiser une table latérale et l'événement perdrait sa valeur de
       // replay. La raison suit la forme de la boucle principale, pour se lire
       // de même (`routage-vue.ts`).
-      ...(modeleParDrone[primary]
+      ...(brasParDrone[primary]
         ? {
-            modele: modeleParDrone[primary],
+            modele: brasParDrone[primary].modele,
+            ...(brasParDrone[primary].effort ? { effort: brasParDrone[primary].effort } : {}),
             categorie,
             raisonModele: raisons[primary],
+            decisionAiguillage: decisions[primary],
             versionAiguillage: VERSION_AIGUILLAGE,
           }
         : {}),
@@ -1935,8 +2047,26 @@ export class Scheduler {
     // Une tentative par drone : chacun peut dépenser (`depenses_delegation`).
     for (const droneId of launch) this.store.ouvrirTentativeDelegation(assigned.id, droneId, now);
     // Chaque drone reçoit SON modèle élu (la course diversifie les agents).
-    for (const droneId of launch) this.opts.onAssign?.(droneId, assigned, modeleParDrone[droneId]);
+    for (const droneId of launch) {
+      const bras = brasParDrone[droneId];
+      this.opts.onAssign?.(droneId, assigned, bras?.modele, bras?.effort ?? undefined);
+    }
     return { ok: true, drones: launch };
+  }
+
+  /**
+   * La branche d'une tâche au moment où on la réclame : `hive/<taskId>`, sauf
+   * pour une REPRISE, qui travaille sur la branche de la pull request qu'elle
+   * corrige (sa lignée, `reprises_livraison`).
+   *
+   * C'était toujours `hive/<taskId>` : l'ouvrière d'une reprise partait d'une
+   * branche neuve, sans le travail de la PR, et la livraison ouvrait une
+   * seconde PR. La branche posée ici est celle que le nœud clone
+   * (`assign_task.prolonger`) et celle que la preuve CI exige de retrouver sur
+   * la PR (`evaluation/ci`) : une seule source pour les deux.
+   */
+  private brancheDe(taskId: string): string {
+    return this.store.repriseDe(taskId)?.branche ?? `hive/${taskId}`;
   }
 
   /** Course en vol pour une tâche (lecture seule, pour l'API). */
@@ -2022,14 +2152,12 @@ export class Scheduler {
         // `won` précède toujours le verdict, donc la jointure lira le bon couple.
         const modeleVainqueur = race.modeleParDrone?.[nodeId];
         this.apresCommit(() => this.reintegrerModele(task.id, modeleVainqueur));
-        if (modeleVainqueur) {
-          this.store.poserModeleAiguillage(task.id, modeleVainqueur, now);
-        } else {
-          this.store.effacerModeleAiguillage(task.id);
-        }
+        this.poserBras(task.id, race.brasParDrone?.[nodeId], now);
+        this.poserCout(task.id, result.fournisseur?.coutUsd);
         this.emit('task_done', {
           taskId: task.id,
           nodeId,
+          resultId,
           durationMs: result.durationMs,
           ...(result.usage ? { usage: result.usage } : {}),
           ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
@@ -2091,6 +2219,7 @@ export class Scheduler {
         this.emit('task_failed', {
           taskId: task.id,
           nodeId,
+          resultId,
           attempts,
           durationMs,
           ...(result.usage ? { usage: result.usage } : {}),
@@ -2102,6 +2231,7 @@ export class Scheduler {
         this.emit('task_retry', {
           taskId: task.id,
           nodeId,
+          resultId,
           attempt: attempts,
           maxAttempts: this.maxAttempts,
           durationMs,
@@ -2133,12 +2263,7 @@ export class Scheduler {
       this.store.patchTask(taskId, { status: 'assigned', assignedNodeId: next }, now);
       // Le producteur suivi change : l'élection en vol suit, pour que la borne du
       // troupeau attribue la tâche au modèle qui la porte VRAIMENT désormais.
-      const modelePromu = race.modeleParDrone?.[next];
-      if (modelePromu) {
-        this.store.poserModeleAiguillage(taskId, modelePromu, now);
-      } else {
-        this.store.effacerModeleAiguillage(taskId);
-      }
+      this.poserBras(taskId, race.brasParDrone?.[next], now);
       this.emit('drone_promoted', { taskId, nodeId: next });
     }
   }
@@ -2293,12 +2418,52 @@ export class Scheduler {
   }
 
   /**
+   * Ce qu'un REJEU de mission impose au routage de ses tâches ; `null` pour un
+   * projet ordinaire — la ruche route alors exactement comme avant.
+   *
+   *   · `modele`      — le modèle imposé aux productions ;
+   *   · `antecedents` — le vécu que l'Aiguillage lit : AUCUN (`neutre`), ou le
+   *     Genome FIGÉ au début de la mission source (`figee`). Absent (`apprise`
+   *     ou non précisé) : le vécu d'aujourd'hui, comme toute tâche.
+   *
+   * Un rejeu `figee` dont le Genome recopié est illisible rend
+   * `genome_illisible` : ses tâches attendent. Retomber sur le vécu du jour
+   * ferait passer pour « rejouée sous l'ancien Genome » une mission qui ne
+   * l'a pas été.
+   */
+  private routageRejeu(
+    projectId: string,
+  ): { modele?: string; antecedents?: VecuAiguillage } | 'genome_illisible' | null {
+    const rejeu = this.store.rejeuDuProjet(projectId);
+    if (!rejeu) return null;
+    const { modele, politiqueRoutage } = rejeu.surcharges;
+    let antecedents: VecuAiguillage | undefined;
+    if (politiqueRoutage === 'neutre') antecedents = { bras: new Map(), modeles: new Map() };
+    if (politiqueRoutage === 'figee') {
+      if (!rejeu.genomeFige) return 'genome_illisible';
+      // Les deux niveaux de l'Aiguillage v3, tels que figés (`genomeCourant`).
+      const vecu: VecuAiguillage = { bras: new Map(), modeles: new Map() };
+      for (const a of rejeu.genomeFige) {
+        (a.niveau === 'bras' ? vecu.bras : vecu.modeles).set(a.cle, {
+          essais: a.essais,
+          recompenseTotale: a.recompenseTotale,
+          ...(a.coutsDeclares
+            ? { coutTotal: a.coutTotal ?? 0, coutsDeclares: a.coutsDeclares }
+            : {}),
+        });
+      }
+      antecedents = vecu;
+    }
+    return { ...(modele ? { modele } : {}), ...(antecedents ? { antecedents } : {}) };
+  }
+
+  /**
    * Les antécédents de l'Aiguillage : le vécu jugé (verdicts) PLUS les élections
    * en vol comptées comme essais sans note (la borne du troupeau). Bâti à neuf à
    * chaque appel — les appelants qui le veulent stable le mémoïsent (la boucle
    * d'assignation) ; la course de drones, elle, n'en a besoin qu'une fois.
    */
-  private antecedentsAiguillage(): Map<string, Antecedent> {
+  private antecedentsAiguillage(): VecuAiguillage {
     // Le repli canonique, partagé avec `/api/workers` : le modèle PROUVÉ gouverne
     // l'apprentissage dès qu'il existe (cf. `antecedentsDuVecu`).
     return antecedentsDuVecu(
@@ -2383,6 +2548,27 @@ export class Scheduler {
    * destinataire. Les descendants annulés entrent dans `fermees`, que la
    * passe en cours consulte avant d'assigner.
    */
+  /**
+   * Une reprise dont aucun nœud en ligne ne sait prolonger la branche : le
+   * journal le dit UNE fois (`reprise_sans_ouvriere`), avec la marche à
+   * suivre ; le constat s'efface dès qu'un nœud capable est en ligne.
+   */
+  private signalerRepriseSansOuvriere(taskId: string, noeuds: readonly HiveNode[]): void {
+    const enLigne = noeuds.filter((n) => n.status === 'online');
+    if (enLigne.length === 0 || enLigne.some((n) => this.opts.prolonge?.(n.id) === true)) {
+      this.reprisesSansOuvriere.delete(taskId);
+      return;
+    }
+    if (this.reprisesSansOuvriere.has(taskId)) return;
+    this.reprisesSansOuvriere.add(taskId);
+    this.emit('reprise_sans_ouvriere', {
+      taskId,
+      conseil:
+        'Aucune ouvrière en ligne ne sait prolonger la branche d’une pull request : ' +
+        'mettez une ouvrière à jour, la reprise partira vers elle.',
+    });
+  }
+
   private relecteurAbsent(
     task: Task,
     lien: LienRelecture,
@@ -2455,6 +2641,56 @@ export class Scheduler {
   }
 
   /**
+   * Aucune ouvrière en ligne et isolée (`bacIsole`) n'offre-t-elle le modèle
+   * de cette OMBRE ? Vrai : elle ne part pas à cette passe.
+   *
+   * Le pendant de `relecteurAbsent`, pour la même raison : une ombre est
+   * épinglée à UN modèle (le comparer, c'est tout son objet), et un modèle dont
+   * l'ouvrière est partie pour de bon la laisserait en file à jamais. Au
+   * premier constat, `shadow_bench_waiting` le dit une fois ; au-delà du même
+   * délai qu'une relecture (`ATTENTE_RELECTEUR_ABSENT_MS`), l'ombre ÉCHOUE,
+   * dite par `task_failed` (`modele_ombre_absent`). Jamais relancée sur un
+   * autre modèle : ce serait une autre comparaison que celle annoncée par
+   * `shadow_bench_started`. Saturée, en revanche, l'ouvrière reviendra : l'ombre
+   * attend son tour en silence, comme toute tâche.
+   */
+  private ombreSansPorteur(
+    task: Task,
+    ombre: TacheOmbre,
+    noeuds: readonly HiveNode[],
+    now: number,
+  ): boolean {
+    const porte = noeuds.some(
+      (n) =>
+        n.status === 'online' &&
+        bacIsole(n) &&
+        (n.modeles ?? []).includes(ombre.modeleOmbre) &&
+        assignationProductionAutorisee(n.agentType, { simulation: this.opts.simulation }),
+    );
+    if (porte) {
+      this.ombresSansPorteur.delete(task.id);
+      return false;
+    }
+    const depuis = this.ombresSansPorteur.get(task.id);
+    if (depuis === undefined) {
+      this.ombresSansPorteur.set(task.id, now);
+      this.emit('shadow_bench_waiting', {
+        taskId: task.id,
+        tacheOriginale: ombre.tacheOriginale,
+        modele: ombre.modeleOmbre,
+        delaiMs: ATTENTE_RELECTEUR_ABSENT_MS,
+      });
+      return true;
+    }
+    if (now - depuis < ATTENTE_RELECTEUR_ABSENT_MS) return true;
+    this.ombresSansPorteur.delete(task.id);
+    this.infraRejects.delete(task.id);
+    this.store.patchTask(task.id, { status: 'failed', assignedNodeId: null }, now);
+    this.emit('task_failed', { taskId: task.id, reason: 'modele_ombre_absent' });
+    return true;
+  }
+
+  /**
    * Les tâches actives qui ÉDITENT — celles que le Sting Detector sérialise.
    *
    * Une relecture n'en est pas : elle rend un verdict sur un diff qu'elle CITE
@@ -2462,11 +2698,16 @@ export class Scheduler {
    * compter, c'était sérialiser les relectrices d'une même production — leurs
    * consignes citent les mêmes fichiers — et retenir toute production du
    * projet qui les cite aussi, le temps d'une relecture qui ne modifie rien.
+   *
+   * Une OMBRE du banc non plus : elle touche les mêmes fichiers que sa tâche
+   * originale — c'est la même tâche —, mais dans son propre atelier, et rien
+   * de ce qu'elle écrit ne sera jamais fusionné. La compter retiendrait les
+   * productions du projet derrière un travail qui ne rejoindra jamais le leur.
    */
   private activesEditrices(): Task[] {
     return this.store
       .tasksByStatus('assigned', 'running')
-      .filter((t) => this.store.relectureDe(t.id) === null);
+      .filter((t) => this.store.relectureDe(t.id) === null && this.store.ombreDe(t.id) === null);
   }
 
   /**
@@ -2548,10 +2789,18 @@ export class Scheduler {
     // rend `null` sans même les demander — zéro lecture SQL neuve). La catégorie
     // n'est jamais stockée : on la RECALCULE à la lecture (`categoriser`), pour
     // que la taxonomie du jour s'applique au vécu ancien.
-    let antecedents: Map<string, Antecedent> | null = null;
-    const lireAntecedents = (): Map<string, Antecedent> => {
+    let antecedents: VecuAiguillage | null = null;
+    const lireAntecedents = (): VecuAiguillage => {
       antecedents ??= this.antecedentsAiguillage();
       return antecedents;
+    };
+    // Le routage imposé par un rejeu, relu au plus une fois par projet et par
+    // passe : une lecture par clé primaire, et le Genome figé n'est déplié
+    // qu'une fois.
+    const rejeux = new Map<string, ReturnType<Scheduler['routageRejeu']>>();
+    const routageRejeu = (projectId: string): ReturnType<Scheduler['routageRejeu']> => {
+      if (!rejeux.has(projectId)) rejeux.set(projectId, this.routageRejeu(projectId));
+      return rejeux.get(projectId) ?? null;
     };
     // ─── LES RELECTURES D'ABORD ────────────────────────────────────────────
     // Une relecture achève un travail DÉJÀ payé ; une production prête est une
@@ -2565,10 +2814,10 @@ export class Scheduler {
       .tasksByStatus('ready')
       .map((task) => ({ task, lien: this.store.relectureDe(task.id) }))
       .sort((a, b) => Number(b.lien !== null) - Number(a.lien !== null));
-    if (this.relecturesSansRelecteur.size > 0) {
+    if (this.relecturesSansRelecteur.size > 0 || this.ombresSansPorteur.size > 0) {
       const enFile = new Set(pretes.map((p) => p.task.id));
-      for (const id of this.relecturesSansRelecteur.keys()) {
-        if (!enFile.has(id)) this.relecturesSansRelecteur.delete(id);
+      for (const attente of [this.relecturesSansRelecteur, this.ombresSansPorteur]) {
+        for (const id of attente.keys()) if (!enFile.has(id)) attente.delete(id);
       }
     }
     // `pretes` est un instantané : une relecture qui échoue à cette passe
@@ -2579,12 +2828,23 @@ export class Scheduler {
     const fermees = new Set<string>();
     for (const { task, lien } of pretes) {
       if (fermees.has(task.id)) continue;
+      // Une OMBRE du banc (shadow-bench.ts) : épinglée à SON modèle, hors
+      // Aiguillage, hors Sting Detector. Lue par clé primaire, comme le lien
+      // de relecture.
+      const ombre = lien === null ? this.store.ombreDe(task.id) : null;
+      // Une RELECTURE d'ombre sert le banc, elle aussi (`ombreLieeA`) : pas
+      // d'élection pour elle — elle poserait un essai en vol et une récompense
+      // que le banc promet de ne pas toucher. Elle garde sa famille (plus bas).
+      const horsElection =
+        ombre !== null || (lien !== null && this.store.ombreLieeA(task.id) !== null);
       // Sting Detector : ne pas lancer une tâche en conflit FORT (même fichier)
       // avec une tâche déjà active du même projet. On la diffère jusqu'à ce que
       // l'autre se termine — prévention des conflits d'édition concurrents.
-      // Une relecture n'édite rien : voir `activesEditrices`. Un enfant délégué
-      // n'attend pas derrière ses propres ancêtres : voir `conflitFortActif`.
-      const clash = lien === null ? this.conflitFortActif(task, activeNow) : undefined;
+      // Une relecture n'édite rien, une ombre ne sera jamais fusionnée : voir
+      // `activesEditrices`. Un enfant délégué n'attend pas derrière ses
+      // propres ancêtres : voir `conflitFortActif`.
+      const clash =
+        lien === null && ombre === null ? this.conflitFortActif(task, activeNow) : undefined;
       if (clash) {
         if (!this.deferredByConflict.has(task.id)) {
           this.deferredByConflict.add(task.id);
@@ -2626,13 +2886,29 @@ export class Scheduler {
       // Une famille ABSENTE ne se laisse pas attendre en silence : voir
       // `relecteurAbsent`.
       if (lien !== null && this.relecteurAbsent(task, lien, noeuds, now, fermees)) continue;
+      // ─── UNE REPRISE NE PART QUE VERS QUI SAIT LA PROLONGER ──────────────
+      // Un nœud d'avant ce contrat (`register.prolonge` absent) perdrait
+      // `assign_task.prolonger` en silence et clonerait la branche par défaut.
+      // S'il n'y a QUE de tels nœuds en ligne, la reprise attend — et le dit,
+      // une fois : une tâche `ready` que rien ne prend, sans un mot, est le
+      // pire des échecs.
+      const prolonger = this.store.repriseDe(task.id) !== null;
+      if (prolonger) this.signalerRepriseSansOuvriere(task.id, noeuds);
+      if (ombre !== null && this.ombreSansPorteur(task, ombre, noeuds, now)) continue;
       // L'OFFRE pour cette tâche : les nœuds qui pourraient la porter, charge
       // ignorée. C'est contre elle que se décide l'écart des modèles tombés
       // (`repriseHorsEchecs`) : un porteur sain seulement occupé se libérera.
+      // Une ombre ne part que chez une ouvrière qui DÉCLARE son modèle : lancée
+      // avec le défaut d'un autre nœud, elle mesurerait un autre modèle. Et
+      // seulement dans un bac isolé (`bacIsole`) : l'ombre rejoue une tâche
+      // déjà faite, elle ne doit pas pouvoir refaire un geste avec les
+      // identifiants de l'hôte.
       const offreBrute = noeuds.filter(
         (n) =>
           (lien === null || n.agentType === lien.relecteurAgent) &&
+          (ombre === null || (bacIsole(n) && (n.modeles ?? []).includes(ombre.modeleOmbre))) &&
           n.status === 'online' &&
+          (!prolonger || this.opts.prolonge?.(n.id) === true) &&
           assignationProductionAutorisee(n.agentType, {
             simulation: this.opts.simulation,
           }) &&
@@ -2682,13 +2958,51 @@ export class Scheduler {
       // (aucun éligible ne déclare de modèle) ⇒ NO-OP : on garde la liste et
       // l'ordonnancement d'avant, phéromones comprises. La sous-liste préserve
       // l'ordre de charge, donc le départage plus bas reste inchangé.
-      const route = aiguillerNoeuds(
-        categoriser(task.title, task.prompt),
-        reprise.eligibles,
-        lireAntecedents(),
-        preference?.modele,
-      );
+      //
+      // UN REJEU DE MISSION pose ses propres règles (`routageRejeu`) : un modèle
+      // IMPOSÉ aux productions (jamais aux relectures, qui valent par une AUTRE
+      // famille que le producteur), et le vécu dont l'Aiguillage se nourrit —
+      // celui d'aujourd'hui, celui figé au début de la mission, ou aucun.
+      const rejeu = routageRejeu(task.projectId);
+      // Genome figé illisible : la tâche attend (voir `routageRejeu`) — et le
+      // DIT, une fois, comme un modèle imposé absent : une attente muette
+      // laisserait le rejeu en file pour toujours sans explication.
+      if (rejeu === 'genome_illisible') {
+        if (!this.rejeuxSansModele.has(task.id)) {
+          this.rejeuxSansModele.add(task.id);
+          this.emit('rejeu_genome_illisible', { taskId: task.id, projectId: task.projectId });
+        }
+        continue;
+      }
+      // Une ombre du banc n'a pas de modèle imposé : le sien est déjà choisi.
+      const imposé = lien === null && ombre === null ? rejeu?.modele : undefined;
+      //
+      // Une ombre n'est PAS élue : son modèle a été choisi à sa création, et
+      // une élection de plus poserait un essai en vol qui pèserait sur le
+      // routing (décision de shadow-bench.ts). Ses éligibles offrent déjà ce
+      // modèle-là (voir l'offre). Ses relectures non plus (`horsElection`).
+      const route = !horsElection
+        ? aiguillerNoeuds(
+            categoriser(task.title, task.prompt),
+            imposé ? porteursDuModele(reprise.eligibles, imposé) : reprise.eligibles,
+            rejeu?.antecedents ?? lireAntecedents(),
+            preference?.modele,
+          )
+        : null;
+      // Modèle imposé qu'aucun porteur libre n'offre : la tâche ATTEND — partir
+      // sur un autre modèle fausserait la comparaison sans le dire. Si AUCUN
+      // nœud de l'offre (charge ignorée) ne le déclare, l'attente n'a pas de
+      // fin prévisible : elle le dit, une fois, plutôt que de rester muette.
+      if (imposé && !route) {
+        if (porteursDuModele(offre, imposé).length === 0 && !this.rejeuxSansModele.has(task.id)) {
+          this.rejeuxSansModele.add(task.id);
+          this.emit('rejeu_modele_absent', { taskId: task.id, modele: imposé });
+        }
+        continue;
+      }
+      this.rejeuxSansModele.delete(task.id);
       const candidats = route ? route.noeuds : reprise.eligibles;
+      const modeleCommande = route?.bras.modele ?? ombre?.modeleOmbre;
       let node = candidats[0];
       if (!node) continue; // aucun nœud éligible pour CETTE tâche (essayer les suivantes)
       // Phéromones : le critère principal « moins chargé » reste intact — elles
@@ -2732,7 +3046,7 @@ export class Scheduler {
       // tâches. Une tâche prise entre-temps n'est plus `ready` : la
       // réclamation échoue et on passe, au lieu de l'envoyer à un second nœud.
       const assigned = this.store.reclamerTache(
-        { taskId: task.id, attendu: 'ready', nodeId: node.id, branch: `hive/${task.id}` },
+        { taskId: task.id, attendu: 'ready', nodeId: node.id, branch: this.brancheDe(task.id) },
         now,
       );
       if (!assigned) continue;
@@ -2742,12 +3056,22 @@ export class Scheduler {
       // poserait un modèle fantôme), jamais au résultat (une ré-assignation doit
       // écraser, c'est le contrat « la dernière assignation gagne » qui aligne
       // dernier modèle et dernier verdict).
+      // Sans élection (`route` null), une réassignation revient au modèle par
+      // défaut du nouveau nœud : l'ancienne élection ne survit pas à la tâche.
+      // Une OMBRE n'est jamais élue (`route` null) : elle n'a donc jamais de
+      // ligne ici, et c'est ce qui la tient hors de la récompense de
+      // l'Aiguillage et de ses élections en vol — son modèle vit dans son lien
+      // (`taches_ombre`), nulle part ailleurs.
+      this.poserBras(task.id, route?.bras, now);
+      // LA BORNE DU TROUPEAU VAUT AUSSI DANS LA PASSE. Le vécu est replié UNE
+      // fois par passe : sans cette injection, l'élection qu'on vient de poser
+      // n'y pesait qu'à la passe suivante, et toutes les tâches prêtes du genre
+      // partaient au même bras dans celle-ci — un modèle jamais jugé compris.
+      // Une `route` implique un vécu déjà replié : `lireAntecedents` le rend tel quel.
       if (route) {
-        this.store.poserModeleAiguillage(task.id, route.modele, now);
-      } else {
-        // Une réassignation sans élection revient au modèle par défaut du
-        // nouveau nœud : l'ancienne élection ne doit pas survivre à la tâche.
-        this.store.effacerModeleAiguillage(task.id);
+        injecterEnVol(lireAntecedents(), [
+          { categorie: categoriser(task.title, task.prompt), ...route.bras },
+        ]);
       }
       // L'Agent Garde-Fous : si le projet a opt-in, on élit et on POSE l'échelon
       // de garde-fous — c'est lui qui gouvernera la sévérité des Gardiennes de
@@ -2775,9 +3099,13 @@ export class Scheduler {
         nodeId: node.id,
         branch: assigned.branch,
         // Même convention que pour une course : ce champ est le modèle
-        // commandé par l'Aiguillage, jamais une valeur inventée quand aucun
-        // nœud ne déclare de modèle.
-        ...(route?.modele ? { modele: route.modele } : {}),
+        // commandé — par l'Aiguillage, ou par le banc pour une ombre (`ombre`
+        // le dit) —, jamais une valeur inventée quand aucun nœud ne déclare
+        // de modèle.
+        ...(modeleCommande ? { modele: modeleCommande } : {}),
+        // L'effort n'est élu qu'avec le modèle : une ombre n'en a jamais.
+        ...(route?.bras.effort ? { effort: route.bras.effort } : {}),
+        ...(ombre ? { ombre: true } : {}),
         // La RAISON du choix, figée à l'instant de la décision : Mission
         // Control répond « pourquoi ce modèle » sans recroiser des antécédents
         // qui, eux, ont bougé depuis. Absente quand aucun modèle n'est en jeu
@@ -2791,6 +3119,10 @@ export class Scheduler {
           ? {
               categorie: categoriser(task.title, task.prompt),
               raisonModele: route.rang.slice(0, 4),
+              // L'état de la décision se calcule sur le classement ENTIER : la
+              // raison n'en garde que quatre lignes, un rival coupé changerait
+              // le verdict « décidé » s'il fallait le relire après coup.
+              decisionAiguillage: { etat: route.etat, coutPondere: route.coutPondere },
               versionAiguillage: VERSION_AIGUILLAGE,
             }
           : {}),
@@ -2803,7 +3135,9 @@ export class Scheduler {
         // toute la ruche — sans lui, son « à explorer » se lirait comme une
         // exploration neuve.
         ...(reprise.ecartes.length > 0 ? { modelesEcartes: reprise.ecartes } : {}),
-        ...(route && echoues?.has(route.modele) ? { modelesReadmis: [route.modele] } : {}),
+        ...(route && echoues?.has(route.bras.modele)
+          ? { modelesReadmis: [route.bras.modele] }
+          : {}),
         // Forcée par l'opérateur : la consigne telle qu'elle a restreint CE
         // choix. Le classement ci-dessus reste celui de l'Aiguillage, sur les
         // modèles qu'elle laissait en jeu — aucun score n'en est touché.
@@ -2826,9 +3160,9 @@ export class Scheduler {
       this.store.ouvrirHorlogeHote(assigned.projectId, assigned.id, now);
       this.store.ouvrirTentativeDelegation(assigned.id, node.id, now);
       // Le modèle élu part avec la tâche : le nœud le passera à `--model`.
-      this.opts.onAssign?.(node.id, assigned, route?.modele);
+      this.opts.onAssign?.(node.id, assigned, modeleCommande, route?.bras.effort ?? undefined);
       // Les tâches suivantes tiennent compte de celle-ci — si elle édite.
-      if (lien === null) activeNow.push(assigned);
+      if (lien === null && ombre === null) activeNow.push(assigned);
     }
   }
 
@@ -2843,6 +3177,29 @@ export class Scheduler {
     for (const [key, until] of this.recentRejections) {
       if (until <= now) this.recentRejections.delete(key);
     }
+  }
+
+  /**
+   * Range le bras commandé à la tentative courante — ou efface l'élection
+   * précédente quand il n'y en a pas : une réassignation vers un nœud sans
+   * modèle déclaré ne doit pas hériter du bras d'un autre producteur.
+   */
+  private poserBras(taskId: string, bras: Bras | undefined, now: number): void {
+    if (bras) {
+      this.store.poserModeleAiguillage(taskId, bras.modele, now, {
+        harness: bras.harness,
+        effort: bras.effort,
+      });
+    } else this.store.effacerModeleAiguillage(taskId);
+  }
+
+  /**
+   * Range le coût que le CLI a DÉCLARÉ pour la production rendue. Rien de
+   * déclaré, rien de rangé : l'absence reste inconnue, jamais un zéro qui
+   * ferait paraître gratuit l'agent qui se tait.
+   */
+  private poserCout(taskId: string, coutUsd: number | undefined): void {
+    if (coutUsd !== undefined) this.store.poserCoutAiguillage(taskId, coutUsd);
   }
 
   /**

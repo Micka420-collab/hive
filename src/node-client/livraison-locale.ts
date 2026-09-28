@@ -45,7 +45,9 @@
 //   · une poussée FORCÉE : la référence de destination est nommée sans `+`,
 //     une branche qui existe déjà là-bas fait échouer la poussée, et c'est dit ;
 //   · un écrasement sur le nœud : la branche naît par `update-ref` avec une
-//     ancienne valeur VIDE — si elle existe déjà, c'est un refus ;
+//     ancienne valeur VIDE — si elle existe déjà, c'est un refus. Une SUITE
+//     (`demande.suite`) avance la sienne contre sa tête journalisée, et
+//     refuse si le dépôt distant l'a vue bouger (`teteAProlonger`) ;
 //   · une autre référence que `hive/mission-<projectId>-<n>` : le nom est
 //     composé ICI, depuis un `projectId` validé par le protocole ;
 //   · une poussée vers une autre adresse que le `repoUrl` du hub, validé par
@@ -121,7 +123,17 @@ export interface MissionComposee {
   commit: string;
   /** Le dépôt nu de transit qui porte le commit, hors du clone (`runMerge` l'efface). */
   transit: string;
+  /**
+   * La tête que la branche doit encore avoir quand on la garde : vide pour une
+   * branche NEUVE (elle ne doit pas exister), la tête prolongée pour une suite
+   * (`demande.suite`). C'est l'ancienne valeur de l'`update-ref` : rien n'est
+   * jamais écrasé, ni ici ni là-bas.
+   */
+  ancienne: string;
 }
+
+/** La référence où la tête prolongée entre dans le clone, le temps d'en être le parent. */
+const REF_SUITE = 'refs/hive/suite';
 
 /** Un motif qui remonte au hub : lavé de tout identifiant, borné. */
 export function motifLave(texte: string): string {
@@ -190,37 +202,36 @@ export async function composerMission(opts: {
   /** Ce que `Hive-Tests` dira si le commit est gardé (cf. en-tête). */
   tests: TestsLivres;
 }): Promise<MissionComposee | RapportDuNoeud> {
-  const { demande, depotLocal, depotProjet } = opts.livraison;
+  const { demande } = opts.livraison;
   const { clone } = opts;
   try {
     await gitHote(['init', '--bare', '--quiet', opts.transit], path.dirname(opts.transit));
 
     // ─── LE NUMÉRO : ni d'ici, ni de là-bas, ni du journal du hub ──────────
-    // `ls-remote` vise le `repoUrl` du hub, depuis le transit : jamais l'`origin`
-    // du clone. Après un clone réussi, il n'échoue qu'en cas de vraie panne ;
-    // on ne devine pas alors un numéro qui pourrait déjà être pris là-bas.
-    const locales = existsSync(path.join(depotLocal, 'HEAD'))
-      ? await gitHote(['for-each-ref', '--format=%(refname)', 'refs/heads/hive/'], depotLocal)
-      : '';
-    const distantes = (await auDepotDistant(opts.transit, ['ls-remote', '--heads', depotProjet]))
-      .split('\n')
-      .map((l) => l.split('\t')[1] ?? '');
-    const n = Math.max(
-      demande.numeroMin ?? 1,
-      numeroSuivant(demande.projectId, [...locales.split('\n'), ...distantes]),
-    );
+    // Une SUITE garde le sien ; une livraison neuve prend le suivant.
+    const n = demande.suite?.n ?? (await numeroLibre(opts.livraison, opts.transit));
     const branche = brancheDeMission(demande.projectId, n);
+    // Une SUITE part de la tête de sa branche, pas de la base intégrée : c'est
+    // ce qui fait AVANCER la branche qu'on relit au lieu d'en ouvrir une n+1.
+    const suite = demande.suite
+      ? await teteAProlonger(clone, opts.livraison, opts.transit, branche, demande.suite.commit)
+      : null;
+    if (suite && 'motif' in suite) return { etat: 'non_commitee', motif: suite.motif };
 
     // ─── LE COMMIT, tant que le clone n'a vu que `clone` et `apply` ─────────
     // Un dépôt VIDE n'a pas de HEAD : la livraison y devient le premier commit.
     // `rev-parse -q` rend une sortie vide sans lever — c'est la sortie qu'on lit.
-    const parent = (
-      await gitHote(['rev-parse', '--verify', '-q', 'HEAD^{commit}'], clone).catch((e: unknown) => {
-        // `-q` sur un dépôt vide : code 1, sans un mot — c'est « pas de parent ».
-        if (e instanceof EchecGitHote && e.code === 1) return '';
-        throw e;
-      })
-    ).trim();
+    const parent =
+      suite?.parent ??
+      (
+        await gitHote(['rev-parse', '--verify', '-q', 'HEAD^{commit}'], clone).catch(
+          (e: unknown) => {
+            // `-q` sur un dépôt vide : code 1, sans un mot — c'est « pas de parent ».
+            if (e instanceof EchecGitHote && e.code === 1) return '';
+            throw e;
+          },
+        )
+      ).trim();
     // Le message s'écrit dans le TRANSIT, jamais dans le dossier temporaire du
     // système : il part avec lui, et l'empreinte de Hive sur la machine
     // (`shared/empreinte.ts`) n'y gagne pas un lieu de plus.
@@ -265,10 +276,108 @@ export async function composerMission(opts: {
         motif: 'le commit de la mission n’a pas pu quitter le clone jetable',
       };
     }
-    return { etat: 'composee', branche, commit, transit: opts.transit };
+    return {
+      etat: 'composee',
+      branche,
+      commit,
+      transit: opts.transit,
+      ancienne: suite?.parent ?? '',
+    };
   } catch (err) {
     return { etat: 'non_commitee', motif: motifLave(`livraison impossible : ${messageDe(err)}`) };
   }
+}
+
+/**
+ * Le numéro d'une livraison NEUVE : le suivant de tout ce qui est pris ici, là-
+ * bas, et au journal du hub (`numeroMin`).
+ *
+ * `ls-remote` vise le `repoUrl` du hub, depuis le transit : jamais l'`origin`
+ * du clone. Après un clone réussi, il n'échoue qu'en cas de vraie panne ; on
+ * ne devine pas alors un numéro qui pourrait déjà être pris là-bas.
+ */
+async function numeroLibre(livraison: LivraisonDuNoeud, transit: string): Promise<number> {
+  const { demande, depotLocal, depotProjet } = livraison;
+  const locales = existsSync(path.join(depotLocal, 'HEAD'))
+    ? await gitHote(['for-each-ref', '--format=%(refname)', 'refs/heads/hive/'], depotLocal)
+    : '';
+  const distantes = (await auDepotDistant(transit, ['ls-remote', '--heads', depotProjet]))
+    .split('\n')
+    .map((l) => l.split('\t')[1] ?? '');
+  return Math.max(
+    demande.numeroMin ?? 1,
+    numeroSuivant(demande.projectId, [...locales.split('\n'), ...distantes]),
+  );
+}
+
+/**
+ * La tête d'une branche de mission à PROLONGER, amenée dans le clone pour y
+ * être le parent du commit — ou le motif du refus.
+ *
+ * ─── TROIS CONDITIONS, ET CHACUNE PROTÈGE QUELQU'UN ─────────────────────────
+ *
+ *   1. le dépôt DURABLE de ce nœud tient la branche au commit que le hub a
+ *      journalisé : on prolonge ce que la ruche a livré, pas une branche
+ *      qu'un autre aurait fabriquée sous ce nom ;
+ *   2. le dépôt DISTANT ne l'a pas vue bouger : s'il porte des commits
+ *      qu'on n'a pas, le nouveau commit — l'arbre intégré de la mission —
+ *      EFFACERAIT leur travail dans son contenu, sans même avoir à forcer.
+ *      On s'arrête et on le dit, avant de rien écrire ;
+ *   3. le commit arrive dans le clone par une référence à nous (`REF_SUITE`),
+ *      relue après coup : c'est la relecture, pas le code de sortie de
+ *      `fetch`, qui prouve qu'il est là.
+ *
+ * Accepté, dit : l'arbre commité est la base intégrée D'AUJOURD'HUI. Si la
+ * branche principale a avancé depuis la livraison prolongée, ses changements
+ * entrent dans ce commit comme le reste de la mission — c'est l'état intégré
+ * qu'on livre, pas un correctif isolé.
+ */
+async function teteAProlonger(
+  clone: DepotEpingle,
+  livraison: LivraisonDuNoeud,
+  transit: string,
+  branche: string,
+  attendue: string,
+): Promise<{ parent: string } | { motif: string }> {
+  const { depotLocal, depotProjet } = livraison;
+  const ref = `refs/heads/${branche}`;
+  const locale = existsSync(path.join(depotLocal, 'HEAD'))
+    ? await gitHote(['rev-parse', '--verify', '-q', ref], depotLocal).catch((e: unknown) => {
+        if (e instanceof EchecGitHote && e.code === 1) return '';
+        throw e;
+      })
+    : '';
+  if (locale.trim() !== attendue) {
+    return {
+      motif:
+        `la branche ${branche} n’est pas rangée sur cette ouvrière à la tête que la ruche a ` +
+        'livrée : rien n’est commité — prolongez-la depuis l’ouvrière qui l’a livrée',
+    };
+  }
+  // `ls-remote` depuis le TRANSIT, vers le `repoUrl` du hub : jamais l'`origin`
+  // du clone (cf. l'en-tête). Une branche jamais poussée n'y est pas : rien à
+  // protéger là-bas.
+  const distante = (await auDepotDistant(transit, ['ls-remote', '--heads', depotProjet, ref]))
+    .split('\n')
+    .map((l) => l.split('\t'))
+    .find(([, nom]) => nom === ref)?.[0];
+  if (distante !== undefined && distante !== attendue) {
+    return {
+      motif:
+        `la branche ${branche} a reçu sur le dépôt des commits que la ruche n’a pas livrés : ` +
+        'la prolonger effacerait leur travail — rien n’est commité. Intégrez-les à la main, ' +
+        'ou livrez sur une nouvelle branche',
+    };
+  }
+  await gitHote(
+    ['fetch', '--depth=1', '--no-tags', '--quiet', depotLocal, `+${ref}:${REF_SUITE}`],
+    clone,
+  );
+  const arrivee = (await gitHote(['rev-parse', '--verify', '-q', REF_SUITE], clone)).trim();
+  if (arrivee !== attendue) {
+    return { motif: `la tête de ${branche} n’a pas pu entrer dans le clone : rien n’est commité` };
+  }
+  return { parent: attendue };
 }
 
 /**
@@ -321,9 +430,10 @@ export async function garderMission(
         motif: `la branche ${branche} n’a pas pu être rangée dans le dépôt de livraison du nœud`,
       };
     }
-    // Ancienne valeur VIDE : « cette branche ne doit pas exister ». Jamais
-    // d'écrasement — une branche déjà là fait échouer, et c'est dit.
-    await gitHote(['update-ref', `refs/heads/${branche}`, commit, ''], depotLocal);
+    // Ancienne valeur VIDE : « cette branche ne doit pas exister ». Pour une
+    // suite, la tête prolongée : la branche AVANCE depuis elle, ou rien. Jamais
+    // d'écrasement — une branche qui a bougé fait échouer, et c'est dit.
+    await gitHote(['update-ref', `refs/heads/${branche}`, commit, mission.ancienne], depotLocal);
     // Un reste de transit ne livre rien, et la prochaine livraison l'écrase :
     // son effacement raté ne doit pas faire dire « non commitée » à une
     // branche qui existe.

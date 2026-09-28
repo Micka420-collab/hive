@@ -8,7 +8,14 @@ import {
   EVENEMENTS_NON_DIFFUSES,
   parseServerMessage,
 } from '../../src/shared/protocol';
-import type { HiveEvent, Project, StateSnapshot, Task, TaskResult } from '../../src/shared/types';
+import type {
+  HiveEvent,
+  Project,
+  StateSnapshot,
+  Task,
+  TaskResult,
+  TaskStatus,
+} from '../../src/shared/types';
 import type { Graphe } from '../../src/shared/cerveau-graphe.js';
 import type { Constat } from '../../src/shared/critique-structuree.js';
 import type {
@@ -53,6 +60,11 @@ export class ApiError extends Error {
     readonly status: number,
     /** Marche à suivre renvoyée par le serveur (501 GitHub, 401 jeton…), jamais le secret. */
     readonly detail?: string,
+    /**
+     * Le `code` du refus, quand la Reine en donne un : l'écran le LIT (ex.
+     * `rejeu_simule` : rien n'est parti, une validation humaine est offerte).
+     */
+    readonly code?: string,
   ) {
     super(message);
     this.name = 'ApiError';
@@ -164,16 +176,23 @@ async function api<T>(
   if (!res.ok) {
     let message = tNow(`Erreur ${res.status}`, `Error ${res.status}`);
     let detail: string | undefined;
+    let code: string | undefined;
     try {
       // Endpoints custom → { error } (déjà précis). Validation de schéma Fastify
       // → { message } détaillé + { error: "Bad Request" } générique : le message
       // est alors le plus utile, on le préfère quand il est présent.
       // `detail` porte la marche à suivre (501 GitHub, 401 jeton de ruche) :
       // l'omettre laissait l'écran muet sur ce qu'il fallait faire.
-      const body = (await res.json()) as { error?: string; message?: string; detail?: string };
+      const body = (await res.json()) as {
+        error?: string;
+        message?: string;
+        detail?: string;
+        code?: unknown;
+      };
       const assemble = messageApi(body, res.status);
       message = assemble.message;
       detail = assemble.detail;
+      if (typeof body.code === 'string') code = body.code;
     } catch {
       /* corps non-JSON */
     }
@@ -182,7 +201,7 @@ async function api<T>(
       const expiree = expirerSession(jwt);
       if (expiree) throw expiree;
     }
-    throw new ApiError(message, res.status, detail);
+    throw new ApiError(message, res.status, detail, code);
   }
   return (await res.json()) as T;
 }
@@ -907,6 +926,45 @@ export async function fetchInvite(url?: string): Promise<InviteResponse> {
   return apiCompte<InviteResponse>(`/api/invite${query}`);
 }
 
+// ─── La découverte du réseau local ──────────────────────────────────────────
+//
+// Les machines qui se signalent (`hive join --decouvrable`) et le geste qui
+// les accueille — voir `src/shared/decouverte.ts` pour le contrat entier.
+
+export type { Decouvert, RelationRuche } from '../../src/orchestrator/decouverte-reseau';
+import type { Decouvert } from '../../src/orchestrator/decouverte-reseau';
+
+export interface DecouverteReseau {
+  /** La ruche écoute-t-elle (`HIVE_DECOUVERTE=1`, prise ouverte) ? */
+  active: boolean;
+  /** L'empreinte PUBLIQUE de cette ruche, telle que la machine l'affichera. */
+  empreinte: string;
+  decouverts: Decouvert[];
+  /** Éteinte : pourquoi, en code fermé — l'écran traduit d'après lui. */
+  motif?: 'eteinte' | 'indisponible';
+  /** `indisponible` : le message brut de la prise (jamais traduit : il vient du système). */
+  cause?: string;
+  /** Éteinte : comment l'allumer, ou pourquoi la prise ne s'est pas ouverte (en français). */
+  conseil?: string;
+  /** Allumée, mais aucune machine ne pourra joindre la ruche (écoute locale). */
+  injoignable?: string;
+}
+
+export function fetchDecouverte(): Promise<DecouverteReseau> {
+  return apiCompte<DecouverteReseau>('/api/decouverte');
+}
+
+/** « Rejoindre » : la ruche scelle un billet sous `code` et le dépose chez la machine. */
+export function rejoindreDecouvert(
+  id: string,
+  code: string,
+): Promise<{ ok: true; billetId: string; nom: string; detail: string }> {
+  return apiCompte(`/api/decouverte/${encodeURIComponent(id)}/rejoindre`, {
+    method: 'POST',
+    body: JSON.stringify({ code }),
+  });
+}
+
 // ─── Mission Control : endpoints d'observation et d'action ──────────────────
 
 export type { HivePulse } from '../../src/orchestrator/pulse';
@@ -1423,6 +1481,81 @@ export function reglerGardeFou(
   });
 }
 
+// ─── Le banc d'ombre : comparer deux modèles sur la même petite tâche ───────
+
+/** Pourquoi une tâche tirée au sort n'a pas eu d'ombre. Miroir de `MotifRefusOmbre`. */
+export type MotifRefusOmbreUi = MotifRefusOmbre;
+
+/**
+ * Ce que le GET `/banc-ombre` rend : le CONSENTEMENT posé (`null` : banc
+ * éteint), ce que l'écran propose pour l'allumer, ce que le banc a dépensé sur
+ * 24 h glissantes — et ce qui l'arrête —, et ses dernières ombres. Miroir de la
+ * réponse du serveur (`etatBancOmbre`), tenu à la main comme `EtatGardeFouUi`.
+ */
+export interface EtatBancOmbreUi {
+  actif: boolean;
+  reglage: {
+    tauxPourMille: number;
+    executionsParJour: number;
+    plafondCoutUsd: number;
+    definiPar: string | null;
+    updatedAt: number;
+  } | null;
+  propose: { tauxPourMille: number; executionsParJour: number; plafondCoutUsd: number };
+  bornes: {
+    tauxPourMille: { min: number; max: number };
+    executionsParJour: { min: number; max: number };
+    plafondCoutUsd: { max: number };
+  };
+  budget: {
+    fenetreMs: number;
+    executions: number;
+    enVol: number;
+    coutDeclareUsd: number;
+    executionsMuettes: number;
+    arret: MotifRefusOmbreUi | null;
+  };
+  ombres: Array<{
+    tacheOmbre: string;
+    tacheOriginale: string;
+    titre: string | null;
+    modeleOriginal: string;
+    modeleOmbre: string;
+    /** `null` : la tâche de l'ombre a été élaguée. */
+    statut: TaskStatus | null;
+    coutDeclareUsd: number;
+    executionsMuettes: number;
+    creeA: number;
+  }>;
+}
+
+export function fetchBancOmbre(projectId: string): Promise<EtatBancOmbreUi> {
+  return api<EtatBancOmbreUi>(`/api/projects/${projectId}/banc-ombre`);
+}
+
+/**
+ * Règle le banc d'ombre — geste HUMAIN de qui répond du projet. Le budget
+ * (`executionsParJour`, `plafondCoutUsd`) est exigé à chaque réglage : un banc
+ * ne s'allume jamais sans sa borne.
+ */
+export function reglerBancOmbre(
+  projectId: string,
+  // Éteindre n'envoie que `{ actif: false }` : le serveur garde le budget rangé.
+  reglage:
+    | {
+        actif: true;
+        tauxPourMille: number;
+        executionsParJour: number;
+        plafondCoutUsd: number;
+      }
+    | { actif: false; tauxPourMille?: number; executionsParJour?: number; plafondCoutUsd?: number },
+): Promise<EtatBancOmbreUi> {
+  return api<EtatBancOmbreUi>(`/api/projects/${projectId}/banc-ombre`, {
+    method: 'POST',
+    body: JSON.stringify(reglage),
+  });
+}
+
 export function fetchBalance(): Promise<BalanceState> {
   return api<BalanceState>('/api/balance');
 }
@@ -1569,10 +1702,10 @@ export class RefusLivraison extends ApiError {
   constructor(
     message: string,
     status: number,
-    readonly code?: string,
+    code?: string,
     readonly bloquees: readonly { taskId: string; decision: string | null }[] = [],
   ) {
-    super(message, status);
+    super(message, status, undefined, code);
     this.name = 'RefusLivraison';
   }
 }
@@ -1593,6 +1726,8 @@ export async function livrerLocalement(
     testCommand?: string[];
     prepareCommand?: string[];
     forcer?: { raison: string };
+    /** Projet de rejeu : exécuter pour de vrai ce que la Reine simulerait (compte exigé). */
+    validerRejeu?: boolean;
   } = {},
 ): Promise<DepartLivraison> {
   const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/livraison-locale`, {
@@ -1603,6 +1738,7 @@ export async function livrerLocalement(
       ...(opts.prepareCommand?.length ? { prepareCommand: opts.prepareCommand } : {}),
       ...(opts.testCommand?.length ? { testCommand: opts.testCommand } : {}),
       ...(opts.forcer ? { forcer: opts.forcer } : {}),
+      ...(opts.validerRejeu ? { validerRejeu: true } : {}),
     }),
   });
   let corps: Record<string, unknown> = {};
@@ -1763,6 +1899,43 @@ export function fetchRoutage(
  */
 export function fetchGenome(): Promise<RegistreGenome> {
   return api<RegistreGenome>('/api/genome');
+}
+
+/**
+ * Le graphe d'expérience (cf. `src/shared/graphe-experience.ts`), tel que la
+ * Reine le rend : l'en-tête (portée lue, réglage de l'hôte pour les ouvrières,
+ * fenêtre du journal, comptes du graphe ENTIER), puis soit une liste de nœuds,
+ * soit le voisinage d'un nœud avec — pour une tâche — ses contextes
+ * similaires, marqués `correlation`.
+ */
+export interface VueExperience {
+  portee: 'projet' | 'ruche';
+  reglage: PorteeExperience;
+  lecture: GrapheExperience['lecture'];
+  comptes: ComptesExperience;
+  noeuds?: NoeudExperience[];
+  voisinage?: Voisinage;
+  similaires?: ContexteSimilaire[];
+}
+
+/**
+ * Le graphe d'UN projet (isolé à ce projet, quel que soit le réglage), ou —
+ * `'ruche'` — celui de toute la ruche, réservé à un compte qui voit tous les
+ * projets (d'où `apiCompte`).
+ */
+export function fetchExperience(
+  portee: { projectId: string } | 'ruche',
+  question: { noeud?: string; genre?: GenreNoeud } = {},
+): Promise<VueExperience> {
+  const q = new URLSearchParams();
+  if (question.noeud !== undefined) q.set('noeud', question.noeud);
+  if (question.genre !== undefined) q.set('genre', question.genre);
+  const suite = q.toString() ? `?${q.toString()}` : '';
+  return portee === 'ruche'
+    ? apiCompte<VueExperience>(`/api/admin/experience${suite}`)
+    : api<VueExperience>(
+        `/api/projects/${encodeURIComponent(portee.projectId)}/experience${suite}`,
+      );
 }
 
 /**
@@ -2115,6 +2288,11 @@ export interface LivraisonVue {
   etat?: string;
   dit?: string;
   reprenable?: boolean;
+  /**
+   * Pourquoi une PR qui demande du travail n'offre pas « reprendre » : une
+   * reprise déjà en vol, ou le plafond atteint — ce que la route refuserait.
+   */
+  nonReprenable?: string;
   /** Présent quand la pull request n'a pas pu être lue — le dire vaut mieux. */
   illisible?: string;
 }
@@ -2122,6 +2300,66 @@ export interface LivraisonVue {
 /** Ce que deviennent les pull requests ouvertes par la ruche. */
 export function fetchLivraisons(projectId: string): Promise<{ livraisons: LivraisonVue[] }> {
   return api(`/api/projects/${encodeURIComponent(projectId)}/livraisons`);
+}
+
+// ─── Les missions rejouables et le Time Travel ──────────────────────────────
+
+export type {
+  ComparaisonMissions,
+  EcartDeclare,
+  PolitiqueRoutage,
+  ResumeMission,
+  SurchargesRejeu,
+} from '../../src/shared/mission-rejouable';
+import type {
+  ComparaisonMissions,
+  ResumeMission,
+  SurchargesRejeu,
+} from '../../src/shared/mission-rejouable';
+
+/** Une mission telle que `GET /api/projects/:id/missions` la liste. */
+export interface MissionVue {
+  id: string;
+  ouverteA: number;
+  closeA: number | null;
+  /** `null` : instantané d'une autre version, illisible — dit, pas deviné. */
+  tachesPlan: number | null;
+  rejouable: boolean;
+  manques: string[];
+  resume: ResumeMission | null;
+  /** Les projets de rejeu de cette mission que le lecteur peut ouvrir. */
+  rejeux: string[];
+}
+
+export interface RejeuVue {
+  missionSource: string;
+  projetSource: string | null;
+  surcharges: SurchargesRejeu;
+  creeA: number;
+  actions: Array<{ genre: string; cible: string; issue: 'simulee' | 'validee'; creeA: number }>;
+}
+
+export function fetchMissions(
+  projectId: string,
+): Promise<{ missions: MissionVue[]; rejeu: RejeuVue | null }> {
+  return api(`/api/projects/${encodeURIComponent(projectId)}/missions`);
+}
+
+/** Rejoue une mission dans un projet neuf ; ses actions irréversibles sont simulées. */
+export function rejouerMission(
+  projectId: string,
+  missionId: string,
+  surcharges: SurchargesRejeu,
+): Promise<{ projet: Project; taches: Array<{ id: string; title: string }> }> {
+  return api(
+    `/api/projects/${encodeURIComponent(projectId)}/missions/${encodeURIComponent(missionId)}/rejouer`,
+    { method: 'POST', body: JSON.stringify(surcharges) },
+  );
+}
+
+/** Mission source contre rejeu, sur les seules données déclarées. */
+export function fetchComparaisonRejeu(projectId: string): Promise<ComparaisonMissions> {
+  return api(`/api/projects/${encodeURIComponent(projectId)}/rejeu/comparaison`);
 }
 
 /** Reprend une livraison : la CI ou la revue redeviennent du travail. */
@@ -2384,6 +2622,126 @@ export function revoquerBillet(billetId: string): Promise<{ ok: boolean }> {
   return apiCompte<{ ok: boolean }>(`/api/billets/${encodeURIComponent(billetId)}`, {
     method: 'DELETE',
   });
+}
+
+// ─── Les CONNECTEURS externes (src/connectors) ──────────────────────────────
+//
+// Le catalogue + la pose des secrets sont ADMIN (poser un jeton écrit dans
+// l'env de l'hôte) ; autoriser/tester par projet suivent qui répond du projet.
+// La valeur d'un secret ne revient JAMAIS : `presente` est un booléen.
+
+export type PorteeConnecteur = 'lecture' | 'notification' | 'approbation' | 'action';
+
+export interface SecretConnecteur {
+  envVar: string;
+  libelleFr: string;
+  libelleEn: string;
+  hintFr: string;
+  hintEn: string;
+  requis: boolean;
+  presente: boolean;
+}
+
+export interface ConnecteurCatalogue {
+  id: string;
+  libelleFr: string;
+  libelleEn: string;
+  hintFr: string;
+  hintEn: string;
+  mode: 'lecture_seule' | 'action';
+  portees: PorteeConnecteur[];
+  actif: boolean;
+  secrets: SecretConnecteur[];
+}
+
+export interface AutorisationConnecteur {
+  connecteurId: string;
+  portees: PorteeConnecteur[];
+  /** Absents pour qui ne règle pas le projet : la Reine ne les lui montre pas. */
+  canaux?: string[];
+  usagers?: string[];
+  actif: boolean;
+  majA: number;
+}
+
+export interface EntreeJournalConnecteur {
+  id: string;
+  connecteurId: string;
+  projectId: string | null;
+  portee: string;
+  acte: string;
+  cible: string | null;
+  resultat: 'ok' | 'echec' | 'refuse';
+  qui: string;
+  apercu: string;
+  chargeDigest: string;
+  creeA: number;
+}
+
+export interface ConnecteurProjetResume {
+  id: string;
+  libelleFr: string;
+  libelleEn: string;
+  mode: 'lecture_seule' | 'action';
+  portees: PorteeConnecteur[];
+  actif: boolean;
+}
+
+export function fetchConnecteurs(): Promise<{ connecteurs: ConnecteurCatalogue[] }> {
+  return apiCompte('/api/connecteurs');
+}
+
+export function poserSecretConnecteur(
+  connecteurId: string,
+  envVar: string,
+  valeur: string,
+): Promise<{ ok: boolean; envVar: string; actif: boolean }> {
+  return apiCompte(`/api/connecteurs/${encodeURIComponent(connecteurId)}/secrets`, {
+    method: 'POST',
+    body: JSON.stringify({ envVar, valeur }),
+  });
+}
+
+export function fetchConnecteursProjet(projectId: string): Promise<{
+  autorisations: AutorisationConnecteur[];
+  journal: EntreeJournalConnecteur[];
+  connecteurs: ConnecteurProjetResume[];
+  /** Présent quand l'appelant ne règle pas le projet : listes et journal tus. */
+  reserve?: true;
+}> {
+  return apiCompte(`/api/projects/${encodeURIComponent(projectId)}/connecteurs`);
+}
+
+export function autoriserConnecteurProjet(
+  projectId: string,
+  connecteurId: string,
+  corps: { portees: PorteeConnecteur[]; canaux?: string[]; usagers?: string[]; actif?: boolean },
+): Promise<{ ok: boolean; portees: PorteeConnecteur[] }> {
+  return apiCompte(
+    `/api/projects/${encodeURIComponent(projectId)}/connecteurs/${encodeURIComponent(connecteurId)}/autoriser`,
+    { method: 'POST', body: JSON.stringify(corps) },
+  );
+}
+
+export function revoquerConnecteurProjet(
+  projectId: string,
+  connecteurId: string,
+): Promise<{ ok: boolean; revoque: boolean }> {
+  return apiCompte(
+    `/api/projects/${encodeURIComponent(projectId)}/connecteurs/${encodeURIComponent(connecteurId)}`,
+    { method: 'DELETE' },
+  );
+}
+
+export function testerConnecteurProjet(
+  projectId: string,
+  connecteurId: string,
+  kind?: 'resume_mission' | 'decision' | 'blocage' | 'demande_approbation',
+): Promise<{ ok: boolean; envoye: boolean; motif?: string }> {
+  return apiCompte(
+    `/api/projects/${encodeURIComponent(projectId)}/connecteurs/${encodeURIComponent(connecteurId)}/test`,
+    { method: 'POST', body: JSON.stringify(kind ? { kind } : {}) },
+  );
 }
 
 // ─── Mon tableau de bord ────────────────────────────────────────────────────
@@ -2669,6 +3027,16 @@ import type { ProjetPublic as ProjetPublicVue } from '../../src/shared/projet-pu
 import type { AffectationVue } from '../../src/shared/routage-vue';
 import type { ChronologieTache } from '../../src/shared/chronologie-tache';
 import type { RegistreGenome } from '../../src/shared/registre-genome';
+import type { MotifRefusOmbre } from '../../src/orchestrator/shadow-bench';
+import type {
+  ComptesExperience,
+  ContexteSimilaire,
+  GenreNoeud,
+  GrapheExperience,
+  NoeudExperience,
+  Voisinage,
+} from '../../src/shared/graphe-experience';
+import type { PorteeExperience } from '../../src/shared/reglages';
 export type { ProjetPublic as ProjetPublicVue } from '../../src/shared/projet-public';
 
 /**
@@ -2775,10 +3143,11 @@ export function lancerWorkflowGithub(
   projectId: string,
   workflowId: number,
   ref: string,
+  validerRejeu = false,
 ): Promise<{ workflow: Workflow; ref: string }> {
   return api(`/api/projects/${encodeURIComponent(projectId)}/workflows/${String(workflowId)}/run`, {
     method: 'POST',
-    body: JSON.stringify({ ref }),
+    body: JSON.stringify({ ref, ...(validerRejeu ? { validerRejeu: true } : {}) }),
   });
 }
 

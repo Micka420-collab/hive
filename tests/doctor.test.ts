@@ -57,6 +57,7 @@ const SAINE: Releve = {
   wsJoignable: true,
   reglages: { runner: 'off', bindPublic: false, gardiennes: 'strict', corsOuvert: false },
   espace: { octetsLibres: 40 * 1024 * 1024 * 1024, inscriptible: true },
+  decouverte: { ruche: false, machine: false, ecouteLocale: true },
 };
 
 /** Le relevé sain, avec un point dérangé. */
@@ -95,19 +96,25 @@ describe('LES DEUX RÈGLES QUI PORTENT TOUT LE MODULE', () => {
       wsJoignable: false,
       reglages: { runner: 'on', bindPublic: true, gardiennes: 'off', corsOuvert: true },
       espace: { octetsLibres: 0, inscriptible: true },
+      // La découverte demandée sur une ruche qui n'écoute qu'elle-même.
+      decouverte: { ruche: true, machine: false, ecouteLocale: true },
     };
     const diags = diagnostiquer(cassee);
-    // ─── DOUZE, PUIS TREIZE ─────────────────────────────────────────────────
+    // ─── DOUZE, PUIS TREIZE, PUIS QUATORZE ──────────────────────────────────
     //
     // Le treizième est `secret_session`. Il est arrivé parce qu'un nouveau venu
     // pouvait suivre le docteur À LA LETTRE, ne plus voir aucun ✘ réparable,
     // taper `npm run ruche`, et voir la Reine mourir à la seconde sur une garde
     // qu'aucun des douze n'exerçait.
     //
+    // Le quatorzième est `decouverte`, placé en DERNIER : demander à la ruche
+    // de lister le réseau local alors qu'elle n'écoute qu'elle-même ne
+    // l'empêche pas de tourner, mais fait échouer chaque « Rejoindre ».
+    //
     // Ce compte est délibérément écrit en dur : ajouter un contrôle DOIT faire
     // rougir ce test, pour qu'on écrive aussi sa place dans l'ordre — l'ordre
     // est une information, pas une présentation.
-    expect(diags.length, 'les treize diagnostics de la mission').toBe(13);
+    expect(diags.length, 'les quatorze diagnostics de la mission').toBe(14);
 
     for (const d of diags) {
       expect(d.gravite, `${d.cle} devrait signaler quelque chose`).not.toBe('ok');
@@ -607,6 +614,8 @@ describe('CE QUE LE MODULE NE FAIT PAS', () => {
       'websocket',
       'reglages',
       'espace',
+      // En dernier : la découverte n'empêche jamais une ruche de tourner.
+      'decouverte',
     ]);
   });
 });
@@ -699,5 +708,50 @@ describe('LE TREIZIÈME CONTRÔLE — celui qui manquait au nouveau venu', () =>
     expect(secretJwtDepuisEnv({ HIVE_JWT_SECRET: 'x'.repeat(LONGUEUR_MIN_SECRET_JWT - 1) })).toBe(
       '',
     );
+  });
+});
+
+describe('LE QUATORZIÈME — la découverte du réseau local', () => {
+  // Deux consentements (`HIVE_DECOUVERTE` pour la ruche, `HIVE_DECOUVRABLE`
+  // pour la machine), tous deux éteints par défaut. Le docteur doit dire le
+  // chemin pour les allumer SANS faire du défaut un défaut — et crier le seul
+  // cas voué à l'échec : une ruche qui liste le réseau mais n'écoute qu'elle.
+
+  it('ÉTEINTE (le défaut) : ok, sans réparation — mais le constat nomme les deux réglages', () => {
+    const d = diag(SAINE, 'decouverte');
+    expect(d.gravite).toBe('ok');
+    expect(d.reparation, 'une ruche saine ne porte aucune réparation').toBeNull();
+    expect(d.constat).toContain('HIVE_DECOUVERTE=1');
+    expect(d.constat).toContain('--decouvrable');
+  });
+
+  it('DEMANDÉE sur une écoute locale : ⚠, et la réparation ouvre l’écoute', () => {
+    const d = diag(
+      avec({ decouverte: { ruche: true, machine: false, ecouteLocale: true } }),
+      'decouverte',
+    );
+    expect(d.gravite).toBe('risque');
+    expect(d.reparation).toContain('HIVE_HOST=0.0.0.0');
+  });
+
+  it('DEMANDÉE sur une écoute ouverte : ok, et elle le dit', () => {
+    const d = diag(
+      avec({ decouverte: { ruche: true, machine: false, ecouteLocale: false } }),
+      'decouverte',
+    );
+    expect(d).toMatchObject({ gravite: 'ok', reparation: null });
+    expect(d.constat).toContain('HIVE_DECOUVERTE=1');
+  });
+
+  it('LA MACHINE QUI SE SIGNALE dit ce qu’elle diffuse — et rien que ça', () => {
+    // Une machine qui se signale ne doit pas passer pour muette : l'opérateur
+    // lit ICI ce que son réseau apprend d'elle.
+    const d = diag(
+      avec({ decouverte: { ruche: false, machine: true, ecouteLocale: true } }),
+      'decouverte',
+    );
+    expect(d.gravite, 'se signaler n’exige pas d’écoute ouverte').toBe('ok');
+    expect(d.constat).toContain('HIVE_DECOUVRABLE=1');
+    expect(d.constat).toMatch(/nom, système, agents connectés, places, état/);
   });
 });

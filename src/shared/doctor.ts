@@ -194,6 +194,19 @@ export interface Releve {
     octetsLibres: number | null;
     inscriptible: boolean;
   };
+  /**
+   * La découverte du réseau local — les DEUX consentements, lus comme la ruche
+   * (`loadConfigFromEnv`) et le nœud (`main.ts`, `join.ts`) les lisent : seul
+   * « 1 » allume.
+   */
+  decouverte: {
+    /** `HIVE_DECOUVERTE=1` : la Reine liste les machines qui se signalent. */
+    ruche: boolean;
+    /** `HIVE_DECOUVRABLE=1` : cette machine se signale. */
+    machine: boolean;
+    /** L'écoute de la ruche ne reçoit que la machine elle-même (`boucleLocale`). */
+    ecouteLocale: boolean;
+  };
 }
 
 /**
@@ -224,7 +237,7 @@ export const ESPACE_MINIMUM_OCTETS = 500 * 1024 * 1024;
 const go = (octets: number): string => `${(octets / (1024 * 1024 * 1024)).toFixed(1)} Go`;
 
 /**
- * Les treize diagnostics, dans l'ordre où ils se réparent.
+ * Les quatorze diagnostics, dans l'ordre où ils se réparent.
  *
  * L'ORDRE EST UNE INFORMATION, pas une présentation : Node d'abord, parce que
  * réparer un port quand on tourne sur Node 18 ne sert à rien. Qui lit de haut
@@ -251,6 +264,10 @@ export function diagnostiquer(r: Releve): Diagnostic[] {
     websocket(r),
     reglages(r),
     espace(r),
+    // En DERNIER : la découverte n'est jamais ce qui empêche une ruche de
+    // tourner. Elle ne se signale que quand elle est demandée ET vouée à
+    // l'échec ; sinon elle dit seulement comment l'allumer.
+    decouverte(r),
   ];
 }
 
@@ -276,7 +293,7 @@ export function codeDeSortie(diags: Diagnostic[]): number {
   return 0;
 }
 
-// ─── Les treize ─────────────────────────────────────────────────────────────
+// ─── Les quatorze ───────────────────────────────────────────────────────────
 
 function nodeVersion(r: Releve): Diagnostic {
   if (r.nodeMajeur >= NODE_MINIMUM) {
@@ -768,6 +785,46 @@ function espace(r: Releve): Diagnostic {
     cle: 'espace',
     gravite: 'ok',
     constat: `${go(r.espace.octetsLibres)} libres`,
+    reparation: null,
+  };
+}
+
+function decouverte(r: Releve): Diagnostic {
+  const d = r.decouverte;
+  // LE SEUL CAS QUI MÉRITE ⚠ : on a demandé à la ruche de lister les machines
+  // du réseau, mais elle n'écoute que sur elle-même. Chaque « Rejoindre »
+  // enverrait un billet vers une adresse où personne ne répond — la ruche le
+  // refuse d'ailleurs (`inviteInjoignable`), et c'est ICI qu'on apprend
+  // pourquoi, avant d'avoir cliqué.
+  if (d.ruche && d.ecouteLocale) {
+    return {
+      cle: 'decouverte',
+      gravite: 'risque',
+      constat:
+        'HIVE_DECOUVERTE=1, mais la ruche n’écoute que sur cette machine : une machine découverte ne pourra pas la joindre',
+      reparation:
+        'HIVE_HOST=0.0.0.0 dans .env (l’écoute s’ouvre au réseau local), puis relancez la ruche',
+    };
+  }
+  if (d.ruche || d.machine) {
+    const allumes: string[] = [];
+    if (d.ruche) allumes.push('la ruche liste les machines du réseau local (HIVE_DECOUVERTE=1)');
+    if (d.machine) {
+      allumes.push(
+        'cette machine se signale (HIVE_DECOUVRABLE=1 : nom, système, agents connectés, places, état — rien d’autre)',
+      );
+    }
+    return { cle: 'decouverte', gravite: 'ok', constat: allumes.join(' · '), reparation: null };
+  }
+  // Désactivée — le défaut. Rien à RÉPARER (une ruche saine ne porte aucune
+  // réparation : un docteur qui trouve toujours quelque chose apprend à être
+  // ignoré), mais un chemin à connaître : le constat le nomme, parce que le
+  // docteur est l'endroit où on le cherche.
+  return {
+    cle: 'decouverte',
+    gravite: 'ok',
+    constat:
+      'découverte du réseau local désactivée (défaut) — HIVE_DECOUVERTE=1 sur la ruche pour lister les machines, `hive join --decouvrable` sur celle à ajouter',
     reparation: null,
   };
 }

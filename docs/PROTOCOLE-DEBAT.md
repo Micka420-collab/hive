@@ -315,6 +315,7 @@ Un renvoi refusé est journalisé (`evaluator_retry_skipped`, avec sa raison
 | `ancestor_failed`            | non                | Un ancêtre délégué a échoué : personne ne lirait la correction.               |
 | `invalid_result_id`          | non                | Le résultat nommé n'appartient pas à la tâche.                                |
 | `unknown_task`               | non                | La tâche n'existe plus.                                                       |
+| `shadow_task`                | non                | Une ombre du banc n'a qu'un essai : elle se compare, elle ne se corrige pas.  |
 
 <!-- /verifie:refus -->
 

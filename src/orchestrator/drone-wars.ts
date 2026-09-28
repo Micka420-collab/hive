@@ -14,6 +14,8 @@
 // multi-nœud touche un invariant central — il mérite son propre incrément revu.
 // Isoler la décision ici la rend testable et sûre indépendamment de ce câblage.
 
+import type { Bras } from './aiguillage.js';
+
 /** État d'un drone dans la course. */
 export type DroneStatus = 'running' | 'succeeded' | 'failed';
 
@@ -40,6 +42,12 @@ export interface DroneRace {
    * contre-visite jugera. Préservé au fil des `{ ...race }` de ce module.
    */
   modeleParDrone?: Record<string, string>;
+  /**
+   * Le BRAS entier élu pour chaque drone (modèle, harness, effort) — même
+   * remplissage que `modeleParDrone`, dont il est le détail : c'est lui qui
+   * part au nœud (l'effort) et qui est rangé pour le vainqueur ou le promu.
+   */
+  brasParDrone?: Record<string, Bras>;
 }
 
 /** Nœud candidat à devenir drone (l'agentType sert à diversifier la course). */

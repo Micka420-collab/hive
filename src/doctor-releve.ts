@@ -41,6 +41,7 @@ import type { Releve } from './shared/doctor.js';
 import { RUCHE_COMPLETE } from './shared/doctor.js';
 import { adresseLocale, hoteDeConnexion, portDepuisEnv } from './shared/port.js';
 import { gardiennesDepuisEnv } from './shared/reglages.js';
+import { boucleLocale } from './shared/joignable.js';
 import { modeRunnerDepuisEnv } from './orchestrator/essaim-runner.js';
 import { inventaireAgents, type InventaireAgents } from './node-client/agent-detect.js';
 import {
@@ -437,6 +438,12 @@ export async function relever(
       // encore : c'est là qu'il sera créé, donc c'est sa place qui compte.
       octetsLibres: octetsLibres(existsSync(lieux.travail) ? lieux.travail : racine),
       inscriptible: existsSync(lieux.travail) ? inscriptible(lieux.travail) : inscriptible(racine),
+    },
+    // Les MÊMES lectures que la ruche et le nœud : seul « 1 » allume.
+    decouverte: {
+      ruche: env.HIVE_DECOUVERTE === '1',
+      machine: env.HIVE_DECOUVRABLE === '1',
+      ecouteLocale: boucleLocale(env.HIVE_HOST ?? '127.0.0.1'),
     },
   };
 }

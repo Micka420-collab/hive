@@ -308,6 +308,41 @@ describe.runIf(POSIX)('validerProduction — ce que la base déclare, lancé dan
     });
   }, 30_000);
 
+  // G11a, sur un vrai `npm run` : la sortie que lit la table est celle du
+  // runner ET de npm, telle que `runProc` la rend.
+  it('le tueur d’OOM (137 + « Killed ») : missing/environnement, pas un échec de la production', async () => {
+    const dir = await depot({
+      'package.json': manifeste({
+        test: `node -e "console.log('Killed');process.exit(137)"`,
+      }),
+    });
+
+    const etapes: string[] = [];
+    const rapport = await valider(dir, { surEtape: (l) => etapes.push(l) });
+
+    expect(rapport.controles.tests).toMatchObject({
+      etat: 'missing',
+      raison: 'environnement',
+      panne: 'memoire',
+      code: 137,
+    });
+    // La ligne de progression nomme la panne : l'opérateur regarde le nœud.
+    expect(etapes).toContain('validation tests : missing (environnement : memoire, code 137)');
+  }, 30_000);
+
+  it('un test qui imprime « Cannot allocate memory » puis rate son assertion reste failed', async () => {
+    const dir = await depot({
+      'package.json': manifeste({
+        test: `node -e "console.log('Cannot allocate memory');require('node:assert').strictEqual(1,2)"`,
+      }),
+    });
+
+    const rapport = await valider(dir);
+
+    expect(rapport.controles.tests).toMatchObject({ etat: 'failed', raison: 'termine', code: 1 });
+    expect(rapport.controles.tests.extrait).toContain('Cannot allocate memory');
+  }, 30_000);
+
   it('délai dépassé : missing — la commande est arrêtée, son verdict reste inconnu', async () => {
     const dir = await depot({
       'package.json': manifeste({ lint: 'node -e "setTimeout(() => {}, 5000)"' }),

@@ -6,6 +6,7 @@ import { useT } from './i18n';
 import type { Translate } from './i18n';
 import { bandeText, formatDuree } from './ui';
 import { direRaisonRefus } from './views/warroom-rendu';
+import { direMotifOmbre } from './banc-ombre-rendu';
 
 interface Meta {
   icon: string;
@@ -608,6 +609,35 @@ const EVENTS: Record<string, Meta> = {
         `critique dropped: ${short(p.taskId)} restarts (attempt ${String(p.attempt ?? '?')}) without the correction’s ${String(p.objectionsFigees ?? '?')} objection(s) — context budget exhausted`,
       ),
   },
+  // Le graphe d'expérience : les tâches voisines que l'ouvrière a lues, en
+  // faits typés (le détail est sous « Pourquoi ce Worker » dans le tiroir).
+  // Des corrélations : la ligne le dit, elle ne les présente pas comme un
+  // savoir acquis.
+  experience_context: {
+    icon: '◦',
+    cls: 'info',
+    text: (p, t) => {
+      const n = Array.isArray(p.similaires) ? p.similaires.length : 0;
+      const ruche = p.portee === 'ruche' ? t(' (toute la ruche)', ' (the whole hive)') : '';
+      return t(
+        `expérience : ${short(p.taskId)} part avec ${n} contexte(s) similaire(s)${ruche} — des corrélations, pas des règles`,
+        `experience: ${short(p.taskId)} starts with ${n} similar context(s)${ruche} — correlations, not rules`,
+      );
+    },
+  },
+  // … et celle que le budget a évincée : un `''` muet ferait croire que rien
+  // ne ressemblait à la tâche.
+  experience_refus: {
+    icon: '⚠',
+    cls: 'warn',
+    text: (p, t) => {
+      const n = Array.isArray(p.similaires) ? p.similaires.length : 0;
+      return t(
+        `expérience perdue : ${short(p.taskId)} part sans ses ${n} contexte(s) similaire(s) — budget de contexte épuisé`,
+        `experience dropped: ${short(p.taskId)} starts without its ${n} similar context(s) — context budget exhausted`,
+      );
+    },
+  },
   // La Balance, geste « borner ». Trois faits typés — `projectId`, des entiers,
   // un booléen — et AUCUNE phrase persistée : le bilingue est reconstruit ici
   // depuis les champs, exactement comme `thermo_shift`. `formatDuree` est
@@ -659,6 +689,63 @@ const EVENTS: Record<string, Meta> = {
             `Balance : plafond posé à ${ms} sur ${short(p.projectId)}${par}`,
             `Balance: cap set to ${ms} on ${short(p.projectId)}${par}`,
           );
+    },
+  },
+  // ─── Le banc d'ombre ─────────────────────────────────────────────────────
+  // Une tâche rejouée par un second modèle, jamais livrée. Chaque ligne dit
+  // QUI mesure QUOI, ou pourquoi une tâche tirée au sort n'a rien eu : un
+  // banc qui n'admet rien ne doit pas ressembler à un banc éteint.
+  shadow_bench_set: {
+    icon: '◐',
+    cls: 'info',
+    text: (p, t) => {
+      if (p.actif !== true) {
+        return t(
+          `banc d’ombre éteint sur ${short(p.projectId)}`,
+          `shadow bench off on ${short(p.projectId)}`,
+        );
+      }
+      const taux = typeof p.tauxPourMille === 'number' ? p.tauxPourMille / 10 : '?';
+      const n = String(p.executionsParJour ?? '?');
+      const usd = String(p.plafondCoutUsd ?? '?');
+      return t(
+        `banc d’ombre allumé sur ${short(p.projectId)} : ${taux} % des tâches, ${n} ombre(s) et ${usd} $ déclarés au plus par 24 h`,
+        `shadow bench on for ${short(p.projectId)}: ${taux}% of tasks, at most ${n} shadow(s) and $${usd} declared per 24 h`,
+      );
+    },
+  },
+  shadow_bench_started: {
+    icon: '◐',
+    cls: 'info',
+    text: (p, t) => {
+      const original =
+        typeof p.original === 'object' && p.original !== null
+          ? String((p.original as Record<string, unknown>).modele ?? '?')
+          : '?';
+      return t(
+        `ombre ${short(p.taskId)} : ${String(p.modeleOmbre ?? '?')} rejoue ${short(p.tacheOriginale)} (produite par ${original}) — jamais livrée`,
+        `shadow ${short(p.taskId)}: ${String(p.modeleOmbre ?? '?')} replays ${short(p.tacheOriginale)} (produced by ${original}) — never delivered`,
+      );
+    },
+  },
+  shadow_bench_skipped: {
+    icon: '◌',
+    cls: 'muted',
+    text: (p, t) =>
+      t(
+        `pas d’ombre pour ${short(p.taskId)} : ${direMotifOmbre(p.motif, t)}`,
+        `no shadow for ${short(p.taskId)}: ${direMotifOmbre(p.motif, t)}`,
+      ),
+  },
+  shadow_bench_waiting: {
+    icon: '⏳',
+    cls: 'warn',
+    text: (p, t) => {
+      const delai = cout(p.delaiMs) ?? '?';
+      return t(
+        `ombre ${short(p.taskId)} : aucune ouvrière en ligne n’offre ${String(p.modele ?? '?')} — elle échoue si personne ne revient d’ici ${delai}`,
+        `shadow ${short(p.taskId)}: no online worker offers ${String(p.modele ?? '?')} — it fails if nobody comes back within ${delai}`,
+      );
     },
   },
   // ─── La contre-expertise ─────────────────────────────────────────────────

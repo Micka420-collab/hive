@@ -16,10 +16,10 @@
 //   · OU un projet SANS PROPRIÉTAIRE, qui n'appartient qu'à la ruche, et pour
 //     lequel le jeton de ruche EST la ruche.
 //
-// Et RÉGLER n'est pas ENGAGER : autonomie, Garde-Fous, plafond de dépense et
-// horizon décident de ce que le projet s'autorise ensuite. Ils sont réservés à
-// qui en répond — le propriétaire ou un administrateur, ou le jeton sur un
-// projet orphelin. Un membre reçoit 403 : il sait déjà que le projet existe.
+// Et RÉGLER n'est pas ENGAGER : autonomie, Garde-Fous, plafond de dépense,
+// banc d'ombre et horizon décident de ce que le projet s'autorise ensuite.
+// Ils sont réservés à qui en répond — le propriétaire ou un administrateur, ou
+// le jeton sur un projet orphelin. Un membre reçoit 403 : il sait déjà que le projet existe.
 //
 // DÉCIDER n'est pas engager non plus : la revue humaine, l'annulation, la
 // livraison et la fusion disent ce que devient un travail déjà fait. Même
@@ -40,6 +40,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { instantaneDe } from '../src/orchestrator/missions.js';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
 
@@ -52,6 +53,7 @@ interface Cible {
   fabrique: string;
   motifPerso: string;
   sauvegarde: string;
+  mission: string;
 }
 
 interface Acte {
@@ -65,6 +67,8 @@ interface Acte {
   refus: 'projet' | 'tache';
   /** Faux : la route exige un COMPTE, le jeton seul n'y ouvre jamais rien. */
   jeton?: false;
+  /** Le statut d'un acte réussi, quand ce n'est pas 200 (une création : 201). */
+  succes?: number;
 }
 
 const p = (suite: string) => (c: Cible) => `/api/projects/${c.projet}/${suite}`;
@@ -342,6 +346,56 @@ const REGLAGES: readonly Acte[] = [
     corps: () => ({ kind: 'fait', texte: 'le site est en ligne' }),
     refus: 'projet',
   },
+  {
+    // Un rejeu hérite du dépôt, des garde-fous et d'un niveau d'autonomie :
+    // c'est un RÉGLAGE, pas un engagement — même si ses effets irréversibles
+    // sont ensuite simulés.
+    nom: 'missions/:missionId/rejouer',
+    methode: 'POST',
+    route: '/api/projects/:projectId/missions/:missionId/rejouer',
+    url: (c) => `/api/projects/${c.projet}/missions/${c.mission}/rejouer`,
+    corps: () => ({ autonomie: 'off' }),
+    refus: 'projet',
+    succes: 201,
+  },
+  {
+    // Le banc d'ombre fait payer à l'hôte de vrais appels de modèle : l'allumer
+    // et fixer son budget, c'est décider de ce que le projet s'autorise.
+    nom: 'banc-ombre',
+    methode: 'POST',
+    route: '/api/projects/:projectId/banc-ombre',
+    url: p('banc-ombre'),
+    corps: () => ({ actif: false, executionsParJour: 3, plafondCoutUsd: 1 }),
+    refus: 'projet',
+  },
+  {
+    // Accorder un connecteur externe + ses portées à un projet est un RÉGLAGE :
+    // il décide de ce que le projet laisse partir vers l'extérieur (Slack,
+    // webhook) et de qui peut approuver depuis Slack. Propriétaire ou admin.
+    nom: 'connecteurs/:id/autoriser',
+    methode: 'POST',
+    route: '/api/projects/:projectId/connecteurs/:connecteurId/autoriser',
+    url: p('connecteurs/webhook/autoriser'),
+    corps: () => ({ portees: ['notification'] }),
+    refus: 'projet',
+  },
+  {
+    nom: 'connecteurs/:id (révoquer)',
+    methode: 'DELETE',
+    route: '/api/projects/:projectId/connecteurs/:connecteurId',
+    url: p('connecteurs/webhook'),
+    refus: 'projet',
+  },
+  {
+    // Émettre un fait de test à travers un connecteur touche le monde extérieur
+    // au nom du projet : même porte que l'autorisation.
+    nom: 'connecteurs/:id/test',
+    methode: 'POST',
+    route: '/api/projects/:projectId/connecteurs/:connecteurId/test',
+    url: p('connecteurs/webhook/test'),
+    corps: () => ({}),
+    refus: 'projet',
+  },
 ];
 
 /**
@@ -398,6 +452,7 @@ describe('ADR 0007 — le jeton de ruche n’engage plus le projet d’autrui', 
     fabrique: 'fabrique-qui-nexiste-pas',
     motifPerso: 'motif-qui-nexiste-pas',
     sauvegarde: 'sauvegarde-qui-nexiste-pas',
+    mission: 'mission-qui-nexiste-pas',
   };
 
   const inscrire = async (
@@ -472,7 +527,14 @@ describe('ADR 0007 — le jeton de ruche n’engage plus le projet d’autrui', 
       patch: 'diff --git a/x b/x\n+y',
     }).id;
     if (!fabrique.ok || !motif.ok) throw new Error('garniture du projet impossible');
-    return { projet, tache, fabrique: fabrique.id, motifPerso: motif.id, sauvegarde };
+    // Une mission rangée, avec un VRAI instantané de début : rejouer doit
+    // pouvoir réussir, sans quoi la garde ne serait éprouvée que sur des refus.
+    const mission = `mission-${projet}`;
+    const ouverture = { id: mission, ouverteA: 0, closeA: null, depuisEvenement: 0 };
+    const membres = [tache];
+    const debut = instantaneDe(s, s.getProject(projet)!, ouverture, 'debut', Date.now(), membres);
+    s.ouvrirMission({ ...ouverture, projectId: projet, membres, debut: JSON.stringify(debut) });
+    return { projet, tache, fabrique: fabrique.id, motifPerso: motif.id, sauvegarde, mission };
   };
 
   beforeAll(async () => {
@@ -627,9 +689,11 @@ describe('ADR 0007 — le jeton de ruche n’engage plus le projet d’autrui', 
           ['l’administratrice', jetonReine],
         ] as const) {
           const r = await tenter(possede, acte, compte(t));
-          expect(r.status, `${acte.nom} par ${qui}`).toBe(200);
+          expect(r.status, `${acte.nom} par ${qui}`).toBe(acte.succes ?? 200);
         }
-        expect((await tenter(orphelin, acte, jeton)).status, `${acte.nom} (orphelin)`).toBe(200);
+        expect((await tenter(orphelin, acte, jeton)).status, `${acte.nom} (orphelin)`).toBe(
+          acte.succes ?? 200,
+        );
       }
     });
 
