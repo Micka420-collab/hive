@@ -27,6 +27,7 @@ import { ChoixDuTheme } from './ChoixDuTheme';
 import { setLang, useLang, useT } from './i18n';
 import { InvitePanel } from './InvitePanel';
 import { AvantPremierEtat, BandeauHorsLigne, lireLiaison } from './Liaison';
+import { Skeleton } from './composants';
 import { NewProjectModal } from './NewProjectModal';
 import { TaskDrawer } from './TaskDrawer';
 import {
@@ -976,7 +977,9 @@ export function App() {
           <FiletDeSecurite adresse={`${route.view}/${route.selectedId ?? ''}`} portee="vue">
             <Suspense
               fallback={
-                <div className="mc-view-loading">{t('Chargement de la vue…', 'Loading view…')}</div>
+                <div className="mc-view mc-avant-etat">
+                  <Skeleton lignes={6} libelle={t('Chargement de la vue…', 'Loading view…')} />
+                </div>
               }
             >
               {/* Avant le premier instantané, AUCUNE vue : chacune dirait son

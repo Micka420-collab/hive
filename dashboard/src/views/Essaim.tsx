@@ -25,7 +25,7 @@ import { libelleAgent } from '../../../src/shared/agent-libelle';
 import { libelleMetier } from '../../../src/orchestrator/metier';
 import { activateProps, DOMAINE_LABEL, formatMs, ProgressBar } from '../ui';
 import { nomConstate, useBaptemes } from '../useBaptemes';
-import { EmptyState } from '../composants';
+import { EmptyState, Skeleton } from '../composants';
 import { EchecSondage, timeShort, useApiPoll } from './shared';
 import type { ViewProps } from './shared';
 import type { HiveNode, StateSnapshot, SubAgent, Task } from '../../../src/shared/types';
@@ -603,14 +603,18 @@ function PheromonesCard({
         )}
       </header>
       {traces === null ? (
-        <p className="empty pad">{t('Lecture des pistes…', 'Reading the trails…')}</p>
+        <Skeleton lignes={3} libelle={t('Lecture des pistes…', 'Reading the trails…')} />
       ) : traces.length === 0 ? (
-        <p className="empty pad">
-          {t(
-            'La ruche n’a pas encore d’affinité mesurée — les phéromones apparaissent après les premiers résultats.',
-            'The hive has no measured affinity yet — pheromones appear after the first results.',
+        <EmptyState
+          titre={t(
+            'La ruche n’a pas encore d’affinité mesurée',
+            'The hive has no measured affinity yet',
           )}
-        </p>
+          texte={t(
+            'Les phéromones apparaissent après les premiers résultats.',
+            'Pheromones appear after the first results.',
+          )}
+        />
       ) : (
         <ul className="es-phero">
           {[...parNoeud].map(([nodeId, domaines]) => (
@@ -739,12 +743,13 @@ function PolyethismeCard({
       )}
 
       {vue.noeuds.length === 0 ? (
-        <p className="empty pad">
-          {t(
-            'Aucune ouvrière observée — les castes apparaissent après les premières inspections.',
-            'No worker observed yet — castes appear after the first inspections.',
+        <EmptyState
+          titre={t('Aucune ouvrière observée', 'No worker observed yet')}
+          texte={t(
+            'Les castes apparaissent après les premières inspections.',
+            'Castes appear after the first inspections.',
           )}
-        </p>
+        />
       ) : (
         <>
           <ul className="es-poly">
@@ -1128,15 +1133,15 @@ export default function Essaim({
             </header>
             <EchecSondage sondage={waggle} />
             {!board && !waggle.error && (
-              <p className="empty pad">{t('Lecture de la danse…', 'Reading the dance…')}</p>
+              <Skeleton lignes={3} libelle={t('Lecture de la danse…', 'Reading the dance…')} />
             )}
             {board && board.nodes.length === 0 && (
-              <p className="empty pad">
-                {t(
+              <EmptyState
+                titre={t(
                   'La danse frétillante attend le premier nectar.',
                   'The waggle dance awaits its first nectar.',
                 )}
-              </p>
+              />
             )}
             {board && board.nodes.length > 0 && (
               <>

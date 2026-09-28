@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { fetchReplay } from '../api';
 import type { ReplayResult } from '../api';
 import { useT, useLang } from '../i18n';
+import { EmptyState } from '../composants';
 import { modalOpen, STATUS_ICON, statusLabel } from '../ui';
 import { timeShort } from './shared';
 import type { ViewProps } from './shared';
@@ -287,10 +288,7 @@ export default function Chronique({ events }: ViewProps) {
           </div>
           <div className="ch-replay-body">
             {frames.length === 0 ? (
-              <p className="empty pad">
-                <span className="marque" aria-hidden="true" />{' '}
-                {t('Rien à rejouer pour l’instant.', 'Nothing to replay yet.')}
-              </p>
+              <EmptyState titre={t('Rien à rejouer pour l’instant.', 'Nothing to replay yet.')} />
             ) : (
               <>
                 <div className="ch-controls">
