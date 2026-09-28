@@ -18,6 +18,7 @@
 //      qui ferme la boucle : le verdict de contre-visite reviendra le juger.
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { categoriser, cle, cleBras } from '../src/orchestrator/aiguillage.js';
 import { Scheduler } from '../src/orchestrator/scheduler.js';
 import { HiveStore } from '../src/orchestrator/store.js';
 import { projeterWorkers } from '../src/orchestrator/workers.js';
@@ -199,6 +200,50 @@ describe('Aiguillage câblé — la boucle principale de l’ordonnanceur', () =
       .listEvents()
       .find((event) => event.type === 'task_assigned' && event.payload.taskId === t);
     expect(assignation?.payload.modele, 'le journal conserve le modèle commandé').toBe('opus');
+  });
+
+  it('UN REJEU `figee` ÉLIT SUR LES BRAS FIGÉS — pas seulement sur les modèles', () => {
+    // Le vécu du jour est VIDE ; le Genome figé dit tout. Au niveau modèle,
+    // alpha et beta se valent ; seuls les BRAS les séparent (beta 10/10, alpha
+    // 0/10). Reconstruit sans ses bras, le Genome laisserait gagner le nom
+    // qui vient d'abord : alpha.
+    const categorie = categoriser('Ajoute un endpoint', 'implémente la fonction');
+    const rejeu = store.createProject({ name: 'Rejeu figé' }).id;
+    store.inscrireRejeu({
+      projectId: rejeu,
+      missionSource: 'mission-source',
+      projetSource: 'projet-source',
+      surcharges: { politiqueRoutage: 'figee' },
+      genomeFige: [
+        { niveau: 'modele', cle: cle(categorie, 'alpha'), essais: 20, recompenseTotale: 10 },
+        { niveau: 'modele', cle: cle(categorie, 'beta'), essais: 20, recompenseTotale: 10 },
+        {
+          niveau: 'bras',
+          cle: cleBras(categorie, { modele: 'alpha', ...BRAS_SHELL }),
+          essais: 10,
+          recompenseTotale: 0,
+        },
+        {
+          niveau: 'bras',
+          cle: cleBras(categorie, { modele: 'beta', ...BRAS_SHELL }),
+          essais: 10,
+          recompenseTotale: 10,
+        },
+      ],
+      creePar: null,
+      creeA: 1,
+    });
+    scheduler.registerNode(profile('aaa', ['alpha']));
+    scheduler.registerNode(profile('zzz', ['beta']));
+    const t = store.createTask({
+      projectId: rejeu,
+      title: 'Ajoute un endpoint',
+      prompt: 'implémente la fonction',
+    }).id;
+
+    scheduler.tick(5_000);
+
+    expect(assignations.find((a) => a.taskId === t)?.modele).toBe('beta');
   });
 
   it('LE JOURNAL GARDE LA RAISON DU CHOIX — « pourquoi ce modèle », figée à la décision', () => {

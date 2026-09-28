@@ -10,6 +10,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { instantaneDe } from '../src/orchestrator/missions.js';
 import { HiveStore } from '../src/orchestrator/store.js';
 
 const TABLES = ['missions', 'rejeux', 'rejeux_actions', 'missions_taches'] as const;
@@ -266,6 +267,90 @@ describe('la borne des missions', () => {
     expect(s.enregistrerActionRejeu(a, 'reine')).toBe(false);
     expect(s.enregistrerActionRejeu(a, 'proprietaire')).toBe(true);
     expect(s.actionsDuRejeu('p').map((x) => x.parUserId)).toEqual(['reine', 'proprietaire']);
+    s.close();
+  });
+});
+
+describe('le Genome figé', () => {
+  const inscrire = (s: HiveStore, genomeFige: unknown[]): string => {
+    const p = s.createProject({ name: 'Rejeu' }).id;
+    s.inscrireRejeu({
+      projectId: p,
+      missionSource: 'm',
+      projetSource: 'source',
+      surcharges: { politiqueRoutage: 'figee' },
+      // Le magasin relit ce que la base contient — une base éditée à la main,
+      // une version future : l'entrée malformée est posée telle quelle.
+      genomeFige: genomeFige as never,
+      creePar: null,
+      creeA: 1,
+    });
+    return p;
+  };
+
+  it('fait l’aller-retour ; UNE entrée illisible rend TOUT le Genome illisible', () => {
+    const s = new HiveStore(':memory:');
+    const bon = {
+      niveau: 'bras',
+      cle: '["code","a","shell",null]',
+      essais: 2,
+      recompenseTotale: 1,
+    };
+    const modele = { niveau: 'modele', cle: '["code","a"]', essais: 2, recompenseTotale: 1 };
+    expect(s.rejeuDuProjet(inscrire(s, [modele, bon]))?.genomeFige).toEqual([modele, bon]);
+    // Retirer l'entrée fautive rejouerait sous un vécu qui n'a jamais existé.
+    for (const fautive of [
+      { ...bon, essais: '2' },
+      { ...bon, niveau: 'harness' },
+      { niveau: 'bras', cle: 7, essais: 1, recompenseTotale: 1 },
+      null,
+    ]) {
+      expect(
+        s.rejeuDuProjet(inscrire(s, [modele, fautive, bon]))?.genomeFige,
+        JSON.stringify(fautive),
+      ).toBeNull();
+    }
+    s.close();
+  });
+
+  it('l’instantané fige les DEUX niveaux — bras compris —, en ordre d’unités de code', () => {
+    const s = new HiveStore(':memory:');
+    const vecu = s.createProject({ name: 'Vécu' }).id;
+    // « Zeta » avant « alpha » en unités de code (Z < a) ; `localeCompare`
+    // dirait l'inverse, et l'empreinte dépendrait de la locale.
+    for (const [i, modele] of ['alpha', 'Zeta'].entries()) {
+      const t = s.createTask({
+        projectId: vecu,
+        title: 'Ajoute un endpoint',
+        prompt: 'implémente',
+      }).id;
+      s.poserModeleAiguillage(t, modele, 1_000 + i, { harness: 'shell', effort: null });
+      s.enregistrerContreVisite({
+        productionTaskId: t,
+        suite: 'appliquer',
+        raison: '',
+        visiteurNodeId: 'v',
+        visiteurAgent: 'claude-code',
+        now: 2_000 + i,
+      });
+    }
+    const projet = s.getProject(vecu)!;
+    const { genome } = instantaneDe(
+      s,
+      projet,
+      { id: 'm', ouverteA: 0, closeA: null, depuisEvenement: 0 },
+      'debut',
+      3_000,
+      [],
+    );
+    const bras = genome.antecedents.filter((a) => a.niveau === 'bras');
+    expect(bras.map((a) => JSON.parse(a.cle)[1])).toEqual(['Zeta', 'alpha']);
+    expect(genome.antecedents.filter((a) => a.niveau === 'modele')).toHaveLength(2);
+    const ordre = (x: { niveau: string; cle: string }) => `${x.niveau}\u0000${x.cle}`;
+    const attendu = [...genome.antecedents].sort((a, b) =>
+      ordre(a) < ordre(b) ? -1 : ordre(a) > ordre(b) ? 1 : 0,
+    );
+    expect(genome.antecedents).toEqual(attendu);
     s.close();
   });
 });
