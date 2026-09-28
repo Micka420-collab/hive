@@ -245,3 +245,9 @@ more` and `forced-colors: active`. Reduced motion switches off every
 <p align="center">
   <img src="images/theme-sombre/ruche.mobile.png" width="300" alt="La Ruche en thème sombre sur mobile.">
 </p>
+<p align="center">
+  <img src="images/theme-sombre/sandbox-live.bureau.png" width="840" alt="Sandbox Live en thème sombre : une exécution réelle mise en pause, ses mesures, sa sortie et son diff.">
+</p>
+<p align="center">
+  <img src="images/theme-sombre/sandbox-live.mobile.png" width="300" alt="Sandbox Live en thème sombre sur mobile, en pause.">
+</p>

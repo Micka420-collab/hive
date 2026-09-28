@@ -10,6 +10,8 @@ import type {
   RapportDuNoeud,
   RapportLivraisonLocale,
 } from './livraison-locale.js';
+import { etatDirectDepuis, directTacheDepuis, DIFF_DIRECT_MAX } from './bac-direct.js';
+import type { DirectTache, EtatDirect } from './bac-direct.js';
 import { estPlateforme } from './machine.js';
 import { validationsBacDepuis } from './validations-bac.js';
 import type { ValidationsBac } from './validations-bac.js';
@@ -258,6 +260,29 @@ export interface TaskUpdateMsg {
    * seule exécution bavarde aurait effacé l'histoire de la ruche.
    */
   sortie?: string;
+  /**
+   * L'état EN DIRECT de l'exécution (Sandbox Live, `shared/bac-direct.ts`) :
+   * phase, commande caviardée, pause, mesures, validations en cours. Seulement
+   * ce qui a changé. Éphémère comme `sortie` : gardé en mémoire par le hub,
+   * jamais journalisé.
+   */
+  direct?: EtatDirect;
+}
+
+/**
+ * La réponse d'un nœud à `demande_diff_direct` : le diff de l'exécution EN
+ * COURS, caviardé au nœud et borné à `DIFF_DIRECT_MAX` (`tronque` le dit).
+ * `erreur` : le nœud n'a pas pu le calculer (tâche finie, pas de dépôt,
+ * git en échec) — dit en une ligne, jamais un diff vide qui passerait pour
+ * « rien n'a changé ».
+ */
+export interface DiffDirectMsg {
+  type: 'diff_direct';
+  taskId: string;
+  requestId: string;
+  diff: string;
+  tronque: boolean;
+  erreur?: string;
 }
 
 export interface TaskResultMsg {
@@ -447,7 +472,8 @@ export type ClientMessage =
   | RequisitionOpenMsg
   | MergeResultMsg
   | ChantierResultMsg
-  | PoseResultMsg;
+  | PoseResultMsg
+  | DiffDirectMsg;
 
 // ─── Messages orchestrateur → client ─────────────────────────────────────────
 export interface RegisteredMsg {
@@ -482,6 +508,23 @@ export interface CancelTaskMsg {
   type: 'cancel_task';
   taskId: string;
   reason: string;
+}
+
+/**
+ * Suspendre / reprendre l'agent d'une tâche (Sandbox Live). Le nœud répond par
+ * un `task_update` dont `direct.enPause` dit ce qui a VRAIMENT eu lieu — ou
+ * `direct.pausable: false` s'il ne sait pas le faire ici.
+ */
+export interface PauseTaskMsg {
+  type: 'pause_task' | 'resume_task';
+  taskId: string;
+}
+
+/** Le hub demande le diff d'une exécution en cours ; réponse : `diff_direct`. */
+export interface DemandeDiffDirectMsg {
+  type: 'demande_diff_direct';
+  taskId: string;
+  requestId: string;
 }
 
 export interface StateMsg {
@@ -537,6 +580,17 @@ export interface TaskOutputMsg {
   taskId: string;
   nodeId: string;
   sortie: string;
+}
+
+/**
+ * L'état en direct d'une exécution (`DirectTache`), relayé aux tableaux de
+ * bord — à chaque changement, et à chaque écran qui s'abonne. `direct: null` :
+ * l'exécution est finie, l'écran oublie son état. Jamais journalisé.
+ */
+export interface TaskDirectMsg {
+  type: 'task_direct';
+  taskId: string;
+  direct: DirectTache | null;
 }
 
 export interface ErrorMsg {
@@ -683,9 +737,12 @@ export type ServerMessage =
   | RegisteredMsg
   | AssignTaskMsg
   | CancelTaskMsg
+  | PauseTaskMsg
+  | DemandeDiffDirectMsg
   | StateMsg
   | EventMsg
   | TaskOutputMsg
+  | TaskDirectMsg
   | ErrorMsg
   | RequisitionAckMsg
   | DelegationAcceptedMsg
@@ -700,9 +757,13 @@ const SERVER_MESSAGE_TYPES = new Set([
   'registered',
   'assign_task',
   'cancel_task',
+  'pause_task',
+  'resume_task',
+  'demande_diff_direct',
   'state',
   'event',
   'task_output',
+  'task_direct',
   'error',
   'requisition_ack',
   'delegation_accepted',
@@ -749,6 +810,8 @@ function isSubAgents(v: unknown): v is SubAgent[] {
     return (
       isId(sa.id) &&
       isStr(sa.name, LIMITS.name) &&
+      // Le parent (Sandbox Live : l'arbre des sous-agents), s'il y en a un.
+      (sa.parentId === undefined || isId(sa.parentId)) &&
       (sa.status === 'running' || sa.status === 'done' || sa.status === 'failed')
     );
   });
@@ -1114,15 +1177,35 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
         (m.log === undefined || isStrAllowEmpty(m.log, LIMITS.log)) &&
         (m.sortie === undefined || isStr(m.sortie, LIMITS.sortie))
       ) {
+        // Un état en direct hors contrat fait tomber le message entier, comme
+        // tout autre champ : le nœud qui l'enverrait ment ou bogue.
+        const direct = m.direct === undefined ? undefined : etatDirectDepuis(m.direct);
+        if (direct === null) return null;
         const msg: TaskUpdateMsg = { type: 'task_update', taskId: m.taskId, status: 'running' };
         if (m.subAgents !== undefined) msg.subAgents = m.subAgents as SubAgent[];
         if (m.presences !== undefined) msg.presences = m.presences as PresenceFichier[];
         if (m.log !== undefined) msg.log = m.log as string;
         if (m.sortie !== undefined) msg.sortie = m.sortie as string;
+        if (direct !== undefined) msg.direct = direct;
         return msg;
       }
       return null;
     }
+    case 'diff_direct':
+      return isId(m.taskId) &&
+        isId(m.requestId) &&
+        isStrAllowEmpty(m.diff, DIFF_DIRECT_MAX) &&
+        typeof m.tronque === 'boolean' &&
+        (m.erreur === undefined || isStr(m.erreur, LIMITS.arg))
+        ? {
+            type: 'diff_direct',
+            taskId: m.taskId,
+            requestId: m.requestId,
+            diff: m.diff,
+            tronque: m.tronque,
+            ...(typeof m.erreur === 'string' ? { erreur: m.erreur } : {}),
+          }
+        : null;
     case 'task_result': {
       if (
         isId(m.taskId) &&
@@ -1368,6 +1451,13 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
       return isId(m.taskId) && isStrAllowEmpty(m.reason, LIMITS.name)
         ? { type: 'cancel_task', taskId: m.taskId, reason: m.reason }
         : null;
+    case 'pause_task':
+    case 'resume_task':
+      return isId(m.taskId) ? { type: m.type, taskId: m.taskId } : null;
+    case 'demande_diff_direct':
+      return isId(m.taskId) && isId(m.requestId)
+        ? { type: 'demande_diff_direct', taskId: m.taskId, requestId: m.requestId }
+        : null;
     case 'requisition_ack':
       return isId(m.id) &&
         isStr(m.genre, LIMITS.requisitionGenre) &&
@@ -1437,6 +1527,16 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
       return isId(m.taskId) && isId(m.nodeId) && isStr(m.sortie, LIMITS.sortie)
         ? { type: 'task_output', taskId: m.taskId, nodeId: m.nodeId, sortie: m.sortie }
         : null;
+    case 'task_direct': {
+      if (!isId(m.taskId)) return null;
+      if (m.direct === null) return { type: 'task_direct', taskId: m.taskId, direct: null };
+      const direct = directTacheDepuis(m.direct);
+      // L'état doit être celui de la tâche nommée : un hub qui mélangerait les
+      // deux ferait afficher à une ligne l'état d'une autre.
+      return direct && direct.taskId === m.taskId
+        ? { type: 'task_direct', taskId: m.taskId, direct }
+        : null;
+    }
     case 'requisition_result':
       return isId(m.id) && (m.statut === 'accordee' || m.statut === 'refusee')
         ? { type: 'requisition_result', id: m.id, statut: m.statut }

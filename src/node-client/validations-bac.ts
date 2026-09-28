@@ -71,11 +71,12 @@ import type {
   ValidationKey,
   ValidationsBac,
 } from '../shared/validations-bac.js';
+import type { EtatControleDirect } from '../shared/bac-direct.js';
 import type { BacExecution } from './isolement.js';
 import { runProc } from './merge-runner.js';
 import { gitHote } from '../shared/git-protege.js';
 import type { DepotEpingle } from '../shared/git-protege.js';
-import { buildSandboxEnv, retirerFichiersIgnores } from './workspace.js';
+import { buildSandboxEnv, retirerFichiersIgnores, sousVerrouIndex } from './workspace.js';
 
 /** Délai de chaque commande de validation — celui des tests d'un merge. */
 export const DELAI_VALIDATION_MS = 5 * 60_000;
@@ -101,6 +102,12 @@ export interface OptionsValidation {
   signal?: AbortSignal;
   /** Une ligne de progrès, relayée au hub pendant que les commandes tournent. */
   surEtape?: (ligne: string) => void;
+  /**
+   * Chaque validation LANCÉE, à son départ (`en_cours`) puis à sa conclusion
+   * (Sandbox Live : l'écran les suit une à une). Celles qui ne se lancent pas
+   * arrivent avec le rapport final, comme avant.
+   */
+  surControle?: (cle: ValidationKey, etat: EtatControleDirect) => void;
   /** Délai de chaque commande (défaut `DELAI_VALIDATION_MS`). */
   delaiMs?: number;
   /**
@@ -151,11 +158,15 @@ function manifeste(texte: string | null): unknown {
  * vu ici — il est retiré avant le lancement.
  */
 async function npmrcModifie(depot: DepotEpingle, baseSha: string): Promise<boolean> {
-  await gitHote(['add', '--all', '--intent-to-add'], depot);
-  const modifies = await gitHote(
-    ['diff', '--no-ext-diff', '--no-textconv', '--name-only', baseSha, '--', '.npmrc'],
-    depot,
-  );
+  // Sous le verrou du registre (`sousVerrouIndex`) : un diff demandé en direct
+  // pendant les validations écrit le même index.
+  const modifies = await sousVerrouIndex(depot, async () => {
+    await gitHote(['add', '--all', '--intent-to-add'], depot);
+    return gitHote(
+      ['diff', '--no-ext-diff', '--no-textconv', '--name-only', baseSha, '--', '.npmrc'],
+      depot,
+    );
+  });
   return modifies.trim() !== '';
 }
 
@@ -286,6 +297,7 @@ async function lancerLePlan(
       continue;
     }
     opts.surEtape?.(`validation ${cle} : ${argv.join(' ')}…`);
+    opts.surControle?.(cle, 'en_cours');
     const debut = Date.now();
     const r = await lancer(argv, delaiMs);
     const controle = controleApresLancement({
@@ -296,6 +308,7 @@ async function lancerLePlan(
       sortie: r.output,
     });
     controles[cle] = controle;
+    opts.surControle?.(cle, controle.etat);
     opts.surEtape?.(
       `validation ${cle} : ${controle.etat} (${controle.raison}` +
         `${controle.code === undefined ? '' : `, code ${controle.code}`})`,

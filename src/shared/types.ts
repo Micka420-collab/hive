@@ -80,6 +80,11 @@ export interface SubAgent {
   id: string;
   name: string;
   status: 'running' | 'done' | 'failed';
+  /**
+   * Le sous-agent qui l'a lancé (Sandbox Live : l'ARBRE des délégations). Absent :
+   * lancé par l'agent principal — ou par un nœud d'avant cette information.
+   */
+  parentId?: string;
 }
 
 /** Résumé du résultat stocké sur la tâche elle-même (le détail vit dans `results`). */
