@@ -21,7 +21,15 @@ import { VALIDATION_KEYS } from '../../../src/shared/validations-bac';
 import { t as tNow, useT } from '../i18n';
 import type { Translate } from '../i18n';
 import { activateProps, formatMs, modalOpen, StatusBadge } from '../ui';
-import { EchecSondage, getReview, Honeycomb, setReview, useApiPoll, useReviewTick } from './shared';
+import {
+  EchecSondage,
+  getReview,
+  Honeycomb,
+  setReview,
+  travailDesProjets,
+  useApiPoll,
+  useReviewTick,
+} from './shared';
 import type { ReviewState, ViewProps } from './shared';
 import { resumeProvenance, texteControle } from './validations-rendu';
 import './miellerie.css';
@@ -744,10 +752,10 @@ export default function Miellerie({
   void reviewTick; // relit localStorage (tri + compteurs) à chaque revue
 
   // File de revue : done/failed, groupées par projet, triées (failed → non-revues → revues).
-  // Jamais une OMBRE du banc (`Task.ombre`) : elle ne se livre pas, il n'y a
-  // rien à y relire pour le projet — sa comparaison se lit au registre Genome.
-  const finished = snapshot.tasks.filter(
-    (t) => !t.ombre && (t.status === 'done' || t.status === 'failed'),
+  // Jamais une OMBRE du banc (`travailDesProjets`) : elle ne se livre pas, il
+  // n'y a rien à y relire pour le projet — sa comparaison se lit au Genome.
+  const finished = travailDesProjets(snapshot.tasks).filter(
+    (t) => t.status === 'done' || t.status === 'failed',
   );
   const byRank = (a: Task, b: Task) => reviewRank(a) - reviewRank(b) || b.updatedAt - a.updatedAt;
   const groups: { id: string; name: string; tasks: Task[] }[] = [];
@@ -1026,7 +1034,9 @@ export default function Miellerie({
     // Le geste de revue compte : approuvées seules si approbation explicite ;
     // sinon tout le terminé SAUF les rejetées (le serveur les exclut aussi —
     // défense en profondeur, il est la source de vérité des revues).
-    const doneOfProject = snapshot.tasks.filter(
+    // Hors ombres du banc : le serveur refuserait leur id (« tâche hors
+    // projet ») et la coulée entière avec (`travailDesProjets`).
+    const doneOfProject = travailDesProjets(snapshot.tasks).filter(
       (t) => t.projectId === projectId && t.status === 'done',
     );
     const approvedIds = doneOfProject

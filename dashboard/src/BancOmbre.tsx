@@ -276,7 +276,11 @@ export function BancOmbre({ projectId }: { projectId: string }) {
         </ul>
       )}
 
-      {erreur && <p className="garde-fou-erreur">{erreur}</p>}
+      {erreur && (
+        <p className="garde-fou-erreur" role="alert">
+          {erreur}
+        </p>
+      )}
     </section>
   );
 }

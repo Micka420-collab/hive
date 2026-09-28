@@ -51,6 +51,8 @@ const LECTURES = [
   'fabriques',
   'horizon',
   'motifs/perso',
+  // Le banc d'ombre : modèles comparés, dépense et titres des ombres du projet.
+  'banc-ombre',
 ];
 
 describe('lire un projet avec un COMPTE, sans le jeton de ruche', () => {

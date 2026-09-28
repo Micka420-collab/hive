@@ -171,6 +171,21 @@ interface TacheOmbreRow {
   ombreRevue: string;
 }
 
+/**
+ * Les tâches du BANC, en SQL : chaque ombre (`id` = elle-même) et chaque
+ * relecture d'une ombre (`id` = la relecture), avec l'ombre qu'elles servent.
+ * Une relecture d'ombre juge un travail qui ne se livre jamais : payée par le
+ * banc, elle reste hors de tout ce que l'ombre elle-même ne touche pas —
+ * thermorégulation, phéromones, élections de l'Aiguillage, lignes de
+ * production du Genome. La lire à part laissait le banc déplacer, par ses
+ * relectrices, les entrées du routing qu'il promet de ne pas toucher.
+ */
+const TACHES_DU_BANC_SQL = `
+  SELECT tacheOmbre AS id, tacheOmbre FROM taches_ombre
+  UNION ALL
+  SELECT ce.relectureTaskId AS id, o.tacheOmbre
+    FROM contre_expertises ce JOIN taches_ombre o ON o.tacheOmbre = ce.productionTaskId`;
+
 const REVUES_COTE: readonly RevueCote[] = ['validee', 'contestee', 'absente'];
 const revueRangee = (v: string): RevueCote =>
   (REVUES_COTE as readonly string[]).includes(v) ? (v as RevueCote) : 'absente';
@@ -3101,9 +3116,9 @@ export class HiveStore {
     // du travail des projets. UNE lecture de la table latérale pour toute la
     // fenêtre (bornée comme les tâches, `pruneTachesOmbre`), pas une par tâche.
     const ombres = new Set(
-      (this.db.prepare('SELECT tacheOmbre FROM taches_ombre').all() as { tacheOmbre: string }[]).map(
-        (r) => r.tacheOmbre,
-      ),
+      (
+        this.db.prepare('SELECT tacheOmbre FROM taches_ombre').all() as { tacheOmbre: string }[]
+      ).map((r) => r.tacheOmbre),
     );
     // Les DEUX bornes du départage — `a.id < b.id` et `a.id > b.id` — sont des
     // mutants ÉQUIVALENTS, et c'est CONSIGNÉ, pas un test qui manque : elles ne
@@ -3118,7 +3133,9 @@ export class HiveStore {
     // banc bien écrit ne nomme pas la fonction interne qu'il traverse).
     return (
       rows
-        .map((row) => (ombres.has(row.id) ? { ...rowToTask(row), ombre: true as const } : rowToTask(row)))
+        .map((row) =>
+          ombres.has(row.id) ? { ...rowToTask(row), ombre: true as const } : rowToTask(row),
+        )
         // loupe : équivalent — < → <= ; loupe : équivalent — > → >=
         // (voir la consignation au-dessus de ce `return`.)
         .sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
@@ -3791,12 +3808,13 @@ export class HiveStore {
   listResultsForPheromones(
     limit = 500,
   ): Array<{ taskId: string; nodeId: string; success: boolean; createdAt: number }> {
-    // Une ombre n'y dépose rien : les phéromones départagent les nœuds, et le
-    // banc ne touche à aucun poids du routing (décision de shadow-bench.ts).
+    // Une ombre n'y dépose rien, ni ses relectures (`TACHES_DU_BANC_SQL`) :
+    // les phéromones départagent les nœuds, et le banc ne touche à aucun
+    // poids du routing (décision de shadow-bench.ts).
     const rows = this.db
       .prepare(
         `SELECT taskId, nodeId, success, createdAt FROM results
-          WHERE taskId NOT IN (SELECT tacheOmbre FROM taches_ombre)
+          WHERE taskId NOT IN (SELECT id FROM (${TACHES_DU_BANC_SQL}))
           ORDER BY createdAt DESC, id DESC LIMIT ?`,
       )
       .all(Math.max(1, Math.min(limit, 2000))) as {
@@ -5286,8 +5304,7 @@ export class HiveStore {
   /** Le lien d'une OMBRE, ou `null` : cette tâche n'en est pas une. */
   ombreDe(taskId: string): TacheOmbre | null {
     const row = this.db.prepare('SELECT * FROM taches_ombre WHERE tacheOmbre = ?').get(taskId) as
-      | TacheOmbreRow
-      | undefined;
+      TacheOmbreRow | undefined;
     return row ? rowToTacheOmbre(row) : null;
   }
 
@@ -5297,6 +5314,17 @@ export class HiveStore {
       .prepare('SELECT * FROM taches_ombre WHERE tacheOriginale = ?')
       .get(taskId) as TacheOmbreRow | undefined;
     return row ? rowToTacheOmbre(row) : null;
+  }
+
+  /**
+   * L'ombre que sert cette tâche — elle-même si c'en est une, celle qu'elle
+   * relit si c'est une relecture d'ombre —, ou `null` : une tâche hors banc.
+   */
+  ombreLieeA(taskId: string): string | null {
+    const row = this.db
+      .prepare(`SELECT tacheOmbre FROM (${TACHES_DU_BANC_SQL}) WHERE id = ? LIMIT 1`)
+      .get(taskId) as { tacheOmbre: string } | undefined;
+    return row?.tacheOmbre ?? null;
   }
 
   /**
@@ -6624,6 +6652,11 @@ export class HiveStore {
    * rendait la fenêtre de 10 minutes fictive dès que la ruche était active (un
    * flot de `task_progress` évinçait les issues). Servi par l'index
    * `idx_events_ts` — pas de tri temporaire, pas de scan complet.
+   *
+   * Sans les tâches du BANC (`TACHES_DU_BANC_SQL`) : la température dit la
+   * santé de la PRODUCTION. Une ombre qui échoue — second modèle plus faible,
+   * modèle disparu — ferait monter la fièvre et brider la concurrence de
+   * toute la ruche pour une tâche que personne n'attend.
    */
   listEventsInWindow(
     since: number,
@@ -6633,7 +6666,11 @@ export class HiveStore {
     const placeholders = types.map(() => '?').join(', ');
     const rows = this.db
       .prepare(
-        `SELECT ts, type, payload FROM events WHERE ts >= ? AND type IN (${placeholders}) ORDER BY ts`,
+        `SELECT ts, type, payload FROM events
+          WHERE ts >= ? AND type IN (${placeholders})
+            AND COALESCE(json_extract(payload, '$.taskId'), '')
+                NOT IN (SELECT id FROM (${TACHES_DU_BANC_SQL}))
+          ORDER BY ts`,
       )
       .all(since, ...types) as Array<{ ts: number; type: string; payload: string }>;
     return rows.map((r) => ({

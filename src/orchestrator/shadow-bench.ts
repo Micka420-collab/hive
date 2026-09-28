@@ -217,6 +217,9 @@ export const MOTIFS_ACTION_EXTERNE: readonly RegExp[] = [
   // Une PR ou une issue, par ses mots ou par `gh`.
   /pull request|merge request|\bprs?\b/,
   /\bgh\s+(pr|issue|release|repo|api|gist|workflow|secret)\b/,
+  /(cr[ée]er?|ouvr(e|ir)|open|create|file)\s+(une\s+|an?\s+|the\s+)?(nouvelle\s+|new\s+)?(issue|ticket)/,
+  /comment(e|er)?\s+(on|sur)\s+(the\s+|l['’]\s*)?(issue|ticket)/,
+  /\bgit\s+tag\b/,
   // Une API tierce en ÉCRITURE, un stockage ou une infrastructure distants.
   /\bcurl\b[^\n]*(-x\s*(post|put|patch|delete)|--data|--form|--upload|\s-[dft]\s)/,
   /\bwget\b[^\n]*--post/,
@@ -226,7 +229,7 @@ export const MOTIFS_ACTION_EXTERNE: readonly RegExp[] = [
   /\b(aws|gcloud|gsutil|az)\s+[a-z]/,
   /\b(ssh|scp|rsync|sftp)\b/,
   // Les connecteurs et les messages envoyés à quelqu'un.
-  /webhook|slack|discord|jira|stripe|paiement|payment/,
+  /webhook|slack|discord|jira|stripe|paiement|payment|tweet|\bsms\b/,
   /e-?mail|courriel|envoie un|envoyer un|send an?\b/,
   // La production, et les gestes qu'on ne défait pas.
   /en production|in production|to production|\b(en|in|to) prod\b/,
@@ -446,8 +449,13 @@ const RANG: Record<Exclude<IssueCote, 'sans_preuve'>, number> = {
  *                 si l'originale — ou sa reprise — a été fusionnée entre-temps,
  *                 elle trouve la solution déjà écrite et passe ses tests sans
  *                 rien faire. Les tests ne comparent que sur la même base ;
+ *                 ou une relectrice CONTESTE un côté : elle dit que cette
+ *                 production n'a pas fait la tâche, et ses tests — verts sur
+ *                 un diff qui ne fait rien — ne prouvent alors plus rien. Le
+ *                 verdict reste celui des tests ; c'est sa confiance qui tombe ;
  *   · `haute`   — les deux côtés ont un verdict de tests sur le MÊME commit de
- *                 base connu, et chacun a reçu l'avis d'une relectrice ;
+ *                 base connu, et chacun a été VALIDÉ par une relectrice — un
+ *                 avis rendu ne suffit pas, c'est ce qu'il dit qui compte ;
  *   · `moyenne` — le reste : des tests comparables, mais une base inconnue
  *                 d'un côté, ou une relecture qui manque encore.
  */
@@ -467,7 +475,10 @@ export function comparerOmbre(
   if (basesConnues && original.baseSha !== ombre.baseSha) {
     return { verdict: 'indecis', confiance: 'faible' };
   }
+  if (original.revue === 'contestee' || ombre.revue === 'contestee') {
+    return { verdict, confiance: 'faible' };
+  }
   const memeBase = basesConnues && original.baseSha === ombre.baseSha;
-  const relues = original.revue !== 'absente' && ombre.revue !== 'absente';
-  return { verdict, confiance: memeBase && relues ? 'haute' : 'moyenne' };
+  const validees = original.revue === 'validee' && ombre.revue === 'validee';
+  return { verdict, confiance: memeBase && validees ? 'haute' : 'moyenne' };
 }

@@ -375,7 +375,9 @@ describe('le banc d’ombre sur une vraie Reine', () => {
       tacheOriginale: t1,
       etat: 'comparee',
       verdict: 'originale_meilleure',
-      confiance: 'haute',
+      // L'ombre est CONTESTÉE : le verdict reste celui des tests, la
+      // confiance tombe — ses tests ne prouvent plus qu'elle a fait la tâche.
+      confiance: 'faible',
       original: { modele: modeleOriginal, issue: 'tests_verts', revue: 'validee' },
       ombre: { modele: modeleOmbre, issue: 'tests_rouges', revue: 'contestee' },
     });

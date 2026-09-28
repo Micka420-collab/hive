@@ -171,7 +171,58 @@ describe('une ombre du banc face au planificateur', () => {
     const { ombre: s } = ombre('fable');
     store.patchTask(s, { status: 'ready' });
     const course = scheduler.startRace(s, 2);
-    expect(course.ok).toBe(false);
+    expect(course).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('ombre du banc') as unknown,
+    });
+  });
+
+  it('une RELECTURE d’ombre n’est pas élue — une relecture ordinaire, si', () => {
+    scheduler.registerNode(profil('n-opus', ['opus']));
+    scheduler.registerNode({ ...profil('n-codex', ['codex-m']), agentType: 'codex' });
+    const { projectId, originale, ombre: s } = ombre('fable');
+    const relecture = (productionTaskId: string): string => {
+      const r = store.createTask({ projectId, title: 'Relecture', prompt: 'relis' });
+      store.inscrireRelecture({
+        relectureTaskId: r.id,
+        productionTaskId,
+        relecteurNodeId: 'n-codex',
+        relecteurAgent: 'codex',
+        producteurAgent: 'claude-code',
+      });
+      return r.id;
+    };
+    const rOmbre = relecture(s);
+    const rOrdinaire = relecture(originale);
+    expect(store.ombreLieeA(rOmbre)).toBe(s);
+    expect(store.ombreLieeA(rOrdinaire)).toBeNull();
+    scheduler.tick();
+    expect(assignations.map((a) => a.taskId).sort()).toEqual([rOmbre, rOrdinaire].sort());
+    // Le témoin : la même relecture, sur une production ordinaire, est élue.
+    expect(store.modeleAiguillageDe(rOrdinaire)).toBe('codex-m');
+    expect(store.modeleAiguillageDe(rOmbre), 'la relecture d’une ombre a été élue').toBeNull();
+  });
+
+  it('le coût d’une exécution du banc est compté même quand son résultat est ÉCARTÉ', () => {
+    scheduler.registerNode(profil('n-fable', ['fable']));
+    const { projectId, ombre: s } = ombre('fable');
+    scheduler.tick();
+    expect(store.getTask(s)?.assignedNodeId).toBe('n-fable');
+    const rendu = (coutUsd: number) => ({
+      taskId: s,
+      success: true,
+      diff: 'diff --git a/x b/x',
+      logs: '',
+      durationMs: 5,
+      subAgents: [],
+      fournisseur: { source: 'claude-code', coutUsd },
+    });
+    // Un ancien porteur (l'ombre a été remise en file puis rejouée) rend
+    // aussi : son résultat est périmé, mais son appel de modèle a été payé.
+    expect(scheduler.handleTaskResult('n-ancien', rendu(0.4))).toBe(false);
+    expect(store.usageBancOmbre(projectId, 0).coutDeclareUsd).toBeCloseTo(0.4);
+    expect(scheduler.handleTaskResult('n-fable', rendu(0.1))).toBe(true);
+    expect(store.usageBancOmbre(projectId, 0).coutDeclareUsd).toBeCloseTo(0.5);
   });
 
   it('le Sting Detector ne la retient pas derrière son originale — une tâche ordinaire identique, si', () => {
@@ -272,6 +323,36 @@ describe('une ombre face au store — hors des poids et des leçons', () => {
       store.poserExigenceGardeFou(taskId, false);
     }
     expect(store.observationsGardeFou()).toHaveLength(1);
+  });
+
+  it('la thermorégulation ne lit ni les ombres ni leurs relectures', () => {
+    const p = store.createProject({ name: 'P' });
+    const o = store.createTask({ projectId: p.id, title: 'Ajouter somme', prompt: PROMPT });
+    const s = store.creerTacheOmbre({
+      original: o,
+      titre: 'Ombre — Ajouter somme',
+      categorie: 'code',
+      coteOriginal: COTE_ORIGINAL,
+      modeleOriginal: 'opus',
+      modeleOmbre: 'fable',
+    }).tacheOmbre;
+    const r = store.createTask({ projectId: p.id, title: 'Relecture', prompt: 'relis' });
+    store.inscrireRelecture({
+      relectureTaskId: r.id,
+      productionTaskId: s,
+      relecteurNodeId: 'n2',
+      relecteurAgent: 'codex',
+      producteurAgent: 'claude-code',
+    });
+    const t0 = Date.now();
+    store.appendEvent('task_failed', { taskId: s, reason: 'modele_ombre_absent' }, t0);
+    store.appendEvent('task_failed', { taskId: r.id, nodeId: 'n2' }, t0);
+    store.appendEvent('task_failed', { taskId: o.id, nodeId: 'n1' }, t0);
+    // Un événement sans tâche n'est pas une tâche du banc : il reste lu.
+    store.appendEvent('task_rejected', { nodeId: 'n1' }, t0);
+    expect(
+      store.listEventsInWindow(t0 - 1, ['task_failed', 'task_rejected']).map((e) => e.payload),
+    ).toEqual([{ taskId: o.id, nodeId: 'n1' }, { nodeId: 'n1' }]);
   });
 
   it('le souvenir de l’originale ne se sert pas à son ombre', () => {

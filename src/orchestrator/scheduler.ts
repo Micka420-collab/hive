@@ -1115,8 +1115,18 @@ export class Scheduler {
     // le résultat de N'IMPORTE quel drone enrôlé est arbitré par la course.
     const race = this.races.get(task.id);
     if (race) return this.handleDroneResult(race, task, nodeId, result);
+    // ─── LE BUDGET DU BANC D'OMBRE ─────────────────────────────────────────
+    // Une exécution qui sert une ombre (l'ombre, ou une de ses relectures) a
+    // coûté un vrai appel de modèle, que son résultat soit PRIS OU NON : une
+    // ombre remise en file par un nœud tombé, rejouée ailleurs, rend deux
+    // résultats et les deux ont été payés. Ne compter que le résultat pris
+    // laissait le plafond du projet se franchir sans le savoir. Compter un
+    // résultat de trop ne fait qu'arrêter le banc plus tôt — jamais dépenser plus.
+    const ombreServie = this.store.ombreLieeA(task.id);
+    const coutDeclare = result.fournisseur?.coutUsd ?? null;
     const active = task.status === 'assigned' || task.status === 'running';
     if (!active || task.assignedNodeId !== nodeId) {
+      if (ombreServie) this.store.consignerCoutOmbre(ombreServie, coutDeclare);
       this.emit('result_ignored', {
         taskId: task.id,
         nodeId,
@@ -1127,8 +1137,10 @@ export class Scheduler {
     }
 
     // Tout ce que ce résultat écrit part en UN seul geste : un succès rangé sans
-    // son `done` se compterait deux fois (voir enUnSeulGeste).
+    // son `done` se compterait deux fois (voir enUnSeulGeste). Le coût du banc
+    // en fait partie — rangé à part, une panne entre les deux le perdait.
     this.enUnSeulGeste(() => {
+      if (ombreServie) this.store.consignerCoutOmbre(ombreServie, coutDeclare);
       this.store.fermerHorlogeHote(task.id, Date.now());
 
       // Présence Rayon : la tâche est finie → plus aucun fichier « ouvert ».
@@ -2395,6 +2407,11 @@ export class Scheduler {
       // Aiguillage, hors Sting Detector. Lue par clé primaire, comme le lien
       // de relecture.
       const ombre = lien === null ? this.store.ombreDe(task.id) : null;
+      // Une RELECTURE d'ombre sert le banc, elle aussi (`ombreLieeA`) : pas
+      // d'élection pour elle — elle poserait un essai en vol et une récompense
+      // que le banc promet de ne pas toucher. Elle garde sa famille (plus bas).
+      const horsElection =
+        ombre !== null || (lien !== null && this.store.ombreLieeA(task.id) !== null);
       // Sting Detector : ne pas lancer une tâche en conflit FORT (même fichier)
       // avec une tâche déjà active du même projet. On la diffère jusqu'à ce que
       // l'autre se termine — prévention des conflits d'édition concurrents.
@@ -2489,15 +2506,14 @@ export class Scheduler {
       // Une ombre n'est PAS élue : son modèle a été choisi à sa création, et
       // une élection de plus poserait un essai en vol qui pèserait sur le
       // routing (décision de shadow-bench.ts). Ses éligibles offrent déjà ce
-      // modèle-là (voir l'offre).
-      const route =
-        ombre === null
-          ? aiguillerNoeuds(
-              categoriser(task.title, task.prompt),
-              reprise.eligibles,
-              lireAntecedents(),
-            )
-          : null;
+      // modèle-là (voir l'offre). Ses relectures non plus (`horsElection`).
+      const route = !horsElection
+        ? aiguillerNoeuds(
+            categoriser(task.title, task.prompt),
+            reprise.eligibles,
+            lireAntecedents(),
+          )
+        : null;
       const candidats = route ? route.noeuds : reprise.eligibles;
       const modeleCommande = route?.modele ?? ombre?.modeleOmbre;
       let node = candidats[0];

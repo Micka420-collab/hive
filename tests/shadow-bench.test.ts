@@ -119,6 +119,29 @@ describe('l’admission — chaque refus pour SA raison', () => {
     ['kubectl apply', { prompt: 'kubectl apply -f deploy.yaml' }, 'action_externe'],
     ['terraform apply', { prompt: 'run terraform apply on staging' }, 'action_externe'],
     ['une copie distante', { prompt: 'scp the report to the build server' }, 'action_externe'],
+    // Les tournures relevées par la relecture indépendante, une par famille.
+    [
+      'PR puis gh pr create',
+      { prompt: 'Corrige le bug puis ouvre une pull request avec gh pr create' },
+      'action_externe',
+    ],
+    ['open a PR', { prompt: 'Fix the parser and open a PR' }, 'action_externe'],
+    ['ouvre une PR', { prompt: 'Corrige le parseur et ouvre une PR' }, 'action_externe'],
+    ['créer une issue', { prompt: 'Crée une issue GitHub pour le bug restant' }, 'action_externe'],
+    ['create an issue', { prompt: 'Create an issue for the remaining bug' }, 'action_externe'],
+    ['commenter l’issue', { prompt: 'Commente sur l’issue avec le correctif' }, 'action_externe'],
+    [
+      'un webhook par curl',
+      { prompt: 'Appelle curl -X POST https://api.example.com/hooks pour notifier' },
+      'action_externe',
+    ],
+    ['aws s3 cp', { prompt: 'Copy the build with aws s3 cp' }, 'action_externe'],
+    ['gh release', { prompt: 'Then gh release the binaries' }, 'action_externe'],
+    ['git tag', { prompt: 'Bump the version and git tag it' }, 'action_externe'],
+    ['un tweet', { prompt: 'Tweet the changelog' }, 'action_externe'],
+    ['un SMS', { prompt: 'Envoie le code par SMS' }, 'action_externe'],
+    ['twine upload', { prompt: 'twine upload dist/*' }, 'action_externe'],
+    ['« push » tout seul en fin de texte', { prompt: 'fix the typo then push' }, 'action_externe'],
     ['délégation', { delegation: true }, 'delegation'],
     ['aucun modèle commandé', { modeleOriginal: null }, 'modele_inconnu'],
     ['une ombre en vol', { usage: { ...sansUsage, enVol: OMBRES_EN_VOL_MAX } }, 'ombre_en_vol'],
@@ -228,10 +251,17 @@ describe('la comparaison — les tests décident, la contre-revue pèse la confi
     expect(issueDeCote(true, null)).toBe('sans_preuve');
   });
 
-  it('deux productions vertes font une égalité — même si une relectrice en conteste une', () => {
+  it('deux productions vertes font une égalité — même contestée, mais la confiance tombe', () => {
+    // Le verdict reste celui des tests (pas de préférence de modèle) ; une
+    // relectrice qui dit « ce diff ne fait pas la tâche » retire aux tests
+    // verts ce qu'ils prouvaient : jamais « haute » sur un côté contesté.
     expect(comparerOmbre(cote(), cote({ revue: 'contestee' }))).toEqual({
       verdict: 'egalite',
-      confiance: 'haute',
+      confiance: 'faible',
+    });
+    expect(comparerOmbre(cote({ revue: 'contestee' }), cote({ issue: 'tests_rouges' }))).toEqual({
+      verdict: 'originale_meilleure',
+      confiance: 'faible',
     });
   });
 
@@ -263,7 +293,7 @@ describe('la comparaison — les tests décident, la contre-revue pèse la confi
     ).toEqual({ verdict: 'indecis', confiance: 'faible' });
   });
 
-  it('haute exige la même base connue ET une relecture de chaque côté', () => {
+  it('haute exige la même base connue ET une relecture qui VALIDE chaque côté', () => {
     expect(comparerOmbre(cote(), cote({ baseSha: null })).confiance).toBe('moyenne');
     expect(comparerOmbre(cote({ baseSha: null }), cote({ baseSha: null })).confiance).toBe(
       'moyenne',

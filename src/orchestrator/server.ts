@@ -1292,15 +1292,13 @@ async function monterReine(
     // démonstration que l'ordonnanceur (voir sa construction). Le
     // planificateur n'épinglera l'ombre que chez une ouvrière isolée qui
     // déclare son modèle.
-    const producteurs = store
-      .listNodes()
-      .filter(
-        (n) =>
-          n.status === 'online' &&
-          assignationProductionAutorisee(n.agentType, {
-            simulation: config.simulation || shellForce(process.env),
-          }),
-      );
+    const producteurs = store.listNodes().filter(
+      (n) =>
+        n.status === 'online' &&
+        assignationProductionAutorisee(n.agentType, {
+          simulation: config.simulation || shellForce(process.env),
+        }),
+    );
     const admission = jugerAdmissionOmbre({
       titre: task.title,
       prompt: task.prompt,
@@ -5928,9 +5926,18 @@ async function monterReine(
         executionsParJour: budget.executionsParJour,
         plafondCoutUsd: budget.plafondCoutUsd,
       };
-      store.setBancOmbre(req.params.projectId, pose, 'humain');
+      // `definiPar` est une TRACE — QUI a engagé une dépense —, jamais une
+      // autorisation (la garde est `proprieteProjetPermise`) : le compte du
+      // Bearer quand il y en a un, `null` sous le jeton de ruche. Même règle
+      // que le plafond de La Balance (`/api/projects/:projectId/balance`).
+      const definiPar = authorizedUser(req) ? ((req as AuthRequest).userId ?? null) : null;
+      store.setBancOmbre(req.params.projectId, pose, definiPar);
       // Faits typés uniquement — le texte bilingue est reconstruit à l'affichage.
-      emitEvent('shadow_bench_set', { projectId: req.params.projectId, ...pose });
+      emitEvent('shadow_bench_set', {
+        projectId: req.params.projectId,
+        ...pose,
+        ...(definiPar ? { definiPar } : {}),
+      });
       return reply.code(200).send(etatBancOmbre(req.params.projectId));
     },
   );
@@ -9171,12 +9178,14 @@ async function monterReine(
     // table elle-même, par la rétention des tâches (`pruneTachesOmbre`).
     const ombres = store.ombresRecentes(null, COMPARAISONS_OMBRE_LUES);
     const marquees = new Set(ombres.map((o) => o.tacheOmbre));
-    // Une ombre au-delà de la borne lue reste une ombre : sa marque se lit
-    // alors par clé primaire, une fois par tâche (mémoïsée comme `categorieDe`).
+    // Une ombre au-delà de la borne lue reste une ombre, et une RELECTURE
+    // d'ombre sert le banc elle aussi : leurs faits ne sont pas ceux de la
+    // production (`ombreLieeA`), lus une fois par tâche (mémoïsés comme
+    // `categorieDe`).
     const horsLecture = new Map<string, boolean>();
     const estOmbre = (taskId: string): boolean => {
       if (marquees.has(taskId)) return true;
-      if (!horsLecture.has(taskId)) horsLecture.set(taskId, store.ombreDe(taskId) !== null);
+      if (!horsLecture.has(taskId)) horsLecture.set(taskId, store.ombreLieeA(taskId) !== null);
       return horsLecture.get(taskId) === true;
     };
     return registreGenomeDepuisEvenements(
@@ -11733,19 +11742,14 @@ async function monterReine(
             }
             // ─── LE BANC D'OMBRE ────────────────────────────────────────────
             //
-            // Une exécution LIÉE à une ombre — l'ombre elle-même, ou une de ses
-            // relectures — range ce qu'elle a déclaré coûter : c'est le budget
-            // du banc. Une production ordinaire, elle, peut ouvrir une ombre.
+            // Une production ordinaire peut ouvrir une ombre. Ce qu'une
+            // exécution du banc a coûté, lui, est rangé par le planificateur
+            // dans la transaction du résultat, pris ou non (`handleTaskResult`).
             // Après la contre-expertise : l'ombre passe par le MÊME chemin de
             // jugement que toute production, et rien ici ne le court-circuite.
             if (pris) {
               const ombreRendue = store.ombreDe(msg.taskId);
-              const ombre =
-                ombreRendue ??
-                (lienRelecture ? store.ombreDe(lienRelecture.productionTaskId) : null);
-              if (ombre)
-                store.consignerCoutOmbre(ombre.tacheOmbre, msg.fournisseur?.coutUsd ?? null);
-              else if (!lienRelecture) envisagerOmbre(msg.taskId);
+              if (!ombreRendue && !lienRelecture) envisagerOmbre(msg.taskId);
               // Le côté OMBRE de la comparaison, rangé à son rendu : le
               // résultat tel que le store l'a pris (une production creuse y
               // est déjà un échec), ses tests, sa base.

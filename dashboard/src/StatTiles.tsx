@@ -1,6 +1,7 @@
 // Rangée de KPI : l'état de la ruche en un coup d'œil.
 
 import type { StateSnapshot } from '../../src/shared/types';
+import { travailDesProjets } from './views/shared';
 import { useLang, useT } from './i18n';
 import { ProgressBar } from './ui';
 import { direNote } from './horloge-vue';
@@ -37,9 +38,9 @@ export function StatTiles({ snapshot, throughput, calibration }: Props) {
   const tronque = snapshot.tasksTotal > tasks.length;
   const online = nodes.filter((n) => n.status === 'online').length;
   // Terminées et échouées disent le TRAVAIL des projets : une ombre du banc
-  // (`Task.ombre`) rejoue une tâche déjà comptée, et n'y entre pas. En cours,
+  // (`travailDesProjets`) rejoue une tâche déjà comptée, et n'y entre pas. En cours,
   // si : elle occupe bel et bien une ouvrière, comme le dit la charge.
-  const travail = tasks.filter((t) => !t.ombre);
+  const travail = travailDesProjets(tasks);
   const done = travail.filter((t) => t.status === 'done').length;
   const running = tasks.filter((t) => t.status === 'running' || t.status === 'assigned').length;
   const failed = travail.filter((t) => t.status === 'failed').length;

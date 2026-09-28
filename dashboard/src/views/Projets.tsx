@@ -57,7 +57,7 @@ import { PleinEssaim } from '../PleinEssaim';
 import { OnboardingEssaim } from '../OnboardingEssaim';
 import { GardeFous } from '../GardeFous';
 import { BancOmbre } from '../BancOmbre';
-import { EchecSondage, Honeycomb, useApiPoll } from './shared';
+import { EchecSondage, Honeycomb, travailDesProjets, useApiPoll } from './shared';
 import type { ViewProps } from './shared';
 import { argv, useSuiviMerge } from './suivi-merge';
 import { LivraisonMission } from './LivraisonMission';
@@ -2207,8 +2207,9 @@ export default function Projets({
     [snapshot.projects],
   );
   const tasksByProject = useMemo(() => {
+    // Le travail de chaque projet, sans les ombres du banc (`travailDesProjets`).
     const m = new Map<string, Task[]>();
-    for (const task of snapshot.tasks) {
+    for (const task of travailDesProjets(snapshot.tasks)) {
       const list = m.get(task.projectId);
       if (list) list.push(task);
       else m.set(task.projectId, [task]);

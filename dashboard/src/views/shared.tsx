@@ -340,14 +340,23 @@ export function setReview(taskId: string, state: ReviewState | null, raison?: st
 }
 
 /**
- * Nombre de tâches terminées non revues (badge sidebar + compteurs). Les
- * ombres du banc (`Task.ombre`) n'attendent aucune revue : elles ne se
- * livrent jamais.
+ * Le TRAVAIL des projets dans l'instantané : tout, sauf les ombres du banc
+ * (`Task.ombre`, orchestrator/shadow-bench.ts). Une ombre rejoue une tâche
+ * déjà comptée et ne se livre jamais : dans une file de revue, elle
+ * attendrait une relecture sans objet ; dans une sélection de merge, le
+ * serveur la refuserait (« tâche hors projet ») et bloquerait la coulée ;
+ * dans un compteur, elle compterait deux fois le même travail. Ce qui décrit
+ * l'ACTIVITÉ (ce qui tourne, la charge d'une ouvrière) les garde.
  */
+export function travailDesProjets(tasks: readonly Task[]): Task[] {
+  return tasks.filter((t) => !t.ombre);
+}
+
+/** Nombre de tâches terminées non revues (badge sidebar + compteurs), hors ombres du banc. */
 export function countPendingReviews(tasks: Task[]): number {
   const reviews = readReviews();
-  return tasks.filter(
-    (t) => !t.ombre && (t.status === 'done' || t.status === 'failed') && !reviews[t.id],
+  return travailDesProjets(tasks).filter(
+    (t) => (t.status === 'done' || t.status === 'failed') && !reviews[t.id],
   ).length;
 }
 

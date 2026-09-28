@@ -356,7 +356,7 @@ function figer(acc: Accumulateur): FaitsGenome {
  * signale une fenêtre tronquée. `journalElague` dit si le journal a déjà
  * perdu des événements (`HiveStore.journalElague`) : un fait que les
  * événements lus ne peuvent pas révéler, puisque ce sont les absents.
- * `estOmbre` dit si une tâche est une ombre du banc (`taches_ombre`) : ses
+ * `estOmbre` dit si une tâche sert le banc (une ombre, ou sa relecture) : ses
  * événements ne comptent JAMAIS dans les lignes de production. `ombres` sont
  * les comparaisons RANGÉES du banc, repliées dans la section `ombre`.
  */
