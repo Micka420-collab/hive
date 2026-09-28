@@ -26,15 +26,25 @@ const sansCommentaires = (chemin: string): string =>
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/^\s*(?:\/\/|\*).*$/gm, '');
 
-const VUE = sansCommentaires('../dashboard/src/views/Projets.tsx');
+// Les deux panneaux vivent dans `projets/Depot.tsx`, la carte qui les monte
+// dans `projets/CarteProjet.tsx` (découpe de `Projets.tsx`, #704).
+const FICHIERS = [
+  sansCommentaires('../dashboard/src/views/projets/Depot.tsx'),
+  sansCommentaires('../dashboard/src/views/projets/CarteProjet.tsx'),
+];
+const VUE = FICHIERS.join('\n');
 const API = sansCommentaires('../dashboard/src/api.ts');
 
-/** Le corps d'un composant, du `function X(` jusqu'au prochain `\nfunction `. */
+/**
+ * Le corps d'un composant, du `function X(` jusqu'à la prochaine fonction de
+ * tête DE SON FICHIER — jamais à cheval sur le fichier voisin.
+ */
 function composant(nom: string): string {
-  const debut = VUE.indexOf(`function ${nom}(`);
-  expect(debut, `composant ${nom} introuvable`).toBeGreaterThan(-1);
-  const fin = VUE.indexOf('\nfunction ', debut + 1);
-  return VUE.slice(debut, fin === -1 ? undefined : fin);
+  const source = FICHIERS.find((f) => f.includes(`function ${nom}(`));
+  expect(source, `composant ${nom} introuvable`).toBeDefined();
+  const debut = source!.indexOf(`function ${nom}(`);
+  const suite = source!.slice(debut + 1).search(/\n(?:export )?function /);
+  return source!.slice(debut, suite === -1 ? undefined : debut + 1 + suite);
 }
 
 describe('les deux API sont enfin à l’écran', () => {

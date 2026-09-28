@@ -50,7 +50,12 @@ import { setLang } from '../dashboard/src/i18n';
 
 vi.mock('../dashboard/src/api', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
-  connectFeed: vi.fn(() => ({ close: () => {} })),
+  // Le flux livre un instantané (vide) : sans lui, la coquille montre
+  // l'attente du premier état au lieu d'une vue (dashboard/src/Liaison.tsx).
+  connectFeed: vi.fn((h: { onState: (s: unknown) => void }) => {
+    h.onState({ projects: [], nodes: [], tasks: [], tasksTotal: 0 });
+    return { close: () => {}, reconnecter: () => {} };
+  }),
   fetchPulse: vi.fn(() => Promise.resolve(null)),
   fetchReviews: vi.fn(() => Promise.resolve({ reviews: {} })),
   authMe: vi.fn(() => Promise.reject(new Error('pas de compte simulé'))),

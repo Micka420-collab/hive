@@ -6,9 +6,11 @@ import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { fetchInvite } from './api';
 import type { InviteResponse } from './api';
+import { Input } from './composants';
 import { useT } from './i18n';
 import { useDialog, Voile } from './ui';
 import { copierTexte } from './copier';
+import { isWsUrl } from '../../src/shared/invite';
 
 /**
  * Le cadre du dialogue, dans un composant À LUI : `useDialog` agit au montage
@@ -42,6 +44,8 @@ export function InvitePanel() {
   const [invite, setInvite] = useState<InviteResponse | null>(null);
   const [customUrl, setCustomUrl] = useState('');
   const [error, setError] = useState<string | null>(null);
+  /** La faute de l'URL saisie — sous SON champ, pas dans le bandeau général. */
+  const [erreurUrl, setErreurUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   // ─── LE SYSTÈME DE L'INVITÉ, PAS CELUI DE L'HÔTE ───────────────────────────
   //
@@ -59,12 +63,37 @@ export function InvitePanel() {
    */
   const commande = invite === null ? null : (invite.entree?.[systeme] ?? invite.joinCommand);
 
-  const generate = async (url?: string) => {
+  const generate = async () => {
     setError(null);
     try {
-      setInvite(await fetchInvite(url));
+      setInvite(await fetchInvite());
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  // Une adresse de ruche est une URL WebSocket. Le dire AVANT l'aller-retour :
+  // la Reine refuserait aussi, mais sa réponse arrivait en tête de la fenêtre,
+  // loin du champ, pendant que l'ancienne commande restait affichée. La règle
+  // est CELLE de la Reine (`isWsUrl`, partagée) : une copie en regex refusait
+  // `WSS://…` que le serveur accepte — deux vérités pour un seul contrat.
+  const regenerer = async () => {
+    const url = customUrl.trim();
+    if (url !== '' && !isWsUrl(url)) {
+      setErreurUrl(
+        t(
+          'Une adresse de ruche commence par ws:// ou wss:// (ex. wss://mondomaine:7777/ws).',
+          'A hive address starts with ws:// or wss:// (e.g. wss://mydomain:7777/ws).',
+        ),
+      );
+      return;
+    }
+    setErreurUrl(null);
+    setError(null);
+    try {
+      setInvite(await fetchInvite(url || undefined));
+    } catch (e) {
+      setErreurUrl(e instanceof Error ? e.message : String(e));
     }
   };
 
@@ -208,22 +237,32 @@ export function InvitePanel() {
                 <code>wss://mondomaine:7777/ws</code>
                 {t(').', ').')}
               </p>
-              <div className="invite-url-row">
-                <input
-                  type="text"
+              <form
+                className="invite-url-row"
+                noValidate
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void regenerer();
+                }}
+              >
+                <Input
+                  type="url"
+                  libelle={t('Adresse WebSocket de la ruche', 'Hive WebSocket address')}
+                  erreur={erreurUrl ?? undefined}
                   className="code-input"
                   placeholder="ws://..:7777/ws"
                   value={customUrl}
-                  onChange={(e) => setCustomUrl(e.target.value)}
+                  onChange={(e) => {
+                    setCustomUrl(e.target.value);
+                    setErreurUrl(null);
+                  }}
+                  spellCheck={false}
+                  autoComplete="off"
                 />
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={() => void generate(customUrl || undefined)}
-                >
+                <button type="submit" className="btn">
                   {t('Régénérer', 'Regenerate')}
                 </button>
-              </div>
+              </form>
               {invite && (
                 <p className="invite-current-url">
                   {t('Ruche annoncée :', 'Advertised hive:')} {invite.url}

@@ -28,7 +28,12 @@ import { setLang } from '../dashboard/src/i18n';
 
 vi.mock('../dashboard/src/api', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
-  connectFeed: vi.fn(() => ({ close: () => {} })),
+  // Le flux livre un instantané (vide) : sans lui, la coquille montre
+  // l'attente du premier état au lieu d'une vue (dashboard/src/Liaison.tsx).
+  connectFeed: vi.fn((h: { onState: (s: unknown) => void }) => {
+    h.onState({ projects: [], nodes: [], tasks: [], tasksTotal: 0 });
+    return { close: () => {}, reconnecter: () => {} };
+  }),
   fetchPulse: vi.fn(() => Promise.resolve(null)),
   fetchReviews: vi.fn(() => Promise.resolve({ reviews: {} })),
   authMe: vi.fn(() => Promise.reject(new Error('pas de compte simulé'))),
@@ -217,7 +222,8 @@ describe('la coquille de l’App — les survivantes du balayage du soir', () =>
     let poignees: FeedHandlers | null = null;
     vi.mocked(connectFeed).mockImplementation((h: FeedHandlers) => {
       poignees = h;
-      return { close: () => {} };
+      h.onState({ projects: [], nodes: [], tasks: [], tasksTotal: 0 });
+      return { close: () => {}, reconnecter: () => {} };
     });
     await monter();
     expect(poignees, 'le flux doit être branché au montage').toBeTruthy();
@@ -241,7 +247,8 @@ describe('la coquille de l’App — les survivantes du balayage du soir', () =>
     let poignees: FeedHandlers | null = null;
     vi.mocked(connectFeed).mockImplementation((h: FeedHandlers) => {
       poignees = h;
-      return { close: () => {} };
+      h.onState({ projects: [], nodes: [], tasks: [], tasksTotal: 0 });
+      return { close: () => {}, reconnecter: () => {} };
     });
     await monter();
     expect(poignees, 'le flux doit être branché au montage').toBeTruthy();
@@ -385,7 +392,8 @@ describe('la sortie en direct — du flux au tiroir, et vidée quand la tâche n
     let poignees: FeedHandlers | null = null;
     vi.mocked(connectFeed).mockImplementation((h: FeedHandlers) => {
       poignees = h;
-      return { close: () => {} };
+      h.onState({ projects: [], nodes: [], tasks: [], tasksTotal: 0 });
+      return { close: () => {}, reconnecter: () => {} };
     });
     const dom = await monter();
     const h = poignees as unknown as FeedHandlers;

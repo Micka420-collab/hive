@@ -110,7 +110,7 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   // une reconnexion est un moment où l'écran redemande la session.
   connectFeed: vi.fn((rappels: FeedHandlers) => {
     flux.rappels = rappels;
-    return { close: () => {} };
+    return { close: () => {}, reconnecter: () => {} };
   }),
 }));
 

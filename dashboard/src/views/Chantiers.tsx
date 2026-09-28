@@ -37,12 +37,21 @@ import {
   lancerWorkflowGithub,
 } from '../api';
 import type { Chantier, RunWorkflow, VerdictChantier, Workflow } from '../api';
+import { EmptyState, ErrorState, Skeleton } from '../composants';
 import { useT } from '../i18n';
+import { FiltreTravaux } from './FiltreTravaux';
+import { FILTRE_VIDE, texteCorrespond } from './filtre-travaux';
+import type { FiltreTravaux as Filtre } from './filtre-travaux';
+import { EchecSondage } from './shared';
 import type { ViewProps } from './shared';
+import { messageDeSondage } from './sondage';
 import './chantiers.css';
 
 /** Ce que le bandeau d'état montre, et sa couleur. */
 type Ton = 'ok' | 'echec' | 'attente' | 'neutre';
+
+/** La « nature » d'un workflow GitHub, pour le filtre : il n'en a pas d'autre. */
+const GITHUB = 'github';
 
 const TONS: Record<string, Ton> = {
   succes: 'ok',
@@ -79,9 +88,13 @@ export default function Chantiers({ snapshot, events, selectedId, onNavigate }: 
     return null;
   }, [events, projectId]);
 
-  const [chantiers, setChantiers] = useState<Chantier[]>([]);
+  // `null` : pas encore LU. Une liste vide avant la première réponse faisait
+  // dire à l'écran « ce dépôt ne déclare aucun script » pendant qu'il chargeait
+  // — une affirmation fausse, et la plus trompeuse possible pour un dépôt qui
+  // en déclare vingt.
+  const [chantiers, setChantiers] = useState<Chantier[] | null>(null);
   const [verdict, setVerdict] = useState<VerdictChantier | null>(null);
-  const [workflows, setWorkflows] = useState<Workflow[]>([]);
+  const [workflows, setWorkflows] = useState<Workflow[] | null>(null);
   const [runs, setRuns] = useState<RunWorkflow[]>([]);
   /**
    * Pourquoi GitHub ne répond pas, le cas échéant.
@@ -91,13 +104,18 @@ export default function Chantiers({ snapshot, events, selectedId, onNavigate }: 
    * moitié de l'écran qui, elle, marche.
    */
   const [refusGithub, setRefusGithub] = useState<string | null>(null);
+  /** Un LANCEMENT refusé — dit en clair ; le relancer est un nouveau clic. */
   const [erreur, setErreur] = useState<string | null>(null);
+  /** La LECTURE des chantiers a échoué — elle, se retente (« Réessayer »). */
+  const [erreurLecture, setErreurLecture] = useState<string | null>(null);
+  const [relecture, setRelecture] = useState(false);
   const [enCours, setEnCours] = useState<string | null>(null);
+  const [filtre, setFiltre] = useState<Filtre>(FILTRE_VIDE);
   const [ref, setRef] = useState('main');
 
   const recharger = useCallback(async (): Promise<void> => {
     if (!projectId) return;
-    setErreur(null);
+    setErreurLecture(null);
     try {
       const [c, v] = await Promise.all([
         fetchChantiers(projectId),
@@ -106,7 +124,7 @@ export default function Chantiers({ snapshot, events, selectedId, onNavigate }: 
       setChantiers(c.chantiers);
       setVerdict(v.resultat);
     } catch (e) {
-      setErreur(e instanceof Error ? e.message : String(e));
+      setErreurLecture(messageDeSondage(e));
     }
     // GitHub À PART, et sans `Promise.all` avec ce qui précède : un dépôt sans
     // jeton ou hébergé ailleurs ferait échouer la promesse groupée, et l'écran
@@ -121,6 +139,20 @@ export default function Chantiers({ snapshot, events, selectedId, onNavigate }: 
       setRuns([]);
       setRefusGithub(e instanceof Error ? e.message : String(e));
     }
+  }, [projectId]);
+
+  const reessayer = (): void => {
+    setRelecture(true);
+    void recharger().finally(() => setRelecture(false));
+  };
+
+  // Un AUTRE projet : ses listes ne sont pas encore lues. Garder celles du
+  // précédent les ferait passer pour les siennes le temps de la réponse.
+  useEffect(() => {
+    setChantiers(null);
+    setWorkflows(null);
+    setVerdict(null);
+    setFiltre(FILTRE_VIDE);
   }, [projectId]);
 
   // `derniereIssue` n'est pas lue ici : elle est le SIGNAL de relecture.
@@ -157,21 +189,39 @@ export default function Chantiers({ snapshot, events, selectedId, onNavigate }: 
     }
   };
 
+  // ─── LE FILTRE : la nature d'un travail tient lieu de statut ───────────────
+  //
+  // Un script a sa nature (vérification, sortant, inconnue) ; un workflow
+  // GitHub n'en a pas — il est « GitHub », et le filtre le dit ainsi plutôt que
+  // de lui prêter une nature qu'il n'a pas.
+  const scriptsVisibles = (chantiers ?? []).filter(
+    (c) =>
+      (filtre.statut === null || filtre.statut === c.nature) &&
+      texteCorrespond([c.nom, c.commande], filtre.texte),
+  );
+  const githubVisible = filtre.statut === null || filtre.statut === GITHUB;
+  const workflowsVisibles = githubVisible
+    ? (workflows ?? []).filter((w) => texteCorrespond([w.nom, w.chemin], filtre.texte))
+    : [];
+  const runsVisibles = githubVisible
+    ? runs.filter((r) => texteCorrespond([r.nom, r.branche], filtre.texte))
+    : [];
+  const totalTravaux = (chantiers?.length ?? 0) + (workflows?.length ?? 0);
+
   if (!projet) {
     return (
       <div className="mc-chantiers">
-        <div className="ch-vide">
-          <span className="marque" aria-hidden="true" />
-          <p>
-            {t(
-              'Les chantiers apparaissent avec un projet.',
-              'Works appear once you have a project.',
-            )}
-          </p>
-          <button className="btn primary" type="button" onClick={() => onNavigate('projets')}>
-            {t('Aller aux projets', 'Go to projects')}
-          </button>
-        </div>
+        <EmptyState
+          titre={t(
+            'Les chantiers apparaissent avec un projet.',
+            'Works appear once you have a project.',
+          )}
+          action={
+            <button className="btn primary" type="button" onClick={() => onNavigate('projets')}>
+              {t('Aller aux projets', 'Go to projects')}
+            </button>
+          }
+        />
       </div>
     );
   }
@@ -206,21 +256,71 @@ export default function Chantiers({ snapshot, events, selectedId, onNavigate }: 
         )}
       </header>
 
-      {erreur && <p className="ch-erreur">{erreur}</p>}
+      <FiltreTravaux
+        filtre={filtre}
+        onChange={setFiltre}
+        libelleStatut={t('Nature', 'Kind')}
+        statuts={[
+          { valeur: 'verification', libelle: t('Vérification', 'Check') },
+          { valeur: 'sortant', libelle: t('Sortant (humain)', 'Outbound (human)') },
+          { valeur: 'inconnu', libelle: t('Nature inconnue', 'Unknown kind') },
+          { valeur: GITHUB, libelle: t('Workflow GitHub', 'GitHub workflow') },
+        ]}
+        compte={scriptsVisibles.length + workflowsVisibles.length}
+        total={totalTravaux}
+        aideRecherche={t(
+          'Nom et commande des scripts, nom et fichier des workflows, branche des exécutions.',
+          'Script name and command, workflow name and file, run branch.',
+        )}
+      />
+
+      {erreur && (
+        <p className="ch-erreur" role="alert">
+          {erreur}
+        </p>
+      )}
 
       <section className="ch-bloc">
         <h3>{t('Sur un nœud', 'On a node')}</h3>
-        {chantiers.length === 0 ? (
-          <p className="ch-vide ch-vide-ligne">
-            <span className="marque" aria-hidden="true" />{' '}
-            {t(
-              'Ce dépôt ne déclare aucun script. Rien à lancer — et ce n’est pas une erreur.',
-              'This repository declares no script. Nothing to run — and that is not an error.',
+        {/* Une relecture ratée ne retire pas la liste déjà lue : le relevé
+            reste, figé, sous un avis qui le dit (règle de `EchecSondage`).
+            Chaque fin de chantier relit : un aléa réseau à ce moment-là
+            effaçait sinon les scripts et leurs « Lancer » jusqu'au clic. */}
+        {erreurLecture !== null && chantiers !== null && (
+          <EchecSondage
+            sondage={{
+              error: erreurLecture,
+              refresh: reessayer,
+              relance: relecture,
+              echecA: null,
+            }}
+            avant={t('relevé figé :', 'reading frozen:')}
+          />
+        )}
+        {erreurLecture !== null && chantiers === null ? (
+          <ErrorState
+            titre={t('Chantiers illisibles', 'Works unreadable')}
+            detail={erreurLecture}
+            onReessayer={reessayer}
+            enCours={relecture}
+          />
+        ) : chantiers === null ? (
+          <Skeleton lignes={3} libelle={t('Lecture des chantiers…', 'Reading the works…')} />
+        ) : chantiers.length === 0 ? (
+          <EmptyState
+            titre={t('Ce dépôt ne déclare aucun script', 'This repository declares no script')}
+            texte={t(
+              'Rien à lancer — et ce n’est pas une erreur.',
+              'Nothing to run — and that is not an error.',
             )}
+          />
+        ) : scriptsVisibles.length === 0 ? (
+          <p className="ch-vide ch-vide-ligne">
+            {t('Aucun script ne passe ce filtre.', 'No script passes this filter.')}
           </p>
         ) : (
           <ul className="ch-liste">
-            {chantiers.map((c) => (
+            {scriptsVisibles.map((c) => (
               <li key={c.nom} className={`ch-item ch-${c.nature}`}>
                 <div className="ch-nom">
                   <strong>{c.nom}</strong>
@@ -279,10 +379,13 @@ export default function Chantiers({ snapshot, events, selectedId, onNavigate }: 
           <p className="ch-vide ch-vide-ligne">
             <span className="marque" aria-hidden="true" /> {refusGithub}
           </p>
+        ) : workflows === null ? (
+          <Skeleton lignes={2} libelle={t('Lecture des workflows…', 'Reading the workflows…')} />
         ) : workflows.length === 0 ? (
+          <EmptyState titre={t('Aucun workflow déclaré.', 'No workflow declared.')} />
+        ) : workflowsVisibles.length === 0 ? (
           <p className="ch-vide ch-vide-ligne">
-            <span className="marque" aria-hidden="true" />{' '}
-            {t('Aucun workflow déclaré.', 'No workflow declared.')}
+            {t('Aucun workflow ne passe ce filtre.', 'No workflow passes this filter.')}
           </p>
         ) : (
           <>
@@ -291,7 +394,7 @@ export default function Chantiers({ snapshot, events, selectedId, onNavigate }: 
               <input value={ref} onChange={(e) => setRef(e.target.value)} spellCheck={false} />
             </label>
             <ul className="ch-liste">
-              {workflows.map((w) => (
+              {workflowsVisibles.map((w) => (
                 <li key={w.id} className="ch-item">
                   <div className="ch-nom">
                     <strong>{w.nom}</strong>
@@ -313,9 +416,9 @@ export default function Chantiers({ snapshot, events, selectedId, onNavigate }: 
           </>
         )}
 
-        {runs.length > 0 && (
+        {runsVisibles.length > 0 && (
           <ul className="ch-runs">
-            {runs.slice(0, 10).map((r) => (
+            {runsVisibles.slice(0, 10).map((r) => (
               <li key={r.id} className={`ch-run ch-t-${TONS[r.conclusion] ?? 'neutre'}`}>
                 <span className="ch-run-nom">{r.nom}</span>
                 <span className="ch-run-branche">{r.branche}</span>

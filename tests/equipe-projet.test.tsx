@@ -156,8 +156,12 @@ function ecrire(champ: HTMLInputElement, texte: string): void {
   champ.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
+/** Le champ trouvé par son LIBELLÉ réel (`<label for>`), comme le lit un lecteur d'écran. */
 const champIdentifiant = (dom: HTMLElement): HTMLInputElement => {
-  const c = dom.querySelector<HTMLInputElement>('input[aria-label="Identifiant du compte"]');
+  const libelle = [...dom.querySelectorAll('label')].find((l) =>
+    (l.textContent ?? '').includes('Identifiant du compte'),
+  );
+  const c = libelle ? dom.querySelector<HTMLInputElement>(`#${CSS.escape(libelle.htmlFor)}`) : null;
   if (!c) throw new Error('le champ d’identifiant est introuvable');
   return c;
 };
@@ -204,6 +208,43 @@ describe('la carte Équipe : deux gestes qui ne doivent pas mentir', () => {
     });
     await act(async () => {});
     expect(admettreMembre, 'le geste ne part pas').toHaveBeenCalledWith('p-1', 'u-2');
+  });
+
+  it('UN REFUS SE DIT SOUS LE CHAMP, QUI GARDE LA SAISIE — il ne la vide qu’une fois admise', async () => {
+    // ─── LE CHAMP VIDÉ AVANT LA RÉPONSE ────────────────────────────────────
+    //
+    // Le champ se vidait AU CLIC : un identifiant mal copié, refusé par la
+    // ruche, disparaissait, et le refus s'affichait en bas de la carte, relié
+    // à rien. Ici : refus → saisie intacte, faute sous le champ
+    // (`aria-invalid` + `aria-describedby`) ; puis succès → champ vidé.
+    vi.mocked(admettreMembre).mockRejectedValueOnce(new Error('compte introuvable'));
+    const dom = await monter('u-1', compte('u-1', 'user'));
+
+    await act(async () => ecrire(champIdentifiant(dom), 'u-mal-copie'));
+    await act(async () => {
+      bouton(dom, 'Admettre').dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true }),
+      );
+    });
+    await act(async () => {});
+
+    const champ = champIdentifiant(dom);
+    expect(champ.value, 'la saisie refusée a été effacée').toBe('u-mal-copie');
+    expect(champ.getAttribute('aria-invalid'), 'le champ ne se dit pas en faute').toBe('true');
+    const decrit = (champ.getAttribute('aria-describedby') ?? '')
+      .split(' ')
+      .map((id) => document.getElementById(id)?.textContent ?? '')
+      .join(' ');
+    expect(decrit, 'le refus n’est pas relié au champ').toContain('compte introuvable');
+
+    await act(async () => {
+      bouton(dom, 'Admettre').dispatchEvent(
+        new MouseEvent('click', { bubbles: true, cancelable: true }),
+      );
+    });
+    await act(async () => {});
+    expect(champIdentifiant(dom).value, 'une admission réussie laisse le champ plein').toBe('');
+    expect(champIdentifiant(dom).getAttribute('aria-invalid')).toBeNull();
   });
 
   it('ADOPTER NE S’OFFRE QUE SUR UN PROJET ORPHELIN, ET QU’À UN ADMIN', async () => {

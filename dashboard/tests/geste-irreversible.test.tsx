@@ -349,7 +349,7 @@ describe('LES APPELANTS — ce que le composant ne peut pas garantir seul', () =
       .replace(/^\s*(?:\/\/|\*).*$/gm, '');
 
   it('les trois gestes irréversibles passent TOUS par la garde', async () => {
-    const PROJETS = sansCommentaires('../src/views/Projets.tsx');
+    const PROJETS = sansCommentaires('../src/views/projets/Equipe.tsx');
     const INTENDANCE = sansCommentaires('../src/views/Intendance.tsx');
 
     for (const [source, appel, ou] of [
@@ -379,9 +379,9 @@ describe('LES APPELANTS — ce que le composant ne peut pas garantir seul', () =
     // Une question figée (« Êtes-vous sûr ? ») ne rattraperait pas une ligne
     // qui a glissé sous le curseur — c'est précisément ce contre quoi tout ce
     // fichier existe.
-    const gestes = ['../src/views/Projets.tsx', '../src/views/Intendance.tsx'].flatMap((f) => [
-      ...sansCommentaires(f).matchAll(/<GesteIrreversible[\s\S]{0,800}?\/>/g),
-    ]);
+    const gestes = ['../src/views/projets/Equipe.tsx', '../src/views/Intendance.tsx'].flatMap(
+      (f) => [...sansCommentaires(f).matchAll(/<GesteIrreversible[\s\S]{0,800}?\/>/g)],
+    );
     expect(gestes.length, 'trois gestes gardés attendus').toBe(3);
     for (const g of gestes) {
       expect(g[0], 'chaque geste doit poser une question').toMatch(/question=\{/);
