@@ -2522,10 +2522,22 @@ async function monterReine(
     echecs: readonly { logs: string; finalText?: string }[],
   ): ContexteSimilaire[] => {
     if (store.relectureDe(task.id) !== null) return [];
-    const portee: PorteeGraphe =
-      porteeExperience === 'ruche'
-        ? { genre: 'ruche' }
-        : { genre: 'projets', projets: new Set([task.projectId]) };
+    // Fédérée, la portée est le projet de la tâche PLUS les projets PUBLICS :
+    // ce qui naît d'un projet privé n'est servi qu'à ses tâches (la règle des
+    // épisodes du Cerveau). Le réglage de l'hôte ne vaut pas consentement du
+    // propriétaire d'un projet privé.
+    const portee: PorteeGraphe = {
+      genre: 'projets',
+      projets: new Set([
+        task.projectId,
+        ...(porteeExperience === 'ruche'
+          ? store
+              .listProjects()
+              .filter((p) => p.visibility === 'public')
+              .map((p) => p.id)
+          : []),
+      ]),
+    };
     const graphe = grapheExperience(portee);
     const erreurs = new Set(cibleDeTache(graphe, task.id)?.erreurs ?? []);
     for (const e of echecs) {

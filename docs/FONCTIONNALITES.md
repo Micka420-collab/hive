@@ -454,7 +454,8 @@ HIVE_EXPERIENCE_PORTEE=ruche   # défaut : projet
 ```
 
 Fédérée, l'ouvrière de A lit aussi les titres, fichiers et modèles des tâches
-voisines des autres projets. Le journal de A, lui, ne les recopie pas : le
+voisines des autres projets **publics** : un projet privé ne sert jamais son
+expérience hors de lui (la règle des épisodes du Cerveau). Le journal de A, lui, ne les recopie pas : le
 tiroir dit « une tâche d'un autre projet », sans son id, son projet ni son
 titre.
 

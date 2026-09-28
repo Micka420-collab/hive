@@ -135,9 +135,9 @@ describe('le graphe d’expérience arrive jusqu’à l’ouvrière', () => {
     srv.store.listEvents(0, 1_000).filter((e) => e.type === type && e.payload.taskId === taskId);
 
   /** Deux projets et leur passé ; la tâche du test, prête, dans le projet A. */
-  function preparer(srv: HiveServer): string {
+  function preparer(srv: HiveServer, visibiliteB: 'public' | 'private' = 'public'): string {
     const a = srv.store.createProject({ name: 'Projet A' }).id;
-    const b = srv.store.createProject({ name: 'Projet B' }).id;
+    const b = srv.store.createProject({ name: 'Projet B', visibility: visibiliteB }).id;
     semer(srv.store, a, b);
     // Le souvenir de la tâche passée, chez Hive Mind : le graphe ne doit pas
     // le recopier (il nomme la tâche, il ne raconte pas ce qu'elle a produit).
@@ -240,6 +240,28 @@ describe('le graphe d’expérience arrive jusqu’à l’ouvrière', () => {
       expect(affectations[0]?.experience?.similaires).toContainEqual(
         expect.objectContaining({ taskId: null, memeProjet: false, titre: null }),
       );
+    },
+  );
+
+  it(
+    'FÉDÉRÉ, UN PROJET PRIVÉ NE SERT JAMAIS SON EXPÉRIENCE HORS DE LUI',
+    { timeout: 20_000 },
+    async () => {
+      // La règle des épisodes du Cerveau (train 4) : ce qui naît d'un projet
+      // PRIVÉ n'est servi qu'à ses tâches. La fédération est un réglage de
+      // l'hôte, pas un consentement du propriétaire de B.
+      const srv = await demarrer('ruche');
+      const recues = await brancherNoeud(srv, 'ouvriere-p');
+      const tache = preparer(srv, 'private');
+      const a = await attendre(() => recues[0], 'assign_task');
+      expect(a.task?.id).toBe(tache);
+      expect(a.hiveContext).toContain('TITRE-DU-PROJET-A');
+      expect(a.hiveContext, 'le projet privé B a servi son expérience à A').not.toContain(
+        'TITRE-DU-PROJET-B',
+      );
+      const [fait] = evenements(srv, 'experience_context', tache);
+      const similaires = fait?.payload.similaires as Array<Record<string, unknown>>;
+      expect(similaires.filter((c) => c.memeProjet === false)).toEqual([]);
     },
   );
 

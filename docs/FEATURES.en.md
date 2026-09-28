@@ -482,7 +482,8 @@ HIVE_EXPERIENCE_PORTEE=ruche   # default: projet
 ```
 
 Federated, project A's worker also reads the titles, files and models of
-similar tasks from other projects. A's journal does not copy them: the drawer
+similar tasks from other **public** projects: a private project never serves
+its experience outside itself (the Cerveau episodes rule). A's journal does not copy them: the drawer
 says "a task from another project", without its id, project or title.
 
 The 🧠 **Memory** view shows a project's graph (list and a node's

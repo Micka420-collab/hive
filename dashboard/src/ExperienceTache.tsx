@@ -51,7 +51,10 @@ export function ExperienceTache({ experience }: { experience: ExperienceVue }) {
             '— correlations, not the reason for the choice: the router does not read them.',
           )}
           {experience.portee === 'ruche' &&
-            t(' Fédérée par l’hôte : toute la ruche.', ' Federated by the host: the whole hive.')}
+            t(
+              ' Fédérée par l’hôte : son projet et les projets publics.',
+              ' Federated by the host: its project and the public projects.',
+            )}
         </span>
       </p>
       {experience.etat === 'perdue' ? (
