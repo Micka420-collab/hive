@@ -1284,3 +1284,31 @@
   font-size: var(--fs-2xs);
   color: var(--faint);
 }
+
+/* ─── Cartes ou table (le choix de l'opérateur) ───────────────────────── */
+
+.es-vue button {
+  padding: 4px 11px;
+  font-size: var(--fs-xs);
+}
+
+/* La table défile DANS sa carte : jamais la page entière de côté, au téléphone. */
+.es-table-scroll {
+  padding: 4px 0 8px;
+}
+
+.es-table th,
+.es-table td {
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+}
+
+.es-table td.mono {
+  font-family: var(--mono);
+  white-space: normal;
+  max-width: 220px;
+}
+
+.es-table-charge {
+  font-variant-numeric: tabular-nums;
+}

@@ -1,6 +1,7 @@
 // Vue Essaim — les ouvrières : cartes des nœuds membres (charge, sous-agents
 // en vol) et Waggle Board, la danse frétillante qui classe le nectar butiné.
 
+import { useState } from 'react';
 import { jamaisRienRecu } from './etat-sondage';
 import {
   fetchGenome,
@@ -24,6 +25,7 @@ import { libelleAgent } from '../../../src/shared/agent-libelle';
 import { libelleMetier } from '../../../src/orchestrator/metier';
 import { activateProps, DOMAINE_LABEL, formatMs, ProgressBar } from '../ui';
 import { nomConstate, useBaptemes } from '../useBaptemes';
+import { EmptyState } from '../composants';
 import { EchecSondage, timeShort, useApiPoll } from './shared';
 import type { ViewProps } from './shared';
 import type { HiveNode, StateSnapshot, SubAgent, Task } from '../../../src/shared/types';
@@ -811,8 +813,139 @@ function PolyethismeCard({
   );
 }
 
-export default function Essaim({ snapshot, agentsByTask, refreshTick, onNavigate }: ViewProps) {
+// ─── CARTES OU TABLE : LE CHOIX DE L'OPÉRATEUR, GARDÉ PAR PERSONNE ────────────
+//
+// Les cartes racontent UNE ouvrière (modèles, vécu, autonomie, activité) ; à
+// dix machines, on ne compare plus rien d'une carte à l'autre. La table dit
+// les mêmes faits de tête — statut, agent, bac, modèles, charge, dernier signe
+// — une ligne par ouvrière, pour COMPARER. Elle ne remplace pas les cartes :
+// c'est un choix d'affichage.
+//
+// Le choix est gardé dans ce navigateur, PAR COMPTE (`hive.essaim.vue.<id>`) :
+// deux personnes qui partagent un poste ne se l'imposent pas l'une à l'autre.
+// Sans compte, une clé commune. Un stockage coupé (navigation privée,
+// politique du poste) ne casse rien : le choix vaut pour l'onglet.
+
+type VueOuvrieres = 'cartes' | 'table';
+
+function cleVueOuvrieres(userId: string | null | undefined): string {
+  return userId ? `hive.essaim.vue.${userId}` : 'hive.essaim.vue';
+}
+
+function lireVueOuvrieres(userId: string | null | undefined): VueOuvrieres {
+  try {
+    return localStorage.getItem(cleVueOuvrieres(userId)) === 'table' ? 'table' : 'cartes';
+  } catch {
+    return 'cartes';
+  }
+}
+
+function ecrireVueOuvrieres(userId: string | null | undefined, vue: VueOuvrieres): void {
+  try {
+    localStorage.setItem(cleVueOuvrieres(userId), vue);
+  } catch {
+    /* stockage coupé : le choix vaut pour l'onglet */
+  }
+}
+
+/** La table des ouvrières — les faits de tête des cartes, une ligne chacune. */
+function TableOuvrieres({
+  nodes,
+  baptemes,
+  onOuvrirPoste,
+}: {
+  nodes: HiveNode[];
+  baptemes: Record<string, string | null> | null;
+  onOuvrirPoste: (nodeId: string) => void;
+}) {
   const t = useT();
+  const lang = useLang();
+  return (
+    <div className="table-scroll es-table-scroll">
+      <table className="task-table es-table" data-testid="essaim-table">
+        <caption className="ds-invisible">
+          {t('Ouvrières de la ruche', 'Workers of the hive')}
+        </caption>
+        <thead>
+          <tr>
+            <th scope="col">{t('Nom', 'Name')}</th>
+            <th scope="col">{t('Statut', 'Status')}</th>
+            <th scope="col">{t('Agent', 'Agent')}</th>
+            <th scope="col">{t('Bac à sable', 'Sandbox')}</th>
+            <th scope="col">{t('Modèles', 'Models')}</th>
+            <th scope="col">{t('Charge', 'Load')}</th>
+            <th scope="col">{t('Dernier signe', 'Last seen')}</th>
+            <th scope="col">
+              <span className="ds-invisible">{t('Actions', 'Actions')}</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {nodes.map((n) => {
+            const bapt = baptemes ? (baptemes[n.id] ?? null) : undefined;
+            const bac = bacDeclare(n.isolement, t);
+            const nom = bapt || n.name;
+            return (
+              <tr key={n.id}>
+                <th scope="row" className="cell-title">
+                  <span title={n.name}>{nom}</span>
+                </th>
+                <td>
+                  <span className={`conn ${n.status}`}>
+                    <span className="conn-dot" />
+                    {n.status === 'online' ? t('en ligne', 'online') : t('hors ligne', 'offline')}
+                  </span>
+                </td>
+                <td>{libelleAgent(n.agentType, lang === 'en')}</td>
+                <td className={bac.muet ? 'muted-text' : undefined} title={bac.titre}>
+                  {bac.texte}
+                </td>
+                <td className={n.modeles?.length ? 'mono' : 'muted-text'}>
+                  {n.modeles?.length
+                    ? n.modeles.join(', ')
+                    : t('aucun modèle déclaré', 'no model declared')}
+                </td>
+                <td className="es-table-charge">
+                  {n.running}/{n.maxConcurrency}
+                </td>
+                <td>
+                  {n.lastSeen === null ? t('jamais vu', 'never seen') : timeShort(n.lastSeen)}
+                </td>
+                <td>
+                  <button type="button" className="btn ghost" onClick={() => onOuvrirPoste(n.id)}>
+                    {t('Ouvrir la Chambre', 'Open the Chambre')}
+                    <span className="ds-invisible"> · {nom}</span>
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export default function Essaim({
+  snapshot,
+  agentsByTask,
+  refreshTick,
+  onNavigate,
+  user,
+}: ViewProps) {
+  const t = useT();
+  const userId = user?.id ?? null;
+  const [vue, setVue] = useState<VueOuvrieres>(() => lireVueOuvrieres(userId));
+  // Un autre compte sur le même onglet (connexion, déconnexion) : SON choix.
+  const [vuePour, setVuePour] = useState(userId);
+  if (vuePour !== userId) {
+    setVuePour(userId);
+    setVue(lireVueOuvrieres(userId));
+  }
+  const choisirVue = (v: VueOuvrieres) => {
+    setVue(v);
+    ecrireVueOuvrieres(userId, v);
+  };
   const waggle = useApiPoll(fetchWaggle, 30_000, refreshTick);
   const races = useApiPoll(fetchRaces, 15_000, refreshTick);
   // Les phéromones s'évaporent avec une demi-vie de 7 jours : la cadence du
@@ -863,14 +996,45 @@ export default function Essaim({ snapshot, agentsByTask, refreshTick, onNavigate
               <span className="panel-count">
                 {online}/{snapshot.nodes.length} {t('en ligne', 'online')}
               </span>
+              {snapshot.nodes.length > 0 && (
+                <div
+                  className="view-toggle es-vue"
+                  role="group"
+                  aria-label={t('Affichage des ouvrières', 'Workers display')}
+                >
+                  <button
+                    type="button"
+                    className={vue === 'cartes' ? 'active' : ''}
+                    aria-pressed={vue === 'cartes'}
+                    onClick={() => choisirVue('cartes')}
+                  >
+                    {t('Cartes', 'Cards')}
+                  </button>
+                  <button
+                    type="button"
+                    className={vue === 'table' ? 'active' : ''}
+                    aria-pressed={vue === 'table'}
+                    onClick={() => choisirVue('table')}
+                  >
+                    {t('Table', 'Table')}
+                  </button>
+                </div>
+              )}
             </header>
             {snapshot.nodes.length === 0 ? (
-              <p className="empty pad">
-                {t(
-                  'Aucun nœud dans l’essaim pour l’instant — lancez-en un ici, ou invitez plus tard.',
-                  'No nodes in the swarm yet — start one here, or invite later.',
+              <EmptyState
+                titre={t('Aucun nœud dans l’essaim pour l’instant', 'No nodes in the swarm yet')}
+                texte={t(
+                  'Lancez-en un sur cette machine (npm run node), ou invitez une amie plus tard.',
+                  'Start one on this machine (npm run node), or invite a friend later.',
                 )}
-              </p>
+              />
+            ) : vue === 'table' ? (
+              <TableOuvrieres
+                nodes={snapshot.nodes}
+                baptemes={baptemes}
+                onOuvrirPoste={(id) => onNavigate('chambre', id)}
+              />
             ) : (
               <div className="es-node-grid">
                 {snapshot.nodes.map((n) => (
