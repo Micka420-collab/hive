@@ -310,6 +310,15 @@ describe('Mission Control — rapport de mission, bilan Worker, cockpit', () => 
     );
     server.store.pruneEvents(0);
     expect(server.store.journalElague()).toBe(true);
+    // La fenêtre s'ouvre au plus ancien fait d'issue retenu. Un résultat est
+    // rangé quelques millisecondes AVANT son `task_done` : sans une issue
+    // retenue un peu plus ancienne, la première production tomberait au bord
+    // de la fenêtre selon l'horloge de la machine (vu sur macOS et Windows).
+    server.store.appendEvent(
+      'task_failed',
+      { taskId: 'autre', nodeId: 'relecteur', error: 'x' },
+      Date.now() - 60_000,
+    );
     for (const titre of ['A', 'B', 'C']) productionAcceptee(`Écrire le module ${titre}`);
     // Jugée, la vieille production passerait pour « sort inconnu » : trois, pas quatre.
     expect(await qualiteDe('prod')).toMatchObject({ productions: 3, sortConnu: 3, corrigees: 0 });
