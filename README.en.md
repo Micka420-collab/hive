@@ -104,7 +104,7 @@ While builds are unsigned, SmartScreen and Gatekeeper warn — how to get past
 them, where data lives, uninstalling: **[docs/APPLICATION.md](docs/APPLICATION.md)**
 (English summary at the end).
 
-**From a terminal** (Node ≥ 24) — for a server, a developer, a worker:
+**From a terminal** (Node ≥ 24.18) — for a server, a developer, a worker:
 
 ```bash
 # Linux · macOS

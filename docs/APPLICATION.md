@@ -247,6 +247,11 @@ npm run app:dist:mac             # sous macOS : DMG arm64 et x64
 npm run app:fumee -- desktop/release/Hive-X.Y.Z-x86_64.AppImage   # banc de fumée
 ```
 
+Construire demande le Node du dépôt (≥ 24.18, donc npm ≥ 11.16 : voir
+[INSTALLATION](INSTALLATION.md)). L'app, elle, n'en demande aucun : ses
+processus tournent sur le Node d'Electron (24.21.0 pour Electron 44), et
+`better-sqlite3` 13 y charge le même binaire N-API que sous Node.
+
 `desktop/` est un projet npm séparé, avec son propre verrou : le paquet de
 Hive ne télécharge jamais Electron. Le banc de fumée installe le paquet,
 lance l'app avec `--diagnostic=<rapport.json>` (Reine en ligne,

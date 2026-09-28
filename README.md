@@ -272,7 +272,7 @@ Tant que les paquets ne sont pas signés, SmartScreen et Gatekeeper préviennent
 — comment passer, où vivent les données, désinstaller :
 **[docs/APPLICATION.md](docs/APPLICATION.md)**.
 
-**Par un terminal** (Node ≥ 24) — pour un serveur, un développeur, une ouvrière :
+**Par un terminal** (Node ≥ 24.18) — pour un serveur, un développeur, une ouvrière :
 
 ```bash
 # Linux · macOS

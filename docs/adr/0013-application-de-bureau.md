@@ -13,7 +13,7 @@
 ## Contexte
 
 Hive s'installe aujourd'hui par un terminal : `install.sh` / `install.ps1`
-exigent **Node ≥ 24**, clonent le dépôt dans `~/hive`, puis `npm run ruche`
+exigent **Node ≥ 24.18**, clonent le dépôt dans `~/hive`, puis `npm run ruche`
 lance la Reine, une ouvrière par agent connecté et l'écran Vite. C'est juste
 pour qui a déjà Node et un terminal ouvert ; c'est un mur pour tous les autres,
 et c'est ce que la demande vise.
@@ -60,9 +60,12 @@ plateforme.
 ### 1. Versions
 
 - **Electron 44.4.x** (stable courante, Node **24.21.0** embarqué, ABI 149 ;
-  44.0.0 du 2026-08-24, donc supportée jusqu'à la sortie de la 47). Node 24
-  est le plancher de Hive (`NODE_MINIMUM`) : 42 et moins (Node 22) sont exclus.
-- **`better-sqlite3` ^13.0.3 pour tout le dépôt** (préalable, PR séparée).
+  44.0.0 du 2026-08-24, donc supportée jusqu'à la sortie de la 47). Le
+  plancher du dépôt (`NODE_MINIMUM`, 24.18.0) tient à npm (≥ 11.16, qui
+  honore `allowScripts`) : il vaut pour qui installe par un terminal, pas
+  pour l'app, dont les processus tournent sur le Node d'Electron — 24.21.0
+  passe aussi le relevé du docteur. 42 et moins (Node 22) sont exclus.
+- **`better-sqlite3` ^13.0.3 pour tout le dépôt** (préalable, #531).
   La 13 passe à N-API et livre ses binaires **dans le paquet npm**
   (`prebuilds/<os>-<arch>.node`, aucun script d'installation) : le même
   fichier sert Node 24, la CI, l'image Docker et Electron. Mesuré ici :
