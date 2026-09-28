@@ -99,7 +99,9 @@ import {
 } from '../shared/acces-projet.js';
 import {
   CONSENTEMENT_POUSSEE,
+  NUMERO_MAX_MISSION,
   PREFIXE_BRANCHE_MISSION,
+  brancheDeMission,
   numeroSuivant,
 } from '../shared/livraison-locale.js';
 import type { ProvenanceTache, RapportLivraisonLocale } from '../shared/livraison-locale.js';
@@ -176,7 +178,15 @@ import {
   nomBranche,
 } from './livraison.js';
 import { briefDeIssue, motifRefus, recevable } from '../shared/issue.js';
-import { briefDeRetour, demandeDuTravail, direEtat, etatLivraison } from '../shared/retour.js';
+import {
+  CONSEIL_CONFLIT,
+  MAX_REPRISES_PAR_LIVRAISON,
+  briefDeRetour,
+  demandeDuTravail,
+  direEtat,
+  etatLivraison,
+  reprenableSurLaBranche,
+} from '../shared/retour.js';
 import type { EtatLivraison, FaitsPr } from '../shared/retour.js';
 import { ErreurRustine, analyserRustine, cheminsDe } from './rustine.js';
 import {
@@ -326,7 +336,7 @@ import { computePulse } from './pulse.js';
 import { buildTimeline } from './replay.js';
 import { detectConflicts } from './sting-detector.js';
 import { Scheduler } from './scheduler.js';
-import { ETAT_LIVRAISON_EN_COURS, HiveStore } from './store.js';
+import { ETAT_LIVRAISON_EN_COURS, ETAT_LIVRAISON_RELAYEE, HiveStore } from './store.js';
 import type { SessionRangee } from './store.js';
 import { direArretBrutal, prendreVerrouReine } from './verrou-reine.js';
 import type { VerrouReine } from './verrou-reine.js';
@@ -2111,6 +2121,9 @@ async function monterReine(
         ...(delegationBudget ? { delegationBudget } : {}),
         // Une relecture n'écrit rien : le nœud peut brider son agent.
         ...(store.relectureDe(task.id) ? { relecture: true as const } : {}),
+        // Une reprise travaille sur la branche de sa PR (`task.branch`, posée
+        // par le Scheduler depuis la lignée) : le nœud la clone.
+        ...(store.repriseDe(task.id) ? { prolonger: true as const } : {}),
       });
 
       // ─── L'HORLOGE DU CHANTIER : ce qu'on ANNONCE, écrit au moment où on
@@ -4644,6 +4657,62 @@ async function monterReine(
   };
 
   /**
+   * OÙ livrer une production : une branche neuve et sa pull request, ou — pour
+   * une reprise — la branche de la pull request qu'elle corrige.
+   *
+   * Lue dans la lignée rangée (`reprises_livraison`), jamais dans un texte :
+   * c'est ce qui fait qu'une reprise AVANCE la PR d'origine au lieu d'en ouvrir
+   * une seconde, sur les deux voies (route humaine et runner d'essaim). Une
+   * lignée qui vise un autre dépôt que celui du projet — le projet a changé
+   * d'adresse depuis — se refuse : on n'écrit pas la correction d'une PR
+   * ailleurs que là où elle vit.
+   */
+  const cibleDeLivraison = (
+    taskId: string,
+    depot: string,
+  ):
+    | { branche: string; suite?: { pr: number; origine: string; parent: string } }
+    | { refus: string } => {
+    const lignee = store.repriseDe(taskId);
+    if (!lignee) return { branche: nomBranche(taskId) };
+    if (lignee.depot.toLowerCase() !== depot.toLowerCase()) {
+      return {
+        refus:
+          `cette reprise prolonge la PR #${lignee.pr} de ${lignee.depot}, ` +
+          `mais le projet livre désormais sur ${depot}`,
+      };
+    }
+    return {
+      branche: lignee.branche,
+      suite: { pr: lignee.pr, origine: lignee.origine, parent: lignee.parent },
+    };
+  };
+
+  /**
+   * Le fait « la livraison est faite », au journal — ouverture d'une PR, ou
+   * avance de la branche d'une PR existante. Deux types, parce que ce ne sont
+   * pas les mêmes faits ; la même provenance (PR, branche, commit), parce que
+   * la preuve CI (`evaluation/ci`) les lit de la même façon.
+   */
+  const journaliserLivraisonFaite = (
+    taskId: string,
+    nodeId: string,
+    resultat: ResultatLivraison,
+    suite: { origine: string; parent: string } | undefined,
+  ): void => {
+    // Faits typés uniquement : le texte bilingue est reconstruit à l'affichage.
+    emitEvent(suite ? 'delivery_advanced' : 'delivery_opened', {
+      taskId,
+      nodeId,
+      pr: resultat.pr,
+      branch: resultat.branche,
+      commitSha: resultat.commitSha,
+      fichiers: resultat.fichiers.length,
+      ...(suite ? { origine: suite.origine, parent: suite.parent } : {}),
+    });
+  };
+
+  /**
    * Les verdicts de l'Evaluator qui ARRÊTENT une livraison ou une fusion.
    *
    * Deux seulement, et ce sont les deux où quelqu'un a DIT non : une preuve
@@ -4740,8 +4809,8 @@ async function monterReine(
    * `evaluation/retry` la relancent. Après, ces deux chemins sont FERMÉS — une
    * tâche livrée ne se relance plus (`delivery_exists`, scheduler.ts) — et
    * conseiller de les prendre enverrait vers un second refus. La correction
-   * d'une pull request passe par sa reprise, qui ouvre une NOUVELLE pull
-   * request quand GitHub signale du travail à faire.
+   * d'une pull request passe par sa reprise, qui fait avancer la MÊME pull
+   * request quand GitHub signale du travail à faire (`cibleDeLivraison`).
    */
   const conseilArret = (geste: 'livraison' | 'fusion', taskId: string, projectId: string) => {
     const forcer =
@@ -4752,7 +4821,7 @@ async function monterReine(
           `/api/tasks/${taskId}/evaluation/retry), puis relivrez. ${forcer}`
       : 'Une production livrée ne se relance plus. Si GitHub signale du travail à faire, ' +
           `reprenez-la (POST /api/projects/${projectId}/livraisons/${taskId}/reprendre) : la ` +
-          `correction partira dans une nouvelle pull request. ${forcer}`;
+          `correction avancera la branche de cette même pull request. ${forcer}`;
   };
 
   /**
@@ -4906,7 +4975,9 @@ async function monterReine(
       }
       // L'issue d'origine, si cette tâche vient d'une demande GitHub.
       const issueOrigine = store.issueDeTache(task.id);
-      const branche = nomBranche(task.id);
+      const cible = cibleDeLivraison(task.id, depot);
+      if ('refus' in cible) return reply.code(409).send({ error: cible.refus });
+      const { branche, suite } = cible;
       // Réserver AVANT le premier await GitHub. Une contre-revue peut terminer
       // pendant la création de la branche ; sans cette ligne, le Scheduler
       // verrait encore « aucune livraison » et relancerait cette production.
@@ -4945,6 +5016,7 @@ async function monterReine(
               // boucle côté GitHub au moment du merge.
               ...(issueOrigine ? { issue: issueOrigine.numero } : {}),
             }),
+            ...(suite ? { suite: { pr: suite.pr } } : {}),
           },
         );
         const resultatValide = resultatLivraisonValide(resultat, branche);
@@ -4971,21 +5043,16 @@ async function monterReine(
           pr: resultat.pr,
           branche,
           etat: 'ouverte',
+          relaie: suite !== undefined,
         });
         if (!finalisee) {
           const motif = 'réservation de livraison remplacée pendant la livraison';
           return reply.code(409).send({ code: 'delivery_stale', error: motif });
         }
-        // Faits typés uniquement : le texte bilingue est reconstruit à l'affichage.
-        emitEvent('delivery_opened', {
-          taskId: task.id,
-          nodeId: dernier.nodeId,
-          pr: resultat.pr,
-          branch: resultat.branche,
-          commitSha: resultat.commitSha,
-          fichiers: resultat.fichiers.length,
-        });
-        return reply.code(201).send(resultat);
+        journaliserLivraisonFaite(task.id, dernier.nodeId, resultat, suite);
+        // `avancee` : la PR existait, sa branche a avancé — l'appelant ne doit
+        // pas annoncer une pull request « ouverte ».
+        return reply.code(201).send(suite ? { ...resultat, avancee: true } : resultat);
       } catch (err) {
         if (err instanceof ErreurRustine) {
           echouerReservation(reservation, err.message);
@@ -5795,7 +5862,24 @@ async function monterReine(
           dernier.nodeId,
           dernier.resultId,
         );
-        const branche = nomBranche(task.id);
+        const cible = cibleDeLivraison(task.id, depot);
+        if ('refus' in cible) {
+          // RANGÉ, pas seulement rendu : sans ligne, `aLivrer` reprendrait la
+          // même production à chaque cycle pour le même refus.
+          echouerReservation(
+            reserverLivraison({
+              taskId: task.id,
+              projectId,
+              depot,
+              branche: nomBranche(task.id),
+              resultId: dernier.resultId,
+              revue: store.getTaskReview(task.id)?.state ?? null,
+            }),
+            cible.refus,
+          );
+          return `livraison refusée : ${cible.refus}`;
+        }
+        const { branche, suite } = cible;
         const issueOrigine = store.issueDeTache(task.id);
         let reservation: ReservationLivraison | null = null;
 
@@ -5829,6 +5913,7 @@ async function monterReine(
                 fichiers,
                 ...(issueOrigine ? { issue: issueOrigine.numero } : {}),
               }),
+              ...(suite ? { suite: { pr: suite.pr } } : {}),
             },
           );
           const resultatValide = resultatLivraisonValide(resultat, branche);
@@ -5849,17 +5934,13 @@ async function monterReine(
             pr: resultat.pr,
             branche,
             etat: 'ouverte',
+            relaie: suite !== undefined,
           });
           if (!finalisee) return 'livraison abandonnée : réservation remplacée';
-          emitEvent('delivery_opened', {
-            taskId: task.id,
-            nodeId: dernier.nodeId,
-            pr: resultat.pr,
-            branch: resultat.branche,
-            commitSha: resultat.commitSha,
-            fichiers: resultat.fichiers.length,
-          });
-          return `pull request #${resultat.pr} ouverte`;
+          journaliserLivraisonFaite(task.id, dernier.nodeId, resultat, suite);
+          return suite
+            ? `pull request #${resultat.pr} avancée (même branche)`
+            : `pull request #${resultat.pr} ouverte`;
         } catch (e) {
           // `pr: 0` — il n'y en a pas. La ligne existe pour que la ruche
           // n'essaie pas la même production en boucle ; c'est à l'humain de la
@@ -5912,9 +5993,16 @@ async function monterReine(
             fusionnee: r.fusionnee,
           });
           // ADR 0010 lot 8 : merge landé → les fabriques liées passent « mergee »
-          // (Chantiers pourra enfin juger le script déclaré).
+          // (Chantiers pourra enfin juger le script déclaré). Pour TOUTES les
+          // livraisons de la PR, comme la route humaine : une PR prolongée par
+          // des reprises porte aussi le travail de la livraison d'origine,
+          // dont la ligne est `relayee`.
           if (r.fusionnee) {
-            marquerFabriquesMergeesApresFusion(store, projectId, ouverte.taskId);
+            for (const l of store.listLivraisons(projectId)) {
+              if (l.depot !== ouverte.depot || l.pr !== ouverte.pr) continue;
+              if (l.taskId !== ouverte.taskId) store.setLivraison({ ...l, etat: 'fusionnee' });
+              marquerFabriquesMergeesApresFusion(store, projectId, l.taskId);
+            }
           }
           return r.fusionnee ? `pull request #${ouverte.pr} fusionnée` : 'fusion refusée';
         } catch (e) {
@@ -8008,6 +8096,11 @@ async function monterReine(
     provenance: ProvenanceTache[];
     forcage?: string;
     numeroMin: number;
+    /**
+     * Prolonger la branche n°`n`, dont la tête journalisée est `commit`, sur
+     * le nœud qui la tient (`nodeId`) — cf. `DemandeLivraisonLocale.suite`.
+     */
+    suite?: { n: number; commit: string; nodeId: string };
   }
 
   /**
@@ -8157,7 +8250,27 @@ async function monterReine(
       .filter(
         (n) => n.status === 'online' && nodeSockets.has(n.id) && (nodeOnShift.get(n.id) ?? true),
       );
-    const node = disponibles.find((n) => !livraison?.pousser || nodesQuiPoussent.has(n.id));
+    // Une SUITE ne se confie qu'au nœud qui TIENT la branche : lui seul a sa
+    // tête dans son dépôt durable, et un autre refuserait après tout le merge.
+    const suite = livraison?.suite;
+    if (suite && !disponibles.some((n) => n.id === suite.nodeId)) {
+      return {
+        refus: {
+          code: 409,
+          corps: {
+            code: 'noeud_de_la_branche_absent',
+            error: `la branche à prolonger est rangée sur l’ouvrière ${suite.nodeId}, qui n’est pas en ligne`,
+            conseil:
+              'Relancez cette ouvrière, ou livrez sans prolonger : la mission partira sur une ' +
+              'nouvelle branche.',
+          },
+        },
+      };
+    }
+    const node = disponibles.find(
+      (n) =>
+        (!suite || n.id === suite.nodeId) && (!livraison?.pousser || nodesQuiPoussent.has(n.id)),
+    );
     const ws = node ? nodeSockets.get(node.id) : undefined;
     if (!node || !ws) {
       return disponibles.length > 0 && livraison?.pousser
@@ -8201,7 +8314,10 @@ async function monterReine(
               pousser: livraison.pousser,
               provenance: livraison.provenance,
               ...(livraison.forcage ? { forcage: livraison.forcage } : {}),
-              numeroMin: livraison.numeroMin,
+              // Une suite garde son numéro : le plancher ne sert qu'à en choisir un.
+              ...(livraison.suite
+                ? { suite: { n: livraison.suite.n, commit: livraison.suite.commit } }
+                : { numeroMin: livraison.numeroMin }),
             },
           }
         : {}),
@@ -8279,7 +8395,7 @@ async function monterReine(
   // résultat, sur /merge/result, et au journal (`livraison_locale`).
   app.post<{
     Params: { projectId: string };
-    Body: CorpsMerge & { pousser?: boolean; forcer?: { raison: string } };
+    Body: CorpsMerge & { pousser?: boolean; forcer?: { raison: string }; prolonger?: number };
   }>(
     '/api/projects/:projectId/livraison-locale',
     {
@@ -8296,6 +8412,9 @@ async function monterReine(
             ...SCHEMA_CORPS_MERGE,
             pousser: { type: 'boolean' },
             forcer: SCHEMA_FORCER,
+            // Le NUMÉRO d'une livraison de cette mission à prolonger — jamais un
+            // nom de branche : le nœud le compose depuis le projet.
+            prolonger: { type: 'integer', minimum: 1, maximum: NUMERO_MAX_MISSION },
           },
         },
       },
@@ -8364,6 +8483,36 @@ async function monterReine(
         });
       }
 
+      // ─── PROLONGER : la même règle que la reprise d'une pull request ─────
+      //
+      // Une correction de mission livrée ouvrait `hive/mission-<p>-<n+1>` : la
+      // branche que quelqu'un relisait ne bougeait jamais, et chaque correction
+      // en ajoutait une. Prolonger fait avancer la branche n°`prolonger` depuis
+      // la tête que le JOURNAL de la ruche lui connaît, sur le nœud qui la
+      // tient — et le nœud refuse si le dépôt l'a vue bouger (commits humains).
+      // Le plafond est celui des reprises, compté sur la branche.
+      let suite: DemandeLivraisonMission['suite'];
+      if (req.body.prolonger !== undefined) {
+        const branche = brancheDeMission(project.id, req.body.prolonger);
+        const commits = store.commitsDeMission(project.id, branche);
+        const tete = commits.at(-1);
+        if (!tete) {
+          return reply.code(409).send({
+            code: 'mission_inconnue',
+            error: `la ruche n’a livré aucune branche ${branche}`,
+            conseil: 'Livrez sans « prolonger » : la mission partira sur une nouvelle branche.',
+          });
+        }
+        if (commits.length - 1 >= MAX_REPRISES_PAR_LIVRAISON) {
+          return reply.code(409).send({
+            code: 'plafond_reprises',
+            error: `la branche ${branche} a déjà été prolongée ${commits.length - 1} fois (plafond : ${MAX_REPRISES_PAR_LIVRAISON})`,
+            conseil: 'Livrez sans « prolonger », ou corrigez la branche à la main.',
+          });
+        }
+        suite = { n: req.body.prolonger, commit: tete.commit, nodeId: tete.nodeId };
+      }
+
       const pousser = req.body.pousser === true;
       const confie = confierMerge({ ...project, repoUrl }, integration.diffs, req.body, {
         pousser,
@@ -8379,6 +8528,7 @@ async function monterReine(
           project.id,
           store.branchesDeMissionJournalisees(`${PREFIXE_BRANCHE_MISSION}${project.id}-`),
         ),
+        ...(suite ? { suite } : {}),
       });
       if ('refus' in confie) return reply.code(confie.refus.code).send(confie.refus.corps);
       // Le forçage s'écrit ICI : le merge est parti, la livraison aura lieu
@@ -8405,6 +8555,7 @@ async function monterReine(
         order: integration.order,
         pousser,
         forcees: arrets.map((a) => a.taskId),
+        ...(suite ? { prolonge: brancheDeMission(project.id, suite.n) } : {}),
       });
     },
   );
@@ -9166,7 +9317,12 @@ async function monterReine(
       if (task.branch && task.branch !== livraison.branche) {
         return reply.code(409).send({ code: 'branch_binding_mismatch' });
       }
-      const ouverture = store.lastEventFor('delivery_opened', task.id);
+      // Une reprise n'OUVRE pas de PR, elle avance celle qu'elle corrige : sa
+      // provenance est `delivery_advanced`, lue de la même façon. Une tâche
+      // n'a jamais que l'un des deux (une ligne de livraison par tâche).
+      const ouverture =
+        store.lastEventFor('delivery_opened', task.id) ??
+        store.lastEventFor('delivery_advanced', task.id);
       const ouverturePr = ouverture?.payload.pr;
       const ouvertureBranche = ouverture?.payload.branch;
       const ouvertureCommit = ouverture?.payload.commitSha;
@@ -9507,7 +9663,11 @@ async function monterReine(
       // SÉQUENTIEL, comme la livraison elle-même : une rafale de requêtes
       // déclencherait la limite SECONDAIRE de GitHub, qui est un bannissement
       // temporaire et non un simple 429.
-      for (const l of rangees.slice(-MAX_LIVRAISONS_LUES)) {
+      // Une PR = une ligne. Celle d'une livraison RELAYÉE par une reprise est
+      // portée par la ligne de la reprise : la relire coûterait trois appels
+      // GitHub pour afficher deux fois la même pull request.
+      const vivantes = rangees.filter((l) => l.etat !== ETAT_LIVRAISON_RELAYEE);
+      for (const l of vivantes.slice(-MAX_LIVRAISONS_LUES)) {
         // Une livraison sans numéro GitHub doit rester visible sans
         // transformer `pr: 0` en requête vers `/pulls/0`. Après un redémarrage,
         // `echouee` signifie que la réservation a été interrompue et qu'une
@@ -9538,7 +9698,9 @@ async function monterReine(
             branche: l.branche,
             titre: tache?.title ?? '',
             dit: direEtat(vue.etat),
-            reprenable: demandeDuTravail(vue.etat),
+            // Ce qu'une reprise sait faire, pas tout ce qui demande du travail :
+            // un conflit n'offre pas le bouton (`reprenableSurLaBranche`).
+            reprenable: reprenableSurLaBranche(vue.etat),
           });
         } catch (e) {
           // Une PR illisible (supprimée, dépôt transféré) ne doit pas rendre
@@ -9588,6 +9750,22 @@ async function monterReine(
           etat: ETAT_LIVRAISON_EN_COURS,
         });
       }
+      // Une livraison relayée n'est plus la ligne vivante de sa PR : reprendre
+      // depuis elle partirait d'une lignée dépassée. On nomme la bonne.
+      if (rangee.etat === ETAT_LIVRAISON_RELAYEE) {
+        const vivante = store
+          .listLivraisons(req.params.projectId)
+          .find(
+            (l) =>
+              l.depot === rangee.depot && l.pr === rangee.pr && l.etat !== ETAT_LIVRAISON_RELAYEE,
+          );
+        return reply.code(409).send({
+          code: 'livraison_relayee',
+          error: `la pull request #${rangee.pr} est désormais portée par une reprise`,
+          porteePar: vivante?.taskId ?? null,
+          conseil: 'Reprenez sa livraison la plus récente.',
+        });
+      }
 
       let vue;
       try {
@@ -9603,6 +9781,61 @@ async function monterReine(
         return reply
           .code(409)
           .send({ error: `Rien à reprendre. ${direEtat(vue.etat)}`, etat: vue.etat });
+      }
+      if (!reprenableSurLaBranche(vue.etat)) {
+        return reply.code(409).send({
+          code: 'conflit_hors_reprise',
+          error: direEtat(vue.etat),
+          etat: vue.etat,
+          conseil: CONSEIL_CONFLIT,
+        });
+      }
+
+      // ─── LA LIGNÉE, ET SES DEUX BORNES ─────────────────────────────────────
+      //
+      // La reprise prolonge la PR : sa lignée remonte à la PREMIÈRE livraison
+      // (`origine`), et c'est sur elle que tout se compte. Deux refus, avant de
+      // fabriquer quoi que ce soit :
+      //
+      //   · UNE reprise en vol à la fois. Deux reprises partiraient de la même
+      //     tête ; la seconde livrée trouverait la branche avancée par la
+      //     première, et travaillerait sur des faits périmés.
+      //   · un PLAFOND par livraison (`MAX_REPRISES_PAR_LIVRAISON`), réussies
+      //     ou non : une production que trois reprises n'ont pas réparée
+      //     attend un humain, pas une quatrième tentative.
+      const lignee = store.repriseDe(rangee.taskId);
+      const origine = lignee?.origine ?? rangee.taskId;
+      const reprises = store.reprisesDeLivraison(origine);
+      const enVol = reprises.find((r) => {
+        const t = store.getTask(r.taskId);
+        return t !== undefined && t.status !== 'failed' && store.getLivraison(r.taskId) === null;
+      });
+      if (enVol) {
+        return reply.code(409).send({
+          code: 'reprise_en_vol',
+          error: `une reprise de cette pull request est déjà en cours (${enVol.taskId})`,
+          reprise: enVol.taskId,
+          conseil: 'Laissez-la aboutir — relue et livrée, elle avance la même branche.',
+        });
+      }
+      if (reprises.length >= MAX_REPRISES_PAR_LIVRAISON) {
+        return reply.code(409).send({
+          code: 'plafond_reprises',
+          error: `cette livraison a déjà été reprise ${reprises.length} fois (plafond : ${MAX_REPRISES_PAR_LIVRAISON})`,
+          conseil:
+            `Corrigez à la main sur la branche ${rangee.branche}, ou fermez la pull request : ` +
+            'la ruche ne sait pas réparer cette production.',
+        });
+      }
+      // La tête LUE maintenant, et la branche que la ruche a rangée : c'est
+      // elle que l'ouvrière clonera, jamais un nom lu dans un texte de GitHub.
+      const tete = vue.faits.commitSha ?? '';
+      if (!tete || (vue.faits.branche !== undefined && vue.faits.branche !== rangee.branche)) {
+        return reply.code(409).send({
+          code: 'branche_inattendue',
+          error: `la pull request #${vue.pr} ne porte plus la branche ${rangee.branche}`,
+          conseil: 'La ruche ne prolonge que la branche qu’elle a livrée pour cette PR.',
+        });
       }
 
       const tacheOrigine = store.getTask(rangee.taskId);
@@ -9620,35 +9853,62 @@ async function monterReine(
       // UNE SEULE TÂCHE, pas un découpage. Une reprise est ciblée par nature :
       // la faire passer par la Queen Bee dépenserait un appel de modèle pour
       // redécouper ce que la CI a déjà nommé précisément.
-      const tache = store.createTask({
-        id: `r${vue.pr}-${Date.now().toString(36)}`,
-        projectId: req.params.projectId,
-        title: `Reprise PR #${vue.pr} — ${vue.etat}`,
-        prompt: brief,
-        dependsOn: [],
-      });
-      // LE LIEN VERS L'ISSUE SUIT LA REPRISE. Sans cela, la pull request de la
-      // correction ne refermerait plus l'issue d'origine, et le demandeur
-      // verrait sa demande rester ouverte alors qu'elle a été traitée.
+      //
+      // La tâche, sa lignée et son issue naissent dans UNE transaction : une
+      // tâche sans lignée partirait sur une branche neuve et rouvrirait une
+      // seconde PR — exactement le défaut que la lignée ferme.
       const issue = store.issueDeTache(rangee.taskId);
-      if (issue) {
-        store.lierTacheIssue({
-          taskId: tache.id,
+      const tache = store.enTransaction(() => {
+        const t = store.createTask({
+          id: `r${vue.pr}-${Date.now().toString(36)}`,
           projectId: req.params.projectId,
-          depot: issue.depot,
-          numero: issue.numero,
+          title: `Reprise PR #${vue.pr} — ${vue.etat}`,
+          prompt: brief,
+          dependsOn: [],
         });
-      }
+        store.inscrireReprise({
+          taskId: t.id,
+          origine,
+          parent: rangee.taskId,
+          projectId: req.params.projectId,
+          depot: rangee.depot,
+          pr: vue.pr,
+          branche: rangee.branche,
+          tete,
+        });
+        // LE LIEN VERS L'ISSUE SUIT LA REPRISE. La PR est la même, et son
+        // « Closes #N » aussi ; mais la reprise est une tâche à part entière,
+        // relue et journalisée : sans le lien, rien ne dirait qu'elle répond
+        // à la même demande.
+        if (issue) {
+          store.lierTacheIssue({
+            taskId: t.id,
+            projectId: req.params.projectId,
+            depot: issue.depot,
+            numero: issue.numero,
+          });
+        }
+        return t;
+      });
       emitEvent('livraison_reprise', {
         projectId: req.params.projectId,
         taskId: tache.id,
-        origine: rangee.taskId,
+        origine,
+        parent: rangee.taskId,
         pr: vue.pr,
+        branche: rangee.branche,
         etat: vue.etat,
       });
       scheduler.tick();
       stateDirty = true;
-      return reply.code(201).send({ tache, etat: vue.etat, dit: direEtat(vue.etat) });
+      return reply.code(201).send({
+        tache,
+        etat: vue.etat,
+        dit: direEtat(vue.etat),
+        branche: rangee.branche,
+        reprise: reprises.length + 1,
+        plafond: MAX_REPRISES_PAR_LIVRAISON,
+      });
     },
   );
 
@@ -11946,6 +12206,7 @@ async function monterReine(
               ...(modele ? { modele } : {}),
               ...(delegationBudget ? { delegationBudget } : {}),
               ...(store.relectureDe(task.id) ? { relecture: true as const } : {}),
+              ...(store.repriseDe(task.id) ? { prolonger: true as const } : {}),
             });
           }
         }
@@ -12069,6 +12330,9 @@ async function monterReine(
       store.pruneHorlogeHote();
       // Le lien tâche→issue ne survit pas à sa tâche : borne référentielle.
       store.pruneTachesIssue();
+      // La lignée d'une reprise ne survit pas à sa tâche : borne référentielle,
+      // câblée avec la table (règle 3), APRÈS `pruneTasks`.
+      store.pruneReprisesLivraison();
       // Idem pour le lien relecture→production. Câblé ICI, dans le même
       // changement que la table — c'est la règle 3, et les trois bornes
       // oubliées quelques lignes plus bas disent ce qu'il en coûte de la

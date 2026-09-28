@@ -233,6 +233,62 @@ describe('livraison locale — une vraie ouvrière, un vrai dépôt', () => {
     });
   });
 
+  it('PROLONGER avance la branche journalisée, sur l’ouvrière qui la tient — pas de n+1', async () => {
+    const propre = await origine(path.join(dir, 'depot-prolonge'));
+    const { project } = mission(server, propre.nu, [['pa', propre.patchA]]);
+    const premiere = (await (
+      await poster(base, `/api/projects/${project.id}/livraison-locale`, {})
+    ).json()) as { mergeId: string };
+    const r1 = await resultatDe(base, project.id, premiere.mergeId);
+    if (r1.livraison?.etat !== 'commitee') throw new Error(r1.logs);
+
+    // Une branche que la ruche n'a jamais livrée ne se prolonge pas.
+    const inconnue = await poster(base, `/api/projects/${project.id}/livraison-locale`, {
+      prolonger: 9,
+    });
+    expect(inconnue.status).toBe(409);
+    expect(await inconnue.json()).toMatchObject({ code: 'mission_inconnue' });
+
+    // La correction arrive : une tâche de plus dans la mission.
+    server.store.createTask({ id: 'pb', projectId: project.id, title: 'pb', prompt: 'p' });
+    server.store.patchTask('pb', { status: 'done' });
+    server.store.insertResult({
+      taskId: 'pb',
+      nodeId: 'seed',
+      success: true,
+      diff: propre.patchB,
+      logs: '',
+      durationMs: 1,
+      subAgents: [],
+    });
+    const res = await poster(base, `/api/projects/${project.id}/livraison-locale`, {
+      prolonger: 1,
+    });
+    expect(res.status, await res.clone().text()).toBe(202);
+    const depart = (await res.json()) as { mergeId: string; noeud: string; prolonge: string };
+    expect(depart).toMatchObject({
+      noeud: 'ouvriere-livraison',
+      prolonge: `hive/mission-${project.id}-1`,
+    });
+    const r2 = await resultatDe(base, project.id, depart.mergeId);
+    expect(r2.livraison, r2.logs).toMatchObject({
+      etat: 'commitee',
+      branche: `hive/mission-${project.id}-1`,
+    });
+    if (r2.livraison?.etat !== 'commitee') throw new Error(r2.logs);
+    const durable = simpleGit({ baseDir: path.join(workRoot, 'livraisons', `${project.id}.git`) });
+    expect((await durable.raw(['rev-parse', `${r2.livraison.commit}^@`])).trim()).toBe(
+      r1.livraison.commit,
+    );
+    expect(await durable.raw(['for-each-ref', '--format=%(refname)'])).not.toContain(
+      `hive/mission-${project.id}-2`,
+    );
+    // Le journal connaît la nouvelle tête : la prochaine suite partira d'elle.
+    expect(
+      server.store.commitsDeMission(project.id, `hive/mission-${project.id}-1`).at(-1)?.commit,
+    ).toBe(r2.livraison.commit);
+  });
+
   it('l’Evaluator arrête la mission — et un forçage signé la laisse partir, journalisé', async () => {
     const { project, resultIds } = mission(server, depot.nu, [['wc', depot.patchA]]);
     // Les Gardiennes ont relevé un signal suspect sur CETTE production.

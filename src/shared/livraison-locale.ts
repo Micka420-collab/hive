@@ -79,6 +79,23 @@ export interface DemandeLivraisonLocale {
    * plus grand de ce plancher, de ses branches et de celles du dépôt.
    */
   numeroMin?: number;
+  /**
+   * PROLONGER la branche de mission n°`n` au lieu d'en ouvrir une n+1 : la
+   * même règle que la reprise d'une pull request (`orchestrator/livraison.ts`,
+   * `suite`). Sans elle, chaque correction d'une mission livrée ouvrait une
+   * branche de plus, et celle que quelqu'un relisait ne bougeait jamais.
+   *
+   * `commit` est la tête que le HUB a journalisée pour cette branche
+   * (`livraison_locale`) : le nœud ne prolonge que s'il la tient lui-même à ce
+   * commit exact, et que le dépôt distant ne l'a pas vue bouger. Le nouveau
+   * commit a cette tête pour UNIQUE parent, la branche avance par `update-ref`
+   * contre son ancienne valeur, la poussée reste sans `+` : une avance rapide,
+   * ou un refus dit — jamais un commit humain écrasé ni effacé.
+   *
+   * Le nom de branche, lui, reste composé par le nœud depuis `projectId` et
+   * `n` : le hub désigne une livraison, pas une référence.
+   */
+  suite?: { n: number; commit: string };
 }
 
 /** Ce que la poussée est devenue. */
@@ -190,6 +207,8 @@ export function messageDeMission(
   if (demande.forcage !== undefined) {
     lignes.push(`Hive-Evaluator-Forced: ${champSurUneLigne(demande.forcage, 500)}`);
   }
+  // Une livraison qui PROLONGE sa branche dit laquelle de ses têtes elle suit.
+  if (demande.suite !== undefined) lignes.push(`Hive-Suite: ${demande.suite.commit}`);
   lignes.push(
     tests.lances
       ? `Hive-Tests: ok — ${champSurUneLigne(tests.commande.join(' '), 200)}`
@@ -219,9 +238,10 @@ export function pousseeConsentie(env: NodeJS.ProcessEnv): boolean {
 }
 
 /**
- * Découpe `livrer-local <projectId> [--pousser] [--forcer="raison"] [--] [cmd…]`.
+ * Découpe `livrer-local <projectId> [--pousser] [--forcer="raison"]
+ * [--prolonger=<n>] [--] [cmd…]`.
  *
- * Les deux options se lisent EN TÊTE, et seulement là : ce qui suit est une
+ * Les options se lisent EN TÊTE, et seulement là : ce qui suit est une
  * commande de merge (`--preparer npm ci --tester npm test`), dont un argument
  * pourrait lui-même commencer par `--`. Une option inconnue en tête n'est pas
  * une option : elle appartient à la commande, et `decouperMergeArgv` en jugera.
@@ -232,10 +252,13 @@ export function pousseeConsentie(env: NodeJS.ProcessEnv): boolean {
 export function decouperLivraisonArgv(queue: readonly string[]): {
   pousser: boolean;
   forcer?: { raison: string };
+  /** Le numéro de la branche de mission à prolonger (`DemandeLivraisonLocale.suite`). */
+  prolonger?: number;
   reste: string[];
 } {
   let pousser = false;
   let raison: string | undefined;
+  let prolonger: number | undefined;
   let i = 0;
   for (; i < queue.length; i++) {
     const a = queue[i] as string;
@@ -250,6 +273,15 @@ export function decouperLivraisonArgv(queue: readonly string[]): {
       i++;
       break;
     }
+    if (a === '--prolonger' || a.startsWith('--prolonger=')) {
+      const brut = a === '--prolonger' ? queue[++i] : a.slice('--prolonger='.length);
+      // Un NUMÉRO, comme le hub l'exige : `hive/mission-p-3` se prolonge par 3.
+      if (brut === undefined || !/^[1-9]\d{0,8}$/.test(brut)) {
+        throw new Error('--prolonger attend le numéro de la livraison : --prolonger=3');
+      }
+      prolonger = Number(brut);
+      continue;
+    }
     if (a !== '--forcer' && !a.startsWith('--forcer=')) break;
     raison = a === '--forcer' ? queue[++i] : a.slice('--forcer='.length);
     // La borne du hub (3 caractères dont un visible), dite ICI : un refus du
@@ -261,6 +293,7 @@ export function decouperLivraisonArgv(queue: readonly string[]): {
   return {
     pousser,
     ...(raison !== undefined ? { forcer: { raison } } : {}),
+    ...(prolonger !== undefined ? { prolonger } : {}),
     reste: queue.slice(i),
   };
 }

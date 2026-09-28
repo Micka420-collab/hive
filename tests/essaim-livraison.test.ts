@@ -100,6 +100,17 @@ async function fauxGithub(): Promise<FauxGithub> {
       if (chemin.endsWith('/git/trees')) return envoyer(201, { sha: 'tree-sha' });
       if (chemin.endsWith('/git/commits')) return envoyer(201, { sha: 'commit-sha' });
       if (chemin.endsWith('/git/refs')) return envoyer(201, { ref: 'refs/heads/hive/x' });
+      // Une reprise relit SA pull request, puis AVANCE sa branche (`suite`).
+      if (req.method === 'GET' && /\/pulls\/\d+$/.test(chemin)) {
+        return envoyer(200, {
+          state: 'open',
+          merged: false,
+          head: { ref: 'hive/t-origine', sha: 'tete-pr' },
+        });
+      }
+      if (req.method === 'PATCH' && chemin.includes('/git/refs/heads/')) {
+        return envoyer(200, { object: { sha: 'commit-sha' } });
+      }
       if (chemin.endsWith('/merge')) {
         return etat.statutFusion === 200
           ? envoyer(200, { merged: true, sha: 'merge-sha' })
@@ -407,6 +418,49 @@ describe('la ruche livre toute seule', () => {
       decision: { pas: string };
     };
     expect(apresFusion.decision.pas).not.toBe('livrer');
+  });
+
+  it('UNE REPRISE RELUE AVANCE SA PULL REQUEST, ELLE N’EN OUVRE PAS UNE AUTRE', async () => {
+    // La voie autonome livre par le même chemin que la route humaine
+    // (`cibleDeLivraison`) : une production qui PROLONGE une PR ne devient
+    // jamais une seconde PR, même quand personne ne clique.
+    const { base, srv, faux } = await demarrer();
+    const p = projetLivrable(srv);
+    const reprise = srv.store.listTasks(p).find((t) => t.title === 'Passer a à 2')!;
+    srv.store.createTask({ id: 't-origine', projectId: p, title: 'origine', prompt: 'x' });
+    srv.store.setLivraison({
+      taskId: 't-origine',
+      projectId: p,
+      depot: 'moi/projet',
+      pr: 7,
+      branche: 'hive/t-origine',
+      etat: 'ouverte',
+    });
+    srv.store.inscrireReprise({
+      taskId: reprise.id,
+      origine: 't-origine',
+      parent: 't-origine',
+      projectId: p,
+      depot: 'moi/projet',
+      pr: 7,
+      branche: 'hive/t-origine',
+      tete: 'tete-pr',
+    });
+    await regler(base, p, 'gouverne');
+
+    const livree = await jusqua(() => srv.store.getLivraison(reprise.id)?.etat === 'ouverte');
+    expect(livree).toBe(true);
+    expect(srv.store.getLivraison(reprise.id)).toMatchObject({ pr: 7, branche: 'hive/t-origine' });
+    expect(srv.store.getLivraison('t-origine')?.etat).toBe('relayee');
+    expect(
+      faux.appels.filter((a) => a.methode === 'POST' && a.chemin.endsWith('/pulls')),
+      'aucune seconde pull request',
+    ).toEqual([]);
+    expect(faux.appels.filter((a) => a.methode === 'PATCH').map((a) => a.chemin)).toEqual([
+      '/api/repos/moi/projet/git/refs/heads/hive/t-origine',
+    ]);
+    // Une PR = une ligne vivante : la fusion autonome ne verra que la reprise.
+    expect(srv.store.listLivraisons(p, 'ouverte').map((l) => l.taskId)).toEqual([reprise.id]);
   });
 
   it('SANS JETON, RIEN N’EST TENTÉ', async () => {

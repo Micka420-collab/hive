@@ -12,7 +12,7 @@
 //   npm run cli -- events [sinceId]                   journal d'événements
 //   npm run cli -- merge <projectId>                  plan d'intégration (Honeycomb Merge)
 //   npm run cli -- merge-run <projectId> [cmd test…]  exécuter réellement le merge sur un nœud
-//   npm run cli -- livrer-local <projectId> [--pousser] [--forcer="raison"] [cmd test…]
+//   npm run cli -- livrer-local <projectId> [--pousser] [--forcer="raison"] [--prolonger=<n>] [cmd test…]
 //                                                     commiter la mission sur hive/mission-<id>-<n>
 //   npm run cli -- replay [sinceId]                   time-lapse (rejeu du journal)
 //   npm run cli -- waggle                             classement des contributeurs (nectar)
@@ -422,19 +422,27 @@ async function cmdMergeRun(projectId: string, queue: string[]): Promise<void> {
  * n'est fusionné sur la branche principale.
  */
 async function cmdLivrerLocal(projectId: string, queue: string[]): Promise<void> {
-  const { pousser, forcer, reste } = decouperLivraisonArgv(queue);
+  const { pousser, forcer, prolonger, reste } = decouperLivraisonArgv(queue);
   const corps = {
     ...decouperMergeArgv(reste),
     ...(pousser ? { pousser } : {}),
     ...(forcer ? { forcer } : {}),
+    ...(prolonger !== undefined ? { prolonger } : {}),
   };
-  const run = await api<{ mergeId: string; noeud: string; order: string[]; forcees: string[] }>(
-    `/api/projects/${projectId}/livraison-locale`,
-    { method: 'POST', body: JSON.stringify(corps) },
-  );
+  const run = await api<{
+    mergeId: string;
+    noeud: string;
+    order: string[];
+    forcees: string[];
+    prolonge?: string;
+  }>(`/api/projects/${projectId}/livraison-locale`, {
+    method: 'POST',
+    body: JSON.stringify(corps),
+  });
   console.log(
     `\n🐝 Livraison lancée (${run.mergeId.slice(0, 8)}…) sur « ${run.noeud} » — ordre : ${run.order.join(' → ')}`,
   );
+  if (run.prolonge) console.log(`  ↳ prolonge ${run.prolonge} (avance rapide, jamais forcée)`);
   if (run.forcees.length > 0) {
     console.log(`  ⚠ Evaluator outrepassé pour ${run.forcees.join(', ')} — geste journalisé.`);
   }
@@ -1686,14 +1694,22 @@ async function cmdLivrer(...args: string[]): Promise<void> {
     positionnels: [taskId, base],
     forcer,
   } = separerForcer(args);
-  const r = await api<{ pr: number; urlPr: string; branche: string; fichiers: string[] }>(
-    '/api/livraison',
-    {
-      method: 'POST',
-      body: JSON.stringify({ taskId, ...(base ? { base } : {}), ...(forcer ? { forcer } : {}) }),
-    },
+  const r = await api<{
+    pr: number;
+    urlPr: string;
+    branche: string;
+    fichiers: string[];
+    avancee?: boolean;
+  }>('/api/livraison', {
+    method: 'POST',
+    body: JSON.stringify({ taskId, ...(base ? { base } : {}), ...(forcer ? { forcer } : {}) }),
+  });
+  // Une reprise n'ouvre rien : elle avance la branche de la PR qu'elle corrige.
+  console.log(
+    r.avancee
+      ? `\n✔ Pull request #${r.pr} avancée — même branche, aucune nouvelle PR.\n`
+      : `\n✔ Pull request #${r.pr} ouverte.\n`,
   );
-  console.log(`\n✔ Pull request #${r.pr} ouverte.\n`);
   console.log(`  ${r.urlPr}`);
   console.log(`  Branche : ${r.branche}`);
   console.log(`  Fichiers : ${r.fichiers.length}\n`);
@@ -1980,7 +1996,7 @@ try {
   else if (cmd === 'revoquer' && a1) await cmdRevoquerBillet(a1);
   else {
     console.log(
-      'Usage : npm run cli -- <state | mind ["<requête>"] | stings <projectId> | plan "<brief>" [heuristic|llm] | brief <projectId> "<brief>" | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | merge <projectId> | merge-run <projectId> [cmd test…] | replay [sinceId] | waggle | consensus <taskId> | doctor [chemin] [--json] | desinstaller [chemin] [--oui] [--json] | service <install|status|logs|uninstall> [--systeme] | sauvegarde [chemin] [--garder=N] [--vers=D] [--json] | mode [off|propose|gouverne|plein] [projectId] [--oui] | ghost | shift | pulse | report <projectId> | ask "<question>" [projectId] | race <taskId> [facteur] | races | invite [urlWS] [--uses N] [--hours H] [--insecure] | tunnel [--uses N] | cloudflare [--install | --setup <hote>] | github [filtre] | github-import <owner/repo> | livrer-local <projectId> [--pousser] [--forcer="raison"] [cmd test…] | livrer <taskId> [base] [--forcer="raison"] | fusionner <projectId> <pr> [squash|merge|rebase] [--forcer="raison"] | conseil <projectId> [question] | conseil-voir <sessionId> | conseils | membres | exclure <nodeId> | revoquer <billetId>>',
+      'Usage : npm run cli -- <state | mind ["<requête>"] | stings <projectId> | plan "<brief>" [heuristic|llm] | brief <projectId> "<brief>" | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | merge <projectId> | merge-run <projectId> [cmd test…] | replay [sinceId] | waggle | consensus <taskId> | doctor [chemin] [--json] | desinstaller [chemin] [--oui] [--json] | service <install|status|logs|uninstall> [--systeme] | sauvegarde [chemin] [--garder=N] [--vers=D] [--json] | mode [off|propose|gouverne|plein] [projectId] [--oui] | ghost | shift | pulse | report <projectId> | ask "<question>" [projectId] | race <taskId> [facteur] | races | invite [urlWS] [--uses N] [--hours H] [--insecure] | tunnel [--uses N] | cloudflare [--install | --setup <hote>] | github [filtre] | github-import <owner/repo> | livrer-local <projectId> [--pousser] [--forcer="raison"] [--prolonger=<n>] [cmd test…] | livrer <taskId> [base] [--forcer="raison"] | fusionner <projectId> <pr> [squash|merge|rebase] [--forcer="raison"] | conseil <projectId> [question] | conseil-voir <sessionId> | conseils | membres | exclure <nodeId> | revoquer <billetId>>',
     );
     process.exitCode = 1;
   }

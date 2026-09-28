@@ -898,6 +898,7 @@ export class HiveNodeClient {
           msg.modele,
           msg.delegationBudget,
           msg.relecture === true,
+          msg.prolonger === true,
         );
         break;
       case 'assign_merge':
@@ -1199,6 +1200,7 @@ export class HiveNodeClient {
     modele?: string,
     delegationBudget?: DelegationBudget,
     relecture = false,
+    prolonger = false,
   ): Promise<void> {
     // Défense en profondeur : l'id sert à construire des chemins locaux — on ne
     // fait pas confiance au hub (anti path-traversal si le hub était compromis).
@@ -1267,6 +1269,7 @@ export class HiveNodeClient {
           // Isole le répertoire par nœud : deux drones d'une même course sur une
           // même machine (workRoot partagé) ne se marchent pas dessus.
           this.nodeId ? this.nodeId.slice(0, 8) : '',
+          prolonger,
         );
       } catch (err) {
         // Le dépôt ne s'est pas cloné ICI (identifiants de ce nœud, réseau,

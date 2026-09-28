@@ -1573,7 +1573,7 @@ export class Scheduler {
     // Réclamation CONDITIONNELLE, comme au tick : la tâche a été lue `ready`
     // plus haut, et on ne l'arrache pas à qui l'aurait prise entre-temps.
     const assigned = this.store.reclamerTache(
-      { taskId, attendu: 'ready', nodeId: primary, branch: `hive/${taskId}` },
+      { taskId, attendu: 'ready', nodeId: primary, branch: this.brancheDe(taskId) },
       now,
     );
     if (!assigned) return { ok: false, error: 'tâche introuvable ou déjà réclamée' };
@@ -1659,6 +1659,21 @@ export class Scheduler {
     // Chaque drone reçoit SON modèle élu (la course diversifie les agents).
     for (const droneId of launch) this.opts.onAssign?.(droneId, assigned, modeleParDrone[droneId]);
     return { ok: true, drones: launch };
+  }
+
+  /**
+   * La branche d'une tâche au moment où on la réclame : `hive/<taskId>`, sauf
+   * pour une REPRISE, qui travaille sur la branche de la pull request qu'elle
+   * corrige (sa lignée, `reprises_livraison`).
+   *
+   * C'était toujours `hive/<taskId>` : l'ouvrière d'une reprise partait d'une
+   * branche neuve, sans le travail de la PR, et la livraison ouvrait une
+   * seconde PR. La branche posée ici est celle que le nœud clone
+   * (`assign_task.prolonger`) et celle que la preuve CI exige de retrouver sur
+   * la PR (`evaluation/ci`) : une seule source pour les deux.
+   */
+  private brancheDe(taskId: string): string {
+    return this.store.repriseDe(taskId)?.branche ?? `hive/${taskId}`;
   }
 
   /** Course en vol pour une tâche (lecture seule, pour l'API). */
@@ -2419,7 +2434,7 @@ export class Scheduler {
       // tâches. Une tâche prise entre-temps n'est plus `ready` : la
       // réclamation échoue et on passe, au lieu de l'envoyer à un second nœud.
       const assigned = this.store.reclamerTache(
-        { taskId: task.id, attendu: 'ready', nodeId: node.id, branch: `hive/${task.id}` },
+        { taskId: task.id, attendu: 'ready', nodeId: node.id, branch: this.brancheDe(task.id) },
         now,
       );
       if (!assigned) continue;

@@ -2,7 +2,8 @@
 //
 // Ce que CE fichier fournit : un cwd dédié par tâche, un environnement épuré
 // (pas de HOME/USERPROFILE ni variables du membre), TEMP redirigé dans la
-// tâche, une branche git `hive/<taskId>` quand le projet a un dépôt — et le
+// tâche, une branche git `hive/<taskId>` quand le projet a un dépôt (ou, pour
+// une reprise, la branche de la pull request qu'elle prolonge) — et le
 // diff de revue, calculé par le git dir de la RUCHE, jamais par le `.git` que
 // l'agent a eu entre les mains (`git-hote.ts`).
 //
@@ -28,6 +29,7 @@ import path from 'node:path';
 import { CLONE_MS } from '../shared/butoirs-noeud.js';
 import type { Task } from '../shared/types.js';
 import { EchecGitHote, commandeSshDuMembre, gitHote } from '../shared/git-protege.js';
+import { estBrancheDeLivraison } from '../shared/protocol.js';
 import type { DepotEpingle } from '../shared/git-protege.js';
 import { commitDeDepart, diffContreBase, poserRegistre } from './git-hote.js';
 
@@ -147,7 +149,13 @@ export function buildSandboxEnv(cwd: string, keepEnv: string[] = []): NodeJS.Pro
  * que le dépôt ferme (mesuré, `tests/clone-borne.test.ts`) — la limite de tout
  * `child.kill()` du nœud. Le travail, lui, échoue à l'heure partout.
  */
-export async function cloneRepo(dir: string, repoUrl: string, delaiMs = CLONE_MS): Promise<void> {
+export async function cloneRepo(
+  dir: string,
+  repoUrl: string,
+  delaiMs = CLONE_MS,
+  /** Cloner CETTE branche plutôt que la branche par défaut (une reprise). */
+  branche?: string,
+): Promise<void> {
   const parent = path.dirname(path.resolve(dir));
   // git crée lui-même les dossiers de `dir`, mais il se LANCE depuis `parent`
   // (`gitHote`) : absent, le clone mourait en « spawn git ENOENT ».
@@ -155,7 +163,13 @@ export async function cloneRepo(dir: string, repoUrl: string, delaiMs = CLONE_MS
   const ssh = await commandeSshDuMembre(parent);
   try {
     // `--` : une URL qui commencerait par un tiret ne devient pas une option.
-    await gitHote(['clone', '--depth', '1', '--', repoUrl, dir], parent, { ssh, delaiMs });
+    // `--branch=` d'un seul tenant, pour la même raison : la valeur ne peut
+    // pas être relue comme une option (`estBrancheDeLivraison` l'interdit déjà).
+    await gitHote(
+      ['clone', '--depth', '1', ...(branche ? [`--branch=${branche}`] : []), '--', repoUrl, dir],
+      parent,
+      { ssh, delaiMs },
+    );
   } catch (err) {
     if (!(err instanceof EchecGitHote && err.delaiDepasse)) throw err;
     const duree =
@@ -173,6 +187,13 @@ export async function prepareWorkspace(
   // (démo/tests locaux) peuvent exécuter la MÊME tâche en parallèle (Drone
   // Wars) sans se détruire mutuellement le répertoire.
   instanceId = '',
+  /**
+   * La tâche PROLONGE une livraison (`assign_task.prolonger`) : `task.branch`
+   * est la branche de sa pull request. On la clone et on travaille sur SA tête
+   * — le travail d'origine y est, et le diff rendu ne contient que la
+   * correction, exactement ce que la livraison posera par-dessus.
+   */
+  prolonger = false,
 ): Promise<Workspace> {
   const tasksRoot = path.resolve(workRoot, 'tasks');
   const dirName = instanceId ? `${task.id}-${instanceId}` : task.id;
@@ -200,15 +221,31 @@ export async function prepareWorkspace(
   let branch: string | null = null;
   let baseSha: string | null = null;
   let depot: DepotEpingle | null = null;
+  // Revalidé ICI, au plus près du clone, comme le chemin de la tâche : le
+  // protocole l'a déjà refusé, mais c'est ce nom qui part à `git clone`.
+  if (prolonger && !estBrancheDeLivraison(task.branch)) {
+    throw new Error(`branche de livraison invalide pour une reprise : ${task.id}`);
+  }
   if (repoUrl) {
     // Le clone exige un répertoire vide : il précède toute écriture dans cwd.
     // Tout ce qui suit, jusqu'à `poserRegistre`, se passe AVANT l'agent, dans
     // un dépôt que seul git a écrit.
-    await cloneRepo(cwd, repoUrl);
     const depotDuClone = { gitDir: path.join(cwd, '.git'), workTree: cwd };
-    // Une tâche = une branche isolée. Jamais de travail direct sur main (§5.2).
-    branch = task.branch ?? `hive/${task.id}`;
-    await gitHote(['checkout', '-q', '-b', branch], depotDuClone);
+    if (prolonger && task.branch) {
+      // ─── UNE REPRISE CONTINUE LA BRANCHE DE SA PR ─────────────────────────
+      // Le clone était celui de la branche par défaut, suivi d'un `checkout
+      // -b` : l'ouvrière d'une reprise n'avait PAS le travail de la PR qu'on
+      // lui demandait de corriger, et son diff ne pouvait devenir qu'une
+      // seconde PR. Cloner la branche la laisse extraite à sa tête ; la base
+      // épinglée est cette tête.
+      await cloneRepo(cwd, repoUrl, CLONE_MS, task.branch);
+      branch = task.branch;
+    } else {
+      await cloneRepo(cwd, repoUrl);
+      // Une tâche = une branche isolée. Jamais de travail direct sur main (§5.2).
+      branch = task.branch ?? `hive/${task.id}`;
+      await gitHote(['checkout', '-q', '-b', branch], depotDuClone);
+    }
     baseSha = await commitDeDepart(depotDuClone);
     depot = await poserRegistre(cwd, registre, baseSha);
   }
