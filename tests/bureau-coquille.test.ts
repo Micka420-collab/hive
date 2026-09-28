@@ -30,6 +30,7 @@ import {
   notificationPour,
   TYPES_NOTIFIES,
 } from '../desktop/src/notifications.js';
+import { ligneDePanne, rienDePublie } from '../desktop/src/recherche-mise-a-jour.js';
 
 const REINE = 'http://127.0.0.1:7777';
 
@@ -309,5 +310,49 @@ describe('la page de la fenêtre — décidée sur les faits de l’état (#532)
     expect(pageVoulue({ ...base, agents: [nonConnecte, connecte] }, null, false)).toBe('ecran');
     // Une ruche externe n'a pas sondé d'agents : elle s'ouvre.
     expect(pageVoulue({ ...base, agents: null }, null, false)).toBe('ecran');
+  });
+});
+
+describe('la recherche de mise à jour qui échoue', () => {
+  // La forme exacte d'electron-updater (`newError`, builder-util-runtime) : une
+  // `Error` qui porte son `code`. Le message est celui qu'a journalisé Hive
+  // 0.5.0 au premier lancement, pile et en-têtes compris.
+  const erreur = (code: string, message: string): Error =>
+    Object.assign(new Error(message), { code });
+  const sansLatestYml = erreur(
+    'ERR_UPDATER_CHANNEL_FILE_NOT_FOUND',
+    'Cannot find latest.yml in the latest release artifacts ' +
+      '(https://github.com/Micka420-collab/hive/releases/download/v0.4.0/latest.yml): HttpError: 404 \n' +
+      '"method: GET url: …"\nHeaders: {\n  "cache-control": "no-cache"\n}\n    at createHttpError (…)',
+  );
+
+  it('« rien de publié » n’est pas une panne : ni latest.yml, ni Release', () => {
+    expect(rienDePublie(sansLatestYml)).toBe(true);
+    expect(rienDePublie(erreur('ERR_UPDATER_NO_PUBLISHED_VERSIONS', 'No published versions'))).toBe(
+      true,
+    );
+  });
+
+  it('le reste en est une — un réseau coupé compris, qu’electron-updater range sous « latest introuvable »', () => {
+    for (const e of [
+      erreur(
+        'ERR_UPDATER_LATEST_VERSION_NOT_FOUND',
+        'Unable to find latest version: net::ERR_INTERNET_DISCONNECTED',
+      ),
+      erreur('ERR_UPDATER_INVALID_SIGNATURE', 'signature invalide'),
+      new Error('net::ERR_NAME_NOT_RESOLVED'),
+      'texte',
+      null,
+    ]) {
+      expect(rienDePublie(e), String(e)).toBe(false);
+    }
+  });
+
+  it('une panne se dit en UNE ligne, sans pile ni en-têtes', () => {
+    expect(ligneDePanne(sansLatestYml)).toBe(
+      'Cannot find latest.yml in the latest release artifacts ' +
+        '(https://github.com/Micka420-collab/hive/releases/download/v0.4.0/latest.yml): HttpError: 404',
+    );
+    expect(ligneDePanne(new Error(''))).toBe('échec sans message');
   });
 });
