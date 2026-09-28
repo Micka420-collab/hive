@@ -71,6 +71,7 @@ import type {
   ValidationKey,
   ValidationsBac,
 } from '../shared/validations-bac.js';
+import type { EtatControleDirect } from '../shared/bac-direct.js';
 import type { BacExecution } from './isolement.js';
 import { runProc } from './merge-runner.js';
 import { gitHote } from '../shared/git-protege.js';
@@ -101,6 +102,12 @@ export interface OptionsValidation {
   signal?: AbortSignal;
   /** Une ligne de progrès, relayée au hub pendant que les commandes tournent. */
   surEtape?: (ligne: string) => void;
+  /**
+   * Chaque validation LANCÉE, à son départ (`en_cours`) puis à sa conclusion
+   * (Sandbox Live : l'écran les suit une à une). Celles qui ne se lancent pas
+   * arrivent avec le rapport final, comme avant.
+   */
+  surControle?: (cle: ValidationKey, etat: EtatControleDirect) => void;
   /** Délai de chaque commande (défaut `DELAI_VALIDATION_MS`). */
   delaiMs?: number;
   /**
@@ -286,6 +293,7 @@ async function lancerLePlan(
       continue;
     }
     opts.surEtape?.(`validation ${cle} : ${argv.join(' ')}…`);
+    opts.surControle?.(cle, 'en_cours');
     const debut = Date.now();
     const r = await lancer(argv, delaiMs);
     const controle = controleApresLancement({
@@ -296,6 +304,7 @@ async function lancerLePlan(
       sortie: r.output,
     });
     controles[cle] = controle;
+    opts.surControle?.(cle, controle.etat);
     opts.surEtape?.(
       `validation ${cle} : ${controle.etat} (${controle.raison}` +
         `${controle.code === undefined ? '' : `, code ${controle.code}`})`,

@@ -127,6 +127,20 @@ npm run captures -- --sortie docs/images/captures --vues ruche.bureau,ruche-en-v
   <img src="images/captures/miellerie.mobile.png" width="300" alt="Miellerie sur mobile, page entière.">
 </p>
 
+### Sandbox Live, sur un vrai processus
+
+`images/captures/sandbox-live.bureau.png` n'est PAS de la série ci-dessus :
+l'agent simulé du laboratoire ne lance aucun processus, et ses mesures restent
+« inconnu » (c'est exact, et c'est ce que montre `sandbox-en-vol`). Celle-ci
+photographie un vrai `node` qui travaille, lancé par une ouvrière en mode
+processus, puis MIS EN PAUSE : le CPU de l'arbre gelé tombe à 0 %, la mémoire
+reste, le diff a été demandé et « Expliquer » relit l'état consigné. Sa
+jumelle sombre vit dans `images/theme-sombre/`.
+
+<p align="center">
+  <img src="images/captures/sandbox-live.bureau.png" width="840" alt="Sandbox Live : une exécution réelle mise en pause — CPU à 0 % sur l’arbre gelé, commande, diff demandé, explication relue.">
+</p>
+
 ## Ce que la première exécution a trouvé
 
 - **La Chambre rendait tout le tableau blanc** — corrigé avec ce script.

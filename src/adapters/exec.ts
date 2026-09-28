@@ -2,9 +2,12 @@
 // Règle absolue (§5.1) : spawn(bin, argv, { shell: false }) — jamais shell:true.
 
 import { spawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { argvAgent } from '../shared/agent-windows.js';
-import { envDuLanceur, envelopper, optionsEnveloppe } from '../node-client/isolement.js';
+import { envDuLanceur, envelopper, envMoteur, optionsEnveloppe } from '../node-client/isolement.js';
+import type { ConteneurPilote } from '../node-client/pilote-execution.js';
+import { creerMinuteurSuspendable } from '../shared/minuteur-suspendable.js';
 import { LIMITS } from '../shared/protocol.js';
 import { texteDEchec } from '../shared/texte-d-echec.js';
 import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from '../shared/types.js';
@@ -75,12 +78,27 @@ function preparerCommande(
   args: string[],
   ctx: AdapterContext,
   pont?: string,
-): { bin: string; args: string[]; env: NodeJS.ProcessEnv } {
+): { bin: string; args: string[]; env: NodeJS.ProcessEnv; conteneur?: ConteneurPilote } {
   if (ctx.bac) {
-    const options = { ...optionsEnveloppe(ctx.bac, ctx.cwd), ...(pont ? { pont } : {}) };
+    const { fournisseur } = ctx.bac;
+    // Un conteneur piloté porte un NOM connu (Sandbox Live : `pause`, `stats`).
+    // Aléatoire au bout : un conteneur laissé par un nœud tué garde le sien
+    // jusqu'au ramassage, et une relance de la tâche ne doit pas s'y heurter.
+    const nom =
+      ctx.pilote && fournisseur.bin !== 'bwrap'
+        ? `hive-${ctx.bac.tache ?? 'tache'}-${randomBytes(4).toString('hex')}`
+        : undefined;
+    const options = {
+      ...optionsEnveloppe(ctx.bac, ctx.cwd),
+      ...(pont ? { pont } : {}),
+      ...(nom ? { nom } : {}),
+    };
     return {
       ...envelopper(bin, args, options),
-      env: envDuLanceur(ctx.bac.fournisseur, ctx.env),
+      env: envDuLanceur(fournisseur, ctx.env),
+      // Le moteur est joint sans l'environnement de l'agent : `pause` et
+      // `stats` n'ont que faire de sa clé d'API.
+      ...(nom ? { conteneur: { bin: fournisseur.bin, nom, env: envMoteur(fournisseur) } } : {}),
     };
   }
   const [binReel = bin, ...avant] = argvAgent(bin, process.env, process.platform, existsSync);
@@ -348,14 +366,30 @@ function executer(
       direct.ecrire(s, 'stderr');
     });
 
-    const timeout = setTimeout(() => {
+    // Le délai dur, armé par le pilote quand il y en a un : une pause de
+    // l'agent (Sandbox Live) le SUSPEND — l'agent repris retrouve le temps
+    // qu'il n'a pas consommé, au lieu d'être tué pendant qu'il dormait.
+    const surDelai = (): void => {
       tue = true;
       child.kill();
-    }, opts.timeoutMs);
-    timeout.unref?.();
+    };
+    const timeout = ctx.pilote
+      ? ctx.pilote.minuteur(opts.timeoutMs, surDelai)
+      : creerMinuteurSuspendable(opts.timeoutMs, surDelai);
+    // La commande LOGIQUE (l'agent et ses arguments), pas l'enveloppe du bac :
+    // c'est elle que l'écran doit lire. Le nœud la caviarde avant l'envoi.
+    const detacher =
+      child.pid !== undefined
+        ? ctx.pilote?.attacher({
+            pid: child.pid,
+            commande: [bin, ...args].join(' ').slice(0, 4096),
+            ...(lance.conteneur ? { conteneur: lance.conteneur } : {}),
+          })
+        : undefined;
 
     child.on('error', (err) => {
-      clearTimeout(timeout);
+      timeout.annuler();
+      detacher?.();
       direct.terminer();
       viderLignes();
       // Le binaire n'a pas pu être lancé (absent, non exécutable) : échec d'infra.
@@ -369,7 +403,8 @@ function executer(
     });
 
     child.on('close', (code) => {
-      clearTimeout(timeout);
+      timeout.annuler();
+      detacher?.();
       // Avant le `resolve` : un morceau parti après le résultat serait ignoré
       // par le hub, et ressusciterait une console déjà vidée à l'écran.
       direct.terminer();

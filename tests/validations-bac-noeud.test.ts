@@ -161,8 +161,12 @@ describe.runIf(POSIX)('validerProduction — ce que la base déclare, lancé dan
     writeFileSync(path.join(dir, 'feature.js'), 'module.exports = 1;\n');
     const sha = await baseDe(dir);
     const etapes: string[] = [];
+    const controles: string[] = [];
 
-    const rapport = await valider(dir, { surEtape: (l) => etapes.push(l) });
+    const rapport = await valider(dir, {
+      surEtape: (l) => etapes.push(l),
+      surControle: (cle, etat) => controles.push(`${cle} ${etat}`),
+    });
 
     expect(rapport.baseSha).toBe(sha);
     expect(rapport.controles.tests).toMatchObject({
@@ -180,6 +184,16 @@ describe.runIf(POSIX)('validerProduction — ce que la base déclare, lancé dan
     // Le hub voit ce qui tourne : une ligne avant, une ligne après chaque commande.
     expect(etapes).toContain('validation lint : npm run lint…');
     expect(etapes.some((l) => l.startsWith('validation tests : passed'))).toBe(true);
+    // Sandbox Live : chaque validation lancée, à son départ puis à sa
+    // conclusion, dans l'ordre de lancement — l'écran les suit une à une.
+    expect(controles).toEqual([
+      'lint en_cours',
+      'lint failed',
+      'build en_cours',
+      'build passed',
+      'tests en_cours',
+      'tests passed',
+    ]);
   }, 30_000);
 
   // Trois façons de réécrire son juge. La deuxième et la troisième passaient :
@@ -515,6 +529,43 @@ describe('prepareWorkspace — la base épinglée, et le diff qui en part', () =
 
       expect(ws.baseSha).toBe(base);
       for (const f of ['committe.js', 'indexe.js', 'nouveau.js']) expect(diff).toContain(f);
+    } finally {
+      ws.cleanup();
+    }
+  }, 30_000);
+
+  it('des diffs DEMANDÉS ENSEMBLE ne se marchent pas dessus', async () => {
+    // Sandbox Live demande le diff d'une exécution EN COURS, pendant que le
+    // nœud peut calculer celui du résultat. `diffContreBase` écrit l'index du
+    // registre : deux calculs croisés trouvaient `index.lock`, et l'échec
+    // emportait le diff remis à la revue.
+    const origine = await depot({ 'README.md': '# projet\n' });
+    const racine = mkdtempSync(path.join(os.tmpdir(), 'hive-validations-ws-'));
+    dossiers.push(racine);
+    const tache: Task = {
+      id: 'tache-diffs',
+      projectId: 'p',
+      title: 'Diffs croisés',
+      prompt: 'x',
+      status: 'assigned',
+      dependsOn: [],
+      assignedNodeId: 'n',
+      result: null,
+      branch: null,
+      attempts: 0,
+      createdAt: 0,
+      updatedAt: 0,
+    };
+    const ws = await prepareWorkspace(racine, tache, origine);
+    try {
+      for (let i = 0; i < 20; i += 1) {
+        writeFileSync(path.join(ws.cwd, `f${i}.js`), `module.exports = ${i};\n`);
+      }
+      const diffs = await Promise.all(Array.from({ length: 16 }, () => ws.collectDiff()));
+      for (const d of diffs) {
+        expect(d).toContain('f19.js');
+        expect(d).toBe(diffs[0]);
+      }
     } finally {
       ws.cleanup();
     }

@@ -72,6 +72,10 @@ import { capturerExecutionUsage, executionUsageDepuis } from './execution-usage.
 import { VALIDATION_KEYS } from '../shared/validations-bac.js';
 import type { ValidationsBac } from '../shared/validations-bac.js';
 import { validerProduction } from './validations-bac.js';
+import { COMMANDE_DIRECT_MAX, DIFF_DIRECT_MAX } from '../shared/bac-direct.js';
+import type { EtatDirect } from '../shared/bac-direct.js';
+import type { MinuteurSuspendable } from '../shared/minuteur-suspendable.js';
+import { PiloteExecution } from './pilote-execution.js';
 
 const MAX_PENDING_DELEGATIONS = 32;
 const MAX_ACCEPTED_DELEGATIONS = 128;
@@ -310,6 +314,10 @@ export class HiveNodeClient {
   }
 
   private readonly active = new Map<string, AbortController>();
+  /** Le pilote Sandbox Live de chaque exécution en cours (`pilote-execution.ts`). */
+  private readonly pilotes = new Map<string, PiloteExecution>();
+  /** Le répertoire de chaque exécution en cours : le diff en direct s'y calcule. */
+  private readonly espaces = new Map<string, Workspace>();
   /** Délégations en vol : bornées pour qu'un Worker ne crée pas une file locale infinie. */
   private readonly pendingDelegations = new Map<
     string,
@@ -386,7 +394,8 @@ export class HiveNodeClient {
     budget: DelegationBudget | undefined,
     ctrl: AbortController,
     onExceeded: () => void,
-  ): NodeJS.Timeout | null {
+    pilote: PiloteExecution,
+  ): MinuteurSuspendable | null {
     if (!budget) return null;
     const expire = (): void => {
       onExceeded();
@@ -396,9 +405,88 @@ export class HiveNodeClient {
       expire();
       return null;
     }
-    const timer = setTimeout(expire, budget.durationMs);
-    timer.unref?.();
-    return timer;
+    // Armé par le pilote : une pause de l'agent (Sandbox Live) suspend le
+    // budget avec lui — un enfant en pause ne consomme pas sa durée.
+    return pilote.minuteur(budget.durationMs, expire);
+  }
+
+  /**
+   * Le pilote Sandbox Live d'une exécution (`pilote-execution.ts`). Ce qu'il
+   * envoie part comme le progrès de l'adaptateur : seulement pour l'exécution
+   * EN COURS (même garde que `progresVersHub`), et la commande caviardée ICI,
+   * sur la machine qui porte les secrets — elle cite parfois le prompt.
+   */
+  private creerPilote(taskId: string, ctrl: AbortController): PiloteExecution {
+    this.pilotes.get(taskId)?.fermer();
+    const pilote = new PiloteExecution((direct: EtatDirect) => {
+      if (this.active.get(taskId) !== ctrl) return;
+      const etat: EtatDirect =
+        direct.commande === undefined
+          ? direct
+          : {
+              ...direct,
+              commande: borneApresCaviardage(
+                this.caviardeurDuNoeud().texte(direct.commande),
+                COMMANDE_DIRECT_MAX,
+              ),
+            };
+      this.send({ type: 'task_update', taskId, status: 'running', direct: etat });
+    });
+    this.pilotes.set(taskId, pilote);
+    return pilote;
+  }
+
+  private oublierPilote(taskId: string, pilote: PiloteExecution): void {
+    pilote.fermer();
+    if (this.pilotes.get(taskId) === pilote) this.pilotes.delete(taskId);
+  }
+
+  /**
+   * Annule une tâche. Un agent EN PAUSE est repris d'abord : arrêté, il ne
+   * traiterait pas le SIGTERM de l'annulation, et un conteneur en pause ne
+   * recevrait pas le signal que `docker run` lui relaie (`pilote-execution.ts`).
+   */
+  private async annulerTache(taskId: string): Promise<void> {
+    const pilote = this.pilotes.get(taskId);
+    if (pilote?.enPause) await pilote.reprendre();
+    this.active.get(taskId)?.abort();
+  }
+
+  /**
+   * Le diff d'une exécution EN COURS, demandé par un écran (Sandbox Live). Par
+   * le registre de la ruche (`workspace.collectDiff`, jamais le `.git` de
+   * l'agent), caviardé ici comme le diff d'un résultat, et borné : un écran
+   * qui le demande ne reçoit jamais plus de `DIFF_DIRECT_MAX`. Un diff qu'on
+   * n'a pas pu calculer le DIT (`erreur`) — un diff vide passerait pour
+   * « rien n'a changé ».
+   */
+  private async repondreDiffDirect(taskId: string, requestId: string): Promise<void> {
+    const espace = this.espaces.get(taskId);
+    const repondre = (diff: string, tronque: boolean, erreur?: string): void =>
+      this.send({
+        type: 'diff_direct',
+        taskId,
+        requestId,
+        diff,
+        tronque,
+        ...(erreur ? { erreur } : {}),
+      });
+    if (!espace || !this.active.has(taskId)) {
+      repondre('', false, 'aucune exécution en cours de cette tâche sur ce nœud');
+      return;
+    }
+    if (!espace.depot) {
+      repondre('', false, 'tâche sans dépôt git : pas de diff à calculer');
+      return;
+    }
+    try {
+      const diff = this.caviardeurDuNoeud().diff(await espace.collectDiff());
+      repondre(diff.slice(0, DIFF_DIRECT_MAX), diff.length > DIFF_DIRECT_MAX);
+    } catch (err) {
+      const brut = err instanceof Error ? err.message : String(err);
+      const cause = motifLave(brut.trim().split('\n').at(-1) ?? brut);
+      repondre('', false, `diff impossible : ${cause}`.slice(0, LIMITS.arg));
+    }
   }
 
   private resultAfterDelegationBudget(
@@ -470,6 +558,8 @@ export class HiveNodeClient {
   stop(): void {
     this.closed = true;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    // Repris AVANT l'annulation : un agent arrêté ne traite pas SIGTERM.
+    for (const pilote of this.pilotes.values()) pilote.reprendreSansAttendre();
     for (const ctrl of this.active.values()) ctrl.abort();
     this.rejectPendingDelegations('client arrêté');
     this.stopHeartbeat();
@@ -910,7 +1000,16 @@ export class HiveNodeClient {
         void this.runPoseOutil(msg);
         break;
       case 'cancel_task':
-        this.active.get(msg.taskId)?.abort();
+        void this.annulerTache(msg.taskId);
+        break;
+      case 'pause_task':
+        void this.pilotes.get(msg.taskId)?.suspendre();
+        break;
+      case 'resume_task':
+        void this.pilotes.get(msg.taskId)?.reprendre();
+        break;
+      case 'demande_diff_direct':
+        void this.repondreDiffDirect(msg.taskId, msg.requestId);
         break;
       case 'error':
         this.log(`erreur du hub : ${msg.message}`);
@@ -1249,10 +1348,12 @@ export class HiveNodeClient {
     const started = Date.now();
     const caviardeur = this.caviardeurDuNoeud();
     let budgetExceeded = false;
-    let budgetTimer: NodeJS.Timeout | null = null;
+    let budgetTimer: MinuteurSuspendable | null = null;
     let usage: ExecutionUsage | undefined;
     let usageBefore: ReturnType<typeof capturerExecutionUsage> | null = null;
     this.send({ type: 'task_update', taskId: task.id, status: 'running' });
+    const pilote = this.creerPilote(task.id, ctrl);
+    pilote.phase('preparation');
     this.log(`butinage : ${task.title} (tentative ${task.attempts + 1})`);
 
     let workspace: Workspace | null = null;
@@ -1268,6 +1369,7 @@ export class HiveNodeClient {
           // même machine (workRoot partagé) ne se marchent pas dessus.
           this.nodeId ? this.nodeId.slice(0, 8) : '',
         );
+        this.espaces.set(task.id, workspace);
       } catch (err) {
         // Le dépôt ne s'est pas cloné ICI (identifiants de ce nœud, réseau,
         // dépôt muet) : l'agent n'a pas tourné. Un `task_result` en échec
@@ -1295,10 +1397,16 @@ export class HiveNodeClient {
       const taskForAgent = hiveContext
         ? { ...task, prompt: composeAgentPrompt(hiveContext, task.prompt) }
         : task;
-      budgetTimer = this.startDelegationBudget(delegationBudget, ctrl, () => {
-        budgetExceeded = true;
-      });
+      budgetTimer = this.startDelegationBudget(
+        delegationBudget,
+        ctrl,
+        () => {
+          budgetExceeded = true;
+        },
+        pilote,
+      );
       usageBefore = capturerExecutionUsage();
+      pilote.phase('agent');
       const rawResult = await this.adapter.run(taskForAgent, {
         cwd: workspace.cwd,
         env: workspace.env,
@@ -1313,6 +1421,7 @@ export class HiveNodeClient {
         waitForDelegationResult: (childTaskId) =>
           this.waitForDelegationResult(task.id, childTaskId, ctrl.signal),
         rendezVous: this.rendezVous,
+        pilote,
         onProgress: this.progresVersHub(task.id, ctrl, caviardeur),
       });
       // LE BUDGET COURT ENCORE : le minuteur n'est levé qu'au `finally`. Les
@@ -1379,7 +1488,14 @@ export class HiveNodeClient {
       // nourrit la Balance et la chronologie, qui comparent des agents — pas
       // la vitesse des tests du projet.
       const durationMs = Date.now() - started;
-      const validations = await this.validerSiProduction(task.id, result, diff, workspace, ctrl);
+      const validations = await this.validerSiProduction(
+        task.id,
+        result,
+        diff,
+        workspace,
+        ctrl,
+        pilote,
+      );
       // Tronquer aux limites du protocole : un diff/log surdimensionné ferait
       // rejeter le message par le hub (fermeture de connexion) et la tâche
       // bouclerait indéfiniment sans jamais aboutir.
@@ -1420,9 +1536,13 @@ export class HiveNodeClient {
       });
       this.log(`✘ ${task.title} : ${message}`);
     } finally {
-      if (budgetTimer) clearTimeout(budgetTimer);
+      budgetTimer?.annuler();
+      // En attente de réquisition, la tâche vit encore — mais plus aucun agent
+      // ne tourne : rien à mesurer ni à suspendre. La reprise ouvre un pilote neuf.
+      this.oublierPilote(task.id, pilote);
       if (!conserverWorkspace) {
         this.active.delete(task.id);
+        this.espaces.delete(task.id);
         this.clearDelegationsForParent(task.id);
         workspace?.cleanup();
       }
@@ -1444,8 +1564,10 @@ export class HiveNodeClient {
     diff: string,
     workspace: Workspace,
     ctrl: AbortController,
+    pilote: PiloteExecution,
   ): Promise<ValidationsBac | undefined> {
     if (!result.success || result.diff !== '' || diff.trim() === '') return undefined;
+    pilote.phase('validations');
     const validations = await validerProduction({
       cwd: workspace.cwd,
       depot:
@@ -1459,6 +1581,8 @@ export class HiveNodeClient {
       caviarder: (texte) => this.caviardeurDuNoeud().texte(texte),
       signal: ctrl.signal,
       surEtape: (log) => this.send({ type: 'task_update', taskId, status: 'running', log }),
+      // Chaque validation à l'écran dès qu'elle part, puis dès qu'elle conclut.
+      surControle: (cle, etat) => pilote.controle(cle, etat),
     });
     const etats = VALIDATION_KEYS.map((cle) => `${cle} ${validations.controles[cle].etat}`);
     this.log(`validations du bac : ${etats.join(' · ')}`);
@@ -1506,7 +1630,8 @@ export class HiveNodeClient {
     this.log(`↻ reprise de ${task.title} après réquisition accordée`);
     let caviardeur = this.caviardeurDuNoeud();
     let budgetExceeded = false;
-    let budgetTimer: NodeJS.Timeout | null = null;
+    let budgetTimer: MinuteurSuspendable | null = null;
+    const pilote = this.creerPilote(task.id, ctrl);
     let usage: ExecutionUsage | undefined;
     let usageBefore: ReturnType<typeof capturerExecutionUsage> | null = null;
     try {
@@ -1522,10 +1647,16 @@ export class HiveNodeClient {
       const taskForAgent = hiveContext
         ? { ...task, prompt: composeAgentPrompt(hiveContext, task.prompt) }
         : task;
-      budgetTimer = this.startDelegationBudget(delegationBudget, ctrl, () => {
-        budgetExceeded = true;
-      });
+      budgetTimer = this.startDelegationBudget(
+        delegationBudget,
+        ctrl,
+        () => {
+          budgetExceeded = true;
+        },
+        pilote,
+      );
       usageBefore = capturerExecutionUsage();
+      pilote.phase('agent');
       const rawResult = await this.adapter.run(taskForAgent, {
         cwd: workspace.cwd,
         env: workspace.env,
@@ -1538,6 +1669,7 @@ export class HiveNodeClient {
         waitForDelegationResult: (childTaskId) =>
           this.waitForDelegationResult(task.id, childTaskId, ctrl.signal),
         rendezVous: this.rendezVous,
+        pilote,
         onProgress: this.progresVersHub(task.id, ctrl, caviardeur),
       });
       // LE BUDGET COURT ENCORE : le minuteur n'est levé qu'au `finally`. Les
@@ -1583,7 +1715,14 @@ export class HiveNodeClient {
       }
       const diff = result.diff !== '' ? result.diff : await workspace.collectDiff();
       const durationMs = Date.now() - started;
-      const validations = await this.validerSiProduction(task.id, result, diff, workspace, ctrl);
+      const validations = await this.validerSiProduction(
+        task.id,
+        result,
+        diff,
+        workspace,
+        ctrl,
+        pilote,
+      );
       this.send({
         type: 'task_result',
         taskId: task.id,
@@ -1620,9 +1759,11 @@ export class HiveNodeClient {
         ...(usage ? { usage } : {}),
       });
     } finally {
-      if (budgetTimer) clearTimeout(budgetTimer);
+      budgetTimer?.annuler();
+      this.oublierPilote(task.id, pilote);
       if (!this.attenteRequisition) {
         this.active.delete(task.id);
+        this.espaces.delete(task.id);
         this.clearDelegationsForParent(task.id);
         workspace.cleanup();
       }
@@ -1647,6 +1788,7 @@ export class HiveNodeClient {
     });
     this.log(`✘ ${task.title} : réquisition ${statut}`);
     this.active.delete(task.id);
+    this.espaces.delete(task.id);
     this.clearDelegationsForParent(task.id);
     workspace.cleanup();
   }

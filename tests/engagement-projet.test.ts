@@ -296,6 +296,22 @@ const DECISIONS: readonly Acte[] = [
     url: (c) => `/api/tasks/${c.tache}/cancel`,
     refus: 'tache',
   },
+  // Sandbox Live : suspendre et reprendre l'agent d'une tâche décident de son
+  // sort comme l'annuler — même porte.
+  {
+    nom: 'tasks/:taskId/pause',
+    methode: 'POST',
+    route: '/api/tasks/:taskId/pause',
+    url: (c) => `/api/tasks/${c.tache}/pause`,
+    refus: 'tache',
+  },
+  {
+    nom: 'tasks/:taskId/resume',
+    methode: 'POST',
+    route: '/api/tasks/:taskId/resume',
+    url: (c) => `/api/tasks/${c.tache}/resume`,
+    refus: 'tache',
+  },
 ];
 
 /** Les actes qui RÈGLENT un projet : propriétaire ou administrateur. */

@@ -214,6 +214,7 @@ export async function prepareWorkspace(
   }
 
   const env = buildSandboxEnv(cwd, keepEnv);
+  let fileDiff: Promise<unknown> = Promise.resolve();
 
   return {
     cwd,
@@ -221,12 +222,19 @@ export async function prepareWorkspace(
     baseSha,
     depot,
     env,
-    async collectDiff(): Promise<string> {
+    collectDiff(): Promise<string> {
       // Par le registre, jamais par le `.git` de la tâche : c'est l'agent qui
       // l'a eu entre les mains (git-hote.ts). CONTRE LA BASE ÉPINGLÉE, pas
       // contre l'index : ce que l'agent a `git add` ou committé reste dans la
       // revue, la livraison et le merge.
-      return depot ? diffContreBase(depot, baseSha) : '';
+      //
+      // UN SEUL DIFF À LA FOIS : `diffContreBase` écrit l'index du registre
+      // (`add --intent-to-add`), et un diff demandé en direct (Sandbox Live)
+      // peut croiser celui du résultat — le second trouverait `index.lock` et
+      // échouerait, emportant le diff remis à la revue.
+      const suivant = fileDiff.then(() => (depot ? diffContreBase(depot, baseSha) : ''));
+      fileDiff = suivant.catch(() => undefined);
+      return suivant;
     },
     cleanup(): void {
       try {
