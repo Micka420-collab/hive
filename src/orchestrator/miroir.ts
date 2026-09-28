@@ -138,6 +138,10 @@ function lireTeteAmont(sortie: string): TeteAmont {
   return nom === null ? { etat: 'inconnue' } : { etat: 'branche', nom };
 }
 
+/** Où un reclone se prépare, à côté du miroir qu'il remplacera s'il réussit. */
+const voisinDeReclone = (dir: string): string =>
+  path.join(path.dirname(dir), `.neuf-${path.basename(dir)}`);
+
 /** Le dernier rafraîchissement d'un projet : quand, et son échec s'il a échoué. */
 interface Tentative {
   readonly quand: number;
@@ -191,6 +195,10 @@ export class Miroir {
     await this.enVol.get(projectId)?.catch(() => undefined);
     this.dernier.delete(projectId);
     const dir = this.dossier(projectId);
+    // Le reclone voisin (`recloner`) d'une Reine arrêtée en plein clone : seul
+    // le rafraîchissement suivant le retirait, et un projet supprimé n'en a
+    // plus — il restait pour toujours.
+    await fs.rm(voisinDeReclone(dir), { recursive: true, force: true, maxRetries: 10 });
     if (!existsSync(dir)) return 'absent';
     await fs.rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     return 'efface';
@@ -339,7 +347,7 @@ export class Miroir {
    * branche à extraire : le miroir reste vide, et c'est la vérité.
    */
   private async recloner(dir: string, repoUrl: string, ssh: string): Promise<void> {
-    const neuf = path.join(path.dirname(dir), `.neuf-${path.basename(dir)}`);
+    const neuf = voisinDeReclone(dir);
     const depotNeuf = { gitDir: path.join(neuf, '.git'), workTree: neuf };
     // Un voisin d'une Reine arrêtée en plein clone : les rafraîchissements
     // d'un projet ne se chevauchent pas (`enVol`), celui-ci est donc à nous.

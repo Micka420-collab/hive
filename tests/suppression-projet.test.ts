@@ -576,12 +576,16 @@ describe('DELETE /api/projects/:projectId', () => {
     const miroir = path.join(dir, 'rayons', projet);
     mkdirSync(path.join(miroir, '.git'), { recursive: true });
     writeFileSync(path.join(miroir, 'index.html'), '<h1>ancien code</h1>');
+    // Le reclone voisin (#509) d'une Reine arrêtée en plein clone.
+    const voisin = path.join(dir, 'rayons', `.neuf-${projet}`);
+    mkdirSync(path.join(voisin, '.git'), { recursive: true });
 
     const r = await supprimer(projet);
 
     expect(r.status).toBe(200);
     expect(((await r.json()) as { miroir: string }).miroir).toBe('efface');
     expect(existsSync(miroir), 'le clone du dépôt est resté sur le disque').toBe(false);
+    expect(existsSync(voisin), 'le reclone interrompu est resté sur le disque').toBe(false);
     // Sans miroir, la réponse le dit aussi — elle n'invente pas un effacement.
     const sans = server.store.createProject({ name: 'Sans miroir' }).id;
     expect(((await (await supprimer(sans)).json()) as { miroir: string }).miroir).toBe('absent');
