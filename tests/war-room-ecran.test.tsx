@@ -662,6 +662,31 @@ describe('l’accès depuis la Ruche', () => {
     expect(naviguer).toHaveBeenCalledWith('warroom');
   });
 
+  // #504 × #513. La War Room tient aussi en attente les relectures
+  // impossibles ; l'accueil les montre déjà dans « Ce qui arrête la ruche ».
+  // Comptées dans l'accès, une même attente se lisait deux fois sur l'accueil
+  // — et sous le nom de « désaccord », qu'elle n'est pas.
+  it('UNE RELECTURE IMPOSSIBLE N’EST PAS UN DÉSACCORD — l’accès ne la compte pas', async () => {
+    vi.mocked(fetchWarRoom).mockResolvedValue(
+      vue({
+        desaccords: [
+          { genre: 'conseil', sessionId: 'a', issue: 'sans_quorum', depuis: 1 },
+          {
+            genre: 'relecture_impossible',
+            taskId: 't-1',
+            resultId: 8,
+            cause: 'la relecture confiée à codex a été annulée',
+            depuis: 1_000,
+          },
+        ],
+      }),
+    );
+    const dom = await rendre(<AccesWarRoom refreshTick={0} onNavigate={() => {}} />);
+    expect(dom.querySelector('[data-testid="acces-war-room"]')!.textContent).toContain(
+      '1 désaccord(s) à trancher',
+    );
+  });
+
   it('UN ÉCHEC APRÈS UNE LECTURE RÉUSSIE NE GARDE PAS L’ANCIEN COMPTE', async () => {
     // Le jeton révoqué, la Reine qui redémarre : le dernier « aucun » lu
     // n'est plus une information.
