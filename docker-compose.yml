@@ -10,8 +10,11 @@
 # les mettre dans ce conteneur leur donnerait une maison sans clés. Une ruche
 # en compose attend donc qu'une machine la rejoigne — celle-ci, depuis le
 # dépôt (`HIVE_URL=ws://127.0.0.1:7777/ws npm run node`), ou une autre, par un
-# billet (`docker compose exec ruche node dist/cli.js invite`, ou `tunnel`).
-# Tant qu'aucune n'est venue, les tâches attendent, et l'écran le dit.
+# billet émis SUR L'HÔTE : `npm run cli -- tunnel` depuis le dépôt, puis
+# `join` là-bas. Pas de billet émis DANS le conteneur : il y annoncerait
+# l'adresse du pont Docker (172.x), que nulle autre machine n'atteint — et
+# l'image n'a pas de binaire de tunnel. Tant qu'aucune ouvrière n'est venue,
+# les tâches attendent, et l'écran le dit.
 # Le détail : `docs/INSTALLATION.md`, « Dans un conteneur ».
 #
 # ─── CE QUE CE FICHIER DÉCIDE, ET POURQUOI ──────────────────────────────────

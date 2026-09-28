@@ -95,6 +95,8 @@ docker compose -f docker-compose.cloud.yml cp ruche:/app/data/queen.env ./queen.
 
 La première ligne copie la base par `VACUUM INTO` (jamais un `cp` à chaud : il perd les écritures récentes, voir [`INSTALLATION.md`](INSTALLATION.md#sauvegarder-la-base)). La deuxième la sort du volume. La troisième garde les clés d'API posées depuis la Chambre, qui vivent dans le volume (le fichier naît avec la première clé : sans clé posée, la commande le dit, et il n'y a rien à garder) — c'est un fichier de **secrets** : rangez-le comme tel. Gardez aussi `.env`.
 
+**Une fois, pour une ruche posée avant 0.4.0** : l'ancienne consigne faisait remplacer `hive.example.com` dans `docker/Caddyfile.cloud`. Ce fichier lit maintenant `{$HIVE_DOMAIN}` : écrire `HIVE_DOMAIN=<votre domaine>` dans `.env`, puis `git checkout -- docker/Caddyfile.cloud`, **avant** de tirer le code — sinon `git pull` ou `git checkout` tombe en conflit sur cette ligne, et compose refuse de démarrer tant que `HIVE_DOMAIN` manque.
+
 **Puis la montée** :
 
 ```sh
@@ -110,6 +112,7 @@ docker compose -f docker-compose.cloud.yml up -d --wait
 
 - Le **Checkout Stripe hébergé** depuis le tableau de bord (lien à coller depuis Stripe).
 - Le **provisionnement automatique de VPS** (le fournisseur livré est manuel : instructions + billet).
+- Le **filtre des destinations de clonage**. L'image porte git (la Reine clone les dépôts des projets pour le Rayon) : tout compte authentifié peut donc faire émettre à la Reine une requête git vers l'adresse qu'il donne en `repoUrl` — y compris une adresse interne au réseau du serveur (un autre service du réseau Docker, `169.254.169.254`). Ce sont des requêtes aveugles, de forme git (`/info/refs?service=git-upload-pack`), et une Reine Cloud posée sur l'hôte avait déjà git ; mais tant que ce filtre manque, ne posez pas Hive Cloud dans un réseau où une telle requête ouvre quelque chose.
 - Un **compte npm**. Pas d'image GHCR officielle non plus, et c'est une décision : l'image se construit chez l'opérateur, depuis le dépôt qu'il a sous les yeux.
 
 ## 7. Ce que la CI prouve, à chaque PR

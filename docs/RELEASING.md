@@ -173,8 +173,12 @@ docker compose -f docker-compose.cloud.yml build --pull ruche
 docker compose -f docker-compose.cloud.yml up -d --wait
 ```
 
-Le domaine est dans `.env` (`HIVE_DOMAIN`), pas dans un fichier suivi : la mise
-à jour du code ne rencontre aucune modification locale.
+Le domaine est dans `.env` (`HIVE_DOMAIN`), pas dans un fichier suivi : pour
+une ruche Cloud posée à partir de 0.4.0, la mise à jour du code ne rencontre
+aucune modification locale. Une ruche posée AVANT avait reçu la consigne
+d'éditer `docker/Caddyfile.cloud` : une seule fois, déplacer le domaine dans
+`.env` puis `git checkout -- docker/Caddyfile.cloud` avant de tirer le code
+(rubrique « Pour monter » de 0.4.0, dans `CHANGELOG.md`).
 
 ### Les ouvrières
 

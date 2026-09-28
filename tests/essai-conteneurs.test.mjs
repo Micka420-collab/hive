@@ -17,9 +17,16 @@
 // En `.mjs` : il importe des `scripts/*.mjs` (convention du dépôt, voir
 // `premier-quart-heure.test.mjs`).
 
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { envDEssai, etiquettePrecedente, pidDeLaReine } from '../scripts/essai-conteneurs.mjs';
+import {
+  ecrireEnv,
+  envDEssai,
+  etiquettePrecedente,
+  pidDeLaReine,
+} from '../scripts/essai-conteneurs.mjs';
 import { jugerAcharnee, lireArguments } from '../scripts/sonde-cloud.mjs';
 
 describe('le `.env` d’essai est celui d’un opérateur', () => {
@@ -62,6 +69,41 @@ describe('le `.env` d’essai est celui d’un opérateur', () => {
     expect(env).toMatch(/^HIVE_HOST=127\.0\.0\.1$/m);
     expect(env).toMatch(/^HIVE_TOKEN=x{48}$/m);
     expect(env).not.toMatch(/^HIVE_(TOKEN|JWT_SECRET)=change-me$/m);
+  });
+});
+
+// Compose lit le `.env` du dossier du projet : l'essai écrit donc là où un
+// mainteneur garde les secrets de SA ruche et les clés posées depuis la
+// Chambre. L'écraser les perdrait sans retour — l'essai doit s'arrêter avant.
+describe('l’essai n’écrase jamais le `.env` d’un opérateur', () => {
+  function dossierDEssai() {
+    const dossier = mkdtempSync(path.join(tmpdir(), 'hive-essai-env-'));
+    writeFileSync(path.join(dossier, '.env.example'), 'HIVE_TOKEN=change-me\n');
+    return dossier;
+  }
+
+  it('un `.env` déjà là, que l’essai n’a pas écrit : refus nommé, fichier intact', () => {
+    const dossier = dossierDEssai();
+    try {
+      const cible = path.join(dossier, '.env');
+      writeFileSync(cible, 'HIVE_TOKEN=le-vrai\nSEEDANCE_API_KEY=cle-de-la-chambre\n');
+      expect(() => ecrireEnv(dossier, { HIVE_TOKEN: 'jetable' }, new Set())).toThrow(cible);
+      expect(readFileSync(cible, 'utf8')).toContain('cle-de-la-chambre');
+    } finally {
+      rmSync(dossier, { recursive: true, force: true });
+    }
+  });
+
+  it('aucun `.env` : il l’écrit, puis peut réécrire le SIEN dans la même exécution', () => {
+    const dossier = dossierDEssai();
+    try {
+      const poses = new Set();
+      ecrireEnv(dossier, { HIVE_TOKEN: 'premier' }, poses);
+      ecrireEnv(dossier, { HIVE_TOKEN: 'second' }, poses);
+      expect(readFileSync(path.join(dossier, '.env'), 'utf8')).toMatch(/^HIVE_TOKEN=second$/m);
+    } finally {
+      rmSync(dossier, { recursive: true, force: true });
+    }
   });
 });
 

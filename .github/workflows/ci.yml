@@ -759,6 +759,9 @@ jobs:
   compose:
     name: La ruche en compose survit aux redémarrages, et garde tout
     runs-on: ubuntu-latest
+    # Quelques minutes d'ordinaire : un geste qui ne rend plus la main doit
+    # échouer vite, pas au bout des six heures de GitHub.
+    timeout-minutes: 20
     steps:
       - name: Récupérer le code
         uses: actions/checkout@v4
@@ -803,6 +806,9 @@ jobs:
   cloud:
     name: Hive Cloud répond derrière Caddy, un compteur par client
     runs-on: ubuntu-latest
+    # Quelques minutes d'ordinaire : un geste qui ne rend plus la main doit
+    # échouer vite, pas au bout des six heures de GitHub.
+    timeout-minutes: 20
     steps:
       - name: Récupérer le code
         uses: actions/checkout@v4
@@ -846,6 +852,9 @@ jobs:
   montee:
     name: La ruche monte de la version précédente sans rien perdre
     runs-on: ubuntu-latest
+    # Quelques minutes d'ordinaire : un geste qui ne rend plus la main doit
+    # échouer vite, pas au bout des six heures de GitHub.
+    timeout-minutes: 20
     steps:
       # Toute l'histoire et les étiquettes : c'est d'elles qu'on part.
       - name: Récupérer le code et ses étiquettes

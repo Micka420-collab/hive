@@ -8,8 +8,9 @@
 // Trois travaux de la CI l'appellent (`.github/workflows/ci.yml`). Il lui faut
 // Docker et son greffon compose, et les dépendances du dépôt (`npm ci`). Il
 // n'écrit que `.env` (ignoré par git) et des volumes Docker que la CI détruit
-// après lui ; `kill -9` de l'hôte passe par `sudo -n` quand le processus
-// appartient à root.
+// après lui — et REFUSE d'écraser un `.env` qu'il n'a pas posé lui-même : ce
+// serait celui d'une vraie ruche (voir `ecrireEnv`). `kill -9` de l'hôte passe
+// par `sudo -n` quand le processus appartient à root.
 //
 // ─── CE QUI MANQUAIT ─────────────────────────────────────────────────────────
 //
@@ -47,6 +48,7 @@ import { spawnSync } from 'node:child_process';
 import {
   appendFileSync,
   chmodSync,
+  existsSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
@@ -122,7 +124,11 @@ function reussi(texte) {
  * CI (constructions, `up --wait`) au lieu de la retenir : c'est là qu'on lit
  * pourquoi une construction a échoué.
  */
-function lancer(bin, args, { cwd = RACINE, env = process.env, voir = false, tolere = false } = {}) {
+function lancer(
+  bin,
+  args,
+  { cwd = RACINE, env = process.env, voir = false, tolere = false, delaiMs } = {},
+) {
   const r = spawnSync(bin, args, {
     cwd,
     env,
@@ -130,9 +136,23 @@ function lancer(bin, args, { cwd = RACINE, env = process.env, voir = false, tole
     shell: false,
     stdio: voir ? ['ignore', 'inherit', 'inherit'] : ['ignore', 'pipe', 'pipe'],
     maxBuffer: 64 * 1024 * 1024,
+    timeout: delaiMs,
+    killSignal: 'SIGKILL',
   });
-  if (r.error) rate(`« ${bin} » n’a pas pu être lancé — ${r.error.message}`);
-  const res = { code: r.status ?? 1, sortie: r.stdout ?? '', erreur: r.stderr ?? '' };
+  // `delaiMs` borne un lancement qui, si le défaut gardé revient, ne rendrait
+  // JAMAIS la main (une Reine qui démarre au premier plan) : sans borne, la CI
+  // attendrait ses six heures au lieu d'échouer en disant pourquoi.
+  const delaiDepasse = r.error?.code === 'ETIMEDOUT';
+  if (r.error && !delaiDepasse) rate(`« ${bin} » n’a pas pu être lancé — ${r.error.message}`);
+  const res = {
+    code: r.status ?? 1,
+    sortie: r.stdout ?? '',
+    erreur: r.stderr ?? '',
+    delaiDepasse,
+  };
+  if (delaiDepasse && !tolere) {
+    rate(`${bin} ${args.join(' ')} → toujours en cours après ${Math.round(delaiMs / 1000)} s`);
+  }
   if (!tolere && res.code !== 0) {
     const dit = `${res.erreur}\n${res.sortie}`.trim().slice(-3000);
     rate(`${bin} ${args.join(' ')} → code ${res.code}${dit ? `\n${dit}` : ''}`);
@@ -192,10 +212,33 @@ function secretsDEssai() {
   };
 }
 
-/** Écrit `<dossier>/.env` depuis SON `.env.example`, en 0600 comme l'installeur. */
-function ecrireEnv(dossier, valeurs) {
+/** Les dossiers dont CET essai a lui-même écrit le `.env` : lui seul peut le réécrire. */
+const ENV_POSES = new Set();
+
+/**
+ * Écrit `<dossier>/.env` depuis SON `.env.example`, en 0600 comme l'installeur.
+ *
+ * ─── JAMAIS PAR-DESSUS LE `.env` D'UN OPÉRATEUR ─────────────────────────────
+ *
+ * Compose lit `env_file: .env` dans le dossier du projet : l'essai DOIT donc
+ * écrire là. En CI, le dossier est une copie fraîche et n'en a aucun. Chez un
+ * mainteneur, le même fichier porte le HIVE_TOKEN, le secret JWT et chaque clé
+ * posée depuis la Chambre (`src/shared/env-queen.ts` y retombe hors conteneur)
+ * — l'écraser par des secrets jetables les perdrait sans retour. Un `.env` que
+ * cet essai n'a pas écrit lui-même arrête donc tout, en nommant le fichier ;
+ * ceux qu'il a posés plus tôt dans la même exécution se réécrivent librement.
+ */
+export function ecrireEnv(dossier, valeurs, poses = ENV_POSES) {
+  const cible = path.join(dossier, '.env');
+  exiger(
+    poses.has(cible) || !existsSync(cible),
+    `${cible} existe déjà et cet essai ne l’a pas écrit : il porterait les secrets et les ` +
+      'clés de la Chambre d’une vraie ruche, que l’essai écraserait. Déplace-le (ou lance ' +
+      'l’essai depuis un clone sans `.env`), puis relance.',
+  );
   const exemple = readFileSync(path.join(dossier, '.env.example'), 'utf8');
-  writeFileSync(path.join(dossier, '.env'), envDEssai(exemple, valeurs), { mode: 0o600 });
+  writeFileSync(cible, envDEssai(exemple, valeurs), { mode: 0o600 });
+  poses.add(cible);
 }
 
 /**
@@ -603,9 +646,15 @@ async function essaiCloud() {
     projet,
     fichier,
     ['run', '--rm', '--no-deps', '-T', '-e', 'HIVE_WEBHOOK_SECRET=', 'ruche'],
-    { tolere: true },
+    { tolere: true, delaiMs: 90_000 },
   );
   const dit = `${refusWebhook.sortie}\n${refusWebhook.erreur}`;
+  // Une Reine qui tient encore au bout du délai A démarré sans le secret :
+  // c'est l'échec lui-même, dit tout de suite plutôt qu'attendu six heures.
+  exiger(
+    !refusWebhook.delaiDepasse,
+    `la Reine Cloud tourne toujours sans secret de webhook après 90 s :\n${dit.slice(-800)}`,
+  );
   exiger(
     refusWebhook.code !== 0 && dit.includes('HIVE_WEBHOOK_SECRET'),
     `la Reine Cloud a démarré sans secret de webhook (code ${refusWebhook.code}) :\n${dit.slice(-800)}`,
@@ -838,6 +887,11 @@ async function essaiMontee(depuis) {
     cwd: ancienne,
     voir: true,
   });
+  // `semer` et `verifier` sont ceux de l'arbre COURANT, parlant à l'ANCIENNE
+  // Reine : ils ne touchent que des routes stables (compte, projets, clés de
+  // la Chambre, Rayon). Qui renomme ou reforme l'une d'elles exprès doit
+  // garder ce côté-ci compatible avec la plus vieille étiquette encore
+  // éprouvée — sinon `montee` accuserait la montée d'une faute du banc.
   const semis = await semer(base, secrets.HIVE_TOKEN);
   await verifier(base, secrets.HIVE_TOKEN, semis, `en ${depart}`);
   compose(projet, fichier, ['down'], { cwd: ancienne });
