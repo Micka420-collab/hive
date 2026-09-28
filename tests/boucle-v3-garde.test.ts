@@ -145,6 +145,25 @@ describe('la porte des changements sensibles — ce qu’elle arrête', () => {
     ['src/node-client/decouverte-noeud.ts', 'securite'],
     ['src/orchestrator/decouverte-reseau.ts', 'securite'],
     ['src/node-client/identite-noeud.ts', 'secrets'],
+    // Ce que la revue du train 5 a relevé : des gardes et leurs bancs hors liste.
+    ['src/shared/livraison-locale.ts', 'permissions'],
+    ['src/node-client/join.ts', 'securite'],
+    ['src/shared/retention-journal.ts', 'permissions'],
+    ['tsconfig.json', 'auto-execution'],
+    ['tsconfig.build.json', 'auto-execution'],
+    ['dashboard/tsconfig.json', 'auto-execution'],
+    ['tests/missions-rejouables-parcours.test.ts', 'securite'],
+    ['tests/missions-rejouables-store.test.ts', 'securite'],
+    ['tests/mission-rejouable.test.ts', 'securite'],
+    ['tests/suppression-projet.test.ts', 'securite'],
+    ['tests/connecteurs-slack-serveur.test.ts', 'securite'],
+    ['tests/connecteurs-hub.test.ts', 'securite'],
+    ['tests/shadow-bench.test.ts', 'securite'],
+    ['tests/banc-ombre-ruche.test.ts', 'securite'],
+    ['tests/configuration-inerte.test.ts', 'securite'],
+    ['tests/join-porte.test.ts', 'securite'],
+    ['tests/retention-journal.test.ts', 'securite'],
+    ['tests/livraison-locale.test.ts', 'securite'],
   ])('%s → %s', (chemin, categorie) => {
     const verdict = jugerDiff(modification(chemin));
     expect(verdict.etat).toBe('sensible');

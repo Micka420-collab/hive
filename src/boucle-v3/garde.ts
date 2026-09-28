@@ -145,8 +145,16 @@ export const SURFACES_SENSIBLES: readonly SurfaceSensible[] = [
   },
   {
     categorie: 'securite',
-    motif: /^tests\/(security-invariants|engagement-projet)\.test\.ts$/,
-    pourquoi: 'les bancs qui verrouillent les gardes : les affaiblir retire le garde-fou',
+    motif:
+      /^tests\/(security-invariants|engagement-projet|suppression-projet|mission-rejouable|missions-rejouables-[^/]+|connecteurs-[^/]+|shadow-bench|banc-ombre-ruche|configuration-inerte[^/]*|join-porte|retention-journal|livraison-locale[^/]*)\.test\.tsx?$/,
+    pourquoi:
+      'les bancs qui verrouillent les gardes (routes, effacement, rejeux, connecteurs, banc d’ombre, configuration inerte, adhésion, rétention, poussée) : les affaiblir retire le garde-fou',
+  },
+  {
+    categorie: 'securite',
+    motif: /^src\/node-client\/join\.ts$/,
+    pourquoi:
+      'ce qu’un nœud accepte en rejoignant une ruche : la racine de travail refusée avant l’annonce, l’invitation lue',
   },
   {
     categorie: 'securite',
@@ -220,8 +228,15 @@ export const SURFACES_SENSIBLES: readonly SurfaceSensible[] = [
   },
   {
     categorie: 'permissions',
-    motif: /^src\/node-client\/livraison-locale\.ts$/,
-    pourquoi: 'ce que la livraison locale pousse chez le membre — jamais en force',
+    motif: /^src\/(node-client|shared)\/livraison-locale\.ts$/,
+    pourquoi:
+      'ce que la livraison locale pousse chez le membre — jamais en force, jamais sans son consentement (`pousseeConsentie`)',
+  },
+  {
+    categorie: 'permissions',
+    motif: /^src\/shared\/retention-journal\.ts$/,
+    pourquoi:
+      'ce que l’élagage du journal garde comme preuve : une revue humaine ou une livraison élaguée ne se relit plus',
   },
   {
     categorie: 'permissions',
@@ -313,8 +328,9 @@ export const SURFACES_SENSIBLES: readonly SurfaceSensible[] = [
   {
     categorie: 'auto-execution',
     motif:
-      /(?:^|\/)(vitest|eslint|vite)\.config\.[^/]*$|^\.(husky|githooks)\/|^\.git(attributes|modules)$/,
-    pourquoi: 'configuration exécutée par les outils (tests, lint, build, hooks git)',
+      /(?:^|\/)(vitest|eslint|vite)\.config\.[^/]*$|(?:^|\/)tsconfig[^/]*\.json$|^\.(husky|githooks)\/|^\.git(attributes|modules)$/,
+    pourquoi:
+      'configuration exécutée par les outils (tests, lint, build, typage, hooks git) — un `tsconfig` relâché fait passer ce que le typage refusait',
   },
   {
     categorie: 'auto-execution',
