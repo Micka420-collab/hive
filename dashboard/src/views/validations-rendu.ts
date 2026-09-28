@@ -10,28 +10,16 @@
 // pas un vert de la CI, et le relecteur doit pouvoir le savoir d'un coup d'œil.
 //
 // La Reine range des FAITS TYPÉS (état, raison, script, code, durée), jamais
-// des phrases : ce module les dit dans la langue de l'écran. Pur, et sans autre
-// dépendance que les types — rien ne le tire vers le DOM.
+// des phrases : ce module les dit dans la langue de l'écran. Pur : du module
+// partagé, il ne tire que des types et les mots des pannes (`DIRE_PANNE`, que
+// l'Evaluator dit aussi) — rien ne le tire vers le DOM.
 
 import type { ValidationProvenance } from '../../../src/orchestrator/evaluator';
-import type { DetailControle, PanneEnvironnement } from '../../../src/shared/validations-bac';
+import { DIRE_PANNE, type DetailControle } from '../../../src/shared/validations-bac';
 import { formatDuree } from '../ui';
 
 /** Traduire, tel que `useT` le rend : `t(fr, en)`. */
 export type Traduire = (fr: string, en: string) => string;
-
-/**
- * Chaque panne du bac, dans les deux langues. `inconnue` n'arrive pas du
- * réseau (`controleDepuis` exige la panne) : c'est le repli du typage.
- */
-const PANNES: Record<PanneEnvironnement | 'inconnue', readonly [string, string]> = {
-  memoire: ['mémoire épuisée', 'out of memory'],
-  disque: ['disque plein', 'disk full'],
-  dns: ['DNS indisponible', 'DNS unavailable'],
-  demon: ['démon de conteneurs injoignable', 'container daemon unreachable'],
-  affichage: ['aucun affichage', 'no display'],
-  inconnue: ['panne non précisée', 'unspecified failure'],
-};
 
 /** Une ligne : quelle source, et à quoi elle est rattachée. */
 export function resumeProvenance(provenance: ValidationProvenance, t: Traduire): string {
@@ -135,10 +123,18 @@ export function texteControle(detail: DetailControle, t: Traduire): string {
         `${commande} → ${code}: a tool the script needs is missing from the sandbox, verdict unknown — a tool this sandbox lacks, or a dependency the production removed`,
       );
     case 'environnement': {
-      const [fr, en] = PANNES[detail.panne ?? 'inconnue'];
+      // `controleDepuis` exige la panne avec cette raison : l'absence n'est
+      // que le repli du typage, dit sans remède plutôt qu'avec un faux.
+      if (!detail.panne) {
+        return t(
+          `${commande} → ${code} : le bac est tombé en panne pendant l’exécution, verdict inconnu`,
+          `${commande} → ${code}: the sandbox failed while it ran, verdict unknown`,
+        );
+      }
+      const { nom, remede } = DIRE_PANNE[detail.panne];
       return t(
-        `${commande} → ${code} : le bac est tombé en panne pendant l’exécution (${fr}), verdict inconnu — la production n’est pas mise en cause : libérez la ressource sur ce nœud`,
-        `${commande} → ${code}: the sandbox failed while it ran (${en}), verdict unknown — the production is not blamed: free the resource on this node`,
+        `${commande} → ${code} : le bac est tombé en panne pendant l’exécution (${nom[0]}), verdict inconnu — ${remede[0]}`,
+        `${commande} → ${code}: the sandbox failed while it ran (${nom[1]}), verdict unknown — ${remede[1]}`,
       );
     }
     case 'interrompue':

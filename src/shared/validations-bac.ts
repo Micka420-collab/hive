@@ -150,6 +150,61 @@ export const EXTRAIT_MAX = 2_000;
 export const PANNES_ENVIRONNEMENT = ['memoire', 'disque', 'dns', 'demon', 'affichage'] as const;
 export type PanneEnvironnement = (typeof PANNES_ENVIRONNEMENT)[number];
 
+/**
+ * Chaque panne DITE, dans les deux langues : son nom, et ce qui la lève.
+ *
+ * Le remède dépend de la panne, et c'est tout l'intérêt de la nommer : la
+ * mémoire, le disque, le DNS se rétablissent SUR LE NŒUD ; un démon de
+ * conteneurs ou un affichage, le bac n'en expose JAMAIS (`isolement.ts` : ni
+ * socket Docker, ni `/tmp/.X11-unix` sous son tmpfs) — « libérez la
+ * ressource » y serait un conseil qui ne mène nulle part, la CI GitHub seule
+ * en a. Et le remède n'innocente pas la production : une mémoire ou un disque
+ * qu'elle épuiserait elle-même se lit dans l'extrait, le texte le dit.
+ *
+ * Partagé par l'Evaluator (ses motifs, en français) et l'écran (les deux
+ * langues) : un seul endroit où la panne a ses mots.
+ */
+export const DIRE_PANNE: Record<
+  PanneEnvironnement,
+  { readonly nom: readonly [string, string]; readonly remede: readonly [string, string] }
+> = {
+  memoire: {
+    nom: ['mémoire épuisée', 'out of memory'],
+    remede: [
+      'libérez de la mémoire sur ce nœud, ou apportez la CI GitHub — à moins que la production ne l’épuise elle-même, ce que l’extrait montre',
+      'free memory on this node, or bring GitHub CI — unless the production exhausts it itself, which the excerpt shows',
+    ],
+  },
+  disque: {
+    nom: ['disque plein', 'disk full'],
+    remede: [
+      'libérez de la place sur le disque de ce nœud, ou apportez la CI GitHub — à moins que la production ne le remplisse elle-même, ce que l’extrait montre',
+      'free disk space on this node, or bring GitHub CI — unless the production fills it itself, which the excerpt shows',
+    ],
+  },
+  dns: {
+    nom: ['DNS indisponible', 'DNS unavailable'],
+    remede: [
+      'rétablissez la résolution DNS de ce nœud, ou apportez la CI GitHub',
+      'restore DNS resolution on this node, or bring GitHub CI',
+    ],
+  },
+  demon: {
+    nom: ['démon de conteneurs injoignable', 'container daemon unreachable'],
+    remede: [
+      'le bac n’expose aucun démon de conteneurs : apportez la CI GitHub',
+      'the sandbox exposes no container daemon: bring GitHub CI',
+    ],
+  },
+  affichage: {
+    nom: ['aucun affichage', 'no display'],
+    remede: [
+      'le bac n’a aucun affichage : apportez la CI GitHub',
+      'the sandbox has no display: bring GitHub CI',
+    ],
+  },
+};
+
 /** Ce que le bac a constaté pour une validation, au-delà de son état. */
 export interface DetailControle {
   raison: RaisonControle;
@@ -306,7 +361,7 @@ export function extraitDe(sortie: string): { extrait?: string } {
 //
 // Un code rendu par la commande vaut verdict — SAUF quand c'est le bac qui a
 // lâché pendant qu'elle tournait : le noyau tue le runner faute de mémoire
-// (137, « Killed »), Node rend l'âme sur « JavaScript heap out of memory », le
+// (137, « Killed »), un appel système n'obtient plus de mémoire (ENOMEM), le
 // disque est plein, le DNS ne répond plus, le démon de conteneurs est tombé.
 // Lu `failed`, chacun de ces cas envoyait l'agent corriger du code juste, et
 // comptait une correction au modèle dans le Genome (`task_retry` source
@@ -319,13 +374,16 @@ export function extraitDe(sortie: string): { extrait?: string } {
 // test qui imprime « Cannot allocate memory » puis rate son assertion reste
 // `failed` : c'est son assertion qui parle. Et quand les deux se mêlent (un
 // runner qui compte « 1 failed » pour un worker tué), c'est l'échec qui
-// l'emporte — l'ancien comportement, pas un vert prêté à tort.
+// l'emporte — l'ancien comportement, pas un vert prêté à tort. LIMITE
+// ASSUMÉE : c'est justement le cas d'un worker de vitest/jest abattu par le
+// noyau — le runner survit et compte l'échec ; seul un runner d'un seul
+// processus tué (« Killed », 137) est reconnu.
 //
 // Pourquoi une sortie maquillée ne gagne rien : `missing` BLOQUE toujours
 // `accepted`. Une production qui imprimerait une signature pour masquer son
 // échec échange une correction automatique contre une preuve manquante —
 // jamais contre un vert. De même, un vrai OOM causé par le code (une fuite)
-// n'est pas blanchi : il reste sans preuve, et l'extrait le montre.
+// n'est pas blanchi : il reste sans preuve, et le motif le dit (`DIRE_PANNE`).
 //
 // ─── D'OÙ VIENT LA TABLE ─────────────────────────────────────────────────────
 //
@@ -334,11 +392,21 @@ export function extraitDe(sortie: string): { extrait?: string } {
 // Wettig, Shunyu Yao, Kexin Pei, Ofir Press, Karthik R Narasimhan. Seul le
 // niveau « environment » est repris : le niveau « ambiguous » (module
 // introuvable, aucun test collecté) peut venir de la production, il reste un
-// verdict. Écarts voulus : `^Killed$` exige le code 137 (le SIGKILL qui
-// l'accompagne) ; « Could not resolve host » et « Failed to launch » sont
-// retirés — une adresse mal écrite par l'agent les produit aussi —, seuls
-// `EAI_AGAIN` et « Temporary failure in name resolution » disent un DNS qui
-// ne répond pas ; ENOSPC, ENOMEM et le tas de Node sont ajoutés.
+// verdict. Écarts voulus :
+//   · `^Killed$` exige le code 137 (le SIGKILL qui l'accompagne) ;
+//   · « Could not resolve host » et « Failed to launch » sont retirés — une
+//     adresse mal écrite par l'agent les produit aussi —, seuls `EAI_AGAIN`
+//     et « Temporary failure in name resolution » disent un DNS muet ;
+//   · « Failed to connect to the bus » est retiré : Chromium l'imprime à
+//     presque chaque lancement sans écran, RÉUSSI compris — ce n'est pas une
+//     panne, et un test de navigateur qui échoue sans runner l'aurait pris ;
+//   · le plafond de TAS d'un processus (« JavaScript heap out of memory » de
+//     V8, `OutOfMemoryError` de la JVM) n'y est PAS : c'est une limite du
+//     processus, atteinte le plus souvent par la production elle-même (une
+//     allocation sans borne, une fuite) — le niveau « ambiguous ». Le lire
+//     `environnement` enverrait l'opérateur libérer une mémoire que la
+//     prochaine validation épuiserait encore ; il reste un verdict ;
+//   · ENOSPC, EDQUOT et ENOMEM (l'appel système, pas le tas) sont ajoutés.
 
 /** Une signature : la panne, le motif, et le code qu'elle exige s'il y en a un. */
 const SIGNATURES_ENVIRONNEMENT: readonly {
@@ -346,10 +414,7 @@ const SIGNATURES_ENVIRONNEMENT: readonly {
   motif: RegExp;
   code?: number;
 }[] = [
-  {
-    panne: 'memoire',
-    motif: /JavaScript heap out of memory|Cannot allocate memory|OutOfMemoryError|\bENOMEM\b/,
-  },
+  { panne: 'memoire', motif: /Cannot allocate memory|\bENOMEM\b/ },
   // Le shell de npm écrit « Killed » quand le noyau abat son enfant (SIGKILL,
   // 128 + 9) : le tueur d'OOM, dans un bac borné en mémoire.
   { panne: 'memoire', motif: /^Killed$/m, code: 137 },
@@ -360,26 +425,25 @@ const SIGNATURES_ENVIRONNEMENT: readonly {
     motif:
       /Cannot connect to the Docker daemon|Error response from daemon|Cannot connect to Podman/,
   },
-  {
-    panne: 'affichage',
-    motif:
-      /cannot open display|Missing X server|unable to open X display|Failed to connect to the bus/,
-  },
+  { panne: 'affichage', motif: /cannot open display|Missing X server|unable to open X display/ },
 ];
 
 /**
  * Ce qu'un runner imprime quand un TEST (ou un contrôle) a échoué : TAP et
  * `node --test` (`not ok`, `# fail N`), les comptes de vitest, jest, mocha,
- * playwright (« 1 failed », « 2 failing »), les lignes FAIL/×/✖ de jest,
- * vitest, `node --test` et ESLint, une assertion, une erreur de `tsc`. La
- * liste est volontairement large : un faux positif garde l'ancien `failed`,
- * un faux négatif prêterait une panne à ce qui est un échec.
+ * playwright, ava (« 1 failed », « 2 failing », « 1 test failed »), le compte
+ * et les lignes `(fail)` de bun, les lignes FAIL/✗/×/✖/✘ de jest, vitest,
+ * `node --test`, ESLint et ava, une assertion, une erreur de `tsc`. La liste
+ * est volontairement large : un faux positif garde l'ancien `failed`, un faux
+ * négatif prêterait une panne à ce qui est un échec.
  */
 const ECHECS_LUS: readonly RegExp[] = [
   /^\s*not ok \d/m,
   /^# fail [1-9]/m,
-  /\b[1-9]\d* (?:failed|failing)\b/,
-  /^\s*(?:FAIL|✗|×|✖)\s/m,
+  /\b[1-9]\d* (?:tests? )?(?:failed|failing)\b/,
+  /^\s*(?:FAIL|✗|×|✖|✘)\s/m,
+  /^\(fail\)\s/m,
+  /^\s*[1-9]\d* fail$/m,
   /AssertionError/,
   /\berror TS\d+:/,
 ];

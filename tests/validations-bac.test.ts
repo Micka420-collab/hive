@@ -190,11 +190,6 @@ describe('controleApresLancement — ce qui est un verdict, et ce qui n’en est
 
 describe('panneEnvironnement — la panne du bac, jamais l’échec d’un test', () => {
   it.each([
-    [
-      'memoire',
-      134,
-      'FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory',
-    ],
     ['memoire', 1, 'Error: spawn ENOMEM'],
     ['memoire', 1, 'fork: Cannot allocate memory'],
     ['memoire', 137, '> vitest run\n\nKilled'],
@@ -224,14 +219,43 @@ describe('panneEnvironnement — la panne du bac, jamais l’échec d’un test'
     ['mocha', 'EAI_AGAIN\n  2 passing\n  1 failing'],
     ['node --test', '# tests 3\n# pass 2\n# fail 1\nCannot allocate memory'],
     ['TAP', 'not ok 2 - lit le disque\nENOSPC'],
-    ['tsc', "src/a.ts(3,1): error TS2322: Type 'x'\nJavaScript heap out of memory"],
+    ['tsc', "src/a.ts(3,1): error TS2322: Type 'x'\nENOSPC"],
     ['ESLint', '✖ 3 problems (3 errors, 0 warnings)\nENOMEM'],
+    ['ava (ligne)', '  ✘ [fail]: lit le fichier\n  Error: spawn ENOMEM (mocked)'],
+    ['ava (compte)', '  Error: spawn ENOMEM (mocked)\n\n  1 test failed'],
+    ['bun (ligne)', '(fail) lit le disque [0.12ms]\nENOSPC'],
+    ['bun (compte)', 'EAI_AGAIN\n 3 pass\n 1 fail\nRan 4 tests across 1 files.'],
   ])('%s : un échec lu reste un verdict', (_runner, sortie) => {
     expect(panneEnvironnement(1, sortie)).toBeNull();
     expect(controleApresLancement({ script: 'test', code: 1, dureeMs: 5, sortie })).toMatchObject({
       etat: 'failed',
       raison: 'termine',
     });
+  });
+
+  // Le plafond de TAS d'un processus est le plus souvent atteint par la
+  // production elle-même (une allocation sans borne) : il reste un verdict,
+  // l'agent est renvoyé corriger — jamais l'opérateur libérer de la mémoire.
+  it.each([
+    [
+      'V8',
+      134,
+      'FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory',
+    ],
+    ['JVM', 1, 'Exception in thread "main" java.lang.OutOfMemoryError: Java heap space'],
+  ])('le tas plein (%s) n’est pas une panne du bac', (_tas, code, sortie) => {
+    expect(panneEnvironnement(code, sortie)).toBeNull();
+    expect(controleApresLancement({ script: 'test', code, dureeMs: 5, sortie })).toMatchObject({
+      etat: 'failed',
+      raison: 'termine',
+    });
+  });
+
+  it('« Failed to connect to the bus » est le bruit de Chromium sans écran, pas une panne', () => {
+    const sortie =
+      '[ERROR:bus.cc(407)] Failed to connect to the bus: Could not parse server address\n' +
+      'Error: expected title "Hive" got ""';
+    expect(panneEnvironnement(1, sortie)).toBeNull();
   });
 
   it('ni sur un code 0, ni « Killed » sans le SIGKILL qui l’accompagne, ni sur une adresse mal écrite', () => {

@@ -383,7 +383,7 @@ describe('validations du bac — du nœud producteur jusqu’à l’Evaluator', 
       });
       expect(epuisee.evaluation.decision).toBe('additional_test_required');
       expect(epuisee.evaluation.reasons.join(' · ')).toContain(
-        'le bac du nœud noeud-bac est tombé en panne pendant tests (memoire)',
+        'le bac du nœud noeud-bac est tombé en panne pendant tests (mémoire épuisée)',
       );
       const base = `http://127.0.0.1:${s.port}`;
       const headers = { 'x-hive-token': JETON, 'content-type': 'application/json' };

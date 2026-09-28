@@ -317,7 +317,8 @@ describe.runIf(POSIX)('validerProduction — ce que la base déclare, lancé dan
       }),
     });
 
-    const rapport = await valider(dir);
+    const etapes: string[] = [];
+    const rapport = await valider(dir, { surEtape: (l) => etapes.push(l) });
 
     expect(rapport.controles.tests).toMatchObject({
       etat: 'missing',
@@ -325,6 +326,8 @@ describe.runIf(POSIX)('validerProduction — ce que la base déclare, lancé dan
       panne: 'memoire',
       code: 137,
     });
+    // La ligne de progression nomme la panne : l'opérateur regarde le nœud.
+    expect(etapes).toContain('validation tests : missing (environnement : memoire, code 137)');
   }, 30_000);
 
   it('un test qui imprime « Cannot allocate memory » puis rate son assertion reste failed', async () => {

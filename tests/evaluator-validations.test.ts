@@ -237,8 +237,9 @@ describe('Evaluator — les validations du bac Hive', () => {
     expect(verdict.retryRecommended).toBe(false);
     expect(verdict.reasons).toEqual([
       'preuves manquantes : tests (bac Hive du nœud n1)',
-      'le bac du nœud n1 est tombé en panne pendant tests (memoire) : l’échec n’est pas ' +
-        'imputé à la production — libérez la ressource sur ce nœud, ou apportez la CI GitHub',
+      'le bac du nœud n1 est tombé en panne pendant tests (mémoire épuisée), verdict inconnu : ' +
+        'libérez de la mémoire sur ce nœud, ou apportez la CI GitHub — à moins que la production ' +
+        'ne l’épuise elle-même, ce que l’extrait montre',
     ]);
   });
 
