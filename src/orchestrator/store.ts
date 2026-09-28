@@ -1864,6 +1864,7 @@ const EFFACEMENT_PROJET = [
   ],
   ['contre_visites', `productionTaskId IN (${TACHES_DU_PROJET})`],
   ['aiguillage_modeles', `taskId IN (${TACHES_DU_PROJET})`],
+  ['aiguillage_bras', `taskId IN (${TACHES_DU_PROJET})`],
   ['garde_fou_echelons', `taskId IN (${TACHES_DU_PROJET})`],
   ['garde_fou_exigences', `productionTaskId IN (${TACHES_DU_PROJET})`],
   ['annonces_duree', `taskId IN (${TACHES_DU_PROJET})`],
