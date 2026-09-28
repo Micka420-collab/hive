@@ -1,0 +1,40 @@
+/* La barre de filtre des travaux (`FiltreTravaux.tsx`) — Projets, Miellerie,
+   Chantiers. Jetons seulement : elle suit les deux thèmes sans règle à elle. */
+
+.ft-barre {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px 10px;
+}
+
+.ft-champs {
+  display: grid;
+  grid-template-columns: minmax(200px, 2fr) repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0 12px;
+  align-items: start;
+}
+
+/* Les champs du design system portent leur marge basse ; dans une rangée, le
+   compte en dessous suffit. */
+.ft-champs .ds-champ {
+  margin-bottom: 6px;
+}
+
+.ft-compte {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  min-height: 30px;
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 640px) {
+  .ft-champs {
+    grid-template-columns: 1fr;
+  }
+}

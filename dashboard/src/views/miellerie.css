@@ -903,3 +903,8 @@
 .mi-controles li[data-etat='not_applicable'] {
   color: var(--muted);
 }
+
+/* La barre de filtre (FiltreTravaux) au-dessus de la grille de revue. */
+.mi-view > .ft-barre {
+  margin-bottom: 16px;
+}

@@ -25,6 +25,7 @@ import '../projets.css';
 export function ProjectCard({
   project,
   tasks,
+  masquees = 0,
   taskTitles,
   nodeNames,
   deferred,
@@ -38,6 +39,8 @@ export function ProjectCard({
 }: {
   project: Project;
   tasks: Task[];
+  /** Les tâches du projet que le filtre posé retire de `tasks`. */
+  masquees?: number;
   taskTitles: Map<string, string>;
   nodeNames: Map<string, string>;
   deferred: Set<string>;
@@ -188,8 +191,20 @@ export function ProjectCard({
           onSelect={(task) => onOpenTask(task.id)}
         />
       ) : (
-        <p className="muted-text pj-none">
-          {t('Alvéoles vides — aucune tâche pour l’instant.', 'Empty cells — no tasks yet.')}
+        masquees === 0 && (
+          <p className="muted-text pj-none">
+            {t('Alvéoles vides — aucune tâche pour l’instant.', 'Empty cells — no tasks yet.')}
+          </p>
+        )
+      )}
+      {/* Sous un filtre, les alvéoles absentes ne sont pas des alvéoles vides :
+          on dit combien le filtre en retire, plutôt que « aucune tâche ». */}
+      {masquees > 0 && (
+        <p className="muted-text pj-none" data-testid="pj-masquees">
+          {t(
+            `${masquees} tâche(s) de ce projet masquée(s) par le filtre.`,
+            `${masquees} task(s) of this project hidden by the filter.`,
+          )}
         </p>
       )}
 

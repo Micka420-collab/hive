@@ -5,7 +5,11 @@
 
 import { useMemo, useState } from 'react';
 import { fetchBalance } from '../api';
+import { EmptyState } from '../composants';
 import { useT } from '../i18n';
+import { activateProps, StatusBadge } from '../ui';
+import { FiltreTravaux, useOptionsTaches } from './FiltreTravaux';
+import { FILTRE_VIDE, filtreActif, filtrerProjets, ouvriereDeTache } from './filtre-travaux';
 import { useApiPoll } from './shared';
 import type { ViewProps } from './shared';
 import type { Task } from '../../../src/shared/types';
@@ -13,6 +17,9 @@ import { QueenBee } from './projets/AtelierQueenBee';
 import { ConnecteurGithub, ProjetsOuverts } from './projets/Arrivee';
 import { ProjectCard } from './projets/CarteProjet';
 import './projets.css';
+
+/** Au-delà, la liste dit combien il en reste plutôt que de tout dérouler. */
+const TACHES_TROUVEES_MAX = 60;
 
 // ─── Vue principale ──────────────────────────────────────────────────────────
 
@@ -55,6 +62,23 @@ export default function Projets({
   const balance = useApiPoll(fetchBalance, 30_000, refreshTick);
   const [, setImportTick] = useState(0);
 
+  // ─── LE FILTRE : projets ET tâches, par la même barre ──────────────────────
+  //
+  // Les cartes ne montrent plus que les tâches qui passent ; un filtre actif
+  // ouvre aussi « Tâches trouvées », la liste à plat qui répond à « où est la
+  // tâche qui… » sans survoler les alvéoles une à une.
+  const [filtre, setFiltre] = useState(FILTRE_VIDE);
+  const actif = filtreActif(filtre);
+  const noeuds = useMemo(() => new Map(snapshot.nodes.map((n) => [n.id, n])), [snapshot.nodes]);
+  const visibles = useMemo(
+    () => filtrerProjets(recents, tasksByProject, filtre, noeuds),
+    [recents, tasksByProject, filtre, noeuds],
+  );
+  const tachesTrouvees = visibles.flatMap((v) =>
+    v.taches.map((task) => ({ task, projet: v.projet })),
+  );
+  const options = useOptionsTaches(snapshot.nodes);
+
   return (
     <div className="mc-view pj-view">
       {/* Connecter un dépôt vient AVANT l'atelier : c'est le premier geste de
@@ -73,24 +97,89 @@ export default function Projets({
 
       {recents.length > 0 && <QueenBee projects={recents} />}
 
+      {recents.length > 0 && (
+        <FiltreTravaux
+          filtre={filtre}
+          onChange={setFiltre}
+          {...options}
+          compte={visibles.length}
+          total={recents.length}
+          aideRecherche={t(
+            'Nom et description des projets, titre, consigne et branche des tâches.',
+            'Project name and description, task title, prompt and branch.',
+          )}
+        />
+      )}
+
+      {actif && tachesTrouvees.length > 0 && (
+        <section className="card panel pj-trouvees" aria-labelledby="pj-trouvees-titre">
+          <header className="panel-head">
+            <h2 id="pj-trouvees-titre">{t('Tâches trouvées', 'Matching tasks')}</h2>
+            <span className="panel-count">{tachesTrouvees.length}</span>
+          </header>
+          <ul className="queue">
+            {tachesTrouvees.slice(0, TACHES_TROUVEES_MAX).map(({ task, projet }) => {
+              const ouvriere = ouvriereDeTache(task);
+              return (
+                <li
+                  key={task.id}
+                  className="clickable"
+                  {...activateProps(() => onOpenTask(task.id))}
+                >
+                  <StatusBadge status={task.status} />
+                  <span className="queue-title">{task.title}</span>
+                  <span className="pj-trouvee-meta">
+                    {projet.name}
+                    {ouvriere !== null && ` · ${nodeNames.get(ouvriere) ?? ouvriere.slice(0, 8)}`}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+          {tachesTrouvees.length > TACHES_TROUVEES_MAX && (
+            <p className="muted-text">
+              {t(
+                `… et ${tachesTrouvees.length - TACHES_TROUVEES_MAX} autre(s) — affinez la recherche.`,
+                `… and ${tachesTrouvees.length - TACHES_TROUVEES_MAX} more — narrow the search.`,
+              )}
+            </p>
+          )}
+        </section>
+      )}
+
       {recents.length === 0 ? (
-        <section className="card pj-depart">
-          <span className="marque" aria-hidden="true" />
-          <h2>{t('Aucun projet pour l’instant', 'No projects yet')}</h2>
-          <p>
-            {t(
+        <section className="card">
+          <EmptyState
+            titre={t('Aucun projet pour l’instant', 'No projects yet')}
+            texte={t(
               'Utilisez « + Projet » en haut pour démarrer — un nœud suffit.',
               'Use “+ Project” above to start — one node is enough.',
             )}
-          </p>
+          />
+        </section>
+      ) : visibles.length === 0 ? (
+        <section className="card">
+          <EmptyState
+            titre={t('Aucun projet ne correspond', 'No project matches')}
+            texte={t(
+              'Ni projet ni tâche ne passe ce filtre. La ruche n’a rien caché : élargissez la recherche.',
+              'No project or task passes this filter. The hive hid nothing: widen the search.',
+            )}
+            action={
+              <button type="button" className="btn" onClick={() => setFiltre(FILTRE_VIDE)}>
+                {t('Effacer les filtres', 'Clear filters')}
+              </button>
+            }
+          />
         </section>
       ) : (
         <div className="pj-grid">
-          {recents.map((p) => (
+          {visibles.map(({ projet: p, taches }) => (
             <ProjectCard
               key={p.id}
               project={p}
-              tasks={tasksByProject.get(p.id) ?? []}
+              tasks={taches}
+              masquees={(tasksByProject.get(p.id)?.length ?? 0) - taches.length}
               taskTitles={taskTitles}
               nodeNames={nodeNames}
               deferred={deferred}
