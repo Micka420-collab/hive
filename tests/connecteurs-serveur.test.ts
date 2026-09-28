@@ -7,7 +7,7 @@ import { createServer as createHttp, type Server } from 'node:http';
 import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, onTestFinished } from 'vitest';
 import { createServer, type HiveServer } from '../src/orchestrator/server.js';
 import { verifierSignature } from '../src/orchestrator/abonnement.js';
 import { ENTETE_SIGNATURE } from '../src/connectors/webhook/charge.js';
@@ -265,7 +265,11 @@ describe('connecteurs — bout en bout à travers la Reine', () => {
 
   it('les listes inscrites et le journal ne se lisent que par qui RÈGLE le projet', async () => {
     // Écrites directement : le décor, pas le geste (la liste de la ruche n'a
-    // rien à voir ici).
+    // rien à voir ici). Retirées en fin de banc : le tamis de la CI rejoue ce
+    // fichier dans des ordres mélangés, et « révoquer » compte les accords.
+    onTestFinished(() => {
+      server.store.revoquerConnecteur('slack', projet);
+    });
     server.store.autoriserConnecteur({
       connecteurId: 'slack',
       projectId: projet,

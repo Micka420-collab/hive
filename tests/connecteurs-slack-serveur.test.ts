@@ -449,9 +449,17 @@ describe('Slack à travers la Reine — approbations et relais', () => {
     process.env[ENV_SLACK_CANAUX] = 'C0AUTRE';
     try {
       postes = [];
+      // Son propre nœud : le tamis de la CI mélange l'ordre des bancs.
+      server.scheduler.registerNode({
+        nodeId: 'n-hors-liste',
+        name: 'claude',
+        ownerName: 'banc',
+        agentType: 'claude-code',
+        maxConcurrency: 1,
+      });
       const t = server.store.createTask({ projectId: projet, title: 'Hors liste', prompt: 'x' });
-      server.store.patchTask(t.id, { status: 'running', assignedNodeId: 'n-slack' });
-      server.scheduler.handleTaskResult('n-slack', {
+      server.store.patchTask(t.id, { status: 'running', assignedNodeId: 'n-hors-liste' });
+      server.scheduler.handleTaskResult('n-hors-liste', {
         taskId: t.id,
         success: true,
         diff: DIFF,
