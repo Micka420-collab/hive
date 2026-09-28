@@ -90,8 +90,16 @@ describe('LE HUB DIT NON QUAND IL ÉCARTE DU TRAVAIL', () => {
     return { ws, recus };
   }
 
-  /** Laisse au hub le temps de répondre — la réponse est un aller-retour réel. */
-  const souffler = (): Promise<void> => new Promise((r) => setTimeout(r, 120));
+  /**
+   * Attend que le hub ait traité le message — la réponse est un aller-retour
+   * réel. Sur une CONDITION, pas un délai fixe : 120 ms ne suffisaient pas à
+   * une suite chargée (jambe Windows), et le banc concluait « le hub n'a rien
+   * dit » sur une réponse simplement en route.
+   */
+  const souffler = async (fait: () => boolean): Promise<void> => {
+    const fin = Date.now() + 10_000;
+    while (!fait() && Date.now() < fin) await new Promise((r) => setTimeout(r, 20));
+  };
 
   it('UNE TÂCHE INCONNUE : le nœud est PRÉVENU, il ne repart pas rassuré', async () => {
     const { ws, recus } = await noeud('n-inconnu');
@@ -106,7 +114,7 @@ describe('LE HUB DIT NON QUAND IL ÉCARTE DU TRAVAIL', () => {
         subAgents: [],
       }),
     );
-    await souffler();
+    await souffler(() => recus.length > 0);
 
     expect(recus, 'LE HUB N’A RIEN DIT — le nœud croit avoir livré').toHaveLength(1);
     expect(recus[0], 'le message doit nommer la tâche écartée').toContain('tache-qui-n-existe-pas');
@@ -140,7 +148,7 @@ describe('LE HUB DIT NON QUAND IL ÉCARTE DU TRAVAIL', () => {
         subAgents: [],
       }),
     );
-    await souffler();
+    await souffler(() => recus.length > 0);
 
     expect(recus, 'un résultat écarté doit être dit').toHaveLength(1);
     expect(recus[0]).toContain('t-a-autrui');
@@ -164,7 +172,7 @@ describe('LE HUB DIT NON QUAND IL ÉCARTE DU TRAVAIL', () => {
         logs: 'tout est passé',
       }),
     );
-    await souffler();
+    await souffler(() => recus.length > 0);
 
     expect(recus, 'le nœud doit apprendre que son merge est tombé dans le vide').toHaveLength(1);
     expect(recus[0]).toContain('merge-oublie');
@@ -197,7 +205,11 @@ describe('LE HUB DIT NON QUAND IL ÉCARTE DU TRAVAIL', () => {
         subAgents: [],
       }),
     );
-    await souffler();
+    // Le résultat est PRIS EN COMPTE — puis un court délai pour qu'un refus
+    // éventuel, écrit par le même traitement, ait traversé la socket (un
+    // silence ne s'attend pas sur une condition).
+    await souffler(() => server.store.getTask('t-a-moi')?.status === 'done');
+    await new Promise((r) => setTimeout(r, 120));
 
     expect(recus, 'le chemin normal doit être MUET').toEqual([]);
     expect(server.store.getTask('t-a-moi')?.status, 'et le résultat pris en compte').toBe('done');
