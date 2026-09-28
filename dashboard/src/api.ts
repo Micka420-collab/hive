@@ -2295,6 +2295,20 @@ export interface LivraisonVue {
   nonReprenable?: string;
   /** Présent quand la pull request n'a pas pu être lue — le dire vaut mieux. */
   illisible?: string;
+  /**
+   * Le garde de PR : ce qu'il a vu et fait de cette PR (dernier geste, sa
+   * phrase), et les reprises depuis la dernière CI verte face au plafond.
+   * `actif: false` : pas de jeton GitHub, ou `HIVE_GARDE_PR=off`.
+   */
+  garde?: {
+    actif: boolean;
+    statut: string;
+    geste: string;
+    dit: string;
+    tentatives: number;
+    plafond: number;
+    verifieA: number | null;
+  };
 }
 
 /** Ce que deviennent les pull requests ouvertes par la ruche. */
