@@ -20,14 +20,29 @@ import { HiveStore } from '../src/orchestrator/store.js';
 import { affectationsDepuisEvenements } from '../src/shared/routage-vue.js';
 import type { HiveEvent } from '../src/shared/types.js';
 
-const profil = (name: string, modeles: string[]) => ({
+/** Une ouvrière ISOLÉE (`conteneur`) par défaut : la seule où une ombre peut partir. */
+const profil = (
+  name: string,
+  modeles: string[],
+  niveau: 'conteneur' | 'processus' = 'conteneur',
+) => ({
   nodeId: name,
   name,
   ownerName: 'banc',
   agentType: 'claude-code',
   maxConcurrency: 2,
   modeles,
+  isolement: { niveau, ...(niveau === 'conteneur' ? { fournisseur: 'bubblewrap' } : {}) },
 });
+
+/** Le côté original d'une ombre de banc : vert, relu, sur une base connue. */
+const COTE_ORIGINAL = {
+  resultId: 1,
+  succes: true,
+  tests: 'passed' as const,
+  baseSha: 'a'.repeat(40),
+  revue: 'validee' as const,
+};
 
 const PROMPT = 'modifie src/somme.ts pour ajouter somme(a, b)';
 
@@ -56,7 +71,8 @@ describe('une ombre du banc face au planificateur', () => {
     const lien = store.creerTacheOmbre({
       original: o,
       titre: 'Ombre — Ajouter somme',
-      resultatOriginal: 1,
+      categorie: 'code',
+      coteOriginal: COTE_ORIGINAL,
       modeleOriginal: 'opus',
       modeleOmbre,
     });
@@ -84,6 +100,26 @@ describe('une ombre du banc face au planificateur', () => {
       modele: 'fable',
       critereNoeud: 'porteur_du_modele_ombre',
     });
+  });
+
+  it('jamais chez une ouvrière SANS bac isolé, même si elle déclare le modèle', () => {
+    const t0 = Date.now();
+    scheduler.registerNode(profil('n-fable-nu', ['fable'], 'processus'), t0);
+    const { ombre: s } = ombre('fable');
+    scheduler.tick(t0);
+    expect(assignations).toEqual([]);
+    expect(types('shadow_bench_waiting').map((e) => e.payload.taskId)).toEqual([s]);
+    // Qu'une ouvrière isolée arrive, et l'ombre part chez elle — même déjà
+    // occupée, quand l'ouvrière sans bac, libre, serait la moins chargée.
+    scheduler.registerNode(profil('n-fable', ['fable']), t0 + 1);
+    const occupation = store.createTask({
+      projectId: store.getTask(s)!.projectId,
+      title: 'Autre',
+      prompt: 'x',
+    });
+    store.patchTask(occupation.id, { status: 'running', assignedNodeId: 'n-fable' });
+    scheduler.tick(t0 + 2);
+    expect(assignations).toEqual([{ nodeId: 'n-fable', taskId: s, modele: 'fable' }]);
   });
 
   it('une ouvrière absente se dit UNE fois, puis l’ombre échoue au-delà du délai', () => {
@@ -153,6 +189,36 @@ describe('une ombre du banc face au planificateur', () => {
       'le banc voit bien le conflit sur une tâche ordinaire',
     ).toEqual([jumelle.id]);
   });
+
+  it('dans l’autre sens : une ombre qui TOURNE ne retient pas une production du projet sur les mêmes fichiers', () => {
+    scheduler.registerNode(profil('n-opus', ['opus']));
+    scheduler.registerNode(profil('n-fable', ['fable']));
+    const { projectId, ombre: s } = ombre('fable');
+    // L'ombre tourne déjà (passe précédente) ; une tâche ordinaire cite les
+    // mêmes fichiers. Rien de ce que l'ombre écrit ne sera fusionné.
+    store.patchTask(s, { status: 'running', assignedNodeId: 'n-fable' });
+    const suivante = store.createTask({ projectId, title: 'Ajouter somme', prompt: PROMPT });
+    store.patchTask(suivante.id, { status: 'ready' });
+    scheduler.tick();
+    expect(types('task_conflict_deferred')).toEqual([]);
+    expect(assignations.map((a) => a.taskId)).toEqual([suivante.id]);
+  });
+
+  it('ni dans la même passe : l’ombre assignée juste avant ne compte pas parmi les éditrices', () => {
+    scheduler.registerNode(profil('n-opus', ['opus']));
+    scheduler.registerNode(profil('n-fable', ['fable']));
+    const { projectId, ombre: s } = ombre('fable');
+    store.patchTask(s, { status: 'ready' });
+    // Créée APRÈS l'ombre : la passe lance l'ombre d'abord, puis la juge.
+    const suivante = store.createTask(
+      { projectId, title: 'Ajouter somme', prompt: PROMPT },
+      Date.now() + 60_000,
+    );
+    store.patchTask(suivante.id, { status: 'ready' });
+    scheduler.tick();
+    expect(types('task_conflict_deferred')).toEqual([]);
+    expect(assignations.map((a) => a.taskId)).toEqual([s, suivante.id]);
+  });
 });
 
 describe('une ombre face au store — hors des poids et des leçons', () => {
@@ -168,7 +234,8 @@ describe('une ombre face au store — hors des poids et des leçons', () => {
     const s = store.creerTacheOmbre({
       original: o,
       titre: 'Ombre — Ajouter somme',
-      resultatOriginal: 1,
+      categorie: 'code',
+      coteOriginal: COTE_ORIGINAL,
       modeleOriginal: 'opus',
       modeleOmbre: 'fable',
     }).tacheOmbre;
@@ -227,7 +294,8 @@ describe('une ombre face au store — hors des poids et des leçons', () => {
     const lien = store.creerTacheOmbre({
       original: o,
       titre: 'Ombre — T',
-      resultatOriginal: 1,
+      categorie: 'code',
+      coteOriginal: COTE_ORIGINAL,
       modeleOriginal: 'opus',
       modeleOmbre: 'fable',
     });

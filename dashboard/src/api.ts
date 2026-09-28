@@ -1385,12 +1385,15 @@ export function fetchBancOmbre(projectId: string): Promise<EtatBancOmbreUi> {
  */
 export function reglerBancOmbre(
   projectId: string,
-  reglage: {
-    actif: boolean;
-    tauxPourMille: number;
-    executionsParJour: number;
-    plafondCoutUsd: number;
-  },
+  // Éteindre n'envoie que `{ actif: false }` : le serveur garde le budget rangé.
+  reglage:
+    | {
+        actif: true;
+        tauxPourMille: number;
+        executionsParJour: number;
+        plafondCoutUsd: number;
+      }
+    | { actif: false; tauxPourMille?: number; executionsParJour?: number; plafondCoutUsd?: number },
 ): Promise<EtatBancOmbreUi> {
   return api<EtatBancOmbreUi>(`/api/projects/${projectId}/banc-ombre`, {
     method: 'POST',

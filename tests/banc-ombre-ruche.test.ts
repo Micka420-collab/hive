@@ -91,12 +91,17 @@ describe('le banc d’ombre sur une vraie Reine', () => {
     return server;
   }
 
-  /** Un nœud réel : il déclare son agent et ses modèles, et note chaque assignation reçue. */
+  /**
+   * Un nœud réel : il déclare son agent, ses modèles et son bac (`conteneur`
+   * par défaut — le seul où une ombre peut partir), et note chaque
+   * assignation reçue.
+   */
   async function noeud(
     srv: HiveServer,
     nodeId: string,
     agentType: string,
     modeles: string[],
+    niveau: 'conteneur' | 'processus' = 'conteneur',
   ): Promise<Noeud> {
     const recues: Assignation[] = [];
     const delegationsRefusees: string[] = [];
@@ -126,6 +131,7 @@ describe('le banc d’ombre sur une vraie Reine', () => {
         modeles,
         maxConcurrency: 2,
         nodeId,
+        isolement: { niveau, ...(niveau === 'conteneur' ? { fournisseur: 'bubblewrap' } : {}) },
       }),
     );
     await attendre(() => srv.store.getNode(nodeId)?.status === 'online', 'nœud non inscrit');
@@ -255,6 +261,7 @@ describe('le banc d’ombre sur une vraie Reine', () => {
     // Chez le nœud qui DÉCLARE ce modèle — lancée ailleurs, elle tournerait sur
     // le défaut d'un autre agent et mesurerait un autre modèle.
     expect(porteur).toBe(modeleOmbre === 'opus-banc' ? claude : codex);
+    const porteurId = porteur === claude ? 'n-claude' : 'n-codex';
     expect(aOmbre.task.title.startsWith('Ombre — ')).toBe(true);
     expect(srv.store.getTask(s)?.prompt).toBe(srv.store.getTask(t1)?.prompt);
 
@@ -315,6 +322,21 @@ describe('le banc d’ombre sur une vraie Reine', () => {
     });
     await attendre(() => srv.store.relecturesDeProduction(s).length > 0, 'l’ombre n’est pas relue');
     const relectureOmbre = srv.store.relecturesDeProduction(s)[0]!;
+    // Rendue mais encore RELUE, l'ombre n'a pas fini de dépenser : elle tient
+    // sa place en vol, et la suivante attendrait le coût de sa relecture.
+    expect(srv.store.getTask(s)?.status).toBe('done');
+    expect(srv.store.usageBancOmbre(projet.id, 0).enVol).toBe(1);
+
+    // Là où elle a TOURNÉ, elle se voit : la Chambre de son ouvrière la liste,
+    // et l'instantané de l'écran la marque — pour la tenir hors de la file de
+    // revue, pas pour la cacher.
+    const chambre = (await (
+      await fetch(`http://127.0.0.1:${srv.port}/api/chambre/${porteurId}`, { headers: JETON })
+    ).json()) as { tasks: { id: string }[] };
+    expect(chambre.tasks.map((x) => x.id)).toContain(s);
+    const ecran = srv.store.tachesPourEcran(100);
+    expect(ecran.find((x) => x.id === s)?.ombre).toBe(true);
+    expect(ecran.find((x) => x.id === t1)).not.toHaveProperty('ombre');
     const { noeud: relecteurS } = await recuePar([codex, claude], relectureOmbre);
     relire(relecteurS, relectureOmbre, 'conteste\n- la somme ignore les nombres négatifs');
 
@@ -363,6 +385,15 @@ describe('le banc d’ombre sur une vraie Reine', () => {
       defaites: 1,
     });
 
+    // La comparaison est RANGÉE, pas relue du journal : un journal élagué à
+    // zéro la rend intacte — le banc a payé pour elle.
+    srv.store.pruneEvents(0);
+    const apresElagage = (await (
+      await fetch(`http://127.0.0.1:${srv.port}/api/genome`, { headers: JETON })
+    ).json()) as RegistreGenome;
+    expect(apresElagage.ombre.comparaisons[0]).toEqual(genome.ombre.comparaisons[0]);
+    expect(apresElagage.ombre.lignes).toEqual(genome.ombre.lignes);
+
     // ─── Le budget : une ombre par 24 h — la suivante est refusée, dite ──────
     const t2 = tache(srv, projet.id, 'Ajouter une fonction produit');
     const { noeud: producteur2 } = await recuePar([codex, claude], t2);
@@ -400,5 +431,139 @@ describe('le banc d’ombre sur une vraie Reine', () => {
         arret: 'budget_executions',
       },
     });
+  });
+  it('le banc décide sur la PREMIÈRE production seulement — une reprise ne rouvre rien', async () => {
+    const srv = await ruche();
+    const codex = await noeud(srv, 'n-codex', 'codex', ['codex-banc']);
+    const claude = await noeud(srv, 'n-claude', 'claude-code', ['opus-banc']);
+    const projet = srv.store.createProject({ name: 'Reprise' });
+    await regler(srv, projet.id, {
+      actif: true,
+      tauxPourMille: 1000,
+      executionsParJour: 5,
+      plafondCoutUsd: 1,
+    });
+    const t = tache(srv, projet.id, 'Ajouter une fonction somme');
+    // Premier essai en échec : sans verdict de tests, le banc l'écarte — et
+    // le dit, UNE fois.
+    const { noeud: premier } = await recuePar([codex, claude], t);
+    premier.envoyer({
+      type: 'task_result',
+      taskId: t,
+      success: false,
+      diff: '',
+      logs: 'Error: plantage du premier essai',
+      finalText: 'échec',
+      durationMs: 5,
+      subAgents: [],
+    });
+    await attendre(
+      () => srv.store.evenementsDeTache(t, ['shadow_bench_skipped']).length === 1,
+      'le premier essai n’a pas été jugé',
+    );
+    // La reprise, verte et testée : elle a lu la critique du premier essai,
+    // l'ombre partirait sans — ce ne serait plus la même tâche.
+    await attendre(
+      () => [codex, claude].some((n) => n.recues.filter((r) => r.task.id === t).length === 2),
+      'la tâche n’est pas reprise',
+    );
+    const second = [codex, claude].find(
+      (n) => n.recues.filter((r) => r.task.id === t).length === 2,
+    )!;
+    produire(second, t, 'passed');
+    await attendre(() => srv.store.getTask(t)?.status === 'done', 'la reprise ne se range pas');
+    expect(srv.store.ombreDeOriginale(t)).toBeNull();
+    expect(
+      srv.store.evenementsDeTache(t, ['shadow_bench_skipped', 'shadow_bench_started']),
+      'la reprise a été soumise au banc une seconde fois',
+    ).toHaveLength(1);
+  });
+
+  it('l’échec d’une OMBRE n’entre pas au Cerveau, et se range comme un côté en échec', async () => {
+    const srv = await ruche();
+    const codex = await noeud(srv, 'n-codex', 'codex', ['codex-banc']);
+    const claude = await noeud(srv, 'n-claude', 'claude-code', ['opus-banc']);
+    const projet = srv.store.createProject({ name: 'Cerveau' });
+    await regler(srv, projet.id, {
+      actif: true,
+      tauxPourMille: 1000,
+      executionsParJour: 5,
+      plafondCoutUsd: 1,
+    });
+    const t = tache(srv, projet.id, 'Ajouter une fonction somme');
+    const { noeud: producteur } = await recuePar([codex, claude], t);
+    produire(producteur, t, 'passed');
+    await attendre(() => srv.store.ombreDeOriginale(t) !== null, 'aucune ombre ouverte');
+    const s = srv.store.ombreDeOriginale(t)!.tacheOmbre;
+    const { noeud: porteur } = await recuePar([codex, claude], s);
+    porteur.envoyer({
+      type: 'task_result',
+      taskId: s,
+      success: false,
+      diff: '',
+      // Un log EXPLOITABLE : sur une production ordinaire, il écrirait un
+      // épisode (tests/cerveau-wiring.test.ts).
+      logs: 'Error: PANNE_OMBRE_SIGNATURE_UNIQUE lors de la compilation',
+      finalText: 'échec',
+      durationMs: 5,
+      subAgents: [],
+    });
+    await attendre(() => srv.store.getTask(s)?.status === 'failed', 'l’ombre ne se clôt pas');
+    expect(
+      srv.store.listEvents(0, 1_000).filter((e) => e.type === 'cerveau_episode'),
+      'la panne d’une ombre a été servie en leçon au projet',
+    ).toEqual([]);
+    expect(srv.store.ombreDe(s)?.ombre).toMatchObject({ succes: false, tests: null });
+  });
+
+  it('ÉTEINDRE ne demande rien d’autre : le budget rangé reste, et allumer l’exige', async () => {
+    const srv = await ruche();
+    const projet = srv.store.createProject({ name: 'Interrupteur' });
+    // Éteindre un banc jamais réglé : rien à ranger, rien d'inventé.
+    const vierge = await regler(srv, projet.id, { actif: false });
+    expect(vierge.status).toBe(200);
+    expect(await vierge.json()).toMatchObject({ actif: false, reglage: null });
+    // Allumer sans budget : refusé, nommément.
+    const sansBudget = await regler(srv, projet.id, { actif: true });
+    expect(sansBudget.status).toBe(400);
+    expect(((await sansBudget.json()) as { code: string }).code).toBe('budget_exige');
+
+    await regler(srv, projet.id, {
+      actif: true,
+      tauxPourMille: 200,
+      executionsParJour: 4,
+      plafondCoutUsd: 2,
+    });
+    const eteint = await regler(srv, projet.id, { actif: false });
+    expect(eteint.status).toBe(200);
+    expect(await eteint.json()).toMatchObject({
+      actif: false,
+      reglage: { tauxPourMille: 200, executionsParJour: 4, plafondCoutUsd: 2 },
+    });
+    expect(srv.store.getBancOmbre(projet.id)?.actif).toBe(false);
+  });
+
+  it('SANS bac isolé, aucune ombre ne part — et le motif le dit', async () => {
+    const srv = await ruche();
+    const codex = await noeud(srv, 'n-codex', 'codex', ['codex-banc'], 'processus');
+    const claude = await noeud(srv, 'n-claude', 'claude-code', ['opus-banc'], 'processus');
+    const projet = srv.store.createProject({ name: 'Sans bac' });
+    await regler(srv, projet.id, {
+      actif: true,
+      tauxPourMille: 1000,
+      executionsParJour: 5,
+      plafondCoutUsd: 1,
+    });
+    const t = tache(srv, projet.id, 'Ajouter une fonction somme');
+    const { noeud: producteur } = await recuePar([codex, claude], t);
+    produire(producteur, t, 'passed');
+    await attendre(
+      () =>
+        srv.store
+          .evenementsDeTache(t, ['shadow_bench_skipped'])
+          .some((e) => e.payload.motif === 'aucun_bac_isole'),
+      'le banc n’a pas dit pourquoi il n’admet rien',
+    );
+    expect(srv.store.ombreDeOriginale(t)).toBeNull();
   });
 });

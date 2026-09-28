@@ -33,6 +33,7 @@ import type {
   UsageBancOmbre,
 } from '../src/orchestrator/shadow-bench.js';
 import { registreGenomeDepuisEvenements } from '../src/shared/registre-genome.js';
+import type { FaitOmbre } from '../src/shared/registre-genome.js';
 import type { HiveEvent } from '../src/shared/types.js';
 
 const sansUsage: UsageBancOmbre = {
@@ -56,6 +57,7 @@ const admissible = (over: Partial<FaitsAdmission> = {}): FaitsAdmission => ({
   reglage: { actif: true, tauxPourMille: 1000, executionsParJour: 3, plafondCoutUsd: 1 },
   usage: sansUsage,
   modelesOfferts: ['opus', 'fable', 'fable'],
+  modelesHorsBac: [],
   antecedents: new Map(),
   ...over,
 });
@@ -104,6 +106,19 @@ describe('l’admission — chaque refus pour SA raison', () => {
     ['poussée git', { titre: 'Faire un git push de la branche' }, 'action_externe'],
     ['connecteur', { prompt: 'poste le résumé sur Slack' }, 'action_externe'],
     ['publication', { prompt: 'publish the package to npm' }, 'action_externe'],
+    // Les trous de la première version (sous-chaînes nues) : chacun passait.
+    ['« push » en fin de titre', { titre: 'Fix the typo, commit and push' }, 'action_externe'],
+    ['une pull request', { prompt: 'Open a pull request with the fix' }, 'action_externe'],
+    ['gh pr create', { prompt: 'gh pr create for this change' }, 'action_externe'],
+    [
+      'une API en écriture',
+      { prompt: 'curl -X POST https://api.example.com/items' },
+      'action_externe',
+    ],
+    ['un téléversement', { prompt: 'Upload the build to S3' }, 'action_externe'],
+    ['kubectl apply', { prompt: 'kubectl apply -f deploy.yaml' }, 'action_externe'],
+    ['terraform apply', { prompt: 'run terraform apply on staging' }, 'action_externe'],
+    ['une copie distante', { prompt: 'scp the report to the build server' }, 'action_externe'],
     ['délégation', { delegation: true }, 'delegation'],
     ['aucun modèle commandé', { modeleOriginal: null }, 'modele_inconnu'],
     ['une ombre en vol', { usage: { ...sansUsage, enVol: OMBRES_EN_VOL_MAX } }, 'ombre_en_vol'],
@@ -111,6 +126,16 @@ describe('l’admission — chaque refus pour SA raison', () => {
     ['coût au plafond', { usage: { ...sansUsage, coutDeclareUsd: 1 } }, 'budget_cout'],
     ['seul le modèle original est offert', { modelesOfferts: ['opus'] }, 'aucun_second_modele'],
     ['aucune ouvrière en ligne', { modelesOfferts: [] }, 'aucun_second_modele'],
+    [
+      'l’autre modèle n’est offert que hors bac isolé',
+      { modelesOfferts: ['opus'], modelesHorsBac: ['fable'] },
+      'aucun_bac_isole',
+    ],
+    [
+      'hors bac, seulement le modèle original : rien à dire du bac',
+      { modelesOfferts: [], modelesHorsBac: ['opus'] },
+      'aucun_second_modele',
+    ],
   ];
   it.each(matrice)('%s → %s', (_cas, over, motif) => {
     expect(jugerAdmissionOmbre(admissible(over))).toEqual({ admise: false, motif });
@@ -137,6 +162,10 @@ describe('l’admission — chaque refus pour SA raison', () => {
   it('le filtre externe ne mord pas sur le français courant', () => {
     expect(actionExterne('ajoute la notion de priorité aux tâches')).toBeNull();
     expect(actionExterne('améliore la production du rapport hebdomadaire')).toBeNull();
+    // `\b` borne les mots courts : un prompt n'est pas une PR, un `curl` qui
+    // LIT n'écrit chez personne.
+    expect(actionExterne('améliore le prompt du résumé')).toBeNull();
+    expect(actionExterne('ajoute un test qui fait curl https://example.com/health')).toBeNull();
     expect(actionExterne('mets le correctif en production')).toBe('en production');
     expect(actionExterne('envoie un email de bienvenue')).not.toBeNull();
   });
@@ -224,8 +253,18 @@ describe('la comparaison — les tests décident, la contre-revue pèse la confi
     });
   });
 
+  it('deux bases CONNUES et différentes : indécis — l’ombre a pu trouver la solution déjà fusionnée', () => {
+    expect(comparerOmbre(cote(), cote({ baseSha: 'b'.repeat(40) }))).toEqual({
+      verdict: 'indecis',
+      confiance: 'faible',
+    });
+    expect(
+      comparerOmbre(cote({ issue: 'tests_rouges' }), cote({ baseSha: 'b'.repeat(40) })),
+    ).toEqual({ verdict: 'indecis', confiance: 'faible' });
+  });
+
   it('haute exige la même base connue ET une relecture de chaque côté', () => {
-    expect(comparerOmbre(cote(), cote({ baseSha: 'b'.repeat(40) })).confiance).toBe('moyenne');
+    expect(comparerOmbre(cote(), cote({ baseSha: null })).confiance).toBe('moyenne');
     expect(comparerOmbre(cote({ baseSha: null }), cote({ baseSha: null })).confiance).toBe(
       'moyenne',
     );
@@ -241,38 +280,20 @@ describe('le Genome — des faits de provenance « shadow », à part', () => {
     type,
     payload,
   });
-  const annonce = (tacheOmbre: string, tacheOriginale: string, over = {}): HiveEvent =>
-    ev('shadow_bench_started', {
-      taskId: tacheOmbre,
-      tacheOriginale,
-      projectId: 'p',
-      provenance: 'shadow',
-      categorie: 'code',
-      modeleOmbre: 'fable',
-      original: {
-        resultId: 7,
-        modele: 'opus',
-        succes: true,
-        tests: 'passed',
-        baseSha: 'a'.repeat(40),
-      },
-      ...over,
-    });
-  const validation = (taskId: string, resultId: number, tests: string): HiveEvent =>
-    ev('validation_recorded', {
-      source: 'hive_sandbox',
-      taskId,
-      resultId,
-      baseSha: 'a'.repeat(40),
-      validation: { tests, typecheck: 'not_applicable', build: 'not_applicable', lint: 'passed' },
-    });
-  const avis = (taskId: string, resultId: number, conteste: boolean): HiveEvent =>
-    ev('contre_expertise_verdict', {
-      source: 'hive_counter_review',
-      taskId,
-      resultId,
-      conteste,
-    });
+  const BASE = 'a'.repeat(40);
+  /** Une ombre RANGÉE (`taches_ombre`) : l'originale verte et relue, l'ombre selon `over`. */
+  const fait = (tacheOmbre: string, over: Partial<FaitOmbre> = {}): FaitOmbre => ({
+    tacheOmbre,
+    tacheOriginale: `orig-${tacheOmbre}`,
+    categorie: 'code',
+    modeleOriginal: 'opus',
+    modeleOmbre: 'fable',
+    creeA: 1_000,
+    statut: 'done',
+    original: { resultId: 7, succes: true, tests: 'passed', baseSha: BASE, revue: 'validee' },
+    ombre: null,
+    ...over,
+  });
 
   it('compare, attribue à chaque modèle de SON point de vue, et ne compte pas l’ombre en production', () => {
     const ombres = new Set(['o1', 'o2', 'o3']);
@@ -280,22 +301,23 @@ describe('le Genome — des faits de provenance « shadow », à part', () => {
       [
         ev('task_assigned', { taskId: 'orig', nodeId: 'n1', modele: 'opus' }),
         ev('task_done', { taskId: 'orig', nodeId: 'n1', durationMs: 10 }),
-        avis('orig', 7, false),
-        annonce('o1', 'orig'),
         ev('task_assigned', { taskId: 'o1', nodeId: 'n2', modele: 'fable', ombre: true }),
-        validation('o1', 9, 'failed'),
         ev('task_done', { taskId: 'o1', nodeId: 'n2', durationMs: 10 }),
-        avis('o1', 9, false),
-        // Une ombre abandonnée, une encore en vol.
-        annonce('o2', 'orig2'),
-        ev('task_failed', { taskId: 'o2', reason: 'modele_ombre_absent' }),
-        annonce('o3', 'orig3'),
         ev('task_assigned', { taskId: 'o3', nodeId: 'n2', modele: 'fable', ombre: true }),
       ],
-      (taskId) => (ombres.has(taskId) ? 'code' : taskId.startsWith('orig') ? 'code' : null),
+      (taskId) => (ombres.has(taskId) || taskId === 'orig' ? 'code' : null),
       Number.POSITIVE_INFINITY,
       false,
       (taskId) => ombres.has(taskId),
+      [
+        fait('o1', {
+          creeA: 1_000,
+          ombre: { resultId: 9, succes: true, tests: 'failed', baseSha: BASE, revue: 'validee' },
+        }),
+        // Close sans rien rendre (modèle disparu), et une encore en vol.
+        fait('o2', { creeA: 2_000, statut: 'failed' }),
+        fait('o3', { creeA: 3_000, statut: 'running' }),
+      ],
     );
 
     // Les lignes de PRODUCTION ne voient que l'originale.
@@ -345,28 +367,39 @@ describe('le Genome — des faits de provenance « shadow », à part', () => {
     ]);
   });
 
-  it('un avis sur une AUTRE production de l’originale ne pèse pas sur la confiance', () => {
+  it('une ombre ÉLAGUÉE sans avoir rien rendu est abandonnée, pas en vol', () => {
     const registre = registreGenomeDepuisEvenements(
-      [
-        avis('orig', 6, true),
-        annonce('o1', 'orig'),
-        validation('o1', 9, 'passed'),
-        ev('task_done', { taskId: 'o1', nodeId: 'n2' }),
-        avis('o1', 9, false),
-      ],
+      [],
       () => 'code',
       Number.POSITIVE_INFINITY,
       false,
-      (taskId) => taskId === 'o1',
+      () => false,
+      [fait('o1', { statut: null })],
+    );
+    expect(registre.ombre.comparaisons[0]?.etat).toBe('abandonnee');
+  });
+
+  it('les comparaisons ne dépendent PAS du journal : un journal vide les garde toutes', () => {
+    const registre = registreGenomeDepuisEvenements(
+      [],
+      () => null,
+      Number.POSITIVE_INFINITY,
+      true,
+      () => false,
+      [
+        fait('o1', {
+          ombre: { resultId: 9, succes: true, tests: 'passed', baseSha: BASE, revue: 'absente' },
+        }),
+      ],
     );
     expect(registre.ombre.comparaisons[0]).toMatchObject({
+      etat: 'comparee',
       verdict: 'egalite',
       confiance: 'moyenne',
-      original: { revue: 'absente' },
     });
   });
 
-  it('une ombre dont l’annonce est sortie de la fenêtre reste HORS des lignes de production', () => {
+  it('une ombre, même hors de la liste reçue, reste HORS des lignes de production', () => {
     const registre = registreGenomeDepuisEvenements(
       [
         ev('task_assigned', { taskId: 'o-vieille', nodeId: 'n2', modele: 'fable' }),

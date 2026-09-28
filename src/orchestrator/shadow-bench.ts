@@ -106,7 +106,11 @@ export const FENETRE_BUDGET_MS = 24 * 60 * 60_000;
  * Le coût d'une exécution n'est connu qu'APRÈS elle : trois tâches admises à
  * la suite lanceraient trois ombres avant que la première ait déclaré ce
  * qu'elle a coûté, et le plafond serait franchi de deux exécutions sans avoir
- * rien pu arrêter. Une à la fois borne le dépassement à une seule exécution.
+ * rien pu arrêter. « En vol » couvre l'ombre ET ses relectures
+ * (`HiveStore.usageBancOmbre`) : elles partent quand l'ombre est rendue, et
+ * leur coût s'ajoute au sien à leur retour — une ombre rendue mais encore
+ * relue n'a pas fini de dépenser. Le dépassement du plafond est ainsi borné
+ * à UNE ombre et ses relectures, jamais à la suivante.
  */
 export const OMBRES_EN_VOL_MAX = 1;
 
@@ -154,7 +158,7 @@ export const MOTIFS_REFUS_OMBRE = [
   'non_testable',
   /** Prompt, diff, fichiers ou durée au-delà de `BORNES_PETITE_TACHE`. */
   'trop_grande',
-  /** Le texte demande un geste externe ou irréversible (voir `MOTS_ACTION_EXTERNE`). */
+  /** Le texte demande un geste externe ou irréversible (voir `MOTIFS_ACTION_EXTERNE`). */
   'action_externe',
   /** Une tâche déléguée, ou qui a délégué : son travail ne tient pas dans une seule production. */
   'delegation',
@@ -168,64 +172,93 @@ export const MOTIFS_REFUS_OMBRE = [
   'budget_cout',
   /** Aucun AUTRE modèle n'est offert par une ouvrière en ligne. */
   'aucun_second_modele',
+  /**
+   * Un autre modèle est offert, mais seulement par des ouvrières SANS bac
+   * isolé (`bacIsole`). Dit à part : « installez bubblewrap ou un moteur de
+   * conteneurs » n'est pas la même réponse que « branchez un autre modèle ».
+   */
+  'aucun_bac_isole',
 ] as const;
 export type MotifRefusOmbre = (typeof MOTIFS_REFUS_OMBRE)[number];
 
 /**
- * Les mots qui trahissent un geste EXTERNE ou IRRÉVERSIBLE : livrer, pousser,
- * publier, écrire chez un tiers (un connecteur), toucher la production.
+ * Les tournures qui trahissent un geste EXTERNE ou IRRÉVERSIBLE : livrer,
+ * pousser, ouvrir une PR, publier, écrire chez un tiers (un connecteur, une
+ * API en écriture, un stockage distant), toucher la production.
  *
  * Rejouer une telle tâche, c'est risquer de faire le geste DEUX fois — l'ombre
  * ne livre rien, mais son agent tourne avec les outils de son nœud. Le filtre
- * est volontairement LARGE, par sous-chaîne comme `categoriser` : un faux
- * positif retire une tâche de l'échantillon (on mesure un peu moins), un faux
- * négatif ferait refaire un geste qu'on ne défait pas. L'asymétrie décide.
+ * est volontairement LARGE : un faux positif retire une tâche de
+ * l'échantillon (on mesure un peu moins), un faux négatif ferait refaire un
+ * geste qu'on ne défait pas. L'asymétrie décide.
+ *
+ * Des EXPRESSIONS, pas des sous-chaînes nues : la première version cherchait
+ * `'push '` avec son espace, et « commit and push » en fin de titre — suivi
+ * du `\n` qui le sépare du prompt — passait. `\b` borne les mots anglais
+ * courts (`pr`, `gh`, `curl`) sans attraper leurs voisins : `prompt` n'est
+ * pas une PR. Le texte est déjà en minuscules : `-X POST` se lit `-x post`.
  *
  * Deux mots manquent à dessein, NUS : « notion » et « production » sont du
  * français courant (« ajoute la notion de priorité », « la production de
  * l'agent »), et les retirer tous deux vidait l'échantillon d'un projet
  * francophone. On garde leurs tournures qui ne trompent pas (`en production`).
+ *
+ * Ce filtre est la PREMIÈRE barrière, pas la seule : une ombre ne part que
+ * dans un bac isolé (`bacIsole`), où ni le HOME ni les identifiants git/gh de
+ * l'hôte ne sont montés.
  */
-export const MOTS_ACTION_EXTERNE: readonly string[] = [
-  'deploy',
-  'déploi',
-  'déploy',
-  'deploi',
-  'publish',
-  'publie',
-  'git push',
-  'push ',
-  'pousse',
-  'merge',
-  'fusionne',
-  'release',
-  'webhook',
-  'slack',
-  'discord',
-  'jira',
-  'stripe',
-  'paiement',
-  'payment',
-  'email',
-  'e-mail',
-  'courriel',
-  'envoie un',
-  'envoyer un',
-  'send a',
-  'en production',
-  'in production',
-  'to production',
-  'en prod',
-  'in prod ',
-  'drop table',
-  'drop database',
-  'rm -rf',
+export const MOTIFS_ACTION_EXTERNE: readonly RegExp[] = [
+  // Livrer, publier, pousser, fusionner.
+  /deploy|d[ée]ploi|d[ée]ploy/,
+  /publish|publie/,
+  /\bpush|pousse/,
+  /merge|fusionne/,
+  /release/,
+  // Une PR ou une issue, par ses mots ou par `gh`.
+  /pull request|merge request|\bprs?\b/,
+  /\bgh\s+(pr|issue|release|repo|api|gist|workflow|secret)\b/,
+  // Une API tierce en ÉCRITURE, un stockage ou une infrastructure distants.
+  /\bcurl\b[^\n]*(-x\s*(post|put|patch|delete)|--data|--form|--upload|\s-[dft]\s)/,
+  /\bwget\b[^\n]*--post/,
+  /upload|t[ée]l[ée]vers/,
+  /\b(kubectl|helm)\s+(apply|create|delete|install|upgrade|rollout|scale)\b/,
+  /\bterraform\s+(apply|destroy|import)\b/,
+  /\b(aws|gcloud|gsutil|az)\s+[a-z]/,
+  /\b(ssh|scp|rsync|sftp)\b/,
+  // Les connecteurs et les messages envoyés à quelqu'un.
+  /webhook|slack|discord|jira|stripe|paiement|payment/,
+  /e-?mail|courriel|envoie un|envoyer un|send an?\b/,
+  // La production, et les gestes qu'on ne défait pas.
+  /en production|in production|to production|\b(en|in|to) prod\b/,
+  /drop (table|database)|rm -rf/,
 ];
 
-/** Le premier mot d'action externe reconnu dans le texte, ou `null`. */
+/** La première tournure d'action externe reconnue dans le texte, ou `null`. */
 export function actionExterne(texte: string): string | null {
   const bas = texte.toLowerCase();
-  return MOTS_ACTION_EXTERNE.find((mot) => bas.includes(mot)) ?? null;
+  for (const motif of MOTIFS_ACTION_EXTERNE) {
+    const trouve = motif.exec(bas);
+    if (trouve) return trouve[0];
+  }
+  return null;
+}
+
+/**
+ * L'ouvrière porte-t-elle un VRAI bac à sable ? Seul le niveau `conteneur`
+ * en est un (node-client/isolement.ts) : `processus` est le nom honnête d'un
+ * dossier et d'un environnement épurés, qui laisse l'agent lire le HOME —
+ * clés SSH, identifiants `gh` et `git` compris.
+ *
+ * Une ombre ne part QUE là. Le filtre de texte (`actionExterne`) écarte ce
+ * qui DEMANDE un geste externe ; le bac borne ce qu'un agent pourrait faire
+ * sans qu'on le lui demande : sans les identifiants de l'hôte, une poussée
+ * ou une PR refaite par l'ombre échoue au lieu de partir. L'isolement est
+ * DÉCLARÉ par le nœud (shared/types.ts) : cette exigence RESTREINT où une
+ * ombre peut aller, elle n'accorde rien à qui se déclare isolé — un nœud qui
+ * ment n'expose que sa propre machine.
+ */
+export function bacIsole(n: { isolement?: { niveau: string } | undefined }): boolean {
+  return n.isolement?.niveau === 'conteneur';
 }
 
 /** Ce que le banc a déjà dépensé pour un projet, sur la fenêtre du budget. */
@@ -274,8 +307,13 @@ export interface FaitsAdmission {
   modeleOriginal: string | null;
   reglage: ReglageBancOmbre;
   usage: UsageBancOmbre;
-  /** Modèles déclarés par les ouvrières en ligne autorisées à produire (doublons admis). */
+  /**
+   * Modèles déclarés par les ouvrières en ligne autorisées à produire ET
+   * isolées (`bacIsole`) — les seules où une ombre peut partir (doublons admis).
+   */
   modelesOfferts: readonly string[];
+  /** Modèles offerts par les AUTRES ouvrières en ligne, sans bac : pour dire pourquoi, jamais pour lancer. */
+  modelesHorsBac: readonly string[];
   /** Les antécédents de l'Aiguillage — pour CHOISIR le second modèle, jamais pour les modifier. */
   antecedents: Map<string, Antecedent>;
 }
@@ -339,8 +377,14 @@ export function jugerAdmissionOmbre(f: FaitsAdmission): AdmissionOmbre {
     f.modelesOfferts,
     f.antecedents,
   );
-  if (modeleOmbre === null) return refus('aucun_second_modele');
-  return { admise: true, modeleOriginal: f.modeleOriginal, modeleOmbre };
+  if (modeleOmbre !== null) return { admise: true, modeleOriginal: f.modeleOriginal, modeleOmbre };
+  const horsBac = choisirModeleOmbre(
+    f.categorie,
+    f.modeleOriginal,
+    [...f.modelesOfferts, ...f.modelesHorsBac],
+    f.antecedents,
+  );
+  return refus(horsBac === null ? 'aucun_second_modele' : 'aucun_bac_isole');
 }
 
 // ─── La comparaison ───────────────────────────────────────────────────────────
@@ -397,10 +441,15 @@ const RANG: Record<Exclude<IssueCote, 'sans_preuve'>, number> = {
  *
  *   · `faible`  — un côté ne se classe pas (`indecis`), ou a échoué avant
  *                 tout test : un délai, un plantage d'agent disent peu du code ;
+ *                 ou les deux ont tourné sur des commits de base CONNUS et
+ *                 DIFFÉRENTS (`indecis`) : l'ombre clone la branche du jour, et
+ *                 si l'originale — ou sa reprise — a été fusionnée entre-temps,
+ *                 elle trouve la solution déjà écrite et passe ses tests sans
+ *                 rien faire. Les tests ne comparent que sur la même base ;
  *   · `haute`   — les deux côtés ont un verdict de tests sur le MÊME commit de
  *                 base connu, et chacun a reçu l'avis d'une relectrice ;
- *   · `moyenne` — le reste : des tests comparables, mais une base différente
- *                 ou inconnue, ou une relecture qui manque encore.
+ *   · `moyenne` — le reste : des tests comparables, mais une base inconnue
+ *                 d'un côté, ou une relecture qui manque encore.
  */
 export function comparerOmbre(
   original: CoteComparee,
@@ -414,7 +463,11 @@ export function comparerOmbre(
     ecart > 0 ? 'ombre_meilleure' : ecart < 0 ? 'originale_meilleure' : 'egalite';
   if (original.issue === 'echec' || ombre.issue === 'echec')
     return { verdict, confiance: 'faible' };
-  const memeBase = original.baseSha !== null && original.baseSha === ombre.baseSha;
+  const basesConnues = original.baseSha !== null && ombre.baseSha !== null;
+  if (basesConnues && original.baseSha !== ombre.baseSha) {
+    return { verdict: 'indecis', confiance: 'faible' };
+  }
+  const memeBase = basesConnues && original.baseSha === ombre.baseSha;
   const relues = original.revue !== 'absente' && ombre.revue !== 'absente';
   return { verdict, confiance: memeBase && relues ? 'haute' : 'moyenne' };
 }

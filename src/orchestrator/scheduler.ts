@@ -58,6 +58,7 @@ import { summarizeTask } from './hive-mind.js';
 import { CacheDomaines, meilleurNoeud, replierTraces } from './pheromones.js';
 import type { Domaine, TraceePheromone } from './pheromones.js';
 import { analyzePair } from './sting-detector.js';
+import { bacIsole } from './shadow-bench.js';
 import type { HiveStore, NodeProfile, TacheOmbre } from './store.js';
 import { assignationProductionAutorisee } from '../shared/agent-production.js';
 import { relecteurIndependant } from '../shared/contre-expertise.js';
@@ -2211,8 +2212,8 @@ export class Scheduler {
   }
 
   /**
-   * Aucune ouvrière en ligne n'offre-t-elle le modèle de cette OMBRE ? Vrai :
-   * elle ne part pas à cette passe.
+   * Aucune ouvrière en ligne et isolée (`bacIsole`) n'offre-t-elle le modèle
+   * de cette OMBRE ? Vrai : elle ne part pas à cette passe.
    *
    * Le pendant de `relecteurAbsent`, pour la même raison : une ombre est
    * épinglée à UN modèle (le comparer, c'est tout son objet), et un modèle dont
@@ -2233,6 +2234,7 @@ export class Scheduler {
     const porte = noeuds.some(
       (n) =>
         n.status === 'online' &&
+        bacIsole(n) &&
         (n.modeles ?? []).includes(ombre.modeleOmbre) &&
         assignationProductionAutorisee(n.agentType, { simulation: this.opts.simulation }),
     );
@@ -2447,11 +2449,14 @@ export class Scheduler {
       // ignorée. C'est contre elle que se décide l'écart des modèles tombés
       // (`repriseHorsEchecs`) : un porteur sain seulement occupé se libérera.
       // Une ombre ne part que chez une ouvrière qui DÉCLARE son modèle : lancée
-      // avec le défaut d'un autre nœud, elle mesurerait un autre modèle.
+      // avec le défaut d'un autre nœud, elle mesurerait un autre modèle. Et
+      // seulement dans un bac isolé (`bacIsole`) : l'ombre rejoue une tâche
+      // déjà faite, elle ne doit pas pouvoir refaire un geste avec les
+      // identifiants de l'hôte.
       const offre = noeuds.filter(
         (n) =>
           (lien === null || n.agentType === lien.relecteurAgent) &&
-          (ombre === null || (n.modeles ?? []).includes(ombre.modeleOmbre)) &&
+          (ombre === null || (bacIsole(n) && (n.modeles ?? []).includes(ombre.modeleOmbre))) &&
           n.status === 'online' &&
           assignationProductionAutorisee(n.agentType, {
             simulation: this.opts.simulation,

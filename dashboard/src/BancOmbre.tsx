@@ -47,12 +47,15 @@ export function lireBrouillon(
 ):
   | { ok: true; tauxPourMille: number; executionsParJour: number; plafondCoutUsd: number }
   | { ok: false; champ: 'pourcent' | 'executions' | 'plafond' } {
+  // Au dixième près, REFUSÉ au-delà plutôt qu'arrondi en silence : « 5,05 »
+  // enregistré « 5,1 » serait un réglage que personne n'a tapé. Le test porte
+  // sur le TEXTE, pas sur `Number(…) * 10` que la virgule flottante décale.
+  const auDixieme = /^\s*\d+(\.\d)?\s*$/.test(b.pourcent);
   const tauxPourMille = Math.round(Number(b.pourcent) * 10);
   const executionsParJour = Number(b.executions);
   const plafondCoutUsd = Number(b.plafond);
   if (
-    b.pourcent.trim() === '' ||
-    !Number.isInteger(tauxPourMille) ||
+    !auDixieme ||
     tauxPourMille < bornes.tauxPourMille.min ||
     tauxPourMille > bornes.tauxPourMille.max
   ) {
@@ -113,6 +116,26 @@ export function BancOmbre({ projectId }: { projectId: string }) {
     );
   }
 
+  /** Envoie un réglage, et relit l'état que le serveur rend. */
+  const envoyer = async (reglage: Parameters<typeof reglerBancOmbre>[1]): Promise<void> => {
+    setOccupe(true);
+    try {
+      setEtat(await reglerBancOmbre(projectId, reglage));
+      setErreur('');
+    } catch (e) {
+      setErreur(e instanceof Error ? e.message : String(e));
+    } finally {
+      setOccupe(false);
+    }
+  };
+
+  /**
+   * ÉTEINDRE n'attend aucun champ : c'est le seul geste qui arrête la
+   * dépense, et un budget mal tapé ne doit jamais le retenir. Le serveur
+   * garde le budget rangé pour le prochain allumage.
+   */
+  const eteindre = (): Promise<void> => envoyer({ actif: false });
+
   const appliquer = async (actif: boolean): Promise<void> => {
     const lu = lireBrouillon(brouillon, etat.bornes);
     if (!lu.ok) {
@@ -134,32 +157,26 @@ export function BancOmbre({ projectId }: { projectId: string }) {
       );
       return;
     }
-    setOccupe(true);
-    try {
-      setEtat(
-        await reglerBancOmbre(projectId, {
-          actif,
-          tauxPourMille: lu.tauxPourMille,
-          executionsParJour: lu.executionsParJour,
-          plafondCoutUsd: lu.plafondCoutUsd,
-        }),
-      );
-      setErreur('');
-    } catch (e) {
-      setErreur(e instanceof Error ? e.message : String(e));
-    } finally {
-      setOccupe(false);
-    }
+    const budget = {
+      tauxPourMille: lu.tauxPourMille,
+      executionsParJour: lu.executionsParJour,
+      plafondCoutUsd: lu.plafondCoutUsd,
+    };
+    await envoyer(actif ? { actif: true, ...budget } : { actif: false, ...budget });
   };
 
-  const champ = (cle: keyof Brouillon, libelle: string, pas: string) => (
+  // Les bornes des champs sont celles du serveur (`etat.bornes`), pas un
+  // `min="0"` qui laisserait les flèches descendre sous ce qu'il refusera.
+  const bornes = etat.bornes;
+  const champ = (cle: keyof Brouillon, libelle: string, pas: string, min: number, max: number) => (
     <label className="banc-ombre-champ">
       <span>{libelle}</span>
       <input
         type="number"
         inputMode="decimal"
         step={pas}
-        min="0"
+        min={min}
+        max={max}
         value={brouillon[cle]}
         disabled={occupe}
         onChange={(e) => setBrouillon({ ...brouillon, [cle]: e.target.value })}
@@ -186,7 +203,7 @@ export function BancOmbre({ projectId }: { projectId: string }) {
           type="checkbox"
           checked={etat.actif}
           disabled={occupe}
-          onChange={() => void appliquer(!etat.actif)}
+          onChange={() => void (etat.actif ? eteindre() : appliquer(true))}
         />
         {etat.actif
           ? t(
@@ -197,9 +214,27 @@ export function BancOmbre({ projectId }: { projectId: string }) {
       </label>
 
       <div className="banc-ombre-reglage">
-        {champ('pourcent', t('Échantillon (%)', 'Sample (%)'), '0.1')}
-        {champ('executions', t('Ombres / 24 h', 'Shadows / 24 h'), '1')}
-        {champ('plafond', t('Coût déclaré max / 24 h ($)', 'Max declared cost / 24 h ($)'), '0.1')}
+        {champ(
+          'pourcent',
+          t('Échantillon (%)', 'Sample (%)'),
+          '0.1',
+          bornes.tauxPourMille.min / 10,
+          bornes.tauxPourMille.max / 10,
+        )}
+        {champ(
+          'executions',
+          t('Ombres / 24 h', 'Shadows / 24 h'),
+          '1',
+          bornes.executionsParJour.min,
+          bornes.executionsParJour.max,
+        )}
+        {champ(
+          'plafond',
+          t('Coût déclaré max / 24 h ($)', 'Max declared cost / 24 h ($)'),
+          '0.01',
+          0.01,
+          bornes.plafondCoutUsd.max,
+        )}
         <button type="button" disabled={occupe} onClick={() => void appliquer(etat.actif)}>
           {t('Appliquer', 'Apply')}
         </button>

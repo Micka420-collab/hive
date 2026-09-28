@@ -53,6 +53,11 @@ export function direMotifOmbre(motif: unknown, t: Translate): string {
         'aucun autre modèle offert par une ouvrière en ligne',
         'no other model offered by an online worker',
       );
+    case 'aucun_bac_isole':
+      return t(
+        'un autre modèle est offert, mais par aucune ouvrière isolée (bubblewrap ou conteneur)',
+        'another model is offered, but by no isolated worker (bubblewrap or container)',
+      );
     default:
       return typeof motif === 'string' && motif.length > 0 ? motif : '?';
   }

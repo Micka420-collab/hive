@@ -59,8 +59,11 @@ export interface HiveNode {
   outils?: OutilConstate[];
   /**
    * Le bac à sable dans lequel ce nœud exécute ses tâches, DÉCLARÉ par lui à
-   * l'inscription. Affichage seulement — jamais un critère d'assignation ni un
-   * privilège : un nœud peut se tromper ou mentir, l'écran dit « déclaré ».
+   * l'inscription. Jamais un privilège : un nœud peut se tromper ou mentir,
+   * l'écran dit « déclaré ». Une seule RESTRICTION s'y lit : une ombre du banc
+   * ne part que chez un nœud déclaré `conteneur` (`bacIsole`,
+   * orchestrator/shadow-bench.ts) — un nœud qui ment n'y expose que sa
+   * propre machine, et rien d'autre ne lui est accordé.
    * Absent : le nœud ne l'a pas dit à cette inscription, et l'écran le dit.
    */
   isolement?: IsolementDeclare;
@@ -140,6 +143,14 @@ export interface Task {
   attempts: number;
   createdAt: number;
   updatedAt: number;
+  /**
+   * Une OMBRE du banc (orchestrator/shadow-bench.ts) : la même tâche rejouée
+   * par un second modèle, qui ne se livre jamais. Posé par l'instantané de
+   * l'écran seulement, et seulement quand c'est vrai : Mission Control la
+   * montre là où elle a tourné, mais la tient hors de la file de revue et des
+   * compteurs du travail des projets.
+   */
+  ombre?: true;
 }
 
 /** Résultat complet remonté par un nœud. Le diff reste soumis à revue humaine. */

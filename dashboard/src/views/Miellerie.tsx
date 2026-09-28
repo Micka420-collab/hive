@@ -744,7 +744,11 @@ export default function Miellerie({
   void reviewTick; // relit localStorage (tri + compteurs) à chaque revue
 
   // File de revue : done/failed, groupées par projet, triées (failed → non-revues → revues).
-  const finished = snapshot.tasks.filter((t) => t.status === 'done' || t.status === 'failed');
+  // Jamais une OMBRE du banc (`Task.ombre`) : elle ne se livre pas, il n'y a
+  // rien à y relire pour le projet — sa comparaison se lit au registre Genome.
+  const finished = snapshot.tasks.filter(
+    (t) => !t.ombre && (t.status === 'done' || t.status === 'failed'),
+  );
   const byRank = (a: Task, b: Task) => reviewRank(a) - reviewRank(b) || b.updatedAt - a.updatedAt;
   const groups: { id: string; name: string; tasks: Task[] }[] = [];
   for (const p of snapshot.projects) {

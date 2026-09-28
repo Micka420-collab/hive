@@ -339,11 +339,16 @@ export function setReview(taskId: string, state: ReviewState | null, raison?: st
   enqueuePost(taskId, state, base, state === null ? undefined : raison?.trim() || undefined);
 }
 
-/** Nombre de tâches terminées non revues (badge sidebar + compteurs). */
+/**
+ * Nombre de tâches terminées non revues (badge sidebar + compteurs). Les
+ * ombres du banc (`Task.ombre`) n'attendent aucune revue : elles ne se
+ * livrent jamais.
+ */
 export function countPendingReviews(tasks: Task[]): number {
   const reviews = readReviews();
-  return tasks.filter((t) => (t.status === 'done' || t.status === 'failed') && !reviews[t.id])
-    .length;
+  return tasks.filter(
+    (t) => !t.ombre && (t.status === 'done' || t.status === 'failed') && !reviews[t.id],
+  ).length;
 }
 
 /** S'abonne aux changements d'état de revue (même onglet + autres onglets). */

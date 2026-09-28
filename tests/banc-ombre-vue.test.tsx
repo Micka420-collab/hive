@@ -103,6 +103,8 @@ describe('lireBrouillon — ce que le serveur refuserait, dit avant l’appel', 
     ['exécutions nulles', b('5', '0', '1'), 'executions'],
     ['plafond nul — un banc éteint déguisé', b('5', '3', '0'), 'plafond'],
     ['plafond vide', b('5', '3', ''), 'plafond'],
+    // Au dixième près : refusé, jamais arrondi en silence en 5,1 %.
+    ['échantillon au centième', b('5.05', '3', '1'), 'pourcent'],
   ] as const)('%s → %s', (_cas, brouillon, champ) => {
     expect(lireBrouillon(brouillon, BORNES)).toEqual({ ok: false, champ });
   });
@@ -142,6 +144,41 @@ describe('le panneau du banc d’ombre', () => {
     });
     expect(reglerBancOmbre).not.toHaveBeenCalled();
     expect(dom.querySelector('.garde-fou-erreur')?.textContent).toContain('Plafond');
+  });
+
+  it('actif : ÉTEINDRE part même quand un champ de budget est faux — seul `{ actif: false }` est envoyé', async () => {
+    const reglage = {
+      tauxPourMille: 50,
+      executionsParJour: 3,
+      plafondCoutUsd: 1,
+      definiPar: 'humain',
+      updatedAt: 1,
+    };
+    vi.mocked(fetchBancOmbre).mockResolvedValue(etat({ actif: true, reglage }));
+    vi.mocked(reglerBancOmbre).mockResolvedValue(etat({ actif: false, reglage }));
+    const dom = await monter(<BancOmbre projectId="p4" />);
+    const executions = dom.querySelectorAll<HTMLInputElement>('.banc-ombre-champ input')[1]!;
+    await act(async () => {
+      const poser = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      poser.call(executions, '');
+      executions.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const interrupteur = dom.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    await act(async () => {
+      interrupteur.click();
+    });
+    expect(reglerBancOmbre).toHaveBeenCalledWith('p4', { actif: false });
+    expect(dom.querySelector('.garde-fou-erreur')).toBeNull();
+    expect(dom.textContent).toContain('Éteint');
+  });
+
+  it('les champs portent les bornes du serveur, pas un min="0"', async () => {
+    vi.mocked(fetchBancOmbre).mockResolvedValue(etat());
+    const dom = await monter(<BancOmbre projectId="p5" />);
+    const [pourcent, executions] =
+      dom.querySelectorAll<HTMLInputElement>('.banc-ombre-champ input');
+    expect([pourcent!.min, pourcent!.max]).toEqual(['0.1', '100']);
+    expect([executions!.min, executions!.max]).toEqual(['1', '50']);
   });
 
   it('actif : le budget dépensé, les exécutions muettes et ce qui ARRÊTE le banc', async () => {
