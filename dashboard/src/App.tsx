@@ -509,7 +509,12 @@ export function App() {
     const mq = window.matchMedia?.(REQUETE_TIROIR);
     if (!mq) return;
     const suivre = () => {
-      if (!mq.matches) setTiroirOuvert(false);
+      if (mq.matches) return;
+      // Le focus d'abord sur la case courante, visible dans le rail : la garde
+      // le rendrait sinon au ☰, qui n'existe plus à cette largeur (`display:
+      // none`) — `focus()` n'y fait rien et le clavier retombe sur <body>.
+      celluleCourante.current?.focus();
+      setTiroirOuvert(false);
     };
     mq.addEventListener('change', suivre);
     return () => mq.removeEventListener('change', suivre);
@@ -687,6 +692,7 @@ export function App() {
     valeur: token,
     changer: setTokenState,
     appliquer: applyToken,
+    enregistre: token === getToken(),
     refuse: tokenAuthError,
     connecte: connected,
   };
@@ -946,8 +952,8 @@ export function App() {
           <div className="mc-token-banner" role="alert">
             <p>
               {t(
-                'Jeton de ruche refusé — collez dans le champ « Jeton » (en haut à droite) la valeur exacte de HIVE_TOKEN depuis le fichier .env de l’orchestrateur. Ce n’est pas le jeton GitHub.',
-                'Hive token rejected — paste the exact HIVE_TOKEN from the orchestrator’s .env into the Token field (top right). This is not the GitHub token.',
+                'Jeton de ruche refusé — collez la valeur exacte de HIVE_TOKEN, depuis le fichier .env de l’orchestrateur, dans le champ « Jeton » (barre du haut, ou Paramètres). Ce n’est pas le jeton GitHub.',
+                'Hive token rejected — paste the exact HIVE_TOKEN from the orchestrator’s .env into the Token field (top bar, or Settings). This is not the GitHub token.',
               )}{' '}
               {/* Sur téléphone, le champ de la barre est replié : les
                   Paramètres portent le même, avec son libellé et son aide. */}

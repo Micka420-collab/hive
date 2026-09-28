@@ -40,9 +40,16 @@ export interface JetonCoquille {
   valeur: string;
   changer: (valeur: string) => void;
   appliquer: () => void;
-  /** La Reine a refusé le jeton courant (fermeture 4401 du flux). */
+  /**
+   * Le champ porte le jeton ENREGISTRÉ (`getToken()`), celui qu'utilise le
+   * flux. Faux dès la première frappe : `valeur` suit chaque touche, alors que
+   * `refuse` et `connecte` parlent encore de l'ancien jeton — sans ce drapeau,
+   * l'écran dirait « la Reine accepte ce jeton » d'une valeur jamais essayée.
+   */
+  enregistre: boolean;
+  /** La Reine a refusé le jeton enregistré (fermeture 4401 du flux). */
   refuse: boolean;
-  /** Le flux est ouvert — la Reine a donc accepté le jeton. */
+  /** Le flux est ouvert — la Reine a donc accepté le jeton enregistré. */
   connecte: boolean;
 }
 
@@ -80,14 +87,29 @@ export default function Parametres({
   // Lu au rendu : la session change par la coquille (`user`), qui re-rend.
   const echeances = user ? lireEcheancesSession(getJwt()) : null;
 
-  const etatJeton = jeton.refuse
-    ? undefined
-    : jeton.connecte
-      ? t('La Reine accepte ce jeton.', 'The Queen accepts this token.')
-      : t(
-          'Reine injoignable pour l’instant : le jeton n’a pas encore pu être vérifié.',
-          'Queen unreachable for now: the token could not be checked yet.',
-        );
+  // Chaque phrase ne parle que du jeton ENREGISTRÉ, le seul que la Reine ait
+  // pu juger : une valeur en cours de frappe reste « pas encore essayée »
+  // (inconnu reste inconnu), et un flux ouvert SANS jeton dit que la Reine
+  // n'en demande pas — pas qu'elle « accepte » un champ vide.
+  const refuse = jeton.refuse && jeton.enregistre;
+  const etatJeton = !jeton.enregistre
+    ? t(
+        'Pas encore enregistré : « Enregistrer le jeton » le fera essayer par la Reine.',
+        'Not saved yet: “Save the token” will have the Queen try it.',
+      )
+    : refuse
+      ? undefined
+      : jeton.connecte
+        ? jeton.valeur
+          ? t('La Reine accepte ce jeton.', 'The Queen accepts this token.')
+          : t(
+              'Aucun jeton : la Reine n’en demande pas.',
+              'No token: the Queen does not require one.',
+            )
+        : t(
+            'Reine injoignable pour l’instant : le jeton n’a pas encore pu être vérifié.',
+            'Queen unreachable for now: the token could not be checked yet.',
+          );
 
   return (
     <div className="mc-view pa-view">
@@ -210,7 +232,7 @@ export default function Parametres({
               </>
             }
             erreur={
-              jeton.refuse
+              refuse
                 ? t(
                     'La Reine a refusé ce jeton — collez la valeur exacte de HIVE_TOKEN.',
                     'The Queen rejected this token — paste the exact HIVE_TOKEN value.',
@@ -219,6 +241,10 @@ export default function Parametres({
             }
             value={jeton.valeur}
             onChange={(e) => jeton.changer(e.target.value)}
+            // Comme le champ de la barre : quitter le champ enregistre. Sur
+            // téléphone, ce champ-ci est le seul — une valeur tapée puis
+            // laissée pour une autre vue semblait posée et ne l'était pas.
+            onBlur={jeton.appliquer}
           />
           <button type="submit" className="btn primary">
             {t('Enregistrer le jeton', 'Save the token')}

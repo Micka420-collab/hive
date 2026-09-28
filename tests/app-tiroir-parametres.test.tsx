@@ -209,6 +209,37 @@ describe('le tiroir de navigation — un dialogue modal tant qu’il est ouvert'
     expect(dom.querySelector('.mc-body')?.hasAttribute('inert')).toBe(false);
   });
 
+  it('REVENU AU-DESSUS DE 560 PX, LE TIROIR SE REFERME — la page n’est plus inerte', async () => {
+    // Une rotation ou une fenêtre élargie : le rail redevient ordinaire à
+    // l'écran, et un tiroir resté « ouvert » garderait le focus piégé dans une
+    // barre qui n'a plus l'air d'un dialogue, sur une page inerte.
+    const ecouteurs = new Set<() => void>();
+    const requete = {
+      matches: true,
+      addEventListener: (_: string, f: () => void) => ecouteurs.add(f),
+      removeEventListener: (_: string, f: () => void) => ecouteurs.delete(f),
+    };
+    const matchMedia = vi
+      .spyOn(window, 'matchMedia')
+      .mockImplementation(() => requete as unknown as MediaQueryList);
+    try {
+      const dom = await monter();
+      await cliquer(burger(dom));
+      expect(barre(dom).getAttribute('role')).toBe('dialog');
+      expect(ecouteurs.size, 'la coquille écoute la borne du tiroir').toBeGreaterThan(0);
+
+      requete.matches = false;
+      await act(async () => ecouteurs.forEach((f) => f()));
+
+      expect(barre(dom).getAttribute('role')).toBeNull();
+      expect(barre(dom).getAttribute('aria-modal')).toBeNull();
+      expect(burger(dom).getAttribute('aria-expanded')).toBe('false');
+      expect(dom.querySelector('.mc-body')?.hasAttribute('inert')).toBe(false);
+    } finally {
+      matchMedia.mockRestore();
+    }
+  });
+
   it('TIROIR OUVERT, LES RACCOURCIS DE VUE SE TAISENT', async () => {
     const dom = await monter();
     await cliquer(burger(dom));
@@ -249,6 +280,27 @@ describe('l’écran Paramètres — les réglages de la personne, distincts de 
     expect(vi.mocked(connectFeed).mock.calls.length, 'le flux repart avec le jeton').toBe(
       branchements + 1,
     );
+  });
+
+  it('UNE VALEUR EN COURS DE FRAPPE N’EST JAMAIS DITE « acceptée » — et quitter le champ l’enregistre', async () => {
+    const dom = await monter();
+    await act(async () => poignees?.onStatus(true));
+    await aller('#/parametres');
+    const champ = dom.querySelector('.pa-view input[type="password"]') as HTMLInputElement;
+    const etat = () => dom.querySelector('[data-testid="pa-etat-jeton"]')?.textContent ?? '';
+
+    saisir(champ, 'une-valeur-jamais-essayee');
+    expect(etat(), 'le flux ouvert parle de l’ANCIEN jeton').not.toContain('accepte');
+    expect(etat()).toContain('Pas encore enregistré');
+
+    await act(async () => {
+      champ.focus();
+      champ.blur();
+    });
+    expect(localStorage.getItem('hive.token'), 'quitter le champ enregistre').toBe(
+      'une-valeur-jamais-essayee',
+    );
+    expect(etat()).not.toContain('Pas encore enregistré');
   });
 
   it('UN JETON REFUSÉ SE DIT SUR LE CHAMP — et le bandeau mène aux Paramètres', async () => {
