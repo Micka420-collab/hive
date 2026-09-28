@@ -22,11 +22,16 @@
 //                  "critere":…,"fichier":…,"preuve":…,"proposition":…}]}
 //
 // De la même famille que `HIVE_PROPOSITION` / `HIVE_AVIS` du Conseil
-// (eclaireuse.ts) : une ligne JSON, en tout dernier, et la DERNIÈRE ligne qui
-// commence par le marqueur fait foi. Pas la dernière LISIBLE : un marqueur
-// cité plus haut — recopié d'un diff hostile qui en contenait un tout prêt,
-// « valide » et sans constat — ne remplace jamais celui que le relecteur a
-// raté en dernier.
+// (eclaireuse.ts) : une ligne JSON, EN TOUT DERNIER. Seule la dernière ligne
+// non vide fait foi (une clôture de bloc « ``` » qui la suit est tolérée, comme
+// la puce ou les accents graves dont un modèle l'habille). Une ligne-marqueur
+// ailleurs — citée d'un diff hostile qui en contenait une toute prête,
+// « valide » et sans constat — ne décide JAMAIS, ni à la place du marqueur
+// du relecteur ni À CÔTÉ de lui (citée dans un bloc après le sien) : une
+// réponse qui porte plus d'une ligne-marqueur est `illisible`, lue en texte
+// libre, et contestée. Prendre « la dernière ligne qui commence par
+// le marqueur » laissait un relecteur qui CITAIT l'injection, écrivait
+// « conteste » et oubliait son propre marqueur… approuver la production.
 //
 // Il n'est lu QUE dans le texte final du relecteur (`finalText`), jamais dans
 // ses logs : Codex y répète la consigne, qui contient un exemple de marqueur.
@@ -49,12 +54,17 @@
 // valides d'un marqueur en partie faux perdrait en silence celui qui ne
 // l'était pas — peut-être le seul majeur. L'écart est consigné
 // (`marqueur: 'illisible'` dans le verdict) : une critique retombée en texte
-// libre se voit.
+// libre se voit. Et elle n'APPROUVE jamais (`lireAvis`) : le marqueur écarté
+// portait peut-être le seul majeur — une sévérité en anglais (« major »), un
+// critère hors grille — et la prose « valide » qui l'accompagne ne dit rien de
+// lui. Pire, le JSON écarté contient lui-même le mot « valide » : lu en texte
+// libre, il approuvait la production qu'il contestait.
 //
 // Module PUR, sans I/O : la Reine lit et agrège, le dashboard compte les
 // critères, avec les mêmes fonctions.
 
 import { champSurUneLigne } from './donnees-non-fiables.js';
+import { COUPURE_TEXTE_FINAL } from './protocol.js';
 
 /** Du plus grave au plus léger : l'ordre d'affichage et de survie aux bornes. */
 export const SEVERITES = ['bloquant', 'majeur', 'mineur', 'info'] as const;
@@ -182,7 +192,10 @@ export function lireConstats(brut: unknown): Constat[] | null {
 export type LectureMarqueur =
   /** Aucune ligne ne commence par le marqueur : une critique libre. */
   | { readonly etat: 'absent' }
-  /** La dernière ligne-marqueur ne respecte pas le contrat : lue en texte libre. */
+  /**
+   * Un marqueur est là mais ne décide pas : mal formé, hors grille, pas en
+   * dernière ligne, ou coupé avec le texte. La réponse est lue en texte libre.
+   */
   | { readonly etat: 'illisible' }
   | {
       readonly etat: 'lu';
@@ -196,7 +209,43 @@ export const MARQUEUR_CRITIQUE = 'HIVE_CRITIQUE';
 // `[\s\S]` et non `.` : `.` ne traverse ni U+2028 ni U+2029, qu'un modèle
 // peut écrire bruts dans une chaîne JSON — le marqueur serait lu illisible
 // pour un séparateur invisible (voir la même leçon dans `lireAvis`).
-const LIGNE_MARQUEUR = new RegExp(`^\\s*${MARQUEUR_CRITIQUE}[ \\t]+(\\{[\\s\\S]*\\})\\s*$`);
+const LIGNE_MARQUEUR = new RegExp(`^${MARQUEUR_CRITIQUE}[ \\t]+(\\{[\\s\\S]*\\})$`);
+
+/** Une clôture de bloc de code seule sur sa ligne — tolérée APRÈS le marqueur. */
+const CLOTURE_DE_BLOC = /^\s*(?:`{3,}|~{3,})\s*$/;
+
+/**
+ * La ligne sans l'habillage qu'un modèle lui met : puce ou numéro de liste,
+ * accents graves de code en ligne. `HIVE_CRITIQUE {…}` entre accents graves
+ * est un marqueur ; sans ce retrait il était ABSENT — ses constats majeurs
+ * perdus sans que rien (ni `illisible`, ni la War Room) ne le signale.
+ */
+function sansHabillage(ligne: string): string {
+  return ligne
+    .trim()
+    .replace(/^(?:[-*•]|\d+[.)])\s+/, '')
+    .replace(/^`+|`+$/g, '')
+    .trim();
+}
+
+/** Une ligne qui SE DONNE pour un marqueur, qu'elle soit lisible ou non. */
+export function estLigneMarqueur(ligne: string): boolean {
+  return sansHabillage(ligne).startsWith(MARQUEUR_CRITIQUE);
+}
+
+/**
+ * La dernière ligne d'un texte coupé (`borneTexteFinal`) commence juste après
+ * la coupe et porte une clé du contrat : la coupe a traversé un marqueur trop
+ * long, dont la tête est perdue. Ce n'est pas « aucun marqueur » — ses
+ * constats, peut-être majeurs, sont là, illisibles.
+ */
+function marqueurCoupe(lignes: readonly string[], derniere: number): boolean {
+  return (
+    derniere > 0 &&
+    lignes[derniere - 1]!.trim() === COUPURE_TEXTE_FINAL &&
+    /"(?:verdict|findings|severite|critere|preuve)"\s*:/.test(lignes[derniere]!)
+  );
+}
 
 /**
  * Lit le marqueur final d'une réponse de relecteur. Ne lève jamais.
@@ -206,15 +255,22 @@ const LIGNE_MARQUEUR = new RegExp(`^\\s*${MARQUEUR_CRITIQUE}[ \\t]+(\\{[\\s\\S]*
  */
 export function lireMarqueurCritique(texte: string): LectureMarqueur {
   const lignes = texte.split(/\r?\n/);
-  let derniere: string | undefined;
-  for (let i = lignes.length - 1; i >= 0; i--) {
-    if (lignes[i]!.trimStart().startsWith(MARQUEUR_CRITIQUE)) {
-      derniere = lignes[i]!;
-      break;
-    }
-  }
-  if (derniere === undefined) return { etat: 'absent' };
+  let i = lignes.length - 1;
+  while (i >= 0 && (lignes[i]!.trim() === '' || CLOTURE_DE_BLOC.test(lignes[i]!))) i--;
   const illisible = { etat: 'illisible' } as const;
+  const derniere = i >= 0 ? sansHabillage(lignes[i]!) : '';
+  if (!derniere.startsWith(MARQUEUR_CRITIQUE)) {
+    // Un marqueur AILLEURS qu'en dernière ligne ne décide pas — mais il se
+    // voit : `illisible`, pas `absent`.
+    return lignes.some(estLigneMarqueur) || marqueurCoupe(lignes, i)
+      ? illisible
+      : { etat: 'absent' };
+  }
+  // UNE seule ligne-marqueur : une seconde, n'importe où plus haut, dit qu'un
+  // marqueur a été CITÉ — le relecteur a recopié celui, tout prêt, d'un diff
+  // hostile, puis l'a refermé dans un bloc de code après le sien. Lequel est
+  // le sien ne se devine pas : aucun ne décide, et l'avis illisible conteste.
+  if (lignes.slice(0, i).some(estLigneMarqueur)) return illisible;
   const m = LIGNE_MARQUEUR.exec(derniere);
   if (!m) return illisible;
   let brut: unknown;

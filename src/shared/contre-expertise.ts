@@ -34,6 +34,7 @@ import {
   CRITERES,
   type Constat,
   constatBloquant,
+  estLigneMarqueur,
   lireMarqueurCritique,
   MARQUEUR_CRITIQUE,
   ordonnerConstats,
@@ -478,36 +479,101 @@ export const MOTIF_RELECTURE_SANS_TEXTE_FINAL =
  * ─── LE MARQUEUR `HIVE_CRITIQUE` D'ABORD ─────────────────────────────────────
  *
  * Quand la réponse se termine par un marqueur lisible (critique-structuree.ts),
- * c'est LUI le verdict, et la prose autour n'est plus lue : un « je ne
- * conteste pas ce choix » au détour d'une phrase ne relance plus le
- * producteur, et une objection listée en prose ET en constat ne compte pas
- * deux fois. Ses constats bloquants ou majeurs deviennent les objections ; ses
- * remarques (mineur, info) restent des constats, qui ne contestent pas. Un
- * marqueur mal formé ou coupé ne décide rien : la réponse est lue en texte
- * libre, avec les règles ci-dessus, et l'avis le dit (`marqueur: illisible`).
- * La coupe d'un texte trop long épargne le marqueur : il vit dans la FIN, et
- * `borneTexteFinal` garde la fin.
+ * c'est LUI le verdict : un « je ne conteste pas ce choix » au détour d'une
+ * phrase ne relance plus le producteur, et une objection listée en prose ET en
+ * constat ne compte pas deux fois. Ses constats bloquants ou majeurs deviennent
+ * les objections ; ses remarques (mineur, info) restent des constats, qui ne
+ * contestent pas.
+ *
+ * Une exception, dans le sens qui fait REGARDER : la consigne demande aussi le
+ * verdict en PREMIÈRE ligne. Un « conteste » posé là, suivi d'objections, sous
+ * un marqueur « valide » sans constat bloquant, est une réponse
+ * contradictoire — et on ne transforme pas en feu vert un verdict écrit qui
+ * demande de regarder. Elle est contestée, avec les objections de la prose
+ * (ou, sans elles, la contradiction elle-même).
+ *
+ * Un marqueur ILLISIBLE (mal formé, hors grille, pas en dernière ligne, coupé)
+ * ne décide rien, et n'approuve JAMAIS : la prose — sans aucune ligne-marqueur,
+ * dont le JSON contient le mot « valide » — est lue en texte libre ; si elle
+ * approuve, l'avis est contesté quand même, parce que le marqueur écarté
+ * portait peut-être le seul défaut majeur. L'avis le dit (`marqueur:
+ * illisible`).
  */
 export function lireAvis(nodeId: string, agentType: string, texte: string): Avis {
   const marqueur = lireMarqueurCritique(texte);
-  if (marqueur.etat === 'lu') {
+  if (marqueur.etat === 'absent') return lireAvisLibre(nodeId, agentType, texte);
+  const prose = texte
+    .split(/\r?\n/)
+    .filter((l) => !estLigneMarqueur(l))
+    .join('\n');
+  const libre = lectureLibre(prose);
+  if (marqueur.etat === 'illisible') {
+    // Une prose qui conteste d'elle-même garde sa lecture ; qu'elle approuve
+    // ou ne dise rien, c'est le marqueur écarté qui fait contester.
     return {
       nodeId,
       agentType,
-      valide: !marqueur.conteste,
-      objections: marqueur.constats.filter(constatBloquant).map(texteConstat),
-      marqueur: { etat: 'lu', constats: marqueur.constats },
+      valide: false,
+      objections:
+        libre.verdict === 'conteste' && libre.objections.length > 0
+          ? libre.objections
+          : [OBJECTION_MARQUEUR_ILLISIBLE, ...libre.objections],
+      marqueur: { etat: 'illisible' },
     };
   }
-  const libre = lireAvisLibre(nodeId, agentType, texte);
-  return marqueur.etat === 'illisible' ? { ...libre, marqueur: { etat: 'illisible' } } : libre;
+  const contredit = !marqueur.conteste && contesteEnPremiereLigne(prose);
+  const bloquants = marqueur.constats.filter(constatBloquant).map(texteConstat);
+  // Une contestation garde toujours un MOTIF : ses constats bloquants, sinon
+  // les objections de sa prose. Un « conteste » dont le marqueur ne relève que
+  // des remarques renverrait le producteur à l'aveugle — une tentative brûlée
+  // sans savoir quoi corriger (critique de reprise, #488).
+  const valide = !marqueur.conteste && !contredit;
+  let objections = bloquants;
+  if (!valide && objections.length === 0) objections = libre.objections;
+  if (contredit && objections.length === 0) objections = [OBJECTION_VERDICT_CONTRADICTOIRE];
+  return {
+    nodeId,
+    agentType,
+    valide,
+    objections,
+    marqueur: { etat: 'lu', constats: marqueur.constats },
+  };
+}
+
+const OBJECTION_MARQUEUR_ILLISIBLE =
+  'Marqueur HIVE_CRITIQUE illisible (mal formé, hors grille, pas en dernière ligne ou ' +
+  'coupé) : ses constats n’ont pas pu être lus. Compté comme contesté — un avis lu en ' +
+  'partie ne vaut pas un feu vert.';
+
+const OBJECTION_VERDICT_CONTRADICTOIRE =
+  'Verdict contradictoire : « conteste » en première ligne, marqueur « valide » sans ' +
+  'constat bloquant. Compté comme contesté — un verdict écrit qui demande de regarder ' +
+  'n’est jamais un feu vert.';
+
+/**
+ * La première ligne non vide COMMENCE par « conteste » (« Contesté. »,
+ * « **conteste** ») — là où la consigne pose le verdict. Pas un « je ne
+ * conteste pas » au détour d'une phrase.
+ */
+function contesteEnPremiereLigne(prose: string): boolean {
+  const premiere = prose.split(/\r?\n/).find((l) => l.trim() !== '') ?? '';
+  const nu = premiere.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+  return /^[^\p{L}\p{N}]*conteste\b/u.test(nu);
 }
 
 /** Au-delà, ce n'est plus une liste d'objections, c'est un déversement. */
 const OBJECTIONS_MAX = 20;
 
+/** Ce que la prose dit : son verdict (fermé), et ses objections, une par ligne à puce. */
+interface LectureLibre {
+  readonly verdict: 'valide' | 'conteste' | 'illisible';
+  /** Le texte porte la coupe de `borneTexteFinal` : « valide » n'a compté qu'en première ligne. */
+  readonly coupe: boolean;
+  readonly objections: string[];
+}
+
 /** La lecture libre (voir `lireAvis`) : « valide » ou « conteste », puis une objection par ligne. */
-function lireAvisLibre(nodeId: string, agentType: string, texte: string): Avis {
+function lectureLibre(texte: string): LectureLibre {
   const lignes = texte.split(/\r?\n/);
   const objections: string[] = [];
   for (const ligne of lignes) {
@@ -544,13 +610,19 @@ function lireAvisLibre(nodeId: string, agentType: string, texte: string): Avis {
   // « contest » n'en portent dans aucune forme française. Une ligne qu'aucun
   // test ne peut tuer est du décor — elle est partie.
   const nu = (t: string): string => t.normalize('NFD').toLowerCase();
-  if (/\bconteste\b/.test(nu(texte))) return { nodeId, agentType, valide: false, objections };
   const coupe = lignes.some((l) => l.trim() === COUPURE_TEXTE_FINAL);
+  if (/\bconteste\b/.test(nu(texte))) return { verdict: 'conteste', coupe, objections };
   const premiere = lignes.find((l) => l.trim() !== '') ?? '';
-  if (/\bvalide\b/.test(nu(coupe ? premiere : texte))) {
-    return { nodeId, agentType, valide: true, objections };
-  }
+  const verdict = /\bvalide\b/.test(nu(coupe ? premiere : texte)) ? 'valide' : 'illisible';
+  return { verdict, coupe, objections };
+}
 
+/** La lecture libre rendue en avis — un verdict illisible y est une contestation. */
+function lireAvisLibre(nodeId: string, agentType: string, texte: string): Avis {
+  const { verdict, coupe, objections } = lectureLibre(texte);
+  if (verdict !== 'illisible') {
+    return { nodeId, agentType, valide: verdict === 'valide', objections };
+  }
   return {
     nodeId,
     agentType,

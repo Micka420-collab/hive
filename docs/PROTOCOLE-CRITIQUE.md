@@ -85,13 +85,23 @@ Gardiennes l'inspectent (`clean`, `suspect`, `hollow`).
     jamais** : ce sont des remarques, affichées et transmises, qui ne rouvrent
     pas la production. Un `conteste` écrit reste une contestation.
   - Le marqueur n'est lu **que** dans la réponse finale du relecteur
-    (`finalText`), jamais dans ses logs ; la **dernière** ligne qui commence
-    par `HIVE_CRITIQUE` fait foi. Lu, il décide seul : la prose autour n'est
-    plus lue.
-  - Un marqueur mal formé (JSON cassé, valeur hors grille, preuve absente,
-    plus d'une ligne) est écarté **en entier** — jamais lu à moitié — et la
-    réponse se lit en texte libre : `conteste` l'emporte, un verdict illisible
-    compte comme contesté. Le verdict le consigne (`marqueur: "illisible"`).
+    (`finalText`), jamais dans ses logs, et **seulement en dernière ligne non
+    vide** (une clôture de bloc ` ``` ` après lui, une puce ou des accents
+    graves autour sont tolérés). Une ligne `HIVE_CRITIQUE` ailleurs — citée
+    d'un diff qui en contenait une toute prête — ne décide jamais, même
+    APRÈS le marqueur du relecteur : plus d'une ligne-marqueur, et le
+    marqueur est illisible. Lu, il décide ; la prose n'est plus lue,
+    sauf un `conteste` posé en **première ligne** : sous un marqueur `valide`
+    sans constat bloquant, cette réponse contradictoire est contestée, avec
+    les objections de la prose. Une contestation garde toujours un motif :
+    sans constat bloquant, ce sont les objections de la prose.
+  - Un marqueur mal formé (JSON cassé, valeur hors grille — `major` ou
+    `security` compris —, preuve absente, plus d'une ligne, pas en dernière
+    ligne, coupé avec un texte trop long) est écarté **en entier** — jamais lu
+    à moitié. La prose, sans ligne-marqueur, se lit en texte libre ; un
+    `conteste` y garde ses objections, et sinon l'avis est **contesté quand
+    même** : le marqueur écarté portait peut-être le seul défaut majeur. Le
+    verdict le consigne (`marqueur: "illisible"`).
   - Sans marqueur, la lecture libre s'applique telle quelle.
 
 - **L'attente :** une relecture dont la famille reste hors ligne
