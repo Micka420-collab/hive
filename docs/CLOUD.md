@@ -112,7 +112,7 @@ docker compose -f docker-compose.cloud.yml up -d --wait
 
 - Le **Checkout Stripe hébergé** depuis le tableau de bord (lien à coller depuis Stripe).
 - Le **provisionnement automatique de VPS** (le fournisseur livré est manuel : instructions + billet).
-- Le **filtre des destinations de clonage**. L'image porte git (la Reine clone les dépôts des projets pour le Rayon) : tout compte authentifié peut donc faire émettre à la Reine une requête git vers l'adresse qu'il donne en `repoUrl` — y compris une adresse interne au réseau du serveur (un autre service du réseau Docker, `169.254.169.254`). Ce sont des requêtes aveugles, de forme git (`/info/refs?service=git-upload-pack`), et une Reine Cloud posée sur l'hôte avait déjà git ; mais tant que ce filtre manque, ne posez pas Hive Cloud dans un réseau où une telle requête ouvre quelque chose.
+- Le **filtre des destinations de clonage**. L'image porte git (la Reine clone les dépôts des projets pour le Rayon) : tout compte authentifié peut donc faire émettre à la Reine une requête git vers l'adresse qu'il donne en `repoUrl` — y compris une adresse interne au réseau du serveur (un autre service du réseau Docker, `169.254.169.254`). Ce sont des requêtes aveugles, de forme git (`/info/refs?service=git-upload-pack`), et une Reine Cloud posée sur l'hôte avait déjà git ; mais tant que ce filtre manque (#521), ne posez pas Hive Cloud dans un réseau où une telle requête ouvre quelque chose.
 - Un **compte npm**. Pas d'image GHCR officielle non plus, et c'est une décision : l'image se construit chez l'opérateur, depuis le dépôt qu'il a sous les yeux.
 
 ## 7. Ce que la CI prouve, à chaque PR
