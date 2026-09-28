@@ -295,8 +295,9 @@ npm run cli -- mind                         # recent memories
 
 The router only learns from what it chose: two models never meet on the same
 task. The **shadow bench**, enabled per project, has a small testable task,
-drawn by lot (5% by default), replayed by a **second model** in its own
-workspace. That shadow is **never delivered**: no delivery, no merge, no
+drawn by lot (5% by default), replayed by a **second model** in a worker's
+isolated sandbox (bubblewrap or a container, without the host credentials).
+That shadow is **never delivered**: no delivery, no merge, no
 report. Both productions go through the sandbox validations, the Gardiennes,
 the counter-review and the Evaluator. **The project's tests** decide, and the
 counter-review only sets the confidence.

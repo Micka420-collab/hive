@@ -193,8 +193,8 @@ export function BancOmbre({ projectId }: { projectId: string }) {
       </h3>
       <p className="essaim-intro">
         {t(
-          'La ruche fait refaire une petite tâche testable par un second modèle, dans son propre atelier, et compare les deux sur les tests du projet. L’ombre ne se livre jamais, et ses comparaisons ne changent pas encore le routing : elles se lisent dans le registre Genome.',
-          'The hive has a second model redo a small testable task in its own workspace, and compares both on the project’s tests. The shadow is never delivered, and its comparisons do not change routing yet: read them in the Genome register.',
+          'La ruche fait refaire une petite tâche testable par un second modèle, dans le bac isolé d’une ouvrière, et compare les deux sur les tests du projet. L’ombre ne se livre jamais, et ses comparaisons ne changent pas encore le routing : elles se lisent dans le registre Genome.',
+          'The hive has a second model redo a small testable task in a worker’s isolated sandbox, and compares both on the project’s tests. The shadow is never delivered, and its comparisons do not change routing yet: read them in the Genome register.',
         )}
       </p>
 

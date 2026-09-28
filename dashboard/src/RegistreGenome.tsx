@@ -206,8 +206,7 @@ function SectionOmbre({ banc, t }: { banc: BancOmbreGenome; t: Translate }) {
               >
                 <thead>
                   <tr>
-                    <th scope="col">{t('Modèle', 'Model')}</th>
-                    <th scope="col">{t('Catégorie', 'Category')}</th>
+                    <th scope="col">{t('Modèle · catégorie', 'Model · category')}</th>
                     <th scope="col" title={t('dont comme ombre', 'of which as the shadow')}>
                       {t('Comparaisons', 'Comparisons')}
                     </th>
@@ -228,14 +227,22 @@ function SectionOmbre({ banc, t }: { banc: BancOmbreGenome; t: Translate }) {
                 <tbody>
                   {banc.lignes.map((l) => (
                     <tr key={`${l.modele}/${l.categorie}`} data-testid="genome-ombre-ligne">
-                      <td className="genome-modele">{l.modele}</td>
-                      <td>{l.categorie}</td>
+                      {/* La catégorie SOUS le modèle, pas une colonne : dans la
+                          colonne étroite de l'Essaim, une colonne de plus
+                          poussait « Tests » et « Confiance » hors du cadre. */}
+                      <td>
+                        <span className="genome-modele">{l.modele}</span>
+                        <span className="genome-exacts">{l.categorie}</span>
+                      </td>
                       <td>
                         {l.comparaisons}
                         {t(` (dont ${l.commeOmbre} en ombre)`, ` (${l.commeOmbre} as shadow)`)}
                       </td>
                       <td>
-                        ▲ {l.victoires} · = {l.egalites} · ▼ {l.defaites} · ? {l.indecises}
+                        <span className="genome-compte">▲ {l.victoires}</span> ·{' '}
+                        <span className="genome-compte">= {l.egalites}</span> ·{' '}
+                        <span className="genome-compte">▼ {l.defaites}</span> ·{' '}
+                        <span className="genome-compte">? {l.indecises}</span>
                       </td>
                       <td>
                         {l.confiance.haute} · {l.confiance.moyenne} · {l.confiance.faible}

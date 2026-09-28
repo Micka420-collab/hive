@@ -185,7 +185,7 @@ c'était les perdre en une nuit sur une ruche occupée. Elles vivent aussi
 longtemps que leurs tâches (30 jours).
 
 <p align="center">
-  <img src="images/banc-ombre/registre-genome.png" width="420" alt="Registre Genome : sous les lignes de production, la section Banc d'ombre de provenance shadow, deux modèles comparés sur deux tâches — une égalité et une originale meilleure, confiance haute.">
+  <img src="images/banc-ombre/registre-genome.png" width="420" alt="Registre Genome : sous les lignes de production, la section Banc d'ombre de provenance shadow, deux modèles comparés sur deux tâches — une égalité de confiance haute, et une originale meilleure de confiance faible, l'ombre ayant été contestée.">
 </p>
 
 Captures prises sur une vraie Reine : deux nœuds WebSocket déclarent leurs

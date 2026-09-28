@@ -3269,6 +3269,18 @@ button.mc-cell:focus-visible {
   padding-top: 0.6rem;
   border-top: 1px solid var(--border, rgba(127, 127, 127, 0.25));
 }
+/* Ses comptes REPLIENT dans la colonne étroite de l'Essaim : sur une ligne,
+   « Tests » et « Confiance » — les colonnes qui disent le résultat —
+   sortaient du cadre et ne se lisaient qu'en faisant défiler. Le modèle et
+   chaque compte restent d'un seul tenant. */
+.genome-ombre .genome-table th,
+.genome-ombre .genome-table td {
+  white-space: normal;
+}
+.genome-ombre .genome-modele,
+.genome-ombre .genome-compte {
+  white-space: nowrap;
+}
 .genome-ombre h3 {
   margin: 0 0 0.4rem;
   font-size: 0.9rem;

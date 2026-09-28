@@ -330,7 +330,8 @@ npm run cli -- mind                          # souvenirs récents
 L'Aiguillage n'apprend que de ce qu'il a choisi : deux modèles ne se mesurent
 jamais sur la même tâche. Le **banc d'ombre**, allumé projet par projet, fait
 rejouer une petite tâche testable, tirée au sort (5 % par défaut), par un
-**second modèle**, dans son propre atelier. Cette ombre **ne se livre jamais** :
+**second modèle**, dans le bac isolé d'une ouvrière (bubblewrap ou conteneur,
+sans les identifiants de l'hôte). Cette ombre **ne se livre jamais** :
 ni livraison, ni merge, ni rapport. Les deux productions passent par les
 validations du bac, les Gardiennes, la contre-revue et l'Evaluator. **Les tests
 du projet** départagent, et la contre-revue ne pèse que sur la confiance.
