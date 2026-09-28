@@ -15,7 +15,8 @@
 //   · le diff est celui qu'on aurait eu sans écartement — aucune suppression
 //     fantôme, la configuration remise octet pour octet ;
 //   · git ne les ressuscite pas pendant l'exécution (`checkout`, `reset
-//     --hard`, `stash`), et une panne d'écartement REFUSE la tâche au lieu de
+//     --hard`, `stash`, ni un `pull --rebase` qui amène la version que
+//     l'auteur a poussée APRÈS l'envoi), même sous une autre casse, et une panne d'écartement REFUSE la tâche au lieu de
 //     lancer l'agent avec une configuration à moitié écartée.
 // Les bancs sans lien ni binaire tournent sur les trois OS ; ceux qui posent
 // des liens symboliques, retirent des droits ou lancent un faux CLI par
@@ -326,6 +327,68 @@ describe('git ne les ressuscite pas pendant l’exécution', () => {
     const diff = await ws.collectDiff();
     expect(diff).toContain('+modifié');
     expect(diff).not.toMatch(/\.cursor|\.claude|\.cline/);
+  });
+});
+
+describe('ni la version que l’auteur pousse APRÈS l’envoi de la tâche', () => {
+  it('`pull --rebase`, `checkout <rév>`, `reset --hard <rév>` : rien ne revient, pas même un vecteur neuf', async () => {
+    // `.clinerules/hooks` n'existe pas encore : l'auteur l'amènera par un commit.
+    const { '.clinerules/hooks/TaskStart.js': _absent, ...depart } = fichiersDuDepotPiege();
+    const depot = amont(depart);
+    const ws = await prepareWorkspace(dossierJetable(), tache('pousse-apres'), depot, [], '', [
+      ...CONFIGURATION_EXECUTEE_CURSOR,
+      ...CONFIGURATION_EXECUTEE_CLINE,
+    ]);
+    const absents = (): string[] =>
+      [...CONFIGURATION_EXECUTEE_CURSOR, ...CONFIGURATION_EXECUTEE_CLINE].filter((c) =>
+        existsSync(path.join(ws.cwd, c)),
+      );
+    ecrire(depot, '.cursor/hooks.json', '{"version":1,"hooks":{"stop":[]}}\n');
+    ecrire(depot, '.cline/hooks/PreToolUse.js', `${temoin('cline-hooks')}// v2\n`);
+    ecrire(depot, '.clinerules/hooks/TaskStart.js', temoin('clinerules-hooks'));
+    ecrire(depot, 'src/b.txt', 'amont\n');
+    git(depot, 'add', '-A');
+    git(depot, 'commit', '-q', '-m', 'hooks poussés après l’envoi');
+
+    // Une « synchronisation avec main » d'allure anodine, par le git de l'agent.
+    gitAgent(ws.cwd, 'pull', '-q', '--rebase', 'origin', 'main');
+    expect(existsSync(path.join(ws.cwd, 'src', 'b.txt'))).toBe(true);
+    expect(absents()).toEqual([]);
+    expect(gitAgent(ws.cwd, 'status', '--porcelain')).toBe('');
+    gitAgent(ws.cwd, 'checkout', '-q', 'HEAD~1');
+    expect(absents()).toEqual([]);
+    gitAgent(ws.cwd, 'reset', '-q', '--hard', 'origin/main');
+    expect(absents()).toEqual([]);
+    expect(charger('cursor', ws.cwd)).toEqual([]);
+    expect(charger('cline', ws.cwd)).toEqual([]);
+
+    // Remise : l'ORIGINAL revient, le diff ne montre que ce que l'agent a tiré.
+    const diff = await ws.collectDiff();
+    expect(diff).toContain('b/src/b.txt');
+    expect(diff).not.toMatch(/\.cursor|\.claude|\.cline/);
+  });
+
+  it('sous `core.ignorecase=true`, une variante de casse est écartée, cachée à git et remise sous SON nom', async () => {
+    // Cursor ouvre `.cursor/hooks.json` : sur un disque insensible à la casse
+    // (macOS, Windows), c'est `.Cursor/Hooks.json` qu'il lit. Les motifs de
+    // git et le déplacement doivent viser le nom RÉEL.
+    const clone = path.join(dossierJetable(), 'clone');
+    execFileSync('git', [
+      'clone',
+      '-q',
+      amont({ 'src/a.txt': 'base\n', '.Cursor/Hooks.json': '{"version":1}\n' }),
+      clone,
+    ]);
+    git(clone, 'config', 'core.ignorecase', 'true');
+    const depot = { gitDir: path.join(clone, '.git'), workTree: clone };
+    const ecartee = await ecarterConfiguration(depot, CONFIGURATION_EXECUTEE_CURSOR);
+    expect(ecartee.chemins).toEqual(['.Cursor/Hooks.json']);
+    expect(gitAgent(clone, 'ls-files', '-v', '--', '.Cursor')).toBe('S .Cursor/Hooks.json\n');
+    expect(gitAgent(clone, 'status', '--porcelain')).toBe('');
+    gitAgent(clone, 'checkout', '--', '.');
+    expect(existsSync(path.join(clone, '.Cursor', 'Hooks.json'))).toBe(false);
+    ecartee.remettre();
+    expect(readdirSync(path.join(clone, '.Cursor'))).toEqual(['Hooks.json']);
   });
 });
 

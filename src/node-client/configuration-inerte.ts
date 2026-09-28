@@ -34,20 +34,35 @@
 // rien de tout cela n'apparaît comme une suppression.
 //
 // Et pour que git ne les ressuscite pas en cours de route : un `git checkout
-// -- .`, un `reset --hard` ou un `stash` de l'agent réécrivaient les fichiers
-// absents — que Cursor relit à chaque site de hook. Leurs entrées d'index
-// reçoivent `--skip-worktree` dans le `.git` DE LA TÂCHE, encore écrit par git
-// seul à cet instant : pour l'agent, `git status` est propre et aucune de ces
-// commandes ne les recrée (mesuré sur git 2.53, banc
-// tests/configuration-inerte.test.ts). Le registre de la ruche, copié AVANT, ne
-// porte pas ce bit : le diff voit tout.
+// -- .`, un `reset --hard`, un `stash` — ou un `pull --rebase` qui amène une
+// NOUVELLE version poussée par l'auteur du dépôt après l'envoi de la tâche —
+// réécrivaient les fichiers absents, que Cursor relit à chaque site de hook.
+// De simples bits `--skip-worktree` ne tenaient que tant que HEAD ne bougeait
+// pas (mesuré, git 2.53) : le `.git` DE LA TÂCHE, encore écrit par git seul à
+// cet instant, reçoit une extraction CLAIRSEMÉE (`core.sparseCheckout`, motifs
+// `/*` puis `!/<chemin>` pour CHAQUE chemin déclaré, présent ou non), que git
+// réapplique à chaque checkout, reset, pull, rebase et stash. Pour l'agent,
+// `git status` est propre. Le registre de la ruche, copié AVANT, ne porte ni
+// ces motifs ni ces bits : le diff voit tout.
+//
+// Sur un disque insensible à la casse (macOS, Windows), le dépôt peut
+// suivre `.Cursor/Hooks.json`, que Cursor ouvre sous `.cursor/hooks.json` :
+// chaque composant est résolu à son nom RÉEL sur le disque (lecture du
+// dossier) avant le déplacement, la remise en place et les motifs — et git,
+// sous `core.ignorecase=true`, compare ces motifs sans la casse.
 //
 // ─── CE QUE L'ON ACCEPTE ─────────────────────────────────────────────────────
 //
 //   · L'agent ne voit pas ces fichiers : une tâche qui DEVRAIT les modifier ne
 //     le peut pas. Il peut en créer à ces chemins — c'est alors SON code, qu'il
 //     pouvait de toute façon lancer (`--force`, `--auto-approve`) ; sa version
-//     reste à la remise en place, et le diff la montre.
+//     reste à la remise en place, et le diff la montre — même si son propre
+//     `git add` ne l'indexe pas (chemin hors de l'extraction).
+//   · Seul un `git checkout <autre révision> -- <chemins>` ou un `git restore
+//     --source=<autre révision>` réécrit un tel chemin malgré les motifs (git
+//     2.53 : l'entrée relue de l'arbre perd son bit). C'est l'agent qui
+//     demande EXPLICITEMENT d'écrire ces fichiers-là : le même cas qu'un hook
+//     qu'il écrirait lui-même.
 //   · Un composant qui est un LIEN est écarté tel quel (le lien, jamais sa
 //     cible) ; à la remise en place, un lien ou un fichier que l'agent aurait
 //     posé sur le chemin n'est jamais traversé — l'original est alors perdu
@@ -58,7 +73,15 @@
 //     écartée. Si la remise en place échoue, le diff échoue — visiblement, au
 //     lieu de livrer des suppressions que personne n'a faites.
 
-import { lstatSync, mkdirSync, readdirSync, renameSync, rmSync, type Stats } from 'node:fs';
+import {
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+  type Stats,
+} from 'node:fs';
 import path from 'node:path';
 import { gitHote, type DepotEpingle } from '../shared/git-protege.js';
 
@@ -109,19 +132,63 @@ function lstatOuRien(chemin: string): Stats | undefined {
 }
 
 /**
- * L'élément à écarter pour le chemin déclaré `relatif` : lui-même s'il existe,
- * le PREMIER composant qui est un lien (le CLI le suivrait ; on déplace le lien,
- * jamais sa cible), rien si un composant manque ou n'est pas un dossier.
+ * Le nom sous lequel `nom` existe dans `dossier` : lui-même, sinon la seule
+ * variante de casse qu'un disque insensible à la casse ouvrirait à sa place.
+ * `undefined` si rien ne correspond.
+ */
+function nomSurDisque(dossier: string, nom: string): string | undefined {
+  let entrees: string[];
+  try {
+    entrees = readdirSync(dossier);
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT' || code === 'ENOTDIR') return undefined;
+    throw e;
+  }
+  if (entrees.includes(nom)) return nom;
+  const bas = nom.toLowerCase();
+  return entrees.find((e) => e.toLowerCase() === bas);
+}
+
+/**
+ * L'élément à écarter pour le chemin déclaré `relatif`, sous ses noms RÉELS :
+ * lui-même s'il existe, le PREMIER composant qui est un lien (le CLI le
+ * suivrait ; on déplace le lien, jamais sa cible), rien si un composant manque
+ * ou n'est pas un dossier.
  */
 function elementAEcarter(racine: string, relatif: string): string | undefined {
   const parties = relatif.split('/');
-  for (let i = 1; i <= parties.length; i++) {
-    const st = lstatOuRien(path.join(racine, ...parties.slice(0, i)));
+  const reelles: string[] = [];
+  let dossier = racine;
+  for (const [i, partie] of parties.entries()) {
+    const nom = nomSurDisque(dossier, partie);
+    if (nom === undefined) return undefined;
+    reelles.push(nom);
+    dossier = path.join(dossier, nom);
+    const st = lstatOuRien(dossier);
     if (!st) return undefined;
-    if (st.isSymbolicLink() || i === parties.length) return parties.slice(0, i).join('/');
+    if (st.isSymbolicLink() || i === parties.length - 1) return reelles.join('/');
     if (!st.isDirectory()) return undefined;
   }
   return undefined;
+}
+
+/**
+ * Tient `chemins` HORS de l'arbre de la tâche pour tout git de l'agent (voir
+ * l'en-tête). Des chemins que Hive nomme lui-même ou leurs variantes de casse :
+ * aucun caractère de motif. Quelques lignes, quel que soit le nombre de
+ * fichiers suivis dessous — rien ne passe par l'argv. `reapply` pose les bits
+ * sur l'index ; l'arbre n'a plus rien à y effacer, tout a déjà été écarté.
+ */
+async function exclureDuCheckout(depot: DepotEpingle, chemins: readonly string[]): Promise<void> {
+  const info = path.join(depot.gitDir, 'info');
+  mkdirSync(info, { recursive: true });
+  const motifs = ['/*', ...chemins.map((c) => `!/${c}`)];
+  writeFileSync(path.join(info, 'sparse-checkout'), `${motifs.join('\n')}\n`);
+  await gitHote(['config', 'core.sparseCheckout', 'true'], depot);
+  // Motifs de type `.gitignore`, pas des dossiers entiers (mode « cône »).
+  await gitHote(['config', 'core.sparseCheckoutCone', 'false'], depot);
+  await gitHote(['sparse-checkout', 'reapply'], depot);
 }
 
 /**
@@ -160,26 +227,19 @@ function fusionner(source: string, destination: string): void {
 /**
  * Écarte de l'arbre de `depot` (le dépôt de la tâche, JUSTE après le clone —
  * son `.git` n'a encore été écrit que par git) les chemins `declares` qui
- * existent, et marque leurs fichiers suivis `--skip-worktree`. À appeler APRÈS
- * `poserRegistre` : le registre copie l'index, et doit le copier sans ce bit.
+ * existent, et en tient TOUS les chemins déclarés hors de l'extraction. À
+ * appeler APRÈS `poserRegistre` : le registre copie l'index et la
+ * configuration, et doit les copier sans l'extraction clairsemée.
  */
 export async function ecarterConfiguration(
   depot: DepotEpingle,
   declares: readonly string[],
 ): Promise<ConfigurationEcartee> {
   const racine = depot.workTree;
-  const trouves = declares
-    .map((relatif) => elementAEcarter(racine, relatif))
-    .filter((c): c is string => c !== undefined)
-    .sort();
-  // Un élément sous un autre déjà écarté (`.cline` lien, puis `.cline/hooks`)
-  // part avec lui.
-  const chemins = trouves.filter(
-    (c, i) => trouves.indexOf(c) === i && !trouves.some((autre) => c.startsWith(`${autre}/`)),
-  );
   const reserve = reserveDeConfiguration(racine);
   const ecartes: { relatif: string; source: string }[] = [];
-  let remis = chemins.length === 0;
+  let chemins: string[] = [];
+  let remis = false;
   const remettre = (): void => {
     if (remis) return;
     try {
@@ -197,12 +257,27 @@ export async function ecarterConfiguration(
     }
     remis = true;
   };
-  if (chemins.length === 0) return { chemins, remettre };
+  if (declares.length === 0) {
+    remis = true;
+    return { chemins, remettre };
+  }
   // Ce qui était en cours quand ça a cassé : la raison d'un refus tient en
   // 120 caractères (`LIMITS.name`) — le code d'erreur et le chemin, pas l'argv.
-  let etape = 'réserve';
+  let etape = 'recherche';
   try {
-    mkdirSync(reserve);
+    const trouves = declares
+      .map((relatif) => elementAEcarter(racine, relatif))
+      .filter((c): c is string => c !== undefined)
+      .sort();
+    // Un élément sous un autre déjà écarté (`.cline` lien, puis `.cline/hooks`)
+    // part avec lui.
+    chemins = trouves.filter(
+      (c, i) => trouves.indexOf(c) === i && !trouves.some((autre) => c.startsWith(`${autre}/`)),
+    );
+    if (chemins.length > 0) {
+      etape = 'réserve';
+      mkdirSync(reserve);
+    }
     for (const [i, relatif] of chemins.entries()) {
       etape = relatif;
       const source = path.join(reserve, String(i));
@@ -210,14 +285,8 @@ export async function ecarterConfiguration(
       ecartes.push({ relatif, source });
     }
     etape = 'index git';
-    // Des chemins que Hive nomme lui-même (préfixes des chemins déclarés) :
-    // aucune magie de pathspec possible.
-    const suivis = (await gitHote(['ls-files', '-z', '--', ...chemins], depot))
-      .split('\0')
-      .filter((f) => f !== '');
-    if (suivis.length > 0) {
-      await gitHote(['update-index', '--skip-worktree', '--', ...suivis], depot);
-    }
+    // Les chemins ABSENTS aussi : un `pull` de l'agent pourrait les amener.
+    await exclureDuCheckout(depot, [...new Set([...declares, ...chemins])]);
   } catch (e) {
     try {
       remettre();

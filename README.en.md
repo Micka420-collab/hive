@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-7087%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-7090%20passing-F6C445?labelColor=17130C)
 ![License](https://img.shields.io/badge/license-MIT-F6C445?labelColor=17130C)
 
 [🇫🇷 Français](README.md) · 🇬🇧 English · [🌐 Site](https://micka420-collab.github.io/hive/?lang=en) · [📚 Documentation](#-documentation)
@@ -271,9 +271,12 @@ runs the hooks of `.cursor/hooks.json` and, in Claude format, those of
 `.clinerules/hooks/` and `.cline/hooks/` and loads `.cline/plugins/` as code.
 The node therefore moves these paths out of the task tree before the agent
 starts — on every OS, sandboxed or not — and puts them back before the diff, so
-they never show up as deletions, and `git checkout`/`reset --hard` cannot bring
-them back mid-run. The task log says so; if moving them fails, the task is
-refused before the agent runs, with the reason.
+they never show up as deletions. A sparse checkout keeps these paths out of the
+tree for the agent's git: `checkout`, `reset --hard`, `stash` and `pull
+--rebase` do not bring them back, not even a version pushed after dispatch —
+only an explicit `checkout <revision> -- <paths>` by the agent rewrites them,
+as if it wrote them itself. The task log says so; if moving them fails, the
+task is refused before the agent runs, with the reason.
 
 ## 🛠️ Commands
 

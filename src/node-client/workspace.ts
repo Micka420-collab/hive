@@ -228,8 +228,9 @@ export async function prepareWorkspace(
     await gitHote(['checkout', '-q', '-b', branch], depotDuClone);
     baseSha = await commitDeDepart(depotDuClone);
     depot = await poserRegistre(cwd, registre, baseSha);
-    // APRÈS le registre, qui copie l'index sans `--skip-worktree` ; AVANT
-    // l'agent, tant que le `.git` de la tâche n'a été écrit que par git.
+    // APRÈS le registre, qui copie index et configuration sans l'extraction
+    // clairsemée ; AVANT l'agent, tant que le `.git` de la tâche n'a été écrit
+    // que par git.
     ecartee = await ecarterConfiguration(depotDuClone, configurationAgent);
   }
 

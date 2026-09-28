@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-7087%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-7090%20passing-F6C445?labelColor=17130C)
 ![Licence](https://img.shields.io/badge/licence-MIT-F6C445?labelColor=17130C)
 
 🇫🇷 Français · [🇬🇧 English](README.en.md) · [🌐 Site](https://micka420-collab.github.io/hive/) · [📚 Documentation](#-documentation)
@@ -428,9 +428,12 @@ Claude, de `.claude/settings.json` et `.claude/settings.local.json` ; Cline lanc
 ceux de `.clinerules/hooks/` et `.cline/hooks/` et charge `.cline/plugins/`
 comme du code. Le nœud écarte donc ces chemins de l'arbre de la tâche avant
 l'agent — sur tous les systèmes, bac ou pas — et les remet avant le diff : ils
-n'y apparaissent pas comme des suppressions, et `git checkout`/`reset --hard`
-ne les ressuscitent pas en cours de route. Le journal de la tâche le dit ; si
-l'écartement échoue, la tâche est refusée avant l'agent, raison à l'appui.
+n'y apparaissent pas comme des suppressions. Une extraction clairsemée tient
+ces chemins hors de l'arbre pour le git de l'agent : `checkout`, `reset
+--hard`, `stash`, `pull --rebase` ne les ramènent pas, pas même dans une
+version poussée après l'envoi — seul un `checkout <révision> -- <chemins>`
+explicite de l'agent les réécrit, comme s'il les écrivait lui-même. Le journal
+de la tâche le dit ; si l'écartement échoue, la tâche est refusée avant l'agent, raison à l'appui.
 
 ## 🛠️ Commandes
 
