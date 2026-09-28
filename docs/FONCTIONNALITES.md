@@ -285,6 +285,8 @@ npm run cli -- livrer-local <projectId> --prolonger=1         # corriger : avanc
   `HIVE_GARDE_PR=off` l'éteint ; l'écran des livraisons montre, par PR, son
   dernier geste et le compteur.
 
+  ![Projets → Ce que devient le travail livré : la ligne du garde, par pull request](images/garde-pr-bureau.png)
+
 ## ⟲ Missions rejouables — le Time Travel
 
 Le Time-Lapse de la Chronique **remonte** le temps ; une mission rejouable se
