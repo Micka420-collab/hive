@@ -9,7 +9,12 @@ import type { Task } from '../shared/types.js';
 import { EFFORTS, type Effort } from '../shared/effort.js';
 import { lancerStatut, type LanceurStatut } from '../node-client/agent-detect.js';
 import { assertRealExecutionAllowed, runCommandStreaming } from './exec.js';
-import { configurationDuDepot, consignesDuDepot } from './consignes-depot.js';
+import {
+  CONSIGNES_CLAUDE,
+  configurationDuDepot,
+  consignesDuDepot,
+  noteLiensNonSuivis,
+} from './consignes-depot.js';
 import {
   createDelegationBridge,
   resultatSansPont,
@@ -219,7 +224,7 @@ export function createClaudeCodeAdapter(
         // elles entreraient dans le diff. Le nœud fournit toujours un pont ;
         // sans lui (adaptateur appelé seul), elles restent écartées comme le
         // reste, et la note ne les annonce pas reprises.
-        const consignes = consignesDuDepot(ctx.cwd);
+        const consignes = consignesDuDepot(ctx.cwd, CONSIGNES_CLAUDE);
         const consignesPath =
           bridge && consignes ? writeClaudeConsignes(bridge, consignes) : undefined;
         const note = noteConfigurationIgnoree(
@@ -227,6 +232,8 @@ export function createClaudeCodeAdapter(
           consignesPath !== undefined,
         );
         if (note) ctx.onProgress({ log: note });
+        const liens = noteLiensNonSuivis(ctx.cwd, CONSIGNES_CLAUDE);
+        if (liens) ctx.onProgress({ log: liens });
         // --verbose est requis par Claude Code pour stream-json en mode -p.
         //
         // LE PROMPT EST EN DERNIER, DERRIÈRE `--`, ET CE N'EST PAS COSMÉTIQUE :

@@ -443,7 +443,9 @@ demander, et un `ANTHROPIC_BASE_URL` du dépôt recevait la clé du membre. Le
 `CLAUDE.md` et les `.claude/rules` du dépôt sont relus par Hive comme simples
 données, bornées, ajoutées au prompt système ; le journal de la tâche le dit.
 Choix assumé : hors du bac, les hooks et serveurs MCP **du membre** lui-même
-sont coupés aussi pour les tâches de la ruche.
+sont coupés aussi pour les tâches de la ruche. Codex, lui, voit le dépôt comme
+non fiable (ni son `.codex/config.toml`, ni ses crochets) ; son `AGENTS.md` lui
+est transmis de la même façon, en simple donnée bornée.
 
 Cursor et Cline n'ont pas de tel interrupteur : Cursor (`--force` vaut
 confiance du dossier) lance les hooks de `.cursor/hooks.json` et ceux, au format
