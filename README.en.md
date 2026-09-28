@@ -263,7 +263,9 @@ repository `ANTHROPIC_BASE_URL` received the member's key. The repository's
 `CLAUDE.md` and `.claude/rules` are re-read by Hive as bounded plain data
 appended to the system prompt; the task log says so. Deliberate trade-off:
 outside the sandbox, the member's **own** hooks and MCP servers are off too for
-hive tasks.
+hive tasks. Codex sees the repository as untrusted (neither its
+`.codex/config.toml` nor its hooks load); its `AGENTS.md` reaches Codex the same
+way, as bounded plain data.
 
 ## 🛠️ Commands
 

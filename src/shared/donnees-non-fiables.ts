@@ -164,7 +164,17 @@ export function blocDonnees<L>(options: OptionsBlocDonnees<L>): string {
  * Tronque un champ texte pour libérer au moins `surplus` caractères, ellipse
  * comprise. Fabrique de `raccourcir` : les appelants n'ont plus qu'à désigner
  * leur champ volumineux.
+ *
+ * Jamais entre les deux moitiés d'une paire de substitution (emoji, idéogramme
+ * hors du plan de base) : la moitié restée seule, JSON.stringify l'écrit
+ * `\udXXX` — SIX caractères pour un. La ligne s'allongeait au lieu de
+ * raccourcir, et `blocDonnees`, qui compte sur « couper k caractères en
+ * retire au moins k », rendait alors un bloc VIDE : un CLAUDE.md en emoji
+ * disparaissait une fois sur deux selon la parité du budget.
  */
 export function tronquerChamp(valeur: string, surplus: number): string {
-  return `${valeur.slice(0, Math.max(0, valeur.length - surplus - 1))}…`;
+  let fin = Math.max(0, valeur.length - surplus - 1);
+  const avant = valeur.charCodeAt(fin - 1);
+  if (avant >= 0xd800 && avant <= 0xdbff) fin -= 1;
+  return `${valeur.slice(0, fin)}…`;
 }

@@ -7,7 +7,7 @@
 import { DEFAULT_TOKEN } from '../shared/types.js';
 import type { Task } from '../shared/types.js';
 import { assertRealExecutionAllowed, runCommandStreaming } from './exec.js';
-import { configurationDuDepot, consignesDuDepot } from './consignes-depot.js';
+import { CONSIGNES_CLAUDE, configurationDuDepot, consignesDuDepot } from './consignes-depot.js';
 import {
   createDelegationBridge,
   resultatSansPont,
@@ -177,7 +177,7 @@ export function createClaudeCodeAdapter(
         // elles entreraient dans le diff. Le nœud fournit toujours un pont ;
         // sans lui (adaptateur appelé seul), elles restent écartées comme le
         // reste, et la note ne les annonce pas reprises.
-        const consignes = consignesDuDepot(ctx.cwd);
+        const consignes = consignesDuDepot(ctx.cwd, CONSIGNES_CLAUDE);
         const consignesPath =
           bridge && consignes ? writeClaudeConsignes(bridge, consignes) : undefined;
         const note = noteConfigurationIgnoree(

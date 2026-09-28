@@ -312,10 +312,15 @@ s'y ouvrir. **Sans bac, Codex a besoin du sien**, et donc :
 Le dépôt de la tâche est **toujours** lancé comme non fiable (`untrusted`) :
 son `.codex/config.toml`, ses crochets et ses règles ne sont jamais chargés,
 et Codex n'inscrit plus le répertoire de chaque tâche dans votre
-`config.toml`. Contrepartie, dite : **l'`AGENTS.md` du dépôt n'atteint plus
-Codex** (Codex ne le lit que pour un dépôt de confiance). Ses conventions ne
-lui sont pas transmises tant que Hive ne les reprend pas comme simple donnée,
-comme il le fait déjà pour le `CLAUDE.md` de Claude Code.
+`config.toml`. Codex ne lit l'`AGENTS.md` que d'un dépôt de confiance : Hive
+le relit donc lui-même (celui de la racine, ou son `AGENTS.override.md`, sans
+suivre de lien, borné) et le transmet à Codex comme **simple donnée**, par
+`-c developer_instructions` — comme il le fait pour le `CLAUDE.md` de Claude
+Code ; le journal de la tâche le dit. Ceux des sous-dossiers, Codex les lit
+lui-même quand il y travaille. Contrepartie, dite : pour ces tâches-là, des
+`developer_instructions` posées dans votre propre `config.toml` sont
+remplacées ; votre `AGENTS.md` personnel (`~/.codex/AGENTS.md`) s'applique
+toujours.
 
 ## Si quelque chose ne va pas
 

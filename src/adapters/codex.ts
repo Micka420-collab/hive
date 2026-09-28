@@ -8,6 +8,7 @@ import { LIMITS } from '../shared/protocol.js';
 import { texteDEchec } from '../shared/texte-d-echec.js';
 import { DEFAULT_TOKEN } from '../shared/types.js';
 import type { Task } from '../shared/types.js';
+import { CONSIGNES_CODEX, consignesDuDepot } from './consignes-depot.js';
 import { assertRealExecutionAllowed, runCommand, runCommandFlux } from './exec.js';
 import {
   codexMcpOverrides,
@@ -66,9 +67,9 @@ const CODEX_TIMEOUT_MS = 15 * 60_000;
  * sur le répertoire que Codex voit (dans le bac : `MONTAGE`) : rien n'est
  * écrit, et la configuration du dépôt reste lettre morte, comme avant.
  *
- * COMPROMIS ACCEPTÉ : un dépôt `untrusted` ne livre pas non plus son
- * `AGENTS.md` à Codex (core/src/agents_md.rs). Le réinjecter comme simple
- * donnée bornée est un suivi, comme le `CLAUDE.md` de Claude Code.
+ * Un dépôt `untrusted` ne livre pas non plus son `AGENTS.md` à Codex
+ * (core/src/agents_md.rs) : Hive le relit lui-même, comme simple donnée
+ * bornée, et le passe par `developer_instructions` (voir `argvCodex`).
  */
 export type ExecutionCodex =
   | { sandbox: 'danger-full-access'; depot: typeof MONTAGE }
@@ -108,12 +109,35 @@ function depotNonFiable(execution: ExecutionCodex): string[] {
  * La clé du dépôt est une chaîne TOML (`JSON.stringify`, comme
  * `codexMcpOverrides`) sous la clé `projects` entière : une clé pointée
  * (`projects."/x".trust_level`) se couperait aux points du chemin.
+ *
+ * ─── LES CONSIGNES DU DÉPÔT, PAR `developer_instructions` ────────────────────
+ *
+ * `consignes` : l'`AGENTS.md` du dépôt relu comme DONNÉES
+ * (`consignes-depot.ts`), que le dépôt `untrusted` retire à Codex. Codex
+ * 0.156.0 n'a qu'un canal d'instructions en plus des siennes :
+ * `developer_instructions`, un message `developer` — celui où il range
+ * lui-même l'`AGENTS.md` d'un dépôt de confiance, et où son prompt de base
+ * dit à l'agent de le trouver. Les autres ne conviennent pas :
+ * `model_instructions_file` et `instructions` REMPLACENT le prompt de base de
+ * Codex (config_toml.rs le déconseille « STRONGLY »), et aucun ne lit un
+ * fichier en plus. La valeur voyage donc sur la ligne de commande, en chaîne
+ * TOML (`chaineToml`) ; `-c` est une couche de la CLI, pas celle du projet :
+ * la confiance du dépôt n'y change rien. Mesuré sur codex-cli 0.156.0 contre
+ * une fausse API locale : le bloc arrive en message `developer`, l'`AGENTS.md`
+ * du dépôt `untrusted`, lui, n'arrive pas.
+ *
+ * COMPROMIS ACCEPTÉ : `-c developer_instructions` remplace celles qu'un membre
+ * aurait posées dans son `config.toml`, pour les seules tâches dont le dépôt
+ * a un `AGENTS.md`. Une tâche de la ruche n'est pas une session du membre (le
+ * même choix que ses hooks, coupés pour Claude Code) ; son `AGENTS.md`
+ * personnel (`$CODEX_HOME/AGENTS.md`), lui, s'applique toujours.
  */
 export function argvCodex(
   prompt: string,
   execution: ExecutionCodex,
   modele?: string,
   bridge?: DelegationBridge,
+  consignes?: string,
 ): string[] {
   return [
     'exec',
@@ -125,10 +149,33 @@ export function argvCodex(
     ...depotNonFiable(execution),
     ...(modele ? ['--model', modele] : []),
     ...(bridge ? codexMcpOverrides(bridge) : []),
+    ...(consignes ? ['-c', `developer_instructions=${chaineToml(consignes)}`] : []),
     '--',
     prompt,
   ];
 }
+
+/**
+ * Une chaîne TOML de base (« basic string »). `JSON.stringify` en écrit
+ * presque une — guillemets, barres obliques inverses et caractères de contrôle
+ * échappés — mais laisse U+007F (DEL) brut, que TOML interdit. Une valeur que
+ * `-c` ne sait pas lire en TOML n'est pas refusée : Codex la prend alors comme
+ * texte brut, guillemets retirés et `\n` littéraux (config_override.rs,
+ * `parse_overrides`) — des consignes illisibles, sans un mot. Le bloc ne porte
+ * jamais de demi-paire de substitution : chaque ligne est déjà du JSON.
+ */
+function chaineToml(texte: string): string {
+  return JSON.stringify(texte).replaceAll('\u007f', '\\u007f');
+}
+
+/**
+ * Budget du bloc de consignes pour Codex, en caractères : la moitié de celui
+ * de Claude Code, qui le reçoit par fichier. Ici il passe sur la ligne de
+ * commande, où l'échappement TOML peut le DOUBLER, et Windows borne la ligne
+ * entière à 32 767 caractères (CreateProcess), prompt compris. Codex, lui,
+ * lirait jusqu'à 32 Kio d'`AGENTS.md` (`project_doc_max_bytes`).
+ */
+const MAX_CONSIGNES_CODEX = 8_000;
 
 /**
  * La sonde du bac de Codex : `true`, sous le MÊME bac que `codex exec
@@ -330,6 +377,13 @@ export function createCodexAdapter(token = process.env.HIVE_TOKEN ?? DEFAULT_TOK
         if (ctx.delegate && ctx.waitForDelegationResult && ctx.rendezVous) {
           bridge = await createDelegationBridge(ctx, task.id);
         }
+        // Relu sur l'hôte (`ctx.cwd`), même dans le bac : c'est le même dépôt.
+        const consignes = consignesDuDepot(ctx.cwd, CONSIGNES_CODEX, MAX_CONSIGNES_CODEX);
+        if (consignes) {
+          ctx.onProgress({
+            log: 'AGENTS.md du dépôt relu comme simple donnée (le dépôt reste non fiable pour Codex)',
+          });
+        }
         // `--` avant le prompt : sans lui, un prompt commençant par un tiret est
         // lu comme une option de `codex exec` (cf. src/adapters/prompt-argv.ts,
         // où l'injection est démontrée sur le binaire claude).
@@ -345,7 +399,7 @@ export function createCodexAdapter(token = process.env.HIVE_TOKEN ?? DEFAULT_TOK
         });
         const result = await runCommandFlux(
           'codex',
-          argvCodex(task.prompt, execution, ctx.modele, bridge),
+          argvCodex(task.prompt, execution, ctx.modele, bridge, consignes),
           ctx,
           flux,
           CODEX_TIMEOUT_MS,
