@@ -80,7 +80,13 @@ export interface FaitsGenome {
   refus: number;
   /** Interrompue sans verdict sur le modèle (nœud perdu, annulation, reprise au boot). */
   interrompues: number;
-  /** L'Evaluator a renvoyé la production en correction. */
+  /**
+   * L'Evaluator a renvoyé la production en correction (`task_retry` source
+   * `evaluator`). Une panne du bac pendant les validations (mémoire, disque,
+   * DNS, démon) n'y arrive JAMAIS : elle rend `missing`, raison
+   * `environnement` (`shared/validations-bac.ts`), et un manquant ne
+   * recommande aucune correction — ni faute au modèle, ni au Worker.
+   */
   corrections: number;
   /** Avis des relectrices croisées sur les productions de ce modèle. */
   avis: { valides: number; contestes: number; modeleProuve: number };

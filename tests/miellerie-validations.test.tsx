@@ -22,7 +22,12 @@ import { setLang } from '../dashboard/src/i18n';
 import { EvaluationPanel } from '../dashboard/src/views/Miellerie';
 import { texteControle } from '../dashboard/src/views/validations-rendu';
 import type { EvaluationResult, ValidationProvenance } from '../src/orchestrator/evaluator';
-import { ETATS_PAR_RAISON, type RaisonControle } from '../src/shared/validations-bac';
+import {
+  ETATS_PAR_RAISON,
+  PANNES_ENVIRONNEMENT,
+  type PanneEnvironnement,
+  type RaisonControle,
+} from '../src/shared/validations-bac';
 import { couperLeReseau } from './aide/sans-reseau';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -155,6 +160,36 @@ describe('panneau Evaluator — la provenance des validations', () => {
     // Une CI lue pendant qu'elle tournait doit pouvoir être relue une fois
     // finie : sans le bouton, il n'y avait plus aucun moyen de rafraîchir.
     expect(parTestId(vue, 'mi-fetch-ci'), 'la CI reste relisible').not.toBeNull();
+  });
+
+  // Chaque panne a SES mots et SON remède : la mémoire, le disque, le DNS se
+  // lèvent sur le nœud ; un démon ou un affichage, le bac n'en a jamais —
+  // « libérez » y enverrait l'opérateur nulle part.
+  const MOTS: Record<PanneEnvironnement, readonly [string, string, string, string]> = {
+    memoire: ['mémoire épuisée', 'libérez de la mémoire', 'out of memory', 'free memory'],
+    disque: ['disque plein', 'libérez de la place', 'disk full', 'free disk space'],
+    dns: ['DNS indisponible', 'rétablissez la résolution DNS', 'DNS unavailable', 'restore DNS'],
+    demon: [
+      'démon de conteneurs injoignable',
+      'apportez la CI GitHub',
+      'container daemon unreachable',
+      'bring GitHub CI',
+    ],
+    affichage: ['aucun affichage', 'apportez la CI GitHub', 'no display', 'bring GitHub CI'],
+  };
+  it.each(PANNES_ENVIRONNEMENT)('la panne %s se dit, avec son remède', (panne) => {
+    const detail = { raison: 'environnement', panne, script: 'test', code: 137 } as const;
+    const fr = texteControle(detail, (f) => f);
+    const en = texteControle(detail, (_f, e) => e);
+    const [nomFr, remedeFr, nomEn, remedeEn] = MOTS[panne];
+    expect(fr).toContain(`(${nomFr}), verdict inconnu — `);
+    expect(fr).toContain(remedeFr);
+    expect(en).toContain(`(${nomEn}), verdict unknown — `);
+    expect(en).toContain(remedeEn);
+    if (panne === 'demon' || panne === 'affichage') {
+      expect(fr, 'rien à libérer dans le bac').not.toContain('libérez');
+      expect(en).not.toContain('free ');
+    }
   });
 
   it('chaque raison a sa phrase, dans les deux langues', () => {
