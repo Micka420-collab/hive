@@ -155,6 +155,20 @@ export interface LigneObservationAiguillage {
  * évaluation, chaque élection, chaque critique relue.
  */
 const TACHE_DE_L_EVENEMENT = `json_extract(CASE WHEN json_valid(payload) THEN payload ELSE '{}' END, '$.taskId')`;
+/** Une entrée du journal append-only des connecteurs externes (src/connectors). */
+export interface EntreeJournalConnecteur {
+  id: string;
+  connecteurId: string;
+  projectId: string | null;
+  portee: string;
+  acte: string;
+  cible: string | null;
+  resultat: 'ok' | 'echec' | 'refuse';
+  qui: string;
+  apercu: string;
+  chargeDigest: string;
+  creeA: number;
+}
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS projects (
@@ -1277,6 +1291,49 @@ CREATE TABLE IF NOT EXISTS motifs_projet (
   creeA     INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_motifs_projet ON motifs_projet(projectId, creeA DESC);
+
+-- Connecteurs externes (src/connectors) — AUTORISATION par projet. L'hôte
+-- accorde un connecteur + un jeu de portées, et (Slack) des canaux et usagers
+-- explicitement inscrits, à UN projet. Le SECRET du connecteur vit dans le
+-- .env Queen, JAMAIS ici : cette table ne porte que la décision d'accès, pas
+-- de quoi appeler l'extérieur. TABLE LATÉRALE — une ligne par (connecteur, projet).
+-- ON DELETE CASCADE : un accord n'a aucun sens sans son projet, et sans la
+-- cascade (foreign_keys = ON) supprimer un projet autorisé échouerait sur la
+-- contrainte. Le JOURNAL, lui, n'a pas de clé étrangère : la trace d'audit
+-- survit au projet et s'élague par le temps (90 jours).
+CREATE TABLE IF NOT EXISTS connecteurs_projet (
+  connecteurId TEXT NOT NULL,
+  projectId    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  portees      TEXT NOT NULL DEFAULT '[]',
+  canaux       TEXT NOT NULL DEFAULT '[]',
+  usagers      TEXT NOT NULL DEFAULT '[]',
+  actif        INTEGER NOT NULL DEFAULT 1,
+  creeA        INTEGER NOT NULL,
+  majA         INTEGER NOT NULL,
+  PRIMARY KEY (connecteurId, projectId)
+);
+CREATE INDEX IF NOT EXISTS idx_connecteurs_projet ON connecteurs_projet(projectId);
+
+-- Journal APPEND-ONLY de chaque appel externe d'un connecteur : qui l'a
+-- déclenché, quel acte, sous quelle portée, avec quel résultat, et une empreinte
+-- SHA-256 de la charge CAVIARDÉE plus un aperçu caviardé. JAMAIS de secret,
+-- JAMAIS la charge en clair. Répond à « qu'a fait ce connecteur, et quand ? »
+-- sans jamais rejouer ce qu'il a envoyé. Élagué par le TEMPS, comme les events.
+CREATE TABLE IF NOT EXISTS connecteurs_journal (
+  id           TEXT PRIMARY KEY,
+  connecteurId TEXT NOT NULL,
+  projectId    TEXT,
+  portee       TEXT NOT NULL,
+  acte         TEXT NOT NULL,
+  cible        TEXT,
+  resultat     TEXT NOT NULL,
+  qui          TEXT NOT NULL,
+  apercu       TEXT NOT NULL DEFAULT '',
+  chargeDigest TEXT NOT NULL DEFAULT '',
+  creeA        INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_connecteurs_journal_projet ON connecteurs_journal(projectId, creeA DESC);
+CREATE INDEX IF NOT EXISTS idx_connecteurs_journal_creeA ON connecteurs_journal(creeA);
 `;
 
 interface ProjectRow {
@@ -1757,6 +1814,22 @@ function lireModeles(brut: string): string[] {
   try {
     const lus: unknown = JSON.parse(brut);
     return Array.isArray(lus) ? lus.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Une liste JSON de chaînes, robuste à la corruption : une base éditée à la
+ * main, une valeur non-tableau ou un élément non-chaîne rendent une liste vide
+ * (ou l'ignorent), jamais une exception ni un accès inventé. Sert aux
+ * autorisations de connecteurs (portées, canaux, usagers).
+ */
+function listeDeChaines(brut: string): string[] {
+  try {
+    const lu: unknown = JSON.parse(brut);
+    if (!Array.isArray(lu)) return [];
+    return lu.filter((x): x is string => typeof x === 'string' && x.length > 0);
   } catch {
     return [];
   }
@@ -3259,6 +3332,202 @@ export class HiveStore {
     } catch {
       return null;
     }
+  }
+
+  // ─── Connecteurs externes (src/connectors) ──────────────────────────────────
+  //
+  // Deux surfaces : l'AUTORISATION par projet (qui peut, quoi, sur quels canaux)
+  // et le JOURNAL append-only des appels. Le secret du connecteur n'apparaît
+  // dans NI l'une NI l'autre — il vit dans le `.env` Queen. Les portées, canaux
+  // et usagers sont des listes JSON de chaînes ; une valeur illisible (base
+  // éditée à la main) vaut « rien accordé », jamais un accès inventé.
+
+  /**
+   * Accorde (ou met à jour) l'autorisation d'un connecteur sur un projet. Les
+   * listes sont réécrites en entier — accorder REMPLACE, il n'ajoute pas à
+   * l'aveugle : l'humain voit à l'écran exactement ce qu'il pose. Idempotent.
+   */
+  autoriserConnecteur(
+    input: {
+      connecteurId: string;
+      projectId: string;
+      portees: readonly string[];
+      canaux?: readonly string[];
+      usagers?: readonly string[];
+      actif?: boolean;
+    },
+    now = Date.now(),
+  ): void {
+    const portees = JSON.stringify([...input.portees]);
+    const canaux = JSON.stringify([...(input.canaux ?? [])]);
+    const usagers = JSON.stringify([...(input.usagers ?? [])]);
+    const actif = input.actif === false ? 0 : 1;
+    this.db
+      .prepare(
+        `INSERT INTO connecteurs_projet (connecteurId, projectId, portees, canaux, usagers, actif, creeA, majA)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(connecteurId, projectId) DO UPDATE SET
+           portees = excluded.portees, canaux = excluded.canaux, usagers = excluded.usagers,
+           actif = excluded.actif, majA = excluded.majA`,
+      )
+      .run(input.connecteurId, input.projectId, portees, canaux, usagers, actif, now, now);
+  }
+
+  /** Révoque l'autorisation d'un connecteur sur un projet. Rend vrai si une ligne partait. */
+  revoquerConnecteur(connecteurId: string, projectId: string): boolean {
+    return (
+      this.db
+        .prepare('DELETE FROM connecteurs_projet WHERE connecteurId = ? AND projectId = ?')
+        .run(connecteurId, projectId).changes > 0
+    );
+  }
+
+  /** L'autorisation d'un connecteur sur un projet, ou `null`. Listes robustes à la corruption. */
+  lireAutorisationConnecteur(
+    connecteurId: string,
+    projectId: string,
+  ): {
+    connecteurId: string;
+    projectId: string;
+    portees: string[];
+    canaux: string[];
+    usagers: string[];
+    actif: boolean;
+    majA: number;
+  } | null {
+    const row = this.db
+      .prepare(
+        'SELECT connecteurId, projectId, portees, canaux, usagers, actif, majA FROM connecteurs_projet WHERE connecteurId = ? AND projectId = ?',
+      )
+      .get(connecteurId, projectId) as
+      | {
+          connecteurId: string;
+          projectId: string;
+          portees: string;
+          canaux: string;
+          usagers: string;
+          actif: number;
+          majA: number;
+        }
+      | undefined;
+    if (!row) return null;
+    return {
+      connecteurId: row.connecteurId,
+      projectId: row.projectId,
+      portees: listeDeChaines(row.portees),
+      canaux: listeDeChaines(row.canaux),
+      usagers: listeDeChaines(row.usagers),
+      actif: row.actif !== 0,
+      majA: row.majA,
+    };
+  }
+
+  /** Les autorisations d'un projet (pour l'écran de réglages). */
+  listerAutorisationsProjet(projectId: string): Array<{
+    connecteurId: string;
+    portees: string[];
+    canaux: string[];
+    usagers: string[];
+    actif: boolean;
+    majA: number;
+  }> {
+    const rows = this.db
+      .prepare(
+        'SELECT connecteurId, portees, canaux, usagers, actif, majA FROM connecteurs_projet WHERE projectId = ? ORDER BY connecteurId',
+      )
+      .all(projectId) as Array<{
+      connecteurId: string;
+      portees: string;
+      canaux: string;
+      usagers: string;
+      actif: number;
+      majA: number;
+    }>;
+    return rows.map((r) => ({
+      connecteurId: r.connecteurId,
+      portees: listeDeChaines(r.portees),
+      canaux: listeDeChaines(r.canaux),
+      usagers: listeDeChaines(r.usagers),
+      actif: r.actif !== 0,
+      majA: r.majA,
+    }));
+  }
+
+  /** Ajoute une entrée au journal append-only des connecteurs. Rend l'entrée écrite. */
+  journaliserConnecteur(
+    entree: {
+      connecteurId: string;
+      projectId: string | null;
+      portee: string;
+      acte: string;
+      cible: string | null;
+      resultat: 'ok' | 'echec' | 'refuse';
+      qui: string;
+      apercu?: string;
+      chargeDigest?: string;
+    },
+    now = Date.now(),
+  ): EntreeJournalConnecteur {
+    const id = randomUUID();
+    this.db
+      .prepare(
+        `INSERT INTO connecteurs_journal
+           (id, connecteurId, projectId, portee, acte, cible, resultat, qui, apercu, chargeDigest, creeA)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        id,
+        entree.connecteurId,
+        entree.projectId,
+        entree.portee,
+        entree.acte,
+        entree.cible,
+        entree.resultat,
+        entree.qui,
+        entree.apercu ?? '',
+        entree.chargeDigest ?? '',
+        now,
+      );
+    return {
+      id,
+      ...entree,
+      apercu: entree.apercu ?? '',
+      chargeDigest: entree.chargeDigest ?? '',
+      creeA: now,
+    };
+  }
+
+  /** Les entrées du journal, filtrables par projet ou connecteur. Récentes d'abord. */
+  listerJournalConnecteurs(opts?: {
+    projectId?: string;
+    connecteurId?: string;
+    limit?: number;
+  }): EntreeJournalConnecteur[] {
+    const limit = Math.min(Math.max(opts?.limit ?? 100, 1), 500);
+    const clauses: string[] = [];
+    const params: unknown[] = [];
+    if (opts?.projectId) {
+      clauses.push('projectId = ?');
+      params.push(opts.projectId);
+    }
+    if (opts?.connecteurId) {
+      clauses.push('connecteurId = ?');
+      params.push(opts.connecteurId);
+    }
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+    const rows = this.db
+      .prepare(
+        `SELECT id, connecteurId, projectId, portee, acte, cible, resultat, qui, apercu, chargeDigest, creeA
+         FROM connecteurs_journal ${where} ORDER BY creeA DESC LIMIT ?`,
+      )
+      .all(...params, limit) as EntreeJournalConnecteur[];
+    return rows;
+  }
+
+  /** Élague le journal des connecteurs par le temps (comme `events`). */
+  pruneConnecteursJournal(retentionMs: number, now = Date.now()): number {
+    return this.db.prepare('DELETE FROM connecteurs_journal WHERE creeA < ?').run(now - retentionMs)
+      .changes;
   }
 
   setNodeStatus(id: string, status: NodeStatus): void {
@@ -5737,18 +6006,18 @@ export class HiveStore {
     return rows
       .reverse()
       .map(({ verdictId: _verdict, nodeId, modeleExact, harness, effort, coutUsd, ...ligne }) => {
-      const cout = coutLisible(coutUsd);
-      return {
-        ...ligne,
-        ...(nodeId ? { nodeId } : {}),
-        ...(modeleExact ? { modeleExact } : {}),
-        ...(harness ? { harness } : {}),
-        // Un effort illisible (base éditée à la main) vaut « aucun » : il n'est
-        // jamais deviné vers un niveau voisin.
-        ...(estEffort(effort) ? { effort } : {}),
-        ...(cout !== null ? { coutUsd: cout } : {}),
-      };
-    });
+        const cout = coutLisible(coutUsd);
+        return {
+          ...ligne,
+          ...(nodeId ? { nodeId } : {}),
+          ...(modeleExact ? { modeleExact } : {}),
+          ...(harness ? { harness } : {}),
+          // Un effort illisible (base éditée à la main) vaut « aucun » : il n'est
+          // jamais deviné vers un niveau voisin.
+          ...(estEffort(effort) ? { effort } : {}),
+          ...(cout !== null ? { coutUsd: cout } : {}),
+        };
+      });
   }
 
   /**

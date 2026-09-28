@@ -253,10 +253,15 @@ describe('écartée de l’arbre pendant l’exécution, remise avant le diff', 
     produire(jamaisEcarte.cwd);
     const attendu = await jamaisEcarte.collectDiff();
 
-    const ws = await prepareWorkspace(dossierJetable(), tache('diff-ecarte'), depot, [], '', false, [
-      ...CONFIGURATION_EXECUTEE_CURSOR,
-      ...CONFIGURATION_EXECUTEE_CLINE,
-    ]);
+    const ws = await prepareWorkspace(
+      dossierJetable(),
+      tache('diff-ecarte'),
+      depot,
+      [],
+      '',
+      false,
+      [...CONFIGURATION_EXECUTEE_CURSOR, ...CONFIGURATION_EXECUTEE_CLINE],
+    );
     produire(ws.cwd);
     const diff = await ws.collectDiff();
     expect(diff).toBe(attendu);
@@ -338,10 +343,15 @@ describe('ni la version que l’auteur pousse APRÈS l’envoi de la tâche', ()
     // `.clinerules/hooks` n'existe pas encore : l'auteur l'amènera par un commit.
     const { '.clinerules/hooks/TaskStart.js': _absent, ...depart } = fichiersDuDepotPiege();
     const depot = amont(depart);
-    const ws = await prepareWorkspace(dossierJetable(), tache('pousse-apres'), depot, [], '', false, [
-      ...CONFIGURATION_EXECUTEE_CURSOR,
-      ...CONFIGURATION_EXECUTEE_CLINE,
-    ]);
+    const ws = await prepareWorkspace(
+      dossierJetable(),
+      tache('pousse-apres'),
+      depot,
+      [],
+      '',
+      false,
+      [...CONFIGURATION_EXECUTEE_CURSOR, ...CONFIGURATION_EXECUTEE_CLINE],
+    );
     const absents = (): string[] =>
       [...CONFIGURATION_EXECUTEE_CURSOR, ...CONFIGURATION_EXECUTEE_CLINE].filter((c) =>
         existsSync(path.join(ws.cwd, c)),
