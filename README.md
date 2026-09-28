@@ -445,6 +445,19 @@ données, bornées, ajoutées au prompt système ; le journal de la tâche le di
 Choix assumé : hors du bac, les hooks et serveurs MCP **du membre** lui-même
 sont coupés aussi pour les tâches de la ruche.
 
+Cursor et Cline n'ont pas de tel interrupteur : Cursor (`--force` vaut
+confiance du dossier) lance les hooks de `.cursor/hooks.json` et ceux, au format
+Claude, de `.claude/settings.json` et `.claude/settings.local.json` ; Cline lance
+ceux de `.clinerules/hooks/` et `.cline/hooks/` et charge `.cline/plugins/`
+comme du code. Le nœud écarte donc ces chemins de l'arbre de la tâche avant
+l'agent — sur tous les systèmes, bac ou pas — et les remet avant le diff : ils
+n'y apparaissent pas comme des suppressions. Une extraction clairsemée tient
+ces chemins hors de l'arbre pour le git de l'agent : `checkout`, `reset
+--hard`, `stash`, `pull --rebase` ne les ramènent pas, pas même dans une
+version poussée après l'envoi — seul un `checkout <révision> -- <chemins>`
+explicite de l'agent les réécrit, comme s'il les écrivait lui-même. Le journal
+de la tâche le dit ; si l'écartement échoue, la tâche est refusée avant l'agent, raison à l'appui.
+
 ## 🛠️ Commandes
 
 | Commande                                      | Effet                                                                                                                                                                         |

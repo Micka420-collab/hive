@@ -32,6 +32,22 @@ import type { AdapterContext, AdapterResult, AgentAdapter } from './index.js';
 const CLINE_TIMEOUT_MS = 30 * 60_000;
 
 /**
+ * Ce que Cline EXÉCUTE du dépôt, sans drapeau pour l'en empêcher : les
+ * fichiers d'événement de `.clinerules/hooks/` et `.cline/hooks/` (lancés
+ * avec tout l'environnement), et les `.js`/`.ts` de `.cline/plugins/`, chargés
+ * comme du code (`@cline/shared` 0.0.86 : `resolveHooksConfigSearchPaths`,
+ * `resolvePluginConfigSearchPaths`). `--hooks-dir` AJOUTE un dossier, il n'en
+ * retire aucun. Les règles, flux et compétences restent : ce sont des
+ * consignes, pas du code. Écartés par le nœud :
+ * `node-client/configuration-inerte.ts`.
+ */
+export const CONFIGURATION_EXECUTEE_CLINE: readonly string[] = [
+  '.clinerules/hooks',
+  '.cline/hooks',
+  '.cline/plugins',
+];
+
+/**
  * Les arguments de `cline`.
  *
  * `--auto-approve true` est ce qui rend l'exécution possible sans humain devant
@@ -68,6 +84,7 @@ export function createClineAdapter(token = process.env.HIVE_TOKEN ?? DEFAULT_TOK
   assertRealExecutionAllowed("L'adaptateur cline", token);
   return {
     name: 'cline',
+    configurationExecutee: CONFIGURATION_EXECUTEE_CLINE,
     async run(task: Task, ctx: AdapterContext): Promise<AdapterResult> {
       // Le preflight du bac vérifie le nom logique dans l'image. Un chemin
       // natif résolu sur l'hôte (notamment Windows) ne peut pas être transmis

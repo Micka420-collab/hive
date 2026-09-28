@@ -271,6 +271,19 @@ appended to the system prompt; the task log says so. Deliberate trade-off:
 outside the sandbox, the member's **own** hooks and MCP servers are off too for
 hive tasks.
 
+Cursor and Cline have no such switch: Cursor (`--force` counts as folder trust)
+runs the hooks of `.cursor/hooks.json` and, in Claude format, those of
+`.claude/settings.json` and `.claude/settings.local.json`; Cline runs those of
+`.clinerules/hooks/` and `.cline/hooks/` and loads `.cline/plugins/` as code.
+The node therefore moves these paths out of the task tree before the agent
+starts — on every OS, sandboxed or not — and puts them back before the diff, so
+they never show up as deletions. A sparse checkout keeps these paths out of the
+tree for the agent's git: `checkout`, `reset --hard`, `stash` and `pull
+--rebase` do not bring them back, not even a version pushed after dispatch —
+only an explicit `checkout <revision> -- <paths>` by the agent rewrites them,
+as if it wrote them itself. The task log says so; if moving them fails, the
+task is refused before the agent runs, with the reason.
+
 ## 🛠️ Commands
 
 | Command                                       | Effect                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
