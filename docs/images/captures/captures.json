@@ -1,6 +1,6 @@
 {
-  "genere": "2026-09-27T22:25:36.785Z",
-  "commit": "0ecc485",
+  "genere": "2026-09-28T02:57:45.075Z",
+  "commit": "ed22a51",
   "arbreModifie": false,
   "langue": "fr",
   "formats": [
@@ -20,7 +20,7 @@
       "vue": "ruche",
       "format": "bureau",
       "debordement": 0,
-      "hauteur": 2062,
+      "hauteur": 1980,
       "erreurs": []
     },
     {
@@ -44,7 +44,7 @@
       "vue": "warroom",
       "format": "bureau",
       "debordement": 0,
-      "hauteur": 3527,
+      "hauteur": 3494,
       "erreurs": []
     },
     {
@@ -68,7 +68,7 @@
       "vue": "ruche",
       "format": "mobile",
       "debordement": 0,
-      "hauteur": 2061,
+      "hauteur": 2033,
       "erreurs": []
     },
     {
@@ -92,7 +92,7 @@
       "vue": "warroom",
       "format": "mobile",
       "debordement": 0,
-      "hauteur": 9847,
+      "hauteur": 9761,
       "erreurs": []
     },
     {
@@ -100,7 +100,7 @@
       "vue": "warroom-decisions",
       "format": "mobile",
       "debordement": 0,
-      "hauteur": 1834,
+      "hauteur": 1852,
       "erreurs": []
     },
     {
@@ -108,7 +108,7 @@
       "vue": "ruche-en-vol",
       "format": "bureau",
       "debordement": 0,
-      "hauteur": 2226,
+      "hauteur": 2144,
       "erreurs": []
     },
     {
@@ -125,6 +125,14 @@
       "format": "bureau",
       "debordement": 0,
       "hauteur": 900,
+      "erreurs": []
+    },
+    {
+      "fichier": "chronique-en-vol.mobile.png",
+      "vue": "chronique-en-vol",
+      "format": "mobile",
+      "debordement": 0,
+      "hauteur": 1038,
       "erreurs": []
     }
   ],

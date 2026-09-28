@@ -122,7 +122,7 @@ mesures de chaque image). Chaque image a été ouverte et regardée avant d'êtr
 versée. Elle se refait, à l'identique de sa sélection, par :
 
 ```
-npm run captures -- --sortie docs/images/captures --vues warroom,warroom-decisions,miellerie,ruche,essaim,ruche-en-vol.bureau,chambre-en-vol.bureau,chronique-en-vol.bureau,tache.bureau
+npm run captures -- --sortie docs/images/captures --vues warroom,warroom-decisions,miellerie,ruche,essaim,ruche-en-vol.bureau,chambre-en-vol.bureau,chronique-en-vol,tache.bureau
 ```
 
 <p align="center">
@@ -158,6 +158,7 @@ npm run captures -- --sortie docs/images/captures --vues warroom,warroom-decisio
   <img src="images/captures/ruche.mobile.png" width="200" alt="Ruche sur mobile, page entière.">
   <img src="images/captures/miellerie.mobile.png" width="200" alt="Miellerie sur mobile, page entière.">
   <img src="images/captures/essaim.mobile.png" width="200" alt="Essaim sur mobile, page entière.">
+  <img src="images/captures/chronique-en-vol.mobile.png" width="200" alt="Chronique sur mobile pendant un vol : le journal en direct, par famille.">
 </p>
 
 ## Ce que la première exécution a trouvé
@@ -212,7 +213,9 @@ npm run captures -- --sortie docs/images/captures --vues warroom,warroom-decisio
 - **La Chronique d'un onglet neuf est vide** sur une ruche qui a déjà
   travaillé : « Rien pour l'instant » au-dessus de plus de cinquante tâches
   terminées. Le rattrapage du journal (`/api/events`) ne sert qu'aux
-  reconnexions. D'où la capture « en vol ». Le panneau « Journal » de la
+  reconnexions. D'où la capture « en vol », sur les deux formats — et
+  pourquoi le débat n'y figure pas : il est joué avant que l'onglet s'ouvre, et
+  c'est la War Room qui le relit (`warroom*.png`). Le panneau « Journal » de la
   Ruche en dit autant (`ruche.mobile.png` : « Journal 0 — Rien pour
   l'instant »).
 - **Miellerie, mobile** : au-delà des 11 px de débordement des onglets déjà
