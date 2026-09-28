@@ -104,6 +104,13 @@ export interface AdapterContext {
    * surtout pour ce que cela ne protège pas).
    */
   bac?: BacExecution;
+  /**
+   * `'relecture'` : la tâche est une contre-expertise — l'agent LIT une
+   * production, il n'a rien à écrire. Un adaptateur peut alors réduire ses
+   * droits (Codex : `--sandbox read-only`). Absent : une production. Dit par
+   * le hub (`AssignTaskMsg.relecture`), jamais deviné du prompt.
+   */
+  role?: 'relecture';
 }
 
 export interface AdapterResult {

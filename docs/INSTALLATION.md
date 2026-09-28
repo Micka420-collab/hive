@@ -283,6 +283,40 @@ Hive n'installe que ce qu'il sait nommer — `claude-code` et `codex`. Un agent
 inconnu ne se voit jamais proposer un `npm install` deviné : exécuter un nom
 venu d'ailleurs est exactement ce qu'un installeur ne doit pas faire.
 
+## Codex : ce qu'il lui faut pour écrire
+
+Codex a son propre bac à sable, et Hive choisit son mode selon celui du nœud :
+
+| le nœud                     | une production                 | une relecture                  |
+| --------------------------- | ------------------------------ | ------------------------------ |
+| **avec** un bac (podman, …) | `--sandbox danger-full-access` | `--sandbox danger-full-access` |
+| **sans** bac                | `--sandbox workspace-write`    | `--sandbox read-only`          |
+
+Dans le bac du nœud, c'est lui la frontière : celui de Codex ne pourrait pas
+s'y ouvrir. **Sans bac, Codex a besoin du sien**, et donc :
+
+- **sous Linux, d'un bubblewrap qui démarre.** Là où le noyau restreint les
+  espaces de noms non privilégiés (`kernel.apparmor_restrict_unprivileged_userns=1`,
+  le défaut d'Ubuntu depuis 24.04), seul un `bwrap` couvert par un profil
+  AppArmor peut les créer : c'est le cas du `/usr/bin/bwrap` des versions qui
+  livrent le profil `bwrap-userns-restrict` (constaté sous Ubuntu 26.04), pas
+  d'Ubuntu 24.04 d'origine. Sans lui, Codex sortirait « en succès » sans avoir
+  rien écrit ; le nœud le vérifie avant la première tâche, sans appeler le
+  modèle, et la tâche échoue en le disant. Remède : donner un bac au nœud
+  (podman ou docker), ou un profil AppArmor pour `bwrap` ;
+- **sous Windows, d'un bac Windows déclaré** : sans `[windows] sandbox =
+"unelevated"` (ou `"elevated"`) dans le `config.toml` de Codex, Codex rabat
+  l'écriture en lecture seule. La tâche échoue alors avant l'agent, en le
+  disant, plutôt que de payer le modèle pour rien.
+
+Le dépôt de la tâche est **toujours** lancé comme non fiable (`untrusted`) :
+son `.codex/config.toml`, ses crochets et ses règles ne sont jamais chargés,
+et Codex n'inscrit plus le répertoire de chaque tâche dans votre
+`config.toml`. Contrepartie, dite : **l'`AGENTS.md` du dépôt n'atteint plus
+Codex** (Codex ne le lit que pour un dépôt de confiance). Ses conventions ne
+lui sont pas transmises tant que Hive ne les reprend pas comme simple donnée,
+comme il le fait déjà pour le `CLAUDE.md` de Claude Code.
+
 ## Si quelque chose ne va pas
 
 ```sh

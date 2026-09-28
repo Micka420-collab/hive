@@ -2109,6 +2109,8 @@ async function monterReine(
         // son adaptateur. Absent ⇒ le nœud emploie son modèle par défaut.
         ...(modele ? { modele } : {}),
         ...(delegationBudget ? { delegationBudget } : {}),
+        // Une relecture n'écrit rien : le nœud peut brider son agent.
+        ...(store.relectureDe(task.id) ? { relecture: true as const } : {}),
       });
 
       // ─── L'HORLOGE DU CHANTIER : ce qu'on ANNONCE, écrit au moment où on
@@ -11943,6 +11945,7 @@ async function monterReine(
               ...(hiveContext ? { hiveContext } : {}),
               ...(modele ? { modele } : {}),
               ...(delegationBudget ? { delegationBudget } : {}),
+              ...(store.relectureDe(task.id) ? { relecture: true as const } : {}),
             });
           }
         }

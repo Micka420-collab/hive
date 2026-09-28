@@ -66,7 +66,8 @@
 //   · le BILAN (`bilan`) : ce que l'échec dit, en clair, sur une ligne — la
 //     raison de `turn.failed`, l'erreur non refaite d'un tour pourtant
 //     conclu, ou, faute de raison dans le flux, CE QUI s'est passé (sortie
-//     sans conclusion, sans événement, après un tour conclu). Jamais rien :
+//     sans conclusion, sans événement, après un tour conclu, tour conclu
+//     sans que rien ne s'écrive sous le bac de Codex). Jamais rien :
 //     sans bilan, ce que l'échec dit tombait sur la bannière de stderr
 //     (« Reading additional input from stdin... »), la même pour TOUS les
 //     échecs de Codex — une signature commune, et trois nœuds suffisent à en
@@ -269,6 +270,36 @@ const DIALECTE_INCONNU =
   'codex : flux `--json` sans aucun `turn.completed` ni `turn.failed` — dialecte non reconnu (codex-cli 0.156.0 ou plus récent attendu)';
 
 /**
+ * Un tour CONCLU où RIEN n'a pu s'exécuter sous le bac de Codex : aucun
+ * correctif appliqué — au moins un tenté, en échec — et aucune commande
+ * réussie.
+ *
+ * ─── SORTIE EN 0, ET RIEN D'ÉCRIT ────────────────────────────────────────────
+ *
+ * Quand le bac de Codex ne démarre pas (bubblewrap sans espace de noms :
+ * openai/codex#46246), chaque correctif sort `file_change` en `failed`, le
+ * modèle conclut qu'il n'a rien pu faire, et `codex exec` sort en 0 —
+ * enregistré sur le vrai binaire (tests/fixtures/flux-codex/bac-casse.*). Sans
+ * ce bilan, c'était une réussite au diff vide.
+ *
+ * ─── UN CORRECTIF RATÉ DANS UN BAC SAIN N'EST PAS CETTE PANNE ────────────────
+ *
+ * Un correctif échoue aussi dans un bac qui marche — un fichier là où il
+ * fallait un dossier, un fichier en lecture seule — et le modèle se rattrape
+ * par une commande (`printf … > f`) : enregistré sur le vrai binaire
+ * (tests/fixtures/flux-codex/rattrape-*). Le bac cassé, lui, fait échouer
+ * TOUTES les commandes (bubblewrap ne démarre pour aucune) : une seule
+ * commande réussie suffit donc à lever le doute, comme un seul correctif
+ * appliqué. Une relecture n'en tente aucun : elle n'y passe jamais.
+ *
+ * Ne vaut que sous `--sandbox workspace-write` (`bacCodexEnEcriture`) : dans
+ * le bac de Hive, Codex n'a pas de bac à lui qui puisse casser.
+ */
+function rienNAPuSEcrire(enEchec: number): string {
+  return `codex : échec — tour conclu sans que rien ne s'écrive (${enEchec} correctif(s) en échec, aucun appliqué, aucune commande réussie) : le bac de Codex n'a rien laissé faire, rien n'a été produit`;
+}
+
+/**
  * Le préfixe des erreurs que Codex va REFAIRE. Toute `error` à `will_retry`
  * naît d'un `EventMsg::StreamError` (app-server bespoke_event_handling.rs), et
  * ses seuls émetteurs (`notify_stream_error` : core/src/responses_retry.rs,
@@ -281,8 +312,13 @@ const TENTATIVE_REFAITE = 'Reconnecting...';
 /**
  * Une FABRIQUE : l'état (dernier message, dernière erreur, jetons) vit le temps
  * d'une exécution.
+ *
+ * `bacCodexEnEcriture` : Codex tourne sous son propre bac, en écriture
+ * (`--sandbox workspace-write`) — seul cas où `rienNAPuSEcrire` a un sens.
  */
-export function createLecteurFluxCodex(): LecteurFluxCodex {
+export function createLecteurFluxCodex(
+  opts: { bacCodexEnEcriture?: boolean } = {},
+): LecteurFluxCodex {
   /** Le dernier message de l'agent, pas encore une réponse : le tour court. */
   let dernierMessage: string | undefined;
   let reponse: string | undefined;
@@ -294,6 +330,11 @@ export function createLecteurFluxCodex(): LecteurFluxCodex {
   let derniereErreur: string | undefined;
   /** Un événement au moins a-t-il été lu : sinon, pas de `--json` du tout. */
   let fluxLu = false;
+  /** Les correctifs (`file_change`) terminés, appliqués ou en échec. */
+  let correctifsAppliques = 0;
+  let correctifsEnEchec = 0;
+  /** Les commandes terminées en code 0 : le bac de Codex a démarré. */
+  let commandesReussies = 0;
 
   const rendre = (e: Objet): string | undefined => {
     switch (e.type) {
@@ -307,6 +348,17 @@ export function createLecteurFluxCodex(): LecteurFluxCodex {
         if (!item) return narrer(`événement codex sans élément : ${nom(e.type)}`);
         if (e.type === 'item.completed' && item.type === 'agent_message') {
           dernierMessage = chaine(item.text);
+        }
+        if (e.type === 'item.completed' && item.type === 'file_change') {
+          if (item.status === 'completed') correctifsAppliques += 1;
+          if (item.status === 'failed') correctifsEnEchec += 1;
+        }
+        if (
+          e.type === 'item.completed' &&
+          item.type === 'command_execution' &&
+          item.exit_code === 0
+        ) {
+          commandesReussies += 1;
         }
         return rendreElement(e.type, item);
       }
@@ -360,7 +412,15 @@ export function createLecteurFluxCodex(): LecteurFluxCodex {
     texte: () => (reponse === undefined ? undefined : borneTexteFinal(reponse)),
     bilan(code: number | null, arreteParHive: boolean): string | undefined {
       if (fin === 'echec') return raisonDEchec('tour en échec', raisonDuTour ?? '');
-      if (code === 0) return fin === 'conclu' ? undefined : DIALECTE_INCONNU;
+      if (code === 0) {
+        if (fin !== 'conclu') return DIALECTE_INCONNU;
+        const rien =
+          opts.bacCodexEnEcriture === true &&
+          correctifsEnEchec > 0 &&
+          correctifsAppliques === 0 &&
+          commandesReussies === 0;
+        return rien ? rienNAPuSEcrire(correctifsEnEchec) : undefined;
+      }
       // Arrêté par Hive (délai de garde, annulation) : le marqueur `[hive]`
       // dit déjà pourquoi, et ses dernières erreurs n'étaient peut-être que
       // des tentatives.
