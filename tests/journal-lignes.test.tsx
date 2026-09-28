@@ -448,3 +448,41 @@ describe('les lignes de la contre-revue disent où elle en est', () => {
     });
   }
 });
+
+// La rétention du journal se raconte. Sans ligne à elle, la passe s'affichait
+// en type brut ; et le plafond — le seul motif qui prive une tâche encore
+// ouverte de ses preuves — ne se distinguait pas d'un élagage de routine.
+describe('une passe de rétention dit ce qu’elle a retiré — et nomme le plafond à part', () => {
+  const passe = (parMotif: Record<string, number>): HiveEvent =>
+    evenement('journal_elagage', { supprimes: 1, restants: 1, parMotif, parType: {} });
+  const routine = { trace: 500, orpheline: 3, echue: 2, plafond_close: 0, plafond_vivante: 0 };
+
+  it('UNE PASSE DE ROUTINE : traces et preuves de tâches closes ou disparues', async () => {
+    const dom = await monter(passe(routine));
+    expect(ligne(dom)).toBe(
+      'journal élagué : 500 trace(s), 5 preuve(s) de tâches closes ou disparues',
+    );
+  });
+
+  it('LE PLAFOND EST NOMMÉ, AVEC LES PREUVES DE TÂCHES ENCORE OUVERTES', async () => {
+    const dom = await monter(passe({ ...routine, plafond_close: 7, plafond_vivante: 4 }));
+    expect(ligne(dom)).toBe(
+      'journal élagué : 500 trace(s), 5 preuve(s) de tâches closes ou disparues — plafond atteint : 11 preuve(s) retirée(s), dont 4 de tâches encore ouvertes',
+    );
+  });
+
+  it('LA COUPE D’UN DOSSIER ENCORE ACTIF SE DIT À PART', async () => {
+    const dom = await monter(passe({ ...routine, plafond_vivante: 1, plafond_coupe: 3 }));
+    expect(ligne(dom)).toBe(
+      'journal élagué : 500 trace(s), 5 preuve(s) de tâches closes ou disparues — plafond atteint : 4 preuve(s) retirée(s), dont 1 de tâches encore ouvertes, 3 coupée(s) dans des dossiers encore actifs',
+    );
+  });
+
+  it('EN ANGLAIS AUSSI, et un compte absent vaut zéro — jamais « undefined »', async () => {
+    setLang('en');
+    const dom = await monter(passe({ trace: 2, plafond_vivante: 1 }));
+    expect(ligne(dom)).toBe(
+      'journal pruned: 2 trace(s), 0 proof(s) of closed or deleted tasks — cap reached: 1 proof(s) removed, 1 of them from still-open tasks',
+    );
+  });
+});

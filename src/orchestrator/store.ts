@@ -30,6 +30,16 @@ import {
   validationsBacDepuis,
 } from '../shared/validations-bac.js';
 import { agreger, type Avis } from '../shared/contre-expertise.js';
+import {
+  MOTIFS_FAIT_CONNU,
+  bilanDeRetraits,
+  clotureDe,
+  estPreuve,
+  planDeRetention,
+  type BilanJournal,
+  type LigneJournal,
+  type PolitiqueJournal,
+} from '../shared/retention-journal.js';
 import { champSurUneLigne } from '../shared/donnees-non-fiables.js';
 import { CORPUS_BALANCE, LOT_GRAND_LIVRE, VERSION_BALANCE } from './balance.js';
 import { depenseHote, fermerSession, ouvrirSession } from './horloge-hote.js';
@@ -107,6 +117,26 @@ export interface LigneObservationAiguillage {
   /** Modèle réellement choisi pour ce résultat, quand le lancement l'a tracé. */
   modeleExact?: string;
 }
+
+/**
+ * La tâche qu'un événement nomme (`payload.taskId`), telle que l'index
+ * `idx_events_tache` la range — et telle que chaque lecture PAR TÂCHE doit
+ * l'écrire, au caractère près : SQLite ne sert une requête par un index
+ * d'expression que si elle en répète l'expression exacte.
+ *
+ * Gardée par `json_valid` : l'index est bâti à l'ouverture sur TOUTES les
+ * lignes d'une base existante, et un seul payload illisible (base retouchée à
+ * la main) ferait échouer `json_extract`, donc la création de l'index, donc le
+ * démarrage de la Reine. Gardée, une ligne illisible ne nomme simplement
+ * aucune tâche.
+ *
+ * Pourquoi un index : la rétention garde les preuves avec leur tâche, et le
+ * journal ne tient plus en 5 000 lignes. Mesuré sur 42 000 événements, relire
+ * les verdicts d'UN résultat coûtait 2,9 ms par l'index de type (tous les
+ * verdicts de la ruche parcourus) et 0,004 ms par celui-ci — à chaque
+ * évaluation, chaque élection, chaque critique relue.
+ */
+const TACHE_DE_L_EVENEMENT = `json_extract(CASE WHEN json_valid(payload) THEN payload ELSE '{}' END, '$.taskId')`;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS projects (
@@ -796,6 +826,34 @@ CREATE TABLE IF NOT EXISTS events (
 -- Lecture par FENÊTRE TEMPORELLE (thermorégulation) : ts en tête pour la
 -- borne « ts >= ? », type ensuite pour filtrer sans ouvrir la ligne.
 CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts, type);
+-- Lecture PAR TYPE (et par id, que l'index porte avec la clé) : les preuves
+-- d'une tâche se relisent par type — la CI d'un résultat, l'annonce d'une
+-- relecture, le verdict humain. Depuis que la rétention garde les preuves avec
+-- leur tâche, le journal ne tient plus en 5 000 lignes : sans cet index,
+-- chacune de ces lectures parcourrait tout le journal retenu, jusqu'au plafond.
+CREATE INDEX IF NOT EXISTS idx_events_type ON events(type);
+-- Lecture PAR TÂCHE : les preuves d'une production (sa CI, ses verdicts, sa
+-- critique, sa mesure) sans parcourir celles de toutes les autres. Voir
+-- TACHE_DE_L_EVENEMENT pour l'expression, et pourquoi elle est gardée.
+CREATE INDEX IF NOT EXISTS idx_events_tache ON events(${TACHE_DE_L_EVENEMENT}, type);
+
+-- ─── Ce que la rétention du journal a retiré, par type et par motif ─────────
+-- Le compte DURABLE de l'élagage : l'événement journal_elagage raconte chaque
+-- passe mais sort lui-même du journal avec la fenêtre. Sans cette table, le
+-- type d'un événement élagué se perdait avec lui, et le Genome devait se dire
+-- tronqué dès la première trace retirée (cf. HiveStore.faitsElagues).
+-- Une ligne par couple (type, motif), cumulée : bornée par le vocabulaire
+-- FERMÉ des types que le code émet, jamais une ligne par événement.
+-- avant_registre : les suppressions faites AVANT que ce registre existe, dont
+-- le type est perdu — posée une fois, à la première ouverture d'une base qui
+-- en avait (cf. HiveStore.amorcerRegistreElagages).
+CREATE TABLE IF NOT EXISTS journal_elagages (
+  type      TEXT NOT NULL,
+  motif     TEXT NOT NULL CHECK (motif IN ('trace', 'orpheline', 'echue', 'plafond_close', 'plafond_vivante', 'plafond_coupe', 'avant_registre')),
+  supprimes INTEGER NOT NULL,
+  dernierA  INTEGER NOT NULL,
+  PRIMARY KEY (type, motif)
+);
 
 CREATE TABLE IF NOT EXISTS memories (
   id        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1354,6 +1412,50 @@ export interface ProjectMember {
 const LOT_ALLEGEMENT = 2_000;
 
 /**
+ * Le corpus de l'Aiguillage, en SQL : les productions dont on connaît le
+ * verdict de contre-visite (`cv`) et soit le modèle commandé (`am`), soit le
+ * modèle exact prouvé par le DERNIER verdict de contre-revue (`ce`), les plus
+ * récentes d'abord. UNE définition, deux lecteurs : `observationsAiguillage`
+ * qui apprend, et la rétention du journal qui garde ce verdict tant que la
+ * production compte (`faitsRanges`) — une copie de l'une dans l'autre finirait
+ * par garder un autre ensemble que celui qu'on apprend.
+ *
+ * Le dernier verdict de chaque production est relu en UNE passe groupée
+ * (`derniers`), pas par une sous-requête corrélée par production : mesuré sur
+ * 1 500 productions et 3 000 verdicts, la forme corrélée coûtait ~130 ms à
+ * chaque élection de modèle, et la rétention garde désormais les verdicts avec
+ * leur production au lieu de les élaguer au bout de 5 000 événements.
+ * `json_valid` d'abord : la rétention relit ce corpus à chaque passe, et un
+ * seul payload illisible ne doit pas l'arrêter pour de bon — le journal
+ * grandirait alors sans borne. `LIMIT ?` : la borne, `CORPUS_AIGUILLAGE`.
+ */
+const CORPUS_AIGUILLAGE_SQL = `
+  WITH derniers AS (
+    SELECT json_extract(payload, '$.taskId') AS taskId, MAX(id) AS id
+      FROM events
+     WHERE type = 'contre_expertise_verdict'
+       AND json_valid(payload)
+       AND json_extract(payload, '$.source') = 'hive_counter_review'
+       AND json_extract(payload, '$.resultId') IS NOT NULL
+     GROUP BY json_extract(payload, '$.taskId')
+  )
+  SELECT ce.id AS verdictId, t.title AS title, t.prompt AS prompt,
+         COALESCE(am.modele, json_extract(ce.payload, '$.producteurModele')) AS modele,
+         cv.suite AS suite,
+         r.nodeId AS nodeId,
+         json_extract(ce.payload, '$.producteurModele') AS modeleExact
+    FROM contre_visites cv
+    LEFT JOIN aiguillage_modeles am ON am.taskId = cv.productionTaskId
+    JOIN tasks t                    ON t.id      = cv.productionTaskId
+    LEFT JOIN derniers d            ON d.taskId  = cv.productionTaskId
+    LEFT JOIN events ce             ON ce.id     = d.id
+    LEFT JOIN results r ON r.id = CAST(json_extract(ce.payload, '$.resultId') AS INTEGER)
+   WHERE am.taskId IS NOT NULL
+      OR json_extract(ce.payload, '$.producteurModele') IS NOT NULL
+   ORDER BY cv.renduA DESC, cv.productionTaskId DESC
+   LIMIT ?`;
+
+/**
  * Relit les griefs d'une ligne de garde. Tolérant par conception : une ligne
  * illisible (version future, base éditée à la main) vaut « aucun grief connu »,
  * jamais une exception qui ferait tomber toute une page de lecture.
@@ -1536,7 +1638,35 @@ export class HiveStore {
     // disque réel) — à chaque démarrage d'une Reine neuve, à chaque banc qui
     // en ouvre une. Tout-ou-rien, en prime : un démarrage interrompu ne laisse
     // plus un schéma à moitié posé.
-    this.db.transaction(() => this.db.exec(SCHEMA))();
+    this.db.transaction(() => {
+      this.db.exec(SCHEMA);
+      this.amorcerRegistreElagages(Date.now());
+    })();
+  }
+
+  /**
+   * Pose, une seule fois, ce que le registre des élagages ne peut pas savoir :
+   * combien d'événements une base avait DÉJÀ perdus quand il est apparu.
+   *
+   * `events.id` est AUTOINCREMENT — `sqlite_sequence` garde le plus grand id
+   * jamais attribué et les ids ne sont jamais réutilisés : attribués moins
+   * restants, c'est exactement ce que l'ancienne rétention a supprimé, types
+   * inconnus. Posé sous le motif `avant_registre`, daté de cette ouverture :
+   * une tâche créée APRÈS n'a rien pu perdre à l'ancienne rétention, une tâche
+   * créée avant, si (`faitsElagues`). Idempotent — un registre déjà tenu,
+   * même vide de ce motif, n'est jamais réamorcé ; une base neuve n'a rien
+   * perdu et n'en reçoit pas.
+   */
+  private amorcerRegistreElagages(now: number): void {
+    this.db
+      .prepare(
+        `INSERT INTO journal_elagages (type, motif, supprimes, dernierA)
+         SELECT '*', 'avant_registre', perdus, ?
+           FROM (SELECT COALESCE((SELECT seq FROM sqlite_sequence WHERE name = 'events'), 0)
+                        - (SELECT COUNT(*) FROM events) AS perdus)
+          WHERE perdus > 0 AND NOT EXISTS (SELECT 1 FROM journal_elagages)`,
+      )
+      .run(now);
   }
 
   close(): void {
@@ -3281,17 +3411,18 @@ export class HiveStore {
     //
     // Même voie que la mesure locale juste au-dessus — le journal, relié au
     // `resultId` exact, sans migration de `results`. Mais PAS pour tous les
-    // résultats : chaque événement rangé raccourcit d'autant la fenêtre de
-    // EVENT_RETENTION où vivent d'autres preuves (lancements de contre-
-    // expertise, CI), et un succès ordinaire n'a aucun lecteur DIFFÉRÉ de son
+    // résultats : chaque texte rangé est une preuve que la rétention garde
+    // avec sa tâche (`shared/retention-journal.ts`) et qui pèse sur le plafond
+    // du journal, et un succès ordinaire n'a aucun lecteur DIFFÉRÉ de son
     // texte final — la contre-expertise le lit en direct, sur le message.
     //
     // Deux lecteurs le relisent plus tard, et eux seuls justifient la ligne :
     //   · les ÉCHECS — Couveuse, leçons croisées, dérive (`texteDEchec`) ;
     //   · les éclaireuses que le Conseil n'a pas encore dépouillées : il lit
     //     leur réponse au tick suivant, depuis la base.
-    // Hors fenêtre du journal, le texte n'existe plus : ses lecteurs retombent
-    // sur ce qu'ils savent faire sans lui, jamais sur une invention.
+    // Sa tâche disparue ou close depuis longtemps, le texte n'existe plus : ses
+    // lecteurs retombent sur ce qu'ils savent faire sans lui, jamais sur une
+    // invention.
     if (res.finalText && (!res.success || this.eclaireuseAttendue(res.taskId))) {
       this.appendEvent(
         'worker_final_text',
@@ -3450,7 +3581,10 @@ export class HiveStore {
     const rows = this.db
       .prepare('SELECT * FROM results WHERE taskId = ? ORDER BY id')
       .all(taskId) as ResultRow[];
-    const usages = this.usagesForResults(rows.map((r) => r.id));
+    const usages = this.usagesForResults(
+      taskId,
+      rows.map((r) => r.id),
+    );
     return rows.map((r) => ({
       resultId: r.id,
       taskId: r.taskId,
@@ -3500,8 +3634,16 @@ export class HiveStore {
     );
   }
 
-  /** Mesures reliées aux résultats exacts, relues depuis les événements bornés. */
-  private usagesForResults(resultIds: readonly number[]): Map<number, TaskResult['usage']> {
+  /**
+   * Mesures reliées aux résultats exacts d'UNE tâche, relues dans le journal —
+   * où la rétention les garde avec elle. La tâche nommée sert l'index
+   * `idx_events_tache` : sans elle, chaque lecture parcourait les mesures de
+   * toute la ruche retenue.
+   */
+  private usagesForResults(
+    taskId: string,
+    resultIds: readonly number[],
+  ): Map<number, TaskResult['usage']> {
     const ids = [...new Set(resultIds.filter((id) => Number.isSafeInteger(id) && id > 0))];
     if (ids.length === 0) return new Map();
     const placeholders = ids.map(() => '?').join(', ');
@@ -3515,10 +3657,11 @@ export class HiveStore {
                 json_extract(payload, '$.heapUsedBytes') AS heapUsedBytes
            FROM events
           WHERE type = 'worker_usage'
+            AND ${TACHE_DE_L_EVENEMENT} = ?
             AND json_extract(payload, '$.resultId') IN (${placeholders})
           ORDER BY id`,
       )
-      .all(...ids) as Array<{
+      .all(taskId, ...ids) as Array<{
       resultId: number | null;
       userCpuMicros: number | null;
       systemCpuMicros: number | null;
@@ -4518,8 +4661,9 @@ export class HiveStore {
   /**
    * Ne conserve que les `maxKeep` inspections les plus récentes (par id) —
    * BORNE D'ÉLAGAGE de la table, livrée dans le même commit qu'elle (doctrine,
-   * règle 3). Motif `pruneEvents` à la lettre, et pour la même raison : cette
-   * table croît avec l'histoire de la ruche.
+   * règle 3). Les N plus récentes par id, comme le journal l'était avant sa
+   * rétention par tâche, et pour la même raison : cette table croît avec
+   * l'histoire de la ruche.
    *
    * Elle SUPPRIME au lieu d'alléger, contrairement à `pruneResults` : une ligne
    * de garde privée de ses griefs ne dit plus rien du tout (un verdict sans son
@@ -4862,35 +5006,15 @@ export class HiveStore {
     // `resultId` du verdict de contre-revue ; sans lui, l'observation reste
     // globale et ne doit pas être attribuée au dernier Worker par supposition.
     const rows = this.db
-      .prepare(
-        `SELECT t.title AS title, t.prompt AS prompt,
-                COALESCE(am.modele, json_extract(ce.payload, '$.producteurModele')) AS modele,
-                cv.suite AS suite,
-                r.nodeId AS nodeId,
-                json_extract(ce.payload, '$.producteurModele') AS modeleExact
-           FROM contre_visites cv
-           LEFT JOIN aiguillage_modeles am ON am.taskId = cv.productionTaskId
-           JOIN tasks t              ON t.id      = cv.productionTaskId
-           LEFT JOIN events ce ON ce.id = (
-             SELECT e.id
-               FROM events e
-              WHERE e.type = 'contre_expertise_verdict'
-                AND json_extract(e.payload, '$.source') = 'hive_counter_review'
-                AND json_extract(e.payload, '$.taskId') = cv.productionTaskId
-                AND json_extract(e.payload, '$.resultId') IS NOT NULL
-              ORDER BY e.id DESC
-              LIMIT 1
-           )
-           LEFT JOIN results r ON r.id = CAST(json_extract(ce.payload, '$.resultId') AS INTEGER)
-          WHERE am.taskId IS NOT NULL
-             OR json_extract(ce.payload, '$.producteurModele') IS NOT NULL
-           ORDER BY cv.renduA DESC, cv.productionTaskId DESC
-          LIMIT ?`,
-      )
+      .prepare(CORPUS_AIGUILLAGE_SQL)
       .all(Math.max(1, Math.min(limite, CORPUS_AIGUILLAGE))) as Array<
-      LigneObservationAiguillage & { nodeId: string | null; modeleExact: string | null }
+      LigneObservationAiguillage & {
+        verdictId: number | null;
+        nodeId: string | null;
+        modeleExact: string | null;
+      }
     >;
-    return rows.reverse().map(({ nodeId, modeleExact, ...ligne }) => ({
+    return rows.reverse().map(({ verdictId: _verdict, nodeId, modeleExact, ...ligne }) => ({
       ...ligne,
       ...(nodeId ? { nodeId } : {}),
       ...(modeleExact ? { modeleExact } : {}),
@@ -5682,131 +5806,257 @@ export class HiveStore {
   }
 
   /**
-   * Ne conserve que les `maxKeep` événements les plus récents (par id), en
-   * préservant les derniers verdicts de contre-revue qui alimentent encore le
-   * corpus borné de l'Aiguillage. Leur `producteurModele` est la seule preuve
-   * du modèle exact d'un résultat après réassignation : supprimer l'événement
-   * tout en gardant `contre_visites` ferait apprendre le modèle courant à la
-   * place du producteur historique. Les preuves conservées sont bornées par
-   * `CORPUS_AIGUILLAGE`, comme la lecture qu'elles servent.
+   * LE PROPRIÉTAIRE UNIQUE DE LA RÉTENTION DU JOURNAL. La politique, et pourquoi
+   * elle remplace l'élagage aveugle des 5 000 derniers événements, vivent dans
+   * `shared/retention-journal.ts` ; ici, on rassemble les faits, on laisse
+   * `planDeRetention` décider, on supprime.
    *
-   * La DÉCISION HUMAINE COURANTE de chaque Conseil encore rangé est gardée de
-   * même (`council_decided`, cf. `shared/war-room.ts`). C'est un geste humain,
-   * pas une trace machine : l'élaguer ferait dire « à trancher » à un conseil
-   * que quelqu'un a déjà tranché, et laisserait trancher à nouveau comme si de
-   * rien n'était. Bornée par `pruneConseils` : une par session conservée, et
-   * la protection tombe avec la session.
+   *   1. Sous la fenêtre (`id <= dernier − fenetre`), chaque ligne est relue
+   *      avec le `taskId` de son payload : c'est par là, et par rien d'autre,
+   *      qu'une preuve est liée à sa tâche.
+   *   2. Les faits que leur propre borne tient déjà restent hors du jeu
+   *      (`faitsRanges`).
+   *   3. Chaque tâche citée par une preuve est relue une fois (`cloturesDe`).
+   *   4. Ce que le plan retire part par lots de 900 (limite de variables liées
+   *      de SQLite), et s'ajoute au registre `journal_elagages`, par type et par
+   *      motif.
    *
-   * Le DERNIER REFUS DE RENVOI de chaque tâche encore rangée l'est aussi
-   * (`evaluator_retry_skipped`). C'est le seul endroit où la ruche dit « des
-   * relecteurs contestent cette production, et la correction n'a pas eu
-   * lieu » : l'élaguer effacerait de la War Room une contestation levée
-   * pendant une nuit de travail avant que quiconque l'ait lue — le journal
-   * tourne en quelques heures. Ce qui la LÈVE (revue humaine, nouvel essai)
-   * se relit dans les tables rangées, pas ici (`TacheRangee`). Bornée par
-   * `pruneTasks` : une par tâche conservée, et la protection tombe avec elle.
-   *
-   * La contre-revue en cours du DERNIER résultat d'une production rendue
-   * (`done`) garde aussi ses faits : les annonces de lancement (filigrane
-   * `resultId` que `eventForRelecture` relit pour compter les relectures en
-   * vol et rattacher une clôture) et l'impossibilité consignée
-   * (`contreRevueImpossible`, sur laquelle l'Evaluator nomme sa revue
-   * humaine). Élagués, une production en attente d'humain retombait en
-   * « preuves manquantes », et une relecture de secours close ensuite perdait
-   * sa suite. Bornée aux `CORPUS_AIGUILLAGE` productions rendues les plus
-   * récentes : au plus trois faits chacune (lancement, secours, impossibilité).
-   * « Productions » au sens strict — les tâches qui ont des relectures
-   * (`contre_expertises.productionTaskId`) : compter toute tâche `done`
-   * laisserait les relectures elles-mêmes, et les tâches jamais relues,
-   * occuper la moitié des places et élaguer plus tôt que promis.
+   * UNE transaction IMMEDIATE : la clôture d'une tâche est relue au même instant
+   * que les lignes qu'elle garde, et le registre compte exactement ce qui est
+   * parti — jamais un compte sans suppression, ni l'inverse. La fenêtre n'est
+   * jamais touchée : `/api/events?since=` et les écrans qui rattrapent le direct
+   * la lisent telle qu'elle était. Rend le bilan de la passe, que la Reine
+   * journalise quand il retire quelque chose.
    */
-  pruneEvents(maxKeep: number): number {
-    const cutoff = this.lastEventId() - Math.max(0, maxKeep);
-    if (cutoff <= 0) return 0;
-    const info = this.db
+  pruneEvents(politique: PolitiqueJournal, now = Date.now()): BilanJournal {
+    const retenir = this.db.transaction((): BilanJournal => {
+      const cutoff = this.lastEventId() - Math.max(0, politique.fenetre);
+      if (cutoff <= 0) return bilanDeRetraits([], this.countEvents());
+      const lignes = (
+        this.db
+          .prepare(
+            `SELECT id, type, ${TACHE_DE_L_EVENEMENT} AS taskId
+               FROM events WHERE id <= ? ORDER BY id`,
+          )
+          .all(cutoff) as Array<{ id: number; type: string; taskId: unknown }>
+      ).map((l): LigneJournal => ({
+        id: l.id,
+        type: l.type,
+        taskId: typeof l.taskId === 'string' && l.taskId !== '' ? l.taskId : null,
+      }));
+      const citees = lignes.flatMap((l) =>
+        l.taskId !== null && estPreuve(l.type) ? [l.taskId] : [],
+      );
+      const clotures = this.cloturesDe(citees);
+      const retraits = planDeRetention(
+        lignes,
+        (taskId) => clotures.get(taskId),
+        this.faitsRanges(),
+        this.tachesProuveesDansLaFenetre(cutoff),
+        politique,
+        this.countEvents(),
+        now,
+      );
+      const LOT = 900;
+      for (let i = 0; i < retraits.length; i += LOT) {
+        const lot = retraits.slice(i, i + LOT).map((r) => r.id);
+        this.db
+          .prepare(`DELETE FROM events WHERE id IN (${lot.map(() => '?').join(', ')})`)
+          .run(...lot);
+      }
+      const comptes = new Map<string, { type: string; motif: string; n: number }>();
+      for (const r of retraits) {
+        const cle = `${r.type}\u0000${r.motif}`;
+        const compte = comptes.get(cle) ?? { type: r.type, motif: r.motif, n: 0 };
+        compte.n += 1;
+        comptes.set(cle, compte);
+      }
+      const noter = this.db.prepare(
+        `INSERT INTO journal_elagages (type, motif, supprimes, dernierA) VALUES (?, ?, ?, ?)
+         ON CONFLICT(type, motif) DO UPDATE
+           SET supprimes = supprimes + excluded.supprimes, dernierA = excluded.dernierA`,
+      );
+      for (const { type, motif, n } of comptes.values()) noter.run(type, motif, n, now);
+      return bilanDeRetraits(retraits, this.countEvents());
+    });
+    return retenir.immediate();
+  }
+
+  /**
+   * Les tâches qui ont au moins une preuve AU-DESSUS de `cutoff` — dans la
+   * fenêtre, que la passe ne touche jamais — avec les types de ces preuves. Le
+   * plafond ne les prend pas entières : il ne retirerait que la moitié de leur
+   * dossier ; en dernier recours il les COUPE, en commençant par les preuves
+   * qu'une plus récente du même type remplace, fût-ce dans la fenêtre
+   * (`planDeRetention`). La fenêtre est bornée (`fenetre` lignes) ; DISTINCT
+   * replie les milliers de progrès d'une même tâche en une ligne par type.
+   */
+  private tachesProuveesDansLaFenetre(cutoff: number): Map<string, Set<string>> {
+    const rows = this.db
+      .prepare(`SELECT DISTINCT type, ${TACHE_DE_L_EVENEMENT} AS taskId FROM events WHERE id > ?`)
+      .all(cutoff) as Array<{ type: string; taskId: unknown }>;
+    const out = new Map<string, Set<string>>();
+    for (const r of rows) {
+      if (typeof r.taskId !== 'string' || r.taskId === '' || !estPreuve(r.type)) continue;
+      const types = out.get(r.taskId) ?? new Set<string>();
+      types.add(r.type);
+      out.set(r.taskId, types);
+    }
+    return out;
+  }
+
+  /**
+   * La clôture de chaque tâche citée (`clotureDe`), relue dans les tables
+   * RANGÉES — l'état, la livraison, le verdict humain, et si elle est rendue à
+   * une autre (relecture d'une production, enfant délégué) — jamais déduite du
+   * journal qu'on est en train d'élaguer. Une tâche absente de `tasks` n'est pas
+   * dans la carte : elle n'existe plus, ses preuves sont orphelines. Par lots de
+   * 900, chaque jointure servie par une clé primaire.
+   */
+  private cloturesDe(taskIds: readonly string[]): Map<string, number | null> {
+    const uniques = [...new Set(taskIds)];
+    const out = new Map<string, number | null>();
+    const LOT = 900;
+    for (let i = 0; i < uniques.length; i += LOT) {
+      const lot = uniques.slice(i, i + LOT);
+      const rows = this.db
+        .prepare(
+          `SELECT t.id AS id, t.status AS status, t.updatedAt AS updatedAt,
+                  l.etat AS livraisonEtat, l.majA AS livraisonMajA,
+                  r.state AS revueEtat, r.updatedAt AS revueA,
+                  (EXISTS (SELECT 1 FROM contre_expertises c WHERE c.relectureTaskId = t.id)
+                   OR EXISTS (SELECT 1 FROM task_delegations d WHERE d.childTaskId = t.id))
+                    AS rendueAUneAutre
+             FROM tasks t
+             LEFT JOIN livraisons l ON l.taskId = t.id
+             LEFT JOIN reviews r    ON r.taskId = t.id
+            WHERE t.id IN (${lot.map(() => '?').join(', ')})`,
+        )
+        .all(...lot) as Array<{
+        id: string;
+        status: string;
+        updatedAt: number;
+        livraisonEtat: string | null;
+        livraisonMajA: number | null;
+        revueEtat: string | null;
+        revueA: number | null;
+        rendueAUneAutre: number;
+      }>;
+      for (const r of rows) {
+        out.set(
+          r.id,
+          clotureDe({
+            status: r.status,
+            updatedAt: r.updatedAt,
+            livraison:
+              r.livraisonEtat === null
+                ? null
+                : { etat: r.livraisonEtat, majA: r.livraisonMajA ?? 0 },
+            revue: r.revueEtat === null ? null : { state: r.revueEtat, updatedAt: r.revueA ?? 0 },
+            rendueAUneAutre: r.rendueAUneAutre === 1,
+          }),
+        );
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Les faits que leur PROPRE borne tient déjà : la rétention du journal ne les
+   * touche jamais — ni la fenêtre, ni l'échéance, ni le plafond. Chacun est
+   * borné par un nombre fixe, et le plafond de la Reine est choisi au-dessus de
+   * leur somme avec la fenêtre (un test tient l'inégalité).
+   *
+   *   · La DÉCISION HUMAINE COURANTE de chaque Conseil encore rangé
+   *     (`council_decided`, cf. `shared/war-room.ts`). C'est un geste humain, pas
+   *     une trace machine : l'élaguer ferait redire « à trancher » à un conseil
+   *     que quelqu'un a tranché, et laisserait trancher à nouveau comme si de
+   *     rien n'était. Un Conseil n'est la preuve d'aucune tâche — sans cette
+   *     clause, sa décision serait une trace. Bornée par `pruneConseils` : une
+   *     par session conservée, et la protection tombe avec la session.
+   *   · Le DERNIER VERDICT de contre-revue de chaque production du corpus de
+   *     l'Aiguillage — l'appartenance exacte que relit `observationsAiguillage`,
+   *     par la même requête (`CORPUS_AIGUILLAGE_SQL`).
+   *     Son `producteurModele` est la seule preuve du modèle exact d'un résultat
+   *     après réassignation : supprimé alors que `contre_visites` reste,
+   *     l'Aiguillage apprendrait le modèle COURANT à la place du producteur
+   *     historique. Le verdict est aussi une preuve de sa production ; cette
+   *     clause le tient au-delà de sa clôture et hors du plafond, tant que la
+   *     production compte pour l'apprentissage. Bornée par `CORPUS_AIGUILLAGE`.
+   */
+  private faitsRanges(): Set<number> {
+    const decisions = this.db
       .prepare(
-        `DELETE FROM events
-          WHERE id <= ?
-            AND NOT (
-              (
-                type = 'contre_expertise_verdict'
-              AND json_extract(payload, '$.source') = 'hive_counter_review'
-              AND json_extract(payload, '$.resultId') IS NOT NULL
-              AND json_extract(payload, '$.taskId') IN (
-                SELECT cv.productionTaskId
-                  FROM contre_visites cv
-                  JOIN tasks t ON t.id = cv.productionTaskId
-                  LEFT JOIN aiguillage_modeles am ON am.taskId = cv.productionTaskId
-                  LEFT JOIN events ce ON ce.id = (
-                    SELECT e0.id
-                      FROM events e0
-                     WHERE e0.type = 'contre_expertise_verdict'
-                       AND json_extract(e0.payload, '$.source') = 'hive_counter_review'
-                       AND json_extract(e0.payload, '$.taskId') = cv.productionTaskId
-                       AND json_extract(e0.payload, '$.resultId') IS NOT NULL
-                     ORDER BY e0.id DESC
-                     LIMIT 1
-                  )
-                 WHERE am.taskId IS NOT NULL
-                    OR json_extract(ce.payload, '$.producteurModele') IS NOT NULL
-                 ORDER BY cv.renduA DESC, cv.productionTaskId DESC
-                 LIMIT ?
-              )
-              AND id = (
-                SELECT e.id
-                  FROM events e
-                 WHERE e.type = 'contre_expertise_verdict'
-                   AND json_extract(e.payload, '$.source') = 'hive_counter_review'
-                   AND json_extract(e.payload, '$.taskId') = json_extract(events.payload, '$.taskId')
-                   AND json_extract(e.payload, '$.resultId') IS NOT NULL
-                 ORDER BY e.id DESC
-                 LIMIT 1
-              )
-              )
-              OR (
-                type = 'worker_usage'
-                AND json_extract(payload, '$.resultId') IN (
-                  SELECT id FROM results ORDER BY id DESC LIMIT ?
-                )
-              )
-              OR (
-                type = 'council_decided'
-                AND json_extract(payload, '$.sessionId') IN (SELECT id FROM conseil_sessions)
-                AND id = (
-                  SELECT MAX(d.id)
-                    FROM events d
-                   WHERE d.type = 'council_decided'
-                     AND json_extract(d.payload, '$.sessionId') = json_extract(events.payload, '$.sessionId')
-                )
-              )
-              OR (
-                type = 'evaluator_retry_skipped'
-                AND json_extract(payload, '$.taskId') IN (SELECT id FROM tasks)
-                AND id = (
-                  SELECT MAX(r.id)
-                    FROM events r
-                   WHERE r.type = 'evaluator_retry_skipped'
-                     AND json_extract(r.payload, '$.taskId') = json_extract(events.payload, '$.taskId')
-                )
-              )
-              OR (
-                type IN ('contre_expertise', 'contre_expertise_impossible')
-                AND json_extract(payload, '$.taskId') IN (
-                  SELECT t.id FROM tasks t
-                   WHERE t.status = 'done'
-                     AND t.id IN (SELECT productionTaskId FROM contre_expertises)
-                   ORDER BY t.updatedAt DESC, t.id DESC
-                   LIMIT ?
-                )
-                AND json_extract(payload, '$.resultId') = (
-                  SELECT MAX(r.id) FROM results r
-                   WHERE r.taskId = json_extract(events.payload, '$.taskId')
-                )
-              )
-            )`,
+        `SELECT id FROM (
+           SELECT MAX(id) AS id,
+                  json_extract(CASE WHEN json_valid(payload) THEN payload ELSE '{}' END, '$.sessionId') AS sessionId
+             FROM events
+            WHERE type = 'council_decided'
+            GROUP BY sessionId
+         )
+         WHERE sessionId IN (SELECT id FROM conseil_sessions)`,
       )
-      .run(cutoff, CORPUS_AIGUILLAGE, Math.max(0, maxKeep), CORPUS_AIGUILLAGE);
-    return info.changes;
+      .all() as Array<{ id: number }>;
+    const verdicts = this.db.prepare(CORPUS_AIGUILLAGE_SQL).all(CORPUS_AIGUILLAGE) as Array<{
+      verdictId: number | null;
+    }>;
+    return new Set([
+      ...decisions.map((r) => r.id),
+      ...verdicts.flatMap((r) => (r.verdictId === null ? [] : [r.verdictId])),
+    ]);
+  }
+
+  /**
+   * Des faits de ces types, d'une tâche ENCORE CONNUE, ont-ils pu sortir du
+   * journal ? La question qu'un repli par tâche (registre Genome) doit se poser
+   * avant de se dire tronqué — et que `journalElague` ne sait pas trancher : il
+   * voit qu'il manque des lignes, pas lesquelles, si bien qu'une passe qui n'a
+   * ôté que des battements de cœur l'allume aussi.
+   *
+   * Vrai quand l'une de ces trois choses est vraie :
+   *   · le registre compte un fait de ces types retiré pour un motif qui touche
+   *     une tâche connue (`MOTIFS_FAIT_CONNU` : échu, ou pris par le plafond), et
+   *     une tâche créée avant le DERNIER de ces retraits est toujours là. Une
+   *     tâche créée après n'a rien pu y perdre ; quand la dernière d'avant
+   *     disparaît (`pruneTasks`), l'aveu tombe avec elle — le Genome ignore déjà
+   *     les faits d'une tâche disparue. Sans ce lien, un seul fait échu
+   *     allumait « tronqué » pour toute la vie de la base. Le lien reste
+   *     CONSERVATEUR : le registre compte par type et par motif, pas par tâche,
+   *     si bien qu'une vieille tâche restée en `ready` tient l'aveu allumé pour
+   *     un fait échu d'une AUTRE. Il peut dire « tronqué » à tort, jamais
+   *     « complet » à tort ;
+   *   · l'ancienne rétention a supprimé des lignes de types inconnus
+   *     (`avant_registre`) et une tâche créée avant qu'on le constate est
+   *     toujours là — ses faits ont pu partir avec ;
+   *   · le journal a perdu des lignes que le registre n'explique pas, par un
+   *     autre chemin que `pruneEvents` : inconnu, donc compté comme une perte.
+   * Les traces et les orphelines n'y entrent pas : un repli par tâche ignore
+   * déjà les événements d'une tâche disparue, et une trace n'en nomme aucune.
+   */
+  faitsElagues(types: readonly string[]): boolean {
+    if (types.length === 0) return false;
+    const marques = types.map(() => '?').join(', ');
+    const motifs = MOTIFS_FAIT_CONNU.map(() => '?').join(', ');
+    const row = this.db
+      .prepare(
+        `SELECT
+           EXISTS (SELECT 1 FROM tasks
+                    WHERE createdAt <= (SELECT MAX(dernierA) FROM journal_elagages
+                                         WHERE type IN (${marques})
+                                           AND motif IN (${motifs}))) AS connus,
+           EXISTS (SELECT 1 FROM tasks
+                    WHERE createdAt <= (SELECT dernierA FROM journal_elagages
+                                         WHERE motif = 'avant_registre')) AS anciens,
+           COALESCE((SELECT seq FROM sqlite_sequence WHERE name = 'events'), 0)
+             - (SELECT COUNT(*) FROM events)
+             - COALESCE((SELECT SUM(supprimes) FROM journal_elagages), 0) AS inexpliques`,
+      )
+      .get(...types, ...MOTIFS_FAIT_CONNU) as {
+      connus: number;
+      anciens: number;
+      inexpliques: number;
+    };
+    return row.connus === 1 || row.anciens === 1 || row.inexpliques > 0;
   }
 
   /**
@@ -5822,7 +6072,7 @@ export class HiveStore {
     // tâche (`build_api` matcherait `build-api`).
     const row = this.db
       .prepare(
-        "SELECT * FROM events WHERE type = ? AND json_extract(payload, '$.taskId') = ? ORDER BY id DESC LIMIT 1",
+        `SELECT * FROM events WHERE type = ? AND ${TACHE_DE_L_EVENEMENT} = ? ORDER BY id DESC LIMIT 1`,
       )
       .get(type, taskId) as EventRow | undefined;
     if (!row) return null;
@@ -5848,7 +6098,7 @@ export class HiveStore {
       .prepare(
         `SELECT * FROM events
           WHERE type IN (${marques})
-            AND json_extract(CASE WHEN json_valid(payload) THEN payload ELSE '{}' END, '$.taskId') = ?
+            AND ${TACHE_DE_L_EVENEMENT} = ?
           ORDER BY id DESC LIMIT ?`,
       )
       .all(...types, taskId, Math.max(1, Math.min(limite, 500))) as EventRow[];
@@ -5953,7 +6203,7 @@ export class HiveStore {
       .prepare(
         `SELECT * FROM events
          WHERE type IN ('validation_recorded', 'ci_validation_recorded')
-           AND json_extract(payload, '$.taskId') = ?
+           AND ${TACHE_DE_L_EVENEMENT} = ?
            AND json_extract(payload, '$.resultId') = ?
          ORDER BY id DESC LIMIT 1`,
       )
@@ -6056,7 +6306,7 @@ export class HiveStore {
       .prepare(
         `SELECT payload FROM events
          WHERE type = 'contre_expertise_impossible'
-           AND json_extract(payload, '$.taskId') = ?
+           AND ${TACHE_DE_L_EVENEMENT} = ?
            AND json_extract(payload, '$.resultId') = ?
          ORDER BY id DESC LIMIT 1`,
       )
@@ -6076,7 +6326,7 @@ export class HiveStore {
       .prepare(
         `SELECT * FROM events
          WHERE type = 'contre_expertise_verdict'
-           AND json_extract(payload, '$.taskId') = ?
+           AND ${TACHE_DE_L_EVENEMENT} = ?
            AND json_extract(payload, '$.resultId') = ?
          ORDER BY id ASC`,
       )
@@ -6167,6 +6417,14 @@ export class HiveStore {
    * rendait la fenêtre de 10 minutes fictive dès que la ruche était active (un
    * flot de `task_progress` évinçait les issues). Servi par l'index
    * `idx_events_ts` — pas de tri temporaire, pas de scan complet.
+   *
+   * `INDEXED BY` : le plan est ÉPINGLÉ, parce qu'il a déjà bougé seul. Depuis
+   * `idx_events_type`, le planificateur préférait l'égalité sur le type à la
+   * borne sur `ts` — or ces quatre types sont des preuves que la rétention garde
+   * des semaines : il aurait relu, et trié, toutes les issues retenues pour en
+   * garder dix minutes, à chaque tick. Épinglé, un index disparu fait échouer
+   * la requête au lieu de la ralentir en silence (le rôle que la documentation
+   * de SQLite donne à cette clause).
    */
   listEventsInWindow(
     since: number,
@@ -6176,7 +6434,8 @@ export class HiveStore {
     const placeholders = types.map(() => '?').join(', ');
     const rows = this.db
       .prepare(
-        `SELECT ts, type, payload FROM events WHERE ts >= ? AND type IN (${placeholders}) ORDER BY ts`,
+        `SELECT ts, type, payload FROM events INDEXED BY idx_events_ts
+          WHERE ts >= ? AND type IN (${placeholders}) ORDER BY ts`,
       )
       .all(since, ...types) as Array<{ ts: number; type: string; payload: string }>;
     return rows.map((r) => ({

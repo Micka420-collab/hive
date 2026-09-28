@@ -14,6 +14,7 @@
 //     expertise, Evaluator, revue humaine), et un désaccord n'en sort que
 //     quand un humain l'a tranché.
 
+import Database from 'better-sqlite3';
 import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -23,6 +24,7 @@ import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
 import type { DecisionConseil, Desaccord, EntreeWarRoom } from '../src/shared/war-room.js';
 import { MAX_ATTEMPTS } from '../src/shared/types.js';
+import { fenetreSeule } from './aide/journal-retenu.js';
 
 const TOKEN = 'jeton-war-room-assez-long-pour-passer';
 const headers = { 'content-type': 'application/json', 'x-hive-token': TOKEN };
@@ -356,7 +358,7 @@ describe('trancher un conseil', () => {
     });
     for (let i = 0; i < 20; i++) server.store.appendEvent('bruit', { i });
 
-    server.store.pruneEvents(0);
+    server.store.pruneEvents(fenetreSeule(0));
     const restantes = decisionsRangees();
     expect(restantes, 'seule la décision COURANTE est protégée').toHaveLength(1);
     expect(restantes[0]?.payload.propositionId).toBe(pistes[1]);
@@ -371,7 +373,7 @@ describe('trancher un conseil', () => {
 
     // La borne : la protection tombe avec le conseil.
     server.store.pruneConseils(0);
-    server.store.pruneEvents(0);
+    server.store.pruneEvents(fenetreSeule(0));
     expect(decisionsRangees()).toHaveLength(0);
   });
 });
@@ -579,7 +581,7 @@ describe('la War Room relit les vrais producteurs', () => {
       // le matin — la ruche disait alors « aucun désaccord ».
       const elaguer = (): void => {
         for (let i = 0; i < 30; i++) server.store.appendEvent('task_progress', { i });
-        server.store.pruneEvents(10);
+        server.store.pruneEvents(fenetreSeule(10));
       };
       elaguer();
       const elague = (await (await lireWarRoom(`?projectId=${projectId}`)).json()) as Vue;
@@ -599,13 +601,23 @@ describe('la War Room relit les vrais producteurs', () => {
       expect(apres.desaccords).toEqual([]);
       expect(apres.entrees.at(-1)).toMatchObject({ genre: 'revue_humaine', etat: 'approved' });
 
-      // La revue qui l'a tranchée sort à son tour du journal ; le refus, lui,
-      // y reste. La contestation ne revient pas : la revue est RANGÉE.
+      // La revue qui l'a tranchée est une preuve de sa tâche, encore vivante
+      // (approuvée, pas livrée) : la rétention la garde avec le refus.
       elaguer();
       expect(
         server.store.listEvents(0, 1000).some((e) => e.type === 'task_reviewed'),
-        'le banc : la revue doit être élaguée',
-      ).toBe(false);
+        'la revue survit au bavardage',
+      ).toBe(true);
+
+      // Une base élaguée par l'ANCIENNE rétention a pu perdre la revue en
+      // gardant le refus, qu'elle protégeait seul. Rejouée ici par une seconde
+      // connexion : la contestation ne revient pas, la revue est RANGÉE.
+      const ancienne = new Database(path.join(dir, 'w.db'));
+      try {
+        ancienne.prepare("DELETE FROM events WHERE type = 'task_reviewed'").run();
+      } finally {
+        ancienne.close();
+      }
       const plusTard = (await (await lireWarRoom(`?projectId=${projectId}`)).json()) as Vue;
       expect(plusTard.desaccords, 'une contestation tranchée ne ressuscite pas').toEqual([]);
     },

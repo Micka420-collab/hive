@@ -21,6 +21,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { HiveStore } from '../src/orchestrator/store.js';
 import type { Suite } from '../src/orchestrator/polyethisme.js';
+import { fenetreSeule } from './aide/journal-retenu.js';
 
 describe('HiveStore — le lien tâche→modèle de l’Aiguillage', () => {
   let store: HiveStore;
@@ -122,7 +123,7 @@ describe('HiveStore — le lien tâche→modèle de l’Aiguillage', () => {
     // événement doit survivre assez longtemps pour conserver `modeleExact`.
     store.poserModeleAiguillage(t, 'fable-courant', 2_500);
     for (let i = 0; i < 5_001; i++) store.appendEvent('bruit', { i });
-    expect(store.pruneEvents(5_000)).toBe(1);
+    expect(store.pruneEvents(fenetreSeule(5_000)).supprimes).toBe(1);
     expect(store.observationsAiguillage()).toEqual([
       expect.objectContaining({
         modele: 'fable-courant',
@@ -194,7 +195,7 @@ describe('HiveStore — le lien tâche→modèle de l’Aiguillage', () => {
       expect(avant.every((observation) => observation.modeleExact)).toBe(true);
       const exactsAvant = new Set(avant.map((observation) => observation.modeleExact));
       for (let i = 0; i < 5_001; i++) tieStore.appendEvent('bruit', { i });
-      tieStore.pruneEvents(5_000);
+      tieStore.pruneEvents(fenetreSeule(5_000));
 
       const observations = tieStore.observationsAiguillage();
       expect(observations).toHaveLength(300);

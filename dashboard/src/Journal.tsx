@@ -615,6 +615,38 @@ const EVENTS: Record<string, Meta> = {
             `${String(p.relecteur ?? '?')} approves ${short(p.taskId)}`,
           ),
   },
+  // La rétention du journal se raconte (`shared/retention-journal.ts`) : une
+  // ligne par passe qui retire quelque chose. Le plafond y est nommé à part,
+  // avec les preuves de tâches ENCORE OUVERTES qu'il a prises — le seul motif
+  // qui prive une décision à venir de son dossier, et que l'opérateur doit
+  // pouvoir lire sans ouvrir le payload.
+  journal_elagage: {
+    icon: '✂',
+    cls: 'muted',
+    text: (p, t) => {
+      const motifs = (p.parMotif ?? {}) as Record<string, unknown>;
+      const n = (m: string): number => (typeof motifs[m] === 'number' ? (motifs[m] as number) : 0);
+      const preuves = n('orpheline') + n('echue');
+      const plafond = n('plafond_close') + n('plafond_vivante') + n('plafond_coupe');
+      const base = t(
+        `journal élagué : ${n('trace')} trace(s), ${preuves} preuve(s) de tâches closes ou disparues`,
+        `journal pruned: ${n('trace')} trace(s), ${preuves} proof(s) of closed or deleted tasks`,
+      );
+      if (plafond === 0) return base;
+      const cap = t(
+        `${base} — plafond atteint : ${plafond} preuve(s) retirée(s), dont ${n('plafond_vivante')} de tâches encore ouvertes`,
+        `${base} — cap reached: ${plafond} proof(s) removed, ${n('plafond_vivante')} of them from still-open tasks`,
+      );
+      // La coupe (une tâche qui boucle, dossier entamé) se dit à part : c'est
+      // le seul retrait qui laisse un dossier à moitié, et l'opérateur doit le
+      // voir sans ouvrir le payload.
+      if (n('plafond_coupe') === 0) return cap;
+      return t(
+        `${cap}, ${n('plafond_coupe')} coupée(s) dans des dossiers encore actifs`,
+        `${cap}, ${n('plafond_coupe')} cut from still-active dossiers`,
+      );
+    },
+  },
   boot_recovery: {
     icon: '⟲',
     cls: 'info',

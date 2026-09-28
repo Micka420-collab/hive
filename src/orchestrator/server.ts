@@ -86,6 +86,7 @@ import {
   registreGenomeDepuisEvenements,
   TYPES_REGISTRE_GENOME,
 } from '../shared/registre-genome.js';
+import { payloadDeBilan, type PolitiqueJournal } from '../shared/retention-journal.js';
 import { lireConfianceProxy, type ConfianceProxy } from '../shared/proxy-confiance.js';
 import {
   ouvertAuJetonDeRuche,
@@ -462,7 +463,12 @@ function clientDeWs(adresse: string): string {
  */
 const TAMPON_TABLEAU_MAX = 4 * 1024 * 1024;
 
-/** Nombre d'événements conservés dans le journal (les plus anciens sont purgés). */
+/**
+ * La FENÊTRE du journal : ses 5 000 derniers événements restent, quels qu'ils
+ * soient — c'est le direct que rattrapent les écrans (`/api/events?since=`) et
+ * que replient la Chronique, le Waggle, le Ghost, le Pulse et le chat. Sous la
+ * fenêtre, seules les preuves des tâches survivent (`POLITIQUE_JOURNAL`).
+ */
 const EVENT_RETENTION = 5_000;
 
 /** Nombre de souvenirs Hive Mind conservés (les plus anciens sont purgés). */
@@ -576,6 +582,49 @@ export const LIVRAISONS_RETENTION = 10_000;
  * sont censées nettoyer À PARTIR d'elle.
  */
 export const TACHES_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * La politique de rétention du journal, tenue par UN propriétaire
+ * (`HiveStore.pruneEvents`, cf. `shared/retention-journal.ts`).
+ *
+ * `preuvesClosesMs` — trente jours, la rétention des tâches terminées
+ * (`TACHES_RETENTION_MS`) : les preuves d'une tâche close durent autant que la
+ * tâche elle-même, et cessent AUSSI quand une survivante qui en dépend la garde
+ * plus longtemps en table — close, elle n'attend plus rien de ses preuves.
+ *
+ * `plafond` — le dernier recours, et la seule borne en nombre sous la fenêtre.
+ * Dix fois la fenêtre : de quoi tenir des semaines de productions avec leurs
+ * relectures (une vingtaine de preuves chacune), et un journal qui reste lisible
+ * par les lectures par type (`idx_events_type`) sans jamais dépasser ce qu'une
+ * ruche sur un petit disque peut garder. Il DOIT dépasser la fenêtre plus les
+ * faits rangés (une décision par Conseil conservé, un verdict par production
+ * du corpus de l'Aiguillage), qu'il ne touche jamais — sans quoi il ne pourrait
+ * pas tenir sa promesse ; un test verrouille l'inégalité.
+ */
+export const POLITIQUE_JOURNAL: PolitiqueJournal = {
+  fenetre: EVENT_RETENTION,
+  preuvesClosesMs: TACHES_RETENTION_MS,
+  plafond: 50_000,
+};
+
+/**
+ * Cadence de la rétention du journal : après ce nombre d'événements nouveaux,
+ * ou au plus tard après `RETENTION_JOURNAL_PERIODE_MS`.
+ *
+ * PAS À CHAQUE TICK, et pour deux raisons. La passe relit toutes les preuves
+ * retenues sous la fenêtre (jusqu'au plafond) : la payer toutes les deux
+ * secondes pour retirer une ligne serait un gaspillage. Et chaque passe qui
+ * retire quelque chose se JOURNALISE (`journal_elagage`) : à chaque tick, le
+ * journal se remplirait du récit de son propre élagage — un signal répété cesse
+ * d'être un signal. La fenêtre déborde donc d'au plus un lot entre deux passes
+ * (5 500 lignes au lieu de 5 000), que personne ne lit comme une promesse.
+ */
+const RETENTION_JOURNAL_LOT = 500;
+/**
+ * Une heure : les échéances des preuves closes se comptent en jours, une ruche
+ * au repos (aucun événement nouveau) doit quand même les voir tomber.
+ */
+const RETENTION_JOURNAL_PERIODE_MS = 60 * 60_000;
 
 /**
  * Livraisons dont on va lire les faits en une fois.
@@ -1141,6 +1190,35 @@ async function monterReine(
   };
 
   /**
+   * Relit le journal après l'id `depuis`, par pages de 1 000 (le plafond du
+   * magasin), jusqu'à `cap` événements — ce que replient la Chronique, le
+   * Waggle, le Ghost, le Pulse et le chat.
+   *
+   * `depuis` par défaut : le début de la FENÊTRE, les `EVENT_RETENTION` derniers
+   * ids. JAMAIS 0 : sous la fenêtre ne dorment plus que les preuves retenues de
+   * tâches parfois vieilles de semaines (`POLITIQUE_JOURNAL`). « Les 5 000
+   * premiers en partant de 0 » rendraient ces preuves éparses à la place du
+   * direct, et le Pulse parlerait du mois dernier comme de l'heure passée.
+   */
+  const lireJournal = (
+    depuis = Math.max(0, store.lastEventId() - EVENT_RETENTION),
+    cap = EVENT_RETENTION,
+  ): HiveEvent[] => {
+    const events: HiveEvent[] = [];
+    let cursor = depuis;
+    for (;;) {
+      const reste = cap - events.length;
+      if (reste <= 0) break;
+      const page = store.listEvents(cursor, Math.min(1000, reste));
+      const last = page[page.length - 1];
+      if (!last) break;
+      events.push(...page);
+      cursor = last.id;
+    }
+    return events;
+  };
+
+  /**
    * Verse un échec au Cerveau, et signale quand un motif devient mûr.
    *
    * ─── CE QUE LA RUCHE S'AUTORISE À ÉCRIRE, ET CE QU'ELLE NE S'AUTORISE PAS ──
@@ -1428,11 +1506,12 @@ async function monterReine(
    *
    * ─── CE QUI S'EFFACE AVEC L'ÉLAGAGE ─────────────────────────────────────
    *
-   * Le filigrane `resultId` vient de l'annonce de lancement. `pruneEvents`
-   * garde les annonces et l'impossibilité du DERNIER résultat des productions
-   * récentes (voir sa garde) ; au-delà, une clôture sans filigrane s'arrête à
-   * son `contre_expertise_review_failed`, déjà journalisé : visible, mais
-   * sans suite automatique — sur une production que la ruche a oubliée.
+   * Le filigrane `resultId` vient de l'annonce de lancement, une preuve que la
+   * rétention garde avec sa production (`shared/retention-journal.ts`) ; une
+   * production close depuis longtemps, disparue, ou dont le plafond a retiré
+   * le dossier l'a perdue : une clôture sans filigrane s'arrête alors à son
+   * `contre_expertise_review_failed`, déjà journalisé — visible, mais sans
+   * suite automatique, sur une production que la ruche a oubliée.
    */
   function reprendreContreRevue(echec: Readonly<Record<string, unknown>>): void {
     const { relecture: relectureTaskId, resultId } = echec;
@@ -1619,9 +1698,11 @@ async function monterReine(
    * objections visaient une production qui n'existe plus. Un échec Worker
    * survenu depuis ne l'efface pas — l'objection reste à traiter.
    *
-   * Élaguée du journal (au-delà d'EVENT_RETENTION) ou écrite avant que le
-   * payload ne la porte : `null`, et la tentative part sans — jamais une
-   * critique devinée.
+   * `task_retry` est une preuve que la rétention garde tant que la tâche vit :
+   * une tâche rouverte qui attend en `ready` garde sa critique, quel que soit
+   * le bavardage du journal pendant ce temps. Retirée par le plafond (le
+   * journal le dit, `journal_elagage`) ou écrite avant que le payload ne la
+   * porte : `null`, et la tentative part sans — jamais une critique devinée.
    */
   const derniereReprise = (taskId: string): HiveEvent | null => {
     const reprises = store.evenementsDeTache(taskId, ['task_retry'], 50);
@@ -5446,8 +5527,14 @@ async function monterReine(
       }
       const lim = Math.min(40, Math.max(1, Number(req.query.limit) || 12));
       const pid = req.params.projectId;
+      // Les DERNIERS cycles, par type (`idx_events_type`) — jamais « les 800
+      // premiers depuis l'id 0 » : sous la fenêtre ne dorment plus que les
+      // preuves retenues des tâches, et `essaim_cycle`, une trace, n'y est
+      // jamais. Lu depuis 0, le panneau des cycles se vidait dès que 800
+      // preuves s'y accumulaient. Toute la fenêtre : un autre projet bavard
+      // ne doit pas masquer les cycles de celui-ci.
       const cycles = store
-        .listEvents(0, 800)
+        .evenementsParTypes(['essaim_cycle'], EVENT_RETENTION)
         .filter(
           (ev) =>
             ev.type === 'essaim_cycle' &&
@@ -6575,9 +6662,10 @@ async function monterReine(
    *
    * Pas de table : la décision est un FAIT daté, et le journal est l'endroit où
    * la ruche range ses faits datés (règle 2 : aucune migration). Ce qui la rend
-   * durable malgré l'élagage du journal, c'est `pruneEvents`, qui garde la
-   * dernière décision de chaque session encore rangée — la décision vit donc
-   * exactement aussi longtemps que le Conseil qu'elle tranche.
+   * durable malgré l'élagage du journal, c'est la rétention (`pruneEvents`,
+   * faits rangés), qui garde la dernière décision de chaque session encore
+   * rangée — la décision vit donc exactement aussi longtemps que le Conseil
+   * qu'elle tranche.
    */
   function decisionsConseils(): Map<string, DecisionConseil> {
     return dernieresDecisions(
@@ -6822,8 +6910,9 @@ async function monterReine(
       // Les désaccords se calculent sur TOUT le fil retenu, jamais sur la
       // fenêtre affichée : une contestation plus ancienne que les `limite`
       // dernières lignes attend toujours quelqu'un. Ce qui l'a levée se relit
-      // AUSSI dans les tables rangées : le journal élagué peut avoir perdu la
-      // revue ou le nouvel essai, pas le refus (gardé par `pruneEvents`).
+      // AUSSI dans les tables rangées : un journal élagué par l'ancienne
+      // rétention a pu perdre la revue ou le nouvel essai en gardant le refus,
+      // et le plafond peut encore retirer tout le dossier d'une tâche.
       const desaccords = desaccordsNonResolus(
         retenues,
         tache ? [] : sessions.filter((s) => projectId === undefined || s.projectId === projectId),
@@ -7101,14 +7190,19 @@ async function monterReine(
     },
     async (req, reply) => {
       if (!authorized(req)) return reject(reply);
-      return store.listEvents(req.query.since ?? 0, req.query.limit ?? 200);
+      // Sans curseur, le début de la FENÊTRE — le même défaut que `lireJournal`,
+      // pour la même raison : sous elle ne dorment que des preuves retenues,
+      // parfois vieilles de semaines, et « depuis 0 » les rendrait à la place
+      // du direct (`hive events`). Un curseur explicite reste tel quel : le
+      // rattrapage du tableau de bord en dépend, trous compris.
+      const depuis = req.query.since ?? Math.max(0, store.lastEventId() - EVENT_RETENTION);
+      return store.listEvents(depuis, req.query.limit ?? 200);
     },
   );
 
   // Time-Lapse Replay : rejoue le journal pour renvoyer une frise chronologique
-  // (une image par événement) + le résumé de l'état final. Lecture seule. La
-  // pagination interne (le store plafonne chaque page à 1000) est bornée par
-  // EVENT_RETENTION pour éviter tout abus.
+  // (une image par événement) + le résumé de l'état final. Lecture seule, bornée
+  // à EVENT_RETENTION événements pour éviter tout abus (`lireJournal`).
   app.get<{ Querystring: { since?: number; limit?: number } }>(
     '/api/replay',
     {
@@ -7125,63 +7219,28 @@ async function monterReine(
     },
     async (req, reply) => {
       if (!authorized(req)) return reject(reply);
-      const cap = req.query.limit ?? EVENT_RETENTION;
-      const events: HiveEvent[] = [];
-      let cursor = req.query.since ?? 0;
-      for (;;) {
-        const remaining = cap - events.length;
-        if (remaining <= 0) break;
-        const page = store.listEvents(cursor, Math.min(1000, remaining));
-        if (page.length === 0) break;
-        events.push(...page);
-        const last = page[page.length - 1];
-        if (!last) break;
-        cursor = last.id;
-      }
-      return buildTimeline(events);
+      // `since` absent ou nul : le direct, c'est-à-dire la fenêtre ; un curseur
+      // explicite est suivi tel quel, preuves retenues comprises.
+      return buildTimeline(lireJournal(req.query.since || undefined, req.query.limit));
     },
   );
 
   // Waggle Board : classement de contribution des nœuds (nectar), calculé en
-  // repliant le journal. Lecture seule. Pagination interne bornée par
-  // EVENT_RETENTION (le store plafonne chaque page à 1000).
+  // repliant la fenêtre du journal (`lireJournal`). Lecture seule.
   app.get('/api/waggle', async (req, reply) => {
     if (!authorized(req)) return reject(reply);
-    const events: HiveEvent[] = [];
-    let cursor = 0;
-    for (;;) {
-      if (events.length >= EVENT_RETENTION) break;
-      const page = store.listEvents(cursor, Math.min(1000, EVENT_RETENTION - events.length));
-      if (page.length === 0) break;
-      events.push(...page);
-      const last = page[page.length - 1];
-      if (!last) break;
-      cursor = last.id;
-    }
-    return buildWaggleBoard(events);
+    return buildWaggleBoard(lireJournal());
   });
 
   // Ghost in the Hive : détection d'anomalies (nœuds flaky/silencieux, tâches en
-  // boucle…) par repli du journal. Lecture seule ; pagination interne bornée par
-  // EVENT_RETENTION (le store plafonne chaque page à 1000).
+  // boucle…) par repli de la fenêtre du journal (`lireJournal`). Lecture seule.
   app.get('/api/ghost', async (req, reply) => {
     if (!authorized(req)) return reject(reply);
-    const events: HiveEvent[] = [];
-    let cursor = 0;
-    for (;;) {
-      if (events.length >= EVENT_RETENTION) break;
-      const page = store.listEvents(cursor, Math.min(1000, EVENT_RETENTION - events.length));
-      if (page.length === 0) break;
-      events.push(...page);
-      const last = page[page.length - 1];
-      if (!last) break;
-      cursor = last.id;
-    }
-    return detectGhosts(events);
+    return detectGhosts(lireJournal());
   });
 
   // Hive Pulse : signes vitaux agrégés (débit, latence p50/p95, taux de succès,
-  // nœuds actifs) par repli du journal. Lecture seule ; pagination interne bornée.
+  // nœuds actifs) par repli de la fenêtre du journal (`lireJournal`). Lecture seule.
   // ─── Les Guetteuses ────────────────────────────────────────────────────────
   //
   // Elles ne ferment aucune porte : elles rendent le reniflage BRUYANT. Sans
@@ -7238,18 +7297,7 @@ async function monterReine(
 
   app.get('/api/pulse', async (req, reply) => {
     if (!authorized(req)) return reject(reply);
-    const events: HiveEvent[] = [];
-    let cursor = 0;
-    for (;;) {
-      if (events.length >= EVENT_RETENTION) break;
-      const page = store.listEvents(cursor, Math.min(1000, EVENT_RETENTION - events.length));
-      if (page.length === 0) break;
-      events.push(...page);
-      const last = page[page.length - 1];
-      if (!last) break;
-      cursor = last.id;
-    }
-    return computePulse(events);
+    return computePulse(lireJournal());
   });
 
   // Thermorégulation : la température INSTANTANÉE (dérivée de la fenêtre de
@@ -7606,17 +7654,7 @@ async function monterReine(
     },
     async (req, reply) => {
       if (!authorized(req)) return reject(reply);
-      const events: HiveEvent[] = [];
-      let cursor = 0;
-      for (;;) {
-        if (events.length >= EVENT_RETENTION) break;
-        const page = store.listEvents(cursor, Math.min(1000, EVENT_RETENTION - events.length));
-        if (page.length === 0) break;
-        events.push(...page);
-        const last = page[page.length - 1];
-        if (!last) break;
-        cursor = last.id;
-      }
+      const events = lireJournal();
       const projects = store.listProjects();
       const nodes = store.listNodes();
       // Focus fourni → un seul rapport à construire (progressReply filtre déjà
@@ -8848,7 +8886,7 @@ async function monterReine(
       evenements,
       categorieDe,
       EVENT_RETENTION,
-      store.journalElague(),
+      store.faitsElagues(TYPES_REGISTRE_GENOME),
     );
   });
 
@@ -11847,6 +11885,16 @@ async function monterReine(
   let calibrationDiteA = 0;
 
   /**
+   * Où en est la rétention du journal : le dernier id vu à la dernière passe,
+   * et l'instant de cette passe (cadence : `RETENTION_JOURNAL_LOT`,
+   * `RETENTION_JOURNAL_PERIODE_MS`). À zéro au démarrage : la première passe
+   * part au premier tick, et une Reine redémarrée rattrape tout de suite ce
+   * que la précédente n'avait pas encore retiré.
+   */
+  let retentionJournalJusqua = 0;
+  let retentionJournalA = 0;
+
+  /**
    * Quand chaque tâche muette a été re-servie pour la dernière fois.
    *
    * ─── LE DÉFAUT QUE CETTE CARTE FERME ───────────────────────────────────────
@@ -12039,7 +12087,6 @@ async function monterReine(
         }
       }
 
-      store.pruneEvents(EVENT_RETENTION);
       store.pruneMemories(MEMORY_RETENTION);
       store.pruneResults(RESULT_RETENTION);
       store.pruneSauvegardes(SAUVEGARDES_RETENTION);
@@ -12088,6 +12135,30 @@ async function monterReine(
       store.pruneGardeFouEchelons();
       store.pruneGardeFouExigences();
       store.pruneConseils(CONSEILS_CONSERVES);
+      // ─── LE JOURNAL A UN SEUL PROPRIÉTAIRE DE RÉTENTION ────────────────────
+      //
+      // Fenêtre pour les traces, vie de la tâche pour les preuves, plafond en
+      // dernier recours (`shared/retention-journal.ts`). À sa cadence, pas à
+      // chaque tick (`RETENTION_JOURNAL_LOT`). Une passe qui retire quelque
+      // chose le DIT — combien, de quoi, pourquoi : un journal qui perd des
+      // lignes sans le dire se lit comme une ruche qui n'a rien fait.
+      //
+      // APRÈS `pruneTasks` et `pruneConseils` : une tâche que ce tick vient de
+      // supprimer n'a plus rien à prouver, ses preuves partent comme ORPHELINES
+      // — comptées plus tôt, elles seraient ÉCHUES, un motif qui dit au Genome
+      // qu'une tâche connue a perdu des faits (`faitsElagues`). Et un Conseil
+      // que ce tick vient d'élaguer ne protège plus sa décision (`faitsRanges`).
+      if (
+        store.lastEventId() - retentionJournalJusqua >= RETENTION_JOURNAL_LOT ||
+        maintenant - retentionJournalA >= RETENTION_JOURNAL_PERIODE_MS
+      ) {
+        const bilan = store.pruneEvents(POLITIQUE_JOURNAL, maintenant);
+        retentionJournalA = maintenant;
+        if (bilan.supprimes > 0) emitEvent('journal_elagage', payloadDeBilan(bilan));
+        // APRÈS l'événement : le récit de la passe ne compte pas dans le lot
+        // suivant, sans quoi chaque passe en appellerait une autre.
+        retentionJournalJusqua = store.lastEventId();
+      }
       // ─── LES TROIS BORNES QUI ÉTAIENT ÉCRITES ET PAS CÂBLÉES ───────────────
       //
       // `pruneAcces`, `prunePartages` et `pruneServeurs` existaient, documentés

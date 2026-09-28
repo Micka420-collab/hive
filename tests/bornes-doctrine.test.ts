@@ -111,6 +111,8 @@ const BORNÉES_PAR_L_HUMAIN: Record<string, string> = {
     'un solde clos par projet — 1:1 avec projects ; l’élaguer rendrait des heures au client',
   motifs_projet:
     'procédures perso créées depuis la Chambre — poignée par projet, jamais auto-générées',
+  journal_elagages:
+    'un compteur cumulé par couple (type d’événement, motif d’élagage) — bornée par le vocabulaire FERMÉ des types que le code émet, jamais une ligne par événement ; l’élaguer effacerait ce que le Genome doit savoir de ses pertes',
 };
 
 /** Le corps de chaque méthode `prune*` du magasin, accolades suivies. */
