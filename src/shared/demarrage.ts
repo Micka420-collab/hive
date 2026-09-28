@@ -134,6 +134,22 @@ export const ENTREES = {
 } as const;
 
 /**
+ * Les mêmes, COMPILÉS (`npm run build:node`) — ce que lance l'application de
+ * bureau, qui n'embarque ni `tsx` ni les sources (ADR 0013 § 2).
+ */
+export const ENTREES_COMPILEES = {
+  hub: path.join('dist', 'orchestrator', 'main.js'),
+  noeud: path.join('dist', 'node-client', 'main.js'),
+} as const;
+
+/**
+ * D'où partent les pièces : les SOURCES par le lanceur maison (`tsx` dans le
+ * processus — `npm run ruche`), ou le JavaScript COMPILÉ lancé tel quel (l'app
+ * de bureau, où `tsx` n'existe pas).
+ */
+export type Entrees = 'source' | 'compile';
+
+/**
  * Les pièces à lancer, dans l'ordre où elles doivent démarrer.
  *
  * L'ORDRE COMPTE : le nœud se connecte au hub. Le lancer en premier lui fait
@@ -153,14 +169,22 @@ export const ENTREES = {
  *
  * `plan` absent, ou `une` : l'ouvrière unique d'avant, qui choisit son agent
  * elle-même. `par-agent` : une ouvrière par famille, dans l'ordre du plan.
+ *
+ * `entrees` : `source` (défaut) passe par le lanceur `tsx` ; `compile` vise
+ * `dist/…/main.js` directement. La composition — qui, dans quel ordre, avec
+ * quel lien à la Reine — est la MÊME : l'app et `npm run ruche` ne divergent
+ * que sur le fichier lancé.
  */
 export function pieces(
   noeud: string,
   voeu: Voeu = {},
   port: number = PORT_PAR_DEFAUT,
   plan?: PlanOuvrieres,
+  entrees: Entrees = 'source',
 ): Piece[] {
   const veut = (cle: keyof Voeu): boolean => voeuVeut(voeu, cle);
+  const argvDe = (cle: keyof typeof ENTREES): readonly string[] =>
+    entrees === 'compile' ? [ENTREES_COMPILEES[cle]] : [SCRIPTS.lanceur, ENTREES[cle]];
   // Une pièce ne rejoint la Reine que si CETTE ruche la lance. Sans elle
   // (`{ noeud: true }` seul), l'ouvrière garde son `HIVE_URL` : elle vise la
   // ruche que l'opérateur a désignée, et rien ne l'attend ici.
@@ -172,7 +196,7 @@ export function pieces(
     liste.push({
       nom: 'reine',
       bin: noeud,
-      argv: [SCRIPTS.lanceur, ENTREES.hub],
+      argv: argvDe('hub'),
       reine: 'annonce',
       // Le port 0 veut dire « le système en choisira un » : personne ne le
       // connaît encore, pas même la Reine. Écrire `http://127.0.0.1:0` serait
@@ -189,7 +213,7 @@ export function pieces(
       liste.push({
         nom: `ouvrière ${o.agent}`,
         bin: noeud,
-        argv: [SCRIPTS.lanceur, ENTREES.noeud],
+        argv: argvDe('noeud'),
         role: `exécute le travail avec ${libelleAgent(o.agent)}`,
         env: o.env,
         ouvriere: true,
@@ -200,7 +224,7 @@ export function pieces(
     liste.push({
       nom: 'ouvrière',
       bin: noeud,
-      argv: [SCRIPTS.lanceur, ENTREES.noeud],
+      argv: argvDe('noeud'),
       role: 'exécute le travail avec votre agent',
       ouvriere: true,
       ...rejoint('HIVE_URL'),

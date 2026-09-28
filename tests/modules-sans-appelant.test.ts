@@ -82,6 +82,12 @@ const DECLARATIFS = [
   'docker-compose.cloud.yml',
   'install.sh',
   'install.ps1',
+  // Ceux qui chargent un module de `src/` depuis DEHORS : le lanceur de la
+  // ruche (par `tsx`) et l'application de bureau (le contrat de ce qu'elle
+  // importe de `dist/`, ADR 0013). `src/ruche-superviseur.ts` n'a d'appelant
+  // que ces deux-là.
+  'scripts/ruche.mjs',
+  'desktop/src/contrat-hive.ts',
 ]
   .filter((f) => existsSync(path.join(RACINE, f)))
   .map(lire)

@@ -82,6 +82,21 @@ describe('GET /api/version', () => {
     expect(corps.version.declaree).toMatch(/^\d+\.\d+\.\d+/);
   });
 
+  it('UNE RUCHE POSÉE PAR L’APP DE BUREAU (`HIVE_POSE=bureau`) : aucune marche, le conseil de l’app', async () => {
+    const avant = process.env.HIVE_POSE;
+    process.env.HIVE_POSE = 'bureau';
+    try {
+      const r = await fetch(`${base}/api/version`, { headers: { 'x-hive-token': TOKEN } });
+      const corps = (await r.json()) as { pose: string; marche: unknown[]; conseil?: string };
+      expect(corps.pose).toBe('bureau');
+      expect(corps.marche).toEqual([]);
+      expect(corps.conseil).toContain('se met à jour toute seule');
+    } finally {
+      if (avant === undefined) delete process.env.HIVE_POSE;
+      else process.env.HIVE_POSE = avant;
+    }
+  });
+
   it('LA MARCHE À SUIVRE PORTE LA SONDE QUI SAUVE LA BASE', async () => {
     const r = await fetch(`${base}/api/version`, { headers: { 'x-hive-token': TOKEN } });
     const corps = (await r.json()) as { pose: string; marche: string[][] };

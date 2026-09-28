@@ -223,6 +223,11 @@ export interface DelegationBridge {
   /** Commande MCP stdio : `node --eval <pont> <endpoint> <token> <parent>`. */
   readonly childCommand: string;
   readonly childArgs: readonly string[];
+  /**
+   * Variables posées pour le serveur MCP par la configuration de l'agent
+   * (`envDuPont`) ; absent quand `childCommand` est un vrai Node.
+   */
+  readonly childEnv?: Readonly<Record<string, string>>;
   /** Chemin de configuration MCP vu par le CLI. */
   readonly childConfigPath: string;
   /** Chemin hôte du même fichier, utilisé pour l'écrire et le supprimer. */
@@ -541,8 +546,31 @@ function jsonFrame(value: unknown): string {
   return `${frame}\n`;
 }
 
+/**
+ * L'environnement que la configuration MCP doit poser pour le pont.
+ *
+ * ─── DANS L'APPLICATION DE BUREAU, `process.execPath` N'EST PAS NODE ────────
+ *
+ * Le pont se lance par `process.execPath --eval …` : le binaire qui fait
+ * tourner l'ouvrière. Dans l'app (ADR 0013 § 2), c'est Electron, que
+ * l'ouvrière elle-même n'a reçu qu'en mode Node (`ELECTRON_RUN_AS_NODE=1`,
+ * retiré de son environnement avant qu'elle ne lance quoi que ce soit). Sans
+ * la variable, l'agent qui démarre le pont ouvrirait… une seconde fenêtre de
+ * l'app, et la délégation n'aurait jamais de serveur MCP. On la pose donc là
+ * où l'agent la lira : dans la configuration de CE serveur, et nulle part
+ * ailleurs.
+ *
+ * Dans le bac, le pont est lancé par le `node` de l'image : rien à poser.
+ */
+export function envDuPont(
+  versions: NodeJS.ProcessVersions,
+  bac: boolean,
+): Readonly<Record<string, string>> | undefined {
+  return !bac && typeof versions.electron === 'string' ? { ELECTRON_RUN_AS_NODE: '1' } : undefined;
+}
+
 function mcpConfig(
-  handle: Pick<DelegationBridge, 'childCommand' | 'childArgs' | 'mcpServerName'>,
+  handle: Pick<DelegationBridge, 'childCommand' | 'childArgs' | 'childEnv' | 'mcpServerName'>,
 ): Record<string, unknown> {
   return {
     mcpServers: {
@@ -550,6 +578,7 @@ function mcpConfig(
         type: 'stdio',
         command: handle.childCommand,
         args: [...handle.childArgs],
+        ...(handle.childEnv ? { env: { ...handle.childEnv } } : {}),
       },
     },
   };
@@ -589,6 +618,13 @@ export function codexMcpOverrides(bridge: DelegationBridge): string[] {
     `${prefix}.enabled=true`,
     '-c',
     `${prefix}.enabled_tools=${toml([HIVE_DELEGATE_TOOL, HIVE_WAIT_TOOL])}`,
+    // Une clé POINTÉE par variable, pas une table : `-c` lit sa valeur en TOML,
+    // où `{"A":"1"}` n'est pas une table en ligne (`{ A = "1" }` l'est) — la
+    // forme JSON y serait lue comme une simple chaîne.
+    ...Object.entries(bridge.childEnv ?? {}).flatMap(([cle, valeur]) => [
+      '-c',
+      `${prefix}.env.${cle}=${toml(valeur)}`,
+    ]),
   ];
 }
 
@@ -793,6 +829,7 @@ export async function createDelegationBridge(
   const configPath = path.join(dossier, 'mcp.json');
   const childCommand = ctx.bac ? 'node' : process.execPath;
   const childArgs = ['--eval', DELEGATION_BRIDGE_SOURCE, dansLeBac(endpoint), token, parentTaskId];
+  const childEnv = envDuPont(process.versions, ctx.bac !== undefined);
 
   return {
     endpoint,
@@ -803,6 +840,7 @@ export async function createDelegationBridge(
     mcpServerName,
     childCommand,
     childArgs,
+    ...(childEnv ? { childEnv } : {}),
     childConfigPath: dansLeBac(configPath),
     configPath,
     close: closeServer,
