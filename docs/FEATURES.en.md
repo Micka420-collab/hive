@@ -280,8 +280,10 @@ GET  /api/projects/<replay>/rejeu/comparaison         # source vs replay
   commit, push, GitHub workflow — and the autonomous hive — are **simulated**:
   stored (once), journaled (`rejeu_action_simulee`), never executed; the route
   answers `409 rejeu_simule` (nothing left) and the autonomous hive moves on.
-  Only a human signed in with an **account** can approve one: “Validate for
-  real” on screen, `--valider-rejeu` on the command line (`livrer`,
+  Only a human signed in with an **account that answers for the replay** —
+  its owner or a hive administrator, who must also answer for every project
+  holding the same repository — can approve one: “Validate for real” on
+  screen, `--valider-rejeu` on the command line (`livrer`,
   `livrer-local`, `fusionner`), or `validerRejeu: true` in the request; the hive
   token, which every machine carries, never approves. **External connectors**
   (Slack, webhook) stay silent too: what they would have sent from a replay —

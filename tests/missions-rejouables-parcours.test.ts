@@ -474,6 +474,30 @@ describe('les missions rejouables, de bout en bout', () => {
       ['workflow', 'simulee'],
     ]);
 
+    // UN COMPTE QUI NE RÉPOND PAS DU PROJET ne valide pas, même jeton de ruche
+    // en main : le rejeu d'une mission orpheline est ouvert au jeton, et la
+    // validation se juge sur l'autorité du compte seul.
+    const intrus = await fetch(`${base}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        email: 'inconnu@ailleurs.test',
+        password: 'motdepasse-assez-long-43',
+        displayName: 'Inconnu',
+      }),
+    });
+    expect(intrus.status, await intrus.clone().text()).toBe(200);
+    const intrusJwt = ((await intrus.json()) as { token: string }).token;
+    const parIntrus = await fetch(`${base}/api/livraison`, {
+      method: 'POST',
+      headers: { ...hive, authorization: `Bearer ${intrusJwt}` },
+      body: JSON.stringify({ taskId: tache, validerRejeu: true }),
+    });
+    expect(parIntrus.status, await parIntrus.clone().text()).toBe(409);
+    expect(await parIntrus.json()).toMatchObject({ code: 'rejeu_simule' });
+    expect(faux.appels).toEqual([]);
+    expect(srv.store.getLivraison(tache)).toBeNull();
+
     // UN HUMAIN VALIDE (un compte) : alors, et alors seulement, la PR s'ouvre.
     const validee = await fetch(`${base}/api/livraison`, {
       method: 'POST',
@@ -502,6 +526,52 @@ describe('les missions rejouables, de bout en bout', () => {
 
     // Et sur le projet SOURCE, rien n'a changé : la porte ne mord que les rejeux.
     expect(srv.store.actionsDuRejeu(p)).toEqual([]);
+  });
+
+  it('LE PROPRIÉTAIRE DU REJEU ne valide pas un effet sur un dépôt qu’un projet orphelin tient aussi', async () => {
+    const { base, srv, faux } = await demarrer();
+    // L'administratrice d'abord (premier compte), puis la propriétaire.
+    let token = '';
+    for (const [email, avecJeton] of [
+      ['reine@ruche.test', true],
+      ['proprio@ruche.test', false],
+    ] as const) {
+      const r = await fetch(`${base}/api/auth/register`, {
+        method: 'POST',
+        headers: avecJeton ? hive : { 'content-type': 'application/json' },
+        body: JSON.stringify({ email, password: 'motdepasse-assez-long-44', displayName: email }),
+      });
+      token = ((await r.json()) as { token: string }).token;
+    }
+    const moi = (await (
+      await fetch(`${base}/api/auth/me`, { headers: { authorization: `Bearer ${token}` } })
+    ).json()) as { id: string; role: string };
+    expect(moi.role).toBe('membre');
+    const user = { id: moi.id };
+    // La source est orpheline (ouverte au jeton) ; le rejeu appartient à la
+    // propriétaire. Les deux tiennent le MÊME dépôt.
+    const source = srv.store.createProject({ name: 'Source', repoUrl: DEPOT_URL }).id;
+    const p = srv.store.createProject({ name: 'Rejeu', repoUrl: DEPOT_URL, ownerId: user.id }).id;
+    srv.store.inscrireRejeu({
+      projectId: p,
+      missionSource: 'mission-source',
+      projetSource: source,
+      surcharges: {},
+      genomeFige: null,
+      creePar: null,
+      creeA: Date.now(),
+    });
+    const t = srv.store.createTask({ projectId: p, title: 'Passer a à 2', prompt: 'fais-le' });
+    rendreLivrable(srv, t.id);
+
+    const r = await fetch(`${base}/api/livraison`, {
+      method: 'POST',
+      headers: { ...hive, authorization: `Bearer ${token}` },
+      body: JSON.stringify({ taskId: t.id, validerRejeu: true }),
+    });
+    expect(r.status, await r.clone().text()).toBe(409);
+    expect(await r.json()).toMatchObject({ code: 'rejeu_simule' });
+    expect(faux.appels).toEqual([]);
   });
 
   it('LA RUCHE AUTONOME D’UN REJEU NE LIVRE JAMAIS : elle simule, une fois, et GitHub n’entend rien', async () => {

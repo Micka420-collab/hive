@@ -4381,8 +4381,21 @@ async function monterReine(
   // Chaque route qui écrit HORS de la ruche la franchit juste avant l'effet,
   // toutes ses autres portes passées. Sur un projet de rejeu, l'effet est
   // SIMULÉ et rangé ; il n'est exécuté que si la demande porte
-  // `validerRejeu: true` ET vient d'un compte — une validation humaine
-  // explicite, que le jeton de ruche (sur chaque machine) ne vaut pas.
+  // `validerRejeu: true` ET vient d'un compte QUI RÉPOND du projet — une
+  // validation humaine explicite, que le jeton de ruche (sur chaque machine)
+  // ne vaut pas.
+  //
+  // ─── LE COMPTE SE JUGE SEUL, SANS LE JETON ──────────────────────────────────
+  //
+  // Les portes de la route acceptent le jeton de ruche sur un projet orphelin,
+  // et un rejeu recopie le propriétaire de sa source (missions.ts) : un rejeu
+  // d'une mission orpheline est ouvert au jeton. « Un compte » ne suffisait
+  // donc pas — un inconnu inscrit à l'instant, jeton de ruche en main, validait
+  // la PR (201) et l'action était rangée `validee` à son nom. La validation se
+  // juge sur l'AUTORITÉ DU COMPTE seul : propriétaire ou administrateur
+  // (`peutRegler`, action `regler_autonomie`), et — l'effet écrit un DÉPÔT —
+  // répondre de CHAQUE projet qui tient ce dépôt, la règle d'`ecritureDepotPermise`
+  // sans son repli sur le jeton.
 
   /** Le champ de corps qui porte la validation humaine d'un effet de rejeu. */
   const SCHEMA_VALIDER_REJEU = { type: 'boolean' } as const;
@@ -4398,9 +4411,25 @@ async function monterReine(
       projectId,
       genre,
       cible,
-      validation:
-        valider === true && authorizedUser(req) ? { userId: (req as AuthRequest).userId! } : null,
+      validation: valider === true ? validationDuCompte(req, projectId) : null,
     });
+
+  /** Le compte qui répond du projet ET de son dépôt, ou `null` : jamais le jeton. */
+  const validationDuCompte = (
+    req: FastifyRequest,
+    projectId: string,
+  ): { userId: string } | null => {
+    const moi = roleDe(req);
+    const projet = store.getProject(projectId);
+    if (!moi || !projet || !peut(moi.role, 'regler_autonomie')) return null;
+    const lecteur = lecteurDe(req);
+    if (!peutRegler(projet, lecteur)) return null;
+    const depot = cleDepot(projet.repoUrl);
+    const jumeaux = depot
+      ? store.listProjects().filter((p) => p.id !== projectId && cleDepot(p.repoUrl) === depot)
+      : [];
+    return jumeaux.every((p) => peutRegler(p, lecteur)) ? { userId: moi.userId } : null;
+  };
 
   /**
    * La réponse d'un effet simulé : ce qui serait parti, et comment le valider.

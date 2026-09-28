@@ -302,8 +302,9 @@ GET  /api/projects/<rejeu>/rejeu/comparaison          # source contre rejeu
   mission, poussée, workflow GitHub — et la ruche autonome — sont **simulés** :
   rangés (une fois), journalisés (`rejeu_action_simulee`), jamais exécutés ; la
   route répond `409 rejeu_simule` (rien n'est parti) et la ruche autonome passe
-  à autre chose. Seul un humain connecté avec un **compte** peut en valider
-  un : « Valider pour de vrai » à l'écran, `--valider-rejeu` en ligne de
+  à autre chose. Seul un humain connecté avec un **compte qui répond du
+  rejeu** — son propriétaire ou un administrateur de la ruche, qui doit aussi
+  répondre de chaque projet tenant le même dépôt — peut en valider un : « Valider pour de vrai » à l'écran, `--valider-rejeu` en ligne de
   commande (`livrer`, `livrer-local`, `fusionner`), ou `validerRejeu: true`
   dans la demande ; le jeton de ruche, que chaque machine porte, ne valide
   jamais. Les **connecteurs externes** (Slack, webhook) se taisent aussi : ce
