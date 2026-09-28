@@ -175,6 +175,13 @@ export const SURFACES_SENSIBLES: readonly SurfaceSensible[] = [
   },
   {
     categorie: 'securite',
+    motif:
+      /^src\/shared\/(decouverte|mdns|mdns-reseau|empreinte-ruche)\.ts$|^src\/node-client\/decouverte-noeud\.ts$|^src\/orchestrator\/decouverte-reseau\.ts$/,
+    pourquoi:
+      'la découverte du réseau local : ce qui est diffusé, le code d’appariement, le billet scellé, et la porte d’offre ouverte aux voisins',
+  },
+  {
+    categorie: 'securite',
     motif: /^src\/shared\/graphe-experience\.ts$/,
     pourquoi:
       'le cloisonnement des projets dans le graphe d’expérience, et le cadrage de ce qu’il donne aux agents',
@@ -231,6 +238,11 @@ export const SURFACES_SENSIBLES: readonly SurfaceSensible[] = [
     categorie: 'secrets',
     motif: /^src\/shared\/env-queen\.ts$|^src\/orchestrator\/requisition(-env)?\.ts$/,
     pourquoi: 'où la Reine range et relit les clés d’API',
+  },
+  {
+    categorie: 'secrets',
+    motif: /^src\/node-client\/identite-noeud\.ts$/,
+    pourquoi: 'la clé de nœud et l’adresse de sa ruche, rangées chez le membre',
   },
   {
     categorie: 'secrets',

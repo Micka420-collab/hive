@@ -122,8 +122,8 @@ describe('la porte des changements sensibles — ce qu’elle arrête', () => {
     ['src/node-client/cloudflare.ts', 'deploiement'],
     ['examples/deploiement-sans-ecran.sh', 'auto-execution'],
     ['docker/atelier/entrypoint.sh', 'auto-execution'],
-    // Les gardes que le train 5 a ajoutées à la ruche (#499 #501 #502 #512
-    // #516 #518) : les affaiblir passerait sans elles.
+    // Les gardes que le train 5 a ajoutées à la ruche (#499 #501 #502 #505
+    // #512 #516 #518) : les affaiblir passerait sans elles.
     ['src/node-client/configuration-inerte.ts', 'securite'],
     ['src/connectors/slack/definition.ts', 'securite'],
     ['src/orchestrator/connecteurs.ts', 'securite'],
@@ -133,6 +133,14 @@ describe('la porte des changements sensibles — ce qu’elle arrête', () => {
     ['src/orchestrator/shadow-bench.ts', 'permissions'],
     ['src/node-client/livraison-locale.ts', 'permissions'],
     ['src/shared/reglages.ts', 'permissions'],
+    // La découverte du réseau local (#505).
+    ['src/shared/decouverte.ts', 'securite'],
+    ['src/shared/mdns.ts', 'securite'],
+    ['src/shared/mdns-reseau.ts', 'securite'],
+    ['src/shared/empreinte-ruche.ts', 'securite'],
+    ['src/node-client/decouverte-noeud.ts', 'securite'],
+    ['src/orchestrator/decouverte-reseau.ts', 'securite'],
+    ['src/node-client/identite-noeud.ts', 'secrets'],
   ])('%s → %s', (chemin, categorie) => {
     const verdict = jugerDiff(modification(chemin));
     expect(verdict.etat).toBe('sensible');
