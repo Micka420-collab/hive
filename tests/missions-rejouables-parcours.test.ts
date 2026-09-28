@@ -11,7 +11,9 @@
 //      fusion, commit local, poussée, workflow, et la ruche autonome. Un faux
 //      GitHub tient le compte de TOUT ce qu'on lui demande — c'est l'espion ;
 //   4. un humain (un compte, jamais le jeton de ruche) peut valider, et alors
-//      seulement l'effet part ;
+//      seulement l'effet part. Une simulation répond par un REFUS (409,
+//      `rejeu_simule`) : un 2xx faisait croire aux clients que l'effet était
+//      parti (un suivi de merge sans `mergeId`, une « PR #undefined ») ;
 //   5. la comparaison se lit.
 
 import { createServer as createHttp } from 'node:http';
@@ -267,6 +269,52 @@ describe('les missions rejouables, de bout en bout', () => {
     expect(pasUnRejeu.status).toBe(404);
   });
 
+  it('UNE TÂCHE NÉE SANS `task_created` (la Fabrique) ouvre sa mission à son affectation — et un Genome figé illisible SE DIT', async () => {
+    const { base, srv } = await demarrer();
+    srv.store.registerNode({
+      nodeId: 'n1',
+      name: 'n1',
+      ownerName: 'test',
+      agentType: 'claude-code',
+      maxConcurrency: 4,
+    });
+    srv.store.setNodeStatus('n1', 'online');
+
+    // La Fabrique crée sa tâche sans aucune naissance au journal.
+    const p = srv.store.createProject({ name: 'Outillage' }).id;
+    const f = await fetch(`${base}/api/projects/${p}/fabriques`, {
+      method: 'POST',
+      headers: hive,
+      body: JSON.stringify({ genre: 'script_npm', libelle: 'Outillage' }),
+    });
+    expect(f.status, await f.clone().text()).toBe(200);
+    const { taskId } = (await f.json()) as { taskId: string };
+    srv.scheduler.tick();
+    expect(await jusqua(() => srv.store.listMissions(p).length === 1)).toBe(true);
+    expect(srv.store.membresDeMission(srv.store.listMissions(p)[0]!.id)).toEqual([taskId]);
+
+    // Un rejeu « figé » dont le Genome recopié est illisible : ses tâches
+    // attendent, et le journal le dit — une fois, pas à chaque passe.
+    const r = srv.store.createProject({ name: 'Rejeu figé' }).id;
+    srv.store.inscrireRejeu({
+      projectId: r,
+      missionSource: 'source',
+      projetSource: p,
+      surcharges: { politiqueRoutage: 'figee' },
+      genomeFige: null,
+      creePar: null,
+      creeA: Date.now(),
+    });
+    const t = srv.store.createTask({ projectId: r, title: 'Attendre', prompt: 'x' });
+    srv.store.patchTask(t.id, { status: 'ready' });
+    for (let i = 0; i < 3; i++) srv.scheduler.tick();
+    const dits = () =>
+      srv.store.listEvents(0, 1000).filter((e) => e.type === 'rejeu_genome_illisible');
+    expect(await jusqua(() => dits().length > 0)).toBe(true);
+    expect(dits()).toHaveLength(1);
+    expect(srv.store.getTask(t.id)?.assignedNodeId).toBeNull();
+  });
+
   it('AUCUNE action irréversible d’un rejeu ne part sans un humain — l’espion GitHub n’entend rien', async () => {
     const { base, srv, faux } = await demarrer();
     // L'administratrice : le premier compte inscrit avec le jeton de ruche.
@@ -312,8 +360,8 @@ describe('les missions rejouables, de bout en bout', () => {
         headers: hive,
         body: JSON.stringify(corps),
       });
-      expect(r.status, await r.clone().text()).toBe(200);
-      expect(((await r.json()) as { simule: boolean }).simule).toBe(true);
+      expect(r.status, await r.clone().text()).toBe(409);
+      expect(await r.json()).toMatchObject({ code: 'rejeu_simule', simule: true });
     }
     expect(srv.store.getLivraison(tache)).toBeNull();
 
@@ -324,8 +372,9 @@ describe('les missions rejouables, de bout en bout', () => {
         headers: hive,
         body: JSON.stringify({ pousser, forcer: { raison: 'banc de rejeu' } }),
       });
-      expect(r.status, await r.clone().text()).toBe(200);
+      expect(r.status, await r.clone().text()).toBe(409);
       expect(await r.json()).toMatchObject({
+        code: 'rejeu_simule',
         simule: true,
         genre: pousser ? 'poussee' : 'livraison_locale',
       });
@@ -337,8 +386,8 @@ describe('les missions rejouables, de bout en bout', () => {
       headers: hive,
       body: '{}',
     });
-    expect(wf.status, await wf.clone().text()).toBe(200);
-    expect(await wf.json()).toMatchObject({ simule: true, genre: 'workflow' });
+    expect(wf.status, await wf.clone().text()).toBe(409);
+    expect(await wf.json()).toMatchObject({ code: 'rejeu_simule', genre: 'workflow' });
 
     // L'ESPION : pas un seul appel au dépôt.
     expect(faux.appels).toEqual([]);
@@ -370,8 +419,8 @@ describe('les missions rejouables, de bout en bout', () => {
       headers: hive,
       body: JSON.stringify({ projectId: projet.id, pr, forcer: { raison: 'banc' } }),
     });
-    expect(fusion.status, await fusion.clone().text()).toBe(200);
-    expect(await fusion.json()).toMatchObject({ simule: true, genre: 'fusion_pr' });
+    expect(fusion.status, await fusion.clone().text()).toBe(409);
+    expect(await fusion.json()).toMatchObject({ code: 'rejeu_simule', genre: 'fusion_pr' });
     expect(faux.appels.slice(avantFusion)).toEqual([]);
     expect(srv.store.actionsDuRejeu(projet.id).map((a) => [a.genre, a.issue])).toContainEqual([
       'livraison_pr',
@@ -449,5 +498,13 @@ describe('les missions rejouables, de bout en bout', () => {
       srv.store.listEvents(0, 1000).filter((e) => e.type === 'rejeu_action_simulee'),
       'la simulation est journalisée une fois, pas à chaque cycle',
     ).toHaveLength(1);
+    // Et la ruche PASSE À AUTRE CHOSE : la livraison simulée ne compte plus
+    // parmi « les productions à livrer » — sinon chaque cycle rechoisirait
+    // `livrer` et la ruche d'un rejeu ne butinerait, ne planifierait ni ne
+    // délibérerait plus jamais.
+    const essaim = (await (
+      await fetch(`${base}/api/projects/${p}/essaim`, { headers: hive })
+    ).json()) as { decision: { pas: string } };
+    expect(essaim.decision.pas).not.toBe('livrer');
   });
 });

@@ -12,7 +12,7 @@
 //   npm run cli -- events [sinceId]                   journal d'événements
 //   npm run cli -- merge <projectId>                  plan d'intégration (Honeycomb Merge)
 //   npm run cli -- merge-run <projectId> [cmd test…]  exécuter réellement le merge sur un nœud
-//   npm run cli -- livrer-local <projectId> [--pousser] [--forcer="raison"] [cmd test…]
+//   npm run cli -- livrer-local <projectId> [--pousser] [--forcer="raison"] [--valider-rejeu] [cmd test…]
 //                                                     commiter la mission sur hive/mission-<id>-<n>
 //   npm run cli -- replay [sinceId]                   time-lapse (rejeu du journal)
 //   npm run cli -- waggle                             classement des contributeurs (nectar)
@@ -422,11 +422,12 @@ async function cmdMergeRun(projectId: string, queue: string[]): Promise<void> {
  * n'est fusionné sur la branche principale.
  */
 async function cmdLivrerLocal(projectId: string, queue: string[]): Promise<void> {
-  const { pousser, forcer, reste } = decouperLivraisonArgv(queue);
+  const { pousser, forcer, validerRejeu, reste } = decouperLivraisonArgv(queue);
   const corps = {
     ...decouperMergeArgv(reste),
     ...(pousser ? { pousser } : {}),
     ...(forcer ? { forcer } : {}),
+    ...(validerRejeu ? { validerRejeu } : {}),
   };
   const run = await api<{ mergeId: string; noeud: string; order: string[]; forcees: string[] }>(
     `/api/projects/${projectId}/livraison-locale`,
@@ -1656,12 +1657,18 @@ async function cmdGithubImport(fullName: string): Promise<void> {
 function separerForcer(args: readonly string[]): {
   positionnels: string[];
   forcer?: { raison: string };
+  validerRejeu?: true;
 } {
   const positionnels: string[] = [];
   let raison: string | undefined;
+  let validerRejeu = false;
   for (let i = 0; i < args.length; i += 1) {
     const a = args[i]!;
-    if (a.startsWith('--forcer=')) {
+    // Projet de REJEU : exécuter pour de vrai ce que la Reine simulerait —
+    // accepté d'une session de compte (HIVE_JWT) seulement.
+    if (a === '--valider-rejeu') {
+      validerRejeu = true;
+    } else if (a.startsWith('--forcer=')) {
       raison = a.slice('--forcer='.length);
     } else if (a === '--forcer') {
       const suivant = args[i + 1];
@@ -1671,12 +1678,18 @@ function separerForcer(args: readonly string[]): {
       raison = suivant;
       i += 1;
     } else if (a.startsWith('--')) {
-      throw new Error(`option inconnue « ${a} » — seule --forcer="raison" est acceptée ici`);
+      throw new Error(
+        `option inconnue « ${a} » — seules --forcer="raison" et --valider-rejeu sont acceptées ici`,
+      );
     } else {
       positionnels.push(a);
     }
   }
-  return raison === undefined ? { positionnels } : { positionnels, forcer: { raison } };
+  return {
+    positionnels,
+    ...(raison === undefined ? {} : { forcer: { raison } }),
+    ...(validerRejeu ? { validerRejeu: true as const } : {}),
+  };
 }
 
 /**
@@ -1688,12 +1701,18 @@ async function cmdLivrer(...args: string[]): Promise<void> {
   const {
     positionnels: [taskId, base],
     forcer,
+    validerRejeu,
   } = separerForcer(args);
   const r = await api<{ pr: number; urlPr: string; branche: string; fichiers: string[] }>(
     '/api/livraison',
     {
       method: 'POST',
-      body: JSON.stringify({ taskId, ...(base ? { base } : {}), ...(forcer ? { forcer } : {}) }),
+      body: JSON.stringify({
+        taskId,
+        ...(base ? { base } : {}),
+        ...(forcer ? { forcer } : {}),
+        ...(validerRejeu ? { validerRejeu } : {}),
+      }),
     },
   );
   console.log(`\n✔ Pull request #${r.pr} ouverte.\n`);
@@ -1714,11 +1733,18 @@ async function cmdFusionner(...args: string[]): Promise<void> {
   const {
     positionnels: [projectId, pr, methode],
     forcer,
+    validerRejeu,
   } = separerForcer(args);
   const m = methode === 'merge' || methode === 'rebase' ? methode : 'squash';
   const r = await api<{ fusionnee: boolean; sha: string }>('/api/livraison/fusion', {
     method: 'POST',
-    body: JSON.stringify({ projectId, pr: Number(pr), methode: m, ...(forcer ? { forcer } : {}) }),
+    body: JSON.stringify({
+      projectId,
+      pr: Number(pr),
+      methode: m,
+      ...(forcer ? { forcer } : {}),
+      ...(validerRejeu ? { validerRejeu } : {}),
+    }),
   });
   if (r.fusionnee) console.log(`\n✔ PR #${pr} fusionnée (${m}) — ${r.sha.slice(0, 8)}\n`);
   else console.log(`\n✘ PR #${pr} non fusionnée.\n`);
@@ -1983,7 +2009,7 @@ try {
   else if (cmd === 'revoquer' && a1) await cmdRevoquerBillet(a1);
   else {
     console.log(
-      'Usage : npm run cli -- <state | mind ["<requête>"] | stings <projectId> | plan "<brief>" [heuristic|llm] | brief <projectId> "<brief>" | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | merge <projectId> | merge-run <projectId> [cmd test…] | replay [sinceId] | waggle | consensus <taskId> | doctor [chemin] [--json] | desinstaller [chemin] [--oui] [--json] | service <install|status|logs|uninstall> [--systeme] | sauvegarde [chemin] [--garder=N] [--vers=D] [--json] | mode [off|propose|gouverne|plein] [projectId] [--oui] | ghost | shift | pulse | report <projectId> | ask "<question>" [projectId] | race <taskId> [facteur] | races | invite [urlWS] [--uses N] [--hours H] [--insecure] | tunnel [--uses N] | cloudflare [--install | --setup <hote>] | github [filtre] | github-import <owner/repo> | livrer-local <projectId> [--pousser] [--forcer="raison"] [cmd test…] | livrer <taskId> [base] [--forcer="raison"] | fusionner <projectId> <pr> [squash|merge|rebase] [--forcer="raison"] | conseil <projectId> [question] | conseil-voir <sessionId> | conseils | membres | exclure <nodeId> | revoquer <billetId>>',
+      'Usage : npm run cli -- <state | mind ["<requête>"] | stings <projectId> | plan "<brief>" [heuristic|llm] | brief <projectId> "<brief>" | project <nom> [repoUrl] | tasks <projectId> <fichier.json> | watch <projectId> | cancel <taskId> | events [sinceId] | merge <projectId> | merge-run <projectId> [cmd test…] | replay [sinceId] | waggle | consensus <taskId> | doctor [chemin] [--json] | desinstaller [chemin] [--oui] [--json] | service <install|status|logs|uninstall> [--systeme] | sauvegarde [chemin] [--garder=N] [--vers=D] [--json] | mode [off|propose|gouverne|plein] [projectId] [--oui] | ghost | shift | pulse | report <projectId> | ask "<question>" [projectId] | race <taskId> [facteur] | races | invite [urlWS] [--uses N] [--hours H] [--insecure] | tunnel [--uses N] | cloudflare [--install | --setup <hote>] | github [filtre] | github-import <owner/repo> | livrer-local <projectId> [--pousser] [--forcer="raison"] [--valider-rejeu] [cmd test…] | livrer <taskId> [base] [--forcer="raison"] [--valider-rejeu] | fusionner <projectId> <pr> [squash|merge|rebase] [--forcer="raison"] [--valider-rejeu] | conseil <projectId> [question] | conseil-voir <sessionId> | conseils | membres | exclure <nodeId> | revoquer <billetId>>',
     );
     process.exitCode = 1;
   }

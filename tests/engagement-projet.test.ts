@@ -464,8 +464,9 @@ describe('ADR 0007 — le jeton de ruche n’engage plus le projet d’autrui', 
     // pouvoir réussir, sans quoi la garde ne serait éprouvée que sur des refus.
     const mission = `mission-${projet}`;
     const ouverture = { id: mission, ouverteA: 0, closeA: null, depuisEvenement: 0 };
-    const debut = instantaneDe(s, s.getProject(projet)!, ouverture, 'debut', Date.now());
-    s.ouvrirMission({ ...ouverture, projectId: projet, debut: JSON.stringify(debut) });
+    const membres = [tache];
+    const debut = instantaneDe(s, s.getProject(projet)!, ouverture, 'debut', Date.now(), membres);
+    s.ouvrirMission({ ...ouverture, projectId: projet, membres, debut: JSON.stringify(debut) });
     return { projet, tache, fabrique: fabrique.id, motifPerso: motif.id, sauvegarde, mission };
   };
 

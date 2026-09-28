@@ -220,8 +220,9 @@ export class Scheduler {
   /** Tâches actuellement différées pour cause de conflit (Sting Detector) — dédup des events. */
   private readonly deferredByConflict = new Set<string>();
   /**
-   * Tâches de rejeu dont le modèle imposé n'est offert par aucun nœud éligible
-   * — dit une fois (`rejeu_modele_absent`), comme un conflit différé.
+   * Tâches de rejeu qui ne peuvent pas partir — modèle imposé offert par aucun
+   * nœud éligible, ou Genome figé illisible — dit une fois
+   * (`rejeu_modele_absent`, `rejeu_genome_illisible`), comme un conflit différé.
    */
   private readonly rejeuxSansModele = new Set<string>();
   /**
@@ -2032,12 +2033,6 @@ export class Scheduler {
   }
 
   /**
-   * Les antécédents de l'Aiguillage : le vécu jugé (verdicts) PLUS les élections
-   * en vol comptées comme essais sans note (la borne du troupeau). Bâti à neuf à
-   * chaque appel — les appelants qui le veulent stable le mémoïsent (la boucle
-   * d'assignation) ; la course de drones, elle, n'en a besoin qu'une fois.
-   */
-  /**
    * Ce qu'un REJEU de mission impose au routage de ses tâches ; `null` pour un
    * projet ordinaire — la ruche route alors exactement comme avant.
    *
@@ -2071,6 +2066,12 @@ export class Scheduler {
     return { ...(modele ? { modele } : {}), ...(antecedents ? { antecedents } : {}) };
   }
 
+  /**
+   * Les antécédents de l'Aiguillage : le vécu jugé (verdicts) PLUS les élections
+   * en vol comptées comme essais sans note (la borne du troupeau). Bâti à neuf à
+   * chaque appel — les appelants qui le veulent stable le mémoïsent (la boucle
+   * d'assignation) ; la course de drones, elle, n'en a besoin qu'une fois.
+   */
   private antecedentsAiguillage(): Map<string, Antecedent> {
     // Le repli canonique, partagé avec `/api/workers` : le modèle PROUVÉ gouverne
     // l'apprentissage dès qu'il existe (cf. `antecedentsDuVecu`).
@@ -2447,7 +2448,16 @@ export class Scheduler {
       // famille que le producteur), et le vécu dont l'Aiguillage se nourrit —
       // celui d'aujourd'hui, celui figé au début de la mission, ou aucun.
       const rejeu = routageRejeu(task.projectId);
-      if (rejeu === 'genome_illisible') continue;
+      // Genome figé illisible : la tâche attend (voir `routageRejeu`) — et le
+      // DIT, une fois, comme un modèle imposé absent : une attente muette
+      // laisserait le rejeu en file pour toujours sans explication.
+      if (rejeu === 'genome_illisible') {
+        if (!this.rejeuxSansModele.has(task.id)) {
+          this.rejeuxSansModele.add(task.id);
+          this.emit('rejeu_genome_illisible', { taskId: task.id, projectId: task.projectId });
+        }
+        continue;
+      }
       const imposé = lien === null ? rejeu?.modele : undefined;
       const route = aiguillerNoeuds(
         categoriser(task.title, task.prompt),

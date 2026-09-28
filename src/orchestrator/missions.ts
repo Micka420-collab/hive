@@ -9,16 +9,31 @@
 // ─── QUAND UNE MISSION S'OUVRE, QUAND ELLE SE CLÔT ───────────────────────────
 //
 // Aucun geste humain ne dit « la mission commence » : un brief, une issue, un
-// plan, une tâche posée à la main, un cycle d'essaim — tous créent des tâches
-// par des chemins différents. Ce que tous partagent, c'est le JOURNAL : une
-// naissance (`task_created`, `swarm_task_created`) et des issues terminales
-// (`task_done`, `task_failed`, `task_cancelled`). Le suivi les écoute et
-// décide sur l'ÉTAT, jamais sur l'événement seul :
+// plan, une tâche posée à la main, un cycle d'essaim, un conseil, un motif, la
+// Fabrique, une restauration — tous créent des tâches par des chemins
+// différents, et TOUS n'émettent pas de naissance (`task_created`) : un motif
+// appliqué ou une exploration de conseil n'en disent rien. Ce que toute tâche
+// qui TRAVAILLE partage, c'est son affectation (`task_assigned`) : aucune ne
+// part sur une ouvrière sans elle. Le suivi écoute donc les naissances quand
+// elles existent, les affectations toujours, les RÉANIMATIONS (`task_retry`,
+// `task_requeued` : une tâche finie que l'Evaluator relance revit) et les
+// issues terminales — et décide sur l'ÉTAT, jamais sur l'événement seul :
 //
 //   · une tâche vit sur un projet qui n'a pas de mission ouverte → ouverture,
-//     et l'instantané de DÉBUT ;
+//     et l'instantané de DÉBUT (au plus tard à la première affectation : avant
+//     qu'aucun travail ne soit rendu) ;
 //   · une mission ouverte n'a plus AUCUNE tâche en vol (relectures comprises)
-//     → clôture, et l'instantané de FIN.
+//     → clôture, et l'instantané de FIN ;
+//   · une décision tombe APRÈS la clôture sur une tâche de la dernière mission
+//     (relecture humaine, livraison, action de rejeu) → l'instantané de fin est
+//     RE-PRIS : livrer exige une tâche finie et approuvée, donc ces décisions
+//     arrivent presque toujours mission close — les laisser dehors ferait
+//     compter zéro là où il y a eu une décision.
+//
+// L'APPARTENANCE est RANGÉE (`missions_taches`), jamais déduite des dates :
+// les tâches en vol à l'ouverture, celles nées ou ranimées tant qu'elle vole.
+// Une tâche ranimée garde sa vieille naissance ; « née depuis la plus vieille
+// vivante » faisait avaler à la mission suivante tout le plan de la précédente.
 //
 // La décision est DIFFÉRÉE d'un tour de boucle (`setImmediate`) : un brief crée
 // dix tâches et émet dix naissances dans le même geste synchrone ; décider à
@@ -56,8 +71,31 @@ import type { HiveStore, MissionRangee } from './store.js';
 
 type Emettre = (type: string, payload: Record<string, unknown>) => void;
 
-const OUVERTURES = new Set(['task_created', 'swarm_task_created']);
-const ISSUES = new Set(['task_done', 'task_failed', 'task_cancelled']);
+/** Ce qui fait (ou peut faire) vivre une tâche, et ce qui la termine. */
+const CYCLE_DE_VIE = new Set([
+  'task_created',
+  'swarm_task_created',
+  'task_assigned',
+  'task_retry',
+  'task_requeued',
+  'task_done',
+  'task_failed',
+  'task_cancelled',
+]);
+/**
+ * Les décisions qui tombent d'ordinaire APRÈS la clôture (voir l'en-tête) :
+ * elles re-prennent l'instantané de fin de la dernière mission close.
+ */
+const DECISIONS_TARDIVES = new Set([
+  'task_reviewed',
+  'validation_recorded',
+  'contre_expertise_verdict',
+  'evaluator_overridden',
+  'delivery_opened',
+  'livraison_locale',
+  'rejeu_action_simulee',
+  'rejeu_action_validee',
+]);
 
 /** Missions gardées par projet — au-delà, l'élagueur retire les plus vieilles. */
 export const MISSIONS_PAR_PROJET = 20;
@@ -88,11 +126,13 @@ export function instantaneDe(
   mission: { id: string; ouverteA: number; closeA: number | null; depuisEvenement: number },
   moment: MomentMission,
   prisA: number,
+  membres: readonly string[] = store.membresDeMission(mission.id),
 ): InstantaneMission {
-  const taches: Task[] = store.tachesDeMission(projet.id, mission.ouverteA);
+  const taches: Task[] = store.tachesParIds(membres);
   const roles = store.rolesDesTaches(taches.map((t) => t.id));
   const essaim = store.getEssaim(projet.id);
   const gardeFou = store.getGardeFou(projet.id);
+  const plafond = store.getBudget(projet.id);
   const rejeu = store.rejeuDuProjet(projet.id);
   const origine: OrigineRejeu | null = rejeu
     ? {
@@ -109,7 +149,12 @@ export function instantaneDe(
     taches,
     relectures: roles.relectures,
     deleguees: roles.deleguees,
-    evenements: store.evenementsDeMission(projet.id, mission.depuisEvenement, TYPES_MISSION),
+    evenements: store.evenementsDeMission(
+      projet.id,
+      membres,
+      mission.depuisEvenement,
+      TYPES_MISSION,
+    ),
     journal: {
       complet: store.journalCouvre(mission.depuisEvenement),
       depuisEvenement: mission.depuisEvenement,
@@ -129,6 +174,7 @@ export function instantaneDe(
     gardeFous: gardeFou
       ? { actif: gardeFou.actif, borneMin: gardeFou.borneMin, borneMax: gardeFou.borneMax }
       : null,
+    budget: plafond ? { plafondMs: plafond.plafondMs } : null,
     livraisons: store.listLivraisons(projet.id).map((l) => ({
       taskId: l.taskId,
       pr: l.pr,
@@ -155,29 +201,54 @@ export function creerSuiviMissions(dep: {
   const { store, emitEvent } = dep;
   const programmer = dep.programmer ?? ((f: () => void) => void setImmediate(f));
   const maintenant = dep.maintenant ?? Date.now;
-  const aVerifier = new Set<string>();
+  /**
+   * Par projet à relever : le PREMIER événement déclencheur, les tâches du
+   * cycle de vie, et les décisions tardives (par tâche, ou sur le projet).
+   */
+  const aVerifier = new Map<
+    string,
+    { premier: number; taches: Set<string>; tardives: Set<string>; tardifProjet: boolean }
+  >();
   let programme = false;
 
-  const verifier = (projectId: string): void => {
+  const verifier = (
+    projectId: string,
+    declencheur: { premier: number; taches: ReadonlySet<string> } = {
+      premier: Number.POSITIVE_INFINITY,
+      taches: new Set(),
+    },
+  ): void => {
     const projet = store.getProject(projectId);
     if (!projet) return;
     const ouverte = store.missionOuverte(projectId);
     const vivantes = store.compterTachesVivantes(projectId);
     const now = maintenant();
+    // Les tâches du déclencheur qui sont bien de CE projet : une tâche née et
+    // finie entre deux relevés n'est plus en vol, mais elle était de la mission.
+    const declarees = [...declencheur.taches].filter(
+      (id) => store.getTask(id)?.projectId === projectId,
+    );
     if (!ouverte && vivantes > 0) {
-      const ouverteA = store.naissanceDesVivantes(projectId) ?? now;
-      const mission = {
-        id: randomUUID(),
-        ouverteA,
-        closeA: null,
-        depuisEvenement: store.dernierEvenementAvant(ouverteA),
-      };
-      const debut = instantaneDe(store, projet, mission, 'debut', now);
+      const precedente = store.derniereMissionClose(projectId);
+      const ouverteA = store.naissanceDesNouvelles(projectId, precedente?.closeA ?? -1) ?? now;
+      const membres = [
+        ...new Set([...store.tachesAMissionner(projectId, ouverteA), ...declarees]),
+      ].sort();
+      // Le journal de la mission commence AVANT sa plus vieille naissance — ou
+      // avant l'événement qui l'a déclenchée (une réanimation n'a pas de
+      // naissance neuve, mais son `task_retry` est de la mission).
+      const depuisEvenement = Math.max(
+        0,
+        Math.min(store.dernierEvenementAvant(ouverteA), declencheur.premier - 1),
+      );
+      const mission = { id: randomUUID(), ouverteA, closeA: null, depuisEvenement };
+      const debut = instantaneDe(store, projet, mission, 'debut', now, membres);
       const ouverteIci = store.ouvrirMission({
         id: mission.id,
         projectId,
         ouverteA,
-        depuisEvenement: mission.depuisEvenement,
+        depuisEvenement,
+        membres,
         debut: JSON.stringify(debut),
       });
       if (ouverteIci) {
@@ -191,7 +262,13 @@ export function creerSuiviMissions(dep: {
       }
       return;
     }
-    if (ouverte && vivantes === 0) {
+    if (ouverte) {
+      // Ce qui est né ou a été ranimé depuis le dernier relevé rejoint la mission.
+      store.ajouterMembresMission(ouverte.id, [
+        ...store.tachesAMissionner(projectId, ouverte.ouverteA),
+        ...declarees,
+      ]);
+      if (vivantes > 0) return;
       const fin = instantaneDe(store, projet, { ...ouverte, closeA: now }, 'fin', now);
       if (store.cloreMission(ouverte.id, now, JSON.stringify(fin))) {
         const resume = resumerMission(fin, false);
@@ -205,13 +282,42 @@ export function creerSuiviMissions(dep: {
     }
   };
 
+  /**
+   * Une décision tardive revient à la dernière mission CLOSE si elle vise
+   * l'une de SES tâches — ou, sans tâche (action de rejeu, livraison locale),
+   * si aucune mission ne vole : elle ne peut alors être que de celle-là.
+   */
+  const rafraichir = (
+    projectId: string,
+    tardives: ReadonlySet<string>,
+    tardifProjet: boolean,
+  ): void => {
+    const projet = store.getProject(projectId);
+    const derniere = store.derniereMissionClose(projectId);
+    if (!projet || !derniere) return;
+    const membres = store.membresDeMission(derniere.id);
+    const siens = new Set(membres);
+    const vise =
+      [...tardives].some((id) => siens.has(id)) ||
+      (tardifProjet && store.missionOuverte(projectId) === null);
+    if (!vise) return;
+    const fin = instantaneDe(store, projet, derniere, 'fin', maintenant(), membres);
+    store.rafraichirFinMission(derniere.id, JSON.stringify(fin));
+  };
+
   const vider = (): void => {
     programme = false;
-    const projets = [...aVerifier].sort();
+    const lots = [...aVerifier].sort(([a], [b]) => a.localeCompare(b));
     aVerifier.clear();
-    for (const projectId of projets) {
+    for (const [projectId, declencheur] of lots) {
       try {
-        verifier(projectId);
+        // Le rafraîchissement d'ABORD : une décision sur le projet seul ne
+        // revient à la dernière mission close que si aucune autre ne vole —
+        // relevé après une ouverture, il ne le saurait plus.
+        if (declencheur.tardives.size > 0 || declencheur.tardifProjet) {
+          rafraichir(projectId, declencheur.tardives, declencheur.tardifProjet);
+        }
+        verifier(projectId, declencheur);
       } catch (err) {
         dep.signaler(err);
       }
@@ -219,21 +325,36 @@ export function creerSuiviMissions(dep: {
   };
 
   const suivre = (event: HiveEvent): void => {
-    let projectId: unknown = null;
-    if (OUVERTURES.has(event.type)) projectId = event.payload.projectId;
-    else if (ISSUES.has(event.type)) {
-      const taskId = event.payload.taskId;
-      if (typeof taskId === 'string') projectId = store.getTask(taskId)?.projectId ?? null;
-    } else return;
-    if (typeof projectId !== 'string') return;
-    aVerifier.add(projectId);
+    const cycle = CYCLE_DE_VIE.has(event.type);
+    const tardif = DECISIONS_TARDIVES.has(event.type);
+    if (!cycle && !tardif) return;
+    const taskId = typeof event.payload.taskId === 'string' ? event.payload.taskId : null;
+    const projectId =
+      typeof event.payload.projectId === 'string'
+        ? event.payload.projectId
+        : taskId
+          ? (store.getTask(taskId)?.projectId ?? null)
+          : null;
+    if (projectId === null) return;
+    const lot = aVerifier.get(projectId) ?? {
+      premier: Number.POSITIVE_INFINITY,
+      taches: new Set<string>(),
+      tardives: new Set<string>(),
+      tardifProjet: false,
+    };
+    if (cycle) {
+      lot.premier = Math.min(lot.premier, event.id);
+      if (taskId) lot.taches.add(taskId);
+    } else if (taskId) lot.tardives.add(taskId);
+    else lot.tardifProjet = true;
+    aVerifier.set(projectId, lot);
     if (!programme) {
       programme = true;
       programmer(vider);
     }
   };
 
-  return { suivre, verifier };
+  return { suivre, verifier: (projectId) => verifier(projectId) };
 }
 
 // ─── Relire une mission ──────────────────────────────────────────────────────
@@ -267,8 +388,10 @@ export function lireInstantaneBrut(json: string): InstantaneMission | null {
 
 /**
  * La comparaison d'un rejeu avec sa mission source : la PREMIÈRE mission du
- * projet de rejeu (celle qu'ont ouverte les tâches recréées), contre la mission
- * source. Un côté absent ou illisible est dit, pas inventé.
+ * projet de rejeu (celle qu'ont ouverte les tâches recréées, rangée dans la
+ * marque de rejeu à son ouverture), contre la mission source. Un côté absent,
+ * élagué ou illisible est dit, pas inventé — jamais remplacé par une autre
+ * mission du même projet.
  */
 export function comparaisonDuRejeu(
   store: HiveStore,
@@ -276,14 +399,17 @@ export function comparaisonDuRejeu(
   now = Date.now(),
 ):
   | { ok: true; comparaison: ComparaisonMissions }
-  | { ok: false; code: 'pas_un_rejeu' | 'source_elaguee' | 'rejeu_pas_parti' | 'illisible' } {
+  | {
+      ok: false;
+      code: 'pas_un_rejeu' | 'source_elaguee' | 'rejeu_pas_parti' | 'rejeu_elague' | 'illisible';
+    } {
   const rejeu = store.rejeuDuProjet(rejeuProjectId);
   if (!rejeu) return { ok: false, code: 'pas_un_rejeu' };
   const source = store.getMission(rejeu.missionSource);
   if (!source) return { ok: false, code: 'source_elaguee' };
-  const missions = store.listMissions(rejeuProjectId, 200);
-  const premiere = missions[missions.length - 1];
-  if (!premiere) return { ok: false, code: 'rejeu_pas_parti' };
+  if (rejeu.missionRejeu === null) return { ok: false, code: 'rejeu_pas_parti' };
+  const premiere = store.getMission(rejeu.missionRejeu);
+  if (!premiere) return { ok: false, code: 'rejeu_elague' };
   const a = resumeDeMission(store, source, now);
   const b = resumeDeMission(store, premiere, now);
   if (!a || !b) return { ok: false, code: 'illisible' };
@@ -368,6 +494,11 @@ export function creerRejeu(
         now,
       );
     }
+    // Le plafond de La Balance suit l'autonomie qu'il borne : une ruche de
+    // rejeu `gouverne` ou `plein` sans lui dépenserait sans limite ce que la
+    // source n'avait pas le droit de dépenser. Le rejeu a SES dépenses
+    // (projet neuf), sous le MÊME plafond.
+    if (debut.budget) store.setBudget(projet.id, debut.budget.plafondMs, 'rejeu', now);
     if (gf && bornes.min && bornes.max) {
       store.setGardeFou(
         projet.id,

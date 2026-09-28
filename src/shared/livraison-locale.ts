@@ -228,19 +228,29 @@ export function pousseeConsentie(env: NodeJS.ProcessEnv): boolean {
  *
  * `--forcer "raison"` (espace) est accepté parce qu'on le tape ; `--forcer`
  * sans raison est un refus — passer outre l'Evaluator exige de dire pourquoi.
+ *
+ * `--valider-rejeu` : sur un projet de REJEU, exécuter pour de vrai ce que la
+ * Reine simulerait. Elle ne l'accepte que d'une session de compte (HIVE_JWT) :
+ * c'est la validation humaine explicite, pas un interrupteur de machine.
  */
 export function decouperLivraisonArgv(queue: readonly string[]): {
   pousser: boolean;
   forcer?: { raison: string };
+  validerRejeu?: true;
   reste: string[];
 } {
   let pousser = false;
+  let validerRejeu = false;
   let raison: string | undefined;
   let i = 0;
   for (; i < queue.length; i++) {
     const a = queue[i] as string;
     if (a === '--pousser') {
       pousser = true;
+      continue;
+    }
+    if (a === '--valider-rejeu') {
+      validerRejeu = true;
       continue;
     }
     // `--` FERME les options, comme partout ailleurs. `npm run cli -- … --
@@ -261,6 +271,7 @@ export function decouperLivraisonArgv(queue: readonly string[]): {
   return {
     pousser,
     ...(raison !== undefined ? { forcer: { raison } } : {}),
+    ...(validerRejeu ? { validerRejeu: true as const } : {}),
     reste: queue.slice(i),
   };
 }

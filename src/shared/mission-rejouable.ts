@@ -166,6 +166,12 @@ export interface InstantaneMission {
   genome: { empreinte: string; antecedents: AntecedentFige[] };
   autonomie: { niveau: string; depotInscrit: boolean };
   gardeFous: { actif: boolean; borneMin: string; borneMax: string } | null;
+  /**
+   * Le plafond de dépense de La Balance, en temps-machine. L'autonomie qu'un
+   * rejeu recopie s'appuie sur lui : une ruche autonome sans borne brûlerait
+   * une nuit de machines — le rejeu le recopie avec elle.
+   */
+  budget: { plafondMs: number } | null;
   artefacts: {
     branches: string[];
     livraisons: Array<{ tache: string; pr: number; etat: string }>;
@@ -239,6 +245,7 @@ export interface EntreesInstantane {
   routage: { versionAiguillage: number; corpus: number; politique: PolitiqueRoutage };
   autonomie: { niveau: string; depotInscrit: boolean };
   gardeFous: { actif: boolean; borneMin: string; borneMax: string } | null;
+  budget: { plafondMs: number } | null;
   livraisons: ReadonlyArray<{ taskId: string; pr: number; etat: string }>;
   rejeu: OrigineRejeu | null;
 }
@@ -482,6 +489,7 @@ export function construireInstantane(entrees: EntreesInstantane): InstantaneMiss
     },
     autonomie: { ...entrees.autonomie },
     gardeFous: entrees.gardeFous ? { ...entrees.gardeFous } : null,
+    budget: entrees.budget ? { plafondMs: entrees.budget.plafondMs } : null,
     artefacts: {
       branches: trie(
         entrees.taches.map((t) => t.branch).filter((b): b is string => typeof b === 'string'),
@@ -508,7 +516,14 @@ export function lireInstantane(brut: unknown): InstantaneMission | null {
   const i = brut as Partial<InstantaneMission>;
   if (i.version !== VERSION_INSTANTANE_MISSION) return null;
   if (!i.plan || !Array.isArray(i.plan.taches) || !i.faits || !i.mission || !i.projet) return null;
-  return i as InstantaneMission;
+  // Le plafond est relu champ par champ : absent ou abîmé, il est INCONNU
+  // (`null`) — jamais un plafond inventé qu'un rejeu recopierait.
+  const plafond = (i.budget as { plafondMs?: unknown } | null | undefined)?.plafondMs;
+  const budget =
+    typeof plafond === 'number' && Number.isFinite(plafond) && plafond >= 0
+      ? { plafondMs: plafond }
+      : null;
+  return { ...(i as InstantaneMission), budget };
 }
 
 // ─── Le plan d'un rejeu ──────────────────────────────────────────────────────

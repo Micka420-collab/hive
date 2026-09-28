@@ -162,6 +162,40 @@ describe('la livraison d’une mission, à l’écran', () => {
     );
   });
 
+  it('UN REJEU SIMULÉ SE DIT SIMULÉ — pas refusé, pas en cours — et s’offre à la validation humaine', async () => {
+    // La Reine répond 409 `rejeu_simule` : rien n'est parti. Traité comme un
+    // départ, l'écran scrutait un merge sans identifiant pendant dix minutes ;
+    // traité comme un refus sec, la validation humaine n'aurait été qu'une API.
+    const dom = await monter();
+    vi.mocked(livrerLocalement).mockRejectedValueOnce(
+      new RefusLivraison(
+        'Projet de rejeu : cette action irréversible est simulée et rangée, pas exécutée.',
+        409,
+        'rejeu_simule',
+      ),
+    );
+    await livrer(dom);
+    expect(dom.textContent).toContain('livraison SIMULÉE et rangée');
+    expect(dom.textContent).not.toContain('Livraison refusée');
+    expect(dom.textContent).not.toContain('Livraison en cours');
+    expect(vi.mocked(fetchMergeResult), 'aucun suivi d’un merge qui n’existe pas').not.toBeCalled();
+
+    vi.mocked(livrerLocalement).mockResolvedValueOnce({
+      mergeId: 'm-valide',
+      nodeId: 'n1',
+      noeud: 'atelier',
+      order: ['t1'],
+      pousser: false,
+      forcees: [],
+    });
+    cliquer(bouton(dom, 'Valider pour de vrai'));
+    await act(async () => {});
+    expect(vi.mocked(livrerLocalement)).toHaveBeenLastCalledWith(
+      'p1',
+      expect.objectContaining({ validerRejeu: true }),
+    );
+  });
+
   it('UNE BRANCHE NON POUSSÉE N’EST PAS UN SUCCÈS VERT', async () => {
     vi.useFakeTimers();
     const dom = await monter();

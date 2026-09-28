@@ -209,13 +209,17 @@ npm run cli -- livrer-local <projectId> --forcer="relu à la main"   # passer ou
 
 Le Time-Lapse de la Chronique **remonte** le temps ; une mission rejouable se
 **rejoue**. Une mission est un épisode d'activité d'un projet : elle s'ouvre
-quand une tâche naît sur un projet qui n'avait plus rien en vol, et se clôt
-quand plus rien n'y vole (relectures comprises). La Reine prend alors un
-**instantané** à chaque bord — plan et graphe des tâches, prompts, modèles
-(commandés, déclarés, offerts), politique de routage et **version du Genome**
-(son empreinte et ses antécédents), niveau d'autonomie, garde-fous, artefacts
-(branches, pull requests, branche de mission), décisions typées. Aucune raison
-humaine, aucune objection, aucun identifiant n'y entre.
+quand une tâche vit sur un projet qui n'avait plus rien en vol — à sa
+naissance, au plus tard à sa première affectation, ou quand une tâche finie
+est relancée — et se clôt quand plus rien n'y vole (relectures comprises). Ses
+tâches sont rangées une à une : une tâche relancée n'entraîne pas la mission
+précédente avec elle. La Reine prend alors un **instantané** à chaque bord —
+plan et graphe des tâches, prompts, modèles (commandés, déclarés, offerts),
+politique de routage et **version du Genome** (son empreinte et ses
+antécédents), niveau d'autonomie, garde-fous et plafond de dépense, artefacts
+(branches, pull requests, branche de mission), décisions typées. Une revue
+humaine ou une livraison qui tombe après la clôture re-prend l'instantané de
+fin. Aucune raison humaine, aucune objection, aucun identifiant n'y entre.
 
 ```bash
 GET  /api/projects/<id>/missions                      # les missions, résumées
@@ -231,13 +235,17 @@ GET  /api/projects/<rejeu>/rejeu/comparaison          # source contre rejeu
   tâches attendent un nœud qui l'offre, et le disent : `rejeu_modele_absent`),
   une **politique de routage** (`apprise` : le vécu d'aujourd'hui ; `figee` :
   le Genome figé au début de la mission ; `neutre` : aucun vécu) et un **niveau
-  d'autonomie**. C'est un réglage : propriétaire ou administrateur.
+  d'autonomie** — sous le **même plafond de dépense** que la source. C'est un
+  réglage : propriétaire ou administrateur.
 - **Rien d'irréversible ne part d'un rejeu.** Pull request, fusion, commit de
   mission, poussée, workflow GitHub — et la ruche autonome — sont **simulés** :
-  rangés (une fois), journalisés (`rejeu_action_simulee`), jamais exécutés.
-  Seul un humain connecté avec un **compte** peut en valider un, en renvoyant
-  la demande avec `validerRejeu: true` ; le jeton de ruche, que chaque machine
-  porte, ne valide jamais.
+  rangés (une fois), journalisés (`rejeu_action_simulee`), jamais exécutés ; la
+  route répond `409 rejeu_simule` (rien n'est parti) et la ruche autonome passe
+  à autre chose. Seul un humain connecté avec un **compte** peut en valider
+  un : « Valider pour de vrai » à l'écran, `--valider-rejeu` en ligne de
+  commande (`livrer`, `livrer-local`, `fusionner`), ou `validerRejeu: true`
+  dans la demande ; le jeton de ruche, que chaque machine porte, ne valide
+  jamais.
 - **La comparaison** met côte à côte le résultat, le coût déclaré (avec sa
   couverture), le temps modèle, le temps des ouvrières, la durée, les tests,
   les relectures, les revues humaines et les décisions. Elle ne calcule que sur

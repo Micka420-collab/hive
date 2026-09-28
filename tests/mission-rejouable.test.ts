@@ -106,6 +106,7 @@ function entrees(patch: Partial<EntreesInstantane> = {}): EntreesInstantane {
     routage: { versionAiguillage: 2, corpus: 300, politique: 'apprise' },
     autonomie: { niveau: 'gouverne', depotInscrit: false },
     gardeFous: { actif: true, borneMin: 'leger', borneMax: 'strict' },
+    budget: { plafondMs: 3_600_000 },
     livraisons: [
       { taskId: 't1', pr: 42, etat: 'ouverte' },
       { taskId: 'autre-mission', pr: 7, etat: 'fusionnee' },
@@ -145,6 +146,7 @@ describe('l’instantané d’une mission est COMPLET', () => {
     expect(i.genome.antecedents.map((a) => a.cle)).toEqual(['code|claude-opus-5', 'test|codex-5']);
     expect(i.autonomie).toEqual({ niveau: 'gouverne', depotInscrit: false });
     expect(i.gardeFous).toEqual({ actif: true, borneMin: 'leger', borneMax: 'strict' });
+    expect(i.budget).toEqual({ plafondMs: 3_600_000 });
 
     // Artefacts : les branches des tâches, les PR DE CETTE MISSION, la branche
     // de mission commitée pendant elle.

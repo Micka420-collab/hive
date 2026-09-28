@@ -12,7 +12,10 @@
 //     arrêt, jamais avant, et il exige une raison : c'est un geste journalisé,
 //     pas une case qu'on coche par habitude ;
 //   · pousser est une case DÉCOCHÉE par défaut. Elle écrit sur le dépôt avec
-//     les identifiants git de l'ouvrière, qui doit y avoir consenti.
+//     les identifiants git de l'ouvrière, qui doit y avoir consenti ;
+//   · sur un projet de REJEU, la Reine SIMULE la livraison (refus
+//     `rejeu_simule`) : l'écran le dit tel quel — rien n'est parti — et offre
+//     « Valider pour de vrai », qui renvoie la demande validée par le compte.
 //
 // Rien ne part au montage : ni lecture, ni sondage. Le suivi ne commence
 // qu'une fois la livraison lancée, et ne relit que la mémoire de la Reine.
@@ -57,15 +60,20 @@ export function LivraisonMission({
     suivi.erreur.code === 'evaluator_blocks'
       ? suivi.erreur
       : null;
+  const simulee =
+    suivi.phase === 'error' &&
+    suivi.erreur instanceof RefusLivraison &&
+    suivi.erreur.code === 'rejeu_simule';
 
-  const livrer = (forcer?: string) => {
+  const livrer = (opts: { forcer?: string; validerRejeu?: boolean } = {}) => {
     setConfirmer(false);
     lancer(() =>
       livrerLocalement(project.id, {
         pousser,
         testCommand: argv(testCmd),
         prepareCommand: argv(prepCmd),
-        ...(forcer ? { forcer: { raison: forcer } } : {}),
+        ...(opts.forcer ? { forcer: { raison: opts.forcer } } : {}),
+        ...(opts.validerRejeu ? { validerRejeu: true } : {}),
       }).then((depart) => {
         setNoeud(depart.noeud);
         return depart;
@@ -162,10 +170,24 @@ export function LivraisonMission({
         )}
       </div>
 
-      {suivi.phase === 'error' && (
+      {suivi.phase === 'error' && !simulee && (
         <p className="panel-error">
           {t('Livraison refusée :', 'Delivery refused:')} {suivi.message}
         </p>
+      )}
+      {simulee && (
+        <div className="pj-forcer" role="status">
+          <p className="pj-sub-note">
+            {t(
+              'Rejeu : livraison SIMULÉE et rangée — rien n’a été commité ni poussé.',
+              'Replay: delivery SIMULATED and recorded — nothing was committed or pushed.',
+            )}{' '}
+            {suivi.message}
+          </p>
+          <button className="btn ghost" onClick={() => livrer({ validerRejeu: true })}>
+            {t('Valider pour de vrai', 'Validate for real')}
+          </button>
+        </div>
       )}
       {arret && (
         <div className="pj-forcer">
@@ -190,7 +212,7 @@ export function LivraisonMission({
           />
           <button
             className="btn ghost"
-            onClick={() => livrer(raison.trim())}
+            onClick={() => livrer({ forcer: raison.trim() })}
             disabled={raison.trim().length < 3}
           >
             {t('Passer outre et livrer', 'Override and deliver')}

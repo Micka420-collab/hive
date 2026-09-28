@@ -192,12 +192,16 @@ npm run cli -- livrer-local <projectId> --forcer="read by hand"      # override 
 
 The Chronicle's Time-Lapse **rewinds** time; a replayable mission is
 **replayed**. A mission is an activity episode of a project: it opens when a
-task is born on a project with nothing in flight, and closes when nothing flies
-any more (reviews included). The Queen takes a **snapshot** at each edge — plan
-and task graph, prompts, models (commanded, declared, offered), routing policy
-and **Genome version** (its fingerprint and history), autonomy level,
-guardrails, artifacts (branches, pull requests, mission branch), typed
-decisions. No human reason, no objection, no credential goes in.
+task is live on a project with nothing in flight — at its birth, at the latest
+at its first assignment, or when a finished task is retried — and closes when
+nothing flies any more (reviews included). Its tasks are recorded one by one: a
+retried task does not drag the previous mission along. The Queen takes a
+**snapshot** at each edge — plan and task graph, prompts, models (commanded,
+declared, offered), routing policy and **Genome version** (its fingerprint and
+history), autonomy level, guardrails and spending cap, artifacts (branches,
+pull requests, mission branch), typed decisions. A human review or a delivery
+that lands after closure retakes the end snapshot. No human reason, no
+objection, no credential goes in.
 
 ```bash
 GET  /api/projects/<id>/missions                      # missions, summarised
@@ -213,13 +217,16 @@ GET  /api/projects/<replay>/rejeu/comparaison         # source vs replay
   **model** (tasks wait for a node offering it, and say so:
   `rejeu_modele_absent`), a **routing policy** (`apprise`: today's history;
   `figee`: the Genome frozen at the mission's start; `neutre`: no history) and
-  an **autonomy level**. It is a setting: owner or administrator.
+  an **autonomy level** — under the **same spending cap** as the source. It is a
+  setting: owner or administrator.
 - **Nothing irreversible leaves a replay.** Pull request, merge, mission
   commit, push, GitHub workflow — and the autonomous hive — are **simulated**:
-  stored (once), journaled (`rejeu_action_simulee`), never executed. Only a
-  human signed in with an **account** can approve one, by resending the request
-  with `validerRejeu: true`; the hive token, which every machine carries, never
-  approves.
+  stored (once), journaled (`rejeu_action_simulee`), never executed; the route
+  answers `409 rejeu_simule` (nothing left) and the autonomous hive moves on.
+  Only a human signed in with an **account** can approve one: “Validate for
+  real” on screen, `--valider-rejeu` on the command line (`livrer`,
+  `livrer-local`, `fusionner`), or `validerRejeu: true` in the request; the hive
+  token, which every machine carries, never approves.
 - **The comparison** puts side by side the result, the declared cost (with its
   coverage), model time, worker time, duration, tests, reviews, human reviews
   and decisions. It computes on declared data only: a silent side makes the

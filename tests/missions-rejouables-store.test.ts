@@ -12,7 +12,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { HiveStore } from '../src/orchestrator/store.js';
 
-const TABLES = ['missions', 'rejeux', 'rejeux_actions'] as const;
+const TABLES = ['missions', 'rejeux', 'rejeux_actions', 'missions_taches'] as const;
 
 const dossiers: string[] = [];
 afterEach(() => {
@@ -59,9 +59,11 @@ describe('les missions arrivent sans migration', () => {
         projectId: projet.id,
         ouverteA: 10,
         depuisEvenement: 0,
+        membres: [t.id],
         debut: '{}',
       }),
     ).toBe(true);
+    expect(apres.membresDeMission('m1')).toEqual([t.id]);
     apres.close();
 
     // Seconde ouverture : rien de recréé, rien de perdu.
@@ -77,7 +79,7 @@ describe('une seule mission ouverte par projet', () => {
   it('la seconde ouverture concurrente ne fait rien ; la clôture n’a lieu qu’une fois', () => {
     const s = new HiveStore(':memory:');
     const p = s.createProject({ name: 'P' }).id;
-    const m = { projectId: p, ouverteA: 1, depuisEvenement: 0, debut: '{}' };
+    const m = { projectId: p, ouverteA: 1, depuisEvenement: 0, membres: [], debut: '{}' };
     expect(s.ouvrirMission({ ...m, id: 'a' })).toBe(true);
     expect(s.ouvrirMission({ ...m, id: 'b' })).toBe(false);
     expect(s.missionOuverte(p)?.id).toBe('a');
@@ -94,7 +96,14 @@ describe('la borne des missions', () => {
     const s = new HiveStore(':memory:');
     const p = s.createProject({ name: 'P' }).id;
     for (let i = 0; i < 25; i++) {
-      s.ouvrirMission({ id: `m${i}`, projectId: p, ouverteA: i, depuisEvenement: 0, debut: '{}' });
+      s.ouvrirMission({
+        id: `m${i}`,
+        projectId: p,
+        ouverteA: i,
+        depuisEvenement: 0,
+        membres: [`t${i}`],
+        debut: '{}',
+      });
       s.cloreMission(`m${i}`, i, '{}');
     }
     // La plus vieille est la source d'un rejeu encore rangé.
@@ -114,8 +123,24 @@ describe('la borne des missions', () => {
       projectId: 'disparu',
       ouverteA: 1,
       depuisEvenement: 0,
+      membres: [],
       debut: '{}',
     });
+    // Le rejeu lui-même a vécu plus de missions que le plafond (une ruche
+    // autonome) : sa PREMIÈRE, celle que la comparaison oppose à la source,
+    // doit survivre — sinon la comparaison prendrait une autre mission.
+    for (let i = 0; i < 25; i++) {
+      s.ouvrirMission({
+        id: `r${i}`,
+        projectId: rejeu,
+        ouverteA: 100 + i,
+        depuisEvenement: 0,
+        membres: [],
+        debut: '{}',
+      });
+      s.cloreMission(`r${i}`, 100 + i, '{}');
+    }
+    expect(s.rejeuDuProjet(rejeu)?.missionRejeu, 'rangée à l’ouverture, une fois').toBe('r0');
     // Des actions au-delà du plafond (20 × 10).
     for (let i = 0; i < 205; i++) {
       s.enregistrerActionRejeu(
@@ -136,6 +161,12 @@ describe('la borne des missions', () => {
     expect(restantes).not.toContain('m1');
     expect(restantes).toContain('m24');
     expect(s.getMission('orpheline')).toBeNull();
+    const duRejeu = s.listMissions(rejeu, 200).map((m) => m.id);
+    expect(duRejeu).toHaveLength(21);
+    expect(duRejeu).toContain('r0');
+    expect(duRejeu).not.toContain('r1');
+    expect(s.membresDeMission('m1'), 'l’appartenance part avec sa mission').toEqual([]);
+    expect(s.membresDeMission('m0')).toEqual(['t0']);
     expect(s.actionsDuRejeu(rejeu, 1_000)).toHaveLength(200);
     expect(s.actionsDuRejeu(rejeu, 1_000)[0]?.cible, 'les plus anciennes partent').toBe('c5');
     expect(s.actionsDuRejeu('disparu')).toEqual([]);

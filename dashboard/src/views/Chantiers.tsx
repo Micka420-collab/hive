@@ -29,6 +29,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  ApiError,
   fetchChantiers,
   fetchRuns,
   fetchVerdictChantier,
@@ -92,6 +93,12 @@ export default function Chantiers({ snapshot, events, selectedId, onNavigate }: 
    */
   const [refusGithub, setRefusGithub] = useState<string | null>(null);
   const [erreur, setErreur] = useState<string | null>(null);
+  /**
+   * Projet de REJEU : la Reine a SIMULÉ ce lancement (refus `rejeu_simule`) —
+   * rien n'est parti chez GitHub. On garde le workflow pour offrir « Valider
+   * pour de vrai », sans quoi la validation humaine ne serait qu'une API.
+   */
+  const [wfSimule, setWfSimule] = useState<Workflow | null>(null);
   const [enCours, setEnCours] = useState<string | null>(null);
   const [ref, setRef] = useState('main');
 
@@ -143,14 +150,16 @@ export default function Chantiers({ snapshot, events, selectedId, onNavigate }: 
     }
   };
 
-  const lancerWf = async (w: Workflow): Promise<void> => {
+  const lancerWf = async (w: Workflow, validerRejeu = false): Promise<void> => {
     if (!projectId) return;
     setEnCours(`wf-${String(w.id)}`);
     setErreur(null);
+    setWfSimule(null);
     try {
-      await lancerWorkflowGithub(projectId, w.id, ref.trim() || 'main');
+      await lancerWorkflowGithub(projectId, w.id, ref.trim() || 'main', validerRejeu);
       setTimeout(() => void recharger(), 2000);
     } catch (e) {
+      if (e instanceof ApiError && e.code === 'rejeu_simule') setWfSimule(w);
       setErreur(e instanceof Error ? e.message : String(e));
     } finally {
       setEnCours(null);
@@ -207,6 +216,22 @@ export default function Chantiers({ snapshot, events, selectedId, onNavigate }: 
       </header>
 
       {erreur && <p className="ch-erreur">{erreur}</p>}
+      {wfSimule && (
+        <p className="ch-erreur" role="status">
+          {t(
+            `Rejeu : « ${wfSimule.nom} » SIMULÉ et rangé — rien n’a été lancé chez GitHub.`,
+            `Replay: “${wfSimule.nom}” SIMULATED and recorded — nothing was started on GitHub.`,
+          )}{' '}
+          <button
+            className="btn ghost"
+            type="button"
+            onClick={() => void lancerWf(wfSimule, true)}
+            disabled={enCours !== null}
+          >
+            {t('Valider pour de vrai', 'Validate for real')}
+          </button>
+        </p>
+      )}
 
       <section className="ch-bloc">
         <h3>{t('Sur un nœud', 'On a node')}</h3>

@@ -3101,20 +3101,30 @@ async function monterReine(
         valider === true && authorizedUser(req) ? { userId: (req as AuthRequest).userId! } : null,
     });
 
-  /** La réponse d'un effet simulé : ce qui serait parti, et comment le valider. */
+  /**
+   * La réponse d'un effet simulé : ce qui serait parti, et comment le valider.
+   *
+   * 409 et un `code`, PAS un 200 : chaque client de ces routes (tableau de
+   * bord, CLI) lit un 2xx comme « c'est parti » et cherche le `mergeId`, le
+   * numéro de PR ou l'URL d'un effet qui n'a pas eu lieu — un suivi qui
+   * tournait dix minutes dans le vide, un « PR #undefined ouverte ». Un refus
+   * DIT « rien n'est parti », et `error` porte la marche à suivre à tout
+   * client qui affiche les refus, même s'il ignore les rejeux.
+   */
   const repondreSimulee = (
     reply: FastifyReply,
     genre: GenreIrreversible,
     cible: string,
   ): FastifyReply =>
-    reply.code(200).send({
+    reply.code(409).send({
+      code: 'rejeu_simule',
       simule: true,
       genre,
       cible,
-      conseil:
+      error:
         'Projet de rejeu : cette action irréversible est simulée et rangée, pas exécutée. ' +
-        'Pour l’exécuter vraiment, renvoyez la demande depuis un compte avec ' +
-        '« validerRejeu: true ».',
+        'Pour l’exécuter vraiment, validez-la depuis un compte (« Valider pour de vrai », ' +
+        'ou --valider-rejeu en ligne de commande).',
     });
 
   /**
@@ -5334,6 +5344,16 @@ async function monterReine(
     return { ok: verdict.issue === 'appliquer', motif: verdict.motif };
   };
 
+  /** Cette production d'un projet de rejeu a-t-elle déjà sa livraison simulée ? */
+  const livraisonSimulee = (projectId: string, taskId: string): boolean => {
+    const depot = depotDepuisUrl(store.getProject(projectId)?.repoUrl ?? null);
+    return (
+      depot !== null &&
+      store.rejeuDuProjet(projectId) !== null &&
+      store.actionRejeuRangee(projectId, 'livraison_pr', `${depot}:${nomBranche(taskId)}`)
+    );
+  };
+
   const aLivrer = (projectId: string): Task[] => {
     if (!depotDepuisUrl(store.getProject(projectId)?.repoUrl ?? null)) return [];
     const revues = store.listReviews();
@@ -5347,18 +5367,25 @@ async function monterReine(
     //
     // L'Evaluator passe en DERNIER : il relit inspections, CI et contre-revue,
     // et ne vaut la peine que pour ce qui passe déjà tout le reste.
-    return store
-      .listTasks(projectId)
-      .filter((t) => t.status === 'done' && revues[t.id] === 'approved')
-      .filter((t) => store.getLivraison(t.id) === null)
-      .filter((t) => {
-        const resultats = store.resultsForTask(t.id);
-        const dernier = resultats[resultats.length - 1];
-        return Boolean(dernier?.success && dernier.diff);
-      })
-      .filter((t) => contreVisiteAutorise(t, inspections).ok)
-      .filter((t) => arretEvaluator(t) === null)
-      .sort((a, b) => a.createdAt - b.createdAt);
+    return (
+      store
+        .listTasks(projectId)
+        .filter((t) => t.status === 'done' && revues[t.id] === 'approved')
+        .filter((t) => store.getLivraison(t.id) === null)
+        // Sur un REJEU, une livraison déjà simulée n'est plus « à livrer » : elle
+        // n'a rien réservé, et la recompter ferait choisir `livrer` à la ruche
+        // autonome à chaque cycle, pour re-simuler la même — sans jamais
+        // butiner, planifier ni délibérer.
+        .filter((t) => !livraisonSimulee(projectId, t.id))
+        .filter((t) => {
+          const resultats = store.resultsForTask(t.id);
+          const dernier = resultats[resultats.length - 1];
+          return Boolean(dernier?.success && dernier.diff);
+        })
+        .filter((t) => contreVisiteAutorise(t, inspections).ok)
+        .filter((t) => arretEvaluator(t) === null)
+        .sort((a, b) => a.createdAt - b.createdAt)
+    );
   };
 
   /**
@@ -5366,10 +5393,17 @@ async function monterReine(
    * dont l'Evaluator laisse partir la production (cf. `arretEvaluator`). Les
    * autres restent ouvertes et attendent un humain — une file, pas un arrêt.
    */
-  const livraisonsAFusionner = (projectId: string) =>
-    store
+  const livraisonsAFusionner = (projectId: string) => {
+    // Même règle que `aLivrer` : sur un rejeu, une fusion déjà simulée ne
+    // compte plus — sinon la ruche la re-simulerait à chaque cycle.
+    const rejeu = store.rejeuDuProjet(projectId) !== null;
+    return store
       .listLivraisons(projectId, 'ouverte')
-      .filter((l) => arretEvaluator(store.getTask(l.taskId)) === null);
+      .filter((l) => arretEvaluator(store.getTask(l.taskId)) === null)
+      .filter(
+        (l) => !rejeu || !store.actionRejeuRangee(projectId, 'fusion_pr', `${l.depot}#${l.pr}`),
+      );
+  };
 
   /** L'état de gouvernance d'un projet, et ce que la ruche ferait maintenant. */
   const etatEssaim = (projectId: string): EtatEssaim & { decision: Decision } => {
@@ -5878,22 +5912,10 @@ async function monterReine(
         const depot = depotDepuisUrl(projet?.repoUrl ?? null);
         if (!depot) return 'projet sans dépôt GitHub';
 
-        // Un rejeu simule chaque livraison UNE fois : la suivante est la
-        // première production relue dont la simulation n'est pas déjà rangée —
-        // sans quoi le runner re-simulerait la même à chaque cycle, et les
-        // autres ne seraient jamais rangées.
-        const candidates = aLivrer(projectId);
-        const task = store.rejeuDuProjet(projectId)
-          ? candidates.find(
-              (t) =>
-                !store.actionRejeuRangee(projectId, 'livraison_pr', `${depot}:${nomBranche(t.id)}`),
-            )
-          : candidates[0];
-        if (!task) {
-          return candidates.length > 0
-            ? 'rejeu : toutes les livraisons relues sont déjà simulées'
-            : 'aucune production relue à livrer';
-        }
+        // Un rejeu simule chaque livraison UNE fois : `aLivrer` écarte celles
+        // dont la simulation est déjà rangée.
+        const task = aLivrer(projectId)[0];
+        if (!task) return 'aucune production relue à livrer';
 
         const resultats = store.resultsForTask(task.id);
         const dernier = resultats[resultats.length - 1]!;
@@ -7456,6 +7478,7 @@ async function monterReine(
         pas_un_rejeu: [404, 'ce projet n’est pas le rejeu d’une mission'],
         source_elaguee: [409, 'la mission source n’est plus rangée : rien à comparer'],
         rejeu_pas_parti: [409, 'le rejeu n’a pas encore ouvert sa mission'],
+        rejeu_elague: [409, 'la mission du rejeu n’est plus rangée : rien à comparer'],
         illisible: [409, 'un des deux instantanés est illisible (autre version)'],
       };
       const [code, error] = dit[r.code];

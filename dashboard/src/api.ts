@@ -40,6 +40,11 @@ export class ApiError extends Error {
     readonly status: number,
     /** Marche à suivre renvoyée par le serveur (501 GitHub, 401 jeton…), jamais le secret. */
     readonly detail?: string,
+    /**
+     * Le `code` du refus, quand la Reine en donne un : l'écran le LIT (ex.
+     * `rejeu_simule` : rien n'est parti, une validation humaine est offerte).
+     */
+    readonly code?: string,
   ) {
     super(message);
     this.name = 'ApiError';
@@ -151,16 +156,23 @@ async function api<T>(
   if (!res.ok) {
     let message = tNow(`Erreur ${res.status}`, `Error ${res.status}`);
     let detail: string | undefined;
+    let code: string | undefined;
     try {
       // Endpoints custom → { error } (déjà précis). Validation de schéma Fastify
       // → { message } détaillé + { error: "Bad Request" } générique : le message
       // est alors le plus utile, on le préfère quand il est présent.
       // `detail` porte la marche à suivre (501 GitHub, 401 jeton de ruche) :
       // l'omettre laissait l'écran muet sur ce qu'il fallait faire.
-      const body = (await res.json()) as { error?: string; message?: string; detail?: string };
+      const body = (await res.json()) as {
+        error?: string;
+        message?: string;
+        detail?: string;
+        code?: unknown;
+      };
       const assemble = messageApi(body, res.status);
       message = assemble.message;
       detail = assemble.detail;
+      if (typeof body.code === 'string') code = body.code;
     } catch {
       /* corps non-JSON */
     }
@@ -169,7 +181,7 @@ async function api<T>(
       const expiree = expirerSession(jwt);
       if (expiree) throw expiree;
     }
-    throw new ApiError(message, res.status, detail);
+    throw new ApiError(message, res.status, detail, code);
   }
   return (await res.json()) as T;
 }
@@ -1443,10 +1455,10 @@ export class RefusLivraison extends ApiError {
   constructor(
     message: string,
     status: number,
-    readonly code?: string,
+    code?: string,
     readonly bloquees: readonly { taskId: string; decision: string | null }[] = [],
   ) {
-    super(message, status);
+    super(message, status, undefined, code);
     this.name = 'RefusLivraison';
   }
 }
@@ -1467,6 +1479,8 @@ export async function livrerLocalement(
     testCommand?: string[];
     prepareCommand?: string[];
     forcer?: { raison: string };
+    /** Projet de rejeu : exécuter pour de vrai ce que la Reine simulerait (compte exigé). */
+    validerRejeu?: boolean;
   } = {},
 ): Promise<DepartLivraison> {
   const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/livraison-locale`, {
@@ -1477,6 +1491,7 @@ export async function livrerLocalement(
       ...(opts.prepareCommand?.length ? { prepareCommand: opts.prepareCommand } : {}),
       ...(opts.testCommand?.length ? { testCommand: opts.testCommand } : {}),
       ...(opts.forcer ? { forcer: opts.forcer } : {}),
+      ...(opts.validerRejeu ? { validerRejeu: true } : {}),
     }),
   });
   let corps: Record<string, unknown> = {};
@@ -2624,10 +2639,11 @@ export function lancerWorkflowGithub(
   projectId: string,
   workflowId: number,
   ref: string,
+  validerRejeu = false,
 ): Promise<{ workflow: Workflow; ref: string }> {
   return api(`/api/projects/${encodeURIComponent(projectId)}/workflows/${String(workflowId)}/run`, {
     method: 'POST',
-    body: JSON.stringify({ ref }),
+    body: JSON.stringify({ ref, ...(validerRejeu ? { validerRejeu: true } : {}) }),
   });
 }
 

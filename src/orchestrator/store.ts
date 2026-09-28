@@ -1047,12 +1047,20 @@ CREATE INDEX IF NOT EXISTS idx_motifs_projet ON motifs_projet(projectId, creeA D
 -- projects, à dessein : une clé étrangère ferait échouer la suppression d'un
 -- projet qui a eu des missions — c'est l'élagueur qui retire les orphelines.
 --
+-- missions_taches : QUI est dans la mission, rangé à l'ouverture puis à
+-- chaque relevé. L'appartenance ne se déduit PAS des dates : une tâche finie
+-- qu'on ranime (relance de l'Evaluator, remise en file) a la naissance d'une
+-- AUTRE mission — la borner par « née depuis l'ouverture » faisait avaler à
+-- la mission suivante tout le plan de la précédente, et son rejeu le recréait.
+--
 -- rejeux : marque un projet comme le REJEU d'une mission. C'est cette marque
 -- que relisent l'ordonnanceur (modèle et routage imposés) et toutes les
 -- portes des actions irréversibles (simulées, jamais exécutées sans humain).
 -- Le Genome FIGÉ y est recopié à la création (politique « figee ») : le
 -- routage d'un rejeu en vol ne doit pas dépendre de la survie de l'instantané
--- source à l'élagage.
+-- source à l'élagage. missionRejeu : la PREMIÈRE mission du projet de
+-- rejeu, rangée à son ouverture — c'est ELLE que la comparaison oppose à la
+-- source, et l'élagueur l'épargne comme il épargne la source.
 --
 -- rejeux_actions : ce qu'un rejeu a demandé d'irréversible, et ce qui en a
 -- été fait (simulée, ou validée par un humain). UNIQUE : une ruche autonome
@@ -1080,7 +1088,8 @@ CREATE TABLE IF NOT EXISTS rejeux (
   surcharges    TEXT NOT NULL,
   genomeFige    TEXT,
   creePar       TEXT,
-  creeA         INTEGER NOT NULL
+  creeA         INTEGER NOT NULL,
+  missionRejeu  TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_rejeux_source ON rejeux(missionSource);
 
@@ -1094,6 +1103,13 @@ CREATE TABLE IF NOT EXISTS rejeux_actions (
   creeA     INTEGER NOT NULL,
   UNIQUE (projectId, genre, cible, issue)
 );
+
+CREATE TABLE IF NOT EXISTS missions_taches (
+  missionId TEXT NOT NULL,
+  taskId    TEXT NOT NULL,
+  PRIMARY KEY (missionId, taskId)
+);
+CREATE INDEX IF NOT EXISTS idx_missions_taches_tache ON missions_taches(taskId);
 `;
 
 interface ProjectRow {
@@ -1224,6 +1240,8 @@ export interface RejeuRange {
   genomeFige: AntecedentFige[] | null;
   creePar: string | null;
   creeA: number;
+  /** La première mission du projet de rejeu — `null` tant qu'elle n'est pas ouverte. */
+  missionRejeu: string | null;
 }
 
 export interface ActionRejeuRangee {
@@ -6550,6 +6568,7 @@ export class HiveStore {
     projectId: string;
     ouverteA: number;
     depuisEvenement: number;
+    membres: readonly string[];
     debut: string;
   }): boolean {
     return this.enTransaction(() => {
@@ -6560,8 +6579,55 @@ export class HiveStore {
            VALUES (?, ?, ?, NULL, ?, ?, NULL)`,
         )
         .run(m.id, m.projectId, m.ouverteA, m.depuisEvenement, m.debut);
+      this.ajouterMembresMission(m.id, m.membres);
+      // La PREMIÈRE mission d'un projet de rejeu est celle que la comparaison
+      // oppose à la source : rangée ici, une fois, dans la même écriture.
+      this.db
+        .prepare('UPDATE rejeux SET missionRejeu = ? WHERE projectId = ? AND missionRejeu IS NULL')
+        .run(m.id, m.projectId);
       return true;
     });
+  }
+
+  /** Range des tâches dans une mission (idempotent). */
+  ajouterMembresMission(missionId: string, taskIds: readonly string[]): void {
+    const inserer = this.db.prepare(
+      'INSERT OR IGNORE INTO missions_taches (missionId, taskId) VALUES (?, ?)',
+    );
+    for (const id of taskIds) inserer.run(missionId, id);
+  }
+
+  /** Les tâches rangées dans une mission. */
+  membresDeMission(missionId: string): string[] {
+    return (
+      this.db
+        .prepare('SELECT taskId FROM missions_taches WHERE missionId = ? ORDER BY taskId')
+        .all(missionId) as Array<{ taskId: string }>
+    ).map((r) => r.taskId);
+  }
+
+  /** La dernière mission CLOSE d'un projet, ou `null`. */
+  derniereMissionClose(projectId: string): MissionRangee | null {
+    const row = this.db
+      .prepare(
+        `SELECT * FROM missions WHERE projectId = ? AND closeA IS NOT NULL
+          ORDER BY closeA DESC, ouverteA DESC LIMIT 1`,
+      )
+      .get(projectId) as MissionRangee | undefined;
+    return row ?? null;
+  }
+
+  /**
+   * Re-prend l'instantané de FIN d'une mission close : une décision tombée
+   * APRÈS la clôture sur l'une de ses tâches (relecture humaine, livraison,
+   * action de rejeu) lui appartient. `closeA` ne bouge pas.
+   */
+  rafraichirFinMission(id: string, fin: string): boolean {
+    return (
+      this.db
+        .prepare('UPDATE missions SET fin = ? WHERE id = ? AND closeA IS NOT NULL')
+        .run(fin, id).changes > 0
+    );
   }
 
   /** Clôt une mission avec son instantané de fin — une seule fois. */
@@ -6583,29 +6649,49 @@ export class HiveStore {
     return row.n;
   }
 
-  /** La naissance de la plus ancienne tâche en vol d'un projet, ou `null`. */
-  naissanceDesVivantes(projectId: string): number | null {
+  /**
+   * La plus ancienne naissance parmi les tâches EN VOL nées APRÈS `apres` (la
+   * clôture précédente) : elle date l'ouverture d'une mission. Une tâche
+   * ranimée (relance de l'Evaluator, remise en file) garde sa vieille date de
+   * naissance — la compter tirerait la mission dans le passé de la précédente.
+   */
+  naissanceDesNouvelles(projectId: string, apres: number): number | null {
     const row = this.db
       .prepare(
         `SELECT MIN(createdAt) AS a FROM tasks
-          WHERE projectId = ? AND status IN ('pending', 'ready', 'assigned', 'running')`,
+          WHERE projectId = ? AND createdAt > ?
+            AND status IN ('pending', 'ready', 'assigned', 'running')`,
       )
-      .get(projectId) as { a: number | null };
+      .get(projectId, apres) as { a: number | null };
     return row.a;
   }
 
   /**
-   * Les tâches d'une mission : celles du projet nées depuis son ouverture, dans
-   * l'ordre de création. Bornée (le plan d'un instantané l'est aussi).
+   * Les tâches d'un projet qu'une mission ouverte doit compter : celles EN VOL
+   * (une ranimée y revient), et celles NÉES depuis `nees` (une tâche née et
+   * finie entre deux relevés).
    */
-  tachesDeMission(projectId: string, depuis: number, limite = 1_000): Task[] {
+  tachesAMissionner(projectId: string, nees: number): string[] {
     return (
       this.db
         .prepare(
-          `SELECT * FROM tasks WHERE projectId = ? AND createdAt >= ?
+          `SELECT id FROM tasks WHERE projectId = ?
+             AND (status IN ('pending', 'ready', 'assigned', 'running') OR createdAt >= ?)`,
+        )
+        .all(projectId, nees) as Array<{ id: string }>
+    ).map((r) => r.id);
+  }
+
+  /** Les tâches de ces identifiants, dans l'ordre de création. Bornée. */
+  tachesParIds(ids: readonly string[], limite = 1_000): Task[] {
+    if (ids.length === 0) return [];
+    return (
+      this.db
+        .prepare(
+          `SELECT * FROM tasks WHERE id IN (SELECT value FROM json_each(?))
             ORDER BY createdAt, id LIMIT ?`,
         )
-        .all(projectId, depuis, limite) as TaskRow[]
+        .all(JSON.stringify(ids), limite) as TaskRow[]
     ).map(rowToTask);
   }
 
@@ -6634,11 +6720,14 @@ export class HiveStore {
 
   /**
    * Le journal d'une mission : les événements de ces types, postérieurs à
-   * `depuisId`, qui visent ce projet ou l'une de ses tâches. En ordre
+   * `depuisId`, qui visent l'une de SES tâches (`membres`) — ou, sans tâche,
+   * ce projet. Un événement d'une tâche du projet qui n'est pas de la mission
+   * (la relecture tardive d'une mission précédente) n'y entre pas. En ordre
    * chronologique, borné.
    */
   evenementsDeMission(
     projectId: string,
+    membres: readonly string[],
     depuisId: number,
     types: readonly string[],
     limite = 10_000,
@@ -6647,18 +6736,21 @@ export class HiveStore {
     const marques = types.map(() => '?').join(', ');
     const rows = this.db
       .prepare(
-        `SELECT * FROM events
-          WHERE id > ? AND type IN (${marques})
-            AND (json_extract(CASE WHEN json_valid(payload) THEN payload ELSE '{}' END, '$.projectId') = ?
-              OR json_extract(CASE WHEN json_valid(payload) THEN payload ELSE '{}' END, '$.taskId')
-                 IN (SELECT id FROM tasks WHERE projectId = ?))
+        `SELECT * FROM (
+           SELECT *,
+             json_extract(CASE WHEN json_valid(payload) THEN payload ELSE '{}' END, '$.taskId') AS tache,
+             json_extract(CASE WHEN json_valid(payload) THEN payload ELSE '{}' END, '$.projectId') AS projet
+             FROM events WHERE id > ? AND type IN (${marques})
+         )
+          WHERE (tache IS NULL AND projet = ?)
+             OR tache IN (SELECT value FROM json_each(?))
           ORDER BY id LIMIT ?`,
       )
       .all(
         depuisId,
         ...types,
         projectId,
-        projectId,
+        JSON.stringify(membres),
         Math.max(1, Math.min(limite, 10_000)),
       ) as EventRow[];
     const evenements: HiveEvent[] = [];
@@ -6697,7 +6789,7 @@ export class HiveStore {
   }
 
   /** Marque un projet comme le rejeu d'une mission. */
-  inscrireRejeu(r: RejeuRange): void {
+  inscrireRejeu(r: Omit<RejeuRange, 'missionRejeu'>): void {
     this.db
       .prepare(
         `INSERT INTO rejeux (projectId, missionSource, projetSource, surcharges, genomeFige, creePar, creeA)
@@ -6815,8 +6907,10 @@ export class HiveStore {
    *
    *   · une ligne dont le projet a disparu ne désigne plus rien ;
    *   · au-delà de `parProjet` missions, les plus vieilles partent — SAUF
-   *     celles qu'un rejeu encore rangé compare : sa comparaison dirait
-   *     « source élaguée » alors que l'humain la regarde ;
+   *     celles qu'un rejeu encore rangé compare (sa source, et la première
+   *     mission du rejeu lui-même) : la comparaison dirait « élaguée » — ou
+   *     pire, comparerait une autre mission — alors que l'humain la regarde ;
+   *   · l'appartenance d'une mission partie part avec elle ;
    *   · les actions d'un rejeu au-delà de `parProjet * 10` partent, les plus
    *     anciennes d'abord.
    */
@@ -6833,7 +6927,8 @@ export class HiveStore {
         .prepare(
           `DELETE FROM missions
             WHERE projectId NOT IN (SELECT id FROM projects)
-              AND id NOT IN (SELECT missionSource FROM rejeux)`,
+              AND id NOT IN (SELECT missionSource FROM rejeux)
+              AND id NOT IN (SELECT missionRejeu FROM rejeux WHERE missionRejeu IS NOT NULL)`,
         )
         .run().changes;
       n += this.db
@@ -6843,9 +6938,13 @@ export class HiveStore {
                SELECT id, ROW_NUMBER() OVER (PARTITION BY projectId ORDER BY ouverteA DESC, id) AS rang
                  FROM missions
              ) WHERE rang > ?
-           ) AND id NOT IN (SELECT missionSource FROM rejeux)`,
+           ) AND id NOT IN (SELECT missionSource FROM rejeux)
+             AND id NOT IN (SELECT missionRejeu FROM rejeux WHERE missionRejeu IS NOT NULL)`,
         )
         .run(Math.max(1, parProjet)).changes;
+      n += this.db
+        .prepare('DELETE FROM missions_taches WHERE missionId NOT IN (SELECT id FROM missions)')
+        .run().changes;
       n += this.db
         .prepare(
           `DELETE FROM rejeux_actions WHERE id IN (
