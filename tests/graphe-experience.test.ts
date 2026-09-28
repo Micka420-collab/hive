@@ -405,6 +405,36 @@ describe('FAITS, CORRÉLATIONS ET LEÇONS VALIDÉES restent séparés', () => {
     // Le primaire n'a pas produit : son modèle n'est pas attribué au vainqueur.
     expect(arete(gd, 'artifact:r40', 'produced_by', 'model_version:opus')).toBeUndefined();
   });
+
+  it('une correction demandée n’est un avis de l’Evaluator que si l’Evaluator l’a demandée', () => {
+    // Les trois portes de retry émettent `source: 'evaluator'` (la boucle de
+    // correction) ; la critique figée nomme QUI a demandé. Un rejet humain a
+    // déjà posé sa revue par `task_reviewed` : lui en ajouter une de
+    // l'Evaluator attribuerait l'avis à qui ne l'a pas donné.
+    const retry = (id: number, resultId: number, qui: string) =>
+      ev(id, 'task_retry', {
+        taskId: 'tA2',
+        source: 'evaluator',
+        resultId,
+        decision: 'correction_required',
+        critique: { source: qui, objections: [], raisons: ['r'] },
+      });
+    const reprises = [
+      ev(80, 'task_done', { taskId: 'tA2', nodeId: 'n1', resultId: 50 }),
+      ev(81, 'task_reviewed', { taskId: 'tA2', state: 'rejected' }),
+      retry(82, 50, 'revue_humaine'),
+      ev(83, 'task_done', { taskId: 'tA2', nodeId: 'n1', resultId: 51 }),
+      retry(84, 51, 'evaluator'),
+    ];
+    const gr = projeterGrapheExperience(sources([...JOURNAL, ...reprises]), seul(A));
+    const origines = (resultat: string) =>
+      gr.aretes
+        .filter((a) => a.de === resultat && a.relation === 'reviewed_by')
+        .map((a) => noeud(gr, a.vers))
+        .map((n) => (n?.genre === 'review' ? `${n.origine}:${n.verdict}` : null));
+    expect(origines('artifact:r50')).toEqual(['humaine:rejete']);
+    expect(origines('artifact:r51')).toEqual(['evaluateur:a_corriger']);
+  });
 });
 
 describe('ISOLEMENT PAR DÉFAUT, FÉDÉRATION SUR DEMANDE', () => {

@@ -628,6 +628,17 @@ export function projeterGrapheExperience(
         // Une correction demandée par l'Evaluator est un AVIS sur une
         // production, pas une tentative ratée.
         if (p.source === 'evaluator') {
+          // `source: 'evaluator'` nomme la BOUCLE de correction, pas qui a
+          // jugé : les trois portes de retry passent par `retryFromEvaluator`.
+          // Un rejet humain ou une contre-revue a déjà posé SA revue, par son
+          // propre fait (`task_reviewed`, `contre_expertise_verdict`) ; en
+          // inventer une de l'Evaluator attribuerait l'avis à qui ne l'a pas
+          // donné. La critique figée dit qui l'a demandée (`critiquePourRetry`).
+          const critique =
+            typeof p.critique === 'object' && p.critique !== null
+              ? (p.critique as Record<string, unknown>)
+              : {};
+          if (critique.source === 'revue_humaine' || critique.source === 'contre_revue') break;
           if (resultId === null) break;
           const artifact = noeudProduction(taskId, info, resultId, provenance);
           const revue = noeudRevue(info, provenance, {

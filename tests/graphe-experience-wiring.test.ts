@@ -21,7 +21,11 @@ import { signatureEchec } from '../src/orchestrator/essaim.js';
 import { createServer, loadConfigFromEnv } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
 import type { HiveStore } from '../src/orchestrator/store.js';
-import { EXPERIENCE_CONTEXT_HEADER } from '../src/shared/graphe-experience.js';
+import {
+  EXPERIENCE_CONTEXT_HEADER,
+  projeterGrapheExperience,
+  TYPES_GRAPHE_EXPERIENCE,
+} from '../src/shared/graphe-experience.js';
 import type { NoeudExperience } from '../src/shared/graphe-experience.js';
 import type { AffectationVue } from '../src/shared/routage-vue.js';
 import type { PorteeExperience } from '../src/shared/reglages.js';
@@ -314,6 +318,34 @@ describe('le graphe d’expérience arrive jusqu’à l’ouvrière', () => {
     const fait = await attendre(() => evenements(srv, 'task_done', t.id)[0], 'task_done');
     expect(fait.payload.resultId).toBe(srv.store.resultsForTask(t.id).at(-1)?.resultId);
     expect(typeof fait.payload.resultId).toBe('number');
+
+    // LE CONTRAT AVEC HIVE MIND, tel que la Reine l'émet VRAIMENT : un
+    // souvenir écrit à la simple réussite ne nomme pas qui l'a validé, et
+    // n'entre donc pas comme leçon. Si l'émetteur de `memory_recorded` change
+    // de forme (cycle de vie de la mémoire, #495), ce banc casse ici au lieu
+    // que les leçons disparaissent — ou apparaissent — en silence.
+    const souvenir = await attendre(
+      () => evenements(srv, 'memory_recorded', t.id)[0],
+      'memory_recorded',
+    );
+    expect(souvenir.payload.source).toBeUndefined();
+    const graphe = projeterGrapheExperience(
+      {
+        evenements: srv.store.evenementsParTypes(TYPES_GRAPHE_EXPERIENCE, 1_000),
+        tacheDe: (id) =>
+          id === t.id
+            ? { projectId: projet, titre: t.title, categorie: 'code', fichiers: [] }
+            : null,
+        nomProjet: () => null,
+        nomOuvriere: () => null,
+        notes: [],
+      },
+      { genre: 'projets', projets: new Set([projet]) },
+    );
+    expect(graphe.noeuds.some((n) => n.id === `artifact:r${String(fait.payload.resultId)}`)).toBe(
+      true,
+    );
+    expect(graphe.noeuds.filter((n) => n.genre === 'lesson')).toEqual([]);
   });
 
   it('le réglage vient du `.env` de l’hôte, et l’isolement est le défaut', () => {
