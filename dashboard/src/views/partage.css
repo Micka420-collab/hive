@@ -35,7 +35,7 @@
   align-items: center;
   gap: 8px;
   font-family: var(--titre);
-  font-size: 17px;
+  font-size: var(--fs-xl);
   font-weight: 650;
   letter-spacing: -0.03em;
   color: var(--text);
@@ -69,7 +69,7 @@
   border: 1px solid color-mix(in srgb, var(--miel) 32%, var(--border));
   background: color-mix(in srgb, var(--miel) 8%, var(--panel));
   color: var(--muted);
-  font-size: 11.5px;
+  font-size: var(--fs-xs);
   font-weight: 500;
   letter-spacing: -0.01em;
   white-space: nowrap;
@@ -95,7 +95,7 @@
 }
 
 .pa-avancement .panel-head h2 {
-  font-size: 14px;
+  font-size: var(--fs-md);
   font-weight: 600;
   letter-spacing: -0.02em;
   color: var(--text);
@@ -121,7 +121,7 @@
 
 .pa-pct {
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: var(--fs-xs);
   color: var(--gold);
   min-width: 40px;
   text-align: right;
@@ -131,7 +131,7 @@
 .pa-note {
   margin: 0;
   padding: 0 14px 12px;
-  font-size: 11.5px;
+  font-size: var(--fs-xs);
   color: var(--faint);
   line-height: 1.45;
   font-style: normal;
@@ -146,7 +146,7 @@
   margin: 0;
   text-align: center;
   color: var(--muted);
-  font-size: 13.5px;
+  font-size: var(--fs-md);
   font-style: normal;
   letter-spacing: -0.01em;
 }

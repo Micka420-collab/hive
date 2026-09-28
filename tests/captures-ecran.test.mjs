@@ -98,17 +98,32 @@ describe('où vont les captures', () => {
   it('par défaut : le français, dans captures-ecran/fr, toutes les vues', () => {
     expect(optionsDepuisArgv([], RACINE)).toEqual({
       langue: 'fr',
+      theme: 'clair',
       sortie: path.join(RACINE, SORTIE_PAR_DEFAUT, 'fr'),
       vues: null,
     });
     expect(optionsDepuisArgv(['--langue', 'en'], RACINE)).toEqual({
       langue: 'en',
+      theme: 'clair',
       sortie: path.join(RACINE, SORTIE_PAR_DEFAUT, 'en'),
       vues: null,
     });
     expect(optionsDepuisArgv(['--sortie', 'docs/images/captures'], RACINE).sortie).toBe(
       path.join(RACINE, 'docs', 'images', 'captures'),
     );
+  });
+
+  it('LE THÈME SOMBRE A SON PROPRE DOSSIER — deux séries ne s’effacent pas l’une l’autre', () => {
+    // Mêmes noms d'images dans les deux thèmes : un dossier commun ferait
+    // effacer la série claire par la sombre (`estNotreCapture`).
+    expect(optionsDepuisArgv(['--theme', 'sombre', '--langue', 'en'], RACINE)).toEqual({
+      langue: 'en',
+      theme: 'sombre',
+      sortie: path.join(RACINE, SORTIE_PAR_DEFAUT, 'en-sombre'),
+      vues: null,
+    });
+    expect(optionsDepuisArgv(['--theme', 'noir'], RACINE).erreur).toMatch(/thème inconnu/);
+    expect(optionsDepuisArgv(['--theme'], RACINE).erreur).toMatch(/attend une valeur/);
   });
 
   it('LA SORTIE RESTE DANS LE DÉPÔT — ni au-dessus, ni ailleurs, ni la racine elle-même', () => {
