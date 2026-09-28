@@ -33,7 +33,8 @@ export type ViewId =
   | 'cerveau'
   | 'chantiers'
   | 'chambre'
-  | 'warroom';
+  | 'warroom'
+  | 'parametres';
 
 export interface ViewProps {
   snapshot: StateSnapshot;

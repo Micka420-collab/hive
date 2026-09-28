@@ -245,3 +245,30 @@ more` and `forced-colors: active`. Reduced motion switches off every
 <p align="center">
   <img src="images/theme-sombre/ruche.mobile.png" width="300" alt="La Ruche en thème sombre sur mobile.">
 </p>
+
+### Shell: phone drawer and Settings
+
+- **Under 560 px** the navigation rail becomes an off-canvas drawer: the ☰
+  button in the top bar opens it as a modal dialog (focus lands on the current
+  view, Tab stays inside, Escape closes and returns focus to ☰, the page behind
+  is `inert`). Closed, it is `visibility: hidden` — its cells are neither
+  tabbable nor read. Content gets the full width.
+- **Paramètres** (key `p`, at the foot of the rail, for everyone) holds the
+  person's own settings, distinct from the admin Intendance: account (identity,
+  role, session dates read from the JWT or "unknown", sign out), appearance
+  (theme, language), the hive token (masked, same `hive.token` key), the
+  first-cycle guide (a hidden guide stays hidden and comes back from here) and
+  the GitHub connector (in Projets). On phones the top bar drops the language
+  toggle, token field and sign-out button, which live there.
+
+<p align="center">
+  <img src="images/coquille/tiroir-sombre.mobile.png" width="260" alt="Le tiroir de navigation ouvert sur téléphone, thème sombre.">
+  <img src="images/coquille/tiroir-clair.mobile.png" width="260" alt="Le tiroir de navigation ouvert sur téléphone, thème clair.">
+  <img src="images/coquille/ruche-sombre.mobile.png" width="260" alt="La Ruche sur téléphone : le contenu a toute la largeur, la barre du haut garde le ☰.">
+</p>
+<p align="center">
+  <img src="images/coquille/parametres-clair.bureau.png" width="840" alt="L'écran Paramètres sur bureau, thème clair.">
+</p>
+<p align="center">
+  <img src="images/coquille/parametres-sombre.mobile.png" width="300" alt="L'écran Paramètres sur téléphone, thème sombre.">
+</p>

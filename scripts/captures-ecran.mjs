@@ -462,8 +462,24 @@ async function principal() {
     const cases = await page
       .locator('.mc-nav-cell')
       .evaluateAll((liste) => liste.map((c) => c.getAttribute('data-vue') ?? ''));
+    // Au format téléphone, la barre est un tiroir fermé (styles.css, « LE
+    // TIROIR DE NAVIGATION ») : ses cases sont cachées tant que le ☰ ne l'a
+    // pas ouvert. On l'ouvre donc comme quelqu'un le ferait, avant chaque clic
+    // — le clic sur la case le referme.
+    const burger = page.locator('[data-testid="mc-burger"]');
+    const ouvrirLaBarre = async () => {
+      if (await burger.isVisible()) await burger.click();
+    };
     for (const vue of cases) {
-      await photographier(vue, () => page.locator(`.mc-nav-cell[data-vue="${vue}"]`).click());
+      await photographier(vue, async () => {
+        await ouvrirLaBarre();
+        await page.locator(`.mc-nav-cell[data-vue="${vue}"]`).click();
+      });
+    }
+    // Le tiroir lui-même, ouvert : il n'existe qu'au format téléphone.
+    if (await burger.isVisible()) {
+      await photographier('navigation', ouvrirLaBarre, { tiroir: true });
+      await page.keyboard.press('Escape');
     }
 
     // La Chambre n'a pas de case (ADR 0010) : on y entre par l'ouvrière.

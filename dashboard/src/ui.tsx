@@ -96,10 +96,30 @@ export function useDialog<T extends HTMLElement>(
   focusInitial?: RefObject<HTMLElement | null>,
 ) {
   const ref = useRef<T>(null);
+  useGardeDialogue(ref, onClose, true, focusInitial);
+  return ref;
+}
+
+/**
+ * Le même contrat que `useDialog`, pour un conteneur qui EXISTE AVANT d'être
+ * un dialogue et le reste après : le tiroir de navigation mobile est la barre
+ * elle-même, toujours montée, qui ne devient modale que le temps d'être
+ * ouverte. `actif` arme la garde (focus qui entre, Tab qui boucle, Échap qui
+ * ferme) et la désarme — le focus revient alors au déclencheur, comme à la
+ * fermeture d'une modale. Une seule implémentation pour les deux : un second
+ * piège à focus écrit à côté divergerait au premier correctif.
+ */
+export function useGardeDialogue(
+  ref: RefObject<HTMLElement | null>,
+  onClose: () => void,
+  actif: boolean,
+  focusInitial?: RefObject<HTMLElement | null>,
+): void {
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
 
   useEffect(() => {
+    if (!actif) return;
     const trigger = document.activeElement as HTMLElement | null;
     const el = ref.current;
     // Focus le 1er élément focusable, sinon le conteneur lui-même.
@@ -124,9 +144,8 @@ export function useDialog<T extends HTMLElement>(
       if (i >= 0) pileDialogues.splice(i, 1);
       trigger?.focus?.(); // restaure le focus au déclencheur
     };
-  }, []);
-
-  return ref;
+    // `ref` et `focusInitial` sont des objets stables : seul `actif` arme.
+  }, [actif]);
 }
 
 /**

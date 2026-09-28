@@ -43,7 +43,7 @@ import {
   phraseAlertes,
   porteLaPastille,
 } from './views/pastille-alertes';
-import { FiletDeSecurite, modalOpen } from './ui';
+import { FiletDeSecurite, modalOpen, useGardeDialogue } from './ui';
 import Ruche from './views/Ruche';
 import {
   applyReviewEvent,
@@ -57,6 +57,7 @@ import {
 } from './views/shared';
 import type { ReviewState } from './views/shared';
 import type { ViewId, ViewProps } from './views/shared';
+import type { JetonCoquille } from './views/Parametres';
 
 // Chaque vue est un chunk séparé — la Ruche (première peinture) reste inline.
 const Miellerie = lazy(() => import('./views/Miellerie'));
@@ -73,6 +74,7 @@ const Cerveau = lazy(() => import('./views/Cerveau'));
 const Chantiers = lazy(() => import('./views/Chantiers'));
 const Chambre = lazy(() => import('./views/Chambre'));
 const WarRoom = lazy(() => import('./views/WarRoom'));
+const Parametres = lazy(() => import('./views/Parametres'));
 
 const EMPTY: StateSnapshot = { projects: [], nodes: [], tasks: [], tasksTotal: 0 };
 
@@ -83,6 +85,12 @@ interface NavItem {
   key: string;
   /** Vue d'administration : la case n'est montrée qu'aux admins. */
   admin?: true;
+  /**
+   * Rangée au PIED de la barre, sous les vues de travail : les Paramètres
+   * règlent l'écran, ils ne montrent rien de la ruche. Mêlés aux vues, ils
+   * s'y liraient comme une quinzième chose à surveiller.
+   */
+  pied?: true;
 }
 
 const NAV: NavItem[] = [
@@ -112,7 +120,16 @@ const NAV: NavItem[] = [
     key: 'c',
     admin: true,
   },
+  { id: 'parametres', label: 'Paramètres', labelEn: 'Settings', key: 'p', pied: true },
 ];
+
+/**
+ * La largeur sous laquelle la barre devient un tiroir. DOIT valoir la borne
+ * de `@media (max-width: 560px)` qui le dessine (styles.css, « LE TIROIR DE
+ * NAVIGATION ») : au-dessus, un tiroir resté « ouvert » garderait le focus
+ * prisonnier d'une barre redevenue ordinaire.
+ */
+const REQUETE_TIROIR = '(max-width: 560px)';
 
 /** Traits fins façon produit : lisibles à 22 px, sans emoji. */
 function NavGlyph({ id }: { id: ViewId }) {
@@ -207,6 +224,16 @@ function NavGlyph({ id }: { id: ViewId }) {
         <svg {...common}>
           <path d="M4 6.5h9.5v6.2H8.2L5.5 15v-2.3H4V6.5Z" />
           <path d="M15.5 9.5H20v6.2h-1.5V18l-2.7-2.3h-5.3v-3" />
+        </svg>
+      );
+    case 'parametres':
+      // Trois curseurs : des réglages, pas une machine (l'Intendance a le bouclier).
+      return (
+        <svg {...common}>
+          <path d="M5 7h8M17 7h2M5 12h3M12 12h7M5 17h10M19 17h0" />
+          <circle cx="15" cy="7" r="2" />
+          <circle cx="10" cy="12" r="2" />
+          <circle cx="17" cy="17" r="2" />
         </svg>
       );
     case 'intendance':
@@ -338,6 +365,20 @@ export function App() {
   const refreshTimer = useRef<number | undefined>(undefined);
   // La cible du lien d'évitement (voir plus bas).
   const principal = useRef<HTMLElement>(null);
+  // ─── LE TIROIR DE NAVIGATION (téléphone) ────────────────────────────────────
+  //
+  // Sous 560 px, le rail d'icônes de 62 px restait à demeure et prenait un
+  // sixième de l'écran à chaque vue. La barre devient un tiroir hors champ :
+  // le contenu a toute la largeur, le bouton ☰ de la barre du haut l'ouvre.
+  // Ouvert, c'est un dialogue modal — même garde que les modales
+  // (`useGardeDialogue`) : focus sur la vue courante, Tab qui boucle, Échap
+  // qui ferme et rend le focus au bouton. Fermé, la feuille le cache
+  // (`visibility: hidden`) : ses cases ne sont plus tabulables, ni lues.
+  const [tiroirOuvert, setTiroirOuvert] = useState(false);
+  const barre = useRef<HTMLElement>(null);
+  const celluleCourante = useRef<HTMLButtonElement>(null);
+  const fermerTiroir = useCallback(() => setTiroirOuvert(false), []);
+  useGardeDialogue(barre, fermerTiroir, tiroirOuvert, celluleCourante);
 
   // ─── Flux temps réel ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -457,6 +498,26 @@ export function App() {
     const onHash = () => setRoute(parseHash());
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+
+  // Toute arrivée sur une adresse referme le tiroir : un clic sur une case,
+  // mais aussi le bouton Précédent, qui ne passe pas par la barre.
+  useEffect(() => setTiroirOuvert(false), [route.view, route.selectedId]);
+
+  // Revenu au-dessus de la borne (rotation, fenêtre élargie) : plus de tiroir.
+  useEffect(() => {
+    const mq = window.matchMedia?.(REQUETE_TIROIR);
+    if (!mq) return;
+    const suivre = () => {
+      if (mq.matches) return;
+      // Le focus d'abord sur la case courante, visible dans le rail : la garde
+      // le rendrait sinon au ☰, qui n'existe plus à cette largeur (`display:
+      // none`) — `focus()` n'y fait rien et le clavier retombe sur <body>.
+      celluleCourante.current?.focus();
+      setTiroirOuvert(false);
+    };
+    mq.addEventListener('change', suivre);
+    return () => mq.removeEventListener('change', suivre);
   }, []);
 
   const navigate = (view: ViewId, selectedId?: string, opts?: { replace?: boolean }) => {
@@ -627,6 +688,60 @@ export function App() {
   const annonces = useMemo(() => annoncesDepuisEvenements(events), [events]);
   const current = NAV.find((n) => n.id === route.view) ?? NAV[0]!;
 
+  const jeton: JetonCoquille = {
+    valeur: token,
+    changer: setTokenState,
+    appliquer: applyToken,
+    enregistre: token === getToken(),
+    refuse: tokenAuthError,
+    connecte: connected,
+  };
+
+  const caseNav = (item: NavItem) => (
+    <li key={item.id}>
+      <button
+        className={`mc-nav-cell${route.view === item.id ? ' active' : ''}`}
+        ref={route.view === item.id ? celluleCourante : undefined}
+        // L'identifiant de la vue, lisible sans dépendre de la langue :
+        // `npm run captures` nomme ses images d'après lui.
+        data-vue={item.id}
+        // Refermer ICI aussi, pas seulement au changement d'adresse : la case
+        // de la vue où l'on est déjà ne change rien au hash, et le tiroir
+        // restait ouvert sous le doigt qui venait de choisir.
+        onClick={() => {
+          setTiroirOuvert(false);
+          navigate(item.id);
+        }}
+        title={`${lang === 'fr' ? item.label : item.labelEn} (${t('touche', 'key')} ${item.key})`}
+        aria-current={route.view === item.id ? 'page' : undefined}
+      >
+        <span className="mc-nav-icon" aria-hidden="true">
+          <NavGlyph id={item.id} />
+        </span>
+        <span className="mc-nav-label">{lang === 'fr' ? item.label : item.labelEn}</span>
+        {porteLaPastille(item.id, pastille) && (
+          <span
+            className={`mc-nav-badge mc-nav-badge--${pastille.gravite}`}
+            data-gravite={pastille.gravite}
+            aria-label={phraseAlertes(pastille, lang)}
+            title={phraseAlertes(pastille, lang)}
+          >
+            {compteAffiche(pastille.total)}
+          </span>
+        )}
+        {item.id === 'miellerie' && pendingReviews > 0 && (
+          <span
+            className="mc-nav-badge"
+            title={`${pendingReviews} ${t('production(s) à revoir', 'production(s) to review')}`}
+          >
+            {pendingReviews > 99 ? '99+' : pendingReviews}
+          </span>
+        )}
+      </button>
+    </li>
+  );
+  const visibles = NAV.filter((item) => !item.admin || estAdmin(user));
+
   return (
     <div className="app mc-app">
       {/* ─── LE LIEN D'ÉVITEMENT, ET POURQUOI IL NE SUIT PAS SON `href` ──────
@@ -646,7 +761,17 @@ export function App() {
       >
         {t('Aller au contenu', 'Skip to content')}
       </a>
-      <nav className="mc-sidebar" aria-label={t('Navigation principale', 'Main navigation')}>
+      <nav
+        id="mc-navigation"
+        ref={barre}
+        className={`mc-sidebar${tiroirOuvert ? ' mc-sidebar--ouverte' : ''}`}
+        aria-label={t('Navigation principale', 'Main navigation')}
+        // Ouvert en tiroir, c'est un dialogue modal : `modalOpen()` suspend
+        // alors les raccourcis de vue, et Échap n'est pas volé par une vue
+        // (la Chambre y ramène à la Ruche).
+        role={tiroirOuvert ? 'dialog' : undefined}
+        aria-modal={tiroirOuvert || undefined}
+      >
         <div className="mc-sidebar-brand" title="Hive — Mission Control">
           <span className="brand-logo" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -669,44 +794,8 @@ export function App() {
             <span className="mc-sidebar-product">Mission Control</span>
           </span>
         </div>
-        <ul className="mc-nav">
-          {NAV.filter((item) => !item.admin || estAdmin(user)).map((item) => (
-            <li key={item.id}>
-              <button
-                className={`mc-nav-cell${route.view === item.id ? ' active' : ''}`}
-                // L'identifiant de la vue, lisible sans dépendre de la langue :
-                // `npm run captures` nomme ses images d'après lui.
-                data-vue={item.id}
-                onClick={() => navigate(item.id)}
-                title={`${lang === 'fr' ? item.label : item.labelEn} (${t('touche', 'key')} ${item.key})`}
-                aria-current={route.view === item.id ? 'page' : undefined}
-              >
-                <span className="mc-nav-icon" aria-hidden="true">
-                  <NavGlyph id={item.id} />
-                </span>
-                <span className="mc-nav-label">{lang === 'fr' ? item.label : item.labelEn}</span>
-                {porteLaPastille(item.id, pastille) && (
-                  <span
-                    className={`mc-nav-badge mc-nav-badge--${pastille.gravite}`}
-                    data-gravite={pastille.gravite}
-                    aria-label={phraseAlertes(pastille, lang)}
-                    title={phraseAlertes(pastille, lang)}
-                  >
-                    {compteAffiche(pastille.total)}
-                  </span>
-                )}
-                {item.id === 'miellerie' && pendingReviews > 0 && (
-                  <span
-                    className="mc-nav-badge"
-                    title={`${pendingReviews} ${t('production(s) à revoir', 'production(s) to review')}`}
-                  >
-                    {pendingReviews > 99 ? '99+' : pendingReviews}
-                  </span>
-                )}
-              </button>
-            </li>
-          ))}
-        </ul>
+        <ul className="mc-nav">{visibles.filter((i) => !i.pied).map(caseNav)}</ul>
+        <ul className="mc-nav mc-nav-pied">{visibles.filter((i) => i.pied).map(caseNav)}</ul>
         <div
           className="mc-sidebar-pulse"
           title={t('Pouls de la ruche (débit/h)', 'Hive pulse (throughput/h)')}
@@ -718,9 +807,28 @@ export function App() {
         </div>
       </nav>
 
-      <div className="mc-body">
+      {tiroirOuvert && (
+        <div className="mc-tiroir-voile" aria-hidden="true" onClick={fermerTiroir} />
+      )}
+
+      {/* Inerte sous le tiroir ouvert : ni clic, ni Tab, ni lecteur d'écran
+          n'atteignent la vue qu'il recouvre. */}
+      <div className="mc-body" inert={tiroirOuvert || undefined}>
         <header className="topbar mc-topbar">
           <div className="brand">
+            <button
+              type="button"
+              className="btn ghost mc-burger"
+              data-testid="mc-burger"
+              aria-controls="mc-navigation"
+              aria-expanded={tiroirOuvert}
+              aria-label={t('Ouvrir la navigation', 'Open navigation')}
+              onClick={() => setTiroirOuvert(true)}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 7h16M4 12h16M4 17h16" />
+              </svg>
+            </button>
             <div>
               <h1>{lang === 'fr' ? current.label : current.labelEn}</h1>
               <span className="brand-sub">
@@ -844,8 +952,15 @@ export function App() {
           <div className="mc-token-banner" role="alert">
             <p>
               {t(
-                'Jeton de ruche refusé — collez dans le champ « Jeton » (en haut à droite) la valeur exacte de HIVE_TOKEN depuis le fichier .env de l’orchestrateur. Ce n’est pas le jeton GitHub.',
-                'Hive token rejected — paste the exact HIVE_TOKEN from the orchestrator’s .env into the Token field (top right). This is not the GitHub token.',
+                'Jeton de ruche refusé — collez la valeur exacte de HIVE_TOKEN, depuis le fichier .env de l’orchestrateur, dans le champ « Jeton » (barre du haut, ou Paramètres). Ce n’est pas le jeton GitHub.',
+                'Hive token rejected — paste the exact HIVE_TOKEN from the orchestrator’s .env into the Token field (top bar, or Settings). This is not the GitHub token.',
+              )}{' '}
+              {/* Sur téléphone, le champ de la barre est replié : les
+                  Paramètres portent le même, avec son libellé et son aide. */}
+              {route.view !== 'parametres' && (
+                <button className="btn ghost" onClick={() => navigate('parametres')}>
+                  {t('Saisir le jeton dans Paramètres', 'Enter the token in Settings')}
+                </button>
               )}
             </p>
           </div>
@@ -917,6 +1032,9 @@ export function App() {
               {route.view === 'chantiers' && <Chantiers {...viewProps} />}
               {route.view === 'chambre' && <Chambre {...viewProps} />}
               {route.view === 'warroom' && <WarRoom {...viewProps} />}
+              {route.view === 'parametres' && (
+                <Parametres {...viewProps} jeton={jeton} onCompte={changerDeCompte} />
+              )}
             </Suspense>
           </FiletDeSecurite>
         </main>

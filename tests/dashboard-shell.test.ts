@@ -145,3 +145,49 @@ describe('les alertes du tableau de bord se traduisent', () => {
     expect(vue).toMatch(/default:\s*\n?\s*return a\.message;/);
   });
 });
+
+describe('le tiroir de navigation du téléphone', () => {
+  // Rien de ce qui suit ne se voit en jsdom/happy-dom, qui n'applique pas les
+  // `@media` : le comportement du tiroir (dialogue, focus, Échap) est tenu par
+  // tests/app-tiroir-parametres.test.tsx, sa FORME ici.
+
+  /** Le bloc `@media (max-width: 560px)` qui dessine le tiroir. */
+  const blocTiroir = (): string => {
+    const motif = /@media \(max-width: (\d+)px\) \{\n {2}\.mc-burger \{/;
+    const m = motif.exec(CSS);
+    expect(m, 'le bloc média du tiroir a disparu de styles.css').not.toBeNull();
+    const debut = m!.index;
+    // Le bloc finit à la première accolade fermante en colonne 0.
+    return CSS.slice(debut, CSS.indexOf('\n}\n', debut)).replace(/\/\*[\s\S]*?\*\//g, '');
+  };
+
+  /** Corps d'une règle à l'intérieur du bloc (indentée de deux espaces). */
+  const dansLeBloc = (selecteur: string): string => {
+    const bloc = blocTiroir();
+    const i = bloc.indexOf(`\n  ${selecteur} {`);
+    expect(i, `règle « ${selecteur} » introuvable dans le bloc du tiroir`).toBeGreaterThan(-1);
+    return bloc.slice(i, bloc.indexOf('\n  }', i));
+  };
+
+  it('LA BORNE DE LA FEUILLE EST CELLE QUE LA COQUILLE SURVEILLE', () => {
+    // Désaccordées, un tiroir ouvert survivrait à un élargissement de la
+    // fenêtre : focus prisonnier d'une barre redevenue ordinaire.
+    const largeur = /@media \(max-width: (\d+)px\) \{\n {2}\.mc-burger \{/.exec(CSS)?.[1];
+    expect(APP).toContain(`const REQUETE_TIROIR = '(max-width: ${largeur}px)'`);
+  });
+
+  it('FERMÉ, LE TIROIR SORT DU FLUX ET N’EST NI TABULABLE NI LU', () => {
+    const barre = dansLeBloc('.mc-sidebar');
+    // Hors du flux : le contenu reprend toute la largeur de l'écran.
+    expect(barre).toMatch(/position:\s*fixed/);
+    expect(barre).toMatch(/transform:\s*translateX\(-100%\)/);
+    // Décalée seulement, la barre garderait ses cases dans l'ordre de Tab.
+    expect(barre).toMatch(/visibility:\s*hidden/);
+    expect(dansLeBloc('.mc-sidebar--ouverte')).toMatch(/visibility:\s*visible/);
+  });
+
+  it('LE ☰ N’EXISTE QU’AU FORMAT TÉLÉPHONE', () => {
+    expect(regle('.mc-burger')).toMatch(/display:\s*none/);
+    expect(dansLeBloc('.mc-burger')).toMatch(/display:\s*inline-flex/);
+  });
+});
