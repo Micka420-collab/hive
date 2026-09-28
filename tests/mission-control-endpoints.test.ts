@@ -246,6 +246,75 @@ describe('Mission Control — rapport de mission, bilan Worker, cockpit', () => 
     expect(relecteur.qualite.tauxCorrection).toBe('inconnu');
   });
 
+  type Qualite = {
+    productions: number;
+    sortConnu: number;
+    corrigees: number;
+    bornee: number | null;
+  };
+  const qualiteDe = async (nodeId: string): Promise<Qualite> =>
+    (
+      (await (await fetch(`${base}/api/workers/${nodeId}/bilan`, { headers })).json()) as {
+        qualite: Qualite;
+      }
+    ).qualite;
+
+  it('une relecture croisée rendue par le Worker n’est pas une de ses productions', async () => {
+    const { taskId } = productionAcceptee('Écrire le module A');
+    const relecture = server.store.createTask({
+      projectId: projet,
+      title: 'Relire le module A',
+      prompt: 'relire',
+    });
+    server.store.inscrireRelecture({
+      relectureTaskId: relecture.id,
+      productionTaskId: taskId,
+      relecteurNodeId: 'prod',
+      relecteurAgent: 'claude-code',
+      producteurAgent: 'codex',
+    });
+    server.store.patchTask(relecture.id, { status: 'done' });
+    server.store.insertResult({
+      taskId: relecture.id,
+      nodeId: 'prod',
+      diff: '',
+      logs: 'avis : appliquer',
+      success: true,
+      durationMs: 500,
+      subAgents: [],
+    });
+    expect(await qualiteDe('prod')).toMatchObject({ productions: 1, sortConnu: 1, bornee: null });
+  });
+
+  it('un journal élagué ne juge que les productions dont le sort est encore lisible', async () => {
+    // Une production renvoyée en correction il y a longtemps : son renvoi n'est
+    // rangé qu'au journal, que l'élagage emporte.
+    const ancienne = server.store.createTask({ projectId: projet, title: 'Vieille', prompt: 'v' });
+    const resultId = server.store.insertResult(
+      {
+        taskId: ancienne.id,
+        nodeId: 'prod',
+        diff: DIFF,
+        logs: '',
+        success: true,
+        durationMs: 1_000,
+        subAgents: [],
+      },
+      1_000,
+    );
+    server.store.appendEvent('task_done', { taskId: ancienne.id, nodeId: 'prod' }, 1_000);
+    server.store.appendEvent(
+      'task_retry',
+      { taskId: ancienne.id, source: 'evaluator', resultId, decision: 'correction_required' },
+      1_000,
+    );
+    server.store.pruneEvents(0);
+    expect(server.store.journalElague()).toBe(true);
+    for (const titre of ['A', 'B', 'C']) productionAcceptee(`Écrire le module ${titre}`);
+    // Jugée, la vieille production passerait pour « sort inconnu » : trois, pas quatre.
+    expect(await qualiteDe('prod')).toMatchObject({ productions: 3, sortConnu: 3, corrigees: 0 });
+  });
+
   it('le bilan est gardé, et une ouvrière inconnue se dit', async () => {
     expect((await fetch(`${base}/api/workers/prod/bilan`)).status).toBe(401);
     expect((await fetch(`${base}/api/workers/personne/bilan`, { headers })).status).toBe(404);

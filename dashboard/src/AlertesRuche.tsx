@@ -73,10 +73,18 @@ function texteAlerte(
         `“${titreOu(a.titre, a.taskId)}”: review impossible — a human must decide.`,
       );
     case 'refus': {
-      const noeud = nomsDeNoeuds.get(a.nodeId) ?? a.nodeId.slice(0, 8);
+      const titre = titreOu(a.titre, a.taskId);
+      // Le dernier refus a pu sortir du journal : le nœud reste inconnu, dit tel.
+      const noeud = a.nodeId === null ? '?' : (nomsDeNoeuds.get(a.nodeId) ?? a.nodeId.slice(0, 8));
+      if (a.definitif) {
+        return t(
+          `« ${titre} » a échoué : aucun agent qui fonctionne (dernier refus, ${noeud} : ${a.raison}) — réparez l’agent puis relancez-la`,
+          `“${titre}” failed: no working agent (last refusal, ${noeud}: ${a.raison}) — fix the agent, then retry it`,
+        );
+      }
       return t(
-        `« ${titreOu(a.titre, a.taskId)} » refusée par ${noeud} : ${a.raison} — personne ne l’a reprise`,
-        `“${titreOu(a.titre, a.taskId)}” declined by ${noeud}: ${a.raison} — nobody has taken it since`,
+        `« ${titre} » refusée par ${noeud} : ${a.raison} — personne ne l’a reprise`,
+        `“${titre}” declined by ${noeud}: ${a.raison} — nobody has taken it since`,
       );
     }
   }

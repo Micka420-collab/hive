@@ -138,6 +138,7 @@ export function depenseDepuisEvenements(
 export const TYPES_ALERTES = [
   'task_assigned',
   'task_rejected',
+  'task_failed',
   'contre_expertise_review_waiting',
   'contre_expertise_impossible',
   'balance_cap_reached',
@@ -152,7 +153,11 @@ export const TYPES_ALERTES = [
  *   · `refus`   : une tâche renvoyée par un nœud pour une panne
  *     d'infrastructure (authentification, quota, binaire, clone) et que
  *     personne n'a reprise depuis. Une saturation ou un créneau Night Shift
- *     ne sont pas des pannes : la tâche attend son tour ;
+ *     ne sont pas des pannes : la tâche attend son tour. Après trop de refus,
+ *     l'ordonnanceur ÉCHOUE la tâche (`no_working_agent`) : le refus devient
+ *     `definitif` et reste dit tant qu'elle n'est ni relancée ni annulée —
+ *     sinon l'alerte s'effaçait au moment précis où la panne devenait sans
+ *     retour, et une ruche d'un seul nœud mal authentifié se taisait ;
  *   · `relecture_impossible` : une production que personne d'autre ne
  *     relira, et qu'aucun humain n'a encore tranchée ;
  *   · `budget`  : un projet que son plafond de dépense a réellement ARRÊTÉ
@@ -175,9 +180,12 @@ export type AlerteCockpit =
       genre: 'refus';
       taskId: string;
       titre: string | null;
-      nodeId: string;
+      /** Le nœud du dernier refus ; `null` si ce refus est sorti du journal. */
+      nodeId: string | null;
       raison: string;
       depuis: number;
+      /** La tâche a été échouée faute d'agent qui fonctionne : elle ne repartira pas seule. */
+      definitif: boolean;
     }
   | {
       genre: 'relecture_impossible';
@@ -258,7 +266,10 @@ export function alertesCockpit(entree: EntreeAlertes): AlertesCockpit {
 
   // Le DERNIER fait d'attribution de chaque tâche décide : un refus suivi d'une
   // affectation est levé ; une relecture reprise par sa famille n'attend plus.
+  // Le dernier refus d'infrastructure est gardé à part : c'est lui qui dit
+  // POURQUOI une tâche a fini échouée faute d'agent qui fonctionne.
   const dernierDeTache = new Map<string, HiveEvent>();
+  const dernierRefusInfra = new Map<string, HiveEvent>();
   const attentes = new Map<string, HiveEvent>();
   const impossibles = new Map<string, HiveEvent>();
   const plafonds = new Map<string, number>();
@@ -266,7 +277,16 @@ export function alertesCockpit(entree: EntreeAlertes): AlertesCockpit {
     const taskId = texte(e.payload.taskId);
     switch (e.type) {
       case 'task_assigned':
+        if (taskId) dernierDeTache.set(taskId, e);
+        break;
       case 'task_rejected':
+        if (!taskId) break;
+        dernierDeTache.set(taskId, e);
+        if (e.payload.infra === true) dernierRefusInfra.set(taskId, e);
+        break;
+      case 'task_failed':
+        // Tout échec compte comme dernier fait : relancée puis échouée pour une
+        // autre cause, la tâche ne dit plus le refus d'avant.
         if (taskId) dernierDeTache.set(taskId, e);
         break;
       case 'contre_expertise_review_waiting': {
@@ -330,18 +350,33 @@ export function alertesCockpit(entree: EntreeAlertes): AlertesCockpit {
   }
 
   for (const [taskId, e] of dernierDeTache) {
-    if (e.type !== 'task_rejected' || e.payload.infra !== true) continue;
-    if (statutDe(taskId) !== 'ready') continue;
-    const nodeId = texte(e.payload.nodeId);
-    if (!nodeId) continue;
-    alertes.push({
-      genre: 'refus',
-      taskId,
-      titre: titreDe(taskId),
-      nodeId,
-      raison: (texte(e.payload.reason) ?? '?').slice(0, 200),
-      depuis: e.ts,
-    });
+    if (e.type === 'task_rejected') {
+      if (e.payload.infra !== true || statutDe(taskId) !== 'ready') continue;
+      const nodeId = texte(e.payload.nodeId);
+      if (!nodeId) continue;
+      alertes.push({
+        genre: 'refus',
+        taskId,
+        titre: titreDe(taskId),
+        nodeId,
+        raison: (texte(e.payload.reason) ?? '?').slice(0, 200),
+        depuis: e.ts,
+        definitif: false,
+      });
+    } else if (e.type === 'task_failed' && e.payload.reason === 'no_working_agent') {
+      // Relancée (de nouveau prête, puis affectée) : ce n'est plus son état.
+      if (statutDe(taskId) !== 'failed') continue;
+      const refus = dernierRefusInfra.get(taskId);
+      alertes.push({
+        genre: 'refus',
+        taskId,
+        titre: titreDe(taskId),
+        nodeId: refus ? texte(refus.payload.nodeId) : null,
+        raison: ((refus && texte(refus.payload.reason)) ?? '?').slice(0, 200),
+        depuis: e.ts,
+        definitif: true,
+      });
+    }
   }
 
   const rang = (a: AlerteCockpit): number => ORDRE_GENRES.indexOf(a.genre);

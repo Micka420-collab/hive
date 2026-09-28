@@ -9,6 +9,11 @@
 //     croisée coûte, mais personne ne la juge ;
 //   · la dépense de la mission somme les tentatives de toutes ses tâches avec
 //     leur couverture : une tâche muette ne devient pas une tâche gratuite ;
+//   · une tentative y est celle de `economie.ts` — les cartes Worker, le bilan
+//     et le cockpit : un échec sans nœud n'en est pas une, un drone échoué qui
+//     a déclaré son coût en est une, et le total fait la somme du Genome ;
+//   · un journal élagué UNE fois n'avertit que les missions dont un fait a
+//     réellement pu sortir de la lecture ;
 //   · rien d'un autre projet n'entre dans le rapport, ni dans son Genome.
 
 import { describe, expect, it } from 'vitest';
@@ -16,6 +21,7 @@ import { rapportDeMission } from '../src/orchestrator/project-report.js';
 import type { EntreeMission } from '../src/orchestrator/project-report.js';
 import { evaluate, missingCrossReviewEvidence } from '../src/orchestrator/evaluator.js';
 import type { EvaluationResult } from '../src/orchestrator/evaluator.js';
+import { bilanEconomique, tentativesDepuisEvenements } from '../src/shared/economie.js';
 import type { HiveEvent, Task, TaskStatus } from '../src/shared/types.js';
 
 let seq = 0;
@@ -214,5 +220,56 @@ describe('le rapport de mission', () => {
     expect(r.fenetre.tronquee).toBe(true);
     expect(r.genome.fenetre.tronquee).toBe(true);
     expect(r.totaux.coutFournisseur).toBe('inconnu');
+  });
+
+  it('une tentative est celle de l’économie : ni l’échec sans nœud, ni l’oubli du drone échoué', () => {
+    const evenements = [
+      ev('drone_race_started', {
+        taskId: 'a',
+        drones: ['n1', 'n2'],
+        modeles: { n1: 'opus', n2: 'gpt' },
+      }),
+      ev('task_assigned', { taskId: 'a', nodeId: 'n1', modele: 'opus' }),
+      // Le drone perdant a tourné, échoué, et déclaré ce qu'il a coûté.
+      ev('drone_failed', { taskId: 'a', nodeId: 'n2', fournisseur: { coutUsd: 2 } }),
+      ev('task_done', { taskId: 'a', nodeId: 'n1', fournisseur: { coutUsd: 1 } }),
+      // Des échecs que personne n'a exécutés : ils ne sont la tentative de personne.
+      ev('task_failed', { taskId: 'b', reason: 'dependency_failed' }),
+      ev('task_failed', { taskId: 'c', reason: 'no_working_agent', infraRejects: 3 }),
+    ];
+    const r = rapportDeMission(
+      entree({
+        taches: [tache('a', 'done', 1), tache('b', 'failed', 2), tache('c', 'failed', 3)],
+        evenements,
+      }),
+    );
+    const economie = bilanEconomique(tentativesDepuisEvenements(evenements));
+    expect(r.totaux.tentatives).toBe(2);
+    expect(r.totaux.coutFournisseur).toEqual({ total: 3, declarees: 2, tentatives: 2 });
+    expect(r.totaux.coutFournisseur).toEqual(economie.coutFournisseur);
+    const sommeGenome = r.genome.lignes.reduce(
+      (s, l) => s + (l.coutFournisseur === 'inconnu' ? 0 : l.coutFournisseur.total),
+      0,
+    );
+    expect(sommeGenome).toBe(3);
+  });
+
+  it('un journal élagué avant la mission ne l’avertit pas', () => {
+    // Le plus ancien fait lu (ts 1 010 et plus) précède la première tâche : rien
+    // de cette mission n'a pu sortir de la lecture, même si la ruche a déjà élagué.
+    const evenements = [
+      ev('task_assigned', { taskId: 'ancienne', nodeId: 'n1' }),
+      ev('task_done', { taskId: 'a', nodeId: 'n1', fournisseur: { coutUsd: 1 } }),
+    ];
+    const recente = rapportDeMission(
+      entree({ taches: [tache('a', 'done', 1_000_000)], evenements, journalElague: true }),
+    );
+    expect(recente.fenetre.tronquee).toBe(false);
+    expect(recente.genome.fenetre.tronquee).toBe(false);
+    // La même lecture, pour une mission née AVANT le plus ancien fait lu : averti.
+    const ancienne = rapportDeMission(
+      entree({ taches: [tache('a', 'done', 1)], evenements, journalElague: true }),
+    );
+    expect(ancienne.fenetre.tronquee).toBe(true);
   });
 });

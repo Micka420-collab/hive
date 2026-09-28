@@ -343,6 +343,7 @@ import {
   economieParWorker,
   projeterHistoriqueWorker,
   projeterWorkers,
+  PRODUCTIONS_QUALITE_MAX,
   qualiteDesProductions,
   type ProductionJugee,
   type WorkerHistorySnapshot,
@@ -3271,12 +3272,15 @@ async function monterReine(
    * est lisible en entier. Journal jamais élagué : tout est lisible.
    *
    * Une relecture croisée n'est pas une production : l'Evaluator ne la juge pas.
+   *
+   * Au plus `PRODUCTIONS_QUALITE_MAX` résultats, les plus récents ; un de plus
+   * est demandé pour SAVOIR que la lecture s'est arrêtée (`bornee`).
    */
   const productionsJugees = (
     nodeId: string,
     issues: readonly HiveEvent[],
     lectureTronquee: boolean,
-  ): ProductionJugee[] => {
+  ): { productions: ProductionJugee[]; bornee: number | null } => {
     const renvois = new Map<number, EvaluationDecision>();
     for (const e of issues) {
       if (e.type !== 'task_retry' || e.payload.source !== 'evaluator') continue;
@@ -3304,7 +3308,9 @@ async function monterReine(
       return decisionsCourantes.get(taskId) ?? null;
     };
     const jugees: ProductionJugee[] = [];
-    for (const { resultId, taskId } of store.productionsDuNoeud(nodeId, depuis)) {
+    const lus = store.productionsDuNoeud(nodeId, depuis, PRODUCTIONS_QUALITE_MAX + 1);
+    const bornee = lus.length > PRODUCTIONS_QUALITE_MAX ? PRODUCTIONS_QUALITE_MAX : null;
+    for (const { resultId, taskId } of lus.slice(0, PRODUCTIONS_QUALITE_MAX)) {
       if (store.relectureDe(taskId)) continue;
       const renvoi = renvois.get(resultId);
       if (renvoi) {
@@ -3322,7 +3328,7 @@ async function monterReine(
         corrigee: false,
       });
     }
-    return jugees;
+    return { productions: jugees, bornee };
   };
 
   /**
@@ -3355,6 +3361,7 @@ async function monterReine(
       const economie = economieParWorker(lus).get(node.id);
       const issues = lus.filter((e) => (TYPES_TENTATIVES as readonly string[]).includes(e.type));
       const vide = bilanEconomique([]);
+      const jugees = productionsJugees(node.id, issues, fenetre.tronquee);
       return {
         nodeId: node.id,
         economie: {
@@ -3363,7 +3370,7 @@ async function monterReine(
             .sort(([a], [b]) => a.localeCompare(b))
             .map(([modele, bilan]) => ({ modele, ...bilan })),
         },
-        qualite: qualiteDesProductions(productionsJugees(node.id, issues, fenetre.tronquee)),
+        qualite: qualiteDesProductions(jugees.productions, jugees.bornee),
         fenetre,
       };
     },

@@ -217,9 +217,20 @@ describe('la qualité d’un Worker', () => {
     expect(q.productions).toBe(6);
     expect(q.jugees).toBe(3);
     expect(q.partAcceptee).toBeCloseTo(1 / 3);
-    // Deux mesures séparées : le taux de correction se lit sur TOUTES les productions.
+    // Deux mesures séparées : le taux de correction se lit sur les productions
+    // au sort CONNU — celle dont personne n'a lu le sort n'est pas « non corrigée ».
+    expect(q.sortConnu).toBe(5);
     expect(q.corrigees).toBe(2);
-    expect(q.tauxCorrection).toBeCloseTo(2 / 6);
+    expect(q.tauxCorrection).toBeCloseTo(2 / 5);
+    expect(q.bornee).toBeNull();
+  });
+
+  it('des productions au sort inconnu ne suffisent pas à dire un taux de correction', () => {
+    const q = qualiteDesProductions([p('accepted'), p(null), p(null), p(null)], 100);
+    expect(q.productions).toBe(4);
+    expect(q.sortConnu).toBe(1);
+    expect(q.tauxCorrection).toBe('inconnu');
+    expect(q.bornee).toBe(100);
   });
 
   it('pile au seuil, la part se dit', () => {

@@ -137,6 +137,52 @@ describe('ce qui arrête la ruche', () => {
     ).toBe(0);
   });
 
+  it('un refus devenu DÉFINITIF reste dit tant que la tâche échouée n’est pas relancée', () => {
+    // Le seuil de refus atteint, l'ordonnanceur échoue la tâche sans nœud
+    // (`no_working_agent`) : c'est le moment où la panne devient sans retour.
+    const refus = ev('task_rejected', {
+      taskId: 't',
+      nodeId: 'n',
+      reason: 'claude : non authentifié',
+      infra: true,
+    });
+    const echec = ev('task_failed', { taskId: 't', reason: 'no_working_agent', infraRejects: 3 });
+    expect(
+      alertesCockpit(entree({ evenements: [refus, echec], tacheDe: taches({ t: 'failed' }) }))
+        .alertes,
+    ).toEqual([
+      {
+        genre: 'refus',
+        taskId: 't',
+        titre: 'titre t',
+        nodeId: 'n',
+        raison: 'claude : non authentifié',
+        depuis: echec.ts,
+        definitif: true,
+      },
+    ]);
+    // Relancée (de nouveau prête) : l'alerte se lève.
+    expect(
+      alertesCockpit(entree({ evenements: [refus, echec], tacheDe: taches({ t: 'ready' }) })).total,
+    ).toBe(0);
+    // Relancée, reprise, puis échouée pour une autre cause : le refus d'avant n'est plus son état.
+    const reprise = ev('task_assigned', { taskId: 't', nodeId: 'n2' });
+    const autreEchec = ev('task_failed', { taskId: 't', nodeId: 'n2', error: 'tests rouges' });
+    expect(
+      alertesCockpit(
+        entree({
+          evenements: [refus, echec, reprise, autreEchec],
+          tacheDe: taches({ t: 'failed' }),
+        }),
+      ).total,
+    ).toBe(0);
+    // Une dépendance échouée n'est pas un refus : c'est l'échec d'une autre tâche.
+    const cascade = ev('task_failed', { taskId: 'd', reason: 'dependency_failed' });
+    expect(
+      alertesCockpit(entree({ evenements: [cascade], tacheDe: taches({ d: 'failed' }) })).total,
+    ).toBe(0);
+  });
+
   it('une relecture qui attend une famille absente alerte tant qu’elle est prête', () => {
     const attente = ev('contre_expertise_review_waiting', {
       taskId: 'prod',

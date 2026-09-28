@@ -40,16 +40,18 @@ function phraseAcceptation(q: QualiteWorker, t: Translate): string {
   );
 }
 
+// Le dénominateur est dit : les productions dont le sort est CONNU, pas
+// toutes — une production remplacée sans renvoi constaté n'a pas de sort lu.
 function phraseCorrection(q: QualiteWorker, t: Translate): string {
   if (q.tauxCorrection === 'inconnu') {
     return t(
-      `inconnu — ${q.productions} production(s), il en faut 3`,
-      `unknown — ${q.productions} production(s), 3 are needed`,
+      `inconnu — ${q.sortConnu} production(s) au sort connu, il en faut 3`,
+      `unknown — ${q.sortConnu} production(s) with a known fate, 3 are needed`,
     );
   }
   return t(
-    `${pourcent(q.tauxCorrection)} — ${q.corrigees} renvoi(s) sur ${q.productions} production(s)`,
-    `${pourcent(q.tauxCorrection)} — ${q.corrigees} sent back out of ${q.productions} production(s)`,
+    `${pourcent(q.tauxCorrection)} — ${q.corrigees} renvoi(s) sur ${q.sortConnu} production(s) au sort connu`,
+    `${pourcent(q.tauxCorrection)} — ${q.corrigees} sent back out of ${q.sortConnu} production(s) with a known fate`,
   );
 }
 
@@ -130,6 +132,11 @@ export function BilanWorker({ nodeId }: { nodeId: string }) {
               t(
                 'Le journal a été élagué : des tentatives plus anciennes ont pu manquer, et seules les productions dont le sort est encore lisible sont jugées.',
                 'The journal was pruned: older attempts may be missing, and only productions whose fate is still readable are judged.',
+              )}{' '}
+            {b.qualite.bornee !== null &&
+              t(
+                `Qualité lue sur les ${b.qualite.bornee} résultats les plus récents.`,
+                `Quality read from the ${b.qualite.bornee} most recent results.`,
               )}{' '}
             {t(
               'Coût et temps modèle : ce que déclarent les CLI des agents, jamais estimés.',

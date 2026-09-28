@@ -10,13 +10,17 @@ import type { SourceCritique } from './brood.js';
 import type { EvaluationDecision, EvaluationResult } from './evaluator.js';
 import { TYPES_CHRONOLOGIE, chronologieDepuisEvenements } from '../shared/chronologie-tache.js';
 import type { ChronologieTache } from '../shared/chronologie-tache.js';
-import { sommeDeclaree } from '../shared/declaration-fournisseur.js';
 import type { SommeDeclaree } from '../shared/declaration-fournisseur.js';
 import {
   TYPES_REGISTRE_GENOME,
   registreGenomeDepuisEvenements,
 } from '../shared/registre-genome.js';
 import type { RegistreGenome } from '../shared/registre-genome.js';
+import {
+  TYPES_TENTATIVES,
+  bilanEconomique,
+  tentativesDepuisEvenements,
+} from '../shared/economie.js';
 import type { HiveEvent, Project, Task, TaskStatus } from '../shared/types.js';
 
 const STATUSES: TaskStatus[] = ['pending', 'ready', 'assigned', 'running', 'done', 'failed'];
@@ -87,9 +91,16 @@ export function buildProjectReport(project: Project, tasks: Task[]): ProjectRepo
 //   · l'Evaluator est celui de `evaluate` — la décision COURANTE d'une tâche
 //     terminée, que le serveur calcule comme pour son tiroir, jamais un second
 //     jugement écrit ici ;
-//   · le temps et la dépense sont la `chronologieDepuisEvenements` de la tâche,
-//     et les totaux somment ses tentatives avec leur couverture — une tâche
-//     muette ne devient pas une tâche gratuite ;
+//   · le temps et la dépense d'une LIGNE sont la `chronologieDepuisEvenements`
+//     de la tâche — la même que son tiroir. Les TOTAUX de la mission, eux,
+//     sont le bilan de `economie.ts` (`tentativesDepuisEvenements`), la seule
+//     définition d'une tentative rendue : celle des cartes Worker, du bilan et
+//     de la tuile du cockpit. Sommer les chronologies comptait un échec sans
+//     nœud (dépendance échouée, aucun agent qui fonctionne) comme une
+//     tentative muette, et oubliait le drone échoué qui avait déclaré son
+//     coût : la couverture d'une dépense déclarée devenait un faux « ≥ », et
+//     le coût de la mission ne faisait plus la somme de ses Workers. Une
+//     tâche muette ne devient pas pour autant une tâche gratuite ;
 //   · les faits par modèle sont `registreGenomeDepuisEvenements`, restreint aux
 //     tâches de la mission ;
 //   · les reprises sont comptées PAR SOURCE : un Worker qui tombe, une remise en
@@ -100,9 +111,9 @@ export function buildProjectReport(project: Project, tasks: Task[]): ProjectRepo
 // Le journal est borné : `fenetre` dit ce qui a été lu, et `tronquee` qu'un
 // fait plus ancien a PU manquer. Module pur — le serveur lit, ceci replie.
 
-/** Les types que le rapport de mission relit : ceux de la chronologie et du Genome. */
+/** Les types que le rapport de mission relit : ceux de la chronologie, du Genome et des tentatives. */
 export const TYPES_RAPPORT_MISSION: readonly string[] = [
-  ...new Set<string>([...TYPES_CHRONOLOGIE, ...TYPES_REGISTRE_GENOME]),
+  ...new Set<string>([...TYPES_CHRONOLOGIE, ...TYPES_REGISTRE_GENOME, ...TYPES_TENTATIVES]),
 ];
 
 /**
@@ -174,7 +185,10 @@ export interface RapportMission {
     /** Décisions de l'Evaluator sur les productions terminées. */
     decisions: Record<EvaluationDecision, number>;
     reprises: ReprisesParSource;
-    /** Tentatives rendues, toutes tâches confondues (dénominateur des couvertures). */
+    /**
+     * Tentatives RENDUES (`economie.ts`), toutes tâches confondues : le
+     * dénominateur des couvertures. Un échec sans nœud n'en est pas une.
+     */
     tentatives: number;
     coutFournisseur: SommeDeclaree | 'inconnu';
     dureeModele: SommeDeclaree | 'inconnu';
@@ -193,7 +207,10 @@ export interface EntreeMission {
   evenements: readonly HiveEvent[];
   /** Borne de la lecture : l'atteindre signale une fenêtre tronquée. */
   borne: number;
-  /** Le journal a-t-il déjà perdu des événements (`HiveStore.journalElague`) ? */
+  /**
+   * Le journal a-t-il déjà perdu des événements (`HiveStore.journalElague`) ?
+   * Seul, ce fait ne dit rien de CETTE mission : voir `fenetre.tronquee`.
+   */
   journalElague: boolean;
   /** Tâches qui sont des relectures croisées. */
   relectures: ReadonlySet<string>;
@@ -319,31 +336,47 @@ export function rapportDeMission(entree: EntreeMission): RapportMission {
     });
   }
 
-  const tentatives = lignes.flatMap((l) => l.chronologie.tentatives);
-  const dureesConnues = tentatives
-    .map((t) => t.dureeWorkerMs)
-    .filter((d): d is number => d !== null);
+  const bilan = bilanEconomique(tentativesDepuisEvenements(lus));
+  // Une lecture partielle (journal déjà élagué une fois, ou lecture arrivée à
+  // sa borne) n'a fait perdre de faits À CETTE MISSION que si le plus ancien
+  // fait LU est postérieur à sa première tâche — la règle de la tuile du
+  // cockpit (`depenseDepuisEvenements`). `journalElague` reste vrai pour
+  // toujours dès le premier élagage : pris seul, il marquait « des faits ont
+  // pu manquer » sur chaque mission, même née bien après, et apprenait à
+  // l'opérateur à ignorer l'avertissement.
+  const lecturePartielle = entree.journalElague || entree.evenements.length >= entree.borne;
+  const plusAncienLu = entree.evenements.reduce<number | null>(
+    (min, e) => (min === null || e.ts < min ? e.ts : min),
+    null,
+  );
+  const premiereTache = entree.taches.reduce<number | null>(
+    (min, t) => (min === null || t.createdAt < min ? t.createdAt : min),
+    null,
+  );
+  const tronquee =
+    lecturePartielle &&
+    premiereTache !== null &&
+    (plusAncienLu === null || plusAncienLu > premiereTache);
   return {
     taches: lignes,
     totaux: {
       decisions,
       reprises: reprisesTotales,
-      tentatives: tentatives.length,
-      coutFournisseur: sommeDeclaree(tentatives.map((t) => t.coutUsd)),
-      dureeModele: sommeDeclaree(tentatives.map((t) => t.dureeModeleMs)),
-      dureeWorkerTotaleMs:
-        dureesConnues.length > 0 ? dureesConnues.reduce((s, d) => s + d, 0) : null,
+      tentatives: bilan.tentatives,
+      coutFournisseur: bilan.coutFournisseur,
+      dureeModele: bilan.dureeModele,
+      dureeWorkerTotaleMs: bilan.dureeWorker?.totalMs ?? null,
     },
     genome: registreGenomeDepuisEvenements(
       lus.filter((e) => (TYPES_REGISTRE_GENOME as readonly string[]).includes(e.type)),
       (taskId) => categories.get(taskId) ?? null,
       Number.POSITIVE_INFINITY,
-      entree.journalElague || entree.evenements.length >= entree.borne,
+      tronquee,
     ),
     fenetre: {
       evenements: lus.length,
       depuis: lus[0]?.ts ?? null,
-      tronquee: entree.journalElague || entree.evenements.length >= entree.borne,
+      tronquee,
     },
   };
 }

@@ -381,19 +381,37 @@ export interface ProductionJugee {
  * (`human_review_required`) n'est pas jugée : l'Evaluator n'a rien dit de sa
  * qualité, et la compter tirerait la part vers le bas pour une CI absente.
  *
- * `tauxCorrection` : la part des productions renvoyées en correction.
+ * `tauxCorrection` : parmi les productions dont le sort est CONNU, la part
+ * renvoyée en correction. Une production au sort inconnu (remplacée sans
+ * renvoi constaté) n'entre pas au dénominateur : l'y compter comme « non
+ * corrigée » tirait le taux vers le bas avec des faits que personne n'a lus.
  */
 export interface QualiteWorker {
   /** Productions réussies de ce Worker dans la fenêtre lue (relectures exclues). */
   productions: number;
+  /** Celles dont l'Evaluator a dit le sort (`decision` non nulle). */
+  sortConnu: number;
   jugees: number;
   acceptees: number;
   /** acceptees / jugees ; `inconnu` sous SEUIL_QUALITE_WORKER productions jugées. */
   partAcceptee: number | 'inconnu';
   corrigees: number;
-  /** corrigees / productions ; `inconnu` sous SEUIL_QUALITE_WORKER productions. */
+  /** corrigees / sortConnu ; `inconnu` sous SEUIL_QUALITE_WORKER productions au sort connu. */
   tauxCorrection: number | 'inconnu';
+  /**
+   * La lecture s'est arrêtée aux N résultats les plus récents
+   * (`PRODUCTIONS_QUALITE_MAX`) : la mesure porte sur eux, pas sur toute la
+   * fenêtre, et N est dit. `null` : toute la fenêtre a été lue.
+   */
+  bornee: number | null;
 }
+
+/**
+ * Au plus tant de résultats relus pour juger un Worker : chacun demande
+ * l'Evaluator de sa tâche. Au-delà, la mesure porte sur les plus récents — et
+ * le DIT (`bornee`), au lieu de se présenter comme celle de toute la fenêtre.
+ */
+export const PRODUCTIONS_QUALITE_MAX = 100;
 
 const DECISIONS_TRANCHEES: ReadonlySet<EvaluationDecision> = new Set<EvaluationDecision>([
   'accepted',
@@ -401,20 +419,23 @@ const DECISIONS_TRANCHEES: ReadonlySet<EvaluationDecision> = new Set<EvaluationD
   'rejected',
 ]);
 
-export function qualiteDesProductions(productions: readonly ProductionJugee[]): QualiteWorker {
-  const jugees = productions.filter(
-    (p) => p.decision !== null && DECISIONS_TRANCHEES.has(p.decision),
-  );
+export function qualiteDesProductions(
+  productions: readonly ProductionJugee[],
+  bornee: number | null = null,
+): QualiteWorker {
+  const connues = productions.filter((p) => p.decision !== null);
+  const jugees = connues.filter((p) => DECISIONS_TRANCHEES.has(p.decision!));
   const acceptees = jugees.filter((p) => p.decision === 'accepted').length;
-  const corrigees = productions.filter((p) => p.corrigee).length;
+  const corrigees = connues.filter((p) => p.corrigee).length;
   return {
     productions: productions.length,
+    sortConnu: connues.length,
     jugees: jugees.length,
     acceptees,
     partAcceptee: jugees.length >= SEUIL_QUALITE_WORKER ? acceptees / jugees.length : 'inconnu',
     corrigees,
-    tauxCorrection:
-      productions.length >= SEUIL_QUALITE_WORKER ? corrigees / productions.length : 'inconnu',
+    tauxCorrection: connues.length >= SEUIL_QUALITE_WORKER ? corrigees / connues.length : 'inconnu',
+    bornee,
   };
 }
 

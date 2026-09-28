@@ -88,12 +88,14 @@ describe('le bilan d’une ouvrière', () => {
     nodeId: 'n1',
     economie: { total: bilanEco(), parModele: [{ modele: 'opus', ...bilanEco() }] },
     qualite: {
-      productions: 4,
+      productions: 5,
+      sortConnu: 4,
       jugees: 3,
       acceptees: 2,
       partAcceptee: 2 / 3,
       corrigees: 1,
       tauxCorrection: 0.25,
+      bornee: null,
       ...qualite,
     },
     fenetre: { evenements: 12, depuis: 1, tronquee: false },
@@ -107,7 +109,10 @@ describe('le bilan d’une ouvrière', () => {
       '67 % — 2/3 production(s) tranchée(s)',
     );
     expect(dom.querySelector('[data-testid="bilan-correction"] dd')?.textContent).toBe(
-      '25 % — 1 renvoi(s) sur 4 production(s)',
+      '25 % — 1 renvoi(s) sur 4 production(s) au sort connu',
+    );
+    expect(dom.querySelector('[data-testid="bilan-fenetre"]')?.textContent).not.toContain(
+      'plus récents',
     );
     const lignes = [...dom.querySelectorAll('[data-testid="bilan-economie"] tbody tr')];
     expect(lignes.map((l) => l.querySelector('th')?.textContent)).toEqual(['Tous', 'opus']);
@@ -123,6 +128,7 @@ describe('le bilan d’une ouvrière', () => {
         acceptees: 1,
         partAcceptee: 'inconnu',
         productions: 1,
+        sortConnu: 1,
         tauxCorrection: 'inconnu',
       }),
     );
@@ -132,6 +138,30 @@ describe('le bilan d’une ouvrière', () => {
     expect(acceptation).not.toContain('%');
     expect(dom.querySelector('[data-testid="bilan-correction"] dd')?.textContent).toContain(
       'inconnu',
+    );
+  });
+});
+
+describe('le bilan borné', () => {
+  it('dit que la qualité ne porte que sur les résultats les plus récents', async () => {
+    fetchBilanWorker.mockResolvedValue({
+      nodeId: 'n1',
+      economie: { total: bilanEco(), parModele: [] },
+      qualite: {
+        productions: 100,
+        sortConnu: 100,
+        jugees: 100,
+        acceptees: 90,
+        partAcceptee: 0.9,
+        corrigees: 10,
+        tauxCorrection: 0.1,
+        bornee: 100,
+      },
+      fenetre: { evenements: 12, depuis: 1, tronquee: false },
+    });
+    const dom = await monter(<BilanWorker nodeId="n1" />);
+    expect(dom.querySelector('[data-testid="bilan-fenetre"]')?.textContent).toContain(
+      'Qualité lue sur les 100 résultats les plus récents.',
     );
   });
 });

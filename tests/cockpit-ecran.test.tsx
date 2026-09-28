@@ -162,7 +162,7 @@ describe('ce qui arrête la ruche', () => {
       <AlertesRuche
         cockpit={sondage(
           cockpit({
-            total: 4,
+            total: 5,
             alertes: [
               { genre: 'blocage', cause: 'aucune_ouvriere', taches: 2, depuis: 1 },
               {
@@ -187,6 +187,16 @@ describe('ce qui arrête la ruche', () => {
                 nodeId: 'n1',
                 raison: 'quota épuisé',
                 depuis: 3,
+                definitif: false,
+              },
+              {
+                genre: 'refus',
+                taskId: 't3',
+                titre: 'Schéma',
+                nodeId: null,
+                raison: 'non authentifié',
+                depuis: 4,
+                definitif: true,
               },
             ],
           }),
@@ -202,14 +212,18 @@ describe('ce qui arrête la ruche', () => {
       'budget',
       'relecture_impossible',
       'refus',
+      'refus',
     ]);
     expect(items[1]?.textContent).toContain('« Vitrine » arrêté par son plafond');
     expect(items[2]?.textContent).toContain('aucune autre famille en ligne');
     expect(items[3]?.textContent).toContain('refusée par poste-1 : quota épuisé');
-    expect(dom.querySelector('[data-testid="alertes-ruche-total"]')?.textContent).toBe('4');
+    // Échouée faute d'agent : dite jusqu'à la relance, nœud inconnu dit « ? ».
+    expect(items[4]?.textContent).toContain('« Schéma » a échoué : aucun agent qui fonctionne');
+    expect(items[4]?.textContent).toContain('dernier refus, ? : non authentifié');
+    expect(dom.querySelector('[data-testid="alertes-ruche-total"]')?.textContent).toBe('5');
     act(() => items.forEach((b) => b.click()));
     expect(onNavigate.mock.calls).toEqual([['essaim'], ['projets', 'p1']]);
-    expect(onOpenTask.mock.calls).toEqual([['t1'], ['t2']]);
+    expect(onOpenTask.mock.calls).toEqual([['t1'], ['t2'], ['t3']]);
   });
 });
 
