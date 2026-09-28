@@ -387,6 +387,16 @@ describe('le banc d’ombre sur une vraie Reine', () => {
       relectureOmbre,
     );
 
+    // ─── La mission (#512) ne compte pas le banc ───────────────────────────
+    // Membre d'une mission, l'ombre la tenait ouverte, entrait à son
+    // instantané comme une tâche du PLAN — et son rejeu l'aurait recréée.
+    const missions = srv.store.listMissions(projet.id);
+    expect(missions.length).toBeGreaterThan(0);
+    const membres = missions.flatMap((m) => srv.store.membresDeMission(m.id));
+    expect(membres).toContain(t1);
+    expect(membres, 'le banc est entré dans une mission du projet').not.toContain(s);
+    expect(membres).not.toContain(relectureOmbre);
+
     // ─── Rien dans la récompense de l'Aiguillage, rien dans la mémoire ──────
     expect(
       srv.store.observationsAiguillage().some((o) => o.title.startsWith('Ombre — ')),

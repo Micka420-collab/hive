@@ -249,6 +249,14 @@ const TACHES_DU_BANC_SQL = `
   SELECT ce.relectureTaskId AS id, o.tacheOmbre
     FROM contre_expertises ce JOIN taches_ombre o ON o.tacheOmbre = ce.productionTaskId`;
 
+/**
+ * Une mission (#512) est le travail du PROJET : le banc d'ombre (#501) — une
+ * ombre, ou sa relecture — n'y entre pas. Membre, l'ombre tenait la mission
+ * ouverte, entrait à son instantané comme une tâche du plan, et son rejeu
+ * l'aurait recréée comme une tâche ordinaire.
+ */
+const HORS_BANC = `id NOT IN (SELECT id FROM (${TACHES_DU_BANC_SQL}))`;
+
 const REVUES_COTE: readonly RevueCote[] = ['validee', 'contestee', 'absente'];
 const revueRangee = (v: string): RevueCote =>
   (REVUES_COTE as readonly string[]).includes(v) ? (v as RevueCote) : 'absente';
@@ -8772,7 +8780,8 @@ export class HiveStore {
     const row = this.db
       .prepare(
         `SELECT COUNT(*) AS n FROM tasks
-          WHERE projectId = ? AND status IN ('pending', 'ready', 'assigned', 'running')`,
+          WHERE projectId = ? AND status IN ('pending', 'ready', 'assigned', 'running')
+            AND ${HORS_BANC}`,
       )
       .get(projectId) as { n: number };
     return row.n;
@@ -8789,7 +8798,8 @@ export class HiveStore {
       .prepare(
         `SELECT MIN(createdAt) AS a FROM tasks
           WHERE projectId = ? AND createdAt > ?
-            AND status IN ('pending', 'ready', 'assigned', 'running')`,
+            AND status IN ('pending', 'ready', 'assigned', 'running')
+            AND ${HORS_BANC}`,
       )
       .get(projectId, apres) as { a: number | null };
     return row.a;
@@ -8805,7 +8815,8 @@ export class HiveStore {
       this.db
         .prepare(
           `SELECT id FROM tasks WHERE projectId = ?
-             AND (status IN ('pending', 'ready', 'assigned', 'running') OR createdAt >= ?)`,
+             AND (status IN ('pending', 'ready', 'assigned', 'running') OR createdAt >= ?)
+             AND ${HORS_BANC}`,
         )
         .all(projectId, nees) as Array<{ id: string }>
     ).map((r) => r.id);

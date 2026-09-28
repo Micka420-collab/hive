@@ -246,8 +246,9 @@ export function creerSuiviMissions(dep: {
     const now = maintenant();
     // Les tâches du déclencheur qui sont bien de CE projet : une tâche née et
     // finie entre deux relevés n'est plus en vol, mais elle était de la mission.
+    // Le banc d'ombre n'en est jamais (`HORS_BANC`, store.ts).
     const declarees = [...declencheur.taches].filter(
-      (id) => store.getTask(id)?.projectId === projectId,
+      (id) => store.getTask(id)?.projectId === projectId && store.ombreLieeA(id) === null,
     );
     if (!ouverte && vivantes > 0) {
       const precedente = store.derniereMissionClose(projectId);
