@@ -38,6 +38,7 @@ import {
   planDeRetention,
   type BilanJournal,
   type LigneJournal,
+  type MotifElagage,
   type PolitiqueJournal,
 } from '../shared/retention-journal.js';
 import { constatBloquant, lireConstats } from '../shared/critique-structuree.js';
@@ -1738,22 +1739,26 @@ const CLES_DE_TACHE = [
 ]
   .map((cle) => `'${cle}'`)
   .join(', ');
-const EFFACEMENT_PROJET = [
-  [
-    'events',
-    `json_extract(payload, '$.projectId') = @p
-      OR json_extract(payload, '$.sessionId') IN (${SEANCES_DU_PROJET})
+// Le journal peut porter une charge utile illisible (base ancienne, ligne
+// écrite à la main) : `json_extract` / `json_each` LÈVENT sur elle, et une seule
+// ligne abîmée ferait échouer toute suppression de projet. Relue gardée, comme
+// l'index `idx_events_tache` et la rétention (`TACHE_DE_L_EVENEMENT`) : elle ne
+// nomme rien, donc elle reste.
+const CHARGE_LISIBLE = `(CASE WHEN json_valid(events.payload) THEN events.payload ELSE '{}' END)`;
+const JOURNAL_DU_PROJET = `json_extract(${CHARGE_LISIBLE}, '$.projectId') = @p
+      OR json_extract(${CHARGE_LISIBLE}, '$.sessionId') IN (${SEANCES_DU_PROJET})
       OR EXISTS (
-        SELECT 1 FROM json_each(events.payload) j
+        SELECT 1 FROM json_each(${CHARGE_LISIBLE}) j
          WHERE j.key IN (${CLES_DE_TACHE}) AND j.value IN (${TACHES_DU_PROJET})
       )
       OR (
         type IN ('requisition_ouverte', 'requisition_reponse')
-        AND json_extract(payload, '$.id') IN (
+        AND json_extract(${CHARGE_LISIBLE}, '$.id') IN (
           SELECT id FROM requisitions WHERE taskId IN (${TACHES_DU_PROJET})
         )
-      )`,
-  ],
+      )`;
+const EFFACEMENT_PROJET = [
+  ['events', JOURNAL_DU_PROJET],
   ['requisitions', `taskId IN (${TACHES_DU_PROJET})`],
   ['presences_rayon', `taskId IN (${TACHES_DU_PROJET})`],
   ['conseil_avis', `sessionId IN (${SEANCES_DU_PROJET})`],
@@ -1764,6 +1769,9 @@ const EFFACEMENT_PROJET = [
   ['gardiennes', `taskId IN (${TACHES_DU_PROJET})`],
   ['sauvegardes', `projectId = @p OR taskId IN (${TACHES_DU_PROJET})`],
   ['memories', `projectId = @p OR taskId IN (${TACHES_DU_PROJET})`],
+  ['souvenirs_proposes', `projectId = @p OR taskId IN (${TACHES_DU_PROJET})`],
+  ['consignes_routage', `taskId IN (${TACHES_DU_PROJET})`],
+  ['depenses_delegation', `taskId IN (${TACHES_DU_PROJET}) OR rootTaskId IN (${TACHES_DU_PROJET})`],
   ['results', `taskId IN (${TACHES_DU_PROJET})`],
   ['reviews', `taskId IN (${TACHES_DU_PROJET})`],
   [
@@ -2107,9 +2115,29 @@ export class HiveStore {
    * ne portent qu'un `taskId` qui ne désigne plus rien, et aucune jointure ne
    * les rattache à un projet. Ils étaient déjà orphelins avant la suppression.
    */
-  effacerProjet(projectId: string): BilanEffacement | null {
+  effacerProjet(projectId: string, now = Date.now()): BilanEffacement | null {
     return this.enTransaction(() => {
       if (!this.getProject(projectId)) return null;
+      // Le registre de la rétention (`journal_elagages`) doit EXPLIQUER ces
+      // retraits : sinon `faitsElagues` les compte « inexpliqués » et le
+      // registre Genome se dit tronqué pour toute la vie de la base, après une
+      // seule suppression. Une preuve d'une tâche du projet est orpheline (sa
+      // tâche part dans la même transaction), le reste une trace — deux motifs
+      // qui ne touchent aucune tâche encore connue. Compté AVANT le DELETE.
+      const partis = this.db
+        .prepare(
+          `SELECT type, ${TACHE_DE_L_EVENEMENT} IS NOT NULL AS deTache, COUNT(*) AS n
+             FROM events WHERE ${JOURNAL_DU_PROJET} GROUP BY type, deTache`,
+        )
+        .all({ p: projectId }) as Array<{ type: string; deTache: number; n: number }>;
+      this.consignerElagages(
+        partis.map(({ type, deTache, n }) => ({
+          type,
+          motif: deTache === 1 && estPreuve(type) ? 'orpheline' : 'trace',
+          n,
+        })),
+        now,
+      );
       const bilan = {} as Record<TableDUnProjet, number>;
       for (const [table, ou] of EFFACEMENT_PROJET) {
         bilan[table] = this.db
@@ -6301,22 +6329,36 @@ export class HiveStore {
           .prepare(`DELETE FROM events WHERE id IN (${lot.map(() => '?').join(', ')})`)
           .run(...lot);
       }
-      const comptes = new Map<string, { type: string; motif: string; n: number }>();
+      const comptes = new Map<string, { type: string; motif: MotifElagage; n: number }>();
       for (const r of retraits) {
         const cle = `${r.type}\u0000${r.motif}`;
         const compte = comptes.get(cle) ?? { type: r.type, motif: r.motif, n: 0 };
         compte.n += 1;
         comptes.set(cle, compte);
       }
-      const noter = this.db.prepare(
-        `INSERT INTO journal_elagages (type, motif, supprimes, dernierA) VALUES (?, ?, ?, ?)
-         ON CONFLICT(type, motif) DO UPDATE
-           SET supprimes = supprimes + excluded.supprimes, dernierA = excluded.dernierA`,
-      );
-      for (const { type, motif, n } of comptes.values()) noter.run(type, motif, n, now);
+      this.consignerElagages(comptes.values(), now);
       return bilanDeRetraits(retraits, this.countEvents());
     });
     return retenir.immediate();
+  }
+
+  /**
+   * Ajoute au registre `journal_elagages` ce qu'un chemin vient de retirer du
+   * journal, par type et par motif. Les DEUX chemins qui suppriment des
+   * événements y passent — la rétention et la suppression d'un projet — pour
+   * que « le journal a perdu des lignes que le registre n'explique pas »
+   * (`faitsElagues`) ne soit vrai que d'une perte réelle.
+   */
+  private consignerElagages(
+    comptes: Iterable<{ type: string; motif: MotifElagage; n: number }>,
+    now: number,
+  ): void {
+    const noter = this.db.prepare(
+      `INSERT INTO journal_elagages (type, motif, supprimes, dernierA) VALUES (?, ?, ?, ?)
+       ON CONFLICT(type, motif) DO UPDATE
+         SET supprimes = supprimes + excluded.supprimes, dernierA = excluded.dernierA`,
+    );
+    for (const { type, motif, n } of comptes) noter.run(type, motif, n, now);
   }
 
   /**

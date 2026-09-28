@@ -125,8 +125,9 @@ autres.
 
 **Supprimer un projet** se fait en bas de sa carte, dans la vue Projets — ou
 par `DELETE /api/projects/<id>`. C'est une **suppression**, pas un archivage :
-tâches, résultats, journal, mémoires du Hive Mind, liens de partage, membres et
-miroir du code quittent la Reine. Il ne reste qu'une ligne d'audit,
+tâches, résultats, journal, mémoires du Hive Mind (et leurs propositions en
+attente), consignes de routage, dépenses de délégation, liens de partage,
+membres et miroir du code quittent la Reine. Il ne reste qu'une ligne d'audit,
 `project_deleted` (qui, quand, quel nom, combien de lignes), que l'élagage du
 journal n'efface jamais. Seuls le
 propriétaire et un administrateur le peuvent — le jeton de ruche, sur un projet

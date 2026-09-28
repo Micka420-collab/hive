@@ -43,6 +43,7 @@ import type { HiveServer } from '../src/orchestrator/server.js';
 import { HiveStore } from '../src/orchestrator/store.js';
 import { CHANTIER_TIMEOUT_MS } from '../src/shared/butoirs-noeud.js';
 import type { HiveEvent, Task } from '../src/shared/types.js';
+import { TYPES_REGISTRE_GENOME } from '../src/shared/registre-genome.js';
 import { fenetreSeule } from './aide/journal-retenu.js';
 
 const profil = (name: string) => ({
@@ -68,6 +69,9 @@ const IMPOSEES: Readonly<Record<string, string>> = {
   'sauvegardes.kind': 'manuel',
   'task_delegations.origin': 'hive',
   'garde_fou_exigences.exigence': 'exigee',
+  'souvenirs_proposes.issue': 'retenu',
+  'souvenirs_proposes.validePar': 'evaluator',
+  'souvenirs_proposes.episode': 'contre_revue',
 };
 
 interface Colonne {
@@ -257,6 +261,53 @@ describe('effacerProjet — la cascade du magasin', () => {
     const restants = store.listEvents().map((e) => e.id);
     expect(restants, 'l’événement de la tâche est resté').not.toContain(sienne.id);
     expect(restants, 'un événement étranger a été effacé sur un mot').toContain(voisine.id);
+  });
+
+  // #497 × #498. La rétention tient un registre de CE QU'ELLE A RETIRÉ, et le
+  // registre Genome se dit « tronqué » dès que le journal a perdu des lignes
+  // que ce registre n'explique pas. La cascade est l'autre chemin qui retire
+  // des événements : muette au registre, une seule suppression de projet
+  // laissait le Genome de TOUTE la ruche « tronqué » pour la vie de la base.
+  it('LE REGISTRE DE LA RÉTENTION EXPLIQUE CE QUE LA CASCADE RETIRE — le Genome ne se dit pas tronqué', () => {
+    const projet = store.createProject({ name: 'P' }).id;
+    const tache = store.createTask({ projectId: projet, title: 't', prompt: 'p' }).id;
+    store.appendEvent('task_done', { taskId: tache, nodeId: 'n1' });
+    store.appendEvent('task_progress', { taskId: tache, message: '…' });
+    store.appendEvent('project_created', { projectId: projet, name: 'P' });
+    store.appendEvent('thermo_shift', { bande: 'tiede', facteur: 1 });
+    expect(store.faitsElagues(TYPES_REGISTRE_GENOME), 'le banc : rien de perdu avant').toBe(false);
+
+    store.effacerProjet(projet, 42);
+
+    expect(store.faitsElagues(TYPES_REGISTRE_GENOME)).toBe(false);
+    expect(
+      brut
+        .prepare('SELECT type, motif, supprimes, dernierA FROM journal_elagages ORDER BY type')
+        .all(),
+    ).toEqual([
+      { type: 'project_created', motif: 'trace', supprimes: 1, dernierA: 42 },
+      { type: 'task_done', motif: 'orpheline', supprimes: 1, dernierA: 42 },
+      { type: 'task_progress', motif: 'trace', supprimes: 1, dernierA: 42 },
+    ]);
+  });
+
+  it('une ligne de journal ILLISIBLE ne fait pas échouer la suppression — et reste', () => {
+    // La rétention (#497) sait qu'un payload peut être illisible et le lit
+    // gardé ; `json_extract` / `json_each` nus LÈVENT sur lui, et la
+    // transaction entière aurait échoué sur une seule ligne abîmée.
+    const projet = store.createProject({ name: 'P' }).id;
+    const tache = store.createTask({ projectId: projet, title: 't', prompt: 'p' }).id;
+    store.appendEvent('task_done', { taskId: tache });
+    brut
+      .prepare(`INSERT INTO events (ts, type, payload) VALUES (1, 'task_done', '{pas du json')`)
+      .run();
+
+    expect(store.effacerProjet(projet)).not.toBeNull();
+    expect(store.getProject(projet)).toBeUndefined();
+    expect(
+      brut.prepare(`SELECT payload FROM events`).all(),
+      'seule la ligne illisible reste : elle ne nomme rien',
+    ).toEqual([{ payload: '{pas du json' }]);
   });
 
   it('un projet inconnu : `null`, et rien n’est touché', () => {
