@@ -14,7 +14,9 @@
 //   · `constantes` : chaque valeur contre la constante exportée ;
 //   · `issues`     : chaque issue du Conseil, et qui la tranche ;
 //   · `evaluator`  : chaque règle JOUÉE par `evaluate()`, un scénario par
-//                    ligne — le rang, la décision, le renvoi ;
+//                    ligne — le rang, la décision, le renvoi, et un fragment
+//                    du motif rendu qui ne désigne que cette règle ; le
+//                    nombre de lignes est compté dans la source ;
 //   · `portes`     : les sources de critique, exhaustives ;
 //   · `refus`      : les refus du scheduler, exhaustifs, et lesquels ouvrent
 //                    un désaccord ;
@@ -189,6 +191,19 @@ const autreElue = tally(
   })),
 );
 
+/**
+ * Les sorties de `evaluate()`, comptées dans sa source : une par règle, la
+ * dernière (`accepted`) comprise. C'est le code qui dit combien il y a de
+ * règles, pas le tableau ni les scénarios de ce banc.
+ */
+const SORTIES_EVALUATE = (() => {
+  const source = readFileSync(new URL('../src/orchestrator/evaluator.ts', import.meta.url), 'utf8');
+  const debut = source.indexOf('export function evaluate(');
+  const fin = source.indexOf('\nfunction result(', debut);
+  if (debut < 0 || fin < debut) throw new Error('evaluate() introuvable dans evaluator.ts');
+  return source.slice(debut, fin).split('return result(').length - 1;
+})();
+
 /** Une entrée par ligne du tableau, dans l'ordre de `evaluate()`. */
 const SCENARIOS: readonly EvaluatorInput[] = [
   { ...accepte, results: [] },
@@ -252,10 +267,17 @@ describe.each(Object.entries(DOCUMENTS))('docs/PROTOCOLE-DEBAT — %s', (_langue
     }
   });
 
-  it('CHAQUE RÈGLE DE L’EVALUATOR EST JOUÉE : son rang, sa décision, son renvoi', () => {
+  it('CHAQUE RÈGLE DE L’EVALUATOR EST JOUÉE : son rang, sa décision, son renvoi, son motif', () => {
     const regles = bloc(doc, 'evaluator');
-    expect(regles.map(([rang]) => Number(rang))).toEqual(SCENARIOS.map((_, i) => i + 1));
-    regles.forEach(([rang, quand, decision, renvoi], i) => {
+    // Autant de lignes que `evaluate()` a de sorties : une règle ajoutée au
+    // code sans ligne au tableau (ni scénario ici) fait tomber le banc, même
+    // si elle ne change l'issue d'aucun scénario existant.
+    expect(regles.map(([rang]) => Number(rang))).toEqual(
+      Array.from({ length: SORTIES_EVALUATE }, (_, i) => i + 1),
+    );
+    expect(SCENARIOS).toHaveLength(SORTIES_EVALUATE);
+    const motifs = SCENARIOS.map((s) => evaluate(s).reasons[0] ?? '');
+    regles.forEach(([rang, quand, decision, renvoi, motif], i) => {
       const verdict = evaluate(SCENARIOS[i]!);
       expect(
         { decision: verdict.decision, renvoi: verdict.retryRecommended },
@@ -264,6 +286,14 @@ describe.each(Object.entries(DOCUMENTS))('docs/PROTOCOLE-DEBAT — %s', (_langue
         decision: code(decision!),
         renvoi: booleen(renvoi!),
       });
+      // Le motif lie la LIGNE à la règle qu'elle décrit : trois règles rendent
+      // `human_review_required` sans renvoi, et deux lignes échangées ne se
+      // verraient pas à la seule décision. Le fragment ne désigne QUE la sienne.
+      const fragment = code(motif!);
+      expect(
+        motifs.flatMap((m, j) => (m.includes(fragment) ? [j + 1] : [])),
+        `règle ${rang} — « ${fragment} »`,
+      ).toEqual([i + 1]);
     });
   });
 

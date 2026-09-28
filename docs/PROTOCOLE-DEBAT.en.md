@@ -169,26 +169,29 @@ ended.
 result, Gardiennes, Parliament, human review, counter-review, validations
 (`tests`, `typecheck`, `build`, `lint`, brought by an identified evidence
 producer — Hive sandbox or GitHub CI — never read from a worker's logs). The
-first rule that applies decides, in the order of `evaluate()`:
+first rule that applies decides, in the order of `evaluate()`. The test counts
+the exits of `evaluate()` in its source, plays every row, and requires its
+reason (the start of `reasons[0]`, which the code writes in French) to point
+at that row only:
 
 <!-- verifie:evaluator -->
 
-| #   | When                                                       | Decision                   | Retry recommended |
-| --- | ---------------------------------------------------------- | -------------------------- | ----------------- |
-| 1   | no Worker result                                           | `correction_required`      | yes               |
-| 2   | latest result failed                                       | `rejected`                 | yes               |
-| 3   | hollow production (Gardiennes `hollow`)                    | `rejected`                 | yes               |
-| 4   | Gardiennes `suspect`                                       | `correction_required`      | yes               |
-| 5   | human rejection                                            | `correction_required`      | yes               |
-| 6   | no Gardiennes inspection                                   | `human_review_required`    | no                |
-| 7   | the result is not the one the Parliament elected           | `correction_required`      | yes               |
-| 8   | contested counter-review                                   | `correction_required`      | yes               |
-| 9   | a failed validation                                        | `correction_required`      | yes               |
-| 10  | review impossible, with no opinion and no review in flight | `human_review_required`    | no                |
-| 11  | a validation is missing (or tests are not declared)        | `additional_test_required` | no                |
-| 12  | a review of this result is still in flight                 | `human_review_required`    | no                |
-| 13  | no favorable opinion from another family                   | `human_review_required`    | no                |
-| 14  | everything green **and** an independent favorable opinion  | `accepted`                 | no                |
+| #   | When                                                       | Decision                   | Retry recommended | Reason given (excerpt)           |
+| --- | ---------------------------------------------------------- | -------------------------- | ----------------- | -------------------------------- |
+| 1   | no Worker result                                           | `correction_required`      | yes               | `aucun résultat Worker`          |
+| 2   | latest result failed                                       | `rejected`                 | yes               | `le dernier résultat a échoué`   |
+| 3   | hollow production (Gardiennes `hollow`)                    | `rejected`                 | yes               | `production creuse`              |
+| 4   | Gardiennes `suspect`                                       | `correction_required`      | yes               | `signal suspect`                 |
+| 5   | human rejection                                            | `correction_required`      | yes               | `la revue humaine a rejeté`      |
+| 6   | no Gardiennes inspection                                   | `human_review_required`    | no                | `aucune inspection indépendante` |
+| 7   | the result is not the one the Parliament elected           | `correction_required`      | yes               | `faction élue`                   |
+| 8   | contested counter-review                                   | `correction_required`      | yes               | `demande une amélioration`       |
+| 9   | a failed validation                                        | `correction_required`      | yes               | `en échec`                       |
+| 10  | review impossible, with no opinion and no review in flight | `human_review_required`    | no                | `relecture impossible :`         |
+| 11  | a validation is missing (or tests are not declared)        | `additional_test_required` | no                | `preuves manquantes`             |
+| 12  | a review of this result is still in flight                 | `human_review_required`    | no                | `contre-revue en cours`          |
+| 13  | no favorable opinion from another family                   | `human_review_required`    | no                | `aucune contre-revue`            |
+| 14  | everything green **and** an independent favorable opinion  | `accepted`                 | no                | `contre-revue favorable`         |
 
 <!-- /verifie:evaluator -->
 
@@ -274,7 +277,9 @@ A refused retry is journaled (`evaluator_retry_skipped`, with its reason
 rejection without correction" without counting it as pending (neither
 approving against one's judgement nor rejecting again would clear it). A
 refusal journaled before that field, with no source, is still read as a
-contest: unknown, so shown rather than hidden.
+contest: unknown, so shown rather than hidden — unless a human rejection of
+that production is stored: the route stored the rejection before journaling
+the refusal, so "a review after the refusal" would never have cleared it.
 
 ### Step 6 — human arbitration
 
@@ -304,11 +309,20 @@ on a Council.
 **On top, what is waiting on someone** — computed over the whole retained
 thread, never hidden by a filter:
 
-| What waits                                         | What clears it                                                                    |
-| -------------------------------------------------- | --------------------------------------------------------------------------------- |
-| a Council closed `depart`, `sans_quorum`, `epuise` | a human decision, "no path" included                                              |
-| a contest whose retry was refused                  | a human review posted **after** the refusal (approve or reject), or a new attempt |
-| an impossible review                               | the human review it asks for (whenever it was posted), or a new attempt           |
+| What waits                                         | What clears it                                                                                           |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| a Council closed `depart`, `sans_quorum`, `epuise` | a human decision, "no path" included                                                                     |
+| a contest whose retry was refused                  | a human review posted **after** the refusal (approve or reject), an Evaluator override, or a new attempt |
+| an impossible review                               | the missing human review (whenever it was posted), an override, or a new attempt                         |
+
+The override (`evaluator_overridden`) settles: it is a human's final decision
+on that production, and the only gesture that ships a contested production
+whose attempts are exhausted — once delivered, a rejection is refused
+(`delivery_exists`) and would clear nothing. An impossible review lends the
+Evaluator no verdict: the War Room states the journaled fact (no independent
+opinion will come), not what the Evaluator concludes from it — an earlier
+rule, a red CI for instance, may answer something other than
+`human_review_required`.
 
 **The thread**, newest first, is filtered by **voice** — the route's
 `famille` — and each event read has exactly one:
@@ -338,10 +352,10 @@ Retries after a Worker failure share `task_retry`; they are not a
 disagreement, and the War Room does not show them. The journal is pruned:
 when it has already lost lines, the thread **says so**. What must survive
 pruning does — the current decision of each kept Council, the last retry
-refusal of each task, the impossibility and launch announcements of the
-ongoing counter-review of recent productions — and what clears a
-disagreement is also read from the stored tables (current review, latest
-result).
+refusal and the last override of each task, the impossibility and launch
+announcements of the ongoing counter-review of recent productions — and what
+clears a disagreement is also read from the stored tables (current review,
+latest result).
 
 ## What does not exist (yet)
 

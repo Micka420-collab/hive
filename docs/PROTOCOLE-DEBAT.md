@@ -175,26 +175,28 @@ toutes les relectures closes.
 résultat, Gardiennes, Parlement, revue humaine, contre-revue, validations
 (`tests`, `typecheck`, `build`, `lint`, apportées par un producteur de preuves
 identifié — bac Hive ou CI GitHub — jamais lues dans les logs d'une ouvrière).
-La première règle qui s'applique décide, dans l'ordre de `evaluate()` :
+La première règle qui s'applique décide, dans l'ordre de `evaluate()`. Le
+banc compte les sorties de `evaluate()` dans sa source, joue chaque ligne, et
+exige que son motif (le début de `reasons[0]`) ne désigne qu'elle :
 
 <!-- verifie:evaluator -->
 
-| #   | Quand                                                     | Décision                   | Renvoi recommandé |
-| --- | --------------------------------------------------------- | -------------------------- | ----------------- |
-| 1   | aucun résultat Worker                                     | `correction_required`      | oui               |
-| 2   | dernier résultat en échec                                 | `rejected`                 | oui               |
-| 3   | production creuse (Gardiennes `hollow`)                   | `rejected`                 | oui               |
-| 4   | Gardiennes `suspect`                                      | `correction_required`      | oui               |
-| 5   | rejet humain                                              | `correction_required`      | oui               |
-| 6   | pas d'inspection des Gardiennes                           | `human_review_required`    | non               |
-| 7   | le résultat n'est pas celui que le Parlement a élu        | `correction_required`      | oui               |
-| 8   | contre-revue contestée                                    | `correction_required`      | oui               |
-| 9   | une validation en échec                                   | `correction_required`      | oui               |
-| 10  | relecture impossible, sans aucun avis ni relecture en vol | `human_review_required`    | non               |
-| 11  | une validation manque (ou les tests ne sont pas déclarés) | `additional_test_required` | non               |
-| 12  | une relecture de ce résultat est encore en vol            | `human_review_required`    | non               |
-| 13  | aucun avis favorable d'une autre famille                  | `human_review_required`    | non               |
-| 14  | tout est vert **et** un avis favorable indépendant        | `accepted`                 | non               |
+| #   | Quand                                                     | Décision                   | Renvoi recommandé | Motif rendu (extrait)            |
+| --- | --------------------------------------------------------- | -------------------------- | ----------------- | -------------------------------- |
+| 1   | aucun résultat Worker                                     | `correction_required`      | oui               | `aucun résultat Worker`          |
+| 2   | dernier résultat en échec                                 | `rejected`                 | oui               | `le dernier résultat a échoué`   |
+| 3   | production creuse (Gardiennes `hollow`)                   | `rejected`                 | oui               | `production creuse`              |
+| 4   | Gardiennes `suspect`                                      | `correction_required`      | oui               | `signal suspect`                 |
+| 5   | rejet humain                                              | `correction_required`      | oui               | `la revue humaine a rejeté`      |
+| 6   | pas d'inspection des Gardiennes                           | `human_review_required`    | non               | `aucune inspection indépendante` |
+| 7   | le résultat n'est pas celui que le Parlement a élu        | `correction_required`      | oui               | `faction élue`                   |
+| 8   | contre-revue contestée                                    | `correction_required`      | oui               | `demande une amélioration`       |
+| 9   | une validation en échec                                   | `correction_required`      | oui               | `en échec`                       |
+| 10  | relecture impossible, sans aucun avis ni relecture en vol | `human_review_required`    | non               | `relecture impossible :`         |
+| 11  | une validation manque (ou les tests ne sont pas déclarés) | `additional_test_required` | non               | `preuves manquantes`             |
+| 12  | une relecture de ce résultat est encore en vol            | `human_review_required`    | non               | `contre-revue en cours`          |
+| 13  | aucun avis favorable d'une autre famille                  | `human_review_required`    | non               | `aucune contre-revue`            |
+| 14  | tout est vert **et** un avis favorable indépendant        | `accepted`                 | non               | `contre-revue favorable`         |
 
 <!-- /verifie:evaluator -->
 
@@ -279,7 +281,10 @@ Un renvoi refusé est journalisé (`evaluator_retry_skipped`, avec sa raison
 **rejet humain**, l'humain a déjà tranché — la War Room dit « rejet humain
 sans correction », sans le compter à trancher (ni approuver contre son avis ni
 rejeter à nouveau ne le lèverait). Un refus journalisé avant ce champ, sans
-source, reste lu comme une contestation : inconnu, donc montré plutôt que tu.
+source, reste lu comme une contestation : inconnu, donc montré plutôt que tu —
+sauf si un rejet humain de cette production est rangé : la route rangeait le
+rejet avant de journaliser le refus, et « une revue après le refus » ne l'aurait
+jamais levé.
 
 ### Étape 6 — l'arbitrage humain
 
@@ -309,11 +314,20 @@ sa seule écriture est la décision sur un Conseil.
 **En tête, ce qui attend quelqu'un** — calculé sur tout le fil retenu, jamais
 caché par un filtre :
 
-| Ce qui attend                                     | Ce qui le lève                                                                        |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| un Conseil clos `depart`, `sans_quorum`, `epuise` | une décision humaine, « aucune piste » comprise                                       |
-| une contestation dont le renvoi a été refusé      | une revue humaine posée **après** le refus (approuver ou rejeter), ou un nouvel essai |
-| une relecture impossible                          | la revue humaine qu'elle demande (quel que soit son moment), ou un nouvel essai       |
+| Ce qui attend                                     | Ce qui le lève                                                                                                   |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| un Conseil clos `depart`, `sans_quorum`, `epuise` | une décision humaine, « aucune piste » comprise                                                                  |
+| une contestation dont le renvoi a été refusé      | une revue humaine posée **après** le refus (approuver ou rejeter), un forçage de l'Evaluator, ou un nouvel essai |
+| une relecture impossible                          | la revue humaine qui manque (quel que soit son moment), un forçage, ou un nouvel essai                           |
+
+Le forçage (`evaluator_overridden`) tranche : c'est la décision finale d'un
+humain sur cette production, et le seul geste qui fasse partir une production
+contestée aux essais épuisés — après sa livraison, un rejet est refusé
+(`delivery_exists`) et ne lèverait plus rien. Une relecture impossible n'y
+prête aucun verdict à l'Evaluator : la War Room dit le fait journalisé (aucun
+avis indépendant ne viendra), pas ce que l'Evaluator en conclut — une règle
+antérieure, une CI rouge par exemple, peut répondre autre chose que
+`human_review_required`.
 
 **Le fil**, du plus récent au plus ancien, se filtre par **voix** — le
 `famille` de la route — et chaque événement lu y a exactement une :
@@ -343,9 +357,10 @@ Les reprises après panne de Worker partagent `task_retry` ; elles ne sont pas
 un désaccord, et la War Room ne les montre pas. Le journal est élagué : quand
 il a déjà perdu des lignes, le fil le **dit**. Ce qui doit survivre à
 l'élagage y survit — la décision courante de chaque Conseil conservé, le
-dernier refus de renvoi de chaque tâche, l'impossibilité et les annonces de la
-contre-revue en cours des productions récentes — et ce qui lève un désaccord
-se relit aussi dans les tables rangées (revue courante, dernier résultat).
+dernier refus de renvoi et le dernier forçage de chaque tâche,
+l'impossibilité et les annonces de la contre-revue en cours des productions
+récentes — et ce qui lève un désaccord se relit aussi dans les tables rangées
+(revue courante, dernier résultat).
 
 ## Ce qui n'existe pas (encore)
 
