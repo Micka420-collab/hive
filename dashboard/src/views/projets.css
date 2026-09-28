@@ -419,6 +419,20 @@
   border-color: var(--amber);
 }
 
+/* Admettre un membre : le champ (libellé, aide, faute) prend la largeur, le
+   bouton suit dessous — côte à côte, la faute sous le champ décalait le
+   bouton à chaque refus. */
+.pj-admettre {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.pj-admettre .ds-champ {
+  align-self: stretch;
+}
+
 /* Les deux commandes occupent leur propre ligne : côte à côte avec le bouton
    « Lancer le merge », chacune se réduisait à une fente de 180 px où l'on ne
    lit plus ce qu'on tape. */

@@ -3,6 +3,7 @@
 
 import { useRef, useState } from 'react';
 import { addTasks, createProject, planBrief } from './api';
+import { Input, Textarea } from './composants';
 import type { NewTaskInput } from './api';
 import { useT } from './i18n';
 import type { Translate } from './i18n';
@@ -103,7 +104,17 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState(false);
   const [planning, setPlanning] = useState(false);
   const [planNote, setPlanNote] = useState<string | null>(null);
+  /** Ce que la ruche a refusé (création, ajout, génération) — en tête. */
   const [error, setError] = useState<string | null>(null);
+  // ─── LES FAUTES DE SAISIE SOUS LEUR CHAMP, PAS EN TÊTE ─────────────────────
+  //
+  // Un nom manquant ou un JSON cassé s'affichaient dans le même bandeau que
+  // les refus du serveur, en haut d'une modale qui défile : on lisait « Tâches
+  // invalides » sans voir le champ fautif, et le lecteur d'écran ne reliait
+  // l'erreur à aucun champ. Chaque faute vit maintenant sous SON champ
+  // (`aria-invalid`, `aria-describedby`), et s'efface dès qu'on le corrige.
+  const [erreurNom, setErreurNom] = useState<string | null>(null);
+  const [erreurTaches, setErreurTaches] = useState<string | null>(null);
   // Si le projet a déjà été créé mais que l'ajout des tâches a échoué, on ne le
   // recrée pas au retry (sinon on empilerait des projets vides orphelins).
   const createdId = useRef<string | null>(null);
@@ -111,6 +122,8 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
     if (!busy && !planning) onClose();
   };
   const dialogRef = useDialog<HTMLDivElement>(closeIfIdle);
+  const idNom = 'np-nom';
+  const idTaches = 'np-taches';
 
   // Queen Bee : demande un DAG dérivé du brief et le charge dans le champ JSON,
   // qui reste éditable — la sortie est une proposition, jamais imposée.
@@ -121,6 +134,7 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
     try {
       const res = await planBrief(brief.trim());
       setTasksJson(j(res.tasks));
+      setErreurTaches(null);
       setPlanNote(
         res.source === 'llm'
           ? t(
@@ -143,7 +157,8 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
   const submit = async () => {
     setError(null);
     if (!name.trim()) {
-      setError(t('Le nom du projet est requis.', 'The project name is required.'));
+      setErreurNom(t('Le nom du projet est requis.', 'The project name is required.'));
+      document.getElementById(idNom)?.focus();
       return;
     }
     let tasks: NewTaskInput[];
@@ -169,9 +184,10 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
         return clean;
       });
     } catch (e) {
-      setError(
+      setErreurTaches(
         `${t('Tâches invalides :', 'Invalid tasks:')} ${e instanceof Error ? e.message : String(e)}`,
       );
+      document.getElementById(idTaches)?.focus();
       return;
     }
     setBusy(true);
@@ -218,42 +234,57 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
           </button>
         </header>
 
-        {error && <p className="modal-error">{error}</p>}
+        {/* Un vrai formulaire : Entrée dans le nom lance, comme partout.
+            `noValidate` : la faute se dit SOUS le champ, pas dans la bulle du
+            navigateur, que les lecteurs d'écran annoncent mal. */}
+        <form
+          noValidate
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!busy && !planning) void submit();
+          }}
+        >
+          {error && (
+            <p className="modal-error" role="alert">
+              {error}
+            </p>
+          )}
 
-        <label className="field">
-          <span>{t('Nom du projet', 'Project name')}</span>
-          <input
+          <Input
+            id={idNom}
             type="text"
+            libelle={t('Nom du projet', 'Project name')}
+            requis
+            erreur={erreurNom ?? undefined}
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => {
+              setName(e.target.value);
+              setErreurNom(null);
+            }}
             placeholder={t('Mon SaaS', 'My SaaS')}
             autoFocus
             disabled={busy || planning}
           />
-        </label>
 
-        <label className="field">
-          <span>{t('Dépôt git (optionnel)', 'Git repository (optional)')}</span>
-          <input
+          <Input
             type="text"
+            libelle={t('Dépôt git (optionnel)', 'Git repository (optional)')}
             value={repoUrl}
             onChange={(e) => setRepoUrl(e.target.value)}
             placeholder={t(
               'https://github.com/moi/projet.git',
               'https://github.com/me/project.git',
             )}
+            spellCheck={false}
             disabled={busy || planning}
           />
-        </label>
 
-        <label className="field">
-          <span>
-            {t(
-              'Décrire en langage naturel — Queen Bee génère le DAG (Palier 2)',
-              'Describe in natural language — Queen Bee generates the DAG (Stage 2)',
+          <Textarea
+            libelle={t('Décrire en langage naturel', 'Describe in natural language')}
+            aide={t(
+              'Queen Bee en tire un plan de tâches (DAG), que vous relisez avant de lancer.',
+              'Queen Bee turns it into a task plan (DAG), which you review before starting.',
             )}
-          </span>
-          <textarea
             className="code-input"
             rows={2}
             value={brief}
@@ -264,7 +295,9 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
             )}
             disabled={busy || planning}
           />
-          <div className="template-row">
+          {/* Hors du `<label>` désormais : un bouton DANS un libellé était cliqué
+            chaque fois qu'on cliquait le libellé. */}
+          <div className="template-row np-generer">
             <button
               type="button"
               className="chip primary"
@@ -275,59 +308,69 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
                 ? t('Génération…', 'Generating…')
                 : t('Générer les tâches', 'Generate the tasks')}
             </button>
-            {planNote && <span className="plan-note">{planNote}</span>}
-          </div>
-        </label>
-
-        <label className="field">
-          <span>
-            {t(
-              'Tâches (JSON) — title, prompt, id et dependsOn optionnels',
-              'Tasks (JSON) — title, prompt, optional id and dependsOn',
+            {planNote && (
+              <span className="plan-note" role="status">
+                {planNote}
+              </span>
             )}
-          </span>
-          <div className="template-row np-templates">
-            <span className="template-label">{t('Modèles :', 'Templates:')}</span>
+          </div>
+
+          <div
+            className="template-row np-templates"
+            role="group"
+            aria-label={t('Modèles', 'Templates')}
+          >
+            <span className="template-label" aria-hidden="true">
+              {t('Modèles :', 'Templates:')}
+            </span>
             {templates.map((tpl) => (
               <button
                 key={tpl.label}
                 type="button"
                 className="chip"
-                onClick={() => setTasksJson(j(tpl.tasks))}
+                onClick={() => {
+                  setTasksJson(j(tpl.tasks));
+                  setErreurTaches(null);
+                }}
                 disabled={busy || planning}
               >
                 {tpl.label}
               </button>
             ))}
           </div>
-          <textarea
+          <Textarea
+            id={idTaches}
+            libelle={t('Tâches (JSON)', 'Tasks (JSON)')}
+            aide={t(
+              'Un tableau : title et prompt ; id et dependsOn optionnels.',
+              'An array: title and prompt; optional id and dependsOn.',
+            )}
+            erreur={erreurTaches ?? undefined}
             className="code-input"
             rows={10}
             value={tasksJson}
-            onChange={(e) => setTasksJson(e.target.value)}
+            onChange={(e) => {
+              setTasksJson(e.target.value);
+              setErreurTaches(null);
+            }}
             spellCheck={false}
             disabled={busy || planning}
           />
-        </label>
 
-        <div className="modal-actions">
-          <button
-            type="button"
-            className="btn ghost"
-            onClick={closeIfIdle}
-            disabled={busy || planning}
-          >
-            {t('Annuler', 'Cancel')}
-          </button>
-          <button
-            type="button"
-            className="btn primary"
-            onClick={() => void submit()}
-            disabled={busy || planning}
-          >
-            {busy ? t('Création…', 'Creating…') : t('Lancer le butinage', 'Start foraging')}
-          </button>
-        </div>
+          <div className="modal-actions">
+            <button
+              type="button"
+              className="btn ghost"
+              onClick={closeIfIdle}
+              disabled={busy || planning}
+            >
+              {t('Annuler', 'Cancel')}
+            </button>
+            <button type="submit" className="btn primary" disabled={busy || planning}>
+              {busy ? t('Création…', 'Creating…') : t('Lancer le butinage', 'Start foraging')}
+            </button>
+          </div>
+        </form>
       </div>
     </Voile>
   );

@@ -764,7 +764,13 @@ export function App() {
               onChange={(e) => setTokenState(e.target.value)}
               onBlur={applyToken}
               onKeyDown={(e) => e.key === 'Enter' && applyToken()}
+              // Un champ compact de la barre : pas de libellé visible, mais un
+              // NOM (le texte d'exemple n'en est pas un — il disparaît à la
+              // saisie), et sa faute reliée : le bandeau « Jeton refusé » est
+              // lu avec le champ, au lieu de vivre à l'autre bout de l'écran.
+              aria-label={t('Jeton de la ruche', 'Hive token')}
               aria-invalid={tokenAuthError || undefined}
+              aria-describedby={tokenAuthError ? 'mc-jeton-refuse' : undefined}
             />
             {unsyncedReviews > 0 && (
               <span
@@ -842,7 +848,7 @@ export function App() {
 
         {tokenAuthError && (
           <div className="mc-token-banner" role="alert">
-            <p>
+            <p id="mc-jeton-refuse">
               {t(
                 'Jeton de ruche refusé — collez dans le champ « Jeton » (en haut à droite) la valeur exacte de HIVE_TOKEN depuis le fichier .env de l’orchestrateur. Ce n’est pas le jeton GitHub.',
                 'Hive token rejected — paste the exact HIVE_TOKEN from the orchestrator’s .env into the Token field (top right). This is not the GitHub token.',

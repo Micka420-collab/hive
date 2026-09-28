@@ -14,6 +14,7 @@ import {
   revoquerPartage,
 } from '../../api';
 import type { AuthUser, PartageCree } from '../../api';
+import { Input } from '../../composants';
 import { useT } from '../../i18n';
 import { GesteIrreversible } from '../../ui';
 import { useApiPoll } from '../shared';
@@ -56,6 +57,8 @@ export function EquipeProjet({
   const membres = useApiPoll(() => fetchMembresProjet(project.id), 120_000, refreshTick + tick);
   const [aAdmettre, setAAdmettre] = useState('');
   const [erreur, setErreur] = useState<string | null>(null);
+  /** Le refus d'une admission — sous le champ, qui garde la saisie à corriger. */
+  const [erreurAdmission, setErreurAdmission] = useState<string | null>(null);
   const [occupe, setOccupe] = useState(false);
 
   // Cosmétique, toujours : le serveur retranche de toute façon. On masque ce
@@ -129,27 +132,53 @@ export function EquipeProjet({
       )}
 
       {jePeuxAdmettre && (
-        <div className="pj-run">
-          <input
-            className="pj-testcmd"
+        // ─── ADMETTRE : UN FORMULAIRE, ET SA FAUTE SOUS SON CHAMP ─────────────
+        //
+        // Le champ se vidait AU CLIC, avant la réponse : un identifiant refusé
+        // (mal copié, compte inexistant) disparaissait, et le refus s'affichait
+        // en bas de la carte, loin du champ. Il ne se vide plus qu'une fois la
+        // personne admise ; un refus se dit SOUS le champ, qui garde la saisie
+        // à corriger.
+        <form
+          className="pj-admettre"
+          noValidate
+          onSubmit={(e) => {
+            e.preventDefault();
+            const id = aAdmettre.trim();
+            if (occupe || id === '') return;
+            setOccupe(true);
+            setErreurAdmission(null);
+            admettreMembre(project.id, id)
+              .then(() => {
+                setAAdmettre('');
+                setTick((n) => n + 1);
+              })
+              .catch((err: unknown) => setErreurAdmission(errMsg(err)))
+              .finally(() => setOccupe(false));
+          }}
+        >
+          <Input
             type="text"
-            placeholder={t('Identifiant du compte à admettre', 'Account identifier to admit')}
+            className="mono"
+            libelle={t('Identifiant du compte', 'Account identifier')}
+            aide={t(
+              'La personne le lit sur sa propre carte « Équipe », sous « Votre identifiant ».',
+              'The person reads it on their own “Team” card, under “Your identifier”.',
+            )}
+            erreur={erreurAdmission ?? undefined}
             value={aAdmettre}
-            onChange={(e) => setAAdmettre(e.target.value)}
-            disabled={occupe}
-            aria-label={t('Identifiant du compte', 'Account identifier')}
-          />
-          <button
-            className="btn"
-            disabled={occupe || aAdmettre.trim() === ''}
-            onClick={() => {
-              agir(admettreMembre(project.id, aAdmettre.trim()));
-              setAAdmettre('');
+            onChange={(e) => {
+              setAAdmettre(e.target.value);
+              setErreurAdmission(null);
             }}
-          >
+            disabled={occupe}
+            spellCheck={false}
+            autoComplete="off"
+          />
+          <button type="submit" className="btn" disabled={occupe || aAdmettre.trim() === ''}>
             {t('Admettre', 'Admit')}
           </button>
-        </div>
+        </form>
       )}
 
       {/* L'autre bout de la manœuvre : ce qu'on donne à la personne qui tient
