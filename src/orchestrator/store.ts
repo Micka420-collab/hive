@@ -532,6 +532,39 @@ CREATE TABLE IF NOT EXISTS livraisons (
 );
 CREATE INDEX IF NOT EXISTS idx_livraisons_projet ON livraisons(projectId, etat);
 
+-- ─── La lignée d'une reprise : quelle tâche PROLONGE quelle pull request ────
+-- Une reprise (POST .../livraisons/:taskId/reprendre) corrige une PR déjà
+-- livrée SUR SA BRANCHE. Sans cette ligne, rien ne relie la tâche de reprise à
+-- la branche qu'elle doit prolonger : le scheduler lui donnait hive/<nouvelId>,
+-- l'ouvrière clonait la branche par défaut (sans le travail de la PR), et la
+-- livraison ouvrait une SECONDE pull request qui ne contenait que le
+-- correctif, pendant que la première restait rouge. La lignée ne vivait que
+-- dans l'événement livraison_reprise, qu'aucune décision ne relit.
+--
+-- origine : la tâche de la PREMIÈRE livraison de la PR — le plafond de
+--           reprises se compte sur elle, pas sur le numéro de PR ;
+-- parent  : la livraison reprise directement (l'origine, ou une reprise
+--           précédente déjà livrée) ;
+-- tete    : le SHA de tête que GitHub montrait à la reprise. Provenance
+--           seulement : la livraison relit la tête au moment d'écrire.
+--
+-- Table LATÉRALE (règle 2 : aucune migration), écrite une fois par reprise et
+-- jamais réécrite (INSERT sans remplacement : la lignée est un fait daté).
+-- BORNE D'ÉLAGAGE (règle 3), dans le MÊME changement : « pruneReprisesLivraison »,
+-- référentielle — la lignée ne survit pas à la tâche de reprise.
+CREATE TABLE IF NOT EXISTS reprises_livraison (
+  taskId    TEXT PRIMARY KEY,
+  origine   TEXT NOT NULL,
+  parent    TEXT NOT NULL,
+  projectId TEXT NOT NULL,
+  depot     TEXT NOT NULL,
+  pr        INTEGER NOT NULL,
+  branche   TEXT NOT NULL,
+  tete      TEXT NOT NULL,
+  creeA     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_reprises_livraison_origine ON reprises_livraison(origine);
+
 -- ─── D'où vient une tâche : l'issue qui l'a demandée ────────────────────────
 -- Table LATÉRALE, et pas une colonne de plus sur « tasks » : la très grande
 -- majorité des tâches ne vient d'aucune issue, et une colonne vide sur toutes
@@ -1397,8 +1430,10 @@ export interface CleNoeudRangee {
  * Une livraison de la ruche sur le dépôt de l'utilisateur.
  *
  * `etat` : `en_cours` (réservation avant l'appel GitHub) · `ouverte` (PR en
- * attente) · `fusionnee` · `echouee`. Un état terminal reste VISIBLE avec son
- * motif plutôt que d'être effacé — une livraison qui disparaît sans laisser de
+ * attente) · `fusionnee` · `echouee` · `relayee` (une reprise livrée a fait
+ * avancer la même PR : c'est SA ligne qui la porte désormais, cf.
+ * `ETAT_LIVRAISON_RELAYEE`). Un état terminal reste VISIBLE avec son motif
+ * plutôt que d'être effacé — une livraison qui disparaît sans laisser de
  * trace, c'est une ruche qui retentera la même chose demain.
  */
 export interface LivraisonRangee {
@@ -1416,6 +1451,30 @@ export interface LivraisonRangee {
 
 /** État transitoire qui réserve une tâche pendant l'appel GitHub asynchrone. */
 export const ETAT_LIVRAISON_EN_COURS = 'en_cours';
+
+/**
+ * État d'une livraison dont la pull request est désormais portée par une
+ * reprise livrée sur la MÊME branche.
+ *
+ * Une PR = UNE ligne vivante. Sans ce passage, la ligne d'origine resterait
+ * `ouverte` à côté de celle de la reprise : la fusion autonome la prendrait
+ * pour une seconde PR à fusionner, et l'écran montrerait deux fois la même.
+ * La ligne reste (règle des états terminaux) : elle dit qui a relayé.
+ */
+export const ETAT_LIVRAISON_RELAYEE = 'relayee';
+
+/** La lignée d'une tâche de reprise (table `reprises_livraison`). */
+export interface RepriseLivraison {
+  taskId: string;
+  origine: string;
+  parent: string;
+  projectId: string;
+  depot: string;
+  pr: number;
+  branche: string;
+  tete: string;
+  creeA: number;
+}
 
 /** Une session de Conseil telle qu'elle est rangée. */
 export interface SessionRangee {
@@ -6264,32 +6323,113 @@ export class HiveStore {
     pr: number;
     etat: 'ouverte' | 'echouee';
     motif?: string;
+    /**
+     * Une REPRISE vient de faire avancer la PR `pr` : les autres lignes de la
+     * même PR passent `relayee`, dans la même transaction que celle-ci passe
+     * `ouverte` — il n'existe aucun instant où la PR a deux lignes vivantes,
+     * ni aucun où elle n'en a plus.
+     */
+    relaie?: boolean;
     now?: number;
   }): boolean {
     const now = l.now ?? Date.now();
-    const info = this.db
-      .prepare(
-        `UPDATE livraisons
-            SET pr = ?, etat = ?, motif = ?, majA = ?
-          WHERE taskId = ?
-            AND projectId = ?
-            AND depot = ?
-            AND branche = ?
-            AND pr = 0
-            AND etat = ?`,
-      )
-      .run(
-        l.pr,
-        l.etat,
-        l.motif ?? '',
-        now,
-        l.taskId,
-        l.projectId,
-        l.depot,
-        l.branche,
-        ETAT_LIVRAISON_EN_COURS,
-      );
-    return info.changes === 1;
+    return this.enTransaction(() => {
+      const info = this.db
+        .prepare(
+          `UPDATE livraisons
+              SET pr = ?, etat = ?, motif = ?, majA = ?
+            WHERE taskId = ?
+              AND projectId = ?
+              AND depot = ?
+              AND branche = ?
+              AND pr = 0
+              AND etat = ?`,
+        )
+        .run(
+          l.pr,
+          l.etat,
+          l.motif ?? '',
+          now,
+          l.taskId,
+          l.projectId,
+          l.depot,
+          l.branche,
+          ETAT_LIVRAISON_EN_COURS,
+        );
+      if (info.changes !== 1) return false;
+      if (l.relaie && l.etat === 'ouverte' && l.pr > 0) {
+        this.db
+          .prepare(
+            `UPDATE livraisons
+                SET etat = ?, motif = ?, majA = ?
+              WHERE projectId = ? AND depot = ? AND pr = ? AND taskId <> ?
+                AND etat IN ('ouverte', 'echouee')`,
+          )
+          .run(
+            ETAT_LIVRAISON_RELAYEE,
+            `relayée par la reprise ${l.taskId}`,
+            now,
+            // Le projet d'abord, comme la réservation : deux projets branchés
+            // sur le même dépôt ont chacun leurs lignes pour le même numéro.
+            l.projectId,
+            l.depot,
+            l.pr,
+            l.taskId,
+          );
+      }
+      return true;
+    });
+  }
+
+  // ─── Reprises : une correction prolonge la PR qu'elle corrige ─────────────
+
+  /**
+   * Inscrit la lignée d'une tâche de reprise. Idempotent : une seconde
+   * inscription de la même tâche ne réécrit rien et rend `false`.
+   */
+  inscrireReprise(r: Omit<RepriseLivraison, 'creeA'> & { now?: number }): boolean {
+    return (
+      this.db
+        .prepare(
+          `INSERT INTO reprises_livraison
+             (taskId, origine, parent, projectId, depot, pr, branche, tete, creeA)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(taskId) DO NOTHING`,
+        )
+        .run(
+          r.taskId,
+          r.origine,
+          r.parent,
+          r.projectId,
+          r.depot,
+          r.pr,
+          r.branche,
+          r.tete,
+          r.now ?? Date.now(),
+        ).changes === 1
+    );
+  }
+
+  /** La lignée d'une tâche, ou `null` si ce n'est pas une reprise. */
+  repriseDe(taskId: string): RepriseLivraison | null {
+    return (
+      (this.db.prepare('SELECT * FROM reprises_livraison WHERE taskId = ?').get(taskId) as
+        RepriseLivraison | undefined) ?? null
+    );
+  }
+
+  /** Les reprises d'une livraison d'origine, les plus anciennes d'abord. */
+  reprisesDeLivraison(origine: string): RepriseLivraison[] {
+    return this.db
+      .prepare('SELECT * FROM reprises_livraison WHERE origine = ? ORDER BY creeA ASC, taskId ASC')
+      .all(origine) as RepriseLivraison[];
+  }
+
+  /** Borne référentielle : la lignée ne survit pas à la tâche de reprise. */
+  pruneReprisesLivraison(): number {
+    return this.db
+      .prepare('DELETE FROM reprises_livraison WHERE taskId NOT IN (SELECT id FROM tasks)')
+      .run().changes;
   }
 
   /**
@@ -7231,6 +7371,34 @@ export class HiveStore {
    * `numeroDeMission` qui tranche (`hive/mission-p-` couvre aussi le projet
    * `p-1`).
    */
+  /**
+   * Les commits journalisés d'UNE branche de mission, dans l'ordre : qui l'a
+   * commitée (le nœud qui la tient) et à quel commit. Le dernier est sa tête.
+   *
+   * C'est ce que prolonger une mission relit (`livraison-locale`, `prolonger`) :
+   * la tête que la RUCHE a livrée, jamais ce qu'un dépôt en dirait. Correspondance
+   * exacte (json_extract), comme `lastEventFor`.
+   */
+  commitsDeMission(projectId: string, branche: string): Array<{ nodeId: string; commit: string }> {
+    const rows = this.db
+      .prepare(
+        `SELECT json_extract(payload, '$.nodeId') AS nodeId, json_extract(payload, '$.commit') AS sha
+           FROM events
+          WHERE type = 'livraison_locale'
+            AND json_extract(payload, '$.etat') = 'commitee'
+            AND json_extract(payload, '$.projectId') = ?
+            AND json_extract(payload, '$.branche') = ?
+          ORDER BY id ASC`,
+      )
+      .all(projectId, branche) as Array<{ nodeId: unknown; sha: unknown }>;
+    // `sha` et pas `commit` : COMMIT est un mot réservé de SQLite.
+    return rows.flatMap((r) =>
+      typeof r.nodeId === 'string' && typeof r.sha === 'string'
+        ? [{ nodeId: r.nodeId, commit: r.sha }]
+        : [],
+    );
+  }
+
   branchesDeMissionJournalisees(prefixe: string): string[] {
     const rows = this.db
       .prepare(

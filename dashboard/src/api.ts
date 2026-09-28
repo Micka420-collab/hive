@@ -2115,6 +2115,11 @@ export interface LivraisonVue {
   etat?: string;
   dit?: string;
   reprenable?: boolean;
+  /**
+   * Pourquoi une PR qui demande du travail n'offre pas « reprendre » : une
+   * reprise déjà en vol, ou le plafond atteint — ce que la route refuserait.
+   */
+  nonReprenable?: string;
   /** Présent quand la pull request n'a pas pu être lue — le dire vaut mieux. */
   illisible?: string;
 }

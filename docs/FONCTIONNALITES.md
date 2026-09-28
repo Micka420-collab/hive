@@ -186,6 +186,7 @@ ouvrière, commitée sur **une** branche du dépôt du projet.
 npm run cli -- livrer-local <projectId>                       # commite, garde la branche sur l'ouvrière
 npm run cli -- livrer-local <projectId> --pousser --preparer npm ci --tester npm test
 npm run cli -- livrer-local <projectId> --forcer="relu à la main"   # passer outre l'Evaluator
+npm run cli -- livrer-local <projectId> --prolonger=1         # corriger : avancer hive/mission-<projectId>-1
 # ou « Livrer la mission » dans ⬡ Projets, sous « Ce que devient le travail livré »
 ```
 
@@ -232,6 +233,15 @@ npm run cli -- livrer-local <projectId> --forcer="relu à la main"   # passer ou
   demande est refusée **avant** tout travail, avec cette marche à suivre. Un
   refus du dépôt distant remonte lavé de tout identifiant, et la branche reste
   rangée sur l'ouvrière.
+- **Corriger une mission livrée**, c'est la **prolonger** (`--prolonger=<n>`)
+  plutôt qu'ouvrir `hive/mission-<projectId>-<n+1>` : la ruche confie le merge
+  à l'ouvrière qui tient la branche, le nouveau commit a pour **unique parent**
+  la tête que le journal lui connaît (trailer `Hive-Suite`), et la branche
+  avance sans jamais être forcée. Si le dépôt porte sur cette branche des
+  commits que la ruche n'a pas livrés, rien n'est commité et le rapport le dit :
+  prolonger effacerait leur travail. Trois prolongations au plus par branche.
+  C'est la même règle que la reprise d'une pull request GitHub, qui fait
+  **avancer la branche de la PR** au lieu d'en ouvrir une seconde.
 
 ## 👑 La Reine répond — parler à la ruche
 

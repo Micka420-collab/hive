@@ -170,6 +170,7 @@ by a worker, committed to **one** branch of the project repository.
 npm run cli -- livrer-local <projectId>                       # commit, keep the branch on the worker
 npm run cli -- livrer-local <projectId> --pousser --preparer npm ci --tester npm test
 npm run cli -- livrer-local <projectId> --forcer="read by hand"      # override the Evaluator
+npm run cli -- livrer-local <projectId> --prolonger=1         # fix: advance hive/mission-<projectId>-1
 # or "Deliver the mission" in ⬡ Projects, under "What the delivered work becomes"
 ```
 
@@ -214,6 +215,15 @@ npm run cli -- livrer-local <projectId> --forcer="read by hand"      # override 
   request is refused **before** any work, with that fix spelled out. A refusal
   from the remote comes back stripped of any credential, and the branch stays on
   the worker.
+- **Fixing a delivered mission** means **extending** it (`--prolonger=<n>`)
+  instead of opening `hive/mission-<projectId>-<n+1>`: the hive hands the merge
+  to the worker that holds the branch, the new commit has the head the journal
+  knows as its **only parent** (`Hive-Suite` trailer), and the branch advances
+  without ever being forced. If the repository carries commits on that branch
+  that the hive did not deliver, nothing is committed and the report says so:
+  extending would erase their work. At most three extensions per branch. It is
+  the same rule as resuming a GitHub pull request, which **advances the PR's
+  branch** instead of opening a second one.
 
 ## 👑 The Queen replies — talking to the hive
 

@@ -896,6 +896,9 @@ export class HiveNodeClient {
         // Le consentement à pousser, dit au hub pour qu'il CHOISISSE un nœud
         // consentant. La garde, elle, reste ici (`runMergeJob`).
         ...(this.pousseLivraisons() ? { pousseLivraisons: true } : {}),
+        // Ce nœud sait cloner la branche d'une PR et prolonger une mission : sans
+        // cette déclaration, le hub ne lui confie aucune reprise (`prolonge`).
+        prolonge: true,
       });
     });
 
@@ -993,6 +996,7 @@ export class HiveNodeClient {
           msg.relecture === true,
           msg.delegationRootTaskId,
           msg.effort,
+          msg.prolonger === true,
         );
         break;
       case 'assign_merge':
@@ -1296,6 +1300,7 @@ export class HiveNodeClient {
     relecture = false,
     delegationRootTaskId?: string,
     effort?: Effort,
+    prolonger = false,
   ): Promise<void> {
     // Défense en profondeur : l'id sert à construire des chemins locaux — on ne
     // fait pas confiance au hub (anti path-traversal si le hub était compromis).
@@ -1370,6 +1375,7 @@ export class HiveNodeClient {
           // Isole le répertoire par nœud : deux drones d'une même course sur une
           // même machine (workRoot partagé) ne se marchent pas dessus.
           this.nodeId ? this.nodeId.slice(0, 8) : '',
+          prolonger,
         );
       } catch (err) {
         // Le dépôt ne s'est pas cloné ICI (identifiants de ce nœud, réseau,

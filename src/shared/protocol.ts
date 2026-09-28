@@ -197,6 +197,18 @@ export interface RegisterMsg {
    * identifiants de quelqu'un qui n'a rien accepté.
    */
   pousseLivraisons?: boolean;
+  /**
+   * Le nœud sait PROLONGER une livraison : cloner la branche d'une PR pour une
+   * reprise (`assign_task.prolonger`) et avancer une branche de mission
+   * (`suite` d'une livraison locale). Absent : un nœud d'avant ce contrat.
+   *
+   * Un tel nœud reconstruit `assign_task` champ par champ et PERD `prolonger`
+   * sans le dire : il clonerait la branche par défaut, l'agent travaillerait
+   * sans le travail d'origine sous un brief qui affirme le contraire, et un
+   * diff qui s'appliquerait par chance à la tête de la PR y avancerait une
+   * correction fausse. Le hub ne confie donc une reprise qu'à qui le déclare.
+   */
+  prolonge?: boolean;
 }
 
 /** Un constat brut sur un outil, tel que le nœud le voit. */
@@ -499,6 +511,14 @@ export interface AssignTaskMsg {
    * arbre (`slotsOccupes`, delegation.ts). Un identifiant de tâche, pas un secret.
    */
   delegationRootTaskId?: string;
+  /**
+   * La tâche PROLONGE une livraison (une reprise) : `task.branch` est la
+   * branche de la pull request, déjà sur le dépôt. Le nœud la clone et
+   * travaille sur sa tête — le travail d'origine y est —, au lieu de partir de
+   * la branche par défaut sur une branche neuve (`workspace.ts`). Absent : une
+   * tâche ordinaire. Le nom est revalidé par le nœud (`estBrancheDeLivraison`).
+   */
+  prolonger?: true;
 }
 
 export interface CancelTaskMsg {
@@ -938,7 +958,8 @@ function demandeLivraison(v: unknown): DemandeLivraisonLocale | null {
     d.provenance.length > LIMITS.mergeDiffs ||
     !d.provenance.every(isProvenance) ||
     (d.forcage !== undefined && !isStr(d.forcage, 500)) ||
-    (d.numeroMin !== undefined && !isInt(d.numeroMin, 1, NUMERO_MAX_MISSION))
+    (d.numeroMin !== undefined && !isInt(d.numeroMin, 1, NUMERO_MAX_MISSION)) ||
+    (d.suite !== undefined && !isSuiteMission(d.suite))
   ) {
     return null;
   }
@@ -953,12 +974,25 @@ function demandeLivraison(v: unknown): DemandeLivraisonLocale | null {
   };
   if (typeof d.forcage === 'string') demande.forcage = d.forcage;
   if (typeof d.numeroMin === 'number') demande.numeroMin = d.numeroMin;
+  if (isSuiteMission(d.suite)) demande.suite = { n: d.suite.n, commit: d.suite.commit };
   return demande;
 }
 
 const ETATS_POUSSEE = new Set<EtatPoussee>(['non_demandee', 'poussee', 'refusee', 'echec']);
 /** SHA-1 (40) ou SHA-256 (64) complet, en minuscules — ce que `git rev-parse` rend. */
 const SHA_COMMIT = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+
+/** La branche de mission à prolonger : un numéro, et la tête journalisée — rien d'autre. */
+function isSuiteMission(v: unknown): v is { n: number; commit: string } {
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return false;
+  const s = v as Record<string, unknown>;
+  return (
+    Object.keys(s).length === 2 &&
+    isInt(s.n, 1, NUMERO_MAX_MISSION) &&
+    typeof s.commit === 'string' &&
+    SHA_COMMIT.test(s.commit)
+  );
+}
 
 /**
  * Le rapport de livraison d'un `merge_result`, RECONSTRUIT champ par champ.
@@ -1096,6 +1130,10 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
         if (m.pousseLivraisons !== undefined) {
           if (typeof m.pousseLivraisons !== 'boolean') return null;
           msg.pousseLivraisons = m.pousseLivraisons;
+        }
+        if (m.prolonge !== undefined) {
+          if (typeof m.prolonge !== 'boolean') return null;
+          msg.prolonge = m.prolonge;
         }
         // Les constats d'outils : mêmes règles que les deux champs au-dessus.
         // Une liste mal formée est un client qui ment ou qui bogue, et les deux
@@ -1380,8 +1418,14 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
       }
       if (m.relecture !== undefined && m.relecture !== true) return null;
       if (m.delegationRootTaskId !== undefined && !isId(m.delegationRootTaskId)) return null;
+      // Prolonger exige une branche de la ruche à cloner : un hub qui
+      // demanderait de prolonger `main`, ou une option déguisée en nom
+      // (`--upload-pack=…`), perd tout le message.
+      if (m.prolonger !== undefined && m.prolonger !== true) return null;
+      if (m.prolonger === true && !estBrancheDeLivraison(m.task.branch)) return null;
       const msg: AssignTaskMsg = { type: 'assign_task', task: m.task };
       if (m.relecture === true) msg.relecture = true;
+      if (m.prolonger === true) msg.prolonger = true;
       if (m.repoUrl !== undefined) msg.repoUrl = (m.repoUrl as string | null) ?? null;
       if (m.hiveContext !== undefined) msg.hiveContext = m.hiveContext;
       if (m.modele !== undefined) msg.modele = m.modele;
@@ -1584,6 +1628,22 @@ export function isValidLocalRepoPath(v: unknown): v is string {
     .replaceAll('\\', '/')
     .split('/')
     .some((segment) => segment === '..');
+}
+
+/**
+ * Une branche de livraison de la ruche : `hive/` suivi de ce que `nomBranche`
+ * (orchestrator/livraison.ts) peut produire — lettres, chiffres, `.`, `_`,
+ * `-`, 60 au plus.
+ *
+ * C'est le nom qu'un nœud passe à `git clone --branch` pour une reprise. La
+ * forme fermée fait trois choses à la fois : elle ne commence jamais par un
+ * tiret (aucune option déguisée), elle reste dans l'espace `hive/` (un hub ne
+ * fait pas cloner et « prolonger » `main`), et elle écarte ce que git refuse
+ * de toute façon (`..`, `.lock`, un point final).
+ */
+export function estBrancheDeLivraison(v: unknown): v is string {
+  if (typeof v !== 'string' || !/^hive\/[A-Za-z0-9._-]{1,60}$/.test(v)) return false;
+  return !v.includes('..') && !v.endsWith('.lock') && !v.endsWith('.');
 }
 
 export function isValidRepoUrl(v: unknown): v is string {
