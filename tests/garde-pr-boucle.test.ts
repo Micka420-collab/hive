@@ -22,7 +22,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
 import type { Fetcheur } from '../src/orchestrator/github.js';
@@ -123,12 +123,26 @@ describe('le garde de PR, contre un faux GitHub', () => {
   const avant: Record<string, string | undefined> = {};
   const CLES = ['HIVE_GITHUB_TOKEN', 'HIVE_GITHUB_API', 'HIVE_RUNNER', 'HIVE_GARDE_PR_PLAFOND'];
 
-  beforeAll(async () => {
+  beforeAll(() => {
     for (const k of CLES) avant[k] = process.env[k];
     process.env.HIVE_GITHUB_TOKEN = 'jeton-github-de-test';
     delete process.env.HIVE_GITHUB_API;
     // Plafond de 2 : le banc atteint la borne en deux reprises au lieu de trois.
     process.env.HIVE_GARDE_PR_PLAFOND = '2';
+  });
+
+  // UNE REINE ET UN GITHUB NEUFS PAR TEST. Le tamis de la CI rejoue la suite
+  // dans des ordres mélangés, tests d'un même fichier compris ; or le garde a
+  // un état de PROCESSUS (la pause globale après un 403) et le faux GitHub en
+  // a un aussi (relances, lectures). Partagés, le test du refus mettait en
+  // pause tous ceux qui venaient après lui.
+  beforeEach(async () => {
+    gh.prs.clear();
+    gh.controles.clear();
+    gh.base = [];
+    gh.relances.length = 0;
+    gh.lectures.length = 0;
+    gh.refus = 0;
     dir = mkdtempSync(path.join(os.tmpdir(), 'hive-garde-pr-'));
     server = await createServer({
       port: 0,
@@ -143,13 +157,12 @@ describe('le garde de PR, contre un faux GitHub', () => {
     base = `http://127.0.0.1:${server.port}`;
   });
 
-  afterEach(() => {
-    gh.refus = 0;
-  });
-
-  afterAll(async () => {
+  afterEach(async () => {
     await server.stop();
     rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+  });
+
+  afterAll(() => {
     for (const k of CLES) {
       if (avant[k] === undefined) delete process.env[k];
       else process.env[k] = avant[k];
@@ -336,7 +349,6 @@ describe('le garde de PR, contre un faux GitHub', () => {
     gh.controles.set('ba5e012', [run('e2e', 'failure', 1)]);
     gh.controles.set('ba5e011', [run('e2e', 'success', 1)]);
     gh.controles.set('e1', [run('e2e', 'failure', 9002)]);
-    gh.relances.length = 0;
 
     await server.gardePr.passe();
     expect(gh.relances).toEqual([]);
