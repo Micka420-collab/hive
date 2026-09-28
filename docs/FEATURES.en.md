@@ -120,7 +120,8 @@ without touching the others.
 **Deleting a project** is done at the bottom of its card in the Projects view —
 or with `DELETE /api/projects/<id>`. It is a **deletion**, not an archive:
 tasks, results, journal, Hive Mind memories (and their pending proposals),
-routing constraints, delegation spend, share links, members and the code
+routing constraints, delegation spend, external connector grants and journal,
+share links, members and the code
 mirror leave the Queen. Only one audit line remains, `project_deleted` (who,
 when, which name, how many rows), which journal pruning spares for the 1,000
 most recent deletions. It takes an
@@ -460,7 +461,8 @@ approvals**. Everything is set in **Stewardship → External connectors** (admin
 - **Journal**: every outside call — succeeded, failed or refused — leaves a
   line: who, which act, which scope, which result, the SHA-256 of the exact
   request body sent (redacted beforehand) and a **redacted preview of at most
-  200 characters** — never a secret, never the full payload. 90 days.
+  200 characters** — never a secret, never the full payload. 90 days, and it
+  leaves with its project when that project is deleted.
 
 **Generic webhook**: an HMAC-signed JSON `POST` (`X-Hive-Signature` header,
 `t=…,v1=…`) to the URL you set. It receives nothing.

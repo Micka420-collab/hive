@@ -1299,8 +1299,10 @@ CREATE INDEX IF NOT EXISTS idx_motifs_projet ON motifs_projet(projectId, creeA D
 -- de quoi appeler l'extérieur. TABLE LATÉRALE — une ligne par (connecteur, projet).
 -- ON DELETE CASCADE : un accord n'a aucun sens sans son projet, et sans la
 -- cascade (foreign_keys = ON) supprimer un projet autorisé échouerait sur la
--- contrainte. Le JOURNAL, lui, n'a pas de clé étrangère : la trace d'audit
--- survit au projet et s'élague par le temps (90 jours).
+-- contrainte. Le JOURNAL, lui, n'a pas de clé étrangère (un appel refusé peut
+-- ne nommer aucun projet) ; les deux tables sont dans EFFACEMENT_PROJET :
+-- supprimer un projet n'est pas l'archiver, et l'aperçu caviardé d'un appel
+-- cite encore le titre d'une de ses tâches. Seul « project_deleted » reste.
 CREATE TABLE IF NOT EXISTS connecteurs_projet (
   connecteurId TEXT NOT NULL,
   projectId    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -2013,6 +2015,8 @@ const EFFACEMENT_PROJET = [
   ['essaim', 'projectId = @p'],
   ['garde_fous', 'projectId = @p'],
   ['abonnements', 'projectId = @p'],
+  ['connecteurs_projet', 'projectId = @p'],
+  ['connecteurs_journal', 'projectId = @p'],
   ['serveurs', 'projectId = @p'],
   ['horloge_soldes', 'projectId = @p'],
   ['balance_ledger_cache', 'projectId = @p'],

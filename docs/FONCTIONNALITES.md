@@ -135,7 +135,8 @@ autres.
 **Supprimer un projet** se fait en bas de sa carte, dans la vue Projets — ou
 par `DELETE /api/projects/<id>`. C'est une **suppression**, pas un archivage :
 tâches, résultats, journal, mémoires du Hive Mind (et leurs propositions en
-attente), consignes de routage, dépenses de délégation, liens de partage,
+attente), consignes de routage, dépenses de délégation, autorisations et journal des
+connecteurs externes, liens de partage,
 membres et miroir du code quittent la Reine. Il ne reste qu'une ligne d'audit,
 `project_deleted` (qui, quand, quel nom, combien de lignes), que l'élagage du
 journal épargne pour les 1 000 suppressions les plus récentes. Il faut un
@@ -522,7 +523,8 @@ Connecteurs externes** (administrateur) :
 - **Journal** : chaque appel extérieur — réussi, raté ou refusé — laisse une
   ligne : qui, quel acte, quelle portée, quel résultat, l'empreinte SHA-256 du
   corps exact envoyé (caviardé au préalable) et un **aperçu caviardé d'au plus
-  200 caractères** — jamais un secret, jamais la charge entière. 90 jours.
+  200 caractères** — jamais un secret, jamais la charge entière. 90 jours, et
+  il part avec son projet quand celui-ci est supprimé.
 
 **Webhook générique** : un `POST` JSON signé HMAC (en-tête `X-Hive-Signature`,
 `t=…,v1=…`) vers l'URL que vous posez. Il ne reçoit rien.

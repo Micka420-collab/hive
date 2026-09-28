@@ -233,9 +233,10 @@ describe('HubConnecteurs — Socket Mode contre un faux serveur WebSocket', () =
 });
 
 describe('connecteurs_projet — un accord ne retient pas son projet', () => {
-  it('supprimer un projet autorisé emporte ses accords ; le journal, lui, survit', () => {
-    // La suppression de projet (lot parallèle) n'a pas à connaître cette table :
-    // sans ON DELETE CASCADE, `foreign_keys = ON` refusait la suppression.
+  it('supprimer un projet autorisé emporte ses accords (clé étrangère)', () => {
+    // Une suppression brute de `projects` (hors `effacerProjet`) : sans
+    // ON DELETE CASCADE, `foreign_keys = ON` la refusait. Le journal n'a pas de
+    // clé étrangère : c'est `effacerProjet` qui l'emporte (banc suivant).
     const dir = mkdtempSync(path.join(os.tmpdir(), 'hive-cascade-'));
     const fichier = path.join(dir, 'hive.db');
     const store = new HiveStore(fichier);
@@ -265,6 +266,43 @@ describe('connecteurs_projet — un accord ne retient pas son projet', () => {
       expect(journal.n).toBe(1);
     } finally {
       db.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('effacerProjet emporte ses accords ET son journal ; le voisin garde les siens', () => {
+    // Supprimer un projet n'est pas l'archiver : l'aperçu caviardé d'un appel
+    // cite encore le titre d'une de ses tâches. Seul `project_deleted` reste.
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'hive-cascade-'));
+    const store = new HiveStore(path.join(dir, 'hive.db'));
+    try {
+      const projets = ['Éphémère', 'Voisin'].map(
+        (name) => store.createProject({ name, ownerId: null }).id,
+      );
+      for (const projectId of projets) {
+        store.autoriserConnecteur({
+          connecteurId: 'webhook',
+          projectId,
+          portees: ['notification'],
+        });
+        store.journaliserConnecteur({
+          connecteurId: 'webhook',
+          projectId,
+          portee: 'notification',
+          acte: 'decision',
+          cible: null,
+          resultat: 'ok',
+          qui: 'ruche',
+        });
+      }
+      const [efface, voisin] = projets as [string, string];
+      const bilan = store.effacerProjet(efface);
+      expect(bilan?.connecteurs_projet).toBe(1);
+      expect(bilan?.connecteurs_journal).toBe(1);
+      expect(store.listerJournalConnecteurs({ projectId: efface })).toEqual([]);
+      expect(store.listerJournalConnecteurs({ projectId: voisin })).toHaveLength(1);
+    } finally {
+      store.close();
       rmSync(dir, { recursive: true, force: true });
     }
   });
