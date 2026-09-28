@@ -287,6 +287,8 @@ describe('la mémoire de la ruche suit le verdict, et le Cerveau apprend de tous
       expect(note?.origine).toEqual({
         source: 'contre_revue',
         taskId: production,
+        // Le projet signe l'en-tête (#527) — jamais le prompt.
+        projectId: srv.store.getTask(production)?.projectId,
         resultId,
         nodeId: 'aaa-producteur',
         agentType: 'claude-code',
