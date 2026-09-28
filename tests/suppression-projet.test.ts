@@ -45,6 +45,7 @@ import { CHANTIER_TIMEOUT_MS } from '../src/shared/butoirs-noeud.js';
 import type { HiveEvent, Task } from '../src/shared/types.js';
 import { TYPES_REGISTRE_GENOME } from '../src/shared/registre-genome.js';
 import { fenetreSeule } from './aide/journal-retenu.js';
+import { brancherFauxNoeud } from './aide/faux-noeud.js';
 
 const profil = (name: string) => ({
   name,
@@ -763,19 +764,14 @@ describe('ce qui ne s’annule pas refuse même forcé — lancé pour de vrai',
     return { srv, base: `http://127.0.0.1:${srv.port}` };
   };
 
-  /** Une ouvrière connectée qui reçoit ce qu'on lui confie — et ne rend jamais rien. */
-  const ouvriereMuette = (port: number, nodeId: string): Promise<void> =>
-    new Promise((resolve, reject) => {
-      const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
-      sockets.push(ws);
-      ws.on('open', () =>
-        ws.send(JSON.stringify({ type: 'register', token: TOKEN, nodeId, ...profil(nodeId) })),
-      );
-      ws.on('message', (d) => {
-        if ((JSON.parse(d.toString()) as { type?: string }).type === 'registered') resolve();
-      });
-      ws.on('error', reject);
-    });
+  /**
+   * Une ouvrière connectée qui reçoit ce qu'on lui confie — et ne rend jamais
+   * rien. Elle bat (`aide/faux-noeud`) : muette sur son travail, pas morte.
+   */
+  const ouvriereMuette = async (port: number, nodeId: string): Promise<void> => {
+    const { ws } = await brancherFauxNoeud(port, { token: TOKEN, nodeId, ...profil(nodeId) });
+    sockets.push(ws);
+  };
 
   const supprimerForce = async (base: string, projet: string): Promise<Response> =>
     fetch(`${base}/api/projects/${projet}?force=true`, {

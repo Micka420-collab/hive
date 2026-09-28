@@ -35,6 +35,7 @@ import { parseClientMessage, parseServerMessage } from '../src/shared/protocol.j
 import { HiveNodeClient } from '../src/node-client/client.js';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
+import { brancherFauxNoeud } from './aide/faux-noeud.js';
 
 const TOKEN = 'jeton-chantier-suffisamment-long-pour-passer';
 
@@ -75,10 +76,8 @@ describe('un chantier déclaré atteint un nœud', () => {
   let dir: string | null = null;
   let depot: string | null = null;
   const sockets: WebSocket[] = [];
-  const battements: NodeJS.Timeout[] = [];
 
   afterEach(async () => {
-    for (const c of battements.splice(0)) clearInterval(c);
     for (const ws of sockets.splice(0)) ws.close();
     await server?.stop();
     server = null;
@@ -127,33 +126,22 @@ describe('un chantier déclaré atteint un nœud', () => {
   /** Un nœud qui se connecte, bat, et retient ce qu'on lui envoie. */
   async function noeud(srv: HiveServer): Promise<Record<string, unknown>[]> {
     const recus: Record<string, unknown>[] = [];
-    const ws = new WebSocket(`ws://127.0.0.1:${srv.port}/ws`);
-    sockets.push(ws);
-    ws.on('message', (d) => recus.push(JSON.parse(d.toString()) as Record<string, unknown>));
-    await new Promise<void>((r, j) => {
-      ws.once('open', () => r());
-      ws.once('error', j);
-    });
-    ws.send(
-      JSON.stringify({
-        type: 'register',
+    // Le nœud doit BATTRE (`aide/faux-noeud`) : sans battements il meurt de
+    // timeout, et le hub n'aurait plus de nœud « en ligne » à qui confier le
+    // chantier. L'enregistrement a abouti quand la promesse rend la main.
+    const { ws } = await brancherFauxNoeud<{ type: string } & Record<string, unknown>>(
+      srv.port,
+      {
         token: TOKEN,
         name: 'ouvriere',
         ownerName: 't',
         agentType: 'shell',
         maxConcurrency: 1,
         nodeId: 'ouvriere',
-      }),
+      },
+      (m) => recus.push(m),
     );
-    // Le nœud doit BATTRE : sans battements il meurt de timeout, et le hub
-    // n'aurait plus de nœud « en ligne » à qui confier le chantier.
-    const coeur = setInterval(() => {
-      if (ws.readyState === WebSocket.OPEN)
-        ws.send(JSON.stringify({ type: 'heartbeat', running: 0 }));
-    }, 500);
-    battements.push(coeur);
-    // Laisser l'enregistrement aboutir avant de compter sur ce nœud.
-    await attendre(() => recus.some((m) => m.type === 'registered'));
+    sockets.push(ws);
     return recus;
   }
 

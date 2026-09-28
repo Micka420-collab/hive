@@ -23,17 +23,16 @@ import type { AdapterContext } from '../src/adapters/index.js';
 import { HiveNodeClient } from '../src/node-client/client.js';
 import { createServer, type HiveServer } from '../src/orchestrator/server.js';
 import type { Effort } from '../src/shared/effort.js';
+import { brancherFauxNoeud } from './aide/faux-noeud.js';
 
 const JETON = 'jeton-effort-ruche-suffisamment-long';
 
 let serveur: HiveServer | null = null;
 let client: HiveNodeClient | null = null;
 const sockets: WebSocket[] = [];
-const battements: NodeJS.Timeout[] = [];
 let dossier = '';
 
 afterEach(async () => {
-  for (const c of battements.splice(0)) clearInterval(c);
   for (const ws of sockets.splice(0)) ws.close();
   client?.stop();
   client = null;
@@ -69,6 +68,16 @@ async function ruche(options: { simulation: boolean; relivraisonMinMs?: number }
 /**
  * Le vécu qui fait élire `opus` à l'effort `high` sous Claude Code : huit
  * « appliquer » à `high`, huit « refaire » au défaut du CLI.
+ *
+ * ─── EN UNE TRANSACTION, ET POURQUOI ─────────────────────────────────────────
+ *
+ * Seize tâches, quatre écritures chacune : soixante-quatre COMMIT isolés sous
+ * `synchronous = FULL`, donc autant de `fsync` — compté avec une cale
+ * `LD_PRELOAD`, 79 des ~120 du premier banc, tous DANS son budget de 20 s et
+ * sur la boucle que la Reine partage avec lui. Sous Windows, un disque de
+ * runner qui cale fait passer ce seul semis au-delà du plafond, sans
+ * qu'aucune attente du banc n'expire (run 36426975912 : 20,2 s, contre
+ * 1–1,7 s d'habitude). Le même motif que #491 et #506.
  */
 function vecuHigh(s: HiveServer): void {
   const p = s.store.createProject({ name: 'vecu' });
@@ -85,8 +94,10 @@ function vecuHigh(s: HiveServer): void {
     });
     s.store.patchTask(t, { status: 'done' });
   };
-  for (let i = 0; i < 8; i++) juger('high', 'appliquer', i);
-  for (let i = 0; i < 8; i++) juger(null, 'refaire', 100 + i);
+  s.store.enTransaction(() => {
+    for (let i = 0; i < 8; i++) juger('high', 'appliquer', i);
+    for (let i = 0; i < 8; i++) juger(null, 'refaire', 100 + i);
+  });
 }
 
 describe('l’effort, d’un vrai nœud jusqu’à la preuve de contre-revue', () => {
@@ -160,19 +171,11 @@ describe('l’effort, d’un vrai nœud jusqu’à la preuve de contre-revue', (
     const s = await ruche({ simulation: true, relivraisonMinMs: 1_000 });
     vecuHigh(s);
     const recues: { modele?: string; effort?: string }[] = [];
-    const ws = new WebSocket(`ws://127.0.0.1:${s.port}/ws`);
-    sockets.push(ws);
-    ws.on('message', (d) => {
-      const m = JSON.parse(d.toString()) as { type: string; modele?: string; effort?: string };
-      if (m.type === 'assign_task') recues.push({ modele: m.modele, effort: m.effort });
-    });
-    await new Promise<void>((r, j) => {
-      ws.once('open', () => r());
-      ws.once('error', j);
-    });
-    ws.send(
-      JSON.stringify({
-        type: 'register',
+    // Vivante (elle bat, `aide/faux-noeud`), mais muette sur sa tâche : le
+    // filet la re-sert.
+    const { ws } = await brancherFauxNoeud<{ type: string; modele?: string; effort?: string }>(
+      s.port,
+      {
         token: JETON,
         name: 'muette',
         ownerName: 'banc',
@@ -181,17 +184,12 @@ describe('l’effort, d’un vrai nœud jusqu’à la preuve de contre-revue', (
         nodeId: 'muette',
         modeles: ['opus'],
         efforts: ['low', 'high'],
-      }),
+      },
+      (m) => {
+        if (m.type === 'assign_task') recues.push({ modele: m.modele, effort: m.effort });
+      },
     );
-    // Vivante (elle bat), mais muette sur sa tâche : le filet la re-sert.
-    battements.push(
-      setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'heartbeat', running: 1 }));
-        }
-      }, 500),
-    );
-    await attendre(() => s.store.getNode('muette')?.status === 'online', 'nœud non inscrit');
+    sockets.push(ws);
     expect(s.store.getNode('muette')?.efforts, 'register.efforts rangé').toEqual(['low', 'high']);
 
     const p = s.store.createProject({ name: 'P' });

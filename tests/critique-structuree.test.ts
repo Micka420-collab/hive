@@ -43,6 +43,7 @@ import {
 } from '../src/shared/critique-structuree.js';
 import { COUPURE_TEXTE_FINAL, LIMITS } from '../src/shared/protocol.js';
 import { entreesWarRoom } from '../src/shared/war-room.js';
+import { brancherFauxNoeud } from './aide/faux-noeud.js';
 
 /** Un constat au format du marqueur (clés JSON du contrat). */
 const constat = (o: Partial<Record<keyof Constat, unknown>> = {}): Record<string, unknown> => ({
@@ -797,28 +798,21 @@ describe('bout en bout : le marqueur du relecteur atteint l’Evaluator et la re
 
   async function noeud(srv: HiveServer, nodeId: string, agentType: string): Promise<Noeud> {
     const recues: Message[] = [];
-    const ws = new WebSocket(`ws://127.0.0.1:${srv.port}/ws`);
-    sockets.push(ws);
-    ws.on('message', (data) => {
-      const m = JSON.parse(data.toString()) as Message;
-      if (m.type === 'assign_task') recues.push(m);
-    });
-    await new Promise<void>((r, j) => {
-      ws.once('open', () => r());
-      ws.once('error', j);
-    });
-    ws.send(
-      JSON.stringify({
-        type: 'register',
+    const { ws } = await brancherFauxNoeud<Message>(
+      srv.port,
+      {
         token: TOKEN,
         name: nodeId,
         ownerName: 'test',
         agentType,
         maxConcurrency: 1,
         nodeId,
-      }),
+      },
+      (m) => {
+        if (m.type === 'assign_task') recues.push(m);
+      },
     );
-    await attendre(() => srv.store.getNode(nodeId)?.status === 'online', 'nœud non inscrit');
+    sockets.push(ws);
     return { recues, envoyer: (message) => ws.send(JSON.stringify(message)) };
   }
 

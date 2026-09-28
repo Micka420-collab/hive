@@ -25,6 +25,7 @@ import type { HiveServer } from '../src/orchestrator/server.js';
 import type { DecisionConseil, Desaccord, EntreeWarRoom } from '../src/shared/war-room.js';
 import { MAX_ATTEMPTS } from '../src/shared/types.js';
 import { fenetreSeule } from './aide/journal-retenu.js';
+import { brancherFauxNoeud } from './aide/faux-noeud.js';
 
 const TOKEN = 'jeton-war-room-assez-long-pour-passer';
 const headers = { 'content-type': 'application/json', 'x-hive-token': TOKEN };
@@ -526,27 +527,21 @@ describe('la War Room relit les vrais producteurs', () => {
 
   async function noeud(nodeId: string, agentType: string): Promise<Assignation[]> {
     const recues: Assignation[] = [];
-    const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
-    sockets.push(ws);
-    ws.on('message', (data) => {
-      const m = JSON.parse(data.toString()) as Assignation;
-      if (m.type === 'assign_task') recues.push(m);
-    });
-    await new Promise<void>((r, j) => {
-      ws.once('open', () => r());
-      ws.once('error', j);
-    });
-    ws.send(
-      JSON.stringify({
-        type: 'register',
+    const { ws } = await brancherFauxNoeud<Assignation>(
+      server.port,
+      {
         token: TOKEN,
         name: nodeId,
         ownerName: 'test',
         agentType,
         maxConcurrency: 1,
         nodeId,
-      }),
+      },
+      (m) => {
+        if (m.type === 'assign_task') recues.push(m);
+      },
     );
+    sockets.push(ws);
     return recues;
   }
 

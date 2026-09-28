@@ -34,6 +34,7 @@ import path from 'node:path';
 import WebSocket from 'ws';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createServer } from '../src/orchestrator/server.js';
+import { brancherFauxNoeud } from './aide/faux-noeud.js';
 
 const TOKEN = 'jeton-de-test-suffisamment-long-42';
 
@@ -61,32 +62,24 @@ describe('LE HUB DIT NON QUAND IL ÉCARTE DU TRAVAIL', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  /** Un nœud enregistré, avec la file de ce que le hub lui a dit. */
+  /** Un nœud enregistré (qui bat, `aide/faux-noeud`), avec la file de ce que le hub lui a dit. */
   async function noeud(nodeId: string): Promise<{ ws: WebSocket; recus: string[] }> {
     const recus: string[] = [];
-    const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
-    ouverts.push(ws);
-    await new Promise<void>((resolve, reject) => {
-      ws.on('open', () => {
-        ws.send(
-          JSON.stringify({
-            type: 'register',
-            token: TOKEN,
-            nodeId,
-            name: nodeId,
-            ownerName: 'testeur',
-            agentType: 'shell',
-            maxConcurrency: 1,
-          }),
-        );
-      });
-      ws.on('message', (d) => {
-        const m = JSON.parse(d.toString()) as { type: string; message?: string };
-        if (m.type === 'registered') resolve();
+    const { ws } = await brancherFauxNoeud<{ type: string; message?: string }>(
+      server.port,
+      {
+        token: TOKEN,
+        nodeId,
+        name: nodeId,
+        ownerName: 'testeur',
+        agentType: 'shell',
+        maxConcurrency: 1,
+      },
+      (m) => {
         if (m.type === 'error') recus.push(m.message ?? '');
-      });
-      ws.on('error', reject);
-    });
+      },
+    );
+    ouverts.push(ws);
     return { ws, recus };
   }
 

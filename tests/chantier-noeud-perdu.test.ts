@@ -60,6 +60,7 @@ import {
 import { PAQUETS } from '../src/shared/connexion-agent.js';
 import type { ChantierResultMsg } from '../src/shared/protocol.js';
 import type { HiveEvent } from '../src/shared/types.js';
+import { brancherFauxNoeud } from './aide/faux-noeud.js';
 
 const TOKEN = 'jeton-chantier-noeud-perdu-assez-long';
 const headers = { 'content-type': 'application/json', 'x-hive-token': TOKEN };
@@ -117,35 +118,30 @@ async function depotLocal(): Promise<string> {
   return depot;
 }
 
-/** Inscrit un nœud qui retient ce qu'on lui envoie — et ne répond jamais. */
-function inscrire(
+/**
+ * Inscrit un nœud qui retient ce qu'on lui envoie — et ne répond jamais à son
+ * travail. Il bat comme un vrai (`aide/faux-noeud`) : « muet » veut dire muet
+ * sur ses chantiers et ses poses, pas mort aux yeux du faucheur.
+ */
+async function inscrire(
   srv: HiveServer,
   nodeId: string,
 ): Promise<{ ws: WebSocket; recus: Record<string, unknown>[] }> {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`ws://127.0.0.1:${srv.port}/ws`);
-    ouverts.push(ws);
-    const recus: Record<string, unknown>[] = [];
-    ws.on('open', () =>
-      ws.send(
-        JSON.stringify({
-          type: 'register',
-          token: TOKEN,
-          nodeId,
-          name: nodeId,
-          ownerName: 'testeur',
-          agentType: 'shell',
-          maxConcurrency: 1,
-        }),
-      ),
-    );
-    ws.on('message', (d) => {
-      const m = JSON.parse(d.toString()) as Record<string, unknown>;
-      recus.push(m);
-      if (m.type === 'registered') resolve({ ws, recus });
-    });
-    ws.on('error', reject);
-  });
+  const recus: Record<string, unknown>[] = [];
+  const { ws } = await brancherFauxNoeud<{ type: string } & Record<string, unknown>>(
+    srv.port,
+    {
+      token: TOKEN,
+      nodeId,
+      name: nodeId,
+      ownerName: 'testeur',
+      agentType: 'shell',
+      maxConcurrency: 1,
+    },
+    (m) => recus.push(m),
+  );
+  ouverts.push(ws);
+  return { ws, recus };
 }
 
 /** Lance le chantier `test` et rend le nœud auquel la Reine l'a confié. */

@@ -34,6 +34,7 @@ import { createServer } from '../src/orchestrator/server.js';
 import { HiveStore } from '../src/orchestrator/store.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
 import { TRENTE_JOURS_MS, fenetreSeule } from './aide/journal-retenu.js';
+import { brancherFauxNoeud } from './aide/faux-noeud.js';
 
 const TOKEN = 'jeton-issue-terminale-assez-long';
 const headers = { 'content-type': 'application/json', 'x-hive-token': TOKEN };
@@ -78,29 +79,21 @@ async function ruche(): Promise<HiveServer> {
 
 async function noeud(srv: HiveServer, nodeId: string, agentType: string): Promise<FauxNoeud> {
   const recues: Assignation[] = [];
-  const ws = new WebSocket(`ws://127.0.0.1:${srv.port}/ws`);
-  sockets.push(ws);
-  ws.on('message', (data) => {
-    const m = JSON.parse(data.toString()) as Assignation;
-    if (m.type === 'assign_task') recues.push(m);
-  });
-  await new Promise<void>((r, j) => {
-    ws.once('open', () => r());
-    ws.once('error', j);
-  });
-  ws.send(
-    JSON.stringify({
-      type: 'register',
+  const { ws } = await brancherFauxNoeud<Assignation>(
+    srv.port,
+    {
       token: TOKEN,
       name: nodeId,
       ownerName: 'banc',
       agentType,
       maxConcurrency: 1,
       nodeId,
-    }),
+    },
+    (m) => {
+      if (m.type === 'assign_task') recues.push(m);
+    },
   );
-  // L'inscription est traitée quand le nœud apparaît au store.
-  await attendre(() => (srv.store.getNode(nodeId) ? true : undefined));
+  sockets.push(ws);
   const rendre = (taskId: string, resultat: { success: boolean; finalText?: string }): void =>
     ws.send(
       JSON.stringify({

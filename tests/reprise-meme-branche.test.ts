@@ -37,6 +37,7 @@ import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
 import { MAX_REPRISES_PAR_LIVRAISON } from '../src/shared/retour.js';
 import type { Task } from '../src/shared/types.js';
+import { brancherFauxNoeud } from './aide/faux-noeud.js';
 
 const TOKEN = 'jeton-reprise-meme-branche-assez-long';
 const DEPOT = 'micka/ruche';
@@ -369,19 +370,9 @@ describe('reprendre une pull request rouge avance la MÊME branche', () => {
     Array<Record<string, unknown>>
   > {
     const recues: Array<Record<string, unknown>> = [];
-    const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
-    sockets.push(ws);
-    ws.on('message', (d) => {
-      const m = JSON.parse(d.toString()) as Record<string, unknown>;
-      if (m.type === 'assign_task') recues.push(m);
-    });
-    await new Promise<void>((r, j) => {
-      ws.once('open', () => r());
-      ws.once('error', j);
-    });
-    ws.send(
-      JSON.stringify({
-        type: 'register',
+    const { ws } = await brancherFauxNoeud<{ type: string } & Record<string, unknown>>(
+      server.port,
+      {
         token: TOKEN,
         name: id,
         ownerName: 'banc',
@@ -389,11 +380,12 @@ describe('reprendre une pull request rouge avance la MÊME branche', () => {
         maxConcurrency: 1,
         nodeId: id,
         ...(prolonge ? { prolonge: true } : {}),
-      }),
+      },
+      (m) => {
+        if (m.type === 'assign_task') recues.push(m);
+      },
     );
-    await attendre(() =>
-      server.store.getNode(id)?.status === 'online' ? server.store.getNode(id) : undefined,
-    );
+    sockets.push(ws);
     return recues;
   }
 

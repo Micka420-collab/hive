@@ -23,6 +23,7 @@ import WebSocket from 'ws';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
 import { LIMITS } from '../src/shared/protocol.js';
+import { brancherFauxNoeud } from './aide/faux-noeud.js';
 
 const TOKEN = 'jeton-cerveau-suffisamment-long';
 
@@ -74,27 +75,21 @@ describe('le Cerveau arrive jusqu’à l’ouvrière', () => {
 
   async function brancherNoeud(srv: HiveServer, nodeId: string): Promise<Assignation[]> {
     const recues: Assignation[] = [];
-    const ws = new WebSocket(`ws://127.0.0.1:${srv.port}/ws`);
-    sockets.push(ws);
-    ws.on('message', (data) => {
-      const msg = JSON.parse(data.toString()) as Assignation;
-      if (msg.type === 'assign_task') recues.push(msg);
-    });
-    await new Promise<void>((resolve, reject) => {
-      ws.once('open', () => resolve());
-      ws.once('error', reject);
-    });
-    ws.send(
-      JSON.stringify({
-        type: 'register',
+    const { ws } = await brancherFauxNoeud<Assignation>(
+      srv.port,
+      {
         token: TOKEN,
         name: nodeId,
         ownerName: 'test',
         agentType: 'shell',
         maxConcurrency: 1,
         nodeId,
-      }),
+      },
+      (msg) => {
+        if (msg.type === 'assign_task') recues.push(msg);
+      },
     );
+    sockets.push(ws);
     return recues;
   }
 
@@ -566,27 +561,14 @@ describe('la contre-expertise est annoncée à chaque production', () => {
 
   async function noeud(srv: HiveServer, nodeId: string, agentType: string): Promise<Assignation[]> {
     const recues: Assignation[] = [];
-    const ws = new WebSocket(`ws://127.0.0.1:${srv.port}/ws`);
-    sockets.push(ws);
-    ws.on('message', (data) => {
-      const m = JSON.parse(data.toString()) as Assignation;
-      if (m.type === 'assign_task') recues.push(m);
-    });
-    await new Promise<void>((r, j) => {
-      ws.once('open', () => r());
-      ws.once('error', j);
-    });
-    ws.send(
-      JSON.stringify({
-        type: 'register',
-        token: TOKEN,
-        name: nodeId,
-        ownerName: 'test',
-        agentType,
-        maxConcurrency: 1,
-        nodeId,
-      }),
+    const { ws } = await brancherFauxNoeud<Assignation>(
+      srv.port,
+      { token: TOKEN, name: nodeId, ownerName: 'test', agentType, maxConcurrency: 1, nodeId },
+      (m) => {
+        if (m.type === 'assign_task') recues.push(m);
+      },
     );
+    sockets.push(ws);
     return recues;
   }
 
@@ -1177,24 +1159,16 @@ describe('la contre-expertise est annoncée à chaque production', () => {
       expect(srv.store.getTask(idRelecture)?.status).toBe('ready');
 
       // Le producteur se ré-inscrit en DÉCLARANT la relecture : ré-adoptée.
-      const ws = new WebSocket(`ws://127.0.0.1:${srv.port}/ws`);
-      sockets.push(ws);
-      await new Promise<void>((r, j) => {
-        ws.once('open', () => r());
-        ws.once('error', j);
+      const { ws } = await brancherFauxNoeud(srv.port, {
+        token: TOKEN,
+        name: 'producteur',
+        ownerName: 'test',
+        agentType: 'claude-code',
+        maxConcurrency: 1,
+        nodeId: 'producteur',
+        activeTasks: [idRelecture],
       });
-      ws.send(
-        JSON.stringify({
-          type: 'register',
-          token: TOKEN,
-          name: 'producteur',
-          ownerName: 'test',
-          agentType: 'claude-code',
-          maxConcurrency: 1,
-          nodeId: 'producteur',
-          activeTasks: [idRelecture],
-        }),
-      );
+      sockets.push(ws);
       const fin2 = Date.now() + 5_000;
       while (srv.store.getTask(idRelecture)?.assignedNodeId !== 'producteur' && Date.now() < fin2) {
         await new Promise((r) => setTimeout(r, 40));

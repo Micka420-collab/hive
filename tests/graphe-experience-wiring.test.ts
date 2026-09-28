@@ -29,6 +29,7 @@ import {
 import type { NoeudExperience } from '../src/shared/graphe-experience.js';
 import type { AffectationVue } from '../src/shared/routage-vue.js';
 import type { PorteeExperience } from '../src/shared/reglages.js';
+import { brancherFauxNoeud } from './aide/faux-noeud.js';
 
 const TOKEN = 'jeton-graphe-experience-assez-long';
 
@@ -88,27 +89,21 @@ describe('le graphe d’expérience arrive jusqu’à l’ouvrière', () => {
 
   async function brancherNoeud(srv: HiveServer, nodeId: string): Promise<Assignation[]> {
     const recues: Assignation[] = [];
-    const ws = new WebSocket(`ws://127.0.0.1:${srv.port}/ws`);
-    sockets.push(ws);
-    ws.on('message', (data) => {
-      const msg = JSON.parse(data.toString()) as Assignation;
-      if (msg.type === 'assign_task') recues.push(msg);
-    });
-    await new Promise<void>((resolve, reject) => {
-      ws.once('open', () => resolve());
-      ws.once('error', reject);
-    });
-    ws.send(
-      JSON.stringify({
-        type: 'register',
+    const { ws } = await brancherFauxNoeud<Assignation>(
+      srv.port,
+      {
         token: TOKEN,
         name: nodeId,
         ownerName: 'banc',
         agentType: 'shell',
         maxConcurrency: 1,
         nodeId,
-      }),
+      },
+      (msg) => {
+        if (msg.type === 'assign_task') recues.push(msg);
+      },
     );
+    sockets.push(ws);
     return recues;
   }
 
