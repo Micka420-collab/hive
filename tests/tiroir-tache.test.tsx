@@ -46,10 +46,23 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   ),
   fetchRace: vi.fn(() => Promise.resolve({ race: null, victory: null })),
   fetchConsigneRoutage: vi.fn(() =>
-    Promise.resolve({ taskId: 'tache-du-tiroir', consigne: null, definiPar: null, majA: null }),
+    Promise.resolve({
+      taskId: 'tache-du-tiroir',
+      consigne: null,
+      definiPar: null,
+      majA: null,
+      applicable: true,
+    }),
   ),
   poserConsigneRoutage: vi.fn((taskId: string, consigne: unknown) =>
-    Promise.resolve({ taskId, consigne, definiPar: null, majA: 1, effet: 'immediat' }),
+    Promise.resolve({
+      taskId,
+      consigne,
+      definiPar: null,
+      majA: 1,
+      applicable: true,
+      effet: 'immediat',
+    }),
   ),
   cancelTask: vi.fn(() => Promise.resolve()),
   raceTask: vi.fn(() => Promise.resolve({ drones: [] })),
@@ -581,6 +594,14 @@ describe('le tiroir — l’enveloppe de la racine et la consigne de l’opérat
           status: 'running',
           origine: 'hive',
         },
+        {
+          taskId: 'enfant',
+          rootTaskId: 'tache-du-tiroir',
+          parentTaskId: 'tache-du-tiroir',
+          depth: 1,
+          status: 'running',
+          origine: 'hive',
+        },
       ],
       delegations: [],
       events: [],
@@ -618,6 +639,7 @@ describe('le tiroir — l’enveloppe de la racine et la consigne de l’opérat
       consigne: { agent: 'codex' },
       definiPar: null,
       majA: 1,
+      applicable: true,
     });
     const dom = await monter(
       <TaskDrawer task={tache('ready')} nodes={EN_LIGNE} onClose={() => {}} />,
@@ -629,6 +651,22 @@ describe('le tiroir — l’enveloppe de la racine et la consigne de l’opérat
     );
     // La seule ouvrière en ligne est `shell` : la tâche attendra, et l'écran le dit.
     expect(texte('consigne-routage-insatisfaite')).toContain('Aucune ouvrière en ligne');
+  });
+
+  it('une relecture dit qu’aucune consigne ne s’y pose, sans formulaire voué au refus', async () => {
+    vi.mocked(fetchConsigneRoutage).mockResolvedValueOnce({
+      taskId: 'tache-du-tiroir',
+      consigne: null,
+      definiPar: null,
+      majA: null,
+      applicable: false,
+    });
+    const dom = await monter(
+      <TaskDrawer task={tache('ready')} nodes={EN_LIGNE} onClose={() => {}} />,
+    );
+    await act(async () => {});
+    expect(dom.querySelector('[data-testid="consigne-routage-inapplicable"]')).not.toBeNull();
+    expect(dom.querySelector('[data-testid="consigne-poser"]')).toBeNull();
   });
 
   it('pose la consigne choisie parmi les ouvrières connues', async () => {

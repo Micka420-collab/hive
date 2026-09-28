@@ -133,8 +133,8 @@ import {
   parseClientMessage,
 } from '../shared/protocol.js';
 import type {
+  AssignTaskMsg,
   ChantierResultMsg,
-  DelegationBudget,
   MergeDiffInput,
   MergeResultMsg,
   ServerMessage,
@@ -1390,21 +1390,27 @@ async function monterReine(
   }
 
   /**
-   * Un enfant délégué vient d'être ANNULÉ alors que son parent l'attend
-   * encore : le parent l'apprend tout de suite, avec la raison.
+   * Un enfant délégué vient de se terminer SANS RÉSULTAT alors que son parent
+   * l'attend encore : le parent l'apprend tout de suite, avec la raison.
    *
-   * Une annulation ne produit aucun résultat, donc aucun `delegation_result`
-   * — et l'agent parent, bloqué dans `hive_wait_for_delegation_result`,
-   * attendait jusqu'à l'échéance de son attente (le budget de l'enfant plus
-   * cinq minutes de grâce), pour lire « résultat absent » sans savoir
-   * pourquoi. Une issue d'échec explicite, sans résultat rangé (`resultId`
-   * absent), lui dit quoi faire ensuite.
+   * Deux transitions y mènent : l'annulation (`task_cancelled`) et l'échec
+   * sans tentative rendue (`task_failed` porteur d'un `reason` — aucun agent
+   * fonctionnel, dépendance échouée, relecteur absent ; un échec rendu porte
+   * son résultat, qui part par le chemin ordinaire). Ni l'une ni l'autre ne
+   * produit de `delegation_result` — et l'agent parent, bloqué dans
+   * `hive_wait_for_delegation_result`, attendait jusqu'à l'échéance de son
+   * attente (le budget de l'enfant plus cinq minutes de grâce), pour lire
+   * « résultat absent » sans savoir pourquoi. Une issue d'échec explicite,
+   * sans résultat rangé (`resultId` absent), lui dit quoi faire ensuite.
    *
    * Seulement quand le parent est encore en vol : une clôture de sous-arbre
    * (`ancestor_*`) part d'un parent déjà terminal, qui n'attend plus rien.
    */
-  function prevenirParentDeLAnnulation(annulation: Readonly<Record<string, unknown>>): void {
-    const { taskId, reason } = annulation;
+  function prevenirParentSansResultat(
+    issue: 'annulee' | 'echouee',
+    fait: Readonly<Record<string, unknown>>,
+  ): void {
+    const { taskId, reason } = fait;
     if (typeof taskId !== 'string') return;
     const lien = store.getDelegation(taskId);
     if (!lien || lien.origine !== 'hive') return;
@@ -1417,16 +1423,22 @@ async function monterReine(
       reason === 'root_cost_budget_exhausted'
         ? `budget coût de la racine épuisé (${LIMITES_DELEGATION_DEFAUT.maxCostMicros} µUSD de ` +
           'dépense déclarée) — plus aucune sous-tâche sous cette racine : termine avec ce que tu as'
-        : typeof reason === 'string' && reason.length > 0
-          ? reason
-          : 'annulée';
+        : reason === 'no_working_agent'
+          ? 'aucun agent fonctionnel ne l’a exécutée — refais ce travail toi-même ou délègue autrement'
+          : typeof reason === 'string' && reason.length > 0
+            ? reason
+            : issue === 'annulee'
+              ? 'annulée'
+              : 'échouée';
     send(socket, {
       type: 'delegation_result',
       parentTaskId: lien.parentTaskId,
       childTaskId: lien.childTaskId,
       success: false,
       diff: '',
-      logs: `[hive] sous-tâche annulée : ${champSurUneLigne(motif, LIMITS.delegationReason)}`,
+      logs:
+        `[hive] sous-tâche ${issue === 'annulee' ? 'annulée' : 'échouée sans résultat'} : ` +
+        champSurUneLigne(motif, LIMITS.delegationReason),
       durationMs: 0,
     });
   }
@@ -2070,15 +2082,20 @@ async function monterReine(
    * contexte du Cerveau et le journal des refus. Deux portes, c'est une porte
    * qu'on oublie de garder.
    */
-  const budgetDelegationDe = (taskId: string): DelegationBudget | undefined => {
+  const delegationDe = (
+    taskId: string,
+  ): Pick<AssignTaskMsg, 'delegationBudget' | 'delegationRootTaskId'> => {
     const delegation = store.getDelegation(taskId);
     return delegation
       ? {
-          durationMs: delegation.durationMs,
-          costMicros: delegation.costMicros,
-          resourceUnits: delegation.resourceUnits,
+          delegationBudget: {
+            durationMs: delegation.durationMs,
+            costMicros: delegation.costMicros,
+            resourceUnits: delegation.resourceUnits,
+          },
+          delegationRootTaskId: delegation.rootTaskId,
         }
-      : undefined;
+      : {};
   };
 
   const envoyerTache = (nodeId: string, task: Task, modele?: string): void => {
@@ -2094,7 +2111,7 @@ async function monterReine(
         task,
         cadre.length,
       );
-      const delegationBudget = budgetDelegationDe(task.id);
+      const delegation = delegationDe(task.id);
       // Le Cerveau a refusé : ses invariants ne tenaient pas dans le budget,
       // donc cette ouvrière travaille sans les contraintes de sûreté du
       // projet. C'est précisément le genre de fait qu'un `''` silencieux
@@ -2153,7 +2170,7 @@ async function monterReine(
         // Le modèle choisi par l'Aiguillage, s'il y en a un : le nœud le passe à
         // son adaptateur. Absent ⇒ le nœud emploie son modèle par défaut.
         ...(modele ? { modele } : {}),
-        ...(delegationBudget ? { delegationBudget } : {}),
+        ...delegation,
         // Une relecture n'écrit rien : le nœud peut brider son agent.
         ...(store.relectureDe(task.id) ? { relecture: true as const } : {}),
       });
@@ -2223,7 +2240,12 @@ async function monterReine(
       // absente, agent qui ne démarre nulle part, annulation) : même suite
       // que pour celles que le hub clôt en recevant leur résultat.
       if (event.type === 'contre_expertise_review_failed') reprendreContreRevue(event.payload);
-      if (event.type === 'task_cancelled') prevenirParentDeLAnnulation(event.payload);
+      if (event.type === 'task_cancelled') prevenirParentSansResultat('annulee', event.payload);
+      // Un échec RENDU porte son résultat, relayé au parent par `task_result` :
+      // seul l'échec sans tentative rendue (`reason`) a besoin de ce relais.
+      if (event.type === 'task_failed' && typeof event.payload.reason === 'string') {
+        prevenirParentSansResultat('echouee', event.payload);
+      }
     },
     // Relais pur, ni journal ni `stateDirty` : l'état de la ruche n'a pas
     // changé, seul l'écran de la tâche a du texte de plus.
@@ -8971,6 +8993,9 @@ async function monterReine(
         consigne: rangee?.consigne ?? null,
         definiPar: rangee?.definiPar ?? null,
         majA: rangee?.majA ?? null,
+        // Une relecture refuse toute consigne (PUT → 409, ci-dessous) : l'écran
+        // ne propose pas un geste qui ne peut qu'échouer.
+        applicable: store.relectureDe(req.params.taskId) === null,
       };
     },
   );
@@ -9029,6 +9054,7 @@ async function monterReine(
         consigne,
         definiPar,
         majA: consigne ? now : null,
+        applicable: true,
         // Une tâche déjà partie garde son porteur : la consigne vaut pour la
         // PROCHAINE affectation. Le dire évite de croire le travail en cours
         // re-routé.
@@ -12080,7 +12106,7 @@ async function monterReine(
           contextesRelivres.set(task.id, hiveContext);
         }
         derniereRelivraison.set(task.id, maintenant);
-        const delegationBudget = budgetDelegationDe(task.id);
+        const delegation = delegationDe(task.id);
         for (const nodeId of ouvertes) {
           const ws = nodeSockets.get(nodeId);
           if (ws) {
@@ -12098,7 +12124,7 @@ async function monterReine(
               repoUrl: project?.repoUrl ?? null,
               ...(hiveContext ? { hiveContext } : {}),
               ...(modele ? { modele } : {}),
-              ...(delegationBudget ? { delegationBudget } : {}),
+              ...delegation,
               ...(store.relectureDe(task.id) ? { relecture: true as const } : {}),
             });
           }

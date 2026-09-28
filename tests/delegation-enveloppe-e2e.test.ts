@@ -5,10 +5,11 @@
 //
 //   · le GUICHET du nœud applique la même règle de places que la Reine — sans
 //     quoi l'ouvrière refuserait (`noeud_sature`) l'enfant que la Reine lui
-//     confie, précisément parce que son parent l'attend ;
-//   · un enfant ANNULÉ par l'enveloppe coût prévient tout de suite le parent
-//     qui l'attend, avec la raison — au lieu d'une attente muette jusqu'à
-//     l'échéance du budget ;
+//     confie, précisément parce que son parent l'attend — et cette place
+//     relâchée ne sert qu'à l'arbre qui attend, jamais à une autre racine ;
+//   · un enfant ANNULÉ par l'enveloppe coût — ou ÉCHOUÉ sans rien rendre —
+//     prévient tout de suite le parent qui l'attend, avec la raison — au lieu
+//     d'une attente muette jusqu'à l'échéance du budget ;
 //   · le refus suivant arrive à l'agent avec la borne nommée ;
 //   · la consigne de routage se pose par la route gardée, et se relit.
 
@@ -16,6 +17,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { WebSocketServer } from 'ws';
 import type {
   AgentAdapter,
   WorkerDelegationOutcome,
@@ -143,6 +145,99 @@ describe('l’enveloppe d’un arbre délégué, de la Reine au nœud', () => {
   );
 
   it(
+    'le guichet ne rend la place d’un parent qui attend qu’à SON arbre',
+    { timeout: 15_000 },
+    async () => {
+      tempDir = mkdtempSync(path.join(os.tmpdir(), 'hive-guichet-arbre-'));
+      const hub = new WebSocketServer({ port: 0, host: '127.0.0.1' });
+      const recus: Record<string, unknown>[] = [];
+      let envoyer: (msg: unknown) => void = () => {};
+      hub.on('connection', (ws) => {
+        envoyer = (msg) => ws.send(JSON.stringify(msg));
+        ws.on('message', (brut) => {
+          const msg = JSON.parse(String(brut)) as Record<string, unknown>;
+          recus.push(msg);
+          if (msg.type === 'register') envoyer({ type: 'registered', nodeId: 'n-guichet' });
+          if (msg.type === 'delegate_task') {
+            envoyer({
+              type: 'delegation_accepted',
+              requestId: msg.requestId,
+              parentTaskId: msg.parentTaskId,
+              childTaskId: msg.childTaskId,
+              depth: 1,
+            });
+          }
+        });
+      });
+      await new Promise<void>((resolve) => hub.once('listening', () => resolve()));
+      const tache = (id: string) => ({
+        id,
+        projectId: 'p',
+        title: `Tâche ${id}`,
+        prompt: 'travaille',
+        status: 'assigned',
+        dependsOn: [],
+        attempts: 0,
+        createdAt: 1,
+        updatedAt: 1,
+        assignedNodeId: 'n-guichet',
+        branch: null,
+      });
+      const lancees: string[] = [];
+      let admis = false;
+      const client = new HiveNodeClient({
+        url: `ws://127.0.0.1:${(hub.address() as { port: number }).port}/ws`,
+        token: TOKEN,
+        name: 'guichet',
+        ownerName: 'e2e',
+        agentType: 'shell',
+        nodeId: 'n-guichet',
+        maxConcurrency: 1,
+        workRoot: path.join(tempDir, 'guichet'),
+        adapter: {
+          name: 'guichet',
+          async run(task, ctx) {
+            lancees.push(task.id);
+            if (task.id === 'root') {
+              admis = (await ctx.delegate!(demande('enfant'))).ok;
+              await ctx.waitForDelegationResult!('enfant');
+            }
+            return reussite;
+          },
+        },
+        quiet: true,
+      });
+      try {
+        client.start();
+        await attendre(() => recus.some((m) => m.type === 'register'));
+        envoyer({ type: 'assign_task', task: tache('root'), repoUrl: null });
+        await attendre(() => admis);
+
+        // Une AUTRE racine : la place de `root` ne lui est pas rendue.
+        envoyer({ type: 'assign_task', task: tache('autre'), repoUrl: null });
+        await attendre(() => recus.some((m) => m.type === 'task_reject' && m.taskId === 'autre'));
+        expect(recus.find((m) => m.type === 'task_reject')).toMatchObject({
+          reason: 'noeud_sature',
+        });
+
+        // L'enfant que `root` attend, lui, la reprend.
+        envoyer({
+          type: 'assign_task',
+          task: tache('enfant'),
+          repoUrl: null,
+          delegationBudget: { durationMs: 60_000, costMicros: 1, resourceUnits: 1 },
+          delegationRootTaskId: 'root',
+        });
+        await attendre(() => lancees.includes('enfant'));
+        expect(lancees).toEqual(['root', 'enfant']);
+      } finally {
+        client.stop();
+        await new Promise<void>((resolve) => hub.close(() => resolve()));
+      }
+    },
+  );
+
+  it(
     'l’enveloppe coût atteinte : le parent apprend l’annulation tout de suite, et le refus suivant nomme la borne',
     { timeout: 30_000 },
     async () => {
@@ -190,6 +285,40 @@ describe('l’enveloppe d’un arbre délégué, de la Reine au nœud', () => {
       };
       expect(graphe.enveloppe.coutEpuise).toBe(true);
       expect(graphe.enveloppe.depense.micros).toBe(LIMITES_DELEGATION_DEFAUT.maxCostMicros);
+    },
+  );
+
+  it(
+    'un enfant ÉCHOUÉ sans résultat (aucun agent fonctionnel) prévient son parent tout de suite',
+    { timeout: 30_000 },
+    async () => {
+      await monterRuche();
+      let vu: WorkerDelegationResult | undefined;
+      lancerNoeud(
+        'panne',
+        {
+          name: 'panne',
+          async run(task, ctx) {
+            if (task.id === 'root') {
+              expect((await ctx.delegate!(demande('enfant'))).ok).toBe(true);
+              vu = await ctx.waitForDelegationResult!('enfant');
+              return reussite;
+            }
+            // L'agent de l'enfant est en panne : refus d'infrastructure, jusqu'à
+            // ce que la Reine conclue qu'aucun agent ne fonctionne.
+            return { success: false, diff: '', logs: 'agent en panne', subAgents: [], infra: true };
+          },
+        },
+        1,
+      );
+      // Avant : aucun `delegation_result` — le parent attendait le budget de
+      // l'enfant plus cinq minutes de grâce, pour lire « résultat absent ».
+      await attendre(() => vu !== undefined, 25_000);
+      if (!vu?.ok) throw new Error('issue inattendue');
+      expect(vu).toMatchObject({ childTaskId: 'enfant', success: false });
+      expect(vu.logs).toContain('échouée sans résultat');
+      expect(vu.logs).toContain('aucun agent fonctionnel');
+      expect(server!.store.getTask('enfant')?.status).toBe('failed');
     },
   );
 

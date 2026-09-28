@@ -34,7 +34,7 @@ describe('HiveStore — graphe de délégation', () => {
   afterEach(() => store.close());
 
   it('crée la tâche et son arête atomiquement dans le projet du parent', () => {
-    const result = store.createDelegatedTask(demande(rootId, 'child'), undefined, 1234);
+    const result = store.createDelegatedTask(demande(rootId, 'child'), 1234);
     expect(result).toMatchObject({
       ok: true,
       task: { id: 'child', projectId: store.getTask(rootId)?.projectId, status: 'pending' },
@@ -70,9 +70,11 @@ describe('HiveStore — graphe de délégation', () => {
   });
 
   it('ne laisse aucune tâche orpheline quand la politique refuse', () => {
-    const limites = { ...LIMITES_DELEGATION_DEFAUT, maxDepth: 0 };
-    const result = store.createDelegatedTask(demande(rootId, 'refused'), limites);
-    expect(result).toMatchObject({ ok: false, code: 'profondeur' });
+    const result = store.createDelegatedTask({
+      ...demande(rootId, 'refused'),
+      durationMs: LIMITES_DELEGATION_DEFAUT.maxDurationMs + 1,
+    });
+    expect(result).toMatchObject({ ok: false, code: 'duree' });
     expect(store.getTask('refused')).toBeUndefined();
     expect(store.getDelegation('refused')).toBeNull();
   });
@@ -94,7 +96,7 @@ describe('HiveStore — graphe de délégation', () => {
   });
 
   it('préserve les ancêtres tant qu’un descendant vit puis élague tout le graphe clos', () => {
-    expect(store.createDelegatedTask(demande(rootId, 'child'), undefined, 0).ok).toBe(true);
+    expect(store.createDelegatedTask(demande(rootId, 'child'), 0).ok).toBe(true);
     store.patchTask(rootId, { status: 'done' }, 0);
     store.patchTask('child', { status: 'running' }, 1_000);
 
@@ -164,7 +166,7 @@ describe('HiveStore — graphe de délégation', () => {
   });
 
   it('la dépense part avec l’arbre entier, la consigne avec sa tâche', () => {
-    expect(store.createDelegatedTask(demande(rootId, 'child'), undefined, 0).ok).toBe(true);
+    expect(store.createDelegatedTask(demande(rootId, 'child'), 0).ok).toBe(true);
     tentative('child', 0.5);
     store.poserConsigneRoutage('child', { sansAgents: ['codex'] }, null, 0);
     store.patchTask(rootId, { status: 'done' }, 0);
@@ -183,13 +185,14 @@ describe('HiveStore — graphe de délégation', () => {
     });
     store.setNodeStatus(noeud.id, 'online');
     store.patchTask(rootId, { status: 'running', assignedNodeId: noeud.id });
-    expect(store.listNodes()[0]).toMatchObject({ running: 1 });
-    expect(store.listNodes()[0]).not.toHaveProperty('enAttente');
+    expect(store.parentsEnAttenteSousRacine(rootId)).toEqual(new Map());
     expect(store.createDelegatedTask(demande(rootId, 'child')).ok).toBe(true);
-    expect(store.listNodes()[0]).toMatchObject({ running: 1, enAttente: 1 });
+    expect(store.parentsEnAttenteSousRacine(rootId)).toEqual(new Map([[noeud.id, 1]]));
+    // Une autre racine ne voit rien à reprendre : la place n'est rendue qu'à cet arbre.
+    expect(store.parentsEnAttenteSousRacine('autre-racine')).toEqual(new Map());
     // L'enfant rendu, le parent reprend son travail : sa place avec.
     store.patchTask('child', { status: 'done' });
-    expect(store.listNodes()[0]).not.toHaveProperty('enAttente');
+    expect(store.parentsEnAttenteSousRacine(rootId)).toEqual(new Map());
   });
 
   it('relit la consigne de routage telle qu’elle a été posée, et l’oublie levée', () => {

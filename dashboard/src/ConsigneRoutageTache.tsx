@@ -107,6 +107,26 @@ export function ConsigneRoutageTache({ task, nodes }: Props) {
   const basculer = (liste: string[], nom: string, poser: (l: string[]) => void): void =>
     poser(liste.includes(nom) ? liste.filter((x) => x !== nom) : [...liste, nom]);
 
+  // Une relecture : la Reine refuserait toute consigne (409). On le dit, sans
+  // offrir un formulaire qui ne peut qu'échouer.
+  if (rangee?.applicable === false) {
+    return (
+      <section
+        className="routage-panel"
+        aria-labelledby="consigne-routage-title"
+        data-testid="consigne-routage"
+      >
+        <h3 id="consigne-routage-title">{t('Consigne de routage', 'Routing constraint')}</h3>
+        <p className="muted" data-testid="consigne-routage-inapplicable">
+          {t(
+            'Une relecture suit la famille que la contre-expertise lui a désignée : aucune consigne ne s’y pose.',
+            'A review follows the family the cross-review assigned it: no constraint applies to it.',
+          )}
+        </p>
+      </section>
+    );
+  }
+
   return (
     <section
       className="routage-panel"

@@ -770,6 +770,8 @@ export interface ConsigneRoutageRangee {
   consigne: ConsigneRoutage | null;
   definiPar: string | null;
   majA: number | null;
+  /** Faux pour une relecture : elle suit la famille désignée, aucune consigne ne s'y pose. */
+  applicable: boolean;
   /** À la pose seulement : une tâche déjà partie garde son porteur. */
   effet?: 'immediat' | 'prochaine_affectation';
 }

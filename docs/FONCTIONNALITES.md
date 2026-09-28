@@ -355,10 +355,13 @@ reste :
 
 Quand la dépense déclarée de l'arbre atteint son budget coût, plus aucun enfant
 n'est admis, aucune correction ne repart, et ceux en vol sont annulés — chacun
-avec sa raison, que le parent qui l'attend reçoit tout de suite. Une tentative
-sans coût déclaré n'est jamais comptée pour zéro : le tiroir de la tâche dit
-« au moins ». Un parent qui attend ses enfants **relâche sa place** sur son
-ouvrière : un arbre ne s'interbloque plus sur un poste plein.
+avec sa raison, que le parent qui l'attend reçoit tout de suite — comme celui
+dont l'enfant a échoué sans rien rendre. Une tentative sans coût déclaré, ou
+interrompue avant d'avoir rendu (ouvrière perdue, annulation), n'est jamais
+comptée pour zéro : le tiroir de la tâche dit « au moins ». Un parent qui
+attend ses enfants **relâche sa place à son propre arbre** sur son ouvrière :
+un arbre ne s'interbloque plus sur un poste plein, et une autre racine ne se
+glisse pas dans cette place — `maxConcurrency` borne toujours le travail neuf.
 
 `preferredAgent` / `preferredModel` ne font que **départager des ex æquo** —
 l'Aiguillage garde le dernier mot, et la raison du choix dit si la préférence a

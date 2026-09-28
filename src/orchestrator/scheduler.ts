@@ -232,9 +232,12 @@ export class Scheduler {
    * nœuds en ligne qui pourraient les porter — dédup de
    * `task_consigne_deferred`, motif `deferredByConflict`. Sans ce fait, une
    * consigne qui épingle une famille absente laissait la tâche en file sans
-   * que rien ne dise pourquoi.
+   * que rien ne dise pourquoi. La valeur est la consigne SÉRIALISÉE qui a
+   * différé la tâche : une consigne remplacée par une autre tout aussi
+   * insatisfiable se journalise à son tour — sinon le journal donnait encore
+   * l'ancienne pour raison.
    */
-  private readonly differeesParConsigne = new Set<string>();
+  private readonly differeesParConsigne = new Map<string, string>();
   /**
    * Relecture → instant du PREMIER constat que sa famille relectrice est
    * absente. Dédup de l'événement d'attente, et départ de
@@ -1437,6 +1440,23 @@ export class Scheduler {
     };
   }
 
+  /**
+   * La charge d'un nœud telle que `taskId` la voit : ses tâches actives, moins
+   * les parents de SON arbre qui y attendent un enfant (`slotsOccupes`), plus
+   * les drones non primaires que le store ignore (`extra`). Hors délégation,
+   * aucun parent n'est soustrait : une place relâchée ne sert qu'à l'arbre qui
+   * l'a relâchée.
+   */
+  private chargeVuePar(
+    taskId: string,
+    extra: ReadonlyMap<string, number>,
+  ): (n: HiveNode) => number {
+    const lien = this.store.getDelegation(taskId);
+    const attentes =
+      lien?.origine === 'hive' ? this.store.parentsEnAttenteSousRacine(lien.rootTaskId) : null;
+    return (n) => slotsOccupes(n, attentes?.get(n.id) ?? 0) + (extra.get(n.id) ?? 0);
+  }
+
   /** La racine de `taskId` a-t-elle épuisé son enveloppe coût ? Faux hors délégation. */
   private budgetCoutEpuiseSous(taskId: string): boolean {
     const lien = this.store.getDelegation(taskId);
@@ -1620,8 +1640,7 @@ export class Scheduler {
     }
     // La charge des drones non-primaires n'existe pas dans le store : on
     // l'ajoute ici pour ne pas enrôler des nœuds déjà saturés par une course.
-    const extra = this.droneLoad();
-    const charge = (n: HiveNode): number => slotsOccupes(n) + (extra.get(n.id) ?? 0);
+    const charge = this.chargeVuePar(taskId, this.droneLoad());
     // L'OFFRE, charge ignorée, puis sa part libre : l'écart des modèles tombés
     // se décide contre la première, comme dans la boucle principale. La
     // consigne de l'opérateur la restreint d'abord : une course diversifie les
@@ -1776,6 +1795,8 @@ export class Scheduler {
     // L'instant de l'assignation, celui que porte `updatedAt` : ouverture et
     // clôture de la session se lisent sur la même horloge que la transition.
     this.store.ouvrirHorlogeHote(assigned.projectId, assigned.id, now);
+    // Une tentative par drone : chacun peut dépenser (`depenses_delegation`).
+    for (const droneId of launch) this.store.ouvrirTentativeDelegation(assigned.id, droneId, now);
     // Chaque drone reçoit SON modèle élu (la course diversifie les agents).
     for (const droneId of launch) this.opts.onAssign?.(droneId, assigned, modeleParDrone[droneId]);
     return { ok: true, drones: launch };
@@ -2453,7 +2474,7 @@ export class Scheduler {
       const decision = this.decisionPlafond(task.projectId);
       this.signalerPlafond(task.projectId, decision);
       if (decision === 'bloque' && this.opts.balance?.mode === 'strict') continue;
-      const charge = (n: HiveNode): number => slotsOccupes(n) + (extra.get(n.id) ?? 0);
+      const charge = this.chargeVuePar(task.id, extra);
       const noeuds = this.store.listNodes();
       // ─── UNE RELECTURE NE CHANGE PAS DE FAMILLE ──────────────────────────
       // Une contre-expertise vaut par la famille qui la lit : un modèle
@@ -2499,8 +2520,9 @@ export class Scheduler {
       if (consigne && offre.length === 0 && offreBrute.length > 0) {
         // Des nœuds pourraient la porter, la consigne les écarte tous : la
         // tâche attend — et le dit une fois, au lieu de rester muette en file.
-        if (!this.differeesParConsigne.has(task.id)) {
-          this.differeesParConsigne.add(task.id);
+        const empreinte = JSON.stringify(consigne);
+        if (this.differeesParConsigne.get(task.id) !== empreinte) {
+          this.differeesParConsigne.set(task.id, empreinte);
           this.emit('task_consigne_deferred', { taskId: task.id, consigne });
         }
         continue;
@@ -2671,6 +2693,7 @@ export class Scheduler {
           : {}),
       });
       this.store.ouvrirHorlogeHote(assigned.projectId, assigned.id, now);
+      this.store.ouvrirTentativeDelegation(assigned.id, node.id, now);
       // Le modèle élu part avec la tâche : le nœud le passera à `--model`.
       this.opts.onAssign?.(node.id, assigned, route?.modele);
       // Les tâches suivantes tiennent compte de celle-ci — si elle édite.

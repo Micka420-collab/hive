@@ -80,7 +80,7 @@ describe('clôture du sous-arbre délégué à la transition terminale', () => {
   };
 
   const deleguer = (parentTaskId: string, childTaskId: string): void => {
-    const creation = store.createDelegatedTask(demande(parentTaskId, childTaskId), undefined, T);
+    const creation = store.createDelegatedTask(demande(parentTaskId, childTaskId), T);
     expect(creation.ok).toBe(true);
   };
 

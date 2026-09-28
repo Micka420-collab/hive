@@ -238,7 +238,6 @@ describe('UNE RELECTURE NE CHANGE PAS DE FAMILLE', () => {
           costMicros: 100_000,
           resourceUnits: 1,
         },
-        undefined,
         at,
       );
       expect(creation.ok, childTaskId).toBe(true);

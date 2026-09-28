@@ -476,6 +476,13 @@ export interface AssignTaskMsg {
    * agent sans droit d'écriture. Absent : une production.
    */
   relecture?: true;
+  /**
+   * La racine de l'arbre de délégation de cet enfant ; absente comme
+   * `delegationBudget`. Le guichet du nœud en a besoin pour la même règle que
+   * la Reine : une place relâchée par un parent qui attend ne sert qu'à SON
+   * arbre (`slotsOccupes`, delegation.ts). Un identifiant de tâche, pas un secret.
+   */
+  delegationRootTaskId?: string;
 }
 
 export interface CancelTaskMsg {
@@ -1349,6 +1356,7 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
         return null;
       }
       if (m.relecture !== undefined && m.relecture !== true) return null;
+      if (m.delegationRootTaskId !== undefined && !isId(m.delegationRootTaskId)) return null;
       const msg: AssignTaskMsg = { type: 'assign_task', task: m.task };
       if (m.relecture === true) msg.relecture = true;
       if (m.repoUrl !== undefined) msg.repoUrl = (m.repoUrl as string | null) ?? null;
@@ -1362,6 +1370,7 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
           resourceUnits: budget.resourceUnits,
         };
       }
+      if (m.delegationRootTaskId !== undefined) msg.delegationRootTaskId = m.delegationRootTaskId;
       return msg;
     }
     case 'cancel_task':

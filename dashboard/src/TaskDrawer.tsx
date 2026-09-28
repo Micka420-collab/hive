@@ -434,14 +434,19 @@ export function TaskDrawer({
               {t('Graphe indisponible :', 'Graph unavailable:')} {delegationError}
             </p>
           )}
-          {!delegationLoading && !delegationError && delegation?.enveloppe && (
-            <p
-              className={`delegation-tree-budget${delegation.enveloppe.coutEpuise ? ' epuise' : ''}`}
-              data-testid="delegation-enveloppe"
-            >
-              {enveloppeDelegation(delegation.enveloppe, t)}
-            </p>
-          )}
+          {!delegationLoading &&
+            !delegationError &&
+            delegation?.enveloppe &&
+            // Un arbre sans enfant Hive n'a rien réservé ni dépensé : la ligne
+            // ne serait que du bruit dans le tiroir de chaque tâche.
+            delegation.graph.some((n) => n.origine === 'hive' && n.parentTaskId !== null) && (
+              <p
+                className={`delegation-tree-budget${delegation.enveloppe.coutEpuise ? ' epuise' : ''}`}
+                data-testid="delegation-enveloppe"
+              >
+                {enveloppeDelegation(delegation.enveloppe, t)}
+              </p>
+            )}
           {!delegationLoading && !delegationError && delegation && delegation.graph.length <= 1 && (
             <p className="muted-text">
               {t('Aucune sous-tâche Hive persistée.', 'No persisted Hive child task.')}

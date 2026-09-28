@@ -292,8 +292,8 @@ describe('l’enveloppe cumulée d’une racine', () => {
 });
 
 describe('les places d’une ouvrière', () => {
-  it('un parent qui attend son enfant ne tient pas de place', () => {
-    expect(slotsOccupes({ running: 3, enAttente: 2 })).toBe(1);
+  it('un parent qui attend son enfant ne tient pas de place — pour son propre arbre', () => {
+    expect(slotsOccupes({ running: 3 }, 2)).toBe(1);
     expect(slotsOccupes({ running: 2 })).toBe(2);
   });
 });

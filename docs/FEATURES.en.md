@@ -307,10 +307,13 @@ the bound it hit and what is left:
 
 When the tree's declared spend reaches its cost budget, no further child is
 admitted, no correction restarts, and the ones in flight are cancelled — each
-with its reason, which a waiting parent receives at once. An attempt with no
-declared cost never counts as zero: the task drawer says "at least". A parent
-waiting on its children **releases its slot** on its worker: a tree no longer
-deadlocks on a full worker.
+with its reason, which a waiting parent receives at once — as does a parent
+whose child failed without returning anything. An attempt with no declared
+cost, or interrupted before returning (lost worker, cancellation), never counts
+as zero: the task drawer says "at least". A parent waiting on its children
+**releases its slot to its own tree** on its worker: a tree no longer deadlocks
+on a full worker, and another root does not slip into that slot —
+`maxConcurrency` still bounds new work.
 
 `preferredAgent` / `preferredModel` only **break ties** — the router keeps the
 last word, and the recorded reason says whether the preference mattered. The

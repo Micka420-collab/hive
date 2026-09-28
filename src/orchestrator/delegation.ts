@@ -20,19 +20,20 @@ export interface NoeudDelegation {
 
 /**
  * La dépense DÉCLARÉE d'un arbre : le coût que les CLI des agents ont rapporté
- * pour chaque tentative rendue par un descendant Hive de la racine.
+ * pour chaque tentative terminée d'un descendant Hive de la racine.
  *
  * `micros` n'est qu'un PLANCHER dès que `sansCout > 0` : une tentative dont le
- * CLI n'a déclaré aucun coût n'est pas une tentative gratuite. Elle n'entre pas
- * dans la somme — Hive n'estime rien —, mais elle est comptée à part pour que
+ * CLI n'a déclaré aucun coût — ou qui s'est interrompue sans rien rendre (nœud
+ * perdu, annulation) — n'est pas une tentative gratuite. Elle n'entre pas dans
+ * la somme — Hive n'estime rien —, mais elle est comptée à part pour que
  * chaque refus et chaque écran le disent.
  */
 export interface DepenseDeclaree {
   /** Somme des coûts déclarés, en micro-USD. */
   micros: number;
-  /** Tentatives rendues par les descendants Hive de la racine. */
+  /** Tentatives TERMINÉES des descendants Hive de la racine : rendues ou interrompues. */
   tentatives: number;
-  /** Parmi elles, celles dont le CLI n'a déclaré aucun coût (inconnu, jamais zéro). */
+  /** Parmi elles, celles dont aucun coût n'est connu (inconnu, jamais zéro). */
   sansCout: number;
 }
 
@@ -392,8 +393,11 @@ export function ancetreEchoue(graphe: readonly NoeudDelegation[], taskId: string
 }
 
 /**
- * Les places qu'un nœud OCCUPE vraiment : ses tâches actives, moins celles qui
- * attendent un enfant délégué encore en vol (`enAttente`, compté par le store).
+ * Les places qu'un nœud OCCUPE vraiment POUR UNE TÂCHE DONNÉE : ses tâches
+ * actives, moins celles qui attendent un enfant délégué encore en vol DANS LE
+ * MÊME ARBRE que cette tâche (`attentesMemeArbre`, compté par le store :
+ * `parentsEnAttenteSousRacine`). Pour toute autre tâche, la soustraction vaut
+ * zéro : le nœud est plein de ce qu'il porte.
  *
  * ─── L'INTERBLOCAGE QUE CETTE SOUSTRACTION REND IMPOSSIBLE ───────────────────
  *
@@ -406,14 +410,21 @@ export function ancetreEchoue(graphe: readonly NoeudDelegation[], taskId: string
  * (`HiveNodeClient.parentsEnAttente`), sinon il refuserait ce que la Reine lui
  * confie.
  *
- * Le surplus que cela permet est borné par la politique elle-même : au plus
- * `maxDescendantsPerRoot` parents par arbre. Un parent qui délègue puis
- * continue de travailler est compté comme en attente dès que son enfant vole —
- * c'est le prix, assumé, d'une règle qui ne peut pas s'interbloquer.
+ * ─── POURQUOI LA PLACE RELÂCHÉE NE SERT QU'À SON PROPRE ARBRE ───────────────
+ *
+ * Relâchée pour TOUT le monde, elle faisait de `maxConcurrency` un chiffre
+ * sans effet : une autre racine prête prenait la place, déléguait à son tour,
+ * relâchait, et la suivante entrait — six agents vivants sur une ouvrière à
+ * une place, leurs enfants servis un par un pendant que le budget de chaque
+ * parent s'écoulait. Réservée à l'arbre qui attend, elle suffit à le
+ * débloquer (ses descendants passent), et le surplus d'un nœud reste borné
+ * PAR ARBRE déjà présent sur lui : au plus `maxDescendantsPerRoot` parents en
+ * attente pour chacune des racines qu'il a admises à place pleine.
+ *
+ * Un parent qui délègue puis continue de travailler est compté comme en
+ * attente dès que son enfant vole — c'est le prix, assumé, d'une règle qui ne
+ * peut pas s'interbloquer.
  */
-export function slotsOccupes(noeud: {
-  readonly running: number;
-  readonly enAttente?: number;
-}): number {
-  return Math.max(0, noeud.running - (noeud.enAttente ?? 0));
+export function slotsOccupes(noeud: { readonly running: number }, attentesMemeArbre = 0): number {
+  return Math.max(0, noeud.running - attentesMemeArbre);
 }

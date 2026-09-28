@@ -256,6 +256,11 @@ const MAX_REASON_LENGTH = 1000;
 const MAX_TITLE_LENGTH = ${MAX_TITLE_LENGTH};
 const MAX_PROMPT_LENGTH = ${MAX_PROMPT_LENGTH};
 const MAX_TEXT_LENGTH = 8192;
+const MAX_BUDGET = ${JSON.stringify({
+  durationMs: LIMITES_DELEGATION_DEFAUT.maxDurationMs,
+  costMicros: LIMITES_DELEGATION_DEFAUT.maxCostMicros,
+  resourceUnits: LIMITES_DELEGATION_DEFAUT.maxResourceUnits,
+})};
 const ID_ENFANT = new RegExp(${JSON.stringify(FORMAT_ID_ENFANT)});
 const SUPPORTED_PROTOCOL_VERSIONS = new Set(['2024-11-05', '2025-03-26', '2025-06-18']);
 const HIVE_DELEGATE_TOOL = 'hive_delegate';
@@ -346,7 +351,7 @@ if (!endpoint || !token || !parentTaskId) {
 
   const text = (value, max = MAX_TEXT_LENGTH) => typeof value === 'string' && value.length > 0 && value.length <= max ? value : null;
   const id = (value) => typeof value === 'string' && ID_ENFANT.test(value) ? value : null;
-  const entier = (value) => Number.isSafeInteger(value) && value >= 0;
+  const entier = (value, max) => Number.isSafeInteger(value) && value >= 0 && value <= max;
   // Le PREMIER champ fautif, nommé avec sa borne : « arguments invalides » ne
   // disait pas lequel, et le modèle recommençait à l'aveugle.
   const fauteDelegation = (args, input) => {
@@ -354,8 +359,12 @@ if (!endpoint || !token || !parentTaskId) {
     if (!input.reason) return 'reason : texte non vide de ' + MAX_REASON_LENGTH + ' caractères au plus';
     if (!input.title) return 'title : texte non vide de ' + MAX_TITLE_LENGTH + ' caractères au plus';
     if (!input.prompt) return 'prompt : texte non vide de ' + MAX_PROMPT_LENGTH + ' caractères au plus';
+    // La même borne que l'inputSchema annonce : au-delà, le guichet du nœud ne
+    // rendait qu'un « demande mal formée » sans champ ni borne.
     for (const champ of ['durationMs', 'costMicros', 'resourceUnits']) {
-      if (!entier(input[champ])) return champ + ' : entier supérieur ou égal à 0 attendu';
+      if (!entier(input[champ], MAX_BUDGET[champ])) {
+        return champ + ' : entier de 0 à ' + MAX_BUDGET[champ] + ' (plafond cumulé par racine)';
+      }
     }
     if (args.preferredAgent !== undefined && !input.preferredAgent) return 'preferredAgent : texte non vide de ' + MAX_NAME_LENGTH + ' caractères au plus';
     if (args.preferredModel !== undefined && !input.preferredModel) return 'preferredModel : texte non vide de ' + MAX_NAME_LENGTH + ' caractères au plus';

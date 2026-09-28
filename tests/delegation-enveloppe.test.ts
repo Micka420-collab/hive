@@ -25,6 +25,7 @@ import { HiveStore } from '../src/orchestrator/store.js';
 import type { NodeProfile } from '../src/orchestrator/store.js';
 import { LIMITES_DELEGATION_DEFAUT } from '../src/shared/limites-delegation.js';
 import { affectationsDepuisEvenements } from '../src/shared/routage-vue.js';
+import { projeterWorkers } from '../src/orchestrator/workers.js';
 import type { HiveEvent, TaskResult } from '../src/shared/types.js';
 
 const profil = (
@@ -69,6 +70,8 @@ const demande = (
   ...patch,
 });
 
+const SANS_VECU = { verdicts: [], enVol: [] };
+
 describe('l’arbre délégué tient ses places, ses budgets et la consigne de l’opérateur', () => {
   let store: HiveStore;
   let scheduler: Scheduler;
@@ -100,11 +103,7 @@ describe('l’arbre délégué tient ses places, ses budgets et la consigne de l
     childTaskId: string,
     patch: Partial<DemandeDelegation> = {},
   ): void => {
-    const creation = store.createDelegatedTask(
-      demande(parentTaskId, childTaskId, patch),
-      undefined,
-      T,
-    );
+    const creation = store.createDelegatedTask(demande(parentTaskId, childTaskId, patch), T);
     expect(creation.ok, `${childTaskId} : ${creation.ok ? '' : creation.motif}`).toBe(true);
   };
 
@@ -144,7 +143,8 @@ describe('l’arbre délégué tient ses places, ses budgets et la consigne de l
         status: 'assigned',
         assignedNodeId: seul,
       });
-      expect(store.listNodes()[0]).toMatchObject({ running: 3, enAttente: 2 });
+      expect(store.listNodes()[0]).toMatchObject({ running: 3 });
+      expect(store.parentsEnAttenteSousRacine('root')).toEqual(new Map([[seul, 2]]));
 
       // Le petit-enfant rendu, l'enfant n'attend plus : il reprend sa place,
       // et une tâche indépendante ne passe pas devant lui.
@@ -152,6 +152,39 @@ describe('l’arbre délégué tient ses places, ses budgets et la consigne de l
       creerPrete('independante');
       scheduler.tick(T);
       expect(store.getTask('independante')?.status).toBe('ready');
+    });
+
+    it('la place relâchée ne sert qu’à l’arbre qui attend : une autre racine prête ne la prend pas', () => {
+      // Une seule place. `autre` est prête AVANT l'enfant, donc devant lui en
+      // file : avant, elle prenait la place que `root` relâchait, déléguait à
+      // son tour, relâchait, et la suivante entrait — `maxConcurrency` ne
+      // bornait plus rien.
+      const seul = lancerRacine(profil('seule', 'shell', 1));
+      creerPrete('autre');
+      deleguer('root', 'enfant');
+      // La carte Workers parle du travail NEUF : la place relâchée à l'arbre
+      // n'y est pas une place libre — sinon l'écran promettait ce que
+      // l'ordonnanceur refuse à toute autre tâche.
+      expect(projeterWorkers(store.listNodes(), SANS_VECU)[0]?.slotsLibres).toBe(0);
+      scheduler.tick(T);
+      expect(store.getTask('enfant')).toMatchObject({ status: 'assigned', assignedNodeId: seul });
+      expect(store.getTask('autre')?.status).toBe('ready');
+      expect(store.listNodes()[0]).toMatchObject({ running: 2 });
+    });
+
+    it('une course suit la même règle : la place relâchée n’enrôle que pour l’arbre qui attend', () => {
+      const seul = lancerRacine(profil('seule', 'shell', 1));
+      const libre = scheduler.registerNode(profil('libre', 'shell', 1), T);
+      deleguer('root', 'enfant');
+      store.patchTask('enfant', { status: 'ready' }, T);
+      creerPrete('autre');
+      // Une autre racine : `seule` est pleine de sa racine qui attend.
+      const pourAutre = scheduler.startRace('autre', 2, T);
+      expect(pourAutre).toEqual({ ok: true, drones: [libre.id] });
+      // L'enfant attendu : `libre` porte désormais `autre`, et `seule` lui est
+      // rendue — avant, la course le voyait plein et le refusait.
+      const pourEnfant = scheduler.startRace('enfant', 2, T);
+      expect(pourEnfant).toEqual({ ok: true, drones: [seul] });
     });
   });
 
@@ -225,6 +258,23 @@ describe('l’arbre délégué tient ses places, ses budgets et la consigne de l
       });
       expect(store.getTask('cher')?.status).toBe('failed');
       expect(store.getTask('frugal')?.status).toBe('failed');
+    });
+
+    it('une tentative interrompue SANS résultat compte, au coût inconnu — une tentative en vol, pas encore', () => {
+      monterArbre();
+      // En vol : leur dépense n'est pas finie, elle n'est pas encore inconnue.
+      expect(store.depenseDeclareeRacine('root').tentatives).toBe(0);
+      // Le nœud de `cher` tombe : la tentative a pu dépenser, rien ne le dira.
+      // Avant, elle n'existait nulle part et la dépense se lisait complète.
+      const perdu = noeudDe('cher');
+      scheduler.nodeDisconnected(perdu, 'socket_closed', T);
+      // Reprise ailleurs : cette nouvelle tentative est en vol, pas comptée.
+      expect(store.getTask('cher')?.assignedNodeId).not.toBe(perdu);
+      expect(store.depenseDeclareeRacine('root')).toEqual({
+        micros: 0,
+        tentatives: 1,
+        sansCout: 1,
+      });
     });
 
     it('sous une racine épuisée, l’Evaluator ne rouvre plus aucune correction', () => {
@@ -334,8 +384,15 @@ describe('l’arbre délégué tient ses places, ses budgets et la consigne de l
       scheduler.tick(T + 1);
       expect(store.getTask('tache')?.status).toBe('ready');
       expect(events.filter((e) => e.type === 'task_consigne_deferred')).toHaveLength(1);
-      store.poserConsigneRoutage('tache', null, null, T);
+      // Remplacée par une autre tout aussi insatisfiable : le journal donne la
+      // NOUVELLE raison — avant, il taisait le changement et gardait l'ancienne.
+      store.poserConsigneRoutage('tache', { agent: 'gemini' }, null, T);
       scheduler.tick(T + 2);
+      expect(
+        events.filter((e) => e.type === 'task_consigne_deferred').map((e) => e.payload.consigne),
+      ).toEqual([{ agent: 'grok' }, { agent: 'gemini' }]);
+      store.poserConsigneRoutage('tache', null, null, T);
+      scheduler.tick(T + 3);
       expect(store.getTask('tache')?.assignedNodeId).toBe(shell.id);
     });
 

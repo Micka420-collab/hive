@@ -214,6 +214,32 @@ describe('pont MCP de délégation Worker → CLI', () => {
       // Le champ fautif, nommé : « arguments invalides » ne disait pas lequel.
       message: expect.stringContaining('durationMs'),
     });
+    // Au-delà du plafond que l'outil annonce : refusé ICI, borne nommée — au
+    // guichet du nœud, ce n'était plus qu'une « demande mal formée ».
+    sendMcp(child, {
+      jsonrpc: '2.0',
+      id: 3,
+      method: 'tools/call',
+      params: {
+        name: HIVE_DELEGATE_TOOL,
+        arguments: {
+          childTaskId: 'child',
+          reason: 'x',
+          title: 'x',
+          prompt: 'x',
+          durationMs: 0,
+          costMicros: LIMITES_DELEGATION_DEFAUT.maxCostMicros + 1,
+          resourceUnits: 1,
+        },
+      },
+    });
+    expect(contentValue(await mcpResponseLine(child))).toMatchObject({
+      ok: false,
+      code: 'arguments_invalid',
+      message: expect.stringContaining(
+        `costMicros : entier de 0 à ${LIMITES_DELEGATION_DEFAUT.maxCostMicros}`,
+      ),
+    });
   });
 
   it('l’outil dit ses bornes, le format de l’identifiant et ce que valent les préférences', () => {
