@@ -6,6 +6,33 @@
 
 ---
 
+## Application de bureau — sans Node, sans terminal
+
+Un installeur par système, attaché à chaque [version publiée](https://github.com/Micka420-collab/hive/releases) :
+`Hive-Setup-X.Y.Z.exe` (Windows, pour vous seul, sans droits administrateur),
+`Hive-X.Y.Z-arm64.dmg` ou `-x64.dmg` (macOS), `hive_X.Y.Z_amd64.deb` ou
+`Hive-X.Y.Z-x86_64.AppImage` (Linux). L'app embarque son propre Node : rien
+de ce qui suit n'est nécessaire pour elle.
+
+- **Données** : `%APPDATA%\Hive\ruche` (Windows),
+  `~/Library/Application Support/Hive/ruche` (macOS), `~/.config/Hive/ruche`
+  (Linux) — `.env`, `data/hive.db`, `.hive-work/` ; journaux dans `logs/`.
+- **Paquets non signés** : SmartScreen → _Informations complémentaires_ →
+  _Exécuter quand même_ ; Gatekeeper → _Réglages Système → Confidentialité et
+  sécurité → Ouvrir quand même_.
+- **Ubuntu 24.04 et suivants** : préférez le `.deb` (bac à sable de Chromium
+  conservé) ; l'AppImage y tourne en `--no-sandbox`.
+- **Une ruche `~/hive` existe déjà** : au premier lancement, l'app propose de
+  l'ouvrir (si sa Reine tourne), d'en importer une copie, ou de commencer une
+  ruche neuve — la source n'est jamais modifiée.
+- **Désinstaller** : les données restent par défaut ; l'installeur Windows
+  propose une case décochée pour les effacer.
+
+Tout le détail — premier lancement, barre système, mises à jour, signature :
+**[APPLICATION.md](APPLICATION.md)**.
+
+---
+
 ## En une commande
 
 **Linux et macOS**

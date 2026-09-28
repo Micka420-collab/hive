@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- L'icône de la barre système : l'alvéole seule, monochrome ({{trait}} est
+       noir pour le modèle macOS, la couleur du texte ailleurs), cœur plein. -->
+  <path d="M53 22.5 V41.5 L32 53.5 L11 41.5 V22.5 L32 10.5 L45 18"
+        fill="none" stroke="{{trait}}" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M32 24 L40.7 29 V39 L32 44 L23.3 39 V29 Z" fill="{{coeur}}"/>
+</svg>

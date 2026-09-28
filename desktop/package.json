@@ -1,0 +1,32 @@
+{
+  "name": "hive",
+  "productName": "Hive",
+  "version": "0.4.0",
+  "private": true,
+  "description": "Hive — l'application de bureau : la Reine, ses ouvrières et Mission Control dans une fenêtre.",
+  "author": "Micka420-collab",
+  "license": "MIT",
+  "homepage": "https://github.com/Micka420-collab/hive",
+  "type": "module",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/copier-marque.mjs",
+    "dev": "npm run build && electron .",
+    "marque": "electron --no-sandbox branding/generer.mjs",
+    "preparer-ruche": "node scripts/preparer-ruche.mjs",
+    "dist": "npm run build && npm run preparer-ruche && electron-builder --config electron-builder.config.cjs --publish never",
+    "dist:linux": "npm run build && npm run preparer-ruche && electron-builder --config electron-builder.config.cjs --linux --publish never",
+    "dist:win": "npm run build && npm run preparer-ruche && electron-builder --config electron-builder.config.cjs --win --publish never",
+    "dist:mac": "npm run build && npm run preparer-ruche && electron-builder --config electron-builder.config.cjs --mac --arm64 --x64 --publish never",
+    "fumee": "node scripts/fumee.mjs"
+  },
+  "dependencies": {
+    "electron-log": "5.4.4",
+    "electron-updater": "6.8.9",
+    "shell-env": "4.0.3"
+  },
+  "devDependencies": {
+    "electron": "44.4.5",
+    "electron-builder": "26.15.3"
+  }
+}
