@@ -22,11 +22,8 @@ import { RECULS_MS } from '../desktop/src/relance.js';
 import { RucheBureau } from '../desktop/src/superviseur-bureau.js';
 import { completerEnv, composerReglages, lireEnv } from '../src/installer.js';
 
-// Les journaux de la coquille passent par electron-log, qui veut Electron.
-vi.mock('../desktop/src/journaux.js', () => {
-  const muet = { info: () => undefined, warn: () => undefined, error: () => undefined };
-  return { journal: muet, journalDePiece: () => muet };
-});
+/** Les journaux de la coquille (electron-log) ne servent pas ici : muets. */
+const MUET = { info: () => undefined, warn: () => undefined, error: () => undefined };
 
 type OptionsLancement = Parameters<ModuleSuperviseur['lancerRuche']>[0];
 
@@ -110,6 +107,8 @@ function ruche(agents: readonly string[] = ['claude-code', 'shell']): {
     piece: '/hive/piece.cjs',
     envHerite: () => ({ PATH: process.env.PATH }),
     notifier: (n) => notifications.push(n),
+    journal: MUET,
+    journalDePiece: () => MUET,
   });
   return { r, lancements, notifications };
 }

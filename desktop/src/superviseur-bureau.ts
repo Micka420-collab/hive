@@ -15,7 +15,6 @@ import path from 'node:path';
 import { parseEnv } from 'node:util';
 import type { Hive, PieceHive } from './contrat-hive.js';
 import { type AgentVu, etat, majEtat } from './etat.js';
-import { journal, journalDePiece } from './journaux.js';
 import {
   NOTIFICATION_REINE_ARRETEE,
   notificationMortOuvriere,
@@ -36,6 +35,20 @@ export interface OptionsRucheBureau {
   /** L'environnement hérité (celui du shell de connexion, déjà fusionné). */
   readonly envHerite: () => NodeJS.ProcessEnv;
   readonly notifier: (n: NotificationRuche) => void;
+  /**
+   * Les journaux (`journaux.ts`) : celui de la coquille, et celui d'une pièce.
+   * Passés plutôt qu'importés — electron-log exige Electron, et la vie de la
+   * ruche s'éprouve sans lui (tests/bureau-superviseur.test.ts).
+   */
+  readonly journal: JournalRuche;
+  readonly journalDePiece: (nom: string) => JournalRuche;
+}
+
+/** Ce que la ruche écrit dans un journal. */
+export interface JournalRuche {
+  info(...texte: unknown[]): void;
+  warn(...texte: unknown[]): void;
+  error(...texte: unknown[]): void;
 }
 
 type Lancee = ReturnType<Hive['superviseur']['lancerRuche']>;
@@ -80,7 +93,7 @@ export class RucheBureau {
     const garde = portGarde(avant.HIVE_PORT);
     const { port, decision } = await choisirPort(garde);
     if (decision.genre === 'tirer' && decision.motif === 'occupe') {
-      journal.warn(`port ${String(garde)} occupé : la ruche prend ${String(port)}`);
+      this.o.journal.warn(`port ${String(garde)} occupé : la ruche prend ${String(port)}`);
       majEtat({ portChange: port });
     }
 
@@ -128,7 +141,7 @@ export class RucheBureau {
       .map((p) => this.amorcee(p));
     const nbOuvrieres = liste.filter((p) => p.ouvriere).length;
     let ouvrieresVivantes = nbOuvrieres;
-    journal.info(`ruche : ${liste.map((p) => p.nom).join(', ')} · port ${String(port)}`);
+    this.o.journal.info(`ruche : ${liste.map((p) => p.nom).join(', ')} · port ${String(port)}`);
 
     this.dernieres.clear();
     const lancee = hive.superviseur.lancerRuche({
@@ -137,7 +150,7 @@ export class RucheBureau {
       env: envLancement,
       ligne: ({ piece, flux, texte }) => {
         const nom = piece?.nom ?? 'ruche';
-        const j = piece === null ? journal : journalDePiece(nom);
+        const j = piece === null ? this.o.journal : this.o.journalDePiece(nom);
         if (flux === 'stderr') j.warn(texte);
         else j.info(texte);
         const l = this.dernieres.get(nom) ?? [];
@@ -146,11 +159,11 @@ export class RucheBureau {
         this.dernieres.set(nom, l);
       },
       adresse: (a) => {
-        journal.info(`la Reine s’est annoncée : ${a.http}`);
+        this.o.journal.info(`la Reine s’est annoncée : ${a.http}`);
         majEtat({ reine: 'en-ligne', origine: a.http, ouvrieres: ouvrieresVivantes });
       },
       mort: (p, suite) => {
-        journal.warn(`${p.nom} : ${suite.message}`);
+        this.o.journal.warn(`${p.nom} : ${suite.message}`);
         if (p.ouvriere) {
           ouvrieresVivantes -= 1;
           majEtat({ ouvrieres: ouvrieresVivantes });
@@ -228,7 +241,7 @@ export class RucheBureau {
     const delai = prochaineRelance(this.relances, maintenant);
     const lignes = this.dernieresLignes('reine');
     if (delai === null) {
-      journal.error(`la ruche s’est arrêtée (code ${String(code)}) : plus de relance`);
+      this.o.journal.error(`la ruche s’est arrêtée (code ${String(code)}) : plus de relance`);
       majEtat({
         reine: 'arretee',
         origine: null,
@@ -244,7 +257,7 @@ export class RucheBureau {
       return;
     }
     this.relances.push(maintenant);
-    journal.warn(
+    this.o.journal.warn(
       `la ruche s’est arrêtée (code ${String(code)}) : relance dans ${String(delai)} ms`,
     );
     majEtat({ reine: 'relance', origine: null, ouvrieres: 0 });
@@ -252,7 +265,7 @@ export class RucheBureau {
       this.minuteurRelance = null;
       if (this.arretDemande || etat().reine !== 'relance') return;
       this.demarrer().catch((e: unknown) => {
-        journal.error(e);
+        this.o.journal.error(e);
         majEtat({
           reine: 'arretee',
           erreur: { titre: 'La ruche n’a pas pu redémarrer.', lignes: [String(e)] },

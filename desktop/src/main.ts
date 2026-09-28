@@ -43,7 +43,7 @@ import { chargerHive } from './contrat-hive.js';
 import { argumentDiagnostic, executerDiagnostic } from './diagnostic.js';
 import { etat, etatPourAccueil, majEtat, surEtat } from './etat.js';
 import { creerFenetre, marquerQuitter, ramener, verrouillerSession } from './fenetre.js';
-import { journal, ouvrirJournaux } from './journaux.js';
+import { journal, journalDePiece, ouvrirJournaux } from './journaux.js';
 import { brancherMisesAJour, chercherMiseAJour } from './mises-a-jour.js';
 import { lienDansArgv, pageVoulue, routeDepuisLien, URL_ACCUEIL } from './navigation.js';
 import {
@@ -523,6 +523,8 @@ async function demarrer(): Promise<void> {
     piece: CHEMINS.piece,
     envHerite: () => envHerite,
     notifier,
+    journal,
+    journalDePiece,
   });
 
   // L'écran suit la Reine : ouvert dès qu'elle s'annonce — sauf si l'accueil a
