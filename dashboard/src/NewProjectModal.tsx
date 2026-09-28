@@ -234,16 +234,15 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
           </button>
         </header>
 
-        {/* Un vrai formulaire : Entrée dans le nom lance, comme partout.
+        {/* Un formulaire pour regrouper les champs — mais QUI NE S'ENVOIE PAS
+            SEUL. Lancer crée le projet et confie des tâches à de vrais agents
+            (temps, quota, branches) ; le JSON part pré-rempli du modèle
+            « API + tests ». Entrée dans le nom ne doit donc pas lancer trois
+            tâches jamais relues : l'envoi implicite est avalé ici, et seul le
+            clic sur « Lancer le butinage » appelle `submit`.
             `noValidate` : la faute se dit SOUS le champ, pas dans la bulle du
             navigateur, que les lecteurs d'écran annoncent mal. */}
-        <form
-          noValidate
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!busy && !planning) void submit();
-          }}
-        >
+        <form noValidate onSubmit={(e) => e.preventDefault()}>
           {error && (
             <p className="modal-error" role="alert">
               {error}
@@ -366,7 +365,12 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
             >
               {t('Annuler', 'Cancel')}
             </button>
-            <button type="submit" className="btn primary" disabled={busy || planning}>
+            <button
+              type="button"
+              className="btn primary"
+              onClick={() => void submit()}
+              disabled={busy || planning}
+            >
               {busy ? t('Création…', 'Creating…') : t('Lancer le butinage', 'Start foraging')}
             </button>
           </div>

@@ -41,7 +41,7 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   authRegister: vi.fn(() => Promise.resolve({ token: 't', user: null })),
 }));
 
-import { authRegister, createProject, fetchInvite } from '../dashboard/src/api';
+import { addTasks, authRegister, createProject, fetchInvite } from '../dashboard/src/api';
 import { AccountPanel } from '../dashboard/src/AccountPanel';
 import { setLang } from '../dashboard/src/i18n';
 import { InvitePanel } from '../dashboard/src/InvitePanel';
@@ -157,6 +157,22 @@ describe('Nouveau projet : chaque faute sous SON champ', () => {
   });
 });
 
+describe('Nouveau projet : un seul geste lance de vrais agents', () => {
+  it('Entrée dans le nom (envoi implicite du formulaire) ne crée rien, ne dispatche rien', async () => {
+    const dom = await monter(<NewProjectModal onClose={() => {}} />);
+    const nom = champ(dom, 'Nom du projet');
+    await ecrire(nom, 'Mon projet');
+    // `requestSubmit()` est ce que fait l'envoi implicite d'Entrée dans un champ.
+    await act(async () => nom.form?.requestSubmit());
+    await act(async () => {});
+    expect(createProject, 'Entrée a créé un projet jamais relu').not.toHaveBeenCalled();
+    expect(addTasks, 'Entrée a lancé le modèle pré-rempli').not.toHaveBeenCalled();
+
+    await cliquer(bouton(dom, 'Lancer le butinage'));
+    expect(createProject).toHaveBeenCalledWith({ name: 'Mon projet' });
+  });
+});
+
 describe('Compte : pourquoi « Créer le compte » reste éteint', () => {
   it('un mot de passe trop court le dit sous le champ, une fois quitté', async () => {
     const dom = await monter(<AccountPanel user={null} onUser={() => {}} />);
@@ -195,5 +211,12 @@ describe('Invitation : une adresse de ruche est une URL WebSocket', () => {
     await ecrire(url, 'wss://ruche.exemple:7777/ws');
     await cliquer(bouton(dom, 'Régénérer'));
     expect(fetchInvite).toHaveBeenCalledWith('wss://ruche.exemple:7777/ws');
+
+    // La règle est celle de la Reine (`isWsUrl`) : un schéma en capitales,
+    // qu'elle accepte, n'est pas refusé par le tableau de bord.
+    await ecrire(url, 'WSS://ruche.exemple:7777/ws');
+    await cliquer(bouton(dom, 'Régénérer'));
+    expect(url.getAttribute('aria-invalid')).toBeNull();
+    expect(fetchInvite).toHaveBeenLastCalledWith('WSS://ruche.exemple:7777/ws');
   });
 });

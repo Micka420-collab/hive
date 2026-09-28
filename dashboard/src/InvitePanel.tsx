@@ -10,6 +10,7 @@ import { Input } from './composants';
 import { useT } from './i18n';
 import { useDialog, Voile } from './ui';
 import { copierTexte } from './copier';
+import { isWsUrl } from '../../src/shared/invite';
 
 /**
  * Le cadre du dialogue, dans un composant À LUI : `useDialog` agit au montage
@@ -73,10 +74,12 @@ export function InvitePanel() {
 
   // Une adresse de ruche est une URL WebSocket. Le dire AVANT l'aller-retour :
   // la Reine refuserait aussi, mais sa réponse arrivait en tête de la fenêtre,
-  // loin du champ, pendant que l'ancienne commande restait affichée.
+  // loin du champ, pendant que l'ancienne commande restait affichée. La règle
+  // est CELLE de la Reine (`isWsUrl`, partagée) : une copie en regex refusait
+  // `WSS://…` que le serveur accepte — deux vérités pour un seul contrat.
   const regenerer = async () => {
     const url = customUrl.trim();
-    if (url !== '' && !/^wss?:\/\/\S+$/.test(url)) {
+    if (url !== '' && !isWsUrl(url)) {
       setErreurUrl(
         t(
           'Une adresse de ruche commence par ws:// ou wss:// (ex. wss://mondomaine:7777/ws).',
