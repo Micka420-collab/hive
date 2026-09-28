@@ -221,6 +221,29 @@ describe('Evaluator — les validations du bac Hive', () => {
     ]);
   });
 
+  it('une panne du bac pendant les tests : preuve manquante, jamais une correction — et le motif nomme le nœud', () => {
+    const verdict = juger(
+      { tests: 'missing', typecheck: 'not_applicable', build: 'not_applicable', lint: 'passed' },
+      {
+        validationProvenance: {
+          ...bac,
+          details: {
+            ...bac.details,
+            tests: { raison: 'environnement', panne: 'memoire', script: 'test', code: 137 },
+          },
+        },
+      },
+    );
+    expect(verdict.decision).toBe('additional_test_required');
+    expect(verdict.retryRecommended).toBe(false);
+    expect(verdict.reasons).toEqual([
+      'preuves manquantes : tests (bac Hive du nœud n1)',
+      'le bac du nœud n1 est tombé en panne pendant tests (mémoire épuisée), verdict inconnu : ' +
+        'libérez de la mémoire sur ce nœud, ou apportez la CI GitHub — à moins que la production ' +
+        'ne l’épuise elle-même, ce que l’extrait montre',
+    ]);
+  });
+
   it('un manquant bloque, même entouré de verts et de non applicables', () => {
     const verdict = juger({
       tests: 'passed',

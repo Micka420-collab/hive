@@ -34,6 +34,7 @@ import WebSocket from 'ws';
 import { SEUIL_BATISSEUSE } from '../src/orchestrator/polyethisme.js';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
+import { HEARTBEAT_INTERVAL_MS } from '../src/shared/types.js';
 
 const TOKEN = 'jeton-caste-suffisamment-long-42';
 const NOEUD = 'noeud-observe';
@@ -72,6 +73,7 @@ describe('de la production réelle à la caste, puis au cadre', { shuffle: false
   let server: HiveServer;
   let dir: string;
   let ws: WebSocket;
+  let battement: ReturnType<typeof setInterval> | undefined;
   let projet = '';
   const assignations: { taskId: string; hiveContext?: string }[] = [];
 
@@ -164,6 +166,11 @@ describe('de la production réelle à la caste, puis au cadre', { shuffle: false
     }).id;
 
     ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
+    const inscrit = new Promise<void>((res) => {
+      ws.on('message', (data) => {
+        if ((JSON.parse(data.toString()) as { type: string }).type === 'registered') res();
+      });
+    });
     ws.on('message', (data) => {
       const m = JSON.parse(data.toString()) as {
         type: string;
@@ -192,9 +199,32 @@ describe('de la production réelle à la caste, puis au cadre', { shuffle: false
         nodeId: NOEUD,
       }),
     );
+    // ─── UN NŒUD QUI NE BAT PAS EST UN NŒUD MORT ────────────────────────────
+    //
+    // Le vrai client bat toutes les `HEARTBEAT_INTERVAL_MS` ; ce faux nœud ne
+    // battait pas. La Reine a raison de faucher un nœud muet depuis
+    // `NODE_TIMEOUT_MS` (15 s) : `heartbeat_timeout`, sa tâche en vol repart
+    // en `ready`, le résultat qui suit est écarté (`stale_assignment`), et
+    // plus rien ne lui est confié. Tant que le fichier tenait en 8 s, personne
+    // ne le voyait ; sur un runner Windows chargé il en met 24, et l'attente
+    // qui expirait, vers 15 s pile, était toujours celle du tour en cours —
+    // un message qui parlait d'assignation ou d'inspection alors que le nœud
+    // venait simplement d'être déclaré mort.
+    //
+    // L'inscription est ATTENDUE (`registered`), pas supposée : c'est elle
+    // qui pose le premier `lastSeen`, et une inscription lente sur un runner
+    // chargé se paie ici, sous le plafond du hook, plutôt que dans l'attente
+    // de la première assignation. (`running` n'est qu'informatif côté Reine.)
+    await inscrit;
+    battement = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'heartbeat', running: 0 }));
+      }
+    }, HEARTBEAT_INTERVAL_MS);
   });
 
   afterAll(async () => {
+    clearInterval(battement);
     ws.close();
     await server.stop();
     rmSync(dir, { recursive: true, force: true, maxRetries: 3 });

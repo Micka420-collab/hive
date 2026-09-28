@@ -2,6 +2,7 @@
 
 import type { StateSnapshot } from '../../src/shared/types';
 import type { DepenseRuche } from './api';
+import { travailDesProjets } from './views/shared';
 import { useLang, useT } from './i18n';
 import { direSommeDeclaree, direUsd, ProgressBar } from './ui';
 import { direNote } from './horloge-vue';
@@ -44,9 +45,13 @@ export function StatTiles({ snapshot, throughput, calibration, depense }: Props)
   // on écrit à côté ce que la fenêtre laisse dehors.
   const tronque = snapshot.tasksTotal > tasks.length;
   const online = nodes.filter((n) => n.status === 'online').length;
-  const done = tasks.filter((t) => t.status === 'done').length;
+  // Terminées et échouées disent le TRAVAIL des projets : une ombre du banc
+  // (`travailDesProjets`) rejoue une tâche déjà comptée, et n'y entre pas. En cours,
+  // si : elle occupe bel et bien une ouvrière, comme le dit la charge.
+  const travail = travailDesProjets(tasks);
+  const done = travail.filter((t) => t.status === 'done').length;
   const running = tasks.filter((t) => t.status === 'running' || t.status === 'assigned').length;
-  const failed = tasks.filter((t) => t.status === 'failed').length;
+  const failed = travail.filter((t) => t.status === 'failed').length;
   const onlineNodes = nodes.filter((n) => n.status === 'online');
   const capacity = onlineNodes.reduce((sum, n) => sum + n.maxConcurrency, 0);
   // Charge = tâches actives des nœuds EN LIGNE (cohérent avec la capacité).
@@ -66,10 +71,10 @@ export function StatTiles({ snapshot, throughput, calibration, depense }: Props)
       <div className="tile accent">
         <div className="tile-value">
           {done}
-          <span className="tile-unit">/{tasks.length}</span>
+          <span className="tile-unit">/{travail.length}</span>
         </div>
         <div className="tile-label">{t('Tâches terminées', 'Tasks done')}</div>
-        <ProgressBar value={done} max={Math.max(tasks.length, 1)} />
+        <ProgressBar value={done} max={Math.max(travail.length, 1)} />
         {tronque && (
           <div className="tile-sub" title={t('Fenêtre de l’instantané', 'Snapshot window')}>
             {t('sur les ', 'of the last ')}

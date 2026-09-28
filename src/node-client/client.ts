@@ -10,6 +10,7 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import WebSocket from 'ws';
 import { getAdapter } from '../adapters/index.js';
+import type { Effort } from '../shared/effort.js';
 import type { AdapterProgress, AdapterResult, AgentAdapter } from '../adapters/index.js';
 import { borneTexteFinal } from '../adapters/texte-final.js';
 import {
@@ -56,6 +57,7 @@ import { lancerVraiment, poserOutil } from './pose-runner.js';
 import { buildSandboxEnv, cloneRepo, prepareWorkspace } from './workspace.js';
 import { racineDeTravailParDefaut } from './identite-noeud.js';
 import { segmentSur } from '../shared/noms-windows.js';
+import { ConfigurationNonNeutralisable, noteConfigurationEcartee } from './configuration-inerte.js';
 import { motifLave } from './livraison-locale.js';
 import { pousseeConsentie } from '../shared/livraison-locale.js';
 import {
@@ -218,6 +220,14 @@ export interface NodeClientOptions {
    * et celle qui oublierait le réglage pousserait sans consentement.
    */
   pousseLivraisons?: boolean;
+  /**
+   * Appelée à CHAQUE inscription dans la ruche (reconnexions comprises), avec
+   * l'empreinte publique que la Reine a remise — `null` si elle n'en envoie
+   * pas. C'est ce qui permet à une machine qui se signale sur le réseau local
+   * (`decouverte-noeud.ts`, `Signalement`) de se dire membre de SA ruche.
+   * Une exception levée ici n'atteint jamais la boucle du nœud.
+   */
+  surInscription?: (faits: { ruche: string | null }) => void;
 }
 
 /**
@@ -381,6 +391,7 @@ export class HiveNodeClient {
     repoUrl: string | null;
     hiveContext?: string;
     modele?: string;
+    effort?: Effort;
     delegationBudget?: DelegationBudget;
     relecture: boolean;
     workspace: Workspace;
@@ -399,6 +410,8 @@ export class HiveNodeClient {
   /** Dernière fois que le hub a donné signe de vie (message ou pong). */
   private derniereNouvelle = 0;
   private readonly adapter: AgentAdapter;
+  /** Les efforts sondés au démarrage (`start`) ; vide : aucun déclaré. */
+  private efforts: readonly Effort[] = [];
   private readonly workRoot: string;
   /**
    * Où les ponts de délégation de ce nœud ouvrent leurs sockets : un dossier
@@ -457,7 +470,23 @@ export class HiveNodeClient {
     this.closed = false;
     this.warnIfInsecureTransport();
     this.preparerRendezVous();
-    this.connect();
+    // Les efforts se SONDENT avant la première inscription (`claude --help`,
+    // quelques centaines de ms, borné par `STATUT_MAX_MS`) : s'inscrire avant
+    // les annoncerait à la reconnexion suivante seulement. Une sonde qui échoue
+    // n'en déclare aucun — le CLI garde son défaut — et ne retient pas le nœud.
+    const sonde = this.adapter.effortsDocumentes;
+    if (!sonde) {
+      this.connect();
+      return;
+    }
+    void sonde()
+      .then(
+        (efforts) => {
+          this.efforts = efforts;
+        },
+        () => undefined,
+      )
+      .then(() => this.connect());
   }
 
   /**
@@ -861,6 +890,10 @@ export class HiveNodeClient {
         ...(this.opts.modeles && this.opts.modeles.length > 0
           ? { modeles: this.opts.modeles }
           : {}),
+        // Les efforts que le CLI installé DOCUMENTE (sondés au démarrage, jamais
+        // configurés à la main) : redits à chaque inscription, absents quand
+        // l'agent n'en a aucun.
+        ...(this.efforts.length > 0 ? { efforts: [...this.efforts] } : {}),
         // Ce que ce poste porte réellement — des CONSTATS, pas un verdict. Le
         // hub en tire sa conclusion avec son catalogue ; ici on ne fait que
         // rapporter ce qu'on a vu. Absent tant que le diagnostic n'a pas
@@ -872,6 +905,9 @@ export class HiveNodeClient {
         // Le consentement à pousser, dit au hub pour qu'il CHOISISSE un nœud
         // consentant. La garde, elle, reste ici (`runMergeJob`).
         ...(this.pousseLivraisons() ? { pousseLivraisons: true } : {}),
+        // Ce nœud sait cloner la branche d'une PR et prolonger une mission : sans
+        // cette déclaration, le hub ne lui confie aucune reprise (`prolonge`).
+        prolonge: true,
       });
     });
 
@@ -958,6 +994,11 @@ export class HiveNodeClient {
         this.startHeartbeat();
         this.log(`enregistré dans la ruche (nodeId=${msg.nodeId.slice(0, 8)}…)`);
         this.proposerRequisitionCredentialsSiBesoin();
+        try {
+          this.opts.surInscription?.({ ruche: msg.ruche ?? null });
+        } catch (err) {
+          this.log(`signalement réseau : ${err instanceof Error ? err.message : String(err)}`);
+        }
         break;
       case 'assign_task':
         void this.runTask(
@@ -968,6 +1009,8 @@ export class HiveNodeClient {
           msg.delegationBudget,
           msg.relecture === true,
           msg.delegationRootTaskId,
+          msg.effort,
+          msg.prolonger === true,
         );
         break;
       case 'assign_merge':
@@ -1270,6 +1313,8 @@ export class HiveNodeClient {
     delegationBudget?: DelegationBudget,
     relecture = false,
     delegationRootTaskId?: string,
+    effort?: Effort,
+    prolonger = false,
   ): Promise<void> {
     // Défense en profondeur : l'id sert à construire des chemins locaux — on ne
     // fait pas confiance au hub (anti path-traversal si le hub était compromis).
@@ -1344,6 +1389,8 @@ export class HiveNodeClient {
           // Isole le répertoire par nœud : deux drones d'une même course sur une
           // même machine (workRoot partagé) ne se marchent pas dessus.
           this.nodeId ? this.nodeId.slice(0, 8) : '',
+          prolonger,
+          this.adapter.configurationExecutee,
         );
       } catch (err) {
         // Le dépôt ne s'est pas cloné ICI (identifiants de ce nœud, réseau,
@@ -1354,17 +1401,30 @@ export class HiveNodeClient {
         // cite l'URL du dépôt, et part à tout l'écran. La DERNIÈRE ligne :
         // celle où git dit pourquoi (`fatal: …`), dans les 120 caractères
         // d'une raison de refus.
+        //
+        // Même refus quand la configuration d'agent du dépôt n'a pas pu être
+        // écartée (`configuration-inerte.ts`) : l'agent ne tourne pas avec des
+        // hooks à moitié neutralisés, et la raison dit lesquels.
         const brut = err instanceof Error ? err.message : String(err);
         const cause = motifLave(brut.trim().split('\n').at(-1) ?? brut);
+        const raison =
+          err instanceof ConfigurationNonNeutralisable ? cause : `clone impossible : ${cause}`;
         this.send({
           type: 'task_reject',
           taskId: task.id,
-          reason: `clone impossible : ${cause}`.slice(0, LIMITS.name),
+          reason: raison.slice(0, LIMITS.name),
           infra: true,
           avantAgent: true,
         });
-        this.log(`⇄ ${task.title} : clone impossible → réaffectation (${cause})`);
+        this.log(`⇄ ${task.title} : ${raison} → réaffectation`);
         return;
+      }
+      if (workspace.configurationEcartee.length > 0) {
+        this.progresVersHub(
+          task.id,
+          ctrl,
+          caviardeur,
+        )({ log: noteConfigurationEcartee(workspace.configurationEcartee) });
       }
       // Hive Mind : le contexte reçu du hub est préfixé au prompt pour l'agent.
       // On n'altère que la copie transmise à l'adaptateur (chemins/branche du
@@ -1384,6 +1444,8 @@ export class HiveNodeClient {
         // Le modèle choisi par l'Aiguillage, s'il en a envoyé un : l'adaptateur
         // le passera à son CLI (`--model`). Absent ⇒ modèle par défaut de l'agent.
         ...(modele ? { modele } : {}),
+        // L'effort, seulement si l'Aiguillage en a commandé un.
+        ...(effort ? { effort } : {}),
         ...this.optionBacTache(task.id),
         ...(relecture ? { role: 'relecture' as const } : {}),
         delegate: (input) => this.delegationCaviardee(task.id, input, caviardeur),
@@ -1419,6 +1481,7 @@ export class HiveNodeClient {
             repoUrl,
             hiveContext,
             modele,
+            effort,
             delegationBudget,
             relecture,
             workspace,
@@ -1550,6 +1613,7 @@ export class HiveNodeClient {
       task,
       hiveContext,
       modele,
+      effort,
       delegationBudget,
       relecture,
       workspace,
@@ -1609,6 +1673,7 @@ export class HiveNodeClient {
         attempt: task.attempts + 1,
         signal: ctrl.signal,
         ...(modele ? { modele } : {}),
+        ...(effort ? { effort } : {}),
         ...this.optionBacTache(task.id),
         ...(relecture ? { role: 'relecture' as const } : {}),
         delegate: (input) => this.delegationCaviardee(task.id, input, caviardeur),

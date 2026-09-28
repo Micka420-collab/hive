@@ -13,12 +13,19 @@
 // contrainte par la consigne de l'opérateur se lit « forcée par l'opérateur » ;
 // la préférence d'une tâche parente est dite avec ce qu'elle a réellement
 // départagé — souvent rien, et c'est à dire aussi.
+//
+// Depuis la v3, chaque ligne est un BRAS (modèle · harness · effort) avec son
+// intervalle à 95 %, et la décision dit si l'élu l'emporte à δ = 5 % sur tous
+// ses rivaux jugés (« décidé ») ou non (« explore encore ») — un affichage,
+// jamais un arrêt de l'exploration. Le coût déclaré n'a sa colonne que quand
+// il est entré dans les scores, c'est-à-dire quand TOUS les bras en avaient un.
 
 import { useEffect, useState } from 'react';
 import { fetchRoutage } from './api';
+import { ExperienceTache } from './ExperienceTache';
 import { useT } from './i18n';
 import type { HiveNode } from '../../src/shared/types';
-import type { AffectationVue, LigneRaison } from '../../src/shared/routage-vue';
+import type { AffectationVue, DecisionVue, LigneRaison } from '../../src/shared/routage-vue';
 
 interface Props {
   taskId: string;
@@ -28,6 +35,8 @@ interface Props {
 }
 
 const deux = (n: number): string => n.toFixed(2);
+/** Le risque de l'état « décidé » (`DELTA_DECISION` côté Reine), en pourcentage. */
+const DELTA_POURCENT = 5;
 
 export function RoutageTache({ taskId, cle, nodes }: Props) {
   const t = useT();
@@ -58,7 +67,9 @@ export function RoutageTache({ taskId, cle, nodes }: Props) {
     ? {
         nodeId: producteur.nodeId,
         modele: course?.vainqueur?.modele ?? producteur.modele,
+        effort: producteur.effort,
         raisonModele: producteur.raisonModele,
+        decision: producteur.decision,
       }
     : derniere;
 
@@ -90,6 +101,14 @@ export function RoutageTache({ taskId, cle, nodes }: Props) {
         'runs the chosen model — the least loaded of its carriers',
       );
     }
+    // Une ombre du banc : son modèle n'a pas été élu par l'Aiguillage — le
+    // dire « élu » ferait croire que le routing l'a choisi.
+    if (a.critereNoeud === 'porteur_du_modele_ombre') {
+      return t(
+        'porte le modèle de cette ombre, choisi par le banc d’ombre — le moins chargé de ses porteurs',
+        'runs this shadow’s model, picked by the shadow bench — the least loaded of its carriers',
+      );
+    }
     return t('le moins chargé des nœuds éligibles', 'the least loaded eligible node');
   };
 
@@ -106,6 +125,27 @@ export function RoutageTache({ taskId, cle, nodes }: Props) {
     !l.aExplorer && enVol(l) > 0
       ? t(`${l.essais} + ${enVol(l)} en vol`, `${l.essais} + ${enVol(l)} in flight`)
       : String(l.essais);
+  // Le bras : le modèle, et ce qui le distingue d'un frère (harness, effort).
+  // Raison d'avant la v3 : ni l'un ni l'autre n'est connu, le modèle seul.
+  const bras = (l: LigneRaison): string =>
+    [l.modele, l.harness, l.effort ?? (l.harness ? t('effort par défaut', 'default effort') : null)]
+      .filter((x): x is string => typeof x === 'string' && x !== '')
+      .join(' · ');
+  const intervalle = (l: LigneRaison): string =>
+    l.intervalle ? `${deux(l.intervalle.bas)}–${deux(l.intervalle.haut)}` : '—';
+  const decision = (d: DecisionVue): string => {
+    if (d.etat === 'seul') return t('seul bras en lice', 'only arm in the running');
+    return d.etat === 'decide'
+      ? t(
+          `décidé à δ = ${DELTA_POURCENT} % : son intervalle dépasse celui de chaque rival jugé — l’exploration continue quand même`,
+          `decided at δ = ${DELTA_POURCENT}%: its interval clears every judged rival — exploration still goes on`,
+        )
+      : t(
+          'explore encore : un rival n’est pas jugé, ou les intervalles se chevauchent',
+          'still exploring: a rival is unjudged, or the intervals overlap',
+        );
+  };
+  const coutPondere = vue?.decision?.coutPondere === true;
 
   return (
     <section className="routage-panel" aria-labelledby="routage-title" data-testid="routage-tache">
@@ -138,6 +178,12 @@ export function RoutageTache({ taskId, cle, nodes }: Props) {
             <>
               <p data-testid="routage-modele">
                 {t('Modèle', 'Model')} <strong>{vue.modele}</strong>
+                {vue.effort && (
+                  <span data-testid="routage-effort">
+                    {' '}
+                    {t(`à l’effort « ${vue.effort} »`, `at “${vue.effort}” effort`)}
+                  </span>
+                )}
                 {derniere.categorie && (
                   <>
                     {' '}
@@ -151,6 +197,16 @@ export function RoutageTache({ taskId, cle, nodes }: Props) {
                   </span>
                 )}
               </p>
+              {vue.decision && (
+                <p className="muted" data-testid="routage-decision">
+                  {decision(vue.decision)}
+                  {vue.decision.coutPondere &&
+                    t(
+                      ' · coût déclaré pris en compte (tous les bras en déclarent un)',
+                      ' · declared cost weighed in (every arm declares one)',
+                    )}
+                </p>
+              )}
               {vue.raisonModele.length > 0 && (
                 <table
                   className="routage-rang"
@@ -161,14 +217,19 @@ export function RoutageTache({ taskId, cle, nodes }: Props) {
                       <th>{t('Modèle', 'Model')}</th>
                       <th>{t('Essais', 'Trials')}</th>
                       <th>{t('Moyenne', 'Mean')}</th>
+                      <th>{t('IC 95 %', '95% CI')}</th>
+                      {coutPondere && <th>{t('Coût déclaré', 'Declared cost')}</th>}
                       <th>{t('Score', 'Score')}</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {vue.raisonModele.map((l) => (
-                      <tr key={l.modele} className={l.modele === vue.modele ? 'elu' : undefined}>
+                    {vue.raisonModele.map((l, i) => (
+                      // Le premier est l'élu : le classement est trié (préférence
+                      // du parent comprise). Plusieurs bras partagent un modèle,
+                      // le nom ne suffit plus.
+                      <tr key={bras(l)} className={i === 0 ? 'elu' : undefined}>
                         <td>
-                          {l.modele}
+                          {bras(l)}
                           {l.preferee && (
                             <span className="muted">
                               {' '}
@@ -178,6 +239,8 @@ export function RoutageTache({ taskId, cle, nodes }: Props) {
                         </td>
                         <td>{essais(l)}</td>
                         <td>{l.moyenne === null ? '—' : deux(l.moyenne)}</td>
+                        <td data-testid="routage-intervalle">{intervalle(l)}</td>
+                        {coutPondere && <td>{l.cout === null ? '—' : `$${l.cout.toFixed(3)}`}</td>}
                         <td>{score(l)}</td>
                       </tr>
                     ))}
@@ -242,6 +305,7 @@ export function RoutageTache({ taskId, cle, nodes }: Props) {
               )}
             </p>
           )}
+          {derniere.experience && <ExperienceTache experience={derniere.experience} />}
         </>
       )}
     </section>

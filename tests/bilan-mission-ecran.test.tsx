@@ -252,6 +252,7 @@ describe('le rapport de mission', () => {
         jetonsSortie: 'inconnu',
         modelesExacts: [],
       },
+      ombre: { provenance: 'shadow', lignes: [], comparaisons: [], total: 0 },
       fenetre: { evenements: 0, depuis: null, tronquee: false },
     },
     fenetre: { evenements: 8, depuis: 1, tronquee: true },

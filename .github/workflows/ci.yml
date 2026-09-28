@@ -86,6 +86,15 @@ on:
         required: false
         default: ''
 
+# ─── LE JETON DE LA CI NE FAIT QUE LIRE ──────────────────────────────────────
+#
+# Aucun travail ne pousse, ne commente, ne publie ni n'étiquette : l'image se
+# construit sans être poussée, la montée lit les étiquettes. Le jeton reçoit
+# donc la lecture du dépôt et rien d'autre — une étape compromise (une
+# dépendance d'`npm ci`) n'hérite d'aucun droit d'écriture.
+permissions:
+  contents: read
+
 # ─── LA VERSION DE NODE, DÉCLARÉE UNE SEULE FOIS ─────────────────────────────
 #
 # `NODE_MINIMUM` vaut 24 dans `src/shared/doctor.ts`, et la CI doit tourner sur

@@ -539,8 +539,10 @@ export async function reprendreIdentite(
  * décidé au démarrage (préflight compris), et le moteur quand il y en a un.
  *
  * C'est une déclaration pour l'AFFICHAGE (Mission Control, preuve V2 Alpha) —
- * le hub n'en fait jamais un critère d'assignation. Un nœud non isolé se dit
- * `processus` : cwd et environnement épurés, rien de plus, et l'écran le dit.
+ * le hub n'en fait jamais un privilège ; sa seule lecture est une RESTRICTION :
+ * une ombre du banc ne part que chez un nœud `conteneur` (`bacIsole`,
+ * orchestrator/shadow-bench.ts). Un nœud non isolé se dit `processus` : cwd
+ * et environnement épurés, rien de plus, et l'écran le dit.
  */
 export function isolementDeclareDe(bac: Bac): IsolementDeclare {
   if (bacActif(bac)) {

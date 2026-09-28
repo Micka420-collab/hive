@@ -14,7 +14,7 @@ import { randomUUID, timingSafeEqual } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { WebSocketServer } from 'ws';
+import { WebSocketServer, WebSocket as WsClient } from 'ws';
 import type { WebSocket } from 'ws';
 import type { IncomingMessage } from 'node:http';
 import {
@@ -25,13 +25,23 @@ import {
   isValidEmail,
   secretJwtDepuisEnv,
 } from './auth.js';
-import { shellForce } from '../shared/agent-production.js';
+import { DecouverteReseau, adresseReineVers, livrerOffre } from './decouverte-reseau.js';
+import type { IssueLivraison } from './decouverte-reseau.js';
+import { TTL_OFFRE_MS, normaliserCode, scellerOffre } from '../shared/decouverte.js';
+import { formaterEmpreinte, tirerEmpreinte } from '../shared/empreinte-ruche.js';
+import { ouvrirTransportUdp } from '../shared/mdns-reseau.js';
+import type { TransportMdns } from '../shared/mdns-reseau.js';
+import { assignationProductionAutorisee, shellForce } from '../shared/agent-production.js';
 import { calibrer, estimerDuree, resteEstime } from '../shared/horloge-chantier.js';
 import type { Calibration } from '../shared/horloge-chantier.js';
 import { encodeInvite, isWsUrl } from '../shared/invite.js';
 import { inviteInjoignable } from '../shared/joignable.js';
 import { portDepuisEnv } from '../shared/port.js';
-import { gardiennesDepuisEnv } from '../shared/reglages.js';
+import {
+  gardiennesDepuisEnv,
+  porteeExperienceDepuisEnv,
+  type PorteeExperience,
+} from '../shared/reglages.js';
 import { editionDepuisEnv, secretWebhookExige } from '../shared/edition.js';
 import type { Edition } from '../shared/edition.js';
 import {
@@ -95,6 +105,25 @@ import {
   TYPES_REGISTRE_GENOME,
 } from '../shared/registre-genome.js';
 import { payloadDeBilan, type PolitiqueJournal } from '../shared/retention-journal.js';
+import {
+  blocExperience,
+  cibleDeTache,
+  compterExperience,
+  contextesSimilaires,
+  GENRES_NOEUD,
+  listerExperience,
+  projeterGrapheExperience,
+  TYPES_GRAPHE_EXPERIENCE,
+  voisinageExperience,
+} from '../shared/graphe-experience.js';
+import type {
+  ContexteSimilaire,
+  GenreNoeud,
+  GrapheExperience,
+  InfoTache,
+  PorteeGraphe,
+  SourcesGraphe,
+} from '../shared/graphe-experience.js';
 import { lireConfianceProxy, type ConfianceProxy } from '../shared/proxy-confiance.js';
 import {
   ouvertAuJetonDeRuche,
@@ -108,7 +137,9 @@ import {
 } from '../shared/acces-projet.js';
 import {
   CONSENTEMENT_POUSSEE,
+  NUMERO_MAX_MISSION,
   PREFIXE_BRANCHE_MISSION,
+  brancheDeMission,
   numeroSuivant,
 } from '../shared/livraison-locale.js';
 import type { ProvenanceTache, RapportLivraisonLocale } from '../shared/livraison-locale.js';
@@ -152,6 +183,7 @@ import type {
 import { RefusDemarrage, direManques, manquesDeDemarrage } from '../shared/amorce.js';
 import { DEFAULT_TOKEN } from '../shared/types.js';
 import type { HiveEvent, HiveNode, Project, Task } from '../shared/types.js';
+import type { Effort } from '../shared/effort.js';
 import { CORPUS_BALANCE, estimerCout, peserLaRuche, VERSION_BALANCE } from './balance.js';
 import type { CompteTache, Devis, Pesee } from './balance.js';
 import { blocCritique, bornerCritique, leconsDesEchecs } from './brood.js';
@@ -185,8 +217,31 @@ import {
   livrer,
   nomBranche,
 } from './livraison.js';
+import {
+  comparaisonDuRejeu,
+  creerRejeu,
+  creerSuiviMissions,
+  lireInstantaneBrut,
+  MISSIONS_PAR_PROJET,
+  porteIrreversible,
+  resumeDeMission,
+} from './missions.js';
+import {
+  MAX_NOM_MODELE,
+  POLITIQUES_ROUTAGE,
+  validerSurcharges,
+} from '../shared/mission-rejouable.js';
+import type { GenreIrreversible } from '../shared/mission-rejouable.js';
 import { briefDeIssue, motifRefus, recevable } from '../shared/issue.js';
-import { briefDeRetour, demandeDuTravail, direEtat, etatLivraison } from '../shared/retour.js';
+import {
+  CONSEIL_CONFLIT,
+  MAX_REPRISES_PAR_LIVRAISON,
+  briefDeRetour,
+  demandeDuTravail,
+  direEtat,
+  etatLivraison,
+  reprenableSurLaBranche,
+} from '../shared/retour.js';
 import type { EtatLivraison, FaitsPr } from '../shared/retour.js';
 import { ErreurRustine, analyserRustine, cheminsDe } from './rustine.js';
 import {
@@ -219,10 +274,21 @@ import {
   verifierSignature,
 } from './abonnement.js';
 import type { Abonnement, EtatAbonnement } from './abonnement.js';
-import { categoriser, type Categorie } from './aiguillage.js';
+import { antecedentsDuVecu, categoriser, type Categorie } from './aiguillage.js';
 import { budgetCoutEpuise, reserveRacine } from './delegation.js';
 import { LIMITES_DELEGATION_DEFAUT } from '../shared/limites-delegation.js';
 import { lireConsigneRoutage, type ConsigneRoutage } from '../shared/consigne-routage.js';
+import {
+  BORNES_REGLAGE,
+  FENETRE_BUDGET_MS,
+  REGLAGE_PROPOSE,
+  TAUX_DEFAUT_POUR_MILLE,
+  arretBudget,
+  bacIsole,
+  echantillonnee,
+  jugerAdmissionOmbre,
+} from './shadow-bench.js';
+import type { RevueCote } from './shadow-bench.js';
 import { evenementDepuisStripe } from './nuage.js';
 import {
   ETATS as ETATS_SERVEUR,
@@ -279,6 +345,26 @@ import {
   validerSecretRequisition,
 } from './requisition-env.js';
 import { nomEnvDepuisLibelle } from '../shared/nom-env.js';
+import {
+  listerDefinitions as listerConnecteurs,
+  definitionConnecteur,
+} from '../connectors/registre.js';
+import {
+  validerPorteesDemandees,
+  expliquerRefusPortee,
+  type EvenementConnecteur,
+  type EvenementConnecteurKind,
+  type LiaisonApprobation,
+} from '../connectors/contrat.js';
+import { HubConnecteurs, type ResultatRevueConnecteur } from './connecteurs.js';
+import { ENV_WEBHOOK_URL, urlWebhookValide } from '../connectors/webhook/definition.js';
+import {
+  ENV_SLACK_CANAUX,
+  ID_SLACK_MOTIF,
+  canauxDeLaRuche,
+} from '../connectors/slack/definition.js';
+import type { SlackFetch, WsFactory, WsLike } from '../connectors/slack/client.js';
+import type { FetchLike } from '../connectors/webhook/envoi.js';
 import { conseilVeilleBrief } from './queen-veille.js';
 import {
   CORPUS_GARDIENNES,
@@ -315,6 +401,7 @@ import {
   effacerEpisodesDuProjet,
   elaguer,
   enregistrerEpisode,
+  idEpisode,
   lire,
   pourLaTache,
 } from '../cerveau-reel.js';
@@ -357,8 +444,8 @@ import { computePulse } from './pulse.js';
 import { buildTimeline } from './replay.js';
 import { detectConflicts } from './sting-detector.js';
 import { Scheduler } from './scheduler.js';
-import { ETAT_LIVRAISON_EN_COURS, HiveStore } from './store.js';
-import type { SessionRangee } from './store.js';
+import { ETAT_LIVRAISON_EN_COURS, ETAT_LIVRAISON_RELAYEE, HiveStore } from './store.js';
+import type { LivraisonRangee, RepriseLivraison, SessionRangee } from './store.js';
 import { direArretBrutal, prendreVerrouReine } from './verrou-reine.js';
 import type { VerrouReine } from './verrou-reine.js';
 import {
@@ -534,6 +621,29 @@ export const PRESENCES_RETENTION_MS = 60 * 60_000;
  */
 export const REQUISITIONS_RETENTION_MS = 30 * 24 * 60 * 60_000;
 
+/**
+ * Journal des connecteurs externes : 90 jours. Une trace d'audit d'appels
+ * extérieurs (qui a approuvé quoi, quel webhook a été poussé) doit survivre
+ * assez longtemps pour répondre « que s'est-il passé la semaine dernière ? »,
+ * mais elle GROSSIT SOUS LA MACHINE (une ligne par appel) : elle a donc sa
+ * borne, comme les événements et l'horizon.
+ */
+export const CONNECTEURS_JOURNAL_RETENTION_MS = 90 * 24 * 60 * 60_000;
+
+/** Les seuls événements internes qui deviennent un fait pour les connecteurs. */
+/**
+ * L'écart minimal entre deux tests d'un même connecteur sur un même projet :
+ * chaque test poste pour de vrai (un canal Slack que d'autres lisent, le
+ * récepteur d'un webhook), et un bouton martelé n'a pas à les inonder.
+ */
+export const INTERVALLE_TEST_CONNECTEUR_MS = 10_000;
+const TYPES_RELAYES_CONNECTEURS: ReadonlySet<string> = new Set([
+  'task_done',
+  'task_reviewed',
+  'task_failed',
+  'delivery_merged',
+]);
+
 /** Horizon ledger — faits/hypothèses datés ; élagage comme le journal. */
 export const HORIZON_RETENTION_MS = 90 * 24 * 60 * 60_000;
 
@@ -663,6 +773,14 @@ const RETENTION_JOURNAL_LOT = 500;
 const RETENTION_JOURNAL_PERIODE_MS = 60 * 60_000;
 
 /**
+ * Les comparaisons du banc d'ombre que le registre Genome replie à chaque
+ * lecture. Bien au-delà de ce que 30 jours de banc produisent au budget
+ * maximal d'un projet (50 ombres/jour × 30 = 1 500) : la borne protège la
+ * lecture d'une ruche à nombreux projets, pas la mesure d'un seul.
+ */
+const COMPARAISONS_OMBRE_LUES = 5_000;
+
+/**
  * Livraisons dont on va lire les faits en une fois.
  *
  * BORNE DE COURTOISIE, et elle protège l'hôte plus que GitHub : chaque
@@ -784,6 +902,26 @@ const BUDGET_CERVEAU = 3_000;
  * ligne et une note humaine y tiennent ; au-delà, la queue tombe.
  */
 export const BUDGET_CRITIQUE = 2_000;
+/**
+ * Ce que le graphe d'expérience peut prendre du contexte (`blocExperience`,
+ * shared/graphe-experience.ts) : trois contextes similaires d'une ligne JSON
+ * chacun. Servi AVANT Hive Mind — voir `construireHiveContext` — et c'est
+ * pourquoi il est petit : il ne doit pas affamer les souvenirs, seulement
+ * passer devant eux.
+ */
+const BUDGET_EXPERIENCE = 1_200;
+/** Contextes similaires joints à une ouvrière, au plus. */
+const SIMILAIRES_MAX = 3;
+/**
+ * Durée de vie de la projection du graphe d'expérience. Même raisonnement que
+ * `GARDIENNES_TTL_MS` : chaque affectation la consulte, et la relire du
+ * journal à chaque fois coûterait une lecture de 5 000 événements par tâche
+ * confiée. L'expérience des AUTRES tâches peut avoir trois secondes de retard ;
+ * celle de la tâche elle-même est relue fraîche (`experienceDe`).
+ */
+const GRAPHE_TTL_MS = 3_000;
+/** Nœuds d'une liste, et arêtes d'un voisinage, rendus par la route au plus. */
+const GRAPHE_LISTE_MAX = 200;
 /**
  * La raison qu'un humain peut joindre à son verdict de revue. Elle part telle
  * quelle dans le contexte de la correction : bornée comme ce qu'elle nourrit
@@ -908,6 +1046,35 @@ export interface ServerConfig {
   edition?: Edition;
   /** Fetcher GitHub injectable pour les intégrations et bancs hors réseau. */
   githubFetcher?: Fetcheur;
+  /**
+   * Les I/O des connecteurs externes (défaut : `fetch` global et `ws`). Point
+   * d'injection pour qu'un banc pilote un FAUX Slack (API + Socket Mode) à
+   * travers la VRAIE Reine : sans lui, le seul chemin par lequel Slack change
+   * la ruche — un clic qui rejoint la revue humaine — n'était éprouvé que
+   * derrière un rappel bouchonné, et retirer ses gardes laissait la CI verte.
+   */
+  connecteurs?: { fetchSlack?: SlackFetch; fetchWebhook?: FetchLike; wsFactory?: WsFactory };
+  /**
+   * HIVE_EXPERIENCE_PORTEE : projet | ruche. D'où l'ouvrière d'un projet reçoit
+   * l'expérience des tâches voisines (`shared/graphe-experience.ts`). Défaut
+   * `projet` — l'isolement ; la fédération est une décision de l'hôte
+   * (`shared/reglages.ts`). Optionnel, comme les autres réglages.
+   */
+  porteeExperience?: PorteeExperience;
+  /**
+   * La découverte du réseau local (`HIVE_DECOUVERTE=1`) : la Reine écoute les
+   * machines qui se signalent en mDNS et le tableau de bord les propose à
+   * « Rejoindre ». ABSENT, elle n'écoute rien — c'est le défaut.
+   *
+   * `ouvrirTransport` : la prise mDNS. Défaut, la vraie (UDP 5353, toutes les
+   * interfaces). C'est le point où un banc branche un bus en mémoire, comme
+   * `fournisseurServeurs` pour les machines.
+   */
+  decouverte?: {
+    ouvrirTransport?: () => Promise<TransportMdns>;
+    /** Le segment cru (`OptionsDecouverte.segment`) ; bancs sur la boucle seulement. */
+    segment?: (source: string) => string | null;
+  };
 }
 
 /**
@@ -962,7 +1129,11 @@ export function loadConfigFromEnv(env: NodeJS.ProcessEnv = process.env): ServerC
         ? env.HIVE_POLYETHISME
         : 'consignes',
     edition: editionDepuisEnv(env),
+    porteeExperience: porteeExperienceDepuisEnv(env),
     ...(env.HIVE_PUBLIC_URL ? { publicUrl: env.HIVE_PUBLIC_URL } : {}),
+    // Opt-in STRICT : seul « 1 » l'allume. Écouter le réseau local est un
+    // choix de l'hôte, jamais l'effet d'une valeur mal tapée.
+    ...(env.HIVE_DECOUVERTE === '1' ? { decouverte: {} } : {}),
   };
 }
 
@@ -1087,6 +1258,10 @@ async function monterReine(
   verrou: VerrouReine | null,
 ): Promise<HiveServer> {
   const edition = config.edition ?? 'community';
+  // L'empreinte PUBLIQUE de la ruche — tirée une fois, rangée dans la base,
+  // jamais dérivée d'un secret (`shared/empreinte-ruche.ts` dit pourquoi).
+  // Lue une fois ici : elle ne change pas de la vie de la base.
+  const empreinteRuche = store.empreinteRuche(tirerEmpreinte);
   const cheminEnvQueen = config.envPath ?? path.join(process.cwd(), '.env');
 
   const contexteProjetAvecHorizon = (projectId: string, projet: Project): string => {
@@ -1138,6 +1313,10 @@ async function monterReine(
   // Les nœuds dont l'opérateur a consenti à POUSSER les branches de mission
   // (`register.pousseLivraisons`). Sert à choisir — la garde reste au nœud.
   const nodesQuiPoussent = new Set<string>();
+  // Les nœuds qui savent PROLONGER une livraison (`register.prolonge`) : seuls
+  // eux reçoivent une reprise ou une suite de mission — un nœud plus ancien
+  // perdrait `prolonger` et travaillerait loin de la branche de la PR.
+  const nodesQuiProlongent = new Set<string>();
   /** Chantiers partis vers un nœud et pas encore rendus. */
   const pendingChantiers = new Map<
     string,
@@ -1220,12 +1399,34 @@ async function monterReine(
     diffuser(JSON.stringify(event));
   };
 
+  // Relais vers les connecteurs externes, câblé plus bas une fois le hub prêt
+  // (il dépend de l'évaluateur et du scheduler, définis après). Avant ça, un
+  // no-op : les tout premiers événements du démarrage n'ont aucun connecteur à
+  // prévenir, et un connecteur dormant (défaut) ne fait rien de toute façon.
+  let relayerConnecteurs: (event: HiveEvent) => void = () => {};
+
   /** Événement émis par le serveur lui-même (création de projet/tâches). */
   const emitEvent = (type: string, payload: Record<string, unknown>): void => {
     const event = store.appendEvent(type, payload);
     broadcastEvent({ type: 'event', event });
+    relayerConnecteurs(event);
     stateDirty = true;
+    suiviMissions.suivre(event);
   };
+
+  /**
+   * Les missions rejouables (`missions.ts`) : le suivi écoute LES DEUX flux —
+   * celui du serveur, ci-dessus, et celui de l'ordonnanceur (`onEvent`) — parce
+   * que les naissances et les issues de tâches passent par l'un OU l'autre.
+   * Il ne fait que lire et programmer : jamais d'écriture depuis l'intérieur
+   * d'une transaction de résultat.
+   */
+  const suiviMissions = creerSuiviMissions({
+    store,
+    emitEvent,
+    signaler: (err) =>
+      app.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'mission'),
+  });
 
   /**
    * Relit le journal après l'id `depuis`, par pages de 1 000 (le plafond du
@@ -1295,9 +1496,12 @@ async function monterReine(
     // la seule manière de ne pas rattacher une relecture tardive à une
     // tentative plus récente de la même tâche.
     const resultId = store.resultsForTask(taskId).at(-1)?.resultId;
-    // Le modèle doit voyager avec le resultId : une correction peut
-    // réaffecter la même tâche avant le retour d'une contre-revue tardive.
-    const producteurModele = store.modeleAiguillageDe(taskId);
+    // Le BRAS doit voyager avec le resultId : une correction peut réaffecter
+    // la même tâche avant le retour d'une contre-revue tardive, et
+    // `aiguillage_bras` décrit alors la tentative suivante (son harness, son
+    // effort, son coût). Figé ici, à l'instant où le résultat relu est le
+    // courant, le verdict tardif juge ce qui a PRODUIT.
+    const preuve = preuveDuProducteur(taskId);
 
     const choix = choisirCritiques(production, candidatsRelecture());
 
@@ -1309,7 +1513,7 @@ async function monterReine(
       emitEvent('contre_expertise', {
         taskId,
         ...(resultId !== undefined ? { resultId } : {}),
-        ...(producteurModele ? { producteurModele } : {}),
+        ...preuve,
         possible: false,
         producteur: production.agentType,
         motif: choix.motif,
@@ -1319,10 +1523,170 @@ async function monterReine(
 
     lancerRelectures(production, projectId, choix.relecteurs, {
       ...(resultId !== undefined ? { resultId } : {}),
-      ...(producteurModele ? { producteurModele } : {}),
+      ...preuve,
     });
     // APRÈS l'annonce : le lancement précède l'assignation dans le journal, et
     // `eventForRelecture` le retrouve pour toute relecture déjà en vol.
+    scheduler.tick();
+  };
+
+  /**
+   * La preuve de ce qui a produit le résultat courant de `taskId` : le modèle
+   * et le reste du bras commandés (`aiguillage_bras`), coût déclaré compris.
+   * Chaque champ absent reste absent — jamais un harness, un effort ou un coût
+   * supposé.
+   */
+  function preuveDuProducteur(taskId: string): Record<string, string | number> {
+    const producteurModele = store.modeleAiguillageDe(taskId);
+    const bras = store.brasAiguillageDe(taskId);
+    return {
+      ...(producteurModele ? { producteurModele } : {}),
+      ...(bras ? { producteurHarness: bras.harness } : {}),
+      ...(bras?.effort ? { producteurEffort: bras.effort } : {}),
+      ...(bras?.coutUsd !== null && bras?.coutUsd !== undefined
+        ? { producteurCoutUsd: bras.coutUsd }
+        : {}),
+    };
+  }
+
+  /**
+   * La même preuve, RELAYÉE d'une annonce à la suivante (secours, verdict) :
+   * seuls les champs de preuve, et seulement bien typés.
+   */
+  function preuveRelayee(payload: Record<string, unknown> | undefined): Record<string, unknown> {
+    const preuve: Record<string, unknown> = {};
+    for (const champ of ['producteurModele', 'producteurHarness', 'producteurEffort'] as const) {
+      if (typeof payload?.[champ] === 'string') preuve[champ] = payload[champ];
+    }
+    if (typeof payload?.producteurCoutUsd === 'number') {
+      preuve.producteurCoutUsd = payload.producteurCoutUsd;
+    }
+    return preuve;
+  }
+
+  /**
+   * Le banc d'ombre (shadow-bench.ts) : cette PREMIÈRE production d'une tâche
+   * ouvre-t-elle une ombre — la même tâche, rejouée par un second modèle, qui
+   * ne se livrera jamais ?
+   *
+   * ─── CE QUI SE DIT, ET CE QUI SE TAIT ─────────────────────────────────────
+   *
+   * Banc éteint, ou tâche hors échantillon : silence, et c'est voulu — c'est
+   * l'immense majorité des tâches, et un fait par tâche noierait le journal
+   * que tout le reste relit. Une tâche TIRÉE au sort puis écartée, elle, le
+   * dit (`shadow_bench_skipped`, avec son motif) : sans ce fait, un banc qui
+   * n'admet jamais rien se confondrait avec un banc éteint.
+   *
+   * La PREMIÈRE production seulement : le banc compare un premier essai à un
+   * premier essai. Une reprise a lu la critique ou les leçons de la
+   * précédente, l'ombre partirait sans — ce ne serait plus la même tâche.
+   */
+  /**
+   * L'avis de la contre-revue sur UN résultat exact, résumé pour le banc :
+   * une objection suffit à le dire contesté (`comparerOmbre` n'en tire que
+   * la confiance, jamais le verdict).
+   */
+  const revueDuResultat = (taskId: string, resultId: number): RevueCote => {
+    const resume = store.crossReviewForResult(taskId, resultId);
+    if (!resume || resume.reviewerCount === 0) return 'absente';
+    return resume.contestingReviewers > 0 ? 'contestee' : 'validee';
+  };
+
+  const envisagerOmbre = (taskId: string, now = Date.now()): void => {
+    const task = store.getTask(taskId);
+    if (!task) return;
+    const reglage = store.getBancOmbre(task.projectId);
+    if (!reglage?.actif || !echantillonnee(task.id, reglage.tauxPourMille)) return;
+    const resultats = store.resultsForTask(task.id);
+    const premiere = resultats[0];
+    if (resultats.length !== 1 || premiere?.resultId === undefined) return;
+    if (store.ombreDeOriginale(task.id)) return;
+    const preuve = store.latestValidation(task.id, premiere.resultId);
+    const { ajouts, suppressions } = compterLignes(premiere.diff);
+    const categorie = categoriser(task.title, task.prompt);
+    // L'offre de modèles, comptée comme l'assignation la compte : une
+    // ouvrière en ligne autorisée à produire, avec les MÊMES deux trappes de
+    // démonstration que l'ordonnanceur (voir sa construction). Le
+    // planificateur n'épinglera l'ombre que chez une ouvrière isolée qui
+    // déclare son modèle.
+    const producteurs = store.listNodes().filter(
+      (n) =>
+        n.status === 'online' &&
+        assignationProductionAutorisee(n.agentType, {
+          simulation: config.simulation || shellForce(process.env),
+        }),
+    );
+    const admission = jugerAdmissionOmbre({
+      titre: task.title,
+      prompt: task.prompt,
+      categorie,
+      tests: preuve?.validation.tests ?? null,
+      lignesModifiees: ajouts + suppressions,
+      fichiersTouches: fichiersTouches(premiere.diff).length,
+      dureeMs: premiere.durationMs,
+      delegation:
+        store.getDelegation(task.id) !== null || store.listDelegationGraph(task.id).length > 1,
+      modeleOriginal: store.modeleAiguillageDe(task.id),
+      reglage,
+      usage: store.usageBancOmbre(task.projectId, now - FENETRE_BUDGET_MS),
+      // Seules les ouvrières isolées (`bacIsole`) portent une ombre ; les
+      // autres ne servent qu'à dire POURQUOI le banc n'admet rien.
+      modelesOfferts: producteurs.filter(bacIsole).flatMap((n) => n.modeles ?? []),
+      modelesHorsBac: producteurs.filter((n) => !bacIsole(n)).flatMap((n) => n.modeles ?? []),
+      antecedents: antecedentsDuVecu(
+        store.observationsAiguillage(),
+        store.electionsEnVolAiguillage(),
+      ),
+    });
+    if (!admission.admise) {
+      emitEvent('shadow_bench_skipped', {
+        taskId: task.id,
+        projectId: task.projectId,
+        resultId: premiere.resultId,
+        motif: admission.motif,
+      });
+      return;
+    }
+    const base =
+      preuve?.provenance.source === 'hive_sandbox' ? (preuve.provenance.baseSha ?? null) : null;
+    // Le côté ORIGINAL est rangé avec le lien, au moment où il est connu : le
+    // registre Genome compare depuis `taches_ombre`, sans avoir à retrouver
+    // une validation que l'élagage du journal aurait déjà emportée.
+    const ombre = store.creerTacheOmbre(
+      {
+        original: task,
+        // Le titre DIT l'ombre, partout où une tâche s'affiche ; l'agent, lui,
+        // reçoit le prompt tel quel. « Ombre » ne contient aucun mot de
+        // `categoriser` : le genre reste celui de l'originale.
+        titre: `Ombre — ${champSurUneLigne(task.title, 120)}`,
+        categorie,
+        modeleOriginal: admission.modeleOriginal,
+        modeleOmbre: admission.modeleOmbre,
+        coteOriginal: {
+          resultId: premiere.resultId,
+          succes: premiere.success,
+          tests: preuve?.validation.tests ?? null,
+          baseSha: base,
+          revue: revueDuResultat(task.id, premiere.resultId),
+        },
+      },
+      now,
+    );
+    emitEvent('shadow_bench_started', {
+      taskId: ombre.tacheOmbre,
+      tacheOriginale: task.id,
+      projectId: task.projectId,
+      provenance: 'shadow',
+      categorie,
+      modeleOmbre: ombre.modeleOmbre,
+      original: {
+        resultId: premiere.resultId,
+        modele: ombre.modeleOriginal,
+        succes: premiere.success,
+        tests: preuve?.validation.tests ?? null,
+        ...(base ? { baseSha: base } : {}),
+      },
+    });
     scheduler.tick();
   };
 
@@ -1653,10 +2017,9 @@ async function monterReine(
           )
         : null;
     if (suite.genre === 'secours' && ouverture) {
-      const producteurModele = store.eventForRelecture(relectureTaskId)?.payload.producteurModele;
       lancerRelectures(ouverture.production, ouverture.projectId, [suite.relecteur], {
         resultId,
-        ...(typeof producteurModele === 'string' ? { producteurModele } : {}),
+        ...preuveRelayee(store.eventForRelecture(relectureTaskId)?.payload),
         secours: true,
         relaie: relectureTaskId,
       });
@@ -1719,9 +2082,7 @@ async function monterReine(
       source: 'hive_counter_review',
       taskId: lien.productionTaskId,
       ...(exactResultId !== undefined ? { resultId: exactResultId } : {}),
-      ...(typeof lancement?.payload.producteurModele === 'string'
-        ? { producteurModele: lancement.payload.producteurModele }
-        : {}),
+      ...preuveRelayee(lancement?.payload),
       relecture: relectureTaskId,
       relecteur: auteur.agentType,
       reviewerNodeId: auteur.id,
@@ -1747,6 +2108,16 @@ async function monterReine(
       visiteurNodeId: auteur.id,
       visiteurAgent: auteur.agentType,
     });
+    // Le banc d'ombre range l'avis avec sa comparaison, s'il juge l'un de ses
+    // deux côtés (sinon : aucune ligne touchée) — la confiance ne doit pas
+    // dépendre d'un événement que l'élagage du journal emportera.
+    if (exactResultId !== undefined) {
+      store.consignerRevueOmbre(
+        lien.productionTaskId,
+        exactResultId,
+        revueDuResultat(lien.productionTaskId, exactResultId),
+      );
+    }
 
     // ─── UNE OBJECTION EST UN ÉCHEC, ET LE CERVEAU L'APPREND ─────────────────
     //
@@ -1799,15 +2170,65 @@ async function monterReine(
   };
 
   /**
+   * LA RÈGLE, UNE SEULE FOIS : le savoir qu'un projet SOURCE a appris —
+   * épisodes du Cerveau, souvenirs du Hive Mind — entre dans une tâche du
+   * projet CIBLE quand :
+   *
+   *   · c'est le même projet ;
+   *   · la source est PUBLIQUE ;
+   *   · les deux ont le MÊME compte propriétaire (non nul), ou aucun des deux
+   *     n'en a (la ruche au seul jeton, une personne seule et ses projets) —
+   *     ET chaque membre de la cible est ce propriétaire ou membre de la
+   *     source. Sans aucun membre, le chemin solo, la condition est vide.
+   *
+   * Sinon, refusé : propriétaires différents, ou l'un possédé et l'autre non.
+   * La cloison protège entre PERSONNES, pas entre les projets d'une même
+   * personne — les isoler tous (#527, « privé = île ») retirait en silence, sur
+   * le chemin solo par défaut, ce qu'un projet apprend à ses voisins. Mais
+   * une tâche est une REQUÊTE : son titre et son prompt choisissent les
+   * souvenirs servis, et sa sortie se relit. Un membre invité dans UN projet
+   * d'Alice fouillerait donc tous les autres (revue de #529). D'où la seconde
+   * moitié de la règle : le savoir d'un projet d'Alice ne coule que vers un
+   * projet dont l'auditoire est inclus dans le sien (`auditoireInclus`) — du
+   * projet partagé vers le privé, oui ; du privé vers le partagé, non. Entre
+   * projets sans propriétaire, de même : un compte membre d'un seul d'entre eux
+   * ne fouille pas les autres. Être
+   * membre n'élargit jamais rien. Un projet source introuvable (supprimé sans
+   * que son savoir parte) est écarté.
+   *
+   * Rend le filtre d'UNE tâche de `projectId`, lu sur le projet source ; chaque
+   * source n'est jugée qu'une fois par sélection. Le projet n'entre jamais dans
+   * le prompt : il ne sert qu'à choisir.
+   */
+  const projetPublic = (projectId: string): boolean =>
+    store.getProject(projectId)?.visibility === 'public';
+  const savoirAdmis = (projectId: string): ((source: string) => boolean) => {
+    const cible = store.getProject(projectId);
+    const verdicts = new Map<string, boolean>();
+    return (source) => {
+      if (source === projectId) return true;
+      let admis = verdicts.get(source);
+      if (admis === undefined) {
+        const s = store.getProject(source);
+        admis =
+          s !== undefined &&
+          (s.visibility === 'public' ||
+            (cible !== undefined &&
+              s.ownerId === cible.ownerId &&
+              store.auditoireInclus(projectId, source, s.ownerId)));
+        verdicts.set(source, admis);
+      }
+      return admis;
+    };
+  };
+
+  /**
    * Un épisode du Cerveau peut-il être servi à une tâche de `projectId` ?
    *
    * Un épisode porte les mots d'un échec — objections d'un relecteur, rejet de
-   * l'Evaluator (jusqu'à 800 caractères), titre de la tâche. Né d'un projet
-   * PRIVÉ, il ne sert qu'aux tâches de CE projet (#527) ; né d'un projet
-   * public, il sert à toute la ruche. Le projet source se lit dans l'en-tête
-   * (`origine.projectId`) ; un épisode écrit avant lui se rattache par sa tâche
-   * tant qu'elle existe. Un projet source introuvable (supprimé sans que son
-   * épisode parte) n'est pas public : écarté.
+   * l'Evaluator (jusqu'à 800 caractères), titre de la tâche. Il suit
+   * `savoirAdmis`. Le projet source se lit dans l'en-tête (`origine.projectId`) ;
+   * un épisode écrit avant lui se rattache par sa tâche tant qu'elle existe.
    *
    * COMPROMIS NOMMÉ : un épisode écrit avant l'en-tête ET dont la tâche est
    * élaguée ne se rattache plus à rien — il reste servi à toute la ruche, comme
@@ -1815,18 +2236,12 @@ async function monterReine(
    * savoir de la ruche, jamais filtrées.
    */
   const episodeAdmis = (projectId: string): ((note: Note) => boolean) => {
-    const publics = new Map<string, boolean>();
+    const admis = savoirAdmis(projectId);
     return (note) => {
       const o = note.origine;
       if (note.genre !== 'episode' || o === undefined) return true;
       const source = o.projectId ?? store.getTask(o.taskId)?.projectId;
-      if (source === undefined || source === projectId) return true;
-      let publique = publics.get(source);
-      if (publique === undefined) {
-        publique = store.getProject(source)?.visibility === 'public';
-        publics.set(source, publique);
-      }
-      return publique;
+      return source === undefined || admis(source);
     };
   };
 
@@ -1862,11 +2277,16 @@ async function monterReine(
     task: Task,
     echec: { signature: string; detail: string; origine: OrigineEpisode },
   ): boolean => {
+    // Une OMBRE du banc n'apprend rien au Cerveau, par aucune des trois portes :
+    // sa production n'est le travail de personne, et sa panne ou l'objection
+    // qu'elle a reçue serait servie en leçon aux tâches du projet.
+    if (store.ombreDe(task.id)) return false;
     let ecrit: EpisodeEnregistre | null;
-    // Le projet signe l'épisode (en-tête, jamais prompt) ; PRIVÉ, il le
-    // cloisonne : l'épisode n'est servi qu'à ses tâches et part avec lui.
+    // Le projet signe l'épisode (en-tête, jamais prompt) ; PRIVÉ, il en
+    // cloisonne la clé : l'épisode ne fusionne avec celui d'aucun autre
+    // projet, part avec lui, et `savoirAdmis` décide qui le reçoit.
     const origine: OrigineEpisode = { ...echec.origine, projectId: task.projectId };
-    const prive = store.getProject(task.projectId)?.visibility !== 'public';
+    const prive = !projetPublic(task.projectId);
     try {
       ecrit = enregistrerEpisode(dossierCerveau, {
         ...echec,
@@ -2118,6 +2538,192 @@ async function monterReine(
     };
   };
 
+  // ─── LE GRAPHE D'EXPÉRIENCE : une projection, jamais une table ─────────────
+  //
+  // Le graphe se replie du journal et du Cerveau (`shared/graphe-experience.ts`).
+  // Ses SOURCES sont relues au plus toutes les `GRAPHE_TTL_MS`, et chaque
+  // portée demandée pendant ce temps est projetée une fois : N affectations
+  // dans la même seconde, une lecture du journal.
+  //
+  // La portée des OUVRIÈRES est un réglage de l'hôte (`HIVE_EXPERIENCE_PORTEE`,
+  // défaut : le projet seul). Les routes de lecture, elles, ne suivent pas ce
+  // réglage : celle d'un projet reste isolée à ce projet (le droit de lire A
+  // ne dit rien de B), celle de la ruche est réservée à qui voit tous les
+  // projets. Fédérer décide de ce que les ouvrières reçoivent, pas de ce que
+  // l'écran montre.
+  const porteeExperience: PorteeExperience = config.porteeExperience ?? 'projet';
+  let sourcesGraphe: {
+    calculeA: number;
+    sources: SourcesGraphe;
+    parPortee: Map<string, GrapheExperience>;
+  } | null = null;
+
+  const grapheExperience = (portee: PorteeGraphe): GrapheExperience => {
+    const now = Date.now();
+    if (!sourcesGraphe || now - sourcesGraphe.calculeA >= GRAPHE_TTL_MS) {
+      // Les faits d'une tâche, lus une fois par projection. Une RELECTURE
+      // n'est pas une tâche du graphe : elle y entre par son verdict
+      // (`contre_expertise_verdict`) sur la production qu'elle juge — la
+      // compter aussi comme tâche la ferait passer pour « similaire » à
+      // cette production, dont elle cite forcément les fichiers. Le BANC
+      // d'ombre non plus (`ombreLieeA` : une ombre, ou sa relecture) : une
+      // ombre n'est pas du travail du projet, et proposée comme voisine, elle
+      // doublerait son originale — même titre, mêmes fichiers.
+      const infos = new Map<string, InfoTache | null>();
+      const tacheDe = (taskId: string): InfoTache | null => {
+        let info = infos.get(taskId);
+        if (info === undefined) {
+          const t = store.getTask(taskId);
+          info =
+            t && store.relectureDe(taskId) === null && store.ombreLieeA(taskId) === null
+              ? {
+                  projectId: t.projectId,
+                  titre: t.title,
+                  categorie: categoriser(t.title, t.prompt),
+                  fichiers: cheminsPromis(t.title, t.prompt),
+                }
+              : null;
+          infos.set(taskId, info);
+        }
+        return info;
+      };
+      sourcesGraphe = {
+        calculeA: now,
+        sources: {
+          evenements: store.evenementsParTypes(TYPES_GRAPHE_EXPERIENCE, EVENT_RETENTION),
+          tacheDe,
+          nomProjet: (id) => store.getProject(id)?.name ?? null,
+          nomOuvriere: (id) => store.getNode(id)?.name ?? null,
+          notes: lire(dossierCerveau),
+          borne: EVENT_RETENTION,
+          journalElague: store.journalElague(),
+        },
+        parPortee: new Map(),
+      };
+    }
+    const memo = sourcesGraphe;
+    const cle = portee.genre === 'ruche' ? '*' : [...portee.projets].sort().join('\u0000');
+    let graphe = memo.parPortee.get(cle);
+    if (!graphe) {
+      graphe = projeterGrapheExperience(memo.sources, portee);
+      memo.parPortee.set(cle, graphe);
+    }
+    return graphe;
+  };
+
+  /**
+   * Les contextes similaires à joindre à une tâche, dans la portée réglée par
+   * l'hôte. Aucun pour une relecture : une relectrice juge UNE production, et
+   * lui souffler comment ont tourné les voisines serait l'influencer.
+   *
+   * ─── LES ERREURS DE LA TÂCHE ELLE-MÊME, RELUES FRAÎCHES ─────────────────
+   *
+   * C'est la signature d'erreur qui rapproche le mieux deux tâches, et c'est
+   * sur une REPRISE qu'elle compte. Or la reprise est confiée DANS
+   * `handleTaskResult` — l'ordonnanceur réaffecte avant de rendre la main —,
+   * donc AVANT que le hub ne verse l'épisode de cet échec (`noterEchec` vient
+   * après) : ni la projection mémoïsée ni même le journal ne le connaissent
+   * encore. La signature se recalcule donc depuis les résultats d'échec
+   * (`echecs`, déjà lus pour la Couveuse), par les deux mêmes fonctions que
+   * `enregistrerEpisode` — `signatureEchec`, puis `idEpisode` du texte rogné.
+   * Les épisodes que d'autres portes ont versés (un avis contesté, un rejet),
+   * eux, sont dans le journal avant la reprise qu'ils déclenchent.
+   */
+  const experienceDe = (
+    task: Task,
+    echecs: readonly { logs: string; finalText?: string }[],
+  ): ContexteSimilaire[] => {
+    if (store.relectureDe(task.id) !== null) return [];
+    // Fédérée, la portée est le projet de la tâche PLUS les projets dont le
+    // savoir lui est admis : la règle des souvenirs et des épisodes
+    // (`savoirAdmis`) — publics, ou même propriétaire et même auditoire. Le
+    // réglage de l'hôte ouvre la fédération, il ne vaut pas consentement du
+    // propriétaire d'un projet privé.
+    const admis = savoirAdmis(task.projectId);
+    const portee: PorteeGraphe = {
+      genre: 'projets',
+      projets: new Set([
+        task.projectId,
+        ...(porteeExperience === 'ruche'
+          ? store
+              .listProjects()
+              .filter((p) => admis(p.id))
+              .map((p) => p.id)
+          : []),
+      ]),
+    };
+    const graphe = grapheExperience(portee);
+    const erreurs = new Set(cibleDeTache(graphe, task.id)?.erreurs ?? []);
+    for (const e of echecs) {
+      const signature = signatureEchec(e.logs, e.finalText).trim();
+      if (signature !== '') erreurs.add(`error:${idEpisode(signature)}`);
+    }
+    if (task.attempts > 0) {
+      for (const e of store.evenementsDeTache(task.id, ['cerveau_episode'], 50)) {
+        if (typeof e.payload.note === 'string' && e.payload.note !== '') {
+          erreurs.add(`error:${e.payload.note}`);
+        }
+      }
+    }
+    // Une OMBRE ne lit pas son originale : elle la rejouerait en sachant
+    // comment elle a tourné — la même règle que ses souvenirs
+    // (`searchMemories(…, { exclureTache })`).
+    const originale = store.ombreDe(task.id)?.tacheOriginale;
+    return contextesSimilaires(
+      graphe,
+      {
+        taskId: task.id,
+        categorie: categoriser(task.title, task.prompt),
+        fichiers: cheminsPromis(task.title, task.prompt),
+        erreurs: [...erreurs].sort(),
+      },
+      SIMILAIRES_MAX,
+    ).filter((c) => c.taskId !== originale);
+  };
+
+  // ─── Le graphe d'expérience, lu ─────────────────────────────────────────
+  //
+  // Deux formes, pour un écran de liste et de voisinage (pas un canevas) :
+  // sans `noeud`, les nœuds les plus récents (d'un `genre`, ou de tous) ; avec
+  // `noeud`, ses arêtes, ses voisins et — pour une tâche — ses contextes
+  // similaires, calculés à la question et marqués `correlation`. L'en-tête
+  // dit la portée lue, le réglage de l'hôte pour les ouvrières, et la fenêtre
+  // du journal (`lecture.tronquee`). Réponses bornées : un graphe de mille
+  // tâches ne part pas entier dans une page.
+  const vueExperience = (
+    reply: FastifyReply,
+    graphe: GrapheExperience,
+    q: { noeud?: string; genre?: GenreNoeud },
+    portee: 'projet' | 'ruche',
+  ) => {
+    const entete = {
+      portee,
+      reglage: porteeExperience,
+      lecture: graphe.lecture,
+      comptes: compterExperience(graphe),
+    };
+    if (q.noeud === undefined) {
+      return { ...entete, noeuds: listerExperience(graphe, q.genre ?? null, GRAPHE_LISTE_MAX) };
+    }
+    const voisinage = voisinageExperience(graphe, q.noeud, GRAPHE_LISTE_MAX);
+    if (!voisinage) return reply.code(404).send({ error: 'nœud inconnu' });
+    const centre = voisinage.centre;
+    const cible = centre.genre === 'task' ? cibleDeTache(graphe, centre.id.slice(5)) : null;
+    return {
+      ...entete,
+      voisinage,
+      similaires: cible ? contextesSimilaires(graphe, cible, 5) : [],
+    };
+  };
+
+  const schemaExperience = {
+    type: 'object',
+    properties: {
+      noeud: { type: 'string', minLength: 1, maxLength: 400 },
+      genre: { type: 'string', enum: [...GENRES_NOEUD] },
+    },
+  } as const;
+
   /**
    * Contexte joint à `assign_task` : leçons de la Couveuse (tâche déjà échouée)
    * puis souvenirs du Hive Mind, dans le budget total LIMITS.hiveContext.
@@ -2153,6 +2759,12 @@ async function monterReine(
       | { etat: 'jointe'; figee: CritiqueReprise; objections: number }
       | { etat: 'perdue'; figee: CritiqueReprise };
     refusCerveau?: string;
+    /**
+     * Les contextes similaires du graphe d'expérience : `jointe` quand
+     * l'ouvrière les lira, `perdue` quand il y en avait mais que le budget
+     * était déjà pris. Absente quand rien ne ressemblait à la tâche.
+     */
+    experience?: { etat: 'jointe' | 'perdue'; similaires: ContexteSimilaire[] };
   } => {
     // ─── UN SEUL BUDGET, DÉCOMPTÉ BLOC APRÈS BLOC ────────────────────────────
     //
@@ -2216,11 +2828,29 @@ async function monterReine(
           )
         : '',
     );
-    // Hive Mind : souvenirs pertinents des tâches déjà réussies, dans le budget
-    // RESTANT après le Cerveau, la critique et la Couveuse.
-    const souvenirs = retenir(
-      buildHiveContext(store.searchMemories(`${task.title} ${task.prompt}`, 3), part(restant)),
+    // Le graphe d'expérience : COMMENT ont tourné les tâches qui ressemblent à
+    // celle-ci — mêmes fichiers nommés, mêmes signatures d'erreur. Après la
+    // Couveuse (l'échec de CETTE tâche reste le plus spécifique) et AVANT Hive
+    // Mind : un rapprochement par signature d'erreur vise plus juste qu'un
+    // rappel lexical, et ce bloc est petit (`BUDGET_EXPERIENCE`). Servi après
+    // les souvenirs, il tombait précisément sur les reprises — les jours où la
+    // Couveuse et la critique ont pris le budget, c'est-à-dire ceux où une
+    // erreur partagée compte le plus.
+    const similaires = experienceDe(task, echecs);
+    const experience = retenir(
+      similaires.length > 0
+        ? blocExperience(similaires, task.projectId, part(BUDGET_EXPERIENCE))
+        : '',
     );
+    // Hive Mind : souvenirs pertinents des tâches déjà réussies, dans le budget
+    // RESTANT après le Cerveau, la critique, la Couveuse et l'expérience. Même
+    // cloison que les épisodes (`savoirAdmis`), écartée AVANT le classement,
+    // comme le souvenir de la tâche qu'une ombre rejoue.
+    const trouves = store.searchMemories(`${task.title} ${task.prompt}`, 3, {
+      admis: savoirAdmis(task.projectId),
+      exclureTache: store.ombreDe(task.id)?.tacheOriginale,
+    });
+    const souvenirs = retenir(buildHiveContext(trouves, part(restant)));
     const horizon = retenir(
       restant > 80
         ? texteHorizonPourContexte(store.listerHorizon(task.projectId), restant - 2)
@@ -2243,7 +2873,7 @@ async function monterReine(
       // dernier, il n'aurait plus de place les jours où une tâche a beaucoup
       // échoué — c'est-à-dire exactement les jours où ses invariants comptent
       // le plus.
-      hiveContext: [savoir, blocDeCritique, lecons, souvenirs, horizon, veille]
+      hiveContext: [savoir, blocDeCritique, lecons, experience, souvenirs, horizon, veille]
         .filter(Boolean)
         .join('\n\n'),
       ...(echecs.length > 0
@@ -2261,6 +2891,9 @@ async function monterReine(
       // l'appelant journalise. Rendre '' sans le dire serait la panne
       // silencieuse que `selectionner` existe pour éviter.
       ...(refus === undefined ? {} : { refusCerveau: refus }),
+      ...(similaires.length > 0
+        ? { experience: { etat: experience ? 'jointe' : 'perdue', similaires } }
+        : {}),
     };
   };
 
@@ -2480,7 +3113,7 @@ async function monterReine(
       : {};
   };
 
-  const envoyerTache = (nodeId: string, task: Task, modele?: string): void => {
+  const envoyerTache = (nodeId: string, task: Task, modele?: string, effort?: Effort): void => {
     const ws = nodeSockets.get(nodeId);
     // Socket absent ou fermé : le close/reap réaffectera la tâche, rien à faire ici.
     if (ws) {
@@ -2489,7 +3122,7 @@ async function monterReine(
       // premier : une consigne tronquée à moitié est pire qu'absente, alors
       // qu'un souvenir en moins n'est qu'un souvenir en moins.
       const cadre = construireCadre(task, nodeId);
-      const { hiveContext, couveuse, critique, refusCerveau } = construireHiveContext(
+      const { hiveContext, couveuse, critique, refusCerveau, experience } = construireHiveContext(
         task,
         cadre.length,
       );
@@ -2543,6 +3176,44 @@ async function monterReine(
           motif: 'budget',
         });
       }
+      // Le graphe d'expérience : QUELLES tâches voisines l'ouvrière a lues, en
+      // faits typés (ids, titre borné, traits communs, issue) — le titre parce
+      // que c'est ce qu'elle a lu, rien de plus : ni prompt, ni sortie, ni
+      // leçon, qui restent chez leur propriétaire. C'est ce que relit
+      // l'explication du routage (`routage-vue.ts`), figé à l'affectation
+      // comme la raison du modèle. Perdues au budget, elles se journalisent
+      // aussi : un `''` muet ferait croire que rien ne ressemblait à la tâche.
+      //
+      // Fédérée, une voisine peut venir d'un AUTRE projet. Ce fait-ci est rangé
+      // sous la tâche de A, et tout lecteur de A le relit (tiroir, Chronique) :
+      // il n'y porte ni l'id, ni le projet, ni le titre de la voisine — ses
+      // faits restent chez B. Ce qui reste (`memeProjet: false`, les traits
+      // communs, l'issue comptée) dit ce que l'ouvrière a lu sans le recopier.
+      if (experience) {
+        emitEvent(experience.etat === 'jointe' ? 'experience_context' : 'experience_refus', {
+          taskId: task.id,
+          nodeId,
+          portee: porteeExperience,
+          ...(experience.etat === 'perdue' ? { motif: 'budget' } : {}),
+          similaires: experience.similaires.map((c) => ({
+            ...(c.projectId === task.projectId
+              ? {
+                  taskId: c.taskId,
+                  projectId: c.projectId,
+                  memeProjet: true,
+                  titre: champSurUneLigne(c.titre, LIMITS.title),
+                }
+              : { memeProjet: false }),
+            score: c.score,
+            categorie: c.communs.categorie,
+            fichiers: c.communs.fichiers,
+            erreurs: c.communs.erreurs.length,
+            ...c.issue,
+            modeles: c.modeles.slice(0, 3),
+            lecons: c.lecons.length,
+          })),
+        });
+      }
       const contexte = [cadre, hiveContext].filter(Boolean).join('\n\n');
       send(ws, {
         type: 'assign_task',
@@ -2552,9 +3223,15 @@ async function monterReine(
         // Le modèle choisi par l'Aiguillage, s'il y en a un : le nœud le passe à
         // son adaptateur. Absent ⇒ le nœud emploie son modèle par défaut.
         ...(modele ? { modele } : {}),
+        // L'effort élu avec le modèle — l'Aiguillage n'en élit que pour un nœud
+        // qui les a déclarés. Absent ⇒ le CLI garde son défaut.
+        ...(effort ? { effort } : {}),
         ...delegation,
         // Une relecture n'écrit rien : le nœud peut brider son agent.
         ...(store.relectureDe(task.id) ? { relecture: true as const } : {}),
+        // Une reprise travaille sur la branche de sa PR (`task.branch`, posée
+        // par le Scheduler depuis la lignée) : le nœud la clone.
+        ...(store.repriseDe(task.id) ? { prolonger: true as const } : {}),
       });
 
       // ─── L'HORLOGE DU CHANTIER : ce qu'on ANNONCE, écrit au moment où on
@@ -2603,6 +3280,8 @@ async function monterReine(
     // Un message qui annonce un contrat que le code n'honore pas est un
     // mensonge lent. Ici les deux portes disent enfin la même chose.
     simulation: config.simulation || shellForce(process.env),
+    // Une reprise ne part que vers un nœud qui sait la prolonger (`register.prolonge`).
+    prolonge: (nodeId) => nodesQuiProlongent.has(nodeId),
     // Balance : le grand livre suit la table `results` et n'influence RIEN.
     balance: { mode: config.balance ?? 'observation' },
     factureHorlogeHote: edition === 'cloud',
@@ -2614,10 +3293,12 @@ async function monterReine(
       const ws = nodeSockets.get(nodeId);
       if (ws) send(ws, { type: 'cancel_task', taskId, reason });
     },
-    onAssign: (nodeId, task, modele) => envoyerTache(nodeId, task, modele),
+    onAssign: (nodeId, task, modele, effort) => envoyerTache(nodeId, task, modele, effort),
     onEvent: (event) => {
       broadcastEvent({ type: 'event', event });
+      relayerConnecteurs(event);
       stateDirty = true;
+      suiviMissions.suivre(event);
       // Le planificateur clôt lui aussi des relectures sans avis (famille
       // absente, agent qui ne démarre nulle part, annulation) : même suite
       // que pour celles que le hub clôt en recevant leur résultat.
@@ -2874,6 +3555,13 @@ async function monterReine(
    * — ses preuves (CI, contre-revue, Gardiennes) sont rangées par `resultId`,
    * elles la suivent. Introuvable : on juge tout, et l'appelant, qui compare
    * `latest.resultId`, voit que ce n'est pas celle qu'il demandait.
+   *
+   * `sansCI` : la production d'une livraison RELAYÉE par une reprise (même
+   * pull request, même branche) est jugée SANS sa preuve CI. Cette preuve
+   * visait une tête que la reprise a dépassée — c'est précisément la CI rouge
+   * que la reprise corrige, et la CI de la nouvelle tête appartient à la
+   * reprise. Tout le reste (Gardiennes, contre-revue, revue humaine) juge
+   * encore le travail d'origine, qui est TOUJOURS dans la PR (`arretDePR`).
    */
   // `inspections` : un appelant qui juge PLUSIEURS tâches (rapport de mission,
   // bilan d'un Worker) lit la table une fois et la passe — relue à chaque
@@ -2882,12 +3570,14 @@ async function monterReine(
     task: Task,
     jugee?: number,
     inspections: ReturnType<HiveStore['listInspections']> = store.listInspections(),
+    sansCI = false,
   ) => {
     const tous = store.resultsForTask(task.id);
     const jusqua = jugee === undefined ? -1 : tous.findIndex((r) => r.resultId === jugee);
     const results = jusqua === -1 ? tous : tous.slice(0, jusqua + 1);
     const latest = results[results.length - 1];
-    const preuve = latest?.resultId ? store.latestValidation(task.id, latest.resultId) : null;
+    const preuve =
+      latest?.resultId && !sansCI ? store.latestValidation(task.id, latest.resultId) : null;
     const crossReview = latest
       ? latest.resultId
         ? (store.crossReviewForResult(task.id, latest.resultId) ??
@@ -2928,6 +3618,268 @@ async function monterReine(
         ...(crossReviewImpossible ? { crossReviewImpossible } : {}),
       }),
     };
+  };
+
+  // ─── La revue humaine, chemin CANONIQUE unique ──────────────────────────────
+  //
+  // Un verdict humain — approuvé ouvre la livraison autonome, rejeté relance la
+  // tâche — s'applique EXACTEMENT de la même façon quelle qu'en soit la source :
+  // le tableau de bord (route `/review`) ou une approbation Slack (hub des
+  // connecteurs). Ce qui diffère, c'est l'AUTORISATION (un compte qui répond du
+  // projet, vs un connecteur à qui l'hôte a accordé la portée `approbation` et
+  // dont le canal + l'usager sont inscrits) ; l'APPLICATION, elle, est une, ici.
+  // Sans ce point unique, Slack aurait sa propre copie de « poser le verdict,
+  // relancer si rejet », et les deux dérivéraient. « Jamais une autorité
+  // nouvelle » se tient parce que la porte est commune, pas parce qu'on la copie.
+  //
+  // ─── QUI A TRANCHÉ, ÉCRIT AU FAIT ───────────────────────────────────────────
+  //
+  // `task_reviewed` porte sa PROVENANCE, jamais une raison inventée :
+  //   · l'écran : `parUserId`, le compte qui répond du projet par sa propre
+  //     autorité (propriétaire ou administrateur, `compteQuiRegle`), ou `null`
+  //     quand la revue est passée au seul jeton de ruche — que chaque machine
+  //     de l'essaim porte. La boucle Hive → Hive n'accepte comme validation
+  //     humaine qu'une revue à `parUserId` (boucle-v3/garde.ts) ;
+  //   · Slack : `source: 'slack'` et `par: 'slack:<U…>'`, l'usager inscrit qui
+  //     a cliqué. Un clic ne dit pas POURQUOI : aucune `raison` — une raison
+  //     fabriquée entrait dans la critique de la tentative suivante, l'épisode
+  //     du Cerveau et l'écran de critique comme si un humain l'avait écrite.
+  const appliquerRevueHumaine = (
+    task: Task,
+    state: 'approved' | 'rejected' | null,
+    provenance: { parUserId: string | null } | { source: 'slack'; par: string },
+    opts: { clientId?: string; raison?: string } = {},
+  ): { retry: ReturnType<Scheduler['retryFromEvaluator']> | null } => {
+    store.setTaskReview(task.id, state);
+    emitEvent('task_reviewed', {
+      taskId: task.id,
+      state,
+      ...('source' in provenance
+        ? { source: provenance.source, par: provenance.par, parUserId: null }
+        : { parUserId: provenance.parUserId }),
+      ...(opts.clientId ? { clientId: opts.clientId } : {}),
+      ...(opts.raison ? { raison: opts.raison } : {}),
+    });
+    // Approuvée, la production entre au Hive Mind ; rejetée, elle en sort et
+    // son épisode s'écrit avec la raison de l'humain. AVANT la relance, qui
+    // efface la revue et rouvre la tâche : après elle, il n'y aurait plus de
+    // rejet à lire.
+    statuerProduction(task.id);
+    if (state === 'approved') {
+      // Une approbation ne rachète pas une objection, une validation rouge
+      // ou un signal des Gardiennes (`verdictSouvenir`). Sans ce fait,
+      // l'humain qui approuve recevait un 200 et croyait avoir enseigné à
+      // la ruche : il lit ici pourquoi rien n'est entré au Hive Mind.
+      const { latest, evaluation } = evaluationPour(task);
+      const propose = store.souvenirPropose(task.id);
+      if (
+        propose !== null &&
+        propose.resultId === latest?.resultId &&
+        verdictSouvenir(evaluation).issue === 'rejete'
+      ) {
+        emitEvent('memory_withheld', {
+          taskId: task.id,
+          projectId: task.projectId,
+          resultId: propose.resultId,
+          decision: evaluation.decision,
+          raison: evaluation.reasons[0] ?? '',
+        });
+      }
+    }
+    let retry: ReturnType<Scheduler['retryFromEvaluator']> | null = null;
+    if (state === 'rejected') {
+      const { latest, evaluation } = evaluationPour(task);
+      if (
+        latest?.resultId !== undefined &&
+        evaluation.retryRecommended &&
+        (evaluation.decision === 'correction_required' || evaluation.decision === 'rejected')
+      ) {
+        retry = scheduler.retryFromEvaluator({
+          taskId: task.id,
+          resultId: latest.resultId,
+          decision: evaluation.decision,
+          critique: critiquePourRetry(task.id, evaluation, 'revue_humaine'),
+        });
+        if (retry.ok) {
+          stateDirty = true;
+        } else {
+          // Même trace que le retry automatique de la contre-revue : Mission
+          // Control ne lit pas cette réponse, et un rejet humain resté sans
+          // correction (essais épuisés, livraison déjà ouverte…) ne doit pas
+          // se confondre avec une correction en route.
+          emitEvent('evaluator_retry_skipped', {
+            taskId: task.id,
+            resultId: latest.resultId,
+            reason: retry.reason,
+            // Un rejet HUMAIN : l'humain a tranché, la correction n'a pas
+            // suivi — la War Room le dit sans le compter « à trancher ».
+            source: 'revue_humaine',
+          });
+        }
+      }
+    }
+    return { retry };
+  };
+
+  // ─── Les connecteurs externes (src/connectors) ──────────────────────────────
+  //
+  // Un hub unique parle au monde extérieur (webhook, Slack) et écoute la seule
+  // voie ouverte (approbations Slack via Socket Mode). Dormant par défaut : sans
+  // secret dans l'env Queen, `estActif` est faux, aucun jeton n'est créé ni
+  // propagé, et le fan-out ne coûte que deux comparaisons. Le rappel
+  // `appliquerRevue` REND la main au chemin canonique ci-dessus, après les
+  // MÊMES gardes que `/review` : la tâche existe, elle est terminée (jamais une
+  // pré-revue), et le compare-and-set tient — ici OBLIGATOIRE, là-bas opt-in,
+  // parce qu'un bouton Slack reste cliquable des heures après son envoi. Le
+  // clic doit retrouver la production qu'il montrait (dernier résultat) et le
+  // verdict tel qu'il était (horodatage de revue) ; sinon `perime`. Tout est
+  // synchrone : aucune attente entre la relecture et l'écriture.
+  const appliquerRevuePourConnecteur = (
+    taskId: string,
+    verdict: 'approved' | 'rejected',
+    liaison: LiaisonApprobation,
+    par: string,
+  ): ResultatRevueConnecteur => {
+    const task = store.getTask(taskId);
+    if (!task) return 'tache_inconnue';
+    if (task.status !== 'done' && task.status !== 'failed') return 'non_terminal';
+    const revueA = store.getTaskReview(task.id)?.updatedAt ?? null;
+    if (store.dernierResultatDe(task.id) !== liaison.resultId || revueA !== liaison.revueA) {
+      return 'perime';
+    }
+    appliquerRevueHumaine(task, verdict, { source: 'slack', par });
+    return 'applique';
+  };
+  const hubConnecteurs = new HubConnecteurs({
+    store,
+    env: process.env,
+    appliquerRevue: appliquerRevuePourConnecteur,
+    ...(config.connecteurs?.fetchSlack ? { fetchSlack: config.connecteurs.fetchSlack } : {}),
+    ...(config.connecteurs?.fetchWebhook ? { fetchWebhook: config.connecteurs.fetchWebhook } : {}),
+    // Le Socket Mode Slack s'ouvre avec le paquet `ws` déjà présent (aucune
+    // dépendance ajoutée). Cast : l'API de `ws` couvre `WsLike` (send/close/on).
+    wsFactory: config.connecteurs?.wsFactory ?? ((url) => new WsClient(url) as unknown as WsLike),
+    log: (m) => {
+      app.log.info(m);
+    },
+    // Un rejeu ne parle pas au monde extérieur sans humain (#512) : même porte
+    // que ses livraisons, sans validation possible depuis un relais.
+    porteSortie: ({ projectId, cible }) =>
+      porteIrreversible(store, emitEvent, {
+        projectId,
+        genre: 'connecteur',
+        cible,
+        validation: null,
+      }),
+  });
+
+  /**
+   * Un événement interne de la ruche → un fait pour les connecteurs, ou `null`
+   * si aucun connecteur n'a à en entendre parler. Fermé volontairement à quatre
+   * types, un par fait que la carte nomme ; le reste du journal ne quitte pas
+   * la ruche :
+   *
+   *   · `task_done`       → demande d'approbation : la production attend un
+   *                         verdict humain (Miellerie, ou boutons Slack) ;
+   *   · `task_reviewed`   → décision (approuvée / rejetée) ;
+   *   · `task_failed`     → blocage : un humain doit regarder ;
+   *   · `delivery_merged` → résumé de mission : la production est livrée.
+   *
+   * Le PROJET est relu de la tâche (autorité), jamais pris du seul payload
+   * quand une tâche est nommée.
+   */
+  const evenementConnecteurDepuisEvent = (event: HiveEvent): EvenementConnecteur | null => {
+    if (!TYPES_RELAYES_CONNECTEURS.has(event.type)) return null;
+    const p = event.payload as Record<string, unknown>;
+    const taskId = typeof p.taskId === 'string' ? p.taskId : undefined;
+    const task = taskId !== undefined ? store.getTask(taskId) : null;
+    if (event.type === 'delivery_merged') {
+      // Deux émetteurs : la fusion manuelle (route `/merge` : projectId, sans
+      // tâche) et la livraison autonome (taskId). Tous deux disent `fusionnee` ;
+      // on EXIGE `true` — une PR ouverte mais pas fusionnée (GitHub a répondu
+      // merged:false) n'est pas une mission livrée, et un champ absent ne
+      // prouve rien.
+      if (p.fusionnee !== true) return null;
+      const projectId = task?.projectId ?? (typeof p.projectId === 'string' ? p.projectId : null);
+      if (projectId === null) return null;
+      const pr = typeof p.pr === 'number' ? ` #${p.pr}` : '';
+      return {
+        kind: 'resume_mission',
+        projectId,
+        titre: task ? `Production livrée — ${task.title}` : 'Production livrée',
+        corps: `Pull request${pr} fusionnée.`,
+        ...(taskId !== undefined ? { taskId } : {}),
+      };
+    }
+    if (!task || taskId === undefined) return null;
+    // Le banc d'ombre (#501) ne parle pas au monde extérieur : une ombre ne se
+    // livre ni ne se relit par un humain, et sa relecture non plus — une
+    // demande d'approbation pour elle ferait trancher ce qui ne se livrera
+    // jamais, et un « blocage » alerterait pour une tâche que personne n'attend.
+    if (store.ombreLieeA(taskId) !== null) return null;
+    if (event.type === 'task_done') {
+      // La liaison est relevée ICI, au moment où la demande part : la
+      // production exacte et le verdict courant. Un clic qui ne les retrouve
+      // plus (nouvelle tentative, verdict posé depuis) sera refusé `perime`.
+      const resultId = store.dernierResultatDe(taskId);
+      return {
+        kind: 'demande_approbation',
+        projectId: task.projectId,
+        titre: task.title,
+        corps: 'Production terminée — votre verdict est attendu (Miellerie).',
+        taskId,
+        ...(resultId !== null
+          ? { liaison: { resultId, revueA: store.getTaskReview(taskId)?.updatedAt ?? null } }
+          : {}),
+      };
+    }
+    if (event.type === 'task_reviewed') {
+      const etat = p.state === 'approved' || p.state === 'rejected' ? p.state : null;
+      if (etat === null) return null;
+      return {
+        kind: 'decision',
+        projectId: task.projectId,
+        titre: `${etat === 'approved' ? 'Production approuvée' : 'Production rejetée'} — ${task.title}`,
+        ...(typeof p.raison === 'string' && p.raison !== ''
+          ? { corps: `Raison : ${p.raison}` }
+          : {}),
+        taskId,
+        etat,
+      };
+    }
+    if (event.type !== 'task_failed') return null;
+    const raison = typeof p.reason === 'string' ? p.reason : 'échec';
+    return {
+      kind: 'blocage',
+      projectId: task.projectId,
+      titre: `Tâche en échec — ${task.title}`,
+      corps: `Motif : ${raison}`,
+      taskId,
+    };
+  };
+
+  // Câble le relais déclaré plus haut : à partir d'ici, chaque événement passe
+  // au hub. Différé d'un tour (`setImmediate`) : un événement peut être émis au
+  // milieu d'une transaction (#468) — la tâche relue, le journal écrit et le
+  // réseau touché le sont APRÈS le commit, jamais dedans. `notifier` ne bloque
+  // jamais le chemin d'émission (fire-and-forget, échec journalisé).
+  relayerConnecteurs = (event: HiveEvent): void => {
+    // Le TYPE d'abord, synchrone : sans ce filtre, chaque `task_progress`
+    // (quatre par seconde et par tâche) programmerait un tour pour rien.
+    if (!TYPES_RELAYES_CONNECTEURS.has(event.type)) return;
+    setImmediate(() => {
+      // Le tour différé peut tomber APRÈS l'arrêt (`stop` ferme le hub, puis la
+      // base, souvent dans le même tour) : relire la tâche lèverait alors sur
+      // une base fermée. Hub fermé ⇒ plus rien ne part, donc rien à relire.
+      if (hubConnecteurs.estFerme()) return;
+      const ev = evenementConnecteurDepuisEvent(event);
+      if (!ev) return;
+      void hubConnecteurs.notifier(ev).catch((err: unknown) => {
+        app.log.warn(
+          `[connecteurs] notification échouée : ${err instanceof Error ? err.message : err}`,
+        );
+      });
+    });
   };
 
   // ─── HTTP (REST + dashboard) ───────────────────────────────────────────────
@@ -3500,6 +4452,98 @@ async function monterReine(
     return refuserReglage(reply, verdict);
   };
 
+  // ─── LA PORTE DES REJEUX (missions.ts, `porteIrreversible`) ───────────────
+  //
+  // Chaque route qui écrit HORS de la ruche la franchit juste avant l'effet,
+  // toutes ses autres portes passées. Sur un projet de rejeu, l'effet est
+  // SIMULÉ et rangé ; il n'est exécuté que si la demande porte
+  // `validerRejeu: true` ET vient d'un compte QUI RÉPOND du projet — une
+  // validation humaine explicite, que le jeton de ruche (sur chaque machine)
+  // ne vaut pas.
+  //
+  // ─── LE COMPTE SE JUGE SEUL, SANS LE JETON ──────────────────────────────────
+  //
+  // Les portes de la route acceptent le jeton de ruche sur un projet orphelin,
+  // et un rejeu recopie le propriétaire de sa source (missions.ts) : un rejeu
+  // d'une mission orpheline est ouvert au jeton. « Un compte » ne suffisait
+  // donc pas — un inconnu inscrit à l'instant, jeton de ruche en main, validait
+  // la PR (201) et l'action était rangée `validee` à son nom. La validation se
+  // juge sur l'AUTORITÉ DU COMPTE seul : propriétaire ou administrateur
+  // (`peutRegler`, action `regler_autonomie`), et — l'effet écrit un DÉPÔT —
+  // répondre de CHAQUE projet qui tient ce dépôt, la règle d'`ecritureDepotPermise`
+  // sans son repli sur le jeton.
+
+  /** Le champ de corps qui porte la validation humaine d'un effet de rejeu. */
+  const SCHEMA_VALIDER_REJEU = { type: 'boolean' } as const;
+
+  const porteRejeu = (
+    req: FastifyRequest,
+    projectId: string,
+    genre: GenreIrreversible,
+    cible: string,
+    valider: boolean | undefined,
+  ): 'executer' | 'simulee' =>
+    porteIrreversible(store, emitEvent, {
+      projectId,
+      genre,
+      cible,
+      validation: valider === true ? validationDuCompte(req, projectId) : null,
+    });
+
+  /**
+   * Le COMPTE qui répond de ce projet par sa propre autorité — propriétaire ou
+   * administrateur —, ou `null`. Jamais le jeton de ruche : sur un projet
+   * orphelin, la route passe au jeton, et un compte présenté à côté n'y gagne
+   * aucune autorité qu'il n'a pas.
+   */
+  const compteQuiRegle = (req: FastifyRequest, projectId: string): string | null => {
+    const moi = roleDe(req);
+    const projet = store.getProject(projectId);
+    if (!moi || !projet || !peut(moi.role, 'regler_autonomie')) return null;
+    return peutRegler(projet, lecteurDe(req)) ? moi.userId : null;
+  };
+
+  /** Le compte qui répond du projet ET de son dépôt, ou `null` : jamais le jeton. */
+  const validationDuCompte = (
+    req: FastifyRequest,
+    projectId: string,
+  ): { userId: string } | null => {
+    const userId = compteQuiRegle(req, projectId);
+    const depot = cleDepot(store.getProject(projectId)?.repoUrl ?? null);
+    if (userId === null) return null;
+    const lecteur = lecteurDe(req);
+    const jumeaux = depot
+      ? store.listProjects().filter((p) => p.id !== projectId && cleDepot(p.repoUrl) === depot)
+      : [];
+    return jumeaux.every((p) => peutRegler(p, lecteur)) ? { userId } : null;
+  };
+
+  /**
+   * La réponse d'un effet simulé : ce qui serait parti, et comment le valider.
+   *
+   * 409 et un `code`, PAS un 200 : chaque client de ces routes (tableau de
+   * bord, CLI) lit un 2xx comme « c'est parti » et cherche le `mergeId`, le
+   * numéro de PR ou l'URL d'un effet qui n'a pas eu lieu — un suivi qui
+   * tournait dix minutes dans le vide, un « PR #undefined ouverte ». Un refus
+   * DIT « rien n'est parti », et `error` porte la marche à suivre à tout
+   * client qui affiche les refus, même s'il ignore les rejeux.
+   */
+  const repondreSimulee = (
+    reply: FastifyReply,
+    genre: GenreIrreversible,
+    cible: string,
+  ): FastifyReply =>
+    reply.code(409).send({
+      code: 'rejeu_simule',
+      simule: true,
+      genre,
+      cible,
+      error:
+        'Projet de rejeu : cette action irréversible est simulée et rangée, pas exécutée. ' +
+        'Pour l’exécuter vraiment, validez-la depuis un compte (« Valider pour de vrai », ' +
+        'ou --valider-rejeu en ligne de commande).',
+    });
+
   /**
    * Une TÂCHE qu'on peut engager, ou pourquoi pas.
    *
@@ -3866,8 +4910,10 @@ async function monterReine(
       const bapteme = store.lireBapteme(node.id);
       const metier = store.lireMetier(node.id);
       const presences = store.lirePresences(node.id);
+      // Avec les ombres du banc : la Chambre dit ce que l'ouvrière a FAIT, et
+      // une ombre qu'elle a portée en fait partie (`listTasks`).
       const tasks = store
-        .listTasks()
+        .listTasks(undefined, { avecOmbres: true })
         .filter((t) => t.assignedNodeId === node.id || t.result?.nodeId === node.id)
         .sort((a, b) => b.updatedAt - a.updatedAt)
         .slice(0, 80);
@@ -4117,6 +5163,335 @@ async function monterReine(
       }
       emitEvent('queen_cle_posee', { envVar: nom, libelle });
       return { ok: true, envVar: nom };
+    },
+  );
+
+  // ─── Connecteurs externes (src/connectors) ──────────────────────────────────
+  //
+  // Deux étages : GLOBAL (le catalogue + la pose des secrets + le journal
+  // complet) réservé à l'administrateur — poser un jeton écrit dans l'env de
+  // l'hôte, distribué à personne mais posé chez la Reine —, et PAR PROJET
+  // (autoriser, révoquer, tester, lire) réglé par qui répond du projet. Le
+  // secret ne transite JAMAIS par ces routes en lecture : présence booléenne.
+
+  /** Catalogue des connecteurs, présence de leurs secrets, et état actif. */
+  app.get('/api/connecteurs', async (req, reply) => {
+    if (!exige(req, reply, 'gerer_serveurs')) return reply;
+    return {
+      connecteurs: listerConnecteurs().map((def) => ({
+        id: def.id,
+        libelleFr: def.libelleFr,
+        libelleEn: def.libelleEn,
+        hintFr: def.hintFr,
+        hintEn: def.hintEn,
+        mode: def.mode,
+        portees: def.porteesPossibles,
+        actif: hubConnecteurs.estActif(def.id),
+        secrets: def.secrets.map((s) => ({
+          envVar: s.envVar,
+          libelleFr: s.libelleFr,
+          libelleEn: s.libelleEn,
+          hintFr: s.hintFr,
+          hintEn: s.hintEn,
+          requis: s.requis,
+          // Présence seule, jamais la valeur — même doctrine que le catalogue de clés.
+          presente: (process.env[s.envVar] ?? '').trim() !== '',
+        })),
+      })),
+    };
+  });
+
+  /** Pose un secret d'un connecteur dans l'env Queen (jamais en base, jamais au nœud). */
+  app.post<{ Params: { connecteurId: string }; Body: { envVar: string; valeur: string } }>(
+    '/api/connecteurs/:connecteurId/secrets',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['connecteurId'],
+          properties: { connecteurId: { type: 'string', minLength: 1, maxLength: 64 } },
+        },
+        body: {
+          type: 'object',
+          required: ['envVar', 'valeur'],
+          additionalProperties: false,
+          properties: {
+            envVar: { type: 'string', minLength: 1, maxLength: 64 },
+            valeur: { type: 'string', minLength: 1, maxLength: 512 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      // Écrit un secret dans l'env de l'hôte : administrateur exigé, comme les clés.
+      if (!exige(req, reply, 'gerer_serveurs')) return reply;
+      const def = definitionConnecteur(req.params.connecteurId);
+      if (!def) return reply.code(404).send({ error: 'connecteur inconnu' });
+      // Le nom vient du REGISTRE, pas de l'utilisateur : on n'accepte que les
+      // env déclarés par ce connecteur. Rien d'autre ne peut être posé ici — le
+      // garde `estEnvQueenAutorisee` (clés arbitraires) ne s'applique pas, car
+      // ces noms sont nôtres, pas choisis par l'appelant.
+      const spec = def.secrets.find((s) => s.envVar === req.body.envVar);
+      if (!spec) return reply.code(400).send({ error: 'env_inconnu' });
+      const vs = validerSecretRequisition(req.body.valeur);
+      if (!vs.ok) {
+        return reply.code(400).send({ error: vs.motif, message: expliquerRefusSecret(vs.motif) });
+      }
+      // L'URL du webhook est la seule « valeur » qui dit OÙ la Reine enverra ses
+      // faits : un `file:`, un `javascript:` ou une chaîne illisible ne ferait
+      // qu'échouer à chaque envoi, loin d'ici. Refusée à la pose, là où on voit.
+      if (spec.envVar === ENV_WEBHOOK_URL && !urlWebhookValide(vs.secret)) {
+        return reply.code(400).send({
+          error: 'url_invalide',
+          message: 'L’URL du webhook doit être une adresse http:// ou https:// complète.',
+        });
+      }
+      try {
+        poserCleQueenEnv(
+          cheminEnvQueen,
+          spec.envVar,
+          vs.secret,
+          `Secret du connecteur ${def.id} (posé depuis l’Intendance)`,
+        );
+        process.env[spec.envVar] = vs.secret;
+      } catch {
+        return reply.code(500).send({ error: 'ecriture_env' });
+      }
+      // Un jeton d'app Slack fraîchement posé ⇒ le Socket Mode peut s'ouvrir.
+      void hubConnecteurs.demarrer();
+      emitEvent('connecteur_secret_pose', { connecteurId: def.id, envVar: spec.envVar });
+      return { ok: true, envVar: spec.envVar, actif: hubConnecteurs.estActif(def.id) };
+    },
+  );
+
+  /** Le journal append-only de tous les connecteurs (administrateur). */
+  app.get('/api/connecteurs/journal', async (req, reply) => {
+    if (!exige(req, reply, 'gerer_serveurs')) return reply;
+    const q = req.query as { connecteurId?: string; limit?: string };
+    // `?limit=abc` rendait NaN, que SQLite refuse en LIMIT : un 500 pour une
+    // faute de frappe. Un nombre illisible vaut « la borne par défaut ».
+    const limit = Number.parseInt(q.limit ?? '', 10);
+    return {
+      journal: store.listerJournalConnecteurs({
+        ...(typeof q.connecteurId === 'string' ? { connecteurId: q.connecteurId } : {}),
+        ...(Number.isFinite(limit) ? { limit } : {}),
+      }),
+    };
+  });
+
+  /** Les autorisations de connecteurs d'un projet, et son journal (lecture). */
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/connecteurs',
+    async (req, reply) => {
+      const lecture = lectureProjetPermise(req, req.params.projectId);
+      if (lecture !== 'permis') return refuserProjet(reply, lecture);
+      // Les listes inscrites (canaux et usagers Slack) et le journal — qui a
+      // cliqué, quel compte a testé, dans quel canal c'est parti — ne se lisent
+      // que par qui RÈGLE le projet. Un lecteur (membre, projet public) voit
+      // quels connecteurs sont accordés et avec quelles portées, pas à qui.
+      const regle = proprieteProjetPermise(req, req.params.projectId) === 'permis';
+      const autorisations = store.listerAutorisationsProjet(req.params.projectId);
+      return {
+        autorisations: regle
+          ? autorisations
+          : autorisations.map(({ canaux: _c, usagers: _u, ...visible }) => visible),
+        journal: regle
+          ? store.listerJournalConnecteurs({ projectId: req.params.projectId, limit: 100 })
+          : [],
+        ...(regle ? {} : { reserve: true }),
+        connecteurs: listerConnecteurs().map((d) => ({
+          id: d.id,
+          libelleFr: d.libelleFr,
+          libelleEn: d.libelleEn,
+          mode: d.mode,
+          portees: d.porteesPossibles,
+          actif: hubConnecteurs.estActif(d.id),
+        })),
+      };
+    },
+  );
+
+  /** Accorde un connecteur + portées (+ canaux/usagers Slack) à un projet (réglage). */
+  app.post<{
+    Params: { projectId: string; connecteurId: string };
+    Body: { portees: string[]; canaux?: string[]; usagers?: string[]; actif?: boolean };
+  }>(
+    '/api/projects/:projectId/connecteurs/:connecteurId/autoriser',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId', 'connecteurId'],
+          properties: {
+            projectId: { type: 'string', minLength: 1, maxLength: 64 },
+            connecteurId: { type: 'string', minLength: 1, maxLength: 64 },
+          },
+        },
+        body: {
+          type: 'object',
+          required: ['portees'],
+          additionalProperties: false,
+          properties: {
+            portees: { type: 'array', maxItems: 8, items: { type: 'string', maxLength: 32 } },
+            // Des IDs Slack (`C0…`, `G0…`, `U0…`, `W0…`), pas des noms : un
+            // `#général` ou un `@marie` ne correspond à AUCUN identifiant que
+            // Slack renvoie dans une interaction — l'inscrire ne ferait que
+            // refuser en silence chaque clic légitime.
+            canaux: {
+              type: 'array',
+              maxItems: 64,
+              items: { type: 'string', pattern: ID_SLACK_MOTIF },
+            },
+            usagers: {
+              type: 'array',
+              maxItems: 256,
+              items: { type: 'string', pattern: ID_SLACK_MOTIF },
+            },
+            actif: { type: 'boolean' },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const reglage = proprieteProjetPermise(req, req.params.projectId);
+      if (reglage !== 'permis') return refuserReglage(reply, reglage);
+      const def = definitionConnecteur(req.params.connecteurId);
+      if (!def) return reply.code(404).send({ error: 'connecteur inconnu' });
+      const vp = validerPorteesDemandees(def, req.body.portees);
+      if (!vp.ok) {
+        return reply.code(400).send({ error: vp.motif, message: expliquerRefusPortee(vp.motif) });
+      }
+      // Un projet n'inscrit qu'une partie des canaux que l'ADMINISTRATEUR
+      // permet (`SLACK_CANAUX`) : tout compte crée des projets, et le bot est
+      // celui de l'hôte. Refusé ici, où on le voit — pas à chaque envoi.
+      const ruche = canauxDeLaRuche(process.env[ENV_SLACK_CANAUX]);
+      const horsRuche = (req.body.canaux ?? []).filter((c) => !ruche.has(c));
+      if (horsRuche.length > 0) {
+        return reply.code(400).send({
+          error: 'canal_hors_ruche',
+          canaux: horsRuche,
+          message:
+            `Canaux absents de la liste que l’administrateur permet (${ENV_SLACK_CANAUX}) : ` +
+            `${horsRuche.join(', ')}. Demandez-lui de les y ajouter, dans l’Intendance.`,
+        });
+      }
+      store.autoriserConnecteur({
+        connecteurId: def.id,
+        projectId: req.params.projectId,
+        portees: vp.portees,
+        ...(req.body.canaux ? { canaux: req.body.canaux } : {}),
+        ...(req.body.usagers ? { usagers: req.body.usagers } : {}),
+        ...(req.body.actif !== undefined ? { actif: req.body.actif } : {}),
+      });
+      // Un projet qui vient d'ouvrir l'écoute d'approbations ⇒ (re)démarrer le socket.
+      void hubConnecteurs.demarrer();
+      emitEvent('connecteur_autorise', {
+        connecteurId: def.id,
+        projectId: req.params.projectId,
+        portees: vp.portees,
+      });
+      return { ok: true, connecteurId: def.id, portees: vp.portees };
+    },
+  );
+
+  /** Révoque un connecteur sur un projet (réglage). Idempotent. */
+  app.delete<{ Params: { projectId: string; connecteurId: string } }>(
+    '/api/projects/:projectId/connecteurs/:connecteurId',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId', 'connecteurId'],
+          properties: {
+            projectId: { type: 'string', minLength: 1, maxLength: 64 },
+            connecteurId: { type: 'string', minLength: 1, maxLength: 64 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const reglage = proprieteProjetPermise(req, req.params.projectId);
+      if (reglage !== 'permis') return refuserReglage(reply, reglage);
+      const partie = store.revoquerConnecteur(req.params.connecteurId, req.params.projectId);
+      if (partie) {
+        emitEvent('connecteur_revoque', {
+          connecteurId: req.params.connecteurId,
+          projectId: req.params.projectId,
+        });
+      }
+      return { ok: true, revoque: partie };
+    },
+  );
+
+  /** Le dernier test de chaque (projet, connecteur, appelant qui en répond). */
+  const derniersTestsConnecteur = new Map<string, number>();
+
+  /** Envoie un fait de test à travers UN connecteur autorisé sur ce projet (réglage). */
+  app.post<{
+    Params: { projectId: string; connecteurId: string };
+    Body: { kind?: EvenementConnecteurKind };
+  }>(
+    '/api/projects/:projectId/connecteurs/:connecteurId/test',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId', 'connecteurId'],
+          properties: {
+            projectId: { type: 'string', minLength: 1, maxLength: 64 },
+            connecteurId: { type: 'string', minLength: 1, maxLength: 64 },
+          },
+        },
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            kind: {
+              type: 'string',
+              enum: ['resume_mission', 'decision', 'blocage', 'demande_approbation'],
+            },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const reglage = proprieteProjetPermise(req, req.params.projectId);
+      if (reglage !== 'permis') return refuserReglage(reply, reglage);
+      if (!definitionConnecteur(req.params.connecteurId)) {
+        return reply.code(404).send({ error: 'connecteur inconnu' });
+      }
+      // Le journal dit QUI a déclenché l'appel : le compte, ou le jeton de ruche.
+      const qui = authorizedUser(req) ? `compte:${(req as AuthRequest).userId!}` : 'jeton_ruche';
+      // Un test par connecteur, par projet et par appelant (qui répond du
+      // projet : une poignée) toutes les `INTERVALLE_TEST_CONNECTEUR_MS` :
+      // chaque clic poste pour de vrai, dans un canal que d'autres lisent.
+      const cleTest = `${req.params.projectId}:${req.params.connecteurId}:${qui}`;
+      const attente =
+        (derniersTestsConnecteur.get(cleTest) ?? -Infinity) +
+        INTERVALLE_TEST_CONNECTEUR_MS -
+        Date.now();
+      if (attente > 0) {
+        return reply
+          .code(429)
+          .header('retry-after', String(Math.ceil(attente / 1_000)))
+          .send({
+            error: 'trop_tot',
+            message: `Un test vient de partir : réessayez dans ${Math.ceil(attente / 1_000)} s.`,
+          });
+      }
+      derniersTestsConnecteur.set(cleTest, Date.now());
+      const kind: EvenementConnecteurKind = req.body?.kind ?? 'resume_mission';
+      const resultat = await hubConnecteurs.tester(
+        req.params.connecteurId,
+        {
+          kind,
+          projectId: req.params.projectId,
+          titre: 'Test de connecteur',
+          corps: 'Émis depuis l’Intendance pour vérifier le connecteur.',
+        },
+        qui,
+      );
+      return { ok: true, ...resultat };
     },
   );
 
@@ -5004,6 +6379,230 @@ async function monterReine(
     },
   );
 
+  // ─── La découverte du réseau local ─────────────────────────────────────────
+  //
+  // Les machines qui se signalent (`hive join --decouvrable`), et le geste qui
+  // les accueille. Tout le contrat — ce qui est diffusé, le code d'appariement,
+  // l'offre scellée — vit dans `shared/decouverte.ts` ; ici, seulement la porte.
+  //
+  // RÉSERVÉ AUX ADMINISTRATEURS, lecture comprise : la liste dit quelles
+  // machines du réseau de l'hôte portent quels agents, et l'unique geste
+  // qu'elle sert — émettre un billet — l'est déjà (`POST /api/billets`).
+
+  /** L'écoute, si l'hôte l'a demandée et que la prise s'est ouverte. */
+  let decouverte: DecouverteReseau | null = null;
+  /** Pourquoi elle ne s'est PAS ouverte alors qu'on l'a demandée — dit, jamais tu. */
+  let decouverteIndisponible: string | null = null;
+
+  const ACTIVER_DECOUVERTE =
+    'Pour lister les machines de votre réseau local : HIVE_DECOUVERTE=1 dans le .env de la ruche, ' +
+    'puis relancez-la. Sur la machine à ajouter : hive join --decouvrable (ou HIVE_DECOUVRABLE=1).';
+
+  app.get('/api/decouverte', async (req, reply) => {
+    if (!exige(req, reply, 'gerer_serveurs')) return reply;
+    const empreinteAffichee = formaterEmpreinte(empreinteRuche);
+    if (!decouverte) {
+      // `motif` est un code FERMÉ : l'écran traduit d'après lui (`conseil`
+      // reste la phrase française, pour la CLI et les journaux) ; `cause`
+      // est le message brut de la prise, qu'aucune traduction n'invente.
+      return {
+        active: false,
+        empreinte: empreinteAffichee,
+        decouverts: [],
+        ...(decouverteIndisponible
+          ? {
+              motif: 'indisponible',
+              cause: decouverteIndisponible,
+              conseil: `Découverte demandée mais indisponible : ${decouverteIndisponible}`,
+            }
+          : { motif: 'eteinte', conseil: ACTIVER_DECOUVERTE }),
+      };
+    }
+    // L'écran regarde : on repose la question (bornée à une toutes les 5 s).
+    decouverte.interroger();
+    // Une machine découverte doit pouvoir JOINDRE la ruche : sur une écoute en
+    // boucle locale, chaque « Rejoindre » échouerait — on le dit avant le clic.
+    const injoignable = inviteInjoignable(config.host, config.publicUrl ?? detectLanWsUrl(port));
+    return {
+      active: true,
+      empreinte: empreinteAffichee,
+      decouverts: decouverte.liste(),
+      ...(injoignable ? { injoignable } : {}),
+    };
+  });
+
+  /** Ce que le tableau de bord lit quand l'offre n'est pas acceptée. */
+  const REFUS_LIVRAISON: Record<
+    Exclude<IssueLivraison['issue'], 'acceptee'>,
+    { statut: number; error: string; detail: (i: IssueLivraison) => string }
+  > = {
+    code_refuse: {
+      statut: 422,
+      error: 'code refusé par la machine',
+      detail: (i) =>
+        'Relisez le code affiché sur la machine (8 caractères).' +
+        (i.issue === 'code_refuse' && i.restants !== null
+          ? ` Encore ${i.restants} essai${i.restants > 1 ? 's' : ''} avant qu’elle en tire un nouveau.`
+          : ''),
+    },
+    code_renouvele: {
+      statut: 422,
+      error: 'trop d’essais : la machine a tiré un nouveau code',
+      detail: () => 'Lisez le NOUVEAU code affiché sur la machine, puis recommencez.',
+    },
+    deja_accueillie: {
+      statut: 409,
+      error: 'cette machine a déjà accepté une autre offre',
+      detail: () => 'Elle rejoint une ruche en ce moment : attendez qu’elle apparaisse.',
+    },
+    occupee: {
+      statut: 503,
+      error: 'la machine examine une autre offre',
+      detail: () =>
+        'Elle n’ouvre qu’une offre à la fois (chacune lui coûte un calcul de clé) : ' +
+        'réessayez dans un instant, avec le même code.',
+    },
+    injoignable: {
+      statut: 502,
+      error: 'machine injoignable',
+      detail: (i) =>
+        'Un pare-feu bloque peut-être son port d’accueil, ou elle a quitté l’attente' +
+        (i.issue === 'injoignable' ? ` (${i.detail}).` : '.'),
+    },
+    reponse_inattendue: {
+      statut: 502,
+      error: 'réponse inattendue de la machine',
+      detail: (i) =>
+        `Elle a répondu ${i.issue === 'reponse_inattendue' ? i.statut : '?'} : ce n’est peut-être pas une machine Hive.`,
+    },
+  };
+
+  /**
+   * « Rejoindre » : émet un billet à usage unique, le SCELLE sous le code
+   * d'appariement que l'administrateur a lu sur la machine, et le dépose à sa
+   * porte. La machine l'échange ensuite par `POST /api/rejoindre`, comme tout
+   * billet — c'est là qu'elle obtient sa clé.
+   *
+   * Tout ce qui n'est pas une offre ACCEPTÉE révoque le billet sur-le-champ :
+   * un billet parti vers une machine qui ne l'a pas ouvert — mauvais code,
+   * imposteur, pare-feu — ne doit pas survivre dix minutes pour rien.
+   */
+  app.post<{ Params: { id: string }; Body: { code: string } }>(
+    '/api/decouverte/:id/rejoindre',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: { id: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['code'],
+          properties: { code: { type: 'string', minLength: 1, maxLength: 32 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      const moi = exige(req, reply, 'gerer_serveurs');
+      if (!moi) return reply;
+      if (!decouverte) {
+        return reply
+          .code(404)
+          .send({ error: 'découverte du réseau local désactivée', detail: ACTIVER_DECOUVERTE });
+      }
+      const cible = decouverte.trouver(req.params.id);
+      if (!cible) {
+        return reply.code(404).send({
+          error: 'cette machine ne se signale plus sur le réseau',
+          detail:
+            'Elle s’est peut-être éteinte ou a quitté l’attente. Relancez-y hive join --decouvrable.',
+        });
+      }
+      if (cible.etat !== 'libre') {
+        return reply.code(409).send({
+          error: 'cette machine est déjà membre d’une ruche',
+          detail: 'Seule une machine en attente (« libre ») peut être accueillie.',
+        });
+      }
+      const code = normaliserCode(req.body.code);
+      if (code === null) {
+        return reply.code(400).send({
+          error: 'code d’appariement illisible',
+          detail: 'Huit caractères, tels que la machine les affiche (ex. K7Q2-9XMP).',
+        });
+      }
+      // Mêmes gardes que `POST /api/billets`, SANS l'échappatoire `insecure` :
+      // une machine du réseau local n'a aucune raison de rejoindre en clair
+      // par une adresse publique. Sans `HIVE_PUBLIC_URL`, l'adresse de la
+      // Reine sur le réseau D'OÙ la machine parle (`adresseReineVers`) :
+      // la première carte venue peut être un pont Docker ou un VPN.
+      const adresseVersCible = adresseReineVers(cible.adresse);
+      const wsUrl =
+        config.publicUrl ??
+        (adresseVersCible ? `ws://${adresseVersCible}:${port}/ws` : detectLanWsUrl(port));
+      const transport = jugerTransport(wsUrl);
+      if (transport === null || transport === 'clair_public') {
+        return reply.code(400).send({
+          error: 'adresse de ruche inutilisable pour le réseau local',
+          detail:
+            'HIVE_PUBLIC_URL doit être une URL ws:// d’adresse privée, ou wss://. Rien n’a été envoyé.',
+          url: wsUrl,
+        });
+      }
+      const injoignable = inviteInjoignable(config.host, wsUrl);
+      if (injoignable) {
+        return reply
+          .code(409)
+          .send({ error: 'la ruche n’est pas joignable depuis le réseau', detail: injoignable });
+      }
+
+      const now = Date.now();
+      const id = `bil-${randomUUID()}`.slice(0, LIMITS.id);
+      const secret = tirerSecret();
+      const label = `Ruche Hive (${config.host}:${port})`;
+      store.creerBillet({
+        id,
+        secretHash: empreinte(secret),
+        label,
+        createdBy: moi.userId,
+        expiresAt: now + TTL_OFFRE_MS,
+        uses: 1,
+        now,
+      });
+      emitEvent('invite_created', {
+        ticketId: id,
+        uses: 1,
+        expiresAt: now + TTL_OFFRE_MS,
+        transport,
+        canal: 'reseau_local',
+      });
+      const offre = await scellerOffre(
+        { billet: encoderBillet({ url: wsUrl, id, secret, label }), ruche: empreinteRuche },
+        code,
+        cible.id,
+      );
+      const livraison = await livrerOffre({ adresse: cible.adresse, port: cible.port }, offre);
+      if (livraison.issue !== 'acceptee') {
+        store.revoquerBillet(id);
+        emitEvent('invite_revoked', { ticketId: id, motif: livraison.issue });
+        const refus = REFUS_LIVRAISON[livraison.issue];
+        return reply
+          .code(refus.statut)
+          .send({ error: refus.error, detail: refus.detail(livraison), motif: livraison.issue });
+      }
+      return reply.code(201).send({
+        ok: true,
+        billetId: id,
+        nom: cible.nom,
+        detail:
+          `« ${cible.nom} » a accepté l’offre : elle échange son billet contre sa clé, ` +
+          'et apparaît parmi les ouvrières d’ici quelques secondes.',
+      });
+    },
+  );
+
   // ─── Connecter ses dépôts GitHub ───────────────────────────────────────────
   //
   // Le jeton vient de l'ENVIRONNEMENT et n'est jamais rangé : voir l'en-tête de
@@ -5289,6 +6888,62 @@ async function monterReine(
   };
 
   /**
+   * OÙ livrer une production : une branche neuve et sa pull request, ou — pour
+   * une reprise — la branche de la pull request qu'elle corrige.
+   *
+   * Lue dans la lignée rangée (`reprises_livraison`), jamais dans un texte :
+   * c'est ce qui fait qu'une reprise AVANCE la PR d'origine au lieu d'en ouvrir
+   * une seconde, sur les deux voies (route humaine et runner d'essaim). Une
+   * lignée qui vise un autre dépôt que celui du projet — le projet a changé
+   * d'adresse depuis — se refuse : on n'écrit pas la correction d'une PR
+   * ailleurs que là où elle vit.
+   */
+  const cibleDeLivraison = (
+    taskId: string,
+    depot: string,
+  ):
+    | { branche: string; suite?: { pr: number; origine: string; parent: string } }
+    | { refus: string } => {
+    const lignee = store.repriseDe(taskId);
+    if (!lignee) return { branche: nomBranche(taskId) };
+    if (lignee.depot.toLowerCase() !== depot.toLowerCase()) {
+      return {
+        refus:
+          `cette reprise prolonge la PR #${lignee.pr} de ${lignee.depot}, ` +
+          `mais le projet livre désormais sur ${depot}`,
+      };
+    }
+    return {
+      branche: lignee.branche,
+      suite: { pr: lignee.pr, origine: lignee.origine, parent: lignee.parent },
+    };
+  };
+
+  /**
+   * Le fait « la livraison est faite », au journal — ouverture d'une PR, ou
+   * avance de la branche d'une PR existante. Deux types, parce que ce ne sont
+   * pas les mêmes faits ; la même provenance (PR, branche, commit), parce que
+   * la preuve CI (`evaluation/ci`) les lit de la même façon.
+   */
+  const journaliserLivraisonFaite = (
+    taskId: string,
+    nodeId: string,
+    resultat: ResultatLivraison,
+    suite: { origine: string; parent: string } | undefined,
+  ): void => {
+    // Faits typés uniquement : le texte bilingue est reconstruit à l'affichage.
+    emitEvent(suite ? 'delivery_advanced' : 'delivery_opened', {
+      taskId,
+      nodeId,
+      pr: resultat.pr,
+      branch: resultat.branche,
+      commitSha: resultat.commitSha,
+      fichiers: resultat.fichiers.length,
+      ...(suite ? { origine: suite.origine, parent: suite.parent } : {}),
+    });
+  };
+
+  /**
    * Les verdicts de l'Evaluator qui ARRÊTENT une livraison ou une fusion.
    *
    * Deux seulement, et ce sont les deux où quelqu'un a DIT non : une preuve
@@ -5318,7 +6973,11 @@ async function monterReine(
    * celle-ci, et une production sans identifiant ne se juge pas : `decision:
    * null`, donc bloquant — un inconnu ne devient pas un « oui ».
    */
-  const verdictEvaluator = (task: Task | undefined, jugee?: number | null): ArretEvaluator => {
+  const verdictEvaluator = (
+    task: Task | undefined,
+    jugee?: number | null,
+    sansCI = false,
+  ): ArretEvaluator => {
     if (!task) {
       return {
         decision: null,
@@ -5326,7 +6985,7 @@ async function monterReine(
         resultId: jugee ?? null,
       };
     }
-    const { latest, evaluation } = evaluationPour(task, jugee ?? undefined);
+    const { latest, evaluation } = evaluationPour(task, jugee ?? undefined, undefined, sansCI);
     if (jugee !== undefined && (jugee === null || latest?.resultId !== jugee)) {
       return {
         decision: null,
@@ -5369,6 +7028,37 @@ async function monterReine(
     return arrete(verdict) ? verdict : null;
   };
 
+  /**
+   * L'Evaluator arrête-t-il la FUSION de cette pull request ? `null` s'il la
+   * laisse partir ; sinon le verdict qui l'arrête, et la tâche qui le porte.
+   *
+   * ─── UNE PR PORTE TOUT LE TRAVAIL DE SA LIGNÉE ────────────────────────────
+   *
+   * Une reprise AVANCE la branche de la PR qu'elle corrige : la ligne
+   * d'origine passe `relayee`, et la seule ligne vivante est celle de la
+   * reprise. Juger la PR sur elle seule jugerait le correctif, pas la PR — un
+   * rejet des Gardiennes, d'une contre-revue ou d'un humain sur le travail
+   * d'ORIGINE, toujours dans la branche, ne l'arrêterait plus, et la voie
+   * autonome fusionnerait ce qu'elle refusait la veille. Chaque ligne relayée
+   * de la même PR est donc rejugée — sans sa CI (`evaluationPour`, `sansCI`),
+   * que la reprise remplace par la preuve de la nouvelle tête.
+   *
+   * La ligne vivante est lue en PREMIER : c'est son verdict que l'écran dit
+   * d'abord, et le conseil (reprendre) vise sa tâche.
+   */
+  const arretDePR = (
+    vivante: LivraisonRangee,
+  ): { arret: ArretEvaluator; taskId: string } | null => {
+    const relayees = store
+      .listLivraisons(vivante.projectId, ETAT_LIVRAISON_RELAYEE)
+      .filter((l) => l.depot === vivante.depot && l.pr === vivante.pr);
+    for (const l of [vivante, ...relayees]) {
+      const verdict = verdictEvaluator(store.getTask(l.taskId), undefined, l !== vivante);
+      if (arrete(verdict)) return { arret: verdict, taskId: l.taskId };
+    }
+    return null;
+  };
+
   /** Schéma du geste qui passe outre : la raison est OBLIGATOIRE, elle est journalisée. */
   const SCHEMA_FORCER = {
     type: 'object',
@@ -5385,8 +7075,8 @@ async function monterReine(
    * `evaluation/retry` la relancent. Après, ces deux chemins sont FERMÉS — une
    * tâche livrée ne se relance plus (`delivery_exists`, scheduler.ts) — et
    * conseiller de les prendre enverrait vers un second refus. La correction
-   * d'une pull request passe par sa reprise, qui ouvre une NOUVELLE pull
-   * request quand GitHub signale du travail à faire.
+   * d'une pull request passe par sa reprise, qui fait avancer la MÊME pull
+   * request quand GitHub signale du travail à faire (`cibleDeLivraison`).
    */
   const conseilArret = (geste: 'livraison' | 'fusion', taskId: string, projectId: string) => {
     const forcer =
@@ -5397,7 +7087,7 @@ async function monterReine(
           `/api/tasks/${taskId}/evaluation/retry), puis relivrez. ${forcer}`
       : 'Une production livrée ne se relance plus. Si GitHub signale du travail à faire, ' +
           `reprenez-la (POST /api/projects/${projectId}/livraisons/${taskId}/reprendre) : la ` +
-          `correction partira dans une nouvelle pull request. ${forcer}`;
+          `correction avancera la branche de cette même pull request. ${forcer}`;
   };
 
   /**
@@ -5431,20 +7121,26 @@ async function monterReine(
    * citer le texte d'un agent (l'objection d'une contre-revue), qui n'a rien à
    * faire dans un journal diffusé à tout le tableau de bord ; elles se relisent
    * sur GET /api/tasks/:taskId/evaluation.
+   *
+   * `arret` vient de l'appelant : une livraison juge SA production
+   * (`arretEvaluator`), une fusion juge toute la PR (`arretDePR`) — et la
+   * tâche arrêtée peut alors être la livraison d'origine qu'une reprise a
+   * relayée (`arreteePar`, dit dans le refus comme dans la trace de forçage).
    */
   const passageEvaluator = (
     req: FastifyRequest,
     reply: FastifyReply,
     cible: {
-      task: Task | undefined;
+      arret: { arret: ArretEvaluator; taskId: string } | null;
       taskId: string;
       projectId: string;
       geste: 'livraison' | 'fusion';
     },
     forcer: { raison: string } | undefined,
   ): { refus: FastifyReply } | { journaliser: () => void } => {
-    const arret = arretEvaluator(cible.task);
-    if (!arret) return { journaliser: () => undefined };
+    if (!cible.arret) return { journaliser: () => undefined };
+    const { arret, taskId: arreteePar } = cible.arret;
+    const autre = arreteePar !== cible.taskId ? { arreteePar } : {};
     if (!forcer) {
       return {
         refus: reply.code(409).send({
@@ -5455,6 +7151,7 @@ async function monterReine(
               : `l’Evaluator a rendu « ${arret.decision} » sur cette production`,
           decision: arret.decision,
           raisons: arret.raisons,
+          ...autre,
           conseil: conseilArret(cible.geste, cible.taskId, cible.projectId),
         }),
       };
@@ -5465,6 +7162,7 @@ async function monterReine(
           taskId: cible.taskId,
           projectId: cible.projectId,
           geste: cible.geste,
+          ...autre,
           resultId: arret.resultId,
           decision: arret.decision,
           raison: forcer.raison,
@@ -5473,7 +7171,15 @@ async function monterReine(
     };
   };
 
-  app.post<{ Body: { taskId: string; base?: string; forcer?: { raison: string } } }>(
+  app.post<{
+    Body: {
+      taskId: string;
+      base?: string;
+      resultId?: number;
+      forcer?: { raison: string };
+      validerRejeu?: boolean;
+    };
+  }>(
     '/api/livraison',
     {
       schema: {
@@ -5484,7 +7190,12 @@ async function monterReine(
           properties: {
             taskId: { type: 'string', minLength: 1, maxLength: 200 },
             base: { type: 'string', minLength: 1, maxLength: 200 },
+            // La production ATTENDUE (compare-and-set, facultatif) : qui a
+            // jugé un diff précis — la porte de la boucle V3, un humain qui a
+            // relu — ne doit pas en livrer un autre, arrivé entre-temps.
+            resultId: { type: 'integer', minimum: 1 },
             forcer: SCHEMA_FORCER,
+            validerRejeu: SCHEMA_VALIDER_REJEU,
           },
         },
       },
@@ -5499,6 +7210,17 @@ async function monterReine(
       const task = acces.task;
       const ecriture = ecritureDepotPermise(req, task.projectId);
       if (ecriture !== 'permis') return refuserEcriture(reply, ecriture);
+      // Dit AVANT tout le reste, et nommément : la réservation la refuserait
+      // de toute façon (`reserverLivraison`), mais sous un « livraison déjà en
+      // cours » qui enverrait chercher une PR qui n'existe pas.
+      if (store.ombreDe(task.id)) {
+        return reply.code(409).send({
+          code: 'tache_ombre',
+          error: 'une ombre du banc ne se livre jamais',
+          conseil:
+            'Elle rejoue une tâche déjà faite pour comparer deux modèles : livrez la tâche originale.',
+        });
+      }
       if (!jetonGithub) return sansJeton(reply);
 
       const projet = store.getProject(task.projectId);
@@ -5522,10 +7244,23 @@ async function monterReine(
       if (typeof dernier.resultId !== 'number') {
         return reply.code(409).send({ error: 'production sans identifiant' });
       }
+      if (req.body.resultId !== undefined && req.body.resultId !== dernier.resultId) {
+        return reply.code(409).send({
+          code: 'stale_result',
+          error: 'la dernière production n’est plus celle qui a été jugée',
+          currentResultId: dernier.resultId,
+        });
+      }
+      const arret = arretEvaluator(task);
       const passage = passageEvaluator(
         req,
         reply,
-        { task, taskId: task.id, projectId: task.projectId, geste: 'livraison' },
+        {
+          arret: arret ? { arret, taskId: task.id } : null,
+          taskId: task.id,
+          projectId: task.projectId,
+          geste: 'livraison',
+        },
         req.body.forcer,
       );
       if ('refus' in passage) return passage.refus;
@@ -5551,7 +7286,20 @@ async function monterReine(
       }
       // L'issue d'origine, si cette tâche vient d'une demande GitHub.
       const issueOrigine = store.issueDeTache(task.id);
-      const branche = nomBranche(task.id);
+      const cible = cibleDeLivraison(task.id, depot);
+      if ('refus' in cible) return reply.code(409).send({ error: cible.refus });
+      const { branche, suite } = cible;
+      // Un REJEU ne pousse ni n'ouvre de pull request de lui-même — ni n'avance
+      // celle qu'il reprend (#518) : toutes les portes ci-dessus sont passées,
+      // la livraison serait partie — elle est simulée, rangée, et rien n'est
+      // réservé.
+      const cibleRejeu = `${depot}:${branche}`;
+      if (
+        porteRejeu(req, task.projectId, 'livraison_pr', cibleRejeu, req.body.validerRejeu) ===
+        'simulee'
+      ) {
+        return repondreSimulee(reply, 'livraison_pr', cibleRejeu);
+      }
       // Réserver AVANT le premier await GitHub. Une contre-revue peut terminer
       // pendant la création de la branche ; sans cette ligne, le Scheduler
       // verrait encore « aucune livraison » et relancerait cette production.
@@ -5590,6 +7338,7 @@ async function monterReine(
               // boucle côté GitHub au moment du merge.
               ...(issueOrigine ? { issue: issueOrigine.numero } : {}),
             }),
+            ...(suite ? { suite: { pr: suite.pr } } : {}),
           },
         );
         const resultatValide = resultatLivraisonValide(resultat, branche);
@@ -5616,21 +7365,16 @@ async function monterReine(
           pr: resultat.pr,
           branche,
           etat: 'ouverte',
+          relaie: suite !== undefined,
         });
         if (!finalisee) {
           const motif = 'réservation de livraison remplacée pendant la livraison';
           return reply.code(409).send({ code: 'delivery_stale', error: motif });
         }
-        // Faits typés uniquement : le texte bilingue est reconstruit à l'affichage.
-        emitEvent('delivery_opened', {
-          taskId: task.id,
-          nodeId: dernier.nodeId,
-          pr: resultat.pr,
-          branch: resultat.branche,
-          commitSha: resultat.commitSha,
-          fichiers: resultat.fichiers.length,
-        });
-        return reply.code(201).send(resultat);
+        journaliserLivraisonFaite(task.id, dernier.nodeId, resultat, suite);
+        // `avancee` : la PR existait, sa branche a avancé — l'appelant ne doit
+        // pas annoncer une pull request « ouverte ».
+        return reply.code(201).send(suite ? { ...resultat, avancee: true } : resultat);
       } catch (err) {
         if (err instanceof ErreurRustine) {
           echouerReservation(reservation, err.message);
@@ -5658,6 +7402,7 @@ async function monterReine(
       pr: number;
       methode?: 'merge' | 'squash' | 'rebase';
       forcer?: { raison: string };
+      validerRejeu?: boolean;
     };
   }>(
     '/api/livraison/fusion',
@@ -5672,6 +7417,7 @@ async function monterReine(
             pr: { type: 'integer', minimum: 1 },
             methode: { type: 'string', enum: ['merge', 'squash', 'rebase'] },
             forcer: SCHEMA_FORCER,
+            validerRejeu: SCHEMA_VALIDER_REJEU,
           },
         },
       },
@@ -5711,12 +7457,13 @@ async function monterReine(
       }
       // Le verdict est relu AU MOMENT de fusionner : la CI ingérée, une
       // contre-revue ou une revue humaine arrivées après la livraison comptent.
-      // Une tâche disparue n'est pas un feu vert (cf. `arretEvaluator`).
+      // Une tâche disparue n'est pas un feu vert (cf. `arretEvaluator`). Toute
+      // la PR est jugée, livraisons relayées comprises (`arretDePR`).
       const passage = passageEvaluator(
         req,
         reply,
         {
-          task: store.getTask(nôtre.taskId),
+          arret: arretDePR(nôtre),
           taskId: nôtre.taskId,
           projectId: req.body.projectId,
           geste: 'fusion',
@@ -5724,6 +7471,15 @@ async function monterReine(
         req.body.forcer,
       );
       if ('refus' in passage) return passage.refus;
+      const cibleFusion = `${depot}#${req.body.pr}`;
+      const porte = porteRejeu(
+        req,
+        req.body.projectId,
+        'fusion_pr',
+        cibleFusion,
+        req.body.validerRejeu,
+      );
+      if (porte === 'simulee') return repondreSimulee(reply, 'fusion_pr', cibleFusion);
       passage.journaliser();
 
       try {
@@ -5757,6 +7513,9 @@ async function monterReine(
           projectId: req.body.projectId,
           pr: req.body.pr,
           methode: req.body.methode ?? 'squash',
+          // Comme la voie autonome : GitHub peut répondre merged:false, et un
+          // relais (webhook, Slack) annoncerait sinon « fusionnée » à tort.
+          fusionnee: r.fusionnee,
         });
         return r;
       } catch (err) {
@@ -5883,6 +7642,16 @@ async function monterReine(
     return { ok: verdict.issue === 'appliquer', motif: verdict.motif };
   };
 
+  /** Cette production d'un projet de rejeu a-t-elle déjà sa livraison simulée ? */
+  const livraisonSimulee = (projectId: string, taskId: string): boolean => {
+    const depot = depotDepuisUrl(store.getProject(projectId)?.repoUrl ?? null);
+    return (
+      depot !== null &&
+      store.rejeuDuProjet(projectId) !== null &&
+      store.actionRejeuRangee(projectId, 'livraison_pr', `${depot}:${nomBranche(taskId)}`)
+    );
+  };
+
   const aLivrer = (projectId: string): Task[] => {
     if (!depotDepuisUrl(store.getProject(projectId)?.repoUrl ?? null)) return [];
     const revues = store.listReviews();
@@ -5896,29 +7665,43 @@ async function monterReine(
     //
     // L'Evaluator passe en DERNIER : il relit inspections, CI et contre-revue,
     // et ne vaut la peine que pour ce qui passe déjà tout le reste.
-    return store
-      .listTasks(projectId)
-      .filter((t) => t.status === 'done' && revues[t.id] === 'approved')
-      .filter((t) => store.getLivraison(t.id) === null)
-      .filter((t) => {
-        const resultats = store.resultsForTask(t.id);
-        const dernier = resultats[resultats.length - 1];
-        return Boolean(dernier?.success && dernier.diff);
-      })
-      .filter((t) => contreVisiteAutorise(t, inspections).ok)
-      .filter((t) => arretEvaluator(t) === null)
-      .sort((a, b) => a.createdAt - b.createdAt);
+    return (
+      store
+        .listTasks(projectId)
+        .filter((t) => t.status === 'done' && revues[t.id] === 'approved')
+        .filter((t) => store.getLivraison(t.id) === null)
+        // Sur un REJEU, une livraison déjà simulée n'est plus « à livrer » : elle
+        // n'a rien réservé, et la recompter ferait choisir `livrer` à la ruche
+        // autonome à chaque cycle, pour re-simuler la même — sans jamais
+        // butiner, planifier ni délibérer.
+        .filter((t) => !livraisonSimulee(projectId, t.id))
+        .filter((t) => {
+          const resultats = store.resultsForTask(t.id);
+          const dernier = resultats[resultats.length - 1];
+          return Boolean(dernier?.success && dernier.diff);
+        })
+        .filter((t) => contreVisiteAutorise(t, inspections).ok)
+        .filter((t) => arretEvaluator(t) === null)
+        .sort((a, b) => a.createdAt - b.createdAt)
+    );
   };
 
   /**
    * Les pull requests ouvertes que la ruche peut fusionner d'elle-même : celles
-   * dont l'Evaluator laisse partir la production (cf. `arretEvaluator`). Les
+   * dont l'Evaluator laisse partir TOUT le travail (cf. `arretDePR`). Les
    * autres restent ouvertes et attendent un humain — une file, pas un arrêt.
    */
-  const livraisonsAFusionner = (projectId: string) =>
-    store
+  const livraisonsAFusionner = (projectId: string) => {
+    // Même règle que `aLivrer` : sur un rejeu, une fusion déjà simulée ne
+    // compte plus — sinon la ruche la re-simulerait à chaque cycle.
+    const rejeu = store.rejeuDuProjet(projectId) !== null;
+    return store
       .listLivraisons(projectId, 'ouverte')
-      .filter((l) => arretEvaluator(store.getTask(l.taskId)) === null);
+      .filter((l) => arretDePR(l) === null)
+      .filter(
+        (l) => !rejeu || !store.actionRejeuRangee(projectId, 'fusion_pr', `${l.depot}#${l.pr}`),
+      );
+  };
 
   /** L'état de gouvernance d'un projet, et ce que la ruche ferait maintenant. */
   const etatEssaim = (projectId: string): EtatEssaim & { decision: Decision } => {
@@ -6269,6 +8052,155 @@ async function monterReine(
     },
   );
 
+  // ─── Le banc d'ombre (shadow-bench.ts) ──────────────────────────────────────
+
+  /**
+   * L'état du banc d'ombre d'un projet, pour l'écran et la CLI : le
+   * consentement posé (ou `null` : banc éteint), ce que le banc a dépensé sur
+   * la fenêtre du budget — et ce qui l'ARRÊTERAIT maintenant —, et ses
+   * dernières ombres. Un banc arrêté par son budget doit se lire dans l'état
+   * courant, pas seulement dans un `shadow_bench_skipped` que l'élagage
+   * finira par emporter (motif `get balance`).
+   */
+  const etatBancOmbre = (projectId: string) => {
+    const reglage = store.getBancOmbre(projectId);
+    const usage = store.usageBancOmbre(projectId, Date.now() - FENETRE_BUDGET_MS);
+    return {
+      actif: reglage?.actif ?? false,
+      reglage: reglage
+        ? {
+            tauxPourMille: reglage.tauxPourMille,
+            executionsParJour: reglage.executionsParJour,
+            plafondCoutUsd: reglage.plafondCoutUsd,
+            definiPar: reglage.definiPar,
+            updatedAt: reglage.updatedAt,
+          }
+        : null,
+      propose: REGLAGE_PROPOSE,
+      bornes: BORNES_REGLAGE,
+      budget: {
+        fenetreMs: FENETRE_BUDGET_MS,
+        ...usage,
+        arret: reglage ? arretBudget(reglage, usage) : null,
+      },
+      ombres: store.ombresRecentes(projectId, 10).map((o) => ({
+        tacheOmbre: o.tacheOmbre,
+        tacheOriginale: o.tacheOriginale,
+        titre: o.titre,
+        modeleOriginal: o.modeleOriginal,
+        modeleOmbre: o.modeleOmbre,
+        statut: o.statut,
+        coutDeclareUsd: o.coutDeclareUsd,
+        executionsMuettes: o.executionsMuettes,
+        creeA: o.creeA,
+      })),
+    };
+  };
+
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/banc-ombre',
+    async (req, reply) => {
+      const lecture = lectureProjetPermise(req, req.params.projectId);
+      if (lecture !== 'permis') return refuserProjet(reply, lecture);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      return etatBancOmbre(req.params.projectId);
+    },
+  );
+
+  /**
+   * Règle le banc d'ombre d'un projet — GESTE HUMAIN de qui répond du projet,
+   * sans équivalent automatique : chaque ombre est un vrai appel de modèle,
+   * payé par l'hôte. Le BUDGET est exigé pour ALLUMER (exécutions par jour,
+   * plafond de coût déclaré) : un banc s'allume avec sa borne, jamais sans.
+   * Seul le taux d'échantillonnage a un défaut (5 %).
+   *
+   * ÉTEINDRE, en revanche, ne demande rien d'autre que `{ actif: false }` :
+   * c'est le seul geste qui arrête la dépense, et le suspendre à la
+   * validation d'un champ de budget mal tapé laissait le banc tourner. Le
+   * budget rangé est gardé tel quel, pour le prochain allumage.
+   */
+  app.post<{
+    Params: { projectId: string };
+    Body: {
+      actif: boolean;
+      tauxPourMille?: number;
+      executionsParJour?: number;
+      plafondCoutUsd?: number;
+    };
+  }>(
+    '/api/projects/:projectId/banc-ombre',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['actif'],
+          properties: {
+            actif: { type: 'boolean' },
+            tauxPourMille: {
+              type: 'integer',
+              minimum: BORNES_REGLAGE.tauxPourMille.min,
+              maximum: BORNES_REGLAGE.tauxPourMille.max,
+            },
+            executionsParJour: {
+              type: 'integer',
+              minimum: BORNES_REGLAGE.executionsParJour.min,
+              maximum: BORNES_REGLAGE.executionsParJour.max,
+            },
+            plafondCoutUsd: {
+              type: 'number',
+              exclusiveMinimum: 0,
+              maximum: BORNES_REGLAGE.plafondCoutUsd.max,
+            },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const reglage = proprieteProjetPermise(req, req.params.projectId);
+      if (reglage !== 'permis') return refuserReglage(reply, reglage);
+      const { actif, tauxPourMille, executionsParJour, plafondCoutUsd } = req.body;
+      if (actif && (executionsParJour === undefined || plafondCoutUsd === undefined)) {
+        return reply.code(400).send({
+          code: 'budget_exige',
+          error: 'le budget est exigé pour allumer le banc d’ombre',
+          conseil: 'Envoyez executionsParJour et plafondCoutUsd avec actif: true.',
+        });
+      }
+      // Pour éteindre, ce qui n'est pas envoyé reste ce qui était rangé.
+      const range = actif ? null : store.getBancOmbre(req.params.projectId);
+      const budget = {
+        executionsParJour: executionsParJour ?? range?.executionsParJour,
+        plafondCoutUsd: plafondCoutUsd ?? range?.plafondCoutUsd,
+      };
+      // Éteindre un banc jamais réglé : il l'est déjà, et rien n'est rangé.
+      if (budget.executionsParJour === undefined || budget.plafondCoutUsd === undefined) {
+        return reply.code(200).send(etatBancOmbre(req.params.projectId));
+      }
+      const pose = {
+        actif,
+        tauxPourMille: tauxPourMille ?? range?.tauxPourMille ?? TAUX_DEFAUT_POUR_MILLE,
+        executionsParJour: budget.executionsParJour,
+        plafondCoutUsd: budget.plafondCoutUsd,
+      };
+      // `definiPar` est une TRACE — QUI a engagé une dépense —, jamais une
+      // autorisation (la garde est `proprieteProjetPermise`) : le compte du
+      // Bearer quand il y en a un, `null` sous le jeton de ruche. Même règle
+      // que le plafond de La Balance (`/api/projects/:projectId/balance`).
+      const definiPar = authorizedUser(req) ? ((req as AuthRequest).userId ?? null) : null;
+      store.setBancOmbre(req.params.projectId, pose, definiPar);
+      // Faits typés uniquement — le texte bilingue est reconstruit à l'affichage.
+      emitEvent('shadow_bench_set', {
+        projectId: req.params.projectId,
+        ...pose,
+        ...(definiPar ? { definiPar } : {}),
+      });
+      return reply.code(200).send(etatBancOmbre(req.params.projectId));
+    },
+  );
+
   // ─── Le runner : la ruche agit vraiment ────────────────────────────────────
   //
   // `deciderPas` savait déjà quoi faire ; personne ne l'appelait en boucle. Ce
@@ -6433,6 +8365,8 @@ async function monterReine(
         const depot = depotDepuisUrl(projet?.repoUrl ?? null);
         if (!depot) return 'projet sans dépôt GitHub';
 
+        // Un rejeu simule chaque livraison UNE fois : `aLivrer` écarte celles
+        // dont la simulation est déjà rangée.
         const task = aLivrer(projectId)[0];
         if (!task) return 'aucune production relue à livrer';
 
@@ -6446,8 +8380,38 @@ async function monterReine(
           dernier.nodeId,
           dernier.resultId,
         );
-        const branche = nomBranche(task.id);
+        const cible = cibleDeLivraison(task.id, depot);
+        if ('refus' in cible) {
+          // RANGÉ, pas seulement rendu : sans ligne, `aLivrer` reprendrait la
+          // même production à chaque cycle pour le même refus.
+          echouerReservation(
+            reserverLivraison({
+              taskId: task.id,
+              projectId,
+              depot,
+              branche: nomBranche(task.id),
+              resultId: dernier.resultId,
+              revue: store.getTaskReview(task.id)?.state ?? null,
+            }),
+            cible.refus,
+          );
+          return `livraison refusée : ${cible.refus}`;
+        }
+        const { branche, suite } = cible;
         const issueOrigine = store.issueDeTache(task.id);
+        // LA RUCHE AUTONOME D'UN REJEU NE LIVRE JAMAIS : elle n'a pas de compte,
+        // donc pas de validation humaine — la livraison est simulée et rangée
+        // (une fois ; les cycles suivants la retrouvent déjà rangée).
+        if (
+          porteIrreversible(store, emitEvent, {
+            projectId,
+            genre: 'livraison_pr',
+            cible: `${depot}:${branche}`,
+            validation: null,
+          }) === 'simulee'
+        ) {
+          return `rejeu : pull request de « ${task.title} » simulée, non ouverte`;
+        }
         let reservation: ReservationLivraison | null = null;
 
         try {
@@ -6480,6 +8444,7 @@ async function monterReine(
                 fichiers,
                 ...(issueOrigine ? { issue: issueOrigine.numero } : {}),
               }),
+              ...(suite ? { suite: { pr: suite.pr } } : {}),
             },
           );
           const resultatValide = resultatLivraisonValide(resultat, branche);
@@ -6500,17 +8465,13 @@ async function monterReine(
             pr: resultat.pr,
             branche,
             etat: 'ouverte',
+            relaie: suite !== undefined,
           });
           if (!finalisee) return 'livraison abandonnée : réservation remplacée';
-          emitEvent('delivery_opened', {
-            taskId: task.id,
-            nodeId: dernier.nodeId,
-            pr: resultat.pr,
-            branch: resultat.branche,
-            commitSha: resultat.commitSha,
-            fichiers: resultat.fichiers.length,
-          });
-          return `pull request #${resultat.pr} ouverte`;
+          journaliserLivraisonFaite(task.id, dernier.nodeId, resultat, suite);
+          return suite
+            ? `pull request #${resultat.pr} avancée (même branche)`
+            : `pull request #${resultat.pr} ouverte`;
         } catch (e) {
           // `pr: 0` — il n'y en a pas. La ligne existe pour que la ruche
           // n'essaie pas la même production en boucle ; c'est à l'humain de la
@@ -6550,6 +8511,16 @@ async function monterReine(
             : 'aucune pull request ouverte';
         }
 
+        if (
+          porteIrreversible(store, emitEvent, {
+            projectId,
+            genre: 'fusion_pr',
+            cible: `${ouverte.depot}#${ouverte.pr}`,
+            validation: null,
+          }) === 'simulee'
+        ) {
+          return `rejeu : fusion de la pull request #${ouverte.pr} simulée, non faite`;
+        }
         try {
           const r = await fusionner(
             { jeton: jetonGithub, ...(apiGithub ? { api: apiGithub } : {}) },
@@ -6563,9 +8534,16 @@ async function monterReine(
             fusionnee: r.fusionnee,
           });
           // ADR 0010 lot 8 : merge landé → les fabriques liées passent « mergee »
-          // (Chantiers pourra enfin juger le script déclaré).
+          // (Chantiers pourra enfin juger le script déclaré). Pour TOUTES les
+          // livraisons de la PR, comme la route humaine : une PR prolongée par
+          // des reprises porte aussi le travail de la livraison d'origine,
+          // dont la ligne est `relayee`.
           if (r.fusionnee) {
-            marquerFabriquesMergeesApresFusion(store, projectId, ouverte.taskId);
+            for (const l of store.listLivraisons(projectId)) {
+              if (l.depot !== ouverte.depot || l.pr !== ouverte.pr) continue;
+              if (l.taskId !== ouverte.taskId) store.setLivraison({ ...l, etat: 'fusionnee' });
+              marquerFabriquesMergeesApresFusion(store, projectId, l.taskId);
+            }
           }
           return r.fusionnee ? `pull request #${ouverte.pr} fusionnée` : 'fusion refusée';
         } catch (e) {
@@ -6970,6 +8948,24 @@ async function monterReine(
     // encore de savoir » n'est pas une erreur.
     return { ...graphe(lire(dossierCerveau), Date.now()), dossier: dossierCerveau };
   });
+
+  /**
+   * Le graphe d'expérience de TOUTE la ruche — la vue fédérée.
+   *
+   * Réservée à `voir_tous_les_projets`, pour la même raison que le Cerveau :
+   * elle traverse les projets, et c'est la seule permission qui dise « cette
+   * personne les voit tous ». Elle ne dépend PAS du réglage de fédération : ce
+   * réglage décide de ce que reçoivent les ouvrières, et c'est justement ici
+   * que l'hôte voit ce que la fédération leur apporterait avant de l'ouvrir.
+   */
+  app.get<{ Querystring: { noeud?: string; genre?: GenreNoeud } }>(
+    '/api/admin/experience',
+    { schema: { querystring: schemaExperience } },
+    async (req, reply) => {
+      if (!exige(req, reply, 'voir_tous_les_projets')) return reply;
+      return vueExperience(reply, grapheExperience({ genre: 'ruche' }), req.query, 'ruche');
+    },
+  );
 
   app.get('/api/admin/membres', async (req, reply) => {
     if (!exige(req, reply, 'gerer_membres')) return reply;
@@ -7813,6 +9809,212 @@ async function monterReine(
     },
   );
 
+  // ─── LES MISSIONS REJOUABLES ET LE TIME TRAVEL ─────────────────────────────
+  //
+  // Le Time-Lapse ci-dessus REMONTE le temps ; ces routes le REJOUENT. Une
+  // mission (un épisode d'activité d'un projet) garde deux instantanés, pris
+  // par la Reine (`missions.ts`) ; on la relance dans un projet NEUF avec un
+  // autre modèle, une autre politique de routage ou un autre niveau
+  // d'autonomie, puis on compare, sur les seules données déclarées.
+  //
+  // LIRE est la porte des lectures (`lectureProjetPermise`). REJOUER est un
+  // RÉGLAGE (`proprieteProjetPermise`) : le rejeu hérite du dépôt, des
+  // garde-fous et d'un niveau d'autonomie — ce que seul qui répond du projet
+  // décide. Toutes ses actions irréversibles passent ensuite la porte des
+  // rejeux (`porteRejeu`) : simulées, jamais exécutées sans un humain.
+
+  const SCHEMA_PARAMS_MISSION = {
+    type: 'object',
+    required: ['projectId', 'missionId'],
+    properties: {
+      projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id },
+      missionId: { type: 'string', minLength: 1, maxLength: LIMITS.id },
+    },
+  } as const;
+
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/missions',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId'],
+          properties: { projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      const lecture = lectureProjetPermise(req, req.params.projectId);
+      if (lecture !== 'permis') return refuserProjet(reply, lecture);
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+      const now = Date.now();
+      const missions = store.listMissions(project.id, 50).map((m) => {
+        const debut = lireInstantaneBrut(m.debut);
+        return {
+          id: m.id,
+          ouverteA: m.ouverteA,
+          closeA: m.closeA,
+          // `null` : instantané illisible (autre version) — dit, pas deviné.
+          tachesPlan: debut ? debut.plan.taches.filter((t) => t.genre === 'plan').length : null,
+          rejouable: debut ? debut.plan.complet : false,
+          manques: debut?.plan.manques ?? [],
+          resume: resumeDeMission(store, m, now)?.resume ?? null,
+          // Seuls les rejeux que CE lecteur peut ouvrir : l'identifiant d'un
+          // projet qu'il ne voit pas n'a rien à faire dans sa réponse.
+          rejeux: store
+            .rejeuxDeMission(m.id)
+            .filter((id) => lectureProjetPermise(req, id) === 'permis'),
+        };
+      });
+      const rejeu = store.rejeuDuProjet(project.id);
+      return reply.send({
+        missions,
+        rejeu: rejeu
+          ? {
+              missionSource: rejeu.missionSource,
+              projetSource:
+                lectureProjetPermise(req, rejeu.projetSource) === 'permis'
+                  ? rejeu.projetSource
+                  : null,
+              surcharges: rejeu.surcharges,
+              creeA: rejeu.creeA,
+              actions: store.actionsDuRejeu(project.id).map((a) => ({
+                genre: a.genre,
+                cible: a.cible,
+                issue: a.issue,
+                creeA: a.creeA,
+              })),
+            }
+          : null,
+      });
+    },
+  );
+
+  app.get<{ Params: { projectId: string; missionId: string } }>(
+    '/api/projects/:projectId/missions/:missionId',
+    { schema: { params: SCHEMA_PARAMS_MISSION } },
+    async (req, reply) => {
+      const lecture = lectureProjetPermise(req, req.params.projectId);
+      if (lecture !== 'permis') return refuserProjet(reply, lecture);
+      const mission = store.getMission(req.params.missionId);
+      // Une mission d'un AUTRE projet a la forme de l'inexistence.
+      if (!mission || mission.projectId !== req.params.projectId) {
+        return reply.code(404).send({ error: 'mission inconnue' });
+      }
+      return reply.send({
+        id: mission.id,
+        ouverteA: mission.ouverteA,
+        closeA: mission.closeA,
+        debut: lireInstantaneBrut(mission.debut),
+        fin: mission.fin === null ? null : lireInstantaneBrut(mission.fin),
+      });
+    },
+  );
+
+  app.post<{
+    Params: { projectId: string; missionId: string };
+    Body: { modele?: string; politiqueRoutage?: string; autonomie?: string };
+  }>(
+    '/api/projects/:projectId/missions/:missionId/rejouer',
+    {
+      schema: {
+        params: SCHEMA_PARAMS_MISSION,
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            modele: { type: 'string', minLength: 1, maxLength: MAX_NOM_MODELE },
+            politiqueRoutage: { type: 'string', enum: [...POLITIQUES_ROUTAGE] },
+            autonomie: { type: 'string', enum: [...NIVEAUX] },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const reglage = proprieteProjetPermise(req, req.params.projectId);
+      if (reglage !== 'permis') return refuserReglage(reply, reglage);
+      const mission = store.getMission(req.params.missionId);
+      if (!mission || mission.projectId !== req.params.projectId) {
+        return reply.code(404).send({ error: 'mission inconnue' });
+      }
+      const surcharges = validerSurcharges(
+        {
+          ...(req.body?.modele !== undefined ? { modele: req.body.modele } : {}),
+          ...(req.body?.politiqueRoutage !== undefined
+            ? { politiqueRoutage: req.body.politiqueRoutage as (typeof POLITIQUES_ROUTAGE)[number] }
+            : {}),
+          ...(req.body?.autonomie !== undefined ? { autonomie: req.body.autonomie } : {}),
+        },
+        NIVEAUX,
+      );
+      if (!surcharges.ok) return reply.code(400).send({ error: surcharges.motif });
+      const cree = creerRejeu(store, emitEvent, {
+        mission,
+        surcharges: surcharges.surcharges,
+        parUserId: authorizedUser(req) ? ((req as AuthRequest).userId ?? null) : null,
+      });
+      if (!cree.ok) {
+        return reply.code(409).send({ code: cree.refus.code, error: cree.refus.motif });
+      }
+      scheduler.tick();
+      stateDirty = true;
+      return reply.code(201).send({
+        projet: cree.projet,
+        taches: cree.taches,
+        surcharges: surcharges.surcharges,
+      });
+    },
+  );
+
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/rejeu/comparaison',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId'],
+          properties: { projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      const lecture = lectureProjetPermise(req, req.params.projectId);
+      if (lecture !== 'permis') return refuserProjet(reply, lecture);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      // La comparaison montre l'instantané de la mission SOURCE — son plan, ses
+      // titres, ses modèles : lire le rejeu ne suffit pas, il faut lire la
+      // source. Une source supprimée a emporté ses instantanés (effacement de
+      // projet) : la comparaison dit alors `source_elaguee`. Les tâches que le
+      // rejeu a recopiées à sa création, elles, sont les SIENNES et restent avec
+      // lui jusqu'à ce qu'on le supprime.
+      const source = store.rejeuDuProjet(req.params.projectId)?.projetSource ?? null;
+      if (
+        source !== null &&
+        store.getProject(source) &&
+        lectureProjetPermise(req, source) !== 'permis'
+      ) {
+        return reply.code(403).send({
+          code: 'source_illisible',
+          error: 'la mission source appartient à un projet que vous ne lisez pas',
+        });
+      }
+      const r = comparaisonDuRejeu(store, req.params.projectId);
+      if (r.ok) return reply.send(r.comparaison);
+      const dit: Record<typeof r.code, [number, string]> = {
+        pas_un_rejeu: [404, 'ce projet n’est pas le rejeu d’une mission'],
+        source_elaguee: [409, 'la mission source n’est plus rangée : rien à comparer'],
+        rejeu_pas_parti: [409, 'le rejeu n’a pas encore ouvert sa mission'],
+        rejeu_elague: [409, 'la mission du rejeu n’est plus rangée : rien à comparer'],
+        illisible: [409, 'un des deux instantanés est illisible (autre version)'],
+      };
+      const [code, error] = dit[r.code];
+      return reply.code(code).send({ code: r.code, error });
+    },
+  );
+
   // Waggle Board : classement de contribution des nœuds (nectar), calculé en
   // repliant la fenêtre du journal (`lireJournal`). Lecture seule.
   app.get('/api/waggle', async (req, reply) => {
@@ -8471,8 +10673,13 @@ async function monterReine(
       const focusId = req.body.projectId ?? null;
       const reportProjects = focusId ? projects.filter((p) => p.id === focusId) : projects;
       const tachesFocus = store.listTasks(focusId ?? undefined);
-      const enCours = tachesFocus
-        .filter((t) => t.status === 'assigned' || t.status === 'running')
+      // Ce qui TOURNE, lu par statut comme le planificateur le lit : les
+      // ombres du banc y sont, car elles occupent bel et bien une ouvrière —
+      // `listTasks` (le travail des projets) les tait, et c'est pour les
+      // revues de `finishedTasks` plus bas.
+      const enCours = store
+        .tasksByStatus('assigned', 'running')
+        .filter((t) => focusId === null || t.projectId === focusId)
         .slice(0, 12)
         .map((t) => {
           const n = t.assignedNodeId ? nodes.find((x) => x.id === t.assignedNodeId) : undefined;
@@ -8503,7 +10710,12 @@ async function monterReine(
         pulse: computePulse(events),
         waggle: buildWaggleBoard(events),
         ghosts: detectGhosts(events).ghosts,
-        memories: store.searchMemories(req.body.message, 3).map((s) => s.memory),
+        // Avec un projet ciblé, la règle des tâches (`savoirAdmis`). Sans, la
+        // portée du jeton de ruche, qui lit déjà toute la mémoire
+        // (`/api/hive-mind`) : cette route n'est ouverte qu'à lui.
+        memories: store
+          .searchMemories(req.body.message, 3, focusId ? { admis: savoirAdmis(focusId) } : {})
+          .map((s) => s.memory),
         recentEvents: events.slice(-100),
         reviews: store.listReviews(),
         // Scopé sur le projet ciblé quand il est fourni : la Reine ne mélange
@@ -8673,7 +10885,11 @@ async function monterReine(
    * production terminée est celui de son tiroir (`evaluationPour`), la table
    * des inspections lue une fois pour toutes.
    */
-  const missionDe = (taches: readonly Task[]) => {
+  const missionDe = (toutes: readonly Task[]) => {
+    // Le banc d'ombre ne travaille pas POUR la mission : ses ombres sont déjà
+    // hors de `listTasks`, leurs RELECTURES non — elles se comptaient comme des
+    // relectures de la mission, avec leur coût. `ombreLieeA` dit les deux.
+    const taches = toutes.filter((t) => store.ombreLieeA(t.id) === null);
     const evenements = store.evenementsParTypes(TYPES_RAPPORT_MISSION, EVENT_RETENTION);
     const inspections = store.listInspections();
     const relectures = new Set(taches.filter((t) => store.relectureDe(t.id)).map((t) => t.id));
@@ -8899,6 +11115,11 @@ async function monterReine(
     provenance: ProvenanceTache[];
     forcage?: string;
     numeroMin: number;
+    /**
+     * Prolonger la branche n°`n`, dont la tête journalisée est `commit`, sur
+     * le nœud qui la tient (`nodeId`) — cf. `DemandeLivraisonLocale.suite`.
+     */
+    suite?: { n: number; commit: string; nodeId: string };
   }
 
   /**
@@ -9048,7 +11269,43 @@ async function monterReine(
       .filter(
         (n) => n.status === 'online' && nodeSockets.has(n.id) && (nodeOnShift.get(n.id) ?? true),
       );
-    const node = disponibles.find((n) => !livraison?.pousser || nodesQuiPoussent.has(n.id));
+    // Une SUITE ne se confie qu'au nœud qui TIENT la branche : lui seul a sa
+    // tête dans son dépôt durable, et un autre refuserait après tout le merge.
+    const suite = livraison?.suite;
+    if (suite && !disponibles.some((n) => n.id === suite.nodeId)) {
+      return {
+        refus: {
+          code: 409,
+          corps: {
+            code: 'noeud_de_la_branche_absent',
+            error: `la branche à prolonger est rangée sur l’ouvrière ${suite.nodeId}, qui n’est pas en ligne`,
+            conseil:
+              'Relancez cette ouvrière, ou livrez sans prolonger : la mission partira sur une ' +
+              'nouvelle branche.',
+          },
+        },
+      };
+    }
+    // Le nœud qui tient la branche, mais d'avant ce contrat : il perdrait
+    // `suite` et ouvrirait une branche n+1 — l'inverse de ce qu'on demande.
+    if (suite && !nodesQuiProlongent.has(suite.nodeId)) {
+      return {
+        refus: {
+          code: 409,
+          corps: {
+            code: 'noeud_sans_prolongation',
+            error: `l’ouvrière ${suite.nodeId} tient la branche mais ne sait pas la prolonger`,
+            conseil:
+              'Mettez cette ouvrière à jour puis relancez-la, ou livrez sans prolonger : la ' +
+              'mission partira sur une nouvelle branche.',
+          },
+        },
+      };
+    }
+    const node = disponibles.find(
+      (n) =>
+        (!suite || n.id === suite.nodeId) && (!livraison?.pousser || nodesQuiPoussent.has(n.id)),
+    );
     const ws = node ? nodeSockets.get(node.id) : undefined;
     if (!node || !ws) {
       return disponibles.length > 0 && livraison?.pousser
@@ -9092,7 +11349,10 @@ async function monterReine(
               pousser: livraison.pousser,
               provenance: livraison.provenance,
               ...(livraison.forcage ? { forcage: livraison.forcage } : {}),
-              numeroMin: livraison.numeroMin,
+              // Une suite garde son numéro : le plancher ne sert qu'à en choisir un.
+              ...(livraison.suite
+                ? { suite: { n: livraison.suite.n, commit: livraison.suite.commit } }
+                : { numeroMin: livraison.numeroMin }),
             },
           }
         : {}),
@@ -9170,7 +11430,12 @@ async function monterReine(
   // résultat, sur /merge/result, et au journal (`livraison_locale`).
   app.post<{
     Params: { projectId: string };
-    Body: CorpsMerge & { pousser?: boolean; forcer?: { raison: string } };
+    Body: CorpsMerge & {
+      pousser?: boolean;
+      forcer?: { raison: string };
+      prolonger?: number;
+      validerRejeu?: boolean;
+    };
   }>(
     '/api/projects/:projectId/livraison-locale',
     {
@@ -9187,6 +11452,10 @@ async function monterReine(
             ...SCHEMA_CORPS_MERGE,
             pousser: { type: 'boolean' },
             forcer: SCHEMA_FORCER,
+            // Le NUMÉRO d'une livraison de cette mission à prolonger — jamais un
+            // nom de branche : le nœud le compose depuis le projet.
+            prolonger: { type: 'integer', minimum: 1, maximum: NUMERO_MAX_MISSION },
+            validerRejeu: SCHEMA_VALIDER_REJEU,
           },
         },
       },
@@ -9255,7 +11524,58 @@ async function monterReine(
         });
       }
 
+      // ─── PROLONGER : la même règle que la reprise d'une pull request ─────
+      //
+      // Une correction de mission livrée ouvrait `hive/mission-<p>-<n+1>` : la
+      // branche que quelqu'un relisait ne bougeait jamais, et chaque correction
+      // en ajoutait une. Prolonger fait avancer la branche n°`prolonger` depuis
+      // la tête que le JOURNAL de la ruche lui connaît, sur le nœud qui la
+      // tient — et le nœud refuse si le dépôt l'a vue bouger (commits humains).
+      // Le plafond est celui des reprises, compté sur la branche.
+      //
+      // Compté sur le JOURNAL (`commitsDeMission`), donc borné par sa
+      // rétention (`pruneEvents`) : l'élagage des plus anciens commits d'une
+      // branche la recompte plus bas, et celui de tous la rend inconnue
+      // (`mission_inconnue`, refus visible). Le plafond borne donc les
+      // prolongations sur la fenêtre du journal, pas pour toujours. Compromis
+      // assumé : une livraison locale
+      // n'a pas de ligne `livraisons` où ranger sa lignée, et le journal est
+      // déjà la source de la tête que le nœud doit retrouver.
+      let suite: DemandeLivraisonMission['suite'];
+      if (req.body.prolonger !== undefined) {
+        const branche = brancheDeMission(project.id, req.body.prolonger);
+        const commits = store.commitsDeMission(project.id, branche);
+        const tete = commits.at(-1);
+        if (!tete) {
+          return reply.code(409).send({
+            code: 'mission_inconnue',
+            error: `la ruche n’a livré aucune branche ${branche}`,
+            conseil: 'Livrez sans « prolonger » : la mission partira sur une nouvelle branche.',
+          });
+        }
+        if (commits.length - 1 >= MAX_REPRISES_PAR_LIVRAISON) {
+          return reply.code(409).send({
+            code: 'plafond_reprises',
+            error: `la branche ${branche} a déjà été prolongée ${commits.length - 1} fois (plafond : ${MAX_REPRISES_PAR_LIVRAISON})`,
+            conseil: 'Livrez sans « prolonger », ou corrigez la branche à la main.',
+          });
+        }
+        suite = { n: req.body.prolonger, commit: tete.commit, nodeId: tete.nodeId };
+      }
+
       const pousser = req.body.pousser === true;
+      // Un REJEU ne commite pas sur le dépôt du projet — et ne pousse pas —
+      // de lui-même : la livraison serait partie, elle est simulée et rangée.
+      const genreLocal: GenreIrreversible = pousser ? 'poussee' : 'livraison_locale';
+      const cibleLocale = `${cleDepot(repoUrl) ?? project.id}:${integration.order.join(',')}`.slice(
+        0,
+        500,
+      );
+      if (
+        porteRejeu(req, project.id, genreLocal, cibleLocale, req.body.validerRejeu) === 'simulee'
+      ) {
+        return repondreSimulee(reply, genreLocal, cibleLocale);
+      }
       const confie = confierMerge({ ...project, repoUrl }, integration.diffs, req.body, {
         pousser,
         provenance: verdicts.map((v) => ({
@@ -9270,6 +11590,7 @@ async function monterReine(
           project.id,
           store.branchesDeMissionJournalisees(`${PREFIXE_BRANCHE_MISSION}${project.id}-`),
         ),
+        ...(suite ? { suite } : {}),
       });
       if ('refus' in confie) return reply.code(confie.refus.code).send(confie.refus.corps);
       // Le forçage s'écrit ICI : le merge est parti, la livraison aura lieu
@@ -9296,6 +11617,7 @@ async function monterReine(
         order: integration.order,
         pousser,
         forcees: arrets.map((a) => a.taskId),
+        ...(suite ? { prolonge: brancheDeMission(project.id, suite.n) } : {}),
       });
     },
   );
@@ -9572,14 +11894,20 @@ async function monterReine(
     },
   );
 
-  app.post<{ Params: { projectId: string; workflowId: string }; Body: { ref?: string } }>(
+  app.post<{
+    Params: { projectId: string; workflowId: string };
+    Body: { ref?: string; validerRejeu?: boolean };
+  }>(
     '/api/projects/:projectId/workflows/:workflowId/run',
     {
       schema: {
         body: {
           type: 'object',
           additionalProperties: false,
-          properties: { ref: { type: 'string', minLength: 1, maxLength: 255 } },
+          properties: {
+            ref: { type: 'string', minLength: 1, maxLength: 255 },
+            validerRejeu: SCHEMA_VALIDER_REJEU,
+          },
         },
       },
     },
@@ -9606,6 +11934,14 @@ async function monterReine(
       // une autre, d'où le réglage. Un défaut DOCUMENTÉ vaut mieux qu'une
       // devinette silencieuse.
       const ref = req.body?.ref ?? 'main';
+      // Un workflow tourne CHEZ GitHub, avec ses secrets et ses déploiements :
+      // un rejeu ne le déclenche pas de lui-même.
+      const cibleWorkflow = `${fullName}#${id}@${ref}`;
+      if (
+        porteRejeu(req, project.id, 'workflow', cibleWorkflow, req.body?.validerRejeu) === 'simulee'
+      ) {
+        return repondreSimulee(reply, 'workflow', cibleWorkflow);
+      }
       try {
         const lance = await lancerWorkflow(
           { jeton: jetonGithub, ...(apiGithub ? { api: apiGithub } : {}) },
@@ -9743,13 +12079,57 @@ async function monterReine(
       }
       return categories.get(taskId) ?? null;
     };
+    // Le banc d'ombre, lu de sa table (`taches_ombre`), jamais du journal :
+    // ses comparaisons survivent à l'élagage des événements. Bornée comme la
+    // table elle-même, par la rétention des tâches (`pruneTachesOmbre`).
+    const ombres = store.ombresRecentes(null, COMPARAISONS_OMBRE_LUES);
+    const marquees = new Set(ombres.map((o) => o.tacheOmbre));
+    // Une ombre au-delà de la borne lue reste une ombre, et une RELECTURE
+    // d'ombre sert le banc elle aussi : leurs faits ne sont pas ceux de la
+    // production (`ombreLieeA`), lus une fois par tâche (mémoïsés comme
+    // `categorieDe`).
+    const horsLecture = new Map<string, boolean>();
+    const estOmbre = (taskId: string): boolean => {
+      if (marquees.has(taskId)) return true;
+      if (!horsLecture.has(taskId)) horsLecture.set(taskId, store.ombreLieeA(taskId) !== null);
+      return horsLecture.get(taskId) === true;
+    };
     return registreGenomeDepuisEvenements(
       evenements,
       categorieDe,
       EVENT_RETENTION,
       store.faitsElagues(TYPES_REGISTRE_GENOME),
+      estOmbre,
+      ombres,
     );
   });
+
+  // Le graphe d'UN projet — toujours isolé à ce projet, quel que soit le
+  // réglage de fédération : le droit de lire ce projet (`lectureProjetPermise`)
+  // ne dit rien des autres. Refus et inexistence rendent les mêmes octets.
+  app.get<{ Params: { projectId: string }; Querystring: { noeud?: string; genre?: GenreNoeud } }>(
+    '/api/projects/:projectId/experience',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId'],
+          properties: { projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+        querystring: schemaExperience,
+      },
+    },
+    async (req, reply) => {
+      const lecture = lectureProjetPermise(req, req.params.projectId);
+      if (lecture !== 'permis') return refuserProjet(reply, lecture);
+      if (!store.getProject(req.params.projectId)) return refuserProjet(reply, 'absent');
+      const graphe = grapheExperience({
+        genre: 'projets',
+        projets: new Set([req.params.projectId]),
+      });
+      return vueExperience(reply, graphe, req.query, 'projet');
+    },
+  );
 
   // Graphe de délégation borné : état des tâches + événements parent→raison→résultat.
   // La lecture ne déduit rien d'un état UI : elle relit les arêtes SQLite et le
@@ -9979,71 +12359,18 @@ async function monterReine(
           });
         }
       }
-      store.setTaskReview(task.id, req.body.state);
-      emitEvent('task_reviewed', {
-        taskId: task.id,
-        state: req.body.state,
-        ...(req.body.clientId ? { clientId: req.body.clientId } : {}),
-        ...(raison ? { raison } : {}),
-      });
-      // Approuvée, la production entre au Hive Mind ; rejetée, elle en sort et
-      // son épisode s'écrit avec la raison de l'humain. AVANT la relance, qui
-      // efface la revue et rouvre la tâche : après elle, il n'y aurait plus de
-      // rejet à lire.
-      statuerProduction(task.id);
-      if (req.body.state === 'approved') {
-        // Une approbation ne rachète pas une objection, une validation rouge
-        // ou un signal des Gardiennes (`verdictSouvenir`). Sans ce fait,
-        // l'humain qui approuve recevait un 200 et croyait avoir enseigné à
-        // la ruche : il lit ici pourquoi rien n'est entré au Hive Mind.
-        const { latest, evaluation } = evaluationPour(task);
-        const propose = store.souvenirPropose(task.id);
-        if (
-          propose !== null &&
-          propose.resultId === latest?.resultId &&
-          verdictSouvenir(evaluation).issue === 'rejete'
-        ) {
-          emitEvent('memory_withheld', {
-            taskId: task.id,
-            projectId: task.projectId,
-            resultId: propose.resultId,
-            decision: evaluation.decision,
-            raison: evaluation.reasons[0] ?? '',
-          });
-        }
-      }
-      let retry: ReturnType<Scheduler['retryFromEvaluator']> | null = null;
-      if (req.body.state === 'rejected') {
-        const { latest, evaluation } = evaluationPour(task);
-        if (
-          latest?.resultId !== undefined &&
-          evaluation.retryRecommended &&
-          (evaluation.decision === 'correction_required' || evaluation.decision === 'rejected')
-        ) {
-          retry = scheduler.retryFromEvaluator({
-            taskId: task.id,
-            resultId: latest.resultId,
-            decision: evaluation.decision,
-            critique: critiquePourRetry(task.id, evaluation, 'revue_humaine'),
-          });
-          if (retry.ok) {
-            stateDirty = true;
-          } else {
-            // Même trace que le retry automatique de la contre-revue : Mission
-            // Control ne lit pas cette réponse, et un rejet humain resté sans
-            // correction (essais épuisés, livraison déjà ouverte…) ne doit pas
-            // se confondre avec une correction en route.
-            emitEvent('evaluator_retry_skipped', {
-              taskId: task.id,
-              resultId: latest.resultId,
-              reason: retry.reason,
-              // Un rejet HUMAIN : l'humain a tranché, la correction n'a pas
-              // suivi — la War Room le dit sans le compter « à trancher ».
-              source: 'revue_humaine',
-            });
-          }
-        }
-      }
+      // Chemin CANONIQUE, partagé avec l'approbation Slack : poser le verdict,
+      // relancer si rejet. La trace `evaluator_retry_skipped` d'un rejet resté
+      // sans correction (essais épuisés, livraison déjà ouverte…) y vit aussi.
+      const { retry } = appliquerRevueHumaine(
+        task,
+        req.body.state,
+        { parUserId: compteQuiRegle(req, task.projectId) },
+        {
+          ...(req.body.clientId ? { clientId: req.body.clientId } : {}),
+          ...(raison ? { raison } : {}),
+        },
+      );
       const saved = store.getTaskReview(task.id);
       return {
         taskId: task.id,
@@ -10208,7 +12535,12 @@ async function monterReine(
       if (task.branch && task.branch !== livraison.branche) {
         return reply.code(409).send({ code: 'branch_binding_mismatch' });
       }
-      const ouverture = store.lastEventFor('delivery_opened', task.id);
+      // Une reprise n'OUVRE pas de PR, elle avance celle qu'elle corrige : sa
+      // provenance est `delivery_advanced`, lue de la même façon. Une tâche
+      // n'a jamais que l'un des deux (une ligne de livraison par tâche).
+      const ouverture =
+        store.lastEventFor('delivery_opened', task.id) ??
+        store.lastEventFor('delivery_advanced', task.id);
       const ouverturePr = ouverture?.payload.pr;
       const ouvertureBranche = ouverture?.payload.branch;
       const ouvertureCommit = ouverture?.payload.commitSha;
@@ -10531,6 +12863,103 @@ async function monterReine(
     return { taskId: l.taskId, depot: l.depot, pr: l.pr, etat: etatLivraison(faits), faits };
   };
 
+  // ─── LA LIGNÉE D'UNE REPRISE, ET SES DEUX BORNES ────────────────────────────
+  //
+  // La reprise prolonge la PR : sa lignée remonte à la PREMIÈRE livraison
+  // (`origine`), et c'est sur elle que tout se compte. Deux refus, avant de
+  // fabriquer quoi que ce soit :
+  //
+  //   · UNE reprise en vol à la fois. Deux reprises partiraient de la même
+  //     tête ; la seconde livrée trouverait la branche avancée par la
+  //     première, et travaillerait sur des faits périmés.
+  //   · un PLAFOND par livraison (`MAX_REPRISES_PAR_LIVRAISON`), réussies
+  //     ou non : une production que trois reprises n'ont pas réparée
+  //     attend un humain, pas une quatrième tentative.
+  //
+  // Lues du store seul, sans GitHub : la liste s'en sert pour ne pas offrir
+  // un bouton que la route refuserait (`reprenable`), la route pour refuser.
+
+  /**
+   * Une reprise est « en vol » tant qu'elle peut encore AVANCER la branche :
+   * elle travaille (ni `done` ni `failed`), sa livraison est réservée
+   * (`en_cours` — l'appel GitHub part), ou elle est `done` avec un diff
+   * livrable qui attend relecture ou livraison.
+   *
+   * Tout le reste est clos et ne bloque plus : `failed`, livrée (ouverte,
+   * échouée, relayée), ou `done` SANS diff — l'agent n'a rien changé, rien ne
+   * se livrera jamais, et l'attendre fermerait la PR à toute reprise.
+   *
+   * Une reprise `done` que l'Evaluator ARRÊTE reste en vol : elle se corrige
+   * (rejet, `evaluation/retry`) ou se livre en forçant, et une seconde partie
+   * de la même tête la doublerait. Le refus nomme alors ces deux sorties
+   * (`conseilRepriseEnVol`) — jamais « attendez » pour une tâche qui n'aboutira
+   * pas seule.
+   */
+  const repriseEnVol = (taskId: string): boolean => {
+    const t = store.getTask(taskId);
+    if (!t || t.status === 'failed') return false;
+    const livree = store.getLivraison(taskId);
+    if (livree) return livree.etat === ETAT_LIVRAISON_EN_COURS;
+    if (t.status !== 'done') return true;
+    const dernier = store.resultsForTask(taskId).at(-1);
+    return Boolean(dernier?.success && dernier.diff);
+  };
+
+  const conseilRepriseEnVol = (taskId: string): string => {
+    const t = store.getTask(taskId);
+    const arret = t?.status === 'done' && !store.getLivraison(taskId) ? arretEvaluator(t) : null;
+    return arret
+      ? `L’Evaluator arrête cette reprise (« ${arret.decision ?? 'sans verdict'} ») : elle ` +
+          'n’aboutira pas seule. Rejetez-la dans la Miellerie ou relancez-la (POST ' +
+          `/api/tasks/${taskId}/evaluation/retry), ou livrez-la en forçant (POST /api/livraison ` +
+          'avec « forcer: { raison } »).'
+      : 'Laissez-la aboutir — relue et livrée, elle avance la même branche.';
+  };
+
+  const bornesDeReprise = (
+    rangee: LivraisonRangee,
+  ):
+    | { origine: string; reprises: RepriseLivraison[] }
+    | { refus: Record<string, unknown> & { code: string; error: string } } => {
+    const origine = store.repriseDe(rangee.taskId)?.origine ?? rangee.taskId;
+    const reprises = store.reprisesDeLivraison(origine);
+    const enVol = reprises.find((r) => repriseEnVol(r.taskId));
+    if (enVol) {
+      return {
+        refus: {
+          code: 'reprise_en_vol',
+          error: `une reprise de cette pull request est déjà en cours (${enVol.taskId})`,
+          reprise: enVol.taskId,
+          conseil: conseilRepriseEnVol(enVol.taskId),
+        },
+      };
+    }
+    if (reprises.length >= MAX_REPRISES_PAR_LIVRAISON) {
+      return {
+        refus: {
+          code: 'plafond_reprises',
+          error: `cette livraison a déjà été reprise ${reprises.length} fois (plafond : ${MAX_REPRISES_PAR_LIVRAISON})`,
+          conseil:
+            `Corrigez à la main sur la branche ${rangee.branche}, ou fermez la pull request : ` +
+            'la ruche ne sait pas réparer cette production.',
+        },
+      };
+    }
+    return { origine, reprises };
+  };
+
+  /** `reprenable` d'une ligne de la liste, et pourquoi pas (`bornesDeReprise`). */
+  const repriseOfferte = (
+    l: LivraisonRangee,
+    etat: EtatLivraison,
+  ): { reprenable: boolean; nonReprenable?: string } => {
+    if (!reprenableSurLaBranche(etat)) return { reprenable: false };
+    const bornes = bornesDeReprise(l);
+    return 'refus' in bornes
+      ? { reprenable: false, nonReprenable: bornes.refus.error }
+      : { reprenable: true };
+  };
+
   app.get<{ Params: { projectId: string } }>(
     '/api/projects/:projectId/livraisons',
     {
@@ -10552,7 +12981,11 @@ async function monterReine(
       // SÉQUENTIEL, comme la livraison elle-même : une rafale de requêtes
       // déclencherait la limite SECONDAIRE de GitHub, qui est un bannissement
       // temporaire et non un simple 429.
-      for (const l of rangees.slice(-MAX_LIVRAISONS_LUES)) {
+      // Une PR = une ligne. Celle d'une livraison RELAYÉE par une reprise est
+      // portée par la ligne de la reprise : la relire coûterait trois appels
+      // GitHub pour afficher deux fois la même pull request.
+      const vivantes = rangees.filter((l) => l.etat !== ETAT_LIVRAISON_RELAYEE);
+      for (const l of vivantes.slice(-MAX_LIVRAISONS_LUES)) {
         // Une livraison sans numéro GitHub doit rester visible sans
         // transformer `pr: 0` en requête vers `/pulls/0`. Après un redémarrage,
         // `echouee` signifie que la réservation a été interrompue et qu'une
@@ -10583,7 +13016,11 @@ async function monterReine(
             branche: l.branche,
             titre: tache?.title ?? '',
             dit: direEtat(vue.etat),
-            reprenable: demandeDuTravail(vue.etat),
+            // Ce qu'une reprise sait faire, pas tout ce qui demande du travail :
+            // un conflit n'offre pas le bouton (`reprenableSurLaBranche`). Ni
+            // une reprise déjà en vol, ni un plafond atteint : le bouton
+            // n'offre pas ce que la route refuserait — il dit pourquoi.
+            ...repriseOfferte(l, vue.etat),
           });
         } catch (e) {
           // Une PR illisible (supprimée, dépôt transféré) ne doit pas rendre
@@ -10633,6 +13070,22 @@ async function monterReine(
           etat: ETAT_LIVRAISON_EN_COURS,
         });
       }
+      // Une livraison relayée n'est plus la ligne vivante de sa PR : reprendre
+      // depuis elle partirait d'une lignée dépassée. On nomme la bonne.
+      if (rangee.etat === ETAT_LIVRAISON_RELAYEE) {
+        const vivante = store
+          .listLivraisons(req.params.projectId)
+          .find(
+            (l) =>
+              l.depot === rangee.depot && l.pr === rangee.pr && l.etat !== ETAT_LIVRAISON_RELAYEE,
+          );
+        return reply.code(409).send({
+          code: 'livraison_relayee',
+          error: `la pull request #${rangee.pr} est désormais portée par une reprise`,
+          porteePar: vivante?.taskId ?? null,
+          conseil: 'Reprenez sa livraison la plus récente.',
+        });
+      }
 
       let vue;
       try {
@@ -10648,6 +13101,28 @@ async function monterReine(
         return reply
           .code(409)
           .send({ error: `Rien à reprendre. ${direEtat(vue.etat)}`, etat: vue.etat });
+      }
+      if (!reprenableSurLaBranche(vue.etat)) {
+        return reply.code(409).send({
+          code: 'conflit_hors_reprise',
+          error: direEtat(vue.etat),
+          etat: vue.etat,
+          conseil: CONSEIL_CONFLIT,
+        });
+      }
+
+      const bornes = bornesDeReprise(rangee);
+      if ('refus' in bornes) return reply.code(409).send(bornes.refus);
+      const { origine, reprises } = bornes;
+      // La tête LUE maintenant, et la branche que la ruche a rangée : c'est
+      // elle que l'ouvrière clonera, jamais un nom lu dans un texte de GitHub.
+      const tete = vue.faits.commitSha ?? '';
+      if (!tete || (vue.faits.branche !== undefined && vue.faits.branche !== rangee.branche)) {
+        return reply.code(409).send({
+          code: 'branche_inattendue',
+          error: `la pull request #${vue.pr} ne porte plus la branche ${rangee.branche}`,
+          conseil: 'La ruche ne prolonge que la branche qu’elle a livrée pour cette PR.',
+        });
       }
 
       const tacheOrigine = store.getTask(rangee.taskId);
@@ -10665,35 +13140,62 @@ async function monterReine(
       // UNE SEULE TÂCHE, pas un découpage. Une reprise est ciblée par nature :
       // la faire passer par la Queen Bee dépenserait un appel de modèle pour
       // redécouper ce que la CI a déjà nommé précisément.
-      const tache = store.createTask({
-        id: `r${vue.pr}-${Date.now().toString(36)}`,
-        projectId: req.params.projectId,
-        title: `Reprise PR #${vue.pr} — ${vue.etat}`,
-        prompt: brief,
-        dependsOn: [],
-      });
-      // LE LIEN VERS L'ISSUE SUIT LA REPRISE. Sans cela, la pull request de la
-      // correction ne refermerait plus l'issue d'origine, et le demandeur
-      // verrait sa demande rester ouverte alors qu'elle a été traitée.
+      //
+      // La tâche, sa lignée et son issue naissent dans UNE transaction : une
+      // tâche sans lignée partirait sur une branche neuve et rouvrirait une
+      // seconde PR — exactement le défaut que la lignée ferme.
       const issue = store.issueDeTache(rangee.taskId);
-      if (issue) {
-        store.lierTacheIssue({
-          taskId: tache.id,
+      const tache = store.enTransaction(() => {
+        const t = store.createTask({
+          id: `r${vue.pr}-${Date.now().toString(36)}`,
           projectId: req.params.projectId,
-          depot: issue.depot,
-          numero: issue.numero,
+          title: `Reprise PR #${vue.pr} — ${vue.etat}`,
+          prompt: brief,
+          dependsOn: [],
         });
-      }
+        store.inscrireReprise({
+          taskId: t.id,
+          origine,
+          parent: rangee.taskId,
+          projectId: req.params.projectId,
+          depot: rangee.depot,
+          pr: vue.pr,
+          branche: rangee.branche,
+          tete,
+        });
+        // LE LIEN VERS L'ISSUE SUIT LA REPRISE. La PR est la même, et son
+        // « Closes #N » aussi ; mais la reprise est une tâche à part entière,
+        // relue et journalisée : sans le lien, rien ne dirait qu'elle répond
+        // à la même demande.
+        if (issue) {
+          store.lierTacheIssue({
+            taskId: t.id,
+            projectId: req.params.projectId,
+            depot: issue.depot,
+            numero: issue.numero,
+          });
+        }
+        return t;
+      });
       emitEvent('livraison_reprise', {
         projectId: req.params.projectId,
         taskId: tache.id,
-        origine: rangee.taskId,
+        origine,
+        parent: rangee.taskId,
         pr: vue.pr,
+        branche: rangee.branche,
         etat: vue.etat,
       });
       scheduler.tick();
       stateDirty = true;
-      return reply.code(201).send({ tache, etat: vue.etat, dit: direEtat(vue.etat) });
+      return reply.code(201).send({
+        tache,
+        etat: vue.etat,
+        dit: direEtat(vue.etat),
+        branche: rangee.branche,
+        reprise: reprises.length + 1,
+        plafond: MAX_REPRISES_PAR_LIVRAISON,
+      });
     },
   );
 
@@ -11947,6 +14449,10 @@ async function monterReine(
   // l'exige ; la branche qu'elle protège n'est pas jouable.
   const port = typeof address === 'object' && address !== null ? address.port : config.port;
 
+  // Ouvre le Socket Mode Slack SI un jeton d'app est posé (sinon no-op). En
+  // arrière-plan : une connexion sortante ne doit pas retarder l'écoute REST.
+  void hubConnecteurs.demarrer();
+
   // ─── WebSocket temps réel ──────────────────────────────────────────────────
   /**
    * Vérifie la clé propre d'un nœud.
@@ -12202,6 +14708,9 @@ async function monterReine(
               // Déjà validée par le protocole (isModeleList) — liste bornée, noms
               // non vides ; mal formée, tout le register a été refusé en amont.
               ...(msg.modeles !== undefined ? { modeles: msg.modeles } : {}),
+              // Les efforts, même régime (`estListeEfforts`) : absents, le store
+              // efface la déclaration d'avant.
+              ...(msg.efforts !== undefined ? { efforts: msg.efforts } : {}),
               // Les constats d'outils, même régime : `estOutilsConstates` les a
               // déjà bornés et RECONSTRUITS champ par champ, donc rien d'autre
               // que `agent`/`binaire`/`cle` n'arrive ici. Le hub les RANGE ; il
@@ -12223,7 +14732,9 @@ async function monterReine(
             // sans `HIVE_LIVRAISON_POUSSER=1`) ne survit pas dans le hub.
             if (msg.pousseLivraisons === true) nodesQuiPoussent.add(node.id);
             else nodesQuiPoussent.delete(node.id);
-            send(ws, { type: 'registered', nodeId: node.id });
+            if (msg.prolonge === true) nodesQuiProlongent.add(node.id);
+            else nodesQuiProlongent.delete(node.id);
+            send(ws, { type: 'registered', nodeId: node.id, ruche: empreinteRuche });
             // Réconciliation : requalifier les tâches que le nœud ne fait plus
             // tourner (crash/redémarrage), et demander l'abandon de ses zombies
             // (tâches déjà réaffectées ailleurs après un blip réseau).
@@ -12314,6 +14825,7 @@ async function monterReine(
             // inconnue, assignation périmée) ne dit rien du projet — l'ajouter
             // gonflerait le compteur de récurrences d'une panne qui n'a pas eu
             // lieu deux fois, et le seuil de consolidation deviendrait faux.
+            // (Une OMBRE du banc n'y entre pas : `verserEpisode` la refuse.)
             if (pris && !msg.success) {
               noterEchec(msg.taskId, nodeId, modeleTentative, msg.logs ?? '', msg.finalText);
             }
@@ -12453,6 +14965,33 @@ async function monterReine(
             // est rejetée dès maintenant, et son épisode écrit. Rien à statuer
             // pour une relecture, qui ne propose aucun souvenir.
             if (pris && msg.success && !lienRelecture) statuerProduction(msg.taskId);
+            // ─── LE BANC D'OMBRE ────────────────────────────────────────────
+            //
+            // Une production ordinaire peut ouvrir une ombre. Ce qu'une
+            // exécution du banc a coûté, lui, est rangé par le planificateur
+            // dans la transaction du résultat, pris ou non (`handleTaskResult`).
+            // Après la contre-expertise : l'ombre passe par le MÊME chemin de
+            // jugement que toute production, et rien ici ne le court-circuite.
+            if (pris) {
+              const ombreRendue = store.ombreDe(msg.taskId);
+              if (!ombreRendue && !lienRelecture) envisagerOmbre(msg.taskId);
+              // Le côté OMBRE de la comparaison, rangé à son rendu : le
+              // résultat tel que le store l'a pris (une production creuse y
+              // est déjà un échec), ses tests, sa base.
+              const rendu = ombreRendue ? store.resultsForTask(msg.taskId).at(-1) : undefined;
+              if (ombreRendue && rendu?.resultId !== undefined) {
+                const preuve = store.latestValidation(msg.taskId, rendu.resultId);
+                store.consignerRenduOmbre(ombreRendue.tacheOmbre, {
+                  resultId: rendu.resultId,
+                  succes: rendu.success,
+                  tests: preuve?.validation.tests ?? null,
+                  baseSha:
+                    preuve?.provenance.source === 'hive_sandbox'
+                      ? (preuve.provenance.baseSha ?? null)
+                      : null,
+                });
+              }
+            }
             break;
           }
           case 'task_reject': {
@@ -12511,6 +15050,12 @@ async function monterReine(
             }
             if (parent.status !== 'assigned' && parent.status !== 'running') {
               rejectDelegation('parent_termine', 'une tâche terminée ne délègue plus');
+              break;
+            }
+            // Une ombre du banc mesure UNE production d'UN modèle : un enfant
+            // délégué ferait travailler d'autres modèles sous son nom.
+            if (store.ombreDe(parent.id)) {
+              rejectDelegation('parent_ombre', 'une ombre du banc ne délègue pas');
               break;
             }
 
@@ -12764,6 +15309,11 @@ async function monterReine(
               applied: msg.applied.length,
               conflicts: msg.conflicts.length,
               testsPassed: msg.testsPassed,
+              // L'issue de la livraison DEMANDÉE, quand il y en a une : sans
+              // elle, qui lit ce seul événement (le compagnon de Mission
+              // Control) prendrait un merge nu d'un nœud ancien pour une
+              // livraison entrée dans le projet.
+              ...(livraison ? { livraison: livraison.etat } : {}),
             });
             if (livraison) journaliserLivraison(pending.projectId, msg.mergeId, nodeId, livraison);
             break;
@@ -12862,6 +15412,7 @@ async function monterReine(
         nodeSockets.delete(nodeId);
         nodeOnShift.delete(nodeId);
         nodesQuiPoussent.delete(nodeId);
+        nodesQuiProlongent.delete(nodeId);
         scheduler.nodeDisconnected(nodeId, 'ws_closed');
         // Un merge, un chantier ou une pose confiés à ce nœud : une issue
         // visible tout de suite (sinon leur résultat resterait `null` ou
@@ -13030,14 +15581,21 @@ async function monterReine(
             const modele = race
               ? race.modeleParDrone?.[nodeId]
               : (store.modeleAiguillageDe(task.id) ?? undefined);
+            // L'effort, pour la même raison : sans lui, la re-livraison
+            // tournerait au défaut du CLI sous un verdict rangé à l'effort élu.
+            const effort = race
+              ? (race.brasParDrone?.[nodeId]?.effort ?? undefined)
+              : (store.effortAiguillageDe(task.id) ?? undefined);
             send(ws, {
               type: 'assign_task',
               task,
               repoUrl: project?.repoUrl ?? null,
               ...(hiveContext ? { hiveContext } : {}),
               ...(modele ? { modele } : {}),
+              ...(effort ? { effort } : {}),
               ...delegation,
               ...(store.relectureDe(task.id) ? { relecture: true as const } : {}),
+              ...(store.repriseDe(task.id) ? { prolonger: true as const } : {}),
             });
           }
         }
@@ -13143,6 +15701,10 @@ async function monterReine(
     etape('prunePresences', () => store.prunePresences(PRESENCES_RETENTION_MS));
     // Réquisitions closes trop vieilles (les ouvertes restent).
     etape('pruneRequisitions', () => store.pruneRequisitions(REQUISITIONS_RETENTION_MS));
+    // Le journal des connecteurs externes : 90 jours, comme le registre Horizon.
+    etape('pruneConnecteursJournal', () =>
+      store.pruneConnecteursJournal(CONNECTEURS_JOURNAL_RETENTION_MS),
+    );
     etape('pruneFabriques', () => store.pruneFabriques(REQUISITIONS_RETENTION_MS));
     etape('pruneHorizon', () => store.pruneHorizon(HORIZON_RETENTION_MS));
     // L'annonce est la moitié PÉRISSABLE du couple : `pruneResults` vide des
@@ -13163,6 +15725,9 @@ async function monterReine(
     etape('pruneHorlogeHote', () => store.pruneHorlogeHote());
     // Le lien tâche→issue ne survit pas à sa tâche : borne référentielle.
     etape('pruneTachesIssue', () => store.pruneTachesIssue());
+    // La lignée d'une reprise ne survit pas à sa tâche : borne référentielle,
+    // câblée avec la table (règle 3), APRÈS `pruneTasks`.
+    etape('pruneReprisesLivraison', () => store.pruneReprisesLivraison());
     // Idem pour le lien relecture→production. Câblé ICI, dans le même
     // changement que la table — c'est la règle 3, et les trois bornes
     // oubliées quelques lignes plus bas disent ce qu'il en coûte de la
@@ -13185,7 +15750,13 @@ async function monterReine(
     // et placées APRÈS `pruneTasks`, comme celle de l'Aiguillage juste au-dessus.
     etape('pruneGardeFouEchelons', () => store.pruneGardeFouEchelons());
     etape('pruneGardeFouExigences', () => store.pruneGardeFouExigences());
+    // Le banc d'ombre : le lien ombre→originale, même borne référentielle,
+    // câblée avec sa table (règle 3) et placée APRÈS `pruneTasks`.
+    etape('pruneTachesOmbre', () => store.pruneTachesOmbre());
     etape('pruneConseils', () => store.pruneConseils(CONSEILS_CONSERVES));
+    // Les missions rejouables : orphelines, puis au-delà du plafond par
+    // projet — sauf celles qu'un rejeu rangé compare encore.
+    etape('pruneMissions', () => store.pruneMissions(MISSIONS_PAR_PROJET));
     // ─── LE JOURNAL A UN SEUL PROPRIÉTAIRE DE RÉTENTION ────────────────────
     //
     // Fenêtre pour les traces, vie de la tâche pour les preuves, plafond en
@@ -13329,10 +15900,36 @@ async function monterReine(
   );
   elagageTimer.unref();
 
+  // ─── La découverte du réseau local, si l'hôte l'a demandée ─────────────────
+  //
+  // EN DERNIER, une fois tout monté : l'offre annonce l'adresse de la ruche,
+  // donc son port réel, et une prise ouverte plus tôt fuirait si un montage
+  // suivant échouait. Une prise qui ne s'ouvre pas (5353 tenu en exclusivité,
+  // aucune interface) n'arrête PAS la ruche — la découverte est un confort ;
+  // mais la cause est dite, ici et dans le tableau de bord, plutôt qu'une
+  // liste vide muette.
+  if (config.decouverte) {
+    try {
+      const ouvrir = config.decouverte.ouvrirTransport ?? (() => ouvrirTransportUdp());
+      decouverte = new DecouverteReseau(await ouvrir(), {
+        empreinte: () => empreinteRuche,
+        ...(config.decouverte.segment ? { segment: config.decouverte.segment } : {}),
+      });
+      decouverte.demarrer();
+    } catch (err) {
+      decouverteIndisponible = err instanceof Error ? err.message : String(err);
+      console.warn(`[hive] découverte du réseau local indisponible : ${decouverteIndisponible}`);
+    }
+  }
+
   const stop = async (): Promise<void> => {
     clearInterval(tickTimer);
     clearInterval(flushTimer);
     clearInterval(elagageTimer);
+    // Coupe le Socket Mode Slack et sa reconnexion AVANT de fermer le reste :
+    // un socket laissé ouvert relancerait une connexion pendant l'arrêt.
+    hubConnecteurs.fermer();
+    await decouverte?.arreter();
     for (const client of wss.clients) client.terminate();
     await new Promise<void>((resolve) => wss.close(() => resolve()));
     await app.close();

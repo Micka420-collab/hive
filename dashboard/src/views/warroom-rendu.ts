@@ -88,6 +88,12 @@ const RAISONS_REFUS: Record<RaisonRefusRenvoi, readonly [fr: string, en: string]
     'le budget coût de la racine déléguée est épuisé',
     'the delegated root’s cost budget is exhausted',
   ],
+  // Refus VOULU : une ombre du banc est un essai unique, jugé tel quel — le
+  // dire évite qu'une contre-revue contestée paraisse restée sans suite.
+  shadow_task: [
+    'une ombre du banc n’a qu’un essai : elle se compare, elle ne se corrige pas',
+    'a shadow-bench shadow gets one attempt: it is compared, not corrected',
+  ],
 };
 
 /**

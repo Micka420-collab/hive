@@ -340,6 +340,44 @@ describe('stockage des souvenirs', () => {
   });
 });
 
+describe('le corpus filtré par projet source', () => {
+  it('LE FILTRE PASSE AVANT LA BORNE — un voisin prolifique ne vide pas le corpus', () => {
+    const store = new HiveStore(':memory:');
+    try {
+      store.recordMemory(
+        { projectId: 'ouvert', taskId: 'o1', title: 'Ancien', content: 'migration postgres' },
+        1,
+      );
+      store.recordMemory(
+        { projectId: 'ferme', taskId: 'f1', title: 'Récent', content: 'migration postgres' },
+        2,
+      );
+      store.recordMemory(
+        { projectId: 'ferme', taskId: 'f2', title: 'Récent', content: 'migration postgres' },
+        3,
+      );
+      const admis = (source: string): boolean => source === 'ouvert';
+      // Borne 2 : filtrés APRÈS elle, les deux plus récents (écartés) ne
+      // laisseraient rien — le souvenir admis, plus ancien, se perdrait.
+      expect(store.listMemories(2, { admis }).map((m) => m.taskId)).toEqual(['o1']);
+      expect(
+        store.searchMemories('migration postgres', 3, { admis }).map((s) => s.memory.taskId),
+      ).toEqual(['o1']);
+      expect(
+        store.listMemories(1, { admis: () => true }),
+        'la borne tient aussi filtrée',
+      ).toHaveLength(1);
+      // La tâche exclue (une ombre et son originale) s'écarte AVANT la borne
+      // elle aussi : le plus récent exclu, la borne 1 garde le suivant.
+      expect(store.listMemories(1, { exclureTache: 'f2' }).map((m) => m.taskId)).toEqual(['f1']);
+      // Sans filtre, rien ne change : les plus récents d'abord.
+      expect(store.listMemories(2).map((m) => m.taskId)).toEqual(['f2', 'f1']);
+    } finally {
+      store.close();
+    }
+  });
+});
+
 describe('capture par le scheduler', () => {
   it('la réussite PROPOSE un souvenir sans l’écrire ; l’échec ne propose rien', () => {
     // Le souvenir s'écrivait à la réussite DÉCLARÉE — avant la contre-revue,
@@ -815,6 +853,178 @@ describe('injection bout-en-bout', () => {
     expect(promptB).toContain(HIVE_CONTEXT_HEADER);
     expect(promptB).toContain('Authentification JWT'); // titre du souvenir de A
     expect(promptB).toContain('Ajouter la connexion utilisateur'); // prompt d'origine préservé
+  });
+
+  // La cloison des souvenirs protège entre PERSONNES (`savoirAdmis`, même
+  // règle que les épisodes du Cerveau) : un souvenir porte la réponse d'une
+  // ouvrière, il ne passe d'un projet privé à un autre que s'ils ont le même
+  // propriétaire, ou tous deux aucun. Chaque test a son sujet : les souvenirs
+  // des autres ne lui disputent pas les trois places.
+  type Proprio = string | null;
+  function projet(ownerId: Proprio, visibility: 'public' | 'private' = 'private'): string {
+    return server.store.createProject({ name: 'Projet', visibility, ownerId }).id;
+  }
+  function souvenir(projectId: string, marque: string, sujet: string): void {
+    server.store.recordMemory({
+      projectId,
+      taskId: `${marque}-${projectId}`,
+      title: marque,
+      content: sujet,
+    });
+  }
+  async function promptPour(projectId: string, sujet: string): Promise<string> {
+    // Par le magasin : un projet POSSÉDÉ refuse au seul jeton la création de
+    // tâches (ADR 0007), et ce n'est pas ce qu'on mesure ici.
+    const { id } = server.store.createTask({
+      projectId,
+      title: 'Tâche cible',
+      prompt: `Écrire la ${sujet}`,
+    });
+    server.store.patchTask(id, { status: 'ready' });
+    const fin = Date.now() + 8_000;
+    while (!receivedPrompts.has(id) && Date.now() < fin) {
+      await new Promise((r) => setTimeout(r, 40));
+    }
+    const prompt = receivedPrompts.get(id) ?? '';
+    expect(prompt, 'le banc : la cible doit recevoir un Hive Mind').toContain(HIVE_CONTEXT_HEADER);
+    return prompt;
+  }
+
+  it('DEUX PROPRIÉTAIRES DIFFÉRENTS NE PARTAGENT PAS — le public, si', async () => {
+    const sujet = 'migration schema postgres colonnes';
+    const cible = projet('alice');
+    souvenir(projet('bob'), 'SOUVENIR_DE_BOB', sujet);
+    souvenir(projet('bob', 'public'), 'SOUVENIR_PUBLIC_DE_BOB', sujet);
+    const prompt = await promptPour(cible, sujet);
+    expect(prompt, 'le souvenir privé de Bob a fui chez Alice').not.toContain('SOUVENIR_DE_BOB');
+    expect(prompt, 'le savoir public ne circule plus').toContain('SOUVENIR_PUBLIC_DE_BOB');
+    // L'attribution reste hors du prompt : le projet source n'y est jamais écrit.
+    expect(prompt).not.toMatch(/projectId/);
+  });
+
+  it('les projets privés d’un MÊME propriétaire partagent, et un projet se sert', async () => {
+    const sujet = 'tableau bord graphiques ventes trimestre';
+    const cible = projet('alice');
+    souvenir(projet('alice'), 'SOUVENIR_VOISIN_D_ALICE', sujet);
+    souvenir(cible, 'SOUVENIR_DU_PROJET_LUI_MEME', sujet);
+    const prompt = await promptPour(cible, sujet);
+    expect(prompt, 'un projet d’Alice perd le savoir d’un autre').toContain(
+      'SOUVENIR_VOISIN_D_ALICE',
+    );
+    expect(prompt, 'le projet a perdu son propre souvenir').toContain(
+      'SOUVENIR_DU_PROJET_LUI_MEME',
+    );
+  });
+
+  it('deux projets SANS propriétaire partagent (la ruche au seul jeton)', async () => {
+    const sujet = 'cache redis expiration cles sessions';
+    souvenir(projet(null), 'SOUVENIR_SANS_PROPRIETAIRE', sujet);
+    const prompt = await promptPour(projet(null), sujet);
+    expect(prompt, 'le chemin solo a perdu son savoir').toContain('SOUVENIR_SANS_PROPRIETAIRE');
+  });
+
+  it('POSSÉDÉ ET SANS PROPRIÉTAIRE NE PARTAGENT PAS, dans aucun sens', async () => {
+    const sujet = 'export fichier tableur colonnes dates';
+    souvenir(projet('alice'), 'SOUVENIR_POSSEDE', sujet);
+    souvenir(projet(null), 'SOUVENIR_ORPHELIN', sujet);
+    souvenir(projet('carol', 'public'), 'SOUVENIR_TEMOIN_PUBLIC', sujet);
+    const versOrphelin = await promptPour(projet(null), sujet);
+    expect(versOrphelin, 'possédé → sans propriétaire : a fui').not.toContain('SOUVENIR_POSSEDE');
+    const versPossede = await promptPour(projet('dave'), sujet);
+    expect(versPossede, 'sans propriétaire → possédé : a fui').not.toContain('SOUVENIR_ORPHELIN');
+  });
+
+  it('UN MEMBRE INVITÉ DANS UN PROJET D’ALICE NE FOUILLE PAS LES AUTRES', async () => {
+    // Revue de #529 : Mallory, membre du seul projet P d'Alice, écrit les
+    // tâches de P — donc la requête qui choisit les souvenirs — et en relit la
+    // sortie. Le savoir de Q (Alice, sans Mallory) ne doit pas y couler.
+    const sujet = 'facturation remises clients fideles';
+    const q = projet('alice');
+    souvenir(q, 'SECRET_DU_PROJET_Q_D_ALICE', sujet);
+    souvenir(projet('carol', 'public'), 'SOUVENIR_TEMOIN_PUBLIC', sujet);
+    const p = projet('alice');
+    server.store.addMember(p, 'mallory');
+    expect(await promptPour(p, sujet), 'Mallory lit Q par les tâches de P').not.toContain(
+      'SECRET_DU_PROJET_Q_D_ALICE',
+    );
+  });
+
+  it('UN COMPTE MEMBRE D’UN PROJET SANS PROPRIÉTAIRE NE FOUILLE PAS LES AUTRES', async () => {
+    // Décision du lead : la condition d'auditoire vaut aussi entre projets sans
+    // propriétaire. Mallory, membre de X seul, écrit les tâches de X ; le
+    // savoir de Y (sans propriétaire, sans Mallory) n'y coule pas. Sans aucun
+    // membre — le chemin solo au seul jeton — rien ne change.
+    const sujet = 'planification tournees livreurs horaires';
+    const y = projet(null);
+    souvenir(y, 'SECRET_DU_PROJET_Y_SANS_PROPRIETAIRE', sujet);
+    souvenir(projet('carol', 'public'), 'SOUVENIR_TEMOIN_PUBLIC', sujet);
+    const x = projet(null);
+    server.store.addMember(x, 'mallory');
+    expect(await promptPour(x, sujet), 'Mallory lit Y par les tâches de X').not.toContain(
+      'SECRET_DU_PROJET_Y_SANS_PROPRIETAIRE',
+    );
+    expect(await promptPour(projet(null), sujet), 'le chemin solo a perdu Y').toContain(
+      'SECRET_DU_PROJET_Y_SANS_PROPRIETAIRE',
+    );
+  });
+
+  it('le savoir coule vers un projet dont l’auditoire est INCLUS dans celui de la source', async () => {
+    const sujet = 'notifications courriel gabarits relances';
+    // P est partagé avec Mallory et Bob ; Q est à Alice seule (elle-même
+    // inscrite comme membre : le propriétaire ne compte pas de trop) ; R est
+    // partagé avec Mallory seule. Qui lit Q ou R lit déjà P.
+    const p = projet('alice');
+    server.store.addMember(p, 'mallory');
+    server.store.addMember(p, 'bob');
+    souvenir(p, 'SOUVENIR_DU_PROJET_PARTAGE', sujet);
+    const q = projet('alice');
+    server.store.addMember(q, 'alice');
+    expect(await promptPour(q, sujet), 'partagé → privé du même propriétaire : perdu').toContain(
+      'SOUVENIR_DU_PROJET_PARTAGE',
+    );
+    const r = projet('alice');
+    server.store.addMember(r, 'mallory');
+    expect(await promptPour(r, sujet), 'auditoire inclus : perdu').toContain(
+      'SOUVENIR_DU_PROJET_PARTAGE',
+    );
+  });
+
+  it('un souvenir dont le projet source a DISPARU n’est servi à personne', async () => {
+    // Le projet supprimé emporte ses souvenirs (EFFACEMENT_PROJET) ; il ne
+    // reste que des débris d'un effacement raté. Jamais servis.
+    const sujet = 'archivage journaux rotation compression';
+    souvenir('projet-disparu', 'SOUVENIR_ORPHELIN_DE_PROJET', sujet);
+    souvenir(projet('carol', 'public'), 'SOUVENIR_TEMOIN_PUBLIC', sujet);
+    expect(await promptPour(projet('alice'), sujet)).not.toContain('SOUVENIR_ORPHELIN_DE_PROJET');
+    expect(await promptPour(projet(null), sujet)).not.toContain('SOUVENIR_ORPHELIN_DE_PROJET');
+  });
+
+  it('LA REINE, CIBLÉE SUR UN PROJET, SUIT LA MÊME CLOISON (/api/chat)', async () => {
+    const sujet = 'inventaire entrepot etageres palettes';
+    const cible = projet('alice');
+    souvenir(projet('bob'), 'SOUVENIR_PRIVE_DE_BOB', sujet);
+    souvenir(projet('carol', 'public'), 'SOUVENIR_TEMOIN_PUBLIC', sujet);
+    const repondre = async (projectId?: string): Promise<string> => {
+      const r = await fetch(`http://127.0.0.1:${server.port}/api/chat`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          message: `quel souvenir sur ${sujet} ?`,
+          ...(projectId ? { projectId } : {}),
+        }),
+      });
+      expect(r.status).toBe(200);
+      return ((await r.json()) as { reply: string }).reply;
+    };
+    const cadree = await repondre(cible);
+    expect(cadree, 'le banc : la réponse doit citer la mémoire').toContain(
+      'SOUVENIR_TEMOIN_PUBLIC',
+    );
+    expect(cadree, 'le souvenir privé de Bob a fui chez Alice').not.toContain(
+      'SOUVENIR_PRIVE_DE_BOB',
+    );
+    // Sans projet ciblé : la portée du jeton de ruche, qui lit déjà tout.
+    expect(await repondre()).toContain('SOUVENIR_PRIVE_DE_BOB');
   });
 
   it('expose la mémoire via GET /api/hive-mind (et exige le token)', async () => {

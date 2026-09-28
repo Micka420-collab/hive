@@ -25,6 +25,7 @@ import { entreeEnRuche } from '../shared/presence-noeud.js';
 import { HiveNodeClient, arreterSurSignaux } from './client.js';
 import { isolementDeclareDe, optionBac, preparerBac, reprendreIdentite } from './bac.js';
 import { parseModeles } from './modeles.js';
+import { Signalement, annonceDeMachine } from './decouverte-noeud.js';
 import { CODE } from '../codes-sortie.js';
 import { createInterface } from 'node:readline/promises';
 
@@ -213,6 +214,23 @@ if (aDire) console.log(aDire);
 
 const variables = [...new Set([...agentCredentialEnv(agentType), ...extraKeep])];
 
+// ─── SE SIGNALER SUR LE RÉSEAU LOCAL — seulement si on le demande ───────────
+//
+// `HIVE_DECOUVRABLE=1` : ce nœud dit sur le réseau local qu'il est membre, et
+// de quelle ruche (l'empreinte que sa Reine lui remet à l'inscription). Même
+// objet que `join.ts`. Rien n'est diffusé sans ce réglage.
+const signalement =
+  process.env.HIVE_DECOUVRABLE === '1'
+    ? new Signalement(
+        annonceDeMachine({
+          nom: name,
+          plateforme: process.platform,
+          inventaire,
+          places: maxConcurrency,
+        }),
+      )
+    : null;
+
 const client = new HiveNodeClient({
   url: process.env.HIVE_URL ?? 'ws://localhost:7777/ws',
   token: process.env.HIVE_TOKEN ?? 'change-me',
@@ -231,6 +249,7 @@ const client = new HiveNodeClient({
   // production ne porte pas le champ du tout, et ne peut donc pas se le voir
   // basculer par accident.
   ...(entree.mode === 'presence' ? { presenceSeule: true } : {}),
+  ...(signalement ? { surInscription: ({ ruche }) => signalement.inscrit(ruche) } : {}),
 });
 
 // ─── CE QUE LE NŒUD A VU, LE HUB DOIT L'APPRENDRE ───────────────────────────
@@ -254,8 +273,13 @@ console.log(
 );
 
 // SIGTERM comme SIGINT — le signal des superviseurs ; pourquoi, et ses limites :
-// `arreterSurSignaux` (client.ts).
-arreterSurSignaux(client);
+// `arreterSurSignaux` (client.ts). L'adieu réseau part avant (voir `join.ts`).
+arreterSurSignaux({
+  stop: () => {
+    void signalement?.arreter();
+    client.stop();
+  },
+});
 
 // Dernier recours : un imprévu ne doit pas tuer le nœud en silence et perdre la
 // reconnexion. On journalise et on laisse le client continuer/reconnecter.

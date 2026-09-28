@@ -29,12 +29,18 @@ import type { Billet } from '../shared/acces.js';
 import { LIMITS } from '../shared/protocol.js';
 import {
   bornerConcurrence,
+  cleNoeudPour,
   identiteStable,
+  lireAdresseRuche,
   lireCle,
+  rangerAdresseRuche,
   rangerCle,
   refusRacineDeTravail,
+  repriseMemorisee,
 } from './identite-noeud.js';
 import { annonceAgent, avertissementTransport } from './annonces-join.js';
+import type { InventaireAgents } from './agent-detect.js';
+import { Signalement, annonceDeMachine, attendreUneRuche } from './decouverte-noeud.js';
 
 try {
   process.loadEnvFile('.env');
@@ -129,7 +135,9 @@ async function askInvite(): Promise<string> {
     console.error(
       '\n✘ Aucun billet fourni, et pas de terminal pour le demander.\n' +
         '  Passez-le en argument : `hive join hive2_…`\n' +
-        '  ou par l’environnement : `HIVE_INVITE=hive2_… hive join`.',
+        '  ou par l’environnement : `HIVE_INVITE=hive2_… hive join`.\n' +
+        '  Sur le réseau local de la ruche : `hive join --decouvrable`, puis « Rejoindre »\n' +
+        '  dans son tableau de bord.',
     );
     process.exit(CODE.REPONSE_MANQUANTE);
   }
@@ -145,26 +153,117 @@ async function askInviteInteractif(): Promise<string> {
   }
 }
 
+/** Le drapeau qui rend cette machine visible sur le réseau local (voir `decouverte-noeud.ts`). */
+const DRAPEAU_DECOUVRABLE = '--decouvrable';
+
+/**
+ * SANS BILLET, ET DÉCOUVRABLE : se signaler sur le réseau local et attendre
+ * qu'une ruche présente le code affiché ici. Rend le billet reçu ; la machine
+ * s'est tue (voir `attendreUneRuche`) et ne se redira MEMBRE qu'une fois
+ * vraiment inscrite (`Signalement`).
+ *
+ * Ctrl+C pendant l'attente envoie l'ADIEU avant de sortir : sinon la machine
+ * resterait deux minutes dans la liste de la ruche, avec un bouton « Rejoindre »
+ * qui échouerait à coup sûr.
+ */
+async function attendreSurLeReseau(
+  nom: string,
+  places: number,
+  inventaire: InventaireAgents,
+): Promise<string> {
+  const abandon = new AbortController();
+  const surSignal = (): void => abandon.abort();
+  process.once('SIGINT', surSignal);
+  process.once('SIGTERM', surSignal);
+  try {
+    const attente = await attendreUneRuche({
+      annonce: annonceDeMachine({ nom, plateforme: process.platform, inventaire, places }),
+      signal: abandon.signal,
+    });
+    return attente.contenu.billet;
+  } catch (err) {
+    if (abandon.signal.aborted) {
+      console.log('\nAttente abandonnée — la machine ne se signale plus.');
+      process.exit(CODE.INTERROMPU);
+    }
+    // La prise mDNS ne s'ouvre pas : on le DIT, avec l'autre chemin. Attendre
+    // en silence une offre qui ne pourra jamais arriver serait le pire des cas.
+    console.error(
+      `\n✘ Impossible de se signaler sur le réseau local : ${err instanceof Error ? err.message : String(err)}\n` +
+        '  Rejoignez avec un billet : `hive join hive2_…` (l’hôte le crée d’un clic sur « Inviter »).',
+    );
+    process.exit(CODE.PREREQUIS);
+  } finally {
+    process.off('SIGINT', surSignal);
+    process.off('SIGTERM', surSignal);
+  }
+}
+
 async function main(): Promise<void> {
-  const raw =
-    process.argv.slice(2).join(' ').trim() || process.env.HIVE_INVITE || (await askInvite());
+  const args = process.argv.slice(2);
+  // Opt-in STRICT, par la commande ou par le `.env` : jamais par défaut.
+  const decouvrable = args.includes(DRAPEAU_DECOUVRABLE) || process.env.HIVE_DECOUVRABLE === '1';
+  const nomMachine = process.env.HIVE_NODE_NAME ?? os.hostname();
+  const maxConcurrency = bornerConcurrence(process.env.HIVE_MAX_CONCURRENCY);
+  const workRoot = process.env.HIVE_WORKDIR ?? path.join('.hive-work', 'join');
+  // Une racine DONNÉE que Windows ne peut pas créer se refuse ici, en la
+  // nommant — plutôt qu'un `mkdir` qui échoue sur un périphérique
+  // (`refusRacineDeTravail`). Avant d'attendre une ruche sur le réseau : une
+  // machine qui ne pourra pas travailler ne s'annonce pas.
+  const refusRacine = refusRacineDeTravail(workRoot);
+  if (refusRacine) {
+    console.error(`✘ Ce nœud ne démarre pas : ${refusRacine}\n`);
+    process.exit(CODE.PREREQUIS);
+  }
+
+  // L'inventaire d'une machine qui se signale est fait AVANT l'attente — ce
+  // sont ses agents qu'elle annonce —, puis réutilisé : une seule passe de
+  // sondes par démarrage (voir `main.ts`).
+  let inventaireAnticipe: InventaireAgents | null = null;
+  /**
+   * SANS billet, mais déjà accueillie : la clé ET l'adresse de sa ruche sont
+   * mémorisées (`repriseMemorisee`). C'est un REDÉMARRAGE, pas un nouvel
+   * appariement — remettre une machine découvrable en attente faisait émettre
+   * à l'administrateur un billet qu'elle n'échangeait même pas, et `hive
+   * join` à nu redemandait un billet que l'utilisateur n'avait jamais vu.
+   */
+  let dejaAccueillie: { url: string; cle: string } | null = null;
+  let raw =
+    args
+      .filter((a) => a !== DRAPEAU_DECOUVRABLE)
+      .join(' ')
+      .trim() ||
+    process.env.HIVE_INVITE ||
+    '';
+  if (!raw) {
+    const reprise = repriseMemorisee(workRoot);
+    if (reprise && urlHttpDeRuche(reprise.url)) {
+      dejaAccueillie = reprise;
+    } else if (decouvrable) {
+      inventaireAnticipe = await inventaireAgents();
+      raw = await attendreSurLeReseau(nomMachine, maxConcurrency, inventaireAnticipe);
+    }
+  }
+  if (!raw && !dejaAccueillie) raw = await askInvite();
 
   // Deux formats, deux modèles de sécurité :
   //   • `hive2_` — un BILLET. Éphémère et révocable, échangé contre une clé
   //     propre à ce nœud. C'est le chemin normal.
   //   • `hive1_` — l'ancienne invitation, qui CONTIENT le token maître. Toujours
   //     acceptée (des ruches tournent avec), mais on le dit franchement.
-  const billet = decoderBillet(raw, { id: LIMITS.id, nom: LIMITS.name });
-  const invite = billet ? null : decodeInvite(raw);
-  if (!billet && !invite) {
+  //   • ni l'un ni l'autre : la REPRISE d'une machine déjà accueillie sur le
+  //     réseau local (`dejaAccueillie`), avec sa clé et l'adresse mémorisées.
+  const billet = dejaAccueillie ? null : decoderBillet(raw, { id: LIMITS.id, nom: LIMITS.name });
+  const invite = billet || dejaAccueillie ? null : decodeInvite(raw);
+  if (!dejaAccueillie && !billet && !invite) {
     console.error(
       '✘ Invitation invalide. Demandez à l’hôte de la ruche une nouvelle invitation\n' +
         '  (dans le dashboard : « Inviter un ami », ou `npm run cli -- invite`).',
     );
     process.exit(1);
   }
-  const url = billet ? billet.url : invite!.url;
-  const label = billet ? billet.label : invite!.label;
+  const url = dejaAccueillie ? dejaAccueillie.url : billet ? billet.url : invite!.url;
+  const label = dejaAccueillie ? undefined : billet ? billet.label : invite!.label;
 
   // Choix de l'agent : HIVE_AGENT force le choix ; sinon détection, et si
   // plusieurs agents réels sont là on DEMANDE lequel retenir (TTY).
@@ -184,7 +283,7 @@ async function main(): Promise<void> {
         }
       : undefined;
   // UNE passe de sondes pour tout le démarrage — voir `main.ts`.
-  const inventaire = await inventaireAgents();
+  const inventaire = inventaireAnticipe ?? (await inventaireAgents());
   const detected = await resoudreAgentAuDemarrage({
     stdinEstTty: Boolean(process.stdin.isTTY && process.stdout.isTTY),
     demander: demanderAgent,
@@ -197,15 +296,6 @@ async function main(): Promise<void> {
     process.exit(CODE.PREREQUIS);
   }
 
-  const workRoot = process.env.HIVE_WORKDIR ?? path.join('.hive-work', 'join');
-  // Une racine DONNÉE que Windows ne peut pas créer se refuse ici, en la
-  // nommant — plutôt qu'un `mkdir` qui échoue sur un périphérique (`refusRacineDeTravail`).
-  const refusRacine = refusRacineDeTravail(workRoot);
-  if (refusRacine) {
-    console.error(`✘ Ce nœud ne démarre pas : ${refusRacine}\n`);
-    process.exit(CODE.PREREQUIS);
-  }
-  const maxConcurrency = bornerConcurrence(process.env.HIVE_MAX_CONCURRENCY);
   const nodeId = identiteStable(workRoot);
 
   // L'identité prise, et ce qu'un lancement précédent de ce nœud a laissé
@@ -237,18 +327,28 @@ async function main(): Promise<void> {
   // usage unique, le redemander échouerait), sinon on l'échange une fois.
   // Ancien format : le token maître, tel quel.
   let secret: string;
-  if (billet) {
-    const dejaLa = lireCle(workRoot);
+  if (dejaAccueillie) {
+    secret = dejaAccueillie.cle;
+    console.log(
+      '   🔑 Déjà accueillie : clé et adresse de la ruche mémorisées — aucun nouvel appariement.',
+    );
+  } else if (billet) {
+    // Seulement la clé de CETTE ruche (`cleNoeudPour`) : le billet d'une autre
+    // ruche s'échange, il ne reçoit pas la clé de la précédente.
+    const dejaLa = cleNoeudPour(workRoot, billet.url);
     if (dejaLa) {
       secret = dejaLa;
+      // L'adresse suit la clé qu'on présente : une clé d'avant cette mémoire
+      // gagne ainsi, elle aussi, un redémarrage sans billet.
+      rangerAdresseRuche(workRoot, billet.url);
       console.log('   🔑 Clé de nœud déjà obtenue — le billet n’est pas redemandé.');
     } else {
-      const nom = process.env.HIVE_NODE_NAME ?? os.hostname();
-      const obtenue = await echangerBillet(billet, nodeId, nom);
+      const obtenue = await echangerBillet(billet, nodeId, nomMachine);
       if (!obtenue) process.exit(1);
       rangerCle(workRoot, obtenue);
+      rangerAdresseRuche(workRoot, billet.url);
       secret = obtenue;
-      const persistee = lireCle(workRoot) !== null;
+      const persistee = lireCle(workRoot) !== null && lireAdresseRuche(workRoot) !== null;
       console.log(
         persistee
           ? '   🔑 Clé de nœud obtenue et mémorisée — les redémarrages ne redemanderont rien.'
@@ -302,10 +402,23 @@ async function main(): Promise<void> {
     process.exit(bac.codeSortie);
   }
 
+  // La machine qui se signale se dit MEMBRE à chaque inscription, avec
+  // l'empreinte que sa Reine lui remet. Même objet que `main.ts`.
+  const signalement = decouvrable
+    ? new Signalement(
+        annonceDeMachine({
+          nom: nomMachine,
+          plateforme: process.platform,
+          inventaire,
+          places: maxConcurrency,
+        }),
+      )
+    : null;
+
   const client = new HiveNodeClient({
     url,
     token: secret,
-    name: process.env.HIVE_NODE_NAME ?? os.hostname(),
+    name: nomMachine,
     ownerName: process.env.HIVE_OWNER_NAME ?? os.userInfo().username,
     agentType: detected.agent,
     maxConcurrency,
@@ -320,13 +433,20 @@ async function main(): Promise<void> {
     modeles: parseModeles(process.env.HIVE_MODELES),
     ...optionBac(bac, keepEnv),
     isolement: isolementDeclareDe(bac),
+    ...(signalement ? { surInscription: ({ ruche }) => signalement.inscrit(ruche) } : {}),
   });
 
   client.start();
   console.log('\n✔ Nœud démarré — vous butinez pour la ruche. Ctrl+C pour quitter.\n');
 
   // SIGTERM comme SIGINT — même arrêt que `npm run node` : `arreterSurSignaux`.
-  arreterSurSignaux(client);
+  // L'adieu réseau part AVANT : son premier datagramme est émis sur-le-champ.
+  arreterSurSignaux({
+    stop: () => {
+      void signalement?.arreter();
+      client.stop();
+    },
+  });
   process.on('uncaughtException', (err) => console.error('[hive] exception non catchée :', err));
   process.on('unhandledRejection', (reason) => console.error('[hive] rejet non géré :', reason));
 }

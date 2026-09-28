@@ -37,7 +37,7 @@ import { signatureOf, type Verdict as ParliamentVerdict } from './parliament.js'
 import { relecteurIndependant } from '../shared/contre-expertise.js';
 import { type Constat, constatBloquant } from '../shared/critique-structuree.js';
 import type { TaskResult } from '../shared/types.js';
-import { VALIDATION_KEYS } from '../shared/validations-bac.js';
+import { DIRE_PANNE, VALIDATION_KEYS } from '../shared/validations-bac.js';
 import type { DetailControle, ValidationKey, ValidationState } from '../shared/validations-bac.js';
 
 export type { ValidationState } from '../shared/validations-bac.js';
@@ -390,6 +390,22 @@ export function evaluate(input: EvaluatorInput): EvaluationResult {
         `le nœud ${bac.nodeId} n’a pas de bac à sable : le code d’un agent ne tourne pas ` +
           'sur l’hôte nu — installez podman, docker ou bubblewrap (HIVE_ISOLEMENT=auto ' +
           'les trouve au démarrage du nœud), ou apportez la CI GitHub',
+      );
+    }
+    // Une panne du bac en cours de route n'est pas un verdict sur la
+    // production (`panneEnvironnement`) : le motif la nomme, et dit ce qui la
+    // lève — sur le nœud (mémoire, disque, DNS) ou nulle part dans le bac
+    // (démon, affichage : la CI GitHub). Sans lui, « preuves manquantes :
+    // tests » sur un OOM ne disait ni pourquoi, ni où chercher. Il n'innocente
+    // pas pour autant la production : `DIRE_PANNE` le dit à chaque remède.
+    // (Une panne n'accompagne que la raison `environnement` : `controleDepuis`.)
+    for (const key of missingValidation) {
+      const panne = bac?.details[key].panne;
+      if (!bac || !panne) continue;
+      const { nom, remede } = DIRE_PANNE[panne];
+      preuvesAbsentes.push(
+        `le bac du nœud ${bac.nodeId} est tombé en panne pendant ${key} (${nom[0]}), ` +
+          `verdict inconnu : ${remede[0]}`,
       );
     }
   } else if (validation.tests === 'not_applicable') {

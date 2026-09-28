@@ -72,6 +72,7 @@ const IMPOSEES: Readonly<Record<string, string>> = {
   'souvenirs_proposes.issue': 'retenu',
   'souvenirs_proposes.validePar': 'evaluator',
   'souvenirs_proposes.episode': 'contre_revue',
+  'rejeux_actions.issue': 'simulee',
 };
 
 interface Colonne {

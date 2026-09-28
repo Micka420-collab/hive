@@ -294,8 +294,17 @@ describe('le Cerveau arrive jusqu’à l’ouvrière', () => {
       // produit, et survivait à sa suppression.
       const srv = await demarrer({});
       const recues = await brancherNoeud(srv, 'ouvriere-cloison');
-      const prive = srv.store.createProject({ name: 'Privé', visibility: 'private' }).id;
-      const voisin = srv.store.createProject({ name: 'Voisin', visibility: 'private' }).id;
+      // Deux PROPRIÉTAIRES : la cloison protège entre personnes (`savoirAdmis`).
+      const prive = srv.store.createProject({
+        name: 'Privé',
+        visibility: 'private',
+        ownerId: 'alice',
+      }).id;
+      const voisin = srv.store.createProject({
+        name: 'Voisin',
+        visibility: 'private',
+        ownerId: 'bob',
+      }).id;
       const t1 = creerTache(srv, 'compiler le module natif', 'Tâche privée', prive);
       await attendrePour(recues, t1);
       const ws = sockets[sockets.length - 1] as WebSocket;
@@ -358,6 +367,68 @@ describe('le Cerveau arrive jusqu’à l’ouvrière', () => {
         readdirSync(dossier).filter((f) => f.endsWith('.md')),
         'l’épisode a survécu à son projet',
       ).toEqual([]);
+    },
+  );
+
+  it(
+    'LES ÉPISODES CIRCULENT ENTRE LES PROJETS D’UNE MÊME PERSONNE — pas au-delà',
+    { timeout: 60_000 },
+    async () => {
+      // La cloison protège entre PERSONNES : deux projets d'un même compte, ou
+      // deux projets sans propriétaire (la ruche au seul jeton), partagent ce
+      // qu'ils apprennent ; un projet possédé et un projet sans propriétaire,
+      // non. Même règle que les souvenirs du Hive Mind (`savoirAdmis`).
+      const srv = await demarrer({});
+      const recues = await brancherNoeud(srv, 'ouvriere-personnes');
+      const projet = (ownerId: string | null): string =>
+        srv.store.createProject({ name: 'Projet', visibility: 'private', ownerId }).id;
+      const echouer = async (projectId: string, secret: string): Promise<void> => {
+        const t = creerTache(srv, 'compiler le module natif', 'Tâche source', projectId);
+        await attendrePour(recues, t);
+        (sockets[sockets.length - 1] as WebSocket).send(
+          JSON.stringify({
+            type: 'task_result',
+            taskId: t,
+            success: false,
+            diff: '',
+            logs: `Error: ${secret} lors de la compilation`,
+            durationMs: 10,
+            subAgents: [],
+          }),
+        );
+        const fin = Date.now() + 10_000;
+        while (
+          !srv.store
+            .listEvents(0, 500)
+            .some((e) => e.type === 'cerveau_episode' && e.payload.projectId === projectId) &&
+          Date.now() < fin
+        ) {
+          await new Promise((r) => setTimeout(r, 50));
+        }
+        srv.store.patchTask(t, { status: 'failed' });
+      };
+      const contexte = async (projectId: string): Promise<string> => {
+        const t = creerTache(srv, 'compiler le module natif encore', 'Tâche cible', projectId);
+        const a = await attendrePour(recues, t);
+        srv.store.patchTask(t, { status: 'failed' });
+        return a.hiveContext ?? '';
+      };
+
+      await echouer(projet('alice'), 'SECRET_D_ALICE');
+      await echouer(projet(null), 'SECRET_SANS_PROPRIETAIRE');
+
+      const chezAlice = await contexte(projet('alice'));
+      expect(chezAlice, 'un projet d’Alice perd la leçon d’un autre').toContain('SECRET_D_ALICE');
+      expect(chezAlice, 'sans propriétaire → possédé : a fui').not.toContain(
+        'SECRET_SANS_PROPRIETAIRE',
+      );
+      const sansProprietaire = await contexte(projet(null));
+      expect(sansProprietaire, 'deux projets sans propriétaire ne partagent plus').toContain(
+        'SECRET_SANS_PROPRIETAIRE',
+      );
+      expect(sansProprietaire, 'possédé → sans propriétaire : a fui').not.toContain(
+        'SECRET_D_ALICE',
+      );
     },
   );
 
