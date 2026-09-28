@@ -50,7 +50,8 @@ const RACINE = fileURLToPath(new URL('..', import.meta.url));
  * autre chose qu'une longueur.
  */
 const RELEVE_QUELCONQUE: Releve = {
-  nodeMajeur: 18,
+  versionNode: '18.20.4',
+  glibc: null,
   fichierEnv: { present: false, lisible: false, permissions: null },
   secretSession: { utilisable: false, longueur: 0, publie: false, simulation: false },
   jeton: { present: false, longueur: 0, trivial: false },

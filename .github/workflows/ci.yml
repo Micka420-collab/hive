@@ -97,17 +97,22 @@ permissions:
 
 # ─── LA VERSION DE NODE, DÉCLARÉE UNE SEULE FOIS ─────────────────────────────
 #
-# `NODE_MINIMUM` vaut 24 dans `src/shared/doctor.ts`, et la CI doit tourner sur
-# le plancher qu'elle exige — sans quoi elle vérifierait une configuration que
-# personne n'installe.
+# `NODE_MINIMUM` vaut 24.18.0 dans `src/shared/doctor.ts` (et `engines.node`
+# dans `package.json`). Les jobs ci-dessous tournent sur le DERNIER 24 ; le job
+# `plancher`, lui, tourne sur le plancher EXACT, lu dans `engines.node` — sans
+# quoi on vérifierait une configuration plus récente que celle qu'on accepte.
 #
 # Le 24 n'est pas une préférence pour le neuf. Il retire une panne :
 # `better-sqlite3` est un module natif, et sous Node 20 aucun binaire prébuilt
-# n'existe pour cette ABI. Il faut compiler — 42 lignes de `node-gyp` sous
-# Linux, et sous Windows un échec net, le `node-gyp` d'npm 10 ne sachant pas
-# lire Visual Studio 2026. Sous Node 24, `prebuild-install` trouve le binaire :
-# zéro compilation, 28 secondes, aucun outillage C++ nécessaire. Les deux
-# comportements ont été mesurés sur le MÊME commit, dans le run 210.
+# n'existait pour cette ABI. Il fallait compiler — sous Windows un échec net,
+# le `node-gyp` d'npm 10 ne sachant pas lire Visual Studio 2026 (run 210).
+#
+# Depuis `better-sqlite3` 13 (ADR 0013), le binaire est N-API et voyage DANS
+# le paquet npm (`prebuilds/<os>-<arch>.node`) : ni `prebuild-install`, ni
+# téléchargement. Le même fichier sert Node 24, la CI, l'image et
+# l'application de bureau (Electron). Le mineur, 18, vient de npm : seul
+# npm ≥ 11.16 lit le refus `allowScripts` qui empêche un `node-gyp rebuild`
+# déduit du `binding.gyp` — et 24.18.0 est le premier Node 24 qui l'embarque.
 env:
   NODE: '24'
 
@@ -393,6 +398,101 @@ jobs:
   # Les graines sont ÉCRITES, dans `scripts/tamis-ordres.mjs`. Une graine tirée
   # au hasard ferait rougir la CI sur un ordre que personne ne peut rejouer, et
   # la première réaction serait de relancer plutôt que de lire.
+  # ═══ LE PLANCHER, EXACTEMENT ════════════════════════════════════════════════
+  #
+  # Node 24.0 à 24.17 embarquent npm 11.3 à 11.13, qui IGNORENT
+  # `allowScripts: { "better-sqlite3": false }` : ils lancent le
+  # `node-gyp rebuild` que npm déduit du `binding.gyp`. Sans python3, il échoue,
+  # et npm écarte la dépendance optionnelle EN SILENCE — « added 72 packages »,
+  # code 0, Reine morte sur « Cannot find module ». Toute la CI tournait sur
+  # le dernier 24 (npm 11.19) : elle ne pouvait pas le voir.
+  #
+  # Ce job tourne sur le PLUS VIEUX Node accepté, lu dans `engines.node` (un
+  # seul endroit), et sur une machine SANS python3 — celle où la panne se
+  # voit. Il affirme deux choses : aucun script n'a tourné pour
+  # `better-sqlite3` (pas de `build/`), et l'installation en une commande va
+  # jusqu'à une ruche qui répond. Baisser le plancher sous un npm qui ignore
+  # le refus le fera rougir.
+  plancher:
+    name: Le plus vieux Node accepté installe et démarre la ruche
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      # Le Node du runner lit le fichier ; il n'est pas celui qu'on éprouve.
+      - name: Lire le plancher dans engines.node
+        id: plancher
+        run: |
+          v=$(node -p "require('./package.json').engines.node.replace(/^>=/, '')")
+          case "$v" in
+            ''|*[!0-9.]*) echo "::error::engines.node illisible : « $v »"; exit 1 ;;
+          esac
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Installer Node.js ${{ steps.plancher.outputs.version }} — le plancher, pas le dernier
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.plancher.outputs.version }}
+
+      - name: C'est bien CE Node
+        env:
+          ATTENDU: ${{ steps.plancher.outputs.version }}
+        run: |
+          echo "node $(node -p process.versions.node) · npm $(npm -v)"
+          test "$(node -p process.versions.node)" = "$ATTENDU"
+
+      # La machine d'un arrivant sous Windows, ou l'image `slim` : pas de
+      # python3. node-gyp ne cherche que `python3` et `python` sur le PATH.
+      - name: Retirer python3 — là où la panne se voit
+        run: |
+          for p in python3 python; do
+            while command -v "$p" >/dev/null 2>&1; do sudo mv "$(command -v "$p")" "$(command -v "$p").cache-hive"; done
+          done
+          if command -v python3 || command -v python; then echo "::error::python toujours là"; exit 1; fi
+
+      - name: npm ci — aucun script pour better-sqlite3
+        run: |
+          set -o pipefail
+          npm ci --foreground-scripts 2>&1 | tee npm-ci.log
+          # Ce que npm 11.13 écrit, mesuré : « > node-gyp rebuild », « gyp info … ».
+          if grep -nE '^> node-gyp|gyp (info|ERR!)' npm-ci.log; then
+            echo "::error::npm a lancé node-gyp : allowScripts ignoré sous ce Node"
+            exit 1
+          fi
+          if [ -d node_modules/better-sqlite3/build ]; then
+            echo "::error::better-sqlite3 a été COMPILÉ : allowScripts ignoré sous ce Node"
+            exit 1
+          fi
+          node -e "const d = new (require('better-sqlite3'))(':memory:'); console.log('SQLite', d.prepare('select sqlite_version() as v').get().v); d.close()"
+
+      # Le binaire Linux de la 13 exige glibc 2.34. Debian 11 (bullseye) a la
+      # 2.31 : le module ne s'y charge pas, et le docteur doit le NOMMER — pas
+      # renvoyer vers un `npm install` qui n'y changerait rien. Le même arbre,
+      # monté tel quel : seule la libc change.
+      - name: Sous une glibc trop vieille, le docteur le dit
+        run: |
+          docker run --rm -v "$PWD":/app -w /app node:24-bullseye \
+            node scripts/lancer.mjs src/cli.ts doctor > docteur-bullseye.log 2>&1 || true
+          cat docteur-bullseye.log
+          grep -q 'glibc 2.31 : le binaire de better-sqlite3 exige 2.34' docteur-bullseye.log
+
+      - name: Nommer la révision à éprouver
+        run: git branch -f essai-du-seuil HEAD
+
+      - name: L'installation en une commande, jusqu'à une ruche qui répond
+        run: |
+          set +e
+          sh scripts/essai-installation.sh --depot "$PWD" --ref essai-du-seuil
+          code=$?
+          set -e
+          if [ "$code" = 78 ]; then
+            echo "::warning::essai non concluant — le port par défaut était tenu sur le runner"
+            exit 0
+          fi
+          exit "$code"
+
   tamis:
     name: La suite tient dans plusieurs ordres de tests
     runs-on: ubuntu-latest
@@ -587,8 +687,8 @@ jobs:
       #
       # `better-sqlite3` est une dépendance OPTIONNELLE : une image où il aurait
       # échoué à s'installer se construit quand même, et ne meurt qu'au premier
-      # démarrage. Construire sans démarrer laisserait passer précisément la
-      # panne que le choix de `slim` plutôt qu'`alpine` existe pour éviter.
+      # démarrage. Construire sans démarrer laisserait passer précisément
+      # cette panne-là.
       - name: La ruche démarre dans l'image, et répond
         run: |
           docker run -d --name ruche-ci \

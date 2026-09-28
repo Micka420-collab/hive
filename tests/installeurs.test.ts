@@ -33,7 +33,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { NODE_MIN, conseilServeur, messagePrerequisNode, nodeSuffisant } from '../src/installer.js';
-import { NODE_MINIMUM } from '../src/shared/doctor.js';
+import { NODE_MAJEUR, NODE_MINIMUM } from '../src/shared/doctor.js';
+
+/** Le dernier Node refusé : un cran de mineur sous le plancher (« 24.17.9 »). */
+const JUSTE_SOUS = NODE_MINIMUM.replace(
+  /^(\d+)\.(\d+)\..*$/,
+  (_, a: string, b: string) => `${a}.${String(Number(b) - 1)}.9`,
+);
 import {
   type Capacites,
   BLOCS_HIVE,
@@ -407,7 +413,7 @@ describe('`install.ps1` COMMENCE PAR UN BOM UTF-8', () => {
   });
 });
 
-describe('LE PLANCHER DE NODE N’EXISTE QU’UNE FOIS — en SIX endroits', () => {
+describe('LE PLANCHER DE NODE N’EXISTE QU’UNE FOIS — en SEPT endroits', () => {
   // ─── LE PIÈGE QUE CETTE GARDE FERME ────────────────────────────────────────
   //
   // La version minimale de Node est écrite plusieurs fois : `NODE_MINIMUM` dans
@@ -449,10 +455,8 @@ describe('LE PLANCHER DE NODE N’EXISTE QU’UNE FOIS — en SIX endroits', () 
     // s'écrivaient tous en fonction de `NODE_MIN` lui-même
     // (`nodeSuffisant(\`v${NODE_MIN}.0.0\`)`), donc restaient verts pour 20
     // comme pour 24 — un miroir, pas une garde.
-    expect(nodeSuffisant(`v${NODE_MINIMUM - 1}.99.0`), 'accepte une version trop vieille').toBe(
-      false,
-    );
-    expect(nodeSuffisant(`v${NODE_MINIMUM}.0.0`)).toBe(true);
+    expect(nodeSuffisant(`v${JUSTE_SOUS}`), 'accepte une version trop vieille').toBe(false);
+    expect(nodeSuffisant(`v${NODE_MINIMUM}`)).toBe(true);
   });
 
   it('LA COMMANDE DE SECOURS N’ENVOIE PAS VERS UNE VERSION PÉRIMÉE', () => {
@@ -465,31 +469,37 @@ describe('LE PLANCHER DE NODE N’EXISTE QU’UNE FOIS — en SIX endroits', () 
     // commentaire est un test qu'on apprend à contourner. Le message est donc
     // sorti dans le module pur, et c'est LUI qu'on lit.
     const message = messagePrerequisNode('v20.11.0').join('\n');
-    for (const m of message.matchAll(/nvm install (\d+)/g)) {
-      expect(Number(m[1]), `« ${m[0]} » ne suit plus NODE_MINIMUM`).toBe(NODE_MINIMUM);
+    for (const m of message.matchAll(/nvm install (\S+)/g)) {
+      expect(m[1], `« ${m[0]} » ne suit plus NODE_MINIMUM`).toBe(NODE_MAJEUR);
     }
-    expect(message).toContain(`nvm install ${NODE_MINIMUM}`);
+    expect(message).toContain(`nvm install ${NODE_MAJEUR}`);
+    expect(message).toContain(NODE_MINIMUM);
     // Et il nomme la version qu'on a, sinon « trop vieux » ne dit pas
     // laquelle il faut changer.
     expect(message).toContain('v20.11.0');
   });
 
   it('install.sh exige la MÊME version que `NODE_MINIMUM`', () => {
-    const m = /NODE_MIN=(\d+)/.exec(SH_NU);
+    const m = /NODE_MIN=([\d.]+)/.exec(SH_NU);
     expect(m, 'NODE_MIN introuvable dans install.sh').toBeTruthy();
-    expect(Number(m?.[1])).toBe(NODE_MINIMUM);
+    expect(m?.[1]).toBe(NODE_MINIMUM);
   });
 
   it('install.ps1 exige la MÊME version', () => {
-    const m = /\$NODE_MIN\s*=\s*(\d+)/.exec(PS_NU);
+    const m = /\$NODE_MIN\s*=\s*'([\d.]+)'/.exec(PS_NU);
     expect(m, '$NODE_MIN introuvable dans install.ps1').toBeTruthy();
-    expect(Number(m?.[1])).toBe(NODE_MINIMUM);
+    expect(m?.[1]).toBe(NODE_MINIMUM);
   });
 
   it('…et `engines.node` du paquet aussi', () => {
     const paquet = JSON.parse(lire('package.json')) as { engines?: { node?: string } };
-    const m = /(\d+)/.exec(paquet.engines?.node ?? '');
-    expect(Number(m?.[1])).toBe(NODE_MINIMUM);
+    expect(paquet.engines?.node).toBe(`>=${NODE_MINIMUM}`);
+  });
+
+  it('…et le serveur que pose `scripts/poser-la-ruche.sh`', () => {
+    const m = /^NODE_MIN=([\d.]+)$/m.exec(sansCommentaires(lire('scripts/poser-la-ruche.sh'), '#'));
+    expect(m, 'NODE_MIN introuvable dans poser-la-ruche.sh').toBeTruthy();
+    expect(m?.[1]).toBe(NODE_MINIMUM);
   });
 });
 
@@ -722,21 +732,28 @@ describe('`install.sh` LANCÉ POUR DE VRAI', () => {
     );
   });
 
-  it.runIf(shellPosix)('UNE VERSION DE NODE TROP ANCIENNE SORT EN 2, pas en 1', () => {
+  it.runIf(shellPosix)('UN NODE SOUS LE PLANCHER — mineur compris — SORT EN 2, pas en 1', () => {
     // Le code 2 est `PREREQUIS` dans `src/codes-sortie.ts`. La distinction
     // compte pour un script appelant : « il te manque quelque chose » et « ça
     // a planté » appellent des gestes différents.
     //
-    // Ce test ne s'exécute que si la machine est SOUS le plancher — sinon il
-    // n'aurait rien à observer, et le dire vaut mieux que de le simuler.
-    const majeur = Number(process.versions.node.split('.')[0]);
-    if (majeur >= NODE_MINIMUM) {
-      expect(true, 'machine au-dessus du plancher : cas non observable ici').toBe(true);
-      return;
+    // Un `node` factice qui se dit « 24.17.9 » : ce test ne dépend plus de la
+    // machine, et il éprouve le MINEUR — c'est lui qui écarte l'npm 11.13 qui
+    // ignore `allowScripts`. Une comparaison du seul majeur laisserait passer.
+    const bac = mkdtempSync(path.join(os.tmpdir(), 'hive-inst-'));
+    const faux = path.join(bac, 'bin');
+    try {
+      mkdirSync(faux, { recursive: true });
+      writeFileSync(path.join(faux, 'node'), `#!/bin/sh\necho ${JUSTE_SOUS}\n`, { mode: 0o755 });
+      const chemin = [faux, process.env.PATH ?? ''].join(path.delimiter);
+      const { code, sortie } = lancer(['--dry-run', `--dir=${path.join(bac, 'jamais')}`], chemin);
+      expect(code, `prérequis manquant ⇒ code 2\n${sortie}`).toBe(2);
+      expect(sortie).toContain(NODE_MINIMUM);
+      expect(sortie).toContain(JUSTE_SOUS);
+      expect(existsSync(path.join(bac, 'jamais'))).toBe(false);
+    } finally {
+      rmSync(bac, { recursive: true, force: true });
     }
-    const { code, sortie } = lancer(['--dry-run', '--dir=/tmp/jamais-cree']);
-    expect(code, 'prérequis manquant ⇒ code 2').toBe(2);
-    expect(sortie).toMatch(new RegExp(String(NODE_MINIMUM)));
   });
 });
 

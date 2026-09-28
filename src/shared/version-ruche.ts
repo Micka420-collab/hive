@@ -124,14 +124,15 @@ export function marcheASuivre(pose: Pose): readonly (readonly string[])[] {
     Object.freeze(['git', 'pull', '--ff-only']),
     Object.freeze(['npm', 'ci']),
     // La forme MINIMALE, et sans métacaractère de shell — ces commandes sont
-    // faites pour être collées dans un terminal. `require` suffit : si le
-    // module natif manque, node sort en erreur, et le code de sortie EST le
-    // verdict. Rien à lire, rien à interpréter.
+    // faites pour être collées dans un terminal. Si le module natif manque,
+    // node sort en erreur, et le code de sortie EST le verdict. Ouvrir une
+    // base en mémoire, pas seulement `require` : `better-sqlite3` 13 ne
+    // charge son binaire qu'au premier `new Database`.
     //
     // Le Dockerfile en fait une plus profonde (il ouvre une base et écrit
     // dedans) parce qu'il construit l'image ; ici on répond à « est-ce que le
     // module a survécu au `npm ci` ? », et c'est la question qui coûte.
-    Object.freeze(['node', '-e', "require('better-sqlite3')"]),
+    Object.freeze(['node', '-e', "new (require('better-sqlite3'))(':memory:').close()"]),
     Object.freeze(['npm', 'run', 'build']),
   ]);
 }

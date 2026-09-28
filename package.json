@@ -15,7 +15,7 @@
   ],
   "type": "module",
   "engines": {
-    "node": ">=24"
+    "node": ">=24.18.0"
   },
   "scripts": {
     "dev": "tsx watch src/orchestrator/main.ts",
@@ -53,7 +53,7 @@
     "@fastify/cors": "^11.2.0",
     "@fastify/proxy-addr": "^5.1.0",
     "@fastify/static": "^10.1.2",
-    "better-sqlite3": "^12.11.1",
+    "better-sqlite3": "^13.0.3",
     "fastify": "^5.10.0"
   },
   "devDependencies": {
@@ -91,7 +91,7 @@
     "vitest": "^4.1.11"
   },
   "allowScripts": {
-    "better-sqlite3": true,
+    "better-sqlite3": false,
     "esbuild": true
   }
 }

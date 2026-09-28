@@ -140,7 +140,7 @@ La base se copie par `hive sauvegarde` (`VACUUM INTO`), **jamais** par un `cp`
 git fetch --tags
 git checkout vX.Y.Z              # ou, pour suivre main : git pull --ff-only
 npm ci
-node -e "require('better-sqlite3')"
+node -e "new (require('better-sqlite3'))(':memory:').close()"
 npm run build
 ```
 

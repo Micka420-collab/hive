@@ -1,7 +1,8 @@
 # Installer Hive
 
-> **Prérequis unique : Node.js ≥ 24.** Rien d'autre. Pas de compilateur, pas de
-> `sudo`, pas de service système.
+> **Prérequis unique : Node.js ≥ 24.18.** Rien d'autre. Pas de compilateur, pas
+> de `sudo`, pas de service système. Sous Linux, une glibc ≥ 2.34 (Ubuntu 22.04+,
+> Debian 12+) — voir [plus bas](#linux--glibc--234).
 
 ---
 
@@ -234,24 +235,47 @@ table à connaître.
 
 ---
 
-## Pourquoi Node 24 et pas moins
+## Pourquoi Node 24.18 et pas moins
 
 Ce n'est pas une préférence pour le neuf : **ça retire une panne**.
 
-`better-sqlite3` est un module natif. Sous Node 20, aucun binaire prébuilt
-n'existe pour cette ABI — npm doit le **compiler**, ce qui exige un outillage
-C++. Sur une machine Windows sans Visual Studio Build Tools, la compilation
-échoue… **et `npm install` réussit quand même**, parce que la dépendance est
-déclarée optionnelle. On se retrouve avec une installation « verte » et un
-`hive start` qui meurt sur `ERR_MODULE_NOT_FOUND`.
+`better-sqlite3` est un module natif. Depuis sa version 13, son binaire (N-API)
+est **livré dans le paquet npm** — rien à télécharger, rien à compiler, sur
+Linux, macOS et Windows, en x64 comme en arm64. Mais le paquet garde un
+`binding.gyp`, dont npm déduit un `node-gyp rebuild` : Hive le refuse
+(`allowScripts` dans `package.json`), et **seul npm ≥ 11.16 lit ce refus**.
 
-Sous Node 24, le binaire prébuilt existe : rien à compiler, aucun compilateur à
-installer, sur aucun système. Les deux comportements ont été mesurés côte à côte
-dans notre propre CI, sur le même commit.
+Node 24.0 à 24.17 embarquent npm 11.3 à 11.13 (source : `dist/index.json` de
+nodejs.org). Là, npm tente la compilation ; sur une machine sans python3 — un
+Windows neuf, une image `slim` — elle échoue… **et `npm install` réussit quand
+même**, parce que la dépendance est déclarée optionnelle. On se retrouve avec
+une installation « verte » et un `hive start` qui meurt sur
+`Cannot find module 'better-sqlite3'`. **Node 24.18.0 est le premier Node 24
+livré avec npm 11.16.**
 
-C'est pour ça que les installeurs vérifient la version **avant** de lancer quoi
-que ce soit, plutôt que de vous laisser découvrir le problème deux étapes plus
-loin.
+C'est pour ça que les installeurs vérifient la version — mineur compris —
+**avant** de lancer quoi que ce soit, et que la CI installe et démarre la ruche
+sous Node 24.18.0 exactement (job `plancher`).
+
+### Linux : glibc ≥ 2.34
+
+Le binaire Linux de `better-sqlite3` 13 exige **glibc 2.34** et
+**GLIBCXX 3.4.29** : Ubuntu 22.04+, Debian 12+, Fedora 35+, RHEL 9+. Sur
+Ubuntu 20.04 ou Debian 11 (glibc 2.31), il ne se charge pas — `GLIBC_2.34 not
+found` — et aucune compilation de secours ne prend le relais. `hive doctor` le
+détecte et le dit. Deux issues : mettre le système à jour, ou faire tourner la
+ruche dans son [image Docker](#dans-un-conteneur) (Debian 12, glibc 2.36).
+
+Les autres causes d'un module introuvable, et leur geste :
+
+| Ce que dit l'erreur                                        | Cause                                          | Geste                                               |
+| ---------------------------------------------------------- | ---------------------------------------------- | --------------------------------------------------- |
+| `Cannot find module 'better-sqlite3'`                      | `--omit=optional`, ou npm < 11.16 sans python3 | Node ≥ 24.18, puis `npm install --include=optional` |
+| `version 'GLIBC_2.34' not found`                           | glibc trop ancienne                            | système à jour, ou l'image Docker                   |
+| `Cannot find module '…/build/Release/better_sqlite3.node'` | plateforme sans binaire (ni x64 ni arm64)      | l'image Docker                                      |
+
+`npm rebuild better-sqlite3` ne répare **aucune** de ces trois causes : le
+script est refusé, il ne fait rien.
 
 ---
 
@@ -336,7 +360,7 @@ qui ne va pas. Un thermomètre qui ne propose rien ne sert qu'à nommer la peine
 ```
 🩺 hive doctor
 
-  ✔ node_version  Node 24 (≥ 24 exigé)
+  ✔ node_version  Node 24.21.0 (≥ 24.18.0 exigé)
   ✔ moteur        paquets de la ruche complète tous chargeables
   ✘ env_present   aucun fichier .env
        → cp .env.example .env
@@ -444,12 +468,10 @@ docker compose up -d --wait
 Le volume `hive-donnees` n'est pas touché : la nouvelle Reine rouvre la même
 base. Le détail, les versions et le retour arrière : [`RELEASING.md`](RELEASING.md).
 
-L'image est en **Node 24 sur Debian slim**, pas sur Alpine : `better-sqlite3`
-publie des binaires prébuilts pour la glibc, pas pour la musl d'Alpine. Sur
-Alpine, npm devrait le **compiler** — et comme la dépendance est optionnelle,
-un échec de compilation produirait une image « réussie » dont le démarrage
-meurt sur `ERR_MODULE_NOT_FOUND`. C'est la panne que Node 24 a supprimée côté
-poste de travail ; on ne la réintroduit pas ici.
+L'image est en **Node 24 sur Debian slim** (glibc 2.36). `better-sqlite3` 13
+livre aussi des binaires musl : Alpine ne forcerait plus de compilation. `slim`
+reste la base que la CI mesure — l'image, la montée de version, l'atelier —, et
+un changement de libc se mesure avant de se faire.
 
 Le **bureau de recette** (écran, CDP, outils) est un profil à part :
 [`docs/ATELIER.md`](ATELIER.md). Il ne remplace pas `HIVE_ISOLEMENT`. Avec une
