@@ -10,7 +10,8 @@
 // routing, la critique d'un renvoi, la provenance d'une livraison. La Miellerie
 // retombait alors en « preuves manquantes » sur une production prouvée, le
 // Genome perdait les faits d'une tâche encore là, et une critique élaguée
-// repartait muette (docs/PROTOCOLE-CRITIQUE.md, « Limite connue »).
+// repartait muette (l'ancienne « Limite connue » du protocole de critique,
+// aujourd'hui docs/PROTOCOLE-DEBAT.md).
 //
 // Cinq exceptions s'étaient greffées une à une sur l'élagage aveugle — une par
 // lecteur qui s'en était plaint (verdict du corpus de l'Aiguillage, mesure

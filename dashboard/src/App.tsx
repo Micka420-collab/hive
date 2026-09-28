@@ -380,13 +380,17 @@ export function App() {
             // la nouvelle bande appliquée sans attendre le prochain poll.
             'thermo_shift',
             // Le Conseil et la War Room : un conseil réuni, clos ou tranché par
-            // un AUTRE opérateur, un renvoi refusé qui laisse une contestation
-            // en suspens, la revue humaine qui la lève — les panneaux qui le
-            // montrent se relisent.
+            // un AUTRE opérateur, ce qui laisse une production en attente d'un
+            // humain (un renvoi refusé, une relecture impossible), et ce qui
+            // la lève (la revue humaine, un forçage de l'Evaluator, le renvoi
+            // `task_retry` listé plus haut) — les panneaux qui le montrent se
+            // relisent, sans attendre le prochain poll.
             'council_opened',
             'council_closed',
             'council_decided',
             'evaluator_retry_skipped',
+            'contre_expertise_impossible',
+            'evaluator_overridden',
             'task_reviewed',
           ].includes(ev.type)
         ) {

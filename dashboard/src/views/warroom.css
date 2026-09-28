@@ -148,6 +148,20 @@
   font-size: 12px;
 }
 
+/* Les voix du fil : une rangée qui passe à la ligne sur mobile, jamais une
+   barre qui déborde. La voix choisie se lit sans la couleur (aria-pressed). */
+.wr-familles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 16px 0;
+}
+
+.wr-familles .wr-puce.actif {
+  border-color: var(--honey);
+  font-weight: 600;
+}
+
 .wr-aveu {
   margin: 10px 16px 0;
   padding: 8px 10px;

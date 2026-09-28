@@ -562,7 +562,7 @@ function contesteEnPremiereLigne(prose: string): boolean {
 }
 
 /** Au-delà, ce n'est plus une liste d'objections, c'est un déversement. */
-const OBJECTIONS_MAX = 20;
+export const OBJECTIONS_MAX = 20;
 
 /** Ce que la prose dit : son verdict (fermé), et ses objections, une par ligne à puce. */
 interface LectureLibre {

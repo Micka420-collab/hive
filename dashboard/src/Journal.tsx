@@ -5,6 +5,7 @@ import { VALIDATION_KEYS } from '../../src/shared/validations-bac';
 import { useT } from './i18n';
 import type { Translate } from './i18n';
 import { bandeText, formatDuree } from './ui';
+import { direRaisonRefus } from './views/warroom-rendu';
 
 interface Meta {
   icon: string;
@@ -64,52 +65,14 @@ const cout = (v: unknown): string | null =>
 /**
  * Pourquoi une correction demandée par l'Evaluator n'est pas repartie.
  *
- * Les codes sont ceux du planificateur (`retryFromEvaluator`). Sans cette
- * ligne, le journal affichait le type brut — ou rien du tout quand un rejet
- * humain restait sans suite : l'opérateur croyait une correction en route. Un
- * code inconnu reste affiché tel quel plutôt que traduit de travers.
+ * Les codes sont ceux du planificateur (`retryFromEvaluator`), dits par la
+ * table que la War Room partage (`direRaisonRefus`). Sans cette ligne, le
+ * journal affichait le type brut — ou rien du tout quand un rejet humain
+ * restait sans suite : l'opérateur croyait une correction en route. Un code
+ * inconnu reste affiché tel quel plutôt que traduit de travers.
  */
-function raisonRetrySaute(code: unknown, t: Translate): string {
-  switch (code) {
-    case 'attempts_exhausted':
-      return t('essais épuisés', 'attempts exhausted');
-    case 'delivery_exists':
-      return t('une livraison est déjà ouverte', 'a delivery is already open');
-    case 'dependent_progressed':
-      return t('une tâche dépendante a déjà avancé', 'a dependent task has already moved on');
-    // Même fait que le tiroir d'une tâche annulée avec son sous-arbre : un
-    // enfant délégué n'a qu'un destinataire, et une annulation compte comme
-    // un échec (`ancetreEchoue`).
-    case 'ancestor_failed':
-      return t(
-        'un ancêtre délégué a échoué (ou a été annulé) : plus personne n’attend cette correction',
-        'a delegated ancestor failed (or was cancelled): nobody is waiting for this correction any more',
-      );
-    case 'stale_result':
-      return t('une production plus récente existe', 'a newer production exists');
-    // Une correction est une dépense neuve : sous une racine dont la dépense
-    // déclarée a atteint l'enveloppe, plus rien ne repart.
-    case 'root_cost_budget_exhausted':
-      return t(
-        'le budget coût de la racine déléguée est épuisé',
-        'the delegated root’s cost budget is exhausted',
-      );
-    // Une tâche ÉCHOUÉE est terminée, mais pas `done` : c'est le retry
-    // ordinaire qui la relance, jamais la correction de l'Evaluator. Dire
-    // « pas terminée » d'une tâche en échec contredirait son propre statut.
-    case 'task_not_done':
-      return t(
-        'la tâche n’est pas « terminée avec succès » (échouée : relancez-la par le retry ordinaire)',
-        'the task is not “completed successfully” (failed: relaunch it with the ordinary retry)',
-      );
-    case 'unknown_task':
-      return t('tâche inconnue', 'unknown task');
-    case 'invalid_result_id':
-      return t('résultat invalide', 'invalid result');
-    default:
-      return typeof code === 'string' && code.length > 0 ? code : '?';
-  }
-}
+const raisonRetrySaute = (code: unknown, t: Translate): string =>
+  typeof code === 'string' && code.length > 0 ? direRaisonRefus(code, t) : '?';
 
 /**
  * Ce qu'un `task_progress` APPORTE, et non le mot « progrès ».

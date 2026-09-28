@@ -44,13 +44,28 @@ import {
 } from '../scripts/captures-ecran-sortie.mjs';
 import {
   NOM_OUVRIERE,
+  NOM_RELECTRICE,
   PLAN_DEMO,
   TACHE_RACONTEE,
   adresseAnnoncee,
   amorcerRuche,
   envIsole,
+  envRelectrice,
   lancerRucheIsolee,
 } from '../scripts/captures-ecran-ruche.mjs';
+import { VERDICTS_DEMO, reponseRelectrice } from '../scripts/captures-relectrice.mjs';
+import {
+  agreger,
+  consigneDeCritique,
+  lireAvis as lireVerdict,
+} from '../src/shared/contre-expertise.ts';
+import { LENTILLES } from '../src/orchestrator/conseil.ts';
+import {
+  lireAvis as lireAvisConseil,
+  lireProposition,
+  promptExploration,
+  promptVerification,
+} from '../src/orchestrator/eclaireuse.ts';
 import { lancerBorneTuyaute, reprendreTous } from './harnais-processus.ts';
 
 const RACINE = fileURLToPath(new URL('..', import.meta.url));
@@ -235,6 +250,103 @@ describe('la ruche de laboratoire — ce qui y entre', () => {
     expect(marquees.map((t) => t.title)).toEqual([TACHE_RACONTEE]);
     const dependances = taches.flatMap((t) => t.dependsOn ?? []);
     expect(dependances).not.toContain(marquees[0].id);
+  });
+});
+
+describe('la relectrice de démonstration — elle parle le VRAI protocole', () => {
+  // Ses réponses sont lues par les parseurs de la Reine eux-mêmes : une
+  // réponse qu'ils ne comprendraient pas donnerait une War Room vide, et la
+  // capture photographierait une panne de la démonstration, pas le débat.
+  const relire = (titre) =>
+    reponseRelectrice(
+      consigneDeCritique({
+        taskId: 't',
+        titre,
+        nodeId: 'n',
+        agentType: 'shell',
+        diff: 'diff --git a/a.ts b/a.ts\n+export const x = 1;',
+        logs: '[sim] ok',
+      }),
+    );
+
+  it('ELLE CONTESTE, SE TAIT OU VALIDE — selon le titre exact de la production relue', () => {
+    const [contestee, muette] = Object.keys(VERDICTS_DEMO);
+    // Lu comme la Reine le lit : l'avis, puis son agrégation — une objection
+    // sous « valide » suffirait à contester.
+    const verdict = (titre) => agreger([lireVerdict('n', 'custom', relire(titre))]);
+    expect(verdict(contestee)).toMatchObject({ conteste: true });
+    expect(verdict(contestee).objections).toHaveLength(2);
+    // Muette : aucune réponse finale — la Reine clôt la relecture sans avis.
+    expect(relire(muette)).toBe('');
+    expect(verdict('Export CSV des paiements')).toMatchObject({ conteste: false, objections: [] });
+  });
+
+  it('ELLE RÉPOND À LA CONSIGNE, PAS AUX SOUVENIRS QUI LA PRÉCÈDENT', () => {
+    // Le nœud fait précéder le prompt du contexte de la ruche, souvenirs Hive
+    // Mind compris : une consigne de relecture PASSÉE y figure en toutes
+    // lettres. Lue au premier marqueur, la relecture d'« Export CSV » se
+    // taisait comme celle d'« Arrondi des taxes » — mesuré au premier essai.
+    const [contestee, muette] = Object.keys(VERDICTS_DEMO);
+    const consigne = (titre) =>
+      consigneDeCritique({
+        taskId: 't',
+        titre,
+        nodeId: 'n',
+        agentType: 'shell',
+        diff: '+x',
+        logs: '[sim] ok',
+      });
+    const verification = promptVerification({
+      question: 'Q ?',
+      proposition: { titre: 'Retirer tout', corps: 'c', qualite: 5, sources: [] },
+    });
+    const souvenirs = `SOUVENIRS\n${consigne(muette)}\n${verification}`;
+    expect(reponseRelectrice(`${souvenirs}\n\n${consigne('Export CSV des paiements')}`)).toMatch(
+      /^valide/,
+    );
+    expect(reponseRelectrice(`${souvenirs}\n\n${consigne(contestee)}`)).toMatch(/^conteste/);
+  });
+
+  it('AU CONSEIL : une piste par lentille, et un signal d’arrêt contre ce qu’on veut retirer', () => {
+    const pistes = LENTILLES.map((l, i) =>
+      lireProposition(
+        reponseRelectrice(promptExploration({ question: 'Q ?', lentille: l.cle, tour: 1 })),
+        { id: `p${i}`, eclaireuse: 'n', famille: 'custom', tour: 1 },
+      ),
+    );
+    expect(pistes.every((p) => p !== null && p.titre !== '')).toBe(true);
+    const avis = pistes.map((p) =>
+      lireAvisConseil(reponseRelectrice(promptVerification({ question: 'Q ?', proposition: p })), {
+        propositionId: p.id,
+        eclaireuse: 'm',
+        famille: 'custom',
+        tour: 1,
+      }),
+    );
+    expect(avis.map((a) => a?.type).sort()).toEqual([
+      'arret',
+      'soutien',
+      'soutien',
+      'soutien',
+      'soutien',
+    ]);
+  });
+
+  it('BRANCHÉE COMME UNE IA EN CLI — et refusée, dite, sur un chemin qui se couperait', () => {
+    const env = envRelectrice(
+      { HIVE_TOKEN: 'jeton-du-banc' },
+      { racine: '/depot', ws: 'ws://127.0.0.1:4242/ws', node: '/usr/bin/node' },
+    );
+    expect(env).toMatchObject({
+      HIVE_TOKEN: 'jeton-du-banc',
+      HIVE_URL: 'ws://127.0.0.1:4242/ws',
+      HIVE_AGENT: 'custom',
+      HIVE_NODE_NAME: NOM_RELECTRICE,
+      HIVE_AGENT_CMD: `/usr/bin/node ${path.join('/depot', 'scripts', 'captures-relectrice.mjs')} {prompt}`,
+    });
+    expect(() =>
+      envRelectrice({}, { racine: '/mon depot', ws: 'ws://x/ws', node: '/usr/bin/node' }),
+    ).toThrow(/sans espace/);
   });
 });
 
