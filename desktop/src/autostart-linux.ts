@@ -34,7 +34,8 @@ export function fichierAutostart(executable: string): string {
   ].join('\n');
 }
 
+/** Un chemin Linux, écrit comme Linux l'écrit — `path.posix`, quel que soit l'hôte. */
 export function cheminAutostart(env: NodeJS.ProcessEnv, home: string): string {
-  const config = (env.XDG_CONFIG_HOME ?? '').trim() || path.join(home, '.config');
-  return path.join(config, 'autostart', 'hive.desktop');
+  const config = (env.XDG_CONFIG_HOME ?? '').trim() || path.posix.join(home, '.config');
+  return path.posix.join(config, 'autostart', 'hive.desktop');
 }
