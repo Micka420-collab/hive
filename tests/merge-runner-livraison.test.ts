@@ -358,92 +358,111 @@ describe('la livraison d’une mission (git réel, clone superficiel)', () => {
   });
 
   // ─── PROLONGER : la règle de la reprise d'une PR, pour une mission ───────
+  //
+  // Ces bancs livrent DEUX fois (la livraison, puis sa suite) : deux clones,
+  // deux merges, deux poussées, et pour le second un clone, un commit et une
+  // poussée « humains » de plus — une trentaine de lancements de git à la
+  // file, sans rien qui attende. Mesuré sur la CI Windows : 5 à 11 s d'ordinaire,
+  // 18 et 20 s sous charge (run 36369029922, où la livraison SIMPLE voisine a
+  // pris 11,6 s), au ras du plafond global. Le plafond ci-dessous est celui que
+  // `workflow-git.test.ts` donne au même genre de travail (`PLAFOND_BANC_GIT`) :
+  // un git qui attendrait pour de bon collerait encore au plafond, et se lirait
+  // comme tel.
+  const PLAFOND_DEUX_LIVRAISONS = { timeout: 60_000 };
 
-  it('PROLONGER AVANCE LA MÊME BRANCHE — un commit sur sa tête, poussé sans forcer, et pas de n+1', async () => {
-    const premiere = await livrer({
-      projectId: 'suite',
-      diffs: [{ taskId: 'ta', diff: patchA }],
-      pousser: true,
-      consentie: true,
-    });
-    if (premiere.res.livraison?.etat !== 'commitee') throw new Error(premiere.res.logs);
-    const c1 = premiere.res.livraison.commit;
+  it(
+    'PROLONGER AVANCE LA MÊME BRANCHE — un commit sur sa tête, poussé sans forcer, et pas de n+1',
+    PLAFOND_DEUX_LIVRAISONS,
+    async () => {
+      const premiere = await livrer({
+        projectId: 'suite',
+        diffs: [{ taskId: 'ta', diff: patchA }],
+        pousser: true,
+        consentie: true,
+      });
+      if (premiere.res.livraison?.etat !== 'commitee') throw new Error(premiere.res.logs);
+      const c1 = premiere.res.livraison.commit;
 
-    // La correction : la mission intègre maintenant aussi `tb`.
-    const { res, depotLocal } = await livrer({
-      projectId: 'suite',
-      diffs: [
-        { taskId: 'ta', diff: patchA },
-        { taskId: 'tb', diff: patchB },
-      ],
-      pousser: true,
-      consentie: true,
-      suite: { n: 1, commit: c1 },
-    });
-    expect(res.livraison, res.logs).toMatchObject({
-      etat: 'commitee',
-      branche: 'hive/mission-suite-1',
-      poussee: 'poussee',
-    });
-    if (res.livraison?.etat !== 'commitee') throw new Error(res.logs);
-    const c2 = res.livraison.commit;
-    const d = git(depotLocal);
-    expect((await d.raw(['rev-parse', `${c2}^@`])).trim(), 'UN parent : la tête prolongée').toBe(
-      c1,
-    );
-    expect((await d.raw(['rev-parse', 'refs/heads/hive/mission-suite-1'])).trim()).toBe(c2);
-    expect((await git(origine).raw(['rev-parse', 'hive/mission-suite-1'])).trim()).toBe(c2);
-    const contenu = await d.raw(['show', `${c2}:${FILE}`]);
-    expect(contenu).toContain('l2-A');
-    expect(contenu).toContain('l10-B');
-    expect(await d.raw(['log', '-1', '--format=%(trailers:only,unfold)', c2])).toContain(
-      `Hive-Suite: ${c1}`,
-    );
-    for (const depot of [depotLocal, origine]) {
-      const refs = await git(depot).raw(['for-each-ref', '--format=%(refname)']);
-      expect(refs, depot).not.toContain('hive/mission-suite-2');
-    }
-  });
+      // La correction : la mission intègre maintenant aussi `tb`.
+      const { res, depotLocal } = await livrer({
+        projectId: 'suite',
+        diffs: [
+          { taskId: 'ta', diff: patchA },
+          { taskId: 'tb', diff: patchB },
+        ],
+        pousser: true,
+        consentie: true,
+        suite: { n: 1, commit: c1 },
+      });
+      expect(res.livraison, res.logs).toMatchObject({
+        etat: 'commitee',
+        branche: 'hive/mission-suite-1',
+        poussee: 'poussee',
+      });
+      if (res.livraison?.etat !== 'commitee') throw new Error(res.logs);
+      const c2 = res.livraison.commit;
+      const d = git(depotLocal);
+      expect((await d.raw(['rev-parse', `${c2}^@`])).trim(), 'UN parent : la tête prolongée').toBe(
+        c1,
+      );
+      expect((await d.raw(['rev-parse', 'refs/heads/hive/mission-suite-1'])).trim()).toBe(c2);
+      expect((await git(origine).raw(['rev-parse', 'hive/mission-suite-1'])).trim()).toBe(c2);
+      const contenu = await d.raw(['show', `${c2}:${FILE}`]);
+      expect(contenu).toContain('l2-A');
+      expect(contenu).toContain('l10-B');
+      expect(await d.raw(['log', '-1', '--format=%(trailers:only,unfold)', c2])).toContain(
+        `Hive-Suite: ${c1}`,
+      );
+      for (const depot of [depotLocal, origine]) {
+        const refs = await git(depot).raw(['for-each-ref', '--format=%(refname)']);
+        expect(refs, depot).not.toContain('hive/mission-suite-2');
+      }
+    },
+  );
 
-  it('un commit HUMAIN sur la branche distante arrête la suite : rien n’est écrasé ni effacé', async () => {
-    const premiere = await livrer({
-      projectId: 'humain',
-      diffs: [{ taskId: 'ta', diff: patchA }],
-      pousser: true,
-      consentie: true,
-    });
-    if (premiere.res.livraison?.etat !== 'commitee') throw new Error(premiere.res.logs);
-    const c1 = premiere.res.livraison.commit;
-    // Quelqu'un pousse sur la branche de mission depuis son poste.
-    const poste = path.join(racine, 'poste-humain');
-    await simpleGit().raw([
-      'clone',
-      '--quiet',
-      '--branch',
-      'hive/mission-humain-1',
-      origine,
-      poste,
-    ]);
-    await initDepot(poste);
-    writeFileSync(path.join(poste, 'humain.txt'), 'à la main\n');
-    await git(poste).add('humain.txt');
-    await git(poste).commit('commit humain');
-    await git(poste).raw(['push', '--quiet', 'origin', 'hive/mission-humain-1']);
-    const humain = (await git(poste).raw(['rev-parse', 'HEAD'])).trim();
+  it(
+    'un commit HUMAIN sur la branche distante arrête la suite : rien n’est écrasé ni effacé',
+    PLAFOND_DEUX_LIVRAISONS,
+    async () => {
+      const premiere = await livrer({
+        projectId: 'humain',
+        diffs: [{ taskId: 'ta', diff: patchA }],
+        pousser: true,
+        consentie: true,
+      });
+      if (premiere.res.livraison?.etat !== 'commitee') throw new Error(premiere.res.logs);
+      const c1 = premiere.res.livraison.commit;
+      // Quelqu'un pousse sur la branche de mission depuis son poste.
+      const poste = path.join(racine, 'poste-humain');
+      await simpleGit().raw([
+        'clone',
+        '--quiet',
+        '--branch',
+        'hive/mission-humain-1',
+        origine,
+        poste,
+      ]);
+      await initDepot(poste);
+      writeFileSync(path.join(poste, 'humain.txt'), 'à la main\n');
+      await git(poste).add('humain.txt');
+      await git(poste).commit('commit humain');
+      await git(poste).raw(['push', '--quiet', 'origin', 'hive/mission-humain-1']);
+      const humain = (await git(poste).raw(['rev-parse', 'HEAD'])).trim();
 
-    const { res, depotLocal } = await livrer({
-      projectId: 'humain',
-      diffs: [{ taskId: 'tb', diff: patchB }],
-      pousser: true,
-      consentie: true,
-      suite: { n: 1, commit: c1 },
-    });
-    expect(res.livraison).toMatchObject({ etat: 'non_commitee' });
-    if (res.livraison?.etat !== 'non_commitee') throw new Error(res.logs);
-    expect(res.livraison.motif).toMatch(/effacerait leur travail/);
-    expect((await git(origine).raw(['rev-parse', 'hive/mission-humain-1'])).trim()).toBe(humain);
-    expect((await git(depotLocal).raw(['rev-parse', 'hive/mission-humain-1'])).trim()).toBe(c1);
-  });
+      const { res, depotLocal } = await livrer({
+        projectId: 'humain',
+        diffs: [{ taskId: 'tb', diff: patchB }],
+        pousser: true,
+        consentie: true,
+        suite: { n: 1, commit: c1 },
+      });
+      expect(res.livraison).toMatchObject({ etat: 'non_commitee' });
+      if (res.livraison?.etat !== 'non_commitee') throw new Error(res.logs);
+      expect(res.livraison.motif).toMatch(/effacerait leur travail/);
+      expect((await git(origine).raw(['rev-parse', 'hive/mission-humain-1'])).trim()).toBe(humain);
+      expect((await git(depotLocal).raw(['rev-parse', 'hive/mission-humain-1'])).trim()).toBe(c1);
+    },
+  );
 
   it('une tête que ce nœud ne tient pas n’est pas prolongée', async () => {
     const { res } = await livrer({
