@@ -146,9 +146,10 @@ affichée) ; la redemander avec `force=true` les annule d'abord. Un merge, un
 chantier ou une livraison en vol, un cycle d'autonomie, un abonnement actif ou
 une machine encore chez le fournisseur la font refuser même forcée : ceux-là ne
 s'annulent pas. Les ateliers des ouvrières se nettoient chez elles ; une branche
-de mission livrée sur un nœud y reste. Le Cerveau de la ruche garde ce qu'il a
-appris des échecs (une signature dédoublonnée pour toute la ruche : titre et
-extrait du journal d'échec) : c'est un savoir partagé, pas une ligne du projet.
+de mission livrée sur un nœud y reste. Les épisodes du Cerveau nés du projet
+(titre, objections, rejets de l'Evaluator) partent aussi ; les notes du Cerveau
+écrites à la main restent. Un épisode né d'un projet **privé** n'est jamais
+servi qu'aux tâches de ce projet.
 
 ## 📦 L'environnement — l'agent installe ce dont il a besoin
 

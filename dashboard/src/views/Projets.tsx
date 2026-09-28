@@ -2047,8 +2047,8 @@ export function SuppressionProjet({
       </div>
       <p className="pj-suppression-dit">
         {t(
-          'Tâches, résultats, journal, mémoires, liens de partage et miroir du code : tout part, sans retour. Seule une ligne d’audit reste. Les ateliers des ouvrières se nettoient chez elles ; le Cerveau garde ce que la ruche a appris de ses échecs.',
-          'Tasks, results, journal, memories, share links and the code mirror: everything goes, with no way back. Only one audit line remains. Workers clean up their own workspaces; the Cerveau keeps what the hive learned from its failures.',
+          'Tâches, résultats, journal, mémoires, épisodes du Cerveau, liens de partage et miroir du code : tout part, sans retour. Seule une ligne d’audit reste. Les ateliers des ouvrières se nettoient chez elles ; les notes du Cerveau écrites à la main restent.',
+          'Tasks, results, journal, memories, Cerveau episodes, share links and the code mirror: everything goes, with no way back. Only one audit line remains. Workers clean up their own workspaces; the Cerveau notes written by hand stay.',
         )}
       </p>
       {forcer && (
@@ -2392,6 +2392,14 @@ export default function Projets({
               }. Only one audit line remains in the journal.`,
             )}
           </p>
+          {suppression.cerveau === 'echec' && (
+            <p className="panel-error">
+              {t(
+                'Les épisodes du Cerveau nés de ce projet n’ont pas pu être effacés : la console de la Reine nomme le dossier où les retirer à la main.',
+                'The Cerveau episodes born of this project could not be removed: the Queen’s console names the folder to clean by hand.',
+              )}
+            </p>
+          )}
           {suppression.miroir === 'echec' && (
             <p className="panel-error">
               {t(

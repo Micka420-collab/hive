@@ -25,6 +25,7 @@ import {
   cheminDe,
   dossierDe,
   ecrire,
+  effacerEpisodesDuProjet,
   elaguer,
   enregistrerEpisode,
   estConfine,
@@ -296,6 +297,92 @@ describe('LA RUCHE ÉCRIT SES ÉPISODES', () => {
     const n = lire(d)[0];
     expect(n?.genre).toBe('episode');
     expect(n?.regle, 'la ruche ne rédige pas de règle').toBeUndefined();
+  });
+});
+
+describe('UN ÉPISODE D’UN PROJET PRIVÉ RESTE DANS SON PROJET (#527)', () => {
+  const echec = { signature: 'erreur: secret <n> exposé', titre: 'T', detail: 'OBJECTION' };
+
+  it('LE PROJET SIGNE L’EN-TÊTE, et la cloison sépare deux projets privés', () => {
+    const d = path.join(bac(), 'cerveau');
+    enregistrerEpisode(d, {
+      ...echec,
+      origine: { ...origine, projectId: 'p-a' },
+      cloison: 'p-a',
+    });
+    enregistrerEpisode(d, {
+      ...echec,
+      origine: { ...origine, projectId: 'p-b' },
+      cloison: 'p-b',
+    });
+    const notes = lire(d);
+    expect(notes, 'deux projets privés ont partagé une note').toHaveLength(2);
+    expect(notes.map((n) => n.origine?.projectId).sort()).toEqual(['p-a', 'p-b']);
+    // Sans cloison, la même panne reste UNE note pour toute la ruche.
+    enregistrerEpisode(d, { ...echec, origine });
+    enregistrerEpisode(d, { ...echec, origine });
+    expect(lire(d)).toHaveLength(3);
+  });
+
+  it('`admise` écarte une note AVANT la sélection — elle ne prend pas le budget d’une autre', () => {
+    const d = path.join(bac(), 'cerveau');
+    enregistrerEpisode(d, {
+      ...echec,
+      detail: 'DU-PROJET-A',
+      origine: { ...origine, projectId: 'p-a' },
+      cloison: 'p-a',
+    });
+    const { bloc, selection } = pourLaTache(
+      d,
+      'secret exposé',
+      12_000,
+      undefined,
+      (n) => n.origine?.projectId !== 'p-a',
+    );
+    expect(bloc).not.toContain('DU-PROJET-A');
+    expect(selection.ecartees, 'une note écartée par le filtre n’est pas « hors budget »').toEqual(
+      [],
+    );
+    expect(pourLaTache(d, 'secret exposé').bloc).toContain('DU-PROJET-A');
+    // L'en-tête d'attribution n'entre JAMAIS dans le prompt.
+    expect(pourLaTache(d, 'secret exposé').bloc).not.toContain('p-a');
+  });
+
+  it('SUPPRIMER LE PROJET RETIRE SES ÉPISODES — par l’en-tête, ou par sa tâche pour un ancien', () => {
+    const d = path.join(bac(), 'cerveau');
+    enregistrerEpisode(d, {
+      ...echec,
+      signature: 'panne du projet',
+      origine: { ...origine, projectId: 'p-a' },
+    });
+    // Écrit avant l'en-tête `projectId` : rattaché par sa tâche.
+    enregistrerEpisode(d, {
+      ...echec,
+      signature: 'panne ancienne',
+      origine: { source: 'echec_worker', taskId: 't-du-projet' },
+    });
+    enregistrerEpisode(d, {
+      ...echec,
+      signature: 'panne du voisin',
+      origine: { ...origine, projectId: 'p-b' },
+    });
+    enregistrerEpisode(d, {
+      ...echec,
+      signature: 'panne ancienne du voisin',
+      origine: { source: 'echec_worker', taskId: 't-du-voisin' },
+    });
+    ecrire(d, note({ id: 'lecon-a-la-main' }));
+
+    const retires = effacerEpisodesDuProjet(d, 'p-a', new Set(['t-du-projet']));
+
+    expect(retires).toHaveLength(2);
+    const restent = lire(d);
+    // Le voisin garde ses deux épisodes ; la leçon écrite à la main reste.
+    expect(restent.map((n) => n.origine?.taskId ?? n.id).sort()).toEqual([
+      'lecon-a-la-main',
+      't-1',
+      't-du-voisin',
+    ]);
   });
 });
 

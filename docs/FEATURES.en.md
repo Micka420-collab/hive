@@ -131,9 +131,10 @@ list is shown); asking again with `force=true` cancels them first. A merge, a
 chantier or a delivery in flight, an autonomy cycle, an active subscription
 or a machine still at the provider refuse it even when forced: those cannot be
 cancelled. Workers clean up their own workspaces; a mission branch delivered on
-a node stays there. The hive's Cerveau keeps what it learned from failures (one
-deduplicated signature for the whole hive: title and failure-log excerpt): that
-is shared knowledge, not a row of the project.
+a node stays there. The Cerveau episodes born of the project (title,
+objections, Evaluator rejections) go too; the Cerveau notes written by hand
+stay. An episode born of a **private** project is only ever served to that
+project's tasks.
 
 ## 📦 The environment — the agent installs what it needs
 

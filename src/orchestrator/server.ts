@@ -310,10 +310,17 @@ import { CHAT_ENVOI_MAX } from '../shared/reine-pieces.js';
 import { askConcierge, askConciergeStream, sousAgentsDepuisEvenements } from './concierge.js';
 import type { ConciergeContext } from './concierge.js';
 import { detectGhosts } from './ghost.js';
-import { dossierDe, elaguer, enregistrerEpisode, lire, pourLaTache } from '../cerveau-reel.js';
+import {
+  dossierDe,
+  effacerEpisodesDuProjet,
+  elaguer,
+  enregistrerEpisode,
+  lire,
+  pourLaTache,
+} from '../cerveau-reel.js';
 import type { EpisodeEnregistre } from '../cerveau-reel.js';
 import { aConsolider } from '../shared/cerveau.js';
-import type { OrigineEpisode } from '../shared/cerveau.js';
+import type { Note, OrigineEpisode } from '../shared/cerveau.js';
 import { graphe } from '../shared/cerveau-graphe.js';
 import {
   agreger,
@@ -1792,6 +1799,38 @@ async function monterReine(
   };
 
   /**
+   * Un épisode du Cerveau peut-il être servi à une tâche de `projectId` ?
+   *
+   * Un épisode porte les mots d'un échec — objections d'un relecteur, rejet de
+   * l'Evaluator (jusqu'à 800 caractères), titre de la tâche. Né d'un projet
+   * PRIVÉ, il ne sert qu'aux tâches de CE projet (#527) ; né d'un projet
+   * public, il sert à toute la ruche. Le projet source se lit dans l'en-tête
+   * (`origine.projectId`) ; un épisode écrit avant lui se rattache par sa tâche
+   * tant qu'elle existe. Un projet source introuvable (supprimé sans que son
+   * épisode parte) n'est pas public : écarté.
+   *
+   * COMPROMIS NOMMÉ : un épisode écrit avant l'en-tête ET dont la tâche est
+   * élaguée ne se rattache plus à rien — il reste servi à toute la ruche, comme
+   * avant ce correctif. Les notes sans `origine` (écrites à la main) sont du
+   * savoir de la ruche, jamais filtrées.
+   */
+  const episodeAdmis = (projectId: string): ((note: Note) => boolean) => {
+    const publics = new Map<string, boolean>();
+    return (note) => {
+      const o = note.origine;
+      if (note.genre !== 'episode' || o === undefined) return true;
+      const source = o.projectId ?? store.getTask(o.taskId)?.projectId;
+      if (source === undefined || source === projectId) return true;
+      let publique = publics.get(source);
+      if (publique === undefined) {
+        publique = store.getProject(source)?.visibility === 'public';
+        publics.set(source, publique);
+      }
+      return publique;
+    };
+  };
+
+  /**
    * Verse un échec au Cerveau, et signale quand un motif devient mûr.
    *
    * ─── CE QUE LA RUCHE S'AUTORISE À ÉCRIRE, ET CE QU'ELLE NE S'AUTORISE PAS ──
@@ -1824,8 +1863,17 @@ async function monterReine(
     echec: { signature: string; detail: string; origine: OrigineEpisode },
   ): boolean => {
     let ecrit: EpisodeEnregistre | null;
+    // Le projet signe l'épisode (en-tête, jamais prompt) ; PRIVÉ, il le
+    // cloisonne : l'épisode n'est servi qu'à ses tâches et part avec lui.
+    const origine: OrigineEpisode = { ...echec.origine, projectId: task.projectId };
+    const prive = store.getProject(task.projectId)?.visibility !== 'public';
     try {
-      ecrit = enregistrerEpisode(dossierCerveau, { ...echec, titre: task.title });
+      ecrit = enregistrerEpisode(dossierCerveau, {
+        ...echec,
+        origine,
+        titre: task.title,
+        ...(prive ? { cloison: task.projectId } : {}),
+      });
     } catch (err) {
       console.error(
         `[hive] épisode du Cerveau non écrit : ${err instanceof Error ? err.message : err}`,
@@ -1838,7 +1886,7 @@ async function monterReine(
     // écrite : le journal garde CHAQUE occurrence, là où la note ne garde que
     // la dernière.
     emitEvent('cerveau_episode', {
-      ...echec.origine,
+      ...origine,
       note: ecrit.id,
       recurrences: ecrit.recurrences,
       nouveau: ecrit.nouveau,
@@ -2131,6 +2179,8 @@ async function monterReine(
       dossierCerveau,
       `${task.title} ${task.prompt}`,
       part(BUDGET_CERVEAU),
+      undefined,
+      episodeAdmis(task.projectId),
     );
     const savoir = retenir(savoirBrut);
     const refus = selection.refus;
@@ -8177,12 +8227,12 @@ async function monterReine(
   // (`hive sauvegarde`) prises AVANT la suppression contiennent encore le
   // projet : c'est leur raison d'être.
   //
-  // Le CERVEAU de la ruche non plus (`data/cerveau/*.md`) : un épisode y est une
-  // signature d'échec dédoublonnée pour TOUTE la ruche — son titre et un extrait
-  // du journal d'échec, sans lien de projet. C'est un savoir de la ruche, pas
-  // une ligne du projet : on ne sait pas l'en détacher sans effacer ce que
-  // d'autres projets ont appris. Le JOURNAL, lui, ne garde rien : les faits du
-  // Cerveau portent leur `taskId` et partent avec la cascade.
+  // Ni les notes du CERVEAU écrites à la main (invariants, leçons, décisions) :
+  // elles sont le savoir de la ruche, pas une ligne du projet. Ses ÉPISODES,
+  // eux, portent les mots d'un échec du projet — objections, rejet de
+  // l'Evaluator, titre de tâche — et leur en-tête le nomme : ils partent APRÈS
+  // le COMMIT, comme le miroir (`effacerEpisodesDuProjet`, #527). Les faits du
+  // Cerveau au JOURNAL portent leur `taskId` et partent avec la cascade.
   //
   // Enfin, une ouvrière qui avait fini JUSTE avant l'annulation rend encore son
   // résultat : la Reine l'écarte (`result_ignored`, tâche inconnue) et le
@@ -8301,6 +8351,9 @@ async function monterReine(
       // Une TRACE (qui a supprimé), jamais une autorisation : la garde est
       // au-dessus, et elle a exigé un compte.
       const parUserId = authorizedUser(req) ? ((req as AuthRequest).userId ?? null) : null;
+      // Relevées AVANT la cascade : un épisode écrit avant l'en-tête `projectId`
+      // ne se rattache au projet que par sa tâche.
+      const taches = new Set(store.listTasks(project.id).map((t) => t.id));
       const supprime = scheduler.supprimerProjet(project, parUserId);
       if (!supprime) return reply.code(404).send({ error: 'projet inconnu' });
       // Ce que la Reine tient EN MÉMOIRE sur ce projet : le dernier merge et le
@@ -8325,7 +8378,29 @@ async function monterReine(
             ` (${err instanceof Error ? err.message : String(err)})`,
         );
       }
-      return { supprime: true, projectId: project.id, name: project.name, ...supprime, miroir };
+      // Les épisodes du Cerveau nés du projet, APRÈS le COMMIT pour la même
+      // raison que le miroir : un disque qui refuse se dit, il ne défait rien.
+      let cerveau: 'efface' | 'echec';
+      let episodes = 0;
+      try {
+        episodes = effacerEpisodesDuProjet(dossierCerveau, project.id, taches).length;
+        cerveau = 'efface';
+      } catch (err) {
+        cerveau = 'echec';
+        console.error(
+          `[hive] épisodes du Cerveau du projet ${project.id} non effacés, à retirer à la main ` +
+            `de ${dossierCerveau} (${err instanceof Error ? err.message : String(err)})`,
+        );
+      }
+      return {
+        supprime: true,
+        projectId: project.id,
+        name: project.name,
+        ...supprime,
+        miroir,
+        cerveau,
+        episodes,
+      };
     },
   );
 

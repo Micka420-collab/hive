@@ -124,6 +124,14 @@ export type SourceEpisode = (typeof SOURCES_EPISODE)[number];
 export interface OrigineEpisode {
   readonly source: SourceEpisode;
   readonly taskId: string;
+  /**
+   * Le projet de la tâche. Il vit dans l'EN-TÊTE d'attribution, jamais dans le
+   * prompt (`contexte` ne lit que genre, titre, règle et corps) : c'est par lui
+   * qu'un épisode né d'un projet PRIVÉ n'est servi qu'aux tâches de ce projet,
+   * et part avec lui quand on le supprime (#527). Absent sur un épisode écrit
+   * avant lui.
+   */
+  readonly projectId?: string;
   readonly resultId?: number;
   readonly nodeId?: string;
   readonly agentType?: string;
@@ -247,6 +255,7 @@ function origineDe(champs: Map<string, string | string[]>): OrigineEpisode | und
   const source = SOURCES_EPISODE.find((s) => s === brute);
   const taskId = unTexte(champs.get('taskId'));
   if (source === undefined || taskId === undefined) return undefined;
+  const projectId = unTexte(champs.get('projectId'));
   const resultId = Number(unTexte(champs.get('resultId')));
   const nodeId = unTexte(champs.get('nodeId'));
   const agentType = unTexte(champs.get('agentType'));
@@ -254,6 +263,7 @@ function origineDe(champs: Map<string, string | string[]>): OrigineEpisode | und
   return {
     source,
     taskId,
+    ...(projectId === undefined ? {} : { projectId }),
     ...(Number.isSafeInteger(resultId) && resultId > 0 ? { resultId } : {}),
     ...(nodeId === undefined ? {} : { nodeId }),
     ...(agentType === undefined ? {} : { agentType }),
@@ -344,6 +354,7 @@ export function rendre(note: Note): string {
       : [
           `source: ${o.source}`,
           `taskId: ${sur1(o.taskId)}`,
+          ...(o.projectId === undefined ? [] : [`projectId: ${sur1(o.projectId)}`]),
           ...(o.resultId === undefined ? [] : [`resultId: ${o.resultId}`]),
           ...(o.nodeId === undefined ? [] : [`nodeId: ${sur1(o.nodeId)}`]),
           ...(o.agentType === undefined ? [] : [`agentType: ${sur1(o.agentType)}`]),

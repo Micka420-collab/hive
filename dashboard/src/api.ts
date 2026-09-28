@@ -1847,6 +1847,12 @@ export interface ProjetSupprime {
   lignes: number;
   /** Le miroir du Rayon : effacé, il n'y en avait pas, ou le disque a refusé. */
   miroir: 'efface' | 'absent' | 'echec';
+  /**
+   * Les épisodes du Cerveau nés du projet (#527) : retirés (`episodes` en dit
+   * le nombre), ou le disque a refusé. Absent d'une Reine d'avant.
+   */
+  cerveau?: 'efface' | 'echec';
+  episodes?: number;
 }
 
 /**

@@ -180,14 +180,21 @@ export function ecrire(dossier: string, note: Note): string | null {
  * d'une récurrence. Un épisode injecté chaque jour partait donc à 90 jours
  * comme s'il n'avait jamais été lu. C'est ici que la note sert : c'est donc
  * ici qu'on l'écrit — sur les ÉPISODES seulement (`marquerServies`).
+ *
+ * ─── ET SEULES LES NOTES ADMISES POUR CETTE TÂCHE ENTRENT EN COMPTE ─────────
+ *
+ * `admise` écarte, AVANT la sélection, ce que cette tâche n'a pas le droit de
+ * lire — un épisode né d'un projet privé qui n'est pas le sien (#527). Écarter
+ * après coup laisserait la note prendre le budget d'une autre.
  */
 export function pourLaTache(
   dossier: string,
   tache: string,
   budget = 12_000,
   maintenant: string = new Date().toISOString(),
+  admise: (note: Note) => boolean = () => true,
 ): { readonly bloc: string; readonly selection: Selection } {
-  const selection = selectionner(lire(dossier), tache, budget);
+  const selection = selectionner(lire(dossier).filter(admise), tache, budget);
   const bloc = contexte(selection, budget);
   marquerServies(dossier, servies(selection, bloc), maintenant);
   return { bloc, selection };
@@ -299,6 +306,13 @@ export interface EpisodeEnregistre {
  * `origine` est REQUISE : un épisode sans auteur ni production ne dit pas qui
  * refaire, ni sur quelle pièce vérifier. L'en-tête garde la plus récente ; le
  * journal de l'appelant (`cerveau_episode`) garde chacune.
+ *
+ * ─── UN PROJET PRIVÉ A SES PROPRES ÉPISODES ─────────────────────────────────
+ *
+ * `cloison` (l'identifiant d'un projet PRIVÉ) entre dans la clé de
+ * dédoublonnage : la même panne vue dans deux projets privés fait deux notes,
+ * jamais une note dont le corps viendrait de l'un et l'attribution de l'autre.
+ * Sans cloison, la panne reste dédoublonnée pour toute la ruche (#527).
  */
 export function enregistrerEpisode(
   dossier: string,
@@ -307,13 +321,14 @@ export function enregistrerEpisode(
     readonly titre: string;
     readonly detail: string;
     readonly origine: OrigineEpisode;
+    readonly cloison?: string;
   },
   maintenant: string = new Date().toISOString(),
 ): EpisodeEnregistre | null {
   const sig = echec.signature.trim();
   if (sig === '') return null;
 
-  const id = idEpisode(sig);
+  const id = idEpisode(echec.cloison === undefined ? sig : `${echec.cloison}\n${sig}`);
   const existante = lire(dossier).find((n) => n.id === id);
   const note: Note = {
     id,
@@ -334,6 +349,36 @@ export function enregistrerEpisode(
   return ecrire(dossier, note) === null
     ? null
     : { id, recurrences: note.recurrences, nouveau: existante === undefined };
+}
+
+/**
+ * Retire les ÉPISODES nés d'un projet qu'on supprime (#527) — rend leurs
+ * identifiants.
+ *
+ * Un épisode porte les mots d'un échec : objections d'un relecteur, rejet de
+ * l'Evaluator, titre de la tâche. Un projet supprimé « n'existe plus nulle
+ * part » : ses épisodes non plus. Le projet se lit dans l'en-tête
+ * (`origine.projectId`) ; un épisode écrit avant lui se reconnaît à sa tâche
+ * (`taches`, relevées AVANT la cascade qui les efface). Les invariants, leçons
+ * et décisions sont écrits À LA MAIN : jamais touchés ici.
+ */
+export function effacerEpisodesDuProjet(
+  dossier: string,
+  projectId: string,
+  taches: ReadonlySet<string>,
+): string[] {
+  const retires: string[] = [];
+  for (const note of lire(dossier)) {
+    const o = note.origine;
+    if (note.genre !== 'episode' || o === undefined) continue;
+    const duProjet = o.projectId === undefined ? taches.has(o.taskId) : o.projectId === projectId;
+    if (!duProjet) continue;
+    const c = cheminDe(dossier, note.id);
+    if (c === null) continue;
+    rmSync(c, { force: true, maxRetries: 5, retryDelay: 100 });
+    retires.push(note.id);
+  }
+  return retires;
 }
 
 export interface Elagage {
