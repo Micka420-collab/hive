@@ -416,11 +416,30 @@ describe('reprendre une pull request rouge avance la MÊME branche', () => {
     return undefined;
   }
 
+  /**
+   * Les tests qui inscrivent une ouvrière partent d'une file VIDE et d'aucun
+   * nœud en ligne : une reprise laissée `ready` par un test voisin serait
+   * confiée la première à l'ouvrière (`maxConcurrency: 1`), et l'assignation
+   * attendue n'arriverait jamais — un couplage que seul l'ordre des tests
+   * révèle (`npm run tamis-ordres`, graines 15838 et 7919).
+   */
+  async function banquetteVide(): Promise<void> {
+    for (const t of server.store.listTasks(projet)) {
+      if (t.status !== 'done' && t.status !== 'failed') {
+        server.store.patchTask(t.id, { status: 'failed' });
+      }
+    }
+    await attendre(() =>
+      server.store.listNodes().every((n) => n.status !== 'online') ? true : undefined,
+    );
+  }
+
   it(
     'LA REPRISE AVANCE LA MÊME RÉFÉRENCE, N’OUVRE AUCUNE SECONDE PR, ET LA BRANCHE PORTE LES DEUX TRAVAUX',
     { timeout: 30_000 },
     async () => {
       reinitialiser();
+      await banquetteVide();
       const { pr, branche } = await livrerOrigine('t-origine');
       expect(branche).toBe('hive/t-origine');
       const teteAvant = gh.refs.get(branche)!;
@@ -736,14 +755,7 @@ describe('reprendre une pull request rouge avance la MÊME branche', () => {
       // champ et perd `prolonger` : elle clonerait `main` sous un brief qui
       // affirme le contraire. Le hub ne lui confie donc aucune reprise.
       reinitialiser();
-      for (const t of server.store.listTasks(projet)) {
-        if (t.status !== 'done' && t.status !== 'failed') {
-          server.store.patchTask(t.id, { status: 'failed' });
-        }
-      }
-      await attendre(() =>
-        server.store.listNodes().every((n) => n.status !== 'online') ? true : undefined,
-      );
+      await banquetteVide();
       await livrerOrigine('t-ancienne');
       const ancienne = await noeud({ prolonge: false, id: 'ouvriere-ancienne' });
       const r = await reprendre('t-ancienne');
