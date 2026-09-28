@@ -24,7 +24,11 @@
 //
 // Le compagnon est une préférence d'affichage : il ne quitte pas le poste, ne
 // passe pas par la Reine, n'occupe aucune table. Une clé de `localStorage` par
-// compte (`anonyme` sans session), plafonnée en taille et en nombre.
+// compte (`anonyme` sans session), plafonnée en taille et en nombre — ET un
+// budget pour TOUTES ces clés ensemble : `localStorage` est partagé par toute
+// l'origine (jeton de session, jeton de ruche, verdicts gardés hors ligne), et
+// plusieurs comptes sur un même navigateur rempliraient sinon le quota à leur
+// place — leurs écritures à eux ne sont pas toutes sous `try/catch`.
 //
 // Le stockage peut manquer (navigation privée, quota plein, accès bloqué) :
 // CHAQUE lecture et écriture est sous `try/catch`, et un échec n'emporte rien —
@@ -38,6 +42,13 @@
 export const TAILLE_MAX_OCTETS = 150 * 1024;
 /** Assez pour varier, trop peu pour saturer le stockage (3 × 150 Kio ≈ 600 Kio encodés). */
 export const PERSO_MAX = 3;
+/**
+ * Ce que TOUS les compagnons de ce navigateur peuvent occuper ensemble, en
+ * caractères (l'unité du quota de `localStorage`, ~5 M par origine). Un seul
+ * compte plein (≈ 615 K) y tient toujours ; il reste de quoi en loger un
+ * second, et bien plus de la moitié du quota aux autres usages de l'écran.
+ */
+export const BUDGET_TOTAL_CARACTERES = 1_000_000;
 export const NOM_MAX = 24;
 /** Au-delà, chaque image d'une planche de 44 px devient illisible. */
 export const IMAGES_MAX = 24;
@@ -126,7 +137,7 @@ export function nomPropre(brut: string): string {
       // contrôle, et le retirer avant collerait les deux mots qu'il séparait.
       .replace(/\s+/g, ' ')
       // eslint-disable-next-line no-control-regex -- c'est précisément ce qu'on retire
-      .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2066-\u2069]/g, '')
+      .replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028-\u202e\u2066-\u2069]/g, '')
       .trim()
       .slice(0, NOM_MAX)
   );
@@ -184,10 +195,25 @@ export function lireReglages(
   }
 }
 
+/** Ce qu'occupent les compagnons des AUTRES clés — clé comprise, comme le quota la compte. */
+function occupationDesAutres(stockage: Storage, cle: string): number {
+  let total = 0;
+  for (let i = 0; i < stockage.length; i++) {
+    const k = stockage.key(i);
+    if (k === null || k === cle || !k.startsWith(PREFIXE_CLE)) continue;
+    total += k.length + (stockage.getItem(k)?.length ?? 0);
+  }
+  return total;
+}
+
 /**
  * Range les réglages. `false` si le navigateur a refusé (quota, accès bloqué,
- * navigation privée) : l'appelant garde les réglages en mémoire et le DIT —
- * jamais d'exception qui remonterait jusqu'au filet de l'écran.
+ * navigation privée) OU si le budget commun des compagnons serait dépassé :
+ * l'appelant garde les réglages en mémoire et le DIT — jamais d'exception qui
+ * remonterait jusqu'au filet de l'écran.
+ *
+ * Une écriture qui ne GROSSIT pas la clé passe toujours : retirer un
+ * compagnon doit rester possible quand le budget est déjà atteint.
  */
 export function ecrireReglages(
   cle: string,
@@ -196,7 +222,11 @@ export function ecrireReglages(
 ): boolean {
   try {
     if (!stockage) return false;
-    stockage.setItem(cle, JSON.stringify(r));
+    const texte = JSON.stringify(r);
+    const actuel = stockage.getItem(cle)?.length ?? 0;
+    const apres = occupationDesAutres(stockage, cle) + cle.length + texte.length;
+    if (texte.length > actuel && apres > BUDGET_TOTAL_CARACTERES) return false;
+    stockage.setItem(cle, texte);
     return true;
   } catch {
     return false;

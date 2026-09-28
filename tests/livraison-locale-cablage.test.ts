@@ -231,6 +231,10 @@ describe('livraison locale — une vraie ouvrière, un vrai dépôt', () => {
       branche: result.livraison.branche,
       poussee: 'poussee',
     });
+    const fusion = (await evenements(base)).find(
+      (e) => e.type === 'merge_completed' && e.payload.mergeId === depart.mergeId,
+    );
+    expect(fusion?.payload).toMatchObject({ livraison: 'commitee' });
   });
 
   it('l’Evaluator arrête la mission — et un forçage signé la laisse partir, journalisé', async () => {
@@ -503,6 +507,12 @@ describe('livraison locale — ce qu’une vraie ouvrière ne sait pas mal faire
       etat: 'non_commitee',
       motif: expect.stringContaining('version de Hive ne sait pas encore livrer'),
     });
+    // L'événement de fusion porte la même issue : qui ne lit que lui (le
+    // compagnon) ne doit pas y voir une livraison entrée dans le projet.
+    const fusion = (await evenements(base)).find(
+      (e) => e.type === 'merge_completed' && e.payload.mergeId === mergeId,
+    );
+    expect(fusion?.payload).toMatchObject({ applied: 1, livraison: 'non_commitee' });
   });
 
   it('une livraison ne partage pas son projet : ni avec un merge d’essai, ni l’inverse', async () => {

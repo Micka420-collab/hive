@@ -29,7 +29,7 @@
 // dans CE navigateur pour CE compte, affichée par `<img>` seulement. Les règles
 // de sûreté sont écrites dans `compagnon-perso.ts`.
 
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { CSSProperties, FormEvent, ReactNode } from 'react';
 import type { HiveEvent, Task } from '../../src/shared/types';
 import {
@@ -550,6 +550,31 @@ export function Compagnon({ connecte, tasks, aRevoir, pastille, events, userId }
     setNonGarde(false);
   }, [cle]);
 
+  // Un AUTRE onglet a changé ces réglages : on les relit. Sans cela, un
+  // onglet ouvert avant l'ajout d'un compagnon garde sa copie périmée, et son
+  // prochain choix réécrit la clé entière — le compagnon apporté ailleurs
+  // disparaît sans un mot. `storage` ne se déclenche que dans les AUTRES
+  // onglets ; `key === null`, c'est un `clear()` du stockage entier.
+  useEffect(() => {
+    const suivre = (e: StorageEvent) => {
+      if (e.key === cle || e.key === null) setReglages(lireReglages(cle));
+    };
+    window.addEventListener('storage', suivre);
+    return () => window.removeEventListener('storage', suivre);
+  }, [cle]);
+
+  // Ranger ou rappeler DÉMONTE le bouton qui portait le focus (et le
+  // déclencheur que `useDialog` voudrait lui rendre) : le clavier tomberait
+  // sur `<body>`. Après un geste de la personne — et seulement alors, jamais
+  // au premier rendu — le focus passe au bouton qui vient d'apparaître.
+  const boutonRef = useRef<HTMLButtonElement>(null);
+  const rendreLeFocus = useRef(false);
+  useEffect(() => {
+    if (!rendreLeFocus.current) return;
+    rendreLeFocus.current = false;
+    boutonRef.current?.focus();
+  }, [reglages.range]);
+
   // Recalculée à CHAQUE rendu, sans mémo : l'humeur dépend de l'heure (la
   // fête a une fin), et le calcul est borné — un filtre sur la fenêtre de
   // tâches, et un parcours du journal qui s'arrête au premier événement trop
@@ -565,6 +590,7 @@ export function Compagnon({ connecte, tasks, aRevoir, pastille, events, userId }
   }, [etat.finFete, tic]);
 
   const changer = (r: ReglagesCompagnon) => {
+    if (r.range !== reglages.range) rendreLeFocus.current = true;
     setReglages(r);
     setNonGarde(!ecrireReglages(cle, r));
   };
@@ -580,6 +606,7 @@ export function Compagnon({ connecte, tasks, aRevoir, pastille, events, userId }
     >
       {reglages.range ? (
         <button
+          ref={boutonRef}
           type="button"
           className="cp-rappel"
           onClick={() => changer({ ...reglages, range: false })}
@@ -588,6 +615,7 @@ export function Compagnon({ connecte, tasks, aRevoir, pastille, events, userId }
         />
       ) : (
         <button
+          ref={boutonRef}
           type="button"
           className="cp-bouton"
           onClick={() => setOuvert(true)}

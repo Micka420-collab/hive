@@ -37,6 +37,14 @@ export type HumeurCompagnon = 'inconnu' | 'repos' | 'occupe' | 'alerte' | 'fete'
  */
 export const DUREE_FETE_MS = 6_000;
 
+/**
+ * De combien la Reine peut être EN AVANCE sur ce navigateur pour qu'un
+ * événement compte déjà. Au-delà, il attend que l'horloge locale le
+ * rattrape : sans cette borne, un événement daté du futur tenait la fête
+ * jusqu'à `ts + 6 s` — près du double de sa durée.
+ */
+export const AVANCE_TOLEREE_MS = 1_000;
+
 /** Les statuts d'une tâche qui occupe une ouvrière — ceux que compte `HiveNode.running`. */
 const STATUTS_ACTIFS: ReadonlySet<Task['status']> = new Set(['assigned', 'running']);
 
@@ -55,7 +63,13 @@ export interface EtatCompagnon {
   humeur: HumeurCompagnon;
   /** Tâches en cours (assignées ou en exécution) — affiché en `occupe`. */
   enCours: number;
-  /** Ce qui attend un humain : verdicts + alertes non informatives. */
+  /**
+   * Ce qui attend un humain : les verdicts à rendre, plus le NOMBRE de la
+   * pastille d'alertes quand sa gravité dépasse « info ». Ce nombre est le
+   * `total` que la barre affiche — toutes gravités comprises, les « info »
+   * aussi : la pastille ne ventile pas, et le compagnon ne reclasse pas côté
+   * client ce que le serveur a décidé.
+   */
   attentes: number;
   /**
    * Quand la fête s'arrête (horloge locale, ms) — `null` hors fête. Le
@@ -73,11 +87,15 @@ export interface EtatCompagnon {
  *    des tests qui n'ont pas échoué — la livraison est entrée dans le projet.
  *    `testsPassed` absent (`undefined`) n'est pas un échec : une ruche sans
  *    commande de test n'en rend pas, et la fusion est quand même faite.
+ *    Une livraison DEMANDÉE que le rapport dit `non_commitee` (un nœud d'une
+ *    version antérieure rend un merge nu) n'est pas une fête : Mission Control
+ *    dit au même moment que rien n'a été commité, et l'animal le contredirait.
  */
 export function estLivraisonAcceptee(ev: Pick<HiveEvent, 'type' | 'payload'>): boolean {
   if (ev.type === 'task_reviewed') return ev.payload.state === 'approved';
   if (ev.type !== 'merge_completed') return false;
-  const { applied, conflicts, testsPassed } = ev.payload;
+  const { applied, conflicts, testsPassed, livraison } = ev.payload;
+  if (livraison === 'non_commitee') return false;
   return typeof applied === 'number' && applied > 0 && conflicts === 0 && testsPassed !== false;
 }
 
@@ -89,7 +107,13 @@ export function estLivraisonAcceptee(ev: Pick<HiveEvent, 'type' | 'payload'>): b
  * danser l'abeille maintenant. On ne regarde que les événements dont l'âge
  * tient dans la fenêtre. Une horloge locale très décalée de celle de la Reine
  * peut faire rater une fête — jamais en inventer une qui dure : la fenêtre
- * borne des DEUX côtés.
+ * borne des DEUX côtés, et du côté du futur à `AVANCE_TOLEREE_MS` seulement.
+ *
+ * La fin est `ev.ts + 6 s` — une date FIXE, et non recalculée depuis
+ * `maintenant` : recalculée, elle reculait à chaque rendu tant que
+ * l'événement semblait « à venir », et relançait le minuteur du composant à
+ * chaque événement reçu. Vue du navigateur, une fête dure donc au plus
+ * 6 s + `AVANCE_TOLEREE_MS`.
  */
 function finDeFete(events: EntreesCompagnon['events'], maintenant: number): number | null {
   for (let i = events.length - 1; i >= 0; i--) {
@@ -97,9 +121,7 @@ function finDeFete(events: EntreesCompagnon['events'], maintenant: number): numb
     if (ev === undefined) continue;
     const age = maintenant - ev.ts;
     if (age >= DUREE_FETE_MS) break; // le journal est chronologique : plus rien de récent avant
-    if (age > -DUREE_FETE_MS && estLivraisonAcceptee(ev)) {
-      return Math.min(ev.ts, maintenant) + DUREE_FETE_MS;
-    }
+    if (age >= -AVANCE_TOLEREE_MS && estLivraisonAcceptee(ev)) return ev.ts + DUREE_FETE_MS;
   }
   return null;
 }

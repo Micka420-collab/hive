@@ -85,18 +85,33 @@
   -webkit-box-orient: vertical;
 }
 
-/* Rangé : une alvéole de 14 px, et rien d'autre. */
+/* Rangé : une alvéole de 14 px à voir, dans une cible de 24 px à toucher.
+   C'est le SEUL geste qui rappelle le compagnon : une cible de 14 × 16 passe
+   sous le minimum de 24 × 24 (WCAG 2.2, 2.5.8) et se rate au doigt dans une
+   barre de 62 px. L'hexagone est donc un pseudo-élément — posé sur le bouton
+   lui-même, `clip-path` rognait aussi l'anneau de focus, et le clavier ne
+   voyait plus où il était. */
 .cp-rappel {
-  width: 14px;
-  height: 16px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
   padding: 0;
   border: none;
-  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
-  background: rgba(246, 196, 69, 0.35);
+  border-radius: 4px;
+  background: transparent;
   cursor: pointer;
 }
 
-.cp-rappel:hover {
+.cp-rappel::before {
+  content: '';
+  width: 14px;
+  height: 16px;
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  background: rgba(246, 196, 69, 0.35);
+}
+
+.cp-rappel:hover::before {
   background: var(--miel);
 }
 

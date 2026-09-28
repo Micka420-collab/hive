@@ -64,8 +64,9 @@ on ne sait alors pas ce que fait la ruche, et il ne l'invente pas. Il vit dans
 la barre, jamais au-dessus du contenu ; sous « réduire les animations » il ne
 bouge pas du tout. Un clic ouvre ses réglages : l'**abeille**, le **bourdon** ou
 l'**osmie**, ou **le vôtre** — une image PNG ou WebP de 150 Kio au plus, fixe ou
-en planche horizontale d'images, gardée dans ce navigateur pour ce compte et
-jamais envoyée à la ruche. Les octets décident : un SVG ou une page HTML
+en planche horizontale d'images, gardée dans ce navigateur pour ce compte (trois
+au plus, sous un plafond commun à tous les comptes du navigateur) et jamais
+envoyée à la ruche. Les octets décident : un SVG ou une page HTML
 renommés en `.png` sont refusés. « Ranger le compagnon » ne laisse qu'une
 alvéole pour le rappeler.
 

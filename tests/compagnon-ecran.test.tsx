@@ -37,6 +37,8 @@ const PNG_1PX = Uint8Array.from(
 let racine: Root | null = null;
 let conteneur: HTMLElement | null = null;
 let mouvementReduit = false;
+/** Les abonnés à `change` de la requête de mouvement, pour la basculer en direct. */
+let abonnesMouvement = new Set<() => void>();
 let reseau: ReseauCoupe | null = null;
 
 beforeEach(() => {
@@ -47,11 +49,14 @@ beforeEach(() => {
   setLang('fr');
   localStorage.clear();
   mouvementReduit = false;
+  abonnesMouvement = new Set();
   vi.stubGlobal('matchMedia', (requete: string) => ({
-    matches: requete.includes('prefers-reduced-motion') && mouvementReduit,
+    get matches() {
+      return requete.includes('prefers-reduced-motion') && mouvementReduit;
+    },
     media: requete,
-    addEventListener: () => {},
-    removeEventListener: () => {},
+    addEventListener: (_type: string, f: () => void) => abonnesMouvement.add(f),
+    removeEventListener: (_type: string, f: () => void) => abonnesMouvement.delete(f),
   }));
 });
 
@@ -179,6 +184,15 @@ describe('le mouvement réduit', () => {
     expect(compagnon().dataset.mouvement).toBe('reduit');
     expect(compagnon().dataset.humeur).toBe('occupe');
     expect(compagnon().querySelector('.cp-pastille')?.textContent).toBe('1');
+  });
+
+  it('la préférence changée EN COURS DE ROUTE est suivie — sans recharger', () => {
+    monter({ tasks: [{ status: 'running' }] });
+    expect(compagnon().classList.contains('cp-anime')).toBe(true);
+    mouvementReduit = true;
+    act(() => abonnesMouvement.forEach((f) => f()));
+    expect(compagnon().classList.contains('cp-anime')).toBe(false);
+    expect(compagnon().dataset.mouvement).toBe('reduit');
   });
 });
 
@@ -318,6 +332,44 @@ describe('rangeable, et rappelable', () => {
     expect(rappel).toBeTruthy();
     act(() => rappel?.click());
     expect(compagnon().querySelector('.cp-bouton')).toBeTruthy();
+  });
+
+  it('LE FOCUS SUIT le compagnon : ranger le pose sur l’alvéole, la rappeler sur le compagnon', () => {
+    monter();
+    ouvrirReglages();
+    const ranger = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(
+      (b) => b.textContent === 'Ranger le compagnon',
+    );
+    act(() => ranger?.click());
+    // Le déclencheur que le dialogue voulait refocaliser n'existe plus :
+    // sans relais, le clavier tombait sur <body>.
+    expect(document.activeElement?.className).toBe('cp-rappel');
+    act(() => document.querySelector<HTMLButtonElement>('.cp-rappel')?.click());
+    expect(document.activeElement?.className).toBe('cp-bouton');
+  });
+
+  it('UN AUTRE ONGLET a changé les réglages → relus, et plus rien de périmé ne les écrase', async () => {
+    monter();
+    // L'autre onglet apporte « Alvéole » : il écrit la clé, puis ce navigateur
+    // prévient CET onglet par l'événement `storage`.
+    const image = `data:image/png;base64,${btoa(String.fromCharCode(...PNG_1PX))}`;
+    const cle = cleDuCompagnon('u-1');
+    localStorage.setItem(
+      cle,
+      JSON.stringify({
+        choix: 'perso-alveole',
+        range: false,
+        perso: [{ id: 'perso-alveole', nom: 'Alvéole', image, images: 1 }],
+      }),
+    );
+    act(() => window.dispatchEvent(new StorageEvent('storage', { key: cle })));
+    expect(compagnon().querySelector('.cp-figure img')).toBeTruthy();
+    // Choisir ici le bourdon garde le compagnon apporté là-bas.
+    const dialogue = ouvrirReglages();
+    act(() => dialogue.querySelector<HTMLInputElement>('input[value="bourdon"]')?.click());
+    const range = JSON.parse(localStorage.getItem(cle) ?? '{}');
+    expect(range.choix).toBe('bourdon');
+    expect(range.perso.map((p: { nom: string }) => p.nom)).toEqual(['Alvéole']);
   });
 
   it('CHOISIR le bourdon change le dessin, et chaque compte garde le sien', () => {

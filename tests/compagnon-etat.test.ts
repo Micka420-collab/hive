@@ -9,6 +9,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  AVANCE_TOLEREE_MS,
   DUREE_FETE_MS,
   estLivraisonAcceptee,
   etatDuCompagnon,
@@ -78,13 +79,27 @@ describe('etatDuCompagnon — l’humeur, par ordre de priorité', () => {
     expect(e.humeur).toBe('repos');
   });
 
-  it('UNE HORLOGE DE REINE EN AVANCE NE FAIT PAS UNE FÊTE SANS FIN', () => {
-    // L'événement est « dans le futur » de 4 s : la fête est bornée à partir
-    // de MAINTENANT, jamais prolongée par l'écart d'horloge.
-    const e = etatDuCompagnon(entrees({ events: [approuve(T0 + 4_000)] }), T0);
-    expect(e.humeur).toBe('fete');
-    expect(e.finFete).toBe(T0 + DUREE_FETE_MS);
-    // Une Reine très en avance (1 min) : pas de fête plutôt qu'une fête inventée.
+  it('UNE HORLOGE DE REINE EN AVANCE NE PROLONGE PAS LA FÊTE — rendu après rendu', () => {
+    // Le composant réévalue l'humeur à CHAQUE rendu : on rejoue ce qu'il voit,
+    // une fois toutes les 250 ms, avec une approbation datée 5,9 s dans le
+    // futur. Une fin recalculée depuis `maintenant` reculait à chaque rendu :
+    // la fête durait près de 12 s au lieu de 6.
+    const events = [approuve(T0 + 5_900)];
+    const fetes: number[] = [];
+    const fins = new Set<number | null>();
+    for (let t = T0; t <= T0 + 20_000; t += 250) {
+      const e = etatDuCompagnon(entrees({ events }), t);
+      if (e.humeur === 'fete') {
+        fetes.push(t);
+        fins.add(e.finFete);
+      }
+    }
+    // Une seule fin, FIXE (le minuteur n'est pas relancé à chaque rendu)…
+    expect([...fins]).toEqual([T0 + 5_900 + DUREE_FETE_MS]);
+    // …et une durée vue d'ici bornée à 6 s + l'avance tolérée.
+    const duree = (fetes.at(-1) ?? 0) - (fetes[0] ?? 0);
+    expect(duree).toBeLessThan(DUREE_FETE_MS + AVANCE_TOLEREE_MS);
+    // Une Reine très en avance (1 min) : pas de fête MAINTENANT plutôt qu'une fête inventée.
     expect(etatDuCompagnon(entrees({ events: [approuve(T0 + 60_000)] }), T0).humeur).toBe('repos');
   });
 
@@ -129,6 +144,21 @@ describe('estLivraisonAcceptee — ce qui mérite une fête', () => {
       false,
     ],
     ['fusion vide', { type: 'merge_completed', payload: { applied: 0, conflicts: 0 } }, false],
+    [
+      'livraison commitée',
+      { type: 'merge_completed', payload: { applied: 1, conflicts: 0, livraison: 'commitee' } },
+      true,
+    ],
+    [
+      // Un nœud d'une version antérieure rend un merge nu alors qu'une
+      // livraison était demandée : Mission Control dit « non commitée ».
+      'livraison demandée mais NON commitée',
+      {
+        type: 'merge_completed',
+        payload: { applied: 1, conflicts: 0, testsPassed: true, livraison: 'non_commitee' },
+      },
+      false,
+    ],
     ['une tâche finie n’est pas encore acceptée', { type: 'task_done', payload: {} }, false],
   ])('%s', (_nom, ev, attendu) => {
     expect(estLivraisonAcceptee(ev)).toBe(attendu);

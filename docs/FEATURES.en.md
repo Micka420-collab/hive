@@ -60,8 +60,8 @@ hive is doing then, and it does not make it up. It lives in the sidebar, never
 over the content; with "reduce motion" it does not move at all. A click opens
 its settings: the **honeybee**, the **bumblebee** or the **mason bee**, or
 **your own** — a PNG or WebP image of 150 KiB at most, still or a horizontal
-strip of frames, kept in this browser for this account and never sent to the
-hive. The bytes decide: an SVG or an HTML page renamed `.png` is refused. "Put
+strip of frames, kept in this browser for this account (three at most, under a
+cap shared by every account on the browser) and never sent to the hive. The bytes decide: an SVG or an HTML page renamed `.png` is refused. "Put
 the companion away" leaves a single cell to bring it back.
 
 ![The companion’s six states: resting, working, a human is awaited, delivery accepted, feed down, and a companion of your own](images/compagnon-humeurs.png)

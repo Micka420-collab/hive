@@ -12,6 +12,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  BUDGET_TOTAL_CARACTERES,
   cleDuCompagnon,
   ecrireReglages,
   lireReglages,
@@ -101,6 +102,8 @@ describe('nom et nombre d’images', () => {
     expect(nomPropre('  Maya\u202e\u0007  la\nbelle ')).toBe('Maya la belle');
     expect(nomPropre('x'.repeat(80))).toHaveLength(24);
     expect(nomPropre('\u200b\u0000')).toBe('');
+    // U+061C, marque de lettre arabe : un contrôle de direction lui aussi.
+    expect(nomPropre('Ma\u061cya')).toBe('Maya');
   });
 
   it('le nombre d’images est facultatif (1), entier, de 1 à 24', () => {
@@ -200,6 +203,28 @@ describe('le rangement — par personne, et jamais une panne', () => {
     // Le choix désignait une entrée écartée : retour au défaut, pas à un fantôme.
     expect(lu.choix).toBe('abeille');
     expect(lu.range).toBe(false);
+  });
+
+  it('LE BUDGET EST COMMUN à tous les comptes du navigateur — retirer reste toujours possible', () => {
+    // Deux autres comptes occupent déjà presque tout le budget des compagnons.
+    const moitie = 'x'.repeat(BUDGET_TOTAL_CARACTERES / 2 - 100);
+    const s = stockage({
+      [cleDuCompagnon('u-2')]: moitie,
+      [cleDuCompagnon('u-3')]: moitie,
+      // Ce qui n'est pas un compagnon (jeton, verdicts gardés) ne compte pas.
+      'hive.jwt': 'y'.repeat(BUDGET_TOTAL_CARACTERES),
+    });
+    const moi = cleDuCompagnon('u-1');
+    // Grossir au-delà du budget commun : refusé, sans lever, sans rien écrire.
+    expect(ecrireReglages(moi, AVEC_PERSO, s)).toBe(false);
+    expect(s.donnees[moi]).toBeUndefined();
+    // Un compte seul, lui, a toujours sa place.
+    const seul = stockage({ 'hive.jwt': 'y'.repeat(BUDGET_TOTAL_CARACTERES) });
+    expect(ecrireReglages(moi, AVEC_PERSO, seul)).toBe(true);
+    // Déjà au-delà du budget (écrit par une version antérieure) : on peut
+    // toujours rétrécir — retirer un compagnon ne doit jamais être refusé.
+    s.donnees[moi] = JSON.stringify(AVEC_PERSO);
+    expect(ecrireReglages(moi, REGLAGES_PAR_DEFAUT, s)).toBe(true);
   });
 
   it('au plus trois compagnons personnels sont relus', () => {
