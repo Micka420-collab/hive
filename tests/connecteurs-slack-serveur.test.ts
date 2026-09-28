@@ -404,3 +404,79 @@ describe('Slack à travers la Reine — approbations et relais', () => {
     expect(fusions.map((e) => e.payload.fusionnee).sort()).toEqual([false, true]);
   });
 });
+
+describe('Slack à travers la Reine — l’arrêt', () => {
+  it('un fait émis juste avant l’arrêt ne lit pas une base fermée, et ne part pas', async () => {
+    // Le relais est différé d'un tour (`setImmediate`) ; `stop` ferme le hub
+    // puis la base, souvent dans le même tour. Le tour différé tombait alors
+    // sur une base fermée : « The database connection is not open », exception
+    // non rattrapée en plein arrêt (relevée par le tamis des ordres, graine 15838).
+    const avant = { bot: process.env[ENV_SLACK_BOT], app: process.env[ENV_SLACK_APP] };
+    process.env[ENV_SLACK_BOT] = 'xoxb-faux-jeton-de-bot-pour-l-arret';
+    delete process.env[ENV_SLACK_APP];
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'hive-slack-arret-'));
+    const postes: string[] = [];
+    const erreurs: unknown[] = [];
+    const surErreur = (err: unknown): void => {
+      erreurs.push(err);
+    };
+    process.on('uncaughtException', surErreur);
+    try {
+      const server = await createServer({
+        port: 0,
+        host: '127.0.0.1',
+        token: TOKEN,
+        corsOrigins: ['http://localhost:5173'],
+        dbPath: path.join(dir, 'hive.db'),
+        envPath: path.join(dir, 'queen.env'),
+        simulation: false,
+        tickMs: 60_000,
+        connecteurs: {
+          fetchSlack: async (url, init) => {
+            if (url.endsWith('/chat.postMessage')) postes.push(init.body ?? '');
+            return { status: 200, json: async () => ({ ok: true, ts: '1.0' }) };
+          },
+        },
+      });
+      const projet = server.store.createProject({ name: 'Arrêt', ownerId: null }).id;
+      server.store.autoriserConnecteur({
+        connecteurId: 'slack',
+        projectId: projet,
+        portees: ['notification', 'approbation'],
+        canaux: [CANAL],
+        usagers: [APPROBATEUR],
+      });
+      server.scheduler.registerNode({
+        nodeId: 'n-arret',
+        name: 'claude',
+        ownerName: 'banc',
+        agentType: 'claude-code',
+        maxConcurrency: 1,
+      });
+      const t = server.store.createTask({ projectId: projet, title: 'Dernier fait', prompt: 'x' });
+      server.store.patchTask(t.id, { status: 'running', assignedNodeId: 'n-arret' });
+      // `task_done` est émis ici : son relais attend le tour suivant…
+      server.scheduler.handleTaskResult('n-arret', {
+        taskId: t.id,
+        success: true,
+        diff: DIFF,
+        logs: 'ok',
+        durationMs: 1,
+        subAgents: [],
+      });
+      // … et l'arrêt part tout de suite, dans ce même tour.
+      await server.stop();
+      await new Promise((r) => setImmediate(r));
+      await new Promise((r) => setImmediate(r));
+      expect(erreurs).toEqual([]);
+      expect(postes).toEqual([]);
+    } finally {
+      process.off('uncaughtException', surErreur);
+      if (avant.bot === undefined) delete process.env[ENV_SLACK_BOT];
+      else process.env[ENV_SLACK_BOT] = avant.bot;
+      if (avant.app === undefined) delete process.env[ENV_SLACK_APP];
+      else process.env[ENV_SLACK_APP] = avant.app;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

@@ -162,6 +162,16 @@ export class HubConnecteurs {
     };
   }
 
+  /**
+   * Le hub est-il fermé ? L'arrêt de la Reine le ferme AVANT la base : ce qui
+   * lit la base pour le hub (le relais d'événements, différé d'un tour) le
+   * consulte d'abord, sans quoi un événement émis juste avant l'arrêt lisait
+   * une base déjà fermée — une exception non rattrapée en plein arrêt.
+   */
+  estFerme(): boolean {
+    return this.ferme;
+  }
+
   /** Un connecteur est ACTIF si tous ses secrets requis sont posés dans l'env Queen. */
   estActif(connecteurId: string): boolean {
     const def = definitionConnecteur(connecteurId);
@@ -176,6 +186,7 @@ export class HubConnecteurs {
    * silencieusement sauté : ce n'est pas un envoi raté, c'est un non-envoi.
    */
   async notifier(evenement: EvenementConnecteur): Promise<void> {
+    if (this.ferme) return;
     const propre = this.caviarderEvenement(evenement);
     for (const def of listerDefinitions()) {
       if (!this.estActif(def.id)) continue;
@@ -390,6 +401,9 @@ export class HubConnecteurs {
     try {
       await this.traiterInteraction(enveloppe.payload);
     } catch (err) {
+      // Fermé entre-temps (arrêt de la Reine) : la base l'est peut-être aussi,
+      // et y consigner l'échec lèverait à son tour, cette fois sans filet.
+      if (this.ferme) return;
       this.deps.log?.(
         `[connecteurs] interaction Slack non traitée : ${err instanceof Error ? err.message : err}`,
       );

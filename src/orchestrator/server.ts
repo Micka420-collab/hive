@@ -2706,6 +2706,10 @@ async function monterReine(
     // (quatre par seconde et par tâche) programmerait un tour pour rien.
     if (!TYPES_RELAYES_CONNECTEURS.has(event.type)) return;
     setImmediate(() => {
+      // Le tour différé peut tomber APRÈS l'arrêt (`stop` ferme le hub, puis la
+      // base, souvent dans le même tour) : relire la tâche lèverait alors sur
+      // une base fermée. Hub fermé ⇒ plus rien ne part, donc rien à relire.
+      if (hubConnecteurs.estFerme()) return;
       const ev = evenementConnecteurDepuisEvent(event);
       if (!ev) return;
       void hubConnecteurs.notifier(ev).catch((err: unknown) => {
