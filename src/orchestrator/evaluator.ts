@@ -35,6 +35,7 @@
 import type { Inspection } from './gardiennes.js';
 import { signatureOf, type Verdict as ParliamentVerdict } from './parliament.js';
 import { relecteurIndependant } from '../shared/contre-expertise.js';
+import { type Constat, constatBloquant } from '../shared/critique-structuree.js';
 import type { TaskResult } from '../shared/types.js';
 import { VALIDATION_KEYS } from '../shared/validations-bac.js';
 import type { DetailControle, ValidationKey, ValidationState } from '../shared/validations-bac.js';
@@ -126,6 +127,14 @@ export interface CrossReviewEvidence {
   decision?: 'appliquer' | 'ameliorer';
   reviewers: readonly CrossReviewVote[];
   objections: readonly string[];
+  /**
+   * Les constats structurés des relecteurs (marqueur `HIVE_CRITIQUE`), du plus
+   * grave au plus léger. Les bloquants et majeurs sont AUSSI dans
+   * `objections` — c'est par eux que la revue conteste ; les remarques
+   * (mineur, info) ne sont qu'ici, et ne bloquent jamais. Vide pour une
+   * critique libre.
+   */
+  findings: readonly Constat[];
   reviewerCount: number;
   contestingReviewers: number;
   approvingReviewers: number;
@@ -144,6 +153,7 @@ export function missingCrossReviewEvidence(
     status: 'missing',
     reviewers: [],
     objections: [],
+    findings: [],
     reviewerCount: 0,
     contestingReviewers: 0,
     approvingReviewers: 0,
@@ -453,6 +463,15 @@ export function evaluate(input: EvaluatorInput): EvaluationResult {
   if (notApplicable.length > 0) {
     acceptedReasons.push(
       `non applicables, faute de déclaration par le projet : ${notApplicable.join(', ')}`,
+    );
+  }
+  // Accepter n'efface pas les remarques : dites ici, elles ne se confondent
+  // pas avec « rien à signaler ». Elles n'ont pas bloqué — c'est la règle,
+  // mineur et info ne contestent jamais —, mais l'humain qui approuve les lit.
+  const remarques = crossReview.findings.filter((constat) => !constatBloquant(constat)).length;
+  if (remarques > 0) {
+    acceptedReasons.push(
+      `${remarques} remarque(s) non bloquante(s) de la contre-revue (mineur ou info)`,
     );
   }
   if (input.consensus?.outcome === 'elected') {

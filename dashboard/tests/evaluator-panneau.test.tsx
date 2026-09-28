@@ -32,6 +32,7 @@ const evidence: EvaluationResult['evidence'] = {
     status: 'missing',
     reviewers: [],
     objections: [],
+    findings: [],
     reviewerCount: 0,
     contestingReviewers: 0,
     approvingReviewers: 0,

@@ -10,6 +10,7 @@ import {
 } from '../../src/shared/protocol';
 import type { HiveEvent, Project, StateSnapshot, Task, TaskResult } from '../../src/shared/types';
 import type { Graphe } from '../../src/shared/cerveau-graphe.js';
+import type { Constat } from '../../src/shared/critique-structuree.js';
 import type { DecisionConseil, Desaccord, EntreeWarRoom } from '../../src/shared/war-room.js';
 export type { DecisionConseil, Desaccord, EntreeWarRoom } from '../../src/shared/war-room.js';
 import type { WorkerSnapshot } from '../../src/orchestrator/workers.js';
@@ -1621,6 +1622,8 @@ export interface CritiqueReprise {
   objections: string[];
   raisons: string[];
   noteHumaine?: string;
+  /** Les constats non bloquants (mineur, info) de la contre-revue, s'il y en avait. */
+  remarques?: Constat[];
 }
 
 /**

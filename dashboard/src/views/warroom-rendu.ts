@@ -10,6 +10,7 @@
 // renvoi. C'est précisément ce qui distingue un débat d'un journal.
 
 import type { EntreeWarRoom, IssueConseil } from '../../../src/shared/war-room';
+import { direComptesCriteres } from './critique-rendu';
 import { auteurDeDecision } from './projets-rendu';
 import type { Traduire } from './projets-rendu';
 
@@ -141,21 +142,35 @@ export function direEntree(
             ton: 'discret',
             texte: `${t('Contre-expertise impossible', 'Counter-review impossible')}${e.motif ? ` — ${e.motif}` : ''}`,
           };
-    case 'contre_verdict':
+    case 'contre_verdict': {
+      // Les comptes par critère SUIVENT l'avis : sous un « conteste », ils
+      // disent sur quoi ; sous un « valide », que des remarques ont été
+      // faites sans rien bloquer — tues, le feu vert se lirait « rien à
+      // signaler ». Un marqueur illisible se dit : l'avis a été lu en texte
+      // libre, et ses constats, s'il en avait, sont perdus.
+      const comptes = direComptesCriteres(e.criteres, t);
+      const constats = comptes ? ` — ${t('constats', 'findings')} : ${comptes}` : '';
+      const illisible = e.marqueurIllisible
+        ? t(
+            ' (marqueur HIVE_CRITIQUE illisible — lu en texte libre)',
+            ' (unreadable HIVE_CRITIQUE marker — read as free text)',
+          )
+        : '';
       return e.conteste
         ? {
             icone: '✘',
             ton: 'objection',
-            texte: `${t(`${e.relecteur} conteste`, `${e.relecteur} contests`)}${e.objections.length ? ` : ${e.objections.join(' · ')}` : ''}`,
+            texte: `${t(`${e.relecteur} conteste`, `${e.relecteur} contests`)}${e.objections.length ? ` : ${e.objections.join(' · ')}` : ''}${constats}${illisible}`,
           }
         : {
             icone: '✔',
             ton: 'accord',
-            texte: t(
+            texte: `${t(
               `${e.relecteur} valide la production`,
               `${e.relecteur} approves the production`,
-            ),
+            )}${constats}${illisible}`,
           };
+    }
     case 'contre_echec':
       return {
         icone: '…',

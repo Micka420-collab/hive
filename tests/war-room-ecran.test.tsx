@@ -443,6 +443,8 @@ describe('la War Room', () => {
             relecteur: 'codex',
             conteste: true,
             objections: ['le cas du jeton vide n’est pas traité'],
+            criteres: [],
+            marqueurIllisible: false,
           },
           {
             genre: 'renvoi_refuse',

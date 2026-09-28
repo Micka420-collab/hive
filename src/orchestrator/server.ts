@@ -316,6 +316,7 @@ import {
   suiteRelectureEchouee,
 } from '../shared/contre-expertise.js';
 import type { Candidat, Production } from '../shared/contre-expertise.js';
+import { constatBloquant } from '../shared/critique-structuree.js';
 import { champSurUneLigne } from '../shared/donnees-non-fiables.js';
 import { buildHiveContext, verdictSouvenir } from './hive-mind.js';
 import { buildMergePlan } from './honeycomb.js';
@@ -1654,7 +1655,8 @@ async function monterReine(
     auteur: Pick<HiveNode, 'id' | 'agentType'>,
     texteFinal: string,
   ): void => {
-    const verdict = agreger([lireAvis(auteur.id, auteur.agentType, texteFinal)]);
+    const avis = lireAvis(auteur.id, auteur.agentType, texteFinal);
+    const verdict = agreger([avis]);
     const lancement = store.eventForRelecture(relectureTaskId);
     const resultId = lancement?.payload.resultId;
     const exactResultId =
@@ -1667,11 +1669,17 @@ async function monterReine(
     // cette trace, `HIVE_POLYETHISME=strict` n'avait rien à consulter, et les
     // deux fonctions qui savent trancher n'avaient aucun appelant.
     //
-    // La traduction est volontairement grossière, et c'est assumé : le module
-    // de contre-expertise ne rend qu'un booléen — contesté ou non. Un troisième
-    // état (`refaire`) demanderait au relecteur une gradation qu'on ne lui
-    // demande pas, et l'inventer ici en lisant entre les lignes serait une
-    // décision prise sur rien.
+    // La traduction est volontairement grossière, et c'est assumé : la
+    // contre-visite ne retient qu'un booléen — contesté ou non. La gradation
+    // existe désormais (les constats du marqueur `HIVE_CRITIQUE`), mais elle a
+    // déjà décidé en amont : un constat bloquant ou majeur conteste, une
+    // remarque non. Un troisième état (`refaire`) inventé ici en lisant entre
+    // les lignes serait une décision prise sur rien.
+    //
+    // Les constats voyagent avec l'avis (`findings`) seulement quand le
+    // marqueur a été LU : leur absence dit « critique libre », pas « rien
+    // trouvé ». Un marqueur illisible se consigne aussi — la critique est
+    // retombée en texte libre, et ça doit se voir.
     emitEvent('contre_expertise_verdict', {
       source: 'hive_counter_review',
       taskId: lien.productionTaskId,
@@ -1685,6 +1693,8 @@ async function monterReine(
       producteur: lien.producteurAgent,
       conteste: verdict.conteste,
       objections: verdict.objections,
+      ...(avis.marqueur?.etat === 'lu' ? { findings: avis.marqueur.constats } : {}),
+      ...(avis.marqueur?.etat === 'illisible' ? { marqueur: 'illisible' } : {}),
       recordedAt: Date.now(),
     });
 
@@ -2005,10 +2015,11 @@ async function monterReine(
 
   /**
    * La critique à figer au moment d'une correction : les objections de la
-   * contre-revue du résultat exact, les motifs de l'Evaluator et, pour un
-   * rejet humain, la raison de l'humain. Les TROIS portes de retry passent
-   * par ici — une porte qui l'oublierait renverrait l'ouvrière refaire la
-   * même production.
+   * contre-revue du résultat exact (ses constats bloquants compris), ses
+   * remarques non bloquantes, les motifs de l'Evaluator et, pour un rejet
+   * humain, la raison de l'humain. Les TROIS portes de retry passent par ici —
+   * une porte qui l'oublierait renverrait l'ouvrière refaire la même
+   * production.
    */
   const critiquePourRetry = (
     taskId: string,
@@ -2017,11 +2028,13 @@ async function monterReine(
   ): CritiqueReprise => {
     const note =
       evaluation.evidence.humanReview === 'rejected' ? raisonDeRevueCourante(taskId) : null;
+    const remarques = evaluation.evidence.crossReview.findings.filter((c) => !constatBloquant(c));
     return {
       source,
       objections: [...evaluation.evidence.crossReview.objections],
       raisons: evaluation.reasons,
       ...(note ? { noteHumaine: note } : {}),
+      ...(remarques.length > 0 ? { remarques } : {}),
     };
   };
 

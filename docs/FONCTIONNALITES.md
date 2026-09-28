@@ -363,6 +363,13 @@ dans un bloc de données borné, **les objections, les motifs de l'Evaluator et
 la raison de l'humain** (champ facultatif à côté du bouton « Rejeter »). La
 Miellerie affiche sous chaque tâche la critique que sa tentative a reçue.
 
+Le relecteur termine par une ligne `HIVE_CRITIQUE` : des constats classés par
+**sévérité** (`bloquant`, `majeur`, `mineur`, `info`) et par **critère**
+(`correction`, `securite`, `tests`, `performance`, `lisibilite`,
+`conformite`), chacun avec sa preuve. Un constat bloquant ou majeur fait
+corriger ; une remarque mineure ou info ne relance jamais la production. La
+Miellerie et la War Room comptent les constats par critère.
+
 Le protocole complet — seuils du Conseil, règles de l'Evaluator, portes de
 retry, issues d'un désaccord — est dans
 **[PROTOCOLE-CRITIQUE.md](PROTOCOLE-CRITIQUE.md)**.
