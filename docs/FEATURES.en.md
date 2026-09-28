@@ -266,7 +266,10 @@ GET  /api/projects/<replay>/rejeu/comparaison         # source vs replay
   Only a human signed in with an **account** can approve one: “Validate for
   real” on screen, `--valider-rejeu` on the command line (`livrer`,
   `livrer-local`, `fusionner`), or `validerRejeu: true` in the request; the hive
-  token, which every machine carries, never approves.
+  token, which every machine carries, never approves. **External connectors**
+  (Slack, webhook) stay silent too: what they would have sent from a replay —
+  a fact, or the Stewardship test — is stored and journaled the same way, and
+  no relay can be approved by a human.
 - **The comparison** puts side by side the result, the declared cost (with its
   coverage), model time, worker time, duration, tests, reviews, human reviews
   and decisions. It computes on declared data only: a silent side makes the

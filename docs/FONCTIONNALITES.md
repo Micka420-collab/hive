@@ -287,7 +287,9 @@ GET  /api/projects/<rejeu>/rejeu/comparaison          # source contre rejeu
   un : « Valider pour de vrai » à l'écran, `--valider-rejeu` en ligne de
   commande (`livrer`, `livrer-local`, `fusionner`), ou `validerRejeu: true`
   dans la demande ; le jeton de ruche, que chaque machine porte, ne valide
-  jamais.
+  jamais. Les **connecteurs externes** (Slack, webhook) se taisent aussi : ce
+  qu'ils auraient envoyé d'un rejeu — un fait, ou le test de l'Intendance —
+  est rangé et journalisé de même, et aucun relais n'a de validation humaine.
 - **La comparaison** met côte à côte le résultat, le coût déclaré (avec sa
   couverture), le temps modèle, le temps des ouvrières, la durée, les tests,
   les relectures, les revues humaines et les décisions. Elle ne calcule que sur

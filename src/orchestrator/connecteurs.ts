@@ -93,6 +93,13 @@ export interface DepsHub {
   readonly wsFactory?: WsFactory;
   /** Journalise (test/observabilité). */
   readonly log?: (msg: string) => void;
+  /**
+   * La porte des actions irréversibles (`missions.ts`, `porteIrreversible`) :
+   * un envoi vers l'extérieur EST une action qu'on ne reprend pas. Sur un
+   * projet de rejeu, elle rend `simulee` — l'envoi est rangé et journalisé,
+   * jamais parti. Absente : tout part (bancs du hub seul).
+   */
+  readonly porteSortie?: (demande: { projectId: string; cible: string }) => 'executer' | 'simulee';
 }
 
 /**
@@ -194,6 +201,12 @@ export class HubConnecteurs {
       if (!autorisation || !autorisation.actif) continue;
       const requise = porteePourEvenement(evenement.kind, def.mode);
       if (!autorisation.portees.includes(requise)) continue;
+      // En DERNIER, une fois toutes les autres portes franchies : la
+      // simulation dit exactement « ceci serait parti ».
+      const cible = `${def.id}:${evenement.kind}:${evenement.taskId ?? evenement.projectId}`;
+      if (this.deps.porteSortie?.({ projectId: evenement.projectId, cible }) === 'simulee') {
+        continue;
+      }
       await this.envoyer(def.id, propre, requise, autorisation.canaux, 'ruche');
     }
   }
@@ -304,6 +317,10 @@ export class HubConnecteurs {
     const portee = porteePourEvenement(evenement.kind, def.mode);
     if (!autorisation.portees.includes(portee))
       return { envoye: false, motif: 'portée non accordée' };
+    const cible = `${connecteurId}:test`;
+    if (this.deps.porteSortie?.({ projectId: evenement.projectId, cible }) === 'simulee') {
+      return { envoye: false, motif: 'projet de rejeu : envoi simulé, rien n’est parti' };
+    }
     const propre = this.caviarderEvenement(evenement);
     const issue = await this.envoyer(connecteurId, propre, portee, autorisation.canaux, qui);
     // L'issue RÉELLE de l'envoi : un récepteur qui répond 500, un canal où le

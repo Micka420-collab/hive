@@ -68,6 +68,8 @@ export function direGenre(genre: string, t: Traduire): string {
       return t('poussée', 'push');
     case 'workflow':
       return t('workflow GitHub', 'GitHub workflow');
+    case 'connecteur':
+      return t('message de connecteur', 'connector message');
     default:
       return genre;
   }

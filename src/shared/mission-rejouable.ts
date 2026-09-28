@@ -212,6 +212,8 @@ export const GENRES_IRREVERSIBLES = [
   'livraison_locale',
   'poussee',
   'workflow',
+  // Un message d'un connecteur externe (#499) : Slack, webhook.
+  'connecteur',
 ] as const;
 export type GenreIrreversible = (typeof GENRES_IRREVERSIBLES)[number];
 

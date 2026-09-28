@@ -3663,6 +3663,15 @@ async function monterReine(
     log: (m) => {
       app.log.info(m);
     },
+    // Un rejeu ne parle pas au monde extérieur sans humain (#512) : même porte
+    // que ses livraisons, sans validation possible depuis un relais.
+    porteSortie: ({ projectId, cible }) =>
+      porteIrreversible(store, emitEvent, {
+        projectId,
+        genre: 'connecteur',
+        cible,
+        validation: null,
+      }),
   });
 
   /**

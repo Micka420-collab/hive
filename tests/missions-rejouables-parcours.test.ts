@@ -22,6 +22,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { ENV_WEBHOOK_SECRET, ENV_WEBHOOK_URL } from '../src/connectors/webhook/definition.js';
 import { SEUIL_BUTINEUSE } from '../src/orchestrator/polyethisme.js';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
@@ -91,7 +92,13 @@ async function jusqua(cond: () => boolean, msMax = 5_000): Promise<boolean> {
   return cond();
 }
 
-const ENV = ['HIVE_RUNNER', 'HIVE_GITHUB_TOKEN', 'HIVE_GITHUB_API'] as const;
+const ENV = [
+  'HIVE_RUNNER',
+  'HIVE_GITHUB_TOKEN',
+  'HIVE_GITHUB_API',
+  ENV_WEBHOOK_URL,
+  ENV_WEBHOOK_SECRET,
+] as const;
 
 describe('les missions rejouables, de bout en bout', () => {
   let server: HiveServer | null = null;
@@ -112,7 +119,7 @@ describe('les missions rejouables, de bout en bout', () => {
     }
   });
 
-  async function demarrer(opts: { runner?: boolean } = {}) {
+  async function demarrer(opts: { runner?: boolean; webhook?: string[] } = {}) {
     for (const cle of ENV) avant[cle] = process.env[cle];
     gh = await fauxGithub();
     if (opts.runner) process.env.HIVE_RUNNER = 'on';
@@ -129,6 +136,17 @@ describe('les missions rejouables, de bout en bout', () => {
       simulation: false,
       tickMs: 30,
       trustProxy: 'loopback',
+      ...(opts.webhook
+        ? {
+            envPath: path.join(dir, 'queen.env'),
+            connecteurs: {
+              fetchWebhook: (_url: string, init: { body: string }) => {
+                opts.webhook!.push(init.body);
+                return Promise.resolve({ ok: true, status: 200 });
+              },
+            },
+          }
+        : {}),
     });
     return { base: `http://127.0.0.1:${server.port}`, srv: server, faux: gh };
   }
@@ -313,6 +331,61 @@ describe('les missions rejouables, de bout en bout', () => {
     expect(await jusqua(() => dits().length > 0)).toBe(true);
     expect(dits()).toHaveLength(1);
     expect(srv.store.getTask(t.id)?.assignedNodeId).toBeNull();
+  });
+
+  it('UN REJEU NE PARLE PAS AU MONDE EXTÉRIEUR : ses faits et son test de connecteur sont simulés (#499)', async () => {
+    const envoyes: string[] = [];
+    process.env[ENV_WEBHOOK_URL] = 'https://recepteur.invalid/hook';
+    process.env[ENV_WEBHOOK_SECRET] = 'secret-de-banc-assez-long';
+    const { base, srv } = await demarrer({ webhook: envoyes });
+    const hive = { 'content-type': 'application/json', 'x-hive-token': TOKEN };
+    const ordinaire = srv.store.createProject({ name: 'Ordinaire' }).id;
+    const rejeu = srv.store.createProject({ name: 'Rejeu' }).id;
+    srv.store.inscrireRejeu({
+      projectId: rejeu,
+      missionSource: 'source',
+      projetSource: ordinaire,
+      surcharges: {},
+      genomeFige: null,
+      creePar: null,
+      creeA: Date.now(),
+    });
+    const taches: Record<string, string> = {};
+    for (const projectId of [ordinaire, rejeu]) {
+      srv.store.autoriserConnecteur({
+        connecteurId: 'webhook',
+        projectId,
+        portees: ['notification'],
+      });
+      const t = srv.store.createTask({ projectId, title: `Tâche ${projectId}`, prompt: 'p' });
+      rendreLivrable(srv, t.id);
+      taches[projectId] = t.id;
+      const r = await fetch(`${base}/api/tasks/${t.id}/review`, {
+        method: 'POST',
+        headers: hive,
+        body: JSON.stringify({ state: 'approved' }),
+      });
+      expect(r.status).toBe(200);
+    }
+    // Témoin : la décision du projet ordinaire part au récepteur.
+    expect(await jusqua(() => envoyes.some((c) => c.includes(taches[ordinaire]!)))).toBe(true);
+    // Le test de connecteur, geste humain, n'y fait pas exception.
+    const test = await fetch(`${base}/api/projects/${rejeu}/connecteurs/webhook/test`, {
+      method: 'POST',
+      headers: hive,
+      body: JSON.stringify({}),
+    });
+    expect(((await test.json()) as { envoye: boolean }).envoye).toBe(false);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(
+      envoyes.filter((c) => c.includes(taches[rejeu]!) || c.includes('Test de connecteur')),
+      'un rejeu a parlé au monde extérieur',
+    ).toEqual([]);
+    // Simulé, pas tu : rangé et journalisé comme toute action d'un rejeu.
+    const simulees = srv.store
+      .listEvents(0, 1000)
+      .filter((e) => e.type === 'rejeu_action_simulee' && e.payload.genre === 'connecteur');
+    expect(simulees.map((e) => e.payload.projectId)).toEqual([rejeu, rejeu]);
   });
 
   it('AUCUNE action irréversible d’un rejeu ne part sans un humain — l’espion GitHub n’entend rien', async () => {
