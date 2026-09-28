@@ -2657,8 +2657,9 @@ export interface ConnecteurCatalogue {
 export interface AutorisationConnecteur {
   connecteurId: string;
   portees: PorteeConnecteur[];
-  canaux: string[];
-  usagers: string[];
+  /** Absents pour qui ne règle pas le projet : la Reine ne les lui montre pas. */
+  canaux?: string[];
+  usagers?: string[];
   actif: boolean;
   majA: number;
 }
@@ -2705,6 +2706,8 @@ export function fetchConnecteursProjet(projectId: string): Promise<{
   autorisations: AutorisationConnecteur[];
   journal: EntreeJournalConnecteur[];
   connecteurs: ConnecteurProjetResume[];
+  /** Présent quand l'appelant ne règle pas le projet : listes et journal tus. */
+  reserve?: true;
 }> {
   return apiCompte(`/api/projects/${encodeURIComponent(projectId)}/connecteurs`);
 }

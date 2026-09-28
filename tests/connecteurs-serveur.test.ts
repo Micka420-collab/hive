@@ -263,6 +263,54 @@ describe('connecteurs — bout en bout à travers la Reine', () => {
     expect(r.status).toBe(400);
   });
 
+  it('les listes inscrites et le journal ne se lisent que par qui RÈGLE le projet', async () => {
+    // Écrites directement : le décor, pas le geste (la liste de la ruche n'a
+    // rien à voir ici).
+    server.store.autoriserConnecteur({
+      connecteurId: 'slack',
+      projectId: projet,
+      portees: ['notification', 'approbation'],
+      canaux: ['C0SECRET'],
+      usagers: ['U0SECRET'],
+    });
+    server.store.journaliserConnecteur({
+      connecteurId: 'slack',
+      projectId: projet,
+      portee: 'approbation',
+      acte: 'approbation_recue',
+      cible: null,
+      resultat: 'refuse',
+      qui: 'slack:U0SECRET',
+      apercu: 'usager_refuse',
+    });
+    const lire = async (entetes: Record<string, string>) =>
+      (await (
+        await fetch(`${base}/api/projects/${projet}/connecteurs`, { headers: entetes })
+      ).json()) as {
+        autorisations: Array<Record<string, unknown>>;
+        journal: unknown[];
+        reserve?: boolean;
+      };
+    // La propriétaire (administratrice) : tout.
+    const proprio = await lire(compte(jetonAdmin));
+    expect(proprio.autorisations.find((a) => a.connecteurId === 'slack')).toMatchObject({
+      canaux: ['C0SECRET'],
+      usagers: ['U0SECRET'],
+    });
+    expect(proprio.journal.length).toBeGreaterThan(0);
+    expect(proprio.reserve).toBeUndefined();
+    // Le jeton de ruche LIT le projet d'autrui (les lectures gardent leurs deux
+    // portes) mais ne le règle pas : ni listes, ni journal.
+    const lecteur = await lire(jeton);
+    const slack = lecteur.autorisations.find((a) => a.connecteurId === 'slack');
+    expect(slack).toMatchObject({ portees: ['notification', 'approbation'] });
+    expect(slack).not.toHaveProperty('canaux');
+    expect(slack).not.toHaveProperty('usagers');
+    expect(lecteur.journal).toEqual([]);
+    expect(lecteur.reserve).toBe(true);
+    expect(JSON.stringify(lecteur)).not.toContain('SECRET');
+  });
+
   it('un `limit` illisible sur le journal vaut la borne par défaut, pas un 500', async () => {
     const r = await fetch(`${base}/api/connecteurs/journal?limit=abc`, {
       headers: compte(jetonAdmin),

@@ -14,7 +14,11 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { HiveStore } from '../src/orchestrator/store.js';
 import { HubConnecteurs, type ResultatRevueConnecteur } from '../src/orchestrator/connecteurs.js';
 import { ENV_WEBHOOK_SECRET, ENV_WEBHOOK_URL } from '../src/connectors/webhook/definition.js';
-import { ENV_SLACK_APP, ENV_SLACK_BOT } from '../src/connectors/slack/definition.js';
+import {
+  ENV_SLACK_APP,
+  ENV_SLACK_BOT,
+  ENV_SLACK_CANAUX,
+} from '../src/connectors/slack/definition.js';
 import { ACTION_APPROUVER, encoderValeurBouton } from '../src/connectors/slack/messages.js';
 import type { FetchLike } from '../src/connectors/webhook/envoi.js';
 import type { SlackFetch, WsLike } from '../src/connectors/slack/client.js';
@@ -184,7 +188,11 @@ describe('HubConnecteurs — Socket Mode contre un faux serveur WebSocket', () =
     const revues: Array<{ taskId: string; verdict: string }> = [];
     hub = new HubConnecteurs({
       store,
-      env: { [ENV_SLACK_BOT]: 'xoxb-faux', [ENV_SLACK_APP]: 'xapp-faux' } as NodeJS.ProcessEnv,
+      env: {
+        [ENV_SLACK_BOT]: 'xoxb-faux',
+        [ENV_SLACK_APP]: 'xapp-faux',
+        [ENV_SLACK_CANAUX]: 'C01',
+      } as NodeJS.ProcessEnv,
       fetchSlack,
       wsFactory: (url) => new WebSocket(url) as unknown as WsLike,
       appliquerRevue: (t, v): ResultatRevueConnecteur => {

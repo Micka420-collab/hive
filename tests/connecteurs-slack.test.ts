@@ -21,7 +21,11 @@ import {
   type WsLike,
 } from '../src/connectors/slack/client.js';
 import { HubConnecteurs, type ResultatRevueConnecteur } from '../src/orchestrator/connecteurs.js';
-import { ENV_SLACK_APP, ENV_SLACK_BOT } from '../src/connectors/slack/definition.js';
+import {
+  ENV_SLACK_APP,
+  ENV_SLACK_BOT,
+  ENV_SLACK_CANAUX,
+} from '../src/connectors/slack/definition.js';
 
 // ─── Les messages ────────────────────────────────────────────────────────────
 
@@ -303,7 +307,12 @@ describe('HubConnecteurs — approbation Slack entrante', () => {
   let revues: Array<{ taskId: string; verdict: string; resultId: number }>;
   let appels: Array<{ url: string; body: string | undefined }>;
 
-  const env = { [ENV_SLACK_BOT]: 'xoxb-test', [ENV_SLACK_APP]: 'xapp-test' } as NodeJS.ProcessEnv;
+  const env = {
+    [ENV_SLACK_BOT]: 'xoxb-test',
+    [ENV_SLACK_APP]: 'xapp-test',
+    // La liste de l'administrateur : le canal inscrit en fait partie.
+    [ENV_SLACK_CANAUX]: 'C1',
+  } as NodeJS.ProcessEnv;
   const REPONSE = 'https://hooks.slack.com/actions/T1/1/x';
 
   const fetchSlack: SlackFetch = async (url, init) => {
@@ -486,7 +495,7 @@ describe('HubConnecteurs — approbation Slack entrante', () => {
     let fabrique = 0;
     const h = new HubConnecteurs({
       store: store2,
-      env: { [ENV_SLACK_BOT]: 'xoxb-test' } as NodeJS.ProcessEnv,
+      env: { [ENV_SLACK_BOT]: 'xoxb-test', [ENV_SLACK_CANAUX]: 'C1' } as NodeJS.ProcessEnv,
       fetchSlack,
       wsFactory: () => {
         fabrique += 1;

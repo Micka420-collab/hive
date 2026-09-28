@@ -35,6 +35,26 @@ export const ENV_SLACK_APP = 'SLACK_APP_TOKEN';
  */
 export const ID_SLACK_MOTIF = '^[A-Z][A-Z0-9]{2,31}$';
 
+/**
+ * Les canaux où la ruche PEUT poster et écouter, tenus par l'ADMINISTRATEUR
+ * (IDs séparés par des virgules). Un projet n'inscrit jamais qu'une partie de
+ * cette liste : sans elle, le propriétaire de n'importe quel projet — tout
+ * compte inscrit en crée — dirigeait le bot de l'hôte vers n'importe quel
+ * canal où il est invité (le #général de l'entreprise), avec ses propres
+ * titres de tâches. Absente ou vide : aucun canal — fermé par défaut.
+ */
+export const ENV_SLACK_CANAUX = 'SLACK_CANAUX';
+
+/** La liste de la ruche, lue telle que posée : des IDs séparés par des virgules. */
+export function canauxDeLaRuche(brut: string | undefined): ReadonlySet<string> {
+  return new Set(
+    (brut ?? '')
+      .split(',')
+      .map((c) => c.trim())
+      .filter((c) => c !== ''),
+  );
+}
+
 export const DEF_SLACK: DefinitionConnecteur = Object.freeze({
   id: 'slack',
   libelleFr: 'Slack',
@@ -61,6 +81,15 @@ export const DEF_SLACK: DefinitionConnecteur = Object.freeze({
         'Slack → Basic Information → App-Level Tokens ; scope connections:write. Requis pour les approbations',
       hintEn:
         'Slack → Basic Information → App-Level Tokens; connections:write scope. Required for approvals',
+      requis: false,
+    },
+    {
+      envVar: ENV_SLACK_CANAUX,
+      libelleFr: 'Canaux permis (IDs C…, séparés par des virgules)',
+      libelleEn: 'Allowed channels (C… IDs, comma-separated)',
+      hintFr:
+        'Les seuls canaux qu’un projet peut inscrire. Sans cette liste, Slack ne poste nulle part',
+      hintEn: 'The only channels a project can register. Without this list, Slack posts nowhere',
       requis: false,
     },
   ],

@@ -608,7 +608,8 @@ approvals**. Everything is set in **Stewardship → External connectors** (admin
   `approbation`, `action`), bounded by the connector's **mode**: a read-only
   connector can never approve.
 - **Test**: sends a test fact and reports the **real outcome** (a receiver
-  answering 500 is not "sent").
+  answering 500 is not "sent"); at most one test per connector and project
+  every 10 seconds (`429` otherwise).
 - **Journal**: every outside call — succeeded, failed or refused — leaves a
   line: who, which act, which scope, which result, the SHA-256 of the exact
   request body sent (redacted beforehand) and a **redacted preview of at most
@@ -619,11 +620,16 @@ approvals**. Everything is set in **Stewardship → External connectors** (admin
 `t=…,v1=…`) to the URL you set. It receives nothing.
 
 **Slack**: the bot token (`xoxb-…`, `chat:write` scope) posts to the **listed
-channels** (by ID: `C0…`). The app token (`xapp-…`) opens **Socket Mode** — the
+channels** (by ID: `C0…`) — and only among those the **administrator** allows
+(`SLACK_CANAUX`, comma-separated IDs, set in Stewardship): a project cannot list
+any other channel, and without that list Slack posts nowhere. A project's listed
+channels and users, and its journal, are readable only by its owner or an
+administrator. The app token (`xapp-…`) opens **Socket Mode** — the
 only inbound path, with no public URL. An "Approve" / "Reject" button is applied
 only if the project granted `approbation` **and** both the channel **and** the
 user (`U0…`) are listed; empty lists mean nobody. It joins **the same review**
-as the Honey House — never a new authority — and each button is bound to the
+as the Honey House — never a new authority; the `task_reviewed` fact says it
+came from Slack and which user, with no invented reason — and each button is bound to the
 production it shows: a click on an older attempt, or on a verdict changed since,
 is refused as stale. The clicker sees the outcome in Slack. Without the app
 token, approval requests are posted **without** buttons and point to the Honey

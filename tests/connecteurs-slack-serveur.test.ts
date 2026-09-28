@@ -16,7 +16,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createServer, type HiveServer } from '../src/orchestrator/server.js';
-import { ENV_SLACK_APP, ENV_SLACK_BOT } from '../src/connectors/slack/definition.js';
+import {
+  ENV_SLACK_APP,
+  ENV_SLACK_BOT,
+  ENV_SLACK_CANAUX,
+} from '../src/connectors/slack/definition.js';
 import { ACTION_APPROUVER, ACTION_REJETER } from '../src/connectors/slack/messages.js';
 import type { SlackFetch, WsLike } from '../src/connectors/slack/client.js';
 
@@ -70,7 +74,13 @@ describe('Slack à travers la Reine — approbations et relais', () => {
   let reponses: Array<Record<string, unknown>> = [];
   let enveloppe = 0;
   const avant: Record<string, string | undefined> = {};
-  const ENV_TOUCHEES = [ENV_SLACK_BOT, ENV_SLACK_APP, 'HIVE_GITHUB_TOKEN', 'HIVE_GITHUB_API'];
+  const ENV_TOUCHEES = [
+    ENV_SLACK_BOT,
+    ENV_SLACK_APP,
+    ENV_SLACK_CANAUX,
+    'HIVE_GITHUB_TOKEN',
+    'HIVE_GITHUB_API',
+  ];
   const jeton = { 'x-hive-token': TOKEN, 'content-type': 'application/json' };
 
   const fetchSlack: SlackFetch = async (url, init) => {
@@ -190,6 +200,9 @@ describe('Slack à travers la Reine — approbations et relais', () => {
     // Mode s'ouvre au démarrage, comme chez un hôte qui les a déjà posés.
     process.env[ENV_SLACK_BOT] = 'xoxb-faux-jeton-de-bot-pour-le-banc';
     process.env[ENV_SLACK_APP] = 'xapp-faux-jeton-d-app-pour-le-banc';
+    // La liste de l'administrateur : le canal du banc, et un second qu'aucun
+    // projet n'inscrit.
+    process.env[ENV_SLACK_CANAUX] = `${CANAL},C0AUTRE`;
 
     dir = mkdtempSync(path.join(os.tmpdir(), 'hive-slack-reine-'));
     server = await createServer({
@@ -413,6 +426,69 @@ describe('Slack à travers la Reine — approbations et relais', () => {
     expect(server.store.getTask(taskId)?.status).toBe('done');
   });
 
+  it('UN PROJET N’INSCRIT QUE LES CANAUX QUE L’ADMINISTRATEUR PERMET (`SLACK_CANAUX`)', async () => {
+    const autoriser = (canaux: string[]) =>
+      fetch(`${base}/api/projects/${projet}/connecteurs/slack/autoriser`, {
+        method: 'POST',
+        headers: jeton,
+        body: JSON.stringify({
+          portees: ['notification', 'approbation'],
+          canaux,
+          usagers: [APPROBATEUR],
+        }),
+      });
+    const refus = await autoriser([CANAL, 'C0GENERAL']);
+    expect(refus.status).toBe(400);
+    expect(await refus.json()).toMatchObject({ error: 'canal_hors_ruche', canaux: ['C0GENERAL'] });
+    expect(server.store.lireAutorisationConnecteur('slack', projet)?.canaux).toEqual([CANAL]);
+    expect((await autoriser([CANAL])).status).toBe(200);
+  });
+
+  it('un canal RETIRÉ de la liste de la ruche ne reçoit plus rien, et un clic depuis lui ne vaut rien', async () => {
+    const liste = process.env[ENV_SLACK_CANAUX];
+    process.env[ENV_SLACK_CANAUX] = 'C0AUTRE';
+    try {
+      postes = [];
+      const t = server.store.createTask({ projectId: projet, title: 'Hors liste', prompt: 'x' });
+      server.store.patchTask(t.id, { status: 'running', assignedNodeId: 'n-slack' });
+      server.scheduler.handleTaskResult('n-slack', {
+        taskId: t.id,
+        success: true,
+        diff: DIFF,
+        logs: 'ok',
+        durationMs: 10,
+        subAgents: [],
+      });
+      await expect
+        .poll(() =>
+          server.store
+            .listerJournalConnecteurs({ projectId: projet, limit: 500 })
+            .some((e) => e.cible === t.id && e.resultat === 'refuse'),
+        )
+        .toBe(true);
+      expect(postes.filter((m) => m.text.includes('Hors liste'))).toEqual([]);
+      const resultId = server.store.dernierResultatDe(t.id)!;
+      const apercu = await cliquer(clic(JSON.stringify({ t: t.id, r: resultId, v: null })), t.id);
+      expect(apercu).toBe('canal_refuse');
+      expect(server.store.getTaskReview(t.id)).toBeNull();
+    } finally {
+      process.env[ENV_SLACK_CANAUX] = liste;
+    }
+  });
+
+  it('le bouton « tester » ne se martèle pas : un second test immédiat du même appelant est refusé 429', async () => {
+    const tester = () =>
+      fetch(`${base}/api/projects/${projet}/connecteurs/slack/test`, {
+        method: 'POST',
+        headers: jeton,
+        body: '{}',
+      });
+    expect((await tester()).status).toBe(200);
+    const second = await tester();
+    expect(second.status).toBe(429);
+    expect(await second.json()).toMatchObject({ error: 'trop_tot' });
+  });
+
   it('un vrai `task_failed` part en blocage', async () => {
     postes = [];
     server.scheduler.registerNode({
@@ -475,9 +551,15 @@ describe('Slack à travers la Reine — l’arrêt', () => {
     // puis la base, souvent dans le même tour. Le tour différé tombait alors
     // sur une base fermée : « The database connection is not open », exception
     // non rattrapée en plein arrêt (relevée par le tamis des ordres, graine 15838).
-    const avant = { bot: process.env[ENV_SLACK_BOT], app: process.env[ENV_SLACK_APP] };
+    const avant = {
+      bot: process.env[ENV_SLACK_BOT],
+      app: process.env[ENV_SLACK_APP],
+      canaux: process.env[ENV_SLACK_CANAUX],
+    };
     process.env[ENV_SLACK_BOT] = 'xoxb-faux-jeton-de-bot-pour-l-arret';
     delete process.env[ENV_SLACK_APP];
+    // Le canal est permis : si rien ne part, c'est l'arrêt, pas la liste.
+    process.env[ENV_SLACK_CANAUX] = CANAL;
     const dir = mkdtempSync(path.join(os.tmpdir(), 'hive-slack-arret-'));
     const postes: string[] = [];
     const erreurs: unknown[] = [];
@@ -540,6 +622,8 @@ describe('Slack à travers la Reine — l’arrêt', () => {
       else process.env[ENV_SLACK_BOT] = avant.bot;
       if (avant.app === undefined) delete process.env[ENV_SLACK_APP];
       else process.env[ENV_SLACK_APP] = avant.app;
+      if (avant.canaux === undefined) delete process.env[ENV_SLACK_CANAUX];
+      else process.env[ENV_SLACK_CANAUX] = avant.canaux;
       rmSync(dir, { recursive: true, force: true });
     }
   });

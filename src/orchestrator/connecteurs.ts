@@ -34,7 +34,12 @@ import { definitionConnecteur, listerDefinitions } from '../connectors/registre.
 import { ENV_WEBHOOK_SECRET, ENV_WEBHOOK_URL } from '../connectors/webhook/definition.js';
 import { construireRequeteWebhook } from '../connectors/webhook/charge.js';
 import { envoyerWebhook, type FetchLike } from '../connectors/webhook/envoi.js';
-import { ENV_SLACK_APP, ENV_SLACK_BOT } from '../connectors/slack/definition.js';
+import {
+  ENV_SLACK_APP,
+  ENV_SLACK_BOT,
+  ENV_SLACK_CANAUX,
+  canauxDeLaRuche,
+} from '../connectors/slack/definition.js';
 import { echapperMrkdwn, messagePourEvenement } from '../connectors/slack/messages.js';
 import {
   accuse,
@@ -147,6 +152,11 @@ export class HubConnecteurs {
     return (this.deps.env[nom] ?? '').trim();
   }
 
+  /** Les canaux que l'administrateur permet (`SLACK_CANAUX`) : l'envoi et l'écoute s'y bornent. */
+  private canauxRuche(): ReadonlySet<string> {
+    return canauxDeLaRuche(this.secret(ENV_SLACK_CANAUX));
+  }
+
   /**
    * Le caviardeur de ce qui QUITTE la ruche : les valeurs des secrets des
    * connecteurs (l'URL du webhook peut porter un jeton), celles des variables
@@ -255,11 +265,32 @@ export class HubConnecteurs {
   private async envoyerSlack(
     evenement: EvenementConnecteur,
     portee: Portee,
-    canaux: readonly string[],
+    inscrits: readonly string[],
     qui: string,
   ): Promise<IssueEnvoi> {
     const token = this.secret(ENV_SLACK_BOT);
     const message = messagePourEvenement(evenement, { boutons: this.boucleEntrantePosee() });
+    // Un canal inscrit par le projet mais retiré depuis de la liste de la ruche
+    // (`SLACK_CANAUX`, tenue par l'administrateur) ne reçoit rien : refusé,
+    // et le journal le dit, canal par canal.
+    const ruche = this.canauxRuche();
+    const horsRuche = inscrits.filter((c) => !ruche.has(c));
+    for (const channel of horsRuche) {
+      this.deps.store.journaliserConnecteur({
+        connecteurId: 'slack',
+        projectId: evenement.projectId,
+        portee,
+        acte: evenement.kind,
+        cible: evenement.taskId ?? null,
+        resultat: 'refuse',
+        qui,
+        apercu: `#${channel} — hors des canaux permis par l’administrateur (${ENV_SLACK_CANAUX})`,
+      });
+    }
+    if (horsRuche.length > 0 && horsRuche.length === inscrits.length) {
+      return { ok: false, motif: `canaux hors de la liste de la ruche (${ENV_SLACK_CANAUX})` };
+    }
+    const canaux = inscrits.filter((c) => ruche.has(c));
     // On poste dans CHAQUE canal inscrit : « configurés explicitement » vaut
     // pour l'envoi comme pour l'écoute. Aucun canal ⇒ rien n'est posté (et une
     // entrée `refuse` le dit, plutôt qu'un silence).
@@ -483,7 +514,9 @@ export class HubConnecteurs {
     }
     const verdict = autoriserInteraction(ex, {
       portees: autorisation.portees as Portee[],
-      canaux: autorisation.canaux,
+      // Un clic depuis un canal que la ruche ne permet plus ne vaut rien, même
+      // inscrit sur le projet.
+      canaux: autorisation.canaux.filter((c) => this.canauxRuche().has(c)),
       usagers: autorisation.usagers,
     });
     if (!verdict.ok) {

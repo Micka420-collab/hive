@@ -189,6 +189,7 @@ function AutorisationsProjet({
   const [autorisations, setAutorisations] = useState<AutorisationConnecteur[]>([]);
   const [journal, setJournal] = useState<EntreeJournalConnecteur[]>([]);
   const [resumes, setResumes] = useState<ConnecteurProjetResume[]>([]);
+  const [reserve, setReserve] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
@@ -202,6 +203,7 @@ function AutorisationsProjet({
         setAutorisations(r.autorisations);
         setJournal(r.journal);
         setResumes(r.connecteurs);
+        setReserve(r.reserve === true);
       })
       .catch((e: unknown) => vivant && setErreur(e instanceof Error ? e.message : String(e)));
     return () => {
@@ -251,7 +253,14 @@ function AutorisationsProjet({
       })}
 
       <h3>{t('Journal des appels', 'Call journal')}</h3>
-      {journal.length === 0 ? (
+      {reserve ? (
+        <p className="empty pad">
+          {t(
+            'Canaux, usagers et journal : réservés au propriétaire du projet ou à un administrateur.',
+            'Channels, users and journal: reserved to the project owner or an administrator.',
+          )}
+        </p>
+      ) : journal.length === 0 ? (
         <p className="empty pad">
           {t('Aucun appel journalisé pour ce projet.', 'No calls journaled for this project.')}
         </p>

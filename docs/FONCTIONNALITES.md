@@ -681,7 +681,8 @@ Connecteurs externes** (administrateur) :
   (`lecture`, `notification`, `approbation`, `action`), bornées par le **mode**
   du connecteur : un connecteur en lecture seule ne peut jamais approuver.
 - **Tester** : envoie un fait de test et dit **l'issue réelle** (un récepteur
-  en 500 n'est pas « envoyé »).
+  en 500 n'est pas « envoyé ») ; un test par connecteur et par projet toutes
+  les 10 secondes au plus (`429` sinon).
 - **Journal** : chaque appel extérieur — réussi, raté ou refusé — laisse une
   ligne : qui, quel acte, quelle portée, quel résultat, l'empreinte SHA-256 du
   corps exact envoyé (caviardé au préalable) et un **aperçu caviardé d'au plus
@@ -692,12 +693,18 @@ Connecteurs externes** (administrateur) :
 `t=…,v1=…`) vers l'URL que vous posez. Il ne reçoit rien.
 
 **Slack** : le jeton de bot (`xoxb-…`, scope `chat:write`) poste dans les
-**canaux inscrits** (par ID : `C0…`). Le jeton d'app (`xapp-…`) ouvre le
+**canaux inscrits** (par ID : `C0…`) — et seulement parmi ceux que
+l'**administrateur** permet (`SLACK_CANAUX`, IDs séparés par des virgules,
+posé dans l'Intendance) : un projet ne peut inscrire aucun autre canal, et sans
+cette liste Slack ne poste nulle part. Les canaux et usagers inscrits d'un
+projet, et son journal, ne se lisent que par son propriétaire ou un
+administrateur. Le jeton d'app (`xapp-…`) ouvre le
 **Socket Mode** — la seule voie entrante, sans URL publique. Un bouton
 « Approuver » / « Rejeter » n'est appliqué que si le projet a accordé
 `approbation` **et** que le canal **et** l'usager (`U0…`) sont inscrits ; listes
 vides = personne. Il rejoint **la même revue** que la Miellerie — jamais une
-autorité nouvelle — et chaque bouton est lié à la production qu'il montre : un
+autorité nouvelle ; le fait `task_reviewed` dit qu'il vient de Slack et de quel
+usager, sans raison inventée — et chaque bouton est lié à la production qu'il montre : un
 clic sur une tentative remplacée, ou sur un verdict changé depuis, est refusé
 comme périmé. Le cliqueur voit l'issue dans Slack. Sans jeton d'app, les
 demandes d'approbation partent **sans** boutons et renvoient à la Miellerie.

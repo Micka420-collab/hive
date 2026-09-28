@@ -358,7 +358,11 @@ import {
 } from '../connectors/contrat.js';
 import { HubConnecteurs, type ResultatRevueConnecteur } from './connecteurs.js';
 import { ENV_WEBHOOK_URL, urlWebhookValide } from '../connectors/webhook/definition.js';
-import { ID_SLACK_MOTIF } from '../connectors/slack/definition.js';
+import {
+  ENV_SLACK_CANAUX,
+  ID_SLACK_MOTIF,
+  canauxDeLaRuche,
+} from '../connectors/slack/definition.js';
 import type { SlackFetch, WsFactory, WsLike } from '../connectors/slack/client.js';
 import type { FetchLike } from '../connectors/webhook/envoi.js';
 import { conseilVeilleBrief } from './queen-veille.js';
@@ -627,6 +631,12 @@ export const REQUISITIONS_RETENTION_MS = 30 * 24 * 60 * 60_000;
 export const CONNECTEURS_JOURNAL_RETENTION_MS = 90 * 24 * 60 * 60_000;
 
 /** Les seuls événements internes qui deviennent un fait pour les connecteurs. */
+/**
+ * L'écart minimal entre deux tests d'un même connecteur sur un même projet :
+ * chaque test poste pour de vrai (un canal Slack que d'autres lisent, le
+ * récepteur d'un webhook), et un bouton martelé n'a pas à les inonder.
+ */
+export const INTERVALLE_TEST_CONNECTEUR_MS = 10_000;
 const TYPES_RELAYES_CONNECTEURS: ReadonlySet<string> = new Set([
   'task_done',
   'task_reviewed',
@@ -5231,9 +5241,20 @@ async function monterReine(
     async (req, reply) => {
       const lecture = lectureProjetPermise(req, req.params.projectId);
       if (lecture !== 'permis') return refuserProjet(reply, lecture);
+      // Les listes inscrites (canaux et usagers Slack) et le journal — qui a
+      // cliqué, quel compte a testé, dans quel canal c'est parti — ne se lisent
+      // que par qui RÈGLE le projet. Un lecteur (membre, projet public) voit
+      // quels connecteurs sont accordés et avec quelles portées, pas à qui.
+      const regle = proprieteProjetPermise(req, req.params.projectId) === 'permis';
+      const autorisations = store.listerAutorisationsProjet(req.params.projectId);
       return {
-        autorisations: store.listerAutorisationsProjet(req.params.projectId),
-        journal: store.listerJournalConnecteurs({ projectId: req.params.projectId, limit: 100 }),
+        autorisations: regle
+          ? autorisations
+          : autorisations.map(({ canaux: _c, usagers: _u, ...visible }) => visible),
+        journal: regle
+          ? store.listerJournalConnecteurs({ projectId: req.params.projectId, limit: 100 })
+          : [],
+        ...(regle ? {} : { reserve: true }),
         connecteurs: listerConnecteurs().map((d) => ({
           id: d.id,
           libelleFr: d.libelleFr,
@@ -5296,6 +5317,20 @@ async function monterReine(
       if (!vp.ok) {
         return reply.code(400).send({ error: vp.motif, message: expliquerRefusPortee(vp.motif) });
       }
+      // Un projet n'inscrit qu'une partie des canaux que l'ADMINISTRATEUR
+      // permet (`SLACK_CANAUX`) : tout compte crée des projets, et le bot est
+      // celui de l'hôte. Refusé ici, où on le voit — pas à chaque envoi.
+      const ruche = canauxDeLaRuche(process.env[ENV_SLACK_CANAUX]);
+      const horsRuche = (req.body.canaux ?? []).filter((c) => !ruche.has(c));
+      if (horsRuche.length > 0) {
+        return reply.code(400).send({
+          error: 'canal_hors_ruche',
+          canaux: horsRuche,
+          message:
+            `Canaux absents de la liste que l’administrateur permet (${ENV_SLACK_CANAUX}) : ` +
+            `${horsRuche.join(', ')}. Demandez-lui de les y ajouter, dans l’Intendance.`,
+        });
+      }
       store.autoriserConnecteur({
         connecteurId: def.id,
         projectId: req.params.projectId,
@@ -5344,6 +5379,9 @@ async function monterReine(
     },
   );
 
+  /** Le dernier test de chaque (projet, connecteur, appelant qui en répond). */
+  const derniersTestsConnecteur = new Map<string, number>();
+
   /** Envoie un fait de test à travers UN connecteur autorisé sur ce projet (réglage). */
   app.post<{
     Params: { projectId: string; connecteurId: string };
@@ -5378,9 +5416,27 @@ async function monterReine(
       if (!definitionConnecteur(req.params.connecteurId)) {
         return reply.code(404).send({ error: 'connecteur inconnu' });
       }
-      const kind: EvenementConnecteurKind = req.body?.kind ?? 'resume_mission';
       // Le journal dit QUI a déclenché l'appel : le compte, ou le jeton de ruche.
       const qui = authorizedUser(req) ? `compte:${(req as AuthRequest).userId!}` : 'jeton_ruche';
+      // Un test par connecteur, par projet et par appelant (qui répond du
+      // projet : une poignée) toutes les `INTERVALLE_TEST_CONNECTEUR_MS` :
+      // chaque clic poste pour de vrai, dans un canal que d'autres lisent.
+      const cleTest = `${req.params.projectId}:${req.params.connecteurId}:${qui}`;
+      const attente =
+        (derniersTestsConnecteur.get(cleTest) ?? -Infinity) +
+        INTERVALLE_TEST_CONNECTEUR_MS -
+        Date.now();
+      if (attente > 0) {
+        return reply
+          .code(429)
+          .header('retry-after', String(Math.ceil(attente / 1_000)))
+          .send({
+            error: 'trop_tot',
+            message: `Un test vient de partir : réessayez dans ${Math.ceil(attente / 1_000)} s.`,
+          });
+      }
+      derniersTestsConnecteur.set(cleTest, Date.now());
+      const kind: EvenementConnecteurKind = req.body?.kind ?? 'resume_mission';
       const resultat = await hubConnecteurs.tester(
         req.params.connecteurId,
         {
