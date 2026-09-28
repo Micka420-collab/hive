@@ -242,6 +242,39 @@ describe('écartée de l’arbre pendant l’exécution, remise avant le diff', 
     },
   );
 
+  it.each([
+    ['cursor', CONFIGURATION_EXECUTEE_CURSOR],
+    ['cline', CONFIGURATION_EXECUTEE_CLINE],
+  ] as const)(
+    '%s : UNE REPRISE sur la branche de sa PR (#518) écarte aussi la configuration',
+    async (agent, declares) => {
+      // La branche livrée porte le dépôt piégé, comme `main` : une reprise
+      // la clone à sa tête au lieu de créer la sienne — et l'agent n'y
+      // exécute pas davantage les hooks du dépôt.
+      const depot = amont(fichiersDuDepotPiege());
+      git(depot, 'checkout', '-q', '-b', 'hive/livree');
+      ecrire(depot, 'src/travail.ts', 'export const livre = 1;\n');
+      git(depot, 'add', '-A');
+      git(depot, 'commit', '-q', '-m', 'le travail livré');
+      git(depot, 'checkout', '-q', 'main');
+      const ws = await prepareWorkspace(
+        dossierJetable(),
+        { ...tache(`reprise-${agent}`), branch: 'hive/livree' },
+        depot,
+        [],
+        '',
+        true,
+        declares,
+      );
+      expect(ws.branch).toBe('hive/livree');
+      expect(existsSync(path.join(ws.cwd, 'src', 'travail.ts')), 'la tête de la PR').toBe(true);
+      expect(ws.configurationEcartee).toEqual([...declares].sort());
+      expect(charger(agent, ws.cwd)).toEqual([]);
+      await ws.collectDiff();
+      ws.cleanup();
+    },
+  );
+
   it('le diff est celui d’un arbre jamais écarté, et la configuration revient octet pour octet', async () => {
     const depot = amont(fichiersDuDepotPiege());
     const produire = (cwd: string): void => {

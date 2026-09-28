@@ -276,6 +276,46 @@ describe('livrer et fusionner sous le verdict de l’Evaluator', () => {
     expect(courante.status).toBe(201);
   });
 
+  it('UN `resultId` PÉRIMÉ se dit AVANT l’Evaluator : `stale_result`, pas `evaluator_blocks`', async () => {
+    // L'Evaluator juge la DERNIÈRE production ; son refus porterait sur une
+    // production que l'appelant n'a pas désignée, et « forcer » la livrerait.
+    const tache = production(orphelin, 'suspect');
+    const courante = server.store.resultsForTask(tache).at(-1)?.resultId ?? 0;
+    const r = await poster('/api/livraison', { taskId: tache, resultId: courante + 1_000 }, jeton);
+    expect(r.status).toBe(409);
+    expect(await r.json()).toMatchObject({ code: 'stale_result', currentResultId: courante });
+  });
+
+  it('UN `resultId` PÉRIMÉ sur un REJEU se dit tel quel — aucune livraison simulée n’est rangée', async () => {
+    // Simuler (et ranger) la livraison d'une production que l'appelant n'a
+    // pas désignée ferait croire à la ruche autonome qu'elle est traitée.
+    const rejeu = server.store.createProject({
+      name: 'Rejeu périmé',
+      repoUrl: 'https://github.com/micka/rejeu-perime.git',
+      ownerId: null,
+    }).id;
+    server.store.inscrireRejeu({
+      projectId: rejeu,
+      missionSource: 'mission-source',
+      projetSource: orphelin,
+      surcharges: {},
+      genomeFige: null,
+      creePar: null,
+      creeA: Date.now(),
+    });
+    const tache = production(rejeu, 'clean');
+    const courante = server.store.resultsForTask(tache).at(-1)?.resultId ?? 0;
+    const r = await poster('/api/livraison', { taskId: tache, resultId: courante + 1_000 }, jeton);
+    expect(r.status).toBe(409);
+    expect(await r.json()).toMatchObject({ code: 'stale_result' });
+    expect(server.store.actionsDuRejeu(rejeu)).toEqual([]);
+    expect(
+      server.store
+        .listEvents(0, 1000)
+        .filter((e) => e.type === 'rejeu_action_simulee' && e.payload.projectId === rejeu),
+    ).toEqual([]);
+  });
+
   it('UNE PRODUCTION REJETÉE NE PART PAS NON PLUS', async () => {
     const r = await poster('/api/livraison', { taskId: production(orphelin, 'hollow') }, jeton);
     expect(r.status).toBe(409);

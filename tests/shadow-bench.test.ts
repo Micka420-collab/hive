@@ -234,10 +234,13 @@ describe('le second modèle — emprunté à l’Aiguillage, jamais écrit', () 
 
   it('explore un modèle jamais jugé quand le connu déçoit, jamais l’original', () => {
     const vecu = verdicts('refaire');
+    const avant = structuredClone(vecu);
     expect(choisirModeleOmbre('code', 'opus', ['opus', 'sonnet', 'haiku'], vecu)).toBe('haiku');
     expect(choisirModeleOmbre('code', 'opus', ['opus', 'sonnet'], vecu)).toBe('sonnet');
     expect(choisirModeleOmbre('code', 'opus', ['opus', 'opus'], vecu)).toBeNull();
-    // Le classement est LU : le vécu sort intact.
+    // Le classement est LU : le vécu sort intact — TOUT le vécu, pas seulement
+    // l'original (que le classement écarte avant de lire quoi que ce soit).
+    expect(vecu).toEqual(avant);
     expect(vecu.modeles.get(cle('code', 'opus'))).toEqual({ essais: 1, recompenseTotale: 1 });
   });
 
