@@ -32,6 +32,15 @@ const path = require('node:path');
 const env = process.env;
 const present = (...noms) => noms.every((n) => (env[n] ?? '').trim() !== '');
 
+// Un secret ABSENT arrive en CI comme une chaîne VIDE (`${{ secrets.X }}`), et
+// electron-builder, qui relit `CSC_LINK` au moment de signer (après ce
+// fichier), la résout en chemin : le dossier courant, « not a file », build
+// macOS tué (v0.5.0). Vide = absent : on retire ces variables ici, une fois,
+// pour tous les appelants.
+for (const nom of ['CSC_LINK', 'CSC_KEY_PASSWORD', 'WIN_CSC_LINK', 'WIN_CSC_KEY_PASSWORD']) {
+  if (env[nom] !== undefined && !present(nom)) delete env[nom];
+}
+
 const theme =
   (env.HIVE_BRANDING ?? '').trim() ||
   readFileSync(path.join(__dirname, 'branding', 'actif'), 'utf8').trim() ||
