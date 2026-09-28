@@ -796,13 +796,14 @@ s'envoyer un billet à soi-même. Deux réglages, **éteints par défaut** :
 
 Ce qui rend ce raccourci sûr :
 
-|                                  |                                                                                                                                           |
-| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| **Rien n'est diffusé en trop**   | nom, système, familles d'agents connectés, places, état (libre / membre) et l'empreinte publique de la ruche d'un membre — c'est tout     |
-| **Jamais d'entrée sans le code** | le code n'existe que sur l'écran de la machine : une ruche voisine qui l'entend ne peut pas se l'approprier                               |
-| **Le billet voyage scellé**      | chiffré sous le code (AES-256-GCM, clé PBKDF2) ; un imposteur qui recevrait l'offre ne l'ouvre pas, un témoin du réseau non plus          |
-| **Cinq essais par code**         | au cinquième refus, la machine en tire un nouveau ; un billet qui n'a pas été ouvert est révoqué sur-le-champ, et il expire en 10 minutes |
-| **La même porte ensuite**        | le billet s'échange par `POST /api/rejoindre`, comme n'importe quel billet — clé propre au nœud, révocable                                |
+|                                  |                                                                                                                                                                                                             |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Rien n'est diffusé en trop**   | nom, système, familles d'agents connectés, places, état (libre / membre) et l'empreinte publique de la ruche d'un membre — c'est tout                                                                       |
+| **Jamais d'entrée sans le code** | le code n'existe que sur l'écran de la machine : une ruche voisine qui l'entend ne peut pas se l'approprier                                                                                                 |
+| **Le billet voyage scellé**      | chiffré sous le code (AES-256-GCM, clé PBKDF2) ; un imposteur qui recevrait l'offre ne l'ouvre pas, un témoin du réseau non plus                                                                            |
+| **Cinq essais par code**         | au cinquième refus, la machine en tire un nouveau ; un billet qui n'a pas été ouvert est révoqué sur-le-champ, et il expire en 10 minutes                                                                   |
+| **La même porte ensuite**        | le billet s'échange par `POST /api/rejoindre`, comme n'importe quel billet — clé propre au nœud, révocable                                                                                                  |
+| **Le seul segment de la ruche**  | la ruche n'offre qu'à une adresse privée de l'un de ses propres sous-réseaux — jamais la boucle ni l'adresse de métadonnées des nuages `169.254.169.254` : une source forgée ne la fait pas écrire ailleurs |
 
 L'empreinte de la ruche (`abcd-efgh-jkmn`) est affichée dans le tableau de bord
 **et** par la machine quand elle reçoit l'offre : comparez-les, comme on compare

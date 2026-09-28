@@ -27,6 +27,7 @@ import {
   PAR_SOURCE_MAX,
   adresseReineVers,
   livrerOffre,
+  sourceDuSegment,
 } from '../src/orchestrator/decouverte-reseau.js';
 import { SERVICE_HIVE, TTL_ANNONCE_S, textesAnnonce } from '../src/shared/decouverte.js';
 import type { Annonce, OffreScellee } from '../src/shared/decouverte.js';
@@ -78,10 +79,22 @@ afterEach(async () => {
   for (const f of aFermer.splice(0)) await f().catch(() => {});
 });
 
+/**
+ * Les cartes de la Reine du banc : son Wi-Fi (192.168.1.0/24), un lien-local
+ * (169.254/16) et une boucle déclarée NON interne, comme dans certains
+ * conteneurs — pour que seules les exclusions explicites les écartent.
+ */
+const CARTES_REINE: NodeJS.Dict<os.NetworkInterfaceInfo[]> = {
+  lo: [carte('127.0.0.1', '255.0.0.0')],
+  wlan0: [carte('192.168.1.1', '255.255.255.0')],
+  lien: [carte('169.254.7.7', '255.255.0.0')],
+};
+
 async function reine(horloge?: () => number) {
   const bus = busMdns();
   const d = new DecouverteReseau(await bus.prise('192.168.1.1')(), {
     empreinte: tirerEmpreinte,
+    segment: (source) => sourceDuSegment(source, CARTES_REINE),
     ...(horloge ? { horloge } : {}),
   });
   aFermer.push(() => d.arreter());
@@ -128,6 +141,38 @@ describe('ce que la Reine croit du segment', () => {
     // L'adieu de la VRAIE adresse, lui, compte.
     vraie.emettre(annonceForgee({ instance: 'hive-0a0a0a0a', ttl: 0 }));
     await attendreQue(() => d.trouver('hive-0a0a0a0a') === null, 'la vraie machine part');
+  });
+
+  it('une source HORS de ses réseaux, la boucle ou les métadonnées du nuage : la Reine ne l’entend pas', async () => {
+    // La source d'un datagramme se forge ; c'est elle que la Reine irait
+    // POSTer, au port que l'annonce choisit.
+    const { d, depuis } = await reine();
+    for (const [source, i] of [
+      ['10.9.9.9', 1],
+      ['127.0.0.1', 2],
+      ['169.254.169.254', 3],
+    ] as const) {
+      (await depuis(source)).emettre(
+        annonceForgee({
+          instance: `hive-0000000${i}`,
+          annonce: { ...LIBRE, nom: `Forgée ${source}` },
+        }),
+      );
+    }
+    (await depuis('169.254.3.4')).emettre(
+      annonceForgee({ instance: 'hive-0000000a', annonce: { ...LIBRE, nom: 'Lien-local' } }),
+    );
+    (await depuis('192.168.1.20')).emettre(annonceForgee({ instance: 'hive-0000000b' }));
+    await attendreQue(
+      () => d.liste().some((m) => m.nom === 'Vraie machine'),
+      'la vraie machine est entendue',
+    );
+    expect(
+      d
+        .liste()
+        .map((m) => m.nom)
+        .sort(),
+    ).toEqual(['Lien-local', 'Vraie machine']);
   });
 
   it('une durée de vie GONFLÉE est ramenée à celle d’une vraie machine', async () => {

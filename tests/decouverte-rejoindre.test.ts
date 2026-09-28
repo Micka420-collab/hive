@@ -34,6 +34,7 @@ import { HiveNodeClient } from '../src/node-client/client.js';
 import { Annonceur, Signalement, attendreUneRuche } from '../src/node-client/decouverte-noeud.js';
 import type { AnnonceBase } from '../src/node-client/decouverte-noeud.js';
 import { formaterEmpreinte, tirerEmpreinte } from '../src/shared/empreinte-ruche.js';
+import { ipv4Privee } from '../src/shared/decouverte.js';
 import type { ContenuOffre } from '../src/shared/decouverte.js';
 import { attendreQue, busMdns } from './harnais-mdns.js';
 import type { BusMdns } from './harnais-mdns.js';
@@ -100,7 +101,9 @@ async function monter(
     simulation: false,
     tickMs: 10_000,
     publicUrl: (opts.publicUrl ?? ((p) => `ws://127.0.0.1:${p}/ws`))(port),
-    ...(opts.decouverte === false ? {} : { decouverte: { ouvrirTransport: bus.prise() } }),
+    ...(opts.decouverte === false
+      ? {}
+      : { decouverte: { ouvrirTransport: bus.prise(), segment: ipv4Privee } }),
   });
   base = `http://127.0.0.1:${server.port}`;
   admin = await inscrire('admin@hive.test');

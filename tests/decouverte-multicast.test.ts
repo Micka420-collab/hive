@@ -27,6 +27,7 @@ import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { TestContext } from 'vitest';
 import { Annonceur } from '../src/node-client/decouverte-noeud.js';
 import { DecouverteReseau } from '../src/orchestrator/decouverte-reseau.js';
+import { ipv4Privee } from '../src/shared/decouverte.js';
 import { tirerEmpreinte } from '../src/shared/empreinte-ruche.js';
 import { ouvrirTransportUdp } from '../src/shared/mdns-reseau.js';
 import type { TransportMdns } from '../src/shared/mdns-reseau.js';
@@ -96,7 +97,12 @@ afterEach(async () => {
 });
 
 async function reine(port: number): Promise<DecouverteReseau> {
-  const d = new DecouverteReseau(await ouvrir(port), { empreinte: () => RUCHE });
+  // Le banc parle sur la BOUCLE : il déclare ce segment-là, que la Reine
+  // écarterait d'elle-même (`sourceDuSegment`).
+  const d = new DecouverteReseau(await ouvrir(port), {
+    empreinte: () => RUCHE,
+    segment: ipv4Privee,
+  });
   aFermer.push(() => d.arreter());
   return d;
 }

@@ -704,13 +704,14 @@ send yourself a ticket. Two settings, **off by default**:
 
 What keeps this shortcut safe:
 
-|                               |                                                                                                                             |
-| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| **Nothing extra broadcast**   | name, OS family, connected agent families, slots, state (free / member) and a member's public hive fingerprint — that's all |
-| **Never in without the code** | the code only exists on the machine's screen: a neighbouring hive that hears it cannot claim it                             |
-| **The ticket travels sealed** | encrypted under the code (AES-256-GCM, PBKDF2 key); an impostor receiving the offer cannot open it, nor can an eavesdropper |
-| **Five tries per code**       | on the fifth refusal the machine draws a new one; an unopened ticket is revoked at once, and it expires after 10 minutes    |
-| **The same door afterwards**  | the ticket is exchanged through `POST /api/rejoindre` like any ticket — a per-node, revocable key                           |
+|                                 |                                                                                                                                                                                        |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Nothing extra broadcast**     | name, OS family, connected agent families, slots, state (free / member) and a member's public hive fingerprint — that's all                                                            |
+| **Never in without the code**   | the code only exists on the machine's screen: a neighbouring hive that hears it cannot claim it                                                                                        |
+| **The ticket travels sealed**   | encrypted under the code (AES-256-GCM, PBKDF2 key); an impostor receiving the offer cannot open it, nor can an eavesdropper                                                            |
+| **Five tries per code**         | on the fifth refusal the machine draws a new one; an unopened ticket is revoked at once, and it expires after 10 minutes                                                               |
+| **The same door afterwards**    | the ticket is exchanged through `POST /api/rejoindre` like any ticket — a per-node, revocable key                                                                                      |
+| **Only the hive's own segment** | the hive offers only to a private address on one of its own subnets — never loopback nor the cloud metadata address `169.254.169.254`: a forged source does not make it post elsewhere |
 
 The hive's fingerprint (`abcd-efgh-jkmn`) is shown in the dashboard **and** by
 the machine when it receives the offer: compare them, as you would an SSH host

@@ -12,9 +12,13 @@
 // Tout ce qui arrive sur 224.0.0.251 vient de n'importe qui. Donc :
 //
 //   · l'ADRESSE d'une machine est celle d'où vient le paquet, pas celle qu'il
-//     prétend (enregistrement A) — et seulement si elle est privée (voir
-//     `ipv4Privee`). La Reine n'enverra jamais d'offre là où une annonce forgée
-//     lui dirait d'aller ;
+//     prétend (enregistrement A) — et seulement si elle est privée ET sur un
+//     sous-réseau d'une carte de CETTE Reine, jamais la boucle ni l'adresse
+//     de métadonnées des nuages (voir `sourceDuSegment`). La source d'un
+//     datagramme se forge : sans cette borne, une annonce « venue » du
+//     routeur, de 127.0.0.1 ou de 169.254.169.254 ferait POSTer la Reine là,
+//     au port que l'annonce choisit. La Reine n'enverra jamais d'offre là où
+//     une annonce forgée lui dirait d'aller ;
 //   · une annonce se lit par `lireAnnonce`, qui refuse au moindre doute ;
 //   · la liste est BORNÉE (`ENTREES_MAX`), et chaque adresse n'y tient que
 //     `PAR_SOURCE_MAX` places : un voisin qui inonde le segment de fausses
@@ -100,6 +104,35 @@ export interface OptionsDecouverte {
   /** L'empreinte de CETTE ruche, pour reconnaître ses propres membres. */
   empreinte: () => string;
   horloge?: () => number;
+  /**
+   * Le segment que la Reine croit (défaut : `sourceDuSegment`, ses cartes
+   * réelles). Un banc qui fait parler ses machines sur la boucle le déclare
+   * ici — la production n'a aucune raison de le changer.
+   */
+  segment?: (source: string) => string | null;
+}
+
+/** L'adresse de métadonnées des nuages (AWS, GCP, Azure…) : jamais une machine Hive. */
+const METADONNEES_NUAGE = '169.254.169.254';
+
+/**
+ * L'adresse d'une source mDNS à qui la Reine peut offrir, ou `null`.
+ *
+ * Privée (`ipv4Privee`), ni la boucle (127/8 : un paquet du segment n'en vient
+ * jamais, le noyau les jette), ni l'adresse de métadonnées des nuages, et sur
+ * le sous-réseau d'une carte de cette Reine (`adresseReineVers`) : mDNS ne
+ * franchit pas de routeur, une source hors de ses réseaux est forgée — et
+ * c'est elle que la Reine irait POSTer.
+ */
+export function sourceDuSegment(
+  source: string,
+  interfaces: NodeJS.Dict<os.NetworkInterfaceInfo[]> = os.networkInterfaces(),
+): string | null {
+  const adresse = ipv4Privee(source);
+  if (adresse === null || adresse.startsWith('127.') || adresse === METADONNEES_NUAGE) {
+    return null;
+  }
+  return adresseReineVers(adresse, interfaces) === null ? null : adresse;
 }
 
 export class DecouverteReseau {
@@ -209,7 +242,7 @@ export class DecouverteReseau {
 
   private surPaquet(brut: Buffer, source: string): void {
     if (this.arretee) return;
-    const adresse = ipv4Privee(source);
+    const adresse = (this.o.segment ?? sourceDuSegment)(source);
     if (adresse === null) return;
     const p = decoderPaquet(brut);
     if (!p || !p.reponse) return;

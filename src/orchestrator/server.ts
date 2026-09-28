@@ -1060,7 +1060,11 @@ export interface ServerConfig {
    * interfaces). C'est le point où un banc branche un bus en mémoire, comme
    * `fournisseurServeurs` pour les machines.
    */
-  decouverte?: { ouvrirTransport?: () => Promise<TransportMdns> };
+  decouverte?: {
+    ouvrirTransport?: () => Promise<TransportMdns>;
+    /** Le segment cru (`OptionsDecouverte.segment`) ; bancs sur la boucle seulement. */
+    segment?: (source: string) => string | null;
+  };
 }
 
 /**
@@ -15785,7 +15789,10 @@ async function monterReine(
   if (config.decouverte) {
     try {
       const ouvrir = config.decouverte.ouvrirTransport ?? (() => ouvrirTransportUdp());
-      decouverte = new DecouverteReseau(await ouvrir(), { empreinte: () => empreinteRuche });
+      decouverte = new DecouverteReseau(await ouvrir(), {
+        empreinte: () => empreinteRuche,
+        ...(config.decouverte.segment ? { segment: config.decouverte.segment } : {}),
+      });
       decouverte.demarrer();
     } catch (err) {
       decouverteIndisponible = err instanceof Error ? err.message : String(err);
