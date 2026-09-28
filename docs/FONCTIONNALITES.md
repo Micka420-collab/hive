@@ -55,6 +55,25 @@ côté orchestrateur, synchronisées en temps réel via WebSocket ; repli
 localStorage hors-ligne). « Couler le miel » n'intègre que les productions
 **approuvées** — le merge reste toujours un geste humain explicite.
 
+**Le compagnon.** Un petit animal habite le bas de la barre et résume la ruche
+d'un coup d'œil : il **se repose**, **travaille** (avec le nombre de tâches en
+cours), **s'agite** quand quelque chose attend un humain (une production à
+revoir, une alerte de Mon espace), **fait la fête** quelques secondes quand une
+livraison est acceptée, et devient gris avec un « ? » quand le flux est coupé —
+on ne sait alors pas ce que fait la ruche, et il ne l'invente pas. Il vit dans
+la barre, jamais au-dessus du contenu ; sous « réduire les animations » il ne
+bouge pas du tout. Un clic ouvre ses réglages : l'**abeille**, le **bourdon** ou
+l'**osmie**, ou **le vôtre** — une image PNG ou WebP de 150 Kio au plus, fixe ou
+en planche horizontale d'images, gardée dans ce navigateur pour ce compte (trois
+au plus, sous un plafond commun à tous les comptes du navigateur) et jamais
+envoyée à la ruche. Les octets décident : un SVG ou une page HTML
+renommés en `.png` sont refusés. « Ranger le compagnon » ne laisse qu'une
+alvéole pour le rappeler.
+
+![Les six états du compagnon : repos, au travail, un humain est attendu, livraison acceptée, flux coupé, et un compagnon apporté](images/compagnon-humeurs.png)
+
+![Les réglages du compagnon : les trois compagnons intégrés, un compagnon apporté et le formulaire pour apporter le vôtre](images/compagnon-reglages.png)
+
 ## 🐝 Le Rayon — voir le code, voir l'IA travailler
 
 Ce que les membres voyaient jusqu'ici, c'étaient des **tâches** : des titres,

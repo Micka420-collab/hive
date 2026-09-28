@@ -23,6 +23,7 @@ import {
 } from './api';
 import type { AuthUser } from './api';
 import { AccountPanel, EVENT_OUVRIR_COMPTE } from './AccountPanel';
+import { Compagnon } from './Compagnon';
 import { setLang, useLang, useT } from './i18n';
 import { InvitePanel } from './InvitePanel';
 import { NewProjectModal } from './NewProjectModal';
@@ -712,6 +713,17 @@ export function App() {
             </li>
           ))}
         </ul>
+        {/* Le compagnon habite la barre, pas un calque sur les vues : il ne
+            couvre jamais le contenu (voir `Compagnon.tsx`). Il relit les
+            comptes que la barre affiche déjà — jamais un second calcul. */}
+        <Compagnon
+          connecte={connected}
+          tasks={snapshot.tasks}
+          aRevoir={pendingReviews}
+          pastille={pastille}
+          events={events}
+          userId={user?.id ?? null}
+        />
         <div
           className="mc-sidebar-pulse"
           title={t('Pouls de la ruche (débit/h)', 'Hive pulse (throughput/h)')}

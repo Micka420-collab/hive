@@ -51,6 +51,23 @@ orchestrator, synced in real time over WebSocket; offline localStorage
 fallback). "Pour the honey" only integrates **approved** productions — merging
 always remains an explicit human gesture.
 
+**The companion.** A small creature lives at the bottom of the sidebar and sums
+the hive up at a glance: it **rests**, **works** (with the number of running
+tasks), **fidgets** when something waits for a human (a production to review, a
+My space alert), **celebrates** for a few seconds when a delivery is accepted,
+and turns grey with a "?" when the live feed is down — nobody knows what the
+hive is doing then, and it does not make it up. It lives in the sidebar, never
+over the content; with "reduce motion" it does not move at all. A click opens
+its settings: the **honeybee**, the **bumblebee** or the **mason bee**, or
+**your own** — a PNG or WebP image of 150 KiB at most, still or a horizontal
+strip of frames, kept in this browser for this account (three at most, under a
+cap shared by every account on the browser) and never sent to the hive. The bytes decide: an SVG or an HTML page renamed `.png` is refused. "Put
+the companion away" leaves a single cell to bring it back.
+
+![The companion’s six states: resting, working, a human is awaited, delivery accepted, feed down, and a companion of your own](images/compagnon-humeurs.png)
+
+![The companion settings (French interface): the three built-in companions, one brought by the user, and the form to bring your own](images/compagnon-reglages.png)
+
 ## 🐝 The Comb — seeing the code, watching the AI work
 
 What members could see so far were **tasks**: titles, states, diffs. Never the

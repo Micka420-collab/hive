@@ -15120,6 +15120,11 @@ async function monterReine(
               applied: msg.applied.length,
               conflicts: msg.conflicts.length,
               testsPassed: msg.testsPassed,
+              // L'issue de la livraison DEMANDÉE, quand il y en a une : sans
+              // elle, qui lit ce seul événement (le compagnon de Mission
+              // Control) prendrait un merge nu d'un nœud ancien pour une
+              // livraison entrée dans le projet.
+              ...(livraison ? { livraison: livraison.etat } : {}),
             });
             if (livraison) journaliserLivraison(pending.projectId, msg.mergeId, nodeId, livraison);
             break;
