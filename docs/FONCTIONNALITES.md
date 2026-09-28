@@ -244,6 +244,61 @@ npm run cli -- livrer-local <projectId> --prolonger=1         # corriger : avanc
   C'est la même règle que la reprise d'une pull request GitHub, qui fait
   **avancer la branche de la PR** au lieu d'en ouvrir une seconde.
 
+## ⟲ Missions rejouables — le Time Travel
+
+Le Time-Lapse de la Chronique **remonte** le temps ; une mission rejouable se
+**rejoue**. Une mission est un épisode d'activité d'un projet : elle s'ouvre
+quand une tâche vit sur un projet qui n'avait plus rien en vol — à sa
+naissance, au plus tard à sa première affectation, ou quand une tâche finie
+est relancée — et se clôt quand plus rien n'y vole (relectures comprises). Ses
+tâches sont rangées une à une : une tâche relancée n'entraîne pas la mission
+précédente avec elle. La Reine prend alors un **instantané** à chaque bord —
+plan et graphe des tâches, prompts, modèles (commandés, déclarés, offerts),
+politique de routage et **version du Genome** (son empreinte et ses
+antécédents), niveau d'autonomie, garde-fous et plafond de dépense, artefacts
+(branches, pull requests, branche de mission), décisions typées. Une revue
+humaine ou une livraison qui tombe après la clôture re-prend l'instantané de
+fin. Aucune raison humaine, aucune objection, aucun identifiant n'y entre.
+
+```bash
+GET  /api/projects/<id>/missions                      # les missions, résumées
+GET  /api/projects/<id>/missions/<missionId>          # les deux instantanés
+POST /api/projects/<id>/missions/<missionId>/rejouer  # {modele?, politiqueRoutage?, autonomie?}
+GET  /api/projects/<rejeu>/rejeu/comparaison          # source contre rejeu
+# ou « Missions · Time Travel » dans ⬡ Projets
+```
+
+- **Rejouer** crée un projet NEUF sur le même dépôt (donc des branches et des
+  bacs neufs), recrée le plan de début — ni les relectures ni les délégations,
+  que le rejeu refera lui-même — et lui impose, au choix : un **modèle** (les
+  tâches attendent un nœud qui l'offre, et le disent : `rejeu_modele_absent`),
+  une **politique de routage** (`apprise` : le vécu d'aujourd'hui ; `figee` :
+  le Genome figé au début de la mission ; `neutre` : aucun vécu) et un **niveau
+  d'autonomie** — sous le **même plafond de dépense** que la source. C'est un
+  réglage : propriétaire ou administrateur.
+- **Rien d'irréversible ne part d'un rejeu.** Pull request, fusion, commit de
+  mission, poussée, workflow GitHub — et la ruche autonome — sont **simulés** :
+  rangés (une fois), journalisés (`rejeu_action_simulee`), jamais exécutés ; la
+  route répond `409 rejeu_simule` (rien n'est parti) et la ruche autonome passe
+  à autre chose. Seul un humain connecté avec un **compte** peut en valider
+  un : « Valider pour de vrai » à l'écran, `--valider-rejeu` en ligne de
+  commande (`livrer`, `livrer-local`, `fusionner`), ou `validerRejeu: true`
+  dans la demande ; le jeton de ruche, que chaque machine porte, ne valide
+  jamais.
+- **La comparaison** met côte à côte le résultat, le coût déclaré (avec sa
+  couverture), le temps modèle, le temps des ouvrières, la durée, les tests,
+  les relectures, les revues humaines et les décisions. Elle ne calcule que sur
+  du déclaré : un côté muet rend l'écart **inconnu**, une mission en vol est
+  dite **provisoire**, un journal élagué pendant la mission est dit
+  **incomplet**. Une tâche annulée y a son propre statut, distinct d'un échec
+  — dans la frise de la Chronique aussi.
+
+<p>
+  <img src="images/missions-rejeu-comparaison.png" alt="Un projet de rejeu : bandeau « actions irréversibles simulées » et comparaison mission source contre rejeu" width="350">
+  <img src="images/rejeu-livraison-simulee.png" alt="Livrer la mission sur un projet de rejeu : livraison simulée et rangée, rien n’est commité, et le bouton « Valider pour de vrai »" width="350">
+  <img src="images/missions-rejeu-formulaire-mobile.png" alt="Le formulaire de rejeu sur téléphone : modèle, routage, autonomie, et l’avertissement que les effets seront simulés" width="254">
+</p>
+
 ## 👑 La Reine répond — parler à la ruche
 
 Chaque membre (donneur d'ordre comme porteur de nœud) peut interroger la ruche

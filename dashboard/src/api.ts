@@ -60,6 +60,11 @@ export class ApiError extends Error {
     readonly status: number,
     /** Marche à suivre renvoyée par le serveur (501 GitHub, 401 jeton…), jamais le secret. */
     readonly detail?: string,
+    /**
+     * Le `code` du refus, quand la Reine en donne un : l'écran le LIT (ex.
+     * `rejeu_simule` : rien n'est parti, une validation humaine est offerte).
+     */
+    readonly code?: string,
   ) {
     super(message);
     this.name = 'ApiError';
@@ -171,16 +176,23 @@ async function api<T>(
   if (!res.ok) {
     let message = tNow(`Erreur ${res.status}`, `Error ${res.status}`);
     let detail: string | undefined;
+    let code: string | undefined;
     try {
       // Endpoints custom → { error } (déjà précis). Validation de schéma Fastify
       // → { message } détaillé + { error: "Bad Request" } générique : le message
       // est alors le plus utile, on le préfère quand il est présent.
       // `detail` porte la marche à suivre (501 GitHub, 401 jeton de ruche) :
       // l'omettre laissait l'écran muet sur ce qu'il fallait faire.
-      const body = (await res.json()) as { error?: string; message?: string; detail?: string };
+      const body = (await res.json()) as {
+        error?: string;
+        message?: string;
+        detail?: string;
+        code?: unknown;
+      };
       const assemble = messageApi(body, res.status);
       message = assemble.message;
       detail = assemble.detail;
+      if (typeof body.code === 'string') code = body.code;
     } catch {
       /* corps non-JSON */
     }
@@ -189,7 +201,7 @@ async function api<T>(
       const expiree = expirerSession(jwt);
       if (expiree) throw expiree;
     }
-    throw new ApiError(message, res.status, detail);
+    throw new ApiError(message, res.status, detail, code);
   }
   return (await res.json()) as T;
 }
@@ -1651,10 +1663,10 @@ export class RefusLivraison extends ApiError {
   constructor(
     message: string,
     status: number,
-    readonly code?: string,
+    code?: string,
     readonly bloquees: readonly { taskId: string; decision: string | null }[] = [],
   ) {
-    super(message, status);
+    super(message, status, undefined, code);
     this.name = 'RefusLivraison';
   }
 }
@@ -1675,6 +1687,8 @@ export async function livrerLocalement(
     testCommand?: string[];
     prepareCommand?: string[];
     forcer?: { raison: string };
+    /** Projet de rejeu : exécuter pour de vrai ce que la Reine simulerait (compte exigé). */
+    validerRejeu?: boolean;
   } = {},
 ): Promise<DepartLivraison> {
   const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/livraison-locale`, {
@@ -1685,6 +1699,7 @@ export async function livrerLocalement(
       ...(opts.prepareCommand?.length ? { prepareCommand: opts.prepareCommand } : {}),
       ...(opts.testCommand?.length ? { testCommand: opts.testCommand } : {}),
       ...(opts.forcer ? { forcer: opts.forcer } : {}),
+      ...(opts.validerRejeu ? { validerRejeu: true } : {}),
     }),
   });
   let corps: Record<string, unknown> = {};
@@ -2246,6 +2261,66 @@ export interface LivraisonVue {
 /** Ce que deviennent les pull requests ouvertes par la ruche. */
 export function fetchLivraisons(projectId: string): Promise<{ livraisons: LivraisonVue[] }> {
   return api(`/api/projects/${encodeURIComponent(projectId)}/livraisons`);
+}
+
+// ─── Les missions rejouables et le Time Travel ──────────────────────────────
+
+export type {
+  ComparaisonMissions,
+  EcartDeclare,
+  PolitiqueRoutage,
+  ResumeMission,
+  SurchargesRejeu,
+} from '../../src/shared/mission-rejouable';
+import type {
+  ComparaisonMissions,
+  ResumeMission,
+  SurchargesRejeu,
+} from '../../src/shared/mission-rejouable';
+
+/** Une mission telle que `GET /api/projects/:id/missions` la liste. */
+export interface MissionVue {
+  id: string;
+  ouverteA: number;
+  closeA: number | null;
+  /** `null` : instantané d'une autre version, illisible — dit, pas deviné. */
+  tachesPlan: number | null;
+  rejouable: boolean;
+  manques: string[];
+  resume: ResumeMission | null;
+  /** Les projets de rejeu de cette mission que le lecteur peut ouvrir. */
+  rejeux: string[];
+}
+
+export interface RejeuVue {
+  missionSource: string;
+  projetSource: string | null;
+  surcharges: SurchargesRejeu;
+  creeA: number;
+  actions: Array<{ genre: string; cible: string; issue: 'simulee' | 'validee'; creeA: number }>;
+}
+
+export function fetchMissions(
+  projectId: string,
+): Promise<{ missions: MissionVue[]; rejeu: RejeuVue | null }> {
+  return api(`/api/projects/${encodeURIComponent(projectId)}/missions`);
+}
+
+/** Rejoue une mission dans un projet neuf ; ses actions irréversibles sont simulées. */
+export function rejouerMission(
+  projectId: string,
+  missionId: string,
+  surcharges: SurchargesRejeu,
+): Promise<{ projet: Project; taches: Array<{ id: string; title: string }> }> {
+  return api(
+    `/api/projects/${encodeURIComponent(projectId)}/missions/${encodeURIComponent(missionId)}/rejouer`,
+    { method: 'POST', body: JSON.stringify(surcharges) },
+  );
+}
+
+/** Mission source contre rejeu, sur les seules données déclarées. */
+export function fetchComparaisonRejeu(projectId: string): Promise<ComparaisonMissions> {
+  return api(`/api/projects/${encodeURIComponent(projectId)}/rejeu/comparaison`);
 }
 
 /** Reprend une livraison : la CI ou la revue redeviennent du travail. */
@@ -3026,10 +3101,11 @@ export function lancerWorkflowGithub(
   projectId: string,
   workflowId: number,
   ref: string,
+  validerRejeu = false,
 ): Promise<{ workflow: Workflow; ref: string }> {
   return api(`/api/projects/${encodeURIComponent(projectId)}/workflows/${String(workflowId)}/run`, {
     method: 'POST',
-    body: JSON.stringify({ ref }),
+    body: JSON.stringify({ ref, ...(validerRejeu ? { validerRejeu: true } : {}) }),
   });
 }
 

@@ -10,6 +10,7 @@ import { LIMITS } from '../shared/protocol.js';
 import type { OutilConstate } from '../shared/protocol.js';
 import { LIMITE_TACHES_INSTANTANE, NIVEAUX_ISOLEMENT } from '../shared/types.js';
 import type { Partage } from '../shared/partage.js';
+import type { AntecedentFige } from '../shared/mission-rejouable.js';
 import type { GenreSauvegarde, Sauvegarde, SauvegardeResume } from '../shared/sauvegardes.js';
 import { libelleEtape } from '../shared/sauvegardes.js';
 import { CORPUS_AIGUILLAGE, type ElectionEnVol } from './aiguillage.js';
@@ -1523,6 +1524,82 @@ CREATE TABLE IF NOT EXISTS connecteurs_journal (
 );
 CREATE INDEX IF NOT EXISTS idx_connecteurs_journal_projet ON connecteurs_journal(projectId, creeA DESC);
 CREATE INDEX IF NOT EXISTS idx_connecteurs_journal_creeA ON connecteurs_journal(creeA);
+
+-- ─── Les MISSIONS REJOUABLES (src/shared/mission-rejouable.ts) ─────────────
+--
+-- Trois tables NEUVES et LATÉRALES (règle 2 : aucune migration, aucune
+-- colonne sur une table existante). Une base d'avant les gagne vides à
+-- l'ouverture, et n'y perd rien.
+--
+-- missions : un épisode d'activité d'un projet, et ses DEUX instantanés
+-- (JSON, format versionné). Le début est écrit à l'ouverture, en même temps
+-- que la ligne ; la fin, une seule fois, à la clôture. Pas de REFERENCES vers
+-- projects, à dessein : une clé étrangère ferait échouer la suppression d'un
+-- projet qui a eu des missions — c'est l'élagueur qui retire les orphelines.
+--
+-- missions_taches : QUI est dans la mission, rangé à l'ouverture puis à
+-- chaque relevé. L'appartenance ne se déduit PAS des dates : une tâche finie
+-- qu'on ranime (relance de l'Evaluator, remise en file) a la naissance d'une
+-- AUTRE mission — la borner par « née depuis l'ouverture » faisait avaler à
+-- la mission suivante tout le plan de la précédente, et son rejeu le recréait.
+--
+-- rejeux : marque un projet comme le REJEU d'une mission. C'est cette marque
+-- que relisent l'ordonnanceur (modèle et routage imposés) et toutes les
+-- portes des actions irréversibles (simulées, jamais exécutées sans humain).
+-- Le Genome FIGÉ y est recopié à la création (politique « figee ») : le
+-- routage d'un rejeu en vol ne doit pas dépendre de la survie de l'instantané
+-- source à l'élagage. missionRejeu : la PREMIÈRE mission du projet de
+-- rejeu, rangée à son ouverture — c'est ELLE que la comparaison oppose à la
+-- source, et l'élagueur l'épargne comme il épargne la source.
+--
+-- rejeux_actions : ce qu'un rejeu a demandé d'irréversible, et ce qui en a
+-- été fait (simulée, ou validée par un humain). UNIQUE : une ruche autonome
+-- qui redemande à chaque cycle la même livraison n'en range qu'une.
+--
+-- BORNE D'ÉLAGAGE (règle 3), dans le MÊME changement : pruneMissions — les
+-- lignes dont le projet a disparu, puis les plus vieilles missions de chaque
+-- projet au-delà d'un plafond (sauf celles qu'un rejeu compare encore), puis
+-- les actions au-delà d'un plafond par projet.
+CREATE TABLE IF NOT EXISTS missions (
+  id              TEXT PRIMARY KEY,
+  projectId       TEXT NOT NULL,
+  ouverteA        INTEGER NOT NULL,
+  closeA          INTEGER,
+  depuisEvenement INTEGER NOT NULL,
+  debut           TEXT NOT NULL,
+  fin             TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_missions_projet ON missions(projectId, ouverteA DESC);
+
+CREATE TABLE IF NOT EXISTS rejeux (
+  projectId     TEXT PRIMARY KEY,
+  missionSource TEXT NOT NULL,
+  projetSource  TEXT NOT NULL,
+  surcharges    TEXT NOT NULL,
+  genomeFige    TEXT,
+  creePar       TEXT,
+  creeA         INTEGER NOT NULL,
+  missionRejeu  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_rejeux_source ON rejeux(missionSource);
+
+CREATE TABLE IF NOT EXISTS rejeux_actions (
+  id        INTEGER PRIMARY KEY AUTOINCREMENT,
+  projectId TEXT NOT NULL,
+  genre     TEXT NOT NULL,
+  cible     TEXT NOT NULL,
+  issue     TEXT NOT NULL CHECK (issue IN ('simulee', 'validee')),
+  parUserId TEXT,
+  creeA     INTEGER NOT NULL,
+  UNIQUE (projectId, genre, cible, issue)
+);
+
+CREATE TABLE IF NOT EXISTS missions_taches (
+  missionId TEXT NOT NULL,
+  taskId    TEXT NOT NULL,
+  PRIMARY KEY (missionId, taskId)
+);
+CREATE INDEX IF NOT EXISTS idx_missions_taches_tache ON missions_taches(taskId);
 `;
 
 interface ProjectRow {
@@ -1626,6 +1703,43 @@ function rowToResultatBalance(r: ResultatRow): ResultatBalance {
     success: r.success === 1,
     durationMs: r.durationMs,
   };
+}
+
+/**
+ * Une mission telle qu'elle est RANGÉE : ses deux instantanés sont du JSON
+ * brut, relu par `lireInstantane` (format versionné, lecture défensive).
+ */
+export interface MissionRangee {
+  id: string;
+  projectId: string;
+  ouverteA: number;
+  closeA: number | null;
+  /** Dernier événement AVANT l'ouverture : le journal de la mission commence après. */
+  depuisEvenement: number;
+  debut: string;
+  fin: string | null;
+}
+
+/** La marque de rejeu d'un projet. Les surcharges sont relues champ par champ. */
+export interface RejeuRange {
+  projectId: string;
+  missionSource: string;
+  projetSource: string;
+  surcharges: { modele?: string; politiqueRoutage?: string; autonomie?: string };
+  /** Le Genome de l'instantané source, recopié pour la politique `figee`. */
+  genomeFige: AntecedentFige[] | null;
+  creePar: string | null;
+  creeA: number;
+  /** La première mission du projet de rejeu — `null` tant qu'elle n'est pas ouverte. */
+  missionRejeu: string | null;
+}
+
+export interface ActionRejeuRangee {
+  genre: string;
+  cible: string;
+  issue: 'simulee' | 'validee';
+  parUserId: string | null;
+  creeA: number;
 }
 
 /**
@@ -8530,6 +8644,435 @@ export class HiveStore {
       .prepare('SELECT state, updatedAt FROM reviews WHERE taskId = ?')
       .get(taskId) as { state: 'approved' | 'rejected'; updatedAt: number } | undefined;
     return row ?? null;
+  }
+
+  // ─── Les missions rejouables (src/shared/mission-rejouable.ts) ─────────────
+
+  /** La mission OUVERTE d'un projet (il n'y en a jamais qu'une), ou `null`. */
+  missionOuverte(projectId: string): MissionRangee | null {
+    const row = this.db
+      .prepare(
+        'SELECT * FROM missions WHERE projectId = ? AND closeA IS NULL ORDER BY ouverteA DESC LIMIT 1',
+      )
+      .get(projectId) as MissionRangee | undefined;
+    return row ?? null;
+  }
+
+  getMission(id: string): MissionRangee | null {
+    const row = this.db.prepare('SELECT * FROM missions WHERE id = ?').get(id) as
+      MissionRangee | undefined;
+    return row ?? null;
+  }
+
+  /** Les missions d'un projet, de la plus récente à la plus ancienne. */
+  listMissions(projectId: string, limite = 50): MissionRangee[] {
+    return this.db
+      .prepare('SELECT * FROM missions WHERE projectId = ? ORDER BY ouverteA DESC, id LIMIT ?')
+      .all(projectId, Math.max(1, Math.min(limite, 200))) as MissionRangee[];
+  }
+
+  /**
+   * Ouvre une mission AVEC son instantané de début, en une écriture.
+   *
+   * Conditionnelle : si une mission est déjà ouverte sur ce projet (deux
+   * créations de tâches rapprochées ont chacune programmé une ouverture), la
+   * seconde ne fait rien et rend `false` — « une seule mission ouverte par
+   * projet » tient par la base, pas par la chance de l'ordonnancement.
+   */
+  ouvrirMission(m: {
+    id: string;
+    projectId: string;
+    ouverteA: number;
+    depuisEvenement: number;
+    membres: readonly string[];
+    debut: string;
+  }): boolean {
+    return this.enTransaction(() => {
+      if (this.missionOuverte(m.projectId)) return false;
+      this.db
+        .prepare(
+          `INSERT INTO missions (id, projectId, ouverteA, closeA, depuisEvenement, debut, fin)
+           VALUES (?, ?, ?, NULL, ?, ?, NULL)`,
+        )
+        .run(m.id, m.projectId, m.ouverteA, m.depuisEvenement, m.debut);
+      this.ajouterMembresMission(m.id, m.membres);
+      // La PREMIÈRE mission d'un projet de rejeu est celle que la comparaison
+      // oppose à la source : rangée ici, une fois, dans la même écriture.
+      this.db
+        .prepare('UPDATE rejeux SET missionRejeu = ? WHERE projectId = ? AND missionRejeu IS NULL')
+        .run(m.id, m.projectId);
+      return true;
+    });
+  }
+
+  /** Range des tâches dans une mission (idempotent). */
+  ajouterMembresMission(missionId: string, taskIds: readonly string[]): void {
+    const inserer = this.db.prepare(
+      'INSERT OR IGNORE INTO missions_taches (missionId, taskId) VALUES (?, ?)',
+    );
+    for (const id of taskIds) inserer.run(missionId, id);
+  }
+
+  /** Les tâches rangées dans une mission. */
+  membresDeMission(missionId: string): string[] {
+    return (
+      this.db
+        .prepare('SELECT taskId FROM missions_taches WHERE missionId = ? ORDER BY taskId')
+        .all(missionId) as Array<{ taskId: string }>
+    ).map((r) => r.taskId);
+  }
+
+  /** La dernière mission CLOSE d'un projet, ou `null`. */
+  derniereMissionClose(projectId: string): MissionRangee | null {
+    const row = this.db
+      .prepare(
+        `SELECT * FROM missions WHERE projectId = ? AND closeA IS NOT NULL
+          ORDER BY closeA DESC, ouverteA DESC LIMIT 1`,
+      )
+      .get(projectId) as MissionRangee | undefined;
+    return row ?? null;
+  }
+
+  /**
+   * Re-prend l'instantané de FIN d'une mission close : une décision tombée
+   * APRÈS la clôture sur l'une de ses tâches (relecture humaine, livraison,
+   * action de rejeu) lui appartient. `closeA` ne bouge pas.
+   */
+  rafraichirFinMission(id: string, fin: string): boolean {
+    return (
+      this.db
+        .prepare('UPDATE missions SET fin = ? WHERE id = ? AND closeA IS NOT NULL')
+        .run(fin, id).changes > 0
+    );
+  }
+
+  /** Clôt une mission avec son instantané de fin — une seule fois. */
+  cloreMission(id: string, closeA: number, fin: string): boolean {
+    const info = this.db
+      .prepare('UPDATE missions SET closeA = ?, fin = ? WHERE id = ? AND closeA IS NULL')
+      .run(closeA, fin, id);
+    return info.changes > 0;
+  }
+
+  /** Tâches encore EN VOL d'un projet (productions comme relectures). */
+  compterTachesVivantes(projectId: string): number {
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM tasks
+          WHERE projectId = ? AND status IN ('pending', 'ready', 'assigned', 'running')`,
+      )
+      .get(projectId) as { n: number };
+    return row.n;
+  }
+
+  /**
+   * La plus ancienne naissance parmi les tâches EN VOL nées APRÈS `apres` (la
+   * clôture précédente) : elle date l'ouverture d'une mission. Une tâche
+   * ranimée (relance de l'Evaluator, remise en file) garde sa vieille date de
+   * naissance — la compter tirerait la mission dans le passé de la précédente.
+   */
+  naissanceDesNouvelles(projectId: string, apres: number): number | null {
+    const row = this.db
+      .prepare(
+        `SELECT MIN(createdAt) AS a FROM tasks
+          WHERE projectId = ? AND createdAt > ?
+            AND status IN ('pending', 'ready', 'assigned', 'running')`,
+      )
+      .get(projectId, apres) as { a: number | null };
+    return row.a;
+  }
+
+  /**
+   * Les tâches d'un projet qu'une mission ouverte doit compter : celles EN VOL
+   * (une ranimée y revient), et celles NÉES depuis `nees` (une tâche née et
+   * finie entre deux relevés).
+   */
+  tachesAMissionner(projectId: string, nees: number): string[] {
+    return (
+      this.db
+        .prepare(
+          `SELECT id FROM tasks WHERE projectId = ?
+             AND (status IN ('pending', 'ready', 'assigned', 'running') OR createdAt >= ?)`,
+        )
+        .all(projectId, nees) as Array<{ id: string }>
+    ).map((r) => r.id);
+  }
+
+  /** Les tâches de ces identifiants, dans l'ordre de création. Bornée. */
+  tachesParIds(ids: readonly string[], limite = 1_000): Task[] {
+    if (ids.length === 0) return [];
+    return (
+      this.db
+        .prepare(
+          `SELECT * FROM tasks WHERE id IN (SELECT value FROM json_each(?))
+            ORDER BY createdAt, id LIMIT ?`,
+        )
+        .all(JSON.stringify(ids), limite) as TaskRow[]
+    ).map(rowToTask);
+  }
+
+  /** Parmi ces tâches, celles qui sont des relectures ou des délégations. */
+  rolesDesTaches(taskIds: readonly string[]): { relectures: Set<string>; deleguees: Set<string> } {
+    const relectures = new Set<string>();
+    const deleguees = new Set<string>();
+    for (let i = 0; i < taskIds.length; i += 500) {
+      const lot = taskIds.slice(i, i + 500);
+      const marques = lot.map(() => '?').join(', ');
+      for (const r of this.db
+        .prepare(
+          `SELECT relectureTaskId AS id FROM contre_expertises WHERE relectureTaskId IN (${marques})`,
+        )
+        .all(...lot) as Array<{ id: string }>) {
+        relectures.add(r.id);
+      }
+      for (const r of this.db
+        .prepare(`SELECT childTaskId AS id FROM task_delegations WHERE childTaskId IN (${marques})`)
+        .all(...lot) as Array<{ id: string }>) {
+        deleguees.add(r.id);
+      }
+    }
+    return { relectures, deleguees };
+  }
+
+  /**
+   * Le journal d'une mission : les événements de ces types, postérieurs à
+   * `depuisId`, qui visent l'une de SES tâches (`membres`) — ou, sans tâche,
+   * ce projet. Un événement d'une tâche du projet qui n'est pas de la mission
+   * (la relecture tardive d'une mission précédente) n'y entre pas. En ordre
+   * chronologique, borné.
+   */
+  evenementsDeMission(
+    projectId: string,
+    membres: readonly string[],
+    depuisId: number,
+    types: readonly string[],
+    limite = 10_000,
+  ): HiveEvent[] {
+    if (types.length === 0) return [];
+    const marques = types.map(() => '?').join(', ');
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM (
+           SELECT *,
+             json_extract(CASE WHEN json_valid(payload) THEN payload ELSE '{}' END, '$.taskId') AS tache,
+             json_extract(CASE WHEN json_valid(payload) THEN payload ELSE '{}' END, '$.projectId') AS projet
+             FROM events WHERE id > ? AND type IN (${marques})
+         )
+          WHERE (tache IS NULL AND projet = ?)
+             OR tache IN (SELECT value FROM json_each(?))
+          ORDER BY id LIMIT ?`,
+      )
+      .all(
+        depuisId,
+        ...types,
+        projectId,
+        JSON.stringify(membres),
+        Math.max(1, Math.min(limite, 10_000)),
+      ) as EventRow[];
+    const evenements: HiveEvent[] = [];
+    for (const row of rows) {
+      try {
+        evenements.push({
+          id: row.id,
+          ts: row.ts,
+          type: row.type,
+          payload: JSON.parse(row.payload) as Record<string, unknown>,
+        });
+      } catch {
+        // Payload illisible : ignoré, jamais deviné.
+      }
+    }
+    return evenements;
+  }
+
+  /** Le dernier événement journalisé STRICTEMENT avant `ts` (0 : aucun). */
+  dernierEvenementAvant(ts: number): number {
+    const row = this.db.prepare('SELECT MAX(id) AS id FROM events WHERE ts < ?').get(ts) as {
+      id: number | null;
+    };
+    return row.id ?? 0;
+  }
+
+  /**
+   * Le journal couvre-t-il encore tout ce qui suit `depuisId` ? Faux dès que
+   * l'élagage a emporté un événement postérieur — l'instantané le dira.
+   */
+  journalCouvre(depuisId: number): boolean {
+    if (!this.journalElague()) return true;
+    const row = this.db.prepare('SELECT MIN(id) AS id FROM events').get() as { id: number | null };
+    // Journal vide après élagage : rien de ce qui suit `depuisId` n'est garanti.
+    return row.id !== null && row.id <= depuisId + 1;
+  }
+
+  /** Marque un projet comme le rejeu d'une mission. */
+  inscrireRejeu(r: Omit<RejeuRange, 'missionRejeu'>): void {
+    this.db
+      .prepare(
+        `INSERT INTO rejeux (projectId, missionSource, projetSource, surcharges, genomeFige, creePar, creeA)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        r.projectId,
+        r.missionSource,
+        r.projetSource,
+        JSON.stringify(r.surcharges),
+        r.genomeFige ? JSON.stringify(r.genomeFige) : null,
+        r.creePar,
+        r.creeA,
+      );
+  }
+
+  /** La marque de rejeu d'un projet, ou `null` : un projet ordinaire. */
+  rejeuDuProjet(projectId: string): RejeuRange | null {
+    const row = this.db.prepare('SELECT * FROM rejeux WHERE projectId = ?').get(projectId) as
+      | (Omit<RejeuRange, 'surcharges' | 'genomeFige'> & {
+          surcharges: string;
+          genomeFige: string | null;
+        })
+      | undefined;
+    if (!row) return null;
+    let surcharges: Record<string, unknown> = {};
+    try {
+      const brut = JSON.parse(row.surcharges) as unknown;
+      if (typeof brut === 'object' && brut !== null && !Array.isArray(brut)) {
+        surcharges = brut as Record<string, unknown>;
+      }
+    } catch {
+      // Illisible : aucune surcharge — le rejeu reste un rejeu (simulé), sans plus.
+    }
+    let genomeFige: AntecedentFige[] | null = null;
+    try {
+      const brut = row.genomeFige === null ? null : (JSON.parse(row.genomeFige) as unknown);
+      // UNE entrée illisible rend TOUT le Genome illisible : en retirer une
+      // rejouerait sous un vécu qui n'a jamais existé, sans le dire.
+      const lisible = (a: unknown): a is AntecedentFige =>
+        typeof a === 'object' &&
+        a !== null &&
+        ((a as AntecedentFige).niveau === 'modele' || (a as AntecedentFige).niveau === 'bras') &&
+        typeof (a as AntecedentFige).cle === 'string' &&
+        typeof (a as AntecedentFige).essais === 'number' &&
+        typeof (a as AntecedentFige).recompenseTotale === 'number';
+      if (Array.isArray(brut) && brut.every(lisible)) genomeFige = brut;
+    } catch {
+      // Illisible : `null` — l'ordonnanceur le dit (le rejeu figé attend).
+    }
+    return {
+      ...row,
+      genomeFige,
+      surcharges: {
+        ...(typeof surcharges.modele === 'string' ? { modele: surcharges.modele } : {}),
+        ...(typeof surcharges.politiqueRoutage === 'string'
+          ? { politiqueRoutage: surcharges.politiqueRoutage }
+          : {}),
+        ...(typeof surcharges.autonomie === 'string' ? { autonomie: surcharges.autonomie } : {}),
+      },
+    };
+  }
+
+  /** Les projets qui rejouent une mission. */
+  rejeuxDeMission(missionId: string): string[] {
+    return (
+      this.db
+        .prepare('SELECT projectId FROM rejeux WHERE missionSource = ? ORDER BY creeA, projectId')
+        .all(missionId) as Array<{ projectId: string }>
+    ).map((r) => r.projectId);
+  }
+
+  /**
+   * Range une action irréversible d'un rejeu. Rend `true` si elle est NEUVE :
+   * une demande répétée (la ruche autonome redemande à chaque cycle) n'est
+   * rangée — et journalisée — qu'une fois.
+   */
+  enregistrerActionRejeu(
+    a: { projectId: string; genre: string; cible: string; issue: 'simulee' | 'validee' },
+    parUserId: string | null,
+    now = Date.now(),
+  ): boolean {
+    const info = this.db
+      .prepare(
+        `INSERT OR IGNORE INTO rejeux_actions (projectId, genre, cible, issue, parUserId, creeA)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(a.projectId, a.genre, a.cible, a.issue, parUserId, now);
+    return info.changes > 0;
+  }
+
+  /** Cette action de rejeu est-elle déjà rangée (simulée ou validée) ? */
+  actionRejeuRangee(projectId: string, genre: string, cible: string): boolean {
+    return (
+      this.db
+        .prepare(
+          'SELECT 1 FROM rejeux_actions WHERE projectId = ? AND genre = ? AND cible = ? LIMIT 1',
+        )
+        .get(projectId, genre, cible) !== undefined
+    );
+  }
+
+  /** Les actions irréversibles d'un rejeu, dans l'ordre où elles ont été demandées. */
+  actionsDuRejeu(projectId: string, limite = 200): ActionRejeuRangee[] {
+    return this.db
+      .prepare(
+        `SELECT genre, cible, issue, parUserId, creeA FROM rejeux_actions
+          WHERE projectId = ? ORDER BY id LIMIT ?`,
+      )
+      .all(projectId, Math.max(1, Math.min(limite, 1_000))) as ActionRejeuRangee[];
+  }
+
+  /**
+   * La borne des trois tables des missions (règle 3).
+   *
+   *   · une ligne dont le projet a disparu ne désigne plus rien ;
+   *   · au-delà de `parProjet` missions, les plus vieilles partent — SAUF
+   *     celles qu'un rejeu encore rangé compare (sa source, et la première
+   *     mission du rejeu lui-même) : la comparaison dirait « élaguée » — ou
+   *     pire, comparerait une autre mission — alors que l'humain la regarde ;
+   *   · l'appartenance d'une mission partie part avec elle ;
+   *   · les actions d'un rejeu au-delà de `parProjet * 10` partent, les plus
+   *     anciennes d'abord.
+   */
+  pruneMissions(parProjet: number): number {
+    return this.enTransaction(() => {
+      let n = 0;
+      n += this.db
+        .prepare('DELETE FROM rejeux WHERE projectId NOT IN (SELECT id FROM projects)')
+        .run().changes;
+      n += this.db
+        .prepare('DELETE FROM rejeux_actions WHERE projectId NOT IN (SELECT id FROM projects)')
+        .run().changes;
+      n += this.db
+        .prepare(
+          `DELETE FROM missions
+            WHERE projectId NOT IN (SELECT id FROM projects)
+              AND id NOT IN (SELECT missionSource FROM rejeux)
+              AND id NOT IN (SELECT missionRejeu FROM rejeux WHERE missionRejeu IS NOT NULL)`,
+        )
+        .run().changes;
+      n += this.db
+        .prepare(
+          `DELETE FROM missions WHERE id IN (
+             SELECT id FROM (
+               SELECT id, ROW_NUMBER() OVER (PARTITION BY projectId ORDER BY ouverteA DESC, id) AS rang
+                 FROM missions
+             ) WHERE rang > ?
+           ) AND id NOT IN (SELECT missionSource FROM rejeux)
+             AND id NOT IN (SELECT missionRejeu FROM rejeux WHERE missionRejeu IS NOT NULL)`,
+        )
+        .run(Math.max(1, parProjet)).changes;
+      n += this.db
+        .prepare('DELETE FROM missions_taches WHERE missionId NOT IN (SELECT id FROM missions)')
+        .run().changes;
+      n += this.db
+        .prepare(
+          `DELETE FROM rejeux_actions WHERE id IN (
+             SELECT id FROM (
+               SELECT id, ROW_NUMBER() OVER (PARTITION BY projectId ORDER BY id DESC) AS rang
+                 FROM rejeux_actions
+             ) WHERE rang > ?
+           )`,
+        )
+        .run(Math.max(1, parProjet) * 10).changes;
+      return n;
+    });
   }
 
   // ─── Snapshot ──────────────────────────────────────────────────────────────

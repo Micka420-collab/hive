@@ -211,6 +211,21 @@ import {
   livrer,
   nomBranche,
 } from './livraison.js';
+import {
+  comparaisonDuRejeu,
+  creerRejeu,
+  creerSuiviMissions,
+  lireInstantaneBrut,
+  MISSIONS_PAR_PROJET,
+  porteIrreversible,
+  resumeDeMission,
+} from './missions.js';
+import {
+  MAX_NOM_MODELE,
+  POLITIQUES_ROUTAGE,
+  validerSurcharges,
+} from '../shared/mission-rejouable.js';
+import type { GenreIrreversible } from '../shared/mission-rejouable.js';
 import { briefDeIssue, motifRefus, recevable } from '../shared/issue.js';
 import {
   CONSEIL_CONFLIT,
@@ -1359,7 +1374,22 @@ async function monterReine(
     broadcastEvent({ type: 'event', event });
     relayerConnecteurs(event);
     stateDirty = true;
+    suiviMissions.suivre(event);
   };
+
+  /**
+   * Les missions rejouables (`missions.ts`) : le suivi écoute LES DEUX flux —
+   * celui du serveur, ci-dessus, et celui de l'ordonnanceur (`onEvent`) — parce
+   * que les naissances et les issues de tâches passent par l'un OU l'autre.
+   * Il ne fait que lire et programmer : jamais d'écriture depuis l'intérieur
+   * d'une transaction de résultat.
+   */
+  const suiviMissions = creerSuiviMissions({
+    store,
+    emitEvent,
+    signaler: (err) =>
+      app.log.warn({ err: err instanceof Error ? err.message : String(err) }, 'mission'),
+  });
 
   /**
    * Relit le journal après l'id `depuis`, par pages de 1 000 (le plafond du
@@ -3187,6 +3217,7 @@ async function monterReine(
       broadcastEvent({ type: 'event', event });
       relayerConnecteurs(event);
       stateDirty = true;
+      suiviMissions.suivre(event);
       // Le planificateur clôt lui aussi des relectures sans avis (famille
       // absente, agent qui ne démarre nulle part, annulation) : même suite
       // que pour celles que le hub clôt en recevant leur résultat.
@@ -4312,6 +4343,58 @@ async function monterReine(
     }
     return refuserReglage(reply, verdict);
   };
+
+  // ─── LA PORTE DES REJEUX (missions.ts, `porteIrreversible`) ───────────────
+  //
+  // Chaque route qui écrit HORS de la ruche la franchit juste avant l'effet,
+  // toutes ses autres portes passées. Sur un projet de rejeu, l'effet est
+  // SIMULÉ et rangé ; il n'est exécuté que si la demande porte
+  // `validerRejeu: true` ET vient d'un compte — une validation humaine
+  // explicite, que le jeton de ruche (sur chaque machine) ne vaut pas.
+
+  /** Le champ de corps qui porte la validation humaine d'un effet de rejeu. */
+  const SCHEMA_VALIDER_REJEU = { type: 'boolean' } as const;
+
+  const porteRejeu = (
+    req: FastifyRequest,
+    projectId: string,
+    genre: GenreIrreversible,
+    cible: string,
+    valider: boolean | undefined,
+  ): 'executer' | 'simulee' =>
+    porteIrreversible(store, emitEvent, {
+      projectId,
+      genre,
+      cible,
+      validation:
+        valider === true && authorizedUser(req) ? { userId: (req as AuthRequest).userId! } : null,
+    });
+
+  /**
+   * La réponse d'un effet simulé : ce qui serait parti, et comment le valider.
+   *
+   * 409 et un `code`, PAS un 200 : chaque client de ces routes (tableau de
+   * bord, CLI) lit un 2xx comme « c'est parti » et cherche le `mergeId`, le
+   * numéro de PR ou l'URL d'un effet qui n'a pas eu lieu — un suivi qui
+   * tournait dix minutes dans le vide, un « PR #undefined ouverte ». Un refus
+   * DIT « rien n'est parti », et `error` porte la marche à suivre à tout
+   * client qui affiche les refus, même s'il ignore les rejeux.
+   */
+  const repondreSimulee = (
+    reply: FastifyReply,
+    genre: GenreIrreversible,
+    cible: string,
+  ): FastifyReply =>
+    reply.code(409).send({
+      code: 'rejeu_simule',
+      simule: true,
+      genre,
+      cible,
+      error:
+        'Projet de rejeu : cette action irréversible est simulée et rangée, pas exécutée. ' +
+        'Pour l’exécuter vraiment, validez-la depuis un compte (« Valider pour de vrai », ' +
+        'ou --valider-rejeu en ligne de commande).',
+    });
 
   /**
    * Une TÂCHE qu'on peut engager, ou pourquoi pas.
@@ -6670,7 +6753,9 @@ async function monterReine(
     };
   };
 
-  app.post<{ Body: { taskId: string; base?: string; forcer?: { raison: string } } }>(
+  app.post<{
+    Body: { taskId: string; base?: string; forcer?: { raison: string }; validerRejeu?: boolean };
+  }>(
     '/api/livraison',
     {
       schema: {
@@ -6682,6 +6767,7 @@ async function monterReine(
             taskId: { type: 'string', minLength: 1, maxLength: 200 },
             base: { type: 'string', minLength: 1, maxLength: 200 },
             forcer: SCHEMA_FORCER,
+            validerRejeu: SCHEMA_VALIDER_REJEU,
           },
         },
       },
@@ -6768,6 +6854,17 @@ async function monterReine(
       const cible = cibleDeLivraison(task.id, depot);
       if ('refus' in cible) return reply.code(409).send({ error: cible.refus });
       const { branche, suite } = cible;
+      // Un REJEU ne pousse ni n'ouvre de pull request de lui-même — ni n'avance
+      // celle qu'il reprend (#518) : toutes les portes ci-dessus sont passées,
+      // la livraison serait partie — elle est simulée, rangée, et rien n'est
+      // réservé.
+      const cibleRejeu = `${depot}:${branche}`;
+      if (
+        porteRejeu(req, task.projectId, 'livraison_pr', cibleRejeu, req.body.validerRejeu) ===
+        'simulee'
+      ) {
+        return repondreSimulee(reply, 'livraison_pr', cibleRejeu);
+      }
       // Réserver AVANT le premier await GitHub. Une contre-revue peut terminer
       // pendant la création de la branche ; sans cette ligne, le Scheduler
       // verrait encore « aucune livraison » et relancerait cette production.
@@ -6870,6 +6967,7 @@ async function monterReine(
       pr: number;
       methode?: 'merge' | 'squash' | 'rebase';
       forcer?: { raison: string };
+      validerRejeu?: boolean;
     };
   }>(
     '/api/livraison/fusion',
@@ -6884,6 +6982,7 @@ async function monterReine(
             pr: { type: 'integer', minimum: 1 },
             methode: { type: 'string', enum: ['merge', 'squash', 'rebase'] },
             forcer: SCHEMA_FORCER,
+            validerRejeu: SCHEMA_VALIDER_REJEU,
           },
         },
       },
@@ -6937,6 +7036,15 @@ async function monterReine(
         req.body.forcer,
       );
       if ('refus' in passage) return passage.refus;
+      const cibleFusion = `${depot}#${req.body.pr}`;
+      const porte = porteRejeu(
+        req,
+        req.body.projectId,
+        'fusion_pr',
+        cibleFusion,
+        req.body.validerRejeu,
+      );
+      if (porte === 'simulee') return repondreSimulee(reply, 'fusion_pr', cibleFusion);
       passage.journaliser();
 
       try {
@@ -7099,6 +7207,16 @@ async function monterReine(
     return { ok: verdict.issue === 'appliquer', motif: verdict.motif };
   };
 
+  /** Cette production d'un projet de rejeu a-t-elle déjà sa livraison simulée ? */
+  const livraisonSimulee = (projectId: string, taskId: string): boolean => {
+    const depot = depotDepuisUrl(store.getProject(projectId)?.repoUrl ?? null);
+    return (
+      depot !== null &&
+      store.rejeuDuProjet(projectId) !== null &&
+      store.actionRejeuRangee(projectId, 'livraison_pr', `${depot}:${nomBranche(taskId)}`)
+    );
+  };
+
   const aLivrer = (projectId: string): Task[] => {
     if (!depotDepuisUrl(store.getProject(projectId)?.repoUrl ?? null)) return [];
     const revues = store.listReviews();
@@ -7112,18 +7230,25 @@ async function monterReine(
     //
     // L'Evaluator passe en DERNIER : il relit inspections, CI et contre-revue,
     // et ne vaut la peine que pour ce qui passe déjà tout le reste.
-    return store
-      .listTasks(projectId)
-      .filter((t) => t.status === 'done' && revues[t.id] === 'approved')
-      .filter((t) => store.getLivraison(t.id) === null)
-      .filter((t) => {
-        const resultats = store.resultsForTask(t.id);
-        const dernier = resultats[resultats.length - 1];
-        return Boolean(dernier?.success && dernier.diff);
-      })
-      .filter((t) => contreVisiteAutorise(t, inspections).ok)
-      .filter((t) => arretEvaluator(t) === null)
-      .sort((a, b) => a.createdAt - b.createdAt);
+    return (
+      store
+        .listTasks(projectId)
+        .filter((t) => t.status === 'done' && revues[t.id] === 'approved')
+        .filter((t) => store.getLivraison(t.id) === null)
+        // Sur un REJEU, une livraison déjà simulée n'est plus « à livrer » : elle
+        // n'a rien réservé, et la recompter ferait choisir `livrer` à la ruche
+        // autonome à chaque cycle, pour re-simuler la même — sans jamais
+        // butiner, planifier ni délibérer.
+        .filter((t) => !livraisonSimulee(projectId, t.id))
+        .filter((t) => {
+          const resultats = store.resultsForTask(t.id);
+          const dernier = resultats[resultats.length - 1];
+          return Boolean(dernier?.success && dernier.diff);
+        })
+        .filter((t) => contreVisiteAutorise(t, inspections).ok)
+        .filter((t) => arretEvaluator(t) === null)
+        .sort((a, b) => a.createdAt - b.createdAt)
+    );
   };
 
   /**
@@ -7131,8 +7256,17 @@ async function monterReine(
    * dont l'Evaluator laisse partir TOUT le travail (cf. `arretDePR`). Les
    * autres restent ouvertes et attendent un humain — une file, pas un arrêt.
    */
-  const livraisonsAFusionner = (projectId: string) =>
-    store.listLivraisons(projectId, 'ouverte').filter((l) => arretDePR(l) === null);
+  const livraisonsAFusionner = (projectId: string) => {
+    // Même règle que `aLivrer` : sur un rejeu, une fusion déjà simulée ne
+    // compte plus — sinon la ruche la re-simulerait à chaque cycle.
+    const rejeu = store.rejeuDuProjet(projectId) !== null;
+    return store
+      .listLivraisons(projectId, 'ouverte')
+      .filter((l) => arretDePR(l) === null)
+      .filter(
+        (l) => !rejeu || !store.actionRejeuRangee(projectId, 'fusion_pr', `${l.depot}#${l.pr}`),
+      );
+  };
 
   /** L'état de gouvernance d'un projet, et ce que la ruche ferait maintenant. */
   const etatEssaim = (projectId: string): EtatEssaim & { decision: Decision } => {
@@ -7796,6 +7930,8 @@ async function monterReine(
         const depot = depotDepuisUrl(projet?.repoUrl ?? null);
         if (!depot) return 'projet sans dépôt GitHub';
 
+        // Un rejeu simule chaque livraison UNE fois : `aLivrer` écarte celles
+        // dont la simulation est déjà rangée.
         const task = aLivrer(projectId)[0];
         if (!task) return 'aucune production relue à livrer';
 
@@ -7828,6 +7964,19 @@ async function monterReine(
         }
         const { branche, suite } = cible;
         const issueOrigine = store.issueDeTache(task.id);
+        // LA RUCHE AUTONOME D'UN REJEU NE LIVRE JAMAIS : elle n'a pas de compte,
+        // donc pas de validation humaine — la livraison est simulée et rangée
+        // (une fois ; les cycles suivants la retrouvent déjà rangée).
+        if (
+          porteIrreversible(store, emitEvent, {
+            projectId,
+            genre: 'livraison_pr',
+            cible: `${depot}:${branche}`,
+            validation: null,
+          }) === 'simulee'
+        ) {
+          return `rejeu : pull request de « ${task.title} » simulée, non ouverte`;
+        }
         let reservation: ReservationLivraison | null = null;
 
         try {
@@ -7927,6 +8076,16 @@ async function monterReine(
             : 'aucune pull request ouverte';
         }
 
+        if (
+          porteIrreversible(store, emitEvent, {
+            projectId,
+            genre: 'fusion_pr',
+            cible: `${ouverte.depot}#${ouverte.pr}`,
+            validation: null,
+          }) === 'simulee'
+        ) {
+          return `rejeu : fusion de la pull request #${ouverte.pr} simulée, non faite`;
+        }
         try {
           const r = await fusionner(
             { jeton: jetonGithub, ...(apiGithub ? { api: apiGithub } : {}) },
@@ -9212,6 +9371,195 @@ async function monterReine(
       // `since` absent ou nul : le direct, c'est-à-dire la fenêtre ; un curseur
       // explicite est suivi tel quel, preuves retenues comprises.
       return buildTimeline(lireJournal(req.query.since || undefined, req.query.limit));
+    },
+  );
+
+  // ─── LES MISSIONS REJOUABLES ET LE TIME TRAVEL ─────────────────────────────
+  //
+  // Le Time-Lapse ci-dessus REMONTE le temps ; ces routes le REJOUENT. Une
+  // mission (un épisode d'activité d'un projet) garde deux instantanés, pris
+  // par la Reine (`missions.ts`) ; on la relance dans un projet NEUF avec un
+  // autre modèle, une autre politique de routage ou un autre niveau
+  // d'autonomie, puis on compare, sur les seules données déclarées.
+  //
+  // LIRE est la porte des lectures (`lectureProjetPermise`). REJOUER est un
+  // RÉGLAGE (`proprieteProjetPermise`) : le rejeu hérite du dépôt, des
+  // garde-fous et d'un niveau d'autonomie — ce que seul qui répond du projet
+  // décide. Toutes ses actions irréversibles passent ensuite la porte des
+  // rejeux (`porteRejeu`) : simulées, jamais exécutées sans un humain.
+
+  const SCHEMA_PARAMS_MISSION = {
+    type: 'object',
+    required: ['projectId', 'missionId'],
+    properties: {
+      projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id },
+      missionId: { type: 'string', minLength: 1, maxLength: LIMITS.id },
+    },
+  } as const;
+
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/missions',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId'],
+          properties: { projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      const lecture = lectureProjetPermise(req, req.params.projectId);
+      if (lecture !== 'permis') return refuserProjet(reply, lecture);
+      const project = store.getProject(req.params.projectId);
+      if (!project) return reply.code(404).send({ error: 'projet inconnu' });
+      const now = Date.now();
+      const missions = store.listMissions(project.id, 50).map((m) => {
+        const debut = lireInstantaneBrut(m.debut);
+        return {
+          id: m.id,
+          ouverteA: m.ouverteA,
+          closeA: m.closeA,
+          // `null` : instantané illisible (autre version) — dit, pas deviné.
+          tachesPlan: debut ? debut.plan.taches.filter((t) => t.genre === 'plan').length : null,
+          rejouable: debut ? debut.plan.complet : false,
+          manques: debut?.plan.manques ?? [],
+          resume: resumeDeMission(store, m, now)?.resume ?? null,
+          // Seuls les rejeux que CE lecteur peut ouvrir : l'identifiant d'un
+          // projet qu'il ne voit pas n'a rien à faire dans sa réponse.
+          rejeux: store
+            .rejeuxDeMission(m.id)
+            .filter((id) => lectureProjetPermise(req, id) === 'permis'),
+        };
+      });
+      const rejeu = store.rejeuDuProjet(project.id);
+      return reply.send({
+        missions,
+        rejeu: rejeu
+          ? {
+              missionSource: rejeu.missionSource,
+              projetSource:
+                lectureProjetPermise(req, rejeu.projetSource) === 'permis'
+                  ? rejeu.projetSource
+                  : null,
+              surcharges: rejeu.surcharges,
+              creeA: rejeu.creeA,
+              actions: store.actionsDuRejeu(project.id).map((a) => ({
+                genre: a.genre,
+                cible: a.cible,
+                issue: a.issue,
+                creeA: a.creeA,
+              })),
+            }
+          : null,
+      });
+    },
+  );
+
+  app.get<{ Params: { projectId: string; missionId: string } }>(
+    '/api/projects/:projectId/missions/:missionId',
+    { schema: { params: SCHEMA_PARAMS_MISSION } },
+    async (req, reply) => {
+      const lecture = lectureProjetPermise(req, req.params.projectId);
+      if (lecture !== 'permis') return refuserProjet(reply, lecture);
+      const mission = store.getMission(req.params.missionId);
+      // Une mission d'un AUTRE projet a la forme de l'inexistence.
+      if (!mission || mission.projectId !== req.params.projectId) {
+        return reply.code(404).send({ error: 'mission inconnue' });
+      }
+      return reply.send({
+        id: mission.id,
+        ouverteA: mission.ouverteA,
+        closeA: mission.closeA,
+        debut: lireInstantaneBrut(mission.debut),
+        fin: mission.fin === null ? null : lireInstantaneBrut(mission.fin),
+      });
+    },
+  );
+
+  app.post<{
+    Params: { projectId: string; missionId: string };
+    Body: { modele?: string; politiqueRoutage?: string; autonomie?: string };
+  }>(
+    '/api/projects/:projectId/missions/:missionId/rejouer',
+    {
+      schema: {
+        params: SCHEMA_PARAMS_MISSION,
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            modele: { type: 'string', minLength: 1, maxLength: MAX_NOM_MODELE },
+            politiqueRoutage: { type: 'string', enum: [...POLITIQUES_ROUTAGE] },
+            autonomie: { type: 'string', enum: [...NIVEAUX] },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const reglage = proprieteProjetPermise(req, req.params.projectId);
+      if (reglage !== 'permis') return refuserReglage(reply, reglage);
+      const mission = store.getMission(req.params.missionId);
+      if (!mission || mission.projectId !== req.params.projectId) {
+        return reply.code(404).send({ error: 'mission inconnue' });
+      }
+      const surcharges = validerSurcharges(
+        {
+          ...(req.body?.modele !== undefined ? { modele: req.body.modele } : {}),
+          ...(req.body?.politiqueRoutage !== undefined
+            ? { politiqueRoutage: req.body.politiqueRoutage as (typeof POLITIQUES_ROUTAGE)[number] }
+            : {}),
+          ...(req.body?.autonomie !== undefined ? { autonomie: req.body.autonomie } : {}),
+        },
+        NIVEAUX,
+      );
+      if (!surcharges.ok) return reply.code(400).send({ error: surcharges.motif });
+      const cree = creerRejeu(store, emitEvent, {
+        mission,
+        surcharges: surcharges.surcharges,
+        parUserId: authorizedUser(req) ? ((req as AuthRequest).userId ?? null) : null,
+      });
+      if (!cree.ok) {
+        return reply.code(409).send({ code: cree.refus.code, error: cree.refus.motif });
+      }
+      scheduler.tick();
+      stateDirty = true;
+      return reply.code(201).send({
+        projet: cree.projet,
+        taches: cree.taches,
+        surcharges: surcharges.surcharges,
+      });
+    },
+  );
+
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/rejeu/comparaison',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId'],
+          properties: { projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      const lecture = lectureProjetPermise(req, req.params.projectId);
+      if (lecture !== 'permis') return refuserProjet(reply, lecture);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const r = comparaisonDuRejeu(store, req.params.projectId);
+      if (r.ok) return reply.send(r.comparaison);
+      const dit: Record<typeof r.code, [number, string]> = {
+        pas_un_rejeu: [404, 'ce projet n’est pas le rejeu d’une mission'],
+        source_elaguee: [409, 'la mission source n’est plus rangée : rien à comparer'],
+        rejeu_pas_parti: [409, 'le rejeu n’a pas encore ouvert sa mission'],
+        rejeu_elague: [409, 'la mission du rejeu n’est plus rangée : rien à comparer'],
+        illisible: [409, 'un des deux instantanés est illisible (autre version)'],
+      };
+      const [code, error] = dit[r.code];
+      return reply.code(code).send({ code: r.code, error });
     },
   );
 
@@ -10625,7 +10973,12 @@ async function monterReine(
   // résultat, sur /merge/result, et au journal (`livraison_locale`).
   app.post<{
     Params: { projectId: string };
-    Body: CorpsMerge & { pousser?: boolean; forcer?: { raison: string }; prolonger?: number };
+    Body: CorpsMerge & {
+      pousser?: boolean;
+      forcer?: { raison: string };
+      prolonger?: number;
+      validerRejeu?: boolean;
+    };
   }>(
     '/api/projects/:projectId/livraison-locale',
     {
@@ -10645,6 +10998,7 @@ async function monterReine(
             // Le NUMÉRO d'une livraison de cette mission à prolonger — jamais un
             // nom de branche : le nœud le compose depuis le projet.
             prolonger: { type: 'integer', minimum: 1, maximum: NUMERO_MAX_MISSION },
+            validerRejeu: SCHEMA_VALIDER_REJEU,
           },
         },
       },
@@ -10753,6 +11107,18 @@ async function monterReine(
       }
 
       const pousser = req.body.pousser === true;
+      // Un REJEU ne commite pas sur le dépôt du projet — et ne pousse pas —
+      // de lui-même : la livraison serait partie, elle est simulée et rangée.
+      const genreLocal: GenreIrreversible = pousser ? 'poussee' : 'livraison_locale';
+      const cibleLocale = `${cleDepot(repoUrl) ?? project.id}:${integration.order.join(',')}`.slice(
+        0,
+        500,
+      );
+      if (
+        porteRejeu(req, project.id, genreLocal, cibleLocale, req.body.validerRejeu) === 'simulee'
+      ) {
+        return repondreSimulee(reply, genreLocal, cibleLocale);
+      }
       const confie = confierMerge({ ...project, repoUrl }, integration.diffs, req.body, {
         pousser,
         provenance: verdicts.map((v) => ({
@@ -11071,14 +11437,20 @@ async function monterReine(
     },
   );
 
-  app.post<{ Params: { projectId: string; workflowId: string }; Body: { ref?: string } }>(
+  app.post<{
+    Params: { projectId: string; workflowId: string };
+    Body: { ref?: string; validerRejeu?: boolean };
+  }>(
     '/api/projects/:projectId/workflows/:workflowId/run',
     {
       schema: {
         body: {
           type: 'object',
           additionalProperties: false,
-          properties: { ref: { type: 'string', minLength: 1, maxLength: 255 } },
+          properties: {
+            ref: { type: 'string', minLength: 1, maxLength: 255 },
+            validerRejeu: SCHEMA_VALIDER_REJEU,
+          },
         },
       },
     },
@@ -11105,6 +11477,14 @@ async function monterReine(
       // une autre, d'où le réglage. Un défaut DOCUMENTÉ vaut mieux qu'une
       // devinette silencieuse.
       const ref = req.body?.ref ?? 'main';
+      // Un workflow tourne CHEZ GitHub, avec ses secrets et ses déploiements :
+      // un rejeu ne le déclenche pas de lui-même.
+      const cibleWorkflow = `${fullName}#${id}@${ref}`;
+      if (
+        porteRejeu(req, project.id, 'workflow', cibleWorkflow, req.body?.validerRejeu) === 'simulee'
+      ) {
+        return repondreSimulee(reply, 'workflow', cibleWorkflow);
+      }
       try {
         const lance = await lancerWorkflow(
           { jeton: jetonGithub, ...(apiGithub ? { api: apiGithub } : {}) },
@@ -14907,6 +15287,9 @@ async function monterReine(
     // câblée avec sa table (règle 3) et placée APRÈS `pruneTasks`.
     etape('pruneTachesOmbre', () => store.pruneTachesOmbre());
     etape('pruneConseils', () => store.pruneConseils(CONSEILS_CONSERVES));
+    // Les missions rejouables : orphelines, puis au-delà du plafond par
+    // projet — sauf celles qu'un rejeu rangé compare encore.
+    etape('pruneMissions', () => store.pruneMissions(MISSIONS_PAR_PROJET));
     // ─── LE JOURNAL A UN SEUL PROPRIÉTAIRE DE RÉTENTION ────────────────────
     //
     // Fenêtre pour les traces, vie de la tâche pour les preuves, plafond en

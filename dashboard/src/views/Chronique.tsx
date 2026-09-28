@@ -362,6 +362,12 @@ export default function Chronique({ events }: ViewProps) {
                           {frame.tasks[s]}
                         </span>
                       ))}
+                      {/* L'annulée à part : la table la range en « échouée »,
+                          le journal dit qu'on l'a arrêtée — la frise le montre. */}
+                      <span className="badge cancelled" title={t('annulée', 'cancelled')}>
+                        <span className="badge-icon">⊘</span>
+                        {frame.tasks.cancelled ?? 0}
+                      </span>
                     </div>
                   </>
                 )}

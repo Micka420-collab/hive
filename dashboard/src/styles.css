@@ -894,6 +894,11 @@ h3 {
   color: var(--red);
   border-color: var(--red);
 }
+/* Arrêtée, pas ratée : même famille terminale, sans le rouge de l'échec. */
+.badge.cancelled {
+  color: var(--muted);
+  border-style: dashed;
+}
 
 @keyframes pulse {
   50% {

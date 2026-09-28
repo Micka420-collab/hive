@@ -1052,3 +1052,24 @@ export function repriseHorsEchecs<N extends NoeudOffrant>(
     ecartes: [...offerts].filter((m) => echoues.has(m)).sort(),
   };
 }
+
+// ─── Le modèle IMPOSÉ d'un rejeu de mission ──────────────────────────────────
+//
+// Un rejeu (`shared/mission-rejouable.ts`) peut demander « la même mission,
+// mais avec CE modèle ». Ce n'est pas une préférence que l'Aiguillage pèserait
+// contre son vécu : c'est la question que pose le rejeu, et y répondre avec un
+// autre modèle rendrait la comparaison fausse sans le dire.
+
+/**
+ * Les nœuds qui offrent `modele`, chacun réduit à CE seul modèle : l'Aiguillage
+ * ne peut plus élire que lui, et le nœud le lancera (`--model`). Aucun nœud ne
+ * l'offre : liste vide — la tâche attend, elle ne part pas sur un autre modèle.
+ */
+export function porteursDuModele<N extends NoeudOffrant>(
+  noeuds: readonly N[],
+  modele: string,
+): N[] {
+  return noeuds
+    .filter((n) => (n.modeles ?? []).includes(modele))
+    .map((n) => ({ ...n, modeles: [modele] }));
+}

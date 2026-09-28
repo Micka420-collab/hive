@@ -17,11 +17,23 @@ export interface ReplayNode {
   status: 'online' | 'offline';
 }
 
+/**
+ * Le statut d'une tâche TEL QUE LE JOURNAL LE RACONTE.
+ *
+ * La table `tasks` n'a pas de statut « annulée » : une annulation y range la
+ * tâche en `failed`, parce que l'ordonnanceur n'a besoin que de savoir qu'elle
+ * ne partira plus. Un AUDIT, lui, a besoin de la différence — « l'agent a
+ * échoué » et « un humain (ou une course gagnée ailleurs) l'a arrêtée » ne
+ * disent pas la même chose d'un modèle, d'une mission ou d'un rejeu. Le
+ * journal la porte (`task_cancelled`) ; la reconstruction la garde.
+ */
+export type StatutReconstruit = TaskStatus | 'cancelled';
+
 /** Tâche reconstruite à un instant T. */
 export interface ReplayTask {
   id: string;
   title: string;
-  status: TaskStatus;
+  status: StatutReconstruit;
   nodeId: string | null;
   attempts: number;
 }
@@ -34,7 +46,7 @@ export interface ReplayState {
 }
 
 /** Comptage des tâches par statut — utile pour une frise compacte. */
-export type TaskCounts = Record<TaskStatus, number>;
+export type TaskCounts = Record<StatutReconstruit, number>;
 
 /** Une image de la frise : l'état résumé APRÈS application de l'événement `eventId`. */
 export interface ReplayFrame {
@@ -55,7 +67,15 @@ export interface ReplayResult {
   eventCount: number;
 }
 
-const TASK_STATUSES: TaskStatus[] = ['pending', 'ready', 'assigned', 'running', 'done', 'failed'];
+export const STATUTS_RECONSTRUITS: readonly StatutReconstruit[] = [
+  'pending',
+  'ready',
+  'assigned',
+  'running',
+  'done',
+  'failed',
+  'cancelled',
+];
 
 /** État vide de départ (ruche jamais démarrée). */
 export function initialReplayState(): ReplayState {
@@ -72,7 +92,7 @@ function str(payload: Record<string, unknown>, key: string): string | null {
 function setTaskStatus(
   state: ReplayState,
   taskId: string | null,
-  status: TaskStatus,
+  status: StatutReconstruit,
   nodeId: string | null | undefined = undefined,
 ): void {
   if (!taskId) return;
@@ -147,9 +167,12 @@ export function applyEvent(state: ReplayState, event: HiveEvent): ReplayState {
       break;
     }
     case 'task_cancelled':
-      // Pas de statut « cancelled » dans le modèle : une tâche annulée quitte le
-      // circuit actif — on la reconstruit comme « failed » (terminale) pour la frise.
-      setTaskStatus(state, taskId, 'failed', null);
+      // SON PROPRE STATUT, terminal. Reconstruite en « failed » (le rangement
+      // de la table), une annulation humaine se lisait dans la frise — et dans
+      // l'instantané de fin d'une mission, qui replie ce même journal — comme
+      // un échec de l'agent : un rejeu comparé à l'original aurait compté
+      // contre le modèle ce qu'un humain avait arrêté.
+      setTaskStatus(state, taskId, 'cancelled', null);
       break;
 
     case 'node_registered':
@@ -186,7 +209,7 @@ export function applyEvent(state: ReplayState, event: HiveEvent): ReplayState {
 
 /** Compte les tâches par statut dans l'état reconstruit. */
 export function countTasks(state: ReplayState): TaskCounts {
-  const counts = Object.fromEntries(TASK_STATUSES.map((s) => [s, 0])) as TaskCounts;
+  const counts = Object.fromEntries(STATUTS_RECONSTRUITS.map((s) => [s, 0])) as TaskCounts;
   for (const task of state.tasks.values()) counts[task.status] += 1;
   return counts;
 }

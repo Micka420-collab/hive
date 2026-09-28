@@ -80,7 +80,23 @@ describe('reconstructAt', () => {
     );
     const state = reconstructAt(evs);
     expect(state.nodes.get('n1')?.status).toBe('offline');
-    expect(state.tasks.get('t1')?.status).toBe('failed');
+    expect(state.tasks.get('t1')?.status).toBe('cancelled');
+  });
+
+  it('une annulation n’est PAS un échec : chacune son compte, dans la frise comme à la fin', () => {
+    // La table range l'annulée en `failed` ; l'audit ne doit pas le recopier.
+    // Compter l'arrêt humain comme un échec de l'agent fausserait toute
+    // comparaison entre une mission et son rejeu.
+    const evs = journal(
+      ['task_created', { taskId: 't1', title: 'échoue' }],
+      ['task_created', { taskId: 't2', title: 'annulée' }],
+      ['task_failed', { taskId: 't1', reason: 'max_attempts' }],
+      ['task_cancelled', { taskId: 't2', reason: 'user' }],
+    );
+    expect(countTasks(reconstructAt(evs))).toMatchObject({ failed: 1, cancelled: 1 });
+    const fin = buildTimeline(evs).finalCounts;
+    expect(fin?.tasks.failed).toBe(1);
+    expect(fin?.tasks.cancelled).toBe(1);
   });
 
   it('ignore les événements informatifs et inconnus sans erreur', () => {
