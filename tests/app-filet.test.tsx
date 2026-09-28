@@ -284,7 +284,10 @@ describe('la coquille au clavier et au lecteur d’écran', () => {
   it('LA RUCHE PEUPLÉE N’EMBOÎTE PAS UN SECOND `main`', async () => {
     const { connectFeed } = await import('../dashboard/src/api');
     let poser: ((s: never) => void) | null = null;
-    vi.mocked(connectFeed).mockImplementation((h) => {
+    // `Once` : ce flux-ci ne livre rien de lui-même. Laissé en place, il
+    // passait au test suivant (ordre mélangé), dont la coquille attendait
+    // alors pour toujours son premier instantané.
+    vi.mocked(connectFeed).mockImplementationOnce((h) => {
       poser = h.onState as (s: never) => void;
       return { close: () => {}, reconnecter: () => {} };
     });
