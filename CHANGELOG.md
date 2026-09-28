@@ -174,8 +174,8 @@ un projet, `HIVE_TRUST_PROXY`, domaine Cloud dans `.env`…).
 - **Une approbation Slack prend le chemin canonique de la revue humaine** ;
   supprimer un projet efface aussi son journal de connecteurs, ses instantanés
   de missions, ses bras d'Aiguillage et ses tâches d'ombre (#530).
-- **Un nœud qui ne peut pas travailler ne s'annonce pas** ; `hive doctor` compte
-  14 causes de panne et dit la glibc trop ancienne (#505, #531).
+- **Un nœud qui ne peut pas travailler ne s'annonce pas** ; `hive doctor` dit
+  aussi une glibc trop ancienne (#505, #531).
 
 ### Corrections
 
