@@ -474,7 +474,7 @@ describe('le partage, côté écran', () => {
   });
 
   it('ON PEUT CRÉER ET RÉVOQUER UN LIEN DEPUIS LA VUE PROJETS', () => {
-    const vue = lire('../dashboard/src/views/Projets.tsx');
+    const vue = lire('../dashboard/src/views/projets/Equipe.tsx');
     expect(vue).toContain('creerPartage');
     expect(vue).toContain('revoquerPartage');
     // Le jeton n'est rendu QU'UNE FOIS : un écran qui ne l'affiche pas à ce
