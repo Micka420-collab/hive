@@ -184,8 +184,11 @@ async function sonderBacCodex(
   const sonde = await runCommand('codex', argvSondeBacCodex(execution), ctx, SONDE_BAC_CODEX_MS);
   if (sonde.success) return undefined;
   // `codex` ne s'est pas lancé du tout : ce n'est pas son bac, c'est le binaire
-  // — l'échec d'infra de l'exécuteur, que le nœud sait déjà traiter.
-  if (sonde.infra) return sonde;
+  // — l'échec d'infra de l'exécuteur, que le nœud sait déjà traiter. Et une
+  // tâche annulée pendant la sonde se dit annulée (`LIGNE_ANNULATION`, jamais
+  // `infra`) : la lire ici comme un bac cassé soufflerait un remède à un poste
+  // qui n'a rien.
+  if (sonde.infra || ctx.signal.aborted) return sonde;
   const dit = texteDEchec(sonde.logs)
     .split('\n')
     .map((l) => l.trim())
