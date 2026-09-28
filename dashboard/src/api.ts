@@ -860,7 +860,11 @@ export interface DecouverteReseau {
   /** L'empreinte PUBLIQUE de cette ruche, telle que la machine l'affichera. */
   empreinte: string;
   decouverts: Decouvert[];
-  /** Éteinte : comment l'allumer, ou pourquoi la prise ne s'est pas ouverte. */
+  /** Éteinte : pourquoi, en code fermé — l'écran traduit d'après lui. */
+  motif?: 'eteinte' | 'indisponible';
+  /** `indisponible` : le message brut de la prise (jamais traduit : il vient du système). */
+  cause?: string;
+  /** Éteinte : comment l'allumer, ou pourquoi la prise ne s'est pas ouverte (en français). */
   conseil?: string;
   /** Allumée, mais aucune machine ne pourra joindre la ruche (écoute locale). */
   injoignable?: string;

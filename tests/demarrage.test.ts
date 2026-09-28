@@ -565,6 +565,19 @@ describe('UNE OUVRIÈRE PAR AGENT DÉTECTÉ — la relecture croisée sur le che
     const sans = await planPour(['claude-code', 'codex']);
     expect(sans.mode === 'par-agent' && sans.modelesDeclaresPar).toBeNull();
   });
+
+  it('UNE SEULE se signale sur le réseau local — les ajoutées reçoivent `HIVE_DECOUVRABLE` VIDE', async () => {
+    // Chaque ouvrière qui se signale ouvre sa propre annonce : la Reine
+    // listait la même machine une fois par famille, chacune se disant
+    // porteuse de tous les agents. Vide et posé, pour que `loadEnvFile` ne
+    // rende pas le `HIVE_DECOUVRABLE=1` du `.env`.
+    const [premiere, codex, cursor] = ouvrieresDe(
+      await planPour(['claude-code', 'codex', 'cursor'], { HIVE_DECOUVRABLE: '1' }),
+    );
+    expect(premiere?.env).not.toHaveProperty('HIVE_DECOUVRABLE');
+    expect(codex?.env).toHaveProperty('HIVE_DECOUVRABLE', '');
+    expect(cursor?.env).toHaveProperty('HIVE_DECOUVRABLE', '');
+  });
 });
 
 describe('UNE OUVRIÈRE PAR AGENT — ce que le lanceur en fait', () => {

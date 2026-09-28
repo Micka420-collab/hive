@@ -91,15 +91,35 @@ export function DecouvertsReseau() {
     <section className="decouverte" aria-labelledby="decouverte-titre">
       <h3 id="decouverte-titre">{t('Sur votre réseau local', 'On your local network')}</h3>
 
+      {/* Les phrases de la Reine sont en français ; l'anglais se REFAIT ici
+          d'après le code fermé (`motif`), comme `InvitePanel` pour
+          `injoignable` — jamais de français brut sous l'interface anglaise. */}
       {!d.active && (
         <p className="invite-note">
-          {d.conseil ??
-            t('Découverte du réseau local désactivée.', 'Local network discovery is turned off.')}
+          {d.motif === 'indisponible'
+            ? t(
+                d.conseil ?? `Découverte demandée mais indisponible : ${d.cause ?? '?'}`,
+                `Discovery was requested but is unavailable: ${d.cause ?? '?'}`,
+              )
+            : t(
+                d.conseil ?? 'Découverte du réseau local désactivée.',
+                'To list the machines on your local network: set HIVE_DECOUVERTE=1 in the ' +
+                  'hive’s .env, then restart it. On the machine to add: hive join --decouvrable ' +
+                  '(or HIVE_DECOUVRABLE=1).',
+              )}
         </p>
       )}
 
       {/* Allumée, mais vouée à l'échec : le dire AVANT le clic. */}
-      {d.active && d.injoignable && <p className="modal-error">{d.injoignable}</p>}
+      {d.active && d.injoignable && (
+        <p className="modal-error">
+          {t(
+            d.injoignable,
+            'This hive only listens on its own machine: a discovered machine could not reach ' +
+              'the advertised address. Restart it with HIVE_HOST=0.0.0.0 to open the local network.',
+          )}
+        </p>
+      )}
 
       {/* Juste après un accueil, la liste se vide : c'est le succès qui parle,
           pas « aucune machine en attente » — qui se lirait comme un échec. */}
@@ -178,15 +198,18 @@ export function DecouvertsReseau() {
 
       {(chezNous.length > 0 || ailleurs.length > 0) && (
         <p className="invite-note">
+          {/* « Se DISENT » : l'empreinte est publique, n'importe qui sur le
+              segment peut la recopier. C'est une annonce, pas un constat —
+              seule la liste des ouvrières connectées fait foi. */}
           {chezNous.length > 0 &&
             t(
-              `Déjà dans cette ruche : ${chezNous.map((m) => m.nom).join(', ')}.`,
-              `Already in this hive: ${chezNous.map((m) => m.nom).join(', ')}.`,
+              `Se disent membres de cette ruche : ${chezNous.map((m) => m.nom).join(', ')}.`,
+              `Announcing themselves as members of this hive: ${chezNous.map((m) => m.nom).join(', ')}.`,
             )}{' '}
           {ailleurs.length > 0 &&
             t(
-              `Membres d’une autre ruche : ${ailleurs.length}.`,
-              `Members of another hive: ${ailleurs.length}.`,
+              `Se disent membres d’une autre ruche : ${ailleurs.length}.`,
+              `Announcing another hive: ${ailleurs.length}.`,
             )}
         </p>
       )}

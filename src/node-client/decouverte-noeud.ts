@@ -4,10 +4,16 @@
 //
 //   · `Annonceur` : le répondeur mDNS. Il dit `_hive._tcp` avec les seuls
 //     champs du contrat (`textesAnnonce`), répond aux questions de la Reine, et
-//     dit ADIEU en partant (TTL 0) pour disparaître des écrans tout de suite ;
+//     dit ADIEU en partant (TTL 0) pour disparaître des écrans tout de suite.
+//     PTR, SRV et TXT, et RIEN D'AUTRE : aucun enregistrement A. La Reine prend
+//     l'adresse d'où vient le paquet (`decouverte-reseau.ts`), jamais celle
+//     qu'il prétend ; des A auraient donc seulement diffusé à tout le segment
+//     CHAQUE adresse de la machine — VPN, Tailscale, pont Docker, second
+//     réseau —, soit sa topologie, pour un contrat qui promet « rien d'autre » ;
 //   · `ecouterOffres` : la petite porte HTTP où une Reine dépose une offre
 //     scellée. Elle n'ouvre que ce qui porte le code affiché ici ;
-//   · `attendreUneRuche` : les deux, assemblés pour `hive join --decouvrable` ;
+//   · `attendreUneRuche` : les deux, assemblés pour `hive join --decouvrable`,
+//     qui se TAIT dès l'offre acceptée (voir sa note) ;
 //   · `Signalement` : un nœud déjà membre qui se dit membre (`main.ts`,
 //     `join.ts`), une seule copie pour les deux portes — elles ont déjà
 //     divergé plus d'une fois.
@@ -33,9 +39,11 @@ import type { AddressInfo } from 'node:net';
 import { randomInt } from 'node:crypto';
 import { libelleAgent } from '../shared/agent-libelle.js';
 import {
+  INTERVALLE_OFFRES_MS,
   SERVICE_HIVE,
   TTL_ANNONCE_S,
   formaterCode,
+  formeOffre,
   ipv4Privee,
   ouvrirOffre,
   textesAnnonce,
@@ -47,7 +55,7 @@ import { formaterEmpreinte } from '../shared/empreinte-ruche.js';
 import { plateformeDepuis } from '../shared/machine.js';
 import { TYPE_MDNS, decoderPaquet, encoderPaquet, memeNom } from '../shared/mdns.js';
 import type { EnregistrementMdns } from '../shared/mdns.js';
-import { interfacesLocales, ouvrirTransportUdp } from '../shared/mdns-reseau.js';
+import { ouvrirTransportUdp } from '../shared/mdns-reseau.js';
 import type { TransportMdns } from '../shared/mdns-reseau.js';
 import type { InventaireAgents } from './agent-detect.js';
 
@@ -82,8 +90,6 @@ export interface OptionsAnnonceur {
   transport: TransportMdns;
   /** Défaut : tiré au sort (`tirerInstance`). */
   instance?: string;
-  /** Les IPv4 des enregistrements A. Défaut : `interfacesLocales()`. */
-  adresses?: () => readonly string[];
 }
 
 export class Annonceur {
@@ -102,6 +108,10 @@ export class Annonceur {
     return `${this.instance}.${SERVICE_HIVE}`;
   }
 
+  /**
+   * La cible du SRV. Jamais résolue par la Reine (elle prend l'adresse source),
+   * et donc jamais accompagnée d'un enregistrement A : voir l'en-tête.
+   */
   private get nomHote(): string {
     return `${this.instance}.local`;
   }
@@ -138,11 +148,10 @@ export class Annonceur {
     additionnels: EnregistrementMdns[];
   } {
     const annonce = this.annonce!;
-    const adresses = (this.o.adresses ?? interfacesLocales)();
     return {
       // Le PTR est PARTAGÉ (toutes les machines Hive répondent au même nom de
-      // service) : jamais de bit cache-flush dessus. SRV, TXT et A sont à nous
-      // seuls : ils le portent (RFC 6762 § 10.2).
+      // service) : jamais de bit cache-flush dessus. SRV et TXT sont à nous
+      // seuls : ils le portent (RFC 6762 § 10.2). Pas d'A : voir l'en-tête.
       reponses: [{ type: 'PTR', nom: SERVICE_HIVE, ttl, vidage: false, cible: this.nomInstance }],
       additionnels: [
         {
@@ -156,13 +165,6 @@ export class Annonceur {
           cible: this.nomHote,
         },
         { type: 'TXT', nom: this.nomInstance, ttl, vidage: true, textes: textesAnnonce(annonce) },
-        ...adresses.map((adresse): EnregistrementMdns => ({
-          type: 'A',
-          nom: this.nomHote,
-          ttl,
-          vidage: true,
-          adresse,
-        })),
       ],
     };
   }
@@ -180,13 +182,11 @@ export class Annonceur {
     // Nos propres annonces nous reviennent (boucle multicast) : on ne répond
     // qu'aux QUESTIONS.
     if (!p || p.reponse) return;
-    const { PTR, SRV, TXT, A, ANY } = TYPE_MDNS;
+    const { PTR, SRV, TXT, ANY } = TYPE_MDNS;
     const concerne = p.questions.some(
       (q) =>
         (memeNom(q.nom, SERVICE_HIVE) && (q.type === PTR || q.type === ANY)) ||
-        (memeNom(q.nom, this.nomInstance) &&
-          (q.type === SRV || q.type === TXT || q.type === ANY)) ||
-        (memeNom(q.nom, this.nomHote) && (q.type === A || q.type === ANY)),
+        (memeNom(q.nom, this.nomInstance) && (q.type === SRV || q.type === TXT || q.type === ANY)),
     );
     if (!concerne) return;
     // UNE réponse par seconde au plus (RFC 6762 § 6) : un voisin qui nous
@@ -215,8 +215,6 @@ export type ReponseOffre =
 
 /** Essais de code tolérés avant d'en tirer un nouveau. */
 export const ESSAIS_PAR_CODE = 5;
-/** Espacement minimal entre deux offres : chaque ouverture coûte un PBKDF2 à cette machine. */
-export const INTERVALLE_OFFRES_MS = 500;
 /** Au-delà, une offre n'en est pas une (une offre réelle fait moins de 2 Ko). */
 const CORPS_MAX = 8 * 1024;
 
@@ -307,9 +305,18 @@ export async function ecouterOffres(o: OptionsEcoute): Promise<EcouteOffres> {
     } catch {
       brut = null;
     }
+    // Ce qui n'a pas la forme d'une offre ne coûte rien à juger : il ne prend
+    // PAS le tour ci-dessous. Sinon un voisin qui poste des ordures deux fois
+    // par seconde renverrait « trop tôt » à chaque offre de la vraie Reine.
+    if (!formeOffre(brut)) return repondre(res, 'offre_illisible');
     // UNE ouverture à la fois, et pas plus d'une par demi-seconde : chacune
     // coûte 100 000 itérations de PBKDF2, et cette porte est ouverte à tout le
     // segment. Sans ça, un voisin occuperait un cœur de la machine à volonté.
+    // Limite assumée : le tour et les cinq essais par code sont GLOBAUX, pas
+    // par source. Un voisin qui envoie des offres BIEN FORMÉES sous un faux
+    // code peut retarder l'accueil et faire tourner le code ; il ne peut pas
+    // entrer. Un budget par adresse lui rendrait cinq essais par adresse
+    // usurpée — deviner deviendrait moins cher, ce qui est pire.
     const maintenant = Date.now();
     if (accueillie) return repondre(res, 'deja_accueillie');
     if (enCours || maintenant - dernierEssai < INTERVALLE_OFFRES_MS) {
@@ -378,8 +385,6 @@ export interface OptionsAttente {
   ouvrirTransport?: () => Promise<TransportMdns>;
   /** Où ouvrir la porte d'offre. Défaut : toutes les interfaces. */
   hote?: string;
-  /** Les IPv4 annoncées (enregistrements A). Défaut : `interfacesLocales()`. */
-  adresses?: () => readonly string[];
   /** Où parler à l'humain. Défaut : la console. */
   dire?: (ligne: string) => void;
   /** Abandon (Ctrl+C) : l'adieu part, la porte se ferme, la promesse est rejetée. */
@@ -414,22 +419,24 @@ export function lignesCode(code: string, motif: 'premier' | 'renouvele'): string
 }
 
 /**
- * `hive join --decouvrable` : se signaler, attendre, et rendre le billet de la
- * première ruche qui présente le bon code. L'annonceur reste vivant : la
- * machine se dit aussitôt MEMBRE de la ruche qui l'accueille, et c'est à
- * l'appelant de le refermer à l'arrêt.
+ * `hive join --decouvrable` : se signaler, attendre, et rendre le contenu de
+ * l'offre de la première ruche qui présente le bon code.
+ *
+ * L'offre acceptée, la machine dit ADIEU et se tait — elle ne se dit PAS
+ * membre. Elle ne l'est pas encore : il lui reste à échanger son billet, à
+ * passer ses prérequis, à s'inscrire, et chacune de ces étapes peut encore
+ * échouer (et sortir sans adieu). La dire membre ici, c'était la montrer
+ * « dans cette ruche » deux minutes durant alors qu'elle n'y était jamais
+ * entrée. C'est `Signalement.inscrit`, au vrai `registered`, qui la dit
+ * membre ; l'adieu, lui, la retire aussitôt de la liste des « libres », dont
+ * la porte vient de se refermer.
  *
  * LÈVE si la prise mDNS ne s'ouvre pas — `join.ts` le dit, et renvoie au billet.
  */
-export async function attendreUneRuche(
-  o: OptionsAttente,
-): Promise<{ contenu: ContenuOffre; annonceur: Annonceur }> {
+export async function attendreUneRuche(o: OptionsAttente): Promise<{ contenu: ContenuOffre }> {
   const dire = o.dire ?? ((l: string) => console.log(l));
   const transport = await (o.ouvrirTransport ?? (() => ouvrirTransportUdp()))();
-  const annonceur = new Annonceur({
-    transport,
-    ...(o.adresses ? { adresses: o.adresses } : {}),
-  });
+  const annonceur = new Annonceur({ transport });
   let porte: EcouteOffres;
   try {
     for (const l of lignesAnnonce(o.annonce)) dire(l);
@@ -456,16 +463,11 @@ export async function attendreUneRuche(
       });
       porte.offre.then(resoudre, rejeter);
     });
-  } catch (err) {
+  } finally {
     await Promise.all([porte.fermer(), annonceur.arreter()]);
-    throw err;
   }
-  await porte.fermer();
-  // Aussitôt MEMBRE : laisser « libre » avec une porte refermée ferait
-  // proposer « Rejoindre » vers une machine qui ne répond plus.
-  annonceur.annoncer({ ...o.annonce, etat: 'membre', ruche: contenu.ruche }, 0);
   dire(`   ✔ Offre reçue — ruche d'empreinte ${formaterEmpreinte(contenu.ruche)}.`);
-  return { contenu, annonceur };
+  return { contenu };
 }
 
 // ─── Le membre qui se signale ────────────────────────────────────────────────
@@ -482,20 +484,17 @@ export async function attendreUneRuche(
  * jamais sa ruche n'a rien à dire au réseau.
  */
 export class Signalement {
-  private annonceur: Annonceur | null;
+  private annonceur: Annonceur | null = null;
   private ouverture: Promise<Annonceur | null> | null = null;
   private arrete = false;
 
   constructor(
     private readonly base: AnnonceBase,
     private readonly o: {
-      annonceur?: Annonceur | null;
       ouvrirTransport?: () => Promise<TransportMdns>;
       dire?: (ligne: string) => void;
     } = {},
-  ) {
-    this.annonceur = o.annonceur ?? null;
-  }
+  ) {}
 
   /** À appeler à chaque `registered` (`NodeClientOptions.surInscription`). */
   inscrit(ruche: string | null): void {

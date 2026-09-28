@@ -11,7 +11,7 @@ import { ouvrirTransportUdp } from '../../src/shared/mdns-reseau.js';
 const port = Number(process.argv[2]);
 const delai = Number(process.argv[3] ?? '1500');
 const transport = await ouvrirTransportUdp({ port, interfaces: ['127.0.0.1'], signaler: () => {} });
-const annonceur = new Annonceur({ transport, adresses: () => ['127.0.0.1'] });
+const annonceur = new Annonceur({ transport });
 annonceur.annoncer(
   { nom: 'Sortante', os: 'linux', agents: [], places: 1, etat: 'libre', ruche: null },
   4244,

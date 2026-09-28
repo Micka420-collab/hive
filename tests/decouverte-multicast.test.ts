@@ -27,7 +27,7 @@ import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { TestContext } from 'vitest';
 import { Annonceur } from '../src/node-client/decouverte-noeud.js';
 import { DecouverteReseau } from '../src/orchestrator/decouverte-reseau.js';
-import { deriverEmpreinte } from '../src/orchestrator/auth.js';
+import { tirerEmpreinte } from '../src/shared/empreinte-ruche.js';
 import { ouvrirTransportUdp } from '../src/shared/mdns-reseau.js';
 import type { TransportMdns } from '../src/shared/mdns-reseau.js';
 import { attendreQue } from './harnais-mdns.js';
@@ -38,7 +38,7 @@ const TSX = path.join(RACINE, 'node_modules', 'tsx', 'dist', 'cli.mjs');
 const QUI_SORT = path.join(RACINE, 'tests', 'fixtures', 'annonceur-qui-sort.ts');
 
 const BOUCLE = ['127.0.0.1'];
-const RUCHE = deriverEmpreinte('secret-de-la-ruche-du-banc-multicast');
+const RUCHE = tirerEmpreinte();
 
 /** Un port UDP libre à cet instant — partagé ensuite par les deux prises (`reuseAddr`). */
 function portUdpLibre(): Promise<number> {
@@ -103,7 +103,7 @@ async function reine(port: number): Promise<DecouverteReseau> {
 
 async function machine(port: number): Promise<Annonceur> {
   const transport: TransportMdns = await ouvrir(port);
-  const a = new Annonceur({ transport, adresses: () => BOUCLE });
+  const a = new Annonceur({ transport });
   aFermer.push(() => a.arreter());
   return a;
 }

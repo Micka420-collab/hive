@@ -13,6 +13,9 @@
 // une autre machine ne s'ouvrent pas — et qu'une offre malformée ne coûte pas
 // un PBKDF2 à la machine.
 
+import { mkdtempSync, rmSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 // Le PBKDF2 de l'offre, COMPTÉ plutôt que chronométré : « une offre malformée
@@ -44,11 +47,16 @@ import {
   tirerInstance,
 } from '../src/shared/decouverte.js';
 import type { Annonce } from '../src/shared/decouverte.js';
-import { EMPREINTE_RE, estEmpreinte, formaterEmpreinte } from '../src/shared/empreinte-ruche.js';
-import { deriverEmpreinte } from '../src/orchestrator/auth.js';
+import {
+  EMPREINTE_RE,
+  estEmpreinte,
+  formaterEmpreinte,
+  tirerEmpreinte,
+} from '../src/shared/empreinte-ruche.js';
+import { HiveStore } from '../src/orchestrator/store.js';
 import { encoderBillet } from '../src/shared/acces.js';
 
-const RUCHE = deriverEmpreinte('secret-de-session-de-la-ruche-de-test');
+const RUCHE = tirerEmpreinte();
 
 const LIBRE: Annonce = {
   nom: 'Le portable de Camille',
@@ -177,16 +185,39 @@ describe('le code d’appariement', () => {
 });
 
 describe('l’empreinte de la ruche', () => {
-  it('stable pour un secret, différente pour un autre, et sans rien du secret', () => {
-    const secret = 'un-secret-de-session-assez-long-pour-la-garde';
-    const e = deriverEmpreinte(secret);
+  it('tirée au sort, au bon format — et le format est gardé', () => {
+    const e = tirerEmpreinte();
     expect(e).toMatch(EMPREINTE_RE);
-    expect(deriverEmpreinte(secret)).toBe(e);
-    expect(deriverEmpreinte(`${secret}!`)).not.toBe(e);
-    expect(secret).not.toContain(e);
+    expect(tirerEmpreinte(), '60 bits de hasard : deux tirages ne se croisent pas').not.toBe(e);
     expect(formaterEmpreinte(e)).toMatch(/^.{4}-.{4}-.{4}$/);
     expect(estEmpreinte(e)).toBe(true);
     expect(estEmpreinte('ABCDEFGHJKMN'), 'majuscules : pas le format').toBe(false);
+  });
+
+  it('RANGÉE dans la base : stable d’un redémarrage à l’autre, et sans rien du secret de session', () => {
+    // Elle était dérivée de HIVE_JWT_SECRET, et diffusée : un vérificateur
+    // hors ligne du secret qui signe les sessions d'administration. Deux
+    // ruches sous le MÊME secret ont désormais deux empreintes.
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'hive-empreinte-'));
+    try {
+      const chemin = path.join(dir, 'ruche.db');
+      const a = new HiveStore(chemin);
+      const e = a.empreinteRuche(tirerEmpreinte);
+      expect(e).toMatch(EMPREINTE_RE);
+      expect(
+        a.empreinteRuche(() => 'jamais-ecrite'),
+        'jamais réécrite',
+      ).toBe(e);
+      a.close();
+      const relue = new HiveStore(chemin);
+      expect(relue.empreinteRuche(tirerEmpreinte), 'même base, même ruche').toBe(e);
+      relue.close();
+      const voisine = new HiveStore(path.join(dir, 'voisine.db'));
+      expect(voisine.empreinteRuche(tirerEmpreinte), 'autre base, autre ruche').not.toBe(e);
+      voisine.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 5 });
+    }
   });
 });
 

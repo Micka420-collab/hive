@@ -24,12 +24,12 @@ import {
 import type { EcouteOffres } from '../src/node-client/decouverte-noeud.js';
 import { encoderBillet } from '../src/shared/acces.js';
 import { scellerOffre } from '../src/shared/decouverte.js';
-import { deriverEmpreinte } from '../src/orchestrator/auth.js';
+import { tirerEmpreinte } from '../src/shared/empreinte-ruche.js';
 import { TYPE_MDNS, decoderPaquet, encoderPaquet } from '../src/shared/mdns.js';
-import { busMdns } from './harnais-mdns.js';
+import { attendreQue, busMdns } from './harnais-mdns.js';
 
 const INSTANCE = 'hive-0a1b2c3d';
-const RUCHE = deriverEmpreinte('secret-de-la-ruche-du-banc-de-la-porte');
+const RUCHE = tirerEmpreinte();
 const BILLET = encoderBillet({
   url: 'ws://192.168.1.10:7777/ws',
   id: 'bil-porte',
@@ -93,6 +93,20 @@ describe('la porte d’offre', () => {
     expect(statuts).toEqual([403, 429]);
   });
 
+  it('ce qui n’est pas une offre NE PREND PAS le tour : la vraie offre juste derrière passe', async () => {
+    // Un voisin qui poste des ordures deux fois par seconde renvoyait sinon
+    // « trop tôt » à chaque offre de la vraie Reine — l'accueil bloqué sans
+    // qu'un seul code soit essayé.
+    const { p, url } = await porte();
+    expect((await poster(url, { v: 1 })).status).toBe(400);
+    const bon = await scellerOffre({ billet: BILLET, ruche: RUCHE }, 'K7Q29XMP', INSTANCE);
+    expect(
+      (await poster(url, bon)).status,
+      'aucune attente imposée par une requête illisible',
+    ).toBe(200);
+    await p.offre;
+  });
+
   it(`${ESSAIS_PAR_CODE} refus : nouveau code, dit sur la machine, et l’ancien est brûlé`, async () => {
     const { p, url, dits } = await porte();
     const faux = await scellerOffre({ billet: BILLET, ruche: RUCHE }, 'AAAAAAAA', INSTANCE);
@@ -141,14 +155,17 @@ describe('le répondeur', () => {
 
   it('répond à « qui offre _hive._tcp ? », une fois par seconde au plus, et à rien d’autre', async () => {
     const bus = busMdns();
-    const a = new Annonceur({ transport: await bus.prise()(), adresses: () => ['127.0.0.1'] });
+    const a = new Annonceur({ transport: await bus.prise()() });
     const voisin = await bus.prise('192.168.1.40')();
     try {
       a.annoncer(
         { nom: 'Poste', os: 'linux', agents: [], places: 1, etat: 'libre', ruche: null },
         4242,
       );
-      await pause(50);
+      // `annoncer` s'annonce DEUX fois, la seconde une seconde plus tard (RFC
+      // 6762 § 8.3). On compte APRÈS elle : sinon, sur un runner lent, elle
+      // tombait dans la fenêtre et passait pour une réponse de trop.
+      await attendreQue(() => bus.emis.length >= 2, 'les deux annonces spontanées');
       const avant = bus.emis.length;
 
       // Une question qui ne le concerne pas : silence.
@@ -157,7 +174,9 @@ describe('le répondeur', () => {
       expect(bus.emis.length, 'question étrangère : aucune réponse').toBe(avant + 1);
 
       // LA question, en rafale de vingt et une DANS LE MÊME INSTANT : UNE
-      // réponse, avec PTR + SRV + TXT + A. La rafale part d'un bloc — le banc
+      // réponse, avec PTR + SRV + TXT — et AUCUN A : la Reine prend l'adresse
+      // d'où vient le paquet ; des A diffuseraient au segment chaque adresse
+      // de la machine (VPN, pont Docker…), hors contrat. La rafale part d'un bloc — le banc
       // ne dépend donc d'aucune horloge pour tenir « dans la même seconde ».
       for (let i = 0; i < 21; i++) voisin.emettre(question('_hive._tcp.local', TYPE_MDNS.PTR));
       await pause(300);
@@ -166,7 +185,8 @@ describe('le répondeur', () => {
         .map((b) => decoderPaquet(b)!)
         .filter((p) => p.reponse);
       expect(reponses, 'une rafale n’achète pas de réponses').toHaveLength(1);
-      expect(reponses[0]!.additionnels.map((e) => e.type).sort()).toEqual(['A', 'SRV', 'TXT']);
+      expect(reponses[0]!.reponses.map((e) => e.type)).toEqual(['PTR']);
+      expect(reponses[0]!.additionnels.map((e) => e.type).sort()).toEqual(['SRV', 'TXT']);
     } finally {
       await voisin.fermer();
       await a.arreter();
@@ -175,7 +195,7 @@ describe('le répondeur', () => {
 
   it('en partant, il dit ADIEU (TTL 0) — puis se tait', async () => {
     const bus = busMdns();
-    const a = new Annonceur({ transport: await bus.prise()(), adresses: () => ['127.0.0.1'] });
+    const a = new Annonceur({ transport: await bus.prise()() });
     a.annoncer({ nom: 'Poste', os: 'linux', agents: [], places: 1, etat: 'libre', ruche: null }, 1);
     await a.arreter();
     const dernier = decoderPaquet(bus.emis.at(-1)!)!;

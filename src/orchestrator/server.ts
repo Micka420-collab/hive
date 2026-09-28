@@ -24,12 +24,11 @@ import {
   verifyJwt,
   isValidEmail,
   secretJwtDepuisEnv,
-  empreinteDeRuche,
 } from './auth.js';
-import { DecouverteReseau, livrerOffre } from './decouverte-reseau.js';
+import { DecouverteReseau, adresseReineVers, livrerOffre } from './decouverte-reseau.js';
 import type { IssueLivraison } from './decouverte-reseau.js';
 import { TTL_OFFRE_MS, normaliserCode, scellerOffre } from '../shared/decouverte.js';
-import { formaterEmpreinte } from '../shared/empreinte-ruche.js';
+import { formaterEmpreinte, tirerEmpreinte } from '../shared/empreinte-ruche.js';
 import { ouvrirTransportUdp } from '../shared/mdns-reseau.js';
 import type { TransportMdns } from '../shared/mdns-reseau.js';
 import { shellForce } from '../shared/agent-production.js';
@@ -1020,6 +1019,10 @@ async function monterReine(
   verrou: VerrouReine | null,
 ): Promise<HiveServer> {
   const edition = config.edition ?? 'community';
+  // L'empreinte PUBLIQUE de la ruche — tirée une fois, rangée dans la base,
+  // jamais dérivée d'un secret (`shared/empreinte-ruche.ts` dit pourquoi).
+  // Lue une fois ici : elle ne change pas de la vie de la base.
+  const empreinteRuche = store.empreinteRuche(tirerEmpreinte);
   const cheminEnvQueen = config.envPath ?? path.join(process.cwd(), '.env');
 
   const contexteProjetAvecHorizon = (projectId: string, projet: Project): string => {
@@ -4400,15 +4403,22 @@ async function monterReine(
 
   app.get('/api/decouverte', async (req, reply) => {
     if (!exige(req, reply, 'gerer_serveurs')) return reply;
-    const empreinteAffichee = formaterEmpreinte(empreinteDeRuche());
+    const empreinteAffichee = formaterEmpreinte(empreinteRuche);
     if (!decouverte) {
+      // `motif` est un code FERMÉ : l'écran traduit d'après lui (`conseil`
+      // reste la phrase française, pour la CLI et les journaux) ; `cause`
+      // est le message brut de la prise, qu'aucune traduction n'invente.
       return {
         active: false,
         empreinte: empreinteAffichee,
         decouverts: [],
-        conseil: decouverteIndisponible
-          ? `Découverte demandée mais indisponible : ${decouverteIndisponible}`
-          : ACTIVER_DECOUVERTE,
+        ...(decouverteIndisponible
+          ? {
+              motif: 'indisponible',
+              cause: decouverteIndisponible,
+              conseil: `Découverte demandée mais indisponible : ${decouverteIndisponible}`,
+            }
+          : { motif: 'eteinte', conseil: ACTIVER_DECOUVERTE }),
       };
     }
     // L'écran regarde : on repose la question (bornée à une toutes les 5 s).
@@ -4447,6 +4457,13 @@ async function monterReine(
       statut: 409,
       error: 'cette machine a déjà accepté une autre offre',
       detail: () => 'Elle rejoint une ruche en ce moment : attendez qu’elle apparaisse.',
+    },
+    occupee: {
+      statut: 503,
+      error: 'la machine examine une autre offre',
+      detail: () =>
+        'Elle n’ouvre qu’une offre à la fois (chacune lui coûte un calcul de clé) : ' +
+        'réessayez dans un instant, avec le même code.',
     },
     injoignable: {
       statut: 502,
@@ -4521,8 +4538,13 @@ async function monterReine(
       }
       // Mêmes gardes que `POST /api/billets`, SANS l'échappatoire `insecure` :
       // une machine du réseau local n'a aucune raison de rejoindre en clair
-      // par une adresse publique.
-      const wsUrl = config.publicUrl ?? detectLanWsUrl(port);
+      // par une adresse publique. Sans `HIVE_PUBLIC_URL`, l'adresse de la
+      // Reine sur le réseau D'OÙ la machine parle (`adresseReineVers`) :
+      // la première carte venue peut être un pont Docker ou un VPN.
+      const adresseVersCible = adresseReineVers(cible.adresse);
+      const wsUrl =
+        config.publicUrl ??
+        (adresseVersCible ? `ws://${adresseVersCible}:${port}/ws` : detectLanWsUrl(port));
       const transport = jugerTransport(wsUrl);
       if (transport === null || transport === 'clair_public') {
         return reply.code(400).send({
@@ -4560,7 +4582,7 @@ async function monterReine(
         canal: 'reseau_local',
       });
       const offre = await scellerOffre(
-        { billet: encoderBillet({ url: wsUrl, id, secret, label }), ruche: empreinteDeRuche() },
+        { billet: encoderBillet({ url: wsUrl, id, secret, label }), ruche: empreinteRuche },
         code,
         cible.id,
       );
@@ -11396,7 +11418,7 @@ async function monterReine(
             // sans `HIVE_LIVRAISON_POUSSER=1`) ne survit pas dans le hub.
             if (msg.pousseLivraisons === true) nodesQuiPoussent.add(node.id);
             else nodesQuiPoussent.delete(node.id);
-            send(ws, { type: 'registered', nodeId: node.id, ruche: empreinteDeRuche() });
+            send(ws, { type: 'registered', nodeId: node.id, ruche: empreinteRuche });
             // Réconciliation : requalifier les tâches que le nœud ne fait plus
             // tourner (crash/redémarrage), et demander l'abandon de ses zombies
             // (tâches déjà réaffectées ailleurs après un blip réseau).
@@ -12439,7 +12461,7 @@ async function monterReine(
   if (config.decouverte) {
     try {
       const ouvrir = config.decouverte.ouvrirTransport ?? (() => ouvrirTransportUdp());
-      decouverte = new DecouverteReseau(await ouvrir(), { empreinte: empreinteDeRuche });
+      decouverte = new DecouverteReseau(await ouvrir(), { empreinte: () => empreinteRuche });
       decouverte.demarrer();
     } catch (err) {
       decouverteIndisponible = err instanceof Error ? err.message : String(err);

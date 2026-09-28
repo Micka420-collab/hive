@@ -378,7 +378,10 @@ npm run cli -- stings <projectId>            # conflits potentiels du projet
 
 2. **Votre ami** — récupère Hive, lance `npm install`, puis **colle la commande**.
    Son Claude Code / Codex est détecté automatiquement, et sa clé de nœud est
-   mémorisée pour les reconnexions.
+   mémorisée pour les reconnexions — avec l'adresse de la ruche : relancé plus
+   tard, `npm run join` sans rien derrière reprend sa place. La clé ne se
+   présente qu'à la ruche qui l'a délivrée ; le billet d'une autre ruche
+   s'échange normalement.
 
    ```bash
    npm run join -- hive2_eyJ2IjoyLCJ1cmwiOiJ3c3M6…
@@ -436,7 +439,9 @@ s'envoyer un billet à soi-même. Deux réglages, **éteints par défaut** :
 
 3. **Dans le tableau de bord** — **Inviter** → « Sur votre réseau local » →
    **Rejoindre**, puis recopiez le code. La machine échange son billet contre sa
-   clé et apparaît parmi les ouvrières.
+   clé et apparaît parmi les ouvrières. Elle mémorise sa clé et l'adresse de la
+   ruche : relancée (`hive join --decouvrable` ou à nu), elle reprend sa place
+   sans nouvel appariement.
 
 <p align="center">
   <img src="images/decouverte-reseau.png" width="420" alt="Modale Inviter — « Sur votre réseau local » : la machine portable-de-camille (Linux, Claude Code et Codex, 2 places) attend ; le code affiché sur elle est saisi, bouton Accueillir.">
@@ -456,13 +461,18 @@ Ce qui rend ce raccourci sûr :
 
 L'empreinte de la ruche (`abcd-efgh-jkmn`) est affichée dans le tableau de bord
 **et** par la machine quand elle reçoit l'offre : comparez-les, comme on compare
-l'empreinte d'un hôte SSH. Une machine membre qui se signale dit de quelle
-ruche elle est ; la vôtre la montre « déjà dans cette ruche ».
+l'empreinte d'un hôte SSH. Elle est **tirée au sort** au premier démarrage et
+rangée dans la base de la ruche — jamais dérivée d'un secret : elle est
+diffusée, elle ne doit rien apprendre à personne. Une machine membre qui se
+signale dit de quelle ruche elle est ; la vôtre la montre « se disent membres
+de cette ruche » — une annonce, pas une preuve (l'empreinte se recopie) : seule
+la liste des ouvrières connectées fait foi.
 
 > Limites, dites franchement : IPv4 seulement ; mDNS ne franchit pas un routeur
-> (un seul segment réseau) ; un pare-feu qui bloque le port UDP 5353 ou le port
-> d'accueil de la machine empêche la découverte — le tableau de bord le dit
-> (« machine injoignable ») et le billet reste le chemin de repli.
+> (un seul segment réseau). Un pare-feu qui bloque le port UDP 5353 : la machine
+> **n'apparaît pas** dans la liste. Un pare-feu qui bloque le port d'accueil de
+> la machine : elle apparaît, mais **Rejoindre** répond « machine injoignable ».
+> Dans les deux cas, le billet reste le chemin de repli.
 
 ### Se connecter depuis l'extérieur
 

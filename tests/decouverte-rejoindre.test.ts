@@ -33,7 +33,7 @@ import { decoderBillet, urlHttpDeRuche } from '../src/shared/acces.js';
 import { HiveNodeClient } from '../src/node-client/client.js';
 import { Annonceur, Signalement, attendreUneRuche } from '../src/node-client/decouverte-noeud.js';
 import type { AnnonceBase } from '../src/node-client/decouverte-noeud.js';
-import { deriverEmpreinte } from '../src/orchestrator/auth.js';
+import { formaterEmpreinte, tirerEmpreinte } from '../src/shared/empreinte-ruche.js';
 import type { ContenuOffre } from '../src/shared/decouverte.js';
 import { attendreQue, busMdns } from './harnais-mdns.js';
 import type { BusMdns } from './harnais-mdns.js';
@@ -63,6 +63,8 @@ interface Liste {
   active: boolean;
   empreinte: string;
   decouverts: Decouvert[];
+  motif?: string;
+  cause?: string;
   conseil?: string;
   injoignable?: string;
 }
@@ -131,16 +133,14 @@ async function rejoindre(id: string, code: string): Promise<Response> {
 /** Une machine qui attend, comme `hive join --decouvrable` ; son code se lit dans ce qu'elle DIT. */
 function machine(annonce: AnnonceBase = CAMILLE, source = '127.0.0.1') {
   const lignes: string[] = [];
-  let recue: { contenu: ContenuOffre; annonceur: Annonceur } | null = null;
+  let recue: { contenu: ContenuOffre } | null = null;
   const attente = attendreUneRuche({
     annonce,
     ouvrirTransport: bus.prise(source),
     hote: '127.0.0.1',
-    adresses: () => ['127.0.0.1'],
     dire: (l) => lignes.push(l),
   }).then((r) => {
     recue = r;
-    aFermer.push(() => r.annonceur.arreter());
     return r;
   });
   const codes = () =>
@@ -231,10 +231,7 @@ describe('la liste « Sur votre réseau local »', () => {
 
   it('une machine qui PART (adieu) quitte la liste tout de suite', async () => {
     await monter();
-    const annonceur = new Annonceur({
-      transport: await bus.prise()(),
-      adresses: () => ['127.0.0.1'],
-    });
+    const annonceur = new Annonceur({ transport: await bus.prise()() });
     annonceur.annoncer({ ...CAMILLE, nom: 'Partante', etat: 'libre', ruche: null }, 4242);
     await entendue('Partante');
     await annonceur.arreter();
@@ -257,9 +254,18 @@ describe('Rejoindre — le parcours entier, avec le vrai billet', () => {
     const corps = (await r.json()) as { ok: boolean; billetId: string; nom: string };
     expect(corps).toMatchObject({ ok: true, nom: CAMILLE.nom });
 
-    const { contenu, annonceur } = await m.attente;
-    expect(contenu.ruche, 'la machine reçoit l’empreinte de LA ruche qui l’accueille').toBe(
-      deriverEmpreinte(process.env.HIVE_JWT_SECRET!),
+    const { contenu } = await m.attente;
+    expect(
+      formaterEmpreinte(contenu.ruche),
+      'la machine reçoit l’empreinte de LA ruche qui l’accueille — celle que montre l’écran',
+    ).toBe((await liste()).empreinte);
+
+    // L'offre acceptée, la machine dit ADIEU et se TAIT : elle n'est pas
+    // encore membre (billet à échanger, prérequis, inscription — tout peut
+    // encore échouer). Elle ne se dira membre qu'au vrai `registered`.
+    await attendreQue(
+      async () => !(await liste()).decouverts.some((d) => d.nom === CAMILLE.nom),
+      'la machine accueillie a quitté la liste en attendant son inscription',
     );
     const billet = decoderBillet(contenu.billet, LIMITES)!;
     expect(billet.id).toBe(corps.billetId);
@@ -280,7 +286,8 @@ describe('Rejoindre — le parcours entier, avec le vrai billet', () => {
     ).toBeTruthy();
 
     // Et la machine se connecte avec SA clé, puis se dit membre de CETTE ruche.
-    const signalement = new Signalement(CAMILLE, { annonceur });
+    const signalement = new Signalement(CAMILLE, { ouvrirTransport: bus.prise() });
+    aFermer.push(() => signalement.arreter());
     const client = new HiveNodeClient({
       url: billet.url,
       token: cle,
@@ -382,7 +389,7 @@ describe('Rejoindre — le parcours entier, avec le vrai billet', () => {
       { ouvrirTransport: bus.prise() },
     );
     aFermer.push(() => s.arreter());
-    s.inscrit(deriverEmpreinte('le-secret-d-une-toute-autre-ruche-voisine'));
+    s.inscrit(tirerEmpreinte());
     const d = await entendue('Chez la voisine', 'membre');
     expect(d.ruche).toBe('autre_ruche');
     expect((await rejoindre(d.id, 'K7Q2-9XMP')).status).toBe(409);
@@ -393,7 +400,7 @@ describe('Rejoindre — le parcours entier, avec le vrai billet', () => {
     await monter();
     // Une annonce vers une porte où personne n'écoute plus.
     const port = await portLibre();
-    const a = new Annonceur({ transport: await bus.prise()(), adresses: () => ['127.0.0.1'] });
+    const a = new Annonceur({ transport: await bus.prise()() });
     aFermer.push(() => a.arreter());
     a.annoncer({ ...CAMILLE, nom: 'Éteinte', etat: 'libre', ruche: null }, port);
     const d = await entendue('Éteinte');
@@ -431,6 +438,7 @@ describe('les gardes de la ruche elle-même', () => {
     const l = await liste();
     expect(l.active).toBe(false);
     expect(l.decouverts).toEqual([]);
+    expect(l.motif, 'un code fermé, que l’écran traduit').toBe('eteinte');
     expect(l.conseil).toContain('HIVE_DECOUVERTE=1');
     expect(l.conseil).toContain('--decouvrable');
     const r = await rejoindre('hive-00000000', 'K7Q2-9XMP');
@@ -456,6 +464,7 @@ describe('les gardes de la ruche elle-même', () => {
     admin = await inscrire('admin@hive.test');
     const l = await liste();
     expect(l.active).toBe(false);
+    expect(l).toMatchObject({ motif: 'indisponible', cause: 'port 5353 tenu en exclusivité' });
     expect(l.conseil).toContain('port 5353 tenu en exclusivité');
   });
 });

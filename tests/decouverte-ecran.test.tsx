@@ -145,8 +145,10 @@ describe('la section « Sur votre réseau local »', () => {
     expect(ligne).toContain('Claude Code, Codex');
     expect(ligne).toContain('2 places');
     expect(ligne).toContain('192.168.1.23');
-    expect(dom.textContent).toContain('Déjà dans cette ruche : Poste du salon.');
-    expect(dom.textContent).toContain('Membres d’une autre ruche : 1.');
+    // « Se DISENT » : l'empreinte est publique et se recopie — une annonce,
+    // pas un constat. Seule la liste des ouvrières connectées fait foi.
+    expect(dom.textContent).toContain('Se disent membres de cette ruche : Poste du salon.');
+    expect(dom.textContent).toContain('Se disent membres d’une autre ruche : 1.');
     // L'empreinte, pour que l'humain compare avec ce que la machine affiche.
     expect(dom.textContent).toContain('abcd-efgh-jkmn');
   });
@@ -164,20 +166,45 @@ describe('la section « Sur votre réseau local »', () => {
     const accueillir = boutons(dom, 'Accueillir')[0]!;
     expect(accueillir.hasAttribute('disabled'), 'pas d’envoi sans code').toBe(true);
 
-    // Accueillie, la machine se dit membre de CETTE ruche à la relecture suivante.
-    vi.mocked(fetchDecouverte).mockResolvedValue({
-      ...ACTIVE,
-      decouverts: [{ ...CAMILLE, etat: 'membre', ruche: 'cette_ruche', port: 0 }],
-    });
+    // Accueillie, la machine se TAIT jusqu'à son inscription (elle n'est pas
+    // encore membre) : la relecture suivante ne la montre plus du tout.
+    vi.mocked(fetchDecouverte).mockResolvedValue({ ...ACTIVE, decouverts: [] });
     await saisir(input, 'k7q2-9xmp');
     await soumettre(dom);
     await act(async () => {});
     expect(rejoindreDecouvert).toHaveBeenCalledWith('hive-0a1b2c3d', 'k7q2-9xmp');
     expect(dom.querySelector('[role="status"]')?.textContent).toContain('a accepté l’offre');
     expect(dom.querySelector('form'), 'le formulaire se referme sur un accueil').toBeNull();
-    expect(dom.textContent).toContain('Déjà dans cette ruche : Le portable de Camille.');
     // La liste vidée par l'accueil ne se lit pas « aucune machine en attente ».
     expect(dom.textContent).not.toContain('Aucune machine en attente');
+  });
+
+  it('EN ANGLAIS, rien de la phrase française de la Reine : l’écran traduit d’après le code fermé', async () => {
+    setLang('en');
+    const eteinte = await monter({
+      active: false,
+      empreinte: 'abcd-efgh-jkmn',
+      decouverts: [],
+      motif: 'eteinte',
+      conseil: 'Pour lister les machines… HIVE_DECOUVERTE=1 … hive join --decouvrable',
+    });
+    expect(eteinte.textContent).toContain('set HIVE_DECOUVERTE=1');
+    expect(eteinte.textContent).not.toContain('Pour lister');
+    act(() => racine?.unmount());
+    conteneur?.remove();
+
+    const indisponible = await monter({
+      active: false,
+      empreinte: 'abcd-efgh-jkmn',
+      decouverts: [],
+      motif: 'indisponible',
+      cause: 'bind EADDRINUSE 0.0.0.0:5353',
+      conseil: 'Découverte demandée mais indisponible : bind EADDRINUSE 0.0.0.0:5353',
+    });
+    expect(indisponible.textContent).toContain(
+      'Discovery was requested but is unavailable: bind EADDRINUSE 0.0.0.0:5353',
+    );
+    expect(indisponible.textContent).not.toContain('Découverte demandée');
   });
 
   it('UN REFUS se lit sur place — et la saisie reste, pour corriger le code', async () => {

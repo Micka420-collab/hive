@@ -16,15 +16,32 @@
 //     `ipv4Privee`). La Reine n'enverra jamais d'offre là où une annonce forgée
 //     lui dirait d'aller ;
 //   · une annonce se lit par `lireAnnonce`, qui refuse au moindre doute ;
-//   · la liste est BORNÉE (`ENTREES_MAX`) : un voisin qui inonde le segment de
-//     fausses machines ne remplit pas la mémoire de la ruche ;
-//   · chaque entrée EXPIRE à la durée de vie annoncée : une machine éteinte
-//     sans adieu disparaît seule.
+//   · la liste est BORNÉE (`ENTREES_MAX`), et chaque adresse n'y tient que
+//     `PAR_SOURCE_MAX` places : un voisin qui inonde le segment de fausses
+//     machines ne remplit ni la mémoire de la ruche, ni l'écran ;
+//   · une entrée vivante est LIÉE à l'adresse d'où elle a été entendue : le
+//     nom d'instance est diffusé, n'importe qui peut le recopier — mais une
+//     annonce ou un adieu venus d'AILLEURS sous ce nom sont ignorés. Sans
+//     ça, un imposteur détournait vers lui l'offre destinée à la vraie
+//     machine (qu'il ne peut pas ouvrir, mais à laquelle il pouvait répondre
+//     « acceptée »), ou la faisait disparaître de l'écran ;
+//   · chaque entrée EXPIRE à la durée de vie annoncée, plafonnée à celle
+//     qu'une vraie machine Hive annonce (`TTL_ANNONCE_S`) : une machine
+//     éteinte sans adieu disparaît seule, et une annonce forgée ne s'incruste
+//     pas plus longtemps qu'une vraie.
 //
 // Et l'offre ne contient rien que le premier venu puisse ouvrir : elle est
 // scellée sous le code que seule la vraie machine affiche (`decouverte.ts`).
 
-import { INSTANCE_RE, SERVICE_HIVE, lireAnnonce, ipv4Privee } from '../shared/decouverte.js';
+import os from 'node:os';
+import {
+  INSTANCE_RE,
+  INTERVALLE_OFFRES_MS,
+  SERVICE_HIVE,
+  TTL_ANNONCE_S,
+  lireAnnonce,
+  ipv4Privee,
+} from '../shared/decouverte.js';
 import type { Annonce, EtatAnnonce, FamilleAnnoncee, OffreScellee } from '../shared/decouverte.js';
 import type { PlateformeNoeud } from '../shared/machine.js';
 import { TYPE_MDNS, decoderPaquet, encoderPaquet, memeNom } from '../shared/mdns.js';
@@ -33,14 +50,23 @@ import type { TransportMdns } from '../shared/mdns-reseau.js';
 
 /** Plafond des machines retenues. Un réseau domestique en compte quelques-unes. */
 export const ENTREES_MAX = 64;
-/** Plafond de durée de vie accepté, quoi qu'annonce l'émetteur (RFC 6762 § 10 : 75 min). */
-const TTL_MAX_S = 4_500;
+/**
+ * Places d'une même adresse. Une machine Hive s'annonce UNE fois (une seule
+ * ouvrière par machine se signale, `demarrage.ts`) ; quatre laissent de quoi
+ * à plusieurs `hive join` lancés à la main sur le même poste.
+ */
+export const PAR_SOURCE_MAX = 4;
 /** Cadence des questions de fond. Les annonces vivent 120 s : on repasse bien avant. */
 export const INTERVALLE_QUESTIONS_MS = 60_000;
 /** Une question sur demande (écran ouvert) au plus toutes les… */
 const QUESTION_MIN_MS = 5_000;
 
-/** Ce que la Reine sait de la ruche d'un membre, rapporté à elle-même. */
+/**
+ * Ce qu'un membre DIT de sa ruche, rapporté à celle-ci. Une ANNONCE, pas un
+ * constat : l'empreinte est publique et se recopie, donc `cette_ruche` se lit
+ * « se dit membre de cette ruche » — l'écran le formule ainsi, et seule la
+ * liste des ouvrières connectées fait foi.
+ */
 export type RelationRuche = 'cette_ruche' | 'autre_ruche' | 'inconnue';
 
 /** Une machine entendue, telle que l'écran la montre. */
@@ -194,6 +220,10 @@ export class DecouverteReseau {
       if (!ptr.cible.toLowerCase().endsWith(suffixe)) continue;
       const id = ptr.cible.slice(0, -suffixe.length);
       if (!INSTANCE_RE.test(id)) continue;
+      // Nom tenu par une AUTRE adresse, encore vivant : ni annonce ni adieu
+      // de celle-ci ne le touchent (voir l'en-tête).
+      const tenue = this.fiches.get(id);
+      if (tenue && tenue.adresse !== adresse && tenue.expireA > this.maintenant) continue;
       // L'ADIEU : la machine part, elle quitte l'écran tout de suite.
       if (ptr.ttl === 0) {
         this.fiches.delete(id);
@@ -225,8 +255,14 @@ export class DecouverteReseau {
     // Une machine LIBRE sans porte d'offre ne peut être rejointe par personne :
     // l'afficher proposerait un bouton qui échoue à coup sûr.
     if (annonce.etat === 'libre' && srv.port === 0) return;
-    if (!this.fiches.has(id) && this.fiches.size >= ENTREES_MAX) return;
-    const ttl = Math.min(ptr.ttl, srv.ttl, txt.ttl, TTL_MAX_S);
+    if (!this.fiches.has(id)) {
+      this.purger();
+      if (this.fiches.size >= ENTREES_MAX) return;
+      let memeSource = 0;
+      for (const f of this.fiches.values()) if (f.adresse === adresse) memeSource += 1;
+      if (memeSource >= PAR_SOURCE_MAX) return;
+    }
+    const ttl = Math.min(ptr.ttl, srv.ttl, txt.ttl, TTL_ANNONCE_S);
     const vuA = this.maintenant;
     this.fiches.set(id, { id, annonce, adresse, port: srv.port, vuA, expireA: vuA + ttl * 1000 });
   }
@@ -239,6 +275,7 @@ export type IssueLivraison =
   | { issue: 'code_refuse'; restants: number | null }
   | { issue: 'code_renouvele' }
   | { issue: 'deja_accueillie' }
+  | { issue: 'occupee' }
   | { issue: 'injoignable'; detail: string }
   | { issue: 'reponse_inattendue'; statut: number };
 
@@ -274,6 +311,12 @@ async function lireBorne(rep: Response): Promise<unknown> {
  * issue a un nom, et l'appelant révoque le billet sur tout ce qui n'est pas
  * `acceptee`.
  *
+ * « Trop tôt » (la porte ouvre déjà une autre offre, ou en a ouvert une il y a
+ * moins de `INTERVALLE_OFFRES_MS`) n'est PAS une réponse étrangère : c'est une
+ * machine Hive occupée. On repasse UNE fois après ce délai ; encore occupée,
+ * c'est `occupee` — « réessayez », et non « ce n'est peut-être pas une machine
+ * Hive », qui accusait la mauvaise cause.
+ *
  * `redirect: 'error'` : une porte d'offre ne redirige pas. Suivre une
  * redirection ferait de la Reine un client HTTP conduit ailleurs que sur le
  * segment local.
@@ -282,6 +325,17 @@ export async function livrerOffre(
   cible: { adresse: string; port: number },
   offre: OffreScellee,
   delaiMs: number = DELAI_LIVRAISON_MS,
+): Promise<IssueLivraison> {
+  const premiere = await deposerOffre(cible, offre, delaiMs);
+  if (premiere.issue !== 'occupee') return premiere;
+  await new Promise((r) => setTimeout(r, INTERVALLE_OFFRES_MS + 100));
+  return deposerOffre(cible, offre, delaiMs);
+}
+
+async function deposerOffre(
+  cible: { adresse: string; port: number },
+  offre: OffreScellee,
+  delaiMs: number,
 ): Promise<IssueLivraison> {
   let rep: Response;
   try {
@@ -307,6 +361,51 @@ export async function livrerOffre(
     };
   }
   if (rep.status === 429 && corps?.issue === 'code_renouvele') return { issue: 'code_renouvele' };
+  if (rep.status === 429 && corps?.issue === 'trop_tot') return { issue: 'occupee' };
   if (rep.status === 409 && corps?.issue === 'deja_accueillie') return { issue: 'deja_accueillie' };
   return { issue: 'reponse_inattendue', statut: rep.status };
+}
+
+// ─── L'adresse de la Reine, vue de la machine ────────────────────────────────
+
+/** Une IPv4 en entier non signé, ou `null`. */
+function ipv4EnEntier(ip: string): number | null {
+  const parts = ip.split('.');
+  if (parts.length !== 4) return null;
+  let n = 0;
+  for (const p of parts) {
+    if (!/^\d{1,3}$/.test(p) || Number(p) > 255) return null;
+    n = n * 256 + Number(p);
+  }
+  return n;
+}
+
+/**
+ * L'adresse de CETTE Reine sur le sous-réseau d'où la machine a été entendue,
+ * ou `null` si aucune interface ne le partage.
+ *
+ * `detectLanWsUrl` prend la PREMIÈRE IPv4 non interne de l'hôte : sur une
+ * Reine à plusieurs cartes, c'est souvent `docker0`, un vEthernet de WSL ou
+ * un VPN. Le billet porté à la machine l'aurait envoyée là — offre ACCEPTÉE
+ * (« elle apparaît d'ici quelques secondes »), puis échange du billet en
+ * échec sur le seul écran de la machine. La découverte sait d'où la machine
+ * parle : on choisit l'interface de ce réseau-là.
+ */
+export function adresseReineVers(
+  cible: string,
+  interfaces: NodeJS.Dict<os.NetworkInterfaceInfo[]> = os.networkInterfaces(),
+): string | null {
+  const c = ipv4EnEntier(cible);
+  if (c === null) return null;
+  for (const liste of Object.values(interfaces)) {
+    for (const a of liste ?? []) {
+      if (a.family !== 'IPv4' || a.internal) continue;
+      const ip = ipv4EnEntier(a.address);
+      const masque = ipv4EnEntier(a.netmask);
+      if (ip === null || masque === null || masque === 0) continue;
+      // `>>> 0` : les opérateurs binaires de JS sont signés sur 32 bits.
+      if ((ip & masque) >>> 0 === (c & masque) >>> 0) return a.address;
+    }
+  }
+  return null;
 }

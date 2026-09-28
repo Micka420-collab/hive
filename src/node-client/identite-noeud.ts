@@ -143,6 +143,69 @@ export function rangerCle(racine: string, cle: string): void {
 }
 
 /**
+ * Où l'adresse de la ruche est rangée, À CÔTÉ de la clé qu'elle accepte.
+ *
+ * La clé seule ne suffit pas à redémarrer : il faut savoir OÙ la présenter.
+ * Une machine venue par un billet collé le retrouve dans sa commande ; une
+ * machine accueillie sur le réseau local (`hive join --decouvrable`) n'a
+ * jamais rien eu à coller — sans cette adresse, chaque redémarrage la
+ * remettait en attente d'appariement, et l'administrateur émettait un billet
+ * neuf qu'elle n'échangeait même pas. Pas un secret : l'URL est aussi dans
+ * chaque billet, et dans la bannière de connexion.
+ */
+export function cheminAdresseRuche(racine: string): string {
+  return path.join(racine, 'ruche-url.txt');
+}
+
+/** L'adresse mémorisée, ou `null`. Mêmes règles que `lireCle`. */
+export function lireAdresseRuche(racine: string): string | null {
+  try {
+    const v = readFileSync(cheminAdresseRuche(racine), 'utf8').trim();
+    return v.length > 0 ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Range l'adresse ; un échec est avalé, comme pour `rangerCle`. */
+export function rangerAdresseRuche(racine: string, url: string): void {
+  try {
+    mkdirSync(racine, { recursive: true });
+    writeFileSync(cheminAdresseRuche(racine), url, { encoding: 'utf8', mode: 0o600 });
+  } catch {
+    // dégrader, pas tuer : le prochain démarrage redemandera un billet
+  }
+}
+
+/**
+ * La clé mémorisée, SI elle vaut pour la ruche `url` — sinon `null`.
+ *
+ * Une clé ne se présente qu'à la ruche qui l'a délivrée. Relancé avec le
+ * billet d'une AUTRE ruche, un nœud qui réutilisait sa clé l'envoyait à cette
+ * autre ruche — qui la refusait, et la tenait désormais —, et ne consommait
+ * même pas le billet reçu, resté valide dix minutes. Une clé rangée AVANT
+ * cette mémoire d'adresse (aucune adresse) garde l'ancien comportement : on
+ * ne sait pas d'où elle vient, et la jeter ferait perdre sa place au nœud.
+ */
+export function cleNoeudPour(racine: string, url: string): string | null {
+  const cle = lireCle(racine);
+  const memo = lireAdresseRuche(racine);
+  return cle !== null && (memo === null || memo === url) ? cle : null;
+}
+
+/**
+ * La REPRISE : clé ET adresse mémorisées, ou `null`. De quoi redémarrer sans
+ * billet ni appariement — `hive join` relancé à nu, ou une machine accueillie
+ * sur le réseau local (`hive join --decouvrable`) qui n'a jamais rien eu à
+ * coller.
+ */
+export function repriseMemorisee(racine: string): { url: string; cle: string } | null {
+  const cle = lireCle(racine);
+  const url = lireAdresseRuche(racine);
+  return cle !== null && url !== null ? { url, cle } : null;
+}
+
+/**
  * Le verrou de l'identité : une socket locale que CE processus écoute, nommée
  * par une empreinte du chemin ABSOLU de l'atelier — un tube nommé sous
  * Windows.

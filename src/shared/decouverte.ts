@@ -265,6 +265,14 @@ export function normaliserCode(saisie: unknown): string | null {
 /** Durée de vie du billet d'une offre : le temps d'aller d'un écran à l'autre, pas plus. */
 export const TTL_OFFRE_MS = 10 * 60 * 1000;
 
+/**
+ * Espacement minimal entre deux offres qu'une porte accepte d'OUVRIR : chaque
+ * ouverture coûte un PBKDF2 à la machine (`decouverte-noeud.ts`). La Reine le
+ * lit aussi : à une porte qui répond « trop tôt », elle repasse une fois après
+ * ce délai plutôt que de conclure à une machine étrangère.
+ */
+export const INTERVALLE_OFFRES_MS = 500;
+
 /** Ce qui voyage sur le fil. Tout en base64url ; rien de lisible. */
 export interface OffreScellee {
   v: 1;
@@ -340,23 +348,45 @@ function octets(v: unknown, min: number, max: number): Buffer | null {
   return b;
 }
 
+/** Les pièces d'une offre bien formée, décodées. */
+interface PiecesOffre {
+  sel: Buffer;
+  iv: Buffer;
+  charge: Buffer;
+}
+
+/**
+ * La FORME d'une offre, jugée sans rien payer : `null` si ce n'en est pas une.
+ *
+ * Exportée pour la porte d'offre (`decouverte-noeud.ts`), qui la juge AVANT de
+ * céder son tour de PBKDF2 : sinon un voisin qui poste `{}` deux fois par
+ * seconde prendrait ce tour à chaque fois, et l'offre de la vraie Reine
+ * repartirait « trop tôt » indéfiniment.
+ */
+export function formeOffre(brut: unknown): PiecesOffre | null {
+  if (typeof brut !== 'object' || brut === null) return null;
+  const o = brut as Record<string, unknown>;
+  const sel = octets(o.sel, OCTETS_SEL, OCTETS_SEL);
+  const iv = octets(o.iv, OCTETS_IV, OCTETS_IV);
+  const charge = octets(o.charge, OCTETS_ETIQUETTE + 1, CHARGE_MAX);
+  if (o.v !== 1 || !sel || !iv || !charge) return null;
+  return { sel, iv, charge };
+}
+
 /**
  * Ouvre une offre reçue. Ne lève jamais.
  *
- * La forme est jugée AVANT de payer PBKDF2 : une requête mal formée ne coûte
- * rien à la machine, et ne compte pas comme un essai de code.
+ * La forme est jugée AVANT de payer PBKDF2 (`formeOffre`) : une requête mal
+ * formée ne coûte rien à la machine, et ne compte pas comme un essai de code.
  */
 export async function ouvrirOffre(
   brut: unknown,
   code: string,
   instance: string,
 ): Promise<OuvertureOffre> {
-  if (typeof brut !== 'object' || brut === null) return { issue: 'illisible' };
-  const o = brut as Record<string, unknown>;
-  const sel = octets(o.sel, OCTETS_SEL, OCTETS_SEL);
-  const iv = octets(o.iv, OCTETS_IV, OCTETS_IV);
-  const charge = octets(o.charge, OCTETS_ETIQUETTE + 1, CHARGE_MAX);
-  if (o.v !== 1 || !sel || !iv || !charge) return { issue: 'illisible' };
+  const pieces = formeOffre(brut);
+  if (!pieces) return { issue: 'illisible' };
+  const { sel, iv, charge } = pieces;
 
   let clair: Buffer;
   try {

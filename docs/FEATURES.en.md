@@ -330,7 +330,9 @@ npm run cli -- stings <projectId>            # the project's potential conflicts
 
 2. **Your friend** — gets Hive, runs `npm install`, then **pastes the command**.
    Their Claude Code / Codex is auto-detected, and their node key is remembered
-   across restarts.
+   across restarts — together with the hive's address: a later bare
+   `npm run join` takes its place back. The key is only ever presented to the
+   hive that issued it; another hive's ticket is exchanged normally.
 
    ```bash
    npm run join -- hive2_eyJ2IjoyLCJ1cmwiOiJ3c3M6…
@@ -373,7 +375,8 @@ send yourself a ticket. Two settings, **off by default**:
    announces itself and prints a **pairing code**, e.g. `K7Q2-9XMP`.
 3. **In the dashboard** — **Invite** → “On your local network” → **Join**, then
    type the code. The machine trades its ticket for its key and shows up among
-   the workers.
+   the workers. It remembers its key and the hive's address: restarted
+   (`hive join --decouvrable` or bare), it rejoins without a new pairing.
 
 <p align="center">
   <img src="images/decouverte-reseau.png" width="420" alt="Invite dialog (French UI) — “On your local network”: the machine portable-de-camille (Linux, Claude Code and Codex, 2 slots) is waiting; the code shown on it is typed in, Welcome button.">
@@ -391,9 +394,16 @@ What keeps this shortcut safe:
 
 The hive's fingerprint (`abcd-efgh-jkmn`) is shown in the dashboard **and** by
 the machine when it receives the offer: compare them, as you would an SSH host
-key. IPv4 only, one network segment (mDNS does not cross routers); a firewall
-blocking UDP 5353 or the machine's offer port prevents discovery — the ticket
-stays the fallback.
+key. It is **drawn at random** on first start and stored in the hive's
+database — never derived from a secret, since it is broadcast. A member that
+announces itself says which hive it belongs to; this is a claim, not a proof
+(the fingerprint can be copied) — only the list of connected workers is
+authoritative.
+
+Limits: IPv4 only, one network segment (mDNS does not cross routers). A
+firewall blocking UDP 5353: the machine **does not appear** in the list. A
+firewall blocking the machine's offer port: it appears, but **Join** answers
+“machine unreachable”. Either way, the ticket stays the fallback.
 
 ### Connecting from outside
 

@@ -26,9 +26,12 @@ import {
   CONCURRENCE_MAX,
   CONCURRENCE_MIN,
   CONCURRENCE_PAR_DEFAUT,
+  cleNoeudPour,
   identiteStable,
   lireCle,
+  rangerAdresseRuche,
   rangerCle,
+  repriseMemorisee,
 } from '../src/node-client/identite-noeud.js';
 import { ID_PATTERN } from '../src/shared/protocol.js';
 
@@ -189,5 +192,38 @@ describe('la clé propre du nœud', () => {
     const id = identiteStable(racine);
     expect(id).not.toBe('secrete');
     expect(lireCle(racine)).toBe('secrete');
+  });
+});
+
+describe('la clé ET l’adresse de sa ruche — redémarrer sans billet', () => {
+  const RUCHE_A = 'ws://192.168.1.10:7777/ws';
+  const RUCHE_B = 'ws://192.168.1.77:7777/ws';
+
+  it('accueillie (par le réseau local comme par un billet) : la relance REPREND, sans rien demander', () => {
+    // Ce que `join.ts` range après l'échange : la clé, et l'adresse à qui la
+    // présenter. Une machine venue par `--decouvrable` n'a aucun billet dans
+    // sa commande — sans l'adresse, chaque redémarrage la remettait en attente
+    // d'appariement.
+    expect(repriseMemorisee(racine), 'rien de rangé : pas de reprise').toBeNull();
+    rangerCle(racine, 'cle-du-noeud-42');
+    expect(repriseMemorisee(racine), 'une clé sans adresse ne dit pas où aller').toBeNull();
+    rangerAdresseRuche(racine, RUCHE_A);
+    expect(repriseMemorisee(racine)).toEqual({ url: RUCHE_A, cle: 'cle-du-noeud-42' });
+    if (process.platform !== 'win32') {
+      expect(statSync(path.join(racine, 'ruche-url.txt')).mode & 0o077).toBe(0);
+    }
+  });
+
+  it('la clé ne se présente qu’à LA ruche qui l’a délivrée — jamais au billet d’une autre', () => {
+    rangerCle(racine, 'cle-de-la-ruche-a');
+    expect(cleNoeudPour(racine, RUCHE_A), 'clé d’avant la mémoire d’adresse : gardée').toBe(
+      'cle-de-la-ruche-a',
+    );
+    rangerAdresseRuche(racine, RUCHE_A);
+    expect(cleNoeudPour(racine, RUCHE_A)).toBe('cle-de-la-ruche-a');
+    expect(
+      cleNoeudPour(racine, RUCHE_B),
+      'le billet de B s’échange : il ne reçoit pas la clé de A',
+    ).toBeNull();
   });
 });
