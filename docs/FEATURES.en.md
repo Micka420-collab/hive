@@ -236,6 +236,7 @@ GET  /api/projects/<replay>/rejeu/comparaison         # source vs replay
 
 <p>
   <img src="images/missions-rejeu-comparaison-en.png" alt="A replay project: the “irreversible actions simulated” banner and the source-versus-replay comparison" width="350">
+  <img src="images/rejeu-livraison-simulee-en.png" alt="Delivering the mission on a replay project: delivery simulated and recorded, nothing committed, and the “Validate for real” button" width="350">
 </p>
 
 ## 👑 The Queen replies — talking to the hive

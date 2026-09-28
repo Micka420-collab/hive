@@ -50,6 +50,11 @@ export function LivraisonMission({
   const [raison, setRaison] = useState('');
   const [confirmer, setConfirmer] = useState(false);
   const [noeud, setNoeud] = useState('');
+  // Le forçage de la DERNIÈRE demande : « Valider pour de vrai » la renvoie
+  // telle quelle. Sans lui, valider une livraison forcée retombait sur l'arrêt
+  // de l'Evaluator, et le forçage suivant, non validé, était re-simulé — une
+  // boucle sans issue.
+  const [forcee, setForcee] = useState<string | undefined>(undefined);
   const { suivi, lancer } = useSuiviMerge(project.id, DELAI_LIVRAISON_MS);
   const occupe = suivi.phase === 'starting' || suivi.phase === 'polling';
   // Le forçage ne se PROPOSE que si l'Evaluator vient d'arrêter la mission :
@@ -67,6 +72,7 @@ export function LivraisonMission({
 
   const livrer = (opts: { forcer?: string; validerRejeu?: boolean } = {}) => {
     setConfirmer(false);
+    setForcee(opts.forcer);
     lancer(() =>
       livrerLocalement(project.id, {
         pousser,
@@ -184,7 +190,10 @@ export function LivraisonMission({
             )}{' '}
             {suivi.message}
           </p>
-          <button className="btn ghost" onClick={() => livrer({ validerRejeu: true })}>
+          <button
+            className="btn ghost"
+            onClick={() => livrer({ forcer: forcee, validerRejeu: true })}
+          >
             {t('Valider pour de vrai', 'Validate for real')}
           </button>
         </div>

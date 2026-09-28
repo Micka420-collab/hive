@@ -256,6 +256,7 @@ GET  /api/projects/<rejeu>/rejeu/comparaison          # source contre rejeu
 
 <p>
   <img src="images/missions-rejeu-comparaison.png" alt="Un projet de rejeu : bandeau « actions irréversibles simulées » et comparaison mission source contre rejeu" width="350">
+  <img src="images/rejeu-livraison-simulee.png" alt="Livrer la mission sur un projet de rejeu : livraison simulée et rangée, rien n’est commité, et le bouton « Valider pour de vrai »" width="350">
   <img src="images/missions-rejeu-formulaire-mobile.png" alt="Le formulaire de rejeu sur téléphone : modèle, routage, autonomie, et l’avertissement que les effets seront simulés" width="254">
 </p>
 
