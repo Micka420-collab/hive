@@ -2453,14 +2453,17 @@ async function monterReine(
       // n'est pas une tâche du graphe : elle y entre par son verdict
       // (`contre_expertise_verdict`) sur la production qu'elle juge — la
       // compter aussi comme tâche la ferait passer pour « similaire » à
-      // cette production, dont elle cite forcément les fichiers.
+      // cette production, dont elle cite forcément les fichiers. Le BANC
+      // d'ombre non plus (`ombreLieeA` : une ombre, ou sa relecture) : une
+      // ombre n'est pas du travail du projet, et proposée comme voisine, elle
+      // doublerait son originale — même titre, mêmes fichiers.
       const infos = new Map<string, InfoTache | null>();
       const tacheDe = (taskId: string): InfoTache | null => {
         let info = infos.get(taskId);
         if (info === undefined) {
           const t = store.getTask(taskId);
           info =
-            t && store.relectureDe(taskId) === null
+            t && store.relectureDe(taskId) === null && store.ombreLieeA(taskId) === null
               ? {
                   projectId: t.projectId,
                   titre: t.title,
@@ -2536,6 +2539,10 @@ async function monterReine(
         }
       }
     }
+    // Une OMBRE ne lit pas son originale : elle la rejouerait en sachant
+    // comment elle a tourné — la même règle que ses souvenirs
+    // (`searchMemories(…, exclureTache)`).
+    const originale = store.ombreDe(task.id)?.tacheOriginale;
     return contextesSimilaires(
       graphe,
       {
@@ -2545,7 +2552,7 @@ async function monterReine(
         erreurs: [...erreurs].sort(),
       },
       SIMILAIRES_MAX,
-    );
+    ).filter((c) => c.taskId !== originale);
   };
 
   // ─── Le graphe d'expérience, lu ─────────────────────────────────────────

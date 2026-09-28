@@ -549,6 +549,53 @@ describe('le banc d’ombre sur une vraie Reine', () => {
     expect(srv.store.ombreDe(s)?.ombre).toMatchObject({ succes: false, tests: null });
   });
 
+  it(
+    'le graphe d’expérience (#502) ne mêle pas le banc au projet : l’ombre ne lit pas son originale, et n’est la voisine de personne',
+    { timeout: 30_000 },
+    async () => {
+      const srv = await ruche();
+      const codex = await noeud(srv, 'n-codex', 'codex', ['codex-banc']);
+      const claude = await noeud(srv, 'n-claude', 'claude-code', ['opus-banc']);
+      const projet = srv.store.createProject({ name: 'Expérience' });
+      await regler(srv, projet.id, {
+        actif: true,
+        tauxPourMille: 1000,
+        executionsParJour: 5,
+        plafondCoutUsd: 1,
+      });
+      // Les sources du graphe sont relues au plus toutes les 3 s
+      // (`GRAPHE_TTL_MS`) : on laisse passer ce délai entre deux lectures,
+      // pour que chacune voie les faits d'avant — comme en production.
+      const auDela = () => new Promise((r) => setTimeout(r, 3_100));
+      const t = tache(srv, projet.id, 'Ajouter une fonction somme');
+      const { noeud: producteur } = await recuePar([codex, claude], t);
+      await auDela();
+      produire(producteur, t, 'passed');
+      await attendre(() => srv.store.ombreDeOriginale(t) !== null, 'aucune ombre ouverte');
+      const s = srv.store.ombreDeOriginale(t)!.tacheOmbre;
+      await recuePar([codex, claude], s);
+      // Même fichier nommé (src/somme.ts) : sans garde, l'originale rendue
+      // était LA voisine de l'ombre — qui la rejouait en sachant comment elle
+      // avait tourné, comme un souvenir de l'originale (que #501 lui refuse).
+      const lu = srv.store.evenementsDeTache(s, ['experience_context', 'experience_refus']);
+      const voisines = lu.flatMap((e) =>
+        (e.payload.similaires as { taskId?: string }[]).map((c) => c.taskId),
+      );
+      expect(voisines, 'l’ombre a lu son originale').not.toContain(t);
+      // Le graphe du projet : l'ombre n'y est pas une tâche du projet.
+      await auDela();
+      const graphe = (await (
+        await fetch(
+          `http://127.0.0.1:${srv.port}/api/projects/${projet.id}/experience?genre=task`,
+          { headers: JETON },
+        )
+      ).json()) as { noeuds: { id: string }[] };
+      const ids = graphe.noeuds.map((n) => n.id);
+      expect(ids).toContain(`task:${t}`);
+      expect(ids, 'l’ombre est une tâche du graphe du projet').not.toContain(`task:${s}`);
+    },
+  );
+
   it('le banc ne parle pas au monde extérieur : aucun connecteur ne relaie l’ombre ni sa relecture (#499)', async () => {
     const corps: string[] = [];
     process.env[ENV_WEBHOOK_URL] = 'https://recepteur.invalid/hook';
