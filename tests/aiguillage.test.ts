@@ -11,26 +11,52 @@ import { describe, expect, it } from 'vitest';
 import {
   C_EXPLORATION,
   CORPUS_AIGUILLAGE,
+  MASSE_A_PRIORI,
+  MOYENNE_NEUTRE,
   aiguillerNoeuds,
   antecedentsDuVecu,
+  bornesWilson,
   categoriser,
-  choisirModele,
+  choisirBras,
   classer,
   cle,
+  cleBras,
   injecterEnVol,
   moyenne,
   recompenseDe,
   replierAntecedents,
   repriseHorsEchecs,
   scoreUCB,
-  type Antecedent,
+  type Bras,
   type Observation,
+  type VecuAiguillage,
 } from '../src/orchestrator/aiguillage.js';
+import type { Effort } from '../src/shared/effort.js';
 import type { Suite } from '../src/orchestrator/polyethisme.js';
 
-/** Fabrique une observation, pour ne pas répéter la forme. */
-function obs(categorie: string, modele: string, suite: Suite): Observation {
-  return { categorie: categorie as Observation['categorie'], modele, suite };
+/**
+ * Fabrique une observation, pour ne pas répéter la forme. Par défaut : sous
+ * Claude Code, sans effort commandé, sans coût déclaré.
+ */
+function obs(
+  categorie: string,
+  modele: string,
+  suite: Suite,
+  bras: { harness?: string | null; effort?: Effort | null; cout?: number | null } = {},
+): Observation {
+  return {
+    categorie: categorie as Observation['categorie'],
+    modele,
+    harness: bras.harness === undefined ? 'claude-code' : bras.harness,
+    effort: bras.effort ?? null,
+    suite,
+    coutUsd: bras.cout ?? null,
+  };
+}
+
+/** Un bras, Claude Code et sans effort par défaut. */
+function b(modele: string, harness = 'claude-code', effort: Effort | null = null): Bras {
+  return { modele, harness, effort };
 }
 
 describe('categoriser — ranger une tâche par son genre', () => {
@@ -81,243 +107,410 @@ describe('recompenseDe — le verdict de contre-visite devient une note', () => 
   });
 });
 
-describe('replierAntecedents — la mémoire, et l’oubli', () => {
-  it('COMPTE LES ESSAIS ET SOMME LES NOTES, par couple (genre × modèle)', () => {
-    const m = replierAntecedents([
+describe('replierAntecedents — la mémoire à deux niveaux, et l’oubli', () => {
+  it('COMPTE LES ESSAIS ET SOMME LES NOTES, par bras ET par modèle', () => {
+    const v = replierAntecedents([
       obs('code', 'opus', 'appliquer'),
-      obs('code', 'opus', 'ameliorer'),
+      obs('code', 'opus', 'ameliorer', { effort: 'high' }),
       obs('code', 'fable', 'refaire'),
     ]);
-    expect(m.get(cle('code', 'opus'))).toEqual({ essais: 2, recompenseTotale: 1.5 });
-    expect(m.get(cle('code', 'fable'))).toEqual({ essais: 1, recompenseTotale: 0 });
+    expect(v.bras.get(cleBras('code', b('opus')))).toEqual({ essais: 1, recompenseTotale: 1 });
+    expect(v.bras.get(cleBras('code', b('opus', 'claude-code', 'high')))).toEqual({
+      essais: 1,
+      recompenseTotale: 0.5,
+    });
+    // Le niveau modèle réunit les deux efforts : c'est l'a priori de leurs frères.
+    expect(v.modeles.get(cle('code', 'opus'))).toEqual({ essais: 2, recompenseTotale: 1.5 });
+    expect(v.modeles.get(cle('code', 'fable'))).toEqual({ essais: 1, recompenseTotale: 0 });
   });
 
-  it('NE MÉLANGE JAMAIS DEUX GENRES NI DEUX MODÈLES', () => {
-    // La clé sépare `code|opus` de `test|opus` et de `code|fable`. Un mélange
-    // ferait juger un modèle sur un genre qu'il n'a pas fait.
-    const m = replierAntecedents([
+  it('NE MÉLANGE JAMAIS DEUX GENRES, DEUX MODÈLES NI DEUX HARNESS', () => {
+    // Le même nom de modèle sous deux agents : deux bras. Les confondre
+    // attribuait à Claude Code ce que Cline avait fait (G07).
+    const v = replierAntecedents([
       obs('code', 'opus', 'appliquer'),
+      obs('code', 'opus', 'refaire', { harness: 'cline' }),
       obs('test', 'opus', 'refaire'),
     ]);
-    expect(moyenne(m.get(cle('code', 'opus'))!)).toBe(1);
-    expect(moyenne(m.get(cle('test', 'opus'))!)).toBe(0);
+    expect(moyenne(v.bras.get(cleBras('code', b('opus')))!)).toBe(1);
+    expect(moyenne(v.bras.get(cleBras('code', b('opus', 'cline')))!)).toBe(0);
+    expect(moyenne(v.modeles.get(cle('test', 'opus'))!)).toBe(0);
+  });
+
+  it('UN VERDICT SANS BRAS CONNU NOURRIT LE MODÈLE, JAMAIS UN BRAS PAR SUPPOSITION', () => {
+    // Un verdict d'avant la v3 : on sait quel modèle, pas sous quel harness.
+    const v = replierAntecedents([obs('code', 'opus', 'appliquer', { harness: null })]);
+    expect(v.modeles.get(cle('code', 'opus'))).toEqual({ essais: 1, recompenseTotale: 1 });
+    expect(v.bras.size, 'aucun bras inventé').toBe(0);
+  });
+
+  it('LE COÛT DÉCLARÉ SE SOMME AVEC SA COUVERTURE — un coût absent n’est pas un zéro', () => {
+    const v = replierAntecedents([
+      obs('code', 'opus', 'appliquer', { cout: 0.2 }),
+      obs('code', 'opus', 'appliquer'),
+      obs('code', 'opus', 'appliquer', { cout: 0.4 }),
+    ]);
+    const a = v.bras.get(cleBras('code', b('opus')))!;
+    expect(a.coutsDeclares, 'deux verdicts sur trois déclarent').toBe(2);
+    expect(a.coutTotal).toBeCloseTo(0.6, 10);
   });
 
   it('OUBLIE AU-DELÀ DU CORPUS — un modèle n’est pas jugé sur ce qu’il n’est plus', () => {
-    // On empile CORPUS+50 échecs anciens, puis 3 réussites récentes : seules
-    // les dernières comptent. Sans l'oubli, le vieux vécu écraserait le neuf.
     const vieux = Array.from({ length: CORPUS_AIGUILLAGE + 50 }, () =>
       obs('code', 'opus', 'refaire'),
     );
-    const neuf = [
-      obs('code', 'opus', 'appliquer'),
-      obs('code', 'opus', 'appliquer'),
-      obs('code', 'opus', 'appliquer'),
-    ];
-    const m = replierAntecedents([...vieux, ...neuf]);
-    const a = m.get(cle('code', 'opus'))!;
+    const neuf = Array.from({ length: 3 }, () => obs('code', 'opus', 'appliquer'));
+    const v = replierAntecedents([...vieux, ...neuf]);
+    const a = v.bras.get(cleBras('code', b('opus')))!;
     expect(a.essais, 'la fenêtre est bornée').toBe(CORPUS_AIGUILLAGE);
-    // Les 3 dernières sont des réussites, donc la moyenne penche vers le haut,
-    // et surtout PAS vers 0 comme le voudrait le vieux vécu intégral.
-    expect(a.recompenseTotale, 'les réussites récentes survivent').toBeGreaterThan(0);
+    expect(a.recompenseTotale, 'les réussites récentes survivent').toBe(3);
+    expect(v.modeles.get(cle('code', 'opus'))?.essais, 'les deux niveaux oublient ensemble').toBe(
+      CORPUS_AIGUILLAGE,
+    );
   });
 });
 
-describe('scoreUCB — exploiter le meilleur, explorer l’inconnu', () => {
-  it('UN MODÈLE JAMAIS ESSAYÉ VAUT L’INFINI — « inconnu » n’est pas « mauvais »', () => {
+describe('scoreUCB — le moteur UCB1 que garde le Garde-Fous', () => {
+  it('UN ÉCHELON JAMAIS ESSAYÉ VAUT L’INFINI — trois échelons, trois essais forcés', () => {
     expect(scoreUCB({ essais: 0, recompenseTotale: 0 }, 100)).toBe(Number.POSITIVE_INFINITY);
   });
 
-  it('LE BONUS D’EXPLORATION DÉCROÎT QUAND ON CONNAÎT MIEUX', () => {
-    // Même moyenne (0.5), mais l'un a 2 essais et l'autre 20 : le peu-essayé
-    // reçoit un plus gros bonus. C'est ce qui pousse à ré-essayer les
-    // prometteurs sans s'y enfermer.
-    const peu = scoreUCB({ essais: 2, recompenseTotale: 1 }, 100);
-    const beaucoup = scoreUCB({ essais: 20, recompenseTotale: 10 }, 100);
-    expect(peu).toBeGreaterThan(beaucoup);
-  });
-
   it('LE BONUS UTILISE LA CONSTANTE D’EXPLORATION — pas une valeur codée en dur', () => {
-    // Vérifie la formule, pour qu'un changement de `C_EXPLORATION` se répercute
-    // vraiment plutôt que de laisser une constante fantôme.
     const a = { essais: 4, recompenseTotale: 2 };
     const attendu = 0.5 + C_EXPLORATION * Math.sqrt(Math.log(16) / 4);
     expect(scoreUCB(a, 16)).toBeCloseTo(attendu, 10);
   });
 });
 
-describe('classer / choisirModele — le choix, et sa reproductibilité', () => {
-  const MODELES = ['opus', 'fable', 'sonnet'];
-
-  it('SANS MODÈLE DISPONIBLE, on ne choisit RIEN — pas un modèle inventé', () => {
-    expect(choisirModele('code', [], new Map())).toBeNull();
+describe('bornesWilson — l’intervalle qui ne ment pas sur peu d’essais', () => {
+  it('RESTE DANS [0, 1] ET GARDE DE LA LARGEUR À 3 SUR 3', () => {
+    // L'intervalle normal (p ± z·σ) serait NUL ici : σ = 0 quand p = 1.
+    const { bas, haut } = bornesWilson(1, 3, 1.96);
+    expect(haut).toBe(1);
+    expect(bas).toBeGreaterThan(0.4);
+    expect(bas).toBeLessThan(0.5);
   });
 
-  it('UN MODÈLE NEUF EST ESSAYÉ AVANT UN BON MODÈLE CONNU — sinon on ne l’apprendrait jamais', () => {
-    // opus a un excellent vécu ; fable n'a jamais été essayé sur ce genre. UCB
-    // envoie d'abord fable : c'est l'exploration, la moitié qu'un choix glouton
-    // n'a pas.
-    const memoire = replierAntecedents(
-      Array.from({ length: 10 }, () => obs('code', 'opus', 'appliquer')),
+  it('SE RESSERRE AVEC LES ESSAIS, autour de la proportion', () => {
+    const peu = bornesWilson(0.5, 4, 1.96);
+    const beaucoup = bornesWilson(0.5, 400, 1.96);
+    expect(beaucoup.haut - beaucoup.bas).toBeLessThan(peu.haut - peu.bas);
+    expect(beaucoup.bas).toBeLessThan(0.5);
+    expect(beaucoup.haut).toBeGreaterThan(0.5);
+  });
+});
+
+describe('classer / choisirBras — le choix, et sa reproductibilité', () => {
+  const vide = (): VecuAiguillage => ({ bras: new Map(), modeles: new Map() });
+
+  it('SANS BRAS DISPONIBLE, on ne choisit RIEN — pas un bras inventé', () => {
+    expect(choisirBras('code', [], vide())).toBeNull();
+  });
+
+  it('UN MODÈLE NEUF N’EST PLUS CHOISI D’OFFICE devant un bon modèle connu (plus de +∞)', () => {
+    // Jusqu'à la v2, fable, jamais essayé, valait +∞ et raflait la tâche
+    // suivante quel que soit le vécu d'opus. Il part désormais de 0,5 avec
+    // l'incertitude de dix verdicts : vingt « appliquer » d'opus l'emportent.
+    const vecu = replierAntecedents(
+      Array.from({ length: 20 }, () => obs('code', 'opus', 'appliquer')),
     );
-    expect(choisirModele('code', ['opus', 'fable'], memoire)).toBe('fable');
+    expect(choisirBras('code', [b('opus'), b('fable')], vecu)).toEqual(b('opus'));
+    const fable = classer('code', [b('opus'), b('fable')], vecu).rang.find(
+      (r) => r.modele === 'fable',
+    );
+    expect(Number.isFinite(fable?.score), 'le score de l’inconnu est fini').toBe(true);
+  });
+
+  it('MAIS IL EST ESSAYÉ QUAND LE CONNU DÉÇOIT — l’exploration survit à la fin de l’infini', () => {
+    // opus ne réussit qu'une fois sur quatre : l'optimisme dû à l'ignorance de
+    // fable dépasse ce qu'on sait d'opus.
+    const vecu = replierAntecedents([
+      obs('code', 'opus', 'appliquer'),
+      ...Array.from({ length: 3 }, () => obs('code', 'opus', 'refaire')),
+    ]);
+    expect(choisirBras('code', [b('opus'), b('fable')], vecu)?.modele).toBe('fable');
+  });
+
+  it('ET TOUT BRAS FINIT PAR ÊTRE RÉESSAYÉ — l’optimisme croît avec le total du genre', () => {
+    // fable a raté deux fois ; opus réussit souvent mais pas toujours. Tant que
+    // le genre a peu servi, opus garde la main ; plus le total grandit, plus la
+    // borne haute d'un bras délaissé monte : la porte n'est jamais murée.
+    const rate = [obs('code', 'fable', 'refaire'), obs('code', 'fable', 'refaire')];
+    const opus = (n: number) =>
+      Array.from({ length: n }, (_, i) =>
+        obs('code', 'opus', i % 3 === 0 ? 'ameliorer' : 'appliquer'),
+      );
+    const tot = (n: number) =>
+      classer('code', [b('opus'), b('fable')], replierAntecedents([...rate, ...opus(n)])).rang.find(
+        (r) => r.modele === 'fable',
+      )!.score;
+    expect(tot(200)).toBeGreaterThan(tot(10));
   });
 
   it('À VÉCU COMPARABLE, LE MEILLEUR L’EMPORTE — l’exploitation', () => {
-    // Les deux ont été essayés autant, mais opus récolte mieux. Une fois
-    // l'inconnu levé, c'est la moyenne qui décide.
-    const memoire = replierAntecedents([
+    const vecu = replierAntecedents([
       ...Array.from({ length: 10 }, () => obs('code', 'opus', 'appliquer')),
       ...Array.from({ length: 10 }, () => obs('code', 'fable', 'refaire')),
     ]);
-    expect(choisirModele('code', ['opus', 'fable'], memoire)).toBe('opus');
+    expect(choisirBras('code', [b('opus'), b('fable')], vecu)?.modele).toBe('opus');
   });
 
-  it('UN MAUVAIS CONFIRMÉ EST DÉLAISSÉ, MAIS PAS ABANDONNÉ POUR TOUJOURS', () => {
-    // fable a beaucoup raté ; opus réussit. Sur beaucoup d'essais, opus gagne —
-    // mais le score de fable reste fini et non nul : la porte n'est pas murée.
-    const memoire = replierAntecedents([
-      ...Array.from({ length: 50 }, () => obs('code', 'opus', 'appliquer')),
-      ...Array.from({ length: 50 }, () => obs('code', 'fable', 'refaire')),
-    ]);
-    const rangs = classer('code', ['opus', 'fable'], memoire);
-    expect(rangs[0]?.modele).toBe('opus');
-    expect(Number.isFinite(rangs[1]?.score ?? Infinity), 'fable garde un score fini').toBe(true);
-  });
-
-  it('LE HASARD DE L’ORDRE NE CHANGE PAS LE CHOIX — reproductible d’une ruche à l’autre', () => {
-    // Deux modèles jamais essayés (tous deux à +∞) : sans départage par le nom,
-    // le choix dépendrait de l'ordre du tableau, et deux ruches au même vécu
-    // divergeraient. On éprouve les six ordres possibles.
-    const permutations = [
-      ['opus', 'fable', 'sonnet'],
-      ['fable', 'opus', 'sonnet'],
-      ['sonnet', 'fable', 'opus'],
-      ['opus', 'sonnet', 'fable'],
-      ['fable', 'sonnet', 'opus'],
-      ['sonnet', 'opus', 'fable'],
+  it('LE MÊME VÉCU DONNE LE MÊME CHOIX — quel que soit l’ordre des bras et des verdicts', () => {
+    // Le déterminisme n'est pas une coquetterie : ce dépôt interdit
+    // `Math.random`, et deux ruches au même vécu doivent faire le même choix.
+    const verdicts = [
+      obs('code', 'opus', 'appliquer'),
+      obs('code', 'fable', 'ameliorer', { effort: 'low' }),
+      obs('code', 'sonnet', 'refaire', { harness: 'cline' }),
+      obs('code', 'opus', 'ameliorer', { effort: 'max' }),
     ];
-    const choix = permutations.map((p) => choisirModele('code', p, new Map()));
-    expect(new Set(choix).size, 'un seul choix, quel que soit l’ordre').toBe(1);
-    // Et ce choix est le nom le plus petit — déterministe et vérifiable.
-    expect(choix[0]).toBe('fable');
+    const bras = [
+      b('opus'),
+      b('opus', 'claude-code', 'max'),
+      b('fable', 'claude-code', 'low'),
+      b('sonnet', 'cline'),
+      b('grok', 'grok'),
+    ];
+    const reference = classer('code', bras, replierAntecedents(verdicts));
+    for (let i = 1; i < bras.length; i++) {
+      const tourne = [...bras.slice(i), ...bras.slice(0, i)];
+      expect(classer('code', tourne, replierAntecedents(verdicts))).toEqual(reference);
+    }
+    expect(classer('code', [...bras].reverse(), replierAntecedents(verdicts))).toEqual(reference);
   });
 
-  it('classer RÉCITE TOUS LES MODÈLES, du meilleur au moins bon, avec leur vécu', () => {
-    const memoire = replierAntecedents([
+  it('À ÉGALITÉ PARFAITE, LE DÉPARTAGE EST TOTAL : modèle, harness, puis le moindre effort', () => {
+    // Une ruche neuve : tous les bras se valent. Le plus petit nom de modèle
+    // gagne ; entre deux efforts du même modèle, le moins coûteux.
+    const bras = [
+      b('opus', 'claude-code', 'max'),
+      b('opus', 'claude-code', 'low'),
+      b('opus', 'claude-code', 'high'),
+      b('sonnet', 'claude-code', 'low'),
+    ];
+    const rang = classer('code', bras, vide()).rang;
+    expect(rang.map((r) => r.effort)).toEqual(['low', 'high', 'max', 'low']);
+    expect(rang[0]?.modele).toBe('opus');
+  });
+
+  it('classer RÉCITE TOUS LES BRAS, du meilleur au moins bon, avec leur vécu', () => {
+    const vecu = replierAntecedents([
       ...Array.from({ length: 5 }, () => obs('code', 'opus', 'appliquer')),
       ...Array.from({ length: 5 }, () => obs('code', 'fable', 'ameliorer')),
       ...Array.from({ length: 5 }, () => obs('code', 'sonnet', 'refaire')),
     ]);
-    const rangs = classer('code', MODELES, memoire);
-    expect(
-      rangs.map((r) => r.modele),
-      'trié par mérite : opus (1.0) > fable (0.5) > sonnet (0.0)',
-    ).toEqual(['opus', 'fable', 'sonnet']);
-    expect(rangs[0]).toMatchObject({ modele: 'opus', essais: 5, moyenne: 1 });
+    const { rang } = classer('code', [b('opus'), b('fable'), b('sonnet')], vecu);
+    expect(rang.map((r) => r.modele)).toEqual(['opus', 'fable', 'sonnet']);
+    expect(rang[0]).toMatchObject({
+      modele: 'opus',
+      harness: 'claude-code',
+      essais: 5,
+      moyenne: 1,
+    });
   });
 });
 
-describe('aiguillerNoeuds — du modèle élu aux nœuds qui savent le faire tourner', () => {
-  // Un nœud réduit à ce que la fonction lit : son id (pour se distinguer) et ses
-  // modèles. Le vrai HiveNode en porte davantage ; la fonction n'y touche pas.
-  const noeud = (id: string, modeles?: string[]) => ({ id, modeles });
-
-  it('ÉLIT LE MEILLEUR MODÈLE SUR L’UNION, et ne rend que les nœuds qui l’offrent', () => {
-    // opus vit sur n1, fable sur n2 ; opus a le meilleur vécu sur « code ». La
-    // ruche doit élire opus ET n'orienter que vers son porteur — envoyer la tâche
-    // à n2 lui ferait tourner fable, pas le modèle choisi.
-    const memoire = replierAntecedents([
-      ...Array.from({ length: 4 }, () => obs('code', 'opus', 'appliquer')),
-      ...Array.from({ length: 4 }, () => obs('code', 'fable', 'refaire')),
+describe('la mise en commun hiérarchique — un bras neuf d’un modèle connu n’est pas un inconnu', () => {
+  it('UN EFFORT NEUF HÉRITE DE SON MODÈLE : bon modèle, bon a priori', () => {
+    // opus a réussi vingt fois sans effort commandé ; le nœud déclare désormais
+    // des efforts. Son bras « high », jamais jugé, part de ce qu'opus a montré ;
+    // celui de fable, modèle raté, part de ce que fable a montré.
+    const vecu = replierAntecedents([
+      ...Array.from({ length: 20 }, () => obs('code', 'opus', 'appliquer')),
+      ...Array.from({ length: 20 }, () => obs('code', 'fable', 'refaire')),
     ]);
-    const route = aiguillerNoeuds('code', [noeud('n1', ['opus']), noeud('n2', ['fable'])], memoire);
-    expect(route?.modele, 'opus a la meilleure moyenne sur ce genre').toBe('opus');
-    expect(
-      route?.noeuds.map((n) => n.id),
-      'seul le porteur d’opus est rendu',
-    ).toEqual(['n1']);
+    const { rang } = classer(
+      'code',
+      [b('opus', 'claude-code', 'high'), b('fable', 'claude-code', 'high')],
+      vecu,
+    );
+    expect(rang[0]?.modele).toBe('opus');
+    expect(rang[0]).toMatchObject({ essais: 0, intervalle: null });
   });
 
-  it('REND LE CLASSEMENT QUI JUSTIFIE LE CHOIX — l’élu est en tête, et c’est le même rang', () => {
-    // La raison « pourquoi ce modèle » DOIT être le classement qui a décidé, pas
-    // un second calcul qui pourrait diverger. On vérifie donc que `rang[0]` est
-    // bien l’élu, que tous les modèles offerts y figurent, et qu’il est trié.
-    const memoire = replierAntecedents([
+  it('LES VERDICTS DU BRAS NE COMPTENT PAS DEUX FOIS — l’a priori les retire du modèle', () => {
+    // Seul bras du modèle : son a priori revient à la croyance neutre, et son
+    // score ne dépend que de ses propres verdicts.
+    const seul = classer('code', [b('opus')], replierAntecedents([obs('code', 'opus', 'refaire')]));
+    const n = MASSE_A_PRIORI + 1;
+    const attendu = bornesWilson((MASSE_A_PRIORI * MOYENNE_NEUTRE) / n, n, 0).haut;
+    expect(seul.rang[0]?.score).toBeCloseTo(attendu, 12);
+  });
+});
+
+describe('l’intervalle et l’état « décidé à δ » — un affichage, jamais un arrêt', () => {
+  it('UN BRAS JAMAIS JUGÉ N’A PAS D’INTERVALLE, et l’élu d’une ruche neuve « explore »', () => {
+    const { rang, etat } = classer('code', [b('opus'), b('fable')], {
+      bras: new Map(),
+      modeles: new Map(),
+    });
+    expect(rang.every((r) => r.intervalle === null)).toBe(true);
+    expect(etat).toBe('explore');
+  });
+
+  it('DÉCIDÉ quand la borne basse de l’élu dépasse la borne haute de chaque rival jugé', () => {
+    const vecu = replierAntecedents([
+      ...Array.from({ length: 40 }, () => obs('code', 'opus', 'appliquer')),
+      ...Array.from({ length: 40 }, () => obs('code', 'fable', 'refaire')),
+    ]);
+    const c = classer('code', [b('opus'), b('fable')], vecu);
+    expect(c.etat).toBe('decide');
+    expect(c.rang[0]?.intervalle?.bas).toBeGreaterThan(c.rang[1]?.intervalle?.haut ?? 1);
+  });
+
+  it('UN RIVAL JAMAIS JUGÉ SUFFIT À « EXPLORE » — on n’a pas décidé contre un inconnu', () => {
+    const vecu = replierAntecedents(
+      Array.from({ length: 40 }, () => obs('code', 'opus', 'appliquer')),
+    );
+    expect(classer('code', [b('opus'), b('fable')], vecu).etat).toBe('explore');
+  });
+
+  it('DES INTERVALLES QUI SE CHEVAUCHENT RESTENT « EXPLORE »', () => {
+    const vecu = replierAntecedents([
+      ...Array.from({ length: 3 }, () => obs('code', 'opus', 'appliquer')),
+      obs('code', 'fable', 'appliquer'),
+      obs('code', 'fable', 'refaire'),
+    ]);
+    expect(classer('code', [b('opus'), b('fable')], vecu).etat).toBe('explore');
+  });
+
+  it('UN SEUL BRAS EN LICE : « seul », il n’y a rien à départager', () => {
+    expect(classer('code', [b('opus')], replierAntecedents([])).etat).toBe('seul');
+  });
+
+  it('DÉCIDÉ N’ARRÊTE PAS L’EXPLORATION — le rival garde un score fini qui monte', () => {
+    const avec = (n: number) =>
+      classer(
+        'code',
+        [b('opus'), b('fable')],
+        replierAntecedents([
+          ...Array.from({ length: n }, () => obs('code', 'opus', 'appliquer')),
+          ...Array.from({ length: 40 }, () => obs('code', 'fable', 'refaire')),
+        ]),
+      );
+    const fable = (n: number) => avec(n).rang.find((r) => r.modele === 'fable')!.score;
+    expect(avec(200).etat).toBe('decide');
+    expect(fable(200)).toBeGreaterThan(0);
+    expect(fable(200), 'plus le genre sert, plus l’optimisme du délaissé grandit').toBeGreaterThan(
+      fable(40),
+    );
+  });
+});
+
+describe('le coût — seulement quand TOUS les bras comparés le déclarent', () => {
+  // Deux bras de même vécu : seule la pondération du coût peut les séparer.
+  const verdicts = (coutOpus: number | null, coutFable: number | null) =>
+    replierAntecedents([
+      ...Array.from({ length: 6 }, () => obs('code', 'opus', 'appliquer', { cout: coutOpus })),
+      ...Array.from({ length: 6 }, () => obs('code', 'fable', 'appliquer', { cout: coutFable })),
+    ]);
+
+  it('TOUS DÉCLARÉS : le moins cher passe devant, à qualité égale', () => {
+    const c = classer('code', [b('opus'), b('fable')], verdicts(2, 0.5));
+    expect(c.coutPondere).toBe(true);
+    expect(c.rang[0]?.modele, 'fable coûte quatre fois moins').toBe('fable');
+    expect(c.rang.find((r) => r.modele === 'opus')?.cout).toBe(2);
+  });
+
+  it('UN SEUL COÛT INCONNU ÉTEINT LE TERME POUR TOUS — jamais un mélange', () => {
+    // Codex ne déclare que des jetons. Pondérer « quand c'est connu » ferait
+    // payer à Claude Code sa transparence : le bras muet paraîtrait gratuit.
+    const c = classer('code', [b('opus'), b('fable', 'codex')], verdicts(2, null));
+    expect(c.coutPondere).toBe(false);
+    const sansCout = classer('code', [b('opus'), b('fable', 'codex')], verdicts(null, null));
+    expect(
+      c.rang.map((r) => [r.modele, r.score]),
+      'mêmes scores que si personne ne déclarait',
+    ).toEqual(sansCout.rang.map((r) => [r.modele, r.score]));
+  });
+
+  it('UN BRAS NEUF (sans coût encore) ÉTEINT AUSSI LE TERME', () => {
+    const c = classer('code', [b('opus'), b('fable'), b('sonnet')], verdicts(2, 0.5));
+    expect(c.coutPondere).toBe(false);
+  });
+});
+
+describe('aiguillerNoeuds — du bras élu aux nœuds qui savent le faire tourner', () => {
+  const noeud = (
+    id: string,
+    modeles?: string[],
+    agentType = 'claude-code',
+    efforts?: Effort[],
+  ) => ({ id, agentType, modeles, ...(efforts ? { efforts } : {}) });
+
+  it('ÉLIT LE MEILLEUR BRAS SUR L’UNION, et ne rend que les nœuds qui le portent', () => {
+    const vecu = replierAntecedents([
       ...Array.from({ length: 4 }, () => obs('code', 'opus', 'appliquer')),
       ...Array.from({ length: 4 }, () => obs('code', 'fable', 'refaire')),
     ]);
-    const route = aiguillerNoeuds('code', [noeud('n1', ['opus']), noeud('n2', ['fable'])], memoire);
-    expect(route?.rang[0]?.modele, 'l’élu est en tête du classement').toBe(route?.modele);
-    expect(
-      route?.rang.map((r) => r.modele).sort(),
-      'tous les modèles offerts sont dans la raison',
-    ).toEqual(['fable', 'opus']);
-    const scores = route?.rang.map((r) => r.score) ?? [];
-    expect(
-      [...scores].sort((a, b) => b - a),
-      'le classement est trié par score décroissant',
-    ).toEqual(scores);
-    // Chaque ligne porte le vécu réel : essais et moyenne, pour la lecture.
-    const opus = route?.rang.find((r) => r.modele === 'opus');
-    expect(opus?.essais).toBe(4);
+    const route = aiguillerNoeuds('code', [noeud('n1', ['opus']), noeud('n2', ['fable'])], vecu);
+    expect(route?.bras).toEqual(b('opus'));
+    expect(route?.noeuds.map((n) => n.id)).toEqual(['n1']);
+    expect(route?.rang[0]?.modele, 'l’élu est en tête du classement').toBe('opus');
+  });
+
+  it('LE MÊME MODÈLE SOUS DEUX HARNESS : deux bras, et seul le porteur du bon harness', () => {
+    // opus a réussi sous Claude Code et raté sous Cline : les confondre enverrait
+    // la tâche au nœud Cline sur la foi du vécu de Claude Code.
+    const vecu = replierAntecedents([
+      ...Array.from({ length: 6 }, () => obs('code', 'opus', 'appliquer')),
+      ...Array.from({ length: 6 }, () => obs('code', 'opus', 'refaire', { harness: 'cline' })),
+    ]);
+    const route = aiguillerNoeuds(
+      'code',
+      [noeud('cline', ['opus'], 'cline'), noeud('cc', ['opus'])],
+      vecu,
+    );
+    expect(route?.bras.harness).toBe('claude-code');
+    expect(route?.noeuds.map((n) => n.id)).toEqual(['cc']);
+  });
+
+  it('UN NŒUD QUI DÉCLARE DES EFFORTS N’OFFRE QUE CEUX-LÀ — jamais un effort à qui n’en déclare pas', () => {
+    const route = aiguillerNoeuds(
+      'code',
+      [noeud('n1', ['opus'], 'claude-code', ['low', 'max']), noeud('n2', ['opus'], 'codex')],
+      { bras: new Map(), modeles: new Map() },
+    );
+    const offerts = route?.rang.map((r) => `${r.harness}:${r.effort ?? '-'}`).sort();
+    expect(offerts).toEqual(['claude-code:low', 'claude-code:max', 'codex:-']);
+    for (const r of route?.rang ?? []) {
+      if (r.harness === 'codex') expect(r.effort, 'Codex ne documente aucun effort').toBeNull();
+    }
   });
 
   it('NO-OP quand AUCUN éligible ne déclare de modèle — l’appelant ne touche à rien', () => {
-    // Une flotte d'avant l'Aiguillage (aucun `modeles`) ou aux listes vides : la
-    // fonction rend `null`, signal à l'appelant de garder son ordonnancement.
     expect(
-      aiguillerNoeuds('code', [noeud('n1'), noeud('n2', [])], new Map()),
-      'rien à aiguiller',
+      aiguillerNoeuds('code', [noeud('n1'), noeud('n2', [])], {
+        bras: new Map(),
+        modeles: new Map(),
+      }),
     ).toBeNull();
   });
 
-  it('EXPLORE : un modèle JAMAIS essayé (+∞) l’emporte sur un bon connu, et son porteur est rendu', () => {
-    // opus a un vécu parfait ; grok n'a aucun vécu → score +∞ → il DOIT être
-    // essayé avant qu'on prétende le connaître. La route mène alors à son porteur.
-    const memoire = replierAntecedents(
-      Array.from({ length: 10 }, () => obs('code', 'opus', 'appliquer')),
-    );
-    const route = aiguillerNoeuds('code', [noeud('n1', ['opus']), noeud('n2', ['grok'])], memoire);
-    expect(route?.modele, 'l’inconnu passe avant le bon connu').toBe('grok');
-    expect(route?.noeuds.map((n) => n.id)).toEqual(['n2']);
-  });
-
   it('PLUSIEURS PORTEURS de l’élu : tous rendus, dans l’ordre d’entrée (le départage de charge suit)', () => {
-    // n1 et n3 offrent tous deux opus ; l'appelant a déjà trié par charge (n1
-    // avant n3). La fonction préserve cet ordre — c'est lui qui départage ensuite.
-    const memoire = replierAntecedents([
+    const vecu = replierAntecedents([
       ...Array.from({ length: 4 }, () => obs('code', 'opus', 'appliquer')),
       ...Array.from({ length: 4 }, () => obs('code', 'fable', 'refaire')),
     ]);
     const route = aiguillerNoeuds(
       'code',
       [noeud('n1', ['opus']), noeud('n2', ['fable']), noeud('n3', ['opus'])],
-      memoire,
+      vecu,
     );
-    expect(route?.modele).toBe('opus');
-    expect(
-      route?.noeuds.map((n) => n.id),
-      'les deux porteurs d’opus, ordre d’entrée préservé',
-    ).toEqual(['n1', 'n3']);
+    expect(route?.noeuds.map((n) => n.id)).toEqual(['n1', 'n3']);
   });
 
-  it('N’INVENTE JAMAIS un modèle hors des éligibles — l’union se limite à ce qu’ils OFFRENT', () => {
-    // opus a un vécu superbe, mais aucun éligible ne le propose : la ruche ne
-    // peut pas l'exécuter, donc il n'entre pas dans l'union et n'est pas élu.
-    // C'est le cœur de « union sur les éligibles » : la mémoire ne suffit pas,
-    // il faut un porteur atteignable.
-    const memoire = replierAntecedents(
+  it('N’INVENTE JAMAIS un bras hors des éligibles', () => {
+    const vecu = replierAntecedents(
       Array.from({ length: 10 }, () => obs('code', 'opus', 'appliquer')),
     );
-    const route = aiguillerNoeuds('code', [noeud('n1', ['fable'])], memoire);
-    expect(route?.modele, 'seul un modèle atteignable est élu').toBe('fable');
-    expect(route?.noeuds.map((n) => n.id)).toEqual(['n1']);
+    const route = aiguillerNoeuds('code', [noeud('n1', ['fable'])], vecu);
+    expect(route?.bras.modele).toBe('fable');
   });
 });
 
 describe('repriseHorsEchecs — un modèle qui a planté sur une tâche n’en reprend pas les tentatives', () => {
-  const noeud = (id: string, modeles?: string[]) => ({ id, modeles });
+  const noeud = (id: string, modeles?: string[]) => ({ id, agentType: 'claude-code', modeles });
 
   it('ÉCARTE LES MODÈLES TOMBÉS — chaque éligible en est privé, dans l’ordre de charge, et qui n’offrait qu’eux ne porte plus', () => {
     const offre = [
@@ -334,7 +527,7 @@ describe('repriseHorsEchecs — un modèle qui a planté sur une tâche n’en r
     // écarté — rien, dans le classement, ne manque à cause de lui.
     expect(reprise.ecartes, 'triés, pour une raison reproductible').toEqual(['fable', 'grok']);
     expect(
-      aiguillerNoeuds('code', reprise.eligibles, new Map())?.rang.map((r) => r.modele),
+      aiguillerNoeuds('code', reprise.eligibles, replierAntecedents([]))?.rang.map((r) => r.modele),
     ).toEqual(['opus']);
   });
 
@@ -351,9 +544,10 @@ describe('repriseHorsEchecs — un modèle qui a planté sur une tâche n’en r
     const offre = [noeud('libre'), noeud('b', ['fable'])];
     const reprise = repriseHorsEchecs(offre, offre, new Set(['fable']));
     expect(reprise.eligibles.map((n) => n.id)).toEqual(['libre']);
-    expect(aiguillerNoeuds('code', reprise.eligibles, new Map()), 'aucun modèle à commander').toBe(
-      null,
-    );
+    expect(
+      aiguillerNoeuds('code', reprise.eligibles, replierAntecedents([])),
+      'aucun modèle à commander',
+    ).toBe(null);
   });
 
   it('PLUS AUCUN PORTEUR DANS TOUTE L’OFFRE — les modèles tombés concourent de nouveau, rien n’est dit écarté', () => {
@@ -371,152 +565,105 @@ describe('repriseHorsEchecs — un modèle qui a planté sur une tâche n’en r
   });
 });
 
-describe('injecterEnVol — le troupeau borné : le +∞ s’éteint au premier lancement', () => {
-  it('UN MODÈLE NEUF EN VOL N’EST PLUS À +∞ — un essai sans note suffit à éteindre l’infini', () => {
-    const m = new Map<string, Antecedent>();
-    // Avant : grok n'a aucun vécu → score +∞.
-    expect(scoreUCB(m.get(cle('code', 'grok')) ?? { essais: 0, recompenseTotale: 0 }, 10)).toBe(
-      Number.POSITIVE_INFINITY,
-    );
-    injecterEnVol(m, [{ categorie: 'code', modele: 'grok' }]);
-    const a = m.get(cle('code', 'grok'));
-    expect(a, 'l’essai en vol crée l’antécédent — et se compte en vol').toEqual({
-      essais: 1,
-      recompenseTotale: 0,
-      enVol: 1,
-    });
-    expect(Number.isFinite(scoreUCB(a!, 10)), 'le score est désormais FINI').toBe(true);
-    expect(moyenne(a!), 'et la note reste 0 — pessimiste tant que rien n’est jugé').toBe(0);
-  });
-
-  it('N’EFFACE PAS LE VÉCU — un essai en vol ALOURDIT essais sans toucher la note', () => {
-    const m = replierAntecedents(Array.from({ length: 4 }, () => obs('code', 'opus', 'appliquer')));
-    expect(m.get(cle('code', 'opus')), 'opus : 4 essais, note pleine').toEqual({
-      essais: 4,
-      recompenseTotale: 4,
-    });
-    injecterEnVol(m, [{ categorie: 'code', modele: 'opus' }]);
-    expect(m.get(cle('code', 'opus')), 'un essai de plus, même somme de notes').toEqual({
+describe('injecterEnVol — le troupeau borné : un bras élu baisse dès son lancement', () => {
+  it('UNE ÉLECTION EN VOL EST UN ESSAI SANS NOTE, compté à part, dans le seul niveau bras', () => {
+    const v = replierAntecedents(Array.from({ length: 4 }, () => obs('code', 'opus', 'appliquer')));
+    injecterEnVol(v, [{ categorie: 'code', modele: 'opus', harness: 'claude-code', effort: null }]);
+    expect(v.bras.get(cleBras('code', b('opus')))).toEqual({
       essais: 5,
       recompenseTotale: 4,
       enVol: 1,
     });
-    expect(moyenne(m.get(cle('code', 'opus'))!), 'la moyenne baisse un peu').toBeCloseTo(0.8, 10);
+    // Le niveau modèle n'en reçoit pas : un zéro jamais prononcé ne déprime pas
+    // l'a priori des bras frères.
+    expect(v.modeles.get(cle('code', 'opus'))).toEqual({ essais: 4, recompenseTotale: 4 });
   });
 
-  it('LE CLASSEMENT SÉPARE LE JUGÉ DE L’EN-VOL — un modèle neuf en vol reste « à explorer »', () => {
-    // Le défaut relu dans Mission Control : grok n'a JAMAIS été jugé, mais une
-    // élection en vol l'a fait sortir de +∞. Le classement disait alors
-    // « 1 essai, moyenne 0 » — un modèle à explorer affiché comme un modèle
-    // mauvais. Le score, lui, DOIT garder l'effet de l'essai en vol (c'est la
-    // borne du troupeau) ; seule l'explication change.
-    const m = replierAntecedents([
+  it('LE BRAS ÉLU PERD DU TERRAIN DÈS LE LANCEMENT — sans quoi il raflerait tout le genre', () => {
+    const avant = replierAntecedents([]);
+    const apres = replierAntecedents([]);
+    injecterEnVol(apres, [
+      { categorie: 'code', modele: 'fable', harness: 'claude-code', effort: null },
+    ]);
+    const score = (v: VecuAiguillage) =>
+      classer('code', [b('fable'), b('opus')], v).rang.find((r) => r.modele === 'fable')!.score;
+    expect(score(apres)).toBeLessThan(score(avant));
+    expect(
+      choisirBras('code', [b('fable'), b('opus')], apres)?.modele,
+      'l’autre passe devant',
+    ).toBe('opus');
+  });
+
+  it('LE CLASSEMENT SÉPARE LE JUGÉ DE L’EN-VOL — un bras neuf en vol reste « à explorer »', () => {
+    const v = replierAntecedents([
       obs('code', 'opus', 'appliquer'),
       obs('code', 'opus', 'appliquer'),
     ]);
-    injecterEnVol(m, [{ categorie: 'code', modele: 'grok' }]);
-    const grok = classer('code', ['opus', 'grok'], m).find((r) => r.modele === 'grok');
-    expect(grok).toMatchObject({ essais: 0, enVol: 1, moyenne: 0 });
-    expect(grok?.score, 'le score reste fini : l’infini est éteint').toBe(
-      scoreUCB({ essais: 1, recompenseTotale: 0 }, 3),
+    injecterEnVol(v, [{ categorie: 'code', modele: 'grok', harness: 'grok', effort: null }]);
+    const grok = classer('code', [b('opus'), b('grok', 'grok')], v).rang.find(
+      (r) => r.modele === 'grok',
     );
+    expect(grok).toMatchObject({ essais: 0, enVol: 1, moyenne: 0, intervalle: null });
   });
 
-  it('LA MOYENNE NE PARLE QUE DES VERDICTS — un essai en vol ne la dilue pas', () => {
-    // opus : quatre verdicts parfaits, une production en cours. Sa moyenne est
-    // 1 (quatre verdicts sur quatre), pas 0,8 — le zéro de l'essai en vol n'a
-    // jamais été prononcé. Le score, lui, reste celui de l'antécédent complet.
-    const m = replierAntecedents(Array.from({ length: 4 }, () => obs('code', 'opus', 'appliquer')));
-    injecterEnVol(m, [{ categorie: 'code', modele: 'opus' }]);
-    const [opus] = classer('code', ['opus'], m);
-    expect(opus).toMatchObject({ essais: 4, enVol: 1, moyenne: 1 });
-    expect(opus?.score).toBe(scoreUCB({ essais: 5, recompenseTotale: 4 }, 5));
-  });
-
-  it('CHAQUE ÉLECTION EN VOL COMPTE — deux tâches en vol du même modèle = deux essais', () => {
-    const m = new Map<string, Antecedent>();
-    injecterEnVol(m, [
-      { categorie: 'code', modele: 'grok' },
-      { categorie: 'code', modele: 'grok' },
-    ]);
-    expect(m.get(cle('code', 'grok'))?.essais, 'deux en vol, deux essais').toBe(2);
+  it('UNE ÉLECTION SANS BRAS CONNU N’EST ATTRIBUÉE À PERSONNE', () => {
+    const v = replierAntecedents([]);
+    injecterEnVol(v, [{ categorie: 'code', modele: 'opus', harness: null, effort: null }]);
+    expect(v.bras.size).toBe(0);
   });
 });
 
-// ─── LE JOUR OÙ LA RUCHE N'A ENCORE RIEN VÉCU ────────────────────────────────
-//
-// `moyenne` porte une garde anti-division par zéro : `a.essais > 0 ? … : 0`.
-// Mutée en `>=`, un antécédent jamais servi calcule `0 / 0` — donc `NaN` — et les
-// cinquante cas d'`aiguillage` et de `garde-fou` restaient VERTS. Mesuré, verdict
-// affiché.
-//
-// Ils ne pouvaient pas la voir : `scoreUCB` intercepte `essais === 0` AVANT
-// d'appeler `moyenne`, et c'est par lui que passent presque tous les bancs. Mais
-// `classer` — et `classerEchelons`, son jumeau des Garde-Fous — appelle `moyenne`
-// DIRECTEMENT sur un antécédent construit par défaut :
-//
-//     const a = antecedents.get(cle(categorie, modele)) ?? { essais: 0, … };
-//     return { …, moyenne: moyenne(a), score: scoreUCB(a, totalGenre) };
-//
-// Ce tableau existe pour « rendre le choix relisible ». Sur une ruche fraîchement
-// installée, AUCUN antécédent n'existe : chaque ligne vaudrait `NaN`. Et
-// `JSON.stringify(NaN)` rend `null` — l'API enverrait donc des trous, et l'écran
-// afficherait du vide là où il doit afficher zéro. Le pire moment possible : le
-// premier.
-
 describe('UNE RUCHE SANS PASSÉ AFFICHE ZÉRO, JAMAIS NaN', () => {
   it('la moyenne d’un antécédent JAMAIS SERVI vaut 0', () => {
-    // La division par zéro ne rend pas une erreur en JavaScript : elle rend
-    // `NaN`, qui se propage en silence et rate toutes les comparaisons.
     expect(moyenne({ essais: 0, recompenseTotale: 0 })).toBe(0);
   });
 
-  it('LE TABLEAU DE TRANSPARENCE D’UNE RUCHE NEUVE EST LISIBLE', () => {
-    // Aucun antécédent : exactement l'état d'une ruche le jour de l'installation.
-    const rangs = classer('code', ['opus', 'sonnet', 'grok'], new Map<string, Antecedent>());
-    expect(rangs.length).toBe(3);
-    for (const r of rangs) {
-      expect(
-        Number.isNaN(r.moyenne),
-        `${r.modele} : la moyenne affichée est NaN — l’API l’enverrait en null`,
-      ).toBe(false);
+  it('LE TABLEAU DE TRANSPARENCE D’UNE RUCHE NEUVE EST LISIBLE, scores finis compris', () => {
+    const { rang } = classer('code', [b('opus'), b('sonnet'), b('grok', 'grok')], {
+      bras: new Map(),
+      modeles: new Map(),
+    });
+    expect(rang.length).toBe(3);
+    for (const r of rang) {
       expect(r.moyenne, `${r.modele} : une moyenne sans vécu doit être 0`).toBe(0);
-      expect(r.essais, `${r.modele} : aucun essai`).toBe(0);
+      expect(Number.isFinite(r.score), `${r.modele} : un score fini, sérialisable`).toBe(true);
     }
-  });
-
-  it('UN MODÈLE NEUF À CÔTÉ D’UN MODÈLE VÉCU garde une moyenne lisible', () => {
-    // Le cas mixte : la ruche a du vécu sur `opus`, rien sur `grok`. C'est celui
-    // qu'on voit vraiment, une fois passé le premier jour.
-    const m = replierAntecedents([
-      obs('code', 'opus', 'appliquer'),
-      obs('code', 'opus', 'appliquer'),
-    ]);
-    const rangs = classer('code', ['opus', 'grok'], m);
-    const grok = rangs.find((r) => r.modele === 'grok');
-    expect(grok?.moyenne, 'le modèle jamais essayé doit afficher 0, pas NaN').toBe(0);
-    expect(grok?.score, 'et il reste à +∞ — inconnu n’est pas mauvais').toBe(
-      Number.POSITIVE_INFINITY,
-    );
   });
 });
 
 describe('antecedentsDuVecu — le repli unique, pour qui choisit et pour qui montre', () => {
-  it('LE MODÈLE PROUVÉ L’EMPORTE SUR LE COMMANDÉ — et les élections en vol pèsent à part', () => {
-    // Deux replis écrits à la main avaient divergé : `/api/workers` rangeait
-    // chaque verdict sous le modèle COMMANDÉ. Ici, une tâche commandée à opus a
-    // été produite par fable (réassignation) et jugée « refaire » : c'est
-    // fable qui l'a ratée.
+  it('LE MODÈLE PROUVÉ L’EMPORTE SUR LE COMMANDÉ — bras, coût et élections en vol suivent', () => {
     const tache = { title: 'Ajoute un endpoint', prompt: 'implémente la fonction' };
-    const m = antecedentsDuVecu(
+    const v = antecedentsDuVecu(
       [
-        { ...tache, modele: 'opus', modeleExact: 'opus', suite: 'appliquer' },
-        { ...tache, modele: 'opus', modeleExact: 'fable', suite: 'refaire' },
+        {
+          ...tache,
+          modele: 'opus',
+          modeleExact: 'opus',
+          harness: 'claude-code',
+          suite: 'appliquer',
+          coutUsd: 0.3,
+        },
+        {
+          ...tache,
+          modele: 'opus',
+          modeleExact: 'fable',
+          harness: 'claude-code',
+          suite: 'refaire',
+        },
         { ...tache, modele: 'fable', suite: 'appliquer' },
       ],
-      [{ ...tache, modele: 'opus' }],
+      [{ ...tache, modele: 'opus', harness: 'claude-code' }],
     );
-    expect(m.get(cle('code', 'opus'))).toEqual({ essais: 2, recompenseTotale: 1, enVol: 1 });
-    expect(m.get(cle('code', 'fable'))).toEqual({ essais: 2, recompenseTotale: 1 });
+    expect(v.bras.get(cleBras('code', b('opus')))).toEqual({
+      essais: 2,
+      recompenseTotale: 1,
+      enVol: 1,
+      coutTotal: 0.3,
+      coutsDeclares: 1,
+    });
+    expect(v.bras.get(cleBras('code', b('fable')))).toEqual({ essais: 1, recompenseTotale: 0 });
+    // Le verdict sans bras (fable, d'avant la v3) nourrit le seul niveau modèle.
+    expect(v.modeles.get(cle('code', 'fable'))).toEqual({ essais: 2, recompenseTotale: 1 });
   });
 });

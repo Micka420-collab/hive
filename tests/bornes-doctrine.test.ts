@@ -92,6 +92,8 @@ const BORNÉES_PAR_L_HUMAIN: Record<string, string> = {
   machines_noeuds: 'une ligne par machine provisionnée',
   modeles_noeuds:
     'une liste de modèles par machine — clé primaire nodeId, écrasée à la ré-inscription',
+  efforts_noeuds:
+    'les efforts qu’une machine sait commander à son CLI — clé primaire nodeId, écrasée à la ré-inscription, effacée quand ils ne sont pas redits',
   outils_noeuds:
     'les outils IA constatés par une machine — clé primaire nodeId, écrasée à la ré-inscription ; le JSON est borné en amont par estOutilsConstates (32 entrées)',
   isolements_noeuds:

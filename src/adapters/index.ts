@@ -3,6 +3,7 @@
 // connaître l'outil qui exécute réellement la tâche (contrainte §5.4).
 
 import type { PresenceFichier } from '../shared/presence.js';
+import type { Effort } from '../shared/effort.js';
 import type { ExecutionUsage, SubAgent, Task, UsageFournisseur } from '../shared/types.js';
 import { createClaudeCodeAdapter } from './claude-code.js';
 import { createClineAdapter } from './cline.js';
@@ -78,6 +79,11 @@ export interface AdapterContext {
    * Ce n'est PAS un secret — il peut voyager en argument de commande.
    */
   modele?: string;
+  /**
+   * L'effort élu avec le modèle (`--effort` chez Claude Code). Absent : le CLI
+   * garde son défaut. N'arrive qu'à un adaptateur qui déclare `efforts`.
+   */
+  effort?: Effort;
   /** Remontée de progrès vers l'orchestrateur (sous-agents, logs). */
   onProgress: (progress: AdapterProgress) => void;
   /**
@@ -143,6 +149,12 @@ export interface AdapterResult {
 
 export interface AgentAdapter {
   name: string;
+  /**
+   * Les efforts que CE CLI documente, que le nœud déclare à la ruche. Absent :
+   * l'agent n'en documente aucun, et l'Aiguillage ne lui en commande jamais
+   * (`shared/effort.ts`).
+   */
+  efforts?: readonly Effort[];
   run(task: Task, ctx: AdapterContext): Promise<AdapterResult>;
 }
 

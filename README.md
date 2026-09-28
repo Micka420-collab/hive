@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-7073%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-7103%20passing-F6C445?labelColor=17130C)
 ![Licence](https://img.shields.io/badge/licence-MIT-F6C445?labelColor=17130C)
 
 🇫🇷 Français · [🇬🇧 English](README.en.md) · [🌐 Site](https://micka420-collab.github.io/hive/) · [📚 Documentation](#-documentation)
@@ -163,9 +163,14 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
   survivre à son nœud (conteneur lancé sans `--init`, `TerminateProcess` sous
   Windows), comme les merges et chantiers en cours et les sous-processus
   qu'un agent lance lui-même ;
-- l'apprentissage : le routing apprend toujours des seules contre-visites ;
-  y faire entrer les autres faits du registre Genome est une décision de
-  pondération, pas encore prise ;
+- l'apprentissage : la qualité apprise vient toujours des seules
+  contre-visites ; y faire entrer les autres faits du registre Genome est une
+  décision de pondération, pas encore prise. Depuis l'Aiguillage v3, un modèle
+  neuf part d'un a priori fini (plus de choix d'office), chaque bras (modèle ×
+  agent × effort) hérite du vécu de son modèle, et le coût déclaré n'entre
+  dans le score que si TOUS les bras comparés en déclarent un (poids repris de
+  LiteLLM, non calibrés) ; l'effort n'est commandé qu'à Claude Code, le seul
+  CLI qui documente ses niveaux ;
 - une contre-expertise croisée sur un vrai run : une ouvrière par famille est
   éprouvée avec de vrais processus et de faux agents, pas encore avec Claude
   Code relu par Codex ;

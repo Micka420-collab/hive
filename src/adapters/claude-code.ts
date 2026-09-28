@@ -6,6 +6,7 @@
 
 import { DEFAULT_TOKEN } from '../shared/types.js';
 import type { Task } from '../shared/types.js';
+import { EFFORTS, type Effort } from '../shared/effort.js';
 import { assertRealExecutionAllowed, runCommandStreaming } from './exec.js';
 import { configurationDuDepot, consignesDuDepot } from './consignes-depot.js';
 import {
@@ -86,6 +87,10 @@ export const REGLAGES_IMPOSES = JSON.stringify({ disableAllHooks: true });
  * `consignesPath` : les consignes du dépôt relues comme DONNÉES
  * (`consignes-depot.ts`), que `--setting-sources user` retire au CLI.
  *
+ * `--effort <niveau>` suit la même règle que `--model` : un des niveaux que
+ * `claude --help` documente (« low, medium, high, xhigh, max », relevé sur
+ * 2.1.283 — `EFFORTS`), absent quand l'Aiguillage n'en a commandé aucun.
+ *
  * `--model <nom>` va AVANT le `--` : c'est une OPTION, et tout ce qui suit `--`
  * est du texte de prompt (cf. l'injection démontrée dans `prompt-argv.ts`). Le
  * prompt reste donc en TOUT DERNIER, derrière `--`. Un nom de modèle n'est pas un
@@ -98,8 +103,12 @@ export function argvClaude(
   mcpConfigPath?: string,
   mcpServerName = 'hive',
   consignesPath?: string,
+  effort?: Effort,
 ): string[] {
-  const drapeauxModele = modele ? ['--model', modele] : [];
+  const drapeauxModele = [
+    ...(modele ? ['--model', modele] : []),
+    ...(effort ? ['--effort', effort] : []),
+  ];
   const drapeauxPermission = ['--permission-mode', 'acceptEdits'];
   const drapeauxDepot = [
     '--setting-sources',
@@ -156,6 +165,7 @@ export function createClaudeCodeAdapter(
   assertRealExecutionAllowed("L'adaptateur claude-code", token);
   return {
     name: 'claude-code',
+    efforts: EFFORTS,
     async run(task: Task, ctx: AdapterContext): Promise<AdapterResult> {
       ctx.onProgress({ log: 'claude -p (stream-json) démarré' });
       const tracker = createSubAgentTracker();
@@ -202,6 +212,7 @@ export function createClaudeCodeAdapter(
             bridge?.childConfigPath,
             bridge?.mcpServerName,
             consignesPath,
+            ctx.effort,
           ),
           ctx,
           (line) => {

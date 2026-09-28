@@ -142,6 +142,7 @@ import type {
 import { RefusDemarrage, direManques, manquesDeDemarrage } from '../shared/amorce.js';
 import { DEFAULT_TOKEN } from '../shared/types.js';
 import type { HiveEvent, HiveNode, Project, Task } from '../shared/types.js';
+import type { Effort } from '../shared/effort.js';
 import { CORPUS_BALANCE, estimerCout, peserLaRuche, VERSION_BALANCE } from './balance.js';
 import type { CompteTache, Devis, Pesee } from './balance.js';
 import { blocCritique, bornerCritique, leconsDesEchecs } from './brood.js';
@@ -2036,7 +2037,7 @@ async function monterReine(
       : undefined;
   };
 
-  const envoyerTache = (nodeId: string, task: Task, modele?: string): void => {
+  const envoyerTache = (nodeId: string, task: Task, modele?: string, effort?: Effort): void => {
     const ws = nodeSockets.get(nodeId);
     // Socket absent ou fermé : le close/reap réaffectera la tâche, rien à faire ici.
     if (ws) {
@@ -2108,6 +2109,9 @@ async function monterReine(
         // Le modèle choisi par l'Aiguillage, s'il y en a un : le nœud le passe à
         // son adaptateur. Absent ⇒ le nœud emploie son modèle par défaut.
         ...(modele ? { modele } : {}),
+        // L'effort élu avec le modèle — l'Aiguillage n'en élit que pour un nœud
+        // qui les a déclarés. Absent ⇒ le CLI garde son défaut.
+        ...(effort ? { effort } : {}),
         ...(delegationBudget ? { delegationBudget } : {}),
         // Une relecture n'écrit rien : le nœud peut brider son agent.
         ...(store.relectureDe(task.id) ? { relecture: true as const } : {}),
@@ -2170,7 +2174,7 @@ async function monterReine(
       const ws = nodeSockets.get(nodeId);
       if (ws) send(ws, { type: 'cancel_task', taskId, reason });
     },
-    onAssign: (nodeId, task, modele) => envoyerTache(nodeId, task, modele),
+    onAssign: (nodeId, task, modele, effort) => envoyerTache(nodeId, task, modele, effort),
     onEvent: (event) => {
       broadcastEvent({ type: 'event', event });
       stateDirty = true;
@@ -11150,6 +11154,9 @@ async function monterReine(
               // Déjà validée par le protocole (isModeleList) — liste bornée, noms
               // non vides ; mal formée, tout le register a été refusé en amont.
               ...(msg.modeles !== undefined ? { modeles: msg.modeles } : {}),
+              // Les efforts, même régime (`estListeEfforts`) : absents, le store
+              // efface la déclaration d'avant.
+              ...(msg.efforts !== undefined ? { efforts: msg.efforts } : {}),
               // Les constats d'outils, même régime : `estOutilsConstates` les a
               // déjà bornés et RECONSTRUITS champ par champ, donc rien d'autre
               // que `agent`/`binaire`/`cle` n'arrive ici. Le hub les RANGE ; il
@@ -11938,12 +11945,18 @@ async function monterReine(
             const modele = race
               ? race.modeleParDrone?.[nodeId]
               : (store.modeleAiguillageDe(task.id) ?? undefined);
+            // L'effort, pour la même raison : sans lui, la re-livraison
+            // tournerait au défaut du CLI sous un verdict rangé à l'effort élu.
+            const effort = race
+              ? (race.brasParDrone?.[nodeId]?.effort ?? undefined)
+              : (store.effortAiguillageDe(task.id) ?? undefined);
             send(ws, {
               type: 'assign_task',
               task,
               repoUrl: project?.repoUrl ?? null,
               ...(hiveContext ? { hiveContext } : {}),
               ...(modele ? { modele } : {}),
+              ...(effort ? { effort } : {}),
               ...(delegationBudget ? { delegationBudget } : {}),
               ...(store.relectureDe(task.id) ? { relecture: true as const } : {}),
             });

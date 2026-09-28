@@ -5,6 +5,7 @@
 import type { PlateformeNoeud } from './machine.js';
 import type { OutilConstate } from './protocol.js';
 import type { ValidationsBac } from './validations-bac.js';
+import type { Effort } from './effort.js';
 
 /** Cycle de vie : pending → ready (dépendances done) → assigned → running → done | failed. */
 export type TaskStatus = 'pending' | 'ready' | 'assigned' | 'running' | 'done' | 'failed';
@@ -46,6 +47,12 @@ export interface HiveNode {
    * la ruche retombe sur son ordonnancement d'avant.
    */
   modeles?: string[];
+  /**
+   * Les efforts que ce nœud sait commander à son CLI (`shared/effort.ts`),
+   * DÉCLARÉS à l'inscription. Absent : l'Aiguillage ne lui commande aucun
+   * effort — son CLI garde son défaut.
+   */
+  efforts?: Effort[];
   /**
    * Les outils IA que ce nœud a CONSTATÉS sur sa machine à l'inscription :
    * binaire trouvé sur le PATH, clé lisible dans l'environnement. C'est un

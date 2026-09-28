@@ -71,6 +71,39 @@ describe('argvClaude — le modèle de l’Aiguillage passe à `claude --model`'
     expect(iModele, 'le modèle est une OPTION, avant `--`').toBeLessThan(argv.indexOf('--'));
     expect(argv[argv.length - 1], 'le prompt reste tout en dernier').toBe('mon prompt');
   });
+
+  it('L’EFFORT ÉLU PART EN `--effort <niveau>`, lui aussi AVANT le `--`', () => {
+    const argv = argvClaude(
+      'mon prompt',
+      'claude-opus-5',
+      undefined,
+      undefined,
+      undefined,
+      'xhigh',
+    );
+    const iEffort = argv.indexOf('--effort');
+    expect(argv[iEffort + 1]).toBe('xhigh');
+    expect(iEffort, 'une OPTION, jamais du texte de prompt').toBeLessThan(argv.indexOf('--'));
+    expect(
+      argvClaude('mon prompt', 'claude-opus-5'),
+      'sans effort élu, aucun drapeau',
+    ).not.toContain('--effort');
+  });
+
+  it('L’ADAPTATEUR DÉCLARE LES NIVEAUX QUE `claude --help` DOCUMENTE — Codex, aucun', () => {
+    // Relevés sur Claude Code 2.1.283 : « low, medium, high, xhigh, max ».
+    // Codex n'en documente aucun (valeurs propres à chaque modèle) : un niveau
+    // refusé brûlerait la tentative sans verdict.
+    const jeton = 'un-vrai-token-de-ruche';
+    expect(createClaudeCodeAdapter(jeton).efforts).toEqual([
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+      'max',
+    ]);
+    expect(createCodexAdapter(jeton).efforts).toBeUndefined();
+  });
 });
 
 describe('adaptateur shell simulé', () => {

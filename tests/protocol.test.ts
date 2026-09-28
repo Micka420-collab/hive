@@ -86,6 +86,18 @@ describe('parseClientMessage', () => {
     expect(auBord).toMatchObject({ modeles: pileALaBorne });
   });
 
+  it('LES EFFORTS DÉCLARÉS : connus et sans doublon, ou le register ENTIER tombe', () => {
+    // Un effort qu'aucun CLI ne connaît, commandé par l'Aiguillage, brûlerait
+    // la tentative sans verdict : même sévérité que `modeles`.
+    const efforts = (e: unknown) => parseClientMessage(JSON.stringify({ ...register, efforts: e }));
+    expect(efforts(['low', 'max'])).toMatchObject({ efforts: ['low', 'max'] });
+    expect(efforts([]), 'liste vide').toBeNull();
+    expect(efforts(['turbo']), 'niveau inconnu').toBeNull();
+    expect(efforts(['low', 'low']), 'doublon').toBeNull();
+    expect(efforts('low'), 'pas un tableau').toBeNull();
+    expect(parseClientMessage(JSON.stringify(register))).not.toHaveProperty('efforts');
+  });
+
   it('un register SANS modèles reste valide — aucun nœud n’est forcé de les déclarer', () => {
     // Compatibilité : un nœud d'avant l'Aiguillage, ou un agent à modèle unique,
     // n'envoie rien. Le hub ne doit pas le refuser, ni inventer une liste.
@@ -542,6 +554,14 @@ describe('parseServerMessage — validation des messages du hub (anti-traversal/
       type: 'assign_task',
       delegationBudget: { durationMs: 60_000, costMicros: 42, resourceUnits: 1 },
     });
+  });
+
+  it('L’EFFORT D’UN assign_task : un niveau connu passe, un inconnu fait tomber le message', () => {
+    const message = (effort: unknown) =>
+      parseServerMessage(JSON.stringify({ type: 'assign_task', task: validTask, effort }));
+    expect(message('high')).toMatchObject({ type: 'assign_task', effort: 'high' });
+    expect(message('turbo')).toBeNull();
+    expect(message(3)).toBeNull();
   });
 
   it('rejette un budget enfant malformé dans assign_task', () => {

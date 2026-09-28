@@ -12,6 +12,7 @@ import type {
 } from './livraison-locale.js';
 import { estPlateforme } from './machine.js';
 import { validationsBacDepuis } from './validations-bac.js';
+import { estEffort, estListeEfforts, type Effort } from './effort.js';
 import type { ValidationsBac } from './validations-bac.js';
 import type { PlateformeNoeud } from './machine.js';
 import type { PresenceFichier } from './presence.js';
@@ -147,6 +148,15 @@ export interface RegisterMsg {
    * inscription comprise).
    */
   modeles?: string[];
+  /**
+   * Les efforts que ce nœud sait commander à son CLI — SEULEMENT ceux que son
+   * adaptateur documente (`shared/effort.ts`). Même régime que `modeles` :
+   * redits à chaque inscription, absents = retirés. Un nœud d'avant cette
+   * version n'en déclare pas, et l'Aiguillage ne lui en commande jamais : il
+   * ignorerait le champ, et son verdict serait rangé sous un effort qui n'a
+   * pas tourné.
+   */
+  efforts?: Effort[];
   /**
    * Ce que le nœud a CONSTATÉ des outils IA installés sur sa machine.
    *
@@ -468,6 +478,12 @@ export interface AssignTaskMsg {
    * par défaut. Un nom de modèle n'est PAS un secret ; il voyage en clair.
    */
   modele?: string;
+  /**
+   * L'effort que l'Aiguillage a choisi avec le modèle (`--effort` chez Claude
+   * Code). Absent : le CLI garde son défaut. Jamais envoyé à un nœud qui ne
+   * l'a pas déclaré (`RegisterMsg.efforts`).
+   */
+  effort?: Effort;
   /** Budget persistant de l'enfant ; absent pour une tâche racine ou une revue. */
   delegationBudget?: DelegationBudget;
   /**
@@ -1056,6 +1072,12 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
           if (!isModeleList(m.modeles)) return null;
           msg.modeles = m.modeles;
         }
+        // Les efforts : même sévérité — un niveau inconnu ou un doublon, et le
+        // register entier tombe, plutôt qu'un effort qu'aucun CLI ne connaît.
+        if (m.efforts !== undefined) {
+          if (!estListeEfforts(m.efforts)) return null;
+          msg.efforts = [...m.efforts];
+        }
         // L'isolement déclaré : mêmes règles — mal formé, le message est REFUSÉ ;
         // bien formé, il est RECONSTRUIT (niveau + moteur, rien d'autre).
         if (m.isolement !== undefined) {
@@ -1345,6 +1367,7 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
       // comme un nom de nœud. Mal formé ⇒ tout le message tombe (même sévérité
       // que le reste — un hub qui ment sur un champ ment peut-être sur les autres).
       if (m.modele !== undefined && !isStr(m.modele, LIMITS.name)) return null;
+      if (m.effort !== undefined && !estEffort(m.effort)) return null;
       if (m.delegationBudget !== undefined && !isDelegationBudget(m.delegationBudget)) {
         return null;
       }
@@ -1354,6 +1377,7 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
       if (m.repoUrl !== undefined) msg.repoUrl = (m.repoUrl as string | null) ?? null;
       if (m.hiveContext !== undefined) msg.hiveContext = m.hiveContext;
       if (m.modele !== undefined) msg.modele = m.modele;
+      if (m.effort !== undefined) msg.effort = m.effort;
       if (m.delegationBudget !== undefined) {
         const budget = m.delegationBudget as DelegationBudget;
         msg.delegationBudget = {

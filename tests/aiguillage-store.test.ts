@@ -254,6 +254,75 @@ describe('HiveStore — le lien tâche→modèle de l’Aiguillage', () => {
     verdict(vivant, 'appliquer', 2_000);
     expect(store.observationsAiguillage().map((o) => o.modele)).toEqual(['m-vivant']);
   });
+  it('LE BRAS SUIT LE MODÈLE — harness, effort et coût déclaré ressortent avec le verdict', () => {
+    const t = tache('Ajoute un endpoint', 'implémente');
+    store.poserModeleAiguillage(t, 'opus', 1_000, { harness: 'claude-code', effort: 'high' });
+    store.poserCoutAiguillage(t, 0.37);
+    verdict(t, 'appliquer', 2_000);
+    expect(store.observationsAiguillage()[0]).toMatchObject({
+      modele: 'opus',
+      harness: 'claude-code',
+      effort: 'high',
+      coutUsd: 0.37,
+    });
+    expect(store.effortAiguillageDe(t)).toBe('high');
+  });
+
+  it('UNE RÉASSIGNATION REPOSE LE BRAS — le coût d’une tentative ne survit pas à la suivante', () => {
+    const t = tache('Ajoute un endpoint', 'implémente');
+    store.poserModeleAiguillage(t, 'opus', 1_000, { harness: 'claude-code', effort: 'max' });
+    store.poserCoutAiguillage(t, 2);
+    store.poserModeleAiguillage(t, 'opus', 1_500, { harness: 'claude-code', effort: 'low' });
+    verdict(t, 'appliquer', 2_000);
+    const [o] = store.observationsAiguillage();
+    expect(o).toMatchObject({ effort: 'low' });
+    expect(o, 'aucun coût déclaré pour CETTE tentative').not.toHaveProperty('coutUsd');
+    // Effacer l'élection efface le bras avec elle.
+    store.effacerModeleAiguillage(t);
+    expect(store.effortAiguillageDe(t)).toBeNull();
+  });
+
+  it('UN VERDICT D’AVANT LA V3 : LE HARNESS SE CONSTATE SUR LE NŒUD PRODUCTEUR, sans effort', () => {
+    // Aucun bras rangé, mais le résultat relu dit quel nœud a produit : son
+    // agentType EST le harness, et aucun effort n'était alors commandé.
+    store.registerNode({
+      nodeId: 'prod',
+      name: 'p',
+      ownerName: 'm',
+      agentType: 'cline',
+      maxConcurrency: 1,
+    });
+    const t = tache('Ajoute un endpoint', 'implémente');
+    store.poserModeleAiguillage(t, 'opus', 1_000);
+    const resultId = store.insertResult(
+      {
+        taskId: t,
+        nodeId: 'prod',
+        success: true,
+        diff: 'd',
+        logs: '',
+        durationMs: 1,
+        subAgents: [],
+      },
+      1_500,
+    );
+    store.appendEvent(
+      'contre_expertise_verdict',
+      { source: 'hive_counter_review', taskId: t, resultId },
+      1_600,
+    );
+    verdict(t, 'appliquer', 2_000);
+    const [o] = store.observationsAiguillage();
+    expect(o).toMatchObject({ harness: 'cline' });
+    expect(o).not.toHaveProperty('effort');
+  });
+
+  it('LA BORNE ÉLAGUE LE BRAS AVEC SON MODÈLE', () => {
+    store.poserModeleAiguillage('tache-fantome', 'm', 1_000, { harness: 'codex', effort: null });
+    store.pruneAiguillageModeles();
+    expect(store.effortAiguillageDe('tache-fantome')).toBeNull();
+    expect(store.observationsAiguillage().length + store.electionsEnVolAiguillage().length).toBe(0);
+  });
 });
 
 describe('HiveStore — les modèles déclarés d’un nœud (ce que l’Aiguillage lira)', () => {
@@ -314,6 +383,18 @@ describe('HiveStore — les modèles déclarés d’un nœud (ce que l’Aiguill
     // Et la redéclaration suivante repart de zéro, sans reliquat.
     store.registerNode({ ...base, nodeId: 'n1', modeles: ['c'] });
     expect(store.getNode('n1')?.modeles).toEqual(['c']);
+  });
+
+  it('LES EFFORTS DÉCLARÉS RESSORTENT, et une inscription qui ne les redit pas les RETIRE', () => {
+    // Même règle que les modèles : un effort qui n'est plus redit ne doit plus
+    // être commandé — le nœud a peut-être changé de CLI.
+    expect(
+      store.registerNode({ ...base, nodeId: 'n1', modeles: ['a'], efforts: ['low', 'high'] })
+        .efforts,
+    ).toEqual(['low', 'high']);
+    expect(store.listNodes()[0]?.efforts).toEqual(['low', 'high']);
+    store.registerNode({ ...base, nodeId: 'n1', modeles: ['a'] });
+    expect(store.getNode('n1')?.efforts, 'retirés, jamais `[]`').toBeUndefined();
   });
 });
 
