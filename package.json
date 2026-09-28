@@ -23,6 +23,7 @@
     "join": "node scripts/lancer.mjs src/node-client/join.ts",
     "demo": "node scripts/lancer.mjs src/demo.ts",
     "preuve:v2-alpha": "node scripts/preuve-v2-alpha.mjs",
+    "boucle:v3": "node scripts/lancer.mjs src/boucle-v3/main.ts",
     "captures": "node scripts/captures-ecran.mjs",
     "cli": "node scripts/lancer.mjs src/cli.ts",
     "install:hive": "node scripts/lancer.mjs src/installer-main.ts",

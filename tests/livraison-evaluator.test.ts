@@ -248,6 +248,34 @@ describe('livrer et fusionner sous le verdict de l’Evaluator', () => {
     expect(server.store.getLivraison(tache), 'une livraison a été réservée').toBeFalsy();
   });
 
+  it('LA PRODUCTION JUGÉE, OU RIEN : un `resultId` périmé ne livre pas la suivante', async () => {
+    // Qui a jugé une production précise (la porte de la boucle V3) la désigne ;
+    // une production arrivée entre-temps ne part pas à sa place.
+    const tache = production(orphelin, 'clean');
+    const jugee = server.store.resultsForTask(tache).at(-1)?.resultId ?? 0;
+    server.store.insertResult({
+      taskId: tache,
+      nodeId: 'noeud-1',
+      success: true,
+      diff: DIFF,
+      logs: 'une tentative de plus',
+      durationMs: 10,
+      subAgents: [],
+    });
+    const avant = ouvertes.length;
+    const perimee = await poster('/api/livraison', { taskId: tache, resultId: jugee }, jeton);
+    expect(perimee.status).toBe(409);
+    expect(await perimee.json()).toMatchObject({
+      code: 'stale_result',
+      currentResultId: jugee + 1,
+    });
+    expect(ouvertes.length, 'une pull request est partie sur une production non jugée').toBe(avant);
+    expect(server.store.getLivraison(tache), 'une livraison a été réservée').toBeFalsy();
+
+    const courante = await poster('/api/livraison', { taskId: tache, resultId: jugee + 1 }, jeton);
+    expect(courante.status).toBe(201);
+  });
+
   it('UNE PRODUCTION REJETÉE NE PART PAS NON PLUS', async () => {
     const r = await poster('/api/livraison', { taskId: production(orphelin, 'hollow') }, jeton);
     expect(r.status).toBe(409);

@@ -6763,7 +6763,13 @@ async function monterReine(
   };
 
   app.post<{
-    Body: { taskId: string; base?: string; forcer?: { raison: string }; validerRejeu?: boolean };
+    Body: {
+      taskId: string;
+      base?: string;
+      resultId?: number;
+      forcer?: { raison: string };
+      validerRejeu?: boolean;
+    };
   }>(
     '/api/livraison',
     {
@@ -6775,6 +6781,10 @@ async function monterReine(
           properties: {
             taskId: { type: 'string', minLength: 1, maxLength: 200 },
             base: { type: 'string', minLength: 1, maxLength: 200 },
+            // La production ATTENDUE (compare-and-set, facultatif) : qui a
+            // jugé un diff précis — la porte de la boucle V3, un humain qui a
+            // relu — ne doit pas en livrer un autre, arrivé entre-temps.
+            resultId: { type: 'integer', minimum: 1 },
             forcer: SCHEMA_FORCER,
             validerRejeu: SCHEMA_VALIDER_REJEU,
           },
@@ -6824,6 +6834,13 @@ async function monterReine(
       }
       if (typeof dernier.resultId !== 'number') {
         return reply.code(409).send({ error: 'production sans identifiant' });
+      }
+      if (req.body.resultId !== undefined && req.body.resultId !== dernier.resultId) {
+        return reply.code(409).send({
+          code: 'stale_result',
+          error: 'la dernière production n’est plus celle qui a été jugée',
+          currentResultId: dernier.resultId,
+        });
       }
       const arret = arretEvaluator(task);
       const passage = passageEvaluator(
