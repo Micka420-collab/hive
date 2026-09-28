@@ -56,7 +56,7 @@ interface Cible {
 
 interface Acte {
   nom: string;
-  methode: 'GET' | 'POST' | 'PUT';
+  methode: 'GET' | 'POST' | 'PUT' | 'DELETE';
   /** Le chemin de la route, tel que server.ts le déclare. */
   route: string;
   url: (c: Cible) => string;
@@ -345,6 +345,23 @@ const REGLAGES: readonly Acte[] = [
 ];
 
 /**
+ * SUPPRIMER le projet : la même porte que les réglages (`proprieteProjetPermise`
+ * — propriétaire ou administrateur, le jeton sur un orphelin seulement), mais un
+ * acte qui DÉTRUIT sa cible. Chaque essai qui passe consomme donc un projet
+ * neuf : il ne peut pas partager les cibles des autres tables, qu'il effacerait
+ * sous leurs pieds (bloc « la SUPPRESSION »).
+ */
+const SUPPRESSIONS: readonly Acte[] = [
+  {
+    nom: 'supprimer le projet',
+    methode: 'DELETE',
+    route: '/api/projects/:projectId',
+    url: (c) => `/api/projects/${c.projet}`,
+    refus: 'projet',
+  },
+];
+
+/**
  * Les écritures de l'espace projet qui ne sont NI un engagement NI un réglage,
  * chacune avec sa raison. Une route qui n'est nulle part fait rougir le dernier
  * bloc : il faut la classer, sciemment.
@@ -370,6 +387,8 @@ describe('ADR 0007 — le jeton de ruche n’engage plus le projet d’autrui', 
   let jetonProprio = '';
   let jetonMembre = '';
   let jetonTiers = '';
+  let idProprio = '';
+  let idMembre = '';
   let orphelin: Cible;
   let possede: Cible;
   let publique: Cible;
@@ -476,8 +495,10 @@ describe('ADR 0007 — le jeton de ruche n’engage plus le projet d’autrui', 
     jetonReine = (await inscrire('la-reine@ruche.test', jeton)).token;
     const proprio = await inscrire('proprio@ruche.test');
     jetonProprio = proprio.token;
+    idProprio = proprio.id;
     const membre = await inscrire('ouvriere@ruche.test');
     jetonMembre = membre.token;
+    idMembre = membre.id;
     jetonTiers = (await inscrire('curieux@ailleurs.test')).token;
 
     // La voie CLI / jeton : un projet que personne ne possède.
@@ -716,6 +737,82 @@ describe('ADR 0007 — le jeton de ruche n’engage plus le projet d’autrui', 
     });
   });
 
+  describe('la SUPPRESSION', () => {
+    const [supprimer] = SUPPRESSIONS as [Acte];
+    /** Un projet NEUF qui appartient au propriétaire, le membre admis — la cible d'un seul essai. */
+    const possedeNeuf = (): Cible => {
+      const id = server.store.createProject({
+        name: 'À supprimer',
+        visibility: 'private',
+        ownerId: idProprio,
+      }).id;
+      server.store.addMember(id, idProprio, 'owner');
+      server.store.addMember(id, idMembre);
+      return garnir(id);
+    };
+    const orphelinNeuf = (): Cible =>
+      garnir(server.store.createProject({ name: 'Orphelin à supprimer', ownerId: null }).id);
+
+    it('le propriétaire et l’administratrice suppriment ; le jeton supprime un orphelin', async () => {
+      for (const [qui, cible, entetes] of [
+        ['le propriétaire', possedeNeuf(), compte(jetonProprio)],
+        ['l’administratrice', possedeNeuf(), compte(jetonReine)],
+        ['le jeton de ruche, sur un orphelin', orphelinNeuf(), jeton],
+      ] as const) {
+        const r = await tenter(cible, supprimer, entetes);
+        expect(r.status, `${qui} (${await r.text()})`).toBe(200);
+        expect(
+          server.store.getProject(cible.projet),
+          `${qui} : le projet est resté`,
+        ).toBeUndefined();
+      }
+    });
+
+    it('UN MEMBRE NE SUPPRIME PAS — 403, même avec le jeton, et rien ne part', async () => {
+      const cible = possedeNeuf();
+      for (const entetes of [compte(jetonMembre), { ...compte(jetonMembre), ...jeton }]) {
+        const r = await tenter(cible, supprimer, entetes);
+        expect(r.status).toBe(403);
+        expect(((await r.json()) as { error: string }).error).toMatch(/propriétaire/);
+      }
+      expect(server.store.getProject(cible.projet)).toBeDefined();
+      expect(server.store.getTask(cible.tache), 'une tâche est partie').toBeDefined();
+    });
+
+    it('ni le jeton sur le projet d’autrui, ni un tiers, ni l’anonyme — refus de l’inexistence', async () => {
+      const cible = possedeNeuf();
+      const parJeton = await tenter(cible, supprimer, jeton);
+      expect(parJeton.status).toBe(404);
+      expect(await parJeton.text()).toBe(REFUS.projet);
+      for (const entetes of [compte(jetonTiers), { ...compte(jetonTiers), ...jeton }]) {
+        const r = await tenter(cible, supprimer, entetes);
+        const absent = await tenter(fantome, supprimer, entetes);
+        expect(r.status).toBe(404);
+        expect(await r.text(), 'le refus trahit l’existence du projet').toBe(await absent.text());
+      }
+      expect((await tenter(cible, supprimer, {})).status).toBe(401);
+      expect((await tenter(fantome, supprimer, {})).status).toBe(401);
+      expect(server.store.getProject(cible.projet)).toBeDefined();
+    });
+
+    it('UNE VITRINE N’EST PAS À QUI S’Y INSCRIT', async () => {
+      // `peutRejoindre` ouvre tout projet public au premier compte venu : s'y
+      // inscrire d'un clic ne donne pas le droit de l'effacer.
+      const passant = await inscrire(`passant-suppr-${Date.now()}@ailleurs.test`);
+      const vitrine = garnir(
+        server.store.createProject({ name: 'Vitrine', visibility: 'public', ownerId: idProprio })
+          .id,
+      );
+      const rejoint = await fetch(`${base}/api/projects/${vitrine.projet}/join`, {
+        method: 'POST',
+        headers: { ...compte(passant.token), 'x-forwarded-for': '10.9.9.10' },
+      });
+      expect(rejoint.status, 'le banc : la vitrine se rejoint d’un clic').toBe(200);
+      expect((await tenter(vitrine, supprimer, compte(passant.token))).status).toBe(403);
+      expect(server.store.getProject(vitrine.projet)).toBeDefined();
+    });
+  });
+
   describe('les LIENS DE PARTAGE', () => {
     /** Un lien créé par `t` sur `projet` ; rend son identifiant. */
     const partager = async (projet: string, t: string): Promise<string> => {
@@ -813,11 +910,15 @@ describe('ADR 0007 — le jeton de ruche n’engage plus le projet d’autrui', 
     expect(ecritures.length, 'une écriture du serveur a échappé au relevé').toBe(
       [...serveur.matchAll(/app\.(post|put|patch|delete)\b/g)].length,
     );
+    // `projects/:projectId` SANS suite compte aussi : c'est le projet lui-même
+    // (sa suppression), l'écriture la plus lourde de l'espace projet.
     const declarees = ecritures.filter((r) =>
-      /^\S+ \/api\/(projects\/:projectId\/|tasks\/:taskId\/|livraison)/.test(r),
+      /^\S+ \/api\/(projects\/:projectId(\/|$)|tasks\/:taskId\/|livraison)/.test(r),
     );
     const connues = new Set([
-      ...[...ENGAGEMENTS, ...REGLAGES, ...DECISIONS].map((a) => `${a.methode} ${a.route}`),
+      ...[...ENGAGEMENTS, ...REGLAGES, ...DECISIONS, ...SUPPRESSIONS].map(
+        (a) => `${a.methode} ${a.route}`,
+      ),
       ...Object.keys(HORS_ENGAGEMENT),
     ]);
     expect(declarees.length, 'le relevé des routes a échoué').toBeGreaterThan(30);
