@@ -23,13 +23,17 @@
 // MODULE PUR : parse et tranche, ne touche ni au réseau ni à la base. Le serveur
 // résout la tâche→projet→autorisation, puis appelle `autoriserInteraction`.
 
-import { ACTION_APPROUVER, ACTION_REJETER } from './messages.js';
-import type { Portee } from '../contrat.js';
+import { ACTION_APPROUVER, ACTION_REJETER, lireValeurBouton } from './messages.js';
+import type { LiaisonApprobation, Portee } from '../contrat.js';
 
 /** Ce qu'on extrait d'une enveloppe d'interaction, sans encore rien autoriser. */
 export interface ExtractionInteraction {
   readonly actionId: string;
   readonly taskId: string;
+  /** La production et le verdict que le message montrait — comparés au clic. */
+  readonly liaison: LiaisonApprobation;
+  /** Où répondre au cliqueur (`response_url` Slack), s'il est fourni. */
+  readonly responseUrl: string | null;
   /** Le projet lu dans le `block_id` — INDICE, jamais l'autorité. */
   readonly blockProjectId: string | null;
   readonly userId: string;
@@ -73,7 +77,9 @@ export function extraireInteraction(payload: unknown): ExtractionResultat {
   if (!action) return { ok: false, motif: 'action_ignore' };
 
   const actionId = chaine(action.action_id);
-  const taskId = chaine(action.value);
+  // La valeur porte la tâche ET sa liaison : une valeur d'une autre forme
+  // (bouton d'avant la liaison, valeur forgée) est malformée, pas « une tâche ».
+  const valeur = lireValeurBouton(action.value);
   const user = p.user as Record<string, unknown> | undefined;
   const userId = chaine(user?.id);
   // Le canal est dans `channel.id`, ou dans `container.channel_id` selon la
@@ -81,7 +87,7 @@ export function extraireInteraction(payload: unknown): ExtractionResultat {
   const channel = p.channel as Record<string, unknown> | undefined;
   const container = p.container as Record<string, unknown> | undefined;
   const channelId = chaine(channel?.id) ?? chaine(container?.channel_id);
-  if (actionId === null || taskId === null || userId === null || channelId === null) {
+  if (actionId === null || valeur === null || userId === null || channelId === null) {
     return { ok: false, motif: 'malforme' };
   }
 
@@ -91,7 +97,18 @@ export function extraireInteraction(payload: unknown): ExtractionResultat {
       ? blockId.slice('hive_approbation:'.length)
       : null;
 
-  return { ok: true, extraction: { actionId, taskId, blockProjectId, userId, channelId } };
+  return {
+    ok: true,
+    extraction: {
+      actionId,
+      taskId: valeur.taskId,
+      liaison: { resultId: valeur.resultId, revueA: valeur.revueA },
+      responseUrl: chaine(p.response_url),
+      blockProjectId,
+      userId,
+      channelId,
+    },
+  };
 }
 
 /** Le verdict de revue que porte un `action_id` connu. */
@@ -109,7 +126,12 @@ export interface AutorisationSlack {
 }
 
 export type VerdictInteraction =
-  | { readonly ok: true; readonly taskId: string; readonly verdict: 'approved' | 'rejected' }
+  | {
+      readonly ok: true;
+      readonly taskId: string;
+      readonly verdict: 'approved' | 'rejected';
+      readonly liaison: LiaisonApprobation;
+    }
   | { readonly ok: false; readonly motif: MotifInteraction };
 
 /**
@@ -129,5 +151,5 @@ export function autoriserInteraction(
     return { ok: false, motif: 'canal_refuse' };
   if (!autorisation.usagers.includes(extraction.userId))
     return { ok: false, motif: 'usager_refuse' };
-  return { ok: true, taskId: extraction.taskId, verdict };
+  return { ok: true, taskId: extraction.taskId, verdict, liaison: extraction.liaison };
 }

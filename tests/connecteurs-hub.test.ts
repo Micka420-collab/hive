@@ -5,13 +5,17 @@
 // La preuve VIVE contre un vrai atelier Slack demande des identifiants
 // d'atelier (fournis par l'hôte) : elle est hors de cette machine.
 
+import { mkdtempSync, rmSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WebSocketServer, WebSocket } from 'ws';
 import { HiveStore } from '../src/orchestrator/store.js';
 import { HubConnecteurs, type ResultatRevueConnecteur } from '../src/orchestrator/connecteurs.js';
 import { ENV_WEBHOOK_SECRET, ENV_WEBHOOK_URL } from '../src/connectors/webhook/definition.js';
 import { ENV_SLACK_APP, ENV_SLACK_BOT } from '../src/connectors/slack/definition.js';
-import { ACTION_APPROUVER } from '../src/connectors/slack/messages.js';
+import { ACTION_APPROUVER, encoderValeurBouton } from '../src/connectors/slack/messages.js';
 import type { FetchLike } from '../src/connectors/webhook/envoi.js';
 import type { SlackFetch, WsLike } from '../src/connectors/slack/client.js';
 
@@ -209,7 +213,7 @@ describe('HubConnecteurs — Socket Mode contre un faux serveur WebSocket', () =
           actions: [
             {
               action_id: ACTION_APPROUVER,
-              value: taskId,
+              value: encoderValeurBouton({ taskId, resultId: 1, revueA: null }),
               block_id: `hive_approbation:${projectId}`,
             },
           ],
@@ -225,5 +229,43 @@ describe('HubConnecteurs — Socket Mode contre un faux serveur WebSocket', () =
       resultat: 'ok',
       qui: 'slack:U01',
     });
+  });
+});
+
+describe('connecteurs_projet — un accord ne retient pas son projet', () => {
+  it('supprimer un projet autorisé emporte ses accords ; le journal, lui, survit', () => {
+    // La suppression de projet (lot parallèle) n'a pas à connaître cette table :
+    // sans ON DELETE CASCADE, `foreign_keys = ON` refusait la suppression.
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'hive-cascade-'));
+    const fichier = path.join(dir, 'hive.db');
+    const store = new HiveStore(fichier);
+    const projectId = store.createProject({ name: 'Éphémère', ownerId: null }).id;
+    store.autoriserConnecteur({ connecteurId: 'webhook', projectId, portees: ['notification'] });
+    store.journaliserConnecteur({
+      connecteurId: 'webhook',
+      projectId,
+      portee: 'notification',
+      acte: 'decision',
+      cible: null,
+      resultat: 'ok',
+      qui: 'ruche',
+    });
+    store.close();
+    const db = new Database(fichier);
+    db.pragma('foreign_keys = ON');
+    try {
+      expect(() => db.prepare('DELETE FROM projects WHERE id = ?').run(projectId)).not.toThrow();
+      const accords = db
+        .prepare('SELECT COUNT(*) AS n FROM connecteurs_projet WHERE projectId = ?')
+        .get(projectId) as { n: number };
+      expect(accords.n).toBe(0);
+      const journal = db
+        .prepare('SELECT COUNT(*) AS n FROM connecteurs_journal WHERE projectId = ?')
+        .get(projectId) as { n: number };
+      expect(journal.n).toBe(1);
+    } finally {
+      db.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

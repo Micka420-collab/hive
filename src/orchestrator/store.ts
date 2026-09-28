@@ -1054,9 +1054,13 @@ CREATE INDEX IF NOT EXISTS idx_motifs_projet ON motifs_projet(projectId, creeA D
 -- explicitement inscrits, à UN projet. Le SECRET du connecteur vit dans le
 -- .env Queen, JAMAIS ici : cette table ne porte que la décision d'accès, pas
 -- de quoi appeler l'extérieur. TABLE LATÉRALE — une ligne par (connecteur, projet).
+-- ON DELETE CASCADE : un accord n'a aucun sens sans son projet, et sans la
+-- cascade (foreign_keys = ON) supprimer un projet autorisé échouerait sur la
+-- contrainte. Le JOURNAL, lui, n'a pas de clé étrangère : la trace d'audit
+-- survit au projet et s'élague par le temps (90 jours).
 CREATE TABLE IF NOT EXISTS connecteurs_projet (
   connecteurId TEXT NOT NULL,
-  projectId    TEXT NOT NULL REFERENCES projects(id),
+  projectId    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   portees      TEXT NOT NULL DEFAULT '[]',
   canaux       TEXT NOT NULL DEFAULT '[]',
   usagers      TEXT NOT NULL DEFAULT '[]',

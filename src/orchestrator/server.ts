@@ -275,11 +275,13 @@ import {
   expliquerRefusPortee,
   type EvenementConnecteur,
   type EvenementConnecteurKind,
+  type LiaisonApprobation,
 } from '../connectors/contrat.js';
 import { HubConnecteurs, type ResultatRevueConnecteur } from './connecteurs.js';
 import { ENV_WEBHOOK_URL, urlWebhookValide } from '../connectors/webhook/definition.js';
 import { ID_SLACK_MOTIF } from '../connectors/slack/definition.js';
-import type { WsLike } from '../connectors/slack/client.js';
+import type { SlackFetch, WsFactory, WsLike } from '../connectors/slack/client.js';
+import type { FetchLike } from '../connectors/webhook/envoi.js';
 import { conseilVeilleBrief } from './queen-veille.js';
 import {
   CORPUS_GARDIENNES,
@@ -852,6 +854,14 @@ export interface ServerConfig {
   edition?: Edition;
   /** Fetcher GitHub injectable pour les intégrations et bancs hors réseau. */
   githubFetcher?: Fetcheur;
+  /**
+   * Les I/O des connecteurs externes (défaut : `fetch` global et `ws`). Point
+   * d'injection pour qu'un banc pilote un FAUX Slack (API + Socket Mode) à
+   * travers la VRAIE Reine : sans lui, le seul chemin par lequel Slack change
+   * la ruche — un clic qui rejoint la revue humaine — n'était éprouvé que
+   * derrière un rappel bouchonné, et retirer ses gardes laissait la CI verte.
+   */
+  connecteurs?: { fetchSlack?: SlackFetch; fetchWebhook?: FetchLike; wsFactory?: WsFactory };
 }
 
 /**
@@ -2570,15 +2580,25 @@ async function monterReine(
   // voie ouverte (approbations Slack via Socket Mode). Dormant par défaut : sans
   // secret dans l'env Queen, `estActif` est faux, aucun jeton n'est créé ni
   // propagé, et le fan-out ne coûte que deux comparaisons. Le rappel
-  // `appliquerRevue` REND la main au chemin canonique ci-dessus, après avoir
-  // vérifié que la tâche existe et qu'elle est terminée — jamais une pré-revue.
+  // `appliquerRevue` REND la main au chemin canonique ci-dessus, après les
+  // MÊMES gardes que `/review` : la tâche existe, elle est terminée (jamais une
+  // pré-revue), et le compare-and-set tient — ici OBLIGATOIRE, là-bas opt-in,
+  // parce qu'un bouton Slack reste cliquable des heures après son envoi. Le
+  // clic doit retrouver la production qu'il montrait (dernier résultat) et le
+  // verdict tel qu'il était (horodatage de revue) ; sinon `perime`. Tout est
+  // synchrone : aucune attente entre la relecture et l'écriture.
   const appliquerRevuePourConnecteur = (
     taskId: string,
     verdict: 'approved' | 'rejected',
+    liaison: LiaisonApprobation,
   ): ResultatRevueConnecteur => {
     const task = store.getTask(taskId);
     if (!task) return 'tache_inconnue';
     if (task.status !== 'done' && task.status !== 'failed') return 'non_terminal';
+    const revueA = store.getTaskReview(task.id)?.updatedAt ?? null;
+    if (store.dernierResultatDe(task.id) !== liaison.resultId || revueA !== liaison.revueA) {
+      return 'perime';
+    }
     appliquerRevueHumaine(task, verdict, { raison: 'approbation Slack' });
     return 'applique';
   };
@@ -2586,9 +2606,11 @@ async function monterReine(
     store,
     env: process.env,
     appliquerRevue: appliquerRevuePourConnecteur,
+    ...(config.connecteurs?.fetchSlack ? { fetchSlack: config.connecteurs.fetchSlack } : {}),
+    ...(config.connecteurs?.fetchWebhook ? { fetchWebhook: config.connecteurs.fetchWebhook } : {}),
     // Le Socket Mode Slack s'ouvre avec le paquet `ws` déjà présent (aucune
     // dépendance ajoutée). Cast : l'API de `ws` couvre `WsLike` (send/close/on).
-    wsFactory: (url) => new WsClient(url) as unknown as WsLike,
+    wsFactory: config.connecteurs?.wsFactory ?? ((url) => new WsClient(url) as unknown as WsLike),
     log: (m) => {
       app.log.info(m);
     },
@@ -2615,10 +2637,12 @@ async function monterReine(
     const taskId = typeof p.taskId === 'string' ? p.taskId : undefined;
     const task = taskId !== undefined ? store.getTask(taskId) : null;
     if (event.type === 'delivery_merged') {
-      // Deux émetteurs : la fusion manuelle (projectId, sans tâche) et la
-      // livraison autonome (taskId, `fusionnee`). Une PR ouverte mais pas
-      // fusionnée n'est pas une mission livrée.
-      if (p.fusionnee === false) return null;
+      // Deux émetteurs : la fusion manuelle (route `/merge` : projectId, sans
+      // tâche) et la livraison autonome (taskId). Tous deux disent `fusionnee` ;
+      // on EXIGE `true` — une PR ouverte mais pas fusionnée (GitHub a répondu
+      // merged:false) n'est pas une mission livrée, et un champ absent ne
+      // prouve rien.
+      if (p.fusionnee !== true) return null;
       const projectId = task?.projectId ?? (typeof p.projectId === 'string' ? p.projectId : null);
       if (projectId === null) return null;
       const pr = typeof p.pr === 'number' ? ` #${p.pr}` : '';
@@ -2632,12 +2656,19 @@ async function monterReine(
     }
     if (!task || taskId === undefined) return null;
     if (event.type === 'task_done') {
+      // La liaison est relevée ICI, au moment où la demande part : la
+      // production exacte et le verdict courant. Un clic qui ne les retrouve
+      // plus (nouvelle tentative, verdict posé depuis) sera refusé `perime`.
+      const resultId = store.dernierResultatDe(taskId);
       return {
         kind: 'demande_approbation',
         projectId: task.projectId,
         titre: task.title,
         corps: 'Production terminée — votre verdict est attendu (Miellerie).',
         taskId,
+        ...(resultId !== null
+          ? { liaison: { resultId, revueA: store.getTaskReview(taskId)?.updatedAt ?? null } }
+          : {}),
       };
     }
     if (event.type === 'task_reviewed') {
@@ -5606,6 +5637,9 @@ async function monterReine(
           projectId: req.body.projectId,
           pr: req.body.pr,
           methode: req.body.methode ?? 'squash',
+          // Comme la voie autonome : GitHub peut répondre merged:false, et un
+          // relais (webhook, Slack) annoncerait sinon « fusionnée » à tort.
+          fusionnee: r.fusionnee,
         });
         return r;
       } catch (err) {

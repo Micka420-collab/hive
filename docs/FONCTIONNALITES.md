@@ -376,8 +376,9 @@ Connecteurs externes** (administrateur) :
 - **Tester** : envoie un fait de test et dit **l'issue réelle** (un récepteur
   en 500 n'est pas « envoyé »).
 - **Journal** : chaque appel extérieur — réussi, raté ou refusé — laisse une
-  ligne : qui, quel acte, quelle portée, quel résultat, et l'empreinte SHA-256
-  de la charge **caviardée** (jamais la charge en clair). 90 jours.
+  ligne : qui, quel acte, quelle portée, quel résultat, l'empreinte SHA-256 du
+  corps exact envoyé (caviardé au préalable) et un **aperçu caviardé d'au plus
+  200 caractères** — jamais un secret, jamais la charge entière. 90 jours.
 
 **Webhook générique** : un `POST` JSON signé HMAC (en-tête `X-Hive-Signature`,
 `t=…,v1=…`) vers l'URL que vous posez. Il ne reçoit rien.
@@ -388,7 +389,10 @@ Connecteurs externes** (administrateur) :
 « Approuver » / « Rejeter » n'est appliqué que si le projet a accordé
 `approbation` **et** que le canal **et** l'usager (`U0…`) sont inscrits ; listes
 vides = personne. Il rejoint **la même revue** que la Miellerie — jamais une
-autorité nouvelle.
+autorité nouvelle — et chaque bouton est lié à la production qu'il montre : un
+clic sur une tentative remplacée, ou sur un verdict changé depuis, est refusé
+comme périmé. Le cliqueur voit l'issue dans Slack. Sans jeton d'app, les
+demandes d'approbation partent **sans** boutons et renvoient à la Miellerie.
 
 ![Intendance → Connecteurs externes : activer, autoriser par projet, tester, journal](images/connecteurs-bureau.png)
 

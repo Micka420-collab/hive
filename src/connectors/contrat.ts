@@ -195,6 +195,21 @@ export function porteePourEvenement(kind: EvenementConnecteurKind, mode: ModeCon
   return kind === 'demande_approbation' && mode === 'action' ? 'approbation' : 'notification';
 }
 
+/**
+ * Ce qu'une demande d'approbation LIE : la production exacte (`resultId`) et le
+ * verdict humain tel qu'il était quand le message est parti (`revueA`,
+ * horodatage de la revue, `null` = aucune). Un bouton Slack reste cliquable
+ * longtemps après son envoi ; sans cette liaison, un clic sur le message d'une
+ * tentative REJETÉE s'appliquerait à la tentative suivante — une production que
+ * l'approbateur n'a jamais vue — ou renverserait un verdict posé depuis dans la
+ * Miellerie. C'est le compare-and-set `expectedUpdatedAt` de la route `/review`,
+ * porté par le bouton, plus la production elle-même.
+ */
+export interface LiaisonApprobation {
+  readonly resultId: number;
+  readonly revueA: number | null;
+}
+
 /** Le fait typé qu'un connecteur reçoit à émettre. Le texte reste bilingue en aval. */
 export interface EvenementConnecteur {
   readonly kind: EvenementConnecteurKind;
@@ -207,6 +222,8 @@ export interface EvenementConnecteur {
   readonly taskId?: string;
   /** Le verdict d'une décision, quand l'événement en porte un. */
   readonly etat?: 'approved' | 'rejected' | null;
+  /** Demande d'approbation seulement : ce que le verdict doit encore trouver pour s'appliquer. */
+  readonly liaison?: LiaisonApprobation;
 }
 
 export function libellePortee(portee: Portee, lang: 'fr' | 'en' = 'fr'): string {

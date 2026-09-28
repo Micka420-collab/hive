@@ -327,8 +327,9 @@ approvals**. Everything is set in **Stewardship → External connectors** (admin
 - **Test**: sends a test fact and reports the **real outcome** (a receiver
   answering 500 is not "sent").
 - **Journal**: every outside call — succeeded, failed or refused — leaves a
-  line: who, which act, which scope, which result, and the SHA-256 of the
-  **redacted** payload (never the payload itself). 90 days.
+  line: who, which act, which scope, which result, the SHA-256 of the exact
+  request body sent (redacted beforehand) and a **redacted preview of at most
+  200 characters** — never a secret, never the full payload. 90 days.
 
 **Generic webhook**: an HMAC-signed JSON `POST` (`X-Hive-Signature` header,
 `t=…,v1=…`) to the URL you set. It receives nothing.
@@ -338,7 +339,11 @@ channels** (by ID: `C0…`). The app token (`xapp-…`) opens **Socket Mode** �
 only inbound path, with no public URL. An "Approve" / "Reject" button is applied
 only if the project granted `approbation` **and** both the channel **and** the
 user (`U0…`) are listed; empty lists mean nobody. It joins **the same review**
-as the Honey House — never a new authority.
+as the Honey House — never a new authority — and each button is bound to the
+production it shows: a click on an older attempt, or on a verdict changed since,
+is refused as stale. The clicker sees the outcome in Slack. Without the app
+token, approval requests are posted **without** buttons and point to the Honey
+House.
 
 ![Stewardship → External connectors: enable, authorize per project, test, journal](images/connecteurs-bureau.png)
 
