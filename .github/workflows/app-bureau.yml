@@ -113,7 +113,11 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
           # Ce que `publier` reçoit sans secrets : des chaînes VIDES, pas des
           # variables absentes. Les poser ici éprouve ce chemin à chaque PR
-          # (v0.5.0 : « not a file » sur macOS, vu seulement au tag).
+          # (v0.5.0 : « not a file » sur macOS, vu seulement au tag). Sans
+          # CSC_FOR_PULL_REQUEST, electron-builder saute TOUTE la signature
+          # sur une PR et ce chemin reste muet ; ce job ne porte aucun secret,
+          # le forcer n'expose donc rien.
+          CSC_FOR_PULL_REQUEST: 'true'
           CSC_LINK: ''
           CSC_KEY_PASSWORD: ''
           WIN_CSC_LINK: ''
