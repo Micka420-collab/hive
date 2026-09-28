@@ -849,7 +849,7 @@ CREATE INDEX IF NOT EXISTS idx_events_tache ON events(${TACHE_DE_L_EVENEMENT}, t
 -- en avait (cf. HiveStore.amorcerRegistreElagages).
 CREATE TABLE IF NOT EXISTS journal_elagages (
   type      TEXT NOT NULL,
-  motif     TEXT NOT NULL CHECK (motif IN ('trace', 'orpheline', 'echue', 'plafond_close', 'plafond_vivante', 'avant_registre')),
+  motif     TEXT NOT NULL CHECK (motif IN ('trace', 'orpheline', 'echue', 'plafond_close', 'plafond_vivante', 'plafond_coupe', 'avant_registre')),
   supprimes INTEGER NOT NULL,
   dernierA  INTEGER NOT NULL,
   PRIMARY KEY (type, motif)
@@ -5884,20 +5884,25 @@ export class HiveStore {
 
   /**
    * Les tâches qui ont au moins une preuve AU-DESSUS de `cutoff` — dans la
-   * fenêtre, que la passe ne touche jamais. Le plafond ne les prend pas : il ne
-   * retirerait que la moitié de leur dossier (`planDeRetention`). La fenêtre
-   * est bornée (`fenetre` lignes) ; DISTINCT replie les milliers de progrès
-   * d'une même tâche en une ligne par type.
+   * fenêtre, que la passe ne touche jamais — avec les types de ces preuves. Le
+   * plafond ne les prend pas entières : il ne retirerait que la moitié de leur
+   * dossier ; en dernier recours il les COUPE, en commençant par les preuves
+   * qu'une plus récente du même type remplace, fût-ce dans la fenêtre
+   * (`planDeRetention`). La fenêtre est bornée (`fenetre` lignes) ; DISTINCT
+   * replie les milliers de progrès d'une même tâche en une ligne par type.
    */
-  private tachesProuveesDansLaFenetre(cutoff: number): Set<string> {
+  private tachesProuveesDansLaFenetre(cutoff: number): Map<string, Set<string>> {
     const rows = this.db
       .prepare(`SELECT DISTINCT type, ${TACHE_DE_L_EVENEMENT} AS taskId FROM events WHERE id > ?`)
       .all(cutoff) as Array<{ type: string; taskId: unknown }>;
-    return new Set(
-      rows.flatMap((r) =>
-        typeof r.taskId === 'string' && r.taskId !== '' && estPreuve(r.type) ? [r.taskId] : [],
-      ),
-    );
+    const out = new Map<string, Set<string>>();
+    for (const r of rows) {
+      if (typeof r.taskId !== 'string' || r.taskId === '' || !estPreuve(r.type)) continue;
+      const types = out.get(r.taskId) ?? new Set<string>();
+      types.add(r.type);
+      out.set(r.taskId, types);
+    }
+    return out;
   }
 
   /**
@@ -6015,7 +6020,11 @@ export class HiveStore {
    *     tâche créée après n'a rien pu y perdre ; quand la dernière d'avant
    *     disparaît (`pruneTasks`), l'aveu tombe avec elle — le Genome ignore déjà
    *     les faits d'une tâche disparue. Sans ce lien, un seul fait échu
-   *     allumait « tronqué » pour toute la vie de la base ;
+   *     allumait « tronqué » pour toute la vie de la base. Le lien reste
+   *     CONSERVATEUR : le registre compte par type et par motif, pas par tâche,
+   *     si bien qu'une vieille tâche restée en `ready` tient l'aveu allumé pour
+   *     un fait échu d'une AUTRE. Il peut dire « tronqué » à tort, jamais
+   *     « complet » à tort ;
    *   · l'ancienne rétention a supprimé des lignes de types inconnus
    *     (`avant_registre`) et une tâche créée avant qu'on le constate est
    *     toujours là — ses faits ont pu partir avec ;

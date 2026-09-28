@@ -38,8 +38,25 @@
 // d'une production (le verdict sans son lancement, la CI sans sa relecture)
 // ferait conclure l'Evaluator sur un dossier incohérent ; un dossier vide, lui,
 // se lit « preuves manquantes », et le journal dit pourquoi. Une tâche qui a
-// encore des preuves dans la fenêtre n'est donc jamais prise : on ne toucherait
+// encore des preuves dans la fenêtre n'est pas prise ainsi : on ne toucherait
 // qu'à la moitié de son dossier.
+// Mais une tâche qui BOUCLE (refusée pour saturation puis réassignée toutes les
+// trois secondes, requeue sur un nœud qui clignote) a TOUJOURS une preuve dans
+// la fenêtre, et ses milliers de `task_assigned` / `task_rejected` d'en dessous
+// grossiraient sans fin un journal que le plafond ne bornerait plus. Quand les
+// dossiers entiers ne suffisent pas, le plafond COUPE donc, en tout dernier :
+// d'abord les preuves qu'une plus récente du même type, de la même tâche,
+// remplace (la 3 000ᵉ assignation dit ce que disait la première), puis les
+// plus anciennes — sous le motif `plafond_coupe`, que le journal nomme à part.
+// Seuls la fenêtre et les faits rangés restent intouchables, et la politique
+// de la Reine leur laisse de la place sous le plafond (un test tient
+// l'inégalité) : le journal ne dépasse jamais `plafond` lignes.
+//
+// LIMITE CONNUE — les événements de délégation (`delegation_*`) nomment leur
+// racine (`rootTaskId`, `parentTaskId`), pas une `taskId` : ils restent des
+// traces, et l'historique de délégation d'une mission encore ouverte ne vit
+// que dans la fenêtre, comme avant cette rétention. Les lier à leur racine est
+// un chantier à part (`listDelegationEvents`).
 //
 // Chaque passe qui retire quelque chose est JOURNALISÉE (`journal_elagage` :
 // combien, de quels types, pour quel motif, quelles tâches le plafond a
@@ -136,9 +153,12 @@ export const estPreuve = (type: string): boolean => EST_PREUVE.has(type);
  *   · `trace` : hors fenêtre, et ce n'est la preuve d'aucune tâche ;
  *   · `orpheline` : la preuve d'une tâche qui n'existe plus ;
  *   · `echue` : la preuve d'une tâche close depuis plus de `preuvesClosesMs` ;
- *   · `plafond_close` / `plafond_vivante` : retirée par le plafond dur, d'une
- *     tâche close ou encore vivante — la seconde est le seul motif qui prive
- *     une décision à venir de ses preuves, et le journal la nomme à part.
+ *   · `plafond_close` / `plafond_vivante` : retirée par le plafond dur, avec
+ *     tout le dossier d'une tâche close ou encore vivante — la seconde prive
+ *     une décision à venir de ses preuves, et le journal la nomme à part ;
+ *   · `plafond_coupe` : retirée SEULE par le plafond, d'une tâche qui a encore
+ *     des preuves dans la fenêtre — le tout dernier recours, quand les dossiers
+ *     entiers n'ont pas suffi à tenir le plafond (une tâche qui boucle).
  */
 export const MOTIFS_ELAGAGE = [
   'trace',
@@ -146,6 +166,7 @@ export const MOTIFS_ELAGAGE = [
   'echue',
   'plafond_close',
   'plafond_vivante',
+  'plafond_coupe',
 ] as const;
 export type MotifElagage = (typeof MOTIFS_ELAGAGE)[number];
 
@@ -158,7 +179,15 @@ export const MOTIFS_FAIT_CONNU: readonly MotifElagage[] = [
   'echue',
   'plafond_close',
   'plafond_vivante',
+  'plafond_coupe',
 ];
+
+/** Les motifs du plafond : ceux qui nomment, dans le bilan, les tâches touchées. */
+const MOTIFS_PLAFOND: ReadonlySet<MotifElagage> = new Set([
+  'plafond_close',
+  'plafond_vivante',
+  'plafond_coupe',
+]);
 
 /** La politique de rétention, posée par la Reine (`POLITIQUE_JOURNAL`). */
 export interface PolitiqueJournal {
@@ -210,6 +239,12 @@ export interface FaitsCloture {
  * jour où la table saura la dire fermée, c'est ici qu'elle fermera la tâche.
  * L'instant de clôture est le PLUS RÉCENT des faits qui la ferment : une
  * fusion survenue après le dernier changement d'état compte à partir d'elle.
+ * Ce n'est vrai que pour une tâche que `pruneTasks` garde (une dépendante,
+ * une délégation la retiennent) : il efface toute tâche terminée trente jours
+ * après son `updatedAt`, livrée ou non, et ses preuves partent alors en
+ * orphelines. « Vivante tant que la ruche peut en décider » est donc borné,
+ * pour une tâche `done` en attente, par la rétention des TÂCHES — un choix de
+ * leur propriétaire (`pruneTasks`), pas de celui-ci.
  */
 export function clotureDe(f: FaitsCloture): number | null {
   if (f.status === 'failed') return f.updatedAt;
@@ -241,14 +276,15 @@ export interface Retrait {
  * ids que leur propre borne tient déjà (décision courante d'un Conseil rangé,
  * verdict du corpus de l'Aiguillage) : ni la fenêtre ni le plafond n'y
  * touchent. `dansLaFenetre` : les tâches qui ont AUSSI des preuves dans la
- * fenêtre — le plafond ne les prend pas (voir plus bas). `total` est le nombre
+ * fenêtre, avec les types de ces preuves — le plafond ne les prend pas
+ * entières, il ne peut que les couper (voir plus bas). `total` est le nombre
  * de lignes du journal avant la passe.
  */
 export function planDeRetention(
   lignes: readonly LigneJournal[],
   clotureDeTache: (taskId: string) => number | null | undefined,
   rangees: ReadonlySet<number>,
-  dansLaFenetre: ReadonlySet<string>,
+  dansLaFenetre: ReadonlyMap<string, ReadonlySet<string>>,
   politique: PolitiqueJournal,
   total: number,
   now: number,
@@ -282,11 +318,10 @@ export function planDeRetention(
   // fenêtre ne se touche pas, si bien que retirer ses preuves d'en dessous
   // couperait son dossier en deux (la critique partie, la tentative en cours
   // restée ; le lancement parti, le verdict resté) — exactement ce que le
-  // plafond promet de ne jamais faire. Elle est aussi, par construction, parmi
-  // les plus actives : ses preuves les plus récentes sont du direct. Compromis
-  // assumé : le plafond peut être dépassé des preuves d'en dessous de ces
-  // tâches-là ; elles redeviennent éligibles, entières, dès que leur dernière
-  // preuve quitte la fenêtre.
+  // plafond ne fait qu'en tout dernier recours (la coupe, plus bas). Elle est
+  // aussi, par construction, parmi les plus actives : ses preuves les plus
+  // récentes sont du direct, et elle redevient éligible, entière, dès que sa
+  // dernière preuve quitte la fenêtre.
   //
   // Closes d'abord, de la plus anciennement close à la plus récente ; puis les
   // vivantes, de la plus longtemps inactive (dernière preuve la plus ancienne)
@@ -308,6 +343,33 @@ export function planDeRetention(
     for (const ligne of dossier.ids) retraits.push({ ...ligne, taskId, motif });
     exces -= dossier.ids.length;
   }
+  if (exces <= 0) return retraits;
+
+  // LA COUPE — il ne reste sous la fenêtre que des preuves de tâches qui en ont
+  // aussi dedans, et le plafond n'est toujours pas tenu : sans elle, une tâche
+  // qui boucle ferait grossir le journal sans borne. Une preuve REMPLACÉE — une
+  // plus récente du même type et de la même tâche existe, sous la fenêtre ou
+  // dedans — part la première : le lecteur par tâche relit la dernière. Puis
+  // les autres. Chaque groupe de la plus ancienne à la plus récente, une ligne
+  // à la fois : on ne coupe que ce qu'il faut.
+  const coupables = [...gardees.entries()]
+    .filter(([taskId]) => dansLaFenetre.has(taskId))
+    .flatMap(([taskId, d]) => d.ids.map((ligne) => ({ ...ligne, taskId })))
+    .sort((a, b) => b.id - a.id);
+  const vus = new Set<string>();
+  const remplacees: typeof coupables = [];
+  const dernieres: typeof coupables = [];
+  for (const ligne of coupables) {
+    const cle = `${ligne.taskId}\u0000${ligne.type}`;
+    const remplacee = vus.has(cle) || dansLaFenetre.get(ligne.taskId)?.has(ligne.type) === true;
+    (remplacee ? remplacees : dernieres).push(ligne);
+    vus.add(cle);
+  }
+  for (const ligne of [...remplacees.reverse(), ...dernieres.reverse()]) {
+    if (exces <= 0) break;
+    retraits.push({ ...ligne, motif: 'plafond_coupe' });
+    exces -= 1;
+  }
   return retraits;
 }
 
@@ -328,16 +390,22 @@ export function bilanDeRetraits(retraits: readonly Retrait[], restants: number):
     number
   >;
   const parType: Record<string, number> = {};
-  const tachesPlafond: string[] = [];
+  // Un ensemble, pas « différente de la précédente » : la coupe entrelace les
+  // preuves de plusieurs tâches par ancienneté, et une tâche nommée deux fois
+  // compterait double dans `tachesPlafondTotal`.
+  const tachesPlafond = new Set<string>();
   for (const r of retraits) {
     parMotif[r.motif] += 1;
     parType[r.type] = (parType[r.type] ?? 0) + 1;
-    const plafond = r.motif === 'plafond_close' || r.motif === 'plafond_vivante';
-    if (plafond && r.taskId !== null && tachesPlafond.at(-1) !== r.taskId) {
-      tachesPlafond.push(r.taskId);
-    }
+    if (MOTIFS_PLAFOND.has(r.motif) && r.taskId !== null) tachesPlafond.add(r.taskId);
   }
-  return { supprimes: retraits.length, parMotif, parType, tachesPlafond, restants };
+  return {
+    supprimes: retraits.length,
+    parMotif,
+    parType,
+    tachesPlafond: [...tachesPlafond],
+    restants,
+  };
 }
 
 /** Types nommés un par un dans l'événement ; les suivants sont sommés. */

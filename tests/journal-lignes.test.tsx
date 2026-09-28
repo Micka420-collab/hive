@@ -471,6 +471,13 @@ describe('une passe de rétention dit ce qu’elle a retiré — et nomme le pla
     );
   });
 
+  it('LA COUPE D’UN DOSSIER ENCORE ACTIF SE DIT À PART', async () => {
+    const dom = await monter(passe({ ...routine, plafond_vivante: 1, plafond_coupe: 3 }));
+    expect(ligne(dom)).toBe(
+      'journal élagué : 500 trace(s), 5 preuve(s) de tâches closes ou disparues — plafond atteint : 4 preuve(s) retirée(s), dont 1 de tâches encore ouvertes, 3 coupée(s) dans des dossiers encore actifs',
+    );
+  });
+
   it('EN ANGLAIS AUSSI, et un compte absent vaut zéro — jamais « undefined »', async () => {
     setLang('en');
     const dom = await monter(passe({ trace: 2, plafond_vivante: 1 }));

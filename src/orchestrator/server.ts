@@ -7190,7 +7190,13 @@ async function monterReine(
     },
     async (req, reply) => {
       if (!authorized(req)) return reject(reply);
-      return store.listEvents(req.query.since ?? 0, req.query.limit ?? 200);
+      // Sans curseur, le début de la FENÊTRE — le même défaut que `lireJournal`,
+      // pour la même raison : sous elle ne dorment que des preuves retenues,
+      // parfois vieilles de semaines, et « depuis 0 » les rendrait à la place
+      // du direct (`hive events`). Un curseur explicite reste tel quel : le
+      // rattrapage du tableau de bord en dépend, trous compris.
+      const depuis = req.query.since ?? Math.max(0, store.lastEventId() - EVENT_RETENTION);
+      return store.listEvents(depuis, req.query.limit ?? 200);
     },
   );
 

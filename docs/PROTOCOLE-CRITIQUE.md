@@ -170,8 +170,11 @@ qui attend longtemps en `ready` garde sa critique, quel que soit le nombre
 d'événements journalisés entre-temps — l'ancienne limite (élaguée au-delà de
 5 000 événements, sans que rien le signale) est levée. Seul le plafond dur du
 journal, en dernier recours, peut encore retirer le dossier d'une tâche
-ouverte : il le fait tâche entière, et le **dit** au Journal
-(`journal_elagage`, preuves de tâches encore ouvertes comptées à part). Une
+ouverte : il le fait tâche entière — ou, pour une tâche qui boucle, en coupant
+d'abord ce qu'une preuve plus récente du même type remplace, si bien que la
+dernière critique part la dernière — et le **dit** au Journal
+(`journal_elagage`, preuves de tâches encore ouvertes et coupes comptées à
+part). Une
 critique vide, elle, ne s'annonce pas : rien n'est deviné.
 
 ### Étape 5 — la notation

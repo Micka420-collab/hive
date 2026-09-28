@@ -145,7 +145,7 @@ describe('le plan de rétention', () => {
       ],
       (id) => (clotures.has(id) ? clotures.get(id) : undefined),
       new Set(),
-      new Set(),
+      new Map(),
       politique(),
       7,
       T0,
@@ -164,7 +164,7 @@ describe('le plan de rétention', () => {
       [l(1, 'council_decided'), l(2, 'task_done', 'vivante'), l(3, 'task_done', 'vivante')],
       () => null,
       new Set([1]),
-      new Set(),
+      new Map(),
       politique({ plafond: 0 }),
       3,
       T0,
@@ -196,7 +196,7 @@ describe('le plan de rétention', () => {
         lignes,
         (id) => clotures.get(id),
         new Set(),
-        new Set(),
+        new Map(),
         politique({ plafond }),
         7,
         T0,
@@ -225,6 +225,38 @@ describe('le plan de rétention', () => {
     ]);
   });
 
+  it('EN DERNIER RECOURS, LA COUPE : les preuves remplacées (même dans la fenêtre) d’abord, puis les plus anciennes, une à une', () => {
+    const lignes = [
+      l(1, 'task_retry', 'active'), // seule de son type : partira en dernier
+      l(2, 'task_assigned', 'active'), // remplacée par n° 4
+      l(3, 'task_started', 'active'), // remplacée DANS la fenêtre
+      l(4, 'task_assigned', 'active'), // la dernière assignation connue sous la fenêtre
+    ];
+    const lire = (plafond: number): Retrait[] =>
+      planDeRetention(
+        lignes,
+        () => null,
+        new Set(),
+        new Map([['active', new Set(['task_started'])]]),
+        politique({ plafond }),
+        6, // + deux lignes dans la fenêtre
+        T0,
+      );
+    expect(lire(6)).toEqual([]);
+    expect(motifs(lire(5))).toEqual([[2, 'plafond_coupe']]);
+    expect(motifs(lire(4))).toEqual([
+      [2, 'plafond_coupe'],
+      [3, 'plafond_coupe'],
+    ]);
+    expect(motifs(lire(2))).toEqual([
+      [2, 'plafond_coupe'],
+      [3, 'plafond_coupe'],
+      [1, 'plafond_coupe'],
+      [4, 'plafond_coupe'],
+    ]);
+    expect(bilanDeRetraits(lire(2), 2).tachesPlafond).toEqual(['active']);
+  });
+
   it('SOUS LE PLAFOND, LE PLAFOND NE PREND RIEN — le compte part des lignes restantes', () => {
     // Dix lignes, dont six traces qui partent : il en reste quatre, sous un
     // plafond de quatre. Compter les dix aurait retiré des preuves pour rien.
@@ -236,7 +268,7 @@ describe('le plan de rétention', () => {
       lignes,
       () => null,
       new Set(),
-      new Set(),
+      new Map(),
       politique({ plafond: 4 }),
       10,
       T0,
@@ -464,7 +496,7 @@ describe('HiveStore.pruneEvents — le propriétaire unique', () => {
     expect(store.faitsElagues(TYPES_REGISTRE_GENOME)).toBe(true);
   });
 
-  it('LE PLAFOND NE COUPE JAMAIS UN DOSSIER : une tâche qui a des preuves dans la fenêtre n’est pas prise, et l’inactivité se lit sur tout le journal', () => {
+  it('LE PLAFOND PREND LES DOSSIERS ENTIERS AVANT DE COUPER : une tâche qui a des preuves dans la fenêtre n’est prise qu’en dernier, et l’inactivité se lit sur tout le journal', () => {
     ouvrir();
     const p = store.createProject({ name: 'P' });
     const active = store.createTask({ projectId: p.id, title: 'A', prompt: 'p' }, T0);
@@ -490,9 +522,46 @@ describe('HiveStore.pruneEvents — le propriétaire unique', () => {
       ...Array(3).fill('task_progress'),
     ]);
 
-    // Même un plafond nul ne prend que la moitié d'aucun dossier.
-    expect(store.pruneEvents(politique({ plafond: 0 }), T0).supprimes).toBe(0);
+    // Un plafond que les dossiers entiers ne tiennent plus COUPE, en tout
+    // dernier recours et sous son propre motif — la fenêtre, elle, reste.
+    expect(store.pruneEvents(politique({ plafond: 0 }), T0)).toMatchObject({
+      supprimes: 1,
+      parMotif: { plafond_coupe: 1 },
+      tachesPlafond: [active.id],
+    });
+    expect(typesRestants()).toEqual([
+      'task_assigned',
+      'task_started',
+      ...Array(3).fill('task_progress'),
+    ]);
+  });
+
+  it('LE PLAFOND TIENT MÊME CONTRE UNE TÂCHE QUI BOUCLE — les preuves remplacées partent d’abord, la critique reste', () => {
+    // Refusée pour saturation, remise en `ready`, réassignée trois secondes plus
+    // tard (`scheduler.rejectTask`) : la tâche a TOUJOURS une preuve dans la
+    // fenêtre. Sans la coupe, ses assignations d'en dessous survivaient toutes
+    // et le journal grossissait sans borne, bien au-delà du plafond.
+    ouvrir();
+    const p = store.createProject({ name: 'P' });
+    const boucle = store.createTask({ projectId: p.id, title: 'B', prompt: 'p' }, T0);
+    store.appendEvent('task_retry', { taskId: boucle.id, source: 'evaluator' }, T0);
+    for (let i = 0; i < 1_000; i++) {
+      store.appendEvent('task_assigned', { taskId: boucle.id, nodeId: 'n' }, T0);
+      store.appendEvent('task_rejected', { taskId: boucle.id, nodeId: 'n' }, T0);
+      store.appendEvent('node_heartbeat', { nodeId: 'n' }, T0);
+    }
+
+    const bilan = store.pruneEvents(politique({ fenetre: 30, plafond: 200 }), T0);
+
+    expect(store.countEvents()).toBe(200);
+    expect(bilan.restants).toBe(200);
+    expect(bilan.parMotif.plafond_coupe).toBeGreaterThan(0);
+    expect(bilan.tachesPlafond).toEqual([boucle.id]);
+    // La critique n'a pas de remplaçante : elle passe après les assignations
+    // et refus répétés, et reste avec la tentative en cours.
     expect(typesRestants()[0]).toBe('task_retry');
+    // Une seconde passe n'a plus rien à couper.
+    expect(store.pruneEvents(politique({ fenetre: 30, plafond: 200 }), T0).supprimes).toBe(0);
   });
 
   it('L’AVEU « FAITS PERDUS » TOMBE QUAND LA DERNIÈRE TÂCHE QUI A PU LES PERDRE DISPARAÎT', () => {
@@ -807,6 +876,10 @@ describe('au tick de la Reine, une production garde ses preuves sous le bavardag
       replay.lastEventId - POLITIQUE_JOURNAL.fenetre,
     );
     expect(replay.eventCount).toBe(POLITIQUE_JOURNAL.fenetre);
+    // `/api/events` sans curseur (`hive events`) aussi — « depuis 0 » rendait
+    // la critique retenue de la tâche rouverte à la place de l'activité.
+    const direct = await lire<Array<{ id: number }>>('/api/events?limit=1');
+    expect(direct[0]?.id).toBeGreaterThan(replay.lastEventId - POLITIQUE_JOURNAL.fenetre);
 
     // La passe s'est racontée.
     const [recit] = s.store.evenementsParTypes(['journal_elagage'], 1);
