@@ -603,6 +603,20 @@ h3 {
   gap: 8px 12px;
 }
 
+/* Hors ligne : ambre, pas rouge — rien n'est perdu, l'écran est seulement
+   figé et se reconnecte seul. Le rouge reste aux refus qui demandent un geste
+   (jeton, session). */
+.mc-hors-ligne {
+  background: color-mix(in srgb, var(--amber) 12%, var(--panel));
+  border-bottom-color: color-mix(in srgb, var(--amber) 38%, var(--border));
+}
+
+/* La place de la vue avant le premier instantané (Liaison.tsx). */
+.mc-avant-etat {
+  max-width: 44rem;
+  padding: 24px 0;
+}
+
 .conn {
   display: inline-flex;
   align-items: center;

@@ -21,7 +21,7 @@ import { VALIDATION_KEYS } from '../../../src/shared/validations-bac';
 import { t as tNow, useT } from '../i18n';
 import type { Translate } from '../i18n';
 import { activateProps, formatMs, modalOpen, StatusBadge } from '../ui';
-import { EmptyState } from '../composants';
+import { EmptyState, Skeleton } from '../composants';
 import { FiltreTravaux, useOptionsTaches } from './FiltreTravaux';
 import { FILTRE_VIDE, filtreActif, tacheCorrespond } from './filtre-travaux';
 import { EchecSondage, getReview, Honeycomb, setReview, useApiPoll, useReviewTick } from './shared';
@@ -673,7 +673,7 @@ function CritiqueTransmise({
       </p>
     );
   }
-  if (!critique) return <p className="muted-text">{t('Lecture…', 'Loading…')}</p>;
+  if (!critique) return <Skeleton lignes={2} />;
   const { raisonRevue, reprise } = critique;
   if (!raisonRevue && !reprise) {
     return (
@@ -1124,21 +1124,16 @@ export default function Miellerie({
   if (!activeTask) {
     return (
       <div className="mc-view mi-view">
-        <div className="mi-empty">
-          <span className="mi-empty-icon marque" aria-hidden="true" />
-          <p className="mi-empty-lead">
-            {t(
-              'Le nectar arrive — aucune production à revoir.',
-              'The nectar is coming — no production to review.',
-            )}
-          </p>
-          <p className="muted-text">
-            {t(
-              'Les tâches terminées ou échouées apparaîtront ici pour la revue humaine.',
-              'Finished or failed tasks will appear here for human review.',
-            )}
-          </p>
-        </div>
+        <EmptyState
+          titre={t(
+            'Le nectar arrive — aucune production à revoir.',
+            'The nectar is coming — no production to review.',
+          )}
+          texte={t(
+            'Les tâches terminées ou échouées apparaîtront ici pour la revue humaine.',
+            'Finished or failed tasks will appear here for human review.',
+          )}
+        />
       </div>
     );
   }

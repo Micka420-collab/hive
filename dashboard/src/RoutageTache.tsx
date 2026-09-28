@@ -16,6 +16,7 @@ import { fetchRoutage } from './api';
 import { useT } from './i18n';
 import type { HiveNode } from '../../src/shared/types';
 import type { AffectationVue, LigneRaison } from '../../src/shared/routage-vue';
+import { Skeleton } from './composants';
 
 interface Props {
   taskId: string;
@@ -108,7 +109,7 @@ export function RoutageTache({ taskId, cle, nodes }: Props) {
           {t('Raison indisponible :', 'Reason unavailable:')} {erreur}
         </p>
       )}
-      {!erreur && affectations === null && <p className="muted">{t('Lecture…', 'Loading…')}</p>}
+      {!erreur && affectations === null && <Skeleton lignes={2} />}
       {!erreur && affectations !== null && derniere === null && (
         <p className="muted">{t('Pas encore affectée.', 'Not assigned yet.')}</p>
       )}

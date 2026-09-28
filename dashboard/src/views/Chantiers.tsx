@@ -210,18 +210,17 @@ export default function Chantiers({ snapshot, events, selectedId, onNavigate }: 
   if (!projet) {
     return (
       <div className="mc-chantiers">
-        <div className="ch-vide">
-          <span className="marque" aria-hidden="true" />
-          <p>
-            {t(
-              'Les chantiers apparaissent avec un projet.',
-              'Works appear once you have a project.',
-            )}
-          </p>
-          <button className="btn primary" type="button" onClick={() => onNavigate('projets')}>
-            {t('Aller aux projets', 'Go to projects')}
-          </button>
-        </div>
+        <EmptyState
+          titre={t(
+            'Les chantiers apparaissent avec un projet.',
+            'Works appear once you have a project.',
+          )}
+          action={
+            <button className="btn primary" type="button" onClick={() => onNavigate('projets')}>
+              {t('Aller aux projets', 'Go to projects')}
+            </button>
+          }
+        />
       </div>
     );
   }

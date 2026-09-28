@@ -21,11 +21,12 @@ import {
   surJwtAilleurs,
   surSessionExpiree,
 } from './api';
-import type { AuthUser } from './api';
+import type { AuthUser, HiveFeed } from './api';
 import { AccountPanel, EVENT_OUVRIR_COMPTE } from './AccountPanel';
 import { ChoixDuTheme } from './ChoixDuTheme';
 import { setLang, useLang, useT } from './i18n';
 import { InvitePanel } from './InvitePanel';
+import { AvantPremierEtat, BandeauHorsLigne, lireLiaison } from './Liaison';
 import { NewProjectModal } from './NewProjectModal';
 import { TaskDrawer } from './TaskDrawer';
 import {
@@ -292,6 +293,21 @@ export function App() {
   const [tokenAuthError, setTokenAuthError] = useState(false);
   /** Coupé pour lenteur (`CODE_TABLEAU_TROP_LENT`) : le voyant dit pourquoi. */
   const [tropLent, setTropLent] = useState(false);
+  // ─── LES FAITS DE LA LIAISON (voir Liaison.tsx) ────────────────────────────
+  //
+  // Relevés là où ils se produisent — le flux, le navigateur — et lus par une
+  // seule décision, `lireLiaison`. `instantaneRecu` sépare « la ruche est
+  // vide » de « la ruche n'a encore rien dit » : l'instantané initial est vide
+  // dans les deux cas.
+  const [instantaneRecu, setInstantaneRecu] = useState(false);
+  /** Le flux est tombé à cette heure-là (la PREMIÈRE chute), `null` une fois revenu. */
+  const [coupeDepuis, setCoupeDepuis] = useState<number | null>(null);
+  /** Heure du dernier échec du flux : bouge à chaque essai, prouve qu'on rappelle. */
+  const [dernierEssai, setDernierEssai] = useState<number | null>(null);
+  const [horsReseauDepuis, setHorsReseauDepuis] = useState<number | null>(() =>
+    navigator.onLine === false ? Date.now() : null,
+  );
+  const feedRef = useRef<HiveFeed | null>(null);
   /** Événements perdus à l'élagage pendant une coupure — dit, jamais comblé. */
   const [journalElague, setJournalElague] = useState(0);
   const [token, setTokenState] = useState(getToken());
@@ -344,6 +360,7 @@ export function App() {
     const feed = connectFeed({
       onState: (snap) => {
         setSnapshot(snap);
+        setInstantaneRecu(true);
         // Un `task_done` manqué pendant une coupure ne viderait jamais ces
         // états : l'instantané, lui, dit toujours quelles tâches vivent.
         magasinSorties.garderVivantes(snap.tasks);
@@ -423,6 +440,12 @@ export function App() {
       onStatus: (up, meta) => {
         setConnected(up);
         setTropLent(!up && meta?.tropLent === true);
+        if (up) setCoupeDepuis(null);
+        else {
+          const maintenant = Date.now();
+          setCoupeDepuis((depuis) => depuis ?? maintenant);
+          setDernierEssai(maintenant);
+        }
         if (up) setTokenAuthError(false);
         else if (meta?.authError) setTokenAuthError(true);
         // À CHAQUE (re)connexion : ré-hydrater les revues. Le flux rejoue les
@@ -443,14 +466,42 @@ export function App() {
         }
       },
     });
+    feedRef.current = feed;
     return () => {
       if (refreshTimer.current !== undefined) {
         window.clearTimeout(refreshTimer.current);
         refreshTimer.current = undefined;
       }
+      feedRef.current = null;
       feed.close();
     };
   }, [feedKey, demanderSession, magasinSorties]);
+
+  // Le réseau de l'APPAREIL : une Wi-Fi tombée se dit comme telle, pas comme
+  // une ruche muette. Le retour du réseau rappelle la ruche sans attendre la
+  // fin du recul du flux.
+  useEffect(() => {
+    const coupe = () => setHorsReseauDepuis((d) => d ?? Date.now());
+    const revenu = () => {
+      setHorsReseauDepuis(null);
+      feedRef.current?.reconnecter();
+    };
+    window.addEventListener('offline', coupe);
+    window.addEventListener('online', revenu);
+    return () => {
+      window.removeEventListener('offline', coupe);
+      window.removeEventListener('online', revenu);
+    };
+  }, []);
+
+  const liaison = lireLiaison({
+    instantaneRecu,
+    coupeDepuis,
+    horsReseauDepuis,
+    jetonRefuse: tokenAuthError,
+    tropLent,
+  });
+  const reconnecter = () => feedRef.current?.reconnecter();
 
   // ─── Navigation par hash ────────────────────────────────────────────────────
   useEffect(() => {
@@ -857,6 +908,15 @@ export function App() {
           </div>
         )}
 
+        {liaison.affichage === 'vue' && liaison.bandeau !== null && (
+          <BandeauHorsLigne
+            cause={liaison.bandeau.cause}
+            depuis={liaison.bandeau.depuis}
+            dernierEssai={dernierEssai}
+            onReessayer={reconnecter}
+          />
+        )}
+
         {journalElague > 0 && (
           <div className="mc-token-banner" role="status">
             <p>
@@ -908,21 +968,30 @@ export function App() {
                 <div className="mc-view-loading">{t('Chargement de la vue…', 'Loading view…')}</div>
               }
             >
-              {route.view === 'ruche' && <Ruche {...viewProps} />}
-              {route.view === 'miellerie' && <Miellerie {...viewProps} />}
-              {route.view === 'projets' && <Projets {...viewProps} />}
-              {route.view === 'essaim' && <Essaim {...viewProps} />}
-              {route.view === 'sante' && <Sante {...viewProps} />}
-              {route.view === 'chronique' && <Chronique {...viewProps} />}
-              {route.view === 'memoire' && <Memoire {...viewProps} />}
-              {route.view === 'reine' && <Reine {...viewProps} />}
-              {route.view === 'rayon' && <Rayon {...viewProps} />}
-              {route.view === 'monespace' && <MonEspace {...viewProps} />}
-              {route.view === 'intendance' && <Intendance {...viewProps} />}
-              {route.view === 'cerveau' && <Cerveau {...viewProps} />}
-              {route.view === 'chantiers' && <Chantiers {...viewProps} />}
-              {route.view === 'chambre' && <Chambre {...viewProps} />}
-              {route.view === 'warroom' && <WarRoom {...viewProps} />}
+              {/* Avant le premier instantané, AUCUNE vue : chacune dirait son
+                  état vide sur un instantané qui n'est pas encore arrivé. */}
+              {liaison.affichage !== 'vue' && (
+                <AvantPremierEtat liaison={liaison} onReessayer={reconnecter} />
+              )}
+              {liaison.affichage === 'vue' && (
+                <>
+                  {route.view === 'ruche' && <Ruche {...viewProps} />}
+                  {route.view === 'miellerie' && <Miellerie {...viewProps} />}
+                  {route.view === 'projets' && <Projets {...viewProps} />}
+                  {route.view === 'essaim' && <Essaim {...viewProps} />}
+                  {route.view === 'sante' && <Sante {...viewProps} />}
+                  {route.view === 'chronique' && <Chronique {...viewProps} />}
+                  {route.view === 'memoire' && <Memoire {...viewProps} />}
+                  {route.view === 'reine' && <Reine {...viewProps} />}
+                  {route.view === 'rayon' && <Rayon {...viewProps} />}
+                  {route.view === 'monespace' && <MonEspace {...viewProps} />}
+                  {route.view === 'intendance' && <Intendance {...viewProps} />}
+                  {route.view === 'cerveau' && <Cerveau {...viewProps} />}
+                  {route.view === 'chantiers' && <Chantiers {...viewProps} />}
+                  {route.view === 'chambre' && <Chambre {...viewProps} />}
+                  {route.view === 'warroom' && <WarRoom {...viewProps} />}
+                </>
+              )}
             </Suspense>
           </FiletDeSecurite>
         </main>

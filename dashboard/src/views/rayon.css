@@ -358,8 +358,7 @@
 }
 
 .ry-calme .marque,
-.ry-invite .marque,
-.ry-vide .marque {
+.ry-invite .marque {
   display: inline-block;
   width: 12px;
   height: 14px;
@@ -378,32 +377,6 @@
 .ry-erreur {
   color: var(--red);
   font-size: var(--fs-sm);
-}
-
-.ry-vide {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  padding: 56px 24px;
-  max-width: 28rem;
-  margin: 0 auto;
-  text-align: center;
-  color: var(--muted);
-  font-style: normal;
-}
-
-.ry-vide .marque {
-  width: 14px;
-  height: 16px;
-}
-
-.ry-vide p {
-  margin: 0;
-  font-size: var(--fs-lg);
-  line-height: 1.5;
-  color: var(--muted);
-  font-style: normal;
 }
 
 /* Sous 900 px, deux colonnes deviennent deux colonnes trop étroites : l'arbre
@@ -717,13 +690,6 @@
   color: var(--text);
   white-space: pre;
   tab-size: 2;
-}
-
-.ry-sg-patch-attente {
-  margin: 0;
-  padding: 8px 10px;
-  font-size: var(--fs-xs);
-  color: var(--muted);
 }
 
 .ry-sg-vide,
