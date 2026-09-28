@@ -7,6 +7,26 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Pour monter
+
+Ces gestes ne concernent que les ruches en conteneur ; une installation par git
+n'a rien à faire. Sauvegarder d'abord (`docs/RELEASING.md`, § 5).
+
+- **Hive Cloud : le domaine passe de `docker/Caddyfile.cloud` à `.env`.**
+  Jusqu'ici, `docs/CLOUD.md` faisait remplacer `hive.example.com` DANS ce
+  fichier suivi par git ; il lit maintenant `{$HIVE_DOMAIN}`, et
+  `docker-compose.cloud.yml` refuse de démarrer sans lui. Avant de tirer le
+  code : écrire `HIVE_DOMAIN=<votre domaine>` dans `.env`, puis rendre le
+  fichier à git (`git checkout -- docker/Caddyfile.cloud`) — sans quoi
+  `git pull` ou `git checkout vX.Y.Z` tombe en conflit sur cette ligne.
+- **Community : `HIVE_PORT` et `HIVE_DB` de `.env` ne s'appliquent plus DANS
+  le conteneur.** `docker-compose.yml` les fixe (`7777`, `/app/data/hive.db`)
+  par `environment`, qui prime sur `env_file` : un `.env` d'hôte les faisait
+  pointer hors du volume, ou écouter là où la redirection de port ne cherchait
+  pas. Pour un autre port sur l'hôte, changer la partie GAUCHE de `ports`. Une
+  base tenue sous un autre nom dans le volume s'ouvrirait vide : la renommer en
+  `/app/data/hive.db` (depuis la sauvegarde) avant de redémarrer.
+
 ### Added
 
 - **La porte d'origine du WebSocket est enfin gardée.** Le README promet

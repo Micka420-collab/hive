@@ -635,6 +635,12 @@ jobs:
           echo "utilisateur : $u"
           test "$u" = node
 
+      # La Reine lance git elle-même (le miroir du Rayon) : sans lui dans
+      # l'image, le code d'aucun projet ne se lisait en conteneur. Le travail
+      # `compose` ci-dessous le prouve de bout en bout, par un vrai clone.
+      - name: git est dans l'image — la Reine s'en sert
+        run: docker run --rm hive:ci git --version
+
       - name: Ce que l'image pèse
         run: docker image inspect hive:ci --format '{{.Size}}' | awk '{printf "%.0f Mo\n", $1/1048576}'
 
@@ -734,3 +740,154 @@ jobs:
       - name: Arrêter
         if: always()
         run: docker rm -f ruche-ci 2>/dev/null || true
+
+  # ═══ LA RUCHE EN COMPOSE, EXPLOITÉE COMME CHEZ QUELQU'UN ═══════════════════
+  #
+  # Le travail `image` prouve qu'un `docker run` NU démarre. Personne n'exploite
+  # une ruche ainsi : on la pose par `docker compose up`, elle redémarre, elle
+  # tombe, on la relance. Aucun de ces gestes n'était exercé, et les poser a
+  # trouvé deux pannes que seule l'exploitation montre — pas de git dans
+  # l'image (le code d'aucun projet ne se lisait), et un `.env` copié de
+  # l'exemple qui faisait écouter la Reine sur SA boucle locale : saine pour la
+  # sonde de santé, injoignable pour tous.
+  #
+  # Le déroulé est dans `scripts/essai-conteneurs.mjs` (en-tête) : `up --wait`
+  # depuis un `.env` d'opérateur, PID 1 tenu par un init, un compte, un projet,
+  # une clé de la Chambre et le code du projet relus après `compose restart`,
+  # après un `kill -9` de la Reine DEPUIS L'HÔTE (relevée par `unless-stopped`)
+  # et après `down` puis `up` ; la sauvegarde documentée sort du volume.
+  compose:
+    name: La ruche en compose survit aux redémarrages, et garde tout
+    runs-on: ubuntu-latest
+    # Quelques minutes d'ordinaire : un geste qui ne rend plus la main doit
+    # échouer vite, pas au bout des six heures de GitHub.
+    timeout-minutes: 20
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      - name: Installer Node.js ${{ env.NODE }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE }}
+          cache: npm
+
+      # L'hôte relit la sauvegarde avec `better-sqlite3` : d'où les dépendances.
+      - name: Installer les dépendances
+        run: npm ci --foreground-scripts
+
+      - name: Le cycle de vie, de bout en bout
+        run: node scripts/essai-conteneurs.mjs compose
+
+      # Même règle que le travail `image` : le journal doit sortir SURTOUT
+      # quand l'essai a échoué, c'est la seule fois où il sert.
+      - name: Ce que la ruche a dit
+        if: always()
+        run: docker compose -p hive-essai -f docker-compose.yml logs --no-color --tail 120 || echo '(aucun journal)'
+
+      - name: Arrêter, volumes compris
+        if: always()
+        run: docker compose -p hive-essai -f docker-compose.yml down -v || true
+
+  # ═══ HIVE CLOUD, DERRIÈRE LE VRAI CADDY ═════════════════════════════════════
+  #
+  # `docker-compose.cloud.yml` et le Caddyfile n'avaient jamais tourné : seule
+  # leur EXISTENCE était vérifiée. Ici ils tournent tels que livrés — le
+  # Caddyfile n'est pas remplacé par une copie d'essai. `HIVE_DOMAIN` y vaut
+  # un nom en `.localhost`, qui ne peut avoir de certificat public : Caddy le
+  # sert alors avec son autorité INTERNE, dont la racine est copiée hors du
+  # volume pour VÉRIFIER le certificat (un `curl -k` ne prouverait rien).
+  #
+  # Deux clients, dans deux conteneurs — deux adresses, comme sur Internet —
+  # éprouvent `HIVE_TRUST_PROXY=uniquelocal` à travers le vrai proxy : l'un
+  # s'acharne sous des `X-Forwarded-For` forgés jusqu'au 429, l'autre garde
+  # son compteur et monte en WebSocket. C'est la preuve « derrière un vrai
+  # Caddy » que la carte de la confiance au proxy réclamait.
+  cloud:
+    name: Hive Cloud répond derrière Caddy, un compteur par client
+    runs-on: ubuntu-latest
+    # Quelques minutes d'ordinaire : un geste qui ne rend plus la main doit
+    # échouer vite, pas au bout des six heures de GitHub.
+    timeout-minutes: 20
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      - name: Installer Node.js ${{ env.NODE }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE }}
+          cache: npm
+
+      # La sonde parle HTTPS et WebSocket (`ws`), sur l'hôte comme dans les
+      # conteneurs clients.
+      - name: Installer les dépendances
+        run: npm ci --foreground-scripts
+
+      - name: Le Cloud derrière Caddy, de bout en bout
+        run: node scripts/essai-conteneurs.mjs cloud
+
+      - name: Ce que la ruche et Caddy ont dit
+        if: always()
+        run: docker compose -p hive-essai-cloud -f docker-compose.cloud.yml logs --no-color --tail 120 || echo '(aucun journal)'
+
+      - name: Arrêter, volumes compris
+        if: always()
+        run: docker compose -p hive-essai-cloud -f docker-compose.cloud.yml down -v || true
+
+  # ═══ LA MONTÉE DE VERSION, SUR LES DONNÉES D'UNE RUCHE QUI A VÉCU ═══════════
+  #
+  # `docs/RELEASING.md` promet qu'une ruche passe d'une version étiquetée à la
+  # suivante sans rien perdre. Ce travail le tient : la version PRÉCÉDENTE
+  # (la plus récente étiquette `vX.Y.Z` qui n'est pas l'arbre éprouvé) démarre
+  # en compose et pose ses données dans le volume ; l'arbre courant démarre
+  # sur le même volume et doit tout relire — compte, projet, clé, code.
+  #
+  # ─── SANS ÉTIQUETTE, IL LE DIT — IL NE FAIT PAS SEMBLANT ───────────────────
+  #
+  # Tant qu'aucune version n'est étiquetée, il n'y a rien d'où monter. Le
+  # premier pas l'écrit en avis dans le résumé de l'exécution, et les pas
+  # suivants sont sautés : un vert ici veut alors dire « rien à éprouver »,
+  # et c'est écrit, pas un vert muet.
+  montee:
+    name: La ruche monte de la version précédente sans rien perdre
+    runs-on: ubuntu-latest
+    # Quelques minutes d'ordinaire : un geste qui ne rend plus la main doit
+    # échouer vite, pas au bout des six heures de GitHub.
+    timeout-minutes: 20
+    steps:
+      # Toute l'histoire et les étiquettes : c'est d'elles qu'on part.
+      - name: Récupérer le code et ses étiquettes
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Installer Node.js ${{ env.NODE }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE }}
+          cache: npm
+
+      - name: La version d'où monter
+        id: precedente
+        run: node scripts/essai-conteneurs.mjs precedente
+
+      - name: Installer les dépendances
+        if: steps.precedente.outputs.etiquette != ''
+        run: npm ci --foreground-scripts
+
+      # L'étiquette passe par l'environnement, pas par le texte du script :
+      # une expression `${{ }}` collée dans `run:` devient du shell.
+      - name: De la version précédente à celle-ci, sur le même volume
+        if: steps.precedente.outputs.etiquette != ''
+        env:
+          ETIQUETTE: ${{ steps.precedente.outputs.etiquette }}
+        run: node scripts/essai-conteneurs.mjs montee --depuis "$ETIQUETTE"
+
+      - name: Ce que la ruche a dit
+        if: always() && steps.precedente.outputs.etiquette != ''
+        run: docker compose -p hive-montee -f docker-compose.yml logs --no-color --tail 120 || echo '(aucun journal)'
+
+      - name: Arrêter, volumes compris
+        if: always() && steps.precedente.outputs.etiquette != ''
+        run: docker compose -p hive-montee -f docker-compose.yml down -v || true

@@ -29,11 +29,37 @@ const lire = (f: string): string => readFileSync(path.join(RACINE, f), 'utf8');
 const DOCKERFILE = lire('Dockerfile');
 const IGNORE = lire('.dockerignore');
 const COMPOSE = lire('docker-compose.yml');
+const COMPOSE_CLOUD = lire('docker-compose.cloud.yml');
+const CADDYFILE = lire('docker/Caddyfile.cloud');
 
 /** Sans les commentaires — sinon la prose ferait passer les gardes. */
 const nu = (s: string): string => s.replace(/^\s*#.*$/gm, '');
 const DOCKERFILE_NU = nu(DOCKERFILE);
 const COMPOSE_NU = nu(COMPOSE);
+const COMPOSE_CLOUD_NU = nu(COMPOSE_CLOUD);
+
+/**
+ * Le bloc d'UN service d'un compose : de `  <nom>:` à la clé suivante de même
+ * niveau. Une garde qui lirait le fichier entier se laisserait satisfaire par
+ * le voisin — `init: true` posé sur l'atelier passerait pour celui de la ruche.
+ */
+const blocService = (compose: string, nom: string): string => {
+  const lignes = compose.split(/\r?\n/);
+  const debut = lignes.findIndex((l) => l === `  ${nom}:`);
+  expect(debut, `service « ${nom} » introuvable`).toBeGreaterThan(-1);
+  const fin = lignes.findIndex((l, i) => i > debut && /^ {0,2}\S/.test(l));
+  return lignes.slice(debut, fin === -1 ? undefined : fin).join('\n');
+};
+
+/**
+ * L'étage qui SERT : du `FROM … AS ruche` jusqu'à la fin. C'est le seul qui
+ * part dans l'image ; ce que l'étage de construction installe ne la suit pas.
+ */
+const etageQuiSert = (): string => {
+  const i = DOCKERFILE_NU.search(/^FROM\s+\S+\s+AS\s+ruche\s*$/m);
+  expect(i, 'l’étage `ruche` a disparu').toBeGreaterThan(-1);
+  return DOCKERFILE_NU.slice(i).replace(/\\\r?\n\s*/g, ' ');
+};
 
 /**
  * L'unique couche de l'étage qui SERT, continuations recollées.
@@ -372,6 +398,118 @@ describe('LA SONDE DE SANTÉ INTERROGE LA RUCHE, PAS LE PORT', () => {
   });
 });
 
+describe('LA REINE LANCE GIT — L’IMAGE QUI LA PORTE DOIT L’AVOIR', () => {
+  it('l’étage qui sert installe git ET les racines de certificats', () => {
+    // ─── LE DÉFAUT QUE CETTE GARDE FERME ─────────────────────────────────────
+    //
+    // Le miroir du Rayon clone le dépôt de chaque projet avec le git de
+    // l'HÔTE de la Reine (`gitHote`). `node:24-bookworm-slim` n'a pas git :
+    // en conteneur, lire le code d'un projet rendait 409 « le dépôt n'a pas
+    // pu être copié », quand la même Reine sur l'hôte le montrait. Et git
+    // sans `ca-certificates` échoue sur tout clone HTTPS.
+    //
+    // La première moitié lie la garde à sa raison : le jour où la Reine ne
+    // lancera plus git, elle rougira, et on pourra retirer git de l'image.
+    expect(lire('src/orchestrator/miroir.ts'), 'la Reine ne lance plus git').toMatch(/gitHote\(/);
+    const installe = etageQuiSert()
+      .split(/\r?\n/)
+      .filter((l) => /^RUN\s/.test(l) && /apt-get install/.test(l));
+    expect(installe.length, 'aucun `apt-get install` dans l’étage qui sert').toBe(1);
+    expect(installe[0]).toMatch(/\bgit\b/);
+    expect(installe[0]).toMatch(/\bca-certificates\b/);
+    // Les recommandations de git (ssh, less, patch…) n'ont rien à faire là, et
+    // les listes d'apt non plus : trente mégaoctets qu'on ne relit jamais.
+    expect(installe[0]).toMatch(/--no-install-recommends/);
+    expect(installe[0]).toMatch(/rm -rf \/var\/lib\/apt\/lists/);
+  });
+});
+
+describe('`.env` NE DÉPLACE PAS LA RUCHE HORS DE SON CONTENEUR', () => {
+  // ─── LE DÉFAUT QUE CETTE GARDE FERME ───────────────────────────────────────
+  //
+  // `env_file` PRIME sur les `ENV` de l'image. Or le `.env` qu'on obtient par
+  // `cp .env.example .env` — ce que disent le README et `docs/INSTALLATION.md`
+  // — pose `HIVE_HOST=127.0.0.1` : la Reine du conteneur écoutait SA boucle
+  // locale. La sonde de santé, lancée dedans, la disait saine ; la
+  // redirection de port ne trouvait personne. Un `HIVE_PORT` déplacé par
+  // l'installeur, ou un `HIVE_DB` en chemin de l'hôte, cassaient de même.
+  //
+  // `environment` prime sur `env_file`. Chaque `ENV HIVE_*` de l'image décrit
+  // la forme du conteneur ; chaque compose doit donc le REPOSER, à la même
+  // valeur. Une variable ajoutée à l'image demain entre dans la garde seule.
+  const envDeLImage = [...etageQuiSert().matchAll(/^ENV\s+(HIVE_[A-Z_]+)=(\S+)\s*$/gm)].map(
+    (m) => [m[1]!, m[2]!] as const,
+  );
+
+  it('l’image décrit bien sa forme — sinon la garde ne regarderait rien', () => {
+    expect(envDeLImage.map(([cle]) => cle)).toEqual(
+      expect.arrayContaining(['HIVE_HOST', 'HIVE_PORT', 'HIVE_DB', 'HIVE_ENV_FILE']),
+    );
+  });
+
+  for (const [fichier, texte] of [
+    ['docker-compose.yml', COMPOSE_NU],
+    ['docker-compose.cloud.yml', COMPOSE_CLOUD_NU],
+  ] as const) {
+    it(`${fichier} repose chaque \`ENV HIVE_*\` de l’image, à la même valeur`, () => {
+      const ruche = blocService(texte, 'ruche');
+      expect(ruche, 'la ruche lit un `.env`').toMatch(/env_file:/);
+      for (const [cle, valeur] of envDeLImage) {
+        expect(ruche, `${cle} n’est pas reposé : le \`.env\` de l’hôte le décide`).toMatch(
+          new RegExp(
+            `^\\s+${cle}:\\s*['"]?${valeur.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}['"]?\\s*$`,
+            'm',
+          ),
+        );
+      }
+    });
+  }
+});
+
+describe('UN VRAI PID 1 DEVANT CE QUI LANCE DES PROCESSUS', () => {
+  // La Reine lance git (et git ses aides) ; l'atelier lance Chromium. Un
+  // orphelin est rattaché au PID 1 — `node`, ou le script d'entrée —, qui ne
+  // ramasse personne. `init: true` place l'init de Docker devant.
+  for (const [fichier, texte, service] of [
+    ['docker-compose.yml', COMPOSE_NU, 'ruche'],
+    ['docker-compose.yml', COMPOSE_NU, 'atelier'],
+    ['docker-compose.cloud.yml', COMPOSE_CLOUD_NU, 'ruche'],
+  ] as const) {
+    it(`${fichier} · ${service} : \`init: true\``, () => {
+      expect(blocService(texte, service)).toMatch(/^\s+init:\s*true\s*$/m);
+    });
+  }
+});
+
+describe('LE DOMAINE DU CLOUD VIENT DE `.env`, PAS D’UN FICHIER SUIVI', () => {
+  // `docs/CLOUD.md` disait d'éditer `docker/Caddyfile.cloud` — un fichier
+  // suivi par git : chaque opérateur le modifiait, et le premier `git pull`
+  // de mise à jour tombait en conflit (ou servait `hive.example.com` à qui
+  // l'avait oublié).
+
+  it('le Caddyfile sert `{$HIVE_DOMAIN}`, et aucun nom écrit en dur', () => {
+    const site = nu(CADDYFILE)
+      .split(/\r?\n/)
+      .filter((l) => /\{\s*$/.test(l));
+    expect(site.map((l) => l.trim())).toEqual(['{$HIVE_DOMAIN} {']);
+    expect(nu(CADDYFILE), 'un domaine d’exemple est resté').not.toMatch(/example\.com/);
+  });
+
+  it('compose EXIGE le domaine — vide, le bloc de site deviendrait des options globales', () => {
+    // Mesuré avec `caddy adapt` : `{$HIVE_DOMAIN}` vide donne
+    // « unrecognized global option: encode », loin de la cause. `:?` fait
+    // refuser compose AVANT, en disant quoi écrire.
+    const caddy = blocService(COMPOSE_CLOUD_NU, 'caddy');
+    expect(caddy).toMatch(/HIVE_DOMAIN:\s*'?\$\{HIVE_DOMAIN:\?[^}]+\}'?/);
+  });
+
+  it('Caddy ne reçoit que le domaine — aucun secret de la ruche', () => {
+    expect(blocService(COMPOSE_CLOUD_NU, 'caddy'), 'Caddy lirait tout `.env`').not.toMatch(
+      /env_file:/,
+    );
+  });
+});
+
 describe('LA CI CONSTRUIT L’IMAGE — sans quoi rien de tout ceci n’est vérifié', () => {
   // Commentaires retirés, comme pour le Dockerfile et le compose. La règle est
   // au § 2.3 du journal, et je l'avais appliquée à deux fichiers sur trois :
@@ -417,6 +555,24 @@ describe('LA CI CONSTRUIT L’IMAGE — sans quoi rien de tout ceci n’est vér
     expect(CI, '`--retry-connrefused` ne reprend pas une connexion COUPÉE').not.toMatch(
       /--retry-connrefused/,
     );
+  });
+
+  it('git est vérifié DANS l’image construite', () => {
+    expect(CI).toMatch(/docker run --rm hive:ci git --version/);
+  });
+
+  it('compose, Cloud et montée de version sont EXPLOITÉS, pas seulement construits', () => {
+    // Les trois gestes d'un opérateur — poser en compose, publier derrière
+    // Caddy, monter de version — ont chacun leur travail. Retirer l'un
+    // rendrait ses gardes ci-dessus décoratives : elles lisent les fichiers,
+    // seule la CI les fait tourner.
+    expect(CI).toMatch(/node scripts\/essai-conteneurs\.mjs compose/);
+    expect(CI).toMatch(/node scripts\/essai-conteneurs\.mjs cloud/);
+    expect(CI).toMatch(/node scripts\/essai-conteneurs\.mjs precedente/);
+    expect(CI).toMatch(/node scripts\/essai-conteneurs\.mjs montee --depuis/);
+    // La montée part d'une ÉTIQUETTE : sans l'histoire complète, le clone
+    // superficiel n'en a aucune, et l'essai se croirait sans version d'où partir.
+    expect(CI).toMatch(/fetch-depth:\s*0/);
   });
 
   it('LE JOURNAL DU CONTENEUR SORT MÊME QUAND LE DÉMARRAGE ÉCHOUE', () => {
