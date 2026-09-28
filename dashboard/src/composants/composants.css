@@ -301,6 +301,13 @@
   pointer-events: none;
 }
 
+/* Les deux files vivantes (`status`, `alert`) empilent comme la région. */
+.ds-toasts-file {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .ds-toast {
   display: flex;
   align-items: flex-start;

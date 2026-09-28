@@ -20,10 +20,14 @@
 //
 // ─── POURQUOI AVANT LE PREMIER RENDU ─────────────────────────────────────────
 //
-// `appliquerTheme` est appelé par `main.tsx` avant `createRoot` : poser
-// l'attribut après le premier rendu ferait clignoter le mauvais thème le temps
-// d'une image. (Le cas « système », lui, ne clignote jamais : il n'a besoin
-// d'aucun script.)
+// Le module de l'application ne tourne qu'après l'analyse du document : le
+// navigateur peut peindre avant lui. Un choix explicite contraire à l'OS
+// flasherait donc le temps d'une image — c'est le petit script en ligne de
+// `index.html` qui pose l'attribut avant la première peinture (même clé, mêmes
+// valeurs qu'ici ; les changer ici, c'est les changer là). `appliquerTheme`,
+// appelé par `main.tsx` avant `createRoot`, relit ensuite le même choix et
+// installe le suivi des autres onglets. (Le cas « système », lui, ne clignote
+// jamais : il n'a besoin d'aucun script.)
 
 import { useSyncExternalStore } from 'react';
 
@@ -79,8 +83,11 @@ export function appliquerTheme(): void {
   if (ecouteAutresOnglets) return;
   ecouteAutresOnglets = true;
   window.addEventListener('storage', (e) => {
-    if (e.key !== CLE_THEME) return;
-    const suivant = estChoix(e.newValue) ? e.newValue : 'systeme';
+    // `key === null` : un `localStorage.clear()` dans un autre onglet — le
+    // choix mémorisé a disparu, on relit ce qui reste.
+    if (e.key !== CLE_THEME && e.key !== null) return;
+    const suivant =
+      e.key === null ? lireChoixTheme() : estChoix(e.newValue) ? e.newValue : 'systeme';
     if (suivant === courant) return;
     courant = suivant;
     poserAttribut(courant);

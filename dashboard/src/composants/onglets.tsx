@@ -44,7 +44,12 @@ export function Tabs({
   const base = useId();
   const premier = onglets.find((o) => !o.desactive)?.id;
   const [interne, setInterne] = useState(premier);
-  const courant = actif ?? interne;
+  // L'onglet EFFECTIF : le demandé s'il existe et n'est pas éteint, sinon le
+  // premier ouvrable. Un `actif` périmé (onglet retiré, éteint, mal nommé)
+  // laissait sinon chaque onglet à `tabIndex=-1` et aucun panneau : une
+  // rangée injoignable au clavier, et rien à l'écran pour le dire.
+  const demande = actif ?? interne;
+  const courant = onglets.some((o) => o.id === demande && !o.desactive) ? demande : premier;
   const boutons = useRef(new Map<string, HTMLButtonElement>());
 
   const ouvrir = (id: string) => {

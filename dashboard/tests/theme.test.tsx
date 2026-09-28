@@ -12,13 +12,22 @@
 //   · un choix fait dans un autre onglet repeint celui-ci ;
 //   · le menu de la barre du haut coche le choix courant et le change.
 
+import { readFileSync } from 'node:fs';
+import { URL as UrlNode, fileURLToPath } from 'node:url';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { ChoixDuTheme } from '../src/ChoixDuTheme';
 import { setLang } from '../src/i18n';
-import { CLE_THEME, appliquerTheme, changerTheme, choixTheme, lireChoixTheme } from '../src/theme';
+import {
+  CHOIX_THEMES,
+  CLE_THEME,
+  appliquerTheme,
+  changerTheme,
+  choixTheme,
+  lireChoixTheme,
+} from '../src/theme';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean;
@@ -98,6 +107,44 @@ describe('le choix du thème', () => {
       window.dispatchEvent(new StorageEvent('storage', { key: CLE_THEME, newValue: null }));
     });
     expect(attribut()).toBeNull();
+  });
+
+  it('un `localStorage.clear()` dans un autre onglet efface le choix ici aussi', () => {
+    // `clear()` émet un `storage` dont la clé est `null` : ignoré, l'onglet
+    // gardait un thème que plus rien ne mémorisait.
+    changerTheme('sombre');
+    appliquerTheme();
+    localStorage.clear();
+    act(() => {
+      window.dispatchEvent(new StorageEvent('storage', { key: null, newValue: null }));
+    });
+    expect(choixTheme()).toBe('systeme');
+    expect(attribut()).toBeNull();
+  });
+
+  it('le script d’index.html pose le CHOIX avant la première peinture — mêmes valeurs que theme.ts', () => {
+    // Le module de l'application tourne après l'analyse du document : sans ce
+    // script, un choix contraire à l'OS flasherait le temps d'une image.
+    const html = readFileSync(fileURLToPath(new UrlNode('../index.html', import.meta.url)), 'utf8');
+    const script = /<script>([\s\S]*?)<\/script>/.exec(html)?.[1];
+    expect(script, 'index.html sans script de thème en ligne').toBeDefined();
+    const jouer = new Function(script ?? '') as () => void;
+    for (const choix of CHOIX_THEMES) {
+      document.documentElement.removeAttribute('data-theme');
+      if (choix === 'systeme') localStorage.removeItem(CLE_THEME);
+      else localStorage.setItem(CLE_THEME, choix);
+      jouer();
+      const attendu = attribut();
+      // La même chose que ce que pose theme.ts pour ce choix.
+      document.documentElement.removeAttribute('data-theme');
+      appliquerTheme();
+      expect(attendu, choix).toBe(attribut());
+    }
+    // Un stockage qui lève ne casse pas la page.
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new DOMException('stockage coupé', 'SecurityError');
+    });
+    expect(jouer).not.toThrow();
   });
 });
 

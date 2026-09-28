@@ -37,24 +37,44 @@ export interface ProprietesChamp {
   requis?: boolean;
 }
 
-/** Les identifiants d'un champ et ce que son contrôle doit porter. */
+/** Ce que l'appelant a déjà posé sur son contrôle, et qu'un champ doit GARDER. */
+interface AriaAppelant {
+  'aria-describedby'?: string;
+  'aria-invalid'?: boolean | 'true' | 'false' | 'grammar' | 'spelling';
+  required?: boolean;
+}
+
+/**
+ * Les identifiants d'un champ et ce que son contrôle doit porter.
+ *
+ * Ce que l'appelant a posé lui-même est FUSIONNÉ, jamais écrasé : une
+ * `Tooltip` enroulée autour du champ, une note de bas de formulaire, ajoutent
+ * leur `aria-describedby` ; une validation externe pose `aria-invalid`. Les
+ * perdre en silence rendait le champ muet sur ce qu'on lui avait fait dire.
+ */
 function useChamp(
   idImpose: string | undefined,
-  { aide, erreur }: Pick<ProprietesChamp, 'aide' | 'erreur'>,
+  { aide, erreur, requis }: Pick<ProprietesChamp, 'aide' | 'erreur' | 'requis'>,
+  appelant: AriaAppelant = {},
 ) {
   const genere = useId();
   const id = idImpose ?? genere;
   const idAide = `${id}-aide`;
   const idErreur = `${id}-erreur`;
-  const decrit = [aide ? idAide : null, erreur ? idErreur : null].filter(Boolean).join(' ');
+  const decrit = [appelant['aria-describedby'], aide ? idAide : null, erreur ? idErreur : null]
+    .filter(Boolean)
+    .join(' ');
+  const obligatoire = requis ?? appelant.required;
   return {
     id,
     idAide,
     idErreur,
+    requis: obligatoire,
     controle: {
       id,
       'aria-describedby': decrit === '' ? undefined : decrit,
-      'aria-invalid': erreur ? (true as const) : undefined,
+      'aria-invalid': erreur ? (true as const) : appelant['aria-invalid'],
+      required: obligatoire,
     },
   };
 }
@@ -126,13 +146,12 @@ export function Input({
   className,
   ...reste
 }: ProprietesChamp & ComponentPropsWithoutRef<'input'>) {
-  const c = useChamp(idImpose, { aide, erreur });
+  const c = useChamp(idImpose, { aide, erreur, requis }, reste);
   return (
-    <Cadre {...c} libelle={libelle} aide={aide} erreur={erreur} requis={requis}>
+    <Cadre {...c} libelle={libelle} aide={aide} erreur={erreur}>
       <input
         {...reste}
         {...c.controle}
-        required={requis}
         className={`ds-controle${className ? ` ${className}` : ''}`}
       />
     </Cadre>
@@ -148,15 +167,40 @@ export function Textarea({
   className,
   ...reste
 }: ProprietesChamp & ComponentPropsWithoutRef<'textarea'>) {
-  const c = useChamp(idImpose, { aide, erreur });
+  const c = useChamp(idImpose, { aide, erreur, requis }, reste);
   return (
-    <Cadre {...c} libelle={libelle} aide={aide} erreur={erreur} requis={requis}>
+    <Cadre {...c} libelle={libelle} aide={aide} erreur={erreur}>
       <textarea
         {...reste}
         {...c.controle}
-        required={requis}
         className={`ds-controle ds-controle--texte${className ? ` ${className}` : ''}`}
       />
+    </Cadre>
+  );
+}
+
+/**
+ * Le cadre d'un champ pour un contrôle QUI N'EST PAS natif (une liste à
+ * saisie, un sélecteur de fichier avec son aperçu) : le même libellé, la même
+ * aide, la même erreur, reliés de la même façon. Le contrôle reçoit ce qu'il
+ * doit porter — `id`, `aria-describedby`, `aria-invalid`, `required` — et le
+ * pose sur l'élément qui prend le focus.
+ */
+export function Champ({
+  libelle,
+  aide,
+  erreur,
+  requis,
+  id: idImpose,
+  children,
+}: ProprietesChamp & {
+  id?: string;
+  children: (controle: ReturnType<typeof useChamp>['controle']) => ReactNode;
+}) {
+  const c = useChamp(idImpose, { aide, erreur, requis });
+  return (
+    <Cadre {...c} libelle={libelle} aide={aide} erreur={erreur}>
+      {children(c.controle)}
     </Cadre>
   );
 }
@@ -181,15 +225,14 @@ export function Select({
     ComponentPropsWithoutRef<'select'>,
     'children'
   >) {
-  const c = useChamp(idImpose, { aide, erreur });
+  const c = useChamp(idImpose, { aide, erreur, requis }, reste);
   return (
-    <Cadre {...c} libelle={libelle} aide={aide} erreur={erreur} requis={requis}>
+    <Cadre {...c} libelle={libelle} aide={aide} erreur={erreur}>
       {/* L'enveloppe porte le chevron : un `<select>` n'a pas de pseudo-élément. */}
       <span className="ds-choix">
         <select
           {...reste}
           {...c.controle}
-          required={requis}
           className={`ds-controle ds-controle--choix${className ? ` ${className}` : ''}`}
         >
           {options.map((o) => (

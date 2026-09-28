@@ -393,7 +393,7 @@ h3 {
 .tile {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--r-lg);
   padding: 10px 14px;
   min-width: 104px;
   box-shadow: var(--shadow-sm);
@@ -728,7 +728,7 @@ h3 {
 .card {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--r-lg);
   box-shadow: var(--shadow-sm);
   transition:
     border-color 0.2s ease,
@@ -1558,7 +1558,7 @@ h3 {
 .modal {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: var(--r-xl);
   padding: 22px 24px;
   max-width: 560px;
   width: 100%;
@@ -2996,7 +2996,7 @@ h3 {
   max-width: 28rem;
   width: min(100%, 28rem);
   border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
-  border-radius: 16px;
+  border-radius: var(--r-xl);
   box-shadow:
     0 1px 0 color-mix(in srgb, var(--panel) 80%, transparent) inset,
     var(--shadow);

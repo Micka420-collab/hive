@@ -4,7 +4,7 @@
 // thèmes sans une ligne propre à l'un d'eux. Leur feuille (`composants.css`)
 // est importée une fois, par main.tsx, avant toute vue.
 
-export { Fieldset, Input, Select, Textarea } from './champs';
+export { Champ, Fieldset, Input, Select, Textarea } from './champs';
 export type { OptionChoix, ProprietesChamp } from './champs';
 export { EmptyState, ErrorState, Skeleton } from './etats';
 export { Tooltip } from './infobulle';

@@ -132,6 +132,41 @@ function hex(theme: NomTheme, valeur: string): string {
 
 const jeton = (theme: NomTheme, nom: string): string => hex(theme, `var(${nom})`);
 
+const sansImportant = (v: string): string => v.replace(/\s*!important$/, '').trim();
+
+/**
+ * Comme `hex`, mais sans exiger : suit aussi les alias LOCAUX d'une feuille,
+ * et rend `null` pour tout ce qui n'est pas une couleur pleine (dégradé,
+ * transparence, `currentColor`) — l'emploi est alors laissé à l'œil.
+ */
+function resoudre(theme: NomTheme, valeur: string, locaux: Map<string, string>): string | null {
+  const v = valeur.trim();
+  const nom = /^var\(\s*(--[\w-]+)\s*\)$/.exec(v)?.[1];
+  if (nom !== undefined) {
+    const pose = locaux.get(nom) ?? THEMES[theme].get(nom);
+    return pose === undefined || pose === v ? null : resoudre(theme, pose, locaux);
+  }
+  const melange = /^color-mix\(in srgb,\s*(.+?)\s+([\d.]+)%,\s*(.+)\)$/.exec(v);
+  if (melange) {
+    const a = resoudre(theme, melange[1] ?? '', locaux);
+    const b = resoudre(theme, melange[3] ?? '', locaux);
+    if (a === null || b === null) return null;
+    return hex(theme, `color-mix(in srgb, ${a} ${melange[2]}%, ${b})`);
+  }
+  return /^#[0-9a-f]{6}$/i.test(v) ? v.toLowerCase() : null;
+}
+
+const aplatir = (regles: Regle[]): Regle[] =>
+  regles.flatMap((r) => (r.enfants !== undefined ? aplatir(r.enfants) : [r]));
+
+/**
+ * Le Cerveau est une carte NOCTURNE dans les deux thèmes : sa toile est
+ * peinte en JavaScript (views/Cerveau.tsx, `COULEUR`) sur un fond que sa
+ * feuille pose, et les deux palettes doivent rester appariées. Elle est la
+ * seule feuille hors jetons, et elle est nommée.
+ */
+const EXEMPTEES_DE_JETONS = new Set([path.join('views', 'cerveau.css')]);
+
 /** Contraste WCAG 2.x. */
 function contraste(a: string, b: string): number {
   const lum = (h: string): number => {
@@ -210,6 +245,51 @@ describe('les deux thèmes', () => {
     });
   }
 
+  it('CHAQUE RÈGLE QUI POSE UN TEXTE SUR UN FOND TIENT AA — dans les deux thèmes', () => {
+    // La table PAIRES juge les jetons ; celle-ci juge leurs EMPLOIS. Un alias
+    // local (`--ch-encre: var(--text)`) peut faire d'une paire saine en clair
+    // une paire illisible en sombre sans qu'aucun jeton ne change : le bouton
+    // « Accorder » de la Chambre posait `--text` (clair en sombre) sur le miel,
+    // 1,37:1, et son `!important` écrasait l'encre de `.btn.primary`. Chaque
+    // règle qui déclare À LA FOIS `color` et un fond plein est donc résolue —
+    // `!important` retiré, alias locaux de la feuille suivis — et jugée.
+    // Ce qui ne se résout pas en une couleur pleine (dégradé, transparence,
+    // `currentColor`) est laissé à l'œil : le compte plancher empêche le
+    // relevé de devenir vide sans bruit.
+    const fautes: string[] = [];
+    let jugees = 0;
+    for (const f of feuilles()) {
+      if (EXEMPTEES_DE_JETONS.has(f)) continue;
+      const regles = aplatir(analyser(sansCommentaires(lire(f))));
+      // Les alias locaux d'une feuille (`--ch-miel: var(--miel)`), posés sur
+      // ses conteneurs : un emploi qui les nomme les voit.
+      const locaux = new Map<string, string>();
+      for (const r of regles)
+        for (const [nom, v] of declarations(r.corps ?? ''))
+          if (nom.startsWith('--') && !selecteurs(r).every((s) => s.startsWith(':root')))
+            locaux.set(nom, sansImportant(v));
+      for (const r of regles) {
+        const d = declarations(r.corps ?? '');
+        const texte = d.get('color');
+        const fond = d.get('background') ?? d.get('background-color');
+        if (texte === undefined || fond === undefined) continue;
+        for (const theme of ['clair', 'sombre'] as const) {
+          const [t, b] = [
+            resoudre(theme, sansImportant(texte), locaux),
+            resoudre(theme, sansImportant(fond), locaux),
+          ];
+          if (t === null || b === null) continue;
+          jugees += 1;
+          const c = contraste(t, b);
+          if (c < 4.5)
+            fautes.push(`${theme} ${f} « ${r.prelude} » ${texte} sur ${fond} : ${c.toFixed(2)}:1`);
+        }
+      }
+    }
+    expect(fautes, fautes.join(' · ')).toEqual([]);
+    expect(jugees).toBeGreaterThanOrEqual(150);
+  });
+
   it('SANS FLOU, LE VOILE SOMBRE RESTE DENSE', () => {
     // Le repli `@supports not (backdrop-filter)` pose `--voile-dense` : il doit
     // masquer la page dans le thème sombre aussi.
@@ -252,12 +332,6 @@ describe('une seule échelle typographique', () => {
 // ─── LES COULEURS EN DUR ─────────────────────────────────────────────────────
 
 describe('aucune couleur en dur hors des jetons', () => {
-  // Le Cerveau est une carte NOCTURNE dans les deux thèmes : sa toile est
-  // peinte en JavaScript (views/Cerveau.tsx, `COULEUR`) sur un fond que sa
-  // feuille pose, et les deux palettes doivent rester appariées. Elle est la
-  // seule exception, et elle est nommée.
-  const EXEMPTEES = new Set([path.join('views', 'cerveau.css')]);
-
   it('LE RELEVÉ LIT TOUTES LES FEUILLES', () => {
     const toutes = feuilles();
     expect(toutes).toContain('styles.css');
@@ -265,18 +339,42 @@ describe('aucune couleur en dur hors des jetons', () => {
     expect(toutes.length).toBeGreaterThan(10);
   });
 
+  // Toutes les écritures d'une couleur qu'un navigateur accepte : hexadécimal,
+  // fonctions (`rgb`, `hsl`, `hwb`, `lab`, `lch`, `oklab`, `oklch`) et les noms
+  // courants. Un nom n'est une couleur que s'il est un mot entier : `--red`,
+  // `pulse-red` ou `.btn-white` n'en sont pas.
+  const COULEUR_EN_DUR = new RegExp(
+    [
+      '#[0-9a-f]{3,8}\\b',
+      '\\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch)\\(',
+      '(?<![-\\w])(?:white|black|gr[ae]y|silver|red|green|blue|yellow|orange|purple|pink|brown|navy|teal)(?![-\\w])',
+    ].join('|'),
+    'gi',
+  );
+
+  it('LE RELEVÉ DES COULEURS EN DUR RECONNAÎT CHAQUE ÉCRITURE', () => {
+    const trouve = (css: string): boolean => new RegExp(COULEUR_EN_DUR.source, 'i').test(css);
+    for (const dur of [
+      'color: #fff',
+      'color: rgba(0, 0, 0, 0.4)',
+      'color: hsl(0 0% 100%)',
+      'color: oklch(70% 0.1 80)',
+      'color: gray',
+      'border: 1px solid white',
+    ])
+      expect(trouve(dur), dur).toBe(true);
+    for (const jeton of ['color: var(--red)', 'animation: pulse-red 1s', 'color: currentColor'])
+      expect(trouve(jeton), jeton).toBe(false);
+  });
+
   it('HORS DES BLOCS DE JETONS, UNE FEUILLE NE NOMME QUE DES JETONS', () => {
     const fautes: string[] = [];
     for (const f of feuilles()) {
-      if (EXEMPTEES.has(f)) continue;
-      const aplatir = (regles: Regle[]): Regle[] =>
-        regles.flatMap((r) => (r.enfants !== undefined ? aplatir(r.enfants) : [r]));
+      if (EXEMPTEES_DE_JETONS.has(f)) continue;
       for (const r of aplatir(analyser(sansCommentaires(lire(f))))) {
         // Les blocs de thème SONT la définition des couleurs.
         if (selecteurs(r).every((s) => s.startsWith(':root'))) continue;
-        for (const m of (r.corps ?? '').matchAll(
-          /#[0-9a-f]{3,8}\b|rgba?\(|\b(white|black)\b(?!-)/gi,
-        )) {
+        for (const m of (r.corps ?? '').matchAll(COULEUR_EN_DUR)) {
           fautes.push(`${f} « ${r.prelude} » : ${m[0]}`);
         }
       }

@@ -6,8 +6,11 @@
 //
 // Le contrat :
 //   · UNE région pour toute l'application (`ToastProvider`, monté par
-//     main.tsx), annoncée aux lecteurs d'écran (`aria-live="polite"`) ; une
-//     erreur passe en `role="alert"`, qui interrompt ;
+//     main.tsx), et dedans DEUX files vivantes, toujours montées : `status`
+//     (poli) pour ce qui informe, `alert` (qui interrompt) pour l'erreur. Les
+//     toasts eux-mêmes n'ont pas de rôle : une région vivante dans une autre
+//     fait lire la même phrase deux fois (NVDA, JAWS sous Chrome), et une
+//     région qui naît avec son texte n'est pas annoncée par tous les lecteurs ;
 //   · une information s'efface seule (5 s) ; une ERREUR reste jusqu'à ce
 //     qu'on la ferme — un message qui disparaît avant d'avoir été lu est un
 //     message perdu (WCAG 2.2.1), et c'est l'erreur qu'on n'a pas le droit de
@@ -92,27 +95,25 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <Contexte.Provider value={annoncer}>
       {children}
-      <section
-        className="ds-toasts"
-        aria-label={t('Notifications', 'Notifications')}
-        aria-live="polite"
-      >
-        {vivants.map((v) => (
-          <div
-            key={v.id}
-            className={`ds-toast ds-toast--${v.ton}`}
-            role={v.ton === 'erreur' ? 'alert' : 'status'}
-          >
-            <span className="ds-toast-ton">{mot[v.ton]}</span>
-            <span className="ds-toast-message">{v.message}</span>
-            <button
-              type="button"
-              className="ds-toast-fermer"
-              aria-label={t('Fermer la notification', 'Dismiss notification')}
-              onClick={() => retirer(v.id)}
-            >
-              ×
-            </button>
+      <section className="ds-toasts" aria-label={t('Notifications', 'Notifications')}>
+        {(['status', 'alert'] as const).map((role) => (
+          <div key={role} className="ds-toasts-file" role={role}>
+            {vivants
+              .filter((v) => (v.ton === 'erreur') === (role === 'alert'))
+              .map((v) => (
+                <div key={v.id} className={`ds-toast ds-toast--${v.ton}`}>
+                  <span className="ds-toast-ton">{mot[v.ton]}</span>
+                  <span className="ds-toast-message">{v.message}</span>
+                  <button
+                    type="button"
+                    className="ds-toast-fermer"
+                    aria-label={t('Fermer la notification', 'Dismiss notification')}
+                    onClick={() => retirer(v.id)}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
           </div>
         ))}
       </section>

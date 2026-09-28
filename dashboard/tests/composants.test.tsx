@@ -16,6 +16,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import {
+  Champ,
   EmptyState,
   ErrorState,
   Fieldset,
@@ -147,6 +148,41 @@ describe('les champs disent leur libellé, leur aide et leur faute', () => {
     expect(choisi).toHaveBeenCalledWith('codex');
   });
 
+  it('ce que l’appelant pose lui-même — description, invalidité, obligation — est GARDÉ', async () => {
+    const c = await monter(
+      <>
+        <p id="note">Voir la charte.</p>
+        <Input libelle="Clé" aide="Commence par hk_." aria-describedby="note" required />
+      </>,
+    );
+    const input = un<HTMLInputElement>(c, 'input');
+    const ids = (input.getAttribute('aria-describedby') ?? '').split(' ');
+    expect(ids.map((id) => document.getElementById(id)?.textContent)).toEqual([
+      'Voir la charte.',
+      'Commence par hk_.',
+    ]);
+    expect(input.required).toBe(true);
+    // L'astérisque suit l'obligation, d'où qu'elle vienne.
+    expect(c.querySelector('.ds-champ-requis')).not.toBeNull();
+  });
+
+  it('un Champ relie de la même façon un contrôle qui n’est pas natif', async () => {
+    const c = await monter(
+      <Champ libelle="Dossier" aide="Relatif au projet." erreur="Introuvable." requis>
+        {(controle) => <input type="text" role="combobox" aria-expanded={false} {...controle} />}
+      </Champ>,
+    );
+    const boite = un<HTMLInputElement>(c, '[role="combobox"]');
+    expect(un<HTMLLabelElement>(c, 'label').htmlFor).toBe(boite.id);
+    expect(boite.getAttribute('aria-invalid')).toBe('true');
+    expect(boite.required).toBe(true);
+    const ids = (boite.getAttribute('aria-describedby') ?? '').split(' ');
+    expect(ids.map((id) => document.getElementById(id)?.textContent)).toEqual([
+      'Relatif au projet.',
+      '⚠ Introuvable.',
+    ]);
+  });
+
   it('un Fieldset nomme sa question par une <legend> et décrit sa faute', async () => {
     const c = await monter(
       <Fieldset legende="Mode" erreur="Choisissez un mode.">
@@ -215,6 +251,19 @@ describe('les onglets suivent le motif WAI-ARIA', () => {
     // Le parent n'a pas suivi : l'onglet ouvert reste le sien.
     expect(un<HTMLElement>(c, '[role="tabpanel"]').textContent).toBe('le journal');
   });
+
+  it('un `actif` périmé ou éteint retombe sur le premier ouvrable — jamais une rangée injoignable', async () => {
+    for (const actif of ['off', 'disparu']) {
+      const c = await monter(<Tabs libelle="Détails" onglets={ONGLETS} actif={actif} />);
+      const tabs = [...c.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+      expect(
+        tabs.map((t) => t.tabIndex),
+        actif,
+      ).toEqual([0, -1, -1, -1]);
+      expect(un<HTMLElement>(c, '[role="tabpanel"]').textContent, actif).toBe('le diff');
+      c.remove();
+    }
+  });
 });
 
 // ─── Info-bulle ──────────────────────────────────────────────────────────────
@@ -241,6 +290,26 @@ describe('l’info-bulle s’ouvre au clavier, se ferme à Échap, et est relié
     expect(bulle.hidden).toBe(true);
     // Le focus n'a pas bougé : Échap ferme la bulle, pas le contexte.
     expect(document.activeElement).toBe(bouton);
+  });
+
+  it('Échap ferme la bulle SANS atteindre le dialogue autour ; bulle fermée, il passe', async () => {
+    const dialogue = vi.fn();
+    const c = await monter(
+      <div role="dialog" onKeyDown={(e) => e.key === 'Escape' && dialogue()}>
+        <Tooltip texte="Aide">
+          <button type="button">?</button>
+        </Tooltip>
+      </div>,
+    );
+    const bouton = un<HTMLButtonElement>(c, 'button');
+    await act(async () => {
+      bouton.focus();
+    });
+    await touche(bouton, 'Escape');
+    expect(un<HTMLElement>(c, '[role="tooltip"]').hidden).toBe(true);
+    expect(dialogue).not.toHaveBeenCalled();
+    await touche(bouton, 'Escape');
+    expect(dialogue).toHaveBeenCalledTimes(1);
   });
 
   it('au survol, elle attend son délai — un passage de souris ne l’ouvre pas', async () => {
@@ -386,7 +455,7 @@ describe('les toasts : l’information s’efface, l’erreur reste', () => {
     console.mockRestore();
   });
 
-  it('une information est un `status` et s’efface seule après 5 s', async () => {
+  it('une information entre dans la file `status` et s’efface seule après 5 s', async () => {
     vi.useFakeTimers();
     const c = await monter(
       <ToastProvider>
@@ -395,10 +464,15 @@ describe('les toasts : l’information s’efface, l’erreur reste', () => {
     );
     const region = un<HTMLElement>(c, '.ds-toasts');
     expect(region.getAttribute('aria-label')).toBe('Notifications');
-    expect(region.getAttribute('aria-live')).toBe('polite');
+    // Une seule région vivante par toast : la file, pas la région englobante
+    // ni le toast (deux régions imbriquées = une phrase lue deux fois).
+    expect(region.hasAttribute('aria-live')).toBe(false);
+    const files = [...region.querySelectorAll<HTMLElement>('.ds-toasts-file')];
+    expect(files.map((f) => f.getAttribute('role'))).toEqual(['status', 'alert']);
     await clic(un(c, 'button'));
     const toast = un<HTMLElement>(c, '.ds-toast');
-    expect(toast.getAttribute('role')).toBe('status');
+    expect(toast.hasAttribute('role')).toBe(false);
+    expect(toast.parentElement?.getAttribute('role')).toBe('status');
     expect(toast.textContent).toContain('Info');
     expect(toast.textContent).toContain('message info');
     await act(async () => {
@@ -407,7 +481,7 @@ describe('les toasts : l’information s’efface, l’erreur reste', () => {
     expect(c.querySelector('.ds-toast')).toBeNull();
   });
 
-  it('une ERREUR est une `alert` et reste jusqu’à ce qu’on la ferme', async () => {
+  it('une ERREUR entre dans la file `alert` et reste jusqu’à ce qu’on la ferme', async () => {
     vi.useFakeTimers();
     const c = await monter(
       <ToastProvider>
@@ -419,7 +493,8 @@ describe('les toasts : l’information s’efface, l’erreur reste', () => {
       vi.advanceTimersByTime(60_000);
     });
     const toast = un<HTMLElement>(c, '.ds-toast');
-    expect(toast.getAttribute('role')).toBe('alert');
+    expect(toast.hasAttribute('role')).toBe(false);
+    expect(toast.parentElement?.getAttribute('role')).toBe('alert');
     expect(toast.textContent).toContain('Erreur');
     await clic(un(toast, 'button[aria-label="Fermer la notification"]'));
     expect(c.querySelector('.ds-toast')).toBeNull();

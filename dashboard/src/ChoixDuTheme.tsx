@@ -4,8 +4,9 @@
 // choix, pas l'un des deux autres. Une bascule sombre ↔ clair ne permettrait
 // plus jamais de revenir à « suivre l'OS » une fois le premier clic donné.
 //
-// Le bouton montre le thème RÉSOLU par son glyphe (◐ pour « système ») et le
-// dit en entier dans son nom accessible : « Thème : sombre ».
+// Le bouton montre le CHOIX par son glyphe — ◐ pour « système », quel que
+// soit le thème que l'OS en fait — et le dit en entier dans son nom
+// accessible : « Thème : Système ».
 
 import { Menu } from './composants';
 import { useT } from './i18n';

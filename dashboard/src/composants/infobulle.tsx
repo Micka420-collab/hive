@@ -47,11 +47,17 @@ export function Tooltip({
 
   useEffect(() => {
     if (!ouverte) return;
+    // En CAPTURE, et arrêtée : Échap ferme la bulle et rien d'autre. Sans
+    // cela, dans un dialogue, le même Échap fermait aussi le dialogue et
+    // déplaçait le focus (WCAG 1.4.13 : la bulle se congédie sans effet de
+    // bord). La bulle fermée, le prochain Échap reprend son chemin normal.
     const onKey = (e: globalThis.KeyboardEvent) => {
-      if (e.key === 'Escape') fermer();
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      fermer();
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
   }, [ouverte]);
 
   // Démontée en attente : la minuterie ne doit pas rouvrir une bulle disparue.

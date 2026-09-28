@@ -23,7 +23,7 @@
   --ch-mute: var(--muted);
   --ch-ligne: color-mix(in srgb, var(--ch-miel) 28%, var(--border));
   --ch-ombre: 0 10px 28px color-mix(in srgb, var(--ch-encre) 6%, transparent);
-  --ch-rayon: 12px;
+  --ch-rayon: var(--r-lg);
 }
 
 .ch-view {
@@ -223,10 +223,12 @@
   gap: 8px;
 }
 
+/* Le texte sur le miel est l'ENCRE, dans les deux thèmes — pas `--ch-encre`,
+   qui suit `--text` et devient clair en sombre (1,37:1 sur le miel). */
 .ch-btn-accorder {
   background: var(--ch-miel) !important;
   border-color: var(--ch-miel-fonce) !important;
-  color: var(--ch-encre) !important;
+  color: var(--encre) !important;
   font-weight: 650 !important;
   border-radius: 999px !important;
   padding: 6px 14px !important;
@@ -1084,7 +1086,7 @@ button.ch-lien-chemin:focus-visible {
 .ch-dialog {
   background: var(--ch-creme);
   border: 1px solid var(--ch-miel);
-  border-radius: 12px;
+  border-radius: var(--r-lg);
   padding: 1rem 1.25rem;
   max-width: 28rem;
   width: 100%;
