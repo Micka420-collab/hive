@@ -213,10 +213,27 @@ import {
   corpsPr,
   depotDepuisUrl,
   fusionner,
+  historiqueBase,
   lireFaitsPr,
   livrer,
   nomBranche,
+  relancerJob,
 } from './livraison.js';
+import {
+  COMMITS_BASE_LUS,
+  DELAI_CALME_MS,
+  DELAI_CI_EN_COURS_MS,
+  LOT_GARDE,
+  PERIODE_GARDE_MS,
+  deciderGarde,
+  direGeste,
+  gardeActiveDepuisEnv,
+  gesteAutonome,
+  jugerInstables,
+  plafondGardeDepuisEnv,
+  reculGarde,
+  relanceAutorisee,
+} from './garde-pr.js';
 import {
   comparaisonDuRejeu,
   creerRejeu,
@@ -445,7 +462,7 @@ import { buildTimeline } from './replay.js';
 import { detectConflicts } from './sting-detector.js';
 import { Scheduler } from './scheduler.js';
 import { ETAT_LIVRAISON_EN_COURS, ETAT_LIVRAISON_RELAYEE, HiveStore } from './store.js';
-import type { LivraisonRangee, RepriseLivraison, SessionRangee } from './store.js';
+import type { GardePr, LivraisonRangee, SessionRangee } from './store.js';
 import { direArretBrutal, prendreVerrouReine } from './verrou-reine.js';
 import type { VerrouReine } from './verrou-reine.js';
 import {
@@ -647,6 +664,7 @@ const TYPES_RELAYES_CONNECTEURS: ReadonlySet<string> = new Set([
   'task_reviewed',
   'task_failed',
   'delivery_merged',
+  'garde_pr_alerte',
 ]);
 
 /** Horizon ledger — faits/hypothèses datés ; élagage comme le journal. */
@@ -1197,6 +1215,12 @@ export interface HiveServer {
   port: number;
   url: string;
   stop: () => Promise<void>;
+  /**
+   * Le garde de PR (garde-pr.ts). `passe` joue UNE passe maintenant — la
+   * minuterie en joue une par minute ; un banc l'appelle pour ne rien attendre.
+   * Rend le nombre de PR sondées.
+   */
+  gardePr: { passe: (now?: number) => Promise<number> };
 }
 
 export async function createServer(config: ServerConfig): Promise<HiveServer> {
@@ -3850,6 +3874,18 @@ async function monterReine(
           : {}),
         taskId,
         etat,
+      };
+    }
+    if (event.type === 'garde_pr_alerte') {
+      // Le garde de PR a vu une CI rouge qu'il ne corrige pas lui-même
+      // (autonomie, runner de l'hôte, plafond) : un humain doit décider.
+      const pr = typeof p.pr === 'number' ? ` #${p.pr}` : '';
+      return {
+        kind: 'blocage',
+        projectId: task.projectId,
+        titre: `CI rouge sur la pull request${pr} — ${task.title}`,
+        corps: typeof p.detail === 'string' ? p.detail : 'CI rouge.',
+        taskId,
       };
     }
     if (event.type !== 'task_failed') return null;
@@ -12865,13 +12901,31 @@ async function monterReine(
     etat: EtatLivraison;
     faits: FaitsPr;
   }> => {
-    const faits = await lireFaitsPr(
-      { jeton: jetonGithub, ...(apiGithub ? { api: apiGithub } : {}) },
-      l.depot,
-      l.pr,
-    );
+    const faits = await lireFaitsPr(optionsGithub(), l.depot, l.pr);
     return { taskId: l.taskId, depot: l.depot, pr: l.pr, etat: etatLivraison(faits), faits };
   };
+
+  /**
+   * Les options des appels GitHub de la livraison et du garde : le jeton, l'API
+   * (Enterprise) et le fetcheur injecté des bancs. Un seul endroit, pour que
+   * lire, reprendre et relancer parlent au MÊME GitHub — un banc qui injecte
+   * un faux ne doit pas voir une moitié des appels partir sur le vrai.
+   */
+  function optionsGithub(): { jeton: string; api?: string; fetcheur?: Fetcheur } {
+    return {
+      jeton: jetonGithub,
+      ...(apiGithub ? { api: apiGithub } : {}),
+      ...(config.githubFetcher ? { fetcheur: config.githubFetcher } : {}),
+    };
+  }
+
+  /**
+   * Le plafond de reprises d'une PR entre deux CI vertes, réglé par l'hôte
+   * (`HIVE_GARDE_PR_PLAFOND`, 1 à 10, défaut 3). Le MÊME pour le garde et pour
+   * le bouton « reprendre » : deux plafonds diraient deux choses différentes
+   * de la même PR, et le bouton refuserait ce que le garde vient de faire.
+   */
+  const plafondReprises = plafondGardeDepuisEnv(process.env);
 
   // ─── LA LIGNÉE D'UNE REPRISE, ET SES DEUX BORNES ────────────────────────────
   //
@@ -12882,9 +12936,12 @@ async function monterReine(
   //   · UNE reprise en vol à la fois. Deux reprises partiraient de la même
   //     tête ; la seconde livrée trouverait la branche avancée par la
   //     première, et travaillerait sur des faits périmés.
-  //   · un PLAFOND par livraison (`MAX_REPRISES_PAR_LIVRAISON`), réussies
-  //     ou non : une production que trois reprises n'ont pas réparée
-  //     attend un humain, pas une quatrième tentative.
+  //   · un PLAFOND par livraison (`plafondReprises`), réussies ou non : une
+  //     production que trois reprises n'ont pas réparée attend un humain, pas
+  //     une quatrième tentative. Compté DEPUIS LA DERNIÈRE CI VERTE que le
+  //     garde de PR a vue (`gardes_pr.vertA`, 0 s'il n'en a jamais vu) : une
+  //     PR réparée qui recasse plus tard sur un autre sujet a un problème
+  //     neuf, pas un crédit épuisé.
   //
   // Lues du store seul, sans GitHub : la liste s'en sert pour ne pas offrir
   // un bouton que la route refuserait (`reprenable`), la route pour refuser.
@@ -12929,7 +12986,7 @@ async function monterReine(
   const bornesDeReprise = (
     rangee: LivraisonRangee,
   ):
-    | { origine: string; reprises: RepriseLivraison[] }
+    | { origine: string; reprises: number }
     | { refus: Record<string, unknown> & { code: string; error: string } } => {
     const origine = store.repriseDe(rangee.taskId)?.origine ?? rangee.taskId;
     const reprises = store.reprisesDeLivraison(origine);
@@ -12944,18 +13001,20 @@ async function monterReine(
         },
       };
     }
-    if (reprises.length >= MAX_REPRISES_PAR_LIVRAISON) {
+    const vertA = store.getGardePr(rangee.depot, rangee.pr)?.vertA ?? 0;
+    const depuisLeVert = reprises.filter((r) => r.creeA > vertA).length;
+    if (depuisLeVert >= plafondReprises) {
       return {
         refus: {
           code: 'plafond_reprises',
-          error: `cette livraison a déjà été reprise ${reprises.length} fois (plafond : ${MAX_REPRISES_PAR_LIVRAISON})`,
+          error: `cette livraison a déjà été reprise ${depuisLeVert} fois depuis sa dernière CI verte (plafond : ${plafondReprises})`,
           conseil:
             `Corrigez à la main sur la branche ${rangee.branche}, ou fermez la pull request : ` +
             'la ruche ne sait pas réparer cette production.',
         },
       };
     }
-    return { origine, reprises };
+    return { origine, reprises: depuisLeVert };
   };
 
   /** `reprenable` d'une ligne de la liste, et pourquoi pas (`bornesDeReprise`). */
@@ -13031,6 +13090,8 @@ async function monterReine(
             // une reprise déjà en vol, ni un plafond atteint : le bouton
             // n'offre pas ce que la route refuserait — il dit pourquoi.
             ...repriseOfferte(l, vue.etat),
+            // Ce que le garde de PR a vu et fait de cette PR.
+            garde: vueGarde(l),
           });
         } catch (e) {
           // Une PR illisible (supprimée, dépôt transféré) ne doit pas rendre
@@ -13107,107 +13168,415 @@ async function monterReine(
           .send({ error: err.message ?? 'échec GitHub', conseil: err.conseil });
       }
 
-      if (!demandeDuTravail(vue.etat)) {
-        return reply
-          .code(409)
-          .send({ error: `Rien à reprendre. ${direEtat(vue.etat)}`, etat: vue.etat });
-      }
-      if (!reprenableSurLaBranche(vue.etat)) {
-        return reply.code(409).send({
+      const ouverte = ouvrirReprise(rangee, vue, 'humain');
+      if (!ouverte.ok) return reply.code(ouverte.statut).send(ouverte.corps);
+      return reply.code(201).send({
+        tache: ouverte.tache,
+        etat: vue.etat,
+        dit: direEtat(vue.etat),
+        branche: rangee.branche,
+        reprise: ouverte.reprise,
+        plafond: plafondReprises,
+      });
+    },
+  );
+
+  /**
+   * Ouvre UNE reprise d'une livraison dont les faits viennent d'être lus —
+   * le geste du bouton « reprendre » ET celui du garde de PR, qui n'a aucun
+   * chemin d'écriture à lui : même refus, même brief, même lignée, même
+   * branche. Deux copies divergeraient, et c'est la copie automatique qui
+   * finirait par ouvrir ce que le bouton refuse.
+   *
+   * `dansTransaction` : ce que l'appelant veut rendre ATOMIQUE avec la
+   * naissance de la tâche (le garde y range la tête traitée — sans quoi un
+   * arrêt entre les deux lui ferait rouvrir une reprise sur la même tête).
+   */
+  function ouvrirReprise(
+    rangee: LivraisonRangee,
+    vue: { pr: number; etat: EtatLivraison; faits: FaitsPr },
+    par: 'humain' | 'garde',
+    dansTransaction?: () => void,
+  ):
+    | { ok: true; tache: Task; reprise: number }
+    | { ok: false; statut: number; corps: Record<string, unknown> & { error: string } } {
+    if (!demandeDuTravail(vue.etat)) {
+      return {
+        ok: false,
+        statut: 409,
+        corps: { error: `Rien à reprendre. ${direEtat(vue.etat)}`, etat: vue.etat },
+      };
+    }
+    if (!reprenableSurLaBranche(vue.etat)) {
+      return {
+        ok: false,
+        statut: 409,
+        corps: {
           code: 'conflit_hors_reprise',
           error: direEtat(vue.etat),
           etat: vue.etat,
           conseil: CONSEIL_CONFLIT,
-        });
-      }
+        },
+      };
+    }
 
-      const bornes = bornesDeReprise(rangee);
-      if ('refus' in bornes) return reply.code(409).send(bornes.refus);
-      const { origine, reprises } = bornes;
-      // La tête LUE maintenant, et la branche que la ruche a rangée : c'est
-      // elle que l'ouvrière clonera, jamais un nom lu dans un texte de GitHub.
-      const tete = vue.faits.commitSha ?? '';
-      if (!tete || (vue.faits.branche !== undefined && vue.faits.branche !== rangee.branche)) {
-        return reply.code(409).send({
+    const bornes = bornesDeReprise(rangee);
+    if ('refus' in bornes) return { ok: false, statut: 409, corps: bornes.refus };
+    const { origine, reprises } = bornes;
+    // La tête LUE maintenant, et la branche que la ruche a rangée : c'est
+    // elle que l'ouvrière clonera, jamais un nom lu dans un texte de GitHub.
+    const tete = vue.faits.commitSha ?? '';
+    if (!tete || (vue.faits.branche !== undefined && vue.faits.branche !== rangee.branche)) {
+      return {
+        ok: false,
+        statut: 409,
+        corps: {
           code: 'branche_inattendue',
           error: `la pull request #${vue.pr} ne porte plus la branche ${rangee.branche}`,
           conseil: 'La ruche ne prolonge que la branche qu’elle a livrée pour cette PR.',
-        });
-      }
+        },
+      };
+    }
 
-      const tacheOrigine = store.getTask(rangee.taskId);
-      const brief = briefDeRetour({
-        faits: vue.faits,
-        etat: vue.etat,
-        tache: tacheOrigine?.title ?? rangee.taskId,
-      });
-      if (brief === '') {
-        return reply
-          .code(422)
-          .send({ error: 'Les faits de cette pull request ne tiennent pas dans une consigne.' });
-      }
+    const tacheOrigine = store.getTask(rangee.taskId);
+    const brief = briefDeRetour({
+      faits: vue.faits,
+      etat: vue.etat,
+      tache: tacheOrigine?.title ?? rangee.taskId,
+    });
+    if (brief === '') {
+      return {
+        ok: false,
+        statut: 422,
+        corps: { error: 'Les faits de cette pull request ne tiennent pas dans une consigne.' },
+      };
+    }
 
-      // UNE SEULE TÂCHE, pas un découpage. Une reprise est ciblée par nature :
-      // la faire passer par la Queen Bee dépenserait un appel de modèle pour
-      // redécouper ce que la CI a déjà nommé précisément.
-      //
-      // La tâche, sa lignée et son issue naissent dans UNE transaction : une
-      // tâche sans lignée partirait sur une branche neuve et rouvrirait une
-      // seconde PR — exactement le défaut que la lignée ferme.
-      const issue = store.issueDeTache(rangee.taskId);
-      const tache = store.enTransaction(() => {
-        const t = store.createTask({
-          id: `r${vue.pr}-${Date.now().toString(36)}`,
-          projectId: req.params.projectId,
-          title: `Reprise PR #${vue.pr} — ${vue.etat}`,
-          prompt: brief,
-          dependsOn: [],
-        });
-        store.inscrireReprise({
-          taskId: t.id,
-          origine,
-          parent: rangee.taskId,
-          projectId: req.params.projectId,
-          depot: rangee.depot,
-          pr: vue.pr,
-          branche: rangee.branche,
-          tete,
-        });
-        // LE LIEN VERS L'ISSUE SUIT LA REPRISE. La PR est la même, et son
-        // « Closes #N » aussi ; mais la reprise est une tâche à part entière,
-        // relue et journalisée : sans le lien, rien ne dirait qu'elle répond
-        // à la même demande.
-        if (issue) {
-          store.lierTacheIssue({
-            taskId: t.id,
-            projectId: req.params.projectId,
-            depot: issue.depot,
-            numero: issue.numero,
-          });
-        }
-        return t;
+    // UNE SEULE TÂCHE, pas un découpage. Une reprise est ciblée par nature :
+    // la faire passer par la Queen Bee dépenserait un appel de modèle pour
+    // redécouper ce que la CI a déjà nommé précisément.
+    //
+    // La tâche, sa lignée et son issue naissent dans UNE transaction : une
+    // tâche sans lignée partirait sur une branche neuve et rouvrirait une
+    // seconde PR — exactement le défaut que la lignée ferme.
+    const issue = store.issueDeTache(rangee.taskId);
+    const tache = store.enTransaction(() => {
+      const t = store.createTask({
+        id: `r${vue.pr}-${Date.now().toString(36)}`,
+        projectId: rangee.projectId,
+        title: `Reprise PR #${vue.pr} — ${vue.etat}`,
+        prompt: brief,
+        dependsOn: [],
       });
-      emitEvent('livraison_reprise', {
-        projectId: req.params.projectId,
-        taskId: tache.id,
+      store.inscrireReprise({
+        taskId: t.id,
         origine,
         parent: rangee.taskId,
+        projectId: rangee.projectId,
+        depot: rangee.depot,
         pr: vue.pr,
         branche: rangee.branche,
-        etat: vue.etat,
+        tete,
       });
-      scheduler.tick();
-      stateDirty = true;
-      return reply.code(201).send({
-        tache,
-        etat: vue.etat,
-        dit: direEtat(vue.etat),
-        branche: rangee.branche,
-        reprise: reprises.length + 1,
-        plafond: MAX_REPRISES_PAR_LIVRAISON,
-      });
-    },
-  );
+      // LE LIEN VERS L'ISSUE SUIT LA REPRISE. La PR est la même, et son
+      // « Closes #N » aussi ; mais la reprise est une tâche à part entière,
+      // relue et journalisée : sans le lien, rien ne dirait qu'elle répond
+      // à la même demande.
+      if (issue) {
+        store.lierTacheIssue({
+          taskId: t.id,
+          projectId: rangee.projectId,
+          depot: issue.depot,
+          numero: issue.numero,
+        });
+      }
+      dansTransaction?.();
+      return t;
+    });
+    // Effets APRÈS le commit (#468) : l'événement, le tick, la diffusion.
+    emitEvent('livraison_reprise', {
+      projectId: rangee.projectId,
+      taskId: tache.id,
+      origine,
+      parent: rangee.taskId,
+      pr: vue.pr,
+      branche: rangee.branche,
+      etat: vue.etat,
+      par,
+    });
+    scheduler.tick();
+    stateDirty = true;
+    return { ok: true, tache, reprise: reprises + 1 };
+  }
+
+  // ─── LE GARDE DE PR : la boucle après livraison (garde-pr.ts) ──────────────
+  //
+  // Les deux routes ci-dessus attendent qu'un humain regarde. Le garde sonde
+  // les PR que la ruche a ouvertes et, quand leur CI casse sur une tête
+  // neuve, fait ce que le niveau d'autonomie du projet autorise : prévenir
+  // (`off`, `propose`, ou runner de l'hôte éteint), relancer un job prouvé
+  // instable, ou ouvrir la reprise (`gouverne`, `plein`) — par `ouvrirReprise`,
+  // exactement comme le bouton. Il ne fusionne jamais.
+  //
+  // SÉQUENTIEL et BORNÉ (`LOT_GARDE` PR par passe, chacune à son échéance) :
+  // la limite secondaire de GitHub vise les rafales. Un 403/429 met TOUT le
+  // garde en pause (la limite vise le jeton, pas une PR), avec un recul qui
+  // double. Éteint sans jeton GitHub, ou par `HIVE_GARDE_PR=off`.
+
+  const gardeActive = gardeActiveDepuisEnv(process.env);
+  let gardePauseJusqua = 0;
+  let gardePauses = 0;
+  let gardeEnVol = false;
+
+  /** Le niveau d'autonomie d'un projet, relu — une valeur inconnue vaut `off`. */
+  const niveauDe = (projectId: string): NiveauAutonomie => {
+    const brut = store.getEssaim(projectId)?.niveau ?? 'off';
+    return NIVEAUX.includes(brut as NiveauAutonomie) ? (brut as NiveauAutonomie) : 'off';
+  };
+
+  /**
+   * Prévient l'opérateur : un événement du journal, relayé aux connecteurs
+   * comme un BLOCAGE (`evenementConnecteurDepuisEvent`). Le texte GitHub
+   * (noms de contrôles) est aplati et borné — il part vers Slack ou un webhook.
+   */
+  const alerterGarde = (
+    rangee: LivraisonRangee,
+    tete: string,
+    motif: string,
+    detail: string,
+    echecs: readonly { nom: string }[],
+  ): void => {
+    emitEvent('garde_pr_alerte', {
+      projectId: rangee.projectId,
+      taskId: rangee.taskId,
+      depot: rangee.depot,
+      pr: rangee.pr,
+      tete,
+      motif,
+      detail: champSurUneLigne(detail, 300),
+      controles: echecs.slice(0, 10).map((c) => champSurUneLigne(c.nom, 120)),
+    });
+  };
+
+  /** Sonde UNE PR et fait ce qu'il faut. Rend la mémoire à poser. */
+  const garderUnePr = async (rangee: LivraisonRangee, now: number): Promise<GardePr> => {
+    const avant = store.getGardePr(rangee.depot, rangee.pr);
+    const memoire: GardePr = avant ?? {
+      depot: rangee.depot,
+      pr: rangee.pr,
+      projectId: rangee.projectId,
+      statut: 'veille',
+      teteTraitee: '',
+      teteRelancee: '',
+      vertA: 0,
+      geste: '',
+      dit: '',
+      echecs: 0,
+      prochainA: 0,
+      majA: now,
+    };
+    const poser = (geste: string, dit: string, delai: number, maj: Partial<GardePr> = {}) => ({
+      ...memoire,
+      projectId: rangee.projectId,
+      geste,
+      dit,
+      echecs: 0,
+      prochainA: now + delai,
+      majA: now,
+      ...maj,
+    });
+
+    const vue = await etatDeLivraison(rangee);
+    const decision = deciderGarde(vue, memoire);
+    switch (decision.geste) {
+      case 'retirer':
+        emitEvent('garde_pr_retire', {
+          projectId: rangee.projectId,
+          taskId: rangee.taskId,
+          pr: rangee.pr,
+          etat: decision.etat,
+        });
+        return poser('retiree', direGeste('retiree'), 0, { statut: 'retiree' });
+      case 'vert':
+        // `vertA` n'avance qu'à la TRANSITION vers le vert : c'est elle qui
+        // remet le compteur à zéro, et la réécrire à chaque sondage vert ne
+        // changerait rien qu'un `majA` ne dise déjà.
+        return poser('vert', direGeste('vert'), DELAI_CALME_MS, {
+          vertA: memoire.geste === 'vert' ? memoire.vertA : now,
+        });
+      case 'attendre':
+        // Déjà traitée : le geste qui a TRAITÉ la tête (reprise, alerte) reste
+        // affiché — le remplacer par « déjà traité » effacerait ce qui a été
+        // fait au moment même où quelqu'un vient voir pourquoi.
+        if (decision.raison === 'deja_traitee' && memoire.geste !== '') {
+          return poser(memoire.geste, memoire.dit, DELAI_CALME_MS);
+        }
+        return poser(
+          decision.raison,
+          direGeste(decision.raison),
+          decision.raison === 'ci_en_cours' ? DELAI_CI_EN_COURS_MS : DELAI_CALME_MS,
+        );
+      case 'agir':
+        break;
+    }
+
+    const { tete, echecs, instables } = decision;
+    const niveau = niveauDe(rangee.projectId);
+
+    // ─── Les jobs instables, PROUVÉS sur la base, relancés une fois ─────────
+    const base = vue.faits.base ?? '';
+    let refusee = '';
+    if (instables.length > 0 && base !== '' && relanceAutorisee(niveau)) {
+      const historique = await historiqueBase(
+        optionsGithub(),
+        rangee.depot,
+        base,
+        instables.map((c) => c.nom),
+        COMMITS_BASE_LUS,
+      );
+      const preuves = jugerInstables(instables, historique);
+      if (preuves) {
+        // Une relance REFUSÉE (jeton sans droit sur Actions, job expiré) ne
+        // met pas le garde en pause comme une lecture refusée : elle ne dit
+        // rien de la limite du jeton. La tête est marquée relancée — on ne
+        // retentera pas — et l'échec part vers la correction, qui le dit.
+        try {
+          for (const p of preuves) await relancerJob(optionsGithub(), rangee.depot, p.jobId);
+        } catch (e) {
+          refusee = `Relance refusée par GitHub : ${e instanceof Error ? e.message : 'échec'}.`;
+          memoire.teteRelancee = tete;
+        }
+      }
+      if (preuves && refusee === '') {
+        // La PREUVE est journalisée avec la relance : quiconque se demande
+        // pourquoi la ruche a rejoué un job rouge au lieu de le corriger lit
+        // ici les passages de la base qui l'ont convaincue.
+        emitEvent('garde_pr_relance', {
+          projectId: rangee.projectId,
+          taskId: rangee.taskId,
+          depot: rangee.depot,
+          pr: rangee.pr,
+          tete,
+          base,
+          preuves: preuves.map((p) => ({
+            nom: champSurUneLigne(p.nom, 120),
+            jobId: p.jobId,
+            base: p.base,
+          })),
+        });
+        return poser(
+          'relance',
+          direGeste('relance', `(${preuves.length} job(s))`),
+          DELAI_CI_EN_COURS_MS,
+          { teteRelancee: tete },
+        );
+      }
+    }
+
+    // ─── Corriger, ou prévenir ──────────────────────────────────────────────
+    const autorise = gesteAutonome(niveau, modeRunnerDepuisEnv() === 'on');
+    if (autorise.geste === 'notifier') {
+      const detail = [
+        autorise.motif === 'runner_eteint'
+          ? `Autonomie « ${niveau} » : la reprise attend HIVE_RUNNER=on (commutateur de l’hôte).`
+          : `Autonomie « ${niveau} » : la ruche prévient, un humain décide de reprendre.`,
+        refusee,
+      ]
+        .filter(Boolean)
+        .join(' ');
+      alerterGarde(rangee, tete, autorise.motif, detail, echecs);
+      return poser('alerte', direGeste('alerte', detail), DELAI_CALME_MS, { teteTraitee: tete });
+    }
+
+    const reprise = poser('reprise', direGeste('reprise', refusee), DELAI_CALME_MS, {
+      teteTraitee: tete,
+    });
+    const ouverte = ouvrirReprise(rangee, vue, 'garde', () => store.poserGardePr(reprise));
+    if (ouverte.ok) return reprise;
+    if (ouverte.corps.code === 'reprise_en_vol') {
+      // La tête n'est PAS marquée traitée : la reprise en vol va la faire
+      // avancer ; si elle échoue sans rien pousser, le garde repassera et
+      // agira sur cette même tête — l'échec n'a pas encore été traité.
+      return poser('reprise_en_vol', direGeste('reprise_en_vol'), DELAI_CALME_MS);
+    }
+    // Refusée (plafond, branche changée, brief trop long, conflit) : la ruche
+    // ne corrige pas seule, et le DIT — une CI rouge ne reste jamais muette.
+    const refus = ouverte.corps.error;
+    const code = typeof ouverte.corps.code === 'string' ? ouverte.corps.code : 'refus';
+    alerterGarde(rangee, tete, code, refus, echecs);
+    return poser('alerte', direGeste('alerte', champSurUneLigne(refus, 300)), DELAI_CALME_MS, {
+      teteTraitee: tete,
+    });
+  };
+
+  /**
+   * UNE passe du garde : les PR échues, une à une. Exposée au banc
+   * (`HiveServer.gardePr`) pour qu'un test la joue sans attendre la minuterie.
+   * Rend le nombre de PR sondées.
+   */
+  const passeGardePr = async (now = Date.now()): Promise<number> => {
+    if (!gardeActive || !jetonGithub || gardeEnVol || now < gardePauseJusqua) return 0;
+    gardeEnVol = true;
+    let sondees = 0;
+    try {
+      for (const rangee of store.livraisonsAGarder(now, LOT_GARDE)) {
+        sondees++;
+        try {
+          store.poserGardePr(await garderUnePr(rangee, now));
+          gardePauses = 0;
+        } catch (e) {
+          const err = e as { statut?: number; message?: string };
+          const avant = store.getGardePr(rangee.depot, rangee.pr);
+          const echecs = (avant?.echecs ?? 0) + 1;
+          store.poserGardePr({
+            depot: rangee.depot,
+            pr: rangee.pr,
+            projectId: rangee.projectId,
+            statut: 'veille',
+            teteTraitee: avant?.teteTraitee ?? '',
+            teteRelancee: avant?.teteRelancee ?? '',
+            vertA: avant?.vertA ?? 0,
+            geste: 'illisible',
+            dit: direGeste('illisible', champSurUneLigne(err.message ?? 'échec GitHub', 200)),
+            echecs,
+            prochainA: now + reculGarde(echecs),
+            majA: now,
+          });
+          // Un refus de GitHub vise le JETON : on arrête la passe et on se
+          // tait tout entier, plutôt que d'aggraver la limite secondaire.
+          if (err.statut === 403 || err.statut === 429) {
+            gardePauses++;
+            gardePauseJusqua = now + reculGarde(gardePauses);
+            break;
+          }
+        }
+      }
+    } finally {
+      gardeEnVol = false;
+    }
+    return sondees;
+  };
+
+  /**
+   * Ce que l'écran montre du garde pour une ligne de livraison : son dernier
+   * geste, sa phrase, et le compteur de reprises depuis la dernière CI verte
+   * face au plafond — exactement ce que `bornesDeReprise` compte.
+   */
+  const vueGarde = (l: LivraisonRangee): Record<string, unknown> => {
+    const g = store.getGardePr(l.depot, l.pr);
+    const origine = store.repriseDe(l.taskId)?.origine ?? l.taskId;
+    const vertA = g?.vertA ?? 0;
+    const tentatives = store.reprisesDeLivraison(origine).filter((r) => r.creeA > vertA).length;
+    return {
+      actif: gardeActive && jetonGithub !== '',
+      statut: g?.statut ?? 'veille',
+      geste: g?.geste ?? '',
+      dit: g?.dit ?? '',
+      tentatives,
+      plafond: plafondReprises,
+      verifieA: g?.majA ?? null,
+    };
+  };
 
   // ─── Les issues comme source de travail ────────────────────────────────────
   //
@@ -15738,6 +16107,9 @@ async function monterReine(
     // La lignée d'une reprise ne survit pas à sa tâche : borne référentielle,
     // câblée avec la table (règle 3), APRÈS `pruneTasks`.
     etape('pruneReprisesLivraison', () => store.pruneReprisesLivraison());
+    // La mémoire du garde de PR ne survit pas aux livraisons de sa PR : borne
+    // référentielle câblée avec la table (règle 3), APRÈS `pruneLivraisons`.
+    etape('pruneGardesPr', () => store.pruneGardesPr());
     // Idem pour le lien relecture→production. Câblé ICI, dans le même
     // changement que la table — c'est la règle 3, et les trois bornes
     // oubliées quelques lignes plus bas disent ce qu'il en coûte de la
@@ -15932,7 +16304,18 @@ async function monterReine(
     }
   }
 
+  // Le garde de PR (garde-pr.ts) : une passe par minute, qui ne lit que les
+  // PR échues. `unref` : il n'empêche jamais le processus de s'arrêter. Une
+  // passe qui lève ne tue pas la ruche — elle le dit, et la suivante réessaie.
+  const gardeTimer = setInterval(() => {
+    passeGardePr().catch((err: unknown) => {
+      console.error(`[hive] garde de PR : ${err instanceof Error ? err.message : err}`);
+    });
+  }, PERIODE_GARDE_MS);
+  gardeTimer.unref();
+
   const stop = async (): Promise<void> => {
+    clearInterval(gardeTimer);
     clearInterval(tickTimer);
     clearInterval(flushTimer);
     clearInterval(elagageTimer);
@@ -15956,5 +16339,6 @@ async function monterReine(
     port,
     url: `http://${config.host}:${port}`,
     stop,
+    gardePr: { passe: passeGardePr },
   };
 }

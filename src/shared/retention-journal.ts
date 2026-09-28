@@ -106,6 +106,10 @@ const PREUVES_LIVRAISON = [
   'delivery_stale',
   'delivery_recovered',
   'livraison_reprise',
+  // La PREUVE qui a fait relancer un job comme instable (garde de PR) : les
+  // passages de la base. Élaguée comme une trace, elle laisserait une relance
+  // sans justification pendant que la tâche vit encore.
+  'garde_pr_relance',
 ] as const;
 
 /**

@@ -704,6 +704,43 @@ CREATE TABLE IF NOT EXISTS reprises_livraison (
 );
 CREATE INDEX IF NOT EXISTS idx_reprises_livraison_origine ON reprises_livraison(origine);
 
+-- ─── Le garde de PR : ce qu'il a déjà fait sur chaque pull request livrée ───
+-- Le garde (garde-pr.ts) sonde les PR que la ruche a ouvertes et agit quand
+-- leur CI casse. Il doit se SOUVENIR de trois faits que GitHub ne rend pas :
+--
+-- teteTraitee  : la tête (SHA) sur laquelle il a déjà agi. Sans elle, chaque
+--                sondage relancerait une ouvrière sur le même échec ;
+-- teteRelancee : la tête sur laquelle il a déjà relancé des jobs instables —
+--                une seule relance par tête ;
+-- vertA        : la dernière fois qu'il a vu la CI verte. Le plafond de
+--                reprises se compte DEPUIS là (reprises_livraison.creeA).
+--
+-- Ce sont des faits DATÉS sur ce que le garde a fait ou vu, pas un état de PR
+-- rangé (règle 1) : l'état d'une livraison reste dérivé à la lecture. Les
+-- autres colonnes servent la cadence (prochainA, echecs) et l'écran (geste,
+-- dit, majA).
+--
+-- Une ligne par PR (depot, pr) : la clé survit aux relais d'une reprise, qui
+-- change la ligne vivante de « livraisons » sans changer la PR.
+-- Table LATÉRALE (règle 2). BORNE D'ÉLAGAGE (règle 3), dans le MÊME
+-- changement : « pruneGardesPr », référentielle — une garde ne survit pas à
+-- la dernière livraison rangée de sa PR.
+CREATE TABLE IF NOT EXISTS gardes_pr (
+  depot        TEXT NOT NULL,
+  pr           INTEGER NOT NULL,
+  projectId    TEXT NOT NULL,
+  statut       TEXT NOT NULL,
+  teteTraitee  TEXT NOT NULL DEFAULT '',
+  teteRelancee TEXT NOT NULL DEFAULT '',
+  vertA        INTEGER NOT NULL DEFAULT 0,
+  geste        TEXT NOT NULL DEFAULT '',
+  dit          TEXT NOT NULL DEFAULT '',
+  echecs       INTEGER NOT NULL DEFAULT 0,
+  prochainA    INTEGER NOT NULL DEFAULT 0,
+  majA         INTEGER NOT NULL,
+  PRIMARY KEY (depot, pr)
+);
+
 -- ─── D'où vient une tâche : l'issue qui l'a demandée ────────────────────────
 -- Table LATÉRALE, et pas une colonne de plus sur « tasks » : la très grande
 -- majorité des tâches ne vient d'aucune issue, et une colonne vide sur toutes
@@ -1860,6 +1897,28 @@ export interface RepriseLivraison {
   creeA: number;
 }
 
+/**
+ * La mémoire du garde de PR pour une pull request (table `gardes_pr`).
+ * `statut` : `veille` tant qu'il sonde, `retiree` quand la PR est close.
+ */
+export interface GardePr {
+  depot: string;
+  pr: number;
+  projectId: string;
+  statut: 'veille' | 'retiree';
+  teteTraitee: string;
+  teteRelancee: string;
+  vertA: number;
+  /** Le dernier geste du garde (`vert`, `reprise`, `alerte`…) — pour l'écran. */
+  geste: string;
+  /** Sa phrase pour l'humain. */
+  dit: string;
+  /** Lectures GitHub échouées d'affilée (recul). */
+  echecs: number;
+  prochainA: number;
+  majA: number;
+}
+
 /** Une session de Conseil telle qu'elle est rangée. */
 export interface SessionRangee {
   id: string;
@@ -2338,6 +2397,8 @@ const EFFACEMENT_PROJET = [
   ['taches_issue', `projectId = @p OR taskId IN (${TACHES_DU_PROJET})`],
   ['livraisons', `projectId = @p OR taskId IN (${TACHES_DU_PROJET})`],
   ['reprises_livraison', `projectId = @p OR taskId IN (${TACHES_DU_PROJET})`],
+  // La mémoire du garde de PR : clé (depot, pr), rangée avec son projet.
+  ['gardes_pr', 'projectId = @p'],
   // Les missions rejouables (#512) : l'appartenance d'abord (elle relit
   // `missions`), puis les instantanés — plan, prompts, titres —, même quand un
   // rejeu d'un AUTRE projet les compare encore : supprimer n'est pas archiver,
@@ -7382,6 +7443,83 @@ export class HiveStore {
     return this.db
       .prepare('SELECT * FROM reprises_livraison WHERE origine = ? ORDER BY creeA ASC, taskId ASC')
       .all(origine) as RepriseLivraison[];
+  }
+
+  // ─── Le garde de PR (garde-pr.ts) ──────────────────────────────────────────
+
+  /** La mémoire du garde pour une PR, ou `null` s'il ne l'a jamais sondée. */
+  getGardePr(depot: string, pr: number): GardePr | null {
+    return (
+      (this.db.prepare('SELECT * FROM gardes_pr WHERE depot = ? AND pr = ?').get(depot, pr) as
+        GardePr | undefined) ?? null
+    );
+  }
+
+  /**
+   * Pose la mémoire du garde pour une PR (insertion ou remplacement entier).
+   * L'appelant relit la ligne, change ce qui doit changer et la repose : une
+   * seule forme d'écriture, pas une mise à jour par colonne qui oublierait
+   * `majA` ou `prochainA`.
+   */
+  poserGardePr(g: GardePr): void {
+    this.db
+      .prepare(
+        `INSERT INTO gardes_pr
+           (depot, pr, projectId, statut, teteTraitee, teteRelancee, vertA, geste, dit,
+            echecs, prochainA, majA)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(depot, pr) DO UPDATE SET
+           projectId = excluded.projectId, statut = excluded.statut,
+           teteTraitee = excluded.teteTraitee, teteRelancee = excluded.teteRelancee,
+           vertA = excluded.vertA, geste = excluded.geste, dit = excluded.dit,
+           echecs = excluded.echecs, prochainA = excluded.prochainA, majA = excluded.majA`,
+      )
+      .run(
+        g.depot,
+        g.pr,
+        g.projectId,
+        g.statut,
+        g.teteTraitee,
+        g.teteRelancee,
+        g.vertA,
+        g.geste,
+        g.dit,
+        g.echecs,
+        g.prochainA,
+        g.majA,
+      );
+  }
+
+  /**
+   * Les livraisons que le garde doit sonder MAINTENANT : la ligne vivante
+   * (`ouverte`, un vrai numéro de PR) de chaque PR qu'il n'a pas retirée et
+   * dont l'échéance est passée — la plus en retard d'abord, bornée à `limite`.
+   *
+   * La ruche n'ouvre une ligne `ouverte` que pour une PR qu'ELLE a créée : le
+   * garde ne voit donc jamais une PR étrangère, par construction.
+   */
+  livraisonsAGarder(now: number, limite: number): LivraisonRangee[] {
+    return this.db
+      .prepare(
+        `SELECT l.* FROM livraisons l
+           LEFT JOIN gardes_pr g ON g.depot = l.depot AND g.pr = l.pr
+          WHERE l.etat = 'ouverte' AND l.pr > 0
+            AND (g.statut IS NULL OR g.statut <> 'retiree')
+            AND COALESCE(g.prochainA, 0) <= ?
+          ORDER BY COALESCE(g.prochainA, 0) ASC, l.creeA ASC, l.taskId ASC
+          LIMIT ?`,
+      )
+      .all(now, Math.max(1, Math.min(50, limite))) as LivraisonRangee[];
+  }
+
+  /** Borne référentielle : une garde ne survit pas aux livraisons de sa PR. */
+  pruneGardesPr(): number {
+    return this.db
+      .prepare(
+        `DELETE FROM gardes_pr WHERE NOT EXISTS
+           (SELECT 1 FROM livraisons l WHERE l.depot = gardes_pr.depot AND l.pr = gardes_pr.pr)`,
+      )
+      .run().changes;
   }
 
   /** Borne référentielle : la lignée ne survit pas à la tâche de reprise. */
