@@ -183,7 +183,8 @@ export interface RegisterMsg {
   /**
    * Le bac à sable où ce nœud exécute ses tâches, tel qu'il l'a décidé au
    * démarrage (`bac.ts`). Même doctrine que `outils` : un FAIT déclaré, pour
-   * l'affichage — jamais un critère d'assignation ni un privilège.
+   * l'affichage — jamais un privilège. Seule restriction qui s'y lit : une
+   * ombre du banc ne part que chez un nœud `conteneur` (shadow-bench.ts).
    */
   isolement?: IsolementDeclare;
   /**

@@ -100,6 +100,14 @@ export function RoutageTache({ taskId, cle, nodes }: Props) {
         'runs the chosen model — the least loaded of its carriers',
       );
     }
+    // Une ombre du banc : son modèle n'a pas été élu par l'Aiguillage — le
+    // dire « élu » ferait croire que le routing l'a choisi.
+    if (a.critereNoeud === 'porteur_du_modele_ombre') {
+      return t(
+        'porte le modèle de cette ombre, choisi par le banc d’ombre — le moins chargé de ses porteurs',
+        'runs this shadow’s model, picked by the shadow bench — the least loaded of its carriers',
+      );
+    }
     return t('le moins chargé des nœuds éligibles', 'the least loaded eligible node');
   };
 

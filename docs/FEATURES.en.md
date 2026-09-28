@@ -423,6 +423,32 @@ assignment is recorded as "forced by the operator", and no learned score is
 touched. If no online worker satisfies it, the task waits and the journal says
 so.
 
+## 🌗 The shadow bench — two models, the same small task
+
+The router only learns from what it chose: two models never meet on the same
+task. The **shadow bench**, enabled per project, has a small testable task,
+drawn by lot (5% by default), replayed by a **second model** in a worker's
+isolated sandbox (bubblewrap or a container, without the host credentials).
+That shadow is **never delivered**: no delivery, no merge, no
+report. Both productions go through the sandbox validations, the Gardiennes,
+the counter-review and the Evaluator. **The project's tests** decide, and the
+counter-review only sets the confidence.
+
+The budget is required to enable it: at most a number of shadows and a
+declared cost per rolling 24 h, one shadow in flight at a time. Comparisons are
+read in the Genome register (`shadow` provenance) and **change no routing
+weight** until their weighting is chosen.
+
+```bash
+# or the “Shadow bench” panel in ⬡ Projects
+curl -X POST http://localhost:7777/api/projects/<project>/banc-ombre \
+  -H "x-hive-token: $HIVE_TOKEN" -H 'content-type: application/json' \
+  -d '{"actif": true, "executionsParJour": 3, "plafondCoutUsd": 1}'
+```
+
+Admission rules, budget, confidence and limits (FR):
+**[BANC-OMBRE.md](BANC-OMBRE.md)**.
+
 ## 🛡️ Sting Detector — conflict prevention
 
 Two tasks that could run **at the same time** (no dependency ordering between

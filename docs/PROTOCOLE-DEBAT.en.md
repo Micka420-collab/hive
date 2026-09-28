@@ -308,6 +308,7 @@ A refused retry is journaled (`evaluator_retry_skipped`, with its reason
 | `ancestor_failed`            | no                   | A delegating ancestor failed: nobody would read the correction.                  |
 | `invalid_result_id`          | no                   | The named result does not belong to the task.                                    |
 | `unknown_task`               | no                   | The task no longer exists.                                                       |
+| `shadow_task`                | no                   | A shadow-bench shadow gets one attempt: it is compared, not corrected.           |
 
 <!-- /verifie:refus -->
 

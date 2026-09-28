@@ -68,7 +68,8 @@ import { summarizeTask } from './hive-mind.js';
 import { CacheDomaines, meilleurNoeud, replierTraces } from './pheromones.js';
 import type { Domaine, TraceePheromone } from './pheromones.js';
 import { analyzePair } from './sting-detector.js';
-import type { BilanEffacement, HiveStore, NodeProfile } from './store.js';
+import { bacIsole } from './shadow-bench.js';
+import type { BilanEffacement, HiveStore, NodeProfile, TacheOmbre } from './store.js';
 import { assignationProductionAutorisee } from '../shared/agent-production.js';
 import { relecteurIndependant } from '../shared/contre-expertise.js';
 import { concurrenceEffective, lireTemperature, FENETRE_MS, TYPES_THERMO } from './thermo.js';
@@ -217,7 +218,8 @@ export type EvaluationRetryOutcome =
         | 'ancestor_failed'
         | 'root_cost_budget_exhausted'
         | 'delivery_exists'
-        | 'attempts_exhausted';
+        | 'attempts_exhausted'
+        | 'shadow_task';
       task?: Task;
     };
 
@@ -274,6 +276,13 @@ export class Scheduler {
    * celle qui y revient.
    */
   private readonly relecturesSansRelecteur = new Map<string, number>();
+  /**
+   * Ombre du banc (shadow-bench.ts) → instant du PREMIER constat qu'aucune
+   * ouvrière en ligne n'offre son modèle. Même motif et même délai que
+   * `relecturesSansRelecteur` : une ombre épinglée à un modèle disparu
+   * attendrait en file pour toujours, sans un mot.
+   */
+  private readonly ombresSansPorteur = new Map<string, number>();
   /** taskId → nombre de refus « infra » (token-failover) — borne les allers-retours. */
   private readonly infraRejects = new Map<string, number>();
   /**
@@ -385,6 +394,16 @@ export class Scheduler {
   private apresCommit(suite: () => void): void {
     if (this.suitesRetenues) this.suitesRetenues.push(suite);
     else suite();
+  }
+
+  /**
+   * Le budget de tentatives d'une tâche. Une OMBRE du banc n'en a qu'UNE : le
+   * banc compare la première production de l'originale à la première de
+   * l'ombre, et une reprise — nourrie de la Couveuse, sur un autre nœud —
+   * comparerait autre chose, en payant un appel de modèle de plus.
+   */
+  private maxAttemptsDe(task: Task): number {
+    return this.store.ombreDe(task.id) ? 1 : this.maxAttempts;
   }
 
   /**
@@ -1198,8 +1217,18 @@ export class Scheduler {
     // le résultat de N'IMPORTE quel drone enrôlé est arbitré par la course.
     const race = this.races.get(task.id);
     if (race) return this.handleDroneResult(race, task, nodeId, result);
+    // ─── LE BUDGET DU BANC D'OMBRE ─────────────────────────────────────────
+    // Une exécution qui sert une ombre (l'ombre, ou une de ses relectures) a
+    // coûté un vrai appel de modèle, que son résultat soit PRIS OU NON : une
+    // ombre remise en file par un nœud tombé, rejouée ailleurs, rend deux
+    // résultats et les deux ont été payés. Ne compter que le résultat pris
+    // laissait le plafond du projet se franchir sans le savoir. Compter un
+    // résultat de trop ne fait qu'arrêter le banc plus tôt — jamais dépenser plus.
+    const ombreServie = this.store.ombreLieeA(task.id);
+    const coutDeclare = result.fournisseur?.coutUsd ?? null;
     const active = task.status === 'assigned' || task.status === 'running';
     if (!active || task.assignedNodeId !== nodeId) {
+      if (ombreServie) this.store.consignerCoutOmbre(ombreServie, coutDeclare);
       this.emit('result_ignored', {
         taskId: task.id,
         nodeId,
@@ -1210,8 +1239,10 @@ export class Scheduler {
     }
 
     // Tout ce que ce résultat écrit part en UN seul geste : un succès rangé sans
-    // son `done` se compterait deux fois (voir enUnSeulGeste).
+    // son `done` se compterait deux fois (voir enUnSeulGeste). Le coût du banc
+    // en fait partie — rangé à part, une panne entre les deux le perdait.
     this.enUnSeulGeste(() => {
+      if (ombreServie) this.store.consignerCoutOmbre(ombreServie, coutDeclare);
       this.store.fermerHorlogeHote(task.id, Date.now());
 
       // Présence Rayon : la tâche est finie → plus aucun fichier « ouvert ».
@@ -1278,7 +1309,12 @@ export class Scheduler {
           ...(result.usage ? { usage: result.usage } : {}),
           ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
         });
-        this.proposerSouvenir(task, resultId, result);
+        // Hive Mind : une production réussie PROPOSE un souvenir, retenu une fois
+        // validée (#495). Une OMBRE n'en propose aucun : sa production n'est le
+        // travail de personne (shadow-bench.ts), et la servir en contexte aux
+        // tâches suivantes ferait agir la ruche sur un code qu'elle ne livrera
+        // jamais.
+        if (!this.store.ombreDe(task.id)) this.proposerSouvenir(task, resultId, result);
         this.fermerSousArbre(task.id, 'ancestor_done', Date.now());
       } else {
         // Le modèle commandé à CETTE tentative a échoué (la production creuse
@@ -1291,7 +1327,7 @@ export class Scheduler {
         // protocol.ts) : aucune durée négative n'entre dans le journal, quel que
         // soit l'appelant. La Balance la reborne une troisième fois au repli.
         const durationMs = Math.max(0, result.durationMs);
-        if (attempts >= this.maxAttempts) {
+        if (attempts >= this.maxAttemptsDe(task)) {
           this.store.patchTask(task.id, {
             status: 'failed',
             attempts,
@@ -1370,6 +1406,10 @@ export class Scheduler {
     const now = input.now ?? Date.now();
     const task = this.store.getTask(input.taskId);
     if (!task) return { ok: false, reason: 'unknown_task' };
+    // Une ombre du banc est UN essai, jugé tel quel : la corriger, c'est
+    // comparer une seconde tentative guidée par la critique à la première de
+    // l'originale (`maxAttemptsDe`). Le refus est journalisé par l'appelant.
+    if (this.store.ombreDe(task.id)) return { ok: false, reason: 'shadow_task', task };
     if (task.status !== 'done') return { ok: false, reason: 'task_not_done', task };
     // Toute ligne de livraison est une décision historique : une livraison
     // échouée peut encore correspondre à une PR distante, et `pr: 0` marque
@@ -1782,6 +1822,12 @@ export class Scheduler {
         ok: false,
         error: 'contre-expertise — elle ne part qu’à sa famille relectrice, pas en course',
       };
+    }
+    // Une ombre du banc non plus : elle mesure UN modèle, choisi à sa création.
+    // La courir la confierait à plusieurs, et la comparaison annoncée ne
+    // mesurerait plus rien (shadow-bench.ts).
+    if (this.store.ombreDe(taskId)) {
+      return { ok: false, error: 'ombre du banc — elle mesure un seul modèle, pas en course' };
     }
     // Balance : une course est la dépense la plus LOURDE de la ruche (la même
     // tâche confiée à N nœuds à la fois). Refus symétrique de la porte
@@ -2528,6 +2574,56 @@ export class Scheduler {
   }
 
   /**
+   * Aucune ouvrière en ligne et isolée (`bacIsole`) n'offre-t-elle le modèle
+   * de cette OMBRE ? Vrai : elle ne part pas à cette passe.
+   *
+   * Le pendant de `relecteurAbsent`, pour la même raison : une ombre est
+   * épinglée à UN modèle (le comparer, c'est tout son objet), et un modèle dont
+   * l'ouvrière est partie pour de bon la laisserait en file à jamais. Au
+   * premier constat, `shadow_bench_waiting` le dit une fois ; au-delà du même
+   * délai qu'une relecture (`ATTENTE_RELECTEUR_ABSENT_MS`), l'ombre ÉCHOUE,
+   * dite par `task_failed` (`modele_ombre_absent`). Jamais relancée sur un
+   * autre modèle : ce serait une autre comparaison que celle annoncée par
+   * `shadow_bench_started`. Saturée, en revanche, l'ouvrière reviendra : l'ombre
+   * attend son tour en silence, comme toute tâche.
+   */
+  private ombreSansPorteur(
+    task: Task,
+    ombre: TacheOmbre,
+    noeuds: readonly HiveNode[],
+    now: number,
+  ): boolean {
+    const porte = noeuds.some(
+      (n) =>
+        n.status === 'online' &&
+        bacIsole(n) &&
+        (n.modeles ?? []).includes(ombre.modeleOmbre) &&
+        assignationProductionAutorisee(n.agentType, { simulation: this.opts.simulation }),
+    );
+    if (porte) {
+      this.ombresSansPorteur.delete(task.id);
+      return false;
+    }
+    const depuis = this.ombresSansPorteur.get(task.id);
+    if (depuis === undefined) {
+      this.ombresSansPorteur.set(task.id, now);
+      this.emit('shadow_bench_waiting', {
+        taskId: task.id,
+        tacheOriginale: ombre.tacheOriginale,
+        modele: ombre.modeleOmbre,
+        delaiMs: ATTENTE_RELECTEUR_ABSENT_MS,
+      });
+      return true;
+    }
+    if (now - depuis < ATTENTE_RELECTEUR_ABSENT_MS) return true;
+    this.ombresSansPorteur.delete(task.id);
+    this.infraRejects.delete(task.id);
+    this.store.patchTask(task.id, { status: 'failed', assignedNodeId: null }, now);
+    this.emit('task_failed', { taskId: task.id, reason: 'modele_ombre_absent' });
+    return true;
+  }
+
+  /**
    * Les tâches actives qui ÉDITENT — celles que le Sting Detector sérialise.
    *
    * Une relecture n'en est pas : elle rend un verdict sur un diff qu'elle CITE
@@ -2535,11 +2631,16 @@ export class Scheduler {
    * compter, c'était sérialiser les relectrices d'une même production — leurs
    * consignes citent les mêmes fichiers — et retenir toute production du
    * projet qui les cite aussi, le temps d'une relecture qui ne modifie rien.
+   *
+   * Une OMBRE du banc non plus : elle touche les mêmes fichiers que sa tâche
+   * originale — c'est la même tâche —, mais dans son propre atelier, et rien
+   * de ce qu'elle écrit ne sera jamais fusionné. La compter retiendrait les
+   * productions du projet derrière un travail qui ne rejoindra jamais le leur.
    */
   private activesEditrices(): Task[] {
     return this.store
       .tasksByStatus('assigned', 'running')
-      .filter((t) => this.store.relectureDe(t.id) === null);
+      .filter((t) => this.store.relectureDe(t.id) === null && this.store.ombreDe(t.id) === null);
   }
 
   /**
@@ -2638,10 +2739,10 @@ export class Scheduler {
       .tasksByStatus('ready')
       .map((task) => ({ task, lien: this.store.relectureDe(task.id) }))
       .sort((a, b) => Number(b.lien !== null) - Number(a.lien !== null));
-    if (this.relecturesSansRelecteur.size > 0) {
+    if (this.relecturesSansRelecteur.size > 0 || this.ombresSansPorteur.size > 0) {
       const enFile = new Set(pretes.map((p) => p.task.id));
-      for (const id of this.relecturesSansRelecteur.keys()) {
-        if (!enFile.has(id)) this.relecturesSansRelecteur.delete(id);
+      for (const attente of [this.relecturesSansRelecteur, this.ombresSansPorteur]) {
+        for (const id of attente.keys()) if (!enFile.has(id)) attente.delete(id);
       }
     }
     // `pretes` est un instantané : une relecture qui échoue à cette passe
@@ -2652,12 +2753,23 @@ export class Scheduler {
     const fermees = new Set<string>();
     for (const { task, lien } of pretes) {
       if (fermees.has(task.id)) continue;
+      // Une OMBRE du banc (shadow-bench.ts) : épinglée à SON modèle, hors
+      // Aiguillage, hors Sting Detector. Lue par clé primaire, comme le lien
+      // de relecture.
+      const ombre = lien === null ? this.store.ombreDe(task.id) : null;
+      // Une RELECTURE d'ombre sert le banc, elle aussi (`ombreLieeA`) : pas
+      // d'élection pour elle — elle poserait un essai en vol et une récompense
+      // que le banc promet de ne pas toucher. Elle garde sa famille (plus bas).
+      const horsElection =
+        ombre !== null || (lien !== null && this.store.ombreLieeA(task.id) !== null);
       // Sting Detector : ne pas lancer une tâche en conflit FORT (même fichier)
       // avec une tâche déjà active du même projet. On la diffère jusqu'à ce que
       // l'autre se termine — prévention des conflits d'édition concurrents.
-      // Une relecture n'édite rien : voir `activesEditrices`. Un enfant délégué
-      // n'attend pas derrière ses propres ancêtres : voir `conflitFortActif`.
-      const clash = lien === null ? this.conflitFortActif(task, activeNow) : undefined;
+      // Une relecture n'édite rien, une ombre ne sera jamais fusionnée : voir
+      // `activesEditrices`. Un enfant délégué n'attend pas derrière ses
+      // propres ancêtres : voir `conflitFortActif`.
+      const clash =
+        lien === null && ombre === null ? this.conflitFortActif(task, activeNow) : undefined;
       if (clash) {
         if (!this.deferredByConflict.has(task.id)) {
           this.deferredByConflict.add(task.id);
@@ -2707,12 +2819,19 @@ export class Scheduler {
       // pire des échecs.
       const prolonger = this.store.repriseDe(task.id) !== null;
       if (prolonger) this.signalerRepriseSansOuvriere(task.id, noeuds);
+      if (ombre !== null && this.ombreSansPorteur(task, ombre, noeuds, now)) continue;
       // L'OFFRE pour cette tâche : les nœuds qui pourraient la porter, charge
       // ignorée. C'est contre elle que se décide l'écart des modèles tombés
       // (`repriseHorsEchecs`) : un porteur sain seulement occupé se libérera.
+      // Une ombre ne part que chez une ouvrière qui DÉCLARE son modèle : lancée
+      // avec le défaut d'un autre nœud, elle mesurerait un autre modèle. Et
+      // seulement dans un bac isolé (`bacIsole`) : l'ombre rejoue une tâche
+      // déjà faite, elle ne doit pas pouvoir refaire un geste avec les
+      // identifiants de l'hôte.
       const offreBrute = noeuds.filter(
         (n) =>
           (lien === null || n.agentType === lien.relecteurAgent) &&
+          (ombre === null || (bacIsole(n) && (n.modeles ?? []).includes(ombre.modeleOmbre))) &&
           n.status === 'online' &&
           (!prolonger || this.opts.prolonge?.(n.id) === true) &&
           assignationProductionAutorisee(n.agentType, {
@@ -2764,13 +2883,21 @@ export class Scheduler {
       // (aucun éligible ne déclare de modèle) ⇒ NO-OP : on garde la liste et
       // l'ordonnancement d'avant, phéromones comprises. La sous-liste préserve
       // l'ordre de charge, donc le départage plus bas reste inchangé.
-      const route = aiguillerNoeuds(
-        categoriser(task.title, task.prompt),
-        reprise.eligibles,
-        lireAntecedents(),
-        preference?.modele,
-      );
+      //
+      // Une ombre n'est PAS élue : son modèle a été choisi à sa création, et
+      // une élection de plus poserait un essai en vol qui pèserait sur le
+      // routing (décision de shadow-bench.ts). Ses éligibles offrent déjà ce
+      // modèle-là (voir l'offre). Ses relectures non plus (`horsElection`).
+      const route = !horsElection
+        ? aiguillerNoeuds(
+            categoriser(task.title, task.prompt),
+            reprise.eligibles,
+            lireAntecedents(),
+            preference?.modele,
+          )
+        : null;
       const candidats = route ? route.noeuds : reprise.eligibles;
+      const modeleCommande = route?.bras.modele ?? ombre?.modeleOmbre;
       let node = candidats[0];
       if (!node) continue; // aucun nœud éligible pour CETTE tâche (essayer les suivantes)
       // Phéromones : le critère principal « moins chargé » reste intact — elles
@@ -2826,6 +2953,10 @@ export class Scheduler {
       // dernier modèle et dernier verdict).
       // Sans élection (`route` null), une réassignation revient au modèle par
       // défaut du nouveau nœud : l'ancienne élection ne survit pas à la tâche.
+      // Une OMBRE n'est jamais élue (`route` null) : elle n'a donc jamais de
+      // ligne ici, et c'est ce qui la tient hors de la récompense de
+      // l'Aiguillage et de ses élections en vol — son modèle vit dans son lien
+      // (`taches_ombre`), nulle part ailleurs.
       this.poserBras(task.id, route?.bras, now);
       // LA BORNE DU TROUPEAU VAUT AUSSI DANS LA PASSE. Le vécu est replié UNE
       // fois par passe : sans cette injection, l'élection qu'on vient de poser
@@ -2863,10 +2994,13 @@ export class Scheduler {
         nodeId: node.id,
         branch: assigned.branch,
         // Même convention que pour une course : ce champ est le modèle
-        // commandé par l'Aiguillage, jamais une valeur inventée quand aucun
-        // nœud ne déclare de modèle.
-        ...(route ? { modele: route.bras.modele } : {}),
+        // commandé — par l'Aiguillage, ou par le banc pour une ombre (`ombre`
+        // le dit) —, jamais une valeur inventée quand aucun nœud ne déclare
+        // de modèle.
+        ...(modeleCommande ? { modele: modeleCommande } : {}),
+        // L'effort n'est élu qu'avec le modèle : une ombre n'en a jamais.
         ...(route?.bras.effort ? { effort: route.bras.effort } : {}),
+        ...(ombre ? { ombre: true } : {}),
         // La RAISON du choix, figée à l'instant de la décision : Mission
         // Control répond « pourquoi ce modèle » sans recroiser des antécédents
         // qui, eux, ont bougé depuis. Absente quand aucun modèle n'est en jeu
@@ -2921,9 +3055,9 @@ export class Scheduler {
       this.store.ouvrirHorlogeHote(assigned.projectId, assigned.id, now);
       this.store.ouvrirTentativeDelegation(assigned.id, node.id, now);
       // Le modèle élu part avec la tâche : le nœud le passera à `--model`.
-      this.opts.onAssign?.(node.id, assigned, route?.bras.modele, route?.bras.effort ?? undefined);
+      this.opts.onAssign?.(node.id, assigned, modeleCommande, route?.bras.effort ?? undefined);
       // Les tâches suivantes tiennent compte de celle-ci — si elle édite.
-      if (lien === null) activeNow.push(assigned);
+      if (lien === null && ombre === null) activeNow.push(assigned);
     }
   }
 

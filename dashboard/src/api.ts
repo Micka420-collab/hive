@@ -8,7 +8,14 @@ import {
   EVENEMENTS_NON_DIFFUSES,
   parseServerMessage,
 } from '../../src/shared/protocol';
-import type { HiveEvent, Project, StateSnapshot, Task, TaskResult } from '../../src/shared/types';
+import type {
+  HiveEvent,
+  Project,
+  StateSnapshot,
+  Task,
+  TaskResult,
+  TaskStatus,
+} from '../../src/shared/types';
 import type { Graphe } from '../../src/shared/cerveau-graphe.js';
 import type { Constat } from '../../src/shared/critique-structuree.js';
 import type {
@@ -1423,6 +1430,81 @@ export function reglerGardeFou(
   });
 }
 
+// ─── Le banc d'ombre : comparer deux modèles sur la même petite tâche ───────
+
+/** Pourquoi une tâche tirée au sort n'a pas eu d'ombre. Miroir de `MotifRefusOmbre`. */
+export type MotifRefusOmbreUi = MotifRefusOmbre;
+
+/**
+ * Ce que le GET `/banc-ombre` rend : le CONSENTEMENT posé (`null` : banc
+ * éteint), ce que l'écran propose pour l'allumer, ce que le banc a dépensé sur
+ * 24 h glissantes — et ce qui l'arrête —, et ses dernières ombres. Miroir de la
+ * réponse du serveur (`etatBancOmbre`), tenu à la main comme `EtatGardeFouUi`.
+ */
+export interface EtatBancOmbreUi {
+  actif: boolean;
+  reglage: {
+    tauxPourMille: number;
+    executionsParJour: number;
+    plafondCoutUsd: number;
+    definiPar: string | null;
+    updatedAt: number;
+  } | null;
+  propose: { tauxPourMille: number; executionsParJour: number; plafondCoutUsd: number };
+  bornes: {
+    tauxPourMille: { min: number; max: number };
+    executionsParJour: { min: number; max: number };
+    plafondCoutUsd: { max: number };
+  };
+  budget: {
+    fenetreMs: number;
+    executions: number;
+    enVol: number;
+    coutDeclareUsd: number;
+    executionsMuettes: number;
+    arret: MotifRefusOmbreUi | null;
+  };
+  ombres: Array<{
+    tacheOmbre: string;
+    tacheOriginale: string;
+    titre: string | null;
+    modeleOriginal: string;
+    modeleOmbre: string;
+    /** `null` : la tâche de l'ombre a été élaguée. */
+    statut: TaskStatus | null;
+    coutDeclareUsd: number;
+    executionsMuettes: number;
+    creeA: number;
+  }>;
+}
+
+export function fetchBancOmbre(projectId: string): Promise<EtatBancOmbreUi> {
+  return api<EtatBancOmbreUi>(`/api/projects/${projectId}/banc-ombre`);
+}
+
+/**
+ * Règle le banc d'ombre — geste HUMAIN de qui répond du projet. Le budget
+ * (`executionsParJour`, `plafondCoutUsd`) est exigé à chaque réglage : un banc
+ * ne s'allume jamais sans sa borne.
+ */
+export function reglerBancOmbre(
+  projectId: string,
+  // Éteindre n'envoie que `{ actif: false }` : le serveur garde le budget rangé.
+  reglage:
+    | {
+        actif: true;
+        tauxPourMille: number;
+        executionsParJour: number;
+        plafondCoutUsd: number;
+      }
+    | { actif: false; tauxPourMille?: number; executionsParJour?: number; plafondCoutUsd?: number },
+): Promise<EtatBancOmbreUi> {
+  return api<EtatBancOmbreUi>(`/api/projects/${projectId}/banc-ombre`, {
+    method: 'POST',
+    body: JSON.stringify(reglage),
+  });
+}
+
 export function fetchBalance(): Promise<BalanceState> {
   return api<BalanceState>('/api/balance');
 }
@@ -2791,6 +2873,7 @@ import type { ProjetPublic as ProjetPublicVue } from '../../src/shared/projet-pu
 import type { AffectationVue } from '../../src/shared/routage-vue';
 import type { ChronologieTache } from '../../src/shared/chronologie-tache';
 import type { RegistreGenome } from '../../src/shared/registre-genome';
+import type { MotifRefusOmbre } from '../../src/orchestrator/shadow-bench';
 export type { ProjetPublic as ProjetPublicVue } from '../../src/shared/projet-public';
 
 /**

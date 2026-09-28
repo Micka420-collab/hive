@@ -269,6 +269,9 @@ const REFUS_RENVOI: Record<RaisonRefusRenvoi, true> = {
   delivery_exists: true,
   attempts_exhausted: true,
   root_cost_budget_exhausted: true,
+  // Une ombre du banc (#501) : un essai unique, comparé, jamais corrigé —
+  // un refus VOULU, qui n'ouvre aucun désaccord.
+  shadow_task: true,
 };
 export const RAISONS_REFUS_RENVOI = Object.keys(REFUS_RENVOI) as readonly RaisonRefusRenvoi[];
 

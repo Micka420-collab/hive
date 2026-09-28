@@ -311,6 +311,7 @@ task is refused before the agent runs, with the reason.
 | File                                                         | What's in it                                               |
 | ------------------------------------------------------------ | ---------------------------------------------------------- |
 | **[docs/FEATURES.en.md](docs/FEATURES.en.md)**               | Each part in detail, with its trade-offs                   |
+| **[docs/BANC-OMBRE.md](docs/BANC-OMBRE.md)**                 | Shadow bench: two models, one task, never delivered (FR)   |
 | **[docs/INSTALLATION.md](docs/INSTALLATION.md)**             | Install, uninstall, service, container, backups (FR)       |
 | **[docs/CLOUD.md](docs/CLOUD.md)**                           | Community free vs Cloud paid on your servers               |
 | **[docs/ATELIER.md](docs/ATELIER.md)**                       | Acceptance desktop: screen, CDP, tools (FR)                |

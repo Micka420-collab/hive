@@ -16,7 +16,7 @@ import { annoncesDepuisEvenements, calibrationDepuisEvenements } from '../horlog
 import { direDuree, direAnnonce } from '../../../src/shared/horloge-chantier';
 import { SwarmView } from '../SwarmView';
 import { activateProps, StatusBadge } from '../ui';
-import { Honeycomb, useApiPoll } from './shared';
+import { Honeycomb, travailDesProjets, useApiPoll } from './shared';
 import type { ViewProps } from './shared';
 
 const SwarmView3D = lazy(() => import('../SwarmView3D'));
@@ -64,8 +64,10 @@ export default function Ruche({
     return () => window.clearInterval(id);
   }, []);
 
-  const total = snapshot.tasks.length;
-  const done = snapshot.tasks.filter((t) => t.status === 'done').length;
+  // L'avancement dit le travail des projets, sans les ombres du banc.
+  const travail = travailDesProjets(snapshot.tasks);
+  const total = travail.length;
+  const done = travail.filter((t) => t.status === 'done').length;
   const vide = snapshot.projects.length === 0;
 
   // UNE lecture pour les trois blocs du cockpit (dépense, arrêts, décisions) :
@@ -184,7 +186,7 @@ export default function Ruche({
                       {done}/{total} {t('tâches butinées', 'tasks foraged')}
                     </span>
                     <Honeycomb
-                      tasks={snapshot.tasks}
+                      tasks={travail}
                       deferred={deferred}
                       onSelect={(tk) => onOpenTask(tk.id)}
                       mini

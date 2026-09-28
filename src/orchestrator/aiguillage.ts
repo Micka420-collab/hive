@@ -791,6 +791,40 @@ function etatDe(rang: readonly Rang[]): EtatDecision {
 }
 
 /**
+ * Classe des MODÈLES, tous bras confondus — pour qui choisit un modèle sans
+ * savoir encore sous quel harness il tournera : le banc d'ombre
+ * (shadow-bench.ts), dont l'ombre part chez n'importe quelle ouvrière isolée
+ * qui déclare ce modèle, et sans effort commandé.
+ *
+ * Le MÊME score que `classer`, porté au niveau modèle : chaque modèle y est un
+ * bras unique dont le vécu propre est celui du modèle entier (ses verdicts, et
+ * ses élections en vol comptées comme essais à note nulle). Il n'hérite donc de
+ * rien d'autre que de la moyenne neutre : un modèle jamais jugé part de 0,5
+ * avec l'incertitude de `MASSE_A_PRIORI` verdicts, et ne passe devant un
+ * modèle connu que quand l'optimisme de son ignorance l'emporte. Rien n'est
+ * écrit dans `vecu`.
+ */
+export function classerModeles(
+  categorie: Categorie,
+  modeles: readonly string[],
+  vecu: VecuAiguillage,
+): Rang[] {
+  const offerts: Bras[] = [...new Set(modeles)].map((modele) => ({
+    modele,
+    harness: '',
+    effort: null,
+  }));
+  const auNiveauModele: VecuAiguillage = { bras: new Map(), modeles: new Map() };
+  for (const b of offerts) {
+    const m = vecu.modeles.get(cle(categorie, b.modele));
+    if (!m) continue;
+    auNiveauModele.modeles.set(cle(categorie, b.modele), m);
+    auNiveauModele.bras.set(cleBras(categorie, b), { ...m, essais: m.essais + (m.enVol ?? 0) });
+  }
+  return classer(categorie, offerts, auNiveauModele).rang;
+}
+
+/**
  * LE choix : quel bras pour ce genre, parmi ceux que le nœud sait faire
  * tourner ? `null` si la liste est vide — l'appelant retombe alors sur son
  * comportement d'avant (le nœud choisit lui-même), plutôt que sur un bras

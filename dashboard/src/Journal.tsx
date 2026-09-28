@@ -6,6 +6,7 @@ import { useT } from './i18n';
 import type { Translate } from './i18n';
 import { bandeText, formatDuree } from './ui';
 import { direRaisonRefus } from './views/warroom-rendu';
+import { direMotifOmbre } from './banc-ombre-rendu';
 
 interface Meta {
   icon: string;
@@ -659,6 +660,63 @@ const EVENTS: Record<string, Meta> = {
             `Balance : plafond posé à ${ms} sur ${short(p.projectId)}${par}`,
             `Balance: cap set to ${ms} on ${short(p.projectId)}${par}`,
           );
+    },
+  },
+  // ─── Le banc d'ombre ─────────────────────────────────────────────────────
+  // Une tâche rejouée par un second modèle, jamais livrée. Chaque ligne dit
+  // QUI mesure QUOI, ou pourquoi une tâche tirée au sort n'a rien eu : un
+  // banc qui n'admet rien ne doit pas ressembler à un banc éteint.
+  shadow_bench_set: {
+    icon: '◐',
+    cls: 'info',
+    text: (p, t) => {
+      if (p.actif !== true) {
+        return t(
+          `banc d’ombre éteint sur ${short(p.projectId)}`,
+          `shadow bench off on ${short(p.projectId)}`,
+        );
+      }
+      const taux = typeof p.tauxPourMille === 'number' ? p.tauxPourMille / 10 : '?';
+      const n = String(p.executionsParJour ?? '?');
+      const usd = String(p.plafondCoutUsd ?? '?');
+      return t(
+        `banc d’ombre allumé sur ${short(p.projectId)} : ${taux} % des tâches, ${n} ombre(s) et ${usd} $ déclarés au plus par 24 h`,
+        `shadow bench on for ${short(p.projectId)}: ${taux}% of tasks, at most ${n} shadow(s) and $${usd} declared per 24 h`,
+      );
+    },
+  },
+  shadow_bench_started: {
+    icon: '◐',
+    cls: 'info',
+    text: (p, t) => {
+      const original =
+        typeof p.original === 'object' && p.original !== null
+          ? String((p.original as Record<string, unknown>).modele ?? '?')
+          : '?';
+      return t(
+        `ombre ${short(p.taskId)} : ${String(p.modeleOmbre ?? '?')} rejoue ${short(p.tacheOriginale)} (produite par ${original}) — jamais livrée`,
+        `shadow ${short(p.taskId)}: ${String(p.modeleOmbre ?? '?')} replays ${short(p.tacheOriginale)} (produced by ${original}) — never delivered`,
+      );
+    },
+  },
+  shadow_bench_skipped: {
+    icon: '◌',
+    cls: 'muted',
+    text: (p, t) =>
+      t(
+        `pas d’ombre pour ${short(p.taskId)} : ${direMotifOmbre(p.motif, t)}`,
+        `no shadow for ${short(p.taskId)}: ${direMotifOmbre(p.motif, t)}`,
+      ),
+  },
+  shadow_bench_waiting: {
+    icon: '⏳',
+    cls: 'warn',
+    text: (p, t) => {
+      const delai = cout(p.delaiMs) ?? '?';
+      return t(
+        `ombre ${short(p.taskId)} : aucune ouvrière en ligne n’offre ${String(p.modele ?? '?')} — elle échoue si personne ne revient d’ici ${delai}`,
+        `shadow ${short(p.taskId)}: no online worker offers ${String(p.modele ?? '?')} — it fails if nobody comes back within ${delai}`,
+      );
     },
   },
   // ─── La contre-expertise ─────────────────────────────────────────────────

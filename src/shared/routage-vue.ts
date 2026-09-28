@@ -79,9 +79,18 @@ export interface DecisionVue {
   coutPondere: boolean;
 }
 
-/** Ce qui a départagé le nœud, dans l'ordre où l'ordonnanceur l'applique. */
+/**
+ * Ce qui a départagé le nœud, dans l'ordre où l'ordonnanceur l'applique.
+ * `porteur_du_modele_ombre` : une ombre du banc (shadow-bench.ts) — son modèle
+ * n'a pas été ÉLU par l'Aiguillage, il a été choisi par le banc à sa création.
+ */
 export type CritereNoeud =
-  'course_de_drones' | 'porteur_du_modele' | 'pheromones' | 'preference_parent' | 'moins_charge';
+  | 'course_de_drones'
+  | 'porteur_du_modele'
+  | 'porteur_du_modele_ombre'
+  | 'pheromones'
+  | 'preference_parent'
+  | 'moins_charge';
 
 /** Ce qu'une tâche parente préférait, et ce que la préférence a départagé. */
 export interface PreferenceVue {
@@ -323,7 +332,9 @@ export function affectationsDepuisEvenements(evenements: readonly HiveEvent[]): 
           : preference?.departage.includes('agent')
             ? 'preference_parent'
             : modele
-              ? 'porteur_du_modele'
+              ? p.ombre === true
+                ? 'porteur_du_modele_ombre'
+                : 'porteur_du_modele'
               : 'moins_charge',
     });
   }

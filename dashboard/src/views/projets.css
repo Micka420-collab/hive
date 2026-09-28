@@ -1576,3 +1576,45 @@
   flex: 1 1 32ch;
   overflow-wrap: anywhere;
 }
+
+/* ── Le banc d'ombre ────────────────────────────────────────────────────────
+   Le budget est sous l'interrupteur, pas dans une fenêtre à part : allumer le
+   banc, c'est faire payer de vrais appels de modèle, et le geste se fait en
+   voyant ce qu'il coûte. */
+.banc-ombre-reglage {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+  margin: 10px 0;
+}
+.banc-ombre-champ {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+  color: var(--muted, #6f6555);
+}
+.banc-ombre-champ input {
+  width: 9rem;
+  max-width: 100%;
+}
+.banc-ombre-budget,
+.banc-ombre-arret {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+.banc-ombre-arret {
+  color: var(--red, #b3261e);
+}
+.banc-ombre-muettes {
+  color: var(--muted, #6f6555);
+}
+.banc-ombre-liste {
+  margin: 6px 0 0;
+  padding-left: 1.1em;
+  font-size: 12px;
+}
+.banc-ombre-modeles {
+  font-family: var(--mono, ui-monospace, monospace);
+}

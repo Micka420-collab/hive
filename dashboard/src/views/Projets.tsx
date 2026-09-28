@@ -58,8 +58,9 @@ import { BalanceProjet, CarteDevis } from './Balance';
 import { PleinEssaim } from '../PleinEssaim';
 import { OnboardingEssaim } from '../OnboardingEssaim';
 import { GardeFous } from '../GardeFous';
+import { BancOmbre } from '../BancOmbre';
 import { RapportMission } from '../RapportMission';
-import { EchecSondage, Honeycomb, useApiPoll } from './shared';
+import { EchecSondage, Honeycomb, travailDesProjets, useApiPoll } from './shared';
 import type { ViewProps } from './shared';
 import { argv, useSuiviMerge } from './suivi-merge';
 import { LivraisonMission } from './LivraisonMission';
@@ -2231,6 +2232,10 @@ function ProjectCard({
       {/* L'Agent Garde-Fous : le réglage appris du trou de vol, opt-in par projet,
           juste sous l'autonomie — les deux réglages « jusqu'où la ruche va seule ». */}
       <GardeFous projectId={project.id} />
+      {/* Le banc d'ombre : l'autre réglage qui fait dépenser la ruche sans clic
+          — une part des tâches rejouée par un second modèle, pour comparer.
+          Sous le Garde-Fous, avec lui dans « ce que la ruche s'autorise ». */}
+      <BancOmbre projectId={project.id} />
 
       {/* L'équipe, sous l'autonomie : « qui a le droit de voir ça » se pose
           après « qu'est-ce que ça fait ». C'est aussi le seul endroit d'où un
@@ -2360,8 +2365,9 @@ export default function Projets({
     window.scrollTo?.({ top: 0 });
   };
   const tasksByProject = useMemo(() => {
+    // Le travail de chaque projet, sans les ombres du banc (`travailDesProjets`).
     const m = new Map<string, Task[]>();
-    for (const task of snapshot.tasks) {
+    for (const task of travailDesProjets(snapshot.tasks)) {
       const list = m.get(task.projectId);
       if (list) list.push(task);
       else m.set(task.projectId, [task]);

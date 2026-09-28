@@ -25,7 +25,7 @@ import {
   isValidEmail,
   secretJwtDepuisEnv,
 } from './auth.js';
-import { shellForce } from '../shared/agent-production.js';
+import { assignationProductionAutorisee, shellForce } from '../shared/agent-production.js';
 import { calibrer, estimerDuree, resteEstime } from '../shared/horloge-chantier.js';
 import type { Calibration } from '../shared/horloge-chantier.js';
 import { encodeInvite, isWsUrl } from '../shared/invite.js';
@@ -230,10 +230,21 @@ import {
   verifierSignature,
 } from './abonnement.js';
 import type { Abonnement, EtatAbonnement } from './abonnement.js';
-import { categoriser, type Categorie } from './aiguillage.js';
+import { antecedentsDuVecu, categoriser, type Categorie } from './aiguillage.js';
 import { budgetCoutEpuise, reserveRacine } from './delegation.js';
 import { LIMITES_DELEGATION_DEFAUT } from '../shared/limites-delegation.js';
 import { lireConsigneRoutage, type ConsigneRoutage } from '../shared/consigne-routage.js';
+import {
+  BORNES_REGLAGE,
+  FENETRE_BUDGET_MS,
+  REGLAGE_PROPOSE,
+  TAUX_DEFAUT_POUR_MILLE,
+  arretBudget,
+  bacIsole,
+  echantillonnee,
+  jugerAdmissionOmbre,
+} from './shadow-bench.js';
+import type { RevueCote } from './shadow-bench.js';
 import { evenementDepuisStripe } from './nuage.js';
 import {
   ETATS as ETATS_SERVEUR,
@@ -705,6 +716,14 @@ const RETENTION_JOURNAL_LOT = 500;
  * au repos (aucun événement nouveau) doit quand même les voir tomber.
  */
 const RETENTION_JOURNAL_PERIODE_MS = 60 * 60_000;
+
+/**
+ * Les comparaisons du banc d'ombre que le registre Genome replie à chaque
+ * lecture. Bien au-delà de ce que 30 jours de banc produisent au budget
+ * maximal d'un projet (50 ombres/jour × 30 = 1 500) : la borne protège la
+ * lecture d'une ruche à nombreux projets, pas la mesure d'un seul.
+ */
+const COMPARAISONS_OMBRE_LUES = 5_000;
 
 /**
  * Livraisons dont on va lire les faits en une fois.
@@ -1426,6 +1445,132 @@ async function monterReine(
     return preuve;
   }
 
+  /**
+   * Le banc d'ombre (shadow-bench.ts) : cette PREMIÈRE production d'une tâche
+   * ouvre-t-elle une ombre — la même tâche, rejouée par un second modèle, qui
+   * ne se livrera jamais ?
+   *
+   * ─── CE QUI SE DIT, ET CE QUI SE TAIT ─────────────────────────────────────
+   *
+   * Banc éteint, ou tâche hors échantillon : silence, et c'est voulu — c'est
+   * l'immense majorité des tâches, et un fait par tâche noierait le journal
+   * que tout le reste relit. Une tâche TIRÉE au sort puis écartée, elle, le
+   * dit (`shadow_bench_skipped`, avec son motif) : sans ce fait, un banc qui
+   * n'admet jamais rien se confondrait avec un banc éteint.
+   *
+   * La PREMIÈRE production seulement : le banc compare un premier essai à un
+   * premier essai. Une reprise a lu la critique ou les leçons de la
+   * précédente, l'ombre partirait sans — ce ne serait plus la même tâche.
+   */
+  /**
+   * L'avis de la contre-revue sur UN résultat exact, résumé pour le banc :
+   * une objection suffit à le dire contesté (`comparerOmbre` n'en tire que
+   * la confiance, jamais le verdict).
+   */
+  const revueDuResultat = (taskId: string, resultId: number): RevueCote => {
+    const resume = store.crossReviewForResult(taskId, resultId);
+    if (!resume || resume.reviewerCount === 0) return 'absente';
+    return resume.contestingReviewers > 0 ? 'contestee' : 'validee';
+  };
+
+  const envisagerOmbre = (taskId: string, now = Date.now()): void => {
+    const task = store.getTask(taskId);
+    if (!task) return;
+    const reglage = store.getBancOmbre(task.projectId);
+    if (!reglage?.actif || !echantillonnee(task.id, reglage.tauxPourMille)) return;
+    const resultats = store.resultsForTask(task.id);
+    const premiere = resultats[0];
+    if (resultats.length !== 1 || premiere?.resultId === undefined) return;
+    if (store.ombreDeOriginale(task.id)) return;
+    const preuve = store.latestValidation(task.id, premiere.resultId);
+    const { ajouts, suppressions } = compterLignes(premiere.diff);
+    const categorie = categoriser(task.title, task.prompt);
+    // L'offre de modèles, comptée comme l'assignation la compte : une
+    // ouvrière en ligne autorisée à produire, avec les MÊMES deux trappes de
+    // démonstration que l'ordonnanceur (voir sa construction). Le
+    // planificateur n'épinglera l'ombre que chez une ouvrière isolée qui
+    // déclare son modèle.
+    const producteurs = store.listNodes().filter(
+      (n) =>
+        n.status === 'online' &&
+        assignationProductionAutorisee(n.agentType, {
+          simulation: config.simulation || shellForce(process.env),
+        }),
+    );
+    const admission = jugerAdmissionOmbre({
+      titre: task.title,
+      prompt: task.prompt,
+      categorie,
+      tests: preuve?.validation.tests ?? null,
+      lignesModifiees: ajouts + suppressions,
+      fichiersTouches: fichiersTouches(premiere.diff).length,
+      dureeMs: premiere.durationMs,
+      delegation:
+        store.getDelegation(task.id) !== null || store.listDelegationGraph(task.id).length > 1,
+      modeleOriginal: store.modeleAiguillageDe(task.id),
+      reglage,
+      usage: store.usageBancOmbre(task.projectId, now - FENETRE_BUDGET_MS),
+      // Seules les ouvrières isolées (`bacIsole`) portent une ombre ; les
+      // autres ne servent qu'à dire POURQUOI le banc n'admet rien.
+      modelesOfferts: producteurs.filter(bacIsole).flatMap((n) => n.modeles ?? []),
+      modelesHorsBac: producteurs.filter((n) => !bacIsole(n)).flatMap((n) => n.modeles ?? []),
+      antecedents: antecedentsDuVecu(
+        store.observationsAiguillage(),
+        store.electionsEnVolAiguillage(),
+      ),
+    });
+    if (!admission.admise) {
+      emitEvent('shadow_bench_skipped', {
+        taskId: task.id,
+        projectId: task.projectId,
+        resultId: premiere.resultId,
+        motif: admission.motif,
+      });
+      return;
+    }
+    const base =
+      preuve?.provenance.source === 'hive_sandbox' ? (preuve.provenance.baseSha ?? null) : null;
+    // Le côté ORIGINAL est rangé avec le lien, au moment où il est connu : le
+    // registre Genome compare depuis `taches_ombre`, sans avoir à retrouver
+    // une validation que l'élagage du journal aurait déjà emportée.
+    const ombre = store.creerTacheOmbre(
+      {
+        original: task,
+        // Le titre DIT l'ombre, partout où une tâche s'affiche ; l'agent, lui,
+        // reçoit le prompt tel quel. « Ombre » ne contient aucun mot de
+        // `categoriser` : le genre reste celui de l'originale.
+        titre: `Ombre — ${champSurUneLigne(task.title, 120)}`,
+        categorie,
+        modeleOriginal: admission.modeleOriginal,
+        modeleOmbre: admission.modeleOmbre,
+        coteOriginal: {
+          resultId: premiere.resultId,
+          succes: premiere.success,
+          tests: preuve?.validation.tests ?? null,
+          baseSha: base,
+          revue: revueDuResultat(task.id, premiere.resultId),
+        },
+      },
+      now,
+    );
+    emitEvent('shadow_bench_started', {
+      taskId: ombre.tacheOmbre,
+      tacheOriginale: task.id,
+      projectId: task.projectId,
+      provenance: 'shadow',
+      categorie,
+      modeleOmbre: ombre.modeleOmbre,
+      original: {
+        resultId: premiere.resultId,
+        modele: ombre.modeleOriginal,
+        succes: premiere.success,
+        tests: preuve?.validation.tests ?? null,
+        ...(base ? { baseSha: base } : {}),
+      },
+    });
+    scheduler.tick();
+  };
+
   /** Les nœuds de la ruche, vus comme candidats à une relecture. */
   function candidatsRelecture(): Candidat[] {
     return store.listNodes().map((n) => ({
@@ -1844,6 +1989,16 @@ async function monterReine(
       visiteurNodeId: auteur.id,
       visiteurAgent: auteur.agentType,
     });
+    // Le banc d'ombre range l'avis avec sa comparaison, s'il juge l'un de ses
+    // deux côtés (sinon : aucune ligne touchée) — la confiance ne doit pas
+    // dépendre d'un événement que l'élagage du journal emportera.
+    if (exactResultId !== undefined) {
+      store.consignerRevueOmbre(
+        lien.productionTaskId,
+        exactResultId,
+        revueDuResultat(lien.productionTaskId, exactResultId),
+      );
+    }
 
     // ─── UNE OBJECTION EST UN ÉCHEC, ET LE CERVEAU L'APPREND ─────────────────
     //
@@ -2316,7 +2471,14 @@ async function monterReine(
     // Hive Mind : souvenirs pertinents des tâches déjà réussies, dans le budget
     // RESTANT après le Cerveau, la critique et la Couveuse.
     const souvenirs = retenir(
-      buildHiveContext(store.searchMemories(`${task.title} ${task.prompt}`, 3), part(restant)),
+      buildHiveContext(
+        store.searchMemories(
+          `${task.title} ${task.prompt}`,
+          3,
+          store.ombreDe(task.id)?.tacheOriginale,
+        ),
+        part(restant),
+      ),
     );
     const horizon = retenir(
       restant > 80
@@ -4211,8 +4373,10 @@ async function monterReine(
       const bapteme = store.lireBapteme(node.id);
       const metier = store.lireMetier(node.id);
       const presences = store.lirePresences(node.id);
+      // Avec les ombres du banc : la Chambre dit ce que l'ouvrière a FAIT, et
+      // une ombre qu'elle a portée en fait partie (`listTasks`).
       const tasks = store
-        .listTasks()
+        .listTasks(undefined, { avecOmbres: true })
         .filter((t) => t.assignedNodeId === node.id || t.result?.nodeId === node.id)
         .sort((a, b) => b.updatedAt - a.updatedAt)
         .slice(0, 80);
@@ -6226,6 +6390,17 @@ async function monterReine(
       const task = acces.task;
       const ecriture = ecritureDepotPermise(req, task.projectId);
       if (ecriture !== 'permis') return refuserEcriture(reply, ecriture);
+      // Dit AVANT tout le reste, et nommément : la réservation la refuserait
+      // de toute façon (`reserverLivraison`), mais sous un « livraison déjà en
+      // cours » qui enverrait chercher une PR qui n'existe pas.
+      if (store.ombreDe(task.id)) {
+        return reply.code(409).send({
+          code: 'tache_ombre',
+          error: 'une ombre du banc ne se livre jamais',
+          conseil:
+            'Elle rejoue une tâche déjà faite pour comparer deux modèles : livrez la tâche originale.',
+        });
+      }
       if (!jetonGithub) return sansJeton(reply);
 
       const projet = store.getProject(task.projectId);
@@ -6999,6 +7174,155 @@ async function monterReine(
         bornes: { min: req.body.borneMin, max: req.body.borneMax },
         echelonElu: classement[0]?.echelon ?? null,
       });
+    },
+  );
+
+  // ─── Le banc d'ombre (shadow-bench.ts) ──────────────────────────────────────
+
+  /**
+   * L'état du banc d'ombre d'un projet, pour l'écran et la CLI : le
+   * consentement posé (ou `null` : banc éteint), ce que le banc a dépensé sur
+   * la fenêtre du budget — et ce qui l'ARRÊTERAIT maintenant —, et ses
+   * dernières ombres. Un banc arrêté par son budget doit se lire dans l'état
+   * courant, pas seulement dans un `shadow_bench_skipped` que l'élagage
+   * finira par emporter (motif `get balance`).
+   */
+  const etatBancOmbre = (projectId: string) => {
+    const reglage = store.getBancOmbre(projectId);
+    const usage = store.usageBancOmbre(projectId, Date.now() - FENETRE_BUDGET_MS);
+    return {
+      actif: reglage?.actif ?? false,
+      reglage: reglage
+        ? {
+            tauxPourMille: reglage.tauxPourMille,
+            executionsParJour: reglage.executionsParJour,
+            plafondCoutUsd: reglage.plafondCoutUsd,
+            definiPar: reglage.definiPar,
+            updatedAt: reglage.updatedAt,
+          }
+        : null,
+      propose: REGLAGE_PROPOSE,
+      bornes: BORNES_REGLAGE,
+      budget: {
+        fenetreMs: FENETRE_BUDGET_MS,
+        ...usage,
+        arret: reglage ? arretBudget(reglage, usage) : null,
+      },
+      ombres: store.ombresRecentes(projectId, 10).map((o) => ({
+        tacheOmbre: o.tacheOmbre,
+        tacheOriginale: o.tacheOriginale,
+        titre: o.titre,
+        modeleOriginal: o.modeleOriginal,
+        modeleOmbre: o.modeleOmbre,
+        statut: o.statut,
+        coutDeclareUsd: o.coutDeclareUsd,
+        executionsMuettes: o.executionsMuettes,
+        creeA: o.creeA,
+      })),
+    };
+  };
+
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/banc-ombre',
+    async (req, reply) => {
+      const lecture = lectureProjetPermise(req, req.params.projectId);
+      if (lecture !== 'permis') return refuserProjet(reply, lecture);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      return etatBancOmbre(req.params.projectId);
+    },
+  );
+
+  /**
+   * Règle le banc d'ombre d'un projet — GESTE HUMAIN de qui répond du projet,
+   * sans équivalent automatique : chaque ombre est un vrai appel de modèle,
+   * payé par l'hôte. Le BUDGET est exigé pour ALLUMER (exécutions par jour,
+   * plafond de coût déclaré) : un banc s'allume avec sa borne, jamais sans.
+   * Seul le taux d'échantillonnage a un défaut (5 %).
+   *
+   * ÉTEINDRE, en revanche, ne demande rien d'autre que `{ actif: false }` :
+   * c'est le seul geste qui arrête la dépense, et le suspendre à la
+   * validation d'un champ de budget mal tapé laissait le banc tourner. Le
+   * budget rangé est gardé tel quel, pour le prochain allumage.
+   */
+  app.post<{
+    Params: { projectId: string };
+    Body: {
+      actif: boolean;
+      tauxPourMille?: number;
+      executionsParJour?: number;
+      plafondCoutUsd?: number;
+    };
+  }>(
+    '/api/projects/:projectId/banc-ombre',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['actif'],
+          properties: {
+            actif: { type: 'boolean' },
+            tauxPourMille: {
+              type: 'integer',
+              minimum: BORNES_REGLAGE.tauxPourMille.min,
+              maximum: BORNES_REGLAGE.tauxPourMille.max,
+            },
+            executionsParJour: {
+              type: 'integer',
+              minimum: BORNES_REGLAGE.executionsParJour.min,
+              maximum: BORNES_REGLAGE.executionsParJour.max,
+            },
+            plafondCoutUsd: {
+              type: 'number',
+              exclusiveMinimum: 0,
+              maximum: BORNES_REGLAGE.plafondCoutUsd.max,
+            },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const reglage = proprieteProjetPermise(req, req.params.projectId);
+      if (reglage !== 'permis') return refuserReglage(reply, reglage);
+      const { actif, tauxPourMille, executionsParJour, plafondCoutUsd } = req.body;
+      if (actif && (executionsParJour === undefined || plafondCoutUsd === undefined)) {
+        return reply.code(400).send({
+          code: 'budget_exige',
+          error: 'le budget est exigé pour allumer le banc d’ombre',
+          conseil: 'Envoyez executionsParJour et plafondCoutUsd avec actif: true.',
+        });
+      }
+      // Pour éteindre, ce qui n'est pas envoyé reste ce qui était rangé.
+      const range = actif ? null : store.getBancOmbre(req.params.projectId);
+      const budget = {
+        executionsParJour: executionsParJour ?? range?.executionsParJour,
+        plafondCoutUsd: plafondCoutUsd ?? range?.plafondCoutUsd,
+      };
+      // Éteindre un banc jamais réglé : il l'est déjà, et rien n'est rangé.
+      if (budget.executionsParJour === undefined || budget.plafondCoutUsd === undefined) {
+        return reply.code(200).send(etatBancOmbre(req.params.projectId));
+      }
+      const pose = {
+        actif,
+        tauxPourMille: tauxPourMille ?? range?.tauxPourMille ?? TAUX_DEFAUT_POUR_MILLE,
+        executionsParJour: budget.executionsParJour,
+        plafondCoutUsd: budget.plafondCoutUsd,
+      };
+      // `definiPar` est une TRACE — QUI a engagé une dépense —, jamais une
+      // autorisation (la garde est `proprieteProjetPermise`) : le compte du
+      // Bearer quand il y en a un, `null` sous le jeton de ruche. Même règle
+      // que le plafond de La Balance (`/api/projects/:projectId/balance`).
+      const definiPar = authorizedUser(req) ? ((req as AuthRequest).userId ?? null) : null;
+      store.setBancOmbre(req.params.projectId, pose, definiPar);
+      // Faits typés uniquement — le texte bilingue est reconstruit à l'affichage.
+      emitEvent('shadow_bench_set', {
+        projectId: req.params.projectId,
+        ...pose,
+        ...(definiPar ? { definiPar } : {}),
+      });
+      return reply.code(200).send(etatBancOmbre(req.params.projectId));
     },
   );
 
@@ -9225,8 +9549,13 @@ async function monterReine(
       const focusId = req.body.projectId ?? null;
       const reportProjects = focusId ? projects.filter((p) => p.id === focusId) : projects;
       const tachesFocus = store.listTasks(focusId ?? undefined);
-      const enCours = tachesFocus
-        .filter((t) => t.status === 'assigned' || t.status === 'running')
+      // Ce qui TOURNE, lu par statut comme le planificateur le lit : les
+      // ombres du banc y sont, car elles occupent bel et bien une ouvrière —
+      // `listTasks` (le travail des projets) les tait, et c'est pour les
+      // revues de `finishedTasks` plus bas.
+      const enCours = store
+        .tasksByStatus('assigned', 'running')
+        .filter((t) => focusId === null || t.projectId === focusId)
         .slice(0, 12)
         .map((t) => {
           const n = t.assignedNodeId ? nodes.find((x) => x.id === t.assignedNodeId) : undefined;
@@ -10585,11 +10914,28 @@ async function monterReine(
       }
       return categories.get(taskId) ?? null;
     };
+    // Le banc d'ombre, lu de sa table (`taches_ombre`), jamais du journal :
+    // ses comparaisons survivent à l'élagage des événements. Bornée comme la
+    // table elle-même, par la rétention des tâches (`pruneTachesOmbre`).
+    const ombres = store.ombresRecentes(null, COMPARAISONS_OMBRE_LUES);
+    const marquees = new Set(ombres.map((o) => o.tacheOmbre));
+    // Une ombre au-delà de la borne lue reste une ombre, et une RELECTURE
+    // d'ombre sert le banc elle aussi : leurs faits ne sont pas ceux de la
+    // production (`ombreLieeA`), lus une fois par tâche (mémoïsés comme
+    // `categorieDe`).
+    const horsLecture = new Map<string, boolean>();
+    const estOmbre = (taskId: string): boolean => {
+      if (marquees.has(taskId)) return true;
+      if (!horsLecture.has(taskId)) horsLecture.set(taskId, store.ombreLieeA(taskId) !== null);
+      return horsLecture.get(taskId) === true;
+    };
     return registreGenomeDepuisEvenements(
       evenements,
       categorieDe,
       EVENT_RETENTION,
       store.faitsElagues(TYPES_REGISTRE_GENOME),
+      estOmbre,
+      ombres,
     );
   });
 
@@ -13282,7 +13628,9 @@ async function monterReine(
             // inconnue, assignation périmée) ne dit rien du projet — l'ajouter
             // gonflerait le compteur de récurrences d'une panne qui n'a pas eu
             // lieu deux fois, et le seuil de consolidation deviendrait faux.
-            if (pris && !msg.success) {
+            // L'échec d'une OMBRE n'en est pas un du projet : sa tâche est déjà
+            // comptée, et le Cerveau servirait sa panne en leçon aux suivantes.
+            if (pris && !msg.success && !store.ombreDe(msg.taskId)) {
               noterEchec(msg.taskId, nodeId, modeleTentative, msg.logs ?? '', msg.finalText);
             }
             if (pris) {
@@ -13421,6 +13769,33 @@ async function monterReine(
             // est rejetée dès maintenant, et son épisode écrit. Rien à statuer
             // pour une relecture, qui ne propose aucun souvenir.
             if (pris && msg.success && !lienRelecture) statuerProduction(msg.taskId);
+            // ─── LE BANC D'OMBRE ────────────────────────────────────────────
+            //
+            // Une production ordinaire peut ouvrir une ombre. Ce qu'une
+            // exécution du banc a coûté, lui, est rangé par le planificateur
+            // dans la transaction du résultat, pris ou non (`handleTaskResult`).
+            // Après la contre-expertise : l'ombre passe par le MÊME chemin de
+            // jugement que toute production, et rien ici ne le court-circuite.
+            if (pris) {
+              const ombreRendue = store.ombreDe(msg.taskId);
+              if (!ombreRendue && !lienRelecture) envisagerOmbre(msg.taskId);
+              // Le côté OMBRE de la comparaison, rangé à son rendu : le
+              // résultat tel que le store l'a pris (une production creuse y
+              // est déjà un échec), ses tests, sa base.
+              const rendu = ombreRendue ? store.resultsForTask(msg.taskId).at(-1) : undefined;
+              if (ombreRendue && rendu?.resultId !== undefined) {
+                const preuve = store.latestValidation(msg.taskId, rendu.resultId);
+                store.consignerRenduOmbre(ombreRendue.tacheOmbre, {
+                  resultId: rendu.resultId,
+                  succes: rendu.success,
+                  tests: preuve?.validation.tests ?? null,
+                  baseSha:
+                    preuve?.provenance.source === 'hive_sandbox'
+                      ? (preuve.provenance.baseSha ?? null)
+                      : null,
+                });
+              }
+            }
             break;
           }
           case 'task_reject': {
@@ -13479,6 +13854,12 @@ async function monterReine(
             }
             if (parent.status !== 'assigned' && parent.status !== 'running') {
               rejectDelegation('parent_termine', 'une tâche terminée ne délègue plus');
+              break;
+            }
+            // Une ombre du banc mesure UNE production d'UN modèle : un enfant
+            // délégué ferait travailler d'autres modèles sous son nom.
+            if (store.ombreDe(parent.id)) {
+              rejectDelegation('parent_ombre', 'une ombre du banc ne délègue pas');
               break;
             }
 
@@ -14168,6 +14549,9 @@ async function monterReine(
     // et placées APRÈS `pruneTasks`, comme celle de l'Aiguillage juste au-dessus.
     etape('pruneGardeFouEchelons', () => store.pruneGardeFouEchelons());
     etape('pruneGardeFouExigences', () => store.pruneGardeFouExigences());
+    // Le banc d'ombre : le lien ombre→originale, même borne référentielle,
+    // câblée avec sa table (règle 3) et placée APRÈS `pruneTasks`.
+    etape('pruneTachesOmbre', () => store.pruneTachesOmbre());
     etape('pruneConseils', () => store.pruneConseils(CONSEILS_CONSERVES));
     // ─── LE JOURNAL A UN SEUL PROPRIÉTAIRE DE RÉTENTION ────────────────────
     //

@@ -393,6 +393,32 @@ npm run cli -- mind                          # souvenirs récents
 # ou : GET /api/hive-mind?q=…
 ```
 
+## 🌗 Le banc d'ombre — deux modèles, la même petite tâche
+
+L'Aiguillage n'apprend que de ce qu'il a choisi : deux modèles ne se mesurent
+jamais sur la même tâche. Le **banc d'ombre**, allumé projet par projet, fait
+rejouer une petite tâche testable, tirée au sort (5 % par défaut), par un
+**second modèle**, dans le bac isolé d'une ouvrière (bubblewrap ou conteneur,
+sans les identifiants de l'hôte). Cette ombre **ne se livre jamais** :
+ni livraison, ni merge, ni rapport. Les deux productions passent par les
+validations du bac, les Gardiennes, la contre-revue et l'Evaluator. **Les tests
+du projet** départagent, et la contre-revue ne pèse que sur la confiance.
+
+Le budget est exigé à l'allumage : un nombre d'ombres et un coût déclaré au
+plus par 24 h glissantes, une seule ombre en vol à la fois. Les comparaisons se
+lisent dans le registre Genome (provenance `shadow`) et **ne changent aucun
+poids du routing**, tant que leur pondération n'est pas choisie.
+
+```bash
+# ou le panneau « Banc d'ombre » dans ⬡ Projets
+curl -X POST http://localhost:7777/api/projects/<projet>/banc-ombre \
+  -H "x-hive-token: $HIVE_TOKEN" -H 'content-type: application/json' \
+  -d '{"actif": true, "executionsParJour": 3, "plafondCoutUsd": 1}'
+```
+
+Critères d'admission, budget, confiance et limites :
+**[BANC-OMBRE.md](BANC-OMBRE.md)**.
+
 ## ⚖️ Débat et critique — une objection atteint la correction
 
 Une production réussie est relue par un modèle d'une **autre famille** ; si le

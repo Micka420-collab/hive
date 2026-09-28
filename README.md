@@ -172,8 +172,10 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
   Linux, que la CI n'exerce pas : la matrice systèmes × bacs est dans
   [docs/INSTALLATION.md](docs/INSTALLATION.md) ;
 - l'apprentissage : la qualité apprise vient toujours des seules
-  contre-visites ; y faire entrer les autres faits du registre Genome est une
-  décision de pondération, pas encore prise. Depuis l'Aiguillage v3, un modèle
+  contre-visites ; y faire entrer les autres faits du registre Genome — et les
+  comparaisons du [banc d'ombre](docs/BANC-OMBRE.md), qui mesure deux modèles
+  sur la même tâche sans toucher au routing — est une décision de pondération,
+  pas encore prise. Depuis l'Aiguillage v3, un modèle
   neuf part d'un a priori fini (plus de choix d'office), chaque bras (modèle ×
   agent × effort) hérite du vécu de son modèle, et le coût déclaré n'entre
   dans le score que si TOUS les bras comparés en déclarent un (poids repris de
@@ -492,6 +494,7 @@ de la tâche le dit ; si l'écartement échoue, la tâche est refusée avant l'a
 | **[docs/PROTECTION-BRANCHE.md](docs/PROTECTION-BRANCHE.md)** | Protéger `main` : les réglages exacts, et pourquoi       |
 | **[docs/FONCTIONNALITES.md](docs/FONCTIONNALITES.md)**       | Chaque partie en détail, avec ses arbitrages             |
 | **[docs/FEATURES.en.md](docs/FEATURES.en.md)**               | The same, in English                                     |
+| **[docs/BANC-OMBRE.md](docs/BANC-OMBRE.md)**                 | Comparer deux modèles sur une même tâche, sans livrer    |
 | **[docs/ERREURS.md](docs/ERREURS.md)**                       | Le journal des erreurs — par leçon, avec les règles      |
 | **[docs/ETAPES.md](docs/ETAPES.md)**                         | L'état réel du projet face à ses propres promesses       |
 | **[docs/MODELE-ECONOMIQUE.md](docs/MODELE-ECONOMIQUE.md)**   | Quotas, abonnements, ce qui est facturé                  |
