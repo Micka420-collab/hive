@@ -92,6 +92,40 @@ describe('une seule mission ouverte par projet', () => {
 });
 
 describe('la borne des missions', () => {
+  it('SUPPRIMER la source emporte ses instantanés, jamais la marque du rejeu qui la rejouait (#498)', () => {
+    const s = new HiveStore(':memory:');
+    const source = s.createProject({ name: 'Source' }).id;
+    const t = s.createTask({ projectId: source, title: 'PLAN-SECRET', prompt: 'p' }).id;
+    s.ouvrirMission({
+      id: 'm-source',
+      projectId: source,
+      ouverteA: 1,
+      depuisEvenement: 0,
+      membres: [t],
+      debut: '{"plan":"PLAN-SECRET"}',
+    });
+    const rejeu = s.createProject({ name: 'Rejeu' }).id;
+    s.inscrireRejeu({
+      projectId: rejeu,
+      missionSource: 'm-source',
+      projetSource: source,
+      surcharges: {},
+      genomeFige: null,
+      creePar: null,
+      creeA: 1,
+    });
+    const bilan = s.effacerProjet(source);
+    expect(bilan?.missions).toBe(1);
+    expect(bilan?.missions_taches).toBe(1);
+    // Supprimer n'est pas archiver : le plan de la source ne survit nulle part…
+    expect(s.listMissions(source)).toEqual([]);
+    // …mais le rejeu reste un rejeu : ses effets irréversibles restent simulés.
+    expect(s.rejeuDuProjet(rejeu)).not.toBeNull();
+    // Et supprimer le rejeu emporte sa marque.
+    expect(s.effacerProjet(rejeu)?.rejeux).toBe(1);
+    expect(s.rejeuDuProjet(rejeu)).toBeNull();
+  });
+
   it('garde les N plus récentes par projet, SAUF celle qu’un rejeu compare, et retire les orphelines', () => {
     const s = new HiveStore(':memory:');
     const p = s.createProject({ name: 'P' }).id;

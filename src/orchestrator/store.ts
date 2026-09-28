@@ -2306,6 +2306,19 @@ const EFFACEMENT_PROJET = [
   ['taches_issue', `projectId = @p OR taskId IN (${TACHES_DU_PROJET})`],
   ['livraisons', `projectId = @p OR taskId IN (${TACHES_DU_PROJET})`],
   ['reprises_livraison', `projectId = @p OR taskId IN (${TACHES_DU_PROJET})`],
+  // Les missions rejouables (#512) : l'appartenance d'abord (elle relit
+  // `missions`), puis les instantanés — plan, prompts, titres —, même quand un
+  // rejeu d'un AUTRE projet les compare encore : supprimer n'est pas archiver,
+  // et sa comparaison dira sa source absente. La marque `rejeux` d'un projet
+  // de rejeu ne part qu'avec LUI : l'ôter parce que sa source a disparu
+  // rendrait ses actions irréversibles exécutables sans humain.
+  [
+    'missions_taches',
+    `missionId IN (SELECT id FROM missions WHERE projectId = @p) OR taskId IN (${TACHES_DU_PROJET})`,
+  ],
+  ['missions', 'projectId = @p'],
+  ['rejeux', 'projectId = @p'],
+  ['rejeux_actions', 'projectId = @p'],
   ['taches_ombre', `projectId = @p OR tacheOmbre IN (${TACHES_DU_PROJET})`],
   ['banc_ombre', 'projectId = @p'],
   ['horloge_hote', `projectId = @p OR taskId IN (${TACHES_DU_PROJET})`],

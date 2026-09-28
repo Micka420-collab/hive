@@ -135,9 +135,12 @@ autres.
 **Supprimer un projet** se fait en bas de sa carte, dans la vue Projets — ou
 par `DELETE /api/projects/<id>`. C'est une **suppression**, pas un archivage :
 tâches, résultats, journal, mémoires du Hive Mind (et leurs propositions en
-attente), consignes de routage, dépenses de délégation, autorisations et journal des
-connecteurs externes, liens de partage,
-membres et miroir du code quittent la Reine. Il ne reste qu'une ligne d'audit,
+attente), consignes de routage, dépenses de délégation, autorisations et
+journal des connecteurs externes, missions rejouables et leurs instantanés,
+comparaisons du banc d'ombre, liens de partage, membres et miroir du code
+quittent la Reine. Un rejeu de ce projet (un AUTRE projet) reste un rejeu —
+ses actions irréversibles restent simulées — et sa comparaison dit sa source
+absente. Il ne reste qu'une ligne d'audit,
 `project_deleted` (qui, quand, quel nom, combien de lignes), que l'élagage du
 journal épargne pour les 1 000 suppressions les plus récentes. Il faut un
 **compte** : le propriétaire, ou un administrateur (le seul pour un projet sans

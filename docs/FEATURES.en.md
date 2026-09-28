@@ -121,8 +121,10 @@ without touching the others.
 or with `DELETE /api/projects/<id>`. It is a **deletion**, not an archive:
 tasks, results, journal, Hive Mind memories (and their pending proposals),
 routing constraints, delegation spend, external connector grants and journal,
-share links, members and the code
-mirror leave the Queen. Only one audit line remains, `project_deleted` (who,
+replayable missions and their snapshots, shadow-bench comparisons, share
+links, members and the code mirror leave the Queen. A replay of this project
+(ANOTHER project) stays a replay — its irreversible actions stay simulated —
+and its comparison says its source is gone. Only one audit line remains, `project_deleted` (who,
 when, which name, how many rows), which journal pruning spares for the 1,000
 most recent deletions. It takes an
 **account**: the owner, or an administrator (the only one for an ownerless
