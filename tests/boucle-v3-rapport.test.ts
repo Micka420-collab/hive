@@ -6,7 +6,8 @@
 // ce que la QA DÉCLARE (présenté comme déclaré), les verdicts de l'Evaluator
 // par phase, les relectures croisées (et une relecture de la même famille
 // dite comme telle), un extrait de la note d'architecture. Il part sur GitHub :
-// caviardé, borné, et un texte d'ouvrière ne peut pas y fermer son bloc.
+// caviardé, borné ; un texte d'ouvrière ne peut pas y fermer son bloc, ni y
+// devenir une mention, un lien ou une image postés avec le jeton de l'hôte.
 
 import { describe, expect, it } from 'vitest';
 import { jugerDiff } from '../src/boucle-v3/garde.js';
@@ -97,6 +98,7 @@ const faits = (surcharge: Partial<FaitsRapport> = {}): FaitsRapport => ({
   },
   garde: jugerDiff(DIFF),
   validation: 'approuvee',
+  relecture: 'rendue',
   livraison: {
     pr: 9,
     urlPr: 'https://github.com/o/r/pull/9',
@@ -124,10 +126,10 @@ describe('le rapport de risques', () => {
     expect(r).toMatch(/DÉCLARÉ par l’ouvrière QA, non constaté par la Reine/);
     expect(r).toContain('npm run typecheck → 2 (TS2322)');
     expect(r).toContain(
-      '- implémentation (done) : **human_review_required** — aucune revue humaine ; build absent',
+      '- implémentation (done) : `human_review_required` — `aucune revue humaine` ; `build absent`',
     );
-    expect(r).toContain('- codex relit claude-code (croisée) : **appliquer**');
-    expect(r).toContain('- claude-code relit claude-code (MÊME FAMILLE) : **ameliorer**');
+    expect(r).toContain('- `codex` relit `claude-code` (croisée) : `appliquer` — `ok`');
+    expect(r).toContain('- `claude-code` relit `claude-code` (MÊME FAMILLE) : `ameliorer`');
     expect(r).toContain('commit `abcdef012345`');
     expect(r).toMatch(/La boucle ne fusionne jamais/);
   });
@@ -148,10 +150,14 @@ describe('le rapport de risques', () => {
 
   it('ce qui manque est DIT manquant : QA non lancée, relecture impossible, porte libre', () => {
     const libre = jugerDiff(DIFF_DOC);
+    expect(rapportDeRisques(faits({ garde: libre, validation: 'absente' }), CAVIARDEUR)).toContain(
+      'Aucune surface sensible touchée, et relue par une autre famille',
+    );
     const r = rapportDeRisques(
       faits({
         garde: libre,
-        validation: 'absente',
+        validation: 'approuvee',
+        relecture: 'absente',
         qa: {
           taskId: null,
           statut: 'non_lancee',
@@ -169,10 +175,66 @@ describe('le rapport de risques', () => {
       }),
       CAVIARDEUR,
     );
-    expect(r).toContain('Aucune surface sensible touchée');
+    expect(r).toContain('⚠ Aucune relecture d’une autre famille — **validées par un humain**');
     expect(r).toContain('QA : non lancée — diff trop long.');
     expect(r).toContain('- QA : non lancée — diff trop long');
-    expect(r).toContain('Aucune relecture croisée : aucune autre famille.');
+    expect(r).toContain('Aucune relecture croisée : `aucune autre famille`.');
+  });
+
+  it('LE TITRE COMPTE LES FICHIERS LIVRÉS — pas les chemins que seuls nomment les en-têtes', () => {
+    const renommage = [
+      'diff --git a/src/shared/caviardage.ts b/docs/ancien.ts',
+      'similarity index 100%',
+      'rename from src/shared/caviardage.ts',
+      'rename to docs/ancien.ts',
+      '',
+    ].join('\n');
+    const diff = DIFF_DOC + renommage;
+    const r = rapportDeRisques(
+      faits({
+        garde: jugerDiff(diff),
+        implementation: { ...faits().implementation, diff },
+      }),
+      CAVIARDEUR,
+    );
+    // La porte a lu trois chemins ; la livraison n'en écrit qu'un.
+    expect(jugerDiff(diff).fichiers).toHaveLength(3);
+    expect(r).toContain('### Fichiers touchés (1)\n- `docs/ETAPES.md` — creation (+1 −0)');
+    expect(r).toContain('| `src/shared/caviardage.ts` | securite |');
+  });
+
+  it('UN TEXTE D’AGENT RESTE INERTE : ni mention, ni lien, ni image dans le commentaire', () => {
+    const piege = '@Micka420-collab ![x](http://t.example/p.png) [ici](javascript:alert(1)) `fin';
+    const r = rapportDeRisques(
+      faits({
+        implementation: {
+          ...faits().implementation,
+          evaluation: evaluation({
+            crossReview: {
+              reviewers: [
+                {
+                  reviewerAgent: 'codex',
+                  producerAgent: 'claude-code',
+                  decision: 'appliquer',
+                  reason: piege,
+                },
+              ],
+            },
+          }),
+        },
+        qa: {
+          ...faits().qa,
+          evaluation: lireEvaluation({ decision: 'accepted', reasons: [piege] }),
+        },
+      }),
+      CAVIARDEUR,
+    );
+    const inerte =
+      "`@Micka420-collab ![x](http://t.example/p.png) [ici](javascript:alert(1)) 'fin`";
+    expect(r).toContain(`(croisée) : \`appliquer\` — ${inerte}`);
+    expect(r).toContain(`- QA (done) : \`accepted\` — ${inerte}`);
+    // Hors code, le piège n'apparaît nulle part.
+    expect(r.replaceAll(inerte, '')).not.toContain('@Micka420-collab');
   });
 
   it('borné sous la limite d’un commentaire GitHub', () => {

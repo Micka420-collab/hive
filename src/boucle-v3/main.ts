@@ -7,7 +7,9 @@
 // Options :
 //   --depot <url>    le dépôt GitHub de Hive à améliorer (défaut : le dépôt
 //                    officiel ; un fork de Hive convient — la porte des
-//                    changements sensibles connaît les chemins de HIVE)
+//                    changements sensibles connaît les chemins de HIVE). Une
+//                    reprise vise le dépôt de son projet : inutile de le
+//                    redire, et le contredire est refusé.
 //   --patience <s>   attente maximale d'une phase (1800 s)
 //
 // Codes de sortie : 0 PR ouverte avec son rapport (ou plan, sans --oui) ;

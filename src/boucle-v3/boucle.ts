@@ -9,11 +9,19 @@
 //     ├─ 1. ARCHITECTURE    une ouvrière étudie le dépôt, écrit une note
 //     ├─ 2. IMPLÉMENTATION  une autre l'implémente, tests compris, sur son clone
 //     │        └─ relecture croisée par une AUTRE famille (contre-expertise)
-//     ├─ 3. QA              une troisième rejoue le diff, lance les validations,
-//     │                     écrit ce qu'elle a vu
-//     ├─ 4. PORTE           changements sensibles ⇒ ARRÊT, validation humaine
+//     ├─ 3. PORTE           changements sensibles, ou aucune relecture croisée
+//     │                     ⇒ ARRÊT, validation humaine
+//     ├─ 4. QA              une troisième rejoue CE diff, lance les validations,
+//     │                     écrit ce qu'elle a vu — puis la porte est RELUE
 //     ├─ 5. LIVRAISON       branche `hive/<tâche>` + PR vers main, par la Reine
 //     └─ 6. RAPPORT         commentaire de la PR : risques, preuves, verdicts
+//
+// La porte passe AVANT la QA : la QA applique le diff et lance `npm ci`, les
+// bancs, la config vitest — sur la machine d'un autre membre. Une production
+// qui modifie un script npm ou `vitest.config.ts` s'y exécuterait avant que
+// la porte l'arrête. Et la QA porte sur une production PRÉCISE : son
+// identifiant contient le `resultId` qu'elle rejoue (`v3-<graine>-qa-<n>`) ;
+// une nouvelle production (refus humain, retry) en appelle une nouvelle.
 //
 // Chaque ouvrière travaille sur un clone neuf, dans son atelier, sur sa
 // branche (`workspace.ts`) : rien n'est poussé sur main, et la Reine livre par
@@ -46,15 +54,23 @@
 // Arrêtée à la porte, elle rend la main : l'humain relit la production dans la
 // Miellerie, l'approuve ou la refuse, puis relance avec `--reprendre <projet>`.
 // La reprise retrouve les phases par leurs identifiants (`v3-<graine>-<rôle>`),
-// ne recrée rien de ce qui existe, et rejuge tout — la porte comprise.
+// ne recrée rien de ce qui existe, et rejuge tout — la porte comprise. Elle
+// vise le dépôt DU PROJET : c'est là que la Reine livre, donc là que va le
+// rapport ; un `--depot` qui le contredit est refusé.
 
 import { randomUUID } from 'node:crypto';
 import { champSurUneLigne } from '../shared/donnees-non-fiables.js';
 import { analyserRustine } from '../orchestrator/rustine.js';
 import { depotDepuisUrl } from '../orchestrator/livraison.js';
 import type { Caviardeur } from '../shared/caviardage.js';
-import { SURFACES_SENSIBLES, jugerDiff, porteDeLivraison, validationHumaine } from './garde.js';
-import type { EvenementJournal, VerdictGarde } from './garde.js';
+import {
+  SURFACES_SENSIBLES,
+  jugerDiff,
+  porteDeLivraison,
+  relectureCroisee,
+  validationHumaine,
+} from './garde.js';
+import type { EvenementJournal, ValidationHumaine, VerdictGarde } from './garde.js';
 import { lireEvaluation, rapportDeRisques } from './rapport.js';
 import type { EvaluationLue, PhaseRapportee } from './rapport.js';
 import {
@@ -89,7 +105,10 @@ const PAGES_JOURNAL_MAX = 200;
 export type Role = 'architecture' | 'implementation' | 'qa';
 
 /** L'identifiant d'une phase : c'est lui qui la retrouve à la reprise. */
-export const idPhase = (graine: string, role: Role) => `v3-${graine}-${role}`;
+export const idPhase = (graine: string, role: Exclude<Role, 'qa'>) => `v3-${graine}-${role}`;
+
+/** La QA d'une production PRÉCISE : une autre production appelle une autre QA. */
+export const idQa = (graine: string, resultId: number) => `v3-${graine}-qa-${resultId}`;
 
 /** Une réponse de la ruche : un statut 0 dit que la ruche n'a pas répondu. */
 export interface Reponse {
@@ -130,7 +149,8 @@ export interface GithubBoucle {
 
 export interface OptionsBoucle {
   creer: boolean;
-  depot: string;
+  /** Absent : `DEPOT_HIVE` pour une mission neuve, le dépôt du projet pour une reprise. */
+  depot?: string;
   mission?: string;
   reprendre?: string;
   patienceS?: number;
@@ -222,9 +242,9 @@ export function argumentsDeLaBoucle(argv: readonly string[]): ArgumentsBoucle {
       return { erreur: `--mission attend de ${MISSION_MIN} à ${MISSION_MAX} caractères` };
     }
   }
-  const depot = texte('--depot') ?? DEPOT_HIVE;
+  const depot = texte('--depot');
   // L'URL refusée n'est pas recopiée : elle peut porter un jeton.
-  if (depotDepuisUrl(depot) === null) {
+  if (depot !== undefined && depotDepuisUrl(depot) === null) {
     return {
       erreur: '--depot attend l’URL https d’un dépôt GitHub (https://github.com/<owner>/<repo>)',
     };
@@ -237,7 +257,7 @@ export function argumentsDeLaBoucle(argv: readonly string[]): ArgumentsBoucle {
   return {
     racine,
     creer: vus.has('--oui'),
-    depot,
+    ...(depot !== undefined ? { depot } : {}),
     ...(mission !== undefined ? { mission } : {}),
     ...(reprendre !== undefined ? { reprendre } : {}),
     ...(patienceS !== undefined ? { patienceS } : {}),
@@ -384,8 +404,8 @@ export async function menerLaBoucle(
   caviardeur: Caviardeur,
   options: OptionsBoucle,
 ): Promise<IssueBoucle> {
-  const depot = depotDepuisUrl(options.depot);
-  if (!depot) return echec('dépôt hors GitHub : la Reine ne livre que là');
+  const demande = depotDepuisUrl(options.depot ?? DEPOT_HIVE);
+  if (!demande) return echec('dépôt hors GitHub : la Reine ne livre que là');
   const patience = options.patienceS ?? PATIENCE_PHASE_S;
 
   // ─── AVANT DE DÉPENSER : ce qui rendrait la mission impossible ─────────────
@@ -419,16 +439,34 @@ export async function menerLaBoucle(
   let projetId: string;
   let graine: string;
   let mission: string;
+  let depot: string;
   const taches = liste(enregistrement(debut.corps).tasks);
   if (options.reprendre) {
     projetId = options.reprendre;
     const projet = liste(enregistrement(debut.corps).projects).find((p) => p.id === projetId);
     if (!projet) return echec(`projet ${projetId} inconnu de la ruche`);
+    // Le dépôt est celui du PROJET : la Reine livre là (`/api/livraison` lit
+    // `projet.repoUrl`). Commenter ailleurs la PR #N qu'elle rend écrirait,
+    // avec le jeton de l'hôte, dans le fil d'un autre dépôt.
+    const duProjet = depotDepuisUrl(typeof projet.repoUrl === 'string' ? projet.repoUrl : null);
+    if (!duProjet) return echec(`le projet ${projetId} ne vise pas un dépôt GitHub`, projetId);
+    if (options.depot !== undefined && demande.toLowerCase() !== duProjet.toLowerCase()) {
+      return echec(
+        `--depot contredit le dépôt du projet ${projetId} (${duProjet}) : une reprise livre là où ` +
+          'la mission a commencé — relancez sans --depot',
+        projetId,
+      );
+    }
+    depot = duProjet;
     const archi = taches.find(
       (t) => t.projectId === projetId && /^v3-[0-9a-f]{8}-architecture$/.test(String(t.id)),
     );
-    if (!archi)
-      return echec(`le projet ${projetId} n’est pas une boucle V3 (aucune phase d’architecture)`);
+    if (!archi) {
+      return echec(
+        `aucune phase d’architecture V3 du projet ${projetId} dans l’instantané de la ruche ` +
+          '(qui ne montre que les tâches terminées les plus récentes)',
+      );
+    }
     graine = String(archi.id).slice(3, 11);
     // La mission ENTIÈRE est dans le prompt de l'architecte (le titre est borné).
     const ligneMission = String(archi.prompt)
@@ -439,6 +477,7 @@ export async function menerLaBoucle(
     const bornee = await autonomieBornee(ruche, projetId);
     if (bornee) return echec(bornee, projetId);
   } else {
+    depot = demande;
     graine = options.graine ?? randomUUID().replaceAll('-', '').slice(0, 8);
     mission = options.mission ?? '';
     if (!options.creer) {
@@ -455,7 +494,7 @@ export async function menerLaBoucle(
     }
     const projet = await ruche.creerProjet({
       name: `Boucle V3 ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`,
-      repoUrl: options.depot,
+      repoUrl: options.depot ?? DEPOT_HIVE,
     });
     const id = enregistrement(projet.corps).id;
     if (projet.status !== 201 || typeof id !== 'string') {
@@ -469,10 +508,10 @@ export async function menerLaBoucle(
 
   /** Confie la phase si elle n'existe pas, puis attend qu'elle soit réglée. */
   const phase = async (
+    taskId: string,
     role: Role,
     prompt: () => string,
   ): Promise<{ statut: 'done' | 'failed'; evaluation: EvaluationLue | null } | IssueBoucle> => {
-    const taskId = idPhase(graine, role);
     let releve = await releverPhase(ruche, taskId);
     if ('erreur' in releve) return echec(releve.erreur + reprise, projetId);
     if (releve.etat === 'absente') {
@@ -509,9 +548,9 @@ export async function menerLaBoucle(
   const estIssue = (v: object): v is IssueBoucle => 'issue' in v;
 
   // ─── 1. ARCHITECTURE ────────────────────────────────────────────────────────
-  const archi = await phase('architecture', () => promptArchitecture(mission, graine));
-  if (estIssue(archi)) return archi;
   const idArchi = idPhase(graine, 'architecture');
+  const archi = await phase(idArchi, 'architecture', () => promptArchitecture(mission, graine));
+  if (estIssue(archi)) return archi;
   const prodArchi = archi.statut === 'done' ? await derniereProduction(ruche, idArchi) : null;
   const note = prodArchi ? noteDansDiff(prodArchi.diff, noteDe(graine, 'architecture')) : null;
   if (!note) {
@@ -523,11 +562,11 @@ export async function menerLaBoucle(
   }
 
   // ─── 2. IMPLÉMENTATION ──────────────────────────────────────────────────────
-  const impl = await phase('implementation', () =>
+  const idImpl = idPhase(graine, 'implementation');
+  const impl = await phase(idImpl, 'implementation', () =>
     promptImplementation(mission, note.slice(0, NOTE_MAX)),
   );
   if (estIssue(impl)) return impl;
-  const idImpl = idPhase(graine, 'implementation');
   const production = impl.statut === 'done' ? await derniereProduction(ruche, idImpl) : null;
   if (!production) {
     return echec(
@@ -543,7 +582,70 @@ export async function menerLaBoucle(
     );
   }
 
-  // ─── 3. QA ──────────────────────────────────────────────────────────────────
+  /**
+   * La porte, sur une production précise : son diff, la validation humaine
+   * lue au journal, la relecture croisée rangée par l'Evaluator. Lecture
+   * seule — elle passe deux fois, avant la QA et avant la livraison.
+   */
+  const juger = async (diff: string) => {
+    const garde = jugerDiff(diff);
+    const evaluation = lireEvaluation(
+      (await ruche.lire(`/api/tasks/${encodeURIComponent(idImpl)}/evaluation`)).corps,
+    );
+    const journal = await lireJournal(ruche);
+    const validation: ValidationHumaine = journal
+      ? validationHumaine(idImpl, journal, evaluation?.revueHumaine)
+      : evaluation?.revueHumaine === 'rejected'
+        ? 'refusee'
+        : 'absente';
+    const relecture = relectureCroisee(evaluation?.relectures ?? []);
+    const porte = porteDeLivraison(garde, validation, relecture);
+    return { garde, evaluation, validation, relecture, porte, journalLu: journal !== null };
+  };
+
+  /** Ce que la boucle rend quand la porte ne s'ouvre pas — ou `null`. */
+  const arretALaPorte = (j: Awaited<ReturnType<typeof juger>>): IssueBoucle | null => {
+    if (j.porte === 'livrer') return null;
+    if (j.porte === 'refus_humain') {
+      return {
+        issue: 'refus_humain',
+        projetId,
+        taskId: idImpl,
+        message:
+          `un humain a refusé la production ${idImpl} : elle ne sera pas livrée. La boucle ne ` +
+          'contourne jamais un refus — confiez une nouvelle mission si le besoin demeure.',
+      };
+    }
+    const impossible = j.evaluation?.relectureImpossible;
+    const pourquoi = [
+      j.garde.etat === 'illisible'
+        ? `diff illisible par la porte (${j.garde.motif ?? 'inconnu'})`
+        : j.garde.touches.map((t) => `${t.chemin} [${t.categorie}]`).join(', '),
+      j.relecture === 'absente'
+        ? `aucune relecture d’une autre famille${impossible ? ` (${impossible})` : ''} — ` +
+          'un humain relit à sa place'
+        : '',
+    ].filter((p) => p !== '');
+    return {
+      issue: 'validation_requise',
+      projetId,
+      taskId: idImpl,
+      garde: j.garde,
+      message:
+        `ARRÊT à la porte — ${pourquoi.join(' ; ')}. Relisez la production ${idImpl} ` +
+        'dans la Miellerie et approuvez-la (ou refusez-la) : le geste est consigné au journal ' +
+        `(task_reviewed). Puis relancez avec --oui --reprendre ${projetId}.` +
+        (j.journalLu
+          ? ''
+          : ' Le journal de la Reine est illisible : aucune validation ne peut y être lue.'),
+    };
+  };
+
+  // ─── 3. LA PORTE, AVANT QUE LA QA N'EXÉCUTE QUOI QUE CE SOIT ────────────────
+  const arret = arretALaPorte(await juger(production.diff));
+  if (arret) return arret;
+
+  // ─── 4. QA — sur CETTE production ──────────────────────────────────────────
   let qa: PhaseRapportee;
   if (production.diff.length > DIFF_QA_MAX) {
     qa = {
@@ -554,71 +656,41 @@ export async function menerLaBoucle(
       pourquoi: `diff de ${production.diff.length} signes, au-delà de ce qu’un prompt de QA porte (${DIFF_QA_MAX})`,
     };
   } else {
-    const idQa = idPhase(graine, 'qa');
-    const fin = await phase('qa', () => promptQa(mission, graine, production.diff));
+    const idQaProd = idQa(graine, production.resultId);
+    const fin = await phase(idQaProd, 'qa', () => promptQa(mission, graine, production.diff));
     if (estIssue(fin)) return fin;
-    const prodQa = fin.statut === 'done' ? await derniereProduction(ruche, idQa) : null;
+    const prodQa = fin.statut === 'done' ? await derniereProduction(ruche, idQaProd) : null;
     qa = {
-      taskId: idQa,
+      taskId: idQaProd,
       statut: fin.statut,
       evaluation: fin.evaluation,
       note: prodQa ? noteDansDiff(prodQa.diff, noteDe(graine, 'qa')) : null,
     };
   }
 
-  // ─── 4. LA PORTE DES CHANGEMENTS SENSIBLES ──────────────────────────────────
+  // ─── LA PORTE, RELUE ────────────────────────────────────────────────────────
   //
-  // Relue ICI, après la QA : une revue humaine a pu tomber pendant ce temps.
-  // Et la production jugée est RELUE, pas reprise d'avant la QA : c'est celle
-  // que la Reine livrera, liée par son `resultId`.
-  // Une revue humaine qui la refuse relance l'implémentation (retry de
-  // l'Evaluator) : la porte ne juge qu'une production RÉGLÉE.
+  // Une revue humaine a pu tomber pendant la QA — et un refus relance
+  // l'implémentation (retry de l'Evaluator). Ne se livre que la production
+  // que la QA a rejouée : une autre repasse par la porte, puis par SA QA.
   const encore = await releverPhase(ruche, idImpl);
   if ('erreur' in encore || encore.etat !== 'reglee' || encore.statut !== 'done') {
     return echec(`l’implémentation n’est plus réglée au moment de la porte${reprise}`, projetId);
   }
   const jugee = await derniereProduction(ruche, idImpl);
   if (!jugee) return echec('la production de l’implémentation a disparu avant la porte', projetId);
-  const garde = jugerDiff(jugee.diff);
-  const evaluationImpl = lireEvaluation(
-    (await ruche.lire(`/api/tasks/${encodeURIComponent(idImpl)}/evaluation`)).corps,
-  );
-  const journal = await lireJournal(ruche);
-  const validation = journal
-    ? validationHumaine(idImpl, journal, evaluationImpl?.revueHumaine)
-    : evaluationImpl?.revueHumaine === 'rejected'
-      ? 'refusee'
-      : 'absente';
-  const porte = porteDeLivraison(garde, validation);
-  if (porte === 'refus_humain') {
-    return {
-      issue: 'refus_humain',
+  if (jugee.resultId !== production.resultId) {
+    return echec(
+      `la production #${jugee.resultId} a remplacé la #${production.resultId} pendant la QA : ` +
+        `la porte et la QA la rejugeront${reprise}`,
       projetId,
-      taskId: idImpl,
-      message:
-        `un humain a refusé la production ${idImpl} : elle ne sera pas livrée. La boucle ne ` +
-        'contourne jamais un refus — confiez une nouvelle mission si le besoin demeure.',
-    };
+    );
   }
-  if (porte === 'validation_requise') {
-    const quoi =
-      garde.etat === 'illisible'
-        ? `diff illisible par la porte (${garde.motif ?? 'inconnu'})`
-        : garde.touches.map((t) => `${t.chemin} [${t.categorie}]`).join(', ');
-    return {
-      issue: 'validation_requise',
-      projetId,
-      taskId: idImpl,
-      garde,
-      message:
-        `ARRÊT à la porte des changements sensibles — ${quoi}. Relisez la production ${idImpl} ` +
-        'dans la Miellerie et approuvez-la (ou refusez-la) : le geste est consigné au journal ' +
-        `(task_reviewed). Puis relancez avec --oui --reprendre ${projetId}.` +
-        (journal
-          ? ''
-          : ' Le journal de la Reine est illisible : aucune validation ne peut y être lue.'),
-    };
-  }
+  const verdict = await juger(jugee.diff);
+  const arretFinal = arretALaPorte(verdict);
+  if (arretFinal) return arretFinal;
+  const { garde, validation, relecture } = verdict;
+  const evaluationImpl = verdict.evaluation;
 
   // ─── 5. LIVRER ──────────────────────────────────────────────────────────────
   if (!options.creer) {
@@ -664,6 +736,7 @@ export async function menerLaBoucle(
       qa,
       garde,
       validation,
+      relecture,
       livraison: { pr: l.pr, urlPr: l.urlPr, branche: l.branche, commitSha: l.commitSha },
     },
     caviardeur,

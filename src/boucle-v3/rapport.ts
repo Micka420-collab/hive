@@ -18,9 +18,12 @@
 //
 // ─── CE QUI PART CHEZ GITHUB EST CAVIARDÉ ET BORNÉ ──────────────────────────
 //
-// Le rapport devient un commentaire public de la PR. Il cite des textes
-// d'agents (objections, notes) : ils sont aplatis sur une ligne ou cités en
-// bloc, bornés, et le rapport ENTIER passe par le caviardeur de la ruche
+// Le rapport devient un commentaire public de la PR, posté avec le jeton de
+// l'hôte. Il cite des textes d'agents (raisons, objections, notes) : chacun
+// est rendu INERTE — en code sur une ligne, ou cité en bloc —, jamais en
+// Markdown actif. Sinon une ouvrière y glisserait `@quelqu’un` (une
+// notification envoyée au nom du propriétaire), un lien ou une image
+// traçante. Bornés, et le rapport ENTIER passe par le caviardeur de la ruche
 // (`shared/caviardage.ts`) avec les valeurs secrètes de l'hôte avant de
 // partir. GitHub refuse un commentaire de plus de 65 536 caractères : le
 // rapport s'arrête bien avant, et le dit.
@@ -30,7 +33,7 @@
 import { champSurUneLigne } from '../shared/donnees-non-fiables.js';
 import type { Caviardeur } from '../shared/caviardage.js';
 import { analyserRustine } from '../orchestrator/rustine.js';
-import type { ValidationHumaine, VerdictGarde } from './garde.js';
+import type { RelectureCroisee, ValidationHumaine, VerdictGarde } from './garde.js';
 
 /** Borne du rapport — sous la limite d'un commentaire GitHub (65 536). */
 export const MAX_RAPPORT = 60_000;
@@ -115,10 +118,18 @@ export interface FaitsRapport {
   qa: PhaseRapportee;
   garde: VerdictGarde;
   validation: ValidationHumaine;
+  relecture: RelectureCroisee;
   livraison: { pr: number; urlPr: string; branche: string; commitSha: string };
 }
 
 const ligne = (texte: string, max = MAX_RAISON) => champSurUneLigne(texte, max);
+
+/**
+ * Un texte d'agent sur une ligne, en CODE : ni mention, ni lien, ni image n'y
+ * sont interprétés. Ses propres accents graves sont remplacés — un seul
+ * suffirait à refermer le code et rendre la suite active.
+ */
+const enCode = (texte: string, max = MAX_RAISON) => `\`${ligne(texte, max).replaceAll('`', "'")}\``;
 
 /** Un texte d'ouvrière, cité en bloc et borné — jamais interprété comme du Markdown actif. */
 function citation(texte: string): string {
@@ -133,17 +144,22 @@ const ETAT_VALIDATION: Record<string, string> = {
   missing: '? absente',
 };
 
-/** Les fichiers du diff livré, avec leurs lignes ajoutées et retirées. */
-function fichiersTouches(diff: string): string[] {
+/**
+ * Les fichiers du diff livré, avec leurs lignes ajoutées et retirées — le
+ * titre les compte, eux : les chemins que seuls nomment les en-têtes (un
+ * renommage) sont jugés par la porte, pas écrits par la livraison.
+ */
+function sectionFichiers(diff: string): string[] {
   try {
-    return analyserRustine(diff).fichiers.map((f) => {
+    const fichiers = analyserRustine(diff).fichiers.map((f) => {
       const lignes = f.hunks.flatMap((h) => h.lignes);
       const plus = lignes.filter((l) => l.signe === '+').length;
       const moins = lignes.filter((l) => l.signe === '-').length;
-      return `- \`${ligne(f.chemin, 400)}\` — ${f.operation} (+${plus} −${moins})`;
+      return `- ${enCode(f.chemin, 400)} — ${f.operation} (+${plus} −${moins})`;
     });
+    return [`### Fichiers touchés (${fichiers.length})`, ...fichiers];
   } catch {
-    return ['- ? diff illisible par le parseur de livraison'];
+    return ['### Fichiers touchés (?)', '- ? diff illisible par le parseur de livraison'];
   }
 }
 
@@ -151,22 +167,29 @@ function verdictDe(nom: string, phase: PhaseRapportee): string {
   if (phase.statut === 'non_lancee')
     return `- ${nom} : non lancée — ${phase.pourquoi ?? 'inconnu'}`;
   if (!phase.evaluation) return `- ${nom} (${phase.statut}) : évaluation illisible — inconnu`;
-  const raisons = phase.evaluation.raisons.slice(0, 3).map((r) => ligne(r));
-  return `- ${nom} (${phase.statut}) : **${phase.evaluation.decision}**${
+  const raisons = phase.evaluation.raisons.slice(0, 3).map((r) => enCode(r));
+  return `- ${nom} (${phase.statut}) : ${enCode(phase.evaluation.decision, 40)}${
     raisons.length > 0 ? ` — ${raisons.join(' ; ')}` : ''
   }`;
 }
 
-function sectionPorte(garde: VerdictGarde, validation: ValidationHumaine): string[] {
-  if (garde.etat === 'libre') {
+function sectionPorte(
+  garde: VerdictGarde,
+  validation: ValidationHumaine,
+  relecture: RelectureCroisee,
+): string[] {
+  if (garde.etat === 'libre' && relecture === 'rendue') {
     return [
-      '✔ Aucune surface sensible touchée : la porte a laissé passer sans validation humaine.',
+      '✔ Aucune surface sensible touchée, et relue par une autre famille : la porte a laissé ' +
+        'passer sans validation humaine.',
     ];
   }
   const tete =
     garde.etat === 'illisible'
-      ? `⚠ Diff illisible par la porte (${ligne(garde.motif ?? 'inconnu')})`
-      : '⚠ Surfaces sensibles touchées';
+      ? `⚠ Diff illisible par la porte (${enCode(garde.motif ?? 'inconnu')})`
+      : garde.etat === 'sensible'
+        ? '⚠ Surfaces sensibles touchées'
+        : '⚠ Aucune relecture d’une autre famille';
   const qui =
     validation === 'approuvee'
       ? ' — **validées par un humain** (revue approuvée au journal, après la dernière production).'
@@ -179,7 +202,9 @@ function sectionPorte(garde: VerdictGarde, validation: ValidationHumaine): strin
           '| Fichier | Surface | Pourquoi |',
           '| --- | --- | --- |',
           ...garde.touches.map(
-            (t) => `| \`${ligne(t.chemin, 200)}\` | ${t.categorie} | ${ligne(t.pourquoi)} |`,
+            // Dans un tableau, `|` fermerait la cellule même en code.
+            (t) =>
+              `| ${enCode(t.chemin, 200).replaceAll('|', '\\|')} | ${t.categorie} | ${ligne(t.pourquoi)} |`,
           ),
         ]
       : []),
@@ -215,14 +240,14 @@ function sectionRelectures(evaluation: EvaluationLue | null): string[] {
   if (evaluation.relectures.length === 0) {
     return [
       evaluation.relectureImpossible
-        ? `✘ Aucune relecture croisée : ${ligne(evaluation.relectureImpossible)}.`
+        ? `✘ Aucune relecture croisée : ${enCode(evaluation.relectureImpossible)}.`
         : '✘ Aucune relecture croisée rendue sur cette production.',
     ];
   }
   return evaluation.relectures.map((r) => {
     const croisee = r.relecteur !== r.producteur ? 'croisée' : 'MÊME FAMILLE';
-    const raison = r.raison ? ` — « ${ligne(r.raison)} »` : '';
-    return `- ${ligne(r.relecteur, 60)} relit ${ligne(r.producteur, 60)} (${croisee}) : **${ligne(r.decision, 40)}**${raison}`;
+    const raison = r.raison ? ` — ${enCode(r.raison)}` : '';
+    return `- ${enCode(r.relecteur, 60)} relit ${enCode(r.producteur, 60)} (${croisee}) : ${enCode(r.decision, 40)}${raison}`;
   });
 }
 
@@ -240,10 +265,9 @@ export function rapportDeRisques(faits: FaitsRapport, caviardeur: Caviardeur): s
       `commit \`${livraison.commitSha.slice(0, 12)}\``,
     '',
     '### Porte des changements sensibles',
-    ...sectionPorte(faits.garde, faits.validation),
+    ...sectionPorte(faits.garde, faits.validation, faits.relecture),
     '',
-    `### Fichiers touchés (${faits.garde.fichiers.length})`,
-    ...fichiersTouches(implementation.diff),
+    ...sectionFichiers(implementation.diff),
     '',
     '### Validations',
     ...sectionValidations(faits),

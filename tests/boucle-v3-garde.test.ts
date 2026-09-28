@@ -5,12 +5,17 @@
 //     caviardage, git protégé, bac, workflows, installateurs, Docker,
 //     dépendances, scripts) arrête la livraison ;
 //   · la porte, la boucle et leurs bancs aussi — une production qui
-//     assouplit la porte attend un humain comme toute autre ;
+//     assouplit la porte attend un humain comme toute autre ; et ce dont les
+//     gardes DÉPENDENT (le parseur de la porte, les verdicts qui arrêtent une
+//     livraison, la table des revues, le caviardage côté nœud) ;
 //   · les ruses de forme ne passent pas : suppression, renommage pur, casse,
 //     fichier sensible noyé parmi des fichiers anodins ;
 //   · ce qui ne se lit pas est `illisible`, jamais `libre` ;
 //   · une validation n'est lue qu'au journal, APRÈS la dernière production, et
-//     un refus humain arrête tout — sensible ou non ;
+//     un refus humain arrête tout — sensible ou non ; un journal élagué de la
+//     production n'empêche pas une revue retenue de valoir ;
+//   · une production que personne d'une autre famille n'a relue attend un
+//     humain, même libre ;
 //   · chaque surface désigne au moins un fichier réel du dépôt : une liste qui
 //     ne vise plus rien ne protège plus rien.
 
@@ -20,10 +25,16 @@ import {
   SURFACES_SENSIBLES,
   jugerDiff,
   porteDeLivraison,
+  relectureCroisee,
   surfacesDe,
   validationHumaine,
 } from '../src/boucle-v3/garde.js';
-import type { EtatGarde, ValidationHumaine, VerdictGarde } from '../src/boucle-v3/garde.js';
+import type {
+  EtatGarde,
+  RelectureCroisee,
+  ValidationHumaine,
+  VerdictGarde,
+} from '../src/boucle-v3/garde.js';
 
 /** Un diff git complet qui modifie une ligne de `chemin`. */
 const modification = (chemin: string): string =>
@@ -95,6 +106,22 @@ describe('la porte des changements sensibles — ce qu’elle arrête', () => {
     ['vitest.config.ts', 'auto-execution'],
     ['AGENTS.md', 'auto-execution'],
     ['.agents/skills/testing-hive-dashboard/SKILL.md', 'auto-execution'],
+    // Ce dont les gardes dépendent : les affaiblir passerait sans toucher la garde.
+    ['src/orchestrator/rustine.ts', 'porte'],
+    ['src/node-client/client.ts', 'securite'],
+    ['src/shared/protocol.ts', 'securite'],
+    ['src/orchestrator/store.ts', 'securite'],
+    ['src/orchestrator/miroir.ts', 'securite'],
+    ['src/orchestrator/evaluator.ts', 'permissions'],
+    ['src/orchestrator/gardiennes.ts', 'permissions'],
+    ['src/orchestrator/ci-evidence.ts', 'permissions'],
+    ['src/orchestrator/scheduler.ts', 'permissions'],
+    ['src/shared/contre-expertise.ts', 'permissions'],
+    ['src/orchestrator/github.ts', 'secrets'],
+    ['src/node-client/tunnel.ts', 'deploiement'],
+    ['src/node-client/cloudflare.ts', 'deploiement'],
+    ['examples/deploiement-sans-ecran.sh', 'auto-execution'],
+    ['docker/atelier/entrypoint.sh', 'auto-execution'],
   ])('%s → %s', (chemin, categorie) => {
     const verdict = jugerDiff(modification(chemin));
     expect(verdict.etat).toBe('sensible');
@@ -213,16 +240,26 @@ describe('la décision : validation humaine au journal, refus sans appel', () =>
   const sensible = jugerDiff(modification('src/orchestrator/comptes.ts'));
   const illisible = jugerDiff('');
 
-  it.each<[string, VerdictGarde, ValidationHumaine, string]>([
-    ['libre sans validation', libre, 'absente', 'livrer'],
-    ['libre mais refusée', libre, 'refusee', 'refus_humain'],
-    ['sensible sans validation', sensible, 'absente', 'validation_requise'],
-    ['sensible validée', sensible, 'approuvee', 'livrer'],
-    ['sensible refusée', sensible, 'refusee', 'refus_humain'],
-    ['illisible sans validation', illisible, 'absente', 'validation_requise'],
-    ['illisible validée', illisible, 'approuvee', 'livrer'],
-  ])('%s → %s', (_nom, verdict, validation, attendu) => {
-    expect(porteDeLivraison(verdict, validation)).toBe(attendu);
+  it.each<[string, VerdictGarde, ValidationHumaine, RelectureCroisee, string]>([
+    ['libre et relue, sans validation', libre, 'absente', 'rendue', 'livrer'],
+    ['libre mais refusée', libre, 'refusee', 'rendue', 'refus_humain'],
+    ['libre, SANS relecture croisée', libre, 'absente', 'absente', 'validation_requise'],
+    ['libre sans relecture, validée', libre, 'approuvee', 'absente', 'livrer'],
+    ['sensible sans validation', sensible, 'absente', 'rendue', 'validation_requise'],
+    ['sensible validée', sensible, 'approuvee', 'rendue', 'livrer'],
+    ['sensible refusée', sensible, 'refusee', 'rendue', 'refus_humain'],
+    ['illisible sans validation', illisible, 'absente', 'rendue', 'validation_requise'],
+    ['illisible validée', illisible, 'approuvee', 'absente', 'livrer'],
+  ])('%s → %s', (_nom, verdict, validation, relecture, attendu) => {
+    expect(porteDeLivraison(verdict, validation, relecture)).toBe(attendu);
+  });
+
+  it('une relecture croisée est d’une AUTRE famille, et d’un relecteur connu', () => {
+    const r = (relecteur: string, producteur = 'claude-code') => ({ relecteur, producteur });
+    expect(relectureCroisee([])).toBe('absente');
+    expect(relectureCroisee([r('claude-code')])).toBe('absente');
+    expect(relectureCroisee([r('inconnu')])).toBe('absente');
+    expect(relectureCroisee([r('claude-code'), r('codex')])).toBe('rendue');
   });
 
   const T = 'v3-abcdef12-implementation';
@@ -241,6 +278,16 @@ describe('la décision : validation humaine au journal, refus sans appel', () =>
     expect(validationHumaine(T, [done(1), revue(2, 'approved'), done(3)], 'approved')).toBe(
       'absente',
     );
+  });
+
+  it('UNE PRODUCTION ÉLAGUÉE DU JOURNAL n’empêche pas la revue retenue de valoir', () => {
+    // L'élagage retire les plus anciens : sans `task_done` retenu, la
+    // production précède la revue. Exiger les deux laissait l'humain approuver
+    // en vain, arrêt après arrêt.
+    expect(validationHumaine(T, [revue(4800, 'approved')], 'approved')).toBe('approuvee');
+    expect(validationHumaine(T, [revue(4800, 'rejected')], 'missing')).toBe('refusee');
+    // …mais l'état rangé doit toujours dire oui.
+    expect(validationHumaine(T, [revue(4800, 'approved')], 'missing')).toBe('absente');
   });
 
   it('une approbation effacée ou absente du journal ne vaut rien', () => {

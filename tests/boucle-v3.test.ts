@@ -3,9 +3,11 @@
 // La séquence doit : ne RIEN créer sans `--oui` ; dire avant de dépenser ce
 // qui rendrait la mission impossible ; confier architecture → implémentation
 // → QA dans cet ordre, chacune lisant la précédente comme DONNÉE ; attendre
-// la relecture croisée ; s'arrêter à la porte quand la production touche une
-// surface sensible, et ne livrer qu'après une validation humaine lue au
-// journal ; ne jamais contourner un refus humain ni un refus de l'Evaluator ;
+// la relecture croisée ; s'arrêter à la porte — AVANT que la QA n'exécute la
+// production — quand elle touche une surface sensible ou que personne d'une
+// autre famille ne l'a relue, et ne livrer qu'après une validation humaine
+// lue au journal ; ne livrer que la production que la QA a rejouée ; livrer
+// et commenter dans le dépôt DU PROJET, même repris sans `--depot` ; ne jamais contourner un refus humain ni un refus de l'Evaluator ;
 // refuser de continuer sur un projet dont l'autonomie livrerait hors de la
 // porte ; livrer la production EXACTE jugée, puis joindre le rapport.
 //
@@ -17,6 +19,7 @@ import {
   DEPOT_HIVE,
   argumentsDeLaBoucle,
   idPhase,
+  idQa,
   menerLaBoucle,
 } from '../src/boucle-v3/boucle.js';
 import type { OptionsBoucle, Reponse, RucheBoucle, TacheACreer } from '../src/boucle-v3/boucle.js';
@@ -28,7 +31,8 @@ const GRAINE = 'abcdef12';
 const MISSION = 'Ajouter une ligne d’aide à la commande hive doctor';
 const ARCHI = idPhase(GRAINE, 'architecture');
 const IMPL = idPhase(GRAINE, 'implementation');
-const QA = idPhase(GRAINE, 'qa');
+/** La QA de la première production de l'implémentation (#101). */
+const QA = idQa(GRAINE, 101);
 
 const creation = (chemin: string, lignes: string[]): string =>
   [
@@ -83,6 +87,10 @@ function laboratoire(
     decisionImpl?: string;
     niveau?: string;
     livraison?: Reponse;
+    /** Les relecteurs de l'implémentation (défaut : codex relit claude-code). */
+    relecteurs?: Record<string, unknown>[];
+    /** Pendant la QA, un humain refuse l'implémentation et son retry produit à nouveau. */
+    retryPendantQa?: boolean;
   } = {},
 ) {
   const appels: string[] = [];
@@ -94,12 +102,14 @@ function laboratoire(
   const creees: TacheACreer[] = [];
   let prochainResultat = 100;
   let niveau = reglages.niveau ?? 'off';
+  let repoUrl = DEPOT_HIVE;
+  let retryFait = false;
   const familles = reglages.familles ?? ['claude-code', 'codex'];
   const emettre = (type: string, payload: Record<string, unknown>) =>
     evenements.push({ id: evenements.length + 1, type, payload });
 
   const produire = (t: Tache) => {
-    const role = t.id.split('-').at(-1);
+    const role = t.id.includes('-qa-') ? 'qa' : t.id.split('-').at(-1);
     const diff =
       role === 'architecture'
         ? creation(noteDe(GRAINE, 'architecture'), [
@@ -114,6 +124,14 @@ function laboratoire(
     resultats.set(t.id, liste);
     t.status = 'done';
     emettre('task_done', { taskId: t.id, nodeId: 'n-claude' });
+    const impl = taches.get(IMPL);
+    if (role === 'qa' && reglages.retryPendantQa && !retryFait && impl) {
+      // Le geste de la Miellerie, puis `retryFromEvaluator` : la revue est
+      // effacée, et une nouvelle production arrive.
+      retryFait = true;
+      emettre('task_reviewed', { taskId: IMPL, state: 'rejected' });
+      produire(impl);
+    }
   };
 
   const ruche: RucheBoucle = {
@@ -126,7 +144,7 @@ function laboratoire(
         if (t.status === 'ready') t.status = 'running';
       }
       return ok({
-        projects: [{ id: 'p1', name: 'Boucle V3' }],
+        projects: [{ id: 'p1', name: 'Boucle V3', repoUrl }],
         nodes: familles.map((f, i) => ({
           id: `n-${i}`,
           name: `poste-${f}`,
@@ -161,16 +179,19 @@ function laboratoire(
             validationProvenance: { source: 'hive_sandbox', nodeId: 'n-claude' },
             crossReview: {
               reviewers: impl
-                ? [
+                ? (reglages.relecteurs ?? [
                     {
                       reviewerAgent: 'codex',
                       producerAgent: 'claude-code',
                       decision: 'appliquer',
                       reason: 'propre',
                     },
-                  ]
+                  ])
                 : [],
             },
+            ...(impl && reglages.relecteurs?.length === 0
+              ? { crossReviewImpossible: 'aucune autre famille en ligne' }
+              : {}),
             // La relecture de l'implémentation rend un relevé après son `done`.
             crossReviewPending: impl && (releves.get(id) ?? 0) < 4 ? 1 : 0,
             humanReview: revues.get(id) ?? 'missing',
@@ -181,6 +202,7 @@ function laboratoire(
     },
     async creerProjet(corps) {
       appels.push(`POST projet ${corps.repoUrl}`);
+      repoUrl = corps.repoUrl;
       return ok({ id: 'p1', name: corps.name }, 201);
     },
     async creerTache(projetId, tache) {
@@ -244,7 +266,9 @@ function laboratoire(
 }
 
 const CAVIARDEUR = creerCaviardeur([]);
-const OPTIONS: OptionsBoucle = { creer: true, depot: DEPOT_HIVE, mission: MISSION, graine: GRAINE };
+const OPTIONS: OptionsBoucle = { creer: true, mission: MISSION, graine: GRAINE };
+/** La reprise telle que l'arrêt la dicte : `--oui --reprendre p1`, sans `--depot`. */
+const REPRISE: OptionsBoucle = { creer: true, reprendre: 'p1' };
 
 describe('la boucle V3 — ce qu’elle fait sans --oui', () => {
   it('SANS --oui RIEN N’EST CRÉÉ : elle lit la ruche, dit ce qu’elle ferait, et s’arrête', async () => {
@@ -322,7 +346,9 @@ describe('la boucle V3 — le parcours', () => {
     expect(commentaire?.pr).toBe(42);
     expect(commentaire?.corps).toContain('Aucune surface sensible touchée');
     expect(commentaire?.corps).toContain('`src/shared/doctor.ts` — modification (+1 −1)');
-    expect(commentaire?.corps).toContain('codex relit claude-code (croisée) : **appliquer**');
+    expect(commentaire?.corps).toContain(
+      '`codex` relit `claude-code` (croisée) : `appliquer` — `propre`',
+    );
     expect(commentaire?.corps).toContain('npm run typecheck → 0');
     expect(issue.issue === 'livree' && issue.commentaire).toBe('attache');
   });
@@ -337,29 +363,102 @@ describe('la boucle V3 — le parcours', () => {
     expect(arret.issue === 'validation_requise' && arret.message).toContain('--reprendre p1');
     expect(labo.ecritures().some((a) => a.startsWith('POST livraison'))).toBe(false);
     expect(labo.commentaires).toEqual([]);
+    // La QA n'a pas été confiée : elle aurait appliqué et lancé la production.
+    expect(labo.ecritures()).not.toContain(`POST tâche ${QA}`);
 
     // Relancer sans validation ne change rien.
-    const encore = await menerLaBoucle(labo.ruche, labo.github, CAVIARDEUR, {
-      creer: true,
-      depot: DEPOT_HIVE,
-      reprendre: 'p1',
-    });
+    const encore = await menerLaBoucle(labo.ruche, labo.github, CAVIARDEUR, REPRISE);
     expect(encore.issue).toBe('validation_requise');
 
-    // L'humain approuve dans la Miellerie ; la reprise ne recrée rien et livre.
+    // L'humain approuve dans la Miellerie ; la reprise ne recrée rien, confie
+    // la QA de la production approuvée, rejuge, et livre.
     labo.revue(IMPL, 'approved');
     const avant = labo.ecritures().length;
-    const reprise = await menerLaBoucle(labo.ruche, labo.github, CAVIARDEUR, {
-      creer: true,
-      depot: DEPOT_HIVE,
-      reprendre: 'p1',
-    });
+    const reprise = await menerLaBoucle(labo.ruche, labo.github, CAVIARDEUR, REPRISE);
     expect(reprise.issue).toBe('livree');
-    expect(labo.ecritures().slice(avant)).toEqual([`POST livraison ${IMPL} #101`]);
+    expect(labo.ecritures().slice(avant)).toEqual([
+      `POST tâche ${QA}`,
+      `POST livraison ${IMPL} #101`,
+    ]);
     const corps = labo.commentaires[0]?.corps ?? '';
     expect(corps).toContain('validées par un humain');
     expect(corps).toContain('| `.github/workflows/ci.yml` | deploiement |');
     expect(corps).toContain(`Mission : ${MISSION}`);
+  });
+
+  it('LA PORTE PASSE AVANT LA QA : un script npm modifié ne s’exécute sur aucune machine', async () => {
+    const labo = laboratoire({ diffImpl: modification('package.json') });
+    const issue = await menerLaBoucle(labo.ruche, labo.github, CAVIARDEUR, OPTIONS);
+    expect(issue.issue).toBe('validation_requise');
+    expect(issue.issue === 'validation_requise' && issue.garde.touches[0]?.categorie).toBe(
+      'auto-execution',
+    );
+    expect(labo.ecritures()).toEqual([
+      `POST projet ${DEPOT_HIVE}`,
+      `POST tâche ${ARCHI}`,
+      `POST tâche ${IMPL}`,
+    ]);
+  });
+
+  it('SANS RELECTURE D’UNE AUTRE FAMILLE, même libre, elle attend un humain', async () => {
+    const labo = laboratoire({ relecteurs: [] });
+    const arret = await menerLaBoucle(labo.ruche, labo.github, CAVIARDEUR, OPTIONS);
+    expect(arret.issue).toBe('validation_requise');
+    expect(arret.issue === 'validation_requise' && arret.message).toMatch(
+      /aucune relecture d’une autre famille \(aucune autre famille en ligne\)/,
+    );
+    expect(labo.ecritures().some((a) => a.startsWith('POST livraison'))).toBe(false);
+
+    labo.revue(IMPL, 'approved');
+    const livree = await menerLaBoucle(labo.ruche, labo.github, CAVIARDEUR, REPRISE);
+    expect(livree.issue).toBe('livree');
+    expect(labo.commentaires[0]?.corps).toContain(
+      '⚠ Aucune relecture d’une autre famille — **validées par un humain**',
+    );
+  });
+
+  it('LA QA PORTE SUR LA PRODUCTION LIVRÉE : une nouvelle production appelle sa propre QA', async () => {
+    const labo = laboratoire({ retryPendantQa: true });
+    const premier = await menerLaBoucle(labo.ruche, labo.github, CAVIARDEUR, OPTIONS);
+    // La QA a rejoué #101 ; l'implémentation a produit #103 entre-temps.
+    expect(premier.issue).toBe('echec');
+    expect(premier.issue === 'echec' && premier.raison).toMatch(
+      /#103 a remplacé la #101 pendant la QA.*--reprendre p1/,
+    );
+    expect(labo.ecritures().some((a) => a.startsWith('POST livraison'))).toBe(false);
+
+    const avant = labo.ecritures().length;
+    const reprise = await menerLaBoucle(labo.ruche, labo.github, CAVIARDEUR, REPRISE);
+    expect(reprise.issue).toBe('livree');
+    expect(labo.ecritures().slice(avant)).toEqual([
+      `POST tâche ${idQa(GRAINE, 103)}`,
+      `POST livraison ${IMPL} #103`,
+    ]);
+    expect(labo.commentaires[0]?.corps).toContain(`QA (tâche ${idQa(GRAINE, 103)}, done)`);
+  });
+
+  it('UNE REPRISE LIVRE ET COMMENTE DANS LE DÉPÔT DU PROJET — jamais dans un autre', async () => {
+    const FORK = 'https://github.com/un-membre/hive';
+    const labo = laboratoire({ diffImpl: DIFF_SENSIBLE });
+    await menerLaBoucle(labo.ruche, labo.github, CAVIARDEUR, { ...OPTIONS, depot: FORK });
+    labo.revue(IMPL, 'approved');
+
+    // Un `--depot` qui contredit le projet est refusé, sans rien écrire.
+    const avant = labo.ecritures().length;
+    const contredit = await menerLaBoucle(labo.ruche, labo.github, CAVIARDEUR, {
+      ...REPRISE,
+      depot: DEPOT_HIVE,
+    });
+    expect(contredit.issue === 'echec' && contredit.raison).toMatch(
+      /--depot contredit le dépôt du projet p1 \(un-membre\/hive\)/,
+    );
+    expect(labo.ecritures().slice(avant)).toEqual([]);
+
+    // La reprise que l'arrêt dicte (sans --depot) commente là où la Reine livre.
+    expect((await menerLaBoucle(labo.ruche, labo.github, CAVIARDEUR, REPRISE)).issue).toBe(
+      'livree',
+    );
+    expect(labo.commentaires.map((c) => c.depot)).toEqual(['un-membre/hive']);
   });
 
   it('UNE PRODUCTION QUI TOUCHE LA PORTE ELLE-MÊME attend un humain', async () => {
@@ -376,11 +475,7 @@ describe('la boucle V3 — le parcours', () => {
     // Une nouvelle production arrive APRÈS l'approbation (sans effacer l'état
     // rangé — le pire cas) : la porte lit le journal, pas seulement l'état.
     labo.reproduire(IMPL);
-    const issue = await menerLaBoucle(labo.ruche, labo.github, CAVIARDEUR, {
-      creer: true,
-      depot: DEPOT_HIVE,
-      reprendre: 'p1',
-    });
+    const issue = await menerLaBoucle(labo.ruche, labo.github, CAVIARDEUR, REPRISE);
     expect(issue.issue).toBe('validation_requise');
     expect(labo.ecritures().some((a) => a.startsWith('POST livraison'))).toBe(false);
   });
@@ -389,11 +484,7 @@ describe('la boucle V3 — le parcours', () => {
     const labo = laboratoire({ diffImpl: DIFF_SENSIBLE });
     await menerLaBoucle(labo.ruche, labo.github, CAVIARDEUR, OPTIONS);
     labo.revue(IMPL, 'rejected');
-    const issue = await menerLaBoucle(labo.ruche, labo.github, CAVIARDEUR, {
-      creer: true,
-      depot: DEPOT_HIVE,
-      reprendre: 'p1',
-    });
+    const issue = await menerLaBoucle(labo.ruche, labo.github, CAVIARDEUR, REPRISE);
     expect(issue.issue).toBe('refus_humain');
     expect(labo.ecritures().some((a) => a.startsWith('POST livraison'))).toBe(false);
 
@@ -403,11 +494,7 @@ describe('la boucle V3 — le parcours', () => {
       'livree',
     );
     anodin.revue(IMPL, 'rejected');
-    const refus = await menerLaBoucle(anodin.ruche, anodin.github, CAVIARDEUR, {
-      creer: true,
-      depot: DEPOT_HIVE,
-      reprendre: 'p1',
-    });
+    const refus = await menerLaBoucle(anodin.ruche, anodin.github, CAVIARDEUR, REPRISE);
     expect(refus.issue).toBe('refus_humain');
   });
 
@@ -416,11 +503,7 @@ describe('la boucle V3 — le parcours', () => {
     await menerLaBoucle(labo.ruche, labo.github, CAVIARDEUR, OPTIONS);
     labo.revue(IMPL, 'approved');
     labo.regler('gouverne');
-    const issue = await menerLaBoucle(labo.ruche, labo.github, CAVIARDEUR, {
-      creer: true,
-      depot: DEPOT_HIVE,
-      reprendre: 'p1',
-    });
+    const issue = await menerLaBoucle(labo.ruche, labo.github, CAVIARDEUR, REPRISE);
     expect(issue.issue).toBe('echec');
     expect(issue.issue === 'echec' && issue.raison).toMatch(/« gouverne ».*ne règle jamais/);
     expect(labo.ecritures().some((a) => a.startsWith('POST livraison'))).toBe(false);
@@ -451,9 +534,8 @@ describe('la boucle V3 — le parcours', () => {
     await labo.ruche.creerTache('p1', { id: ARCHI, title: 't', prompt: `Mission : ${MISSION}` });
     const avant = labo.ecritures().length;
     const issue = await menerLaBoucle(labo.ruche, labo.github, CAVIARDEUR, {
+      ...REPRISE,
       creer: false,
-      depot: DEPOT_HIVE,
-      reprendre: 'p1',
     });
     expect(issue.issue).toBe('plan');
     expect(labo.ecritures().slice(avant)).toEqual([]);
@@ -461,11 +543,12 @@ describe('la boucle V3 — le parcours', () => {
 });
 
 describe('les drapeaux', () => {
-  it('lit la mission, le dépôt par défaut de Hive, et refuse ce qu’il ne connaît pas', () => {
+  it('lit la mission, et refuse ce qu’il ne connaît pas', () => {
+    // Sans --depot, rien n'est fixé ici : une mission neuve vise DEPOT_HIVE,
+    // une reprise le dépôt de son projet.
     expect(argumentsDeLaBoucle(['--racine', '.', '--mission', MISSION])).toEqual({
       racine: '.',
       creer: false,
-      depot: DEPOT_HIVE,
       mission: MISSION,
     });
     expect(argumentsDeLaBoucle(['--racine', '.', '--mission', MISSION, '--ouii'])).toEqual({
