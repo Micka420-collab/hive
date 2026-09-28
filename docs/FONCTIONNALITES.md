@@ -445,7 +445,7 @@ s'envoyer un billet à soi-même. Deux réglages, **éteints par défaut** :
 
 <p align="center">
   <img src="images/decouverte-reseau.png" width="420" alt="Modale Inviter — « Sur votre réseau local » : la machine portable-de-camille (Linux, Claude Code et Codex, 2 places) attend ; le code affiché sur elle est saisi, bouton Accueillir.">
-  <img src="images/decouverte-reseau-accueillie.png" width="420" alt="Après Accueillir : « portable-de-camille a accepté l’offre », et la machine figure parmi celles déjà dans cette ruche.">
+  <img src="images/decouverte-reseau-accueillie.png" width="420" alt="Après Accueillir : « portable-de-camille a accepté l’offre » ; une fois inscrite, la machine se dit membre de cette ruche.">
   <img src="images/decouverte-reseau.mobile.png" width="210" alt="La même liste sur un téléphone : la machine en attente et son bouton Rejoindre, sans défilement horizontal.">
 </p>
 
