@@ -22,6 +22,7 @@ import {
   aiguillerNoeuds,
   antecedentsDuVecu,
   categoriser,
+  injecterEnVol,
   repriseHorsEchecs,
 } from './aiguillage.js';
 import type { Antecedent, Bras, EtatDecision, Rang, VecuAiguillage } from './aiguillage.js';
@@ -2451,6 +2452,16 @@ export class Scheduler {
       // Sans élection (`route` null), une réassignation revient au modèle par
       // défaut du nouveau nœud : l'ancienne élection ne survit pas à la tâche.
       this.poserBras(task.id, route?.bras, now);
+      // LA BORNE DU TROUPEAU VAUT AUSSI DANS LA PASSE. Le vécu est replié UNE
+      // fois par passe : sans cette injection, l'élection qu'on vient de poser
+      // n'y pesait qu'à la passe suivante, et toutes les tâches prêtes du genre
+      // partaient au même bras dans celle-ci — un modèle jamais jugé compris.
+      // Une `route` implique un vécu déjà replié : `lireAntecedents` le rend tel quel.
+      if (route) {
+        injecterEnVol(lireAntecedents(), [
+          { categorie: categoriser(task.title, task.prompt), ...route.bras },
+        ]);
+      }
       // L'Agent Garde-Fous : si le projet a opt-in, on élit et on POSE l'échelon
       // de garde-fous — c'est lui qui gouvernera la sévérité des Gardiennes de
       // cette production (lu par `modeGardiennesDe` à la réception). Après le patch

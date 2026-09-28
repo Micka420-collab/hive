@@ -7,6 +7,7 @@
 import { DEFAULT_TOKEN } from '../shared/types.js';
 import type { Task } from '../shared/types.js';
 import { EFFORTS, type Effort } from '../shared/effort.js';
+import { lancerStatut, type LanceurStatut } from '../node-client/agent-detect.js';
 import { assertRealExecutionAllowed, runCommandStreaming } from './exec.js';
 import { configurationDuDepot, consignesDuDepot } from './consignes-depot.js';
 import {
@@ -158,6 +159,37 @@ export function noteConfigurationIgnoree(
   return `configuration d'agent du dépôt ignorée (hooks, MCP, env) : ${liste}${consignes}`;
 }
 
+/**
+ * Les efforts que l'aide du `claude` INSTALLÉ documente, dans l'ordre de
+ * `EFFORTS` : le bloc de l'option `--effort`, jusqu'à l'option suivante, et
+ * la liste entre parenthèses qu'il porte (« (low, medium, high, xhigh, max) »
+ * sur 2.1.283). Pas d'option, pas de liste : aucun effort.
+ *
+ * Lu sur le binaire et non figé dans le code : un Claude Code d'avant
+ * `--effort` refuserait l'option à chaque tâche (échec d'infrastructure, sans
+ * verdict), et un niveau qu'il ne connaît pas est ignoré avec un simple
+ * avertissement — le verdict serait rangé sous un effort qui n'a pas tourné.
+ */
+export function effortsDeLAide(aide: string): Effort[] {
+  const debut = aide.indexOf('--effort');
+  if (debut < 0) return [];
+  const bloc = aide.slice(debut);
+  const fin = bloc.search(/\n\s*-/);
+  const liste = /\(([^)]*)\)/.exec(fin < 0 ? bloc : bloc.slice(0, fin))?.[1] ?? '';
+  const cites = new Set(liste.split(',').map((m) => m.trim()));
+  return EFFORTS.filter((e) => cites.has(e));
+}
+
+/**
+ * Sonde les efforts du `claude` installé : `claude --help`, qui n'appelle aucun
+ * modèle. Muette, en échec ou trop lente : AUCUN effort — le nœud n'en déclare
+ * pas, et le CLI garde son défaut. `lancer` : injectable pour les bancs.
+ */
+export async function sonderEffortsClaude(lancer: LanceurStatut = lancerStatut): Promise<Effort[]> {
+  const r = await lancer(['claude'], ['--help']);
+  return r?.code === 0 ? effortsDeLAide(r.sortie) : [];
+}
+
 export function createClaudeCodeAdapter(
   token = process.env.HIVE_TOKEN ?? DEFAULT_TOKEN,
 ): AgentAdapter {
@@ -165,7 +197,7 @@ export function createClaudeCodeAdapter(
   assertRealExecutionAllowed("L'adaptateur claude-code", token);
   return {
     name: 'claude-code',
-    efforts: EFFORTS,
+    effortsDocumentes: () => sonderEffortsClaude(),
     async run(task: Task, ctx: AdapterContext): Promise<AdapterResult> {
       ctx.onProgress({ log: 'claude -p (stream-json) démarré' });
       const tracker = createSubAgentTracker();

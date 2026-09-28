@@ -1198,9 +1198,12 @@ async function monterReine(
     // la seule manière de ne pas rattacher une relecture tardive à une
     // tentative plus récente de la même tâche.
     const resultId = store.resultsForTask(taskId).at(-1)?.resultId;
-    // Le modèle doit voyager avec le resultId : une correction peut
-    // réaffecter la même tâche avant le retour d'une contre-revue tardive.
-    const producteurModele = store.modeleAiguillageDe(taskId);
+    // Le BRAS doit voyager avec le resultId : une correction peut réaffecter
+    // la même tâche avant le retour d'une contre-revue tardive, et
+    // `aiguillage_bras` décrit alors la tentative suivante (son harness, son
+    // effort, son coût). Figé ici, à l'instant où le résultat relu est le
+    // courant, le verdict tardif juge ce qui a PRODUIT.
+    const preuve = preuveDuProducteur(taskId);
 
     const choix = choisirCritiques(production, candidatsRelecture());
 
@@ -1212,7 +1215,7 @@ async function monterReine(
       emitEvent('contre_expertise', {
         taskId,
         ...(resultId !== undefined ? { resultId } : {}),
-        ...(producteurModele ? { producteurModele } : {}),
+        ...preuve,
         possible: false,
         producteur: production.agentType,
         motif: choix.motif,
@@ -1222,12 +1225,46 @@ async function monterReine(
 
     lancerRelectures(production, projectId, choix.relecteurs, {
       ...(resultId !== undefined ? { resultId } : {}),
-      ...(producteurModele ? { producteurModele } : {}),
+      ...preuve,
     });
     // APRÈS l'annonce : le lancement précède l'assignation dans le journal, et
     // `eventForRelecture` le retrouve pour toute relecture déjà en vol.
     scheduler.tick();
   };
+
+  /**
+   * La preuve de ce qui a produit le résultat courant de `taskId` : le modèle
+   * et le reste du bras commandés (`aiguillage_bras`), coût déclaré compris.
+   * Chaque champ absent reste absent — jamais un harness, un effort ou un coût
+   * supposé.
+   */
+  function preuveDuProducteur(taskId: string): Record<string, string | number> {
+    const producteurModele = store.modeleAiguillageDe(taskId);
+    const bras = store.brasAiguillageDe(taskId);
+    return {
+      ...(producteurModele ? { producteurModele } : {}),
+      ...(bras ? { producteurHarness: bras.harness } : {}),
+      ...(bras?.effort ? { producteurEffort: bras.effort } : {}),
+      ...(bras?.coutUsd !== null && bras?.coutUsd !== undefined
+        ? { producteurCoutUsd: bras.coutUsd }
+        : {}),
+    };
+  }
+
+  /**
+   * La même preuve, RELAYÉE d'une annonce à la suivante (secours, verdict) :
+   * seuls les champs de preuve, et seulement bien typés.
+   */
+  function preuveRelayee(payload: Record<string, unknown> | undefined): Record<string, unknown> {
+    const preuve: Record<string, unknown> = {};
+    for (const champ of ['producteurModele', 'producteurHarness', 'producteurEffort'] as const) {
+      if (typeof payload?.[champ] === 'string') preuve[champ] = payload[champ];
+    }
+    if (typeof payload?.producteurCoutUsd === 'number') {
+      preuve.producteurCoutUsd = payload.producteurCoutUsd;
+    }
+    return preuve;
+  }
 
   /** Les nœuds de la ruche, vus comme candidats à une relecture. */
   function candidatsRelecture(): Candidat[] {
@@ -1492,10 +1529,9 @@ async function monterReine(
           )
         : null;
     if (suite.genre === 'secours' && ouverture) {
-      const producteurModele = store.eventForRelecture(relectureTaskId)?.payload.producteurModele;
       lancerRelectures(ouverture.production, ouverture.projectId, [suite.relecteur], {
         resultId,
-        ...(typeof producteurModele === 'string' ? { producteurModele } : {}),
+        ...preuveRelayee(store.eventForRelecture(relectureTaskId)?.payload),
         secours: true,
         relaie: relectureTaskId,
       });
@@ -1551,9 +1587,7 @@ async function monterReine(
       source: 'hive_counter_review',
       taskId: lien.productionTaskId,
       ...(exactResultId !== undefined ? { resultId: exactResultId } : {}),
-      ...(typeof lancement?.payload.producteurModele === 'string'
-        ? { producteurModele: lancement.payload.producteurModele }
-        : {}),
+      ...preuveRelayee(lancement?.payload),
       relecture: relectureTaskId,
       relecteur: auteur.agentType,
       reviewerNodeId: auteur.id,

@@ -12,7 +12,15 @@
 // reçoit jamais un effort qu'il n'a pas déclaré (`efforts` à l'inscription).
 //
 //   · Claude Code : `claude --effort <level>` — « low, medium, high, xhigh,
-//     max » (`claude --help`, relevé sur 2.1.283).
+//     max » (`claude --help`, relevé sur 2.1.283). Le nœud ne s'y fie pas : il
+//     SONDE l'aide du binaire installé au démarrage (`effortsDeLAide`), et un
+//     CLI d'avant `--effort` n'en déclare aucun.
+//
+//     LIMITE CONNUE : le CLI accepte tout niveau documenté pour TOUT modèle, en
+//     silence (`--effort xhigh --model haiku` tourne sans broncher, 2.1.283),
+//     et n'expose pas quels modèles en tiennent compte. Pour un modèle sans
+//     effort, les bras d'effort sont donc des jumeaux : leurs verdicts se
+//     partagent la fenêtre et restent groupés par l'a priori du modèle.
 //   · Codex : AUCUN. `model_reasoning_effort` existe, mais ses valeurs sont
 //     annoncées par CHAQUE modèle (`ReasoningEffort::Custom`, « a
 //     model-defined effort value », codex-rs/protocol/src/openai_models.rs) et

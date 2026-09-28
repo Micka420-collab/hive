@@ -150,11 +150,11 @@ export interface AdapterResult {
 export interface AgentAdapter {
   name: string;
   /**
-   * Les efforts que CE CLI documente, que le nœud déclare à la ruche. Absent :
-   * l'agent n'en documente aucun, et l'Aiguillage ne lui en commande jamais
-   * (`shared/effort.ts`).
+   * Les efforts que le CLI INSTALLÉ documente, sondés une fois au démarrage du
+   * nœud, qui les déclare à la ruche. Absent (ou liste vide) : l'Aiguillage ne
+   * lui en commande jamais (`shared/effort.ts`).
    */
-  efforts?: readonly Effort[];
+  effortsDocumentes?: () => Promise<readonly Effort[]>;
   run(task: Task, ctx: AdapterContext): Promise<AdapterResult>;
 }
 

@@ -441,6 +441,9 @@ describe.skipIf(process.platform === 'win32')(
           "'use strict';",
           "const fs = require('node:fs');",
           "const path = require('node:path');",
+          // La sonde des efforts du nœud (`claude --help`, au démarrage) n'est
+          // pas une tentative : comme le vrai CLI, l'aide sort sans prompt.
+          "if (process.argv.includes('--help')) { process.stdout.write('Usage: claude\\n'); process.exit(0); }",
           `const compteur = path.join(${JSON.stringify(faux)}, 'appels');`,
           "const n = fs.existsSync(compteur) ? Number(fs.readFileSync(compteur, 'utf8')) + 1 : 1;",
           'fs.writeFileSync(compteur, String(n));',

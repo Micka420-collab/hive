@@ -317,6 +317,69 @@ describe('HiveStore — le lien tâche→modèle de l’Aiguillage', () => {
     expect(o).not.toHaveProperty('effort');
   });
 
+  describe('UNE CONTRE-REVUE TARDIVE JUGE LE BRAS QUI A PRODUIT, pas la tentative suivante', () => {
+    // Une correction réaffecte la tâche (gpt sous Codex) AVANT le retour de la
+    // contre-revue du résultat d'opus sous Claude Code à `max`. `aiguillage_bras`
+    // décrit alors la tentative suivante : relu là, le « refaire » tombait sur
+    // un bras fantôme (opus × codex) chargé du coût de gpt.
+    function produitPuisReaffecte(preuve: Record<string, unknown>): string {
+      store.registerNode({
+        nodeId: 'cc',
+        name: 'cc',
+        ownerName: 'm',
+        agentType: 'claude-code',
+        maxConcurrency: 1,
+      });
+      const t = tache('Ajoute un endpoint', 'implémente');
+      store.poserModeleAiguillage(t, 'opus', 1_000, { harness: 'claude-code', effort: 'max' });
+      store.poserCoutAiguillage(t, 2);
+      const resultId = store.insertResult(
+        {
+          taskId: t,
+          nodeId: 'cc',
+          success: true,
+          diff: 'd',
+          logs: '',
+          durationMs: 1,
+          subAgents: [],
+        },
+        1_500,
+      );
+      store.appendEvent(
+        'contre_expertise_verdict',
+        { source: 'hive_counter_review', taskId: t, resultId, ...preuve },
+        1_600,
+      );
+      store.poserModeleAiguillage(t, 'gpt', 1_700, { harness: 'codex', effort: null });
+      store.poserCoutAiguillage(t, 0.01);
+      verdict(t, 'refaire', 2_000);
+      return t;
+    }
+
+    it('LA PREUVE FIGÉE PORTE LE BRAS ENTIER', () => {
+      produitPuisReaffecte({
+        producteurModele: 'opus',
+        producteurHarness: 'claude-code',
+        producteurEffort: 'max',
+        producteurCoutUsd: 2,
+      });
+      expect(store.observationsAiguillage()[0]).toMatchObject({
+        modeleExact: 'opus',
+        harness: 'claude-code',
+        effort: 'max',
+        coutUsd: 2,
+      });
+    });
+
+    it('UNE PREUVE SANS BRAS : le harness se constate sur le nœud, rien d’autre n’est emprunté', () => {
+      produitPuisReaffecte({ producteurModele: 'opus' });
+      const [o] = store.observationsAiguillage();
+      expect(o).toMatchObject({ modeleExact: 'opus', harness: 'claude-code' });
+      expect(o, 'jamais l’effort de la tentative suivante').not.toHaveProperty('effort');
+      expect(o, 'jamais le coût de la tentative suivante').not.toHaveProperty('coutUsd');
+    });
+  });
+
   it('LA BORNE ÉLAGUE LE BRAS AVEC SON MODÈLE', () => {
     store.poserModeleAiguillage('tache-fantome', 'm', 1_000, { harness: 'codex', effort: null });
     store.pruneAiguillageModeles();

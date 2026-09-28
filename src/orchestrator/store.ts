@@ -1510,6 +1510,11 @@ function lireOutils(brut: string): OutilConstate[] {
   }
 }
 
+/** Un coût déclaré relu : fini et positif, sinon « non déclaré » — jamais 0. */
+function coutLisible(v: unknown): number | null {
+  return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null;
+}
+
 /**
  * De la ligne brute au `HiveNode` : replier les colonnes JSON (`modeles`,
  * `outils`) en tableaux. `plateforme` et `running` passent tels quels. Une
@@ -4861,10 +4866,27 @@ export class HiveStore {
 
   /** Effort commandé à la tentative courante ; `null` : aucun (ou bras inconnu). */
   effortAiguillageDe(taskId: string): Effort | null {
+    return this.brasAiguillageDe(taskId)?.effort ?? null;
+  }
+
+  /**
+   * Le bras rangé pour la tentative courante (sans le modèle, cf.
+   * `modeleAiguillageDe`) ; `null` sans élection v3. Un effort illisible vaut
+   * « aucun », un coût hors bornes « non déclaré » — rien n'est deviné.
+   */
+  brasAiguillageDe(
+    taskId: string,
+  ): { harness: string; effort: Effort | null; coutUsd: number | null } | null {
     const row = this.db
-      .prepare('SELECT effort FROM aiguillage_bras WHERE taskId = ?')
-      .get(taskId) as { effort: string | null } | undefined;
-    return estEffort(row?.effort) ? row.effort : null;
+      .prepare('SELECT harness, effort, coutUsd FROM aiguillage_bras WHERE taskId = ?')
+      .get(taskId) as
+      { harness: string; effort: string | null; coutUsd: number | null } | undefined;
+    if (!row) return null;
+    return {
+      harness: row.harness,
+      effort: estEffort(row.effort) ? row.effort : null,
+      coutUsd: coutLisible(row.coutUsd),
+    };
   }
 
   /** Modèle choisi pour la tentative actuellement représentée par la tâche. */
@@ -4958,6 +4980,14 @@ export class HiveStore {
    * `slice(-CORPUS)` redevient un no-op puisque la borne est déjà le `LIMIT`.
    */
   observationsAiguillage(limite = CORPUS_AIGUILLAGE): LigneObservationAiguillage[] {
+    // LE BRAS VOYAGE AVEC LA PREUVE, comme le modèle. Quand le verdict porte
+    // son `resultId` (ce), harness, effort et coût viennent de l'annonce figée
+    // au lancement de la contre-revue (`producteurHarness`…), JAMAIS
+    // d'`aiguillage_bras` : une correction a pu réaffecter la tâche depuis, et
+    // cette ligne décrit alors la tentative suivante — un verdict tardif
+    // aurait été rangé sous un bras qui n'a jamais tourné, chargé du coût d'un
+    // autre.
+    //
     // LE BRAS D'UN VERDICT D'AVANT LA V3 n'est pas deviné, il est CONSTATÉ :
     // aucun effort n'était alors commandé (`effort` NULL est un fait), et le
     // harness est l'agentType du nœud qui a produit le résultat relu. Sans ce
@@ -4974,8 +5004,15 @@ export class HiveStore {
                 cv.suite AS suite,
                 r.nodeId AS nodeId,
                 json_extract(ce.payload, '$.producteurModele') AS modeleExact,
-                COALESCE(ab.harness, n.agentType) AS harness,
-                ab.effort AS effort, ab.coutUsd AS coutUsd
+                CASE WHEN ce.id IS NULL THEN ab.harness
+                     ELSE COALESCE(json_extract(ce.payload, '$.producteurHarness'), n.agentType)
+                 END AS harness,
+                CASE WHEN ce.id IS NULL THEN ab.effort
+                     ELSE json_extract(ce.payload, '$.producteurEffort')
+                 END AS effort,
+                CASE WHEN ce.id IS NULL THEN ab.coutUsd
+                     ELSE json_extract(ce.payload, '$.producteurCoutUsd')
+                 END AS coutUsd
            FROM contre_visites cv
            LEFT JOIN aiguillage_modeles am ON am.taskId = cv.productionTaskId
            LEFT JOIN aiguillage_bras ab    ON ab.taskId = cv.productionTaskId
@@ -5009,16 +5046,19 @@ export class HiveStore {
         coutUsd: number | null;
       }
     >;
-    return rows.reverse().map(({ nodeId, modeleExact, harness, effort, coutUsd, ...ligne }) => ({
-      ...ligne,
-      ...(nodeId ? { nodeId } : {}),
-      ...(modeleExact ? { modeleExact } : {}),
-      ...(harness ? { harness } : {}),
-      // Un effort illisible (base éditée à la main) vaut « aucun » : il n'est
-      // jamais deviné vers un niveau voisin.
-      ...(estEffort(effort) ? { effort } : {}),
-      ...(coutUsd !== null && Number.isFinite(coutUsd) && coutUsd >= 0 ? { coutUsd } : {}),
-    }));
+    return rows.reverse().map(({ nodeId, modeleExact, harness, effort, coutUsd, ...ligne }) => {
+      const cout = coutLisible(coutUsd);
+      return {
+        ...ligne,
+        ...(nodeId ? { nodeId } : {}),
+        ...(modeleExact ? { modeleExact } : {}),
+        ...(harness ? { harness } : {}),
+        // Un effort illisible (base éditée à la main) vaut « aucun » : il n'est
+        // jamais deviné vers un niveau voisin.
+        ...(estEffort(effort) ? { effort } : {}),
+        ...(cout !== null ? { coutUsd: cout } : {}),
+      };
+    });
   }
 
   /**

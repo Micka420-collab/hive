@@ -370,6 +370,8 @@ export class HiveNodeClient {
   /** Dernière fois que le hub a donné signe de vie (message ou pong). */
   private derniereNouvelle = 0;
   private readonly adapter: AgentAdapter;
+  /** Les efforts sondés au démarrage (`start`) ; vide : aucun déclaré. */
+  private efforts: readonly Effort[] = [];
   private readonly workRoot: string;
   /**
    * Où les ponts de délégation de ce nœud ouvrent leurs sockets : un dossier
@@ -427,7 +429,23 @@ export class HiveNodeClient {
     this.closed = false;
     this.warnIfInsecureTransport();
     this.preparerRendezVous();
-    this.connect();
+    // Les efforts se SONDENT avant la première inscription (`claude --help`,
+    // quelques centaines de ms, borné par `STATUT_MAX_MS`) : s'inscrire avant
+    // les annoncerait à la reconnexion suivante seulement. Une sonde qui échoue
+    // n'en déclare aucun — le CLI garde son défaut — et ne retient pas le nœud.
+    const sonde = this.adapter.effortsDocumentes;
+    if (!sonde) {
+      this.connect();
+      return;
+    }
+    void sonde()
+      .then(
+        (efforts) => {
+          this.efforts = efforts;
+        },
+        () => undefined,
+      )
+      .then(() => this.connect());
   }
 
   /**
@@ -794,11 +812,10 @@ export class HiveNodeClient {
         ...(this.opts.modeles && this.opts.modeles.length > 0
           ? { modeles: this.opts.modeles }
           : {}),
-        // Les efforts que l'adaptateur DOCUMENTE (jamais configurés à la main) :
-        // redits à chaque inscription, absents quand l'agent n'en a aucun.
-        ...(this.adapter.efforts && this.adapter.efforts.length > 0
-          ? { efforts: [...this.adapter.efforts] }
-          : {}),
+        // Les efforts que le CLI installé DOCUMENTE (sondés au démarrage, jamais
+        // configurés à la main) : redits à chaque inscription, absents quand
+        // l'agent n'en a aucun.
+        ...(this.efforts.length > 0 ? { efforts: [...this.efforts] } : {}),
         // Ce que ce poste porte réellement — des CONSTATS, pas un verdict. Le
         // hub en tire sa conclusion avec son catalogue ; ici on ne fait que
         // rapporter ce qu'on a vu. Absent tant que le diagnostic n'a pas

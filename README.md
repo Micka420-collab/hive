@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-7103%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-7116%20passing-F6C445?labelColor=17130C)
 ![Licence](https://img.shields.io/badge/licence-MIT-F6C445?labelColor=17130C)
 
 🇫🇷 Français · [🇬🇧 English](README.en.md) · [🌐 Site](https://micka420-collab.github.io/hive/) · [📚 Documentation](#-documentation)
@@ -170,7 +170,11 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
   agent × effort) hérite du vécu de son modèle, et le coût déclaré n'entre
   dans le score que si TOUS les bras comparés en déclarent un (poids repris de
   LiteLLM, non calibrés) ; l'effort n'est commandé qu'à Claude Code, le seul
-  CLI qui documente ses niveaux ;
+  CLI qui documente ses niveaux (sondés sur le binaire installé). Prix connu :
+  chaque modèle Claude s'offre à six efforts (défaut du CLI, puis low → max),
+  les efforts jamais jugés d'un bon modèle sont explorés tour à tour — `xhigh`
+  et `max` compris — et le coût reste hors du score tant qu'ils ne le sont
+  pas tous ; le CLI accepte aussi un effort pour un modèle qui l'ignore ;
 - une contre-expertise croisée sur un vrai run : une ouvrière par famille est
   éprouvée avec de vrais processus et de faux agents, pas encore avec Claude
   Code relu par Codex ;

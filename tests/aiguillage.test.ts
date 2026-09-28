@@ -272,11 +272,28 @@ describe('classer / choisirBras — le choix, et sa reproductibilité', () => {
       b('grok', 'grok'),
     ];
     const reference = classer('code', bras, replierAntecedents(verdicts));
-    for (let i = 1; i < bras.length; i++) {
-      const tourne = [...bras.slice(i), ...bras.slice(0, i)];
-      expect(classer('code', tourne, replierAntecedents(verdicts))).toEqual(reference);
+    const permutations = <T>(liste: readonly T[]): T[][] => [
+      ...liste.map((_, i) => [...liste.slice(i), ...liste.slice(0, i)]),
+      [...liste].reverse(),
+    ];
+    // Chaque ordre des bras CROISÉ avec chaque ordre des verdicts (sous la
+    // fenêtre `CORPUS_AIGUILLAGE`, l'ordre des verdicts ne doit rien changer).
+    for (const ordreBras of permutations(bras)) {
+      for (const ordreVerdicts of permutations(verdicts)) {
+        expect(classer('code', ordreBras, replierAntecedents(ordreVerdicts))).toEqual(reference);
+      }
     }
-    expect(classer('code', [...bras].reverse(), replierAntecedents(verdicts))).toEqual(reference);
+  });
+
+  it('LE DÉPARTAGE NE DÉPEND PAS DE LA LOCALE — ordre par unités de code', () => {
+    // `localeCompare` suit la locale ICU du processus : « é » passe avant « f »
+    // en français comme en anglais, après en ordre brut. Deux ruches sur deux
+    // OS doivent départager pareil ; l'ordre brut, lui, ne varie jamais.
+    const c = classer('code', [b('éclair'), b('fable'), b('Zeta')], {
+      bras: new Map(),
+      modeles: new Map(),
+    });
+    expect(c.rang.map((r) => r.modele)).toEqual(['Zeta', 'fable', 'éclair']);
   });
 
   it('À ÉGALITÉ PARFAITE, LE DÉPARTAGE EST TOTAL : modèle, harness, puis le moindre effort', () => {
@@ -415,13 +432,30 @@ describe('le coût — seulement quand TOUS les bras comparés le déclarent', (
   it('UN SEUL COÛT INCONNU ÉTEINT LE TERME POUR TOUS — jamais un mélange', () => {
     // Codex ne déclare que des jetons. Pondérer « quand c'est connu » ferait
     // payer à Claude Code sa transparence : le bras muet paraîtrait gratuit.
-    const c = classer('code', [b('opus'), b('fable', 'codex')], verdicts(2, null));
+    // fable est JUGÉ (six verdicts), mais aucun ne porte de coût : c'est
+    // l'inconnu, pas un bras neuf (cas du banc suivant).
+    const c = classer('code', [b('opus'), b('fable')], verdicts(2, null));
+    expect(c.rang.find((r) => r.modele === 'fable')).toMatchObject({ essais: 6, cout: null });
     expect(c.coutPondere).toBe(false);
-    const sansCout = classer('code', [b('opus'), b('fable', 'codex')], verdicts(null, null));
+    const sansCout = classer('code', [b('opus'), b('fable')], verdicts(null, null));
     expect(
       c.rang.map((r) => [r.modele, r.score]),
       'mêmes scores que si personne ne déclarait',
     ).toEqual(sansCout.rang.map((r) => [r.modele, r.score]));
+  });
+
+  it('UN BRAS À MOITIÉ CHIFFRÉ EST UN COÛT INCONNU — pas la moyenne de ses seuls coûts déclarés', () => {
+    // Un verdict sur deux porte un coût : sa moyenne serait tirée du seul
+    // déclaré, et le bras paraîtrait connu. Le mélange interdit entre bras
+    // l'est aussi à l'intérieur d'un bras.
+    const vecu = replierAntecedents([
+      ...Array.from({ length: 6 }, () => obs('code', 'opus', 'appliquer', { cout: 2 })),
+      ...Array.from({ length: 3 }, () => obs('code', 'fable', 'appliquer', { cout: 0.01 })),
+      ...Array.from({ length: 3 }, () => obs('code', 'fable', 'appliquer')),
+    ]);
+    const c = classer('code', [b('opus'), b('fable')], vecu);
+    expect(c.rang.find((r) => r.modele === 'fable')?.cout).toBeNull();
+    expect(c.coutPondere).toBe(false);
   });
 
   it('UN BRAS NEUF (sans coût encore) ÉTEINT AUSSI LE TERME', () => {
@@ -465,14 +499,20 @@ describe('aiguillerNoeuds — du bras élu aux nœuds qui savent le faire tourne
     expect(route?.noeuds.map((n) => n.id)).toEqual(['cc']);
   });
 
-  it('UN NŒUD QUI DÉCLARE DES EFFORTS N’OFFRE QUE CEUX-LÀ — jamais un effort à qui n’en déclare pas', () => {
+  it('UN NŒUD QUI DÉCLARE DES EFFORTS OFFRE LE DÉFAUT PLUS CEUX-LÀ — jamais un effort à qui n’en déclare pas', () => {
     const route = aiguillerNoeuds(
       'code',
       [noeud('n1', ['opus'], 'claude-code', ['low', 'max']), noeud('n2', ['opus'], 'codex')],
       { bras: new Map(), modeles: new Map() },
     );
     const offerts = route?.rang.map((r) => `${r.harness}:${r.effort ?? '-'}`).sort();
-    expect(offerts).toEqual(['claude-code:low', 'claude-code:max', 'codex:-']);
+    expect(offerts).toEqual(['claude-code:-', 'claude-code:low', 'claude-code:max', 'codex:-']);
+    // Ruche neuve, tout se vaut : le DÉFAUT du CLI, jamais `--effort low`.
+    expect(route?.bras).toEqual(b('opus'));
+    expect(
+      route?.noeuds.map((n) => n.id),
+      'seul le porteur de ce harness',
+    ).toEqual(['n1']);
     for (const r of route?.rang ?? []) {
       if (r.harness === 'codex') expect(r.effort, 'Codex ne documente aucun effort').toBeNull();
     }
@@ -566,7 +606,7 @@ describe('repriseHorsEchecs — un modèle qui a planté sur une tâche n’en r
 });
 
 describe('injecterEnVol — le troupeau borné : un bras élu baisse dès son lancement', () => {
-  it('UNE ÉLECTION EN VOL EST UN ESSAI SANS NOTE, compté à part, dans le seul niveau bras', () => {
+  it('UNE ÉLECTION EN VOL EST UN ESSAI SANS NOTE au niveau bras, un simple compte au niveau modèle', () => {
     const v = replierAntecedents(Array.from({ length: 4 }, () => obs('code', 'opus', 'appliquer')));
     injecterEnVol(v, [{ categorie: 'code', modele: 'opus', harness: 'claude-code', effort: null }]);
     expect(v.bras.get(cleBras('code', b('opus')))).toEqual({
@@ -574,9 +614,13 @@ describe('injecterEnVol — le troupeau borné : un bras élu baisse dès son la
       recompenseTotale: 4,
       enVol: 1,
     });
-    // Le niveau modèle n'en reçoit pas : un zéro jamais prononcé ne déprime pas
-    // l'a priori des bras frères.
-    expect(v.modeles.get(cle('code', 'opus'))).toEqual({ essais: 4, recompenseTotale: 4 });
+    // Le niveau modèle la COMPTE à part, sans essai ni note : un zéro jamais
+    // prononcé ne reste pas dans l'a priori une fois le verdict tombé.
+    expect(v.modeles.get(cle('code', 'opus'))).toEqual({
+      essais: 4,
+      recompenseTotale: 4,
+      enVol: 1,
+    });
   });
 
   it('LE BRAS ÉLU PERD DU TERRAIN DÈS LE LANCEMENT — sans quoi il raflerait tout le genre', () => {
@@ -592,6 +636,32 @@ describe('injecterEnVol — le troupeau borné : un bras élu baisse dès son la
       choisirBras('code', [b('fable'), b('opus')], apres)?.modele,
       'l’autre passe devant',
     ).toBe('opus');
+  });
+
+  it('LA BORNE EST PAR MODÈLE — ses efforts ne multiplient pas le troupeau', () => {
+    // Un nœud Claude Code offre chaque modèle à six efforts. grok n'a jamais été
+    // jugé, opus est moyen. Chaque élection part en vol avant tout verdict :
+    // bornés bras par bras, les cinq frères intacts de grok gardaient leur a
+    // priori vierge, et grok raflait six tâches d'affilée (défaut, low → max).
+    const vecu = replierAntecedents([
+      ...Array.from({ length: 4 }, () => obs('code', 'opus', 'appliquer')),
+      ...Array.from({ length: 4 }, () => obs('code', 'opus', 'refaire')),
+    ]);
+    const noeud = {
+      agentType: 'claude-code',
+      modeles: ['grok', 'opus'],
+      efforts: ['low', 'medium', 'high', 'xhigh', 'max'] as Effort[],
+    };
+    const elus: string[] = [];
+    for (let i = 0; i < 6; i++) {
+      const route = aiguillerNoeuds('code', [noeud], vecu);
+      if (!route) throw new Error('aucun bras');
+      elus.push(route.bras.modele);
+      injecterEnVol(vecu, [{ categorie: 'code', ...route.bras }]);
+    }
+    expect(elus[0], 'l’inconnu est exploré une fois').toBe('grok');
+    expect(elus[1], 'puis le connu reprend la main, avant tout verdict').toBe('opus');
+    expect(elus.filter((m) => m === 'grok').length, 'pas plus que sa part').toBeLessThanOrEqual(3);
   });
 
   it('LE CLASSEMENT SÉPARE LE JUGÉ DE L’EN-VOL — un bras neuf en vol reste « à explorer »', () => {

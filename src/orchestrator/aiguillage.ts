@@ -294,7 +294,11 @@ export interface Observation {
 
 /** Le vécu accumulé d'un bras (ou d'un modèle, tous bras confondus). */
 export interface Antecedent {
-  /** Combien de fois ce bras a servi sur ce genre — élections en vol comprises. */
+  /**
+   * Combien de fois ce bras a servi sur ce genre — élections en vol comprises.
+   * Au niveau MODÈLE : verdicts seuls (les élections en vol n'y sont que dans
+   * `enVol`, cf. `injecterEnVol`).
+   */
   essais: number;
   /** Somme des notes récoltées — la moyenne s'en déduit. */
   recompenseTotale: number;
@@ -399,7 +403,8 @@ export function moyenne(a: Antecedent): number {
 }
 
 /**
- * Compte les élections EN VOL comme des essais SANS note, dans le niveau BRAS.
+ * Compte les élections EN VOL comme des essais SANS note, dans le niveau BRAS,
+ * et les dénombre au niveau MODÈLE.
  *
  * ─── POURQUOI CETTE INJECTION EXISTE ─────────────────────────────────────────
  *
@@ -410,9 +415,15 @@ export function moyenne(a: Antecedent): number {
  * moyenne, temporairement pessimiste, se corrige quand les vrais verdicts
  * tombent. Tout reste déterministe.
  *
- * Le niveau MODÈLE n'en reçoit pas : un zéro qui n'a jamais été prononcé ne
- * doit pas déprimer l'a priori des bras frères. Une élection dont le bras est
- * inconnu (`harness` null, rangée avant la v3) n'est attribuée à aucun bras.
+ * LA BORNE EST PAR MODÈLE, pas seulement par bras. Un nœud Claude Code offre
+ * chaque modèle à six efforts (le défaut du CLI, puis low → max) : bornés bras
+ * par bras, les frères intacts d'un modèle jamais jugé gardaient leur a priori
+ * vierge, et ce modèle raflait six tâches du genre avant son premier verdict.
+ * Le niveau MODÈLE compte donc ses élections en vol (`enVol`, JAMAIS dans
+ * `essais` ni dans la récompense : un zéro qui n'a jamais été prononcé ne doit
+ * pas rester dans l'a priori une fois le verdict tombé), et `classer` les pèse
+ * sur chaque bras frère comme des essais à note nulle. Une élection dont le bras
+ * est inconnu (`harness` null, rangée avant la v3) n'est attribuée à aucun bras.
  *
  * Mute le vécu EN PLACE (il vient d'être bâti par `replierAntecedents`, on ne
  * le partage pas). Chaque essai injecté est AUSSI compté dans `enVol` : le
@@ -430,6 +441,10 @@ export function injecterEnVol(
 ): void {
   for (const e of enVol) {
     if (e.harness === null) continue;
+    const km = cle(e.categorie, e.modele);
+    const m = vecu.modeles.get(km) ?? vide();
+    m.enVol = (m.enVol ?? 0) + 1;
+    vecu.modeles.set(km, m);
     const k = cleBras(e.categorie, { modele: e.modele, harness: e.harness, effort: e.effort });
     const a = vecu.bras.get(k) ?? vide();
     a.essais += 1;
@@ -652,12 +667,21 @@ export interface Classement {
   coutPondere: boolean;
 }
 
+/**
+ * Ordre par unités de code, et NON `localeCompare` : celui-ci suit la locale ICU
+ * du processus, et deux ruches (ou les trois OS de la CI) pourraient départager
+ * autrement deux noms libres — « même vécu, même choix » ne tiendrait plus.
+ */
+function ordreBrut(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 /** Départage total et INDÉPENDANT de l'ordre d'entrée. */
 function departager(x: Rang, y: Rang): number {
   if (y.score !== x.score) return y.score - x.score;
   return (
-    x.modele.localeCompare(y.modele) ||
-    x.harness.localeCompare(y.harness) ||
+    ordreBrut(x.modele, y.modele) ||
+    ordreBrut(x.harness, y.harness) ||
     // À mérite égal, le moindre effort : le défaut, puis low → max.
     rangEffort(x.effort) - rangEffort(y.effort)
   );
@@ -679,14 +703,19 @@ function departager(x: Rang, y: Rang): number {
  *
  * μ vient du niveau MODÈLE (tous ses bras, verdicts seuls), SANS les verdicts du
  * bras lui-même — sinon ils compteraient deux fois —, lui-même tiré vers
- * `MOYENNE_NEUTRE` par la même masse. Un modèle neuf part donc de 0,5 avec
+ * `MOYENNE_NEUTRE` par la même masse. Les élections EN VOL des bras FRÈRES
+ * entrent dans n comme des essais à note nulle : la borne du troupeau vaut par
+ * modèle, pas par effort (cf. `injecterEnVol`). Un modèle neuf part donc de 0,5 avec
  * l'incertitude de dix verdicts : il ne passe devant un modèle connu et bon que
  * quand l'optimisme dû à son ignorance l'emporte. Et tout bras finit par être
  * réessayé : z croît sans borne, la borne haute d'un bras délaissé tend vers 1.
  *
  * ─── LE COÛT ─────────────────────────────────────────────────────────────────
  *
- * Quand TOUS les bras en lice déclarent un coût (cf. `Classement.coutPondere`),
+ * Quand TOUS les bras en lice déclarent un coût (cf. `Classement.coutPondere`)
+ * — un bras ne le « déclare » que si CHACUN de ses verdicts en porte un : une
+ * moyenne tirée des seuls verdicts chiffrés mêlerait, à l'intérieur du bras,
+ * le déclaré et l'inconnu que la règle interdit de mêler entre bras —,
  * score = 0,7 · qualité + 0,3 · coût normalisé (le moins cher vaut 1). Sinon,
  * score = qualité — et c'est le même ordre pour tout le monde.
  *
@@ -701,7 +730,10 @@ export function classer(
   const propres = brasDispo.map((b) => vecu.bras.get(cleBras(categorie, b)) ?? vide());
   const total = propres.reduce((n, a) => n + a.essais, 0);
   const z = Math.sqrt(2 * Math.log(Math.max(total, 1)));
-  const couts = propres.map((a) => (a.coutsDeclares ? (a.coutTotal ?? 0) / a.coutsDeclares : null));
+  const couts = propres.map((a) => {
+    const juges = a.essais - (a.enVol ?? 0);
+    return juges > 0 && a.coutsDeclares === juges ? (a.coutTotal ?? 0) / juges : null;
+  });
   const declares = couts.filter((c): c is number => c !== null);
   const coutPondere = brasDispo.length >= 2 && declares.length === brasDispo.length;
   const rang = brasDispo
@@ -713,7 +745,11 @@ export function classer(
       const priori =
         (MASSE_A_PRIORI * MOYENNE_NEUTRE + m.recompenseTotale - a.recompenseTotale) /
         (MASSE_A_PRIORI + m.essais - juges);
-      const n = MASSE_A_PRIORI + a.essais;
+      // Les élections en vol des FRÈRES (même modèle, autre bras) : des essais
+      // à note nulle pour ce bras aussi, sans quoi chaque effort d'un modèle
+      // jamais jugé raflerait sa tâche avant le premier verdict.
+      const freres = (m.enVol ?? 0) - enVol;
+      const n = MASSE_A_PRIORI + a.essais + freres;
       const qualite = bornesWilson((MASSE_A_PRIORI * priori + a.recompenseTotale) / n, n, z).haut;
       const cout = couts[i] ?? null;
       return {
@@ -795,13 +831,20 @@ export interface NoeudPorteur {
 
 /**
  * Les bras qu'un nœud sait faire tourner : chacun de ses modèles, sous SON
- * harness, à chacun des efforts qu'il a déclarés — ou sans effort s'il n'en
- * déclare aucun (agent sans effort documenté, ou nœud d'avant la v3 : lui
- * envoyer un effort, qu'il ignorerait, rangerait son verdict sous un effort
- * qui n'a jamais tourné).
+ * harness, SANS effort commandé (le défaut du CLI) PUIS à chacun des efforts
+ * qu'il a déclarés. Un nœud qui n'en déclare aucun (agent sans effort
+ * documenté, ou nœud d'avant la v3 : lui envoyer un effort, qu'il ignorerait,
+ * rangerait son verdict sous un effort qui n'a jamais tourné) n'offre que le
+ * premier.
+ *
+ * LE BRAS SANS EFFORT RESTE TOUJOURS OFFERT. C'est sous lui qu'est rangé tout le
+ * vécu d'avant la v3 et tout ce qu'ont appris les nœuds sans effort : le
+ * retirer aux nœuds qui en déclarent rendait ce vécu inéligible (il ne
+ * nourrissait plus que l'a priori), et, à mérite égal, le départage envoyait
+ * `--effort low` — en dessous du défaut que l'opérateur n'a jamais changé.
  */
 export function brasDuNoeud(n: NoeudPorteur): Bras[] {
-  const efforts: readonly (Effort | null)[] = n.efforts?.length ? n.efforts : [null];
+  const efforts: readonly (Effort | null)[] = [null, ...(n.efforts ?? [])];
   return (n.modeles ?? []).flatMap((modele) =>
     efforts.map((effort) => ({ modele, harness: n.agentType, effort })),
   );
@@ -810,7 +853,7 @@ export function brasDuNoeud(n: NoeudPorteur): Bras[] {
 const porte = (n: NoeudPorteur, b: Bras): boolean =>
   n.agentType === b.harness &&
   (n.modeles ?? []).includes(b.modele) &&
-  (b.effort === null ? !n.efforts?.length : (n.efforts ?? []).includes(b.effort));
+  (b.effort === null || (n.efforts ?? []).includes(b.effort));
 
 /**
  * Le bras élu pour ce genre, et les nœuds éligibles qui le portent — ou `null`
