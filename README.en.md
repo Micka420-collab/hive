@@ -238,7 +238,9 @@ still stops everything.
 With **podman**, **docker** or **bubblewrap**, the agent only sees its own task
 directory. **The network stays open**: a coding agent must reach its model's
 API. Without a container engine, set `HIVE_ISOLEMENT=exige` — the node will
-refuse to work in the open.
+refuse to work in the open. What CI proves, per OS and per sandbox (Linux,
+macOS, Windows × no sandbox, bubblewrap, Podman, Docker):
+[docs/INSTALLATION.md](docs/INSTALLATION.md), “Systèmes et bacs à sable” (FR).
 
 The default image, `localhost/hive-agent:local` (Claude Code, Codex, Cline), is
 built on each node with `npm run bac:image`; Hive never downloads it. The node

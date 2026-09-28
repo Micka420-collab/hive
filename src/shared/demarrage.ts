@@ -263,6 +263,34 @@ export function adresseAnnoncee(message: unknown): AdresseRuche | null {
   return adresseLocale(a.hote, a.port);
 }
 
+/**
+ * L'ordre d'arrêt que la ruche envoie à ses pièces par leur canal IPC.
+ *
+ * ─── POURQUOI UN MESSAGE, ET PAS UN SIGNAL ───────────────────────────────────
+ *
+ * Sous Windows, `kill('SIGTERM')` est un `TerminateProcess` : le processus
+ * meurt sans qu'aucune ligne de son code ne tourne. La Reine ne fermait pas sa
+ * base proprement, et l'ouvrière n'annulait rien — ses agents, leurs
+ * sous-processus, ses merges et ses chantiers lui survivaient. Ce message
+ * prend, chez elles, le chemin d'un SIGTERM sous POSIX : `arreterSurSignaux`
+ * (le nœud), `shutdown` (la Reine). Voir `scripts/ruche.mjs`.
+ */
+export const ORDRE_ARRET = { type: 'arret' } as const;
+
+/** Ce message du canal est-il l'ordre d'arrêt ? Tout autre est ignoré. */
+export function estOrdreArret(message: unknown): boolean {
+  return (message as { type?: unknown } | null | undefined)?.type === ORDRE_ARRET.type;
+}
+
+/**
+ * La pièce reçoit-elle un canal IPC ? La Reine y annonce son adresse ; la
+ * Reine et les ouvrières y reçoivent l'ordre d'arrêt (`ORDRE_ARRET`) — leur
+ * seul arrêt propre sous Windows. L'écran (Vite) n'en comprend aucun.
+ */
+export function aUnCanal(p: Piece): boolean {
+  return p.reine === 'annonce' || p.ouvriere === true;
+}
+
 /** La pièce attend-elle l'annonce de la Reine pour démarrer ? */
 export function attendLaReine(p: Piece): boolean {
   return p.reine === 'HIVE_URL' || p.reine === 'HIVE_HTTP';

@@ -89,10 +89,16 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
   sans fermeture est éprouvé sur le vrai client et de vraies sockets
   (`tests/noeud-veille.test.ts`) : le nœud détecte la connexion morte par
   ping/pong au lieu d'attendre TCP
-  ([#437](https://github.com/Micka420-collab/hive/pull/437)). Sous Linux et
-  macOS, hors mode conteneur, un nœud arrêté par SIGTERM (`npm run ruche`,
-  systemd, `kill`) annule ses agents en cours au lieu de les laisser tourner
-  orphelins ([#468](https://github.com/Micka420-collab/hive/pull/468)).
+  ([#437](https://github.com/Micka420-collab/hive/pull/437)). Un nœud qui
+  s'arrête (Ctrl+C, SIGTERM de `npm run ruche`, de systemd ou d'un `kill`,
+  terminal fermé) emporte l'**arbre** de chaque agent, merge, chantier et
+  validation en cours, sous-processus compris, au lieu de le laisser tourner
+  orphelin ([#468](https://github.com/Micka420-collab/hive/pull/468)) : groupe
+  de processus sous Linux et macOS, `taskkill /T` sous Windows, où
+  `npm run ruche` arrête ses pièces par leur canal IPC puisqu'un SIGTERM y tue
+  net. Éprouvé sur les trois systèmes avec de vrais processus, côté nœud
+  (`tests/arbre-processus.test.ts`, `tests/noeud-arret-signal.test.ts`) ;
+  l'envoi de l'ordre par `npm run ruche` sous Windows ne l'est pas encore.
 
 - **Sécurité** :
   - les identifiants des dépôts privés ne sortent plus vers l'essaim
@@ -159,10 +165,12 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
   un faux binaire, pas encore contre le CLI réel ; celle des jetons de Codex
   est enregistrée sur le vrai codex-cli 0.156.0, mais contre un faux
   fournisseur local, pas sur un vrai run payé ;
-- l'arrêt d'un nœud en **mode conteneur** et **sous Windows** : l'agent peut
-  survivre à son nœud (conteneur lancé sans `--init`, `TerminateProcess` sous
-  Windows), comme les merges et chantiers en cours et les sous-processus
-  qu'un agent lance lui-même ;
+- un nœud tué **net** (`kill -9`, ou sous Windows un `TerminateProcess` qui ne
+  vient pas de `npm run ruche` — l'arrêt de la tâche planifiée de
+  `hive service` compris) : ses agents sans bac lui survivent jusqu'à leur
+  propre fin, ses conteneurs jusqu'à son redémarrage. Et le bac conteneur hors
+  Linux, que la CI n'exerce pas : la matrice systèmes × bacs est dans
+  [docs/INSTALLATION.md](docs/INSTALLATION.md) ;
 - l'apprentissage : le routing apprend toujours des seules contre-visites ;
   y faire entrer les autres faits du registre Genome est une décision de
   pondération, pas encore prise ;
@@ -394,7 +402,9 @@ Avec **podman**, **docker** ou **bubblewrap**, l'agent ne voit que le répertoir
 de sa tâche lorsque le fournisseur et l’image ont passé le preflight. **Le
 réseau reste ouvert** : un agent de codage doit joindre l'API de son modèle.
 Sans moteur de conteneurs, posez `HIVE_ISOLEMENT=exige` — le nœud refusera de
-travailler à découvert.
+travailler à découvert. Ce que la CI prouve, système par système et bac par bac
+(Linux, macOS, Windows × sans bac, bubblewrap, Podman, Docker) :
+[docs/INSTALLATION.md](docs/INSTALLATION.md), « Systèmes et bacs à sable ».
 
 L'image par défaut, `localhost/hive-agent:local` (Claude Code, Codex, Cline), se
 construit sur chaque nœud par `npm run bac:image` ; Hive ne la télécharge

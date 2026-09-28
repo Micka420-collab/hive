@@ -27,6 +27,7 @@ import { mkdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { CLONE_MS } from '../shared/butoirs-noeud.js';
 import type { Task } from '../shared/types.js';
+import { segmentSur } from '../shared/noms-windows.js';
 import { EchecGitHote, commandeSshDuMembre, gitHote } from '../shared/git-protege.js';
 import type { DepotEpingle } from '../shared/git-protege.js';
 import { commitDeDepart, diffContreBase, poserRegistre } from './git-hote.js';
@@ -144,8 +145,9 @@ export function buildSandboxEnv(cwd: string, keepEnv: string[] = []): NodeJS.Pro
  *
  * Limite, dite : c'est le processus LANCÉ qui est tué. Sous Windows, où le `git`
  * du PATH est d'ordinaire un lanceur, le vrai git peut lui survivre jusqu'à ce
- * que le dépôt ferme (mesuré, `tests/clone-borne.test.ts`) — la limite de tout
- * `child.kill()` du nœud. Le travail, lui, échoue à l'heure partout.
+ * que le dépôt ferme (mesuré, `tests/clone-borne.test.ts`) — `gitHote` tue son
+ * processus, pas son arbre (les agents et les commandes du dépôt, eux, partent
+ * en entier : `arbre-processus.ts`). Le travail échoue à l'heure partout.
  */
 export async function cloneRepo(dir: string, repoUrl: string, delaiMs = CLONE_MS): Promise<void> {
   const parent = path.dirname(path.resolve(dir));
@@ -175,7 +177,9 @@ export async function prepareWorkspace(
   instanceId = '',
 ): Promise<Workspace> {
   const tasksRoot = path.resolve(workRoot, 'tasks');
-  const dirName = instanceId ? `${task.id}-${instanceId}` : task.id;
+  // `segmentSur` : un id valide peut être un nom que Windows réserve (`aux`,
+  // `nul`…), et `mkdir` y viserait un périphérique (`shared/noms-windows.ts`).
+  const dirName = segmentSur(instanceId ? `${task.id}-${instanceId}` : task.id);
   const cwd = path.resolve(tasksRoot, dirName);
   // Confinement strict : le cwd DOIT rester sous <workRoot>/tasks. Défense en
   // profondeur contre un task.id malveillant (« ../… » ou chemin absolu) qui

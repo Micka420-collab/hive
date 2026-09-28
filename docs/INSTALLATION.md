@@ -422,6 +422,102 @@ qu'on ne construit jamais est une promesse que rien n'exerce.
 
 ---
 
+## Systèmes et bacs à sable : ce que la CI prouve
+
+Un nœud exécute son agent **sans bac** (le processus nu, dans son répertoire de
+tâche) ou dans un **bac** : bubblewrap, Podman ou Docker, retenu par le
+preflight (`HIVE_ISOLEMENT`). Ce tableau dit ce que la CI exerce pour de vrai à
+chaque PR — pas ce qui « devrait marcher ».
+
+|             | Sans bac                                     | bubblewrap                | Podman                                              | Docker                                              |
+| ----------- | -------------------------------------------- | ------------------------- | --------------------------------------------------- | --------------------------------------------------- |
+| **Linux**   | **prouvé** (suite complète, vrais processus) | **prouvé** (vrai `bwrap`) | **prouvé** (rootless, `keep-id`)                    | **prouvé** (démon du runner)                        |
+| **macOS**   | **prouvé** (suite complète, vrais processus) | sans objet (Linux seul)   | non prouvé — aucun moteur en CI                     | non prouvé — aucun moteur en CI                     |
+| **Windows** | **prouvé** (suite complète, vrais processus) | sans objet (Linux seul)   | refusé pour Claude Code et Codex ; non prouvé sinon | refusé pour Claude Code et Codex ; non prouvé sinon |
+
+Ce qui fonde chaque case :
+
+- **sans bac, les trois systèmes** : la suite entière tourne sur
+  `ubuntu-latest`, `macos-latest` et `windows-latest`. L'arrêt d'un agent y est
+  éprouvé sur de vrais processus, **petits-enfants compris** — annulation,
+  délai dépassé, agent sorti en laissant un descendant
+  (`tests/arbre-processus.test.ts`) ; arrêt du nœud à la RÉCEPTION de l'ordre
+  IPC que `npm run ruche` lui envoie sous Windows
+  (`tests/noeud-arret-signal.test.ts`, un superviseur de banc envoie l'ordre)
+  et de la Reine (`tests/reine-demarrage.test.ts`) ; merges et chantiers en
+  cours (`tests/arret-noeud-travaux.test.ts`). Linux et macOS seulement :
+  SIGTERM sur les deux portes du nœud (`tests/noeud-arret-signal.test.ts`),
+  l'arrêt par `npm run ruche` lui-même (`tests/lanceur-ruche.test.ts`) et la
+  reprise après un `kill -9` (`tests/resilience-processus.test.ts`). L'ENVOI
+  de l'ordre par `scripts/ruche.mjs` sous Windows (canal IPC, `taskkill` de
+  l'écran, balayage final) n'est éprouvé par aucun banc ;
+- **bubblewrap** : le vrai `bwrap`, sur un agent installé dans un HOME comme
+  chez un membre (`tests/isolement-runtime.integration.test.ts`). Sur la jambe
+  Linux, `HIVE_BWRAP_REQUIS=1` fait **échouer** le banc si bubblewrap manque,
+  au lieu de le sauter ;
+- **Podman et Docker sous Linux** : le job `image` construit l'image des agents
+  (`npm run bac:image`) et y passe le preflight réel de Hive, une fois par
+  moteur — Docker du runner, puis Podman rootless (`--userns=keep-id`) ;
+- **macOS avec un moteur** : les runners macOS n'en ont aucun. Le preflight
+  décide sur la machine du membre, et le pont de délégation (un socket Unix
+  dans le dossier monté) n'a jamais été éprouvé à travers la machine virtuelle
+  de Docker Desktop ou de `podman machine` ;
+- **Windows avec un moteur** : le nœud **refuse** le bac pour Claude Code et
+  Codex — leur pont MCP local n'est pas partageable avec un conteneur
+  (`raisonPontMcpDansBac`). Pour les autres agents, rien n'est prouvé : le
+  Docker Desktop du runner sert des conteneurs Windows, et le banc
+  d'intégration s'y déclare indisponible plutôt que d'inventer un résultat.
+
+### Arrêter un nœud : ce qui part avec lui
+
+Chaque agent, commande de test de merge, chantier, validation et pose d'outil
+est lancé comme la tête d'un **arbre** que le nœud possède (`src/shared/arbre-processus.ts`) :
+
+- **Linux, macOS** : chef de son propre groupe de processus. Annulé ou
+  expiré, tout le groupe reçoit SIGTERM, puis SIGKILL deux secondes plus tard ;
+- **Windows** : `taskkill /T /F` emporte l'arbre des parents.
+
+Un nœud qui s'arrête — Ctrl+C, SIGTERM d'un superviseur, terminal fermé
+(SIGHUP), ou l'ordre de `npm run ruche` par son canal IPC, seul arrêt propre
+sous Windows — annule tout ce qu'il mène, laisse deux secondes aux arbres pour
+finir (sous Linux et macOS, `docker run` relaie l'arrêt à son conteneur), puis
+abat ce qui reste en sortant.
+
+Ce qui échappe encore, et qu'il faut savoir :
+
+- un nœud tué **net** — `kill -9`, panne, ou sous Windows un
+  `TerminateProcess` venu d'ailleurs (Gestionnaire des tâches, `taskkill /F`
+  sur le nœud, arrêt de la tâche planifiée de `hive service`) : aucune ligne
+  du nœud ne tourne plus. Ses conteneurs sont supprimés au démarrage suivant
+  (étiquette du nœud) ; un agent sans bac tourne jusqu'à sa propre fin ;
+- un conteneur qui ne s'arrête pas dans les deux secondes : son client
+  `docker run` (ou `podman run`) est abattu, et le conteneur est supprimé au
+  démarrage suivant du nœud ;
+- sous Windows, **toute** tâche en bac conteneur annulée ou expirée :
+  `taskkill /T /F` abat le client `docker run` (ou `podman run`) sans étape
+  SIGTERM, donc sans relayer l'arrêt — le conteneur tourne (et peut consommer
+  des crédits d'API) jusqu'au démarrage suivant du nœud, qui le supprime par
+  son étiquette ;
+- un descendant qui quitte le groupe de lui-même (`setsid`, un démon) ;
+- sous Windows, les descendants d'un agent **sorti de lui-même** : son pid est
+  libéré et peut déjà nommer un autre processus — le nœud cesse d'attendre
+  leur sortie, il ne tue rien à l'aveugle.
+
+### Noms réservés de Windows
+
+`CON`, `PRN`, `AUX`, `NUL`, `COM1`…`COM9`, `LPT1`…`LPT9` désignent des
+périphériques dans tout dossier Windows, avec ou sans extension. Sous Windows,
+un nœud dont le nom (`HIVE_NODE_NAME`, sinon celui de la machine) serait l'un
+d'eux travaille dans `.hive-work/<nom>~` (sous Linux et macOS, où c'est un nom
+ordinaire, son dossier — et donc son identité — ne change pas) ; un
+`HIVE_WORKDIR` dont un segment est réservé, ou finit par un point ou une
+espace, est refusé au démarrage, segment nommé, plutôt que remappé en silence.
+Sur tous les systèmes, un identifiant de tâche, de merge, de chantier ou de
+projet réservé devient `<id>~` dans les chemins du nœud. L'identifiant, lui, ne
+change pas.
+
+---
+
 ## Sauvegarder la base
 
 > **Deux sauvegardes, deux métiers.** Ici : copie SQLite de la **ruche**
@@ -573,10 +669,11 @@ d'écriture réels de `src/` et **rougit** si l'un d'eux apparaît ailleurs.
   tentative, authentifié pour elle seule et effacé à sa fin. Il vit hors de
   `.hive-work` parce qu'un chemin de socket Unix est limité à 104–108 octets :
   depuis un dossier profond, le pont ne pouvait plus s'ouvrir. Le dossier part
-  à l'arrêt du nœud — Ctrl-C, ou le SIGTERM d'un superviseur (`hive service`,
-  systemd, launchd, arrêt d'un conteneur) ; celui d'un nœud tué (`kill -9`, ou
-  sous Windows, où un SIGTERM tue net) reste jusqu'au prochain démarrage d'un
-  nœud de ce compte, qui le balaie.
+  à l'arrêt du nœud — Ctrl-C, le SIGTERM d'un superviseur (`hive service`,
+  systemd, launchd, arrêt d'un conteneur), l'ordre de `npm run ruche` ; celui
+  d'un nœud tué net (`kill -9`, ou sous Windows un `TerminateProcess` venu
+  d'ailleurs) reste jusqu'au prochain démarrage d'un nœud de ce compte, qui le
+  balaie.
   Si `TMPDIR` lui-même est trop profond, le nœud le dit dès son démarrage.
   Sous Windows, le pont écoute sur un pipe nommé `\\.\pipe\hive-pont-*`.
   Rien de ce pont n'entre dans le répertoire de la tâche, donc dans un diff.

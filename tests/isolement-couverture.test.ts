@@ -66,6 +66,18 @@ const DEROGATIONS: Readonly<Record<string, string>> = {
     'pose un outil du catalogue sur la machine du membre — une installation ' +
     'globale doit atteindre l’hôte, l’envelopper la rendrait sans effet ; le ' +
     'binaire et le paquet viennent du catalogue, jamais de la requête',
+  // ─── LA PRIMITIVE, PAS UN APPELANT ─────────────────────────────────────────
+  //
+  // `lancerArbre` est le `spawn` des agents, des merges, des chantiers, des
+  // validations et des poses d'outils : il lance ce qu'on lui tend, DÉJÀ
+  // enveloppé. La garde ne perd rien à l'inscrire ici, parce qu'elle juge
+  // `lancerArbre(` comme `spawn(` chez chacun de ses appelants
+  // (`fichiersQuiLancent`) : un appelant qui oublierait l'enveloppe rougit
+  // comme avant.
+  'shared/arbre-processus.ts':
+    'la primitive qui lance un arbre de processus : elle exécute ce que ses ' +
+    'appelants ont préparé et enveloppé — chacun d’eux est jugé ici sur son ' +
+    'propre appel à lancerArbre(), comme sur un spawn()',
 };
 
 /**
@@ -93,16 +105,28 @@ function fichiersTs(dossier = '', acc: string[] = []): string[] {
   return acc;
 }
 
-/** Les fichiers du dépôt qui appellent réellement `spawn`. */
+/**
+ * Les fichiers du dépôt qui lancent réellement un processus : par `spawn`, ou
+ * par `lancerArbre` (`shared/arbre-processus.ts`), qui est un `spawn` de plus
+ * haut niveau. Sans la seconde forme, `exec.ts` et `merge-runner.ts` — les deux
+ * lanceurs de code étranger — seraient sortis de la garde le jour où ils ont
+ * cessé d'appeler `spawn` eux-mêmes.
+ */
 function fichiersQuiLancent(): { chemin: string; source: string }[] {
   return fichiersTs()
     .map((rel) => ({ chemin: rel, source: readFileSync(RACINE + rel, 'utf8') }))
-    .filter(({ source }) => /\bspawn\s*\(/.test(sansCommentaires(source)));
+    .filter(({ source }) => /\b(?:spawn|lancerArbre)\s*\(/.test(sansCommentaires(source)));
 }
 
 describe('la couverture du bac à sable', () => {
   it('méta-test : on trouve bien des spawn à juger', () => {
     expect(fichiersQuiLancent().length).toBeGreaterThan(3);
+  });
+
+  it('les deux lanceurs de code étranger sont jugés — par `lancerArbre`', () => {
+    const juges = fichiersQuiLancent().map((f) => f.chemin);
+    expect(juges).toContain('adapters/exec.ts');
+    expect(juges).toContain('node-client/merge-runner.ts');
   });
 
   it('CHAQUE `spawn` EST SOIT ENVELOPPÉ, SOIT INSCRIT AVEC SA RAISON', () => {
