@@ -375,6 +375,52 @@ describe('trancher un conseil', () => {
     server.store.pruneEvents(0);
     expect(decisionsRangees()).toHaveLength(0);
   });
+
+  it('UN FORÇAGE SURVIT À L’ÉLAGAGE COMME LE REFUS QU’IL TRANCHE — la production livrée ne redevient pas « à trancher »', async () => {
+    // Le refus de renvoi est gardé (le dernier par tâche) ; le forçage qui
+    // l'a tranché n'est rangé dans aucune table. Élagué seul, il laissait la
+    // contestation revenir en tête après la livraison de sa production.
+    const tache = server.store.createTask({ projectId, title: 'Livrée malgré tout', prompt: 'p' });
+    const forcer = (raison: string) =>
+      server.store.appendEvent('evaluator_overridden', {
+        taskId: tache.id,
+        projectId,
+        geste: 'livraison',
+        resultId: 8,
+        decision: 'correction_required',
+        raison,
+        parUserId: null,
+      });
+    server.store.appendEvent('evaluator_retry_skipped', {
+      taskId: tache.id,
+      resultId: 8,
+      reason: 'attempts_exhausted',
+      source: 'contre_revue',
+    });
+    forcer('première raison');
+    forcer('relu à la main');
+    for (let i = 0; i < 20; i++) server.store.appendEvent('bruit', { i });
+
+    server.store.pruneEvents(0);
+    const forcages = server.store
+      .listEvents(0, 1000)
+      .filter((e) => e.type === 'evaluator_overridden');
+    expect(
+      forcages.map((e) => e.payload.raison),
+      'seul le DERNIER forçage est gardé',
+    ).toEqual(['relu à la main']);
+    const vue = (await (await lireWarRoom(`?projectId=${projectId}`)).json()) as Vue;
+    expect(vue.journalElague).toBe(true);
+    expect(vue.desaccords, 'le forçage tranche encore après l’élagage').toEqual([]);
+
+    // La borne : la protection tombe avec la tâche.
+    server.store.patchTask(tache.id, { status: 'done' });
+    server.store.pruneTasks(0, Date.now() + 60_000);
+    server.store.pruneEvents(0);
+    expect(server.store.listEvents(0, 1000).some((e) => e.type === 'evaluator_overridden')).toBe(
+      false,
+    );
+  });
 });
 
 describe('la War Room', () => {

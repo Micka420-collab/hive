@@ -5706,6 +5706,11 @@ export class HiveStore {
    * se relit dans les tables rangées, pas ici (`TacheRangee`). Bornée par
    * `pruneTasks` : une par tâche conservée, et la protection tombe avec elle.
    *
+   * Le DERNIER FORÇAGE de chaque tâche rangée l'est au même titre
+   * (`evaluator_overridden`) : c'est aussi ce qui lève une contestation, et
+   * aucune table ne le range. Élagué alors que le refus reste, la production
+   * livrée malgré l'Evaluator redeviendrait « à trancher ». Même borne.
+   *
    * La contre-revue en cours du DERNIER résultat d'une production rendue
    * (`done`) garde aussi ses faits : les annonces de lancement (filigrane
    * `resultId` que `eventForRelecture` relit pour compter les relectures en
@@ -5780,12 +5785,12 @@ export class HiveStore {
                 )
               )
               OR (
-                type = 'evaluator_retry_skipped'
+                type IN ('evaluator_retry_skipped', 'evaluator_overridden')
                 AND json_extract(payload, '$.taskId') IN (SELECT id FROM tasks)
                 AND id = (
                   SELECT MAX(r.id)
                     FROM events r
-                   WHERE r.type = 'evaluator_retry_skipped'
+                   WHERE r.type = events.type
                      AND json_extract(r.payload, '$.taskId') = json_extract(events.payload, '$.taskId')
                 )
               )

@@ -561,7 +561,8 @@ export const ISSUES_A_TRANCHER: ReadonlySet<IssueConseil> = new Set<IssueConseil
  * compter « à trancher » le laisserait en tête pour toujours — ni approuver
  * contre son propre avis, ni rejeter à nouveau (même refus) ne le lèverait.
  * Un refus SANS source (journal antérieur à ce champ) reste lu comme avant :
- * inconnu, donc montré plutôt que tu.
+ * inconnu, donc montré plutôt que tu — sauf si un rejet humain de cette
+ * production est rangé (voir `desaccordsNonResolus`).
  */
 export const RAISONS_EN_SUSPENS: ReadonlySet<RaisonRefusRenvoi> = new Set<RaisonRefusRenvoi>([
   'attempts_exhausted',
@@ -591,10 +592,12 @@ export type Desaccord =
     }
   | {
       /**
-       * Aucune famille n'a pu relire CE résultat, secours compris (#484) :
-       * l'Evaluator répond `human_review_required` en citant `cause`. Ce
-       * n'est pas un désaccord entre IA — c'est l'arbitre qui manque, et
-       * seul un humain peut le remplacer.
+       * Aucune famille n'a pu relire CE résultat, secours compris (#484),
+       * pour la raison `cause`. Ce n'est pas un désaccord entre IA — c'est
+       * l'arbitre qui manque, et seul un humain peut le remplacer. Ce que
+       * l'Evaluator en conclut n'est PAS dit ici : une règle antérieure (une
+       * CI rouge, par exemple) peut répondre autre chose, et la War Room ne
+       * lit pas son verdict.
        */
       genre: 'relecture_impossible';
       taskId: string;
@@ -613,8 +616,8 @@ export type Desaccord =
 export interface TacheRangee {
   /** Dernier résultat rangé de la tâche, `null` sans résultat. */
   dernierResultId: number | null;
-  /** Instant du verdict humain courant (Miellerie), `null` sans verdict. */
-  revueA: number | null;
+  /** Le verdict humain courant (Miellerie) et son instant, `null` sans verdict. */
+  revue: { state: 'approved' | 'rejected'; updatedAt: number } | null;
 }
 
 /** Une session telle que le serveur la range — le strict nécessaire. */
@@ -635,7 +638,12 @@ export interface SessionPourDesaccord {
  * rendue caduque par un nouvel essai : un renvoi de l'Evaluator, ou une
  * nouvelle contre-expertise, qui porte sur une production plus récente. Une
  * relecture impossible se lève de même : c'est la revue humaine qu'elle
- * demande.
+ * demande. Passer outre l'Evaluator (`evaluator_overridden` : livrer ou
+ * fusionner malgré lui, raison écrite) tranche aussi — c'est la décision
+ * finale d'un humain sur cette production, et le seul geste qui fasse partir
+ * une production contestée dont les essais sont épuisés. Sans lui, elle
+ * resterait « à trancher » en tête après sa livraison, alors qu'un rejet n'y
+ * peut plus rien (`delivery_exists`).
  *
  * `decisions` vient par défaut du fil lui-même ; le serveur les passe lues À
  * PART (`council_decided` seul). La fenêtre de lecture du fil est bornée : la
@@ -668,14 +676,15 @@ export function desaccordsNonResolus(
 
   // Par tâche, LE fait en attente le plus récent : un refus de renvoi ou une
   // relecture impossible. Ce qui lève l'un lève l'autre — un verdict humain,
-  // un nouvel essai — parce que tous deux attendent la même personne devant
-  // la même production.
+  // un forçage, un nouvel essai — parce que tous deux attendent la même
+  // personne devant la même production.
   type Attente = Extract<EntreeWarRoom, { genre: 'renvoi_refuse' | 'contre_impossible' }>;
   const enSuspens = new Map<string, Attente>();
   for (const e of entrees) {
     if (e.genre === 'renvoi_refuse' && ouvreUnDesaccord(e)) enSuspens.set(e.taskId, e);
     else if (e.genre === 'contre_impossible') enSuspens.set(e.taskId, e);
     else if (e.genre === 'revue_humaine' && e.etat !== null) enSuspens.delete(e.taskId);
+    else if (e.genre === 'evaluator_force') enSuspens.delete(e.taskId);
     else if (e.genre === 'renvoi_evaluator' || e.genre === 'contre_expertise') {
       enSuspens.delete(e.taskId);
     }
@@ -686,9 +695,11 @@ export function desaccordsNonResolus(
         const rangee = tacheRangee(attente.taskId);
         if (!rangee) continue;
         // Ici N'IMPORTE QUEL verdict courant tranche, même posé pendant que la
-        // relecture était encore en vol : c'est exactement la revue humaine que
-        // l'Evaluator demande, et un renvoi l'aurait effacée (`retryFromEvaluator`).
-        if (rangee.revueA !== null) continue;
+        // relecture était encore en vol : c'est exactement la revue humaine qui
+        // manque, et un renvoi l'aurait effacée (`retryFromEvaluator`). Accepté :
+        // un verdict EFFACÉ ensuite (`state: null`) rouvre l'attente ici, pas
+        // dans le fil, qui a vu la revue passer — l'Evaluator, lui, la redemande.
+        if (rangee.revue !== null) continue;
         if (
           attente.resultId !== null &&
           rangee.dernierResultId !== null &&
@@ -712,7 +723,13 @@ export function desaccordsNonResolus(
       if (!rangee) continue;
       // Strictement APRÈS : à la milliseconde près, le fil (ordonné par id)
       // tranche déjà les cas frais ; ici on ne lève que ce qui est sûr.
-      if (rangee.revueA !== null && rangee.revueA > refus.ts) continue;
+      if (rangee.revue !== null && rangee.revue.updatedAt > refus.ts) continue;
+      // Un refus SANS source (journal d'avant ce champ) peut suivre un rejet
+      // humain : la route range le verdict AVANT de journaliser le refus, donc
+      // « après » ne le lève jamais. Un rejet courant de CETTE production (un
+      // renvoi l'aurait effacé) est une décision humaine quel que soit son
+      // moment — sans cette règle, ces refus-là restaient en tête pour toujours.
+      if (refus.source === null && rangee.revue?.state === 'rejected') continue;
       if (
         refus.resultId !== null &&
         rangee.dernierResultId !== null &&

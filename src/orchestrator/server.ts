@@ -6863,7 +6863,7 @@ async function monterReine(
           store.getTask(id)
             ? {
                 dernierResultId: store.dernierResultatDe(id),
-                revueA: store.getTaskReview(id)?.updatedAt ?? null,
+                revue: store.getTaskReview(id),
               }
             : null,
       );

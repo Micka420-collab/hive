@@ -392,10 +392,16 @@ describe('les désaccords en suspens', () => {
     ]);
     const avec = (rangee: TacheRangee | null): number =>
       desaccordsNonResolus(fil, [], new Map(), () => rangee).length;
-    expect(avec({ dernierResultId: 8, revueA: null }), 'rien ne l’a levée').toBe(1);
-    expect(avec({ dernierResultId: 8, revueA: 6_000 }), 'verdict humain après le refus').toBe(0);
-    expect(avec({ dernierResultId: 8, revueA: 4_000 }), 'verdict antérieur au refus').toBe(1);
-    expect(avec({ dernierResultId: 9, revueA: null }), 'une production plus récente').toBe(0);
+    expect(avec({ dernierResultId: 8, revue: null }), 'rien ne l’a levée').toBe(1);
+    expect(
+      avec({ dernierResultId: 8, revue: { state: 'approved', updatedAt: 6_000 } }),
+      'verdict humain après le refus',
+    ).toBe(0);
+    expect(
+      avec({ dernierResultId: 8, revue: { state: 'approved', updatedAt: 4_000 } }),
+      'verdict antérieur au refus',
+    ).toBe(1);
+    expect(avec({ dernierResultId: 9, revue: null }), 'une production plus récente').toBe(0);
     // Une tâche que la Reine ne connaît plus ne se revoit plus : elle
     // n'attendrait personne, pour toujours.
     expect(avec(null), 'tâche disparue').toBe(0);
@@ -419,6 +425,66 @@ describe('les désaccords en suspens', () => {
     expect(refus('contre_revue')).toBe(1);
     // Journal antérieur à la `source` : inconnu, donc montré plutôt que tu.
     expect(refus()).toBe(1);
+  });
+
+  it('UN REFUS SANS SOURCE QUI SUIT UN REJET HUMAIN RANGÉ N’EST PLUS À TRANCHER', () => {
+    // Journal d'avant la `source` : la route rangeait le rejet PUIS
+    // journalisait le refus, donc « revue après le refus » ne le levait
+    // jamais — la contestation restait en tête pour toujours.
+    const fil = (source?: string) =>
+      entreesWarRoom([
+        ev(
+          'evaluator_retry_skipped',
+          {
+            taskId: 't-1',
+            resultId: 8,
+            reason: 'attempts_exhausted',
+            ...(source ? { source } : {}),
+          },
+          5_000,
+        ),
+      ]);
+    const avec = (source: string | undefined, rangee: TacheRangee): number =>
+      desaccordsNonResolus(fil(source), [], new Map(), () => rangee).length;
+    const rejet = { state: 'rejected', updatedAt: 4_999 } as const;
+    expect(avec(undefined, { dernierResultId: 8, revue: rejet }), 'rejet rangé').toBe(0);
+    // Une approbation antérieure ne tranche pas une contestation ultérieure…
+    expect(
+      avec(undefined, { dernierResultId: 8, revue: { state: 'approved', updatedAt: 4_999 } }),
+    ).toBe(1);
+    // …et un refus de la contre-revue garde la règle stricte du « après ».
+    expect(avec('contre_revue', { dernierResultId: 8, revue: rejet })).toBe(1);
+  });
+
+  it('PASSER OUTRE L’EVALUATOR TRANCHE — c’est la décision finale d’un humain', () => {
+    // Une production contestée aux essais épuisés ne part QUE forcée. Après la
+    // livraison, un rejet est refusé (`delivery_exists`) : sans le forçage, la
+    // contestation restait « à trancher » pour toujours.
+    const forcer = (taskId = 't-1') =>
+      ev('evaluator_overridden', {
+        taskId,
+        resultId: 8,
+        geste: 'livraison',
+        decision: 'correction_required',
+        raison: 'relu à la main, le cas vide est couvert ailleurs',
+        parUserId: null,
+      });
+    const attentes = [
+      () =>
+        ev('evaluator_retry_skipped', { taskId: 't-1', resultId: 8, reason: 'attempts_exhausted' }),
+      () =>
+        ev('contre_expertise_impossible', { taskId: 't-1', resultId: 8, cause: 'plus personne' }),
+    ];
+    for (const attente of attentes) {
+      // Le fil suit les ids du journal : chaque fait est créé dans son ordre.
+      const leve = entreesWarRoom([attente(), forcer()]);
+      expect(desaccordsNonResolus(leve, []), leve[0]!.genre).toEqual([]);
+      // Une attente APRÈS le forçage attend toujours.
+      expect(desaccordsNonResolus(entreesWarRoom([forcer(), attente()]), [])).toHaveLength(1);
+    }
+    // Le forçage d'une AUTRE tâche ne tranche rien ici.
+    const ailleurs = entreesWarRoom([attentes[0]!(), forcer('t-2')]);
+    expect(desaccordsNonResolus(ailleurs, [])).toHaveLength(1);
   });
 
   it('UNE RELECTURE IMPOSSIBLE ATTEND LA REVUE HUMAINE QU’ELLE DEMANDE', () => {
@@ -446,9 +512,12 @@ describe('les désaccords en suspens', () => {
     // Faits rangés : un verdict COURANT tranche, même posé pendant la relecture.
     const avec = (rangee: TacheRangee | null): number =>
       desaccordsNonResolus(entreesWarRoom([impossible]), [], new Map(), () => rangee).length;
-    expect(avec({ dernierResultId: 8, revueA: null })).toBe(1);
-    expect(avec({ dernierResultId: 8, revueA: 4_000 }), 'verdict posé avant').toBe(0);
-    expect(avec({ dernierResultId: 9, revueA: null }), 'production plus récente').toBe(0);
+    expect(avec({ dernierResultId: 8, revue: null })).toBe(1);
+    expect(
+      avec({ dernierResultId: 8, revue: { state: 'approved', updatedAt: 4_000 } }),
+      'verdict posé avant',
+    ).toBe(0);
+    expect(avec({ dernierResultId: 9, revue: null }), 'production plus récente').toBe(0);
     expect(avec(null), 'tâche disparue').toBe(0);
   });
 
