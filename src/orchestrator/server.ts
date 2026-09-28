@@ -335,7 +335,32 @@ import {
   projeterWorkers,
   type WorkerHistorySnapshot,
   type WorkerIdentitySnapshot,
+  type WorkerSnapshot,
 } from './workers.js';
+import { debatsDuWorker, leconsDuWorker, missionsDuWorker } from './fiche-worker.js';
+import { creerCaviardeur, valeursSecretes } from '../shared/caviardage.js';
+import {
+  agentsDetectes,
+  choixManquants,
+  coherenceDuMode,
+  CONNECTEURS_INITIAUX,
+  ETAPES_ASSISTANT,
+  fusionnerChoix,
+  MODES_RUCHE,
+  POLITIQUES_SECRETS,
+  porteConfiguration,
+  PREFERENCES_GIT,
+} from '../shared/configuration-initiale.js';
+import type {
+  AuteurConfiguration,
+  FaitsDeploiement,
+  ModificationConfiguration,
+  SanteInitiale,
+  VerdictConfiguration,
+} from '../shared/configuration-initiale.js';
+import { diagnostiquer, pire } from '../shared/doctor.js';
+import type { Releve } from '../shared/doctor.js';
+import type { InventaireAgents } from '../node-client/agent-detect.js';
 import { projeterJournalOuvrier } from './journal-ouvriere.js';
 import { lireTemperature, FENETRE_MS as FENETRE_THERMO_MS, TYPES_THERMO } from './thermo.js';
 import { buildWaggleBoard } from './waggle.js';
@@ -821,6 +846,13 @@ export interface ServerConfig {
   edition?: Edition;
   /** Fetcher GitHub injectable pour les intégrations et bancs hors réseau. */
   githubFetcher?: Fetcheur;
+  /**
+   * Le relevé du bilan de santé de l'assistant (`/api/configuration-initiale/sante`).
+   * Par défaut, le docteur et l'inventaire des agents SUR CETTE MACHINE ; les
+   * bancs l'injectent, pour ne pas lancer les vrais CLI d'agents du poste qui
+   * fait tourner la suite.
+   */
+  releverSante?: () => Promise<{ releve: Releve; agents: InventaireAgents }>;
 }
 
 /**
@@ -3131,9 +3163,13 @@ async function monterReine(
    * l'ordonnanceur le lit — verdicts ET élections en vol : sans les secondes,
    * l'écran montrerait des scores sur lesquels le routing ne décide pas.
    */
-  app.get('/api/workers', async (req, reply) => {
-    if (!authorized(req)) return reject(reply);
-    const nodes = store.listNodes();
+  /**
+   * La projection Workers de ces nœuds — UNE construction, partagée par la liste
+   * (`/api/workers`) et la fiche (`/api/workers/:nodeId/fiche`) : deux
+   * constructions parallèles finiraient par montrer deux réputations
+   * différentes du même Worker.
+   */
+  const projeterWorkersDe = (nodes: HiveNode[]): WorkerSnapshot[] => {
     const baptemes = new Map(
       store
         .listerBaptemes()
@@ -3156,16 +3192,118 @@ async function monterReine(
     const historiques = new Map<string, readonly WorkerHistorySnapshot[]>(
       nodes.map((node) => [node.id, projeterHistoriqueWorker(store.listEventsForNode(node.id, 6))]),
     );
-    return {
-      workers: projeterWorkers(
-        nodes,
-        { verdicts: store.observationsAiguillage(), enVol: store.electionsEnVolAiguillage() },
-        store.tasksByStatus('assigned', 'running'),
-        identites,
-        historiques,
-      ),
-    };
+    return projeterWorkers(
+      nodes,
+      { verdicts: store.observationsAiguillage(), enVol: store.electionsEnVolAiguillage() },
+      store.tasksByStatus('assigned', 'running'),
+      identites,
+      historiques,
+    );
+  };
+
+  app.get('/api/workers', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    return { workers: projeterWorkersDe(store.listNodes()) };
   });
+
+  /**
+   * La fiche d'UN Worker (façon Delos) : sa projection, et sa trajectoire —
+   * le modèle qu'il fait tourner, les missions qu'il a rendues, les erreurs
+   * que la ruche a retenues de lui, les débats de la War Room où il a pris
+   * part. Tout vient de faits exacts (`fiche-worker.ts`).
+   *
+   * Jeton de ruche UNIQUEMENT, comme la liste et la Chambre : un lien de
+   * partage ne voit pas les identités qui travaillent.
+   *
+   * ─── CE QUI N'Y EST PAS, ET POURQUOI ───────────────────────────────────────
+   *
+   * Aucun total ni aucune moyenne de coût, de temps ou de qualité : le rapport
+   * de mission tranche la métrique, et la fiche ne pose pas un chiffre que
+   * personne n'a décidé. Les missions sont rendues UNE PAR UNE ; le coût
+   * déclaré de chacune se lit dans sa chronologie (tiroir de tâche).
+   *
+   * La mémoire de la ruche (Hive Mind) ne porte pas encore l'ouvrière qui l'a
+   * produite : `memoire: 'non_attribuee'` le DIT, plutôt qu'une liste vide qui
+   * se lirait « rien appris ».
+   */
+  app.get<{ Params: { nodeId: string } }>(
+    '/api/workers/:nodeId/fiche',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['nodeId'],
+          properties: { nodeId: { type: 'string', minLength: 1, maxLength: 64 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const node = store.getNode(req.params.nodeId);
+      if (!node) return reply.code(404).send({ error: 'ouvrière inconnue' });
+      const worker = projeterWorkersDe([node])[0]!;
+
+      const titres = new Map<string, string | null>();
+      const titreDe = (taskId: string): string | null => {
+        let titre = titres.get(taskId);
+        if (titre === undefined) {
+          titre = store.getTask(taskId)?.title ?? null;
+          titres.set(taskId, titre);
+        }
+        return titre;
+      };
+      // Les secrets de la REINE — son environnement ET son jeton de ruche, qui
+      // peut venir de la configuration plutôt que de `process.env` — ne sortent
+      // jamais par un extrait de logs, même si un nœud les avait laissés passer
+      // (le nœud caviarde les siens avant d'envoyer).
+      const caviardeur = creerCaviardeur([...valeursSecretes(process.env), config.token]);
+      const resultats = store.resultatsDuNoeud(node.id, 60);
+
+      // Le modèle de la tentative EN COURS : la ligne d'Aiguillage d'une tâche
+      // assignée à ce nœud est celle de SA tentative (une réassignation
+      // l'efface ou la remplace). Sans ligne, le nœud emploie son défaut — dit
+      // `null`, jamais un modèle deviné.
+      const modelesCourants = (worker.currentTasks ?? []).map((t) => ({
+        taskId: t.id,
+        modele: store.modeleAiguillageDe(t.id),
+      }));
+
+      // Un avis de relecture porte la FAMILLE du relecteur ; le nœud qui l'a
+      // RENDU n'est que dans le payload brut (`reviewerNodeId`, posé par le
+      // hub à la réception). Sans lui, l'avis n'est à personne.
+      const evenements = store.evenementsParTypes(TYPES_WAR_ROOM, EVENT_RETENTION);
+      const avisRendus = new Set(
+        evenements.filter((e) => e.payload.reviewerNodeId === node.id).map((e) => e.id),
+      );
+      const debats = debatsDuWorker(entreesWarRoom(evenements), {
+        nodeId: node.id,
+        resultats: new Set(resultats.map((r) => r.resultId)),
+        avisRendus,
+        seulProducteur: store.tachesAProducteurUnique(
+          node.id,
+          resultats.map((r) => r.taskId),
+        ),
+      });
+      const taches: Record<string, { titre: string; projectId: string }> = {};
+      for (const d of debats) {
+        const sujet = sujetDe(d.entree);
+        if (sujet.genre !== 'tache') continue;
+        const t = store.getTask(sujet.taskId);
+        if (t) taches[t.id] = { titre: t.title, projectId: t.projectId };
+      }
+
+      return {
+        worker,
+        modelesCourants,
+        missions: missionsDuWorker(resultats, titreDe),
+        lecons: leconsDuWorker(resultats, titreDe, (texte) => caviardeur.texte(texte)),
+        debats,
+        taches,
+        journalElague: store.journalElague(),
+        memoire: 'non_attribuee' as const,
+      };
+    },
+  );
 
   app.get('/api/atelier', async (req, reply) => {
     if (!authorized(req)) return reject(reply);
@@ -6291,6 +6429,239 @@ async function monterReine(
     }
     return moi;
   };
+
+  // ─── La configuration initiale (assistant de première arrivée) ──────────────
+  //
+  // Ce que l'hôte a choisi à la première arrivée — mode, secrets, Git,
+  // connecteurs — rangé chez la Reine (`configuration_initiale`), et le bilan
+  // de santé que l'assistant montre avant de conclure. La porte est
+  // `porteConfiguration` (shared/configuration-initiale.ts) : un administrateur,
+  // ou le jeton de ruche tant qu'aucun compte n'existe.
+
+  const verdictConfiguration = (req: FastifyRequest): VerdictConfiguration => {
+    const moi = roleDe(req);
+    return porteConfiguration({
+      compte: moi ? { admin: peut(moi.role, 'gerer_serveurs') } : null,
+      jetonValide: authorized(req),
+      comptes: store.countUsers(),
+    });
+  };
+
+  const refuserConfiguration = (reply: FastifyReply, verdict: VerdictConfiguration) =>
+    verdict === 'anonyme'
+      ? reject(reply)
+      : reply.code(403).send({
+          error:
+            'réservé à un administrateur de la ruche — connectez-vous avec le compte ' +
+            'de l’hôte (le jeton de ruche ne règle plus rien dès qu’un compte existe)',
+        });
+
+  const faitsDeploiement = (): FaitsDeploiement => ({
+    hote: config.host,
+    urlPublique: config.publicUrl ?? null,
+    confianceProxy: config.trustProxy ?? false,
+    comptes: store.countUsers(),
+    admins: store.countAdmins(),
+    inscription: modeInscription,
+  });
+
+  /** L'état rendu par les trois routes : ce qui est rangé, et qui peut l'écrire. */
+  const etatConfiguration = (verdict: VerdictConfiguration) => {
+    const configuration = store.lireConfigurationInitiale();
+    return {
+      configuration,
+      ecriture: verdict,
+      // L'écart entre le mode choisi et la Reine qui tourne nomme l'hôte
+      // d'écoute et l'adresse publique : seulement pour qui peut le réparer.
+      coherence:
+        verdict === 'permis'
+          ? coherenceDuMode(configuration?.mode ?? null, faitsDeploiement())
+          : [],
+    };
+  };
+
+  const auteurConfiguration = (req: FastifyRequest): AuteurConfiguration => {
+    const moi = roleDe(req);
+    return moi ? { genre: 'compte', userId: moi.userId } : { genre: 'jeton_de_ruche' };
+  };
+
+  /**
+   * LECTURE : toute personne entrée dans le tableau de bord (jeton ou compte).
+   * C'est cette réponse qui décide si l'assistant s'ouvre — `termineeA: null`
+   * ET `ecriture: 'permis'`. Un membre qui ne peut rien y écrire ne se voit
+   * pas proposer un assistant qui lui dirait non à chaque étape.
+   */
+  app.get('/api/configuration-initiale', async (req, reply) => {
+    const verdict = verdictConfiguration(req);
+    if (verdict === 'anonyme') return reject(reply);
+    return etatConfiguration(verdict);
+  });
+
+  const schemaChoix = {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      mode: { type: ['string', 'null'], enum: [...MODES_RUCHE, null] },
+      secrets: { type: ['string', 'null'], enum: [...POLITIQUES_SECRETS, null] },
+      git: { type: ['string', 'null'], enum: [...PREFERENCES_GIT, null] },
+      connecteurs: {
+        type: 'array',
+        maxItems: CONNECTEURS_INITIAUX.length,
+        items: { type: 'string', enum: [...CONNECTEURS_INITIAUX] },
+      },
+      etape: { type: 'string', enum: [...ETAPES_ASSISTANT] },
+    },
+  } as const;
+
+  /**
+   * Le BROUILLON : chaque étape franchie est rangée, avec l'étape où l'on en
+   * est. Fermer l'onglet au milieu ne perd rien — l'assistant reprend là.
+   * Ranger un brouillon ne termine rien : `termineeA` ne bouge pas.
+   *
+   * Une configuration TERMINÉE ne se modifie plus par brouillon : seule
+   * l'étape se range. Sans cette garde, l'assistant relancé depuis
+   * l'Intendance écrivait chaque choix au fil des étapes — un mode changé puis
+   * « Plus tard » devenait la configuration arrêtée, sans aucun fait au
+   * journal, et un `mode: null` laissait une ligne « terminée » sans mode.
+   * Changer une configuration arrêtée passe par `terminer`, qui revérifie les
+   * choix et journalise le geste.
+   */
+  app.put<{ Body: ModificationConfiguration }>(
+    '/api/configuration-initiale',
+    { schema: { body: schemaChoix } },
+    async (req, reply) => {
+      const verdict = verdictConfiguration(req);
+      if (verdict !== 'permis') return refuserConfiguration(reply, verdict);
+      const courante = store.lireConfigurationInitiale();
+      const modif = courante?.termineeA != null ? { etape: req.body.etape } : req.body;
+      store.rangerConfigurationInitiale(fusionnerChoix(courante, modif), auteurConfiguration(req), {
+        terminer: false,
+      });
+      return etatConfiguration(verdict);
+    },
+  );
+
+  /**
+   * TERMINER : les trois choix qui décident de la sécurité (mode, secrets,
+   * Git) doivent être posés — un assistant qu'on clôt sans eux laisserait une
+   * configuration qui a l'air arrêtée et ne dit rien. 409 nomme ce qui manque.
+   * Un fait au journal date le geste et dit qui l'a fait.
+   */
+  app.post<{ Body: ModificationConfiguration }>(
+    '/api/configuration-initiale/terminer',
+    { schema: { body: schemaChoix } },
+    async (req, reply) => {
+      const verdict = verdictConfiguration(req);
+      if (verdict !== 'permis') return refuserConfiguration(reply, verdict);
+      const choix = fusionnerChoix(store.lireConfigurationInitiale(), {
+        ...(req.body ?? {}),
+        etape: 'recap',
+      });
+      const manquants = choixManquants(choix);
+      if (manquants.length > 0) {
+        return reply.code(409).send({
+          error: `choix encore à faire : ${manquants.join(', ')}`,
+          manquants,
+        });
+      }
+      const par = auteurConfiguration(req);
+      const rangee = store.rangerConfigurationInitiale(choix, par, { terminer: true });
+      emitEvent('configuration_initiale_terminee', {
+        mode: rangee.mode,
+        secrets: rangee.secrets,
+        git: rangee.git,
+        connecteurs: rangee.connecteurs,
+        par,
+      });
+      return etatConfiguration(verdict);
+    },
+  );
+
+  // Le relevé du docteur lance des sondes (les CLI d'agents, le moteur de bac,
+  // le port) : UNE passe à la fois, et un résultat réutilisé quelques secondes.
+  // Sans cela, un double clic sur « Relancer le bilan » lancerait deux fois
+  // chaque CLI d'agent sur la machine de la Reine.
+  const SANTE_CACHE_MS = 10_000;
+  let santeEnCours: Promise<{ releve: Releve; agents: InventaireAgents }> | null = null;
+  let santeRangee: { a: number; valeur: { releve: Releve; agents: InventaireAgents } } | null =
+    null;
+  const releverSante =
+    config.releverSante ??
+    (async () => {
+      const { relever } = await import('../doctor-releve.js');
+      const { inventaireAgents } = await import('../node-client/agent-detect.js');
+      // UNE passe de sondes : l'inventaire est prêté au docteur plutôt que refait.
+      const agents = await inventaireAgents(process.env);
+      // L'environnement de CETTE Reine, pas celui qu'elle aurait par défaut :
+      // la base, le port et l'hôte relevés sont ceux qu'elle sert réellement —
+      // l'écran affiche `config.dbPath` à côté de SON intégrité, pas de celle
+      // d'un `data/hive.db` relatif à un autre dossier.
+      const env = {
+        ...process.env,
+        HIVE_DB: path.resolve(config.dbPath),
+        HIVE_PORT: String(port),
+        HIVE_HOST: config.host,
+      };
+      const releve = await relever(RACINE_RUCHE, env, process.platform, async () => agents, true);
+      return { releve, agents };
+    });
+
+  /**
+   * Le BILAN DE SANTÉ de l'assistant : le docteur (`hive doctor`, les mêmes
+   * diagnostics, le même ordre) relevé SUR LA MACHINE DE LA REINE, les agents
+   * installés avec leur session réelle (#492), le moteur d'isolement, le
+   * stockage, les nœuds inscrits, et l'écart entre le mode choisi et ce qui
+   * tourne. Même porte que l'écriture : il nomme des chemins et des réglages
+   * de l'hôte, et il lance des processus.
+   */
+  app.get<{ Querystring: { relancer?: boolean } }>(
+    '/api/configuration-initiale/sante',
+    {
+      schema: {
+        querystring: {
+          type: 'object',
+          additionalProperties: false,
+          properties: { relancer: { type: 'boolean' } },
+        },
+      },
+    },
+    async (req, reply) => {
+      const verdict = verdictConfiguration(req);
+      if (verdict !== 'permis') return refuserConfiguration(reply, verdict);
+      const now = Date.now();
+      if (req.query.relancer || !santeRangee || now - santeRangee.a > SANTE_CACHE_MS) {
+        santeEnCours ??= releverSante().finally(() => {
+          santeEnCours = null;
+        });
+        santeRangee = { a: Date.now(), valeur: await santeEnCours };
+      }
+      const { releve, agents } = santeRangee.valeur;
+      const diagnostics = diagnostiquer(releve);
+      const noeuds = store.listNodes();
+      const reponse: SanteInitiale = {
+        verdict: pire(diagnostics),
+        diagnostics,
+        agents: agentsDetectes(agents),
+        isolement: releve.isolement,
+        stockage: {
+          chemin: path.resolve(config.dbPath),
+          integre: releve.base.integre,
+          inscriptible: releve.base.inscriptible,
+          octetsLibres: releve.espace.octetsLibres,
+        },
+        noeuds: {
+          inscrits: noeuds.length,
+          enLigne: noeuds.filter((n) => n.status === 'online').length,
+        },
+        coherence: coherenceDuMode(
+          store.lireConfigurationInitiale()?.mode ?? null,
+          faitsDeploiement(),
+        ),
+        releveA: santeRangee.a,
+      };
+      return reponse;
+    },
+  );
 
   /**
    * Le Cerveau, vu comme un graphe.

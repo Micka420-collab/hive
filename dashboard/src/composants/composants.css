@@ -503,3 +503,24 @@
     background: Highlight;
   }
 }
+
+/* ─── Avatar de Worker ────────────────────────────────────────────────────── */
+/* Les cellules portent leur teinte (`--graphe-*`) en attribut SVG ; le fond et
+   le filet de l'alvéole suivent la surface du thème. */
+.ds-avatar {
+  display: block;
+  flex: none;
+}
+
+.ds-avatar-fond {
+  fill: var(--panel-2);
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+@media (forced-colors: active) {
+  .ds-avatar-fond {
+    fill: Canvas;
+    stroke: CanvasText;
+  }
+}

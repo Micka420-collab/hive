@@ -111,6 +111,8 @@ const BORNÉES_PAR_L_HUMAIN: Record<string, string> = {
     'un solde clos par projet — 1:1 avec projects ; l’élaguer rendrait des heures au client',
   motifs_projet:
     'procédures perso créées depuis la Chambre — poignée par projet, jamais auto-générées',
+  configuration_initiale:
+    'une seule ligne pour toute la ruche — clé primaire tenue par CHECK (cle = ruche), choix de l’hôte',
 };
 
 /** Le corps de chaque méthode `prune*` du magasin, accolades suivies. */

@@ -12,6 +12,7 @@ import {
   estAdmin,
   fetchPulse,
   fetchMonTableau,
+  fetchConfigurationInitiale,
   fetchReviews,
   getJwt,
   getToken,
@@ -21,12 +22,20 @@ import {
   surJwtAilleurs,
   surSessionExpiree,
 } from './api';
-import type { AuthUser } from './api';
+import type { AuthUser, EtatConfigurationInitiale } from './api';
 import { AccountPanel, EVENT_OUVRIR_COMPTE } from './AccountPanel';
 import { ChoixDuTheme } from './ChoixDuTheme';
 import { setLang, useLang, useT } from './i18n';
 import { InvitePanel } from './InvitePanel';
 import { NewProjectModal } from './NewProjectModal';
+import { PremiereArrivee } from './PremiereArrivee';
+import {
+  doitOuvrirSeul,
+  EVENT_CONFIGURATION_CHANGEE,
+  EVENT_PREMIERE_ARRIVEE,
+  remettreAPlusTard,
+  renvoyeAPlusTard,
+} from './premiere-arrivee';
 import { TaskDrawer } from './TaskDrawer';
 import {
   creerMagasinSorties,
@@ -299,6 +308,11 @@ export function App() {
   const [route, setRoute] = useState(parseHash);
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
   const [showNewProject, setShowNewProject] = useState(false);
+  // L'assistant de première arrivée (PremiereArrivee.tsx) : l'état rangé chez
+  // la Reine, et s'il est ouvert. `null` tant que la Reine n'a pas répondu —
+  // rien ne s'ouvre sur une réponse qu'on n'a pas.
+  const [configInitiale, setConfigInitiale] = useState<EtatConfigurationInitiale | null>(null);
+  const [assistantOuvert, setAssistantOuvert] = useState(false);
   const [user, setUser] = useState<AuthUser | null>(null);
   // La vue (`#/…`) où la session est morte ; `null` tant qu'elle vit. Voir
   // « LA SESSION QUI EXPIRE, DITE À L'ÉCRAN » plus bas. Une marque restée d'un
@@ -578,6 +592,46 @@ export function App() {
 
   // Restaurée au montage (voir `demanderSession`).
   useEffect(() => demanderSession(false), [demanderSession]);
+
+  // ─── LA PREMIÈRE ARRIVÉE ───────────────────────────────────────────────────
+  //
+  // Relue à chaque (re)connexion du flux et à chaque changement de compte : la
+  // porte dépend de QUI regarde (`porteConfiguration`) — un administrateur qui
+  // se connecte peut écrire là où le jeton seul ne le pouvait plus. L'assistant
+  // ne s'ouvre SEUL que sur une ruche jamais configurée (`doitOuvrirSeul`).
+  useEffect(() => {
+    if (!connected) return;
+    let vivant = true;
+    fetchConfigurationInitiale()
+      .then((etat) => {
+        if (!vivant) return;
+        setConfigInitiale(etat);
+        if (doitOuvrirSeul(etat, renvoyeAPlusTard())) setAssistantOuvert(true);
+      })
+      .catch(() => {
+        // Reine plus ancienne ou refus : aucun assistant, rien d'inventé.
+      });
+    return () => {
+      vivant = false;
+    };
+  }, [connected, user?.id]);
+
+  // La relance à la main (Santé, Intendance) : relue d'abord, pour reprendre
+  // les choix rangés — y compris ceux faits depuis un autre poste.
+  useEffect(() => {
+    const relancer = () => {
+      fetchConfigurationInitiale()
+        .then((etat) => {
+          setConfigInitiale(etat);
+          if (etat.ecriture === 'permis') setAssistantOuvert(true);
+        })
+        .catch(() => {
+          /* la Santé et l'Intendance disent déjà une Reine injoignable */
+        });
+    };
+    window.addEventListener(EVENT_PREMIERE_ARRIVEE, relancer);
+    return () => window.removeEventListener(EVENT_PREMIERE_ARRIVEE, relancer);
+  }, []);
 
   // Un AUTRE onglet a changé le JWT. Déconnecté là-bas : plus de nom ici, sans
   // quoi « + Projet » partirait sans compte sous un nom affiché. Connecté
@@ -930,6 +984,22 @@ export function App() {
           refreshTick={refreshTick}
           magasinSorties={magasinSorties}
           onClose={() => setOpenTaskId(null)}
+        />
+      )}
+      {assistantOuvert && configInitiale && (
+        <PremiereArrivee
+          etat={configInitiale}
+          projets={snapshot.projects.length}
+          onFermer={() => {
+            remettreAPlusTard();
+            setAssistantOuvert(false);
+          }}
+          onNouveauProjet={() => setShowNewProject(true)}
+          onTermine={(etat) => {
+            setConfigInitiale(etat);
+            setAssistantOuvert(false);
+            window.dispatchEvent(new Event(EVENT_CONFIGURATION_CHANGEE));
+          }}
         />
       )}
       {showNewProject && <NewProjectModal onClose={() => setShowNewProject(false)} />}
