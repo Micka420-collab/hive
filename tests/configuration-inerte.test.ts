@@ -243,9 +243,13 @@ describe('écartée de l’arbre pendant l’exécution, remise avant le diff', 
     expect(diff).toBe(attendu);
     expect(diff).toContain('nouveau.txt');
     expect(diff).not.toMatch(/\.cursor|\.claude|\.cline/);
-    for (const [relatif, contenu] of Object.entries(fichiersDuDepotPiege())) {
+    // Contre l'arbre jamais écarté, pas contre les chaînes du banc : sous
+    // Windows, le `core.autocrlf` du système réécrit les fins de ligne au clone.
+    for (const relatif of Object.keys(fichiersDuDepotPiege())) {
       if (relatif === 'src/a.txt' || relatif === 'README.md') continue;
-      expect(readFileSync(path.join(ws.cwd, relatif), 'utf8'), relatif).toBe(contenu);
+      expect(readFileSync(path.join(ws.cwd, relatif)), relatif).toEqual(
+        readFileSync(path.join(jamaisEcarte.cwd, relatif)),
+      );
     }
     // Idempotent : un second diff ne remet rien deux fois.
     expect(await ws.collectDiff()).toBe(attendu);
