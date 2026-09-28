@@ -50,10 +50,11 @@
 # La CI Windows a rendu cinq défauts réels en s'ouvrant (voir `docs/ERREURS.md`).
 # Deux d'entre eux dictent des choix de ce script :
 #
-#   · Node 24 EST UN PRÉREQUIS DUR, pas une préférence. Sous Node 20,
-#     `better-sqlite3` n'a pas de binaire prébuilt : il faut le COMPILER, ce
-#     qui exige Visual Studio Build Tools — et échoue en silence sans, parce
-#     que la dépendance est optionnelle. On vérifie donc la version AVANT de
+#   · Node 24.18 EST UN PRÉREQUIS DUR, pas une préférence. Sous lui, npm
+#     (avant 11.16) ignore le refus que Hive pose sur la compilation de
+#     `better-sqlite3` (`allowScripts`) : il la tente, ce qui exige python3
+#     et Visual Studio Build Tools — et échoue en silence sans, parce que la
+#     dépendance est optionnelle. On vérifie donc la version AVANT de
 #     lancer quoi que ce soit, plutôt que de laisser `npm install` « réussir »
 #     et `hive start` mourir sur ERR_MODULE_NOT_FOUND.
 #
@@ -107,7 +108,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$NODE_MIN = 24
+# Le plancher de Node, jusqu'au mineur : 24.18.0 est le premier Node 24 livré
+# avec npm 11.16, le premier qui lit `allowScripts`. Le même nombre que
+# `NODE_MINIMUM` (`src/shared/doctor.ts`), gardé par `tests/installeurs.test.ts`.
+$NODE_MIN = '24.18.0'
 # Le dépôt vient du paramètre (lui-même issu de `HIVE_DEPOT`, ou du défaut
 # public). Garder ici une CONSTANTE en plus du paramètre serait la meilleure
 # façon de les faire diverger : le clone lirait l'une, l'aide l'autre.
@@ -418,23 +422,26 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
 #
 # Le découpage se fait donc côté PowerShell, et l'expression envoyée à Node ne
 # contient plus un seul caractère spécial. `tests/installeurs.test.ts` l'exige.
+#
+# `[version]` compare champ par champ, en nombres : « 24.9 » est sous
+# « 24.18 ». Un suffixe de préversion (`-nightly…`) est retiré avant.
 $version = node -p 'process.versions.node'
-$majeur = [int](($version -split '\.')[0])
-if ($majeur -lt $NODE_MIN) {
-  Echec "Node $majeur détecté — Hive exige $NODE_MIN ou plus."
+if ([version](($version -split '-')[0]) -lt [version]$NODE_MIN) {
+  Echec "Node $version détecté — Hive exige $NODE_MIN ou plus."
   Dire ''
-  Dire '      Ce n''est pas une préférence pour le neuf. Sous cette version,'
-  Dire '      better-sqlite3 n''a pas de binaire prébuilt : il faut le COMPILER,'
-  Dire '      donc installer Visual Studio Build Tools — et la compilation échoue'
-  Dire '      EN SILENCE sans eux, parce que la dépendance est optionnelle.'
+  Dire '      Ce n''est pas une préférence pour le neuf. Sous cette version, npm'
+  Dire '      (avant 11.16) ignore le refus que Hive pose sur la compilation de'
+  Dire '      better-sqlite3 : il la tente, ce qui exige python3 et Visual Studio'
+  Dire '      Build Tools — et elle échoue EN SILENCE sans eux, parce que la'
+  Dire '      dépendance est optionnelle.'
   Dire ''
-  Dire "      À partir de Node $NODE_MIN, le binaire prébuilt existe : rien à compiler."
+  Dire "      À partir de Node $NODE_MIN, le binaire du paquet est pris tel quel : rien à compiler."
   Dire ''
   Ecrire '        winget install --id OpenJS.NodeJS -e' 'accent'
   Dire ''
   exit $CODE_PREREQUIS
 }
-Ok "Node $majeur (≥ $NODE_MIN exigé)"
+Ok "Node $version (≥ $NODE_MIN exigé)"
 
 # ─── LA POLITIQUE D'EXÉCUTION, QUI MORD APRÈS L'INSTALLATION ─────────────────
 #
@@ -525,73 +532,52 @@ if ($DryRun) {
   # `examples/deploiement-sans-ecran.sh` : le remède existait, à un endroit que
   # personne ne traverse en installant.
   #
-  # Mesuré sur la machine d'un utilisateur, avec npm 11.17 :
-  #
-  #     npm warn allow-scripts 2 packages have install scripts not yet covered:
-  #     npm warn allow-scripts   better-sqlite3@12.11.1 (install: prebuild-install…)
-  #
-  # npm a BLOQUÉ le script d'installation. `npm install` sort donc avec 0, on
-  # affiche « dépendances installées », et le binaire natif n'est pas là. La
-  # ruche mourra au démarrage, très loin d'ici, sur un message que rien ne relie
-  # à ce moment-ci.
-  #
   # `better-sqlite3` et `fastify` sont des dépendances OPTIONNELLES : npm a le
   # droit de les écarter sans échouer. C'est précisément pour ça qu'il faut les
   # charger pour de bon au lieu de croire un code de sortie.
-  $null = node -e "require('better-sqlite3'); require('fastify')" 2>&1
-  if ($LASTEXITCODE -ne 0) {
+  #
+  # La sonde OUVRE une base : `better-sqlite3` 13 ne charge son binaire qu'au
+  # premier `new Database`, et un `require` seul réussit sans lui. Sa première
+  # ligne d'erreur est gardée : c'est elle qui dit laquelle des causes
+  # ci-dessous est la bonne.
+  #
+  # `Continue` le temps de la sonde : sous Windows PowerShell 5.1, avec `Stop`,
+  # la sortie d'erreur d'une commande native redirigée par `2>&1` devient une
+  # exception — l'installeur mourrait sur la trace au lieu de l'expliquer.
+  $preference = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  $erreurMoteur = @(node -e "new (require('better-sqlite3'))(':memory:').close(); require('fastify')" 2>&1 | ForEach-Object { "$_" })
+  $codeMoteur = $LASTEXITCODE
+  $ErrorActionPreference = $preference
+  if ($codeMoteur -ne 0) {
     Pop-Location
     Echec 'Les dépendances sont installées mais la ruche ne peut pas démarrer.'
     Dire ''
-    Dire '      « better-sqlite3 » ou « fastify » ne se charge pas. Les deux sont'
-    Dire '      OPTIONNELLES : npm a pu les écarter — ou refuser leur script'
-    Dire '      d''installation — sans échouer pour autant.'
+    Dire '      « better-sqlite3 » ou « fastify » ne se charge pas :'
     Dire ''
-    Dire '      Une seule commande, et c''est la bonne dans tous les cas :'
+    $ligne = @($erreurMoteur | Where-Object { $_ -match 'Error' })[0]
+    if (-not $ligne) { $ligne = @($erreurMoteur)[0] }
+    Dire "        $ligne"
     Dire ''
-    Ecrire '        npm rebuild better-sqlite3' 'accent'
+    # ─── PLUS DE `npm rebuild better-sqlite3` ────────────────────────────────
+    #
+    # Ce message le donnait comme LA commande. Avec la 13, le script du paquet
+    # est refusé (`allowScripts`) et son binaire vient tout fait : `rebuild`
+    # répond « rebuilt dependencies successfully » sans rien faire (mesuré), et
+    # installer Visual Studio Build Tools ne répare rien non plus. Chaque cause
+    # a son geste, et aucun n'est celui-là.
+    Dire '      Selon ce que dit cette ligne :'
     Dire ''
-    # ─── UNE COMMANDE, PARCE QU'ELLE A SUFFI ─────────────────────────────────
-    #
-    # Ce message en a listé deux, dont une inutile. Mesuré chez un utilisateur :
-    #
-    #     PS> npm approve-scripts --allow-scripts-pending
-    #     2 packages have install scripts not yet covered by allowScripts: …
-    #     Run `npm approve-scripts <pkg>` to allow…
-    #
-    # `--allow-scripts-pending` ne fait que LISTER — il n'autorise rien. Il
-    # faudrait `npm approve-scripts better-sqlite3`. Et surtout : la ligne
-    # suivante de la même trace montre que `npm rebuild better-sqlite3` a réussi
-    # SEUL, verrou toujours en place, parce que `rebuild` compile au lieu
-    # d'attendre le script d'installation.
-    #
-    # On ne donne donc qu'une commande. Deux, dont une qui ne fait rien, c'est
-    # deux occasions de croire qu'on a essayé.
-    Dire '      Elle règle les deux causes qui donnent ce message : le verrou'
-    Dire '      « allow-scripts » de npm, qui a empêché la récupération du binaire,'
-    Dire '      et un Node qui a CHANGÉ depuis l''installation — le binaire reste'
-    Dire '      alors celui de l''ancienne ABI.'
+    Dire "      · « Cannot find module 'better-sqlite3' » (ou 'fastify') — npm a"
+    Dire '        écarté le paquet : une installation en --omit=optional, ou un npm'
+    $npmVu = (npm -v 2>$null)
+    Dire "        sous 11.16 (ici : $npmVu). Node ≥ $NODE_MIN, puis :"
     Dire ''
-    # ─── `rebuild`, ET SURTOUT PAS `install` ─────────────────────────────────
-    #
-    # Première version de ce message : « npm install ». Mesuré chez un
-    # utilisateur, c'était le mauvais conseil — et pour une raison qui compte :
-    #
-    #     Error: le module better_sqlite3.node a été compilé pour
-    #     NODE_MODULE_VERSION 137. Cette version de Node exige 147.
-    #
-    # Le paquet ÉTAIT là. Son binaire natif ne correspondait pas à l'ABI du Node
-    # utilisé. `npm install` voit un paquet déjà installé à la bonne version et
-    # ne touche à rien : il rend 0, et la panne reste entière. Seul `rebuild`
-    # refait le binaire.
-    #
-    # Deux causes mènent au même message, et la même commande les règle :
-    #   · le verrou `allow-scripts` a empêché `prebuild-install` de chercher le
-    #     binaire correspondant à ce Node ;
-    #   · le Node de la machine a changé depuis l'installation.
-    Dire '      « npm install » n''y suffirait PAS : il voit un paquet déjà présent'
-    Dire '      à la bonne version, ne touche à rien, et rend 0. Seul « rebuild »'
-    Dire '      refait le binaire.'
+    Ecrire '          npm install --include=optional' 'accent'
+    Dire ''
+    Dire '      · « …better_sqlite3.node » introuvable — cette machine n''a pas de'
+    Dire '        binaire (Windows x64 ou arm64 seulement) : la ruche dans son image'
+    Dire '        Docker (docs/INSTALLATION.md).'
     Dire ''
     Dire '      On s''arrête ICI plutôt que d''écrire une configuration pour une'
     Dire '      ruche qui ne démarrera pas.'

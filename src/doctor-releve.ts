@@ -266,7 +266,14 @@ export async function moteurManquant(
   let raison: string | null = null;
   for (const nom of paquets) {
     try {
-      await import(nom);
+      const module = (await import(nom)) as { default: unknown };
+      // `better-sqlite3` ne charge son binaire qu'au premier `new Database` :
+      // l'`import` réussit sans lui — plateforme sans prébuilt, glibc trop
+      // vieille. Ouvrir une base en mémoire est le seul geste qui le prouve.
+      if (nom === 'better-sqlite3') {
+        const Database = module.default as new (chemin: string) => { close(): void };
+        new Database(':memory:').close();
+      }
     } catch (e) {
       manquants.push(nom);
       // La PREMIÈRE raison seulement, et sa première ligne : une trace
@@ -276,6 +283,15 @@ export async function moteurManquant(
     }
   }
   return { manquants, raison };
+}
+
+/**
+ * La glibc qui exécute ce Node (« 2.36 »), lue dans le rapport de diagnostic
+ * de Node ; `null` hors Linux et sous musl, où le rapport ne la donne pas.
+ */
+export function glibcVersion(): string | null {
+  const rapport = process.report.getReport() as { header?: { glibcVersionRuntime?: string } };
+  return rapport.header?.glibcVersionRuntime ?? null;
 }
 
 /** Place libre sur un chemin, ou `null` si le système ne répond pas. */
@@ -355,7 +371,8 @@ export async function relever(
   const joignables = await moteursJoignables().catch((): Fournisseur[] => []);
 
   return {
-    nodeMajeur: Number(process.versions.node.split('.')[0] ?? 0),
+    versionNode: process.versions.node,
+    glibc: glibcVersion(),
     fichierEnv: {
       present: envPresent,
       // MUTANT NON TESTÉ, ET C'EST ÉCRIT PLUTÔT QUE TU. Remplacer ce `&&` par

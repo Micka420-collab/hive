@@ -1,21 +1,19 @@
 # Hive — l'image de la ruche.
 #
-# ─── POURQUOI `slim` ET SURTOUT PAS `alpine` ─────────────────────────────────
+# ─── POURQUOI `slim`, ET PAS `alpine` ────────────────────────────────────────
 #
-# `better-sqlite3` est un module NATIF. Il publie des binaires prébuilts pour
-# la glibc, pas pour la musl d'Alpine : sur `node:24-alpine`, npm doit le
-# COMPILER — donc embarquer python3, make et g++ dans l'image, allonger la
-# construction de plusieurs minutes, et échouer sur toute machine où l'un des
-# trois manque.
+# `better-sqlite3` est un module NATIF. Jusqu'à la 12, il ne publiait de
+# binaires prébuilts que pour la glibc : sur `node:24-alpine`, npm devait le
+# COMPILER (python3, make et g++ dans l'image), et comme la dépendance est
+# OPTIONNELLE, un échec produisait une image « réussie » dont le `hive start`
+# mourait sur `ERR_MODULE_NOT_FOUND`.
 #
-# Pire : la dépendance est OPTIONNELLE. La compilation qui échoue ne fait pas
-# échouer `npm ci` — elle produit une image « réussie » dont le `hive start`
-# meurt sur `ERR_MODULE_NOT_FOUND`. C'est exactement la panne que le passage à
-# Node 24 a supprimée côté poste de travail (voir `docs/ERREURS.md`) ; la
-# réintroduire dans l'image serait la refaire.
-#
-# `node:24-bookworm-slim` est en glibc : le prébuilt existe, rien ne se
-# compile, et l'image n'a pas besoin d'un compilateur.
+# La 13 (ADR 0013) livre AUSSI `linuxmusl-x64` et `linuxmusl-arm64` dans son
+# paquet : cette raison-là est tombée. `slim` reste parce que c'est la base
+# que la CI mesure (l'image, la montée de version), la même Debian que
+# `docker/atelier` et `docker/agents`, et que sa glibc (2.36) passe le
+# plancher du binaire Linux (2.34, voir `GLIBC_MINIMUM`). Passer à Alpine
+# serait un choix à mesurer, pas une réparation.
 #
 # ─── DEUX ÉTAGES, ET CE QUI RESTE DANS LE SECOND ─────────────────────────────
 #
@@ -113,11 +111,10 @@ COPY package.json package-lock.json ./
 #     npm error code 127
 #
 # `--ignore-scripts` corrigerait ce symptôme et en créerait un pire : il
-# neutraliserait AUSSI le script d'installation de `better-sqlite3`, qui est
-# celui qui télécharge le binaire prébuilt. On obtiendrait une image dont la
+# neutraliserait AUSSI le script d'installation de `better-sqlite3`, qui était
+# (jusqu'à la 12) celui qui télécharge le binaire prébuilt. On obtiendrait une image dont la
 # construction réussit et dont le démarrage meurt sur un module natif absent —
-# exactement la panne que le choix de `slim` plutôt qu'`alpine` évite plus
-# haut. Une image qui échoue à se construire est un problème ; une image qui se
+# la panne que la boucle et la sonde ci-dessous existent pour attraper. Une image qui échoue à se construire est un problème ; une image qui se
 # construit et ne démarre pas est un piège.
 #
 # On retire donc UNIQUEMENT le script fautif. C'est cohérent avec ce qu'est cet

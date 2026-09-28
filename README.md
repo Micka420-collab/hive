@@ -8,9 +8,9 @@
 # 🐝 Hive
 
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
-![Node](https://img.shields.io/badge/node-%E2%89%A5%2024-F6C445?labelColor=17130C)
+![Node](https://img.shields.io/badge/node-%E2%89%A5%2024.18-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-8252%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-8261%20passing-F6C445?labelColor=17130C)
 ![Licence](https://img.shields.io/badge/licence-MIT-F6C445?labelColor=17130C)
 
 🇫🇷 Français · [🇬🇧 English](README.en.md) · [🌐 Site](https://micka420-collab.github.io/hive/) · [📚 Documentation](#-documentation)
@@ -277,10 +277,11 @@ irm https://raw.githubusercontent.com/Micka420-collab/hive/main/install.ps1 -Out
 #   powershell -NoProfile -ExecutionPolicy Bypass -File .\hive-install.ps1
 ```
 
-Le script vérifie Node (≥ 24), récupère Hive, installe les dépendances et pose
-**au plus trois questions**. Jamais de `sudo`, rien hors de son dossier —
-`--dry-run` montre tout sans rien créer. Lancé comme fichier, il affiche son
-empreinte SHA-256 (ADR 0002). Pages publie `install.sh`, `install.ps1` et
+Le script vérifie Node (≥ 24.18 ; sous Linux, glibc ≥ 2.34 : Ubuntu 22.04+,
+Debian 12+ — [pourquoi](docs/INSTALLATION.md#pourquoi-node-2418-et-pas-moins)),
+récupère Hive, installe les dépendances et pose **au plus trois questions**.
+Jamais de `sudo`, rien hors de son dossier — `--dry-run` montre tout sans rien
+créer. Lancé comme fichier, il affiche son empreinte SHA-256 (ADR 0002). Pages publie `install.sh`, `install.ps1` et
 `install.sha256` ; une **Release GitHub signée** reste hors d’atteinte (comptes
 humains) — l’empreinte Pages protège du pipe aveugle, pas d’un dépôt compromis.
 

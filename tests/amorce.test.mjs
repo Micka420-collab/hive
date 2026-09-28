@@ -31,7 +31,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { NODE_MINIMAL, annoncer, majeure, verdict } from '../scripts/amorce.mjs';
+import { NODE_MINIMAL, annoncer, sousLePlancher, verdict } from '../scripts/amorce.mjs';
 
 /** Relu depuis une URL, jamais depuis un chemin recomposé (§ 6.1 du journal). */
 const lire = (chemin) => readFileSync(new URL(chemin, import.meta.url), 'utf8');
@@ -39,7 +39,7 @@ const paquet = JSON.parse(lire('../package.json'));
 
 /** Une copie en bon état : tout ce qui suit part de là et casse UNE chose. */
 const SAIN = {
-  versionNode: `v${String(NODE_MINIMAL)}.18.0`,
+  versionNode: 'v24.21.0',
   racine: 'C:\\Users\\micki\\Desktop\\hive-main',
   modules: true,
   tsx: true,
@@ -136,18 +136,21 @@ describe('CE QU’ON FAIT DU VERDICT — écrire, et s’arrêter ou non', () =>
 });
 
 describe('LE NUMÉRO DE VERSION', () => {
-  it('se lit avec ou sans « v »', () => {
-    expect(majeure('v26.4.0')).toBe(26);
-    expect(majeure('24.18.0')).toBe(24);
-    expect(majeure('v8.9.0')).toBe(8);
+  it('se lit avec ou sans « v », champ par champ, en NOMBRES', () => {
+    expect(sousLePlancher('v26.4.0')).toBe(false);
+    expect(sousLePlancher('24.18.0')).toBe(false);
+    expect(sousLePlancher('v8.9.0')).toBe(true);
+    // « 24.9 » n'est pas au-dessus de « 24.18 » : une comparaison de chaînes
+    // le croirait.
+    expect(sousLePlancher('v24.9.0')).toBe(true);
   });
 
   it('ILLISIBLE NE BLOQUE PAS', () => {
     // Refuser de démarrer parce qu'on n'a pas su lire un numéro de version,
     // ce serait transformer une incertitude en panne. On préfère laisser
     // essayer et échouer plus loin, sur la vraie cause.
-    expect(majeure('inconnu')).toBeNull();
-    expect(majeure('')).toBeNull();
+    expect(sousLePlancher('inconnu')).toBeNull();
+    expect(sousLePlancher('')).toBeNull();
     expect(verdict({ ...SAIN, versionNode: 'inconnu' })).toBeNull();
     // Et surtout : ça n'arrête pas non plus quand le reste va bien.
     expect(verdict({ ...SAIN, versionNode: 'inconnu', tsx: false }).arret).toBe(true);
@@ -158,13 +161,16 @@ describe('NODE TROP ANCIEN', () => {
   it('nomme la version vue ET celle qu’il faut', () => {
     const { message } = verdict({ ...SAIN, versionNode: 'v20.11.0' });
     expect(message, 'la version que l’humain a').toContain('v20.11.0');
-    expect(message, 'et celle qu’il lui faut').toContain(String(NODE_MINIMAL));
+    expect(message, 'et celle qu’il lui faut').toContain(NODE_MINIMAL);
     expect(message, 'et où la prendre').toContain('nodejs.org');
   });
 
   it('la borne est un « strictement en dessous », pas un « ou égal »', () => {
-    expect(verdict({ ...SAIN, versionNode: `v${String(NODE_MINIMAL)}.0.0` })).toBeNull();
-    expect(verdict({ ...SAIN, versionNode: `v${String(NODE_MINIMAL - 1)}.99.0` })).not.toBeNull();
+    expect(verdict({ ...SAIN, versionNode: `v${NODE_MINIMAL}` })).toBeNull();
+    // Le mineur juste en dessous : 24.17 embarque l'npm qui ignore
+    // `allowScripts`. Un plancher lu au seul majeur le laisserait passer.
+    expect(verdict({ ...SAIN, versionNode: 'v24.17.9' })).not.toBeNull();
+    expect(verdict({ ...SAIN, versionNode: 'v23.99.0' })).not.toBeNull();
   });
 
   it('IL DIT AUSSI DE REFAIRE L’INSTALLATION', () => {
@@ -185,7 +191,7 @@ describe('NODE TROP ANCIEN', () => {
   it('le minimum annoncé est CELUI DE package.json', () => {
     // Deux endroits énoncent la même exigence. Sans cette confrontation, l'un
     // des deux dérive en silence et le message ment.
-    expect(paquet.engines.node).toBe(`>=${String(NODE_MINIMAL)}`);
+    expect(paquet.engines.node).toBe(`>=${NODE_MINIMAL}`);
   });
 
   it('ET CELUI DU MÉDECIN', async () => {

@@ -252,10 +252,13 @@ describe('LA VITRINE N’EXIGE PAS UN AUTRE NODE QUE LA RUCHE', () => {
     const paquet = JSON.parse(
       readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
     ) as { engines: { node: string } };
-    const exige = /(\d+)/.exec(paquet.engines.node)?.[1];
+    // Majeur ET mineur : le plancher est 24.18 (le premier Node 24 dont npm
+    // lit `allowScripts`), et une vitrine qui dirait « ≥ 24 » inviterait sous
+    // 24.17 — la ruche morte-née, par la porte de devant.
+    const exige = /(\d+\.\d+)/.exec(paquet.engines.node)?.[1];
     expect(exige, 'engines.node est illisible').toBeTruthy();
 
-    const annonce = /Node\s*(?:≥|&ge;|>=)\s*(\d+)/.exec(vitrine)?.[1];
+    const annonce = /Node\s*(?:≥|&ge;|>=)\s*(\d+(?:\.\d+)?)/.exec(vitrine)?.[1];
     expect(annonce, 'aucun bandeau « Node ≥ N » dans la vitrine').toBeTruthy();
     expect(
       annonce,

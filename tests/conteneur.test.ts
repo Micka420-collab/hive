@@ -20,7 +20,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { NODE_MINIMUM } from '../src/shared/doctor.js';
+import { NODE_MAJEUR } from '../src/shared/doctor.js';
 import { PORT_PAR_DEFAUT } from '../src/shared/port.js';
 
 const RACINE = fileURLToPath(new URL('..', import.meta.url));
@@ -162,24 +162,27 @@ describe('LA BASE DE L’IMAGE', () => {
     // Le plancher est écrit dans `NODE_MINIMUM`, `engines.node`, les deux
     // installeurs, et maintenant ici. Un cinquième endroit qui diverge, c'est
     // une image qui vérifie une configuration que personne n'installe.
-    for (const m of DOCKERFILE.matchAll(/^FROM\s+node:(\d+)/gm)) {
-      expect(Number(m[1]), `FROM node:${m[1]} ne suit plus NODE_MINIMUM`).toBe(NODE_MINIMUM);
+    //
+    // L'étiquette est FLOTTANTE (`node:24-…`) : elle suit le dernier 24, donc
+    // un Node au-dessus du plancher mineur (24.18). La figer sur une version
+    // exacte la ferait vieillir sous lui.
+    for (const m of DOCKERFILE.matchAll(/^FROM\s+node:(\d+)(\S*)/gm)) {
+      expect(m[1], `FROM node:${m[1]} ne suit plus NODE_MINIMUM`).toBe(NODE_MAJEUR);
+      expect(m[2], 'une étiquette figée vieillirait sous le plancher').toMatch(/^-/);
     }
     expect([...DOCKERFILE.matchAll(/^FROM\s+node:/gm)].length, 'aucun FROM node:').toBeGreaterThan(
       0,
     );
   });
 
-  it('N’EST PAS ALPINE — `better-sqlite3` n’y a pas de binaire prébuilt', () => {
-    // Sur musl, npm doit COMPILER le module natif : python3, make et g++ dans
-    // l'image, plusieurs minutes de plus, et un échec sur toute machine où l'un
-    // des trois manque.
-    //
-    // Et comme la dépendance est OPTIONNELLE, cet échec ne fait pas échouer
-    // `npm ci` : on obtient une image « réussie » dont le démarrage meurt sur
-    // ERR_MODULE_NOT_FOUND. C'est la panne exacte que Node 24 a supprimée côté
-    // poste de travail ; la réintroduire ici serait la refaire.
-    expect(DOCKERFILE_NU, 'alpine réintroduit la compilation du module natif').not.toMatch(
+  it('RESTE EN glibc (Debian `slim`) — la base que la CI mesure', () => {
+    // Jusqu'à `better-sqlite3` 12, Alpine imposait de COMPILER le module
+    // natif, et un échec — silencieux, la dépendance est OPTIONNELLE — donnait
+    // une image « réussie » morte au démarrage. La 13 livre des binaires musl :
+    // cette raison est tombée, et le Dockerfile le dit. Reste que l'image, la
+    // montée de version et `docker/atelier` sont mesurés sur Debian ; changer
+    // de libc est un choix à mesurer, pas une ligne à glisser.
+    expect(DOCKERFILE_NU, 'changer de libc se mesure en CI d’abord').not.toMatch(
       /FROM\s+node:\S*alpine/,
     );
   });
