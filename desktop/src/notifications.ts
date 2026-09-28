@@ -89,6 +89,13 @@ export function notificationMortOuvriere(nom: string, message: string): Notifica
   return { titre: `${nom} s’est arrêtée`, corps: message.replace(/^✘\s*/, ''), route: '' };
 }
 
+/** Les relances épuisées : la Reine ne reviendra pas seule. Le clic ramène la fenêtre sur l'écran d'erreur. */
+export const NOTIFICATION_REINE_ARRETEE: NotificationRuche = {
+  titre: 'La Reine s’est arrêtée',
+  corps: 'Elle ne redémarre plus d’elle-même. Ouvrez Hive pour lire pourquoi et réessayer.',
+  route: '',
+};
+
 /** Ce qu'affiche la barre système en une ligne. */
 export function libelleEtat(e: {
   readonly reine: 'demarrage' | 'en-ligne' | 'relance' | 'arretee' | 'externe';

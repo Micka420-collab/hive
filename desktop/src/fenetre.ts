@@ -15,6 +15,8 @@ import { lienExterne, navigationPermise, URL_ACCUEIL } from './navigation.js';
 export interface OptionsFenetre {
   readonly preload: string;
   readonly icone: string;
+  /** Le fond de la marque (`marque/coquille.json`), peint avant la première page. */
+  readonly fond: string;
   /** Montrer la fenêtre dès qu'elle est prête (faux au lancement de session). */
   readonly montrer: boolean;
   /** Fermer la fenêtre la cache-t-il (vrai) ou quitte-t-il (faux) ? */
@@ -63,7 +65,7 @@ export function creerFenetre(o: OptionsFenetre): BrowserWindow {
     show: false,
     title: 'Hive',
     icon: o.icone,
-    backgroundColor: '#0c0d10',
+    backgroundColor: o.fond,
     autoHideMenuBar: true,
     webPreferences: {
       preload: o.preload,
@@ -96,7 +98,13 @@ export function creerFenetre(o: OptionsFenetre): BrowserWindow {
     journal.error(`rendu perdu : ${details.reason}`);
     if (Date.now() - dernierRechargement < 10_000) return;
     dernierRechargement = Date.now();
-    fenetre.webContents.reload();
+    // Recharger n'est permis que vers ce que la fenêtre a le droit d'afficher
+    // MAINTENANT : `reload()` ne passe pas par `will-navigate`, et l'origine
+    // d'une Reine partie peut être tenue par un autre programme — qui
+    // recevrait l'écran et le jeton de son `localStorage`.
+    if (navigationPermise(fenetre.webContents.getURL(), etat().origine))
+      fenetre.webContents.reload();
+    else void fenetre.loadURL(URL_ACCUEIL);
   });
 
   // Le fil de la navigation, dans `bureau.log` : une page qui ne charge pas

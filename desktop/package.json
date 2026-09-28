@@ -9,6 +9,7 @@
   "homepage": "https://github.com/Micka420-collab/hive",
   "type": "module",
   "main": "dist/main.js",
+  "hiveIdApp": "io.github.micka420collab.hive",
   "scripts": {
     "build": "tsc -p tsconfig.json && node scripts/copier-marque.mjs",
     "dev": "npm run build && electron .",

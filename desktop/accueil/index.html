@@ -31,10 +31,21 @@
         <ul class="agents" id="agents"></ul>
         <p class="note" id="note-simulation" hidden>
           Aucun agent connecté : la ruche démarre en démonstration simulée (diffs factices).
-          Installez et connectez Claude Code, Codex ou Cursor, puis redémarrez la ruche depuis la
-          barre système.
+          Installez et connectez Claude Code, Codex ou Cursor — la commande de chacun est ci-dessus
+          —, puis « Relancer la détection ».
         </p>
         <p class="note" id="note-port" hidden></p>
+        <p class="note">
+          Bac à sable : chaque ouvrière isole ses agents avec Podman, Docker ou bubblewrap s’il y en
+          a un sur ce poste ; sinon elle travaille sans, et le dit. La vue Essaim montre ce que
+          chacune a obtenu.
+        </p>
+        <div class="actions" id="actions-demarrage">
+          <button type="button" id="ouvrir-ecran" class="primaire" hidden>
+            Ouvrir Mission Control
+          </button>
+          <button type="button" id="detecter" hidden>Relancer la détection</button>
+        </div>
         <label class="case">
           <input type="checkbox" id="session" />
           <span>Lancer Hive à l’ouverture de session</span>

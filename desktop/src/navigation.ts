@@ -14,6 +14,12 @@
  */
 export const SCHEMA_COQUILLE = 'bureau';
 export const URL_ACCUEIL = `${SCHEMA_COQUILLE}://app/accueil/index.html`;
+/**
+ * Le schéma de l'Aperçu du Rayon dans l'app : un document servi par la
+ * coquille (`protocole.ts`) plutôt qu'un `srcdoc`, qui hériterait la CSP de
+ * l'écran et y perdrait ses scripts (csp.ts).
+ */
+export const SCHEMA_APERCU = 'apercu';
 /** Les seuls dossiers de la coquille qu'une page peut lire. */
 const DOSSIERS_SERVIS = new Set(['accueil', 'marque']);
 
@@ -55,13 +61,63 @@ export function navigationPermise(url: string, origineReine: string | null): boo
   return `${u.protocol}//${u.host}${u.pathname}` === URL_ACCUEIL;
 }
 
-/** Un lien que l'on confie au navigateur du système — `https:` seulement. */
+/** Les hôtes de la boucle locale — `URL.hostname` garde les crochets d'IPv6. */
+const BOUCLE_LOCALE = new Set(['127.0.0.1', 'localhost', '[::1]']);
+
+/**
+ * Un lien que l'on confie au navigateur du système : `https:`, ou `http:` sur
+ * la boucle locale — le « Plein écran » de l'atelier (noVNC, un autre port de
+ * `127.0.0.1`). Le navigateur n'a pas le jeton : ouvrir une adresse locale
+ * n'y expose rien.
+ */
 export function lienExterne(url: string): boolean {
   try {
-    return new URL(url).protocol === 'https:';
+    const u = new URL(url);
+    return u.protocol === 'https:' || (u.protocol === 'http:' && BOUCLE_LOCALE.has(u.hostname));
   } catch {
     return false;
   }
+}
+
+/** Ce qui compte pour choisir la page de la fenêtre (`Etat`, `etat.ts`). */
+interface EtatPourPage {
+  readonly erreur: object | null;
+  readonly origine: string | null;
+  readonly portChange: number | null;
+  readonly agents: readonly { readonly nonConnecte: string | null }[] | null;
+}
+
+/**
+ * L'accueil a-t-il quelque chose à dire AVANT Mission Control ? Aucun agent
+ * connecté (la commande qui connecte chacun, la démo simulée) ou un port
+ * changé. Montré une seconde puis remplacé, il ne disait rien (#532).
+ */
+export function accueilADire(s: EtatPourPage): boolean {
+  return (
+    s.portChange !== null || (s.agents !== null && s.agents.every((a) => a.nonConnecte !== null))
+  );
+}
+
+/**
+ * Où la fenêtre doit aller après un changement d'état — `null` : elle reste.
+ *
+ * Décidé sur les FAITS de l'état, pas sur les transitions : une erreur montre
+ * l'accueil quelle que soit la route qui y a mené. La règle d'avant (« l'origine
+ * vient de disparaître ET il y a une erreur ») ratait la mort qui suit une
+ * relance — l'origine était déjà nulle, et la fenêtre restait sur une Reine
+ * morte, sans « Réessayer » (#532).
+ *
+ * `origineMontree` : l'origine que la fenêtre affiche déjà. `accueilLu` : la
+ * personne a quitté l'accueil d'elle-même (« Ouvrir Mission Control »).
+ */
+export function pageVoulue(
+  s: EtatPourPage,
+  origineMontree: string | null,
+  accueilLu: boolean,
+): 'accueil' | 'ecran' | null {
+  if (s.erreur !== null) return 'accueil';
+  if (s.origine === null || s.origine === origineMontree) return null;
+  return accueilLu || !accueilADire(s) ? 'ecran' : null;
 }
 
 /** Une route de l'écran : segments `[a-z0-9-]`, sans `..`, sans encodage. */

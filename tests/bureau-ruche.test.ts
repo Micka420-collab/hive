@@ -99,7 +99,7 @@ describe('le port de la Reine de l’app — gardé, 7777 d’abord', () => {
 
 describe('le `.env` de la ruche — la recette de l’installeur', () => {
   it('une ruche neuve reçoit le jeton et le secret de l’installeur, au port retenu', () => {
-    const env = lireEnv(envDeLaRuche(null, 7777, false, RECETTE));
+    const env = lireEnv(envDeLaRuche(null, 7777, RECETTE));
     expect(env.get('HIVE_TOKEN')?.length).toBe(LONGUEUR_JETON);
     expect(env.get('HIVE_JWT_SECRET')?.length).toBe(LONGUEUR_SECRET_SESSION);
     expect(env.get('HIVE_PORT')).toBe('7777');
@@ -107,19 +107,23 @@ describe('le `.env` de la ruche — la recette de l’installeur', () => {
     // Les défauts prudents de l'installeur, sans exception.
     expect(env.get('HIVE_RUNNER')).toBe('off');
     expect(env.get('HIVE_ISOLEMENT')).toBe('auto');
-    // Un agent réel détecté : pas de démo simulée.
+    // Jamais de démo simulée dans le `.env` : elle se décide à chaque lancement.
     expect(env.has('HIVE_SIMULATION')).toBe(false);
   });
 
   it('deux ruches neuves n’ont jamais le même jeton', () => {
-    const a = lireEnv(envDeLaRuche(null, 7777, false, RECETTE)).get('HIVE_TOKEN');
-    const b = lireEnv(envDeLaRuche(null, 7777, false, RECETTE)).get('HIVE_TOKEN');
+    const a = lireEnv(envDeLaRuche(null, 7777, RECETTE)).get('HIVE_TOKEN');
+    const b = lireEnv(envDeLaRuche(null, 7777, RECETTE)).get('HIVE_TOKEN');
     expect(a).not.toBe(b);
   });
 
-  it('sans agent réel, la démo simulée est posée — sinon la première tâche attendrait toujours', () => {
-    const env = lireEnv(envDeLaRuche(null, 7777, true, RECETTE));
-    expect(env.get('HIVE_SIMULATION')).toBe('1');
+  it('le `.env` ne porte jamais la démo simulée que l’app déciderait seule (#532)', () => {
+    // Écrite un jour où la sonde n'a rien trouvé, elle survivait à tous les
+    // lancements suivants (`garde`) : des diffs simulés sur une machine qui a
+    // ses agents. La démo vaut pour UN lancement (bureau-superviseur.test.ts).
+    expect(lireEnv(envDeLaRuche(null, 7777, RECETTE)).has('HIVE_SIMULATION')).toBe(false);
+    const ecrite = envDeLaRuche('HIVE_TOKEN=x\nHIVE_SIMULATION=0\n', 7777, RECETTE);
+    expect(lireEnv(ecrite).get('HIVE_SIMULATION')).toBe('0');
   });
 
   it('une ruche existante GARDE jeton, secret et réglages ; seuls le port et l’adresse bougent', () => {
@@ -132,7 +136,7 @@ describe('le `.env` de la ruche — la recette de l’installeur', () => {
       'HIVE_RUNNER=on',
       '',
     ].join('\n');
-    const apres = envDeLaRuche(existant, 40123, false, RECETTE);
+    const apres = envDeLaRuche(existant, 40123, RECETTE);
     const env = lireEnv(apres);
     expect(env.get('HIVE_TOKEN')).toBe('un-jeton-deja-la-et-assez-long-0123');
     expect(env.get('HIVE_JWT_SECRET')).toBe('un-secret-de-session-deja-la');

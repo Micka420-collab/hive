@@ -29,6 +29,38 @@
 
 !define HIVE_CLE_SESSION "Software\Microsoft\Windows\CurrentVersion\Run"
 
+; ─── UNE APP EN COURS S'ARRÊTE D'ABORD PROPREMENT ───────────────────────────
+;
+; Réinstaller ou désinstaller pendant que Hive tourne : le contrôle
+; d'electron-builder (`_CHECK_APP_RUNNING`) tue chaque processus de $INSTDIR —
+; la Reine et les ouvrières sont ce même Hive.exe —, sans l'arbre de leurs
+; agents (claude.exe, node.exe hors de $INSTDIR), qui restaient orphelins. On
+; demande donc d'abord à l'app de quitter (`Hive.exe --quitter`, reçu par
+; l'instance en cours : elle arrête la ruche, ses agents avec elle), on lui
+; laisse 30 s, puis le contrôle d'origine tue ce qui resterait. Définir cette
+; macro retire l'inclusion de `getProcessInfo.nsh` et la variable `pid` que
+; `_CHECK_APP_RUNNING` emploie : elles sont reprises ici.
+!include "getProcessInfo.nsh"
+Var pid
+
+!macro customCheckAppRunning
+  !insertmacro IS_POWERSHELL_AVAILABLE
+  ${if} ${FileExists} "$INSTDIR\${APP_EXECUTABLE_FILENAME}"
+    nsExec::Exec `"$INSTDIR\${APP_EXECUTABLE_FILENAME}" --quitter`
+    Pop $R0
+    StrCpy $R2 0
+    hiveAttendreLaSortie:
+      !insertmacro FIND_PROCESS "${APP_EXECUTABLE_FILENAME}" $R0
+      ${if} $R0 == 0
+      ${andIf} $R2 < 30
+        Sleep 1000
+        IntOp $R2 $R2 + 1
+        Goto hiveAttendreLaSortie
+      ${endIf}
+  ${endIf}
+  !insertmacro _CHECK_APP_RUNNING
+!macroend
+
 !ifndef BUILD_UNINSTALLER
 
   LangString hiveBienvenueTitre 1036 "Bienvenue dans Hive"
@@ -43,8 +75,8 @@
   LangString hiveOptSession 1033 "Start Hive when I sign in"
   LangString hiveOptRaccourci 1036 "Créer un raccourci sur le bureau"
   LangString hiveOptRaccourci 1033 "Create a desktop shortcut"
-  LangString hiveOptNote 1036 "Les deux se changent ensuite depuis l'icône de Hive dans la barre des tâches. Vos données (base, clés, journaux) vivent dans %APPDATA%\Hive et restent en place si vous désinstallez."
-  LangString hiveOptNote 1033 "Both can be changed later from Hive's taskbar icon. Your data (database, keys, logs) lives in %APPDATA%\Hive and stays in place if you uninstall."
+  LangString hiveOptNote 1036 "Le lancement à l'ouverture de session se change ensuite depuis l'icône de Hive dans la barre des tâches. Vos données (base, clés, journaux) vivent dans %APPDATA%\Hive et restent en place si vous désinstallez."
+  LangString hiveOptNote 1033 "Starting at sign-in can be changed later from Hive's taskbar icon. Your data (database, keys, logs) lives in %APPDATA%\Hive and stays in place if you uninstall."
 
   Var hiveSession
   Var hiveRaccourci

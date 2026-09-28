@@ -38,15 +38,21 @@ import {
 import { shellEnv } from 'shell-env';
 import { ARGUMENT_SESSION, poserSession, sessionActive } from './autostart.js';
 import { creerBarre } from './barre.js';
-import { cheminsApp } from './chemins.js';
+import { cheminsApp, metaApp } from './chemins.js';
 import { chargerHive } from './contrat-hive.js';
 import { argumentDiagnostic, executerDiagnostic } from './diagnostic.js';
 import { etat, etatPourAccueil, majEtat, surEtat } from './etat.js';
 import { creerFenetre, marquerQuitter, ramener, verrouillerSession } from './fenetre.js';
 import { journal, ouvrirJournaux } from './journaux.js';
 import { brancherMisesAJour, chercherMiseAJour } from './mises-a-jour.js';
-import { lienDansArgv, routeDepuisLien, URL_ACCUEIL } from './navigation.js';
-import { declarerSchemaCoquille, servirCoquille } from './protocole.js';
+import { lienDansArgv, pageVoulue, routeDepuisLien, URL_ACCUEIL } from './navigation.js';
+import {
+  declarerSchemaCoquille,
+  garderApercu,
+  servirApercus,
+  servirCoquille,
+  TAILLE_MAX_APERCU,
+} from './protocole.js';
 import { ecouterLaRuche, notifierNatif } from './notifieur.js';
 import { chargerPreferences, poserPreferences, preferences } from './preferences.js';
 import { cheminsRuche } from './reglages.js';
@@ -80,11 +86,21 @@ if (DIAGNOSTIC !== null) app.disableHardwareAcceleration();
 // Les minidumps restent sur le poste : Hive n'émet aucune télémétrie.
 crashReporter.start({ uploadToServer: false });
 
-if (!app.requestSingleInstanceLock()) {
+// `--quitter` : la désinstallation et la réinstallation Windows demandent à
+// l'app EN COURS de s'arrêter proprement (`build/installer.nsh`) avant que
+// NSIS ne tue ce qui reste — la ruche d'abord, ses agents avec elle.
+const QUITTER = process.argv.includes('--quitter');
+
+if (!app.requestSingleInstanceLock() || QUITTER) {
   // Une autre instance tient la ruche : elle recevra notre ligne de commande
-  // (`second-instance`) et viendra devant. Nous n'avons rien à faire.
+  // (`second-instance`) et viendra devant — ou s'arrêtera. Seule, `--quitter`
+  // n'a rien à arrêter.
   app.exit(0);
 }
+
+// Les notifications, le regroupement dans la barre des tâches et l'entrée de
+// session se rattachent à l'AUMID des raccourcis de l'installeur (`appId`).
+if (process.platform === 'win32') app.setAppUserModelId(metaApp().idApp);
 
 // `hive://` — en développement, l'enregistrer viserait `electron` nu : on ne
 // l'enregistre que dans l'app installée (le `.deb`, l'AppImage et NSIS le
@@ -114,6 +130,12 @@ let fenetre: BrowserWindow | null = null;
 let ruche: RucheBureau | null = null;
 /** La route (`#/…`) demandée avant que l'écran soit prêt — un lien `hive://`, une notification. */
 let routeEnAttente = '#/';
+/** L'origine que la fenêtre affiche (ou charge) — `null` : elle est sur l'accueil. */
+let origineMontree: string | null = null;
+/** La personne a quitté l'accueil d'elle-même : il ne la retient plus (`pageVoulue`). */
+let accueilLu = false;
+/** Vrai une fois la reprise tranchée et la ruche de l'app lancée : avant, « Redémarrer » n'a rien à redémarrer. */
+let rucheLancee = false;
 /** L'environnement des enfants : celui du shell de connexion, sous celui du processus. */
 let envHerite: NodeJS.ProcessEnv = { ...process.env };
 
@@ -133,6 +155,11 @@ async function lireEnvDuShell(): Promise<void> {
     }
     // SOUS celui du processus : ce que le lanceur a posé explicitement l'emporte.
     envHerite = { ...lu, ...process.env, PATH: lu.PATH ?? process.env.PATH };
+    // Et le PATH du processus LUI-MÊME : les sondes d'agents (`inventaireAgents`)
+    // font `spawn(bin, …)` sur le PATH réel du processus, pas sur celui qu'on
+    // leur passe — sans cette ligne, un `codex` installé par npm ou Homebrew
+    // reste introuvable quand l'app est ouverte depuis le Finder.
+    if (lu.PATH !== undefined && lu.PATH !== '') process.env.PATH = lu.PATH;
   } catch (e) {
     journal.warn(`environnement du shell illisible : ${String(e)}`);
   }
@@ -147,6 +174,7 @@ async function montrerEcran(route: string = routeEnAttente): Promise<void> {
     routeEnAttente = route;
     return;
   }
+  origineMontree = o;
   for (let i = 0; i < 60; i++) {
     try {
       const r = await fetch(`${o}/api/health`, { signal: AbortSignal.timeout(2_000) });
@@ -166,13 +194,20 @@ async function montrerEcran(route: string = routeEnAttente): Promise<void> {
 
 function montrerAccueil(): void {
   if (fenetre === null) return;
+  origineMontree = null;
   if (surAccueil()) return;
   void fenetre.loadURL(URL_ACCUEIL);
 }
 
-function ouvrirRoute(route: string): void {
+/** Un geste qui demande l'écran (notification, lien, bouton de l'accueil) : l'accueil ne retient plus. */
+function allerALEcran(route: string): void {
+  accueilLu = true;
   if (fenetre !== null) ramener(fenetre);
-  void montrerEcran(route === '' ? '#/' : `#/${route}`);
+  void montrerEcran(route);
+}
+
+function ouvrirRoute(route: string): void {
+  allerALEcran(route === '' ? '#/' : `#/${route}`);
 }
 
 function suivreLien(lien: string): void {
@@ -181,11 +216,22 @@ function suivreLien(lien: string): void {
     journal.warn(`lien refusé : ${lien}`);
     return;
   }
-  if (fenetre !== null) ramener(fenetre);
-  void montrerEcran(route);
+  allerALEcran(route);
+}
+
+/** « Redémarrer » (barre, accueil) : rien avant que la reprise ait décidé quelle ruche lancer. */
+async function redemarrerLaRuche(): Promise<boolean> {
+  if (!rucheLancee || ruche === null) return false;
+  await ruche.redemarrer();
+  return true;
 }
 
 app.on('second-instance', (_e, argv) => {
+  if (argv.includes('--quitter')) {
+    journal.info('arrêt demandé par l’installeur');
+    app.quit();
+    return;
+  }
   const lien = lienDansArgv(argv);
   if (lien !== null) suivreLien(lien);
   else if (fenetre !== null) ramener(fenetre);
@@ -219,6 +265,12 @@ function brancherAppels(): void {
     e.returnValue =
       depuisEcran(e) && s.jeton !== null ? { jeton: s.jeton, version: app.getVersion() } : null;
   });
+  ipcMain.on('hive:apercu', (e, html: unknown) => {
+    e.returnValue =
+      depuisEcran(e) && typeof html === 'string' && html.length <= TAILLE_MAX_APERCU
+        ? garderApercu(html)
+        : null;
+  });
   ipcMain.on('hive:csp', (e, violation: unknown) => {
     if (!depuisEcran(e) || typeof violation !== 'string') return;
     journal.warn(`CSP : ${violation}`);
@@ -231,9 +283,12 @@ function brancherAppels(): void {
     choixReprise(choix);
     return true;
   });
-  ipcMain.handle('hive:accueil:reessayer', async (e) => {
-    if (!depuisAccueil(e) || ruche === null) return false;
-    await ruche.redemarrer();
+  // « Réessayer » et « Relancer la détection » : le même geste — la sonde des
+  // agents se refait à chaque démarrage.
+  ipcMain.handle('hive:accueil:reessayer', (e) => depuisAccueil(e) && redemarrerLaRuche());
+  ipcMain.handle('hive:accueil:ecran', (e) => {
+    if (!depuisAccueil(e) || etat().origine === null) return false;
+    allerALEcran(routeEnAttente);
     return true;
   });
   ipcMain.handle('hive:accueil:journaux', async (e) => {
@@ -418,13 +473,18 @@ async function demarrer(): Promise<void> {
   await lireEnvDuShell();
   verrouillerSession(session.defaultSession);
   servirCoquille(session.defaultSession, CHEMINS.coquille);
+  servirApercus(session.defaultSession);
   brancherAppels();
   majEtat({ session: sessionActive() });
 
   const montrer = DIAGNOSTIC !== null || !LANCE_PAR_LA_SESSION || process.platform === 'linux';
+  const coquille = JSON.parse(readFileSync(path.join(CHEMINS.marque, 'coquille.json'), 'utf8')) as {
+    fond: string;
+  };
   fenetre = creerFenetre({
     preload: CHEMINS.preload,
     icone: path.join(CHEMINS.marque, 'icon.png'),
+    fond: coquille.fond,
     montrer,
     fermerCache: () => process.platform !== 'linux' || preferences().garderEnArrierePlan,
     surCachee: () => {
@@ -442,7 +502,7 @@ async function demarrer(): Promise<void> {
   if (DIAGNOSTIC === null) {
     creerBarre(CHEMINS.marque, {
       ouvrir: () => fenetre !== null && ramener(fenetre),
-      redemarrer: () => void ruche?.redemarrer(),
+      redemarrer: () => void redemarrerLaRuche(),
       session: sessionActive,
       poserSession: (actif) => {
         poserSession(actif);
@@ -465,17 +525,16 @@ async function demarrer(): Promise<void> {
     notifier,
   });
 
-  // L'écran suit la Reine : ouvert dès qu'elle s'annonce, l'accueil (et son
-  // écran d'erreur) quand elle n'est plus là.
-  let origineMontree: string | null = null;
+  // L'écran suit la Reine : ouvert dès qu'elle s'annonce — sauf si l'accueil a
+  // encore à dire (le diagnostic ne s'y arrête jamais) —, l'accueil et son
+  // écran d'erreur dès qu'il y a une erreur (`pageVoulue`).
   surEtat((s) => {
-    if (s.origine !== null && s.origine !== origineMontree) {
-      origineMontree = s.origine;
-      void montrerEcran();
-    } else if (s.origine === null && origineMontree !== null) {
-      origineMontree = null;
-      if (s.erreur !== null) montrerAccueil();
-    }
+    // La Reine partie, l'origine affichée ne vaut plus : la même, revenue
+    // (relance sur le même port), se recharge.
+    if (s.origine === null) origineMontree = null;
+    const page = pageVoulue(s, origineMontree, accueilLu || DIAGNOSTIC !== null);
+    if (page === 'accueil') montrerAccueil();
+    else if (page === 'ecran') void montrerEcran();
   });
   ecouterLaRuche(notifier);
 
@@ -485,6 +544,7 @@ async function demarrer(): Promise<void> {
   const lancer = DIAGNOSTIC !== null ? true : await reprendre();
   if (lancer) {
     await sauvegarderSiNouvelleVersion();
+    rucheLancee = true;
     await ruche.demarrer();
   }
 
@@ -495,7 +555,13 @@ async function demarrer(): Promise<void> {
     app.exit(code);
     return;
   }
-  brancherMisesAJour({ avantInstallation: arreterLaRuche });
+  brancherMisesAJour({
+    avantInstallation: arreterLaRuche,
+    apresEchec: async () => {
+      await ruche?.demarrer();
+    },
+    progression: (f) => fenetre?.setProgressBar(f ?? -1),
+  });
 }
 
 void app.whenReady().then(() =>

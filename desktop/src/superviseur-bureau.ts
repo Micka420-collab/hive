@@ -16,7 +16,11 @@ import { parseEnv } from 'node:util';
 import type { Hive, PieceHive } from './contrat-hive.js';
 import { type AgentVu, etat, majEtat } from './etat.js';
 import { journal, journalDePiece } from './journaux.js';
-import { notificationMortOuvriere, type NotificationRuche } from './notifications.js';
+import {
+  NOTIFICATION_REINE_ARRETEE,
+  notificationMortOuvriere,
+  type NotificationRuche,
+} from './notifications.js';
 import { choisirPort, portGarde } from './port.js';
 import { type CheminsRuche, envDeLaRuche, envDesEnfants } from './reglages.js';
 import { prochaineRelance } from './relance.js';
@@ -38,6 +42,8 @@ type Lancee = ReturnType<Hive['superviseur']['lancerRuche']>;
 
 export class RucheBureau {
   private lancee: Lancee | null = null;
+  /** Le démarrage en cours : un second `demarrer()` l'attend au lieu d'en lancer un autre. */
+  private demarrage: Promise<void> | null = null;
   private arretDemande = false;
   private relances: number[] = [];
   private minuteurRelance: NodeJS.Timeout | null = null;
@@ -45,8 +51,21 @@ export class RucheBureau {
 
   constructor(private readonly o: OptionsRucheBureau) {}
 
-  /** Lance la ruche. Résolue une fois les pièces parties — pas une fois la Reine en ligne. */
-  async demarrer(): Promise<void> {
+  /**
+   * Lance la ruche. Résolue une fois les pièces parties — pas une fois la Reine
+   * en ligne. UN démarrage à la fois : la sonde des agents et le port prennent
+   * des secondes, et deux `demarrer()` croisés (la barre système pendant le
+   * premier lancement) laissaient deux superviseurs, dont un que `arreter()`
+   * ne voyait plus.
+   */
+  demarrer(): Promise<void> {
+    this.demarrage ??= this.lancer().finally(() => {
+      this.demarrage = null;
+    });
+    return this.demarrage;
+  }
+
+  private async lancer(): Promise<void> {
     if (this.lancee !== null) return;
     this.arretDemande = false;
     const { hive, chemins } = this.o;
@@ -81,18 +100,26 @@ export class RucheBureau {
     majEtat({ agents });
 
     // ─── Le `.env` : la recette de l'installeur, au port retenu ─────────────
-    const sansAgentReel = !inventaire.tous.some((a) => a !== 'shell');
-    const contenu = envDeLaRuche(existant, port, sansAgentReel, hive.installeur);
+    const contenu = envDeLaRuche(existant, port, hive.installeur);
     if (contenu !== existant) {
       hive.ecriture.ecrireAtomique(chemins.env, contenu, hive.ecriture.MODE_SECRET);
     }
     const envFichier = parseEnv(contenu);
     majEtat({ jeton: envFichier.HIVE_TOKEN ?? null });
+    // Sans agent réel, la démo simulée vaut pour CE lancement — jamais écrite
+    // dans le `.env` : une sonde qui n'a rien trouvé un jour (PATH d'un
+    // lanceur, agent pas encore installé) ne condamne pas les lancements
+    // suivants aux diffs simulés. Un `HIVE_SIMULATION` écrit à la main l'emporte.
+    const sansAgentReel = !inventaire.tous.some((a) => a !== 'shell');
+    const envLancement =
+      sansAgentReel && envFichier.HIVE_SIMULATION === undefined
+        ? { ...envEnfants, HIVE_SIMULATION: '1' }
+        : envEnfants;
 
     // ─── La composition : celle de `npm run ruche`, en JavaScript compilé ───
     const plan = await hive.demarrage.planOuvrieres({
       argv: [],
-      env: { ...envFichier, ...envEnfants },
+      env: { ...envFichier, ...envLancement },
       hote: hostname(),
       detecter: () => Promise.resolve(inventaire.tous),
     });
@@ -107,7 +134,7 @@ export class RucheBureau {
     const lancee = hive.superviseur.lancerRuche({
       liste,
       cwd: chemins.ruche,
-      env: envEnfants,
+      env: envLancement,
       ligne: ({ piece, flux, texte }) => {
         const nom = piece?.nom ?? 'ruche';
         const j = piece === null ? journal : journalDePiece(nom);
@@ -143,6 +170,8 @@ export class RucheBureau {
     this.arretDemande = true;
     if (this.minuteurRelance !== null) clearTimeout(this.minuteurRelance);
     this.minuteurRelance = null;
+    // Un démarrage en vol finit d'abord : ses pièces sont à arrêter aussi.
+    await this.demarrage?.catch(() => undefined);
     const l = this.lancee;
     if (l === null) return;
     l.arreter(0);
@@ -209,6 +238,9 @@ export class RucheBureau {
           lignes: lignes.slice(-20),
         },
       });
+      // La fenêtre est souvent cachée dans la barre : l'écran d'erreur seul
+      // passerait inaperçu.
+      this.o.notifier(NOTIFICATION_REINE_ARRETEE);
       return;
     }
     this.relances.push(maintenant);

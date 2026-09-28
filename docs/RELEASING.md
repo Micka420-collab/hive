@@ -63,6 +63,14 @@ les mises à jour** chez tous les utilisateurs de l'app (qui lisent le canal
 `latest` des releases publiées). Avant de la publier : relire les paquets et
 les rapports du banc (artefacts du run), et les notes.
 
+Tant que les paquets ne sont pas signés, **ce droit de publier est la seule
+racine de confiance des mises à jour** : l'app ne vérifie qu'une empreinte
+publiée dans la même release. Qui peut publier une release peut livrer du code
+à tous — d'où l'accord demandé à chaque installation non signée, et la
+protection des comptes et jetons qui ont l'écriture sur le dépôt
+([APPLICATION.md § Signature](APPLICATION.md#signature)). Les paquets déposés
+sont exactement ceux que le banc de fumée du job `publier` a lancés.
+
 Les secrets de signature (Apple, Authenticode, Azure Trusted Signing) sont
 facultatifs : absents, les paquets sortent non signés et marchent. La liste
 exacte et leur effet : [APPLICATION.md § Signature](APPLICATION.md#signature).

@@ -38,7 +38,12 @@ export function creerBarre(marque: string, g: GestesBarre): Tray {
       { label: libelleEtat(e), enabled: false },
       { type: 'separator' },
       { label: 'Ouvrir Hive', click: g.ouvrir },
-      { label: 'Redémarrer la ruche', click: g.redemarrer, enabled: e.reine !== 'externe' },
+      // Pas pendant la reprise : la ruche à lancer n'est pas encore choisie.
+      {
+        label: 'Redémarrer la ruche',
+        click: g.redemarrer,
+        enabled: e.reine !== 'externe' && e.reprise === null,
+      },
       { type: 'separator' },
       {
         label: 'Lancer à l’ouverture de session',

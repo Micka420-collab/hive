@@ -19,7 +19,9 @@ import {
   lienDansArgv,
   lienExterne,
   navigationPermise,
+  pageVoulue,
   routeDepuisLien,
+  SCHEMA_APERCU,
   URL_ACCUEIL,
 } from '../desktop/src/navigation.js';
 import {
@@ -56,7 +58,16 @@ describe('la navigation de la fenêtre — l’origine de SA Reine, et l’accue
 
   it('seuls les liens `https:` partent au navigateur du système', () => {
     expect(lienExterne('https://github.com/Micka420-collab/hive')).toBe(true);
-    for (const url of ['http://example.com', 'file:///x', 'javascript:alert(1)', 'hive://ouvrir']) {
+    // Le « Plein écran » de l'atelier : noVNC sur un autre port de la boucle locale.
+    expect(lienExterne('http://127.0.0.1:6080/vnc.html?view_only=1')).toBe(true);
+    expect(lienExterne('http://localhost:6080/')).toBe(true);
+    for (const url of [
+      'http://example.com',
+      'http://127.0.0.1.evil.test/',
+      'file:///x',
+      'javascript:alert(1)',
+      'hive://ouvrir',
+    ]) {
       expect(lienExterne(url), url).toBe(false);
     }
   });
@@ -136,6 +147,15 @@ describe('la CSP posée sur l’écran', () => {
     expect(csp).not.toContain('unsafe-eval');
     expect(csp).toContain("object-src 'none'");
     expect(csp).toContain("frame-ancestors 'none'");
+  });
+
+  it('les cadres de l’écran : l’Aperçu servi par la coquille et l’atelier local, rien d’autre', () => {
+    // Sans `frame-src`, `default-src 'self'` bloquait noVNC (un autre port) ;
+    // l'Aperçu passe par `apercu:` parce qu'un `srcdoc` hérite `script-src`.
+    const frame = politiqueCsp(7777)
+      .split('; ')
+      .find((d) => d.startsWith('frame-src'));
+    expect(frame).toBe(`frame-src 'self' ${SCHEMA_APERCU}: http://127.0.0.1:*`);
   });
 
   it('une CSP déjà envoyée par la Reine n’est jamais écrasée', () => {
@@ -224,6 +244,8 @@ describe('le verdict du banc de fumée des paquets', () => {
     sante: { statut: 200, corps: { ok: true } },
     ecran: { url: `${REINE}/#/`, rendu: true, titre: 'Hive — Mission Control' },
     csp: { posee: true, violations: [] },
+    apercu: true,
+    session: false,
     ouvrieres: 1,
     capture: '/tmp/r.png',
     erreur: null,
@@ -243,11 +265,49 @@ describe('le verdict du banc de fumée des paquets', () => {
       [{ csp: { posee: false, violations: [] } }, 'CSP'],
       [{ csp: { posee: true, violations: ['script-src eval'] } }, 'violation'],
       [{ capture: null }, 'capture'],
+      [{ apercu: false }, 'Aperçu'],
       [{ erreur: 'délai' }, 'délai'],
     ];
     for (const [changement, attendu] of cas) {
       const d = defautsDuRapport({ ...vert, ...changement });
       expect(d.join(' ; '), attendu).toContain(attendu);
     }
+  });
+});
+
+describe('la page de la fenêtre — décidée sur les faits de l’état (#532)', () => {
+  const connecte = { nonConnecte: null };
+  const nonConnecte = { nonConnecte: 'lancez `claude` puis `/login`' };
+  const base = { erreur: null, origine: REINE, portChange: null, agents: [connecte] };
+
+  it('une erreur montre l’accueil, quelle que soit la route qui y mène', () => {
+    const erreur = { titre: 'La Reine s’est arrêtée', lignes: [] };
+    // La mort APRÈS une relance : l'origine était déjà nulle, l'écran déjà
+    // « oublié » — l'ancienne règle laissait la fenêtre sur une Reine morte.
+    for (const montree of [null, REINE]) {
+      expect(pageVoulue({ ...base, origine: null, erreur }, montree, false)).toBe('accueil');
+      expect(pageVoulue({ ...base, origine: null, erreur }, montree, true)).toBe('accueil');
+    }
+  });
+
+  it('une Reine annoncée ouvre l’écran une fois ; partie sans erreur, la fenêtre reste', () => {
+    expect(pageVoulue(base, null, false)).toBe('ecran');
+    expect(pageVoulue(base, REINE, false)).toBeNull();
+    expect(pageVoulue({ ...base, origine: null }, REINE, false)).toBeNull();
+  });
+
+  it('l’accueil qui a quelque chose à dire garde la fenêtre jusqu’au geste', () => {
+    for (const s of [
+      { ...base, agents: [] },
+      { ...base, agents: [nonConnecte] },
+      { ...base, portChange: 40123 },
+    ]) {
+      expect(pageVoulue(s, null, false), JSON.stringify(s)).toBeNull();
+      expect(pageVoulue(s, null, true), JSON.stringify(s)).toBe('ecran');
+    }
+    // Un agent connecté parmi d'autres : rien qui retienne.
+    expect(pageVoulue({ ...base, agents: [nonConnecte, connecte] }, null, false)).toBe('ecran');
+    // Une ruche externe n'a pas sondé d'agents : elle s'ouvre.
+    expect(pageVoulue({ ...base, agents: null }, null, false)).toBe('ecran');
   });
 });

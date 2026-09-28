@@ -18,6 +18,7 @@ if (location.protocol === 'bureau:') {
     etat: () => ipcRenderer.invoke('hive:accueil:etat'),
     choisir: (choix) => ipcRenderer.invoke('hive:accueil:choix', String(choix)),
     reessayer: () => ipcRenderer.invoke('hive:accueil:reessayer'),
+    ouvrirEcran: () => ipcRenderer.invoke('hive:accueil:ecran'),
     ouvrirJournaux: () => ipcRenderer.invoke('hive:accueil:journaux'),
     poserSession: (actif) => ipcRenderer.invoke('hive:accueil:session', actif === true),
     surEtat: (rappel) => {
@@ -40,7 +41,12 @@ if (location.protocol === 'bureau:') {
     } catch {
       // Stockage refusé : l'écran demandera le jeton, comme dans un navigateur.
     }
-    contextBridge.exposeInMainWorld('hiveBureau', { version: info.version, pose: 'bureau' });
+    contextBridge.exposeInMainWorld('hiveBureau', {
+      version: info.version,
+      pose: 'bureau',
+      // L'Aperçu du Rayon : l'URL `apercu://` qui sert ce document (csp.ts).
+      apercu: (html) => ipcRenderer.sendSync('hive:apercu', String(html)),
+    });
   }
   // Toute violation de la CSP est remontée : le banc de fumée en fait un échec.
   window.addEventListener('securitypolicyviolation', (e) => {

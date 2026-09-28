@@ -11,22 +11,37 @@
 //
 // ─── TROIS FAÇONS, SELON CE QUE LE SYSTÈME PERMET ────────────────────────────
 //
-//   · `auto` — Windows (NSIS) et l'AppImage : téléchargement en arrière-plan,
+//   · `auto` — Windows et macOS SIGNÉS : téléchargement en arrière-plan,
 //     installation sur geste ou à la sortie ;
-//   · `geste` — le `.deb` : l'installation demande le mot de passe (`pkexec`),
-//     donc rien ne se télécharge sans qu'on l'ait demandé ;
+//   · `geste` — tout le reste sous Windows et Linux : rien ne se télécharge
+//     ni ne s'installe sans un « oui » dans la boîte qui l'annonce ;
 //   · `page` — macOS sans signature : Squirrel.Mac refuse une app non signée,
-//     l'app ouvre donc la page de la version. `auto` dès que la signature
-//     existe (`hiveSigne`, posé au build par `electron-builder.config.cjs`).
+//     l'app ouvre donc la page de la version.
+//
+// ─── POURQUOI PAS D'`auto` SANS SIGNATURE ────────────────────────────────────
+//
+// Sans `publisherName` (Authenticode), electron-updater ne vérifie que le
+// sha512 de `latest.yml` — lu dans la MÊME Release que l'installeur. Qui peut
+// publier une Release (un jeton volé) installerait alors son code chez tout le
+// monde, à la sortie suivante, sans qu'on le voie. Tant que rien n'est signé,
+// le droit de publier est la seule racine de confiance : chaque installation
+// se fait donc sur un accord explicite (`hiveSigne`, posé au build par
+// `electron-builder.config.cjs`, docs/APPLICATION.md § Signature).
+//
+// ─── UNE INSTALLATION QUI ÉCHOUE RELANCE LA RUCHE ────────────────────────────
+//
+// La ruche est arrêtée AVANT l'installeur. S'il ne part pas (mot de passe
+// `pkexec` refusé, fichier manquant), electron-updater n'émet qu'un `error`
+// et l'app reste ouverte : la ruche est relancée et on le dit — sinon, une
+// ruche arrêtée derrière un écran figé, sans un mot.
 //
 // Pas de retour arrière : `allowDowngrade` reste faux — une base migrée en
 // avant ne se relit pas sous l'ancien code (la sauvegarde d'avant chaque
 // changement de version est faite au démarrage, `main.ts`).
 
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
 import { app, dialog, shell } from 'electron';
 import electronUpdater from 'electron-updater';
+import { metaApp } from './chemins.js';
 import { journal } from './journaux.js';
 
 const { autoUpdater } = electronUpdater;
@@ -36,26 +51,35 @@ export type ModeMiseAJour = 'auto' | 'geste' | 'page';
 const DEPOT = 'https://github.com/Micka420-collab/hive';
 const TOUTES_LES_6_H = 6 * 60 * 60_000;
 
-function signeeMac(): boolean {
-  try {
-    const p = JSON.parse(readFileSync(path.join(app.getAppPath(), 'package.json'), 'utf8')) as {
-      hiveSigne?: unknown;
-    };
-    return p.hiveSigne === true;
-  } catch {
-    return false;
-  }
+function modeMiseAJour(signee: boolean, plateforme: NodeJS.Platform): ModeMiseAJour {
+  if (signee && (plateforme === 'win32' || plateforme === 'darwin')) return 'auto';
+  return plateforme === 'darwin' ? 'page' : 'geste';
 }
 
-export function modeMiseAJour(): ModeMiseAJour {
-  if (process.platform === 'win32') return 'auto';
-  if (process.platform === 'darwin') return signeeMac() ? 'auto' : 'page';
-  return (process.env.APPIMAGE ?? '') !== '' ? 'auto' : 'geste';
+/** Ce que la boîte « disponible » dit de l'installation, en mode `geste`. */
+function detailGeste(): string {
+  if (process.platform === 'win32') {
+    return (
+      'Cette copie de Hive n’est pas signée : une mise à jour ne s’installe qu’avec votre accord. ' +
+      'La ruche sera arrêtée proprement avant l’installation.'
+    );
+  }
+  if ((process.env.APPIMAGE ?? '') !== '') {
+    return 'La ruche sera arrêtée proprement, puis Hive redémarrera dans sa nouvelle version.';
+  }
+  return (
+    'Le paquet .deb s’installe avec les droits administrateur : votre mot de passe sera demandé. ' +
+    'La ruche sera arrêtée proprement avant l’installation.'
+  );
 }
 
 export interface OptionsMisesAJour {
   /** Arrête la ruche proprement avant que l'installeur ne remplace l'app. */
   readonly avantInstallation: () => Promise<void>;
+  /** L'installeur n'est pas parti : relancer la ruche arrêtée pour lui. */
+  readonly apresEchec: () => Promise<void>;
+  /** L'avancement d'un téléchargement (0 → 1), `null` quand il est fini ou abandonné. */
+  readonly progression: (fraction: number | null) => void;
 }
 
 let branche = false;
@@ -64,21 +88,38 @@ let demandeManuelle = false;
 export function brancherMisesAJour(o: OptionsMisesAJour): void {
   if (branche || !app.isPackaged) return;
   branche = true;
-  const mode = modeMiseAJour();
+  const mode = modeMiseAJour(metaApp().signee, process.platform);
   autoUpdater.logger = journal;
   autoUpdater.allowDowngrade = false;
   autoUpdater.allowPrerelease = false;
   autoUpdater.autoDownload = mode === 'auto';
   autoUpdater.autoInstallOnAppQuit = mode === 'auto';
 
+  let installation = false;
   const installer = async (): Promise<void> => {
     await o.avantInstallation();
+    // Un installeur qui ne part pas émet `error` PENDANT cet appel (ou plus
+    // tard, Squirrel.Mac) : c'est ce drapeau qui le lui fait reconnaître.
+    installation = true;
     autoUpdater.quitAndInstall(false, true);
   };
 
   autoUpdater.on('update-available', (info) => {
     journal.info(`mise à jour disponible : ${info.version} (${mode})`);
-    if (mode === 'auto') return;
+    if (mode === 'auto') {
+      // Demandée à la main, elle se dit tout de suite : le téléchargement
+      // prend des minutes, et un clic sans réponse semble perdu.
+      if (demandeManuelle) {
+        demandeManuelle = false;
+        void dialog.showMessageBox({
+          type: 'info',
+          title: 'Mise à jour de Hive',
+          message: `Hive ${info.version} se télécharge…`,
+          detail: 'Une boîte vous proposera de redémarrer quand elle sera prête.',
+        });
+      }
+      return;
+    }
     if (mode === 'page') {
       void dialog
         .showMessageBox({
@@ -102,9 +143,7 @@ export function brancherMisesAJour(o: OptionsMisesAJour): void {
         type: 'info',
         title: 'Mise à jour de Hive',
         message: `Hive ${info.version} est disponible.`,
-        detail:
-          'Le paquet .deb s’installe avec les droits administrateur : votre mot de passe sera demandé. ' +
-          'La ruche sera arrêtée proprement avant l’installation.',
+        detail: detailGeste(),
         buttons: ['Télécharger et installer', 'Plus tard'],
         defaultId: 0,
         cancelId: 1,
@@ -114,8 +153,11 @@ export function brancherMisesAJour(o: OptionsMisesAJour): void {
       });
   });
 
+  autoUpdater.on('download-progress', (p) => o.progression(p.percent / 100));
+
   autoUpdater.on('update-downloaded', (info) => {
     journal.info(`mise à jour téléchargée : ${info.version}`);
+    o.progression(null);
     if (mode === 'geste') {
       void installer();
       return;
@@ -149,6 +191,18 @@ export function brancherMisesAJour(o: OptionsMisesAJour): void {
 
   autoUpdater.on('error', (e) => {
     journal.warn(`mise à jour : ${e.message}`);
+    o.progression(null);
+    if (installation) {
+      installation = false;
+      void o.apresEchec();
+      void dialog.showMessageBox({
+        type: 'warning',
+        title: 'Mise à jour de Hive',
+        message: 'La mise à jour n’a pas été installée : la ruche redémarre.',
+        detail: e.message,
+      });
+      return;
+    }
     if (!demandeManuelle) return;
     demandeManuelle = false;
     void dialog.showMessageBox({

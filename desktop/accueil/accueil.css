@@ -103,6 +103,8 @@ h1 {
 .agents li span {
   color: var(--attenue);
   font-size: 13px;
+  /* La commande qui connecte un agent se copie. */
+  user-select: text;
 }
 .agents li.connecte strong::before {
   content: '● ';

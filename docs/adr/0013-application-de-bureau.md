@@ -97,6 +97,18 @@ changement** dans `orchestrator/main.ts` ni `node-client/main.ts`.
   0.156) quand `process.versions.electron` existe. Un amorçage propre à
   l'app (`desktop/app/piece.cjs`) retire la variable de `process.env` avant
   d'importer l'entrée : ni l'agent ni ses sous-processus n'en héritent.
+- _Le prix de ce fusible, au-delà de l'intégrité de l'asar :_ `runAsNode`
+  allumé, `ELECTRON_RUN_AS_NODE=1 /Applications/Hive.app/Contents/MacOS/Hive
+x.js` exécute n'importe quel script **sous l'identité de Hive**. Signée et
+  notarisée, l'app prête alors sa signature — et les autorisations TCC que la
+  personne lui a données (accès complet au disque, Documents, caméra…) — à du
+  code qui n'est pas le sien : un chemin d'abus connu des apps Electron. Et le
+  code hors asar (`resources/hive/`) n'est couvert par le fusible d'intégrité
+  que tant que le sceau de la signature macOS est vérifié. D'où, le jour où la
+  signature s'allume (§ 14) : des droits du hardened runtime **minimaux** (ni
+  `allow-jit` au-delà de ce qu'Electron exige, ni `disable-library-validation`),
+  et la consigne, dans la doc, de n'accorder à Hive **aucune** autorisation
+  TCC large — il n'en demande aucune : la ruche vit dans son propre dossier.
 - _Ajouté à l'implémentation, mesuré :_ une app tuée net (SIGKILL, plantage
   de GTK) laissait la Reine et les ouvrières orphelines — port et verrou de
   la base tenus —, et une ouvrière orpheline tournait à 100 % d'un cœur : ses
@@ -340,6 +352,15 @@ que ses secrets existent**, sans autre changement :
 | macOS      | `APPLE_API_KEY` (.p8, écrit en fichier par le job), `APPLE_API_KEY_ID`, `APPLE_API_ISSUER`                                                                           | notarise ; mises à jour automatiques     |
 | Windows    | `WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD` (certificat OV .pfx)                                                                                                          | Authenticode                             |
 | Windows    | ou `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` + variables `AZURE_SIGN_ENDPOINT`, `AZURE_SIGN_ACCOUNT`, `AZURE_SIGN_PROFILE`, `AZURE_SIGN_PUBLISHER` | Trusted Signing (`win.azureSignOptions`) |
+
+Tant que rien n'est signé, **le droit de publier une Release est la seule
+racine de confiance des mises à jour** : electron-updater ne vérifie qu'un
+sha512 lu dans la même Release que l'installeur (sans `publisherName`, pas de
+contrôle Authenticode). Aucune mise à jour non signée ne s'installe donc sans
+un clic (`hiveSigne`, `extraMetadata`, relu par `mises-a-jour.ts`) ; le
+téléchargement en arrière-plan et l'installation à la sortie ne s'allument
+qu'avec la signature. Le job `publier` passe au banc de fumée les paquets
+qu'il vient de signer, et téléverse ceux-là.
 
 ### 15. L'installeur a une figure — et elle se change en un dossier
 

@@ -15,7 +15,13 @@ const NOM = 'Hive';
 
 export function sessionActive(): boolean {
   if (process.platform === 'linux') return existsSync(cheminAutostart(process.env, homedir()));
-  return app.getLoginItemSettings({ args: [ARGUMENT_SESSION] }).openAtLogin;
+  const reglages = app.getLoginItemSettings({ args: [ARGUMENT_SESSION] });
+  if (process.platform !== 'win32') return reglages.openAtLogin;
+  // Windows : `openAtLogin` ne lit que la valeur nommée d'après l'AUMID
+  // (Electron 44, browser_win.cc), jamais « Hive » que l'app et l'installeur
+  // écrivent — la case restait décochée, impossible à éteindre. Les
+  // `launchItems` listent les entrées de CE binaire, par nom.
+  return reglages.launchItems.some((i) => i.name === NOM && i.enabled);
 }
 
 export function poserSession(actif: boolean): void {

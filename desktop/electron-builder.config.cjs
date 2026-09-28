@@ -44,6 +44,12 @@ const versionHive = JSON.parse(
   readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'),
 ).version;
 
+// L'identifiant de l'app : UN endroit, lu aussi par la coquille (AUMID Windows).
+const paquet = JSON.parse(readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
+const marqueJson = JSON.parse(
+  readFileSync(path.join(__dirname, 'branding', theme, 'marque.json'), 'utf8'),
+);
+
 const macSigne = present('CSC_LINK');
 const macNotarise = macSigne && present('APPLE_API_KEY', 'APPLE_API_KEY_ID', 'APPLE_API_ISSUER');
 const azure =
@@ -54,10 +60,11 @@ const azure =
     'AZURE_SIGN_PROFILE',
     'AZURE_SIGN_PUBLISHER',
   );
+const winSigne = azure || present('WIN_CSC_LINK');
 
 /** @type {import('electron-builder').Configuration} */
 module.exports = {
-  appId: 'io.github.micka420collab.hive',
+  appId: paquet.hiveIdApp,
   productName: 'Hive',
   copyright: 'Copyright © Micka420-collab — MIT',
   directories: { output: 'release', buildResources: 'build' },
@@ -66,8 +73,10 @@ module.exports = {
     // Le nom de l'entrée de bureau que le .deb et l'AppImage installent : les
     // environnements de bureau y rattachent la fenêtre (WM_CLASS).
     desktopName: 'hive.desktop',
-    // Lu par `mises-a-jour.ts` : macOS ne met à jour tout seul qu'une app signée.
-    hiveSigne: macSigne,
+    // Lu par `mises-a-jour.ts` (`metaApp`) : sans signature, pas de mise à
+    // jour qui s'installe seule — macOS la refuse, et sous Windows rien
+    // n'authentifierait l'installeur téléchargé (pas de `publisherName`).
+    hiveSigne: { darwin: macSigne, win32: winSigne },
   },
   files: [
     'dist/**/*',
@@ -179,14 +188,14 @@ module.exports = {
     executableName: 'hive',
     maintainer: 'Micka420-collab <Micka420-collab@users.noreply.github.com>',
     vendor: 'Micka420-collab',
-    synopsis: 'La ruche de vos agents de code',
+    synopsis: marqueJson.accroche,
     description:
       'Hive orchestre vos agents de code (Claude Code, Codex, Cursor…) en local : ' +
       'une Reine, des ouvrières, et Mission Control dans une fenêtre.',
     desktop: {
       entry: {
         Name: 'Hive',
-        Comment: 'La ruche de vos agents de code',
+        Comment: marqueJson.accroche,
         Categories: 'Development;',
         StartupWMClass: 'Hive',
       },

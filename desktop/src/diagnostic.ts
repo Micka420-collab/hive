@@ -28,6 +28,35 @@ export function argumentDiagnostic(argv: readonly string[]): string | null {
 const attendre = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 /**
+ * Dans l'écran : un Aperçu (`hiveBureau.apercu`) dans un `<iframe sandbox>`
+ * doit poster son message ; un cadre sur un autre port de la boucle locale
+ * (l'atelier) est posé à côté — une violation `frame-src` serait relevée.
+ */
+const SONDE_CADRES = `new Promise((ok) => {
+  const atelier = document.createElement('iframe');
+  atelier.hidden = true;
+  atelier.src = 'http://127.0.0.1:6099/vnc.html';
+  document.body.append(atelier);
+  const url = window.hiveBureau && window.hiveBureau.apercu
+    ? window.hiveBureau.apercu('<!doctype html><script>parent.postMessage("hive-apercu-ok", "*")<\\/script>')
+    : null;
+  if (!url) return ok(false);
+  const cadre = document.createElement('iframe');
+  cadre.sandbox = 'allow-scripts';
+  cadre.hidden = true;
+  const fin = (v) => {
+    removeEventListener('message', recu);
+    cadre.remove();
+    setTimeout(() => { atelier.remove(); ok(v); }, 1000);
+  };
+  const recu = (e) => { if (e.data === 'hive-apercu-ok') fin(true); };
+  addEventListener('message', recu);
+  setTimeout(() => fin(false), 5000);
+  cadre.src = url;
+  document.body.append(cadre);
+})`;
+
+/**
  * Attend que la Reine soit en ligne ET que la fenêtre ait fini de charger son
  * origine. Sondé, pas écouté : `did-finish-load` tire quand `isLoading()` est
  * encore vrai (mesuré), et une attente sur événement manquerait sa fin.
@@ -57,6 +86,8 @@ export async function executerDiagnostic(
     sante: { statut: null, corps: null },
     ecran: { url: null, rendu: false, titre: null },
     csp: { posee: false, violations: [] },
+    apercu: false,
+    session: etat().session,
     ouvrieres: 0,
     capture: null,
     erreur: null,
@@ -76,6 +107,10 @@ export async function executerDiagnostic(
       `({ rendu: (document.querySelector('#root')?.childElementCount ?? 0) > 0, titre: document.title })`,
     )) as { rendu: boolean; titre: string };
     rapport.ecran = { url: fenetre.webContents.getURL(), rendu: vu.rendu, titre: vu.titre };
+    // Les cadres de l'écran sous SA CSP : l'Aperçu du Rayon doit exécuter son
+    // script, et l'écran noVNC d'un autre port local se charger sans violation
+    // (relevées juste après, avec les autres).
+    rapport.apercu = (await fenetre.webContents.executeJavaScript(SONDE_CADRES)) as boolean;
     // La CSP est-elle POSÉE ? `eval` est refusé par `script-src 'self'` : s'il
     // passe, l'en-tête n'a pas atteint la page. Sondé APRÈS avoir relevé les
     // violations — la sonde en provoque une, voulue.

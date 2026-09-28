@@ -46,22 +46,42 @@ le sceau de « Registre » : elle ne préjuge pas du choix.
 2. **Changer `marque.json`** — les couleurs et les polices de l'identité
    choisie. Les deux prototypes donnent les valeurs :
 
-   | Jeton       | « Cadran de ruche » (`final/identite-hive.md`) | « Registre » (`dir-D/brand-guide.md`) |
-   | ----------- | ---------------------------------------------- | ------------------------------------- |
-   | `fond`      | `#07090C` (`--surface-0`)                      | `#0E0F12` (`--encre`)                 |
-   | `panneau`   | `#11151B` (`--surface-2`)                      | `#17191E` (`--carte`)                 |
-   | `bordure`   | `#1E2430` (`--surface-4`)                      | `#1C1F25` (`--carte-2`)               |
-   | `texte`     | `#ECEFF3` (`--text-1`)                         | `#ECEAE4` (`--papier`)                |
-   | `attenue`   | `#B3BAC5` (`--text-2`)                         | `#A8A49C` (`--papier-2`)              |
-   | `miel`      | `#F2B544` (`--accent`)                         | `#E9B94D` (`--cire`)                  |
-   | `mielFonce` | `#E9A92E`                                      | `#E9B94D` (la cire est plate)         |
-   | `surMiel`   | `#1A1204` (`--on-accent`)                      | `#0E0F12` (`--sur-cire`)              |
-   | `succes`    | `#7FCBA6` (`--status-ok`)                      | `#4FD1B5` (`--vert-de-gris`)          |
-   | `alerte`    | `#F28B7D` (`--status-fail`)                    | `#F27E76` (`--corail`)                |
+   | Jeton       | « Cadran de ruche » (`final/identite-hive.md`) | « Registre » (`dir-D/brand-guide.md`)      |
+   | ----------- | ---------------------------------------------- | ------------------------------------------ |
+   | `fond`      | `#07090C` (`--surface-0`)                      | `#0E0F12` (`--encre`)                      |
+   | `panneau`   | `#11151B` (`--surface-2`)                      | `#17191E` (`--carte`)                      |
+   | `bordure`   | `#1E2430` (`--surface-4`)                      | `#1C1F25` (`--carte-2`)                    |
+   | `texte`     | `#ECEFF3` (`--text-1`)                         | `#ECEAE4` (`--papier`)                     |
+   | `attenue`   | `#B3BAC5` (`--text-2`)                         | `#A8A49C` (`--papier-2`)                   |
+   | `miel`      | `#F2B544` (`--accent`)                         | `#E9B94D` (`--cire`)                       |
+   | `mielFonce` | `#E9A92E`                                      | `#E9B94D` (la cire est plate)              |
+   | `surMiel`   | `#1A1204` (`--on-accent`)                      | `#0E0F12` (`--sur-cire`)                   |
+   | `succes`    | `#7FCBA6` (`--status-ok`)                      | `#4FD1B5` (`--vert-de-gris`)               |
+   | `alerte`    | `#F28B7D` (`--status-fail`)                    | `#F27E76` (`--corail`)                     |
+   | `halo`      | `rgba(242, 181, 68, 0.07)` (`--accent-glow`)   | `rgba(233, 185, 77, 0.12)` (`--cire-doux`) |
 
-   Une police qui n'est pas dans `site/fonts` se dépose dans le thème et se
-   nomme par son chemin relatif (`"fichier": "polices/ma-police.woff2"`) — une
-   police OFL ou équivalente, jamais une police sous licence d'usage restreint.
+   `halo` est la lueur derrière l'icône (barre latérale NSIS, fond du DMG,
+   accueil) : oubliée, un thème bleu garde la lueur dorée du neutre.
+
+   Les polices (`polices.titre`, `.texte`, `.code`) :
+
+   | Rôle    | « Cadran de ruche »                     | « Registre »                           |
+   | ------- | --------------------------------------- | -------------------------------------- |
+   | `titre` | Bricolage Grotesque — dans `site/fonts` | **Fraunces** — à déposer dans le thème |
+   | `texte` | Instrument Sans — dans `site/fonts`     | **Schibsted Grotesk** — à déposer      |
+   | `code`  | JetBrains Mono — dans `site/fonts`      | **IBM Plex Mono** — à déposer          |
+
+   Cadran garde les trois polices du neutre (sa serif, Instrument Serif, ne
+   sert qu'aux vues). Les trois de Registre ne sont PAS dans `site/fonts` :
+   leurs `.woff2` (OFL, sous-ensemble latin) se déposent dans le thème et se
+   nomment par leur chemin relatif (`"fichier": "polices/fraunces-latin.woff2"`)
+   — une police OFL ou équivalente, jamais une police sous licence d'usage
+   restreint.
+
+   `nom` et `accroche` / `accrocheEn` (les deux langues de l'installeur) sont
+   repris par les bitmaps, le fond du DMG et la description des paquets Linux
+   (`electron-builder.config.cjs`) ; `couleurs.fond` peint aussi la fenêtre de
+   l'app avant sa première page (`sorties/coquille.json`).
 
 3. **Remplacer les deux SVG** : `icone.svg` (le logo de l'identité posé sur une
    tuile 1024 — « L'Aiguille ouverte » pour Cadran, le sceau hexagonal pour

@@ -934,6 +934,19 @@ describe('la mort d’une pièce — la Reine emporte la ruche, une ouvrière no
     expect(derniereLigne(['x'.repeat(1_000)], null)).toHaveLength(400);
   });
 
+  it('une exception non rattrapée se cite par son MESSAGE, pas par sa pile ni la version de Node', () => {
+    const pile = [
+      'Error: base illisible',
+      '    at ouvrir (file:///hive/dist/db.js:12:9)',
+      '    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)',
+      '',
+      'Node.js v24.15.0',
+    ];
+    expect(derniereLigne(pile, null)).toBe('Error: base illisible');
+    // La pile arrive souvent dans un lot à part : le message du lot d'avant reste.
+    expect(derniereLigne(pile.slice(1), 'Error: base illisible')).toBe('Error: base illisible');
+  });
+
   it('un agent non connecté se DIT dans la bannière — aucune ouvrière pour lui', () => {
     expect(annonceNonConnectes([])).toEqual([]);
     const [ligne] = annonceNonConnectes([

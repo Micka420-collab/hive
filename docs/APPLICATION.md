@@ -29,11 +29,26 @@ cliquez **Informations complémentaires**, puis **Exécuter quand même**.
 L'installeur est assisté : accueil, licence MIT, dossier (modifiable), options,
 installation. Aucun droit administrateur n'est demandé.
 
-**macOS — Gatekeeper.** « Hive ne peut pas être ouvert car le développeur ne
-peut pas être vérifié » : ouvrez **Réglages Système → Confidentialité et
-sécurité**, puis **Ouvrir quand même** en bas de la page (ou clic droit sur
-l'app → **Ouvrir**, une fois). Prenez le DMG `arm64` pour un Mac Apple Silicon
-(M1 et suivants), `x64` pour un Mac Intel.
+**macOS — Gatekeeper.** Au premier lancement, macOS refuse d'ouvrir Hive :
+Apple n'a pas pu vérifier l'absence de logiciel malveillant (en anglais :
+_“Hive” Not Opened — Apple could not verify “Hive” is free of malware that may
+harm your Mac or compromise your privacy._). Fermez la boîte (**Terminé**, pas
+**Placer dans la corbeille**), ouvrez **Réglages Système → Confidentialité et
+sécurité**, puis **Ouvrir quand même** en bas de la page, et confirmez avec
+votre mot de passe. Depuis macOS 15 Sequoia, le clic droit → **Ouvrir** ne
+contourne plus cette vérification : seul ce chemin marche.
+
+Si macOS dit que Hive « est endommagé » (une copie téléchargée non signée peut
+le déclencher), retirez l'attribut de quarantaine — **seulement pour un DMG
+téléchargé depuis les Releases de ce dépôt** : la commande retire la
+vérification de Gatekeeper pour cette app.
+
+```sh
+xattr -dr com.apple.quarantine /Applications/Hive.app
+```
+
+Prenez le DMG `arm64` pour un Mac Apple Silicon (M1 et suivants), `x64` pour
+un Mac Intel.
 
 **Linux.** Le `.deb` s'installe par `sudo apt install ./hive_X.Y.Z_amd64.deb`
 et garde le bac à sable de Chromium. **Sous Ubuntu 24.04 et suivants, préférez
@@ -49,6 +64,9 @@ reste le choix sans droits administrateur.
   est toujours créé.
 
 Installation silencieuse : `Hive-Setup-X.Y.Z.exe /S` (options par défaut).
+Réinstaller ou désinstaller pendant que Hive tourne lui demande d'abord de
+quitter proprement (la ruche et ses agents s'arrêtent), puis seulement arrête
+ce qui resterait.
 
 ## Premier lancement
 
@@ -66,6 +84,25 @@ L'app prépare **sa** ruche, puis ouvre Mission Control :
 4. elle ouvre Mission Control, **déjà connecté** : le jeton est posé pour
    vous. L'assistant de première arrivée de l'écran prend la suite quand la
    ruche n'a jamais été configurée.
+
+Quand l'accueil a quelque chose à dire — **aucun agent connecté** (la commande
+qui connecte chacun, la démonstration simulée) ou **un port changé** —, il
+reste affiché : **Ouvrir Mission Control** quand vous l'avez lu, **Relancer la
+détection** une fois un agent connecté. Les commandes se sélectionnent et se
+copient.
+
+### Le bac à sable des agents
+
+L'app écrit `HIVE_ISOLEMENT=auto` : chaque ouvrière isole ses agents avec
+**Podman ou Docker** (s'ils ont l'image des agents, construite par
+`npm run bac:image` — l'app ne la construit pas encore) ou **bubblewrap**
+(Linux). Sur un poste Windows ou macOS sans rien de tout ça, les agents
+travaillent **sans bac à sable**, avec vos droits d'utilisateur : ils peuvent
+lire et écrire ce que vous pouvez lire et écrire. L'ouvrière le dit dans son
+journal, et la vue **Essaim** de Mission Control montre, pour chaque ouvrière,
+l'isolement qu'elle a obtenu. `HIVE_ISOLEMENT=exige` dans `ruche/.env` refuse
+de travailler sans bac à sable — le réglage à choisir si la machine est
+prêtée.
 
 L'app lit l'environnement de votre shell de connexion (macOS, Linux) : un
 `claude` installé dans `~/.local/bin` ou des clés posées dans `~/.zshrc` sont
@@ -127,15 +164,19 @@ une vue de l'écran. Rien d'autre n'est accepté.
 
 ## Mettre à jour
 
-- **Windows et AppImage** : la nouvelle version se télécharge en arrière-plan ;
-  une boîte propose **Redémarrer maintenant** ou **Plus tard** (elle
-  s'installe alors quand vous quittez Hive). **Jamais de redémarrage dans votre
-  dos** : la ruche est arrêtée proprement avant l'installation.
-- **`.deb`** : une boîte propose de télécharger et d'installer ; votre mot de
-  passe est demandé (`pkexec`).
+- **Windows et macOS signés** : la nouvelle version se télécharge en
+  arrière-plan ; une boîte propose **Redémarrer maintenant** ou **Plus tard**
+  (elle s'installe alors quand vous quittez Hive).
+- **Windows non signé, AppImage, `.deb`** : une boîte propose **Télécharger et
+  installer** — rien ne se télécharge ni ne s'installe sans ce clic. Le `.deb`
+  demande votre mot de passe (`pkexec`). Une installation qui n'aboutit pas
+  (mot de passe refusé, fichier manquant) le dit et relance la ruche.
 - **macOS non signé** : Apple n'autorise pas la mise à jour automatique d'une
-  app non signée ; l'app ouvre la page de la version. Automatique dès que les
-  paquets sont signés.
+  app non signée ; l'app ouvre la page de la version.
+
+**Jamais de redémarrage dans votre dos** : la ruche est arrêtée proprement
+avant l'installation. Pendant un téléchargement, l'icône de la barre des
+tâches (ou du Dock) montre l'avancement.
 
 L'app cherche une mise à jour une minute après le démarrage, puis toutes les
 6 h, et sur « Rechercher une mise à jour ». Avant chaque changement de version,
@@ -177,8 +218,22 @@ variables → Actions), sans autre changement :
 | Windows    | ou `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` + variables `AZURE_SIGN_ENDPOINT`, `AZURE_SIGN_ACCOUNT`, `AZURE_SIGN_PROFILE`, `AZURE_SIGN_PUBLISHER` | Azure Trusted Signing (`win.azureSignOptions`)            |
 
 Seul le travail `publier` du flux `app-bureau.yml` (sur une étiquette) reçoit
-ces secrets ; les paquets de PR ne sont jamais signés. Un certificat `.p12` ou
-`.pfx` se passe en base64 : `base64 -w0 certificat.p12`.
+ces secrets ; les paquets de PR ne sont jamais signés. Il passe au banc de
+fumée **les paquets qu'il vient de signer** — sous macOS notarisé, avec
+l'attribut de quarantaine, `codesign --verify` et `spctl --assess` —, puis
+téléverse **ces fichiers-là** dans la Release brouillon. Un certificat `.p12`
+ou `.pfx` se passe en base64 : `base64 -w0 certificat.p12`.
+
+**Tant que rien n'est signé, le droit de publier une Release est la seule
+racine de confiance des mises à jour.** electron-updater ne vérifie alors que
+l'empreinte sha512 de `latest*.yml`, publiée dans la même Release que
+l'installeur : qui peut publier (un jeton volé) peut livrer son code. C'est
+pourquoi aucune mise à jour non signée ne s'installe sans un clic (voir
+[Mettre à jour](#mettre-à-jour)) : protégez l'accès en écriture au dépôt
+(double authentification, jetons à portée minimale). Une fois `WIN_CSC_LINK`
+(ou Azure) posé, l'installeur Windows téléchargé est vérifié par sa signature
+Authenticode (`publisherName`) avant de s'installer, et l'installation
+redevient automatique.
 
 ## Construire l'app soi-même
 
@@ -211,14 +266,21 @@ Mission Control in one window; no Node install, no terminal.
   (recommended on Ubuntu 24+) or `Hive-X.Y.Z-x86_64.AppImage` (Linux), from
   the [Releases](https://github.com/Micka420-collab/hive/releases).
 - **Unsigned builds**: Windows SmartScreen → _More info_ → _Run anyway_;
-  macOS Gatekeeper → _System Settings → Privacy & Security → Open Anyway_.
+  macOS Gatekeeper → _System Settings → Privacy & Security → Open Anyway_
+  (right-click → Open no longer works on macOS 15+); if macOS says the app
+  “is damaged”, `xattr -dr com.apple.quarantine /Applications/Hive.app`.
 - **Data**: `%APPDATA%\Hive`, `~/Library/Application Support/Hive`,
   `~/.config/Hive` (the hive itself under `ruche/`); kept on uninstall unless
   you tick the (unticked) box in the Windows uninstaller.
-- **Updates**: automatic download on Windows and AppImage, installed only when
-  you click _Restart now_ or quit; `.deb` asks for your password; unsigned
-  macOS opens the release page. A database backup is taken before every
-  version change.
+- **Updates**: signed Windows/macOS builds download in the background and
+  install only when you click _Restart now_ or quit; unsigned Windows,
+  AppImage and `.deb` ask before downloading (`.deb` asks for your password);
+  unsigned macOS opens the release page. Until builds are signed, the right
+  to publish a GitHub Release is the only trust root for updates. A database
+  backup is taken before every version change.
+- **Sandbox**: agents are isolated with Podman/Docker (with the agents image)
+  or bubblewrap when present; otherwise they run unsandboxed with your user's
+  rights — the Essaim view shows what each worker got.
 - **Signing**: off until secrets exist — `CSC_LINK`/`CSC_KEY_PASSWORD`,
   `APPLE_API_KEY`/`APPLE_API_KEY_ID`/`APPLE_API_ISSUER` (macOS),
   `WIN_CSC_LINK`/`WIN_CSC_KEY_PASSWORD` or Azure Trusted Signing (Windows).

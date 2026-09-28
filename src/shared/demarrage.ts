@@ -723,11 +723,19 @@ export function suiteDUneMort(mort: {
   };
 }
 
-/** La dernière ligne non vide d'un lot — ce qu'un processus a dit en dernier. */
+/**
+ * Ce que Node ajoute après le message d'une exception non rattrapée : les
+ * cadres de pile (`at …`) et sa version (`Node.js v24…`). Aucune n'explique
+ * une mort — citées, elles donnaient « at process.processTicksAndRejections »
+ * pour toute raison (mesuré, #532).
+ */
+const APRES_LE_MESSAGE = /^(?:at\s|Node\.js v\d)/;
+
+/** La dernière ligne parlante d'un lot — ce qu'un processus a dit en dernier. */
 export function derniereLigne(lignes: readonly string[], avant: string | null): string | null {
   for (let i = lignes.length - 1; i >= 0; i--) {
     const l = (lignes[i] ?? '').trim();
-    if (l !== '') return l.slice(0, 400);
+    if (l !== '' && !APRES_LE_MESSAGE.test(l)) return l.slice(0, 400);
   }
   return avant;
 }

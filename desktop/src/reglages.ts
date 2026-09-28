@@ -22,12 +22,7 @@ export interface Reglage {
 /** Ce que l'app emprunte à l'installeur de Hive. */
 export interface RecetteReglages {
   readonly lireEnv: (contenu: string) => Map<string, string>;
-  readonly composerReglages: (
-    existant: Map<string, string>,
-    jeton?: string,
-    secretSession?: string,
-    opts?: { sansAgentReel?: boolean },
-  ) => Reglage[];
+  readonly composerReglages: (existant: Map<string, string>) => Reglage[];
   readonly completerEnv: (contenu: string, reglages: readonly Reglage[]) => string;
 }
 
@@ -64,7 +59,6 @@ export function poserCle(contenu: string, cle: string, valeur: string): string {
 export function envDeLaRuche(
   existant: string | null,
   port: number,
-  sansAgentReel: boolean,
   recette: RecetteReglages,
 ): string {
   const origine = origineLocale(port);
@@ -73,7 +67,7 @@ export function envDeLaRuche(
       ['HIVE_PORT', String(port)],
       ['HIVE_HTTP', origine],
     ]);
-    const reglages = recette.composerReglages(graines, undefined, undefined, { sansAgentReel });
+    const reglages = recette.composerReglages(graines);
     const lignes = [
       '# La ruche de l’application de bureau Hive.',
       '# Écrit par l’app au premier lancement ; modifiable à la main. L’app ne',
@@ -84,7 +78,7 @@ export function envDeLaRuche(
     return lignes.join('\n');
   }
   const present = recette.lireEnv(existant);
-  const reglages = recette.composerReglages(present, undefined, undefined, { sansAgentReel });
+  const reglages = recette.composerReglages(present);
   const complete = recette.completerEnv(existant, reglages);
   return poserCle(poserCle(complete, 'HIVE_PORT', String(port)), 'HIVE_HTTP', origine);
 }

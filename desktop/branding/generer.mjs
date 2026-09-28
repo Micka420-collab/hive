@@ -11,6 +11,7 @@
 //   installerHeader.bmp      (150 × 57, 24 bits)
 //   background.png / @2x     (fond du DMG, 540 × 380)
 //   marque.css + polices/    (l'accueil de l'app)
+//   coquille.json            (ce que la coquille lit : le fond de la fenêtre)
 //
 // ─── POURQUOI DANS ELECTRON, ET SANS AUCUNE DÉPENDANCE D'IMAGE ───────────────
 //
@@ -59,6 +60,7 @@ const valeurs = {
   ...couleurs,
   nom: marque.nom,
   accroche: marque.accroche,
+  accrocheEn: marque.accrocheEn,
   icone: enDonnees(svgIcone),
   'police-titre': police('titre'),
   'police-texte': police('texte'),
@@ -292,12 +294,20 @@ async function generer() {
     '',
   ].join('\n');
   writeFileSync(path.join(SORTIES, 'marque.css'), css);
+  // La couleur que la fenêtre peint avant sa première page (`fenetre.ts`).
+  writeFileSync(
+    path.join(SORTIES, 'coquille.json'),
+    `${JSON.stringify({ fond: couleurs.fond }, null, 2)}\n`,
+  );
   console.log(
     `marque « ${theme} » générée dans ${path.relative(process.cwd(), SORTIES) || SORTIES}`,
   );
 }
 
 app.disableHardwareAcceleration();
+// Anticrénelage en niveaux de gris : le sous-pixel LCD laissait des franges
+// orange et bleues autour des lettres des petits bitmaps (en-tête NSIS 150×57).
+app.commandLine.appendSwitch('disable-lcd-text');
 // Sans cet écouteur, fermer la toile des icônes — la seule fenêtre ouverte à
 // cet instant — quitterait l'app avant les gabarits.
 app.on('window-all-closed', () => undefined);

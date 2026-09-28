@@ -11,9 +11,13 @@
 //                        (`--no-sandbox` : extrait sans `postinst`, le
 //                        `chrome-sandbox` n'est pas setuid — le paquet
 //                        installé, lui, garde le bac à sable de Chromium)
-//   Windows  Hive-Setup-*.exe : `/S`, lancement, puis désinstallation `/S` —
-//            et la base DOIT rester en place (ADR 0013 § 11)
-//   macOS    .dmg : `hdiutil attach`, copie du `.app`, lancement
+//   Windows  Hive-Setup-*.exe : `/S`, l'entrée de session posée comme
+//            l'installeur la pose (l'app doit la relire), lancement ; puis
+//            l'app relancée pour de bon, et désinstallée `/S` PENDANT qu'elle
+//            tourne : elle doit s'être arrêtée d'elle-même (`--quitter`), et
+//            la base DOIT rester en place (ADR 0013 § 11)
+//   macOS    .dmg : `hdiutil attach`, copie du `.app`, lancement — et, signé
+//            (`HIVE_FUMEE_GATEKEEPER=1`), quarantaine + `codesign` + `spctl`
 //
 // Le rapport et la capture sont copiés dans `desktop/release/fumee/`, que la
 // CI publie avec les paquets.
@@ -110,18 +114,43 @@ if (nom.endsWith('.AppImage')) {
   // Les VRAIS chemins d'un utilisateur : la désinstallation doit laisser
   // `%APPDATA%\Hive\ruche` en place, et c'est là qu'on regarde.
   const installe = path.join(process.env.LOCALAPPDATA, 'Programs', 'Hive');
+  const exe = path.join(installe, 'Hive.exe');
   executer(artefact, ['/S']);
-  for (let i = 0; i < 60 && !existsSync(path.join(installe, 'Hive.exe')); i++)
+  for (let i = 0; i < 60 && !existsSync(exe); i++) await attendre(1_000);
+  // L'entrée « lancer à l'ouverture de session », EXACTEMENT comme la case de
+  // l'installeur l'écrit (build/installer.nsh) : l'app doit la lire comme posée.
+  const run = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run';
+  executer('reg', ['add', run, '/v', 'Hive', '/t', 'REG_SZ', '/d', `"${exe}" --session`, '/f']);
+  await lancerApp(exe, [diagnostic]);
+  executer('reg', ['delete', run, '/v', 'Hive', '/f']);
+
+  // L'app relancée pour de bon (la ruche du diagnostic existe : pas de
+  // reprise), puis désinstallée PENDANT qu'elle tourne.
+  const donneesApp = path.join(process.env.APPDATA, 'Hive');
+  const base = path.join(donneesApp, 'ruche', 'data', 'hive.db');
+  const envRuche = readFileSync(path.join(donneesApp, 'ruche', '.env'), 'utf8');
+  const port = Number(/^HIVE_PORT=(\d+)/m.exec(envRuche)?.[1] ?? '7777');
+  spawn(exe, [], { detached: true, stdio: 'ignore' }).unref();
+  let enLigne = false;
+  for (let i = 0; i < 120 && !enLigne; i++) {
     await attendre(1_000);
-  await lancerApp(path.join(installe, 'Hive.exe'), [diagnostic]);
-  const base = path.join(process.env.APPDATA, 'Hive', 'ruche', 'data', 'hive.db');
+    enLigne = await fetch(`http://127.0.0.1:${String(port)}/api/health`).then(
+      (r) => r.ok,
+      () => false,
+    );
+  }
+  const bureauLog = path.join(donneesApp, 'logs', 'bureau.log');
   executer(path.join(installe, 'Uninstall Hive.exe'), ['/S']);
   // Le désinstalleur se recopie et rend la main : on attend que l'app parte.
   for (let i = 0; i < 60 && existsSync(path.join(installe, 'Hive.exe')); i++) await attendre(1_000);
-  verifierApres = () => {
+  verifierApres = (r) => {
     const d = [];
-    if (existsSync(path.join(installe, 'Hive.exe')))
-      d.push('la désinstallation silencieuse n’a pas retiré Hive.exe');
+    if (r.session !== true) d.push('l’entrée de session posée par l’installeur ne se relit pas');
+    if (!enLigne) d.push(`l’app relancée n’a pas répondu sur le port ${String(port)}`);
+    const log = existsSync(bureauLog) ? readFileSync(bureauLog, 'utf8') : '';
+    if (!log.includes('arrêt demandé par l’installeur') || !log.includes('arrêt de la ruche'))
+      d.push('la désinstallation n’a pas demandé à l’app en cours de s’arrêter proprement');
+    if (existsSync(exe)) d.push('la désinstallation silencieuse n’a pas retiré Hive.exe');
     if (!existsSync(base))
       d.push(`la désinstallation a EFFACÉ la ruche (${base}) — elle doit rester`);
     return d;
@@ -134,6 +163,15 @@ if (nom.endsWith('.AppImage')) {
     executer('ditto', [path.join(montage, 'Hive.app'), app]);
   } finally {
     executer('hdiutil', ['detach', montage, '-force']);
+  }
+  // Une app SIGNÉE (job `publier`) passe aussi par le regard de Gatekeeper sur
+  // un téléchargement : l'attribut de quarantaine d'un navigateur, puis
+  // l'évaluation du système. Sans signature, `spctl` refuse par construction.
+  if (process.env.HIVE_FUMEE_GATEKEEPER === '1') {
+    const horodatage = Math.floor(Date.now() / 1000).toString(16);
+    executer('xattr', ['-w', 'com.apple.quarantine', `0081;${horodatage};Safari;`, app]);
+    executer('codesign', ['--verify', '--deep', '--strict', '--verbose=2', app]);
+    executer('spctl', ['--assess', '-vv', '--type', 'execute', app]);
   }
   await lancerApp(path.join(app, 'Contents', 'MacOS', 'Hive'), [diagnostic], {
     HIVE_BUREAU_DONNEES: donnees,
@@ -161,7 +199,7 @@ if (r.capture && existsSync(r.capture))
   copyFileSync(r.capture, path.join(sortie, path.basename(r.capture)));
 const defauts = [
   ...(r.reine ? defautsDuRapport(r) : (r.defauts ?? ['rapport illisible'])),
-  ...verifierApres(),
+  ...verifierApres(r),
 ];
 console.log(JSON.stringify(r, null, 2));
 if (defauts.length > 0) {

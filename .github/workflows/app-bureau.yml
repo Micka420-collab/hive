@@ -24,6 +24,16 @@ name: Application de bureau
 # Les secrets de signature sont passés au job `publier` s'ils existent ; vides,
 # rien n'est signé et tout marche (docs/APPLICATION.md § Signature). Le job
 # `paquet` n'en reçoit aucun : un paquet de PR n'est jamais signé.
+#
+# ─── CE QUI EST PUBLIÉ EST CE QUI A ÉTÉ LANCÉ ────────────────────────────────
+#
+# `publier` reconstruit (pour signer), passe CES paquets au banc de fumée —
+# signés, et sous macOS au regard de Gatekeeper —, puis téléverse CES
+# fichiers dans la Release brouillon. electron-builder ne publie rien lui-même.
+#
+# Aucun `checkout` ne garde le jeton dans `.git/config`
+# (`persist-credentials: false`) : les scripts d'installation des dépendances
+# ne peuvent pas le lire. Seul le téléversement le reçoit, en variable.
 on:
   pull_request:
     branches: [main]
@@ -53,6 +63,9 @@ concurrency:
 env:
   NODE: '24'
 
+permissions:
+  contents: read
+
 jobs:
   paquet:
     name: ${{ matrix.os }} · paquet + banc de fumée
@@ -71,6 +84,8 @@ jobs:
     steps:
       - name: Récupérer le code
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Installer Node.js ${{ env.NODE }}
         uses: actions/setup-node@v4
@@ -133,12 +148,30 @@ jobs:
             desktop/release/*.yml
             desktop/release/fumee/
 
+  # La Release brouillon, créée UNE fois avant les trois téléversements.
+  brouillon:
+    name: Release brouillon
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: paquet
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Créer la Release brouillon (si elle n'existe pas)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag \
+              --title "Hive $TAG" --notes "Brouillon — les paquets de l'application arrivent."
+
   publier:
     name: ${{ matrix.os }} · Release brouillon
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: paquet
+    needs: brouillon
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 60
     permissions:
       contents: write
     strategy:
@@ -147,13 +180,18 @@ jobs:
         include:
           - os: ubuntu-latest
             cible: --linux
+            paquets: Hive-*.AppImage hive_*.deb latest-linux.yml
           - os: windows-latest
             cible: --win
+            paquets: Hive-Setup-*.exe Hive-Setup-*.exe.blockmap latest.yml
           - os: macos-latest
             cible: --mac --arm64 --x64
+            paquets: Hive-*.dmg Hive-*.dmg.blockmap Hive-*.zip Hive-*.zip.blockmap latest-mac.yml
     steps:
       - name: Récupérer le code
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Installer Node.js ${{ env.NODE }}
         uses: actions/setup-node@v4
@@ -185,12 +223,11 @@ jobs:
             echo "APPLE_API_KEY=$RUNNER_TEMP/AuthKey.p8" >> "$GITHUB_ENV"
           fi
 
-      - name: Construire, signer si possible, publier dans la Release brouillon
+      - name: Construire et signer si possible
         working-directory: desktop
         shell: bash
-        run: npx electron-builder --config electron-builder.config.cjs ${{ matrix.cible }} --publish always
+        run: npx electron-builder --config electron-builder.config.cjs ${{ matrix.cible }} --publish never
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # macOS — seulement sur son runner : sous Windows, electron-builder
           # retomberait sur CSC_LINK faute de WIN_CSC_LINK.
           CSC_LINK: ${{ runner.os == 'macOS' && secrets.CSC_LINK || '' }}
@@ -208,3 +245,30 @@ jobs:
           AZURE_SIGN_ACCOUNT: ${{ vars.AZURE_SIGN_ACCOUNT }}
           AZURE_SIGN_PROFILE: ${{ vars.AZURE_SIGN_PROFILE }}
           AZURE_SIGN_PUBLISHER: ${{ vars.AZURE_SIGN_PUBLISHER }}
+
+      - name: Écran virtuel (Linux)
+        if: runner.os == 'Linux'
+        run: command -v xvfb-run || (sudo apt-get update && sudo apt-get install -y xvfb)
+
+      # Le banc de fumée sur EXACTEMENT ce qui sera téléversé.
+      - name: Banc de fumée des paquets à publier
+        shell: bash
+        env:
+          # Signé ET notarisé : le DMG passe aussi par la quarantaine et `spctl`.
+          HIVE_FUMEE_GATEKEEPER: ${{ runner.os == 'macOS' && secrets.CSC_LINK != '' && secrets.APPLE_API_KEY != '' && '1' || '' }}
+        run: |
+          case "$RUNNER_OS" in
+            Linux)
+              node desktop/scripts/fumee.mjs desktop/release/Hive-*.AppImage
+              node desktop/scripts/fumee.mjs desktop/release/hive_*.deb ;;
+            Windows) node desktop/scripts/fumee.mjs desktop/release/Hive-Setup-*.exe ;;
+            macOS) node desktop/scripts/fumee.mjs desktop/release/Hive-*-arm64.dmg ;;
+          esac
+
+      - name: Téléverser les paquets éprouvés dans la Release brouillon
+        working-directory: desktop/release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: gh release upload "$TAG" ${{ matrix.paquets }} --repo "$GITHUB_REPOSITORY" --clobber

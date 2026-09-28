@@ -39,7 +39,7 @@ function rendre(e) {
   const libelles = {
     demarrage: 'La ruche démarre…',
     relance: 'La Reine redémarre…',
-    'en-ligne': 'La Reine est en ligne — ouverture de Mission Control…',
+    'en-ligne': 'La Reine est en ligne',
     arretee: 'La ruche est arrêtée',
     externe: 'Ouverture de la ruche…',
   };
@@ -72,6 +72,11 @@ function rendre(e) {
     }
     $('note-simulation').hidden = connectes > 0;
   }
+  // L'app ne quitte d'elle-même cet écran que s'il n'a rien à dire : sinon,
+  // c'est ce bouton (et la détection se relance ici, pas dans la barre
+  // système que certains bureaux cachent).
+  $('ouvrir-ecran').hidden = e.reine !== 'en-ligne';
+  $('detecter').hidden = e.agents === null || e.reine === 'demarrage' || e.reine === 'externe';
   $('note-port').hidden = e.portChange === null;
   if (e.portChange !== null) {
     $('note-port').textContent =
@@ -85,6 +90,8 @@ $('choix-ouvrir').addEventListener('click', () => void api.choisir('ouvrir'));
 $('choix-importer').addEventListener('click', () => void api.choisir('importer'));
 $('choix-neuve').addEventListener('click', () => void api.choisir('neuve'));
 $('reessayer').addEventListener('click', () => void api.reessayer());
+$('detecter').addEventListener('click', () => void api.reessayer());
+$('ouvrir-ecran').addEventListener('click', () => void api.ouvrirEcran());
 $('journaux').addEventListener('click', () => void api.ouvrirJournaux());
 
 api.surEtat(rendre);
