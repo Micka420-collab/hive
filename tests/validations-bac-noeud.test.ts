@@ -34,7 +34,7 @@ import { GRACE_ARRET_MS } from '../src/node-client/merge-runner.js';
 import { poserRegistre } from '../src/node-client/git-hote.js';
 import type { DepotEpingle } from '../src/shared/git-protege.js';
 import { validerProduction } from '../src/node-client/validations-bac.js';
-import { prepareWorkspace } from '../src/node-client/workspace.js';
+import { prepareWorkspace, sousVerrouIndex } from '../src/node-client/workspace.js';
 import type { Fournisseur } from '../src/node-client/isolement.js';
 import { creerCaviardeur } from '../src/shared/caviardage.js';
 import { fauxBac as fauxBacDe } from './fixtures/faux-bac.js';
@@ -534,18 +534,26 @@ describe('prepareWorkspace — la base épinglée, et le diff qui en part', () =
     }
   }, 30_000);
 
-  it('des diffs DEMANDÉS ENSEMBLE ne se marchent pas dessus', async () => {
+  it('UN GIT À LA FOIS sur l’index du registre : diffs et validations attendent leur tour', async () => {
     // Sandbox Live demande le diff d'une exécution EN COURS, pendant que le
-    // nœud peut calculer celui du résultat. `diffContreBase` écrit l'index du
-    // registre : deux calculs croisés trouvaient `index.lock`, et l'échec
-    // emportait le diff remis à la revue.
-    const origine = await depot({ 'README.md': '# projet\n' });
+    // nœud calcule celui du résultat, ou lance les validations. `diffContreBase`
+    // et le garde `.npmrc` écrivent l'index du registre (`add --intent-to-add`) :
+    // croisés, le second trouvait `index.lock` — le diff remis à la revue
+    // échouait, ou toutes les validations devenaient `interrompue`.
+    //
+    // Déterministe : un geste tient le verrou ET l'`index.lock` de git, comme
+    // un `add` en cours. Ce qui passe par le verrou attend ; ce qui le
+    // contournerait trouverait le fichier et échouerait à coup sûr.
+    const origine = await depot({
+      'README.md': '# projet\n',
+      'package.json': manifeste({ test: marque('test') }),
+    });
     const racine = mkdtempSync(path.join(os.tmpdir(), 'hive-validations-ws-'));
     dossiers.push(racine);
     const tache: Task = {
-      id: 'tache-diffs',
+      id: 'tache-verrou',
       projectId: 'p',
-      title: 'Diffs croisés',
+      title: 'Verrou du registre',
       prompt: 'x',
       status: 'assigned',
       dependsOn: [],
@@ -558,14 +566,36 @@ describe('prepareWorkspace — la base épinglée, et le diff qui en part', () =
     };
     const ws = await prepareWorkspace(racine, tache, origine);
     try {
-      for (let i = 0; i < 20; i += 1) {
-        writeFileSync(path.join(ws.cwd, `f${i}.js`), `module.exports = ${i};\n`);
-      }
-      const diffs = await Promise.all(Array.from({ length: 16 }, () => ws.collectDiff()));
-      for (const d of diffs) {
-        expect(d).toContain('f19.js');
-        expect(d).toBe(diffs[0]);
-      }
+      writeFileSync(path.join(ws.cwd, 'nouveau.js'), 'module.exports = 1;\n');
+      const registre = ws.depot!;
+      const verrouGit = path.join(registre.gitDir, 'index.lock');
+      let libere = false;
+      let pris: () => void = () => undefined;
+      const verrouPris = new Promise<void>((r) => {
+        pris = r;
+      });
+      const tenu = sousVerrouIndex(registre, async () => {
+        writeFileSync(verrouGit, '');
+        pris();
+        await new Promise((r) => setTimeout(r, 300));
+        rmSync(verrouGit);
+        libere = true;
+      });
+      // Les autres gestes partent quand l'index est PRIS, pas avant.
+      await verrouPris;
+      const diffs = [ws.collectDiff(), ws.collectDiff()];
+      const rapport = validerProduction({
+        cwd: ws.cwd,
+        depot: { depot: registre, baseSha: ws.baseSha! },
+      });
+      await tenu;
+      for (const d of await Promise.all(diffs)) expect(d).toContain('nouveau.js');
+      // Sans bac, rien ne tourne : `sans_bac` — pas `interrompue` par un index pris.
+      expect((await rapport).controles.tests).toMatchObject({
+        etat: 'missing',
+        raison: 'sans_bac',
+      });
+      expect(libere).toBe(true);
     } finally {
       ws.cleanup();
     }

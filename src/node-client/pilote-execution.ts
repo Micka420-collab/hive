@@ -34,14 +34,33 @@
 // ─── UNE PAUSE N'EMPÊCHE JAMAIS UN ARRÊT ─────────────────────────────────────
 //
 // Un processus arrêté ne traite pas SIGTERM ; un conteneur en pause ne reçoit
-// pas le signal que `docker run` lui relaie. Toute annulation reprend donc
-// l'agent D'ABORD (`reprendre`), puis l'arrête — c'est l'ordre que suit le
-// client (`annulerTache`, `stop`).
+// pas le signal que `docker run` lui relaie. Toute fin d'exécution passe donc
+// par `arreter` (annulation, arrêt du nœud, budget épuisé, drone perdant : le
+// client l'accroche au signal d'annulation) ou par le détachement (sortie,
+// délai dépassé) — et les deux RELANCENT ce qu'une pause a arrêté.
+//
+// Le piège est la pause EN VOL : ses tours de SIGSTOP (ou le `pause` du
+// moteur) sont attendus, et l'arrêt peut tomber entre deux. Relancer « si
+// `enPause` » ne voyait pas cette pause-là : elle concluait APRÈS, et l'arbre
+// restait gelé pour toujours, SIGTERM en souffrance. D'où deux règles :
+// `arreter` ferme la porte aux pauses (drapeau `arret`) et attend le geste en
+// vol ; un geste qui conclut sur une exécution arrêtée ou détachée DÉFAIT ce
+// qu'il vient de faire.
+//
+// ─── APRÈS UNE COUPURE, L'ÉTAT ENTIER ────────────────────────────────────────
+//
+// Le pilote n'envoie que ce qui change ; la Reine, elle, oublie l'état d'une
+// tâche que la coupure d'un nœud a remise en file, puis la ré-adopte. Le
+// pilote garde donc ce qu'il a dit (`connu`) et le redit en entier
+// (`instantane`) à chaque inscription du nœud : sans lui, un agent en pause
+// perdait son « en pause » et son bouton Reprendre — gelé pour de bon,
+// horloges suspendues.
 
 import { creerMinuteurSuspendable } from '../shared/minuteur-suspendable.js';
 import type { MinuteurSuspendable } from '../shared/minuteur-suspendable.js';
-import { INTERVALLE_METRIQUES_MS } from '../shared/bac-direct.js';
+import { fusionnerDirect, INTERVALLE_METRIQUES_MS } from '../shared/bac-direct.js';
 import type {
+  DirectTache,
   EtatControleDirect,
   EtatDirect,
   MetriquesDirect,
@@ -126,6 +145,10 @@ export class PiloteExecution implements PiloteProcessus {
   /** Une pause ou une reprise en cours : la suivante attend qu'elle ait conclu. */
   private geste: Promise<unknown> = Promise.resolve();
   private ferme = false;
+  /** L'exécution est arrêtée (annulée, nœud arrêté…) : plus aucune pause. */
+  private arret = false;
+  /** Tout ce que le pilote a dit, fusionné comme la Reine le fait : `instantane` le redit. */
+  private connu: DirectTache = { taskId: '', nodeId: '', majA: 0 };
 
   constructor(
     private readonly envoyer: (etat: EtatDirect) => void,
@@ -139,18 +162,41 @@ export class PiloteExecution implements PiloteProcessus {
 
   /** La pause est-elle possible pour ce qui tourne maintenant ? */
   private pausable(): boolean {
-    if (!this.attache) return false;
+    if (!this.attache || this.arret) return false;
     return this.attache.p.conteneur !== undefined || this.sondes.plateforme !== 'win32';
   }
 
-  phase(phase: PhaseDirect, commande?: string): void {
+  /** Envoie une mise à jour, et la retient pour `instantane`. */
+  private emettre(maj: EtatDirect): void {
     if (this.ferme) return;
-    this.envoyer({ phase, ...(commande !== undefined ? { commande } : {}) });
+    this.connu = fusionnerDirect(this.connu, '', '', maj, 0);
+    this.envoyer(maj);
+  }
+
+  phase(phase: PhaseDirect, commande?: string): void {
+    this.emettre({ phase, ...(commande !== undefined ? { commande } : {}) });
   }
 
   controle(cle: ValidationKey, etat: EtatControleDirect): void {
+    this.emettre({ controles: { [cle]: etat } });
+  }
+
+  /**
+   * L'état ENTIER de l'exécution, redit d'un bloc — à chaque (ré)inscription
+   * du nœud (voir l'en-tête). `pausable` et `enPause` sont relus maintenant,
+   * pas recopiés : c'est ce qui est vrai à l'instant qui compte.
+   */
+  instantane(): void {
     if (this.ferme) return;
-    this.envoyer({ controles: { [cle]: etat } });
+    const { phase, commande, metriques, controles } = this.connu;
+    this.envoyer({
+      ...(phase !== undefined ? { phase } : {}),
+      ...(commande !== undefined ? { commande } : {}),
+      pausable: this.pausable(),
+      enPause: this.pause,
+      ...(metriques !== undefined ? { metriques } : {}),
+      ...(controles !== undefined ? { controles } : {}),
+    });
   }
 
   minuteur(delaiMs: number, declencher: () => void): MinuteurSuspendable {
@@ -181,7 +227,7 @@ export class PiloteExecution implements PiloteProcessus {
     minuteur.unref?.();
     const attache: Attache = { p, mesure: new MesureArbre(p.pid), minuteur, enMesure: false };
     this.attache = attache;
-    this.envoyer({ commande: p.commande, pausable: this.pausable(), enPause: false });
+    this.emettre({ commande: p.commande, pausable: this.pausable(), enPause: false });
     // Une première mesure tout de suite : la mémoire se lit dès le premier
     // relevé (le CPU, lui, attend le second — voir `MesureArbre`).
     void this.mesurer();
@@ -195,12 +241,16 @@ export class PiloteExecution implements PiloteProcessus {
     if (!a) return;
     clearInterval(a.minuteur);
     this.attache = null;
-    this.arretes.clear();
+    // Détaché (sorti, délai dépassé, remplacé) : ce qu'une pause a arrêté est
+    // RELANCÉ, jamais oublié — un petit-enfant orphelin resterait gelé, et
+    // l'agent tué pendant sa pause ne traiterait pas son SIGTERM.
+    this.relancerArbre();
+    if (this.pause && a.p.conteneur) void this.gesteMoteur(a.p.conteneur, 'unpause');
     // Sorti pendant une pause (tué par un tiers) : le budget, lui, court encore
     // pour la suite de la tâche — validations comprises.
     if (this.pause) for (const m of this.minuteurs) m.reprendre();
     this.pause = false;
-    if (!this.ferme) this.envoyer({ pausable: false, enPause: false, metriques: null });
+    this.emettre({ pausable: false, enPause: false, metriques: null });
   }
 
   private async mesurer(): Promise<void> {
@@ -229,7 +279,7 @@ export class PiloteExecution implements PiloteProcessus {
     // Détaché entre-temps : la mesure d'un processus sorti ne s'affiche pas.
     if (this.attache !== a || this.ferme) return;
     // Rien de mesurable : « inconnu », jamais un zéro.
-    this.envoyer({ metriques: m });
+    this.emettre({ metriques: m });
   }
 
   /** Les gestes s'enchaînent : une reprise attend la pause qui la précède. */
@@ -244,20 +294,26 @@ export class PiloteExecution implements PiloteProcessus {
     return this.enchainer(async () => {
       const a = this.attache;
       if (this.ferme || !a || !this.pausable()) {
-        if (!this.ferme) this.envoyer({ pausable: this.pausable(), enPause: this.pause });
+        this.emettre({ pausable: this.pausable(), enPause: this.pause });
         return false;
       }
       if (this.pause) return true;
       const ok = a.p.conteneur
         ? await this.gesteMoteur(a.p.conteneur, 'pause')
-        : await this.arreterArbre(a.p.pid);
-      // Sorti ou détaché pendant le geste : il n'y a plus rien en pause.
-      if (this.attache !== a) return false;
+        : await this.arreterArbre(a);
+      // Arrêtée, sortie ou détachée PENDANT le geste : il ne doit rien rester
+      // en pause. Ce que ce geste vient d'arrêter est défait ici — personne
+      // d'autre ne le relancera (voir l'en-tête).
+      if (this.arret || this.attache !== a) {
+        if (ok && a.p.conteneur) await this.gesteMoteur(a.p.conteneur, 'unpause');
+        else this.relancerArbre();
+        return false;
+      }
       if (ok) {
         this.pause = true;
         for (const m of this.minuteurs) m.suspendre();
       }
-      this.envoyer({ enPause: this.pause });
+      this.emettre({ enPause: this.pause });
       return ok;
     });
   }
@@ -274,7 +330,7 @@ export class PiloteExecution implements PiloteProcessus {
         this.pause = false;
         for (const m of this.minuteurs) m.reprendre();
       }
-      if (!this.ferme && this.attache === a) this.envoyer({ enPause: this.pause });
+      if (this.attache === a) this.emettre({ enPause: this.pause });
       return ok;
     });
   }
@@ -293,7 +349,8 @@ export class PiloteExecution implements PiloteProcessus {
    * lisible, la racine seule — mieux que rien, et dit tel quel par l'arbre
    * mesuré.
    */
-  private async arreterArbre(racine: number): Promise<boolean> {
+  private async arreterArbre(a: Attache): Promise<boolean> {
+    const racine = a.p.pid;
     try {
       this.sondes.signaler(racine, 'SIGSTOP');
       this.arretes.add(racine);
@@ -302,6 +359,9 @@ export class PiloteExecution implements PiloteProcessus {
     }
     for (let tour = 0; tour < TOURS_ARRET_MAX; tour += 1) {
       const table = await this.sondes.table();
+      // Arrêtée ou détachée entre deux tours : on n'arrête plus rien de neuf
+      // (`suspendre` relance ce qui l'a déjà été).
+      if (this.arret || this.attache !== a) break;
       if (!table) break;
       const nouveaux = descendance(table, racine).filter((p) => !this.arretes.has(p.pid));
       if (nouveaux.length === 0) break;
@@ -317,7 +377,7 @@ export class PiloteExecution implements PiloteProcessus {
     return true;
   }
 
-  /** SIGCONT à chacun de ceux qu'on a arrêtés. Synchrone : `stop()` du nœud s'en sert. */
+  /** SIGCONT à chacun de ceux qu'on a arrêtés. Synchrone : `arreter` s'en sert sur-le-champ. */
   private relancerArbre(): boolean {
     for (const pid of this.arretes) {
       try {
@@ -331,23 +391,33 @@ export class PiloteExecution implements PiloteProcessus {
   }
 
   /**
-   * Reprise IMMÉDIATE, sans attendre : ce qu'on peut relancer sur-le-champ
-   * (SIGCONT) l'est, un conteneur reçoit son `unpause` sans qu'on l'attende.
-   * Pour l'arrêt du nœud, qui n'attend rien.
+   * L'exécution s'arrête (annulation, arrêt du nœud, budget épuisé) : plus
+   * aucune pause possible, et ce qui dort est relancé SUR-LE-CHAMP — SIGCONT
+   * est synchrone, et c'est ce qu'il faut à `stop()` du nœud, qui n'attend
+   * rien. La promesse rendue attend en plus le `unpause` d'un conteneur et le
+   * geste en vol, qui se défait de lui-même : qui l'attend (`annulerTache`)
+   * n'envoie son SIGTERM qu'à un agent éveillé. Idempotent.
    */
-  reprendreSansAttendre(): void {
+  arreter(): Promise<void> {
+    const dejaArrete = this.arret;
+    this.arret = true;
     const a = this.attache;
-    if (!a || !this.pause) return;
-    if (a.p.conteneur) void this.gesteMoteur(a.p.conteneur, 'unpause');
-    else this.relancerArbre();
-    this.pause = false;
-    for (const m of this.minuteurs) m.reprendre();
+    let reveil: Promise<unknown> = Promise.resolve();
+    if (a && this.pause) {
+      if (a.p.conteneur) reveil = this.gesteMoteur(a.p.conteneur, 'unpause');
+      else this.relancerArbre();
+      this.pause = false;
+      for (const m of this.minuteurs) m.reprendre();
+    }
+    if (a && !dejaArrete) this.emettre({ pausable: false, enPause: false });
+    return Promise.all([reveil, this.enchainer(() => Promise.resolve())]).then(() => undefined);
   }
 
   /** Fin de l'exécution : plus de mesure, plus d'envoi, plus d'horloge suivie. */
   fermer(): void {
-    this.reprendreSansAttendre();
+    // Fermé D'ABORD : l'exécution a rendu son résultat, plus rien ne part.
     this.ferme = true;
+    void this.arreter();
     this.detacher();
     this.minuteurs.clear();
   }

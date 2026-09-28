@@ -11,7 +11,12 @@
 //   aucune mesure, plutôt qu'un geste qui échoue ou un nombre inventé ;
 // · un conteneur se suspend et se mesure par son MOTEUR (`pause`, `stats`),
 //   et un moteur qui refuse laisse l'exécution « pas en pause », dit tel quel ;
-// · un agent qui sort pendant une pause rend son horloge à la suite de la tâche.
+// · un agent qui sort pendant une pause rend son horloge à la suite de la tâche ;
+// · une pause EN VOL (ses tours de SIGSTOP sont attendus) que croise un arrêt —
+//   annulation, délai dépassé — ne laisse RIEN gelé : le geste se défait ;
+// · le délai dur de `runCommand` passe VRAIMENT par le pilote : une pause plus
+//   longue que lui ne tue pas l'agent, qui retrouve le temps qui lui restait ;
+// · après une coupure, `instantane` redit l'état entier — pause comprise.
 
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
@@ -19,6 +24,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { runCommand } from '../src/adapters/exec.js';
 import type { EtatDirect } from '../src/shared/bac-direct.js';
 import { PiloteExecution, SONDES_REELLES } from '../src/node-client/pilote-execution.js';
 import type { SondesPilote } from '../src/node-client/pilote-execution.js';
@@ -148,6 +154,158 @@ describe.skipIf(process.platform === 'win32')('le pilote — un vrai arbre de pr
     await dormir(400);
     expect(r.envois.length, 'un processus détaché est encore mesuré').toBe(n);
     pilote.fermer();
+  });
+});
+
+/** Le pid est-il encore un processus vivant (ni sorti, ni zombie) ? `'T'` : arrêté. */
+function etatDe(pid: number): string | null {
+  try {
+    return readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ')[1]!.charAt(0);
+  } catch {
+    return null;
+  }
+}
+
+/** Un agent qui bat sans fin, dans son groupe ; tué avec son signal d'annulation. */
+function agentSansFin(signal?: AbortSignal): ChildProcess {
+  const agent = spawn(process.execPath, ['-e', 'setInterval(() => {}, 20)'], {
+    stdio: 'ignore',
+    detached: true,
+    ...(signal ? { signal } : {}),
+  });
+  agent.on('error', () => undefined); // l'annulation rejette par `error`
+  enfants.push(agent);
+  return agent;
+}
+
+const sortiDe = (agent: ChildProcess): Promise<void> =>
+  new Promise((ok) => {
+    if (agent.exitCode !== null || agent.signalCode !== null) ok();
+    else agent.once('exit', () => ok());
+  });
+
+/**
+ * Des sondes RÉELLES dont la table est lente : les tours de SIGSTOP d'une
+ * pause sont attendus (un `ps` sous macOS, un `/proc` chargé) — c'est la
+ * fenêtre où un arrêt tombe entre la racine arrêtée et `enPause`.
+ */
+const sondesLentes = (): SondesPilote => ({
+  ...SONDES_REELLES,
+  table: async () => {
+    await dormir(200);
+    return SONDES_REELLES.table();
+  },
+});
+
+describe.runIf(process.platform === 'linux')(
+  'le pilote — un arrêt qui croise une pause EN VOL',
+  () => {
+    it('ANNULÉE pendant la pause en vol (`arreter`, puis SIGTERM) : l’agent meurt, rien ne reste gelé', async () => {
+      const ctrl = new AbortController();
+      const agent = agentSansFin(ctrl.signal);
+      const pilote = new PiloteExecution(() => undefined, sondesLentes(), 60_000);
+      pilote.attacher({ pid: agent.pid!, commande: 'agent' });
+      const pause = pilote.suspendre();
+      await dormir(50);
+      expect(etatDe(agent.pid!), 'la racine doit déjà être arrêtée').toBe('T');
+      expect(pilote.enPause, 'la pause est encore en vol').toBe(false);
+      // Exactement `annulerTache` : réveiller, PUIS signaler.
+      await pilote.arreter();
+      ctrl.abort();
+      expect(await pause, 'une pause croisée par un arrêt ne se conclut pas').toBe(false);
+      await sortiDe(agent);
+      expect(pilote.enPause).toBe(false);
+      pilote.fermer();
+    });
+
+    it('DÉTACHÉ pendant la pause en vol (délai dépassé) : l’arbre est relancé, le SIGTERM passe', async () => {
+      // Ni `arreter` ni annulation : le seul détachement (`surDelai` d'exec.ts)
+      // doit relancer ce que la pause en vol a arrêté — avant, il l'oubliait.
+      const agent = agentSansFin();
+      const pilote = new PiloteExecution(() => undefined, sondesLentes(), 60_000);
+      const detacher = pilote.attacher({ pid: agent.pid!, commande: 'agent' });
+      const pause = pilote.suspendre();
+      await dormir(50);
+      expect(etatDe(agent.pid!)).toBe('T');
+      detacher();
+      agent.kill('SIGTERM');
+      expect(await pause).toBe(false);
+      await sortiDe(agent);
+      pilote.fermer();
+    });
+
+    it('APRÈS un arrêt, plus aucune pause : le geste est refusé et le bouton caché', async () => {
+      const agent = agentSansFin();
+      const r = recueil();
+      const pilote = new PiloteExecution(r.envoyer, SONDES_REELLES, 60_000);
+      pilote.attacher({ pid: agent.pid!, commande: 'agent' });
+      await pilote.arreter();
+      expect(r.dernier('pausable')).toBe(false);
+      expect(await pilote.suspendre()).toBe(false);
+      expect(etatDe(agent.pid!), 'un agent qu’on arrête ne se gèle plus').not.toBe('T');
+      pilote.fermer();
+    });
+  },
+);
+
+describe.skipIf(process.platform === 'win32')('le pilote — le délai dur de runCommand', () => {
+  it('une pause PLUS LONGUE que le délai ne tue pas l’agent : il retrouve le temps qui restait', async () => {
+    dossier = mkdtempSync(path.join(os.tmpdir(), 'pilote-delai-'));
+    // ~600 ms de travail ACTIF (30 battements de 20 ms), sous un délai de 1,5 s.
+    const script =
+      'let n = 0; const t = setInterval(() => { if (++n >= 30) { clearInterval(t); ' +
+      "console.log('fini'); process.exit(0); } }, 20);";
+    const pilote = new PiloteExecution(() => undefined, SONDES_REELLES, 60_000);
+    const fin = runCommand(
+      process.execPath,
+      ['-e', script],
+      {
+        cwd: dossier,
+        env: { PATH: process.env.PATH ?? '' },
+        attempt: 1,
+        signal: new AbortController().signal,
+        onProgress: () => undefined,
+        pilote,
+      },
+      1_500,
+    );
+    await dormir(150);
+    expect(await pilote.suspendre()).toBe(true);
+    // Deux secondes de pause : un délai qui courait aurait tué l'agent.
+    await dormir(2_000);
+    expect(await pilote.reprendre()).toBe(true);
+    const r = await fin;
+    expect(r.success, r.logs).toBe(true);
+    expect(r.logs).toContain('fini');
+    pilote.fermer();
+  }, 15_000);
+});
+
+describe('le pilote — l’état entier, redit après une coupure', () => {
+  it('`instantane` redit phase, commande, mesure, validations — et la pause, relue maintenant', async () => {
+    const b = sondesDeBanc();
+    const r = recueil();
+    const pilote = new PiloteExecution(r.envoyer, b.sondes, 60_000);
+    pilote.phase('agent');
+    pilote.attacher({ pid: 77, commande: 'claude -p' });
+    expect(await pilote.suspendre()).toBe(true);
+    pilote.controle('tests', 'en_cours');
+    r.envois.length = 0;
+
+    pilote.instantane();
+
+    expect(r.envois).toEqual([
+      {
+        phase: 'agent',
+        commande: 'claude -p',
+        pausable: true,
+        enPause: true,
+        controles: { tests: 'en_cours' },
+      },
+    ]);
+    pilote.fermer();
+    pilote.instantane();
+    expect(r.envois, 'un pilote fermé se tait').toHaveLength(1);
   });
 });
 

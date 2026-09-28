@@ -76,7 +76,7 @@ import type { BacExecution } from './isolement.js';
 import { runProc } from './merge-runner.js';
 import { gitHote } from '../shared/git-protege.js';
 import type { DepotEpingle } from '../shared/git-protege.js';
-import { buildSandboxEnv, retirerFichiersIgnores } from './workspace.js';
+import { buildSandboxEnv, retirerFichiersIgnores, sousVerrouIndex } from './workspace.js';
 
 /** Délai de chaque commande de validation — celui des tests d'un merge. */
 export const DELAI_VALIDATION_MS = 5 * 60_000;
@@ -158,11 +158,15 @@ function manifeste(texte: string | null): unknown {
  * vu ici — il est retiré avant le lancement.
  */
 async function npmrcModifie(depot: DepotEpingle, baseSha: string): Promise<boolean> {
-  await gitHote(['add', '--all', '--intent-to-add'], depot);
-  const modifies = await gitHote(
-    ['diff', '--no-ext-diff', '--no-textconv', '--name-only', baseSha, '--', '.npmrc'],
-    depot,
-  );
+  // Sous le verrou du registre (`sousVerrouIndex`) : un diff demandé en direct
+  // pendant les validations écrit le même index.
+  const modifies = await sousVerrouIndex(depot, async () => {
+    await gitHote(['add', '--all', '--intent-to-add'], depot);
+    return gitHote(
+      ['diff', '--no-ext-diff', '--no-textconv', '--name-only', baseSha, '--', '.npmrc'],
+      depot,
+    );
+  });
   return modifies.trim() !== '';
 }
 

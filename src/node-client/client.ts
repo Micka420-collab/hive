@@ -432,6 +432,11 @@ export class HiveNodeClient {
             };
       this.send({ type: 'task_update', taskId, status: 'running', direct: etat });
     });
+    // TOUTE annulation passe par le pilote — `annulerTache`, `stop()`, mais
+    // aussi le budget délégué épuisé et le drone qui perd sa course : un agent
+    // en pause (ou en train d'y entrer) est relancé, sinon il ne traiterait
+    // jamais le SIGTERM qui suit et resterait gelé (`pilote-execution.ts`).
+    ctrl.signal.addEventListener('abort', () => void pilote.arreter(), { once: true });
     this.pilotes.set(taskId, pilote);
     return pilote;
   }
@@ -442,14 +447,36 @@ export class HiveNodeClient {
   }
 
   /**
-   * Annule une tâche. Un agent EN PAUSE est repris d'abord : arrêté, il ne
-   * traiterait pas le SIGTERM de l'annulation, et un conteneur en pause ne
-   * recevrait pas le signal que `docker run` lui relaie (`pilote-execution.ts`).
+   * Annule une tâche. L'agent est d'abord RÉVEILLÉ, qu'il dorme ou qu'une
+   * pause soit en vol (`arreter` attend le geste, qui se défait) : arrêté, il
+   * ne traiterait pas le SIGTERM de l'annulation, et un conteneur en pause ne
+   * recevrait pas le signal que `docker run` lui relaie. Attendre ne coûte
+   * qu'un geste borné (`pilote-execution.ts`).
    */
   private async annulerTache(taskId: string): Promise<void> {
-    const pilote = this.pilotes.get(taskId);
-    if (pilote?.enPause) await pilote.reprendre();
+    await this.pilotes.get(taskId)?.arreter();
     this.active.get(taskId)?.abort();
+  }
+
+  /**
+   * Suspendre ou reprendre, à la demande d'un écran. Sans pilote — la tâche
+   * attend une réquisition, aucun agent ne tourne —, le nœud le DIT
+   * (`pausable: false`) : sans réponse, l'écran afficherait « pause envoyée »
+   * pour un geste que personne n'a fait.
+   */
+  private async gestePause(taskId: string, geste: 'pause_task' | 'resume_task'): Promise<void> {
+    const pilote = this.pilotes.get(taskId);
+    if (pilote) {
+      await (geste === 'pause_task' ? pilote.suspendre() : pilote.reprendre());
+      return;
+    }
+    if (!this.active.has(taskId)) return;
+    this.send({
+      type: 'task_update',
+      taskId,
+      status: 'running',
+      direct: { pausable: false, enPause: false },
+    });
   }
 
   /**
@@ -558,8 +585,10 @@ export class HiveNodeClient {
   stop(): void {
     this.closed = true;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
-    // Repris AVANT l'annulation : un agent arrêté ne traite pas SIGTERM.
-    for (const pilote of this.pilotes.values()) pilote.reprendreSansAttendre();
+    // Réveillés AVANT l'annulation : un agent arrêté ne traite pas SIGTERM.
+    // `arreter` relance sur-le-champ (SIGCONT synchrone) ; une pause en vol
+    // se défait d'elle-même en concluant.
+    for (const pilote of this.pilotes.values()) void pilote.arreter();
     for (const ctrl of this.active.values()) ctrl.abort();
     this.rejectPendingDelegations('client arrêté');
     this.stopHeartbeat();
@@ -979,6 +1008,11 @@ export class HiveNodeClient {
         this.startHeartbeat();
         this.log(`enregistré dans la ruche (nodeId=${msg.nodeId.slice(0, 8)}…)`);
         this.proposerRequisitionCredentialsSiBesoin();
+        // Sandbox Live : la Reine a oublié l'état des exécutions que la
+        // coupure lui a fait remettre en file (ou tout, si ELLE a redémarré),
+        // puis les ré-adopte. Chaque pilote redit son état ENTIER — sans quoi
+        // un agent en pause perdait son bouton Reprendre (`pilote-execution.ts`).
+        for (const pilote of this.pilotes.values()) pilote.instantane();
         break;
       case 'assign_task':
         void this.runTask(
@@ -1003,10 +1037,8 @@ export class HiveNodeClient {
         void this.annulerTache(msg.taskId);
         break;
       case 'pause_task':
-        void this.pilotes.get(msg.taskId)?.suspendre();
-        break;
       case 'resume_task':
-        void this.pilotes.get(msg.taskId)?.reprendre();
+        void this.gestePause(msg.taskId, msg.type);
         break;
       case 'demande_diff_direct':
         void this.repondreDiffDirect(msg.taskId, msg.requestId);

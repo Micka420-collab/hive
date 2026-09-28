@@ -689,6 +689,19 @@ describe('ADR 0007 — le jeton de ruche n’engage plus le projet d’autrui', 
       }
     });
 
+    it('LE DIFF EN DIRECT est une LECTURE du code : un tiers ne le voit pas, un membre si', async () => {
+      // Sandbox Live : le diff d'une exécution en cours montre le code du
+      // projet. Un compte qui n'a pas affaire au projet reçoit la forme d'une
+      // tâche inconnue ; un membre passe la garde (409 : rien ne tourne ici).
+      // Le jeton de ruche garde sa porte des lectures (`lectureProjetPermise`).
+      const url = `${base}/api/tasks/${possede.tache}/diff-direct`;
+      const tiers = await fetch(url, { headers: compte(jetonTiers) });
+      expect(tiers.status).toBe(404);
+      expect(await tiers.text()).toBe(REFUS.tache);
+      expect((await fetch(url, { headers: compte(jetonMembre) })).status).toBe(409);
+      expect((await fetch(url, { headers: compte(jetonProprio) })).status).toBe(409);
+    });
+
     it('S’INSCRIRE SUR UNE VITRINE N’Y DONNE PAS LE DROIT DE DÉCIDER', async () => {
       // LE TROU QUE CE TEST FERME. `peutRejoindre` ouvre tout projet public au
       // premier compte venu, et un membre ENGAGE : un inconnu inscrit à

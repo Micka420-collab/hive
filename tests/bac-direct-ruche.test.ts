@@ -216,6 +216,32 @@ describe.skipIf(process.platform === 'win32')('Sandbox Live — du nœud à l’
     await attendre(() => dernierDirect(revenu, t.id) !== undefined, 'état non rendu au retour');
     expect(dernierDirect(revenu, t.id)).toMatchObject({ enPause: true, phase: 'agent' });
 
+    // ── Le NŒUD coupé puis revenu : la pause survit, le bouton Reprendre aussi ─
+    // La coupure remet la tâche en file (son état en direct est oublié), le
+    // retour la ré-adopte : le nœud doit redire son état ENTIER. Sans quoi un
+    // agent gelé perdait « en pause » et Reprendre — horloges suspendues, pour
+    // toujours.
+    const readoptions = () =>
+      s.store.listEvents(0, 10_000).filter((e) => e.type === 'task_readopted').length;
+    const avantCoupure = readoptions();
+    (client as unknown as { ws: WebSocket }).ws.terminate();
+    await attendre(() => dernierDirect(recus, t.id) === null, 'la coupure n’a rien oublié');
+    await attendre(() => readoptions() > avantCoupure, 'la tâche n’est jamais ré-adoptée');
+    await attendre(
+      () => dernierDirect(recus, t.id)?.enPause === true,
+      'après la coupure du nœud, la pause n’est plus dite',
+    );
+    expect(dernierDirect(recus, t.id)).toMatchObject({
+      phase: 'agent',
+      pausable: true,
+      enPause: true,
+    });
+    expect(String(dernierDirect(recus, t.id)?.commande)).toContain('[secret]');
+    const apresCoupure = await ecran(s.port);
+    await attendre(() => dernierDirect(apresCoupure, t.id) !== undefined, 'rien au retour');
+    expect(dernierDirect(apresCoupure, t.id)).toMatchObject({ enPause: true, pausable: true });
+    expect(lireBattement(dossier, 'enfant'), 'l’agent a repris pendant la coupure').toBe(gele);
+
     // ── Reprise, puis nouvelle pause et ANNULATION pendant celle-ci ─────────
     expect((await api(`/api/tasks/${t.id}/resume`, 'POST')).status).toBe(202);
     await attendre(() => dernierDirect(recus, t.id)?.enPause === false, 'reprise non confirmée');

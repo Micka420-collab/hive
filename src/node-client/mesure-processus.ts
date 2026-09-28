@@ -27,9 +27,11 @@
 // ou mort entre les deux n'a pas de différence mesurable (son temps partirait
 // en négatif, ou compterait toute sa vie en cinq secondes).
 //
-// Module sans état global ; la table et le lanceur sont injectables.
+// Module sans état global — sauf la taille de page de la machine, lue une
+// fois (`taillePageMachine`) ; la table et le lanceur sont injectables.
 
 import { spawn } from 'node:child_process';
+import { endianness } from 'node:os';
 import { readdir, readFile } from 'node:fs/promises';
 import type { MetriquesDirect } from '../shared/bac-direct.js';
 
@@ -39,8 +41,8 @@ export interface ProcessusVu {
   ppid: number;
   /** Temps CPU cumulé (utilisateur + système), en millisecondes. */
   cpuMs: number;
-  /** Mémoire résidente, en octets. */
-  rssOctets: number;
+  /** Mémoire résidente, en octets ; absente quand on ne sait pas la convertir. */
+  rssOctets?: number;
 }
 
 /**
@@ -50,15 +52,57 @@ export interface ProcessusVu {
  * varie — c'est précisément pour cela que USER_HZ existe).
  */
 const TICS_PAR_SECONDE = 100;
-/** Taille de page pour le champ `rss` de `/proc/<pid>/stat` (x86-64, arm64 4K). */
-const TAILLE_PAGE = 4096;
+
+/** `AT_PAGESZ` dans le vecteur auxiliaire (`getauxval(3)`). */
+const AT_PAGESZ = 6;
+
+/**
+ * La taille de page que le NOYAU a donnée au processus, lue dans son vecteur
+ * auxiliaire (`/proc/self/auxv` : des paires type/valeur de la largeur d'un
+ * mot machine). Le champ `rss` de `/proc/<pid>/stat` compte des PAGES, et
+ * 4 Kio n'est pas universel : un noyau arm64 en pages de 16 Kio (Asahi) ou de
+ * 64 Kio (RHEL sur Ampere) aurait affiché une mémoire 4 ou 16 fois trop
+ * petite. `null` sur un vecteur illisible : la mémoire reste alors INCONNUE,
+ * jamais un nombre deviné.
+ */
+export function taillePageAuxv(
+  auxv: Uint8Array,
+  mot: 4 | 8,
+  ordre: 'LE' | 'BE' = endianness(),
+): number | null {
+  const vue = new DataView(auxv.buffer, auxv.byteOffset, auxv.byteLength);
+  const lire = (o: number): number =>
+    mot === 8 ? Number(vue.getBigUint64(o, ordre === 'LE')) : vue.getUint32(o, ordre === 'LE');
+  for (let o = 0; o + 2 * mot <= auxv.byteLength; o += 2 * mot) {
+    const type = lire(o);
+    if (type === 0) break; // AT_NULL : fin du vecteur
+    if (type !== AT_PAGESZ) continue;
+    const taille = lire(o + mot);
+    // Une puissance de deux raisonnable, ou rien.
+    return taille >= 1024 && taille <= 1 << 24 && (taille & (taille - 1)) === 0 ? taille : null;
+  }
+  return null;
+}
+
+let taillePage: Promise<number | null> | null = null;
+/** La taille de page de CETTE machine, lue une fois ; `null` si illisible. */
+function taillePageMachine(): Promise<number | null> {
+  taillePage ??= readFile('/proc/self/auxv')
+    .then((auxv) => taillePageAuxv(auxv, process.arch.endsWith('64') ? 8 : 4))
+    .catch(() => null);
+  return taillePage;
+}
 
 /**
  * Une ligne de `/proc/<pid>/stat`. Le nom de commande est entre parenthèses et
  * peut en contenir d'autres, et des espaces : on coupe à la DERNIÈRE `)`.
  * `null` sur une ligne qui ne suit pas proc(5).
  */
-export function lireStatProc(pid: number, texte: string): ProcessusVu | null {
+export function lireStatProc(
+  pid: number,
+  texte: string,
+  taillePageOctets: number | null,
+): ProcessusVu | null {
   const fin = texte.lastIndexOf(')');
   if (fin < 0) return null;
   // Après « ) » : état (champ 3), ppid (4)… utime (14), stime (15)… rss (24).
@@ -75,7 +119,7 @@ export function lireStatProc(pid: number, texte: string): ProcessusVu | null {
     pid,
     ppid,
     cpuMs: ((utime + stime) * 1000) / TICS_PAR_SECONDE,
-    rssOctets: Math.max(0, rss) * TAILLE_PAGE,
+    ...(taillePageOctets !== null ? { rssOctets: Math.max(0, rss) * taillePageOctets } : {}),
   };
 }
 
@@ -166,13 +210,14 @@ export function lancerBorne(
 /** Linux : toute la table, lue dans `/proc`. Un processus qui disparaît en cours de lecture est sauté. */
 async function tableProc(): Promise<ProcessusVu[]> {
   const entrees = await readdir('/proc');
+  const page = await taillePageMachine();
   const table: ProcessusVu[] = [];
   await Promise.all(
     entrees
       .filter((e) => /^\d+$/.test(e))
       .map(async (e) => {
         try {
-          const p = lireStatProc(Number(e), await readFile(`/proc/${e}/stat`, 'utf8'));
+          const p = lireStatProc(Number(e), await readFile(`/proc/${e}/stat`, 'utf8'), page);
           if (p) table.push(p);
         } catch {
           /* sorti entre la liste et la lecture */
@@ -228,10 +273,15 @@ export class MesureArbre {
       cpuPct = Math.round((consomme / (maintenant - this.precedent.a)) * 1000) / 10;
     }
     this.precedent = { a: maintenant, cpu };
+    // Une seule mémoire inconnue rend la somme inconnue : un total partiel
+    // passerait pour celui de tout l'arbre.
+    const rss = arbre.every((p) => p.rssOctets !== undefined)
+      ? arbre.reduce((s, p) => s + (p.rssOctets ?? 0), 0)
+      : undefined;
     return {
       source: 'arbre',
       ...(cpuPct !== undefined ? { cpuPct } : {}),
-      rssOctets: arbre.reduce((s, p) => s + p.rssOctets, 0),
+      ...(rss !== undefined ? { rssOctets: rss } : {}),
       processus: arbre.length,
     };
   }

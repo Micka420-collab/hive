@@ -371,6 +371,10 @@ function executer(
     // qu'il n'a pas consommé, au lieu d'être tué pendant qu'il dormait.
     const surDelai = (): void => {
       tue = true;
+      // Détaché AVANT le signal : plus de pause possible sur un agent qu'on
+      // tue, et ce qu'une pause en vol aurait arrêté est relancé — arrêté, il
+      // ne traiterait pas ce SIGTERM (`pilote-execution.ts`).
+      detacher?.();
       child.kill();
     };
     const timeout = ctx.pilote
@@ -378,7 +382,7 @@ function executer(
       : creerMinuteurSuspendable(opts.timeoutMs, surDelai);
     // La commande LOGIQUE (l'agent et ses arguments), pas l'enveloppe du bac :
     // c'est elle que l'écran doit lire. Le nœud la caviarde avant l'envoi.
-    const detacher =
+    const detacher: (() => void) | undefined =
       child.pid !== undefined
         ? ctx.pilote?.attacher({
             pid: child.pid,

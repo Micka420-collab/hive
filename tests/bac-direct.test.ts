@@ -36,6 +36,7 @@ import {
   dureePs,
   lireSortiePs,
   lireStatProc,
+  taillePageAuxv,
   lireStatsMoteur,
   MesureArbre,
 } from '../src/node-client/mesure-processus.js';
@@ -257,9 +258,65 @@ describe('l’arbre des sous-agents', () => {
 describe('lire une mesure — telle qu’elle est, ou pas du tout', () => {
   it('/proc/<pid>/stat : un nom de commande à parenthèses et espaces ne décale rien', () => {
     const champs = ['S', '41', ...Array(9).fill('0'), '150', '50', ...Array(8).fill('0'), '256'];
-    const p = lireStatProc(42, `42 (node (agent) x) ${champs.join(' ')}`);
-    expect(p).toEqual({ pid: 42, ppid: 41, cpuMs: 2_000, rssOctets: 256 * 4096 });
-    expect(lireStatProc(1, 'illisible')).toBeNull();
+    const ligne = `42 (node (agent) x) ${champs.join(' ')}`;
+    expect(lireStatProc(42, ligne, 4096)).toEqual({
+      pid: 42,
+      ppid: 41,
+      cpuMs: 2_000,
+      rssOctets: 256 * 4096,
+    });
+    // Un noyau arm64 en pages de 16 Kio : la même ligne pèse quatre fois plus.
+    expect(lireStatProc(42, ligne, 16_384)?.rssOctets).toBe(256 * 16_384);
+    // Taille de page inconnue : la mémoire est INCONNUE, pas convertie au jugé.
+    expect(lireStatProc(42, ligne, null)).toEqual({ pid: 42, ppid: 41, cpuMs: 2_000 });
+    expect(lireStatProc(1, 'illisible', 4096)).toBeNull();
+  });
+
+  it('la taille de page vient du vecteur auxiliaire du noyau, jamais d’une constante', () => {
+    // Paires (type, valeur) d'un mot machine, closes par AT_NULL.
+    const auxv = (mot: 4 | 8, paires: [number, number][], le = true): Uint8Array => {
+      const b = new DataView(new ArrayBuffer((paires.length + 1) * 2 * mot));
+      paires.forEach(([t, v], i) => {
+        if (mot === 8) {
+          b.setBigUint64(i * 16, BigInt(t), le);
+          b.setBigUint64(i * 16 + 8, BigInt(v), le);
+        } else {
+          b.setUint32(i * 8, t, le);
+          b.setUint32(i * 8 + 4, v, le);
+        }
+      });
+      return new Uint8Array(b.buffer);
+    };
+    expect(
+      taillePageAuxv(
+        auxv(8, [
+          [33, 7],
+          [6, 16_384],
+          [17, 100],
+        ]),
+        8,
+        'LE',
+      ),
+    ).toBe(16_384);
+    expect(taillePageAuxv(auxv(4, [[6, 65_536]]), 4, 'LE')).toBe(65_536);
+    expect(taillePageAuxv(auxv(8, [[6, 4096]], false), 8, 'BE')).toBe(4096);
+    // Absente, ou absurde : inconnue.
+    expect(taillePageAuxv(auxv(8, [[33, 7]]), 8, 'LE')).toBeNull();
+    expect(taillePageAuxv(auxv(8, [[6, 3000]]), 8, 'LE')).toBeNull();
+    expect(taillePageAuxv(new Uint8Array(3), 8, 'LE')).toBeNull();
+  });
+
+  it('une mémoire inconnue dans l’arbre rend la somme inconnue', () => {
+    const m = new MesureArbre(10);
+    expect(
+      m.relever(
+        [
+          { pid: 10, ppid: 1, cpuMs: 0, rssOctets: 100 },
+          { pid: 11, ppid: 10, cpuMs: 0 },
+        ],
+        0,
+      ),
+    ).toEqual({ source: 'arbre', processus: 2 });
   });
 
   it('ps : durées et lignes illisibles', () => {
