@@ -90,7 +90,7 @@
     "vitest": "^4.1.11"
   },
   "allowScripts": {
-    "better-sqlite3": true,
+    "better-sqlite3": false,
     "esbuild": true
   }
 }

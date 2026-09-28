@@ -123,6 +123,17 @@ COPY package.json package-lock.json ./
 # On retire donc UNIQUEMENT le script fautif. C'est cohérent avec ce qu'est cet
 # étage : il ne compile rien, il reçoit `dist/` de l'étage 1.
 #
+# ─── DEPUIS `better-sqlite3` 13 : AUCUN SCRIPT, ET npm NE DOIT PAS EN INVENTER ─
+#
+# La 13 (ADR 0013) livre son binaire N-API DANS le paquet npm : il n'y a plus
+# rien à télécharger. Mais son `binding.gyp` est toujours là, et npm 11.19 en
+# déduit un `node-gyp rebuild` implicite malgré `"gypfile": false` — qui exige
+# python3, absent de `slim` : l'installation échouait, et npm retirait le
+# paquet EN SILENCE (mesuré en CI, « added 72 packages » au lieu de 74, trois
+# essais sur trois). `allowScripts` du `package.json` le refuse désormais
+# (`"better-sqlite3": false`) ; la boucle et la sonde ci-dessous restent la
+# preuve que le binaire se charge.
+#
 # ─── UN `npm ci` VERT NE PROUVE PAS QUE LES PAQUETS SONT LÀ ──────────────────
 #
 # Les quatre dépendances dont la ruche a besoin pour démarrer — Fastify, ses
@@ -131,11 +142,11 @@ COPY package.json package-lock.json ./
 # aucun usage, et c'est pour lui qu'elles sont optionnelles.
 #
 # Seulement « optionnel » veut dire, pour npm : SI L'INSTALLATION ÉCHOUE, JE
-# CONTINUE. `better-sqlite3` porte un script d'installation qui télécharge un
-# binaire prébuilt ; quand ce téléchargement échoue, `prebuild-install` se
-# rabat sur une compilation, laquelle réclame python3/make/g++ — absents de
-# `slim`, et absents EXPRÈS. npm affiche alors un avertissement, retire le
-# paquet du dossier, et SORT AVEC 0.
+# CONTINUE. `better-sqlite3` portait (jusqu'à la 12) un script d'installation
+# qui téléchargeait un binaire prébuilt ; quand ce téléchargement échouait,
+# `prebuild-install` se rabattait sur une compilation, laquelle réclame
+# python3/make/g++ — absents de `slim`, et absents EXPRÈS. npm affiche alors un
+# avertissement, retire le paquet du dossier, et SORT AVEC 0.
 #
 # Mesuré sur ce dépôt, deux constructions du MÊME Dockerfile et du MÊME lock,
 # à quatre minutes d'intervalle :
