@@ -81,7 +81,10 @@ conversion du `.gitattributes` (fins de ligne, `$Id$`, encodage) n'est
 appliqué, et **un fichier Git LFS apparaît comme son pointeur** (quelques
 lignes `version … oid sha256:… size …`), jamais téléchargé — dans l'arbre comme
 dans l'Aperçu. Un dépôt encore vide donne un Rayon vide ; si la branche par
-défaut de l'amont change, le miroir est recloné sur la nouvelle.
+défaut de l'amont change, le miroir est recloné sur la nouvelle — à côté de
+l'ancienne copie, qui reste servie tant que le nouveau clone n'a pas réussi.
+Un amont dont le `HEAD` ne désigne aucune branche existante est signalé comme
+une panne, pas comme un dépôt vide.
 
 **La retouche ne s'enregistre pas — elle se propose.** Le miroir est une copie
 jetable : y écrire donnerait l'illusion d'avoir corrigé quelque chose, jusqu'au

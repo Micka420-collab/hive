@@ -483,7 +483,7 @@ describe('LE MIROIR N’EXÉCUTE RIEN QUE LE DÉPÔT APPORTE — clone, fetch et
     git(amont, 'commit', '-q', '-am', 'suite');
     rmSync(sentinelles, { recursive: true, force: true });
     mkdirSync(sentinelles);
-    await miroir.rafraichir('p', amont, 1_000 + FENETRE_RAFRAICHISSEMENT_MS + 1);
+    await miroir.rafraichir('p', amont, 1_000 + 2 * FENETRE_RAFRAICHISSEMENT_MS);
     expect((await miroir.lire('p', 'README.md')).contenu, 'le miroir a suivi').toBe('version 2\n');
     expect(declenchees(), 'ni fetch ni reset n’ont rien lancé').toEqual([]);
   });
@@ -520,8 +520,11 @@ describe('LE MIROIR SERT LES OCTETS DU DÉPÔT, ET SUIT SON AMONT', () => {
   // les blobs eux-mêmes (`cat-file`).
   let racine: string;
   let t = 0;
-  /** Chaque rafraîchissement hors de la fenêtre du précédent. */
-  const plusTard = (): number => (t += FENETRE_RAFRAICHISSEMENT_MS + 1);
+  /**
+   * Chaque rafraîchissement hors de la fenêtre du précédent — fenêtre qui
+   * part de la FIN de la tentative, d'où le double.
+   */
+  const plusTard = (): number => (t += 2 * FENETRE_RAFRAICHISSEMENT_MS);
 
   beforeAll(() => {
     racine = mkdtempSync(path.join(os.tmpdir(), 'hive-miroir-octets-'));
@@ -605,5 +608,29 @@ describe('LE MIROIR SERT LES OCTETS DU DÉPÔT, ET SUIT SON AMONT', () => {
     git(amont, 'commit', '-q', '-am', 'trunk 2');
     await miroir.rafraichir('p', amont, plusTard());
     expect((await miroir.lire('p', 'branche.txt')).contenu).toBe('trunk 2\n');
+  }, 60_000);
+  it('un HEAD d’amont qui ne désigne plus rien n’est pas un dépôt vide : la copie reste', async () => {
+    // Un dépôt nu à deux branches, HEAD → main ; puis `main` effacée (rien ne
+    // l'interdit sur un dépôt nu). `ls-remote … HEAD` seul rend alors la même
+    // sortie VIDE qu'un dépôt sans commit : le miroir se refaisait en dépôt
+    // vide — le code d'hier effacé, un Rayon vide rendu comme un succès.
+    const travail = path.join(racine, 'pendant-travail');
+    const nu = path.join(racine, 'pendant.git');
+    mkdirSync(travail);
+    git(travail, 'init', '-q', '-b', 'main');
+    writeFileSync(path.join(travail, 'code.txt'), 'hier\n');
+    git(travail, 'add', '--all');
+    git(travail, 'commit', '-q', '-m', 'hier');
+    git(racine, 'init', '-q', '--bare', '-b', 'main', nu);
+    git(travail, 'push', '-q', nu, 'main', 'main:trunk');
+    const miroir = new Miroir(path.join(racine, 'rayons-pendant'));
+    await miroir.rafraichir('p', nu, plusTard());
+    expect((await miroir.lire('p', 'code.txt')).contenu).toBe('hier\n');
+
+    git(nu, 'update-ref', '-d', 'refs/heads/main');
+    await expect(miroir.rafraichir('p', nu, plusTard())).rejects.toThrow(/HEAD/);
+    expect((await miroir.lire('p', 'code.txt')).contenu, 'la copie d’hier reste servie').toBe(
+      'hier\n',
+    );
   }, 60_000);
 });

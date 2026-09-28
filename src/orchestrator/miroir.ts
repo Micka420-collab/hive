@@ -102,27 +102,39 @@ export class RayonIndisponible extends Error {
 const ATTRIBUTS_MIROIR = '* -filter -text -ident -working-tree-encoding\n';
 
 /**
- * Ce que dit l'amont de sa branche par défaut (`ls-remote --symref … HEAD`) :
- *   · `vide` — aucun commit, rien à montrer (un dépôt qu'on vient de créer) ;
+ * Ce que dit l'amont de sa branche par défaut et de ses branches
+ * (`ls-remote --symref … HEAD 'refs/heads/*'`) :
+ *   · `vide` — AUCUNE branche : rien à montrer (un dépôt qu'on vient de créer) ;
  *   · `branche` — HEAD désigne cette branche, et elle a un commit ;
  *   · `inconnue` — un commit, sans le nom de la branche (un serveur « bête »
- *     qui n'annonce pas les références symboliques) : on garde la nôtre.
+ *     qui n'annonce pas les références symboliques) : on garde la nôtre ;
+ *   · `sans_tete` — des branches, mais un HEAD qui ne se résout pas (la
+ *     branche par défaut d'un dépôt nu effacée après la poussée d'une autre).
+ *
+ * `sans_tete` n'est PAS `vide`, et c'est pour les séparer qu'on demande les
+ * branches : `ls-remote … HEAD` seul rend la même sortie vide pour les deux.
+ * Confondus, un HEAD pendant faisait refaire le miroir en dépôt vide — le code
+ * d'hier effacé, un Rayon vide rendu comme un succès, sans un mot.
  */
 type TeteAmont =
   | { readonly etat: 'vide' }
   | { readonly etat: 'branche'; readonly nom: string }
-  | { readonly etat: 'inconnue' };
+  | { readonly etat: 'inconnue' }
+  | { readonly etat: 'sans_tete' };
 
-/** Lit la sortie de `git ls-remote --symref <dépôt> HEAD`. */
+/** Lit la sortie de `git ls-remote --symref <dépôt> HEAD 'refs/heads/*'`. */
 function lireTeteAmont(sortie: string): TeteAmont {
   let nom: string | null = null;
   let commit = false;
-  for (const ligne of sortie.split('\n')) {
-    const symref = /^ref: refs\/heads\/(.+)\tHEAD$/.exec(ligne.trimEnd())?.[1];
+  let branches = false;
+  for (const brute of sortie.split('\n')) {
+    const ligne = brute.trimEnd();
+    const symref = /^ref: refs\/heads\/(.+)\tHEAD$/.exec(ligne)?.[1];
     if (symref !== undefined) nom = symref;
-    else if (/^[0-9a-f]{40,64}\tHEAD$/.test(ligne.trimEnd())) commit = true;
+    else if (/^[0-9a-f]{40,64}\tHEAD$/.test(ligne)) commit = true;
+    else if (/^[0-9a-f]{40,64}\trefs\/heads\//.test(ligne)) branches = true;
   }
-  if (!commit) return { etat: 'vide' };
+  if (!commit) return branches ? { etat: 'sans_tete' } : { etat: 'vide' };
   return nom === null ? { etat: 'inconnue' } : { etat: 'branche', nom };
 }
 
@@ -173,6 +185,12 @@ export class Miroir {
    * projet ne répondait plus qu'au rythme des délais. Dans la fenêtre, un
    * miroir existant sert donc sa dernière copie, et un premier clone raté
    * redit son échec — tout de suite, sans relancer git.
+   *
+   * La fenêtre part de la FIN de la tentative, pas de son début : un essai
+   * tenu jusqu'à son butoir (deux minutes, dix pour un clone) dure plus que
+   * la fenêtre. Datée de son début, sa fenêtre était déjà close quand il
+   * tombait, et le visiteur suivant relançait un git qui pendait autant.
+   * `maintenant` + la durée mesurée : l'horloge du test reste celle du test.
    */
   async rafraichir(projectId: string, repoUrl: string, maintenant = Date.now()): Promise<void> {
     const enCours = this.enVol.get(projectId);
@@ -184,13 +202,15 @@ export class Miroir {
       if (vu.echec !== undefined) throw vu.echec;
     }
 
+    const debut = Date.now();
+    const fin = (): number => maintenant + (Date.now() - debut);
     const travail = this.faireRafraichir(projectId, repoUrl)
       .then(
         () => {
-          this.dernier.set(projectId, { quand: maintenant });
+          this.dernier.set(projectId, { quand: fin() });
         },
         (echec: unknown) => {
-          this.dernier.set(projectId, { quand: maintenant, echec });
+          this.dernier.set(projectId, { quand: fin(), echec });
           throw echec;
         },
       )
@@ -216,7 +236,9 @@ export class Miroir {
    * a changé (`main` → `trunk`) — le miroir servirait l'ancienne pour
    * toujours. Tête déplacée, ou premiers commits d'un dépôt qui était vide
    * (son clone n'a aucune branche à récupérer) : on refait le clone. Un amont
-   * toujours vide : rien à lancer de plus.
+   * toujours vide : rien à lancer de plus. Un HEAD qui ne se résout plus
+   * (`sans_tete`) est une PANNE de l'amont, pas un dépôt vide : on échoue, et
+   * la copie d'hier reste servie, avec l'avertissement du serveur.
    *
    * `fetch` puis `reset --hard` : le miroir n'a pas de travail local à
    * préserver, et un `pull` qui tomberait sur un rebase amont resterait
@@ -231,11 +253,16 @@ export class Miroir {
     const ssh = await commandeSshDuMembre(this.racine);
     if (this.existe(projectId) && (await this.reprenable(depot))) {
       const amont = lireTeteAmont(
-        await gitHote(['ls-remote', '--symref', 'origin', 'HEAD'], depot, {
+        await gitHote(['ls-remote', '--symref', 'origin', 'HEAD', 'refs/heads/*'], depot, {
           ssh,
           delaiMs: DELAI_RESEAU_MS,
         }),
       );
+      if (amont.etat === 'sans_tete') {
+        throw new Error(
+          'miroir : la branche par défaut de l’amont (HEAD) ne désigne aucune branche existante',
+        );
+      }
       const tete = await teteDuMiroir(depot);
       const garni = await aUnCommit(depot, tete);
       if (amont.etat === 'vide' && !garni) return;
@@ -250,7 +277,7 @@ export class Miroir {
         return;
       }
     }
-    await this.recloner(dir, depot, repoUrl, ssh);
+    await this.recloner(dir, repoUrl, ssh);
   }
 
   /**
@@ -276,45 +303,55 @@ export class Miroir {
    * réécrirait sinon les fins de ligne (vu sur la CI Windows :
    * « export const a = 1;\r\n »).
    *
+   * Tout se fait dans un répertoire VOISIN, qui ne prend la place du miroir
+   * qu'une fois clone, attributs et extraction réussis. Un reclone déclenché
+   * par l'amont (tête déplacée, premiers commits) sur un serveur qui tombe
+   * ensuite effaçait d'abord la copie d'hier : le Rayon passait de « copie
+   * d'hier + avertissement » à un 409. Et un clone TUÉ à son butoir laissait
+   * un `.git` à moitié écrit, pris pour un miroir (`existe`) et servi comme un
+   * arbre vide. Le voisin commence par un point : aucun identifiant de projet
+   * n'en porte (`dossier`), il ne peut donc pas en être un.
+   *
    * Un amont vide se clone — git prévient, sans échouer — mais n'a aucune
    * branche à extraire : le miroir reste vide, et c'est la vérité.
    */
-  private async recloner(
-    dir: string,
-    depot: DepotEpingle,
-    repoUrl: string,
-    ssh: string,
-  ): Promise<void> {
-    await fs.rm(dir, { recursive: true, force: true });
-    // Un clone TUÉ à son butoir n'efface pas ce qu'il a commencé : un `.git`
-    // à moitié écrit ferait croire à un miroir (`existe`), et le Rayon
-    // servirait un arbre vide au lieu de dire que la copie a échoué.
-    const effacer = async (e: unknown): Promise<never> => {
-      await fs.rm(dir, { recursive: true, force: true }).catch(() => undefined);
+  private async recloner(dir: string, repoUrl: string, ssh: string): Promise<void> {
+    const neuf = path.join(path.dirname(dir), `.neuf-${path.basename(dir)}`);
+    const depotNeuf = { gitDir: path.join(neuf, '.git'), workTree: neuf };
+    // Un voisin d'une Reine arrêtée en plein clone : les rafraîchissements
+    // d'un projet ne se chevauchent pas (`enVol`), celui-ci est donc à nous.
+    await fs.rm(neuf, { recursive: true, force: true });
+    try {
+      await gitHote(
+        [
+          'clone',
+          '--depth',
+          '1',
+          '--no-tags',
+          '--no-checkout',
+          '--template=',
+          '--config',
+          'core.autocrlf=false',
+          '--',
+          repoUrl,
+          neuf,
+        ],
+        this.racine,
+        { ssh, delaiMs: CLONE_MS },
+      );
+      const attributs = path.join(depotNeuf.gitDir, 'info', 'attributes');
+      await fs.mkdir(path.dirname(attributs), { recursive: true });
+      await fs.writeFile(attributs, ATTRIBUTS_MIROIR);
+      const tete = await teteDuMiroir(depotNeuf);
+      if (await aUnCommit(depotNeuf, tete)) {
+        await gitHote(['reset', '--hard', `origin/${tete}`], depotNeuf);
+      }
+    } catch (e) {
+      await fs.rm(neuf, { recursive: true, force: true }).catch(() => undefined);
       throw e;
-    };
-    await gitHote(
-      [
-        'clone',
-        '--depth',
-        '1',
-        '--no-tags',
-        '--no-checkout',
-        '--template=',
-        '--config',
-        'core.autocrlf=false',
-        '--',
-        repoUrl,
-        dir,
-      ],
-      this.racine,
-      { ssh, delaiMs: CLONE_MS },
-    ).catch(effacer);
-    const attributs = path.join(depot.gitDir, 'info', 'attributes');
-    await fs.mkdir(path.dirname(attributs), { recursive: true });
-    await fs.writeFile(attributs, ATTRIBUTS_MIROIR);
-    const tete = await teteDuMiroir(depot);
-    if (await aUnCommit(depot, tete)) await gitHote(['reset', '--hard', `origin/${tete}`], depot);
+    }
+    await fs.rm(dir, { recursive: true, force: true });
+    await fs.rename(neuf, dir);
   }
 
   /**
