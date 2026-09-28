@@ -10,20 +10,21 @@ parce qu'il ressemblait à une contrainte arbitraire. Un ADR dit **ce qu'on a
 
 Un ADR ne se réécrit pas : il se remplace par un suivant qui le mentionne.
 
-| #                                                       | Décision                                                                                                | Statut              |
-| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | ------------------- |
-| [0001](0001-nom-du-paquet-npm.md)                       | Le paquet npm s'appelle `@micka420/hive`                                                                | accepté             |
-| [0002](0002-distribution-one-liners.md)                 | Les scripts d'installation sont servis par GitHub Pages ; la confiance tient à l'empreinte, pas à l'URL | accepté             |
-| [0003](0003-conteneur-orchestrateur-seul.md)            | Une image pour l'orchestrateur, aucune pour le nœud ; socle Node 22, plancher 20                        | accepté             |
-| [0004](0004-politique-de-service-et-desinstallation.md) | Le service est opt-in au niveau utilisateur ; la désinstallation ne touche jamais à l'état              | accepté             |
-| [0005](0005-motifs-de-refus-d-un-billet.md)             | Un billet refusé dit pourquoi, mais seulement quand le porteur connaissait déjà le secret               | accepté             |
-| [0006](0006-tui-sans-dependance.md)                     | Le TUI s'écrit à la main : c'est le premier code qu'on exécute avant de faire confiance au projet       | accepté             |
-| [0007](0007-portee-du-jeton-de-ruche.md)                | Le jeton de ruche est une clé maîtresse : ce qu'il ouvre, et ce qu'un billet ouvre à sa place           | accepté             |
-| [0008](0008-l-atelier-un-bureau-pour-l-ouvriere.md)     | L'Atelier : un bureau que l'ouvrière peut allumer — cinq décisions de sécurité à trancher               | **proposé**         |
-| [0009](0009-evolution-fachon-dgm.md)                    | Évolution façon DGM : ce qu'on prend, ce qu'on refuse, ce qu'on diffère après la sortie                 | accepté (direction) |
-| [0010](0010-la-chambre-poste-ouvriere-baptisee.md)      | La Chambre : poste de travail d'une ouvrière baptisée (constaté, pas théâtre)                           | **accepté**         |
-| [0011](0011-la-ruche-coordonne-les-outils-ia.md)        | La ruche coordonne les outils IA déjà installés                                                         | **proposé**         |
-| [0012](0012-une-seule-reine-par-base.md)                | Une seule Reine par base : un verrou tenu par le système, porté par SQLite, jamais deviné               | accepté             |
+| #                                                       | Décision                                                                                                  | Statut              |
+| ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ------------------- |
+| [0001](0001-nom-du-paquet-npm.md)                       | Le paquet npm s'appelle `@micka420/hive`                                                                  | accepté             |
+| [0002](0002-distribution-one-liners.md)                 | Les scripts d'installation sont servis par GitHub Pages ; la confiance tient à l'empreinte, pas à l'URL   | accepté             |
+| [0003](0003-conteneur-orchestrateur-seul.md)            | Une image pour l'orchestrateur, aucune pour le nœud ; socle Node 22, plancher 20                          | accepté             |
+| [0004](0004-politique-de-service-et-desinstallation.md) | Le service est opt-in au niveau utilisateur ; la désinstallation ne touche jamais à l'état                | accepté             |
+| [0005](0005-motifs-de-refus-d-un-billet.md)             | Un billet refusé dit pourquoi, mais seulement quand le porteur connaissait déjà le secret                 | accepté             |
+| [0006](0006-tui-sans-dependance.md)                     | Le TUI s'écrit à la main : c'est le premier code qu'on exécute avant de faire confiance au projet         | accepté             |
+| [0007](0007-portee-du-jeton-de-ruche.md)                | Le jeton de ruche est une clé maîtresse : ce qu'il ouvre, et ce qu'un billet ouvre à sa place             | accepté             |
+| [0008](0008-l-atelier-un-bureau-pour-l-ouvriere.md)     | L'Atelier : un bureau que l'ouvrière peut allumer — cinq décisions de sécurité à trancher                 | **proposé**         |
+| [0009](0009-evolution-fachon-dgm.md)                    | Évolution façon DGM : ce qu'on prend, ce qu'on refuse, ce qu'on diffère après la sortie                   | accepté (direction) |
+| [0010](0010-la-chambre-poste-ouvriere-baptisee.md)      | La Chambre : poste de travail d'une ouvrière baptisée (constaté, pas théâtre)                             | **accepté**         |
+| [0011](0011-la-ruche-coordonne-les-outils-ia.md)        | La ruche coordonne les outils IA déjà installés                                                           | **proposé**         |
+| [0012](0012-une-seule-reine-par-base.md)                | Une seule Reine par base : un verrou tenu par le système, porté par SQLite, jamais deviné                 | accepté             |
+| [0013](0013-application-de-bureau.md)                   | L'application de bureau : Electron porte la Reine ; installeur NSIS/DMG/AppImage/.deb, marque échangeable | accepté (principe)  |
 
 Les **0001 à 0006** viennent du lot 0 de `MISSION-ACCUEIL.md`. Le **0007** est
 venu ensuite, avec le partage par billets. Le **0008** n'est pas encore tranché :

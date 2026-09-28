@@ -25,6 +25,7 @@ import { detectAllAgents, detectBestAgent } from '../src/node-client/agent-detec
 import {
   DRAPEAU_UNE_OUVRIERE,
   ENTREES,
+  ENTREES_COMPILEES,
   type Piece,
   type PlanOuvrieres,
   ORDRE_ARRET,
@@ -239,6 +240,46 @@ describe('LES CHEMINS VISÉS EXISTENT VRAIMENT', () => {
     for (const rel of [...Object.values(SCRIPTS), ...Object.values(ENTREES)]) {
       expect(path.isAbsolute(rel), rel).toBe(false);
     }
+  });
+});
+
+describe('LES ENTRÉES COMPILÉES — ce que lance l’application de bureau (ADR 0013)', () => {
+  it('chaque entrée compilée est l’image de sa source par `tsconfig.build.json` (src → dist, .ts → .js)', () => {
+    // L'app n'embarque ni `tsx` ni `src/` : un chemin compilé qui ne serait
+    // pas l'image exacte de la source viserait un fichier absent du paquet,
+    // et la Reine ne démarrerait QUE dans l'app — là où aucun banc ne passe.
+    for (const [nom, source] of Object.entries(ENTREES)) {
+      const attendu = source.replace(/^src/, 'dist').replace(/\.ts$/, '.js');
+      expect(ENTREES_COMPILEES[nom as keyof typeof ENTREES_COMPILEES], nom).toBe(attendu);
+    }
+  });
+
+  it('`compile` lance l’entrée directement, sans le lanceur `tsx` — même composition sinon', () => {
+    const source = pieces(NODE, { hub: true, noeud: true });
+    const compile = pieces(NODE, { hub: true, noeud: true }, PORT_PAR_DEFAUT, undefined, 'compile');
+    expect(compile.map((p) => p.argv)).toEqual([
+      [ENTREES_COMPILEES.hub],
+      [ENTREES_COMPILEES.noeud],
+    ]);
+    // Rien d'autre ne bouge : noms, rôles, liens à la Reine, canaux.
+    const sansArgv = (l: Piece[]) => l.map(({ argv: _argv, ...reste }) => reste);
+    expect(sansArgv(compile)).toEqual(sansArgv(source));
+  });
+
+  it('`compile` vaut aussi pour chaque ouvrière d’un essaim par agent', () => {
+    const plan: PlanOuvrieres = {
+      mode: 'par-agent',
+      modelesDeclaresPar: null,
+      ouvrieres: [
+        { agent: 'claude-code', ajoutee: false, env: { HIVE_AGENT: 'claude-code' } },
+        { agent: 'codex', ajoutee: true, env: { HIVE_AGENT: 'codex' } },
+      ],
+    };
+    const liste = pieces(NODE, { hub: true, noeud: true }, PORT_PAR_DEFAUT, plan, 'compile');
+    expect(liste.filter((p) => p.ouvriere).map((p) => p.argv)).toEqual([
+      [ENTREES_COMPILEES.noeud],
+      [ENTREES_COMPILEES.noeud],
+    ]);
   });
 });
 
@@ -891,6 +932,19 @@ describe('la mort d’une pièce — la Reine emporte la ruche, une ouvrière no
     expect(derniereLigne([REFUS, '', '  '], null)).toBe(REFUS);
     expect(derniereLigne(['', ''], 'avant')).toBe('avant');
     expect(derniereLigne(['x'.repeat(1_000)], null)).toHaveLength(400);
+  });
+
+  it('une exception non rattrapée se cite par son MESSAGE, pas par sa pile ni la version de Node', () => {
+    const pile = [
+      'Error: base illisible',
+      '    at ouvrir (file:///hive/dist/db.js:12:9)',
+      '    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)',
+      '',
+      'Node.js v24.15.0',
+    ];
+    expect(derniereLigne(pile, null)).toBe('Error: base illisible');
+    // La pile arrive souvent dans un lot à part : le message du lot d'avant reste.
+    expect(derniereLigne(pile.slice(1), 'Error: base illisible')).toBe('Error: base illisible');
   });
 
   it('un agent non connecté se DIT dans la bannière — aucune ouvrière pour lui', () => {

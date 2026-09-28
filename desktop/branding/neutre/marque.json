@@ -1,0 +1,36 @@
+{
+  "$commentaire": "Thème « neutre » — les jetons sombres de #515 (dashboard/src/styles.css, :root sombre). Tout ce que la coquille et les installeurs montrent vient d'ici : changer de marque, c'est changer ce fichier et les deux SVG, puis `npm --prefix desktop run marque`. Voir ../LISEZMOI.md.",
+  "nom": "Hive",
+  "accroche": "La ruche de vos agents de code",
+  "accrocheEn": "Your coding agents, as one hive",
+  "couleurs": {
+    "fond": "#0c0d10",
+    "panneau": "#15171d",
+    "bordure": "#262a33",
+    "texte": "#eeebe5",
+    "attenue": "#a9abb2",
+    "miel": "#f6c445",
+    "mielFonce": "#e08a14",
+    "surMiel": "#17130c",
+    "succes": "#5ccfa8",
+    "alerte": "#ff8a73",
+    "halo": "rgba(246, 196, 69, 0.10)"
+  },
+  "polices": {
+    "titre": {
+      "famille": "Bricolage Grotesque",
+      "fichier": "../../../site/fonts/bricolage-grotesque-latin-400-700.woff2",
+      "graisse": "400 700"
+    },
+    "texte": {
+      "famille": "Instrument Sans",
+      "fichier": "../../../site/fonts/instrument-sans-latin-400-600.woff2",
+      "graisse": "400 600"
+    },
+    "code": {
+      "famille": "JetBrains Mono",
+      "fichier": "../../../site/fonts/jetbrains-mono-latin-400-600.woff2",
+      "graisse": "400 600"
+    }
+  }
+}

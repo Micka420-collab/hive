@@ -8,6 +8,7 @@ import {
   codexMcpOverrides,
   createDelegationBridge,
   definitionsOutilsDelegation,
+  envDuPont,
   HIVE_DELEGATE_TOOL,
   HIVE_WAIT_TOOL,
   writeClaudeMcpConfig,
@@ -363,4 +364,58 @@ describe('pont MCP de délégation Worker → CLI', () => {
     expect(String(value.diff).length).toBeLessThan(40_000);
     expect(String(value.logs).length).toBeLessThan(40_000);
   }, 15_000);
+});
+
+// ─── DANS L'APPLICATION DE BUREAU, LE PONT REÇOIT LE MODE NODE ───────────────
+//
+// `process.execPath` y est Electron (ADR 0013 § 2) : sans
+// `ELECTRON_RUN_AS_NODE=1` dans la configuration MCP, l'agent qui démarre le
+// pont ouvrirait une seconde fenêtre de l'app au lieu d'un serveur MCP.
+describe('le pont lancé par un binaire Electron', () => {
+  const versionsElectron = { ...process.versions, electron: '44.4.5' } as NodeJS.ProcessVersions;
+  const versionsNode = {
+    ...process.versions,
+    electron: undefined,
+  } as unknown as NodeJS.ProcessVersions;
+
+  it('Electron hors du bac : le mode Node est posé ; Node, ou le bac (son `node`) : rien', () => {
+    expect(envDuPont(versionsElectron, false)).toEqual({ ELECTRON_RUN_AS_NODE: '1' });
+    expect(envDuPont(versionsElectron, true)).toBeUndefined();
+    expect(envDuPont(versionsNode, false)).toBeUndefined();
+  });
+
+  it('la variable atteint les DEUX configurations — Claude (`env`) et Codex (clé pointée TOML)', () => {
+    const dossier = mkdtempSync(path.join(os.tmpdir(), 'hive-pont-electron-'));
+    try {
+      const pont = {
+        mcpServerName: 'hive_x',
+        childCommand: '/opt/Hive/hive',
+        childArgs: ['--eval', 'source'],
+        childEnv: { ELECTRON_RUN_AS_NODE: '1' },
+        configPath: path.join(dossier, 'mcp.json'),
+      } as unknown as DelegationBridge;
+      writeClaudeMcpConfig(pont);
+      const config = JSON.parse(readFileSync(pont.configPath, 'utf8')) as {
+        mcpServers: Record<string, { env?: Record<string, string> }>;
+      };
+      expect(config.mcpServers.hive_x?.env).toEqual({ ELECTRON_RUN_AS_NODE: '1' });
+      // `-c` lit la valeur en TOML : une clé pointée par variable, jamais un
+      // objet JSON (qui y serait une simple chaîne). Relu tel quel par
+      // `codex mcp list --json` 0.156 : `"env": { "ELECTRON_RUN_AS_NODE": "1" }`.
+      expect(codexMcpOverrides(pont)).toEqual(
+        expect.arrayContaining(['-c', 'mcp_servers.hive_x.env.ELECTRON_RUN_AS_NODE="1"']),
+      );
+    } finally {
+      rmSync(dossier, { recursive: true, force: true });
+    }
+  });
+
+  it('hors d’Electron, les configurations restent celles d’avant : aucune clé `env`', () => {
+    const pont = {
+      mcpServerName: 'hive_y',
+      childCommand: process.execPath,
+      childArgs: [],
+    } as unknown as DelegationBridge;
+    expect(codexMcpOverrides(pont).some((a) => a.includes('.env.'))).toBe(false);
+  });
 });

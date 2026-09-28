@@ -74,6 +74,17 @@ const DEROGATIONS: Readonly<Record<string, string>> = {
   // `lancerArbre(` comme `spawn(` chez chacun de ses appelants
   // (`fichiersQuiLancent`) : un appelant qui oublierait l'enveloppe rougit
   // comme avant.
+  // ─── LE SUPERVISEUR DE LA RUCHE ────────────────────────────────────────────
+  //
+  // Il lance les PIÈCES de Hive elles-mêmes — la Reine, les ouvrières, l'écran
+  // Vite —, pour `npm run ruche` comme pour l'application de bureau. C'est le
+  // code que `scripts/ruche.mjs` portait (hors de `src/`, donc hors de cette
+  // garde) ; il n'a pas changé de nature en changeant de dossier. Ce ne sont
+  // pas des agents : chaque ouvrière enveloppe elle-même TOUT ce qu'elle lance.
+  'ruche-superviseur.ts':
+    'lance les pièces de Hive (Reine, ouvrières, écran) sur la machine de ' +
+    'l’hôte, à sa demande — chaque ouvrière enveloppe elle-même les agents ' +
+    'qu’elle lance ; envelopper la Reine la couperait de sa base',
   'shared/arbre-processus.ts':
     'la primitive qui lance un arbre de processus : elle exécute ce que ses ' +
     'appelants ont préparé et enveloppé — chacun d’eux est jugé ici sur son ' +

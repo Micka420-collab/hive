@@ -465,7 +465,12 @@ import { lireTemperature, FENETRE_MS as FENETRE_THERMO_MS, TYPES_THERMO } from '
 import { buildWaggleBoard } from './waggle.js';
 import { lireVersionRuche } from './version-lue.js';
 import { commandeDePose } from '../shared/pose-outil.js';
-import { marcheASuivre, poseDepuis, versionDeclaree } from '../shared/version-ruche.js';
+import {
+  conseilBureau,
+  marcheASuivre,
+  poseDepuis,
+  versionDeclaree,
+} from '../shared/version-ruche.js';
 import { VALIDATION_KEYS } from '../shared/validations-bac.js';
 
 /**
@@ -4615,7 +4620,12 @@ async function monterReine(
     if (!authorized(req)) return reject(reply);
     const version = lireVersionRuche(RACINE_RUCHE, VERSION_DECLAREE);
     const pose = poseDepuis(version);
-    return { version, pose, marche: marcheASuivre(pose) };
+    return {
+      version,
+      pose,
+      marche: marcheASuivre(pose),
+      ...(pose === 'bureau' ? { conseil: conseilBureau() } : {}),
+    };
   });
   app.get('/api/edition', async () => ({
     edition,

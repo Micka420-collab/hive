@@ -42,6 +42,12 @@
     "fusionner": "sh scripts/fusionner.sh",
     "ruche": "node scripts/ruche.mjs",
     "bac:image": "node scripts/image-agents.mjs",
+    "app:dev": "npm run build && npm --prefix desktop run dev",
+    "app:build": "npm run build && npm --prefix desktop run build",
+    "app:dist:linux": "npm run build && npm --prefix desktop run dist:linux",
+    "app:dist:win": "npm run build && npm --prefix desktop run dist:win",
+    "app:dist:mac": "npm run build && npm --prefix desktop run dist:mac",
+    "app:fumee": "npm --prefix desktop run fumee --",
     "format": "prettier --write .",
     "build:node": "tsc -p tsconfig.build.json",
     "prepare": "npm run build:node"

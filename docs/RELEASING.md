@@ -43,13 +43,37 @@ coup ; le site se change à la main.
 
 ## 2. Ce qu'on publie — et ce qu'on ne publie pas
 
-Une version, c'est **une étiquette git annotée sur `main`**. Rien d'autre n'est
-publié : pas de paquet npm, et **pas d'image de conteneur** — l'image se
-construit chez l'opérateur, depuis le dépôt qu'il a sous les yeux
-(`docker compose build`). Les installeurs clonent le dépôt ; les ouvrières
-entrent par `npx github:Micka420-collab/hive`.
+Une version, c'est **une étiquette git annotée sur `main`**, et les
+**binaires de l'application de bureau** construits depuis elle (ADR 0013).
+Pas de paquet npm, et **pas d'image de conteneur** — l'image se construit
+chez l'opérateur, depuis le dépôt qu'il a sous les yeux
+(`docker compose build`). Les installeurs en ligne de commande clonent le
+dépôt ; les ouvrières entrent par `npx github:Micka420-collab/hive`.
 
-Une _release_ GitHub est facultative : elle ne sert qu'à présenter les notes.
+**L'application de bureau.** Pousser l'étiquette déclenche
+`.github/workflows/app-bureau.yml` : sur Windows, macOS et Linux, il construit
+`Hive-Setup-X.Y.Z.exe`, les DMG `arm64`/`x64`, l'AppImage et le `.deb`, les
+lance au banc de fumée, puis les dépose avec les `latest*.yml`
+d'electron-updater dans une _release_ GitHub **brouillon** `vX.Y.Z`. La
+version de l'app EST celle de `package.json` (lue au build) : aucun second
+numéro à tenir.
+
+**Publier la release brouillon est un geste humain, et c'est lui qui déclenche
+les mises à jour** chez tous les utilisateurs de l'app (qui lisent le canal
+`latest` des releases publiées). Avant de la publier : relire les paquets et
+les rapports du banc (artefacts du run), et les notes.
+
+Tant que les paquets ne sont pas signés, **ce droit de publier est la seule
+racine de confiance des mises à jour** : l'app ne vérifie qu'une empreinte
+publiée dans la même release. Qui peut publier une release peut livrer du code
+à tous — d'où l'accord demandé à chaque installation non signée, et la
+protection des comptes et jetons qui ont l'écriture sur le dépôt
+([APPLICATION.md § Signature](APPLICATION.md#signature)). Les paquets déposés
+sont exactement ceux que le banc de fumée du job `publier` a lancés.
+
+Les secrets de signature (Apple, Authenticode, Azure Trusted Signing) sont
+facultatifs : absents, les paquets sortent non signés et marchent. La liste
+exacte et leur effet : [APPLICATION.md § Signature](APPLICATION.md#signature).
 
 ## 3. Préparer une version
 
@@ -106,7 +130,20 @@ dont `package.json` déclare un autre numéro, elle fait échouer la CI : une
 version qui ne sait pas son propre numéro fausserait `/api/version` pour toute
 sa durée.
 
-Puis, si l'on veut une _release_ GitHub :
+L'étiquette poussée, `app-bureau.yml` construit l'app et ouvre la _release_
+**brouillon** `vX.Y.Z` avec ses paquets (§ 2). Il reste à y écrire les notes,
+puis à la **publier** — ce qui déclenche les mises à jour de l'app :
+
+```sh
+gh run list --workflow app-bureau.yml --branch vX.Y.Z   # attendre le vert
+gh release edit vX.Y.Z --title "Hive X.Y.Z" \
+  --notes-file <(gh api repos/Micka420-collab/hive/releases/generate-notes \
+    -f tag_name=vX.Y.Z -f previous_tag_name=vPRÉCÉDENTE --jq .body)
+gh release edit vX.Y.Z --draft=false                     # le geste qui publie
+```
+
+Sans l'app (le flux échoue, ou l'on ne veut pas publier de binaires), une
+_release_ de notes seule reste possible :
 
 ```sh
 gh release create vX.Y.Z --verify-tag --title "Hive X.Y.Z" \
