@@ -12850,6 +12850,28 @@ async function monterReine(
   const tickTimer = setInterval(() => {
     // Une exception ici (ex. SQLite verrouillé) ne doit pas arrêter la boucle
     // ni abattre le process : on journalise et on retentera au prochain tick.
+    const maintenant = Date.now();
+    // ─── UNE BORNE QUI JETTE N'EN FIGE PAS D'AUTRES ────────────────────────
+    //
+    // Tout le tick tenait dans UN `try` : une seule borne qui jetait (une
+    // annonce de durée qui bloquait `pruneTasks` par sa clé étrangère, #527)
+    // arrêtait, à chaque tick et pour toujours, la rétention du journal, les
+    // bornes suivantes, le Conseil, l'essaim et l'expiration des travaux
+    // orphelins — sans rien dire d'autre qu'une ligne répétée. Chaque étape
+    // de maintenance a donc sa propre garde, et sa panne se dit sous son nom.
+    // L'ORDRE reste celui d'avant : une étape qui échoue n'est qu'un tour sans
+    // effet pour elle, jamais une précondition fausse pour la suivante — une
+    // borne référentielle ne nettoie que ce qui est DÉJÀ orphelin, et la
+    // rétention du journal compte encore comme vivante une tâche restée là.
+    const etape = (nom: string, geste: () => void): void => {
+      try {
+        geste();
+      } catch (err) {
+        console.error(
+          `[hive] erreur de tick (${nom}) : ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    };
     try {
       scheduler.tick();
       // Filet de sécurité : re-livre `assign_task` pour les tâches assignées
@@ -12857,7 +12879,6 @@ async function monterReine(
       // Pour une course, TOUS les drones en vol sont re-servis (un assign_task
       // perdu vers un drone non-primaire n'est visible nulle part ailleurs).
       const muettes = scheduler.staleAssignedTasks(5_000);
-      const maintenant = Date.now();
       for (const task of muettes) {
         // Espacement AVANT tout le reste : la sortie la moins chère est celle
         // qui ne calcule rien. Le contexte mémoïsé plus bas est déjà une
@@ -13003,152 +13024,159 @@ async function monterReine(
           });
         }
       }
-
-      store.pruneMemories(MEMORY_RETENTION);
-      store.pruneResults(RESULT_RETENTION);
-      store.pruneSauvegardes(SAUVEGARDES_RETENTION);
-      store.pruneGardiennes(GARDIENNES_RETENTION);
-      store.pruneLivraisons(LIVRAISONS_RETENTION);
-      // Présences Rayon orphelines (outil jamais refermé / nœud parti).
-      store.prunePresences(PRESENCES_RETENTION_MS);
-      // Réquisitions closes trop vieilles (les ouvertes restent).
-      store.pruneRequisitions(REQUISITIONS_RETENTION_MS);
-      store.pruneFabriques(REQUISITIONS_RETENTION_MS);
-      store.pruneHorizon(HORIZON_RETENTION_MS);
-      // L'annonce est la moitié PÉRISSABLE du couple : `pruneResults` vide des
-      // colonnes mais ne supprime pas de ligne, donc `durationMs` survit.
-      store.pruneAnnonces(ANNONCES_RETENTION_MS);
-      // ─── LA BORNE QUI MANQUAIT, ET QUI REND LES DEUX SUIVANTES VRAIES ──────
-      //
-      // `tasks` était la SEULE table du dépôt sans élagueur. Les deux bornes
-      // référentielles juste dessous se justifiaient par « les tâches ont déjà
-      // leur propre élagage » — c'était faux, et mesuré comme tel : sur 2 000
-      // tâches, elles supprimaient 0 ligne, pour toujours.
-      //
-      // ELLE PASSE AVANT ELLES, et l'ordre est le sujet : une borne
-      // référentielle ne peut nettoyer que ce qui est DÉJÀ orphelin. Appelée en
-      // premier, elle ne verrait rien et il faudrait attendre le tick suivant.
-      store.pruneTasks(TACHES_RETENTION_MS);
-      // Horloge : sessions ouvertes dont la tâche a disparu. APRÈS pruneTasks.
-      store.pruneHorlogeHote();
-      // Le lien tâche→issue ne survit pas à sa tâche : borne référentielle.
-      store.pruneTachesIssue();
-      // Idem pour le lien relecture→production. Câblé ICI, dans le même
-      // changement que la table — c'est la règle 3, et les trois bornes
-      // oubliées quelques lignes plus bas disent ce qu'il en coûte de la
-      // remettre à plus tard.
-      store.pruneContreExpertises();
-      // Et ce que la contre-visite a DÉCIDÉ : même borne référentielle, câblée
-      // dans le même changement que la table (règle 3). Elle naît vraie —
-      // `pruneTasks`, juste au-dessus, fait vraiment disparaître des tâches.
-      store.pruneContreVisites();
-      // Le lien tâche→modèle de l'Aiguillage : même borne référentielle, câblée
-      // avec la table (règle 3), et placée APRÈS `pruneTasks` — une borne
-      // référentielle ne nettoie que ce qui est déjà orphelin.
-      store.pruneAiguillageModeles();
-      // Les souvenirs PROPOSÉS au Hive Mind : même borne, même place. Le
-      // souvenir retenu vit dans `memories`, qui a la sienne et survit à sa
-      // tâche.
-      store.pruneSouvenirsProposes();
-      // L'Agent Garde-Fous : l'échelon posé par tâche et l'exigence par production
-      // — deux bornes référentielles jumelles, câblées avec leurs tables (règle 3)
-      // et placées APRÈS `pruneTasks`, comme celle de l'Aiguillage juste au-dessus.
-      store.pruneGardeFouEchelons();
-      store.pruneGardeFouExigences();
-      store.pruneConseils(CONSEILS_CONSERVES);
-      // ─── LE JOURNAL A UN SEUL PROPRIÉTAIRE DE RÉTENTION ────────────────────
-      //
-      // Fenêtre pour les traces, vie de la tâche pour les preuves, plafond en
-      // dernier recours (`shared/retention-journal.ts`). À sa cadence, pas à
-      // chaque tick (`RETENTION_JOURNAL_LOT`). Une passe qui retire quelque
-      // chose le DIT — combien, de quoi, pourquoi : un journal qui perd des
-      // lignes sans le dire se lit comme une ruche qui n'a rien fait.
-      //
-      // APRÈS `pruneTasks` et `pruneConseils` : une tâche que ce tick vient de
-      // supprimer n'a plus rien à prouver, ses preuves partent comme ORPHELINES
-      // — comptées plus tôt, elles seraient ÉCHUES, un motif qui dit au Genome
-      // qu'une tâche connue a perdu des faits (`faitsElagues`). Et un Conseil
-      // que ce tick vient d'élaguer ne protège plus sa décision (`faitsRanges`).
-      if (
-        store.lastEventId() - retentionJournalJusqua >= RETENTION_JOURNAL_LOT ||
-        maintenant - retentionJournalA >= RETENTION_JOURNAL_PERIODE_MS
-      ) {
-        const bilan = store.pruneEvents(POLITIQUE_JOURNAL, maintenant);
-        retentionJournalA = maintenant;
-        if (bilan.supprimes > 0) emitEvent('journal_elagage', payloadDeBilan(bilan));
-        // APRÈS l'événement : le récit de la passe ne compte pas dans le lot
-        // suivant, sans quoi chaque passe en appellerait une autre.
-        retentionJournalJusqua = store.lastEventId();
-      }
-      // ─── LES TROIS BORNES QUI ÉTAIENT ÉCRITES ET PAS CÂBLÉES ───────────────
-      //
-      // `pruneAcces`, `prunePartages` et `pruneServeurs` existaient, documentés
-      // avec soin, et n'étaient appelés QUE par des tests — pour le troisième,
-      // par personne. Trois tables grandissaient donc sans borne, dont deux qui
-      // gardaient des IDENTIFIANTS MORTS sur disque pour toujours.
-      //
-      // C'est exactement ce que le commentaire ci-dessus promettait déjà : « la
-      // borne est CÂBLÉE, pas seulement écrite ». Elle l'est maintenant, et un
-      // test tient la règle pour toutes les bornes à venir.
-      //
-      // Les trois ne suppriment que des lignes DÉJÀ MORTES — billet révoqué,
-      // lien éteint, machine effacée. Aucune ne peut rouvrir quoi que ce soit,
-      // et c'est vérifié plutôt que supposé.
-      store.pruneAcces(ACCES_GRACE_MS);
-      store.prunePartages(PARTAGES_GRACE_MS);
-      store.pruneServeurs(SERVEURS_SUPPRIMES_CONSERVES);
-      // ─── ET LA QUATRIÈME, QUI MANQUAIT AU COMPTE ───────────────────────────
-      //
-      // Le commentaire ci-dessus dit « machine EFFACÉE » — l'état `supprime`.
-      // Or rien n'y menait jamais : `aSupprimer`, la borne qui désigne les
-      // machines dont la rétention est échue, n'avait AUCUN appelant. La seule
-      // transition vers `supprime` du dépôt était le geste manuel d'un
-      // administrateur.
-      //
-      // `pruneServeurs` élaguait donc un état qu'on n'atteignait pas, et le
-      // tableau de bord affichait « ⏳ N j avant effacement » puis, à zéro,
-      // « la machine X va être effacée aujourd'hui, avec tout ce qu'elle
-      // contient » — indéfiniment. Les données des clients partis restaient,
-      // ce qui est le contraire exact de ce que la ruche leur promet.
-      //
-      // Le balayage est LANCÉ sans être attendu : joindre un fournisseur peut
-      // prendre plusieurs secondes, et le tick d'ordonnancement ne doit jamais
-      // dépendre d'un réseau tiers.
-      void balayerRetention(Date.now()).catch((err: unknown) => {
-        app.log.warn({ err }, 'balayage de rétention en échec');
-      });
-
-      // Le Conseil avance par SCRUTIN, hors du chemin chaud du scheduler : voir
-      // l'en-tête de conseil-runner.ts. Aucune session ouverte = aucun coût.
-      scruterConseils();
-      // Le runner d'essaim. Le test du mode est fait AVANT de lire la base :
-      // sur une ruche dont l'hôte n'a pas allumé l'autonomie — le cas par
-      // défaut — ce branchement ne coûte pas une seule requête SQL, toutes les
-      // deux secondes, pour toujours. Le cadencier tient sa propre cadence
-      // (une minute par projet) ; l'appeler à chaque tick est sans effet.
-      if (modeRunner === 'on') {
-        const autonomes = store.listProjetsAutonomes();
-        if (autonomes.length > 0) {
-          // Le cycle est asynchrone : on ne l'attend PAS dans le tick, sinon un
-          // conseil lent retarderait l'ordonnancement de toute la ruche. Le
-          // cadencier refuse déjà tout chevauchement.
-          void cadencier.tour(autonomes).catch((err: unknown) => {
-            console.error(
-              `[hive] erreur de cycle d’essaim : ${err instanceof Error ? err.message : err}`,
-            );
-          });
-        }
-      }
-      // Purge des compteurs de débit expirés (borne la map par IP).
-      const now = Date.now();
-      for (const [ip, h] of apiHits) {
-        if (h.resetAt <= now) apiHits.delete(ip);
-      }
-      // Travaux orphelins (nœud muet au-delà du délai) → échec, pas de blocage.
-      expirerTravaux(now);
     } catch (err) {
       console.error(`[hive] erreur de tick : ${err instanceof Error ? err.message : err}`);
     }
+
+    etape('pruneMemories', () => store.pruneMemories(MEMORY_RETENTION));
+    etape('pruneResults', () => store.pruneResults(RESULT_RETENTION));
+    etape('pruneSauvegardes', () => store.pruneSauvegardes(SAUVEGARDES_RETENTION));
+    etape('pruneGardiennes', () => store.pruneGardiennes(GARDIENNES_RETENTION));
+    etape('pruneLivraisons', () => store.pruneLivraisons(LIVRAISONS_RETENTION));
+    // Présences Rayon orphelines (outil jamais refermé / nœud parti).
+    etape('prunePresences', () => store.prunePresences(PRESENCES_RETENTION_MS));
+    // Réquisitions closes trop vieilles (les ouvertes restent).
+    etape('pruneRequisitions', () => store.pruneRequisitions(REQUISITIONS_RETENTION_MS));
+    etape('pruneFabriques', () => store.pruneFabriques(REQUISITIONS_RETENTION_MS));
+    etape('pruneHorizon', () => store.pruneHorizon(HORIZON_RETENTION_MS));
+    // L'annonce est la moitié PÉRISSABLE du couple : `pruneResults` vide des
+    // colonnes mais ne supprime pas de ligne, donc `durationMs` survit.
+    etape('pruneAnnonces', () => store.pruneAnnonces(ANNONCES_RETENTION_MS));
+    // ─── LA BORNE QUI MANQUAIT, ET QUI REND LES DEUX SUIVANTES VRAIES ──────
+    //
+    // `tasks` était la SEULE table du dépôt sans élagueur. Les deux bornes
+    // référentielles juste dessous se justifiaient par « les tâches ont déjà
+    // leur propre élagage » — c'était faux, et mesuré comme tel : sur 2 000
+    // tâches, elles supprimaient 0 ligne, pour toujours.
+    //
+    // ELLE PASSE AVANT ELLES, et l'ordre est le sujet : une borne
+    // référentielle ne peut nettoyer que ce qui est DÉJÀ orphelin. Appelée en
+    // premier, elle ne verrait rien et il faudrait attendre le tick suivant.
+    etape('pruneTasks', () => store.pruneTasks(TACHES_RETENTION_MS));
+    // Horloge : sessions ouvertes dont la tâche a disparu. APRÈS pruneTasks.
+    etape('pruneHorlogeHote', () => store.pruneHorlogeHote());
+    // Le lien tâche→issue ne survit pas à sa tâche : borne référentielle.
+    etape('pruneTachesIssue', () => store.pruneTachesIssue());
+    // Idem pour le lien relecture→production. Câblé ICI, dans le même
+    // changement que la table — c'est la règle 3, et les trois bornes
+    // oubliées quelques lignes plus bas disent ce qu'il en coûte de la
+    // remettre à plus tard.
+    etape('pruneContreExpertises', () => store.pruneContreExpertises());
+    // Et ce que la contre-visite a DÉCIDÉ : même borne référentielle, câblée
+    // dans le même changement que la table (règle 3). Elle naît vraie —
+    // `pruneTasks`, juste au-dessus, fait vraiment disparaître des tâches.
+    etape('pruneContreVisites', () => store.pruneContreVisites());
+    // Le lien tâche→modèle de l'Aiguillage : même borne référentielle, câblée
+    // avec la table (règle 3), et placée APRÈS `pruneTasks` — une borne
+    // référentielle ne nettoie que ce qui est déjà orphelin.
+    etape('pruneAiguillageModeles', () => store.pruneAiguillageModeles());
+    // Les souvenirs PROPOSÉS au Hive Mind : même borne, même place. Le
+    // souvenir retenu vit dans `memories`, qui a la sienne et survit à sa
+    // tâche.
+    etape('pruneSouvenirsProposes', () => store.pruneSouvenirsProposes());
+    // L'Agent Garde-Fous : l'échelon posé par tâche et l'exigence par production
+    // — deux bornes référentielles jumelles, câblées avec leurs tables (règle 3)
+    // et placées APRÈS `pruneTasks`, comme celle de l'Aiguillage juste au-dessus.
+    etape('pruneGardeFouEchelons', () => store.pruneGardeFouEchelons());
+    etape('pruneGardeFouExigences', () => store.pruneGardeFouExigences());
+    etape('pruneConseils', () => store.pruneConseils(CONSEILS_CONSERVES));
+    // ─── LE JOURNAL A UN SEUL PROPRIÉTAIRE DE RÉTENTION ────────────────────
+    //
+    // Fenêtre pour les traces, vie de la tâche pour les preuves, plafond en
+    // dernier recours (`shared/retention-journal.ts`). À sa cadence, pas à
+    // chaque tick (`RETENTION_JOURNAL_LOT`). Une passe qui retire quelque
+    // chose le DIT — combien, de quoi, pourquoi : un journal qui perd des
+    // lignes sans le dire se lit comme une ruche qui n'a rien fait.
+    //
+    // APRÈS `pruneTasks` et `pruneConseils` : une tâche que ce tick vient de
+    // supprimer n'a plus rien à prouver, ses preuves partent comme ORPHELINES
+    // — comptées plus tôt, elles seraient ÉCHUES, un motif qui dit au Genome
+    // qu'une tâche connue a perdu des faits (`faitsElagues`). Et un Conseil
+    // que ce tick vient d'élaguer ne protège plus sa décision (`faitsRanges`).
+    etape('pruneEvents', () => {
+      if (
+        store.lastEventId() - retentionJournalJusqua < RETENTION_JOURNAL_LOT &&
+        maintenant - retentionJournalA < RETENTION_JOURNAL_PERIODE_MS
+      ) {
+        return;
+      }
+      const bilan = store.pruneEvents(POLITIQUE_JOURNAL, maintenant);
+      retentionJournalA = maintenant;
+      if (bilan.supprimes > 0) emitEvent('journal_elagage', payloadDeBilan(bilan));
+      // APRÈS l'événement : le récit de la passe ne compte pas dans le lot
+      // suivant, sans quoi chaque passe en appellerait une autre.
+      retentionJournalJusqua = store.lastEventId();
+    });
+    // ─── LES TROIS BORNES QUI ÉTAIENT ÉCRITES ET PAS CÂBLÉES ───────────────
+    //
+    // `pruneAcces`, `prunePartages` et `pruneServeurs` existaient, documentés
+    // avec soin, et n'étaient appelés QUE par des tests — pour le troisième,
+    // par personne. Trois tables grandissaient donc sans borne, dont deux qui
+    // gardaient des IDENTIFIANTS MORTS sur disque pour toujours.
+    //
+    // C'est exactement ce que le commentaire ci-dessus promettait déjà : « la
+    // borne est CÂBLÉE, pas seulement écrite ». Elle l'est maintenant, et un
+    // test tient la règle pour toutes les bornes à venir.
+    //
+    // Les trois ne suppriment que des lignes DÉJÀ MORTES — billet révoqué,
+    // lien éteint, machine effacée. Aucune ne peut rouvrir quoi que ce soit,
+    // et c'est vérifié plutôt que supposé.
+    etape('pruneAcces', () => store.pruneAcces(ACCES_GRACE_MS));
+    etape('prunePartages', () => store.prunePartages(PARTAGES_GRACE_MS));
+    etape('pruneServeurs', () => store.pruneServeurs(SERVEURS_SUPPRIMES_CONSERVES));
+    // ─── ET LA QUATRIÈME, QUI MANQUAIT AU COMPTE ───────────────────────────
+    //
+    // Le commentaire ci-dessus dit « machine EFFACÉE » — l'état `supprime`.
+    // Or rien n'y menait jamais : `aSupprimer`, la borne qui désigne les
+    // machines dont la rétention est échue, n'avait AUCUN appelant. La seule
+    // transition vers `supprime` du dépôt était le geste manuel d'un
+    // administrateur.
+    //
+    // `pruneServeurs` élaguait donc un état qu'on n'atteignait pas, et le
+    // tableau de bord affichait « ⏳ N j avant effacement » puis, à zéro,
+    // « la machine X va être effacée aujourd'hui, avec tout ce qu'elle
+    // contient » — indéfiniment. Les données des clients partis restaient,
+    // ce qui est le contraire exact de ce que la ruche leur promet.
+    //
+    // Le balayage est LANCÉ sans être attendu : joindre un fournisseur peut
+    // prendre plusieurs secondes, et le tick d'ordonnancement ne doit jamais
+    // dépendre d'un réseau tiers.
+    etape('balayerRetention', () => {
+      void balayerRetention(Date.now()).catch((err: unknown) => {
+        app.log.warn({ err }, 'balayage de rétention en échec');
+      });
+    });
+
+    // Le Conseil avance par SCRUTIN, hors du chemin chaud du scheduler : voir
+    // l'en-tête de conseil-runner.ts. Aucune session ouverte = aucun coût.
+    etape('scruterConseils', scruterConseils);
+    // Le runner d'essaim. Le test du mode est fait AVANT de lire la base :
+    // sur une ruche dont l'hôte n'a pas allumé l'autonomie — le cas par
+    // défaut — ce branchement ne coûte pas une seule requête SQL, toutes les
+    // deux secondes, pour toujours. Le cadencier tient sa propre cadence
+    // (une minute par projet) ; l'appeler à chaque tick est sans effet.
+    if (modeRunner === 'on') {
+      etape('essaim', () => {
+        const autonomes = store.listProjetsAutonomes();
+        if (autonomes.length === 0) return;
+        // Le cycle est asynchrone : on ne l'attend PAS dans le tick, sinon un
+        // conseil lent retarderait l'ordonnancement de toute la ruche. Le
+        // cadencier refuse déjà tout chevauchement.
+        void cadencier.tour(autonomes).catch((err: unknown) => {
+          console.error(
+            `[hive] erreur de cycle d’essaim : ${err instanceof Error ? err.message : err}`,
+          );
+        });
+      });
+    }
+    // Purge des compteurs de débit expirés (borne la map par IP) — une
+    // opération sur une carte en mémoire, qui ne jette pas.
+    const now = Date.now();
+    for (const [ip, h] of apiHits) {
+      if (h.resetAt <= now) apiHits.delete(ip);
+    }
+    // Travaux orphelins (nœud muet au-delà du délai) → échec, pas de blocage.
+    etape('expirerTravaux', () => expirerTravaux(now));
   }, config.tickMs ?? 2_000);
   tickTimer.unref();
 

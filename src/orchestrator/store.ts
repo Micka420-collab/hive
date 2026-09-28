@@ -3447,7 +3447,8 @@ export class HiveStore {
    *    perdre.
    *
    * `reviews`, elle, cascade : un verdict sur une tâche qui n'existe plus ne
-   * désigne rien, et aucune autre borne ne la nettoierait.
+   * désigne rien, et aucune autre borne ne la nettoierait. `annonces_duree`
+   * aussi : elle référence `tasks(id)`, et la laisser ferait échouer la passe.
    */
   pruneTasks(retentionMs: number, now = Date.now()): number {
     const seuil = now - retentionMs;
@@ -3499,6 +3500,13 @@ export class HiveStore {
         this.db.prepare(`DELETE FROM reviews WHERE taskId IN (${trous})`).run(...lot);
         this.db.prepare(`DELETE FROM task_delegations WHERE childTaskId IN (${trous})`).run(...lot);
         this.db.prepare(`DELETE FROM consignes_routage WHERE taskId IN (${trous})`).run(...lot);
+        // L'annonce de durée RÉFÉRENCE sa tâche (`foreign_keys = ON`) : oubliée
+        // ici, une seule annonce plus jeune que `pruneAnnonces` (180 j) sur une
+        // tâche close depuis 30 j fait jeter TOUTE la transaction — et, par le
+        // tick, figeait toutes les bornes suivantes. Elle suit donc sa tâche :
+        // la calibration de l'horloge ne compte plus que les ~30 derniers jours
+        // de tâches, ce qui est la fenêtre qu'elle a vraiment (décision #527).
+        this.db.prepare(`DELETE FROM annonces_duree WHERE taskId IN (${trous})`).run(...lot);
         // Par RACINE : la dépense d'un arbre ne part qu'avec l'arbre entier
         // (voir le schéma de depenses_delegation).
         this.db
