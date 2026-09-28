@@ -287,6 +287,8 @@ describe('le banc d’ombre sur une vraie Reine', () => {
 
     // ─── Aucun poids du routing ne la voit en vol ───────────────────────────
     expect(srv.store.modeleAiguillageDe(s)).toBeNull();
+    // Ni bras (Aiguillage v3, #519) : ni harness, ni effort, ni coût rangés.
+    expect(srv.store.brasAiguillageDe(s)).toBeNull();
     expect(srv.store.electionsEnVolAiguillage().some((e) => e.title.startsWith('Ombre — '))).toBe(
       false,
     );
@@ -357,6 +359,28 @@ describe('le banc d’ombre sur une vraie Reine', () => {
     });
     expect(retry.status).toBe(409);
     expect(((await retry.json()) as { code: string }).code).toBe('shadow_task');
+
+    // ─── L'objection faite à l'ombre n'est pas une leçon du projet ─────────
+    // (#495 verse un épisode au Cerveau pour chaque objection — pas pour une
+    // ombre, dont la production n'est le travail de personne.)
+    expect(
+      srv.store
+        .listEvents(0, 5_000)
+        .filter((e) => e.type === 'cerveau_episode' && e.payload.taskId === s),
+      'l’objection faite à une ombre a été servie en leçon au projet',
+    ).toEqual([]);
+    // ─── Le rapport de mission ne compte ni l'ombre ni SA relecture ─────────
+    const rapport = (await (
+      await fetch(`http://127.0.0.1:${srv.port}/api/projects/${projet.id}/report?detail=mission`, {
+        headers: JETON,
+      })
+    ).json()) as { mission: { taches: { taskId: string }[] } };
+    const lues = rapport.mission.taches.map((l) => l.taskId);
+    expect(lues).toContain(t1);
+    expect(lues, 'le rapport de mission compte le travail du banc').not.toContain(s);
+    expect(lues, 'le rapport de mission compte la relecture de l’ombre').not.toContain(
+      relectureOmbre,
+    );
 
     // ─── Rien dans la récompense de l'Aiguillage, rien dans la mémoire ──────
     expect(

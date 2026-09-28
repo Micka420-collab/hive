@@ -2114,6 +2114,10 @@ async function monterReine(
     task: Task,
     echec: { signature: string; detail: string; origine: OrigineEpisode },
   ): boolean => {
+    // Une OMBRE du banc n'apprend rien au Cerveau, par aucune des trois portes :
+    // sa production n'est le travail de personne, et sa panne ou l'objection
+    // qu'elle a reçue serait servie en leçon aux tâches du projet.
+    if (store.ombreDe(task.id)) return false;
     let ecrit: EpisodeEnregistre | null;
     // Le projet signe l'épisode (en-tête, jamais prompt) ; PRIVÉ, il le
     // cloisonne : l'épisode n'est servi qu'à ses tâches et part avec lui.
@@ -9756,7 +9760,11 @@ async function monterReine(
    * production terminée est celui de son tiroir (`evaluationPour`), la table
    * des inspections lue une fois pour toutes.
    */
-  const missionDe = (taches: readonly Task[]) => {
+  const missionDe = (toutes: readonly Task[]) => {
+    // Le banc d'ombre ne travaille pas POUR la mission : ses ombres sont déjà
+    // hors de `listTasks`, leurs RELECTURES non — elles se comptaient comme des
+    // relectures de la mission, avec leur coût. `ombreLieeA` dit les deux.
+    const taches = toutes.filter((t) => store.ombreLieeA(t.id) === null);
     const evenements = store.evenementsParTypes(TYPES_RAPPORT_MISSION, EVENT_RETENTION);
     const inspections = store.listInspections();
     const relectures = new Set(taches.filter((t) => store.relectureDe(t.id)).map((t) => t.id));
@@ -13628,9 +13636,8 @@ async function monterReine(
             // inconnue, assignation périmée) ne dit rien du projet — l'ajouter
             // gonflerait le compteur de récurrences d'une panne qui n'a pas eu
             // lieu deux fois, et le seuil de consolidation deviendrait faux.
-            // L'échec d'une OMBRE n'en est pas un du projet : sa tâche est déjà
-            // comptée, et le Cerveau servirait sa panne en leçon aux suivantes.
-            if (pris && !msg.success && !store.ombreDe(msg.taskId)) {
+            // (Une OMBRE du banc n'y entre pas : `verserEpisode` la refuse.)
+            if (pris && !msg.success) {
               noterEchec(msg.taskId, nodeId, modeleTentative, msg.logs ?? '', msg.finalText);
             }
             if (pris) {
