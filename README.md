@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-7073%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-7139%20passing-F6C445?labelColor=17130C)
 ![Licence](https://img.shields.io/badge/licence-MIT-F6C445?labelColor=17130C)
 
 🇫🇷 Français · [🇬🇧 English](README.en.md) · [🌐 Site](https://micka420-collab.github.io/hive/) · [📚 Documentation](#-documentation)
@@ -96,8 +96,9 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
   orphelin ([#468](https://github.com/Micka420-collab/hive/pull/468)) : groupe
   de processus sous Linux et macOS, `taskkill /T` sous Windows, où
   `npm run ruche` arrête ses pièces par leur canal IPC puisqu'un SIGTERM y tue
-  net. Éprouvé sur les trois systèmes avec de vrais processus
-  (`tests/arbre-processus.test.ts`, `tests/noeud-arret-signal.test.ts`).
+  net. Éprouvé sur les trois systèmes avec de vrais processus, côté nœud
+  (`tests/arbre-processus.test.ts`, `tests/noeud-arret-signal.test.ts`) ;
+  l'envoi de l'ordre par `npm run ruche` sous Windows ne l'est pas encore.
 
 - **Sécurité** :
   - les identifiants des dépôts privés ne sortent plus vers l'essaim
