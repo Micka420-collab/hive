@@ -2170,15 +2170,65 @@ async function monterReine(
   };
 
   /**
+   * LA RÈGLE, UNE SEULE FOIS : le savoir qu'un projet SOURCE a appris —
+   * épisodes du Cerveau, souvenirs du Hive Mind — entre dans une tâche du
+   * projet CIBLE quand :
+   *
+   *   · c'est le même projet ;
+   *   · la source est PUBLIQUE ;
+   *   · les deux ont le MÊME compte propriétaire (non nul), ou aucun des deux
+   *     n'en a (la ruche au seul jeton, une personne seule et ses projets) —
+   *     ET chaque membre de la cible est ce propriétaire ou membre de la
+   *     source. Sans aucun membre, le chemin solo, la condition est vide.
+   *
+   * Sinon, refusé : propriétaires différents, ou l'un possédé et l'autre non.
+   * La cloison protège entre PERSONNES, pas entre les projets d'une même
+   * personne — les isoler tous (#527, « privé = île ») retirait en silence, sur
+   * le chemin solo par défaut, ce qu'un projet apprend à ses voisins. Mais
+   * une tâche est une REQUÊTE : son titre et son prompt choisissent les
+   * souvenirs servis, et sa sortie se relit. Un membre invité dans UN projet
+   * d'Alice fouillerait donc tous les autres (revue de #529). D'où la seconde
+   * moitié de la règle : le savoir d'un projet d'Alice ne coule que vers un
+   * projet dont l'auditoire est inclus dans le sien (`auditoireInclus`) — du
+   * projet partagé vers le privé, oui ; du privé vers le partagé, non. Entre
+   * projets sans propriétaire, de même : un compte membre d'un seul d'entre eux
+   * ne fouille pas les autres. Être
+   * membre n'élargit jamais rien. Un projet source introuvable (supprimé sans
+   * que son savoir parte) est écarté.
+   *
+   * Rend le filtre d'UNE tâche de `projectId`, lu sur le projet source ; chaque
+   * source n'est jugée qu'une fois par sélection. Le projet n'entre jamais dans
+   * le prompt : il ne sert qu'à choisir.
+   */
+  const projetPublic = (projectId: string): boolean =>
+    store.getProject(projectId)?.visibility === 'public';
+  const savoirAdmis = (projectId: string): ((source: string) => boolean) => {
+    const cible = store.getProject(projectId);
+    const verdicts = new Map<string, boolean>();
+    return (source) => {
+      if (source === projectId) return true;
+      let admis = verdicts.get(source);
+      if (admis === undefined) {
+        const s = store.getProject(source);
+        admis =
+          s !== undefined &&
+          (s.visibility === 'public' ||
+            (cible !== undefined &&
+              s.ownerId === cible.ownerId &&
+              store.auditoireInclus(projectId, source, s.ownerId)));
+        verdicts.set(source, admis);
+      }
+      return admis;
+    };
+  };
+
+  /**
    * Un épisode du Cerveau peut-il être servi à une tâche de `projectId` ?
    *
    * Un épisode porte les mots d'un échec — objections d'un relecteur, rejet de
-   * l'Evaluator (jusqu'à 800 caractères), titre de la tâche. Né d'un projet
-   * PRIVÉ, il ne sert qu'aux tâches de CE projet (#527) ; né d'un projet
-   * public, il sert à toute la ruche. Le projet source se lit dans l'en-tête
-   * (`origine.projectId`) ; un épisode écrit avant lui se rattache par sa tâche
-   * tant qu'elle existe. Un projet source introuvable (supprimé sans que son
-   * épisode parte) n'est pas public : écarté.
+   * l'Evaluator (jusqu'à 800 caractères), titre de la tâche. Il suit
+   * `savoirAdmis`. Le projet source se lit dans l'en-tête (`origine.projectId`) ;
+   * un épisode écrit avant lui se rattache par sa tâche tant qu'elle existe.
    *
    * COMPROMIS NOMMÉ : un épisode écrit avant l'en-tête ET dont la tâche est
    * élaguée ne se rattache plus à rien — il reste servi à toute la ruche, comme
@@ -2186,18 +2236,12 @@ async function monterReine(
    * savoir de la ruche, jamais filtrées.
    */
   const episodeAdmis = (projectId: string): ((note: Note) => boolean) => {
-    const publics = new Map<string, boolean>();
+    const admis = savoirAdmis(projectId);
     return (note) => {
       const o = note.origine;
       if (note.genre !== 'episode' || o === undefined) return true;
       const source = o.projectId ?? store.getTask(o.taskId)?.projectId;
-      if (source === undefined || source === projectId) return true;
-      let publique = publics.get(source);
-      if (publique === undefined) {
-        publique = store.getProject(source)?.visibility === 'public';
-        publics.set(source, publique);
-      }
-      return publique;
+      return source === undefined || admis(source);
     };
   };
 
@@ -2238,10 +2282,11 @@ async function monterReine(
     // qu'elle a reçue serait servie en leçon aux tâches du projet.
     if (store.ombreDe(task.id)) return false;
     let ecrit: EpisodeEnregistre | null;
-    // Le projet signe l'épisode (en-tête, jamais prompt) ; PRIVÉ, il le
-    // cloisonne : l'épisode n'est servi qu'à ses tâches et part avec lui.
+    // Le projet signe l'épisode (en-tête, jamais prompt) ; PRIVÉ, il en
+    // cloisonne la clé : l'épisode ne fusionne avec celui d'aucun autre
+    // projet, part avec lui, et `savoirAdmis` décide qui le reçoit.
     const origine: OrigineEpisode = { ...echec.origine, projectId: task.projectId };
-    const prive = store.getProject(task.projectId)?.visibility !== 'public';
+    const prive = !projetPublic(task.projectId);
     try {
       ecrit = enregistrerEpisode(dossierCerveau, {
         ...echec,
@@ -2589,10 +2634,12 @@ async function monterReine(
     echecs: readonly { logs: string; finalText?: string }[],
   ): ContexteSimilaire[] => {
     if (store.relectureDe(task.id) !== null) return [];
-    // Fédérée, la portée est le projet de la tâche PLUS les projets PUBLICS :
-    // ce qui naît d'un projet privé n'est servi qu'à ses tâches (la règle des
-    // épisodes du Cerveau). Le réglage de l'hôte ne vaut pas consentement du
+    // Fédérée, la portée est le projet de la tâche PLUS les projets dont le
+    // savoir lui est admis : la règle des souvenirs et des épisodes
+    // (`savoirAdmis`) — publics, ou même propriétaire et même auditoire. Le
+    // réglage de l'hôte ouvre la fédération, il ne vaut pas consentement du
     // propriétaire d'un projet privé.
+    const admis = savoirAdmis(task.projectId);
     const portee: PorteeGraphe = {
       genre: 'projets',
       projets: new Set([
@@ -2600,7 +2647,7 @@ async function monterReine(
         ...(porteeExperience === 'ruche'
           ? store
               .listProjects()
-              .filter((p) => p.visibility === 'public')
+              .filter((p) => admis(p.id))
               .map((p) => p.id)
           : []),
       ]),
@@ -2620,7 +2667,7 @@ async function monterReine(
     }
     // Une OMBRE ne lit pas son originale : elle la rejouerait en sachant
     // comment elle a tourné — la même règle que ses souvenirs
-    // (`searchMemories(…, exclureTache)`).
+    // (`searchMemories(…, { exclureTache })`).
     const originale = store.ombreDe(task.id)?.tacheOriginale;
     return contextesSimilaires(
       graphe,
@@ -2796,17 +2843,14 @@ async function monterReine(
         : '',
     );
     // Hive Mind : souvenirs pertinents des tâches déjà réussies, dans le budget
-    // RESTANT après le Cerveau, la critique, la Couveuse et l'expérience.
-    const souvenirs = retenir(
-      buildHiveContext(
-        store.searchMemories(
-          `${task.title} ${task.prompt}`,
-          3,
-          store.ombreDe(task.id)?.tacheOriginale,
-        ),
-        part(restant),
-      ),
-    );
+    // RESTANT après le Cerveau, la critique, la Couveuse et l'expérience. Même
+    // cloison que les épisodes (`savoirAdmis`), écartée AVANT le classement,
+    // comme le souvenir de la tâche qu'une ombre rejoue.
+    const trouves = store.searchMemories(`${task.title} ${task.prompt}`, 3, {
+      admis: savoirAdmis(task.projectId),
+      exclureTache: store.ombreDe(task.id)?.tacheOriginale,
+    });
+    const souvenirs = retenir(buildHiveContext(trouves, part(restant)));
     const horizon = retenir(
       restant > 80
         ? texteHorizonPourContexte(store.listerHorizon(task.projectId), restant - 2)
@@ -10666,7 +10710,12 @@ async function monterReine(
         pulse: computePulse(events),
         waggle: buildWaggleBoard(events),
         ghosts: detectGhosts(events).ghosts,
-        memories: store.searchMemories(req.body.message, 3).map((s) => s.memory),
+        // Avec un projet ciblé, la règle des tâches (`savoirAdmis`). Sans, la
+        // portée du jeton de ruche, qui lit déjà toute la mémoire
+        // (`/api/hive-mind`) : cette route n'est ouverte qu'à lui.
+        memories: store
+          .searchMemories(req.body.message, 3, focusId ? { admis: savoirAdmis(focusId) } : {})
+          .map((s) => s.memory),
         recentEvents: events.slice(-100),
         reviews: store.listReviews(),
         // Scopé sur le projet ciblé quand il est fourni : la Reine ne mélange

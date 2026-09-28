@@ -177,8 +177,8 @@ export function GrapheExperience({ projects, user, refreshTick, onOpenTask }: Pr
                   )}{' '}
               {liste.reglage === 'ruche'
                 ? t(
-                    'Les ouvrières reçoivent aussi l’expérience des projets PUBLICS de la ruche : l’hôte a ouvert la fédération (HIVE_EXPERIENCE_PORTEE=ruche). Un projet privé ne sert la sienne qu’à ses tâches.',
-                    'Workers also receive the experience of the hive’s PUBLIC projects: the host opened federation (HIVE_EXPERIENCE_PORTEE=ruche). A private project serves its own only to its tasks.',
+                    'Les ouvrières reçoivent aussi l’expérience des projets PUBLICS de la ruche, et des projets privés du même propriétaire et du même auditoire : l’hôte a ouvert la fédération (HIVE_EXPERIENCE_PORTEE=ruche). Un projet privé ne sert jamais la sienne à une autre personne.',
+                    'Workers also receive the experience of the hive’s PUBLIC projects, and of private projects with the same owner and audience: the host opened federation (HIVE_EXPERIENCE_PORTEE=ruche). A private project never serves its own to another person.',
                   )
                 : t(
                     'Les ouvrières ne reçoivent que l’expérience de leur projet. Fédérer est un réglage de l’hôte : HIVE_EXPERIENCE_PORTEE=ruche dans le .env de la Reine.',

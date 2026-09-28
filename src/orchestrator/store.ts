@@ -1920,6 +1920,14 @@ interface EventRow {
   payload: string;
 }
 
+/** Ce qu'une sélection de souvenirs écarte, avant la borne du corpus. */
+export interface FiltreSouvenirs {
+  /** Le projet SOURCE du souvenir est-il admis ? (`savoirAdmis`, server.ts) */
+  admis?: (projectId: string) => boolean;
+  /** La tâche dont le souvenir ne compte pas (une ombre rejoue l'originale). */
+  exclureTache?: string;
+}
+
 interface MemoryRow {
   id: number;
   projectId: string;
@@ -2618,6 +2626,30 @@ export class HiveStore {
       .prepare('SELECT 1 FROM project_members WHERE projectId = ? AND userId = ? LIMIT 1')
       .get(projectId, userId);
     return row !== undefined;
+  }
+
+  /**
+   * Tout membre de `cible` est-il aussi `proprietaire` de `source` ou membre de
+   * `source` ? Autrement dit : ceux qui lisent `cible` lisent déjà `source`.
+   *
+   * La question du savoir partagé (`savoirAdmis`, server.ts) : un projet ne
+   * sert un autre projet du même propriétaire — ou, sans propriétaire, un autre
+   * projet sans propriétaire (`proprietaire` nul : seuls les membres comptent)
+   * — que si l'auditoire de la cible est inclus dans celui de la source. Fermée, comme `estMembre` : on cherche
+   * UN membre de trop, on ne liste personne.
+   */
+  auditoireInclus(cible: string, source: string, proprietaire: string | null): boolean {
+    const deTrop = this.db
+      .prepare(
+        `SELECT 1 FROM project_members t
+          WHERE t.projectId = ? AND t.userId IS NOT ?
+            AND NOT EXISTS (
+              SELECT 1 FROM project_members s WHERE s.projectId = ? AND s.userId = t.userId
+            )
+          LIMIT 1`,
+      )
+      .get(cible, proprietaire, source);
+    return deTrop === undefined;
   }
 
   /**
@@ -8396,11 +8428,31 @@ export class HiveStore {
     };
   }
 
-  /** Souvenirs les plus récents (corpus borné pour garder le scoring rapide). */
-  listMemories(limit = 500): Memory[] {
-    return this.db
-      .prepare('SELECT * FROM memories ORDER BY createdAt DESC, id DESC LIMIT ?')
-      .all(Math.max(1, Math.min(limit, 2000))) as MemoryRow[];
+  /**
+   * Souvenirs les plus récents (corpus borné pour garder le scoring rapide).
+   *
+   * Le filtre (`FiltreSouvenirs`) passe AVANT la borne, pas après : filtré
+   * après, un projet voisin prolifique remplirait le corpus de souvenirs
+   * écartés et priverait la tâche de ceux qui lui reviennent. La table est
+   * elle-même bornée (`pruneMemories`) : le parcours l'est aussi.
+   */
+  listMemories(limit = 500, { admis, exclureTache }: FiltreSouvenirs = {}): Memory[] {
+    const borne = Math.max(1, Math.min(limit, 2000));
+    if (!admis && exclureTache === undefined) {
+      return this.db
+        .prepare('SELECT * FROM memories ORDER BY createdAt DESC, id DESC LIMIT ?')
+        .all(borne) as MemoryRow[];
+    }
+    const corpus: Memory[] = [];
+    const lignes = this.db
+      .prepare('SELECT * FROM memories ORDER BY createdAt DESC, id DESC')
+      .iterate() as IterableIterator<MemoryRow>;
+    for (const m of lignes) {
+      if (m.taskId === exclureTache || (admis && !admis(m.projectId))) continue;
+      corpus.push(m);
+      if (corpus.length === borne) break;
+    }
+    return corpus;
   }
 
   countMemories(): number {
@@ -8409,21 +8461,18 @@ export class HiveStore {
   }
 
   /**
-   * Récupère les souvenirs pertinents (BM25 + trigrammes sur le corpus récent).
+   * Récupère les souvenirs pertinents (BM25 + trigrammes sur le corpus récent),
+   * parmi ceux que le filtre laisse passer (`listMemories`) :
    *
-   * `exclureTache` : le souvenir de CETTE tâche ne compte pas. Une ombre rejoue
-   * une tâche dont la production a déjà laissé un souvenir — même titre, même
-   * prompt, donc le plus pertinent de tous : le lui servir, c'était lui
-   * souffler la réponse de l'autre modèle, et la comparaison ne mesurait plus
-   * rien.
+   *   · `admis` : la cloison du projet source (`savoirAdmis`, server.ts) ;
+   *   · `exclureTache` : le souvenir de CETTE tâche ne compte pas. Une ombre
+   *     rejoue une tâche dont la production a déjà laissé un souvenir — même
+   *     titre, même prompt, donc le plus pertinent de tous : le lui servir,
+   *     c'était lui souffler la réponse de l'autre modèle, et la comparaison
+   *     ne mesurait plus rien.
    */
-  searchMemories(query: string, limit = 3, exclureTache?: string): ScoredMemory[] {
-    const souvenirs = this.listMemories(500);
-    return rankMemoriesHybrid(
-      query,
-      exclureTache === undefined ? souvenirs : souvenirs.filter((m) => m.taskId !== exclureTache),
-      limit,
-    );
+  searchMemories(query: string, limit = 3, filtre: FiltreSouvenirs = {}): ScoredMemory[] {
+    return rankMemoriesHybrid(query, this.listMemories(500, filtre), limit);
   }
 
   /**

@@ -135,9 +135,17 @@ describe('le graphe d’expérience arrive jusqu’à l’ouvrière', () => {
     srv.store.listEvents(0, 1_000).filter((e) => e.type === type && e.payload.taskId === taskId);
 
   /** Deux projets et leur passé ; la tâche du test, prête, dans le projet A. */
-  function preparer(srv: HiveServer, visibiliteB: 'public' | 'private' = 'public'): string {
-    const a = srv.store.createProject({ name: 'Projet A' }).id;
-    const b = srv.store.createProject({ name: 'Projet B', visibility: visibiliteB }).id;
+  function preparer(
+    srv: HiveServer,
+    visibiliteB: 'public' | 'private' = 'public',
+    proprietaires: { a: string | null; b: string | null } = { a: null, b: null },
+  ): string {
+    const a = srv.store.createProject({ name: 'Projet A', ownerId: proprietaires.a }).id;
+    const b = srv.store.createProject({
+      name: 'Projet B',
+      visibility: visibiliteB,
+      ownerId: proprietaires.b,
+    }).id;
     semer(srv.store, a, b);
     // Le souvenir de la tâche passée, chez Hive Mind : le graphe ne doit pas
     // le recopier (il nomme la tâche, il ne raconte pas ce qu'elle a produit).
@@ -244,15 +252,15 @@ describe('le graphe d’expérience arrive jusqu’à l’ouvrière', () => {
   );
 
   it(
-    'FÉDÉRÉ, UN PROJET PRIVÉ NE SERT JAMAIS SON EXPÉRIENCE HORS DE LUI',
+    'FÉDÉRÉ, UN PROJET PRIVÉ NE SERT JAMAIS SON EXPÉRIENCE À UN AUTRE PROPRIÉTAIRE',
     { timeout: 20_000 },
     async () => {
-      // La règle des épisodes du Cerveau (train 4) : ce qui naît d'un projet
-      // PRIVÉ n'est servi qu'à ses tâches. La fédération est un réglage de
-      // l'hôte, pas un consentement du propriétaire de B.
+      // La règle des souvenirs et des épisodes (`savoirAdmis`) : ce qui naît
+      // d'un projet PRIVÉ ne sort pas vers le projet d'une autre personne. La
+      // fédération est un réglage de l'hôte, pas un consentement de Bob.
       const srv = await demarrer('ruche');
       const recues = await brancherNoeud(srv, 'ouvriere-p');
-      const tache = preparer(srv, 'private');
+      const tache = preparer(srv, 'private', { a: 'alice', b: 'bob' });
       const a = await attendre(() => recues[0], 'assign_task');
       expect(a.task?.id).toBe(tache);
       expect(a.hiveContext).toContain('TITRE-DU-PROJET-A');
@@ -262,6 +270,23 @@ describe('le graphe d’expérience arrive jusqu’à l’ouvrière', () => {
       const [fait] = evenements(srv, 'experience_context', tache);
       const similaires = fait?.payload.similaires as Array<Record<string, unknown>>;
       expect(similaires.filter((c) => c.memeProjet === false)).toEqual([]);
+    },
+  );
+
+  it(
+    'FÉDÉRÉ, L’EXPÉRIENCE D’UN PROJET PRIVÉ SERT UN PROJET DE MÊME AUDITOIRE',
+    { timeout: 20_000 },
+    async () => {
+      // Même propriétaire, et personne d'autre dans A : qui lit A lit déjà B.
+      // Une personne et ses projets retrouvent la fédération que l'hôte ouvre.
+      const srv = await demarrer('ruche');
+      const recues = await brancherNoeud(srv, 'ouvriere-m');
+      const tache = preparer(srv, 'private', { a: 'alice', b: 'alice' });
+      const a = await attendre(() => recues[0], 'assign_task');
+      expect(a.task?.id).toBe(tache);
+      expect(a.hiveContext, 'le projet d’Alice perd l’expérience de son autre projet').toContain(
+        'TITRE-DU-PROJET-B',
+      );
     },
   );
 
