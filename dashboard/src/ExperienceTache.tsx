@@ -52,8 +52,8 @@ export function ExperienceTache({ experience }: { experience: ExperienceVue }) {
           )}
           {experience.portee === 'ruche' &&
             t(
-              ' Fédérée par l’hôte : son projet et les projets publics.',
-              ' Federated by the host: its project and the public projects.',
+              ' Fédérée par l’hôte : son projet, les projets publics et ceux de même propriétaire et même auditoire.',
+              ' Federated by the host: its project, the public projects and those with the same owner and audience.',
             )}
         </span>
       </p>

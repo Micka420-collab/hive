@@ -153,8 +153,9 @@ or a machine still at the provider refuse it even when forced: those cannot be
 cancelled. Workers clean up their own workspaces; a mission branch delivered on
 a node stays there. The Cerveau episodes born of the project (title,
 objections, Evaluator rejections) go too; the Cerveau notes written by hand
-stay. An episode born of a **private** project is only ever served to that
-project's tasks.
+stay. An episode or a memory born of a **private** project is only served to
+projects with the same owner, or, when it has none, to ownerless projects,
+whose members are its own (see Hive Mind).
 
 ## 📦 The environment — the agent installs what it needs
 
@@ -398,6 +399,21 @@ _memory_ (what was done + the agent's answer). Before assigning a new task, the
 orchestrator retrieves the most relevant memories and **injects them into the
 worker's prompt** — later tasks benefit from work already done.
 
+What a project learns (Hive Mind memories and Cerveau episodes alike) serves
+a task of another project when the source is **public**, when both projects
+have the **same owner**, or **neither has one** (the hive-token world, one
+person and their projects), and every member of the target project is also a
+member of the source (with no members at all, there is nothing to check). A task picks its memories through its title and
+prompt: without that condition, someone invited into one of Alice's projects
+could read, through their tasks, what all her other projects learned. So a
+shared project's knowledge flows into Alice's private projects, never the other
+way. Between different owners, or between an owned project and an ownerless
+one, a **private** project keeps its knowledge to itself. Membership never
+widens anything. The project never appears in the prompt. The Queen
+(`/api/chat`) focused on a project follows the same rule; without a focus, like
+the Hive Mind panel and `GET /api/hive-mind`, which take the hive token, it
+sees the whole memory.
+
 A success declared by the worker is not enough: the memory enters only when the
 **Evaluator accepts** the production or a **human approves** it in review.
 "Accepted" needs all of it at once: clean Guardians, **green tests** from a
@@ -561,8 +577,11 @@ HIVE_EXPERIENCE_PORTEE=ruche   # default: projet
 ```
 
 Federated, project A's worker also reads the titles, files and models of
-similar tasks from other **public** projects: a private project never serves
-its experience outside itself (the Cerveau episodes rule). A's journal does not copy them: the drawer
+similar tasks from the other projects whose knowledge it may receive, by the
+memories and episodes rule (see Hive Mind): **public** projects, or private
+projects with the same owner whose audience includes A's. The host setting never
+carries a private project's experience to another person. A's journal does not
+copy them: the drawer
 says "a task from another project", without its id, project or title.
 
 The 🧠 **Memory** view shows a project's graph (list and a node's

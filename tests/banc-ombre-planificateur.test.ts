@@ -366,7 +366,7 @@ describe('une ombre face au store — hors des poids et des leçons', () => {
     });
     const requete = `${o.title} ${o.prompt}`;
     expect(store.searchMemories(requete, 3).map((m) => m.memory.taskId)).toEqual([o.id]);
-    expect(store.searchMemories(requete, 3, o.id)).toEqual([]);
+    expect(store.searchMemories(requete, 3, { exclureTache: o.id })).toEqual([]);
   });
 
   it('une ombre dont la tâche a disparu perd son lien — borne référentielle', () => {

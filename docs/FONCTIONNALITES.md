@@ -171,8 +171,9 @@ une machine encore chez le fournisseur la font refuser même forcée : ceux-là 
 s'annulent pas. Les ateliers des ouvrières se nettoient chez elles ; une branche
 de mission livrée sur un nœud y reste. Les épisodes du Cerveau nés du projet
 (titre, objections, rejets de l'Evaluator) partent aussi ; les notes du Cerveau
-écrites à la main restent. Un épisode né d'un projet **privé** n'est jamais
-servi qu'aux tâches de ce projet.
+écrites à la main restent. Un épisode ou un souvenir né d'un projet **privé**
+ne sert ailleurs qu'aux projets du même propriétaire, ou, s'il n'en a pas, aux
+projets sans propriétaire, dont les membres sont les siens (voir Hive Mind).
 
 ## 📦 L'environnement — l'agent installe ce dont il a besoin
 
@@ -437,6 +438,21 @@ nouvelle tâche, l'orchestrateur récupère les souvenirs les plus pertinents et
 **les injecte dans le prompt de l'ouvrière** — les tâches suivantes profitent du
 travail déjà accompli.
 
+Ce qu'un projet apprend (souvenirs du Hive Mind comme épisodes du Cerveau)
+sert à une tâche d'un autre projet quand la source est **publique**, quand les
+deux projets ont le **même propriétaire**, ou **aucun** (la ruche au seul jeton,
+une personne et ses projets), et que chaque membre du projet cible est aussi
+membre du projet source (sans aucun membre, rien à vérifier). Une tâche choisit ses souvenirs par
+son titre et son prompt : sans cette condition, une personne invitée dans un
+seul projet d'Alice lirait, par ses tâches, le savoir de tous les autres. Le
+savoir d'un projet partagé coule donc vers les projets privés d'Alice, jamais
+l'inverse. Entre propriétaires différents, ou entre un projet possédé et un
+projet sans propriétaire, un projet **privé** garde son savoir pour lui. Être
+membre n'élargit jamais rien. Le projet ne figure jamais dans le prompt. La
+Reine (`/api/chat`) ciblée sur un projet suit la même règle ; sans projet
+ciblé, comme le panneau Hive Mind et `GET /api/hive-mind`, réservés au jeton de
+ruche, elle voit toute la mémoire.
+
 Une réussite déclarée par l'ouvrière ne suffit pas : le souvenir n'entre en
 mémoire que lorsque l'**Evaluator accepte** la production ou qu'un **humain
 l'approuve** en revue. « Acceptée » exige tout à la fois : Gardiennes propres,
@@ -538,8 +554,11 @@ HIVE_EXPERIENCE_PORTEE=ruche   # défaut : projet
 ```
 
 Fédérée, l'ouvrière de A lit aussi les titres, fichiers et modèles des tâches
-voisines des autres projets **publics** : un projet privé ne sert jamais son
-expérience hors de lui (la règle des épisodes du Cerveau). Le journal de A, lui, ne les recopie pas : le
+voisines des autres projets dont le savoir lui est admis — la règle des
+souvenirs et des épisodes (voir Hive Mind) : projets **publics**, ou projets
+privés du même propriétaire dont l'auditoire inclut celui de A. Le réglage de
+l'hôte ne fait jamais passer l'expérience d'un projet privé chez une autre
+personne. Le journal de A, lui, ne les recopie pas : le
 tiroir dit « une tâche d'un autre projet », sans son id, son projet ni son
 titre.
 
