@@ -519,6 +519,34 @@ curl -X POST http://localhost:7777/api/projects/<projet>/banc-ombre \
 Critères d'admission, budget, confiance et limites :
 **[BANC-OMBRE.md](BANC-OMBRE.md)**.
 
+## ⟳ Les Routines — du travail planifié ou déclenché
+
+Une **routine** lance une mission du projet sans clic : à une heure (cron à
+cinq champs, lu dans un **fuseau** — `0 9 * * 1-5` en `Europe/Paris` part à
+9 h à Paris été comme hiver), sur un **webhook signé** (HMAC, clé propre à la
+routine, livraison rejouée dédupliquée), ou quand la **CI d'une branche**
+devient rouge (un commit rouge, une mission). Des heures ouvrées peuvent la
+borner.
+
+Créer une routine **autorise la dépense à l'avance** (ADR 0014) : c'est un
+réglage du propriétaire ou d'un administrateur. La routine part avec
+l'autorité de son compte, relue à chaque déclenchement. Chaque déclenchement
+lance une tâche ordinaire (plafond, Evaluator, relecture croisée, jamais de
+fusion) ou dit pourquoi il n'a rien lancé. Un déclenchement pendant que le
+travail vole encore le **rejoint**, et une Reine éteinte deux jours ne
+rattrape qu'**un** créneau.
+
+```bash
+# ou la sous-section « Routines » d'un projet dans ⬡ Projets
+curl -X POST http://localhost:7777/api/projects/<projet>/routines \
+  -H "x-hive-token: $HIVE_TOKEN" -H 'content-type: application/json' \
+  -d '{"nom": "Dette nocturne", "consigne": "…", "declencheur": "cron",
+       "expression": "0 9 * * 1-5", "fuseau": "Europe/Paris"}'
+```
+
+Déclencheurs, politiques, webhook et Action `hive-dispatch` :
+**[ROUTINES.md](ROUTINES.md)**.
+
 ## 🕸️ Graphe d'expérience — relier ce que la ruche a vécu
 
 Le graphe **relie** des faits déjà rangés — journal, Cerveau, revues, tests —

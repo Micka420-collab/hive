@@ -2345,6 +2345,129 @@ export function fetchMissions(
   return api(`/api/projects/${encodeURIComponent(projectId)}/missions`);
 }
 
+// ─── Les Routines (ADR 0014) ────────────────────────────────────────────────
+//
+// Formes miroir de `vueRoutine` (src/orchestrator/routines.ts). La clé d'un
+// webhook n'est JAMAIS dans une lecture : elle n'arrive qu'à la création et à
+// la régénération, une fois.
+
+export type DeclencheurRoutine = 'cron' | 'webhook' | 'ci_rouge';
+export type ConcurrenceRoutine = 'coalesce_if_active' | 'always_enqueue' | 'skip_if_active';
+export type RattrapageRoutine = 'skip_missed' | 'enqueue_missed_with_cap';
+export type StatutRunRoutine =
+  'lancee' | 'fusionnee' | 'sautee' | 'manquee' | 'ignoree' | 'refusee';
+
+export interface RunRoutineVue {
+  id: string;
+  source: 'cron' | 'rattrapage' | 'webhook' | 'ci_rouge' | 'manuel';
+  statut: StatutRunRoutine;
+  motif: string;
+  taches: string[];
+  fusionneDans: string | null;
+  creeA: number;
+}
+
+export interface RoutineVue {
+  id: string;
+  nom: string;
+  consigne: string;
+  declencheur: DeclencheurRoutine;
+  expression: string | null;
+  fuseau: string;
+  branche: string | null;
+  plage: { jours: number[]; debut: string; fin: string } | null;
+  concurrence: ConcurrenceRoutine;
+  rattrapage: RattrapageRoutine;
+  actif: boolean;
+  autorite: 'jeton' | 'compte';
+  auteur: string | null;
+  prochaineA: number | null;
+  derniereErreur: string | null;
+  webhook: string | null;
+  creeA: number;
+  runs: RunRoutineVue[];
+}
+
+export interface NouvelleRoutine {
+  nom: string;
+  consigne: string;
+  declencheur: DeclencheurRoutine;
+  expression?: string;
+  fuseau?: string;
+  branche?: string;
+  plage?: { jours: number[]; debut: string; fin: string } | null;
+  concurrence?: ConcurrenceRoutine;
+  rattrapage?: RattrapageRoutine;
+}
+
+export function fetchRoutines(
+  projectId: string,
+): Promise<{ routines: RoutineVue[]; ciDisponible: boolean }> {
+  return api(`/api/projects/${encodeURIComponent(projectId)}/routines`);
+}
+
+/** Crée une routine. `secret` : la clé du webhook, remise cette fois-ci seulement. */
+export function creerRoutine(
+  projectId: string,
+  routine: NouvelleRoutine,
+): Promise<{ routine: RoutineVue; secret?: string }> {
+  return api(`/api/projects/${encodeURIComponent(projectId)}/routines`, {
+    method: 'POST',
+    body: JSON.stringify(routine),
+  });
+}
+
+export function reglerRoutine(
+  projectId: string,
+  routineId: string,
+  actif: boolean,
+): Promise<{ routine: RoutineVue }> {
+  return api(
+    `/api/projects/${encodeURIComponent(projectId)}/routines/${encodeURIComponent(routineId)}`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({ actif }),
+    },
+  );
+}
+
+export function supprimerRoutine(
+  projectId: string,
+  routineId: string,
+): Promise<{ supprimee: boolean }> {
+  return api(
+    `/api/projects/${encodeURIComponent(projectId)}/routines/${encodeURIComponent(routineId)}`,
+    {
+      method: 'DELETE',
+    },
+  );
+}
+
+export function declencherRoutine(
+  projectId: string,
+  routineId: string,
+): Promise<{ statut: StatutRunRoutine | 'doublon'; motif?: string; taches?: string[] }> {
+  return api(
+    `/api/projects/${encodeURIComponent(projectId)}/routines/${encodeURIComponent(routineId)}/declencher`,
+    {
+      method: 'POST',
+    },
+  );
+}
+
+/** Régénère la clé du webhook — l'ancienne est révoquée dans le même geste. */
+export function regenererCleRoutine(
+  projectId: string,
+  routineId: string,
+): Promise<{ secret: string }> {
+  return api(
+    `/api/projects/${encodeURIComponent(projectId)}/routines/${encodeURIComponent(routineId)}/secret`,
+    {
+      method: 'POST',
+    },
+  );
+}
+
 /** Rejoue une mission dans un projet neuf ; ses actions irréversibles sont simulées. */
 export function rejouerMission(
   projectId: string,
