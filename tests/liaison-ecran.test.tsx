@@ -166,6 +166,10 @@ describe('la coquille montée — la liaison se voit', () => {
       principal.querySelector('[aria-busy="true"]'),
       'pas de squelette d’attente',
     ).not.toBeNull();
+    // L'en-tête non plus : ni « Prête », ni « aucune ouvrière » sur un
+    // instantané qui n'est pas arrivé. Inconnu reste inconnu.
+    expect(dom.querySelector('.brand-sub')?.textContent).not.toContain('Prête');
+    expect(dom.querySelector('[data-testid="mc-ia"]'), 'un voyant d’ouvrières inventé').toBeNull();
 
     await act(async () =>
       flux().onState({ projects: [], nodes: [], tasks: [], tasksTotal: 0 } as never),

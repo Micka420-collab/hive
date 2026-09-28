@@ -33,8 +33,16 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Sur téléphone, une colonne empilait quatre champs pleine largeur : la barre
+   occupait tout le premier écran avant le moindre travail. La recherche garde
+   la largeur, les trois listes se rangent deux par deux. */
 @media (max-width: 640px) {
   .ft-champs {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0 8px;
+  }
+
+  .ft-champs > :first-child {
+    grid-column: 1 / -1;
   }
 }

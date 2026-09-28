@@ -775,9 +775,13 @@ export function App() {
             <div>
               <h1>{lang === 'fr' ? current.label : current.labelEn}</h1>
               <span className="brand-sub">
-                {snapshot.projects.length === 0
-                  ? t('Prête — un projet, ce nœud', 'Ready — one project, this node')
-                  : `${snapshot.projects.length} ${t('projet(s)', 'project(s)')} · ${snapshot.nodes.length} ${t('nœud(s)', 'node(s)')}`}
+                {/* Avant le premier instantané, on ne sait RIEN : « Prête », ce
+                    serait l'état vide dit comme un fait (voir Liaison.tsx). */}
+                {!instantaneRecu
+                  ? '—'
+                  : snapshot.projects.length === 0
+                    ? t('Prête — un projet, ce nœud', 'Ready — one project, this node')
+                    : `${snapshot.projects.length} ${t('projet(s)', 'project(s)')} · ${snapshot.nodes.length} ${t('nœud(s)', 'node(s)')}`}
               </span>
             </div>
           </div>
@@ -837,45 +841,48 @@ export function App() {
             {/* Le voyant d'à côté dit si le NAVIGATEUR parle au hub. Il était
                 vert pendant que « 0 nœud(s) actif(s) » travaillait sur rien :
                 deux questions distinctes, donc deux voyants distincts. */}
-            {(() => {
-              const agents = agentsConnectes(snapshot.nodes);
-              const etat = etatBandeau(agents);
-              const reels = agents.filter((a) => a.enLigne > 0 && !a.simule);
-              const titre =
-                etat === 'reelle'
-                  ? t(
-                      'Les IA qui codent réellement en ce moment',
-                      'The AIs actually coding right now',
-                    )
-                  : etat === 'simulee'
+            {/* Même raison : « aucune ouvrière » sur un instantané pas encore
+                arrivé serait une absence inventée. Inconnu reste inconnu. */}
+            {instantaneRecu &&
+              (() => {
+                const agents = agentsConnectes(snapshot.nodes);
+                const etat = etatBandeau(agents);
+                const reels = agents.filter((a) => a.enLigne > 0 && !a.simule);
+                const titre =
+                  etat === 'reelle'
                     ? t(
-                        'Seul un agent SIMULÉ répond : les diffs produits ne viennent d’aucune IA',
-                        'Only a SIMULATED agent answers: the diffs produced come from no AI',
+                        'Les IA qui codent réellement en ce moment',
+                        'The AIs actually coding right now',
                       )
-                    : etat === 'aucune_ia'
+                    : etat === 'simulee'
                       ? t(
-                          'Des ouvrières sont inscrites, aucune ne répond',
-                          'Workers are registered, none answers',
+                          'Seul un agent SIMULÉ répond : les diffs produits ne viennent d’aucune IA',
+                          'Only a SIMULATED agent answers: the diffs produced come from no AI',
                         )
-                      : t(
-                          'Aucune ouvrière inscrite — lancez « npm run node » sur votre poste',
-                          'No worker registered — run « npm run node » on your machine',
-                        );
-              return (
-                <span className={`mc-ia mc-ia-${etat}`} data-testid="mc-ia" title={titre}>
-                  <span className="conn-dot" />
-                  <span data-testid="mc-ia-mot">
-                    {etat === 'reelle'
-                      ? reels.map((a) => a.libelle).join(' · ')
-                      : etat === 'simulee'
-                        ? t('simulé — aucune IA', 'simulated — no AI')
-                        : etat === 'aucune_ia'
-                          ? t('aucune ouvrière en ligne', 'no worker online')
-                          : t('aucune ouvrière', 'no worker')}
+                      : etat === 'aucune_ia'
+                        ? t(
+                            'Des ouvrières sont inscrites, aucune ne répond',
+                            'Workers are registered, none answers',
+                          )
+                        : t(
+                            'Aucune ouvrière inscrite — lancez « npm run node » sur votre poste',
+                            'No worker registered — run « npm run node » on your machine',
+                          );
+                return (
+                  <span className={`mc-ia mc-ia-${etat}`} data-testid="mc-ia" title={titre}>
+                    <span className="conn-dot" />
+                    <span data-testid="mc-ia-mot">
+                      {etat === 'reelle'
+                        ? reels.map((a) => a.libelle).join(' · ')
+                        : etat === 'simulee'
+                          ? t('simulé — aucune IA', 'simulated — no AI')
+                          : etat === 'aucune_ia'
+                            ? t('aucune ouvrière en ligne', 'no worker online')
+                            : t('aucune ouvrière', 'no worker')}
+                    </span>
                   </span>
-                </span>
-              );
-            })()}
+                );
+              })()}
             <span
               className={connected ? 'conn online' : 'conn offline'}
               title={
