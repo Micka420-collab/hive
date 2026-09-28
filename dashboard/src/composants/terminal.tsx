@@ -66,21 +66,28 @@ export interface NiveauTerminal {
   repere: string;
 }
 
-/** Une occurrence de la recherche : ligne (dans les lignes AFFICHÉES) et position. */
+/** Une occurrence de la recherche : ligne (dans les lignes AFFICHÉES) et plage `[debut, fin[`. */
 export interface Occurrence {
   ligne: number;
   debut: number;
+  fin: number;
 }
 
-/** Toutes les occurrences de `requete` (insensible à la casse), dans l'ordre. */
+/**
+ * Toutes les occurrences de `requete` (insensible à la casse), dans l'ordre.
+ *
+ * Cherchées dans le texte ORIGINAL, par une expression insensible à la casse,
+ * et non dans `texte.toLowerCase()` : certaines lettres changent de longueur
+ * en minuscule (« İ » en fait deux), et des positions prises dans la copie
+ * minuscule décalaient tout surlignage qui les suivait sur la ligne.
+ */
 export function occurrences(lignes: readonly LigneTerminal[], requete: string): Occurrence[] {
-  const r = requete.toLowerCase();
-  if (r === '') return [];
+  if (requete === '') return [];
+  const motif = new RegExp(requete.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'giu');
   const out: Occurrence[] = [];
   lignes.forEach((l, ligne) => {
-    const t = l.texte.toLowerCase();
-    for (let i = t.indexOf(r); i >= 0; i = t.indexOf(r, i + r.length))
-      out.push({ ligne, debut: i });
+    for (const m of l.texte.matchAll(motif))
+      out.push({ ligne, debut: m.index, fin: m.index + m[0].length });
   });
   return out;
 }
@@ -113,19 +120,17 @@ export function fenetreVisible(
 /** Le texte d'une ligne, occurrences surlignées ; l'occurrence courante marquée. */
 function Surligne({
   texte,
-  longueur,
-  debuts,
+  plages,
   courante,
 }: {
   texte: string;
-  longueur: number;
-  debuts: readonly number[];
+  plages: readonly Occurrence[];
   courante: number | null;
 }) {
-  if (debuts.length === 0) return <>{texte}</>;
+  if (plages.length === 0) return <>{texte}</>;
   const morceaux: ReactNode[] = [];
   let curseur = 0;
-  for (const d of debuts) {
+  for (const { debut: d, fin } of plages) {
     if (d > curseur) morceaux.push(texte.slice(curseur, d));
     const estCourante = d === courante;
     morceaux.push(
@@ -134,10 +139,10 @@ function Surligne({
         className={`ds-terminal-marque${estCourante ? ' courante' : ''}`}
         {...(estCourante ? { 'aria-current': true } : {})}
       >
-        {texte.slice(d, d + longueur)}
+        {texte.slice(d, fin)}
       </mark>,
     );
-    curseur = d + longueur;
+    curseur = fin;
   }
   if (curseur < texte.length) morceaux.push(texte.slice(curseur));
   return <>{morceaux}</>;
@@ -196,8 +201,13 @@ export function Terminal({
   // dit à React qu'une mesure a changé.
   const mesures = useRef(new WeakMap<LigneTerminal, number>());
   const [versionMesures, setVersionMesures] = useState(0);
-  // La dernière ligne vue en se détachant du bas : ce qui la suit est « nouveau ».
-  const [repere, setRepere] = useState<LigneTerminal | null>(null);
+  // Les lignes arrivées — et qui passent les filtres — depuis qu'on s'est
+  // détaché du bas. Un COMPTE qui monte à chaque arrivée, pas la distance à
+  // une ligne repère : le tampon évince ses plus vieilles lignes et le Journal
+  // recrée les siennes au changement de langue, et un repère disparu faisait
+  // annoncer le tampon ENTIER comme nouveau (« ↓ 12000 »).
+  const [nouvelles, setNouvelles] = useState(0);
+  const derniereRendue = useRef<LigneTerminal | null>(null);
   const racine = useRef<HTMLElement>(null);
   const zone = useRef<HTMLDivElement>(null);
   const champ = useRef<HTMLInputElement>(null);
@@ -227,11 +237,11 @@ export function Terminal({
     [affichees, parNiveauAffiche, trouvees, requete],
   );
   const parLigne = useMemo(() => {
-    const m = new Map<number, number[]>();
+    const m = new Map<number, Occurrence[]>();
     for (const o of occ) {
       const liste = m.get(o.ligne);
-      if (liste) liste.push(o.debut);
-      else m.set(o.ligne, [o.debut]);
+      if (liste) liste.push(o);
+      else m.set(o.ligne, [o]);
     }
     return m;
   }, [occ]);
@@ -252,11 +262,23 @@ export function Terminal({
   const total = debuts[debuts.length - 1] ?? 0;
   const { premiere, derniere } = fenetreVisible(debuts, haut, vue);
 
-  const nouvelles = useMemo(() => {
-    if (suivre || repere === null) return 0;
-    const i = lignes.lastIndexOf(repere);
-    return i < 0 ? lignes.length : lignes.length - 1 - i;
-  }, [suivre, repere, lignes]);
+  // La DERNIÈRE ligne du passage précédent est toujours là au suivant (le
+  // tampon évince par le début) : ce qui la suit vient d'arriver. Introuvable
+  // — lignes recréées, tampon vidé —, rien n'est PROUVÉ nouveau : on n'ajoute
+  // rien plutôt que de gonfler le compte.
+  useEffect(() => {
+    const avant = derniereRendue.current;
+    derniereRendue.current = lignes[lignes.length - 1] ?? null;
+    if (suivre || avant === null) return;
+    const i = lignes.lastIndexOf(avant);
+    if (i < 0) return;
+    const arrivees = lignes.slice(i + 1).filter((l) => !masques.has(l.niveau));
+    const n =
+      seulesTrouvees && requete !== ''
+        ? new Set(occurrences(arrivees, requete).map((o) => o.ligne)).size
+        : arrivees.length;
+    if (n > 0) setNouvelles((v) => v + n);
+  }, [lignes, suivre, masques, seulesTrouvees, requete]);
 
   const defiler = useCallback((y: number) => {
     const el = zone.current;
@@ -339,7 +361,7 @@ export function Terminal({
 
   const detacher = () => {
     setSuivre(false);
-    setRepere(lignes[lignes.length - 1] ?? null);
+    setNouvelles(0);
   };
 
   const basculerSuivre = (oui: boolean) => {
@@ -435,6 +457,15 @@ export function Terminal({
   };
 
   const presents = niveaux.filter((n) => (parNiveau.get(n.cle) ?? 0) > 0);
+  // Un niveau masqué reste masqué s'il revient (c'est le choix du lecteur) —
+  // mais sa bascule doit rester À L'ÉCRAN tant qu'il masque quelque chose :
+  // une nouvelle tentative qui n'écrit que sur stdout, stdout masqué, cachait
+  // sinon toutes les lignes sans laisser de quoi les rendre.
+  const barreNiveaux = presents.length > 1 || presents.some((n) => masques.has(n.cle));
+  const reinitialiserFiltres = () => {
+    setMasques(new Set());
+    setSeulesTrouvees(false);
+  };
   const avecHeures = lignes.some((l) => l.horodatage !== undefined);
   const idTitre = `${base}-titre`;
   const texteCopie =
@@ -497,7 +528,7 @@ export function Terminal({
                 type="button"
                 className={`chip${seulesTrouvees ? ' active' : ''}`}
                 aria-pressed={seulesTrouvees}
-                onClick={() => setSeulesTrouvees(!seulesTrouvees)}
+                onClick={() => setSeulesTrouvees((v) => !v)}
               >
                 {t('lignes trouvées seules', 'matching lines only')}
               </button>
@@ -515,7 +546,7 @@ export function Terminal({
             type="button"
             className={`chip${replier ? ' active' : ''}`}
             aria-pressed={replier}
-            onClick={() => setReplier(!replier)}
+            onClick={() => setReplier((v) => !v)}
           >
             {t('replier', 'wrap')}
           </button>
@@ -524,7 +555,7 @@ export function Terminal({
               type="button"
               className={`chip${heures ? ' active' : ''}`}
               aria-pressed={heures}
-              onClick={() => setHeures(!heures)}
+              onClick={() => setHeures((v) => !v)}
               title={libelleHeure}
             >
               {t('heures', 'times')}
@@ -572,7 +603,7 @@ export function Terminal({
           )}
         </div>
       </div>
-      {presents.length > 1 && (
+      {barreNiveaux && (
         <div className="ds-terminal-niveaux" role="group" aria-label={t('Niveaux', 'Levels')}>
           {presents.map((n) => {
             const visible = !masques.has(n.cle);
@@ -616,7 +647,10 @@ export function Terminal({
               {t(
                 `Aucune des ${lignes.length} ligne(s) ne passe les filtres.`,
                 `None of the ${lignes.length} line(s) pass the filters.`,
-              )}
+              )}{' '}
+              <button type="button" className="chip" onClick={reinitialiserFiltres}>
+                {t('tout afficher', 'show all')}
+              </button>
             </p>
           ) : (
             <div className="ds-terminal-espace" style={{ height: total }}>
@@ -643,8 +677,7 @@ export function Terminal({
                     >
                       <Surligne
                         texte={l.texte}
-                        longueur={requete.length}
-                        debuts={parLigne.get(i) ?? []}
+                        plages={parLigne.get(i) ?? []}
                         courante={courant ? occ[indexCourant]!.debut : null}
                       />
                     </span>
@@ -662,7 +695,7 @@ export function Terminal({
             </div>
           )}
         </div>
-        {nouvelles > 0 && (
+        {!suivre && nouvelles > 0 && (
           <button
             type="button"
             className="chip active ds-terminal-nouvelles"

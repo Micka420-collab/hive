@@ -421,6 +421,33 @@ describe.skipIf(process.platform === 'win32')(
       expect(r.finalText).toBe('conteste\n- une garde manque');
     });
 
+    it('CURSOR : un `result` à `is_error` part à l’écran au niveau « erreur »', async () => {
+      // Sa ligne `result` porte `is_error`, comme celle de Claude Code : lue
+      // par `graviteStreamJson`, l'erreur de Cursor a un niveau dans la
+      // console — elle partait en simple stdout.
+      const dossier = dossierJetable();
+      const bin = fauxBinaire(
+        dossier,
+        'cursor-agent',
+        [
+          "const ecrire = (e) => process.stdout.write(JSON.stringify(e) + '\\n');",
+          "ecrire({ type: 'system', subtype: 'init', session_id: 's' });",
+          // Au-delà d'un intervalle de cadence : sinon la fin du processus
+          // taisait, à raison, la dernière ligne (`SortieDirecte.terminer`).
+          "setTimeout(() => ecrire({ type: 'result', subtype: 'error', is_error: true, result: 'quota épuisé', session_id: 's' }), 400);",
+        ].join('\n'),
+      );
+      const niveaux: string[] = [];
+      const ctx = contexte(dossier);
+      ctx.onProgress = (p) => {
+        for (const b of p.sortie ?? []) niveaux.push(b.niveau);
+      };
+      await avecEnv('HIVE_CURSOR_BIN', bin, () =>
+        createCursorAdapter(TOKEN).run(tache('relis'), ctx),
+      );
+      expect(niveaux).toEqual(['stdout', 'erreur']);
+    });
+
     it('un caractère accentué COUPÉ entre deux lectures reste entier dans la réponse', async () => {
       // « é » tient sur deux octets (C3 A9). Écrits en deux fois, ils arrivent
       // en deux morceaux ; décodés morceau par morceau, ils devenaient « �� »

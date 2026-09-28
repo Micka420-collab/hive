@@ -119,6 +119,14 @@ describe('CHERCHER — surligner, compter, aller de l’une à l’autre', () =>
     expect(dom.textContent).toContain('1/2');
   });
 
+  it('une lettre qui s’allonge en minuscule ne décale pas le surlignage', async () => {
+    // « İ » devient deux unités en minuscule : une position prise dans la
+    // copie minuscule marquait « rror » au lieu de « error ».
+    const dom = await monter(rendu([ligne('İstanbul error ERROR')]));
+    await taper(dom.querySelector('input[type="search"]')!, 'error');
+    expect([...dom.querySelectorAll('mark')].map((m) => m.textContent)).toEqual(['error', 'ERROR']);
+  });
+
   it('Entrée, Maj+Entrée, les flèches, n / N : en boucle', async () => {
     const dom = await monter(rendu(lignes));
     const champ = dom.querySelector<HTMLInputElement>('input[type="search"]')!;
@@ -197,6 +205,34 @@ describe('NIVEAUX — ceux qui sont là, et seulement eux', () => {
     const dom = await monter(rendu([ligne('a'), ligne('b')]));
     expect(dom.querySelector('[data-niveau]')).toBeNull();
   });
+
+  it('un niveau masqué qui reste SEUL garde sa bascule — jamais d’impasse', async () => {
+    // Une nouvelle tentative n'écrit que sur stdout, stdout était masqué :
+    // la barre disparaissait, et plus rien ne rendait les lignes.
+    const dom = await monter(rendu([ligne('a'), ligne('b', 'stderr')]));
+    await act(async () => dom.querySelector<HTMLButtonElement>('[data-niveau="stdout"]')!.click());
+    await act(async () => racine?.render(rendu([ligne('a'), ligne('c')])));
+    expect(textes(dom)).toEqual([]);
+    const stdout = dom.querySelector<HTMLButtonElement>('[data-niveau="stdout"]');
+    expect(stdout?.getAttribute('aria-pressed')).toBe('false');
+    // Et la zone filtrée offre de tout rendre d'un geste.
+    await act(async () => bouton(dom, 'tout afficher').click());
+    expect(textes(dom)).toEqual(['a', 'c']);
+    expect(dom.querySelector('[data-niveau]')).toBeNull();
+  });
+
+  it('les bascules de niveau disent leur état au lecteur d’écran ; la zone est un journal nommé', async () => {
+    const dom = await monter(rendu([ligne('a'), ligne('b', 'stderr')]));
+    const el = zone(dom);
+    expect(el.getAttribute('role')).toBe('log');
+    const titre = dom.querySelector(`#${CSS.escape(el.getAttribute('aria-labelledby')!)}`);
+    expect(titre?.textContent).toBe('Sortie');
+    expect(dom.querySelector('[role="group"]')?.getAttribute('aria-label')).toBe('Niveaux');
+    const reperes = [...el.querySelectorAll('.ds-terminal-repere')].map((r) =>
+      r.getAttribute('aria-label'),
+    );
+    expect(reperes).toEqual(['stdout', 'stderr']);
+  });
 });
 
 describe('SUIVRE — collé au bas, détaché pour lire, et ce qui est arrivé depuis', () => {
@@ -224,6 +260,29 @@ describe('SUIVRE — collé au bas, détaché pour lire, et ce qui est arrivé d
     await act(async () => annonce.click());
     expect(suivre.getAttribute('aria-pressed')).toBe('true');
     expect(bouton(dom, /nouvelle\(s\) ligne\(s\)/)).toBeUndefined();
+  });
+
+  it('le compte ne gonfle pas quand le tampon évince le début, et ignore les lignes masquées', async () => {
+    const debut = Array.from({ length: 50 }, (_, i) => ligne(`ligne ${i}`));
+    const bruit = ligne('bruit', 'stderr');
+    const dom = await monter(rendu([...debut, bruit]));
+    await act(async () => dom.querySelector<HTMLButtonElement>('[data-niveau="stderr"]')!.click());
+    const el = zone(dom);
+    Object.defineProperty(el, 'clientHeight', { value: 100, configurable: true });
+    Object.defineProperty(el, 'scrollHeight', { value: 50 * HAUTEUR_LIGNE, configurable: true });
+    await act(async () => {
+      el.scrollTop = 0;
+      el.dispatchEvent(new Event('scroll'));
+    });
+    // Le tampon évince les 40 plus vieilles lignes — dont celle qu'on lisait —
+    // et trois arrivent, dont une masquée.
+    const suite = [...debut.slice(40), bruit, ligne('n1'), ligne('n2', 'stderr'), ligne('n3')];
+    await act(async () => racine?.render(rendu(suite)));
+    expect(bouton(dom, /nouvelle\(s\) ligne\(s\)/).textContent).toBe('↓ 2 nouvelle(s) ligne(s)');
+    // Des lignes RECRÉÉES (le Journal au changement de langue) : rien n'est
+    // prouvé nouveau, le compte ne bouge pas.
+    await act(async () => racine?.render(rendu(suite.map((l) => ({ ...l })))));
+    expect(bouton(dom, /nouvelle\(s\) ligne\(s\)/).textContent).toBe('↓ 2 nouvelle(s) ligne(s)');
   });
 
   it('aller à une occurrence détache aussi : sinon la ligne suivante l’arracherait', async () => {

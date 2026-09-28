@@ -204,6 +204,19 @@ describe('la gravité que l’agent déclare — ses événements, jamais son te
     );
     expect(refaite?.gravite).toBe('avertissement');
   });
+
+  it('Codex `turn.failed` sans `error` avant lui : la seule erreur du tour, dite en direct', () => {
+    // Codex tire la raison de `turn.error` avant la dernière erreur vue
+    // (event_processor_with_jsonl_output.rs) : un tour échoue sans `error`.
+    const echec = JSON.stringify({ type: 'turn.failed', error: { message: 'quota épuisé' } });
+    const seul = createLecteurFluxCodex().lire(echec);
+    expect(seul?.gravite).toBe('erreur');
+    expect(seul?.texte).toContain('quota épuisé');
+    // Déjà dite par un `error` au même message : pas de doublon.
+    const lecteur = createLecteurFluxCodex();
+    lecteur.lire(JSON.stringify({ type: 'error', message: 'quota épuisé' }));
+    expect(lecteur.lire(echec)).toBeUndefined();
+  });
 });
 
 describe('exec — un vrai processus, ses deux flux, ses événements', () => {
@@ -244,7 +257,12 @@ describe('exec — un vrai processus, ses deux flux, ses événements', () => {
 
   it('stderr reste stderr jusqu’au morceau qui part au nœud', async () => {
     const lignes = await lancer(
-      "process.stdout.write('compilation\\n');\nprocess.stderr.write('warning: x est inutilisé\\n');\n",
+      "process.stdout.write('compilation\\n');\n" +
+        // Deux tubes, deux événements : arrivée dans le même intervalle de
+        // cadence que stdout, la ligne de stderr attendait le suivant, et la
+        // fin du processus la taisait (voulu : `SortieDirecte.terminer`) —
+        // le banc échouait sous charge. Écrite au-delà de l'intervalle.
+        "setTimeout(() => process.stderr.write('warning: x est inutilisé\\n'), 400);\n",
       'texte',
     );
     expect(lignes).toContainEqual(['stdout', 'compilation']);

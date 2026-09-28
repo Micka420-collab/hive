@@ -382,8 +382,15 @@ export function createLecteurFluxCodex(
         reponse = undefined;
         fin = 'echec';
         raisonDuTour = chaine(objet(e.error)?.message);
-        // Rien ici : le bilan l'écrit, en clair, après le plafond des logs.
-        return undefined;
+        // Le bilan écrit la raison, en clair, après le plafond des logs. En
+        // direct, le plus souvent, un `error` au même message l'a déjà dite :
+        // pas de doublon. Mais Codex tire cette raison de `turn.error` AVANT
+        // la dernière erreur vue (event_processor_with_jsonl_output.rs,
+        // TurnStatus::Failed) : un tour peut échouer sans `error` avant lui,
+        // et cette ligne est alors la seule erreur de l'agent dans la console.
+        if (raisonDuTour !== undefined && raisonDuTour === derniereErreur) return undefined;
+        gravite = 'erreur';
+        return narrer('tour en échec', raisonDuTour ?? '');
       case 'error': {
         // Marquée : une tentative refaite n'est pas l'échec. Une erreur qui
         // fait échouer le tour revient dans `turn.failed` ; une erreur non

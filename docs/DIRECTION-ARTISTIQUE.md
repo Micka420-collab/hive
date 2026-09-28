@@ -169,7 +169,7 @@ couvre aussi les animations qui n'existent pas encore.
 ## Primitives
 
 Dans `dashboard/src/composants/`, stylées par les seuls jetons, testées dans
-`dashboard/tests/composants.test.tsx` :
+`dashboard/tests/composants.test.tsx` (le `Terminal`, dans `tests/terminal.test.tsx`) :
 
 | Primitive                                 | Contrat                                                                                                                                                                                                                                                                                                                                                                                              |
 | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -189,16 +189,20 @@ Dans `dashboard/src/composants/`, stylées par les seuls jetons, testées dans
 Le niveau d'une ligne de la console en direct vient du **nœud** : le flux du
 processus (stdout, stderr), la gravité que le flux structuré de l'agent
 déclare (erreur ou avertissement de Codex `--json` et du stream-json de Claude
-Code), ou une ligne de Hive (omission annoncée) — jamais deviné dans le texte
-(`src/shared/niveaux-sortie.ts`). Le Journal range chaque événement à la
-sévérité de sa fiche.
+Code et de Cursor), ou une ligne de Hive (omission annoncée) — jamais deviné
+dans le texte (`src/shared/niveaux-sortie.ts`). Le Journal range chaque
+événement à la sévérité de sa fiche.
 
 <p align="center">
-  <img src="images/console/tiroir.bureau.sombre.png" width="840" alt="Le tiroir d'une tâche en cours, thème sombre : la sortie en direct, lignes stdout et stderr marquées, filtres par niveau avec leurs comptes.">
+  <img src="images/console/tiroir.bureau.sombre.png" width="840" alt="Le tiroir d'une tâche en cours, thème sombre : la sortie en direct, lignes stdout, stderr, avertissement et erreur de l'agent marquées, filtres par niveau avec leurs comptes.">
 </p>
 <p align="center">
-  <img src="images/console/recherche.bureau.png" width="520" alt="La console : recherche « WARN » surlignée, occurrence 2 sur 46, et l'annonce de huit nouvelles lignes arrivées depuis qu'on a quitté le bas.">
-  <img src="images/console/journal.mobile.png" width="260" alt="Le Journal sur mobile : filtres par sévérité, heures, lignes abrégées.">
+  <img src="images/console/tiroir.bureau.clair.png" width="840" alt="Le même tiroir en thème clair : repères ⚠ et ✘ devant les lignes d'avertissement et d'erreur de l'agent.">
+</p>
+<p align="center">
+  <img src="images/console/recherche.bureau.png" width="520" alt="La console : stdout et stderr masqués, seules les lignes d'avertissement et d'erreur de l'agent restent ; recherche « erreur » surlignée, occurrence 2 sur 4.">
+  <img src="images/console/tiroir.mobile.sombre.png" width="200" alt="Le tiroir sur mobile : barre de la console repliée sur plusieurs rangs, filtres par niveau, lignes longues repliées.">
+  <img src="images/console/journal.mobile.png" width="200" alt="Le Journal sur mobile : filtres par sévérité, heures, lignes abrégées.">
 </p>
 
 ## À faire / à ne pas faire

@@ -97,34 +97,47 @@ const DELEGATION_RESULT_GRACE_MS = 5 * 60_000;
  * est pas un.
  *
  * Et le caviardage peut ALLONGER (`sk-x` devient `[secret]`) : couper à
- * l'aveugle ferait disparaître la fin sans le dire. On garde les lignes
- * entières qui tiennent, et on l'annonce — comme `sortie-directe.ts` annonce
- * ses omissions, par une ligne de Hive.
+ * l'aveugle ferait disparaître la fin sans le dire. Si le tout ne tient plus,
+ * on garde les lignes entières qui tiennent AVEC l'annonce — comme
+ * `sortie-directe.ts` annonce ses omissions, par une ligne de Hive. La place
+ * de l'annonce est réservée AVANT de retenir un bloc : les blocs retenus
+ * pouvaient sinon déjà laisser moins que l'annonce, qui passait quand même,
+ * et un morceau au-delà de `LIMITS.sortie` fait refuser le `task_update`
+ * ENTIER — le hub ferme la socket du nœud au milieu de la tâche.
  */
 function morceauVersHub(
   blocs: readonly BlocSortie[],
   caviarder: (s: string) => string,
 ): { sortie: string; niveaux: SegmentNiveau[] } | null {
-  const annonce = '[… fin du morceau omise après caviardage]\n';
-  let sortie = '';
-  const niveaux: [NiveauSortie, number][] = [];
+  const caviardes: BlocSortie[] = [];
+  let total = 0;
   for (const bloc of blocs) {
     let texte = caviarder(bloc.texte);
     if (texte === '') continue;
     if (!texte.endsWith('\n')) texte += '\n';
-    if (sortie.length + texte.length > LIMITS.sortie) {
-      const place = LIMITS.sortie - annonce.length - sortie.length;
-      const coupe = place > 0 ? texte.slice(0, place).lastIndexOf('\n') : -1;
-      const tete = coupe >= 0 ? texte.slice(0, coupe + 1) : '';
-      sortie += tete + annonce;
-      pousserSegment(niveaux, bloc.niveau, compterLignes(tete));
-      pousserSegment(niveaux, 'hive', 1);
-      return { sortie, niveaux };
-    }
-    sortie += texte;
-    pousserSegment(niveaux, bloc.niveau, compterLignes(texte));
+    caviardes.push({ niveau: bloc.niveau, texte });
+    total += texte.length;
   }
-  return sortie === '' ? null : { sortie, niveaux };
+  if (caviardes.length === 0) return null;
+  const annonce = '[… fin du morceau omise après caviardage]\n';
+  const budget = total <= LIMITS.sortie ? LIMITS.sortie : LIMITS.sortie - annonce.length;
+  let sortie = '';
+  const niveaux: [NiveauSortie, number][] = [];
+  for (const { niveau, texte } of caviardes) {
+    // Chaque bloc retenu finit par `\n` : `sortie` est toujours coupée à une
+    // fin de ligne, et `place` ne descend jamais sous zéro.
+    const place = budget - sortie.length;
+    const coupe = place > 0 ? texte.lastIndexOf('\n', place - 1) : -1;
+    const tete = texte.length <= place ? texte : texte.slice(0, coupe + 1);
+    sortie += tete;
+    pousserSegment(niveaux, niveau, compterLignes(tete));
+    if (tete.length < texte.length) break;
+  }
+  if (budget < LIMITS.sortie) {
+    sortie += annonce;
+    pousserSegment(niveaux, 'hive', 1);
+  }
+  return { sortie, niveaux };
 }
 
 /**
