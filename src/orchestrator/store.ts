@@ -1727,6 +1727,13 @@ function rowToNode(row: NodeRowBrut): HiveNode {
 // relit le schéma et rougit tant qu'elle n'y est pas — sinon, supprimer un
 // projet laisserait ses lignes derrière lui, pour toujours.
 const TACHES_DU_PROJET = 'SELECT id FROM tasks WHERE projectId = @p';
+
+/**
+ * Combien de faits d'audit `project_deleted` la rétention du journal épargne —
+ * les plus récents (`faitsRanges`). Compté dans l'inégalité du plafond
+ * (tests/retention-journal.test.ts) comme les autres faits rangés.
+ */
+export const AUDITS_SUPPRESSION_CONSERVES = 1_000;
 const SEANCES_DU_PROJET = 'SELECT id FROM conseil_sessions WHERE projectId = @p';
 const CLES_DE_TACHE = [
   'taskId',
@@ -6495,13 +6502,16 @@ export class HiveStore {
    *     historique. Le verdict est aussi une preuve de sa production ; cette
    *     clause le tient au-delà de sa clôture et hors du plafond, tant que la
    *     production compte pour l'apprentissage. Bornée par `CORPUS_AIGUILLAGE`.
-   *   · Le fait d'AUDIT d'une suppression de projet (`project_deleted`), qui ne
-   *     part JAMAIS. C'est tout ce qui reste d'un projet supprimé (décision du
-   *     propriétaire : supprimer, pas archiver — sauf cette ligne) : l'élaguer
-   *     au bout de quelques heures de journal ferait qu'il n'aurait jamais
-   *     existé, ni personne pour l'avoir effacé. Borné par construction : une
-   *     ligne par geste humain de suppression, sans contenu (des comptes et un
-   *     nom) — hors de l'inégalité du plafond, comme un geste humain l'est.
+   *   · Les `AUDITS_SUPPRESSION_CONSERVES` derniers faits d'AUDIT d'une
+   *     suppression de projet (`project_deleted`). C'est tout ce qui reste d'un
+   *     projet supprimé (décision du propriétaire : supprimer, pas archiver —
+   *     sauf cette ligne) : l'élaguer au bout de quelques heures de journal
+   *     ferait qu'il n'aurait jamais existé, ni personne pour l'avoir effacé.
+   *     « Un geste humain » ne bornait rien : un script qui crée puis supprime
+   *     des projets en boucle en pose autant qu'il veut, et chacun échappait à
+   *     la fenêtre ET au plafond. Au-delà du nombre, les plus anciens
+   *     redeviennent des traces que la rétention retire — et compte au
+   *     registre, comme tout ce qu'elle retire (#527).
    */
   private faitsRanges(): Set<number> {
     const decisions = this.db
@@ -6520,8 +6530,8 @@ export class HiveStore {
       verdictId: number | null;
     }>;
     const suppressions = this.db
-      .prepare(`SELECT id FROM events WHERE type = 'project_deleted'`)
-      .all() as Array<{ id: number }>;
+      .prepare(`SELECT id FROM events WHERE type = 'project_deleted' ORDER BY id DESC LIMIT ?`)
+      .all(AUDITS_SUPPRESSION_CONSERVES) as Array<{ id: number }>;
     return new Set([
       ...decisions.map((r) => r.id),
       ...suppressions.map((r) => r.id),

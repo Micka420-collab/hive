@@ -32,7 +32,7 @@ import {
   createServer,
   type HiveServer,
 } from '../src/orchestrator/server.js';
-import { HiveStore } from '../src/orchestrator/store.js';
+import { AUDITS_SUPPRESSION_CONSERVES, HiveStore } from '../src/orchestrator/store.js';
 import { TYPES_CHRONOLOGIE } from '../src/shared/chronologie-tache.js';
 import {
   TACHES_NOMMEES,
@@ -354,10 +354,14 @@ describe('le récit d’une passe est borné', () => {
 describe('la politique de la Reine', () => {
   it('LE PLAFOND DÉPASSE LA FENÊTRE ET LES FAITS RANGÉS — sinon il ne pourrait pas tenir sa promesse', () => {
     // Le plafond ne touche jamais la fenêtre ni les faits rangés (une décision
-    // par Conseil conservé, un verdict par production du corpus) : il ne peut
+    // par Conseil conservé, un verdict par production du corpus, les derniers
+    // audits de suppression de projet) : il ne peut
     // borner le journal que s'il leur laisse de la place, et des preuves au-delà.
     expect(POLITIQUE_JOURNAL.plafond).toBeGreaterThan(
-      POLITIQUE_JOURNAL.fenetre + CONSEILS_CONSERVES + CORPUS_AIGUILLAGE,
+      POLITIQUE_JOURNAL.fenetre +
+        CONSEILS_CONSERVES +
+        CORPUS_AIGUILLAGE +
+        AUDITS_SUPPRESSION_CONSERVES,
     );
   });
 

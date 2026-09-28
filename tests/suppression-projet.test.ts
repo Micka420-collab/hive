@@ -40,7 +40,7 @@ import { SEUIL_BUTINEUSE } from '../src/orchestrator/polyethisme.js';
 import { Scheduler } from '../src/orchestrator/scheduler.js';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
-import { HiveStore } from '../src/orchestrator/store.js';
+import { AUDITS_SUPPRESSION_CONSERVES, HiveStore } from '../src/orchestrator/store.js';
 import { CHANTIER_TIMEOUT_MS } from '../src/shared/butoirs-noeud.js';
 import type { HiveEvent, Task } from '../src/shared/types.js';
 import { TYPES_REGISTRE_GENOME } from '../src/shared/registre-genome.js';
@@ -429,6 +429,36 @@ describe('Scheduler.supprimerProjet — le travail en vol', () => {
     expect(audit.map((e) => e.payload)).toEqual([
       expect.objectContaining({ projectId: p.id, name: 'Éphémère', parUserId: 'compte-7' }),
     ]);
+  });
+
+  it('LES FAITS D’AUDIT SONT ÉPARGNÉS PAR NOMBRE, PAS SANS FIN — les plus anciens partent, et le registre le dit', () => {
+    // « Un geste humain » ne bornait rien : un script qui crée et supprime des
+    // projets en boucle posait autant de lignes qu'il voulait, chacune hors de
+    // la fenêtre ET du plafond. Seuls les `AUDITS_SUPPRESSION_CONSERVES` plus
+    // récents sont épargnés ; les autres redeviennent des traces (#527).
+    const surplus = 3;
+    store.enTransaction(() => {
+      for (let i = 0; i < AUDITS_SUPPRESSION_CONSERVES + surplus; i++) {
+        store.appendEvent('project_deleted', { projectId: `p-${i}`, name: `P${i}` });
+      }
+    });
+    for (let i = 0; i <= 50; i++) store.appendEvent('thermo_shift', { i });
+
+    const bilan = store.pruneEvents(fenetreSeule(50));
+
+    const audits = store
+      .listEvents(0, 10_000)
+      .filter((e) => e.type === 'project_deleted')
+      .map((e) => e.payload.projectId);
+    expect(audits).toHaveLength(AUDITS_SUPPRESSION_CONSERVES);
+    expect(audits, 'un audit ancien a survécu au-delà du nombre').not.toContain('p-2');
+    expect(audits, 'le plus récent est parti').toContain(
+      `p-${AUDITS_SUPPRESSION_CONSERVES + surplus - 1}`,
+    );
+    expect(audits, 'le plus ancien épargné est parti').toContain(`p-${surplus}`);
+    expect(bilan.supprimes, 'le registre ne compte pas ce qui part').toBeGreaterThanOrEqual(
+      surplus,
+    );
   });
 
   it('un projet inconnu : `null`, aucune annulation, aucun fait', () => {

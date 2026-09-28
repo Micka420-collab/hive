@@ -138,7 +138,7 @@ tâches, résultats, journal, mémoires du Hive Mind (et leurs propositions en
 attente), consignes de routage, dépenses de délégation, liens de partage,
 membres et miroir du code quittent la Reine. Il ne reste qu'une ligne d'audit,
 `project_deleted` (qui, quand, quel nom, combien de lignes), que l'élagage du
-journal n'efface jamais. Seuls le
+journal épargne pour les 1 000 suppressions les plus récentes. Seuls le
 propriétaire et un administrateur le peuvent — le jeton de ruche, sur un projet
 sans propriétaire seulement — et la confirmation exige de **retaper le nom** du
 projet. Des tâches qui tournent font refuser la suppression (la liste est

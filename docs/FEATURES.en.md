@@ -122,7 +122,8 @@ or with `DELETE /api/projects/<id>`. It is a **deletion**, not an archive:
 tasks, results, journal, Hive Mind memories (and their pending proposals),
 routing constraints, delegation spend, share links, members and the code
 mirror leave the Queen. Only one audit line remains, `project_deleted` (who,
-when, which name, how many rows), which journal pruning never removes. Only the owner and an administrator can do it
+when, which name, how many rows), which journal pruning spares for the 1,000
+most recent deletions. Only the owner and an administrator can do it
 — the hive token, on an ownerless project only — and the confirmation requires
 **retyping the project's name**. Running tasks make the deletion refused (the
 list is shown); asking again with `force=true` cancels them first. A merge, a

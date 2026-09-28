@@ -8141,7 +8141,7 @@ async function monterReine(
   // supprimé n'existe plus nulle part — tâches, résultats, journal, mémoires,
   // liens, miroir du Rayon — sauf l'événement d'audit `project_deleted` (qui,
   // quand, quel nom, combien de lignes), que l'élagage du journal épargne
-  // (`pruneEvents`).
+  // pour les `AUDITS_SUPPRESSION_CONSERVES` plus récents (`faitsRanges`).
   //
   // ─── LA GARDE : RÉPONDRE DU PROJET ──────────────────────────────────────────
   //
