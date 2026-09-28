@@ -926,6 +926,45 @@ export async function fetchInvite(url?: string): Promise<InviteResponse> {
   return apiCompte<InviteResponse>(`/api/invite${query}`);
 }
 
+// ─── La découverte du réseau local ──────────────────────────────────────────
+//
+// Les machines qui se signalent (`hive join --decouvrable`) et le geste qui
+// les accueille — voir `src/shared/decouverte.ts` pour le contrat entier.
+
+export type { Decouvert, RelationRuche } from '../../src/orchestrator/decouverte-reseau';
+import type { Decouvert } from '../../src/orchestrator/decouverte-reseau';
+
+export interface DecouverteReseau {
+  /** La ruche écoute-t-elle (`HIVE_DECOUVERTE=1`, prise ouverte) ? */
+  active: boolean;
+  /** L'empreinte PUBLIQUE de cette ruche, telle que la machine l'affichera. */
+  empreinte: string;
+  decouverts: Decouvert[];
+  /** Éteinte : pourquoi, en code fermé — l'écran traduit d'après lui. */
+  motif?: 'eteinte' | 'indisponible';
+  /** `indisponible` : le message brut de la prise (jamais traduit : il vient du système). */
+  cause?: string;
+  /** Éteinte : comment l'allumer, ou pourquoi la prise ne s'est pas ouverte (en français). */
+  conseil?: string;
+  /** Allumée, mais aucune machine ne pourra joindre la ruche (écoute locale). */
+  injoignable?: string;
+}
+
+export function fetchDecouverte(): Promise<DecouverteReseau> {
+  return apiCompte<DecouverteReseau>('/api/decouverte');
+}
+
+/** « Rejoindre » : la ruche scelle un billet sous `code` et le dépose chez la machine. */
+export function rejoindreDecouvert(
+  id: string,
+  code: string,
+): Promise<{ ok: true; billetId: string; nom: string; detail: string }> {
+  return apiCompte(`/api/decouverte/${encodeURIComponent(id)}/rejoindre`, {
+    method: 'POST',
+    body: JSON.stringify({ code }),
+  });
+}
+
 // ─── Mission Control : endpoints d'observation et d'action ──────────────────
 
 export type { HivePulse } from '../../src/orchestrator/pulse';

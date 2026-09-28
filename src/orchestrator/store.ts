@@ -1608,6 +1608,16 @@ CREATE TABLE IF NOT EXISTS missions_taches (
   PRIMARY KEY (missionId, taskId)
 );
 CREATE INDEX IF NOT EXISTS idx_missions_taches_tache ON missions_taches(taskId);
+
+-- L'empreinte PUBLIQUE de la ruche (shared/empreinte-ruche.ts) : UNE ligne,
+-- tirée au sort au premier démarrage, jamais réécrite. Rangée ici parce
+-- qu'elle doit survivre aux redémarrages (sinon les membres de la ruche lui
+-- deviendraient étrangers) sans être dérivée d'aucun secret — elle est
+-- diffusée sur le réseau local. Borne structurelle : une ligne (CHECK).
+CREATE TABLE IF NOT EXISTS identite_ruche (
+  id        INTEGER PRIMARY KEY CHECK (id = 1),
+  empreinte TEXT NOT NULL
+);
 `;
 
 interface ProjectRow {
@@ -2435,6 +2445,21 @@ export class HiveStore {
           WHERE perdus > 0 AND NOT EXISTS (SELECT 1 FROM journal_elagages)`,
       )
       .run(now);
+  }
+
+  /**
+   * L'empreinte publique de cette ruche : lue, ou TIRÉE (`tirer`) et rangée si
+   * la base n'en a pas encore. `INSERT OR IGNORE` puis relecture : deux
+   * appels concurrents sur la même base rendent la même, la première écrite.
+   */
+  empreinteRuche(tirer: () => string): string {
+    this.db
+      .prepare('INSERT OR IGNORE INTO identite_ruche (id, empreinte) VALUES (1, ?)')
+      .run(tirer());
+    const ligne = this.db.prepare('SELECT empreinte FROM identite_ruche WHERE id = 1').get() as {
+      empreinte: string;
+    };
+    return ligne.empreinte;
   }
 
   close(): void {

@@ -36,6 +36,8 @@ const AIDE = [
   '  hive — orchestration communautaire d’agents IA',
   '',
   '  hive join <billet>    rejoindre une ruche avec un billet d’invitation',
+  '                        ou `--decouvrable` : se signaler sur le réseau local',
+  '                        et attendre qu’une ruche présente le code affiché',
   '  hive install          installer et configurer sa propre ruche',
   '  hive node             démarrer un nœud déjà configuré (.env)',
   '  hive cli <commande>   piloter une ruche depuis le terminal',

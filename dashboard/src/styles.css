@@ -1909,6 +1909,112 @@ h3 {
   font-style: normal;
 }
 
+/* ─── Sur votre réseau local (découverte) ─────────────────────────────────
+   Même grammaire que le reste de la modale d'invitation : filets fins, crème,
+   le miel en remplissage seulement. La machine en attente est une rangée ; le
+   code se saisit SUR la rangée, pour qu'on ne se trompe pas de machine. */
+.decouverte {
+  margin: 0 0 14px;
+}
+
+.decouverte h3,
+.invite-sous-titre {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.decouverte .invite-note {
+  margin: 4px 0;
+}
+
+.decouverte-liste {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+}
+
+.decouverte-machine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding: 10px 12px;
+}
+
+.decouverte-machine + .decouverte-machine {
+  border-top: 1px solid var(--border);
+}
+
+.decouverte-ident {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.decouverte-nom {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.decouverte-meta {
+  color: var(--muted);
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+
+.decouverte-code {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1 1 100%;
+}
+
+.decouverte-code label {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.decouverte-code-rangee {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.decouverte-code-rangee .code-input {
+  flex: 1 1 140px;
+  width: auto;
+  margin: 0;
+  padding: 8px 10px;
+  font-family: var(--mono);
+  font-size: 14px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.decouverte-ok {
+  margin: 8px 0 0;
+  color: var(--green);
+  font-size: 13px;
+}
+
+.decouverte-empreinte code {
+  font-family: var(--mono);
+  color: var(--gold);
+}
+
+.invite-sous-titre {
+  margin-top: 4px;
+}
+
 /* ─── Swarm View 3D ───────────────────────────────────────────────────── */
 .swarm3d-canvas {
   width: 100%;

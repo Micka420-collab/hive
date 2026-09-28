@@ -119,6 +119,8 @@ const BORNÉES_PAR_L_HUMAIN: Record<string, string> = {
     'un compteur cumulé par couple (type d’événement, motif d’élagage) — bornée par le vocabulaire FERMÉ des types que le code émet, jamais une ligne par événement ; l’élaguer effacerait ce que le Genome doit savoir de ses pertes',
   connecteurs_projet:
     'autorisation de connecteur par projet (src/connectors) — clé primaire (connecteurId, projectId), une poignée par projet, posée par l’humain et supprimée à la révocation ; jamais auto-générée',
+  identite_ruche:
+    'l’empreinte publique de la ruche — UNE ligne (CHECK id = 1), tirée au premier démarrage, jamais réécrite',
 };
 
 /** Le corps de chaque méthode `prune*` du magasin, accolades suivies. */

@@ -11,6 +11,7 @@ import type {
   RapportLivraisonLocale,
 } from './livraison-locale.js';
 import { estPlateforme } from './machine.js';
+import { estEmpreinte } from './empreinte-ruche.js';
 import { validationsBacDepuis } from './validations-bac.js';
 import { estEffort, estListeEfforts, type Effort } from './effort.js';
 import type { ValidationsBac } from './validations-bac.js';
@@ -476,6 +477,13 @@ export type ClientMessage =
 export interface RegisteredMsg {
   type: 'registered';
   nodeId: string;
+  /**
+   * L'empreinte PUBLIQUE de la ruche (`empreinte-ruche.ts`) : ce que le nœud
+   * diffuse s'il se signale sur le réseau local (`HIVE_DECOUVRABLE`), pour que
+   * sa Reine le reconnaisse comme sien. Absente d'une Reine plus ancienne — le
+   * nœud se dit alors membre d'une ruche inconnue, jamais d'une ruche inventée.
+   */
+  ruche?: string;
 }
 
 export interface AssignTaskMsg {
@@ -1402,7 +1410,16 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
 
   switch (m.type) {
     case 'registered':
-      return isId(m.nodeId) ? { type: 'registered', nodeId: m.nodeId } : null;
+      // Une empreinte mal formée n'annule pas l'inscription : elle est TUE, et
+      // le nœud se dira membre d'une ruche inconnue plutôt que d'en diffuser une
+      // fausse.
+      return isId(m.nodeId)
+        ? {
+            type: 'registered',
+            nodeId: m.nodeId,
+            ...(estEmpreinte(m.ruche) ? { ruche: m.ruche } : {}),
+          }
+        : null;
     case 'assign_task': {
       if (!isValidTask(m.task)) return null;
       if (m.repoUrl !== undefined && m.repoUrl !== null && !isValidRepoUrl(m.repoUrl)) return null;

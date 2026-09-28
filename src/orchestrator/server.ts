@@ -25,6 +25,12 @@ import {
   isValidEmail,
   secretJwtDepuisEnv,
 } from './auth.js';
+import { DecouverteReseau, adresseReineVers, livrerOffre } from './decouverte-reseau.js';
+import type { IssueLivraison } from './decouverte-reseau.js';
+import { TTL_OFFRE_MS, normaliserCode, scellerOffre } from '../shared/decouverte.js';
+import { formaterEmpreinte, tirerEmpreinte } from '../shared/empreinte-ruche.js';
+import { ouvrirTransportUdp } from '../shared/mdns-reseau.js';
+import type { TransportMdns } from '../shared/mdns-reseau.js';
 import { assignationProductionAutorisee, shellForce } from '../shared/agent-production.js';
 import { calibrer, estimerDuree, resteEstime } from '../shared/horloge-chantier.js';
 import type { Calibration } from '../shared/horloge-chantier.js';
@@ -1045,6 +1051,16 @@ export interface ServerConfig {
    * (`shared/reglages.ts`). Optionnel, comme les autres réglages.
    */
   porteeExperience?: PorteeExperience;
+  /**
+   * La découverte du réseau local (`HIVE_DECOUVERTE=1`) : la Reine écoute les
+   * machines qui se signalent en mDNS et le tableau de bord les propose à
+   * « Rejoindre ». ABSENT, elle n'écoute rien — c'est le défaut.
+   *
+   * `ouvrirTransport` : la prise mDNS. Défaut, la vraie (UDP 5353, toutes les
+   * interfaces). C'est le point où un banc branche un bus en mémoire, comme
+   * `fournisseurServeurs` pour les machines.
+   */
+  decouverte?: { ouvrirTransport?: () => Promise<TransportMdns> };
 }
 
 /**
@@ -1101,6 +1117,9 @@ export function loadConfigFromEnv(env: NodeJS.ProcessEnv = process.env): ServerC
     edition: editionDepuisEnv(env),
     porteeExperience: porteeExperienceDepuisEnv(env),
     ...(env.HIVE_PUBLIC_URL ? { publicUrl: env.HIVE_PUBLIC_URL } : {}),
+    // Opt-in STRICT : seul « 1 » l'allume. Écouter le réseau local est un
+    // choix de l'hôte, jamais l'effet d'une valeur mal tapée.
+    ...(env.HIVE_DECOUVERTE === '1' ? { decouverte: {} } : {}),
   };
 }
 
@@ -1225,6 +1244,10 @@ async function monterReine(
   verrou: VerrouReine | null,
 ): Promise<HiveServer> {
   const edition = config.edition ?? 'community';
+  // L'empreinte PUBLIQUE de la ruche — tirée une fois, rangée dans la base,
+  // jamais dérivée d'un secret (`shared/empreinte-ruche.ts` dit pourquoi).
+  // Lue une fois ici : elle ne change pas de la vie de la base.
+  const empreinteRuche = store.empreinteRuche(tirerEmpreinte);
   const cheminEnvQueen = config.envPath ?? path.join(process.cwd(), '.env');
 
   const contexteProjetAvecHorizon = (projectId: string, projet: Project): string => {
@@ -6191,6 +6214,230 @@ async function monterReine(
       });
       emitEvent('node_joined', { nodeId: req.body.nodeId, ticketId: decode.id });
       return reply.code(201).send({ cle, nodeId: req.body.nodeId, label: range!.label });
+    },
+  );
+
+  // ─── La découverte du réseau local ─────────────────────────────────────────
+  //
+  // Les machines qui se signalent (`hive join --decouvrable`), et le geste qui
+  // les accueille. Tout le contrat — ce qui est diffusé, le code d'appariement,
+  // l'offre scellée — vit dans `shared/decouverte.ts` ; ici, seulement la porte.
+  //
+  // RÉSERVÉ AUX ADMINISTRATEURS, lecture comprise : la liste dit quelles
+  // machines du réseau de l'hôte portent quels agents, et l'unique geste
+  // qu'elle sert — émettre un billet — l'est déjà (`POST /api/billets`).
+
+  /** L'écoute, si l'hôte l'a demandée et que la prise s'est ouverte. */
+  let decouverte: DecouverteReseau | null = null;
+  /** Pourquoi elle ne s'est PAS ouverte alors qu'on l'a demandée — dit, jamais tu. */
+  let decouverteIndisponible: string | null = null;
+
+  const ACTIVER_DECOUVERTE =
+    'Pour lister les machines de votre réseau local : HIVE_DECOUVERTE=1 dans le .env de la ruche, ' +
+    'puis relancez-la. Sur la machine à ajouter : hive join --decouvrable (ou HIVE_DECOUVRABLE=1).';
+
+  app.get('/api/decouverte', async (req, reply) => {
+    if (!exige(req, reply, 'gerer_serveurs')) return reply;
+    const empreinteAffichee = formaterEmpreinte(empreinteRuche);
+    if (!decouverte) {
+      // `motif` est un code FERMÉ : l'écran traduit d'après lui (`conseil`
+      // reste la phrase française, pour la CLI et les journaux) ; `cause`
+      // est le message brut de la prise, qu'aucune traduction n'invente.
+      return {
+        active: false,
+        empreinte: empreinteAffichee,
+        decouverts: [],
+        ...(decouverteIndisponible
+          ? {
+              motif: 'indisponible',
+              cause: decouverteIndisponible,
+              conseil: `Découverte demandée mais indisponible : ${decouverteIndisponible}`,
+            }
+          : { motif: 'eteinte', conseil: ACTIVER_DECOUVERTE }),
+      };
+    }
+    // L'écran regarde : on repose la question (bornée à une toutes les 5 s).
+    decouverte.interroger();
+    // Une machine découverte doit pouvoir JOINDRE la ruche : sur une écoute en
+    // boucle locale, chaque « Rejoindre » échouerait — on le dit avant le clic.
+    const injoignable = inviteInjoignable(config.host, config.publicUrl ?? detectLanWsUrl(port));
+    return {
+      active: true,
+      empreinte: empreinteAffichee,
+      decouverts: decouverte.liste(),
+      ...(injoignable ? { injoignable } : {}),
+    };
+  });
+
+  /** Ce que le tableau de bord lit quand l'offre n'est pas acceptée. */
+  const REFUS_LIVRAISON: Record<
+    Exclude<IssueLivraison['issue'], 'acceptee'>,
+    { statut: number; error: string; detail: (i: IssueLivraison) => string }
+  > = {
+    code_refuse: {
+      statut: 422,
+      error: 'code refusé par la machine',
+      detail: (i) =>
+        'Relisez le code affiché sur la machine (8 caractères).' +
+        (i.issue === 'code_refuse' && i.restants !== null
+          ? ` Encore ${i.restants} essai${i.restants > 1 ? 's' : ''} avant qu’elle en tire un nouveau.`
+          : ''),
+    },
+    code_renouvele: {
+      statut: 422,
+      error: 'trop d’essais : la machine a tiré un nouveau code',
+      detail: () => 'Lisez le NOUVEAU code affiché sur la machine, puis recommencez.',
+    },
+    deja_accueillie: {
+      statut: 409,
+      error: 'cette machine a déjà accepté une autre offre',
+      detail: () => 'Elle rejoint une ruche en ce moment : attendez qu’elle apparaisse.',
+    },
+    occupee: {
+      statut: 503,
+      error: 'la machine examine une autre offre',
+      detail: () =>
+        'Elle n’ouvre qu’une offre à la fois (chacune lui coûte un calcul de clé) : ' +
+        'réessayez dans un instant, avec le même code.',
+    },
+    injoignable: {
+      statut: 502,
+      error: 'machine injoignable',
+      detail: (i) =>
+        'Un pare-feu bloque peut-être son port d’accueil, ou elle a quitté l’attente' +
+        (i.issue === 'injoignable' ? ` (${i.detail}).` : '.'),
+    },
+    reponse_inattendue: {
+      statut: 502,
+      error: 'réponse inattendue de la machine',
+      detail: (i) =>
+        `Elle a répondu ${i.issue === 'reponse_inattendue' ? i.statut : '?'} : ce n’est peut-être pas une machine Hive.`,
+    },
+  };
+
+  /**
+   * « Rejoindre » : émet un billet à usage unique, le SCELLE sous le code
+   * d'appariement que l'administrateur a lu sur la machine, et le dépose à sa
+   * porte. La machine l'échange ensuite par `POST /api/rejoindre`, comme tout
+   * billet — c'est là qu'elle obtient sa clé.
+   *
+   * Tout ce qui n'est pas une offre ACCEPTÉE révoque le billet sur-le-champ :
+   * un billet parti vers une machine qui ne l'a pas ouvert — mauvais code,
+   * imposteur, pare-feu — ne doit pas survivre dix minutes pour rien.
+   */
+  app.post<{ Params: { id: string }; Body: { code: string } }>(
+    '/api/decouverte/:id/rejoindre',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: { id: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['code'],
+          properties: { code: { type: 'string', minLength: 1, maxLength: 32 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      const moi = exige(req, reply, 'gerer_serveurs');
+      if (!moi) return reply;
+      if (!decouverte) {
+        return reply
+          .code(404)
+          .send({ error: 'découverte du réseau local désactivée', detail: ACTIVER_DECOUVERTE });
+      }
+      const cible = decouverte.trouver(req.params.id);
+      if (!cible) {
+        return reply.code(404).send({
+          error: 'cette machine ne se signale plus sur le réseau',
+          detail:
+            'Elle s’est peut-être éteinte ou a quitté l’attente. Relancez-y hive join --decouvrable.',
+        });
+      }
+      if (cible.etat !== 'libre') {
+        return reply.code(409).send({
+          error: 'cette machine est déjà membre d’une ruche',
+          detail: 'Seule une machine en attente (« libre ») peut être accueillie.',
+        });
+      }
+      const code = normaliserCode(req.body.code);
+      if (code === null) {
+        return reply.code(400).send({
+          error: 'code d’appariement illisible',
+          detail: 'Huit caractères, tels que la machine les affiche (ex. K7Q2-9XMP).',
+        });
+      }
+      // Mêmes gardes que `POST /api/billets`, SANS l'échappatoire `insecure` :
+      // une machine du réseau local n'a aucune raison de rejoindre en clair
+      // par une adresse publique. Sans `HIVE_PUBLIC_URL`, l'adresse de la
+      // Reine sur le réseau D'OÙ la machine parle (`adresseReineVers`) :
+      // la première carte venue peut être un pont Docker ou un VPN.
+      const adresseVersCible = adresseReineVers(cible.adresse);
+      const wsUrl =
+        config.publicUrl ??
+        (adresseVersCible ? `ws://${adresseVersCible}:${port}/ws` : detectLanWsUrl(port));
+      const transport = jugerTransport(wsUrl);
+      if (transport === null || transport === 'clair_public') {
+        return reply.code(400).send({
+          error: 'adresse de ruche inutilisable pour le réseau local',
+          detail:
+            'HIVE_PUBLIC_URL doit être une URL ws:// d’adresse privée, ou wss://. Rien n’a été envoyé.',
+          url: wsUrl,
+        });
+      }
+      const injoignable = inviteInjoignable(config.host, wsUrl);
+      if (injoignable) {
+        return reply
+          .code(409)
+          .send({ error: 'la ruche n’est pas joignable depuis le réseau', detail: injoignable });
+      }
+
+      const now = Date.now();
+      const id = `bil-${randomUUID()}`.slice(0, LIMITS.id);
+      const secret = tirerSecret();
+      const label = `Ruche Hive (${config.host}:${port})`;
+      store.creerBillet({
+        id,
+        secretHash: empreinte(secret),
+        label,
+        createdBy: moi.userId,
+        expiresAt: now + TTL_OFFRE_MS,
+        uses: 1,
+        now,
+      });
+      emitEvent('invite_created', {
+        ticketId: id,
+        uses: 1,
+        expiresAt: now + TTL_OFFRE_MS,
+        transport,
+        canal: 'reseau_local',
+      });
+      const offre = await scellerOffre(
+        { billet: encoderBillet({ url: wsUrl, id, secret, label }), ruche: empreinteRuche },
+        code,
+        cible.id,
+      );
+      const livraison = await livrerOffre({ adresse: cible.adresse, port: cible.port }, offre);
+      if (livraison.issue !== 'acceptee') {
+        store.revoquerBillet(id);
+        emitEvent('invite_revoked', { ticketId: id, motif: livraison.issue });
+        const refus = REFUS_LIVRAISON[livraison.issue];
+        return reply
+          .code(refus.statut)
+          .send({ error: refus.error, detail: refus.detail(livraison), motif: livraison.issue });
+      }
+      return reply.code(201).send({
+        ok: true,
+        billetId: id,
+        nom: cible.nom,
+        detail:
+          `« ${cible.nom} » a accepté l’offre : elle échange son billet contre sa clé, ` +
+          'et apparaît parmi les ouvrières d’ici quelques secondes.',
+      });
     },
   );
 
@@ -14298,7 +14545,7 @@ async function monterReine(
             else nodesQuiPoussent.delete(node.id);
             if (msg.prolonge === true) nodesQuiProlongent.add(node.id);
             else nodesQuiProlongent.delete(node.id);
-            send(ws, { type: 'registered', nodeId: node.id });
+            send(ws, { type: 'registered', nodeId: node.id, ruche: empreinteRuche });
             // Réconciliation : requalifier les tâches que le nœud ne fait plus
             // tourner (crash/redémarrage), et demander l'abandon de ses zombies
             // (tâches déjà réaffectées ailleurs après un blip réseau).
@@ -15459,6 +15706,25 @@ async function monterReine(
   );
   elagageTimer.unref();
 
+  // ─── La découverte du réseau local, si l'hôte l'a demandée ─────────────────
+  //
+  // EN DERNIER, une fois tout monté : l'offre annonce l'adresse de la ruche,
+  // donc son port réel, et une prise ouverte plus tôt fuirait si un montage
+  // suivant échouait. Une prise qui ne s'ouvre pas (5353 tenu en exclusivité,
+  // aucune interface) n'arrête PAS la ruche — la découverte est un confort ;
+  // mais la cause est dite, ici et dans le tableau de bord, plutôt qu'une
+  // liste vide muette.
+  if (config.decouverte) {
+    try {
+      const ouvrir = config.decouverte.ouvrirTransport ?? (() => ouvrirTransportUdp());
+      decouverte = new DecouverteReseau(await ouvrir(), { empreinte: () => empreinteRuche });
+      decouverte.demarrer();
+    } catch (err) {
+      decouverteIndisponible = err instanceof Error ? err.message : String(err);
+      console.warn(`[hive] découverte du réseau local indisponible : ${decouverteIndisponible}`);
+    }
+  }
+
   const stop = async (): Promise<void> => {
     clearInterval(tickTimer);
     clearInterval(flushTimer);
@@ -15466,6 +15732,7 @@ async function monterReine(
     // Coupe le Socket Mode Slack et sa reconnexion AVANT de fermer le reste :
     // un socket laissé ouvert relancerait une connexion pendant l'arrêt.
     hubConnecteurs.fermer();
+    await decouverte?.arreter();
     for (const client of wss.clients) client.terminate();
     await new Promise<void>((resolve) => wss.close(() => resolve()));
     await app.close();

@@ -819,6 +819,19 @@ machine, pas sur le réseau ni chez l'hôte. Un billet à usage unique referme
 cette fenêtre dès l'entrée ; c'est le réglage à préférer pour inviter une seule
 personne.
 
+### Sur le même réseau local, sans billet
+
+Si la ruche écoute le réseau (`HIVE_DECOUVERTE=1`, `HIVE_HOST=0.0.0.0`), la
+machine à ajouter peut se signaler au lieu d'attendre un billet :
+
+```sh
+hive join --decouvrable        # ou : npm run join -- --decouvrable
+```
+
+Elle affiche un **code d'appariement** ; l'hôte clique **Inviter** → « Sur votre
+réseau local » → **Rejoindre** et le recopie. Détails et garanties :
+[FONCTIONNALITES.md](FONCTIONNALITES.md#la-machine-dà-côté-sans-billet-à-copier-réseau-local).
+
 ### Les réglages
 
 | Réglage           | Ce qu'il fait                         | Défaut       |
