@@ -181,12 +181,18 @@ jobs:
           - os: ubuntu-latest
             cible: --linux
             paquets: Hive-*.AppImage hive_*.deb latest-linux.yml
+            facultatifs: ''
           - os: windows-latest
             cible: --win
             paquets: Hive-Setup-*.exe Hive-Setup-*.exe.blockmap latest.yml
+            facultatifs: ''
           - os: macos-latest
             cible: --mac --arm64 --x64
-            paquets: Hive-*.dmg Hive-*.dmg.blockmap Hive-*.zip Hive-*.zip.blockmap latest-mac.yml
+            paquets: Hive-*.dmg Hive-*.dmg.blockmap latest-mac.yml
+            # Le ZIP (ce que la mise à jour macOS installe) n'est construit que
+            # SIGNÉ (`macSigne` dans electron-builder.config.cjs) : exigé, il
+            # ferait échouer le téléversement de toute release non signée.
+            facultatifs: Hive-*.zip Hive-*.zip.blockmap
     steps:
       - name: Récupérer le code
         uses: actions/checkout@v4
@@ -271,4 +277,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
-        run: gh release upload "$TAG" ${{ matrix.paquets }} --repo "$GITHUB_REPOSITORY" --clobber
+        # `gh` refuse un motif sans fichier (« no matches found ») : c'est voulu
+        # pour les paquets exigés. Les facultatifs absents sont retirés avant.
+        run: |
+          shopt -s nullglob
+          facultatifs=(${{ matrix.facultatifs }})
+          shopt -u nullglob
+          gh release upload "$TAG" ${{ matrix.paquets }} "${facultatifs[@]}" \
+            --repo "$GITHUB_REPOSITORY" --clobber
