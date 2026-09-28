@@ -1,7 +1,6 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import WebSocket from 'ws';
 import { simpleGit } from 'simple-git';
 import { afterEach, describe, expect, it } from 'vitest';
 import { fauxBac } from './fixtures/faux-bac.js';
@@ -15,6 +14,7 @@ import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
 import { parseServerMessage } from '../src/shared/protocol.js';
 import type { Task } from '../src/shared/types.js';
+import { brancherFauxNoeud } from './aide/faux-noeud.js';
 
 const TOKEN = 'delegation-e2e-token-suffisant';
 
@@ -200,8 +200,16 @@ describe('délégation Worker → enfant en conditions réelles', () => {
         { ok: true, childTaskId: 'child' },
       ]);
 
-      // Un autre nœud authentifié ne peut pas usurper le parent en cours.
-      const intruder = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
+      // Un autre nœud authentifié ne peut pas usurper le parent en cours. Il
+      // est INSCRIT (`registered` attendu, et il bat : `aide/faux-noeud`)
+      // avant d'essayer — pas trente millisecondes supposées suffire.
+      const { ws: intruder } = await brancherFauxNoeud(server.port, {
+        token: TOKEN,
+        name: 'intruder-node',
+        ownerName: 'e2e',
+        agentType: 'shell',
+        maxConcurrency: 1,
+      });
       const rejection = new Promise<ReturnType<typeof parseServerMessage> | null>((resolve) => {
         intruder.on('message', (data) => {
           const parsed = parseServerMessage(data.toString());
@@ -223,21 +231,6 @@ describe('délégation Worker → enfant en conditions réelles', () => {
           });
         },
       );
-      await new Promise<void>((resolve, reject) => {
-        intruder.once('open', () => resolve());
-        intruder.once('error', reject);
-      });
-      intruder.send(
-        JSON.stringify({
-          type: 'register',
-          token: TOKEN,
-          name: 'intruder-node',
-          ownerName: 'e2e',
-          agentType: 'shell',
-          maxConcurrency: 1,
-        }),
-      );
-      await new Promise((resolve) => setTimeout(resolve, 30));
       intruder.send(
         JSON.stringify({
           type: 'delegate_task',

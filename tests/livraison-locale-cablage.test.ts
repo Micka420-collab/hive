@@ -25,6 +25,7 @@ import { HiveNodeClient } from '../src/node-client/client.js';
 import type { AgentAdapter } from '../src/adapters/index.js';
 import type { MergeResultMsg } from '../src/shared/protocol.js';
 import type { HiveEvent, StateSnapshot } from '../src/shared/types.js';
+import { brancherFauxNoeud } from './aide/faux-noeud.js';
 
 const TOKEN = 'jeton-livraison-locale-long';
 const headers = { 'content-type': 'application/json', 'x-hive-token': TOKEN };
@@ -463,7 +464,6 @@ describe('livraison locale — ce qu’une vraie ouvrière ne sait pas mal faire
   let server: HiveServer;
   let base: string;
   const sockets: WebSocket[] = [];
-  const battements: NodeJS.Timeout[] = [];
 
   beforeAll(async () => {
     dir = mkdtempSync(path.join(os.tmpdir(), 'hive-livloc-faux-'));
@@ -472,7 +472,6 @@ describe('livraison locale — ce qu’une vraie ouvrière ne sait pas mal faire
   });
 
   afterAll(async () => {
-    for (const c of battements.splice(0)) clearInterval(c);
     for (const ws of sockets.splice(0)) ws.close();
     await server.stop();
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
@@ -481,16 +480,9 @@ describe('livraison locale — ce qu’une vraie ouvrière ne sait pas mal faire
   /** Un nœud au niveau du protocole, qui retient ce qu'il reçoit. */
   async function noeud(nodeId: string, pousseLivraisons?: boolean) {
     const recus: Record<string, unknown>[] = [];
-    const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
-    sockets.push(ws);
-    ws.on('message', (d) => recus.push(JSON.parse(d.toString()) as Record<string, unknown>));
-    await new Promise<void>((r, j) => {
-      ws.once('open', () => r());
-      ws.once('error', j);
-    });
-    ws.send(
-      JSON.stringify({
-        type: 'register',
+    const { ws } = await brancherFauxNoeud<{ type: string } & Record<string, unknown>>(
+      server.port,
+      {
         token: TOKEN,
         name: nodeId,
         ownerName: 't',
@@ -498,14 +490,10 @@ describe('livraison locale — ce qu’une vraie ouvrière ne sait pas mal faire
         maxConcurrency: 1,
         nodeId,
         ...(pousseLivraisons !== undefined ? { pousseLivraisons } : {}),
-      }),
+      },
+      (m) => recus.push(m),
     );
-    const coeur = setInterval(() => {
-      if (ws.readyState === WebSocket.OPEN)
-        ws.send(JSON.stringify({ type: 'heartbeat', running: 0 }));
-    }, 300);
-    battements.push(coeur);
-    await attendre(async () => recus.some((m) => m.type === 'registered'));
+    sockets.push(ws);
     return { ws, recus };
   }
 

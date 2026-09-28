@@ -28,6 +28,7 @@ import { ENV_WEBHOOK_SECRET, ENV_WEBHOOK_URL } from '../src/connectors/webhook/d
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
 import type { RegistreGenome } from '../src/shared/registre-genome.js';
+import { brancherFauxNoeud } from './aide/faux-noeud.js';
 
 const TOKEN = 'jeton-banc-ombre-suffisamment-long';
 const JETON = { 'x-hive-token': TOKEN };
@@ -110,25 +111,9 @@ describe('le banc d’ombre sur une vraie Reine', () => {
   ): Promise<Noeud> {
     const recues: Assignation[] = [];
     const delegationsRefusees: string[] = [];
-    const ws = new WebSocket(`ws://127.0.0.1:${srv.port}/ws`);
-    sockets.push(ws);
-    ws.on('message', (data) => {
-      const m = JSON.parse(data.toString()) as {
-        type: string;
-        code?: string;
-      } & Partial<Assignation>;
-      if (m.type === 'assign_task' && m.task) {
-        recues.push({ task: m.task, ...(m.modele ? { modele: m.modele } : {}) });
-      }
-      if (m.type === 'delegation_rejected') delegationsRefusees.push(m.code ?? '?');
-    });
-    await new Promise<void>((r, j) => {
-      ws.once('open', () => r());
-      ws.once('error', j);
-    });
-    ws.send(
-      JSON.stringify({
-        type: 'register',
+    const { ws } = await brancherFauxNoeud<{ type: string; code?: string } & Partial<Assignation>>(
+      srv.port,
+      {
         token: TOKEN,
         name: nodeId,
         ownerName: 'banc',
@@ -137,9 +122,15 @@ describe('le banc d’ombre sur une vraie Reine', () => {
         maxConcurrency: 2,
         nodeId,
         isolement: { niveau, ...(niveau === 'conteneur' ? { fournisseur: 'bubblewrap' } : {}) },
-      }),
+      },
+      (m) => {
+        if (m.type === 'assign_task' && m.task) {
+          recues.push({ task: m.task, ...(m.modele ? { modele: m.modele } : {}) });
+        }
+        if (m.type === 'delegation_rejected') delegationsRefusees.push(m.code ?? '?');
+      },
     );
-    await attendre(() => srv.store.getNode(nodeId)?.status === 'online', 'nœud non inscrit');
+    sockets.push(ws);
     return {
       recues,
       delegationsRefusees,

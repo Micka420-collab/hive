@@ -25,6 +25,7 @@ import { dossierDe, lire } from '../src/cerveau-reel.js';
 import type { Fetcheur } from '../src/orchestrator/github.js';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
+import { brancherFauxNoeud } from './aide/faux-noeud.js';
 
 const TOKEN = 'jeton-memoire-validee-assez-long';
 const DIFF = 'diff --git a/auth.ts b/auth.ts\n+if (!jeton) return;';
@@ -115,19 +116,9 @@ describe('la mémoire de la ruche suit le verdict, et le Cerveau apprend de tous
     modeles?: string[],
   ): Promise<Noeud> {
     const recues: Assignation[] = [];
-    const ws = new WebSocket(`ws://127.0.0.1:${srv.port}/ws`);
-    sockets.push(ws);
-    ws.on('message', (data) => {
-      const m = JSON.parse(data.toString()) as Assignation;
-      if (m.type === 'assign_task') recues.push(m);
-    });
-    await new Promise<void>((r, j) => {
-      ws.once('open', () => r());
-      ws.once('error', j);
-    });
-    ws.send(
-      JSON.stringify({
-        type: 'register',
+    const { ws } = await brancherFauxNoeud<Assignation>(
+      srv.port,
+      {
         token: TOKEN,
         name: nodeId,
         ownerName: 'test',
@@ -135,9 +126,12 @@ describe('la mémoire de la ruche suit le verdict, et le Cerveau apprend de tous
         maxConcurrency: 1,
         nodeId,
         ...(modeles ? { modeles } : {}),
-      }),
+      },
+      (m) => {
+        if (m.type === 'assign_task') recues.push(m);
+      },
     );
-    await attendre(() => srv.store.getNode(nodeId)?.status === 'online', 'nœud non inscrit');
+    sockets.push(ws);
     // Le texte voyage aussi comme RÉPONSE FINALE : c'est elle que le hub lit
     // pour un verdict de relecture, et elle que le souvenir retient.
     const rendre: Noeud['rendre'] = (taskId, r) =>
