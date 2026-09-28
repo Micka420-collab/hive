@@ -113,10 +113,9 @@ function NodeCard({
 }) {
   const t = useT();
   const lang = useLang();
-  const baptProjection = worker?.identite?.bapteme?.nom;
-  const baptConstate = worker?.identite ? (baptProjection ?? null) : bapt;
+  const baptConstate = worker?.identite ? (worker.identite.bapteme?.nom ?? null) : bapt;
   const identiteChargee = worker?.identite !== undefined || bapt !== undefined;
-  const label = baptConstate || node.name;
+  const label = nomOuvriere(node, worker, bapt);
   const ouvrirTitre = onOuvrirPoste
     ? baptConstate
       ? t(`Ouvrir la Chambre · ${baptConstate}`, `Open the Chambre · ${baptConstate}`)
@@ -848,13 +847,41 @@ function ecrireVueOuvrieres(userId: string | null | undefined, vue: VueOuvrieres
   }
 }
 
+/**
+ * « Dernier signe » avec sa DATE quand il n'est pas d'aujourd'hui. L'heure
+ * seule faisait lire une ouvrière muette depuis trois jours comme vue ce
+ * matin — dans la vue même qui sert à comparer les ouvrières entre elles.
+ */
+function dernierSigne(ts: number): string {
+  const jour = new Date(ts);
+  return jour.toDateString() === new Date().toDateString()
+    ? timeShort(ts)
+    : `${jour.toLocaleDateString()} ${timeShort(ts)}`;
+}
+
+/**
+ * Le nom d'une ouvrière, résolu comme sur sa carte : le baptême de la
+ * projection d'abord, le relevé des baptêmes ensuite, le nom déclaré enfin.
+ * Deux résolutions faisaient porter deux noms au même nœud selon la vue.
+ */
+function nomOuvriere(
+  node: HiveNode,
+  worker: WorkerSnapshot | undefined,
+  bapt: string | null | undefined,
+): string {
+  const baptConstate = worker?.identite ? (worker.identite.bapteme?.nom ?? null) : bapt;
+  return baptConstate || node.name;
+}
+
 /** La table des ouvrières — les faits de tête des cartes, une ligne chacune. */
 function TableOuvrieres({
   nodes,
+  workersById,
   baptemes,
   onOuvrirPoste,
 }: {
   nodes: HiveNode[];
+  workersById: Map<string, WorkerSnapshot> | null | undefined;
   baptemes: Record<string, string | null> | null;
   onOuvrirPoste: (nodeId: string) => void;
 }) {
@@ -884,7 +911,7 @@ function TableOuvrieres({
           {nodes.map((n) => {
             const bapt = baptemes ? (baptemes[n.id] ?? null) : undefined;
             const bac = bacDeclare(n.isolement, t);
-            const nom = bapt || n.name;
+            const nom = nomOuvriere(n, workersById?.get(n.id), bapt);
             return (
               <tr key={n.id}>
                 <th scope="row" className="cell-title">
@@ -909,7 +936,7 @@ function TableOuvrieres({
                   {n.running}/{n.maxConcurrency}
                 </td>
                 <td>
-                  {n.lastSeen === null ? t('jamais vu', 'never seen') : timeShort(n.lastSeen)}
+                  {n.lastSeen === null ? t('jamais vu', 'never seen') : dernierSigne(n.lastSeen)}
                 </td>
                 <td>
                   <button type="button" className="btn ghost" onClick={() => onOuvrirPoste(n.id)}>
@@ -1032,6 +1059,7 @@ export default function Essaim({
             ) : vue === 'table' ? (
               <TableOuvrieres
                 nodes={snapshot.nodes}
+                workersById={workersById}
                 baptemes={baptemes}
                 onOuvrirPoste={(id) => onNavigate('chambre', id)}
               />
