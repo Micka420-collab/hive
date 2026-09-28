@@ -1284,9 +1284,52 @@ export function fetchEssaim(projectId: string): Promise<EtatEssaimUi> {
   return api<EtatEssaimUi>(`/api/projects/${projectId}/essaim`);
 }
 
-/** Projection authentifiée des nœuds Worker et du vécu Aiguillage. */
-export function fetchWorkers(): Promise<{ workers: WorkerSnapshot[] }> {
-  return api<{ workers: WorkerSnapshot[] }>('/api/workers');
+export type { BilanEconomique, FenetreLue } from '../../src/shared/economie';
+export type { QualiteWorker } from '../../src/orchestrator/workers';
+import type { BilanEconomique, FenetreLue } from '../../src/shared/economie';
+import type { QualiteWorker } from '../../src/orchestrator/workers';
+
+/**
+ * Projection authentifiée des nœuds Worker et du vécu Aiguillage.
+ * `fenetreEconomie` : la fenêtre du journal d'où vient l'économie de chaque
+ * Worker — absente d'une Reine plus ancienne.
+ */
+export function fetchWorkers(): Promise<{
+  workers: WorkerSnapshot[];
+  fenetreEconomie?: FenetreLue;
+}> {
+  return api<{ workers: WorkerSnapshot[]; fenetreEconomie?: FenetreLue }>('/api/workers');
+}
+
+/** Le bilan d'un Worker pour sa fiche : économie par modèle et qualité jugée par l'Evaluator. */
+export interface BilanWorker {
+  nodeId: string;
+  economie: {
+    total: BilanEconomique;
+    parModele: Array<{ modele: string } & BilanEconomique>;
+  };
+  qualite: QualiteWorker;
+  fenetre: FenetreLue;
+}
+
+export function fetchBilanWorker(nodeId: string): Promise<BilanWorker> {
+  return api<BilanWorker>(`/api/workers/${encodeURIComponent(nodeId)}/bilan`);
+}
+
+export type { AlerteCockpit, DepenseRuche } from '../../src/orchestrator/cockpit';
+import type { AlerteCockpit, DepenseRuche } from '../../src/orchestrator/cockpit';
+
+/** Le cockpit de l'accueil : décisions récentes, dépense des dernières 24 h, arrêts en cours. */
+export interface Cockpit {
+  decisions: Array<{ evenement: HiveEvent; titre: string | null }>;
+  depense: DepenseRuche;
+  alertes: AlerteCockpit[];
+  /** Nombre total d'alertes — la liste est bornée. */
+  total: number;
+}
+
+export function fetchCockpit(): Promise<Cockpit> {
+  return api<Cockpit>('/api/cockpit');
 }
 
 export function fetchEssaimCycles(
@@ -1397,6 +1440,28 @@ export function fetchReplay(since = 0): Promise<ReplayResult> {
  */
 export function fetchReport(projectId: string): Promise<ProjectReport> {
   return apiLecture<ProjectReport>(`/api/projects/${projectId}/report`);
+}
+
+export type {
+  IssueRelecture,
+  LigneMission,
+  RapportMission,
+  SourceReprise,
+} from '../../src/orchestrator/project-report';
+import type { RapportMission } from '../../src/orchestrator/project-report';
+
+/**
+ * Le rapport de MISSION d'un projet : décision de l'Evaluator, contre-revue,
+ * reprises par source, temps et dépense déclarée par tâche, faits Genome.
+ * `mission` est absent pour un lien de partage — il montre l'avancement, pas
+ * qui travaille ni ce que ça coûte.
+ */
+export function fetchRapportMission(
+  projectId: string,
+): Promise<ProjectReport & { mission?: RapportMission }> {
+  return apiLecture<ProjectReport & { mission?: RapportMission }>(
+    `/api/projects/${encodeURIComponent(projectId)}/report?detail=mission`,
+  );
 }
 
 /** Honeycomb Merge : plan d'intégration (advisory) d'un projet. */

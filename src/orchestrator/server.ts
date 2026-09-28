@@ -329,7 +329,15 @@ import { famillesEnCours, validationsDepuisControles } from './ci-evidence.js';
 import { CacheDomaines, domaineDeTache, replierTraces } from './pheromones.js';
 import type { Domaine, TraceePheromone } from './pheromones.js';
 import { anthropicLlm, anthropicLlmStream, llmPlannerAvailable, planBrief } from './planner.js';
-import { buildProjectReport } from './project-report.js';
+import { TYPES_RAPPORT_MISSION, buildProjectReport, rapportDeMission } from './project-report.js';
+import {
+  FENETRE_DEPENSE_MS,
+  TYPES_ALERTES,
+  TYPES_DECISIONS,
+  alertesCockpit,
+  decisionsRecentes,
+  depenseDepuisEvenements,
+} from './cockpit.js';
 import { computePulse } from './pulse.js';
 import { buildTimeline } from './replay.js';
 import { detectConflicts } from './sting-detector.js';
@@ -339,11 +347,17 @@ import type { SessionRangee } from './store.js';
 import { direArretBrutal, prendreVerrouReine } from './verrou-reine.js';
 import type { VerrouReine } from './verrou-reine.js';
 import {
+  TYPES_ECONOMIE_WORKERS,
+  economieParWorker,
   projeterHistoriqueWorker,
   projeterWorkers,
+  PRODUCTIONS_QUALITE_MAX,
+  qualiteDesProductions,
+  type ProductionJugee,
   type WorkerHistorySnapshot,
   type WorkerIdentitySnapshot,
 } from './workers.js';
+import { TYPES_TENTATIVES, bilanEconomique, fenetreLue } from '../shared/economie.js';
 import { projeterJournalOuvrier } from './journal-ouvriere.js';
 import { lireTemperature, FENETRE_MS as FENETRE_THERMO_MS, TYPES_THERMO } from './thermo.js';
 import { buildWaggleBoard } from './waggle.js';
@@ -2798,7 +2812,14 @@ async function monterReine(
    * elles la suivent. Introuvable : on juge tout, et l'appelant, qui compare
    * `latest.resultId`, voit que ce n'est pas celle qu'il demandait.
    */
-  const evaluationPour = (task: Task, jugee?: number) => {
+  // `inspections` : un appelant qui juge PLUSIEURS tâches (rapport de mission,
+  // bilan d'un Worker) lit la table une fois et la passe — relue à chaque
+  // tâche, elle coûterait son corpus entier autant de fois.
+  const evaluationPour = (
+    task: Task,
+    jugee?: number,
+    inspections: ReturnType<HiveStore['listInspections']> = store.listInspections(),
+  ) => {
     const tous = store.resultsForTask(task.id);
     const jusqua = jugee === undefined ? -1 : tous.findIndex((r) => r.resultId === jugee);
     const results = jusqua === -1 ? tous : tous.slice(0, jusqua + 1);
@@ -2817,7 +2838,6 @@ async function monterReine(
       latest?.resultId !== undefined && !crossReview?.reviewerCount && crossReviewPending === 0
         ? store.contreRevueImpossible(task.id, latest.resultId)
         : null;
-    const inspections = store.listInspections();
     const inspection = latest
       ? inspectionDeProduction(inspections, task.id, latest.nodeId, latest.resultId)
       : undefined;
@@ -3503,6 +3523,10 @@ async function monterReine(
    * marqué comme « à explorer » par `projeterWorkers`. Le vécu est lu comme
    * l'ordonnanceur le lit — verdicts ET élections en vol : sans les secondes,
    * l'écran montrerait des scores sur lesquels le routing ne décide pas.
+   *
+   * L'économie de chaque Worker (et de chacun de ses modèles) est repliée du
+   * journal retenu, comme le registre Genome : `fenetreEconomie` dit ce qui a
+   * été lu, et qu'un fait plus ancien a pu manquer.
    */
   app.get('/api/workers', async (req, reply) => {
     if (!authorized(req)) return reject(reply);
@@ -3529,6 +3553,7 @@ async function monterReine(
     const historiques = new Map<string, readonly WorkerHistorySnapshot[]>(
       nodes.map((node) => [node.id, projeterHistoriqueWorker(store.listEventsForNode(node.id, 6))]),
     );
+    const issues = store.evenementsParTypes(TYPES_ECONOMIE_WORKERS, EVENT_RETENTION);
     return {
       workers: projeterWorkers(
         nodes,
@@ -3536,9 +3561,193 @@ async function monterReine(
         store.tasksByStatus('assigned', 'running'),
         identites,
         historiques,
+        economieParWorker(issues),
       ),
+      fenetreEconomie: fenetreLue(issues, EVENT_RETENTION, store.journalElague()),
     };
   });
+
+  /**
+   * Le cockpit de l'accueil (`cockpit.ts`) : les décisions récentes, la
+   * dépense des dernières 24 heures, et ce qui arrête la ruche — en UNE
+   * lecture du journal, pour que les trois blocs parlent du même instant.
+   *
+   * Derrière le jeton de ruche, comme le journal qu'il relit : ce sont les
+   * mêmes faits que le flux WebSocket diffuse déjà à tout le tableau de bord,
+   * choisis et confrontés à l'état, rien de plus.
+   */
+  const TYPES_COCKPIT: readonly string[] = [
+    ...new Set<string>([...TYPES_DECISIONS, ...TYPES_ALERTES, ...TYPES_TENTATIVES]),
+  ];
+  app.get('/api/cockpit', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    const maintenant = Date.now();
+    const lus = store.evenementsParTypes(TYPES_COCKPIT, EVENT_RETENTION);
+    const journalElague = store.journalElague();
+    const titres = new Map<string, string | null>();
+    const titreDe = (taskId: string): string | null => {
+      if (!titres.has(taskId)) titres.set(taskId, store.getTask(taskId)?.title ?? null);
+      return titres.get(taskId) ?? null;
+    };
+    const pretes = store.tasksByStatus('ready');
+    const alertes = alertesCockpit({
+      evenements: lus,
+      tacheDe: (taskId) => {
+        const tache = store.getTask(taskId);
+        return tache ? { title: tache.title, status: tache.status } : null;
+      },
+      pretes: {
+        nombre: pretes.length,
+        depuis: pretes.reduce<number | null>(
+          (min, t) => (min === null || t.updatedAt < min ? t.updatedAt : min),
+          null,
+        ),
+      },
+      noeudsEnLigne: store.listNodes().filter((n) => n.status === 'online').length,
+      soldes: scheduler.balance.soldes,
+      nomsDeProjets: new Map(store.listProjects().map((p) => [p.id, p.name])),
+      // Tranchée par personne : la production est toujours la retenue, et
+      // aucun verdict humain n'est posé depuis. Un rejet repart en correction,
+      // une approbation lève l'attente — l'un comme l'autre la résout.
+      relectureEnSuspens: (taskId, resultId) =>
+        store.getTask(taskId)?.status === 'done' &&
+        store.dernierResultatDe(taskId) === resultId &&
+        (store.getTaskReview(taskId)?.state ?? null) === null,
+    });
+    return {
+      decisions: decisionsRecentes(lus).map((evenement) => {
+        const taskId = evenement.payload.taskId;
+        return { evenement, titre: typeof taskId === 'string' ? titreDe(taskId) : null };
+      }),
+      depense: depenseDepuisEvenements(
+        lus,
+        maintenant - FENETRE_DEPENSE_MS,
+        EVENT_RETENTION,
+        journalElague,
+      ),
+      ...alertes,
+    };
+  });
+
+  /**
+   * Les productions d'un Worker telles que l'Evaluator les a tranchées — la
+   * matière de sa QUALITÉ (`qualiteDesProductions`).
+   *
+   * ─── LA FENÊTRE EST CELLE DU JOURNAL, PAS CELLE DES RÉSULTATS ─────────────
+   *
+   * Le renvoi en correction d'une production n'est rangé que dans le journal
+   * (`task_retry`, source `evaluator`), et le journal est élagué ; la table des
+   * résultats, elle, garde bien plus loin. Juger TOUS les résultats biaiserait
+   * la mesure dans un seul sens : une vieille production acceptée resterait
+   * acceptée, une vieille production corrigée perdrait son renvoi et
+   * deviendrait « sort inconnu ». On ne juge donc que les productions rendues
+   * DEPUIS le plus ancien fait d'issue encore au journal — celles dont le sort
+   * est lisible en entier. Journal jamais élagué : tout est lisible.
+   *
+   * Une relecture croisée n'est pas une production : l'Evaluator ne la juge pas.
+   *
+   * Au plus `PRODUCTIONS_QUALITE_MAX` résultats, les plus récents ; un de plus
+   * est demandé pour SAVOIR que la lecture s'est arrêtée (`bornee`).
+   */
+  const productionsJugees = (
+    nodeId: string,
+    issues: readonly HiveEvent[],
+    lectureTronquee: boolean,
+  ): { productions: ProductionJugee[]; bornee: number | null } => {
+    const renvois = new Map<number, EvaluationDecision>();
+    for (const e of issues) {
+      if (e.type !== 'task_retry' || e.payload.source !== 'evaluator') continue;
+      const { resultId, decision } = e.payload;
+      if (typeof resultId !== 'number') continue;
+      renvois.set(resultId, decision === 'rejected' ? 'rejected' : 'correction_required');
+    }
+    const plusAncienne = issues.reduce<number | null>(
+      (min, e) => (min === null || e.ts < min ? e.ts : min),
+      null,
+    );
+    // Aucune issue retenue d'un journal élagué : aucune production n'a un
+    // sort lisible — la mesure reste vide, donc `inconnu`.
+    const depuis = lectureTronquee ? (plusAncienne ?? Number.POSITIVE_INFINITY) : 0;
+    const inspections = store.listInspections();
+    const decisionsCourantes = new Map<string, EvaluationDecision | null>();
+    const decisionCourante = (taskId: string): EvaluationDecision | null => {
+      if (!decisionsCourantes.has(taskId)) {
+        const tache = store.getTask(taskId);
+        decisionsCourantes.set(
+          taskId,
+          tache ? evaluationPour(tache, undefined, inspections).evaluation.decision : null,
+        );
+      }
+      return decisionsCourantes.get(taskId) ?? null;
+    };
+    const jugees: ProductionJugee[] = [];
+    const lus = store.productionsDuNoeud(nodeId, depuis, PRODUCTIONS_QUALITE_MAX + 1);
+    const bornee = lus.length > PRODUCTIONS_QUALITE_MAX ? PRODUCTIONS_QUALITE_MAX : null;
+    for (const { resultId, taskId } of lus.slice(0, PRODUCTIONS_QUALITE_MAX)) {
+      if (store.relectureDe(taskId)) continue;
+      const renvoi = renvois.get(resultId);
+      if (renvoi) {
+        jugees.push({ resultId, decision: renvoi, corrigee: true });
+        continue;
+      }
+      // Encore la production retenue d'une tâche terminée : la décision
+      // COURANTE de l'Evaluator est la sienne. Remplacée sans renvoi constaté
+      // (course de drones, tâche repartie) : son sort n'est pas écrit.
+      const retenue =
+        store.getTask(taskId)?.status === 'done' && store.dernierResultatDe(taskId) === resultId;
+      jugees.push({
+        resultId,
+        decision: retenue ? decisionCourante(taskId) : null,
+        corrigee: false,
+      });
+    }
+    return { productions: jugees, bornee };
+  };
+
+  /**
+   * Le bilan d'UN Worker, pour sa fiche : son économie (et celle de chacun de
+   * ses modèles) et sa qualité — la part de ses productions ACCEPTÉES par
+   * l'Evaluator, et son taux de correction. Deux mesures séparées, jamais un
+   * score composite ; `inconnu` sous trois productions jugées.
+   *
+   * Route à part, et pas un champ de `/api/workers` : juger les productions
+   * relit l'Evaluator tâche par tâche. La carte de l'Essaim est sondée pour
+   * toute la ruche ; la fiche, pour un seul Worker, et moins souvent.
+   */
+  app.get<{ Params: { nodeId: string } }>(
+    '/api/workers/:nodeId/bilan',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['nodeId'],
+          properties: { nodeId: { type: 'string', minLength: 1, maxLength: 64 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!authorized(req)) return reject(reply);
+      const node = store.getNode(req.params.nodeId);
+      if (!node) return reply.code(404).send({ error: 'ouvrière inconnue' });
+      const lus = store.evenementsParTypes(TYPES_ECONOMIE_WORKERS, EVENT_RETENTION);
+      const fenetre = fenetreLue(lus, EVENT_RETENTION, store.journalElague());
+      const economie = economieParWorker(lus).get(node.id);
+      const issues = lus.filter((e) => (TYPES_TENTATIVES as readonly string[]).includes(e.type));
+      const vide = bilanEconomique([]);
+      const jugees = productionsJugees(node.id, issues, fenetre.tronquee);
+      return {
+        nodeId: node.id,
+        economie: {
+          total: economie?.total ?? vide,
+          parModele: [...(economie?.parModele ?? new Map<string, typeof vide>())]
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([modele, bilan]) => ({ modele, ...bilan })),
+        },
+        qualite: qualiteDesProductions(jugees.productions, jugees.bornee),
+        fenetre,
+      };
+    },
+  );
 
   app.get('/api/atelier', async (req, reply) => {
     if (!authorized(req)) return reject(reply);
@@ -8254,7 +8463,14 @@ async function monterReine(
 
   // Rapport d'avancement d'un projet (lecture seule) : avancement %, répartition
   // par statut, nœuds contributeurs. Calculé à partir des tâches du projet.
-  app.get<{ Params: { projectId: string } }>(
+  //
+  // `?detail=mission` y joint le RAPPORT DE MISSION (`rapportDeMission`) : par
+  // tâche, la décision de l'Evaluator, l'issue de la contre-revue, les reprises
+  // par source, le temps et la dépense déclarée avec leur couverture, et les
+  // faits Genome de la mission. Sur demande seulement : il relit le journal et
+  // juge chaque production terminée — la carte projet, qui sonde l'avancement
+  // toutes les trente secondes, n'a pas à payer ce prix.
+  app.get<{ Params: { projectId: string }; Querystring: { detail?: 'mission' } }>(
     '/api/projects/:projectId/report',
     {
       schema: {
@@ -8262,6 +8478,12 @@ async function monterReine(
           type: 'object',
           required: ['projectId'],
           properties: { projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+        // Pas d'`additionalProperties: false` : un lien de partage peut voyager
+        // en `?partage=` (`partagePermet`), et le refuser ici casserait ce lien.
+        querystring: {
+          type: 'object',
+          properties: { detail: { type: 'string', enum: ['mission'] } },
         },
       },
     },
@@ -8288,15 +8510,46 @@ async function monterReine(
         if (lecture !== 'permis') return refuserProjet(reply, lecture);
       }
       if (!project) return reply.code(404).send({ error: 'projet inconnu' });
-      const rapport = buildProjectReport(project, store.listTasks(project.id));
-      if (!parPartage.ok) return rapport;
+      const taches = store.listTasks(project.id);
+      const rapport = buildProjectReport(project, taches);
+      if (!parPartage.ok) {
+        return req.query.detail === 'mission'
+          ? { ...rapport, mission: missionDe(taches) }
+          : rapport;
+      }
       store.toucherPartage(parPartage.partageId);
       // UN PARTAGE MONTRE L'AVANCEMENT, PAS QUI TRAVAILLE. Les identifiants de
       // nœuds nomment les machines de gens qui n'ont pas consenti à figurer
-      // dans un lien qu'on fait circuler.
+      // dans un lien qu'on fait circuler. Le rapport de mission non plus : il
+      // nomme les modèles, cite les motifs de l'Evaluator — qui peuvent citer
+      // l'objection d'un agent — et dit ce que la mission a coûté.
       return { ...rapport, contributingNodes: [] };
     },
   );
+
+  /**
+   * Le rapport de mission des tâches d'un projet. L'Evaluator de chaque
+   * production terminée est celui de son tiroir (`evaluationPour`), la table
+   * des inspections lue une fois pour toutes.
+   */
+  const missionDe = (taches: readonly Task[]) => {
+    const evenements = store.evenementsParTypes(TYPES_RAPPORT_MISSION, EVENT_RETENTION);
+    const inspections = store.listInspections();
+    const relectures = new Set(taches.filter((t) => store.relectureDe(t.id)).map((t) => t.id));
+    const evaluations = new Map(
+      taches
+        .filter((t) => t.status === 'done' && !relectures.has(t.id))
+        .map((t) => [t.id, evaluationPour(t, undefined, inspections).evaluation] as const),
+    );
+    return rapportDeMission({
+      taches,
+      evenements,
+      borne: EVENT_RETENTION,
+      journalElague: store.journalElague(),
+      relectures,
+      evaluations,
+    });
+  };
 
   app.post<{ Params: { projectId: string }; Body: NewTaskBody }>(
     '/api/projects/:projectId/tasks',

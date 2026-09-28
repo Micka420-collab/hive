@@ -1129,3 +1129,66 @@ button.ch-lien-chemin:focus-visible {
     min-height: 220px;
   }
 }
+
+/* Le bilan d'une ouvrière : qualité (deux mesures côte à côte, jamais une
+   note) puis économie par modèle. Le tableau défile seul dans la colonne
+   étroite de l'identité plutôt que d'élargir la page. */
+.ch-bilan {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ch-bilan h4 {
+  margin: 0;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ch-mute);
+}
+
+.ch-bilan-qualite {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ch-bilan-qualite dt {
+  font-size: 0.68rem;
+  color: var(--ch-mute);
+}
+
+.ch-bilan-qualite dd {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.ch-bilan-economie {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.ch-bilan-economie th,
+.ch-bilan-economie td {
+  padding: 3px 6px;
+  text-align: left;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--ch-ligne);
+}
+
+.ch-bilan-economie thead th {
+  color: var(--ch-mute);
+  font-weight: 600;
+}
+
+.bilan-couverture,
+.ch-bilan-fenetre {
+  color: var(--ch-mute);
+  font-size: 0.7rem;
+}

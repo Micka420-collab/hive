@@ -22,7 +22,15 @@ import type {
 import { useLang, useT } from '../i18n';
 import { libelleAgent } from '../../../src/shared/agent-libelle';
 import { libelleMetier } from '../../../src/orchestrator/metier';
-import { activateProps, DOMAINE_LABEL, formatMs, ProgressBar } from '../ui';
+import {
+  activateProps,
+  direSommeDeclaree,
+  direUsd,
+  DOMAINE_LABEL,
+  formatMs,
+  ProgressBar,
+} from '../ui';
+import { direDuree } from '../../../src/shared/horloge-chantier';
 import { nomConstate, useBaptemes } from '../useBaptemes';
 import { EchecSondage, timeShort, useApiPoll } from './shared';
 import type { ViewProps } from './shared';
@@ -245,6 +253,12 @@ function NodeCard({
                   reputation?.essais && reputation.essais > 0
                     ? ` · Worker: ${reputation.essais} · ${Math.round((reputation.moyenne ?? 0) * 100)}%`
                     : '';
+                // Ce que CE Worker a dépensé avec CE modèle : le coût déclaré et sa
+                // couverture, jamais un total nu. Absent d'une Reine plus ancienne.
+                const ecoModele =
+                  model.economie && model.economie.tentatives > 0
+                    ? direSommeDeclaree(model.economie.coutFournisseur, (v) => direUsd(v, lang), t)
+                    : null;
                 // Élections lancées, pas encore jugées : elles pèsent déjà sur le
                 // score du routing, jamais sur les essais ni la moyenne. `?? 0` :
                 // une Reine plus ancienne n'envoie pas ce compte. Le compte est
@@ -273,6 +287,13 @@ function NodeCard({
                           : t('à explorer', 'explore')
                         : `${observes.length} ${t('cat.', 'cats.')} · ${essais} ${t('essais', 'trials')} · ${Math.round((moyenne ?? 0) * 100)}%${preuveWorker}`}
                     </span>
+                    {ecoModele && model.economie && (
+                      <span className="es-model-eco" data-testid="worker-model-economie">
+                        {model.economie.tentatives} {t('tentative(s)', 'attempt(s)')} ·{' '}
+                        {t('coût', 'cost')} {ecoModele.valeur}
+                        {ecoModele.couverture ? ` (${ecoModele.couverture})` : ''}
+                      </span>
+                    )}
                   </li>
                 );
               })}
@@ -280,6 +301,7 @@ function NodeCard({
           )}
         </div>
       )}
+      {worker?.economie && <EconomieWorker economie={worker.economie} />}
       <div className="es-node-load">
         <span className="es-load-txt">
           {node.running}/{node.maxConcurrency}
@@ -398,6 +420,52 @@ function NodeCard({
           : `${t('vu à', 'seen at')} ${timeShort(node.lastSeen)}`}
       </footer>
     </article>
+  );
+}
+
+/**
+ * Ce que ce Worker a coûté, sur les tentatives que le journal retient encore.
+ *
+ * Coût et temps modèle : ce que les CLI DÉCLARENT, avec leur couverture —
+ * « ≥ » et « 2/5 tentatives déclarées » dès qu'une s'est tue, `inconnu` sans
+ * aucune. La durée médiane est celle des réussites, MESURÉE par le nœud.
+ * Aucune note : ces faits se lisent côte à côte, ils ne se pondèrent pas.
+ */
+function EconomieWorker({ economie }: { economie: NonNullable<WorkerSnapshot['economie']> }) {
+  const t = useT();
+  const lang = useLang();
+  if (economie.tentatives === 0) {
+    return (
+      <div className="es-economie" data-testid="worker-economie">
+        <span className="es-economie-label">{t('Économie', 'Economics')}</span>
+        <span className="es-agents-none">
+          {t('aucune tentative retenue au journal', 'no attempt retained in the journal')}
+        </span>
+      </div>
+    );
+  }
+  const cout = direSommeDeclaree(economie.coutFournisseur, (v) => direUsd(v, lang), t);
+  const modele = direSommeDeclaree(economie.dureeModele, (v) => direDuree(v, lang), t);
+  return (
+    <div className="es-economie" data-testid="worker-economie">
+      <span className="es-economie-label">
+        {t('Économie', 'Economics')} · {economie.tentatives} {t('tentative(s)', 'attempt(s)')}
+      </span>
+      <span data-testid="worker-economie-cout">
+        {t('coût déclaré', 'declared cost')} {cout.valeur}
+        {cout.couverture ? ` (${cout.couverture})` : ''}
+      </span>
+      <span>
+        {t('temps modèle', 'model time')} {modele.valeur}
+        {modele.couverture ? ` (${modele.couverture})` : ''}
+      </span>
+      <span data-testid="worker-economie-mediane">
+        {t('durée médiane d’une réussite', 'median duration of a success')}{' '}
+        {economie.dureeMedianeMs === null
+          ? t('inconnue', 'unknown')
+          : direDuree(economie.dureeMedianeMs, lang)}
+      </span>
+    </div>
   );
 }
 

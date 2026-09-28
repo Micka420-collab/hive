@@ -15,6 +15,14 @@ import type { MetierCycle } from './metier.js';
 import type { HiveEvent } from '../shared/types.js';
 import { projeterJournalOuvrier } from './journal-ouvriere.js';
 import { LIMITES_DELEGATION_DEFAUT, type LimitesDelegation } from '../shared/limites-delegation.js';
+import type { EvaluationDecision } from './evaluator.js';
+import {
+  TYPES_TENTATIVES,
+  bilanEconomique,
+  tentativeRendue,
+  type BilanEconomique,
+  type TentativeRendue,
+} from '../shared/economie.js';
 
 /** Identité humaine constatée par la Reine, distincte du nœud technique. */
 export interface WorkerIdentitySnapshot {
@@ -112,6 +120,11 @@ export interface ModeleWorkerSnapshot {
   >;
   /** Vécu de ce modèle sur ce Worker, séparé de l'historique global. */
   reputation: WorkerReputationSnapshot;
+  /**
+   * Ce que les tentatives de CE Worker commandées à CE modèle ont coûté (voir
+   * `economieParWorker`). Absente quand la route n'a pas relu le journal.
+   */
+  economie?: BilanEconomique;
 }
 
 /** Projection observable d'un nœud réel, sans seconde source de vérité. */
@@ -144,6 +157,13 @@ export interface WorkerSnapshot {
    */
   reputationParCategorie: Partial<Record<Categorie, WorkerReputationSnapshot>>;
   modeles?: ModeleWorkerSnapshot[];
+  /**
+   * Coût et temps modèle DÉCLARÉS, durée Worker mesurée et sa médiane, sur les
+   * tentatives de ce Worker que le journal retient encore (`fenetreEconomie`
+   * de la réponse). Absente quand la route n'a pas relu le journal — un
+   * Worker sans tentative, lui, a un bilan à zéro et `inconnu`.
+   */
+  economie?: BilanEconomique;
 }
 
 export interface WorkerCurrentTask {
@@ -236,6 +256,189 @@ const scoreDe = (rang: Rang): ModeleWorkerSnapshot['categories'][Categorie] => (
   exploration: rang.essais === 0,
 });
 
+// ─── L'économie de chaque Worker, et de chacun de ses modèles ───────────────
+
+/** Les types que `economieParWorker` relit : les issues, et les affectations qui nomment le modèle. */
+export const TYPES_ECONOMIE_WORKERS = [
+  'task_assigned',
+  'drone_race_started',
+  ...TYPES_TENTATIVES,
+] as const;
+
+/** Le bilan d'un Worker, et celui de chaque modèle qui lui a été commandé. */
+export interface EconomieWorker {
+  total: BilanEconomique;
+  parModele: ReadonlyMap<string, BilanEconomique>;
+}
+
+const texteNonVide = (v: unknown): string | null =>
+  typeof v === 'string' && v.length > 0 ? v : null;
+
+/**
+ * Replie le journal en bilan économique par Worker, et par Worker + modèle.
+ *
+ * Le Worker est celui que NOMME l'issue (`nodeId` de l'événement) : aucune
+ * attribution n'est déduite. Le modèle est celui que l'Aiguillage a COMMANDÉ
+ * à ce nœud pour cette tâche — `task_assigned` pour le primaire,
+ * `drone_race_started` pour chaque drone d'une course (le premier ne nomme
+ * que le primaire). Une issue dont l'affectation est sortie de la fenêtre, ou
+ * qui a tourné sans modèle déclaré, compte pour le Worker et pour AUCUN
+ * modèle : la ligne d'un modèle ne reçoit jamais une tentative devinée. La
+ * somme des modèles peut donc être inférieure au total du Worker — jamais
+ * supérieure.
+ */
+export function economieParWorker(evenements: readonly HiveEvent[]): Map<string, EconomieWorker> {
+  // taskId → nodeId → modèle commandé à la dernière affectation de ce nœud.
+  const commandes = new Map<string, Map<string, string | null>>();
+  const parNoeud = new Map<
+    string,
+    { toutes: TentativeRendue[]; parModele: Map<string, TentativeRendue[]> }
+  >();
+  const commander = (taskId: string, nodeId: string, modele: string | null): void => {
+    const parTache = commandes.get(taskId) ?? new Map<string, string | null>();
+    parTache.set(nodeId, modele);
+    commandes.set(taskId, parTache);
+  };
+
+  for (const e of [...evenements].sort((a, b) => a.id - b.id)) {
+    const p = e.payload;
+    const taskId = texteNonVide(p.taskId);
+    if (taskId === null) continue;
+    if (e.type === 'task_assigned') {
+      const nodeId = texteNonVide(p.nodeId);
+      if (nodeId !== null) commander(taskId, nodeId, texteNonVide(p.modele));
+      continue;
+    }
+    if (e.type === 'drone_race_started') {
+      const modeles =
+        typeof p.modeles === 'object' && p.modeles !== null
+          ? (p.modeles as Record<string, unknown>)
+          : {};
+      for (const brut of Array.isArray(p.drones) ? p.drones : []) {
+        const nodeId = texteNonVide(brut);
+        if (nodeId !== null) commander(taskId, nodeId, texteNonVide(modeles[nodeId]));
+      }
+      continue;
+    }
+    const tentative = tentativeRendue(e);
+    if (!tentative) continue;
+    const bilan = parNoeud.get(tentative.nodeId) ?? {
+      toutes: [] as TentativeRendue[],
+      parModele: new Map<string, TentativeRendue[]>(),
+    };
+    parNoeud.set(tentative.nodeId, bilan);
+    bilan.toutes.push(tentative);
+    const modele = commandes.get(taskId)?.get(tentative.nodeId) ?? null;
+    if (modele !== null) {
+      const duModele = bilan.parModele.get(modele) ?? [];
+      duModele.push(tentative);
+      bilan.parModele.set(modele, duModele);
+    }
+  }
+
+  return new Map(
+    [...parNoeud].map(([nodeId, { toutes, parModele }]) => [
+      nodeId,
+      {
+        total: bilanEconomique(toutes),
+        parModele: new Map(
+          [...parModele].map(([modele, tentatives]) => [modele, bilanEconomique(tentatives)]),
+        ),
+      },
+    ]),
+  );
+}
+
+// ─── La qualité d'un Worker : ce que l'Evaluator a accepté ───────────────────
+
+/**
+ * En deçà, une part n'est pas une mesure : une production acceptée sur une
+ * seule jugée afficherait « 100 % », et deux sur deux ne disent rien de plus.
+ * La part reste `inconnu`, ses comptes restent affichés.
+ */
+export const SEUIL_QUALITE_WORKER = 3;
+
+/** Le sort d'une production de ce Worker, tel que l'Evaluator l'a tranché. */
+export interface ProductionJugee {
+  resultId: number;
+  /**
+   * La décision de l'Evaluator sur CETTE production : celle qui l'a renvoyée
+   * en correction, ou la décision courante quand elle est encore la
+   * production retenue de sa tâche. `null` : sort inconnu (production
+   * remplacée sans renvoi constaté, tâche repartie…).
+   */
+  decision: EvaluationDecision | null;
+  /** Renvoyée en correction par l'Evaluator (contre-revue, revue humaine ou geste explicite). */
+  corrigee: boolean;
+}
+
+/**
+ * La qualité d'un Worker, en DEUX mesures séparées — jamais un score composite.
+ *
+ * `partAcceptee` : parmi les productions sur lesquelles l'Evaluator a TRANCHÉ
+ * (acceptée, à corriger, rejetée), la part acceptée. Une production en
+ * attente de preuve (`additional_test_required`) ou d'un humain
+ * (`human_review_required`) n'est pas jugée : l'Evaluator n'a rien dit de sa
+ * qualité, et la compter tirerait la part vers le bas pour une CI absente.
+ *
+ * `tauxCorrection` : parmi les productions dont le sort est CONNU, la part
+ * renvoyée en correction. Une production au sort inconnu (remplacée sans
+ * renvoi constaté) n'entre pas au dénominateur : l'y compter comme « non
+ * corrigée » tirait le taux vers le bas avec des faits que personne n'a lus.
+ */
+export interface QualiteWorker {
+  /** Productions réussies de ce Worker dans la fenêtre lue (relectures exclues). */
+  productions: number;
+  /** Celles dont l'Evaluator a dit le sort (`decision` non nulle). */
+  sortConnu: number;
+  jugees: number;
+  acceptees: number;
+  /** acceptees / jugees ; `inconnu` sous SEUIL_QUALITE_WORKER productions jugées. */
+  partAcceptee: number | 'inconnu';
+  corrigees: number;
+  /** corrigees / sortConnu ; `inconnu` sous SEUIL_QUALITE_WORKER productions au sort connu. */
+  tauxCorrection: number | 'inconnu';
+  /**
+   * La lecture s'est arrêtée aux N résultats les plus récents
+   * (`PRODUCTIONS_QUALITE_MAX`) : la mesure porte sur eux, pas sur toute la
+   * fenêtre, et N est dit. `null` : toute la fenêtre a été lue.
+   */
+  bornee: number | null;
+}
+
+/**
+ * Au plus tant de résultats relus pour juger un Worker : chacun demande
+ * l'Evaluator de sa tâche. Au-delà, la mesure porte sur les plus récents — et
+ * le DIT (`bornee`), au lieu de se présenter comme celle de toute la fenêtre.
+ */
+export const PRODUCTIONS_QUALITE_MAX = 100;
+
+const DECISIONS_TRANCHEES: ReadonlySet<EvaluationDecision> = new Set<EvaluationDecision>([
+  'accepted',
+  'correction_required',
+  'rejected',
+]);
+
+export function qualiteDesProductions(
+  productions: readonly ProductionJugee[],
+  bornee: number | null = null,
+): QualiteWorker {
+  const connues = productions.filter((p) => p.decision !== null);
+  const jugees = connues.filter((p) => DECISIONS_TRANCHEES.has(p.decision!));
+  const acceptees = jugees.filter((p) => p.decision === 'accepted').length;
+  const corrigees = connues.filter((p) => p.corrigee).length;
+  return {
+    productions: productions.length,
+    sortConnu: connues.length,
+    jugees: jugees.length,
+    acceptees,
+    partAcceptee: jugees.length >= SEUIL_QUALITE_WORKER ? acceptees / jugees.length : 'inconnu',
+    corrigees,
+    tauxCorrection: connues.length >= SEUIL_QUALITE_WORKER ? corrigees / connues.length : 'inconnu',
+    bornee,
+  };
+}
+
 /**
  * Construit la projection Workers à partir des nœuds et du vécu de l'Aiguillage.
  *
@@ -251,14 +454,18 @@ export function projeterWorkers(
   >[] = [],
   identites: ReadonlyMap<string, WorkerIdentitySnapshot> = new Map(),
   historiques: ReadonlyMap<string, readonly WorkerHistorySnapshot[]> = new Map(),
+  /** `economieParWorker` du journal ; absent : la route n'a pas relu les issues. */
+  economies?: ReadonlyMap<string, EconomieWorker>,
 ): WorkerSnapshot[] {
   const antecedents = antecedentsDuVecu(vecu.verdicts, vecu.enVol);
+  const bilanVide = bilanEconomique([]);
 
   return nodes.map((node) => {
     // Dédupliqués comme l'union de `aiguillerNoeuds` : un modèle déclaré deux
     // fois compterait double dans le total du genre, donc dans le bonus.
     const modeles = node.modeles && [...new Set(node.modeles)].sort((a, b) => a.localeCompare(b));
     const lignesDuWorker = vecu.verdicts.filter((ligne) => ligne.nodeId === node.id);
+    const economie = economies?.get(node.id);
     const projection: WorkerSnapshot = {
       id: node.id,
       name: node.name,
@@ -296,6 +503,7 @@ export function projeterWorkers(
       ...(node.outils !== undefined ? { outils: node.outils } : {}),
       reputation: reputationDe(lignesDuWorker),
       reputationParCategorie: reputationParCategorieDe(lignesDuWorker),
+      ...(economies ? { economie: economie?.total ?? bilanVide } : {}),
     };
 
     if (modeles && modeles.length > 0) {
@@ -316,6 +524,7 @@ export function projeterWorkers(
           ]),
         ) as ModeleWorkerSnapshot['categories'],
         reputation: reputationDe(lignesDuWorker.filter((ligne) => ligne.modeleExact === modele)),
+        ...(economies ? { economie: economie?.parModele.get(modele) ?? bilanVide } : {}),
       }));
     }
 

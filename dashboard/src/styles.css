@@ -2776,6 +2776,91 @@ h3 {
   color: var(--red);
 }
 
+/* Ce qui arrête la ruche : même cadre que le pouls d'autonomie qu'il précède.
+   Une ligne par arrêt, cliquable jusqu'au geste qui le lève ; le genre se dit
+   par l'icône ET par le texte — jamais par la seule couleur. */
+.alertes-ruche {
+  margin: 8px 22px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  background: color-mix(in srgb, var(--panel) 55%, transparent);
+}
+
+.alertes-ruche:has(.alertes-ruche-item) {
+  border-color: color-mix(in srgb, var(--red) 35%, var(--border));
+}
+
+.alertes-ruche-compte {
+  margin-left: 8px;
+  padding: 0 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--red);
+  border: 1px solid color-mix(in srgb, var(--red) 45%, var(--border));
+}
+
+.alertes-ruche-vide {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.alertes-ruche-liste {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.alertes-ruche-item {
+  appearance: none;
+  width: 100%;
+  display: grid;
+  grid-template-columns: 20px 1fr auto;
+  gap: 8px;
+  align-items: baseline;
+  padding: 5px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.alertes-ruche-item:hover {
+  border-color: color-mix(in srgb, var(--miel) 45%, var(--border));
+}
+
+.alertes-ruche-item--blocage .alertes-ruche-icone,
+.alertes-ruche-item--budget .alertes-ruche-icone,
+.alertes-ruche-item--relecture_impossible .alertes-ruche-icone {
+  color: var(--red);
+}
+
+.alertes-ruche-item--refus .alertes-ruche-icone {
+  color: var(--orange);
+}
+
+.alertes-ruche-texte {
+  overflow-wrap: anywhere;
+}
+
+.alertes-ruche-quand {
+  font-size: 11px;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.decision-titre {
+  font-weight: 600;
+}
+
 /* Ruche vide : une seule composition centrée — pas de zéros autour. */
 .mc-ruche:has(> .ruche-depart:only-child) {
   display: flex;

@@ -59,6 +59,7 @@ import { BalanceProjet, CarteDevis } from './Balance';
 import { PleinEssaim } from '../PleinEssaim';
 import { OnboardingEssaim } from '../OnboardingEssaim';
 import { GardeFous } from '../GardeFous';
+import { RapportMission } from '../RapportMission';
 import { EchecSondage, Honeycomb, useApiPoll } from './shared';
 import type { ViewProps } from './shared';
 import { argv, useSuiviMerge } from './suivi-merge';
@@ -2135,6 +2136,7 @@ function ProjectCard({
   const [showMerge, setShowMerge] = useState(false);
   const [showConflicts, setShowConflicts] = useState(false);
   const [showConseil, setShowConseil] = useState(false);
+  const [showMission, setShowMission] = useState(false);
 
   const contributors = report
     ? report.contributingNodes.map((id) => nodeNames.get(id) ?? id.slice(0, 8)).join(', ')
@@ -2295,7 +2297,22 @@ function ProjectCard({
         >
           {t('🔭 Réunir le Conseil', '🔭 Convene the Council')}
         </button>
+        <button
+          className="btn ghost"
+          aria-expanded={showMission}
+          data-testid="ouvrir-rapport-mission"
+          onClick={() => setShowMission((v) => !v)}
+        >
+          {t('📋 Rapport de mission', '📋 Mission report')}
+        </button>
       </div>
+
+      {/* Ce que chaque tâche a donné et ce que la mission a coûté : sur
+          demande, parce qu'il juge chaque production — la carte sonde déjà
+          l'avancement toutes les trente secondes. */}
+      {showMission && (
+        <RapportMission projectId={project.id} refreshTick={refreshTick} onOpenTask={onOpenTask} />
+      )}
 
       {showMerge && (
         <MergePanel project={project} taskTitles={taskTitles} refreshTick={refreshTick} />

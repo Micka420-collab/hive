@@ -46,6 +46,7 @@
 
 import type { Categorie } from '../orchestrator/aiguillage.js';
 import { declarationDe, sommeDeclaree } from './declaration-fournisseur.js';
+import { mediane } from './economie.js';
 import type { SommeDeclaree } from './declaration-fournisseur.js';
 import type { HiveEvent } from './types.js';
 
@@ -192,15 +193,6 @@ function consignerDeclaration(acc: Accumulateur, payload: Record<string, unknown
   acc.jetonsEntree.push(declaration.jetonsEntree);
   acc.jetonsSortie.push(declaration.jetonsSortie);
   for (const m of declaration.modeles) acc.modelesExacts.add(m);
-}
-
-function mediane(valeurs: readonly number[]): number | null {
-  if (valeurs.length === 0) return null;
-  const triees = [...valeurs].sort((a, b) => a - b);
-  const milieu = Math.floor(triees.length / 2);
-  return triees.length % 2 === 1
-    ? triees[milieu]!
-    : Math.round((triees[milieu - 1]! + triees[milieu]!) / 2);
 }
 
 function texte(valeur: unknown): string | null {
