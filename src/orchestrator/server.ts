@@ -3268,20 +3268,22 @@ async function monterReine(
         modele: store.modeleAiguillageDe(t.id),
       }));
 
-      const relectures = new Map<string, Set<string>>();
-      for (const r of store.relecturesDuNoeud(node.id, 200)) {
-        const familles = relectures.get(r.productionTaskId) ?? new Set<string>();
-        familles.add(r.relecteurAgent);
-        relectures.set(r.productionTaskId, familles);
-      }
-      const debats = debatsDuWorker(
-        entreesWarRoom(store.evenementsParTypes(TYPES_WAR_ROOM, EVENT_RETENTION)),
-        {
-          nodeId: node.id,
-          productions: new Set(resultats.map((r) => r.taskId)),
-          relectures,
-        },
+      // Un avis de relecture porte la FAMILLE du relecteur ; le nœud qui l'a
+      // RENDU n'est que dans le payload brut (`reviewerNodeId`, posé par le
+      // hub à la réception). Sans lui, l'avis n'est à personne.
+      const evenements = store.evenementsParTypes(TYPES_WAR_ROOM, EVENT_RETENTION);
+      const avisRendus = new Set(
+        evenements.filter((e) => e.payload.reviewerNodeId === node.id).map((e) => e.id),
       );
+      const debats = debatsDuWorker(entreesWarRoom(evenements), {
+        nodeId: node.id,
+        resultats: new Set(resultats.map((r) => r.resultId)),
+        avisRendus,
+        seulProducteur: store.tachesAProducteurUnique(
+          node.id,
+          resultats.map((r) => r.taskId),
+        ),
+      });
       const taches: Record<string, { titre: string; projectId: string }> = {};
       for (const d of debats) {
         const sujet = sujetDe(d.entree);
@@ -6515,6 +6517,14 @@ async function monterReine(
    * Le BROUILLON : chaque étape franchie est rangée, avec l'étape où l'on en
    * est. Fermer l'onglet au milieu ne perd rien — l'assistant reprend là.
    * Ranger un brouillon ne termine rien : `termineeA` ne bouge pas.
+   *
+   * Une configuration TERMINÉE ne se modifie plus par brouillon : seule
+   * l'étape se range. Sans cette garde, l'assistant relancé depuis
+   * l'Intendance écrivait chaque choix au fil des étapes — un mode changé puis
+   * « Plus tard » devenait la configuration arrêtée, sans aucun fait au
+   * journal, et un `mode: null` laissait une ligne « terminée » sans mode.
+   * Changer une configuration arrêtée passe par `terminer`, qui revérifie les
+   * choix et journalise le geste.
    */
   app.put<{ Body: ModificationConfiguration }>(
     '/api/configuration-initiale',
@@ -6523,11 +6533,10 @@ async function monterReine(
       const verdict = verdictConfiguration(req);
       if (verdict !== 'permis') return refuserConfiguration(reply, verdict);
       const courante = store.lireConfigurationInitiale();
-      store.rangerConfigurationInitiale(
-        fusionnerChoix(courante, req.body),
-        auteurConfiguration(req),
-        { terminer: false },
-      );
+      const modif = courante?.termineeA != null ? { etape: req.body.etape } : req.body;
+      store.rangerConfigurationInitiale(fusionnerChoix(courante, modif), auteurConfiguration(req), {
+        terminer: false,
+      });
       return etatConfiguration(verdict);
     },
   );
@@ -6583,7 +6592,17 @@ async function monterReine(
       const { inventaireAgents } = await import('../node-client/agent-detect.js');
       // UNE passe de sondes : l'inventaire est prêté au docteur plutôt que refait.
       const agents = await inventaireAgents(process.env);
-      const releve = await relever(RACINE_RUCHE, process.env, process.platform, async () => agents);
+      // L'environnement de CETTE Reine, pas celui qu'elle aurait par défaut :
+      // la base, le port et l'hôte relevés sont ceux qu'elle sert réellement —
+      // l'écran affiche `config.dbPath` à côté de SON intégrité, pas de celle
+      // d'un `data/hive.db` relatif à un autre dossier.
+      const env = {
+        ...process.env,
+        HIVE_DB: path.resolve(config.dbPath),
+        HIVE_PORT: String(port),
+        HIVE_HOST: config.host,
+      };
+      const releve = await relever(RACINE_RUCHE, env, process.platform, async () => agents, true);
       return { releve, agents };
     });
 

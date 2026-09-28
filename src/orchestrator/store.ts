@@ -1912,7 +1912,9 @@ export class HiveStore {
    *
    * `terminer` pose `termineeA` ; sans lui, une ligne déjà terminée GARDE sa
    * date : relancer l'assistant depuis l'Intendance pour changer un choix ne
-   * doit pas rouvrir la porte de la première arrivée à tous les écrans.
+   * doit pas rouvrir la porte de la première arrivée à tous les écrans. (Le
+   * brouillon d'une ligne terminée ne range que l'étape : la route `PUT` le
+   * garde, les choix ne changent qu'en terminant à nouveau.)
    */
   rangerConfigurationInitiale(
     choix: ChoixInitiaux,
@@ -1999,26 +2001,21 @@ export class HiveStore {
   }
 
   /**
-   * Les productions que ce nœud a RELUES en contre-expertise : la relecture
-   * est une tâche, et c'est son résultat — rendu par CE nœud — qui prouve la
-   * participation. Rend la production relue et la famille du relecteur, telle
-   * que les faits `contre_expertise_*` la nomment.
+   * Parmi `taskIds`, les tâches dont CE nœud a rendu TOUS les résultats. Une
+   * revue humaine juge une tâche sans nommer de résultat : elle n'est
+   * attribuable qu'à un producteur unique — dès qu'une reprise est passée
+   * ailleurs, on ne sait plus QUELLE production l'humain a jugée.
    */
-  relecturesDuNoeud(
-    nodeId: string,
-    limite: number,
-  ): Array<{ productionTaskId: string; relecteurAgent: string }> {
-    return this.db
+  tachesAProducteurUnique(nodeId: string, taskIds: readonly string[]): Set<string> {
+    const ids = [...new Set(taskIds)].slice(0, 200);
+    if (ids.length === 0) return new Set();
+    const rows = this.db
       .prepare(
-        `SELECT ce.productionTaskId AS productionTaskId, ce.relecteurAgent AS relecteurAgent
-           FROM contre_expertises ce
-          WHERE EXISTS (SELECT 1 FROM results r WHERE r.taskId = ce.relectureTaskId AND r.nodeId = ?)
-          ORDER BY ce.creeA DESC LIMIT ?`,
+        `SELECT taskId FROM results WHERE taskId IN (${ids.map(() => '?').join(', ')})
+          GROUP BY taskId HAVING SUM(nodeId <> ?) = 0`,
       )
-      .all(nodeId, Math.max(1, Math.min(limite, 200))) as Array<{
-      productionTaskId: string;
-      relecteurAgent: string;
-    }>;
+      .all(...ids, nodeId) as Array<{ taskId: string }>;
+    return new Set(rows.map((r) => r.taskId));
   }
 
   // ─── Baptêmes (ADR 0010) ───────────────────────────────────────────────────

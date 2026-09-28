@@ -11,11 +11,11 @@
 //
 // ─── TROIS RÈGLES, CELLES DE LA WAR ROOM ─────────────────────────────────────
 //
-//   · une participation se PROUVE par un fait exact : un résultat rendu par ce
-//     nœud (`results.nodeId`), une proposition ou un avis de Conseil portant
-//     son `nodeId`. Jamais par l'assignation courante d'une tâche, qui change
-//     à chaque reprise, ni par la famille d'agent, que partagent d'autres
-//     ouvrières ;
+//   · une participation se PROUVE par un fait exact : le résultat jugé est un
+//     de ceux que ce nœud a rendus (`results.nodeId`), l'avis de relecture
+//     porte son `reviewerNodeId`, la proposition ou l'avis de Conseil porte son
+//     `nodeId`. Jamais par l'id d'une tâche, que partagent toutes ses reprises,
+//     ni par la famille d'agent, que partagent d'autres ouvrières ;
 //   · rien n'est agrégé ici : une moyenne de coût ou de qualité par Worker est
 //     un choix de métrique (le rapport de mission le tranche), et une moyenne
 //     posée faute de mieux serait un chiffre inventé. La fiche rend les faits
@@ -100,14 +100,17 @@ export function leconsDuWorker(
   const lecons: LeconApprise[] = [];
   for (const r of resultats) {
     if (r.success) continue;
-    const extrait = extraitDesLogs(r.logs);
+    // Caviarder AVANT d'extraire : l'extrait coupe chaque ligne à
+    // `LIGNE_MAX` ; un secret à cheval sur la coupe ne serait plus reconnu
+    // entier, et son préfixe — presque tout le secret — sortirait.
+    const extrait = extraitDesLogs(caviarder(r.logs));
     if (extrait === '') continue;
     lecons.push({
       resultId: r.resultId,
       taskId: r.taskId,
       titre: titreDe(r.taskId),
       createdAt: r.createdAt,
-      extrait: caviarder(extrait),
+      extrait,
     });
     if (lecons.length >= LECONS_MAX) break;
   }
@@ -131,14 +134,30 @@ export function missionsDuWorker(
 }
 
 /**
+ * Ce qui PROUVE qu'une entrée de la War Room concerne ce Worker — trois faits
+ * exacts, relus par le serveur, jamais une tâche ni une famille d'agent :
+ *
+ *   · `resultats` : les résultats qu'IL a rendus. Une tâche reprise ailleurs
+ *     (A échoue, B réussit) garde son id, mais pas son résultat : c'est le
+ *     `resultId` jugé qui dit QUELLE production on a relue ;
+ *   · `avisRendus` : les événements de relecture (avis ou échec) dont le
+ *     `reviewerNodeId` est le sien. Un avis porte la FAMILLE du relecteur, et
+ *     une relecture reprise par une autre ouvrière de la même famille rendrait
+ *     sinon son avis à la première ;
+ *   · `seulProducteur` : les tâches dont il a rendu TOUS les résultats. Une
+ *     revue humaine juge la tâche, sans nommer de résultat : elle n'est à lui
+ *     que si personne d'autre n'y a rendu quoi que ce soit.
+ */
+export interface PreuvesDeParticipation {
+  nodeId: string;
+  resultats: ReadonlySet<number>;
+  avisRendus: ReadonlySet<number>;
+  seulProducteur: ReadonlySet<string>;
+}
+
+/**
  * Les entrées de la War Room où CE Worker a pris part, les plus récentes
  * d'abord.
- *
- * `productions` : les tâches dont il a rendu un résultat. `relectures` : les
- * productions qu'il a relues, avec la famille d'agent sous laquelle il l'a
- * fait — un avis `contre_verdict` porte la FAMILLE du relecteur, pas le nœud :
- * seule la conjonction « il a rendu la relecture de cette production » ET
- * « l'avis vient de sa famille » l'attribue sans deviner.
  *
  * Une même entrée ne compte qu'une fois : relecteur l'emporte sur auteur (un
  * Worker ne relit jamais sa propre production — la contre-expertise l'exclut —,
@@ -146,11 +165,7 @@ export function missionsDuWorker(
  */
 export function debatsDuWorker(
   entrees: readonly EntreeWarRoom[],
-  p: {
-    nodeId: string;
-    productions: ReadonlySet<string>;
-    relectures: ReadonlyMap<string, ReadonlySet<string>>;
-  },
+  p: PreuvesDeParticipation,
 ): DebatDuWorker[] {
   const retenus: DebatDuWorker[] = [];
   for (let i = entrees.length - 1; i >= 0 && retenus.length < DEBATS_MAX; i--) {
@@ -161,30 +176,29 @@ export function debatsDuWorker(
   return retenus;
 }
 
-function roleDans(
-  e: EntreeWarRoom,
-  p: {
-    nodeId: string;
-    productions: ReadonlySet<string>;
-    relectures: ReadonlyMap<string, ReadonlySet<string>>;
-  },
-): RoleDebat | null {
+function roleDans(e: EntreeWarRoom, p: PreuvesDeParticipation): RoleDebat | null {
   switch (e.genre) {
     case 'conseil_proposition':
     case 'conseil_avis':
       return e.nodeId === p.nodeId ? 'eclaireuse' : null;
     case 'contre_verdict':
     case 'contre_echec':
-      if (p.relectures.get(e.taskId)?.has(e.relecteur)) return 'relecteur';
-      return p.productions.has(e.taskId) ? 'auteur' : null;
+      if (p.avisRendus.has(e.id)) return 'relecteur';
+      return aProduit(e.resultId, p);
     case 'contre_expertise':
     case 'renvoi_evaluator':
     case 'renvoi_refuse':
+      return aProduit(e.resultId, p);
     case 'revue_humaine':
-      return p.productions.has(e.taskId) ? 'auteur' : null;
+      return p.seulProducteur.has(e.taskId) ? 'auteur' : null;
     default:
       // Ouverture, tour, clôture et décision d'un Conseil ne portent aucun
       // nœud : les attribuer à chaque éclaireuse inventerait une participation.
       return null;
   }
+}
+
+/** Un `resultId` absent ne désigne personne : inconnu reste inconnu. */
+function aProduit(resultId: number | null, p: PreuvesDeParticipation): RoleDebat | null {
+  return resultId !== null && p.resultats.has(resultId) ? 'auteur' : null;
 }

@@ -2,6 +2,7 @@
 // écrite par qui répond de la ruche, confrontée à ce qui tourne.
 
 import { mkdtempSync, rmSync } from 'node:fs';
+import { createServer as creerServeurTcp } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -17,6 +18,7 @@ import type { FaitsDeploiement } from '../src/shared/configuration-initiale.js';
 import { diagnostiquer, pire } from '../src/shared/doctor.js';
 import type { Releve } from '../src/shared/doctor.js';
 import type { InventaireAgents } from '../src/node-client/agent-detect.js';
+import { relever } from '../src/doctor-releve.js';
 import { HiveStore } from '../src/orchestrator/store.js';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
@@ -279,14 +281,40 @@ describe('/api/configuration-initiale', () => {
     expect(ev).toHaveLength(1);
     expect(ev[0]!.payload).toMatchObject({ mode: 'local', connecteurs: ['github'] });
 
-    // Relancer l'assistant et changer un choix ne rouvre pas la première arrivée.
+    // Relancer l'assistant ne rouvre pas la première arrivée, et son brouillon
+    // ne touche pas une configuration arrêtée : seule l'étape se range — un
+    // « Plus tard » après avoir changé de choix ne change rien, et un `null`
+    // ne laisse pas une configuration « terminée » sans mode.
     const termineeA = etat.configuration.termineeA;
-    await fetch(`${url}/api/configuration-initiale`, {
-      method: 'PUT',
+    for (const corps of [
+      { git: 'distant', etape: 'git' },
+      { mode: null, etape: 'mode' },
+    ]) {
+      const brouillon = await fetch(`${url}/api/configuration-initiale`, {
+        method: 'PUT',
+        headers: jeton,
+        body: JSON.stringify(corps),
+      });
+      expect(brouillon.status).toBe(200);
+      expect(server!.store.lireConfigurationInitiale()).toMatchObject({
+        mode: 'local',
+        git: 'local',
+        etape: corps.etape,
+        termineeA,
+      });
+    }
+    // Changer une configuration arrêtée, c'est la terminer à nouveau : le
+    // geste revérifie les choix et se journalise.
+    const change = await fetch(`${url}/api/configuration-initiale/terminer`, {
+      method: 'POST',
       headers: jeton,
-      body: JSON.stringify({ git: 'distant', etape: 'git' }),
+      body: JSON.stringify({ git: 'distant' }),
     });
-    expect(server!.store.lireConfigurationInitiale()).toMatchObject({ git: 'distant', termineeA });
+    expect(change.status).toBe(200);
+    expect(server!.store.lireConfigurationInitiale()).toMatchObject({ git: 'distant' });
+    expect(server!.store.evenementsParTypes(['configuration_initiale_terminee'], 10)).toHaveLength(
+      2,
+    );
   });
 
   it('dès qu’un compte existe, le jeton ne règle plus rien ; l’admin, si', async () => {
@@ -367,5 +395,41 @@ describe('/api/configuration-initiale', () => {
     const b = new HiveStore(chemin);
     expect(b.lireConfigurationInitiale()).toMatchObject({ mode: 'hybride', termineeA: 5 });
     b.close();
+  });
+});
+
+describe('le bilan de la Reine relevé EN PROCESSUS', () => {
+  it('ne sonde pas son propre port, et mesure la base qu’elle sert', async () => {
+    // Un port tenu par un programme muet : sondé, le docteur conclurait
+    // « indéterminable » après son délai. La Reine, elle, SAIT qu'elle écoute.
+    const muet = creerServeurTcp(() => undefined);
+    await new Promise<void>((ok) => muet.listen(0, '127.0.0.1', ok));
+    const port = (muet.address() as { port: number }).port;
+    const racine = mkdtempSync(path.join(os.tmpdir(), 'hive-releve-soi-'));
+    // La base vit AILLEURS que `<racine>/data/hive.db` : c'est celle-ci qu'on
+    // doit mesurer, pas le défaut relatif à la racine.
+    const ailleurs = mkdtempSync(path.join(os.tmpdir(), 'hive-releve-base-'));
+    const base = path.join(ailleurs, 'hive.db');
+    new HiveStore(base).close();
+    try {
+      const r = await relever(
+        racine,
+        { HIVE_PORT: String(port), HIVE_HOST: '127.0.0.1', HIVE_DB: base },
+        'linux',
+        async (): Promise<InventaireAgents> => ({
+          tous: ['shell'],
+          nonConnectes: [],
+          presents: [],
+        }),
+        true,
+      );
+      expect(r.port).toEqual({ numero: port, libre: false, parNous: true });
+      expect(r.wsJoignable).toBe(true);
+      expect(r.base).toMatchObject({ presente: true, integre: true, inscriptible: true });
+    } finally {
+      await new Promise((ok) => muet.close(ok));
+      rmSync(racine, { recursive: true, force: true, maxRetries: 3 });
+      rmSync(ailleurs, { recursive: true, force: true, maxRetries: 3 });
+    }
   });
 });

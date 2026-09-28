@@ -262,7 +262,10 @@ par étape : fermer l’onglet au milieu, c’est reprendre au même endroit, su
 poste ou un autre. Seul un administrateur les écrit — ou le jeton de ruche tant
 qu’aucun compte n’existe. L’assistant s’ouvre seul tant que la ruche n’a jamais
 été configurée, « Plus tard » le range pour l’onglet, et **Relancer
-l’assistant** (Santé, Intendance) le rouvre prérempli.
+l’assistant** (Santé, Intendance) le rouvre prérempli. Relancé, il ne change
+une configuration arrêtée qu’en la **terminant** à nouveau (geste journalisé) :
+« Plus tard » la laisse telle quelle. Chaque étape se photographie avec
+`npm run captures -- --vues assistant-<étape>`.
 
 <p align="center">
   <img src="images/premiere-arrivee/agents-sombre.bureau.png" width="760" alt="L’étape Agents : Claude Code et Codex connectés, Cursor installé mais non connecté, avec la commande qui le connecte.">
@@ -270,6 +273,7 @@ l’assistant** (Santé, Intendance) le rouvre prérempli.
 <p align="center">
   <img src="images/premiere-arrivee/recap-sombre.bureau.png" width="480" alt="Le récapitulatif : un mode hybride choisi sur une Reine qui n’écoute que 127.0.0.1, dit avec la ligne à poser.">
   <img src="images/premiere-arrivee/mode-clair.mobile.png" width="220" alt="L’étape Mode sur mobile, thème clair.">
+  <img src="images/premiere-arrivee/sante-sombre.mobile.png" width="220" alt="Le bilan de santé sur mobile, thème sombre : le port tenu par la ruche, la base intègre, le bac à sable disponible.">
 </p>
 
 ## 🪑 Chambre — poste d’ouvrière (ADR 0010)

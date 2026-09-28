@@ -19,6 +19,9 @@
 //     pas s'ouvrir un assistant qui lui dirait non ;
 //   · RELANÇABLE : l'Intendance le rouvre, prérempli ; le terminer à nouveau
 //     met les choix à jour sans rouvrir la « première arrivée » ailleurs.
+//     Relancé, il ne range QUE l'étape en chemin (la Reine ignore les choix
+//     d'un brouillon sur une configuration arrêtée) : « Plus tard » laisse la
+//     configuration telle qu'elle était, et seul « Terminer » la change.
 
 import './premiere-arrivee.css';
 import { useCallback, useEffect, useRef, useState } from 'react';
