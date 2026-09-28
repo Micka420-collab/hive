@@ -336,21 +336,26 @@ function arreter(code) {
   // minuteur ne reste que comme coup de grâce si un tuyau retient la boucle.
   process.exitCode = code;
   for (const e of enfants) demanderArret(e);
-  // On laisse une seconde aux serveurs pour libérer leurs ports. Sans ce délai,
-  // le démarrage suivant peut échouer sur « port occupé » — une panne qu'on ne
-  // relie pas à un ^C de la veille.
+  // On laisse aux pièces le temps de finir : les serveurs libèrent leurs ports
+  // (sans quoi le démarrage suivant échoue sur « port occupé », une panne
+  // qu'on ne relie pas à un ^C de la veille), et les ouvrières la grâce de
+  // leurs agents (`GRACE_ARRET_MS` : arrêtés, ils ont ce temps pour finir),
+  // plus une seconde pour sortir.
   //
-  // Sous Windows, la grâce des ouvrières d'abord (`GRACE_ARRET_MS` : leurs
-  // agents, arrêtés, ont ce temps pour finir) ; puis ce qui vit encore — une
-  // pièce qui démarrait et n'écoutait pas encore son canal — part comme un
-  // ARBRE, jamais comme un seul processus : ses agents avec elle.
-  differer(
-    () => {
-      if (WINDOWS) for (const e of enfants) emporterArbre(e, 'SIGKILL');
-      process.exit(code);
-    },
-    WINDOWS ? GRACE_ARRET_MS + 1_000 : 1_000,
-  ).unref();
+  // La même attente partout. Une seconde seulement sous POSIX, et le lanceur
+  // mourait AVANT une ouvrière encore dans sa grâce : ses tuyaux de sortie
+  // pointaient vers un parent mort, et la première ligne de journal (une
+  // tâche annulée, un merge interrompu) finissait sur EPIPE au lieu d'un
+  // arrêt propre. Le minuteur est `unref` : une ruche dont les pièces sortent
+  // plus tôt sort avec elles, sans l'attendre.
+  //
+  // Sous Windows, ce qui vit encore — une pièce qui démarrait et n'écoutait
+  // pas encore son canal — part ensuite comme un ARBRE, jamais comme un seul
+  // processus : ses agents avec elle.
+  differer(() => {
+    if (WINDOWS) for (const e of enfants) emporterArbre(e, 'SIGKILL');
+    process.exit(code);
+  }, GRACE_ARRET_MS + 1_000).unref();
 }
 
 /**

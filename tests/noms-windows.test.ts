@@ -17,7 +17,10 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { racineDeTravailParDefaut } from '../src/node-client/identite-noeud.js';
+import {
+  racineDeTravailParDefaut,
+  refusRacineDeTravail,
+} from '../src/node-client/identite-noeud.js';
 import { prepareWorkspace } from '../src/node-client/workspace.js';
 import { jugerEntrees } from '../src/shared/deballage.js';
 import { nomReserveWindows, segmentSur } from '../src/shared/noms-windows.js';
@@ -101,10 +104,42 @@ describe('le dossier d’un nœud, tiré de son nom', () => {
     ['com1', 'com1~'],
     ['mon poste.', 'mon_poste_'],
     ['poste-de-léa', 'poste-de-l_a'],
-  ])('« %s » → .hive-work/%s', (nom, dossier) => {
-    const racine = racineDeTravailParDefaut(nom);
+  ])('sous Windows, « %s » → .hive-work/%s', (nom, dossier) => {
+    const racine = racineDeTravailParDefaut(nom, 'win32');
     expect(racine).toBe(path.join('.hive-work', dossier));
     expect(nomReserveWindows(feuilleWindows(racine.replaceAll(path.sep, '\\')))).toBe(false);
+  });
+
+  it.each(['linux', 'darwin'] as const)(
+    'sous %s, un poste nommé `aux` GARDE son dossier — donc son identité',
+    (plateforme) => {
+      // Remappé partout, `.hive-work/aux` devenait `aux~` à la mise à jour :
+      // une nouvelle identité, et l'ancienne en fantôme « hors ligne » dans la
+      // ruche. Hors Windows, `aux` est un dossier ordinaire.
+      expect(racineDeTravailParDefaut('aux', plateforme)).toBe(path.join('.hive-work', 'aux'));
+    },
+  );
+});
+
+describe('une racine de travail DONNÉE (`HIVE_WORKDIR`)', () => {
+  it.each(['C:\\hive\\aux', 'D:\\travail\\nul.', 'C:/hive/COM1/x', 'poste '])(
+    'sous Windows, « %s » est refusée en nommant le segment fautif',
+    (racine) => {
+      const refus = refusRacineDeTravail(racine, 'win32');
+      expect(refus).toMatch(/HIVE_WORKDIR/);
+      expect(refus).toMatch(/« (aux|nul\.|COM1|poste ) »/);
+    },
+  );
+
+  it.each(['C:\\hive\\travail', '.\\hive-work\\..\\x', '\\\\?\\C:\\hive', '.hive-work/join'])(
+    'sous Windows, « %s » passe',
+    (racine) => {
+      expect(refusRacineDeTravail(racine, 'win32')).toBeNull();
+    },
+  );
+
+  it('hors Windows, rien n’est refusé : `aux` y est un dossier ordinaire', () => {
+    expect(refusRacineDeTravail('/srv/hive/aux', 'linux')).toBeNull();
   });
 });
 

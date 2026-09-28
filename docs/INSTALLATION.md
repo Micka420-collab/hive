@@ -441,12 +441,16 @@ Ce qui fonde chaque case :
   `ubuntu-latest`, `macos-latest` et `windows-latest`. L'arrêt d'un agent y est
   éprouvé sur de vrais processus, **petits-enfants compris** — annulation,
   délai dépassé, agent sorti en laissant un descendant
-  (`tests/arbre-processus.test.ts`) ; arrêt du nœud par l'ordre de
-  `npm run ruche` (`tests/noeud-arret-signal.test.ts`) et de la Reine
-  (`tests/reine-demarrage.test.ts`) ; merges et chantiers en cours
-  (`tests/arret-noeud-travaux.test.ts`). SIGTERM sur les deux portes du nœud
-  et la reprise après panne (`tests/resilience-processus.test.ts`) : Linux et
-  macOS ;
+  (`tests/arbre-processus.test.ts`) ; arrêt du nœud à la RÉCEPTION de l'ordre
+  IPC que `npm run ruche` lui envoie sous Windows
+  (`tests/noeud-arret-signal.test.ts`, un superviseur de banc envoie l'ordre)
+  et de la Reine (`tests/reine-demarrage.test.ts`) ; merges et chantiers en
+  cours (`tests/arret-noeud-travaux.test.ts`). Linux et macOS seulement :
+  SIGTERM sur les deux portes du nœud (`tests/noeud-arret-signal.test.ts`),
+  l'arrêt par `npm run ruche` lui-même (`tests/lanceur-ruche.test.ts`) et la
+  reprise après un `kill -9` (`tests/resilience-processus.test.ts`). L'ENVOI
+  de l'ordre par `scripts/ruche.mjs` sous Windows (canal IPC, `taskkill` de
+  l'écran, balayage final) n'est éprouvé par aucun banc ;
 - **bubblewrap** : le vrai `bwrap`, sur un agent installé dans un HOME comme
   chez un membre (`tests/isolement-runtime.integration.test.ts`). Sur la jambe
   Linux, `HIVE_BWRAP_REQUIS=1` fait **échouer** le banc si bubblewrap manque,
@@ -476,8 +480,8 @@ est lancé comme la tête d'un **arbre** que le nœud possède (`src/shared/arbr
 Un nœud qui s'arrête — Ctrl+C, SIGTERM d'un superviseur, terminal fermé
 (SIGHUP), ou l'ordre de `npm run ruche` par son canal IPC, seul arrêt propre
 sous Windows — annule tout ce qu'il mène, laisse deux secondes aux arbres pour
-finir (`docker run` relaie l'arrêt à son conteneur), puis abat ce qui reste en
-sortant.
+finir (sous Linux et macOS, `docker run` relaie l'arrêt à son conteneur), puis
+abat ce qui reste en sortant.
 
 Ce qui échappe encore, et qu'il faut savoir :
 
@@ -489,6 +493,11 @@ Ce qui échappe encore, et qu'il faut savoir :
 - un conteneur qui ne s'arrête pas dans les deux secondes : son client
   `docker run` (ou `podman run`) est abattu, et le conteneur est supprimé au
   démarrage suivant du nœud ;
+- sous Windows, **toute** tâche en bac conteneur annulée ou expirée :
+  `taskkill /T /F` abat le client `docker run` (ou `podman run`) sans étape
+  SIGTERM, donc sans relayer l'arrêt — le conteneur tourne (et peut consommer
+  des crédits d'API) jusqu'au démarrage suivant du nœud, qui le supprime par
+  son étiquette ;
 - un descendant qui quitte le groupe de lui-même (`setsid`, un démon) ;
 - sous Windows, les descendants d'un agent **sorti de lui-même** : son pid est
   libéré et peut déjà nommer un autre processus — le nœud cesse d'attendre
@@ -497,11 +506,15 @@ Ce qui échappe encore, et qu'il faut savoir :
 ### Noms réservés de Windows
 
 `CON`, `PRN`, `AUX`, `NUL`, `COM1`…`COM9`, `LPT1`…`LPT9` désignent des
-périphériques dans tout dossier Windows, avec ou sans extension. Un nœud dont
-le nom (`HIVE_NODE_NAME`, sinon celui de la machine) serait l'un d'eux
-travaille dans `.hive-work/<nom>~` ; un identifiant de tâche, de merge, de
-chantier ou de projet réservé devient de même `<id>~` dans les chemins du
-nœud. L'identifiant, lui, ne change pas.
+périphériques dans tout dossier Windows, avec ou sans extension. Sous Windows,
+un nœud dont le nom (`HIVE_NODE_NAME`, sinon celui de la machine) serait l'un
+d'eux travaille dans `.hive-work/<nom>~` (sous Linux et macOS, où c'est un nom
+ordinaire, son dossier — et donc son identité — ne change pas) ; un
+`HIVE_WORKDIR` dont un segment est réservé, ou finit par un point ou une
+espace, est refusé au démarrage, segment nommé, plutôt que remappé en silence.
+Sur tous les systèmes, un identifiant de tâche, de merge, de chantier ou de
+projet réservé devient `<id>~` dans les chemins du nœud. L'identifiant, lui, ne
+change pas.
 
 ---
 

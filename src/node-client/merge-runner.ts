@@ -167,6 +167,20 @@ function sortieBornee(moitie = OUTPUT_CAP / 2): {
 }
 
 /**
+ * Ce que le journal d'un merge dit d'une commande qui n'a pas réussi.
+ *
+ * Arrêtée (annulation, délai), elle n'a PAS de code : `runProc` rend `null`, et
+ * « échec (code null) » laissait croire à une suite rouge là où personne ne
+ * l'avait laissée finir. Le refus de livrer, lui, ne change pas — seul le mot
+ * change, pour que l'hôte ne cherche pas une régression qui n'existe pas.
+ */
+function issueRatee(code: number | null, arret: Arret | undefined): string {
+  if (arret === 'annule') return 'interrompue (annulation)';
+  if (arret === 'delai') return 'interrompue (délai dépassé)';
+  return `en échec (code ${code})`;
+}
+
+/**
  * Lance une commande (argv) dans un cwd, sans shell, sortie plafonnée, timeout dur.
  * L'environnement est ÉPURÉ (aucun secret du nœud transmis à l'enfant — cf. revue
  * sécurité Palier 3) : seuls PATH/variables système + un TEMP dédié passent.
@@ -385,7 +399,7 @@ export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
         // LA PRÉPARATION D'ABORD — c'est tout l'intérêt : sans elle, `npm test`
         // sur un clone frais échoue faute de `node_modules`.
         if (opts.prepareCommand && opts.prepareCommand.length > 0) {
-          const { code, output } = await runProc(
+          const { code, output, arret } = await runProc(
             opts.prepareCommand,
             opts.repoDir,
             env,
@@ -395,7 +409,7 @@ export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
           );
           preparedOk = code === 0;
           logs.push(
-            `environnement : ${preparedOk ? '✔ préparé' : `✘ préparation en échec (code ${code})`}`,
+            `environnement : ${preparedOk ? '✔ préparé' : `✘ préparation ${issueRatee(code, arret)}`}`,
           );
           logs.push(caviarder(output).slice(0, 4000));
         }
@@ -412,7 +426,7 @@ export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
           );
         } else if (opts.testCommand && opts.testCommand.length > 0) {
           testsRun = true;
-          const { code, output } = await runProc(
+          const { code, output, arret } = await runProc(
             opts.testCommand,
             opts.repoDir,
             env,
@@ -421,7 +435,7 @@ export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
             opts.bac,
           );
           testsPassed = code === 0;
-          logs.push(`tests : ${testsPassed ? '✔ OK' : `✘ échec (code ${code})`}`);
+          logs.push(`tests : ${testsPassed ? '✔ OK' : `✘ ${issueRatee(code, arret)}`}`);
           logs.push(caviarder(output).slice(0, 4000));
         }
       } finally {

@@ -42,7 +42,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { connect, createServer, type Server } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import { segmentSur } from '../shared/noms-windows.js';
+import { nomReserveWindows, segmentSur } from '../shared/noms-windows.js';
 import { ID_PATTERN } from '../shared/protocol.js';
 
 /** Ce qu'on accepte de mener de front quand rien n'est demandé. */
@@ -77,12 +77,51 @@ export function bornerConcurrence(brut: string | undefined): number {
  * divergent un jour donneraient au nœud deux identités — un fantôme « hors
  * ligne » dans la ruche.
  *
- * Le nom est NETTOYÉ (`[A-Za-z0-9_-]`) puis rendu sûr sous Windows
+ * Le nom est NETTOYÉ (`[A-Za-z0-9_-]`) puis, SOUS WINDOWS SEULEMENT, rendu sûr
  * (`segmentSur`) : un poste nommé `aux`, `nul` ou `com1` y désignait un
  * périphérique, et le nœud ne pouvait créer ni son dossier ni son identité.
+ *
+ * Windows seul, à la différence des identifiants du protocole : ce dossier ne
+ * sert qu'à LA machine qui le calcule, et c'est lui qui porte l'identité
+ * (`node-id.txt`). Remappé partout, un poste Linux nommé `aux` changeait de
+ * dossier à la mise à jour — donc d'identité, et l'ancienne restait dans la
+ * ruche comme un fantôme « hors ligne ». Sous Windows, l'ancien dossier n'a
+ * jamais pu exister : rien à perdre.
  */
-export function racineDeTravailParDefaut(nom: string): string {
-  return path.join('.hive-work', segmentSur(nom.replace(/[^A-Za-z0-9_-]+/g, '_')));
+export function racineDeTravailParDefaut(
+  nom: string,
+  plateforme: NodeJS.Platform = process.platform,
+): string {
+  const nettoye = nom.replace(/[^A-Za-z0-9_-]+/g, '_');
+  return path.join('.hive-work', plateforme === 'win32' ? segmentSur(nettoye) : nettoye);
+}
+
+/**
+ * Le refus d'une racine de travail DONNÉE (`HIVE_WORKDIR`) que Windows ne peut
+ * pas créer, ou `null`.
+ *
+ * Celle-là, l'opérateur l'a choisie : on ne la remappe pas en silence (son
+ * `aux~` ne serait pas le dossier qu'il surveille, sauvegarde ou nettoie), on
+ * la refuse en nommant le segment fautif. Sans ce refus, `C:\hive\aux` faisait
+ * échouer le premier `mkdir` ou l'écriture de l'identité sur un périphérique,
+ * avec une erreur qui ne parle pas du nom.
+ *
+ * `.` et `..` ne sont pas des noms : ils finissent par un point sans que
+ * Windows ne les réécrive, d'où leur exclusion.
+ */
+export function refusRacineDeTravail(
+  racine: string,
+  plateforme: NodeJS.Platform = process.platform,
+): string | null {
+  if (plateforme !== 'win32') return null;
+  const fautif = racine
+    .split(/[\\/]/)
+    .find((segment) => segment !== '.' && segment !== '..' && nomReserveWindows(segment));
+  return fautif === undefined
+    ? null
+    : `HIVE_WORKDIR (${racine}) contient « ${fautif} », un nom que Windows réserve à un ` +
+        'périphérique ou réécrit (CON, PRN, AUX, NUL, COM1-9, LPT1-9, point ou espace final). ' +
+        'Choisissez un autre dossier.';
 }
 
 /** Où l'identité du nœud est mémorisée. */

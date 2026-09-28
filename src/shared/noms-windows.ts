@@ -15,7 +15,8 @@
 //
 //   · les entrées d'une archive (`deballage.ts`) — REFUSÉES ;
 //   · le dossier d'un nœud, tiré de son nom (`HIVE_NODE_NAME`, sinon le nom
-//     de la machine) — REMAPPÉ, `segmentSur` ;
+//     de la machine) — REMAPPÉ sous Windows, `segmentSur` ; donné par
+//     l'opérateur (`HIVE_WORKDIR`), REFUSÉ sous Windows (`identite-noeud.ts`) ;
 //   · les identifiants du protocole (tâche, merge, chantier, projet) devenus
 //     noms de dossier ou de fichier sur le nœud — REMAPPÉS, `segmentSur`.
 //
@@ -52,10 +53,10 @@ export function nomReserveWindows(segment: string): boolean {
  * `aux.patch` devient `aux~.patch` ; un point ou une espace final reçoit le
  * sien en queue.
  *
- * Sur tous les systèmes, pas seulement sous Windows : le chemin d'un même
- * identifiant ne dépend pas de la machine qui le calcule. Compromis assumé :
- * une machine Linux nommée exactement `aux` ou `nul` voit son dossier de
- * travail par défaut devenir `aux~` — donc une nouvelle identité de nœud.
+ * Sur tous les systèmes pour les identifiants du protocole : le chemin d'un
+ * même identifiant ne dépend pas de la machine qui le calcule. Le dossier d'un
+ * nœud, lui, ne sert qu'à sa machine et porte son identité : il n'est remappé
+ * que sous Windows (`racineDeTravailParDefaut`).
  */
 export function segmentSur(segment: string): string {
   const peripherique = RE_NOM_RESERVE.exec(segment)?.[1];

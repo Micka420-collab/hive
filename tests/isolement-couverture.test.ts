@@ -62,6 +62,10 @@ const DEROGATIONS: Readonly<Record<string, string>> = {
   // du CATALOGUE du dépôt, jamais de la requête. Ce qui reste ouvert, et qui
   // n'est pas caché : `npm install` exécute les scripts `postinstall` du
   // paquet, donc du code du registre, sur la machine du membre.
+  'node-client/pose-runner.ts':
+    'pose un outil du catalogue sur la machine du membre — une installation ' +
+    'globale doit atteindre l’hôte, l’envelopper la rendrait sans effet ; le ' +
+    'binaire et le paquet viennent du catalogue, jamais de la requête',
   // ─── LA PRIMITIVE, PAS UN APPELANT ─────────────────────────────────────────
   //
   // `lancerArbre` est le `spawn` des agents, des merges, des chantiers, des
@@ -74,10 +78,6 @@ const DEROGATIONS: Readonly<Record<string, string>> = {
     'la primitive qui lance un arbre de processus : elle exécute ce que ses ' +
     'appelants ont préparé et enveloppé — chacun d’eux est jugé ici sur son ' +
     'propre appel à lancerArbre(), comme sur un spawn()',
-  'node-client/pose-runner.ts':
-    'pose un outil du catalogue sur la machine du membre — une installation ' +
-    'globale doit atteindre l’hôte, l’envelopper la rendrait sans effet ; le ' +
-    'binaire et le paquet viennent du catalogue, jamais de la requête',
 };
 
 /**

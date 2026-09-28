@@ -3,7 +3,12 @@
 // Le membre garde le contrôle : rien ne s'exécute sans lancer ce client.
 
 import os from 'node:os';
-import { bornerConcurrence, identiteStable, racineDeTravailParDefaut } from './identite-noeud.js';
+import {
+  bornerConcurrence,
+  identiteStable,
+  racineDeTravailParDefaut,
+  refusRacineDeTravail,
+} from './identite-noeud.js';
 import {
   agentCredentialEnv,
   inventaireAgents,
@@ -105,6 +110,13 @@ if (refusAgent) {
 // lire/écrire l'identité stable AVANT de construire le client.
 const name = process.env.HIVE_NODE_NAME ?? os.hostname();
 const workRoot = process.env.HIVE_WORKDIR ?? racineDeTravailParDefaut(name);
+// Une racine DONNÉE que Windows ne peut pas créer se refuse ici, en la
+// nommant — plutôt qu'un `mkdir` qui échoue sur un périphérique (`refusRacineDeTravail`).
+const refusRacine = refusRacineDeTravail(workRoot);
+if (refusRacine) {
+  console.error(`✘ Ce nœud ne démarre pas : ${refusRacine}\n`);
+  process.exit(CODE.PREREQUIS);
+}
 
 // L'identité survit au redémarrage — même mécanisme que `join.ts`
 // (`identite-noeud.ts`). Sans elle, chaque lancement de `npm run node`
