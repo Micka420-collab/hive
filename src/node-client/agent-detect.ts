@@ -579,12 +579,13 @@ export type LanceurStatut = (
 ) => Promise<{ code: number | null; sortie: string } | null>;
 
 /**
- * Le lanceur réel. Même garde que la sonde de présence : aucun secret dans
+ * Le lanceur réel — exporté pour l'autre sonde sans prompt qu'un adaptateur
+ * lance (`claude --help`, cf. `effortsDeLAide`). Même garde que la sonde de présence : aucun secret dans
  * l'environnement (`envSonde`) — la session vit dans le HOME, que l'on garde,
  * et une clé posée se juge sans rien lancer. La sortie de `claude auth status`
  * nomme le compte : elle est bornée, lue pour UN booléen, jamais écrite nulle part.
  */
-const lancerStatut: LanceurStatut = (commande, argsStatut) =>
+export const lancerStatut: LanceurStatut = (commande, argsStatut) =>
   new Promise((resolve) => {
     let fini = false;
     const finir = (r: { code: number | null; sortie: string } | null): void => {
@@ -609,8 +610,10 @@ const lancerStatut: LanceurStatut = (commande, argsStatut) =>
       finir(null);
       return;
     }
+    // 64 Kio : une commande de statut tient en quelques lignes, mais l'aide de
+    // `claude` en fait 22 Ko (2.1.283) et grandit à chaque option.
     const lire = (bout: Buffer): void => {
-      if (sortie.length < 8_192) sortie += bout.toString();
+      if (sortie.length < 65_536) sortie += bout.toString();
     };
     enfant.stdout?.on('data', lire);
     enfant.stderr?.on('data', lire);

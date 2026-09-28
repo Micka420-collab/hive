@@ -22,9 +22,11 @@ import {
   aiguillerNoeuds,
   antecedentsDuVecu,
   categoriser,
+  injecterEnVol,
   repriseHorsEchecs,
 } from './aiguillage.js';
-import type { Antecedent, Rang } from './aiguillage.js';
+import type { Antecedent, Bras, EtatDecision, Rang, VecuAiguillage } from './aiguillage.js';
+import type { Effort } from '../shared/effort.js';
 // L'Agent Garde-Fous : élire, PAR PROJET opt-in, l'échelon de garde-fous et
 // gouverner la sévérité des Gardiennes de la production. Module PUR — le scheduler
 // lui donne les antécédents et pose l'échelon élu. Projet non opt-in ⇒ repli sur
@@ -112,13 +114,26 @@ export const ATTENTE_RELECTEUR_ABSENT_MS = 5 * 60_000;
 /** Le lien d'une tâche de relecture vers ce qu'elle juge (`contre_expertises`). */
 type LienRelecture = NonNullable<ReturnType<HiveStore['relectureDe']>>;
 
+/** Où en était le choix du bras, figé dans l'affectation (cf. `EtatDecision`). */
+interface DecisionAiguillage {
+  etat: EtatDecision;
+  coutPondere: boolean;
+}
+
+/** Les efforts commandés par drone — seulement ceux qui en ont un. */
+function effortsDe(brasParDrone: Record<string, Bras>): Record<string, Effort> {
+  const efforts: Record<string, Effort> = {};
+  for (const [nodeId, b] of Object.entries(brasParDrone)) if (b.effort) efforts[nodeId] = b.effort;
+  return efforts;
+}
+
 export interface SchedulerOptions {
   maxAttempts?: number;
   nodeTimeoutMs?: number;
   /** Mode démo : autorise l'assignation aux nœuds shell/simulation. */
   simulation?: boolean;
   /** Appelé quand une tâche est assignée — le serveur pousse alors `assign_task` au nœud. */
-  onAssign?: (nodeId: string, task: Task, modele?: string) => void;
+  onAssign?: (nodeId: string, task: Task, modele?: string, effort?: Effort) => void;
   /** Appelé pour annuler le travail d'un nœud (drone perdant) — le serveur envoie `cancel_task`. */
   onCancel?: (nodeId: string, taskId: string, reason: string) => void;
   /** Appelé pour chaque événement journalisé — le serveur le diffuse au dashboard. */
@@ -1233,6 +1248,7 @@ export class Scheduler {
         // L'état des modèles écartés vit EN MÉMOIRE : il suit le COMMIT.
         const modeleRetenu = this.store.modeleAiguillageDe(task.id);
         this.apresCommit(() => this.reintegrerModele(task.id, modeleRetenu));
+        this.poserCout(task.id, result.fournisseur?.coutUsd);
         this.store.patchTask(task.id, {
           status: 'done',
           result: {
@@ -1864,13 +1880,17 @@ export class Scheduler {
     const antecedents = this.antecedentsAiguillage();
     const vues = new Map(reprise.eligibles.map((n) => [n.id, n]));
     const modeleParDrone: Record<string, string> = {};
+    const brasParDrone: Record<string, Bras> = {};
     const raisons: Record<string, Rang[]> = {};
+    const decisions: Record<string, DecisionAiguillage> = {};
     for (const droneId of launch) {
       const vue = vues.get(droneId);
       const route = vue ? aiguillerNoeuds(categorie, [vue], antecedents) : null;
       if (!route) continue;
-      modeleParDrone[droneId] = route.modele;
+      modeleParDrone[droneId] = route.bras.modele;
+      brasParDrone[droneId] = route.bras;
       raisons[droneId] = route.rang.slice(0, 4);
+      decisions[droneId] = { etat: route.etat, coutPondere: route.coutPondere };
     }
     // Les modèles tombés ici qu'un drone re-lance faute d'alternative dans la
     // ruche : la course le dit, comme la boucle principale.
@@ -1878,10 +1898,11 @@ export class Scheduler {
       .filter((m) => echoues?.has(m))
       .sort();
     const aiguillee = Object.keys(modeleParDrone).length > 0;
-    if (aiguillee) race.modeleParDrone = modeleParDrone;
-    if (modeleParDrone[primary]) {
-      this.store.poserModeleAiguillage(taskId, modeleParDrone[primary], now);
-    } else this.store.effacerModeleAiguillage(taskId);
+    if (aiguillee) {
+      race.modeleParDrone = modeleParDrone;
+      race.brasParDrone = brasParDrone;
+    }
+    this.poserBras(taskId, brasParDrone[primary], now);
     // L'Agent Garde-Fous : l'échelon de garde-fous gouverne TOUTE la course (le
     // mode est PAR TÂCHE, pas par drone comme le modèle), donc on le pose UNE
     // FOIS pour la tâche — il vaudra pour le drone qui gagnera, sans re-pose.
@@ -1898,8 +1919,10 @@ export class Scheduler {
       ...(aiguillee
         ? {
             modeles: modeleParDrone,
+            efforts: effortsDe(brasParDrone),
             categorie,
             raisons,
+            decisions,
             versionAiguillage: VERSION_AIGUILLAGE,
           }
         : {}),
@@ -1914,11 +1937,13 @@ export class Scheduler {
       // recroiser une table latérale et l'événement perdrait sa valeur de
       // replay. La raison suit la forme de la boucle principale, pour se lire
       // de même (`routage-vue.ts`).
-      ...(modeleParDrone[primary]
+      ...(brasParDrone[primary]
         ? {
-            modele: modeleParDrone[primary],
+            modele: brasParDrone[primary].modele,
+            ...(brasParDrone[primary].effort ? { effort: brasParDrone[primary].effort } : {}),
             categorie,
             raisonModele: raisons[primary],
+            decisionAiguillage: decisions[primary],
             versionAiguillage: VERSION_AIGUILLAGE,
           }
         : {}),
@@ -1935,7 +1960,10 @@ export class Scheduler {
     // Une tentative par drone : chacun peut dépenser (`depenses_delegation`).
     for (const droneId of launch) this.store.ouvrirTentativeDelegation(assigned.id, droneId, now);
     // Chaque drone reçoit SON modèle élu (la course diversifie les agents).
-    for (const droneId of launch) this.opts.onAssign?.(droneId, assigned, modeleParDrone[droneId]);
+    for (const droneId of launch) {
+      const bras = brasParDrone[droneId];
+      this.opts.onAssign?.(droneId, assigned, bras?.modele, bras?.effort ?? undefined);
+    }
     return { ok: true, drones: launch };
   }
 
@@ -2022,11 +2050,8 @@ export class Scheduler {
         // `won` précède toujours le verdict, donc la jointure lira le bon couple.
         const modeleVainqueur = race.modeleParDrone?.[nodeId];
         this.apresCommit(() => this.reintegrerModele(task.id, modeleVainqueur));
-        if (modeleVainqueur) {
-          this.store.poserModeleAiguillage(task.id, modeleVainqueur, now);
-        } else {
-          this.store.effacerModeleAiguillage(task.id);
-        }
+        this.poserBras(task.id, race.brasParDrone?.[nodeId], now);
+        this.poserCout(task.id, result.fournisseur?.coutUsd);
         this.emit('task_done', {
           taskId: task.id,
           nodeId,
@@ -2133,12 +2158,7 @@ export class Scheduler {
       this.store.patchTask(taskId, { status: 'assigned', assignedNodeId: next }, now);
       // Le producteur suivi change : l'élection en vol suit, pour que la borne du
       // troupeau attribue la tâche au modèle qui la porte VRAIMENT désormais.
-      const modelePromu = race.modeleParDrone?.[next];
-      if (modelePromu) {
-        this.store.poserModeleAiguillage(taskId, modelePromu, now);
-      } else {
-        this.store.effacerModeleAiguillage(taskId);
-      }
+      this.poserBras(taskId, race.brasParDrone?.[next], now);
       this.emit('drone_promoted', { taskId, nodeId: next });
     }
   }
@@ -2298,7 +2318,7 @@ export class Scheduler {
    * chaque appel — les appelants qui le veulent stable le mémoïsent (la boucle
    * d'assignation) ; la course de drones, elle, n'en a besoin qu'une fois.
    */
-  private antecedentsAiguillage(): Map<string, Antecedent> {
+  private antecedentsAiguillage(): VecuAiguillage {
     // Le repli canonique, partagé avec `/api/workers` : le modèle PROUVÉ gouverne
     // l'apprentissage dès qu'il existe (cf. `antecedentsDuVecu`).
     return antecedentsDuVecu(
@@ -2548,8 +2568,8 @@ export class Scheduler {
     // rend `null` sans même les demander — zéro lecture SQL neuve). La catégorie
     // n'est jamais stockée : on la RECALCULE à la lecture (`categoriser`), pour
     // que la taxonomie du jour s'applique au vécu ancien.
-    let antecedents: Map<string, Antecedent> | null = null;
-    const lireAntecedents = (): Map<string, Antecedent> => {
+    let antecedents: VecuAiguillage | null = null;
+    const lireAntecedents = (): VecuAiguillage => {
       antecedents ??= this.antecedentsAiguillage();
       return antecedents;
     };
@@ -2742,12 +2762,18 @@ export class Scheduler {
       // poserait un modèle fantôme), jamais au résultat (une ré-assignation doit
       // écraser, c'est le contrat « la dernière assignation gagne » qui aligne
       // dernier modèle et dernier verdict).
+      // Sans élection (`route` null), une réassignation revient au modèle par
+      // défaut du nouveau nœud : l'ancienne élection ne survit pas à la tâche.
+      this.poserBras(task.id, route?.bras, now);
+      // LA BORNE DU TROUPEAU VAUT AUSSI DANS LA PASSE. Le vécu est replié UNE
+      // fois par passe : sans cette injection, l'élection qu'on vient de poser
+      // n'y pesait qu'à la passe suivante, et toutes les tâches prêtes du genre
+      // partaient au même bras dans celle-ci — un modèle jamais jugé compris.
+      // Une `route` implique un vécu déjà replié : `lireAntecedents` le rend tel quel.
       if (route) {
-        this.store.poserModeleAiguillage(task.id, route.modele, now);
-      } else {
-        // Une réassignation sans élection revient au modèle par défaut du
-        // nouveau nœud : l'ancienne élection ne doit pas survivre à la tâche.
-        this.store.effacerModeleAiguillage(task.id);
+        injecterEnVol(lireAntecedents(), [
+          { categorie: categoriser(task.title, task.prompt), ...route.bras },
+        ]);
       }
       // L'Agent Garde-Fous : si le projet a opt-in, on élit et on POSE l'échelon
       // de garde-fous — c'est lui qui gouvernera la sévérité des Gardiennes de
@@ -2777,7 +2803,8 @@ export class Scheduler {
         // Même convention que pour une course : ce champ est le modèle
         // commandé par l'Aiguillage, jamais une valeur inventée quand aucun
         // nœud ne déclare de modèle.
-        ...(route?.modele ? { modele: route.modele } : {}),
+        ...(route ? { modele: route.bras.modele } : {}),
+        ...(route?.bras.effort ? { effort: route.bras.effort } : {}),
         // La RAISON du choix, figée à l'instant de la décision : Mission
         // Control répond « pourquoi ce modèle » sans recroiser des antécédents
         // qui, eux, ont bougé depuis. Absente quand aucun modèle n'est en jeu
@@ -2791,6 +2818,10 @@ export class Scheduler {
           ? {
               categorie: categoriser(task.title, task.prompt),
               raisonModele: route.rang.slice(0, 4),
+              // L'état de la décision se calcule sur le classement ENTIER : la
+              // raison n'en garde que quatre lignes, un rival coupé changerait
+              // le verdict « décidé » s'il fallait le relire après coup.
+              decisionAiguillage: { etat: route.etat, coutPondere: route.coutPondere },
               versionAiguillage: VERSION_AIGUILLAGE,
             }
           : {}),
@@ -2803,7 +2834,9 @@ export class Scheduler {
         // toute la ruche — sans lui, son « à explorer » se lirait comme une
         // exploration neuve.
         ...(reprise.ecartes.length > 0 ? { modelesEcartes: reprise.ecartes } : {}),
-        ...(route && echoues?.has(route.modele) ? { modelesReadmis: [route.modele] } : {}),
+        ...(route && echoues?.has(route.bras.modele)
+          ? { modelesReadmis: [route.bras.modele] }
+          : {}),
         // Forcée par l'opérateur : la consigne telle qu'elle a restreint CE
         // choix. Le classement ci-dessus reste celui de l'Aiguillage, sur les
         // modèles qu'elle laissait en jeu — aucun score n'en est touché.
@@ -2826,7 +2859,7 @@ export class Scheduler {
       this.store.ouvrirHorlogeHote(assigned.projectId, assigned.id, now);
       this.store.ouvrirTentativeDelegation(assigned.id, node.id, now);
       // Le modèle élu part avec la tâche : le nœud le passera à `--model`.
-      this.opts.onAssign?.(node.id, assigned, route?.modele);
+      this.opts.onAssign?.(node.id, assigned, route?.bras.modele, route?.bras.effort ?? undefined);
       // Les tâches suivantes tiennent compte de celle-ci — si elle édite.
       if (lien === null) activeNow.push(assigned);
     }
@@ -2843,6 +2876,29 @@ export class Scheduler {
     for (const [key, until] of this.recentRejections) {
       if (until <= now) this.recentRejections.delete(key);
     }
+  }
+
+  /**
+   * Range le bras commandé à la tentative courante — ou efface l'élection
+   * précédente quand il n'y en a pas : une réassignation vers un nœud sans
+   * modèle déclaré ne doit pas hériter du bras d'un autre producteur.
+   */
+  private poserBras(taskId: string, bras: Bras | undefined, now: number): void {
+    if (bras) {
+      this.store.poserModeleAiguillage(taskId, bras.modele, now, {
+        harness: bras.harness,
+        effort: bras.effort,
+      });
+    } else this.store.effacerModeleAiguillage(taskId);
+  }
+
+  /**
+   * Range le coût que le CLI a DÉCLARÉ pour la production rendue. Rien de
+   * déclaré, rien de rangé : l'absence reste inconnue, jamais un zéro qui
+   * ferait paraître gratuit l'agent qui se tait.
+   */
+  private poserCout(taskId: string, coutUsd: number | undefined): void {
+    if (coutUsd !== undefined) this.store.poserCoutAiguillage(taskId, coutUsd);
   }
 
   /**

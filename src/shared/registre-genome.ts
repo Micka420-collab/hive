@@ -42,7 +42,10 @@
 // drone encore en vol.
 //
 // Le module est pur : il replie des événements déjà journalisés. Il ne touche
-// ni au routing, ni à la récompense de l'Aiguillage.
+// ni au routing, ni à la récompense de l'Aiguillage. Le coût déclaré que
+// l'Aiguillage pèse (v3) ne passe PAS par ici : il est rangé avec le bras qui
+// l'a produit (`aiguillage_bras`), sous la même règle — jamais estimé, jamais
+// tiré des jetons, et un coût inconnu n'est pas un zéro.
 
 import type { Categorie } from '../orchestrator/aiguillage.js';
 import { declarationDe, sommeDeclaree } from './declaration-fournisseur.js';

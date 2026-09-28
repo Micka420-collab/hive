@@ -24,6 +24,15 @@ import { projeterWorkers } from '../src/orchestrator/workers.js';
 import { affectationsDepuisEvenements } from '../src/shared/routage-vue.js';
 import type { Suite } from '../src/orchestrator/polyethisme.js';
 import type { TaskResult } from '../src/shared/types.js';
+import { EFFORTS, type Effort } from '../src/shared/effort.js';
+
+/**
+ * Le bras sous lequel le vécu fabriqué a tourné : le harness des nœuds de ce
+ * banc (`agentType: 'shell'`), sans effort — comme l'ordonnanceur le range.
+ */
+const BRAS_SHELL = { harness: 'shell', effort: null };
+/** Le bras d'un nœud Claude Code, au défaut du CLI ou à un effort. */
+const brasClaude = (effort: Effort | null = null) => ({ harness: 'claude-code', effort });
 
 const profile = (name: string, modeles?: string[]) => ({
   name,
@@ -56,7 +65,12 @@ describe('Aiguillage câblé — la boucle principale de l’ordonnanceur', () =
   // Fabrique du VÉCU : `n` tâches « code » produites par `modele`, chacune jugée
   // `suite`, puis mises hors de la file (statut `done`) pour qu'elles n'entrent
   // pas dans l'assignation courante. C'est ce vécu que l'Aiguillage relit.
-  function vecu(modele: string, suite: Suite, n: number): void {
+  function vecu(
+    modele: string,
+    suite: Suite,
+    n: number,
+    bras: { harness: string; effort: Effort | null } = BRAS_SHELL,
+  ): void {
     const p = store.createProject({ name: 'vecu' });
     for (let i = 0; i < n; i++) {
       const t = store.createTask({
@@ -64,7 +78,7 @@ describe('Aiguillage câblé — la boucle principale de l’ordonnanceur', () =
         title: 'Ajoute un endpoint',
         prompt: 'implémente la fonction',
       }).id;
-      store.poserModeleAiguillage(t, modele, 1_000 + i);
+      store.poserModeleAiguillage(t, modele, 1_000 + i, bras);
       store.enregistrerContreVisite({
         productionTaskId: t,
         suite,
@@ -91,7 +105,7 @@ describe('Aiguillage câblé — la boucle principale de l’ordonnanceur', () =
         title: 'Ajoute un endpoint',
         prompt: 'implémente la fonction',
       }).id;
-      store.poserModeleAiguillage(t, modeleCommande, 1_000 + i);
+      store.poserModeleAiguillage(t, modeleCommande, 1_000 + i, BRAS_SHELL);
       const resultId = store.insertResult(
         {
           taskId: t,
@@ -111,6 +125,8 @@ describe('Aiguillage câblé — la boucle principale de l’ordonnanceur', () =
           taskId: t,
           resultId,
           producteurModele: modeleExact,
+          // Le bras voyage avec la preuve, comme le serveur le fige.
+          producteurHarness: 'shell',
         },
         2_100 + i,
       );
@@ -354,33 +370,59 @@ describe('Aiguillage câblé — la boucle principale de l’ordonnanceur', () =
     expect(assignation?.payload).not.toHaveProperty('modele');
   });
 
-  it('LE TROUPEAU EST BORNÉ — un modèle neuf avec des élections EN VOL ne rafle plus la tâche prête', () => {
-    // opus a un vécu fort sur « code » ; grok est NEUF (0 verdict) mais a DÉJÀ
-    // cinq élections en vol (cinq tâches actives, modèle grok, pas encore
-    // jugées). Sans la borne, grok serait à +∞ et raflerait la tâche prête.
-    // Avec, ses cinq essais en vol éteignent l'infini, et opus (note haute)
-    // reprend la main — le premier lancement a suffi.
+  it('UN MODÈLE NEUF N’EST PLUS CHOISI D’OFFICE — un bon modèle connu garde la tâche (G07)', () => {
+    // Jusqu'à la v2, grok, jamais essayé, valait +∞ : il raflait la tâche, et la
+    // suivante de chaque genre, quel que soit le vécu d'opus. Il part désormais
+    // d'un a priori fini (0,5, masse 10) : huit « appliquer » d'opus l'emportent.
     vecu('opus', 'appliquer', 8);
-    for (let i = 0; i < 5; i++) {
-      const tv = store.createTask({
-        projectId: store.createProject({ name: 'vol' }).id,
-        title: 'Ajoute un endpoint',
-        prompt: 'implémente la fonction',
-      }).id;
-      store.poserModeleAiguillage(tv, 'grok', 100 + i);
-      store.patchTask(tv, { status: 'running' }); // active, sans verdict ⇒ en vol
-    }
-    const nOpus = scheduler.registerNode(profile('n-opus', ['opus']));
-    const nGrok = scheduler.registerNode(profile('n-grok', ['grok']));
+    const nGrok = scheduler.registerNode(profile('aaa-grok', ['grok']));
+    const nOpus = scheduler.registerNode(profile('zzz-opus', ['opus']));
     const t = tacheCode('Ajoute le composant Ruche');
 
     scheduler.tick(5_000);
 
-    const task = store.getTask(t);
-    expect(task?.assignedNodeId, 'grok en vol éteint son +∞ ⇒ opus reprend la tâche').toBe(
-      nOpus.id,
-    );
-    expect(task?.assignedNodeId, 'et grok neuf ne rafle plus').not.toBe(nGrok.id);
+    expect(store.getTask(t)?.assignedNodeId, 'opus garde la tâche').toBe(nOpus.id);
+    expect(store.getTask(t)?.assignedNodeId, 'le neuf n’est plus élu d’office').not.toBe(nGrok.id);
+    const raison = store
+      .listEvents()
+      .find((event) => event.type === 'task_assigned' && event.payload.taskId === t)?.payload
+      .raisonModele as { modele: string; score: number | null }[] | undefined;
+    const grok = raison?.find((r) => r.modele === 'grok');
+    expect(Number.isFinite(grok?.score), 'le score de l’inconnu est fini, et consigné').toBe(true);
+  });
+
+  it('LE TROUPEAU EST BORNÉ — un modèle neuf avec des élections EN VOL ne rafle plus la tâche prête', () => {
+    // opus est moyen (quatre réussites, quatre échecs) : grok, neuf, passerait
+    // devant par l'optimisme de l'inconnu — c'est l'exploration. Mais grok a
+    // DÉJÀ cinq élections en vol (tâches actives, pas encore jugées) : chacune
+    // pèse comme un essai à note nulle, et opus reprend la main. Sans cette
+    // borne, grok raflerait toutes les tâches prêtes du genre en attendant son
+    // premier verdict.
+    vecu('opus', 'appliquer', 4);
+    vecu('opus', 'refaire', 4);
+    const enVolGrok = (n: number): void => {
+      for (let i = 0; i < n; i++) {
+        const tv = store.createTask({
+          projectId: store.createProject({ name: 'vol' }).id,
+          title: 'Ajoute un endpoint',
+          prompt: 'implémente la fonction',
+        }).id;
+        store.poserModeleAiguillage(tv, 'grok', 100 + i, BRAS_SHELL);
+        store.patchTask(tv, { status: 'running' }); // active, sans verdict ⇒ en vol
+      }
+    };
+    const nOpus = scheduler.registerNode(profile('n-opus', ['opus']));
+    const nGrok = scheduler.registerNode(profile('n-grok', ['grok']));
+    const libre = tacheCode('Ajoute le composant Ruche');
+    scheduler.tick(5_000);
+    expect(store.getTask(libre)?.assignedNodeId, 'sans vol, grok est exploré').toBe(nGrok.id);
+    store.patchTask(libre, { status: 'done' });
+
+    enVolGrok(5);
+    const t = tacheCode('Ajoute le composant Ruche encore');
+    scheduler.tick(6_000);
+
+    expect(store.getTask(t)?.assignedNodeId, 'grok en vol ⇒ opus reprend la tâche').toBe(nOpus.id);
   });
   /** Une élection EN VOL : tâche « code » active, modèle commandé, aucun verdict. */
   function enVol(modele: string): void {
@@ -389,7 +431,7 @@ describe('Aiguillage câblé — la boucle principale de l’ordonnanceur', () =
       title: 'Ajoute un endpoint',
       prompt: 'implémente la fonction',
     }).id;
-    store.poserModeleAiguillage(t, modele, 100);
+    store.poserModeleAiguillage(t, modele, 100, BRAS_SHELL);
     store.patchTask(t, { status: 'running' });
   }
 
@@ -417,6 +459,10 @@ describe('Aiguillage câblé — la boucle principale de l’ordonnanceur', () =
       moyenne: null,
       score: expect.any(Number) as number,
       aExplorer: true,
+      harness: 'shell',
+      effort: null,
+      intervalle: null,
+      cout: null,
     });
     expect(affectation?.raisonModele.find((l) => l.modele === 'opus')).toMatchObject({
       essais: 8,
@@ -425,8 +471,10 @@ describe('Aiguillage câblé — la boucle principale de l’ordonnanceur', () =
       aExplorer: false,
     });
     expect(affectation?.versionAiguillage, 'la raison dit sous quel calcul elle a été prise').toBe(
-      2,
+      3,
     );
+    // Opus a huit verdicts, grok aucun : on n'a pas décidé contre un inconnu.
+    expect(affectation?.decision).toEqual({ etat: 'explore', coutPondere: false });
   });
 
   it('LA VUE WORKERS MONTRE LE CLASSEMENT QUI A DÉCIDÉ — modèle prouvé, élections en vol, rivaux', () => {
@@ -454,7 +502,15 @@ describe('Aiguillage câblé — la boucle principale de l’ordonnanceur', () =
       .listEvents()
       .find((event) => event.type === 'task_assigned' && event.payload.taskId === t)?.payload
       .raisonModele as
-      | { modele: string; essais: number; enVol: number; moyenne: number; score: number }[]
+      | {
+          modele: string;
+          essais: number;
+          enVol: number;
+          moyenne: number;
+          score: number;
+          intervalle: { bas: number; haut: number } | null;
+          effort: null;
+        }[]
       | undefined;
     expect(raison?.map((r) => r.modele).sort()).toEqual(['fable', 'opus']);
     for (const r of raison ?? []) {
@@ -463,7 +519,9 @@ describe('Aiguillage câblé — la boucle principale de l’ordonnanceur', () =
         essais: r.essais,
         enVol: r.enVol,
         moyenne: r.moyenne,
+        intervalle: r.intervalle,
         score: r.score,
+        effort: r.effort,
         exploration: false,
       });
     }
@@ -499,9 +557,9 @@ describe('Aiguillage câblé — la boucle principale de l’ordonnanceur', () =
 
   it('UN MODÈLE QUI A PLANTÉ SUR UNE TÂCHE N’EST PAS RÉ-ÉLU POUR SES REPRISES — et son échec n’est pas une note', () => {
     // Une ouvrière déclare deux modèles, dont un cassé (alias mal saisi, modèle
-    // retiré). Jamais jugés, les deux sont « à explorer » (+∞) et le nom
+    // retiré). Jamais jugés, les deux sont « à explorer » (même a priori) et le nom
     // départage : fable, le cassé, est élu. Son plantage renvoie la tâche en
-    // file — hors vol, sans verdict, fable redevenait +∞ et prenait les TROIS
+    // file — hors vol, sans verdict, fable retrouvait son optimisme et prenait les TROIS
     // tentatives, puis celles de chaque tâche suivante du même genre.
     const n = scheduler.registerNode(profile('seule', ['fable', 'opus']));
     const t = tacheCode('Ajoute le composant Ruche');
@@ -639,7 +697,7 @@ describe('Aiguillage câblé — la boucle principale de l’ordonnanceur', () =
     tacheCode('Ajoute le composant Ruche');
     tacheCode('Ajoute le composant Alvéole');
     scheduler.tick(5_000);
-    // Jamais jugés, les deux sont +∞ : le nom donne fable à la première tâche
+    // Jamais jugés, les deux se valent : le nom donne fable à la première tâche
     // servie, et opus, seul libre ensuite, prend l'autre.
     const surFable = assignations.find((x) => x.modele === 'fable');
     const surOpus = assignations.find((x) => x.modele === 'opus');
@@ -683,5 +741,144 @@ describe('Aiguillage câblé — la boucle principale de l’ordonnanceur', () =
     const reprise = derniereAffectation(t);
     expect(reprise?.modelesEcartes, 'la raison dit ce qui a été écarté').toEqual(['fable']);
     expect(reprise, 'aucune élection de modèle inventée').not.toHaveProperty('modele');
+  });
+
+  /** Un nœud Claude Code qui déclare `efforts`, et ce que `onAssign` lui envoie. */
+  function noeudClaude(
+    modeles: string[],
+    efforts: readonly Effort[],
+    maxConcurrency = 1,
+  ): { id: string; envoyes: { modele?: string; effort?: string }[]; tick: (t: number) => void } {
+    const n = scheduler.registerNode({
+      ...profile('claude', modeles),
+      agentType: 'claude-code',
+      maxConcurrency,
+      efforts: [...efforts],
+    });
+    const envoyes: { modele?: string; effort?: string }[] = [];
+    const s = new Scheduler(store, {
+      onAssign: (_nodeId, _task, modele, effort) => envoyes.push({ modele, effort }),
+    });
+    return { id: n.id, envoyes, tick: (t) => s.tick(t) };
+  }
+
+  it('RUCHE NEUVE : UN NŒUD QUI DÉCLARE DES EFFORTS GARDE LE DÉFAUT DU CLI — jamais `--effort low` d’office', () => {
+    // Tous les bras se valent, et le départage prend le moindre effort : le
+    // défaut du CLI, que l'opérateur n'a jamais changé — pas `low`, en dessous.
+    const n = noeudClaude(['opus'], EFFORTS);
+    const t = tacheCode('Ajoute le composant Ruche');
+
+    n.tick(5_000);
+
+    expect(store.getTask(t)?.assignedNodeId).toBe(n.id);
+    expect(n.envoyes).toEqual([{ modele: 'opus', effort: undefined }]);
+    expect(store.effortAiguillageDe(t)).toBeNull();
+    expect(derniereAffectation(t)).not.toHaveProperty('effort');
+  });
+
+  it('LE VÉCU AU DÉFAUT DU CLI RESTE ÉLIGIBLE sur un nœud qui déclare des efforts', () => {
+    // Tout le vécu d'avant la v3 est rangé sans effort : un nœud mis à jour
+    // qui n'offrirait plus que ses niveaux explicites l'aurait rendu
+    // inéligible, et relancé chaque modèle à un effort jamais jugé.
+    // Un seul niveau déclaré, déjà jugé mauvais : sans le bras au défaut, il
+    // serait la seule offre ; avec lui, le vécu du défaut l'emporte.
+    vecu('opus', 'appliquer', 8, brasClaude());
+    vecu('opus', 'refaire', 4, brasClaude('low'));
+    const n = noeudClaude(['opus'], ['low']);
+    const t = tacheCode('Ajoute le composant Ruche');
+
+    n.tick(5_000);
+
+    expect(n.envoyes).toEqual([{ modele: 'opus', effort: undefined }]);
+    expect(store.effortAiguillageDe(t)).toBeNull();
+  });
+
+  it('UN EFFORT QUI A FAIT SES PREUVES EST ÉLU — commandé, rangé et journalisé', () => {
+    vecu('opus', 'appliquer', 8, brasClaude('high'));
+    vecu('opus', 'refaire', 8, brasClaude());
+    const n = noeudClaude(['opus'], ['low', 'high']);
+    const t = tacheCode('Ajoute le composant Ruche');
+
+    n.tick(5_000);
+
+    expect(store.getTask(t)?.assignedNodeId).toBe(n.id);
+    expect(n.envoyes, 'le nœud reçoit l’effort élu').toEqual([{ modele: 'opus', effort: 'high' }]);
+    expect(store.effortAiguillageDe(t)).toBe('high');
+    expect(derniereAffectation(t)).toMatchObject({ modele: 'opus', effort: 'high' });
+  });
+
+  it('LE TROUPEAU EST BORNÉ PAR MODÈLE, DANS LA PASSE — six efforts ne font pas six tâches pour l’inconnu', () => {
+    // Un nœud Claude Code libre pour six tâches, six tâches prêtes, une passe.
+    // grok n'a jamais été jugé, opus est moyen. Le vécu est replié une fois par
+    // passe : sans y compter chaque élection posée, et sans borne par modèle,
+    // grok raflait les six (défaut, low → max) avant son premier verdict.
+    vecu('opus', 'appliquer', 4, brasClaude());
+    vecu('opus', 'refaire', 4, brasClaude());
+    const n = noeudClaude(['grok', 'opus'], EFFORTS, 6);
+    for (let i = 0; i < 6; i++) tacheCode(`Ajoute le composant ${i}`);
+
+    n.tick(5_000);
+
+    const modeles = n.envoyes.map((e) => e.modele);
+    expect(modeles).toHaveLength(6);
+    expect(
+      modeles.filter((m) => m === 'grok').length,
+      'l’inconnu a sa part, pas tout',
+    ).toBeLessThanOrEqual(3);
+    expect(modeles, 'le connu garde sa place').toContain('opus');
+  });
+
+  it('UN NŒUD QUI N’EN DÉCLARE PAS N’EN REÇOIT JAMAIS — son CLI garde son défaut', () => {
+    scheduler.registerNode(profile('codex', ['opus']));
+    const efforts: (string | undefined)[] = [];
+    const sansEffort = new Scheduler(store, {
+      onAssign: (_nodeId, _task, _modele, effort) => efforts.push(effort),
+    });
+    const t = tacheCode('Ajoute le composant Ruche');
+
+    sansEffort.tick(5_000);
+
+    expect(efforts).toEqual([undefined]);
+    expect(store.effortAiguillageDe(t)).toBeNull();
+    expect(derniereAffectation(t)).not.toHaveProperty('effort');
+  });
+
+  it('LE COÛT DÉCLARÉ PAR LE CLI SUIT LE VERDICT — et un coût tu reste inconnu', () => {
+    const n = scheduler.registerNode(profile('seule', ['opus']));
+    // L'une après l'autre : créées ensemble, deux tâches au même instant
+    // partiraient dans un ordre que seul leur identifiant aléatoire départage.
+    const declare = tacheCode('Ajoute le composant Ruche');
+    scheduler.tick(5_000);
+    expect(store.getTask(declare)?.assignedNodeId).toBe(n.id);
+    scheduler.handleTaskResult(n.id, {
+      ...plantage(declare),
+      success: true,
+      diff: 'diff',
+      fournisseur: { source: 'claude-code', coutUsd: 0.42 },
+    });
+    const muet = tacheCode('Ajoute le composant Alvéole');
+    scheduler.tick(6_000);
+    expect(store.getTask(muet)?.assignedNodeId).toBe(n.id);
+    scheduler.handleTaskResult(n.id, { ...plantage(muet), success: true, diff: 'diff' });
+    for (const [t, i] of [
+      [declare, 0],
+      [muet, 1],
+    ] as const) {
+      store.enregistrerContreVisite({
+        productionTaskId: t,
+        suite: 'appliquer',
+        raison: '',
+        visiteurNodeId: 'v',
+        visiteurAgent: 'claude-code',
+        now: 7_000 + i,
+      });
+    }
+
+    const lignes = store.observationsAiguillage();
+    expect(lignes.find((l) => l.title === 'Ajoute le composant Ruche')?.coutUsd).toBe(0.42);
+    expect(
+      lignes.find((l) => l.title === 'Ajoute le composant Alvéole'),
+      'aucun coût déclaré : aucun coût rangé, pas un zéro',
+    ).not.toHaveProperty('coutUsd');
   });
 });

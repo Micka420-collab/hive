@@ -12,7 +12,8 @@ import { LIMITE_TACHES_INSTANTANE, NIVEAUX_ISOLEMENT } from '../shared/types.js'
 import type { Partage } from '../shared/partage.js';
 import type { GenreSauvegarde, Sauvegarde, SauvegardeResume } from '../shared/sauvegardes.js';
 import { libelleEtape } from '../shared/sauvegardes.js';
-import { CORPUS_AIGUILLAGE } from './aiguillage.js';
+import { CORPUS_AIGUILLAGE, type ElectionEnVol } from './aiguillage.js';
+import { estEffort, type Effort } from '../shared/effort.js';
 import { CORPUS_GARDE_FOU } from './garde-fou.js';
 import type { Echelon, FaitsProduction } from './garde-fou.js';
 import type { Suite } from './polyethisme.js';
@@ -127,6 +128,12 @@ export interface LigneObservationAiguillage {
   nodeId?: string;
   /** Modèle réellement choisi pour ce résultat, quand le lancement l'a tracé. */
   modeleExact?: string;
+  /** Harness du bras commandé (`aiguillage_bras`) ; absent : bras inconnu. */
+  harness?: string;
+  /** Effort commandé ; absent : aucun effort, ou bras inconnu. */
+  effort?: Effort;
+  /** Coût déclaré par le CLI pour la production jugée ; absent : non déclaré. */
+  coutUsd?: number;
 }
 
 /**
@@ -676,6 +683,32 @@ CREATE INDEX IF NOT EXISTS idx_depenses_delegation_racine
 CREATE INDEX IF NOT EXISTS idx_depenses_delegation_tache
   ON depenses_delegation(taskId, nodeId, resultId);
 
+-- Le RESTE du bras commandé (VERSION_AIGUILLAGE 3) : le harness (l'agentType
+-- du nœud) et l'effort, à côté du modèle d'aiguillage_modeles. Table LATÉRALE
+-- et jumelle (règle 2 : aiguillage_modeles ne prend pas de colonne), même clé,
+-- même cycle de vie : posée et effacée avec elle, par les mêmes appels.
+-- effort NULL : aucun effort commandé, le CLI garde son défaut.
+--
+-- coutUsd : le coût que le CLI a DÉCLARÉ pour la production rendue sous ce
+-- bras (task_done, fournisseur.coutUsd), NULL tant qu'il n'a rien déclaré —
+-- jamais estimé, jamais tiré des jetons. Une réassignation REPOSE la ligne :
+-- le coût d'une tentative ne survit pas à la suivante, comme le verdict lu est
+-- celui de la dernière production.
+--
+-- Une tâche sans ligne ici (élection d'avant la v3) : aucun effort n'était
+-- commandé, et son harness se CONSTATE sur le nœud du résultat relu
+-- (observationsAiguillage) ; sans lui, le verdict nourrit le seul niveau modèle,
+-- jamais un bras par supposition.
+--
+-- BORNE (règle 3) : pruneAiguillageModeles l'élague avec sa jumelle.
+CREATE TABLE IF NOT EXISTS aiguillage_bras (
+  taskId  TEXT PRIMARY KEY,
+  harness TEXT NOT NULL,
+  effort  TEXT,
+  coutUsd REAL,
+  choisiA INTEGER NOT NULL
+);
+
 -- L'Agent Garde-Fous : quel ÉCHELON de garde-fous a gouverné quelle tâche. Fait
 -- posé à l'assignation, clé par tâche, motif aiguillage_modeles au mot près
 -- (INSERT OR REPLACE : une réassignation ré-élit, la dernière gouverne). On ne
@@ -1053,6 +1086,18 @@ CREATE TABLE IF NOT EXISTS machines_noeuds (
 CREATE TABLE IF NOT EXISTS modeles_noeuds (
   nodeId  TEXT PRIMARY KEY REFERENCES nodes(id),
   modeles TEXT NOT NULL,
+  majA    INTEGER NOT NULL
+);
+
+-- BORNE STRUCTURELLE (regle 3), jumelle de « modeles_noeuds » et même règle :
+-- une ligne par noeud, la re-inscription ECRASE, l'inscription qui ne les
+-- REDIT pas EFFACE. Les EFFORTS que le noeud sait commander à son CLI (ceux que
+-- son adaptateur documente, src/shared/effort.ts), rangés en JSON. Sans ligne,
+-- l'Aiguillage ne lui commande AUCUN effort : un noeud d'avant cette version
+-- ignorerait le champ, et son verdict serait rangé sous un effort jamais tourné.
+CREATE TABLE IF NOT EXISTS efforts_noeuds (
+  nodeId  TEXT PRIMARY KEY REFERENCES nodes(id),
+  efforts TEXT NOT NULL,
   majA    INTEGER NOT NULL
 );
 
@@ -1479,6 +1524,8 @@ export interface NodeProfile {
    * redit à chaque inscription).
    */
   modeles?: string[];
+  /** Les efforts déclarés à CETTE inscription. Absents : la ligne connue est EFFACÉE. */
+  efforts?: Effort[];
   /**
    * Les outils IA CONSTATÉS sur la machine du nœud. Absents : on n'écrase pas
    * ce qu'on sait — un client d'avant cette version ne doit pas effacer les
@@ -1523,7 +1570,9 @@ const LOT_ALLEGEMENT = 2_000;
  * Le corpus de l'Aiguillage, en SQL : les productions dont on connaît le
  * verdict de contre-visite (`cv`) et soit le modèle commandé (`am`), soit le
  * modèle exact prouvé par le DERNIER verdict de contre-revue (`ce`), les plus
- * récentes d'abord. UNE définition, deux lecteurs : `observationsAiguillage`
+ * récentes d'abord — avec le BRAS de chacune (VERSION_AIGUILLAGE 3 : harness,
+ * effort, coût déclaré ; voir `observationsAiguillage` pour sa provenance).
+ * UNE définition, deux lecteurs : `observationsAiguillage`
  * qui apprend, et la rétention du journal qui garde ce verdict tant que la
  * production compte (`faitsRanges`) — une copie de l'une dans l'autre finirait
  * par garder un autre ensemble que celui qu'on apprend.
@@ -1551,13 +1600,24 @@ const CORPUS_AIGUILLAGE_SQL = `
          COALESCE(am.modele, json_extract(ce.payload, '$.producteurModele')) AS modele,
          cv.suite AS suite,
          r.nodeId AS nodeId,
-         json_extract(ce.payload, '$.producteurModele') AS modeleExact
+         json_extract(ce.payload, '$.producteurModele') AS modeleExact,
+         CASE WHEN ce.id IS NULL THEN ab.harness
+              ELSE COALESCE(json_extract(ce.payload, '$.producteurHarness'), n.agentType)
+          END AS harness,
+         CASE WHEN ce.id IS NULL THEN ab.effort
+              ELSE json_extract(ce.payload, '$.producteurEffort')
+          END AS effort,
+         CASE WHEN ce.id IS NULL THEN ab.coutUsd
+              ELSE json_extract(ce.payload, '$.producteurCoutUsd')
+          END AS coutUsd
     FROM contre_visites cv
     LEFT JOIN aiguillage_modeles am ON am.taskId = cv.productionTaskId
+    LEFT JOIN aiguillage_bras ab    ON ab.taskId = cv.productionTaskId
     JOIN tasks t                    ON t.id      = cv.productionTaskId
     LEFT JOIN derniers d            ON d.taskId  = cv.productionTaskId
     LEFT JOIN events ce             ON ce.id     = d.id
     LEFT JOIN results r ON r.id = CAST(json_extract(ce.payload, '$.resultId') AS INTEGER)
+    LEFT JOIN nodes n   ON n.id = r.nodeId
    WHERE am.taskId IS NOT NULL
       OR json_extract(ce.payload, '$.producteurModele') IS NOT NULL
    ORDER BY cv.renduA DESC, cv.productionTaskId DESC
@@ -1605,7 +1665,8 @@ function rowToDelegation(row: DelegationRow): DelegationRangee {
 
 /** `running` est calculé à la volée depuis les tâches actives — jamais stocké. */
 const NODE_SELECT = `
-  SELECT n.*, m.plateforme AS plateforme, md.modeles AS modeles, o.outils AS outils,
+  SELECT n.*, m.plateforme AS plateforme, md.modeles AS modeles, ef.efforts AS efforts,
+    o.outils AS outils,
     i.niveau AS isolementNiveau, i.fournisseur AS isolementFournisseur, (
     SELECT COUNT(*) FROM tasks t
     WHERE t.assignedNodeId = n.id AND t.status IN ('assigned', 'running')
@@ -1613,6 +1674,7 @@ const NODE_SELECT = `
   FROM nodes n
   LEFT JOIN machines_noeuds m ON m.nodeId = n.id
   LEFT JOIN modeles_noeuds md ON md.nodeId = n.id
+  LEFT JOIN efforts_noeuds ef ON ef.nodeId = n.id
   LEFT JOIN outils_noeuds o ON o.nodeId = n.id
   LEFT JOIN isolements_noeuds i ON i.nodeId = n.id
 `;
@@ -1621,6 +1683,7 @@ const NODE_SELECT = `
 interface NodeRowBrut extends NodeRow {
   plateforme: PlateformeNoeud | null;
   modeles: string | null;
+  efforts: string | null;
   outils: string | null;
   isolementNiveau: string | null;
   isolementFournisseur: string | null;
@@ -1670,6 +1733,11 @@ function lireOutils(brut: string): OutilConstate[] {
   }
 }
 
+/** Un coût déclaré relu : fini et positif, sinon « non déclaré » — jamais 0. */
+function coutLisible(v: unknown): number | null {
+  return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null;
+}
+
 /**
  * De la ligne brute au `HiveNode` : replier les colonnes JSON (`modeles`,
  * `outils`) en tableaux. `plateforme` et `running` passent tels quels. Une
@@ -1677,7 +1745,7 @@ function lireOutils(brut: string): OutilConstate[] {
  * n'a pas de `modeles: []` inventé, et un nœud sans constat pas d'`outils: []`.
  */
 function rowToNode(row: NodeRowBrut): HiveNode {
-  const { modeles, outils, isolementNiveau, isolementFournisseur, ...reste } = row;
+  const { modeles, efforts, outils, isolementNiveau, isolementFournisseur, ...reste } = row;
   const node = reste as unknown as HiveNode;
   // Un niveau illisible (base éditée à la main) vaut « non déclaré ».
   const niveau = NIVEAUX_ISOLEMENT.find((n) => n === isolementNiveau);
@@ -1691,6 +1759,10 @@ function rowToNode(row: NodeRowBrut): HiveNode {
   }
   const liste = typeof modeles === 'string' ? lireModeles(modeles) : [];
   if (liste.length > 0) node.modeles = liste;
+  // Tolérante comme `lireModeles`, et plus stricte sur le fond : un niveau que
+  // Hive ne connaît pas est écarté, jamais commandé.
+  const niveaux = typeof efforts === 'string' ? lireModeles(efforts).filter(estEffort) : [];
+  if (niveaux.length > 0) node.efforts = niveaux;
   const constats = typeof outils === 'string' ? lireOutils(outils) : [];
   if (constats.length > 0) node.outils = constats;
   return node;
@@ -2222,6 +2294,18 @@ export class HiveStore {
         .run(id, JSON.stringify(profile.modeles), now);
     } else {
       this.db.prepare('DELETE FROM modeles_noeuds WHERE nodeId = ?').run(id);
+    }
+    // Les efforts : même règle que les modèles, pour la même raison — un effort
+    // qui n'est plus redit ne doit plus être commandé.
+    if (profile.efforts !== undefined) {
+      this.db
+        .prepare(
+          'INSERT INTO efforts_noeuds (nodeId, efforts, majA) VALUES (?, ?, ?) ' +
+            'ON CONFLICT(nodeId) DO UPDATE SET efforts = excluded.efforts, majA = excluded.majA',
+        )
+        .run(id, JSON.stringify(profile.efforts), now);
+    } else {
+      this.db.prepare('DELETE FROM efforts_noeuds WHERE nodeId = ?').run(id);
     }
     // Les constats d'outils suivent la règle de la PLATEFORME, pas celle des
     // modèles ni du bac : ABSENTS, on ne touche à rien ; présents, la dernière
@@ -5350,12 +5434,38 @@ export class HiveStore {
    * est celle dont on lira le verdict, et `contre_visites` fait exactement le
    * même choix (dernière relecture gagne).
    */
-  poserModeleAiguillage(taskId: string, modele: string, now = Date.now()): void {
+  poserModeleAiguillage(
+    taskId: string,
+    modele: string,
+    now = Date.now(),
+    bras?: { harness: string; effort: Effort | null },
+  ): void {
     this.db
       .prepare(
         'INSERT OR REPLACE INTO aiguillage_modeles (taskId, modele, choisiA) VALUES (?, ?, ?)',
       )
       .run(taskId, modele, now);
+    // Le reste du bras suit le modèle, ligne pour ligne : un modèle reposé SANS
+    // bras (appelant d'avant la v3) efface l'ancien, qui décrirait une autre
+    // tentative — et son coût avec.
+    if (bras) {
+      this.db
+        .prepare(
+          'INSERT OR REPLACE INTO aiguillage_bras (taskId, harness, effort, coutUsd, choisiA) ' +
+            'VALUES (?, ?, ?, NULL, ?)',
+        )
+        .run(taskId, bras.harness, bras.effort, now);
+    } else this.db.prepare('DELETE FROM aiguillage_bras WHERE taskId = ?').run(taskId);
+  }
+
+  /**
+   * Range le coût que le CLI a DÉCLARÉ pour la production rendue sous le bras
+   * courant de la tâche. Sans bras rangé, rien : un coût n'est attribué qu'à
+   * un bras connu. Appelé seulement quand le CLI a déclaré un coût — l'absence
+   * reste `NULL`, jamais 0.
+   */
+  poserCoutAiguillage(taskId: string, coutUsd: number): void {
+    this.db.prepare('UPDATE aiguillage_bras SET coutUsd = ? WHERE taskId = ?').run(coutUsd, taskId);
   }
 
   /**
@@ -5368,6 +5478,32 @@ export class HiveStore {
    */
   effacerModeleAiguillage(taskId: string): void {
     this.db.prepare('DELETE FROM aiguillage_modeles WHERE taskId = ?').run(taskId);
+    this.db.prepare('DELETE FROM aiguillage_bras WHERE taskId = ?').run(taskId);
+  }
+
+  /** Effort commandé à la tentative courante ; `null` : aucun (ou bras inconnu). */
+  effortAiguillageDe(taskId: string): Effort | null {
+    return this.brasAiguillageDe(taskId)?.effort ?? null;
+  }
+
+  /**
+   * Le bras rangé pour la tentative courante (sans le modèle, cf.
+   * `modeleAiguillageDe`) ; `null` sans élection v3. Un effort illisible vaut
+   * « aucun », un coût hors bornes « non déclaré » — rien n'est deviné.
+   */
+  brasAiguillageDe(
+    taskId: string,
+  ): { harness: string; effort: Effort | null; coutUsd: number | null } | null {
+    const row = this.db
+      .prepare('SELECT harness, effort, coutUsd FROM aiguillage_bras WHERE taskId = ?')
+      .get(taskId) as
+      { harness: string; effort: string | null; coutUsd: number | null } | undefined;
+    if (!row) return null;
+    return {
+      harness: row.harness,
+      effort: estEffort(row.effort) ? row.effort : null,
+      coutUsd: coutLisible(row.coutUsd),
+    };
   }
 
   /**
@@ -5505,6 +5641,19 @@ export class HiveStore {
    * `slice(-CORPUS)` redevient un no-op puisque la borne est déjà le `LIMIT`.
    */
   observationsAiguillage(limite = CORPUS_AIGUILLAGE): LigneObservationAiguillage[] {
+    // LE BRAS VOYAGE AVEC LA PREUVE, comme le modèle. Quand le verdict porte
+    // son `resultId` (ce), harness, effort et coût viennent de l'annonce figée
+    // au lancement de la contre-revue (`producteurHarness`…), JAMAIS
+    // d'`aiguillage_bras` : une correction a pu réaffecter la tâche depuis, et
+    // cette ligne décrit alors la tentative suivante — un verdict tardif
+    // aurait été rangé sous un bras qui n'a jamais tourné, chargé du coût d'un
+    // autre.
+    //
+    // LE BRAS D'UN VERDICT D'AVANT LA V3 n'est pas deviné, il est CONSTATÉ :
+    // aucun effort n'était alors commandé (`effort` NULL est un fait), et le
+    // harness est l'agentType du nœud qui a produit le résultat relu. Sans ce
+    // repli, la mise à jour aurait réduit tout le vécu appris au seul niveau
+    // modèle. Sans résultat relu ni bras rangé, le harness reste inconnu.
     // Une contre-visite peut survivre à une nouvelle tentative de la même
     // tâche. Le seul lien qui garde l'identité de la production est le
     // `resultId` du verdict de contre-revue ; sans lui, l'observation reste
@@ -5512,17 +5661,33 @@ export class HiveStore {
     const rows = this.db
       .prepare(CORPUS_AIGUILLAGE_SQL)
       .all(Math.max(1, Math.min(limite, CORPUS_AIGUILLAGE))) as Array<
-      LigneObservationAiguillage & {
+      Omit<
+        LigneObservationAiguillage,
+        'nodeId' | 'modeleExact' | 'harness' | 'effort' | 'coutUsd'
+      > & {
         verdictId: number | null;
         nodeId: string | null;
         modeleExact: string | null;
+        harness: string | null;
+        effort: string | null;
+        coutUsd: number | null;
       }
     >;
-    return rows.reverse().map(({ verdictId: _verdict, nodeId, modeleExact, ...ligne }) => ({
-      ...ligne,
-      ...(nodeId ? { nodeId } : {}),
-      ...(modeleExact ? { modeleExact } : {}),
-    }));
+    return rows
+      .reverse()
+      .map(({ verdictId: _verdict, nodeId, modeleExact, harness, effort, coutUsd, ...ligne }) => {
+      const cout = coutLisible(coutUsd);
+      return {
+        ...ligne,
+        ...(nodeId ? { nodeId } : {}),
+        ...(modeleExact ? { modeleExact } : {}),
+        ...(harness ? { harness } : {}),
+        // Un effort illisible (base éditée à la main) vaut « aucun » : il n'est
+        // jamais deviné vers un niveau voisin.
+        ...(estEffort(effort) ? { effort } : {}),
+        ...(cout !== null ? { coutUsd: cout } : {}),
+      };
+    });
   }
 
   /**
@@ -5544,16 +5709,30 @@ export class HiveStore {
    *   (`assigned`/`running`) : un essai en vol est un essai qui va, vraiment,
    *   rendre un verdict bientôt.
    */
-  electionsEnVolAiguillage(): { title: string; prompt: string; modele: string }[] {
-    return this.db
+  electionsEnVolAiguillage(): ElectionEnVol[] {
+    const rows = this.db
       .prepare(
-        `SELECT t.title AS title, t.prompt AS prompt, am.modele AS modele
+        `SELECT t.title AS title, t.prompt AS prompt, am.modele AS modele,
+                COALESCE(ab.harness, n.agentType) AS harness, ab.effort AS effort
            FROM aiguillage_modeles am
            JOIN tasks t ON t.id = am.taskId
+           LEFT JOIN aiguillage_bras ab ON ab.taskId = am.taskId
+           LEFT JOIN nodes n ON n.id = t.assignedNodeId
           WHERE t.status IN ('assigned', 'running')
             AND am.taskId NOT IN (SELECT productionTaskId FROM contre_visites)`,
       )
-      .all() as { title: string; prompt: string; modele: string }[];
+      .all() as {
+      title: string;
+      prompt: string;
+      modele: string;
+      harness: string | null;
+      effort: string | null;
+    }[];
+    return rows.map(({ harness, effort, ...e }) => ({
+      ...e,
+      ...(harness ? { harness } : {}),
+      ...(estEffort(effort) ? { effort } : {}),
+    }));
   }
 
   /**
@@ -5562,6 +5741,7 @@ export class HiveStore {
    * `pruneTasks` fait disparaître des tâches pour de bon depuis le lot 17.
    */
   pruneAiguillageModeles(): number {
+    this.db.prepare('DELETE FROM aiguillage_bras WHERE taskId NOT IN (SELECT id FROM tasks)').run();
     return this.db
       .prepare('DELETE FROM aiguillage_modeles WHERE taskId NOT IN (SELECT id FROM tasks)')
       .run().changes;

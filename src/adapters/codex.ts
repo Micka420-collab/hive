@@ -90,6 +90,13 @@ function depotNonFiable(execution: ExecutionCodex): string[] {
   return ['-c', `projects={${JSON.stringify(execution.depot)}={trust_level="untrusted"}}`];
 }
 
+// PAS D'EFFORT ICI, et c'est voulu : `model_reasoning_effort` (via `-c`) prend
+// des valeurs ANNONCÉES PAR CHAQUE MODÈLE (`ReasoningEffort::Custom`,
+// codex-rs/protocol/src/openai_models.rs), que `codex exec --help` (0.156.0)
+// ne documente pas. Un niveau refusé par le modèle brûlerait la tentative en
+// échec d'infrastructure, sans verdict. L'adaptateur ne déclare donc aucun
+// effort, et l'Aiguillage ne lui en commande jamais (`shared/effort.ts`).
+
 /**
  * Arguments `codex exec` avec le modèle aiguillé et le pont MCP optionnels.
  *

@@ -14,8 +14,8 @@
 // Trois règles de lecture :
 //   · une valeur absente reste absente — pas de modèle déclaré, pas de raison ;
 //   · un modèle jamais JUGÉ n'a PAS une moyenne de 0 : il est « à explorer »
-//     (son score UCB +∞ devient `null` en JSON, et sa moyenne n'est pas une
-//     mesure) — même quand des élections en vol ont déjà éteint son infini ;
+//     (sa moyenne n'est pas une mesure ; avant la v3, son score +∞ devenait
+//     `null` en JSON) — même quand des élections en vol pèsent sur son score ;
 //   · un payload illisible est ignoré, jamais deviné.
 //
 // Deux faits disent ce qui a CONTRAINT le choix, au-delà de l'Aiguillage :
@@ -28,7 +28,11 @@
 // (`versionAiguillage`, cf. `VERSION_AIGUILLAGE`). Depuis la v2, chaque ligne
 // sépare les verdicts reçus (`essais`) des élections en vol (`enVol`). Avant,
 // `essais` mêlait les deux : ces raisons-là sont relues telles quelles, sans
-// prétendre savoir combien de leurs essais étaient en vol.
+// prétendre savoir combien de leurs essais étaient en vol. Depuis la v3, une
+// ligne est un BRAS (modèle, `harness`, `effort`) avec son `intervalle` de
+// Wilson et son `cout` déclaré, le score est toujours fini, et l'affectation
+// dit où en était la décision (`decision`). Une raison d'avant la v3 n'a ni
+// harness, ni effort, ni intervalle : `null`, jamais reconstruits.
 
 import { lireConsigneRoutage, type ConsigneRoutage } from './consigne-routage.js';
 import type { HiveEvent } from './types.js';
@@ -50,12 +54,29 @@ export interface LigneRaison {
   enVol: number | null;
   /** `null` quand le modèle n'a jamais été jugé : ce n'est pas une mesure. */
   moyenne: number | null;
-  /** `null` quand le score est infini (ni jugé, ni en vol) ou illisible. */
+  /** `null` quand le score est infini (ni jugé, ni en vol, avant la v3) ou illisible. */
   score: number | null;
   /** Jamais jugé : l'Aiguillage l'explore avant de prétendre le connaître. */
   aExplorer: boolean;
   /** Le modèle que la tâche parente a dit préférer (délégation) ; absent sinon. */
   preferee?: true;
+  /** Harness du bras (v3+) ; `null` avant la v3 : inconnu. */
+  harness: string | null;
+  /** Effort du bras (v3+) ; `null` : aucun effort commandé, ou raison d'avant la v3. */
+  effort: string | null;
+  /** Intervalle de Wilson à 95 % (v3+) ; `null` sans verdict ou avant la v3. */
+  intervalle: { bas: number; haut: number } | null;
+  /** Coût moyen déclaré (USD) ; `null` : jamais déclaré, ou avant la v3. */
+  cout: number | null;
+}
+
+/**
+ * Où en était la décision (v3+) : `decide` à `DELTA_DECISION` près, `explore`
+ * encore, ou `seul` en lice ; `coutPondere` : le coût est entré dans les scores.
+ */
+export interface DecisionVue {
+  etat: 'decide' | 'explore' | 'seul';
+  coutPondere: boolean;
 }
 
 /** Ce qui a départagé le nœud, dans l'ordre où l'ordonnanceur l'applique. */
@@ -75,7 +96,10 @@ export interface DroneVue {
   nodeId: string;
   /** `null` quand son nœud ne déclare aucun modèle. */
   modele: string | null;
+  /** `null` : aucun effort commandé à ce drone. */
+  effort: string | null;
   raisonModele: LigneRaison[];
+  decision: DecisionVue | null;
 }
 
 /**
@@ -95,10 +119,14 @@ export interface AffectationVue {
   nodeId: string;
   /** Modèle commandé par l'Aiguillage, `null` quand aucun nœud n'en déclare. */
   modele: string | null;
+  /** Effort commandé avec le modèle ; `null` : aucun. */
+  effort: string | null;
   categorie: string | null;
   /** Version du calcul qui a pris la décision ; `null` avant son tampon (v1). */
   versionAiguillage: number | null;
   raisonModele: LigneRaison[];
+  /** `null` avant la v3, ou sans modèle en jeu. */
+  decision: DecisionVue | null;
   /** Modèles qui avaient déjà échoué sur la tâche, écartés de ce choix. */
   modelesEcartes: string[];
   /**
@@ -140,6 +168,7 @@ function ligneDepuis(brut: unknown, version: number | null): LigneRaison | null 
   const enVol = separe ? nombre(r.enVol) : null;
   if (separe && (enVol === null || enVol < 0)) return null;
   const aExplorer = essais === 0;
+  const bras = version !== null && version >= 3;
   return {
     modele,
     essais,
@@ -147,6 +176,10 @@ function ligneDepuis(brut: unknown, version: number | null): LigneRaison | null 
     moyenne: aExplorer ? null : nombre(r.moyenne),
     score: nombre(r.score),
     aExplorer,
+    harness: bras ? texte(r.harness) : null,
+    effort: bras ? texte(r.effort) : null,
+    intervalle: bras && !aExplorer ? intervalleDepuis(r.intervalle) : null,
+    cout: bras ? nombre(r.cout) : null,
     ...(r.preferee === true ? { preferee: true as const } : {}),
   };
 }
@@ -169,6 +202,26 @@ function preferenceDepuis(brut: unknown): PreferenceVue | null {
   return { agent, modele, departage };
 }
 
+/** Un intervalle lisible est dans [0, 1] et ordonné ; sinon il est tu. */
+function intervalleDepuis(brut: unknown): { bas: number; haut: number } | null {
+  const o = objet(brut);
+  const bas = nombre(o.bas);
+  const haut = nombre(o.haut);
+  return bas !== null && haut !== null && 0 <= bas && bas <= haut && haut <= 1
+    ? { bas, haut }
+    : null;
+}
+
+const ETATS = new Set(['decide', 'explore', 'seul']);
+
+function decisionDepuis(brut: unknown, version: number | null): DecisionVue | null {
+  if (version === null || version < 3) return null;
+  const o = objet(brut);
+  return typeof o.etat === 'string' && ETATS.has(o.etat) && typeof o.coutPondere === 'boolean'
+    ? { etat: o.etat as DecisionVue['etat'], coutPondere: o.coutPondere }
+    : null;
+}
+
 function raisonDepuis(brut: unknown, version: number | null): LigneRaison[] {
   return Array.isArray(brut)
     ? brut.map((l) => ligneDepuis(l, version)).filter((l): l is LigneRaison => l !== null)
@@ -179,11 +232,15 @@ function raisonDepuis(brut: unknown, version: number | null): LigneRaison[] {
 function dronesDepuis(p: Record<string, unknown>): DroneVue[] {
   const version = nombre(p.versionAiguillage);
   const modeles = objet(p.modeles);
+  const efforts = objet(p.efforts);
   const raisons = objet(p.raisons);
+  const decisions = objet(p.decisions);
   return textes(p.drones).map((nodeId) => ({
     nodeId,
     modele: texte(modeles[nodeId]),
+    effort: texte(efforts[nodeId]),
     raisonModele: raisonDepuis(raisons[nodeId], version),
+    decision: decisionDepuis(decisions[nodeId], version),
   }));
 }
 
@@ -248,9 +305,11 @@ export function affectationsDepuisEvenements(evenements: readonly HiveEvent[]): 
       ts: e.ts,
       nodeId,
       modele,
+      effort: texte(p.effort),
       categorie: texte(p.categorie),
       versionAiguillage,
       raisonModele: raisonDepuis(p.raisonModele, versionAiguillage),
+      decision: decisionDepuis(p.decisionAiguillage, versionAiguillage),
       modelesEcartes: textes(p.modelesEcartes),
       modelesReadmis: textes(p.modelesReadmis),
       pheromone,

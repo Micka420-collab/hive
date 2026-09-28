@@ -1,6 +1,7 @@
 import {
   CATEGORIES,
   antecedentsDuVecu,
+  brasDuNoeud,
   categoriser,
   classer,
   recompenseDe,
@@ -9,6 +10,7 @@ import {
   type Rang,
   type VerdictAiguillage,
 } from './aiguillage.js';
+import type { Effort } from '../shared/effort.js';
 import type { HiveNode, Task, TaskStatus } from '../shared/types.js';
 import type { Suite } from './polyethisme.js';
 import type { MetierCycle } from './metier.js';
@@ -101,7 +103,12 @@ export interface WorkerReputationSnapshot {
  *
  * Un modèle jamais jugé reste explicitement à explorer : `moyenne: null` n'est
  * jamais transformé en zéro, car « inconnu » et « mauvais » ne sont pas le même
- * fait. `score` est `null` seulement quand il est infini (ni jugé, ni en vol).
+ * fait. Depuis la v3 de l'Aiguillage, le score est toujours fini (a priori de
+ * masse fixe) ; `null` reste possible pour un score illisible.
+ *
+ * Un Worker qui déclare des efforts porte PLUSIEURS bras par modèle : chaque
+ * case montre le mieux classé d'entre eux (`effort`), celui que l'Aiguillage
+ * lui commanderait pour ce genre.
  */
 export interface ModeleWorkerSnapshot {
   modele: string;
@@ -113,7 +120,11 @@ export interface ModeleWorkerSnapshot {
       /** Élections lancées et pas encore jugées : pèsent sur le score, pas sur la moyenne. */
       enVol: number;
       moyenne: number | null;
+      /** Intervalle de Wilson à 95 % sur les verdicts reçus ; `null` sans verdict. */
+      intervalle: { bas: number; haut: number } | null;
       score: number | null;
+      /** L'effort du bras montré ; `null` : aucun effort commandé. */
+      effort: Effort | null;
       /** Aucun verdict reçu : l'Aiguillage l'explore avant de prétendre le connaître. */
       exploration: boolean;
     }
@@ -251,8 +262,10 @@ const scoreDe = (rang: Rang): ModeleWorkerSnapshot['categories'][Categorie] => (
   essais: rang.essais,
   enVol: rang.enVol,
   moyenne: rang.essais > 0 ? rang.moyenne : null,
-  // `+∞` (ni jugé, ni en vol) n'a pas de JSON : `null`, jamais un nombre inventé.
+  intervalle: rang.intervalle,
+  // Un score non fini n'a pas de JSON : `null`, jamais un nombre inventé.
   score: Number.isFinite(rang.score) ? rang.score : null,
+  effort: rang.effort,
   exploration: rang.essais === 0,
 });
 
@@ -512,8 +525,9 @@ export function projeterWorkers(
       // les modèles en lice. Classé seul, chaque modèle recevait le bonus d'un
       // genre où il n'aurait eu aucun rival — un score que le routing ne
       // calcule jamais.
+      const bras = brasDuNoeud({ ...node, modeles });
       const classements = CATEGORIES.map(
-        (categorie) => [categorie, classer(categorie, modeles, antecedents)] as const,
+        (categorie) => [categorie, classer(categorie, bras, antecedents).rang] as const,
       );
       projection.modeles = modeles.map((modele) => ({
         modele,

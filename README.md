@@ -171,9 +171,18 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
   propre fin, ses conteneurs jusqu'à son redémarrage. Et le bac conteneur hors
   Linux, que la CI n'exerce pas : la matrice systèmes × bacs est dans
   [docs/INSTALLATION.md](docs/INSTALLATION.md) ;
-- l'apprentissage : le routing apprend toujours des seules contre-visites ;
-  y faire entrer les autres faits du registre Genome est une décision de
-  pondération, pas encore prise ;
+- l'apprentissage : la qualité apprise vient toujours des seules
+  contre-visites ; y faire entrer les autres faits du registre Genome est une
+  décision de pondération, pas encore prise. Depuis l'Aiguillage v3, un modèle
+  neuf part d'un a priori fini (plus de choix d'office), chaque bras (modèle ×
+  agent × effort) hérite du vécu de son modèle, et le coût déclaré n'entre
+  dans le score que si TOUS les bras comparés en déclarent un (poids repris de
+  LiteLLM, non calibrés) ; l'effort n'est commandé qu'à Claude Code, le seul
+  CLI qui documente ses niveaux (sondés sur le binaire installé). Prix connu :
+  chaque modèle Claude s'offre à six efforts (défaut du CLI, puis low → max),
+  les efforts jamais jugés d'un bon modèle sont explorés tour à tour — `xhigh`
+  et `max` compris — et le coût reste hors du score tant qu'ils ne le sont
+  pas tous ; le CLI accepte aussi un effort pour un modèle qui l'ignore ;
 - une contre-expertise croisée sur un vrai run : une ouvrière par famille est
   éprouvée avec de vrais processus et de faux agents, pas encore avec Claude
   Code relu par Codex ;
