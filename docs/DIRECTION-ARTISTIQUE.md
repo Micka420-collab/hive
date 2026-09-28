@@ -169,19 +169,41 @@ couvre aussi les animations qui n'existent pas encore.
 ## Primitives
 
 Dans `dashboard/src/composants/`, stylées par les seuls jetons, testées dans
-`dashboard/tests/composants.test.tsx` :
+`dashboard/tests/composants.test.tsx` (le `Terminal`, dans `tests/terminal.test.tsx`) :
 
-| Primitive                                 | Contrat                                                                                                                                                                                                        |
-| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Input`, `Textarea`, `Select`, `Fieldset` | contrôle natif ; `<label for>` réel ; aide et erreur dans `aria-describedby` ; `aria-invalid` ; zone d'erreur vivante avant l'erreur                                                                           |
-| `Champ`                                   | le même cadre pour un contrôle **non natif** (liste à saisie, sélecteur de fichier) : il reçoit `id`, `aria-describedby`, `aria-invalid`, `required` ; ce que l'appelant pose déjà est fusionné, jamais écrasé |
-| `Tabs`                                    | motif WAI-ARIA : un seul arrêt de tabulation, ← → Début Fin, panneau nommé par son onglet                                                                                                                      |
-| `Tooltip`                                 | survol **et** focus ; reliée par `aria-describedby` ; Échap ferme la bulle **seule** (pas le dialogue autour) ; survolable                                                                                     |
-| `Menu`                                    | bouton de menu WAI-ARIA ; focus entrant (sur le choix coché), ↑ ↓ Début Fin, Échap/choix rendent le focus au bouton ; `menuitemradio` pour les choix exclusifs                                                 |
-| `ToastProvider`, `useToast`               | deux files vivantes (`status` poli, `alert` pour l'erreur), toasts sans rôle propre — jamais lus deux fois ; une information s'efface en 5 s, une **erreur reste** jusqu'à fermeture                           |
-| `Skeleton`                                | réserve la place ; annoncé une fois (« Chargement… »), lignes muettes                                                                                                                                          |
-| `EmptyState`                              | nomme l'absence, propose le geste qui la comble                                                                                                                                                                |
-| `ErrorState`                              | `role="alert"`, toujours un bouton **Réessayer** (qui garde le focus pendant la relance)                                                                                                                       |
+| Primitive                                 | Contrat                                                                                                                                                                                                                                                                                                                                                                                              |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Input`, `Textarea`, `Select`, `Fieldset` | contrôle natif ; `<label for>` réel ; aide et erreur dans `aria-describedby` ; `aria-invalid` ; zone d'erreur vivante avant l'erreur                                                                                                                                                                                                                                                                 |
+| `Champ`                                   | le même cadre pour un contrôle **non natif** (liste à saisie, sélecteur de fichier) : il reçoit `id`, `aria-describedby`, `aria-invalid`, `required` ; ce que l'appelant pose déjà est fusionné, jamais écrasé                                                                                                                                                                                       |
+| `Tabs`                                    | motif WAI-ARIA : un seul arrêt de tabulation, ← → Début Fin, panneau nommé par son onglet                                                                                                                                                                                                                                                                                                            |
+| `Tooltip`                                 | survol **et** focus ; reliée par `aria-describedby` ; Échap ferme la bulle **seule** (pas le dialogue autour) ; survolable                                                                                                                                                                                                                                                                           |
+| `Menu`                                    | bouton de menu WAI-ARIA ; focus entrant (sur le choix coché), ↑ ↓ Début Fin, Échap/choix rendent le focus au bouton ; `menuitemradio` pour les choix exclusifs                                                                                                                                                                                                                                       |
+| `ToastProvider`, `useToast`               | deux files vivantes (`status` poli, `alert` pour l'erreur), toasts sans rôle propre — jamais lus deux fois ; une information s'efface en 5 s, une **erreur reste** jusqu'à fermeture                                                                                                                                                                                                                 |
+| `Skeleton`                                | réserve la place ; annoncé une fois (« Chargement… »), lignes muettes                                                                                                                                                                                                                                                                                                                                |
+| `EmptyState`                              | nomme l'absence, propose le geste qui la comble                                                                                                                                                                                                                                                                                                                                                      |
+| `ErrorState`                              | `role="alert"`, toujours un bouton **Réessayer** (qui garde le focus pendant la relance)                                                                                                                                                                                                                                                                                                             |
+| `Terminal`                                | des lignes lues comme un terminal (console en direct, Journal) : recherche surlignée (k/N, Entrée / Maj+Entrée, `/` `n` `N`), filtre par **niveau présent** — donné par l'appelant, d'un vrai signal —, suivi du bas détachable (« ↓ N nouvelles lignes »), copie de la sélection ou des lignes affichées, repli, heures, plein écran (Échap) ; **virtualisé** (seule la fenêtre visible est rendue) |
+
+### La console et le Journal
+
+Le niveau d'une ligne de la console en direct vient du **nœud** : le flux du
+processus (stdout, stderr), la gravité que le flux structuré de l'agent
+déclare (erreur ou avertissement de Codex `--json` et du stream-json de Claude
+Code et de Cursor), ou une ligne de Hive (omission annoncée) — jamais deviné
+dans le texte (`src/shared/niveaux-sortie.ts`). Le Journal range chaque
+événement à la sévérité de sa fiche.
+
+<p align="center">
+  <img src="images/console/tiroir.bureau.sombre.png" width="840" alt="Le tiroir d'une tâche en cours, thème sombre : la sortie en direct, lignes stdout, stderr, avertissement et erreur de l'agent marquées, filtres par niveau avec leurs comptes.">
+</p>
+<p align="center">
+  <img src="images/console/tiroir.bureau.clair.png" width="840" alt="Le même tiroir en thème clair : repères ⚠ et ✘ devant les lignes d'avertissement et d'erreur de l'agent.">
+</p>
+<p align="center">
+  <img src="images/console/recherche.bureau.png" width="520" alt="La console : stdout et stderr masqués, seules les lignes d'avertissement et d'erreur de l'agent restent ; recherche « erreur » surlignée, occurrence 2 sur 4.">
+  <img src="images/console/tiroir.mobile.sombre.png" width="200" alt="Le tiroir sur mobile : barre de la console repliée sur plusieurs rangs, filtres par niveau, lignes longues repliées.">
+  <img src="images/console/journal.mobile.png" width="200" alt="Le Journal sur mobile : filtres par sévérité, heures, lignes abrégées.">
+</p>
 
 ## À faire / à ne pas faire
 
@@ -233,7 +255,10 @@ network, names) stays discreet; Hive is not an all-yellow product.
 more` and `forced-colors: active`. Reduced motion switches off every
   animation through one universal guard.
 - **Primitives** in `dashboard/src/composants/` (Input, Textarea, Select,
-  Fieldset, Champ, Tabs, Tooltip, Menu, Toast, Skeleton, EmptyState, ErrorState),
+  Fieldset, Champ, Tabs, Tooltip, Menu, Toast, Skeleton, EmptyState, ErrorState,
+  Terminal — the live console and the Journal: highlighted search, level
+  filters from real signal, detachable follow, copy, wrap, fullscreen,
+  virtualized),
   token-only, keyboard- and screen-reader-tested.
 
 <p align="center">

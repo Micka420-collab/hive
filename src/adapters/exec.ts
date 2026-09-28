@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { argvAgent } from '../shared/agent-windows.js';
 import { envDuLanceur, envelopper, optionsEnveloppe } from '../node-client/isolement.js';
+import type { GraviteAgent } from '../shared/niveaux-sortie.js';
 import { LIMITS } from '../shared/protocol.js';
 import { texteDEchec } from '../shared/texte-d-echec.js';
 import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from '../shared/types.js';
@@ -121,8 +122,13 @@ export interface LecteurFlux {
    * gardent — sa forme lisible, sur une ou plusieurs lignes —, ou `undefined`
    * pour la taire. Ne lève jamais : une ligne illisible se dit, elle ne casse
    * pas la lecture des suivantes.
+   *
+   * `gravite` : ce que l'ÉVÉNEMENT déclare de lui-même (une erreur signalée,
+   * un avertissement) — le niveau de la ligne dans la console en direct. Le
+   * lecteur, qui a déjà analysé l'événement, est le seul à le savoir sans le
+   * redeviner dans le texte rendu.
    */
-  lire(ligne: string): string | undefined;
+  lire(ligne: string): { texte: string; gravite?: GraviteAgent } | undefined;
   /** La réponse finale déclarée par le flux, déjà bornée (`borneTexteFinal`). */
   texte(): string | undefined;
   /**
@@ -175,6 +181,13 @@ export function runCommand(
 }
 
 /**
+ * Le parseur d'une ligne de stdout (stream-json). Il peut rendre la GRAVITÉ
+ * que l'événement déclare de lui-même (`graviteStreamJson`) : c'est le niveau
+ * de la ligne dans la console en direct. Rien rendu : son flux, stdout.
+ */
+export type LecteurLigne = (line: string) => GraviteAgent | undefined | void;
+
+/**
  * Comme runCommand, mais invoque `onLine` pour CHAQUE ligne de stdout au fil de
  * l'eau (flux stream-json d'un agent). Sert au suivi des sous-agents en direct.
  * Le parseur `onLine` doit être tolérant ; toute exception y est absorbée.
@@ -183,7 +196,7 @@ export function runCommandStreaming(
   bin: string,
   args: string[],
   ctx: AdapterContext,
-  onLine: (line: string) => void,
+  onLine: LecteurLigne,
   timeoutMs = DEFAULT_TIMEOUT_MS,
   texteFinal?: SourceTexteFinal,
   pont?: string,
@@ -224,7 +237,7 @@ function executer(
   ctx: AdapterContext,
   opts: {
     timeoutMs: number;
-    onLine?: (line: string) => void;
+    onLine?: LecteurLigne;
     texteFinal?: SourceTexteFinal;
     pont?: string;
     flux?: LecteurFlux;
@@ -256,7 +269,7 @@ function executer(
     // TÂCHE (`cadenceDe`), pas de ce processus. Le caviardage, lui, est
     // l'affaire du nœud.
     const direct = createSortieDirecte(
-      (sortie) => {
+      (_texte, sortie) => {
         try {
           ctx.onProgress({ sortie });
         } catch {
@@ -301,12 +314,17 @@ function executer(
     const parLigne =
       opts.onLine || suivi || flux
         ? (line: string): void => {
+            let gravite: GraviteAgent | undefined;
             try {
-              opts.onLine?.(line);
+              gravite = opts.onLine?.(line) ?? undefined;
             } catch {
               /* parseur tolérant : on ignore */
             }
             suivi?.feed(line);
+            // Un stdout lu ligne à ligne (stream-json) part à l'écran ligne à
+            // ligne, avec la gravité que le parseur de l'agent y a lue : le
+            // fragment brut ne sait pas où finit un événement.
+            if (!flux) direct.ecrire(`${line}\n`, 'stdout', gravite);
             // Un flux lu en entier entre dans les logs RENDU, jamais brut —
             // et TOUJOURS en début de ligne : un morceau de stderr sans fin de
             // ligne collait la narration derrière lui ; sa marque n'ouvrait
@@ -316,8 +334,9 @@ function executer(
             // versée au plafond. Et c'est cette forme-là que l'écran suit.
             const rendue = flux?.lire(line);
             if (rendue !== undefined) {
-              consigner(output === '' || output.endsWith('\n') ? `${rendue}\n` : `\n${rendue}\n`);
-              direct.ecrire(`${rendue}\n`);
+              const texte = rendue.texte;
+              consigner(output === '' || output.endsWith('\n') ? `${texte}\n` : `\n${texte}\n`);
+              direct.ecrire(`${texte}\n`, 'stdout', rendue.gravite);
             }
           }
         : undefined;
@@ -330,7 +349,8 @@ function executer(
       // sa forme lisible y entre ligne à ligne (`parLigne`).
       if (!flux) {
         verser('stdout', s);
-        direct.ecrire(s);
+        // Lu ligne à ligne (`parLigne`) : il part de là, avec sa gravité.
+        if (!parLigne) direct.ecrire(s);
       }
       if (texteFinal === 'sortie-standard') {
         sortieStandard = (sortieStandard + s).slice(-2 * LIMITS.finalText);
@@ -370,11 +390,12 @@ function executer(
 
     child.on('close', (code) => {
       clearTimeout(timeout);
-      // Avant le `resolve` : un morceau parti après le résultat serait ignoré
-      // par le hub, et ressusciterait une console déjà vidée à l'écran.
-      direct.terminer();
       viderLignes();
       if (parLigne && tampon.trim()) parLigne(tampon); // dernière ligne sans \n final
+      // Avant le `resolve` : un morceau parti après le résultat serait ignoré
+      // par le hub, et ressusciterait une console déjà vidée à l'écran. APRÈS
+      // la dernière ligne : terminée avant, la sortie la taisait à l'écran.
+      direct.terminer();
       // Un processus TUÉ n'a pas conclu : ce qu'il avait écrit n'est pas sa
       // réponse finale, et le lire comme tel ferait juger une phrase coupée.
       const finalText = tue

@@ -10,7 +10,8 @@
 // · l'état en direct est vidé à la fin de vie de la tâche, et à chaque
 //   instantané pour une tâche qui n'y vit plus (un `task_done` manqué pendant
 //   une coupure le laissait sinon pour toujours) ;
-// · le tiroir d'une tâche en cours montre la sortie, avec recherche et repli ;
+// · le tiroir d'une tâche en cours montre la sortie, ligne à ligne, avec le
+//   niveau que le nœud a lu (et « inconnu » quand il ne l'a pas dit) ;
 // · la ligne `task_progress` du journal dit son jalon, pas « progrès ».
 
 import { act } from 'react';
@@ -39,7 +40,7 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
 }));
 vi.mock('../dashboard/src/CodeEditor', () => ({ default: () => null }));
 
-import { ConsoleDirecte, texteDeConsole } from '../dashboard/src/ConsoleDirecte';
+import { ConsoleDirecte, lignesDeConsole } from '../dashboard/src/ConsoleDirecte';
 import { Journal } from '../dashboard/src/Journal';
 import { TaskDrawer } from '../dashboard/src/TaskDrawer';
 
@@ -108,37 +109,53 @@ describe('ConsoleDirecte', () => {
     't1',
     'noeud-aaaaaaaa',
     'lecture de src/ruche.ts\nerreur : test rouge\nécriture de src/rayon.ts\n',
+    [
+      ['stdout', 1],
+      ['stderr', 1],
+      ['stdout', 1],
+    ],
   ).t1!;
 
-  it('montre la sortie, et la recherche ne garde que les lignes qui contiennent le texte', async () => {
-    const dom = await monter(<ConsoleDirecte sortie={sortie} />);
-    const zone = dom.querySelector('[data-testid="console-directe"]')!;
-    expect(zone.textContent).toContain('erreur : test rouge');
+  const lignesRendues = (dom: HTMLElement) =>
+    [...dom.querySelectorAll('[data-testid="console-directe"] .ds-terminal-ligne')].map((l) => [
+      l.className.match(/niveau-(\S+)/)?.[1],
+      l.querySelector('.ds-terminal-texte')?.textContent,
+    ]);
 
-    const champ = dom.querySelector<HTMLInputElement>('input[type="search"]')!;
-    await act(async () => {
-      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
-      setter.call(champ, 'ÉCRITURE');
-      champ.dispatchEvent(new Event('input', { bubbles: true }));
-    });
-    expect(zone.textContent).toBe('écriture de src/rayon.ts');
-    expect(dom.textContent).toContain('1 ligne(s) trouvée(s)');
+  it('montre chaque ligne AVEC le niveau que le nœud a lu', async () => {
+    const dom = await monter(<ConsoleDirecte sortie={sortie} />);
+    expect(lignesRendues(dom)).toEqual([
+      ['stdout', 'lecture de src/ruche.ts'],
+      ['stderr', 'erreur : test rouge'],
+      ['stdout', 'écriture de src/rayon.ts'],
+    ]);
   });
 
-  it('replier se retire et se remet', async () => {
-    const dom = await monter(<ConsoleDirecte sortie={sortie} />);
-    const zone = dom.querySelector('[data-testid="console-directe"]')!;
-    expect(zone.classList.contains('replie')).toBe(true);
-    const replier = [...dom.querySelectorAll('label')].find((l) => l.textContent === 'replier')!;
-    await act(async () => replier.querySelector('input')!.click());
-    expect(zone.classList.contains('replie')).toBe(false);
+  it('un nœud qui ne dit pas les niveaux : « inconnu », jamais stdout par défaut', async () => {
+    const muet = ajouterSortie({}, 't1', 'n1', 'a\nb\n').t1!;
+    const dom = await monter(<ConsoleDirecte sortie={muet} />);
+    expect(lignesRendues(dom).map(([n]) => n)).toEqual(['inconnu', 'inconnu']);
   });
 
-  it('une course de drones sépare ses nœuds ; un seul nœud, aucun bandeau', () => {
-    let etat = ajouterSortie({}, 't', 'noeud-aaaaaaaa', 'a\n');
-    expect(texteDeConsole(etat.t!)).toBe('a\n');
-    etat = ajouterSortie(etat, 't', 'noeud-bbbbbbbb', 'b\n');
-    expect(texteDeConsole(etat.t!)).toBe('── nœud noeud-aa ──\na\n── nœud noeud-bb ──\nb\n');
+  it('une course de drones sépare ses nœuds par une ligne de Hive ; un seul nœud, aucun bandeau', () => {
+    let etat = ajouterSortie({}, 't', 'noeud-aaaaaaaa', 'a\n', [['stdout', 1]]);
+    expect(lignesDeConsole(etat.t!).map((l) => l.texte)).toEqual(['a']);
+    etat = ajouterSortie(etat, 't', 'noeud-bbbbbbbb', 'b\n', [['stderr', 1]]);
+    expect(lignesDeConsole(etat.t!).map((l) => [l.niveau, l.texte])).toEqual([
+      ['hive', '── nœud noeud-aa ──'],
+      ['stdout', 'a'],
+      ['hive', '── nœud noeud-bb ──'],
+      ['stderr', 'b'],
+    ]);
+  });
+
+  it('les lignes d’un morceau sont calculées UNE fois : mêmes objets au morceau suivant', () => {
+    // Le Terminal accroche ses mesures et son repère « nouvelles lignes » à
+    // ces objets ; recalculées à chaque morceau, elles ne seraient jamais
+    // les mêmes — et 256 Kio seraient redécoupés quatre fois par seconde.
+    const avant = ajouterSortie({}, 't', 'n1', 'a\n', [['stdout', 1]]);
+    const apres = ajouterSortie(avant, 't', 'n1', 'b\n', [['stdout', 1]]);
+    expect(lignesDeConsole(apres.t!)[0]).toBe(lignesDeConsole(avant.t!)[0]);
   });
 
   it('le début évincé est DIT', async () => {

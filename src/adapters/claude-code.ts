@@ -18,7 +18,7 @@ import {
 import { createDeclarationFournisseurTracker } from './fournisseur-parser.js';
 import { createPresenceTracker } from './presence-parser.js';
 import { createSubAgentTracker } from './subagent-parser.js';
-import { texteFinalStreamJson } from './texte-final.js';
+import { graviteStreamJson, texteFinalStreamJson } from './texte-final.js';
 import type { AdapterContext, AdapterResult, AgentAdapter } from './index.js';
 
 const CLAUDE_TIMEOUT_MS = 15 * 60_000;
@@ -212,6 +212,9 @@ export function createClaudeCodeAdapter(
             if (subAgents) ctx.onProgress({ subAgents });
             // Présence Rayon : fichiers ouverts constatés (ADR 0010).
             if (presences) ctx.onProgress({ presences });
+            // Le niveau de la ligne dans la console en direct : ce que
+            // l'événement déclare de lui-même, jamais son texte.
+            return graviteStreamJson(line);
           },
           CLAUDE_TIMEOUT_MS,
           // La réponse finale vit dans la ligne `result` du flux — pas dans
