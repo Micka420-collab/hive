@@ -99,6 +99,9 @@ const PREUVES_EVALUATOR = [
 const PREUVES_LIVRAISON = [
   'delivery_started',
   'delivery_opened',
+  // La provenance d'une REPRISE qui avance la même branche (#518) : relue par
+  // `evaluation/ci` exactement comme `delivery_opened`.
+  'delivery_advanced',
   'delivery_merged',
   'delivery_stale',
   'delivery_recovered',

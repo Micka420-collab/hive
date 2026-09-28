@@ -1929,6 +1929,7 @@ const EFFACEMENT_PROJET = [
   ['annonces_duree', `taskId IN (${TACHES_DU_PROJET})`],
   ['taches_issue', `projectId = @p OR taskId IN (${TACHES_DU_PROJET})`],
   ['livraisons', `projectId = @p OR taskId IN (${TACHES_DU_PROJET})`],
+  ['reprises_livraison', `projectId = @p OR taskId IN (${TACHES_DU_PROJET})`],
   ['horloge_hote', `projectId = @p OR taskId IN (${TACHES_DU_PROJET})`],
   ['fabriques', 'projectId = @p'],
   ['tasks', 'projectId = @p'],
