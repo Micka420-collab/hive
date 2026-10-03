@@ -1,8 +1,8 @@
-// Le proxy d'egress du nœud — éprouvé à SA frontière : un vrai serveur sur un
-// vrai socket Unix, de vraies requêtes CONNECT et HTTP, une vraie passerelle
-// vers un amont local. Seule la résolution DNS est injectée : c'est elle que
-// la garde anti-rebond juge, et un banc ne choisit pas les enregistrements
-// d'un nom public.
+// Le proxy d'egress du nœud — éprouvé à SA frontière : un vrai serveur sur une
+// vraie extrémité locale (socket Unix, pipe nommé sous Windows), de vraies
+// requêtes CONNECT et HTTP, une vraie passerelle vers un amont local. Seule la
+// résolution DNS est injectée : c'est elle que la garde anti-rebond juge, et
+// un banc ne choisit pas les enregistrements d'un nom public.
 
 import { mkdtempSync, rmSync } from 'node:fs';
 import { createServer, request, type IncomingHttpHeaders, type Server } from 'node:http';
@@ -23,6 +23,7 @@ import {
   type Resolveur,
   type SessionReseau,
 } from '../src/node-client/proxy-egress.js';
+import { extremiteEcoute } from '../src/node-client/rendez-vous-pont.js';
 
 let dossier: string;
 let session: SessionReseau | null = null;
@@ -61,7 +62,9 @@ async function ouvrir(
     passerelles?: Parameters<typeof ouvrirSessionReseau>[0]['politique']['passerelles'];
   } = {},
 ): Promise<{ socket: string; refus: RefusReseau[] }> {
-  const socket = path.join(dossier, 's');
+  // L'extrémité du module, pas un chemin calculé ici : sous Windows, c'est un
+  // pipe nommé — un chemin de fichier n'y est pas un AF_UNIX (listen EACCES).
+  const socket = extremiteEcoute(dossier);
   const refus: RefusReseau[] = [];
   session = await ouvrirSessionReseau({
     socket,
