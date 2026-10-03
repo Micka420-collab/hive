@@ -577,6 +577,15 @@ export default function Chambre({
                             }
                           } else if (suite.action === 'hint_binaire') {
                             setStatusHitl(messageAccordBinaire(r.libelle, langCode));
+                          } else if (suite.action === 'relais_noeud') {
+                            // Action (G12) : le POST repondre a déjà relayé la
+                            // décision au Worker suspendu — on le dit.
+                            setStatusHitl(
+                              t(
+                                'Accordée — décision relayée à l’ouvrière',
+                                'Granted — decision relayed to the worker',
+                              ),
+                            );
                           } else {
                             setStatusHitl(t('Accordée', 'Granted'));
                           }

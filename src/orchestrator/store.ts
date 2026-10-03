@@ -63,6 +63,7 @@ import {
   type PresenceFichier,
 } from '../shared/presence.js';
 import {
+  estStatutRequisition,
   validerGenreRequisition,
   validerLibelleRequisition,
   type GenreRequisition,
@@ -1427,6 +1428,17 @@ CREATE TABLE IF NOT EXISTS requisitions (
 );
 CREATE INDEX IF NOT EXISTS idx_requisitions_statut ON requisitions(statut);
 
+-- Échéance d'une réquisition d'ACTION (G12). TABLE LATÉRALE (règle 2 : aucune
+-- migration, aucune colonne ajoutée à requisitions) — ligne ABSENTE = pas
+-- d'échéance = comportement d'avant : la réquisition attend l'humain sans
+-- limite. Seul le genre « action » en reçoit une : un Worker suspendu sur son
+-- outil de décision ne peut pas attendre plus que le délai de son CLI.
+-- Élagage : les lignes partent avec leur réquisition (pruneRequisitions).
+CREATE TABLE IF NOT EXISTS requisitions_echeances (
+  id        TEXT PRIMARY KEY REFERENCES requisitions(id),
+  expiresAt INTEGER NOT NULL
+);
+
 -- Fabrique (ADR 0010 lot 8) : propositions d'outil dans le dépôt.
 -- Chantier seulement après statut mergee + script déclaré.
 CREATE TABLE IF NOT EXISTS fabriques (
@@ -2298,13 +2310,18 @@ const JOURNAL_DU_PROJET = `json_extract(${CHARGE_LISIBLE}, '$.projectId') = @p
          WHERE j.key IN (${CLES_DE_TACHE}) AND j.value IN (${TACHES_DU_PROJET})
       )
       OR (
-        type IN ('requisition_ouverte', 'requisition_reponse')
+        type IN ('requisition_ouverte', 'requisition_reponse', 'requisition_expiree')
         AND json_extract(${CHARGE_LISIBLE}, '$.id') IN (
           SELECT id FROM requisitions WHERE taskId IN (${TACHES_DU_PROJET})
         )
       )`;
 const EFFACEMENT_PROJET = [
   ['events', JOURNAL_DU_PROJET],
+  // L'échéance AVANT sa réquisition : `foreign_keys = ON`, la fille d'abord.
+  [
+    'requisitions_echeances',
+    `id IN (SELECT id FROM requisitions WHERE taskId IN (${TACHES_DU_PROJET}))`,
+  ],
   ['requisitions', `taskId IN (${TACHES_DU_PROJET})`],
   ['presences_rayon', `taskId IN (${TACHES_DU_PROJET})`],
   ['conseil_avis', `sessionId IN (${SEANCES_DU_PROJET})`],
@@ -3130,6 +3147,8 @@ export class HiveStore {
     detail: string | null = null,
     taskId: string | null = null,
     now = Date.now(),
+    /** Échéance absolue (ms epoch) — genre `action` seulement ; `null` : aucune. */
+    expiresAt: number | null = null,
   ):
     | { ok: true; id: string; genre: GenreRequisition; libelle: string }
     | { ok: false; motif: MotifRefusRequisition } {
@@ -3148,7 +3167,64 @@ export class HiveStore {
           'VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)',
       )
       .run(id, nodeId, g.genre, l.libelle, detailClean, taskClean, 'ouverte', now);
+    if (expiresAt !== null && Number.isSafeInteger(expiresAt) && expiresAt > 0) {
+      this.db
+        .prepare('INSERT INTO requisitions_echeances (id, expiresAt) VALUES (?, ?)')
+        .run(id, expiresAt);
+    }
     return { ok: true, id, genre: g.genre, libelle: l.libelle };
+  }
+
+  /**
+   * Passe `expiree` les réquisitions OUVERTES dont l'échéance est dépassée, et
+   * rend ce qu'il faut pour l'escalade : l'événement de journal et le
+   * `requisition_result` au nœud qui attend. La transition est la même clôture
+   * que `repondreRequisition` (statut + closA) — une réquisition expirée est
+   * CLOSE, donc élaguée par `pruneRequisitions` comme les autres.
+   */
+  expirerRequisitions(now = Date.now()): Array<{
+    id: string;
+    nodeId: string;
+    genre: GenreRequisition;
+    libelle: string;
+    taskId: string | null;
+  }> {
+    const rows = this.db
+      .prepare(
+        `SELECT r.id, r.nodeId, r.genre, r.libelle, r.taskId
+         FROM requisitions r JOIN requisitions_echeances e ON e.id = r.id
+         WHERE r.statut = 'ouverte' AND e.expiresAt <= ?`,
+      )
+      .all(now) as Array<{
+      id: string;
+      nodeId: string;
+      genre: string;
+      libelle: string;
+      taskId: string | null;
+    }>;
+    const echues: Array<{
+      id: string;
+      nodeId: string;
+      genre: GenreRequisition;
+      libelle: string;
+      taskId: string | null;
+    }> = [];
+    const clore = this.db.prepare(
+      "UPDATE requisitions SET statut = 'expiree', closA = ? WHERE id = ? AND statut = 'ouverte'",
+    );
+    for (const r of rows) {
+      const g = validerGenreRequisition(r.genre);
+      if (!g.ok) continue;
+      clore.run(now, r.id);
+      echues.push({
+        id: r.id,
+        nodeId: r.nodeId,
+        genre: g.genre,
+        libelle: r.libelle,
+        taskId: r.taskId,
+      });
+    }
+    return echues;
   }
 
   lireRequisition(id: string): {
@@ -3182,7 +3258,7 @@ export class HiveStore {
     if (!row) return null;
     const g = validerGenreRequisition(row.genre);
     if (!g.ok) return null;
-    if (row.statut !== 'ouverte' && row.statut !== 'accordee' && row.statut !== 'refusee') {
+    if (!estStatutRequisition(row.statut)) {
       return null;
     }
     return {
@@ -3246,7 +3322,7 @@ export class HiveStore {
     for (const r of rows) {
       const g = validerGenreRequisition(r.genre);
       if (!g.ok) continue;
-      if (r.statut !== 'ouverte' && r.statut !== 'accordee' && r.statut !== 'refusee') continue;
+      if (!estStatutRequisition(r.statut)) continue;
       out.push({
         id: r.id,
         nodeId: r.nodeId,
@@ -3279,11 +3355,24 @@ export class HiveStore {
   /** Élage les réquisitions closes trop anciennes (les ouvertes restent). */
   pruneRequisitions(retentionMs: number, now = Date.now()): number {
     const cutoff = now - retentionMs;
-    return this.db
+    // L'échéance part AVANT sa réquisition (clé étrangère), puis les
+    // orphelines éventuelles — borne référentielle câblée avec la table.
+    this.db
+      .prepare(
+        `DELETE FROM requisitions_echeances WHERE id IN (
+           SELECT id FROM requisitions WHERE statut != 'ouverte' AND closA IS NOT NULL AND closA < ?
+         )`,
+      )
+      .run(cutoff);
+    const changes = this.db
       .prepare(
         "DELETE FROM requisitions WHERE statut != 'ouverte' AND closA IS NOT NULL AND closA < ?",
       )
       .run(cutoff).changes;
+    this.db
+      .prepare('DELETE FROM requisitions_echeances WHERE id NOT IN (SELECT id FROM requisitions)')
+      .run();
+    return changes;
   }
 
   // ─── Fabrique (ADR 0010 lot 8) ─────────────────────────────────────────────
