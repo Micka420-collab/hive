@@ -121,11 +121,27 @@ describe('argvClaude — le npm test déclaré passe sans rien demander (critèr
     expect(avec[avec.indexOf('--permission-prompt-tool') + 1]).toBe(
       `mcp__hive_1__${HIVE_APPROVE_TOOL}`,
     );
-    expect(avec[avec.indexOf('--allowedTools') + 1]).toContain(`mcp__hive_1__${HIVE_APPROVE_TOOL}`);
 
     const sans = argvClaude('p', undefined, '/p/mcp.json', 'hive_1');
     expect(sans).not.toContain('--permission-prompt-tool');
     expect(sans[sans.indexOf('--allowedTools') + 1]).not.toContain(HIVE_APPROVE_TOOL);
+  });
+
+  it('l’outil de décision reste INVISIBLE du modèle : jamais dans --allowedTools (revue G12)', () => {
+    // Le drapeau --permission-prompt-tool suffit au CLI ; listé dans
+    // --allowedTools, le MODÈLE pourrait appeler l'outil lui-même et
+    // « s'approuver » hors de toute action réellement proposée.
+    const avec = argvClaude(
+      'p',
+      undefined,
+      '/p/mcp.json',
+      'hive_1',
+      undefined,
+      undefined,
+      [],
+      true,
+    );
+    expect(avec[avec.indexOf('--allowedTools') + 1]).not.toContain(HIVE_APPROVE_TOOL);
   });
 
   it('sans pont MCP : aucun outil de décision, même la capacité en main', () => {

@@ -448,6 +448,25 @@ describe('parseClientMessage', () => {
       ),
     ).toBeNull();
   });
+
+  it('requisition_open (revue G12) : le budget du run voyage — entier positif, sinon le message tombe', () => {
+    const message = (budgetMs: unknown) =>
+      parseClientMessage(
+        JSON.stringify({
+          type: 'requisition_open',
+          genre: 'action',
+          libelle: 'git push',
+          requestId: 'r-1',
+          budgetMs,
+        }),
+      );
+    expect(message(120_000)).toMatchObject({ budgetMs: 120_000 });
+    expect(message(undefined)).toMatchObject({ type: 'requisition_open' });
+    expect(message(0)).toBeNull();
+    expect(message(-5)).toBeNull();
+    expect(message(1.5)).toBeNull();
+    expect(message('vite')).toBeNull();
+  });
 });
 
 describe('parseServerMessage — validation des messages du hub (anti-traversal/RCE)', () => {
@@ -762,6 +781,23 @@ describe('parseServerMessage', () => {
         }),
       ),
     ).toMatchObject({ requestId: 'r-1' });
+    // Revue G12 : l'échéance effective revient dans l'ack — un entier positif,
+    // sinon le message tombe (le filet local retomberait sur son plafond figé).
+    const ack = (expiresAt: unknown) =>
+      parseServerMessage(
+        JSON.stringify({
+          type: 'requisition_ack',
+          id: 'req-1',
+          genre: 'action',
+          libelle: 'git push',
+          requestId: 'r-1',
+          expiresAt,
+        }),
+      );
+    expect(ack(1_700_000_600_000)).toMatchObject({ expiresAt: 1_700_000_600_000 });
+    expect(ack(undefined)).toMatchObject({ type: 'requisition_ack' });
+    expect(ack(0)).toBeNull();
+    expect(ack('demain')).toBeNull();
     expect(parseServerMessage(JSON.stringify({ type: 'intrus' }))).toBeNull();
     expect(parseServerMessage('')).toBeNull();
     expect(parseServerMessage('{}')).toBeNull();

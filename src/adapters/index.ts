@@ -126,8 +126,11 @@ export interface AdapterContext {
    * irréversible ouvre une réquisition dans la Chambre et ATTEND la décision
    * humaine (ou son expiration). Comme `delegate` : une capacité bornée,
    * jamais le socket ni SQLite. Absente : le pont répond deny (fermé).
+   * `echeanceRun` (ms epoch) : l'instant où le délai dur de l'adaptateur
+   * tuera le CLI — l'attente d'une décision s'y borne, et le hub en déduit
+   * une échéance de Chambre qui précède la mort du processus.
    */
-  decideAction?: (action: ActionProposee) => Promise<DecisionAction>;
+  decideAction?: (action: ActionProposee, echeanceRun?: number) => Promise<DecisionAction>;
   /**
    * `'relecture'` : la tâche est une contre-expertise — l'agent LIT une
    * production, il n'a rien à écrire. Un adaptateur peut alors réduire ses

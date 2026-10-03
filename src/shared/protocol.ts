@@ -385,6 +385,14 @@ export interface RequisitionOpenMsg {
    * l'identifiant de LA SIENNE. Jamais persistée — l'id du store fait foi.
    */
   requestId?: string;
+  /**
+   * Budget RESTANT (ms) du run CLI côté nœud (G12, genre `action`) : le délai
+   * dur du CLI tue le processus entier, et une échéance de Chambre posée
+   * au-delà ferait de chaque silence humain un échec opaque. Le hub ne peut
+   * que RACCOURCIR son TTL avec ce budget, jamais l'allonger — l'échéance
+   * reste une politique de la Chambre.
+   */
+  budgetMs?: number;
 }
 
 /** Conflit signalé lors d'un merge (un diff qui ne s'applique pas proprement). */
@@ -617,6 +625,11 @@ export interface RequisitionAckMsg {
   libelle: string;
   /** La corrélation de `requisition_open`, rendue telle quelle (G12). */
   requestId?: string;
+  /**
+   * L'échéance EFFECTIVE (ms epoch) décidée par la Chambre — min(TTL,
+   * budget du nœud). Le nœud y cale son filet local au lieu d'un délai figé.
+   */
+  expiresAt?: number;
 }
 
 /** Accusé de création d'un enfant de délégation. */
@@ -1305,6 +1318,7 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
         isStr(m.genre, LIMITS.requisitionGenre) &&
         isStr(m.libelle, LIMITS.requisitionLibelle) &&
         (m.requestId === undefined || isId(m.requestId)) &&
+        (m.budgetMs === undefined || isInt(m.budgetMs, 1, Number.MAX_SAFE_INTEGER)) &&
         (m.detail === undefined || isStrAllowEmpty(m.detail, LIMITS.requisitionDetail)) &&
         (m.taskId === undefined || isId(m.taskId))
       ) {
@@ -1316,6 +1330,7 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
         if (m.detail !== undefined) msg.detail = m.detail as string;
         if (m.taskId !== undefined) msg.taskId = m.taskId as string;
         if (m.requestId !== undefined) msg.requestId = m.requestId as string;
+        if (m.budgetMs !== undefined) msg.budgetMs = m.budgetMs as number;
         return msg;
       }
       return null;
@@ -1487,13 +1502,15 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
       return isId(m.id) &&
         isStr(m.genre, LIMITS.requisitionGenre) &&
         isStr(m.libelle, LIMITS.requisitionLibelle) &&
-        (m.requestId === undefined || isId(m.requestId))
+        (m.requestId === undefined || isId(m.requestId)) &&
+        (m.expiresAt === undefined || isInt(m.expiresAt, 1, Number.MAX_SAFE_INTEGER))
         ? {
             type: 'requisition_ack',
             id: m.id,
             genre: m.genre,
             libelle: m.libelle,
             ...(m.requestId !== undefined ? { requestId: m.requestId } : {}),
+            ...(m.expiresAt !== undefined ? { expiresAt: m.expiresAt } : {}),
           }
         : null;
     case 'delegation_accepted':

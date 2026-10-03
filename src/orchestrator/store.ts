@@ -3284,19 +3284,24 @@ export class HiveStore {
     statut: StatutRequisition;
     creeA: number;
     closA: number | null;
+    /** Échéance (genre `action`, G12) — `null` : aucune, la réquisition attend. */
+    expiresAt: number | null;
   }> {
+    // L'échéance voyage AVEC la réquisition (jointure latérale) : la Chambre
+    // affiche le compte à rebours sans seconde requête.
     let sql =
-      'SELECT id, nodeId, genre, libelle, detail, taskId, statut, creeA, closA FROM requisitions WHERE 1=1';
+      'SELECT r.id, r.nodeId, r.genre, r.libelle, r.detail, r.taskId, r.statut, r.creeA, r.closA, e.expiresAt' +
+      ' FROM requisitions r LEFT JOIN requisitions_echeances e ON e.id = r.id WHERE 1=1';
     const args: unknown[] = [];
     if (opts?.nodeId) {
-      sql += ' AND nodeId = ?';
+      sql += ' AND r.nodeId = ?';
       args.push(opts.nodeId);
     }
     if (opts?.statut) {
-      sql += ' AND statut = ?';
+      sql += ' AND r.statut = ?';
       args.push(opts.statut);
     }
-    sql += ' ORDER BY creeA DESC LIMIT 200';
+    sql += ' ORDER BY r.creeA DESC LIMIT 200';
     const rows = this.db.prepare(sql).all(...args) as Array<{
       id: string;
       nodeId: string;
@@ -3307,6 +3312,7 @@ export class HiveStore {
       statut: string;
       creeA: number;
       closA: number | null;
+      expiresAt: number | null;
     }>;
     const out: Array<{
       id: string;
@@ -3318,6 +3324,7 @@ export class HiveStore {
       statut: StatutRequisition;
       creeA: number;
       closA: number | null;
+      expiresAt: number | null;
     }> = [];
     for (const r of rows) {
       const g = validerGenreRequisition(r.genre);
@@ -3333,6 +3340,7 @@ export class HiveStore {
         statut: r.statut,
         creeA: r.creeA,
         closA: r.closA,
+        expiresAt: r.expiresAt,
       });
     }
     return out;

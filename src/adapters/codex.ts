@@ -92,11 +92,15 @@ function depotNonFiable(execution: ExecutionCodex): string[] {
 }
 
 // POLITIQUE D'ACTIONS (G12) : Codex reçoit l'outil `hive_approve_action` par le
-// même pont MCP (codexMcpOverrides, enabled_tools) — le modèle PEUT demander une
-// décision à la Chambre. Les règles execpolicy (`-c` allow/prompt/forbidden, la
-// plus stricte l'emporte) ne sont PAS posées ici : leur forme exacte doit être
-// prouvée sur le vrai binaire (pattern fixtures flux-codex), pas supposée — la
-// politique compilée est déjà exposée à l'adaptateur via `ctx.permissionsAllow`.
+// même pont MCP (codexMcpOverrides, enabled_tools) — ICI il est VISIBLE du
+// modèle, et c'est voulu : Codex n'a pas d'équivalent au
+// `--permission-prompt-tool` de Claude Code (où l'outil reste hors
+// `--allowedTools`, appelé par le CLI seul) ; le seul canal est que le modèle
+// demande LUI-MÊME une décision à la Chambre. Les règles execpolicy (`-c`
+// allow/prompt/forbidden, la plus stricte l'emporte) ne sont PAS posées ici :
+// leur forme exacte doit être prouvée sur le vrai binaire (pattern fixtures
+// flux-codex), pas supposée — la politique compilée est déjà exposée à
+// l'adaptateur via `ctx.permissionsAllow`.
 
 // PAS D'EFFORT ICI, et c'est voulu : `model_reasoning_effort` (via `-c`) prend
 // des valeurs ANNONCÉES PAR CHAQUE MODÈLE (`ReasoningEffort::Custom`,
@@ -378,7 +382,16 @@ export function createCodexAdapter(token = process.env.HIVE_TOKEN ?? DEFAULT_TOK
       let bridge: DelegationBridge | undefined;
       try {
         if (ctx.delegate && ctx.waitForDelegationResult && ctx.rendezVous) {
-          bridge = await createDelegationBridge(ctx, task.id);
+          // Même borne que l'adaptateur Claude : l'attente d'une décision
+          // d'action ne doit pas survivre au délai dur du run Codex.
+          const echeanceRun = Date.now() + CODEX_TIMEOUT_MS;
+          const decideAction = ctx.decideAction;
+          bridge = await createDelegationBridge(
+            decideAction
+              ? { ...ctx, decideAction: (action) => decideAction(action, echeanceRun) }
+              : ctx,
+            task.id,
+          );
         }
         // Relu sur l'hôte (`ctx.cwd`), même dans le bac : c'est le même dépôt.
         const consignes = consignesDuDepot(ctx.cwd, CONSIGNES_CODEX, MAX_CONSIGNES_CODEX);

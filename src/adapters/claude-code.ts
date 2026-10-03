@@ -149,10 +149,15 @@ export function argvClaude(
   // `--permission-prompt-tool` SEULEMENT quand le pont porte la capacité de
   // décision (`approbation`) : le drapeau pointe un outil MCP, et le poser
   // sans serveur derrière transformerait chaque demande en impasse.
+  //
+  // L'outil de décision n'entre PAS dans `--allowedTools` : le drapeau suffit
+  // au CLI (code.claude.com/docs/en/headless), et l'y lister l'exposerait au
+  // MODÈLE — qui pourrait alors « s'approuver » lui-même en appelant l'outil
+  // directement, hors de toute action réellement proposée. Codex est l'inverse
+  // assumé : là-bas c'est le modèle qui demande (enabled_tools, codex.ts).
   const outilsHive = [
     `mcp__${mcpServerName}__${HIVE_DELEGATE_TOOL}`,
     `mcp__${mcpServerName}__${HIVE_WAIT_TOOL}`,
-    ...(approbation ? [`mcp__${mcpServerName}__${HIVE_APPROVE_TOOL}`] : []),
   ];
   const drapeauxMcp = mcpConfigPath
     ? [
@@ -249,7 +254,18 @@ export function createClaudeCodeAdapter(
         // un contexte partiel n'entre pas dans le pont pour y échouer en panne
         // d'« infrastructure » (`capacités de délégation absentes`).
         if (ctx.delegate && ctx.waitForDelegationResult && ctx.rendezVous) {
-          bridge = await createDelegationBridge(ctx, task.id);
+          // L'échéance du run — l'instant où `runCommandStreaming` tuera le
+          // processus (posée ici, à quelques instants du spawn près) : le
+          // nœud borne l'attente d'une décision d'action à ce qui reste à
+          // vivre au CLI, et la Chambre raccourcit son TTL d'autant.
+          const echeanceRun = Date.now() + CLAUDE_TIMEOUT_MS;
+          const decideAction = ctx.decideAction;
+          bridge = await createDelegationBridge(
+            decideAction
+              ? { ...ctx, decideAction: (action) => decideAction(action, echeanceRun) }
+              : ctx,
+            task.id,
+          );
           writeClaudeMcpConfig(bridge);
         }
         // Les consignes du dépôt voyagent dans le dossier du pont, que le bac

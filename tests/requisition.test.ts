@@ -135,6 +135,11 @@ describe('HiveStore — réquisitions', () => {
     const sansEcheance = store.ouvrirRequisition('n1', 'cle_api', 'Clé', null, null, t0);
     expect(avecEcheance.ok && sansEcheance.ok).toBe(true);
     if (!avecEcheance.ok || !sansEcheance.ok) return;
+    // L'échéance VOYAGE avec la réquisition (jointure latérale) : c'est elle
+    // que GET /api/requisitions sert au badge de la Chambre (revue G12).
+    const listees = store.listerRequisitions({ statut: 'ouverte' });
+    expect(listees.find((r) => r.id === avecEcheance.id)?.expiresAt).toBe(t0 + 100);
+    expect(listees.find((r) => r.id === sansEcheance.id)?.expiresAt).toBeNull();
     // Avant l'échéance : rien n'expire.
     expect(store.expirerRequisitions(t0 + 50)).toEqual([]);
     // Après : SEULE la réquisition d'action échue bascule, avec ses faits.

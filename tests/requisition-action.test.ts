@@ -13,7 +13,8 @@ import { resumerEvenementChambre } from '../src/orchestrator/chambre-journal.js'
 import { projeterEvenementOuvriere } from '../src/orchestrator/journal-ouvriere.js';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
-import type { DecisionAction } from '../src/shared/politique-actions.js';
+import { MARGE_DECISION_ACTION_MS } from '../src/node-client/client.js';
+import type { ActionProposee, DecisionAction } from '../src/shared/politique-actions.js';
 import type { Task } from '../src/shared/types.js';
 
 const TOKEN = 'jeton-requisition-action-long';
@@ -101,6 +102,22 @@ describe('réquisition d’action (G12) — push gardé, décision relayée, éc
     };
   }
 
+  /** Un adaptateur qui PROPOSE une suite d'actions et collecte les décisions. */
+  function adaptateurActions(
+    propositions: () => Array<{ action: ActionProposee; echeanceRun?: number }>,
+    decisions: DecisionAction[],
+  ): AgentAdapter {
+    return {
+      name: 'actions-proposees',
+      async run(_task, ctx) {
+        for (const p of propositions()) {
+          decisions.push(await ctx.decideAction!(p.action, p.echeanceRun));
+        }
+        return { success: true, diff: 'diff ok', logs: 'ok', subAgents: [] };
+      },
+    };
+  }
+
   function brancherNoeud(nom: string, adapter: AgentAdapter): void {
     client = new HiveNodeClient({
       url: `ws://127.0.0.1:${server.port}/ws`,
@@ -116,10 +133,13 @@ describe('réquisition d’action (G12) — push gardé, décision relayée, éc
     client.start();
   }
 
-  async function attendre<T>(lire: () => T | undefined, duree = 12_000): Promise<T | undefined> {
+  async function attendre<T>(
+    lire: () => T | undefined | Promise<T | undefined>,
+    duree = 12_000,
+  ): Promise<T | undefined> {
     const limite = Date.now() + duree;
     while (Date.now() < limite) {
-      const vu = lire();
+      const vu = await lire();
       if (vu !== undefined) return vu;
       await new Promise((r) => setTimeout(r, 60));
     }
@@ -240,6 +260,126 @@ describe('réquisition d’action (G12) — push gardé, décision relayée, éc
     await attendre(() => (server.store.getTask(taskId)?.status === 'done' ? true : undefined));
     expect(server.store.getTask(taskId)?.status).toBe('done');
   }, 20_000);
+
+  it('au niveau off : la lecture passe, le « parfois » est refusé NET et motivé — aucune réquisition suspendante (revue G12)', async () => {
+    const { base } = await demarrer('hive-action-defaut-');
+    const taskId = await creerTache(base, 'off');
+    const decisions: DecisionAction[] = [];
+    brancherNoeud(
+      'noeud-defaut',
+      adaptateurActions(
+        () => [
+          { action: { toolName: 'Bash', input: { command: 'git status' } } },
+          { action: { toolName: 'Bash', input: { command: 'touch note.txt' } } },
+        ],
+        decisions,
+      ),
+    );
+    await attendre(() => (decisions.length === 2 ? true : undefined));
+    // La lecture (classe toujours) ne demande rien, même au niveau par défaut.
+    expect(decisions[0]).toEqual({ behavior: 'allow', updatedInput: { command: 'git status' } });
+    // Le « parfois » est un DENY immédiat qui nomme le niveau et la Chambre —
+    // jamais une réquisition de dix minutes par commande sur le niveau défaut.
+    expect(decisions[1]?.behavior).toBe('deny');
+    expect((decisions[1] as { message: string }).message).toContain('autonomie off');
+    expect((decisions[1] as { message: string }).message).toContain('Chambre');
+    expect(server.store.listerRequisitions({})).toEqual([]);
+    await attendre(() => (server.store.getTask(taskId)?.status === 'done' ? true : undefined));
+    expect(server.store.getTask(taskId)?.status).toBe('done');
+  });
+
+  it('à gouverne : l’auto-allow d’un « parfois » laisse une ligne au journal (fait enregistré)', async () => {
+    const { base } = await demarrer('hive-action-journal-');
+    const taskId = await creerTache(base, 'gouverne');
+    const decisions: DecisionAction[] = [];
+    brancherNoeud(
+      'noeud-journal',
+      adaptateurActions(
+        () => [{ action: { toolName: 'Bash', input: { command: 'touch note.txt' } } }],
+        decisions,
+      ),
+    );
+    await attendre(() => (decisions.length === 1 ? true : undefined));
+    expect(decisions[0]).toEqual({
+      behavior: 'allow',
+      updatedInput: { command: 'touch note.txt' },
+    });
+    const ligne = await attendre(() =>
+      server.store
+        .listEvents(0, 500)
+        .find(
+          (e) => typeof e.payload.log === 'string' && e.payload.log.includes('action autorisée'),
+        ),
+    );
+    expect(ligne, 'l’auto-allow est journalisé').toBeTruthy();
+    expect(String(ligne!.payload.log)).toContain('parfois');
+    await attendre(() => (server.store.getTask(taskId)?.status === 'done' ? true : undefined));
+    expect(server.store.getTask(taskId)?.status).toBe('done');
+  });
+
+  it('action proposée TARD dans le run : l’échéance de la Chambre se borne au budget du CLI, et l’API l’expose', async () => {
+    const { base } = await demarrer('hive-action-budget-'); // TTL par défaut : dix minutes
+    const taskId = await creerTache(base, 'gouverne');
+    const decisions: DecisionAction[] = [];
+    const avant = Date.now();
+    const budget = 2_000;
+    brancherNoeud(
+      'noeud-budget',
+      adaptateurActions(
+        () => [
+          {
+            action: { toolName: 'Bash', input: { command: 'git push origin main' } },
+            // Le délai dur du CLI tombera bien avant le TTL de dix minutes.
+            echeanceRun: Date.now() + MARGE_DECISION_ACTION_MS + budget,
+          },
+        ],
+        decisions,
+      ),
+    );
+    // La réquisition s'ouvre, et GET /api/requisitions porte son échéance
+    // effective (revue G12, badge Chambre) : min(TTL, budget), pas le TTL.
+    const row = await attendre(async () => {
+      const corps = (await (
+        await fetch(`${base}/api/requisitions?statut=ouverte`, { headers })
+      ).json()) as { requisitions: Array<{ taskId: string | null; expiresAt?: number | null }> };
+      return corps.requisitions.find((r) => r.taskId === taskId);
+    });
+    expect(row, 'réquisition ouverte visible par l’API').toBeTruthy();
+    expect(typeof row!.expiresAt).toBe('number');
+    expect(row!.expiresAt!).toBeGreaterThan(avant);
+    expect(row!.expiresAt!).toBeLessThanOrEqual(Date.now() + budget + 1_000);
+    // Personne ne tranche : l'échéance courte expire côté Reine, qui relaie.
+    await attendre(() => (decisions.length === 1 ? true : undefined));
+    expect(decisions[0]?.behavior).toBe('deny');
+    expect((decisions[0] as { message: string }).message).toContain('expirée');
+    expect(server.store.listerRequisitions({ statut: 'expiree' })).toHaveLength(1);
+    await attendre(() => (server.store.getTask(taskId)?.status === 'done' ? true : undefined));
+  }, 20_000);
+
+  it('budget du run déjà épuisé : deny dit, AUCUNE réquisition morte dans la Chambre', async () => {
+    const { base } = await demarrer('hive-action-horsdelai-');
+    const taskId = await creerTache(base, 'gouverne');
+    const decisions: DecisionAction[] = [];
+    brancherNoeud(
+      'noeud-horsdelai',
+      adaptateurActions(
+        () => [
+          {
+            action: { toolName: 'Bash', input: { command: 'git push origin main' } },
+            // Moins que la marge : aucune décision ne peut plus revenir à temps.
+            echeanceRun: Date.now() + 1_000,
+          },
+        ],
+        decisions,
+      ),
+    );
+    await attendre(() => (decisions.length === 1 ? true : undefined));
+    expect(decisions[0]?.behavior).toBe('deny');
+    expect((decisions[0] as { message: string }).message).toContain('budget du run');
+    expect(server.store.listerRequisitions({})).toEqual([]);
+    await attendre(() => (server.store.getTask(taskId)?.status === 'done' ? true : undefined));
+    expect(server.store.getTask(taskId)?.status).toBe('done');
+  });
 
   it('projet sans autonomie (off) : l’irréversible est refusé NET, sans réquisition', async () => {
     const { base } = await demarrer('hive-action-off-');

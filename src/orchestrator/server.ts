@@ -628,12 +628,14 @@ export const PRESENCES_RETENTION_MS = 60 * 60_000;
 export const REQUISITIONS_RETENTION_MS = 30 * 24 * 60 * 60_000;
 
 /**
- * Échéance d'une réquisition d'ACTION (G12) : dix minutes. SOUS le délai des
- * CLI (quinze minutes, `CLAUDE_TIMEOUT_MS` / `CODEX_TIMEOUT_MS`) — le Worker
- * reste suspendu sur son `--permission-prompt-tool` pendant que la Chambre
- * décide, et une échéance plus longue que son CLI transformerait chaque
- * silence humain en échec opaque de l'agent au lieu d'un refus dit. À
- * l'échéance : statut `expiree`, deny au nœud, escalade au journal.
+ * Échéance d'une réquisition d'ACTION (G12) : dix minutes — le PLAFOND de la
+ * Chambre. Le Worker reste suspendu sur son `--permission-prompt-tool`
+ * pendant qu'elle décide ; une échéance plus longue que ce qui reste à vivre
+ * au CLI (délai dur sur le processus entier) transformerait chaque silence
+ * humain en échec opaque de l'agent au lieu d'un refus dit — d'où le
+ * `budgetMs` de `requisition_open`, qui RACCOURCIT ce plafond quand l'action
+ * arrive tard dans le run. À l'échéance : statut `expiree`, deny au nœud,
+ * escalade au journal.
  */
 export const REQUISITION_ACTION_TTL_MS = 10 * 60_000;
 
@@ -15216,11 +15218,14 @@ async function monterReine(
             const maintenant = Date.now();
             // Seul le genre `action` (G12) porte une échéance : le Worker est
             // SUSPENDU sur cette décision, et son CLI n'attend pas sans fin.
-            // Décidée ICI, jamais par le nœud : l'échéance est une politique
-            // de la Chambre, pas une donnée du message.
+            // Le TTL est une politique de la Chambre (plafond, décidé ici) ;
+            // le `budgetMs` du nœud — ce qui reste à vivre à son run CLI — ne
+            // peut que la RACCOURCIR : une échéance posée après la mort du
+            // CLI ferait de chaque silence humain une case morte.
+            const ttlAction = config.requisitionActionTtlMs ?? REQUISITION_ACTION_TTL_MS;
             const echeance =
               msg.genre === 'action'
-                ? maintenant + (config.requisitionActionTtlMs ?? REQUISITION_ACTION_TTL_MS)
+                ? maintenant + Math.min(ttlAction, msg.budgetMs ?? ttlAction)
                 : null;
             const v = store.ouvrirRequisition(
               nodeId,
@@ -15251,6 +15256,9 @@ async function monterReine(
               genre: v.genre,
               libelle: v.libelle,
               ...(msg.requestId ? { requestId: msg.requestId } : {}),
+              // L'échéance effective repart au nœud : son filet local s'y
+              // cale au lieu d'un délai figé (revue G12).
+              ...(echeance !== null ? { expiresAt: echeance } : {}),
             });
             stateDirty = true;
             break;
