@@ -421,6 +421,13 @@ import {
 import type { Candidat, Production } from '../shared/contre-expertise.js';
 import { constatBloquant } from '../shared/critique-structuree.js';
 import { champSurUneLigne } from '../shared/donnees-non-fiables.js';
+import { creerCaviardeur, valeursSecretes } from '../shared/caviardage.js';
+import {
+  ancrerDansLeDiff,
+  COMMENTAIRE_FICHIER_MAX,
+  COMMENTAIRE_TEXTE_MAX,
+  COMMENTAIRES_PAR_PRODUCTION_MAX,
+} from '../shared/commentaire-revue.js';
 import { buildHiveContext, verdictSouvenir } from './hive-mind.js';
 import { buildMergePlan } from './honeycomb.js';
 import { tally, signatureOf } from './parliament.js';
@@ -907,6 +914,14 @@ const BUDGET_CERVEAU = 3_000;
  * ligne et une note humaine y tiennent ; au-delà, la queue tombe.
  */
 export const BUDGET_CRITIQUE = 2_000;
+/**
+ * La part d'une critique qui porte des commentaires ANCRÉS (une demande de
+ * changements, G06). Un humain a désigné fichier et lignes pour CETTE
+ * correction : c'est sa raison d'être, et huit commentaires avec leur extrait
+ * ne tiennent pas dans `BUDGET_CRITIQUE`. Toujours servie APRÈS le Cerveau, et
+ * dans le même décompte : la Couveuse et Hive Mind prennent ce qui reste.
+ */
+export const BUDGET_CRITIQUE_COMMENTEE = 5_000;
 /**
  * Ce que le graphe d'expérience peut prendre du contexte (`blocExperience`,
  * shared/graphe-experience.ts) : trois contextes similaires d'une ligne JSON
@@ -2508,21 +2523,33 @@ async function monterReine(
    * retry efface la revue sans rien journaliser, et la raison d'un rejet déjà
    * traité ne doit pas s'afficher sous la production suivante.
    */
-  const raisonDeRevueCourante = (taskId: string): string | null => {
+  const revueHumaineCourante = (
+    taskId: string,
+  ): { raison: string | null; soumission: string | null } | null => {
     const courant = store.getTaskReview(taskId)?.state ?? null;
     if (courant === null) return null;
     const dernier = store.lastEventFor('task_reviewed', taskId);
-    const raison = dernier?.payload.raison;
-    return dernier?.payload.state === courant && typeof raison === 'string' && raison !== ''
-      ? raison
-      : null;
+    if (dernier?.payload.state !== courant) return null;
+    const { raison, changements } = dernier.payload;
+    const soumission =
+      typeof changements === 'object' && changements !== null
+        ? (changements as Record<string, unknown>).soumission
+        : undefined;
+    return {
+      raison: typeof raison === 'string' && raison !== '' ? raison : null,
+      soumission: typeof soumission === 'string' ? soumission : null,
+    };
   };
+  const raisonDeRevueCourante = (taskId: string): string | null =>
+    revueHumaineCourante(taskId)?.raison ?? null;
 
   /**
    * La critique à figer au moment d'une correction : les objections de la
    * contre-revue du résultat exact (ses constats bloquants compris), ses
    * remarques non bloquantes, les motifs de l'Evaluator et, pour un rejet
-   * humain, la raison de l'humain. Les TROIS portes de retry passent par ici —
+   * humain, la raison de l'humain — et, pour une demande de changements, les
+   * commentaires ancrés que CET envoi a emportés (`soumission` du dernier
+   * `task_reviewed`, jamais ceux posés depuis). Les TROIS portes de retry passent par ici —
    * une porte qui l'oublierait renverrait l'ouvrière refaire la même
    * production.
    */
@@ -2531,14 +2558,27 @@ async function monterReine(
     evaluation: EvaluationResult,
     source: SourceCritique,
   ): CritiqueReprise => {
-    const note =
-      evaluation.evidence.humanReview === 'rejected' ? raisonDeRevueCourante(taskId) : null;
+    const revue =
+      evaluation.evidence.humanReview === 'rejected' ? revueHumaineCourante(taskId) : null;
+    const note = revue?.raison ?? null;
+    const commentaires = revue?.soumission
+      ? store
+          .commentairesSoumis(taskId, revue.soumission)
+          .map(({ fichier, ligneDebut, ligneFin, texte, extrait }) => ({
+            fichier,
+            ligneDebut,
+            ligneFin,
+            texte,
+            ...(extrait ? { extrait } : {}),
+          }))
+      : [];
     const remarques = evaluation.evidence.crossReview.findings.filter((c) => !constatBloquant(c));
     return {
       source,
       objections: [...evaluation.evidence.crossReview.objections],
       raisons: evaluation.reasons,
       ...(note ? { noteHumaine: note } : {}),
+      ...(commentaires.length > 0 ? { commentaires } : {}),
       ...(remarques.length > 0 ? { remarques } : {}),
     };
   };
@@ -2761,7 +2801,7 @@ async function monterReine(
      * du Cerveau. Absente quand il n'y avait rien à transmettre.
      */
     critique?:
-      | { etat: 'jointe'; figee: CritiqueReprise; objections: number }
+      | { etat: 'jointe'; figee: CritiqueReprise; objections: number; commentaires: number }
       | { etat: 'perdue'; figee: CritiqueReprise };
     refusCerveau?: string;
     /**
@@ -2810,7 +2850,7 @@ async function monterReine(
       ? blocCritique(
           enCours.critique,
           { tentative: task.attempts + 1, visee: enCours.visee },
-          part(BUDGET_CRITIQUE),
+          part(enCours.critique.commentaires ? BUDGET_CRITIQUE_COMMENTEE : BUDGET_CRITIQUE),
         )
       : null;
     const blocDeCritique = retenir(critique?.bloc ?? '');
@@ -2887,7 +2927,12 @@ async function monterReine(
       ...(enCours && critique
         ? {
             critique: critique.bloc
-              ? { etat: 'jointe', figee: enCours.critique, objections: critique.objections }
+              ? {
+                  etat: 'jointe',
+                  figee: enCours.critique,
+                  objections: critique.objections,
+                  commentaires: critique.commentaires,
+                }
               : { etat: 'perdue', figee: enCours.critique },
           }
         : {}),
@@ -3170,6 +3215,14 @@ async function monterReine(
           objections: critique.objections,
           objectionsFigees: critique.figee.objections.length,
           noteHumaine: critique.figee.noteHumaine !== undefined,
+          // Même paire que les objections : lus / figés. L'écart, c'est la
+          // queue des commentaires de l'humain tombée au budget.
+          ...(critique.figee.commentaires
+            ? {
+                commentaires: critique.commentaires,
+                commentairesFiges: critique.figee.commentaires.length,
+              }
+            : {}),
         });
       } else if (critique?.etat === 'perdue') {
         emitEvent('critique_refus', {
@@ -3625,6 +3678,14 @@ async function monterReine(
     };
   };
 
+  /**
+   * Le caviardeur de ce qu'un OPÉRATEUR écrit pour une ouvrière (raison d'un
+   * verdict, commentaire ancré) : les valeurs des variables d'identification
+   * de l'env Queen, le jeton de ruche, et les motifs de jetons connus. Ce
+   * texte part dans le contexte d'un agent et reste au journal.
+   */
+  const caviardeurReine = creerCaviardeur([...valeursSecretes(process.env), config.token]);
+
   // ─── La revue humaine, chemin CANONIQUE unique ──────────────────────────────
   //
   // Un verdict humain — approuvé ouvre la livraison autonome, rejeté relance la
@@ -3649,13 +3710,31 @@ async function monterReine(
   //     a cliqué. Un clic ne dit pas POURQUOI : aucune `raison` — une raison
   //     fabriquée entrait dans la critique de la tentative suivante, l'épisode
   //     du Cerveau et l'écran de critique comme si un humain l'avait écrite.
+  //
+  // ─── LA DEMANDE DE CHANGEMENTS (G06) ───────────────────────────────────────
+  //
+  // Un REJET, au sens de tout ce qui lit la revue (Evaluator, livraison,
+  // Balance, War Room, boucle v3) : la production n'est pas acceptée. Ce qui
+  // la distingue est écrit au fait, dans `task_reviewed.changements` — l'envoi
+  // (`soumission`) qui a emporté les commentaires ancrés, et leur nombre. La
+  // critique de la correction relit CES commentaires-là (`critiquePourRetry`).
+  // Un troisième état de revue aurait dû être appris par chacun de ces
+  // lecteurs, et celui qui l'aurait oublié aurait laissé livrer une
+  // production dont l'humain demandait qu'on la change.
   const appliquerRevueHumaine = (
     task: Task,
     state: 'approved' | 'rejected' | null,
     provenance: { parUserId: string | null } | { source: 'slack'; par: string },
-    opts: { clientId?: string; raison?: string } = {},
+    opts: {
+      clientId?: string;
+      raison?: string;
+      changements?: { soumission: string; commentaires: number };
+    } = {},
   ): { retry: ReturnType<Scheduler['retryFromEvaluator']> | null } => {
     store.setTaskReview(task.id, state);
+    // La raison est une donnée d'opérateur qui part dans le contexte d'une
+    // ouvrière et dans le journal : une clé collée par erreur n'y entre pas.
+    const raison = opts.raison ? caviardeurReine.texte(opts.raison) : '';
     emitEvent('task_reviewed', {
       taskId: task.id,
       state,
@@ -3663,7 +3742,8 @@ async function monterReine(
         ? { source: provenance.source, par: provenance.par, parUserId: null }
         : { parUserId: provenance.parUserId }),
       ...(opts.clientId ? { clientId: opts.clientId } : {}),
-      ...(opts.raison ? { raison: opts.raison } : {}),
+      ...(raison ? { raison } : {}),
+      ...(opts.changements ? { changements: opts.changements } : {}),
     });
     // Approuvée, la production entre au Hive Mind ; rejetée, elle en sort et
     // son épisode s'écrit avec la raison de l'humain. AVANT la relance, qui
@@ -12386,6 +12466,254 @@ async function monterReine(
         taskId: task.id,
         state: req.body.state,
         updatedAt: saved?.updatedAt ?? null,
+        ...(retry ? { retry } : {}),
+      };
+    },
+  );
+
+  // ─── REVUE LIGNE PAR LIGNE (G06, shared/commentaire-revue.ts) ─────────────
+  //
+  // Un commentaire ancre ce que l'humain veut voir changé sur une plage de
+  // lignes d'un fichier du diff de la DERNIÈRE production. Il reste en
+  // attente, partagé entre opérateurs (événement `revue_commentaire`, relu par
+  // la Miellerie), jusqu'à « demander des changements » : UN envoi emporte
+  // tous les commentaires en attente de la production dans UNE correction —
+  // la tentative suivante de la tâche, que l'Aiguillage confie au même Worker
+  // ou à une autre famille, et qui repasse par l'Evaluator et la relecture
+  // croisée comme toute correction.
+  //
+  // MÊME PORTE que le verdict (`decisionTache`) : un commentaire est le début
+  // d'une décision sur le sort du travail. Le TEXTE ne quitte la Reine que
+  // par la lecture gardée ci-dessous et par la critique de la correction —
+  // jamais par l'événement, diffusé à tous les écrans.
+  const refuserNonTerminale = (reply: FastifyReply, task: Task): FastifyReply =>
+    reply.code(409).send({
+      code: 'task_not_terminal',
+      error: `tâche ${task.status} — revue possible seulement après terminaison`,
+    });
+  const refuserResultatPerime = (reply: FastifyReply, dernier: number | null): FastifyReply =>
+    reply.code(409).send({
+      code: 'resultat_perime',
+      error: 'une production plus récente est arrivée — rechargez le diff avant de commenter',
+      resultId: dernier,
+    });
+  const schemaTache = {
+    type: 'object',
+    required: ['taskId'],
+    properties: { taskId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+  } as const;
+
+  app.get<{ Params: { taskId: string } }>(
+    '/api/tasks/:taskId/commentaires-revue',
+    { schema: { params: schemaTache } },
+    async (req, reply) => {
+      const task = store.getTask(req.params.taskId);
+      const lecture = lectureProjetPermise(req, task?.projectId ?? '');
+      if (lecture === 'anonyme') return reject(reply);
+      if (lecture !== 'permis' || !task) return refuserTache(reply, 'absent');
+      return {
+        taskId: task.id,
+        resultId: store.dernierResultatDe(task.id),
+        max: COMMENTAIRES_PAR_PRODUCTION_MAX,
+        commentaires: store.commentairesRevue(task.id),
+      };
+    },
+  );
+
+  app.post<{
+    Params: { taskId: string };
+    Body: {
+      resultId: number;
+      fichier: string;
+      ligneDebut: number;
+      ligneFin: number;
+      texte: string;
+    };
+  }>(
+    '/api/tasks/:taskId/commentaires-revue',
+    {
+      schema: {
+        params: schemaTache,
+        body: {
+          type: 'object',
+          required: ['resultId', 'fichier', 'ligneDebut', 'ligneFin', 'texte'],
+          additionalProperties: false,
+          properties: {
+            // La production commentée : un commentaire posé sur un diff que
+            // l'écran montrait AVANT une nouvelle tentative viserait des
+            // lignes qui n'existent plus (409 `resultat_perime`).
+            resultId: { type: 'integer', minimum: 1 },
+            fichier: { type: 'string', minLength: 1, maxLength: COMMENTAIRE_FICHIER_MAX },
+            ligneDebut: { type: 'integer', minimum: 1 },
+            ligneFin: { type: 'integer', minimum: 1 },
+            texte: { type: 'string', minLength: 1, maxLength: COMMENTAIRE_TEXTE_MAX },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const task = decisionTache(req, reply, req.params.taskId);
+      if (!task) return reply;
+      if (task.status !== 'done' && task.status !== 'failed')
+        return refuserNonTerminale(reply, task);
+      const dernier = store.dernierResultatDe(task.id);
+      if (dernier !== req.body.resultId) return refuserResultatPerime(reply, dernier);
+      const texte = req.body.texte.trim();
+      if (texte === '') {
+        return reply.code(400).send({ code: 'commentaire_vide', error: 'commentaire vide' });
+      }
+      const production = store.resultsForTask(task.id).find((r) => r.resultId === dernier);
+      const ancre = ancrerDansLeDiff(production?.diff ?? '', req.body);
+      if (!ancre.ok) {
+        return reply.code(400).send({ code: 'ancre_invalide', error: ancre.motif });
+      }
+      const auteur = authorizedUser(req) ? ((req as AuthRequest).userId ?? null) : null;
+      const commentaire = {
+        id: `com-${randomUUID()}`.slice(0, LIMITS.id),
+        taskId: task.id,
+        resultId: req.body.resultId,
+        fichier: req.body.fichier,
+        ligneDebut: req.body.ligneDebut,
+        ligneFin: req.body.ligneFin,
+        texte: caviardeurReine.texte(texte),
+        extrait: ancre.extrait,
+        auteur,
+        creeA: Date.now(),
+      };
+      if (store.ajouterCommentaireRevue(commentaire, COMMENTAIRES_PAR_PRODUCTION_MAX) === 'plein') {
+        return reply.code(409).send({
+          code: 'commentaires_pleins',
+          error: `déjà ${COMMENTAIRES_PAR_PRODUCTION_MAX} commentaires en attente sur cette production — demandez les changements ou retirez-en un`,
+        });
+      }
+      emitEvent('revue_commentaire', {
+        taskId: task.id,
+        commentaireId: commentaire.id,
+        resultId: commentaire.resultId,
+        action: 'ajoute',
+        ...(auteur ? { par: auteur } : {}),
+      });
+      return reply.code(201).send({ ...commentaire, soumission: null, soumisA: null });
+    },
+  );
+
+  app.delete<{ Params: { taskId: string; commentaireId: string } }>(
+    '/api/tasks/:taskId/commentaires-revue/:commentaireId',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['taskId', 'commentaireId'],
+          properties: {
+            taskId: { type: 'string', minLength: 1, maxLength: LIMITS.id },
+            commentaireId: { type: 'string', minLength: 1, maxLength: LIMITS.id },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const task = decisionTache(req, reply, req.params.taskId);
+      if (!task) return reply;
+      const issue = store.retirerCommentaireRevue(task.id, req.params.commentaireId);
+      if (issue === 'inconnu') return reply.code(404).send({ error: 'commentaire inconnu' });
+      if (issue === 'soumis') {
+        return reply.code(409).send({
+          code: 'commentaire_soumis',
+          error: 'ce commentaire est parti avec une demande de changements — il reste à l’histoire',
+        });
+      }
+      const par = authorizedUser(req) ? ((req as AuthRequest).userId ?? null) : null;
+      emitEvent('revue_commentaire', {
+        taskId: task.id,
+        commentaireId: req.params.commentaireId,
+        action: 'retire',
+        ...(par ? { par } : {}),
+      });
+      return { ok: true };
+    },
+  );
+
+  // Le verdict « demander des changements ». Un rejet (`appliquerRevueHumaine`)
+  // qui emporte les commentaires en attente de la production ; sans aucun
+  // commentaire, un RÉSUMÉ est exigé — « changez » sans dire quoi renverrait
+  // l'ouvrière refaire la même production.
+  app.post<{
+    Params: { taskId: string };
+    Body: {
+      resultId: number;
+      resume?: string;
+      expectedUpdatedAt?: number | null;
+      clientId?: string;
+    };
+  }>(
+    '/api/tasks/:taskId/demande-changements',
+    {
+      schema: {
+        params: schemaTache,
+        body: {
+          type: 'object',
+          required: ['resultId'],
+          additionalProperties: false,
+          properties: {
+            resultId: { type: 'integer', minimum: 1 },
+            resume: { type: 'string', maxLength: MAX_RAISON_REVUE },
+            // Mêmes contrats que `/review` : compare-and-set opt-in, écho d'onglet.
+            expectedUpdatedAt: { type: ['integer', 'null'] },
+            clientId: { type: 'string', minLength: 1, maxLength: LIMITS.id },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const task = decisionTache(req, reply, req.params.taskId);
+      if (!task) return reply;
+      if (task.status !== 'done' && task.status !== 'failed')
+        return refuserNonTerminale(reply, task);
+      const dernier = store.dernierResultatDe(task.id);
+      if (dernier !== req.body.resultId) return refuserResultatPerime(reply, dernier);
+      if (req.body.expectedUpdatedAt !== undefined) {
+        const current = store.getTaskReview(task.id);
+        const currentTs = current?.updatedAt ?? null;
+        if (currentTs !== req.body.expectedUpdatedAt) {
+          return reply.code(409).send({
+            code: 'review_conflict',
+            error: 'verdict modifié par un autre opérateur — rechargez la revue',
+            currentState: current?.state ?? null,
+            currentUpdatedAt: currentTs,
+          });
+        }
+      }
+      const resume = req.body.resume?.trim() ?? '';
+      const enAttente = store
+        .commentairesRevue(task.id)
+        .filter((c) => c.resultId === dernier && c.soumission === null).length;
+      if (enAttente === 0 && resume === '') {
+        return reply.code(400).send({
+          code: 'changements_sans_contenu',
+          error:
+            'aucun commentaire sur cette production : écrivez un résumé de ce qu’il faut changer, ou commentez des lignes du diff',
+        });
+      }
+      // Tout est synchrone d'ici à la réponse : aucun commentaire ne peut
+      // arriver entre le compte ci-dessus et l'envoi qui les emporte.
+      const soumission = `chg-${randomUUID()}`.slice(0, LIMITS.id);
+      const commentaires = store.soumettreCommentairesRevue(task.id, dernier, soumission);
+      const changements = { soumission, commentaires };
+      const { retry } = appliquerRevueHumaine(
+        task,
+        'rejected',
+        { parUserId: compteQuiRegle(req, task.projectId) },
+        {
+          ...(req.body.clientId ? { clientId: req.body.clientId } : {}),
+          ...(resume ? { raison: resume } : {}),
+          changements,
+        },
+      );
+      return {
+        taskId: task.id,
+        state: 'rejected',
+        changements,
+        updatedAt: store.getTaskReview(task.id)?.updatedAt ?? null,
         ...(retry ? { retry } : {}),
       };
     },

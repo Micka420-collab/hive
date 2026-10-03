@@ -5,6 +5,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { HiveNode, Task, TaskResult } from '../../../src/shared/types';
 import {
+  demanderChangements,
+  fetchCommentairesRevue,
   fetchConflicts,
   fetchConsensus,
   fetchCritique,
@@ -12,12 +14,20 @@ import {
   fetchMergePlan,
   fetchMergeResult,
   fetchResults,
+  posterCommentaireRevue,
   recordEvaluationCi,
+  retirerCommentaireRevue,
   runMerge,
 } from '../api';
 import type { Conflict, CritiqueReprise, MergePlan, MergeRunResult, Verdict } from '../api';
 import type { EvaluationResult } from '../../../src/orchestrator/evaluator.js';
 import { VALIDATION_KEYS } from '../../../src/shared/validations-bac';
+import {
+  natureFichier,
+  numerosNouveaux,
+  ordonnerParPertinence,
+} from '../../../src/shared/commentaire-revue';
+import type { CommentaireRevue } from '../../../src/shared/commentaire-revue';
 import {
   compterParCritere,
   constatBloquant,
@@ -126,11 +136,133 @@ function lineClass(line: string): string | undefined {
   return undefined;
 }
 
+// ─── Revue ligne par ligne (G06) ─────────────────────────────────────────────
+//
+// Un clic sur une ligne du diff (ajoutée ou de contexte : seules celles-là
+// existent dans la version modifiée, `numerosNouveaux`) l'ancre ; Maj+clic
+// étend la plage dans le même fichier. Le commentaire part à la Reine, qui le
+// partage avec les autres opérateurs, et « Demander des changements » les
+// emporte tous dans UNE correction. Rendu avec les classes existantes : la
+// refonte de la Honey House le mettra en forme.
+
+interface AncreLignes {
+  fichier: string;
+  ligneDebut: number;
+  ligneFin: number;
+}
+
+/** Les commentaires d'un fichier, et le formulaire quand l'ancre y est posée. */
+function CommentairesFichier({
+  commentaires,
+  ancre,
+  onCommenter,
+  onRetirer,
+  onAnnuler,
+}: {
+  commentaires: readonly CommentaireRevue[];
+  ancre: AncreLignes | null;
+  onCommenter: (texte: string) => Promise<void>;
+  onRetirer: (id: string) => void;
+  onAnnuler: () => void;
+}) {
+  const t = useT();
+  const [texte, setTexte] = useState('');
+  const [envoi, setEnvoi] = useState(false);
+  const [erreur, setErreur] = useState<string | null>(null);
+  if (commentaires.length === 0 && !ancre) return null;
+  const lignes = (c: { ligneDebut: number; ligneFin: number }) =>
+    c.ligneFin === c.ligneDebut ? `L${c.ligneDebut}` : `L${c.ligneDebut}–${c.ligneFin}`;
+  const envoyer = () => {
+    setEnvoi(true);
+    setErreur(null);
+    onCommenter(texte)
+      .then(() => setTexte(''))
+      .catch((e: unknown) => setErreur(e instanceof Error ? e.message : String(e)))
+      .finally(() => setEnvoi(false));
+  };
+  return (
+    <div className="mi-critique">
+      {commentaires.length > 0 && (
+        <ul>
+          {commentaires.map((c) => (
+            <li key={c.id} className={c.soumission ? 'muted-text' : undefined}>
+              <strong className="mono">{lignes(c)}</strong> — {c.texte}{' '}
+              {c.soumission ? (
+                <span className="muted-text">{t('(envoyé)', '(sent)')}</span>
+              ) : (
+                <button className="btn ghost" onClick={() => onRetirer(c.id)}>
+                  {t('retirer', 'remove')}
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {ancre && (
+        <div>
+          <label>
+            <strong className="mono">{lignes(ancre)}</strong>{' '}
+            <textarea
+              className="mi-raison"
+              value={texte}
+              maxLength={1_000}
+              rows={2}
+              onChange={(e) => setTexte(e.target.value)}
+              placeholder={t(
+                'ce qu’il faut changer ici — transmis à la correction',
+                'what should change here — passed to the correction',
+              )}
+              aria-label={t('Commentaire sur ces lignes', 'Comment on these lines')}
+            />
+          </label>
+          <button className="btn primary" disabled={envoi || texte.trim() === ''} onClick={envoyer}>
+            {t('Commenter', 'Comment')}
+          </button>{' '}
+          <button className="btn ghost" onClick={onAnnuler}>
+            {t('Annuler', 'Cancel')}
+          </button>
+          {erreur && <p className="panel-error">{erreur}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Panneau Diff ────────────────────────────────────────────────────────────
 
-function DiffPanel({ diff }: { diff: string }) {
+function DiffPanel({
+  diff,
+  commentaires = [],
+  onCommenter,
+  onRetirer,
+}: {
+  diff: string;
+  /** Les commentaires de CETTE production (en attente et envoyés). */
+  commentaires?: readonly CommentaireRevue[];
+  /** Absent : diff en lecture seule (aucune production commentable). */
+  onCommenter?: (ancre: AncreLignes, texte: string) => Promise<void>;
+  onRetirer?: (id: string) => void;
+}) {
   const t = useT();
-  const parts = useMemo(() => splitDiff(diff), [diff]);
+  // Sources d'abord, puis tests, puis annexes (grisées) : le relecteur ouvre
+  // le code, pas `package-lock.json`.
+  const parts = useMemo(() => {
+    const brutes = splitDiff(diff);
+    return brutes ? ordonnerParPertinence(brutes, (f) => f.name) : null;
+  }, [diff]);
+  const numeros = useMemo(() => parts?.map((f) => numerosNouveaux(f.lines)) ?? [], [parts]);
+  const [ancre, setAncre] = useState<AncreLignes | null>(null);
+  useEffect(() => setAncre(null), [diff]);
+  const ancrer = (fichier: string, ligne: number, etendre: boolean) =>
+    setAncre((prev) =>
+      etendre && prev?.fichier === fichier
+        ? {
+            fichier,
+            ligneDebut: Math.min(prev.ligneDebut, ligne),
+            ligneFin: Math.max(prev.ligneFin, ligne),
+          }
+        : { fichier, ligneDebut: ligne, ligneFin: ligne },
+    );
   const [open, setOpen] = useState<ReadonlySet<number>>(() => new Set([0]));
   const [copied, setCopied] = useState(false);
   const secRefs = useRef<(HTMLElement | null)[]>([]);
@@ -200,7 +332,7 @@ function DiffPanel({ diff }: { diff: string }) {
         {parts.map((f, i) => (
           <button
             key={`${i}-${f.name}`}
-            className={`mi-file-chip${open.has(i) ? ' open' : ''}`}
+            className={`mi-file-chip${open.has(i) ? ' open' : ''}${natureFichier(f.name) === 'annexe' ? ' muted-text' : ''}`}
             title={f.name}
             onClick={() => {
               if (!open.has(i)) toggle(i);
@@ -226,19 +358,58 @@ function DiffPanel({ diff }: { diff: string }) {
             <span className="mi-fold" aria-hidden="true">
               {open.has(i) ? '▾' : '▸'}
             </span>
-            <span className="mi-file-name">{f.name}</span>
+            <span
+              className={`mi-file-name${natureFichier(f.name) === 'annexe' ? ' muted-text' : ''}`}
+            >
+              {f.name}
+            </span>
             <span className="mi-add-stat">+{f.adds}</span>
             <span className="mi-del-stat">−{f.dels}</span>
           </button>
           {open.has(i) && (
             <pre className="code-block scroll mi-diff-pre">
-              {f.lines.map((l, j) => (
-                <span key={j} className={lineClass(l)}>
-                  {l}
-                  {'\n'}
-                </span>
-              ))}
+              {f.lines.map((l, j) => {
+                const n = numeros[i]?.[j] ?? null;
+                const choisie =
+                  n !== null &&
+                  ancre?.fichier === f.name &&
+                  n >= ancre.ligneDebut &&
+                  n <= ancre.ligneFin;
+                const classe = [lineClass(l), choisie ? 'mi-ligne-choisie' : undefined]
+                  .filter(Boolean)
+                  .join(' ');
+                return n !== null && onCommenter ? (
+                  <span
+                    key={j}
+                    className={`${classe} mi-ligne-commentable`.trim()}
+                    title={t(
+                      `Commenter la ligne ${n} (Maj+clic : étendre)`,
+                      `Comment on line ${n} (Shift+click: extend)`,
+                    )}
+                    onClick={(e) => ancrer(f.name, n, e.shiftKey)}
+                  >
+                    {l}
+                    {'\n'}
+                  </span>
+                ) : (
+                  <span key={j} className={classe || undefined}>
+                    {l}
+                    {'\n'}
+                  </span>
+                );
+              })}
             </pre>
+          )}
+          {onCommenter && (
+            <CommentairesFichier
+              commentaires={commentaires.filter((c) => c.fichier === f.name)}
+              ancre={ancre?.fichier === f.name ? ancre : null}
+              onCommenter={(texte) =>
+                ancre ? onCommenter(ancre, texte).then(() => setAncre(null)) : Promise.resolve()
+              }
+              onRetirer={(id) => onRetirer?.(id)}
+              onAnnuler={() => setAncre(null)}
+            />
           )}
         </section>
       ))}
@@ -747,6 +918,15 @@ function CritiqueTransmise({
                 <strong>{t('note humaine', 'human note')}</strong> — {reprise.critique.noteHumaine}
               </li>
             )}
+            {reprise.critique.commentaires?.map((c, i) => (
+              <li key={`c${i}`}>
+                <strong className="mono">
+                  {c.fichier}:
+                  {c.ligneFin === c.ligneDebut ? c.ligneDebut : `${c.ligneDebut}–${c.ligneFin}`}
+                </strong>{' '}
+                — {c.texte}
+              </li>
+            ))}
             {reprise.critique.objections.map((o, i) => (
               <li key={`o${i}`}>
                 <strong>{t('objection', 'objection')}</strong> — {o}
@@ -936,6 +1116,49 @@ export default function Miellerie({
   );
   const curCritique = critique.data && critique.data.id === activeId ? critique.data : null;
 
+  // Les commentaires ancrés, partagés entre opérateurs : relus au tick (l'écho
+  // WS `revue_commentaire` d'un autre écran le fait avancer) et après chaque
+  // geste local (`selEpoch`).
+  const commentairesPoll = useApiPoll<{
+    id: string;
+    list?: CommentaireRevue[];
+    error?: string;
+  } | null>(
+    () => {
+      const id = activeId;
+      return id
+        ? fetchCommentairesRevue(id).then(
+            (r) => ({ id, list: r.commentaires }),
+            (e: unknown) => ({ id, error: e instanceof Error ? e.message : String(e) }),
+          )
+        : Promise.resolve(null);
+    },
+    30_000,
+    pollTick,
+  );
+  const commentaires =
+    commentairesPoll.data?.id === activeId && lastResult?.resultId !== undefined
+      ? (commentairesPoll.data.list ?? []).filter((c) => c.resultId === lastResult.resultId)
+      : [];
+  const enAttente = commentaires.filter((c) => c.soumission === null).length;
+  const [erreurChangements, setErreurChangements] = useState<string | null>(null);
+  useEffect(() => setErreurChangements(null), [activeId]);
+  const relire = () => setSelEpoch((e) => e + 1);
+  const commenter = (ancre: AncreLignes, texte: string): Promise<void> =>
+    activeId && lastResult?.resultId !== undefined
+      ? posterCommentaireRevue(activeId, {
+          ...ancre,
+          resultId: lastResult.resultId,
+          texte,
+        }).then(relire)
+      : Promise.resolve();
+  const retirer = (id: string) => {
+    if (!activeId) return;
+    retirerCommentaireRevue(activeId, id).then(relire, (e: unknown) =>
+      setErreurChangements(e instanceof Error ? e.message : String(e)),
+    );
+  };
+
   const conflictsPoll = useApiPoll(
     () => {
       const id = projectId;
@@ -956,6 +1179,13 @@ export default function Miellerie({
   // sinon elle partirait avec le verdict d'une autre production.
   const [raison, setRaison] = useState('');
   useEffect(() => setRaison(''), [activeId]);
+  // Auto-avance : prochaine tâche non revue, en bouclant sur la liste.
+  const avancer = (depuis: string) => {
+    const idx = flat.findIndex((t) => t.id === depuis);
+    const rest = [...flat.slice(idx + 1), ...flat.slice(0, idx)];
+    const next = rest.find((t) => getReview(t.id) === null);
+    if (next) select(next.id);
+  };
   const decide = (state: ReviewState | null) => {
     if (!activeTask) return;
     setReview(activeTask.id, state, state === null ? undefined : raison);
@@ -963,11 +1193,23 @@ export default function Miellerie({
     // Pas de re-fetch ici : le POST part en file (enqueuePost) et n'a pas
     // encore abouti. C'est l'écho WS `task_reviewed` qui rafraîchit le volet.
     if (state === null) return;
-    // Auto-avance : prochaine tâche non revue, en bouclant sur la liste.
-    const idx = flat.findIndex((t) => t.id === activeTask.id);
-    const rest = [...flat.slice(idx + 1), ...flat.slice(0, idx)];
-    const next = rest.find((t) => getReview(t.id) === null);
-    if (next) select(next.id);
+    avancer(activeTask.id);
+  };
+  // « Demander des changements » : envoi DIRECT, pas optimiste — la Reine
+  // seule sait si les commentaires sont partis et si la correction repart ;
+  // un refus (aucun commentaire ni résumé, production dépassée) se lit ici.
+  const demanderLesChangements = () => {
+    if (!activeTask || lastResult?.resultId === undefined) return;
+    const id = activeTask.id;
+    setErreurChangements(null);
+    demanderChangements(id, lastResult.resultId, raison).then(
+      () => {
+        setRaison('');
+        relire();
+        avancer(id);
+      },
+      (e: unknown) => setErreurChangements(e instanceof Error ? e.message : String(e)),
+    );
   };
 
   // ─── Raccourcis clavier (j/k, Enter, a/x/u, i, Esc) ────────────────────────
@@ -1289,7 +1531,13 @@ export default function Miellerie({
               ) : !resultsReady ? (
                 <p className="muted-text">{t('Le butin arrive…', 'The forage is on its way…')}</p>
               ) : lastResult ? (
-                <DiffPanel diff={lastResult.diff} />
+                <DiffPanel
+                  diff={lastResult.diff}
+                  commentaires={commentaires}
+                  {...(lastResult.resultId !== undefined
+                    ? { onCommenter: commenter, onRetirer: retirer }
+                    : {})}
+                />
               ) : (
                 <p className="muted-text">
                   {t(
@@ -1363,6 +1611,17 @@ export default function Miellerie({
               {t('Rejeter', 'Reject')} <kbd>x</kbd>
             </button>
             <button
+              className="btn mi-reject"
+              disabled={lastResult?.resultId === undefined}
+              title={t(
+                'Demander des changements — une correction qui emporte les commentaires de lignes et la raison ci-contre (exigée sans commentaire)',
+                'Request changes — one correction carrying the line comments and the reason (required without comments)',
+              )}
+              onClick={demanderLesChangements}
+            >
+              {t(`Demander des changements (${enAttente})`, `Request changes (${enAttente})`)}
+            </button>
+            <button
               className="btn ghost"
               disabled={currentReview === null}
               title={t('Annuler la revue locale', 'Undo the local review')}
@@ -1370,6 +1629,7 @@ export default function Miellerie({
             >
               {t('annuler la revue', 'undo the review')} <kbd>u</kbd>
             </button>
+            {erreurChangements && <span className="panel-error">{erreurChangements}</span>}
             <span
               className="mi-decide-state"
               title={t('revue locale (ce navigateur)', 'local review (this browser)')}

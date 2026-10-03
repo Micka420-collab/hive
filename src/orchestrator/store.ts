@@ -11,6 +11,7 @@ import type { OutilConstate } from '../shared/protocol.js';
 import { LIMITE_TACHES_INSTANTANE, NIVEAUX_ISOLEMENT } from '../shared/types.js';
 import type { Partage } from '../shared/partage.js';
 import type { AntecedentFige } from '../shared/mission-rejouable.js';
+import type { CommentaireRevue } from '../shared/commentaire-revue.js';
 import type { GenreSauvegarde, Sauvegarde, SauvegardeResume } from '../shared/sauvegardes.js';
 import { libelleEtape } from '../shared/sauvegardes.js';
 import { CORPUS_AIGUILLAGE, type ElectionEnVol } from './aiguillage.js';
@@ -1255,6 +1256,40 @@ CREATE TABLE IF NOT EXISTS reviews (
   updatedAt INTEGER NOT NULL
 );
 
+-- Les commentaires de revue ANCRÉS (G06, shared/commentaire-revue.ts) : une
+-- plage de lignes d'un fichier du diff d'UNE production, et ce que l'humain y
+-- veut voir changé. Partagés entre opérateurs comme les verdicts.
+--
+-- Une table LATÉRALE, pas une colonne de « reviews » (règle 2 : aucun ALTER) :
+-- un verdict est un état par tâche, un commentaire en est plusieurs par
+-- production. « soumission » NULL = en attente ; posée par « demander des
+-- changements », elle nomme l'envoi qui l'a emporté dans la correction — la
+-- critique figée relit CES lignes-là, jamais celles posées depuis.
+--
+-- « texte » est caviardé à l'entrée (les secrets de la Reine n'y entrent pas) ;
+-- « extrait » = les lignes commentées, relues du diff à l'ancrage : la
+-- production peut perdre son diff (pruneResults), le commentaire garde de
+-- quoi être compris.
+--
+-- BORNE (règle 3) : au plus COMMENTAIRES_PAR_PRODUCTION_MAX en attente par
+-- production, des productions bornées par maxAttempts, et cascade de
+-- pruneTasks comme « reviews » — le commentaire part avec sa tâche.
+CREATE TABLE IF NOT EXISTS commentaires_revue (
+  id         TEXT PRIMARY KEY,
+  taskId     TEXT NOT NULL,
+  resultId   INTEGER NOT NULL,
+  fichier    TEXT NOT NULL,
+  ligneDebut INTEGER NOT NULL,
+  ligneFin   INTEGER NOT NULL,
+  texte      TEXT NOT NULL,
+  extrait    TEXT NOT NULL DEFAULT '',
+  auteur     TEXT,
+  creeA      INTEGER NOT NULL,
+  soumission TEXT,
+  soumisA    INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_commentaires_revue_tache ON commentaires_revue(taskId);
+
 -- Timeline de code : chaque étape réussie (ou sauvegarde manuelle) garde son
 -- patch. TABLE LATÉRALE (règle 2) — pas de migration sur results. Le patch est
 -- COPIÉ ici pour survivre à pruneResults qui vide results.diff au-delà de 5 000.
@@ -2320,6 +2355,7 @@ const EFFACEMENT_PROJET = [
   ['depenses_delegation', `taskId IN (${TACHES_DU_PROJET}) OR rootTaskId IN (${TACHES_DU_PROJET})`],
   ['results', `taskId IN (${TACHES_DU_PROJET})`],
   ['reviews', `taskId IN (${TACHES_DU_PROJET})`],
+  ['commentaires_revue', `taskId IN (${TACHES_DU_PROJET})`],
   [
     'task_delegations',
     `childTaskId IN (${TACHES_DU_PROJET}) OR parentTaskId IN (${TACHES_DU_PROJET})
@@ -4341,6 +4377,7 @@ export class HiveStore {
         const lot = condamnees.slice(i, i + LOT);
         const trous = lot.map(() => '?').join(', ');
         this.db.prepare(`DELETE FROM reviews WHERE taskId IN (${trous})`).run(...lot);
+        this.db.prepare(`DELETE FROM commentaires_revue WHERE taskId IN (${trous})`).run(...lot);
         this.db.prepare(`DELETE FROM task_delegations WHERE childTaskId IN (${trous})`).run(...lot);
         this.db.prepare(`DELETE FROM consignes_routage WHERE taskId IN (${trous})`).run(...lot);
         // L'annonce de durée RÉFÉRENCE sa tâche (`foreign_keys = ON`) : oubliée
@@ -8745,6 +8782,85 @@ export class HiveStore {
       .prepare('SELECT state, updatedAt FROM reviews WHERE taskId = ?')
       .get(taskId) as { state: 'approved' | 'rejected'; updatedAt: number } | undefined;
     return row ?? null;
+  }
+
+  // ─── Commentaires de revue ancrés (G06, shared/commentaire-revue.ts) ───────
+
+  /**
+   * Range un commentaire EN ATTENTE, ou `plein` quand sa production en porte
+   * déjà `max` : compter et écrire dans la même transaction, sans quoi deux
+   * opérateurs simultanés passeraient chacun la borne d'un cran.
+   */
+  ajouterCommentaireRevue(
+    c: Omit<CommentaireRevue, 'soumission' | 'soumisA'>,
+    max: number,
+  ): 'ajoute' | 'plein' {
+    return this.enTransaction(() => {
+      const { n } = this.db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM commentaires_revue
+            WHERE taskId = ? AND resultId = ? AND soumission IS NULL`,
+        )
+        .get(c.taskId, c.resultId) as { n: number };
+      if (n >= max) return 'plein';
+      this.db
+        .prepare(
+          `INSERT INTO commentaires_revue
+             (id, taskId, resultId, fichier, ligneDebut, ligneFin, texte, extrait, auteur, creeA)
+           VALUES (@id, @taskId, @resultId, @fichier, @ligneDebut, @ligneFin, @texte, @extrait,
+                   @auteur, @creeA)`,
+        )
+        .run(c);
+      return 'ajoute';
+    });
+  }
+
+  /** Les commentaires d'une tâche, toutes productions confondues, dans l'ordre de pose. */
+  commentairesRevue(taskId: string): CommentaireRevue[] {
+    return this.db
+      .prepare('SELECT * FROM commentaires_revue WHERE taskId = ? ORDER BY creeA, rowid')
+      .all(taskId) as CommentaireRevue[];
+  }
+
+  /** Les commentaires qu'un envoi « demander des changements » a emportés. */
+  commentairesSoumis(taskId: string, soumission: string): CommentaireRevue[] {
+    return this.db
+      .prepare(
+        'SELECT * FROM commentaires_revue WHERE taskId = ? AND soumission = ? ORDER BY creeA, rowid',
+      )
+      .all(taskId, soumission) as CommentaireRevue[];
+  }
+
+  /**
+   * Retire un commentaire EN ATTENTE. Un commentaire soumis est l'histoire
+   * d'une correction déjà demandée : il ne se retire pas (`soumis`).
+   */
+  retirerCommentaireRevue(taskId: string, id: string): 'retire' | 'inconnu' | 'soumis' {
+    const row = this.db
+      .prepare('SELECT soumission FROM commentaires_revue WHERE id = ? AND taskId = ?')
+      .get(id, taskId) as { soumission: string | null } | undefined;
+    if (!row) return 'inconnu';
+    if (row.soumission !== null) return 'soumis';
+    this.db.prepare('DELETE FROM commentaires_revue WHERE id = ?').run(id);
+    return 'retire';
+  }
+
+  /**
+   * Emporte les commentaires en attente d'une production dans l'envoi
+   * `soumission` — une seule instruction : tous ou aucun. Rend leur nombre.
+   */
+  soumettreCommentairesRevue(
+    taskId: string,
+    resultId: number,
+    soumission: string,
+    now = Date.now(),
+  ): number {
+    return this.db
+      .prepare(
+        `UPDATE commentaires_revue SET soumission = ?, soumisA = ?
+          WHERE taskId = ? AND resultId = ? AND soumission IS NULL`,
+      )
+      .run(soumission, now, taskId, resultId).changes;
   }
 
   // ─── Les missions rejouables (src/shared/mission-rejouable.ts) ─────────────

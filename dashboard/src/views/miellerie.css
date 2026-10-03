@@ -326,6 +326,15 @@
   color: var(--faint);
 }
 
+/* ─── Revue ligne par ligne (G06) — le strict nécessaire avant la refonte ─ */
+.mi-ligne-commentable {
+  cursor: pointer;
+}
+
+.mi-ligne-choisie {
+  box-shadow: inset 3px 0 0 var(--honey);
+}
+
 /* ─── Consensus (Parlement des Agents) ─────────────────────────────────── */
 .mi-cons-outcome {
   margin: 0 0 8px;
