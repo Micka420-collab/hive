@@ -587,6 +587,23 @@ dans un bloc de données borné, **les objections, les motifs de l'Evaluator et
 la raison de l'humain** (champ facultatif à côté du bouton « Rejeter »). La
 Miellerie affiche sous chaque tâche la critique que sa tentative a reçue.
 
+La revue se fait aussi **ligne par ligne** : un clic sur une ligne du diff
+(Maj+clic pour étendre la plage) ancre un commentaire `{fichier, lignes,
+texte}`, partagé entre opérateurs comme les verdicts ; les fichiers du diff
+sont rangés par pertinence — sources, tests, puis annexes grisées (fixtures,
+verrous, générés). Le verdict **« Demander des changements »** emporte tous
+les commentaires en attente dans **une** correction : la tentative suivante
+reçoit chaque commentaire avec son ancre et son extrait, et repasse par
+l'Evaluator et la relecture croisée. Sans commentaire, un résumé est exigé.
+
+<p align="center">
+  <img src="images/revue-ligne-formulaire.bureau.png" alt="Miellerie : un clic sur une plage de lignes du diff ouvre le formulaire de commentaire sous le fichier" width="480">
+  <img src="images/revue-ligne-formulaire.mobile.png" alt="Le même formulaire de commentaire de lignes, sur téléphone" width="160">
+</p>
+<p align="center">
+  <img src="images/revue-ligne-commentaire.bureau.png" alt="Le commentaire posé sous son fichier, et le bouton « Demander des changements (1) » prêt à emporter la correction" width="480">
+</p>
+
 Le relecteur termine par une ligne `HIVE_CRITIQUE` : des constats classés par
 **sévérité** (`bloquant`, `majeur`, `mineur`, `info`) et par **critère**
 (`correction`, `securite`, `tests`, `performance`, `lisibilite`,
