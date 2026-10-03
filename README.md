@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024.18-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-8336%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-8424%20passing-F6C445?labelColor=17130C)
 ![Licence](https://img.shields.io/badge/licence-MIT-F6C445?labelColor=17130C)
 
 🇫🇷 Français · [🇬🇧 English](README.en.md) · [🌐 Site](https://micka420-collab.github.io/hive/) · [📚 Documentation](#-documentation)
@@ -431,9 +431,16 @@ le preflight échoue.
 
 Avec **podman**, **docker** ou **bubblewrap**, l'agent ne voit que le répertoire
 de sa tâche lorsque le fournisseur et l’image ont passé le preflight. **Le
-réseau reste ouvert** : un agent de codage doit joindre l'API de son modèle.
-Sans moteur de conteneurs, posez `HIVE_ISOLEMENT=exige` — le nœud refusera de
-travailler à découvert. Ce que la CI prouve, système par système et bac par bac
+réseau sortant est filtré** hors du bac par un proxy du nœud : l'API du modèle
+de l'agent, puis, selon le réglage du projet dans Mission Control
+(`intégrations`, `dépendances` par défaut, `ouvert`), les registres que le
+dépôt déclare et son hôte git — jamais le réseau local ni les métadonnées de
+nuage. Les clés de Claude Code et de Codex restent au nœud : le bac n'en voit
+que des leurres, que le proxy remplace vers l'API. Chaque refus apparaît au
+journal de la tâche. Sans bac, ou avec un moteur dans une machine virtuelle,
+le réseau n'est pas filtré, et chaque tâche le dit. Posez
+`HIVE_ISOLEMENT=exige` — le nœud refusera de travailler sans bac ni réseau
+filtré. Ce que la CI prouve, système par système et bac par bac
 (Linux, macOS, Windows × sans bac, bubblewrap, Podman, Docker) :
 [docs/INSTALLATION.md](docs/INSTALLATION.md), « Systèmes et bacs à sable ».
 

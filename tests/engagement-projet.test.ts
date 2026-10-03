@@ -331,6 +331,16 @@ const REGLAGES: readonly Acte[] = [
     refus: 'projet',
   },
   {
+    // Le réseau des agents décide de ce qui peut SORTIR des machines de
+    // l'essaim pour ce projet : un réglage, pas un engagement.
+    nom: 'reseau (réseau des agents)',
+    methode: 'PUT',
+    route: '/api/projects/:projectId/reseau',
+    url: p('reseau'),
+    corps: () => ({ niveau: 'dependances' }),
+    refus: 'projet',
+  },
+  {
     nom: 'balance (plafond de dépense)',
     methode: 'PUT',
     route: '/api/projects/:projectId/balance',

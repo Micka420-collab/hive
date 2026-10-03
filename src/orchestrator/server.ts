@@ -184,6 +184,7 @@ import { RefusDemarrage, direManques, manquesDeDemarrage } from '../shared/amorc
 import { DEFAULT_TOKEN } from '../shared/types.js';
 import type { HiveEvent, HiveNode, Project, Task } from '../shared/types.js';
 import type { Effort } from '../shared/effort.js';
+import { NIVEAU_RESEAU_DEFAUT, NIVEAUX_RESEAU, type NiveauReseau } from '../shared/reseau.js';
 import { CORPUS_BALANCE, estimerCout, peserLaRuche, VERSION_BALANCE } from './balance.js';
 import type { CompteTache, Devis, Pesee } from './balance.js';
 import { blocCritique, bornerCritique, leconsDesEchecs } from './brood.js';
@@ -3237,6 +3238,9 @@ async function monterReine(
         // Une reprise travaille sur la branche de sa PR (`task.branch`, posée
         // par le Scheduler depuis la lignée) : le nœud la clone.
         ...(store.repriseDe(task.id) ? { prolonger: true as const } : {}),
+        // Le réseau que le projet permet à ses agents — toujours dit, défaut
+        // compris : un nœud ne devine pas le réglage d'un projet.
+        reseau: store.niveauReseau(task.projectId),
       });
 
       // ─── L'HORLOGE DU CHANTIER : ce qu'on ANNONCE, écrit au moment où on
@@ -8059,6 +8063,60 @@ async function monterReine(
         bornes: { min: req.body.borneMin, max: req.body.borneMax },
         echelonElu: classement[0]?.echelon ?? null,
       });
+    },
+  );
+
+  // ─── Le réseau des agents (shared/reseau.ts, node-client/proxy-egress.ts) ───
+
+  /**
+   * Le réseau des agents d'un projet : le niveau en vigueur (le défaut quand
+   * personne ne l'a réglé, et l'écran le dit), qui l'a posé, et les niveaux
+   * possibles — pour que l'écran les propose sans les deviner.
+   */
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/reseau',
+    async (req, reply) => {
+      const lecture = lectureProjetPermise(req, req.params.projectId);
+      if (lecture !== 'permis') return refuserProjet(reply, lecture);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const r = store.getReseauProjet(req.params.projectId);
+      return {
+        niveau: r?.niveau ?? NIVEAU_RESEAU_DEFAUT,
+        regle: r !== null,
+        definiPar: r?.definiPar ?? null,
+        updatedAt: r?.updatedAt ?? null,
+        niveaux: NIVEAUX_RESEAU,
+        defaut: NIVEAU_RESEAU_DEFAUT,
+      };
+    },
+  );
+
+  /**
+   * Règle le réseau des agents d'un projet — un RÉGLAGE (propriétaire ou
+   * administrateur ; le jeton sur un orphelin), comme les Garde-Fous : il
+   * décide de ce que les agents du projet peuvent joindre, donc de ce qui
+   * peut sortir des machines de l'essaim. Pris en compte à la PROCHAINE
+   * assignation ; une tâche en vol garde le réseau qu'elle a reçu.
+   */
+  app.put<{ Params: { projectId: string }; Body: { niveau: NiveauReseau } }>(
+    '/api/projects/:projectId/reseau',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['niveau'],
+          properties: { niveau: { type: 'string', enum: [...NIVEAUX_RESEAU] } },
+        },
+      },
+    },
+    async (req, reply) => {
+      const reglage = proprieteProjetPermise(req, req.params.projectId);
+      if (reglage !== 'permis') return refuserReglage(reply, reglage);
+      store.setReseauProjet(req.params.projectId, req.body.niveau, 'humain');
+      return reply.code(200).send({ niveau: req.body.niveau, regle: true });
     },
   );
 
@@ -15606,6 +15664,7 @@ async function monterReine(
               ...delegation,
               ...(store.relectureDe(task.id) ? { relecture: true as const } : {}),
               ...(store.repriseDe(task.id) ? { prolonger: true as const } : {}),
+              reseau: store.niveauReseau(task.projectId),
             });
           }
         }

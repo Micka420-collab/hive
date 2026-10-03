@@ -136,6 +136,15 @@ function depotNonFiable(execution: ExecutionCodex): string[] {
  * `AGENTS.md`. `model_instructions_file` et `instructions`, eux, remplacent le
  * prompt de base de Codex. Le prompt n'ajoute rien à la configuration du
  * membre ni à la confiance du dépôt.
+ *
+ * ─── LA PASSERELLE DU RÉSEAU FILTRÉ ─────────────────────────────────────────
+ *
+ * `baseApi` : dans un bac filtré, l'API passe par la passerelle du nœud, qui
+ * remplace le leurre de `CODEX_API_KEY` par la vraie clé (`proxy-egress.ts`).
+ * Codex ne lit pas `OPENAI_BASE_URL` : seule sa clé de configuration
+ * `openai_base_url` déplace le fournisseur OpenAI intégré
+ * (codex-rs/core/src/config/mod.rs, `built_in_model_providers`). La base est
+ * une adresse de la boucle du bac, pas un secret.
  */
 export function argvCodex(
   prompt: string,
@@ -143,6 +152,7 @@ export function argvCodex(
   modele?: string,
   bridge?: DelegationBridge,
   consignes?: string,
+  baseApi?: string,
 ): string[] {
   return [
     'exec',
@@ -152,6 +162,7 @@ export function argvCodex(
     '--ephemeral',
     '--skip-git-repo-check',
     ...depotNonFiable(execution),
+    ...(baseApi ? ['-c', `openai_base_url=${JSON.stringify(baseApi)}`] : []),
     ...(modele ? ['--model', modele] : []),
     ...(bridge ? codexMcpOverrides(bridge) : []),
     '--',
@@ -397,7 +408,14 @@ export function createCodexAdapter(token = process.env.HIVE_TOKEN ?? DEFAULT_TOK
         });
         const result = await runCommandFlux(
           'codex',
-          argvCodex(task.prompt, execution, ctx.modele, bridge, consignes),
+          argvCodex(
+            task.prompt,
+            execution,
+            ctx.modele,
+            bridge,
+            consignes,
+            ctx.bac?.reseau?.variables.OPENAI_BASE_URL,
+          ),
           ctx,
           flux,
           CODEX_TIMEOUT_MS,

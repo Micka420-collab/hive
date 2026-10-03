@@ -321,12 +321,13 @@ export function empreinte(ctx: Contexte): Emplacement[] {
       prefixe: PREFIXE_PONT,
       quoi:
         'les rendez-vous privés (700) des ponts de délégation d’un nœud : le socket et ' +
-        'la configuration MCP qui relient un CLI à la délégation Hive',
+        'la configuration MCP qui relient un CLI à la délégation Hive — et le socket du ' +
+        'proxy réseau de chaque tâche filtrée, avec son relais',
       genre: 'transitoire',
       retirable: true,
       consequence:
         'rien, sauf pour un nœud EN COURS : sa tâche Claude Code ou Codex perdrait son ' +
-        'pont. Le dossier est effacé à l’arrêt du nœud (Ctrl-C ou SIGTERM) ; celui d’un nœud ' +
+        'pont, une tâche au réseau filtré son proxy. Le dossier est effacé à l’arrêt du nœud (Ctrl-C ou SIGTERM) ; celui d’un nœud ' +
         'tué (`kill -9`, SIGTERM sous Windows) est balayé par le démarrage suivant.',
     },
   ];
