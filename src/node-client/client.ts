@@ -1412,6 +1412,10 @@ export class HiveNodeClient {
     try {
       try {
         await this.effacements.get(task.id);
+        // L'attente ci-dessus rend la main : un arrêt ou une annulation qui a
+        // tiré pendant elle ne doit pas voir la tentative repartir (effacer,
+        // cloner, rouvrir un pont) derrière le nœud.
+        if (ctrl.signal.aborted) return;
         workspace = await prepareWorkspace(
           this.workRoot,
           task,

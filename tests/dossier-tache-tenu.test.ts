@@ -12,14 +12,15 @@
 // qui fonctionne — réparez l'agent » : deux fausses pistes pour l'opérateur.
 //
 // Ici le dossier est TENU pour de vrai, par le moyen que chaque système offre :
-// un processus vivant dont c'est le répertoire courant sous Windows (un tel
-// dossier ne s'efface pas), un sous-dossier sans droit d'écriture ailleurs
-// (hors root, qui passe outre). Puis le vrai chemin : une Reine réelle, un
-// `HiveNodeClient`, et la mesure de ce que l'écran reçoit — le refus, puis
-// l'échec borné et l'alerte de l'accueil (`/api/cockpit`).
+// sous Windows, un exécutable DU dossier en train de tourner — son image reste
+// verrouillée quoi que permettent les sémantiques POSIX du volume (un cwd tenu,
+// lui, s'efface sur les Dev Drive des runners CI) ; ailleurs, un sous-dossier
+// sans droit d'écriture (hors root, qui passe outre). Puis le vrai chemin :
+// une Reine réelle, un `HiveNodeClient`, et la mesure de ce que l'écran reçoit
+// — le refus, puis l'échec borné et l'alerte de l'accueil (`/api/cockpit`).
 
 import { type ChildProcess, execFileSync, spawn } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -44,16 +45,21 @@ function git(cwd: string, ...args: string[]): void {
 }
 
 /** Tient `dossier` jusqu'au nettoyage du banc. */
-function tenir(dossier: string): void {
+async function tenir(dossier: string): Promise<void> {
   const objets = path.join(dossier, '.git', 'objects', 'pack');
   mkdirSync(objets, { recursive: true });
   writeFileSync(path.join(objets, 'pack-banc.pack'), 'objet\n');
   if (WINDOWS) {
-    const garde: ChildProcess = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
-      cwd: objets,
+    const image = path.join(objets, 'garde-banc.exe');
+    copyFileSync(process.execPath, image);
+    const garde: ChildProcess = spawn(image, ['-e', 'setInterval(() => {}, 1000)'], {
       stdio: 'ignore',
     });
     aNettoyer.push(() => garde.kill());
+    await new Promise<void>((resolve, reject) => {
+      garde.once('spawn', resolve);
+      garde.once('error', reject);
+    });
     return;
   }
   chmodSync(objets, 0o555);
@@ -126,7 +132,7 @@ describe.skipIf(RACINE)('un dossier de tâche qui ne s’efface plus', () => {
           prompt: 'ligne',
         });
         // Le reste de la tentative tuée : `<work>/tasks/<tâche>-<nœud court>`.
-        tenir(path.join(work, 'tasks', `${t.id}-${nodeId.slice(0, 8)}`));
+        await tenir(path.join(work, 'tasks', `${t.id}-${nodeId.slice(0, 8)}`));
         server.store.patchTask(t.id, { status: 'ready' });
 
         const refus = () =>
