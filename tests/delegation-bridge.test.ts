@@ -9,6 +9,7 @@ import {
   createDelegationBridge,
   definitionsOutilsDelegation,
   envDuPont,
+  HIVE_APPROVE_TOOL,
   HIVE_DELEGATE_TOOL,
   HIVE_WAIT_TOOL,
   writeClaudeMcpConfig,
@@ -70,7 +71,7 @@ describe('pont MCP de délégation Worker → CLI', () => {
     tempDir = undefined;
   });
 
-  it('expose les deux outils, relaie l admission et attend le résultat terminal', async () => {
+  it('expose les trois outils, relaie l admission et attend le résultat terminal', async () => {
     tempDir = mkdtempSync(path.join(os.tmpdir(), 'hive-bridge-'));
     let delegatedChild = '';
     bridge = await createDelegationBridge(
@@ -130,7 +131,11 @@ describe('pont MCP de délégation Worker → CLI', () => {
     sendMcp(child, { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
     const listed = await mcpResponseLine(child);
     const tools = (listed.result as { tools: Array<{ name: string }> }).tools;
-    expect(tools.map((tool) => tool.name)).toEqual([HIVE_DELEGATE_TOOL, HIVE_WAIT_TOOL]);
+    expect(tools.map((tool) => tool.name)).toEqual([
+      HIVE_DELEGATE_TOOL,
+      HIVE_WAIT_TOOL,
+      HIVE_APPROVE_TOOL,
+    ]);
     // Le serveur MCP autonome sert la définition canonique, octet pour octet :
     // le texte que lit le modèle ne peut pas dériver des bornes appliquées.
     expect(tools).toEqual(definitionsOutilsDelegation());

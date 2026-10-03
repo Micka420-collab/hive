@@ -15,8 +15,15 @@ import { HiveStore } from '../src/orchestrator/store.js';
 
 describe('réquisition — forme', () => {
   it('version et liste fermée', () => {
-    expect(VERSION_REQUISITION).toBe(1);
-    expect([...GENRES_REQUISITION]).toEqual(['cle_api', 'mcp', 'binaire', 'atelier', 'logiciel']);
+    expect(VERSION_REQUISITION).toBe(2);
+    expect([...GENRES_REQUISITION]).toEqual([
+      'cle_api',
+      'mcp',
+      'binaire',
+      'atelier',
+      'logiciel',
+      'action',
+    ]);
   });
 
   it('valide genre et libellé', () => {
@@ -47,6 +54,8 @@ describe('réquisition — forme', () => {
       genreFabrique: 'script_npm',
     });
     expect(suiteAccordRequisition('binaire')).toEqual({ action: 'hint_binaire' });
+    // `action` (G12) : le relais au nœud est déjà fait par le POST repondre.
+    expect(suiteAccordRequisition('action')).toEqual({ action: 'relais_noeud' });
   });
 
   it('messageAccordBinaire nomme l’outil du libellé', () => {
@@ -108,6 +117,43 @@ describe('HiveStore — réquisitions', () => {
       statut: 'accordee',
     });
     expect(store.listerRequisitions({ statut: 'ouverte' })).toHaveLength(0);
+  });
+
+  it('échéance (G12) : seule une ouverte échue expire, et l’élagage emporte son échéance', () => {
+    const store = new HiveStore(':memory:');
+    noeud(store, 'n1');
+    const t0 = 1_000_000;
+    const avecEcheance = store.ouvrirRequisition(
+      'n1',
+      'action',
+      'git push',
+      null,
+      't1',
+      t0,
+      t0 + 100,
+    );
+    const sansEcheance = store.ouvrirRequisition('n1', 'cle_api', 'Clé', null, null, t0);
+    expect(avecEcheance.ok && sansEcheance.ok).toBe(true);
+    if (!avecEcheance.ok || !sansEcheance.ok) return;
+    // Avant l'échéance : rien n'expire.
+    expect(store.expirerRequisitions(t0 + 50)).toEqual([]);
+    // Après : SEULE la réquisition d'action échue bascule, avec ses faits.
+    expect(store.expirerRequisitions(t0 + 101)).toEqual([
+      { id: avecEcheance.id, nodeId: 'n1', genre: 'action', libelle: 'git push', taskId: 't1' },
+    ]);
+    // Idempotent : une expirée ne ré-expire pas.
+    expect(store.expirerRequisitions(t0 + 200)).toEqual([]);
+    expect(store.lireRequisition(avecEcheance.id)?.statut).toBe('expiree');
+    expect(store.listerRequisitions({ statut: 'expiree' })).toHaveLength(1);
+    // Close par expiration = close : répondre est refusé.
+    expect(store.repondreRequisition(avecEcheance.id, 'accordee')).toEqual({
+      ok: false,
+      motif: 'deja_close',
+    });
+    // L'ouverte SANS échéance reste ouverte, jamais élaguée ; l'expirée part
+    // avec son échéance latérale (clé étrangère : la fille d'abord).
+    expect(store.pruneRequisitions(1, t0 + 10_000)).toBe(1);
+    expect(store.lireRequisition(sansEcheance.id)?.statut).toBe('ouverte');
   });
 
   it('refuse nœud inconnu et genre inventé', () => {

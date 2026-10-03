@@ -418,6 +418,36 @@ describe('parseClientMessage', () => {
     ).toBeNull();
     expect(parseClientMessage(JSON.stringify({ type: 'requisition_open', injecte: 1 }))).toBeNull();
   });
+
+  it('requisition_open (G12) : la corrélation requestId voyage, validée comme un id', () => {
+    expect(
+      parseClientMessage(
+        JSON.stringify({
+          type: 'requisition_open',
+          genre: 'action',
+          libelle: 'git push',
+          taskId: 't1',
+          requestId: 'r-1',
+        }),
+      ),
+    ).toEqual({
+      type: 'requisition_open',
+      genre: 'action',
+      libelle: 'git push',
+      taskId: 't1',
+      requestId: 'r-1',
+    });
+    expect(
+      parseClientMessage(
+        JSON.stringify({
+          type: 'requisition_open',
+          genre: 'action',
+          libelle: 'git push',
+          requestId: 'x'.repeat(65),
+        }),
+      ),
+    ).toBeNull();
+  });
 });
 
 describe('parseServerMessage — validation des messages du hub (anti-traversal/RCE)', () => {
@@ -573,6 +603,15 @@ describe('parseServerMessage — validation des messages du hub (anti-traversal/
     expect(message(3)).toBeNull();
   });
 
+  it('L’AUTONOMIE d’un assign_task (G12) : un niveau connu passe, un inventé fait tomber le message', () => {
+    const message = (autonomie: unknown) =>
+      parseServerMessage(JSON.stringify({ type: 'assign_task', task: validTask, autonomie }));
+    expect(message('gouverne')).toMatchObject({ type: 'assign_task', autonomie: 'gouverne' });
+    expect(message(undefined)).toMatchObject({ type: 'assign_task' });
+    expect(message('total')).toBeNull();
+    expect(message(3)).toBeNull();
+  });
+
   it('rejette un budget enfant malformé dans assign_task', () => {
     const budget = { durationMs: 60_000, costMicros: 42, resourceUnits: 1 };
     const message = (delegationBudget: unknown) =>
@@ -705,6 +744,24 @@ describe('parseServerMessage', () => {
         JSON.stringify({ type: 'requisition_result', id: 'req-1', statut: 'peut-etre' }),
       ),
     ).toBeNull();
+    // G12 : l'échéance est un statut terminal transporté, pas un refus déguisé.
+    expect(
+      parseServerMessage(
+        JSON.stringify({ type: 'requisition_result', id: 'req-1', statut: 'expiree' }),
+      ),
+    ).toMatchObject({ statut: 'expiree' });
+    // G12 : l'ack rend la corrélation telle quelle, et la valide comme un id.
+    expect(
+      parseServerMessage(
+        JSON.stringify({
+          type: 'requisition_ack',
+          id: 'req-1',
+          genre: 'action',
+          libelle: 'git push',
+          requestId: 'r-1',
+        }),
+      ),
+    ).toMatchObject({ requestId: 'r-1' });
     expect(parseServerMessage(JSON.stringify({ type: 'intrus' }))).toBeNull();
     expect(parseServerMessage('')).toBeNull();
     expect(parseServerMessage('{}')).toBeNull();
