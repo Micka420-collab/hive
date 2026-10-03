@@ -27,6 +27,7 @@
 import { mkdirSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import path from 'node:path';
+import { setTimeout as attendre } from 'node:timers/promises';
 import { CLONE_MS } from '../shared/butoirs-noeud.js';
 import type { Task } from '../shared/types.js';
 import { segmentSur } from '../shared/noms-windows.js';
@@ -75,6 +76,9 @@ export interface Workspace {
   cleanup(): Promise<void>;
 }
 
+/** Les codes que le rimraf de Node reprend lui-même (`retryErrorCodes`). */
+const VERROUS_PASSAGERS = new Set(['EBUSY', 'EMFILE', 'ENFILE', 'ENOTEMPTY', 'EPERM']);
+
 /**
  * Efface un dossier qu'un clone a rempli — sous le Node du terminal comme sous
  * l'Electron de l'app de bureau.
@@ -97,13 +101,29 @@ export interface Workspace {
  * et rimraf refait un `chmod` sur EPERM. Le même geste partout, quelle que
  * soit la STL.
  *
- * Et il ATTEND sans bloquer : les `maxRetries` de `rmSync` dormaient dans le
- * fil du nœud (`Sleep` en C++, 5,5 s pour dix essais), battements de cœur
- * compris. Ici, les essais absorbent les verrous transitoires de Windows
- * (antivirus, handle git résiduel) en laissant tourner la boucle.
+ * ─── LES REPRISES SONT ICI, PAS DANS SES `maxRetries` ────────────────────────
+ *
+ * Les reprises absorbent les verrous passagers de Windows (antivirus, handle
+ * git résiduel) sans bloquer le fil du nœud — les `maxRetries` de `rmSync`
+ * y dormaient, battements de cœur compris. Mais celles de `fs.promises.rm` se
+ * MULTIPLIENT par la profondeur : son rimraf relance chaque sous-dossier avec
+ * ses propres reprises (`_rmchildren` rappelle `rimraf`). Un fichier tenu
+ * sous `.git/objects/pack/` coûtait 11⁵ essais, près de 25 heures à dix
+ * reprises de 100 ms : le refus qui nomme le dossier tenu ne partait jamais,
+ * la tâche restait « en cours » sans agent (`dossier-tache-tenu.test.ts`,
+ * sous Windows). Reprendre l'effacement ENTIER garde le budget d'avant —
+ * dix reprises, 5,5 s d'attente — à toute profondeur.
  */
 export async function effacerDossier(chemin: string): Promise<void> {
-  await rm(chemin, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  for (let reprise = 0; ; reprise++) {
+    try {
+      return await rm(chemin, { recursive: true, force: true });
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code ?? '';
+      if (reprise === 10 || !VERROUS_PASSAGERS.has(code)) throw err;
+      await attendre((reprise + 1) * 100);
+    }
+  }
 }
 
 /**

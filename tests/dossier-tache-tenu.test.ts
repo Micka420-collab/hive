@@ -20,9 +20,15 @@
 // vrai chemin : une Reine réelle, un `HiveNodeClient`, et la mesure de ce que
 // l'écran reçoit — le refus, puis l'échec borné et l'alerte de l'accueil
 // (`/api/cockpit`).
+//
+// Le refus part dans le budget d'`effacerDossier` (5,5 s d'attente). Les
+// reprises propres de `fs.promises.rm` se multipliaient par niveau : sous
+// Windows, où la tenue rend EBUSY (repris), un fichier tenu sous
+// `.git/objects/pack/` repoussait le refus à ~25 h — la tâche restait « en
+// cours » sans agent. Sous POSIX, l'EACCES du chmod n'est pas repris.
 
 import { type ChildProcess, execFileSync, spawn } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -30,6 +36,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { AgentAdapter } from '../src/adapters/index.js';
 import { HiveNodeClient } from '../src/node-client/client.js';
 import { createServer } from '../src/orchestrator/server.js';
+import type { HiveEvent } from '../src/shared/types.js';
 
 const TOKEN = 'jeton-dossier-tache-tenu-long';
 const WINDOWS = process.platform === 'win32';
@@ -145,6 +152,8 @@ describe.skipIf(RACINE)('un dossier de tâche qui ne s’efface plus', () => {
         tickMs: 20,
       });
       const work = path.join(racine, 'work');
+      const tacheId = 'tache-tenue';
+      let tenu: string | null = null;
       const client = new HiveNodeClient({
         url: `ws://127.0.0.1:${server.port}/ws`,
         token: TOKEN,
@@ -158,13 +167,50 @@ describe.skipIf(RACINE)('un dossier de tâche qui ne s’efface plus', () => {
         quiet: true,
       });
       client.start();
+      /** Le journal ENTIER de la tâche : `listEvents` s'arrête à une page de 1000. */
+      const journal = (): HiveEvent[] => {
+        const lus: HiveEvent[] = [];
+        for (let depuis = 0; ;) {
+          const page = server.store.listEvents(depuis, 1000);
+          const dernier = page.at(-1);
+          if (!dernier) return lus;
+          lus.push(...page.filter((e) => e.payload.taskId === tacheId));
+          depuis = dernier.id;
+        }
+      };
+      const lister = (dossier: string, recursive: boolean): string => {
+        try {
+          const noms = readdirSync(dossier, { encoding: 'utf8', recursive });
+          return `[${noms.slice(0, 12).join(', ')}${noms.length > 12 ? ` …+${noms.length - 12}` : ''}]`;
+        } catch (e) {
+          const code = (e as NodeJS.ErrnoException).code;
+          return code === 'ENOENT' ? 'absent' : `illisible (${code ?? String(e)})`;
+        }
+      };
+      // Un dépassement NOMME l'étape où la tâche s'arrête : son statut, ce que
+      // le journal a reçu pour elle, ce qui reste du dossier tenu et ce que le
+      // nœud a créé à côté — le chemin qu'il a pris s'y lit.
+      const etat = (): string => {
+        const tache = server.store.getTask(tacheId);
+        const types = journal().map((e) => e.type);
+        const noeuds = server.store.listNodes().map((n) => `${n.id} ${n.status}`);
+        return [
+          tache
+            ? `tâche ${tache.status} (tentatives ${tache.attempts}, nœud ${tache.assignedNodeId ?? 'aucun'})`
+            : 'tâche absente',
+          `journal [${types.join(', ')}]`,
+          `nœuds [${noeuds.join(', ')}]`,
+          `tasks/ ${lister(path.join(work, 'tasks'), false)}`,
+          tenu ? `tenu ${path.basename(tenu)} ${lister(tenu, true)}` : 'rien de tenu',
+        ].join(' ; ');
+      };
       const attendre = async (condition: () => boolean, message: string): Promise<void> => {
         const limite = Date.now() + 75_000;
         while (Date.now() < limite) {
           if (condition()) return;
           await new Promise((resolve) => setTimeout(resolve, 25));
         }
-        throw new Error(message);
+        throw new Error(`${message} — après 75 s : ${etat()}`);
       };
       try {
         await attendre(
@@ -181,8 +227,8 @@ describe.skipIf(RACINE)('un dossier de tâche qui ne s’efface plus', () => {
         // version précédente mouraient toutes en DirectoryNotFoundException).
         // Sous POSIX, le chmod synchrone fermait cette fenêtre par accident ;
         // l'ordre la ferme par construction, sur tous les systèmes.
-        const tacheId = 'tache-tenue';
-        await tenir(path.join(work, 'tasks', `${tacheId}-${nodeId.slice(0, 8)}`));
+        tenu = path.join(work, 'tasks', `${tacheId}-${nodeId.slice(0, 8)}`);
+        await tenir(tenu);
         const t = server.store.createTask({
           id: tacheId,
           projectId: projet.id,
@@ -191,10 +237,7 @@ describe.skipIf(RACINE)('un dossier de tâche qui ne s’efface plus', () => {
         });
         server.store.patchTask(t.id, { status: 'ready' });
 
-        const refus = () =>
-          server.store
-            .listEvents(0, 1000)
-            .filter((e) => e.type === 'task_rejected' && e.payload.taskId === t.id);
+        const refus = () => journal().filter((e) => e.type === 'task_rejected');
         await attendre(() => refus().length > 0, 'la tâche n’est jamais refusée');
         const premier = refus()[0]!.payload;
         expect(premier).toMatchObject({ infra: true, avantAgent: true });
