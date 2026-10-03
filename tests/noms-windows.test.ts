@@ -155,7 +155,7 @@ describe('le répertoire d’une tâche dont l’id est un nom réservé', () =>
       // Et ce qui vit à côté — TEMP, registre git — ne retombe pas sur `nul.tmp`.
       expect(nomReserveWindows(path.basename(ws.env.TEMP ?? ''))).toBe(false);
     } finally {
-      ws.cleanup();
+      await ws.cleanup();
     }
   });
 });

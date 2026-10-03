@@ -25,7 +25,7 @@
 // aucune commande git dans le clone. Jamais sur la branche principale, jamais
 // de poussée forcée (`livraison-locale.ts`).
 
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { ENTREE_FERMEE } from '../adapters/exec.js';
@@ -45,7 +45,7 @@ import { marqueOmission } from '../shared/caviardage.js';
 import { gitHote } from '../shared/git-protege.js';
 import type { DepotEpingle } from '../shared/git-protege.js';
 import { commitDeDepart, diffContreBase, epinglerClone } from './git-hote.js';
-import { buildSandboxEnv } from './workspace.js';
+import { buildSandboxEnv, effacerDossier } from './workspace.js';
 
 export interface MergeDiff {
   taskId: string;
@@ -440,12 +440,7 @@ export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
           logs.push(caviarder(output).slice(0, 4000));
         }
       } finally {
-        rmSync(`${opts.repoDir}.tmp`, {
-          recursive: true,
-          force: true,
-          maxRetries: 5,
-          retryDelay: 100,
-        });
+        await effacerDossier(`${opts.repoDir}.tmp`);
       }
     }
 
@@ -466,8 +461,10 @@ export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
       ...(livraison ? { livraison } : {}),
     };
   } finally {
-    rmSync(patchDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
-    rmSync(transit, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    // Le transit est un dépôt git : ses objets sont en lecture seule sous
+    // Windows, et `rmSync` ne les efface pas dans l'app (`effacerDossier`) —
+    // le merge réussi échouait alors en sortant.
+    await Promise.all([effacerDossier(patchDir), effacerDossier(transit)]);
   }
 }
 

@@ -551,7 +551,7 @@ describe('prepareWorkspace — la base épinglée, et le diff qui en part', () =
       expect(ws.baseSha).toBe(base);
       for (const f of ['committe.js', 'indexe.js', 'nouveau.js']) expect(diff).toContain(f);
     } finally {
-      ws.cleanup();
+      await ws.cleanup();
     }
   }, 30_000);
 });

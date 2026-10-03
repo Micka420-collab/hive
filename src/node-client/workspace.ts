@@ -24,7 +24,8 @@
 // membre. C'est le niveau `processus` de `constat()`, et c'est là — pas ici —
 // que la vérité de l'isolement s'écrit.
 
-import { mkdirSync, rmSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import path from 'node:path';
 import { CLONE_MS } from '../shared/butoirs-noeud.js';
 import type { Task } from '../shared/types.js';
@@ -70,8 +71,64 @@ export interface Workspace {
    * suppression, et les validations qui suivent voient l'arbre entier.
    */
   collectDiff(): Promise<string>;
-  /** Supprime le répertoire de la tâche. */
-  cleanup(): void;
+  /** Supprime le répertoire de la tâche (et ce qui vit à côté : TEMP, registre, réserve). */
+  cleanup(): Promise<void>;
+}
+
+/**
+ * Efface un dossier qu'un clone a rempli — sous le Node du terminal comme sous
+ * l'Electron de l'app de bureau.
+ *
+ * ─── `rmSync` N'Y ARRIVE PAS DANS L'APP, SOUS WINDOWS ────────────────────────
+ *
+ * Depuis nodejs/node#53617, `fs.rmSync` est du C++ posé sur
+ * `std::filesystem::remove_all`. La STL de MSVC (le Node officiel) efface un
+ * fichier en lecture seule ; la libc++, avec laquelle Electron compile Node,
+ * le REFUSE (nodejs/node#64374, electron/electron#52253). Or git pose ses
+ * objets et ses packs en lecture seule. Dans Hive 0.5.0 (Electron 44), tout
+ * dossier de tâche qui avait vu un clone devenait ineffaçable : « EPERM,
+ * Permission denied » à la tentative suivante, la tâche refusée
+ * (« clone impossible ») de nœud en nœud sans qu'aucun agent ne tourne. Le
+ * banc Node officiel de la CI ne pouvait pas le voir ; l'étape « effacement
+ * sous Electron » d'`app-bureau.yml` le voit.
+ *
+ * `fs.promises.rm` passe par le rimraf JavaScript de Node et les appels de
+ * libuv, dont `unlink` passe outre l'attribut lecture seule sous Windows —
+ * et rimraf refait un `chmod` sur EPERM. Le même geste partout, quelle que
+ * soit la STL.
+ *
+ * Et il ATTEND sans bloquer : les `maxRetries` de `rmSync` dormaient dans le
+ * fil du nœud (`Sleep` en C++, 5,5 s pour dix essais), battements de cœur
+ * compris. Ici, les essais absorbent les verrous transitoires de Windows
+ * (antivirus, handle git résiduel) en laissant tourner la boucle.
+ */
+export async function effacerDossier(chemin: string): Promise<void> {
+  await rm(chemin, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+}
+
+/**
+ * Le dossier d'une tâche n'a pas pu être vidé avant la tentative : un processus
+ * le tient encore (agent orphelin, éditeur, antivirus). La raison du refus DIT
+ * cela, avec le fichier en cause — « clone impossible » enverrait l'opérateur
+ * chercher une panne de dépôt ou d'identifiants qui n'existe pas.
+ */
+export class DossierDeTacheIneffacable extends Error {
+  constructor(cwd: string, cause: unknown) {
+    const e = cause as NodeJS.ErrnoException;
+    // Relatif au dossier de la tâche : une raison tient en 120 caractères, et
+    // l'id de la tâche en mangerait la moitié. Un voisin (`.tmp`, registre,
+    // réserve) se dit depuis `tasks/`.
+    const brut = typeof e.path === 'string' ? e.path : null;
+    const dedans = brut === null ? '' : path.relative(cwd, brut);
+    const fichier =
+      brut !== null && dedans.startsWith('..') ? path.relative(path.dirname(cwd), brut) : dedans;
+    super(
+      'dossier de la tâche impossible à vider — un processus le tient-il encore ? ' +
+        `(${e.code ?? String(cause)}${fichier ? ` : ${fichier}` : ''})`,
+      { cause },
+    );
+    this.name = 'DossierDeTacheIneffacable';
+  }
 }
 
 /** Secrets de la ruche qui ne doivent jamais devenir des variables d'agent. */
@@ -219,23 +276,22 @@ export async function prepareWorkspace(
   const cwd = path.resolve(tasksRoot, dirName);
   // Confinement strict : le cwd DOIT rester sous <workRoot>/tasks. Défense en
   // profondeur contre un task.id malveillant (« ../… » ou chemin absolu) qui
-  // ferait pointer rmSync/clone hors du répertoire de travail. La validation
-  // de task.id (ID_PATTERN) côté client et protocole est la première barrière ;
-  // ceci en est la seconde, au plus près du sink destructeur.
+  // ferait pointer l'effacement ou le clone hors du répertoire de travail. La
+  // validation de task.id (ID_PATTERN) côté client et protocole est la
+  // première barrière ; ceci en est la seconde, au plus près du sink destructeur.
   if (cwd !== tasksRoot && !cwd.startsWith(tasksRoot + path.sep)) {
     throw new Error(`chemin de tâche hors du répertoire de travail : ${task.id}`);
   }
   // Le REGISTRE de la ruche (`git-hote.ts`) : le git dir que l'hôte lit, À
   // CÔTÉ de la tâche comme son TEMP — hors de ce que le bac monte.
   const registre = `${cwd}.git`;
-  // Repartir d'un répertoire vierge à chaque tentative. maxRetries absorbe les
-  // verrous transitoires de fichiers sous Windows (antivirus, handle git résiduel)
-  // qui, sinon, feraient échouer la tâche à durée nulle et brûleraient un essai.
-  const rmOpts = { recursive: true, force: true, maxRetries: 10, retryDelay: 100 } as const;
-  rmSync(cwd, rmOpts);
-  rmSync(`${cwd}.tmp`, rmOpts);
-  rmSync(registre, rmOpts);
-  rmSync(reserveDeConfiguration(cwd), rmOpts);
+  // Repartir d'un répertoire vierge à chaque tentative : la précédente a pu
+  // être tuée (ruche redémarrée) avant son `cleanup`, clone compris.
+  const restes = [cwd, `${cwd}.tmp`, registre, reserveDeConfiguration(cwd)];
+  const effacerRestes = (): Promise<unknown> => Promise.all(restes.map(effacerDossier));
+  await effacerRestes().catch((err: unknown) => {
+    throw new DossierDeTacheIneffacable(cwd, err);
+  });
   mkdirSync(cwd, { recursive: true });
 
   let branch: string | null = null;
@@ -292,15 +348,10 @@ export async function prepareWorkspace(
       // revue, la livraison et le merge.
       return depot ? diffContreBase(depot, baseSha) : '';
     },
-    cleanup(): void {
-      try {
-        rmSync(cwd, rmOpts);
-        rmSync(`${cwd}.tmp`, rmOpts);
-        rmSync(registre, rmOpts);
-        rmSync(reserveDeConfiguration(cwd), rmOpts);
-      } catch {
-        // Fichier verrouillé (Windows) : le prochain run de la tâche nettoiera.
-      }
+    async cleanup(): Promise<void> {
+      // Fichier encore tenu : la prochaine tentative de la tâche réessaiera,
+      // et DIRA pourquoi si le dossier résiste (`DossierDeTacheIneffacable`).
+      await effacerRestes().catch(() => undefined);
     },
   };
 }

@@ -5,13 +5,14 @@
 // Consentement (§5.3) : rien ne s'exécute tant que le membre n'a pas lancé
 // ce client lui-même.
 
-import { mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import WebSocket from 'ws';
 import { getAdapter } from '../adapters/index.js';
 import type { Effort } from '../shared/effort.js';
 import type { AdapterProgress, AdapterResult, AgentAdapter } from '../adapters/index.js';
+import { ligneDInfra } from '../adapters/exec.js';
 import { borneTexteFinal } from '../adapters/texte-final.js';
 import {
   agentBinairePresent,
@@ -54,7 +55,13 @@ import {
 import type { ExecutionUsage, IsolementDeclare, SubAgent, Task } from '../shared/types.js';
 import { runMerge, runProc } from './merge-runner.js';
 import { lancerVraiment, poserOutil } from './pose-runner.js';
-import { buildSandboxEnv, cloneRepo, prepareWorkspace } from './workspace.js';
+import {
+  DossierDeTacheIneffacable,
+  buildSandboxEnv,
+  cloneRepo,
+  effacerDossier,
+  prepareWorkspace,
+} from './workspace.js';
 import { racineDeTravailParDefaut } from './identite-noeud.js';
 import { segmentSur } from '../shared/noms-windows.js';
 import { ConfigurationNonNeutralisable, noteConfigurationEcartee } from './configuration-inerte.js';
@@ -340,6 +347,14 @@ export class HiveNodeClient {
   }
 
   private readonly active = new Map<string, AbortController>();
+  /**
+   * Les dossiers de tâche en cours d'effacement, par tâche. L'effacement est
+   * asynchrone (`effacerDossier`) et part APRÈS le résultat : la tâche quitte
+   * `active` tout de suite — une réassignation au même nœud n'est pas prise
+   * pour un doublon —, et sa tentative suivante attend ici que l'ancien
+   * `cleanup` ait fini, au lieu d'effacer ou de cloner sous ses pieds.
+   */
+  private readonly effacements = new Map<string, Promise<void>>();
   /**
    * La racine de délégation de chaque enfant actif (`delegationRootTaskId`) ;
    * une tâche absente d'ici est sa propre racine. Oubliée avec ses délégations
@@ -1275,6 +1290,21 @@ export class HiveNodeClient {
   }
 
   /**
+   * La raison d'un refus pour agent en panne, AVEC la ligne où l'agent l'a dit
+   * (`ligneDInfra`) : un refus n'emporte que sa raison, jamais les logs. Caviardée
+   * et lavée ici — elle part à tout l'écran —, bornée comme toute raison.
+   */
+  private static raisonAgentIndisponible(
+    prefixe: string,
+    result: AdapterResult,
+    caviardeur: Caviardeur,
+  ): string {
+    const dit = ligneDInfra(texteDEchec(result.logs, result.finalText));
+    const cause = dit ? laverIdentifiantsDuTexte(caviardeur.texte(dit)).trim() : '';
+    return (cause ? `${prefixe} : ${cause}` : prefixe).slice(0, LIMITS.name);
+  }
+
+  /**
    * Le progrès d'un adaptateur, tel qu'il part au hub : texte caviardé ici, sur
    * la machine qui porte les secrets — le hub, lui, relaie la sortie en direct
    * à chaque écran de la ruche.
@@ -1381,6 +1411,7 @@ export class HiveNodeClient {
     let conserverWorkspace = false;
     try {
       try {
+        await this.effacements.get(task.id);
         workspace = await prepareWorkspace(
           this.workRoot,
           task,
@@ -1404,11 +1435,14 @@ export class HiveNodeClient {
         //
         // Même refus quand la configuration d'agent du dépôt n'a pas pu être
         // écartée (`configuration-inerte.ts`) : l'agent ne tourne pas avec des
-        // hooks à moitié neutralisés, et la raison dit lesquels.
+        // hooks à moitié neutralisés, et la raison dit lesquels. Et quand le
+        // dossier de la tentative précédente résiste à l'effacement : la
+        // raison nomme le fichier tenu, pas un clone qui n'a pas eu lieu.
         const brut = err instanceof Error ? err.message : String(err);
         const cause = motifLave(brut.trim().split('\n').at(-1) ?? brut);
-        const raison =
-          err instanceof ConfigurationNonNeutralisable ? cause : `clone impossible : ${cause}`;
+        const ditSaCause =
+          err instanceof ConfigurationNonNeutralisable || err instanceof DossierDeTacheIneffacable;
+        const raison = ditSaCause ? cause : `clone impossible : ${cause}`;
         this.send({
           type: 'task_reject',
           taskId: task.id,
@@ -1501,16 +1535,13 @@ export class HiveNodeClient {
           this.log(`⏸ ${task.title} : réquisition ${req.genre} — pause`);
           return;
         }
-        this.send({
-          type: 'task_reject',
-          taskId: task.id,
-          reason:
-            req?.genre === 'binaire'
-              ? 'agent indisponible (binaire absent)'
-              : 'agent indisponible (auth/quota)',
-          infra: true,
-        });
-        this.log(`⇄ ${task.title} : agent indisponible → réaffectation`);
+        const raison = HiveNodeClient.raisonAgentIndisponible(
+          req?.genre === 'binaire' ? 'agent indisponible (binaire absent)' : 'agent indisponible',
+          result,
+          caviardeur,
+        );
+        this.send({ type: 'task_reject', taskId: task.id, reason: raison, infra: true });
+        this.log(`⇄ ${task.title} : ${raison} → réaffectation`);
         return;
       }
       // L'adaptateur peut fournir son diff ; sinon le workspace git le calcule.
@@ -1564,7 +1595,7 @@ export class HiveNodeClient {
       if (!conserverWorkspace) {
         this.active.delete(task.id);
         this.clearDelegationsForParent(task.id);
-        workspace?.cleanup();
+        if (workspace) this.effacerEspace(task.id, workspace);
       }
     }
   }
@@ -1715,12 +1746,13 @@ export class HiveNodeClient {
           this.log(`⏸ ${task.title} : ENOENT à la reprise — pause conservée`);
           return;
         }
-        this.send({
-          type: 'task_reject',
-          taskId: task.id,
-          reason: 'agent indisponible après réquisition',
-          infra: true,
-        });
+        const raison = HiveNodeClient.raisonAgentIndisponible(
+          'agent indisponible après réquisition',
+          result,
+          caviardeur,
+        );
+        this.send({ type: 'task_reject', taskId: task.id, reason: raison, infra: true });
+        this.log(`⇄ ${task.title} : ${raison} → réaffectation`);
         return;
       }
       const diff = result.diff !== '' ? result.diff : await workspace.collectDiff();
@@ -1766,7 +1798,7 @@ export class HiveNodeClient {
       if (!this.attenteRequisition) {
         this.active.delete(task.id);
         this.clearDelegationsForParent(task.id);
-        workspace.cleanup();
+        this.effacerEspace(task.id, workspace);
       }
     }
   }
@@ -1790,7 +1822,15 @@ export class HiveNodeClient {
     this.log(`✘ ${task.title} : réquisition ${statut}`);
     this.active.delete(task.id);
     this.clearDelegationsForParent(task.id);
-    workspace.cleanup();
+    this.effacerEspace(task.id, workspace);
+  }
+
+  /** Efface le dossier d'une tâche finie, en le disant à sa tentative suivante (`effacements`). */
+  private effacerEspace(taskId: string, workspace: Workspace): void {
+    const fini = workspace.cleanup().finally(() => {
+      if (this.effacements.get(taskId) === fini) this.effacements.delete(taskId);
+    });
+    this.effacements.set(taskId, fini);
   }
 
   // ─── Merge (Honeycomb Merge, Palier 3) ───────────────────────────────────
@@ -1824,7 +1864,7 @@ export class HiveNodeClient {
    */
   private async runMergeJob(msg: AssignMergeMsg): Promise<void> {
     // Anti-doublon : un hub qui réémet le même mergeId ne doit pas lancer deux
-    // jobs concurrents sur le même répertoire (course rmSync/clone).
+    // jobs concurrents sur le même répertoire (course effacement/clone).
     if (this.activeMerges.has(msg.mergeId)) return;
     // Night Shift : un merge (clone + application des diffs + tests) est du
     // travail au même titre qu'une tâche — refusé hors heures de service.
@@ -1883,7 +1923,6 @@ export class HiveNodeClient {
       'merges',
       segmentSur(this.nodeId ? `${msg.mergeId}-${this.nodeId.slice(0, 8)}` : msg.mergeId),
     );
-    const rmOpts = { recursive: true, force: true, maxRetries: 10, retryDelay: 100 } as const;
     this.log(
       `merge ${msg.mergeId.slice(0, 8)}… : clone + intégration de ${msg.diffs.length} diff(s)`,
     );
@@ -1892,7 +1931,7 @@ export class HiveNodeClient {
     // du dépôt, qui peut imprimer une clé lue sur cette machine.
     const caviardeur = this.caviardeurDuNoeud();
     try {
-      rmSync(dir, rmOpts);
+      await effacerDossier(dir);
       mkdirSync(path.dirname(dir), { recursive: true });
       await cloneRepo(dir, msg.repoUrl);
       const result = await runMerge({
@@ -1962,7 +2001,7 @@ export class HiveNodeClient {
       this.log(`✘ merge ${msg.mergeId.slice(0, 8)} : ${message}`);
     } finally {
       this.activeMerges.delete(msg.mergeId);
-      rmSync(dir, rmOpts);
+      await this.effacerReste(dir);
     }
   }
 
@@ -1986,7 +2025,7 @@ export class HiveNodeClient {
    */
   private async runChantierJob(msg: AssignChantierMsg): Promise<void> {
     // Anti-doublon : un hub qui réémet le même id ne doit pas lancer deux
-    // travaux concurrents dans le même répertoire (course rmSync/clone).
+    // travaux concurrents dans le même répertoire (course effacement/clone).
     if (this.activeChantiers.has(msg.chantierId)) return;
 
     const refuser = (raison: string, sortie = ''): void => {
@@ -2031,10 +2070,9 @@ export class HiveNodeClient {
       'chantiers',
       segmentSur(this.nodeId ? `${msg.chantierId}-${this.nodeId.slice(0, 8)}` : msg.chantierId),
     );
-    const rmOpts = { recursive: true, force: true, maxRetries: 10, retryDelay: 100 } as const;
     this.log(`chantier « ${msg.nom} » : clone puis lancement`);
     try {
-      rmSync(dir, rmOpts);
+      await effacerDossier(dir);
       mkdirSync(path.dirname(dir), { recursive: true });
       await cloneRepo(dir, msg.repoUrl);
 
@@ -2128,8 +2166,19 @@ export class HiveNodeClient {
       this.log(`✘ chantier « ${msg.nom} » : ${message}`);
     } finally {
       this.activeChantiers.delete(msg.chantierId);
-      rmSync(dir, rmOpts);
+      await this.effacerReste(dir);
     }
+  }
+
+  /**
+   * Efface le clone d'un merge ou d'un chantier FINI. Son résultat est parti :
+   * un dossier qui résiste ne le change pas — mais il est dit au journal du
+   * nœud, au lieu de lever depuis un `finally` en rejet de promesse orphelin.
+   */
+  private async effacerReste(dir: string): Promise<void> {
+    await effacerDossier(dir).catch((e: unknown) => {
+      this.log(`dossier non effacé : ${dir} (${(e as NodeJS.ErrnoException).code ?? String(e)})`);
+    });
   }
 
   private send(msg: ClientMessage): void {

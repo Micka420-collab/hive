@@ -279,7 +279,7 @@ describe('résilience', () => {
       expect(diff).toContain('nouveau.txt');
       expect(diff).toContain('contenu butiné');
 
-      ws.cleanup();
+      await ws.cleanup();
     },
   );
 });

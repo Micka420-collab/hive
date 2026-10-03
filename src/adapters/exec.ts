@@ -63,6 +63,22 @@ const INFRA_FAILURE_RE =
   /unauthor|authentication|not logged in|forbidden|\b401\b|\b403\b|\b429\b|quota|rate.?limit|usage limit|insufficient|out of credit|credit balance|billing|api[_ -]?key|invalid.{0,12}key|login|sign in|subscription/i;
 
 /**
+ * La ligne qui a fait lire un échec comme une panne d'infrastructure : la
+ * dernière qui porte un motif d'`INFRA_FAILURE_RE`, sinon la dernière tout
+ * court (un lancement impossible se dit en fin de journal). C'est elle que le
+ * refus du nœud cite — « agent indisponible (auth/quota) » seul ne disait ni
+ * quel quota, ni quelle clé, et les logs de l'agent ne partent pas avec un
+ * refus : l'opérateur n'avait rien à lire.
+ */
+export function ligneDInfra(texte: string): string {
+  const lignes = texte
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l !== '');
+  return lignes.findLast((l) => INFRA_FAILURE_RE.test(l)) ?? lignes.at(-1) ?? '';
+}
+
+/**
  * Le bac reçoit le même nom logique que son preflight, jamais un chemin hôte :
  * c'est l'enveloppe qui le résout — dans l'image pour un conteneur, sur l'hôte
  * monté en lecture seule pour bubblewrap (`installationHote`).
