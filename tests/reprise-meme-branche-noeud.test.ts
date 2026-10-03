@@ -103,7 +103,7 @@ describe('une reprise travaille sur la branche de sa pull request', () => {
           '+travail d’origine',
         );
       } finally {
-        ws.cleanup();
+        await ws.cleanup();
       }
     },
   );
@@ -119,7 +119,7 @@ describe('une reprise travaille sur la branche de sa pull request', () => {
         expect(ws.branch).toBe('hive/t-ordinaire');
         expect(existsSync(path.join(ws.cwd, 'travail.txt'))).toBe(false);
       } finally {
-        ws.cleanup();
+        await ws.cleanup();
       }
     },
   );

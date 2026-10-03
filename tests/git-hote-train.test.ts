@@ -191,7 +191,7 @@ describe('les validations du bac (#475) relisent le dépôt par le registre, jam
         // Le nettoyage a bien eu lieu, par le registre.
         expect(readdirSync(ws.cwd)).not.toContain('ignore');
       } finally {
-        ws.cleanup();
+        await ws.cleanup();
       }
     },
   );
