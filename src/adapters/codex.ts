@@ -91,6 +91,13 @@ function depotNonFiable(execution: ExecutionCodex): string[] {
   return ['-c', `projects={${JSON.stringify(execution.depot)}={trust_level="untrusted"}}`];
 }
 
+// POLITIQUE D'ACTIONS (G12) : Codex reçoit l'outil `hive_approve_action` par le
+// même pont MCP (codexMcpOverrides, enabled_tools) — le modèle PEUT demander une
+// décision à la Chambre. Les règles execpolicy (`-c` allow/prompt/forbidden, la
+// plus stricte l'emporte) ne sont PAS posées ici : leur forme exacte doit être
+// prouvée sur le vrai binaire (pattern fixtures flux-codex), pas supposée — la
+// politique compilée est déjà exposée à l'adaptateur via `ctx.permissionsAllow`.
+
 // PAS D'EFFORT ICI, et c'est voulu : `model_reasoning_effort` (via `-c`) prend
 // des valeurs ANNONCÉES PAR CHAQUE MODÈLE (`ReasoningEffort::Custom`,
 // codex-rs/protocol/src/openai_models.rs), que `codex exec --help` (0.156.0)

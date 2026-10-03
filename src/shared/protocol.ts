@@ -14,6 +14,7 @@ import { estPlateforme } from './machine.js';
 import { estEmpreinte } from './empreinte-ruche.js';
 import { validationsBacDepuis } from './validations-bac.js';
 import { estEffort, estListeEfforts, type Effort } from './effort.js';
+import { estNiveauAutonomie, type NiveauAutonomie } from './politique-actions.js';
 import type { ValidationsBac } from './validations-bac.js';
 import type { PlateformeNoeud } from './machine.js';
 import type { PresenceFichier } from './presence.js';
@@ -378,6 +379,12 @@ export interface RequisitionOpenMsg {
   detail?: string;
   /** Tâche bloquée en attente de décision humaine (mid-task, ADR 0010). */
   taskId?: string;
+  /**
+   * Corrélation CLIENT (G12) : le hub la rend telle quelle dans
+   * `requisition_ack`, pour qu'un nœud aux réquisitions concurrentes retrouve
+   * l'identifiant de LA SIENNE. Jamais persistée — l'id du store fait foi.
+   */
+  requestId?: string;
 }
 
 /** Conflit signalé lors d'un merge (un diff qui ne s'applique pas proprement). */
@@ -528,6 +535,12 @@ export interface AssignTaskMsg {
    * tâche ordinaire. Le nom est revalidé par le nœud (`estBrancheDeLivraison`).
    */
   prolonger?: true;
+  /**
+   * Le niveau d'autonomie du PROJET à l'assignation (G12) : le nœud y cale la
+   * décision par défaut d'une action proposée (politique-actions.ts). Absent
+   * (hub plus ancien) : le nœud décide comme à `off` — la lecture fermée.
+   */
+  autonomie?: NiveauAutonomie;
 }
 
 export interface CancelTaskMsg {
@@ -602,6 +615,8 @@ export interface RequisitionAckMsg {
   id: string;
   genre: string;
   libelle: string;
+  /** La corrélation de `requisition_open`, rendue telle quelle (G12). */
+  requestId?: string;
 }
 
 /** Accusé de création d'un enfant de délégation. */
@@ -641,7 +656,8 @@ export interface DelegationResultMsg {
 export interface RequisitionResultMsg {
   type: 'requisition_result';
   id: string;
-  statut: 'accordee' | 'refusee';
+  /** `expiree` (G12) : l'échéance est passée sans décision — le nœud refuse. */
+  statut: 'accordee' | 'refusee' | 'expiree';
 }
 
 /** Un diff de tâche à intégrer lors d'un merge. */
@@ -1288,6 +1304,7 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
       if (
         isStr(m.genre, LIMITS.requisitionGenre) &&
         isStr(m.libelle, LIMITS.requisitionLibelle) &&
+        (m.requestId === undefined || isId(m.requestId)) &&
         (m.detail === undefined || isStrAllowEmpty(m.detail, LIMITS.requisitionDetail)) &&
         (m.taskId === undefined || isId(m.taskId))
       ) {
@@ -1298,6 +1315,7 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
         };
         if (m.detail !== undefined) msg.detail = m.detail as string;
         if (m.taskId !== undefined) msg.taskId = m.taskId as string;
+        if (m.requestId !== undefined) msg.requestId = m.requestId as string;
         return msg;
       }
       return null;
@@ -1441,6 +1459,7 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
       // (`--upload-pack=…`), perd tout le message.
       if (m.prolonger !== undefined && m.prolonger !== true) return null;
       if (m.prolonger === true && !estBrancheDeLivraison(m.task.branch)) return null;
+      if (m.autonomie !== undefined && !estNiveauAutonomie(m.autonomie)) return null;
       const msg: AssignTaskMsg = { type: 'assign_task', task: m.task };
       if (m.relecture === true) msg.relecture = true;
       if (m.prolonger === true) msg.prolonger = true;
@@ -1457,6 +1476,7 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
         };
       }
       if (m.delegationRootTaskId !== undefined) msg.delegationRootTaskId = m.delegationRootTaskId;
+      if (m.autonomie !== undefined) msg.autonomie = m.autonomie as NiveauAutonomie;
       return msg;
     }
     case 'cancel_task':
@@ -1466,12 +1486,14 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
     case 'requisition_ack':
       return isId(m.id) &&
         isStr(m.genre, LIMITS.requisitionGenre) &&
-        isStr(m.libelle, LIMITS.requisitionLibelle)
+        isStr(m.libelle, LIMITS.requisitionLibelle) &&
+        (m.requestId === undefined || isId(m.requestId))
         ? {
             type: 'requisition_ack',
             id: m.id,
             genre: m.genre,
             libelle: m.libelle,
+            ...(m.requestId !== undefined ? { requestId: m.requestId } : {}),
           }
         : null;
     case 'delegation_accepted':
@@ -1533,7 +1555,8 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
         ? { type: 'task_output', taskId: m.taskId, nodeId: m.nodeId, sortie: m.sortie }
         : null;
     case 'requisition_result':
-      return isId(m.id) && (m.statut === 'accordee' || m.statut === 'refusee')
+      return isId(m.id) &&
+        (m.statut === 'accordee' || m.statut === 'refusee' || m.statut === 'expiree')
         ? { type: 'requisition_result', id: m.id, statut: m.statut }
         : null;
     case 'assign_merge': {

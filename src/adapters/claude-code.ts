@@ -17,6 +17,9 @@ import {
 } from './consignes-depot.js';
 import {
   createDelegationBridge,
+  HIVE_APPROVE_TOOL,
+  HIVE_DELEGATE_TOOL,
+  HIVE_WAIT_TOOL,
   resultatSansPont,
   writeClaudeConsignes,
   writeClaudeMcpConfig,
@@ -46,6 +49,23 @@ const CLAUDE_TIMEOUT_MS = 15 * 60_000;
  * `.gitmodules`, `.git/commondir`…) — autant de lignes dans le diff livré.
  */
 export const REGLAGES_IMPOSES = JSON.stringify({ disableAllHooks: true });
+
+/**
+ * Les réglages imposés, ENRICHIS du `permissions.allow` compilé (G12) quand le
+ * dépôt déclare des validations : hors du read-only set, chaque commande shell
+ * exige une entrée `--allowedTools` ou une règle `permissions.allow`
+ * (code.claude.com/docs/en/headless) — sans elle, le Worker rendait son diff
+ * SANS avoir lancé le `npm test` déclaré. La liste vient du commit de BASE du
+ * clone (`reglesAutorisationDeBase`), jamais de l'arbre que l'agent réécrit.
+ * `disableAllHooks` survit à la fusion : c'est le même objet, pas un override.
+ */
+export function reglagesImposes(permissionsAllow: readonly string[] = []): string {
+  if (permissionsAllow.length === 0) return REGLAGES_IMPOSES;
+  return JSON.stringify({
+    disableAllHooks: true,
+    permissions: { allow: [...permissionsAllow] },
+  });
+}
 
 /**
  * Les arguments de `claude -p`, avec le modèle de l'Aiguillage en option s'il y
@@ -110,6 +130,8 @@ export function argvClaude(
   mcpServerName = 'hive',
   consignesPath?: string,
   effort?: Effort,
+  permissionsAllow?: readonly string[],
+  approbation = false,
 ): string[] {
   const drapeauxModele = [
     ...(modele ? ['--model', modele] : []),
@@ -120,16 +142,27 @@ export function argvClaude(
     '--setting-sources',
     'user',
     '--settings',
-    REGLAGES_IMPOSES,
+    reglagesImposes(permissionsAllow),
     '--strict-mcp-config',
   ];
   const drapeauxConsignes = consignesPath ? ['--append-system-prompt-file', consignesPath] : [];
+  // `--permission-prompt-tool` SEULEMENT quand le pont porte la capacité de
+  // décision (`approbation`) : le drapeau pointe un outil MCP, et le poser
+  // sans serveur derrière transformerait chaque demande en impasse.
+  const outilsHive = [
+    `mcp__${mcpServerName}__${HIVE_DELEGATE_TOOL}`,
+    `mcp__${mcpServerName}__${HIVE_WAIT_TOOL}`,
+    ...(approbation ? [`mcp__${mcpServerName}__${HIVE_APPROVE_TOOL}`] : []),
+  ];
   const drapeauxMcp = mcpConfigPath
     ? [
         '--mcp-config',
         mcpConfigPath,
         '--allowedTools',
-        `mcp__${mcpServerName}__hive_delegate,mcp__${mcpServerName}__hive_wait_for_delegation_result`,
+        outilsHive.join(','),
+        ...(approbation
+          ? ['--permission-prompt-tool', `mcp__${mcpServerName}__${HIVE_APPROVE_TOOL}`]
+          : []),
       ]
     : [];
   return [
@@ -252,6 +285,10 @@ export function createClaudeCodeAdapter(
             bridge?.mcpServerName,
             consignesPath,
             ctx.effort,
+            ctx.permissionsAllow,
+            // La décision ne se promet au CLI que si le pont existe ET que le
+            // nœud a fourni la capacité : les deux moitiés d'un même canal.
+            bridge !== undefined && ctx.decideAction !== undefined,
           ),
           ctx,
           (line) => {
