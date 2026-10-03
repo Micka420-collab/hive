@@ -25,6 +25,7 @@ Un ADR ne se réécrit pas : il se remplace par un suivant qui le mentionne.
 | [0011](0011-la-ruche-coordonne-les-outils-ia.md)        | La ruche coordonne les outils IA déjà installés                                                           | **proposé**         |
 | [0012](0012-une-seule-reine-par-base.md)                | Une seule Reine par base : un verrou tenu par le système, porté par SQLite, jamais deviné                 | accepté             |
 | [0013](0013-application-de-bureau.md)                   | L'application de bureau : Electron porte la Reine ; installeur NSIS/DMG/AppImage/.deb, marque échangeable | accepté (principe)  |
+| [0014](0014-routines-autorisation-prealable.md)         | Une routine budgétée vaut autorisation humaine préalable ; elle part avec l'autorité de son compte        | accepté             |
 
 Les **0001 à 0006** viennent du lot 0 de `MISSION-ACCUEIL.md`. Le **0007** est
 venu ensuite, avec le partage par billets. Le **0008** n'est pas encore tranché :

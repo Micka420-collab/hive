@@ -544,6 +544,32 @@ curl -X POST http://localhost:7777/api/projects/<project>/banc-ombre \
 Admission rules, budget, confidence and limits (FR):
 **[BANC-OMBRE.md](BANC-OMBRE.md)**.
 
+## ⟳ Routines — scheduled or triggered work
+
+A **routine** starts a project mission without a click: at a time (5-field
+cron, read in a **time zone** — `0 9 * * 1-5` in `Europe/Paris` runs at 9 am
+in Paris, summer and winter), on a **signed webhook** (HMAC, a key of its own,
+replayed deliveries deduplicated), or when a **branch's CI** turns red (one red
+commit, one mission). Business hours can bound it.
+
+Creating a routine **authorizes the spending in advance** (ADR 0014): it is a
+setting for the owner or an administrator. The routine runs with its
+account's authority, re-checked on every trigger. Each trigger starts an
+ordinary task (cap, Evaluator, cross-review, never a merge) or says why it
+started nothing. A trigger while the work is still running **joins** it, and a
+Queen switched off for two days catches up **one** slot.
+
+```bash
+# or the “Routines” subsection of a project in ⬡ Projects
+curl -X POST http://localhost:7777/api/projects/<project>/routines \
+  -H "x-hive-token: $HIVE_TOKEN" -H 'content-type: application/json' \
+  -d '{"nom": "Nightly debt", "consigne": "…", "declencheur": "cron",
+       "expression": "0 9 * * 1-5", "fuseau": "Europe/Paris"}'
+```
+
+Triggers, policies, the webhook and the `hive-dispatch` Action (FR):
+**[ROUTINES.md](ROUTINES.md)**.
+
 ## 🕸️ Experience graph — linking what the hive went through
 
 The graph **links** facts that are already stored — journal, Brain, reviews,
