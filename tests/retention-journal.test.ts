@@ -302,6 +302,8 @@ describe('les types qui prouvent', () => {
       'delivery_opened',
       // La provenance d'une reprise sur la même branche (#518).
       'delivery_advanced',
+      // La preuve d'instabilité d'un job que le garde de PR a relancé.
+      'garde_pr_relance',
       'critique_context',
       'brood_context',
       'worker_usage',
