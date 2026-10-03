@@ -12,15 +12,18 @@
 // qui fonctionne — réparez l'agent » : deux fausses pistes pour l'opérateur.
 //
 // Ici le dossier est TENU pour de vrai, par le moyen que chaque système offre :
-// sous Windows, un exécutable DU dossier en train de tourner — son image reste
-// verrouillée quoi que permettent les sémantiques POSIX du volume (un cwd tenu,
-// lui, s'efface sur les Dev Drive des runners CI) ; ailleurs, un sous-dossier
-// sans droit d'écriture (hors root, qui passe outre). Puis le vrai chemin :
-// une Reine réelle, un `HiveNodeClient`, et la mesure de ce que l'écran reçoit
-// — le refus, puis l'échec borné et l'alerte de l'accueil (`/api/cockpit`).
+// sous Windows, un handle ouvert SANS AUCUN PARTAGE (`FileShare.None`) sur un
+// fichier du dossier — la seule tenue qui bloque l'effacement POSIX de libuv
+// comme l'effacement classique (un cwd tenu s'efface sur les runners CI, et
+// l'image d'un exécutable qui tourne aussi, par POSIX delete) ; ailleurs, un
+// sous-dossier sans droit d'écriture (hors root, qui passe outre). Puis le
+// vrai chemin : une Reine réelle, un `HiveNodeClient`, et la mesure de ce que
+// l'écran reçoit — le refus, puis l'échec borné et l'alerte de l'accueil
+// (`/api/cockpit`).
 
 import { type ChildProcess, execFileSync, spawn } from 'node:child_process';
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -50,25 +53,61 @@ async function tenir(dossier: string): Promise<void> {
   mkdirSync(objets, { recursive: true });
   writeFileSync(path.join(objets, 'pack-banc.pack'), 'objet\n');
   if (WINDOWS) {
-    const image = path.join(objets, 'garde-banc.exe');
-    copyFileSync(process.execPath, image);
-    const garde: ChildProcess = spawn(image, ['-e', 'setInterval(() => {}, 1000)'], {
-      stdio: 'ignore',
-    });
+    // Un handle OUVERT sans partage (`FileShare.None`) : ouvrir-pour-effacer
+    // est un contrôle de PARTAGE, donc ce handle bloque l'unlink POSIX de
+    // libuv (`fs.promises.rm`, le moteur du nœud) comme l'effacement
+    // classique. Les tenues précédentes ne tenaient pas contre le nœud : un
+    // cwd tenu s'efface en POSIX delete, et l'image d'un garde-banc.exe
+    // vivant aussi (`rmSync` — remove_all C++, suppression classique — la
+    // croyait tenue ; le nœud, sur libuv, l'effaçait).
+    //
+    // La prise se SIGNALE (« TENU » sur stdout, émis seulement après un Open
+    // revenu) ; en échec, le diagnostic (.NET : type + message) part sur
+    // STDOUT — le stderr de PowerShell 5.1 redirigé s'enrobe de CLIXML.
+    const verrou = path.join(objets, 'pack-verrou.pack');
+    const script = [
+      `$d='?'`,
+      // Le dossier se RECRÉE à chaque essai : si quelque chose l'efface
+      // pendant que le garde s'installe, le garde regagne — et dès qu'un
+      // handle vit, l'arborescence qui le porte ne s'efface plus.
+      `$f=$null; for($i=0;$i -lt 200;$i++){ try{ [void][IO.Directory]::CreateDirectory('${objets.replace(/'/g, "''")}'); $f=[IO.File]::Open('${verrou.replace(/'/g, "''")}','CreateNew','ReadWrite','None'); break }catch{ $e=$_.Exception; if($e.InnerException){ $e=$e.InnerException }; $d=$e.GetType().Name+' : '+$e.Message; Start-Sleep -Milliseconds 50 } }`,
+      `if($null -eq $f){ [Console]::Out.WriteLine('ECHEC '+$d); exit 1 }`,
+      `[Console]::Out.WriteLine('TENU')`,
+      `Start-Sleep -Seconds 3600`,
+    ].join('; ');
+    const garde: ChildProcess = spawn(
+      'PowerShell',
+      // -EncodedCommand : le script passe en base64, hors de portée des
+      // règles de guillemets que spawn et PowerShell empilent chacun.
+      ['-NoProfile', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
+      { stdio: ['ignore', 'pipe', 'pipe'] },
+    );
     aNettoyer.push(() => garde.kill());
-    await new Promise<void>((resolve, reject) => {
-      garde.once('spawn', resolve);
-      garde.once('error', reject);
-    });
-    // La tenue se PROUVE avant de rendre la main : l'effacement d'essai doit
-    // échouer comme celui du nœud échouera. Un garde qui tourne sans
-    // verrouiller libérerait une tâche que rien ne refusera jamais.
+    let sortie = '';
+    let erreurs = '';
+    garde.stdout?.on('data', (d: Buffer) => (sortie += String(d)));
+    garde.stderr?.on('data', (d: Buffer) => (erreurs += String(d)));
+    const limite = Date.now() + 60_000;
+    while (!sortie.includes('TENU')) {
+      // Un garde mort ou muet est un banc cassé : on le dit tout de suite,
+      // au lieu de libérer une tâche que rien ne refusera jamais.
+      if (garde.exitCode !== null || Date.now() > limite) {
+        throw new Error(
+          `le verrou PowerShell ne prend pas (code ${garde.exitCode}) : ${sortie} ${erreurs}`,
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    // La tenue se PROUVE avant de rendre la main, avec le MÊME moteur que le
+    // nœud (`fs.promises.rm`/libuv, POSIX delete) : l'essai doit échouer
+    // comme l'effacement du nœud échouera — `rmSync` (moteur C++ classique)
+    // a déjà « prouvé » une tenue que le nœud traversait.
     try {
-      rmSync(image);
+      await rm(verrou);
     } catch {
       return;
     }
-    throw new Error('le garde tourne mais son image s’est effacée : le verrou ne verrouille pas');
+    throw new Error('« TENU » reçu mais le fichier s’est effacé : le verrou ne verrouille pas');
   }
   chmodSync(objets, 0o555);
   aNettoyer.push(() => chmodSync(objets, 0o755));
