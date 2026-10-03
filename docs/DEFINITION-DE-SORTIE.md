@@ -18,7 +18,7 @@
 > On ne coche rien de tête. Les chiffres de cette page sont ceux d'une mesure
 > datée ; quand la mesure vieillit, on la refait avant de s'y fier.
 
-## A. Le code tient — ✅ mesuré en CI (arbre `790b829df4228b005c50b6b9aeb42c38f5358422`, 28 septembre 2026, `ubuntu-latest` / Node 24)
+## A. Le code tient — ✅ mesuré en CI (arbre `4796cf92ab7a12e3337d9ca3d8b714b63c1974ce`, 3 octobre 2026, `ubuntu-latest` / Node 24)
 
 > **L'ARBRE NOMMÉ EST TOUJOURS LE PRÉCÉDENT, ET C'EST NORMAL.** Un document ne
 > peut pas contenir son propre condensé : le stamper puis rectifier le commit
