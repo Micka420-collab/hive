@@ -60,7 +60,15 @@ async function tenir(dossier: string): Promise<void> {
       garde.once('spawn', resolve);
       garde.once('error', reject);
     });
-    return;
+    // La tenue se PROUVE avant de rendre la main : l'effacement d'essai doit
+    // échouer comme celui du nœud échouera. Un garde qui tourne sans
+    // verrouiller libérerait une tâche que rien ne refusera jamais.
+    try {
+      rmSync(image);
+    } catch {
+      return;
+    }
+    throw new Error('le garde tourne mais son image s’est effacée : le verrou ne verrouille pas');
   }
   chmodSync(objets, 0o555);
   aNettoyer.push(() => chmodSync(objets, 0o755));
@@ -126,13 +134,22 @@ describe.skipIf(RACINE)('un dossier de tâche qui ne s’efface plus', () => {
         );
         const nodeId = server.store.listNodes()[0]!.id;
         const projet = server.store.createProject({ name: 'Dossier tenu', repoUrl: amont });
+        // Le reste de la tentative tuée : `<work>/tasks/<tâche>-<nœud court>`,
+        // TENU AVANT que la tâche n'existe. `createTask` range en `pending`,
+        // que le scheduler promeut et assigne dès le tick suivant (20 ms) :
+        // tenu après coup, le nœud vidait le dossier pendant que le garde
+        // s'installait (`tenir` est async — en CI, les 200 retentes d'une
+        // version précédente mouraient toutes en DirectoryNotFoundException).
+        // Sous POSIX, le chmod synchrone fermait cette fenêtre par accident ;
+        // l'ordre la ferme par construction, sur tous les systèmes.
+        const tacheId = 'tache-tenue';
+        await tenir(path.join(work, 'tasks', `${tacheId}-${nodeId.slice(0, 8)}`));
         const t = server.store.createTask({
+          id: tacheId,
           projectId: projet.id,
           title: 'Ligne',
           prompt: 'ligne',
         });
-        // Le reste de la tentative tuée : `<work>/tasks/<tâche>-<nœud court>`.
-        await tenir(path.join(work, 'tasks', `${t.id}-${nodeId.slice(0, 8)}`));
         server.store.patchTask(t.id, { status: 'ready' });
 
         const refus = () =>
