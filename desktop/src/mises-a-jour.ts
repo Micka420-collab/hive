@@ -43,6 +43,7 @@ import { app, dialog, shell } from 'electron';
 import electronUpdater from 'electron-updater';
 import { metaApp } from './chemins.js';
 import { journal } from './journaux.js';
+import { ligneDePanne, rienDePublie } from './recherche-mise-a-jour.js';
 
 const { autoUpdater } = electronUpdater;
 
@@ -90,6 +91,10 @@ export function brancherMisesAJour(o: OptionsMisesAJour): void {
   branche = true;
   const mode = modeMiseAJour(metaApp().signee, process.platform);
   autoUpdater.logger = journal;
+  // Son propre écouteur d'`error` écrit toute la pile en `[error]` — même pour
+  // « aucune version publiée », qui n'en est pas une (`recherche-mise-a-jour.ts`).
+  // Le seul qui parle d'un échec, c'est celui de l'app, plus bas.
+  autoUpdater.removeAllListeners('error');
   autoUpdater.allowDowngrade = false;
   autoUpdater.allowPrerelease = false;
   autoUpdater.autoDownload = mode === 'auto';
@@ -190,8 +195,20 @@ export function brancherMisesAJour(o: OptionsMisesAJour): void {
   });
 
   autoUpdater.on('error', (e) => {
-    journal.warn(`mise à jour : ${e.message}`);
     o.progression(null);
+    if (!installation && rienDePublie(e)) {
+      journal.info('mise à jour : aucune version publiée pour ce système — pas de mise à jour');
+      if (!demandeManuelle) return;
+      demandeManuelle = false;
+      void dialog.showMessageBox({
+        type: 'info',
+        title: 'Mise à jour de Hive',
+        message: `Hive est à jour (${app.getVersion()}).`,
+        detail: 'Aucune version plus récente n’est publiée pour ce système.',
+      });
+      return;
+    }
+    journal.warn(`mise à jour : ${ligneDePanne(e)}`);
     if (installation) {
       installation = false;
       void o.apresEchec();
@@ -213,8 +230,10 @@ export function brancherMisesAJour(o: OptionsMisesAJour): void {
     });
   });
 
+  // Un rejet de `checkForUpdates` a DÉJÀ été émis en `error`, et dit là : le
+  // journaliser ici l'écrivait une seconde fois.
   const chercher = (): void => {
-    autoUpdater.checkForUpdates().catch((e: unknown) => journal.warn(`mise à jour : ${String(e)}`));
+    autoUpdater.checkForUpdates().catch(() => undefined);
   };
   // Une minute après le démarrage — la ruche d'abord —, puis toutes les 6 h.
   setTimeout(chercher, 60_000).unref();
@@ -233,5 +252,6 @@ export function chercherMiseAJour(): void {
     return;
   }
   demandeManuelle = true;
-  autoUpdater.checkForUpdates().catch((e: unknown) => journal.warn(`mise à jour : ${String(e)}`));
+  // Dit par l'`error` de `brancherMisesAJour`, comme la recherche périodique.
+  autoUpdater.checkForUpdates().catch(() => undefined);
 }
