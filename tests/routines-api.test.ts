@@ -94,7 +94,19 @@ describe('les routes des Routines', () => {
   });
 
   it('WEBHOOK : clé remise une fois, livraison signée lancée, rejouée NON relancée', async () => {
-    const cree = await appeler('POST', `/api/projects/${projet}/routines`, {
+    // Projet DÉDIÉ : le banc compte TOUTES les tâches du projet (`toHaveLength(1)`),
+    // et les voisins du describe en créent aussi — sur le projet partagé, le
+    // compte dépendrait de l'ordre d'exécution (ERREURS.md § 2.14, le vert
+    // emprunté au voisin).
+    const abri = server.store.createProject({ name: 'Projet du webhook', ownerId: null }).id;
+    const listerAbri = async (): Promise<VueRoutine[]> =>
+      (
+        (await (await appeler('GET', `/api/projects/${abri}/routines`)).json()) as {
+          routines: VueRoutine[];
+        }
+      ).routines;
+
+    const cree = await appeler('POST', `/api/projects/${abri}/routines`, {
       nom: 'Tri des issues étiquetées',
       consigne: 'Trier l’issue et proposer un correctif.',
       declencheur: 'webhook',
@@ -103,7 +115,7 @@ describe('les routes des Routines', () => {
     const { routine, secret } = (await cree.json()) as { routine: VueRoutine; secret: string };
     expect(secret).toMatch(/^rtn_/);
     expect(routine.autorite).toBe('jeton');
-    expect(JSON.stringify(await lister()), 'une lecture ne rend jamais la clé').not.toContain(
+    expect(JSON.stringify(await listerAbri()), 'une lecture ne rend jamais la clé').not.toContain(
       secret,
     );
 
@@ -116,10 +128,10 @@ describe('les routes des Routines', () => {
     expect(r2.status).toBe(200);
     expect(await r2.json()).toEqual({ doublon: true });
 
-    const taches = server.store.listTasks(projet);
+    const taches = server.store.listTasks(abri);
     expect(taches).toHaveLength(1);
     expect(taches[0]?.prompt).toContain('#42 — la page d’accueil plante');
-    const vue = (await lister()).find((x) => x.id === routine.id);
+    const vue = (await listerAbri()).find((x) => x.id === routine.id);
     expect(vue?.runs.map((x) => `${x.source}:${x.statut}`)).toEqual(['webhook:lancee']);
   });
 
