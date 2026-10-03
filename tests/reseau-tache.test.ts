@@ -12,7 +12,7 @@ import {
   refusExige,
   type CapaciteReseau,
 } from '../src/node-client/reseau-tache.js';
-import type { ReservationPont } from '../src/node-client/rendez-vous-pont.js';
+import { extremiteEcoute, type ReservationPont } from '../src/node-client/rendez-vous-pont.js';
 
 let racine: string;
 beforeEach(() => {
@@ -26,7 +26,7 @@ function reservation(): ReservationPont {
   return {
     reserver: () => {
       const dossier = mkdtempSync(path.join(racine, `r${n++}-`));
-      return { dossier, extremite: path.join(dossier, 's') };
+      return { dossier, extremite: extremiteEcoute(dossier) };
     },
   };
 }
