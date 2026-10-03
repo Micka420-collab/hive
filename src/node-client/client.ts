@@ -1346,6 +1346,9 @@ export class HiveNodeClient {
     effort?: Effort,
     prolonger = false,
   ): Promise<void> {
+    // Nœud arrêté : une assignation encore en vol ne démarre rien — elle
+    // réserverait des ponts et lancerait un agent qu'aucun stop() n'abortera.
+    if (this.closed) return;
     // Défense en profondeur : l'id sert à construire des chemins locaux — on ne
     // fait pas confiance au hub (anti path-traversal si le hub était compromis).
     if (!ID_PATTERN.test(task.id)) {
@@ -1457,6 +1460,10 @@ export class HiveNodeClient {
         this.log(`⇄ ${task.title} : ${raison} → réaffectation`);
         return;
       }
+      // Annulée (cancel_task) ou nœud arrêté PENDANT la préparation : les
+      // effacements asynchrones ci-dessus ont laissé la boucle traiter l'abort
+      // avant que l'agent n'existe. On ne lance rien ; le finally nettoie.
+      if (ctrl.signal.aborted) return;
       if (workspace.configurationEcartee.length > 0) {
         this.progresVersHub(
           task.id,

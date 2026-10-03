@@ -204,8 +204,18 @@ export function createClaudeCodeAdapter(
     name: 'claude-code',
     effortsDocumentes: () => sonderEffortsClaude(),
     async run(task: Task, ctx: AdapterContext): Promise<AdapterResult> {
-      ctx.onProgress({ log: 'claude -p (stream-json) démarré' });
       const tracker = createSubAgentTracker();
+      // Annulée avant le départ : rien ne se prépare (pont, config MCP) et
+      // rien ne se lance — le suivi, vide, dit qu'aucun sous-agent n'a couru.
+      if (ctx.signal?.aborted) {
+        return {
+          success: false,
+          diff: '',
+          logs: '[claude-code] tâche annulée avant le départ',
+          subAgents: tracker.list(),
+        };
+      }
+      ctx.onProgress({ log: 'claude -p (stream-json) démarré' });
       const presence = createPresenceTracker();
       // La ligne `result` finale porte le coût et le temps modèle déclarés.
       const declaration = createDeclarationFournisseurTracker('claude-code');

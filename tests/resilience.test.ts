@@ -167,24 +167,23 @@ describe('résilience', () => {
     'annule une tâche en cours : le nœud abandonne et la tâche passe failed',
     { timeout: 20_000 },
     async () => {
-      const flags = { aborted: false };
+      const flags = { started: false, aborted: false };
       const slow: AgentAdapter = {
         name: 'lent',
         run: (_task, ctx) =>
           new Promise((resolve, reject) => {
+            flags.started = true;
             const timer = setTimeout(
               () => resolve({ success: true, diff: '', logs: 'trop tard', subAgents: [] }),
               8_000,
             );
-            ctx.signal.addEventListener(
-              'abort',
-              () => {
-                flags.aborted = true;
-                clearTimeout(timer);
-                reject(new Error('tâche annulée'));
-              },
-              { once: true },
-            );
+            const annule = (): void => {
+              flags.aborted = true;
+              clearTimeout(timer);
+              reject(new Error('tâche annulée'));
+            };
+            if (ctx.signal.aborted) return annule();
+            ctx.signal.addEventListener('abort', annule, { once: true });
           }),
       };
 
@@ -207,6 +206,9 @@ describe('résilience', () => {
       try {
         const { taskId } = await createProjectWithTask(base, 'longue-a-annuler');
         await waitFor(async () => (await taskStatus(base, taskId)) === 'running', 10_000);
+        // L'agent doit avoir DÉMARRÉ : « running » part avant la préparation
+        // du poste, et annuler pendant elle n'atteint aucun adaptateur.
+        await waitFor(() => flags.started, 10_000);
 
         // Pas de content-type json : le POST d'annulation n'a pas de corps.
         const res = await fetch(`${base}/api/tasks/${taskId}/cancel`, {
