@@ -112,7 +112,13 @@ function fiche(over: Partial<Fiche> = {}): Fiche {
         succes: false,
         dureeMs: 65_000,
         createdAt: 2,
-        ressources: { portee: 'arbre', releves: 12, cpuMs: 2_500, picOctets: 300 * 1024 * 1024 },
+        ressources: {
+          portee: 'arbre',
+          releves: 12,
+          cpuMs: 2_500,
+          picOctets: 300 * 1024 * 1024,
+          memoire: 'pss',
+        },
       },
       {
         resultId: 1,
@@ -249,8 +255,8 @@ describe('la fiche', () => {
     // Les ressources de l'AGENT (#558), dites comme dans le tiroir de la tâche
     // — jamais les compteurs du processus du nœud.
     expect(ligne!.querySelector('.fw-ressources')?.textContent).toBe(
-      'arbre de processus de l’agent : au moins 2.5 s CPU · pic RSS échantillonné 300 Mio · ' +
-        '12 relevés toutes les 5 s',
+      'arbre de processus de l’agent : au moins 2.5 s CPU · pic mémoire échantillonné 300 Mio ' +
+        '(Pss — pages partagées réparties) · 12 relevés toutes les 5 s',
     );
     expect(ancienne!.querySelector('.fw-ressources')?.textContent).toBe(
       'ressources de l’agent non mesurées — nœud d’une version antérieure, qui ne mesurait ' +

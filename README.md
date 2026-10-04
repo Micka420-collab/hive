@@ -122,11 +122,15 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
 - **Orchestration.** Graphe de délégation borné et persistant, Workers
   (identité, historique, limites d'autonomie), Evaluator et contre-revue
   exacte, visibles dans Mission Control. Les ressources d'une exécution sont
-  celles de l'**agent**, mesurées sur l'arbre de ses processus ou sur son
-  conteneur — jamais sur le nœud : CPU au dernier relevé (un plancher), pic de
-  mémoire échantillonné ou tenu par le noyau ; « non mesurées », avec la
-  raison, là où rien ne se mesure (Windows hors conteneur, nœud plus ancien).
-  Les validations du bac et les fusions n'en portent aucune.
+  celles de l'**agent**, mesurées sur l'arbre de ses processus (et sa session)
+  ou sur son conteneur — jamais sur le nœud : CPU au dernier relevé (un
+  plancher), et un pic de mémoire qui dit lequel il est — le Pss de l'arbre
+  sous Linux (pages partagées réparties), sinon la somme de ses RSS (une page
+  partagée comptée par processus : Claude Code et ses serveurs MCP y pèsent
+  trois fois leur vrai poids), ou le pic du conteneur tenu par le noyau ;
+  « trop bref » sous deux relevés ; « non mesurées », avec la raison, là où
+  rien ne se mesure (Windows hors conteneur, nœud plus ancien). Les
+  validations du bac et les fusions n'en portent aucune.
 - **Validations sans GitHub.** Après une production réussie, le nœud lance
   dans son bac les scripts `test`, `typecheck`, `build` et `lint` que le dépôt
   déclarait **avant** la production (rien, si la production a touché aux

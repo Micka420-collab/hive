@@ -212,9 +212,11 @@ describe('parseClientMessage', () => {
         }),
       );
     for (const ressources of [
-      { portee: 'arbre', releves: 7, cpuMs: 1_234, picOctets: 512 * 1024 * 1024 },
-      { portee: 'conteneur', releves: 2, cpuMs: 80, picOctets: 9_000, picNoyau: true },
-      { portee: 'conteneur', releves: 1, picOctets: 9_000 },
+      { portee: 'arbre', releves: 7, cpuMs: 1_234, picOctets: 512 * 1024 * 1024, memoire: 'pss' },
+      { portee: 'arbre', releves: 2, cpuMs: 9, picOctets: 700, memoire: 'somme_rss' },
+      { portee: 'arbre', releves: 3, cpuMs: 10 },
+      { portee: 'conteneur', releves: 2, cpuMs: 80, picOctets: 9_000, memoire: 'noyau' },
+      { portee: 'conteneur', releves: 1, picOctets: 9_000, memoire: 'moteur' },
       { portee: 'aucune', raison: 'plateforme' },
     ]) {
       expect(resultat({ ressources }), JSON.stringify(ressources)).toMatchObject({
@@ -246,10 +248,15 @@ describe('parseClientMessage', () => {
       { ressources: { portee: 'arbre', releves: 0, cpuMs: 1 } },
       { ressources: { portee: 'arbre', releves: 1 } },
       { ressources: { portee: 'arbre', releves: 1, cpuMs: -5 } },
-      { ressources: { portee: 'arbre', releves: 1, cpuMs: 5, picNoyau: true } },
+      // Une mémoire sans dire laquelle, ou l'inverse, ou une que sa portée ne lit pas.
+      { ressources: { portee: 'arbre', releves: 1, picOctets: 9 } },
+      { ressources: { portee: 'arbre', releves: 1, cpuMs: 5, memoire: 'pss' } },
+      { ressources: { portee: 'arbre', releves: 1, picOctets: 9, memoire: 'noyau' } },
+      { ressources: { portee: 'conteneur', releves: 1, picOctets: 9, memoire: 'pss' } },
+      { ressources: { portee: 'arbre', releves: 1, picOctets: 9, memoire: 'vss' } },
       { ressources: { portee: 'noeud', releves: 1, cpuMs: 5 } },
       { ressources: { portee: 'aucune', raison: 'flemme' } },
-      { ressources: { portee: 'arbre', releves: 1, picOctets: 2 ** 51 } },
+      { ressources: { portee: 'arbre', releves: 1, picOctets: 2 ** 51, memoire: 'pss' } },
     ]) {
       const msg = resultat(mesure);
       expect(msg?.type, JSON.stringify(mesure)).toBe('task_result');
@@ -271,7 +278,13 @@ describe('parseClientMessage', () => {
           ...mesure,
         }),
       );
-    const ressources = { portee: 'arbre', releves: 2, cpuMs: 300, picOctets: 1_000 };
+    const ressources = {
+      portee: 'arbre',
+      releves: 2,
+      cpuMs: 300,
+      picOctets: 1_000,
+      memoire: 'pss',
+    };
     expect(resultat({ ressources })).toMatchObject({ ressources });
     expect(
       resultat({

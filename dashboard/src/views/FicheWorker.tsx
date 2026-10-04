@@ -290,7 +290,7 @@ export function FicheWorker({
                       <td className="fw-num">{formatMs(m.dureeMs)}</td>
                       {/* Celles de l'AGENT (#558), dites comme dans le tiroir de la
                           tâche — jamais les compteurs du processus du nœud. */}
-                      <td className="fw-ressources">{direRessources(m.ressources, t)}</td>
+                      <td className="fw-ressources">{direRessources(m.ressources, t, lang)}</td>
                     </tr>
                   ))}
                 </tbody>

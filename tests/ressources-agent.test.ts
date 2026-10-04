@@ -151,10 +151,11 @@ describe.skipIf(process.platform === 'win32')(
       s.store.patchTask(lourd.id, { status: 'ready' });
       s.store.patchTask(leger.id, { status: 'ready' });
       // Les deux agents tournent ; le lourd a fini son travail QUAND un relevé
-      // voit ses 50 Mio. Alors seulement, le signal de fin.
+      // voit ses 50 Mio (à lui seul : son Pss les compte entiers). Alors
+      // seulement, le signal de fin.
       await attendre(
         () =>
-          Number(mesureDirecte(vue.recus, lourd.id)?.rssOctets ?? 0) >= 70 * MIO &&
+          Number(mesureDirecte(vue.recus, lourd.id)?.memoireOctets ?? 0) >= 50 * MIO &&
           mesureDirecte(vue.recus, leger.id) !== undefined,
         'aucun relevé ne voit le travail de l’agent lourd',
         60_000,
@@ -185,7 +186,8 @@ describe.skipIf(process.platform === 'win32')(
       expect(g.cpuMs).toBeLessThan(l.cpuMs! - 200);
       // Le pic est celui de SON arbre — pas celui du nœud, le même pour les deux.
       expect(l.picOctets).toBeGreaterThanOrEqual(g.picOctets! + 35 * MIO);
-      expect(l.picNoyau, 'un arbre n’a pas de pic tenu par le noyau').toBeUndefined();
+      // Le Pss sous Linux ; la somme des RSS, NOMMÉE, là où il ne se lit pas (`ps`).
+      expect(l.memoire).toBe(process.platform === 'linux' ? 'pss' : 'somme_rss');
       // Le résumé de la tâche porte la même mesure que son résultat.
       expect(s.store.getTask(lourd.id)?.result?.ressources).toEqual(l);
 
@@ -198,6 +200,79 @@ describe.skipIf(process.platform === 'win32')(
         expect('usage' in m, 'une Reine plus ancienne rejetterait le résultat entier').toBe(false);
       }
     }, 90_000);
+
+    it('EXCEPTION APRÈS L’AGENT, ANNULATION, DÉLAI DÉPASSÉ : le résultat porte la mesure de l’agent', async () => {
+      dossier = mkdtempSync(path.join(os.tmpdir(), 'ressources-echecs-'));
+      const envoyes = vi.spyOn(WebSocket.prototype, 'send');
+      serveur = await createServer({
+        port: 0,
+        host: '127.0.0.1',
+        token: JETON,
+        corsOrigins: ['http://localhost:5173'],
+        dbPath: path.join(dossier, 'hive.db'),
+        simulation: false,
+        tickMs: 40,
+      });
+      const s = serveur;
+      const dort = (ms: number) => ['-e', `setTimeout(() => {}, ${ms})`];
+      client = new HiveNodeClient({
+        url: `ws://127.0.0.1:${s.port}/ws`,
+        token: JETON,
+        name: 'ouvriere-echecs',
+        ownerName: 'banc',
+        agentType: 'custom',
+        maxConcurrency: 3,
+        workRoot: path.join(dossier, 'travail'),
+        adapter: {
+          name: 'banc',
+          async run(task, ctx) {
+            if (task.title === 'exception') {
+              await runCommand(process.execPath, dort(1_000), ctx, 60_000);
+              throw new Error('panne après l’agent');
+            }
+            // `expiree` : tué par son délai ; `annulee` : par l'annulation.
+            const delai = task.title === 'expiree' ? 1_500 : 60_000;
+            return runCommand(process.execPath, dort(120_000), ctx, delai);
+          },
+        },
+        quiet: true,
+      });
+      client.start();
+      await attendre(
+        () => s.store.listNodes().some((n) => n.status === 'online'),
+        'le nœud ne rejoint pas la ruche',
+      );
+      const p = s.store.createProject({ name: 'P' });
+      const taches = ['exception', 'annulee', 'expiree'].map((title) => {
+        const t = s.store.createTask({ projectId: p.id, title, prompt: 'x' });
+        s.store.patchTask(t.id, { status: 'ready' });
+        return t;
+      });
+      const resultats = () =>
+        envoyes.mock.calls
+          .map(([brut]) => JSON.parse(String(brut)) as Record<string, unknown>)
+          .filter((m) => m.type === 'task_result');
+      const annulee = taches[1]!;
+      await attendre(
+        () => s.store.getTask(annulee.id)?.status === 'running',
+        'la tâche à annuler ne tourne pas',
+      );
+      // Le temps qu'un relevé voie l'agent, puis l'annulation par la Reine.
+      await new Promise((r) => setTimeout(r, 500));
+      const r = await fetch(`http://127.0.0.1:${s.port}/api/tasks/${annulee.id}/cancel`, {
+        method: 'POST',
+        headers: { 'x-hive-token': JETON, 'content-type': 'application/json' },
+        body: '{}',
+      });
+      expect(r.status).toBe(200);
+      await attendre(() => resultats().length === 3, 'les trois résultats ne partent pas');
+      for (const t of taches) {
+        const m = resultats().find((x) => x.taskId === t.id)!;
+        expect(m.success, t.title).toBe(false);
+        expect(m.ressources, t.title).toMatchObject({ portee: 'arbre' });
+        expect('usage' in m, t.title).toBe(false);
+      }
+    }, 60_000);
   },
 );
 
@@ -214,7 +289,7 @@ describe('la mesure rangée avec son résultat', () => {
         releves: 3,
         cpuMs: 1_234,
         picOctets: 300 * MIO,
-        picNoyau: true,
+        memoire: 'noyau',
       };
       const resultat = (extra: object) =>
         store.insertResult({

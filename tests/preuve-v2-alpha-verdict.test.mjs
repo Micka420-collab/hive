@@ -37,7 +37,7 @@ const complet = () => ({
         releves: 4,
         cpuMs: 50,
         picOctets: 64 * 1_048_576,
-        picNoyau: true,
+        memoire: 'noyau',
       },
     },
   },
@@ -87,7 +87,7 @@ describe('preuve V2 Alpha — le verdict', () => {
     expect(etat(v, 'B').detail).toBe('0.0421 $ déclarés par le CLI');
     expect(etat(v, 'C').detail).toContain('modèle 6.5 s');
     expect(etat(v, 'D').detail).toBe(
-      'conteneur de l’agent : au moins 50 ms CPU · pic 64.0 MiB (noyau) · 4 relevé(s)',
+      'conteneur de l’agent : au moins 50 ms CPU · pic 64.0 MiB (noyau) · 4 relevés',
     );
     expect(etat(v, 'E').detail, 'le Genome du modèle ÉLU, pas un autre').toContain(
       '1 rendu(s) rangé(s) sous « sonnet » (exact : claude-sonnet-4-5)',
@@ -107,11 +107,30 @@ describe('preuve V2 Alpha — le verdict', () => {
       etat: 'inconnu',
       detail: 'non mesurées : nœud d’une version antérieure, qui ne mesurait que lui-même',
     });
-    f.tache.result.ressources = { portee: 'arbre', releves: 2, cpuMs: 1_500, picOctets: 1_048_576 };
+    f.tache.result.ressources = {
+      portee: 'arbre',
+      releves: 2,
+      cpuMs: 1_500,
+      picOctets: 1_048_576,
+      memoire: 'somme_rss',
+    };
     expect(etat(jugerV2Alpha(f), 'D')).toMatchObject({
       etat: 'prouve',
       detail:
-        'arbre de processus de l’agent : au moins 1.5 s CPU · pic 1.0 MiB échantillonné · 2 relevé(s)',
+        'arbre de processus de l’agent : au moins 1.5 s CPU · pic 1.0 MiB échantillonné ' +
+        '(somme des RSS de l’arbre, pages partagées comptées par processus) · 2 relevés',
+    });
+    // Un seul relevé, au départ : pas de fenêtre — « au moins 0 ms » ne prouve rien.
+    f.tache.result.ressources = {
+      portee: 'arbre',
+      releves: 1,
+      cpuMs: 0,
+      picOctets: 1_048_576,
+      memoire: 'pss',
+    };
+    expect(etat(jugerV2Alpha(f), 'D')).toMatchObject({
+      etat: 'inconnu',
+      detail: 'trop bref pour être mesuré (un seul relevé)',
     });
   });
 

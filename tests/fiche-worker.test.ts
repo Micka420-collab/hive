@@ -414,7 +414,13 @@ describe('GET /api/workers/:nodeId/fiche', () => {
       durationMs: 1200,
       subAgents: [],
       // La mesure de l'AGENT (#558), rangée au journal avec le résultat.
-      ressources: { portee: 'arbre', releves: 2, cpuMs: 330, picOctets: 100 * 1024 * 1024 },
+      ressources: {
+        portee: 'arbre',
+        releves: 2,
+        cpuMs: 330,
+        picOctets: 100 * 1024 * 1024,
+        memoire: 'pss',
+      },
     });
     s.insertResult({
       taskId: autre.id,
@@ -508,7 +514,7 @@ describe('GET /api/workers/:nodeId/fiche', () => {
     // d'avant (le processus du nœud) se dit `noeud_ancien`, jamais en chiffres.
     expect(fiche.missions.map((m) => m.ressources)).toEqual([
       { portee: 'aucune', raison: 'noeud_ancien' },
-      { portee: 'arbre', releves: 2, cpuMs: 330, picOctets: 100 * 1024 * 1024 },
+      { portee: 'arbre', releves: 2, cpuMs: 330, picOctets: 100 * 1024 * 1024, memoire: 'pss' },
     ]);
     expect(JSON.stringify(fiche.missions)).not.toMatch(/userCpuMicros|maxRssBytes|usage/);
     // La leçon est la sienne, et le jeton de la Reine n'en sort jamais.

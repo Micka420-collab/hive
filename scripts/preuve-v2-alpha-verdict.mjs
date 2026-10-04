@@ -49,6 +49,14 @@ const ms = (v) => (v >= 1000 ? `${(v / 1000).toFixed(1)} s` : `${Math.round(v)} 
 const couverture = (s) =>
   s.declarees === s.tentatives ? '' : ` (${s.declarees}/${s.tentatives} tentatives déclarées)`;
 
+/** Quelle mémoire le pic décrit (`MemoireMesuree`) — dit, jamais deviné. */
+const PIC_MEMOIRE = {
+  pss: 'échantillonné (Pss, pages partagées réparties)',
+  somme_rss: 'échantillonné (somme des RSS de l’arbre, pages partagées comptées par processus)',
+  noyau: '(noyau)',
+  moteur: 'échantillonné (selon le moteur)',
+};
+
 /** Pourquoi les ressources de l'agent ne sont pas mesurées (`RaisonSansMesure`). */
 const SANS_MESURE = {
   plateforme: 'Windows hors conteneur, sans table des processus lisible',
@@ -164,18 +172,18 @@ export function jugerV2Alpha(faits) {
   // conteneur. Ce qu'un nœud plus ancien envoyait décrivait SON processus — la
   // Reine le relit `noeud_ancien` : inconnu, jamais prouvé.
   const r = faits.tache?.result?.ressources;
-  if (r?.portee === 'arbre' || r?.portee === 'conteneur') {
+  if ((r?.portee === 'arbre' || r?.portee === 'conteneur') && r.releves >= 2) {
     const sujet = r.portee === 'arbre' ? 'arbre de processus de l’agent' : 'conteneur de l’agent';
     const cpu = typeof r.cpuMs === 'number' ? `au moins ${ms(r.cpuMs)} CPU` : 'CPU non mesuré';
     const pic =
-      typeof r.picOctets === 'number'
-        ? `pic ${(r.picOctets / 1048576).toFixed(1)} MiB ${r.picNoyau ? '(noyau)' : 'échantillonné'}`
+      typeof r.picOctets === 'number' && r.memoire in PIC_MEMOIRE
+        ? `pic ${(r.picOctets / 1048576).toFixed(1)} MiB ${PIC_MEMOIRE[r.memoire]}`
         : 'mémoire non mesurée';
     dire(
       'D',
       'Ressources de l’agent',
       'prouve',
-      `${sujet} : ${cpu} · ${pic} · ${r.releves} relevé(s)`,
+      `${sujet} : ${cpu} · ${pic} · ${r.releves} relevés`,
     );
   } else {
     dire(
@@ -184,7 +192,10 @@ export function jugerV2Alpha(faits) {
       'inconnu',
       r?.portee === 'aucune'
         ? `non mesurées : ${SANS_MESURE[r.raison] ?? r.raison}`
-        : 'le nœud n’a rendu aucune mesure de l’agent',
+        : r?.portee === 'arbre' || r?.portee === 'conteneur'
+          ? // Un seul relevé, au départ : pas de fenêtre — rien n'est prouvé.
+            'trop bref pour être mesuré (un seul relevé)'
+          : 'le nœud n’a rendu aucune mesure de l’agent',
     );
   }
 

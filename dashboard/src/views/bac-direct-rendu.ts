@@ -8,6 +8,7 @@
 import type {
   DirectTache,
   EtatControleDirect,
+  MetriquesDirect,
   PhaseDirect,
 } from '../../../src/shared/bac-direct.js';
 import type { PresenceFichier } from '../../../src/shared/presence.js';
@@ -75,10 +76,10 @@ export function etatsDesEtapes(phase: PhaseDirect | undefined): Record<PhaseDire
   };
 }
 
-/** Octets lisibles : « 312 Mio ». */
-export function octetsLisibles(n: number): string {
-  if (n < 1024) return `${n} o`;
-  const unites = ['Kio', 'Mio', 'Gio', 'Tio'];
+/** Octets lisibles : « 312 Mio » en français, « 312 MiB » en anglais. */
+export function octetsLisibles(n: number, lang: 'fr' | 'en' = 'fr'): string {
+  if (n < 1024) return lang === 'fr' ? `${n} o` : `${n} B`;
+  const unites = lang === 'fr' ? ['Kio', 'Mio', 'Gio', 'Tio'] : ['KiB', 'MiB', 'GiB', 'TiB'];
   let v = n / 1024;
   let u = 0;
   while (v >= 1024 && u < unites.length - 1) {
@@ -88,17 +89,25 @@ export function octetsLisibles(n: number): string {
   return `${v >= 100 ? Math.round(v) : v.toFixed(1)} ${unites[u]}`;
 }
 
-/** Les trois mesures, chacune lisible ou `null` (« inconnu » à l'écran). */
-export function mesuresLisibles(direct: DirectTache | undefined): {
+/**
+ * Les trois mesures, chacune lisible ou `null` (« inconnu » à l'écran) — et
+ * QUELLE mémoire c'est (`natureMemoire`), telle que le nœud l'a dite.
+ */
+export function mesuresLisibles(
+  direct: DirectTache | undefined,
+  lang: 'fr' | 'en' = 'fr',
+): {
   cpu: string | null;
   memoire: string | null;
+  natureMemoire: NonNullable<MetriquesDirect['memoire']> | null;
   processus: string | null;
   source: 'arbre' | 'conteneur' | null;
 } {
   const m = direct?.metriques;
   return {
     cpu: m?.cpuPct !== undefined ? `${m.cpuPct.toFixed(m.cpuPct >= 100 ? 0 : 1)} %` : null,
-    memoire: m?.rssOctets !== undefined ? octetsLisibles(m.rssOctets) : null,
+    memoire: m?.memoireOctets !== undefined ? octetsLisibles(m.memoireOctets, lang) : null,
+    natureMemoire: m?.memoireOctets !== undefined ? (m.memoire ?? null) : null,
     processus: m?.processus !== undefined ? String(m.processus) : null,
     source: m?.source ?? null,
   };

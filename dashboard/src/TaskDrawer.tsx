@@ -16,7 +16,7 @@ import { ressourcesLues } from '../../src/shared/protocol';
 import { direRessources } from './ressources-agent';
 import { useLang, useT } from './i18n';
 import { Skeleton } from './composants';
-import { formatMs, NOTE_COUT_DECLARE, StatusBadge, useDialog } from './ui';
+import { direUsd, formatMs, NOTE_COUT_DECLARE, StatusBadge, useDialog } from './ui';
 import { direAnnonce, direDuree } from '../../src/shared/horloge-chantier';
 import { arreteeParSonBudget } from '../../src/shared/arret-budgetaire';
 import { verdictAnnonce } from './horloge-vue';
@@ -126,15 +126,17 @@ function enveloppeDelegation(e: EnveloppeDelegation, t: ReturnType<typeof useT>)
 
 /**
  * La durée réellement observée vient du résultat persisté, relayé dans
- * `delegation_result`. Le budget demandé ne doit jamais être présenté comme
- * une consommation. Le COÛT n'est pas dit ici : c'est l'estimation que le CLI
- * déclare, et elle a sa ligne — la dépense déclarée de l'enveloppe, sous le
- * libellé canonique (`NOTE_COUT_DECLARE`). « Non mesuré » ici la contredisait.
+ * `delegation_result` — et, avec elle, les ressources de l'agent de l'enfant
+ * et le coût que SON CLI a déclaré, s'il en a déclaré un. Le budget demandé
+ * n'est jamais présenté comme une consommation, ni un coût comme estimé — ni
+ * comme « non mesuré », qui contredisait la dépense déclarée de l'enveloppe
+ * (`NOTE_COUT_DECLARE`) : c'est la déclaration du CLI, ou « inconnu ».
  */
 function consommationDelegation(
   events: DelegationEvent[],
   taskId: string,
   t: ReturnType<typeof useT>,
+  lang: 'fr' | 'en',
 ): string {
   const event = [...events]
     .reverse()
@@ -153,9 +155,18 @@ function consommationDelegation(
   // Le journal garde aussi les mesures d'AVANT celle de l'agent (`usage`, les
   // compteurs du nœud) : lues `noeud_ancien`, jamais affichées comme les siennes.
   const ressources = ressourcesLues(event?.payload.ressources, event?.payload.usage);
+  const coutUsd = event?.payload.coutUsd;
+  // Comme « Où est passé le temps » : déclaré par le CLI, ou inconnu — jamais estimé.
+  const cout =
+    typeof coutUsd === 'number' && Number.isFinite(coutUsd) && coutUsd >= 0
+      ? t(
+          `coût fournisseur : ${direUsd(coutUsd, lang)} déclarés par le CLI`,
+          `provider cost: ${direUsd(coutUsd, lang)} declared by the CLI`,
+        )
+      : t('coût fournisseur inconnu — jamais estimé', 'provider cost unknown — never estimated');
   return t(
-    `Dernière exécution mesurée : ${duree} · ${direRessources(ressources, t)}`,
-    `Last measured run: ${duree} · ${direRessources(ressources, t)}`,
+    `Dernière exécution mesurée : ${duree} · ${direRessources(ressources, t, lang)} · ${cout}`,
+    `Last measured run: ${duree} · ${direRessources(ressources, t, lang)} · ${cout}`,
   );
 }
 
@@ -166,8 +177,9 @@ function consommationDelegation(
 function ressourcesObservees(
   ressources: RessourcesExecution | undefined,
   t: ReturnType<typeof useT>,
+  lang: 'fr' | 'en',
 ): string {
-  const dit = direRessources(ressources, t);
+  const dit = direRessources(ressources, t, lang);
   const cout = t(
     'coût fournisseur à part (« Où est passé le temps »)',
     'provider cost shown separately (“Where the time went”)',
@@ -374,7 +386,7 @@ export function TaskDrawer({
           <dd>{task.result ? formatMs(task.result.durationMs) : '—'}</dd>
           <dt>{t('Ressources observées', 'Observed resources')}</dt>
           <dd data-testid="task-observed-resources">
-            {ressourcesObservees(task.result?.ressources, t)}
+            {ressourcesObservees(task.result?.ressources, t, lang)}
           </dd>
           {horloge?.annonce && (
             <>
@@ -477,7 +489,7 @@ export function TaskDrawer({
                         className="delegation-tree-budget"
                         data-testid={`delegation-consumption-${node.taskId}`}
                       >
-                        {consommationDelegation(delegation.events, node.taskId, t)}
+                        {consommationDelegation(delegation.events, node.taskId, t, lang)}
                       </p>
                     )}
                     {reason && <p className="delegation-tree-reason">{reason}</p>}

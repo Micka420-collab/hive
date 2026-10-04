@@ -69,14 +69,16 @@ import type {
   MetriquesDirect,
   PhaseDirect,
 } from '../shared/bac-direct.js';
+import { MEMOIRES_PAR_PORTEE } from '../shared/types.js';
 import type { RessourcesExecution } from '../shared/types.js';
 import type { ValidationKey } from '../shared/validations-bac.js';
 import {
   cpuDuCgroup,
+  cumulCpuMoteur,
   descendance,
   dossierCgroup,
   FORMAT_INSPECT_CGROUP,
-  FORMAT_STATS_MOTEUR,
+  formatStatsMoteur,
   lancerBorne,
   lireInspect,
   lireStatsMoteur,
@@ -156,17 +158,13 @@ interface Attache {
   minuteur: NodeJS.Timeout;
   /** Une mesure en vol : la suivante attend (un moteur lent ne s'empile pas). */
   enMesure: boolean;
-  /** Un conteneur : ce que ses relevés ont vu (CPU du cgroup, mémoire du `stats`). */
+  /**
+   * Un conteneur : ce que ses relevés ont vu — CPU cumulé (cgroup, ou `stats`
+   * de Podman), pic du noyau (`memory.peak`) et pic du `stats` du moteur.
+   */
   bilan: BilanReleves;
-  /** Le plus haut `memory.peak` lu : le pic tenu par le noyau. */
-  picNoyau?: number;
   /** Son dossier cgroup v2 : à chercher (`undefined`), introuvable ici (`null`), ou trouvé. */
   cgroup?: string | null;
-}
-
-/** Le bilan d'un conteneur : le pic du noyau, s'il a été lu, l'emporte sur les relevés. */
-function bilanConteneur(a: Attache): BilanReleves {
-  return a.picNoyau === undefined ? a.bilan : { ...a.bilan, picOctets: a.picNoyau, picNoyau: true };
 }
 
 export class PiloteExecution implements PiloteProcessus {
@@ -265,7 +263,7 @@ export class PiloteExecution implements PiloteProcessus {
       mesure: new MesureArbre(p.pid),
       minuteur,
       enMesure: false,
-      bilan: { releves: 0 },
+      bilan: { releves: 0, pics: {} },
     };
     this.attache = attache;
     this.passages.push(attache);
@@ -306,18 +304,20 @@ export class PiloteExecution implements PiloteProcessus {
         const [r, cgroupLu] = await Promise.all([
           this.sondes.moteur(
             bin,
-            ['stats', '--no-stream', '--format', FORMAT_STATS_MOTEUR, nom],
+            ['stats', '--no-stream', '--format', formatStatsMoteur(bin), nom],
             env,
           ),
           this.releverCgroup(a),
         ]);
         m = r.code === 0 ? lireStatsMoteur(r.sortie) : null;
-        // Le `stats` n'a pas de cumul : son CPU est un pourcentage de l'instant.
-        // Sa mémoire, si, entre au bilan — un pic échantillonné.
-        if (m?.rssOctets !== undefined) {
-          a.bilan.picOctets = Math.max(a.bilan.picOctets ?? 0, m.rssOctets);
+        // Le pourcentage de CPU du `stats` est celui de l'instant ; son cumul
+        // (Podman seul) et sa mémoire — un pic échantillonné — entrent au bilan.
+        const cumul = r.code === 0 ? cumulCpuMoteur(r.sortie) : null;
+        if (cumul !== null) a.bilan.cpuMs = Math.max(a.bilan.cpuMs ?? 0, cumul);
+        if (m?.memoireOctets !== undefined) {
+          a.bilan.pics.moteur = Math.max(a.bilan.pics.moteur ?? 0, m.memoireOctets);
         }
-        if (cgroupLu || m?.rssOctets !== undefined) a.bilan.releves += 1;
+        if (cgroupLu || cumul !== null || m?.memoireOctets !== undefined) a.bilan.releves += 1;
       } else {
         const table = await this.sondes.table();
         const arbre =
@@ -356,9 +356,12 @@ export class PiloteExecution implements PiloteProcessus {
         // Pas encore lancé (ou déjà reparti) : le relevé suivant réessaiera.
         const vu = r.code === 0 ? lireInspect(r.sortie) : null;
         if (!vu) return false;
-        // Un cgroup qui ne porte pas son identifiant n'est pas le sien : on
-        // cesse de chercher, plutôt que de lire celui d'un inconnu.
-        a.cgroup = dossierCgroup(vu.id, await lire(`/proc/${vu.pid}/cgroup`));
+        // Un pid sans `/proc` ici (VM, moteur distant, autre espace de pid), ou
+        // un cgroup qui ne porte pas l'identifiant du conteneur : ce n'est pas
+        // le sien. On cesse de chercher — un `inspect` par relevé, sinon —
+        // plutôt que de lire celui d'un inconnu.
+        const texte = await lire(`/proc/${vu.pid}/cgroup`).catch(() => null);
+        a.cgroup = texte === null ? null : dossierCgroup(vu.id, texte);
         if (a.cgroup === null) return false;
       }
       const dossier = a.cgroup;
@@ -367,7 +370,7 @@ export class PiloteExecution implements PiloteProcessus {
         lire(`${dossier}/memory.peak`).then(picDuCgroup, () => null),
       ]);
       if (cpu !== null) a.bilan.cpuMs = Math.max(a.bilan.cpuMs ?? 0, cpu);
-      if (pic !== null) a.picNoyau = Math.max(a.picNoyau ?? 0, pic);
+      if (pic !== null) a.bilan.pics.noyau = Math.max(a.bilan.pics.noyau ?? 0, pic);
       return cpu !== null || pic !== null;
     } catch {
       return false;
@@ -389,29 +392,27 @@ export class PiloteExecution implements PiloteProcessus {
     if (!conteneur && this.sondes.plateforme === 'win32') {
       return { portee: 'aucune', raison: 'plateforme' };
     }
-    let releves = 0;
-    let cpuMs: number | undefined;
-    let picOctets: number | undefined;
-    let picNoyau = true;
-    for (const a of this.passages) {
-      const b = a.p.conteneur ? bilanConteneur(a) : a.mesure.bilan();
-      if (b.releves === 0) continue;
-      releves += b.releves;
-      if (b.cpuMs !== undefined) cpuMs = (cpuMs ?? 0) + b.cpuMs;
-      if (b.picOctets !== undefined) {
-        picOctets = Math.max(picOctets ?? 0, b.picOctets);
-        picNoyau &&= b.picNoyau === true;
-      }
-    }
-    if (cpuMs === undefined && picOctets === undefined) {
+    const bilans = this.passages
+      .map((a) => (a.p.conteneur ? a.bilan : a.mesure.bilan()))
+      .filter((b) => b.releves > 0);
+    const releves = bilans.reduce((n, b) => n + b.releves, 0);
+    const cpus = bilans.flatMap((b) => (b.cpuMs !== undefined ? [b.cpuMs] : []));
+    const avecMemoire = bilans.filter((b) => Object.keys(b.pics).length > 0);
+    // La plus juste que TOUS les passages ont lue : un plus haut fait de deux
+    // mémoires différentes ne serait ni l'une ni l'autre.
+    const memoire = MEMOIRES_PAR_PORTEE[conteneur ? 'conteneur' : 'arbre'].find(
+      (k) => avecMemoire.length > 0 && avecMemoire.every((b) => b.pics[k] !== undefined),
+    );
+    if (cpus.length === 0 && memoire === undefined) {
       return { portee: 'aucune', raison: 'aucun_releve' };
     }
     return {
       portee: conteneur ? 'conteneur' : 'arbre',
       releves,
-      ...(cpuMs !== undefined ? { cpuMs } : {}),
-      ...(picOctets !== undefined ? { picOctets } : {}),
-      ...(picOctets !== undefined && picNoyau ? { picNoyau: true as const } : {}),
+      ...(cpus.length > 0 ? { cpuMs: cpus.reduce((t, ms) => t + ms, 0) } : {}),
+      ...(memoire !== undefined
+        ? { picOctets: Math.max(...avecMemoire.map((b) => b.pics[memoire]!)), memoire }
+        : {}),
     };
   }
 

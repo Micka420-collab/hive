@@ -220,13 +220,23 @@ describe('Sandbox Live — la vue, dans la coquille', () => {
         't-live',
         direct({
           phase: 'validations',
-          metriques: { source: 'arbre', cpuPct: 42.5, rssOctets: 300 * 1024 ** 2, processus: 3 },
+          metriques: {
+            source: 'arbre',
+            cpuPct: 42.5,
+            memoireOctets: 300 * 1024 ** 2,
+            memoire: 'somme_rss',
+            processus: 3,
+          },
           controles: { lint: 'passed', tests: 'en_cours' },
         }),
       ),
     );
     expect(texte(dom, 'bd-mesures')).toContain('42.5 %');
-    expect(texte(dom, 'bd-mesures')).toContain('300 Mio');
+    // La mémoire dit laquelle elle est : ici la somme des RSS, qui compte une
+    // page partagée par processus — jamais présentée comme autre chose.
+    expect(texte(dom, 'bd-mesures')).toContain(
+      '300 Mio (somme des RSS — pages partagées comptées par processus)',
+    );
     expect(texte(dom, 'bd-controles')).toContain('lintréussie');
     expect(texte(dom, 'bd-controles')).toContain('testsen cours');
   });

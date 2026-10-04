@@ -33,13 +33,16 @@ import type { HorlogeMinuteur } from '../src/shared/minuteur-suspendable.js';
 import { parseClientMessage, parseServerMessage } from '../src/shared/protocol.js';
 import {
   cpuDuCgroup,
+  cumulCpuMoteur,
   descendance,
   dossierCgroup,
   dureePs,
+  formatStatsMoteur,
   lireInspect,
   lireSortiePs,
   lireStatProc,
   picDuCgroup,
+  pssDeSmaps,
   taillePageAuxv,
   lireStatsMoteur,
   MesureArbre,
@@ -64,7 +67,11 @@ describe('l’état en direct — validé, borné, fusionné', () => {
       { pausable: 'oui' },
       { metriques: { source: 'gpu' } },
       { metriques: { source: 'arbre', cpuPct: -1 } },
-      { metriques: { source: 'arbre', rssOctets: Number.NaN } },
+      { metriques: { source: 'arbre', memoireOctets: Number.NaN, memoire: 'pss' } },
+      // Une mémoire sans dire laquelle, ou une que la source ne peut pas lire.
+      { metriques: { source: 'arbre', memoireOctets: 10 } },
+      { metriques: { source: 'arbre', memoireOctets: 10, memoire: 'moteur' } },
+      { metriques: { source: 'conteneur', memoireOctets: 10, memoire: 'noyau' } },
       { metriques: { source: 'arbre', processus: 1.5 } },
       { controles: { deploiement: 'passed' } },
       { controles: { tests: 'vert' } },
@@ -78,10 +85,10 @@ describe('l’état en direct — validé, borné, fusionné', () => {
       undefined,
       't1',
       'n1',
-      { metriques: { source: 'arbre', rssOctets: 10 } },
+      { metriques: { source: 'arbre', memoireOctets: 10, memoire: 'pss' } },
       100,
     );
-    expect(a).toMatchObject({ metriques: { rssOctets: 10 }, metriquesA: 100 });
+    expect(a).toMatchObject({ metriques: { memoireOctets: 10, memoire: 'pss' }, metriquesA: 100 });
     const b = fusionnerDirect(a, 't1', 'n1', { metriques: null }, 200);
     expect(b.metriques).toBeUndefined();
     expect(b.metriquesA).toBeUndefined();
@@ -261,11 +268,14 @@ describe('l’arbre des sous-agents', () => {
 
 describe('lire une mesure — telle qu’elle est, ou pas du tout', () => {
   it('/proc/<pid>/stat : un nom de commande à parenthèses et espaces ne décale rien', () => {
-    // utime 150, stime 50 ; cutime 30, cstime 10 (les enfants moissonnés) ; rss 256.
+    // ppid 41, groupe 41, session 40 ; utime 150, stime 50 ; cutime 30, cstime 10
+    // (les enfants moissonnés) ; rss 256.
     const champs = [
       'S',
       '41',
-      ...Array(9).fill('0'),
+      '41',
+      '40',
+      ...Array(7).fill('0'),
       '150',
       '50',
       '30',
@@ -277,6 +287,7 @@ describe('lire une mesure — telle qu’elle est, ou pas du tout', () => {
     expect(lireStatProc(42, ligne, 4096)).toEqual({
       pid: 42,
       ppid: 41,
+      session: 40,
       cpuMs: 2_000,
       cpuEnfantsMs: 400,
       rssOctets: 256 * 4096,
@@ -287,6 +298,7 @@ describe('lire une mesure — telle qu’elle est, ou pas du tout', () => {
     expect(lireStatProc(42, ligne, null)).toEqual({
       pid: 42,
       ppid: 41,
+      session: 40,
       cpuMs: 2_000,
       cpuEnfantsMs: 400,
     });
@@ -295,7 +307,7 @@ describe('lire une mesure — telle qu’elle est, ou pas du tout', () => {
 
   it('le BILAN de l’arbre : enfants moissonnés comptés, orphelin gardé, pic échantillonné', () => {
     const m = new MesureArbre(10);
-    expect(m.bilan(), 'aucun relevé : aucun nombre').toEqual({ releves: 0 });
+    expect(m.bilan(), 'aucun relevé : aucun nombre').toEqual({ releves: 0, pics: {} });
     // 11 travaille ; 10 a déjà moissonné 400 ms d'enfants brefs, jamais vus vivants.
     m.relever(
       [
@@ -305,11 +317,11 @@ describe('lire une mesure — telle qu’elle est, ou pas du tout', () => {
       ],
       0,
     );
-    expect(m.bilan()).toEqual({ releves: 1, cpuMs: 800, picOctets: 1_000 });
+    expect(m.bilan()).toEqual({ releves: 1, cpuMs: 800, pics: { somme_rss: 1_000 } });
     // 11 a fini et 10 l'a moissonné : son CPU PASSE dans le `cutime` de 10,
     // compté une fois. Le pic, lui, reste le plus haut relevé.
     m.relever([{ pid: 10, ppid: 1, cpuMs: 150, cpuEnfantsMs: 750, rssOctets: 100 }], 1_000);
-    expect(m.bilan()).toEqual({ releves: 2, cpuMs: 900, picOctets: 1_000 });
+    expect(m.bilan()).toEqual({ releves: 2, cpuMs: 900, pics: { somme_rss: 1_000 } });
     // Sous `ps` (pas de `cutime`), un processus sorti garde son dernier CPU vu.
     const ps = new MesureArbre(20);
     ps.relever(
@@ -320,7 +332,67 @@ describe('lire une mesure — telle qu’elle est, ou pas du tout', () => {
       0,
     );
     ps.relever([{ pid: 20, ppid: 1, cpuMs: 120, rssOctets: 10 }], 1_000);
-    expect(ps.bilan()).toEqual({ releves: 2, cpuMs: 620, picOctets: 20 });
+    expect(ps.bilan()).toEqual({ releves: 2, cpuMs: 620, pics: { somme_rss: 20 } });
+  });
+
+  it('la mémoire de l’arbre est son Pss : une page partagée n’y compte qu’UNE fois', () => {
+    // Claude Code et trois serveurs MCP inactifs : chacun « voit » 40 Mio de
+    // pages communes ; la somme des RSS les compte quatre fois.
+    const MIO = 1024 ** 2;
+    const arbre = [10, 11, 12, 13].map((pid) => ({
+      pid,
+      ppid: pid === 10 ? 1 : 10,
+      cpuMs: 0,
+      rssOctets: 44 * MIO,
+      pssOctets: 14 * MIO,
+    }));
+    const m = new MesureArbre(10);
+    expect(m.relever(arbre, 0)).toMatchObject({ memoireOctets: 56 * MIO, memoire: 'pss' });
+    expect(m.bilan().pics).toEqual({ pss: 56 * MIO, somme_rss: 176 * MIO });
+    // Un seul Pss illisible (un processus d'un autre utilisateur) : la somme
+    // des RSS, NOMMÉE — et le pic Pss ne vaut plus pour toute l'exécution.
+    const { pssOctets: _illisible, ...sansPss } = arbre[3]!;
+    expect(m.relever([...arbre.slice(0, 3), sansPss], 1_000)).toMatchObject({
+      memoireOctets: 176 * MIO,
+      memoire: 'somme_rss',
+    });
+    expect(m.bilan().pics).toEqual({ somme_rss: 176 * MIO });
+    expect(pssDeSmaps('Rss:   45056 kB\nPss:   14336 kB\nPss_Anon: 1 kB\n')).toBe(14 * MIO);
+    expect(pssDeSmaps('Rss: 1 kB')).toBeNull();
+  });
+
+  it('les ÉCHAPPÉS de la session de l’agent sont de l’arbre — après leurs parents', () => {
+    const p = (pid: number, ppid: number, session: number) => ({ pid, ppid, session, cpuMs: 0 });
+    const table = [
+      p(1, 0, 1),
+      // `cmd &` d'un `bash -c` mort : 30 reparenté à init, et son enfant 31.
+      p(31, 30, 10),
+      p(30, 1, 10),
+      p(10, 1, 10),
+      p(11, 10, 10),
+      // Une autre tâche (sa session), et un démon qui a ouvert la sienne.
+      p(20, 1, 20),
+      p(40, 1, 40),
+    ];
+    expect(descendance(table, 10).map((x) => x.pid)).toEqual([10, 11, 30, 31]);
+    // Sous bubblewrap : la session est ouverte par l'init du bac, un membre.
+    const bac = [p(50, 1, 50), p(51, 50, 51), p(52, 51, 51), p(53, 1, 51)];
+    expect(descendance(bac, 50).map((x) => x.pid)).toEqual([50, 51, 52, 53]);
+    // Sans session connue (`ps`), l'arbre des parents seul.
+    expect(
+      descendance(
+        table.map(({ session: _s, ...x }) => x),
+        10,
+      ).map((x) => x.pid),
+    ).toEqual([10, 11]);
+  });
+
+  it('`stats` : Podman dit son CPU CUMULÉ (`.CPUNano`) ; Docker n’en a pas', () => {
+    expect(formatStatsMoteur('podman')).toBe('{{.CPUPerc}}|{{.MemUsage}}|{{.PIDs}}|{{.CPUNano}}');
+    expect(formatStatsMoteur('docker')).toBe('{{.CPUPerc}}|{{.MemUsage}}|{{.PIDs}}');
+    expect(cumulCpuMoteur('12.34%|10.5MiB / 2GiB|7|2345678901\n')).toBe(2_345);
+    expect(cumulCpuMoteur('12.34%|10.5MiB / 2GiB|7')).toBeNull();
+    expect(cumulCpuMoteur('12.34%|10.5MiB / 2GiB|7|--')).toBeNull();
   });
 
   it('le cgroup d’un conteneur : le SIEN, ou rien — jamais celui d’un inconnu', () => {
@@ -416,7 +488,12 @@ describe('lire une mesure — telle qu’elle est, ou pas du tout', () => {
       { pid: 10, ppid: 1, cpuMs: 1_000, rssOctets: 100 },
       { pid: 11, ppid: 10, cpuMs: 500, rssOctets: 50 },
     ];
-    expect(m.relever(t1, 0)).toEqual({ source: 'arbre', rssOctets: 150, processus: 2 });
+    expect(m.relever(t1, 0)).toEqual({
+      source: 'arbre',
+      memoireOctets: 150,
+      memoire: 'somme_rss',
+      processus: 2,
+    });
     // 11 est mort, 12 est né : seul 10 a une différence mesurable (+500 ms en 1 s).
     const t2 = [
       { pid: 10, ppid: 1, cpuMs: 1_500, rssOctets: 100 },
@@ -425,7 +502,8 @@ describe('lire une mesure — telle qu’elle est, ou pas du tout', () => {
     expect(m.relever(t2, 1_000)).toEqual({
       source: 'arbre',
       cpuPct: 50,
-      rssOctets: 170,
+      memoireOctets: 170,
+      memoire: 'somme_rss',
       processus: 2,
     });
     expect(m.relever([], 2_000)).toBeNull();
@@ -435,13 +513,15 @@ describe('lire une mesure — telle qu’elle est, ou pas du tout', () => {
     expect(lireStatsMoteur('12.34%|10.5MiB / 2GiB|7\n')).toEqual({
       source: 'conteneur',
       cpuPct: 12.34,
-      rssOctets: Math.round(10.5 * 1024 ** 2),
+      memoireOctets: Math.round(10.5 * 1024 ** 2),
+      memoire: 'moteur',
       processus: 7,
     });
     expect(lireStatsMoteur('0.00%|312.4kB / 2.1GB|--')).toEqual({
       source: 'conteneur',
       cpuPct: 0,
-      rssOctets: 312_400,
+      memoireOctets: 312_400,
+      memoire: 'moteur',
     });
     expect(lireStatsMoteur('pas de conteneur')).toBeNull();
   });
@@ -462,12 +542,22 @@ describe('les décisions d’affichage', () => {
     expect(mesuresLisibles(undefined)).toEqual({
       cpu: null,
       memoire: null,
+      natureMemoire: null,
       processus: null,
       source: null,
     });
-    expect(
-      mesuresLisibles(direct({ metriques: { source: 'arbre', rssOctets: 3 * 1024 ** 2 } })),
-    ).toEqual({ cpu: null, memoire: '3.0 Mio', processus: null, source: 'arbre' });
+    const pss = direct({
+      metriques: { source: 'arbre', memoireOctets: 3 * 1024 ** 2, memoire: 'pss' },
+    });
+    expect(mesuresLisibles(pss)).toEqual({
+      cpu: null,
+      memoire: '3.0 Mio',
+      natureMemoire: 'pss',
+      processus: null,
+      source: 'arbre',
+    });
+    // L'anglais dit MiB, pas Mio.
+    expect(mesuresLisibles(pss, 'en').memoire).toBe('3.0 MiB');
   });
 
   it('sans phase connue, aucune étape n’est « en cours »', () => {

@@ -26,7 +26,7 @@ import type { PorteSecurite, VoletPorte } from './porte-securite.js';
 import type { PlateformeNoeud } from './machine.js';
 import type { PresenceFichier } from './presence.js';
 import { estArretBudgetaire, type ArretBudgetaire } from './arret-budgetaire.js';
-import { NIVEAUX_ISOLEMENT, RAISONS_SANS_MESURE } from './types.js';
+import { MEMOIRES_PAR_PORTEE, NIVEAUX_ISOLEMENT, RAISONS_SANS_MESURE } from './types.js';
 import type {
   HiveEvent,
   IsolementDeclare,
@@ -990,6 +990,8 @@ function ressourcesDepuis(v: unknown): RessourcesExecution | null {
   if (r.portee !== 'arbre' && r.portee !== 'conteneur') return null;
   const cpuMs = isInt(r.cpuMs, 0, Number.MAX_SAFE_INTEGER) ? r.cpuMs : undefined;
   const picOctets = isInt(r.picOctets, 0, PIC_OCTETS_MAX) ? r.picOctets : undefined;
+  // La mémoire dit laquelle elle est, et seulement ce que SA portée peut lire.
+  const memoire = MEMOIRES_PAR_PORTEE[r.portee].find((m) => m === r.memoire);
   // Un relevé sans aucun nombre n'en est pas un, et un champ présent mais faux
   // ment ou bogue : le tout tombe, jamais un nombre à moitié lu.
   if (
@@ -997,7 +999,8 @@ function ressourcesDepuis(v: unknown): RessourcesExecution | null {
     (r.cpuMs !== undefined && cpuMs === undefined) ||
     (r.picOctets !== undefined && picOctets === undefined) ||
     (cpuMs === undefined && picOctets === undefined) ||
-    (r.picNoyau !== undefined && (r.picNoyau !== true || picOctets === undefined))
+    (picOctets === undefined) !== (r.memoire === undefined) ||
+    (r.memoire !== undefined && memoire === undefined)
   ) {
     return null;
   }
@@ -1005,8 +1008,7 @@ function ressourcesDepuis(v: unknown): RessourcesExecution | null {
     portee: r.portee,
     releves: r.releves,
     ...(cpuMs !== undefined ? { cpuMs } : {}),
-    ...(picOctets !== undefined ? { picOctets } : {}),
-    ...(r.picNoyau === true ? { picNoyau: true as const } : {}),
+    ...(picOctets !== undefined && memoire !== undefined ? { picOctets, memoire } : {}),
   };
 }
 

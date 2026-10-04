@@ -16695,6 +16695,11 @@ async function monterReine(
                   success: result?.success ?? msg.success,
                   ...(result ? { durationMs: result.durationMs } : {}),
                   ...(result?.ressources ? { ressources: result.ressources } : {}),
+                  // Le coût que le CLI de l'enfant a DÉCLARÉ — le tiroir du parent
+                  // le dit comme « Où est passé le temps », jamais estimé.
+                  ...(msg.fournisseur?.coutUsd !== undefined
+                    ? { coutUsd: msg.fournisseur.coutUsd }
+                    : {}),
                   ...(result?.resultId !== undefined ? { resultId: result.resultId } : {}),
                 });
 
