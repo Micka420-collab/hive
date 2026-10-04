@@ -210,13 +210,20 @@ export class Miroir {
     await this.enVol.get(projectId)?.catch(() => undefined);
     this.dernier.delete(projectId);
     const dir = this.dossier(projectId);
-    // Le reclone voisin (`recloner`) d'une Reine arrêtée en plein clone : seul
-    // le rafraîchissement suivant le retirait, et un projet supprimé n'en a
-    // plus — il restait pour toujours.
-    await effacerDossier(voisinDeReclone(dir));
-    if (!existsSync(dir)) return 'absent';
-    await effacerDossier(dir);
-    return 'efface';
+    const existait = existsSync(dir);
+    // Le miroir ET son reclone voisin (`recloner`, laissé par une Reine arrêtée
+    // en plein clone) partent ENSEMBLE. Effacer le voisin d'ABORD, puis le
+    // miroir, laissait un voisin tenu faire échouer `effacer` à son butoir
+    // (5,5 s) sans même essayer le miroir : le miroir restait, pourtant
+    // effaçable, et le voisin fuyait pour toujours — un projet supprimé n'a
+    // plus de rafraîchissement qui le retire. On relance la PREMIÈRE erreur
+    // (le voisin, puis le miroir) : la route la dit, comme avant.
+    const issues = await Promise.allSettled([
+      effacerDossier(voisinDeReclone(dir)),
+      existait ? effacerDossier(dir) : Promise.resolve(),
+    ]);
+    for (const i of issues) if (i.status === 'rejected') throw i.reason;
+    return existait ? 'efface' : 'absent';
   }
 
   /**
