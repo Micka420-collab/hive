@@ -1375,7 +1375,9 @@ async function monterReine(
    * tout le code de tous les projets. Le miroir se reconstruit d'un `git
    * clone` ; la base, non.
    */
-  const rayons = new Miroir(path.join(path.dirname(config.dbPath), 'rayons'));
+  const rayons = new Miroir(path.join(path.dirname(config.dbPath), 'rayons'), (projet, message) =>
+    console.warn(`[hive] miroir du projet ${projet} : ${message}`),
+  );
   // Le dossier du savoir, à côté de la base — le même chemin que
   // `empreinte.ts` annonce sous la clé « cerveau », et que `hive desinstaller`
   // affiche. Résolu UNE fois : le contenu, lui, est relu à chaque tâche.

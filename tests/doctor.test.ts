@@ -30,6 +30,7 @@ import {
 } from '../src/shared/doctor.js';
 import type { Diagnostic, Releve } from '../src/shared/doctor.js';
 import { LONGUEUR_MIN_SECRET_JWT, secretJwtDepuisEnv } from '../src/orchestrator/auth.js';
+import { GIT_ACCES_MINIMUM } from '../src/shared/git-protege.js';
 
 /** Une ruche en parfait état. Chaque test n'en dérange qu'un point. */
 const SAINE: Releve = {
@@ -49,6 +50,8 @@ const SAINE: Releve = {
   dashboardConstruit: true,
   agent: 'claude-code',
   agentsNonConnectes: [],
+  versionGit: '2.53.0',
+  identifiantsGit: { enClair: [], illisibles: [], gestionnaireWindows: [] },
   isolement: 'podman',
   imageBac: {
     image: 'localhost/hive-agent:local',
@@ -94,6 +97,12 @@ describe('LES DEUX RÈGLES QUI PORTENT TOUT LE MODULE', () => {
       dashboardConstruit: false,
       agent: null,
       agentsNonConnectes: [],
+      versionGit: '2.30.2',
+      identifiantsGit: {
+        enClair: [{ fichier: '/home/membre/.git-credentials', hotes: ['github.com'] }],
+        illisibles: [],
+        gestionnaireWindows: [],
+      },
       isolement: null,
       imageBac: null,
       wsJoignable: false,
@@ -114,10 +123,15 @@ describe('LES DEUX RÈGLES QUI PORTENT TOUT LE MODULE', () => {
     // de lister le réseau local alors qu'elle n'écoute qu'elle-même ne
     // l'empêche pas de tourner, mais fait échouer chaque « Rejoindre ».
     //
+    // Le quinzième et le seizième viennent du clone sans identifiants : `git`
+    // (trop ancien, il ignorerait l'accès d'un projet privé) et
+    // `identifiants_git` (le jeton qu'une version précédente a déposé chez
+    // le membre, à faire tourner).
+    //
     // Ce compte est délibérément écrit en dur : ajouter un contrôle DOIT faire
     // rougir ce test, pour qu'on écrive aussi sa place dans l'ordre — l'ordre
     // est une information, pas une présentation.
-    expect(diags.length, 'les quatorze diagnostics de la mission').toBe(14);
+    expect(diags.length, 'les seize diagnostics').toBe(16);
 
     for (const d of diags) {
       expect(d.gravite, `${d.cle} devrait signaler quelque chose`).not.toBe('ok');
@@ -669,9 +683,13 @@ describe('CE QUE LE MODULE NE FAIT PAS', () => {
       'base',
       'dashboard',
       'agent',
+      // Sans git, l'ouvrière ne clone rien à donner à son agent.
+      'git',
       'isolement',
       'websocket',
       'reglages',
+      // Avec les réglages risqués : rien ne s'arrête, mais un jeton traîne.
+      'identifiants_git',
       'espace',
       // En dernier : la découverte n'empêche jamais une ruche de tourner.
       'decouverte',
@@ -812,5 +830,88 @@ describe('LE QUATORZIÈME — la découverte du réseau local', () => {
     expect(d.gravite, 'se signaler n’exige pas d’écoute ouverte').toBe('ok');
     expect(d.constat).toContain('HIVE_DECOUVRABLE=1');
     expect(d.constat).toMatch(/nom, système, agents connectés, places, état/);
+  });
+});
+
+describe('LE QUINZIÈME — le git de la machine, et l’accès des projets privés', () => {
+  // L'accès d'un projet privé passe à git par son environnement
+  // (`GIT_CONFIG_COUNT`, git-protege.ts). Un git plus ancien l'IGNORE sans un
+  // mot : il clonerait l'adresse nue avec les assistants du membre, sous SON
+  // identité. `gitHote` le refuse ; le docteur le dit avant la première tâche.
+
+  it('AU SEUIL EXACT, ça passe — et au-dessus aussi', () => {
+    for (const version of [GIT_ACCES_MINIMUM, '2.31.0', '2.53.0', '3.0.0']) {
+      expect(diag(avec({ versionGit: version }), 'git'), version).toMatchObject({
+        gravite: 'ok',
+        reparation: null,
+      });
+    }
+  });
+
+  it('SOUS LE SEUIL, c’est un risque qui nomme la version et le remède', () => {
+    const d = diag(avec({ versionGit: '2.30.9' }), 'git');
+    expect(d.gravite).toBe('risque');
+    expect(d.constat).toContain('2.30.9');
+    expect(d.constat).toMatch(/jeton seront refusés/);
+    expect(d.reparation).toContain(`≥ ${GIT_ACCES_MINIMUM}`);
+  });
+
+  it('UN GIT MUET n’est pas « ok » : sans lui, aucun clone', () => {
+    const d = diag(avec({ versionGit: null }), 'git');
+    expect(d.gravite).toBe('risque');
+    expect(d.reparation).toMatch(/installez git/);
+  });
+});
+
+describe('LE SEIZIÈME — le jeton qu’une version précédente a déposé chez le membre', () => {
+  // Jusqu'à la correction du clone sans identifiants, git confiait le jeton
+  // de l'URL d'un projet privé à chaque assistant du membre, et l'écrivait
+  // dans le `.git/config` de chaque clone de tâche. Le remède n'est pas
+  // d'effacer : c'est de FAIRE TOURNER le jeton. La valeur ne figure jamais
+  // dans le relevé — fichier et hôte seulement.
+  const identifiants = (patch: Partial<Releve['identifiantsGit']>): Partial<Releve> => ({
+    identifiantsGit: { enClair: [], illisibles: [], gestionnaireWindows: [], ...patch },
+  });
+
+  it('UN JETON EN CLAIR : risque, le fichier et l’hôte nommés, et le remède fait tourner le jeton', () => {
+    const d = diag(
+      avec(
+        identifiants({
+          enClair: [
+            { fichier: '/home/membre/.git-credentials', hotes: ['github.com', 'gitlab.com'] },
+          ],
+        }),
+      ),
+      'identifiants_git',
+    );
+    expect(d.gravite).toBe('risque');
+    expect(d.constat).toContain('/home/membre/.git-credentials (github.com, gitlab.com)');
+    expect(d.reparation).toMatch(/révoquez-le chez l’hébergeur/);
+    expect(d.reparation, 'l’URL d’un projet ne se change pas encore').toMatch(/recréez le projet/);
+    expect(d.reparation).toMatch(/retirez sa ligne/);
+  });
+
+  it('LE GESTIONNAIRE DE WINDOWS ne montre pas les valeurs : « inconnu », jamais « ok »', () => {
+    const d = diag(avec(identifiants({ gestionnaireWindows: ['github.com'] })), 'identifiants_git');
+    expect(d.gravite).toBe('inconnu');
+    expect(d.constat).toContain('github.com');
+    expect(d.reparation).toContain('cmdkey /delete:git:https://');
+  });
+
+  it('CE QU’ON N’A PAS PU RELIRE n’est pas « ok » non plus', () => {
+    for (const patch of [
+      { gestionnaireWindows: null },
+      { illisibles: ['/home/membre/.git-credentials'] },
+    ]) {
+      const d = diag(avec(identifiants(patch)), 'identifiants_git');
+      expect(d.gravite, JSON.stringify(patch)).toBe('inconnu');
+      expect(d.reparation, JSON.stringify(patch)).toBeTruthy();
+    }
+  });
+
+  it('RIEN DE DÉPOSÉ : ok, et le constat dit ce qui a été relu — pas « aucun jeton nulle part »', () => {
+    const d = diag(SAINE, 'identifiants_git');
+    expect(d).toMatchObject({ gravite: 'ok', reparation: null });
+    expect(d.constat).toContain('git credential-store');
   });
 });
