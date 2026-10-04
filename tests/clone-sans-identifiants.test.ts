@@ -56,8 +56,15 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ServeurGit } from './aide/serveur-git.js';
+import { extraireBase, extraireLivre, figerArbreLivre } from '../src/node-client/git-hote.js';
 import { runMerge } from '../src/node-client/merge-runner.js';
-import { cloneRepo, prepareWorkspace } from '../src/node-client/workspace.js';
+import {
+  cloneRepo,
+  dossierDeBase,
+  dossierDeTete,
+  effacerRejeu,
+  prepareWorkspace,
+} from '../src/node-client/workspace.js';
 import { FENETRE_RAFRAICHISSEMENT_MS, Miroir } from '../src/orchestrator/miroir.js';
 import {
   EchecGitHote,
@@ -366,6 +373,57 @@ describe('le clone ne porte aucun identifiant — à aucune porte', () => {
       expect((echec as Error).message).toMatch(/le dépôt refuse le jeton de l’URL du projet/);
       expect((echec as Error).message).not.toContain(jetonNom);
       expect(confieAuMembre(), 'les assistants du membre n’ont rien reçu').toBe('');
+    },
+  );
+});
+
+// ─── 1 ter. NI DANS LES REJEUX À PART DE G11b (TRAIN 7) ──────────────────────
+//
+// G11b rejoue la BASE et l'arbre LIVRÉ d'une tâche à part (`<tâche>.base`,
+// `<tâche>.tete`), dans des dépôts neufs remplis par un `fetch` DEPUIS LE
+// REGISTRE LOCAL — jamais par le dépôt distant. Ce banc tient, sur une tâche
+// d'un dépôt privé, que ces extractions ne demandent aucun identifiant (la
+// porte git les laisse passer : leur seul argument d'origine est un chemin),
+// n'en portent aucun (aucun fichier, aucun dépôt distant configuré), ne
+// touchent pas le serveur et n'appellent aucun assistant du membre.
+
+describe('les rejeux à part de G11b ne demandent ni ne portent aucun identifiant', () => {
+  it(
+    'base et arbre livré extraits d’une tâche privée : rien au serveur, rien sur le disque, rien chez le membre',
+    PLAFOND,
+    async () => {
+      const ws = await prepareWorkspace(travail, tache('rejeux'), serveur.urlAvecCompte('prive'));
+      const base = dossierDeBase(ws.cwd);
+      const tete = dossierDeTete(ws.cwd);
+      try {
+        const secret = serveur.compte.motDePasse;
+        if (!ws.depot || !ws.baseSha) throw new Error('la tâche privée n’a pas de registre');
+        // L'agent a écrit : l'arbre livré n'est pas la base.
+        writeFileSync(path.join(ws.cwd, 'LIVRE.md'), '# livré\n');
+        const avant = serveur.requetes;
+        await extraireBase(ws.depot, ws.baseSha, base);
+        await extraireLivre(ws.depot, await figerArbreLivre(ws.depot), tete);
+        expect(serveur.requetes, 'un rejeu n’interroge jamais le dépôt distant').toBe(avant);
+        // Les deux commits sont bien reçus — le code privé, et ce que livre l'agent.
+        const lu = readFileSync(path.join(base, 'LISEZMOI.md'), 'utf8').replace(/\r\n/g, '\n');
+        expect(lu).toBe('# Privé\n');
+        expect(existsSync(path.join(base, 'LIVRE.md'))).toBe(false);
+        expect(existsSync(path.join(tete, 'LIVRE.md'))).toBe(true);
+        for (const rejeu of [base, tete]) {
+          expect(fichiersAvec(rejeu, secret), rejeu).toEqual([]);
+          expect(fichiersAvec(rejeu, serveur.compte.utilisateur), rejeu).toEqual([]);
+          const distants = execFileSync(
+            'git',
+            ['config', '--file', path.join(rejeu, '.git', 'config'), '--list'],
+            { encoding: 'utf8' },
+          );
+          expect(distants, 'aucun dépôt distant dans un rejeu').not.toMatch(/^remote\./m);
+        }
+        expect(confieAuMembre()).toBe('');
+      } finally {
+        await ws.cleanup();
+        await Promise.all([effacerRejeu(base), effacerRejeu(tete)]);
+      }
     },
   );
 });
