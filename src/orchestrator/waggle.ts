@@ -10,6 +10,7 @@
 // journal d'événements (source de vérité) : aucune I/O, aucun état global —
 // donc testable et réutilisable côté serveur comme dashboard.
 
+import { arreteeParSonBudget } from '../shared/arret-budgetaire.js';
 import type { HiveEvent } from '../shared/types.js';
 
 /** Contribution d'un nœud, dérivée du journal. */
@@ -106,7 +107,8 @@ export function computeScore(tasksDone: number, successRate: number, raceWins = 
  * Construit le Waggle Board à partir du journal. On attribue :
  *  - `task_done` {nodeId, durationMs} → une réussite (+ durée) au nœud ;
  *  - `task_failed` {nodeId} → un échec au nœud (les échecs SANS nodeId, ex.
- *    `dependency_failed`, ne sont imputables à personne : ignorés) ;
+ *    `dependency_failed`, ne sont imputables à personne : ignorés ; un arrêt
+ *    budgétaire non plus — `arretBudgetaire`) ;
  *  - `drone_won` {nodeId} → une victoire de course (bonus, en plus du task_done) ;
  *  - `node_registered` / `node_online` {nodeId, name, agentType} → identité.
  * Les `drone_failed` / `drone_cancelled` restent volontairement NEUTRES : la
@@ -141,8 +143,9 @@ export function buildWaggleBoard(events: HiveEvent[]): WaggleBoard {
         break;
       }
       case 'task_failed': {
-        // Seuls les échecs imputables à un nœud comptent (pas les dépendances).
-        if (nodeId) ensure(accs, nodeId).tasksFailed += 1;
+        // Seuls les échecs imputables à un nœud comptent (pas les dépendances,
+        // ni un arrêt budgétaire : la borne a tenu, le nœud n'a rien raté).
+        if (nodeId && !arreteeParSonBudget(p)) ensure(accs, nodeId).tasksFailed += 1;
         break;
       }
       case 'drone_won': {

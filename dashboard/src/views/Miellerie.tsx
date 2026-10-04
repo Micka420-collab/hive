@@ -18,6 +18,7 @@ import {
 import type { Conflict, CritiqueReprise, MergePlan, MergeRunResult, Verdict } from '../api';
 import type { EvaluationResult } from '../../../src/orchestrator/evaluator.js';
 import { VALIDATION_KEYS } from '../../../src/shared/validations-bac';
+import { arreteeParSonBudget } from '../../../src/shared/arret-budgetaire';
 import {
   compterParCritere,
   constatBloquant,
@@ -1225,7 +1226,10 @@ export default function Miellerie({
                     aria-current={active ? 'true' : undefined}
                     {...activateProps(() => select(task.id))}
                   >
-                    <StatusBadge status={task.status} />
+                    <StatusBadge
+                      status={task.status}
+                      arretBudgetaire={arreteeParSonBudget(task.result)}
+                    />
                     <span className="mi-row-body">
                       <span className="mi-row-title">{task.title}</span>
                       <span className="mi-row-meta">
@@ -1253,7 +1257,10 @@ export default function Miellerie({
         >
           <header className="mi-inspect-head">
             <div className="mi-inspect-title">
-              <StatusBadge status={activeTask.status} />
+              <StatusBadge
+                status={activeTask.status}
+                arretBudgetaire={arreteeParSonBudget(activeTask.result)}
+              />
               <h2>{activeTask.title}</h2>
             </div>
             <div className="mi-inspect-sub">

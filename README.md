@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024.18-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-8336%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-8354%20passing-F6C445?labelColor=17130C)
 ![Licence](https://img.shields.io/badge/licence-MIT-F6C445?labelColor=17130C)
 
 🇫🇷 Français · [🇬🇧 English](README.en.md) · [🌐 Site](https://micka420-collab.github.io/hive/) · [📚 Documentation](#-documentation)
@@ -149,7 +149,9 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
     relectrices, revue humaine, durée — sans note ni classement
     ([#454](https://github.com/Micka420-collab/hive/pull/454)) ;
   - le coût et le temps modèle **déclarés par le CLI de l'agent** (Claude
-    Code), avec leur couverture — « inconnu » quand rien n'est déclaré
+    Code), avec leur couverture — « inconnu » quand rien n'est déclaré ; ce
+    coût est l'**estimation du CLI**, calculée sur sa table de prix embarquée,
+    pas une facture
     ([#455](https://github.com/Micka420-collab/hive/pull/455),
     [#456](https://github.com/Micka420-collab/hive/pull/456)) ; Codex, lancé
     en `codex exec --json`, déclare ses **jetons** d'entrée et de sortie, et

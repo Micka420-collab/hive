@@ -47,7 +47,9 @@ export function ChronologieTache({ taskId, cle }: Props) {
       ? t('réussie', 'succeeded')
       : i === 'reprise'
         ? t('reprise', 'retried')
-        : t('échec', 'failed');
+        : i === 'arret'
+          ? t('arrêtée sur son plafond de coût', 'stopped at its cost cap')
+          : t('échec', 'failed');
 
   const declare = (s: SommeDeclaree, rendu: string): string =>
     s.declarees === s.tentatives

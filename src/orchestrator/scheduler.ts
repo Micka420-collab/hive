@@ -56,6 +56,7 @@ import {
   budgetCoutEpuise,
   descendantsEnVol,
   direDepense,
+  plafondCoutTentative,
   slotsOccupes,
 } from './delegation.js';
 import type { CauseAnnulationDelegation } from './delegation.js';
@@ -1328,17 +1329,30 @@ export class Scheduler {
         if (!this.store.ombreDe(task.id)) this.proposerSouvenir(task, resultId, result);
         this.fermerSousArbre(task.id, 'ancestor_done', Date.now());
       } else {
-        // Le modèle commandé à CETTE tentative a échoué (la production creuse
-        // refusée compte comme un échec d'agent, cf. plus haut) : écarté des
-        // reprises. Lu avant la réassignation, qui effacera ou remplacera la ligne.
-        const modeleEchoue = this.store.modeleAiguillageDe(task.id);
-        this.apresCommit(() => this.ecarterModele(task.id, modeleEchoue));
+        // ─── UN ARRÊT BUDGÉTAIRE N'EST NI UN ÉCHEC NI UNE PANNE ──────────────
+        //
+        // L'agent s'est arrêté dans sa boucle, sur le plafond que la Reine lui
+        // avait passé (`plafondCoutTentative`) : la réservation de l'enfant est
+        // dépensée, une reprise n'aurait plus rien à dépenser. La tâche finit
+        // `failed` SANS reprise, et rien ne l'impute au modèle : ni écarté des
+        // reprises, ni compté en échec par aucun lecteur du fait
+        // (`arreteeParSonBudget`). Le serveur ne le transmet que d'une
+        // tentative qu'il a plafonnée et dont le coût déclaré a atteint ce
+        // plafond (`arretCru`).
+        const arret = result.arretBudgetaire;
+        if (!arret) {
+          // Le modèle commandé à CETTE tentative a échoué (la production creuse
+          // refusée compte comme un échec d'agent, cf. plus haut) : écarté des
+          // reprises. Lu avant la réassignation, qui effacera ou remplacera la ligne.
+          const modeleEchoue = this.store.modeleAiguillageDe(task.id);
+          this.apresCommit(() => this.ecarterModele(task.id, modeleEchoue));
+        }
         const attempts = task.attempts + 1;
         // Bornée ici aussi, en plus de l'entrée (`isInt(m.durationMs, 0, …)`,
         // protocol.ts) : aucune durée négative n'entre dans le journal, quel que
         // soit l'appelant. La Balance la reborne une troisième fois au repli.
         const durationMs = Math.max(0, result.durationMs);
-        if (attempts >= this.maxAttemptsDe(task)) {
+        if (arret || attempts >= this.maxAttemptsDe(task)) {
           this.store.patchTask(task.id, {
             status: 'failed',
             attempts,
@@ -1348,6 +1362,9 @@ export class Scheduler {
               nodeId,
               durationMs: result.durationMs,
               ...(result.usage ? { usage: result.usage } : {}),
+              // Le fait porté sur la TÂCHE : les écrans la disent arrêtée sur
+              // sa borne, pas échouée.
+              ...(arret ? { arretBudgetaire: arret } : {}),
             },
           });
           // `durationMs` : le temps machine que cet échec a coûté. Purement
@@ -1364,6 +1381,7 @@ export class Scheduler {
             durationMs,
             ...(result.usage ? { usage: result.usage } : {}),
             ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
+            ...(arret ? { arretBudgetaire: arret } : {}),
           });
           this.fermerSousArbre(task.id, 'ancestor_failed', Date.now());
         } else {
@@ -2569,6 +2587,41 @@ export class Scheduler {
     });
   }
 
+  /**
+   * Un enfant délégué dont les tentatives ont DÉJÀ dépensé la réservation ne
+   * repart pas : il n'aurait plus rien à dépenser (`plafondCoutTentative` ≤ 0),
+   * et un plafond plancher paierait encore une réponse pour rien — une
+   * reprise après un échec ordinaire qui a tout dépensé, une correction de
+   * l'Evaluator, un CLI d'avant le plafond qui l'a franchi. La Reine le clôt
+   * donc ICI, avant tout envoi : un arrêt budgétaire (`reservation_depensee`),
+   * journalisé, que son parent apprend avec la suite à donner
+   * (`prevenirParentSansResultat`, server.ts). Aucune tentative n'a tourné :
+   * le fait ne nomme ni nœud ni résultat, aucun lecteur ne l'impute à personne.
+   *
+   * Seulement après une tentative (`attempts > 0`) : sans résultat rendu,
+   * aucun coût n'a été déclaré, et la passe ne paie pas une lecture par tâche
+   * prête. Rend vrai quand la tâche est close.
+   */
+  private reservationDepensee(task: Task, now: number, fermees: Set<string>): boolean {
+    if (task.attempts === 0) return false;
+    const lien = this.store.getDelegation(task.id);
+    if (!lien || lien.origine !== 'hive') return false;
+    const depense = this.store.depenseDeclareeEnfant(task.id);
+    if (plafondCoutTentative(lien.costMicros, depense) > 0) return false;
+    this.infraRejects.delete(task.id);
+    this.store.patchTask(task.id, { status: 'failed', assignedNodeId: null }, now);
+    this.emit('task_failed', {
+      taskId: task.id,
+      reason: 'reservation_depensee',
+      arretBudgetaire: 'cout',
+      attempts: task.attempts,
+      reservationMicros: lien.costMicros,
+      depense: direDepense(depense),
+    });
+    for (const id of this.fermerSousArbre(task.id, 'ancestor_failed', now)) fermees.add(id);
+    return true;
+  }
+
   private relecteurAbsent(
     task: Task,
     lien: LienRelecture,
@@ -2828,6 +2881,7 @@ export class Scheduler {
     const fermees = new Set<string>();
     for (const { task, lien } of pretes) {
       if (fermees.has(task.id)) continue;
+      if (this.reservationDepensee(task, now, fermees)) continue;
       // Une OMBRE du banc (shadow-bench.ts) : épinglée à SON modèle, hors
       // Aiguillage, hors Sting Detector. Lue par clé primaire, comme le lien
       // de relecture.

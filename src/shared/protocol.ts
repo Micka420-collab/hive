@@ -17,6 +17,7 @@ import { estEffort, estListeEfforts, type Effort } from './effort.js';
 import type { ValidationsBac } from './validations-bac.js';
 import type { PlateformeNoeud } from './machine.js';
 import type { PresenceFichier } from './presence.js';
+import { estArretBudgetaire, type ArretBudgetaire } from './arret-budgetaire.js';
 import { NIVEAUX_ISOLEMENT } from './types.js';
 import type {
   ExecutionUsage,
@@ -211,6 +212,15 @@ export interface RegisterMsg {
    * correction fausse. Le hub ne confie donc une reprise qu'à qui le déclare.
    */
   prolonge?: boolean;
+  /**
+   * L'adaptateur du nœud sait tenir un plafond de coût DANS LA BOUCLE de son
+   * agent (`AgentAdapter.plafondCout` — Claude Code : `--max-budget-usd`).
+   * Absent : il n'en tient aucun — Codex, Cursor, Cline, shell, ou un nœud
+   * d'avant ce contrat, qui perdrait `plafondCoutMicros` sans le dire. La Reine
+   * ne passe un plafond qu'à qui le déclare, et journalise à l'envoi celui qui
+   * ne sera pas tenu.
+   */
+  plafondCout?: boolean;
 }
 
 /** Un constat brut sur un outil, tel que le nœud le voit. */
@@ -309,6 +319,13 @@ export interface TaskResultMsg {
    * qui le lie au `resultId` exact que la Reine attribue à la réception.
    */
   validations?: ValidationsBac;
+  /**
+   * Le CLI s'est arrêté sur le plafond que la Reine avait passé à cette
+   * tentative (`AssignTaskMsg.plafondCoutMicros`) — voir `ArretBudgetaire`. La
+   * Reine ne le croit que de la tentative qu'elle a plafonnée, en échec, au
+   * coût déclaré arrivé sur ce plafond (`arretCru`, server.ts).
+   */
+  arretBudgetaire?: ArretBudgetaire;
 }
 
 /**
@@ -507,6 +524,16 @@ export interface AssignTaskMsg {
   effort?: Effort;
   /** Budget persistant de l'enfant ; absent pour une tâche racine ou une revue. */
   delegationBudget?: DelegationBudget;
+  /**
+   * Ce que CETTE tentative d'un enfant délégué peut encore dépenser, en
+   * micro-USD : sa réservation moins le coût déclaré de ses tentatives
+   * précédentes (`plafondCoutTentative`, delegation.ts). Le nœud le passe à
+   * son adaptateur, qui l'impose dans la boucle de l'agent (Claude Code :
+   * `--max-budget-usd`). Absent : aucun plafond — racine, revue, drone d'une
+   * course, nœud qui n'en tient pas (`RegisterMsg.plafondCout`). Jamais nul :
+   * une réservation dépensée n'est plus envoyée, la Reine clôt l'enfant.
+   */
+  plafondCoutMicros?: number;
   /**
    * La tâche est une RELECTURE (contre-expertise, `store.relectureDe`) : le
    * nœud le dit à son adaptateur (`AdapterContext.role`), qui peut lancer son
@@ -1144,6 +1171,10 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
           if (typeof m.prolonge !== 'boolean') return null;
           msg.prolonge = m.prolonge;
         }
+        if (m.plafondCout !== undefined) {
+          if (typeof m.plafondCout !== 'boolean') return null;
+          msg.plafondCout = m.plafondCout;
+        }
         // Les constats d'outils : mêmes règles que les deux champs au-dessus.
         // Une liste mal formée est un client qui ment ou qui bogue, et les deux
         // se disent plutôt que de se corriger en douce.
@@ -1215,6 +1246,11 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
         // elles redeviennent `missing`, ce qu'elles étaient sans rapport.
         const validations =
           m.validations === undefined ? null : validationsBacDepuis(m.validations);
+        // Un arrêt mal nommé est abandonné, comme les validations : le
+        // résultat reste un échec ordinaire, jamais une borne inventée.
+        const arretBudgetaire = estArretBudgetaire(m.arretBudgetaire)
+          ? m.arretBudgetaire
+          : undefined;
         return {
           type: 'task_result',
           taskId: m.taskId,
@@ -1227,6 +1263,7 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
           ...(fournisseur ? { fournisseur } : {}),
           ...(finalText !== undefined ? { finalText } : {}),
           ...(validations ? { validations } : {}),
+          ...(arretBudgetaire ? { arretBudgetaire } : {}),
         };
       }
       return null;
@@ -1434,6 +1471,12 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
       if (m.delegationBudget !== undefined && !isDelegationBudget(m.delegationBudget)) {
         return null;
       }
+      if (
+        m.plafondCoutMicros !== undefined &&
+        !isInt(m.plafondCoutMicros, 1, LIMITS.delegationCostMicros)
+      ) {
+        return null;
+      }
       if (m.relecture !== undefined && m.relecture !== true) return null;
       if (m.delegationRootTaskId !== undefined && !isId(m.delegationRootTaskId)) return null;
       // Prolonger exige une branche de la ruche à cloner : un hub qui
@@ -1457,6 +1500,7 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
         };
       }
       if (m.delegationRootTaskId !== undefined) msg.delegationRootTaskId = m.delegationRootTaskId;
+      if (m.plafondCoutMicros !== undefined) msg.plafondCoutMicros = m.plafondCoutMicros;
       return msg;
     }
     case 'cancel_task':
