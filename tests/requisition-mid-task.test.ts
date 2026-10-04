@@ -140,6 +140,13 @@ describe('réquisition mid-task — boucle B/C/D', () => {
       source: 'codex',
       coutUsd: 0.25,
     });
+    // La reprise mesure l'AGENT comme une exécution ordinaire (G28a) : son
+    // pilote, relu à sa sortie — jamais les compteurs du nœud, jamais rien. Ce
+    // faux agent ne lance aucun processus, et la mesure le DIT.
+    expect(server.store.getTask(taskId)?.result?.ressources).toEqual({
+      portee: 'aucune',
+      raison: 'aucun_processus',
+    });
     // Le texte final a voyagé lui aussi : le souvenir Hive Mind en est fait —
     // proposé à la réussite, il entre en mémoire à l'approbation humaine.
     const revue = await fetch(`${base}/api/tasks/${taskId}/review`, {
