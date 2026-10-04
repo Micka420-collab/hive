@@ -125,6 +125,26 @@ export const RAISONS_SANS_MESURE = [
 export type RaisonSansMesure = (typeof RAISONS_SANS_MESURE)[number];
 
 /**
+ * QUELLE mémoire un relevé a lue — un fait de la mesure, jamais déduit à
+ * l'affichage :
+ *
+ *   · `pss` : l'arbre, chaque page partagée RÉPARTIE entre ceux qui la
+ *     partagent (`Pss` de `/proc/<pid>/smaps_rollup`, Linux) ;
+ *   · `somme_rss` : l'arbre, la somme des RSS — une page partagée comptée par
+ *     CHAQUE processus qui la voit (Claude Code et ses serveurs MCP : trois fois
+ *     et plus le vrai) ; ce qui reste quand le Pss ne se lit pas ;
+ *   · `noyau` : le conteneur, le pic que tient son cgroup (`memory.peak`) ;
+ *   · `moteur` : le conteneur, selon le `stats` de son moteur.
+ */
+export const MEMOIRES_MESUREES = ['pss', 'somme_rss', 'noyau', 'moteur'] as const;
+export type MemoireMesuree = (typeof MEMOIRES_MESUREES)[number];
+
+/** Ce qu'une portée peut dire de sa mémoire, de la plus juste à la moins juste. */
+export const MEMOIRES_PAR_PORTEE: Readonly<
+  Record<'arbre' | 'conteneur', readonly MemoireMesuree[]>
+> = { arbre: ['pss', 'somme_rss'], conteneur: ['noyau', 'moteur'] };
+
+/**
  * Les ressources de l'AGENT pendant une tentative — l'arbre de ses processus,
  * ou son conteneur ; JAMAIS le processus du nœud qui le lance. Le bilan des
  * relevés du pilote Sandbox Live (`node-client/pilote-execution.ts`), la même
@@ -145,10 +165,12 @@ export type RessourcesExecution =
        * n'a pas de cumul (le `stats` d'un moteur, sans cgroup lisible).
        */
       cpuMs?: number;
-      /** Le plus haut de la mémoire : somme des RSS de l'arbre, ou mémoire du conteneur. */
+      /**
+       * Le plus haut de la mémoire relevée — ÉCHANTILLONNÉ, sauf `noyau` — et
+       * laquelle (`memoire`) : présents ensemble, ou absents ensemble.
+       */
       picOctets?: number;
-      /** Le pic est celui que tient le NOYAU (`memory.peak` du cgroup), pas un relevé. */
-      picNoyau?: true;
+      memoire?: MemoireMesuree;
     }
   | { portee: 'aucune'; raison: RaisonSansMesure };
 

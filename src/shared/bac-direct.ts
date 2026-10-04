@@ -28,6 +28,7 @@
 
 import { VALIDATION_KEYS } from './validations-bac.js';
 import type { ValidationKey, ValidationState } from './validations-bac.js';
+import type { MemoireMesuree } from './types.js';
 
 /** Les phases d'une exécution, dans l'ordre. La fin n'en est pas une : l'état disparaît. */
 export const PHASES_DIRECT = ['preparation', 'agent', 'validations'] as const;
@@ -85,15 +86,24 @@ export const INTERVALLE_METRIQUES_MS = 5_000;
  *   · `conteneur` : ce que le moteur (Podman, Docker) dit de SON conteneur.
  *
  * `cpuPct` est en pour cent d'UN cœur (200 = deux cœurs pleins), sur la
- * fenêtre écoulée depuis la mesure précédente. Chaque nombre est absent quand
- * la source ne le donne pas.
+ * fenêtre écoulée depuis la mesure précédente. `memoireOctets` est la mémoire
+ * que `memoire` nomme (`MemoireMesuree` : le Pss de l'arbre, la somme de ses
+ * RSS, ou ce que dit le moteur) — les deux ensemble, ou aucun. Chaque nombre
+ * est absent quand la source ne le donne pas.
  */
 export interface MetriquesDirect {
   source: 'arbre' | 'conteneur';
   cpuPct?: number;
-  rssOctets?: number;
+  memoireOctets?: number;
+  memoire?: Exclude<MemoireMesuree, 'noyau'>;
   processus?: number;
 }
+
+/** La mémoire qu'une source peut dire en direct : l'arbre la sienne, le moteur la sienne. */
+const MEMOIRES_DIRECT: Record<MetriquesDirect['source'], readonly string[]> = {
+  arbre: ['pss', 'somme_rss'],
+  conteneur: ['moteur'],
+};
 
 /** Ce qu'un nœud envoie (`TaskUpdateMsg.direct`) : seulement ce qui a changé. */
 export interface EtatDirect {
@@ -137,7 +147,12 @@ function metriquesDepuis(v: unknown): MetriquesDirect | null {
   if (!estObjet(v)) return null;
   if (v.source !== 'arbre' && v.source !== 'conteneur') return null;
   if (v.cpuPct !== undefined && !nombre(v.cpuPct, CPU_PCT_MAX)) return null;
-  if (v.rssOctets !== undefined && !nombre(v.rssOctets, RSS_MAX)) return null;
+  // Un nombre de mémoire sans dire laquelle — ou l'inverse — ne se lit pas.
+  if ((v.memoireOctets === undefined) !== (v.memoire === undefined)) return null;
+  if (v.memoireOctets !== undefined && !nombre(v.memoireOctets, RSS_MAX)) return null;
+  if (v.memoire !== undefined && !MEMOIRES_DIRECT[v.source].includes(v.memoire as string)) {
+    return null;
+  }
   if (
     v.processus !== undefined &&
     !(Number.isInteger(v.processus) && nombre(v.processus, PROCESSUS_MAX))
@@ -147,7 +162,12 @@ function metriquesDepuis(v: unknown): MetriquesDirect | null {
   return {
     source: v.source,
     ...(v.cpuPct !== undefined ? { cpuPct: v.cpuPct as number } : {}),
-    ...(v.rssOctets !== undefined ? { rssOctets: v.rssOctets as number } : {}),
+    ...(v.memoireOctets !== undefined
+      ? {
+          memoireOctets: v.memoireOctets as number,
+          memoire: v.memoire as Exclude<MemoireMesuree, 'noyau'>,
+        }
+      : {}),
     ...(v.processus !== undefined ? { processus: v.processus as number } : {}),
   };
 }

@@ -32,6 +32,12 @@ import {
 import { buildSandboxEnv } from '../src/node-client/workspace.js';
 import { preparerBac } from '../src/node-client/bac.js';
 import { PiloteExecution, SONDES_REELLES } from '../src/node-client/pilote-execution.js';
+import {
+  cumulCpuMoteur,
+  formatStatsMoteur,
+  lancerBorne,
+  lireStatsMoteur,
+} from '../src/node-client/mesure-processus.js';
 import { createServer } from '../src/orchestrator/server.js';
 import { FAUX_CLAUDE_MCP } from './aide/faux-claude-mcp.js';
 import type { RessourcesExecution } from '../src/shared/types.js';
@@ -288,7 +294,7 @@ describe('isolement — intégration runtime réel', () => {
           // Docker sur l'hôte (cgroup v2, pilote systemd) : le cgroup du
           // conteneur se lit — TOUT son CPU, enfant moissonné compris, et
           // le pic que tient le noyau.
-          expect(mesure).toMatchObject({ portee: 'conteneur', picNoyau: true });
+          expect(mesure).toMatchObject({ portee: 'conteneur', memoire: 'noyau' });
           if (mesure.portee !== 'conteneur') return;
           expect(mesure.cpuMs).toBeGreaterThanOrEqual(280);
           expect(mesure.picOctets).toBeGreaterThanOrEqual(50 * MIO);
@@ -302,13 +308,64 @@ describe('isolement — intégration runtime réel', () => {
         }
         expect(mesure.portee).toBe('conteneur');
         if (mesure.cpuMs !== undefined) expect(mesure.cpuMs).toBeGreaterThanOrEqual(280);
-        if (mesure.picNoyau) expect(mesure.picOctets).toBeGreaterThanOrEqual(50 * MIO);
+        if (mesure.memoire === 'noyau') expect(mesure.picOctets).toBeGreaterThanOrEqual(50 * MIO);
       } finally {
         pilote.fermer();
         rmSync(workspace, { recursive: true, force: true, maxRetries: 3 });
       }
     },
     120_000,
+  );
+
+  it.skipIf(!runtime || !imageDemandee)(
+    'le `stats` du VRAI moteur : Podman dit son CPU cumulé (`.CPUNano`), Docker n’en a pas',
+    async () => {
+      if (!runtime || !imageDemandee) return;
+      const nom = `hive-stats-${process.pid}-${Date.now()}`;
+      const brule =
+        'const d = process.cpuUsage(); const ms = () => { const u = process.cpuUsage(d); ' +
+        'return (u.user + u.system) / 1000; }; while (ms() < 300) {} setTimeout(() => {}, 60_000);';
+      execFileSync(
+        runtime.bin,
+        ['run', '-d', '--rm', '--pull=never', `--name=${nom}`, imageDemandee, 'node', '-e', brule],
+        { stdio: 'ignore', timeout: 120_000 },
+      );
+      const stats = (format: string) =>
+        lancerBorne(
+          runtime.bin,
+          ['stats', '--no-stream', '--format', format, nom],
+          process.env,
+          30_000,
+        );
+      try {
+        if (runtime.nom === 'podman') {
+          let cumul: number | null = null;
+          const limite = Date.now() + 60_000;
+          while (Date.now() < limite && (cumul === null || cumul < 280)) {
+            const r = await stats(formatStatsMoteur('podman'));
+            cumul = r.code === 0 ? cumulCpuMoteur(r.sortie) : null;
+            if (cumul === null || cumul < 280) await new Promise((ok) => setTimeout(ok, 300));
+          }
+          console.info(`[stats podman] cumul ${cumul} ms`);
+          expect(cumul).toBeGreaterThanOrEqual(280);
+          return;
+        }
+        // Docker : le gabarit commun se lit, et il n'a aucun cumul à donner…
+        const r = await stats(formatStatsMoteur(runtime.bin));
+        expect(r.code, r.sortie).toBe(0);
+        expect(lireStatsMoteur(r.sortie)).not.toBeNull();
+        expect(cumulCpuMoteur(r.sortie)).toBeNull();
+        // …ni sous le nom de Podman : le jour où il en aura un, ce banc rougit.
+        const nano = await stats('{{.CPUNano}}');
+        console.info(
+          `[stats docker {{.CPUNano}}] code ${nano.code} sortie « ${nano.sortie.trim()} »`,
+        );
+        expect(nano.code !== 0 || !/^\d+$/.test(nano.sortie.trim())).toBe(true);
+      } finally {
+        execFileSync(runtime.bin, ['rm', '-f', nom], { stdio: 'ignore', timeout: 60_000 });
+      }
+    },
+    180_000,
   );
 
   it.skipIf(!runtime || !imageDemandee)(
@@ -720,7 +777,8 @@ describe('isolement — intégration bubblewrap réelle', () => {
         // L'espace de pid de bubblewrap est vu de l'hôte : l'arbre se mesure,
         // de son init jusqu'à l'agent et à l'enfant qu'il a moissonné.
         const mesure = pilote.ressources();
-        expect(mesure).toMatchObject({ portee: 'arbre' });
+        // Le Pss de l'arbre : ses processus sont à l'utilisateur, `smaps_rollup` se lit.
+        expect(mesure).toMatchObject({ portee: 'arbre', memoire: 'pss' });
         if (mesure.portee !== 'arbre') return;
         expect(mesure.cpuMs).toBeGreaterThanOrEqual(280);
         expect(mesure.picOctets).toBeGreaterThanOrEqual(50 * MIO);
