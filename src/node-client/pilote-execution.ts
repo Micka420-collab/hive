@@ -33,6 +33,11 @@
 // l'agent, repris avec lui. Sans cela, une pause de dix minutes volait dix
 // minutes au budget — ou l'agent était tué pendant qu'il dormait.
 //
+// Ce qui reste au run se lit donc sur ces horloges (`restant`), jamais sur
+// une échéance en temps mur posée au départ : après une pause, celle-ci
+// refusait une décision de la Chambre pour « budget épuisé » à un run qui
+// avait encore tout son temps.
+//
 // ─── UNE PAUSE N'EMPÊCHE JAMAIS UN ARRÊT ─────────────────────────────────────
 //
 // Un processus arrêté ne traite pas SIGTERM ; un conteneur en pause ne reçoit
@@ -251,6 +256,16 @@ export class PiloteExecution implements PiloteProcessus {
       },
       restant: () => suivi.restant(),
     };
+  }
+
+  /**
+   * Le temps qui reste au run avant que la première de ses horloges ne le
+   * coupe — délai dur de l'agent, budget d'un enfant délégué —, lu MAINTENANT :
+   * une pause n'en consomme rien. `null` : le pilote n'en tient aucune.
+   */
+  restant(): number | null {
+    const restes = [...this.minuteurs].map((m) => m.restant());
+    return restes.length > 0 ? Math.min(...restes) : null;
   }
 
   attacher(p: ProcessusAttache): () => void {
