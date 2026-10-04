@@ -49,7 +49,7 @@ import { adresseLocale, hoteDeConnexion, portDepuisEnv } from './shared/port.js'
 import { gardiennesDepuisEnv } from './shared/reglages.js';
 import { boucleLocale } from './shared/joignable.js';
 import { modeRunnerDepuisEnv } from './orchestrator/essaim-runner.js';
-import { inventaireAgents, type InventaireAgents } from './node-client/agent-detect.js';
+import { envSonde, inventaireAgents, type InventaireAgents } from './node-client/agent-detect.js';
 import {
   commandeImage,
   IMAGE_DEFAUT,
@@ -337,7 +337,7 @@ export async function imageDuBac(
  * le même PATH et le même environnement. `null` s'il ne répond pas.
  */
 export async function versionGitLocale(ou: string): Promise<string | null> {
-  return gitHote(['--version'], ou).then(versionDeGit, () => null);
+  return gitHote(['--version'], ou, { delaiMs: 30_000 }).then(versionDeGit, () => null);
 }
 
 /**
@@ -376,8 +376,11 @@ export function hotesAJeton(contenu: string): string[] {
 function listerGestionnaireWindows(env: NodeJS.ProcessEnv): Promise<string | null> {
   const cmdkey = path.win32.join(env.SYSTEMROOT ?? 'C:\\Windows', 'System32', 'cmdkey.exe');
   return new Promise((resolve) => {
-    execFile(cmdkey, ['/list'], { windowsHide: true, timeout: 10_000 }, (err, stdout) =>
-      resolve(err ? null : String(stdout)),
+    execFile(
+      cmdkey,
+      ['/list'],
+      { env: envSonde(env), shell: false, windowsHide: true, timeout: 10_000 },
+      (err, stdout) => resolve(err ? null : String(stdout)),
     );
   });
 }

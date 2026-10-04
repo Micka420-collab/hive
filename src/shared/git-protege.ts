@@ -296,6 +296,30 @@ export function gitPorteLAcces(version: string): boolean {
 }
 
 /**
+ * `git --version`, une fois par PATH — le git qui tournera est celui que le
+ * PATH désigne —, depuis le répertoire de la commande qu'il précède (sous
+ * Windows, `execFile` cherche d'abord dans le cwd). Par la porte elle-même,
+ * sans accès : son environnement est construit de rien (`envGitHote`), comme
+ * celui d'une sonde (`envSonde`) — aucun secret de la ruche n'y passe. Une
+ * sonde muette (`null`) n'est pas retenue : la commande elle-même dira ce qui
+ * ne va pas, et la suivante sondera de nouveau.
+ */
+const versionsDeGit = new Map<string, Promise<string | null>>();
+function versionDuGit(cwd: string): Promise<string | null> {
+  const cle = process.env.PATH ?? '';
+  const connue = versionsDeGit.get(cle);
+  if (connue) return connue;
+  const sonde = gitHote(['--version'], cwd, { delaiMs: 30_000 })
+    .then(versionDeGit, () => null)
+    .then((version) => {
+      if (version === null) versionsDeGit.delete(cle);
+      return version;
+    });
+  versionsDeGit.set(cle, sonde);
+  return sonde;
+}
+
+/**
  * L'auteur d'un commit composé par le nœud (la livraison locale) : posé dans
  * l'environnement, jamais lu d'une configuration — pas même celle du membre.
  */
@@ -515,41 +539,6 @@ export function gitHote(
     }
     return lancer();
   });
-}
-
-/**
- * `git --version`, une fois par PATH — le git qui tournera est celui que le
- * PATH désigne. Lancé du même répertoire que la commande qu'il précède (sous
- * Windows, `execFile` cherche d'abord dans le cwd, cf. `gitHote`). Une sonde
- * muette (`null`) n'est pas retenue : la commande elle-même dira ce qui ne va
- * pas, et la suivante sondera de nouveau.
- */
-const versionsDeGit = new Map<string, Promise<string | null>>();
-function versionDuGit(cwd: string): Promise<string | null> {
-  const cle = process.env.PATH ?? '';
-  const connue = versionsDeGit.get(cle);
-  if (connue) return connue;
-  const sonde = new Promise<string | null>((resolve) => {
-    execFile(
-      'git',
-      ['--version'],
-      {
-        cwd,
-        env: envGitHote(),
-        shell: false,
-        windowsHide: true,
-        encoding: 'utf8',
-        timeout: 30_000,
-      },
-      (err, stdout) => {
-        const version = err ? null : versionDeGit(stdout);
-        if (version === null) versionsDeGit.delete(cle);
-        resolve(version);
-      },
-    );
-  });
-  versionsDeGit.set(cle, sonde);
-  return sonde;
 }
 
 /**
