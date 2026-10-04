@@ -178,6 +178,15 @@ Gardiennes l'inspectent (`clean`, `suspect`, `hollow`).
     toujours, et **une objection suffit** — écrite sous `valide`, elle compte
     comme une contestation (`agreger`). Un verdict illisible compte aussi
     comme contesté.
+  - **Au schéma :** une relecture — et elle seule — impose cette grille en
+    JSON Schema (`SCHEMA_AVIS`) au CLI qui sait la tenir : Claude Code
+    (`--json-schema`, à partir de 2.1.205) et Codex (`--output-schema`). L'avis
+    est lu où le CLI le rend (`structured_output`, dernier `agent_message`),
+    jamais dans sa prose, et écrit en ligne `HIVE_CRITIQUE` : même lecture,
+    même grille — hors grille, il est contesté. Un CLI qui conclut sans
+    l'avis exigé laisse une relecture sans réponse finale. Un Claude Code plus
+    ancien garde la ligne de la consigne, et le journal de la relecture le
+    dit, version comprise.
 
 - **La notation :** il n'y a **pas de note unique** — elle cacherait _quel_
   critère a péché. Les constats sont **comptés par critère et par sévérité**

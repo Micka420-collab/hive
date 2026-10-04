@@ -4,6 +4,7 @@
 import { readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { MONTAGE } from '../node-client/isolement.js';
+import { SCHEMA_AVIS } from '../shared/critique-structuree.js';
 import { LIMITS } from '../shared/protocol.js';
 import { texteDEchec } from '../shared/texte-d-echec.js';
 import { DEFAULT_TOKEN } from '../shared/types.js';
@@ -13,6 +14,7 @@ import { assertRealExecutionAllowed, runCommand, runCommandFlux } from './exec.j
 import {
   codexMcpOverrides,
   createDelegationBridge,
+  ecrireAuPont,
   resultatSansPont,
   type DelegationBridge,
 } from './delegation-bridge.js';
@@ -156,6 +158,19 @@ function depotNonFiable(execution: ExecutionCodex): string[] {
  * `openai_base_url` déplace le fournisseur OpenAI intégré
  * (codex-rs/core/src/config/mod.rs, `built_in_model_providers`). La base est
  * une adresse de la boucle du bac, pas un secret.
+ *
+ * ─── L'AVIS D'UNE RELECTURE, AU SCHÉMA ──────────────────────────────────────
+ *
+ * `schemaAvis` : une RELECTURE seulement — le chemin, vu du CLI, du schéma de
+ * l'avis (`SCHEMA_AVIS`). `codex exec --output-schema` le lit (« Path to a JSON
+ * Schema file describing the model's final response shape », exec/src/cli.rs ;
+ * illisible ou mal formé, il sort en 1 : `load_output_schema`, exec/src/lib.rs)
+ * et l'envoie à la Responses API en `text.format` STRICT
+ * (exec/tests/suite/output_schema.rs) ; son dernier `agent_message` est alors
+ * l'avis en JSON (`createLecteurFluxCodex`). Aucun palier de version : l'option
+ * existe depuis rust-v0.41.0 (absente de rust-v0.40.0), et Hive n'accepte déjà
+ * que le dialecte `--json` de 0.156.0 (`flux-codex.ts`). Sources relues au tag
+ * rust-v0.156.0.
  */
 export function argvCodex(
   prompt: string,
@@ -164,6 +179,7 @@ export function argvCodex(
   bridge?: DelegationBridge,
   consignes?: string,
   baseApi?: string,
+  schemaAvis?: string,
 ): string[] {
   return [
     'exec',
@@ -176,6 +192,7 @@ export function argvCodex(
     ...(baseApi ? ['-c', `openai_base_url=${JSON.stringify(baseApi)}`] : []),
     ...(modele ? ['--model', modele] : []),
     ...(bridge ? codexMcpOverrides(bridge) : []),
+    ...(schemaAvis ? ['--output-schema', schemaAvis] : []),
     '--',
     consignes ? `${consignes}\n\n${prompt}` : prompt,
   ];
@@ -413,6 +430,22 @@ export function createCodexAdapter(token = process.env.HIVE_TOKEN ?? DEFAULT_TOK
         }
         const liens = noteLiensNonSuivis(ctx.cwd, CONSIGNES_CODEX);
         if (liens) ctx.onProgress({ log: liens });
+        // Le schéma d'une relecture vit dans le dossier du pont : hors du
+        // dépôt relu, monté en lecture seule dans le bac, effacé avec lui
+        // (`close`). Sans pont (adaptateur appelé seul), nulle part où le
+        // poser : l'avis se lit par la ligne de la consigne, et c'est dit.
+        const relecture = ctx.role === 'relecture';
+        const schemaAvis =
+          relecture && bridge
+            ? ecrireAuPont(bridge, 'schema-avis.json', JSON.stringify(SCHEMA_AVIS))
+            : undefined;
+        if (relecture) {
+          ctx.onProgress({
+            log: schemaAvis
+              ? 'avis au schéma de la ruche (--output-schema), lu dans le dernier message de l’agent'
+              : 'avis lu par la ligne HIVE_CRITIQUE, sans schéma imposé : aucun pont où poser le fichier du schéma',
+          });
+        }
         // `--` avant le prompt : sans lui, un prompt commençant par un tiret est
         // lu comme une option de `codex exec` (cf. src/adapters/prompt-argv.ts,
         // où l'injection est démontrée sur le binaire claude).
@@ -425,6 +458,7 @@ export function createCodexAdapter(token = process.env.HIVE_TOKEN ?? DEFAULT_TOK
         // n'écrit pas.
         const flux = createLecteurFluxCodex({
           bacCodexEnEcriture: execution.sandbox === 'workspace-write',
+          avisAuSchema: schemaAvis !== undefined,
         });
         const result = await runCommandFlux(
           'codex',
@@ -435,6 +469,7 @@ export function createCodexAdapter(token = process.env.HIVE_TOKEN ?? DEFAULT_TOK
             bridge,
             consignes,
             ctx.bac?.reseau?.variables.OPENAI_BASE_URL,
+            schemaAvis,
           ),
           ctx,
           flux,

@@ -57,7 +57,11 @@
 //     faute de message, sur le texte d'un élément `Plan` : un élément du mode
 //     plan (core/src/session/turn.rs, `ModeKind::Plan`), que `codex exec`
 //     n'active pas (`collaboration_mode: None`) et que le flux JSON ne publie
-//     même pas (`map_item_with_id`) — rien à reproduire ici ;
+//     même pas (`map_item_with_id`) — rien à reproduire ici. Pour une relecture
+//     au schéma (`--output-schema`), ce message EST l'avis : « a JSON string
+//     when structured output is requested » (exec_events.rs,
+//     `AgentMessageItem`), écrit en ligne-marqueur (`ligneAvis`) AVANT d'être
+//     borné ;
 //   · les LOGS : chaque événement rendu lisible, jamais le JSON brut. TOUTE
 //     ligne de narration (raisonnement, messages, commandes et leur sortie,
 //     fichiers, outils, plan, avertissements, erreurs signalées, jetons) porte
@@ -91,6 +95,7 @@
 // (node-client/client.ts), qui mentirait — le bilan nomme la version attendue,
 // et c'est l'opérateur du nœud qui met codex à jour.
 
+import { ligneAvis } from '../shared/critique-structuree.js';
 import { MARQUE_NARRATION } from '../shared/texte-d-echec.js';
 import type { UsageFournisseur } from '../shared/types.js';
 import type { LecteurFlux } from './exec.js';
@@ -315,9 +320,11 @@ const TENTATIVE_REFAITE = 'Reconnecting...';
  *
  * `bacCodexEnEcriture` : Codex tourne sous son propre bac, en écriture
  * (`--sandbox workspace-write`) — seul cas où `rienNAPuSEcrire` a un sens.
+ * `avisAuSchema` : une relecture lancée avec `--output-schema` — la réponse
+ * finale est l'avis structuré (voir l'en-tête).
  */
 export function createLecteurFluxCodex(
-  opts: { bacCodexEnEcriture?: boolean } = {},
+  opts: { bacCodexEnEcriture?: boolean; avisAuSchema?: boolean } = {},
 ): LecteurFluxCodex {
   /** Le dernier message de l'agent, pas encore une réponse : le tour court. */
   let dernierMessage: string | undefined;
@@ -409,7 +416,12 @@ export function createLecteurFluxCodex(
       fluxLu = true;
       return rendre(e);
     },
-    texte: () => (reponse === undefined ? undefined : borneTexteFinal(reponse)),
+    // Un message vide reste ABSENT, schéma ou non : un avis qui manque n'est
+    // pas un avis illisible.
+    texte: () =>
+      reponse === undefined || reponse.trim() === ''
+        ? undefined
+        : borneTexteFinal(opts.avisAuSchema ? ligneAvis(reponse) : reponse),
     bilan(code: number | null, arreteParHive: boolean): string | undefined {
       if (fin === 'echec') return raisonDEchec('tour en échec', raisonDuTour ?? '');
       if (code === 0) {

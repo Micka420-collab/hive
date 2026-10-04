@@ -60,11 +60,24 @@
 // lui. Pire, le JSON écarté contient lui-même le mot « valide » : lu en texte
 // libre, il approuvait la production qu'il contestait.
 //
+// ─── LE SCHÉMA : LE MÊME AVIS, IMPOSÉ PAR LE CLI ─────────────────────────────
+//
+// Un CLI relecteur qui sait contraindre sa réponse finale reçoit cette grille
+// en JSON Schema (`SCHEMA_AVIS`) : Claude Code par `--json-schema`, Codex par
+// `--output-schema` (adapters/). L'avis qu'il rend est alors un OBJET, que le
+// nœud écrit en ligne-marqueur (`ligneAvis`) : il n'y a qu'UNE lecture, celle
+// d'ici, que l'avis vienne d'un schéma ou d'une ligne écrite par le modèle. Un
+// avis structuré hors grille est donc illisible comme un marqueur hors grille
+// — contesté, et dit — jamais un feu vert.
+//
 // Module PUR, sans I/O : la Reine lit et agrège, le dashboard compte les
 // critères, avec les mêmes fonctions.
 
 import { champSurUneLigne } from './donnees-non-fiables.js';
 import { COUPURE_TEXTE_FINAL } from './protocol.js';
+
+/** Les deux verdicts qu'un relecteur peut écrire — fermés, comme la grille. */
+export const VERDICTS = ['valide', 'conteste'] as const;
 
 /** Du plus grave au plus léger : l'ordre d'affichage et de survie aux bornes. */
 export const SEVERITES = ['bloquant', 'majeur', 'mineur', 'info'] as const;
@@ -281,8 +294,8 @@ export function lireMarqueurCritique(texte: string): LectureMarqueur {
   }
   if (typeof brut !== 'object' || brut === null || Array.isArray(brut)) return illisible;
   const o = brut as Record<string, unknown>;
-  const verdict = motNu(o.verdict);
-  if (verdict !== 'valide' && verdict !== 'conteste') return illisible;
+  const verdict = VERDICTS.find((v) => v === motNu(o.verdict));
+  if (!verdict) return illisible;
   const constats = o.findings === undefined ? [] : lireConstats(o.findings);
   if (constats === null) return illisible;
   return {
@@ -290,6 +303,60 @@ export function lireMarqueurCritique(texte: string): LectureMarqueur {
     conteste: verdict === 'conteste' || constats.some(constatBloquant),
     constats,
   };
+}
+
+/** Un objet FERMÉ dont chaque champ est requis : la forme stricte, voir `SCHEMA_AVIS`. */
+const objetStrict = (proprietes: Record<string, unknown>): Record<string, unknown> => ({
+  type: 'object',
+  properties: proprietes,
+  required: Object.keys(proprietes),
+  additionalProperties: false,
+});
+
+/**
+ * La grille du marqueur en JSON Schema — ce que Hive IMPOSE à la réponse finale
+ * d'un CLI relecteur qui sait la contraindre (voir l'en-tête).
+ *
+ * Dérivé des constantes de la grille : un schéma recopié à la main dériverait
+ * de ce que `lireMarqueurCritique` accepte. Forme STRICTE — chaque objet fermé,
+ * chaque champ requis, `fichier` et `proposition` vides plutôt qu'absents :
+ * Codex l'envoie en `strict: true` (codex-rs/exec/tests/suite/output_schema.rs,
+ * tag rust-v0.156.0), forme que le convertisseur strict du SDK OpenAI impose
+ * lui-même (openai-python, src/openai/lib/_pydantic.py,
+ * `_ensure_strict_json_schema`). Aucun mot-clé de borne : la lecture borne déjà
+ * (`BORNES_CONSTAT`), et une preuve vide y rend l'avis illisible.
+ */
+export const SCHEMA_AVIS: Readonly<Record<string, unknown>> = objetStrict({
+  verdict: { type: 'string', enum: [...VERDICTS] },
+  findings: {
+    type: 'array',
+    items: objetStrict({
+      severite: { type: 'string', enum: [...SEVERITES] },
+      critere: { type: 'string', enum: [...CRITERES] },
+      fichier: { type: 'string' },
+      preuve: { type: 'string' },
+      proposition: { type: 'string' },
+    }),
+  },
+});
+
+/**
+ * L'avis qu'un CLI a rendu au schéma, écrit en ligne-marqueur : la Reine le lit
+ * alors comme tout marqueur (`lireMarqueurCritique`), grille comprise.
+ *
+ * `sortie` est ce que le CLI DÉCLARE : un objet (Claude Code,
+ * `structured_output`) ou son texte JSON (Codex, dernier `agent_message`). Un
+ * texte qui ne se lit pas en JSON reste tel quel, sur UNE ligne : le marqueur
+ * est illisible — l'avis contesté, et dit —, jamais réécrit en un avis qu'il
+ * n'était pas.
+ */
+export function ligneAvis(sortie: unknown): string {
+  if (typeof sortie !== 'string') return `${MARQUEUR_CRITIQUE} ${JSON.stringify(sortie)}`;
+  try {
+    return `${MARQUEUR_CRITIQUE} ${JSON.stringify(JSON.parse(sortie))}`;
+  } catch {
+    return `${MARQUEUR_CRITIQUE} ${sortie.replace(/\s+/g, ' ').trim()}`;
+  }
 }
 
 /**

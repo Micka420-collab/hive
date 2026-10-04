@@ -173,6 +173,15 @@ Gardiennes inspect it (`clean`, `suspect`, `hollow`).
   - **Without a marker**, the free-text reading applies: `conteste` always
     wins, and **one objection is enough** — written under `valide`, it counts
     as a contest (`agreger`). An unreadable verdict counts as contested too.
+  - **Schema-bound:** a review — and only a review — imposes this grid as a
+    JSON Schema (`SCHEMA_AVIS`) on a CLI that can hold it: Claude Code
+    (`--json-schema`, from 2.1.205) and Codex (`--output-schema`). The opinion
+    is read where the CLI returns it (`structured_output`, last
+    `agent_message`), never from its prose, and written as a `HIVE_CRITIQUE`
+    line: same reading, same grid — off-grid, it is contested. A CLI that ends
+    without the required opinion leaves a review with no final answer. An
+    older Claude Code keeps the instructions' line, and the review's journal
+    says so, version included.
 
 - **Scoring:** there is **no single score** — it would hide _which_ criterion
   failed. Findings are **counted per criterion and severity**

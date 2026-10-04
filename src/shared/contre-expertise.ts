@@ -41,6 +41,7 @@ import {
   SEVERITES,
   type Severite,
   texteConstat,
+  VERDICTS,
 } from './critique-structuree.js';
 import { blocDonnees, champSurUneLigne, tronquerChamp } from './donnees-non-fiables.js';
 import { COUPURE_TEXTE_FINAL } from './protocol.js';
@@ -417,15 +418,18 @@ export function agreger(avis: readonly Avis[]): Verdict {
 
 /**
  * Pourquoi une relecture TERMINÉE ne rend aucun avis. Le hub ne distingue pas
- * les trois causes — un CLI qui a rendu une réponse vide, un CLI dont Hive ne
- * sait pas lire la réponse, un nœud antérieur au contrat `finalText` : les
- * trois arrivent sans texte final. Le motif les nomme toutes plutôt que d'en
- * deviner une.
+ * les quatre causes — un CLI qui a rendu une réponse vide, un CLI à qui le
+ * schéma de l'avis était imposé et qui a conclu sans le remplir (sa prose n'est
+ * PAS lue à la place : `texteFinalAvisStreamJson`), un CLI dont Hive ne sait
+ * pas lire la réponse, un nœud antérieur au contrat `finalText` : toutes
+ * arrivent sans texte final. Le motif les nomme toutes plutôt que d'en deviner
+ * une.
  */
 export const MOTIF_RELECTURE_SANS_TEXTE_FINAL =
-  'relecture terminée sans réponse finale — réponse vide du CLI relecteur, CLI dont ' +
-  'Hive ne lit pas la réponse, ou nœud antérieur au contrat finalText (à mettre à jour). ' +
-  'Aucun avis compté : ni feu vert, ni correction demandée au producteur.';
+  'relecture terminée sans réponse finale — réponse vide du CLI relecteur, avis au ' +
+  'schéma exigé mais non rendu, CLI dont Hive ne lit pas la réponse, ou nœud antérieur ' +
+  'au contrat finalText (à mettre à jour). Aucun avis compté : ni feu vert, ni ' +
+  'correction demandée au producteur.';
 
 /**
  * Ce qu'un relecteur a écrit, transformé en avis.
@@ -734,7 +738,7 @@ const SENS_SEVERITE: Record<Severite, string> = {
  */
 function consigneDuMarqueur(): string[] {
   const gabarit = {
-    verdict: 'valide|conteste',
+    verdict: VERDICTS.join('|'),
     findings: [
       {
         severite: SEVERITES.join('|'),
@@ -756,5 +760,9 @@ function consigneDuMarqueur(): string[] {
     `- Au plus ${CONSTATS_DEMANDES} constats d’une phrase, chacun avec sa PREUVE (la ligne, ` +
       'le cas, la commande que tu as vus) ; "fichier" vide s’il ne tient pas à un fichier ; ' +
       '"findings" vide si tu n’as rien trouvé.',
+    // Un CLI qui impose le schéma de l'avis (`SCHEMA_AVIS`) n'écrit pas la
+    // ligne : sa réponse finale EST l'objet. Le dire évite deux verdicts.
+    'Si ta réponse finale t’est imposée en JSON, elle EST cet objet — mêmes champs, mêmes ' +
+      'valeurs — et rien d’autre.',
   ];
 }

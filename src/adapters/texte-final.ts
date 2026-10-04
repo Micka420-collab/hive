@@ -27,6 +27,17 @@
 //     sur un succès, `errors` sur un échec (types `SDKResultSuccess` et
 //     `SDKResultError` de @anthropic-ai/claude-agent-sdk 0.3.283, sdk.d.ts).
 //
+//   · le même, AU SCHÉMA (`--json-schema`, une relecture) : l'avis est
+//     `structured_output`, l'objet que le CLI a validé — `result` n'en est que
+//     la sérialisation (code.claude.com/docs/en/headless, « Get structured
+//     output » ; enregistré sur Claude Code 2.1.289 :
+//     tests/fixtures/avis-structure). Un modèle qui n'appelle jamais l'outil
+//     `StructuredOutput` laisse un `success` SANS `structured_output`, que la
+//     documentation dit de traiter en échec (code.claude.com/docs/en/agent-sdk/
+//     structured-outputs, « Error handling ») : aucun texte final — la prose
+//     n'est jamais lue à la place de l'avis exigé. Un objet hors schéma, le CLI
+//     le refuse lui-même, puis échoue en `error_max_structured_output_retries`.
+//
 //   · stream-json de Cursor : la MÊME ligne `result`, mais PAS le même sens —
 //     tout le texte de l'exécution, narration comprise. La réponse est le texte
 //     de l'assistant depuis le dernier outil (`lecteurCursor`, binaire
@@ -51,6 +62,7 @@
 // la Couveuse via `blocDonnees`). Et pas un secret de plus : le même texte
 // voyageait déjà vers le hub, noyé dans `logs`.
 
+import { ligneAvis } from '../shared/critique-structuree.js';
 import { COUPURE_TEXTE_FINAL, LIMITS } from '../shared/protocol.js';
 
 /** Ce qu'on garde du DÉBUT d'un texte trop long : là où la relecture pose son verdict. */
@@ -102,6 +114,17 @@ export const texteFinalStreamJson: LecteurEvenementFinal = (e) => {
     if (erreurs.length > 0) return erreurs.join('\n');
   }
   return undefined;
+};
+
+/**
+ * stream-json d'une relecture au schéma (`--json-schema`) : `structured_output`,
+ * écrit en ligne-marqueur (`ligneAvis`). Un succès sans lui ne dit rien (voir
+ * l'en-tête) ; un échec garde ses `errors`, où le CLI dit pourquoi.
+ */
+export const texteFinalAvisStreamJson: LecteurEvenementFinal = (e) => {
+  if (e.type !== 'result') return undefined;
+  if (e.structured_output !== undefined) return ligneAvis(e.structured_output);
+  return e.is_error === true ? texteFinalStreamJson(e) : undefined;
 };
 
 /** Cline (`--json`) : `text` de l'événement `run_result`. */
