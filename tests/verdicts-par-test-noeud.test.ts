@@ -306,3 +306,29 @@ describe.runIf(POSIX)('G11b — les tests en échec, comparés à la base rejou�
     expect(tests).not.toHaveProperty('comparaison');
   }, 60_000);
 });
+
+// La mémoire des bases est BORNÉE — c'est ce qui permet de la garder en
+// mémoire, le temps de vie du nœud (voir `node-client/validations-bac.ts`).
+describe('memoireDesBases — bornée, et oublieuse dans l’ordre', () => {
+  const rouges = (...noms: string[]) => new Set(noms);
+
+  it('au-delà de sa capacité, oublie la base la moins récemment servie', () => {
+    const memoire = memoireDesBases(2);
+    memoire.ranger('a', [rouges('x')]);
+    memoire.ranger('b', [rouges('y')]);
+    memoire.lire('a'); // « a » resservie : c'est « b » la plus ancienne
+    memoire.ranger('c', [rouges('z')]);
+    expect(memoire.lire('b')).toEqual([]);
+    expect(memoire.lire('a')).toEqual([rouges('x')]);
+    expect(memoire.lire('c')).toEqual([rouges('z')]);
+  });
+
+  it('garde au plus deux exécutions par base, et jamais une exécution trop rouge', () => {
+    const memoire = memoireDesBases();
+    memoire.ranger('a', [rouges('1'), rouges('2'), rouges('3')]);
+    expect(memoire.lire('a')).toHaveLength(2);
+    const tropRouge = new Set(Array.from({ length: 1_001 }, (_, i) => `t${i}`));
+    memoire.ranger('b', [tropRouge]);
+    expect(memoire.lire('b')).toEqual([]);
+  });
+});
