@@ -131,6 +131,18 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
   déclare pas est « non applicable », jamais vert. **Il faut un bac** (podman,
   docker ou bubblewrap) : sans lui, le code de l'agent ne tourne pas sur l'hôte
   nu, et l'écran le dit. `accepted` demande en plus la relecture croisée.
+- **Tests comparés à la base, test par test.** Quand les tests échouent et que
+  leur sortie par défaut se lit (vitest, jest, `node --test`, TAP — sans
+  ajouter d'argument au script), chaque échec est comparé à la **base**,
+  rejouée à part dans le bac : un test déjà rouge à la base ne bloque plus
+  `accepted`, qui le **dit** ; une régression demande une correction qui la
+  **nomme** ; un test rouge puis vert à la relance est « instable » — ni
+  régression, ni vert. Une sortie que Hive ne lit pas garde le verdict du
+  script. **Surcoût, annoncé dans la ligne de progression :** l'exécution est
+  doublée quand les tests échouent — jusqu'à 10 min d'installation de la base
+  puis 5 min par commande (build, tests), et une seconde exécution de chaque
+  côté pour écarter l'instabilité ; rien de plus quand les tests passent, et
+  une base déjà rejouée par le nœud ne se rejoue pas.
 - **Mission Control explique ce qu'il a fait**, depuis le journal, sans rien
   recalculer ni estimer :
   - pourquoi ce Worker et ce modèle : le classement de l'Aiguillage figé à

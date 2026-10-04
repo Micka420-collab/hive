@@ -237,6 +237,23 @@ first favorable opinion is not acceptance while another review of the same
 result is in flight (14): an objection stays blocking, wherever it comes
 from.
 
+**Failing sandbox tests are compared to the base**, test by test
+(`src/shared/lecture-tests.ts`, G11b) — when their default output is readable
+(vitest, jest, `node --test`, TAP), without adding anything to the declared
+script. The base is replayed apart, in the sandbox: a fresh repository fetched
+from the registry (never by reading the objects the agent may have forged), a
+fresh install from its lockfile, its build, the same script. A **regression**
+(red on every run of the production, on none of the base) stays rule 10, and
+its reasons **name** it; tests **already red at the base** no longer block —
+`accepted` (16) **says** them; a **flaky** test (red then green from one run to
+the next) is neither: missing evidence (13). Each side is seen up to twice,
+lazily — a port of SWE-bench's FAIL_TO_PASS / PASS_TO_PASS logic
+(`grading.py`, MIT), with the base as reference. An unreadable or truncated
+output, or a base that cannot be replayed, gives the script's verdict. The
+overhead — up to 10 min of install then 5 min per command, only when tests
+fail — is announced in the progress line; each node remembers the bases it
+replayed.
+
 The **security gate** (`src/shared/porte-securite.ts`) is not a fifth
 validation: the node attaches it to its result (`porteSecurite`, recorded as
 `security_gate_recorded`), part by part — secrets (Betterleaks, added lines

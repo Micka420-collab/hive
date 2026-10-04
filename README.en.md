@@ -84,6 +84,17 @@ disagree: [docs/PROTOCOLE-DEBAT.en.md](docs/PROTOCOLE-DEBAT.en.md).
    sandbox — podman, docker or bubblewrap; without one, agent code never runs
    on the bare host and the screen says so. The Evaluator counts them like
    GitHub CI and always says which one spoke (“Hive sandbox” or “GitHub CI”).
+   When the tests fail and their default output is readable (vitest, jest,
+   `node --test`, TAP — no argument added to the script), each failure is
+   compared to the **base**, replayed apart in the sandbox: a test already red
+   at the base no longer blocks `accepted`, which **says** it; a regression
+   asks for a correction that **names** it; a test red then green on the
+   rerun is “flaky” — neither a regression nor green. An output Hive cannot
+   read keeps the script’s verdict. **Overhead, announced in the progress
+   line:** execution doubles when tests fail — up to 10 min to install the
+   base, then 5 min per command (build, tests), plus a second run on each
+   side to rule out flakiness; nothing more when tests pass, and a base the
+   node already replayed is not replayed again.
 4. **You open a worker’s station.** Hive view → node sheet → **Open workstation**
    (Chambre): baptismal name, **observed** files, Atelier noVNC, requisitions —
    never inventing what isn’t there. Detail:
