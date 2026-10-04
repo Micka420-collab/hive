@@ -71,9 +71,18 @@ function recueil() {
 describe.skipIf(process.platform === 'win32')('le pilote — un vrai arbre de processus', () => {
   it('MESURE l’arbre, le GÈLE en pause avec son horloge, et le RELANCE', async () => {
     dossier = mkdtempSync(path.join(os.tmpdir(), 'pilote-execution-'));
-    const battement = (qui: string) =>
-      `let n = 0; setInterval(() => require('node:fs').writeFileSync(` +
-      `${JSON.stringify(path.join(dossier, `hb-${qui}`))}, String(++n)), 20);\n`;
+    // Écrit À CÔTÉ, puis renommé : `writeFileSync` tronque avant d'écrire, et
+    // une lecture tombée entre les deux — juste après SIGCONT, quand les
+    // battements en retard partent tous — lisait un fichier vide, donc 0 : un
+    // arbre repris passait pour un arbre resté gelé.
+    const battement = (qui: string) => {
+      const fichier = JSON.stringify(path.join(dossier, `hb-${qui}`));
+      const brouillon = JSON.stringify(path.join(dossier, `hb-${qui}.tmp`));
+      return (
+        `let n = 0; setInterval(() => { require('node:fs').writeFileSync(${brouillon}, ` +
+        `String(++n)); require('node:fs').renameSync(${brouillon}, ${fichier}); }, 20);\n`
+      );
+    };
     const petit = path.join(dossier, 'petit.js');
     // Le petit-enfant BRÛLE du CPU : la mesure doit le voir, pas seulement le parent.
     writeFileSync(
