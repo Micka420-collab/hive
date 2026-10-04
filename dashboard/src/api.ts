@@ -8,6 +8,7 @@ import {
   EVENEMENTS_NON_DIFFUSES,
   parseServerMessage,
 } from '../../src/shared/protocol';
+import type { SegmentNiveau } from '../../src/shared/niveaux-sortie';
 import type {
   HiveEvent,
   Project,
@@ -3018,7 +3019,7 @@ export interface FeedHandlers {
   onState: (snapshot: StateSnapshot) => void;
   onEvent: (event: HiveEvent) => void;
   /** Un morceau de sortie en direct d'un agent (éphémère, jamais rejoué). */
-  onSortie?: (taskId: string, nodeId: string, sortie: string) => void;
+  onSortie?: (taskId: string, nodeId: string, sortie: string, niveaux?: SegmentNiveau[]) => void;
   /**
    * `connected` : le socket est ouvert **et** le hub a accepté le jeton.
    * `meta.authError` : fermeture 4401 « token invalide » — le champ Jeton ne
@@ -3201,7 +3202,8 @@ export function connectFeed(handlers: FeedHandlers): HiveFeed {
       } else if (msg.type === 'task_output') {
         // Le direct n'est ni rangé ni rejoué (`task_output`) : il passe tout
         // de suite, rattrapage ou pas.
-        handlers.onSortie?.(msg.taskId, msg.nodeId, msg.sortie);
+        // Niveaux déjà validés contre les lignes (`parseServerMessage`).
+        handlers.onSortie?.(msg.taskId, msg.nodeId, msg.sortie, msg.niveaux);
       }
     };
 

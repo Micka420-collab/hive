@@ -391,7 +391,8 @@ export function App() {
         magasinSorties.garderVivantes(snap.tasks);
         setAgentsByTask((prev) => garderVivantes(prev, snap.tasks));
       },
-      onSortie: (taskId, nodeId, sortie) => magasinSorties.ajouter(taskId, nodeId, sortie),
+      onSortie: (taskId, nodeId, sortie, niveaux) =>
+        magasinSorties.ajouter(taskId, nodeId, sortie, niveaux),
       onEvent: (ev) => {
         setEvents((prev) => [...prev.slice(-499), ev]);
         // Tout événement de fin de tâche / merge / conflit invalide les vues qui fetchent.

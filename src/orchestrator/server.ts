@@ -3530,8 +3530,14 @@ async function monterReine(
     },
     // Relais pur, ni journal ni `stateDirty` : l'état de la ruche n'a pas
     // changé, seul l'écran de la tâche a du texte de plus.
-    onSortie: (taskId, nodeId, sortie) =>
-      broadcastEvent({ type: 'task_output', taskId, nodeId, sortie }),
+    onSortie: (taskId, nodeId, sortie, niveaux) =>
+      broadcastEvent({
+        type: 'task_output',
+        taskId,
+        nodeId,
+        sortie,
+        ...(niveaux !== undefined ? { niveaux } : {}),
+      }),
   });
 
   /**
@@ -16049,6 +16055,7 @@ async function monterReine(
               msg.log,
               msg.presences,
               msg.sortie,
+              msg.niveaux,
             );
             break;
           case 'task_result': {

@@ -92,6 +92,7 @@
 // et c'est l'opérateur du nœud qui met codex à jour.
 
 import { MARQUE_NARRATION } from '../shared/texte-d-echec.js';
+import type { GraviteAgent } from '../shared/niveaux-sortie.js';
 import type { UsageFournisseur } from '../shared/types.js';
 import type { LecteurFlux } from './exec.js';
 import { borneTexteFinal } from './texte-final.js';
@@ -335,6 +336,11 @@ export function createLecteurFluxCodex(
   let correctifsEnEchec = 0;
   /** Les commandes terminées en code 0 : le bac de Codex a démarré. */
   let commandesReussies = 0;
+  /**
+   * La gravité que l'événement en cours de lecture déclare — le niveau de sa
+   * ligne dans la console en direct. Remise à zéro à chaque ligne (`lire`).
+   */
+  let gravite: GraviteAgent | undefined;
 
   const rendre = (e: Objet): string | undefined => {
     switch (e.type) {
@@ -360,6 +366,8 @@ export function createLecteurFluxCodex(
         ) {
           commandesReussies += 1;
         }
+        // L'élément `error` est un avertissement NON fatal : le tour continue.
+        if (e.type === 'item.completed' && item.type === 'error') gravite = 'avertissement';
         return rendreElement(e.type, item);
       }
       case 'turn.completed':
@@ -374,15 +382,28 @@ export function createLecteurFluxCodex(
         reponse = undefined;
         fin = 'echec';
         raisonDuTour = chaine(objet(e.error)?.message);
-        // Rien ici : le bilan l'écrit, en clair, après le plafond des logs.
-        return undefined;
+        // Le bilan écrit la raison, en clair, après le plafond des logs. En
+        // direct, le plus souvent, un `error` au même message l'a déjà dite :
+        // pas de doublon. Mais Codex tire cette raison de `turn.error` AVANT
+        // la dernière erreur vue (event_processor_with_jsonl_output.rs,
+        // TurnStatus::Failed) : un tour peut échouer sans `error` avant lui,
+        // et cette ligne est alors la seule erreur de l'agent dans la console.
+        if (raisonDuTour !== undefined && raisonDuTour === derniereErreur) return undefined;
+        gravite = 'erreur';
+        return narrer('tour en échec', raisonDuTour ?? '');
       case 'error': {
         // Marquée : une tentative refaite n'est pas l'échec. Une erreur qui
         // fait échouer le tour revient dans `turn.failed` ; une erreur non
         // refaite d'un tour CONCLU (sortie en 1 malgré tout) revient par le
         // bilan — jamais une tentative (`TENTATIVE_REFAITE`).
         const message = chaine(e.message);
-        if (!message.startsWith(TENTATIVE_REFAITE)) derniereErreur = message;
+        // Une tentative que Codex va refaire avertit ; les autres sont des
+        // erreurs — la même frontière que celle du bilan.
+        if (message.startsWith(TENTATIVE_REFAITE)) gravite = 'avertissement';
+        else {
+          derniereErreur = message;
+          gravite = 'erreur';
+        }
         return narrer('erreur signalée', message);
       }
       default:
@@ -390,24 +411,32 @@ export function createLecteurFluxCodex(
     }
   };
 
+  /** Ce que les logs gardent d'une ligne ; `rendre` y pose la gravité de son événement. */
+  const lireLigne = (ligne: string): string | undefined => {
+    const brute = ligne.trim();
+    if (brute === '') return undefined;
+    // Hors contrat, stdout n'est que du JSON par lignes ; une ligne en texte
+    // est donc un diagnostic égaré — gardée telle quelle, en clair.
+    if (!brute.startsWith('{')) return brute;
+    let evenement: unknown;
+    try {
+      evenement = JSON.parse(brute);
+    } catch {
+      // Ligne tronquée (processus tué au milieu) : dite, jamais recopiée.
+      return narrer(`événement codex illisible (${brute.length} caractères)`);
+    }
+    const e = objet(evenement);
+    if (!e) return narrer('événement codex illisible');
+    fluxLu = true;
+    return rendre(e);
+  };
+
   return {
-    lire(ligne: string): string | undefined {
-      const brute = ligne.trim();
-      if (brute === '') return undefined;
-      // Hors contrat, stdout n'est que du JSON par lignes ; une ligne en texte
-      // est donc un diagnostic égaré — gardée telle quelle, en clair.
-      if (!brute.startsWith('{')) return brute;
-      let evenement: unknown;
-      try {
-        evenement = JSON.parse(brute);
-      } catch {
-        // Ligne tronquée (processus tué au milieu) : dite, jamais recopiée.
-        return narrer(`événement codex illisible (${brute.length} caractères)`);
-      }
-      const e = objet(evenement);
-      if (!e) return narrer('événement codex illisible');
-      fluxLu = true;
-      return rendre(e);
+    lire(ligne) {
+      gravite = undefined;
+      const texte = lireLigne(ligne);
+      if (texte === undefined) return undefined;
+      return gravite === undefined ? { texte } : { texte, gravite };
     },
     texte: () => (reponse === undefined ? undefined : borneTexteFinal(reponse)),
     bilan(code: number | null, arreteParHive: boolean): string | undefined {

@@ -3,6 +3,7 @@
 // connaître l'outil qui exécute réellement la tâche (contrainte §5.4).
 
 import type { PresenceFichier } from '../shared/presence.js';
+import type { BlocSortie } from '../shared/niveaux-sortie.js';
 import type { Effort } from '../shared/effort.js';
 import type { ActionProposee, DecisionAction } from '../shared/politique-actions.js';
 import type { ArretBudgetaire } from '../shared/arret-budgetaire.js';
@@ -24,10 +25,11 @@ export interface AdapterProgress {
   log?: string;
   /**
    * Un morceau de la sortie de l'agent (stdout, stderr), EN DIRECT (sortie-directe.ts :
-   * ≤ 4 Kio, ≤ 4 par seconde). Éphémère : le hub le relaie aux écrans sans le
-   * journaliser — voir `TaskUpdateMsg.sortie`.
+   * ≤ 4 Kio, ≤ 4 par seconde), en blocs de lignes d'un même niveau. Éphémère :
+   * le hub le relaie aux écrans sans le journaliser — voir `TaskUpdateMsg.sortie`.
+   * Brut : c'est le nœud qui caviarde, bloc par bloc (`progresVersHub`).
    */
-  sortie?: string;
+  sortie?: readonly BlocSortie[];
 }
 
 /** Demande bornée qu'un Worker peut transmettre à la Queen pour un enfant. */
