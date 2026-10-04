@@ -6,6 +6,7 @@
 import { MAX_ATTEMPTS, NODE_TIMEOUT_MS } from '../shared/types.js';
 import type { HiveEvent, HiveNode, SubAgent, Task, TaskResult } from '../shared/types.js';
 import type { PresenceFichier } from '../shared/presence.js';
+import type { EtatDirect } from '../shared/bac-direct.js';
 import { VALIDATION_KEYS } from '../shared/validations-bac.js';
 import type {
   DetailControle,
@@ -147,6 +148,12 @@ export interface SchedulerOptions {
    * nœud assigné, ou un drone encore en course.
    */
   onSortie?: (taskId: string, nodeId: string, sortie: string) => void;
+  /**
+   * L'état EN DIRECT d'une exécution (Sandbox Live, `TaskUpdateMsg.direct`) :
+   * relayé comme la sortie, jamais journalisé. Seulement du nœud ASSIGNÉ : la
+   * pause, le diff et les mesures visent son exécution, pas celle d'un drone.
+   */
+  onDirect?: (taskId: string, nodeId: string, direct: EtatDirect) => void;
   /**
    * Balance : 'off' (le grand livre ne tourne pas du tout), 'observation'
    * (il pèse, se tient à jour et SIGNALE les franchissements, sans jamais rien
@@ -949,6 +956,7 @@ export class Scheduler {
     log?: string,
     presences?: PresenceFichier[],
     sortie?: string,
+    direct?: EtatDirect,
   ): void {
     const task = this.store.getTask(taskId);
     // Mise à jour pour une tâche inconnue ou réaffectée ailleurs : ignorée —
@@ -1008,6 +1016,9 @@ export class Scheduler {
     // nouveau « assignée » ici : c'est le nœud qui tait le morceau posthume de
     // la tentative précédente (garde d'exécution de `progresVersHub`).
     if (sortie) this.opts.onSortie?.(taskId, nodeId, sortie);
+    // Même garde : l'état d'une exécution close ne ressuscite pas une ligne
+    // que la fin de tâche vient d'effacer.
+    if (direct) this.opts.onDirect?.(taskId, nodeId, direct);
   }
 
   /** Mode des Gardiennes en vigueur. Défaut `consultatif` — jamais contraignant. */

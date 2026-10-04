@@ -35,18 +35,10 @@ import type { Task } from '../../src/shared/types';
 /** Ce que l'écran garde au plus de la sortie d'UNE tâche, en octets UTF-8. */
 export const SORTIE_ECRAN_MAX_OCTETS = 256 * 1024;
 
-/** Les événements qui clôturent une exécution — et donc sa sortie en direct. */
-export const FINS_D_EXECUTION: readonly string[] = [
-  'task_done',
-  'task_failed',
-  'task_cancelled',
-  'task_requeued',
-  'task_retry',
-  // Un nœud qui refuse APRÈS avoir fait tourner l'agent (auth, quota) : la
-  // tâche redevient « prête », sans `task_requeued`. Sans cette fin, sa sortie
-  // restait à l'écran et se collait à celle du nœud suivant.
-  'task_rejected',
-];
+// La liste des fins d'exécution vit dans `shared/bac-direct.ts` : la Reine y
+// lit aussi quand oublier l'état en direct d'une tâche, et deux listes
+// finiraient par diverger.
+export { FINS_D_EXECUTION } from '../../src/shared/bac-direct';
 
 export interface MorceauSortie {
   nodeId: string;

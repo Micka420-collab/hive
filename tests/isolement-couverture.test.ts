@@ -43,6 +43,11 @@ const DEROGATIONS: Readonly<Record<string, string>> = {
   'node-client/tunnel.ts':
     'lance cloudflared, choisi et installé par le membre, pour exposer SA ruche ' +
     '— l’isoler du réseau le rendrait inopérant par construction',
+  'node-client/mesure-processus.ts':
+    'lit la table des processus (`ps`) et interroge le MOTEUR (`docker/podman ' +
+    'stats`) depuis l’hôte pour mesurer un agent qui tourne — l’arbre à mesurer ' +
+    'et le conteneur à interroger ne se voient QUE de l’hôte ; argv en dur, ' +
+    'jamais tiré de la tâche, rien du dépôt ne s’y exécute',
   'cli.ts':
     'vérifie la présence de cloudflared depuis la CLI de l’hôte, sur sa propre ' +
     'machine et à sa propre demande',

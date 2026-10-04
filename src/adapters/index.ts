@@ -63,6 +63,7 @@ export type WorkerDelegationResult =
 
 import type { BacExecution } from '../node-client/isolement.js';
 import type { ReservationPont } from '../node-client/rendez-vous-pont.js';
+import type { PiloteProcessus } from '../node-client/pilote-execution.js';
 
 export interface AdapterContext {
   /** Répertoire de travail isolé de la tâche (sandbox v0). */
@@ -117,6 +118,13 @@ export interface AdapterContext {
    * le hub (`AssignTaskMsg.relecture`), jamais deviné du prompt.
    */
   role?: 'relecture';
+  /**
+   * Le pilote Sandbox Live de la tâche (`node-client/pilote-execution.ts`) :
+   * l'exécuteur lui ATTACHE le processus qu'il lance (mesure, pause) et arme
+   * son délai dur par lui, pour que la pause le suspende. Absent (bancs,
+   * relances hors nœud) : le délai court en temps mur, rien n'est mesuré.
+   */
+  pilote?: PiloteProcessus;
 }
 
 export interface AdapterResult {

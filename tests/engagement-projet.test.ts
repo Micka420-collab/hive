@@ -300,6 +300,22 @@ const DECISIONS: readonly Acte[] = [
     url: (c) => `/api/tasks/${c.tache}/cancel`,
     refus: 'tache',
   },
+  // Sandbox Live : suspendre et reprendre l'agent d'une tâche décident de son
+  // sort comme l'annuler — même porte.
+  {
+    nom: 'tasks/:taskId/pause',
+    methode: 'POST',
+    route: '/api/tasks/:taskId/pause',
+    url: (c) => `/api/tasks/${c.tache}/pause`,
+    refus: 'tache',
+  },
+  {
+    nom: 'tasks/:taskId/resume',
+    methode: 'POST',
+    route: '/api/tasks/:taskId/resume',
+    url: (c) => `/api/tasks/${c.tache}/resume`,
+    refus: 'tache',
+  },
   {
     // Imposer ou exclure le modèle qui fera le travail — donc celui que la
     // ruche paiera : une décision sur le sort de la tâche, pas un engagement.
@@ -766,6 +782,19 @@ describe('ADR 0007 — le jeton de ruche n’engage plus le projet d’autrui', 
         expect(tiersEtJeton.status, `${acte.nom} (tiers + jeton)`).toBe(404);
         expect((await tenter(possede, acte, {})).status, `${acte.nom} anonyme`).toBe(401);
       }
+    });
+
+    it('LE DIFF EN DIRECT est une LECTURE du code : un tiers ne le voit pas, un membre si', async () => {
+      // Sandbox Live : le diff d'une exécution en cours montre le code du
+      // projet. Un compte qui n'a pas affaire au projet reçoit la forme d'une
+      // tâche inconnue ; un membre passe la garde (409 : rien ne tourne ici).
+      // Le jeton de ruche garde sa porte des lectures (`lectureProjetPermise`).
+      const url = `${base}/api/tasks/${possede.tache}/diff-direct`;
+      const tiers = await fetch(url, { headers: compte(jetonTiers) });
+      expect(tiers.status).toBe(404);
+      expect(await tiers.text()).toBe(REFUS.tache);
+      expect((await fetch(url, { headers: compte(jetonMembre) })).status).toBe(409);
+      expect((await fetch(url, { headers: compte(jetonProprio) })).status).toBe(409);
     });
 
     it('S’INSCRIRE SUR UNE VITRINE N’Y DONNE PAS LE DROIT DE DÉCIDER', async () => {

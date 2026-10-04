@@ -16,6 +16,7 @@ import type {
   TaskResult,
   TaskStatus,
 } from '../../src/shared/types';
+import type { DirectTache } from '../../src/shared/bac-direct';
 import type { Graphe } from '../../src/shared/cerveau-graphe.js';
 import type { Constat } from '../../src/shared/critique-structuree.js';
 import type {
@@ -865,6 +866,29 @@ export function fetchConflicts(projectId: string): Promise<{ conflicts: Conflict
 /** Annule une tâche (le nœud abandonne). */
 export function cancelTask(taskId: string): Promise<Task> {
   return api<Task>(`/api/tasks/${taskId}/cancel`, { method: 'POST', body: '{}' });
+}
+
+/**
+ * Sandbox Live : suspendre / reprendre l'agent d'une tâche. La Reine ne fait
+ * que TRANSMETTRE (202) : ce qui a vraiment eu lieu revient par l'état en
+ * direct (`task_direct`, `enPause`) — jamais supposé depuis le clic.
+ */
+export function pauseTask(taskId: string, reprendre: boolean): Promise<{ transmis: true }> {
+  const geste = reprendre ? 'resume' : 'pause';
+  return api(`/api/tasks/${encodeURIComponent(taskId)}/${geste}`, { method: 'POST', body: '{}' });
+}
+
+/** Le diff d'une exécution EN COURS, demandé à l'ouvrière (borné, caviardé). */
+export interface DiffDirect {
+  taskId: string;
+  nodeId: string;
+  diff: string;
+  tronque: boolean;
+  erreur?: string;
+}
+
+export function fetchDiffDirect(taskId: string): Promise<DiffDirect> {
+  return api<DiffDirect>(`/api/tasks/${encodeURIComponent(taskId)}/diff-direct`);
 }
 
 /** Drone Wars : course compétitive sur une tâche prête (2-5 nœuds, 1er succès gagne). */
@@ -2786,6 +2810,11 @@ export interface FeedHandlers {
   /** Un morceau de sortie en direct d'un agent (éphémère, jamais rejoué). */
   onSortie?: (taskId: string, nodeId: string, sortie: string) => void;
   /**
+   * L'état en direct d'une exécution (Sandbox Live) ; `null` : elle est finie.
+   * Rendu par la Reine à chaque (re)connexion — jamais rejoué du journal.
+   */
+  onDirect?: (taskId: string, direct: DirectTache | null) => void;
+  /**
    * `connected` : le socket est ouvert **et** le hub a accepté le jeton.
    * `meta.authError` : fermeture 4401 « token invalide » — le champ Jeton ne
    * correspond pas à `HIVE_TOKEN` de l'orchestrateur.
@@ -2968,6 +2997,9 @@ export function connectFeed(handlers: FeedHandlers): HiveFeed {
         // Le direct n'est ni rangé ni rejoué (`task_output`) : il passe tout
         // de suite, rattrapage ou pas.
         handlers.onSortie?.(msg.taskId, msg.nodeId, msg.sortie);
+      } else if (msg.type === 'task_direct') {
+        // Comme la sortie : un état, pas une histoire — il passe tout de suite.
+        handlers.onDirect?.(msg.taskId, msg.direct);
       }
     };
 

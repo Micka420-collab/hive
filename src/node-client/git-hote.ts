@@ -202,8 +202,17 @@ export async function poserRegistre(
  * (dépôt vide), l'index ne contient que les intentions d'ajout, et le diff
  * index↔arbre est exact.
  */
-export async function diffContreBase(depot: DepotEpingle, base: string | null): Promise<string> {
-  await gitHote(['add', '--all', '--intent-to-add'], depot);
+export async function diffContreBase(
+  depot: DepotEpingle,
+  base: string | null,
+  exclus: readonly string[] = [],
+): Promise<string> {
+  // `exclus` : des chemins (relatifs à la racine) tenus HORS du diff et de
+  // l'index — la configuration d'agent écartée pendant qu'il tourne
+  // (`Workspace.diffEnCours`). Littéraux : un nom de fichier n'est pas un motif.
+  const chemins =
+    exclus.length > 0 ? ['--', '.', ...exclus.map((c) => `:(top,literal,exclude)${c}`)] : [];
+  await gitHote(['add', '--all', '--intent-to-add', ...chemins], depot);
   return gitHote(
     [
       'diff',
@@ -217,6 +226,7 @@ export async function diffContreBase(depot: DepotEpingle, base: string | null): 
       // contenu n'y est pas, et `all` le faisait disparaître sans un mot.
       '--ignore-submodules=dirty',
       ...(base !== null ? [base] : []),
+      ...chemins,
     ],
     depot,
   );

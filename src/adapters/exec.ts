@@ -1,9 +1,11 @@
 // Aides communes aux adaptateurs qui lancent de vrais processus.
 // Règle absolue (§5.1) : spawn(bin, argv, { shell: false }) — jamais shell:true.
 
+import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { argvAgent } from '../shared/agent-windows.js';
-import { envDuLanceur, envelopper, optionsEnveloppe } from '../node-client/isolement.js';
+import { envDuLanceur, envelopper, envMoteur, optionsEnveloppe } from '../node-client/isolement.js';
+import type { ConteneurPilote } from '../node-client/pilote-execution.js';
 import { lancerArbre } from '../shared/arbre-processus.js';
 import type { IssueArbre } from '../shared/arbre-processus.js';
 import { LIMITS } from '../shared/protocol.js';
@@ -76,12 +78,27 @@ function preparerCommande(
   args: string[],
   ctx: AdapterContext,
   pont?: string,
-): { bin: string; args: string[]; env: NodeJS.ProcessEnv } {
+): { bin: string; args: string[]; env: NodeJS.ProcessEnv; conteneur?: ConteneurPilote } {
   if (ctx.bac) {
-    const options = { ...optionsEnveloppe(ctx.bac, ctx.cwd), ...(pont ? { pont } : {}) };
+    const { fournisseur } = ctx.bac;
+    // Un conteneur piloté porte un NOM connu (Sandbox Live : `pause`, `stats`).
+    // Aléatoire au bout : un conteneur laissé par un nœud tué garde le sien
+    // jusqu'au ramassage, et une relance de la tâche ne doit pas s'y heurter.
+    const nom =
+      ctx.pilote && fournisseur.bin !== 'bwrap'
+        ? `hive-${ctx.bac.tache ?? 'tache'}-${randomBytes(4).toString('hex')}`
+        : undefined;
+    const options = {
+      ...optionsEnveloppe(ctx.bac, ctx.cwd),
+      ...(pont ? { pont } : {}),
+      ...(nom ? { nom } : {}),
+    };
     return {
       ...envelopper(bin, args, options),
-      env: envDuLanceur(ctx.bac.fournisseur, ctx.env),
+      env: envDuLanceur(fournisseur, ctx.env),
+      // Le moteur est joint sans l'environnement de l'agent : `pause` et
+      // `stats` n'ont que faire de sa clé d'API.
+      ...(nom ? { conteneur: { bin: fournisseur.bin, nom, env: envMoteur(fournisseur) } } : {}),
     };
   }
   const [binReel = bin, ...avant] = argvAgent(bin, process.env, process.platform, existsSync);
@@ -336,6 +353,9 @@ function executer(
         : undefined;
 
     const finir = (issue: IssueArbre): void => {
+      // Plus de mesure ni de pause sur un processus qui a fini — et ce qu'une
+      // pause en vol aurait arrêté est relancé (`pilote-execution.ts`).
+      detacher?.();
       // Avant le `resolve` : un morceau parti après le résultat serait ignoré
       // par le hub, et ressusciterait une console déjà vidée à l'écran.
       direct.terminer();
@@ -391,15 +411,43 @@ function executer(
       });
     };
 
+    // Le délai dur, armé par le pilote quand il y en a un : une pause de
+    // l'agent (Sandbox Live) le SUSPEND — l'agent repris retrouve le temps
+    // qu'il n'a pas consommé, au lieu d'être tué pendant qu'il dormait.
+    const pilote = ctx.pilote;
+    const armerDelai = pilote
+      ? (delaiMs: number, declencher: () => void) =>
+          pilote.minuteur(delaiMs, () => {
+            // Détaché AVANT le signal : plus de pause possible sur un agent
+            // qu'on arrête, et ce qu'une pause en vol aurait arrêté est relancé
+            // — arrêté, il ne traiterait pas ce SIGTERM (`pilote-execution.ts`).
+            detacher?.();
+            declencher();
+          })
+      : undefined;
     const child = lancerArbre(
       lance.bin,
       lance.args,
       // Voir `ENTREE_FERMEE` : un tube d'entrée que personne n'écrit bloquait
       // chaque tâche Codex jusqu'au délai dur.
       { cwd: ctx.cwd, env: lance.env, stdio: ENTREE_FERMEE },
-      { delaiMs: opts.timeoutMs, ...(ctx.signal ? { signal: ctx.signal } : {}) },
+      {
+        delaiMs: opts.timeoutMs,
+        ...(ctx.signal ? { signal: ctx.signal } : {}),
+        ...(armerDelai ? { armerDelai } : {}),
+      },
       finir,
     );
+    // La commande LOGIQUE (l'agent et ses arguments), pas l'enveloppe du bac :
+    // c'est elle que l'écran doit lire. Le nœud la caviarde avant l'envoi.
+    const detacher: (() => void) | undefined =
+      child.pid !== undefined
+        ? pilote?.attacher({
+            pid: child.pid,
+            commande: [bin, ...args].join(' ').slice(0, 4096),
+            ...(lance.conteneur ? { conteneur: lance.conteneur } : {}),
+          })
+        : undefined;
 
     // Décodage UTF-8 AU FIL DES MORCEAUX : un caractère accentué coupé entre
     // deux lectures devenait deux « � », jusque dans la ligne `result`.

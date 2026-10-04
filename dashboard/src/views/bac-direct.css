@@ -1,0 +1,409 @@
+/* Sandbox Live (préfixe bd-) — les exécutions en cours de la ruche.
+   Réutilise card, btn, danger-btn et les jetons :root de styles.css ; aucune
+   couleur écrite en dur (tests/dashboard-contraste.test.ts). Le ton d'un état
+   passe par la couleur de son TEXTE et un filet, jamais par un fond criard :
+   une validation échouée doit se voir sans que tout l'écran crie. */
+
+.bd-view {
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.bd-tete {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 16px 18px;
+}
+
+.bd-tete h2 {
+  margin: 0 0 4px;
+  font-family: var(--titre);
+  font-size: var(--fs-2xl);
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  color: var(--text);
+}
+
+.bd-tete p {
+  margin: 0;
+  max-width: 44rem;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.bd-compte {
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.bd-grille {
+  display: grid;
+  grid-template-columns: minmax(14rem, 20rem) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.bd-liste {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bd-ligne {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  text-align: left;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-2);
+  border-radius: var(--r);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+}
+
+.bd-ligne:hover {
+  border-color: var(--border-2);
+}
+
+.bd-ligne-choisie {
+  border-left-color: var(--miel);
+  background: var(--panel-2);
+}
+
+.bd-ligne:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.bd-ligne-titre {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.bd-ligne-meta {
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.bd-pastille {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--panel-3);
+  color: var(--text);
+  font-size: var(--fs-2xs);
+}
+
+.bd-pastille-pause {
+  background: color-mix(in srgb, var(--amber) 14%, transparent);
+  color: var(--amber);
+}
+
+.bd-detail {
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.bd-detail-tete {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.bd-detail-titre {
+  margin: 0 0 2px;
+  font-family: var(--titre);
+  font-size: var(--fs-xl);
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  overflow-wrap: anywhere;
+}
+
+.bd-gestes {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+/* `danger-btn` est taillé pour le pied du tiroir (pleine largeur, marge
+   haute) : ici, « Arrêter » est un geste parmi les autres, sur la même ligne. */
+.bd-gestes .btn.danger-btn {
+  width: auto;
+  margin-top: 0;
+}
+
+.bd-bandeau-pause {
+  margin: 0;
+  padding: 8px 12px;
+  border-left: 3px solid var(--amber);
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--amber) 10%, transparent);
+  color: var(--text);
+  font-size: var(--fs-sm);
+}
+
+.bd-etapes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.bd-etape {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-xs);
+  color: var(--faint);
+}
+
+.bd-etape-faite {
+  color: var(--green);
+  border-color: color-mix(in srgb, var(--green) 40%, transparent);
+}
+
+.bd-etape-en_cours {
+  color: var(--text);
+  border-color: var(--miel);
+  background: var(--miel-fond);
+  font-weight: 600;
+}
+
+.bd-faits,
+.bd-mesures {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 10px;
+}
+
+.bd-faits dt,
+.bd-mesures dt {
+  font-size: var(--fs-2xs);
+  color: var(--faint);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.bd-faits dd,
+.bd-mesures dd {
+  margin: 2px 0 0;
+  font-size: var(--fs-sm);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.bd-mesures dd {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.bd-inconnu {
+  color: var(--faint) !important;
+  font-style: italic;
+}
+
+.bd-bloc {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.bd-bloc h3,
+.bd-bloc h4 {
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.bd-bloc-tete {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.bd-rien {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+
+.bd-erreur {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--red);
+}
+
+.bd-commande,
+.bd-diff,
+.bd-sortie {
+  margin: 0;
+  padding: 8px 10px;
+  max-height: 22rem;
+  overflow: auto;
+  background: var(--panel-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.bd-commande {
+  max-height: 6rem;
+}
+
+.bd-controles {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 6px;
+}
+
+.bd-controle {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-2);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+
+.bd-controle-passed {
+  border-left-color: var(--green);
+  color: var(--green);
+}
+
+.bd-controle-failed {
+  border-left-color: var(--red);
+  color: var(--red);
+}
+
+.bd-controle-missing {
+  border-left-color: var(--amber);
+  color: var(--amber);
+}
+
+.bd-controle-en_cours {
+  border-left-color: var(--blue);
+  color: var(--blue);
+}
+
+.bd-arbre {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 14px;
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.bd-arbre .bd-arbre {
+  margin-top: 4px;
+}
+
+.bd-sa {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-sm);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.bd-sa-point {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 999px;
+  background: var(--blue);
+}
+
+.bd-sa-done .bd-sa-point {
+  background: var(--green);
+}
+
+.bd-sa-failed .bd-sa-point {
+  background: var(--red);
+}
+
+.bd-sa-etat {
+  font-size: var(--fs-2xs);
+  color: var(--faint);
+}
+
+.bd-fichiers {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--fs-xs);
+  overflow-wrap: anywhere;
+}
+
+.bd-outil {
+  display: inline-block;
+  min-width: 3.2em;
+  color: var(--muted);
+}
+
+/* La barre de la console (recherche, suivre, replier, copier) est faite pour
+   le tiroir : dans une colonne étroite, elle passe à la ligne au lieu de
+   pousser la page de côté. */
+.bd-console .editor-bar,
+.bd-console .editor-actions {
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.bd-console .console-directe-recherche {
+  min-width: 0;
+  max-width: 100%;
+}
+
+@media (max-width: 760px) {
+  .bd-view {
+    padding: 12px 16px;
+  }
+
+  .bd-grille {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

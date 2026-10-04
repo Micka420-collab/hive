@@ -165,6 +165,8 @@ import {
   jugerPartage,
   partageVivant,
 } from '../shared/partage.js';
+import { FINS_D_EXECUTION, fusionnerDirect } from '../shared/bac-direct.js';
+import type { DirectTache } from '../shared/bac-direct.js';
 import {
   CODE_TABLEAU_TROP_LENT,
   isValidLocalRepoPath,
@@ -1403,6 +1405,50 @@ async function monterReine(
     if (dashboardSockets.size === 0) return;
     diffuser(JSON.stringify(event));
   };
+
+  // ─── SANDBOX LIVE : L'ÉTAT EN DIRECT DES EXÉCUTIONS ─────────────────────────
+  //
+  // Une entrée par exécution vivante (`shared/bac-direct.ts`), EN MÉMOIRE :
+  // jamais au journal, qui est élagué par nombre. Elle naît au premier
+  // `task_update` porteur d'un état, suit l'exécution, et meurt à sa fin
+  // (`FINS_D_EXECUTION`, voir `onEvent`). Un écran qui s'abonne la reçoit
+  // (`task_direct`) : c'est ce qui rend l'état après une reconnexion — le
+  // rattrapage du journal ne le porte pas.
+  //
+  // Bornée par construction : une entrée par tâche assignée ou en cours, que
+  // la fin d'exécution retire. La garde `ETATS_DIRECTS_MAX` n'est qu'un filet
+  // contre un défaut qui laisserait fuir des entrées.
+  const ETATS_DIRECTS_MAX = 4096;
+  const etatsDirects = new Map<string, DirectTache>();
+
+  /** L'état n'appartient qu'à une tâche encore vivante, sur ce nœud-là. */
+  const directVivant = (d: DirectTache): boolean => {
+    const t = store.getTask(d.taskId);
+    return (
+      t !== null &&
+      t !== undefined &&
+      (t.status === 'assigned' || t.status === 'running') &&
+      t.assignedNodeId === d.nodeId
+    );
+  };
+
+  const oublierDirect = (taskId: string): void => {
+    if (!etatsDirects.delete(taskId)) return;
+    broadcastEvent({ type: 'task_direct', taskId, direct: null });
+  };
+
+  /** Les demandes de diff en vol : une par tâche au plus (coalescées). */
+  const demandesDiff = new Map<
+    string,
+    {
+      taskId: string;
+      nodeId: string;
+      promesse: Promise<{ diff: string; tronque: boolean; erreur?: string }>;
+      resoudre: (r: { diff: string; tronque: boolean; erreur?: string }) => void;
+    }
+  >();
+  /** Un nœud muet ne tient pas la requête HTTP : vingt secondes, puis on le dit. */
+  const DELAI_DIFF_DIRECT_MS = 20_000;
 
   // Relais vers les connecteurs externes, câblé plus bas une fois le hub prêt
   // (il dépend de l'évaluateur et du scheduler, définis après). Avant ça, un
@@ -3303,6 +3349,10 @@ async function monterReine(
       broadcastEvent({ type: 'event', event });
       relayerConnecteurs(event);
       stateDirty = true;
+      // Fin d'exécution : son état en direct n'a plus d'objet, pour personne.
+      if (FINS_D_EXECUTION.includes(event.type) && typeof event.payload.taskId === 'string') {
+        oublierDirect(event.payload.taskId);
+      }
       suiviMissions.suivre(event);
       // Le planificateur clôt lui aussi des relectures sans avis (famille
       // absente, agent qui ne démarre nulle part, annulation) : même suite
@@ -3319,6 +3369,13 @@ async function monterReine(
     // changé, seul l'écran de la tâche a du texte de plus.
     onSortie: (taskId, nodeId, sortie) =>
       broadcastEvent({ type: 'task_output', taskId, nodeId, sortie }),
+    // Même relais, mais l'état est GARDÉ : un écran qui arrive le reçoit.
+    onDirect: (taskId, nodeId, maj) => {
+      if (!etatsDirects.has(taskId) && etatsDirects.size >= ETATS_DIRECTS_MAX) return;
+      const direct = fusionnerDirect(etatsDirects.get(taskId), taskId, nodeId, maj, Date.now());
+      etatsDirects.set(taskId, direct);
+      broadcastEvent({ type: 'task_direct', taskId, direct });
+    },
   });
 
   /**
@@ -12836,6 +12893,120 @@ async function monterReine(
     },
   );
 
+  // ─── SANDBOX LIVE : SUSPENDRE, REPRENDRE, VOIR LE DIFF EN COURS ───────────
+  //
+  // Suspendre et reprendre sont des DÉCISIONS sur le travail d'un projet, comme
+  // l'annulation : même porte (`decisionTache`). La route ne fait que
+  // TRANSMETTRE au nœud assigné ; ce qui a vraiment eu lieu revient par l'état
+  // en direct (`direct.enPause`), que l'écran affiche — jamais un « en pause »
+  // supposé parce qu'on a cliqué.
+  //
+  // Refusé, et dit :
+  //   · sans exécution en cours sur un nœud (409) ;
+  //   · pendant une course de drones : la pause du primaire ne ferait que lui
+  //     faire perdre la course, et les drones ne sont pas suspendus ;
+  //   · là où le nœud a dit ne pas savoir suspendre (Windows hors conteneur,
+  //     phase sans agent) — l'écran cache déjà le bouton.
+  const transmettrePause = (
+    req: FastifyRequest<{ Params: { taskId: string } }>,
+    reply: FastifyReply,
+    type: 'pause_task' | 'resume_task',
+  ): FastifyReply => {
+    const task = decisionTache(req, reply, req.params.taskId);
+    if (!task) return reply;
+    const nodeId = task.assignedNodeId;
+    if (task.status !== 'running' || !nodeId) {
+      return reply.code(409).send({ error: 'aucune exécution en cours pour cette tâche' });
+    }
+    if (scheduler.listRaces().some((r) => r.taskId === task.id)) {
+      return reply.code(409).send({
+        error: 'course de drones en cours : suspendre le primaire lui ferait perdre la course',
+      });
+    }
+    const direct = etatsDirects.get(task.id);
+    if (type === 'pause_task' && direct?.nodeId === nodeId && direct.pausable === false) {
+      return reply
+        .code(409)
+        .send({ error: 'cette exécution ne peut pas être suspendue sur son ouvrière' });
+    }
+    const ws = nodeSockets.get(nodeId);
+    if (!ws) return reply.code(409).send({ error: 'ouvrière injoignable' });
+    send(ws, { type, taskId: task.id });
+    return reply.code(202).send({ transmis: true });
+  };
+
+  const schemaTache = {
+    params: {
+      type: 'object',
+      required: ['taskId'],
+      properties: { taskId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+    },
+  } as const;
+
+  app.post<{ Params: { taskId: string } }>(
+    '/api/tasks/:taskId/pause',
+    { schema: schemaTache },
+    async (req, reply) => transmettrePause(req, reply, 'pause_task'),
+  );
+
+  app.post<{ Params: { taskId: string } }>(
+    '/api/tasks/:taskId/resume',
+    { schema: schemaTache },
+    async (req, reply) => transmettrePause(req, reply, 'resume_task'),
+  );
+
+  // Le diff d'une exécution EN COURS, DEMANDÉ (bouton « Diff » de Sandbox
+  // Live), jamais poussé : un diff de plusieurs mégaoctets à chaque événement
+  // saturerait chaque écran de la ruche. Le nœud le calcule par le registre de
+  // la ruche, le caviarde et le borne (`DIFF_DIRECT_MAX`). Une LECTURE du code
+  // du projet : la porte des lectures (`lectureProjetPermise`), et le refus a
+  // la forme d'une tâche inconnue. Une demande par tâche au plus : les écrans
+  // qui cliquent ensemble partagent la même réponse, le nœud ne calcule qu'une
+  // fois.
+  app.get<{ Params: { taskId: string } }>(
+    '/api/tasks/:taskId/diff-direct',
+    { schema: schemaTache },
+    async (req, reply) => {
+      const task = store.getTask(req.params.taskId);
+      const lecture = lectureProjetPermise(req, task?.projectId ?? '');
+      if (lecture === 'anonyme') return reject(reply);
+      if (lecture !== 'permis' || !task) {
+        return reply.code(404).send({ error: 'tâche inconnue' });
+      }
+      const nodeId = task.assignedNodeId;
+      const ws = nodeId ? nodeSockets.get(nodeId) : undefined;
+      if (task.status !== 'running' || !nodeId || !ws) {
+        return reply.code(409).send({ error: 'aucune exécution en cours pour cette tâche' });
+      }
+      let demande = [...demandesDiff.values()].find(
+        (d) => d.taskId === task.id && d.nodeId === nodeId,
+      );
+      if (!demande) {
+        const requestId = randomUUID();
+        let resoudre: (r: { diff: string; tronque: boolean; erreur?: string }) => void = () =>
+          undefined;
+        const promesse = new Promise<{ diff: string; tronque: boolean; erreur?: string }>((r) => {
+          resoudre = r;
+        });
+        const minuteur = setTimeout(
+          () =>
+            resoudre({ diff: '', tronque: false, erreur: 'l’ouvrière n’a pas répondu à temps' }),
+          DELAI_DIFF_DIRECT_MS,
+        );
+        minuteur.unref?.();
+        demande = { taskId: task.id, nodeId, promesse, resoudre };
+        demandesDiff.set(requestId, demande);
+        void promesse.finally(() => {
+          clearTimeout(minuteur);
+          demandesDiff.delete(requestId);
+        });
+        send(ws, { type: 'demande_diff_direct', taskId: task.id, requestId });
+      }
+      const r = await demande.promesse;
+      return { taskId: task.id, nodeId, ...r };
+    },
+  );
+
   // ─── Le chemin de RETOUR : ce que la pull request renvoie à la ruche ───────
   //
   // La ruche savait aller — issue → DAG → travail → pull request — et pas
@@ -14765,6 +14936,13 @@ async function monterReine(
             sortirDAttente();
             dashboardSockets.add(ws);
             send(ws, messageEtat());
+            // L'état en direct n'est pas au journal : l'écran qui (re)vient le
+            // reçoit ici, APRÈS l'instantané qui dit quelles tâches vivent.
+            for (const direct of [...etatsDirects.values()]) {
+              if (directVivant(direct))
+                send(ws, { type: 'task_direct', taskId: direct.taskId, direct });
+              else oublierDirect(direct.taskId);
+            }
           } else {
             ws.close(4401, 'authentification requise');
           }
@@ -14786,8 +14964,20 @@ async function monterReine(
               msg.log,
               msg.presences,
               msg.sortie,
+              msg.direct,
             );
             break;
+          case 'diff_direct': {
+            // Seul le nœud à qui on l'a demandé répond, pour la tâche demandée.
+            const demande = demandesDiff.get(msg.requestId);
+            if (!demande || demande.nodeId !== nodeId || demande.taskId !== msg.taskId) break;
+            demande.resoudre({
+              diff: msg.diff,
+              tronque: msg.tronque,
+              ...(msg.erreur !== undefined ? { erreur: msg.erreur } : {}),
+            });
+            break;
+          }
           case 'task_result': {
             // ─── LE HUB SAVAIT DIRE NON, ET NE LE DISAIT JAMAIS ──────────────
             //
