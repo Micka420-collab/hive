@@ -181,3 +181,71 @@ describe.skipIf(!sonde.filtre)(`réseau filtré en vrai sous bubblewrap (${sonde
     expect(rapport.lanProxy).toMatch(/^HTTP\/1\.1 403/);
   });
 });
+
+// Train 7 — le réseau COUPÉ des passes hors ligne de la porte de sécurité
+// (`reseauCoupe`) : en vrai, le bac n'a que sa boucle, et rien n'y écoute — ni
+// relais, ni proxy. Le même programme sans le drapeau voit le réseau de l'hôte
+// (`--share-net`) : c'est ce qui prouve que le banc saurait voir une fuite.
+describe.skipIf(!sonde.filtre)(`réseau coupé en vrai sous bubblewrap (${sonde.motif})`, () => {
+  const SONDE_COUPEE = String.raw`
+const os = require('node:os'), net = require('node:net');
+const essayer = (port, hote) => new Promise((r) => {
+  const s = net.connect(port, hote); s.on('connect', () => { s.destroy(); r('OUVERT'); });
+  s.on('error', (e) => r(e.code));
+});
+(async () => {
+  process.stdout.write(JSON.stringify({
+    interfaces: Object.keys(os.networkInterfaces()).sort(),
+    relais: await essayer(3128, '127.0.0.1'),
+    lan: await essayer(80, '192.168.1.1'),
+  }) + '\n');
+})();
+`;
+  const lancer = async (
+    coupe: boolean,
+  ): Promise<{ interfaces: string[]; relais: string; lan: string }> => {
+    const tache = mkdtempSync(path.join(os.tmpdir(), 'hive-tache-coupee-'));
+    try {
+      const lance = envelopper(process.execPath, ['-e', SONDE_COUPEE], {
+        fournisseur: BWRAP,
+        cwdHote: tache,
+        variables: [],
+        hote: contexteHote(),
+        ...(coupe ? { reseauCoupe: true } : {}),
+      });
+      const sortie = await new Promise<string>((resolve, reject) => {
+        const enfant = spawn(lance.bin, lance.args, {
+          env: { PATH: process.env.PATH },
+          stdio: ['ignore', 'pipe', 'pipe'],
+        });
+        let out = '';
+        let err = '';
+        enfant.stdout.on('data', (c: Buffer) => (out += c.toString()));
+        enfant.stderr.on('data', (c: Buffer) => (err += c.toString()));
+        enfant.on('error', reject);
+        enfant.on('close', (code) =>
+          code === 0 ? resolve(out) : reject(new Error(`${code} ${err}`)),
+        );
+      });
+      return JSON.parse(sortie.trim().split('\n').at(-1) ?? '{}') as {
+        interfaces: string[];
+        relais: string;
+        lan: string;
+      };
+    } finally {
+      rmSync(tache, { recursive: true, force: true });
+    }
+  };
+
+  it('la boucle seule, rien n’y écoute, le réseau local injoignable — et sans le drapeau, l’hôte', async () => {
+    const coupe = await lancer(true);
+    expect(coupe.interfaces).toEqual(['lo']);
+    expect(coupe.relais).toBe('ECONNREFUSED');
+    expect(coupe.lan).toMatch(/ENETUNREACH|EHOSTUNREACH|ENETDOWN/);
+    const hote = await lancer(false);
+    expect(
+      hote.interfaces.length,
+      'sans le drapeau, le bac voit le réseau de l’hôte',
+    ).toBeGreaterThan(1);
+  }, 60_000);
+});
