@@ -65,7 +65,13 @@
 //     registre. L'agent peut les corrompre ou les effacer (le diff ÉCHOUE
 //     alors, visiblement), ou faire de `.git` un lien vers un autre dépôt qui
 //     contient le commit de départ (le diff se calcule alors avec SES objets,
-//     en lecture) ; il ne peut pas les faire exécuter.
+//     en lecture) ; il ne peut pas les faire exécuter. Il peut aussi en
+//     FORGER un — un objet valide rangé sous le nom d'un autre : git ne
+//     vérifie pas l'empreinte de ce qu'il lit (mesuré, git 2.53), et une
+//     lecture de la base par le registre rend alors le contenu forgé, sans un
+//     mot. Ce qui doit être la base À COUP SÛR passe donc par `extraireBase`
+//     (un `fetch`, qui renomme chaque objet par son contenu) ; les lectures
+//     directes de la base (`fichierDeBase`) y restent exposées — suite nommée.
 //   · Les configurations SYSTÈME et GLOBALE : celles de la machine et du
 //     membre, jamais montées dans le bac. On ne les coupe pas
 //     (`shared/git-protege.ts`) : elles portent ce dont le clone a besoin, les
