@@ -239,16 +239,27 @@ from.
 
 The **security gate** (`src/shared/porte-securite.ts`) is not a fifth
 validation: the node attaches it to its result (`porteSecurite`, recorded as
-`security_gate_recorded`), part by part — secrets (Betterleaks, added lines
-only) and dependencies (osv-scanner, vulnerabilities INTRODUCED compared with
-the base). A finding (4) comes before everything that calls a human:
-`human_review_required` does not stop delivery, and an approval must not let a
-key go out. Not verified (tool missing, failed, node older than the gate), it
-is **never counted green** — `accepted` says so in its reasons — and it holds
-the production only under `strict` polyethism (12): like a missing
-counter-visit, the production then waits for a human (`human_review_required`,
-no retry — the producer cannot install the node's tool). A human rejection
-relaunches the production, and the gate with it.
+`security_gate_recorded`), part by part — secrets (Betterleaks, high
+confidence, added lines only, on EVERY result that carries a diff, failures
+included) and dependencies (osv-scanner, vulnerabilities INTRODUCED compared
+with the base, for a successful production of the task tree; what leaves for
+osv.dev: `src/shared/porte-securite-dependances.ts`). The Queen revalidates
+each part ON ITS OWN: a malformed part becomes `rapport_rejete`, journaled
+(`security_gate_rejected`), without taking the other with it. A finding (4)
+comes before everything that calls a human: `human_review_required` does not
+stop delivery, and an approval must not let a key go out; on a failed result
+(2), the findings follow the reason, so that the critique carries them. Not
+verified (tool missing, failed, osv.dev unreachable, node older than the
+gate), it is **never counted green** — `accepted` says so in its reasons, as
+it says how many introduced packages could not be queried ("passed in
+part") — and it holds the production only under `strict` polyethism (12):
+like a missing counter-visit, the production then waits for a human
+(`human_review_required`, no retry — the producer cannot install the node's
+tool). What that changes, and nothing more: delivery already required a human
+approval, which this verdict does not block; the Evaluator no longer accepts
+on its own (no memory kept in the Hive Mind without a human, no production
+"judged" in the workers' quality). A human rejection relaunches the
+production, and the gate with it.
 
 ### Step 4 — the correction, with the critique (#488)
 

@@ -269,20 +269,58 @@ keeps the first engine whose preflight passes (image present, agent runnable)
 and says why the others were skipped. Every container carries its node's label:
 restarted after a hard stop, the node removes the ones it left behind.
 
-**The security gate.** After a successful production, before its validations,
-the node passes what it **adds** to two pinned tools, invoked and never linked:
-Betterleaks (MIT) on the diff's added lines only — the value redacted by the
-tool (`--redact`), then by the node in the diff, the logs and the final text —
-and osv-scanner (Apache-2.0) on the touched lockfiles, at the base and at the
-head, so that only **introduced** vulnerabilities are reported. osv-scanner
-queries osv.dev online: only the names and versions of the packages in the
-lockfiles the production touches leave the machine. A finding: the Evaluator
-asks for a correction and cites the rule and the line, or the advisory and its
-CVE — never the value. A missing tool: the gate is "not verified", its reason
-said, **never counted green**; under `strict` polyethism the production waits
-for a human. The sandbox image pins betterleaks 1.9.0 and osv-scanner 2.6.0 by
-version and SHA-256; under bubblewrap or without a sandbox they are the host's,
-and `hive doctor` says whether they are there.
+**The security gate.** On every result that carries a diff — successful or
+failed — the node passes what the production **adds** to two pinned tools,
+invoked and never linked.
+
+- **Secrets**: Betterleaks (MIT), on the diff's added lines only, with its
+  **high**-confidence rules (`--confidence high`: the generic rules read
+  healthy code as passwords) and without its prefilter (a lockfile, an `.svg`,
+  a `go.sum` are read). It runs nothing of the production. The value,
+  redacted by the tool (`--redact`), is re-read by the node and replaced with
+  `[secret]` in the diff, the logs and the final text — only in a token form
+  (16 characters or more, no whitespace): the gate never rewrites a line on
+  the sole faith of a finding.
+- **Dependencies**: osv-scanner (Apache-2.0), for a successful production that
+  touches a dependency file it reads (npm, PyPI, Cargo, Go, NuGet, Maven and
+  Gradle, RubyGems, Composer, Pub, Hex, CRAN, Conan lockfiles…). Each file is
+  read offline, one at a time; only vulnerabilities **introduced** relative to
+  the base count; a lockfile the production leaves unreadable is a finding.
+- **What leaves for `api.osv.dev`** — the gate's only connection: the ecosystem,
+  name and version of the packages the production **introduces** whose
+  lockfile names a known public source (registry.npmjs.org, PyPI, crates.io,
+  rubygems.org, packagist.org, pub.dev, hex.pm, CRAN), and the base versions of
+  those same packages. Never a commit, a path, a package from a private
+  registry the lockfile names, nor an unchanged package. `pnpm-lock.yaml`,
+  `bun.lock` and `yarn.lock` (berry) do not name their registry: nothing
+  leaves from them. **Limit**: `go.mod`, NuGet, Maven and Conan do not name
+  theirs either — a private package there is indistinguishable from a public
+  one, and its name leaves. Introduced packages that do not leave are never
+  counted green: the verdict says how many. Behind an outbound proxy,
+  `HTTPS_PROXY` and `NO_PROXY` are passed to that query only; `hive doctor`
+  checks that api.osv.dev is reachable, sending nothing.
+- **The verdict**: a finding, and the Evaluator asks for a correction — a
+  verdict that blocks delivery — citing the rule and the line, or the advisory
+  and its CVE, never the value. Not verified (tool missing, osv.dev
+  unreachable…), the gate is **never counted green** and its reason is said.
+  Under `strict` polyethism it turns the production from `accepted` into
+  `human_review_required`, and that is all: delivery already required a human
+  approval, which this verdict does not block. What changes: the Evaluator no
+  longer accepts on its own (no memory kept in the Hive Mind without a human,
+  no production "judged" in the workers' quality), and the approving human
+  reads why.
+- **Limit, said**: the agent's LIVE output goes to the dashboards while it
+  works, before the gate. With Claude Code, the content of a file the agent
+  writes (Write or Edit tools) is in that stream: a key Hive does not
+  recognize by its format (`ghp_…`, `sk-…`…) or by its value (a credential
+  passed to the agent) is relayed as is. The gate protects what is stored —
+  diff, logs, final text — not that ephemeral stream. Named follow-up: redact
+  the live stream with Betterleaks' rules.
+
+The sandbox image pins betterleaks 1.9.0 and osv-scanner 2.6.0 by version and
+SHA-256; under bubblewrap or without a sandbox they are the host's, resolved to
+their absolute path (a relative PATH entry is never read), and `hive doctor`
+says what the gate will find.
 
 Inside the sandbox the agent gets an ephemeral HOME: a `claude login` or
 `codex login` session does not reach it. Hive forwards the headless credentials

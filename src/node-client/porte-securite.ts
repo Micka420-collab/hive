@@ -8,8 +8,9 @@
 //
 // ─── QUAND, ET SUR QUOI ──────────────────────────────────────────────────────
 //
-// AVANT les validations du bac, sur l'arbre tel que l'agent l'a laissé — celui
-// dont le diff vient d'être calculé. Après, ce serait juger autre chose : les
+// Sur TOUT résultat porteur d'un diff, réussi ou en échec, et AVANT les
+// validations du bac, sur l'arbre tel que l'agent l'a laissé — celui dont le
+// diff vient d'être calculé. Après, ce serait juger autre chose : les
 // validations exécutent les tests du dépôt, que l'agent a pu écrire, et un
 // test qui réécrirait `package-lock.json` au passage ferait lire à la porte un
 // lockfile assaini pendant que le diff, lui, livrerait le vulnérable.
@@ -17,17 +18,19 @@
 // Les secrets se cherchent dans les LIGNES AJOUTÉES du diff brut — celles que
 // `Caviardeur.diff` réécrirait, lues par le même lecteur (`lireDiff`) —, pas
 // dans les fichiers : seul ce que la production apporte compte, et c'est le
-// diff, pas le disque, qui part au hub.
+// diff, pas le disque, qui part au hub. Les dépendances, elles, se lisent dans
+// l'arbre : pour une production réussie dont le diff est celui de l'arbre.
 //
 // ─── OÙ, ET POURQUOI CE N'EST PAS UNE VALIDATION ─────────────────────────────
 //
 // Les outils tournent là où tournent les validations : dans le bac du nœud
 // quand il en a un — l'image du bac les épingle (`docker/agents/Dockerfile`),
-// bubblewrap monte ceux de l'hôte (`hive doctor` les cherche). Sans bac, ils
-// tournent sur l'hôte, et c'est la différence avec les validations : celles-ci
-// exécutent le code de l'agent (`npm run`), la porte n'exécute RIEN de la
-// production — deux binaires épinglés qui LISENT un miroir que Hive a écrit,
-// configurés par drapeaux plutôt que par ce qu'ils trouveraient dans le dépôt.
+// bubblewrap monte ceux de l'hôte. Sans bac, ils tournent sur l'hôte, et c'est
+// la différence avec les validations : celles-ci exécutent le code de l'agent
+// (`npm run`), la porte n'exécute RIEN de la production — deux binaires
+// épinglés, résolus par leur chemin absolu (`lanceur`), qui LISENT un miroir
+// que Hive a écrit, configurés par drapeaux plutôt que par ce qu'ils
+// trouveraient dans le dépôt. `hive doctor` les éprouve par le même chemin.
 //
 // ─── LE MIROIR, ET CE QU'IL DÉSAMORCE ────────────────────────────────────────
 //
@@ -37,7 +40,11 @@
 //     ligne du fichier livré ;
 //   · `dependances/{base,tete}/<k>/<lockfile>` : chaque lockfile touché, au
 //     commit de base (lu par le registre, `fichierDeBase`) et tel que livré ;
-//   · `regles/` : la configuration que la porte IMPOSE.
+//     `extractions/` : ce qu'osv-scanner en a extrait, hors ligne ;
+//   · `sboms/{base,tete}/<k>/bom.cdx.json` : les SEULS paquets qui partent à
+//     osv.dev (`shared/porte-securite-dependances.ts`) ;
+//   · `regles/` : la configuration que la porte IMPOSE (Betterleaks : règles
+//     par défaut, confiance haute, sans préfiltre).
 // Mesuré sur Betterleaks 1.9.0 : sans `--config`, un `.betterleaks.toml` à la
 // racine scannée REMPLACE les règles ; sans `--gitleaks-ignore-path`, un
 // `.gitleaksignore` du répertoire courant — celui de la tâche, que l'agent
