@@ -92,6 +92,24 @@ describe('lireSortieDeTest — les sorties par défaut des runners, telles qu’
     );
   });
 
+  it('jest : un message d’erreur indenté qui commence par « FAIL » ne change pas de fichier', () => {
+    const texte = [
+      'FAIL tests/a.test.js',
+      '  ● un',
+      '',
+      '    FAIL ailleurs.test.js — cité par une assertion',
+      '',
+      '  ● deux',
+      '',
+      'Test Suites: 1 failed, 1 total',
+      'Tests:       2 failed, 2 total',
+    ].join('\n');
+    expect(lu(lireSortieDeTest(texte)).echecs).toEqual([
+      'tests/a.test.js › deux',
+      'tests/a.test.js › un',
+    ]);
+  });
+
   it('node --test (spec, défaut de Node 24) : suites imbriquées, crochet en échec, fichier illisible', () => {
     const lecture = lu(lireSortieDeTest(sortie('node-spec.txt')));
     expect(lecture.format).toBe('node-test');

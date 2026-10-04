@@ -225,7 +225,10 @@ function lireJest(lignes: readonly string[], texte: string, r: Releve): void {
   const tests = new Set<string>();
   const fichiersRouges = new Set<string>();
   for (const ligne of lignes) {
-    const entete = /^ *(?:PASS|FAIL) +(\S.*?)(?: \(\d+(?:\.\d+)? ?m?s\))?$/.exec(ligne);
+    // Au plus une espace devant : jest l'imprime en colonne 0 (une espace
+    // sous un terminal) — une ligne d'erreur indentée qui commence par
+    // « FAIL » ne change pas le fichier auquel les titres suivants se rattachent.
+    const entete = /^ ?(?:PASS|FAIL) +(\S.*?)(?: \(\d+(?:\.\d+)? ?m?s\))?$/.exec(ligne);
     if (entete?.[1]) {
       fichier = entete[1];
       continue;
