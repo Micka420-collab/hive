@@ -1572,12 +1572,7 @@ async function monterReine(
    * Le REFUS est journalisé lui aussi. « Aucun second modèle » est une
    * information : tue, elle se confondrait avec « personne n'a rien trouvé ».
    */
-  const signalerContreExpertise = (
-    taskId: string,
-    nodeId: string,
-    diff: string,
-    logs: string,
-  ): void => {
+  const signalerContreExpertise = (taskId: string, nodeId: string, diff: string): void => {
     // Les deux recherches sont nécessaires PARCE QUE la production se compose
     // des deux — son titre vient de la tâche, son modèle vient du nœud. Ce lien
     // vit désormais dans `productionAContreExpertiser`, avec ses bancs : ici, la
@@ -1586,7 +1581,6 @@ async function monterReine(
       store.getTask(taskId),
       store.getNode(nodeId),
       diff,
-      logs,
     );
     if (!ouverture) return;
     const { production, projectId } = ouverture;
@@ -2118,7 +2112,6 @@ async function monterReine(
             store.getTask(productionTaskId),
             { id: latest.nodeId, agentType: lien.producteurAgent },
             latest.diff,
-            latest.logs,
           )
         : null;
     if (suite.genre === 'secours' && ouverture) {
@@ -16248,7 +16241,7 @@ async function monterReine(
                 reprendreContreRevue(echec);
               }
             } else if (pris && msg.success && (msg.diff ?? '').trim() !== '') {
-              signalerContreExpertise(msg.taskId, nodeId, msg.diff ?? '', msg.logs ?? '');
+              signalerContreExpertise(msg.taskId, nodeId, msg.diff ?? '');
             }
             // Les Gardiennes, le bac et le Parlement ont parlé en même temps que
             // le résultat : une production creuse, suspecte ou aux tests rouges

@@ -139,6 +139,12 @@ Gardiennes l'inspectent (`clean`, `suspect`, `hollow`).
   `AGENTS_SANS_AVIS`. Aucune autre famille en ligne : la contre-expertise est
   refusée **et journalisée** (`contre_expertise`, `possible: false`) — jamais
   confondue avec « rien trouvé ».
+- **L'anonymat :** le relecteur ne sait pas QUI a produit. Sa consigne
+  (`consigneDeCritique`) ne reçoit que le titre de la tâche et le diff : ni la
+  famille ni le modèle du producteur, ni ses logs (où son CLI se nomme), pas
+  même « un autre modèle ». Les humains, eux, gardent la famille : l'annonce
+  (`contre_expertise`), le verdict (`contre_expertise_verdict`) et la preuve de
+  l'Evaluator nomment producteur et relecteur.
 - **Le verdict :** le relecteur répond `valide` ou `conteste`, puis une
   objection par ligne (`OBJECTIONS_MAX` au plus, 300 caractères chacune), dans
   sa **réponse finale** — jamais lue dans ses logs —, et **termine** par une

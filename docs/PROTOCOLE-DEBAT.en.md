@@ -135,6 +135,12 @@ Gardiennes inspect it (`clean`, `suspect`, `hollow`).
   other family online: the counter-review is refused **and journaled**
   (`contre_expertise`, `possible: false`) — never mistaken for "found
   nothing".
+- **Anonymity:** the reviewer does not know WHO produced. Its instructions
+  (`consigneDeCritique`) receive only the task title and the diff: neither
+  the producer's family nor its model, nor its logs (where its CLI names
+  itself), not even "another model". Humans keep the family: the announcement
+  (`contre_expertise`), the verdict (`contre_expertise_verdict`) and the
+  Evaluator's evidence name producer and reviewer.
 - **The verdict:** the reviewer answers `valide` or `conteste`, then one
   objection per line (`OBJECTIONS_MAX` at most, 300 characters each), in its
   **final answer** — never read from its logs —, and **ends** with a
