@@ -341,6 +341,13 @@ export interface OptionsEnveloppe {
   pont?: string;
   /** Le réseau FILTRÉ de la tâche (voir `ReseauBac`). Absent : le réseau de l'hôte. */
   reseau?: ReseauBac;
+  /**
+   * Le réseau COUPÉ, sans relais ni proxy : la boucle locale seule, où rien
+   * n'écoute — pour un outil qui n'a rien à joindre (les passes hors ligne de
+   * la porte de sécurité). Sans effet quand `reseau` est là : filtré, le bac
+   * est déjà coupé, et son relais seul en sort.
+   */
+  reseauCoupe?: boolean;
 }
 
 /**
@@ -435,6 +442,8 @@ export interface BacExecution {
   tache?: string;
   /** Le réseau filtré de la tâche, ouvert par le nœud pour elle seule. */
   reseau?: ReseauBac;
+  /** Le réseau coupé, sans relais (voir `OptionsEnveloppe.reseauCoupe`). */
+  reseauCoupe?: boolean;
 }
 
 /** Les options d'enveloppe d'une exécution dans le bac, sur le répertoire `cwdHote`. */
@@ -447,6 +456,7 @@ export function optionsEnveloppe(bac: BacExecution, cwdHote: string): OptionsEnv
     ...(bac.noeud ? { noeud: bac.noeud } : {}),
     ...(bac.tache ? { tache: bac.tache } : {}),
     ...(bac.reseau ? { reseau: bac.reseau } : {}),
+    ...(bac.reseauCoupe ? { reseauCoupe: true } : {}),
   };
 }
 
@@ -523,11 +533,14 @@ function enveloppeConteneur(
     //
     // `--network=none` : le conteneur n'a que `lo`. Tout ce qui sort passe par
     // le relais, vers le socket du proxy de la tâche monté en lecture seule
-    // (conception Linux de srt). Sans `reseau`, le réseau du moteur, comme
-    // avant — le niveau `ouvert` d'un projet.
+    // (conception Linux de srt). Coupé (`reseauCoupe`) : la boucle seule,
+    // sans relais. Sans l'un ni l'autre, le réseau du moteur, comme avant — le
+    // niveau `ouvert` d'un projet.
     ...(opts.reseau
       ? ['--network=none', `--volume=${opts.reseau.dossier}:${MONTAGE_RESEAU}:ro`]
-      : []),
+      : opts.reseauCoupe
+        ? ['--network=none']
+        : []),
     `--workdir=${MONTAGE}`,
     // Racine en lecture seule : un agent ne réécrit pas son propre système.
     '--read-only',
@@ -861,10 +874,11 @@ function enveloppeBwrap(
     // ─── LE RÉSEAU : LA BOUCLE SEULE, OU CELUI DE L'HÔTE ───────────────────
     //
     // `--unshare-all` coupe aussi le réseau : le bac n'a que `lo`, que
-    // bubblewrap monte, et le relais y écoute. Seul un projet `ouvert` (pas de
-    // `reseau`) rend le réseau de l'hôte, par `--share-net` — la concession
-    // d'avant, désormais choisie par le propriétaire du projet.
-    ...(opts.reseau ? [] : ['--share-net']),
+    // bubblewrap monte, et le relais y écoute — ou rien, réseau coupé
+    // (`reseauCoupe`). Seul un projet `ouvert` (ni l'un ni l'autre) rend le
+    // réseau de l'hôte, par `--share-net` — la concession d'avant, désormais
+    // choisie par le propriétaire du projet.
+    ...(opts.reseau || opts.reseauCoupe ? [] : ['--share-net']),
     '--new-session',
     '--die-with-parent',
     '--',

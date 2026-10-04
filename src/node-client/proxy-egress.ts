@@ -416,6 +416,11 @@ export interface PolitiqueSession {
   niveau: Exclude<NiveauReseau, 'ouvert'>;
   /** Motifs d'hôtes permis (`api.anthropic.com`, `*.crates.io`). */
   hotes: readonly string[];
+  /**
+   * Ports permis, parmi `PORTS_PERMIS` (80 et 443, défaut) — la porte de
+   * sécurité n'ouvre que 443 (`ouvrirReseauPorte`).
+   */
+  ports?: readonly number[];
   passerelles: readonly Passerelle[];
 }
 
@@ -509,6 +514,7 @@ export async function ouvrirSessionReseau(opts: OptionsSession): Promise<Session
   const ouverts = new Set<Socket | Duplex>();
 
   const permis = politique.hotes.length > 0 ? politique.hotes.join(', ') : 'aucun hôte';
+  const ports = (politique.ports ?? [...PORTS_PERMIS]).filter((p) => PORTS_PERMIS.has(p));
   const conseil =
     'Un propriétaire du projet peut élargir le réseau des agents dans Mission Control ' +
     '(Projets → Réseau des agents).';
@@ -545,12 +551,12 @@ export async function ouvrirSessionReseau(opts: OptionsSession): Promise<Session
         ),
       };
     }
-    if (!PORTS_PERMIS.has(port)) {
+    if (!ports.includes(port)) {
       return {
         motif: refuser(
           hote,
           port,
-          `Hive : port ${port} refusé vers ${hote} — seuls 80 et 443 sortent du bac. ${conseil}`,
+          `Hive : port ${port} refusé vers ${hote} — seuls ${ports.join(' et ')} sortent du bac. ${conseil}`,
         ),
       };
     }

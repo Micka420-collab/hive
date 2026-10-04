@@ -24,7 +24,17 @@
 //   · betterleaks `decale`  — rapporte des colonnes qui ne se relisent pas ;
 //   · betterleaks `sans-confiance` — n'applique pas la confiance demandée ;
 //   · osv-scanner `hors-ligne` — osv.dev injoignable : rapport VIDE et valide,
-//     sortie 127, le message réel sur stderr (mesuré, `node-client/porte-securite.ts`).
+//     sortie 127, le message réel sur stderr (mesuré, `node-client/porte-securite.ts`) ;
+//   · osv-scanner `curieux` — derrière un proxy (`HIVE_BANC_SOCKET`, ci-dessous),
+//     il tente d'abord un AUTRE hôte que l'API d'osv.dev (deps.dev) : la porte
+//     doit le refuser.
+//
+// Derrière un proxy, l'outil réel passe par `HTTPS_PROXY` : un `CONNECT
+// api.osv.dev:443`, et un refus vaut osv.dev injoignable (sortie 127, le même
+// message). Le faux fait de même quand le banc lui donne `HIVE_BANC_SOCKET` —
+// le socket du proxy que le faux moteur de `porte-securite-reseau.test.ts`
+// substitue au relais du bac : chaque destination tentée est consignée avec
+// son issue (`reseauVu`), `refus` quand le proxy de Hive l'a refusée.
 //
 // SURFACE PROTÉGÉE (`src/boucle-v3/garde.ts`) : un faux plus complaisant que
 // le vrai — qui ne préfiltrerait pas, n'ignorerait aucune confiance, lirait un
@@ -386,7 +396,28 @@ if (extraction) {
   fs.writeFileSync(valeur('--output-file'), JSON.stringify({ ...vide, results }, null, 2));
   process.exit(0);
 }
-if (mode === 'hors-ligne') {
+// Derrière le proxy du banc : un CONNECT par destination, dans un processus à
+// part (le faux reste synchrone) ; « refus » seulement si Hive a refusé (403 signé).
+const joindre = (hote) => require('node:child_process').execFileSync(process.execPath, ['-e', [
+  "const s = require('node:net').connect(process.env.HIVE_BANC_SOCKET);",
+  "let recu = '';",
+  "const fin = (v) => { process.stdout.write(v); process.exit(0); };",
+  "s.on('data', (d) => { recu += d; if (recu.includes('\\r\\n\\r\\n')) fin(/^HTTP\\/1\\.1 403/.test(recu) && /x-hive-reseau: refus/i.test(recu) ? 'refus' : 'passe'); });",
+  "s.on('error', () => fin('erreur'));",
+  "s.on('close', () => fin(recu ? 'passe' : 'erreur'));",
+  "s.write('CONNECT " + hote + ":443 HTTP/1.1\\r\\nHost: " + hote + ":443\\r\\n\\r\\n');",
+].join('\n')], { encoding: 'utf8' });
+let injoignable = mode === 'hors-ligne';
+if (process.env.HIVE_BANC_SOCKET) {
+  const vus = mode === 'curieux' ? ['deps.dev'] : [];
+  vus.push('api.osv.dev');
+  for (const hote of vus) {
+    const issue = joindre(hote);
+    fs.appendFileSync(path.join(ici, 'reseau'), hote + ':443 ' + issue + '\n');
+    if (hote === 'api.osv.dev' && issue !== 'passe') injoignable = true;
+  }
+}
+if (injoignable) {
   fs.writeFileSync(valeur('--output-file'), JSON.stringify(vide, null, 2));
   process.stderr.write('Error during extraction: (extracting as vulnmatch/osvdev) max retries exceeded: attempt 4: request failed: Post "https://api.osv.dev/v1/querybatch": dial tcp: lookup api.osv.dev: no such host\n');
   process.exit(127);
@@ -480,6 +511,12 @@ export function requetesEnvoyees(outils: FauxOutils): Record<string, unknown>[] 
     .split('\n')
     .filter(Boolean)
     .map((l) => JSON.parse(l) as Record<string, unknown>);
+}
+
+/** Ce que le faux osv-scanner a tenté derrière le proxy du banc : `hôte:443 passe|refus|erreur`. */
+export function reseauVu(outils: FauxOutils): string[] {
+  const journal = path.join(outils.dossier, 'reseau');
+  return existsSync(journal) ? readFileSync(journal, 'utf8').split('\n').filter(Boolean) : [];
 }
 
 /** Le `HTTPS_PROXY` que chaque lancement d'osv-scanner a reçu (`-` : aucun), passe par passe. */

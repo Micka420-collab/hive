@@ -177,6 +177,62 @@ export async function ouvrirReseauTache(opts: {
   }
 }
 
+/** L'hôte que la porte de sécurité interroge (osv-scanner) — le SEUL que son réseau joint. */
+export const HOTE_OSV = 'api.osv.dev';
+
+export type ReseauPorte =
+  | { etat: 'filtre'; reseau: ReseauBac; fermer: () => Promise<void> }
+  | { etat: 'impossible'; motif: string };
+
+/**
+ * Le réseau de LA PORTE DE SÉCURITÉ (G10), à elle — jamais celui de la tâche.
+ *
+ * La porte lit ce que la production ajoute, mais n'est pas la production : la
+ * liste blanche du projet ne lui sert à rien, et ses refus n'ont rien à faire
+ * au bilan de la tâche, qui les imputerait au producteur. Sa session ne joint
+ * qu'`api.osv.dev:443` — l'interrogation d'osv-scanner, derrière le relais du
+ * bac comme celle d'un agent ; ses passes hors ligne, elles, tournent réseau
+ * COUPÉ (`BacExecution.reseauCoupe`). Chaque refus va à `surRefus`, et à lui
+ * seul. Seulement sur un nœud dont le bac filtre : ailleurs, la porte garde
+ * le réseau de l'hôte, comme la tâche.
+ */
+export async function ouvrirReseauPorte(opts: {
+  reservation: ReservationPont;
+  surRefus?: (refus: RefusReseau) => void;
+}): Promise<ReseauPorte> {
+  let dossier: string | null = null;
+  try {
+    const emplacement = opts.reservation.reserver();
+    dossier = emplacement.dossier;
+    ecrireRelais(dossier);
+    const session = await ouvrirSessionReseau({
+      socket: emplacement.extremite,
+      politique: { niveau: 'integrations', hotes: [HOTE_OSV], ports: [443], passerelles: [] },
+      ...(opts.surRefus ? { surRefus: opts.surRefus } : {}),
+    });
+    const aEffacer = dossier;
+    return {
+      etat: 'filtre',
+      reseau: {
+        dossier,
+        socket: emplacement.extremite,
+        interprete: process.execPath,
+        variables: variablesProxy(),
+      },
+      fermer: async () => {
+        await session.fermer();
+        rmSync(aEffacer, { recursive: true, force: true });
+      },
+    };
+  } catch (err) {
+    if (dossier) rmSync(dossier, { recursive: true, force: true });
+    return {
+      etat: 'impossible',
+      motif: `réseau de la porte impossible : ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+}
+
 /** Le bilan des refus d'une tâche, en tête de ses logs — `null` s'il n'y en a pas. */
 export function bilanRefus(refus: readonly RefusReseau[]): string | null {
   if (refus.length === 0) return null;

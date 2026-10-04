@@ -32,6 +32,15 @@
 // que Hive a écrit, configurés par drapeaux plutôt que par ce qu'ils
 // trouveraient dans le dépôt. `hive doctor` les éprouve par le même chemin.
 //
+// ─── SON RÉSEAU, PAS CELUI DE LA TÂCHE ───────────────────────────────────────
+//
+// Dans un bac qui filtre (G03), la porte n'emprunte pas le réseau de la tâche :
+// sa liste blanche ne connaît pas osv.dev (chaque interrogation y mourait en
+// « injoignable »), et ses refus y entraient au bilan de la tâche, imputés au
+// producteur. Betterleaks et l'extraction tournent réseau COUPÉ — ils n'ont
+// rien à joindre ; l'interrogation passe par une session à elle, qui ne joint
+// qu'api.osv.dev:443 (`ouvrirReseauPorte`), et ses refus ne vont qu'au nœud.
+//
 // ─── LE MIROIR, ET CE QU'IL DÉSAMORCE ────────────────────────────────────────
 //
 // Un dossier neuf dans la tâche (le seul que le bac monte), retiré à la fin :
@@ -103,8 +112,11 @@ import type {
   SourceLue,
   Volet,
 } from '../shared/porte-securite.js';
-import { surLePath, VARIABLES_PROXY, type BacExecution } from './isolement.js';
+import { surLePath, VARIABLES_PROXY, type BacExecution, type ReseauBac } from './isolement.js';
 import { runProc } from './merge-runner.js';
+import type { RefusReseau } from './proxy-egress.js';
+import type { ReservationPont } from './rendez-vous-pont.js';
+import { HOTE_OSV, ouvrirReseauPorte } from './reseau-tache.js';
 import { BaseFalsifiee } from './base-verifiee.js';
 import { fichierDeBase } from './validations-bac.js';
 import { buildSandboxEnv } from './workspace.js';
@@ -138,6 +150,15 @@ export interface OptionsPorte {
    * quel qu'il soit — il n'exécute rien. Défaut : `examiner`.
    */
   dependances?: 'examiner' | 'production_en_echec' | 'diff_hors_arbre';
+  /**
+   * Le réseau de LA PORTE, sur un nœud dont le bac filtre — jamais celui de la
+   * tâche (voir l'en-tête) : les passes hors ligne réseau coupé, l'interrogation
+   * par une session ouverte pour elle (`ouvrirReseauPorte`, api.osv.dev:443) et
+   * refermée aussitôt ; ses refus ne vont qu'à `surRefus`. Absent (pas de bac,
+   * ou un bac qui ne filtre pas) : le réseau de l'hôte, et l'interrogation
+   * reçoit son proxy standard.
+   */
+  reseau?: { reservation: ReservationPont; surRefus?: (refus: RefusReseau) => void };
 }
 
 export interface PassagePorte {
@@ -152,13 +173,15 @@ export interface PassagePorte {
 
 /**
  * Lance un outil de la porte avec ses arguments — résolu par `lanceur`, jamais
- * par son appelant. `reseau` : l'interrogation d'osv.dev, la seule qui sorte.
+ * par son appelant. `sortie` : l'interrogation d'osv.dev, la seule qui sorte —
+ * par la session de la porte (`ReseauBac`), ou par le proxy standard de l'hôte
+ * (`'hote'`) sur un nœud qui ne filtre pas.
  */
 type Lancer = (
   outil: OutilPorte,
   args: readonly string[],
   delaiMs: number,
-  reseau?: boolean,
+  sortie?: ReseauBac | 'hote',
 ) => ReturnType<typeof runProc>;
 
 /** Fait passer la porte à une production. Ne lève jamais. */
@@ -169,7 +192,13 @@ export async function passerLaPorte(opts: OptionsPorte): Promise<PassagePorte> {
   // aucun lockfile ne lance aucun outil et n'écrit rien.
   const miroir: { chemin: string | null } = { chemin: null };
   const dossier = (): string => (miroir.chemin ??= creerMiroir(opts.cwd));
-  const lancer = lanceur(opts.cwd, buildSandboxEnv(opts.cwd), opts.bac, opts.signal);
+  const lancer = lanceur(
+    opts.cwd,
+    buildSandboxEnv(opts.cwd),
+    opts.bac,
+    opts.signal,
+    opts.reseau !== undefined,
+  );
   try {
     const secrets = await voletSecrets(lu.ajoutees, opts, dossier, lancer, valeurs);
     const examen = opts.dependances ?? 'examiner';
@@ -217,8 +246,13 @@ function lanceur(
   env: NodeJS.ProcessEnv,
   bac?: BacExecution,
   signal?: AbortSignal,
+  /** Le bac filtre : ce qui ne sort pas tourne réseau COUPÉ. */
+  coupe = false,
 ): Lancer {
   const dansLImage = bac !== undefined && bac.fournisseur.bin !== 'bwrap';
+  // Le réseau d'une TÂCHE n'est jamais celui de la porte : chaque lancement
+  // dit le sien, ci-dessous.
+  const bacDeLaPorte = bac && { ...bac, reseau: undefined };
   const chemins = new Map<OutilPorte, string | null>();
   // Le proxy sortant de l'hôte, s'il en a un : à l'interrogation d'osv.dev
   // seulement — ni à Betterleaks, ni à l'extraction, qui ne sortent pas. Dans
@@ -227,7 +261,7 @@ function lanceur(
   for (const nom of VARIABLES_PROXY) {
     if (process.env[nom] !== undefined) proxy[nom] = process.env[nom];
   }
-  return (outil, args, delaiMs, reseau = false) => {
+  return (outil, args, delaiMs, sortie) => {
     if (!chemins.has(outil)) chemins.set(outil, dansLImage ? outil : surLePath(outil, env.PATH));
     const bin = chemins.get(outil);
     if (!bin) {
@@ -238,13 +272,21 @@ function lanceur(
       };
       return Promise.resolve(introuvable);
     }
+    const viaHote = sortie === 'hote';
+    // Hors ligne : coupé quand le bac filtre. L'interrogation : la session de
+    // la porte, ou le proxy de l'hôte — par son NOM (`--env`), comme toute
+    // variable du bac.
+    const reseau =
+      sortie === undefined ? { reseauCoupe: coupe } : viaHote ? {} : { reseau: sortie };
     return runProc(
       [bin, ...args],
       cwd,
-      reseau ? { ...env, ...proxy } : env,
+      viaHote ? { ...env, ...proxy } : env,
       delaiMs,
       signal,
-      bac ? { ...bac, variables: reseau ? Object.keys(proxy) : [] } : undefined,
+      bacDeLaPorte
+        ? { ...bacDeLaPorte, ...reseau, variables: viaHote ? Object.keys(proxy) : [] }
+        : undefined,
     );
   };
 }
@@ -272,7 +314,7 @@ export interface JoignabiliteOsv {
 }
 
 /** L'hôte que l'interrogation joint — et le seul que `joindreOsv` éprouve. */
-const OSV = { hote: 'api.osv.dev', port: 443 };
+const OSV = { hote: HOTE_OSV, port: 443 };
 
 /** Le proxy qu'osv-scanner (Go, `http.ProxyFromEnvironment`) prendrait pour `hote`, ou `null`. */
 function proxyPour(hote: string, env: NodeJS.ProcessEnv): URL | null {
@@ -760,12 +802,25 @@ async function voletDependances(
           ? ` (${nonInterroges} non public(s) ou non épinglé(s) : non envoyés)…`
           : '…'),
     );
-    const r = await lancer(
-      'osv-scanner',
-      ['scan', 'source', ...sboms, '--output-file', `${rel}/dependances.json`, ...communs],
-      DELAI_PORTE_MS,
-      true,
-    );
+    // Par le réseau de LA PORTE quand le bac filtre (voir l'en-tête) : une
+    // session ouverte pour cette seule interrogation, refermée aussitôt.
+    const reseauPorte = opts.reseau ? await ouvrirReseauPorte(opts.reseau) : null;
+    if (reseauPorte?.etat === 'impossible') {
+      opts.surEtape?.(`porte de sécurité : ${reseauPorte.motif} — dépendances non vérifiées`);
+      nonVerifiables.push('interrompue');
+      return conclure(illisibles, nonInterroges, sonde);
+    }
+    let r: Awaited<ReturnType<Lancer>>;
+    try {
+      r = await lancer(
+        'osv-scanner',
+        ['scan', 'source', ...sboms, '--output-file', `${rel}/dependances.json`, ...communs],
+        DELAI_PORTE_MS,
+        reseauPorte ? reseauPorte.reseau : 'hote',
+      );
+    } finally {
+      await reseauPorte?.fermer();
+    }
     const interrogation = ((): SourceLue[] | Exclude<RaisonPorte, 'trouve'> => {
       if (r.arret) return r.arret === 'lancement' ? 'outil_absent' : r.arret;
       // MESURÉ : osv.dev injoignable, l'outil sort en 127 — avec un rapport VIDE

@@ -328,6 +328,12 @@ invoked and never linked.
   counted green: the verdict says how many. Behind an outbound proxy,
   `HTTPS_PROXY` and `NO_PROXY` are passed to that query only; `hive doctor`
   checks that api.osv.dev is reachable, sending nothing.
+- **Its own network, not the task's**: on a node whose sandbox filters the
+  network, Betterleaks and the offline read run with the network **cut**, and
+  the query goes through a session of the node's proxy opened for it alone,
+  which reaches only `api.osv.dev:443` (directly, like the tasks' proxy). Its
+  refusals stay in the node's console: never in the task's network tally,
+  which would charge them to the producer.
 - **The verdict**: a finding, and the Evaluator asks for a correction — a
   verdict that blocks delivery — citing the rule and the line, or the advisory
   and its CVE, never the value. Not verified (tool missing, osv.dev

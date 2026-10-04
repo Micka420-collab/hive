@@ -507,6 +507,12 @@ invoqués et jamais liés.
   comptés verts : le verdict dit combien. Derrière un proxy sortant,
   `HTTPS_PROXY` et `NO_PROXY` sont transmis à cette seule interrogation ;
   `hive doctor` éprouve la joignabilité d'api.osv.dev, sans rien envoyer.
+- **Son réseau, pas celui de la tâche** : sur un nœud dont le bac filtre le
+  réseau, Betterleaks et la lecture hors ligne tournent réseau **coupé**, et
+  l'interrogation passe par une session du proxy du nœud ouverte pour elle, qui
+  ne joint qu'`api.osv.dev:443` (en direct, comme le proxy des tâches). Ses
+  refus restent dans la console du nœud : jamais au bilan réseau de la tâche,
+  qui les imputerait au producteur.
 - **Le verdict** : un constat, et l'Evaluator demande une correction — un
   verdict qui bloque la livraison —, en citant la règle et la ligne, ou l'avis
   et son CVE, jamais la valeur. Non vérifiée (outil absent, osv.dev

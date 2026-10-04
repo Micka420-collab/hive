@@ -93,7 +93,7 @@ import {
 import { texteDEchec } from '../shared/texte-d-echec.js';
 import { motifRefusPresence, refuseParPresence } from '../shared/presence-noeud.js';
 import type { BacExecution, ReseauBac } from './isolement.js';
-import { bilanRefus, ouvrirReseauTache, refusExige } from './reseau-tache.js';
+import { HOTE_OSV, bilanRefus, ouvrirReseauTache, refusExige } from './reseau-tache.js';
 import type { CapaciteReseau, ReseauTache } from './reseau-tache.js';
 import { NIVEAU_RESEAU_DEFAUT } from '../shared/reseau.js';
 import type { NiveauReseau } from '../shared/reseau.js';
@@ -2167,11 +2167,24 @@ export class HiveNodeClient {
       : result.success
         ? 'diff_hors_arbre'
         : 'production_en_echec';
+    // La porte a SON réseau quand le bac filtre (`ouvrirReseauPorte`) — jamais
+    // celui de la tâche : ni sa liste blanche, où osv.dev n'est pas, ni son
+    // bilan de refus, qui les imputerait au producteur. Ses refus : ici seulement.
+    const reseauPorte = this.opts.reseau?.filtre
+      ? {
+          reservation: this.rendezVous,
+          surRefus: (r: { hote: string; port: number }) =>
+            this.log(
+              `porte de sécurité : ${r.hote}:${r.port} refusé — son réseau ne joint que ${HOTE_OSV}:443`,
+            ),
+        }
+      : null;
     const porte = await passerLaPorte({
       cwd: workspace.cwd,
       diff,
       depot,
-      ...this.optionBacTache(taskId, reseau),
+      ...this.optionBacTache(taskId),
+      ...(reseauPorte ? { reseau: reseauPorte } : {}),
       signal: ctrl.signal,
       surEtape,
       caviardeur: this.caviardeurDuNoeud(),

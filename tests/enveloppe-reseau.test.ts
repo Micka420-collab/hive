@@ -113,6 +113,45 @@ describe.each([PODMAN, DOCKER])('$nom — réseau filtré', (f) => {
   });
 });
 
+// Train 7 — le réseau COUPÉ des passes hors ligne de la porte de sécurité :
+// la boucle seule, ni relais, ni proxy, ni dossier de session.
+describe.each([BWRAP, PODMAN, DOCKER])('$nom — réseau coupé (`reseauCoupe`)', (f) => {
+  const coupe = () =>
+    envelopper('betterleaks', ['dir', 'miroir'], {
+      fournisseur: f,
+      cwdHote: CWD,
+      variables: [],
+      hote: HOTE_NU,
+      reseauCoupe: true,
+    });
+
+  it('aucun réseau de l’hôte ni du moteur — et rien d’autre que la commande', () => {
+    const { args } = coupe();
+    const texte = args.join('\n');
+    if (f.bin === 'bwrap') {
+      expect(args).toContain('--unshare-all');
+      expect(args).not.toContain('--share-net');
+      expect(args.slice(args.indexOf('--') + 1)).toEqual(['betterleaks', 'dir', 'miroir']);
+    } else {
+      expect(args).toContain('--network=none');
+      const image = args.findIndex((a) => a.includes('hive-agent'));
+      expect(args.slice(image + 1)).toEqual(['betterleaks', 'dir', 'miroir']);
+    }
+    expect(texte).not.toContain(MONTAGE_RESEAU);
+    expect(texte).not.toContain('HTTPS_PROXY');
+  });
+
+  it('optionsEnveloppe le transmet ; filtré, le réseau de la session l’emporte', () => {
+    const opts = optionsEnveloppe(
+      { fournisseur: f, image: 'x', variables: [], reseauCoupe: true },
+      CWD,
+    );
+    expect(opts.reseauCoupe).toBe(true);
+    const filtre = envelopper('claude', [], { ...opts, reseau: RESEAU, hote: HOTE_NU }).args;
+    expect(filtre.join('\n')).toContain(MONTAGE_RESEAU);
+  });
+});
+
 describe('le réseau voyage avec le bac de la tâche', () => {
   it('optionsEnveloppe transmet le réseau de l’exécution — validations comprises', () => {
     const opts = optionsEnveloppe(
