@@ -121,6 +121,8 @@ const BORNÉES_PAR_L_HUMAIN: Record<string, string> = {
     'autorisation de connecteur par projet (src/connectors) — clé primaire (connecteurId, projectId), une poignée par projet, posée par l’humain et supprimée à la révocation ; jamais auto-générée',
   identite_ruche:
     'l’empreinte publique de la ruche — UNE ligne (CHECK id = 1), tirée au premier démarrage, jamais réécrite',
+  configuration_initiale:
+    'une seule ligne pour toute la ruche — clé primaire tenue par CHECK (cle = ruche), choix de l’hôte',
 };
 
 /** Le corps de chaque méthode `prune*` du magasin, accolades suivies. */

@@ -9,7 +9,7 @@
 // - onglets Identité : Fiche / Travail / Intégrations / Suivi (horizon + fabrique)
 
 import './chambre.css';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
   ajouterHorizon,
@@ -57,6 +57,7 @@ import {
 } from '../../../src/orchestrator/fabrique.js';
 import { resumerEvenementChambre } from '../../../src/orchestrator/chambre-journal.js';
 import { nomEnvDepuisLibelle } from '../../../src/shared/nom-env.js';
+import { FicheWorker } from './FicheWorker';
 import { timeShort } from './shared';
 import type { ViewProps } from './shared';
 import type { HiveEvent, Task, TaskStatus } from '../../../src/shared/types';
@@ -193,6 +194,7 @@ export default function Chambre({
   selectedId,
   onNavigate,
   onOpenTask,
+  refreshTick,
 }: ViewProps) {
   const t = useT();
   const lang = useLang();
@@ -369,6 +371,14 @@ export default function Chambre({
     const byId = new Map([...durable, ...live].map((event) => [event.id, event]));
     return [...byId.values()].sort((a, b) => b.id - a.id).slice(0, 80);
   }, [events, nodeId, poste?.journal, tasksLive]);
+
+  // Le nom d'une ouvrière dans le fil de débats de la fiche : le libellé
+  // d'inscription que l'instantané connaît, l'identifiant sinon — jamais un
+  // prénom inventé.
+  const nomNoeud = useCallback(
+    (id: string) => snapshot.nodes.find((n) => n.id === id)?.name ?? id,
+    [snapshot.nodes],
+  );
 
   const activite = missionsFiltrees(tasksLive, filtre);
   const reqs = poste?.requisitions ?? [];
@@ -619,6 +629,19 @@ export default function Chambre({
           </ul>
         </div>
       )}
+
+      {/* La fiche du Worker : QUI IL EST devenu (FicheWorker.tsx). Clé sur le
+          nœud : passer d'une Chambre à l'autre ne montre jamais, même un
+          instant, la fiche de l'ouvrière précédente. */}
+      <FicheWorker
+        key={nodeId}
+        nodeId={nodeId}
+        node={snapshot.nodes.find((n) => n.id === nodeId)}
+        refreshTick={refreshTick}
+        onOpenTask={onOpenTask}
+        onNavigate={onNavigate}
+        nomNoeud={nomNoeud}
+      />
 
       <div className="ch-grid">
         <aside className="ch-zone ch-identite" aria-label={t('Identité', 'Identity')}>

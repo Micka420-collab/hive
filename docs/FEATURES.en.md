@@ -338,6 +338,22 @@ the session). Mode chips link Chat → Plan (Projects / Queen Bee) → Autonomy
 a checkpoint, the Queen offers a **Restore…** chip that opens the Comb
 timeline.
 
+## 🧭 First arrival — the hive configured before the first project
+
+On the first visit, an assistant (distinct from a project’s “path to the first
+cycle” guide) asks for the **mode** (local — everything on this machine, Queen
+on loopback; hybrid — other computers join with a ticket; cloud — Queen behind
+Caddy with accounts, see [`CLOUD.md`](CLOUD.md)), shows the **agents detected**
+on the Queen’s machine with the sign-in their own CLI reports, **storage**,
+**Git** (local repository or GitHub pull requests), **secrets** policy,
+optional **connectors** (GitHub, OpenAlex), the **first project**, then a
+**health check** (the `hive doctor` diagnostics, sandbox included) and a
+summary that compares the choices with the running Queen. Nothing changes live.
+Choices are saved **at the Queen**, step by step (`/api/configuration-initiale`),
+so an interrupted assistant resumes where it stopped. Only an administrator
+writes them — or the hive token while no account exists. **Run the assistant
+again** lives in Health and Stewardship.
+
 ## 🪑 Chambre — worker station (ADR 0010)
 
 From a **node sheet** (Hive view) → **Open workstation** (`#/chambre/<nodeId>`):
@@ -355,6 +371,14 @@ a click opens the **Chambre** too.
 **Requisitions** (API key, MCP, binary,
 studio, software) are granted or denied from the Chambre — secrets stay on the
 Queen. A share link **never** sees these identities.
+
+At the top of the Chambre, the **Worker sheet**: an abstract avatar derived
+from the node id (the same on Swarm cards), identity, role, provider and the
+**model of the running attempt**, reputation **per task category** (never
+judged stays “never judged”, not 0%), **learned errors** (the failures this
+Worker returned and the Brood’s lesson, redacted), the **War Room debates** it
+took part in, **missions** one by one (duration, measured resources) and
+**resources & limits**. No cost or quality average is computed there.
 
 **Forge** proposes a tool (npm script, bridge, MCP) as a task → review → merge;
 Chantiers may run it only **after** merge and declaration in `package.json`.

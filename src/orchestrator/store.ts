@@ -85,6 +85,12 @@ import {
 } from './horizon.js';
 import { validerMotifPerso, type MotifPersoRefus } from './motifs.js';
 import { rankMemoriesHybrid, suiteSouvenir } from './hive-mind.js';
+import { relireChoix } from '../shared/configuration-initiale.js';
+import type {
+  AuteurConfiguration,
+  ChoixInitiaux,
+  ConfigurationInitiale,
+} from '../shared/configuration-initiale.js';
 import type {
   IssueSouvenir,
   Memory,
@@ -104,6 +110,7 @@ import {
 } from './delegation.js';
 import { lireConsigneRoutage, type ConsigneRoutage } from '../shared/consigne-routage.js';
 import type {
+  ExecutionUsage,
   HiveEvent,
   HiveNode,
   IsolementDeclare,
@@ -1624,6 +1631,33 @@ CREATE TABLE IF NOT EXISTS identite_ruche (
   id        INTEGER PRIMARY KEY CHECK (id = 1),
   empreinte TEXT NOT NULL
 );
+
+-- La configuration initiale de la ruche (assistant de première arrivée) : ce
+-- que l'hôte a CHOISI — mode local / hybride / cloud, politique des secrets,
+-- préférence Git, connecteurs —, plus l'étape où l'assistant en est.
+--
+-- UNE SEULE LIGNE, et le CHECK la tient : une ruche a une configuration, pas
+-- un historique de configurations (le journal garde le geste de terminer).
+-- Table NEUVE, additive : aucune colonne ajoutée à une table existante, et
+-- sa création conditionnelle (IF NOT EXISTS) est idempotente sur une base en
+-- service.
+-- Pas d'élagage : bornée par construction (une ligne).
+--
+-- mode / secrets / git NULLABLES : NULL = pas encore choisi, jamais un défaut
+-- deviné. termineeA NULL = l'assistant n'a jamais été mené au bout — c'est la
+-- porte de la première arrivée. Les valeurs sont relues par relireChoix
+-- (shared/configuration-initiale.ts), qui rend NULL à ce qu'il ne connaît pas.
+CREATE TABLE IF NOT EXISTS configuration_initiale (
+  cle         TEXT PRIMARY KEY CHECK (cle = 'ruche'),
+  mode        TEXT,
+  secrets     TEXT,
+  git         TEXT,
+  connecteurs TEXT NOT NULL DEFAULT '[]',
+  etape       TEXT NOT NULL,
+  termineeA   INTEGER,
+  majA        INTEGER NOT NULL,
+  majPar      TEXT NOT NULL
+);
 `;
 
 interface ProjectRow {
@@ -2871,6 +2905,165 @@ export class HiveStore {
     return (this.db.prepare(`${NODE_SELECT} ORDER BY n.name`).all() as NodeRowBrut[]).map(
       rowToNode,
     );
+  }
+
+  // ─── Configuration initiale (assistant de première arrivée) ────────────────
+  //
+  // Une ligne (`cle = 'ruche'`). Les valeurs sont relues par `relireChoix` :
+  // ce qu'une autre version aurait écrit et que celle-ci ne connaît pas
+  // redevient « pas encore choisi ».
+
+  /** La configuration rangée, ou `null` : la ruche n'a encore rien choisi. */
+  lireConfigurationInitiale(): ConfigurationInitiale | null {
+    const row = this.db
+      .prepare("SELECT * FROM configuration_initiale WHERE cle = 'ruche'")
+      .get() as
+      | {
+          mode: string | null;
+          secrets: string | null;
+          git: string | null;
+          connecteurs: string;
+          etape: string;
+          termineeA: number | null;
+          majA: number;
+          majPar: string;
+        }
+      | undefined;
+    if (!row) return null;
+    let majPar: AuteurConfiguration = { genre: 'jeton_de_ruche' };
+    try {
+      const brut = JSON.parse(row.majPar) as { genre?: unknown; userId?: unknown };
+      if (brut.genre === 'compte' && typeof brut.userId === 'string') {
+        majPar = { genre: 'compte', userId: brut.userId };
+      }
+    } catch {
+      // Un auteur illisible reste l'aveu : le jeton, qui ne désigne personne.
+    }
+    return {
+      ...relireChoix(row),
+      termineeA: row.termineeA,
+      majA: row.majA,
+      majPar,
+    };
+  }
+
+  /**
+   * Range les choix — UNE instruction, donc atomique sans transaction.
+   *
+   * `terminer` pose `termineeA` ; sans lui, une ligne déjà terminée GARDE sa
+   * date : relancer l'assistant depuis l'Intendance pour changer un choix ne
+   * doit pas rouvrir la porte de la première arrivée à tous les écrans. (Le
+   * brouillon d'une ligne terminée ne range que l'étape : la route `PUT` le
+   * garde, les choix ne changent qu'en terminant à nouveau.)
+   */
+  rangerConfigurationInitiale(
+    choix: ChoixInitiaux,
+    par: AuteurConfiguration,
+    opts: { terminer: boolean; now?: number },
+  ): ConfigurationInitiale {
+    const now = opts.now ?? Date.now();
+    this.db
+      .prepare(
+        `INSERT INTO configuration_initiale
+           (cle, mode, secrets, git, connecteurs, etape, termineeA, majA, majPar)
+         VALUES ('ruche', @mode, @secrets, @git, @connecteurs, @etape, @termineeA, @majA, @majPar)
+         ON CONFLICT(cle) DO UPDATE SET
+           mode = excluded.mode, secrets = excluded.secrets, git = excluded.git,
+           connecteurs = excluded.connecteurs, etape = excluded.etape,
+           termineeA = COALESCE(excluded.termineeA, configuration_initiale.termineeA),
+           majA = excluded.majA, majPar = excluded.majPar`,
+      )
+      .run({
+        mode: choix.mode,
+        secrets: choix.secrets,
+        git: choix.git,
+        connecteurs: JSON.stringify(choix.connecteurs),
+        etape: choix.etape,
+        termineeA: opts.terminer ? now : null,
+        majA: now,
+        majPar: JSON.stringify(par),
+      });
+    return this.lireConfigurationInitiale()!;
+  }
+
+  // ─── La fiche d'un Worker ──────────────────────────────────────────────────
+
+  /**
+   * Les derniers résultats RENDUS par ce nœud — le fait exact d'attribution
+   * (`results.nodeId`), jamais l'assignation courante d'une tâche, qui change
+   * à chaque reprise.
+   *
+   * Les logs ne sont lus que pour les ÉCHECS (la leçon de la Couveuse vient
+   * d'eux) ; une réussite rend une chaîne vide plutôt que ses 512 ko. La
+   * lecture parcourt `idx_results_recent` du plus récent au plus ancien et
+   * s'arrête à `limite` lignes du nœud.
+   */
+  resultatsDuNoeud(
+    nodeId: string,
+    limite: number,
+  ): Array<{
+    resultId: number;
+    taskId: string;
+    success: boolean;
+    durationMs: number;
+    createdAt: number;
+    logs: string;
+    /** Ressources observées par le nœud pendant la tentative (#427), si mesurées. */
+    usage?: ExecutionUsage;
+  }> {
+    const rows = this.db
+      .prepare(
+        `SELECT id, taskId, success, durationMs, createdAt,
+                CASE WHEN success = 0 THEN logs ELSE '' END AS logs
+           FROM results WHERE nodeId = ? ORDER BY createdAt DESC, id DESC LIMIT ?`,
+      )
+      .all(nodeId, Math.max(1, Math.min(limite, 200))) as Array<{
+      id: number;
+      taskId: string;
+      success: number;
+      durationMs: number;
+      createdAt: number;
+      logs: string;
+    }>;
+    // Les mesures se relisent PAR TÂCHE (`usagesForResults`, servie par
+    // `idx_events_tache`) : une lecture par tâche touchée, jamais un balayage
+    // des mesures de toute la ruche retenue.
+    const parTache = new Map<string, number[]>();
+    for (const r of rows) parTache.set(r.taskId, [...(parTache.get(r.taskId) ?? []), r.id]);
+    const usages = new Map<number, TaskResult['usage']>();
+    for (const [taskId, ids] of parTache) {
+      for (const [id, usage] of this.usagesForResults(taskId, ids)) usages.set(id, usage);
+    }
+    return rows.map((r) => {
+      const usage = usages.get(r.id);
+      return {
+        resultId: r.id,
+        taskId: r.taskId,
+        success: r.success === 1,
+        durationMs: r.durationMs,
+        createdAt: r.createdAt,
+        logs: r.logs,
+        ...(usage ? { usage } : {}),
+      };
+    });
+  }
+
+  /**
+   * Parmi `taskIds`, les tâches dont CE nœud a rendu TOUS les résultats. Une
+   * revue humaine juge une tâche sans nommer de résultat : elle n'est
+   * attribuable qu'à un producteur unique — dès qu'une reprise est passée
+   * ailleurs, on ne sait plus QUELLE production l'humain a jugée.
+   */
+  tachesAProducteurUnique(nodeId: string, taskIds: readonly string[]): Set<string> {
+    const ids = [...new Set(taskIds)].slice(0, 200);
+    if (ids.length === 0) return new Set();
+    const rows = this.db
+      .prepare(
+        `SELECT taskId FROM results WHERE taskId IN (${ids.map(() => '?').join(', ')})
+          GROUP BY taskId HAVING SUM(nodeId <> ?) = 0`,
+      )
+      .all(...ids, nodeId) as Array<{ taskId: string }>;
+    return new Set(rows.map((r) => r.taskId));
   }
 
   // ─── Baptêmes (ADR 0010) ───────────────────────────────────────────────────

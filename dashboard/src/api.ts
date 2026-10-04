@@ -31,6 +31,18 @@ export type {
   FamilleWarRoom,
 } from '../../src/shared/war-room.js';
 import type { WorkerSnapshot } from '../../src/orchestrator/workers.js';
+import type {
+  DebatDuWorker,
+  LeconApprise,
+  MissionRendue,
+} from '../../src/orchestrator/fiche-worker.js';
+import type {
+  ConfigurationInitiale,
+  ModificationConfiguration,
+  SanteInitiale,
+  VerdictConfiguration,
+} from '../../src/shared/configuration-initiale.js';
+import type { Diagnostic } from '../../src/shared/doctor.js';
 import type { JournalOuvriere } from '../../src/orchestrator/journal-ouvriere.js';
 import type { RapportLivraisonLocale } from '../../src/shared/livraison-locale.js';
 import type { ConsigneRoutage } from '../../src/shared/consigne-routage.js';
@@ -1406,6 +1418,66 @@ export interface Cockpit {
 
 export function fetchCockpit(): Promise<Cockpit> {
   return api<Cockpit>('/api/cockpit');
+}
+
+/**
+ * Réponse de `GET /api/workers/:nodeId/fiche` — la fiche d'un Worker. Chaque
+ * liste est prouvée fait par fait (`src/orchestrator/fiche-worker.ts`) ; aucune
+ * moyenne n'y est posée. `memoire: 'non_attribuee'` : la mémoire de la ruche
+ * ne porte pas encore l'ouvrière qui l'a produite, et l'écran le DIT.
+ */
+export interface FicheWorker {
+  worker: WorkerSnapshot;
+  /** Le modèle de chaque tentative en cours ; `null` : le défaut du nœud. */
+  modelesCourants: Array<{ taskId: string; modele: string | null }>;
+  missions: MissionRendue[];
+  lecons: LeconApprise[];
+  debats: DebatDuWorker[];
+  taches: Record<string, { titre: string; projectId: string }>;
+  journalElague: boolean;
+  memoire: 'non_attribuee';
+}
+
+export function fetchFicheWorker(nodeId: string): Promise<FicheWorker> {
+  return api<FicheWorker>(`/api/workers/${encodeURIComponent(nodeId)}/fiche`);
+}
+
+// ─── La configuration initiale (assistant de première arrivée) ──────────────
+
+/** L'état rendu par les routes de configuration : ce qui est rangé, et qui peut l'écrire. */
+export interface EtatConfigurationInitiale {
+  configuration: ConfigurationInitiale | null;
+  ecriture: VerdictConfiguration;
+  coherence: Diagnostic[];
+}
+
+export function fetchConfigurationInitiale(): Promise<EtatConfigurationInitiale> {
+  return api<EtatConfigurationInitiale>('/api/configuration-initiale');
+}
+
+/** Range le brouillon (une étape franchie) — ne termine rien. */
+export function rangerConfigurationInitiale(
+  modif: ModificationConfiguration,
+): Promise<EtatConfigurationInitiale> {
+  return api<EtatConfigurationInitiale>('/api/configuration-initiale', {
+    method: 'PUT',
+    body: JSON.stringify(modif),
+  });
+}
+
+/** Arrête la configuration — 409 si mode, secrets ou Git manquent. */
+export function terminerConfigurationInitiale(
+  modif: ModificationConfiguration,
+): Promise<EtatConfigurationInitiale> {
+  return api<EtatConfigurationInitiale>('/api/configuration-initiale/terminer', {
+    method: 'POST',
+    body: JSON.stringify(modif),
+  });
+}
+
+/** Le bilan de santé relevé sur la machine de la Reine (docteur, agents, bac). */
+export function fetchSanteInitiale(relancer = false): Promise<SanteInitiale> {
+  return api<SanteInitiale>(`/api/configuration-initiale/sante${relancer ? '?relancer=true' : ''}`);
 }
 
 export function fetchEssaimCycles(

@@ -366,6 +366,40 @@ Plan (Projets / Queen Bee) → Autonomie (Plein Essaim sur le projet) →
 Sauvegardes (Rayon). S’il y a des échecs récents et une étape, la Reine propose
 une puce **Restaurer…** qui ouvre la timeline du Rayon.
 
+## 🧭 Première arrivée — la ruche configurée avant le premier projet
+
+À la première ouverture de Mission Control, un assistant (distinct du guide
+« Chemin vers le premier cycle » d’un projet) demande : **mode** (local — tout
+sur cette machine, Reine en boucle locale ; hybride — des postes rejoignent par
+billet ; cloud — Reine derrière Caddy avec des comptes, voir
+[`CLOUD.md`](CLOUD.md)), **agents détectés** sur la machine de la Reine avec la
+session que leur propre CLI déclare, **stockage** (le fichier SQLite, son
+intégrité, l’espace libre), **Git** (dépôt local ou pull requests GitHub),
+**secrets** (connexion de chaque CLI, clés chez la Reine, clés sur chaque
+machine), **connecteurs** (GitHub, OpenAlex), **premier projet**, puis un
+**bilan de santé** — les diagnostics de `hive doctor`, bac à sable compris —
+et un récapitulatif qui confronte les choix à la Reine qui tourne (un « local »
+qui écoute `0.0.0.0` est dit, avec la ligne à poser). Rien n’est changé à chaud.
+
+Les choix sont rangés **chez la Reine** (`/api/configuration-initiale`), étape
+par étape : fermer l’onglet au milieu, c’est reprendre au même endroit, sur ce
+poste ou un autre. Seul un administrateur les écrit — ou le jeton de ruche tant
+qu’aucun compte n’existe. L’assistant s’ouvre seul tant que la ruche n’a jamais
+été configurée, « Plus tard » le range pour l’onglet, et **Relancer
+l’assistant** (Santé, Intendance) le rouvre prérempli. Relancé, il ne change
+une configuration arrêtée qu’en la **terminant** à nouveau (geste journalisé) :
+« Plus tard » la laisse telle quelle. Chaque étape se photographie avec
+`npm run captures -- --vues assistant-<étape>`.
+
+<p align="center">
+  <img src="images/premiere-arrivee/agents-sombre.bureau.png" width="760" alt="L’étape Agents : Claude Code et Codex connectés, Cursor installé mais non connecté, avec la commande qui le connecte.">
+</p>
+<p align="center">
+  <img src="images/premiere-arrivee/recap-sombre.bureau.png" width="480" alt="Le récapitulatif : un mode hybride choisi sur une Reine qui n’écoute que 127.0.0.1, dit avec la ligne à poser.">
+  <img src="images/premiere-arrivee/mode-clair.mobile.png" width="220" alt="L’étape Mode sur mobile, thème clair.">
+  <img src="images/premiere-arrivee/sante-sombre.mobile.png" width="220" alt="Le bilan de santé sur mobile, thème sombre : le port tenu par la ruche, la base intègre, le bac à sable disponible.">
+</p>
+
 ## 🪑 Chambre — poste d’ouvrière (ADR 0010)
 
 Depuis la **fiche d’un nœud** (vue Ruche) → **Ouvrir la Chambre**
@@ -388,6 +422,26 @@ un échec infra auth ouvre `cle_api` ; un CLI absent (ENOENT) ouvre `binaire` �
 pause, reprise après Accorder. Les secrets
 restent chez la Queen (jamais en base ni poussés aux nœuds distants). Un lien
 de partage **ne voit jamais** ces identités.
+
+En tête de la Chambre, la **fiche Worker** : un avatar abstrait tiré de
+l’identifiant du nœud (le même sur les cartes de l’Essaim), identité, rôle,
+fournisseur et **modèle de la tentative en cours**, réputation **par genre de
+tâche** (un genre jamais jugé est « jamais jugé », pas 0 %), **erreurs
+apprises** (les échecs que ce Worker a rendus et la leçon que la Couveuse en
+tire, caviardée), **débats de la War Room** où il a pris part (au Conseil,
+comme relectrice, ou sur sa propre production), **missions** rendues une par
+une (durée, ressources mesurées) et **ressources & limites** (plateforme, bac
+déclaré, outils constatés, limites de délégation). Aucune moyenne de coût ou de
+qualité n’y est calculée ; la mémoire de la ruche n’est pas encore attribuée
+par ouvrière, et la fiche le dit.
+
+<p align="center">
+  <img src="images/fiche-worker/chambre-sombre.bureau.png" width="760" alt="La fiche Worker en tête de la Chambre, thème sombre : avatar, identité, fournisseur, réputation par genre de tâche.">
+</p>
+<p align="center">
+  <img src="images/fiche-worker/chambre-clair.bureau.png" width="480" alt="La même fiche en thème clair.">
+  <img src="images/fiche-worker/chambre-clair.mobile.png" width="220" alt="La fiche Worker sur mobile.">
+</p>
 
 La **fabrique** propose un outil (script npm, pont, MCP) comme tâche → revue →
 merge ; Chantiers ne peut le lancer qu’**après** merge et déclaration dans

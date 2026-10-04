@@ -221,7 +221,10 @@ export async function wsRepond(
  * natif n'a pas été compilé — c'est même un cas de panne fréquent, et il ne
  * doit pas faire tomber le docteur entier.
  */
-export async function baseIntegre(chemin: string): Promise<boolean | null> {
+export async function baseIntegre(
+  chemin: string,
+  controle: 'integrity_check' | 'quick_check' = 'integrity_check',
+): Promise<boolean | null> {
   try {
     const { default: Database } = (await import('better-sqlite3')) as unknown as {
       default: new (
@@ -234,8 +237,8 @@ export async function baseIntegre(chemin: string): Promise<boolean | null> {
     };
     const db = new Database(chemin, { readonly: true });
     try {
-      const r = db.pragma('integrity_check') as { integrity_check?: string }[];
-      return r[0]?.integrity_check === 'ok';
+      const r = db.pragma(controle) as Record<string, string | undefined>[];
+      return r[0]?.[controle] === 'ok';
     } finally {
       db.close();
     }
@@ -340,6 +343,14 @@ export async function relever(
   // « `shell` vaut aucun agent » ne serait vérifiable que sur une machine où
   // rien n'est installé — c'est-à-dire nulle part en pratique.
   inventorier: (e: NodeJS.ProcessEnv) => Promise<InventaireAgents> = inventaireAgents,
+  // LA REINE QUI SE RELÈVE ELLE-MÊME (bilan de l'assistant de première
+  // arrivée). Elle SAIT qu'elle écoute : la requête qu'elle sert le prouve.
+  // Sonder son propre port serait pire qu'inutile — sur BSD/macOS, un `listen`
+  // sur 127.0.0.1 réussit à côté d'une écoute 0.0.0.0 (SO_REUSEADDR), capte
+  // un instant les connexions qui lui étaient destinées et conclut « libre ».
+  // Et l'intégrité se contrôle en `quick_check` : le relevé tourne dans SA
+  // boucle d'événements, synchrone, sur la base vivante.
+  enProcessus = false,
 ): Promise<Releve> {
   const lieux = emplacements(racine, env);
   // MÊME règle que la ruche (`shared/port.ts`) : un docteur qui sonderait un
@@ -349,13 +360,14 @@ export async function relever(
   const sondage = hoteDeConnexion(hote);
 
   const envPresent = existsSync(lieux.env);
-  const libre = await portLibre(port, sondage);
+  const libre = enProcessus ? false : await portLibre(port, sondage);
   // On ne sonde la ruche QUE si le port est pris : interroger un port libre
   // ferait attendre le délai complet pour apprendre ce qu'on sait déjà.
-  const parNous = libre ? null : await portTenuParNous(port, sondage);
+  const parNous = enProcessus ? true : libre ? null : await portTenuParNous(port, sondage);
   // Et le WebSocket seulement si c'est bien notre ruche : sur un port tenu par
-  // autre chose, un refus d'`Upgrade` ne dirait rien de la ruche.
-  const ws = parNous === true ? await wsRepond(port, sondage) : null;
+  // autre chose, un refus d'`Upgrade` ne dirait rien de la ruche. En
+  // processus, `/ws` est monté sur l'écoute même qui sert cette requête.
+  const ws = enProcessus ? true : parNous === true ? await wsRepond(port, sondage) : null;
 
   const basePresente = existsSync(lieux.base);
   const jeton = env.HIVE_TOKEN ?? '';
@@ -417,7 +429,9 @@ export async function relever(
     moteur,
     base: {
       presente: basePresente,
-      integre: basePresente ? await baseIntegre(lieux.base) : null,
+      integre: basePresente
+        ? await baseIntegre(lieux.base, enProcessus ? 'quick_check' : 'integrity_check')
+        : null,
       inscriptible: basePresente
         ? inscriptible(lieux.base)
         : inscriptible(path.dirname(lieux.base)),

@@ -433,6 +433,30 @@ const HORS_ENGAGEMENT: Readonly<Record<string, string>> = {
     'révoquer : le créateur du lien, ou qui répond du projet (`peutRegler`)',
 };
 
+/**
+ * Les RÉGLAGES DE LA RUCHE — hors de l'espace projet, mais même question :
+ * le jeton partagé par tout l'essaim peut-il décider pour la ruche ?
+ *
+ * La configuration initiale (mode local / hybride / cloud, politique des
+ * secrets, Git, connecteurs) se garde par `porteConfiguration` : un
+ * ADMINISTRATEUR, ou le jeton TANT QU'AUCUN COMPTE N'EXISTE — l'amorce, où le
+ * porteur du jeton peut déjà créer le premier compte administrateur. Ce banc a
+ * des comptes : le jeton n'y règle donc plus rien. Le cas « aucun compte » est
+ * éprouvé dans `tests/configuration-initiale.test.ts`.
+ */
+const REGLAGES_RUCHE: ReadonlyArray<{
+  methode: 'PUT' | 'POST';
+  route: string;
+  corps: Record<string, unknown>;
+}> = [
+  { methode: 'PUT', route: '/api/configuration-initiale', corps: { mode: 'local' } },
+  {
+    methode: 'POST',
+    route: '/api/configuration-initiale/terminer',
+    corps: { mode: 'local', secrets: 'sessions_cli', git: 'local' },
+  },
+];
+
 describe('ADR 0007 — le jeton de ruche n’engage plus le projet d’autrui', () => {
   let server: HiveServer;
   let dir: string;
@@ -726,6 +750,51 @@ describe('ADR 0007 — le jeton de ruche n’engage plus le projet d’autrui', 
       });
       expect(plein.status).toBe(404);
       expect(server.store.getEssaim(possede.projet)?.niveau ?? 'off').not.toBe('plein');
+    });
+  });
+
+  describe('les RÉGLAGES DE LA RUCHE', () => {
+    const regler = (acte: (typeof REGLAGES_RUCHE)[number], entetes: Record<string, string>) => {
+      tentatives += 1;
+      return fetch(`${base}${acte.route}`, {
+        method: acte.methode,
+        headers: {
+          'content-type': 'application/json',
+          'x-forwarded-for': `10.9.${tentatives >> 8}.${tentatives & 255}`,
+          ...entetes,
+        },
+        body: JSON.stringify(acte.corps),
+      });
+    };
+
+    it('SEULE L’ADMINISTRATRICE RÈGLE LA RUCHE — ni le jeton, ni un membre, ni un tiers', async () => {
+      for (const acte of REGLAGES_RUCHE) {
+        const nom = `${acte.methode} ${acte.route}`;
+        expect((await regler(acte, jeton)).status, `${nom} par le jeton`).toBe(403);
+        expect((await regler(acte, compte(jetonMembre))).status, `${nom} par un membre`).toBe(403);
+        expect((await regler(acte, compte(jetonTiers))).status, `${nom} par un tiers`).toBe(403);
+        expect(
+          (await regler(acte, { ...compte(jetonProprio), ...jeton })).status,
+          `${nom} par un propriétaire de projet + jeton`,
+        ).toBe(403);
+        expect((await regler(acte, {})).status, `${nom} anonyme`).toBe(401);
+        expect((await regler(acte, compte(jetonReine))).status, `${nom} par l’admin`).toBe(200);
+      }
+    });
+
+    it('AUCUNE ÉCRITURE DE LA CONFIGURATION N’ÉCHAPPE À CETTE TABLE', () => {
+      const serveur = readFileSync(
+        path.join(path.dirname(fileURLToPath(import.meta.url)), '../src/orchestrator/server.ts'),
+        'utf8',
+      );
+      const declarees = [
+        ...serveur.matchAll(/app\.(post|put|patch|delete)\b[\s\S]{0,400}?'(\/api\/[^']+)'/g),
+      ]
+        .map((m) => `${m[1]!.toUpperCase()} ${m[2]!}`)
+        .filter((r) => /^\S+ \/api\/configuration-initiale/.test(r));
+      const connues = REGLAGES_RUCHE.map((a) => `${a.methode} ${a.route}`);
+      expect(declarees.length, 'le relevé des routes de configuration a échoué').toBeGreaterThan(0);
+      expect(new Set(declarees)).toEqual(new Set(connues));
     });
   });
 
