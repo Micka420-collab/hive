@@ -268,15 +268,6 @@ async function sonder(
   return version ? { nom: outil, version } : { raison: 'outil_absent' };
 }
 
-/**
- * La version que la porte TROUVERAIT sur cet hôte (`hive doctor`), ou `null`.
- *
- * Pas une sonde à côté : celle de la porte (`sonder`), par son lanceur —
- * même résolution dans le PATH, même `runProc`, donc même refus sous Windows
- * (`shared/lanceur.ts`). Le docteur disait « ok » d'un outil que son propre
- * `execFile` trouvait, pendant que la porte, elle, le voyait absent. Son
- * environnement : le PATH et ce qu'exige Windows, aucun secret du nœud.
- */
 export interface JoignabiliteOsv {
   joignable: boolean;
   /** Le proxy éprouvé, `hôte:port` sans identifiants ; `null` : en direct. */
@@ -366,6 +357,15 @@ export function joindreOsv(
   });
 }
 
+/**
+ * La version que la porte TROUVERAIT sur cet hôte (`hive doctor`), ou `null`.
+ *
+ * Pas une sonde à côté : celle de la porte (`sonder`), par son lanceur —
+ * même résolution dans le PATH, même `runProc`, donc même refus sous Windows
+ * (`shared/lanceur.ts`). Le docteur disait « ok » d'un outil que son propre
+ * `execFile` trouvait, pendant que la porte, elle, le voyait absent. Son
+ * environnement : le PATH et ce qu'exige Windows, aucun secret du nœud.
+ */
 export async function versionPourLaPorte(
   outil: OutilPorte,
   delaiMs = 4_000,
@@ -704,7 +704,7 @@ async function voletDependances(
     };
 
     let nonInterroges = 0;
-    let interroge = false;
+    let interroges = 0;
     const sboms: string[] = [];
     for (const p of paires) {
       const tete = await extraire('tete', p, p.tete);
@@ -730,18 +730,21 @@ async function voletDependances(
       );
       nonInterroges += choix.nonInterroges;
       if (choix.tete.length === 0) continue;
-      interroge = true;
+      interroges += choix.tete.length;
       sboms.push('-L', ecrire(`sboms/tete/${p.k}/bom.cdx.json`, sbomDe(choix.tete)));
       if (choix.base.length > 0) {
         sboms.push('-L', ecrire(`sboms/base/${p.k}/bom.cdx.json`, sbomDe(choix.base)));
       }
     }
-    if (sboms.length === 0) return conclure(illisibles, nonInterroges, sonde, interroge);
+    if (sboms.length === 0) return conclure(illisibles, nonInterroges, sonde, false);
 
     // PASSE 2 — l'interrogation : les SEULS paquets des SBOM partent à osv.dev.
     opts.surEtape?.(
       `porte de sécurité : osv-scanner ${sonde.version} — interroge osv.dev sur ` +
-        `${sboms.length / 2} SBOM de paquets introduits…`,
+        `${interroges} paquet(s) introduit(s)` +
+        (nonInterroges > 0
+          ? ` (${nonInterroges} non public(s) ou non épinglé(s) : non envoyés)…`
+          : '…'),
     );
     const r = await lancer(
       'osv-scanner',
