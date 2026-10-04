@@ -392,6 +392,12 @@ const PROTECTIONS = [
 const DELAI_GIT_LOCAL_MS = 5 * 60_000;
 
 /**
+ * Ce que le butoir de curl laisse au-delà de celui de la commande — voir
+ * `transportBorne`.
+ */
+const MARGE_DU_TRANSPORT_S = 2;
+
+/**
  * Le butoir du TRANSPORT HTTP, calé sur celui de la commande. `execFile` ne
  * tue que `git` : son `git-remote-http(s)` survivait, rattaché à init, et
  * gardait ouverte la prise d'un serveur muet — curl n'a pas de délai de
@@ -399,10 +405,28 @@ const DELAI_GIT_LOCAL_MS = 5 * 60_000;
  * donc un processus et une prise de plus sur la machine de la Reine. Moins
  * d'un octet par seconde pendant tout le butoir : curl abandonne de lui-même,
  * et l'assistant sort. Un vrai transfert lent n'est pas touché.
+ *
+ * ─── L'ÉCHÉANCE DU PROPRIÉTAIRE ARRIVE AVANT CELLE DE L'OUTIL ────────────────
+ *
+ * Le butoir de la commande est celui qui DIT l'échec : un git tué à son terme
+ * rend `delaiDepasse`, d'où « dépôt injoignable ou muet », « n'a pas répondu à
+ * temps ». Celui de curl ne sert qu'à faire sortir l'assistant orphelin. Posés
+ * à la même seconde, les deux se faisaient la course : la minuterie d'`execFile`
+ * vit dans la boucle d'événements, curl dans son propre processus. Mesuré
+ * contre un serveur muet : curl abandonne 5 008 ms après s'être connecté (5 s
+ * de butoir), git se connecte ~10 ms après son lancement — 18 ms d'avance
+ * pour la minuterie. Une boucle en retard d'autant — une Reine chargée, un
+ * worker de test — et git sortait de lui-même (« Operation too slow »),
+ * l'échec devenait une panne de git quelconque, et le banc du miroir
+ * rougissait au hasard (`miroir-amont-muet.test.ts`, « échec git » à 5 061 ms
+ * sur la CI du train 6). `MARGE_DU_TRANSPORT_S` de plus pour curl : le butoir de
+ * la commande gagne tant que la boucle n'a pas deux secondes de retard, et
+ * l'assistant orphelin sort quand même, deux secondes après git.
  */
 function transportBorne(delai: number): string[] {
   if (delai <= 0) return [];
-  return ['-c', 'http.lowSpeedLimit=1', '-c', `http.lowSpeedTime=${Math.ceil(delai / 1000)}`];
+  const secondes = Math.ceil(delai / 1000) + MARGE_DU_TRANSPORT_S;
+  return ['-c', 'http.lowSpeedLimit=1', '-c', `http.lowSpeedTime=${secondes}`];
 }
 
 /** La sortie la plus grande gardée d'un git (voir `gitHote`). */
