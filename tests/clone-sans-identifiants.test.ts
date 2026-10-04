@@ -248,7 +248,10 @@ describe('le clone ne porte aucun identifiant — à aucune porte', () => {
       const { clone, dossiers, env } = await preparer(serveur.urlAvecCompte('prive'));
       const secret = serveur.compte.motDePasse;
       // Le compte du projet a servi : le code privé est là.
-      expect(readFileSync(path.join(clone, 'LISEZMOI.md'), 'utf8')).toBe('# Privé\n');
+      // L'extraction suit le `core.autocrlf` du poste (CRLF sur les runners
+      // Windows) : le banc prouve le contenu cloné, pas ses fins de ligne.
+      const lisezmoi = readFileSync(path.join(clone, 'LISEZMOI.md'), 'utf8');
+      expect(lisezmoi.replace(/\r\n/g, '\n')).toBe('# Privé\n');
       // L'adresse NUE — pas même le nom du compte.
       expect(origineDe(path.join(clone, '.git'))).toBe(serveur.url('prive'));
       for (const dossier of dossiers) expect(fichiersAvec(dossier, secret), dossier).toEqual([]);
